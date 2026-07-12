@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  translateScope,
+  translateAnalysisScope,
   translateSearchFilter,
 } from '@/modules/procurement/shell/graphql/arg-translation.js';
 
@@ -120,44 +120,49 @@ describe('translateSearchFilter', () => {
   });
 });
 
-describe('translateScope', () => {
+describe('translateAnalysisScope (delegates to core parseAnalysisScope)', () => {
   it('an absent scope is platform-wide', () => {
-    expect(translateScope(undefined)._unsafeUnwrap()).toEqual({});
-    expect(translateScope(null)._unsafeUnwrap()).toEqual({});
+    expect(translateAnalysisScope(undefined)._unsafeUnwrap()).toEqual({});
+    expect(translateAnalysisScope(null)._unsafeUnwrap()).toEqual({});
   });
 
-  it('normalizes CUIs and passes the CPV division + months', () => {
-    const s = translateScope({
+  it('normalizes CUIs and passes the CPV division + month window', () => {
+    const s = translateAnalysisScope({
       authorityCui: 'RO4267117',
       supplierCui: '11805367',
       cpvDivision: '33',
-      monthFrom: '2024-01',
-      monthTo: '2024-12',
+      from: '2024-01',
+      to: '2024-12',
     })._unsafeUnwrap();
     expect(s).toEqual({
       authorityCui: '4267117',
       supplierCui: '11805367',
       cpvDivision: '33',
-      monthFrom: '2024-01',
-      monthTo: '2024-12',
+      from: '2024-01',
+      to: '2024-12',
     });
   });
 
   it('rejects a month that is not YYYY-MM (the rollups are monthly)', () => {
-    expect(translateScope({ monthFrom: '2024-01-01' }).isErr()).toBe(true);
-    expect(translateScope({ monthTo: '2024' }).isErr()).toBe(true);
+    expect(translateAnalysisScope({ from: '2024-01-01' }).isErr()).toBe(true);
+    expect(translateAnalysisScope({ to: '2024' }).isErr()).toBe(true);
   });
 
-  it('rejects an inverted month window', () => {
-    expect(translateScope({ monthFrom: '2025-01', monthTo: '2024-01' }).isErr()).toBe(true);
+  it('rejects an inverted month window, and year XOR from/to', () => {
+    expect(translateAnalysisScope({ from: '2025-01', to: '2024-01' }).isErr()).toBe(true);
+    expect(translateAnalysisScope({ year: 2024, from: '2024-01' }).isErr()).toBe(true);
   });
 
-  it('rejects a malformed division but carries cpvCode through (rejected later, by the usecase)', () => {
-    expect(translateScope({ cpvDivision: '333' }).isErr()).toBe(true);
-    expect(translateScope({ cpvCode: '33600000' })._unsafeUnwrap().cpvCode).toBe('33600000');
+  it('rejects a malformed division and a division×code combination', () => {
+    expect(translateAnalysisScope({ cpvDivision: '333' }).isErr()).toBe(true);
+    expect(translateAnalysisScope({ cpvDivision: '33', cpvCode: '33600000' }).isErr()).toBe(true);
+    expect(translateAnalysisScope({ cpvCode: '33600000' })._unsafeUnwrap().cpvCode).toBe(
+      '33600000'
+    );
   });
 
-  it('rejects an invalid CUI', () => {
-    expect(translateScope({ supplierCui: 'zzz' }).isErr()).toBe(true);
+  it('rejects an invalid CUI and an unknown grain', () => {
+    expect(translateAnalysisScope({ supplierCui: 'zzz' }).isErr()).toBe(true);
+    expect(translateAnalysisScope({ grain: 'purchases' }).isErr()).toBe(true);
   });
 });

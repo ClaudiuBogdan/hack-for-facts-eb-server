@@ -1,7 +1,6 @@
 /**
  * Detail bundles: the duplicate-driver fallback chain, the structural nulls
- * (`perLotWinners`, procedure `duplicates`), TED attachment, and the RON decimal
- * addition that keeps `totalValueRon` off the float path.
+ * (`perLotWinners`, procedure `duplicates`), TED attachment, and the scope cache.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -10,7 +9,6 @@ import {
   pickDuplicateDriver,
   type DuplicateAnchor,
 } from '@/modules/procurement/shell/repo/detail-repo.js';
-import { addDecimalStrings } from '@/modules/procurement/shell/repo/scope-agg-repo.js';
 import { makeScopeCache } from '@/modules/procurement/shell/scope-cache.js';
 
 const anchor = (over: Partial<DuplicateAnchor> = {}): DuplicateAnchor => ({
@@ -39,28 +37,6 @@ describe('duplicate lookup: the driving-column fallback chain', () => {
 
   it('no dup group → no lookup at all, even with both cuis present', () => {
     expect(pickDuplicateDriver(anchor({ dupGroupId: null }))).toBeNull();
-  });
-});
-
-describe('RON decimal addition (totalValueRon never touches a float)', () => {
-  it('adds two-decimal money strings exactly', () => {
-    expect(addDecimalStrings('0.10', '0.20')).toBe('0.30'); // 0.1 + 0.2 !== 0.3 in binary
-    expect(addDecimalStrings('1000.00', '2500.50')).toBe('3500.50');
-  });
-
-  it('survives magnitudes past Number.MAX_SAFE_INTEGER', () => {
-    // The live DA total is 3.9e11 RON; contracts 2.0e12. Cents overflow a float64 long
-    // before the integers themselves do.
-    expect(addDecimalStrings('391269977855.14', '2028459471529.09')).toBe('2419729449384.23');
-  });
-
-  it('handles a negative operand (modification deltas may be negative)', () => {
-    expect(addDecimalStrings('100.00', '-250.25')).toBe('-150.25');
-    expect(addDecimalStrings('-1.05', '-2.05')).toBe('-3.10');
-  });
-
-  it('handles an integer-looking operand', () => {
-    expect(addDecimalStrings('5', '0.25')).toBe('5.25');
   });
 });
 

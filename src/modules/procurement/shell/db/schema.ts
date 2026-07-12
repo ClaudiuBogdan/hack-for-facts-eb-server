@@ -268,6 +268,65 @@ export interface ProcurementGrainQualityTable {
   refreshed_at: string | null;
 }
 
+// ── analysis package (scraper-built; design §6.2) ──────────────────────────────
+//
+// Only the generation ledger + the 5 wave-1 rollups are declared — the
+// `analysis_facts_*` projection tables stay scraper-internal and the serving
+// layer never reads them. NULL `month_start` = the undated bucket; NULL dim
+// values = unknown buckets. Every read pins `build_id` to the active generation.
+
+export interface ProcurementAnalysisGenerationsTable {
+  build_id: string; // bigint identity → string (pg parser)
+  status: string; // 'building' | 'active' | 'retired' | 'failed'; exactly one active
+  started_at: string | null;
+  published_at: string | null;
+  facts_counts: unknown; // jsonb
+  reconcile: unknown; // jsonb
+  quality: unknown; // jsonb — { "<grain>": { coverage: {...}, classes: {...} } }
+  matrix_hash: string | null;
+  load_run_id: string | null;
+  notes: string | null;
+}
+
+/** The measures every wave-1 rollup carries (design §6.2). */
+interface AnalysisRollupMeasures {
+  build_id: string;
+  grain: string; // 'procedure' | 'contract' | 'direct_acquisition'
+  month_start: string | null; // date; NULL = undated bucket
+  record_count: string; // bigint → string
+  with_value_count: string;
+  value_awarded_sum: string | null; // numeric(20,2) → string
+  with_estimated_count: string;
+  value_estimated_sum: string | null;
+}
+
+/** Key-retaining authority×supplier edges (contract + DA grains only). */
+export interface ProcurementAnalysisEdgeRollupTable extends AnalysisRollupMeasures {
+  authority_cui: string | null;
+  supplier_cui: string | null;
+}
+
+export interface ProcurementAnalysisAuthorityDimsRollupTable extends AnalysisRollupMeasures {
+  authority_cui: string | null;
+  cpv_division: string | null;
+  status: string | null;
+  procedure_type: string | null;
+}
+
+export interface ProcurementAnalysisSupplierCpvRollupTable extends AnalysisRollupMeasures {
+  supplier_cui: string | null;
+  cpv_division: string | null;
+}
+
+export interface ProcurementAnalysisCpvCodeRollupTable extends AnalysisRollupMeasures {
+  cpv_code: string | null;
+}
+
+export interface ProcurementAnalysisRegionCpvRollupTable extends AnalysisRollupMeasures {
+  buyer_region: string | null;
+  cpv_division: string | null;
+}
+
 declare module '@/modules/shared/shell/db/types.js' {
   interface ProdDatabase {
     /* eslint-disable @typescript-eslint/naming-convention -- Kysely table keys are the schema-qualified live names (foundation §3) */
@@ -284,6 +343,12 @@ declare module '@/modules/shared/shell/db/types.js' {
     'procurement.supplier_cpv_division_monthly_rollups': ProcurementSupplierCpvRollupTable;
     'procurement.same_day_direct_acquisition_candidates': ProcurementSameDayCandidatesTable;
     'procurement.aggregate_quality_by_grain': ProcurementGrainQualityTable;
+    'procurement.analysis_generations': ProcurementAnalysisGenerationsTable;
+    'procurement.analysis_rollup_edge_monthly': ProcurementAnalysisEdgeRollupTable;
+    'procurement.analysis_rollup_authority_dims_monthly': ProcurementAnalysisAuthorityDimsRollupTable;
+    'procurement.analysis_rollup_supplier_cpv_monthly': ProcurementAnalysisSupplierCpvRollupTable;
+    'procurement.analysis_rollup_cpv_code_monthly': ProcurementAnalysisCpvCodeRollupTable;
+    'procurement.analysis_rollup_region_cpv_monthly': ProcurementAnalysisRegionCpvRollupTable;
     /* eslint-enable @typescript-eslint/naming-convention -- restore the rule after the schema-qualified table keys */
   }
 }

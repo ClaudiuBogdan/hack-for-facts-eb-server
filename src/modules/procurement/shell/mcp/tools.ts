@@ -8,7 +8,28 @@
 
 import { z } from 'zod';
 
-import { PROCUREMENT_GRAIN_NOTE, type ProcurementGrain } from '../../core/constants.js';
+import { parseAnalysisScope, type AnalysisScope } from '../../core/analysis-scope.js';
+import {
+  analysisBreakdown,
+  analysisConcentration,
+  analysisSeries,
+  analysisStats,
+  type AnalysisBreakdownBlock,
+  type AnalysisConcentrationBlock,
+  type AnalysisSeriesBlock,
+  type AnalysisStatsBlock,
+} from '../../core/analysis-usecases.js';
+import {
+  ANALYSIS_GRAINS,
+  BREAKDOWN_DIMENSIONS,
+  MEASURE_IDS,
+  PROCUREMENT_GRAIN_NOTE,
+  SERIES_BUCKETS,
+  type BreakdownDimension,
+  type MeasureId,
+  type ProcurementGrain,
+  type SeriesBucket,
+} from '../../core/constants.js';
 import {
   authorityCpvSpend,
   grainQuality,
@@ -21,15 +42,40 @@ import {
   topSuppliers,
 } from '../../core/usecases.js';
 
-import type { ProcurementAggregateRepo, ProcurementRepo } from '../../core/ports.js';
+import type { AnalysisRepo, ProcurementAggregateRepo, ProcurementRepo } from '../../core/ports.js';
 import type { EdgeAggFilter } from '../../core/types.js';
 import type { FilterInput, KernelMcpTool, McpToolOutput } from '@/modules/shared/index.js';
 
 export interface ProcurementMcpDeps {
   readonly repo: ProcurementRepo;
   readonly aggregate: ProcurementAggregateRepo;
+  readonly analysis: AnalysisRepo;
   readonly clientBaseUrl: string;
 }
+
+/**
+ * The `aggregate_procurement` scope shape — field names MUST equal the SDL
+ * `ProcurementAnalysisScopeInput` fields and the core `SCOPE_FIELDS` (the
+ * surface-parity test asserts all three). Exported for that test.
+ */
+export const ANALYSIS_SCOPE_ZOD_SHAPE = {
+  authorityCui: z.string().optional(),
+  supplierCui: z.string().optional(),
+  cpvDivision: z.string().optional().describe('2-digit CPV division (XOR cpvCode).'),
+  cpvCode: z.string().optional().describe('8-digit CPV code (XOR cpvDivision).'),
+  buyerCounty: z.string().optional().describe('Not served in wave 1 (named rejection).'),
+  buyerRegion: z.string().optional(),
+  supplierCounty: z.string().optional().describe('Milestone M3 (named rejection).'),
+  supplierRegion: z.string().optional().describe('Milestone M3 (named rejection).'),
+  status: z.string().optional(),
+  procedureType: z.string().optional(),
+  grain: z.enum(ANALYSIS_GRAINS).optional().describe('Absent = all grains the matrix supports.'),
+  from: z.string().optional().describe('YYYY-MM, inclusive (XOR year).'),
+  to: z.string().optional().describe('YYYY-MM, inclusive (XOR year).'),
+  year: z.number().int().optional(),
+} as const;
+
+const AWARDED_NOTE = 'Amounts are awarded value, not payments.';
 
 const strArg = (args: Record<string, unknown>, key: string): string => {
   const v = args[key];
@@ -67,7 +113,8 @@ const errorOut = (kind: string, message: string): McpToolOutput => ({
 const n = (x: number): string => String(x);
 
 export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly KernelMcpTool[] => {
-  const { repo, aggregate, clientBaseUrl } = deps;
+  const { repo, aggregate, analysis, clientBaseUrl } = deps;
+  const analysisDeps = { analysisRepo: analysis };
   const entityLink = (cui: string, role: 'authority' | 'supplier'): string =>
     `${clientBaseUrl}/procurement/entity/${cui}?role=${role}`;
 
@@ -224,6 +271,11 @@ export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly Kern
     },
   };
 
+  // NOTE: kept on the legacy MV path (usecase `supplierConcentration` over
+  // org_edge_monthly_rollups) — byte-identical output to the pre-analysis tool.
+  // Re-plumbing onto the analysis rollups is DEFERRED until the MV stack retires;
+  // the rollup-backed concentration is served by `aggregate_procurement` and the
+  // GraphQL `procurementConcentration(scope, basis)` query instead.
   const concentration: KernelMcpTool = {
     name: 'get_procurement_concentration',
     description:
@@ -331,6 +383,126 @@ export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly Kern
     },
   };
 
+  // ── the analysis surface (design §5.5 — one tool, four shapes) ──────────────
+
+  /** Deduped caveats across per-grain envelopes, for the human summary tail. */
+  const caveatTail = (envelopes: readonly { caveats: readonly string[] }[]): string => {
+    const caveats = [...new Set(envelopes.flatMap((e) => e.caveats))];
+    return caveats.length > 0 ? ` (${caveats.join('; ')})` : '';
+  };
+
+  const analysisOutput = (
+    shape: string,
+    scope: AnalysisScope,
+    items: readonly unknown[],
+    envelopes: readonly { caveats: readonly string[] }[],
+    moneyShown: boolean,
+    headline: string
+  ): McpToolOutput => ({
+    ok: true,
+    kind: `analysis_${shape}`,
+    query: { scope, shape },
+    items,
+    meta: { envelopes },
+    summary:
+      headline +
+      (moneyShown ? ` ${AWARDED_NOTE}` : '') +
+      ` ${PROCUREMENT_GRAIN_NOTE}` +
+      caveatTail(envelopes),
+  });
+
+  const aggregateProcurement: KernelMcpTool = {
+    name: 'aggregate_procurement',
+    description:
+      'Aggregate procurement analytics over ONE scope: stats (labeled per-grain blocks), series (month/quarter/year buckets), breakdown (top-N + other + unknown, reconciling to stats), or concentration (HHI/top shares). Money is AWARDED value, not payments; unsupported scope/dimension combinations are rejected with the missing capability named. Every answer carries its envelope (policyKey, valueBasis, caveats, link) in meta.',
+    inputShape: {
+      scope: z.object(ANALYSIS_SCOPE_ZOD_SHAPE).optional(),
+      shape: z.enum(['stats', 'series', 'breakdown', 'concentration']),
+      dimension: z.enum(BREAKDOWN_DIMENSIONS).optional().describe('Required for shape=breakdown.'),
+      bucket: z.enum(SERIES_BUCKETS).optional().describe('For shape=series; default month.'),
+      measure: z.enum(MEASURE_IDS).optional().describe('Required for shape=series.'),
+      topN: z.number().int().min(1).max(50).optional(),
+    },
+    async handler(args): Promise<McpToolOutput> {
+      const scopeR = parseAnalysisScope(args['scope'] as Record<string, unknown> | undefined);
+      if (scopeR.isErr()) return errorOut('analysis', scopeR.error.message);
+      const scope = scopeR.value;
+      const shape = strArg(args, 'shape');
+      const topNValue = args['topN'];
+      const topN = typeof topNValue === 'number' ? Math.floor(topNValue) : undefined;
+
+      if (shape === 'stats') {
+        const res = await analysisStats(analysisDeps, { scope });
+        if (res.isErr()) return errorOut('analysis_stats', res.error.message);
+        const blocks: readonly AnalysisStatsBlock[] = res.value.blocks;
+        return analysisOutput(
+          'stats',
+          scope,
+          blocks,
+          blocks.map((b) => b.meta),
+          blocks.some((b) => b.valueAwardedSum !== null || b.valueEstimatedSum !== null),
+          `${n(blocks.length)} per-grain stats block(s).`
+        );
+      }
+
+      if (shape === 'series') {
+        const measure = optStr(args, 'measure') as MeasureId | undefined;
+        if (measure === undefined)
+          return errorOut('analysis_series', "shape 'series' requires a measure");
+        const bucket = (optStr(args, 'bucket') ?? 'month') as SeriesBucket;
+        const res = await analysisSeries(analysisDeps, { scope, bucket, measure });
+        if (res.isErr()) return errorOut('analysis_series', res.error.message);
+        const blocks: readonly AnalysisSeriesBlock[] = res.value;
+        return analysisOutput(
+          'series',
+          scope,
+          blocks,
+          blocks.map((b) => b.meta),
+          blocks.some((b) => b.meta.valueBasis !== null && b.points.length > 0),
+          `${n(blocks.length)} per-grain ${measure} series (${bucket} buckets).`
+        );
+      }
+
+      if (shape === 'breakdown') {
+        const dimension = optStr(args, 'dimension') as BreakdownDimension | undefined;
+        if (dimension === undefined) {
+          return errorOut('analysis_breakdown', "shape 'breakdown' requires a dimension");
+        }
+        const res = await analysisBreakdown(analysisDeps, {
+          scope,
+          dimension,
+          ...(topN !== undefined && { topN }),
+        });
+        if (res.isErr()) return errorOut('analysis_breakdown', res.error.message);
+        const blocks: readonly AnalysisBreakdownBlock[] = res.value;
+        return analysisOutput(
+          'breakdown',
+          scope,
+          blocks,
+          blocks.map((b) => b.meta),
+          blocks.some((b) => b.buckets.some((bucket) => bucket.valueAwardedSum !== null)),
+          `${n(blocks.length)} per-grain ${dimension} breakdown(s): top-N + other + unknown reconcile to the scope stats.`
+        );
+      }
+
+      if (shape === 'concentration') {
+        const res = await analysisConcentration(analysisDeps, { scope });
+        if (res.isErr()) return errorOut('analysis_concentration', res.error.message);
+        const blocks: readonly AnalysisConcentrationBlock[] = res.value;
+        return analysisOutput(
+          'concentration',
+          scope,
+          blocks,
+          blocks.map((b) => b.meta),
+          blocks.some((b) => b.totalRon !== null),
+          `${n(blocks.length)} per-grain concentration block(s). High concentration is a signal, not a finding.`
+        );
+      }
+
+      return errorOut('analysis', `unknown shape '${shape}'`);
+    },
+  };
+
   const grainGate: KernelMcpTool = {
     name: 'get_procurement_grain_quality',
     description:
@@ -364,6 +536,7 @@ export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly Kern
     authorityCpv,
     sameDay,
     grainGate,
+    aggregateProcurement,
   ];
 };
 

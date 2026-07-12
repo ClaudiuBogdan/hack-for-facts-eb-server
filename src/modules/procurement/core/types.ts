@@ -208,75 +208,6 @@ export interface SupplierRecordConnection {
   readonly endCursor: string | null;
 }
 
-// ── scope aggregates (the 5 shared queries) ────────────────────────────────────
-
-/** Empty = platform-wide. `cpvCode` is rejected in v1 (no 8-digit-grained MV). */
-export interface ScopeFilter {
-  readonly authorityCui?: string;
-  readonly supplierCui?: string;
-  readonly cpvDivision?: string;
-  readonly cpvCode?: string;
-  /** `YYYY-MM` — the rollups are monthly. */
-  readonly monthFrom?: string;
-  readonly monthTo?: string;
-}
-
-export interface ProcurementStats {
-  /**
-   * Sum over the in-scope grains whose `spend_rankings_allowed` is true. Null when
-   * no in-scope grain is spend-approved. Never mixes an approved grain's money with
-   * a suppressed one's (the suppressed grain contributes nothing, not zero).
-   */
-  readonly totalValueRon: string | null;
-  readonly contractsCount: string;
-  readonly directAcquisitionsCount: string;
-  readonly proceduresCount: string;
-  readonly buyersCount: string;
-  readonly suppliersCount: string;
-  readonly firstFlowDate: string | null;
-  readonly lastFlowDate: string | null;
-}
-
-/** One ranked counterparty ON ONE GRAIN — rows are never summed across grains. */
-export interface TopPartyRow {
-  readonly authorityCui: string | null;
-  readonly authorityName: string | null;
-  readonly supplierCui: string | null;
-  readonly supplierName: string | null;
-  readonly grain: ProcurementGrain;
-  readonly flowCount: string;
-  readonly amountRonSum: string | null;
-  readonly amountPresentCount: string;
-  readonly amountMissingCount: string;
-  readonly firstFlowDate: string | null;
-  readonly lastFlowDate: string | null;
-  readonly evidenceRefsSample: readonly string[];
-}
-
-export interface CategoryRow {
-  readonly cpvDivisionCode: string | null;
-  readonly cpvDivisionLabelEn: string | null;
-  readonly cpvDivisionLabelRo: string | null;
-  readonly grain: ProcurementGrain;
-  readonly flowCount: string;
-  readonly amountRonSum: string | null;
-  readonly amountPresentCount: string;
-  readonly amountMissingCount: string;
-}
-
-/**
- * One point per MONTH (never per grain — the client keys its timeline on `month`).
- * `flowCount` sums every in-scope grain (a count is always allowed); the amount
- * columns sum only the spend-approved grains.
- */
-export interface MonthlyPoint {
-  readonly month: string;
-  readonly flowCount: string;
-  readonly amountRonSum: string | null;
-  readonly amountPresentCount: string;
-  readonly amountMissingCount: string;
-}
-
 /** The per-grain gate as the client consumes it (rates stringified, as-of + cadence). */
 export interface CapabilityGate {
   readonly sourceGrain: ProcurementGrain;
@@ -313,6 +244,7 @@ export interface ProcurementEdge {
   readonly evidenceRefsSample: readonly string[];
 }
 
+/** Legacy MV-backed concentration (PC-5); serves `get_procurement_concentration`. */
 export interface SupplierConcentration {
   readonly authorityCui: string;
   readonly grain: ProcurementGrain;

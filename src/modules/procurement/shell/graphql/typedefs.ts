@@ -11,10 +11,13 @@
  * Money and bigint counts are `String` (decimal strings; §14.1 precision), matching
  * the client's Zod schemas literally. `Date` is the kernel's `YYYY-MM-DD` scalar.
  *
- * The analyst/agent surface (`procurementRepeatedPairs`, `procurementConcentration`,
- * `procurementAuthorityCpvSpend`, `procurementTopSuppliersByRegionCpv`,
- * `procurementSameDayCandidates`, `procurementResolve`, `extend type Entity`) is
- * UNCHANGED — the MCP tools resolve through the same usecases.
+ * The analyst/agent surface (`procurementRepeatedPairs`, `procurementAuthorityCpvSpend`,
+ * `procurementTopSuppliersByRegionCpv`, `procurementSameDayCandidates`,
+ * `procurementResolve`, `extend type Entity`) is UNCHANGED — the MCP tools resolve
+ * through the same usecases. `procurementConcentration` is generalized in place to
+ * `(scope, basis)` over the analysis rollups; the four superseded scope aggregates
+ * (top authorities/suppliers, category breakdown, spend over time) are replaced by
+ * the six-shape analysis surface (stats/series/breakdown/concentration/share/facets).
  */
 
 export const procurementTypeDefs = /* GraphQL */ `
@@ -294,65 +297,170 @@ export const procurementTypeDefs = /* GraphQL */ `
     gate: ProcurementCapabilityGate!
   }
 
-  # ── aggregates (one shared scope) ───────────────────────────────────────────
+  # ── analysis surface (design §5 — one scope, six shapes, rollup-backed) ──────
+
+  "Analysis grains, in the rollup vocabulary. Answers NEVER merge across grains."
+  enum ProcurementAnalysisGrain {
+    procedure
+    contract
+    direct_acquisition
+  }
+  enum ProcurementSeriesBucket {
+    month
+    quarter
+    year
+  }
+  enum ProcurementAnalysisMeasure {
+    recordCount
+    withValueCount
+    valueAwardedSum
+    valueEstimatedSum
+    avgValueAwarded
+    distinctSuppliers
+    distinctAuthorities
+  }
+  enum ProcurementBreakdownDimension {
+    authority
+    supplier
+    cpvDivision
+    cpvCode
+    status
+    procedureType
+    buyerRegion
+  }
 
   """
-  Empty scope = platform-wide. \`cpvCode\` is rejected in v1: the monthly rollups are
-  keyed on the 2-digit division. Months are \`YYYY-MM\`.
+  ONE scope for every analysis shape. Empty = platform-wide; absent \`grain\` = all
+  grains the combinations matrix supports for the used dimensions. \`from\`/\`to\`
+  are \`YYYY-MM\` (XOR \`year\`); \`cpvDivision\` XOR \`cpvCode\`. Unsupported
+  combinations are rejected with the specific missing capability named.
   """
-  input ProcurementScopeFilter {
+  input ProcurementAnalysisScopeInput {
     authorityCui: String
     supplierCui: String
     cpvDivision: String
     cpvCode: String
-    monthFrom: String
-    monthTo: String
+    buyerCounty: String
+    buyerRegion: String
+    supplierCounty: String
+    supplierRegion: String
+    status: String
+    procedureType: String
+    grain: ProcurementAnalysisGrain
+    from: String
+    to: String
+    year: Int
   }
 
-  type ProcurementStats {
-    "Sums only the in-scope grains whose spend the gate approves; null when none is."
-    totalValueRon: String
-    contractsCount: String!
-    directAcquisitionsCount: String!
-    proceduresCount: String!
-    buyersCount: String!
-    suppliersCount: String!
-    firstFlowDate: Date
-    lastFlowDate: Date
+  type ProcurementAnswerCounts {
+    rows: String!
+    withValue: String!
+  }
+  "The scope's undated bucket — records no period can claim (design §3.2)."
+  type ProcurementUndatedInScope {
+    count: String!
+    valueRon: String
   }
 
-  "One ranked counterparty ON ONE GRAIN. Rows from different grains are never summed."
-  type ProcurementTopPartyRow {
-    authority: ProcurementParty
-    supplier: ProcurementParty
-    sourceGrain: String!
-    flowCount: String!
-    amountRonSum: String
-    amountPresentCount: String!
-    amountMissingCount: String!
-    firstFlowDate: Date
-    lastFlowDate: Date
-    evidenceRefsSample: [String!]!
+  """
+  The uniform answer envelope (design §3.4). Money is AWARDED value, not payments;
+  \`provisional\` is true where terminality is underivable (all contract-grain money).
+  \`counts\`/\`undatedInScope\` are null on a gate-BLOCKED block: nothing was read,
+  so nothing is fabricated (the caveats explain the block).
+  """
+  type ProcurementAnswerMeta {
+    policyKey: String!
+    grain: ProcurementAnalysisGrain!
+    valueBasis: String
+    dateBasis: String!
+    population: String!
+    buildId: String!
+    counts: ProcurementAnswerCounts
+    undatedInScope: ProcurementUndatedInScope
+    provisional: Boolean!
+    caveats: [String!]!
+    link: String!
   }
 
-  type ProcurementCategoryRow {
-    cpvDivisionCode: String
-    cpvDivisionLabelEn: String
-    cpvDivisionLabelRo: String
-    sourceGrain: String!
-    flowCount: String!
-    amountRonSum: String
-    amountPresentCount: String!
-    amountMissingCount: String!
+  """
+  One LABELED per-grain stats block. Blocks sit side by side; nothing sums them.
+  Count fields are null only when the block is gate-BLOCKED (time/geo abstain).
+  """
+  type ProcurementStatsBlock {
+    grain: ProcurementAnalysisGrain!
+    recordCount: String
+    withValueCount: String
+    withEstimatedCount: String
+    "Σ awarded value (RON, decimal string); null when the spend gate abstains."
+    valueAwardedSum: String
+    "Σ estimated value — a separate labeled metric, never in totals or rankings."
+    valueEstimatedSum: String
+    avgValueAwarded: String
+    minMonth: String
+    maxMonth: String
+    meta: ProcurementAnswerMeta!
+  }
+  type ProcurementStatsResult {
+    blocks: [ProcurementStatsBlock!]!
   }
 
-  "One point per month. flowCount spans every in-scope grain; the amounts only the spend-approved ones."
-  type ProcurementMonthlyPoint {
-    month: String!
-    flowCount: String!
-    amountRonSum: String
-    amountPresentCount: String!
-    amountMissingCount: String!
+  type ProcurementSeriesPoint {
+    bucket: String!
+    value: String
+  }
+  type ProcurementSeriesBlock {
+    grain: ProcurementAnalysisGrain!
+    measure: ProcurementAnalysisMeasure!
+    bucket: ProcurementSeriesBucket!
+    points: [ProcurementSeriesPoint!]!
+    meta: ProcurementAnswerMeta!
+  }
+
+  "top-N + other + unknown; the three sum exactly to the scope's stats totals."
+  type ProcurementBreakdownBucket {
+    "The dimension value; null for other/unknown buckets."
+    key: String
+    kind: String!
+    recordCount: String!
+    withValueCount: String!
+    valueAwardedSum: String
+    "Share of the scope total on the ranking basis (decimal string)."
+    shareOfScope: String
+  }
+  type ProcurementBreakdownBlock {
+    grain: ProcurementAnalysisGrain!
+    dimension: ProcurementBreakdownDimension!
+    rankedBy: String!
+    buckets: [ProcurementBreakdownBucket!]!
+    meta: ProcurementAnswerMeta!
+  }
+
+  """
+  HHI/top-shares over supplier keys within scope (decimal strings, 0..1).
+  supplierCount = distinct KNOWN suppliers in scope; the shares/HHI cover the
+  positive-basis subset (caveats disclose the split + unknown-supplier weight).
+  """
+  type ProcurementConcentrationBlock {
+    grain: ProcurementAnalysisGrain!
+    basis: String!
+    supplierCount: Int
+    top1Share: String
+    top5Share: String
+    hhi: String
+    totalRon: String
+    meta: ProcurementAnswerMeta!
+  }
+
+  "A validated derivation over two stats reads (design §3.3) — never a partial ratio."
+  type ProcurementShareResult {
+    share: String
+    numerator: ProcurementStatsBlock!
+    denominator: ProcurementStatsBlock!
+    caveats: [String!]!
+  }
+
+  type ProcurementFacetsResult {
+    blocks: [ProcurementBreakdownBlock!]!
   }
 
   # ── supplier records (cursor over two tables, merged) ────────────────────────
@@ -429,19 +537,6 @@ export const procurementTypeDefs = /* GraphQL */ `
     firstFlowDate: Date
     lastFlowDate: Date
     evidenceRefsSample: [String!]!
-  }
-
-  "Supplier concentration for one authority (PC-5). basis=count when spend is gate-suppressed."
-  type ProcurementConcentration {
-    authorityCui: CUI!
-    grain: ProcurementGrain!
-    supplierCount: Int!
-    basis: String!
-    top1Share: Float
-    top5Share: Float
-    hhi: Float
-    totalRon: Money
-    caveats: [String!]!
   }
 
   "Authority spend by CPV division × period (PC-4)."
@@ -554,28 +649,28 @@ export const procurementTypeDefs = /* GraphQL */ `
     procurementContract(id: ID!): ProcurementContractDetail
     procurementDirectAcquisition(id: ID!): ProcurementDirectAcquisitionDetail
 
-    # aggregates — the same 5 queries serve the landing page (empty scope), the CPV
-    # category page ({ cpvDivision }) and the supplier slice ({ supplierCui }).
-    # \`grain\` is procurement_contract | direct_acquisition | null (= both).
-    procurementStats(scope: ProcurementScopeFilter, grain: String): ProcurementStats!
-    procurementTopAuthorities(
-      scope: ProcurementScopeFilter
-      grain: String
+    # analysis surface — one scope, six shapes over the scraper-built rollup
+    # package (design §5.3). Every answer carries the §3.4 envelope.
+    procurementStats(scope: ProcurementAnalysisScopeInput): ProcurementStatsResult!
+    procurementSeries(
+      scope: ProcurementAnalysisScopeInput
+      bucket: ProcurementSeriesBucket!
+      measure: ProcurementAnalysisMeasure!
+    ): [ProcurementSeriesBlock!]!
+    procurementBreakdown(
+      scope: ProcurementAnalysisScopeInput
+      dimension: ProcurementBreakdownDimension!
       topN: Int
-    ): [ProcurementTopPartyRow!]!
-    procurementTopSuppliers(
-      scope: ProcurementScopeFilter
-      grain: String
+    ): [ProcurementBreakdownBlock!]!
+    procurementShare(
+      numerator: ProcurementAnalysisScopeInput!
+      denominator: ProcurementAnalysisScopeInput!
+    ): ProcurementShareResult!
+    procurementFacets(
+      scope: ProcurementAnalysisScopeInput
+      dimensions: [ProcurementBreakdownDimension!]!
       topN: Int
-    ): [ProcurementTopPartyRow!]!
-    procurementCategoryBreakdown(
-      scope: ProcurementScopeFilter
-      grain: String
-    ): [ProcurementCategoryRow!]!
-    procurementSpendOverTime(
-      scope: ProcurementScopeFilter
-      grain: String
-    ): [ProcurementMonthlyPoint!]!
+    ): ProcurementFacetsResult!
 
     # supplier recent records (canonical flows only, date desc)
     procurementSupplierRecords(
@@ -602,13 +697,11 @@ export const procurementTypeDefs = /* GraphQL */ `
       minMonths: Int = 2
       topN: Int = 20
     ): ProcurementEdgeResult!
-    "PC-5: supplier concentration / HHI for an authority (count-based when spend gate-suppressed)."
+    "Concentration generalized to any matrix-supported scope (basis forced to count when spend abstains)."
     procurementConcentration(
-      authorityCui: CUI!
-      grain: ProcurementGrain = direct_acquisition
-      monthFrom: Date
-      monthTo: Date
-    ): ProcurementConcentration!
+      scope: ProcurementAnalysisScopeInput
+      basis: String
+    ): [ProcurementConcentrationBlock!]!
     "PC-4: authority spend by CPV division × period."
     procurementAuthorityCpvSpend(
       authorityCui: CUI!

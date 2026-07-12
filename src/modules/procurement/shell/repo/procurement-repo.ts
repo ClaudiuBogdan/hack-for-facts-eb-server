@@ -68,7 +68,6 @@ import type {
   ProcurementDirectAcquisition,
   ProcurementModification,
   ProcurementProcedure,
-  ScopeFilter,
 } from '../../core/types.js';
 
 type Db = Kysely<ProdDatabase>;
@@ -705,55 +704,6 @@ export const makeProcurementRepo = (
   };
 
   // ───────────────────────────────────────────────────────────────────────────
-  // procedures count for an aggregate scope (procedures are NOT in the rollups)
-  // ───────────────────────────────────────────────────────────────────────────
-
-  /**
-   * Procedures have no `supplier_cui` column, so a supplier-scoped count is the
-   * number of DISTINCT procedures under which that supplier won a canonical
-   * contract (driven by `contracts_supplier_cui_idx`). Any other scope counts
-   * `procurement.procedures` directly on its indexed columns. `grain` does not
-   * apply: a procedure is a tender notice, not a flow on either grain.
-   */
-  const countProceduresInScope = async (scope: ScopeFilter): Promise<Result<string, ApiError>> => {
-    const conds: RawBuilder<unknown>[] = [];
-    if (scope.authorityCui !== undefined) conds.push(sql`p.authority_cui = ${scope.authorityCui}`);
-    if (scope.cpvDivision !== undefined) {
-      const lo = `${scope.cpvDivision}000000`;
-      const hi =
-        scope.cpvDivision === '99'
-          ? '99999999'
-          : `${String(Number(scope.cpvDivision) + 1).padStart(2, '0')}000000`;
-      conds.push(
-        scope.cpvDivision === '99'
-          ? sql`(p.cpv_code >= ${lo} and p.cpv_code <= ${hi})`
-          : sql`(p.cpv_code >= ${lo} and p.cpv_code < ${hi})`
-      );
-    }
-    if (scope.monthFrom !== undefined)
-      conds.push(sql`p.publication_date >= ${`${scope.monthFrom}-01`}::date`);
-    if (scope.monthTo !== undefined) {
-      conds.push(sql`p.publication_date < (${`${scope.monthTo}-01`}::date + interval '1 month')`);
-    }
-    if (scope.supplierCui !== undefined) {
-      conds.push(sql`p.procedure_id in (
-        select c.procedure_id from procurement.contracts c
-         where c.supplier_cui = ${scope.supplierCui} and c.is_canonical = true and c.procedure_id is not null
-      )`);
-    }
-    try {
-      const row = await db
-        .selectFrom('procurement.procedures as p')
-        .select(sql<string>`count(*)::text`.as('n'))
-        .where(composeAnd(conds))
-        .executeTakeFirst();
-      return ok(row?.n ?? '0');
-    } catch (error) {
-      return err(databaseError('countProceduresInScope failed', error));
-    }
-  };
-
-  // ───────────────────────────────────────────────────────────────────────────
   // CPV discovery (cpv_divisions clean; cpv_codes best-effort label)
   // ───────────────────────────────────────────────────────────────────────────
 
@@ -870,7 +820,6 @@ export const makeProcurementRepo = (
     listModificationsAboveDelta,
     listCpvDivisions,
     resolveCpv,
-    countProceduresInScope,
     // offset search (the client contract) — delegated, arrow-wrapped so the sub-repo
     // methods keep their own `this`-free closure identity.
     searchProceduresOffset: (f, p) => offset.searchProceduresOffset(f, p),

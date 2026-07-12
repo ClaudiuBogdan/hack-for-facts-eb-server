@@ -14,6 +14,7 @@
  * is absent (CI without the tunnel).
  */
 
+import { Decimal } from 'decimal.js';
 import { Kysely, PostgresDialect } from 'kysely';
 import { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -133,7 +134,7 @@ d('Procurement golden (live prod)', () => {
     expect(da?.['dataAsOf']).toMatch(/^\d{4}-\d{2}-\d{2}$/u);
   });
 
-  it('tri-surface: GraphQL topSuppliers == MCP rank == raw SQL over the org_edge MV', async () => {
+  it('tri-surface: MCP rank == raw SQL over the org_edge MV (analyst surface unchanged)', async () => {
     const sqlRes = await pool.query<{ supplier_cui: string; fc: string; amt: string }>(
       `select supplier_cui, sum(flow_count)::text fc, sum(amount_ron_sum)::text amt
        from procurement.org_edge_monthly_rollups
@@ -144,27 +145,15 @@ d('Procurement golden (live prod)', () => {
     const raw = sqlRes.rows[0];
     expect(raw?.supplier_cui).toBe(SUPPLIER);
 
-    const g = await gql(
-      `query($cui:String!){ procurementTopSuppliers(scope: { authorityCui: $cui }, grain: "direct_acquisition", topN: 1){ supplier { cui } sourceGrain flowCount amountRonSum } }`,
-      { cui: AUTHORITY }
-    );
-    expect(g.errors).toBeUndefined();
-    const gTop = rec(arr(g.data?.['procurementTopSuppliers'])[0]);
-    expect(rec(gTop['supplier'])['cui']).toBe(raw?.supplier_cui);
-    expect(gTop['sourceGrain']).toBe('direct_acquisition');
-    expect(gTop['flowCount']).toBe(raw?.fc);
-    expect(gTop['amountRonSum']).toBe(raw?.amt);
-
     const mcp = await mcpCall('rank_procurement_suppliers', {
       authorityCui: AUTHORITY,
       grain: 'direct_acquisition',
       topN: 1,
     });
     expect(mcp.ok).toBe(true);
-    // The MCP tool serves the flat edge view model; the client contract nests the
-    // party. Same grain, same rollup, same numbers — only the wire shape differs.
-    expect(mcp.items?.[0]?.['supplierCui']).toBe(rec(gTop['supplier'])['cui']);
-    expect(mcp.items?.[0]?.['flowCount']).toBe(gTop['flowCount']);
+    expect(mcp.items?.[0]?.['supplierCui']).toBe(raw?.supplier_cui);
+    expect(mcp.items?.[0]?.['flowCount']).toBe(raw?.fc);
+    expect(mcp.items?.[0]?.['amountRonSum']).toBe(raw?.amt);
   }, 30_000);
 
   it('Entity.procurement == the contributor profile (parity §14.7)', async () => {
@@ -248,15 +237,16 @@ d('Procurement golden (live prod)', () => {
     expect(mcp.error).toContain('selective filter');
   });
 
-  it('concentration (PC-5) is value-based for DA grain (spend allowed)', async () => {
-    const res = await gql(
-      `query($cui:CUI!){ procurementConcentration(authorityCui:$cui, grain: direct_acquisition){ basis supplierCount hhi totalRon } }`,
-      { cui: AUTHORITY }
-    );
-    const c = rec(res.data?.['procurementConcentration']);
-    expect(c['basis']).toBe('value');
-    expect(c['supplierCount'] as number).toBeGreaterThan(0);
-    expect(c['totalRon']).not.toBeNull();
+  it('get_procurement_concentration stays on the legacy MV path (value-based for DA)', async () => {
+    const mcp = await mcpCall('get_procurement_concentration', {
+      authorityCui: AUTHORITY,
+      grain: 'direct_acquisition',
+    });
+    expect(mcp.ok).toBe(true);
+    const item = rec((mcp as unknown as { item: unknown }).item);
+    expect(item['basis']).toBe('value');
+    expect(item['supplierCount'] as number).toBeGreaterThan(0);
+    expect(item['totalRon']).not.toBeNull();
   }, 30_000);
 
   it('cpv divisions catalog is the reliable 45-row hierarchy', async () => {
@@ -273,64 +263,20 @@ d('Procurement golden (live prod)', () => {
     expect((p1.items ?? []).length).toBeGreaterThan(0);
   }, 30_000);
 
-  it('scope aggregates: an entity scope agrees with raw SQL over the same rollup', async () => {
-    const sqlRes = await pool.query<{ source_grain: string; fc: string; amt: string | null }>(
-      `select source_grain, sum(flow_count)::text fc, sum(amount_ron_sum)::text amt
-         from procurement.org_edge_monthly_rollups
-        where authority_cui = $1 and month_start >= '2011-07-01'
-        group by source_grain`,
-      [AUTHORITY]
-    );
-    const byGrain = new Map(sqlRes.rows.map((r) => [r.source_grain, r]));
-
+  it('analysis matrix rejections fire BEFORE any rollup read (no generation required)', async () => {
+    // entity × 8-digit cpvCode is a named wave-2 rejection (bounded fact query).
     const res = await gql(
-      `query($cui:String!){ procurementStats(scope: { authorityCui: $cui }){ totalValueRon contractsCount directAcquisitionsCount proceduresCount buyersCount suppliersCount firstFlowDate lastFlowDate } }`,
+      `query($cui:String!){ procurementStats(scope: { authorityCui: $cui, cpvCode: "33600000" }){ blocks { grain } } }`,
       { cui: AUTHORITY }
     );
-    expect(res.errors).toBeUndefined();
-    const stats = rec(res.data?.['procurementStats']);
-    expect(stats['directAcquisitionsCount']).toBe(byGrain.get('direct_acquisition')?.fc ?? '0');
-    expect(stats['contractsCount']).toBe(byGrain.get('procurement_contract')?.fc ?? '0');
-
-    // grain: null spans both grains, but only the DA grain's money may be summed —
-    // the contract-grain sum is gate-suppressed and contributes NOTHING.
-    expect(stats['totalValueRon']).toBe(byGrain.get('direct_acquisition')?.amt ?? null);
-  }, 30_000);
-
-  it('scope aggregates: the contract grain never surfaces a money total', async () => {
-    const res = await gql(
-      `query($cui:String!){
-         procurementStats(scope: { authorityCui: $cui }, grain: "procurement_contract"){ totalValueRon contractsCount }
-         procurementTopSuppliers(scope: { authorityCui: $cui }, grain: "procurement_contract", topN: 3){ sourceGrain amountRonSum flowCount }
-       }`,
-      { cui: AUTHORITY }
-    );
-    expect(res.errors).toBeUndefined();
-    expect(rec(res.data?.['procurementStats'])['totalValueRon']).toBeNull();
-    for (const row of arr(res.data?.['procurementTopSuppliers']).map(rec)) {
-      expect(row['sourceGrain']).toBe('procurement_contract');
-      expect(row['amountRonSum']).toBeNull(); // suppressed, never a number
-      expect(typeof row['flowCount']).toBe('string'); // counts are always allowed
-    }
-  }, 30_000);
-
-  it('scope.cpvCode is rejected in v1 (no 8-digit-grained rollup)', async () => {
-    const res = await gql(`{ procurementStats(scope: { cpvCode: "33600000" }){ contractsCount } }`);
     expect(res.errors?.[0]?.extensions?.code).toBe('INVALID_INPUT');
-  });
 
-  it('spendOverTime is one point per MONTH (grains merged), months ascending', async () => {
-    const res = await gql(
-      `query($cui:String!){ procurementSpendOverTime(scope: { authorityCui: $cui }){ month flowCount amountRonSum } }`,
-      { cui: AUTHORITY }
+    // supplier geography is milestone M3, named as such.
+    const geo = await gql(
+      `{ procurementStats(scope: { supplierRegion: "Nord-Vest" }){ blocks { grain } } }`
     );
-    expect(res.errors).toBeUndefined();
-    const points = arr(res.data?.['procurementSpendOverTime']).map(rec);
-    const months = points.map((p) => p['month'] as string);
-    expect(new Set(months).size).toBe(months.length); // no per-grain duplicates
-    expect([...months].sort()).toEqual(months);
-    for (const m of months) expect(m).toMatch(/^\d{4}-\d{2}$/u);
-  }, 30_000);
+    expect(geo.errors?.[0]?.extensions?.code).toBe('INVALID_INPUT');
+  });
 
   it('detail bundle: a contract loads with its trail, procedure, duplicates and gate', async () => {
     const sqlRes = await pool.query<{ contract_id: string }>(
@@ -493,4 +439,162 @@ d('Procurement golden (live prod)', () => {
     );
     expect(res.errors?.[0]?.extensions?.code).toBe('INVALID_INPUT');
   });
+});
+
+/**
+ * The analysis surface golden — DOUBLE-gated: PROD_DATABASE_URL must be present
+ * AND `procurement.analysis_generations` must exist with an active row (the
+ * scraper package published). Each test early-returns (reported green, asserting
+ * nothing) when either gate is closed — live-SQL correctness for this surface is
+ * proven ONLY by running this suite against prod with a published generation,
+ * which happens in the pre-commit golden run; there is deliberately no
+ * server-side disposable-Postgres DDL suite (the scraper owns the DDL).
+ */
+d('Procurement analysis golden (live prod, active generation required)', () => {
+  let active = false;
+  let buildId = '';
+
+  beforeAll(async () => {
+    const config = loadRedesignConfig(process.env);
+    const built = await buildRedesignApp({
+      kernelConfig: config.kernel,
+      modules: ['procurement'],
+      logLevel: 'silent',
+    });
+    app = built.app;
+    await app.ready();
+    const connectionString = (process.env['PROD_DATABASE_URL'] ?? '').replace(
+      /[?&]sslmode=[a-z-]+/iu,
+      ''
+    );
+    pool = new Pool({ connectionString, ssl: { rejectUnauthorized: false } });
+    process.on('uncaughtException', onUncaught);
+    // Retry the probe: the local kubectl port-forward drops fresh connections
+    // for a moment after the previous describe's pool tears down (empty-message
+    // socket errors). Only a persistent failure means the package is absent.
+    for (let attempt = 0; attempt < 3 && !active; attempt += 1) {
+      try {
+        const probe = await pool.query<{ build_id: string }>(
+          `select build_id::text from procurement.analysis_generations where status = 'active' limit 1`
+        );
+        buildId = probe.rows[0]?.build_id ?? '';
+        active = buildId !== '';
+        break;
+      } catch (error) {
+        active = false; // schema/table absent → the package has not landed; skip.
+        console.warn(
+          `analysis golden: gate probe attempt ${String(attempt + 1)} failed —`,
+          error instanceof Error ? error.message : String(error)
+        );
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
+    }
+  }, 60_000);
+
+  afterAll(async () => {
+    await app?.close();
+    await pool?.end();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    process.off('uncaughtException', onUncaught);
+  });
+
+  it('procurementStats blocks reconcile with raw SQL over the authority_dims rollup', async () => {
+    if (!active) return;
+    const sqlRes = await pool.query<{ grain: string; rc: string; wv: string; va: string | null }>(
+      `select grain, sum(record_count)::text rc, sum(with_value_count)::text wv,
+              sum(value_awarded_sum)::text va
+         from procurement.analysis_rollup_authority_dims_monthly
+        where build_id = $1 and authority_cui = $2
+        group by grain`,
+      [buildId, AUTHORITY]
+    );
+    const byGrain = new Map(sqlRes.rows.map((r) => [r.grain, r]));
+
+    const res = await gql(
+      `query($cui:String!){ procurementStats(scope: { authorityCui: $cui }){
+         blocks { grain recordCount withValueCount valueAwardedSum meta { buildId policyKey caveats } }
+       } }`,
+      { cui: AUTHORITY }
+    );
+    expect(res.errors).toBeUndefined();
+    const blocks = arr(rec(res.data?.['procurementStats'])['blocks']).map(rec);
+    expect(blocks.length).toBeGreaterThan(0);
+    for (const block of blocks) {
+      const raw = byGrain.get(block['grain'] as string);
+      expect(block['recordCount']).toBe(raw?.rc ?? '0');
+      expect(block['withValueCount']).toBe(raw?.wv ?? '0');
+      expect(rec(block['meta'])['buildId']).toBe(buildId);
+      // Money either matches the rollup sum exactly (Decimal, never floats) or is
+      // honestly absent WITH a caveat.
+      if (block['valueAwardedSum'] !== null) {
+        expect(
+          new Decimal(block['valueAwardedSum'] as string).equals(new Decimal(raw?.va ?? '0'))
+        ).toBe(true);
+      } else {
+        expect((rec(block['meta'])['caveats'] as string[]).length).toBeGreaterThan(0);
+      }
+    }
+  }, 30_000);
+
+  it('breakdown reconciles by construction: top + other + unknown == the same read totals', async () => {
+    if (!active) return;
+    const res = await gql(
+      `query($cui:String!){ procurementBreakdown(scope: { authorityCui: $cui }, dimension: supplier, topN: 5){
+         grain rankedBy
+         buckets { kind key recordCount valueAwardedSum shareOfScope }
+         meta { counts { rows } undatedInScope { count } }
+       } }`,
+      { cui: AUTHORITY }
+    );
+    expect(res.errors).toBeUndefined();
+    for (const block of arr(res.data?.['procurementBreakdown']).map(rec)) {
+      const buckets = arr(block['buckets']).map(rec);
+      const total = buckets.reduce((acc, b) => acc + BigInt(b['recordCount'] as string), 0n);
+      expect(total.toString()).toBe(rec(rec(block['meta'])['counts'])['rows']);
+      // Exactly one other + one unknown bucket, keys null.
+      expect(buckets.filter((b) => b['kind'] === 'other')).toHaveLength(1);
+      expect(buckets.filter((b) => b['kind'] === 'unknown')).toHaveLength(1);
+    }
+  }, 30_000);
+
+  it('MCP aggregate_procurement agrees with the GraphQL stats blocks', async () => {
+    if (!active) return;
+    const g = await gql(
+      `query($cui:String!){ procurementStats(scope: { authorityCui: $cui }){
+         blocks { grain recordCount valueAwardedSum } } }`,
+      { cui: AUTHORITY }
+    );
+    const gBlocks = arr(rec(g.data?.['procurementStats'])['blocks']).map(rec);
+
+    const mcp = await mcpCall('aggregate_procurement', {
+      shape: 'stats',
+      scope: { authorityCui: AUTHORITY },
+    });
+    expect(mcp.ok).toBe(true);
+    const items = (mcp.items ?? []).map((i) => rec(i));
+    expect(items.map((i) => i['grain'])).toEqual(gBlocks.map((b) => b['grain']));
+    for (const [index, item] of items.entries()) {
+      expect(item['recordCount']).toBe(gBlocks[index]?.['recordCount']);
+      expect(item['valueAwardedSum']).toBe(gBlocks[index]?.['valueAwardedSum'] ?? null);
+    }
+  }, 30_000);
+
+  it('generalized concentration serves decimal-string shares from the rollups', async () => {
+    // The MCP get_procurement_concentration tool deliberately stays on the legacy
+    // MV path (S6) — the two substrates may legitimately disagree, so no
+    // cross-comparison here.
+    if (!active) return;
+    const res = await gql(
+      `query($cui:String!){ procurementConcentration(scope: { authorityCui: $cui, grain: direct_acquisition }){
+         grain basis supplierCount top1Share hhi totalRon meta { buildId caveats }
+       } }`,
+      { cui: AUTHORITY }
+    );
+    expect(res.errors).toBeUndefined();
+    const block = rec(arr(res.data?.['procurementConcentration'])[0]);
+    expect(block['grain']).toBe('direct_acquisition');
+    expect(block['supplierCount'] as number).toBeGreaterThan(0);
+    if (block['top1Share'] !== null) expect(block['top1Share']).toMatch(/^\d\.\d{4}$/u);
+    expect(rec(block['meta'])['buildId']).toBe(buildId);
+  }, 30_000);
 });
