@@ -124,3 +124,49 @@ export const ROLLUP_MIN_MONTH = '2011-07-01' as const;
 
 /** The grain that defaults when an aggregate request omits one (higher coverage). */
 export const DEFAULT_GRAIN: ProcurementGrain = 'direct_acquisition';
+
+// ── analysis package (design §3–§5; scraper-built rollups) ─────────────────────
+
+/**
+ * The analysis grains, in the DB vocabulary of `procurement.analysis_rollup_*`
+ * (`grain` column). This is the ONE canonical TS vocabulary for the analysis
+ * surface; the legacy `PROCUREMENT_GRAINS` ('procurement_contract' …) stays for
+ * the flow-MV surfaces and the two never mix.
+ */
+export const ANALYSIS_GRAINS = ['procedure', 'contract', 'direct_acquisition'] as const;
+export type AnalysisGrain = (typeof ANALYSIS_GRAINS)[number];
+
+/** Measures the semantic policy table (core/policy.ts) declares entries for. */
+export const MEASURE_IDS = [
+  'recordCount',
+  'withValueCount',
+  'valueAwardedSum',
+  'valueEstimatedSum',
+  'avgValueAwarded',
+  'distinctSuppliers',
+  'distinctAuthorities',
+] as const;
+export type MeasureId = (typeof MEASURE_IDS)[number];
+
+/** Breakdown dimensions the wave-1 rollups can serve (design §6.2 matrix). */
+export const BREAKDOWN_DIMENSIONS = [
+  'authority',
+  'supplier',
+  'cpvDivision',
+  'cpvCode',
+  'status',
+  'procedureType',
+  'buyerRegion',
+] as const;
+export type BreakdownDimension = (typeof BREAKDOWN_DIMENSIONS)[number];
+
+/** Series buckets. Storage is monthly; quarter/year are derived (additive laws only). */
+export const SERIES_BUCKETS = ['month', 'quarter', 'year'] as const;
+export type SeriesBucket = (typeof SERIES_BUCKETS)[number];
+
+/**
+ * Count/time answers degrade with disclosure down to this coverage floor and
+ * abstain below it (design §5.4; provisional per §9.6). The scraper computes the
+ * gate classes against it; `core/gate-v2.ts` interprets them.
+ */
+export const COUNT_TIME_DEGRADE_FLOOR = 0.5;

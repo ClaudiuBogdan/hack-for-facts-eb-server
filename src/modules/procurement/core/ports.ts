@@ -1,16 +1,22 @@
 /**
  * Procurement module — repo ports (plan §3). All methods return
- * `Result<T, ApiError>`. Two repos:
+ * `Result<T, ApiError>`. Three repos:
  *   - `ProcurementRepo`          — the 4 base tables (procedures/contracts/DAs/mods).
- *   - `ProcurementAggregateRepo` — the 5 materialized views + the grain gate.
+ *   - `ProcurementAggregateRepo` — the legacy flow MVs + the grain gate (analyst
+ *     queries, presence/profile).
+ *   - `AnalysisRepo`             — the scraper-built `procurement.analysis_*`
+ *     generation + wave-1 rollups (the six-shape surface, design §5).
  * Source repos touch only `procurement.*` + read-only `core.*`; cross-source money
  * totals go through the kernel `FlowsRepo`, NOT here (§4.3/§14.6).
  */
 
+import type { AnalysisScope } from './analysis-scope.js';
+import type { AnalysisRoute } from './combinations.js';
+import type { MeasureId, SeriesBucket } from './constants.js';
+import type { GenerationQuality } from './gate-v2.js';
 import type { ProcurementSearchFilter } from './search.js';
 import type {
   AuthorityCpvRow,
-  CategoryRow,
   ContractDetail,
   CpvAggFilter,
   CpvDivision,
@@ -18,26 +24,21 @@ import type {
   DirectAcquisitionDetail,
   EdgeAggFilter,
   GrainQuality,
-  MonthlyPoint,
   OffsetSearchRequest,
   OffsetSearchResult,
   ProcedureDetail,
   ProcurementContract,
   ProcurementDirectAcquisition,
   ProcurementEdge,
-  ProcurementGrain,
   ProcurementModification,
   ProcurementProcedure,
   ProcurementProfileSlice,
-  ProcurementStats,
   RegionCpvAggFilter,
   SameDayCandidate,
-  ScopeFilter,
   SplitFilter,
   SupplierConcentration,
   SupplierCpvRow,
   SupplierRecordConnection,
-  TopPartyRow,
 } from './types.js';
 import type { ApiError, CursorPage, FilterInput, SourcePresence } from '@/modules/shared/index.js';
 import type { Result } from 'neverthrow';
@@ -139,17 +140,7 @@ export interface ProcurementRepo {
     first: number,
     after: string | undefined
   ): Promise<Result<SupplierRecordConnection, ApiError>>;
-
-  /**
-   * `procurementStats.proceduresCount` for a scope. Procedures have NO supplier
-   * column, so a `supplierCui` scope counts the distinct procedures under which
-   * that supplier won a canonical contract — never a fabricated zero.
-   */
-  countProceduresInScope(scope: ScopeFilter): Promise<Result<string, ApiError>>;
 }
-
-/** `ProcurementStats` minus the base-table `proceduresCount` (see below). */
-export type ScopeFlowStats = Omit<ProcurementStats, 'proceduresCount'>;
 
 export interface ProcurementAggregateRepo {
   /** The gate — read FIRST by every aggregate usecase (live per request, §0/C1). */
@@ -181,6 +172,8 @@ export interface ProcurementAggregateRepo {
 
   // PC-5 — supplier concentration / HHI over edges for one authority. `basis` is
   // chosen from the live gate (value when spend_rankings_allowed, else count).
+  // Kept on the legacy MV path for `get_procurement_concentration` until the MV
+  // stack retires; the analysis surface has its own concentration executor.
   supplierConcentration(
     cui: string,
     f: EdgeAggFilter,
@@ -208,39 +201,124 @@ export interface ProcurementAggregateRepo {
     p: OffsetPageRequest
   ): Promise<Result<OffsetResult<SameDayCandidate>, ApiError>>;
 
-  // ── scope aggregates (the 5 shared client queries) ──
-  //
-  // `grains` is the RESOLVED grain set (one grain, or both when the request omits
-  // it) and `spendGrains` the subset whose `spend_rankings_allowed` is true — the
-  // usecase derives both from the live gate, so the repo never re-reads it. Money
-  // is summed ONLY over `spendGrains`; counts over all of `grains`.
-  //
-  // `proceduresCount` is NOT here: procedures are a base table, not a rollup, so the
-  // usecase composes this with `ProcurementRepo.countProceduresInScope`.
-  scopeStats(
-    scope: ScopeFilter,
-    grains: readonly ProcurementGrain[],
-    spendGrains: readonly ProcurementGrain[]
-  ): Promise<Result<ScopeFlowStats, ApiError>>;
-  scopeTopParties(
-    scope: ScopeFilter,
-    grains: readonly ProcurementGrain[],
-    spendGrains: readonly ProcurementGrain[],
-    side: 'authority' | 'supplier',
-    topN: number
-  ): Promise<Result<readonly TopPartyRow[], ApiError>>;
-  scopeCategoryBreakdown(
-    scope: ScopeFilter,
-    grains: readonly ProcurementGrain[],
-    spendGrains: readonly ProcurementGrain[]
-  ): Promise<Result<readonly CategoryRow[], ApiError>>;
-  scopeSpendOverTime(
-    scope: ScopeFilter,
-    grains: readonly ProcurementGrain[],
-    spendGrains: readonly ProcurementGrain[]
-  ): Promise<Result<readonly MonthlyPoint[], ApiError>>;
-
   // contributor support (§4.4).
   presenceFor(cui: string): Promise<Result<SourcePresence | null, ApiError>>;
   profileSlice(cui: string): Promise<Result<ProcurementProfileSlice | null, ApiError>>;
+}
+
+// ── analysis package (design §5–§6.2) ──────────────────────────────────────────
+
+/** The single active serving generation, resolved ONCE per request. */
+export interface ActiveGeneration {
+  readonly buildId: string;
+  readonly publishedAt: string | null;
+  readonly quality: GenerationQuality;
+  readonly matrixHash: string | null;
+}
+
+/** One stats read — everything the stats block AND its envelope need. */
+export interface AnalysisStatsRead {
+  readonly rows: string;
+  readonly withValue: string;
+  readonly withEstimated: string;
+  readonly valueAwardedSum: string | null;
+  readonly valueEstimatedSum: string | null;
+  readonly minMonth: string | null;
+  readonly maxMonth: string | null;
+  /** The `month_start IS NULL` bucket under the same dimensions (design §3.2). */
+  readonly undatedCount: string;
+  readonly undatedValueRon: string | null;
+}
+
+/** One monthly series row; `month: null` tags the undated bucket. */
+export interface AnalysisSeriesRow {
+  readonly month: string | null;
+  /** The requested measure's value for this bucket. */
+  readonly value: string | null;
+  readonly recordCount: string;
+  readonly withValue: string;
+  readonly valueAwardedSum: string | null;
+}
+
+/** One query-time-bucketed distinct row; `bucket: null` tags the undated bucket. */
+export interface AnalysisDistinctRow {
+  readonly bucket: string | null;
+  readonly value: string;
+  readonly recordCount: string;
+  readonly withValue: string;
+  readonly valueAwardedSum: string | null;
+}
+
+export interface AnalysisBreakdownBucketRow {
+  readonly kind: 'top' | 'other' | 'unknown';
+  /** The dimension value; null for `other`/`unknown`. */
+  readonly key: string | null;
+  readonly recordCount: string;
+  readonly withValue: string;
+  readonly valueAwardedSum: string | null;
+}
+
+/** Buckets + the scope totals — from ONE statement, so they reconcile by construction. */
+export interface AnalysisBreakdownRead {
+  readonly buckets: readonly AnalysisBreakdownBucketRow[];
+  readonly totals: AnalysisStatsRead;
+}
+
+export interface ConcentrationRow {
+  readonly supplierKey: string;
+  /** The basis measure (awarded value sum or record count) as a decimal string. */
+  readonly measure: string;
+}
+
+export interface ConcentrationRead {
+  /** One row per DISTINCT KNOWN supplier in scope (zero-basis suppliers included). */
+  readonly rows: readonly ConcentrationRow[];
+  readonly totals: AnalysisStatsRead;
+  /**
+   * The basis measure held by records with an UNKNOWN (NULL) supplier — they
+   * cannot enter the concentration and their weight is disclosed instead.
+   */
+  readonly unknownSupplierMeasure: string | null;
+}
+
+/**
+ * The analysis rollup reader. Every statement pins `build_id` to the generation
+ * resolved by `activeGeneration()` — a mid-request cutover can never mix builds.
+ */
+export interface AnalysisRepo {
+  /** null when no generation is active (package not yet published). */
+  activeGeneration(): Promise<Result<ActiveGeneration | null, ApiError>>;
+  statsFor(
+    route: AnalysisRoute,
+    scope: AnalysisScope,
+    buildId: string
+  ): Promise<Result<AnalysisStatsRead, ApiError>>;
+  seriesFor(
+    route: AnalysisRoute,
+    scope: AnalysisScope,
+    buildId: string,
+    measure: MeasureId
+  ): Promise<Result<readonly AnalysisSeriesRow[], ApiError>>;
+  /** Per-bucket COUNT(DISTINCT key) — the repo buckets; core never re-buckets distincts. */
+  distinctSeriesFor(
+    route: AnalysisRoute,
+    scope: AnalysisScope,
+    buildId: string,
+    key: 'supplier' | 'authority',
+    bucket: SeriesBucket
+  ): Promise<Result<readonly AnalysisDistinctRow[], ApiError>>;
+  breakdownFor(
+    route: AnalysisRoute,
+    scope: AnalysisScope,
+    buildId: string,
+    dimension: string,
+    topN: number,
+    rankBy: 'value' | 'count'
+  ): Promise<Result<AnalysisBreakdownRead, ApiError>>;
+  concentrationRowsFor(
+    route: AnalysisRoute,
+    scope: AnalysisScope,
+    buildId: string,
+    basis: 'value' | 'count'
+  ): Promise<Result<ConcentrationRead, ApiError>>;
 }

@@ -3,7 +3,7 @@
  *
  * The spec's filter inputs are operator objects (`{ eq }`, `{ in }`, `{ contains }`,
  * `{ gte, lte }`). This module validates them and lowers them onto the core
- * `ProcurementSearchFilter` / `ScopeFilter`. Unknown keys are ignored; a malformed
+ * `ProcurementSearchFilter` / `AnalysisScope`. Unknown keys are ignored; a malformed
  * one is an `InvalidInput`, never a silently-dropped predicate.
  *
  * DA date note: the spec calls the DA date facet `publicationDate`, but
@@ -16,9 +16,8 @@ import { err, ok, type Result } from 'neverthrow';
 
 import { invalidInput, normalizeCui, type ApiError } from '@/modules/shared/index.js';
 
+import { parseAnalysisScope, type AnalysisScope } from '../../core/analysis-scope.js';
 import { parseQ, type ProcurementSearchFilter } from '../../core/search.js';
-
-import type { ScopeFilter } from '../../core/types.js';
 
 // ── raw input shapes (exactly the SDL) ────────────────────────────────────────
 
@@ -52,19 +51,12 @@ export interface RawSearchFilter {
   minDeltaPct?: unknown;
 }
 
-export interface RawScopeFilter {
-  authorityCui?: unknown;
-  supplierCui?: unknown;
-  cpvDivision?: unknown;
-  cpvCode?: unknown;
-  monthFrom?: unknown;
-  monthTo?: unknown;
-}
+/** The analysis scope input, structurally unknown until core validates it. */
+export type RawAnalysisScopeInput = Readonly<Record<string, unknown>>;
 
 // ── scalar readers ────────────────────────────────────────────────────────────
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/u;
-const MONTH_RE = /^\d{4}-\d{2}$/u;
 const DECIMAL_RE = /^-?\d+(\.\d+)?$/u;
 const DIVISION_RE = /^\d{2}$/u;
 const CPV_CODE_RE = /^\d{2,8}$/u;
@@ -247,57 +239,8 @@ export const translateSearchFilter = (
   return ok(out);
 };
 
-// ── the aggregate scope ───────────────────────────────────────────────────────
+// ── the analysis scope (validation lives in core — one parser for GraphQL + MCP) ─
 
-const readScopeString = (value: unknown, field: string): Result<string | undefined, ApiError> => {
-  if (value === undefined || value === null) return ok(undefined);
-  if (typeof value !== 'string' || value.trim() === '') {
-    return err(invalidInput(`${field} must be a non-empty string`, field));
-  }
-  return ok(value.trim());
-};
-
-export const translateScope = (
-  raw: RawScopeFilter | undefined | null
-): Result<ScopeFilter, ApiError> => {
-  if (raw === undefined || raw === null) return ok({});
-  const out: { -readonly [K in keyof ScopeFilter]: ScopeFilter[K] } = {};
-
-  for (const field of ['authorityCui', 'supplierCui'] as const) {
-    const value = readScopeString(raw[field], field);
-    if (value.isErr()) return err(value.error);
-    if (value.value !== undefined) {
-      const norm = normalizeCui(value.value);
-      if (norm === null) return err(invalidInput(`${field} is not a valid CUI`, field));
-      out[field] = norm;
-    }
-  }
-
-  const division = readScopeString(raw.cpvDivision, 'cpvDivision');
-  if (division.isErr()) return err(division.error);
-  if (division.value !== undefined) {
-    if (!DIVISION_RE.test(division.value)) {
-      return err(invalidInput('cpvDivision must be a 2-digit division code', 'cpvDivision'));
-    }
-    out.cpvDivision = division.value;
-  }
-
-  const code = readScopeString(raw.cpvCode, 'cpvCode');
-  if (code.isErr()) return err(code.error);
-  if (code.value !== undefined) out.cpvCode = code.value;
-
-  for (const field of ['monthFrom', 'monthTo'] as const) {
-    const value = readScopeString(raw[field], field);
-    if (value.isErr()) return err(value.error);
-    if (value.value !== undefined) {
-      if (!MONTH_RE.test(value.value)) {
-        return err(invalidInput(`${field} must be a YYYY-MM month`, field));
-      }
-      out[field] = value.value;
-    }
-  }
-  if (out.monthFrom !== undefined && out.monthTo !== undefined && out.monthFrom > out.monthTo) {
-    return err(invalidInput('monthFrom must not exceed monthTo', 'monthFrom'));
-  }
-  return ok(out);
-};
+export const translateAnalysisScope = (
+  raw: RawAnalysisScopeInput | undefined | null
+): Result<AnalysisScope, ApiError> => parseAnalysisScope(raw);

@@ -6,9 +6,11 @@
  * (`grainQuality()`), never code constants (§0/C1, §4):
  *   - filter_answers_allowed=false for the requested grain → ABSTAIN: empty rows +
  *     caveats listing the grain's blockers; no fabricated number.
- *   - spend_rankings_allowed=false → return rows but rank by flow_count, and force
- *     concentration/share measures count-based (basis='count'); add a caveat.
+ *   - spend_rankings_allowed=false → return rows but rank by flow_count; add a caveat.
  *   - supplier_region_filters_allowed=false + a supplier-region request → InvalidInput.
+ *
+ * The six-shape analysis surface (stats/series/breakdown/concentration/share/
+ * facets) lives in `analysis-usecases.ts` over the scraper-built rollup package.
  *
  * Base-table search/detail usecases are thin pass-throughs (no gate — the gate is an
  * AGGREGATE concept; base lists are bounded by indexed predicates + cursor instead).
@@ -17,7 +19,6 @@
 import { err, ok, type Result } from 'neverthrow';
 
 import { DEFAULT_GRAIN, PROCUREMENT_GRAIN_NOTE } from './constants.js';
-import { assertScopeSupported, resolveGrains, spendApprovedGrains } from './scope.js';
 
 import type {
   CursorPageRequest,
@@ -27,7 +28,6 @@ import type {
 } from './ports.js';
 import type {
   AuthorityCpvRow,
-  CategoryRow,
   ContractDetail,
   CpvAggFilter,
   CpvDivision,
@@ -35,7 +35,6 @@ import type {
   DirectAcquisitionDetail,
   EdgeAggFilter,
   GrainQuality,
-  MonthlyPoint,
   ProcedureDetail,
   ProcurementContract,
   ProcurementDirectAcquisition,
@@ -44,14 +43,11 @@ import type {
   ProcurementModification,
   ProcurementProcedure,
   ProcurementProfileSlice,
-  ProcurementStats,
   RegionCpvAggFilter,
   SameDayCandidate,
-  ScopeFilter,
   SplitFilter,
   SupplierConcentration,
   SupplierRecordConnection,
-  TopPartyRow,
 } from './types.js';
 import type { ApiError, CursorPage, FilterInput } from '@/modules/shared/index.js';
 
@@ -301,136 +297,6 @@ export const sameDaySplittingCandidates = async (
 export const grainQuality = (
   agg: ProcurementAggregateRepo
 ): Promise<Result<readonly GrainQuality[], ApiError>> => agg.grainQuality();
-
-// ── scope aggregates (the 5 shared client queries; gate-enforced HERE) ─────────
-
-/**
- * Resolve the request's grain set and, from the LIVE gate, the subset whose spend
- * may be summed. Every scope usecase starts here, so the "which grain's money may
- * we add up" decision is made in exactly one place, from data, never a constant.
- */
-const resolveScopeGate = async (
-  agg: ProcurementAggregateRepo,
-  scope: ScopeFilter,
-  grain: string | null | undefined
-): Promise<
-  Result<
-    {
-      grains: readonly ProcurementGrain[];
-      spendGrains: readonly ProcurementGrain[];
-      gates: readonly GrainQuality[];
-    },
-    ApiError
-  >
-> => {
-  const supported = assertScopeSupported(scope);
-  if (supported.isErr()) return err(supported.error);
-  const grainsR = resolveGrains(grain);
-  if (grainsR.isErr()) return err(grainsR.error);
-  const gatesR = await agg.grainQuality();
-  if (gatesR.isErr()) return err(gatesR.error);
-  const grains = grainsR.value;
-  // A grain the gate blocks for FILTERED answers cannot appear in a scoped
-  // aggregate at all — abstain for it rather than serve an unapproved slice.
-  const allowed = grains.filter(
-    (g) => gatesR.value.find((row) => row.grain === g)?.filterAnswersAllowed === true
-  );
-  return ok({
-    grains: allowed,
-    spendGrains: spendApprovedGrains(allowed, gatesR.value),
-    gates: gatesR.value,
-  });
-};
-
-export const scopeStats = async (
-  agg: ProcurementAggregateRepo,
-  repo: ProcurementRepo,
-  scope: ScopeFilter,
-  grain: string | null | undefined
-): Promise<Result<ProcurementStats, ApiError>> => {
-  const resolved = await resolveScopeGate(agg, scope, grain);
-  if (resolved.isErr()) return err(resolved.error);
-  const { grains, spendGrains } = resolved.value;
-  if (grains.length === 0) {
-    return ok({
-      totalValueRon: null,
-      contractsCount: '0',
-      directAcquisitionsCount: '0',
-      proceduresCount: '0',
-      buyersCount: '0',
-      suppliersCount: '0',
-      firstFlowDate: null,
-      lastFlowDate: null,
-    });
-  }
-  // The flow stats (rollups) and the procedures count (a base table) are independent
-  // — one round trip each, concurrently.
-  const [flowsR, proceduresR] = await Promise.all([
-    agg.scopeStats(scope, grains, spendGrains),
-    repo.countProceduresInScope(scope),
-  ]);
-  if (flowsR.isErr()) return err(flowsR.error);
-  if (proceduresR.isErr()) return err(proceduresR.error);
-  return ok({ ...flowsR.value, proceduresCount: proceduresR.value });
-};
-
-export const scopeTopAuthorities = async (
-  agg: ProcurementAggregateRepo,
-  scope: ScopeFilter,
-  grain: string | null | undefined,
-  topN: number
-): Promise<Result<readonly TopPartyRow[], ApiError>> => {
-  const resolved = await resolveScopeGate(agg, scope, grain);
-  if (resolved.isErr()) return err(resolved.error);
-  if (resolved.value.grains.length === 0) return ok([]);
-  return agg.scopeTopParties(
-    scope,
-    resolved.value.grains,
-    resolved.value.spendGrains,
-    'authority',
-    topN
-  );
-};
-
-export const scopeTopSuppliers = async (
-  agg: ProcurementAggregateRepo,
-  scope: ScopeFilter,
-  grain: string | null | undefined,
-  topN: number
-): Promise<Result<readonly TopPartyRow[], ApiError>> => {
-  const resolved = await resolveScopeGate(agg, scope, grain);
-  if (resolved.isErr()) return err(resolved.error);
-  if (resolved.value.grains.length === 0) return ok([]);
-  return agg.scopeTopParties(
-    scope,
-    resolved.value.grains,
-    resolved.value.spendGrains,
-    'supplier',
-    topN
-  );
-};
-
-export const scopeCategoryBreakdown = async (
-  agg: ProcurementAggregateRepo,
-  scope: ScopeFilter,
-  grain: string | null | undefined
-): Promise<Result<readonly CategoryRow[], ApiError>> => {
-  const resolved = await resolveScopeGate(agg, scope, grain);
-  if (resolved.isErr()) return err(resolved.error);
-  if (resolved.value.grains.length === 0) return ok([]);
-  return agg.scopeCategoryBreakdown(scope, resolved.value.grains, resolved.value.spendGrains);
-};
-
-export const scopeSpendOverTime = async (
-  agg: ProcurementAggregateRepo,
-  scope: ScopeFilter,
-  grain: string | null | undefined
-): Promise<Result<readonly MonthlyPoint[], ApiError>> => {
-  const resolved = await resolveScopeGate(agg, scope, grain);
-  if (resolved.isErr()) return err(resolved.error);
-  if (resolved.value.grains.length === 0) return ok([]);
-  return agg.scopeSpendOverTime(scope, resolved.value.grains, resolved.value.spendGrains);
-};
 
 // ── detail bundles + supplier records (thin; the gate rides along on the bundle) ─
 

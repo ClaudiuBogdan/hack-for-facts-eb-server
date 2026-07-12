@@ -22,12 +22,25 @@ import {
 } from '@/modules/shared/index.js';
 
 import {
-  translateScope,
+  translateAnalysisScope,
   translateSearchFilter,
-  type RawScopeFilter,
+  type RawAnalysisScopeInput,
   type RawSearchFilter,
 } from './arg-translation.js';
-import { PAGE_SIZE_DEFAULT } from '../../core/constants.js';
+import {
+  analysisBreakdown,
+  analysisConcentration,
+  analysisFacets,
+  analysisSeries,
+  analysisShare,
+  analysisStats,
+} from '../../core/analysis-usecases.js';
+import {
+  PAGE_SIZE_DEFAULT,
+  type BreakdownDimension,
+  type MeasureId,
+  type SeriesBucket,
+} from '../../core/constants.js';
 import { parseOffsetRequest } from '../../core/search.js';
 import {
   authorityCpvSpend,
@@ -40,19 +53,12 @@ import {
   repeatedPairs,
   resolveCpv,
   sameDaySplittingCandidates,
-  scopeCategoryBreakdown,
-  scopeSpendOverTime,
-  scopeStats,
-  scopeTopAuthorities,
-  scopeTopSuppliers,
-  supplierConcentration,
   topSuppliersByRegionCpv,
 } from '../../core/usecases.js';
 import { mapCapabilityGate } from '../repo/mappers.js';
 
-import type { ProcurementAggregateRepo, ProcurementRepo } from '../../core/ports.js';
+import type { AnalysisRepo, ProcurementAggregateRepo, ProcurementRepo } from '../../core/ports.js';
 import type {
-  CategoryRow,
   GrainQuality,
   ProcurementContract,
   ProcurementDirectAcquisition,
@@ -60,13 +66,13 @@ import type {
   ProcurementModification,
   ProcurementProcedure,
   SupplierRecord,
-  TopPartyRow,
 } from '../../core/types.js';
 import type { Result } from 'neverthrow';
 
 export interface ProcurementResolverDeps {
   readonly repo: ProcurementRepo;
   readonly aggregate: ProcurementAggregateRepo;
+  readonly analysis: AnalysisRepo;
   readonly registry: ContributorRegistry;
 }
 
@@ -100,18 +106,11 @@ interface SearchArgs {
   pageSize?: number;
 }
 
-interface ScopeArgs {
-  scope?: RawScopeFilter | null;
-  grain?: string | null;
-  topN?: number;
-}
-
-const TOP_N_DEFAULT = 10;
-
 export const makeProcurementResolvers = (
   deps: ProcurementResolverDeps
 ): Record<string, unknown> => {
-  const { repo, aggregate, registry } = deps;
+  const { repo, aggregate, analysis, registry } = deps;
+  const analysisDeps = { analysisRepo: analysis };
 
   /** The gate row for a grain, projected onto the client contract. */
   const gateFor = async (
@@ -154,10 +153,8 @@ export const makeProcurementResolvers = (
     return { filter, page };
   };
 
-  const scopeArgs = (a: ScopeArgs) => ({
-    scope: unwrap(translateScope(a.scope)),
-    grain: a.grain ?? null,
-  });
+  const analysisScope = (raw: RawAnalysisScopeInput | null | undefined) =>
+    unwrap(translateAnalysisScope(raw));
 
   /** `{ items, total, estimated }` → the SDL's page shape. */
   const toPage = <T>(result: {
@@ -208,27 +205,60 @@ export const makeProcurementResolvers = (
         return { ...detail, gate: await gateFor('direct_acquisition') };
       },
 
-      // ── scope aggregates ────────────────────────────────────────────────────
-      procurementStats: async (_r: unknown, a: ScopeArgs) => {
-        const { scope, grain } = scopeArgs(a);
-        return unwrap(await scopeStats(aggregate, repo, scope, grain));
-      },
-      procurementTopAuthorities: async (_r: unknown, a: ScopeArgs) => {
-        const { scope, grain } = scopeArgs(a);
-        return unwrap(await scopeTopAuthorities(aggregate, scope, grain, a.topN ?? TOP_N_DEFAULT));
-      },
-      procurementTopSuppliers: async (_r: unknown, a: ScopeArgs) => {
-        const { scope, grain } = scopeArgs(a);
-        return unwrap(await scopeTopSuppliers(aggregate, scope, grain, a.topN ?? TOP_N_DEFAULT));
-      },
-      procurementCategoryBreakdown: async (_r: unknown, a: ScopeArgs) => {
-        const { scope, grain } = scopeArgs(a);
-        return unwrap(await scopeCategoryBreakdown(aggregate, scope, grain));
-      },
-      procurementSpendOverTime: async (_r: unknown, a: ScopeArgs) => {
-        const { scope, grain } = scopeArgs(a);
-        return unwrap(await scopeSpendOverTime(aggregate, scope, grain));
-      },
+      // ── analysis surface (one scope, six shapes; design §5.3) ───────────────
+      procurementStats: async (_r: unknown, a: { scope?: RawAnalysisScopeInput | null }) =>
+        unwrap(await analysisStats(analysisDeps, { scope: analysisScope(a.scope) })),
+      procurementSeries: async (
+        _r: unknown,
+        a: { scope?: RawAnalysisScopeInput | null; bucket: SeriesBucket; measure: MeasureId }
+      ) =>
+        unwrap(
+          await analysisSeries(analysisDeps, {
+            scope: analysisScope(a.scope),
+            bucket: a.bucket,
+            measure: a.measure,
+          })
+        ),
+      procurementBreakdown: async (
+        _r: unknown,
+        a: {
+          scope?: RawAnalysisScopeInput | null;
+          dimension: BreakdownDimension;
+          topN?: number | null;
+        }
+      ) =>
+        unwrap(
+          await analysisBreakdown(analysisDeps, {
+            scope: analysisScope(a.scope),
+            dimension: a.dimension,
+            ...(a.topN !== undefined && a.topN !== null && { topN: a.topN }),
+          })
+        ),
+      procurementShare: async (
+        _r: unknown,
+        a: { numerator: RawAnalysisScopeInput; denominator: RawAnalysisScopeInput }
+      ) =>
+        unwrap(
+          await analysisShare(analysisDeps, {
+            numerator: analysisScope(a.numerator),
+            denominator: analysisScope(a.denominator),
+          })
+        ),
+      procurementFacets: async (
+        _r: unknown,
+        a: {
+          scope?: RawAnalysisScopeInput | null;
+          dimensions: readonly BreakdownDimension[];
+          topN?: number | null;
+        }
+      ) =>
+        unwrap(
+          await analysisFacets(analysisDeps, {
+            scope: analysisScope(a.scope),
+            dimensions: a.dimensions,
+            ...(a.topN !== undefined && a.topN !== null && { topN: a.topN }),
+          })
+        ),
 
       // ── supplier records ────────────────────────────────────────────────────
       procurementSupplierRecords: async (
@@ -294,8 +324,25 @@ export const makeProcurementResolvers = (
         );
         return edgeResult(r);
       },
-      procurementConcentration: async (_r: unknown, a: EdgeArgs & { authorityCui: string }) =>
-        unwrap(await supplierConcentration(aggregate, a.authorityCui, edgeFilter(a))),
+      procurementConcentration: async (
+        _r: unknown,
+        a: { scope?: RawAnalysisScopeInput | null; basis?: string | null }
+      ) => {
+        const basis = a.basis ?? undefined;
+        if (basis !== undefined && basis !== 'value' && basis !== 'count') {
+          throw toGraphqlError({
+            type: 'InvalidInput',
+            message: "basis must be 'value' or 'count'",
+            field: 'basis',
+          });
+        }
+        return unwrap(
+          await analysisConcentration(analysisDeps, {
+            scope: analysisScope(a.scope),
+            ...(basis !== undefined && { basis }),
+          })
+        );
+      },
       procurementAuthorityCpvSpend: async (
         _r: unknown,
         a: {
@@ -402,15 +449,6 @@ export const makeProcurementResolvers = (
       parentContract: (m: ProcurementModification) =>
         m.contractId === null ? null : contractLoader.load(m.contractId),
     },
-
-    ProcurementTopPartyRow: {
-      authority: (r: TopPartyRow) =>
-        r.authorityCui === null ? null : party(r.authorityCui, r.authorityName),
-      supplier: (r: TopPartyRow) =>
-        r.supplierCui === null ? null : party(r.supplierCui, r.supplierName),
-      sourceGrain: (r: TopPartyRow) => r.grain,
-    },
-    ProcurementCategoryRow: { sourceGrain: (r: CategoryRow) => r.grain },
 
     ProcurementFlowRecord: {
       // The union members are the plain node objects; the surrogate PK discriminates.

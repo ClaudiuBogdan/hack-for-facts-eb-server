@@ -42,12 +42,7 @@ const mockRepo = (
   gates: readonly GrainQuality[],
   over: Partial<ProcurementAggregateRepo> = {}
 ): ProcurementAggregateRepo => ({
-  // The scope-aggregate methods are exercised in aggregate-scope.test.ts; this fake
-  // only needs the edge/cpv surface the gate usecases below call.
-  scopeStats: () => Promise.reject(new Error('unused')),
-  scopeTopParties: () => Promise.reject(new Error('unused')),
-  scopeCategoryBreakdown: () => Promise.reject(new Error('unused')),
-  scopeSpendOverTime: () => Promise.reject(new Error('unused')),
+  // This fake only needs the edge/cpv surface the gate usecases below call.
   grainQuality: () => Promise.resolve(ok(gates) as Result<readonly GrainQuality[], ApiError>),
   topSuppliersForAuthority: vi.fn(() => Promise.resolve(ok([]))),
   topAuthoritiesForSupplier: vi.fn(() => Promise.resolve(ok([]))),
@@ -182,7 +177,6 @@ describe('gate: spendRankingsAllowed=false → count-degrade with caveat', () =>
 
     expect(regionalTop).toHaveBeenCalledWith(expect.anything(), true);
   });
-
   it('supplierConcentration passes basis=count when spend is suppressed', async () => {
     const conc = vi.fn(() =>
       Promise.resolve(
