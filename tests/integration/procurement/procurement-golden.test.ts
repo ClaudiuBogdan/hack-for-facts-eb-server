@@ -1,9 +1,7 @@
 /**
  * Procurement golden + tri-surface tests against LIVE transparenta_prod (read-only).
  *
- * Pinned to verified live facts (re-read 2026-07-09):
- *   - grain gate: direct_acquisition {filters:t, spend:t, region:f};
- *     procurement_contract {filters:t, spend:f, region:f}
+ * Pinned to verified live record facts (re-read 2026-07-09):
  *   - known DA edge: authority 29170968 (GRADINITA PP NR 23 PLOIESTI) ↔ supplier
  *     28022254 (Miralis Impex) is the #1 supplier by value AND flow count
  *   - cpv_divisions = 45 rows; gate refreshed_at = 2026-06-29 (the MVs drift)
@@ -23,14 +21,17 @@ import { buildRedesignApp } from '@/app/build-redesign-app.js';
 import { loadRedesignConfig } from '@/infra/config/redesign-env.js';
 import { makeProcurementDetailRepo } from '@/modules/procurement/shell/repo/detail-repo.js';
 
+import { reconcileAdvertisedProcurementMatrix } from './procurement-matrix-golden.js';
+
 import type { ProdDatabase } from '@/modules/shared/index.js';
 import type { FastifyInstance } from 'fastify';
 
 const HAS_DB = (process.env['PROD_DATABASE_URL'] ?? '').length > 0;
+const LIVE_REQUIRED = process.env['PROCUREMENT_LIVE_GOLDEN_REQUIRED'] === '1';
 const AUTHORITY = '29170968';
 const SUPPLIER = '28022254';
 
-const d = HAS_DB ? describe : describe.skip;
+const d = HAS_DB || LIVE_REQUIRED ? describe : describe.skip;
 
 let app: FastifyInstance;
 let pool: Pool;
@@ -58,6 +59,8 @@ const gql = async (query: string, variables?: Record<string, unknown>): Promise<
 interface McpToolResult {
   readonly ok: boolean;
   readonly error?: string;
+  readonly errorType?: string;
+  readonly errorCode?: string;
   readonly items?: readonly Record<string, unknown>[];
 }
 
@@ -83,12 +86,27 @@ const mcpCall = async (name: string, args: Record<string, unknown>): Promise<Mcp
   return text !== undefined ? (JSON.parse(text) as McpToolResult) : { ok: false };
 };
 
+const mcpToolNames = async (): Promise<readonly string[]> => {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/api/v1/mcp',
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+    payload: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+  });
+  // eslint-disable-next-line no-restricted-syntax -- test parses a trusted MCP JSON-RPC body
+  const body = JSON.parse(res.body) as { result?: { tools?: readonly { name: string }[] } };
+  return (body.result?.tools ?? []).map((tool) => tool.name);
+};
+
 /** Narrow a value to a record (the GraphQL data shapes are dynamic but trusted). */
 const rec = (v: unknown): Record<string, unknown> => v as Record<string, unknown>;
 const arr = (v: unknown): readonly unknown[] => v as readonly unknown[];
 
 d('Procurement golden (live prod)', () => {
   beforeAll(async () => {
+    if (!HAS_DB) {
+      throw new Error('PROCUREMENT_LIVE_GOLDEN_REQUIRED=1 but PROD_DATABASE_URL is not configured');
+    }
     const config = loadRedesignConfig(process.env);
     const built = await buildRedesignApp({
       kernelConfig: config.kernel,
@@ -111,71 +129,6 @@ d('Procurement golden (live prod)', () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
     process.off('uncaughtException', onUncaught);
   });
-
-  it('grain gate matches the live gate booleans + serves the client contract shape', async () => {
-    const res = await gql(
-      `{ procurementGrainQuality { sourceGrain rowsCount amountCoverageRate filterAnswersAllowed spendRankingsAllowed supplierRegionFiltersAllowed blockers dataAsOf cadence } }`
-    );
-    expect(res.errors).toBeUndefined();
-    const rows = arr(res.data?.['procurementGrainQuality']).map(rec);
-    const byGrain = new Map(rows.map((g) => [g['sourceGrain'] as string, g]));
-    const da = byGrain.get('direct_acquisition');
-    const pc = byGrain.get('procurement_contract');
-    expect(da?.['filterAnswersAllowed']).toBe(true);
-    expect(da?.['spendRankingsAllowed']).toBe(true);
-    expect(da?.['supplierRegionFiltersAllowed']).toBe(false);
-    expect(pc?.['filterAnswersAllowed']).toBe(true);
-    expect(pc?.['spendRankingsAllowed']).toBe(false); // contract spend gate-suppressed
-
-    // Counts + rates are STRINGS on the wire; cadence is honestly null; dataAsOf is a date.
-    expect(typeof da?.['rowsCount']).toBe('string');
-    expect(typeof da?.['amountCoverageRate']).toBe('string');
-    expect(da?.['cadence']).toBeNull();
-    expect(da?.['dataAsOf']).toMatch(/^\d{4}-\d{2}-\d{2}$/u);
-  });
-
-  it('tri-surface: MCP rank == raw SQL over the org_edge MV (analyst surface unchanged)', async () => {
-    const sqlRes = await pool.query<{ supplier_cui: string; fc: string; amt: string }>(
-      `select supplier_cui, sum(flow_count)::text fc, sum(amount_ron_sum)::text amt
-       from procurement.org_edge_monthly_rollups
-       where authority_cui = $1 and source_grain = 'direct_acquisition' and month_start >= '2011-07-01'
-       group by supplier_cui order by sum(amount_ron_sum) desc nulls last limit 1`,
-      [AUTHORITY]
-    );
-    const raw = sqlRes.rows[0];
-    expect(raw?.supplier_cui).toBe(SUPPLIER);
-
-    const mcp = await mcpCall('rank_procurement_suppliers', {
-      authorityCui: AUTHORITY,
-      grain: 'direct_acquisition',
-      topN: 1,
-    });
-    expect(mcp.ok).toBe(true);
-    expect(mcp.items?.[0]?.['supplierCui']).toBe(raw?.supplier_cui);
-    expect(mcp.items?.[0]?.['flowCount']).toBe(raw?.fc);
-    expect(mcp.items?.[0]?.['amountRonSum']).toBe(raw?.amt);
-  }, 30_000);
-
-  it('Entity.procurement == the contributor profile (parity §14.7)', async () => {
-    const res = await gql(
-      `query($cui:CUI!){ entity(cui:$cui){ procurement { asAuthority { daCount rankBasis } caveats } } }`,
-      { cui: AUTHORITY }
-    );
-    expect(res.errors).toBeUndefined();
-    const p = rec(rec(res.data?.['entity'])['procurement']);
-    const role = rec(p['asAuthority']);
-    expect(Number(role['daCount'])).toBeGreaterThan(0);
-    expect((p['caveats'] as string[]).some((c) => c.includes('separate grains'))).toBe(true);
-  }, 30_000);
-
-  it('grain separation: contract spend totals are suppressed (never summed with DAs)', async () => {
-    const res = await gql(
-      `query($cui:CUI!){ entity(cui:$cui){ procurement { asAuthority { contractTotalRon daTotalRon } } } }`,
-      { cui: AUTHORITY }
-    );
-    const role = rec(rec(rec(res.data?.['entity'])['procurement'])['asAuthority']);
-    expect(role['contractTotalRon']).toBeNull(); // gate-suppressed → null, not summed in
-  }, 30_000);
 
   it('DA offset guard: an unbounded DA search is rejected; an entity-scoped one is not', async () => {
     const bad = await gql(`{ procurementDirectAcquisitions(pageSize: 3){ items { id } } }`);
@@ -237,17 +190,39 @@ d('Procurement golden (live prod)', () => {
     expect(mcp.error).toContain('selective filter');
   });
 
-  it('get_procurement_concentration stays on the legacy MV path (value-based for DA)', async () => {
-    const mcp = await mcpCall('get_procurement_concentration', {
-      authorityCui: AUTHORITY,
-      grain: 'direct_acquisition',
-    });
-    expect(mcp.ok).toBe(true);
-    const item = rec((mcp as unknown as { item: unknown }).item);
-    expect(item['basis']).toBe('value');
-    expect(item['supplierCount'] as number).toBeGreaterThan(0);
-    expect(item['totalRon']).not.toBeNull();
-  }, 30_000);
+  it('removed GraphQL fields and MCP names are absent from live introspection', async () => {
+    const removed = [
+      'rank_procurement_suppliers',
+      'rank_procurement_authorities',
+      'get_procurement_concentration',
+      'get_procurement_authority_cpv_spend',
+      'find_same_day_da_candidates',
+      'get_procurement_grain_quality',
+    ];
+    const toolNames = await mcpToolNames();
+    for (const name of removed) expect(toolNames).not.toContain(name);
+
+    const introspection = await gql(`{
+      query: __type(name: "Query") { fields { name } }
+      entity: __type(name: "Entity") { fields { name } }
+    }`);
+    expect(introspection.errors).toBeUndefined();
+    const queryFields = arr(rec(introspection.data?.['query'])['fields']).map(
+      (field) => rec(field)['name']
+    );
+    const removedQueryFields = [
+      'procurementGrainQuality',
+      'procurementRepeatedPairs',
+      'procurementAuthorityCpvSpend',
+      'procurementTopSuppliersByRegionCpv',
+      'procurementSameDayCandidates',
+    ];
+    for (const name of removedQueryFields) expect(queryFields).not.toContain(name);
+    const entityFields = arr(rec(introspection.data?.['entity'])['fields']).map(
+      (field) => rec(field)['name']
+    );
+    expect(entityFields).not.toContain('procurement');
+  });
 
   it('cpv divisions catalog is the reliable 45-row hierarchy', async () => {
     const res = await gql(`{ procurementCpvDivisions { divisionCode labelEn labelRo } }`);
@@ -278,7 +253,7 @@ d('Procurement golden (live prod)', () => {
     expect(geo.errors?.[0]?.extensions?.code).toBe('INVALID_INPUT');
   });
 
-  it('detail bundle: a contract loads with its trail, procedure, duplicates and gate', async () => {
+  it('detail bundle: a contract loads with its trail, procedure and duplicates', async () => {
     const sqlRes = await pool.query<{ contract_id: string }>(
       `select contract_id::text from procurement.contracts where is_canonical and procedure_id is not null limit 1`
     );
@@ -291,7 +266,6 @@ d('Procurement golden (live prod)', () => {
          procedure { id sourceSystem isCanonical dupGroupId }
          duplicates { sourceSystem id }
          ted { tedNoticeNo sourceUrl }
-         gate { sourceGrain spendRankingsAllowed cadence }
        } }`,
       { id }
     );
@@ -299,8 +273,6 @@ d('Procurement golden (live prod)', () => {
     const bundle = rec(res.data?.['procurementContract']);
     expect(rec(bundle['contract'])['id']).toBe(id);
     expect(Array.isArray(bundle['duplicates'])).toBe(true);
-    expect(rec(bundle['gate'])['sourceGrain']).toBe('procurement_contract');
-    expect(rec(bundle['gate'])['cadence']).toBeNull();
     // Procedures carry no dedup columns → structural, not fabricated.
     const procedure = bundle['procedure'];
     if (procedure !== null) {
@@ -323,7 +295,6 @@ d('Procurement golden (live prod)', () => {
          perLotWinners { lotLabel }
          duplicates { id }
          ted { tedNoticeNo sourceUrl }
-         gate { sourceGrain }
        } }`,
       { id }
     );
@@ -444,17 +415,20 @@ d('Procurement golden (live prod)', () => {
 /**
  * The analysis surface golden — DOUBLE-gated: PROD_DATABASE_URL must be present
  * AND `procurement.analysis_generations` must exist with an active row (the
- * scraper package published). Each test early-returns (reported green, asserting
- * nothing) when either gate is closed — live-SQL correctness for this surface is
- * proven ONLY by running this suite against prod with a published generation,
- * which happens in the pre-commit golden run; there is deliberately no
- * server-side disposable-Postgres DDL suite (the scraper owns the DDL).
+ * scraper package published). Normal local runs report every inactive test as
+ * skipped; strict live mode fails setup when either prerequisite is missing.
+ * Live-SQL correctness for this surface is proven only against a published
+ * generation; there is deliberately no server-side disposable-Postgres DDL
+ * suite because the scraper owns the DDL.
  */
 d('Procurement analysis golden (live prod, active generation required)', () => {
   let active = false;
   let buildId = '';
 
   beforeAll(async () => {
+    if (!HAS_DB) {
+      throw new Error('PROCUREMENT_LIVE_GOLDEN_REQUIRED=1 but PROD_DATABASE_URL is not configured');
+    }
     const config = loadRedesignConfig(process.env);
     const built = await buildRedesignApp({
       kernelConfig: config.kernel,
@@ -489,6 +463,10 @@ d('Procurement analysis golden (live prod, active generation required)', () => {
         await new Promise((resolve) => setTimeout(resolve, 2000));
       }
     }
+    if (!active && LIVE_REQUIRED) {
+      throw new Error('strict procurement golden requires an active analysis generation');
+    }
+    if (active) console.info(`procurement analysis golden buildId=${buildId}`);
   }, 60_000);
 
   afterAll(async () => {
@@ -498,8 +476,79 @@ d('Procurement analysis golden (live prod, active generation required)', () => {
     process.off('uncaughtException', onUncaught);
   });
 
-  it('procurementStats blocks reconcile with raw SQL over the authority_dims rollup', async () => {
-    if (!active) return;
+  it('serves the advertised scope/filter families across all grains on one build', async (ctx) => {
+    if (!active) ctx.skip();
+    const cases: readonly {
+      readonly label: string;
+      readonly scope: Record<string, unknown>;
+      readonly grain: string;
+    }[] = [
+      { label: 'platform', scope: { grain: 'procedure' }, grain: 'procedure' },
+      {
+        label: 'authority',
+        scope: { authorityCui: AUTHORITY, grain: 'contract' },
+        grain: 'contract',
+      },
+      {
+        label: 'supplier',
+        scope: { supplierCui: SUPPLIER, grain: 'direct_acquisition' },
+        grain: 'direct_acquisition',
+      },
+      {
+        label: 'authority-supplier pair',
+        scope: { authorityCui: AUTHORITY, supplierCui: SUPPLIER, grain: 'contract' },
+        grain: 'contract',
+      },
+      {
+        label: 'CPV division',
+        scope: { cpvDivision: '33', grain: 'procedure' },
+        grain: 'procedure',
+      },
+      {
+        label: 'CPV code',
+        scope: { cpvCode: '33600000', grain: 'contract' },
+        grain: 'contract',
+      },
+      {
+        label: 'buyer region',
+        scope: { buyerRegion: 'Sud-Muntenia', grain: 'direct_acquisition' },
+        grain: 'direct_acquisition',
+      },
+      { label: 'status', scope: { status: 'awarded', grain: 'procedure' }, grain: 'procedure' },
+      {
+        label: 'procedure type',
+        scope: { procedureType: 'licitatie-deschisa', grain: 'contract' },
+        grain: 'contract',
+      },
+      {
+        label: 'calendar window',
+        scope: { authorityCui: AUTHORITY, grain: 'direct_acquisition', year: 2024 },
+        grain: 'direct_acquisition',
+      },
+    ];
+
+    for (const testCase of cases) {
+      const response = await gql(
+        `query($scope:ProcurementAnalysisScopeInput!){ procurementStats(scope:$scope){
+           blocks { grain recordCount meta { buildId canonicalScope answerability reason } }
+         } }`,
+        { scope: testCase.scope }
+      );
+      expect(response.errors, testCase.label).toBeUndefined();
+      const blocks = arr(rec(response.data?.['procurementStats'])['blocks']).map(rec);
+      expect(blocks, testCase.label).toHaveLength(1);
+      expect(blocks[0]?.['grain'], testCase.label).toBe(testCase.grain);
+      expect(rec(blocks[0]?.['meta'])['buildId'], testCase.label).toBe(buildId);
+    }
+  }, 90_000);
+
+  it('reconciles every advertised matrix row across GraphQL, MCP and raw SQL', async (ctx) => {
+    if (!active) ctx.skip();
+    await reconcileAdvertisedProcurementMatrix({ pool, buildId, gql, mcpCall });
+  }, 1_800_000);
+
+  it('procurementStats blocks reconcile with raw SQL over the authority_dims rollup', async (ctx) => {
+    if (!active) ctx.skip();
     const sqlRes = await pool.query<{ grain: string; rc: string; wv: string; va: string | null }>(
       `select grain, sum(record_count)::text rc, sum(with_value_count)::text wv,
               sum(value_awarded_sum)::text va
@@ -536,8 +585,8 @@ d('Procurement analysis golden (live prod, active generation required)', () => {
     }
   }, 30_000);
 
-  it('breakdown reconciles by construction: top + other + unknown == the same read totals', async () => {
-    if (!active) return;
+  it('breakdown reconciles by construction: top + other + unknown == the same read totals', async (ctx) => {
+    if (!active) ctx.skip();
     const res = await gql(
       `query($cui:String!){ procurementBreakdown(scope: { authorityCui: $cui }, dimension: supplier, topN: 5){
          grain rankedBy
@@ -557,8 +606,8 @@ d('Procurement analysis golden (live prod, active generation required)', () => {
     }
   }, 30_000);
 
-  it('MCP aggregate_procurement agrees with the GraphQL stats blocks', async () => {
-    if (!active) return;
+  it('MCP aggregate_procurement agrees with the GraphQL stats blocks', async (ctx) => {
+    if (!active) ctx.skip();
     const g = await gql(
       `query($cui:String!){ procurementStats(scope: { authorityCui: $cui }){
          blocks { grain recordCount valueAwardedSum } } }`,
@@ -579,14 +628,315 @@ d('Procurement analysis golden (live prod, active generation required)', () => {
     }
   }, 30_000);
 
-  it('generalized concentration serves decimal-string shares from the rollups', async () => {
-    // The MCP get_procurement_concentration tool deliberately stays on the legacy
-    // MV path (S6) — the two substrates may legitimately disagree, so no
-    // cross-comparison here.
-    if (!active) return;
+  it('all advertised series metrics and buckets agree between GraphQL and MCP', async (ctx) => {
+    if (!active) ctx.skip();
+    const cases: readonly {
+      readonly label: string;
+      readonly scope: Record<string, unknown>;
+      readonly measure: string;
+      readonly bucket: string;
+    }[] = [
+      {
+        label: 'record count',
+        scope: { grain: 'contract' },
+        measure: 'recordCount',
+        bucket: 'month',
+      },
+      {
+        label: 'valued count',
+        scope: { authorityCui: AUTHORITY, grain: 'contract' },
+        measure: 'withValueCount',
+        bucket: 'quarter',
+      },
+      {
+        label: 'awarded value',
+        scope: { authorityCui: AUTHORITY, grain: 'direct_acquisition' },
+        measure: 'valueAwardedSum',
+        bucket: 'year',
+      },
+      {
+        label: 'estimated value',
+        scope: { cpvDivision: '33', grain: 'procedure' },
+        measure: 'valueEstimatedSum',
+        bucket: 'month',
+      },
+      {
+        label: 'distinct suppliers',
+        scope: { grain: 'contract' },
+        measure: 'distinctSuppliers',
+        bucket: 'year',
+      },
+      {
+        label: 'distinct authorities',
+        scope: { supplierCui: SUPPLIER, grain: 'contract' },
+        measure: 'distinctAuthorities',
+        bucket: 'month',
+      },
+    ];
+
+    for (const testCase of cases) {
+      const graph = await gql(
+        `query($scope:ProcurementAnalysisScopeInput!,$measure:ProcurementAnalysisMeasure!,$bucket:ProcurementSeriesBucket!){
+           procurementSeries(scope:$scope,measure:$measure,bucket:$bucket){
+             grain measure bucket points { bucket value }
+             meta { answerability reason buildId canonicalScope }
+           }
+         }`,
+        { scope: testCase.scope, measure: testCase.measure, bucket: testCase.bucket }
+      );
+      expect(graph.errors, testCase.label).toBeUndefined();
+      const graphBlocks = arr(graph.data?.['procurementSeries']).map(rec);
+
+      const mcp = await mcpCall('aggregate_procurement', {
+        shape: 'series',
+        scope: testCase.scope,
+        measure: testCase.measure,
+        bucket: testCase.bucket,
+      });
+      expect(mcp.ok, testCase.label).toBe(true);
+      const mcpBlocks = (mcp.items ?? []).map(rec);
+      expect(
+        mcpBlocks.map((block) => block['grain']),
+        testCase.label
+      ).toEqual(graphBlocks.map((block) => block['grain']));
+      expect(
+        mcpBlocks.map((block) => block['points']),
+        testCase.label
+      ).toEqual(graphBlocks.map((block) => block['points']));
+      for (const block of graphBlocks) expect(rec(block['meta'])['buildId']).toBe(buildId);
+    }
+
+    const invalidGraph = await gql(
+      `query($scope:ProcurementAnalysisScopeInput!){
+         procurementSeries(scope:$scope,measure:avgValueAwarded,bucket:quarter){ grain }
+       }`,
+      { scope: { authorityCui: AUTHORITY, grain: 'contract' } }
+    );
+    expect(rec(invalidGraph.errors?.[0])['extensions']).toMatchObject({ code: 'INVALID_INPUT' });
+
+    const invalidMcp = await mcpCall('aggregate_procurement', {
+      shape: 'series',
+      scope: { authorityCui: AUTHORITY, grain: 'contract' },
+      measure: 'avgValueAwarded',
+      bucket: 'quarter',
+    });
+    expect(invalidMcp.ok).toBe(false);
+    expect(invalidMcp.errorType).toBe('InvalidInput');
+    expect(invalidMcp.errorCode).toBe('INVALID_INPUT');
+    expect(invalidMcp.error).toMatch(/not legal|not supported|invalid/iu);
+  }, 120_000);
+
+  it('series, breakdown and concentration reconcile with raw rollup SQL', async (ctx) => {
+    if (!active) ctx.skip();
+
+    const series = await gql(
+      `query($cui:String!){ procurementSeries(
+         scope:{authorityCui:$cui,grain:contract}, measure:recordCount, bucket:month
+       ){ points { bucket value } } }`,
+      { cui: AUTHORITY }
+    );
+    expect(series.errors).toBeUndefined();
+    const rawSeries = await pool.query<{ bucket: string | null; value: string }>(
+      `select to_char(month_start, 'YYYY-MM') bucket, sum(record_count)::text value
+         from procurement.analysis_rollup_authority_dims_monthly
+        where build_id = $1 and grain = 'contract' and authority_cui = $2
+        group by month_start order by month_start asc nulls last`,
+      [buildId, AUTHORITY]
+    );
+    expect(rec(arr(series.data?.['procurementSeries'])[0])['points']).toEqual(rawSeries.rows);
+
+    const breakdown = await gql(
+      `query($cui:String!){ procurementBreakdown(
+         scope:{authorityCui:$cui,grain:contract}, dimension:supplier, topN:5
+       ){ rankedBy buckets { kind key recordCount valueAwardedSum } } }`,
+      { cui: AUTHORITY }
+    );
+    expect(breakdown.errors).toBeUndefined();
+    const breakdownBlock = rec(arr(breakdown.data?.['procurementBreakdown'])[0]);
+    const firstTop = arr(breakdownBlock['buckets'])
+      .map(rec)
+      .find((bucket) => bucket['kind'] === 'top');
+    expect(firstTop).toBeDefined();
+    const orderColumn =
+      breakdownBlock['rankedBy'] === 'value' ? 'value_awarded_sum' : 'record_count';
+    const rawTop = await pool.query<{
+      key: string;
+      record_count: string;
+      value_awarded_sum: string | null;
+    }>(
+      `select supplier_cui key, sum(record_count)::text record_count,
+              sum(value_awarded_sum)::text value_awarded_sum
+         from procurement.analysis_rollup_edge_monthly
+        where build_id = $1 and grain = 'contract' and authority_cui = $2
+          and supplier_cui is not null
+        group by supplier_cui
+        order by sum(${orderColumn}) desc nulls last, supplier_cui asc limit 1`,
+      [buildId, AUTHORITY]
+    );
+    expect(firstTop?.['key']).toBe(rawTop.rows[0]?.key);
+    expect(firstTop?.['recordCount']).toBe(rawTop.rows[0]?.record_count);
+
+    const concentration = await gql(
+      `query($cui:String!){ procurementConcentration(
+         scope:{authorityCui:$cui,grain:contract}, basis:count
+       ){ supplierCount meta { buildId } } }`,
+      { cui: AUTHORITY }
+    );
+    expect(concentration.errors).toBeUndefined();
+    const rawSuppliers = await pool.query<{ supplier_count: number }>(
+      `select count(distinct supplier_cui)::int supplier_count
+         from procurement.analysis_rollup_edge_monthly
+        where build_id = $1 and grain = 'contract' and authority_cui = $2
+          and supplier_cui is not null`,
+      [buildId, AUTHORITY]
+    );
+    const concentrationBlock = rec(arr(concentration.data?.['procurementConcentration'])[0]);
+    expect(concentrationBlock['supplierCount']).toBe(rawSuppliers.rows[0]?.supplier_count);
+    expect(rec(concentrationBlock['meta'])['buildId']).toBe(buildId);
+  }, 90_000);
+
+  it('breakdown and concentration match their retained MCP shapes', async (ctx) => {
+    if (!active) ctx.skip();
+    const scope = { authorityCui: AUTHORITY, grain: 'contract' };
+    const breakdownGraph = await gql(
+      `query($scope:ProcurementAnalysisScopeInput!){ procurementBreakdown(scope:$scope,dimension:supplier,topN:5){
+         grain dimension rankedBy buckets { kind key recordCount withValueCount valueAwardedSum shareOfScope }
+         meta { answerability reason policyKey grain valueBasis dateBasis population buildId
+                counts { rows withValue } undatedInScope { count valueRon }
+                provisional caveats canonicalScope }
+       } }`,
+      { scope }
+    );
+    const breakdownMcp = await mcpCall('aggregate_procurement', {
+      shape: 'breakdown',
+      scope,
+      dimension: 'supplier',
+      topN: 5,
+    });
+    expect(breakdownMcp.ok).toBe(true);
+    expect(breakdownMcp.items).toEqual(breakdownGraph.data?.['procurementBreakdown']);
+
+    const concentrationGraph = await gql(
+      `query($scope:ProcurementAnalysisScopeInput!){ procurementConcentration(scope:$scope,basis:count){
+         grain basis supplierCount top1Share top5Share hhi totalRon
+         meta { answerability reason policyKey grain valueBasis dateBasis population buildId
+                counts { rows withValue } undatedInScope { count valueRon }
+                provisional caveats canonicalScope }
+       } }`,
+      { scope }
+    );
+    const concentrationMcp = await mcpCall('aggregate_procurement', {
+      shape: 'concentration',
+      scope,
+      basis: 'count',
+    });
+    expect(concentrationMcp.ok).toBe(true);
+    expect(concentrationMcp.items).toEqual(concentrationGraph.data?.['procurementConcentration']);
+  }, 60_000);
+
+  it('share operands stay on one build and facets reconcile each dimension', async (ctx) => {
+    if (!active) ctx.skip();
+    const cpvFixture = await pool.query<{ cpv_division: string }>(
+      `select cpv_division
+         from procurement.analysis_rollup_authority_dims_monthly
+        where build_id = $1 and grain = 'contract' and authority_cui = $2
+          and cpv_division is not null
+        group by cpv_division
+       having sum(value_awarded_sum) > 0
+        order by sum(value_awarded_sum) desc
+        limit 1`,
+      [buildId, AUTHORITY]
+    );
+    const cpvDivision = cpvFixture.rows[0]?.cpv_division;
+    expect(cpvDivision, 'share fixture has a positive monetary numerator').toBeDefined();
+    const share = await gql(
+      `query($cui:String!,$cpv:String!){ procurementShare(
+         denominator:{authorityCui:$cui,grain:contract},
+         numerator:{authorityCui:$cui,cpvDivision:$cpv,grain:contract}
+       ){
+         share answerability reason
+         numerator { grain recordCount valueAwardedSum meta { buildId } }
+         denominator { grain recordCount valueAwardedSum meta { buildId } }
+       } }`,
+      { cui: AUTHORITY, cpv: cpvDivision }
+    );
+    expect(share.errors).toBeUndefined();
+    const shareResult = rec(share.data?.['procurementShare']);
+    expect(rec(rec(shareResult['numerator'])['meta'])['buildId']).toBe(buildId);
+    expect(rec(rec(shareResult['denominator'])['meta'])['buildId']).toBe(buildId);
+    const rawShareOperands = await pool.query<{
+      kind: string;
+      record_count: string;
+      value_awarded_sum: string | null;
+    }>(
+      `select 'numerator' kind, coalesce(sum(record_count),0)::text record_count,
+              sum(value_awarded_sum)::text value_awarded_sum
+         from procurement.analysis_rollup_authority_dims_monthly
+        where build_id = $1 and grain = 'contract' and authority_cui = $2
+          and cpv_division = $3
+       union all
+       select 'denominator', coalesce(sum(record_count),0)::text,
+              sum(value_awarded_sum)::text
+         from procurement.analysis_rollup_authority_dims_monthly
+        where build_id = $1 and grain = 'contract' and authority_cui = $2`,
+      [buildId, AUTHORITY, cpvDivision]
+    );
+    const rawShareByKind = new Map(rawShareOperands.rows.map((row) => [row.kind, row]));
+    const rawNumerator = rawShareByKind.get('numerator');
+    const rawDenominator = rawShareByKind.get('denominator');
+    expect(new Decimal(rawNumerator?.record_count ?? '0').greaterThan(0)).toBe(true);
+    expect(new Decimal(rawDenominator?.record_count ?? '0').greaterThan(0)).toBe(true);
+    expect(new Decimal(rawNumerator?.value_awarded_sum ?? '0').greaterThan(0)).toBe(true);
+    expect(new Decimal(rawDenominator?.value_awarded_sum ?? '0').greaterThan(0)).toBe(true);
+    expect(rec(shareResult['numerator'])['recordCount']).toBe(rawNumerator?.record_count);
+    expect(rec(shareResult['denominator'])['recordCount']).toBe(rawDenominator?.record_count);
+    if (shareResult['share'] === null) {
+      expect(shareResult['answerability']).toBe('abstained');
+      expect(rec(shareResult['numerator'])['valueAwardedSum']).toBeNull();
+      expect(rec(shareResult['denominator'])['valueAwardedSum']).toBeNull();
+    } else {
+      expect(shareResult['share']).toBe(
+        new Decimal(rawNumerator?.value_awarded_sum ?? '0')
+          .div(rawDenominator?.value_awarded_sum ?? '1')
+          .toFixed(4)
+      );
+    }
+
+    const facets = await gql(
+      `query($cui:String!){ procurementFacets(
+         scope:{authorityCui:$cui,grain:contract}, dimensions:[supplier,cpvDivision,status], topN:5
+       ){ blocks { dimension buckets { kind recordCount } meta { counts { rows } buildId } } } }`,
+      { cui: AUTHORITY }
+    );
+    expect(facets.errors).toBeUndefined();
+    const facetBlocks = arr(rec(facets.data?.['procurementFacets'])['blocks']).map(rec);
+    expect(facetBlocks.map((block) => block['dimension'])).toEqual([
+      'supplier',
+      'cpvDivision',
+      'status',
+    ]);
+    for (const block of facetBlocks) {
+      const total = arr(block['buckets'])
+        .map(rec)
+        .reduce((sum, bucket) => sum + BigInt(bucket['recordCount'] as string), 0n);
+      expect(total.toString()).toBe(rec(rec(block['meta'])['counts'])['rows']);
+      expect(rec(block['meta'])['buildId']).toBe(buildId);
+      const individual = await gql(
+        `query($cui:String!,$dimension:ProcurementBreakdownDimension!){ procurementBreakdown(
+           scope:{authorityCui:$cui,grain:contract},dimension:$dimension,topN:5
+         ){ dimension buckets { kind recordCount } meta { counts { rows } buildId } } }`,
+        { cui: AUTHORITY, dimension: block['dimension'] }
+      );
+      expect(individual.errors).toBeUndefined();
+      expect(rec(arr(individual.data?.['procurementBreakdown'])[0])).toEqual(block);
+    }
+  }, 60_000);
+
+  it('generalized concentration serves decimal-string shares from the rollups', async (ctx) => {
+    if (!active) ctx.skip();
     const res = await gql(
       `query($cui:String!){ procurementConcentration(scope: { authorityCui: $cui, grain: direct_acquisition }){
-         grain basis supplierCount top1Share hhi totalRon meta { buildId caveats }
+         grain basis supplierCount top1Share hhi totalRon meta { answerability reason buildId caveats }
        } }`,
       { cui: AUTHORITY }
     );

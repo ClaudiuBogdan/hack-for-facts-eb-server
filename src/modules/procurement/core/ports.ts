@@ -1,9 +1,7 @@
 /**
  * Procurement module — repo ports (plan §3). All methods return
- * `Result<T, ApiError>`. Three repos:
+ * `Result<T, ApiError>`. Two repos:
  *   - `ProcurementRepo`          — the 4 base tables (procedures/contracts/DAs/mods).
- *   - `ProcurementAggregateRepo` — the legacy flow MVs + the grain gate (analyst
- *     queries, presence/profile).
  *   - `AnalysisRepo`             — the scraper-built `procurement.analysis_*`
  *     generation + wave-1 rollups (the six-shape surface, design §5).
  * Source repos touch only `procurement.*` + read-only `core.*`; cross-source money
@@ -16,31 +14,20 @@ import type { MeasureId, SeriesBucket } from './constants.js';
 import type { GenerationQuality } from './gate-v2.js';
 import type { ProcurementSearchFilter } from './search.js';
 import type {
-  AuthorityCpvRow,
   ContractDetail,
-  CpvAggFilter,
   CpvDivision,
   CpvMatch,
   DirectAcquisitionDetail,
-  EdgeAggFilter,
-  GrainQuality,
   OffsetSearchRequest,
   OffsetSearchResult,
   ProcedureDetail,
   ProcurementContract,
   ProcurementDirectAcquisition,
-  ProcurementEdge,
   ProcurementModification,
   ProcurementProcedure,
-  ProcurementProfileSlice,
-  RegionCpvAggFilter,
-  SameDayCandidate,
-  SplitFilter,
-  SupplierConcentration,
-  SupplierCpvRow,
   SupplierRecordConnection,
 } from './types.js';
-import type { ApiError, CursorPage, FilterInput, SourcePresence } from '@/modules/shared/index.js';
+import type { ApiError, CursorPage, FilterInput } from '@/modules/shared/index.js';
 import type { Result } from 'neverthrow';
 
 /** A cursor page request (first + opaque after + sort key). */
@@ -48,19 +35,6 @@ export interface CursorPageRequest {
   readonly first: number;
   readonly after?: string;
   readonly sort?: string;
-}
-
-/** A bounded offset page request (small, bounded collections only). */
-export interface OffsetPageRequest {
-  readonly page: number;
-  readonly pageSize: number;
-}
-
-export interface OffsetResult<T> {
-  readonly items: readonly T[];
-  /** Planner-estimated total (no blocking COUNT on the fact tables). */
-  readonly total: number | null;
-  readonly estimated: boolean;
 }
 
 export interface ProcurementRepo {
@@ -140,70 +114,6 @@ export interface ProcurementRepo {
     first: number,
     after: string | undefined
   ): Promise<Result<SupplierRecordConnection, ApiError>>;
-}
-
-export interface ProcurementAggregateRepo {
-  /** The gate — read FIRST by every aggregate usecase (live per request, §0/C1). */
-  grainQuality(): Promise<Result<readonly GrainQuality[], ApiError>>;
-
-  // PC-1 / PC-3 — org_edge_monthly_rollups (pruned by dim + grain + month). The
-  // `cui` is the anchor dimension (authority for topSuppliers, supplier for
-  // topAuthorities); kept explicit (not in the filter) so the driving index is
-  // unambiguous and the surface mirrors the plan's `(cui, f)` shape. `orderByValue`
-  // is set by the usecase from the live gate (value when spend_rankings_allowed,
-  // else flow_count) — the gate must NOT be ignored by the repo (§14.6 / I6).
-  topSuppliersForAuthority(
-    cui: string,
-    f: EdgeAggFilter,
-    orderByValue: boolean
-  ): Promise<Result<readonly ProcurementEdge[], ApiError>>;
-  topAuthoritiesForSupplier(
-    cui: string,
-    f: EdgeAggFilter,
-    orderByValue: boolean
-  ): Promise<Result<readonly ProcurementEdge[], ApiError>>;
-  // PC-6 — repeated pairs anchored on one side. `side` picks the driving index
-  // (authority_idx vs supplier_idx); explicit (not in the filter) for the same reason.
-  repeatedPairs(
-    cui: string,
-    side: 'authority' | 'supplier',
-    f: EdgeAggFilter
-  ): Promise<Result<readonly ProcurementEdge[], ApiError>>;
-
-  // PC-5 — supplier concentration / HHI over edges for one authority. `basis` is
-  // chosen from the live gate (value when spend_rankings_allowed, else count).
-  // Kept on the legacy MV path for `get_procurement_concentration` until the MV
-  // stack retires; the analysis surface has its own concentration executor.
-  supplierConcentration(
-    cui: string,
-    f: EdgeAggFilter,
-    basis: 'value' | 'count'
-  ): Promise<Result<SupplierConcentration, ApiError>>;
-
-  // PC-4 — authority spend by CPV division × period.
-  authorityCpvSpend(
-    cui: string,
-    f: CpvAggFilter,
-    orderByValue: boolean
-  ): Promise<Result<readonly AuthorityCpvRow[], ApiError>>;
-
-  // PC-2 — top suppliers by region × CPV division (buyer region; supplier region
-  // is gate-blocked at the surface).
-  topSuppliersByRegionCpv(
-    f: RegionCpvAggFilter,
-    orderByValue: boolean
-  ): Promise<Result<readonly SupplierCpvRow[], ApiError>>;
-
-  // PC-7 — same-day DA splitting candidates (offset over a filter-bounded slice;
-  // a selective filter — authorityCui or a date window — is required, §3a).
-  sameDaySplittingCandidates(
-    f: SplitFilter,
-    p: OffsetPageRequest
-  ): Promise<Result<OffsetResult<SameDayCandidate>, ApiError>>;
-
-  // contributor support (§4.4).
-  presenceFor(cui: string): Promise<Result<SourcePresence | null, ApiError>>;
-  profileSlice(cui: string): Promise<Result<ProcurementProfileSlice | null, ApiError>>;
 }
 
 // ── analysis package (design §5–§6.2) ──────────────────────────────────────────

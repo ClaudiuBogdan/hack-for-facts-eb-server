@@ -24,15 +24,11 @@ import {
 } from '../../core/constants.js';
 
 import type {
-  CapabilityGate,
   DuplicateRef,
-  GrainQuality,
   ProcurementContract,
   ProcurementDirectAcquisition,
-  ProcurementEdge,
   ProcurementModification,
   ProcurementProcedure,
-  ProcurementGrain,
   TedRef,
 } from '../../core/types.js';
 import type {
@@ -315,71 +311,6 @@ export const mapModification = (r: ModificationRow): ProcurementModification => 
   deltaPct: deltaPct(r.value_before_ron, r.value_delta_ron),
   modificationType: r.modification_type,
   year: r.year,
-});
-
-/** Map an aggregated org_edge row (grouped over months) to the edge view model. */
-export const mapEdge = (r: {
-  authority_cui: string;
-  authority_name: string | null;
-  supplier_cui: string;
-  supplier_name: string | null;
-  source_grain: string;
-  flow_count: string;
-  amount_ron_sum: string | null;
-  amount_present_count: string;
-  amount_missing_count: string;
-  first_flow_date: string | null;
-  last_flow_date: string | null;
-  evidence_refs_sample: string[] | null;
-}): ProcurementEdge => ({
-  authorityCui: r.authority_cui,
-  authorityName: r.authority_name,
-  supplierCui: r.supplier_cui,
-  supplierName: r.supplier_name,
-  grain: r.source_grain as ProcurementGrain,
-  flowCount: r.flow_count,
-  amountRonSum: r.amount_ron_sum,
-  amountPresentCount: r.amount_present_count,
-  amountMissingCount: r.amount_missing_count,
-  firstFlowDate: r.first_flow_date,
-  lastFlowDate: r.last_flow_date,
-  evidenceRefsSample: r.evidence_refs_sample ?? [],
-});
-
-// ── client-facing gate / duplicate / TED projections ───────────────────────────
-
-/**
- * A `numeric` coverage rate arrives as a decimal STRING from node-pg. Keep it a
- * string end-to-end (the client's gate schema declares strings) rather than
- * round-tripping through a float — the no-floats rule applies to rates too.
- */
-const rate = (value: number): string => value.toString();
-
-/** `timestamptz` → the `YYYY-MM-DD` the `Date` scalar promises. */
-const asOfDate = (refreshedAt: string | null): string | null =>
-  refreshedAt === null ? null : (/^\d{4}-\d{2}-\d{2}/u.exec(refreshedAt)?.[0] ?? null);
-
-/**
- * Project the internal gate onto the client contract. `cadence` is ALWAYS null:
- * nothing in the DB declares a refresh schedule, and the MVs are demonstrably
- * stale (refreshed_at 2026-06-29 read on 2026-07-09). `dataAsOf` tells the truth
- * instead — see docs. `authorityTerritoryCoverageRate` / `projectionVersion` are
- * internal and deliberately not surfaced.
- */
-export const mapCapabilityGate = (g: GrainQuality): CapabilityGate => ({
-  sourceGrain: g.grain,
-  rowsCount: g.rowsCount,
-  authorityCuiCoverageRate: rate(g.authorityCuiCoverageRate),
-  supplierCuiCoverageRate: rate(g.supplierCuiCoverageRate),
-  amountCoverageRate: rate(g.amountCoverageRate),
-  cpvCoverageRate: rate(g.cpvCoverageRate),
-  dateCoverageRate: rate(g.dateCoverageRate),
-  filterAnswersAllowed: g.filterAnswersAllowed,
-  spendRankingsAllowed: g.spendRankingsAllowed,
-  supplierRegionFiltersAllowed: g.supplierRegionFiltersAllowed,
-  blockers: g.blockers,
-  dataAsOf: asOfDate(g.refreshedAt),
-  cadence: null,
 });
 
 export const mapDuplicateRef = (r: { id: string; source_system: string }): DuplicateRef => ({

@@ -45,9 +45,9 @@ import {
   scopeWindow,
   type AnalysisScope,
 } from './analysis-scope.js';
-import { routeAnalysis, type AnalysisRoute } from './combinations.js';
+import { ANALYSIS_MATRIX_SHA256, routeAnalysis, type AnalysisRoute } from './combinations.js';
 import { buildEnvelope, type AnswerEnvelope, type EnvelopeReads } from './envelope.js';
-import { decideAnswer, type GateDecision } from './gate-v2.js';
+import { decideAnswer, type AnswerabilityReason, type GateDecision } from './gate-v2.js';
 import { anchorPolicy, policyFor, type PolicyEntry } from './policy.js';
 
 import type { AnalysisGrain, BreakdownDimension, MeasureId, SeriesBucket } from './constants.js';
@@ -123,6 +123,8 @@ export interface AnalysisConcentrationBlock {
 
 export interface AnalysisShareResult {
   readonly share: string | null;
+  readonly answerability: 'served' | 'degraded' | 'abstained';
+  readonly reason?: AnswerabilityReason;
   readonly numerator: AnalysisStatsBlock;
   readonly denominator: AnalysisStatsBlock;
   readonly caveats: readonly string[];
@@ -150,6 +152,13 @@ const activeGen = async (repo: AnalysisRepo): Promise<Result<ActiveGeneration, A
   if (r.value === null) {
     return err(serviceUnavailable('procurement analysis package not published'));
   }
+  if (r.value.matrixHash !== ANALYSIS_MATRIX_SHA256) {
+    return err(
+      serviceUnavailable(
+        `procurement analysis matrix mismatch: active generation ${r.value.matrixHash ?? 'null'}, server ${ANALYSIS_MATRIX_SHA256}`
+      )
+    );
+  }
   return ok(r.value);
 };
 
@@ -175,11 +184,17 @@ const readsOf = (read: AnalysisStatsRead): EnvelopeReads => ({
 const statsPolicy = (grain: AnalysisGrain): PolicyEntry => anchorPolicy(grain, 'valueAwardedSum');
 
 /** AND-compose gate decisions: any abstain blocks; degradations and caveats merge. */
-const composeGates = (decisions: readonly GateDecision[]): GateDecision => ({
-  allow: decisions.every((decision) => decision.allow),
-  degraded: decisions.some((decision) => decision.degraded),
-  caveats: decisions.flatMap((decision) => decision.caveats),
-});
+const composeGates = (decisions: readonly GateDecision[]): GateDecision => {
+  const reason =
+    decisions.find((decision) => !decision.allow && decision.reason !== undefined)?.reason ??
+    decisions.find((decision) => decision.degraded && decision.reason !== undefined)?.reason;
+  return {
+    allow: decisions.every((decision) => decision.allow),
+    degraded: decisions.some((decision) => decision.degraded),
+    caveats: decisions.flatMap((decision) => decision.caveats),
+    ...(reason === undefined ? {} : { reason }),
+  };
+};
 
 /**
  * The gate classes a SHAPE must pass for a grain (design §5.4, S3): `time`
@@ -210,7 +225,7 @@ const statsBlockFor = async (
   gen: ActiveGeneration,
   route: AnalysisRoute,
   scope: AnalysisScope,
-  link: string
+  canonicalScope: string
 ): Promise<Result<AnalysisStatsBlock, ApiError>> => {
   const { grain } = route;
   const spend = decideAnswer(gen.quality, grain, 'spend');
@@ -234,7 +249,7 @@ const statsBlockFor = async (
         composeGates([blockGate, spend]),
         gen.buildId,
         null,
-        link,
+        canonicalScope,
         spend.allow,
         grainNotes(grain)
       ),
@@ -275,7 +290,7 @@ const statsBlockFor = async (
       composeGates([blockGate, spend]),
       gen.buildId,
       readsOf(read),
-      link,
+      canonicalScope,
       spend.allow,
       [...noValueCaveats, ...grainNotes(grain)]
     ),
@@ -290,11 +305,11 @@ const statsWithGen = async (
 ): Promise<Result<AnalysisStatsResult, ApiError>> => {
   const routesR = routeAnalysis(scope, 'stats');
   if (routesR.isErr()) return err(routesR.error);
-  const link = canonicalScopeEcho(scope);
+  const canonicalScope = canonicalScopeEcho(scope);
 
   const blocks: AnalysisStatsBlock[] = [];
   for (const route of routesR.value) {
-    const blockR = await statsBlockFor(deps, gen, route, scope, link);
+    const blockR = await statsBlockFor(deps, gen, route, scope, canonicalScope);
     if (blockR.isErr()) return err(blockR.error);
     blocks.push(blockR.value);
   }
@@ -346,7 +361,7 @@ export const analysisSeries = async (
   const genR = await activeGen(deps.analysisRepo);
   if (genR.isErr()) return err(genR.error);
   const gen = genR.value;
-  const link = canonicalScopeEcho(scope);
+  const canonicalScope = canonicalScopeEcho(scope);
 
   const blocks: AnalysisSeriesBlock[] = [];
   for (const route of routesR.value) {
@@ -368,14 +383,20 @@ export const analysisSeries = async (
       measure,
       bucket,
       points: [],
-      meta: buildEnvelope(policy, gated, gen.buildId, null, link, spend.allow),
+      meta: buildEnvelope(policy, gated, gen.buildId, null, canonicalScope, spend.allow),
     });
 
     // Structurally blocked time answers (procedure grain until M1).
     if (policy.blocked !== undefined) {
       const caveat = `${policy.policyKey}: time answers are blocked (${policy.blocked.reason}; unblocks at ${policy.blocked.milestone})`;
-      if (scope.grain !== undefined) return err(invalidInput(caveat, 'grain'));
-      blocks.push(blockedBlock({ allow: false, degraded: false, caveats: [caveat] }));
+      blocks.push(
+        blockedBlock({
+          allow: false,
+          degraded: false,
+          caveats: [caveat],
+          reason: 'GENERATION_LACKS_CAPABILITY',
+        })
+      );
       continue;
     }
 
@@ -413,7 +434,7 @@ export const analysisSeries = async (
         points: rows.flatMap((r) =>
           r.bucket === null ? [] : [{ bucket: r.bucket, value: r.value }]
         ),
-        meta: buildEnvelope(policy, gated, gen.buildId, reads, link, spend.allow, [
+        meta: buildEnvelope(policy, gated, gen.buildId, reads, canonicalScope, spend.allow, [
           'distinct counts are computed per bucket and must never be summed across buckets',
           ...grainNotes(grain),
         ]),
@@ -457,7 +478,15 @@ export const analysisSeries = async (
       measure,
       bucket,
       points,
-      meta: buildEnvelope(policy, gated, gen.buildId, reads, link, spend.allow, grainNotes(grain)),
+      meta: buildEnvelope(
+        policy,
+        gated,
+        gen.buildId,
+        reads,
+        canonicalScope,
+        spend.allow,
+        grainNotes(grain)
+      ),
     });
   }
   return ok(blocks);
@@ -465,8 +494,13 @@ export const analysisSeries = async (
 
 // ── breakdown ──────────────────────────────────────────────────────────────────
 
-const clampTopN = (topN: number | undefined): number =>
-  Math.min(Math.max(Math.floor(topN ?? TOPN_DEFAULT), 1), TOPN_MAX);
+const normalizeTopN = (topN: number | undefined): Result<number, ApiError> => {
+  if (topN === undefined) return ok(TOPN_DEFAULT);
+  if (!Number.isInteger(topN) || topN < 1 || topN > TOPN_MAX) {
+    return err(invalidInput(`topN must be an integer from 1 to ${String(TOPN_MAX)}`, 'topN'));
+  }
+  return ok(topN);
+};
 
 const breakdownBlockFor = async (
   deps: AnalysisDeps,
@@ -475,7 +509,7 @@ const breakdownBlockFor = async (
   scope: AnalysisScope,
   dimension: BreakdownDimension,
   topN: number,
-  link: string
+  canonicalScope: string
 ): Promise<Result<AnalysisBreakdownBlock, ApiError>> => {
   const { grain } = route;
   const spend = decideAnswer(gen.quality, grain, 'spend');
@@ -499,7 +533,7 @@ const breakdownBlockFor = async (
         composeGates([blockGate, spend]),
         gen.buildId,
         null,
-        link,
+        canonicalScope,
         spend.allow,
         grainNotes(grain)
       ),
@@ -547,10 +581,10 @@ const breakdownBlockFor = async (
     };
   });
 
+  const answerGate = composeGates([blockGate, spend]);
   const gate: GateDecision = {
-    allow: true,
-    degraded: blockGate.degraded,
-    caveats: [...blockGate.caveats, ...spend.caveats, ...rankCaveats],
+    ...answerGate,
+    caveats: [...answerGate.caveats, ...rankCaveats],
   };
   return ok({
     grain,
@@ -562,7 +596,7 @@ const breakdownBlockFor = async (
       gate,
       gen.buildId,
       readsOf(totals),
-      link,
+      canonicalScope,
       spend.allow,
       grainNotes(grain)
     ),
@@ -577,12 +611,14 @@ export const analysisBreakdown = async (
     readonly topN?: number;
   }
 ): Promise<Result<readonly AnalysisBreakdownBlock[], ApiError>> => {
-  const topN = clampTopN(input.topN);
+  const topNR = normalizeTopN(input.topN);
+  if (topNR.isErr()) return err(topNR.error);
+  const topN = topNR.value;
   const routesR = routeAnalysis(input.scope, 'breakdown', input.dimension);
   if (routesR.isErr()) return err(routesR.error);
   const genR = await activeGen(deps.analysisRepo);
   if (genR.isErr()) return err(genR.error);
-  const link = canonicalScopeEcho(input.scope);
+  const canonicalScope = canonicalScopeEcho(input.scope);
 
   const blocks: AnalysisBreakdownBlock[] = [];
   for (const route of routesR.value) {
@@ -593,7 +629,7 @@ export const analysisBreakdown = async (
       input.scope,
       input.dimension,
       topN,
-      link
+      canonicalScope
     );
     if (blockR.isErr()) return err(blockR.error);
     blocks.push(blockR.value);
@@ -612,25 +648,18 @@ export const analysisConcentration = async (
   const genR = await activeGen(deps.analysisRepo);
   if (genR.isErr()) return err(genR.error);
   const gen = genR.value;
-  const link = canonicalScopeEcho(input.scope);
+  const canonicalScope = canonicalScopeEcho(input.scope);
 
   const blocks: AnalysisConcentrationBlock[] = [];
   for (const route of routesR.value) {
     const { grain } = route;
     const spend = decideAnswer(gen.quality, grain, 'spend');
-    const requested = input.basis ?? 'value';
-    const basis: 'value' | 'count' = requested === 'value' && !spend.allow ? 'count' : requested;
-    const basisCaveats =
-      requested === 'value' && basis === 'count'
-        ? [
-            'basis forced to count: awarded-value concentration is gate-suppressed',
-            ...spend.caveats,
-          ]
-        : [];
+    const basis: 'value' | 'count' = input.basis ?? 'count';
     const policy = anchorPolicy(grain, basis === 'value' ? 'valueAwardedSum' : 'recordCount');
 
     const blockGate = shapeGate(gen, grain, input.scope, {});
-    if (!blockGate.allow) {
+    const requestedGate = basis === 'value' ? composeGates([blockGate, spend]) : blockGate;
+    if (!requestedGate.allow) {
       blocks.push({
         grain,
         basis,
@@ -641,11 +670,11 @@ export const analysisConcentration = async (
         totalRon: null,
         meta: buildEnvelope(
           policy,
-          composeGates([blockGate, spend]),
+          requestedGate,
           gen.buildId,
           null,
-          link,
-          spend.allow,
+          canonicalScope,
+          basis === 'value' && spend.allow,
           grainNotes(grain)
         ),
       });
@@ -696,12 +725,13 @@ export const analysisConcentration = async (
         {
           allow: true,
           degraded: blockGate.degraded,
-          caveats: [...blockGate.caveats, ...basisCaveats],
+          caveats: blockGate.caveats,
+          ...(blockGate.reason === undefined ? {} : { reason: blockGate.reason }),
         },
         gen.buildId,
         readsOf(totals),
-        link,
-        spend.allow,
+        canonicalScope,
+        basis === 'value' && spend.allow,
         [...semanticsCaveats, ...grainNotes(grain)]
       ),
     });
@@ -752,18 +782,7 @@ export const analysisShare = async (
   if (genR.isErr()) return err(genR.error);
   const gen = genR.value;
 
-  // Gate-blocked money on either operand IS the answer — never a partial ratio
-  // and never a silent count/value substitution.
   const spend = decideAnswer(gen.quality, numerator.grain, 'spend');
-  if (!spend.allow) {
-    return err(
-      invalidInput(
-        `share abstains: awarded-value answers are gate-blocked for grain '${numerator.grain}' (${spend.caveats.join('; ')})`,
-        'scope'
-      )
-    );
-  }
-
   const [numR, denR] = await Promise.all([
     statsWithGen(deps, gen, numerator),
     statsWithGen(deps, gen, denominator),
@@ -775,17 +794,35 @@ export const analysisShare = async (
   if (numBlock === undefined || denBlock === undefined) {
     return err(invalidInput('share operands did not resolve to a servable grain', 'numerator'));
   }
+  if (!spend.allow) {
+    return ok({
+      share: null,
+      answerability: 'abstained',
+      reason: spend.reason ?? 'SPEND_COVERAGE_BELOW_GATE',
+      numerator: numBlock,
+      denominator: denBlock,
+      caveats: spend.caveats,
+    });
+  }
   if (numBlock.meta.counts === null || denBlock.meta.counts === null) {
     const blocked = numBlock.meta.counts === null ? numBlock : denBlock;
-    return err(
-      invalidInput(
-        `share abstains: the ${blocked === numBlock ? 'numerator' : 'denominator'} stats block is gate-blocked (${blocked.meta.caveats.join('; ')})`,
-        'scope'
-      )
-    );
+    return ok({
+      share: null,
+      answerability: 'abstained',
+      reason: blocked.meta.reason ?? 'MISSING_QUALITY_VERDICT',
+      numerator: numBlock,
+      denominator: denBlock,
+      caveats: [
+        `the ${blocked === numBlock ? 'numerator' : 'denominator'} stats block abstained`,
+        ...blocked.meta.caveats,
+      ],
+    });
   }
 
-  const caveats: string[] = [];
+  const degradedOperand = [numBlock, denBlock].find(
+    (block) => block.meta.answerability === 'degraded'
+  );
+  const caveats: string[] = degradedOperand === undefined ? [] : [...degradedOperand.meta.caveats];
   let share: string | null = null;
   if (denBlock.valueAwardedSum === null || numBlock.valueAwardedSum === null) {
     caveats.push(
@@ -799,7 +836,14 @@ export const analysisShare = async (
       caveats.push('denominator has zero awarded value in scope — no ratio is derivable');
     }
   }
-  return ok({ share, numerator: numBlock, denominator: denBlock, caveats });
+  return ok({
+    share,
+    answerability: degradedOperand === undefined ? 'served' : 'degraded',
+    ...(degradedOperand?.meta.reason === undefined ? {} : { reason: degradedOperand.meta.reason }),
+    numerator: numBlock,
+    denominator: denBlock,
+    caveats,
+  });
 };
 
 // ── facets (batched breakdowns, one resolver round trip) ──────────────────────
@@ -836,7 +880,9 @@ export const analysisFacets = async (
     );
   }
 
-  const topN = clampTopN(input.topN);
+  const topNR = normalizeTopN(input.topN);
+  if (topNR.isErr()) return err(topNR.error);
+  const topN = topNR.value;
   // Route every dimension up front — one bad dimension rejects the whole request
   // with the matrix's named capability, before any read runs.
   const routed: { dimension: BreakdownDimension; routes: readonly AnalysisRoute[] }[] = [];
@@ -849,7 +895,7 @@ export const analysisFacets = async (
   // ONE generation for every facet (S1).
   const genR = await activeGen(deps.analysisRepo);
   if (genR.isErr()) return err(genR.error);
-  const link = canonicalScopeEcho(input.scope);
+  const canonicalScope = canonicalScopeEcho(input.scope);
 
   const blocks: AnalysisBreakdownBlock[] = [];
   for (const { dimension, routes } of routed) {
@@ -861,7 +907,7 @@ export const analysisFacets = async (
         input.scope,
         dimension,
         topN,
-        link
+        canonicalScope
       );
       if (blockR.isErr()) return err(blockR.error);
       blocks.push(blockR.value);

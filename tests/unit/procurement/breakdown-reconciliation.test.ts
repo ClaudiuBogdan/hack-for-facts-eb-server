@@ -75,6 +75,8 @@ describe('analysisBreakdown', () => {
       expect(bucket.valueAwardedSum).toBeNull();
     }
     expect(block?.buckets[0]?.shareOfScope).toBe('0.5000'); // 50 / 100 records
+    expect(block?.meta.answerability).toBe('degraded');
+    expect(block?.meta.reason).toBe('SPEND_COVERAGE_BELOW_GATE');
     expect(block?.meta.caveats.some((c) => c.includes('ranked by record count'))).toBe(true);
   });
 

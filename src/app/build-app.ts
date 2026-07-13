@@ -220,7 +220,6 @@ import {
   makeInMemorySessionStore,
   makeInMemoryRateLimiter,
   makeMcpExecutionRepo,
-  makeMcpProcurementRepo,
   makeMcpAnalyticsService,
   makeEntityAdapter,
   makeUatAdapter,
@@ -2571,7 +2570,6 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     const mcpFunctionalAdapter = makeFunctionalClassificationAdapter(functionalClassificationRepo);
     const mcpEconomicAdapter = makeEconomicClassificationAdapter(economicClassificationRepo);
     const mcpExecutionRepo = makeMcpExecutionRepo(budgetDb);
-    const mcpProcurementRepo = makeMcpProcurementRepo(budgetDb);
     const mcpAnalyticsService = makeMcpAnalyticsService(analyticsRepo, normalizationService);
 
     // Create share link adapter
@@ -2619,7 +2617,6 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
           entityAnalyticsRepo: mcpEntityAnalyticsAdapter,
           analyticsService: mcpAnalyticsService,
           aggregatedLineItemsRepo: mcpAggregatedLineItemsAdapter,
-          procurementRepo: mcpProcurementRepo,
           shareLink: mcpShareLink,
           config: mcpConfig,
         });

@@ -1,0 +1,6934 @@
+{
+  "version": "procurement-analysis-combinations-v2",
+  "timeDims": [
+    "from",
+    "to",
+    "year"
+  ],
+  "combinations": [
+    {
+      "grain": "procedure",
+      "scopeDims": [],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [],
+      "shape": "breakdown",
+      "breakdownDim": "authorityCui",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [],
+      "shape": "breakdown",
+      "breakdownDim": "cpvDivision",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [],
+      "shape": "breakdown",
+      "breakdownDim": "cpvCode",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_cpv_code_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [],
+      "shape": "breakdown",
+      "breakdownDim": "buyerRegion",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [],
+      "shape": "breakdown",
+      "breakdownDim": "status",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [],
+      "shape": "breakdown",
+      "breakdownDim": "procedureType",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "cpvDivision",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "status",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "procedureType",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui"
+      ],
+      "shape": "concentration",
+      "breakdownDim": "supplierCui",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "procedure grain has no supplier (design §2: procedures carry no supplier-level award data)"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "status",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "procedureType",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "procedureType",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "status",
+        "procedureType"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "status",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "cpvCode"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "bounded_fact_query"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "status"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "status"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "cpvDivision",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "status"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "procedureType",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "status",
+        "procedureType"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "status",
+        "procedureType"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "cpvDivision",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "procedureType"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "procedureType"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "cpvDivision",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "authorityCui",
+        "procedureType"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "status",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "supplierCui"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "procedure grain has no supplier (design §2: procedures carry no supplier-level award data)"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "cpvDivision"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "cpvDivision"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "authorityCui",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "cpvDivision"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "cpvCode",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_cpv_code_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "cpvDivision"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "buyerRegion",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "cpvDivision"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "status",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "cpvDivision"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "procedureType",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "cpvDivision",
+        "buyerRegion"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "cpvDivision",
+        "buyerRegion"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "cpvDivision",
+        "buyerRegion"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "cpvDivision",
+        "buyerRegion"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "cpvDivision",
+        "buyerRegion"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "authorityCui",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "procedureType",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "cpvDivision",
+        "status",
+        "procedureType"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "cpvDivision",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "cpvDivision",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "cpvDivision",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "cpvDivision",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "cpvDivision",
+        "status",
+        "procedureType"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "authorityCui",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "authorityCui",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "status",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "cpvCode"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_cpv_code_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "cpvCode"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_cpv_code_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "cpvCode"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_cpv_code_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "cpvCode"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_cpv_code_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "cpvCode"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_cpv_code_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "buyerRegion"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "buyerRegion"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "buyerRegion"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "buyerRegion"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "buyerRegion"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "buyerRegion"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "cpvDivision",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "buyerCounty"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "@wave-2: buyer_county_code is on the facts but no wave-1 rollup carries it; county rollups land in wave 2"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "status"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "status"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "status"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "status"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "status"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "status"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "authorityCui",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "status"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "cpvDivision",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "status"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "procedureType",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "status",
+        "procedureType"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "status",
+        "procedureType"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "authorityCui",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "status",
+        "procedureType"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "cpvDivision",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "procedureType"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "procedureType"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "authorityCui",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "procedureType"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "cpvDivision",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "procedure",
+      "scopeDims": [
+        "procedureType"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "status",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_edge_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_edge_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [],
+      "shape": "breakdown",
+      "breakdownDim": "authorityCui",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_edge_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [],
+      "shape": "breakdown",
+      "breakdownDim": "supplierCui",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_edge_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [],
+      "shape": "breakdown",
+      "breakdownDim": "cpvDivision",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_supplier_cpv_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [],
+      "shape": "breakdown",
+      "breakdownDim": "cpvCode",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_cpv_code_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [],
+      "shape": "breakdown",
+      "breakdownDim": "buyerRegion",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [],
+      "shape": "breakdown",
+      "breakdownDim": "status",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [],
+      "shape": "breakdown",
+      "breakdownDim": "procedureType",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [],
+      "shape": "concentration",
+      "breakdownDim": "supplierCui",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_edge_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui"
+      ],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_edge_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui"
+      ],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the measured counterparty key to remain free; a scope that fixes that key is a record-count series, not a distinct-counterparty series"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "supplierCui",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_edge_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "cpvDivision",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "status",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "procedureType",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui"
+      ],
+      "shape": "concentration",
+      "breakdownDim": "supplierCui",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_edge_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "supplierCui"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_edge_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "supplierCui"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_edge_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "supplierCui"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_edge_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "supplierCui"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_edge_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "supplierCui"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_edge_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "supplierCui"
+      ],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the measured counterparty key to remain free; a scope that fixes that key is a record-count series, not a distinct-counterparty series"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "supplierCui"
+      ],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the measured counterparty key to remain free; a scope that fixes that key is a record-count series, not a distinct-counterparty series"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "supplierCui"
+      ],
+      "shape": "concentration",
+      "breakdownDim": "supplierCui",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "supplier concentration requires supplierCui to remain free; a supplier-scoped concentration is a single-supplier tautology — use procurementStats"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the authority×supplier edge rollup; the requested scope dimensions are not retained by that rollup"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the measured counterparty key to remain free; a scope that fixes that key is a record-count series, not a distinct-counterparty series"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "status",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "procedureType",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the authority×supplier edge rollup; the requested scope dimensions are not retained by that rollup"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the measured counterparty key to remain free; a scope that fixes that key is a record-count series, not a distinct-counterparty series"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "procedureType",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "status",
+        "procedureType"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the authority×supplier edge rollup; the requested scope dimensions are not retained by that rollup"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the measured counterparty key to remain free; a scope that fixes that key is a record-count series, not a distinct-counterparty series"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the authority×supplier edge rollup; the requested scope dimensions are not retained by that rollup"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the measured counterparty key to remain free; a scope that fixes that key is a record-count series, not a distinct-counterparty series"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "status",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "cpvCode"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "bounded_fact_query"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "status"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the authority×supplier edge rollup; the requested scope dimensions are not retained by that rollup"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the measured counterparty key to remain free; a scope that fixes that key is a record-count series, not a distinct-counterparty series"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "status"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "cpvDivision",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "status"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "procedureType",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "status",
+        "procedureType"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the authority×supplier edge rollup; the requested scope dimensions are not retained by that rollup"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the measured counterparty key to remain free; a scope that fixes that key is a record-count series, not a distinct-counterparty series"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "status",
+        "procedureType"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "cpvDivision",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "procedureType"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the authority×supplier edge rollup; the requested scope dimensions are not retained by that rollup"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the measured counterparty key to remain free; a scope that fixes that key is a record-count series, not a distinct-counterparty series"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "procedureType"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "cpvDivision",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "authorityCui",
+        "procedureType"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "status",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "supplierCui"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_supplier_cpv_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "supplierCui"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_supplier_cpv_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "supplierCui"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_supplier_cpv_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "supplierCui"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_supplier_cpv_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "supplierCui"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_supplier_cpv_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "supplierCui"
+      ],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the measured counterparty key to remain free; a scope that fixes that key is a record-count series, not a distinct-counterparty series"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "supplierCui"
+      ],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_edge_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "supplierCui"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "authorityCui",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_edge_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "supplierCui"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "cpvDivision",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_supplier_cpv_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "supplierCui"
+      ],
+      "shape": "concentration",
+      "breakdownDim": "supplierCui",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "supplier concentration requires supplierCui to remain free; a supplier-scoped concentration is a single-supplier tautology — use procurementStats"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "supplierCui",
+        "cpvDivision"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_supplier_cpv_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "supplierCui",
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_supplier_cpv_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "supplierCui",
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_supplier_cpv_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "supplierCui",
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_supplier_cpv_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "supplierCui",
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_supplier_cpv_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "supplierCui",
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the measured counterparty key to remain free; a scope that fixes that key is a record-count series, not a distinct-counterparty series"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "supplierCui",
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the authority×supplier edge rollup; the requested scope dimensions are not retained by that rollup"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "supplierCui",
+        "cpvDivision"
+      ],
+      "shape": "concentration",
+      "breakdownDim": "supplierCui",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "supplier concentration requires supplierCui to remain free; a supplier-scoped concentration is a single-supplier tautology — use procurementStats"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "supplierCui",
+        "cpvCode"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "bounded_fact_query"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "supplierCui",
+        "status"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "missing rollup analysis_rollup_supplier_status_monthly — add when traffic justifies it (design §6.2: rollups land incrementally, not speculatively)"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "supplierCui",
+        "procedureType"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "missing rollup analysis_rollup_supplier_procedure_type_monthly — add when traffic justifies it (design §6.2)"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the authority×supplier edge rollup; the requested scope dimensions are not retained by that rollup"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the authority×supplier edge rollup; the requested scope dimensions are not retained by that rollup"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "authorityCui",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "supplierCui",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_supplier_cpv_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "cpvCode",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_cpv_code_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "buyerRegion",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "status",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "procedureType",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision"
+      ],
+      "shape": "concentration",
+      "breakdownDim": "supplierCui",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_supplier_cpv_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision",
+        "buyerRegion"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision",
+        "buyerRegion"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision",
+        "buyerRegion"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision",
+        "buyerRegion"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision",
+        "buyerRegion"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision",
+        "buyerRegion"
+      ],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the authority×supplier edge rollup; the requested scope dimensions are not retained by that rollup"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision",
+        "buyerRegion"
+      ],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the authority×supplier edge rollup; the requested scope dimensions are not retained by that rollup"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the authority×supplier edge rollup; the requested scope dimensions are not retained by that rollup"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the authority×supplier edge rollup; the requested scope dimensions are not retained by that rollup"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "authorityCui",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "procedureType",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision",
+        "status",
+        "procedureType"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the authority×supplier edge rollup; the requested scope dimensions are not retained by that rollup"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the authority×supplier edge rollup; the requested scope dimensions are not retained by that rollup"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision",
+        "status",
+        "procedureType"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "authorityCui",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the authority×supplier edge rollup; the requested scope dimensions are not retained by that rollup"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the authority×supplier edge rollup; the requested scope dimensions are not retained by that rollup"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "authorityCui",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "status",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvCode"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_cpv_code_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvCode"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_cpv_code_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvCode"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_cpv_code_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvCode"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_cpv_code_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvCode"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_cpv_code_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvCode"
+      ],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the authority×supplier edge rollup; the requested scope dimensions are not retained by that rollup"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "cpvCode"
+      ],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the authority×supplier edge rollup; the requested scope dimensions are not retained by that rollup"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "buyerRegion"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "buyerRegion"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "buyerRegion"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "buyerRegion"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "buyerRegion"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "buyerRegion"
+      ],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the authority×supplier edge rollup; the requested scope dimensions are not retained by that rollup"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "buyerRegion"
+      ],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the authority×supplier edge rollup; the requested scope dimensions are not retained by that rollup"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "buyerRegion"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "cpvDivision",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "buyerCounty"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "@wave-2: buyer_county_code is on the facts but no wave-1 rollup carries it; county rollups land in wave 2"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "supplierCounty"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "@M3: supplier county/region requires ONRC supplier-geo resolution (design D4, milestone M3)"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "supplierRegion"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "@M3: supplier county/region requires ONRC supplier-geo resolution (design D4, milestone M3)"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "status"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "status"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "status"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "status"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "status"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "status"
+      ],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the authority×supplier edge rollup; the requested scope dimensions are not retained by that rollup"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "status"
+      ],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the authority×supplier edge rollup; the requested scope dimensions are not retained by that rollup"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "status"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "authorityCui",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "status"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "cpvDivision",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "status"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "procedureType",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "status",
+        "procedureType"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the authority×supplier edge rollup; the requested scope dimensions are not retained by that rollup"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the authority×supplier edge rollup; the requested scope dimensions are not retained by that rollup"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "status",
+        "procedureType"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "authorityCui",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "status",
+        "procedureType"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "cpvDivision",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "procedureType"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the authority×supplier edge rollup; the requested scope dimensions are not retained by that rollup"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the authority×supplier edge rollup; the requested scope dimensions are not retained by that rollup"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "procedureType"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "authorityCui",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "procedureType"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "cpvDivision",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "contract",
+      "scopeDims": [
+        "procedureType"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "status",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "unbounded direct-acquisition distinct series is not advertised: the live fact volume exceeds the serving SLO; bind the opposite counterparty key or use recordCount"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "unbounded direct-acquisition distinct series is not advertised: the live fact volume exceeds the serving SLO; bind the opposite counterparty key or use recordCount"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [],
+      "shape": "breakdown",
+      "breakdownDim": "authorityCui",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_edge_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [],
+      "shape": "breakdown",
+      "breakdownDim": "supplierCui",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_edge_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [],
+      "shape": "breakdown",
+      "breakdownDim": "cpvDivision",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_supplier_cpv_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [],
+      "shape": "breakdown",
+      "breakdownDim": "cpvCode",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_cpv_code_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [],
+      "shape": "breakdown",
+      "breakdownDim": "buyerRegion",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [],
+      "shape": "breakdown",
+      "breakdownDim": "status",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [],
+      "shape": "breakdown",
+      "breakdownDim": "procedureType",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [],
+      "shape": "concentration",
+      "breakdownDim": "supplierCui",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_edge_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui"
+      ],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_edge_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui"
+      ],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the measured counterparty key to remain free; a scope that fixes that key is a record-count series, not a distinct-counterparty series"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "supplierCui",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_edge_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "cpvDivision",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "status",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "procedureType",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui"
+      ],
+      "shape": "concentration",
+      "breakdownDim": "supplierCui",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_edge_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "supplierCui"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_edge_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "supplierCui"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_edge_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "supplierCui"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_edge_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "supplierCui"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_edge_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "supplierCui"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_edge_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "supplierCui"
+      ],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the measured counterparty key to remain free; a scope that fixes that key is a record-count series, not a distinct-counterparty series"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "supplierCui"
+      ],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the measured counterparty key to remain free; a scope that fixes that key is a record-count series, not a distinct-counterparty series"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "supplierCui"
+      ],
+      "shape": "concentration",
+      "breakdownDim": "supplierCui",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "supplier concentration requires supplierCui to remain free; a supplier-scoped concentration is a single-supplier tautology — use procurementStats"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the authority×supplier edge rollup; the requested scope dimensions are not retained by that rollup"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the measured counterparty key to remain free; a scope that fixes that key is a record-count series, not a distinct-counterparty series"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "status",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "procedureType",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the authority×supplier edge rollup; the requested scope dimensions are not retained by that rollup"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the measured counterparty key to remain free; a scope that fixes that key is a record-count series, not a distinct-counterparty series"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "procedureType",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "status",
+        "procedureType"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "status",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "cpvCode"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "bounded_fact_query"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "status"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the authority×supplier edge rollup; the requested scope dimensions are not retained by that rollup"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the measured counterparty key to remain free; a scope that fixes that key is a record-count series, not a distinct-counterparty series"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "status"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "cpvDivision",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "status"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "procedureType",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "status",
+        "procedureType"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "status",
+        "procedureType"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "cpvDivision",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "procedureType"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "procedureType"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "cpvDivision",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "authorityCui",
+        "procedureType"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "status",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "supplierCui"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_supplier_cpv_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "supplierCui"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_supplier_cpv_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "supplierCui"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_supplier_cpv_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "supplierCui"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_supplier_cpv_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "supplierCui"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_supplier_cpv_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "supplierCui"
+      ],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the measured counterparty key to remain free; a scope that fixes that key is a record-count series, not a distinct-counterparty series"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "supplierCui"
+      ],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_edge_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "supplierCui"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "authorityCui",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_edge_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "supplierCui"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "cpvDivision",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_supplier_cpv_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "supplierCui"
+      ],
+      "shape": "concentration",
+      "breakdownDim": "supplierCui",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "supplier concentration requires supplierCui to remain free; a supplier-scoped concentration is a single-supplier tautology — use procurementStats"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "supplierCui",
+        "cpvDivision"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_supplier_cpv_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "supplierCui",
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_supplier_cpv_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "supplierCui",
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_supplier_cpv_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "supplierCui",
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_supplier_cpv_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "supplierCui",
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_supplier_cpv_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "supplierCui",
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the measured counterparty key to remain free; a scope that fixes that key is a record-count series, not a distinct-counterparty series"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "supplierCui",
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "distinct series requires the authority×supplier edge rollup; the requested scope dimensions are not retained by that rollup"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "supplierCui",
+        "cpvDivision"
+      ],
+      "shape": "concentration",
+      "breakdownDim": "supplierCui",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "supplier concentration requires supplierCui to remain free; a supplier-scoped concentration is a single-supplier tautology — use procurementStats"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "supplierCui",
+        "cpvCode"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "bounded_fact_query"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "supplierCui",
+        "status"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "missing rollup analysis_rollup_supplier_status_monthly — add when traffic justifies it (design §6.2: rollups land incrementally, not speculatively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "supplierCui",
+        "procedureType"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "unbounded direct-acquisition distinct series is not advertised: the live fact volume exceeds the serving SLO; bind the opposite counterparty key or use recordCount"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision"
+      ],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "unbounded direct-acquisition distinct series is not advertised: the live fact volume exceeds the serving SLO; bind the opposite counterparty key or use recordCount"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "authorityCui",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "supplierCui",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_supplier_cpv_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "cpvCode",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_cpv_code_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "buyerRegion",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "status",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "procedureType",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision"
+      ],
+      "shape": "concentration",
+      "breakdownDim": "supplierCui",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_supplier_cpv_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision",
+        "buyerRegion"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision",
+        "buyerRegion"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision",
+        "buyerRegion"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision",
+        "buyerRegion"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision",
+        "buyerRegion"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision",
+        "buyerRegion"
+      ],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "unbounded direct-acquisition distinct series is not advertised: the live fact volume exceeds the serving SLO; bind the opposite counterparty key or use recordCount"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision",
+        "buyerRegion"
+      ],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "unbounded direct-acquisition distinct series is not advertised: the live fact volume exceeds the serving SLO; bind the opposite counterparty key or use recordCount"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "unbounded direct-acquisition distinct series is not advertised: the live fact volume exceeds the serving SLO; bind the opposite counterparty key or use recordCount"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "unbounded direct-acquisition distinct series is not advertised: the live fact volume exceeds the serving SLO; bind the opposite counterparty key or use recordCount"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "authorityCui",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision",
+        "status"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "procedureType",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision",
+        "status",
+        "procedureType"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision",
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision",
+        "status",
+        "procedureType"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "authorityCui",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "authorityCui",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvDivision",
+        "procedureType"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "status",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvCode"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_cpv_code_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvCode"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_cpv_code_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvCode"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_cpv_code_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvCode"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_cpv_code_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvCode"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_cpv_code_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvCode"
+      ],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "unbounded direct-acquisition distinct series is not advertised: the live fact volume exceeds the serving SLO; bind the opposite counterparty key or use recordCount"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "cpvCode"
+      ],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "unbounded direct-acquisition distinct series is not advertised: the live fact volume exceeds the serving SLO; bind the opposite counterparty key or use recordCount"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "buyerRegion"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "buyerRegion"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "buyerRegion"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "buyerRegion"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "buyerRegion"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "buyerRegion"
+      ],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "unbounded direct-acquisition distinct series is not advertised: the live fact volume exceeds the serving SLO; bind the opposite counterparty key or use recordCount"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "buyerRegion"
+      ],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "unbounded direct-acquisition distinct series is not advertised: the live fact volume exceeds the serving SLO; bind the opposite counterparty key or use recordCount"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "buyerRegion"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "cpvDivision",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_region_cpv_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "buyerCounty"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "@wave-2: buyer_county_code is on the facts but no wave-1 rollup carries it; county rollups land in wave 2"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "supplierCounty"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "@M3: supplier county/region requires ONRC supplier-geo resolution (design D4, milestone M3)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "supplierRegion"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "@M3: supplier county/region requires ONRC supplier-geo resolution (design D4, milestone M3)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "status"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "status"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "status"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "status"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "status"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "status"
+      ],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "unbounded direct-acquisition distinct series is not advertised: the live fact volume exceeds the serving SLO; bind the opposite counterparty key or use recordCount"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "status"
+      ],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "unbounded direct-acquisition distinct series is not advertised: the live fact volume exceeds the serving SLO; bind the opposite counterparty key or use recordCount"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "status"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "authorityCui",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "status"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "cpvDivision",
+      "serving": {
+        "kind": "rollup",
+        "rollup": "analysis_rollup_authority_dims_monthly"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "status"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "procedureType",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "status",
+        "procedureType"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "status",
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "status",
+        "procedureType"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "authorityCui",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "status",
+        "procedureType"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "cpvDivision",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "procedureType"
+      ],
+      "shape": "stats",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "recordCount",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "withValueCount",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueAwardedSum",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "valueEstimatedSum",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "distinctSuppliers",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "procedureType"
+      ],
+      "shape": "series",
+      "measure": "distinctAuthorities",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "procedureType"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "authorityCui",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "procedureType"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "cpvDivision",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    },
+    {
+      "grain": "direct_acquisition",
+      "scopeDims": [
+        "procedureType"
+      ],
+      "shape": "breakdown",
+      "breakdownDim": "status",
+      "serving": {
+        "kind": "rejected",
+        "missingCapability": "direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)"
+      }
+    }
+  ]
+}

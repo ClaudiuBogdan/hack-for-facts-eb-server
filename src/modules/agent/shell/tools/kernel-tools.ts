@@ -6,16 +6,15 @@
  */
 
 import { tool, type ToolSet } from 'ai';
-import { z } from 'zod';
 
-import type { KernelMcpTool } from '@/modules/shared/index.js';
+import { kernelToolInputSchema, type KernelMcpTool } from '@/modules/shared/index.js';
 
 export const kernelToolsToAiTools = (tools: readonly KernelMcpTool[]): ToolSet => {
   const toolSet: ToolSet = {};
   for (const kernelTool of tools) {
     toolSet[kernelTool.name] = tool({
       description: kernelTool.description,
-      inputSchema: z.object(kernelTool.inputShape),
+      inputSchema: kernelToolInputSchema(kernelTool),
       // The handler returns the audited McpToolOutput envelope ({ ok, kind,
       // link, item(s), meta, summary }) — already safe to stream to the client
       // as a tool part (same leak-audit guarantees as the MCP surface).

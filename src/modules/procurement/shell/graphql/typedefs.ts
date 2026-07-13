@@ -11,13 +11,9 @@
  * Money and bigint counts are `String` (decimal strings; §14.1 precision), matching
  * the client's Zod schemas literally. `Date` is the kernel's `YYYY-MM-DD` scalar.
  *
- * The analyst/agent surface (`procurementRepeatedPairs`, `procurementAuthorityCpvSpend`,
- * `procurementTopSuppliersByRegionCpv`, `procurementSameDayCandidates`,
- * `procurementResolve`, `extend type Entity`) is UNCHANGED — the MCP tools resolve
- * through the same usecases. `procurementConcentration` is generalized in place to
- * `(scope, basis)` over the analysis rollups; the four superseded scope aggregates
- * (top authorities/suppliers, category breakdown, spend over time) are replaced by
- * the six-shape analysis surface (stats/series/breakdown/concentration/share/facets).
+ * The retained interface is record search/detail/supplier records, CPV discovery,
+ * and the six generation-stamped analysis shapes. The old analyst queries, detail
+ * gates, and Entity contributor were removed before deployment.
  */
 
 export const procurementTypeDefs = /* GraphQL */ `
@@ -279,7 +275,6 @@ export const procurementTypeDefs = /* GraphQL */ `
     "Always empty: procedures carry no dup_group_id."
     duplicates: [ProcurementDuplicateRef!]!
     ted: ProcurementTedRef
-    gate: ProcurementCapabilityGate!
   }
 
   type ProcurementContractDetail {
@@ -288,13 +283,11 @@ export const procurementTypeDefs = /* GraphQL */ `
     duplicates: [ProcurementDuplicateRef!]!
     "Inherited from the contract's procedure; contracts carry no direct TED link."
     ted: ProcurementTedRef
-    gate: ProcurementCapabilityGate!
   }
 
   type ProcurementDirectAcquisitionDetail {
     directAcquisition: ProcurementDirectAcquisition!
     duplicates: [ProcurementDuplicateRef!]!
-    gate: ProcurementCapabilityGate!
   }
 
   # ── analysis surface (design §5 — one scope, six shapes, rollup-backed) ──────
@@ -304,6 +297,25 @@ export const procurementTypeDefs = /* GraphQL */ `
     procedure
     contract
     direct_acquisition
+  }
+
+  enum ProcurementConcentrationBasis {
+    count
+    value
+  }
+  enum ProcurementAnswerability {
+    served
+    degraded
+    abstained
+  }
+  enum ProcurementAnswerabilityReason {
+    SPEND_COVERAGE_BELOW_GATE
+    TIME_COVERAGE_BELOW_FLOOR
+    GEO_COVERAGE_BELOW_FLOOR
+    MISSING_QUALITY_VERDICT
+    TIME_COVERAGE_DEGRADED
+    GEO_COVERAGE_DEGRADED
+    GENERATION_LACKS_CAPABILITY
   }
   enum ProcurementSeriesBucket {
     month
@@ -369,6 +381,8 @@ export const procurementTypeDefs = /* GraphQL */ `
   so nothing is fabricated (the caveats explain the block).
   """
   type ProcurementAnswerMeta {
+    answerability: ProcurementAnswerability!
+    reason: ProcurementAnswerabilityReason
     policyKey: String!
     grain: ProcurementAnalysisGrain!
     valueBasis: String
@@ -379,7 +393,7 @@ export const procurementTypeDefs = /* GraphQL */ `
     undatedInScope: ProcurementUndatedInScope
     provisional: Boolean!
     caveats: [String!]!
-    link: String!
+    canonicalScope: String!
   }
 
   """
@@ -454,6 +468,8 @@ export const procurementTypeDefs = /* GraphQL */ `
   "A validated derivation over two stats reads (design §3.3) — never a partial ratio."
   type ProcurementShareResult {
     share: String
+    answerability: ProcurementAnswerability!
+    reason: ProcurementAnswerabilityReason
     numerator: ProcurementStatsBlock!
     denominator: ProcurementStatsBlock!
     caveats: [String!]!
@@ -484,27 +500,6 @@ export const procurementTypeDefs = /* GraphQL */ `
 
   # ── meta ────────────────────────────────────────────────────────────────────
 
-  """
-  The per-grain capability gate, read live. \`cadence\` is always null — nothing
-  declares a refresh schedule and the matviews demonstrably drift; \`dataAsOf\`
-  (the matview refresh watermark) carries the freshness truth instead.
-  """
-  type ProcurementCapabilityGate {
-    sourceGrain: String!
-    rowsCount: String!
-    authorityCuiCoverageRate: String!
-    supplierCuiCoverageRate: String!
-    amountCoverageRate: String!
-    cpvCoverageRate: String!
-    dateCoverageRate: String!
-    filterAnswersAllowed: Boolean!
-    spendRankingsAllowed: Boolean!
-    supplierRegionFiltersAllowed: Boolean!
-    blockers: [String!]!
-    dataAsOf: Date
-    cadence: String
-  }
-
   "Official CPV-2008 division (2-digit). The ONLY reliable CPV hierarchy (cpv_codes is corrupt)."
   type ProcurementCpvDivision {
     divisionCode: String!
@@ -519,102 +514,6 @@ export const procurementTypeDefs = /* GraphQL */ `
     label: String!
     kind: String!
     score: Float
-  }
-
-  # ── the retained analyst / MCP surface ──────────────────────────────────────
-
-  "An authority↔supplier money edge (org_edge rollup; one grain)."
-  type ProcurementEdge {
-    authorityCui: CUI!
-    authorityName: String
-    supplierCui: CUI!
-    supplierName: String
-    grain: ProcurementGrain!
-    flowCount: BigInt!
-    amountRonSum: Money
-    amountPresentCount: BigInt!
-    amountMissingCount: BigInt!
-    firstFlowDate: Date
-    lastFlowDate: Date
-    evidenceRefsSample: [String!]!
-  }
-
-  "Authority spend by CPV division × period (PC-4)."
-  type ProcurementAuthorityCpvRow {
-    authorityCui: CUI!
-    cpvDivisionCode: String!
-    cpvDivisionLabelEn: String
-    grain: ProcurementGrain!
-    flowCount: BigInt!
-    amountRonSum: Money
-    "Supplier-MONTH occurrences over the period (the MV is monthly-grained), NOT period-distinct suppliers."
-    supplierMonthCount: BigInt!
-    firstFlowDate: Date
-    lastFlowDate: Date
-  }
-
-  "A supplier's total to a (buyer) region × CPV division, across all buyers (PC-2)."
-  type ProcurementSupplierCpvRow {
-    supplierCui: CUI!
-    supplierName: String
-    authorityRegion: String
-    cpvDivisionCode: String!
-    grain: ProcurementGrain!
-    flowCount: BigInt!
-    amountRonSum: Money
-    distinctAuthorityCount: BigInt!
-  }
-
-  "A same-day direct-acquisition splitting CANDIDATE (PC-7; a review signal, NOT illegality)."
-  type ProcurementSameDayCandidate {
-    candidateDate: Date!
-    authorityCui: CUI!
-    authorityName: String
-    supplierCui: CUI!
-    supplierName: String
-    cpvCode: String
-    cpvDivisionCode: String
-    sameDayCount: BigInt!
-    sameDayTotalRon: Money
-    maxSingleAmountRon: Money
-    evidenceRefsSample: [String!]!
-  }
-
-  type ProcurementEdgeResult {
-    grain: ProcurementGrain!
-    items: [ProcurementEdge!]!
-    caveats: [String!]!
-    refreshedAt: DateTime
-    projectionVersion: String
-  }
-  type ProcurementAuthorityCpvResult {
-    grain: ProcurementGrain!
-    items: [ProcurementAuthorityCpvRow!]!
-    caveats: [String!]!
-    refreshedAt: DateTime
-  }
-  type ProcurementSupplierCpvResult {
-    grain: ProcurementGrain!
-    items: [ProcurementSupplierCpvRow!]!
-    caveats: [String!]!
-  }
-
-  # ── Entity-360 slice (via the contributor, §14.7) ──
-  type ProcurementRoleSummary {
-    contractCount: BigInt!
-    daCount: BigInt!
-    contractTotalRon: Money
-    daTotalRon: Money
-    top: [ProcurementEdge!]!
-    rankBasis: String!
-  }
-  type ProcurementEntitySummary {
-    cui: CUI!
-    asAuthority: ProcurementRoleSummary!
-    asSupplier: ProcurementRoleSummary!
-    spendByCpvDivision: [ProcurementAuthorityCpvRow!]!
-    caveats: [String!]!
-    refreshedAt: DateTime
   }
 
   extend type Query {
@@ -680,7 +579,6 @@ export const procurementTypeDefs = /* GraphQL */ `
     ): ProcurementRecordConnection!
 
     # meta
-    procurementGrainQuality: [ProcurementCapabilityGate!]!
     procurementCpvDivisions: [ProcurementCpvDivision!]!
     procurementResolve(
       dim: ProcurementResolveDim!
@@ -688,52 +586,10 @@ export const procurementTypeDefs = /* GraphQL */ `
       limit: Int = 10
     ): [ProcurementResolveHit!]!
 
-    # analyst / MCP surface (unchanged)
-    "PC-6: repeated buyer↔supplier pairs anchored on one side."
-    procurementRepeatedPairs(
-      authorityCui: CUI
-      supplierCui: CUI
-      grain: ProcurementGrain = direct_acquisition
-      minMonths: Int = 2
-      topN: Int = 20
-    ): ProcurementEdgeResult!
-    "Concentration generalized to any matrix-supported scope (basis forced to count when spend abstains)."
+    "Supplier concentration over a matrix-supported scope; count basis is the default."
     procurementConcentration(
       scope: ProcurementAnalysisScopeInput
-      basis: String
+      basis: ProcurementConcentrationBasis
     ): [ProcurementConcentrationBlock!]!
-    "PC-4: authority spend by CPV division × period."
-    procurementAuthorityCpvSpend(
-      authorityCui: CUI!
-      grain: ProcurementGrain = direct_acquisition
-      cpvDivision: [String!]
-      monthFrom: Date
-      monthTo: Date
-      topN: Int = 50
-    ): ProcurementAuthorityCpvResult!
-    "PC-2: top suppliers to a (buyer) region × CPV division."
-    procurementTopSuppliersByRegionCpv(
-      region: String!
-      cpvDivision: String!
-      grain: ProcurementGrain = direct_acquisition
-      monthFrom: Date
-      monthTo: Date
-      topN: Int = 20
-    ): ProcurementSupplierCpvResult!
-    "PC-7: same-day DA splitting candidates (requires authorityCui or a date window)."
-    procurementSameDayCandidates(
-      authorityCui: CUI
-      dateFrom: Date
-      dateTo: Date
-      cpvDivision: String
-      minSameDayCount: Int = 2
-      page: Int = 1
-      pageSize: Int = 20
-    ): [ProcurementSameDayCandidate!]!
-  }
-
-  extend type Entity {
-    "Procurement rollup for this entity by CUI (via the cross-source contributor; grain-separated)."
-    procurement: ProcurementEntitySummary
   }
 `;

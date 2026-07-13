@@ -45,18 +45,29 @@ export interface GrainQualityVerdict {
 /** The active generation's `quality` jsonb, keyed by grain. */
 export type GenerationQuality = Partial<Record<AnalysisGrain, GrainQualityVerdict>>;
 
+export type AnswerabilityReason =
+  | 'SPEND_COVERAGE_BELOW_GATE'
+  | 'TIME_COVERAGE_BELOW_FLOOR'
+  | 'GEO_COVERAGE_BELOW_FLOOR'
+  | 'MISSING_QUALITY_VERDICT'
+  | 'TIME_COVERAGE_DEGRADED'
+  | 'GEO_COVERAGE_DEGRADED'
+  | 'GENERATION_LACKS_CAPABILITY';
+
 export interface GateDecision {
   readonly allow: boolean;
   readonly degraded: boolean;
   readonly caveats: readonly string[];
+  readonly reason?: AnswerabilityReason;
 }
 
 const ALLOW: GateDecision = { allow: true, degraded: false, caveats: [] };
 
-const abstain = (caveat: string): GateDecision => ({
+const abstain = (caveat: string, reason: AnswerabilityReason): GateDecision => ({
   allow: false,
   degraded: false,
   caveats: [caveat],
+  reason,
 });
 
 /**
@@ -74,14 +85,18 @@ export const decideAnswer = (
 
   const verdict = quality?.[grain];
   if (verdict === undefined) {
-    return abstain(`no quality verdict for grain '${grain}' — ${gateClass} answers abstain`);
+    return abstain(
+      `no quality verdict for grain '${grain}' — ${gateClass} answers abstain`,
+      'MISSING_QUALITY_VERDICT'
+    );
   }
 
   if (gateClass === 'spend') {
     return verdict.classes.spend === 'allow'
       ? ALLOW
       : abstain(
-          `spend answers abstain for grain '${grain}': value coverage ${String(verdict.coverage.value)} is below the spend gate (money is omitted, not zeroed)`
+          `spend answers abstain for grain '${grain}': value coverage ${String(verdict.coverage.value)} is below the spend gate (money is omitted, not zeroed)`,
+          'SPEND_COVERAGE_BELOW_GATE'
         );
   }
 
@@ -95,9 +110,11 @@ export const decideAnswer = (
       caveats: [
         `${gateClass} answers are degraded for grain '${grain}': coverage ${String(coverage)} (floor ${String(COUNT_TIME_DEGRADE_FLOOR)}) — interpret with the undated/unknown context`,
       ],
+      reason: gateClass === 'time' ? 'TIME_COVERAGE_DEGRADED' : 'GEO_COVERAGE_DEGRADED',
     };
   }
   return abstain(
-    `${gateClass} answers abstain for grain '${grain}': coverage ${String(coverage)} is below the degrade floor ${String(COUNT_TIME_DEGRADE_FLOOR)}`
+    `${gateClass} answers abstain for grain '${grain}': coverage ${String(coverage)} is below the degrade floor ${String(COUNT_TIME_DEGRADE_FLOOR)}`,
+    gateClass === 'time' ? 'TIME_COVERAGE_BELOW_FLOOR' : 'GEO_COVERAGE_BELOW_FLOOR'
   );
 };

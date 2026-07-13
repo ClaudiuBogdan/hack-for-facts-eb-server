@@ -46,6 +46,7 @@ describe('spend class (strict, no degrade path)', () => {
     );
     expect(d.allow).toBe(false);
     expect(d.degraded).toBe(false);
+    expect(d.reason).toBe('SPEND_COVERAGE_BELOW_GATE');
     expect(d.caveats[0]).toContain('spend answers abstain');
     expect(d.caveats[0]).toContain('0.76');
     expect(d.caveats[0]).toContain('omitted, not zeroed');
@@ -61,6 +62,7 @@ describe('time class (disclosed degradation)', () => {
     const d = decideAnswer(quality({ time: 'degraded', date: 0.65 }), 'direct_acquisition', 'time');
     expect(d.allow).toBe(true);
     expect(d.degraded).toBe(true);
+    expect(d.reason).toBe('TIME_COVERAGE_DEGRADED');
     expect(d.caveats[0]).toContain('degraded');
     expect(d.caveats[0]).toContain('0.65');
     expect(d.caveats[0]).toContain(String(COUNT_TIME_DEGRADE_FLOOR));
@@ -69,6 +71,7 @@ describe('time class (disclosed degradation)', () => {
   it('abstain → blocked with the floor named', () => {
     const d = decideAnswer(quality({ time: 'abstain', date: 0.3 }), 'direct_acquisition', 'time');
     expect(d.allow).toBe(false);
+    expect(d.reason).toBe('TIME_COVERAGE_BELOW_FLOOR');
     expect(d.caveats[0]).toContain('abstain');
     expect(d.caveats[0]).toContain(String(COUNT_TIME_DEGRADE_FLOOR));
   });
@@ -80,9 +83,10 @@ describe('geo class', () => {
     const degraded = decideAnswer(quality({ geo: 'degraded' }), 'direct_acquisition', 'geo');
     expect(degraded.allow).toBe(true);
     expect(degraded.degraded).toBe(true);
-    expect(decideAnswer(quality({ geo: 'abstain' }), 'direct_acquisition', 'geo').allow).toBe(
-      false
-    );
+    expect(degraded.reason).toBe('GEO_COVERAGE_DEGRADED');
+    const abstained = decideAnswer(quality({ geo: 'abstain' }), 'direct_acquisition', 'geo');
+    expect(abstained.allow).toBe(false);
+    expect(abstained.reason).toBe('GEO_COVERAGE_BELOW_FLOOR');
   });
 });
 
@@ -116,6 +120,7 @@ describe('missing quality verdicts', () => {
     for (const gateClass of ['spend', 'time', 'geo'] as const) {
       const d = decideAnswer(quality({}), 'contract', gateClass);
       expect(d.allow).toBe(false);
+      expect(d.reason).toBe('MISSING_QUALITY_VERDICT');
       expect(d.caveats[0]).toContain("no quality verdict for grain 'contract'");
     }
   });
@@ -123,6 +128,7 @@ describe('missing quality verdicts', () => {
   it('no quality at all (no active generation payload) abstains the same way', () => {
     const d = decideAnswer(undefined, 'direct_acquisition', 'spend');
     expect(d.allow).toBe(false);
+    expect(d.reason).toBe('MISSING_QUALITY_VERDICT');
     expect(d.caveats[0]).toContain('no quality verdict');
   });
 });

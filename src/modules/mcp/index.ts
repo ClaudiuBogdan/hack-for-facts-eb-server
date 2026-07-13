@@ -27,19 +27,6 @@ export type {
   FilterSearchResult,
   GroupedBudgetItem,
   EntityRankingRow,
-  ProcurementAggregateQuality,
-  ProcurementAnalysisKind,
-  ProcurementAnswerClass,
-  ProcurementAnswerStatus,
-  ProcurementCapabilityAnswerClass,
-  ProcurementCapabilityCoverage,
-  ProcurementFilterCapability,
-  ProcurementCategoryBreakdownRow,
-  ProcurementFilterQuery,
-  ProcurementRankBy,
-  ProcurementSameDayCandidateRow,
-  ProcurementSourceGrain,
-  ProcurementSupplierRankingRow,
   PageInfo,
   McpSession,
   McpConfig,
@@ -99,7 +86,6 @@ export type {
   McpLogger,
   YearlySnapshotTotals,
   McpExecutionRepo,
-  McpProcurementRepo,
 } from './core/ports.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -154,8 +140,6 @@ export {
   AnalyzeEntityBudgetOutputSchema,
   ExploreBudgetBreakdownInputSchema,
   ExploreBudgetBreakdownOutputSchema,
-  QueryProcurementFiltersInputSchema,
-  QueryProcurementFiltersOutputSchema,
   ErrorOutputSchema,
 } from './core/schemas/index.js';
 
@@ -188,8 +172,6 @@ export type {
   AnalyzeEntityBudgetOutput,
   ExploreBudgetBreakdownInput,
   ExploreBudgetBreakdownOutput,
-  QueryProcurementFiltersInput,
-  QueryProcurementFiltersOutput,
   ErrorOutput,
 } from './core/schemas/index.js';
 
@@ -217,11 +199,6 @@ export {
   exploreBudgetBreakdown,
   type ExploreBudgetBreakdownDeps,
 } from './core/usecases/explore-budget-breakdown.js';
-
-export {
-  queryProcurementFilters,
-  type QueryProcurementFiltersDeps,
-} from './core/usecases/query-procurement-filters.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Core Utilities
@@ -294,7 +271,6 @@ export {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export { makeMcpExecutionRepo } from './shell/repo/mcp-execution-repo.js';
-export { makeMcpProcurementRepo } from './shell/repo/mcp-procurement-repo.js';
 export { makeMcpAnalyticsService } from './shell/service/mcp-analytics-service.js';
 export {
   makeEntityAdapter,

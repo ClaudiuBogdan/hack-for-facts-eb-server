@@ -6,6 +6,8 @@
 
 import { ok, type Result } from 'neverthrow';
 
+import { ANALYSIS_MATRIX_SHA256 } from '@/modules/procurement/core/combinations.js';
+
 import type { GenerationQuality, GrainQualityVerdict } from '@/modules/procurement/core/gate-v2.js';
 import type {
   ActiveGeneration,
@@ -31,7 +33,7 @@ export const verdict = (
   classes: { spend: over.spend ?? 'allow', time: over.time ?? 'allow', geo: over.geo ?? 'allow' },
 });
 
-/** Mirrors the live reality: DA spend allowed, contract spend abstained. */
+/** Synthetic mixed verdicts used to exercise both served and abstained paths. */
 export const LIVE_LIKE_QUALITY: GenerationQuality = {
   procedure: verdict({ time: 'abstain', date: 0.34 }),
   contract: verdict({ spend: 'abstain', value: 0.76 }),
@@ -44,7 +46,7 @@ export const generation = (quality: GenerationQuality = LIVE_LIKE_QUALITY): Acti
   buildId: BUILD_ID,
   publishedAt: '2026-07-12T00:00:00Z',
   quality,
-  matrixHash: 'test-matrix-hash',
+  matrixHash: ANALYSIS_MATRIX_SHA256,
 });
 
 export const statsRead = (over: Partial<AnalysisStatsRead> = {}): AnalysisStatsRead => ({

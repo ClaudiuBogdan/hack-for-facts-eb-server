@@ -3,8 +3,8 @@
  * parameters out — no mocking library):
  *
  *  - generation micro-cache: single-flight refresh (a concurrent burst issues ONE
- *    statement), TTL-driven via an injected clock, MONOTONIC (a stale refresh can
- *    never regress the cache to an older buildId), errors never cached;
+ *    statement), TTL-driven via an injected clock, follows the authoritative
+ *    active pointer for intentional rollback, errors never cached;
  *  - every rollup statement pins `build_id` to the caller's generation;
  *  - the breakdown statement excludes undated-only keys from ranked/other (S9)
  *    and keeps money sums null-preserving (S8);
@@ -109,7 +109,7 @@ describe('generation micro-cache', () => {
     expect(generationQueries(recorder)).toHaveLength(1);
   });
 
-  it('refreshes after the TTL and NEVER regresses to an older buildId', async () => {
+  it('refreshes after the TTL and follows an intentional active-generation rollback', async () => {
     let clock = 0;
     let nextBuild = '43';
     const recorder: Recorder = { queries: [], rowsFor: () => [generationRow(nextBuild)] };
@@ -117,11 +117,11 @@ describe('generation micro-cache', () => {
 
     expect((await repo.activeGeneration())._unsafeUnwrap()?.buildId).toBe('43');
 
-    // A slow/stale replica read racing a cutover returns an OLDER build after the
-    // TTL — the cache must keep 43, not un-publish it.
+    // The active row is authoritative: operators retain N-1 specifically so
+    // they can reactivate it when the current generation must be rolled back.
     clock = 10_000;
     nextBuild = '42';
-    expect((await repo.activeGeneration())._unsafeUnwrap()?.buildId).toBe('43');
+    expect((await repo.activeGeneration())._unsafeUnwrap()?.buildId).toBe('42');
     expect(generationQueries(recorder)).toHaveLength(2);
 
     // A genuinely newer build wins.
@@ -175,6 +175,64 @@ describe('rollup statements', () => {
     expect(query?.parameters).toContain('77');
     // Null SQL money sums survive as null — never coalesced to '0' (S8).
     expect(read._unsafeUnwrap().valueAwardedSum).toBeNull();
+  });
+
+  it('maps PostgreSQL 57014 to Timeout and logs only safe diagnostics', async () => {
+    const canceled = Object.assign(new Error('statement timeout with private SQL'), {
+      code: '57014',
+    });
+    const recorder: Recorder = {
+      queries: [],
+      rowsFor: () => {
+        throw canceled;
+      },
+    };
+    const warnings: unknown[] = [];
+    const logger = {
+      info: () => undefined,
+      error: () => undefined,
+      debug: () => undefined,
+      warn: (obj: unknown) => warnings.push(obj),
+    };
+    const repo = makeProcurementAnalysisRepo(
+      makeFakeDb(recorder),
+      makeScopeCache(),
+      () => 100,
+      logger
+    );
+
+    const result = await repo.statsFor(
+      routeFor('authorityDims'),
+      { authorityCui: 'sensitive' },
+      '77'
+    );
+    expect(result._unsafeUnwrapErr().type).toBe('Timeout');
+    expect(warnings[0]).toMatchObject({
+      operation: 'stats',
+      grain: 'direct_acquisition',
+      rollup: 'authorityDims',
+      buildId: '77',
+      postgresCode: '57014',
+    });
+    expect(JSON.stringify(warnings)).not.toContain('private SQL');
+    expect(JSON.stringify(warnings)).not.toContain('sensitive');
+  });
+
+  it('keeps ordinary PostgreSQL failures classified as Database', async () => {
+    const recorder: Recorder = {
+      queries: [],
+      rowsFor: () => {
+        throw Object.assign(new Error('connection reset'), { code: '08006' });
+      },
+    };
+    const repo = makeProcurementAnalysisRepo(makeFakeDb(recorder), makeScopeCache(), () => 100);
+
+    const result = await repo.statsFor(
+      routeFor('authorityDims'),
+      { authorityCui: '4267117' },
+      '77'
+    );
+    expect(result._unsafeUnwrapErr().type).toBe('Database');
   });
 
   it('breakdown ranks only keys with a dated contribution and keeps money nullable', async () => {

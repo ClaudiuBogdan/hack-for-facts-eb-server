@@ -7,6 +7,7 @@
  * `{ ok, kind, query?, link?, item|items?, summary? }`.
  */
 
+import type { ApiError } from '../../core/errors.js';
 import type { ZodRawShape } from 'zod';
 
 /**
@@ -33,6 +34,10 @@ export interface McpToolOutput<T = unknown> {
    */
   readonly meta?: Readonly<Record<string, unknown>>;
   readonly summary?: string;
+  /** Stable machine-readable category for an expected handler failure. */
+  readonly errorType?: ApiError['type'];
+  /** Transport-neutral code aligned with GraphQL's extensions.code values. */
+  readonly errorCode?: string;
   readonly error?: string;
 }
 
@@ -40,5 +45,7 @@ export interface KernelMcpTool {
   readonly name: string; // `<verb>_<domain>_<noun>`
   readonly description: string;
   readonly inputShape: ZodRawShape;
+  /** Reject unknown top-level keys instead of Zod's default strip behavior. */
+  readonly strictInput?: boolean;
   handler(args: Record<string, unknown>): Promise<McpToolOutput>;
 }

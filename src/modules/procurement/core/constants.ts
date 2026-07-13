@@ -9,7 +9,7 @@ export const PROCUREMENT_SOURCE = 'procurement' as const;
 
 /**
  * `source_grain` = the kernel `flow_type` (NOT a SEAP/elicitatie distinction).
- * The grain gate (`aggregate_quality_by_grain`) is keyed by this; every aggregate
+ * The generation quality verdicts are keyed by this; every analysis
  * answer is scoped to ONE grain and the two are never summed (§14.6).
  */
 export const PROCUREMENT_GRAINS = ['direct_acquisition', 'procurement_contract'] as const;
