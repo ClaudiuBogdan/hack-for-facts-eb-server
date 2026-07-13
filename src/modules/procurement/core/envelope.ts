@@ -10,10 +10,12 @@
  */
 
 import type { AnalysisGrain } from './constants.js';
-import type { GateDecision } from './gate-v2.js';
+import type { AnswerabilityReason, GateDecision } from './gate-v2.js';
 import type { PolicyEntry } from './policy.js';
 
 export interface AnswerEnvelope {
+  readonly answerability: 'served' | 'degraded' | 'abstained';
+  readonly reason?: AnswerabilityReason;
   readonly policyKey: string;
   readonly grain: AnalysisGrain;
   readonly valueBasis: 'estimated' | 'awarded' | null;
@@ -28,8 +30,8 @@ export interface AnswerEnvelope {
   /** True where terminality is underivable (all contract-grain money). */
   readonly provisional: boolean;
   readonly caveats: readonly string[];
-  /** The canonical scope echo — the same filter as a list deep link. */
-  readonly link: string;
+  /** Stable scope serialization; deliberately not presented as a URL. */
+  readonly canonicalScope: string;
 }
 
 export interface EnvelopeReads {
@@ -51,10 +53,13 @@ export const buildEnvelope = (
   gate: GateDecision,
   buildId: string,
   reads: EnvelopeReads | null,
-  link: string,
+  canonicalScope: string,
   moneyAllowed: boolean,
   extraCaveats: readonly string[] = []
 ): AnswerEnvelope => ({
+  answerability:
+    reads === null ? 'abstained' : gate.allow && !gate.degraded ? 'served' : 'degraded',
+  ...(gate.reason === undefined ? {} : { reason: gate.reason }),
   policyKey: policy.policyKey,
   grain: policy.grain,
   valueBasis: policy.valueBasis,
@@ -68,5 +73,5 @@ export const buildEnvelope = (
       : null,
   provisional: policy.terminality === 'none' && policy.valueBasis !== null,
   caveats: [...gate.caveats, ...extraCaveats],
-  link,
+  canonicalScope,
 });

@@ -23,7 +23,9 @@ import { err, ok, type Result } from 'neverthrow';
 import {
   databaseError,
   fhashFor,
+  timeoutError,
   type ApiError,
+  type Logger,
   type ProdDatabase,
 } from '@/modules/shared/index.js';
 
@@ -187,19 +189,54 @@ class UncacheableError extends Error {
 export const makeProcurementAnalysisRepo = (
   db: Db,
   cache: ScopeCache = makeScopeCache(),
-  now: () => number = Date.now
+  now: () => number = Date.now,
+  logger?: Logger
 ): AnalysisRepo => {
+  const queryFailure = (
+    operation: string,
+    error: unknown,
+    startedAt: number,
+    context?: { readonly route: AnalysisRoute; readonly buildId: string }
+  ): ApiError => {
+    const postgresCode =
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      typeof error.code === 'string'
+        ? error.code
+        : undefined;
+    logger?.warn(
+      {
+        operation,
+        ...(context === undefined
+          ? {}
+          : {
+              shape: operation,
+              grain: context.route.grain,
+              rollup: context.route.rollup.rollup,
+              buildId: context.buildId,
+            }),
+        elapsedMs: Math.max(0, now() - startedAt),
+        ...(postgresCode === undefined ? {} : { postgresCode }),
+      },
+      'procurement analysis query failed'
+    );
+    return postgresCode === '57014'
+      ? timeoutError(`procurement analysis ${operation} timed out`)
+      : databaseError(`procurement analysis ${operation} failed`, error);
+  };
   // ── the active generation (micro-cached; every read pins its buildId) ───────
   //
   // Single-flight: concurrent callers past the TTL await ONE in-flight refresh
-  // (no thundering herd on the pointer table). Monotonic: a refresh can never
-  // regress the cache to an OLDER buildId — a stale replica read racing a
-  // cutover must not un-publish the newer generation. Errors are never cached.
+  // (no thundering herd on the pointer table). The database's single active row
+  // is authoritative even when it points back to an older build for rollback.
+  // Errors are never cached.
 
   let generationCache: { value: ActiveGeneration | null; expiresAt: number } | null = null;
   let generationInFlight: Promise<Result<ActiveGeneration | null, ApiError>> | null = null;
 
   const refreshGeneration = async (): Promise<Result<ActiveGeneration | null, ApiError>> => {
+    const startedAt = now();
     try {
       const row = await db
         .selectFrom('procurement.analysis_generations as g')
@@ -222,16 +259,10 @@ export const makeProcurementAnalysisRepo = (
               quality: parseQuality(row.quality),
               matrixHash: row.matrix_hash,
             };
-      const cachedValue = generationCache?.value ?? null;
-      const regressed =
-        fresh !== null &&
-        cachedValue !== null &&
-        BigInt(fresh.buildId) < BigInt(cachedValue.buildId);
-      const value = regressed ? cachedValue : fresh;
-      generationCache = { value, expiresAt: now() + GENERATION_TTL_MS };
-      return ok(value);
+      generationCache = { value: fresh, expiresAt: now() + GENERATION_TTL_MS };
+      return ok(fresh);
     } catch (error) {
-      return err(databaseError('activeGeneration failed', error));
+      return err(queryFailure('activeGeneration', error, startedAt));
     }
   };
 
@@ -286,6 +317,7 @@ export const makeProcurementAnalysisRepo = (
     buildId: string
   ): Promise<Result<AnalysisStatsRead, ApiError>> =>
     cached('stats', route, scope, buildId, [], async () => {
+      const startedAt = now();
       const { where, datedPred } = compileScope(route, scope, buildId);
       const table = sql.table(route.rollup.table);
       try {
@@ -326,7 +358,7 @@ export const makeProcurementAnalysisRepo = (
           undatedValueRon: row?.undated_value_ron ?? null,
         });
       } catch (error) {
-        return err(databaseError('analysis statsFor failed', error));
+        return err(queryFailure('stats', error, startedAt, { route, buildId }));
       }
     });
 
@@ -339,6 +371,7 @@ export const makeProcurementAnalysisRepo = (
     measure: MeasureId
   ): Promise<Result<readonly AnalysisSeriesRow[], ApiError>> =>
     cached('series', route, scope, buildId, [measure], async () => {
+      const startedAt = now();
       const column = MEASURE_COLUMNS[measure];
       if (column === undefined) {
         return err(databaseError(`series measure '${measure}' has no rollup column`));
@@ -374,7 +407,7 @@ export const makeProcurementAnalysisRepo = (
           }))
         );
       } catch (error) {
-        return err(databaseError('analysis seriesFor failed', error));
+        return err(queryFailure('series', error, startedAt, { route, buildId }));
       }
     });
 
@@ -388,6 +421,7 @@ export const makeProcurementAnalysisRepo = (
     bucket: SeriesBucket
   ): Promise<Result<readonly AnalysisDistinctRow[], ApiError>> =>
     cached('distinct-series', route, scope, buildId, [key, bucket], async () => {
+      const startedAt = now();
       const keyColumn = key === 'supplier' ? 'supplier_cui' : 'authority_cui';
       const format = bucket === 'month' ? 'YYYY-MM' : bucket === 'quarter' ? 'YYYY-"Q"Q' : 'YYYY';
       const { where } = compileScope(route, scope, buildId);
@@ -423,7 +457,7 @@ export const makeProcurementAnalysisRepo = (
           }))
         );
       } catch (error) {
-        return err(databaseError('analysis distinctSeriesFor failed', error));
+        return err(queryFailure('distinct-series', error, startedAt, { route, buildId }));
       }
     });
 
@@ -438,6 +472,7 @@ export const makeProcurementAnalysisRepo = (
     rankBy: 'value' | 'count'
   ): Promise<Result<AnalysisBreakdownRead, ApiError>> =>
     cached('breakdown', route, scope, buildId, [dimension, topN, rankBy], async () => {
+      const startedAt = now();
       const dimColumn = BREAKDOWN_COLUMNS[dimension];
       if (dimColumn === undefined) {
         return err(databaseError(`breakdown dimension '${dimension}' has no rollup column`));
@@ -534,7 +569,7 @@ export const makeProcurementAnalysisRepo = (
         };
         return ok({ buckets, totals });
       } catch (error) {
-        return err(databaseError('analysis breakdownFor failed', error));
+        return err(queryFailure('breakdown', error, startedAt, { route, buildId }));
       }
     });
 
@@ -547,6 +582,7 @@ export const makeProcurementAnalysisRepo = (
     basis: 'value' | 'count'
   ): Promise<Result<ConcentrationRead, ApiError>> =>
     cached('concentration', route, scope, buildId, [basis], async () => {
+      const startedAt = now();
       const measureColumn = basis === 'value' ? 'value_awarded_sum' : 'record_count';
       const { where, datedPred } = compileScope(route, scope, buildId);
       const table = sql.table(route.rollup.table);
@@ -619,7 +655,7 @@ export const makeProcurementAnalysisRepo = (
           },
         });
       } catch (error) {
-        return err(databaseError('analysis concentrationRowsFor failed', error));
+        return err(queryFailure('concentration', error, startedAt, { route, buildId }));
       }
     });
 

@@ -114,34 +114,6 @@ export const DISCOVER_FILTERS_DESCRIPTION = `Discover and resolve machine-usable
 - UAT IDs are returned as strings - keep them as strings in subsequent queries
 - High score (>0.85) with bestMatch indicates confident match`;
 
-export const QUERY_PROCUREMENT_FILTERS_DESCRIPTION = `Query deterministic Public Contracts aggregate filters for high-accuracy procurement analytics.
-
-**Purpose:**
-- Answer questions such as top suppliers for one public institution, top suppliers in a buyer region for a CPV category, CPV category breakdowns, and repeated same-day direct-acquisition review signals
-- Use production materialized rollups and explicit quality gates instead of generated LLM metadata
-- Return abstentions when the requested answer class is not safe enough for agents
-
-**Input Parameters:**
-- analysis (required): "top_suppliers" | "category_breakdown" | "same_day_direct_acquisition_candidates"
-- sourceGrain (optional): "direct_acquisition" (default) | "procurement_contract"
-- rankBy (optional): "amount_ron" (default) | "flow_count"
-- authorityCui (optional): buyer/public authority CUI for institution-specific answers
-- authorityCountyCode / authorityRegion (optional): buyer territory filters, not supplier headquarters; authorityRegion accepts Romanian diacritics and canonicalizes to production region names such as "Bucuresti-Ilfov"
-- cpvDivisionCode (optional): two-digit CPV division, e.g. "45" for construction works
-- yearStart / yearEnd (optional): inclusive calendar-year filter
-- limit (optional): 1-50 rows, default 10
-
-**Safety Rules:**
-- At least one scope filter is required; the tool refuses unscoped corpus-wide scans
-- Spend-ranked answers require spend_rankings_allowed in procurement.aggregate_quality_by_grain
-- Count/filter answers require filter_answers_allowed
-- Supplier-region filters are not supported in v1; region means buyer/public authority region
-- Same-day direct-acquisition output is a review signal, not a finding of illegality
-
-**Generated Data Policy:**
-- LLM summaries, labels, and embeddings may help discovery elsewhere, but this tool does not use them for authoritative filters, rankings, totals, or entity identity
-- Output includes quality coverage, blockers, caveats, and evidence refs so agents can cite and abstain accurately`;
-
 export const QUERY_TIMESERIES_DESCRIPTION = `Retrieve time-series budget data for comparative analysis across entities, regions, or classifications.
 
 **Purpose:**

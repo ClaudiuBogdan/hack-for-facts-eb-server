@@ -115,7 +115,7 @@ describe('analysisShare validation failures ARE the answer', () => {
     expect(result._unsafeUnwrapErr().message).toContain('subset');
   });
 
-  it('a gate-blocked operand aborts the share — never a partial or count-based ratio', async () => {
+  it('a gate-blocked operand returns an abstained share — never a count-based ratio', async () => {
     const { repo } = fakeAnalysisRepo(); // live-like: contract spend abstains
     const result = await analysisShare(
       { analysisRepo: repo },
@@ -124,13 +124,43 @@ describe('analysisShare validation failures ARE the answer', () => {
         denominator: { authorityCui: 'a', grain: 'contract' },
       }
     );
-    const message = result._unsafeUnwrapErr().message;
-    expect(message).toContain('share abstains');
-    expect(message).toContain('gate-blocked');
+    const share = result._unsafeUnwrap();
+    expect(share.share).toBeNull();
+    expect(share.answerability).toBe('abstained');
+    expect(share.reason).toBe('SPEND_COVERAGE_BELOW_GATE');
   });
 });
 
 describe('analysisShare happy path', () => {
+  it('propagates a degraded time verdict and typed reason from its operands', async () => {
+    const { repo } = fakeAnalysisRepo({
+      quality: {
+        ...ALL_ALLOW,
+        direct_acquisition: verdict({ time: 'degraded', date: 0.65 }),
+      },
+    });
+    const result = (
+      await analysisShare(
+        { analysisRepo: repo },
+        {
+          numerator: {
+            authorityCui: 'a',
+            supplierCui: 's',
+            grain: 'direct_acquisition',
+            year: 2024,
+          },
+          denominator: { authorityCui: 'a', grain: 'direct_acquisition', year: 2024 },
+        }
+      )
+    )._unsafeUnwrap();
+
+    expect(result.answerability).toBe('degraded');
+    expect(result.reason).toBe('TIME_COVERAGE_DEGRADED');
+    expect(result.caveats.some((caveat) => caveat.includes('time answers are degraded'))).toBe(
+      true
+    );
+  });
+
   it('derives the ratio from two stats reads as a decimal string', async () => {
     const { repo, calls } = fakeAnalysisRepo({
       quality: ALL_ALLOW,

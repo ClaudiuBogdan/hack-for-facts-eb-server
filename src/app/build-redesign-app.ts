@@ -93,6 +93,8 @@ export interface BuildRedesignAppDeps {
     | 'procurement'
     | 'primarii-transparency'
   )[];
+  /** Disable procurement's fire-and-forget preload for isolated cold benchmarks. */
+  readonly procurementWarmCache?: boolean;
   /** When set, mounts the authenticated agent surface at /api/v1/agent. */
   readonly agent?: RedesignAgentDeps;
 }
@@ -310,12 +312,12 @@ export const registerRedesignSurface = async (
     const windowEnv = Number(process.env['PROCUREMENT_DA_LIST_MAX_WINDOW_DAYS']);
     const procurement = makeProcurementModule({
       db: kernel.db,
-      registry: kernel.contributors,
+      logger: app.log,
+      ...(deps.procurementWarmCache !== undefined && { warmCache: deps.procurementWarmCache }),
       ...(Number.isFinite(windowEnv) &&
         windowEnv > 0 && { daListMaxWindowDays: Math.floor(windowEnv) }),
       ...(deps.clientBaseUrl !== undefined && { clientBaseUrl: deps.clientBaseUrl }),
     });
-    kernel.contributors.register(procurement.contributor);
     moduleSlices.push(procurement.graphqlSlice);
     moduleResolvers.push(procurement.graphqlResolvers);
     moduleMcpTools.push(...procurement.mcpTools);

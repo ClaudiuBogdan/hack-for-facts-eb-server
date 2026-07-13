@@ -148,126 +148,6 @@ export interface ProcurementProcedureTedLinksTable {
   ted_notice_id: string | null;
 }
 
-// ── materialized views (the aggregate path) ────────────────────────────────────
-
-export interface ProcurementOrgEdgeRollupTable {
-  projection_version: string;
-  month_start: string; // date
-  source_grain: string;
-  authority_cui: string;
-  authority_name: string | null;
-  supplier_cui: string;
-  supplier_name: string | null;
-  authority_county_code: string | null;
-  authority_county_name: string | null;
-  authority_region: string | null;
-  flow_count: string; // bigint → string
-  amount_ron_sum: string | null; // numeric(20,2) → string
-  amount_present_count: string;
-  amount_missing_count: string;
-  date_present_count: string;
-  cpv_present_count: string;
-  distinct_cpv_code_count: string;
-  distinct_cpv_division_count: string;
-  authority_territory_present_count: string;
-  first_flow_date: string | null;
-  last_flow_date: string | null;
-  evidence_refs_sample: string[];
-  refreshed_at: string | null;
-}
-
-export interface ProcurementAuthorityCpvRollupTable {
-  projection_version: string;
-  month_start: string;
-  source_grain: string;
-  authority_cui: string;
-  authority_name: string | null;
-  authority_county_code: string | null;
-  authority_county_name: string | null;
-  authority_region: string | null;
-  cpv_division_code: string;
-  cpv_division_label_en: string | null;
-  flow_count: string;
-  amount_ron_sum: string | null;
-  amount_present_count: string;
-  amount_missing_count: string;
-  distinct_supplier_count: string;
-  first_flow_date: string | null;
-  last_flow_date: string | null;
-  evidence_refs_sample: string[];
-  refreshed_at: string | null;
-}
-
-export interface ProcurementSupplierCpvRollupTable {
-  projection_version: string;
-  month_start: string;
-  source_grain: string;
-  authority_cui: string;
-  authority_name: string | null;
-  supplier_cui: string;
-  supplier_name: string | null;
-  authority_county_code: string | null;
-  authority_county_name: string | null;
-  authority_region: string | null;
-  cpv_division_code: string;
-  cpv_division_label_en: string | null;
-  flow_count: string;
-  amount_ron_sum: string | null;
-  amount_present_count: string;
-  amount_missing_count: string;
-  distinct_cpv_code_count: string;
-  first_flow_date: string | null;
-  last_flow_date: string | null;
-  evidence_refs_sample: string[];
-  refreshed_at: string | null;
-}
-
-export interface ProcurementSameDayCandidatesTable {
-  projection_version: string;
-  candidate_date: string;
-  authority_cui: string;
-  authority_name: string | null;
-  supplier_cui: string;
-  supplier_name: string | null;
-  authority_county_code: string | null;
-  authority_county_name: string | null;
-  authority_region: string | null;
-  cpv_code: string | null;
-  cpv_division_code: string | null;
-  cpv_division_label_en: string | null;
-  same_day_count: string;
-  same_day_total_ron: string | null;
-  max_single_amount_ron: string | null;
-  amount_present_count: string;
-  amount_missing_count: string;
-  evidence_refs_sample: string[];
-  refreshed_at: string | null;
-}
-
-export interface ProcurementGrainQualityTable {
-  projection_version: string;
-  source_grain: string;
-  rows_count: string;
-  authority_cui_present_count: string;
-  supplier_cui_present_count: string;
-  amount_present_count: string;
-  cpv_present_count: string;
-  date_present_count: string;
-  authority_count: string;
-  authority_territory_count: string;
-  authority_cui_coverage_rate: string; // numeric → string
-  supplier_cui_coverage_rate: string;
-  amount_coverage_rate: string;
-  cpv_coverage_rate: string;
-  date_coverage_rate: string;
-  authority_territory_coverage_rate: string;
-  filter_answers_allowed: boolean;
-  spend_rankings_allowed: boolean;
-  supplier_region_filters_allowed: boolean;
-  blockers: string[];
-  refreshed_at: string | null;
-}
-
 // ── analysis package (scraper-built; design §6.2) ──────────────────────────────
 //
 // Only the generation ledger + the 5 wave-1 rollups are declared — the
@@ -338,11 +218,6 @@ declare module '@/modules/shared/shell/db/types.js' {
     'procurement.cpv_codes': ProcurementCpvCodesTable;
     'procurement.ted_notices': ProcurementTedNoticesTable;
     'procurement.procedure_ted_links': ProcurementProcedureTedLinksTable;
-    'procurement.org_edge_monthly_rollups': ProcurementOrgEdgeRollupTable;
-    'procurement.authority_cpv_division_monthly_rollups': ProcurementAuthorityCpvRollupTable;
-    'procurement.supplier_cpv_division_monthly_rollups': ProcurementSupplierCpvRollupTable;
-    'procurement.same_day_direct_acquisition_candidates': ProcurementSameDayCandidatesTable;
-    'procurement.aggregate_quality_by_grain': ProcurementGrainQualityTable;
     'procurement.analysis_generations': ProcurementAnalysisGenerationsTable;
     'procurement.analysis_rollup_edge_monthly': ProcurementAnalysisEdgeRollupTable;
     'procurement.analysis_rollup_authority_dims_monthly': ProcurementAnalysisAuthorityDimsRollupTable;

@@ -7,7 +7,7 @@
  *
  * The all-virtual `CollectionFilterSpec` below exists ONLY so the kernel's
  * `canonicalizeFilters`/`fhashFor` derive stable cache keys and the envelope's
- * canonical link echo from one declaration — no SQL is ever compiled from it
+ * canonical scope echo from one declaration — no SQL is ever compiled from it
  * (every field is `virtual: true`; the analysis repo owns the rollup SQL).
  *
  * buyerCounty / supplierCounty / supplierRegion PARSE here (they are contract
@@ -103,6 +103,13 @@ const readString = (value: unknown, field: string): Result<string | undefined, A
   return ok(value.trim());
 };
 
+const isCalendarMonth = (value: string): boolean => {
+  if (!MONTH_RE.test(value)) return false;
+  const year = Number(value.slice(0, 4));
+  const month = Number(value.slice(5, 7));
+  return year >= 2000 && year <= 2100 && month >= 1 && month <= 12;
+};
+
 export type RawAnalysisScope = Readonly<Record<string, unknown>> | null | undefined;
 
 /**
@@ -154,8 +161,13 @@ export const parseAnalysisScope = (raw: RawAnalysisScope): Result<AnalysisScope,
   }
 
   for (const field of ['from', 'to'] as const) {
-    if (out[field] !== undefined && !MONTH_RE.test(out[field])) {
-      return err(invalidInput(`${field} must be a YYYY-MM month`, field));
+    if (out[field] !== undefined && !isCalendarMonth(out[field])) {
+      return err(
+        invalidInput(
+          `${field} must be a calendar month in YYYY-MM form (year 2000–2100, month 01–12)`,
+          field
+        )
+      );
     }
   }
   if (out.from !== undefined && out.to !== undefined && out.from > out.to) {
@@ -231,9 +243,8 @@ export const sameWindow = (a: AnalysisScope, b: AnalysisScope): boolean => {
 };
 
 /**
- * The canonical scope echo: a stable, order-independent query string. It is the
- * envelope `link` — opening it as a list shows the population under the same
- * filter (design §3.4 traceability).
+ * The canonical scope echo: stable, order-independent scope serialization for
+ * the envelope's `canonicalScope` field. It is not a navigable URL.
  */
 export const canonicalScopeEcho = (scope: AnalysisScope): string =>
   SCOPE_FIELDS.filter((f) => scope[f] !== undefined)

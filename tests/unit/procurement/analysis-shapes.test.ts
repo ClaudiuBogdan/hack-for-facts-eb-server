@@ -9,6 +9,7 @@ import { ok } from 'neverthrow';
 import { describe, expect, it } from 'vitest';
 
 import {
+  analysisBreakdown,
   analysisConcentration,
   analysisFacets,
   analysisSeries,
@@ -79,13 +80,25 @@ describe('analysisStats — labeled per-grain blocks', () => {
     });
   });
 
+  it('fails analysis closed when the active generation uses another matrix', async () => {
+    const { repo, calls } = fakeAnalysisRepo({
+      generation: { ...generation(), matrixHash: 'older-matrix' },
+    });
+    const result = await analysisStats({ analysisRepo: repo }, { scope: {} });
+    expect(result._unsafeUnwrapErr()).toMatchObject({
+      type: 'ServiceUnavailable',
+      message: expect.stringContaining('older-matrix'),
+    });
+    expect(calls).toHaveLength(0);
+  });
+
   it('stamps the pinned buildId and the canonical scope echo on every envelope', async () => {
     const { repo } = fakeAnalysisRepo();
     const scope = { authorityCui: '4267117', from: '2024-01', to: '2024-06' };
     const result = (await analysisStats({ analysisRepo: repo }, { scope }))._unsafeUnwrap();
     for (const block of result.blocks) {
       expect(block.meta.buildId).toBe(BUILD_ID);
-      expect(block.meta.link).toBe('authorityCui=4267117&from=2024-01&to=2024-06');
+      expect(block.meta.canonicalScope).toBe('authorityCui=4267117&from=2024-01&to=2024-06');
       expect(block.meta.population).toBe('canonical-only');
     }
   });
@@ -151,7 +164,11 @@ describe('analysisSeries — buckets, laws, undated rules', () => {
     const blocks = (
       await analysisSeries(
         { analysisRepo: repo },
-        { scope: { grain: 'direct_acquisition' }, bucket: 'quarter', measure: 'distinctSuppliers' }
+        {
+          scope: { grain: 'direct_acquisition', authorityCui: '4267117' },
+          bucket: 'quarter',
+          measure: 'distinctSuppliers',
+        }
       )
     )._unsafeUnwrap();
     const call = calls.find((c) => c.method === 'distinctSeriesFor');
@@ -172,14 +189,19 @@ describe('analysisSeries — buckets, laws, undated rules', () => {
   });
 
   it('an explicit procedure-grain time series is blocked with the milestone named', async () => {
-    const { repo } = fakeAnalysisRepo();
-    const result = await analysisSeries(
-      { analysisRepo: repo },
-      { scope: { grain: 'procedure' }, bucket: 'month', measure: 'recordCount' }
-    );
-    const message = result._unsafeUnwrapErr().message;
-    expect(message).toContain('missing-date-basis');
-    expect(message).toContain('M1');
+    const { repo, calls } = fakeAnalysisRepo();
+    const blocks = (
+      await analysisSeries(
+        { analysisRepo: repo },
+        { scope: { grain: 'procedure' }, bucket: 'month', measure: 'recordCount' }
+      )
+    )._unsafeUnwrap();
+    expect(blocks[0]?.points).toEqual([]);
+    expect(blocks[0]?.meta.answerability).toBe('abstained');
+    expect(blocks[0]?.meta.reason).toBe('GENERATION_LACKS_CAPABILITY');
+    expect(blocks[0]?.meta.caveats[0]).toContain('missing-date-basis');
+    expect(blocks[0]?.meta.caveats[0]).toContain('M1');
+    expect(calls.some((call) => call.method === 'seriesFor')).toBe(false);
   });
 
   it('an implicit-grain series serves the other grains and flags the blocked procedure block', async () => {
@@ -229,6 +251,41 @@ describe('analysisSeries — buckets, laws, undated rules', () => {
   });
 });
 
+describe('analysisBreakdown — topN contract', () => {
+  it.each([
+    [undefined, 10],
+    [1, 1],
+    [50, 50],
+  ] as const)('accepts topN=%s and passes %s to the repository', async (topN, expected) => {
+    const { repo, calls } = fakeAnalysisRepo();
+    const result = await analysisBreakdown(
+      { analysisRepo: repo },
+      {
+        scope: { grain: 'contract' },
+        dimension: 'supplier',
+        ...(topN === undefined ? {} : { topN }),
+      }
+    );
+
+    expect(result.isOk()).toBe(true);
+    expect(calls.find((call) => call.method === 'breakdownFor')?.params[1]).toBe(expected);
+  });
+
+  it.each([0, 51, -1, 1.5, Number.MAX_SAFE_INTEGER])(
+    'rejects explicit topN=%s before repository reads',
+    async (topN) => {
+      const { repo, calls } = fakeAnalysisRepo();
+      const result = await analysisBreakdown(
+        { analysisRepo: repo },
+        { scope: { grain: 'contract' }, dimension: 'supplier', topN }
+      );
+      expect(result.isErr()).toBe(true);
+      if (result.isErr()) expect(result.error.message).toContain('topN');
+      expect(calls).toHaveLength(0);
+    }
+  );
+});
+
 describe('analysisConcentration — basis forcing + Decimal outputs', () => {
   const rows = [
     { supplierKey: 'A', measure: '600.00' },
@@ -242,7 +299,10 @@ describe('analysisConcentration — basis forcing + Decimal outputs', () => {
     const blocks = (
       await analysisConcentration(
         { analysisRepo: repo },
-        { scope: { authorityCui: '4267117', grain: 'direct_acquisition' } }
+        {
+          scope: { authorityCui: '4267117', grain: 'direct_acquisition' },
+          basis: 'value',
+        }
       )
     )._unsafeUnwrap();
     const block = blocks[0];
@@ -254,7 +314,7 @@ describe('analysisConcentration — basis forcing + Decimal outputs', () => {
     expect(block?.totalRon).toBe('1000.00');
   });
 
-  it('forces basis=count with a caveat when spend abstains (no value ranking sneaks out)', async () => {
+  it('abstains on explicit value basis when spend is blocked (never falls back)', async () => {
     const { repo, calls } = fakeAnalysisRepo({ concentration: read });
     const blocks = (
       await analysisConcentration(
@@ -262,10 +322,11 @@ describe('analysisConcentration — basis forcing + Decimal outputs', () => {
         { scope: { authorityCui: '4267117', grain: 'contract' }, basis: 'value' }
       )
     )._unsafeUnwrap();
-    expect(blocks[0]?.basis).toBe('count');
+    expect(blocks[0]?.basis).toBe('value');
     expect(blocks[0]?.totalRon).toBeNull();
-    expect(blocks[0]?.meta.caveats.some((c) => c.includes('basis forced to count'))).toBe(true);
-    expect(calls.find((c) => c.method === 'concentrationRowsFor')?.params).toEqual(['count']);
+    expect(blocks[0]?.meta.answerability).toBe('abstained');
+    expect(blocks[0]?.meta.reason).toBe('SPEND_COVERAGE_BELOW_GATE');
+    expect(calls.some((c) => c.method === 'concentrationRowsFor')).toBe(false);
   });
 });
 
@@ -385,7 +446,7 @@ describe('null money is preserved end-to-end (S8)', () => {
     const blocks = (
       await analysisConcentration(
         { analysisRepo: repo },
-        { scope: { authorityCui: 'x', grain: 'direct_acquisition' } }
+        { scope: { authorityCui: 'x', grain: 'direct_acquisition' }, basis: 'value' }
       )
     )._unsafeUnwrap();
     expect(blocks[0]?.supplierCount).toBe(2); // known suppliers, basis-independent (S7)
@@ -410,7 +471,7 @@ describe('concentration semantics (S7)', () => {
     const blocks = (
       await analysisConcentration(
         { analysisRepo: repo },
-        { scope: { authorityCui: 'x', grain: 'direct_acquisition' } }
+        { scope: { authorityCui: 'x', grain: 'direct_acquisition' }, basis: 'value' }
       )
     )._unsafeUnwrap();
     const block = blocks[0];

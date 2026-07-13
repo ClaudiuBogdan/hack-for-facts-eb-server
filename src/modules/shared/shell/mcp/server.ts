@@ -9,6 +9,8 @@
 // eslint-disable-next-line import-x/no-unresolved -- SDK wildcard subpath exports
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
+import { kernelToolInputSchema } from './input-schema.js';
+
 import type { KernelMcpTool, McpToolOutput } from './types.js';
 
 const toolResponse = (output: McpToolOutput) => ({
@@ -41,7 +43,7 @@ export const createKernelMcpServer = (
   for (const tool of tools) {
     server.registerTool(
       tool.name,
-      { description: tool.description, inputSchema: tool.inputShape },
+      { description: tool.description, inputSchema: kernelToolInputSchema(tool) },
       async (args: Record<string, unknown>) => toolResponse(await tool.handler(args))
     );
   }

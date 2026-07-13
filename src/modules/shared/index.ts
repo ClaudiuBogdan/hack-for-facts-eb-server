@@ -326,6 +326,7 @@ export { baseTypeDefs } from './shell/graphql/typedefs.js';
 export { scalarResolvers, scalarTypeDefs } from './shell/graphql/scalars.js';
 export { makeBatchLoader, type BatchLoader } from './shell/graphql/dataloaders.js';
 export type { KernelMcpTool, McpToolOutput } from './shell/mcp/types.js';
+export { kernelToolInputSchema } from './shell/mcp/input-schema.js';
 export { createMcpHttpDispatcher, type McpHttpDispatcher } from './shell/mcp/http-dispatch.js';
 export { type KernelCache } from './shell/middleware/cache.js';
 export { type RateLimiter } from './shell/middleware/rate-limiter.js';

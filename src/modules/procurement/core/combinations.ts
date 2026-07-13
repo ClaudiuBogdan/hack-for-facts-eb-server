@@ -8,10 +8,10 @@
  * rollup per grain — or rejects with the SPECIFIC missing capability named
  * (the bound-policy actionable-error discipline).
  *
- * The vendored `procurement-analysis-combinations-v1.json` artifact is the
+ * The vendored `procurement-analysis-combinations-v2.json` artifact is the
  * scraper's checked-in copy of the same matrix; `ANALYSIS_MATRIX_SHA256` pins
- * its hash and a boot-time check compares it against the active generation's
- * `matrix_hash` (log-only — a drift never fails requests).
+ * its hash. Boot fails if the local bytes drift; analysis requests fail closed
+ * when the active generation carries a different `matrix_hash`.
  */
 
 import { err, ok, type Result } from 'neverthrow';
@@ -28,13 +28,13 @@ import {
 import { policyFor, type AnalysisShape } from './policy.js';
 
 /**
- * SHA-256 of the vendored `procurement-analysis-combinations-v1.json` (a
+ * SHA-256 of the vendored `procurement-analysis-combinations-v2.json` (a
  * byte-exact copy of the scraper's `prod-db/contracts/` artifact). The unit
  * suite recomputes the hash from the vendored file; the scraper stamps the
  * same constant into `analysis_generations.matrix_hash` at build time.
  */
 export const ANALYSIS_MATRIX_SHA256 =
-  '1ce871d54e28c75f39d6084a82a005237417a2d4f048270dbf3629e91fd7f412';
+  '9f552ef40b548e0812eedb9d0009e60e6577a037ae7d477f328f557593f3bdf9';
 
 export type AnalysisRollupId = 'edge' | 'authorityDims' | 'supplierCpv' | 'cpvCode' | 'regionCpv';
 
@@ -64,7 +64,7 @@ const CONTRACT_DA: readonly AnalysisGrain[] = ['contract', 'direct_acquisition']
  * Array order IS the stats/series routing preference (`routeAnalysis` takes the
  * first fit), chosen to reproduce the vendored matrix's designated rollup for
  * every combination (`matrix-artifact.test.ts` asserts full BIDIRECTIONAL
- * parity with the 275-row closure): region_cpv first (the smallest rollup —
+ * parity with the v2 closure): region_cpv first (the smallest rollup —
  * owns division-only and platform-wide scopes), authority_dims for anything
  * authority/status/procedure-type shaped, supplier_cpv for supplier-anchored
  * scopes, the key-retaining edge for counterparty pairs, cpv_code last.
@@ -178,6 +178,45 @@ export const routeAnalysis = (
   dimension?: BreakdownDimension,
   measure?: MeasureId
 ): Result<readonly AnalysisRoute[], ApiError> => {
+  if (shape === 'concentration' && scope.supplierCui !== undefined) {
+    return err(
+      invalidInput(
+        'supplier concentration requires supplierCui to remain free; a supplier-scoped concentration is a single-supplier tautology — use procurementStats',
+        'supplierCui'
+      )
+    );
+  }
+
+  if (measure !== undefined && DISTINCT_MEASURES.includes(measure)) {
+    const measuredKey = measure === 'distinctSuppliers' ? 'supplierCui' : 'authorityCui';
+    const oppositeKey = measure === 'distinctSuppliers' ? 'authorityCui' : 'supplierCui';
+    if (scope[measuredKey] !== undefined) {
+      return err(
+        invalidInput(
+          `${measure} requires the measured key ${measuredKey} to remain free; use recordCount for a scope that fixes it`,
+          measuredKey
+        )
+      );
+    }
+    const requestedDims = scopeDims(scope);
+    if (scope.grain === undefined && requestedDims.length === 0) {
+      return err(
+        invalidInput(
+          `${measure} at platform scope requires an explicit contract grain; unbounded direct-acquisition distinct series is not advertised`,
+          'grain'
+        )
+      );
+    }
+    if (scope.grain === 'direct_acquisition' && scope[oppositeKey] === undefined) {
+      return err(
+        invalidInput(
+          `unbounded direct-acquisition ${measure} is not advertised; bind ${oppositeKey} or use recordCount`,
+          oppositeKey
+        )
+      );
+    }
+  }
+
   // Named structural rejections first — these are contract fields whose serving
   // capability does not exist yet, not malformed input.
   if (scope.supplierRegion !== undefined || scope.supplierCounty !== undefined) {

@@ -6,17 +6,7 @@
  */
 
 import type { McpError } from './errors.js';
-import type {
-  McpSession,
-  McpConfig,
-  ProcurementAggregateQuality,
-  ProcurementCategoryBreakdownRow,
-  ProcurementFilterCapability,
-  ProcurementFilterQuery,
-  ProcurementSameDayCandidateRow,
-  ProcurementSourceGrain,
-  ProcurementSupplierRankingRow,
-} from './types.js';
+import type { McpSession, McpConfig } from './types.js';
 import type { Decimal } from 'decimal.js';
 import type { Result } from 'neverthrow';
 
@@ -232,30 +222,4 @@ export interface McpExecutionRepo {
     year: number,
     reportType?: string
   ): Promise<Result<YearlySnapshotTotals, McpError>>;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Procurement Aggregate Port
-// ─────────────────────────────────────────────────────────────────────────────
-
-export interface McpProcurementRepo {
-  getAggregateQuality(
-    sourceGrains: ProcurementSourceGrain[]
-  ): Promise<Result<ProcurementAggregateQuality[], McpError>>;
-
-  getFilterCapabilities(
-    sourceGrains: ProcurementSourceGrain[]
-  ): Promise<Result<ProcurementFilterCapability[], McpError>>;
-
-  rankSuppliers(
-    query: ProcurementFilterQuery
-  ): Promise<Result<ProcurementSupplierRankingRow[], McpError>>;
-
-  rankCpvDivisions(
-    query: ProcurementFilterQuery
-  ): Promise<Result<ProcurementCategoryBreakdownRow[], McpError>>;
-
-  listSameDayDirectAcquisitionCandidates(
-    query: ProcurementFilterQuery
-  ): Promise<Result<ProcurementSameDayCandidateRow[], McpError>>;
 }

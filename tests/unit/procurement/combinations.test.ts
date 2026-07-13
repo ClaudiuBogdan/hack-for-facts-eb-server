@@ -29,11 +29,18 @@ const routesOf = (
     ._unsafeUnwrap()
     .map((r) => ({ rollup: r.rollup.rollup, grain: r.grain }));
 
+const errorOf = (
+  scope: AnalysisScope,
+  shape: 'stats' | 'series' | 'breakdown' | 'concentration',
+  dimension?: Parameters<typeof routeAnalysis>[2],
+  measure?: Parameters<typeof routeAnalysis>[3]
+): string => routeAnalysis(scope, shape, dimension, measure)._unsafeUnwrapErr().message;
+
 describe('vendored matrix artifact', () => {
   it('ANALYSIS_MATRIX_SHA256 matches the vendored JSON byte-for-byte', () => {
     const artifactPath = join(
       dirname(fileURLToPath(import.meta.url)),
-      '../../../src/modules/procurement/core/procurement-analysis-combinations-v1.json'
+      '../../../src/modules/procurement/core/procurement-analysis-combinations-v2.json'
     );
     const digest = createHash('sha256').update(readFileSync(artifactPath)).digest('hex');
     expect(digest).toBe(ANALYSIS_MATRIX_SHA256);
@@ -128,6 +135,48 @@ describe('wave-1 combinations route', () => {
     ]);
   });
 
+  it('requires the measured key to remain free', () => {
+    expect(
+      errorOf(
+        { supplierCui: '11805367', grain: 'contract' },
+        'series',
+        undefined,
+        'distinctSuppliers'
+      )
+    ).toContain('measured');
+    expect(
+      errorOf(
+        { authorityCui: '4267117', grain: 'contract' },
+        'series',
+        undefined,
+        'distinctAuthorities'
+      )
+    ).toContain('measured');
+    expect(errorOf({ supplierCui: '11805367', grain: 'contract' }, 'concentration')).toContain(
+      'supplier'
+    );
+  });
+
+  it('rejects unbounded DA and implicit platform distinct series', () => {
+    expect(
+      errorOf({ grain: 'direct_acquisition' }, 'series', undefined, 'distinctSuppliers')
+    ).toContain('unbounded');
+    expect(errorOf({}, 'series', undefined, 'distinctSuppliers')).toContain(
+      'explicit contract grain'
+    );
+    expect(routesOf({ grain: 'contract' }, 'series', undefined, 'distinctSuppliers')).toEqual([
+      { rollup: 'edge', grain: 'contract' },
+    ]);
+    expect(
+      routesOf(
+        { authorityCui: '4267117', grain: 'direct_acquisition' },
+        'series',
+        undefined,
+        'distinctSuppliers'
+      )
+    ).toEqual([{ rollup: 'edge', grain: 'direct_acquisition' }]);
+  });
+
   it('concentration: authority scope → edge; cpvDivision scope → supplier_cpv', () => {
     expect(new Set(routesOf({ authorityCui: 'x' }, 'concentration').map((r) => r.rollup))).toEqual(
       new Set(['edge'])
@@ -139,13 +188,6 @@ describe('wave-1 combinations route', () => {
 });
 
 describe('rejections name the missing capability', () => {
-  const errorOf = (
-    scope: AnalysisScope,
-    shape: 'stats' | 'series' | 'breakdown' | 'concentration',
-    dimension?: Parameters<typeof routeAnalysis>[2],
-    measure?: Parameters<typeof routeAnalysis>[3]
-  ): string => routeAnalysis(scope, shape, dimension, measure)._unsafeUnwrapErr().message;
-
   it('breakdown(procedureType) under a supplier scope names the unbuilt rollup', () => {
     const message = errorOf({ supplierCui: '11805367' }, 'breakdown', 'procedureType');
     expect(message).toContain('breakdown(procedureType)');

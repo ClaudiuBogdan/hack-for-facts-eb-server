@@ -4,7 +4,14 @@
  * declare the SAME field names — one scope, four surfaces, zero drift.
  */
 
-import { parse, Kind, type InputObjectTypeDefinitionNode } from 'graphql';
+import {
+  parse,
+  Kind,
+  type EnumTypeDefinitionNode,
+  type InputObjectTypeDefinitionNode,
+  type ObjectTypeDefinitionNode,
+  type ObjectTypeExtensionNode,
+} from 'graphql';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -27,7 +34,7 @@ const reads = {
 };
 
 describe('buildEnvelope', () => {
-  it('carries the policy identity, the read counts, and the link', () => {
+  it('carries the policy identity, answerability, reads, and canonical scope', () => {
     const envelope = buildEnvelope(
       anchorPolicy('direct_acquisition', 'valueAwardedSum'),
       { allow: true, degraded: false, caveats: [] },
@@ -37,6 +44,7 @@ describe('buildEnvelope', () => {
       true
     );
     expect(envelope).toMatchObject({
+      answerability: 'served',
       policyKey: 'direct_acquisition.valueAwardedSum',
       grain: 'direct_acquisition',
       valueBasis: 'awarded',
@@ -46,7 +54,7 @@ describe('buildEnvelope', () => {
       counts: { rows: '100', withValue: '80' },
       undatedInScope: { count: '5', valueRon: '50.00' },
       provisional: false,
-      link: 'authorityCui=4267117',
+      canonicalScope: 'authorityCui=4267117',
     });
   });
 
@@ -100,6 +108,25 @@ describe('buildEnvelope', () => {
 });
 
 describe('canonical scope echo + fhash input', () => {
+  it.each(['2000-01', '2100-12'])('accepts boundary calendar month %s', (value) => {
+    expect(parseAnalysisScope({ from: value })._unsafeUnwrap().from).toBe(value);
+  });
+
+  it.each([
+    ['from', '2024-00'],
+    ['from', '2024-13'],
+    ['to', '1999-12'],
+    ['to', '2101-01'],
+    ['from', '2024-1'],
+  ])('rejects invalid calendar month %s=%s', (field, value) => {
+    const result = parseAnalysisScope({ [field]: value });
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error.type).toBe('InvalidInput');
+      if (result.error.type === 'InvalidInput') expect(result.error.field).toBe(field);
+    }
+  });
+
   it('is stable and order-independent', () => {
     const a = parseAnalysisScope({ supplierCui: '11805367', from: '2024-01' })._unsafeUnwrap();
     const b = parseAnalysisScope({ from: '2024-01', supplierCui: '11805367' })._unsafeUnwrap();
@@ -139,9 +166,65 @@ describe('surface parity: SDL == Zod == kernel spec == core fields', () => {
     expect(ANALYSIS_SCOPE_SPEC.fields.map((f) => f.name)).toEqual(core);
   });
 
+  it('types answerability states and reasons as closed GraphQL enums', () => {
+    const doc = parse(procurementTypeDefs);
+    const enumValues = (name: string): readonly string[] => {
+      const definition = doc.definitions.find(
+        (node): node is EnumTypeDefinitionNode =>
+          node.kind === Kind.ENUM_TYPE_DEFINITION && node.name.value === name
+      );
+      return (definition?.values ?? []).map((value) => value.name.value);
+    };
+
+    expect(enumValues('ProcurementAnswerability')).toEqual(['served', 'degraded', 'abstained']);
+    expect(enumValues('ProcurementAnswerabilityReason')).toEqual([
+      'SPEND_COVERAGE_BELOW_GATE',
+      'TIME_COVERAGE_BELOW_FLOOR',
+      'GEO_COVERAGE_BELOW_FLOOR',
+      'MISSING_QUALITY_VERDICT',
+      'TIME_COVERAGE_DEGRADED',
+      'GEO_COVERAGE_DEGRADED',
+      'GENERATION_LACKS_CAPABILITY',
+    ]);
+  });
+
   it('the fhash spec is all-virtual — it never compiles to SQL', () => {
     for (const field of ANALYSIS_SCOPE_SPEC.fields) {
       expect(field.virtual).toBe(true);
+    }
+  });
+
+  it('removes the deprecated aggregate fields and Entity contributor', () => {
+    const doc = parse(procurementTypeDefs);
+    const query = doc.definitions.find(
+      (d): d is ObjectTypeExtensionNode =>
+        d.kind === Kind.OBJECT_TYPE_EXTENSION && d.name.value === 'Query'
+    );
+    const queryFields = (query?.fields ?? []).map((field) => field.name.value);
+    expect(queryFields).not.toEqual(
+      expect.arrayContaining([
+        'procurementGrainQuality',
+        'procurementRepeatedPairs',
+        'procurementAuthorityCpvSpend',
+        'procurementTopSuppliersByRegionCpv',
+        'procurementSameDayCandidates',
+      ])
+    );
+    const entity = doc.definitions.find(
+      (d): d is ObjectTypeExtensionNode =>
+        d.kind === Kind.OBJECT_TYPE_EXTENSION && d.name.value === 'Entity'
+    );
+    expect(entity).toBeUndefined();
+    for (const typeName of [
+      'ProcurementProcedureDetail',
+      'ProcurementContractDetail',
+      'ProcurementDirectAcquisitionDetail',
+    ]) {
+      const type = doc.definitions.find(
+        (d): d is ObjectTypeDefinitionNode =>
+          d.kind === Kind.OBJECT_TYPE_DEFINITION && d.name.value === typeName
+      );
+      expect((type?.fields ?? []).map((field) => field.name.value)).not.toContain('gate');
     }
   });
 });
