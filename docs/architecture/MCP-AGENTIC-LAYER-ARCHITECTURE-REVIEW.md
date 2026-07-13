@@ -5,6 +5,12 @@
 **Scope:** `src/modules/mcp/` (legacy), `src/modules/shared/shell/mcp/` + module `shell/mcp/tools.ts` (redesign), `src/modules/agent/`, composition roots, and the execution-line-items onboarding exercise.
 **Method:** code-first tracing of the real composition/request/execution paths; docs treated as intent and verified against code; protocol claims checked against the MCP 2025-06-18 spec and the OpenAI Apps SDK docs.
 
+**2026-07-13 procurement remediation amendment:** the legacy `/mcp`
+`query_procurement_filters` tool and its MCP-private procurement repository were
+removed locally. The historical review and its broader consolidation proposal
+remain unchanged; current inventory is six budget tools on `/mcp` and four
+procurement tools on `/api/v1/mcp`.
+
 ---
 
 ## 1. Executive summary
@@ -39,8 +45,8 @@ The **two-database split matters**: the redesign kernel and all its tools run ag
 
 ### 2.2 Legacy MCP module — `src/modules/mcp/` (~11.8k lines, 36 files)
 
-- 7 tools (`get_entity_snapshot`, `discover_filters`, `rank_entities`, `query_timeseries_data`, `analyze_entity_budget`, `explore_budget_breakdown`, `query_procurement_filters` — `shell/server/mcp-server.ts:213-337`), 4 resources (classification guides, glossary, legislation index), 5 prompts (`shell/prompts/prompt-templates.ts`, 1 174 lines).
-- Data access is a mix: most tools **reuse canonical module repos through thin adapters** (`shell/adapters/index.ts` bridging entity/UAT/classification/entity-analytics/aggregated-line-items/share). Genuinely MCP-owned duplicates: `shell/repo/mcp-execution-repo.ts` (raw-SQL yearly income/expense totals, 10s statement timeout — a query shape not exposed canonically) and `shell/repo/mcp-procurement-repo.ts` (487 lines of raw SQL over `procurement.*` views — the only legacy-world home of procurement aggregates; the redesign procurement module owns the equivalent on griffin). A third contract: dual schema stacks (TypeBox for GPT REST/JSON-Schema, Zod for the MCP SDK) for the same tools.
+- 6 tools (`get_entity_snapshot`, `discover_filters`, `rank_entities`, `query_timeseries_data`, `analyze_entity_budget`, `explore_budget_breakdown`), 4 resources (classification guides, glossary, legislation index), 5 prompts (`shell/prompts/prompt-templates.ts`, 1 174 lines).
+- Data access is a mix: most tools **reuse canonical module repos through thin adapters** (`shell/adapters/index.ts` bridging entity/UAT/classification/entity-analytics/aggregated-line-items/share). The remaining MCP-owned duplicate is `shell/repo/mcp-execution-repo.ts` (raw-SQL yearly income/expense totals, 10s statement timeout — a query shape not exposed canonically). A third contract remains: dual schema stacks (TypeBox for GPT REST/JSON-Schema, Zod for the MCP SDK) for the same tools.
 - Sessions: in-memory transport map + session store with TTL (a Redis store exists but `build-app.ts` wires the in-memory one); rate limiter (in-memory sliding window, 100 req/min) shared with GPT REST; API key checked with `timingSafeEqual`, fail-closed.
 - Transport: the **official SDK `StreamableHTTPServerTransport` works under Fastify** here via `reply.hijack()` (`shell/rest/routes.ts:216-218`) — full protocol including GET SSE and DELETE session termination.
 

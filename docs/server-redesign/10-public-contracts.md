@@ -1,6 +1,14 @@
 # 10 — Public Contracts (`procurement`) module plan
 
-> **Status:** proposed. Conforms to `00-foundation-shared-kernel.md` (binding).
+> **Status:** implemented, with the analysis/API contract superseded by
+> [`10-public-contracts-api-remediation-plan.md`](./10-public-contracts-api-remediation-plan.md).
+> The old-MV aggregate tools, analyst fields, grain gate, and `Entity.procurement`
+> descriptions below are retained only as historical design context; they are not
+> part of the remediated public interface. The retained surface is record
+> search/detail/CPV discovery plus the generation-stamped six-shape analysis API
+> and `aggregate_procurement` MCP tool.
+>
+> Conforms to `00-foundation-shared-kernel.md` (binding).
 > Source: Romanian public procurement — **e-licitatie API + SEAP/data.gov.ro bulk**
 > (user decision: TED/CNSC/PAAP/ANAP probe-only, deferred). Served from
 > `transparenta_prod.procurement.*` + the kernel `flows`/`core`/`search` schemas.
@@ -940,27 +948,25 @@ code via TerritoryRepo). Names→codes resolve FIRST; the deterministic SQL then
 
 ## 8. MCP tools
 
-In `procurement/shell/mcp/`, registered into the kernel MCP server. TypeBox
-input+output; handler → usecase; output `{ ok, kind, query, link, item(s), summary }`.
-Rate-limited, bounded result sizes; no PII (none in this source). Two families:
+The procurement module registers four MCP tools. All use strict Zod input
+objects so unknown top-level or nested scope keys are rejected before handler
+execution:
 
-**(1) Discovery — `resolve_procurement_filter`** (wraps `/filters/resolve`):
-input `{ dim: 'authority'|'supplier'|'cpvDivision'|'cpv'|'region'|'county', q: string, limit?: number }`,
-output `{ ok, kind:'resolution', items:[{value, label, confidence, kind}], summary }`.
+- `resolve_procurement_filter` — resolves the procurement-owned CPV dimensions.
+- `search_procurement_contracts` — bounded contract search.
+- `search_procurement_direct_acquisitions` — bounded DA search with a required
+  selective filter.
+- `aggregate_procurement` — the generation-stamped stats, series, breakdown,
+  and supplier-concentration surface. Unsupported combinations are named matrix
+  errors; answers carry `served | degraded | abstained`, a typed reason,
+  generation metadata, caveats, and `canonicalScope`.
 
-**(2) Query/rank tools:**
-
-- `search_procurement_contracts` — input = `ProcurementContractFilter` (+cursor); output `items[]` + `link` to client `/procurement/contracts?…` + summary.
-- `search_procurement_direct_acquisitions` — input = `ProcurementDaFilter` (**filter required**, validated).
-- `rank_procurement_suppliers` — input `{ authorityCui, grain?, monthFrom?, monthTo?, topN? }` → `topSuppliers`; output `items[]` + per-grain block + `caveats` (gate) + `link`.
-- `rank_procurement_authorities` — input `{ supplierCui, grain?, … }` → `topAuthorities`.
-- `get_procurement_concentration` — input `{ authorityCui, grain? }` → `{ top1Share, top5Share, hhi, supplierCount, caveats }`.
-- `get_procurement_authority_cpv_spend` — input `{ authorityCui, cpvDivision?, monthFrom?, monthTo? }`.
-- `find_same_day_da_candidates` — input `{ authorityCui?, dateFrom?, dateTo?, minSameDayCount? }`; summary always includes the "candidate = review signal, not illegality" caveat (matches the MV comment).
-- `get_procurement_grain_quality` — returns the gate so an agent can self-check what it is allowed to ask.
-
-`link` format: `https://<client>/procurement/{contracts|direct-acquisitions|procedures}/<id>`
-for items; `/procurement/entity/<cui>?role=authority|supplier` for rankings.
+The six legacy aggregate MCP tools and their stale-MV gate logic were removed
+before deployment. The separate legacy `/mcp` tool `query_procurement_filters`
+and its MCP-private stale aggregate repository were also removed; `/mcp` now
+retains budget tools only. Entity/detail search remains separate from the analysis
+generation and is not disabled by an analysis matrix mismatch. Real client deep
+links remain deferred; `canonicalScope` is serialization, not a URL.
 
 ---
 

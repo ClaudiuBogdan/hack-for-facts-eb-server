@@ -1,7 +1,11 @@
 # Procurement Analysis — Domain Model, Building Blocks, and Serving Design
 
 **Date:** 2026-07-12 (rev 2, same day — after external design review)
-**Status:** Design for review — no implementation approved yet
+**Status:** Historical wave-1 design, implemented and then superseded for the
+public API by
+`docs/server-redesign/10-public-contracts-api-remediation-plan.md`. Where this
+document says legacy aggregate names or old-MV coexistence remain, the remediation
+decision to remove them before deployment is authoritative.
 **Relationship to other docs:** extends `PARLIAMENT-PROCUREMENT-FILTERING-DESIGN.md` (kernel predicate primitives, bound policy, engine-primary search, DA indexes — all still valid) with the procurement _analytics_ layer it deliberately left thin; consumes the decided MCP tool-contract v2 from `MCP-AGENTIC-LAYER-ARCHITECTURE-REVIEW.md`. For procurement aggregates it **supersedes** the assumption that the flows→matview stack is the terminal read model (§5.5 there).
 
 **Review log:** rev 2 incorporates an adversarial external review (Codex gpt-5.6-sol, xhigh, 2026-07-12; 15 findings). Material changes: removed the merged `purchases` grain (F1 of that review); added undated-bucket semantics and per-measure aggregation laws (F2); replaced date-partitioning + watermark refresh with change-manifest + generation cutover (F3, F13); gate scope clarified — capability per grain × answer class only, scope-local coverage is descriptive (F4); rollup closure made explicit via a supported-combinations matrix (F5); breakdowns gained a mandatory `other` bucket and `share` demoted to a validated derivation (F6); `current` value now requires a per-record chain validator (F7); event capture reframed as an audit log, not an as-of source (F8); envelope slimmed (F9); metric registry reduced to a semantic policy table (F10); answer shapes cut 9→6 (F11); facts narrowed to analytical columns, rollups land incrementally (F12); MCP migration table added, tool names kept stable (F14); requirements matrix re-marked with milestone prerequisites + testing strategy added (F15).
@@ -52,7 +56,7 @@ Aggregates today read five monthly matviews over `procurement_flow_facts_v1` (= 
 
 **F2 — Canonical selection loses money, and the designed rescue is unpopulated.** Canonical contract rows have 76.2% value coverage while the raw grain has 87.7% — dedup picks winners that carry fewer values than their suppressed duplicates (SEAP canonical: 69.8% vs 100% on its suppressed rows). The columns built to fix exactly this — `canonical_value_source`, `value_observations`, `value_disagreement` — are **100% NULL / never written**. Populating canonical values from dup-group members is the single highest-leverage data fix: it can lift contract amount coverage toward the 0.95 spend gate and unlock contract-grain money answers. The rescue needs a **disagreement policy** (which member value wins, when they conflict) — that policy is part of milestone M1, not an afterthought.
 
-**F3 — Flows is the wrong substrate for procurement analytics.** It drops procedures entirely, drops cancelled rows (making status distributions impossible by construction), carries only 2-digit CPV usefully, has no status/procedure-type/supplier-geo dimensions, and its inclusion rules (canonical + non-cancelled + payer/payee semantics) are tuned for the cross-domain entity-360 question, not for procurement market analysis. Decision D1 replaces it as the analytics substrate; it remains the entity-360 feed. Because both substrates will briefly coexist, the reconciliation rule is explicit: **procurement surfaces are authoritative for procurement questions; entity-360 numbers are indicative and labeled as such.**
+**F3 — Flows is the wrong substrate for procurement analytics.** It drops procedures entirely, drops cancelled rows (making status distributions impossible by construction), carries only 2-digit CPV usefully, has no status/procedure-type/supplier-geo dimensions, and its inclusion rules (canonical + non-cancelled + payer/payee semantics) are tuned for the cross-domain entity-360 question, not for procurement market analysis. Decision D1 replaces it as the analytics substrate. The remediation removes the old-MV aggregate and `Entity.procurement` server surfaces before deployment, so there is no public coexistence contract.
 
 ## 3. Semantic contract — the policy table
 
@@ -111,11 +115,11 @@ meta {
   undatedInScope { count valueRon }  # from the undated bucket, same read
   provisional           # true where terminality is underivable (all contract-grain money)
   caveats [String]      # gate blockers + policy caveats
-  link                  # normalized filter deep link (canonical scope echo)
+  canonicalScope        # stable normalized scope serialization (not a URL)
 }
 ```
 
-Traceability contract (rev 2, softened honestly): `link` is the canonical scope — opening it as a list shows the underlying records under the same filter. Exact reconciliation is guaranteed only where it is arithmetically possible: breakdown buckets (top-N + other + unknown) sum to stats totals from the same build; a paginated list is the same _population_, not a checksum. Rollup-repaired values (M1 rescue) may differ from a raw fact row's stored value — detail views show both with provenance.
+Traceability contract (rev 2, softened honestly): `canonicalScope` is stable scope serialization, not a navigable URL. Exact reconciliation is guaranteed only where it is arithmetically possible: breakdown buckets (top-N + other + unknown) sum to stats totals from the same build; a paginated list is the same _population_, not a checksum. Rollup-repaired values (M1 rescue) may differ from a raw fact row's stored value — detail views show both with provenance. Real deep links remain a client-wave deliverable.
 
 ## 4. Requirements matrix — catalog questions → policy keys
 
@@ -138,7 +142,7 @@ Status: ✅ answerable now (current stack) · ✅@Mx answerable when milestone l
 | Regions where it wins                              | buyer-region breakdown ✅; supplier's own region ✅@M3                              | `breakdown(buyerRegion)` / `(supplierRegion)` | ✅ / ✅@M3                                              |
 | CPV categories it operates in                      | division ✅; 8-digit ✅@M2 (cpv_code rollup; entity×8-digit via bounded fact query) | `breakdown(cpvDivision\|cpvCode)`             | ✅ / ✅@M2                                              |
 | Value & count evolution                            | monthly series, quarter/year derived (additive measures only); undated disclosed    | `series`                                      | ✅                                                      |
-| Underlying contracts behind an aggregate           | `meta.link` → list                                                                  | `list`                                        | ✅                                                      |
+| Underlying contracts behind an aggregate           | `meta.canonicalScope`; real deep link deferred to client wave                       | `list`                                        | 🟡                                                      |
 | % of an institution's procurement to this supplier | share derivation: edge stats ÷ authority stats, same grain/basis/period             | derived (`share` query)                       | ✅ DA · ⛔@M1 contract money                            |
 
 ### Contracting institution perspective (anchor: `authorityCui`)
@@ -152,7 +156,7 @@ Status: ✅ answerable now (current stack) · ✅@Mx answerable when milestone l
 | Distribution by **status**         | procedures grain only (contracts have constant status; DA 44% unknown → dominant `unknown` bucket) | `breakdown(status)`        | ✅@M2, time axis ⛔@M1 (procedure dates); DA 🟡              |
 | Distribution by **procedure type** | procedures grain; contracts inherit via 86.5% linkage with `unknown` bucket                        | `breakdown(procedureType)` | ✅@M2                                                        |
 | Distribution by region / CPV       | buyer county/region; CPV as above                                                                  | `breakdown`                | ✅                                                           |
-| Underlying contracts               | `meta.link`                                                                                        | `list`                     | ✅                                                           |
+| Underlying contracts               | `meta.canonicalScope`; real deep link deferred to client wave                                      | `list`                     | 🟡                                                           |
 | Supplier concentration             | HHI/top-1/top-5 over supplier edges within scope (measured 71ms worst case)                        | `concentration`            | ✅ (value basis only where spend-approved, else count basis) |
 
 ### Regional and market perspective (anchor: territory and/or `cpv*`)
@@ -181,7 +185,7 @@ Status: ✅ answerable now (current stack) · ✅@Mx answerable when milestone l
 | Amendments / cancellations / status changes | amendments: raw trail always; validated `current` on detail; never aggregates. Cancellations excluded from spend, visible in status breakdowns. Status changes: latest-state serving; audit log starts per D3 (§6.3).                      |
 | Identity resolution                         | CUI-level, `supplier_identity_key` extended to all grains (M2); org names/geo joined from `core.organizations` at build time; CUI grouping stays deferred and stated.                                                                      |
 | CPV & geo hierarchies                       | CPV: full 8-digit + division from `cpv_codes` (hierarchy table already present); filtering accepts either, code compiled to index-safe ranges (kernel `codeRange`). Geo: siruta → county → region on both sides (buyer now, supplier @M3). |
-| Aggregate → source records                  | `meta.link` + detail bundles carry `source_url`, dup/cross-grain flags, and value provenance.                                                                                                                                              |
+| Aggregate → source records                  | `meta.canonicalScope` serializes the scope; detail bundles carry `source_url`, dup/cross-grain flags, and value provenance. A navigable aggregate deep link is deferred.                                                                   |
 
 ## 5. Serving design
 
@@ -219,15 +223,16 @@ Removed as first-class shapes (review F11): `share` → a validated derivation o
 
 ### 5.3 GraphQL surface (breaking changes allowed — pre-deployment)
 
-Named queries over the six shapes: `procurementStats(scope)`, `procurementSeries(scope, bucket, measure)`, `procurementBreakdown(scope, dimension, topN)`, `procurementShare(numerator, denominator)` (derivation, validated per §3.3), `procurementConcentration(scope, basis)`, `procurementFacets(scope, dimensions)` (batched breakdowns), per-grain lists/details (kept). The five analyst queries (repeated pairs, same-day DAs…) remain as-is — they already fit. Every aggregate returns the §3.4 envelope. REST mirror optional later via the same kernel derivation; not v1.
+Named queries over the six shapes: `procurementStats(scope)`, `procurementSeries(scope, bucket, measure)`, `procurementBreakdown(scope, dimension, topN)`, `procurementShare(numerator, denominator)` (derivation, validated per §3.3), `procurementConcentration(scope, basis)`, `procurementFacets(scope, dimensions)` (batched breakdowns), per-grain lists/details (kept). The old analyst queries, detail gates, and `Entity.procurement` are removed; they can return only on generation-stamped projections. Every aggregate returns the §3.4 envelope. REST mirror remains deferred.
 
 **Migration table** for the existing surface (rev 2, review F14) — to be completed at implementation time, seeded here:
 
-| Existing                                                                       | Disposition                                                                                                                                                                                                                              |
-| ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `procurementStats/TopAuthorities/TopSuppliers/CategoryBreakdown/SpendOverTime` | re-expressed over the six shapes; names kept where response shape survives, else renamed with the old query deleted (pre-deployment, no alias period needed for GraphQL)                                                                 |
-| 5 analyst queries + search/detail/resolve/grainQuality                         | unchanged                                                                                                                                                                                                                                |
-| 9 MCP tools                                                                    | **names are stable forever** (tool contract v2): all 9 keep their names and semantics; `get_procurement_grain_quality` stays (rev 1's rename to `get_procurement_capabilities` is dropped); the only addition is `aggregate_procurement` |
+| Existing                                                                       | Disposition                                                                                                                                                              |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `procurementStats/TopAuthorities/TopSuppliers/CategoryBreakdown/SpendOverTime` | re-expressed over the six shapes; names kept where response shape survives, else renamed with the old query deleted (pre-deployment, no alias period needed for GraphQL) |
+| search/detail/resolve/supplier records                                         | retained                                                                                                                                                                 |
+| old analyst queries, grainQuality, detail gates, Entity.procurement            | removed before deployment                                                                                                                                                |
+| 9 MCP tools                                                                    | retain resolve, two record searches, and `aggregate_procurement`; remove the six deprecated aggregate names                                                              |
 
 ### 5.4 Capability gate v2 — per grain × answer class; scope coverage is descriptive
 
@@ -236,18 +241,18 @@ Clarified in rev 2 (review F4): the **gate** — the thing that can allow or abs
 - **Money: strict abstention**, unchanged — 0.95 thresholds with the existing hysteresis discipline. No degrade path for spend.
 - **Count/time answers: disclosed degradation** — served with the undated/coverage context of §3.2–3.4 down to a floor (proposed 0.50, provisional), abstain below it.
 - **Scope-local coverage** (this authority's undated count, this scope's with-value count) is **descriptive envelope metadata from the same rollup read** — it informs the reader; it never flips capability.
-- Thresholds stay in `aggregate_filter_thresholds` (scraper-owned, versioned). The gate remains machine-readable and exposed unchanged (`procurementGrainQuality` + capabilities), feeding client UI, MCP, and envelopes.
+- Thresholds stay in `aggregate_filter_thresholds` (scraper-owned, versioned). Generation quality verdicts feed the typed analysis envelopes; the stale `procurementGrainQuality` public surface is removed.
 
 ### 5.5 MCP & agent tools (on decided contract v2)
 
 Composable core + existing conveniences, all `KernelTool` v2 (typed input, `ToolContext`, `ToolMeta` with cost class, registry-selected), Zod derived from the same spec (`toZodShape`, quad-surface equivalence test):
 
-| Tool                                                                                                                                                                                                                                  | Maps to                                                                                         | Meta                                        |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------- |
-| existing 9 tools (`resolve_procurement_filter`, `search_procurement_*`, `rank_procurement_*`, `get_procurement_concentration`, `get_procurement_authority_cpv_spend`, `find_same_day_da_candidates`, `get_procurement_grain_quality`) | unchanged names + semantics, re-plumbed onto the new read models                                | as today                                    |
-| `aggregate_procurement` (new)                                                                                                                                                                                                         | `{scope, shape: stats\|series\|breakdown\|concentration, dimension?, bucket?, measure?, topN?}` | standard; expensive for `distinct` measures |
+| Tool                                                                                                   | Maps to                                                                                                 | Meta                                    |
+| ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| `resolve_procurement_filter`, `search_procurement_contracts`, `search_procurement_direct_acquisitions` | retained record/discovery paths                                                                         | strict unknown-key rejection            |
+| `aggregate_procurement`                                                                                | `{scope, shape: stats\|series\|breakdown\|concentration, dimension?, bucket?, measure?, topN?, basis?}` | matrix-routed; expensive cases rejected |
 
-Reliability rules for AI callers: every tool output echoes the §3.4 envelope (policyKey, valueBasis, caveats, link) — the model can cite provenance; ambiguous/expensive asks are bounced with the _specific_ bound or missing capability named; `llm_generated_filter` stays gate-blocked; summaries state "awarded value, not payments" wherever money appears; share requests that fail operand validation (§3.3) return the validation failure, never a partial ratio.
+Reliability rules for AI callers: every analysis output echoes the §3.4 envelope (`answerability`, typed `reason`, `policyKey`, `valueBasis`, caveats, build ID, `canonicalScope`) — the model can cite provenance; ambiguous/expensive asks are bounced with the _specific_ bound or missing capability named; summaries state "awarded value, not payments" wherever money appears; share requests that fail operand validation (§3.3) return the validation failure, never a partial ratio.
 
 ## 6. Data platform design (scraper-owned)
 
@@ -358,9 +363,9 @@ Scope `{authorityCui, supplierCui, cpvDivision, monthFrom/To}` → 5 dashboard a
 
 ---
 
-## Rev 3 — implementation amendments (2026-07-12, wave 1 shipped)
+## Rev 3 — implementation amendments (2026-07-12, data package shipped)
 
-Wave 1 is implemented and deployed (scraper package live on prod, generation build 2 active; server surface committed). Full record, evidence, and unresolved limitations: `PROCUREMENT-ANALYSIS-IMPLEMENTATION.md`. Amendments to this design discovered during implementation:
+The scraper data package is live on prod with generation build 2 active. The server remediation and matrix v2 are committed locally but remain undeployed; build 2 still carries matrix v1. Full record, evidence, and unresolved limitations: `PROCUREMENT-ANALYSIS-IMPLEMENTATION.md`. Amendments to this design discovered during implementation:
 
 1. **§6.2 change manifests → full-rebuild generations.** Facts are upserted in place (no-op-guarded); only rollups are generation-stamped, rebuilt per run, reconciled, and published by a single-tx active-pointer flip (N-1 retained). Corrections trivially move buckets; all F3/F13 goals met with far less machinery. Measured full run: 43.1 min for 30.46M facts + 13 rollup lanes.
 2. **§6.1(2) value rescue at projection time only** — the reserved `contracts.canonical_value_source/...` columns remain M1's deliverable; the package computes rescue into its own facts columns.
@@ -368,7 +373,7 @@ Wave 1 is implemented and deployed (scraper package live on prod, generation bui
 4. **§6.3 audit log at analysis-run granularity** — written by the lane's diff; base loaders untouched.
 5. **§5.4 gate v2 rides the generation**: the lane computes per-grain coverage and per-(grain × class) verdicts into `analysis_generations.quality`; the API consumes them (procedures now have a verdict; the new surface is decoupled from the F1-stale flows gate). Measured verdicts: spend abstains on all grains (value coverage .539/.762/.678); time procedure abstain (.343), contract/DA degraded (.810/.654); geo degraded everywhere.
 6. **Identity keys at scale**: per-row SQL identity functions (CTE bodies, non-inlinable) blew a 45-min statement timeout on prod; keys are computed per DISTINCT supplier in a materialized CTE + both functions marked PARALLEL SAFE.
-7. **§6.2 matrix**: the artifact is the exhaustive programmatically-generated closure (275 rows), hash-pinned and byte-vendored by the server with a bidirectional acceptance-space parity test; breakdown/concentration routing is per (scope, dimension) with a pinned rollup preference order; fully-scope-pinned concentrations and breakdowns over scope-fixed dims are rejected as stats answers.
+7. **§6.2 matrix**: matrix v2 is the exhaustive programmatically-generated closure (554 rows), hash-pinned and byte-vendored by the server with bidirectional acceptance/rejection controls; breakdown/concentration routing is per (scope, dimension) with a pinned rollup preference order; supplier-fixed concentrations and breakdowns over scope-fixed dims are rejected as stats answers. Publication requires a new generation before any server deployment.
 8. **§2 supplier identity on procedures**: impossible (the grain has no supplier); procedure facts carry no supplier columns.
 
 Measured serving anchors (prod, build 2): 13-query validation set 33–315 ms (8-digit CPV series 42 ms; bounded authority×cpv_code fact query 52 ms — the old 17 s scan class); platform-wide distinct-suppliers/quarter 1.9 s (cacheable); shadow vs the old org_edge MV exact-to-the-cent on the same-population slice; golden suite proves GraphQL == MCP == raw SQL on the live build.
