@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { parseCitation } from '@/modules/legal/shell/repo/citation.js';
+import { parseCitation } from '@/modules/legal/core/citation.js';
 
 describe('parseCitation — identifier router', () => {
   it('parses "legea 227/2015" → lege 227/2015', () => {

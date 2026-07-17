@@ -1,9 +1,20 @@
 import type { ResendWebhookError } from './errors.js';
 import type { ResendEmailWebhookEvent, StoredResendEmailEvent } from './types.js';
-import type { SvixHeaders, WebhookVerifier } from '@/infra/email/client.js';
 import type { Result } from 'neverthrow';
 
-export type { SvixHeaders, WebhookVerifier };
+export interface SvixHeaders {
+  svixId: string;
+  svixTimestamp: string;
+  svixSignature: string;
+}
+
+export interface WebhookVerificationError {
+  message: string;
+}
+
+export interface WebhookVerifier {
+  verify(rawBody: string, headers: SvixHeaders): Promise<Result<unknown, WebhookVerificationError>>;
+}
 
 export interface InsertResendWebhookEmailEventInput {
   svixId: string;

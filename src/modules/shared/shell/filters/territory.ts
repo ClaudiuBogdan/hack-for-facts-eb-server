@@ -26,7 +26,8 @@ import { sql } from 'kysely';
 
 import { andConditions, safeColumnRef } from './composer.js';
 
-import type { FilterColumn, SqlCondition } from './types.js';
+import type { SqlCondition } from './types.js';
+import type { FilterColumn } from '../../core/filters/types.js';
 
 /**
  * Geographic filter values, already coerced/validated by the caller. Every

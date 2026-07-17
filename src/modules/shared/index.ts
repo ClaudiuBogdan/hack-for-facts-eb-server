@@ -307,6 +307,7 @@ export * from './core/types.js';
 export * from './core/pagination.js';
 export * from './core/ports.js';
 export * from './core/filters/index.js';
+export * from './shell/filters/index.js';
 export { createContributorRegistry } from './core/usecases/registry.js';
 export {
   makeEntity360,

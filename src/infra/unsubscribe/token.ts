@@ -9,9 +9,9 @@
 
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
-import type { UnsubscribeTokenSigner } from '@/modules/notifications/core/ports.js';
+import type { UnsubscribeTokenSigner } from '@/common/ports/index.js';
 
-export type { UnsubscribeTokenSigner } from '@/modules/notifications/core/ports.js';
+export type { UnsubscribeTokenSigner } from '@/common/ports/index.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Implementation

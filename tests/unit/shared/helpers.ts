@@ -12,9 +12,9 @@ import {
   sql,
 } from 'kysely';
 
-import { composeWhere } from '@/modules/shared/core/filters/composer.js';
+import { composeWhere } from '@/modules/shared/shell/filters/composer.js';
 
-import type { SqlCondition } from '@/modules/shared/core/filters/types.js';
+import type { SqlCondition } from '@/modules/shared/shell/filters/types.js';
 
 const compiler = new Kysely<Record<string, never>>({
   dialect: {

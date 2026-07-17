@@ -2,6 +2,7 @@ import type { InstitutionCorrespondenceError } from './errors.js';
 import type {
   CampaignAdminThreadLookupInput,
   CampaignAdminThreadPage,
+  CorrespondenceAttachmentMetadata,
   CorrespondenceEntry,
   CorrespondenceThreadRecord,
   ListCampaignAdminThreadsInput,
@@ -11,7 +12,6 @@ import type {
   ThreadPhase,
   ThreadRecord,
 } from './types.js';
-import type { EmailSender, ReceivedEmailFetcher } from '@/infra/email/client.js';
 import type { Result } from 'neverthrow';
 
 export interface CreateThreadInput {
@@ -212,5 +212,53 @@ export interface CorrespondenceTemplateRenderer {
   };
 }
 
-export type CorrespondenceEmailSender = EmailSender;
-export type CorrespondenceReceivedEmailFetcher = ReceivedEmailFetcher;
+export interface CorrespondenceSendEmailParams {
+  to: string;
+  cc?: string[];
+  bcc?: string[];
+  replyTo?: string[];
+  subject: string;
+  html: string;
+  text: string;
+  idempotencyKey: string;
+  unsubscribeUrl: string;
+  tags: { name: string; value: string }[];
+}
+
+export interface CorrespondenceSendEmailResult {
+  emailId: string;
+}
+
+export interface CorrespondenceEmailError {
+  message: string;
+  retryable: boolean;
+}
+
+export interface CorrespondenceEmailSender {
+  getFromAddress(): string;
+  send(
+    params: CorrespondenceSendEmailParams
+  ): Promise<Result<CorrespondenceSendEmailResult, CorrespondenceEmailError>>;
+}
+
+export interface CorrespondenceReceivedEmail {
+  id: string;
+  to: string[];
+  from: string;
+  createdAt: Date;
+  subject: string;
+  html: string | null;
+  text: string | null;
+  headers: Record<string, string>;
+  bcc: string[];
+  cc: string[];
+  replyTo: string[];
+  messageId: string | null;
+  attachments: CorrespondenceAttachmentMetadata[];
+}
+
+export interface CorrespondenceReceivedEmailFetcher {
+  getReceivedEmail(
+    emailId: string
+  ): Promise<Result<CorrespondenceReceivedEmail, CorrespondenceEmailError>>;
+}

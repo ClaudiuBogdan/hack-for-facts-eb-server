@@ -12,8 +12,8 @@ import {
   invalidInput,
   notFound,
 } from '@/modules/shared/core/errors.js';
-import { safeColumnRef } from '@/modules/shared/core/filters/composer.js';
 import { normalizeCui } from '@/modules/shared/core/types.js';
+import { safeColumnRef } from '@/modules/shared/shell/filters/composer.js';
 import { BigIntScalar, MoneyScalar, CUIScalar } from '@/modules/shared/shell/graphql/scalars.js';
 import { foldDiacritics } from '@/modules/shared/shell/repo/fold.js';
 

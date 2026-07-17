@@ -15,7 +15,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildTerritoryCuiPredicate,
   hasTerritoryFilter,
-} from '@/modules/shared/core/filters/territory.js';
+} from '@/modules/shared/shell/filters/territory.js';
 
 import { compileCondition } from './helpers.js';
 

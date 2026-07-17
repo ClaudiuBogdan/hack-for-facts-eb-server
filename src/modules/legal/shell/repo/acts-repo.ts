@@ -29,7 +29,6 @@ import {
   invalidInput,
 } from '@/modules/shared/index.js';
 
-import { parseCitation } from './citation.js';
 import {
   actsListFrom,
   clampLimit,
@@ -47,6 +46,7 @@ import {
   type StatusEventRow,
   type SummaryRow,
 } from './mappers.js';
+import { parseCitation } from '../../core/citation.js';
 import {
   AMENDMENT_RELATIONS,
   type LegalAct,

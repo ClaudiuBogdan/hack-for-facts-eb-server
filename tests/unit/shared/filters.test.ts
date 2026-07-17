@@ -5,17 +5,13 @@
 
 import { describe, expect, it } from 'vitest';
 
-import {
-  canonicalizeFilters,
-  fhashFor,
-  filterHash,
-  toConditionBuilders,
-} from '@/modules/shared/core/filters/derive.js';
+import { canonicalizeFilters, fhashFor, filterHash } from '@/modules/shared/core/filters/derive.js';
 import {
   graphqlFilterTypeName,
   toGraphQLInput,
   toTypeBox,
 } from '@/modules/shared/core/filters/surfaces.js';
+import { toConditionBuilders } from '@/modules/shared/shell/filters/derive.js';
 
 import { compileWhere } from './helpers.js';
 
