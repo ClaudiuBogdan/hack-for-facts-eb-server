@@ -850,6 +850,16 @@ const anonymizeDeletedUserInTransaction = async (
     )
     .execute()) as ThreadRow[];
 
+  const platformProviderRefRows = await trx
+    .selectFrom('notification_deliveries as delivery')
+    .leftJoin('notification_delivery_attempts as attempt', 'attempt.delivery_id', 'delivery.id')
+    .select([
+      'delivery.provider_ref as delivery_provider_ref',
+      'attempt.provider_ref as attempt_provider_ref',
+    ])
+    .where('delivery.user_id', 'in', matchingUserIds)
+    .execute();
+
   const advancedMapRows = await trx
     .selectFrom('advancedmapanalyticsmaps')
     .select(['id'])
@@ -873,6 +883,13 @@ const anonymizeDeletedUserInTransaction = async (
   for (const row of threadRows) {
     for (const resendEmailId of collectStringValuesByKey(row.record, 'resendEmailId')) {
       resendEmailIds.add(resendEmailId);
+    }
+  }
+  for (const row of platformProviderRefRows) {
+    for (const providerRef of [row.delivery_provider_ref, row.attempt_provider_ref]) {
+      if (providerRef !== null && providerRef.trim() !== '') {
+        resendEmailIds.add(providerRef);
+      }
     }
   }
 
