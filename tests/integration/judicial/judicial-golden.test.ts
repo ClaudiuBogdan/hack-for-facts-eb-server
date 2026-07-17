@@ -239,12 +239,17 @@ d('Judicial golden + tri-surface + runtime leak audit (seeded fixture)', () => {
     expect(court?.children.map((c) => c.institutionCode)).toContain(COURT_JUD);
   });
 
-  it('case detail (GraphQL): person/unknown name null, company/public name gated, declined key null, NO solution*', async () => {
+  it('case detail (GraphQL): all party names withheld, gated keys/forms retained, NO solution*', async () => {
     const res = await gql<{
       judicialCase: {
         case: { caseNumber: string };
         hearings: { hearingIndex: number; panel: string | null }[];
-        parties: { partyKind: string; name: string | null; nameKeyId: string | null }[];
+        parties: {
+          partyKind: string;
+          name: string | null;
+          nameKeyId: string | null;
+          legalForm: string | null;
+        }[];
         personPartyCount: number;
         legalReferences: { citation: string; actNumber: string | null }[];
       } | null;
@@ -252,7 +257,7 @@ d('Judicial golden + tri-surface + runtime leak audit (seeded fixture)', () => {
       `{ judicialCase(caseId:"${CASE_ID}") {
           case { caseNumber }
           hearings { hearingIndex panel }
-          parties { partyKind name nameKeyId }
+          parties { partyKind name nameKeyId legalForm }
           personPartyCount
           legalReferences { citation actNumber }
         } }`
@@ -265,7 +270,7 @@ d('Judicial golden + tri-surface + runtime leak audit (seeded fixture)', () => {
     const unknown = detail!.parties.find((p) => p.partyKind === 'unknown');
     const publicEntity = detail!.parties.find((p) => p.partyKind === 'public_entity');
     const declinedCompany = detail!.parties.find(
-      (p) => p.partyKind === 'company' && p.name === null
+      (p) => p.partyKind === 'company' && p.nameKeyId === null
     );
     // the publishable company party is the COMPANY-kind row carrying NAME_KEY_COMPANY.
     const publishableCompany = detail!.parties.find(
@@ -275,8 +280,12 @@ d('Judicial golden + tri-surface + runtime leak audit (seeded fixture)', () => {
     const personSharingCompanyKey = detail!.parties.find((p) => p.partyKind === 'person');
 
     expect(unknown?.name).toBeNull();
-    expect(publishableCompany?.name).toBe(COMPANY_NAME); // gated publishable
-    expect(publicEntity?.name).toBe(PUBLIC_NAME);
+    expect(publishableCompany).toMatchObject({
+      name: null,
+      nameKeyId: NAME_KEY_COMPANY,
+      legalForm: 'SRL',
+    });
+    expect(publicEntity).toMatchObject({ name: null, nameKeyId: NAME_KEY_PUBLIC, legalForm: null });
     // the DECLINED-rule company party exposes neither its stable key nor its name.
     expect(declinedCompany?.nameKeyId).toBeNull();
     expect(declinedCompany?.name).toBeNull();
@@ -314,15 +323,18 @@ d('Judicial golden + tri-surface + runtime leak audit (seeded fixture)', () => {
       ok: boolean;
       item: {
         personPartyCount: number;
-        parties: { partyKind: string; nameKeyId: string | null; name: string | null }[];
+        parties: {
+          partyKind: string;
+          nameKeyId: string | null;
+          name: string | null;
+          legalForm: string | null;
+        }[];
       };
     }>('get_judicial_case', { caseId: CASE_ID });
     expect(out.ok).toBe(true);
     expect(out.item.personPartyCount).toBe(3);
-    const company = out.item.parties.find(
-      (p) => p.partyKind === 'company' && p.name === COMPANY_NAME
-    );
-    expect(company).toBeTruthy();
+    const company = out.item.parties.find((p) => p.nameKeyId === NAME_KEY_COMPANY);
+    expect(company).toMatchObject({ partyKind: 'company', name: null, legalForm: 'SRL' });
     // no person/unknown party carries a name or correlatable key on MCP either.
     for (const p of out.item.parties) {
       if (p.partyKind === 'person' || p.partyKind === 'unknown') {

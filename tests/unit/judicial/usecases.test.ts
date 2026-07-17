@@ -1,9 +1,9 @@
 /**
  * Judicial — usecase unit tests over MOCKED ports (no DB). The centerpiece is the
- * PRIVACY-CRITICAL name merge in `getCaseDetail` (§3.2): a person party renders
- * `name: null`; a company party renders the gated publishable name; a name-key the
- * gate declines also renders `name: null`. Also covers the company-litigation
- * empty-in-v1 shape and the resolve dims.
+ * PRIVACY-CRITICAL projection in `getCaseDetail` (§3.2): every client-view party
+ * renders `name: null`; publishable companies retain only their gated stable key
+ * and legal form. Also covers the company-litigation empty-in-v1 shape and the
+ * resolve dims.
  */
 
 import { ok } from 'neverthrow';
@@ -123,7 +123,7 @@ describe('getCaseDetail — the privacy-critical name merge (§3.2)', () => {
     },
   ];
 
-  it('redacts keys and names for withheld identities; exposes both only through the publication gate', async () => {
+  it('withholds every party-view name while preserving gated company key and legal form', async () => {
     const repos = makeRepos({
       cases: {
         getById: vi.fn(async () => ok(theCase)),
@@ -166,11 +166,11 @@ describe('getCaseDetail — the privacy-critical name merge (§3.2)', () => {
     expect(views[0]).toMatchObject({ partyKind: 'person', nameKeyId: null, name: null });
     // unknown → key and name null
     expect(views[1]).toMatchObject({ partyKind: 'unknown', nameKeyId: null, name: null });
-    // company w/ publishable row + dictionary match → gated key and name
+    // company w/ publishable row + dictionary match → gated key/form, but no client-view name
     expect(views[2]).toMatchObject({
       partyKind: 'company',
       nameKeyId: '500',
-      name: 'ACME SRL',
+      name: null,
       legalForm: 'SRL',
     });
     // company w/ non-publishable row (declined rule) → key and name null
@@ -179,7 +179,8 @@ describe('getCaseDetail — the privacy-critical name merge (§3.2)', () => {
     // anonymized count of person/unknown parties
     expect(detail!.personPartyCount).toBe(2);
 
-    // NO view object carries displayName or any name beyond the gated 'name' field.
+    expect(views.every((view) => view.name === null)).toBe(true);
+    // NO view object carries the dictionary's internal displayName field.
     for (const v of views) {
       expect(Object.keys(v)).not.toContain('displayName');
     }

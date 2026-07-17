@@ -2,10 +2,9 @@
  * Judicial module — usecases (plan 08 §5). Framework-free, over ports, returning
  * `Result`. GraphQL + MCP both call these (tri-surface equivalence).
  *
- * THE PRIVACY-CRITICAL MERGE lives in `getCaseDetail` (§3.2): name-free parties
- * are enriched with names ONLY by calling the gated `getPublishableNames`, in ONE
- * auditable place. Person/unknown parties (and any name-key the gate declines)
- * render with `name: null`.
+ * THE PRIVACY-CRITICAL MERGE lives in `getCaseDetail` (§3.2): the gated
+ * `getPublishableNames` lookup enriches publishable company/public metadata in
+ * ONE auditable place, while the client-view name remains withheld.
  */
 
 import { err, ok, type Result } from 'neverthrow';
@@ -119,7 +118,8 @@ export const getCaseDetail = async (
 
   const parties = partiesRes.value;
 
-  // THE ONE NAME JOIN (defence-in-depth — §3.1). A party gets a name ONLY when:
+  // THE ONE GATED DICTIONARY JOIN (defence-in-depth — §3.1). A party gets
+  // publishable metadata ONLY when:
   //   (a) THIS party row is itself publishable (party.publishable — per-row
   //       party_kind/classifier_rule/version, computed in the repo), AND
   //   (b) the gated dictionary returns a publishable company/public name for its key.
@@ -136,8 +136,8 @@ export const getCaseDetail = async (
   let personPartyCount = 0;
   const partyViews: JudicialPartyView[] = parties.map((p) => {
     // Only rows that pass BOTH publication gates may expose an identity key or
-    // name. A stable key on a person/unknown/declined row would permit cross-case
-    // correlation even when its display name is withheld.
+    // legal form. A stable key on a person/unknown/declined row would permit
+    // cross-case correlation even when its display name is withheld.
     const pub = p.publishable && p.nameKeyId !== null ? names.get(p.nameKeyId) : undefined;
     if (p.partyKind === 'person' || p.partyKind === 'unknown') personPartyCount += 1;
     return {
@@ -145,7 +145,10 @@ export const getCaseDetail = async (
       partyKind: p.partyKind,
       roleNormalized: p.roleNormalized,
       nameKeyId: pub?.nameKeyId ?? null,
-      name: pub?.displayName ?? null,
+      // TEMPORARY POLICY: Withhold until the judicial permission layer exists.
+      // Keep the gated PublishableName lookup for key/form; restore its displayName
+      // here only after that authorization is enforced.
+      name: null,
       legalForm: pub?.legalForm ?? null,
     };
   });

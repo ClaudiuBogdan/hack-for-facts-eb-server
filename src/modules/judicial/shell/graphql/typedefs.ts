@@ -3,8 +3,8 @@
  * (§14.8). **NAME-FREE BY CONSTRUCTION**, the centerpiece:
  *
  *  - `JudicialParty` / `JudicialPartyView` have NO `displayName` field. The only
- *    name field is `JudicialPartyView.name`, resolved through the gated
- *    `PartyDictionaryRepo` (→ null for person/unknown).
+ *    name field is `JudicialPartyView.name`, intentionally withheld until the
+ *    judicial permission layer exists.
  *  - `JudicialHearing` has NO `solutionSummary` field and NO `solution` field.
  *
  * The schema-merge conflict gate (§14.8) + the leak audit guarantee no extension
@@ -104,14 +104,14 @@ const objectsAndQuery = /* GraphQL */ `
     appealType: String
   }
 
-  "A party rendered for case detail. name and nameKeyId are non-null ONLY for publishable company/public parties; both are null for withheld identities."
+  "A party rendered for case detail. name is withheld; nameKeyId may identify a publishable company/public party."
   type JudicialPartyView {
     partyIndex: Int!
     partyKind: JudicialPartyKind!
     roleNormalized: String
     "Public company/entity key; null for person, unknown, or otherwise non-publishable parties."
     nameKeyId: BigInt
-    "Publishable company/public name (gated). null for person/unknown — the system cannot emit a person's name."
+    "Intentionally null until the judicial permission layer exists."
     name: String
     legalForm: String
   }
