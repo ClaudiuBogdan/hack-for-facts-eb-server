@@ -13,7 +13,7 @@
 
 import { err, ok, type Result } from 'neverthrow';
 
-import { parseCitation } from '../shell/repo/citation.js';
+import { parseCitation } from './citation.js';
 
 import type {
   CursorPageRequest,

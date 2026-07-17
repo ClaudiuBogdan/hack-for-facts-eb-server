@@ -15,14 +15,7 @@ import type { Result } from 'neverthrow';
 
 // Re-export Hasher for backwards compatibility with existing imports
 export type { Hasher } from './types.js';
-
-/**
- * Signs and verifies stateless unsubscribe tokens.
- */
-export interface UnsubscribeTokenSigner {
-  sign(userId: string): string;
-  verify(token: string): { userId: string } | null;
-}
+export type { UnsubscribeTokenSigner } from '@/common/ports/index.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Notifications Repository

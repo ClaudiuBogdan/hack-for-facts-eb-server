@@ -9,6 +9,13 @@ import unicorn from 'eslint-plugin-unicorn';
 import globals from 'globals';
 import { configs as tseslintConfigs } from 'typescript-eslint';
 
+const typescriptImportResolver = {
+  typescript: {
+    alwaysTryTypes: true,
+    project: './tsconfig.json',
+  },
+};
+
 export default defineConfig(
   // ========================================================================
   // Base Setup & Global Ignores
@@ -61,12 +68,10 @@ export default defineConfig(
       },
     },
     settings: {
-      'import-x/resolver': {
-        typescript: {
-          alwaysTryTypes: true,
-          project: './tsconfig.json',
-        },
-      },
+      // import-x reads its own resolver setting, while boundaries uses the
+      // eslint-module-utils-compatible import/resolver setting.
+      'import-x/resolver': typescriptImportResolver,
+      'import/resolver': typescriptImportResolver,
       // Architecture Boundaries (Same as before)
       'boundaries/elements': [
         { type: 'core', pattern: 'src/modules/*/core/**/*', mode: 'file' },
@@ -181,6 +186,8 @@ export default defineConfig(
         'error',
         {
           default: 'allow',
+          // External and Node-core imports must be evaluated for the core I/O deny-list.
+          checkAllOrigins: true,
           rules: [
             // Element-type boundaries
             {

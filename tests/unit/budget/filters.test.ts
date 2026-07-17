@@ -22,16 +22,13 @@ import {
   budgetRankingKernelSpec,
   budgetReportFilterSpec,
 } from '@/modules/budget/core/filters.js';
-import {
-  canonicalizeFilters,
-  fhashFor,
-  toConditionBuilders,
-} from '@/modules/shared/core/filters/derive.js';
+import { canonicalizeFilters, fhashFor } from '@/modules/shared/core/filters/derive.js';
 import {
   graphqlFilterTypeName,
   toGraphQLInput,
   toTypeBox,
 } from '@/modules/shared/core/filters/surfaces.js';
+import { toConditionBuilders } from '@/modules/shared/shell/filters/derive.js';
 
 import { compileWhere } from '../shared/helpers.js';
 

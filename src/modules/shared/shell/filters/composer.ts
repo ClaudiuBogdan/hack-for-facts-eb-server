@@ -10,7 +10,8 @@
 
 import { sql, type RawBuilder } from 'kysely';
 
-import type { FilterColumn, SqlCondition } from './types.js';
+import type { SqlCondition } from './types.js';
+import type { FilterColumn } from '../../core/filters/types.js';
 
 const IDENTIFIER_RE = /^[a-z_][a-z0-9_]*$/iu;
 const CAST_RE = /^::[a-z_][a-z0-9_ ]*(\[\])?$/iu;
@@ -24,13 +25,11 @@ export const safeColumnRef = (column: FilterColumn): RawBuilder<unknown> => {
   if (!IDENTIFIER_RE.test(column.alias) || !IDENTIFIER_RE.test(column.column)) {
     // Invariant on trusted spec data (a malformed identifier is a programming
     // error, not an expected runtime failure) — hence a throw, not a Result.
-    // eslint-disable-next-line no-restricted-syntax -- spec invariant, not expected failure
     throw new Error(`unsafe column reference: ${column.alias}.${column.column}`);
   }
   const ref = sql.ref(`${column.alias}.${column.column}`);
   if (column.cast !== undefined) {
     if (!CAST_RE.test(column.cast)) {
-      // eslint-disable-next-line no-restricted-syntax -- spec invariant, not expected failure
       throw new Error(`unsafe cast: ${column.cast}`);
     }
     // `cast` matched a strict whitelist; sql.raw is safe here only.

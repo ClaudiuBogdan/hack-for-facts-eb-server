@@ -12,11 +12,6 @@
  * Per-source plans only DECLARE specs — they never invent a DSL.
  */
 
-import type { RawBuilder } from 'kysely';
-
-/** A parameterized SQL condition (Kysely `sql``` — injection-safe by design). */
-export type SqlCondition = RawBuilder<unknown>;
-
 /** The set of operators a field may support. */
 export type FilterOp =
   | 'eq'

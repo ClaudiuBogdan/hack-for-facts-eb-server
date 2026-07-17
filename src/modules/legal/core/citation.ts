@@ -10,7 +10,7 @@
  * embeddings) — a fuzzy/topical query falls through to null and the hybrid path.
  */
 
-import type { LegalCitationKey } from '../../core/types.js';
+import type { LegalCitationKey } from './types.js';
 
 /** Map common Romanian act-type words/abbreviations to the `act_type` vocab. */
 const TYPE_ALIASES: Record<string, string> = {
