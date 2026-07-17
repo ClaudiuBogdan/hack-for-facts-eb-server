@@ -67,6 +67,9 @@ describe('User data anonymizer', () => {
     const platformAcceptedDeliveryId = randomUUID();
     const platformRetryDeliveryId = randomUUID();
     const platformAttemptId = randomUUID();
+    const platformDeliveryProviderRef = `private-provider-${suffix}`;
+    const platformAttemptProviderRef = `private-attempt-provider-${suffix}`;
+    const unrelatedPlatformProviderRef = `unrelated-provider-${suffix}`;
     const platformOpenDigestId = randomUUID();
     const platformRenderedDigestId = randomUUID();
 
@@ -317,6 +320,75 @@ describe('User data anonymizer', () => {
         thread_key: `thread-${suffix}`,
         metadata: { userId, email: `user-${suffix}@example.com` },
       })
+      .execute();
+
+    await userDb
+      .insertInto('resend_wh_emails')
+      .values([
+        {
+          svix_id: `svix-platform-delivery-${suffix}`,
+          event_type: 'email.delivered',
+          event_created_at: new Date(),
+          email_id: platformDeliveryProviderRef,
+          from_address: `platform-delivery-${suffix}@example.com`,
+          to_addresses: [`user-${suffix}@example.com`],
+          cc_addresses: [`delivery-cc-${suffix}@example.com`],
+          bcc_addresses: [`delivery-bcc-${suffix}@example.com`],
+          message_id: `platform-delivery-message-${suffix}`,
+          subject: `Platform delivery ${userId}`,
+          email_created_at: new Date(),
+          attachments_json: JSON.stringify([{ filename: `delivery-${userId}.pdf` }]),
+          bounce_message: `Delivery bounce ${userId}`,
+          bounce_diagnostic_code: [`delivery-diagnostic-${userId}`],
+          click_ip_address: '192.0.2.10',
+          click_link: `https://example.test/delivery/${userId}`,
+          click_timestamp: new Date(),
+          click_user_agent: `delivery-agent-${userId}`,
+          metadata: { userId, email: `user-${suffix}@example.com`, path: 'platform-delivery' },
+        },
+        {
+          svix_id: `svix-platform-attempt-${suffix}`,
+          event_type: 'email.clicked',
+          event_created_at: new Date(),
+          email_id: platformAttemptProviderRef,
+          from_address: `platform-attempt-${suffix}@example.com`,
+          to_addresses: [`user-${suffix}@example.com`],
+          cc_addresses: [`attempt-cc-${suffix}@example.com`],
+          bcc_addresses: [`attempt-bcc-${suffix}@example.com`],
+          message_id: `platform-attempt-message-${suffix}`,
+          subject: `Platform attempt ${userId}`,
+          email_created_at: new Date(),
+          attachments_json: JSON.stringify([{ filename: `attempt-${userId}.pdf` }]),
+          bounce_message: `Attempt bounce ${userId}`,
+          bounce_diagnostic_code: [`attempt-diagnostic-${userId}`],
+          click_ip_address: '192.0.2.11',
+          click_link: `https://example.test/attempt/${userId}`,
+          click_timestamp: new Date(),
+          click_user_agent: `attempt-agent-${userId}`,
+          metadata: { userId, email: `user-${suffix}@example.com`, path: 'platform-attempt' },
+        },
+        {
+          svix_id: `svix-platform-unrelated-${suffix}`,
+          event_type: 'email.delivered',
+          event_created_at: new Date(),
+          email_id: unrelatedPlatformProviderRef,
+          from_address: `unrelated-${suffix}@example.com`,
+          to_addresses: [`other-${suffix}@example.com`],
+          cc_addresses: [`unrelated-cc-${suffix}@example.com`],
+          bcc_addresses: [`unrelated-bcc-${suffix}@example.com`],
+          message_id: `unrelated-message-${suffix}`,
+          subject: `Unrelated ${otherUserId}`,
+          email_created_at: new Date(),
+          attachments_json: JSON.stringify([{ filename: 'unrelated.pdf' }]),
+          bounce_message: 'unrelated bounce',
+          bounce_diagnostic_code: ['unrelated diagnostic'],
+          click_ip_address: '192.0.2.12',
+          click_link: `https://example.test/unrelated/${otherUserId}`,
+          click_timestamp: new Date(),
+          click_user_agent: 'unrelated-agent',
+          metadata: { userId: otherUserId, email: `other-${suffix}@example.com` },
+        },
+      ] as never)
       .execute();
 
     await userDb
@@ -576,7 +648,7 @@ describe('User data anonymizer', () => {
           status: 'accepted',
           attempt_count: 1,
           provider_idempotency_key: `private-key-${suffix}`,
-          provider_ref: `private-provider-${suffix}`,
+          provider_ref: platformDeliveryProviderRef,
           sender_mode: 'active',
           created_at: platformNow,
           updated_at: platformNow,
@@ -632,7 +704,7 @@ describe('User data anonymizer', () => {
         result: 'accepted',
         error_code: 'private_error',
         error_message: `Private error ${userId}`,
-        provider_ref: `private-attempt-provider-${suffix}`,
+        provider_ref: platformAttemptProviderRef,
       } as never)
       .execute();
     await userDb
@@ -860,6 +932,51 @@ describe('User data anonymizer', () => {
     expect(resendEvent.click_ip_address).toBeNull();
     expect(resendEvent.click_user_agent).toBeNull();
     expect(JSON.stringify(resendEvent.metadata)).not.toContain(userId);
+
+    const platformResendEvents = await userDb
+      .selectFrom('resend_wh_emails')
+      .selectAll()
+      .where('email_id', 'in', [platformDeliveryProviderRef, platformAttemptProviderRef])
+      .execute();
+    expect(platformResendEvents).toHaveLength(2);
+    for (const platformResendEvent of platformResendEvents) {
+      expect(platformResendEvent).toMatchObject({
+        from_address: 'redacted@example.invalid',
+        to_addresses: [],
+        cc_addresses: [],
+        bcc_addresses: [],
+        message_id: null,
+        subject: 'Anonymized email',
+        attachments_json: null,
+        bounce_message: null,
+        bounce_diagnostic_code: null,
+        click_ip_address: null,
+        click_link: null,
+        click_user_agent: null,
+      });
+      expect(JSON.stringify(platformResendEvent.metadata)).not.toContain(userId);
+    }
+
+    const unrelatedPlatformResendEvent = await userDb
+      .selectFrom('resend_wh_emails')
+      .selectAll()
+      .where('email_id', '=', unrelatedPlatformProviderRef)
+      .executeTakeFirstOrThrow();
+    expect(unrelatedPlatformResendEvent).toMatchObject({
+      from_address: `unrelated-${suffix}@example.com`,
+      to_addresses: [`other-${suffix}@example.com`],
+      cc_addresses: [`unrelated-cc-${suffix}@example.com`],
+      bcc_addresses: [`unrelated-bcc-${suffix}@example.com`],
+      message_id: `unrelated-message-${suffix}`,
+      subject: `Unrelated ${otherUserId}`,
+      attachments_json: [{ filename: 'unrelated.pdf' }],
+      bounce_message: 'unrelated bounce',
+      bounce_diagnostic_code: ['unrelated diagnostic'],
+      click_ip_address: '192.0.2.12',
+      click_link: `https://example.test/unrelated/${otherUserId}`,
+      click_user_agent: 'unrelated-agent',
+      metadata: { userId: otherUserId, email: `other-${suffix}@example.com` },
+    });
 
     const map = await userDb
       .selectFrom('advancedmapanalyticsmaps')
