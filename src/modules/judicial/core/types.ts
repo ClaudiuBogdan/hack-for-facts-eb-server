@@ -136,10 +136,10 @@ export interface PublishableName {
 
 /**
  * A rendered party for the case-detail view. The privacy-critical merge (§3.2)
- * produces this in the USECASE layer: `name` is non-null ONLY for parties whose
- * `nameKeyId` resolved to a publishable company/public name. For person/unknown/
- * low-confidence parties both `nameKeyId` and `name` are `null` so stable internal
- * identifiers cannot be used to correlate a withheld identity across cases.
+ * produces this in the USECASE layer: `name` stays null until the judicial
+ * permission layer exists. For person/unknown/low-confidence parties,
+ * `nameKeyId` is also null so stable internal identifiers cannot be used to
+ * correlate a withheld identity across cases.
  */
 export interface JudicialPartyView {
   readonly partyIndex: number;
@@ -147,7 +147,7 @@ export interface JudicialPartyView {
   readonly roleNormalized: string | null;
   /** Public company/entity key only; null whenever the party identity is withheld. */
   readonly nameKeyId: string | null;
-  /** Publishable company/public name; ALWAYS null for person/unknown kinds. */
+  /** Intentionally withheld until the judicial permission layer exists. */
   readonly name: string | null;
   readonly legalForm: string | null;
 }

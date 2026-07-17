@@ -4,8 +4,8 @@
  * connections. The `JudicialLegalRef.targetAct` field resolves through the kernel
  * `legalActLoader()` (the legal module 05 registers it; tolerates dangling → null).
  *
- * PRIVACY: no resolver reads a name column. `JudicialPartyView.name` is produced
- * by the usecase via the gated dictionary; the resolver just passes it through.
+ * PRIVACY: no resolver reads a name column. The usecase intentionally withholds
+ * `JudicialPartyView.name`; the resolver just passes the view through.
  */
 
 import { GraphQLError } from 'graphql';
