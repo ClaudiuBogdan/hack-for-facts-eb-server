@@ -76,6 +76,14 @@ const contractSelect = [
   'c.county_name',
   'c.is_canonical',
   'c.dup_group_id',
+  'c.value_state',
+  'c.value_state_detail',
+  sql<string | null>`c.value_ron_comparable::text`.as('value_ron_comparable'),
+  'c.value_comparable_basis',
+  'c.value_rules_version',
+  sql<string | null>`c.value_resolved_at::text`.as('value_resolved_at'),
+  'c.canonical_value_source',
+  'c.value_disagreement',
 ] as const;
 
 const daSelect = [
@@ -99,6 +107,12 @@ const daSelect = [
   sql<string | null>`d.finalization_date::text`.as('finalization_date'),
   'd.is_canonical',
   'd.dup_group_id',
+  'd.value_state',
+  'd.value_state_detail',
+  sql<string | null>`d.value_ron_comparable::text`.as('value_ron_comparable'),
+  'd.value_comparable_basis',
+  'd.value_rules_version',
+  sql<string | null>`d.value_resolved_at::text`.as('value_resolved_at'),
 ] as const;
 
 const modificationSelect = [

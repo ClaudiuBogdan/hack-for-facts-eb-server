@@ -229,6 +229,12 @@ export const makeProcurementRepo = (
     // the YYYY-MM-DD contract AND the cursor key serialization).
     sql<string | null>`p.publication_date::text`.as('publication_date'),
     sql<string | null>`p.state_date::text`.as('state_date'),
+    'p.value_state',
+    'p.value_state_detail',
+    sql<string | null>`p.value_ron_comparable::text`.as('value_ron_comparable'),
+    'p.value_comparable_basis',
+    'p.value_rules_version',
+    sql<string | null>`p.value_resolved_at::text`.as('value_resolved_at'),
   ] as const;
 
   const listProcedures = async (
@@ -367,6 +373,14 @@ export const makeProcurementRepo = (
     'c.county_name',
     'c.is_canonical',
     'c.dup_group_id',
+    'c.value_state',
+    'c.value_state_detail',
+    sql<string | null>`c.value_ron_comparable::text`.as('value_ron_comparable'),
+    'c.value_comparable_basis',
+    'c.value_rules_version',
+    sql<string | null>`c.value_resolved_at::text`.as('value_resolved_at'),
+    'c.canonical_value_source',
+    'c.value_disagreement',
   ] as const;
 
   const listContracts = async (
@@ -563,6 +577,12 @@ export const makeProcurementRepo = (
     sql<string | null>`d.finalization_date::text`.as('finalization_date'),
     'd.is_canonical',
     'd.dup_group_id',
+    'd.value_state',
+    'd.value_state_detail',
+    sql<string | null>`d.value_ron_comparable::text`.as('value_ron_comparable'),
+    'd.value_comparable_basis',
+    'd.value_rules_version',
+    sql<string | null>`d.value_resolved_at::text`.as('value_resolved_at'),
   ] as const;
 
   const listDirectAcquisitions = async (

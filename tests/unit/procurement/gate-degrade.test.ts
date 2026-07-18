@@ -29,13 +29,27 @@ describe('count class', () => {
   });
 });
 
-describe('spend class (strict, no degrade path)', () => {
+describe('spend class (allow | allow_disclosed | abstain)', () => {
   it('allows on classes.spend=allow with no caveat', () => {
     expect(decideAnswer(quality({}), 'direct_acquisition', 'spend')).toEqual({
       allow: true,
       degraded: false,
       caveats: [],
     });
+  });
+
+  it('serves with a disclosing caveat on classes.spend=allow_disclosed', () => {
+    const d = decideAnswer(
+      quality({ spend: 'allow_disclosed', value: 0.82 }),
+      'direct_acquisition',
+      'spend'
+    );
+    expect(d.allow).toBe(true);
+    expect(d.degraded).toBe(true);
+    expect(d.reason).toBe('SPEND_SERVED_DISCLOSED');
+    expect(d.caveats[0]).toContain('DISCLOSED partial coverage');
+    expect(d.caveats[0]).toContain('0.82');
+    expect(d.caveats[0]).toContain('understate');
   });
 
   it('abstains with a coverage-disclosing caveat on classes.spend=abstain', () => {

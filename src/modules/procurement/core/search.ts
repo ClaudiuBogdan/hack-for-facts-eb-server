@@ -52,6 +52,8 @@ export interface ProcurementSearchFilter {
   readonly status?: readonly string[];
   readonly dateRange?: DateRange;
   readonly valueRon?: DecimalRange;
+  /** Valued grains only (ignored on modifications): value-model state filter. */
+  readonly valueState?: readonly string[];
   /** Modifications only: `contract_id IS (NOT) NULL`. */
   readonly linked?: boolean;
   /** Modifications only: `value_delta_ron / nullif(value_before_ron,0) >= pct`. */
@@ -71,9 +73,16 @@ interface SortColumns {
 }
 
 const SORT_COLUMNS: Readonly<Record<SearchGrain, SortColumns>> = {
-  procedures: { date: 'publication_date', value: 'awarded_value_ron', pk: 'procedure_id' },
-  contracts: { date: 'contract_date', value: 'value_ron', pk: 'contract_id' },
-  direct_acquisitions: { date: 'finalization_date', value: 'value_ron', pk: 'da_id' },
+  // Value-model: value sorts order by the RESOLVED comparable measure —
+  // frameworks/conflicts (no comparable) fall to NULLS LAST. Modifications
+  // keep the delta (no resolution on that grain).
+  procedures: { date: 'publication_date', value: 'value_ron_comparable', pk: 'procedure_id' },
+  contracts: { date: 'contract_date', value: 'value_ron_comparable', pk: 'contract_id' },
+  direct_acquisitions: {
+    date: 'finalization_date',
+    value: 'value_ron_comparable',
+    pk: 'da_id',
+  },
   modifications: { date: 'modification_date', value: 'value_delta_ron', pk: 'modification_id' },
 };
 

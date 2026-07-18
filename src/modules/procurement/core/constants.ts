@@ -54,6 +54,32 @@ export type DaStatus = (typeof DA_STATUSES)[number];
 export const DA_SOURCE_SYSTEMS = ['elicitatie_da', 'seap_da', 'seap_dan'] as const;
 export type DaSourceSystem = (typeof DA_SOURCE_SYSTEMS)[number];
 
+// ── value-model resolution states (scrapper VALUE_RULES_VERSION 2) ────────────
+// The closed per-row outcome set of the data layer's resolution engine.
+// ACCEPTED states are the ONLY ones whose money enters served aggregates;
+// `cross_source_exact` / `official_document_recovered` are reserved (not yet
+// minted by the v2 engine) but part of the frozen contract.
+export const ACCEPTED_VALUE_STATES = [
+  'official_exact',
+  'official_ron_equivalent',
+  'cross_source_exact',
+  'official_document_recovered',
+] as const;
+export const VALUE_STATES = [
+  ...ACCEPTED_VALUE_STATES,
+  'source_missing',
+  'invalid_source_value',
+  'foreign_currency_only',
+  'ambiguous_grain',
+  'conflicting_sources',
+  'not_applicable',
+] as const;
+export type ValueState = (typeof VALUE_STATES)[number];
+export const ACCEPTED_VALUE_STATE_SET: ReadonlySet<string> = new Set(ACCEPTED_VALUE_STATES);
+
+export const VALUE_COMPARABLE_BASES = ['official', 'derived_bnr'] as const;
+export type ValueComparableBasis = (typeof VALUE_COMPARABLE_BASES)[number];
+
 export const PROCEDURE_SOURCE_SYSTEMS = ['elicitatie', 'seap_notice'] as const;
 export const CONTRACT_SOURCE_SYSTEMS = ['elicitatie_ca_award', 'seap_contracts'] as const;
 

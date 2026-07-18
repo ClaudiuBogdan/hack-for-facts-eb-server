@@ -39,6 +39,18 @@ export interface ProcurementProceduresTable {
   county_name: string | null;
   publication_date: string | null; // date
   state_date: string | null;
+  // ── value-model resolution columns (scrapper VALUE_RULES_VERSION 2,
+  // 2026-07-18): value_state is the honest per-row resolution outcome;
+  // value_ron_comparable (+basis 'official' | 'derived_bnr') is the ONLY
+  // cross-row-comparable money measure. value_state_detail carries the rule
+  // label under `rule`. NULL value_state = row inserted after the last
+  // resolution run (transient).
+  value_state: string | null;
+  value_state_detail: { rule?: string } | null;
+  value_ron_comparable: string | null; // numeric → string
+  value_comparable_basis: string | null;
+  value_rules_version: number | null;
+  value_resolved_at: string | null; // timestamptz
 }
 
 export interface ProcurementContractsTable {
@@ -58,11 +70,30 @@ export interface ProcurementContractsTable {
   cpv_code: string | null;
   value_ron: string | null;
   estimated_value_ron: string | null;
-  currency: string | null; // ⚠ repurposed non-RON flag carrier (audit F1/F7)
+  // Since the Phase-F transforms the emitted token is a clean RON/EUR/USD
+  // enum (or NULL); the historical repurposed-flag caveat (audit F1/F7) no
+  // longer applies to newly loaded rows.
+  currency: string | null;
   status: string;
   county_name: string | null;
   is_canonical: boolean;
   dup_group_id: string | null; // bigint → string
+  // ── value-model resolution columns (scrapper VALUE_RULES_VERSION 2,
+  // 2026-07-18): value_state is the honest per-row resolution outcome;
+  // value_ron_comparable (+basis 'official' | 'derived_bnr') is the ONLY
+  // cross-row-comparable money measure. value_state_detail carries the rule
+  // label under `rule`. NULL value_state = row inserted after the last
+  // resolution run (transient).
+  value_state: string | null;
+  value_state_detail: { rule?: string } | null;
+  value_ron_comparable: string | null; // numeric → string
+  value_comparable_basis: string | null;
+  value_rules_version: number | null;
+  value_resolved_at: string | null; // timestamptz
+  /** Winning evidence family when accepted ('seap_own' | 'elicitatie_ca_award' | 'dup_group'). */
+  canonical_value_source: string | null;
+  /** True when own/cross evidence disagrees (state 'conflicting_sources'). */
+  value_disagreement: boolean;
 }
 
 export interface ProcurementDirectAcquisitionsTable {
@@ -86,6 +117,18 @@ export interface ProcurementDirectAcquisitionsTable {
   finalization_date: string | null;
   is_canonical: boolean;
   dup_group_id: string | null;
+  // ── value-model resolution columns (scrapper VALUE_RULES_VERSION 2,
+  // 2026-07-18): value_state is the honest per-row resolution outcome;
+  // value_ron_comparable (+basis 'official' | 'derived_bnr') is the ONLY
+  // cross-row-comparable money measure. value_state_detail carries the rule
+  // label under `rule`. NULL value_state = row inserted after the last
+  // resolution run (transient).
+  value_state: string | null;
+  value_state_detail: { rule?: string } | null;
+  value_ron_comparable: string | null; // numeric → string
+  value_comparable_basis: string | null;
+  value_rules_version: number | null;
+  value_resolved_at: string | null; // timestamptz
 }
 
 /** No `source_system` column live (unlike the other three grains) — the spec does not ask for one. */
@@ -207,6 +250,19 @@ export interface ProcurementAnalysisRegionCpvRollupTable extends AnalysisRollupM
   cpv_division: string | null;
 }
 
+/**
+ * Counts-only value-state distribution (per grain × month × state; no scope
+ * dims — global). Built for transparency surfaces: it explains WHY spend is
+ * (not) served by showing the resolution-state census behind the verdict.
+ */
+export interface ProcurementAnalysisValueStatesRollupTable {
+  build_id: string; // bigint → string
+  grain: string;
+  month_start: string | null; // date; NULL = undated bucket
+  value_state: string;
+  record_count: string; // bigint → string
+}
+
 declare module '@/modules/shared/shell/db/types.js' {
   interface ProdDatabase {
     /* eslint-disable @typescript-eslint/naming-convention -- Kysely table keys are the schema-qualified live names (foundation §3) */
@@ -224,6 +280,7 @@ declare module '@/modules/shared/shell/db/types.js' {
     'procurement.analysis_rollup_supplier_cpv_monthly': ProcurementAnalysisSupplierCpvRollupTable;
     'procurement.analysis_rollup_cpv_code_monthly': ProcurementAnalysisCpvCodeRollupTable;
     'procurement.analysis_rollup_region_cpv_monthly': ProcurementAnalysisRegionCpvRollupTable;
+    'procurement.analysis_rollup_value_states_monthly': ProcurementAnalysisValueStatesRollupTable;
     /* eslint-enable @typescript-eslint/naming-convention -- restore the rule after the schema-qualified table keys */
   }
 }

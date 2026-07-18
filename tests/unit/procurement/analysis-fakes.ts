@@ -22,7 +22,7 @@ import type { ApiError } from '@/modules/shared/index.js';
 
 export const verdict = (
   over: {
-    spend?: 'allow' | 'abstain';
+    spend?: 'allow' | 'allow_disclosed' | 'abstain';
     time?: 'allow' | 'degraded' | 'abstain';
     geo?: 'allow' | 'degraded' | 'abstain';
     date?: number;

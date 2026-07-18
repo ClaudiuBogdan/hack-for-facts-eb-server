@@ -17,6 +17,7 @@ import { err, ok, type Result } from 'neverthrow';
 import { invalidInput, normalizeCui, type ApiError } from '@/modules/shared/index.js';
 
 import { parseAnalysisScope, type AnalysisScope } from '../../core/analysis-scope.js';
+import { VALUE_STATES } from '../../core/constants.js';
 import { parseQ, type ProcurementSearchFilter } from '../../core/search.js';
 
 // ── raw input shapes (exactly the SDL) ────────────────────────────────────────
@@ -47,6 +48,7 @@ export interface RawSearchFilter {
   contractDate?: RangeInput;
   modificationDate?: RangeInput;
   valueRon?: RangeInput;
+  valueState?: StringInInput;
   linked?: unknown;
   minDeltaPct?: unknown;
 }
@@ -55,6 +57,8 @@ export interface RawSearchFilter {
 export type RawAnalysisScopeInput = Readonly<Record<string, unknown>>;
 
 // ── scalar readers ────────────────────────────────────────────────────────────
+
+const VALUE_STATE_TOKENS: ReadonlySet<string> = new Set(VALUE_STATES);
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/u;
 const DECIMAL_RE = /^-?\d+(\.\d+)?$/u;
@@ -224,6 +228,15 @@ export const translateSearchFilter = (
   const value = readDecimalRange(raw.valueRon, 'valueRon');
   if (value.isErr()) return err(value.error);
   if (value.value !== undefined) out.valueRon = value.value;
+
+  const valueState = readIn(raw.valueState, 'valueState');
+  if (valueState.isErr()) return err(valueState.error);
+  if (valueState.value !== undefined) {
+    // Closed set — an unknown token is a caller bug, not an empty result.
+    const bad = valueState.value.find((v) => !VALUE_STATE_TOKENS.has(v));
+    if (bad !== undefined) return err(invalidInput(`unknown valueState '${bad}'`, 'valueState'));
+    out.valueState = valueState.value;
+  }
 
   if (raw.linked !== undefined && raw.linked !== null) {
     if (typeof raw.linked !== 'boolean')

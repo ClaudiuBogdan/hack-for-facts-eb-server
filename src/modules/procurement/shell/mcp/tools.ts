@@ -135,13 +135,19 @@ export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly Kern
   const searchContractsTool: KernelMcpTool = {
     name: 'search_procurement_contracts',
     description:
-      'Search supplier-level procurement contracts (SEAP). Filter by authority/supplier CUI, CPV code/division, value range, date, status. Canonical-only by default. Cursor-paginated; no totals on the 1.9M-row table.',
+      'Search supplier-level procurement contracts (SEAP). Filter by authority/supplier CUI, CPV code/division, value range (RESOLVED comparable value), date, status, valueState. Canonical-only by default. Cursor-paginated; no totals on the 1.9M-row table. Each item carries the value-model resolution (value.valueState / value.valueRonComparable).',
     strictInput: true,
     inputShape: {
       authorityCui: z.string().optional(),
       supplierCui: z.string().optional(),
       cpvDivision: z.string().optional().describe('2-digit CPV division.'),
-      minValueRon: z.string().optional().describe('Decimal string.'),
+      minValueRon: z.string().optional().describe('Decimal string (resolved comparable value).'),
+      valueState: z
+        .string()
+        .optional()
+        .describe(
+          "Value-model state filter, e.g. 'official_exact'; accepted states carry a comparable value."
+        ),
       year: z.number().int().optional(),
       first: z.number().int().min(1).max(100).optional(),
     },
@@ -170,6 +176,10 @@ export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly Kern
       supplierCui: z.string().optional(),
       cpvDivision: z.string().optional(),
       uniqueCode: z.string().optional(),
+      valueState: z
+        .string()
+        .optional()
+        .describe("Value-model state filter, e.g. 'official_exact'."),
       year: z.number().int().optional(),
       first: z.number().int().min(1).max(100).optional(),
     },
@@ -338,6 +348,8 @@ const buildContractFilter = (args: Record<string, unknown>): FilterInput => {
   if (su !== '') f['supplierCui'] = { in: [su] };
   if (cd !== '') f['cpvDivision'] = { in: [cd] };
   if (mv !== '') f['minValueRon'] = { gte: mv };
+  const vsC = strArg(args, 'valueState');
+  if (vsC !== '') f['valueState'] = { in: [vsC] };
   if (typeof yr === 'number') f['year'] = { eq: yr };
   return f;
 };
@@ -353,6 +365,8 @@ const buildDaFilter = (args: Record<string, unknown>): FilterInput => {
   if (su !== '') f['supplierCui'] = { in: [su] };
   if (cd !== '') f['cpvDivision'] = { in: [cd] };
   if (uc !== '') f['uniqueCode'] = { eq: uc };
+  const vsD = strArg(args, 'valueState');
+  if (vsD !== '') f['valueState'] = { in: [vsD] };
   if (typeof yr === 'number') f['year'] = { eq: yr };
   return f;
 };

@@ -36,7 +36,12 @@ export interface GrainQualityVerdict {
     readonly cpv: number;
   };
   readonly classes: {
-    readonly spend: 'allow' | 'abstain';
+    /**
+     * 'allow_disclosed' (value-model wave): accepted-value coverage sits
+     * between the disclosed FLOOR and the full-allow gate — money IS served,
+     * with a coverage-disclosing caveat (never silently).
+     */
+    readonly spend: 'allow' | 'allow_disclosed' | 'abstain';
     readonly time: 'allow' | 'degraded' | 'abstain';
     readonly geo: 'allow' | 'degraded' | 'abstain';
   };
@@ -47,6 +52,7 @@ export type GenerationQuality = Partial<Record<AnalysisGrain, GrainQualityVerdic
 
 export type AnswerabilityReason =
   | 'SPEND_COVERAGE_BELOW_GATE'
+  | 'SPEND_SERVED_DISCLOSED'
   | 'TIME_COVERAGE_BELOW_FLOOR'
   | 'GEO_COVERAGE_BELOW_FLOOR'
   | 'MISSING_QUALITY_VERDICT'
@@ -92,12 +98,21 @@ export const decideAnswer = (
   }
 
   if (gateClass === 'spend') {
-    return verdict.classes.spend === 'allow'
-      ? ALLOW
-      : abstain(
-          `spend answers abstain for grain '${grain}': value coverage ${String(verdict.coverage.value)} is below the spend gate (money is omitted, not zeroed)`,
-          'SPEND_COVERAGE_BELOW_GATE'
-        );
+    if (verdict.classes.spend === 'allow') return ALLOW;
+    if (verdict.classes.spend === 'allow_disclosed') {
+      return {
+        allow: true,
+        degraded: true,
+        caveats: [
+          `spend answers are served with DISCLOSED partial coverage for grain '${grain}': accepted-value coverage ${String(verdict.coverage.value)} sits between the disclosure floor and the full-allow gate — totals understate the true spend`,
+        ],
+        reason: 'SPEND_SERVED_DISCLOSED',
+      };
+    }
+    return abstain(
+      `spend answers abstain for grain '${grain}': value coverage ${String(verdict.coverage.value)} is below the spend gate (money is omitted, not zeroed)`,
+      'SPEND_COVERAGE_BELOW_GATE'
+    );
   }
 
   const cls = gateClass === 'time' ? verdict.classes.time : verdict.classes.geo;
