@@ -23,6 +23,7 @@ import {
   DA_SOURCE_SYSTEMS,
   DA_STATUSES,
   PROCEDURE_STATUSES,
+  VALUE_STATES,
 } from './constants.js';
 
 import type { CollectionFilterSpec } from '@/modules/shared/index.js';
@@ -121,6 +122,15 @@ export const procedureFilterSpec: CollectionFilterSpec = {
       column: { alias: 'p', column: 'estimated_value_ron' },
       description: 'Upper bound on estimated_value_ron.',
     },
+    {
+      name: 'valueState',
+      type: 'enum',
+      ops: ['eq', 'in'],
+      array: true,
+      enumValues: VALUE_STATES,
+      column: { alias: 'p', column: 'value_state' },
+      description: 'Value-model resolution state; accepted states carry a comparable value.',
+    },
     // buyer territory (needs the core join)
     {
       name: 'countyCode',
@@ -218,13 +228,24 @@ export const contractFilterSpec: CollectionFilterSpec = {
       name: 'minValueRon',
       type: 'money',
       ops: ['gte'],
-      column: { alias: 'c', column: 'value_ron' },
+      column: { alias: 'c', column: 'value_ron_comparable' },
+      description: 'Lower bound on the RESOLVED comparable value (value model).',
     },
     {
       name: 'maxValueRon',
       type: 'money',
       ops: ['lte'],
-      column: { alias: 'c', column: 'value_ron' },
+      column: { alias: 'c', column: 'value_ron_comparable' },
+      description: 'Upper bound on the RESOLVED comparable value (value model).',
+    },
+    {
+      name: 'valueState',
+      type: 'enum',
+      ops: ['eq', 'in'],
+      array: true,
+      enumValues: VALUE_STATES,
+      column: { alias: 'c', column: 'value_state' },
+      description: 'Value-model resolution state; accepted states carry a comparable value.',
     },
     {
       name: 'includeDuplicates',
@@ -252,7 +273,7 @@ export const contractFilterSpec: CollectionFilterSpec = {
       description: 'Buyer region (via core join).',
     },
   ],
-  sort: { default: 'contract_date', allowed: ['contract_date', 'value_ron'] },
+  sort: { default: 'contract_date', allowed: ['contract_date', 'value_ron_comparable'] },
 };
 
 // ── direct_acquisitions (20.2M — HIGH VOLUME, selective filter required) ────────
@@ -339,13 +360,24 @@ export const daFilterSpec: CollectionFilterSpec = {
       name: 'minValueRon',
       type: 'money',
       ops: ['gte'],
-      column: { alias: 'd', column: 'value_ron' },
+      column: { alias: 'd', column: 'value_ron_comparable' },
+      description: 'Lower bound on the RESOLVED comparable value (value model).',
     },
     {
       name: 'maxValueRon',
       type: 'money',
       ops: ['lte'],
-      column: { alias: 'd', column: 'value_ron' },
+      column: { alias: 'd', column: 'value_ron_comparable' },
+      description: 'Upper bound on the RESOLVED comparable value (value model).',
+    },
+    {
+      name: 'valueState',
+      type: 'enum',
+      ops: ['eq', 'in'],
+      array: true,
+      enumValues: VALUE_STATES,
+      column: { alias: 'd', column: 'value_state' },
+      description: 'Value-model resolution state; accepted states carry a comparable value.',
     },
     {
       name: 'includeDuplicates',
@@ -356,7 +388,7 @@ export const daFilterSpec: CollectionFilterSpec = {
       description: 'Default false → forces is_canonical=true.',
     },
   ],
-  sort: { default: 'finalization_date', allowed: ['finalization_date', 'value_ron'] },
+  sort: { default: 'finalization_date', allowed: ['finalization_date', 'value_ron_comparable'] },
 };
 
 // ── modifications (53k) ────────────────────────────────────────────────────────

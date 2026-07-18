@@ -59,7 +59,13 @@ const GENERATION_TTL_MS = 5_000;
 
 // ── quality jsonb validation (safe parsing — never trusted raw) ────────────────
 
-const AllowAbstain = Type.Union([Type.Literal('allow'), Type.Literal('abstain')]);
+// Spend gained 'allow_disclosed' in the value-model wave (served with a
+// coverage-disclosing caveat); time/geo keep the degrade ladder.
+const SpendClass = Type.Union([
+  Type.Literal('allow'),
+  Type.Literal('allow_disclosed'),
+  Type.Literal('abstain'),
+]);
 const AllowDegradedAbstain = Type.Union([
   Type.Literal('allow'),
   Type.Literal('degraded'),
@@ -74,7 +80,7 @@ const QualityVerdictSchema = Type.Object({
     cpv: Type.Number(),
   }),
   classes: Type.Object({
-    spend: AllowAbstain,
+    spend: SpendClass,
     time: AllowDegradedAbstain,
     geo: AllowDegradedAbstain,
   }),

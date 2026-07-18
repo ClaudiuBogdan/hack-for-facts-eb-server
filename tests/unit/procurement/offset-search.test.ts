@@ -84,12 +84,13 @@ describe('page window cap', () => {
 describe('sort → column map (per grain) and the total order', () => {
   it('maps date/value sorts to each grain’s own columns', () => {
     expect(resolveSort('procedures', 'date_desc').column).toBe('publication_date');
-    expect(resolveSort('procedures', 'value_asc').column).toBe('awarded_value_ron');
+    // Value sorts order by the RESOLVED comparable measure (value model).
+    expect(resolveSort('procedures', 'value_asc').column).toBe('value_ron_comparable');
     expect(resolveSort('contracts', 'date_asc').column).toBe('contract_date');
-    expect(resolveSort('contracts', 'value_desc').column).toBe('value_ron');
+    expect(resolveSort('contracts', 'value_desc').column).toBe('value_ron_comparable');
     // The DA date facet is named publicationDate but binds to the populated column.
     expect(resolveSort('direct_acquisitions', 'date_desc').column).toBe('finalization_date');
-    expect(resolveSort('direct_acquisitions', 'value_desc').column).toBe('value_ron');
+    expect(resolveSort('direct_acquisitions', 'value_desc').column).toBe('value_ron_comparable');
     expect(resolveSort('modifications', 'date_desc').column).toBe('modification_date');
     expect(resolveSort('modifications', 'value_desc').column).toBe('value_delta_ron');
   });

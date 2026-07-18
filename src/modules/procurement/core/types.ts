@@ -8,10 +8,13 @@
  * and the raw `attrs` jsonb. `is_canonical`/`dup_group_id` ARE surfaced (dedup
  * transparency).
  *
- * `currency` is NOT exposed as the raw column: per audit F1/F7 the loader nulls
- * `value_ron` for non-RON rows and repurposes the column as a flag carrier (its
- * tail holds CPV codes and bare amounts). It is mapped at the repo boundary to
- * `isRon` / `valueSuspect` plus a SANITIZED `currency` token — see `mappers.ts`.
+ * Value semantics come from the data layer's VALUE MODEL (rules v2): every row
+ * carries `valueState` (the honest resolution outcome) and
+ * `valueRonComparable` (+basis) — the ONLY cross-row-comparable money measure.
+ * `valueRon`/`awardedValueRon` stay as the row's own parsed evidence. The
+ * legacy `isRon`/`valueSuspect` derivation is gone: since the Phase-F loader
+ * the `currency` column is a clean RON/EUR/USD enum (still sanitized at the
+ * mapper for pre-Phase-F residue).
  */
 
 import type {
@@ -21,7 +24,25 @@ import type {
   ProcedureStatus,
   ProcurementGrain,
   SearchSort,
+  ValueComparableBasis,
+  ValueState,
 } from './constants.js';
+
+// ── value-model resolution block (shared by the three valued grains) ──────────
+
+export interface ValueResolution {
+  /** Honest per-row resolution outcome; null = not yet resolved (transient). */
+  readonly valueState: ValueState | null;
+  /** Engine rule label ('own_value', 'dup_group_rescue', 'framework_guard', …). */
+  readonly valueStateRule: string | null;
+  /** True iff valueState is one of the ACCEPTED states (money is servable). */
+  readonly valueAccepted: boolean;
+  /** The only cross-row-comparable money measure (decimal string). */
+  readonly valueRonComparable: string | null;
+  readonly valueComparableBasis: ValueComparableBasis | null;
+  readonly valueRulesVersion: number | null;
+  readonly valueResolvedAt: string | null;
+}
 
 // ── entity view models ─────────────────────────────────────────────────────────
 
@@ -42,13 +63,11 @@ export interface ProcurementProcedure {
   readonly awardedValueRon: string | null;
   /** Sanitized ISO-ish token, or null. Never the raw `currency` column. */
   readonly currency: string | null;
-  /** True iff the value columns are in RON (procedures also carry the F1/F7 flag). */
-  readonly isRon: boolean;
-  readonly valueSuspect: boolean;
   readonly status: ProcedureStatus;
   readonly countyName: string | null;
   readonly publicationDate: string | null;
   readonly stateDate: string | null;
+  readonly value: ValueResolution;
 }
 
 export interface ProcurementContract {
@@ -70,14 +89,15 @@ export interface ProcurementContract {
   readonly valueRon: string | null;
   readonly estimatedValueRon: string | null;
   readonly currency: string | null;
-  /** True iff value_ron is in RON (audit F1: non-RON rows have value_ron nulled). */
-  readonly isRon: boolean;
-  /** True iff the row carries a non-RON native value the loader could not convert. */
-  readonly valueSuspect: boolean;
   readonly status: ContractStatus;
   readonly countyName: string | null;
   readonly isCanonical: boolean;
   readonly dupGroupId: string | null;
+  readonly value: ValueResolution;
+  /** Winning evidence family when accepted ('seap_own' | 'elicitatie_ca_award' | 'dup_group'). */
+  readonly canonicalValueSource: string | null;
+  /** True when own/cross evidence disagrees (state 'conflicting_sources'). */
+  readonly valueDisagreement: boolean;
 }
 
 export interface ProcurementDirectAcquisition {
@@ -96,14 +116,13 @@ export interface ProcurementDirectAcquisition {
   readonly valueRon: string | null;
   readonly estimatedValueRon: string | null;
   readonly currency: string | null;
-  readonly isRon: boolean;
-  readonly valueSuspect: boolean;
   readonly status: DaStatus;
   readonly countyName: string | null;
   readonly publicationDate: string | null;
   readonly finalizationDate: string | null;
   readonly isCanonical: boolean;
   readonly dupGroupId: string | null;
+  readonly value: ValueResolution;
 }
 
 export interface ProcurementModification {

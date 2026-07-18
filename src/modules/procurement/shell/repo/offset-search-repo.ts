@@ -58,6 +58,8 @@ interface GrainBinding {
   readonly hasCpv: boolean;
   readonly hasStatus: boolean;
   readonly hasSourceSystem: boolean;
+  /** Whether the grain carries the value-model resolution columns. */
+  readonly hasValueState: boolean;
 }
 
 const BINDINGS: Readonly<Record<SearchGrain, GrainBinding>> = {
@@ -65,23 +67,27 @@ const BINDINGS: Readonly<Record<SearchGrain, GrainBinding>> = {
     table: 'procurement.procedures',
     alias: 'p',
     dateColumn: 'publication_date',
-    valueColumn: 'awarded_value_ron',
+    // Value-model: filter/sort on the RESOLVED comparable measure, not the raw
+    // own column — frameworks/conflicts have no comparable and sort/filter out.
+    valueColumn: 'value_ron_comparable',
     canonical: false, // no is_canonical column on procedures
     hasParties: false, // authority only; supplier_cui does not exist
     hasCpv: true,
     hasStatus: true,
     hasSourceSystem: true,
+    hasValueState: true,
   },
   contracts: {
     table: 'procurement.contracts',
     alias: 'c',
     dateColumn: 'contract_date',
-    valueColumn: 'value_ron',
+    valueColumn: 'value_ron_comparable',
     canonical: true,
     hasParties: true,
     hasCpv: true,
     hasStatus: true,
     hasSourceSystem: true,
+    hasValueState: true,
   },
   direct_acquisitions: {
     table: 'procurement.direct_acquisitions',
@@ -89,12 +95,13 @@ const BINDINGS: Readonly<Record<SearchGrain, GrainBinding>> = {
     // The spec's `publicationDate` facet binds here: `publication_date` is 100% NULL
     // on the elicitatie_da half of the table, `finalization_date` is the indexed one.
     dateColumn: 'finalization_date',
-    valueColumn: 'value_ron',
+    valueColumn: 'value_ron_comparable',
     canonical: true,
     hasParties: true,
     hasCpv: true,
     hasStatus: true,
     hasSourceSystem: true,
+    hasValueState: true,
   },
   modifications: {
     table: 'procurement.contract_modifications',
@@ -106,6 +113,7 @@ const BINDINGS: Readonly<Record<SearchGrain, GrainBinding>> = {
     hasCpv: false,
     hasStatus: false,
     hasSourceSystem: false,
+    hasValueState: false,
   },
 };
 
@@ -186,6 +194,9 @@ export const buildSearchConditions = (
     if (filter.dateRange.lte !== undefined)
       conds.push(sql`${col} <= ${filter.dateRange.lte}::date`);
   }
+  if (filter.valueState !== undefined && b.hasValueState) {
+    conds.push(inList(ref(alias, 'value_state'), filter.valueState));
+  }
   if (filter.valueRon !== undefined) {
     const col = ref(alias, b.valueColumn);
     // `::numeric` from a decimal STRING — the value never becomes a float.
@@ -228,6 +239,12 @@ const procedureSelect = [
   'p.county_name',
   sql<string | null>`p.publication_date::text`.as('publication_date'),
   sql<string | null>`p.state_date::text`.as('state_date'),
+  'p.value_state',
+  'p.value_state_detail',
+  sql<string | null>`p.value_ron_comparable::text`.as('value_ron_comparable'),
+  'p.value_comparable_basis',
+  'p.value_rules_version',
+  sql<string | null>`p.value_resolved_at::text`.as('value_resolved_at'),
 ] as const;
 
 const contractSelect = [
@@ -252,6 +269,14 @@ const contractSelect = [
   'c.county_name',
   'c.is_canonical',
   'c.dup_group_id',
+  'c.value_state',
+  'c.value_state_detail',
+  sql<string | null>`c.value_ron_comparable::text`.as('value_ron_comparable'),
+  'c.value_comparable_basis',
+  'c.value_rules_version',
+  sql<string | null>`c.value_resolved_at::text`.as('value_resolved_at'),
+  'c.canonical_value_source',
+  'c.value_disagreement',
 ] as const;
 
 const daSelect = [
@@ -275,6 +300,12 @@ const daSelect = [
   sql<string | null>`d.finalization_date::text`.as('finalization_date'),
   'd.is_canonical',
   'd.dup_group_id',
+  'd.value_state',
+  'd.value_state_detail',
+  sql<string | null>`d.value_ron_comparable::text`.as('value_ron_comparable'),
+  'd.value_comparable_basis',
+  'd.value_rules_version',
+  sql<string | null>`d.value_resolved_at::text`.as('value_resolved_at'),
 ] as const;
 
 const modificationSelect = [

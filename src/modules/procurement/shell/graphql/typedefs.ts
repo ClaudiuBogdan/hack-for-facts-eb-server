@@ -63,6 +63,28 @@ export const procurementTypeDefs = /* GraphQL */ `
     lte: String
   }
 
+  """
+  Value-model resolution (data-layer rules v2). valueRonComparable is the ONLY
+  cross-row-comparable money; valueState explains why it is (not) present.
+  Accepted states: official_exact, official_ron_equivalent, cross_source_exact,
+  official_document_recovered. Others: source_missing, invalid_source_value,
+  foreign_currency_only, ambiguous_grain (frameworks), conflicting_sources,
+  not_applicable.
+  """
+  type ProcurementValueResolution {
+    "Resolution state; null while a freshly loaded row awaits resolution."
+    valueState: String
+    "Engine rule label ('own_value', 'dup_group_rescue', 'framework_guard', …)."
+    valueStateRule: String
+    "True iff valueState is ACCEPTED (money is servable/comparable)."
+    valueAccepted: Boolean!
+    "Decimal string; basis 'official' (source) or 'derived_bnr' (BNR-converted)."
+    valueRonComparable: String
+    valueComparableBasis: String
+    valueRulesVersion: Int
+    valueResolvedAt: String
+  }
+
   # ── grain nodes ─────────────────────────────────────────────────────────────
 
   "A tender/notice lifecycle row (e-licitatie CA ∪ SEAP notices)."
@@ -79,12 +101,11 @@ export const procurementTypeDefs = /* GraphQL */ `
     estimatedValueRon: String
     awardedValueRon: String
     currency: String
-    isRon: Boolean!
-    valueSuspect: Boolean!
     status: String!
     countyName: String
     publicationDate: Date
     stateDate: Date
+    value: ProcurementValueResolution!
     sourceSystem: String!
     sourceUrl: String
     "Always true: procurement.procedures carries no dedup columns."
@@ -105,16 +126,20 @@ export const procurementTypeDefs = /* GraphQL */ `
     supplier: ProcurementParty!
     cpvCode: String
     cpvDivisionCode: String
+    "The row's OWN parsed value evidence — compare rows via value.valueRonComparable."
     valueRon: String
     estimatedValueRon: String
     currency: String
-    isRon: Boolean!
-    valueSuspect: Boolean!
     status: String!
     sourceSystem: String!
     sourceUrl: String
     isCanonical: Boolean!
     dupGroupId: String
+    value: ProcurementValueResolution!
+    "Winning evidence family when accepted ('seap_own' | 'elicitatie_ca_award' | 'dup_group')."
+    canonicalValueSource: String
+    "True when own/cross evidence disagrees (state 'conflicting_sources')."
+    valueDisagreement: Boolean!
     "The modification trail, modificationDate ascending."
     modifications: [ProcurementContractModification!]!
   }
@@ -128,15 +153,15 @@ export const procurementTypeDefs = /* GraphQL */ `
     supplier: ProcurementParty!
     cpvCode: String
     cpvDivisionCode: String
+    "The row's OWN parsed value evidence — compare rows via value.valueRonComparable."
     valueRon: String
     estimatedValueRon: String
     currency: String
-    isRon: Boolean!
-    valueSuspect: Boolean!
     status: String!
     countyName: String
     publicationDate: Date
     finalizationDate: Date
+    value: ProcurementValueResolution!
     sourceSystem: String!
     sourceUrl: String
     isCanonical: Boolean!
@@ -173,8 +198,10 @@ export const procurementTypeDefs = /* GraphQL */ `
     sourceSystem: StringInInput
     status: StringInInput
     publicationDate: DateRangeInput
-    "Bounds awardedValueRon."
+    "Bounds the RESOLVED comparable value (value model)."
     valueRon: DecimalRangeInput
+    "Value-model resolution states to include (e.g. the 4 accepted states)."
+    valueState: StringInInput
   }
 
   input ProcurementContractsFilter {
@@ -186,7 +213,10 @@ export const procurementTypeDefs = /* GraphQL */ `
     sourceSystem: StringInInput
     status: StringInInput
     contractDate: DateRangeInput
+    "Bounds the RESOLVED comparable value (value model)."
     valueRon: DecimalRangeInput
+    "Value-model resolution states to include (e.g. the 4 accepted states)."
+    valueState: StringInInput
   }
 
   """
@@ -204,7 +234,10 @@ export const procurementTypeDefs = /* GraphQL */ `
     sourceSystem: StringInInput
     status: StringInInput
     publicationDate: DateRangeInput
+    "Bounds the RESOLVED comparable value (value model)."
     valueRon: DecimalRangeInput
+    "Value-model resolution states to include (e.g. the 4 accepted states)."
+    valueState: StringInInput
   }
 
   input ProcurementModificationsFilter {
@@ -256,8 +289,6 @@ export const procurementTypeDefs = /* GraphQL */ `
     winner: ProcurementParty!
     valueRon: String
     currency: String
-    isRon: Boolean!
-    valueSuspect: Boolean!
   }
 
   "The EU Tenders-Electronic-Daily notice. ~9% of procedures carry one."

@@ -1,26 +1,27 @@
 /**
  * Procurement module — row → view-model mappers (plan §2). Pure functions; money
- * stays a STRING (§14.1). The `currency` column is mapped to `{ isRon, valueSuspect }`
- * at this boundary and never exposed raw (audit F1/F7). `cpvDivisionCode` is derived
- * from the first two chars of the (normalized 8-digit) `cpv_code`.
+ * stays a STRING (§14.1). `cpvDivisionCode` is derived from the first two chars
+ * of the (normalized 8-digit) `cpv_code`.
  *
- * Verified-live currency invariant (2026-06-17): `value_ron IS NOT NULL` ⟹ currency
- * ∈ {null,'',RON}. So:
- *   isRon        = currency is null/''/'RON'
- *   valueSuspect = value_ron is null AND currency present AND currency ∉ {'','RON'}
- *
- * CURRENCY EXPOSURE (the client contract needs the token beside `valueRon`):
- *   currency = isRon ? 'RON' : (a 3-letter alpha token, uppercased) : null
- * The raw column's garbage tail (~2.6k rows holding CPV codes and bare amounts) can
- * therefore never reach the wire — a non-alpha token degrades to `null`, which the
- * paired `valueSuspect: true` already explains.
+ * Value semantics are the data layer's VALUE MODEL (rules v2): every valued
+ * grain maps its resolution columns into the shared `ValueResolution` block
+ * (`valueState` + rule label + the comparable measure); `valueAccepted` derives
+ * from the frozen ACCEPTED set. The legacy `isRon`/`valueSuspect` currency-flag
+ * derivation is retired — since the Phase-F loader (scrapper 5ad48fab) the
+ * `currency` column is a clean RON/EUR/USD enum; the mapper still degrades a
+ * non-ISO-like pre-Phase-F residue token to null.
  */
 
 import {
+  ACCEPTED_VALUE_STATE_SET,
+  VALUE_COMPARABLE_BASES,
+  VALUE_STATES,
   type ContractStatus,
   type DaSourceSystem,
   type DaStatus,
   type ProcedureStatus,
+  type ValueComparableBasis,
+  type ValueState,
 } from '../../core/constants.js';
 
 import type {
@@ -30,6 +31,7 @@ import type {
   ProcurementModification,
   ProcurementProcedure,
   TedRef,
+  ValueResolution,
 } from '../../core/types.js';
 import type {
   ProcurementContractModificationsTable,
@@ -64,6 +66,12 @@ type ProcedureRow = Pick<
   | 'county_name'
   | 'publication_date'
   | 'state_date'
+  | 'value_state'
+  | 'value_state_detail'
+  | 'value_ron_comparable'
+  | 'value_comparable_basis'
+  | 'value_rules_version'
+  | 'value_resolved_at'
 >;
 type ContractRow = Pick<
   ProcurementContractsTable,
@@ -88,6 +96,14 @@ type ContractRow = Pick<
   | 'county_name'
   | 'is_canonical'
   | 'dup_group_id'
+  | 'value_state'
+  | 'value_state_detail'
+  | 'value_ron_comparable'
+  | 'value_comparable_basis'
+  | 'value_rules_version'
+  | 'value_resolved_at'
+  | 'canonical_value_source'
+  | 'value_disagreement'
 >;
 type DaRow = Pick<
   ProcurementDirectAcquisitionsTable,
@@ -111,6 +127,12 @@ type DaRow = Pick<
   | 'finalization_date'
   | 'is_canonical'
   | 'dup_group_id'
+  | 'value_state'
+  | 'value_state_detail'
+  | 'value_ron_comparable'
+  | 'value_comparable_basis'
+  | 'value_rules_version'
+  | 'value_resolved_at'
 >;
 type ModificationRow = Pick<
   ProcurementContractModificationsTable,
@@ -178,19 +200,52 @@ const cpvDivision = (cpv: string | null): string | null => {
 const ISO_LIKE = /^[A-Za-z]{3}$/u;
 
 /**
- * Map the repurposed `currency` flag carrier to the derived booleans + the
- * sanitized token. The raw column is never returned: a non-ISO-like value (the
- * garbage tail) becomes `null`, and `valueSuspect` carries the honest signal.
+ * Sanitize the currency token for exposure. Post-Phase-F rows carry a clean
+ * RON/EUR/USD enum (or NULL = RON-implied); a pre-Phase-F residue token that
+ * is not ISO-like degrades to null rather than reaching the wire.
  */
-export const currencyFlags = (
-  currency: string | null,
-  valueRon: string | null
-): { isRon: boolean; valueSuspect: boolean; currency: string | null } => {
+export const sanitizeCurrency = (currency: string | null): string | null => {
   const cur = (currency ?? '').trim();
-  const isRon = cur === '' || cur.toUpperCase() === 'RON';
-  const valueSuspect = valueRon === null && !isRon;
-  const token = isRon ? 'RON' : ISO_LIKE.test(cur) ? cur.toUpperCase() : null;
-  return { isRon, valueSuspect, currency: token };
+  if (cur === '') return null;
+  return ISO_LIKE.test(cur) ? cur.toUpperCase() : null;
+};
+
+const VALUE_STATE_SET = new Set<string>(VALUE_STATES);
+const BASIS_SET = new Set<string>(VALUE_COMPARABLE_BASES);
+
+type ValueRow = Pick<
+  ProcurementDirectAcquisitionsTable,
+  | 'value_state'
+  | 'value_state_detail'
+  | 'value_ron_comparable'
+  | 'value_comparable_basis'
+  | 'value_rules_version'
+  | 'value_resolved_at'
+>;
+
+/**
+ * Map the resolution columns to the shared block. An unknown state token (a
+ * future engine version) degrades to null state — the row then reads as
+ * unresolved rather than mislabeled; `valueAccepted` stays derivation-only.
+ */
+export const valueResolution = (r: ValueRow): ValueResolution => {
+  const state =
+    r.value_state !== null && VALUE_STATE_SET.has(r.value_state)
+      ? (r.value_state as ValueState)
+      : null;
+  const basis =
+    r.value_comparable_basis !== null && BASIS_SET.has(r.value_comparable_basis)
+      ? (r.value_comparable_basis as ValueComparableBasis)
+      : null;
+  return {
+    valueState: state,
+    valueStateRule: r.value_state_detail?.rule ?? null,
+    valueAccepted: state !== null && ACCEPTED_VALUE_STATE_SET.has(state),
+    valueRonComparable: r.value_ron_comparable,
+    valueComparableBasis: basis,
+    valueRulesVersion: r.value_rules_version,
+    valueResolvedAt: r.value_resolved_at,
+  };
 };
 
 const linkMethod = (m: string | null): ProcurementModification['linkMethod'] =>
@@ -207,9 +262,6 @@ const deltaPct = (before: string | null, delta: string | null): number | null =>
 // ── mappers ──────────────────────────────────────────────────────────────────
 
 export const mapProcedure = (r: ProcedureRow): ProcurementProcedure => {
-  // Procedures carry estimated + awarded value; the F1/F7 flag nulls the RON value
-  // for non-RON. Use awarded value when present, else estimated, to derive the flag.
-  const flags = currencyFlags(r.currency, r.awarded_value_ron ?? r.estimated_value_ron);
   return {
     procedureId: r.procedure_id,
     sourceSystem: r.source_system,
@@ -225,18 +277,16 @@ export const mapProcedure = (r: ProcedureRow): ProcurementProcedure => {
     cpvDivisionCode: cpvDivision(r.cpv_code),
     estimatedValueRon: r.estimated_value_ron,
     awardedValueRon: r.awarded_value_ron,
-    currency: flags.currency,
-    isRon: flags.isRon,
-    valueSuspect: flags.valueSuspect,
+    currency: sanitizeCurrency(r.currency),
     status: procedureStatus(r.status),
     countyName: r.county_name,
     publicationDate: r.publication_date,
     stateDate: r.state_date,
+    value: valueResolution(r),
   };
 };
 
 export const mapContract = (r: ContractRow): ProcurementContract => {
-  const flags = currencyFlags(r.currency, r.value_ron);
   return {
     contractId: r.contract_id,
     contractKey: r.contract_key,
@@ -255,18 +305,18 @@ export const mapContract = (r: ContractRow): ProcurementContract => {
     cpvDivisionCode: cpvDivision(r.cpv_code),
     valueRon: r.value_ron,
     estimatedValueRon: r.estimated_value_ron,
-    currency: flags.currency,
-    isRon: flags.isRon,
-    valueSuspect: flags.valueSuspect,
+    currency: sanitizeCurrency(r.currency),
     status: contractStatus(r.status),
     countyName: r.county_name,
     isCanonical: r.is_canonical,
     dupGroupId: r.dup_group_id,
+    value: valueResolution(r),
+    canonicalValueSource: r.canonical_value_source,
+    valueDisagreement: r.value_disagreement,
   };
 };
 
 export const mapDirectAcquisition = (r: DaRow): ProcurementDirectAcquisition => {
-  const flags = currencyFlags(r.currency, r.value_ron);
   return {
     daId: r.da_id,
     daKey: r.da_key,
@@ -282,15 +332,14 @@ export const mapDirectAcquisition = (r: DaRow): ProcurementDirectAcquisition => 
     cpvDivisionCode: cpvDivision(r.cpv_code),
     valueRon: r.value_ron,
     estimatedValueRon: r.estimated_value_ron,
-    currency: flags.currency,
-    isRon: flags.isRon,
-    valueSuspect: flags.valueSuspect,
+    currency: sanitizeCurrency(r.currency),
     status: daStatus(r.status),
     countyName: r.county_name,
     publicationDate: r.publication_date,
     finalizationDate: r.finalization_date,
     isCanonical: r.is_canonical,
     dupGroupId: r.dup_group_id,
+    value: valueResolution(r),
   };
 };
 
