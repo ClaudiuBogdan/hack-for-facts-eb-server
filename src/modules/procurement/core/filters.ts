@@ -112,15 +112,15 @@ export const procedureFilterSpec: CollectionFilterSpec = {
       name: 'minValueRon',
       type: 'money',
       ops: ['gte'],
-      column: { alias: 'p', column: 'estimated_value_ron' },
-      description: 'Lower bound on estimated_value_ron.',
+      column: { alias: 'p', column: 'value_ron_comparable' },
+      description: 'Lower bound on the RESOLVED comparable value (value model).',
     },
     {
       name: 'maxValueRon',
       type: 'money',
       ops: ['lte'],
-      column: { alias: 'p', column: 'estimated_value_ron' },
-      description: 'Upper bound on estimated_value_ron.',
+      column: { alias: 'p', column: 'value_ron_comparable' },
+      description: 'Upper bound on the RESOLVED comparable value (value model).',
     },
     {
       name: 'valueState',
@@ -149,7 +149,7 @@ export const procedureFilterSpec: CollectionFilterSpec = {
       description: 'Buyer region (via core join).',
     },
   ],
-  sort: { default: 'publication_date', allowed: ['publication_date', 'estimated_value_ron'] },
+  sort: { default: 'publication_date', allowed: ['publication_date', 'value_ron_comparable'] },
 };
 
 // ── contracts (1.92M) ──────────────────────────────────────────────────────────

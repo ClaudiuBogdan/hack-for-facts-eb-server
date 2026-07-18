@@ -91,6 +91,36 @@ const routeFor = (rollup: string): AnalysisRoute => {
   return { rollup: capability, grain: 'direct_acquisition' };
 };
 
+describe('raw quality jsonb parsing (fail-safe, spend-class widening)', () => {
+  const rawVerdict = (spend: string): Record<string, unknown> => ({
+    coverage: { date: 0.97, value: 0.99, geo: 0.9, cpv: 0.95 },
+    classes: { spend, time: 'allow', geo: 'allow' },
+  });
+
+  it("accepts 'allow' AND 'allow_disclosed'; DROPS an unknown spend class", async () => {
+    const recorder: Recorder = {
+      queries: [],
+      rowsFor: () => [
+        {
+          ...generationRow('50'),
+          quality: {
+            direct_acquisition: rawVerdict('allow'),
+            procedure: rawVerdict('allow_disclosed'),
+            // a future/unknown class must be dropped, not admitted — the
+            // grain then abstains ('no quality verdict'), the fail-safe.
+            contract: rawVerdict('partial'),
+          },
+        },
+      ],
+    };
+    const repo = makeProcurementAnalysisRepo(makeFakeDb(recorder), makeScopeCache(), () => 0);
+    const gen = (await repo.activeGeneration())._unsafeUnwrap();
+    expect(gen?.quality.direct_acquisition?.classes.spend).toBe('allow');
+    expect(gen?.quality.procedure?.classes.spend).toBe('allow_disclosed');
+    expect(gen?.quality.contract).toBeUndefined();
+  });
+});
+
 describe('generation micro-cache', () => {
   it('single-flights a concurrent burst into ONE statement and caches the result', async () => {
     const recorder: Recorder = { queries: [], rowsFor: () => [generationRow('42')] };

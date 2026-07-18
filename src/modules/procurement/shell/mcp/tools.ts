@@ -37,6 +37,7 @@ import {
   type BreakdownDimension,
   type MeasureId,
   type SeriesBucket,
+  VALUE_STATES,
 } from '../../core/constants.js';
 import { resolveCpv, searchContracts, searchDirectAcquisitions } from '../../core/usecases.js';
 
@@ -143,11 +144,9 @@ export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly Kern
       cpvDivision: z.string().optional().describe('2-digit CPV division.'),
       minValueRon: z.string().optional().describe('Decimal string (resolved comparable value).'),
       valueState: z
-        .string()
+        .enum(VALUE_STATES)
         .optional()
-        .describe(
-          "Value-model state filter, e.g. 'official_exact'; accepted states carry a comparable value."
-        ),
+        .describe('Value-model state filter; accepted states carry a comparable value.'),
       year: z.number().int().optional(),
       first: z.number().int().min(1).max(100).optional(),
     },
@@ -176,10 +175,7 @@ export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly Kern
       supplierCui: z.string().optional(),
       cpvDivision: z.string().optional(),
       uniqueCode: z.string().optional(),
-      valueState: z
-        .string()
-        .optional()
-        .describe("Value-model state filter, e.g. 'official_exact'."),
+      valueState: z.enum(VALUE_STATES).optional().describe('Value-model state filter.'),
       year: z.number().int().optional(),
       first: z.number().int().min(1).max(100).optional(),
     },
