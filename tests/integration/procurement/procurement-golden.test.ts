@@ -141,7 +141,7 @@ d('Procurement golden (live prod)', () => {
     expect(cpvOnly.errors?.[0]?.extensions?.code).toBe('INVALID_INPUT');
 
     const good = await gql(
-      `query($cui:String!){ procurementDirectAcquisitions(filter: { authorityCui: { eq: $cui } }, pageSize: 3){ total totalEstimated items { id sourceSystem sourceUrl currency isRon valueSuspect } } }`,
+      `query($cui:String!){ procurementDirectAcquisitions(filter: { authorityCui: { eq: $cui } }, pageSize: 3){ total totalEstimated items { id sourceSystem sourceUrl currency value { valueState valueAccepted valueRonComparable valueComparableBasis } } } }`,
       { cui: AUTHORITY }
     );
     expect(good.errors).toBeUndefined();
@@ -262,7 +262,7 @@ d('Procurement golden (live prod)', () => {
 
     const res = await gql(
       `query($id:ID!){ procurementContract(id:$id){
-         contract { id contractNo sourceSystem sourceUrl currency isRon valueSuspect modifications { id modificationDate } }
+         contract { id contractNo sourceSystem sourceUrl currency canonicalValueSource valueDisagreement value { valueState valueStateRule valueAccepted valueRonComparable } modifications { id modificationDate } }
          procedure { id sourceSystem isCanonical dupGroupId }
          duplicates { sourceSystem id }
          ted { tedNoticeNo sourceUrl }

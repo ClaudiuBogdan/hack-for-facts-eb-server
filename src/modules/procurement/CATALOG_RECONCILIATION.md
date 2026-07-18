@@ -13,7 +13,11 @@ tables. These paths do not depend on the legacy aggregate repository or its stal
 quality matview.
 
 Money remains a decimal string. The raw `currency` column never reaches the wire:
-the mapper exposes a sanitized ISO-like token plus `isRon` and `valueSuspect`.
+the mapper exposes a sanitized ISO-like token. Value semantics come from the
+data-layer value model: every valued grain carries the `value` resolution block
+(`valueState`, rule label, `valueAccepted`, `valueRonComparable` + basis), and
+value filters/sorts bind to the resolved comparable measure. The legacy
+`isRon`/`valueSuspect` derivation is retired.
 Direct-acquisition list requests retain their selective-filter guard.
 
 ## Generation-stamped analysis surface
