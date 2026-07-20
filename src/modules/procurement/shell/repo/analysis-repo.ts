@@ -500,22 +500,23 @@ export const makeProcurementAnalysisRepo = (
           undated_rc: string | null;
           undated_va: string | null;
         }>`
-          with base as (
-            select ${sql.ref(dimColumn)} as key, month_start, record_count, with_value_count,
-                   value_awarded_sum, with_estimated_count, value_estimated_sum
-              from ${table}
-             where ${where}
-          ),
-          per_key as (
-            select key,
+          with per_key as materialized (
+            select ${sql.ref(dimColumn)} as key,
                    coalesce(sum(record_count) filter (where ${datedPred}), 0) as rc,
                    coalesce(sum(with_value_count) filter (where ${datedPred}), 0) as wv,
                    -- raw (nullable) money sum: null = no valued rows observed (S8)
-                   sum(value_awarded_sum) filter (where ${datedPred}) as va
-              from base
-             group by key
+                   sum(value_awarded_sum) filter (where ${datedPred}) as va,
+                   coalesce(sum(with_estimated_count) filter (where ${datedPred}), 0) as we,
+                   sum(value_estimated_sum) filter (where ${datedPred}) as ve,
+                   min(month_start) filter (where ${datedPred}) as min_month,
+                   max(month_start) filter (where ${datedPred}) as max_month,
+                   coalesce(sum(record_count) filter (where month_start is null), 0) as undated_rc,
+                   sum(value_awarded_sum) filter (where month_start is null) as undated_va
+              from ${table}
+             where ${where}
+             group by ${sql.ref(dimColumn)}
           ),
-          ranked as (
+          ranked as materialized (
             -- keys with NO dated contribution (undated-only under a bounded
             -- window) are excluded from top/other; their dated totals are 0 so
             -- reconciliation is unaffected and undatedInScope still counts them.
@@ -537,16 +538,16 @@ export const makeProcurementAnalysisRepo = (
             from per_key where key is null
           union all
           select 'total', null,
-                 coalesce(sum(record_count) filter (where ${datedPred}), 0)::text,
-                 coalesce(sum(with_value_count) filter (where ${datedPred}), 0)::text,
-                 (sum(value_awarded_sum) filter (where ${datedPred}))::text,
-                 coalesce(sum(with_estimated_count) filter (where ${datedPred}), 0)::text,
-                 (sum(value_estimated_sum) filter (where ${datedPred}))::text,
-                 to_char(min(month_start) filter (where ${datedPred}), 'YYYY-MM'),
-                 to_char(max(month_start) filter (where ${datedPred}), 'YYYY-MM'),
-                 coalesce(sum(record_count) filter (where month_start is null), 0)::text,
-                 (sum(value_awarded_sum) filter (where month_start is null))::text
-            from base
+                 coalesce(sum(rc), 0)::text,
+                 coalesce(sum(wv), 0)::text,
+                 (sum(va))::text,
+                 coalesce(sum(we), 0)::text,
+                 (sum(ve))::text,
+                 to_char(min(min_month), 'YYYY-MM'),
+                 to_char(max(max_month), 'YYYY-MM'),
+                 coalesce(sum(undated_rc), 0)::text,
+                 (sum(undated_va))::text
+            from per_key
         `.execute(db);
 
         const totalRow = result.rows.find((r) => r.kind === 'total');

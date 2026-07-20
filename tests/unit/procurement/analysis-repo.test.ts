@@ -6,8 +6,9 @@
  *    statement), TTL-driven via an injected clock, follows the authoritative
  *    active pointer for intentional rollback, errors never cached;
  *  - every rollup statement pins `build_id` to the caller's generation;
- *  - the breakdown statement excludes undated-only keys from ranked/other (S9)
- *    and keeps money sums null-preserving (S8);
+ *  - the breakdown statement scans its selected rollup once, excludes
+ *    undated-only keys from ranked/other (S9), and keeps money sums
+ *    null-preserving (S8);
  *  - the concentration statement discloses the unknown-supplier basis measure in
  *    the same statement (S7);
  *  - the scope cache holds only non-entity scopes.
@@ -85,10 +86,13 @@ const generationRow = (buildId: string): Record<string, unknown> => ({
 const generationQueries = (recorder: Recorder): Recorded[] =>
   recorder.queries.filter((q) => q.sql.includes('analysis_generations'));
 
-const routeFor = (rollup: string): AnalysisRoute => {
+const routeFor = (
+  rollup: string,
+  grain: AnalysisRoute['grain'] = 'direct_acquisition'
+): AnalysisRoute => {
   const capability = WAVE1_CAPABILITIES.find((cap) => cap.rollup === rollup);
   if (capability === undefined) throw new Error(`no capability ${rollup}`);
-  return { rollup: capability, grain: 'direct_acquisition' };
+  return { rollup: capability, grain };
 };
 
 describe('raw quality jsonb parsing (fail-safe, spend-class widening)', () => {
@@ -286,6 +290,131 @@ describe('rollup statements', () => {
     // The undated bucket rides in the SAME statement.
     expect(sql).toMatch(/month_start is null/u);
   });
+
+  it.each([
+    { grain: 'contract' as const, bounded: false },
+    { grain: 'contract' as const, bounded: true },
+    { grain: 'direct_acquisition' as const, bounded: false },
+    { grain: 'direct_acquisition' as const, bounded: true },
+  ])(
+    'uses one $grain rollup scan when bounded=$bounded and preserves null/undated totals',
+    async ({ grain, bounded }) => {
+      const recorder: Recorder = {
+        queries: [],
+        rowsFor: () => [
+          {
+            kind: 'top',
+            key: 'supplier-1',
+            rc: '4',
+            wv: '0',
+            va: null,
+            we: null,
+            ve: null,
+            min_month: null,
+            max_month: null,
+            undated_rc: null,
+            undated_va: null,
+          },
+          {
+            kind: 'other',
+            key: null,
+            rc: '2',
+            wv: '1',
+            va: '10.00',
+            we: null,
+            ve: null,
+            min_month: null,
+            max_month: null,
+            undated_rc: null,
+            undated_va: null,
+          },
+          {
+            kind: 'unknown',
+            key: null,
+            rc: '1',
+            wv: '0',
+            va: null,
+            we: null,
+            ve: null,
+            min_month: null,
+            max_month: null,
+            undated_rc: null,
+            undated_va: null,
+          },
+          {
+            kind: 'total',
+            key: null,
+            rc: '7',
+            wv: '1',
+            va: '10.00',
+            we: '3',
+            ve: null,
+            min_month: '2024-01',
+            max_month: '2024-06',
+            undated_rc: '2',
+            undated_va: null,
+          },
+        ],
+      };
+      const repo = makeProcurementAnalysisRepo(makeFakeDb(recorder), makeScopeCache(), () => 0);
+      const scope = bounded
+        ? { authorityCui: 'authority-1', from: '2024-01', to: '2024-06' }
+        : { authorityCui: 'authority-1' };
+
+      const result = await repo.breakdownFor(
+        routeFor('edge', grain),
+        scope,
+        '77',
+        'supplier',
+        10,
+        'value'
+      );
+
+      expect(result.isOk()).toBe(true);
+      const sql = recorder.queries[0]?.sql ?? '';
+      expect(sql.match(/analysis_rollup_edge_monthly/gu) ?? []).toHaveLength(1);
+      expect(sql).toMatch(/per_key as materialized/u);
+      expect(sql).not.toMatch(/with base as/u);
+      expect(sql.includes('month_start >=')).toBe(bounded);
+      expect(recorder.queries[0]?.parameters).toContain(grain);
+
+      const read = result._unsafeUnwrap();
+      expect(read.buckets).toEqual([
+        {
+          kind: 'top',
+          key: 'supplier-1',
+          recordCount: '4',
+          withValue: '0',
+          valueAwardedSum: null,
+        },
+        {
+          kind: 'other',
+          key: null,
+          recordCount: '2',
+          withValue: '1',
+          valueAwardedSum: '10.00',
+        },
+        {
+          kind: 'unknown',
+          key: null,
+          recordCount: '1',
+          withValue: '0',
+          valueAwardedSum: null,
+        },
+      ]);
+      expect(read.totals).toEqual({
+        rows: '7',
+        withValue: '1',
+        valueAwardedSum: '10.00',
+        withEstimated: '3',
+        valueEstimatedSum: null,
+        minMonth: '2024-01',
+        maxMonth: '2024-06',
+        undatedCount: '2',
+        undatedValueRon: null,
+      });
+    }
+  );
 
   it('concentration discloses the unknown-supplier basis measure in the same statement', async () => {
     const recorder: Recorder = { queries: [], rowsFor: () => [] };
