@@ -49,7 +49,7 @@ const apiToArtifactDim: Readonly<Record<string, string>> = {
 };
 
 describe('procurement performance corpus closure', () => {
-  it('is the exact 29-case release corpus including controls and rejections', () => {
+  it('is the exact 30-case release corpus including controls and rejections', () => {
     const expected = [
       ...['month', 'quarter', 'year'].map(
         (bucket) => `platform-contract:distinctSuppliers:${bucket}`
@@ -74,6 +74,7 @@ describe('procurement performance corpus closure', () => {
         'procedureType',
         'buyerRegion',
       ].map((dimension) => `platform-breakdown:contract:${dimension}`),
+      'platform-breakdown:direct_acquisition:supplier',
       'bounded-authority-stats',
       'bounded-authority-supplier-breakdown',
       'rejected-unbounded-da-distinct',
@@ -81,7 +82,7 @@ describe('procurement performance corpus closure', () => {
     ];
 
     expect(corpus.map((testCase) => testCase.label)).toEqual(expected);
-    expect(new Set(corpus.map((testCase) => testCase.label)).size).toBe(29);
+    expect(new Set(corpus.map((testCase) => testCase.label)).size).toBe(30);
     expect(
       corpus
         .filter((testCase) => testCase.expectsInvalidInput === true)
@@ -132,5 +133,15 @@ describe('procurement performance corpus closure', () => {
       .map((testCase) => apiToArtifactDim[String(testCase.variables?.['dimension'])])
       .sort();
     expect(actual).toEqual(expected);
+  });
+
+  it('guards the platform-wide direct-acquisition supplier breakdown regression', () => {
+    const testCase = corpus.find(
+      (entry) => entry.label === 'platform-breakdown:direct_acquisition:supplier'
+    );
+    expect(testCase?.variables).toEqual({
+      scope: { grain: 'direct_acquisition' },
+      dimension: 'supplier',
+    });
   });
 });

@@ -34,12 +34,15 @@ const distinctCases = (
     },
   }));
 
-const breakdownCase = (dimension: string): ProcurementPerformanceCase => ({
-  label: `platform-breakdown:contract:${dimension}`,
+const breakdownCase = (
+  dimension: string,
+  grain: 'contract' | 'direct_acquisition' = 'contract'
+): ProcurementPerformanceCase => ({
+  label: `platform-breakdown:${grain}:${dimension}`,
   query: `query($scope:ProcurementAnalysisScopeInput!,$dimension:ProcurementBreakdownDimension!){
     procurementBreakdown(scope:$scope,dimension:$dimension){ grain buckets { kind key recordCount } meta { buildId } }
   }`,
-  variables: { scope: { grain: 'contract' }, dimension },
+  variables: { scope: { grain }, dimension },
 });
 
 export const buildProcurementPerformanceCorpus = (fixtures: {
@@ -82,7 +85,8 @@ export const buildProcurementPerformanceCorpus = (fixtures: {
       'status',
       'procedureType',
       'buyerRegion',
-    ].map(breakdownCase),
+    ].map((dimension) => breakdownCase(dimension)),
+    breakdownCase('supplier', 'direct_acquisition'),
     {
       label: 'bounded-authority-stats',
       query: `query($scope:ProcurementAnalysisScopeInput!){ procurementStats(scope:$scope){ blocks { grain recordCount meta { buildId } } } }`,
