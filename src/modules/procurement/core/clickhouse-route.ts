@@ -25,6 +25,12 @@ const CLICKHOUSE_EXTRA_DIMS = [
   'supplierRegion',
 ] as const;
 
+/** New geo breakdown dims validate as buyerRegion (same class; matrix has no rows for them). */
+const DIMENSION_VALIDATION_ALIAS: Record<string, 'buyerRegion'> = {
+  buyerCounty: 'buyerRegion',
+  buyerSiruta: 'buyerRegion',
+};
+
 export const clickhouseRouteAnalysis: typeof routeAnalysis = (
   scope,
   shape,
@@ -33,5 +39,7 @@ export const clickhouseRouteAnalysis: typeof routeAnalysis = (
 ) => {
   const validationScope: Record<string, unknown> = { ...scope };
   for (const dim of CLICKHOUSE_EXTRA_DIMS) delete validationScope[dim];
-  return routeAnalysis(validationScope as AnalysisScope, shape, dimension, measure);
+  const validationDimension =
+    dimension !== undefined ? (DIMENSION_VALIDATION_ALIAS[dimension] ?? dimension) : undefined;
+  return routeAnalysis(validationScope as AnalysisScope, shape, validationDimension, measure);
 };

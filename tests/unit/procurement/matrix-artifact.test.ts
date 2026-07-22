@@ -125,6 +125,9 @@ const ARTIFACT_TO_API_DIM: Readonly<Record<string, BreakdownDimension>> = {
   status: 'status',
   procedureType: 'procedureType',
   buyerRegion: 'buyerRegion',
+  // ClickHouse-only dims — no artifact rows exist; mapped for exhaustiveness.
+  buyerCounty: 'buyerCounty',
+  buyerSiruta: 'buyerSiruta',
 };
 const API_TO_ARTIFACT_DIM: Readonly<Record<BreakdownDimension, string>> = {
   authority: 'authorityCui',
@@ -134,6 +137,8 @@ const API_TO_ARTIFACT_DIM: Readonly<Record<BreakdownDimension, string>> = {
   status: 'status',
   procedureType: 'procedureType',
   buyerRegion: 'buyerRegion',
+  buyerCounty: 'buyerCounty',
+  buyerSiruta: 'buyerSiruta',
 };
 
 const scopeOf = (grain: AnalysisGrain | undefined, dims: readonly string[]): AnalysisScope => {
