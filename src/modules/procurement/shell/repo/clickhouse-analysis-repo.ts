@@ -521,3 +521,22 @@ export const makeClickhouseAnalysisRepo = (
     concentrationRowsFor,
   };
 };
+
+/**
+ * Fallback `AnalysisRepo` for when no ClickHouse backend is configured. Lists,
+ * search and detail are unaffected — the module still boots — but every
+ * analysis read fails with one clear, actionable error instead of a confusing
+ * empty answer or a crash.
+ */
+export const makeUnconfiguredAnalysisRepo = (): AnalysisRepo => {
+  const unconfigured = (): Result<never, ApiError> =>
+    err(databaseError('procurement analytics backend (ClickHouse) is not configured'));
+  return {
+    activeGeneration: () => Promise.resolve(unconfigured()),
+    statsFor: () => Promise.resolve(unconfigured()),
+    seriesFor: () => Promise.resolve(unconfigured()),
+    distinctSeriesFor: () => Promise.resolve(unconfigured()),
+    breakdownFor: () => Promise.resolve(unconfigured()),
+    concentrationRowsFor: () => Promise.resolve(unconfigured()),
+  };
+};

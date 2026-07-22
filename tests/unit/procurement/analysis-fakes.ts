@@ -6,8 +6,6 @@
 
 import { ok, type Result } from 'neverthrow';
 
-import { ANALYSIS_MATRIX_SHA256 } from '@/modules/procurement/core/combinations.js';
-
 import type { GenerationQuality, GrainQualityVerdict } from '@/modules/procurement/core/gate-v2.js';
 import type {
   ActiveGeneration,
@@ -46,7 +44,7 @@ export const generation = (quality: GenerationQuality = LIVE_LIKE_QUALITY): Acti
   buildId: BUILD_ID,
   publishedAt: '2026-07-12T00:00:00Z',
   quality,
-  matrixHash: ANALYSIS_MATRIX_SHA256,
+  matrixHash: 'matrix-hash-1', // informational passthrough — no longer gates serving
 });
 
 export const statsRead = (over: Partial<AnalysisStatsRead> = {}): AnalysisStatsRead => ({
@@ -64,7 +62,6 @@ export const statsRead = (over: Partial<AnalysisStatsRead> = {}): AnalysisStatsR
 
 export interface RecordedCall {
   readonly method: string;
-  readonly rollup: string;
   readonly grain: string;
   readonly params: readonly unknown[];
 }
@@ -90,12 +87,8 @@ const okp = <T>(value: T): Promise<Result<T, ApiError>> => Promise.resolve(ok(va
 export const fakeAnalysisRepo = (options: FakeAnalysisRepoOptions = {}): FakeAnalysisRepo => {
   const calls: RecordedCall[] = [];
   const gen = options.generation !== undefined ? options.generation : generation(options.quality);
-  const record = (
-    method: string,
-    route: { rollup: { rollup: string }; grain: string },
-    params: readonly unknown[]
-  ): void => {
-    calls.push({ method, rollup: route.rollup.rollup, grain: route.grain, params });
+  const record = (method: string, route: { grain: string }, params: readonly unknown[]): void => {
+    calls.push({ method, grain: route.grain, params });
   };
 
   const repo: AnalysisRepo = {

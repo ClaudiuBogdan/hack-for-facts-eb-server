@@ -45,7 +45,7 @@ import {
   scopeWindow,
   type AnalysisScope,
 } from './analysis-scope.js';
-import { ANALYSIS_MATRIX_SHA256, routeAnalysis, type AnalysisRoute } from './combinations.js';
+import { routeAnalysis, type AnalysisRoute } from './combinations.js';
 import { buildEnvelope, type AnswerEnvelope, type EnvelopeReads } from './envelope.js';
 import { decideAnswer, type AnswerabilityReason, type GateDecision } from './gate-v2.js';
 import { anchorPolicy, policyFor, type PolicyEntry } from './policy.js';
@@ -158,13 +158,8 @@ const activeGen = async (repo: AnalysisRepo): Promise<Result<ActiveGeneration, A
   if (r.value === null) {
     return err(serviceUnavailable('procurement analysis package not published'));
   }
-  if (r.value.matrixHash !== ANALYSIS_MATRIX_SHA256) {
-    return err(
-      serviceUnavailable(
-        `procurement analysis matrix mismatch: active generation ${r.value.matrixHash ?? 'null'}, server ${ANALYSIS_MATRIX_SHA256}`
-      )
-    );
-  }
+  // matrixHash is informational passthrough now — the ClickHouse fact tables
+  // answer arbitrary conjunctions, so a matrix hash no longer gates serving.
   return ok(r.value);
 };
 

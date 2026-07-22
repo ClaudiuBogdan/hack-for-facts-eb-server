@@ -9,17 +9,16 @@
 import './shell/db/schema.js';
 
 import { analysisBreakdown, analysisStats } from './core/analysis-usecases.js';
-import { clickhouseRouteAnalysis } from './core/clickhouse-route.js';
 import { DA_LIST_MAX_WINDOW_DAYS_DEFAULT } from './core/constants.js';
 import { makeProcurementResolvers } from './shell/graphql/resolvers.js';
 import { procurementTypeDefs } from './shell/graphql/typedefs.js';
-import { assertProcurementMatrixArtifact } from './shell/matrix-artifact.js';
 import { makeProcurementMcpTools } from './shell/mcp/tools.js';
-import { makeProcurementAnalysisRepo } from './shell/repo/analysis-repo.js';
 import {
   makeClickhouseAnalysisRepo,
+  makeUnconfiguredAnalysisRepo,
   type ClickhouseAnalysisConfig,
 } from './shell/repo/clickhouse-analysis-repo.js';
+import { makeProcurementGenerationRepo } from './shell/repo/generation-repo.js';
 import { makeOpenSearchQResolver, type OpenSearchQConfig } from './shell/repo/opensearch-q-repo.js';
 import { makeProcurementRepo } from './shell/repo/procurement-repo.js';
 
@@ -37,10 +36,12 @@ export interface ProcurementModuleDeps {
   /** Structured diagnostics for analysis query failures. */
   readonly logger?: Logger;
   /**
-   * DEV: when set, analytics reads come from ClickHouse wide fact tables
-   * instead of the Postgres rollups (routing turns permissive for the
-   * geography dims the rollup matrix rejects). Generation/quality metadata
-   * still comes from Postgres. See shell/repo/clickhouse-analysis-repo.ts.
+   * The analytics backend: ClickHouse wide fact tables answer the analysis
+   * shapes (stats/series/breakdown/share/facets/concentration). Generation +
+   * quality metadata still come from Postgres `analysis_generations`. When
+   * unset the module still boots (lists/search/detail are unaffected) but every
+   * analysis read fails with a clear "backend not configured" error.
+   * See shell/repo/clickhouse-analysis-repo.ts.
    */
   readonly clickhouse?: ClickhouseAnalysisConfig;
   /**
@@ -82,23 +83,24 @@ const warmEmptyScope = (analysis: AnalysisRepo): void => {
 };
 
 export const makeProcurementModule = (deps: ProcurementModuleDeps): ProcurementModule => {
-  assertProcurementMatrixArtifact();
   const repo = makeProcurementRepo(
     deps.db,
     deps.daListMaxWindowDays ?? DA_LIST_MAX_WINDOW_DAYS_DEFAULT,
     deps.opensearch !== undefined ? makeOpenSearchQResolver(deps.opensearch) : undefined,
     deps.logger
   );
-  const pgAnalysis = makeProcurementAnalysisRepo(deps.db, undefined, Date.now, deps.logger);
+  // ClickHouse is the analytics backend; the generation ledger (buildId,
+  // quality, matrix_hash) stays authoritative in Postgres and is delegated to.
+  // With no ClickHouse configured, analysis reads fail closed with a clear error.
+  const generationRepo = makeProcurementGenerationRepo(deps.db, Date.now, deps.logger);
   const analysis =
     deps.clickhouse !== undefined
       ? makeClickhouseAnalysisRepo(
           deps.clickhouse,
-          () => pgAnalysis.activeGeneration(),
+          () => generationRepo.activeGeneration(),
           deps.logger
         )
-      : pgAnalysis;
-  const routeOverride = deps.clickhouse !== undefined ? clickhouseRouteAnalysis : undefined;
+      : makeUnconfiguredAnalysisRepo();
   const clientBaseUrl = deps.clientBaseUrl ?? 'https://transparenta.eu';
 
   if (deps.warmCache !== false) warmEmptyScope(analysis);
@@ -107,11 +109,7 @@ export const makeProcurementModule = (deps: ProcurementModuleDeps): ProcurementM
     repo,
     analysis,
     graphqlSlice: { source: 'procurement', typeDefs: procurementTypeDefs },
-    graphqlResolvers: makeProcurementResolvers({
-      repo,
-      analysis,
-      ...(routeOverride !== undefined && { routeAnalysis: routeOverride }),
-    }),
+    graphqlResolvers: makeProcurementResolvers({ repo, analysis }),
     mcpTools: makeProcurementMcpTools({ repo, analysis, clientBaseUrl }),
   };
 };
@@ -127,6 +125,6 @@ export {
 } from './core/constants.js';
 export { PROCUREMENT_FILTER_SPECS } from './core/filters.js';
 export { POLICY_TABLE, policyFor } from './core/policy.js';
-export { WAVE1_CAPABILITIES, ANALYSIS_MATRIX_SHA256, routeAnalysis } from './core/combinations.js';
+export { routeAnalysis } from './core/combinations.js';
 export { makeProcurementRepo } from './shell/repo/procurement-repo.js';
-export { makeProcurementAnalysisRepo } from './shell/repo/analysis-repo.js';
+export { makeProcurementGenerationRepo } from './shell/repo/generation-repo.js';

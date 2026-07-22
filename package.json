@@ -16,7 +16,7 @@
     "dev:forward": "scripts/dev-db-forward.sh --tmux",
     "dev:forward:status": "scripts/dev-db-forward.sh --status",
     "dev:forward:stop": "scripts/dev-db-forward.sh --stop",
-    "build": "tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json && node scripts/copy-static-assets.mjs",
+    "build": "tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json",
     "start": "node dist/api.js",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0",
