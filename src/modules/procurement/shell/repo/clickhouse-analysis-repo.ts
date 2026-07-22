@@ -85,7 +85,9 @@ const SUPPLIER_SCOPE_FIELDS: ReadonlyArray<keyof AnalysisScope> = [
 
 const BREAKDOWN_DIM_COLUMNS: Record<string, string> = {
   authority: 'authority_cui',
-  supplier: 'supplier_identity_key',
+  // PG-parity: breakdown/concentration keys are bare supplier CUIs (client
+  // supplier links resolve by CUI). Identity keys remain the DISTINCTS rule.
+  supplier: 'supplier_cui',
   cpvDivision: 'cpv_division',
   cpvCode: 'cpv_code',
   status: 'status',
@@ -93,10 +95,11 @@ const BREAKDOWN_DIM_COLUMNS: Record<string, string> = {
   buyerRegion: 'buyer_region',
 };
 
-const BUCKET_FN: Record<SeriesBucket, string> = {
-  month: 'toStartOfMonth',
-  quarter: 'toStartOfQuarter',
-  year: 'toStartOfYear',
+/** PG label parity: 'YYYY-MM' / 'YYYY-Qn' / 'YYYY' (analysis-repo.ts). */
+const BUCKET_LABEL: Record<SeriesBucket, string> = {
+  month: "formatDateTime(date_basis, '%Y-%m')",
+  quarter: "concat(toString(toYear(date_basis)), '-Q', toString(toQuarter(date_basis)))",
+  year: 'toString(toYear(date_basis))',
 };
 
 /** High-confidence supplier identity (mirrors spec F14 supplier rule). */
@@ -163,8 +166,10 @@ const compileScope = (route: AnalysisRoute, scope: AnalysisScope): CompiledScope
       bounds.push(`date_basis < addMonths(toDate('${scope.to}-01'), 1)`);
     }
   }
-  const dated =
-    bounds.length > 0 ? `(NOT is_undated AND ${bounds.join(' AND ')})` : 'NOT is_undated';
+  // PG parity (analysis-repo.ts compileScope): with no time bounds the dated
+  // predicate is TRUE — headline aggregates include undated rows; a bounded
+  // window prunes undated from the dated aggregates only.
+  const dated = bounds.length > 0 ? `(NOT is_undated AND ${bounds.join(' AND ')})` : '1';
   conds.push(`(${dated} OR is_undated)`);
 
   return { table, where: conds.join(' AND '), dated, impossible };
@@ -221,8 +226,10 @@ export const makeClickhouseAnalysisRepo = (
          toString(sumIf(toInt128(value_awarded_bani), ${dated} AND value_state IN (${ACCEPTED_STATES})))) AS awarded_bani_out,
       if(countIf(${dated}) = 0, NULL,
          toString(sumIf(toInt128(value_estimated_bani), ${dated} AND value_estimated_bani IS NOT NULL))) AS estimated_bani_out,
-      if(countIf(${dated}) = 0, NULL, formatDateTime(minIf(date_basis, ${dated}), '%Y-%m')) AS min_month,
-      if(countIf(${dated}) = 0, NULL, formatDateTime(maxIf(date_basis, ${dated}), '%Y-%m')) AS max_month,
+      if(countIf(${dated} AND NOT is_undated) = 0, NULL,
+         formatDateTime(minIf(date_basis, ${dated} AND NOT is_undated), '%Y-%m')) AS min_month,
+      if(countIf(${dated} AND NOT is_undated) = 0, NULL,
+         formatDateTime(maxIf(date_basis, ${dated} AND NOT is_undated), '%Y-%m')) AS max_month,
       toString(countIf(is_undated)) AS undated_count,
       if(countIf(is_undated) = 0, NULL,
          toString(sumIf(toInt128(value_awarded_bani), is_undated AND value_state IN (${ACCEPTED_STATES})))) AS undated_bani_out`;
@@ -326,7 +333,7 @@ export const makeClickhouseAnalysisRepo = (
       key === 'supplier'
         ? `uniqExactIf(supplier_identity_key, ${SUPPLIER_KEY_VALID})`
         : `uniqExactIf(authority_cui, authority_cui IS NOT NULL)`;
-    const bucketFn = BUCKET_FN[bucket];
+    const bucketExpr = BUCKET_LABEL[bucket];
     const r = await query<{
       bucket: string | null;
       value: string;
@@ -335,7 +342,7 @@ export const makeClickhouseAnalysisRepo = (
       awarded_bani_out: string | null;
     }>(`
       SELECT
-        if(is_undated, NULL, toString(${bucketFn}(date_basis))) AS bucket,
+        if(is_undated, NULL, ${bucketExpr}) AS bucket,
         toString(${keyExpr}) AS value,
         toString(count()) AS record_count,
         toString(countIf(value_state IN (${ACCEPTED_STATES}))) AS with_value,
@@ -466,27 +473,27 @@ export const makeClickhouseAnalysisRepo = (
         ? `toString(ifNull(sumIf(toInt128(value_awarded_bani), ${c.dated} AND value_state IN (${ACCEPTED_STATES})), 0))`
         : `toString(countIf(${c.dated}))`;
     const rowsR = await query<{ supplier_key: string; measure: string }>(`
-      SELECT supplier_identity_key AS supplier_key, ${measure} AS measure
+      SELECT supplier_cui AS supplier_key, ${measure} AS measure
       FROM ${c.table}
-      WHERE ${c.where} AND ${SUPPLIER_KEY_VALID}
+      WHERE ${c.where} AND supplier_cui IS NOT NULL
       GROUP BY supplier_key`);
     if (rowsR.isErr()) return err(rowsR.error);
     const unknownR = await query<{ measure: string }>(`
       SELECT ${measure} AS measure FROM ${c.table}
-      WHERE ${c.where} AND NOT ${SUPPLIER_KEY_VALID}`);
+      WHERE ${c.where} AND supplier_cui IS NULL`);
     if (unknownR.isErr()) return err(unknownR.error);
     const rows: ConcentrationRow[] = rowsR.value.map((row) => ({
       supplierKey: row.supplier_key,
       measure: basis === 'value' ? (baniToRon(row.measure) ?? '0.00') : row.measure,
     }));
-    const unknownRaw = unknownR.value[0]?.measure ?? '0';
+    const unknownRaw = unknownR.value[0]?.measure ?? null;
     const unknownSupplierMeasure =
-      basis === 'value' ? baniToRon(unknownRaw) : unknownRaw;
-    return ok({
-      rows,
-      totals,
-      unknownSupplierMeasure: unknownSupplierMeasure === '0.00' ? null : unknownSupplierMeasure,
-    } satisfies ConcentrationRead);
+      unknownRaw === null || unknownRaw === '0'
+        ? null
+        : basis === 'value'
+          ? baniToRon(unknownRaw)
+          : unknownRaw;
+    return ok({ rows, totals, unknownSupplierMeasure } satisfies ConcentrationRead);
   };
 
   return {
