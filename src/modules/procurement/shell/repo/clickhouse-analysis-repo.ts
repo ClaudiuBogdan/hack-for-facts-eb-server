@@ -1,11 +1,11 @@
 /**
  * ClickHouse-backed `AnalysisRepo` — DEV iteration path (2026-07-22).
  *
- * Reads the prototype wide fact tables (`proto.facts_*_v1` on the chronos
+ * Reads the prototype wide fact tables (`proto.facts_*_v2` on the chronos
  * CHI; see scrapper `prod-db/ch-prototype/`) over the plain-HTTP interface,
- * typically through `kubectl port-forward … 58123:8123`. Enabled by
- * `PROD_CLICKHOUSE_URL`; when unset the module keeps the Postgres rollup
- * repo and nothing here is loaded.
+ * through the private Chronos Tailscale endpoint for local development.
+ * Enabled by `PROD_CLICKHOUSE_URL`; when unset the module keeps the Postgres
+ * rollup repo and nothing here is loaded.
  *
  * Contract fidelity notes (mirrors `analysis-repo.ts` semantics):
  *  - months are 'YYYY-MM'; the undated bucket (date_basis IS NULL) is
@@ -56,9 +56,9 @@ export interface ClickhouseAnalysisConfig {
 const ACCEPTED_STATES = ["'official_exact'", "'official_ron_equivalent'"].join(', ');
 
 const TABLE_BY_GRAIN: Record<string, string> = {
-  contract: 'facts_contracts_v1',
-  direct_acquisition: 'facts_da_v1',
-  procedure: 'facts_procedures_v1',
+  contract: 'facts_contracts_v2',
+  direct_acquisition: 'facts_da_v2',
+  procedure: 'facts_procedures_v2',
 };
 
 /** Grains that structurally have no supplier columns. */
@@ -132,8 +132,11 @@ interface CompiledScope {
 
 const compileScope = (route: AnalysisRoute, scope: AnalysisScope): CompiledScope => {
   const grain = route.grain;
-  const table = TABLE_BY_GRAIN[grain] ?? 'facts_contracts_v1';
-  const conds: string[] = ['is_canonical'];
+  const table = TABLE_BY_GRAIN[grain] ?? 'facts_contracts_v2';
+  // Value-contract rule (frozen facts, 2026-07-22): cancelled records are
+  // excluded from every transaction/spend measure. Build 4 has no cancelled
+  // rows yet; the predicate becomes load-bearing at build 5 (~1.06M DAs flip).
+  const conds: string[] = ['is_canonical', "(status IS NULL OR status != 'cancelled')"];
   let impossible = false;
 
   if (SUPPLIERLESS_GRAINS.has(grain)) {
