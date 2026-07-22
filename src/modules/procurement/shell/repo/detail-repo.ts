@@ -159,7 +159,8 @@ export interface ProcurementDetailRepo {
   supplierRecords(
     supplierCui: string,
     first: number,
-    after: string | undefined
+    after: string | undefined,
+    includeCancelled: boolean
   ): Promise<Result<SupplierRecordConnection, ApiError>>;
 }
 
@@ -327,7 +328,8 @@ export const makeProcurementDetailRepo = (db: Db): ProcurementDetailRepo => {
   const supplierRecords = async (
     supplierCui: string,
     first: number,
-    after: string | undefined
+    after: string | undefined,
+    includeCancelled: boolean
   ): Promise<Result<SupplierRecordConnection, ApiError>> => {
     const limit = Math.min(Math.max(Math.floor(first), 1), SUPPLIER_RECORDS_FIRST_MAX);
     let cursor: RecordCursor | undefined;
@@ -350,6 +352,12 @@ export const makeProcurementDetailRepo = (db: Db): ProcurementDetailRepo => {
         .select(daSelect)
         .where('d.is_canonical', '=', true)
         .where('d.supplier_cui', '=', supplierCui);
+      // Cancelled DAs (refused/lapsed offers — no purchase happened) are excluded
+      // by default so this list agrees with the flow-backed aggregates above it;
+      // the contracts leg keeps every status, matching the list-page defaults.
+      if (!includeCancelled) {
+        daQuery = daQuery.where('d.status', '<>', 'cancelled');
+      }
 
       if (cursor !== undefined) {
         contractQuery = contractQuery.where(

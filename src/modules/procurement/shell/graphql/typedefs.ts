@@ -625,11 +625,14 @@ export const procurementTypeDefs = /* GraphQL */ `
       rankBy: ProcurementRankBy
     ): ProcurementFacetsResult!
 
-    # supplier recent records (canonical flows only, date desc)
+    # supplier recent records (canonical flows only, date desc). Cancelled
+    # direct acquisitions (refused/lapsed, no purchase) are hidden unless
+    # includeCancelled — mirrors the DA list default and the flow aggregates.
     procurementSupplierRecords(
       supplierCui: ID!
       first: Int
       after: String
+      includeCancelled: Boolean
     ): ProcurementRecordConnection!
 
     # meta

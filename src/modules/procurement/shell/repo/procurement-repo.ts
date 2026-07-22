@@ -884,6 +884,7 @@ export const makeProcurementRepo = (
     // detail-bundle support
     modificationsForContracts: (ids) => detail.modificationsForContracts(ids),
     contractsByIds: (ids) => detail.contractsByIds(ids),
-    supplierRecords: (cui, first, after) => detail.supplierRecords(cui, first, after),
+    supplierRecords: (cui, first, after, includeCancelled) =>
+      detail.supplierRecords(cui, first, after, includeCancelled),
   };
 };
