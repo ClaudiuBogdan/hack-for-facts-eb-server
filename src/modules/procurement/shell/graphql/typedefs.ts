@@ -49,7 +49,13 @@ export const procurementTypeDefs = /* GraphQL */ `
   input StringInInput {
     in: [String!]!
   }
-  "Server-bounded ILIKE (3–100 chars) over the grain's title/number columns."
+  """
+  Free-text search term (3–100 chars) over the grain's title/name/number
+  columns. Executes as full-text relevance search (Romanian analyzer:
+  diacritic folding, stemming, fuzziness) when the search engine is
+  configured, degrading to a server-bounded ILIKE otherwise. Very broad
+  terms may be relevance-truncated — disclosed via totalEstimated.
+  """
   input StringQInput {
     contains: String!
   }

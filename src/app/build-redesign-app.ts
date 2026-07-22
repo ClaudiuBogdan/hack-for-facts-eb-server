@@ -12,6 +12,8 @@
  * `deps.registerContributors` once they exist; the kernel boots standalone today.
  */
 
+import { readFileSync } from 'node:fs';
+
 import corsPlugin from '@fastify/cors';
 import { makeExecutableSchema } from '@graphql-tools/schema';
 import fastifyLib, { type FastifyInstance } from 'fastify';
@@ -310,9 +312,48 @@ export const registerRedesignSurface = async (
 
   if (enabledModules.includes('procurement')) {
     const windowEnv = Number(process.env['PROCUREMENT_DA_LIST_MAX_WINDOW_DAYS']);
+    // DEV list-search switch: resolve the `q` facet through the chronos
+    // OpenSearch proto indices (via port-forward). DEDICATED variable —
+    // deliberately not the kernel-wide PROD_OPENSEARCH_URL, so existing
+    // environments can never enable this path implicitly. Unset = SQL ILIKE.
+    // Format of PROCUREMENT_Q_OPENSEARCH_INDEXES: `grain:index,...`.
+    // TLS: PROCUREMENT_Q_OPENSEARCH_CA_FILE pins the private CA and
+    // PROCUREMENT_Q_OPENSEARCH_TLS_SERVERNAME must be a cert SAN (the
+    // port-forward host is localhost, which the node cert does not carry).
+    const qOpensearchUrl = process.env['PROCUREMENT_Q_OPENSEARCH_URL'];
+    const qOpensearchCaFile = process.env['PROCUREMENT_Q_OPENSEARCH_CA_FILE'];
+    const qOpensearchIndexes = Object.fromEntries(
+      (
+        process.env['PROCUREMENT_Q_OPENSEARCH_INDEXES'] ??
+        'procedures:proto_procurement_procedures_v0,contracts:proto_procurement_contracts_v0,direct_acquisitions:proto_procurement_da_v0'
+      )
+        .split(',')
+        .map((pair) => pair.split(':').map((s) => s.trim()))
+        .filter((kv): kv is [string, string] => kv.length === 2 && kv[0] !== '' && kv[1] !== '')
+    );
     const procurement = makeProcurementModule({
       db: kernel.db,
       logger: app.log,
+      ...(qOpensearchUrl !== undefined &&
+        qOpensearchUrl !== '' && {
+          opensearch: {
+            url: qOpensearchUrl,
+            indexes: qOpensearchIndexes,
+            ...(process.env['PROCUREMENT_Q_OPENSEARCH_USERNAME'] !== undefined && {
+              username: process.env['PROCUREMENT_Q_OPENSEARCH_USERNAME'],
+            }),
+            ...(process.env['PROCUREMENT_Q_OPENSEARCH_PASSWORD'] !== undefined && {
+              password: process.env['PROCUREMENT_Q_OPENSEARCH_PASSWORD'],
+            }),
+            ...(qOpensearchCaFile !== undefined &&
+              qOpensearchCaFile !== '' && {
+                caCert: readFileSync(qOpensearchCaFile, 'utf8'),
+              }),
+            ...(process.env['PROCUREMENT_Q_OPENSEARCH_TLS_SERVERNAME'] !== undefined && {
+              tlsServername: process.env['PROCUREMENT_Q_OPENSEARCH_TLS_SERVERNAME'],
+            }),
+          },
+        }),
       ...(deps.procurementWarmCache !== undefined && { warmCache: deps.procurementWarmCache }),
       ...(Number.isFinite(windowEnv) &&
         windowEnv > 0 && { daListMaxWindowDays: Math.floor(windowEnv) }),

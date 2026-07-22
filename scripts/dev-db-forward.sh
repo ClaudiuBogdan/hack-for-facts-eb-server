@@ -31,8 +31,10 @@ SESSION=dev-db-forward
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 GRIFFIN_KUBECONFIG="${GRIFFIN_KUBECONFIG:-$HOME/.kube/griffin.yaml}"
 PHOENIX_KUBECONFIG="${PHOENIX_KUBECONFIG:-$HOME/.kube/phoenix.yaml}"
+CHRONOS_KUBECONFIG="${CHRONOS_KUBECONFIG:-$HOME/.kube/chronos.yaml}"
 GRIFFIN_NS="${GRIFFIN_NS:-transparenta-eu-etl-prod}"
 PHOENIX_NS="${PHOENIX_NS:-hack-for-facts-dev}"
+CHRONOS_NS="${CHRONOS_NS:-transparenta-eu-etl-prod}"
 RETRY_DELAY="${RETRY_DELAY:-3}"
 BIND_ADDR="${BIND_ADDR:-127.0.0.1}"
 
@@ -41,13 +43,16 @@ SERVICES=(
   "griffin-prod-db|$GRIFFIN_KUBECONFIG|$GRIFFIN_NS|svc/transparenta-prod-postgres-rw|5432|55432"
   "griffin-meili|$GRIFFIN_KUBECONFIG|$GRIFFIN_NS|svc/transparenta-eu-etl-meilisearch|7700|57700"
   "griffin-opensearch|$GRIFFIN_KUBECONFIG|$GRIFFIN_NS|svc/transparenta-eu-etl-opensearch|9200|59200"
+  # chronos OpenSearch (procurement search proto indices) — HTTPS + basic auth,
+  # unlike the legacy plain-HTTP griffin node on 59200.
+  "chronos-opensearch|$CHRONOS_KUBECONFIG|$CHRONOS_NS|svc/transparenta-eu-etl-opensearch|9200|59201"
   "phoenix-budget-db|$PHOENIX_KUBECONFIG|$PHOENIX_NS|svc/postgres-db-rw|5432|5432"
   "phoenix-user-db|$PHOENIX_KUBECONFIG|$PHOENIX_NS|svc/postgres-userdata-rw|5432|5433"
   "phoenix-ins-db|$PHOENIX_KUBECONFIG|$PHOENIX_NS|svc/postgres-ins-rw|5432|5434"
   "phoenix-redis|$PHOENIX_KUBECONFIG|$PHOENIX_NS|svc/redis|6379|16379"
 )
 
-ALL_PORTS="55432|57700|59200|5432|5433|5434|16379"
+ALL_PORTS="55432|57700|59200|59201|5432|5433|5434|16379"
 
 show_status() {
   echo "listening forward ports:"

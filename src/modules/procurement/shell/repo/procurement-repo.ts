@@ -57,6 +57,7 @@ import {
   PROCEDURE_VIRTUAL_FIELDS,
 } from '../../core/filters.js';
 
+import type { OpenSearchQResolver } from './opensearch-q-repo.js';
 import type { CursorPageRequest, ProcurementRepo } from '../../core/ports.js';
 import type {
   ContractDetail,
@@ -137,11 +138,13 @@ const needsCoreJoin = (input: FilterInput): boolean =>
 
 export const makeProcurementRepo = (
   db: Db,
-  daMaxWindowDays = DA_LIST_MAX_WINDOW_DAYS_DEFAULT
+  daMaxWindowDays = DA_LIST_MAX_WINDOW_DAYS_DEFAULT,
+  qResolver?: OpenSearchQResolver,
+  logger?: { warn: (obj: Record<string, unknown>, msg: string) => void }
 ): ProcurementRepo => {
   // The offset-search + detail surfaces are their own modules; this repo composes
   // them so callers still see one `ProcurementRepo` port.
-  const offset = makeOffsetSearchRepo(db, daMaxWindowDays);
+  const offset = makeOffsetSearchRepo(db, daMaxWindowDays, qResolver, logger);
   const detail = makeProcurementDetailRepo(db);
 
   // ───────────────────────────────────────────────────────────────────────────
