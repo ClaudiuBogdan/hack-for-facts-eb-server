@@ -114,7 +114,8 @@ export interface ProcurementRepo {
   supplierRecords(
     supplierCui: string,
     first: number,
-    after: string | undefined
+    after: string | undefined,
+    includeCancelled: boolean
   ): Promise<Result<SupplierRecordConnection, ApiError>>;
 }
 

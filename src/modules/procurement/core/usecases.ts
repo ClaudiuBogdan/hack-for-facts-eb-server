@@ -123,6 +123,7 @@ export const getSupplierRecords = (
   repo: ProcurementRepo,
   supplierCui: string,
   first: number,
-  after: string | undefined
+  after: string | undefined,
+  includeCancelled: boolean
 ): Promise<Result<SupplierRecordConnection, ApiError>> =>
-  repo.supplierRecords(supplierCui, first, after);
+  repo.supplierRecords(supplierCui, first, after, includeCancelled);

@@ -4,6 +4,7 @@
  * cursor without the grain tag would collide and silently drop or repeat a row.
  */
 
+import { ok } from 'neverthrow';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -15,7 +16,9 @@ import {
   grainRank,
   mergeSupplierRecords,
 } from '@/modules/procurement/core/supplier-records.js';
+import { makeProcurementResolvers } from '@/modules/procurement/shell/graphql/resolvers.js';
 
+import type { AnalysisRepo, ProcurementRepo } from '@/modules/procurement/core/ports.js';
 import type {
   ProcurementContract,
   ProcurementDirectAcquisition,
@@ -187,5 +190,58 @@ describe('cursor round-trip', () => {
       grain: 'direct_acquisition',
       id: '6',
     });
+  });
+});
+
+describe('resolver threading: includeCancelled', () => {
+  // Cancelled DAs are refused/lapsed offers \u2014 no purchase. The supplier list
+  // must hide them unless the caller opts in, or it contradicts the flow-backed
+  // aggregates rendered above it.
+  interface RecordsQueryResolver {
+    procurementSupplierRecords(
+      root: unknown,
+      args: {
+        supplierCui: string;
+        first?: number;
+        after?: string;
+        includeCancelled?: boolean | null;
+      }
+    ): Promise<unknown>;
+  }
+
+  const capture = () => {
+    const calls: unknown[][] = [];
+    const repo = {
+      supplierRecords: (...args: unknown[]) => {
+        calls.push(args);
+        return Promise.resolve(ok({ total: null, edges: [], hasNextPage: false, endCursor: null }));
+      },
+    } as unknown as ProcurementRepo;
+    const resolvers = makeProcurementResolvers({ repo, analysis: {} as AnalysisRepo }) as {
+      readonly Query: RecordsQueryResolver;
+    };
+    return { calls, query: resolvers.Query };
+  };
+
+  it('omitting the argument hides cancelled (includeCancelled=false)', async () => {
+    const { calls, query } = capture();
+    await query.procurementSupplierRecords(undefined, { supplierCui: CUI });
+    expect(calls).toEqual([[CUI, 20, undefined, false]]);
+  });
+
+  it('an explicit GraphQL null also falls back to hiding', async () => {
+    const { calls, query } = capture();
+    await query.procurementSupplierRecords(undefined, { supplierCui: CUI, includeCancelled: null });
+    expect(calls).toEqual([[CUI, 20, undefined, false]]);
+  });
+
+  it('true passes through to the repo', async () => {
+    const { calls, query } = capture();
+    await query.procurementSupplierRecords(undefined, {
+      supplierCui: CUI,
+      first: 5,
+      includeCancelled: true,
+    });
+    expect(calls).toEqual([[CUI, 5, undefined, true]]);
   });
 });

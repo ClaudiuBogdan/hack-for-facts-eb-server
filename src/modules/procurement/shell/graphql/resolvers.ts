@@ -227,10 +227,21 @@ export const makeProcurementResolvers = (
       // ── supplier records ────────────────────────────────────────────────────
       procurementSupplierRecords: async (
         _r: unknown,
-        a: { supplierCui: string; first?: number; after?: string }
+        a: {
+          supplierCui: string;
+          first?: number;
+          after?: string;
+          includeCancelled?: boolean | null;
+        }
       ) => {
         const connection = unwrap(
-          await getSupplierRecords(repo, a.supplierCui, a.first ?? 20, a.after ?? undefined)
+          await getSupplierRecords(
+            repo,
+            a.supplierCui,
+            a.first ?? 20,
+            a.after ?? undefined,
+            a.includeCancelled ?? false
+          )
         );
         return {
           total: connection.total,

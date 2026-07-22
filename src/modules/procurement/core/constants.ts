@@ -54,11 +54,11 @@ export type DaStatus = (typeof DA_STATUSES)[number];
 export const DA_SOURCE_SYSTEMS = ['elicitatie_da', 'seap_da', 'seap_dan'] as const;
 export type DaSourceSystem = (typeof DA_SOURCE_SYSTEMS)[number];
 
-// ── value-model resolution states (scrapper VALUE_RULES_VERSION 2) ────────────
+// ── value-model resolution states (scrapper VALUE_RULES_VERSION 4) ────────────
 // The closed per-row outcome set of the data layer's resolution engine.
 // ACCEPTED states are the ONLY ones whose money enters served aggregates;
 // `cross_source_exact` / `official_document_recovered` are reserved (not yet
-// minted by the v2 engine) but part of the frozen contract.
+// minted by the v4 engine) but part of the frozen contract.
 export const ACCEPTED_VALUE_STATES = [
   'official_exact',
   'official_ron_equivalent',
