@@ -33,6 +33,7 @@ import {
   type SearchGrain,
 } from '../../core/search.js';
 
+import type { OpenSearchQResolver } from './opensearch-q-repo.js';
 import type {
   OffsetSearchRequest,
   OffsetSearchResult,
@@ -353,10 +354,65 @@ const orderClause = (grain: SearchGrain, page: OffsetSearchRequest): RawBuilder<
   return sql`${ref(b.alias, sort.column)} ${dir} nulls last, ${ref(b.alias, sort.pk)} desc`;
 };
 
+/** Per-grain surrogate pk — the column the OpenSearch id-set binds to. */
+const PK_COLUMNS: Readonly<Record<SearchGrain, string>> = {
+  procedures: 'procedure_id',
+  contracts: 'contract_id',
+  direct_acquisitions: 'da_id',
+  modifications: 'modification_id',
+};
+
+/** Conditions plus how the `q` predicate was resolved (drives count semantics). */
+interface ResolvedConditions {
+  readonly conds: RawBuilder<unknown>[];
+  /**
+   * True when the OpenSearch id-set hit its cap: the result is a
+   * relevance-biased subset, so the count MUST degrade to estimated —
+   * an exact count over a truncated set would be a lie.
+   */
+  readonly countUnreliable: boolean;
+}
+
 export const makeOffsetSearchRepo = (
   db: Db,
-  daMaxWindowDays: number
+  daMaxWindowDays: number,
+  qResolver?: OpenSearchQResolver,
+  logger?: { warn: (obj: Record<string, unknown>, msg: string) => void }
 ): ProcurementOffsetSearchRepo => {
+  /**
+   * OpenSearch-first `q`: resolve the text predicate into a bounded pk id-set
+   * (Romanian analyzer BM25 — folded diacritics, stemming, fuzziness) and let
+   * SQL keep every structured filter, the total order, and the capped count.
+   * A resolver failure degrades to the ILIKE predicate with a structured
+   * warning (grain + category only — never the query text or credentials);
+   * the engine is an accelerator, never a correctness dependency. An empty
+   * id-set compiles to `false` (a correct, instant empty page).
+   */
+  const resolveConditions = async (
+    grain: SearchGrain,
+    f: ProcurementSearchFilter
+  ): Promise<ResolvedConditions> => {
+    if (f.q === undefined || qResolver?.canResolve(grain) !== true) {
+      return { conds: buildSearchConditions(grain, f), countUnreliable: false };
+    }
+    const startedAt = Date.now();
+    const resolved = await qResolver.resolveIds(grain, f.q);
+    if (resolved.isErr()) {
+      logger?.warn(
+        { grain, category: resolved.error.message, elapsedMs: Date.now() - startedAt },
+        'opensearch q resolution failed; falling back to ILIKE'
+      );
+      return { conds: buildSearchConditions(grain, f), countUnreliable: false };
+    }
+    const { ids, truncated } = resolved.value;
+    const { q, ...rest } = f;
+    void q;
+    const conds = buildSearchConditions(grain, rest);
+    const pk = ref(BINDINGS[grain].alias, PK_COLUMNS[grain]);
+    conds.push(ids.length === 0 ? sql`false` : sql`${pk} = any(cast(${ids} as bigint[]))`);
+    return { conds, countUnreliable: truncated };
+  };
+
   /**
    * The capped exact count. Deliberately swallows its OWN failure: a count that hits
    * the 15s statement timeout degrades `total` to null; the page still serves
@@ -385,56 +441,64 @@ export const makeOffsetSearchRepo = (
     }
   };
 
-  /** Run the page + the capped count concurrently and fold them into the result. */
+  /**
+   * Run the page + the capped count concurrently and fold them into the
+   * result. A truncated OpenSearch id-set makes any count over it a lie —
+   * `countUnreliable` skips the count and degrades to `total: null,
+   * estimated: true` (the same disclosure as a timed-out count).
+   */
   const withCount = async <Out>(
     grain: SearchGrain,
-    conds: readonly RawBuilder<unknown>[],
+    resolved: ResolvedConditions,
     pageQuery: Promise<readonly Out[]>
   ): Promise<Result<OffsetSearchResult<Out>, ApiError>> => {
     try {
-      const [items, count] = await Promise.all([pageQuery, cappedCount(grain, conds)]);
+      const [items, count] = await Promise.all([
+        pageQuery,
+        resolved.countUnreliable ? Promise.resolve(null) : cappedCount(grain, resolved.conds),
+      ]);
       return ok(interpretCappedCount(items, count));
     } catch (error) {
       return err(databaseError(`search ${grain} failed`, error));
     }
   };
 
-  const searchProceduresOffset = (
+  const searchProceduresOffset = async (
     f: ProcurementSearchFilter,
     p: OffsetSearchRequest
   ): Promise<Result<OffsetSearchResult<ProcurementProcedure>, ApiError>> => {
-    const conds = buildSearchConditions('procedures', f);
+    const resolved = await resolveConditions('procedures', f);
     const rows = db
       .selectFrom('procurement.procedures as p')
       .select(procedureSelect)
-      .where(composeAnd(conds))
+      .where(composeAnd(resolved.conds))
       .orderBy(orderClause('procedures', p))
       .limit(p.pageSize)
       .offset(offsetOf(p))
       .execute();
     return withCount(
       'procedures',
-      conds,
+      resolved,
       rows.then((r) => r.map(mapProcedure))
     );
   };
 
-  const searchContractsOffset = (
+  const searchContractsOffset = async (
     f: ProcurementSearchFilter,
     p: OffsetSearchRequest
   ): Promise<Result<OffsetSearchResult<ProcurementContract>, ApiError>> => {
-    const conds = buildSearchConditions('contracts', f);
+    const resolved = await resolveConditions('contracts', f);
     const rows = db
       .selectFrom('procurement.contracts as c')
       .select(contractSelect)
-      .where(composeAnd(conds))
+      .where(composeAnd(resolved.conds))
       .orderBy(orderClause('contracts', p))
       .limit(p.pageSize)
       .offset(offsetOf(p))
       .execute();
     return withCount(
       'contracts',
-      conds,
+      resolved,
       rows.then((r) => r.map(mapContract))
     );
   };
@@ -445,18 +509,18 @@ export const makeOffsetSearchRepo = (
   ): Promise<Result<OffsetSearchResult<ProcurementDirectAcquisition>, ApiError>> => {
     const selective = assertDaOffsetSelective(f, daMaxWindowDays);
     if (selective.isErr()) return err(selective.error);
-    const conds = buildSearchConditions('direct_acquisitions', f);
+    const resolved = await resolveConditions('direct_acquisitions', f);
     const rows = db
       .selectFrom('procurement.direct_acquisitions as d')
       .select(daSelect)
-      .where(composeAnd(conds))
+      .where(composeAnd(resolved.conds))
       .orderBy(orderClause('direct_acquisitions', p))
       .limit(p.pageSize)
       .offset(offsetOf(p))
       .execute();
     return withCount(
       'direct_acquisitions',
-      conds,
+      resolved,
       rows.then((r) => r.map(mapDirectAcquisition))
     );
   };
@@ -465,18 +529,21 @@ export const makeOffsetSearchRepo = (
     f: ProcurementSearchFilter,
     p: OffsetSearchRequest
   ): Promise<Result<OffsetSearchResult<ProcurementModification>, ApiError>> => {
-    const conds = buildSearchConditions('modifications', f);
+    const resolved: ResolvedConditions = {
+      conds: buildSearchConditions('modifications', f),
+      countUnreliable: false,
+    };
     const rows = db
       .selectFrom('procurement.contract_modifications as m')
       .select(modificationSelect)
-      .where(composeAnd(conds))
+      .where(composeAnd(resolved.conds))
       .orderBy(orderClause('modifications', p))
       .limit(p.pageSize)
       .offset(offsetOf(p))
       .execute();
     return withCount(
       'modifications',
-      conds,
+      resolved,
       rows.then((r) => r.map(mapModification))
     );
   };
