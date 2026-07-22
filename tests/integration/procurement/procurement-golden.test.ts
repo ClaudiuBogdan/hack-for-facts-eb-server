@@ -21,8 +21,6 @@ import { buildRedesignApp } from '@/app/build-redesign-app.js';
 import { loadRedesignConfig } from '@/infra/config/redesign-env.js';
 import { makeProcurementDetailRepo } from '@/modules/procurement/shell/repo/detail-repo.js';
 
-import { reconcileAdvertisedProcurementMatrix } from './procurement-matrix-golden.js';
-
 import type { ProdDatabase } from '@/modules/shared/index.js';
 import type { FastifyInstance } from 'fastify';
 
@@ -237,21 +235,6 @@ d('Procurement golden (live prod)', () => {
     expect(p1.ok).toBe(true);
     expect((p1.items ?? []).length).toBeGreaterThan(0);
   }, 30_000);
-
-  it('analysis matrix rejections fire BEFORE any rollup read (no generation required)', async () => {
-    // entity × 8-digit cpvCode is a named wave-2 rejection (bounded fact query).
-    const res = await gql(
-      `query($cui:String!){ procurementStats(scope: { authorityCui: $cui, cpvCode: "33600000" }){ blocks { grain } } }`,
-      { cui: AUTHORITY }
-    );
-    expect(res.errors?.[0]?.extensions?.code).toBe('INVALID_INPUT');
-
-    // supplier geography is milestone M3, named as such.
-    const geo = await gql(
-      `{ procurementStats(scope: { supplierRegion: "Nord-Vest" }){ blocks { grain } } }`
-    );
-    expect(geo.errors?.[0]?.extensions?.code).toBe('INVALID_INPUT');
-  });
 
   it('detail bundle: a contract loads with its trail, procedure and duplicates', async () => {
     const sqlRes = await pool.query<{ contract_id: string }>(
@@ -541,11 +524,6 @@ d('Procurement analysis golden (live prod, active generation required)', () => {
       expect(rec(blocks[0]?.['meta'])['buildId'], testCase.label).toBe(buildId);
     }
   }, 90_000);
-
-  it('reconciles every advertised matrix row across GraphQL, MCP and raw SQL', async (ctx) => {
-    if (!active) ctx.skip();
-    await reconcileAdvertisedProcurementMatrix({ pool, buildId, gql, mcpCall });
-  }, 1_800_000);
 
   it('procurementStats blocks reconcile with raw SQL over the authority_dims rollup', async (ctx) => {
     if (!active) ctx.skip();

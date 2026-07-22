@@ -81,17 +81,19 @@ describe('aggregate_procurement', () => {
     expect(out.summary).toContain('spend answers abstain'); // the caveat is surfaced
   });
 
-  it('unsupported combinations return the matrix rejection verbatim', async () => {
+  it('semantically invalid combinations return the named rejection verbatim', async () => {
     const { repo } = fakeAnalysisRepo();
     const tool = toolNamed(toolsWith(repo), 'aggregate_procurement');
+    // A breakdown over a dimension the scope already fixes is a single bucket —
+    // a backend-independent semantic rejection (not a rollup-capability gap).
     const out = await tool.handler({
       shape: 'breakdown',
-      dimension: 'procedureType',
-      scope: { supplierCui: '11805367' },
+      dimension: 'authority',
+      scope: { authorityCui: '4267117' },
     });
     expect(out.ok).toBe(false);
-    expect(out.error).toContain('breakdown(procedureType)');
-    expect(out.error).toContain('not built');
+    expect(out.error).toContain('breakdown(authority)');
+    expect(out.error).toContain('single-bucket');
   });
 
   it('series requires a measure; breakdown requires a dimension', async () => {

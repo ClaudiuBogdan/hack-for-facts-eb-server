@@ -186,12 +186,11 @@ describe('GraphQL/MCP analysis parity', () => {
       },
     },
     {
-      label: 'matrix rejection',
+      label: 'semantic rejection',
       args: {
-        shape: 'series',
-        scope: { grain: 'direct_acquisition' },
-        measure: 'distinctSuppliers',
-        bucket: 'month',
+        // supplier-fixed concentration is a single-supplier tautology.
+        shape: 'concentration',
+        scope: { supplierCui: '11805367' },
       },
     },
   ])('preserves InvalidInput metadata on the real MCP wire: $label', async ({ args }) => {

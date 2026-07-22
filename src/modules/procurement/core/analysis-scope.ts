@@ -10,9 +10,9 @@
  * canonical scope echo from one declaration — no SQL is ever compiled from it
  * (every field is `virtual: true`; the analysis repo owns the rollup SQL).
  *
- * buyerCounty / supplierCounty / supplierRegion PARSE here (they are contract
- * fields, design §5.1) but are rejected by the combinations matrix with the
- * specific missing capability named (supplier geo = M3; buyer county = wave-2).
+ * Buyer/supplier county, region, and SIRUTA PARSE here because they are stable
+ * contract fields. The combinations matrix rejects shapes whose rollups are not
+ * published yet with the specific missing capability named.
  */
 
 import { err, ok, type Result } from 'neverthrow';
@@ -34,8 +34,10 @@ export interface AnalysisScope {
   readonly cpvCode?: string;
   readonly buyerCounty?: string;
   readonly buyerRegion?: string;
+  readonly buyerSiruta?: string;
   readonly supplierCounty?: string;
   readonly supplierRegion?: string;
+  readonly supplierSiruta?: string;
   readonly status?: string;
   readonly procedureType?: string;
   readonly grain?: AnalysisGrain;
@@ -53,8 +55,10 @@ export const SCOPE_DIM_FIELDS = [
   'cpvCode',
   'buyerCounty',
   'buyerRegion',
+  'buyerSiruta',
   'supplierCounty',
   'supplierRegion',
+  'supplierSiruta',
   'status',
   'procedureType',
 ] as const;
@@ -136,8 +140,10 @@ export const parseAnalysisScope = (raw: RawAnalysisScope): Result<AnalysisScope,
     'cpvCode',
     'buyerCounty',
     'buyerRegion',
+    'buyerSiruta',
     'supplierCounty',
     'supplierRegion',
+    'supplierSiruta',
     'status',
     'procedureType',
     'from',

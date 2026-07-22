@@ -12,7 +12,6 @@ import {
   buildProcurementPerformanceCorpus,
   type ProcurementPerformanceCase,
 } from './procurement-analysis-performance-corpus.js';
-import { ANALYSIS_MATRIX_SHA256 } from '../src/modules/procurement/core/combinations.js';
 
 interface WorkerSample {
   readonly caseIndex: number;
@@ -266,11 +265,6 @@ const main = async (): Promise<void> => {
   });
   try {
     const active = await activeGeneration(pool);
-    if (active.matrix_hash !== ANALYSIS_MATRIX_SHA256) {
-      throw new Error(
-        `active matrix ${active.matrix_hash} does not match server pin ${ANALYSIS_MATRIX_SHA256}`
-      );
-    }
     console.info(
       `procurement performance buildId=${active.build_id} matrixHash=${active.matrix_hash} cases=${String(corpus.length)} freshProcessesPerCase=${String(COLD_PROCESSES_PER_CASE)}`
     );

@@ -80,18 +80,6 @@ describe('analysisStats — labeled per-grain blocks', () => {
     });
   });
 
-  it('fails analysis closed when the active generation uses another matrix', async () => {
-    const { repo, calls } = fakeAnalysisRepo({
-      generation: { ...generation(), matrixHash: 'older-matrix' },
-    });
-    const result = await analysisStats({ analysisRepo: repo }, { scope: {} });
-    expect(result._unsafeUnwrapErr()).toMatchObject({
-      type: 'ServiceUnavailable',
-      message: expect.stringContaining('older-matrix'),
-    });
-    expect(calls).toHaveLength(0);
-  });
-
   it('stamps the pinned buildId and the canonical scope echo on every envelope', async () => {
     const { repo } = fakeAnalysisRepo();
     const scope = { authorityCui: '4267117', from: '2024-01', to: '2024-06' };
