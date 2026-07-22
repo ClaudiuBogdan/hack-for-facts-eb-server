@@ -10,9 +10,19 @@
  * AGGREGATE concept; base lists are bounded by indexed predicates + cursor instead).
  */
 
+import { err, ok, type Result } from 'neverthrow';
+
+import {
+  invalidInput,
+  type ApiError,
+  type CursorPage,
+  type FilterInput,
+} from '@/modules/shared/index.js';
+
 import type { CursorPageRequest, ProcurementRepo } from './ports.js';
 import type {
   ContractDetail,
+  CpvCodeLabel,
   CpvDivision,
   CpvMatch,
   DirectAcquisitionDetail,
@@ -23,8 +33,6 @@ import type {
   ProcurementProcedure,
   SupplierRecordConnection,
 } from './types.js';
-import type { ApiError, CursorPage, FilterInput } from '@/modules/shared/index.js';
-import type { Result } from 'neverthrow';
 
 // ── base-table search / detail (no gate; index-bounded + cursor) ───────────────
 
@@ -80,6 +88,23 @@ export const listModificationsAboveDelta = (
 export const listCpvDivisions = (
   repo: ProcurementRepo
 ): Promise<Result<readonly CpvDivision[], ApiError>> => repo.listCpvDivisions();
+
+/** Batch label lookup capped to one leaderboard page worth of codes. */
+export const CPV_CODES_LOOKUP_MAX = 200;
+
+export const listCpvCodeLabels = async (
+  repo: ProcurementRepo,
+  codes: readonly string[]
+): Promise<Result<readonly CpvCodeLabel[], ApiError>> => {
+  const distinct = [...new Set(codes.map((c) => c.trim()).filter((c) => c !== ''))];
+  if (distinct.length === 0) return ok([]);
+  if (distinct.length > CPV_CODES_LOOKUP_MAX) {
+    return err(
+      invalidInput(`codes accepts at most ${String(CPV_CODES_LOOKUP_MAX)} distinct codes`, 'codes')
+    );
+  }
+  return repo.listCpvCodeLabels(distinct);
+};
 
 export const resolveCpv = (
   repo: ProcurementRepo,

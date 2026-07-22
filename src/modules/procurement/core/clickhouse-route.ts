@@ -14,8 +14,6 @@
 
 import { routeAnalysis } from './combinations.js';
 
-import type { AnalysisScope } from './analysis-scope.js';
-
 /** Dims the rollup matrix rejects but the ClickHouse fact tables serve. */
 const CLICKHOUSE_EXTRA_DIMS = [
   'buyerCounty',
@@ -31,15 +29,13 @@ const DIMENSION_VALIDATION_ALIAS: Record<string, 'buyerRegion'> = {
   buyerSiruta: 'buyerRegion',
 };
 
-export const clickhouseRouteAnalysis: typeof routeAnalysis = (
-  scope,
-  shape,
-  dimension,
-  measure
-) => {
-  const validationScope: Record<string, unknown> = { ...scope };
-  for (const dim of CLICKHOUSE_EXTRA_DIMS) delete validationScope[dim];
+export const clickhouseRouteAnalysis: typeof routeAnalysis = (scope, shape, dimension, measure) => {
+  const validationScope = Object.fromEntries(
+    Object.entries(scope).filter(
+      ([key]) => !(CLICKHOUSE_EXTRA_DIMS as readonly string[]).includes(key)
+    )
+  );
   const validationDimension =
     dimension !== undefined ? (DIMENSION_VALIDATION_ALIAS[dimension] ?? dimension) : undefined;
-  return routeAnalysis(validationScope as AnalysisScope, shape, validationDimension, measure);
+  return routeAnalysis(validationScope, shape, validationDimension, measure);
 };

@@ -55,6 +55,12 @@ import type { ActiveGeneration, AnalysisRepo, AnalysisStatsRead } from './ports.
 
 export interface AnalysisDeps {
   readonly analysisRepo: AnalysisRepo;
+  /**
+   * Route override — the ClickHouse dev backend routes permissively
+   * (geography dims the rollup matrix rejects are valid there). Defaults to
+   * the rollup-matrix `routeAnalysis`.
+   */
+  readonly routeAnalysis?: typeof routeAnalysis;
 }
 
 // ── result shapes ──────────────────────────────────────────────────────────────
@@ -137,7 +143,7 @@ export interface AnalysisFacetsResult {
 // ── shared helpers ─────────────────────────────────────────────────────────────
 
 export const TOPN_DEFAULT = 10;
-export const TOPN_MAX = 50;
+export const TOPN_MAX = 100;
 export const FACET_DIMENSIONS_MAX = 3;
 
 const RATIO_DP = 4;
@@ -303,7 +309,7 @@ const statsWithGen = async (
   gen: ActiveGeneration,
   scope: AnalysisScope
 ): Promise<Result<AnalysisStatsResult, ApiError>> => {
-  const routesR = routeAnalysis(scope, 'stats');
+  const routesR = (deps.routeAnalysis ?? routeAnalysis)(scope, 'stats');
   if (routesR.isErr()) return err(routesR.error);
   const canonicalScope = canonicalScopeEcho(scope);
 
@@ -356,7 +362,7 @@ export const analysisSeries = async (
     );
   }
 
-  const routesR = routeAnalysis(scope, 'series', undefined, measure);
+  const routesR = (deps.routeAnalysis ?? routeAnalysis)(scope, 'series', undefined, measure);
   if (routesR.isErr()) return err(routesR.error);
   const genR = await activeGen(deps.analysisRepo);
   if (genR.isErr()) return err(genR.error);
@@ -509,15 +515,19 @@ const breakdownBlockFor = async (
   scope: AnalysisScope,
   dimension: BreakdownDimension,
   topN: number,
-  canonicalScope: string
+  canonicalScope: string,
+  rankByReq?: 'value' | 'count'
 ): Promise<Result<AnalysisBreakdownBlock, ApiError>> => {
   const { grain } = route;
   const spend = decideAnswer(gen.quality, grain, 'spend');
   const blockGate = shapeGate(gen, grain, scope, { dimension });
 
-  const rankedBy: 'value' | 'count' = spend.allow ? 'value' : 'count';
+  // An explicit count request always ranks by count; value (explicit or the
+  // default) still yields to the spend gate — never rank by suppressed money.
+  const rankedBy: 'value' | 'count' =
+    rankByReq === 'count' ? 'count' : spend.allow ? 'value' : 'count';
   const rankCaveats =
-    rankedBy === 'count'
+    rankedBy === 'count' && rankByReq !== 'count'
       ? ['ranked by record count (awarded-value ranking is gate-suppressed)']
       : [];
   const policy = anchorPolicy(grain, rankedBy === 'value' ? 'valueAwardedSum' : 'recordCount');
@@ -609,12 +619,13 @@ export const analysisBreakdown = async (
     readonly scope: AnalysisScope;
     readonly dimension: BreakdownDimension;
     readonly topN?: number;
+    readonly rankBy?: 'value' | 'count';
   }
 ): Promise<Result<readonly AnalysisBreakdownBlock[], ApiError>> => {
   const topNR = normalizeTopN(input.topN);
   if (topNR.isErr()) return err(topNR.error);
   const topN = topNR.value;
-  const routesR = routeAnalysis(input.scope, 'breakdown', input.dimension);
+  const routesR = (deps.routeAnalysis ?? routeAnalysis)(input.scope, 'breakdown', input.dimension);
   if (routesR.isErr()) return err(routesR.error);
   const genR = await activeGen(deps.analysisRepo);
   if (genR.isErr()) return err(genR.error);
@@ -629,7 +640,8 @@ export const analysisBreakdown = async (
       input.scope,
       input.dimension,
       topN,
-      canonicalScope
+      canonicalScope,
+      input.rankBy
     );
     if (blockR.isErr()) return err(blockR.error);
     blocks.push(blockR.value);
@@ -643,7 +655,7 @@ export const analysisConcentration = async (
   deps: AnalysisDeps,
   input: { readonly scope: AnalysisScope; readonly basis?: 'value' | 'count' }
 ): Promise<Result<readonly AnalysisConcentrationBlock[], ApiError>> => {
-  const routesR = routeAnalysis(input.scope, 'concentration');
+  const routesR = (deps.routeAnalysis ?? routeAnalysis)(input.scope, 'concentration');
   if (routesR.isErr()) return err(routesR.error);
   const genR = await activeGen(deps.analysisRepo);
   if (genR.isErr()) return err(genR.error);
@@ -839,7 +851,7 @@ export const analysisShare = async (
   return ok({
     share,
     answerability: degradedOperand === undefined ? 'served' : 'degraded',
-    ...(degradedOperand?.meta.reason === undefined ? {} : { reason: degradedOperand.meta.reason }),
+    ...(degradedOperand?.meta.reason == null ? {} : { reason: degradedOperand.meta.reason }),
     numerator: numBlock,
     denominator: denBlock,
     caveats,
@@ -860,6 +872,7 @@ export const analysisFacets = async (
     readonly scope: AnalysisScope;
     readonly dimensions: readonly BreakdownDimension[];
     readonly topN?: number;
+    readonly rankBy?: 'value' | 'count';
   }
 ): Promise<Result<AnalysisFacetsResult, ApiError>> => {
   if (input.scope.grain === undefined) {
@@ -887,7 +900,7 @@ export const analysisFacets = async (
   // with the matrix's named capability, before any read runs.
   const routed: { dimension: BreakdownDimension; routes: readonly AnalysisRoute[] }[] = [];
   for (const dimension of dimensions) {
-    const routesR = routeAnalysis(input.scope, 'breakdown', dimension);
+    const routesR = (deps.routeAnalysis ?? routeAnalysis)(input.scope, 'breakdown', dimension);
     if (routesR.isErr()) return err(routesR.error);
     routed.push({ dimension, routes: routesR.value });
   }
@@ -907,7 +920,8 @@ export const analysisFacets = async (
         input.scope,
         dimension,
         topN,
-        canonicalScope
+        canonicalScope,
+        input.rankBy
       );
       if (blockR.isErr()) return err(blockR.error);
       blocks.push(blockR.value);

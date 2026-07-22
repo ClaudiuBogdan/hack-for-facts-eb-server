@@ -61,6 +61,7 @@ import type { OpenSearchQResolver } from './opensearch-q-repo.js';
 import type { CursorPageRequest, ProcurementRepo } from '../../core/ports.js';
 import type {
   ContractDetail,
+  CpvCodeLabel,
   CpvDivision,
   CpvMatch,
   DirectAcquisitionDetail,
@@ -745,6 +746,36 @@ export const makeProcurementRepo = (
     }
   };
 
+  const listCpvCodeLabels = async (
+    codes: readonly string[]
+  ): Promise<Result<readonly CpvCodeLabel[], ApiError>> => {
+    if (codes.length === 0) return ok([]);
+    try {
+      const rows = await db
+        .selectFrom('procurement.cpv_codes as cc')
+        .select([
+          'cc.cpv_code',
+          // Official CPV-2008 relabel (100% of official codes) beats the
+          // best-effort observed label.
+          sql<string | null>`coalesce(cc.official_label_ro, cc.label_ro)`.as('label_ro'),
+          'cc.label_en',
+          'cc.division_code',
+        ])
+        .where('cc.cpv_code', 'in', [...codes])
+        .execute();
+      return ok(
+        rows.map((r) => ({
+          code: r.cpv_code,
+          labelRo: r.label_ro,
+          labelEn: r.label_en,
+          divisionCode: r.division_code,
+        }))
+      );
+    } catch (error) {
+      return err(databaseError('listCpvCodeLabels failed', error));
+    }
+  };
+
   const resolveCpv = async (
     q: string,
     limit: number
@@ -842,6 +873,7 @@ export const makeProcurementRepo = (
     listModifications,
     listModificationsAboveDelta,
     listCpvDivisions,
+    listCpvCodeLabels,
     resolveCpv,
     // offset search (the client contract) — delegated, arrow-wrapped so the sub-repo
     // methods keep their own `this`-free closure identity.

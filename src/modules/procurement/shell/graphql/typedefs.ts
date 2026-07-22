@@ -340,6 +340,11 @@ export const procurementTypeDefs = /* GraphQL */ `
     count
     value
   }
+  "Breakdown/facets bucket ranking basis. Default: value where the spend gate allows, else count."
+  enum ProcurementRankBy {
+    count
+    value
+  }
   enum ProcurementAnswerability {
     served
     degraded
@@ -376,6 +381,8 @@ export const procurementTypeDefs = /* GraphQL */ `
     status
     procedureType
     buyerRegion
+    buyerCounty
+    buyerSiruta
   }
 
   """
@@ -544,6 +551,14 @@ export const procurementTypeDefs = /* GraphQL */ `
     labelRo: String
   }
 
+  "A full CPV code label (official CPV-2008 relabel where available, else best-effort)."
+  type ProcurementCpvCode {
+    cpvCode: String!
+    labelRo: String
+    labelEn: String
+    divisionCode: String
+  }
+
   "A name→value discovery hit (Entity Resolution Gate output)."
   type ProcurementResolveHit {
     dim: String!
@@ -597,6 +612,7 @@ export const procurementTypeDefs = /* GraphQL */ `
       scope: ProcurementAnalysisScopeInput
       dimension: ProcurementBreakdownDimension!
       topN: Int
+      rankBy: ProcurementRankBy
     ): [ProcurementBreakdownBlock!]!
     procurementShare(
       numerator: ProcurementAnalysisScopeInput!
@@ -606,6 +622,7 @@ export const procurementTypeDefs = /* GraphQL */ `
       scope: ProcurementAnalysisScopeInput
       dimensions: [ProcurementBreakdownDimension!]!
       topN: Int
+      rankBy: ProcurementRankBy
     ): ProcurementFacetsResult!
 
     # supplier recent records (canonical flows only, date desc)
@@ -617,6 +634,8 @@ export const procurementTypeDefs = /* GraphQL */ `
 
     # meta
     procurementCpvDivisions: [ProcurementCpvDivision!]!
+    "Batch CPV code label lookup (up to 200 distinct codes); unknown codes are omitted."
+    procurementCpvCodes(codes: [String!]!): [ProcurementCpvCode!]!
     procurementResolve(
       dim: ProcurementResolveDim!
       q: String!
