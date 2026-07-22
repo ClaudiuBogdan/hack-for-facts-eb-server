@@ -183,6 +183,8 @@ export const BREAKDOWN_DIMENSIONS = [
   'status',
   'procedureType',
   'buyerRegion',
+  'buyerCounty',
+  'buyerSiruta',
 ] as const;
 export type BreakdownDimension = (typeof BREAKDOWN_DIMENSIONS)[number];
 

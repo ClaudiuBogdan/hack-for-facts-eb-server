@@ -117,6 +117,15 @@ export const createProdDb = (config: ProdDbConfig): ProdDb => {
     ...(ssl !== undefined ? { ssl } : {}),
   });
 
+  // An idle client dropped by the network (dev port-forwards especially)
+  // emits 'error' on the pool; without a listener Node treats it as an
+  // unhandled 'error' event and kills the process. The client is already
+  // discarded by pg — log and continue.
+  pool.on('error', (error) => {
+    // eslint-disable-next-line no-console -- kernel pool has no logger handle
+    console.error('[prod-db pool] idle client error (recovered):', error.message);
+  });
+
   const db = new Kysely<ProdDatabase>({
     dialect: new PostgresDialect({ pool }),
   });
