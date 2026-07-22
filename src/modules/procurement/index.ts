@@ -9,12 +9,17 @@
 import './shell/db/schema.js';
 
 import { analysisBreakdown, analysisStats } from './core/analysis-usecases.js';
+import { clickhouseRouteAnalysis } from './core/clickhouse-route.js';
 import { DA_LIST_MAX_WINDOW_DAYS_DEFAULT } from './core/constants.js';
 import { makeProcurementResolvers } from './shell/graphql/resolvers.js';
 import { procurementTypeDefs } from './shell/graphql/typedefs.js';
 import { assertProcurementMatrixArtifact } from './shell/matrix-artifact.js';
 import { makeProcurementMcpTools } from './shell/mcp/tools.js';
 import { makeProcurementAnalysisRepo } from './shell/repo/analysis-repo.js';
+import {
+  makeClickhouseAnalysisRepo,
+  type ClickhouseAnalysisConfig,
+} from './shell/repo/clickhouse-analysis-repo.js';
 import { makeOpenSearchQResolver, type OpenSearchQConfig } from './shell/repo/opensearch-q-repo.js';
 import { makeProcurementRepo } from './shell/repo/procurement-repo.js';
 
@@ -31,6 +36,13 @@ export interface ProcurementModuleDeps {
   readonly warmCache?: boolean;
   /** Structured diagnostics for analysis query failures. */
   readonly logger?: Logger;
+  /**
+   * DEV: when set, analytics reads come from ClickHouse wide fact tables
+   * instead of the Postgres rollups (routing turns permissive for the
+   * geography dims the rollup matrix rejects). Generation/quality metadata
+   * still comes from Postgres. See shell/repo/clickhouse-analysis-repo.ts.
+   */
+  readonly clickhouse?: ClickhouseAnalysisConfig;
   /**
    * DEV: when set, the list `q` facet resolves through OpenSearch (Romanian
    * analyzer BM25 → bounded pk id-set) instead of SQL ILIKE, degrading back
@@ -77,7 +89,16 @@ export const makeProcurementModule = (deps: ProcurementModuleDeps): ProcurementM
     deps.opensearch !== undefined ? makeOpenSearchQResolver(deps.opensearch) : undefined,
     deps.logger
   );
-  const analysis = makeProcurementAnalysisRepo(deps.db, undefined, Date.now, deps.logger);
+  const pgAnalysis = makeProcurementAnalysisRepo(deps.db, undefined, Date.now, deps.logger);
+  const analysis =
+    deps.clickhouse !== undefined
+      ? makeClickhouseAnalysisRepo(
+          deps.clickhouse,
+          () => pgAnalysis.activeGeneration(),
+          deps.logger
+        )
+      : pgAnalysis;
+  const routeOverride = deps.clickhouse !== undefined ? clickhouseRouteAnalysis : undefined;
   const clientBaseUrl = deps.clientBaseUrl ?? 'https://transparenta.eu';
 
   if (deps.warmCache !== false) warmEmptyScope(analysis);
@@ -89,6 +110,7 @@ export const makeProcurementModule = (deps: ProcurementModuleDeps): ProcurementM
     graphqlResolvers: makeProcurementResolvers({
       repo,
       analysis,
+      ...(routeOverride !== undefined && { routeAnalysis: routeOverride }),
     }),
     mcpTools: makeProcurementMcpTools({ repo, analysis, clientBaseUrl }),
   };

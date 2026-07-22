@@ -235,6 +235,14 @@ export interface CpvDivision {
   readonly labelRo: string | null;
 }
 
+/** A full CPV code label (official CPV-2008 relabel preferred over best-effort). */
+export interface CpvCodeLabel {
+  readonly code: string;
+  readonly labelRo: string | null;
+  readonly labelEn: string | null;
+  readonly divisionCode: string | null;
+}
+
 export interface CpvMatch {
   readonly code: string;
   readonly label: string | null;

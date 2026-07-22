@@ -271,7 +271,7 @@ describe('analysisBreakdown — topN contract', () => {
     expect(calls.find((call) => call.method === 'breakdownFor')?.params[1]).toBe(expected);
   });
 
-  it.each([0, 51, -1, 1.5, Number.MAX_SAFE_INTEGER])(
+  it.each([0, 101, -1, 1.5, Number.MAX_SAFE_INTEGER])(
     'rejects explicit topN=%s before repository reads',
     async (topN) => {
       const { repo, calls } = fakeAnalysisRepo();

@@ -31,8 +31,8 @@ import { err, ok, type Result } from 'neverthrow';
 
 import { databaseError, type ApiError, type Logger } from '@/modules/shared/index.js';
 
-import type { AnalysisRoute } from '../../core/combinations.js';
 import type { AnalysisScope } from '../../core/analysis-scope.js';
+import type { AnalysisRoute } from '../../core/combinations.js';
 import type { MeasureId, SeriesBucket } from '../../core/constants.js';
 import type {
   AnalysisBreakdownBucketRow,
@@ -64,7 +64,7 @@ const TABLE_BY_GRAIN: Record<string, string> = {
 /** Grains that structurally have no supplier columns. */
 const SUPPLIERLESS_GRAINS = new Set(['procedure']);
 
-const DIM_COLUMNS: ReadonlyArray<readonly [keyof AnalysisScope, string]> = [
+const DIM_COLUMNS: readonly (readonly [keyof AnalysisScope, string])[] = [
   ['authorityCui', 'authority_cui'],
   ['supplierCui', 'supplier_cui'],
   ['cpvDivision', 'cpv_division'],
@@ -77,7 +77,7 @@ const DIM_COLUMNS: ReadonlyArray<readonly [keyof AnalysisScope, string]> = [
   ['procedureType', 'procedure_type'],
 ];
 
-const SUPPLIER_SCOPE_FIELDS: ReadonlyArray<keyof AnalysisScope> = [
+const SUPPLIER_SCOPE_FIELDS: readonly (keyof AnalysisScope)[] = [
   'supplierCui',
   'supplierCounty',
   'supplierRegion',
@@ -117,7 +117,7 @@ const baniToRon = (bani: string | null): string | null => {
   const v = BigInt(bani);
   const sign = v < 0n ? '-' : '';
   const abs = v < 0n ? -v : v;
-  return `${sign}${abs / 100n}.${(abs % 100n).toString().padStart(2, '0')}`;
+  return `${sign}${(abs / 100n).toString()}.${(abs % 100n).toString().padStart(2, '0')}`;
 };
 
 interface CompiledScope {
@@ -132,7 +132,7 @@ interface CompiledScope {
 
 const compileScope = (route: AnalysisRoute, scope: AnalysisScope): CompiledScope => {
   const grain = route.grain;
-  const table = TABLE_BY_GRAIN[grain] ?? TABLE_BY_GRAIN['contract']!;
+  const table = TABLE_BY_GRAIN[grain] ?? 'facts_contracts_v1';
   const conds: string[] = ['is_canonical'];
   let impossible = false;
 
@@ -152,7 +152,7 @@ const compileScope = (route: AnalysisRoute, scope: AnalysisScope): CompiledScope
   const buyerSiruta = (scope as { buyerSiruta?: string }).buyerSiruta;
   if (typeof buyerSiruta === 'string' && buyerSiruta !== '') {
     if (/^\d{1,7}$/.test(buyerSiruta)) {
-      conds.push(`buyer_siruta_uat = ${Number(buyerSiruta)}`);
+      conds.push(`buyer_siruta_uat = ${String(Number(buyerSiruta))}`);
     } else {
       impossible = true;
     }
@@ -160,8 +160,8 @@ const compileScope = (route: AnalysisRoute, scope: AnalysisScope): CompiledScope
 
   const bounds: string[] = [];
   if (scope.year !== undefined) {
-    bounds.push(`date_basis >= toDate('${scope.year}-01-01')`);
-    bounds.push(`date_basis < toDate('${scope.year + 1}-01-01')`);
+    bounds.push(`date_basis >= toDate('${String(scope.year)}-01-01')`);
+    bounds.push(`date_basis < toDate('${String(scope.year + 1)}-01-01')`);
   } else {
     if (scope.from !== undefined) bounds.push(`date_basis >= toDate('${scope.from}-01')`);
     if (scope.to !== undefined) {
@@ -209,13 +209,18 @@ export const makeClickhouseAnalysisRepo = (
       });
       if (!response.ok) {
         const body = await response.text();
-        logger?.error?.({ status: response.status, body: body.slice(0, 500) }, 'clickhouse query failed');
-        return err(databaseError(`clickhouse HTTP ${response.status}: ${body.slice(0, 300)}`));
+        logger?.error(
+          { status: response.status, body: body.slice(0, 500) },
+          'clickhouse query failed'
+        );
+        return err(
+          databaseError(`clickhouse HTTP ${String(response.status)}: ${body.slice(0, 300)}`)
+        );
       }
       const parsed = (await response.json()) as { data: readonly T[] };
       return ok(parsed.data);
     } catch (error) {
-      logger?.error?.({ error: String(error) }, 'clickhouse query error');
+      logger?.error({ error: String(error) }, 'clickhouse query error');
       return err(databaseError(`clickhouse unreachable: ${String(error)}`));
     }
   };
@@ -266,7 +271,9 @@ export const makeClickhouseAnalysisRepo = (
   const statsFor: AnalysisRepo['statsFor'] = async (route, scope, _buildId) => {
     const c = compileScope(route, scope);
     if (c.impossible) return ok(EMPTY_STATS);
-    const r = await query<RawStats>(`SELECT ${statsSelect(c.dated)} FROM ${c.table} WHERE ${c.where}`);
+    const r = await query<RawStats>(
+      `SELECT ${statsSelect(c.dated)} FROM ${c.table} WHERE ${c.where}`
+    );
     return r.map((rows) => toStats(rows[0]));
   };
 
@@ -286,7 +293,10 @@ export const makeClickhouseAnalysisRepo = (
   };
 
   /** Monetary measures come back as bani and need RON conversion. */
-  const MONETARY_MEASURES: ReadonlySet<MeasureId> = new Set(['valueAwardedSum', 'valueEstimatedSum']);
+  const MONETARY_MEASURES: ReadonlySet<MeasureId> = new Set([
+    'valueAwardedSum',
+    'valueEstimatedSum',
+  ]);
 
   const seriesFor: AnalysisRepo['seriesFor'] = async (route, scope, _buildId, measure) => {
     const c = compileScope(route, scope);
@@ -379,7 +389,8 @@ export const makeClickhouseAnalysisRepo = (
     if (c.impossible) return ok({ buckets: [], totals });
 
     const column = BREAKDOWN_DIM_COLUMNS[dimension];
-    if (column === undefined) return err(databaseError(`breakdown dimension '${dimension}' unsupported`));
+    if (column === undefined)
+      return err(databaseError(`breakdown dimension '${dimension}' unsupported`));
     if (column === 'supplier_identity_key' && SUPPLIERLESS_GRAINS.has(route.grain)) {
       return ok({ buckets: [], totals });
     }
@@ -405,7 +416,7 @@ export const makeClickhouseAnalysisRepo = (
       WHERE ${c.where} AND ${column} IS NOT NULL
       GROUP BY key
       ORDER BY ${rankExpr} DESC, key ASC
-      LIMIT ${Math.max(1, Math.min(topN, 1000))}`);
+      LIMIT ${String(Math.max(1, Math.min(topN, 1000)))}`);
     if (topR.isErr()) return err(topR.error);
 
     const unknownR = await query<{ cnt: string; wv: string; awarded_bani: string }>(`

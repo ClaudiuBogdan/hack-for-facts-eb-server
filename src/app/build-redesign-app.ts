@@ -312,6 +312,9 @@ export const registerRedesignSurface = async (
 
   if (enabledModules.includes('procurement')) {
     const windowEnv = Number(process.env['PROCUREMENT_DA_LIST_MAX_WINDOW_DAYS']);
+    // DEV analytics backend switch: point analytics at the ClickHouse
+    // prototype fact tables (chronos, via port-forward). Unset = rollups.
+    const clickhouseUrl = process.env['PROD_CLICKHOUSE_URL'];
     // DEV list-search switch: resolve the `q` facet through the chronos
     // OpenSearch proto indices (via port-forward). DEDICATED variable —
     // deliberately not the kernel-wide PROD_OPENSEARCH_URL, so existing
@@ -351,6 +354,19 @@ export const registerRedesignSurface = async (
               }),
             ...(process.env['PROCUREMENT_Q_OPENSEARCH_TLS_SERVERNAME'] !== undefined && {
               tlsServername: process.env['PROCUREMENT_Q_OPENSEARCH_TLS_SERVERNAME'],
+            }),
+          },
+        }),
+      ...(clickhouseUrl !== undefined &&
+        clickhouseUrl !== '' && {
+          clickhouse: {
+            url: clickhouseUrl,
+            database: process.env['PROD_CLICKHOUSE_DATABASE'] ?? 'proto',
+            ...(process.env['PROD_CLICKHOUSE_USER'] !== undefined && {
+              user: process.env['PROD_CLICKHOUSE_USER'],
+            }),
+            ...(process.env['PROD_CLICKHOUSE_PASSWORD'] !== undefined && {
+              password: process.env['PROD_CLICKHOUSE_PASSWORD'],
             }),
           },
         }),

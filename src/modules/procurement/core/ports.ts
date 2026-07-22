@@ -15,6 +15,7 @@ import type { GenerationQuality } from './gate-v2.js';
 import type { ProcurementSearchFilter } from './search.js';
 import type {
   ContractDetail,
+  CpvCodeLabel,
   CpvDivision,
   CpvMatch,
   DirectAcquisitionDetail,
@@ -81,6 +82,7 @@ export interface ProcurementRepo {
 
   // ── CPV discovery ──
   listCpvDivisions(): Promise<Result<readonly CpvDivision[], ApiError>>;
+  listCpvCodeLabels(codes: readonly string[]): Promise<Result<readonly CpvCodeLabel[], ApiError>>;
   resolveCpv(q: string, limit: number): Promise<Result<readonly CpvMatch[], ApiError>>;
 
   // ── offset search (the client contract; ADDITIVE — the cursor lists above stay

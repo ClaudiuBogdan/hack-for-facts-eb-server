@@ -128,7 +128,7 @@ describe('GraphQL/MCP analysis parity', () => {
 
   it('returns the same InvalidInput message for an explicit out-of-range topN', async () => {
     const { query, tool } = surfaces(fakeAnalysisRepo().repo);
-    const args = { dimension: 'supplier' as const, topN: 51 };
+    const args = { dimension: 'supplier' as const, topN: 101 };
 
     let graphqlError: GraphQLError | undefined;
     try {
@@ -148,7 +148,7 @@ describe('GraphQL/MCP analysis parity', () => {
     const { query, tool } = surfaces(fakeAnalysisRepo().repo);
     let graphqlError: GraphQLError | undefined;
     try {
-      await query.procurementBreakdown(undefined, { dimension: 'supplier', topN: 51 });
+      await query.procurementBreakdown(undefined, { dimension: 'supplier', topN: 101 });
     } catch (error: unknown) {
       if (error instanceof GraphQLError) graphqlError = error;
     }
@@ -160,7 +160,7 @@ describe('GraphQL/MCP analysis parity', () => {
       method: 'tools/call',
       params: {
         name: 'aggregate_procurement',
-        arguments: { shape: 'breakdown', dimension: 'supplier', topN: 51 },
+        arguments: { shape: 'breakdown', dimension: 'supplier', topN: 101 },
       },
     });
     const wire = JSON.stringify(response);

@@ -165,6 +165,9 @@ export interface ProcurementCpvDivisionsTable {
 export interface ProcurementCpvCodesTable {
   cpv_code: string;
   label_ro: string | null;
+  official_label_ro: string | null; // official CPV-2008 relabel; covers 100% of official codes
+  label_en: string | null;
+  division_code: string | null;
   parent_code: string | null; // 100% NULL (corrupt)
   cpv_level: number | null; // 100% NULL (corrupt)
 }

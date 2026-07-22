@@ -27,6 +27,7 @@ import {
   analysisSeries,
   analysisShare,
   analysisStats,
+  type AnalysisDeps,
 } from '../../core/analysis-usecases.js';
 import {
   PAGE_SIZE_DEFAULT,
@@ -41,6 +42,7 @@ import {
   getProcedureDetail,
   getSupplierRecords,
   listCpvDivisions,
+  listCpvCodeLabels,
   resolveCpv,
 } from '../../core/usecases.js';
 
@@ -57,6 +59,8 @@ import type { Result } from 'neverthrow';
 export interface ProcurementResolverDeps {
   readonly repo: ProcurementRepo;
   readonly analysis: AnalysisRepo;
+  /** Route override for alternate analytics backends (ClickHouse dev path). */
+  readonly routeAnalysis?: AnalysisDeps['routeAnalysis'];
 }
 
 const toGraphqlError = (error: ApiError): GraphQLError =>
@@ -90,7 +94,10 @@ export const makeProcurementResolvers = (
   deps: ProcurementResolverDeps
 ): Record<string, unknown> => {
   const { repo, analysis } = deps;
-  const analysisDeps = { analysisRepo: analysis };
+  const analysisDeps = {
+    analysisRepo: analysis,
+    ...(deps.routeAnalysis !== undefined && { routeAnalysis: deps.routeAnalysis }),
+  };
 
   const modificationsLoader = makeBatchLoader<readonly ProcurementModification[]>(
     async (contractIds) => unwrap(await repo.modificationsForContracts(contractIds)),
@@ -178,6 +185,7 @@ export const makeProcurementResolvers = (
           scope?: RawAnalysisScopeInput | null;
           dimension: BreakdownDimension;
           topN?: number | null;
+          rankBy?: 'value' | 'count' | null;
         }
       ) =>
         unwrap(
@@ -185,6 +193,7 @@ export const makeProcurementResolvers = (
             scope: analysisScope(a.scope),
             dimension: a.dimension,
             ...(a.topN !== undefined && a.topN !== null && { topN: a.topN }),
+            ...(a.rankBy !== undefined && a.rankBy !== null && { rankBy: a.rankBy }),
           })
         ),
       procurementShare: async (
@@ -203,6 +212,7 @@ export const makeProcurementResolvers = (
           scope?: RawAnalysisScopeInput | null;
           dimensions: readonly BreakdownDimension[];
           topN?: number | null;
+          rankBy?: 'value' | 'count' | null;
         }
       ) =>
         unwrap(
@@ -210,6 +220,7 @@ export const makeProcurementResolvers = (
             scope: analysisScope(a.scope),
             dimensions: a.dimensions,
             ...(a.topN !== undefined && a.topN !== null && { topN: a.topN }),
+            ...(a.rankBy !== undefined && a.rankBy !== null && { rankBy: a.rankBy }),
           })
         ),
 
@@ -234,6 +245,13 @@ export const makeProcurementResolvers = (
           divisionCode: d.code,
           labelEn: d.labelEn,
           labelRo: d.labelRo,
+        })),
+      procurementCpvCodes: async (_r: unknown, a: { codes: readonly string[] }) =>
+        unwrap(await listCpvCodeLabels(repo, a.codes)).map((c) => ({
+          cpvCode: c.code,
+          labelRo: c.labelRo,
+          labelEn: c.labelEn,
+          divisionCode: c.divisionCode,
         })),
       procurementResolve: async (_r: unknown, a: { dim: string; q: string; limit?: number }) => {
         // This module owns CPV resolution; identity + territory dims resolve through
