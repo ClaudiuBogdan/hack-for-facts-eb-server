@@ -1,0 +1,500 @@
+/**
+ * ClickHouse-backed `AnalysisRepo` — DEV iteration path (2026-07-22).
+ *
+ * Reads the prototype wide fact tables (`proto.facts_*_v1` on the chronos
+ * CHI; see scrapper `prod-db/ch-prototype/`) over the plain-HTTP interface,
+ * typically through `kubectl port-forward … 58123:8123`. Enabled by
+ * `PROD_CLICKHOUSE_URL`; when unset the module keeps the Postgres rollup
+ * repo and nothing here is loaded.
+ *
+ * Contract fidelity notes (mirrors `analysis-repo.ts` semantics):
+ *  - months are 'YYYY-MM'; the undated bucket (date_basis IS NULL) is
+ *    selectable in the same statement and never counted in dated aggregates;
+ *  - all monetary outputs are RON decimal strings; ClickHouse returns exact
+ *    Int128 bani strings and the conversion is BigInt (never float);
+ *  - sums are NULL (never zero) when the contributing set is empty;
+ *  - `withValue` = accepted value_state count (pinned set below);
+ *  - distincts: supplier = high-confidence identity keys, authority =
+ *    non-null CUI (F14 checksum validation is a deferred export-lane item —
+ *    see scrapper `prod-db/ch-prototype/DEFERRED_ISSUES.md` #2);
+ *  - `activeGeneration()` delegates to the Postgres repo so buildId, quality
+ *    verdicts and matrix hash stay honest — ClickHouse is a projection.
+ *
+ * DEV-ONLY shortcuts (accepted for the iteration slice, not production):
+ *  - scope values are escaped and inlined (parsed/validated upstream);
+ *    the production loader/serving path binds parameters;
+ *  - breakdown runs top-N + totals as two statements over the immutable
+ *    table and derives `other` by exact BigInt subtraction.
+ */
+
+import { err, ok, type Result } from 'neverthrow';
+
+import { databaseError, type ApiError, type Logger } from '@/modules/shared/index.js';
+
+import type { AnalysisRoute } from '../../core/combinations.js';
+import type { AnalysisScope } from '../../core/analysis-scope.js';
+import type { MeasureId, SeriesBucket } from '../../core/constants.js';
+import type {
+  AnalysisBreakdownBucketRow,
+  AnalysisBreakdownRead,
+  AnalysisRepo,
+  AnalysisStatsRead,
+  ConcentrationRead,
+  ConcentrationRow,
+} from '../../core/ports.js';
+
+export interface ClickhouseAnalysisConfig {
+  /** Base URL of the ClickHouse HTTP interface, e.g. http://localhost:58123 */
+  readonly url: string;
+  /** Database holding the wide fact tables (default: proto). */
+  readonly database: string;
+  readonly user?: string;
+  readonly password?: string;
+}
+
+/** Pinned accepted value_state set (semantic-artifact stand-in; measured 2026-07-22). */
+const ACCEPTED_STATES = ["'official_exact'", "'official_ron_equivalent'"].join(', ');
+
+const TABLE_BY_GRAIN: Record<string, string> = {
+  contract: 'facts_contracts_v1',
+  direct_acquisition: 'facts_da_v1',
+  procedure: 'facts_procedures_v1',
+};
+
+/** Grains that structurally have no supplier columns. */
+const SUPPLIERLESS_GRAINS = new Set(['procedure']);
+
+const DIM_COLUMNS: ReadonlyArray<readonly [keyof AnalysisScope, string]> = [
+  ['authorityCui', 'authority_cui'],
+  ['supplierCui', 'supplier_cui'],
+  ['cpvDivision', 'cpv_division'],
+  ['cpvCode', 'cpv_code'],
+  ['buyerCounty', 'buyer_county_code'],
+  ['buyerRegion', 'buyer_region'],
+  ['supplierCounty', 'supplier_county_code'],
+  ['supplierRegion', 'supplier_region'],
+  ['status', 'status'],
+  ['procedureType', 'procedure_type'],
+];
+
+const SUPPLIER_SCOPE_FIELDS: ReadonlyArray<keyof AnalysisScope> = [
+  'supplierCui',
+  'supplierCounty',
+  'supplierRegion',
+];
+
+const BREAKDOWN_DIM_COLUMNS: Record<string, string> = {
+  authority: 'authority_cui',
+  supplier: 'supplier_identity_key',
+  cpvDivision: 'cpv_division',
+  cpvCode: 'cpv_code',
+  status: 'status',
+  procedureType: 'procedure_type',
+  buyerRegion: 'buyer_region',
+};
+
+const BUCKET_FN: Record<SeriesBucket, string> = {
+  month: 'toStartOfMonth',
+  quarter: 'toStartOfQuarter',
+  year: 'toStartOfYear',
+};
+
+/** High-confidence supplier identity (mirrors spec F14 supplier rule). */
+const SUPPLIER_KEY_VALID =
+  "(supplier_identity_key IS NOT NULL AND ifNull(supplier_identity_confidence, '') = 'high')";
+
+const escapeString = (value: string): string =>
+  `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+
+/** Exact bani (Int64/Int128 decimal string) → RON decimal string. */
+const baniToRon = (bani: string | null): string | null => {
+  if (bani === null) return null;
+  const v = BigInt(bani);
+  const sign = v < 0n ? '-' : '';
+  const abs = v < 0n ? -v : v;
+  return `${sign}${abs / 100n}.${(abs % 100n).toString().padStart(2, '0')}`;
+};
+
+interface CompiledScope {
+  readonly table: string;
+  /** Full row-selection predicate: dims AND (dated-window OR undated). */
+  readonly where: string;
+  /** Predicate marking rows that belong to the dated aggregates. */
+  readonly dated: string;
+  /** True when the scope can never match (structural N/A, e.g. supplier dims on procedures). */
+  readonly impossible: boolean;
+}
+
+const compileScope = (route: AnalysisRoute, scope: AnalysisScope): CompiledScope => {
+  const grain = route.grain;
+  const table = TABLE_BY_GRAIN[grain] ?? TABLE_BY_GRAIN['contract']!;
+  const conds: string[] = ['is_canonical'];
+  let impossible = false;
+
+  if (SUPPLIERLESS_GRAINS.has(grain)) {
+    for (const field of SUPPLIER_SCOPE_FIELDS) {
+      if (scope[field] !== undefined) impossible = true;
+    }
+  }
+  for (const [field, column] of DIM_COLUMNS) {
+    const value = scope[field];
+    if (typeof value === 'string' && value !== '') {
+      conds.push(`${column} = ${escapeString(value)}`);
+    }
+  }
+  // buyerSiruta targets the numeric UAT column; non-numeric input can never
+  // match (SIRUTA codes are digits) and compiles to an impossible predicate.
+  const buyerSiruta = (scope as { buyerSiruta?: string }).buyerSiruta;
+  if (typeof buyerSiruta === 'string' && buyerSiruta !== '') {
+    if (/^\d{1,7}$/.test(buyerSiruta)) {
+      conds.push(`buyer_siruta_uat = ${Number(buyerSiruta)}`);
+    } else {
+      impossible = true;
+    }
+  }
+
+  const bounds: string[] = [];
+  if (scope.year !== undefined) {
+    bounds.push(`date_basis >= toDate('${scope.year}-01-01')`);
+    bounds.push(`date_basis < toDate('${scope.year + 1}-01-01')`);
+  } else {
+    if (scope.from !== undefined) bounds.push(`date_basis >= toDate('${scope.from}-01')`);
+    if (scope.to !== undefined) {
+      bounds.push(`date_basis < addMonths(toDate('${scope.to}-01'), 1)`);
+    }
+  }
+  const dated =
+    bounds.length > 0 ? `(NOT is_undated AND ${bounds.join(' AND ')})` : 'NOT is_undated';
+  conds.push(`(${dated} OR is_undated)`);
+
+  return { table, where: conds.join(' AND '), dated, impossible };
+};
+
+const EMPTY_STATS: AnalysisStatsRead = {
+  rows: '0',
+  withValue: '0',
+  withEstimated: '0',
+  valueAwardedSum: null,
+  valueEstimatedSum: null,
+  minMonth: null,
+  maxMonth: null,
+  undatedCount: '0',
+  undatedValueRon: null,
+};
+
+export const makeClickhouseAnalysisRepo = (
+  config: ClickhouseAnalysisConfig,
+  activeGeneration: AnalysisRepo['activeGeneration'],
+  logger?: Logger
+): AnalysisRepo => {
+  const query = async <T>(sql: string): Promise<Result<readonly T[], ApiError>> => {
+    try {
+      const url = new URL(config.url);
+      url.searchParams.set('database', config.database);
+      const headers: Record<string, string> = { 'Content-Type': 'text/plain' };
+      if (config.user !== undefined) headers['X-ClickHouse-User'] = config.user;
+      if (config.password !== undefined) headers['X-ClickHouse-Key'] = config.password;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: `${sql} FORMAT JSON`,
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (!response.ok) {
+        const body = await response.text();
+        logger?.error?.({ status: response.status, body: body.slice(0, 500) }, 'clickhouse query failed');
+        return err(databaseError(`clickhouse HTTP ${response.status}: ${body.slice(0, 300)}`));
+      }
+      const parsed = (await response.json()) as { data: readonly T[] };
+      return ok(parsed.data);
+    } catch (error) {
+      logger?.error?.({ error: String(error) }, 'clickhouse query error');
+      return err(databaseError(`clickhouse unreachable: ${String(error)}`));
+    }
+  };
+
+  const statsSelect = (dated: string): string => `
+      toString(countIf(${dated})) AS rows,
+      toString(countIf(${dated} AND value_state IN (${ACCEPTED_STATES}))) AS with_value,
+      toString(countIf(${dated} AND value_estimated_bani IS NOT NULL)) AS with_estimated,
+      if(countIf(${dated}) = 0, NULL,
+         toString(sumIf(toInt128(value_awarded_bani), ${dated} AND value_state IN (${ACCEPTED_STATES})))) AS awarded_bani_out,
+      if(countIf(${dated}) = 0, NULL,
+         toString(sumIf(toInt128(value_estimated_bani), ${dated} AND value_estimated_bani IS NOT NULL))) AS estimated_bani_out,
+      if(countIf(${dated}) = 0, NULL, formatDateTime(minIf(date_basis, ${dated}), '%Y-%m')) AS min_month,
+      if(countIf(${dated}) = 0, NULL, formatDateTime(maxIf(date_basis, ${dated}), '%Y-%m')) AS max_month,
+      toString(countIf(is_undated)) AS undated_count,
+      if(countIf(is_undated) = 0, NULL,
+         toString(sumIf(toInt128(value_awarded_bani), is_undated AND value_state IN (${ACCEPTED_STATES})))) AS undated_bani_out`;
+
+  interface RawStats {
+    rows: string;
+    with_value: string;
+    with_estimated: string;
+    awarded_bani_out: string | null;
+    estimated_bani_out: string | null;
+    min_month: string | null;
+    max_month: string | null;
+    undated_count: string;
+    undated_bani_out: string | null;
+  }
+
+  const toStats = (row: RawStats | undefined): AnalysisStatsRead =>
+    row === undefined
+      ? EMPTY_STATS
+      : {
+          rows: row.rows,
+          withValue: row.with_value,
+          withEstimated: row.with_estimated,
+          valueAwardedSum: baniToRon(row.awarded_bani_out),
+          valueEstimatedSum: baniToRon(row.estimated_bani_out),
+          minMonth: row.min_month,
+          maxMonth: row.max_month,
+          undatedCount: row.undated_count,
+          undatedValueRon: baniToRon(row.undated_bani_out),
+        };
+
+  const statsFor: AnalysisRepo['statsFor'] = async (route, scope, _buildId) => {
+    const c = compileScope(route, scope);
+    if (c.impossible) return ok(EMPTY_STATS);
+    const r = await query<RawStats>(`SELECT ${statsSelect(c.dated)} FROM ${c.table} WHERE ${c.where}`);
+    return r.map((rows) => toStats(rows[0]));
+  };
+
+  const measureExpr = (measure: MeasureId, dated: string): string | null => {
+    switch (measure) {
+      case 'recordCount':
+        return `toString(countIf(${dated}))`;
+      case 'withValueCount':
+        return `toString(countIf(${dated} AND value_state IN (${ACCEPTED_STATES})))`;
+      case 'valueAwardedSum':
+        return `if(countIf(${dated}) = 0, NULL, toString(sumIf(toInt128(value_awarded_bani), ${dated} AND value_state IN (${ACCEPTED_STATES}))))`;
+      case 'valueEstimatedSum':
+        return `if(countIf(${dated}) = 0, NULL, toString(sumIf(toInt128(value_estimated_bani), ${dated} AND value_estimated_bani IS NOT NULL)))`;
+      default:
+        return null;
+    }
+  };
+
+  /** Monetary measures come back as bani and need RON conversion. */
+  const MONETARY_MEASURES: ReadonlySet<MeasureId> = new Set(['valueAwardedSum', 'valueEstimatedSum']);
+
+  const seriesFor: AnalysisRepo['seriesFor'] = async (route, scope, _buildId, measure) => {
+    const c = compileScope(route, scope);
+    if (c.impossible) return ok([]);
+    const expr = measureExpr(measure, 'NOT is_undated');
+    if (expr === null) return err(databaseError(`series measure '${measure}' unsupported`));
+    const r = await query<{
+      month: string | null;
+      value: string | null;
+      record_count: string;
+      with_value: string;
+      awarded_bani_out: string | null;
+    }>(`
+      SELECT
+        if(is_undated, NULL, formatDateTime(toStartOfMonth(date_basis), '%Y-%m')) AS month,
+        ${expr} AS value,
+        toString(count()) AS record_count,
+        toString(countIf(value_state IN (${ACCEPTED_STATES}))) AS with_value,
+        toString(sumIf(toInt128(value_awarded_bani), value_state IN (${ACCEPTED_STATES}))) AS awarded_bani_out
+      FROM ${c.table}
+      WHERE ${c.where} AND (${c.dated} OR is_undated)
+      GROUP BY month
+      ORDER BY month ASC NULLS LAST`);
+    return r.map((rows) =>
+      rows.map((row) => ({
+        month: row.month,
+        value: MONETARY_MEASURES.has(measure) ? baniToRon(row.value) : row.value,
+        recordCount: row.record_count,
+        withValue: row.with_value,
+        valueAwardedSum: baniToRon(row.awarded_bani_out),
+      }))
+    );
+  };
+
+  const distinctSeriesFor: AnalysisRepo['distinctSeriesFor'] = async (
+    route,
+    scope,
+    _buildId,
+    key,
+    bucket
+  ) => {
+    const c = compileScope(route, scope);
+    if (c.impossible) return ok([]);
+    if (key === 'supplier' && SUPPLIERLESS_GRAINS.has(route.grain)) return ok([]);
+    const keyExpr =
+      key === 'supplier'
+        ? `uniqExactIf(supplier_identity_key, ${SUPPLIER_KEY_VALID})`
+        : `uniqExactIf(authority_cui, authority_cui IS NOT NULL)`;
+    const bucketFn = BUCKET_FN[bucket];
+    const r = await query<{
+      bucket: string | null;
+      value: string;
+      record_count: string;
+      with_value: string;
+      awarded_bani_out: string | null;
+    }>(`
+      SELECT
+        if(is_undated, NULL, toString(${bucketFn}(date_basis))) AS bucket,
+        toString(${keyExpr}) AS value,
+        toString(count()) AS record_count,
+        toString(countIf(value_state IN (${ACCEPTED_STATES}))) AS with_value,
+        toString(sumIf(toInt128(value_awarded_bani), value_state IN (${ACCEPTED_STATES}))) AS awarded_bani_out
+      FROM ${c.table}
+      WHERE ${c.where} AND (${c.dated} OR is_undated)
+      GROUP BY bucket
+      ORDER BY bucket ASC NULLS LAST`);
+    return r.map((rows) =>
+      rows.map((row) => ({
+        bucket: row.bucket,
+        value: row.value,
+        recordCount: row.record_count,
+        withValue: row.with_value,
+        valueAwardedSum: baniToRon(row.awarded_bani_out),
+      }))
+    );
+  };
+
+  const breakdownFor: AnalysisRepo['breakdownFor'] = async (
+    route,
+    scope,
+    buildId,
+    dimension,
+    topN,
+    rankBy
+  ) => {
+    const c = compileScope(route, scope);
+    const totalsR = await statsFor(route, scope, buildId);
+    if (totalsR.isErr()) return err(totalsR.error);
+    const totals = totalsR.value;
+    if (c.impossible) return ok({ buckets: [], totals });
+
+    const column = BREAKDOWN_DIM_COLUMNS[dimension];
+    if (column === undefined) return err(databaseError(`breakdown dimension '${dimension}' unsupported`));
+    if (column === 'supplier_identity_key' && SUPPLIERLESS_GRAINS.has(route.grain)) {
+      return ok({ buckets: [], totals });
+    }
+
+    // ORDER BY must use the numeric aggregate, NOT the toString() output
+    // alias (string alias would rank lexicographically — alias-shadow trap).
+    const rankExpr =
+      rankBy === 'value'
+        ? `sumIf(toInt128(value_awarded_bani), ${c.dated} AND value_state IN (${ACCEPTED_STATES}))`
+        : `countIf(${c.dated})`;
+    interface RawBucket {
+      key: string;
+      cnt: string;
+      wv: string;
+      awarded_bani: string;
+    }
+    const topR = await query<RawBucket>(`
+      SELECT ${column} AS key,
+        toString(countIf(${c.dated})) AS cnt,
+        toString(countIf(${c.dated} AND value_state IN (${ACCEPTED_STATES}))) AS wv,
+        toString(ifNull(sumIf(toInt128(value_awarded_bani), ${c.dated} AND value_state IN (${ACCEPTED_STATES})), 0)) AS awarded_bani
+      FROM ${c.table}
+      WHERE ${c.where} AND ${column} IS NOT NULL
+      GROUP BY key
+      ORDER BY ${rankExpr} DESC, key ASC
+      LIMIT ${Math.max(1, Math.min(topN, 1000))}`);
+    if (topR.isErr()) return err(topR.error);
+
+    const unknownR = await query<{ cnt: string; wv: string; awarded_bani: string }>(`
+      SELECT
+        toString(countIf(${c.dated})) AS cnt,
+        toString(countIf(${c.dated} AND value_state IN (${ACCEPTED_STATES}))) AS wv,
+        toString(ifNull(sumIf(toInt128(value_awarded_bani), ${c.dated} AND value_state IN (${ACCEPTED_STATES})), 0)) AS awarded_bani
+      FROM ${c.table}
+      WHERE ${c.where} AND ${column} IS NULL`);
+    if (unknownR.isErr()) return err(unknownR.error);
+    const unknown = unknownR.value[0] ?? { cnt: '0', wv: '0', awarded_bani: '0' };
+
+    // `other` = dated totals − top buckets − unknown, all exact BigInt.
+    let otherCnt = BigInt(totals.rows);
+    let otherWv = BigInt(totals.withValue);
+    // totals.valueAwardedSum is RON ("x.yy"); track in bani for exactness.
+    let otherBani =
+      totals.valueAwardedSum === null ? 0n : BigInt(totals.valueAwardedSum.replace('.', ''));
+    const buckets: AnalysisBreakdownBucketRow[] = [];
+    for (const row of topR.value) {
+      buckets.push({
+        kind: 'top',
+        key: row.key,
+        recordCount: row.cnt,
+        withValue: row.wv,
+        valueAwardedSum: baniToRon(row.awarded_bani),
+      });
+      otherCnt -= BigInt(row.cnt);
+      otherWv -= BigInt(row.wv);
+      otherBani -= BigInt(row.awarded_bani);
+    }
+    otherCnt -= BigInt(unknown.cnt);
+    otherWv -= BigInt(unknown.wv);
+    otherBani -= BigInt(unknown.awarded_bani);
+    buckets.push({
+      kind: 'other',
+      key: null,
+      recordCount: otherCnt.toString(),
+      withValue: otherWv.toString(),
+      valueAwardedSum: baniToRon(otherBani.toString()),
+    });
+    buckets.push({
+      kind: 'unknown',
+      key: null,
+      recordCount: unknown.cnt,
+      withValue: unknown.wv,
+      valueAwardedSum: baniToRon(unknown.awarded_bani),
+    });
+    return ok({ buckets, totals } satisfies AnalysisBreakdownRead);
+  };
+
+  const concentrationRowsFor: AnalysisRepo['concentrationRowsFor'] = async (
+    route,
+    scope,
+    buildId,
+    basis
+  ) => {
+    const c = compileScope(route, scope);
+    const totalsR = await statsFor(route, scope, buildId);
+    if (totalsR.isErr()) return err(totalsR.error);
+    const totals = totalsR.value;
+    if (c.impossible || SUPPLIERLESS_GRAINS.has(route.grain)) {
+      return ok({ rows: [], totals, unknownSupplierMeasure: null });
+    }
+    const measure =
+      basis === 'value'
+        ? `toString(ifNull(sumIf(toInt128(value_awarded_bani), ${c.dated} AND value_state IN (${ACCEPTED_STATES})), 0))`
+        : `toString(countIf(${c.dated}))`;
+    const rowsR = await query<{ supplier_key: string; measure: string }>(`
+      SELECT supplier_identity_key AS supplier_key, ${measure} AS measure
+      FROM ${c.table}
+      WHERE ${c.where} AND ${SUPPLIER_KEY_VALID}
+      GROUP BY supplier_key`);
+    if (rowsR.isErr()) return err(rowsR.error);
+    const unknownR = await query<{ measure: string }>(`
+      SELECT ${measure} AS measure FROM ${c.table}
+      WHERE ${c.where} AND NOT ${SUPPLIER_KEY_VALID}`);
+    if (unknownR.isErr()) return err(unknownR.error);
+    const rows: ConcentrationRow[] = rowsR.value.map((row) => ({
+      supplierKey: row.supplier_key,
+      measure: basis === 'value' ? (baniToRon(row.measure) ?? '0.00') : row.measure,
+    }));
+    const unknownRaw = unknownR.value[0]?.measure ?? '0';
+    const unknownSupplierMeasure =
+      basis === 'value' ? baniToRon(unknownRaw) : unknownRaw;
+    return ok({
+      rows,
+      totals,
+      unknownSupplierMeasure: unknownSupplierMeasure === '0.00' ? null : unknownSupplierMeasure,
+    } satisfies ConcentrationRead);
+  };
+
+  return {
+    activeGeneration,
+    statsFor,
+    seriesFor,
+    distinctSeriesFor,
+    breakdownFor,
+    concentrationRowsFor,
+  };
+};
