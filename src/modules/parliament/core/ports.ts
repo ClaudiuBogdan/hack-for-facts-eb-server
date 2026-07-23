@@ -133,6 +133,12 @@ export interface ParliamentRepo {
     page: OffsetParams
   ): Promise<Result<OffsetResult<ParliamentBill>, ApiError>>;
   findBill(billKey: string): Promise<Result<ParliamentBill | null, ApiError>>; // bills_pkey
+  /**
+   * Dossier view set: [billKey] plus its resolved-pair dup-group sibling (the
+   * suppressed navetă twin) when and only when the group is exactly 2 views
+   * with exactly 1 canonical. Ambiguous review groups return [billKey] alone.
+   */
+  getBillDossierViewKeys(billKey: string): Promise<Result<readonly string[], ApiError>>;
   getBillEvents(billKey: string): Promise<Result<readonly ParliamentBillEvent[], ApiError>>;
   getBillDocuments(billKey: string): Promise<Result<readonly ParliamentBillDocument[], ApiError>>;
   // Initiators are surfaced AS ParliamentMember in the SDL; return the FULL member

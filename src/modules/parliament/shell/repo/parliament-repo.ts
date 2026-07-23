@@ -238,6 +238,12 @@ const SPEECH_SELECT = [
   's.source_url_kind',
 ] as const;
 
+// control-population.v2 (user decision 2026-07-22): motions leaked into
+// control_items via a shared attachment lane (6 rows) but are a different
+// public act — every served control read excludes them. Prod rows retained
+// untouched pending the dedicated motions domain (READINESS_TODO T4).
+const CONTROL_NO_MOTION = sql`c.control_type is distinct from 'motion'`;
+
 const BILL_SELECT = [
   'b.bill_key',
   'b.plx_number',
@@ -784,6 +790,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
         .selectFrom('parliament.control_items as c')
         .select(['c.recipient'])
         .where('c.recipient', 'is not', null)
+        .where(sql<SqlBool>`${CONTROL_NO_MOTION}`)
         .where(
           sql<boolean>`lower(translate(c.recipient, ${FOLD_FROM}, ${FOLD_TO})) like ${needle} escape '\\'`
         )
@@ -843,10 +850,13 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
       );
     }
 
-    // billType (virtual enum): initiative-kind badge by PREFIX on
-    // procedure.tip_initiativa. Each selected value → its prefix predicate;
-    // multiple values are OR-ed (in:[government,parliamentary] keeps either).
-    // Bills with no procedure block match neither value (NULL ILIKE → NULL).
+    // billType (virtual enum): source-aware initiative kind. CDep evidence =
+    // PREFIX on procedure.tip_initiativa; Senate evidence =
+    // attrs.initiator_classification.value (Senate register projection; the two
+    // paths are non-overlapping on live data — re-verified 2026-07-22; the
+    // CDep-only prefix silently omitted 1,548 classifiable Senate bills).
+    // Multiple values are OR-ed (in:[government,parliamentary] keeps either).
+    // Bills with neither signal match neither value (NULL ILIKE → NULL).
     const billTypeVals = enumSelection(fieldFilter(filter, 'billType'), BILL_TYPES);
     if (billTypeVals.isErr()) return err(billTypeVals.error);
     if (billTypeVals.value.matchNothing)
@@ -854,19 +864,23 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     else if (billTypeVals.value.values.length > 0) {
       const pred = (v: string): RawBuilder<unknown> =>
         v === 'government'
-          ? sql`b.attrs#>>'{procedure,tip_initiativa}' ilike 'Proiect de Lege%'`
-          : sql`b.attrs#>>'{procedure,tip_initiativa}' ilike 'Propunere legislativa%'`;
+          ? sql`(b.attrs#>>'{procedure,tip_initiativa}' ilike 'Proiect de Lege%'
+                 or b.attrs#>>'{initiator_classification,value}' = 'government')`
+          : sql`(b.attrs#>>'{procedure,tip_initiativa}' ilike 'Propunere legislativa%'
+                 or b.attrs#>>'{initiator_classification,value}' = 'parliamentary')`;
       conds.push(sql`(${sql.join(billTypeVals.value.values.map(pred), sql` or `)})`);
     }
 
-    // status (virtual enum): lifecycle bucket on status_text. promulgated = became
-    // law, in TWO equivalent source phrasings — 'Lege <nr>/…' (3,606; these also
-    // carry final_law_number) AND 'A devenit Legea <nr>/…' (864; final_law_number
-    // is NOT backfilled for these, so status_text is the ONLY became-law signal).
-    // The bucket MUST union both or it silently drops 864 promulgated bills into
-    // in_progress — caught by the Codex/GLM dual-model critique. rejected =
-    // 'respins…'; in_progress = the complement. The complement is built as
-    // NOT(promulgated OR rejected) so the three buckets stay an exhaustive partition.
+    // status (virtual enum): lifecycle bucket on status_text (v2, 5 disjoint
+    // buckets — see BILL_STATUSES in specs.ts for the measured partition).
+    // promulgated = became law, in TWO equivalent source phrasings — 'Lege
+    // <nr>/…' (these also carry final_law_number) AND 'A devenit Legea <nr>/…'
+    // (final_law_number NOT backfilled, so status_text is the ONLY became-law
+    // signal). The bucket MUST union both or it silently drops promulgated
+    // bills into in_progress — caught by the Codex/GLM dual-model critique.
+    // withdrawn/lapsed are terminal buckets split out of in_progress 2026-07-22
+    // (they had grown to 34.9% of it after the Senate register expansion).
+    // in_progress = NOT(any other bucket) so the partition stays exhaustive.
     const statusVals = enumSelection(fieldFilter(filter, 'status'), BILL_STATUSES);
     if (statusVals.isErr()) return err(statusVals.error);
     if (statusVals.value.matchNothing)
@@ -875,10 +889,16 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
       const st = sql`lower(coalesce(b.attrs->>'status_text', ''))`;
       const promulgated = sql`(${st} like 'lege %' or ${st} = 'lege' or ${st} like 'a devenit lege%')`;
       const rejected = sql`${st} like 'respins%'`;
+      const withdrawn = sql`(${st} like 'retras%' or ${st} like 'restituit%')`;
+      const lapsed = sql`(${st} like 'clasat%' or ${st} like 'procedura legislativa încetat%')`;
       const pred = (v: string): RawBuilder<unknown> => {
         if (v === 'promulgated') return promulgated;
         if (v === 'rejected') return rejected;
-        return sql`not (${promulgated} or ${rejected})`; // in_progress
+        if (v === 'withdrawn') return sql`(${withdrawn} and not (${promulgated} or ${rejected}))`;
+        if (v === 'lapsed')
+          return sql`(${lapsed} and not (${promulgated} or ${rejected} or ${withdrawn}))`;
+        // in_progress
+        return sql`not (${promulgated} or ${rejected} or ${withdrawn} or ${lapsed})`;
       };
       conds.push(sql`(${sql.join(statusVals.value.values.map(pred), sql` or `)})`);
     }
@@ -972,11 +992,44 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     }
   };
 
+  // Dossier view set (2026-07-22 readiness fix): a canonical bill is a display
+  // view, not a complete dossier — its suppressed navetă twin owns its own
+  // events/documents/vote links (657k/38k/6.2k platform-wide, panel tie-break).
+  // Returns every bill_key whose children belong in the requested bill's dossier:
+  //   - the bill itself, always;
+  //   - its dup-group siblings ONLY when the group is a RESOLVED PAIR (exactly
+  //     2 views, exactly 1 canonical). Ambiguous multi-Senate review groups
+  //     (3+ views or 0/2+ canonicals) stay single-view — they are review
+  //     clusters, not accepted dossiers, and must never be blended.
+  const getBillDossierViewKeys = async (
+    billKey: string
+  ): Promise<Result<readonly string[], ApiError>> => {
+    try {
+      const rows = await db
+        .selectFrom('parliament.bills as b')
+        .select(['b.bill_key', 'b.is_canonical'])
+        .where(
+          sql<SqlBool>`b.dup_group_id is not null and b.dup_group_id = (select b2.dup_group_id from parliament.bills b2 where b2.bill_key = ${billKey})`
+        )
+        .execute();
+      const canonicalCount = rows.filter((r) => r.is_canonical).length;
+      if (rows.length === 2 && canonicalCount === 1) {
+        // Requested view first so downstream merges keep a stable anchor.
+        const keys = rows.map((r) => r.bill_key);
+        return ok([billKey, ...keys.filter((k) => k !== billKey)]);
+      }
+      return ok([billKey]);
+    } catch (e) {
+      return err(databaseError('getBillDossierViewKeys failed', e));
+    }
+  };
+
   const getBillEvents = async (billKey: string) => {
     try {
       const rows = await db
         .selectFrom('parliament.bill_events as e')
         .select([
+          'e.bill_key',
           'e.position',
           sql<string | null>`e.event_date::text`.as('event_date'),
           'e.event_date_text',
@@ -999,7 +1052,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     try {
       const rows = await db
         .selectFrom('parliament.bill_documents as d')
-        .select(['d.url', 'd.label', 'd.kind', 'd.position'])
+        .select(['d.bill_key', 'd.url', 'd.label', 'd.kind', 'd.position'])
         .where('d.bill_key', '=', billKey)
         .orderBy('d.position', 'asc')
         .execute();
@@ -1516,6 +1569,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
             'c.mandate_key',
           ])
           .where('c.mandate_key', '=', mandateKey)
+          .where(sql<SqlBool>`${CONTROL_NO_MOTION}`)
           .orderBy('c.item_date', 'desc')
           .limit(p.pageSize)
           .offset(offsetFor(p))
@@ -1524,6 +1578,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
           .selectFrom('parliament.control_items as c')
           .select(sql<string>`count(*)`.as('cnt'))
           .where('c.mandate_key', '=', mandateKey)
+          .where(sql<SqlBool>`${CONTROL_NO_MOTION}`)
           .executeTakeFirst();
         return { rows: rows.map((r) => mapControlItem(r)), total: Number(cnt?.cnt ?? 0) };
       },
@@ -2000,7 +2055,9 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     }
     const built = toConditionBuilders(controlItemsFilterSpec, physical as FilterInput);
     if (built.isErr()) return { conds: [], error: built.error };
-    const conds: RawBuilder<unknown>[] = [...built.value];
+    // control-population.v2 (2026-07-22): motions are NOT parliamentary control —
+    // exclude the 6 leaked rows from every served control read (see CONTROL_TYPES).
+    const conds: RawBuilder<unknown>[] = [CONTROL_NO_MOTION, ...built.value];
 
     const recipient = fieldFilter(filter, 'recipient');
     if (recipient !== undefined) {
@@ -2666,6 +2723,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     resolveRecipients,
     listBills,
     findBill,
+    getBillDossierViewKeys,
     getBillEvents,
     getBillDocuments,
     getBillInitiators,

@@ -332,6 +332,7 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
         // are read by the ParliamentBill field resolvers below.
         return {
           ...dossier.bill,
+          dossierBillKeys: dossier.viewBillKeys,
           events: dossier.events,
           documents: dossier.documents,
           initiators: dossier.initiators,

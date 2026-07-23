@@ -177,6 +177,7 @@ export const mapBill = (r: BillRow): ParliamentBill => ({
 });
 
 export interface BillEventRow {
+  bill_key: string;
   position: number;
   event_date: string | null;
   event_date_text: string | null;
@@ -188,6 +189,7 @@ export interface BillEventRow {
 }
 
 export const mapBillEvent = (r: BillEventRow): ParliamentBillEvent => ({
+  sourceBillKey: r.bill_key,
   position: r.position,
   eventDate: r.event_date,
   eventDateText: r.event_date_text,
@@ -199,6 +201,7 @@ export const mapBillEvent = (r: BillEventRow): ParliamentBillEvent => ({
 });
 
 export interface BillDocumentRow {
+  bill_key: string;
   url: string;
   label: string | null;
   kind: string | null;
@@ -206,6 +209,7 @@ export interface BillDocumentRow {
 }
 
 export const mapBillDocument = (r: BillDocumentRow): ParliamentBillDocument => ({
+  sourceBillKey: r.bill_key,
   url: r.url,
   label: r.label,
   kind: r.kind,
