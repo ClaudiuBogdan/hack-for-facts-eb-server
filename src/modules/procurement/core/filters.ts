@@ -23,6 +23,7 @@ import {
   DA_SOURCE_SYSTEMS,
   DA_STATUSES,
   PROCEDURE_STATUSES,
+  RECORD_KINDS,
   VALUE_STATES,
 } from './constants.js';
 
@@ -246,6 +247,16 @@ export const contractFilterSpec: CollectionFilterSpec = {
       enumValues: VALUE_STATES,
       column: { alias: 'c', column: 'value_state' },
       description: 'Value-model resolution state; accepted states carry a comparable value.',
+    },
+    {
+      name: 'recordKind',
+      type: 'enum',
+      ops: ['eq', 'in'],
+      array: true,
+      enumValues: RECORD_KINDS,
+      column: { alias: 'c', column: 'record_kind' },
+      description:
+        'Record kind (contract_award | framework_agreement); orthogonal to valueState. NULL rows read as contract_award.',
     },
     {
       name: 'includeDuplicates',
