@@ -94,6 +94,12 @@ export interface ProcurementContractsTable {
   canonical_value_source: string | null;
   /** True when own/cross evidence disagrees (state 'conflicting_sources'). */
   value_disagreement: boolean;
+  /**
+   * Record kind (v5 serving convention): 'contract_award' | 'framework_agreement',
+   * stamped from the framework observation marker. NULL = pre-v5 row (reads
+   * as contract_award).
+   */
+  record_kind: string | null;
 }
 
 export interface ProcurementDirectAcquisitionsTable {

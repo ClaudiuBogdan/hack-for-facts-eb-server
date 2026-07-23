@@ -84,6 +84,7 @@ const contractSelect = [
   sql<string | null>`c.value_resolved_at::text`.as('value_resolved_at'),
   'c.canonical_value_source',
   'c.value_disagreement',
+  'c.record_kind',
 ] as const;
 
 const daSelect = [

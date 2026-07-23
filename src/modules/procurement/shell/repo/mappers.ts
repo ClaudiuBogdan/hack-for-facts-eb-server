@@ -104,6 +104,7 @@ type ContractRow = Pick<
   | 'value_resolved_at'
   | 'canonical_value_source'
   | 'value_disagreement'
+  | 'record_kind'
 >;
 type DaRow = Pick<
   ProcurementDirectAcquisitionsTable,
@@ -313,6 +314,10 @@ export const mapContract = (r: ContractRow): ProcurementContract => {
     value: valueResolution(r),
     canonicalValueSource: r.canonical_value_source,
     valueDisagreement: r.value_disagreement,
+    // NULL = pre-v5 row; reads as contract_award (matches the filter's
+    // coalesce so lists and rows agree). Unknown future kinds fail closed to
+    // contract_award rather than crashing the mapper.
+    recordKind: r.record_kind === 'framework_agreement' ? 'framework_agreement' : 'contract_award',
   };
 };
 
