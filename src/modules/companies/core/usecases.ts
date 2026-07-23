@@ -47,8 +47,14 @@ import {
 import type { CompaniesRepository, CompanyProfileData } from './ports.js';
 
 const TOP_PAYERS_CAP = 50;
-/** Cap on name-resolved CUIs ANDed into a `q` list (keeps the `cui IN (…)` bounded). */
-const NAME_RESOLVE_CAP = 100;
+/**
+ * Cap on name-resolved CUIs ANDed into a `q` list (keeps the `cui IN (…)`
+ * bounded). 50 — the repo clamps `resolveByName` limits to 50 on BOTH the Meili
+ * and pg paths, so asking for more silently truncated while this usecase
+ * reported the total as exact (defect D6). A full-cap return is treated as
+ * possible truncation and disclosed via `totalEstimated` + a caveat.
+ */
+const NAME_RESOLVE_CAP = 50;
 
 export interface CompanyUsecaseDeps {
   readonly repo: CompaniesRepository;
@@ -59,6 +65,25 @@ export interface CompanyUsecaseDeps {
 const invalidCui = (): ApiError => ({
   type: 'InvalidInput',
   message: 'invalid CUI format',
+  field: 'cui',
+});
+
+/**
+ * Served CUIs are at most 10 digits. Longer registry identifiers are CNP-shaped
+ * natural-person identifiers (probable personal data — P0 containment,
+ * 2026-07-22): every surface refuses them CATEGORICALLY, with the same typed
+ * answer whether or not a row exists, so the refusal never confirms existence.
+ * Output-side, resolve/name hits carrying such identifiers are dropped until
+ * the search-index purge lands.
+ */
+const MAX_SERVED_CUI_DIGITS = 10;
+
+export const isWithheldCompanyIdentifier = (cui: string): boolean =>
+  cui.length > MAX_SERVED_CUI_DIGITS;
+
+const withheldIdentifier = (): ApiError => ({
+  type: 'InvalidInput',
+  message: `identifiers longer than ${String(MAX_SERVED_CUI_DIGITS)} digits are not served`,
   field: 'cui',
 });
 
@@ -103,6 +128,7 @@ export const normalizeCuiFilter = (filter: FilterInput): Result<FilterInput, Api
     if (typeof out['eq'] === 'string') {
       const c = normalizeCui(out['eq']);
       if (c === null) return err(invalidCui());
+      if (isWithheldCompanyIdentifier(c)) return err(withheldIdentifier());
       out['eq'] = c;
     }
     if (Array.isArray(out['in'])) {
@@ -110,6 +136,9 @@ export const normalizeCuiFilter = (filter: FilterInput): Result<FilterInput, Api
       for (const v of out['in'] as unknown[]) {
         const c = normalizeCui(String(v));
         if (c === null) return err(invalidCui());
+        // A withheld identifier in `exclude.cui.in` would also confirm existence
+        // (the total shifts by one) — the categorical reject covers BOTH sides.
+        if (isWithheldCompanyIdentifier(c)) return err(withheldIdentifier());
         norm.push(c);
       }
       out['in'] = norm;
@@ -150,6 +179,7 @@ export const makeCompanyPublicMoney = async (
 ): Promise<Result<CompanyPublicMoney | null, ApiError>> => {
   const cui = normalizeCui(rawCui);
   if (cui === null) return err(invalidCui());
+  if (isWithheldCompanyIdentifier(cui)) return err(withheldIdentifier());
   return buildPublicMoney(deps.flowsRepo, cui);
 };
 
@@ -206,6 +236,7 @@ export const makeCompanyProfileData = async (
 ): Promise<Result<CompanyProfileData | null, ApiError>> => {
   const cui = normalizeCui(rawCui);
   if (cui === null) return err(invalidCui());
+  if (isWithheldCompanyIdentifier(cui)) return err(withheldIdentifier());
   return deps.repo.getProfileData(cui);
 };
 
@@ -220,6 +251,7 @@ export const makeCompanyProfile = async (
 ): Promise<Result<CompanyProfile | null, ApiError>> => {
   const cui = normalizeCui(rawCui);
   if (cui === null) return err(invalidCui());
+  if (isWithheldCompanyIdentifier(cui)) return err(withheldIdentifier());
 
   const dataRes = await deps.repo.getProfileData(cui);
   if (dataRes.isErr()) return err(dataRes.error);
@@ -283,6 +315,7 @@ export const makeCompanyFinancials = async (
 ): Promise<Result<CompanyFinancials | null, ApiError>> => {
   const cui = normalizeCui(rawCui);
   if (cui === null) return err(invalidCui());
+  if (isWithheldCompanyIdentifier(cui)) return err(withheldIdentifier());
   const res = await deps.repo.getFinancials(cui);
   if (res.isErr()) return err(res.error);
   const years = res.value;
@@ -320,20 +353,32 @@ export const makeCompanyList = async (
   // existing cui constraint) and the NORMAL `listCompanies` path runs — so the
   // other filters (county/status/…) AND pagination both apply. It never does an
   // in-DB name LIKE on the list path.
+  let nameTruncated = false;
   if (args.q !== undefined && args.q.trim() !== '') {
     const resolved = await deps.repo.resolveByName(args.q, NAME_RESOLVE_CAP, deps.meili);
     if (resolved.isErr()) return err(resolved.error);
-    const nameCuis = resolved.value.hits.map((h) => h.cui).filter((c): c is string => c !== null);
+    // A full-cap return means the name may match MORE companies than were
+    // resolved — the list below then covers only the top candidates, so its
+    // total must not be presented as exact (defect D6).
+    nameTruncated = resolved.value.hits.length >= NAME_RESOLVE_CAP;
+    if (nameTruncated) {
+      caveats.push(
+        `name matched more companies than the ${String(NAME_RESOLVE_CAP)}-candidate cap; results and totals cover only the top candidates — refine the name or add filters`
+      );
+    }
+    const nameCuis = resolved.value.hits
+      .map((h) => h.cui)
+      .filter((c): c is string => c !== null && !isWithheldCompanyIdentifier(c));
     if (resolved.value.degraded) caveats.push('name search degraded (search service unavailable)');
     if (nameCuis.length === 0) {
-      return ok({ rows: [], total: 0, totalEstimated: false, caveats });
+      return ok({ rows: [], total: 0, totalEstimated: nameTruncated, caveats });
     }
     const existing =
       (filter['cui'] as { in?: readonly string[]; eq?: string } | undefined) ?? undefined;
     const prior = existing?.in ?? (existing?.eq !== undefined ? [existing.eq] : undefined);
     const intersected = prior !== undefined ? nameCuis.filter((c) => prior.includes(c)) : nameCuis;
     if (intersected.length === 0) {
-      return ok({ rows: [], total: 0, totalEstimated: false, caveats });
+      return ok({ rows: [], total: 0, totalEstimated: nameTruncated, caveats });
     }
     filter = { ...filter, cui: { in: intersected } };
   }
@@ -343,7 +388,7 @@ export const makeCompanyList = async (
   return ok({
     rows: res.value.rows,
     total: res.value.total,
-    totalEstimated: res.value.estimated,
+    totalEstimated: res.value.estimated || nameTruncated,
     caveats,
   });
 };
@@ -359,6 +404,10 @@ export interface CompanyResolveResponse {
   readonly ambiguous: boolean;
   readonly degraded: boolean;
 }
+
+/** Drop resolve hits whose CUI is a withheld identifier (fail-closed output side). */
+const dropWithheldHits = (hits: readonly CompanyNameHit[]): readonly CompanyNameHit[] =>
+  hits.filter((h) => h.cui === null || !isWithheldCompanyIdentifier(h.cui));
 
 export const makeCompanyResolve = async (
   deps: CompanyUsecaseDeps,
@@ -380,17 +429,19 @@ export const makeCompanyResolve = async (
     case 'name': {
       const res = await deps.repo.resolveByName(q, limit, deps.meili);
       if (res.isErr()) return err(res.error);
+      const matches = dropWithheldHits(res.value.hits);
       return ok({
         ...base,
-        matches: res.value.hits,
+        matches,
         degraded: res.value.degraded,
-        ambiguous: res.value.hits.length > 1,
+        ambiguous: matches.length > 1,
       });
     }
     case 'regnum': {
       const res = await deps.repo.findByRegistrationNumber(q);
       if (res.isErr()) return err(res.error);
-      return ok({ ...base, matches: res.value, ambiguous: res.value.length > 1 });
+      const matches = dropWithheldHits(res.value);
+      return ok({ ...base, matches, ambiguous: matches.length > 1 });
     }
     case 'caen': {
       const res = await deps.repo.resolveCaen(q, limit);
