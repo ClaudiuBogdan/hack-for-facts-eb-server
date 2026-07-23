@@ -44,7 +44,18 @@ const DIMENSION_SCOPE_FIELD: Readonly<Record<BreakdownDimension, ScopeDimField>>
   buyerRegion: 'buyerRegion',
   buyerCounty: 'buyerCounty',
   buyerSiruta: 'buyerSiruta',
+  supplierRegion: 'supplierRegion',
+  supplierCounty: 'supplierCounty',
+  supplierSiruta: 'supplierSiruta',
 };
+
+/** Breakdown dimensions that require supplier columns (absent on procedures). */
+const SUPPLIER_BREAKDOWN_DIMS: ReadonlySet<BreakdownDimension> = new Set([
+  'supplier',
+  'supplierRegion',
+  'supplierCounty',
+  'supplierSiruta',
+]);
 
 const DISTINCT_MEASURES: readonly MeasureId[] = ['distinctSuppliers', 'distinctAuthorities'];
 
@@ -137,7 +148,7 @@ export const routeAnalysis = (
     } else if (
       grain === 'procedure' &&
       (shape === 'concentration' ||
-        dimension === 'supplier' ||
+        (dimension !== undefined && SUPPLIER_BREAKDOWN_DIMS.has(dimension)) ||
         SUPPLIER_SCOPE_DIMS.some((d) => dims.includes(d)))
     ) {
       excluded = PROCEDURE_NO_SUPPLIER;

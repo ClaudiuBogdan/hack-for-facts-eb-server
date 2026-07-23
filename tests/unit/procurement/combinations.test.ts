@@ -130,6 +130,12 @@ describe('combinations the wave-1 rollups rejected now route (ClickHouse serves 
     ]);
   });
 
+  it('supplier geography breakdowns route on contract + DA only', () => {
+    expect(grainsOf({}, 'breakdown', 'supplierRegion')).toEqual(['contract', 'direct_acquisition']);
+    expect(grainsOf({}, 'breakdown', 'supplierCounty')).toEqual(['contract', 'direct_acquisition']);
+    expect(grainsOf({}, 'breakdown', 'supplierSiruta')).toEqual(['contract', 'direct_acquisition']);
+  });
+
   it('an 8-digit cpvCode combined with another dimension routes (bounded-fact rejection gone)', () => {
     expect(grainsOf({ authorityCui: '4267117', cpvCode: '33600000' }, 'stats')).toEqual([
       'procedure',

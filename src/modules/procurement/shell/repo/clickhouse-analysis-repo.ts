@@ -96,6 +96,9 @@ const BREAKDOWN_DIM_COLUMNS: Record<string, string> = {
   buyerRegion: 'buyer_region',
   buyerCounty: 'buyer_county_code',
   buyerSiruta: 'toString(buyer_siruta_uat)',
+  supplierRegion: 'supplier_region',
+  supplierCounty: 'supplier_county_code',
+  supplierSiruta: 'toString(supplier_siruta_uat)',
 };
 
 /** PG label parity: 'YYYY-MM' / 'YYYY-Qn' / 'YYYY' (analysis-repo.ts). */
