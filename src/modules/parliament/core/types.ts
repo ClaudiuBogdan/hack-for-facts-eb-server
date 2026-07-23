@@ -144,6 +144,8 @@ export interface ParliamentBill {
 }
 
 export interface ParliamentBillEvent {
+  /** Bill view that contributed this event to a merged dossier. */
+  readonly sourceBillKey: string;
   readonly position: number;
   readonly eventDate: string | null;
   readonly eventDateText: string | null;
@@ -155,6 +157,8 @@ export interface ParliamentBillEvent {
 }
 
 export interface ParliamentBillDocument {
+  /** Bill view that contributed this document to a merged dossier. */
+  readonly sourceBillKey: string;
   readonly url: string;
   readonly label: string | null;
   readonly kind: string | null;
@@ -182,8 +186,16 @@ export interface ParliamentBillVoteLink {
   readonly confidenceLabel: string;
 }
 
-/** The bill dossier: detail + events + docs + initiators + votes + lineage links. */
+/**
+ * The bill dossier: detail + events + docs + initiators + votes + lineage links.
+ * Since 2026-07-22 the child families are read across the FULL accepted view set
+ * (`viewBillKeys`): the requested view plus its resolved-pair navetă twin, so a
+ * canonical read no longer silently drops the suppressed view's children.
+ * Ambiguous dup-review groups stay single-view (viewBillKeys = [billKey]).
+ */
 export interface ParliamentBillDossier {
+  /** Every bill_key whose children are included (requested view first). */
+  readonly viewBillKeys: readonly string[];
   readonly bill: ParliamentBill;
   readonly events: readonly ParliamentBillEvent[];
   readonly documents: readonly ParliamentBillDocument[];

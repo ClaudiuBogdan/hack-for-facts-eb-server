@@ -40,52 +40,80 @@ export const VOTE_CHOICES = ['pentru', 'impotriva', 'abtinere', 'nu_a_votat'] as
 /**
  * control_type live values. CDEP: `question_or_interpellation` is the combined
  * bucket (control_type_provenance='combined_pass'); split rows are `question` /
- * `interpellation`; `motion` is rare (6 rows). SENATE (provenance='senate_direct',
- * H12): `question` / `interpellation` / `interpellation_pm` (interpelare adresată
- * Primului Ministru) / `political_declaration` (declaraţie politică). NOT `unknown`.
+ * `interpellation`. SENATE (provenance='senate_direct', H12): `question` /
+ * `interpellation` / `interpellation_pm` (interpelare adresată Primului
+ * Ministru) / `political_declaration` (declaraţie politică). NOT `unknown`.
+ *
+ * `motion` is EXCLUDED from the served control population
+ * (parliament.control-population.v2, user decision 2026-07-22): motions are a
+ * different public act that leaked into control_items via a shared attachment
+ * lane — 6 rows as of the cut (118,680 → 118,674 served). Every control read
+ * (list, member activity, recipient facets/presence) filters
+ * `control_type <> 'motion'`; the prod rows are retained untouched pending the
+ * dedicated motions domain (PARLIAMENT_READINESS_TODO.md T4).
  */
 export const CONTROL_TYPES = [
   'question',
   'interpellation',
   'question_or_interpellation',
-  'motion',
   'interpellation_pm',
   'political_declaration',
 ] as const;
 
 /**
- * Bill INITIATIVE-KIND buckets (the client's badge), derived from
- * `attrs.procedure.tip_initiativa` by PREFIX (verified vs transparenta_prod
- * 2026-06-17 — the prefix is exhaustive, no third value):
- *   - government     → tip_initiativa ILIKE 'Proiect de Lege%'      (5,271)
- *   - parliamentary  → tip_initiativa ILIKE 'Propunere legislativa%' (3,005)
- * Bills with NO procedure block (1,682) match NEITHER value (documented).
+ * Bill INITIATIVE-KIND buckets (the client's badge), source-aware union
+ * (re-verified vs transparenta_prod 2026-07-22 on the 22,896 canonical views):
+ *   - CDep evidence: `attrs.procedure.tip_initiativa` by PREFIX —
+ *       government    → ILIKE 'Proiect de Lege%'       (12,652)
+ *       parliamentary → ILIKE 'Propunere legislativa%'  (8,085)
+ *   - Senate evidence: `attrs.initiator_classification.value` (H-series Senate
+ *     register projection; method initiators:guvern/members, confidence high) —
+ *       government 1,064 / parliamentary 484. Senate bills carry NO procedure
+ *     block, so before 2026-07-22 the CDep-only prefix silently omitted these
+ *     1,548 classifiable bills (readiness-review fix, user decision).
+ * The two evidence paths are non-overlapping on live data. Bills with neither
+ * signal (2,159 canonical) match NEITHER value (explicit unknown; documented).
  */
 export const BILL_TYPES = ['government', 'parliamentary'] as const;
 
 /**
- * Bill STATUS buckets, derived from `attrs.status_text` (verified vs prod
- * 2026-06-17 — partitions all 9,958 bills, 0 unclassified):
- *   - promulgated → became law, TWO equivalent phrasings              (4,470):
- *       · status_text ILIKE 'lege %' or = 'lege'   (3,606 — also carry
- *         final_law_number; cross-checks 1:1 with it, 0 mismatches), AND
- *       · status_text ILIKE 'a devenit lege%'      (864 — final_law_number NOT
- *         backfilled, so status_text is the ONLY became-law signal). Missing this
- *         union silently drops 864 laws into in_progress (Codex/GLM critique).
- *   - rejected    → status_text ILIKE 'respins%'            (1,939) — case-folded,
- *     so 'Respins de ambele Camere' (220) is covered too; incl. respinsa /
+ * Bill STATUS buckets, derived from `attrs.status_text` (re-verified vs prod
+ * 2026-07-22 — partitions all 22,896 canonical views, 0 unclassified, 0
+ * cross-bucket overlap):
+ *   - promulgated → became law, TWO equivalent phrasings             (11,557):
+ *       · status_text ILIKE 'lege %' or = 'lege' (also carry final_law_number;
+ *         cross-checks 1:1, 0 mismatches), AND
+ *       · status_text ILIKE 'a devenit lege%' (final_law_number NOT backfilled,
+ *         so status_text is the ONLY became-law signal). Missing this union
+ *         silently drops those laws into in_progress (Codex/GLM critique).
+ *   - rejected    → status_text ILIKE 'respins%'            (6,424) — case-folded,
+ *     so 'Respins de ambele Camere' is covered too; incl. respinsa /
  *     respins(a)definitiv.
- *   - in_progress → everything else                          (3,549) — la comisii,
- *     trimis la cameră, pe ordinea de zi, raport, etc.
+ *   - withdrawn   → 'retras%' (withdrawn by initiator) or 'restituit%'
+ *     (returned to initiator)                                 (558).
+ *   - lapsed      → 'clasat%' (filed/closed, incl. art.63(5) end-of-legislature
+ *     lapse) or 'procedura legislativa încetat%' (procedure terminated; all 191
+ *     live rows carry the î diacritic — verified)           (1,162).
+ *   - in_progress → everything else                          (3,195) — la
+ *     comisii, trimis la cameră, pe ordinea de zi, raport, etc.
  *
- * `in_progress` means "neither promulgated nor rejected". A SMALL terminal tail —
- * `clasat%` (filed, 46) + `retras%` (withdrawn, 15) = 61 bills — also lands here:
- * they are terminal but neither a law nor a rejection, so v1 keeps the 3-bucket
- * model rather than a 4th "withdrawn/lapsed" bucket (0.6% of bills; GLM Q4 flagged,
- * deliberately deferred). Verified vs prod: NO 'Promulgat…' / 'Legea …' (no-space)
- * phrasings exist, so the promulgated union above is exhaustive for became-law.
+ * HISTORY: v1 (2026-06-17, 9,958 pre-B1 bills) deliberately deferred the
+ * withdrawn/lapsed buckets when the tail was 61 rows (0.6%). After the Senate
+ * register expansion the same tail grew to 1,720 canonical bills = 34.9% of the
+ * old in_progress bucket — the 2026-07-18 research measured it and the split
+ * shipped 2026-07-22 (parliament.bill-lifecycle.v2, user decision, fix-in-place:
+ * `in_progress` NARROWED from 4,915 to 3,195). The five buckets stay an
+ * exhaustive, disjoint partition: in_progress = NOT(any other bucket).
+ * Verified vs prod: NO 'Promulgat…' / 'Legea …' (no-space) phrasings exist, so
+ * the promulgated union above is exhaustive for became-law.
  */
-export const BILL_STATUSES = ['promulgated', 'rejected', 'in_progress'] as const;
+export const BILL_STATUSES = [
+  'promulgated',
+  'rejected',
+  'withdrawn',
+  'lapsed',
+  'in_progress',
+] as const;
 
 /** Repo-intercepted virtual filter fields per collection (kernel composer skips). */
 export const VOTES_VIRTUAL_FIELDS = ['q'] as const;
@@ -439,7 +467,7 @@ export const billsFilterSpec: CollectionFilterSpec = {
       array: true,
       virtual: true,
       description:
-        'Initiative kind (the client badge): government = procedure.tip_initiativa starts with "Proiect de Lege"; parliamentary = starts with "Propunere legislativa". Bills with no procedure match neither. Repo-intercepted. Residual (no index).',
+        'Initiative kind (the client badge), source-aware: government = CDep procedure.tip_initiativa starts with "Proiect de Lege" OR Senate initiator_classification.value = government; parliamentary = "Propunere legislativa" prefix OR Senate value parliamentary. Bills with neither signal match neither (explicit unknown). Repo-intercepted. Residual (no index).',
     },
     {
       name: 'status',
@@ -450,7 +478,7 @@ export const billsFilterSpec: CollectionFilterSpec = {
       array: true,
       virtual: true,
       description:
-        'Lifecycle bucket from status_text: promulgated = "Lege …" (became law; matches final_law_number); rejected = "respins…"; in_progress = everything else. Repo-intercepted. Residual (no index).',
+        'Lifecycle bucket from status_text (v2, 5 disjoint buckets): promulgated = "Lege …"/"A devenit lege…" (became law); rejected = "respins…"; withdrawn = "retras…"/"restituit…"; lapsed = "clasat…"/"procedura legislativa încetată"; in_progress = none of the above. Repo-intercepted. Residual (no index).',
     },
     {
       name: 'q',
@@ -481,14 +509,15 @@ export const controlItemsFilterSpec: CollectionFilterSpec = {
       enumValues: [...CONTROL_TYPES],
       array: true,
       description:
-        'question | interpellation | question_or_interpellation | motion. Residual (no index).',
+        'question | interpellation | question_or_interpellation | interpellation_pm | political_declaration. Motions are excluded from the served control population (control-population.v2). Residual (no index).',
     },
     {
       name: 'responseStatus',
       type: 'string',
       ops: ['eq', 'isNull'],
       column: { alias: 'c', column: 'response_status' },
-      description: 'PR-5 timeliness; isNull surfaces unanswered items.',
+      description:
+        'RAW source response status string — NOT an answered/unanswered fact. null means "no structured response status was extracted" (ALL Senate rows + most legacy CDep rows are null because response evidence extraction does not exist for them yet), and non-null values mix requested mode, answer mode, and legacy page-text fragments. Do NOT present isNull as "unanswered"; honest response-evidence fields land with the control evidence topology (PARLIAMENT_READINESS_TODO.md T1).',
     },
     {
       name: 'itemDate',

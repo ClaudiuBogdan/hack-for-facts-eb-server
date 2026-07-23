@@ -78,7 +78,6 @@ const objectsAndQuery = /* GraphQL */ `
     question
     interpellation
     question_or_interpellation
-    motion
     interpellation_pm
     political_declaration
   }
@@ -331,6 +330,8 @@ const objectsAndQuery = /* GraphQL */ `
   }
 
   type ParliamentBillEvent {
+    "Bill view that contributed this event to the merged dossier."
+    sourceBillKey: ID!
     position: Int!
     "Event date; null for ~56% of cdep procedural/committee rows whose source row carries no date (absent at source, NOT a parse gap — M6). Position ordering is always intact, so use position for chronology when eventDate is null."
     eventDate: Date
@@ -343,6 +344,8 @@ const objectsAndQuery = /* GraphQL */ `
     docs: JSON
   }
   type ParliamentBillDocument {
+    "Bill view that contributed this document to the merged dossier."
+    sourceBillKey: ID!
     url: String!
     label: String
     kind: String
@@ -388,9 +391,9 @@ const objectsAndQuery = /* GraphQL */ `
     title: String
     finalLawNumber: String
     finalLawYear: Int
-    "RAW source status string (CDEP/Senate status_text, e.g. 'Lege 423/2023 …', 'respins'). May contain glued tokens/typos on the cdep side — use the 'status' FILTER (promulgated/rejected/in_progress) for the normalized lifecycle signal (M11)."
+    "RAW source status string (CDEP/Senate status_text, e.g. 'Lege 423/2023 …', 'respins'). May contain glued tokens/typos on the cdep side — use the 'status' FILTER (promulgated/rejected/withdrawn/lapsed/in_progress, v2 2026-07-22) for the normalized lifecycle signal (M11)."
     statusText: String
-    "RAW source initiative type (procedure.tip_initiativa, e.g. 'Proiect de Lege …' / 'Propunere legislativa …'). The billType FILTER buckets this by prefix into government/parliamentary; senat bills carry no procedure block, so the field is null and they match NEITHER bucket (M4). null when the source has no procedure block."
+    "RAW source initiative type (procedure.tip_initiativa, e.g. 'Proiect de Lege …' / 'Propunere legislativa …'). The billType FILTER buckets this into government/parliamentary using the CDep prefix OR the Senate initiator_classification evidence (source-aware since 2026-07-22); bills with neither signal match NEITHER bucket. null when the source has no procedure block."
     billType: String
     "Date of the most recent timeline event (attrs.last_event_date). This is the key the default 'updated_desc' sort uses — exposed so the client can show/verify recency."
     lastEventDate: Date
@@ -398,6 +401,8 @@ const objectsAndQuery = /* GraphQL */ `
     isCanonical: Boolean!
     "On a non-canonical (suppressed) twin, the canonical CDep bill_key to redirect to; null on a canonical bill."
     canonicalBillKey: String
+    "Dossier completeness (2026-07-22): on the parliamentBill dossier read, every bill_key whose children are merged into events/documents/initiators/relatedVotes/actLinks/voteLinks — the requested view plus its resolved-pair navetă twin. [billKey] alone when the bill has no accepted twin (incl. ambiguous dup-review groups, which are never blended). null when the bill was reached outside the dossier read (e.g. list rows), where children are per-view."
+    dossierBillKeys: [String!]
     events: [ParliamentBillEvent!]!
     documents: [ParliamentBillDocument!]!
     initiators: [ParliamentMember!]!

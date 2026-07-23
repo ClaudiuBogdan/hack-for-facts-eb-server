@@ -265,28 +265,70 @@ export const getBillDossier = async (
   if (b.isErr()) return err(b.error);
   if (b.value === null) return ok(null);
 
-  const [events, docs, initiators, votes, actLinks, voteLinks] = await Promise.all([
-    deps.repo.getBillEvents(billKey),
-    deps.repo.getBillDocuments(billKey),
-    deps.repo.getBillInitiators(billKey),
-    deps.repo.listVotesForBill(billKey),
-    deps.repo.getBillActLinks(billKey),
-    deps.repo.getBillVoteLinks(billKey),
-  ]);
-  for (const r of [events, docs, initiators, votes, actLinks, voteLinks]) {
-    if (r.isErr()) return err(r.error);
+  // 2026-07-22 readiness fix: read children across the FULL accepted view set —
+  // the requested view plus its resolved-pair navetă twin — so a canonical read
+  // no longer drops the suppressed source view's events/documents/links.
+  // Ambiguous dup-review groups resolve to [billKey] alone (never blended).
+  const keysRes = await deps.repo.getBillDossierViewKeys(billKey);
+  if (keysRes.isErr()) return err(keysRes.error);
+  const viewBillKeys = keysRes.value;
+
+  const perView = await Promise.all(
+    viewBillKeys.map((k) =>
+      Promise.all([
+        deps.repo.getBillEvents(k),
+        deps.repo.getBillDocuments(k),
+        deps.repo.getBillInitiators(k),
+        deps.repo.listVotesForBill(k),
+        deps.repo.getBillActLinks(k),
+        deps.repo.getBillVoteLinks(k),
+      ])
+    )
+  );
+  for (const six of perView) {
+    for (const r of six) {
+      if (r.isErr()) return err(r.error);
+    }
   }
+  // Merge laws per child family (panel-locked aggregation rules):
+  //  - events/documents/act-links/vote-links stay source-qualified OBSERVATIONS —
+  //    concatenated per view (requested view first), never value-deduplicated;
+  //  - relatedVotes deduplicate by stable vote_key (the same voting event may be
+  //    linked from both views);
+  //  - initiators deduplicate by mandate_key (same member mentioned in both views).
+  const events = perView.flatMap((v) => v[0]._unsafeUnwrap());
+  const documents = perView.flatMap((v) => v[1]._unsafeUnwrap());
+  const seenMandates = new Set<string>();
+  const initiators = perView
+    .flatMap((v) => v[2]._unsafeUnwrap())
+    .filter((m) => {
+      if (seenMandates.has(m.mandateKey)) return false;
+      seenMandates.add(m.mandateKey);
+      return true;
+    });
+  const seenVotes = new Set<string>();
+  const relatedVotes = perView
+    .flatMap((v) => v[3]._unsafeUnwrap())
+    .filter((vote) => {
+      if (seenVotes.has(vote.voteKey)) return false;
+      seenVotes.add(vote.voteKey);
+      return true;
+    });
+  const actLinks = perView.flatMap((v) => v[4]._unsafeUnwrap());
+  const voteLinks = perView.flatMap((v) => v[5]._unsafeUnwrap());
+
   return ok({
+    viewBillKeys,
     bill: b.value,
-    events: events._unsafeUnwrap(),
-    documents: docs._unsafeUnwrap(),
+    events,
+    documents,
     // H10: pass the full members through (no reduced projection) so initiators expose
     // the same shape as parliamentMember(s) — legislature/normalizedName/constituency/
     // birthDate and the nested group/person/interval resolvers all resolve.
-    initiators: initiators._unsafeUnwrap(),
-    relatedVotes: votes._unsafeUnwrap(),
-    actLinks: actLinks._unsafeUnwrap(),
-    voteLinks: voteLinks._unsafeUnwrap(),
+    initiators,
+    relatedVotes,
+    actLinks,
+    voteLinks,
   });
 };
 
@@ -919,12 +961,12 @@ export const resolveFilters = async (
       return ok(r.value.map((c) => ({ dim, value: c, label: c, kind: 'recipient', score: null })));
     }
     case 'control_type':
+      // control-population.v2: motion removed from the served enum (2026-07-22).
       return ok(
         [
           'question',
           'interpellation',
           'question_or_interpellation',
-          'motion',
           'interpellation_pm',
           'political_declaration',
         ]

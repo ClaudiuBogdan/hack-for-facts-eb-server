@@ -20,6 +20,8 @@ import {
   mapAiBillMetadata,
   mapAiControlItemMetadata,
   mapBill,
+  mapBillDocument,
+  mapBillEvent,
   mapCommittee,
   mapCommitteeMembership,
   mapDeclaration,
@@ -35,6 +37,33 @@ import {
   type MemberRow,
   type VoteRow,
 } from '@/modules/parliament/shell/repo/mappers.js';
+
+describe('merged dossier child source identity', () => {
+  it('preserves the contributing bill key on events and documents', () => {
+    expect(
+      mapBillEvent({
+        bill_key: 'senat:123-2012',
+        position: 1,
+        event_date: null,
+        event_date_text: null,
+        description: 'Înregistrare',
+        chamber_code: 'senat',
+        committee: null,
+        vote_idv: null,
+        docs: null,
+      }).sourceBillKey
+    ).toBe('senat:123-2012');
+    expect(
+      mapBillDocument({
+        bill_key: '12760',
+        url: 'https://www.cdep.ro/a.pdf',
+        label: 'Document',
+        kind: 'pdf',
+        position: 1,
+      }).sourceBillKey
+    ).toBe('12760');
+  });
+});
 
 describe('safeAttrs — privacy whitelist (Codex BLOCKER #4)', () => {
   it('keeps only whitelisted keys and drops everything else', () => {
