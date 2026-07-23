@@ -43,6 +43,7 @@ const baseContract = {
   value_resolved_at: '2026-07-18T00:00:00+00:00',
   canonical_value_source: 'seap_own',
   value_disagreement: false,
+  record_kind: null,
 };
 
 describe('value-model resolution mapping', () => {

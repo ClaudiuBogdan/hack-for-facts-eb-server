@@ -25,6 +25,7 @@ import type {
   ProcurementGrain,
   SearchSort,
   ValueComparableBasis,
+  RecordKind,
   ValueState,
 } from './constants.js';
 
@@ -98,6 +99,8 @@ export interface ProcurementContract {
   readonly canonicalValueSource: string | null;
   /** True when own/cross evidence disagrees (state 'conflicting_sources'). */
   readonly valueDisagreement: boolean;
+  /** Record kind (v5): frameworks are umbrellas, not purchases. NULL reads as contract_award. */
+  readonly recordKind: RecordKind;
 }
 
 export interface ProcurementDirectAcquisition {

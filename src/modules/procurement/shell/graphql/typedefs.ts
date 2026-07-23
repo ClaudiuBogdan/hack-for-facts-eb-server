@@ -146,6 +146,12 @@ export const procurementTypeDefs = /* GraphQL */ `
     canonicalValueSource: String
     "True when own/cross evidence disagrees (state 'conflicting_sources')."
     valueDisagreement: Boolean!
+    """
+    Record kind: contract_award | framework_agreement (v5 serving convention).
+    Frameworks are umbrellas — their value is a ceiling, not spend. Rows not
+    yet stamped read as contract_award.
+    """
+    recordKind: String!
     "The modification trail, modificationDate ascending."
     modifications: [ProcurementContractModification!]!
   }
