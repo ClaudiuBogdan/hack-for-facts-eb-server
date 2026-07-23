@@ -410,8 +410,12 @@ export const procurementTypeDefs = /* GraphQL */ `
     cpvCode: String
     buyerCounty: String
     buyerRegion: String
+    "Buyer entity territorial SIRUTA (UAT natural key)."
+    buyerSiruta: SIRUTA
     supplierCounty: String
     supplierRegion: String
+    "Supplier registered-office territorial SIRUTA (UAT natural key)."
+    supplierSiruta: SIRUTA
     status: String
     procedureType: String
     grain: ProcurementAnalysisGrain

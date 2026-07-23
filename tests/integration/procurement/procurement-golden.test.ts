@@ -27,6 +27,7 @@ import type { FastifyInstance } from 'fastify';
 const HAS_DB = (process.env['PROD_DATABASE_URL'] ?? '').length > 0;
 const LIVE_REQUIRED = process.env['PROCUREMENT_LIVE_GOLDEN_REQUIRED'] === '1';
 const AUTHORITY = '29170968';
+const CONTRACT_AUTHORITY = '4547125';
 const SUPPLIER = '28022254';
 
 const d = HAS_DB || LIVE_REQUIRED ? describe : describe.skip;
@@ -533,7 +534,7 @@ d('Procurement analysis golden (live prod, active generation required)', () => {
          from procurement.analysis_rollup_authority_dims_monthly
         where build_id = $1 and authority_cui = $2
         group by grain`,
-      [buildId, AUTHORITY]
+      [buildId, CONTRACT_AUTHORITY]
     );
     const byGrain = new Map(sqlRes.rows.map((r) => [r.grain, r]));
 
@@ -541,7 +542,7 @@ d('Procurement analysis golden (live prod, active generation required)', () => {
       `query($cui:String!){ procurementStats(scope: { authorityCui: $cui }){
          blocks { grain recordCount withValueCount valueAwardedSum meta { buildId policyKey caveats } }
        } }`,
-      { cui: AUTHORITY }
+      { cui: CONTRACT_AUTHORITY }
     );
     expect(res.errors).toBeUndefined();
     const blocks = arr(rec(res.data?.['procurementStats'])['blocks']).map(rec);
@@ -711,15 +712,16 @@ d('Procurement analysis golden (live prod, active generation required)', () => {
       `query($cui:String!){ procurementSeries(
          scope:{authorityCui:$cui,grain:contract}, measure:recordCount, bucket:month
        ){ points { bucket value } } }`,
-      { cui: AUTHORITY }
+      { cui: CONTRACT_AUTHORITY }
     );
     expect(series.errors).toBeUndefined();
     const rawSeries = await pool.query<{ bucket: string | null; value: string }>(
       `select to_char(month_start, 'YYYY-MM') bucket, sum(record_count)::text value
          from procurement.analysis_rollup_authority_dims_monthly
         where build_id = $1 and grain = 'contract' and authority_cui = $2
+          and month_start is not null
         group by month_start order by month_start asc nulls last`,
-      [buildId, AUTHORITY]
+      [buildId, CONTRACT_AUTHORITY]
     );
     expect(rec(arr(series.data?.['procurementSeries'])[0])['points']).toEqual(rawSeries.rows);
 
@@ -727,7 +729,7 @@ d('Procurement analysis golden (live prod, active generation required)', () => {
       `query($cui:String!){ procurementBreakdown(
          scope:{authorityCui:$cui,grain:contract}, dimension:supplier, topN:5
        ){ rankedBy buckets { kind key recordCount valueAwardedSum } } }`,
-      { cui: AUTHORITY }
+      { cui: CONTRACT_AUTHORITY }
     );
     expect(breakdown.errors).toBeUndefined();
     const breakdownBlock = rec(arr(breakdown.data?.['procurementBreakdown'])[0]);
@@ -749,7 +751,7 @@ d('Procurement analysis golden (live prod, active generation required)', () => {
           and supplier_cui is not null
         group by supplier_cui
         order by sum(${orderColumn}) desc nulls last, supplier_cui asc limit 1`,
-      [buildId, AUTHORITY]
+      [buildId, CONTRACT_AUTHORITY]
     );
     expect(firstTop?.['key']).toBe(rawTop.rows[0]?.key);
     expect(firstTop?.['recordCount']).toBe(rawTop.rows[0]?.record_count);
@@ -758,7 +760,7 @@ d('Procurement analysis golden (live prod, active generation required)', () => {
       `query($cui:String!){ procurementConcentration(
          scope:{authorityCui:$cui,grain:contract}, basis:count
        ){ supplierCount meta { buildId } } }`,
-      { cui: AUTHORITY }
+      { cui: CONTRACT_AUTHORITY }
     );
     expect(concentration.errors).toBeUndefined();
     const rawSuppliers = await pool.query<{ supplier_count: number }>(
@@ -766,7 +768,7 @@ d('Procurement analysis golden (live prod, active generation required)', () => {
          from procurement.analysis_rollup_edge_monthly
         where build_id = $1 and grain = 'contract' and authority_cui = $2
           and supplier_cui is not null`,
-      [buildId, AUTHORITY]
+      [buildId, CONTRACT_AUTHORITY]
     );
     const concentrationBlock = rec(arr(concentration.data?.['procurementConcentration'])[0]);
     expect(concentrationBlock['supplierCount']).toBe(rawSuppliers.rows[0]?.supplier_count);
@@ -775,7 +777,7 @@ d('Procurement analysis golden (live prod, active generation required)', () => {
 
   it('breakdown and concentration match their retained MCP shapes', async (ctx) => {
     if (!active) ctx.skip();
-    const scope = { authorityCui: AUTHORITY, grain: 'contract' };
+    const scope = { authorityCui: CONTRACT_AUTHORITY, grain: 'contract' };
     const breakdownGraph = await gql(
       `query($scope:ProcurementAnalysisScopeInput!){ procurementBreakdown(scope:$scope,dimension:supplier,topN:5){
          grain dimension rankedBy buckets { kind key recordCount withValueCount valueAwardedSum shareOfScope }
@@ -823,7 +825,7 @@ d('Procurement analysis golden (live prod, active generation required)', () => {
        having sum(value_awarded_sum) > 0
         order by sum(value_awarded_sum) desc
         limit 1`,
-      [buildId, AUTHORITY]
+      [buildId, CONTRACT_AUTHORITY]
     );
     const cpvDivision = cpvFixture.rows[0]?.cpv_division;
     expect(cpvDivision, 'share fixture has a positive monetary numerator').toBeDefined();
@@ -836,7 +838,7 @@ d('Procurement analysis golden (live prod, active generation required)', () => {
          numerator { grain recordCount valueAwardedSum meta { buildId } }
          denominator { grain recordCount valueAwardedSum meta { buildId } }
        } }`,
-      { cui: AUTHORITY, cpv: cpvDivision }
+      { cui: CONTRACT_AUTHORITY, cpv: cpvDivision }
     );
     expect(share.errors).toBeUndefined();
     const shareResult = rec(share.data?.['procurementShare']);
@@ -857,7 +859,7 @@ d('Procurement analysis golden (live prod, active generation required)', () => {
               sum(value_awarded_sum)::text
          from procurement.analysis_rollup_authority_dims_monthly
         where build_id = $1 and grain = 'contract' and authority_cui = $2`,
-      [buildId, AUTHORITY, cpvDivision]
+      [buildId, CONTRACT_AUTHORITY, cpvDivision]
     );
     const rawShareByKind = new Map(rawShareOperands.rows.map((row) => [row.kind, row]));
     const rawNumerator = rawShareByKind.get('numerator');
@@ -884,7 +886,7 @@ d('Procurement analysis golden (live prod, active generation required)', () => {
       `query($cui:String!){ procurementFacets(
          scope:{authorityCui:$cui,grain:contract}, dimensions:[supplier,cpvDivision,status], topN:5
        ){ blocks { dimension buckets { kind recordCount } meta { counts { rows } buildId } } } }`,
-      { cui: AUTHORITY }
+      { cui: CONTRACT_AUTHORITY }
     );
     expect(facets.errors).toBeUndefined();
     const facetBlocks = arr(rec(facets.data?.['procurementFacets'])['blocks']).map(rec);
@@ -903,7 +905,7 @@ d('Procurement analysis golden (live prod, active generation required)', () => {
         `query($cui:String!,$dimension:ProcurementBreakdownDimension!){ procurementBreakdown(
            scope:{authorityCui:$cui,grain:contract},dimension:$dimension,topN:5
          ){ dimension buckets { kind recordCount } meta { counts { rows } buildId } } }`,
-        { cui: AUTHORITY, dimension: block['dimension'] }
+        { cui: CONTRACT_AUTHORITY, dimension: block['dimension'] }
       );
       expect(individual.errors).toBeUndefined();
       expect(rec(arr(individual.data?.['procurementBreakdown'])[0])).toEqual(block);

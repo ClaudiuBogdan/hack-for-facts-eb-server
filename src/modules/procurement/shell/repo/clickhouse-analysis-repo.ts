@@ -81,6 +81,7 @@ const SUPPLIER_SCOPE_FIELDS: readonly (keyof AnalysisScope)[] = [
   'supplierCui',
   'supplierCounty',
   'supplierRegion',
+  'supplierSiruta',
 ];
 
 const BREAKDOWN_DIM_COLUMNS: Record<string, string> = {
@@ -150,12 +151,17 @@ const compileScope = (route: AnalysisRoute, scope: AnalysisScope): CompiledScope
       conds.push(`${column} = ${escapeString(value)}`);
     }
   }
-  // buyerSiruta targets the numeric UAT column; non-numeric input can never
+  // SIRUTA scopes target numeric UAT columns; non-numeric input can never
   // match (SIRUTA codes are digits) and compiles to an impossible predicate.
-  const buyerSiruta = (scope as { buyerSiruta?: string }).buyerSiruta;
-  if (typeof buyerSiruta === 'string' && buyerSiruta !== '') {
-    if (/^\d{1,7}$/.test(buyerSiruta)) {
-      conds.push(`buyer_siruta_uat = ${String(Number(buyerSiruta))}`);
+  const sirutaScopes = [
+    ['buyerSiruta', 'buyer_siruta_uat'],
+    ['supplierSiruta', 'supplier_siruta_uat'],
+  ] as const;
+  for (const [field, column] of sirutaScopes) {
+    const value = scope[field];
+    if (typeof value !== 'string' || value === '') continue;
+    if (/^\d{1,7}$/.test(value)) {
+      conds.push(`${column} = ${String(Number(value))}`);
     } else {
       impossible = true;
     }

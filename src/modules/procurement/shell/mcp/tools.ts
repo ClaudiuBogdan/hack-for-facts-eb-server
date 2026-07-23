@@ -59,10 +59,18 @@ export const ANALYSIS_SCOPE_ZOD_SHAPE = {
   supplierCui: z.string().optional(),
   cpvDivision: z.string().optional().describe('2-digit CPV division (XOR cpvCode).'),
   cpvCode: z.string().optional().describe('8-digit CPV code (XOR cpvDivision).'),
-  buyerCounty: z.string().optional().describe('Not served in wave 1 (named rejection).'),
+  buyerCounty: z.string().optional().describe('Buyer registered-office county code.'),
   buyerRegion: z.string().optional(),
-  supplierCounty: z.string().optional().describe('Milestone M3 (named rejection).'),
-  supplierRegion: z.string().optional().describe('Milestone M3 (named rejection).'),
+  buyerSiruta: z
+    .string()
+    .optional()
+    .describe('Buyer registered-office territorial SIRUTA (UAT natural key).'),
+  supplierCounty: z.string().optional().describe('Supplier registered-office county code.'),
+  supplierRegion: z.string().optional(),
+  supplierSiruta: z
+    .string()
+    .optional()
+    .describe('Supplier registered-office territorial SIRUTA (UAT natural key).'),
   status: z.string().optional(),
   procedureType: z.string().optional(),
   grain: z.enum(ANALYSIS_GRAINS).optional().describe('Absent = all grains the matrix supports.'),
