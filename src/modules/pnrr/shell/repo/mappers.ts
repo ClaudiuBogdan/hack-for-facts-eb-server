@@ -20,6 +20,7 @@ import {
   type PnrrMeasure,
   type PnrrMeasureType,
   type PnrrPayment,
+  type PnrrPaymentDirection,
   type PnrrProgramIndicator,
 } from '../../core/types.js';
 
@@ -34,6 +35,9 @@ const roleOf = (raw: string): PnrrContractorRole =>
   (PNRR_CONTRACTOR_ROLES as readonly string[]).includes(raw)
     ? (raw as PnrrContractorRole)
     : 'winning_bidder';
+
+const directionOf = (raw: string | null): PnrrPaymentDirection | null =>
+  raw === 'disbursement' || raw === 'reversal' || raw === 'zero_adjustment' ? raw : null;
 
 const hubsOf = (raw: readonly string[] | null): readonly PnrrHub[] => {
   if (raw === null) return [];
@@ -81,6 +85,7 @@ export interface PaymentRow {
   measure_raw: string | null;
   amount_lei: string | null;
   amount_eur: string | null;
+  payment_direction: string | null;
   payment_date: string | null;
   county_name: string | null;
   county_siruta: string | null;
@@ -100,6 +105,7 @@ export const mapPayment = (r: PaymentRow): PnrrPayment => ({
   measureRaw: r.measure_raw,
   amountLei: r.amount_lei,
   amountEur: r.amount_eur,
+  paymentDirection: directionOf(r.payment_direction),
   paymentDate: r.payment_date,
   countyName: r.county_name,
   countySiruta: r.county_siruta,

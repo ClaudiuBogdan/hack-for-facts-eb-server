@@ -1,16 +1,24 @@
 /**
- * PNRR golden + tri-surface tests against LIVE transparenta_prod (read-only).
+ * PNRR invariant + tri-surface tests against LIVE transparenta_prod
+ * (read-only).
  *
- * Pinned to the measured Phase E/G gate numbers (PNRR_NOTES / 07-pnrr.md §12):
- *   - CNAIR cui 16054368 → 1,229 payments = 6,210,010,594.17 lei / 1,256,053,436.75 eur, all C4
- *   - 18,876 entities; 1,435 with no identity hub; 16 components; 103 measures
- *   - flows source_id=pnrr: payment 73,333 / commitment 24,078 / subcontract 14,796
+ * 2026-07-22 (S8): pinned moving totals (CNAIR 1,229 payments =
+ * 6,210,010,594.17 lei; commitments.count 32; 103 measures; 1,435 no-hub
+ * entities) are replaced with invariants that survive re-syncs:
+ *   - directional identity: rows are signed by payment_direction and
+ *     grossLei − reversalLei = totalLei on every aggregate surface;
+ *   - envelope-count conservation: byComponent counts sum to the total;
+ *     commitment sums cover exactly count − unresolvedCount rows;
+ *   - acquisition-money abstention: no pnrr award/subcontract flow, no
+ *     acquisition/contractor search amount (these two encode the Wave 1
+ *     exit gate and fail until the first converging recurring run).
  *
  * Tri-surface: the GraphQL `entity(cui).pnrr` payload == the MCP `get_pnrr_entity`
  * profile == raw SQL over `pnrr.payments` (the grain). Skips cleanly when
  * PROD_DATABASE_URL is absent (CI without the tunnel).
  */
 
+import { Decimal } from 'decimal.js';
 import { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -100,9 +108,9 @@ d('PNRR golden (live prod)', () => {
     process.off('uncaughtException', onUncaught);
   });
 
-  it('CNAIR profile matches the gate (1,229 payments, all C4)', async () => {
+  it('CNAIR profile obeys the directional and conservation invariants', async () => {
     const res = await gql(
-      `query($cui: CUI!){ pnrrEntityProfile(cui:$cui){ payments{ count totalLei totalEur firstDate lastDate byComponent { componentCode count totalLei } } commitments{ count } procurement{ acquisitionsAsBeneficiary wonAsContractor } grainNote } }`,
+      `query($cui: CUI!){ pnrrEntityProfile(cui:$cui){ payments{ count totalLei totalEur grossLei reversalLei zeroAdjustmentCount firstDate lastDate byComponent { componentCode count totalLei } } commitments{ count totalValue unresolvedCount } procurement{ acquisitionsAsBeneficiary wonAsContractor } grainNote } }`,
       { cui: CNAIR }
     );
     expect(res.errors).toBeUndefined();
@@ -111,24 +119,56 @@ d('PNRR golden (live prod)', () => {
         pnrrEntityProfile: {
           payments: {
             count: number;
-            totalLei: string;
-            totalEur: string;
-            byComponent: { componentCode: string }[];
+            totalLei: string | null;
+            grossLei: string | null;
+            reversalLei: string | null;
+            zeroAdjustmentCount: number;
+            byComponent: { componentCode: string; count: number }[];
           };
-          commitments: { count: number };
-          procurement: { acquisitionsAsBeneficiary: number };
+          commitments: { count: number; totalValue: string | null; unresolvedCount: number };
           grainNote: string;
         };
       }
     ).pnrrEntityProfile;
-    expect(p.payments.count).toBe(1229);
-    expect(p.payments.totalLei).toBe('6210010594.17');
-    expect(p.payments.totalEur).toBe('1256053436.75');
-    expect(p.payments.byComponent).toHaveLength(1);
-    expect(p.payments.byComponent[0]?.componentCode).toBe('C4');
-    expect(p.commitments.count).toBe(32);
-    expect(p.procurement.acquisitionsAsBeneficiary).toBe(0);
+    expect(p.payments.count).toBeGreaterThan(0);
+    // Directional identity stays exact across decimal-string money.
+    const net = new Decimal(p.payments.totalLei ?? 0);
+    const gross = new Decimal(p.payments.grossLei ?? 0);
+    const reversal = new Decimal(p.payments.reversalLei ?? 0);
+    expect(gross.minus(reversal).equals(net)).toBe(true);
+    expect(reversal.isNegative()).toBe(false);
+    expect(p.payments.zeroAdjustmentCount).toBeGreaterThanOrEqual(0);
+    // Component conservation: the per-component counts partition the total.
+    const byComponentSum = p.payments.byComponent.reduce((acc, r) => acc + r.count, 0);
+    expect(byComponentSum).toBe(p.payments.count);
+    // Envelope law: sums cover exactly count − unresolvedCount rows.
+    expect(p.commitments.unresolvedCount).toBeGreaterThanOrEqual(0);
+    expect(p.commitments.unresolvedCount).toBeLessThanOrEqual(p.commitments.count);
     expect(p.grainNote).toContain('different grains');
+  });
+
+  it('payment_direction labels match the row-sign law (no mislabeled row exists)', async () => {
+    const sql = await pool.query<{ violations: string }>(
+      `select count(*) violations from pnrr.payments
+       where (payment_direction = 'disbursement' and amount_lei <= 0)
+          or (payment_direction = 'reversal' and amount_lei >= 0)
+          or (payment_direction = 'zero_adjustment' and amount_lei <> 0)
+          or payment_direction not in ('disbursement','reversal','zero_adjustment')`
+    );
+    expect(sql.rows[0]?.violations).toBe('0');
+  });
+
+  it('acquisition-money abstention: no pnrr award flow, no acquisition search amount (Wave 1 exit gate)', async () => {
+    const flows = await pool.query<{ cnt: string }>(
+      `select count(*) cnt from flows.money_flows
+       where source_id = 'pnrr' and flow_type not in ('pnrr_payment','pnrr_commitment')`
+    );
+    expect(flows.rows[0]?.cnt).toBe('0');
+    const search = await pool.query<{ cnt: string }>(
+      `select count(*) cnt from search.documents
+       where doc_type in ('pnrr_acquisition','pnrr_contractor') and amount_ron is not null`
+    );
+    expect(search.rows[0]?.cnt).toBe('0');
   });
 
   it('tri-surface: GraphQL Entity.pnrr == MCP get_pnrr_entity == raw SQL (the grain)', async () => {
@@ -177,34 +217,65 @@ d('PNRR golden (live prod)', () => {
     expect(a).toEqual(b);
   }, 30_000);
 
-  it('payments aggregate by component for CNAIR == raw SQL', async () => {
+  it('payments aggregate by component for CNAIR == raw SQL (parity, not pins)', async () => {
     const agg = await gql(
-      `query($cui:[String!]){ pnrrPaymentAggregate(filter:{ beneficiaryCui:{ in:$cui } }, groupBy: component){ key count totalLei } }`,
+      `query($cui:[String!]){ pnrrPaymentAggregate(filter:{ beneficiaryCui:{ in:$cui } }, groupBy: component){ key count totalLei grossLei reversalLei zeroAdjustmentCount } }`,
       { cui: [CNAIR] }
     );
     const rows = (
-      agg.data as { pnrrPaymentAggregate: { key: string; count: number; totalLei: string }[] }
+      agg.data as {
+        pnrrPaymentAggregate: {
+          key: string;
+          count: number;
+          totalLei: string | null;
+          grossLei: string | null;
+          reversalLei: string | null;
+          zeroAdjustmentCount: number;
+        }[];
+      }
     ).pnrrPaymentAggregate;
-    expect(rows).toHaveLength(1);
-    expect(rows[0]?.key).toBe('C4');
-    expect(rows[0]?.count).toBe(1229);
-    expect(rows[0]?.totalLei).toBe('6210010594.17');
+    expect(rows.length).toBeGreaterThan(0);
+    const sqlRows = await pool.query<{ key: string | null; cnt: string; total_lei: string | null }>(
+      `select component_code key, count(*) cnt, sum(amount_lei)::text total_lei
+       from pnrr.payments where beneficiary_cui = $1 and is_personal_recipient is not true
+       group by 1`,
+      [CNAIR]
+    );
+    expect(rows).toHaveLength(sqlRows.rows.length);
+    for (const r of rows) {
+      const raw = sqlRows.rows.find((s) => s.key === r.key);
+      expect(raw, `component ${r.key} in raw SQL`).toBeDefined();
+      expect(String(r.count)).toBe(raw?.cnt);
+      expect(r.totalLei).toBe(raw?.total_lei ?? null);
+      // Directional identity holds per aggregate row too.
+      expect(
+        new Decimal(r.grossLei ?? 0)
+          .minus(new Decimal(r.reversalLei ?? 0))
+          .equals(new Decimal(r.totalLei ?? 0))
+      ).toBe(true);
+    }
   });
 
-  it('dimensions: 16 components, 103 measures', async () => {
+  it('dimensions: 16 components (legal constant), measures non-empty and unique', async () => {
     const res = await gql(`{ pnrrComponents { componentCode } pnrrMeasures { fenixReference } }`);
-    const data = res.data as { pnrrComponents: unknown[]; pnrrMeasures: unknown[] };
+    const data = res.data as {
+      pnrrComponents: unknown[];
+      pnrrMeasures: { fenixReference: string | null }[];
+    };
     expect(data.pnrrComponents).toHaveLength(16);
-    expect(data.pnrrMeasures).toHaveLength(103);
+    expect(data.pnrrMeasures.length).toBeGreaterThan(0);
+    const refs = data.pnrrMeasures.map((m) => m.fenixReference).filter((r) => r !== null);
+    expect(new Set(refs).size).toBe(refs.length);
   });
 
-  it('PN-6 coverage: 1,435 entities have no identity hub', async () => {
-    // The repo filter is index-light here; verify the underlying count via SQL +
-    // confirm the hasNoHub filter compiles and returns a hub-free page.
+  it('PN-6 coverage: hasNoHub filter returns only hub-free entities', async () => {
+    // No pinned count (the entity set moves with every re-sync); the invariant
+    // is that some hub-free entities exist and the filter never leaks a
+    // hub-linked one.
     const sql = await pool.query<{ cnt: string }>(
       `select count(*) cnt from pnrr.entities e where not exists (select 1 from pnrr.entity_registry_links l where l.cui = e.cui)`
     );
-    expect(sql.rows[0]?.cnt).toBe('1435');
+    expect(Number(sql.rows[0]?.cnt)).toBeGreaterThan(0);
 
     const res = await gql(
       `{ pnrrEntities(filter:{ hasNoHub:{ eq:true }, role:{ eq:"beneficiary" } }, first: 3){ edges { node { cui hubs } } } }`
@@ -285,7 +356,14 @@ d('PNRR golden (live prod)', () => {
       }
     ).entity;
     const pnrrPaymentFlow = e.flowsIn.byFlowType.find((b) => b.flowType === 'pnrr_payment');
-    expect(pnrrPaymentFlow?.count).toBe(1229);
-    expect(e.pnrr.payments.count).toBe(1229);
+    expect(e.pnrr.payments.count).toBeGreaterThan(0);
+    // Flow projection excludes zero-adjustment rows (amount_lei <> 0 in the
+    // loader), so the flow count equals the non-zero payment rows for the CUI.
+    const nonZero = await pool.query<{ cnt: string }>(
+      `select count(*) cnt from pnrr.payments
+       where beneficiary_cui = $1 and amount_lei <> 0`,
+      [CNAIR]
+    );
+    expect(String(pnrrPaymentFlow?.count ?? 0)).toBe(nonZero.rows[0]?.cnt);
   }, 30_000);
 });

@@ -67,6 +67,7 @@ export interface PnrrPaymentsTable {
   submeasure_raw: string | null;
   amount_lei: string | null; // numeric → string
   amount_eur: string | null; // numeric → string
+  payment_direction: string | null; // 'disbursement' | 'reversal' | 'zero_adjustment'
   payment_date: string | null; // date
   county_name: string | null;
   county_siruta: string | null;
