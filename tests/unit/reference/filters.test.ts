@@ -37,6 +37,9 @@ describe('generated GraphQL input names match the plan', () => {
     expect(sdl).toContain('input ReferencePublicEntityFilterExclude {');
     // entityType is a String filter (not a closed enum), so it accepts any value.
     expect(sdl).toContain('input ReferencePublicEntityEntityTypeFilter {');
+    expect(toGraphQLInput(referenceTerritoryFilterSpec)).toContain(
+      'isCounty: ReferenceTerritoryIsCountyFilter'
+    );
   });
 });
 

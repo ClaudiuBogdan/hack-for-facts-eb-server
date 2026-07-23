@@ -233,6 +233,14 @@ export const referenceTerritoryFilterSpec: CollectionFilterSpec = {
       description: 'VIRTUAL — derived uat_code IS NOT NULL.',
     },
     {
+      name: 'isCounty',
+      type: 'bool',
+      ops: ['eq'],
+      column: { alias: 't', column: 'is_county_virtual' },
+      description:
+        'VIRTUAL — county-level territory (siruta_code = county_code, including Bucharest).',
+    },
+    {
       name: 'population',
       type: 'int',
       ops: ['between'],
@@ -296,7 +304,7 @@ export const REFERENCE_PUBLIC_ENTITY_VIRTUAL_FIELDS = [
   'parentCui',
   'hasIssues',
 ] as const;
-export const REFERENCE_TERRITORY_VIRTUAL_FIELDS = ['isUat'] as const;
+export const REFERENCE_TERRITORY_VIRTUAL_FIELDS = ['isUat', 'isCounty'] as const;
 
 export const REFERENCE_FILTER_SPECS = {
   publicEntity: referencePublicEntityFilterSpec,

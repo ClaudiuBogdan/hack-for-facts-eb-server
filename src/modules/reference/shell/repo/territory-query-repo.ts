@@ -5,8 +5,8 @@
  * filtered cursor browse, and the rich county/region rollups (uatCount/population).
  * Everything the kernel repo already provides (byTerritorialSiruta, byCounty,
  * searchUat) is reused from the kernel — not re-implemented here (§0). Cursor lists
- * order by `(sortValue, id)` (the unique PK tiebreak). The `isUat` filter is VIRTUAL
- * (`uat_code IS NOT NULL`) and intercepted (the kernel composer never sees it).
+ * order by `(sortValue, id)` (the unique PK tiebreak). The `isUat` and `isCounty`
+ * filters are VIRTUAL and intercepted (the kernel composer never sees them).
  */
 
 import { sql, type Kysely, type RawBuilder, type SqlBool } from 'kysely';
@@ -107,6 +107,17 @@ export const makeTerritoryQueryRepo = (db: Db): TerritoryQueryRepo => {
     return undefined;
   };
 
+  const isCountyCondition = (input: FilterInput): RawBuilder<unknown> | undefined => {
+    const v = boolEq(fieldOf(input, 'isCounty'));
+    const county = sql`(
+      t.siruta_code = t.county_code
+      or (t.county_code = 'B' and t.siruta_code = '179132')
+    )`;
+    if (v === true) return county;
+    if (v === false) return sql`not ${county}`;
+    return undefined;
+  };
+
   const byId = async (id: number): Promise<Result<Territory | null, ApiError>> => {
     if (!Number.isInteger(id)) return ok(null);
     try {
@@ -146,12 +157,15 @@ export const makeTerritoryQueryRepo = (db: Db): TerritoryQueryRepo => {
     const physical = omitVirtualFields(f, [...REFERENCE_TERRITORY_VIRTUAL_FIELDS]);
     const kernel = toConditionBuilders(referenceTerritoryFilterSpec, physical);
     if (kernel.isErr()) return err(kernel.error);
-    // `baseConds` (filters + isUat) → the COUNT(*) denominator; `pageConds` adds the
+    // `baseConds` (filters + virtual geography predicates) → COUNT(*) denominator;
+    // `pageConds` adds the
     // keyset predicate for the page slice only (so totalCount is the filtered total,
     // not "rows remaining after the cursor" — review BLOCKER).
     const baseConds = [...kernel.value];
     const isUat = isUatCondition(f);
     if (isUat !== undefined) baseConds.push(isUat);
+    const isCounty = isCountyCondition(f);
+    if (isCounty !== undefined) baseConds.push(isCounty);
     const pageConds = [...baseConds];
     if (cursorKeys?.length === 2) {
       pageConds.push(keysetPredicate(sortCol, dir, cursorKeys[0] ?? '', cursorKeys[1] ?? ''));
