@@ -7,6 +7,8 @@
  * source module depends ONLY on this surface (+ infra), never on another module.
  */
 
+import { readFileSync } from 'node:fs';
+
 import { type Entity360Deps } from './core/usecases/entity-360.js';
 import { type GlobalSearchDeps } from './core/usecases/global-search.js';
 import { createContributorRegistry } from './core/usecases/registry.js';
@@ -55,6 +57,10 @@ export interface KernelConfig {
   /** Search-only Meili key; falls back to `meiliApiKey` when unset. */
   readonly meiliSearchApiKey?: string;
   readonly opensearchUrl: string;
+  readonly opensearchUsername?: string;
+  readonly opensearchPassword?: string;
+  readonly opensearchCaFile?: string;
+  readonly opensearchTlsServername?: string;
   readonly syntheticBaseUrl?: string;
   readonly syntheticApiKey?: string;
   readonly embeddingModel?: string;
@@ -144,7 +150,17 @@ export const makeKernel = async (config: KernelConfig): Promise<Kernel> => {
     host: config.meiliHost,
     apiKey: config.meiliSearchApiKey ?? config.meiliApiKey,
   });
-  const openSearchClient = makeOpenSearchClient({ url: config.opensearchUrl });
+  const openSearchClient = makeOpenSearchClient({
+    url: config.opensearchUrl,
+    ...(config.opensearchUsername !== undefined && { username: config.opensearchUsername }),
+    ...(config.opensearchPassword !== undefined && { password: config.opensearchPassword }),
+    ...(config.opensearchCaFile !== undefined && {
+      caCert: readFileSync(config.opensearchCaFile, 'utf8'),
+    }),
+    ...(config.opensearchTlsServername !== undefined && {
+      tlsServername: config.opensearchTlsServername,
+    }),
+  });
   const syntheticClient = makeSyntheticClient({
     baseUrl: config.syntheticBaseUrl ?? '',
     apiKey: config.syntheticApiKey ?? '',

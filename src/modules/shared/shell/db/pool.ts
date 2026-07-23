@@ -122,7 +122,6 @@ export const createProdDb = (config: ProdDbConfig): ProdDb => {
   // unhandled 'error' event and kills the process. The client is already
   // discarded by pg — log and continue.
   pool.on('error', (error) => {
-    // eslint-disable-next-line no-console -- kernel pool has no logger handle
     console.error('[prod-db pool] idle client error (recovered):', error.message);
   });
 

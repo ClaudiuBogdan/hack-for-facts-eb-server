@@ -313,7 +313,8 @@ export const registerRedesignSurface = async (
   if (enabledModules.includes('procurement')) {
     const windowEnv = Number(process.env['PROCUREMENT_DA_LIST_MAX_WINDOW_DAYS']);
     // DEV analytics backend switch: point analytics at the ClickHouse
-    // prototype fact tables (chronos, via port-forward). Unset = rollups.
+    // prototype fact tables (Chronos, normally via private Tailscale).
+    // Unset = rollups.
     const clickhouseUrl = process.env['PROD_CLICKHOUSE_URL'];
     // DEV list-search switch: resolve the `q` facet through the chronos
     // OpenSearch proto indices (via port-forward). DEDICATED variable —

@@ -137,3 +137,6 @@ scripts/k8s-port-forward.sh
 
 .opencode/package-lock.json
 .codex
+.env
+.env.*
+!.env.example
