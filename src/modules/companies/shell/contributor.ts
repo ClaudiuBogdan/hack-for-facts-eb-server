@@ -14,6 +14,8 @@
 
 import { ok, err, type Result } from 'neverthrow';
 
+import { isWithheldCompanyIdentifier } from '../core/usecases.js';
+
 import type { CompaniesRepository } from '../core/ports.js';
 import type {
   ApiError,
@@ -29,6 +31,10 @@ export const makeCompaniesContributor = (repo: CompaniesRepository): SourceContr
   source: COMPANIES_SOURCE,
 
   async presenceFor(cui: Cui): Promise<Result<SourcePresence | null, ApiError>> {
+    // Withheld identifiers (>10 digits, CNP-shaped) contribute NOTHING —
+    // absence, not an error, so an entity-360 page renders without a company
+    // badge and the response never confirms a registry row exists.
+    if (isWithheldCompanyIdentifier(cui)) return ok(null);
     const res = await repo.presenceCounts(cui);
     if (res.isErr()) return err(res.error);
     const p = res.value;
@@ -61,6 +67,7 @@ export const makeCompaniesContributor = (repo: CompaniesRepository): SourceContr
   },
 
   async profileSlice(cui: Cui): Promise<Result<EntityProfileSlice | null, ApiError>> {
+    if (isWithheldCompanyIdentifier(cui)) return ok(null);
     const res = await repo.profileSlice(cui);
     if (res.isErr()) return err(res.error);
     const slice = res.value;

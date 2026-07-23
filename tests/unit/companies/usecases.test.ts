@@ -10,12 +10,16 @@ import { err, ok, type Result } from 'neverthrow';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  isWithheldCompanyIdentifier,
   makeCompanyFinancials,
   makeCompanyList,
   makeCompanyProfile,
+  makeCompanyProfileData,
+  makeCompanyPublicMoney,
   makeCompanyResolve,
   type CompanyUsecaseDeps,
 } from '@/modules/companies/core/usecases.js';
+import { makeCompaniesContributor } from '@/modules/companies/shell/contributor.js';
 
 import type { CompaniesRepository, CompanyProfileData } from '@/modules/companies/core/ports.js';
 import type { CompanyFinancialYear } from '@/modules/companies/core/types.js';
@@ -330,6 +334,49 @@ describe('makeCompanyList', () => {
     expect(listCompanies).not.toHaveBeenCalled();
   });
 
+  it('discloses name-candidate truncation: a full-cap resolve marks the total estimated + caveat (D6)', async () => {
+    const cappedHits = Array.from({ length: 50 }, (_, i) => ({
+      dim: 'name' as const,
+      value: String(1000 + i),
+      label: `CO ${String(i)}`,
+      cui: String(1000 + i),
+      confidence: 1,
+    }));
+    const resolveByName = vi.fn(async () => ok({ hits: cappedHits, degraded: false }));
+    const listCompanies = vi.fn(async () => ok({ rows: [], total: 50, estimated: false }));
+    const d = deps({ repo: { resolveByName, listCompanies } });
+    const res = await makeCompanyList(d, {
+      filter: {},
+      q: 'popular name',
+      sort: 'name',
+      page: { page: 1, pageSize: 20 },
+    });
+    expect(resolveByName).toHaveBeenCalledWith('popular name', 50, null); // repo clamps at 50 — never ask for more
+    expect(unwrap(res).totalEstimated).toBe(true);
+    expect(unwrap(res).caveats.some((c) => c.includes('cap'))).toBe(true);
+  });
+
+  it('below-cap name resolution stays exact (no spurious estimate)', async () => {
+    const resolveByName = vi.fn(async () =>
+      ok({
+        hits: [
+          { dim: 'name' as const, value: '2816464', label: 'A', cui: '2816464', confidence: 1 },
+        ],
+        degraded: false,
+      })
+    );
+    const listCompanies = vi.fn(async () => ok({ rows: [], total: 1, estimated: false }));
+    const d = deps({ repo: { resolveByName, listCompanies } });
+    const res = await makeCompanyList(d, {
+      filter: {},
+      q: 'dedeman',
+      sort: 'name',
+      page: { page: 1, pageSize: 20 },
+    });
+    expect(unwrap(res).totalEstimated).toBe(false);
+    expect(unwrap(res).caveats).toHaveLength(0);
+  });
+
   it('rejects an empty in: [] (which the kernel composer would silently drop to match-all)', async () => {
     const res = await makeCompanyList(deps(), {
       filter: { status: { in: [] } },
@@ -360,6 +407,118 @@ describe('makeCompanyResolve', () => {
     const d = deps({ repo: { resolveByName } });
     const res = await makeCompanyResolve(d, 'name', 'x', 5);
     expect((res as { value: { degraded: boolean } }).value.degraded).toBe(true);
+  });
+});
+
+describe('withheld identifiers (>10 digits, CNP-shaped — P0 containment 2026-07-22)', () => {
+  // Synthetic test constants — no real identifier values.
+  const WITHHELD_13 = '9999999999999';
+  const WITHHELD_11 = '99999999999';
+
+  it('classifies by length: >10 digits withheld, ≤10 served', () => {
+    expect(isWithheldCompanyIdentifier(WITHHELD_11)).toBe(true);
+    expect(isWithheldCompanyIdentifier(WITHHELD_13)).toBe(true);
+    expect(isWithheldCompanyIdentifier('9999999999')).toBe(false); // 10 digits
+    expect(isWithheldCompanyIdentifier('2816464')).toBe(false);
+  });
+
+  it('every by-CUI usecase rejects with the SAME typed InvalidInput and no repo/flows round-trip', async () => {
+    const getProfileData = vi.fn();
+    const getFinancials = vi.fn();
+    const getFlowSummary = vi.fn();
+    const d = deps({
+      repo: { getProfileData: getProfileData as never, getFinancials: getFinancials as never },
+      flows: { getFlowSummary: getFlowSummary as never },
+    });
+    const results = [
+      await makeCompanyProfile(d, WITHHELD_13),
+      await makeCompanyProfileData(d, WITHHELD_13),
+      await makeCompanyFinancials(d, WITHHELD_11),
+      await makeCompanyPublicMoney(d, WITHHELD_13),
+    ];
+    for (const res of results) {
+      expect(res.isErr()).toBe(true);
+      const error = (res as { error: ApiError }).error;
+      expect(error.type).toBe('InvalidInput');
+      expect(error.message).toContain('not served');
+    }
+    expect(getProfileData).not.toHaveBeenCalled();
+    expect(getFinancials).not.toHaveBeenCalled();
+    expect(getFlowSummary).not.toHaveBeenCalled();
+  });
+
+  it('rejects withheld values in filter.cui eq/in AND exclude.cui (an exclusion probe would confirm existence)', async () => {
+    const page = { page: 1, pageSize: 20 };
+    const cases = [
+      { cui: { eq: WITHHELD_13 } },
+      { cui: { in: ['2816464', WITHHELD_11] } },
+      { exclude: { cui: { eq: WITHHELD_13 } } },
+      { exclude: { cui: { in: [WITHHELD_11] } } },
+    ];
+    for (const filter of cases) {
+      const res = await makeCompanyList(deps(), { filter, sort: 'name', page });
+      expect(res.isErr()).toBe(true);
+      expect((res as { error: ApiError }).error.type).toBe('InvalidInput');
+    }
+  });
+
+  it('drops withheld CUIs from name-resolved hits on the list path (empty page, not a leak)', async () => {
+    const resolveByName = vi.fn(async () =>
+      ok({
+        hits: [
+          { dim: 'name' as const, value: 'x', label: 'X PFA', cui: WITHHELD_13, confidence: 1 },
+        ],
+        degraded: false,
+      })
+    );
+    const listCompanies = vi.fn(async () => ok({ rows: [], total: 0, estimated: false }));
+    const d = deps({ repo: { resolveByName, listCompanies } });
+    const res = await makeCompanyList(d, {
+      filter: {},
+      q: 'x',
+      sort: 'name',
+      page: { page: 1, pageSize: 20 },
+    });
+    expect(unwrap(res).total).toBe(0);
+    expect(listCompanies).not.toHaveBeenCalled(); // never queries with the withheld CUI
+  });
+
+  it('drops withheld hits from resolve (name + regnum) and recomputes ambiguity', async () => {
+    const resolveByName = vi.fn(async () =>
+      ok({
+        hits: [
+          { dim: 'name' as const, value: '2816464', label: 'A', cui: '2816464', confidence: 1 },
+          { dim: 'name' as const, value: 'w', label: 'W PFA', cui: WITHHELD_13, confidence: 1 },
+        ],
+        degraded: false,
+      })
+    );
+    const findByRegistrationNumber = vi.fn(async () =>
+      ok([
+        { dim: 'regnum' as const, value: 'r', label: 'R PFA', cui: WITHHELD_11, confidence: null },
+      ])
+    );
+    const d = deps({ repo: { resolveByName, findByRegistrationNumber } });
+    const nameRes = unwrap(await makeCompanyResolve(d, 'name', 'x', 10));
+    expect(nameRes.matches).toHaveLength(1);
+    expect(nameRes.matches[0]?.cui).toBe('2816464');
+    expect(nameRes.ambiguous).toBe(false); // 1 surviving hit, not 2
+    const regnumRes = unwrap(await makeCompanyResolve(d, 'regnum', 'F0/0/0', 10));
+    expect(regnumRes.matches).toHaveLength(0);
+  });
+
+  it('contributor answers absence (null, not error) for withheld CUIs — no badge, nothing confirmed', async () => {
+    const presenceCounts = vi.fn();
+    const profileSlice = vi.fn();
+    const contributor = makeCompaniesContributor(
+      stubRepo({ presenceCounts: presenceCounts as never, profileSlice: profileSlice as never })
+    );
+    expect(unwrap(await contributor.presenceFor(WITHHELD_13))).toBeNull();
+    const slice = contributor.profileSlice;
+    expect(slice).toBeDefined();
+    if (slice !== undefined) expect(unwrap(await slice(WITHHELD_13))).toBeNull();
+    expect(presenceCounts).not.toHaveBeenCalled();
+    expect(profileSlice).not.toHaveBeenCalled();
   });
 });
 
