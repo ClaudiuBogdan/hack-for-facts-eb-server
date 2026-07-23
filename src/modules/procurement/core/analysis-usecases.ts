@@ -200,7 +200,8 @@ const composeGates = (decisions: readonly GateDecision[]): GateDecision => {
 /**
  * The gate classes a SHAPE must pass for a grain (design §5.4, S3): `time`
  * whenever the scope is time-bounded or the shape is a series; `geo` whenever
- * buyer geography is in the scope or is the breakdown dimension. Spend is NOT
+ * region geography is in the scope or is the breakdown dimension (buyer or
+ * supplier — county/SIRUTA follow the same coverage class). Spend is NOT
  * here — it gates money fields/bases, not the shape.
  */
 const shapeGate = (
@@ -213,7 +214,12 @@ const shapeGate = (
   if (options.isSeries === true || scopeWindow(scope) !== undefined) {
     decisions.push(decideAnswer(gen.quality, grain, 'time'));
   }
-  if (scope.buyerRegion !== undefined || options.dimension === 'buyerRegion') {
+  if (
+    scope.buyerRegion !== undefined ||
+    scope.supplierRegion !== undefined ||
+    options.dimension === 'buyerRegion' ||
+    options.dimension === 'supplierRegion'
+  ) {
     decisions.push(decideAnswer(gen.quality, grain, 'geo'));
   }
   return composeGates(decisions);

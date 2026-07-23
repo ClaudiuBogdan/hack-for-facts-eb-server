@@ -185,7 +185,7 @@ export const MEASURE_IDS = [
 ] as const;
 export type MeasureId = (typeof MEASURE_IDS)[number];
 
-/** Breakdown dimensions the wave-1 rollups can serve (design §6.2 matrix). */
+/** Breakdown dimensions ClickHouse facts can GROUP BY (design §6.2). */
 export const BREAKDOWN_DIMENSIONS = [
   'authority',
   'supplier',
@@ -196,6 +196,9 @@ export const BREAKDOWN_DIMENSIONS = [
   'buyerRegion',
   'buyerCounty',
   'buyerSiruta',
+  'supplierRegion',
+  'supplierCounty',
+  'supplierSiruta',
 ] as const;
 export type BreakdownDimension = (typeof BREAKDOWN_DIMENSIONS)[number];
 

@@ -113,4 +113,24 @@ describe('analysisBreakdown', () => {
     expect(blocks[0]?.meta.caveats.some((c) => c.includes('geo answers abstain'))).toBe(true);
     expect(calls.some((c) => c.method === 'breakdownFor')).toBe(false);
   });
+
+  it('a supplierRegion breakdown abstains under the same geo gate', async () => {
+    const { repo, calls } = fakeAnalysisRepo({
+      quality: {
+        direct_acquisition: {
+          coverage: { date: 0.9, value: 0.97, geo: 0.3, cpv: 0.9 },
+          classes: { spend: 'allow', time: 'allow', geo: 'abstain' },
+        },
+      },
+    });
+    const blocks = (
+      await analysisBreakdown(
+        { analysisRepo: repo },
+        { scope: { grain: 'direct_acquisition' }, dimension: 'supplierRegion' }
+      )
+    )._unsafeUnwrap();
+    expect(blocks[0]?.buckets).toEqual([]);
+    expect(blocks[0]?.meta.caveats.some((c) => c.includes('geo answers abstain'))).toBe(true);
+    expect(calls.some((c) => c.method === 'breakdownFor')).toBe(false);
+  });
 });

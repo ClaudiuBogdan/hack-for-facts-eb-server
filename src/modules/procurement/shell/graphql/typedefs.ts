@@ -395,6 +395,9 @@ export const procurementTypeDefs = /* GraphQL */ `
     buyerRegion
     buyerCounty
     buyerSiruta
+    supplierRegion
+    supplierCounty
+    supplierSiruta
   }
 
   """
