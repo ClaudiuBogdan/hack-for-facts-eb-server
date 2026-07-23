@@ -103,6 +103,26 @@ describe('translateSearchFilter', () => {
     ).toBe(true);
   });
 
+  it('accepts recordKind tokens from the closed set and rejects unknowns', () => {
+    const f = translateSearchFilter(
+      { recordKind: { in: ['framework_agreement'] } },
+      'contractDate'
+    )._unsafeUnwrap();
+    expect(f.recordKind).toEqual(['framework_agreement']);
+
+    const both = translateSearchFilter(
+      { recordKind: { in: ['contract_award', 'framework_agreement'] } },
+      'contractDate'
+    )._unsafeUnwrap();
+    expect(both.recordKind).toEqual(['contract_award', 'framework_agreement']);
+
+    const bad = translateSearchFilter(
+      { recordKind: { in: ['umbrella'] } },
+      'contractDate'
+    );
+    expect(bad.isErr()).toBe(true);
+  });
+
   it('carries the modifications-only facets', () => {
     const f = translateSearchFilter(
       { linked: false, minDeltaPct: 0.25 },

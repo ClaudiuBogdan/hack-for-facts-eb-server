@@ -54,6 +54,12 @@ export interface ProcurementSearchFilter {
   readonly valueRon?: DecimalRange;
   /** Valued grains only (ignored on modifications): value-model state filter. */
   readonly valueState?: readonly string[];
+  /**
+   * Contracts only (ignored elsewhere): record-kind filter
+   * (contract_award | framework_agreement). NULL rows (pre-v5 stamp) match
+   * 'contract_award'.
+   */
+  readonly recordKind?: readonly string[];
   /** Modifications only: `contract_id IS (NOT) NULL`. */
   readonly linked?: boolean;
   /** Modifications only: `value_delta_ron / nullif(value_before_ron,0) >= pct`. */

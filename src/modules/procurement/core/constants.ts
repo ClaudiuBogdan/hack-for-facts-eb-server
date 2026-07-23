@@ -78,6 +78,17 @@ export type ValueState = (typeof VALUE_STATES)[number];
 export const ACCEPTED_VALUE_STATE_SET: ReadonlySet<string> = new Set(ACCEPTED_VALUE_STATES);
 
 export const VALUE_COMPARABLE_BASES = ['official', 'derived_bnr'] as const;
+
+/**
+ * Contract record kinds (serving convention 2026-07-23, scrapper
+ * docs/procurement/PROCUREMENT_TYPES_AND_VALUES_EXPLAINED.md §5–§6): a
+ * contract row is either a purchase record or a framework umbrella. Stamped
+ * by value-rules v5 from the framework observation marker — orthogonal to
+ * value_state (ambiguous_grain is NOT a framework marker). A NULL column
+ * (pre-v5 data) reads as 'contract_award'.
+ */
+export const RECORD_KINDS = ['contract_award', 'framework_agreement'] as const;
+export type RecordKind = (typeof RECORD_KINDS)[number];
 export type ValueComparableBasis = (typeof VALUE_COMPARABLE_BASES)[number];
 
 export const PROCEDURE_SOURCE_SYSTEMS = ['elicitatie', 'seap_notice'] as const;

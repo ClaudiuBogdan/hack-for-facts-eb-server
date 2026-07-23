@@ -223,6 +223,12 @@ export const procurementTypeDefs = /* GraphQL */ `
     valueRon: DecimalRangeInput
     "Value-model resolution states to include (e.g. the 4 accepted states)."
     valueState: StringInInput
+    """
+    Record kind: contract_award | framework_agreement. Orthogonal to
+    valueState (frameworks are umbrellas, not purchases — their value is a
+    ceiling). NULL rows (pre-v5 data) match contract_award.
+    """
+    recordKind: StringInInput
   }
 
   """

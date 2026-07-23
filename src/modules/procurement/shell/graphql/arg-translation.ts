@@ -17,7 +17,7 @@ import { err, ok, type Result } from 'neverthrow';
 import { invalidInput, normalizeCui, type ApiError } from '@/modules/shared/index.js';
 
 import { parseAnalysisScope, type AnalysisScope } from '../../core/analysis-scope.js';
-import { VALUE_STATES } from '../../core/constants.js';
+import { RECORD_KINDS, VALUE_STATES } from '../../core/constants.js';
 import { parseQ, type ProcurementSearchFilter } from '../../core/search.js';
 
 // ── raw input shapes (exactly the SDL) ────────────────────────────────────────
@@ -49,6 +49,7 @@ export interface RawSearchFilter {
   modificationDate?: RangeInput;
   valueRon?: RangeInput;
   valueState?: StringInInput;
+  recordKind?: StringInInput;
   linked?: unknown;
   minDeltaPct?: unknown;
 }
@@ -59,6 +60,7 @@ export type RawAnalysisScopeInput = Readonly<Record<string, unknown>>;
 // ── scalar readers ────────────────────────────────────────────────────────────
 
 const VALUE_STATE_TOKENS: ReadonlySet<string> = new Set(VALUE_STATES);
+const RECORD_KIND_TOKENS: ReadonlySet<string> = new Set(RECORD_KINDS);
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/u;
 const DECIMAL_RE = /^-?\d+(\.\d+)?$/u;
@@ -236,6 +238,14 @@ export const translateSearchFilter = (
     const bad = valueState.value.find((v) => !VALUE_STATE_TOKENS.has(v));
     if (bad !== undefined) return err(invalidInput(`unknown valueState '${bad}'`, 'valueState'));
     out.valueState = valueState.value;
+  }
+
+  const recordKind = readIn(raw.recordKind, 'recordKind');
+  if (recordKind.isErr()) return err(recordKind.error);
+  if (recordKind.value !== undefined) {
+    const bad = recordKind.value.find((v) => !RECORD_KIND_TOKENS.has(v));
+    if (bad !== undefined) return err(invalidInput(`unknown recordKind '${bad}'`, 'recordKind'));
+    out.recordKind = recordKind.value;
   }
 
   if (raw.linked !== undefined && raw.linked !== null) {

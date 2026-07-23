@@ -61,6 +61,8 @@ interface GrainBinding {
   readonly hasSourceSystem: boolean;
   /** Whether the grain carries the value-model resolution columns. */
   readonly hasValueState: boolean;
+  /** Contracts only: the record_kind discriminator (v5 serving convention). */
+  readonly hasRecordKind: boolean;
 }
 
 const BINDINGS: Readonly<Record<SearchGrain, GrainBinding>> = {
@@ -77,6 +79,7 @@ const BINDINGS: Readonly<Record<SearchGrain, GrainBinding>> = {
     hasStatus: true,
     hasSourceSystem: true,
     hasValueState: true,
+    hasRecordKind: false,
   },
   contracts: {
     table: 'procurement.contracts',
@@ -89,6 +92,7 @@ const BINDINGS: Readonly<Record<SearchGrain, GrainBinding>> = {
     hasStatus: true,
     hasSourceSystem: true,
     hasValueState: true,
+    hasRecordKind: true,
   },
   direct_acquisitions: {
     table: 'procurement.direct_acquisitions',
@@ -103,6 +107,7 @@ const BINDINGS: Readonly<Record<SearchGrain, GrainBinding>> = {
     hasStatus: true,
     hasSourceSystem: true,
     hasValueState: true,
+    hasRecordKind: false,
   },
   modifications: {
     table: 'procurement.contract_modifications',
@@ -115,6 +120,7 @@ const BINDINGS: Readonly<Record<SearchGrain, GrainBinding>> = {
     hasStatus: false,
     hasSourceSystem: false,
     hasValueState: false,
+    hasRecordKind: false,
   },
 };
 
@@ -197,6 +203,13 @@ export const buildSearchConditions = (
   }
   if (filter.valueState !== undefined && b.hasValueState) {
     conds.push(inList(ref(alias, 'value_state'), filter.valueState));
+  }
+  if (filter.recordKind !== undefined && b.hasRecordKind) {
+    // NULL record_kind = rows not yet stamped by value-rules v5; they read as
+    // contract_award so a "purchases" filter never blanks the grain pre-stamp.
+    conds.push(
+      inList(sql`coalesce(${ref(alias, 'record_kind')}, 'contract_award')`, filter.recordKind)
+    );
   }
   if (filter.valueRon !== undefined) {
     const col = ref(alias, b.valueColumn);
