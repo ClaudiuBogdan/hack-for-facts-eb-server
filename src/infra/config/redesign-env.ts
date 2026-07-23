@@ -20,6 +20,12 @@ const RedesignEnvSchema = Type.Object({
   /** Comma-separated Meili index names the global search queries (default `entities`). */
   PROD_MEILI_INDEXES: Type.Optional(Type.String()),
   PROD_OPENSEARCH_URL: Type.String({ default: '' }),
+  PROD_OPENSEARCH_USERNAME: Type.Optional(Type.String()),
+  PROD_OPENSEARCH_PASSWORD: Type.Optional(Type.String()),
+  /** Private CA PEM path for authenticated HTTPS OpenSearch. */
+  PROD_OPENSEARCH_CA_FILE: Type.Optional(Type.String()),
+  /** Certificate SAN used when the private endpoint hostname is not in the node certificate. */
+  PROD_OPENSEARCH_TLS_SERVERNAME: Type.Optional(Type.String()),
   PORT: Type.Optional(Type.String()),
   HOST: Type.Optional(Type.String()),
   // Optional AI surface (ask/embeddings). Disabled when unset.
@@ -52,6 +58,10 @@ export interface RedesignConfig {
     /** Meili indexes the global search queries (from PROD_MEILI_INDEXES). */
     readonly meiliIndexes?: readonly string[];
     readonly opensearchUrl: string;
+    readonly opensearchUsername?: string;
+    readonly opensearchPassword?: string;
+    readonly opensearchCaFile?: string;
+    readonly opensearchTlsServername?: string;
     readonly poolMax?: number;
     readonly dbSsl?: boolean;
     readonly syntheticBaseUrl?: string;
@@ -106,6 +116,18 @@ export const loadRedesignConfig = (env: NodeJS.ProcessEnv): RedesignConfig => {
       }),
       ...(meiliIndexes.length > 0 && { meiliIndexes }),
       opensearchUrl: e.PROD_OPENSEARCH_URL,
+      ...(e.PROD_OPENSEARCH_USERNAME !== undefined && {
+        opensearchUsername: e.PROD_OPENSEARCH_USERNAME,
+      }),
+      ...(e.PROD_OPENSEARCH_PASSWORD !== undefined && {
+        opensearchPassword: e.PROD_OPENSEARCH_PASSWORD,
+      }),
+      ...(e.PROD_OPENSEARCH_CA_FILE !== undefined && {
+        opensearchCaFile: e.PROD_OPENSEARCH_CA_FILE,
+      }),
+      ...(e.PROD_OPENSEARCH_TLS_SERVERNAME !== undefined && {
+        opensearchTlsServername: e.PROD_OPENSEARCH_TLS_SERVERNAME,
+      }),
       ...(e.PROD_DB_POOL_MAX !== undefined && { poolMax: parseIntOr(e.PROD_DB_POOL_MAX, 15) }),
       ...(e.PROD_DB_SSL !== undefined && { dbSsl: e.PROD_DB_SSL === 'true' }),
       ...(e.PROD_SYNTHETIC_BASE_URL !== undefined && {

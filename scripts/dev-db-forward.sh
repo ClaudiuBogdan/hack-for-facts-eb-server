@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
-# Stable, self-healing DB port-forwards for local dev.
+# Stable, self-healing Phoenix port-forwards for local development.
 #
-# Forwards BOTH clusters at once over Tailscale (kubectl, no SSH tunnel):
-#   - GRIFFIN prod  postgres (transparenta_prod) -> localhost:55432   [redesign server: PROD_DATABASE_URL]
-#   - GRIFFIN prod  meilisearch                   -> localhost:57700    [redesign server: PROD_MEILI_HOST]
-#   - GRIFFIN prod  opensearch                    -> localhost:59200    [redesign server: PROD_OPENSEARCH_URL]
+# Production redesign services use direct private Chronos Tailscale endpoints;
+# this supervisor intentionally does not forward Griffin or Chronos prod services.
+#
+# Forwards the Phoenix development services over Tailscale (kubectl, no SSH tunnel):
 #   - PHOENIX dev   budget  (hack-for-facts-dev) -> localhost:5432     [legacy server: BUDGET_DATABASE_URL]
 #   - PHOENIX dev   userdata                      -> localhost:5433     [legacy server: USER_DATABASE_URL]
 #   - PHOENIX dev   ins                           -> localhost:5434     [legacy server: INS_DATABASE_URL]
@@ -29,30 +29,20 @@ SESSION=dev-db-forward
 # Absolute path to this script so `--tmux` re-exec works no matter the caller's
 # cwd (e.g. invoked as `pnpm dev:forward` / `bash scripts/dev-db-forward.sh`).
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
-GRIFFIN_KUBECONFIG="${GRIFFIN_KUBECONFIG:-$HOME/.kube/griffin.yaml}"
 PHOENIX_KUBECONFIG="${PHOENIX_KUBECONFIG:-$HOME/.kube/phoenix.yaml}"
-CHRONOS_KUBECONFIG="${CHRONOS_KUBECONFIG:-$HOME/.kube/chronos.yaml}"
-GRIFFIN_NS="${GRIFFIN_NS:-transparenta-eu-etl-prod}"
 PHOENIX_NS="${PHOENIX_NS:-hack-for-facts-dev}"
-CHRONOS_NS="${CHRONOS_NS:-transparenta-eu-etl-prod}"
 RETRY_DELAY="${RETRY_DELAY:-3}"
 BIND_ADDR="${BIND_ADDR:-127.0.0.1}"
 
 # label | kubeconfig | namespace | svc/<name> | remote_port | local_port
 SERVICES=(
-  "griffin-prod-db|$GRIFFIN_KUBECONFIG|$GRIFFIN_NS|svc/transparenta-prod-postgres-rw|5432|55432"
-  "griffin-meili|$GRIFFIN_KUBECONFIG|$GRIFFIN_NS|svc/transparenta-eu-etl-meilisearch|7700|57700"
-  "griffin-opensearch|$GRIFFIN_KUBECONFIG|$GRIFFIN_NS|svc/transparenta-eu-etl-opensearch|9200|59200"
-  # chronos OpenSearch (procurement search proto indices) — HTTPS + basic auth,
-  # unlike the legacy plain-HTTP griffin node on 59200.
-  "chronos-opensearch|$CHRONOS_KUBECONFIG|$CHRONOS_NS|svc/transparenta-eu-etl-opensearch|9200|59201"
   "phoenix-budget-db|$PHOENIX_KUBECONFIG|$PHOENIX_NS|svc/postgres-db-rw|5432|5432"
   "phoenix-user-db|$PHOENIX_KUBECONFIG|$PHOENIX_NS|svc/postgres-userdata-rw|5432|5433"
   "phoenix-ins-db|$PHOENIX_KUBECONFIG|$PHOENIX_NS|svc/postgres-ins-rw|5432|5434"
   "phoenix-redis|$PHOENIX_KUBECONFIG|$PHOENIX_NS|svc/redis|6379|16379"
 )
 
-ALL_PORTS="55432|57700|59200|59201|5432|5433|5434|16379"
+ALL_PORTS="5432|5433|5434|16379"
 
 show_status() {
   echo "listening forward ports:"
@@ -104,7 +94,6 @@ forward_loop() {
   done
 }
 
-echo "[forward] griffin kubeconfig: $GRIFFIN_KUBECONFIG (ns $GRIFFIN_NS)"
 echo "[forward] phoenix kubeconfig: $PHOENIX_KUBECONFIG (ns $PHOENIX_NS)"
 echo "[forward] starting ${#SERVICES[@]} forwards (Ctrl+C to stop all)"
 echo ""

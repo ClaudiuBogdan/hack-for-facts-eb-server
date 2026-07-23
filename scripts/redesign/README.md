@@ -1,26 +1,48 @@
-# Redesign dev scaffolding (team / worktrees / Griffin access)
+# Redesign dev scaffolding (team / worktrees / Chronos serving access)
 
 Reproducible setup for the module-per-source server redesign. The server reads the
 **live read-only `transparenta_prod`** DB + prod Meili/OpenSearch in the
 **`transparenta-eu-etl-prod`** namespace (the `transparenta-unified` sandbox is
-deprecated and NOT used), reached over SSH tunnels to griffin.
+deprecated and NOT used), reached directly through private Chronos Tailscale
+ingress. Redis remains the Phoenix development service and is not exposed from
+Chronos.
 
 ## One-time / per-session
 
 ```bash
-# 1. shared tunnels to prod-namespace services (idempotent; tmux 'redesign-tunnels')
+# 1. Phoenix-only development forwards (idempotent; tmux 'dev-db-forward')
 scripts/redesign/tunnels.sh
 
-# 2. generate the prod connection env (secret-safe; writes .claude/redesign-prod.env)
+# 2. generate guarded Chronos connection files (secret-safe; mode 0600)
 scripts/redesign/gen-prod-env.sh
 ```
 
-Local tunnel ports: DB `55432`, Meili `57700`, OpenSearch `59200`, Redis `56379`.
+The generator first runs the fail-closed Chronos target guard against an
+explicit kubeconfig/context, then reads the DB, Meili master, OpenSearch
+reader, OpenSearch CA, and ClickHouse read-only Secrets without printing their
+values. The Meili master key is used only in process memory to discover the
+single built-in key
+whose immutable contract is `actions=["search"]`, `indexes=["*"]`, and no
+expiry. The generator proves that key can call multi-search and receives HTTP
+403 from the keys-admin API, then writes only the search-only key to the local
+application environment. It defaults to:
+
+- `chronos-prod-postgres.basa-discus.ts.net:5432`;
+- `chronos-prod-meilisearch.basa-discus.ts.net:7700`;
+- `chronos-prod-opensearch.basa-discus.ts.net:9200` over authenticated HTTPS;
+- `chronos-prod-clickhouse.basa-discus.ts.net:8123` as the `readonly` user.
+
+The generator also proves that ClickHouse reports database `proto`, user
+`readonly`, and read-only mode before writing its four `PROD_CLICKHOUSE_*`
+variables. No production serving service needs a local port-forward.
+
+It writes `.claude/redesign-prod.env`, `.claude/redesign-psql.env`, and
+`.claude/chronos-opensearch-ca.pem`, all gitignored and mode `0600`.
 
 ## One port for both surfaces (unified dev server)
 
 The legacy API (`pnpm dev`, `/graphql`, phoenix-dev) and the redesign API
-(`/api/v1/graphql`, griffin-prod — parliament, companies, pnrr, …) historically
+(`/api/v1/graphql`, Chronos prod — parliament, companies, pnrr, …) historically
 ran as two processes on two ports. To let the client use a **single origin**,
 `pnpm dev` now also mounts the redesign surface on its own port when the redesign
 env is present:
@@ -28,24 +50,22 @@ env is present:
 - `pnpm dev` loads `.env` **and** (if present) `.claude/redesign-prod.env`, which
   sets `REDESIGN_SURFACE_ENABLED=true`. The legacy server then serves both
   `/graphql` (legacy/phoenix) and `/api/v1/graphql` + `/api/v1/mcp` +
-  `/api/v1/health` (redesign/griffin) on the **same port**.
-- Bring up all DB forwards first (`pnpm dev:forward`) so both phoenix-dev and
-  griffin-prod are reachable.
+  `/api/v1/health` (redesign/Chronos) on the **same port**.
+- Bring up Phoenix forwards (`pnpm dev:forward`) and generate the Chronos prod
+  env before starting the combined server.
 - **Deploy-safe:** the mount is gated on `REDESIGN_SURFACE_ENABLED` (default
   **off**). Deployed legacy servers never load `redesign-prod.env`, so the flag
   stays unset, the kernel is never built, and `/api/v1/*` is never registered —
   behavior is identical to before. If the flag is on but the redesign env is
   missing/invalid, the server logs a warning and starts legacy-only.
-- `pnpm dev:redesign` still runs the redesign surface standalone (griffin-only)
+- `pnpm dev:redesign` still runs the redesign surface standalone (Chronos-only)
   if you want it isolated.
 
-## All-in-one DB forwards (both servers) — `scripts/dev-db-forward.sh`
+## Phoenix development forwards — `scripts/dev-db-forward.sh`
 
-`scripts/redesign/tunnels.sh` above forwards only the **griffin prod** services over
-SSH (for the redesign server). When you also want the **legacy** server
-(`pnpm dev`, port 3001) and/or prefer kubectl-over-Tailscale to SSH, use the
-combined forwarder, which brings up everything both servers need with per-port
-auto-reconnect:
+Production services do not use local forwards. The compatibility
+`scripts/redesign/tunnels.sh` launcher starts this Phoenix-only supervisor for
+the legacy development database and Redis dependencies:
 
 ```bash
 pnpm dev:forward          # launch all forwards, detached in tmux 'dev-db-forward'
@@ -53,22 +73,16 @@ pnpm dev:forward:status   # show which forward ports are listening
 pnpm dev:forward:stop     # tear the tmux session down
 ```
 
-| Local port | Source (cluster · ns · service)                       | Consumed by (env)                       |
-| ---------- | ----------------------------------------------------- | --------------------------------------- |
-| `55432`    | griffin · `transparenta-eu-etl-prod` · `…postgres-rw` | redesign `PROD_DATABASE_URL`            |
-| `57700`    | griffin · … · `…meilisearch`                          | redesign `PROD_MEILI_HOST`              |
-| `59200`    | griffin · … · `…opensearch`                           | redesign `PROD_OPENSEARCH_URL`          |
-| `5432`     | phoenix · `hack-for-facts-dev` · `postgres-db-rw`     | legacy `BUDGET_DATABASE_URL`            |
-| `5433`     | phoenix · … · `postgres-userdata-rw`                  | legacy `USER_DATABASE_URL`              |
-| `5434`     | phoenix · … · `postgres-ins-rw`                       | legacy `INS_DATABASE_URL`               |
-| `16379`    | phoenix · … · `redis`                                 | legacy `REDIS_URL` / `BULLMQ_REDIS_URL` |
+| Local port | Source (cluster · ns · service)                   | Consumed by (env)                       |
+| ---------- | ------------------------------------------------- | --------------------------------------- |
+| `5432`     | phoenix · `hack-for-facts-dev` · `postgres-db-rw` | legacy `BUDGET_DATABASE_URL`            |
+| `5433`     | phoenix · … · `postgres-userdata-rw`              | legacy `USER_DATABASE_URL`              |
+| `5434`     | phoenix · … · `postgres-ins-rw`                   | legacy `INS_DATABASE_URL`               |
+| `16379`    | phoenix · … · `redis`                             | legacy `REDIS_URL` / `BULLMQ_REDIS_URL` |
 
-Each forward self-reconnects (~4s) if kubectl drops. **Caveat:** the redesign
-server crashes if its DB tunnel _hard_-drops and `tsx watch` does not restart it —
-relaunch `pnpm dev:redesign` after a hard drop. The legacy server tolerates a blip.
-Needs both kubeconfigs (`~/.kube/griffin.yaml`, `~/.kube/phoenix.yaml`) and
-Tailscale up. Override paths/namespaces via `GRIFFIN_KUBECONFIG`, `PHOENIX_KUBECONFIG`,
-`GRIFFIN_NS`, `PHOENIX_NS` env vars.
+Each Phoenix forward self-reconnects (~4s) if kubectl drops. It needs the
+Phoenix kubeconfig and Tailscale. Override via `PHOENIX_KUBECONFIG` and
+`PHOENIX_NS`.
 
 ## Per module (the team)
 
@@ -86,10 +100,11 @@ each module into `redesign/base`, which integrates to `dev` at milestones.
 
 ## Secrets
 
-- `.claude/redesign-prod.env` and every worktree `.env` are gitignored. Credentials
-  are fetched on griffin and written via redirect — never printed. Propagate with
+- `.claude/redesign-prod.env`, `.claude/redesign-psql.env`, the private CA PEM,
+  and every worktree `.env` are gitignored. Credentials are fetched from
+  Chronos with the guarded explicit context and never printed. Propagate with
   `cp`, never by parsing.
-- Port numbers (`localhost:NNNN`) are not secrets.
+- Private MagicDNS names and port numbers are not secrets.
 
 ## Models (per module agent)
 
