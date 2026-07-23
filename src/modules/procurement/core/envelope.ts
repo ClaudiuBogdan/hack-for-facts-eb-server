@@ -15,7 +15,7 @@ import type { PolicyEntry } from './policy.js';
 
 export interface AnswerEnvelope {
   readonly answerability: 'served' | 'degraded' | 'abstained';
-  readonly reason?: AnswerabilityReason;
+  readonly reason: AnswerabilityReason | null;
   readonly policyKey: string;
   readonly grain: AnalysisGrain;
   readonly valueBasis: 'estimated' | 'awarded' | null;
@@ -59,7 +59,7 @@ export const buildEnvelope = (
 ): AnswerEnvelope => ({
   answerability:
     reads === null ? 'abstained' : gate.allow && !gate.degraded ? 'served' : 'degraded',
-  ...(gate.reason === undefined ? {} : { reason: gate.reason }),
+  reason: gate.reason ?? null,
   policyKey: policy.policyKey,
   grain: policy.grain,
   valueBasis: policy.valueBasis,
