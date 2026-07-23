@@ -87,6 +87,13 @@ export interface PnrrEntity {
 
 // ── ledger ───────────────────────────────────────────────────────────────────
 
+/**
+ * Source-law payment direction: rows are signed (`disbursement` > 0,
+ * `reversal` < 0, `zero_adjustment` = 0) and `gross − reversal = net` holds
+ * over any filter window. Never hide reversals by summing only positives.
+ */
+export type PnrrPaymentDirection = 'disbursement' | 'reversal' | 'zero_adjustment';
+
 export interface PnrrPayment {
   readonly paymentKey: string;
   readonly beneficiaryCui: Cui | null;
@@ -96,6 +103,7 @@ export interface PnrrPayment {
   readonly measureRaw: string | null;
   readonly amountLei: Money | null;
   readonly amountEur: Money | null;
+  readonly paymentDirection: PnrrPaymentDirection | null;
   readonly paymentDate: IsoDate | null;
   readonly countyName: string | null;
   readonly countySiruta: Siruta | null;
@@ -239,8 +247,14 @@ export interface PnrrPaymentAggRow {
   readonly key: string;
   readonly label: string | null;
   readonly count: number;
+  /** Signed NET (disbursements minus reversals) — not gross cash. */
   readonly totalLei: Money | null;
   readonly totalEur: Money | null;
+  /** Disbursement rows only (positive). */
+  readonly grossLei: Money | null;
+  /** Reversal rows as a positive analytical magnitude; gross − reversal = net. */
+  readonly reversalLei: Money | null;
+  readonly zeroAdjustmentCount: number;
 }
 
 export interface PnrrComponentTotal {
@@ -251,8 +265,14 @@ export interface PnrrComponentTotal {
 
 export interface PnrrPaymentSummary {
   readonly count: number;
+  /** Signed NET (disbursements minus reversals) — not gross cash. */
   readonly totalLei: Money | null;
   readonly totalEur: Money | null;
+  /** Disbursement rows only (positive). */
+  readonly grossLei: Money | null;
+  /** Reversal rows as a positive analytical magnitude; gross − reversal = net. */
+  readonly reversalLei: Money | null;
+  readonly zeroAdjustmentCount: number;
   readonly firstDate: IsoDate | null;
   readonly lastDate: IsoDate | null;
   readonly byComponent: readonly PnrrComponentTotal[];
@@ -260,8 +280,15 @@ export interface PnrrPaymentSummary {
 
 export interface PnrrCommitmentSummary {
   readonly count: number;
+  /**
+   * Additive envelopes only — unresolved envelopes carry NULL money by the
+   * commitment envelope law, so this total covers `count − unresolvedCount`
+   * rows, not all of them.
+   */
   readonly totalValue: Money | null;
   readonly euValue: Money | null;
+  /** Rows whose envelope is unresolved (no summable value). */
+  readonly unresolvedCount: number;
   readonly avgFinancialProgress: number | null; // unweighted row mean of financial_progress
   readonly avgPhysicalProgress: number | null; // unweighted row mean of physical_progress
 }

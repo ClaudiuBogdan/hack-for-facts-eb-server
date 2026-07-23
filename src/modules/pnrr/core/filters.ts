@@ -36,8 +36,16 @@ const PNRR_COMMITMENT_STATUS_VALUES = [
   'ÎN IMPLEMENTARE (sub 30%)',
   'FINALIZAT',
 ] as const;
+const PNRR_PAYMENT_DIRECTION_VALUES = ['disbursement', 'reversal', 'zero_adjustment'] as const;
 const PNRR_ANNOUNCEMENT_STATUS_VALUES = ['ATRIBUIT', 'PUBLICAT'] as const;
-const PNRR_PROCEDURE_TYPE_VALUES = ['ATRIBUIT', 'PUBLICAT'] as const;
+// Measured on live pnrr.acquisitions 2026-07-22 (13,688 / 1,740 / 18 rows);
+// the previous values were a copy of the announcement STATUS enum, so the
+// procedureType filter could never match a row.
+const PNRR_PROCEDURE_TYPE_VALUES = [
+  'ACHIZITIE_DIRECTA',
+  'PROCEDURA_COMPETITIVA',
+  'ACHIZITIE_DIRECTA_CU_EXCEPTIE',
+] as const;
 
 export const pnrrEntitiesFilterSpec: CollectionFilterSpec = {
   collection: 'pnrr_entities',
@@ -132,6 +140,15 @@ export const pnrrPaymentsFilterSpec: CollectionFilterSpec = {
       ops: ['eq'],
       column: { alias: 'p', column: 'year_virtual' },
       description: 'Calendar year; compiled to a payment_date range on the indexed column.',
+    },
+    {
+      name: 'direction',
+      type: 'enum',
+      ops: ['eq', 'in'],
+      enumValues: [...PNRR_PAYMENT_DIRECTION_VALUES],
+      column: { alias: 'p', column: 'payment_direction' },
+      description:
+        'Row sign law: disbursement > 0, reversal < 0, zero_adjustment = 0. Residual filter — combine with a driving predicate.',
     },
     {
       name: 'countySiruta',

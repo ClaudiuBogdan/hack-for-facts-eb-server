@@ -287,6 +287,19 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
             sql<string>`count(*)`.as('cnt'),
             sql<string | null>`sum(p.amount_lei)::text`.as('total_lei'),
             sql<string | null>`sum(p.amount_eur)::text`.as('total_eur'),
+            sql<
+              string | null
+            >`sum(p.amount_lei) filter (where p.payment_direction = 'disbursement')::text`.as(
+              'gross_lei'
+            ),
+            sql<
+              string | null
+            >`(-sum(p.amount_lei) filter (where p.payment_direction = 'reversal'))::text`.as(
+              'reversal_lei'
+            ),
+            sql<string>`count(*) filter (where p.payment_direction = 'zero_adjustment')`.as(
+              'zero_cnt'
+            ),
             sql<string | null>`min(p.payment_date)::text`.as('first_date'),
             sql<string | null>`max(p.payment_date)::text`.as('last_date'),
             sql<string | null>`max(p.retrieved_at)::text`.as('as_of'),
@@ -312,6 +325,9 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
             sql<string>`count(*)`.as('cnt'),
             sql<string | null>`sum(c.total_value)::text`.as('total_value'),
             sql<string | null>`sum(c.eu_value)::text`.as('eu_value'),
+            // Unresolved envelopes carry NULL money by the envelope law; the
+            // count tells the consumer how much of `cnt` the sums do not cover.
+            sql<string>`count(*) filter (where c.total_value is null)`.as('unresolved_cnt'),
             sql<string | null>`avg(c.financial_progress)::text`.as('avg_fin'),
             sql<string | null>`avg(c.physical_progress)::text`.as('avg_phy'),
           ])
@@ -341,6 +357,9 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
           count: Number(pay?.cnt ?? 0),
           totalLei: pay?.total_lei ?? null,
           totalEur: pay?.total_eur ?? null,
+          grossLei: pay?.gross_lei ?? null,
+          reversalLei: pay?.reversal_lei ?? null,
+          zeroAdjustmentCount: Number(pay?.zero_cnt ?? 0),
           firstDate: pay?.first_date ?? null,
           lastDate: pay?.last_date ?? null,
           byComponent: byComp.map((r) => ({
@@ -353,6 +372,7 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
           count: Number(commit?.cnt ?? 0),
           totalValue: commit?.total_value ?? null,
           euValue: commit?.eu_value ?? null,
+          unresolvedCount: Number(commit?.unresolved_cnt ?? 0),
           avgFinancialProgress: num(commit?.avg_fin ?? null),
           avgPhysicalProgress: num(commit?.avg_phy ?? null),
         },
@@ -441,6 +461,7 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
           'p.measure_raw',
           sql<string | null>`p.amount_lei::text`.as('amount_lei'),
           sql<string | null>`p.amount_eur::text`.as('amount_eur'),
+          'p.payment_direction',
           sql<string | null>`p.payment_date::text`.as('payment_date'),
           'p.county_name',
           'p.county_siruta',
@@ -522,6 +543,19 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
           sql<string>`count(*)`.as('cnt'),
           sql<string | null>`sum(p.amount_lei)::text`.as('total_lei'),
           sql<string | null>`sum(p.amount_eur)::text`.as('total_eur'),
+          sql<
+            string | null
+          >`sum(p.amount_lei) filter (where p.payment_direction = 'disbursement')::text`.as(
+            'gross_lei'
+          ),
+          sql<
+            string | null
+          >`(-sum(p.amount_lei) filter (where p.payment_direction = 'reversal'))::text`.as(
+            'reversal_lei'
+          ),
+          sql<string>`count(*) filter (where p.payment_direction = 'zero_adjustment')`.as(
+            'zero_cnt'
+          ),
         ])
         .where(composeWhere(conds))
         .groupBy(() => groupExpr)
@@ -542,6 +576,9 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
           count: Number(r.cnt),
           totalLei: r.total_lei,
           totalEur: r.total_eur,
+          grossLei: r.gross_lei,
+          reversalLei: r.reversal_lei,
+          zeroAdjustmentCount: Number(r.zero_cnt),
         }))
       );
     } catch (error) {

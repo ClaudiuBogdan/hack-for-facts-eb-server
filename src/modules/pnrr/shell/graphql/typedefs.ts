@@ -86,18 +86,32 @@ const objectsAndQuery = /* GraphQL */ `
     count: Int!
     totalLei: Money
   }
+  """
+  Payment money is directional: rows are signed (disbursement > 0,
+  reversal < 0, zero_adjustment = 0). totalLei is the signed NET;
+  grossLei − reversalLei = totalLei over any window.
+  """
   type PnrrPaymentSummary {
     count: Int!
+    "Signed NET (disbursements minus reversals) — not gross cash."
     totalLei: Money
     totalEur: Money
+    "Disbursement rows only (positive)."
+    grossLei: Money
+    "Reversal rows as a positive analytical magnitude."
+    reversalLei: Money
+    zeroAdjustmentCount: Int!
     firstDate: Date
     lastDate: Date
     byComponent: [PnrrComponentTotal!]!
   }
   type PnrrCommitmentSummary {
     count: Int!
+    "Additive envelopes only — covers count − unresolvedCount rows (unresolved envelopes carry no summable value)."
     totalValue: Money
     euValue: Money
+    "Rows whose envelope is unresolved (NULL money by the envelope law)."
+    unresolvedCount: Int!
     avgFinancialProgress: Float
     avgPhysicalProgress: Float
   }
@@ -128,6 +142,8 @@ const objectsAndQuery = /* GraphQL */ `
     measureRaw: String
     amountLei: Money
     amountEur: Money
+    "disbursement | reversal | zero_adjustment (rows are signed accordingly)."
+    paymentDirection: String
     paymentDate: Date
     countyName: String
     countySiruta: SIRUTA
@@ -280,8 +296,14 @@ const objectsAndQuery = /* GraphQL */ `
     key: String!
     label: String
     count: Int!
+    "Signed NET (disbursements minus reversals) — not gross cash."
     totalLei: Money
     totalEur: Money
+    "Disbursement rows only (positive)."
+    grossLei: Money
+    "Reversal rows as a positive analytical magnitude; grossLei − reversalLei = totalLei."
+    reversalLei: Money
+    zeroAdjustmentCount: Int!
   }
 
   "A name→value discovery hit (module-local resolve surface)."

@@ -6,6 +6,7 @@
  * the kernel filter pipeline downstream (the repo rejects bad ops/values).
  */
 
+import { Decimal } from 'decimal.js';
 import { z } from 'zod';
 
 import {
@@ -116,9 +117,16 @@ export const makePnrrMcpTools = (deps: PnrrMcpDeps): readonly KernelMcpTool[] =>
       const pay = profile.payments;
       const summary =
         `${name} (${cui}): ${n(pay.count)} payment(s)` +
-        (pay.totalLei !== null ? ` = ${pay.totalLei} lei` : '') +
+        (pay.totalLei !== null ? ` = ${pay.totalLei} lei net` : '') +
+        (pay.reversalLei !== null && !new Decimal(pay.reversalLei).isZero()
+          ? ` (gross ${pay.grossLei ?? '0'} − reversals ${pay.reversalLei})`
+          : '') +
         (pay.totalEur !== null ? ` / ${pay.totalEur} eur` : '') +
-        `; ${n(profile.commitments.count)} commitment(s); won ${n(profile.procurement.wonAsContractor)} contract(s). ${PNRR_GRAIN_NOTE}`;
+        `; ${n(profile.commitments.count)} commitment(s)` +
+        (profile.commitments.unresolvedCount > 0
+          ? ` (${n(profile.commitments.unresolvedCount)} without summable value)`
+          : '') +
+        `; won ${n(profile.procurement.wonAsContractor)} contract(s). ${PNRR_GRAIN_NOTE}`;
       return {
         ok: true,
         kind: 'entity',
