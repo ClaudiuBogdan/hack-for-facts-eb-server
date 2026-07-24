@@ -20,6 +20,7 @@ import { err, ok, type Result } from 'neverthrow';
 
 import {
   databaseError,
+  invalidInput,
   upstreamError,
   type ApiError,
   type ProdDatabase,
@@ -661,6 +662,19 @@ export const makeOffsetSearchRepo = (
     f: ProcurementSearchFilter,
     p: OffsetSearchRequest
   ): Promise<Result<OffsetSearchResult<ProcurementModification>, ApiError>> => {
+    // Defence in depth: the arg translation already rejects engine-only
+    // dimensions here, and SQL would silently ignore them. Answering a wider
+    // question than the one asked is the failure mode this guards.
+    if (usesEngineOnlyFilter(f)) {
+      return Promise.resolve(
+        err(
+          invalidInput(
+            'geography and CPV level filters are not available on the modifications grain',
+            'filter'
+          )
+        )
+      );
+    }
     const resolved = sqlConditions('modifications', f);
     const rows = db
       .selectFrom('procurement.contract_modifications as m')

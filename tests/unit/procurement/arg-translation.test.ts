@@ -241,3 +241,26 @@ describe('translateSearchFilter — geography and CPV levels (list engine)', () 
     ).toBe(true);
   });
 });
+
+describe('translateSearchFilter — engine-only dimensions on the SQL-only grain', () => {
+  it('rejects geography and CPV levels on modifications rather than ignoring them', () => {
+    // The grain has no CPV column and is not indexed: SQL would silently drop
+    // these predicates and answer a WIDER question than the one asked.
+    expect(
+      translateSearchFilter({ buyerCounty: { eq: 'CJ' } }, 'modificationDate', 'modifications')
+        .isErr()
+    ).toBe(true);
+    expect(
+      translateSearchFilter({ cpvGroup: { eq: '45200000' } }, 'modificationDate', 'modifications')
+        .isErr()
+    ).toBe(true);
+    // Party + date filters remain available on that grain.
+    expect(
+      translateSearchFilter(
+        { authorityCui: { eq: '4288047' }, modificationDate: { gte: '2024-01-01' } },
+        'modificationDate',
+        'modifications'
+      ).isOk()
+    ).toBe(true);
+  });
+});

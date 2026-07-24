@@ -308,13 +308,33 @@ export const translateSearchFilter = (
 
   const levels = readCpvLevels(raw);
   if (levels.isErr()) return err(levels.error);
+  if (
+    grain === 'modifications' &&
+    (levels.value.cpvGroup !== undefined ||
+      levels.value.cpvClass !== undefined ||
+      levels.value.cpvCategory !== undefined)
+  ) {
+    // Contract modifications carry no CPV column and are not indexed, so this
+    // filter has nothing to bind to. Rejected, never ignored — an ignored
+    // predicate answers a WIDER question than the one asked.
+    return err(invalidInput('CPV levels are not available on the modifications grain', 'cpvGroup'));
+  }
   if (levels.value.cpvGroup !== undefined) out.cpvGroup = levels.value.cpvGroup;
   if (levels.value.cpvClass !== undefined) out.cpvClass = levels.value.cpvClass;
   if (levels.value.cpvCategory !== undefined) out.cpvCategory = levels.value.cpvCategory;
 
   const buyerGeo = readGeoScope(raw, 'buyer');
   if (buyerGeo.isErr()) return err(buyerGeo.error);
-  if (buyerGeo.value !== undefined) out.buyerGeo = buyerGeo.value;
+  if (buyerGeo.value !== undefined) {
+    // Same rule for territory: the modifications grain is SQL-only (no index),
+    // and SQL cannot resolve buyer territory on this table.
+    if (grain === 'modifications') {
+      return err(
+        invalidInput('buyer geography is not available on the modifications grain', 'buyerRegion')
+      );
+    }
+    out.buyerGeo = buyerGeo.value;
+  }
 
   const supplierGeo = readGeoScope(raw, 'supplier');
   if (supplierGeo.isErr()) return err(supplierGeo.error);
