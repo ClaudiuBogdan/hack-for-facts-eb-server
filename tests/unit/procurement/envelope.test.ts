@@ -22,6 +22,7 @@ import {
   scopeToFilterInput,
 } from '@/modules/procurement/core/analysis-scope.js';
 import { buildEnvelope } from '@/modules/procurement/core/envelope.js';
+import { ANSWERABILITY_REASONS } from '@/modules/procurement/core/gate-v2.js';
 import { anchorPolicy } from '@/modules/procurement/core/policy.js';
 import { procurementTypeDefs } from '@/modules/procurement/shell/graphql/typedefs.js';
 import { ANALYSIS_SCOPE_ZOD_SHAPE } from '@/modules/procurement/shell/mcp/tools.js';
@@ -218,15 +219,9 @@ describe('surface parity: SDL == Zod == kernel spec == core fields', () => {
     };
 
     expect(enumValues('ProcurementAnswerability')).toEqual(['served', 'degraded', 'abstained']);
-    expect(enumValues('ProcurementAnswerabilityReason')).toEqual([
-      'SPEND_COVERAGE_BELOW_GATE',
-      'TIME_COVERAGE_BELOW_FLOOR',
-      'GEO_COVERAGE_BELOW_FLOOR',
-      'MISSING_QUALITY_VERDICT',
-      'TIME_COVERAGE_DEGRADED',
-      'GEO_COVERAGE_DEGRADED',
-      'GENERATION_LACKS_CAPABILITY',
-    ]);
+    // Pinned to the core union's runtime list: every reason gate-v2 can emit
+    // must serialize over GraphQL (SPEND_SERVED_DISCLOSED was missing until 2026-07-24).
+    expect(enumValues('ProcurementAnswerabilityReason')).toEqual([...ANSWERABILITY_REASONS]);
   });
 
   it('the fhash spec is all-virtual — it never compiles to SQL', () => {

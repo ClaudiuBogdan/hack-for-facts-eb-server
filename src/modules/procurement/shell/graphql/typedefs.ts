@@ -364,6 +364,7 @@ export const procurementTypeDefs = /* GraphQL */ `
   }
   enum ProcurementAnswerabilityReason {
     SPEND_COVERAGE_BELOW_GATE
+    SPEND_SERVED_DISCLOSED
     TIME_COVERAGE_BELOW_FLOOR
     GEO_COVERAGE_BELOW_FLOOR
     MISSING_QUALITY_VERDICT

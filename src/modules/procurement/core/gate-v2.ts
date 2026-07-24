@@ -50,15 +50,19 @@ export interface GrainQualityVerdict {
 /** The active generation's `quality` jsonb, keyed by grain. */
 export type GenerationQuality = Partial<Record<AnalysisGrain, GrainQualityVerdict>>;
 
-export type AnswerabilityReason =
-  | 'SPEND_COVERAGE_BELOW_GATE'
-  | 'SPEND_SERVED_DISCLOSED'
-  | 'TIME_COVERAGE_BELOW_FLOOR'
-  | 'GEO_COVERAGE_BELOW_FLOOR'
-  | 'MISSING_QUALITY_VERDICT'
-  | 'TIME_COVERAGE_DEGRADED'
-  | 'GEO_COVERAGE_DEGRADED'
-  | 'GENERATION_LACKS_CAPABILITY';
+/** Runtime list so transport schemas (SDL enum, client zod) can be parity-tested against it. */
+export const ANSWERABILITY_REASONS = [
+  'SPEND_COVERAGE_BELOW_GATE',
+  'SPEND_SERVED_DISCLOSED',
+  'TIME_COVERAGE_BELOW_FLOOR',
+  'GEO_COVERAGE_BELOW_FLOOR',
+  'MISSING_QUALITY_VERDICT',
+  'TIME_COVERAGE_DEGRADED',
+  'GEO_COVERAGE_DEGRADED',
+  'GENERATION_LACKS_CAPABILITY',
+] as const;
+
+export type AnswerabilityReason = (typeof ANSWERABILITY_REASONS)[number];
 
 export interface GateDecision {
   readonly allow: boolean;
