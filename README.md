@@ -222,14 +222,15 @@ For detailed architecture documentation, see:
 
 ## Documentation
 
-| Document                                                             | Description                                 |
-| :------------------------------------------------------------------- | :------------------------------------------ |
-| [`CLAUDE.md`](CLAUDE.md)                                             | AI development guide (full reference)       |
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)                       | Architectural principles and patterns       |
-| [`docs/CACHE.md`](docs/CACHE.md)                                     | Caching layer specification                 |
-| [`docs/DATASETS.md`](docs/DATASETS.md)                               | Dataset format and validation               |
-| [`docs/NORMALIZATION-FACTORS.md`](docs/NORMALIZATION-FACTORS.md)     | Data normalization logic                    |
-| [`docs/USER-DATA-ANONYMIZATION.md`](docs/USER-DATA-ANONYMIZATION.md) | Clerk `user.deleted` anonymization strategy |
+| Document                                                                                                     | Description                                                              |
+| :----------------------------------------------------------------------------------------------------------- | :----------------------------------------------------------------------- |
+| [`AGENTS.md`](AGENTS.md)                                                                                     | Agent instructions — canonical (`CLAUDE.md` / `GEMINI.md` symlink to it) |
+| [`docs/server-redesign/00-foundation-shared-kernel.md`](docs/server-redesign/00-foundation-shared-kernel.md) | Binding module/kernel contract                                           |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)                                                               | Architectural principles and patterns                                    |
+| [`docs/CACHE.md`](docs/CACHE.md)                                                                             | Caching layer specification                                              |
+| [`docs/DATASETS.md`](docs/DATASETS.md)                                                                       | Dataset format and validation                                            |
+| [`docs/NORMALIZATION-FACTORS.md`](docs/NORMALIZATION-FACTORS.md)                                             | Data normalization logic                                                 |
+| [`docs/USER-DATA-ANONYMIZATION.md`](docs/USER-DATA-ANONYMIZATION.md)                                         | Clerk `user.deleted` anonymization strategy                              |
 
 ## Testing
 
