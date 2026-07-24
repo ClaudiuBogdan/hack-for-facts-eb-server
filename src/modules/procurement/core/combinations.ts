@@ -38,15 +38,31 @@ const DIMENSION_SCOPE_FIELD: Readonly<Record<BreakdownDimension, ScopeDimField>>
   authority: 'authorityCui',
   supplier: 'supplierCui',
   cpvDivision: 'cpvDivision',
+  cpvGroup: 'cpvGroup',
+  cpvClass: 'cpvClass',
+  cpvCategory: 'cpvCategory',
   cpvCode: 'cpvCode',
   status: 'status',
   procedureType: 'procedureType',
+  recordKind: 'recordKind',
   buyerRegion: 'buyerRegion',
   buyerCounty: 'buyerCounty',
   buyerSiruta: 'buyerSiruta',
   supplierRegion: 'supplierRegion',
   supplierCounty: 'supplierCounty',
   supplierSiruta: 'supplierSiruta',
+};
+
+/**
+ * CPV hierarchy: a scope at level L fixes every breakdown at level ≤ L to a
+ * single bucket (a cpvCode scope pins its category/class/group/division; a
+ * group scope pins its division but leaves class/category/code free).
+ */
+const CPV_FINER_SCOPES: Readonly<Partial<Record<BreakdownDimension, readonly ScopeDimField[]>>> = {
+  cpvDivision: ['cpvGroup', 'cpvClass', 'cpvCategory', 'cpvCode'],
+  cpvGroup: ['cpvClass', 'cpvCategory', 'cpvCode'],
+  cpvClass: ['cpvCategory', 'cpvCode'],
+  cpvCategory: ['cpvCode'],
 };
 
 /** Breakdown dimensions that require supplier columns (absent on procedures). */
@@ -72,6 +88,9 @@ const DA_NO_PROCEDURE_TYPE =
 
 const PROCEDURE_NO_SUPPLIER =
   'procedure grain has no supplier dimension (a procedure predates its award; suppliers exist on contracts and direct acquisitions)';
+
+const RECORD_KIND_CONTRACT_ONLY =
+  'record_kind exists only on the contract grain (award record vs framework umbrella is a contract-record property; direct acquisitions and procedures carry none)';
 
 /**
  * Route an analysis request onto one route per answerable grain (explicit grain
@@ -113,9 +132,7 @@ export const routeAnalysis = (
     const fixedBy =
       scope[fixingField] !== undefined
         ? fixingField
-        : dimension === 'cpvDivision' && scope.cpvCode !== undefined
-          ? 'cpvCode'
-          : undefined;
+        : (CPV_FINER_SCOPES[dimension] ?? []).find((field) => scope[field] !== undefined);
     if (fixedBy !== undefined) {
       return err(
         invalidInput(
@@ -140,7 +157,9 @@ export const routeAnalysis = (
     // supplier. An explicit grain gets the named rejection; an implicit grain is
     // skipped (the other labeled blocks still serve).
     let excluded: string | undefined;
-    if (
+    if (grain !== 'contract' && (dims.includes('recordKind') || dimension === 'recordKind')) {
+      excluded = RECORD_KIND_CONTRACT_ONLY;
+    } else if (
       grain === 'direct_acquisition' &&
       (dims.includes('procedureType') || dimension === 'procedureType')
     ) {

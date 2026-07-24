@@ -200,3 +200,45 @@ describe('backend-independent semantic rejections still fire, with the field nam
     );
   });
 });
+
+describe('recordKind is contract-grain only', () => {
+  it('implicit grains under a recordKind scope route to contract alone', () => {
+    expect(grainsOf({ recordKind: 'framework_agreement' }, 'stats')).toEqual(['contract']);
+  });
+
+  it('an explicit non-contract grain with recordKind is rejected with the structural reason', () => {
+    for (const grain of ['direct_acquisition', 'procedure'] as const) {
+      expect(errorOf({ recordKind: 'contract_award', grain }, 'stats')).toContain(
+        'record_kind exists only on the contract grain'
+      );
+    }
+  });
+
+  it('a recordKind breakdown routes to contract alone and rejects explicit other grains', () => {
+    expect(grainsOf({}, 'breakdown', 'recordKind')).toEqual(['contract']);
+    expect(errorOf({ grain: 'procedure' }, 'breakdown', 'recordKind')).toContain(
+      'record_kind exists only on the contract grain'
+    );
+  });
+
+  it('a recordKind-fixed recordKind breakdown is a single bucket', () => {
+    expect(errorOf({ recordKind: 'contract_award' }, 'breakdown', 'recordKind')).toContain(
+      'single-bucket'
+    );
+  });
+});
+
+describe('CPV hierarchy: a finer scope fixes every coarser breakdown', () => {
+  it('a cpvCode scope fixes category, class, group and division breakdowns', () => {
+    for (const dimension of ['cpvCategory', 'cpvClass', 'cpvGroup', 'cpvDivision'] as const) {
+      expect(errorOf({ cpvCode: '45233140' }, 'breakdown', dimension)).toContain('cpvCode');
+    }
+  });
+
+  it('a cpvGroup scope fixes the division breakdown but leaves finer levels free', () => {
+    expect(errorOf({ cpvGroup: '45200000' }, 'breakdown', 'cpvDivision')).toContain('cpvGroup');
+    for (const dimension of ['cpvClass', 'cpvCategory', 'cpvCode'] as const) {
+      expect(grainsOf({ cpvGroup: '45200000' }, 'breakdown', dimension).length).toBeGreaterThan(0);
+    }
+  });
+});

@@ -24,6 +24,7 @@ interface AnalysisQueryResolvers {
       scope?: Readonly<Record<string, unknown>>;
       dimension: 'supplier';
       topN?: number;
+      rankBy?: 'count' | 'value';
     }
   ): Promise<unknown>;
   procurementSeries(
@@ -113,6 +114,41 @@ describe('GraphQL/MCP analysis parity', () => {
 
     expect(mcp.ok).toBe(true);
     expect(mcp.items).toEqual(graphql);
+  });
+
+  it('returns identical rankBy=count breakdown blocks (MCP rankBy parity)', async () => {
+    const fake = fakeAnalysisRepo({
+      breakdown: {
+        buckets: [],
+        totals: statsRead({
+          rows: '0',
+          withValue: '0',
+          valueAwardedSum: '0',
+          undatedCount: '0',
+        }),
+      },
+    });
+    const { query, tool } = surfaces(fake.repo);
+    const scope = { authorityCui: '4267117', grain: 'direct_acquisition' };
+
+    const graphql = await query.procurementBreakdown(undefined, {
+      scope,
+      dimension: 'supplier',
+      topN: 5,
+      rankBy: 'count',
+    });
+    const mcp = await tool.handler({
+      shape: 'breakdown',
+      scope,
+      dimension: 'supplier',
+      topN: 5,
+      rankBy: 'count',
+    });
+
+    expect(mcp.ok).toBe(true);
+    expect(mcp.items).toEqual(graphql);
+    const blocks = mcp.items as readonly { readonly rankedBy: string }[];
+    expect(blocks.every((block) => block.rankedBy === 'count')).toBe(true);
   });
 
   it('returns identical concentration blocks and envelopes', async () => {

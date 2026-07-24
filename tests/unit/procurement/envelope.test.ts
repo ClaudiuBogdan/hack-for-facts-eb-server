@@ -146,6 +146,47 @@ describe('canonical scope echo + fhash input', () => {
       year: { eq: 2024 },
     });
   });
+
+  it('accepts canonical CPV level codes and rejects malformed ones', () => {
+    expect(parseAnalysisScope({ cpvGroup: '45200000' })._unsafeUnwrap().cpvGroup).toBe('45200000');
+    expect(parseAnalysisScope({ cpvClass: '45230000' })._unsafeUnwrap().cpvClass).toBe('45230000');
+    expect(parseAnalysisScope({ cpvCategory: '45233000' })._unsafeUnwrap().cpvCategory).toBe(
+      '45233000'
+    );
+    // A zero level digit is the coarser level's own code — reject at this level.
+    expect(parseAnalysisScope({ cpvGroup: '45000000' }).isErr()).toBe(true);
+    expect(parseAnalysisScope({ cpvClass: '45200000' }).isErr()).toBe(true);
+    expect(parseAnalysisScope({ cpvCategory: '45230000' }).isErr()).toBe(true);
+    expect(parseAnalysisScope({ cpvGroup: '452' }).isErr()).toBe(true);
+  });
+
+  it('rejects more than one CPV level per scope', () => {
+    const result = parseAnalysisScope({ cpvGroup: '45200000', cpvCode: '45233140' });
+    expect(result._unsafeUnwrapErr().message).toContain('mutually exclusive');
+    expect(parseAnalysisScope({ cpvDivision: '45', cpvClass: '45230000' }).isErr()).toBe(true);
+  });
+
+  it('validates recordKind against the closed vocabulary', () => {
+    expect(
+      parseAnalysisScope({ recordKind: 'framework_agreement' })._unsafeUnwrap().recordKind
+    ).toBe('framework_agreement');
+    expect(parseAnalysisScope({ recordKind: 'framework' }).isErr()).toBe(true);
+  });
+
+  it('bounds q length and value ranges', () => {
+    expect(parseAnalysisScope({ q: 'drum' })._unsafeUnwrap().q).toBe('drum');
+    expect(parseAnalysisScope({ q: 'ab' }).isErr()).toBe(true);
+    expect(parseAnalysisScope({ q: 'x'.repeat(101) }).isErr()).toBe(true);
+    const bounds = parseAnalysisScope({ valueMin: 1000.5, valueMax: 2000 })._unsafeUnwrap();
+    expect(bounds.valueMin).toBe(1000.5);
+    expect(bounds.valueMax).toBe(2000);
+    expect(parseAnalysisScope({ valueMin: -1 }).isErr()).toBe(true);
+    expect(parseAnalysisScope({ valueMin: 2000, valueMax: 1000 }).isErr()).toBe(true);
+    expect(parseAnalysisScope({ valueMax: Number.NaN }).isErr()).toBe(true);
+    // Whole bani only: sub-bani decimals reject; binary-float 2-decimals pass.
+    expect(parseAnalysisScope({ valueMin: 1.005 }).isErr()).toBe(true);
+    expect(parseAnalysisScope({ valueMin: 1.05 })._unsafeUnwrap().valueMin).toBe(1.05);
+  });
 });
 
 describe('surface parity: SDL == Zod == kernel spec == core fields', () => {

@@ -28,6 +28,14 @@ describe('scope subset/period helpers', () => {
     expect(isSubsetScope({}, {})).toBe(true);
   });
 
+  it('isSubsetScope: row filters (q/value bounds) participate in the subset law', () => {
+    // Denominator row filter absent (or different) on the numerator → not a subset.
+    expect(isSubsetScope({ authorityCui: 'a' }, { authorityCui: 'a', q: 'drum' })).toBe(false);
+    expect(isSubsetScope({ authorityCui: 'a', valueMin: 500 }, { valueMin: 1000 })).toBe(false);
+    // Numerator may ADD row filters.
+    expect(isSubsetScope({ authorityCui: 'a', q: 'drum' }, { authorityCui: 'a' })).toBe(true);
+  });
+
   it('sameWindow compares the NORMALIZED window: year 2024 == from/to 2024-01..12', () => {
     expect(sameWindow({ from: '2024-01', to: '2024-12' }, { from: '2024-01', to: '2024-12' })).toBe(
       true
@@ -182,6 +190,23 @@ describe('analysisShare happy path', () => {
     expect(result.numerator.grain).toBe('direct_acquisition');
     expect(result.denominator.grain).toBe('direct_acquisition');
     expect(calls.filter((c) => c.method === 'statsFor')).toHaveLength(2);
+  });
+
+  it('a numerator narrowed ONLY by a row filter (q / value bound) is a valid strict subset', async () => {
+    const { repo } = fakeAnalysisRepo({
+      quality: ALL_ALLOW,
+      stats: () => statsRead({ valueAwardedSum: '1000.00' }),
+    });
+    const result = (
+      await analysisShare(
+        { analysisRepo: repo },
+        {
+          numerator: { authorityCui: 'a', valueMin: 1_000_000, grain: 'direct_acquisition' },
+          denominator: { authorityCui: 'a', grain: 'direct_acquisition' },
+        }
+      )
+    )._unsafeUnwrap();
+    expect(result.share).toBe('1.0000');
   });
 
   it('a zero denominator yields share: null with a caveat, not a division blow-up', async () => {

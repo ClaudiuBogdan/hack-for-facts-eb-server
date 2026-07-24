@@ -389,9 +389,13 @@ export const procurementTypeDefs = /* GraphQL */ `
     authority
     supplier
     cpvDivision
+    cpvGroup
+    cpvClass
+    cpvCategory
     cpvCode
     status
     procedureType
+    recordKind
     buyerRegion
     buyerCounty
     buyerSiruta
@@ -403,13 +407,22 @@ export const procurementTypeDefs = /* GraphQL */ `
   """
   ONE scope for every analysis shape. Empty = platform-wide; absent \`grain\` = all
   grains the combinations matrix supports for the used dimensions. \`from\`/\`to\`
-  are \`YYYY-MM\` (XOR \`year\`); \`cpvDivision\` XOR \`cpvCode\`. Unsupported
-  combinations are rejected with the specific missing capability named.
+  are \`YYYY-MM\` (XOR \`year\`); at most ONE CPV level (\`cpvDivision\`/\`cpvGroup\`/
+  \`cpvClass\`/\`cpvCategory\`/\`cpvCode\`). \`recordKind\` is contract-grain only.
+  \`q\`/\`valueMin\`/\`valueMax\` are row filters that reshape every figure (see the
+  envelope caveats). Unsupported combinations are rejected with the specific
+  missing capability named.
   """
   input ProcurementAnalysisScopeInput {
     authorityCui: String
     supplierCui: String
     cpvDivision: String
+    "Canonical 8-digit CPV group code (XXY00000, Y≠0)."
+    cpvGroup: String
+    "Canonical 8-digit CPV class code (XXXY0000, Y≠0)."
+    cpvClass: String
+    "Canonical 8-digit CPV category code (XXXXY000, Y≠0)."
+    cpvCategory: String
     cpvCode: String
     buyerCounty: String
     buyerRegion: String
@@ -421,10 +434,18 @@ export const procurementTypeDefs = /* GraphQL */ `
     supplierSiruta: SIRUTA
     status: String
     procedureType: String
+    "Contract grain only: contract_award | framework_agreement."
+    recordKind: String
     grain: ProcurementAnalysisGrain
     from: String
     to: String
     year: Int
+    "Free-text title filter on aggregates (title coverage is partial per grain)."
+    q: String
+    "Awarded-value lower bound, RON — restricts to accepted-value rows in range."
+    valueMin: Float
+    "Awarded-value upper bound, RON — restricts to accepted-value rows in range."
+    valueMax: Float
   }
 
   type ProcurementAnswerCounts {

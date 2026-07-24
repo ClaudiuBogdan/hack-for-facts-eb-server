@@ -33,6 +33,7 @@ import {
   BREAKDOWN_DIMENSIONS,
   MEASURE_IDS,
   PROCUREMENT_GRAIN_NOTE,
+  RECORD_KINDS,
   SERIES_BUCKETS,
   type BreakdownDimension,
   type MeasureId,
@@ -57,8 +58,23 @@ export interface ProcurementMcpDeps {
 export const ANALYSIS_SCOPE_ZOD_SHAPE = {
   authorityCui: z.string().optional(),
   supplierCui: z.string().optional(),
-  cpvDivision: z.string().optional().describe('2-digit CPV division (XOR cpvCode).'),
-  cpvCode: z.string().optional().describe('8-digit CPV code (XOR cpvDivision).'),
+  cpvDivision: z
+    .string()
+    .optional()
+    .describe('2-digit CPV division (at most ONE CPV level per scope).'),
+  cpvGroup: z
+    .string()
+    .optional()
+    .describe('Canonical 8-digit CPV group code, XXY00000 with Y≠0 (one CPV level per scope).'),
+  cpvClass: z
+    .string()
+    .optional()
+    .describe('Canonical 8-digit CPV class code, XXXY0000 with Y≠0 (one CPV level per scope).'),
+  cpvCategory: z
+    .string()
+    .optional()
+    .describe('Canonical 8-digit CPV category code, XXXXY000 with Y≠0 (one CPV level per scope).'),
+  cpvCode: z.string().optional().describe('8-digit CPV code (at most ONE CPV level per scope).'),
   buyerCounty: z.string().optional().describe('Buyer registered-office county code.'),
   buyerRegion: z.string().optional(),
   buyerSiruta: z
@@ -73,10 +89,26 @@ export const ANALYSIS_SCOPE_ZOD_SHAPE = {
     .describe('Supplier registered-office territorial SIRUTA (UAT natural key).'),
   status: z.string().optional(),
   procedureType: z.string().optional(),
+  recordKind: z
+    .enum(RECORD_KINDS)
+    .optional()
+    .describe('Contract grain only: award record vs framework umbrella.'),
   grain: z.enum(ANALYSIS_GRAINS).optional().describe('Absent = all grains the matrix supports.'),
   from: z.string().optional().describe('YYYY-MM, inclusive (XOR year).'),
   to: z.string().optional().describe('YYYY-MM, inclusive (XOR year).'),
   year: z.number().int().optional(),
+  q: z
+    .string()
+    .optional()
+    .describe('Free-text title filter on aggregates (title coverage is partial per grain).'),
+  valueMin: z
+    .number()
+    .optional()
+    .describe('Awarded-value lower bound, RON (restricts to accepted-value rows in range).'),
+  valueMax: z
+    .number()
+    .optional()
+    .describe('Awarded-value upper bound, RON (restricts to accepted-value rows in range).'),
 } as const;
 
 const AWARDED_NOTE = 'Amounts are awarded value, not payments.';
@@ -247,6 +279,12 @@ export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly Kern
       // the same InvalidInput category/message for explicit numeric values.
       topN: z.number().optional(),
       basis: z.enum(['count', 'value']).optional().describe('For concentration; default count.'),
+      rankBy: z
+        .enum(['count', 'value'])
+        .optional()
+        .describe(
+          'Breakdown bucket ranking. Default: value where the spend gate allows, else count.'
+        ),
     },
     async handler(args): Promise<McpToolOutput> {
       const scopeR = parseAnalysisScope(args['scope'] as Record<string, unknown> | undefined);
@@ -255,6 +293,7 @@ export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly Kern
       const shape = strArg(args, 'shape');
       const topNValue = args['topN'];
       const topN = typeof topNValue === 'number' ? topNValue : undefined;
+      const rankBy = optStr(args, 'rankBy') as 'count' | 'value' | undefined;
 
       if (shape === 'stats') {
         const res = await analysisStats(analysisDeps, { scope });
@@ -301,6 +340,7 @@ export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly Kern
           scope,
           dimension,
           ...(topN !== undefined && { topN }),
+          ...(rankBy !== undefined && { rankBy }),
         });
         if (res.isErr()) return errorFrom('analysis_breakdown', res.error);
         const blocks: readonly AnalysisBreakdownBlock[] = res.value;
