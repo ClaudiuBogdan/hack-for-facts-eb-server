@@ -68,7 +68,12 @@ export const statsRead = (over: Partial<AnalysisStatsRead> = {}): AnalysisStatsR
  * (review F1 — matching (grain, basis) alone could serve the 0.031 verdict). */
 export const BASIS_COVERAGE_ROWS = [
   { grain: 'framework', basis: 'ceiling', population: 'quarantined_mass', coverage: 0.0315 },
-  { grain: 'contract', basis: 'estimated', population: 'applicable_canonical', coverage: 0.1953 },
+  {
+    grain: 'contract',
+    basis: 'estimated',
+    population: 'diagnostic_applicable_canonical',
+    coverage: 0.1953,
+  },
   {
     grain: 'direct_acquisition',
     basis: 'estimated',

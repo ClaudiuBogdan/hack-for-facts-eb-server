@@ -177,9 +177,13 @@ const valueBasisEntries: readonly PolicyEntry[] = [
   }),
   entry('framework', 'recordCount', {
     law: 'additive',
-    legalShapes: ['stats', 'series', 'breakdown'],
+    // Breakdowns (rankings/sliced totals) are WITHHELD until the Phase-2
+    // repeat-cluster keys land: exact-repeat exposure is 0.3% globally but
+    // reaches ~22% inside single-buyer slices (review F3) — a sliced ceiling
+    // ranking could materially mislead. Stats/series serve with disclosure.
+    legalShapes: ['stats', 'series'],
     gateClass: 'count',
-    doc: 'Framework identities (parent grain: one row per framework, not per member row).',
+    doc: 'Framework identities (parent grain: one row per framework, not per member row). Breakdowns withheld until Phase-2 repeat-cluster keys.',
   }),
   entry('framework', 'withValueCount', {
     law: 'additive',
@@ -190,7 +194,7 @@ const valueBasisEntries: readonly PolicyEntry[] = [
   entry('framework', 'valueCeilingSum', {
     valueBasis: 'ceiling',
     law: 'additive',
-    legalShapes: ['stats', 'series', 'breakdown'],
+    legalShapes: ['stats', 'series'], // breakdowns withheld — see recordCount note
     gateClass: 'spend',
     doc: CEILING_DOC,
   }),

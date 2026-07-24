@@ -211,7 +211,7 @@ const CALLOFF_PARTIAL_NOTE =
   'call-offs are the REPORTED subsequent contracts under framework agreements (~63k reported vs ~828k frameworks) — framework execution is mostly unobserved, and call-off totals must never be summed with contract awards (double-counts framework spend)';
 
 const FRAMEWORK_CEILING_NOTE =
-  'framework ceilings are maximum committed amounts attributed once per framework identity — an upper bound on possible call-off spend, NOT money spent; mixed-value framework groups are quarantined and excluded from every figure';
+  'framework ceilings are maximum committed amounts attributed once per framework identity — an upper bound on possible call-off spend, NOT money spent; mixed-value framework groups are quarantined and excluded from every figure; rankings/sliced ceiling totals are withheld until repeat-cluster disclosure lands (per-slice repeat uncertainty can reach ~22%)';
 
 const MODIFICATION_COUNTS_NOTE =
   'modifications are amendment events, not purchases — this population serves counts only; usable amendment values reach analytics solely through the contract grain’s modification-adjusted measure';
