@@ -142,17 +142,10 @@ const NEW_GRAIN_SCOPE_DIMS: Readonly<Partial<Record<AnalysisGrain, ReadonlySet<S
 const NEW_GRAIN_BREAKDOWN_DIMS: Readonly<
   Partial<Record<AnalysisGrain, ReadonlySet<BreakdownDimension>>>
 > = {
-  framework: new Set<BreakdownDimension>([
-    'authority',
-    'cpvDivision',
-    'cpvGroup',
-    'cpvClass',
-    'cpvCategory',
-    'cpvCode',
-    'buyerRegion',
-    'buyerCounty',
-    'buyerSiruta',
-  ]),
+  // Framework breakdowns are WITHHELD in v1: sliced ceiling totals carry up
+  // to ~22% exact-repeat uncertainty inside single-buyer slices (review F3);
+  // rankings unlock with the Phase-2 repeat-cluster keys. Stats/series only.
+  framework: new Set<BreakdownDimension>([]),
   calloff: new Set<BreakdownDimension>([
     'authority',
     'supplier',
