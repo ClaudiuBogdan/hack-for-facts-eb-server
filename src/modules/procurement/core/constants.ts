@@ -190,9 +190,13 @@ export const BREAKDOWN_DIMENSIONS = [
   'authority',
   'supplier',
   'cpvDivision',
+  'cpvGroup',
+  'cpvClass',
+  'cpvCategory',
   'cpvCode',
   'status',
   'procedureType',
+  'recordKind',
   'buyerRegion',
   'buyerCounty',
   'buyerSiruta',
@@ -201,6 +205,13 @@ export const BREAKDOWN_DIMENSIONS = [
   'supplierSiruta',
 ] as const;
 export type BreakdownDimension = (typeof BREAKDOWN_DIMENSIONS)[number];
+
+/**
+ * SIRUTA breakdown topN ceiling: full-country UAT painting needs every UAT
+ * bucket (3,186 UATs / 2021 SIRUTA); every other dimension keeps the regular
+ * topN cap (analysis-usecases.ts TOPN_MAX).
+ */
+export const TOPN_SIRUTA_MAX = 3300;
 
 /** Series buckets. Storage is monthly; quarter/year are derived (additive laws only). */
 export const SERIES_BUCKETS = ['month', 'quarter', 'year'] as const;

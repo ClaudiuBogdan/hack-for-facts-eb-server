@@ -539,4 +539,33 @@ describe('one generation per request (S1)', () => {
     );
     expect(result._unsafeUnwrapErr().message).toContain('explicit scope.grain');
   });
+
+  it('a mixed SIRUTA facets request clamps every NON-SIRUTA dimension back to 100', async () => {
+    const { repo, calls } = fakeAnalysisRepo();
+    const result = await analysisFacets(
+      { analysisRepo: repo },
+      {
+        scope: { grain: 'contract' },
+        dimensions: ['buyerSiruta', 'supplier'],
+        topN: 3300,
+      }
+    );
+    expect(result.isOk()).toBe(true);
+    const topNs = new Map(
+      calls
+        .filter((c) => c.method === 'breakdownFor')
+        .map((c) => [c.params[0], c.params[1]] as const)
+    );
+    expect(topNs.get('buyerSiruta')).toBe(3300);
+    expect(topNs.get('supplier')).toBe(100);
+  });
+
+  it('a plain breakdown still rejects topN above 100 for non-SIRUTA dimensions', async () => {
+    const { repo } = fakeAnalysisRepo();
+    const result = await analysisBreakdown(
+      { analysisRepo: repo },
+      { scope: { grain: 'contract' }, dimension: 'supplier', topN: 3300 }
+    );
+    expect(result._unsafeUnwrapErr().message).toContain('topN must be an integer from 1 to 100');
+  });
 });

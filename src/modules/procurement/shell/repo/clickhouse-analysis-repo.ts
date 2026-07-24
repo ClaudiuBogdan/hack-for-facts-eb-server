@@ -31,9 +31,10 @@ import { err, ok, type Result } from 'neverthrow';
 
 import { databaseError, type ApiError, type Logger } from '@/modules/shared/index.js';
 
+import { TOPN_SIRUTA_MAX, type MeasureId, type SeriesBucket } from '../../core/constants.js';
+
 import type { AnalysisScope } from '../../core/analysis-scope.js';
 import type { AnalysisRoute } from '../../core/combinations.js';
-import type { MeasureId, SeriesBucket } from '../../core/constants.js';
 import type {
   AnalysisBreakdownBucketRow,
   AnalysisBreakdownRead,
@@ -75,6 +76,17 @@ const DIM_COLUMNS: readonly (readonly [keyof AnalysisScope, string])[] = [
   ['supplierRegion', 'supplier_region'],
   ['status', 'status'],
   ['procedureType', 'procedure_type'],
+  ['recordKind', 'record_kind'],
+];
+
+/**
+ * CPV hierarchy scopes: canonical 8-digit level codes (validated upstream),
+ * compiled as a cpv_code prefix match at the level's digit length.
+ */
+const CPV_PREFIX_SCOPES: readonly (readonly ['cpvGroup' | 'cpvClass' | 'cpvCategory', number])[] = [
+  ['cpvGroup', 3],
+  ['cpvClass', 4],
+  ['cpvCategory', 5],
 ];
 
 const SUPPLIER_SCOPE_FIELDS: readonly (keyof AnalysisScope)[] = [
@@ -90,9 +102,21 @@ const BREAKDOWN_DIM_COLUMNS: Record<string, string> = {
   // supplier links resolve by CUI). Identity keys remain the DISTINCTS rule.
   supplier: 'supplier_cui',
   cpvDivision: 'cpv_division',
+  // CPV level buckets key on the CANONICAL 8-digit level code (prefix +
+  // trailing zeros) so the exact-match cpv_codes label loader serves them.
+  // A record coded at a COARSER level (zero level digit, e.g. 45000000 in a
+  // group breakdown) belongs to no bucket at this level → NULL → unknown;
+  // NULL/malformed cpv_code follows the same path.
+  cpvGroup:
+    "if(length(cpv_code) = 8 AND substring(cpv_code, 3, 1) != '0', concat(substring(cpv_code, 1, 3), '00000'), NULL)",
+  cpvClass:
+    "if(length(cpv_code) = 8 AND substring(cpv_code, 4, 1) != '0', concat(substring(cpv_code, 1, 4), '0000'), NULL)",
+  cpvCategory:
+    "if(length(cpv_code) = 8 AND substring(cpv_code, 5, 1) != '0', concat(substring(cpv_code, 1, 5), '000'), NULL)",
   cpvCode: 'cpv_code',
   status: 'status',
   procedureType: 'procedure_type',
+  recordKind: 'record_kind',
   buyerRegion: 'buyer_region',
   buyerCounty: 'buyer_county_code',
   buyerSiruta: 'toString(buyer_siruta_uat)',
@@ -168,6 +192,29 @@ const compileScope = (route: AnalysisRoute, scope: AnalysisScope): CompiledScope
     } else {
       impossible = true;
     }
+  }
+
+  for (const [field, prefixLen] of CPV_PREFIX_SCOPES) {
+    const value = scope[field];
+    if (typeof value !== 'string' || value === '') continue;
+    conds.push(`startsWith(ifNull(cpv_code, ''), ${escapeString(value.slice(0, prefixLen))})`);
+  }
+
+  if (scope.q !== undefined && scope.q !== '') {
+    conds.push(`positionCaseInsensitiveUTF8(ifNull(title, ''), ${escapeString(scope.q)}) > 0`);
+  }
+
+  // Value bounds restrict the ROW population to accepted-value rows in range
+  // ("contracts over X RON"); RON → bani is exact at 2 decimals.
+  const valueBounds: string[] = [];
+  if (scope.valueMin !== undefined) {
+    valueBounds.push(`value_awarded_bani >= ${String(Math.round(scope.valueMin * 100))}`);
+  }
+  if (scope.valueMax !== undefined) {
+    valueBounds.push(`value_awarded_bani <= ${String(Math.round(scope.valueMax * 100))}`);
+  }
+  if (valueBounds.length > 0) {
+    conds.push(`value_state IN (${ACCEPTED_STATES})`, ...valueBounds);
   }
 
   const bounds: string[] = [];
@@ -428,7 +475,7 @@ export const makeClickhouseAnalysisRepo = (
       WHERE ${c.where} AND ${column} IS NOT NULL
       GROUP BY key
       ORDER BY ${rankExpr} DESC, key ASC
-      LIMIT ${String(Math.max(1, Math.min(topN, 1000)))}`);
+      LIMIT ${String(Math.max(1, Math.min(topN, TOPN_SIRUTA_MAX)))}`);
     if (topR.isErr()) return err(topR.error);
 
     const unknownR = await query<{ cnt: string; wv: string; awarded_bani: string }>(`

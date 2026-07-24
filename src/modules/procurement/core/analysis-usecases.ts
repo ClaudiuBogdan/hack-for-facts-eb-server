@@ -42,15 +42,22 @@ import {
   isSubsetScope,
   sameWindow,
   scopeDims,
+  scopeRowFilters,
   scopeWindow,
   type AnalysisScope,
 } from './analysis-scope.js';
 import { routeAnalysis, type AnalysisRoute } from './combinations.js';
+import {
+  TOPN_SIRUTA_MAX,
+  type AnalysisGrain,
+  type BreakdownDimension,
+  type MeasureId,
+  type SeriesBucket,
+} from './constants.js';
 import { buildEnvelope, type AnswerEnvelope, type EnvelopeReads } from './envelope.js';
 import { decideAnswer, type AnswerabilityReason, type GateDecision } from './gate-v2.js';
 import { anchorPolicy, policyFor, type PolicyEntry } from './policy.js';
 
-import type { AnalysisGrain, BreakdownDimension, MeasureId, SeriesBucket } from './constants.js';
 import type { ActiveGeneration, AnalysisRepo, AnalysisStatsRead } from './ports.js';
 
 export interface AnalysisDeps {
@@ -172,6 +179,24 @@ const NO_AWARDED_VALUES_CAVEAT =
 const grainNotes = (grain: AnalysisGrain): readonly string[] =>
   grain === 'procedure' ? [PROCEDURE_LIFECYCLE_NOTE] : [];
 
+const Q_TITLE_CAVEAT =
+  'q filters on record titles (case-insensitive substring); title coverage is partial per grain, so untitled records are excluded from every figure';
+
+const VALUE_BOUNDS_CAVEAT =
+  'value bounds restrict every figure (including counts) to records whose accepted awarded value falls in range';
+
+/** Row-filter caveats — a scope q / value bound reshapes the population of EVERY figure. */
+const rowFilterCaveats = (scope: AnalysisScope): readonly string[] => [
+  ...(scope.q !== undefined ? [Q_TITLE_CAVEAT] : []),
+  ...(scope.valueMin !== undefined || scope.valueMax !== undefined ? [VALUE_BOUNDS_CAVEAT] : []),
+];
+
+/** Scope-derived caveats appended to every envelope of a shape. */
+const scopeNotes = (grain: AnalysisGrain, scope: AnalysisScope): readonly string[] => [
+  ...rowFilterCaveats(scope),
+  ...grainNotes(grain),
+];
+
 /** The stats read projected onto the envelope's fields. */
 const readsOf = (read: AnalysisStatsRead): EnvelopeReads => ({
   rows: read.rows,
@@ -258,7 +283,7 @@ const statsBlockFor = async (
         null,
         canonicalScope,
         spend.allow,
-        grainNotes(grain)
+        scopeNotes(grain, scope)
       ),
     });
   }
@@ -299,7 +324,7 @@ const statsBlockFor = async (
       readsOf(read),
       canonicalScope,
       spend.allow,
-      [...noValueCaveats, ...grainNotes(grain)]
+      [...noValueCaveats, ...scopeNotes(grain, scope)]
     ),
   });
 };
@@ -390,7 +415,15 @@ export const analysisSeries = async (
       measure,
       bucket,
       points: [],
-      meta: buildEnvelope(policy, gated, gen.buildId, null, canonicalScope, spend.allow),
+      meta: buildEnvelope(
+        policy,
+        gated,
+        gen.buildId,
+        null,
+        canonicalScope,
+        spend.allow,
+        scopeNotes(grain, scope)
+      ),
     });
 
     // Structurally blocked time answers (procedure grain until M1).
@@ -443,7 +476,7 @@ export const analysisSeries = async (
         ),
         meta: buildEnvelope(policy, gated, gen.buildId, reads, canonicalScope, spend.allow, [
           'distinct counts are computed per bucket and must never be summed across buckets',
-          ...grainNotes(grain),
+          ...scopeNotes(grain, scope),
         ]),
       });
       continue;
@@ -492,7 +525,7 @@ export const analysisSeries = async (
         reads,
         canonicalScope,
         spend.allow,
-        grainNotes(grain)
+        scopeNotes(grain, scope)
       ),
     });
   }
@@ -501,10 +534,19 @@ export const analysisSeries = async (
 
 // ── breakdown ──────────────────────────────────────────────────────────────────
 
-const normalizeTopN = (topN: number | undefined): Result<number, ApiError> => {
+/** SIRUTA breakdowns may request every UAT bucket (full-country map paint). */
+const SIRUTA_DIMS: ReadonlySet<BreakdownDimension> = new Set(['buyerSiruta', 'supplierSiruta']);
+
+const topNMaxFor = (dimensions: readonly BreakdownDimension[]): number =>
+  dimensions.some((dim) => SIRUTA_DIMS.has(dim)) ? TOPN_SIRUTA_MAX : TOPN_MAX;
+
+const normalizeTopN = (
+  topN: number | undefined,
+  maxTopN: number = TOPN_MAX
+): Result<number, ApiError> => {
   if (topN === undefined) return ok(TOPN_DEFAULT);
-  if (!Number.isInteger(topN) || topN < 1 || topN > TOPN_MAX) {
-    return err(invalidInput(`topN must be an integer from 1 to ${String(TOPN_MAX)}`, 'topN'));
+  if (!Number.isInteger(topN) || topN < 1 || topN > maxTopN) {
+    return err(invalidInput(`topN must be an integer from 1 to ${String(maxTopN)}`, 'topN'));
   }
   return ok(topN);
 };
@@ -546,7 +588,7 @@ const breakdownBlockFor = async (
         null,
         canonicalScope,
         spend.allow,
-        grainNotes(grain)
+        scopeNotes(grain, scope)
       ),
     });
   }
@@ -609,7 +651,7 @@ const breakdownBlockFor = async (
       readsOf(totals),
       canonicalScope,
       spend.allow,
-      grainNotes(grain)
+      scopeNotes(grain, scope)
     ),
   });
 };
@@ -623,7 +665,7 @@ export const analysisBreakdown = async (
     readonly rankBy?: 'value' | 'count';
   }
 ): Promise<Result<readonly AnalysisBreakdownBlock[], ApiError>> => {
-  const topNR = normalizeTopN(input.topN);
+  const topNR = normalizeTopN(input.topN, topNMaxFor([input.dimension]));
   if (topNR.isErr()) return err(topNR.error);
   const topN = topNR.value;
   const routesR = (deps.routeAnalysis ?? routeAnalysis)(input.scope, 'breakdown', input.dimension);
@@ -688,7 +730,7 @@ export const analysisConcentration = async (
           null,
           canonicalScope,
           basis === 'value' && spend.allow,
-          grainNotes(grain)
+          scopeNotes(grain, input.scope)
         ),
       });
       continue;
@@ -745,7 +787,7 @@ export const analysisConcentration = async (
         readsOf(totals),
         canonicalScope,
         basis === 'value' && spend.allow,
-        [...semanticsCaveats, ...grainNotes(grain)]
+        [...semanticsCaveats, ...scopeNotes(grain, input.scope)]
       ),
     });
   }
@@ -776,10 +818,13 @@ export const analysisShare = async (
   }
   // STRICT subset: every denominator constraint set identically on the numerator,
   // AND at least one additional numerator constraint — identical scopes are a
-  // tautology (share 1), not a derivation.
+  // tautology (share 1), not a derivation. Row filters (q/value bounds) count
+  // as narrowing constraints exactly like dimensions.
+  const constraintCount = (scope: AnalysisScope): number =>
+    scopeDims(scope).length + scopeRowFilters(scope).length;
   if (
     !isSubsetScope(numerator, denominator) ||
-    scopeDims(numerator).length <= scopeDims(denominator).length
+    constraintCount(numerator) <= constraintCount(denominator)
   ) {
     return err(
       invalidInput(
@@ -894,7 +939,7 @@ export const analysisFacets = async (
     );
   }
 
-  const topNR = normalizeTopN(input.topN);
+  const topNR = normalizeTopN(input.topN, topNMaxFor(dimensions));
   if (topNR.isErr()) return err(topNR.error);
   const topN = topNR.value;
   // Route every dimension up front — one bad dimension rejects the whole request
@@ -913,6 +958,10 @@ export const analysisFacets = async (
 
   const blocks: AnalysisBreakdownBlock[] = [];
   for (const { dimension, routes } of routed) {
+    // A mixed request (SIRUTA + regular dims) validates against the raised
+    // ceiling but each NON-SIRUTA dimension still reads at most TOPN_MAX —
+    // the extra depth exists only for full-country UAT painting.
+    const dimensionTopN = Math.min(topN, topNMaxFor([dimension]));
     for (const route of routes) {
       const blockR = await breakdownBlockFor(
         deps,
@@ -920,7 +969,7 @@ export const analysisFacets = async (
         route,
         input.scope,
         dimension,
-        topN,
+        dimensionTopN,
         canonicalScope,
         input.rankBy
       );
