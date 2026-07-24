@@ -18,7 +18,7 @@ export interface AnswerEnvelope {
   readonly reason: AnswerabilityReason | null;
   readonly policyKey: string;
   readonly grain: AnalysisGrain;
-  readonly valueBasis: 'estimated' | 'awarded' | null;
+  readonly valueBasis: 'estimated' | 'awarded' | 'ceiling' | 'modAdjusted' | null;
   readonly dateBasis: string;
   readonly population: 'canonical-only';
   /** The immutable serving-generation id (drives dataAsOf + cache keys). */

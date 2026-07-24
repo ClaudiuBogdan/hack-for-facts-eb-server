@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { ANALYSIS_GRAINS } from '@/modules/procurement/core/constants.js';
+import { CORE_ANALYSIS_GRAINS } from '@/modules/procurement/core/constants.js';
 import { POLICY_TABLE, policyFor, type AnalysisShape } from '@/modules/procurement/core/policy.js';
 
 interface MatrixRow {
@@ -74,7 +74,8 @@ describe('structural declarations', () => {
   });
 
   it('estimated values never rank or concentrate — a separate labeled metric (D2)', () => {
-    for (const grain of ANALYSIS_GRAINS) {
+    // Core grains only: the value-basis populations declare no estimated entry.
+    for (const grain of CORE_ANALYSIS_GRAINS) {
       const entry = policyFor(grain, 'valueEstimatedSum');
       expect(entry?.valueBasis).toBe('estimated');
       expect(entry?.legalShapes).not.toContain('breakdown');
@@ -83,7 +84,8 @@ describe('structural declarations', () => {
   });
 
   it('averages are ratios of awarded sum over WITH-VALUE count, stats-only', () => {
-    for (const grain of ANALYSIS_GRAINS) {
+    // Core grains + calloff declare the average; framework/modification do not.
+    for (const grain of [...CORE_ANALYSIS_GRAINS, 'calloff'] as const) {
       const entry = policyFor(grain, 'avgValueAwarded');
       expect(entry?.law).toBe('ratio');
       expect(entry?.ratioOf).toEqual({

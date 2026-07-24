@@ -53,12 +53,39 @@ export const statsRead = (over: Partial<AnalysisStatsRead> = {}): AnalysisStatsR
   withEstimated: '60',
   valueAwardedSum: '1000.00',
   valueEstimatedSum: '1200.00',
+  valueCeilingSum: null,
+  valueModAdjustedSum: null,
   minMonth: '2024-01',
   maxMonth: '2024-12',
   undatedCount: '5',
   undatedValueRon: '50.00',
   ...over,
 });
+
+/** Default coverage rows mirroring the live meta table (build 6 shape).
+ * The framework quarantine DIAGNOSTIC row deliberately sits BEFORE the
+ * groups_all serving row: the gate must match on population, not row order
+ * (review F1 — matching (grain, basis) alone could serve the 0.031 verdict). */
+export const BASIS_COVERAGE_ROWS = [
+  { grain: 'framework', basis: 'ceiling', population: 'quarantined_mass', coverage: 0.0315 },
+  { grain: 'contract', basis: 'estimated', population: 'applicable_canonical', coverage: 0.1953 },
+  {
+    grain: 'direct_acquisition',
+    basis: 'estimated',
+    population: 'applicable_canonical',
+    coverage: 0.5859,
+  },
+  { grain: 'procedure', basis: 'estimated', population: 'applicable_canonical', coverage: 0.9273 },
+  { grain: 'contract', basis: 'mod_adjusted', population: 'awarded_valued', coverage: 0.9865 },
+  { grain: 'framework', basis: 'ceiling', population: 'groups_all', coverage: 0.927 },
+  { grain: 'calloff', basis: 'calloff_value', population: 'all_rows', coverage: 0.9987 },
+  { grain: 'calloff', basis: 'dated', population: 'all_rows', coverage: 1 },
+  { grain: 'framework', basis: 'dated', population: 'groups_all', coverage: 0.9159 },
+  { grain: 'modification', basis: 'dated', population: 'all_rows', coverage: 0.5151 },
+  { grain: 'calloff', basis: 'buyer_geo', population: 'all_rows', coverage: 0.8898 },
+  { grain: 'framework', basis: 'buyer_geo', population: 'groups_all', coverage: 0.9174 },
+  { grain: 'modification', basis: 'buyer_geo', population: 'all_rows', coverage: 0.6223 },
+] as const;
 
 export interface RecordedCall {
   readonly method: string;
@@ -80,6 +107,12 @@ export interface FakeAnalysisRepoOptions {
   readonly distinct?: readonly AnalysisDistinctRow[];
   readonly breakdown?: AnalysisBreakdownRead;
   readonly concentration?: ConcentrationRead;
+  readonly basisCoverage?: readonly {
+    grain: string;
+    basis: string;
+    population: string;
+    coverage: number;
+  }[];
 }
 
 const okp = <T>(value: T): Promise<Result<T, ApiError>> => Promise.resolve(ok(value));
@@ -93,6 +126,7 @@ export const fakeAnalysisRepo = (options: FakeAnalysisRepoOptions = {}): FakeAna
 
   const repo: AnalysisRepo = {
     activeGeneration: () => okp(gen),
+    basisCoverage: () => okp(options.basisCoverage ?? BASIS_COVERAGE_ROWS),
     statsFor: (route) => {
       record('statsFor', route, []);
       return okp(options.stats !== undefined ? options.stats(route.grain) : statsRead());

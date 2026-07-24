@@ -224,6 +224,6 @@ describe('analysisShare happy path', () => {
       )
     )._unsafeUnwrap();
     expect(result.share).toBeNull();
-    expect(result.caveats[0]).toContain('zero awarded value');
+    expect(result.caveats[0]).toContain('zero anchor-money value');
   });
 });
