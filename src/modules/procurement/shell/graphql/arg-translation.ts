@@ -18,7 +18,14 @@ import { invalidInput, normalizeCui, type ApiError } from '@/modules/shared/inde
 
 import { parseAnalysisScope, type AnalysisScope } from '../../core/analysis-scope.js';
 import { RECORD_KINDS, VALUE_STATES } from '../../core/constants.js';
-import { parseQ, type ProcurementSearchFilter } from '../../core/search.js';
+import {
+  CPV_LEVELS,
+  parseQ,
+  type CpvLevelKey,
+  type ProcurementGeoScope,
+  type ProcurementSearchFilter,
+  type SearchGrain,
+} from '../../core/search.js';
 
 // ── raw input shapes (exactly the SDL) ────────────────────────────────────────
 
@@ -42,6 +49,15 @@ export interface RawSearchFilter {
   supplierCui?: StringEqInput;
   cpvDivision?: StringEqInput;
   cpvCode?: StringEqInput;
+  cpvGroup?: StringEqInput;
+  cpvClass?: StringEqInput;
+  cpvCategory?: StringEqInput;
+  buyerRegion?: StringEqInput;
+  buyerCounty?: StringEqInput;
+  buyerSiruta?: StringEqInput;
+  supplierRegion?: StringEqInput;
+  supplierCounty?: StringEqInput;
+  supplierSiruta?: StringEqInput;
   sourceSystem?: StringInInput;
   status?: StringInInput;
   publicationDate?: RangeInput;
@@ -66,6 +82,12 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/u;
 const DECIMAL_RE = /^-?\d+(\.\d+)?$/u;
 const DIVISION_RE = /^\d{2}$/u;
 const CPV_CODE_RE = /^\d{2,8}$/u;
+/** County codes are the 1–2 letter SIRUTA/plate codes ('B', 'CJ'). */
+const COUNTY_CODE_RE = /^[A-Z]{1,2}$/u;
+/** SIRUTA territorial codes are numeric, ≤ 8 digits. */
+const SIRUTA_RE = /^\d{1,8}$/u;
+/** Region labels are the 8 development regions ('Nord-Vest'); bounded, not enumerated. */
+const REGION_RE = /^[\p{L}\p{N} .'-]{1,64}$/u;
 
 const readEq = (
   input: StringEqInput | undefined,
@@ -182,6 +204,70 @@ const readCpv = (
   return ok(out);
 };
 
+/**
+ * One side's territory scope. Levels are validated against their code shape,
+ * never against a live territory list — an unknown-but-well-formed code yields
+ * an empty page, which is the honest answer, while a malformed one is a caller
+ * bug and fails loudly.
+ */
+type GeoLevel = readonly [
+  input: keyof RawSearchFilter,
+  field: keyof ProcurementGeoScope,
+  pattern: RegExp,
+];
+
+const GEO_LEVELS: Readonly<Record<'buyer' | 'supplier', readonly GeoLevel[]>> = {
+  buyer: [
+    ['buyerRegion', 'region', REGION_RE],
+    ['buyerCounty', 'countyCode', COUNTY_CODE_RE],
+    ['buyerSiruta', 'siruta', SIRUTA_RE],
+  ],
+  supplier: [
+    ['supplierRegion', 'region', REGION_RE],
+    ['supplierCounty', 'countyCode', COUNTY_CODE_RE],
+    ['supplierSiruta', 'siruta', SIRUTA_RE],
+  ],
+};
+
+const readGeoScope = (
+  raw: RawSearchFilter,
+  side: 'buyer' | 'supplier'
+): Result<ProcurementGeoScope | undefined, ApiError> => {
+  const out: { -readonly [K in keyof ProcurementGeoScope]: ProcurementGeoScope[K] } = {};
+  for (const [input, field, pattern] of GEO_LEVELS[side]) {
+    const value = readEq(raw[input] as StringEqInput | undefined, input);
+    if (value.isErr()) return err(value.error);
+    if (value.value === undefined) continue;
+    if (!pattern.test(value.value)) {
+      return err(invalidInput(`${input} is not a valid territory code`, input));
+    }
+    out[field] = value.value;
+  }
+  return ok(Object.keys(out).length === 0 ? undefined : out);
+};
+
+/** CPV level scopes: canonical 8-digit codes with a non-zero level digit. */
+const readCpvLevels = (
+  raw: RawSearchFilter
+): Result<Partial<Record<CpvLevelKey, string>>, ApiError> => {
+  const out: Partial<Record<CpvLevelKey, string>> = {};
+  for (const key of ['cpvGroup', 'cpvClass', 'cpvCategory'] as const) {
+    const value = readEq(raw[key], key);
+    if (value.isErr()) return err(value.error);
+    if (value.value === undefined) continue;
+    if (!CPV_LEVELS[key].pattern.test(value.value)) {
+      return err(
+        invalidInput(
+          `${key} must be a canonical 8-digit CPV code for that level (trailing zeros, non-zero level digit)`,
+          key
+        )
+      );
+    }
+    out[key] = value.value;
+  }
+  return ok(out);
+};
+
 // ── the four search filters ───────────────────────────────────────────────────
 
 /**
@@ -191,7 +277,12 @@ const readCpv = (
  */
 export const translateSearchFilter = (
   raw: RawSearchFilter | undefined | null,
-  dateField: 'publicationDate' | 'contractDate' | 'modificationDate'
+  dateField: 'publicationDate' | 'contractDate' | 'modificationDate',
+  /**
+   * The grain this filter is for. Omitted = no grain-capability check (the
+   * shape-only translation used by tests); the resolvers always pass it.
+   */
+  grain?: SearchGrain
 ): Result<ProcurementSearchFilter, ApiError> => {
   if (raw === undefined || raw === null) return ok({});
   const out: {
@@ -214,6 +305,33 @@ export const translateSearchFilter = (
   if (cpv.isErr()) return err(cpv.error);
   if (cpv.value.cpvDivision !== undefined) out.cpvDivision = cpv.value.cpvDivision;
   if (cpv.value.cpvCode !== undefined) out.cpvCode = cpv.value.cpvCode;
+
+  const levels = readCpvLevels(raw);
+  if (levels.isErr()) return err(levels.error);
+  if (levels.value.cpvGroup !== undefined) out.cpvGroup = levels.value.cpvGroup;
+  if (levels.value.cpvClass !== undefined) out.cpvClass = levels.value.cpvClass;
+  if (levels.value.cpvCategory !== undefined) out.cpvCategory = levels.value.cpvCategory;
+
+  const buyerGeo = readGeoScope(raw, 'buyer');
+  if (buyerGeo.isErr()) return err(buyerGeo.error);
+  if (buyerGeo.value !== undefined) out.buyerGeo = buyerGeo.value;
+
+  const supplierGeo = readGeoScope(raw, 'supplier');
+  if (supplierGeo.isErr()) return err(supplierGeo.error);
+  if (supplierGeo.value !== undefined) {
+    // A procedure predates its award: it has no supplier, so a supplier
+    // territory scope is REJECTED here rather than quietly ignored (which
+    // would answer a wider question than the one asked).
+    if (grain === 'procedures' || grain === 'modifications') {
+      return err(
+        invalidInput(
+          `supplier geography is not available on the ${grain} grain`,
+          'supplierRegion'
+        )
+      );
+    }
+    out.supplierGeo = supplierGeo.value;
+  }
 
   const sourceSystem = readIn(raw.sourceSystem, 'sourceSystem');
   if (sourceSystem.isErr()) return err(sourceSystem.error);

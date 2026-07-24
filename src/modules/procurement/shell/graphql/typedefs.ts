@@ -207,6 +207,14 @@ export const procurementTypeDefs = /* GraphQL */ `
     authorityCui: StringEqInput
     cpvDivision: StringEqInput
     cpvCode: StringEqInput
+    "Canonical 8-digit CPV level codes (trailing zeros, non-zero level digit)."
+    cpvGroup: StringEqInput
+    cpvClass: StringEqInput
+    cpvCategory: StringEqInput
+    "Territory of the contracting institution (search-engine served)."
+    buyerRegion: StringEqInput
+    buyerCounty: StringEqInput
+    buyerSiruta: StringEqInput
     sourceSystem: StringInInput
     status: StringInInput
     publicationDate: DateRangeInput
@@ -222,6 +230,18 @@ export const procurementTypeDefs = /* GraphQL */ `
     supplierCui: StringEqInput
     cpvDivision: StringEqInput
     cpvCode: StringEqInput
+    "Canonical 8-digit CPV level codes (trailing zeros, non-zero level digit)."
+    cpvGroup: StringEqInput
+    cpvClass: StringEqInput
+    cpvCategory: StringEqInput
+    "Territory of the contracting institution (search-engine served)."
+    buyerRegion: StringEqInput
+    buyerCounty: StringEqInput
+    buyerSiruta: StringEqInput
+    "Registered office of the awarded supplier (search-engine served)."
+    supplierRegion: StringEqInput
+    supplierCounty: StringEqInput
+    supplierSiruta: StringEqInput
     sourceSystem: StringInInput
     status: StringInInput
     contractDate: DateRangeInput
@@ -249,6 +269,18 @@ export const procurementTypeDefs = /* GraphQL */ `
     supplierCui: StringEqInput
     cpvDivision: StringEqInput
     cpvCode: StringEqInput
+    "Canonical 8-digit CPV level codes (trailing zeros, non-zero level digit)."
+    cpvGroup: StringEqInput
+    cpvClass: StringEqInput
+    cpvCategory: StringEqInput
+    "Territory of the contracting institution (search-engine served)."
+    buyerRegion: StringEqInput
+    buyerCounty: StringEqInput
+    buyerSiruta: StringEqInput
+    "Registered office of the awarded supplier (search-engine served)."
+    supplierRegion: StringEqInput
+    supplierCounty: StringEqInput
+    supplierSiruta: StringEqInput
     sourceSystem: StringInInput
     status: StringInInput
     publicationDate: DateRangeInput
@@ -270,23 +302,57 @@ export const procurementTypeDefs = /* GraphQL */ `
   }
 
   """
-  \`total\` is null when the exact count exceeds 10 000 OR the count timed out;
-  \`totalEstimated\` then marks it. Clients render "10000+".
+  A result-set facet: how the CURRENT result set distributes over one
+  dimension. Never an authoritative analytic total — those come from the
+  analysis surface.
+  """
+  type ProcurementSearchFacetBucket {
+    key: String!
+    count: Int!
+  }
+  type ProcurementSearchFacet {
+    dimension: String!
+    buckets: [ProcurementSearchFacetBucket!]!
+    "Records outside the returned buckets — disclosed, never silently dropped."
+    otherCount: Int!
+  }
+
+  """
+  Which surface answered and how fresh it is. \`engine: "opensearch"\` pages are
+  as of \`asOf\` (the index build); \`engine: "postgres"\` pages are live but
+  cannot serve geography or CPV mid-level filters.
+  """
+  type ProcurementSearchProvenance {
+    engine: String!
+    asOf: String
+  }
+
+  """
+  \`total\` is null when the count is a lower bound (the engine capped it, or the
+  SQL count exceeded 10 000 / timed out); \`totalEstimated\` then marks it.
+  Clients render "10000+".
   """
   type ProcurementProceduresPage {
     total: Int
     totalEstimated: Boolean!
     items: [ProcurementProcedure!]!
+    "Present only for requested facets on an engine-served page."
+    facets: [ProcurementSearchFacet!]
+    provenance: ProcurementSearchProvenance
   }
   type ProcurementContractsPage {
     total: Int
     totalEstimated: Boolean!
     items: [ProcurementContract!]!
+    facets: [ProcurementSearchFacet!]
+    provenance: ProcurementSearchProvenance
   }
   type ProcurementDirectAcquisitionsPage {
     total: Int
     totalEstimated: Boolean!
     items: [ProcurementDirectAcquisition!]!
+    facets: [ProcurementSearchFacet!]
+    provenance: ProcurementSearchProvenance
   }
   type ProcurementModificationsPage {
     total: Int
@@ -644,18 +710,42 @@ export const procurementTypeDefs = /* GraphQL */ `
       sort: ProcurementSort
       page: Int
       pageSize: Int
+      """
+      Result-set facet dimensions to aggregate (engine-served grains only).
+      Unknown dimensions are rejected. Allowed: buyerRegion, buyerCounty,
+      supplierRegion, supplierCounty (award grains), cpvDivision, status,
+      valueState, sourceSystem, recordKind (contracts), procedureType
+      (procedures).
+      """
+      facets: [String!]
     ): ProcurementProceduresPage!
     procurementContracts(
       filter: ProcurementContractsFilter
       sort: ProcurementSort
       page: Int
       pageSize: Int
+      """
+      Result-set facet dimensions to aggregate (engine-served grains only).
+      Unknown dimensions are rejected. Allowed: buyerRegion, buyerCounty,
+      supplierRegion, supplierCounty (award grains), cpvDivision, status,
+      valueState, sourceSystem, recordKind (contracts), procedureType
+      (procedures).
+      """
+      facets: [String!]
     ): ProcurementContractsPage!
     procurementDirectAcquisitions(
       filter: ProcurementDirectAcquisitionsFilter
       sort: ProcurementSort
       page: Int
       pageSize: Int
+      """
+      Result-set facet dimensions to aggregate (engine-served grains only).
+      Unknown dimensions are rejected. Allowed: buyerRegion, buyerCounty,
+      supplierRegion, supplierCounty (award grains), cpvDivision, status,
+      valueState, sourceSystem, recordKind (contracts), procedureType
+      (procedures).
+      """
+      facets: [String!]
     ): ProcurementDirectAcquisitionsPage!
     procurementModifications(
       filter: ProcurementModificationsFilter

@@ -196,10 +196,31 @@ export interface DirectAcquisitionDetail {
  * count statement failed/timed out — in both cases `estimated: true` tells the
  * client to render "10000+". A count failure NEVER fails the page itself.
  */
+/** One result-set facet dimension. Never an authoritative analytic total. */
+export interface SearchFacet {
+  readonly dimension: string;
+  readonly buckets: readonly { readonly key: string; readonly count: number }[];
+  /**
+   * Records outside the returned buckets (`sum_other_doc_count`). Disclosed,
+   * never silently dropped — a truncated facet that reads as complete is a lie.
+   */
+  readonly otherCount: number;
+}
+
+/** Which surface answered, and how fresh that answer is. */
+export interface SearchProvenance {
+  readonly engine: 'opensearch' | 'postgres';
+  /** Search-index build timestamp (ISO-8601); null when the engine is Postgres. */
+  readonly asOf: string | null;
+}
+
 export interface OffsetSearchResult<T> {
   readonly items: readonly T[];
   readonly total: number | null;
   readonly estimated: boolean;
+  /** Present only when facets were requested AND the engine served the page. */
+  readonly facets?: readonly SearchFacet[];
+  readonly provenance?: SearchProvenance;
 }
 
 /** The parsed, validated offset page request. */

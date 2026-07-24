@@ -316,48 +316,51 @@ export const registerRedesignSurface = async (
     // prototype fact tables (Chronos, normally via private Tailscale).
     // Unset = rollups.
     const clickhouseUrl = process.env['PROD_CLICKHOUSE_URL'];
-    // DEV list-search switch: resolve the `q` facet through the chronos
-    // OpenSearch proto indices (via port-forward). DEDICATED variable —
-    // deliberately not the kernel-wide PROD_OPENSEARCH_URL, so existing
-    // environments can never enable this path implicitly. Unset = SQL ILIKE.
-    // Format of PROCUREMENT_Q_OPENSEARCH_INDEXES: `grain:index,...`.
-    // TLS: PROCUREMENT_Q_OPENSEARCH_CA_FILE pins the private CA and
-    // PROCUREMENT_Q_OPENSEARCH_TLS_SERVERNAME must be a cert SAN (the
-    // port-forward host is localhost, which the node cert does not carry).
-    const qOpensearchUrl = process.env['PROCUREMENT_Q_OPENSEARCH_URL'];
-    const qOpensearchCaFile = process.env['PROCUREMENT_Q_OPENSEARCH_CA_FILE'];
-    const qOpensearchIndexes = Object.fromEntries(
-      (
-        process.env['PROCUREMENT_Q_OPENSEARCH_INDEXES'] ??
-        'procedures:proto_procurement_procedures_v0,contracts:proto_procurement_contracts_v0,direct_acquisitions:proto_procurement_da_v0'
-      )
+    // The procurement record-list search engine. The connection may come from
+    // the kernel-wide PROD_OPENSEARCH_* settings (the serving cluster), but the
+    // path is NEVER enabled implicitly: it turns on only when the per-grain
+    // index map is stated explicitly in PROCUREMENT_SEARCH_OPENSEARCH_INDEXES
+    // (`grain:index,...`), or when a dedicated URL overrides the connection.
+    // A grain left out of the map is served by SQL — and geography / CPV
+    // mid-level filters then fail explicitly rather than answering a wider
+    // question. TLS: *_CA_FILE pins the private CA and *_TLS_SERVERNAME must be
+    // a cert SAN (a port-forwarded localhost host is not one).
+    const env = (dedicated: string, shared: string): string | undefined =>
+      process.env[`PROCUREMENT_SEARCH_OPENSEARCH_${dedicated}`] ?? process.env[shared];
+    const searchOpensearchUrl = env('URL', 'PROD_OPENSEARCH_URL');
+    const searchOpensearchCaFile = env('CA_FILE', 'PROD_OPENSEARCH_CA_FILE');
+    const searchOpensearchUser = env('USERNAME', 'PROD_OPENSEARCH_USERNAME');
+    const searchOpensearchPassword = env('PASSWORD', 'PROD_OPENSEARCH_PASSWORD');
+    const searchOpensearchServername = env('TLS_SERVERNAME', 'PROD_OPENSEARCH_TLS_SERVERNAME');
+    const searchIndexMap = process.env['PROCUREMENT_SEARCH_OPENSEARCH_INDEXES'];
+    const searchOpensearchIndexes = Object.fromEntries(
+      (searchIndexMap ?? '')
         .split(',')
         .map((pair) => pair.split(':').map((s) => s.trim()))
         .filter((kv): kv is [string, string] => kv.length === 2 && kv[0] !== '' && kv[1] !== '')
     );
+    const searchEngineEnabled =
+      searchOpensearchUrl !== undefined &&
+      searchOpensearchUrl !== '' &&
+      Object.keys(searchOpensearchIndexes).length > 0;
     const procurement = makeProcurementModule({
       db: kernel.db,
       logger: app.log,
-      ...(qOpensearchUrl !== undefined &&
-        qOpensearchUrl !== '' && {
-          opensearch: {
-            url: qOpensearchUrl,
-            indexes: qOpensearchIndexes,
-            ...(process.env['PROCUREMENT_Q_OPENSEARCH_USERNAME'] !== undefined && {
-              username: process.env['PROCUREMENT_Q_OPENSEARCH_USERNAME'],
+      ...(searchEngineEnabled && {
+        opensearch: {
+          url: searchOpensearchUrl,
+          indexes: searchOpensearchIndexes,
+          ...(searchOpensearchUser !== undefined && { username: searchOpensearchUser }),
+          ...(searchOpensearchPassword !== undefined && { password: searchOpensearchPassword }),
+          ...(searchOpensearchCaFile !== undefined &&
+            searchOpensearchCaFile !== '' && {
+              caCert: readFileSync(searchOpensearchCaFile, 'utf8'),
             }),
-            ...(process.env['PROCUREMENT_Q_OPENSEARCH_PASSWORD'] !== undefined && {
-              password: process.env['PROCUREMENT_Q_OPENSEARCH_PASSWORD'],
-            }),
-            ...(qOpensearchCaFile !== undefined &&
-              qOpensearchCaFile !== '' && {
-                caCert: readFileSync(qOpensearchCaFile, 'utf8'),
-              }),
-            ...(process.env['PROCUREMENT_Q_OPENSEARCH_TLS_SERVERNAME'] !== undefined && {
-              tlsServername: process.env['PROCUREMENT_Q_OPENSEARCH_TLS_SERVERNAME'],
-            }),
-          },
-        }),
+          ...(searchOpensearchServername !== undefined && {
+            tlsServername: searchOpensearchServername,
+          }),
+        },
+      }),
       ...(clickhouseUrl !== undefined &&
         clickhouseUrl !== '' && {
           clickhouse: {

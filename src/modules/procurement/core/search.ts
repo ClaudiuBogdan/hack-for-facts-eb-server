@@ -42,12 +42,41 @@ export interface DecimalRange {
   readonly lte?: string;
 }
 
+/**
+ * One side's territory scope. The three levels are mutually exclusive in the
+ * product contract (finest wins, resolved client-side); the server accepts
+ * whatever arrives and ANDs it — a contradictory pair yields an empty page
+ * rather than a silently-widened one.
+ *
+ * Buyer = the contracting institution's administrative territory. Supplier =
+ * the awarded company's registered office (`companies_v2.territory_resolution`
+ * → `core.territories`, the same resolution ClickHouse uses).
+ */
+export interface ProcurementGeoScope {
+  readonly region?: string;
+  readonly countyCode?: string;
+  readonly siruta?: string;
+}
+
 export interface ProcurementSearchFilter {
   readonly q?: string;
   readonly authorityCui?: string;
   readonly supplierCui?: string;
   readonly cpvDivision?: string;
   readonly cpvCode?: string;
+  /** Canonical 8-digit CPV level codes — compiled as a prefix at 3/4/5 digits. */
+  readonly cpvGroup?: string;
+  readonly cpvClass?: string;
+  readonly cpvCategory?: string;
+  /** Territory of the contracting institution. Search-engine served. */
+  readonly buyerGeo?: ProcurementGeoScope;
+  /**
+   * Territory of the awarded supplier. Search-engine served, and structurally
+   * absent on `procedures` — a procedure predates its award, so the parser
+   * REJECTS the scope there instead of ignoring it (product requirement:
+   * "the control must explain this rather than silently ignoring it").
+   */
+  readonly supplierGeo?: ProcurementGeoScope;
   readonly sourceSystem?: readonly string[];
   readonly status?: readonly string[];
   readonly dateRange?: DateRange;
@@ -67,6 +96,66 @@ export interface ProcurementSearchFilter {
 }
 
 export type SearchGrain = 'procedures' | 'contracts' | 'direct_acquisitions' | 'modifications';
+
+/**
+ * CPV hierarchy levels: canonical 8-digit codes with a non-zero level digit and
+ * trailing zeros (group `XXY00000`, class `XXXY0000`, category `XXXXY000`). A
+ * level scope compiles to a `cpv_code` PREFIX at the level's digit length —
+ * identical to the ClickHouse analytics rule, so the two surfaces agree.
+ */
+export const CPV_LEVELS = {
+  cpvGroup: { pattern: /^\d{2}[1-9]0{5}$/u, digits: 3 },
+  cpvClass: { pattern: /^\d{3}[1-9]0{4}$/u, digits: 4 },
+  cpvCategory: { pattern: /^\d{4}[1-9]0{3}$/u, digits: 5 },
+} as const;
+export type CpvLevelKey = keyof typeof CPV_LEVELS;
+
+/** True when a filter names a dimension only the search engine carries. */
+export const usesEngineOnlyFilter = (f: ProcurementSearchFilter): boolean =>
+  f.buyerGeo !== undefined ||
+  f.supplierGeo !== undefined ||
+  f.cpvGroup !== undefined ||
+  f.cpvClass !== undefined ||
+  f.cpvCategory !== undefined;
+
+/** Result-set facet dimensions the engine may aggregate, per grain. */
+export const SEARCH_FACET_DIMS: Readonly<Record<SearchGrain, readonly string[]>> = {
+  procedures: [
+    'buyerRegion',
+    'buyerCounty',
+    'cpvDivision',
+    'status',
+    'valueState',
+    'sourceSystem',
+    'procedureType',
+  ],
+  contracts: [
+    'buyerRegion',
+    'buyerCounty',
+    'supplierRegion',
+    'supplierCounty',
+    'cpvDivision',
+    'status',
+    'valueState',
+    'sourceSystem',
+    'recordKind',
+  ],
+  direct_acquisitions: [
+    'buyerRegion',
+    'buyerCounty',
+    'supplierRegion',
+    'supplierCounty',
+    'cpvDivision',
+    'status',
+    'valueState',
+    'sourceSystem',
+  ],
+  // Not indexed — the modifications grain is served by SQL only.
+  modifications: [],
+};
+
+/** Max buckets returned per facet dimension; the remainder is disclosed, never hidden. */
+export const SEARCH_FACET_SIZE = 30;
 
 // ── sort → (date column, value column) per grain ───────────────────────────────
 

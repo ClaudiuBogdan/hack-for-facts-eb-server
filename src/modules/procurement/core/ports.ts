@@ -89,15 +89,18 @@ export interface ProcurementRepo {
   //    exactly as the MCP tools use them) ──
   searchProceduresOffset(
     f: ProcurementSearchFilter,
-    p: OffsetSearchRequest
+    p: OffsetSearchRequest,
+    facets?: readonly string[]
   ): Promise<Result<OffsetSearchResult<ProcurementProcedure>, ApiError>>;
   searchContractsOffset(
     f: ProcurementSearchFilter,
-    p: OffsetSearchRequest
+    p: OffsetSearchRequest,
+    facets?: readonly string[]
   ): Promise<Result<OffsetSearchResult<ProcurementContract>, ApiError>>;
   searchDirectAcquisitionsOffset(
     f: ProcurementSearchFilter,
-    p: OffsetSearchRequest
+    p: OffsetSearchRequest,
+    facets?: readonly string[]
   ): Promise<Result<OffsetSearchResult<ProcurementDirectAcquisition>, ApiError>>;
   searchModificationsOffset(
     f: ProcurementSearchFilter,

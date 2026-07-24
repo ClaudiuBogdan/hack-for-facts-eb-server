@@ -18,7 +18,12 @@
 import { sql, type Kysely, type RawBuilder, type SqlBool } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
-import { databaseError, type ApiError, type ProdDatabase } from '@/modules/shared/index.js';
+import {
+  databaseError,
+  upstreamError,
+  type ApiError,
+  type ProdDatabase,
+} from '@/modules/shared/index.js';
 
 import { mapContract, mapDirectAcquisition, mapModification, mapProcedure } from './mappers.js';
 import { SEARCH_COUNT_CAP } from '../../core/constants.js';
@@ -29,11 +34,12 @@ import {
   offsetOf,
   Q_COLUMNS,
   resolveSort,
+  usesEngineOnlyFilter,
   type ProcurementSearchFilter,
   type SearchGrain,
 } from '../../core/search.js';
 
-import type { OpenSearchQResolver } from './opensearch-q-repo.js';
+import type { OpenSearchListEngine } from './opensearch-list-repo.js';
 import type {
   OffsetSearchRequest,
   OffsetSearchResult,
@@ -344,15 +350,18 @@ const modificationSelect = [
 export interface ProcurementOffsetSearchRepo {
   searchProceduresOffset(
     f: ProcurementSearchFilter,
-    p: OffsetSearchRequest
+    p: OffsetSearchRequest,
+    facets?: readonly string[]
   ): Promise<Result<OffsetSearchResult<ProcurementProcedure>, ApiError>>;
   searchContractsOffset(
     f: ProcurementSearchFilter,
-    p: OffsetSearchRequest
+    p: OffsetSearchRequest,
+    facets?: readonly string[]
   ): Promise<Result<OffsetSearchResult<ProcurementContract>, ApiError>>;
   searchDirectAcquisitionsOffset(
     f: ProcurementSearchFilter,
-    p: OffsetSearchRequest
+    p: OffsetSearchRequest,
+    facets?: readonly string[]
   ): Promise<Result<OffsetSearchResult<ProcurementDirectAcquisition>, ApiError>>;
   searchModificationsOffset(
     f: ProcurementSearchFilter,
@@ -368,7 +377,7 @@ const orderClause = (grain: SearchGrain, page: OffsetSearchRequest): RawBuilder<
   return sql`${ref(b.alias, sort.column)} ${dir} nulls last, ${ref(b.alias, sort.pk)} desc`;
 };
 
-/** Per-grain surrogate pk — the column the OpenSearch id-set binds to. */
+/** Per-grain surrogate pk — the column an engine-served page hydrates on. */
 const PK_COLUMNS: Readonly<Record<SearchGrain, string>> = {
   procedures: 'procedure_id',
   contracts: 'contract_id',
@@ -376,55 +385,145 @@ const PK_COLUMNS: Readonly<Record<SearchGrain, string>> = {
   modifications: 'modification_id',
 };
 
-/** Conditions plus how the `q` predicate was resolved (drives count semantics). */
+/** Conditions plus how the count must be interpreted. */
 interface ResolvedConditions {
   readonly conds: RawBuilder<unknown>[];
-  /**
-   * True when the OpenSearch id-set hit its cap: the result is a
-   * relevance-biased subset, so the count MUST degrade to estimated —
-   * an exact count over a truncated set would be a lie.
-   */
+  /** True when an exact count over these conditions would be a lie. */
   readonly countUnreliable: boolean;
 }
+
+/**
+ * The Postgres path's conditions. Reachable only for filters SQL can honor:
+ * `searchViaEngine` fails the request outright when an engine-only dimension
+ * (geography, CPV mid-levels) cannot be served, so a predicate is never
+ * silently dropped here.
+ */
+const sqlConditions = (grain: SearchGrain, f: ProcurementSearchFilter): ResolvedConditions => ({
+  conds: buildSearchConditions(grain, f),
+  countUnreliable: false,
+});
 
 export const makeOffsetSearchRepo = (
   db: Db,
   daMaxWindowDays: number,
-  qResolver?: OpenSearchQResolver,
+  engine?: OpenSearchListEngine,
   logger?: { warn: (obj: Record<string, unknown>, msg: string) => void }
 ): ProcurementOffsetSearchRepo => {
   /**
-   * OpenSearch-first `q`: resolve the text predicate into a bounded pk id-set
-   * (Romanian analyzer BM25 — folded diacritics, stemming, fuzziness) and let
-   * SQL keep every structured filter, the total order, and the capped count.
-   * A resolver failure degrades to the ILIKE predicate with a structured
-   * warning (grain + category only — never the query text or credentials);
-   * the engine is an accelerator, never a correctness dependency. An empty
-   * id-set compiles to `false` (a correct, instant empty page).
+   * Restore the engine's order over the hydrated rows. Rows the index still
+   * lists but Postgres no longer serves (a record de-canonicalized or removed
+   * since the index build) are dropped and counted — a stale generation may
+   * shorten a page, but it must never surface a row the database withholds.
    */
-  const resolveConditions = async (
+  const hydrateInOrder = <Row extends Record<string, unknown>, Out>(
     grain: SearchGrain,
-    f: ProcurementSearchFilter
-  ): Promise<ResolvedConditions> => {
-    if (f.q === undefined || qResolver?.canResolve(grain) !== true) {
-      return { conds: buildSearchConditions(grain, f), countUnreliable: false };
+    pks: readonly number[],
+    pkColumn: string,
+    rows: readonly Row[],
+    map: (row: Row) => Out
+  ): Out[] => {
+    // bigint columns arrive as strings — key on the string form, not the number.
+    const byPk = new Map(rows.map((row) => [String(row[pkColumn]), row]));
+    const items: Out[] = [];
+    for (const pk of pks) {
+      const row = byPk.get(String(pk));
+      if (row !== undefined) items.push(map(row));
+    }
+    if (items.length !== pks.length) {
+      logger?.warn(
+        { grain, missing: pks.length - items.length },
+        'search index lists rows postgres no longer serves'
+      );
+    }
+    return items;
+  };
+
+  /**
+   * Engine-first list: OpenSearch owns the filters, the total order, the page
+   * window and the count; Postgres hydrates the page by primary key.
+   *
+   * Returns `null` to mean "fall back to SQL" — only ever when the filter is
+   * SQL-capable. Geography and the CPV mid-levels exist ONLY in the index, so
+   * when the engine cannot answer them the request fails explicitly rather
+   * than silently answering a wider question.
+   */
+  const searchViaEngine = async <Out>(
+    grain: SearchGrain,
+    f: ProcurementSearchFilter,
+    p: OffsetSearchRequest,
+    facets: readonly string[] | undefined,
+    hydrate: (pks: readonly number[]) => Promise<Out[]>
+  ): Promise<Result<OffsetSearchResult<Out>, ApiError> | null> => {
+    const engineOnly = usesEngineOnlyFilter(f);
+    if (engine?.canServe(grain) !== true) {
+      return engineOnly
+        ? err(
+            upstreamError(
+              `search engine not configured for grain ${grain}; geography and CPV level filters cannot be served`,
+              'opensearch'
+            )
+          )
+        : null;
     }
     const startedAt = Date.now();
-    const resolved = await qResolver.resolveIds(grain, f.q);
-    if (resolved.isErr()) {
+    const result = await engine.search(grain, f, p, facets);
+    if (result.isErr()) {
+      // Structured warning, category only — never the query text or credentials.
       logger?.warn(
-        { grain, category: resolved.error.message, elapsedMs: Date.now() - startedAt },
-        'opensearch q resolution failed; falling back to ILIKE'
+        { grain, category: result.error.message, elapsedMs: Date.now() - startedAt },
+        engineOnly
+          ? 'opensearch list query failed; filter is not SQL-serveable'
+          : 'opensearch list query failed; falling back to SQL'
       );
-      return { conds: buildSearchConditions(grain, f), countUnreliable: false };
+      return engineOnly
+        ? err(upstreamError('search engine unavailable; try again shortly', 'opensearch'))
+        : null;
     }
-    const { ids, truncated } = resolved.value;
-    const { q, ...rest } = f;
-    void q;
-    const conds = buildSearchConditions(grain, rest);
-    const pk = ref(BINDINGS[grain].alias, PK_COLUMNS[grain]);
-    conds.push(ids.length === 0 ? sql`false` : sql`${pk} = any(cast(${ids} as bigint[]))`);
-    return { conds, countUnreliable: truncated };
+    const page = result.value;
+    try {
+      const items = await hydrate(page.pks);
+      return ok({
+        items,
+        // A capped count is a lower bound, not a total: keep the existing
+        // `total: null` + estimated disclosure the client renders as "10000+".
+        total: page.totalExhaustive ? page.total : null,
+        estimated: !page.totalExhaustive,
+        facets: page.facets,
+        provenance: { engine: 'opensearch' as const, asOf: page.asOf },
+      });
+    } catch (error) {
+      return err(databaseError(`hydrate ${grain} page failed`, error));
+    }
+  };
+
+  const hydrateProcedures = async (pks: readonly number[]) => {
+    if (pks.length === 0) return [];
+    const rows = await db
+      .selectFrom('procurement.procedures as p')
+      .select(procedureSelect)
+      .where(sql<SqlBool>`p.procedure_id = any(cast(${pks} as bigint[]))`)
+      .execute();
+    return hydrateInOrder('procedures', pks, PK_COLUMNS.procedures, rows, mapProcedure);
+  };
+
+  const hydrateContracts = async (pks: readonly number[]) => {
+    if (pks.length === 0) return [];
+    const rows = await db
+      .selectFrom('procurement.contracts as c')
+      .select(contractSelect)
+      .where(sql<SqlBool>`c.contract_id = any(cast(${pks} as bigint[])) and c.is_canonical`)
+      .execute();
+    return hydrateInOrder('contracts', pks, PK_COLUMNS.contracts, rows, mapContract);
+  };
+
+  const hydrateDirectAcquisitions = async (pks: readonly number[]) => {
+    if (pks.length === 0) return [];
+    const rows = await db
+      .selectFrom('procurement.direct_acquisitions as d')
+      .select(daSelect)
+      .where(sql<SqlBool>`d.da_id = any(cast(${pks} as bigint[])) and d.is_canonical`)
+      .execute();
+    return hydrateInOrder('direct_acquisitions', pks, PK_COLUMNS.direct_acquisitions, rows, mapDirectAcquisition);
   };
 
   /**
@@ -479,9 +578,12 @@ export const makeOffsetSearchRepo = (
 
   const searchProceduresOffset = async (
     f: ProcurementSearchFilter,
-    p: OffsetSearchRequest
+    p: OffsetSearchRequest,
+    facets?: readonly string[]
   ): Promise<Result<OffsetSearchResult<ProcurementProcedure>, ApiError>> => {
-    const resolved = await resolveConditions('procedures', f);
+    const viaEngine = await searchViaEngine('procedures', f, p, facets, hydrateProcedures);
+    if (viaEngine !== null) return viaEngine;
+    const resolved = sqlConditions('procedures', f);
     const rows = db
       .selectFrom('procurement.procedures as p')
       .select(procedureSelect)
@@ -499,9 +601,12 @@ export const makeOffsetSearchRepo = (
 
   const searchContractsOffset = async (
     f: ProcurementSearchFilter,
-    p: OffsetSearchRequest
+    p: OffsetSearchRequest,
+    facets?: readonly string[]
   ): Promise<Result<OffsetSearchResult<ProcurementContract>, ApiError>> => {
-    const resolved = await resolveConditions('contracts', f);
+    const viaEngine = await searchViaEngine('contracts', f, p, facets, hydrateContracts);
+    if (viaEngine !== null) return viaEngine;
+    const resolved = sqlConditions('contracts', f);
     const rows = db
       .selectFrom('procurement.contracts as c')
       .select(contractSelect)
@@ -519,11 +624,23 @@ export const makeOffsetSearchRepo = (
 
   const searchDirectAcquisitionsOffset = async (
     f: ProcurementSearchFilter,
-    p: OffsetSearchRequest
+    p: OffsetSearchRequest,
+    facets?: readonly string[]
   ): Promise<Result<OffsetSearchResult<ProcurementDirectAcquisition>, ApiError>> => {
+    // The selectivity gate is a Postgres planner constraint, not a product
+    // rule: the engine sorts this grain under any predicate (measured 86 ms
+    // for a county scope over 12.7M docs), so it only guards the SQL path.
+    const viaEngine = await searchViaEngine(
+      'direct_acquisitions',
+      f,
+      p,
+      facets,
+      hydrateDirectAcquisitions
+    );
+    if (viaEngine !== null) return viaEngine;
     const selective = assertDaOffsetSelective(f, daMaxWindowDays);
     if (selective.isErr()) return err(selective.error);
-    const resolved = await resolveConditions('direct_acquisitions', f);
+    const resolved = sqlConditions('direct_acquisitions', f);
     const rows = db
       .selectFrom('procurement.direct_acquisitions as d')
       .select(daSelect)
@@ -539,14 +656,12 @@ export const makeOffsetSearchRepo = (
     );
   };
 
+  // Modifications are not indexed — this grain is SQL-only, by construction.
   const searchModificationsOffset = (
     f: ProcurementSearchFilter,
     p: OffsetSearchRequest
   ): Promise<Result<OffsetSearchResult<ProcurementModification>, ApiError>> => {
-    const resolved: ResolvedConditions = {
-      conds: buildSearchConditions('modifications', f),
-      countUnreliable: false,
-    };
+    const resolved = sqlConditions('modifications', f);
     const rows = db
       .selectFrom('procurement.contract_modifications as m')
       .select(modificationSelect)

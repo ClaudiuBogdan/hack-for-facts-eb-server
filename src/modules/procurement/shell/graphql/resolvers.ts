@@ -11,8 +11,14 @@
  */
 
 import { GraphQLError } from 'graphql';
+import { err, ok, type Result } from 'neverthrow';
 
-import { GRAPHQL_ERROR_CODE, makeBatchLoader, type ApiError } from '@/modules/shared/index.js';
+import {
+  GRAPHQL_ERROR_CODE,
+  invalidInput,
+  makeBatchLoader,
+  type ApiError,
+} from '@/modules/shared/index.js';
 
 import {
   translateAnalysisScope,
@@ -35,7 +41,11 @@ import {
   type MeasureId,
   type SeriesBucket,
 } from '../../core/constants.js';
-import { parseOffsetRequest } from '../../core/search.js';
+import {
+  parseOffsetRequest,
+  SEARCH_FACET_DIMS,
+  type SearchGrain,
+} from '../../core/search.js';
 import {
   getContractDetail,
   getDirectAcquisitionBundle,
@@ -48,13 +58,13 @@ import {
 
 import type { AnalysisRepo, ProcurementRepo } from '../../core/ports.js';
 import type {
+  OffsetSearchResult,
   ProcurementContract,
   ProcurementDirectAcquisition,
   ProcurementModification,
   ProcurementProcedure,
   SupplierRecord,
 } from '../../core/types.js';
-import type { Result } from 'neverthrow';
 
 export interface ProcurementResolverDeps {
   readonly repo: ProcurementRepo;
@@ -83,11 +93,32 @@ const party = (
   displayName: name ?? cui,
 });
 
+/**
+ * Validate requested facet dimensions against the grain's allow-list. An
+ * unknown dimension is a caller bug — rejected, never silently ignored (a
+ * dropped facet reads as "this dimension has no values").
+ */
+const parseFacetDims = (
+  requested: readonly string[] | null | undefined,
+  grain: SearchGrain
+): Result<readonly string[], ApiError> => {
+  if (requested === undefined || requested === null || requested.length === 0) return ok([]);
+  const allowed = SEARCH_FACET_DIMS[grain];
+  const bad = requested.find((dim) => !allowed.includes(dim));
+  if (bad !== undefined) {
+    return err(
+      invalidInput(`facet dimension '${bad}' is not available on the ${grain} grain`, 'facets')
+    );
+  }
+  return ok([...new Set(requested)]);
+};
+
 interface SearchArgs {
   filter?: RawSearchFilter | null;
   sort?: string;
   page?: number;
   pageSize?: number;
+  facets?: readonly string[] | null;
 }
 
 export const makeProcurementResolvers = (
@@ -112,45 +143,45 @@ export const makeProcurementResolvers = (
   /** Parse `filter`/`sort`/`page`/`pageSize` once, the same way for every grain. */
   const searchArgs = (
     a: SearchArgs,
-    dateField: 'publicationDate' | 'contractDate' | 'modificationDate'
+    dateField: 'publicationDate' | 'contractDate' | 'modificationDate',
+    grain: SearchGrain
   ) => {
-    const filter = unwrap(translateSearchFilter(a.filter, dateField));
+    const filter = unwrap(translateSearchFilter(a.filter, dateField, grain));
     const page = unwrap(parseOffsetRequest(a.page, a.pageSize ?? PAGE_SIZE_DEFAULT, a.sort));
-    return { filter, page };
+    const facets = unwrap(parseFacetDims(a.facets, grain));
+    return { filter, page, facets };
   };
 
   const analysisScope = (raw: RawAnalysisScopeInput | null | undefined) =>
     unwrap(translateAnalysisScope(raw));
 
-  /** `{ items, total, estimated }` → the SDL's page shape. */
-  const toPage = <T>(result: {
-    items: readonly T[];
-    total: number | null;
-    estimated: boolean;
-  }) => ({
+  /** `{ items, total, estimated, … }` → the SDL's page shape. */
+  const toPage = <T>(result: OffsetSearchResult<T>) => ({
     total: result.total,
     totalEstimated: result.estimated,
     items: result.items,
+    facets: result.facets ?? null,
+    provenance: result.provenance ?? null,
   });
 
   return {
     Query: {
       // ── search ──────────────────────────────────────────────────────────────
       procurementProcedures: async (_r: unknown, a: SearchArgs) => {
-        const { filter, page } = searchArgs(a, 'publicationDate');
-        return toPage(unwrap(await repo.searchProceduresOffset(filter, page)));
+        const { filter, page, facets } = searchArgs(a, 'publicationDate', 'procedures');
+        return toPage(unwrap(await repo.searchProceduresOffset(filter, page, facets)));
       },
       procurementContracts: async (_r: unknown, a: SearchArgs) => {
-        const { filter, page } = searchArgs(a, 'contractDate');
-        return toPage(unwrap(await repo.searchContractsOffset(filter, page)));
+        const { filter, page, facets } = searchArgs(a, 'contractDate', 'contracts');
+        return toPage(unwrap(await repo.searchContractsOffset(filter, page, facets)));
       },
       procurementDirectAcquisitions: async (_r: unknown, a: SearchArgs) => {
         // The DA filter's `publicationDate` facet binds to `finalization_date`.
-        const { filter, page } = searchArgs(a, 'publicationDate');
-        return toPage(unwrap(await repo.searchDirectAcquisitionsOffset(filter, page)));
+        const { filter, page, facets } = searchArgs(a, 'publicationDate', 'direct_acquisitions');
+        return toPage(unwrap(await repo.searchDirectAcquisitionsOffset(filter, page, facets)));
       },
       procurementModifications: async (_r: unknown, a: SearchArgs) => {
-        const { filter, page } = searchArgs(a, 'modificationDate');
+        const { filter, page } = searchArgs(a, 'modificationDate', 'modifications');
         return toPage(unwrap(await repo.searchModificationsOffset(filter, page)));
       },
 

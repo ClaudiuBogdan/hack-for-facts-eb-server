@@ -19,7 +19,10 @@ import {
   type ClickhouseAnalysisConfig,
 } from './shell/repo/clickhouse-analysis-repo.js';
 import { makeProcurementGenerationRepo } from './shell/repo/generation-repo.js';
-import { makeOpenSearchQResolver, type OpenSearchQConfig } from './shell/repo/opensearch-q-repo.js';
+import {
+  makeOpenSearchListEngine,
+  type OpenSearchListConfig,
+} from './shell/repo/opensearch-list-repo.js';
 import { makeProcurementRepo } from './shell/repo/procurement-repo.js';
 
 import type { AnalysisRepo, ProcurementRepo } from './core/ports.js';
@@ -45,11 +48,14 @@ export interface ProcurementModuleDeps {
    */
   readonly clickhouse?: ClickhouseAnalysisConfig;
   /**
-   * DEV: when set, the list `q` facet resolves through OpenSearch (Romanian
-   * analyzer BM25 → bounded pk id-set) instead of SQL ILIKE, degrading back
-   * to ILIKE on any engine failure. See shell/repo/opensearch-q-repo.ts.
+   * The record-list search engine. When set, the three indexed grains are
+   * served by OpenSearch (filters, total order, page window, count, facets)
+   * with Postgres hydrating the page by primary key; geography and CPV
+   * mid-level filters exist ONLY on this path. Unset, the module still boots
+   * and lists fall back to SQL — minus those dimensions, which then fail
+   * explicitly. See shell/repo/opensearch-list-repo.ts.
    */
-  readonly opensearch?: OpenSearchQConfig;
+  readonly opensearch?: OpenSearchListConfig;
 }
 
 export interface ProcurementModule {
@@ -86,7 +92,7 @@ export const makeProcurementModule = (deps: ProcurementModuleDeps): ProcurementM
   const repo = makeProcurementRepo(
     deps.db,
     deps.daListMaxWindowDays ?? DA_LIST_MAX_WINDOW_DAYS_DEFAULT,
-    deps.opensearch !== undefined ? makeOpenSearchQResolver(deps.opensearch) : undefined,
+    deps.opensearch !== undefined ? makeOpenSearchListEngine(deps.opensearch) : undefined,
     deps.logger
   );
   // ClickHouse is the analytics backend; the generation ledger (buildId,

@@ -57,7 +57,7 @@ import {
   PROCEDURE_VIRTUAL_FIELDS,
 } from '../../core/filters.js';
 
-import type { OpenSearchQResolver } from './opensearch-q-repo.js';
+import type { OpenSearchListEngine } from './opensearch-list-repo.js';
 import type { CursorPageRequest, ProcurementRepo } from '../../core/ports.js';
 import type {
   ContractDetail,
@@ -140,12 +140,12 @@ const needsCoreJoin = (input: FilterInput): boolean =>
 export const makeProcurementRepo = (
   db: Db,
   daMaxWindowDays = DA_LIST_MAX_WINDOW_DAYS_DEFAULT,
-  qResolver?: OpenSearchQResolver,
+  searchEngine?: OpenSearchListEngine,
   logger?: { warn: (obj: Record<string, unknown>, msg: string) => void }
 ): ProcurementRepo => {
   // The offset-search + detail surfaces are their own modules; this repo composes
   // them so callers still see one `ProcurementRepo` port.
-  const offset = makeOffsetSearchRepo(db, daMaxWindowDays, qResolver, logger);
+  const offset = makeOffsetSearchRepo(db, daMaxWindowDays, searchEngine, logger);
   const detail = makeProcurementDetailRepo(db);
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -878,9 +878,9 @@ export const makeProcurementRepo = (
     resolveCpv,
     // offset search (the client contract) — delegated, arrow-wrapped so the sub-repo
     // methods keep their own `this`-free closure identity.
-    searchProceduresOffset: (f, p) => offset.searchProceduresOffset(f, p),
-    searchContractsOffset: (f, p) => offset.searchContractsOffset(f, p),
-    searchDirectAcquisitionsOffset: (f, p) => offset.searchDirectAcquisitionsOffset(f, p),
+    searchProceduresOffset: (f, p, facets) => offset.searchProceduresOffset(f, p, facets),
+    searchContractsOffset: (f, p, facets) => offset.searchContractsOffset(f, p, facets),
+    searchDirectAcquisitionsOffset: (f, p, facets) => offset.searchDirectAcquisitionsOffset(f, p, facets),
     searchModificationsOffset: (f, p) => offset.searchModificationsOffset(f, p),
     // detail-bundle support
     modificationsForContracts: (ids) => detail.modificationsForContracts(ids),

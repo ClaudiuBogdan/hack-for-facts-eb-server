@@ -186,3 +186,58 @@ describe('translateAnalysisScope (delegates to core parseAnalysisScope)', () => 
     expect(translateAnalysisScope({ grain: 'purchases' }).isErr()).toBe(true);
   });
 });
+
+describe('translateSearchFilter — geography and CPV levels (list engine)', () => {
+  it('lowers both geography sides onto the validated scope', () => {
+    const f = translateSearchFilter(
+      {
+        buyerCounty: { eq: 'CJ' },
+        buyerRegion: { eq: 'Nord-Vest' },
+        supplierSiruta: { eq: '179150' },
+      },
+      'contractDate',
+      'contracts'
+    )._unsafeUnwrap();
+    expect(f.buyerGeo).toEqual({ countyCode: 'CJ', region: 'Nord-Vest' });
+    expect(f.supplierGeo).toEqual({ siruta: '179150' });
+  });
+
+  it('rejects malformed territory codes rather than matching nothing silently', () => {
+    expect(
+      translateSearchFilter({ buyerCounty: { eq: 'cluj' } }, 'contractDate', 'contracts').isErr()
+    ).toBe(true);
+    expect(
+      translateSearchFilter({ buyerSiruta: { eq: '17A150' } }, 'contractDate', 'contracts').isErr()
+    ).toBe(true);
+  });
+
+  it('rejects supplier geography on grains that have no supplier', () => {
+    const procedures = translateSearchFilter(
+      { supplierCounty: { eq: 'B' } },
+      'publicationDate',
+      'procedures'
+    );
+    expect(procedures.isErr()).toBe(true);
+    expect(
+      translateSearchFilter({ supplierCounty: { eq: 'B' } }, 'publicationDate', 'direct_acquisitions')
+        ._unsafeUnwrap().supplierGeo
+    ).toEqual({ countyCode: 'B' });
+  });
+
+  it('accepts canonical CPV level codes and rejects non-canonical ones', () => {
+    const f = translateSearchFilter(
+      { cpvGroup: { eq: '45200000' }, cpvClass: { eq: '45230000' } },
+      'contractDate',
+      'contracts'
+    )._unsafeUnwrap();
+    expect(f.cpvGroup).toBe('45200000');
+    expect(f.cpvClass).toBe('45230000');
+    // A zero level digit is the COARSER level's code, not this level's.
+    expect(
+      translateSearchFilter({ cpvGroup: { eq: '45000000' } }, 'contractDate', 'contracts').isErr()
+    ).toBe(true);
+    expect(
+      translateSearchFilter({ cpvCategory: { eq: '452' } }, 'contractDate', 'contracts').isErr()
+    ).toBe(true);
+  });
+});
