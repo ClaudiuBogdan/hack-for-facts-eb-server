@@ -55,8 +55,20 @@ import {
   type SeriesBucket,
 } from './constants.js';
 import { buildEnvelope, type AnswerEnvelope, type EnvelopeReads } from './envelope.js';
-import { decideAnswer, type AnswerabilityReason, type GateDecision } from './gate-v2.js';
-import { anchorPolicy, policyFor, type PolicyEntry } from './policy.js';
+import {
+  decideAnswer,
+  decideMoney,
+  type AnswerabilityReason,
+  type BasisCoverageRow,
+  type GateDecision,
+} from './gate-v2.js';
+import {
+  anchorPolicy,
+  moneyAnchorMeasure,
+  policyFor,
+  type PolicyEntry,
+  type ValueBasis,
+} from './policy.js';
 
 import type { ActiveGeneration, AnalysisRepo, AnalysisStatsRead } from './ports.js';
 
@@ -73,6 +85,16 @@ export interface AnalysisDeps {
 // ── result shapes ──────────────────────────────────────────────────────────────
 
 /** Count fields are null ONLY when the whole block is gate-blocked (not read). */
+/** Structured per-measure money verdict (review F5): a contract block can
+ * simultaneously carry awarded=disclosed, estimated=abstained and
+ * mod-adjusted=served — prose caveats alone cannot represent that. */
+export interface AnalysisMoneyVerdict {
+  readonly measure: MeasureId;
+  readonly answerability: 'served' | 'degraded' | 'abstained';
+  readonly reason: AnswerabilityReason | null;
+  readonly caveats: readonly string[];
+}
+
 export interface AnalysisStatsBlock {
   readonly grain: AnalysisGrain;
   readonly recordCount: string | null;
@@ -80,9 +102,15 @@ export interface AnalysisStatsBlock {
   readonly withEstimatedCount: string | null;
   readonly valueAwardedSum: string | null;
   readonly valueEstimatedSum: string | null;
+  /** Framework grain only: Σ attributed ceiling — never mixed into awarded. */
+  readonly valueCeilingSum: string | null;
+  /** Contract grain only: Σ modification-adjusted value (anchored chains). */
+  readonly valueModAdjustedSum: string | null;
   readonly avgValueAwarded: string | null;
   readonly minMonth: string | null;
   readonly maxMonth: string | null;
+  /** One verdict per declared money measure of this grain. */
+  readonly moneyVerdicts: readonly AnalysisMoneyVerdict[];
   readonly meta: AnswerEnvelope;
 }
 
@@ -109,7 +137,10 @@ export interface AnalysisBreakdownBucket {
   readonly kind: 'top' | 'other' | 'unknown';
   readonly recordCount: string;
   readonly withValueCount: string;
+  /** Awarded money only — null on grains whose anchor money is another basis. */
   readonly valueAwardedSum: string | null;
+  /** The grain's ANCHOR money (awarded / ceiling / call-off value). */
+  readonly valueSum: string | null;
   /** Share of the scope total on the ranking basis, as a decimal string. */
   readonly shareOfScope: string | null;
 }
@@ -176,8 +207,25 @@ const PROCEDURE_LIFECYCLE_NOTE =
 const NO_AWARDED_VALUES_CAVEAT =
   'no awarded values observed in scope — the sum is null (unobserved), not zero';
 
+const CALLOFF_PARTIAL_NOTE =
+  'call-offs are the REPORTED subsequent contracts under framework agreements (~63k reported vs ~828k frameworks) — framework execution is mostly unobserved, and call-off totals must never be summed with contract awards (double-counts framework spend)';
+
+const FRAMEWORK_CEILING_NOTE =
+  'framework ceilings are maximum committed amounts attributed once per framework identity — an upper bound on possible call-off spend, NOT money spent; mixed-value framework groups are quarantined and excluded from every figure';
+
+const MODIFICATION_COUNTS_NOTE =
+  'modifications are amendment events, not purchases — this population serves counts only; usable amendment values reach analytics solely through the contract grain’s modification-adjusted measure';
+
 const grainNotes = (grain: AnalysisGrain): readonly string[] =>
-  grain === 'procedure' ? [PROCEDURE_LIFECYCLE_NOTE] : [];
+  grain === 'procedure'
+    ? [PROCEDURE_LIFECYCLE_NOTE]
+    : grain === 'calloff'
+      ? [CALLOFF_PARTIAL_NOTE]
+      : grain === 'framework'
+        ? [FRAMEWORK_CEILING_NOTE]
+        : grain === 'modification'
+          ? [MODIFICATION_COUNTS_NOTE]
+          : [];
 
 const Q_TITLE_CAVEAT =
   'q filters on record titles (case-insensitive substring); title coverage is partial per grain, so untitled records are excluded from every figure';
@@ -205,9 +253,32 @@ const readsOf = (read: AnalysisStatsRead): EnvelopeReads => ({
   undatedValueRon: read.undatedValueRon,
 });
 
-// Every grain declares valueAwardedSum; it carries the stats block's value
-// basis, date basis and terminality.
-const statsPolicy = (grain: AnalysisGrain): PolicyEntry => anchorPolicy(grain, 'valueAwardedSum');
+// Every grain declares a money-anchor entry (recordCount on the counts-only
+// modification grain); it carries the stats block's value basis, date basis
+// and terminality.
+const statsPolicy = (grain: AnalysisGrain): PolicyEntry =>
+  anchorPolicy(
+    grain,
+    moneyAnchorMeasure(grain) as 'recordCount' | 'valueAwardedSum' | 'valueCeilingSum'
+  );
+
+/** The basis of a grain's ANCHOR money (design v1.1): frameworks anchor on the ceiling. */
+const anchorBasis = (grain: AnalysisGrain): ValueBasis =>
+  grain === 'framework' ? 'ceiling' : 'awarded';
+
+/** Generation + per-basis coverage rows, resolved ONCE per request. Coverage
+ * failure degrades to undefined: awarded serving is unaffected; every
+ * non-awarded basis and new-population verdict then abstains (fail-closed). */
+const genWithCoverage = async (
+  repo: AnalysisRepo
+): Promise<
+  Result<{ gen: ActiveGeneration; cov: readonly BasisCoverageRow[] | undefined }, ApiError>
+> => {
+  const genR = await activeGen(repo);
+  if (genR.isErr()) return err(genR.error);
+  const covR = await repo.basisCoverage(genR.value.buildId);
+  return ok({ gen: genR.value, cov: covR.isOk() ? covR.value : undefined });
+};
 
 /** AND-compose gate decisions: any abstain blocks; degradations and caveats merge. */
 const composeGates = (decisions: readonly GateDecision[]): GateDecision => {
@@ -231,37 +302,100 @@ const composeGates = (decisions: readonly GateDecision[]): GateDecision => {
  */
 const shapeGate = (
   gen: ActiveGeneration,
+  cov: readonly BasisCoverageRow[] | undefined,
   grain: AnalysisGrain,
   scope: AnalysisScope,
   options: { readonly isSeries?: boolean; readonly dimension?: BreakdownDimension }
 ): GateDecision => {
   const decisions: GateDecision[] = [];
   if (options.isSeries === true || scopeWindow(scope) !== undefined) {
-    decisions.push(decideAnswer(gen.quality, grain, 'time'));
+    decisions.push(decideAnswer(gen.quality, grain, 'time', cov));
   }
+  // Every buyer/supplier geography level consults the geo verdict —
+  // county/SIRUTA follow the same coverage class as regions (review F2).
+  const geoScopeFields = [
+    scope.buyerRegion,
+    scope.buyerCounty,
+    scope.buyerSiruta,
+    scope.supplierRegion,
+    scope.supplierCounty,
+    scope.supplierSiruta,
+  ];
+  const GEO_DIMS: readonly BreakdownDimension[] = [
+    'buyerRegion',
+    'buyerCounty',
+    'buyerSiruta',
+    'supplierRegion',
+    'supplierCounty',
+    'supplierSiruta',
+  ];
   if (
-    scope.buyerRegion !== undefined ||
-    scope.supplierRegion !== undefined ||
-    options.dimension === 'buyerRegion' ||
-    options.dimension === 'supplierRegion'
+    geoScopeFields.some((v) => v !== undefined) ||
+    (options.dimension !== undefined && GEO_DIMS.includes(options.dimension))
   ) {
-    decisions.push(decideAnswer(gen.quality, grain, 'geo'));
+    decisions.push(decideAnswer(gen.quality, grain, 'geo', cov));
   }
   return composeGates(decisions);
 };
+
+/**
+ * The grain's anchor-money gate, or null on counts-only grains (modification):
+ * a null gate never joins envelope composition — counts serve cleanly instead
+ * of wearing an irrelevant awarded-spend abstention (review F4).
+ */
+const anchorMoneyGate = (
+  gen: ActiveGeneration,
+  cov: readonly BasisCoverageRow[] | undefined,
+  grain: AnalysisGrain
+): GateDecision | null =>
+  moneyAnchorMeasure(grain) === 'recordCount'
+    ? null
+    : decideMoney(gen.quality, cov, grain, anchorBasis(grain));
 
 // ── stats ──────────────────────────────────────────────────────────────────────
 
 const statsBlockFor = async (
   deps: AnalysisDeps,
   gen: ActiveGeneration,
+  cov: readonly BasisCoverageRow[] | undefined,
   route: AnalysisRoute,
   scope: AnalysisScope,
   canonicalScope: string
 ): Promise<Result<AnalysisStatsBlock, ApiError>> => {
   const { grain } = route;
-  const spend = decideAnswer(gen.quality, grain, 'spend');
-  const blockGate = shapeGate(gen, grain, scope, {});
+  // Per-basis money gates (design v1.1): each money field follows ITS OWN
+  // basis verdict — bases never substitute for one another. The grain's
+  // ANCHOR basis (awarded; ceiling on frameworks) also gates undated money;
+  // the counts-only modification grain composes NO money gate (review F4).
+  const spend = anchorMoneyGate(gen, cov, grain);
+  const estGate =
+    policyFor(grain, 'valueEstimatedSum') !== undefined
+      ? decideMoney(gen.quality, cov, grain, 'estimated')
+      : null;
+  const modGate =
+    policyFor(grain, 'valueModAdjustedSum') !== undefined
+      ? decideMoney(gen.quality, cov, grain, 'modAdjusted')
+      : null;
+  const basisCaveats = [
+    ...(estGate !== null && (estGate.degraded || !estGate.allow) ? estGate.caveats : []),
+    ...(modGate !== null && (modGate.degraded || !modGate.allow) ? modGate.caveats : []),
+  ];
+  const verdictOf = (measure: MeasureId, gate: GateDecision): AnalysisMoneyVerdict => ({
+    measure,
+    answerability: gate.allow ? (gate.degraded ? 'degraded' : 'served') : 'abstained',
+    reason: gate.reason ?? null,
+    caveats: gate.caveats,
+  });
+  const moneyVerdicts: AnalysisMoneyVerdict[] = [
+    ...(spend !== null
+      ? [verdictOf(grain === 'framework' ? 'valueCeilingSum' : 'valueAwardedSum', spend)]
+      : []),
+    ...(estGate !== null ? [verdictOf('valueEstimatedSum', estGate)] : []),
+    ...(modGate !== null ? [verdictOf('valueModAdjustedSum', modGate)] : []),
+  ];
+  const spendGates = spend !== null ? [spend] : [];
+  const moneyAllowed = spend?.allow ?? false;
+  const blockGate = shapeGate(gen, cov, grain, scope, {});
 
   // An abstaining time/geo class blocks the whole block for this grain — no read
   // happens and nothing is fabricated (envelope reads are null, not zero).
@@ -273,16 +407,19 @@ const statsBlockFor = async (
       withEstimatedCount: null,
       valueAwardedSum: null,
       valueEstimatedSum: null,
+      valueCeilingSum: null,
+      valueModAdjustedSum: null,
       avgValueAwarded: null,
       minMonth: null,
       maxMonth: null,
+      moneyVerdicts,
       meta: buildEnvelope(
         statsPolicy(grain),
-        composeGates([blockGate, spend]),
+        composeGates([blockGate, ...spendGates]),
         gen.buildId,
         null,
         canonicalScope,
-        spend.allow,
+        moneyAllowed,
         scopeNotes(grain, scope)
       ),
     });
@@ -292,20 +429,32 @@ const statsBlockFor = async (
   if (readR.isErr()) return err(readR.error);
   const read = readR.value;
 
-  // Money is null when the gate abstains AND when no valued rows were observed —
-  // the caveat distinguishes the two; it is never coalesced to zero (S8).
+  // Money is null when its basis gate abstains AND when no valued rows were
+  // observed — caveats distinguish the two; never coalesced to zero (S8).
   const awardedObserved = read.valueAwardedSum !== null;
-  const awarded = spend.allow && awardedObserved ? d(read.valueAwardedSum).toFixed(MONEY_DP) : null;
+  const awarded =
+    moneyAllowed && awardedObserved ? d(read.valueAwardedSum).toFixed(MONEY_DP) : null;
   const estimated =
-    spend.allow && read.valueEstimatedSum !== null
+    estGate !== null && estGate.allow && read.valueEstimatedSum !== null
       ? d(read.valueEstimatedSum).toFixed(MONEY_DP)
+      : null;
+  const ceiling =
+    grain === 'framework' && moneyAllowed && read.valueCeilingSum !== null
+      ? d(read.valueCeilingSum).toFixed(MONEY_DP)
+      : null;
+  const modAdjusted =
+    modGate !== null && modGate.allow && read.valueModAdjustedSum !== null
+      ? d(read.valueModAdjustedSum).toFixed(MONEY_DP)
       : null;
   const withValue = d(read.withValue);
   const avg =
     awarded !== null && withValue.greaterThan(0)
       ? d(read.valueAwardedSum).div(withValue).toFixed(MONEY_DP)
       : null;
-  const noValueCaveats = spend.allow && !awardedObserved ? [NO_AWARDED_VALUES_CAVEAT] : [];
+  const noValueCaveats =
+    moneyAllowed && !awardedObserved && grain !== 'framework' && grain !== 'modification'
+      ? [NO_AWARDED_VALUES_CAVEAT]
+      : [];
 
   return ok({
     grain,
@@ -314,17 +463,20 @@ const statsBlockFor = async (
     withEstimatedCount: read.withEstimated,
     valueAwardedSum: awarded,
     valueEstimatedSum: estimated,
+    valueCeilingSum: ceiling,
+    valueModAdjustedSum: modAdjusted,
     avgValueAwarded: avg,
     minMonth: read.minMonth,
     maxMonth: read.maxMonth,
+    moneyVerdicts,
     meta: buildEnvelope(
       statsPolicy(grain),
-      composeGates([blockGate, spend]),
+      composeGates([blockGate, ...spendGates]),
       gen.buildId,
       readsOf(read),
       canonicalScope,
-      spend.allow,
-      [...noValueCaveats, ...scopeNotes(grain, scope)]
+      moneyAllowed,
+      [...noValueCaveats, ...basisCaveats, ...scopeNotes(grain, scope)]
     ),
   });
 };
@@ -333,6 +485,7 @@ const statsBlockFor = async (
 const statsWithGen = async (
   deps: AnalysisDeps,
   gen: ActiveGeneration,
+  cov: readonly BasisCoverageRow[] | undefined,
   scope: AnalysisScope
 ): Promise<Result<AnalysisStatsResult, ApiError>> => {
   const routesR = (deps.routeAnalysis ?? routeAnalysis)(scope, 'stats');
@@ -341,7 +494,7 @@ const statsWithGen = async (
 
   const blocks: AnalysisStatsBlock[] = [];
   for (const route of routesR.value) {
-    const blockR = await statsBlockFor(deps, gen, route, scope, canonicalScope);
+    const blockR = await statsBlockFor(deps, gen, cov, route, scope, canonicalScope);
     if (blockR.isErr()) return err(blockR.error);
     blocks.push(blockR.value);
   }
@@ -353,9 +506,9 @@ export const analysisStats = async (
   deps: AnalysisDeps,
   input: { readonly scope: AnalysisScope }
 ): Promise<Result<AnalysisStatsResult, ApiError>> => {
-  const genR = await activeGen(deps.analysisRepo);
-  if (genR.isErr()) return err(genR.error);
-  return statsWithGen(deps, genR.value, input.scope);
+  const gcR = await genWithCoverage(deps.analysisRepo);
+  if (gcR.isErr()) return err(gcR.error);
+  return statsWithGen(deps, gcR.value.gen, gcR.value.cov, input.scope);
 };
 
 // ── series ─────────────────────────────────────────────────────────────────────
@@ -390,9 +543,9 @@ export const analysisSeries = async (
 
   const routesR = (deps.routeAnalysis ?? routeAnalysis)(scope, 'series', undefined, measure);
   if (routesR.isErr()) return err(routesR.error);
-  const genR = await activeGen(deps.analysisRepo);
-  if (genR.isErr()) return err(genR.error);
-  const gen = genR.value;
+  const gcR = await genWithCoverage(deps.analysisRepo);
+  if (gcR.isErr()) return err(gcR.error);
+  const { gen, cov } = gcR.value;
   const canonicalScope = canonicalScopeEcho(scope);
 
   const blocks: AnalysisSeriesBlock[] = [];
@@ -409,7 +562,7 @@ export const analysisSeries = async (
       );
     }
 
-    const spend = decideAnswer(gen.quality, grain, 'spend');
+    const spend = decideMoney(gen.quality, cov, grain, policy.valueBasis ?? anchorBasis(grain));
     const blockedBlock = (gated: GateDecision): AnalysisSeriesBlock => ({
       grain,
       measure,
@@ -441,7 +594,7 @@ export const analysisSeries = async (
     }
 
     const gated = composeGates([
-      shapeGate(gen, grain, scope, { isSeries: true }),
+      shapeGate(gen, cov, grain, scope, { isSeries: true }),
       ...(policy.gateClass === 'spend' ? [spend] : []),
     ]);
     if (!gated.allow) {
@@ -554,6 +707,7 @@ const normalizeTopN = (
 const breakdownBlockFor = async (
   deps: AnalysisDeps,
   gen: ActiveGeneration,
+  cov: readonly BasisCoverageRow[] | undefined,
   route: AnalysisRoute,
   scope: AnalysisScope,
   dimension: BreakdownDimension,
@@ -562,18 +716,27 @@ const breakdownBlockFor = async (
   rankByReq?: 'value' | 'count'
 ): Promise<Result<AnalysisBreakdownBlock, ApiError>> => {
   const { grain } = route;
-  const spend = decideAnswer(gen.quality, grain, 'spend');
-  const blockGate = shapeGate(gen, grain, scope, { dimension });
+  // The ranking money is the grain's ANCHOR basis (ceiling on frameworks);
+  // the counts-only modification grain has NO money gate (spend = null).
+  const spend = anchorMoneyGate(gen, cov, grain);
+  const blockGate = shapeGate(gen, cov, grain, scope, { dimension });
+  const spendGates = spend !== null ? [spend] : [];
+  const moneyAllowed = spend?.allow ?? false;
 
   // An explicit count request always ranks by count; value (explicit or the
-  // default) still yields to the spend gate — never rank by suppressed money.
+  // default) still yields to the money gate — never rank by suppressed money.
   const rankedBy: 'value' | 'count' =
-    rankByReq === 'count' ? 'count' : spend.allow ? 'value' : 'count';
+    rankByReq === 'count' || spend === null ? 'count' : spend.allow ? 'value' : 'count';
   const rankCaveats =
-    rankedBy === 'count' && rankByReq !== 'count'
-      ? ['ranked by record count (awarded-value ranking is gate-suppressed)']
+    rankedBy === 'count' && rankByReq !== 'count' && spend !== null
+      ? ['ranked by record count (money ranking is gate-suppressed)']
       : [];
-  const policy = anchorPolicy(grain, rankedBy === 'value' ? 'valueAwardedSum' : 'recordCount');
+  const policy = anchorPolicy(
+    grain,
+    rankedBy === 'value'
+      ? (moneyAnchorMeasure(grain) as 'valueAwardedSum' | 'valueCeilingSum' | 'recordCount')
+      : 'recordCount'
+  );
 
   if (!blockGate.allow) {
     return ok({
@@ -583,11 +746,11 @@ const breakdownBlockFor = async (
       buckets: [],
       meta: buildEnvelope(
         policy,
-        composeGates([blockGate, spend]),
+        composeGates([blockGate, ...spendGates]),
         gen.buildId,
         null,
         canonicalScope,
-        spend.allow,
+        moneyAllowed,
         scopeNotes(grain, scope)
       ),
     });
@@ -607,11 +770,13 @@ const breakdownBlockFor = async (
   // Reconciliation by construction (design §3.3): the three bucket kinds must sum
   // exactly to the same read's totals. A mismatch is an internal fault. Null money
   // sums count as zero for the arithmetic (they carry no observed value).
+  // The port-level bucket money field carries the grain's ANCHOR money.
+  const anchorTotal = grain === 'framework' ? totals.valueCeilingSum : totals.valueAwardedSum;
   const sum = (pick: (b: (typeof buckets)[number]) => string | null): Decimal =>
     buckets.reduce((acc, b) => acc.plus(pick(b) ?? '0'), new Decimal(0));
   const rowsOk = sum((b) => b.recordCount).equals(d(totals.rows));
   const withValueOk = sum((b) => b.withValue).equals(d(totals.withValue));
-  const moneyOk = !spend.allow || sum((b) => b.valueAwardedSum).equals(d(totals.valueAwardedSum));
+  const moneyOk = !moneyAllowed || sum((b) => b.valueAwardedSum).equals(d(anchorTotal));
   if (!rowsOk || !withValueOk || !moneyOk) {
     return err(
       databaseError(
@@ -620,21 +785,29 @@ const breakdownBlockFor = async (
     );
   }
 
-  const basisTotal = rankedBy === 'value' ? d(totals.valueAwardedSum) : d(totals.rows);
+  const basisTotal = rankedBy === 'value' ? d(anchorTotal) : d(totals.rows);
   const outBuckets: AnalysisBreakdownBucket[] = buckets.map((b) => {
     const basisValue = rankedBy === 'value' ? d(b.valueAwardedSum) : d(b.recordCount);
+    // Null-law (review F7): a bucket with NO valued rows emits null money —
+    // the repo's reconciliation zero is internal, never an observed value.
+    const money =
+      moneyAllowed && b.valueAwardedSum !== null && b.withValue !== '0'
+        ? d(b.valueAwardedSum).toFixed(MONEY_DP)
+        : null;
     return {
       key: b.key,
       kind: b.kind,
       recordCount: b.recordCount,
       withValueCount: b.withValue,
-      valueAwardedSum:
-        spend.allow && b.valueAwardedSum !== null ? d(b.valueAwardedSum).toFixed(MONEY_DP) : null,
+      // valueAwardedSum stays awarded-only: on grains whose anchor money is a
+      // DIFFERENT basis (frameworks → ceiling) it is null, never relabeled.
+      valueAwardedSum: anchorBasis(grain) === 'awarded' ? money : null,
+      valueSum: money,
       shareOfScope: basisTotal.greaterThan(0) ? basisValue.div(basisTotal).toFixed(RATIO_DP) : null,
     };
   });
 
-  const answerGate = composeGates([blockGate, spend]);
+  const answerGate = composeGates([blockGate, ...spendGates]);
   const gate: GateDecision = {
     ...answerGate,
     caveats: [...answerGate.caveats, ...rankCaveats],
@@ -650,7 +823,7 @@ const breakdownBlockFor = async (
       gen.buildId,
       readsOf(totals),
       canonicalScope,
-      spend.allow,
+      moneyAllowed,
       scopeNotes(grain, scope)
     ),
   });
@@ -670,15 +843,16 @@ export const analysisBreakdown = async (
   const topN = topNR.value;
   const routesR = (deps.routeAnalysis ?? routeAnalysis)(input.scope, 'breakdown', input.dimension);
   if (routesR.isErr()) return err(routesR.error);
-  const genR = await activeGen(deps.analysisRepo);
-  if (genR.isErr()) return err(genR.error);
+  const gcR = await genWithCoverage(deps.analysisRepo);
+  if (gcR.isErr()) return err(gcR.error);
   const canonicalScope = canonicalScopeEcho(input.scope);
 
   const blocks: AnalysisBreakdownBlock[] = [];
   for (const route of routesR.value) {
     const blockR = await breakdownBlockFor(
       deps,
-      genR.value,
+      gcR.value.gen,
+      gcR.value.cov,
       route,
       input.scope,
       input.dimension,
@@ -700,19 +874,19 @@ export const analysisConcentration = async (
 ): Promise<Result<readonly AnalysisConcentrationBlock[], ApiError>> => {
   const routesR = (deps.routeAnalysis ?? routeAnalysis)(input.scope, 'concentration');
   if (routesR.isErr()) return err(routesR.error);
-  const genR = await activeGen(deps.analysisRepo);
-  if (genR.isErr()) return err(genR.error);
-  const gen = genR.value;
+  const gcR = await genWithCoverage(deps.analysisRepo);
+  if (gcR.isErr()) return err(gcR.error);
+  const { gen, cov } = gcR.value;
   const canonicalScope = canonicalScopeEcho(input.scope);
 
   const blocks: AnalysisConcentrationBlock[] = [];
   for (const route of routesR.value) {
     const { grain } = route;
-    const spend = decideAnswer(gen.quality, grain, 'spend');
+    const spend = decideMoney(gen.quality, cov, grain, anchorBasis(grain));
     const basis: 'value' | 'count' = input.basis ?? 'count';
     const policy = anchorPolicy(grain, basis === 'value' ? 'valueAwardedSum' : 'recordCount');
 
-    const blockGate = shapeGate(gen, grain, input.scope, {});
+    const blockGate = shapeGate(gen, cov, grain, input.scope, {});
     const requestedGate = basis === 'value' ? composeGates([blockGate, spend]) : blockGate;
     if (!requestedGate.allow) {
       blocks.push({
@@ -810,6 +984,14 @@ export const analysisShare = async (
       )
     );
   }
+  if (numerator.grain === 'modification') {
+    return err(
+      invalidInput(
+        'the modification population is counts-only — no money share is derivable',
+        'grain'
+      )
+    );
+  }
   // Periods compare via the NORMALIZED window: year 2024 == from 2024-01 to 2024-12.
   if (!sameWindow(numerator, denominator)) {
     return err(
@@ -836,14 +1018,17 @@ export const analysisShare = async (
 
   // ONE generation pins BOTH operands (S1) — a cutover between the two stats
   // reads cannot produce a cross-build ratio.
-  const genR = await activeGen(deps.analysisRepo);
-  if (genR.isErr()) return err(genR.error);
-  const gen = genR.value;
+  const gcR = await genWithCoverage(deps.analysisRepo);
+  if (gcR.isErr()) return err(gcR.error);
+  const { gen, cov } = gcR.value;
 
-  const spend = decideAnswer(gen.quality, numerator.grain, 'spend');
+  // The grain's ANCHOR money drives the ratio (ceiling on frameworks).
+  const spend = decideMoney(gen.quality, cov, numerator.grain, anchorBasis(numerator.grain));
+  const anchorMoneyOf = (block: AnalysisStatsBlock): string | null =>
+    numerator.grain === 'framework' ? block.valueCeilingSum : block.valueAwardedSum;
   const [numR, denR] = await Promise.all([
-    statsWithGen(deps, gen, numerator),
-    statsWithGen(deps, gen, denominator),
+    statsWithGen(deps, gen, cov, numerator),
+    statsWithGen(deps, gen, cov, denominator),
   ]);
   if (numR.isErr()) return err(numR.error);
   if (denR.isErr()) return err(denR.error);
@@ -882,16 +1067,18 @@ export const analysisShare = async (
   );
   const caveats: string[] = degradedOperand === undefined ? [] : [...degradedOperand.meta.caveats];
   let share: string | null = null;
-  if (denBlock.valueAwardedSum === null || numBlock.valueAwardedSum === null) {
+  const numMoney = anchorMoneyOf(numBlock);
+  const denMoney = anchorMoneyOf(denBlock);
+  if (denMoney === null || numMoney === null) {
     caveats.push(
-      `${denBlock.valueAwardedSum === null ? 'denominator' : 'numerator'} has no observed awarded values in scope — no ratio is derivable`
+      `${denMoney === null ? 'denominator' : 'numerator'} has no observed anchor-money values in scope — no ratio is derivable`
     );
   } else {
-    const den = new Decimal(denBlock.valueAwardedSum);
+    const den = new Decimal(denMoney);
     if (den.greaterThan(0)) {
-      share = new Decimal(numBlock.valueAwardedSum).div(den).toFixed(RATIO_DP);
+      share = new Decimal(numMoney).div(den).toFixed(RATIO_DP);
     } else {
-      caveats.push('denominator has zero awarded value in scope — no ratio is derivable');
+      caveats.push('denominator has zero anchor-money value in scope — no ratio is derivable');
     }
   }
   return ok({
@@ -952,8 +1139,8 @@ export const analysisFacets = async (
   }
 
   // ONE generation for every facet (S1).
-  const genR = await activeGen(deps.analysisRepo);
-  if (genR.isErr()) return err(genR.error);
+  const gcR = await genWithCoverage(deps.analysisRepo);
+  if (gcR.isErr()) return err(gcR.error);
   const canonicalScope = canonicalScopeEcho(input.scope);
 
   const blocks: AnalysisBreakdownBlock[] = [];
@@ -965,7 +1152,8 @@ export const analysisFacets = async (
     for (const route of routes) {
       const blockR = await breakdownBlockFor(
         deps,
-        genR.value,
+        gcR.value.gen,
+        gcR.value.cov,
         route,
         input.scope,
         dimension,

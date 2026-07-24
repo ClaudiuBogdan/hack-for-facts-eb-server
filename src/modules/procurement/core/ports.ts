@@ -11,7 +11,7 @@
 import type { AnalysisScope } from './analysis-scope.js';
 import type { AnalysisRoute } from './combinations.js';
 import type { MeasureId, SeriesBucket } from './constants.js';
-import type { GenerationQuality } from './gate-v2.js';
+import type { BasisCoverageRow, GenerationQuality } from './gate-v2.js';
 import type { ProcurementSearchFilter } from './search.js';
 import type {
   ContractDetail,
@@ -136,6 +136,10 @@ export interface AnalysisStatsRead {
   readonly withEstimated: string;
   readonly valueAwardedSum: string | null;
   readonly valueEstimatedSum: string | null;
+  /** Framework grain only: Σ attributed ceiling (null elsewhere). */
+  readonly valueCeilingSum: string | null;
+  /** Contract grain only: Σ modification-adjusted value (null elsewhere). */
+  readonly valueModAdjustedSum: string | null;
   readonly minMonth: string | null;
   readonly maxMonth: string | null;
   /** The `month_start IS NULL` bucket under the same dimensions (design §3.2). */
@@ -201,6 +205,12 @@ export interface ConcentrationRead {
 export interface AnalysisRepo {
   /** null when no generation is active (package not yet published). */
   activeGeneration(): Promise<Result<ActiveGeneration | null, ApiError>>;
+  /**
+   * Per-basis coverage rows for the build (value-basis wave; the data layer's
+   * `meta_value_coverage_v2`). Gates every non-awarded money basis and the new
+   * populations' time/geo verdicts; cached per build (immutable).
+   */
+  basisCoverage(buildId: string): Promise<Result<readonly BasisCoverageRow[], ApiError>>;
   statsFor(
     route: AnalysisRoute,
     scope: AnalysisScope,

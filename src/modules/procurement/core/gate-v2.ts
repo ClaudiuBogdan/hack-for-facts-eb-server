@@ -16,11 +16,29 @@
  * capability (design §5.4, review F4).
  */
 
-import { COUNT_TIME_DEGRADE_FLOOR, type AnalysisGrain } from './constants.js';
+import {
+  BASIS_ALLOW_FLOOR,
+  BASIS_DISCLOSED_FLOOR,
+  COUNT_TIME_DEGRADE_FLOOR,
+  type AnalysisGrain,
+} from './constants.js';
 
-import type { GateClass } from './policy.js';
+import type { GateClass, ValueBasis } from './policy.js';
 
 export { COUNT_TIME_DEGRADE_FLOOR };
+
+/**
+ * One per-basis coverage row from the data layer's `meta_value_coverage_v2`
+ * (value-basis wave): the serving-side gate input for every non-awarded money
+ * basis and for the new populations' time/geo verdicts. Published per build;
+ * migrates into the generation quality jsonb in the production-flow wave.
+ */
+export interface BasisCoverageRow {
+  readonly grain: string;
+  readonly basis: string;
+  readonly population: string;
+  readonly coverage: number;
+}
 
 export interface GrainQualityVerdict {
   /**
@@ -89,12 +107,43 @@ const abstain = (caveat: string, reason: AnswerabilityReason): GateDecision => (
 export const decideAnswer = (
   quality: GenerationQuality | undefined,
   grain: AnalysisGrain,
-  gateClass: GateClass
+  gateClass: GateClass,
+  basisCoverage?: readonly BasisCoverageRow[]
 ): GateDecision => {
   if (gateClass === 'count') return ALLOW;
 
   const verdict = quality?.[grain];
   if (verdict === undefined) {
+    // Value-basis wave populations have no generation-quality verdict yet —
+    // their time/geo verdicts are synthesized from the coverage meta rows
+    // (dated / buyer_geo) until the production wave folds them into quality.
+    if (gateClass !== 'spend' && basisCoverage !== undefined) {
+      const metaBasis = gateClass === 'time' ? 'dated' : 'buyer_geo';
+      const population = SYNTH_POPULATION[grain];
+      const row = basisCoverage.find(
+        (r) => r.grain === grain && r.basis === metaBasis && r.population === population
+      );
+      if (row !== undefined) {
+        // Synthesized verdicts use the serving floors (0.95/0.75), NOT the
+        // legacy generation-class 0.50 floor — new populations are held to
+        // the stricter disclosure bar (modification dated 0.515 abstains).
+        if (row.coverage >= BASIS_ALLOW_FLOOR) return ALLOW;
+        if (row.coverage >= BASIS_DISCLOSED_FLOOR) {
+          return {
+            allow: true,
+            degraded: true,
+            caveats: [
+              `${gateClass} answers are degraded for grain '${grain}': ${metaBasis} coverage ${String(row.coverage)} (floor ${String(BASIS_DISCLOSED_FLOOR)}) — interpret with the undated/unknown context`,
+            ],
+            reason: gateClass === 'time' ? 'TIME_COVERAGE_DEGRADED' : 'GEO_COVERAGE_DEGRADED',
+          };
+        }
+        return abstain(
+          `${gateClass} answers abstain for grain '${grain}': ${metaBasis} coverage ${String(row.coverage)} is below the disclosure floor ${String(BASIS_DISCLOSED_FLOOR)}`,
+          gateClass === 'time' ? 'TIME_COVERAGE_BELOW_FLOOR' : 'GEO_COVERAGE_BELOW_FLOOR'
+        );
+      }
+    }
     return abstain(
       `no quality verdict for grain '${grain}' — ${gateClass} answers abstain`,
       'MISSING_QUALITY_VERDICT'
@@ -135,5 +184,86 @@ export const decideAnswer = (
   return abstain(
     `${gateClass} answers abstain for grain '${grain}': coverage ${String(coverage)} is below the degrade floor ${String(COUNT_TIME_DEGRADE_FLOOR)}`,
     gateClass === 'time' ? 'TIME_COVERAGE_BELOW_FLOOR' : 'GEO_COVERAGE_BELOW_FLOOR'
+  );
+};
+
+/**
+ * Meta-row lookup key per (grain, basis) → {basis, population} — the FULL
+ * 3-field match. Matching on (grain, basis) alone is unsafe: build 6 publishes
+ * TWO framework/ceiling rows (groups_all 0.927 = the serving verdict;
+ * quarantined_mass 0.031 = a diagnostic) and row order is not guaranteed.
+ */
+const BASIS_META: Partial<
+  Record<AnalysisGrain, Partial<Record<ValueBasis, { basis: string; population: string }>>>
+> = {
+  contract: {
+    estimated: { basis: 'estimated', population: 'applicable_canonical' },
+    modAdjusted: { basis: 'mod_adjusted', population: 'awarded_valued' },
+  },
+  direct_acquisition: { estimated: { basis: 'estimated', population: 'applicable_canonical' } },
+  procedure: { estimated: { basis: 'estimated', population: 'applicable_canonical' } },
+  framework: { ceiling: { basis: 'ceiling', population: 'groups_all' } },
+  calloff: { awarded: { basis: 'calloff_value', population: 'all_rows' } },
+};
+
+/** Populations of the synthesized time/geo rows per new-population grain. */
+const SYNTH_POPULATION: Partial<Record<AnalysisGrain, string>> = {
+  framework: 'groups_all',
+  calloff: 'all_rows',
+  modification: 'all_rows',
+};
+
+const BASIS_LABEL: Record<ValueBasis, string> = {
+  awarded: 'awarded value',
+  estimated: 'estimated value',
+  ceiling: 'framework ceiling',
+  modAdjusted: 'modification-adjusted value',
+};
+
+/**
+ * Decide whether MONEY on (grain, basis) is served (value-basis wave). The
+ * awarded basis on the three core grains keeps the generation spend verdict
+ * (disclosed floor et al.); every other basis gates on its coverage meta row
+ * with the shared floors — a missing row abstains (never serve an unvetted
+ * basis). Bases are never interchangeable: an abstaining basis nulls its
+ * money, it does not fall back to another basis.
+ */
+export const decideMoney = (
+  quality: GenerationQuality | undefined,
+  basisCoverage: readonly BasisCoverageRow[] | undefined,
+  grain: AnalysisGrain,
+  basis: ValueBasis
+): GateDecision => {
+  const meta = BASIS_META[grain]?.[basis];
+  if (meta === undefined) {
+    if (basis === 'awarded') return decideAnswer(quality, grain, 'spend');
+    return abstain(
+      `${BASIS_LABEL[basis]} is not served on grain '${grain}'`,
+      'MISSING_QUALITY_VERDICT'
+    );
+  }
+  const row = basisCoverage?.find(
+    (r) => r.grain === grain && r.basis === meta.basis && r.population === meta.population
+  );
+  if (row === undefined) {
+    return abstain(
+      `no coverage verdict for ${BASIS_LABEL[basis]} on grain '${grain}' — money abstains (never served unvetted)`,
+      'MISSING_QUALITY_VERDICT'
+    );
+  }
+  if (row.coverage >= BASIS_ALLOW_FLOOR) return ALLOW;
+  if (row.coverage >= BASIS_DISCLOSED_FLOOR) {
+    return {
+      allow: true,
+      degraded: true,
+      caveats: [
+        `${BASIS_LABEL[basis]} answers are served with DISCLOSED partial coverage for grain '${grain}': coverage ${String(row.coverage)} sits between the disclosure floor ${String(BASIS_DISCLOSED_FLOOR)} and the full-allow gate ${String(BASIS_ALLOW_FLOOR)} — totals understate the ${BASIS_LABEL[basis]} population`,
+      ],
+      reason: 'SPEND_SERVED_DISCLOSED',
+    };
+  }
+  return abstain(
+    `${BASIS_LABEL[basis]} answers abstain for grain '${grain}': coverage ${String(row.coverage)} is below the disclosure floor ${String(BASIS_DISCLOSED_FLOOR)} (money is omitted, not zeroed)`,
+    'SPEND_COVERAGE_BELOW_GATE'
   );
 };

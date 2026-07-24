@@ -68,6 +68,9 @@ describe('aggregate_procurement', () => {
 
   it('omits the awarded-value note when NO money appears (all spend abstains)', async () => {
     const { repo } = fakeAnalysisRepo({
+      // Estimated is its own basis now — abstain it too (no coverage rows) so
+      // truly NO money appears in any block.
+      basisCoverage: [],
       quality: {
         procedure: verdict({ spend: 'abstain' }),
         contract: verdict({ spend: 'abstain' }),

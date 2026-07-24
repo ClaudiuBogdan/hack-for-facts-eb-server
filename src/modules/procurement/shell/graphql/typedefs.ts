@@ -341,11 +341,21 @@ export const procurementTypeDefs = /* GraphQL */ `
 
   # ── analysis surface (design §5 — one scope, six shapes, rollup-backed) ──────
 
-  "Analysis grains, in the rollup vocabulary. Answers NEVER merge across grains."
+  """
+  Analysis grains. Answers NEVER merge across grains. framework/calloff/
+  modification (value-basis wave) are EXPLICIT-ONLY populations: they answer
+  only when named — implicit requests fan out over the three core grains.
+  framework = one row per framework identity (ceilings, no supplier dim);
+  calloff = execution under frameworks (never summed with contract awards);
+  modification = amendment events (counts-only).
+  """
   enum ProcurementAnalysisGrain {
     procedure
     contract
     direct_acquisition
+    framework
+    calloff
+    modification
   }
 
   enum ProcurementConcentrationBasis {
@@ -382,6 +392,8 @@ export const procurementTypeDefs = /* GraphQL */ `
     withValueCount
     valueAwardedSum
     valueEstimatedSum
+    valueCeilingSum
+    valueModAdjustedSum
     avgValueAwarded
     distinctSuppliers
     distinctAuthorities
@@ -443,9 +455,9 @@ export const procurementTypeDefs = /* GraphQL */ `
     year: Int
     "Free-text title filter on aggregates (title coverage is partial per grain)."
     q: String
-    "Awarded-value lower bound, RON — restricts to accepted-value rows in range."
+    "Anchor-money lower bound, RON (awarded on core grains; ceiling on frameworks; call-off value on calloffs) — restricts to accepted-value rows in range."
     valueMin: Float
-    "Awarded-value upper bound, RON — restricts to accepted-value rows in range."
+    "Anchor-money upper bound, RON — restricts to accepted-value rows in range (see valueMin)."
     valueMax: Float
   }
 
@@ -481,6 +493,13 @@ export const procurementTypeDefs = /* GraphQL */ `
     canonicalScope: String!
   }
 
+  "Per-measure money verdict: one stats block can carry different answerabilities per money basis (e.g. awarded disclosed + estimated abstained)."
+  type ProcurementMoneyVerdict {
+    measure: ProcurementAnalysisMeasure!
+    answerability: ProcurementAnswerability!
+    reason: ProcurementAnswerabilityReason
+    caveats: [String!]!
+  }
   """
   One LABELED per-grain stats block. Blocks sit side by side; nothing sums them.
   Count fields are null only when the block is gate-BLOCKED (time/geo abstain).
@@ -492,11 +511,17 @@ export const procurementTypeDefs = /* GraphQL */ `
     withEstimatedCount: String
     "Σ awarded value (RON, decimal string); null when the spend gate abstains."
     valueAwardedSum: String
-    "Σ estimated value — a separate labeled metric, never in totals or rankings."
+    "Σ estimated value — its own basis (applicability + outlier gated); never in totals or rankings."
     valueEstimatedSum: String
+    "Framework grain only: Σ attributed ceiling (maximum committed, NOT spend)."
+    valueCeilingSum: String
+    "Contract grain only: Σ modification-adjusted value (verified anchored chains)."
+    valueModAdjustedSum: String
     avgValueAwarded: String
     minMonth: String
     maxMonth: String
+    "One verdict per declared money measure of this grain."
+    moneyVerdicts: [ProcurementMoneyVerdict!]!
     meta: ProcurementAnswerMeta!
   }
   type ProcurementStatsResult {
@@ -522,7 +547,10 @@ export const procurementTypeDefs = /* GraphQL */ `
     kind: String!
     recordCount: String!
     withValueCount: String!
+    "Awarded money only — null on grains whose anchor money is another basis."
     valueAwardedSum: String
+    "The grain's ANCHOR money (awarded / ceiling / call-off value)."
+    valueSum: String
     "Share of the scope total on the ranking basis (decimal string)."
     shareOfScope: String
   }

@@ -22,7 +22,7 @@ import { invalidInput, type ApiError } from '@/modules/shared/index.js';
 
 import { scopeDims, type AnalysisScope, type ScopeDimField } from './analysis-scope.js';
 import {
-  ANALYSIS_GRAINS,
+  CORE_ANALYSIS_GRAINS,
   type AnalysisGrain,
   type BreakdownDimension,
   type MeasureId,
@@ -92,6 +92,115 @@ const PROCEDURE_NO_SUPPLIER =
 const RECORD_KIND_CONTRACT_ONLY =
   'record_kind exists only on the contract grain (award record vs framework umbrella is a contract-record property; direct acquisitions and procedures carry none)';
 
+// ── value-basis wave populations (design v1.1): explicit-only grains with
+// narrower capability surfaces than the three core grains ──────────────────────
+
+/**
+ * Scope/dimension capability of the new populations. Anything not listed is
+ * rejected with a named message: the parent-grain frameworks table has NO
+ * supplier columns (ceilings are never attributable to one supplier), call-offs
+ * carry only a validated CPV division, and modifications are counts-only.
+ */
+const NEW_GRAIN_SCOPE_DIMS: Readonly<Partial<Record<AnalysisGrain, ReadonlySet<ScopeDimField>>>> = {
+  // Frameworks carry a full cpv_code (measured 514,609/514,609 rows) — the
+  // whole CPV hierarchy is admitted. NO supplier fields exist at this grain.
+  framework: new Set<ScopeDimField>([
+    'authorityCui',
+    'cpvDivision',
+    'cpvGroup',
+    'cpvClass',
+    'cpvCategory',
+    'cpvCode',
+    'buyerRegion',
+    'buyerCounty',
+    'buyerSiruta',
+  ]),
+  // Supplier GEOGRAPHY is deliberately absent: no supplier_geo coverage row
+  // is published for call-offs yet, and gating supplier geo on the buyer_geo
+  // verdict would be dishonest — supplierCui itself stays servable.
+  calloff: new Set<ScopeDimField>([
+    'authorityCui',
+    'supplierCui',
+    'cpvDivision',
+    'buyerRegion',
+    'buyerCounty',
+    'buyerSiruta',
+  ]),
+  // cpvDivision/recordKind map to the linked-contract enrichment columns
+  // (linked_cpv_division 95.6% / linked_record_kind 99.9% populated).
+  modification: new Set<ScopeDimField>([
+    'authorityCui',
+    'supplierCui',
+    'cpvDivision',
+    'recordKind',
+    'buyerRegion',
+    'buyerCounty',
+    'buyerSiruta',
+  ]),
+};
+
+const NEW_GRAIN_BREAKDOWN_DIMS: Readonly<
+  Partial<Record<AnalysisGrain, ReadonlySet<BreakdownDimension>>>
+> = {
+  framework: new Set<BreakdownDimension>([
+    'authority',
+    'cpvDivision',
+    'cpvGroup',
+    'cpvClass',
+    'cpvCategory',
+    'cpvCode',
+    'buyerRegion',
+    'buyerCounty',
+    'buyerSiruta',
+  ]),
+  calloff: new Set<BreakdownDimension>([
+    'authority',
+    'supplier',
+    'cpvDivision',
+    'buyerRegion',
+    'buyerCounty',
+    'buyerSiruta',
+  ]),
+  modification: new Set<BreakdownDimension>([
+    'authority',
+    'supplier',
+    'cpvDivision',
+    'recordKind',
+    'buyerRegion',
+    'buyerCounty',
+    'buyerSiruta',
+  ]),
+};
+
+/** The structural rejection for a new-population grain, or undefined when servable. */
+const newGrainExclusion = (
+  grain: AnalysisGrain,
+  scope: AnalysisScope,
+  shape: AnalysisShape,
+  dims: readonly ScopeDimField[],
+  dimension?: BreakdownDimension
+): string | undefined => {
+  const allowedDims = NEW_GRAIN_SCOPE_DIMS[grain];
+  if (allowedDims === undefined) return undefined;
+  const badDim = dims.find((d) => !allowedDims.has(d));
+  if (badDim !== undefined) {
+    return `the '${grain}' population does not carry the ${badDim} dimension (design v1.1: frameworks are parent-grain without suppliers; call-offs and modifications carry a reduced column set)`;
+  }
+  if (dimension !== undefined && !(NEW_GRAIN_BREAKDOWN_DIMS[grain]?.has(dimension) ?? false)) {
+    return `breakdown(${dimension}) is not available on the '${grain}' population`;
+  }
+  if (scope.q !== undefined) {
+    return `q (title search) is not available on the '${grain}' population (no title column)`;
+  }
+  if (grain === 'modification' && (scope.valueMin !== undefined || scope.valueMax !== undefined)) {
+    return 'the modification population is counts-only — value bounds do not apply (raw amendment deltas are quality-relabeled, not servable money)';
+  }
+  if (shape === 'concentration' && grain !== 'calloff') {
+    return `concentration requires supplier money — only the calloff population supports it among the value-basis grains ('${grain}' has ${grain === 'framework' ? 'no supplier dimension' : 'no servable money'})`;
+  }
+  return undefined;
+};
+
 /**
  * Route an analysis request onto one route per answerable grain (explicit grain
  * → that grain; absent → every grain the request can answer). A grain the
@@ -144,7 +253,11 @@ export const routeAnalysis = (
   }
 
   const dims = scopeDims(scope);
-  const grains = scope.grain !== undefined ? [scope.grain] : ANALYSIS_GRAINS;
+  // Implicit requests fan out over the CORE grains only: the value-basis
+  // populations (framework/calloff/modification) answer ONLY when named —
+  // mixing their blocks into implicit answers invites summing ceilings or
+  // call-offs with awards (double-counting framework spend).
+  const grains = scope.grain !== undefined ? [scope.grain] : CORE_ANALYSIS_GRAINS;
 
   const routes: AnalysisRoute[] = [];
   for (const grain of grains) {
@@ -156,8 +269,14 @@ export const routeAnalysis = (
     // direct_acquisition rows never carry procedure_type; procedures carry no
     // supplier. An explicit grain gets the named rejection; an implicit grain is
     // skipped (the other labeled blocks still serve).
-    let excluded: string | undefined;
-    if (grain !== 'contract' && (dims.includes('recordKind') || dimension === 'recordKind')) {
+    let excluded: string | undefined = newGrainExclusion(grain, scope, shape, dims, dimension);
+    if (excluded !== undefined) {
+      // fall through to the shared rejection/skip handling below
+    } else if (
+      grain !== 'contract' &&
+      grain !== 'modification' && // modifications expose the LINKED contract's record_kind
+      (dims.includes('recordKind') || dimension === 'recordKind')
+    ) {
       excluded = RECORD_KIND_CONTRACT_ONLY;
     } else if (
       grain === 'direct_acquisition' &&

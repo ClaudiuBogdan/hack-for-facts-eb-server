@@ -170,8 +170,25 @@ export const DEFAULT_GRAIN: ProcurementGrain = 'direct_acquisition';
  * surface; the legacy `PROCUREMENT_GRAINS` ('procurement_contract' …) stays for
  * the flow-MV surfaces and the two never mix.
  */
-export const ANALYSIS_GRAINS = ['procedure', 'contract', 'direct_acquisition'] as const;
+export const ANALYSIS_GRAINS = [
+  'procedure',
+  'contract',
+  'direct_acquisition',
+  'framework',
+  'calloff',
+  'modification',
+] as const;
 export type AnalysisGrain = (typeof ANALYSIS_GRAINS)[number];
+
+/**
+ * The grains an IMPLICIT request (scope.grain absent) fans out over. The
+ * value-basis wave populations (framework parents / call-offs / modification
+ * events) are EXPLICIT-ONLY: they answer only when named — mixing a
+ * framework-ceiling or call-off block into an implicit stats answer would
+ * invite summing ceilings/call-offs with awards (double-counting framework
+ * spend). Design v1.1: PROCUREMENT_VALUE_BASIS_SERVING_DESIGN.md.
+ */
+export const CORE_ANALYSIS_GRAINS = ['procedure', 'contract', 'direct_acquisition'] as const;
 
 /** Measures the semantic policy table (core/policy.ts) declares entries for. */
 export const MEASURE_IDS = [
@@ -179,11 +196,25 @@ export const MEASURE_IDS = [
   'withValueCount',
   'valueAwardedSum',
   'valueEstimatedSum',
+  'valueCeilingSum',
+  'valueModAdjustedSum',
   'avgValueAwarded',
   'distinctSuppliers',
   'distinctAuthorities',
 ] as const;
 export type MeasureId = (typeof MEASURE_IDS)[number];
+
+/**
+ * Per-basis money serving floors (value-basis wave). Basis coverage comes
+ * from the data layer's `meta_value_coverage_v2` rows; measured at freeze:
+ * ceiling 0.927 (disclosed), mod_adjusted 0.9865 (allow), calloff_value
+ * 0.9987 (allow), estimated procedures 0.9273 (disclosed) / DA 0.5859
+ * (abstains) / contracts 0.1953 (abstains — v1 decision, parent-grain
+ * replication). Mirrors the awarded spend gate's 0.95 strict / 0.75
+ * disclosed philosophy.
+ */
+export const BASIS_ALLOW_FLOOR = 0.95;
+export const BASIS_DISCLOSED_FLOOR = 0.75;
 
 /** Breakdown dimensions ClickHouse facts can GROUP BY (design §6.2). */
 export const BREAKDOWN_DIMENSIONS = [
