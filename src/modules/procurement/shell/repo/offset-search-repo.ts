@@ -422,7 +422,7 @@ export const makeOffsetSearchRepo = (
     pkColumn: string,
     rows: readonly Row[],
     map: (row: Row) => Out
-  ): Out[] => {
+  ): { items: Out[]; missing: number } => {
     // bigint columns arrive as strings — key on the string form, not the number.
     const byPk = new Map(rows.map((row) => [String(row[pkColumn]), row]));
     const items: Out[] = [];
@@ -430,13 +430,14 @@ export const makeOffsetSearchRepo = (
       const row = byPk.get(String(pk));
       if (row !== undefined) items.push(map(row));
     }
-    if (items.length !== pks.length) {
+    const missing = pks.length - items.length;
+    if (missing > 0) {
       logger?.warn(
-        { grain, missing: pks.length - items.length },
+        { grain, missing },
         'search index lists rows postgres no longer serves'
       );
     }
-    return items;
+    return { items, missing };
   };
 
   /**
@@ -453,7 +454,7 @@ export const makeOffsetSearchRepo = (
     f: ProcurementSearchFilter,
     p: OffsetSearchRequest,
     facets: readonly string[] | undefined,
-    hydrate: (pks: readonly number[]) => Promise<Out[]>
+    hydrate: (pks: readonly number[]) => Promise<{ items: Out[]; missing: number }>
   ): Promise<Result<OffsetSearchResult<Out>, ApiError> | null> => {
     const engineOnly = usesEngineOnlyFilter(f);
     if (engine?.canServe(grain) !== true) {
@@ -482,13 +483,18 @@ export const makeOffsetSearchRepo = (
     }
     const page = result.value;
     try {
-      const items = await hydrate(page.pks);
+      const { items, missing } = await hydrate(page.pks);
+      // A hydration miss means the index and the database disagree about
+      // membership. The page is short by construction, so the engine's count
+      // can no longer be claimed exact — degrade it rather than assert a total
+      // the server already knows is wrong.
+      const exact = page.totalExhaustive && missing === 0;
       return ok({
         items,
         // A capped count is a lower bound, not a total: keep the existing
         // `total: null` + estimated disclosure the client renders as "10000+".
-        total: page.totalExhaustive ? page.total : null,
-        estimated: !page.totalExhaustive,
+        total: exact ? page.total : null,
+        estimated: !exact,
         facets: page.facets,
         provenance: { engine: 'opensearch' as const, asOf: page.asOf },
       });
@@ -498,7 +504,7 @@ export const makeOffsetSearchRepo = (
   };
 
   const hydrateProcedures = async (pks: readonly number[]) => {
-    if (pks.length === 0) return [];
+    if (pks.length === 0) return { items: [], missing: 0 };
     const rows = await db
       .selectFrom('procurement.procedures as p')
       .select(procedureSelect)
@@ -508,7 +514,7 @@ export const makeOffsetSearchRepo = (
   };
 
   const hydrateContracts = async (pks: readonly number[]) => {
-    if (pks.length === 0) return [];
+    if (pks.length === 0) return { items: [], missing: 0 };
     const rows = await db
       .selectFrom('procurement.contracts as c')
       .select(contractSelect)
@@ -518,7 +524,7 @@ export const makeOffsetSearchRepo = (
   };
 
   const hydrateDirectAcquisitions = async (pks: readonly number[]) => {
-    if (pks.length === 0) return [];
+    if (pks.length === 0) return { items: [], missing: 0 };
     const rows = await db
       .selectFrom('procurement.direct_acquisitions as d')
       .select(daSelect)

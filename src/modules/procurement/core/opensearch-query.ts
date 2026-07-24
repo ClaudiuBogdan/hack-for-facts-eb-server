@@ -74,7 +74,7 @@ const terms = (field: string, values: readonly string[]): Clause => ({
  * rounds UP and an upper bound rounds DOWN, so a fractional bound can only
  * ever narrow the set — never admit a row Postgres would exclude.
  */
-export const ronToBani = (decimal: string, bound: 'gte' | 'lte'): number => {
+export const ronToBani = (decimal: string, bound: 'gte' | 'lte'): number | string => {
   const negative = decimal.startsWith('-');
   const [wholeRaw = '', fracRaw = ''] = (negative ? decimal.slice(1) : decimal).split('.');
   const whole = BigInt(wholeRaw === '' ? '0' : wholeRaw);
@@ -85,11 +85,11 @@ export const ronToBani = (decimal: string, bound: 'gte' | 'lte'): number => {
   // `rest` non-empty ⇒ the true value lies strictly between `exact` and the
   // next bani step (away from zero for a positive number).
   const magnitude = rest === '' || (sign === 1n) !== (bound === 'gte') ? exact : exact + 1n;
-  // Clamp to the safe-integer range: absurd bounds must stay a valid (and
-  // equally empty / equally total) query rather than a 400 from the engine.
-  const safe = BigInt(Number.MAX_SAFE_INTEGER);
-  const clamped = magnitude > safe ? safe : magnitude;
-  return Number(sign * clamped);
+  const value = sign * magnitude;
+  // Beyond the safe-integer range a JS number would silently round — and
+  // rounding a bound OUTWARD admits rows Postgres excludes. `long` range
+  // clauses accept a numeric string, so the exact value travels as text.
+  return magnitude > BigInt(Number.MAX_SAFE_INTEGER) ? value.toString() : Number(value);
 };
 
 const geoClauses = (side: 'buyer' | 'supplier', geo: ProcurementGeoScope): Clause[] => {
@@ -179,7 +179,7 @@ export const compileListQuery = ({
   }
 
   if (filter.valueRon !== undefined) {
-    const range: Record<string, number> = {};
+    const range: Record<string, number | string> = {};
     if (filter.valueRon.gte !== undefined) range['gte'] = ronToBani(filter.valueRon.gte, 'gte');
     if (filter.valueRon.lte !== undefined) range['lte'] = ronToBani(filter.valueRon.lte, 'lte');
     filters.push({ range: { value_comparable_bani: range } });

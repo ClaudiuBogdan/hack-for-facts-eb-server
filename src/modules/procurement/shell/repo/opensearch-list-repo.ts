@@ -55,8 +55,8 @@ export interface OpenSearchListPage {
   /** False when the engine capped the count and reported a lower bound. */
   readonly totalExhaustive: boolean;
   readonly facets: readonly SearchFacet[];
-  /** Index build stamp (`_meta.built_at`), null when the index carries none. */
-  readonly asOf: string | null;
+  /** Index build stamp (`_meta.built_at`) — an index without one is refused. */
+  readonly asOf: string;
 }
 
 export interface OpenSearchListEngine {
@@ -91,6 +91,26 @@ interface ParsedHits {
 }
 
 /**
+ * A search that timed out, terminated early, or lost a shard still answers
+ * HTTP 200 with whatever it gathered — and reports `relation: "eq"` on a count
+ * taken over the shards that DID answer. Serving that as an exact total and a
+ * complete page is the worst failure this surface can have, so an incomplete
+ * response is rejected outright (the request also asks the engine not to
+ * produce one: `allow_partial_search_results=false`).
+ */
+const isCompleteResponse = (payload: Record<string, unknown>): boolean => {
+  if (payload['timed_out'] === true) return false;
+  if (payload['terminated_early'] === true) return false;
+  const shards = asRecord(payload['_shards']);
+  if (shards === null) return false;
+  const { total, successful, failed, skipped } = shards;
+  if (typeof total !== 'number' || typeof successful !== 'number') return false;
+  if (typeof failed === 'number' && failed > 0) return false;
+  const answered = successful + (typeof skipped === 'number' ? skipped : 0);
+  return answered >= total;
+};
+
+/**
  * Parse `hits` without declaring the engine's wire types. Returns null on any
  * structural surprise — a partially-understood response must not be served as
  * a page.
@@ -120,34 +140,38 @@ const parseHits = (payload: Record<string, unknown>, prefix: string): ParsedHits
   return { pks, total, totalExhaustive: relation === 'eq' };
 };
 
-/** Parse the terms aggregations; an unparseable facet is dropped, not faked. */
+/**
+ * Parse the terms aggregations — ALL of them or none. Skipping a malformed
+ * bucket, or defaulting a missing `sum_other_doc_count` to zero, would drop
+ * records out of a distribution the reader is told is complete. Returns null
+ * on any structural surprise; the caller then serves the page without facets
+ * rather than with a wrong one.
+ */
 const parseFacets = (
   payload: Record<string, unknown>,
   dims: readonly string[]
-): SearchFacet[] => {
+): SearchFacet[] | null => {
+  if (dims.length === 0) return [];
   const aggs = asRecord(payload['aggregations']);
-  if (aggs === null) return [];
+  if (aggs === null) return null;
   const facets: SearchFacet[] = [];
   for (const dimension of dims) {
     const agg = asRecord(aggs[dimension]);
-    if (agg === null) continue;
+    if (agg === null) return null;
     const rawBuckets = agg['buckets'];
-    if (!Array.isArray(rawBuckets)) continue;
+    if (!Array.isArray(rawBuckets)) return null;
     const buckets: { key: string; count: number }[] = [];
     for (const raw of rawBuckets) {
       const bucket = asRecord(raw);
-      if (bucket === null) continue;
+      if (bucket === null) return null;
       const key = bucket['key'];
       const count = bucket['doc_count'];
-      if (typeof key !== 'string' || typeof count !== 'number') continue;
+      if (typeof key !== 'string' || typeof count !== 'number') return null;
       buckets.push({ key, count });
     }
     const other = agg['sum_other_doc_count'];
-    facets.push({
-      dimension,
-      buckets,
-      otherCount: typeof other === 'number' ? other : 0,
-    });
+    if (typeof other !== 'number') return null;
+    facets.push({ dimension, buckets, otherCount: other });
   }
   return facets;
 };
@@ -201,8 +225,11 @@ export const makeOpenSearchListEngine = (config: OpenSearchListConfig): OpenSear
     });
 
   /**
-   * Index build provenance, cached. A missing or unreadable `_meta` is a null
-   * `asOf` (the client then shows no freshness claim) — never a search failure.
+   * Index build provenance, cached. `verify-parity.sh` stamps `_meta.built_at`
+   * only after an index passes its gates, so a missing stamp means the index
+   * was never gated — and an ungated index must not serve a list that would
+   * read as live. Cached for five minutes; a read failure is treated as
+   * missing (fail closed).
    */
   const metaCache = new Map<string, { value: string | null; expiresAt: number }>();
   const readAsOf = async (index: string): Promise<string | null> => {
@@ -246,7 +273,11 @@ export const makeOpenSearchListEngine = (config: OpenSearchListConfig): OpenSear
         ...(config.trackTotalHits !== undefined && { trackTotalHits: config.trackTotalHits }),
       });
       try {
-        const resp = await send('POST', `/${index}/_search`, compiled.body);
+        const resp = await send(
+          'POST',
+          `/${index}/_search?allow_partial_search_results=false`,
+          compiled.body
+        );
         // Status-only diagnostics: response bodies echo the query text and must
         // never reach the logs.
         if (resp.status !== 200) {
@@ -260,16 +291,31 @@ export const makeOpenSearchListEngine = (config: OpenSearchListConfig): OpenSear
         if (payload === null) {
           return err(upstreamError('opensearch list: malformed response', 'opensearch'));
         }
+        if (!isCompleteResponse(payload)) {
+          return err(upstreamError('opensearch list: incomplete search response', 'opensearch'));
+        }
         const hits = parseHits(payload, prefix);
         if (hits === null) {
           return err(upstreamError('opensearch list: malformed hits payload', 'opensearch'));
+        }
+        // A wrong distribution is worse than none: an unparseable facet block
+        // serves the page WITHOUT facets rather than with a partial one.
+        const facets = parseFacets(payload, compiled.facetDims);
+        const asOf = await readAsOf(index);
+        if (asOf === null) {
+          // An index with no build stamp cannot be dated, and an undated list
+          // silently reads as live. Refuse it — the caller degrades to SQL for
+          // SQL-serveable filters and fails explicitly for the rest.
+          return err(
+            upstreamError('opensearch list: index carries no build stamp', 'opensearch')
+          );
         }
         return ok({
           pks: hits.pks,
           total: hits.total,
           totalExhaustive: hits.totalExhaustive,
-          facets: parseFacets(payload, compiled.facetDims),
-          asOf: await readAsOf(index),
+          facets: facets ?? [],
+          asOf,
         });
       } catch (error) {
         const msg = error instanceof Error ? error.message : 'unknown error';

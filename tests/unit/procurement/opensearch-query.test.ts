@@ -174,7 +174,10 @@ describe('ronToBani', () => {
     expect(ronToBani('-100.005', 'lte')).toBe(-10_001);
   });
 
-  it('keeps an absurd bound a valid query (clamped, same result set)', () => {
-    expect(Number.isSafeInteger(ronToBani('999999999999999999999', 'gte'))).toBe(true);
+  it('carries a bound beyond safe-integer range EXACTLY, as a string', () => {
+    // Rounding such a bound to a float would move it outward and admit rows
+    // Postgres excludes; `long` range clauses accept the exact digits as text.
+    expect(ronToBani('999999999999999999999', 'gte')).toBe('99999999999999999999900');
+    expect(ronToBani('92233720368.54', 'lte')).toBe(9223372036854);
   });
 });
