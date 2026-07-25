@@ -54,10 +54,18 @@ const makeCapturingDb = (captured: Captured[]): Kysely<ProdDatabase> => {
   });
 };
 
+/**
+ * The gate is STRICT equality, never `coalesce(privacy_class,'public')`.
+ * `parliament.speeches.privacy_class` is `not null default 'public'` with a
+ * 2-value CHECK (prod migration 20260701T171000), so the coalesce could never
+ * fire — it only encoded a fail-open habit. Assert BOTH: the strict predicate is
+ * present AND the fail-open form is gone.
+ */
 const expectPublicSpeechQueries = (queries: readonly Captured[]): void => {
   expect(queries.length).toBeGreaterThan(0);
   for (const query of queries) {
-    expect(query.sql).toContain("coalesce(s.privacy_class, 'public') = 'public'");
+    expect(query.sql).toContain("s.privacy_class = 'public'");
+    expect(query.sql).not.toContain('coalesce(s.privacy_class');
   }
 };
 
@@ -99,6 +107,10 @@ describe('member speech repository privacy', () => {
     const query = captured.at(-1);
     expect(query?.sql).toContain('inner join parliament.speeches s');
     expect(query?.sql).toContain('s.quarantined = false');
-    expect(query?.sql).toContain("coalesce(s.privacy_class, 'public') = 'public'");
+    expect(query?.sql).toContain("s.privacy_class = 'public'");
+    expect(query?.sql).not.toContain('coalesce(s.privacy_class');
+    // The 1:1 transcript side table carries its OWN privacy_class (contract §6):
+    // a restricted transcript must not be readable through a public parent.
+    expect(query?.sql).toContain("t.privacy_class = 'public'");
   });
 });

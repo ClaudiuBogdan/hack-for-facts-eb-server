@@ -56,6 +56,7 @@ const fakeVote = (voteKey: string) => ({
   divisionNumber: null,
   billKey: '12760',
   lawReference: null,
+  sourceUrl: null,
   tallyMismatch: false,
   attrs: {},
 });

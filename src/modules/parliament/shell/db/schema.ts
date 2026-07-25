@@ -81,6 +81,9 @@ export interface ParliamentPersonsTable {
   issues: Jsonb;
   attrs: Jsonb;
   updated_at: Tstz | null;
+  // identity-v2 source-traceability (prod migration 20260701T176000): the canonical
+  // CDep mandate page for the cluster. Nullable (added `if not exists`, per-row fill).
+  source_url: string | null;
   // cluster_key — internal clustering anchor; NEVER surfaced; OMITTED (§2.6)
 }
 
@@ -192,6 +195,10 @@ export interface ParliamentVotesTable {
   division_number: number | null;
   bill_key: string | null;
   law_reference: string | null;
+  // E2 source-traceability (prod migration 20260701T172000). EXACT cdep.ro /
+  // senat.ro division URL; nullable because the backfill is per-row.
+  source_url: string | null;
+  privacy_class: string; // 'public' | 'restricted' (migration 20260701T171000)
   attrs: Jsonb;
   source_updated_at: Tstz | null;
   updated_at: Tstz | null;
@@ -206,6 +213,7 @@ export interface VoteRecordsTable {
   raw_marker: string | null;
   mandate_key: string | null; // nullable BY DESIGN (collisions never auto-resolved)
   match_method: string | null;
+  privacy_class: string; // 'public' | 'restricted' (migration 20260701T171000)
 }
 
 // ── member activity ──────────────────────────────────────────────────────────
@@ -221,6 +229,10 @@ export interface ControlItemsTable {
   author_name: string | null;
   mandate_key: string | null;
   match_method: string | null;
+  // E2 source-traceability (prod migration 20260701T172000). EXACT interpelări /
+  // întrebări detail URL; nullable because the backfill is per-row.
+  source_url: string | null;
+  privacy_class: string; // 'public' | 'restricted' (migration 20260701T171000)
   attrs: Jsonb;
   source_updated_at: Tstz | null;
 }
@@ -236,6 +248,7 @@ export interface MemberInitiativesTable {
   promulgated_law_number: string | null;
   promulgated_law_year: number | null;
   bill_url: string | null;
+  privacy_class: string; // 'public' | 'restricted' (migration 20260701T171000)
   attrs: Jsonb;
 }
 
@@ -251,7 +264,7 @@ export interface SpeechesTable {
   summary: string | null;
   attrs: Jsonb;
   source_updated_at: Tstz | null;
-  privacy_class: string | null;
+  privacy_class: string; // 'public' | 'restricted' (migration 20260701T171000)
   // Source-traceability path (§ source-traceability): source_url + its precision.
   // source_url_kind: 'exact' (per-turn deep link) | 'lossy_root' (sitting/section root,
   // e.g. Senate stenograms that carry no per-turn anchor).
@@ -267,6 +280,7 @@ export interface MemberDeclarationsTable {
   declaration_date: DateCol | null;
   label: string | null;
   file_url: string;
+  privacy_class: string; // 'public' | 'restricted' (migration 20260701T171000)
   // file_hash — internal dedup; NEVER surfaced; OMITTED (§2.6)
   content_status: string | null; // 'link_only' in v1 — content never read
   attrs: Jsonb;

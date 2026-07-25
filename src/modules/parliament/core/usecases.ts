@@ -41,7 +41,6 @@ import {
   type ParliamentInitiative,
   type ParliamentLineageVote,
   type ParliamentMember,
-  type ParliamentMemberDetail,
   type ParliamentMemberSpeechActivity,
   type ParliamentMemberVote,
   type ParliamentMemberVoteActivity,
@@ -132,60 +131,34 @@ export const listMembers = async (
   );
 };
 
+/**
+ * A member's IDENTITY — and nothing else.
+ *
+ * This is deliberately ONE query. It used to eagerly fan out to `findPerson` +
+ * `listGroupIntervals` + five count queries (seven concurrent DB round trips) and
+ * return `err` if ANY of them failed, which the GraphQL root then turned into
+ * `parliamentMember: null` — a valid member rendered as "not found" because an
+ * ancillary count had a bad day. Person / group intervals / activity counts are
+ * now resolved LAZILY by their own field resolvers, so:
+ *   - a deep-link that selects only identity fields costs exactly one query, and
+ *   - an ancillary failure degrades that field, never the member.
+ */
 export const getMember = async (
   deps: ParliamentUsecaseDeps,
   mandateKey: string
-): Promise<Result<ParliamentMemberDetail | null, ApiError>> => {
-  const m = await deps.repo.findMember(mandateKey);
-  if (m.isErr()) return err(m.error);
-  if (m.value === null) return ok(null);
-  const member = m.value;
+): Promise<Result<ParliamentMember | null, ApiError>> => deps.repo.findMember(mandateKey);
 
-  const [person, intervals, counts] = await Promise.all([
-    member.personId !== null
-      ? deps.repo.findPerson(member.personId)
-      : Promise.resolve(ok<ParliamentPerson | null, ApiError>(null)),
-    deps.repo.listGroupIntervals(mandateKey),
-    activityCounts(deps.repo, mandateKey),
-  ]);
-  if (person.isErr()) return err(person.error);
-  if (intervals.isErr()) return err(intervals.error);
-  if (counts.isErr()) return err(counts.error);
-
-  return ok({
-    member,
-    person: person.value,
-    groupIntervals: intervals.value,
-    activityCounts: counts.value,
-  });
-};
-
-const activityCounts = async (
-  repo: ParliamentRepo,
+/**
+ * The member's five activity totals. ONE bounded round trip (see
+ * `ParliamentRepo.memberActivityCounts`). Ancillary by contract: callers must
+ * degrade to an explicit "unavailable" on error and MUST NOT substitute zeros —
+ * a fabricated `0` is indistinguishable from a real "never spoke".
+ */
+export const getMemberActivityCounts = (
+  deps: ParliamentUsecaseDeps,
   mandateKey: string
-): Promise<Result<ParliamentActivityCounts, ApiError>> => {
-  // Each count is a bounded, mandate-indexed COUNT(*); the votes count comes from
-  // the member-votes total (mandate index slice, cheap).
-  const [mv, ci, sp, ini, decl] = await Promise.all([
-    repo.listMemberVotes(mandateKey, { first: 1 }),
-    repo.listMemberControlItems(mandateKey, { page: 1, pageSize: 1 }),
-    repo.listMemberSpeeches(mandateKey, { page: 1, pageSize: 1 }),
-    repo.listMemberInitiatives(mandateKey, { page: 1, pageSize: 1 }),
-    repo.listMemberDeclarations(mandateKey),
-  ]);
-  if (mv.isErr()) return err(mv.error);
-  if (ci.isErr()) return err(ci.error);
-  if (sp.isErr()) return err(sp.error);
-  if (ini.isErr()) return err(ini.error);
-  if (decl.isErr()) return err(decl.error);
-  return ok({
-    votes: mv.value.total,
-    controlItems: ci.value.total,
-    speeches: sp.value.total,
-    initiatives: ini.value.total,
-    declarations: decl.value.length,
-  });
-};
+): Promise<Result<ParliamentActivityCounts, ApiError>> =>
+  deps.repo.memberActivityCounts(mandateKey);
 
 export const getPersonCareer = async (
   deps: ParliamentUsecaseDeps,
@@ -202,12 +175,13 @@ export const getPersonCareer = async (
   if (mandates.isErr()) return err(mandates.error);
   if (intervals.isErr()) return err(intervals.error);
 
-  // Career totals: sum the bounded per-mandate counts (each mandate ≤ low thousands).
+  // Career totals: sum the bounded per-mandate counts (one round trip per mandate;
+  // a person holds at most a handful).
   let votes = 0;
   let initiatives = 0;
   let speeches = 0;
   for (const m of mandates.value) {
-    const counts = await activityCounts(deps.repo, m.mandateKey);
+    const counts = await deps.repo.memberActivityCounts(m.mandateKey);
     if (counts.isErr()) return err(counts.error);
     votes += counts.value.votes;
     initiatives += counts.value.initiatives;

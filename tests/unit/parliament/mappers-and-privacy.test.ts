@@ -191,6 +191,7 @@ describe('mapVote — tally shape + tallyMismatch from attrs', () => {
     division_number: null,
     bill_key: '12760',
     law_reference: null,
+    source_url: 'https://www.cdep.ro/pls/steno/eVot.Nominal?idv=29892',
     attrs: { tally_mismatch: true, source_title: 'ST', secret: 'x' },
   };
 

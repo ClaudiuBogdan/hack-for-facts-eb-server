@@ -9,6 +9,7 @@
  */
 
 import type {
+  ParliamentActivityCounts,
   ParliamentAiBillMetadata,
   ParliamentAiControlItemMetadata,
   ParliamentBallot,
@@ -202,6 +203,14 @@ export interface ParliamentRepo {
     year: number,
     filter: FilterInput
   ): Promise<Result<ParliamentMemberVoteActivity, ApiError>>;
+  /**
+   * The five per-mandate activity totals (votes / control / speeches / initiatives /
+   * declarations) in ONE bounded round trip. Every sub-count mirrors the predicates
+   * of the list it counts, so a total here always agrees with the corresponding
+   * connection/page `total`. Ancillary to a member's identity: a failure here must
+   * degrade the counts, never the member (see `getMember`).
+   */
+  memberActivityCounts(mandateKey: string): Promise<Result<ParliamentActivityCounts, ApiError>>;
   listMemberControlItems(
     mandateKey: string,
     page: OffsetParams

@@ -92,6 +92,8 @@ export interface ParliamentPerson {
   readonly normalizedName: string;
   readonly birthDate: string | null;
   readonly confidence: ParliamentPersonConfidence;
+  /** Canonical CDep mandate page for the cluster (§6 traceability). Null until backfilled. */
+  readonly sourceUrl: string | null;
 }
 
 export interface ParliamentCareerTotals {
@@ -228,6 +230,8 @@ export interface ParliamentVote {
   readonly divisionNumber: number | null;
   readonly billKey: string | null;
   readonly lawReference: string | null; // Senate L-ref, title-extracted
+  /** EXACT cdep.ro/senat.ro division page (§6 traceability). Null until backfilled. */
+  readonly sourceUrl: string | null;
   readonly tallyMismatch: boolean; // from attrs — surfaced as a warning flag
   readonly attrs: SafeAttrs; // whitelisted to VOTE_ATTR_KEYS by the mapper
 }
@@ -303,6 +307,8 @@ export interface ParliamentControlItem {
   readonly chamber: string | null; // senat | camera_deputatilor, derived from mandate_key prefix (1:/2:)
   readonly authorName: string | null;
   readonly mandateKey: string | null;
+  /** EXACT interpelări/întrebări detail page (§6 traceability). Null until backfilled. */
+  readonly sourceUrl: string | null;
 }
 
 export interface ParliamentInitiative {
@@ -398,6 +404,12 @@ export interface ParliamentActivityCounts {
   readonly declarations: number;
 }
 
+/**
+ * DEPRECATED shape — the eagerly-assembled member view. `getMember` no longer
+ * builds it: person / group intervals / activity counts are resolved lazily by
+ * their own field resolvers so an ancillary failure cannot 404 a valid member.
+ * Kept only as documentation of the old composite; nothing constructs it.
+ */
 export interface ParliamentMemberDetail {
   readonly member: ParliamentMember;
   readonly person: ParliamentPerson | null;

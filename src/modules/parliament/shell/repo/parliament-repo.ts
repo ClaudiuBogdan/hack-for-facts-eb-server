@@ -65,6 +65,7 @@ import {
 } from './mappers.js';
 import {
   COHESION_VOTE_CAP,
+  type ParliamentActivityCounts,
   type ParliamentAiBillMetadata,
   type ParliamentAiControlItemMetadata,
   type ParliamentBallot,
@@ -142,7 +143,7 @@ const SPEECH_TEXTS_NEG_TTL_MS = 60_000;
 export const speechSearchPredicate = (q: string, hasTexts: boolean): RawBuilder<unknown> => {
   const needle = '%' + escapeLike(q) + '%';
   const textsBranch = hasTexts
-    ? sql` or exists (select 1 from parliament.speech_texts t where t.speech_key = s.speech_key and t.full_text ilike ${needle} escape '\\')`
+    ? sql` or exists (select 1 from parliament.speech_texts t where t.speech_key = s.speech_key and t.privacy_class = 'public' and t.full_text ilike ${needle} escape '\\')`
     : sql``;
   return sql`(s.title ilike ${needle} escape '\\' or s.summary ilike ${needle} escape '\\'${textsBranch})`;
 };
@@ -222,6 +223,8 @@ const VOTE_SELECT = [
   'v.division_number',
   'v.bill_key',
   'v.law_reference',
+  // E2 source-traceability (§6): the EXACT cdep.ro/senat.ro division page.
+  'v.source_url',
   'v.attrs',
 ] as const;
 
@@ -243,6 +246,25 @@ const SPEECH_SELECT = [
 // public act — every served control read excludes them. Prod rows retained
 // untouched pending the dedicated motions domain (READINESS_TODO T4).
 const CONTROL_NO_MOTION = sql`c.control_type is distinct from 'motion'`;
+
+/**
+ * PRIVACY (contract §5) — the anonymous surface serves `privacy_class='public'`
+ * ONLY, and the predicate is STRICT: `privacy_class` is `text not null default
+ * 'public'` with a `check (privacy_class in ('public','restricted'))` on every
+ * `parliament.*` base table (prod migration `20260701T171000`, and
+ * `20260706T120000` for `speech_texts`), so a NULL cannot exist and the old
+ * `coalesce(privacy_class,'public')` was a fail-open no-op. Strict equality is
+ * row-for-row identical on prod today and default-DENIES a future NULL/unknown
+ * class instead of publishing it.
+ */
+const SPEECH_PUBLIC = sql`s.privacy_class = 'public'`;
+/** Same gate on the 1:1 transcript side table (§6) — a text row carries its own class. */
+const SPEECH_TEXT_PUBLIC = sql`t.privacy_class = 'public'`;
+const CONTROL_PUBLIC = sql`c.privacy_class = 'public'`;
+const VOTE_PUBLIC = sql`v.privacy_class = 'public'`;
+const VOTE_RECORD_PUBLIC = sql`vr.privacy_class = 'public'`;
+const INITIATIVE_PUBLIC = sql`mi.privacy_class = 'public'`;
+const DECLARATION_PUBLIC = sql`d.privacy_class = 'public'`;
 
 const BILL_SELECT = [
   'b.bill_key',
@@ -618,6 +640,8 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     'p.normalized_name',
     sql<string | null>`p.birth_date::text`.as('birth_date'),
     'p.confidence',
+    // identity-v2 source-traceability (§6): the canonical CDep mandate page.
+    'p.source_url',
   ] as const;
 
   const findPerson = async (
@@ -791,6 +815,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
         .select(['c.recipient'])
         .where('c.recipient', 'is not', null)
         .where(sql<SqlBool>`${CONTROL_NO_MOTION}`)
+        .where(sql<SqlBool>`${CONTROL_PUBLIC}`)
         .where(
           sql<boolean>`lower(translate(c.recipient, ${FOLD_FROM}, ${FOLD_TO})) like ${needle} escape '\\'`
         )
@@ -1402,7 +1427,12 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     // compiles directly.
     const built = toConditionBuilders(memberVotesFilterSpec, filter);
     if (built.isErr()) return err(built.error);
-    const where = composeWhere([sql`vr.mandate_key = ${mandateKey}`, ...built.value]);
+    const where = composeWhere([
+      sql`vr.mandate_key = ${mandateKey}`,
+      VOTE_RECORD_PUBLIC,
+      VOTE_PUBLIC,
+      ...built.value,
+    ]);
     // Materialize the member's bounded ballot set ⋈ votes; stable in-memory sort
     // (vote_date desc, vote_key desc, row_index) — the mandate index has no date.
     try {
@@ -1488,12 +1518,16 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     const yearEnd = `${String(year)}-12-31`;
     const daysWhere = composeWhere([
       sql`vr.mandate_key = ${mandateKey}`,
+      VOTE_RECORD_PUBLIC,
+      VOTE_PUBLIC,
       sql`v.vote_date >= ${yearStart}`,
       sql`v.vote_date <= ${yearEnd}`,
       ...specConds,
     ]);
     const yearsWhere = composeWhere([
       sql`vr.mandate_key = ${mandateKey}`,
+      VOTE_RECORD_PUBLIC,
+      VOTE_PUBLIC,
       sql`v.vote_date is not null`,
       ...specConds,
     ]);
@@ -1538,6 +1572,74 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     }
   };
 
+  /**
+   * The five per-mandate activity totals in ONE round trip.
+   *
+   * This replaces five `list…(pageSize: 1)` calls whose only consumed output was
+   * `total`. Those calls also fetched a ROW each, and the votes one MATERIALIZED
+   * the member's entire ballot set ⋈ votes (≈1.4k rows for a prolific member)
+   * purely to read `rows.length`. Collapsing them removes ~6 concurrent
+   * connections per member read — the amplifier that let a single flaky ancillary
+   * query 404 a valid member (see `getMember`).
+   *
+   * Every sub-count is a bounded, index-served `count(*)` over a `mandate_key`
+   * slice, and each one MIRRORS EXACTLY the predicates of the list it counts —
+   * control: CONTROL_NO_MOTION + CONTROL_PUBLIC; speeches: quarantined=false +
+   * SPEECH_PUBLIC; votes: the `vote_records ⋈ votes` shape of `listMemberVotes`
+   * (so `activityCounts.votes` still equals the unfiltered connection `total`).
+   * `vote_records` stays parent-bounded by `mandate_key` (§3.1).
+   */
+  const memberActivityCounts = async (
+    mandateKey: string
+  ): Promise<Result<ParliamentActivityCounts, ApiError>> => {
+    try {
+      const r = await sql<{
+        votes: string;
+        control_items: string;
+        speeches: string;
+        initiatives: string;
+        declarations: string;
+      }>`
+        select
+          (select count(*)
+             from parliament.vote_records vr
+             join parliament.votes v on v.vote_key = vr.vote_key
+            where vr.mandate_key = ${mandateKey}
+              and ${VOTE_RECORD_PUBLIC}
+              and ${VOTE_PUBLIC})                                    as votes,
+          (select count(*)
+             from parliament.control_items c
+            where c.mandate_key = ${mandateKey}
+              and ${CONTROL_NO_MOTION}
+              and ${CONTROL_PUBLIC})                                  as control_items,
+          (select count(*)
+             from parliament.speeches s
+            where s.mandate_key = ${mandateKey}
+              and s.quarantined = false
+              and ${SPEECH_PUBLIC})                                   as speeches,
+          (select count(*)
+             from parliament.member_initiatives mi
+            where mi.mandate_key = ${mandateKey}
+              and ${INITIATIVE_PUBLIC})                               as initiatives,
+          (select count(*)
+             from parliament.member_declarations d
+            where d.mandate_key = ${mandateKey}
+              and ${DECLARATION_PUBLIC})                              as declarations
+      `.execute(db);
+      const row = r.rows[0];
+      if (row === undefined) return err(databaseError('memberActivityCounts returned no row'));
+      return ok({
+        votes: Number(row.votes),
+        controlItems: Number(row.control_items),
+        speeches: Number(row.speeches),
+        initiatives: Number(row.initiatives),
+        declarations: Number(row.declarations),
+      });
+    } catch (e) {
+      return err(databaseError('memberActivityCounts failed', e));
+    }
+  };
+
   const offsetActivity = async <T>(
     label: string,
     run: (where: OffsetParams) => Promise<{ rows: readonly T[]; total: number }>,
@@ -1567,10 +1669,16 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
             'c.response_status',
             'c.author_name',
             'c.mandate_key',
+            'c.source_url',
           ])
           .where('c.mandate_key', '=', mandateKey)
           .where(sql<SqlBool>`${CONTROL_NO_MOTION}`)
+          .where(sql<SqlBool>`${CONTROL_PUBLIC}`)
           .orderBy('c.item_date', 'desc')
+          // item_key DESC — the table's UNIQUE key as a tiebreak, so `item_date`
+          // ties get a TOTAL order and offset pages never skip/duplicate a row
+          // (B2-F1; mirrors listMemberInitiatives + the cursor speech path).
+          .orderBy('c.item_key', 'desc')
           .limit(p.pageSize)
           .offset(offsetFor(p))
           .execute();
@@ -1579,6 +1687,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
           .select(sql<string>`count(*)`.as('cnt'))
           .where('c.mandate_key', '=', mandateKey)
           .where(sql<SqlBool>`${CONTROL_NO_MOTION}`)
+          .where(sql<SqlBool>`${CONTROL_PUBLIC}`)
           .executeTakeFirst();
         return { rows: rows.map((r) => mapControlItem(r)), total: Number(cnt?.cnt ?? 0) };
       },
@@ -1594,8 +1703,12 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
           .select(SPEECH_SELECT)
           .where('s.mandate_key', '=', mandateKey)
           .where('s.quarantined', '=', false) // §2.6 — quarantined excluded by default
-          .where(sql<SqlBool>`coalesce(s.privacy_class, 'public') = 'public'`)
+          .where(sql<SqlBool>`${SPEECH_PUBLIC}`)
           .orderBy('s.spoken_at', 'desc')
+          // speech_key DESC — the table's UNIQUE key as a tiebreak, so `spoken_at`
+          // ties get a TOTAL order and offset pages never skip/duplicate a turn
+          // (B2-F1; mirrors listMemberSpeechesCursor's keyset shape).
+          .orderBy('s.speech_key', 'desc')
           .limit(p.pageSize)
           .offset(offsetFor(p))
           .execute();
@@ -1604,7 +1717,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
           .select(sql<string>`count(*)`.as('cnt'))
           .where('s.mandate_key', '=', mandateKey)
           .where('s.quarantined', '=', false)
-          .where(sql<SqlBool>`coalesce(s.privacy_class, 'public') = 'public'`)
+          .where(sql<SqlBool>`${SPEECH_PUBLIC}`)
           .executeTakeFirst();
         return { rows: rows.map(mapSpeech), total: Number(cnt?.cnt ?? 0) };
       },
@@ -1631,7 +1744,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     const baseConds: RawBuilder<unknown>[] = [
       sql`s.mandate_key = ${mandateKey}`,
       sql`s.quarantined = false`, // §2.6 — quarantined excluded by default
-      sql`coalesce(s.privacy_class, 'public') = 'public'`,
+      SPEECH_PUBLIC,
       ...built.value,
     ];
     if (q !== undefined && q !== '') baseConds.push(speechSearchPredicate(q, hasTexts));
@@ -1696,7 +1809,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     const baseConds: RawBuilder<unknown>[] = [
       sql`s.mandate_key = ${mandateKey}`,
       sql`s.quarantined = false`,
-      sql`coalesce(s.privacy_class, 'public') = 'public'`,
+      SPEECH_PUBLIC,
       ...built.value,
     ];
     if (q !== undefined && q !== '') baseConds.push(speechSearchPredicate(q, hasTexts));
@@ -1752,7 +1865,8 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
         inner join parliament.speeches s on s.speech_key = t.speech_key
         where t.speech_key = ${speechKey}
           and s.quarantined = false
-          and coalesce(s.privacy_class, 'public') = 'public'
+          and ${SPEECH_PUBLIC}
+          and ${SPEECH_TEXT_PUBLIC}
         limit 1
       `.execute(db);
       return ok(r.rows[0]?.full_text ?? null);
@@ -1769,8 +1883,8 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
    * Shared WHERE for every GLOBAL speech surface: the physical spec conditions
    * (spokenAt/chamber/mandateKey) + the two privacy predicates. Quarantined rows
    * and non-public privacy classes are NEVER served globally (§2.6);
-   * `coalesce(privacy_class,'public')` keeps legacy NULL rows (public by loader
-   * convention) visible. NULL-mandate turns are INCLUDED — they are real data.
+   * strict equality default-denies any unexpected value. NULL-mandate turns are
+   * INCLUDED — they are real data.
    */
   const buildGlobalSpeechConditions = (
     filter: FilterInput
@@ -1787,7 +1901,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     return ok([
       ...built.value,
       sql`s.quarantined = false`, // §2.6 — quarantined excluded on every global surface
-      sql`coalesce(s.privacy_class, 'public') = 'public'`,
+      SPEECH_PUBLIC,
     ]);
   };
 
@@ -1962,7 +2076,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
         .select(SPEECH_SELECT)
         .where('s.speech_key', '=', speechKey)
         .where(sql<SqlBool>`s.quarantined = false`)
-        .where(sql<SqlBool>`coalesce(s.privacy_class, 'public') = 'public'`)
+        .where(sql<SqlBool>`${SPEECH_PUBLIC}`)
         .limit(1)
         .executeTakeFirst();
       return ok(row === undefined ? null : mapSpeech(row));
@@ -2005,6 +2119,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
             sql<string | null>`${regDateIso}`.as('registration_date'),
           ])
           .where('mi.mandate_key', '=', mandateKey)
+          .where(sql<SqlBool>`${INITIATIVE_PUBLIC}`)
           .orderBy(sql`${regDateIso} desc nulls last`)
           .orderBy('mi.initiative_key', 'desc')
           .limit(p.pageSize)
@@ -2014,6 +2129,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
           .selectFrom('parliament.member_initiatives as mi')
           .select(sql<string>`count(*)`.as('cnt'))
           .where('mi.mandate_key', '=', mandateKey)
+          .where(sql<SqlBool>`${INITIATIVE_PUBLIC}`)
           .executeTakeFirst();
         return { rows: rows.map(mapInitiative), total: Number(cnt?.cnt ?? 0) };
       },
@@ -2033,6 +2149,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
           'd.file_url',
         ])
         .where('d.mandate_key', '=', mandateKey)
+        .where(sql<SqlBool>`${DECLARATION_PUBLIC}`)
         .orderBy('d.declaration_date', 'desc')
         .execute();
       return ok(rows.map(mapDeclaration));
@@ -2057,7 +2174,8 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     if (built.isErr()) return { conds: [], error: built.error };
     // control-population.v2 (2026-07-22): motions are NOT parliamentary control —
     // exclude the 6 leaked rows from every served control read (see CONTROL_TYPES).
-    const conds: RawBuilder<unknown>[] = [CONTROL_NO_MOTION, ...built.value];
+    // CONTROL_PUBLIC is the strict §5 privacy gate (never fail-open coalesce).
+    const conds: RawBuilder<unknown>[] = [CONTROL_NO_MOTION, CONTROL_PUBLIC, ...built.value];
 
     const recipient = fieldFilter(filter, 'recipient');
     if (recipient !== undefined) {
@@ -2119,6 +2237,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
           'c.response_status',
           'c.author_name',
           'c.mandate_key',
+          'c.source_url',
         ])
         .where(composeWhere(conds))
         .orderBy(sql`${dateKey} desc, c.item_key desc`)
@@ -2737,6 +2856,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     ballotResolution,
     listMemberVotes,
     memberVoteActivity,
+    memberActivityCounts,
     listMemberControlItems,
     listMemberSpeeches,
     listMemberSpeechesCursor,

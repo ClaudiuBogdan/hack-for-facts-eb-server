@@ -32,6 +32,7 @@ import {
   getDataFreshness,
   getLineageForAct,
   getMember,
+  getMemberActivityCounts,
   getMemberControlItems,
   getMemberInitiatives,
   getMemberSpeeches,
@@ -271,18 +272,11 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
         return { members: res.rows, total: res.total, totalEstimated: res.estimated };
       },
 
-      parliamentMember: async (_r: unknown, args: { mandateKey: string }) => {
-        const detail = unwrap(await getMember(deps, args.mandateKey));
-        if (detail === null) return null;
-        // Flatten the detail into a ParliamentMember; the eager pieces (person /
-        // groupIntervals / activityCounts) are read by the field resolvers below.
-        return {
-          ...detail.member,
-          person: detail.person,
-          groupIntervals: detail.groupIntervals,
-          activityCounts: detail.activityCounts,
-        };
-      },
+      // IDENTITY ONLY — one query. person / groupIntervals / activityCounts are
+      // resolved by the field resolvers below, and only when they are selected, so
+      // an ancillary read can never turn a real member into a false "not found".
+      parliamentMember: async (_r: unknown, args: { mandateKey: string }) =>
+        unwrap(await getMember(deps, args.mandateKey)),
 
       parliamentPerson: async (_r: unknown, args: { personId: string }) => {
         const career = unwrap(await getPersonCareer(deps, args.personId));
@@ -530,7 +524,7 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
               memberCount: null,
             },
       person: async (parent: { personId: string | null; person?: unknown }) => {
-        if (parent.person !== undefined) return parent.person; // eager from getMember
+        if (parent.person !== undefined) return parent.person; // eager (person career view)
         if (parent.personId === null) return null;
         return unwrap(await deps.repo.findPerson(parent.personId));
       },
@@ -538,18 +532,17 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
         parent.groupIntervals !== undefined
           ? parent.groupIntervals
           : unwrap(await deps.repo.listGroupIntervals(parent.mandateKey)),
+      /**
+       * ANCILLARY + NULLABLE. One bounded query. On a read failure this returns
+       * `null` — "counts unavailable" — instead of throwing (which non-null
+       * propagation would turn into `parliamentMember: null`, a false 404) and
+       * instead of the old fabricated all-zero object (indistinguishable from a
+       * member who genuinely never voted or spoke).
+       */
       activityCounts: async (parent: { mandateKey: string; activityCounts?: unknown }) => {
         if (parent.activityCounts !== undefined) return parent.activityCounts;
-        const detail = unwrap(await getMember(deps, parent.mandateKey));
-        return (
-          detail?.activityCounts ?? {
-            votes: 0,
-            controlItems: 0,
-            speeches: 0,
-            initiatives: 0,
-            declarations: 0,
-          }
-        );
+        const counts = await getMemberActivityCounts(deps, parent.mandateKey);
+        return counts.isErr() ? null : counts.value;
       },
       votes: async (
         parent: { mandateKey: string },

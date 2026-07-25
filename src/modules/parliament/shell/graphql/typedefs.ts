@@ -136,6 +136,8 @@ const objectsAndQuery = /* GraphQL */ `
     normalizedName: String!
     birthDate: Date
     confidence: ParliamentPersonConfidence!
+    "Canonical CDep mandate page for this person cluster (source-traceability §6). Null on rows the backfill has not reached."
+    sourceUrl: String
     mandates: [ParliamentMember!]!
     groupIntervals: [ParliamentGroupInterval!]!
     careerTotals: ParliamentCareerTotals!
@@ -163,7 +165,8 @@ const objectsAndQuery = /* GraphQL */ `
     mandateEndReason: String
     person: ParliamentPerson
     groupIntervals: [ParliamentGroupInterval!]!
-    activityCounts: ParliamentActivityCounts!
+    "Activity totals. NULLABLE ON PURPOSE: these are ancillary to the member's identity, so a read failure returns null (= counts temporarily unavailable) rather than fabricating zeros or 404-ing a member who exists. null NEVER means no-activity — a member with no activity returns an object of zeros."
+    activityCounts: ParliamentActivityCounts
     "This member's ballots (cursor; default voteDate desc). The optional filter (voteDate/chamber/outcome/choice) narrows the set; connection.total is then the EXACT filtered count."
     votes(
       first: Int
@@ -242,6 +245,8 @@ const objectsAndQuery = /* GraphQL */ `
     billKey: ID
     bill: ParliamentBill
     lawReference: String
+    "Official cdep.ro / senat.ro page for this division (source-traceability §6). Null on rows the backfill has not reached."
+    sourceUrl: String
     tallyMismatch: Boolean!
     groupBreakdown: [ParliamentVoteGroupBreakdown!]!
     "Ballots for this vote (cursor). 'first' is capped at 200 — deliberately higher than the 100 root-collection cap because a single vote's ballot set is parent-bound and bounded by chamber size."
@@ -427,6 +432,8 @@ const objectsAndQuery = /* GraphQL */ `
     responseStatus: String
     chamber: String
     authorName: String
+    "Official interpelări/întrebări detail page (source-traceability §6). Null on rows the backfill has not reached."
+    sourceUrl: String
     member: ParliamentMember
     "AI-GENERATED, NON-AUTHORITATIVE (trust_class inference_only_label; enrichment gate publishable=false). Exposed by explicit user decision for client display only. These fields must never become search facets, filters, or index body. Restricted rows are never served (public only)."
     aiMetadata: ParliamentAiControlItemMetadata

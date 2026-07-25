@@ -108,6 +108,8 @@ export interface PersonRow {
   normalized_name: string;
   birth_date: string | null;
   confidence: string | null;
+  /** identity-v2 traceability (prod migration 20260701T176000) — CDep mandate page. */
+  source_url: string | null;
 }
 
 export const mapPerson = (r: PersonRow): ParliamentPerson => ({
@@ -116,6 +118,7 @@ export const mapPerson = (r: PersonRow): ParliamentPerson => ({
   normalizedName: r.normalized_name,
   birthDate: r.birth_date,
   confidence: confidenceOf(r.confidence),
+  sourceUrl: r.source_url,
 });
 
 export interface GroupIntervalRow {
@@ -246,6 +249,8 @@ export interface VoteRow {
   division_number: number | null;
   bill_key: string | null;
   law_reference: string | null;
+  /** E2 traceability (prod migration 20260701T172000) — EXACT division page. */
+  source_url: string | null;
   attrs: unknown;
 }
 
@@ -271,6 +276,7 @@ export const mapVote = (r: VoteRow): ParliamentVote => {
     divisionNumber: r.division_number,
     billKey: r.bill_key,
     lawReference: r.law_reference,
+    sourceUrl: r.source_url,
     tallyMismatch: rawAttrs['tally_mismatch'] != null,
     attrs,
   };
@@ -288,6 +294,8 @@ export interface ControlItemRow {
   response_status: string | null;
   author_name: string | null;
   mandate_key: string | null;
+  /** E2 traceability (prod migration 20260701T172000) — EXACT source page. */
+  source_url: string | null;
 }
 
 /** Chamber from the mandate_key prefix: '1:'=senat, '2:'=camera_deputatilor. */
@@ -310,6 +318,7 @@ export const mapControlItem = (r: ControlItemRow): ParliamentControlItem => ({
   chamber: chamberFromMandateKey(r.mandate_key),
   authorName: r.author_name,
   mandateKey: r.mandate_key,
+  sourceUrl: r.source_url,
 });
 
 export interface SpeechRow {
