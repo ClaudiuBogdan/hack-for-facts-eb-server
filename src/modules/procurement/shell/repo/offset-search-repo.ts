@@ -26,6 +26,7 @@ import {
   type ProdDatabase,
 } from '@/modules/shared/index.js';
 
+import { contractDisplayTitleCandidatesSelect } from './contract-display-title-projection.js';
 import { mapContract, mapDirectAcquisition, mapModification, mapProcedure } from './mappers.js';
 import { SEARCH_COUNT_CAP } from '../../core/constants.js';
 import {
@@ -375,6 +376,7 @@ const contractSelect = [
   'c.canonical_value_source',
   'c.value_disagreement',
   'c.record_kind',
+  contractDisplayTitleCandidatesSelect(),
 ] as const;
 
 const daSelect = [

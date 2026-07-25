@@ -32,6 +32,7 @@ import {
   type CollectionFilterSpec,
 } from '@/modules/shared/index.js';
 
+import { contractDisplayTitleCandidatesSelect } from './contract-display-title-projection.js';
 import { makeProcurementDetailRepo } from './detail-repo.js';
 import {
   assertDaSelective,
@@ -386,6 +387,7 @@ export const makeProcurementRepo = (
     'c.canonical_value_source',
     'c.value_disagreement',
     'c.record_kind',
+    contractDisplayTitleCandidatesSelect(),
   ] as const;
 
   const listContracts = async (

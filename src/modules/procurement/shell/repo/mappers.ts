@@ -23,6 +23,10 @@ import {
   type ValueComparableBasis,
   type ValueState,
 } from '../../core/constants.js';
+import {
+  resolveContractDisplayTitle,
+  type ContractDisplayTitleCandidates,
+} from '../../core/contract-display-title.js';
 
 import type {
   DuplicateRef,
@@ -105,7 +109,9 @@ type ContractRow = Pick<
   | 'canonical_value_source'
   | 'value_disagreement'
   | 'record_kind'
->;
+> & {
+  readonly display_title_candidates: ContractDisplayTitleCandidates;
+};
 type DaRow = Pick<
   ProcurementDirectAcquisitionsTable,
   | 'da_id'
@@ -290,6 +296,12 @@ export const mapProcedure = (r: ProcedureRow): ProcurementProcedure => {
 };
 
 export const mapContract = (r: ContractRow): ProcurementContract => {
+  const displayTitle = resolveContractDisplayTitle(
+    r.title,
+    r.source_url,
+    r.display_title_candidates
+  );
+
   return {
     contractId: r.contract_id,
     contractKey: r.contract_key,
@@ -300,6 +312,7 @@ export const mapContract = (r: ContractRow): ProcurementContract => {
     contractNo: r.contract_no,
     contractDate: r.contract_date,
     title: r.title,
+    displayTitle,
     authorityCui: r.authority_cui,
     authorityName: r.authority_name,
     supplierCui: r.supplier_cui,

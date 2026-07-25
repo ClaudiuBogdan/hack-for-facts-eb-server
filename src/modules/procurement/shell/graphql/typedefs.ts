@@ -140,6 +140,15 @@ export const procurementTypeDefs = /* GraphQL */ `
     dupGroupId: String
   }
 
+  "A display title with inseparable evidence provenance."
+  type ProcurementContractDisplayTitle {
+    text: String!
+    "Evidence selected for text: native | matched_award | procedure."
+    source: String!
+    "Human-openable source that carries text."
+    sourceUrl: String
+  }
+
   "A supplier-level award (SEAP contracts ∪ e-licitatie CA awards)."
   type ProcurementContract {
     id: ID!
@@ -147,7 +156,10 @@ export const procurementTypeDefs = /* GraphQL */ `
     contractDate: Date
     procedureId: ID
     noticeNo: String
+    "Source-owned contract title. It is never backfilled from another record."
     title: String
+    "Presentation title and provenance resolved without mutating title."
+    displayTitle: ProcurementContractDisplayTitle
     authority: ProcurementParty!
     supplier: ProcurementParty!
     cpvCode: String

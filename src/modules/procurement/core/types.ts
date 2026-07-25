@@ -28,6 +28,7 @@ import type {
   RecordKind,
   ValueState,
 } from './constants.js';
+import type { ContractDisplayTitle } from './contract-display-title.js';
 
 // ── value-model resolution block (shared by the three valued grains) ──────────
 
@@ -80,7 +81,10 @@ export interface ProcurementContract {
   readonly noticeNo: string | null;
   readonly contractNo: string | null;
   readonly contractDate: string | null;
+  /** Source-owned contract title; never backfilled from another record. */
   readonly title: string | null;
+  /** Read-only presentation title and inseparable source provenance. */
+  readonly displayTitle: ContractDisplayTitle | null;
   readonly authorityCui: string | null;
   readonly authorityName: string | null;
   readonly supplierCui: string | null;

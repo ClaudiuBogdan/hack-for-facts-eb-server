@@ -44,6 +44,10 @@ const baseContract = {
   canonical_value_source: 'seap_own',
   value_disagreement: false,
   record_kind: null,
+  display_title_candidates: {
+    matchedAwards: [],
+    procedure: null,
+  },
 };
 
 describe('value-model resolution mapping', () => {
@@ -132,6 +136,34 @@ describe('sourceSystem / sourceUrl passthrough', () => {
     });
     expect(c.sourceSystem).toBe('elicitatie_ca_award');
     expect(c.sourceUrl).toBe('https://x/y');
+  });
+});
+
+describe('contract display title projection', () => {
+  it('maps derived title evidence without changing the raw title', () => {
+    const c = mapContract({
+      ...baseContract,
+      title: null,
+      display_title_candidates: {
+        matchedAwards: [
+          {
+            title: 'Titlu din anuntul de atribuire',
+            sourceUrl: 'https://example.test/award',
+          },
+        ],
+        procedure: {
+          title: 'Titlu din procedura',
+          sourceUrl: 'https://example.test/procedure',
+        },
+      },
+    });
+
+    expect(c.title).toBeNull();
+    expect(c.displayTitle).toEqual({
+      text: 'Titlu din anuntul de atribuire',
+      source: 'matched_award',
+      sourceUrl: 'https://example.test/award',
+    });
   });
 });
 
