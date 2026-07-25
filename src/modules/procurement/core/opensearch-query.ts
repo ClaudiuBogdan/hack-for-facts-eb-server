@@ -20,8 +20,21 @@
  *     keyword sorts lexically).
  *  5. An explicit empty `in: []` matches NOTHING (an empty `terms` clause).
  *  6. Documents are canonical-only by construction (build-time predicate).
+ *  7. `sort: relevance` orders by BM25 and keeps the numeric `pk` tiebreak, so
+ *     the order is TOTAL within one response and stable across the `from/size`
+ *     pages of ONE immutable, single-shard generation (verified: pages 1+2 ==
+ *     a single 40-document window). It is NOT stable across a reshard — BM25
+ *     uses shard-local term statistics by default — nor across a rebuild.
+ *     Before the index grows past one shard, `dfs_query_then_fetch`, a fixed
+ *     `preference` and PIT-pinned pagination all have to be measured.
+ *  8. `q` reaches the identifier keyword fields the SQL path searched
+ *     (`Q_COLUMNS`) as well as the analyzed name fields — routing the list to
+ *     the engine must not silently drop the ability to paste a code.
  */
 
+import { isWithheldOrganizationIdentifier } from '@/modules/shared/index.js';
+
+import { DEFAULT_Q_MODE, type QMode } from './constants.js';
 import {
   CPV_LEVELS,
   SEARCH_FACET_SIZE,
@@ -29,6 +42,7 @@ import {
   type ProcurementGeoScope,
   type ProcurementSearchFilter,
   type SearchGrain,
+  type SqlSearchSort,
 } from './search.js';
 
 import type { OffsetSearchRequest } from './types.js';
@@ -58,6 +72,78 @@ const Q_FIELDS = [
   'supplier_name',
   'supplier_name.folded',
 ] as const;
+
+/**
+ * Analyzed name fields a `q` hit is highlighted in, per grain.
+ *
+ * Each is asked for twice, base and `.folded`, because the highlighter analyzes
+ * the query with the FIELD's own analyzer: `title` does not fold diacritics, so
+ * a reader searching `scoala` matched `Școala Gimnazială` through `title.folded`
+ * and got a page with the record but no marks on it. Both sub-fields return the
+ * ORIGINAL text, so either fragment renders identically.
+ */
+export const HIGHLIGHT_FIELDS: Readonly<Record<SearchGrain, readonly string[]>> = {
+  procedures: ['title', 'authority_name'],
+  contracts: ['title', 'authority_name', 'supplier_name'],
+  direct_acquisitions: ['title', 'authority_name', 'supplier_name'],
+  modifications: [],
+};
+
+/**
+ * Highlight markers. NOT HTML: the client splits on these and renders its own
+ * element, so a title containing `<mark>` \u2014 or any other markup \u2014 can never
+ * become markup in the page.
+ *
+ * U+27E6/U+27E7 (mathematical white square brackets), verified absent from every
+ * highlightable column of all three grains. Control characters were tried first
+ * and are WRONG: the unified highlighter's fragment trimming eats a marker that
+ * lands at the very start or end of a field, so `\u27E6Reparatii\u27E7 sisteme\u2026` came back
+ * as `Reparatii\u27E7 sisteme\u2026` with the opening marker gone.
+ */
+export const HIGHLIGHT_OPEN = '\u27E6';
+export const HIGHLIGHT_CLOSE = '\u27E7';
+
+/**
+ * Identifier keyword fields `q` also probes, per grain — the columns the SQL path
+ * searched with `ILIKE` before the engine took over. Without these, pasting a
+ * notice number into the search box returned NOTHING: `q="CAN1123309"` scored 0
+ * hits through the analyzed name fields while `term(notice_no)` matched 30 docs.
+ */
+const IDENTIFIER_FIELDS: Readonly<Record<SearchGrain, readonly string[]>> = {
+  procedures: ['notice_no'],
+  contracts: ['notice_no', 'contract_no'],
+  direct_acquisitions: ['unique_code'],
+  modifications: [],
+};
+
+/** CUI keyword fields `q` probes when the query is all digits. */
+const CUI_FIELDS: Readonly<Record<SearchGrain, readonly string[]>> = {
+  procedures: ['authority_cui'],
+  contracts: ['authority_cui', 'supplier_cui'],
+  direct_acquisitions: ['authority_cui', 'supplier_cui'],
+  modifications: [],
+};
+
+/**
+ * An all-digit query, probed against the fiscal-code columns — unless the
+ * kernel withholds that identifier.
+ *
+ * Over-10-digit identifiers are CNP-shaped natural-person identifiers, and the
+ * platform contains them at the API (`isWithheldOrganizationIdentifier`,
+ * shared kernel, P0 2026-07-22). MEASURED here, not assumed: of the canonical
+ * contract facts, 408 distinct 13-digit supplier identifiers across 1,184 rows
+ * are all CNP-shaped (leading digit 1–8) and belong to named natural persons.
+ * Probing them would make a personal identification number a working query in
+ * a public search box.
+ *
+ * So an unbounded digit probe is WRONG even though it costs only a dictionary
+ * lookup, and even though it would otherwise find genuine padded/foreign codes
+ * (68 records for `00041200627`). Those records remain reachable by title and
+ * party name; only the identifier itself is withheld — the conservative side of
+ * a privacy decision, which is where this platform puts it.
+ */
+const isProbeableCui = (token: string): boolean =>
+  /^\d+$/u.test(token) && !isWithheldOrganizationIdentifier(token);
 
 type Clause = Record<string, unknown>;
 
@@ -122,8 +208,102 @@ const cpvClause = (f: ProcurementSearchFilter): Clause | null => {
 };
 
 /** Sort field per (grain-independent) sort token — both bind to list columns. */
-const sortField = (sort: OffsetSearchRequest['sort']): string =>
+const sortField = (sort: SqlSearchSort): string =>
   sort === 'date_desc' || sort === 'date_asc' ? 'date_list' : 'value_comparable_bani';
+
+/**
+ * The analyzed-name matcher for one q-mode. `all` (the default) requires every
+ * word; `any` is the original OR + typo tolerance, kept as the explicit "broaden
+ * this" control; `phrase` requires the words adjacent and in order.
+ */
+const textClause = (q: string, mode: QMode): Clause => {
+  const fields = [...Q_FIELDS];
+  if (mode === 'phrase') return { multi_match: { query: q, fields, type: 'phrase' } };
+  if (mode === 'any') {
+    return {
+      multi_match: {
+        query: q,
+        fields,
+        type: 'best_fields',
+        // ONE edit, not `AUTO`. AUTO allows two edits on a term of six letters
+        // or more, and two edits reach a different word: `Mănuși` (gloves)
+        // matched `MASURI` (measures) and returned 2,355 procedures where the
+        // word itself has 863. At `fuzziness: 1` that query returns 865 — it
+        // still finds the source's own misspelling `MASUSI`, and a real typo
+        // still corrects (`medicamnte` → 31,379 hits, versus 5 with no
+        // tolerance at all). `prefix_length: 2` keeps the first two letters
+        // fixed so the expansion stays anchored to what was typed.
+        fuzziness: '1',
+        prefix_length: 2,
+        max_expansions: 50,
+      },
+    };
+  }
+  return { multi_match: { query: q, fields, type: 'best_fields', operator: 'and' } };
+};
+
+/**
+ * Exact keyword probes on the WHOLE query. These fields carry no normalizer, so
+ * `can1123309` matches nothing while `CAN1123309` matches — the uppercase form is
+ * therefore tried alongside the raw one. Boosted above a name match: a record
+ * whose identifier IS the query outranks one that merely mentions the digits.
+ *
+ * No shape test: an earlier version required a single whitespace-free token, and
+ * 264,588 real `contract_no` values contain a character that rejects (`5351 A`,
+ * `970 APS`, `A - 2721`), so pasting one found nothing. A `term` on a keyword is
+ * exact — a prose query simply misses the dictionary — so the probe costs a
+ * lookup and can never widen the set beyond identifier equality.
+ *
+ * Deliberately EXACT where the SQL path was a substring `ILIKE '%q%'`. A prefix
+ * query over a high-cardinality keyword is affordable here (`prefix notice_no
+ * "CAN112"` = 60,236 hits in 15 ms) but it turns a paste of one code into tens of
+ * thousands of neighbours, which is not what pasting a code means.
+ */
+const identifierClauses = (grain: SearchGrain, q: string): Clause[] => {
+  const token = q.trim();
+  const variants = [...new Set([token, token.toUpperCase()])];
+  const out: Clause[] = [];
+  for (const field of IDENTIFIER_FIELDS[grain]) {
+    for (const value of variants) out.push({ term: { [field]: { value, boost: 8 } } });
+  }
+  // A CUI is the identity key of a party, not a word in a title: an exact match
+  // on it answers "everything this institution/company signed", which is the
+  // whole point of pasting one. `q="3897378"` used to return 7 incidental title
+  // mentions while that buyer had 2,494 contracts.
+  if (isProbeableCui(token)) {
+    for (const field of CUI_FIELDS[grain]) {
+      out.push({ term: { [field]: { value: token, boost: 12 } } });
+    }
+  }
+  return out;
+};
+
+/**
+ * The highlight block. Markers are control characters, not markup (see
+ * `HIGHLIGHT_OPEN`). `require_field_match: false` so that a hit matched through
+ * the diacritic-folded sub-field still marks the terms in the original text —
+ * a reader searching `scoala` must see `Școala` marked.
+ */
+const highlightBlock = (grain: SearchGrain, q: string | undefined): Clause | undefined => {
+  const fields = HIGHLIGHT_FIELDS[grain];
+  if (q === undefined || fields.length === 0) return undefined;
+  return {
+    pre_tags: [HIGHLIGHT_OPEN],
+    post_tags: [HIGHLIGHT_CLOSE],
+    require_field_match: false,
+    number_of_fragments: 1,
+    fragment_size: 200,
+    // 0 = a field with no match contributes nothing, rather than echoing its
+    // whole value back as an unmarked "fragment".
+    no_match_size: 0,
+    fields: Object.fromEntries(
+      fields.flatMap((field) => [
+        [field, {}],
+        [`${field}.folded`, {}],
+      ])
+    ),
+  };
+};
 
 export interface CompiledListQuery {
   readonly body: Record<string, unknown>;
@@ -185,18 +365,19 @@ export const compileListQuery = ({
     filters.push({ range: { value_comparable_bani: range } });
   }
 
+  // Names OR identifiers: one `should` group, so a code-shaped query reaches the
+  // keyword fields the SQL path used to search without narrowing the name match.
   const must: Clause[] =
     filter.q === undefined
       ? []
       : [
           {
-            multi_match: {
-              query: filter.q,
-              fields: [...Q_FIELDS],
-              type: 'best_fields',
-              fuzziness: 'AUTO',
-              prefix_length: 1,
-              max_expansions: 50,
+            bool: {
+              should: [
+                textClause(filter.q, filter.qMode ?? DEFAULT_Q_MODE),
+                ...identifierClauses(grain, filter.q),
+              ],
+              minimum_should_match: 1,
             },
           },
         ];
@@ -211,6 +392,21 @@ export const compileListQuery = ({
     facetDims.push(dim);
   }
 
+  // `relevance` orders by BM25 with the numeric pk as the tiebreak — total
+  // within a response, and stable across pages of one immutable single-shard
+  // generation (verified: pages 1+2 equal a single 40-document window, no
+  // repeat, no gap across tied scores). See parity rule 7 for what a reshard
+  // would break.
+  const sort: Clause[] =
+    page.sort === 'relevance'
+      ? [{ _score: 'desc' }, { pk: 'desc' }]
+      : [
+          { [sortField(page.sort)]: { order: ascending ? 'asc' : 'desc', missing: '_last' } },
+          { pk: 'desc' },
+        ];
+
+  const highlight = highlightBlock(grain, filter.q);
+
   return {
     body: {
       from: (page.page - 1) * page.pageSize,
@@ -218,10 +414,8 @@ export const compileListQuery = ({
       _source: false,
       track_total_hits: trackTotalHits,
       query: { bool: { ...(must.length > 0 && { must }), filter: filters } },
-      sort: [
-        { [sortField(page.sort)]: { order: ascending ? 'asc' : 'desc', missing: '_last' } },
-        { pk: 'desc' },
-      ],
+      sort,
+      ...(highlight !== undefined && { highlight }),
       ...(facetDims.length > 0 && { aggs }),
     },
     facetDims,

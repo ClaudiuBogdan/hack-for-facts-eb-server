@@ -17,15 +17,18 @@ import { err, ok, type Result } from 'neverthrow';
 import { invalidInput, type ApiError } from '@/modules/shared/index.js';
 
 import {
+  DEFAULT_Q_MODE,
   DEFAULT_SEARCH_SORT,
   DA_OFFSET_SELECTIVE_FIELDS,
   PAGE_SIZE_DEFAULT,
   PAGE_SIZE_MAX,
   Q_MAX_LENGTH,
   Q_MIN_LENGTH,
+  Q_MODES,
   SEARCH_COUNT_CAP,
   SEARCH_SORTS,
   SEARCH_WINDOW_MAX,
+  type QMode,
   type SearchSort,
 } from './constants.js';
 
@@ -60,6 +63,13 @@ export interface ProcurementGeoScope {
 
 export interface ProcurementSearchFilter {
   readonly q?: string;
+  /**
+   * How the engine reads a multi-word `q` (`all` | `any` | `phrase`). Absent =
+   * `DEFAULT_Q_MODE`. `any` and `phrase` are engine-only — the SQL path has one
+   * `ILIKE '%q%'` and cannot express either — while `all` behaves exactly like
+   * an absent mode, so sending the default explicitly never changes the answer.
+   */
+  readonly qMode?: QMode;
   readonly authorityCui?: string;
   readonly supplierCui?: string;
   readonly cpvDivision?: string;
@@ -110,13 +120,60 @@ export const CPV_LEVELS = {
 } as const;
 export type CpvLevelKey = keyof typeof CPV_LEVELS;
 
-/** True when a filter names a dimension only the search engine carries. */
+/**
+ * True when a filter names a dimension only the search engine carries.
+ *
+ * BUYER geography and the CPV mid-levels are NOT on this list: the analysis
+ * fact row carries the buyer's resolved territory, and a mid-level is its
+ * canonical code truncated to the level — a left-anchored `cpv_code` range. Both
+ * compile to SQL, so a grain without an index still filters by them (measured on
+ * the 26M-row DA grain: 2.66 s for a year window + `q` + `buyer_region`).
+ *
+ * SUPPLIER geography stays engine-only: it resolves through
+ * `companies_v2.territory_resolution` at index-build time and exists in no
+ * procurement fact table.
+ */
 export const usesEngineOnlyFilter = (f: ProcurementSearchFilter): boolean =>
-  f.buyerGeo !== undefined ||
   f.supplierGeo !== undefined ||
-  f.cpvGroup !== undefined ||
-  f.cpvClass !== undefined ||
-  f.cpvCategory !== undefined;
+  // `any` and `phrase` have no SQL expression at all: falling back would run
+  // `ILIKE '%q%'` and answer a different question under the same label.
+  //
+  // `all` is EXCLUDED on purpose. It is the default reading, so treating it as
+  // engine-only would make the same request behave two ways depending on
+  // whether the client happened to send the default explicitly — an implicit
+  // `q` on an unindexed grain fell back to SQL while `qMode: all` failed.
+  // Falling back is still a change in what `q` means; `provenance.engine` is
+  // what discloses it, exactly as it did before this mode existed.
+  (f.qMode !== undefined && f.qMode !== DEFAULT_Q_MODE);
+
+/** True when the ORDER can only be produced by the engine (BM25 `_score`). */
+export const usesEngineOnlySort = (sort: SearchSort): boolean => sort === 'relevance';
+
+export const isQMode = (v: unknown): v is QMode =>
+  typeof v === 'string' && (Q_MODES as readonly string[]).includes(v);
+
+/**
+ * Reject a sort the requested (grain, filter) cannot actually produce, instead of
+ * quietly substituting another order. `relevance` needs a `q` to score and an
+ * engine to score it: without `q` every document ties at a constant score and the
+ * "ranking" is really the pk tiebreak wearing a relevance label.
+ */
+export const assertSortServeable = (
+  grain: SearchGrain,
+  sort: SearchSort,
+  filter: ProcurementSearchFilter
+): Result<void, ApiError> => {
+  if (!usesEngineOnlySort(sort)) return ok(undefined);
+  if (filter.q === undefined) {
+    return err(invalidInput('sort=relevance requires a q filter to rank against', 'sort'));
+  }
+  if (grain === 'modifications') {
+    return err(
+      invalidInput('sort=relevance is not available on modifications (SQL-served grain)', 'sort')
+    );
+  }
+  return ok(undefined);
+};
 
 /** Result-set facet dimensions the engine may aggregate, per grain. */
 export const SEARCH_FACET_DIMS: Readonly<Record<SearchGrain, readonly string[]>> = {
@@ -187,12 +244,19 @@ export interface ResolvedSort {
   readonly pk: string;
 }
 
+/** The sorts that map to a column. `relevance` deliberately does not. */
+export type SqlSearchSort = Exclude<SearchSort, 'relevance'>;
+
 /**
  * Resolve a sort token to `(column, direction, pk)`. The caller emits
  * `ORDER BY column direction NULLS LAST, pk DESC` — a TOTAL order, so an offset
  * page can never shuffle rows that tie on the sort column.
+ *
+ * The parameter type EXCLUDES `relevance`: there is no `_score` column, so the
+ * compiler — not a runtime branch — is what stops it from silently resolving to
+ * the value column.
  */
-export const resolveSort = (grain: SearchGrain, sort: SearchSort): ResolvedSort => {
+export const resolveSort = (grain: SearchGrain, sort: SqlSearchSort): ResolvedSort => {
   const cols = SORT_COLUMNS[grain];
   const byDate = sort === 'date_desc' || sort === 'date_asc';
   const ascending = sort === 'date_asc' || sort === 'value_asc';
@@ -263,12 +327,28 @@ export const parseQ = (raw: string | undefined): Result<string | undefined, ApiE
   return ok(q);
 };
 
-/** The columns `q` searches, per grain (all btree-indexed or short text). */
+/**
+ * The columns `q` searches, per grain — the SQL path's answer to the analyzed
+ * name fields the engine searches (title, authority name, supplier name) plus
+ * the identifiers.
+ *
+ * `modifications` has no title: `modification_type` is not an enum but the
+ * free-text description of WHAT changed, and it is the only prose the grain
+ * carries. Searching only the two numbers made the grain effectively
+ * unsearchable — measured on the 52,295 rows, `tva` matched 14,322 rows in
+ * `modification_type` and 1 in the numbers.
+ */
 export const Q_COLUMNS: Readonly<Record<SearchGrain, readonly string[]>> = {
-  procedures: ['title', 'notice_no'],
-  contracts: ['title', 'contract_no', 'notice_no'],
-  direct_acquisitions: ['title', 'unique_code'],
-  modifications: ['contract_no', 'notice_no'],
+  procedures: ['title', 'notice_no', 'authority_name'],
+  contracts: ['title', 'contract_no', 'notice_no', 'authority_name', 'supplier_name'],
+  direct_acquisitions: ['title', 'unique_code', 'authority_name', 'supplier_name'],
+  modifications: [
+    'modification_type',
+    'contract_no',
+    'notice_no',
+    'authority_name',
+    'supplier_name',
+  ],
 };
 
 // ── direct-acquisition selectivity (the 26M-row grain) ────────────────────────
@@ -328,6 +408,10 @@ export const interpretCappedCount = <T>(
   count: number | null,
   cap: number = SEARCH_COUNT_CAP
 ): OffsetSearchResult<T> => {
-  if (count === null || count > cap) return { items, total: null, estimated: true };
-  return { items, total: count, estimated: false };
+  // Every SQL-served page says so. Without this the reader cannot tell an
+  // index-dated answer from a live one — the engine-served page discloses its
+  // build stamp, so the other half of that contract has to disclose too.
+  const provenance = { engine: 'postgres' as const, asOf: null };
+  if (count === null || count > cap) return { items, total: null, estimated: true, provenance };
+  return { items, total: count, estimated: false, provenance };
 };

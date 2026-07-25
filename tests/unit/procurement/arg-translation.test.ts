@@ -116,10 +116,7 @@ describe('translateSearchFilter', () => {
     )._unsafeUnwrap();
     expect(both.recordKind).toEqual(['contract_award', 'framework_agreement']);
 
-    const bad = translateSearchFilter(
-      { recordKind: { in: ['umbrella'] } },
-      'contractDate'
-    );
+    const bad = translateSearchFilter({ recordKind: { in: ['umbrella'] } }, 'contractDate');
     expect(bad.isErr()).toBe(true);
   });
 
@@ -219,8 +216,11 @@ describe('translateSearchFilter — geography and CPV levels (list engine)', () 
     );
     expect(procedures.isErr()).toBe(true);
     expect(
-      translateSearchFilter({ supplierCounty: { eq: 'B' } }, 'publicationDate', 'direct_acquisitions')
-        ._unsafeUnwrap().supplierGeo
+      translateSearchFilter(
+        { supplierCounty: { eq: 'B' } },
+        'publicationDate',
+        'direct_acquisitions'
+      )._unsafeUnwrap().supplierGeo
     ).toEqual({ countyCode: 'B' });
   });
 
@@ -243,16 +243,32 @@ describe('translateSearchFilter — geography and CPV levels (list engine)', () 
 });
 
 describe('translateSearchFilter — engine-only dimensions on the SQL-only grain', () => {
-  it('rejects geography and CPV levels on modifications rather than ignoring them', () => {
-    // The grain has no CPV column and is not indexed: SQL would silently drop
-    // these predicates and answer a WIDER question than the one asked.
+  it('accepts buyer territory on modifications, and still rejects what the grain lacks', () => {
+    // Territory IS available: an amendment inherits its contract's buyer, so it
+    // resolves through the parent's fact row on `contract_id`.
     expect(
-      translateSearchFilter({ buyerCounty: { eq: 'CJ' } }, 'modificationDate', 'modifications')
-        .isErr()
+      translateSearchFilter(
+        { buyerCounty: { eq: 'CJ' } },
+        'modificationDate',
+        'modifications'
+      ).isOk()
     ).toBe(true);
+    // CPV is genuinely absent — the grain carries no code of its own, so this
+    // predicate would be silently dropped and answer a WIDER question.
     expect(
-      translateSearchFilter({ cpvGroup: { eq: '45200000' } }, 'modificationDate', 'modifications')
-        .isErr()
+      translateSearchFilter(
+        { cpvGroup: { eq: '45200000' } },
+        'modificationDate',
+        'modifications'
+      ).isErr()
+    ).toBe(true);
+    // Supplier territory needs the search index, which this grain has no part of.
+    expect(
+      translateSearchFilter(
+        { supplierCounty: { eq: 'CJ' } },
+        'modificationDate',
+        'modifications'
+      ).isErr()
     ).toBe(true);
     // Party + date filters remain available on that grain.
     expect(

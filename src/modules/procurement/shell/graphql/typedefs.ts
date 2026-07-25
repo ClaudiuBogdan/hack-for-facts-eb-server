@@ -34,6 +34,26 @@ export const procurementTypeDefs = /* GraphQL */ `
     date_asc
     value_desc
     value_asc
+    """
+    BM25 relevance, highest first. Requires a \`q\` filter to rank against and a
+    search-engine-served grain (not \`modifications\`); rejected otherwise rather
+    than silently answered in date order.
+    """
+    relevance
+  }
+
+  """
+  How the search engine reads a multi-word \`q\`. Measured on 1.55M contracts with
+  \`reparatii drumuri comunale\`: \`all\` = 14 hits, \`any\` = 90,872, \`phrase\` = 1.
+  Engine-served grains only — the SQL path has a single substring match.
+  """
+  enum ProcurementQMode {
+    "Every word must appear (the default)."
+    all
+    "Any word, with typo tolerance — the broadest reading."
+    any
+    "The words adjacent and in order."
+    phrase
   }
 
   "A counterparty as the procurement source records it (no identity join)."
@@ -204,6 +224,8 @@ export const procurementTypeDefs = /* GraphQL */ `
 
   input ProcurementProceduresFilter {
     q: StringQInput
+    "How \`q\` is read (default: all). Requires \`q\`."
+    qMode: ProcurementQMode
     authorityCui: StringEqInput
     cpvDivision: StringEqInput
     cpvCode: StringEqInput
@@ -226,6 +248,8 @@ export const procurementTypeDefs = /* GraphQL */ `
 
   input ProcurementContractsFilter {
     q: StringQInput
+    "How \`q\` is read (default: all). Requires \`q\`."
+    qMode: ProcurementQMode
     authorityCui: StringEqInput
     supplierCui: StringEqInput
     cpvDivision: StringEqInput
@@ -265,6 +289,8 @@ export const procurementTypeDefs = /* GraphQL */ `
   """
   input ProcurementDirectAcquisitionsFilter {
     q: StringQInput
+    "How \`q\` is read (default: all). Requires \`q\`."
+    qMode: ProcurementQMode
     authorityCui: StringEqInput
     supplierCui: StringEqInput
     cpvDivision: StringEqInput
@@ -294,6 +320,14 @@ export const procurementTypeDefs = /* GraphQL */ `
     q: StringQInput
     authorityCui: StringEqInput
     supplierCui: StringEqInput
+    """
+    Territory of the contracting institution. An amendment inherits its
+    contract's buyer, so this resolves through the parent contract's analysis
+    fact row — no search index involved.
+    """
+    buyerRegion: StringEqInput
+    buyerCounty: StringEqInput
+    buyerSiruta: StringEqInput
     modificationDate: DateRangeInput
     "contractId IS (NOT) NULL."
     linked: Boolean
@@ -318,6 +352,23 @@ export const procurementTypeDefs = /* GraphQL */ `
   }
 
   """
+  Where the text query matched inside one record, as a fragment of the ORIGINAL
+  text with the matched terms wrapped in U+27E6 … U+27E7.
+
+  Those markers are deliberately NOT markup: split on them and render your own
+  element. A fragment is presentational — it comes from the
+  index (as of \`provenance.asOf\`), while every rendered value comes from the
+  production database.
+  """
+  type ProcurementSearchHighlight {
+    "The record id — matches \`items[].id\` on this page."
+    id: ID!
+    title: String
+    authorityName: String
+    supplierName: String
+  }
+
+  """
   Which surface answered and how fresh it is. \`engine: "opensearch"\` pages are
   as of \`asOf\` (the index build); \`engine: "postgres"\` pages are live but
   cannot serve geography or CPV mid-level filters.
@@ -338,6 +389,8 @@ export const procurementTypeDefs = /* GraphQL */ `
     items: [ProcurementProcedure!]!
     "Present only for requested facets on an engine-served page."
     facets: [ProcurementSearchFacet!]
+    "Match fragments, for a \`q\` page the engine served."
+    highlights: [ProcurementSearchHighlight!]
     provenance: ProcurementSearchProvenance
   }
   type ProcurementContractsPage {
@@ -345,6 +398,8 @@ export const procurementTypeDefs = /* GraphQL */ `
     totalEstimated: Boolean!
     items: [ProcurementContract!]!
     facets: [ProcurementSearchFacet!]
+    "Match fragments, for a \`q\` page the engine served."
+    highlights: [ProcurementSearchHighlight!]
     provenance: ProcurementSearchProvenance
   }
   type ProcurementDirectAcquisitionsPage {
@@ -352,12 +407,16 @@ export const procurementTypeDefs = /* GraphQL */ `
     totalEstimated: Boolean!
     items: [ProcurementDirectAcquisition!]!
     facets: [ProcurementSearchFacet!]
+    "Match fragments, for a \`q\` page the engine served."
+    highlights: [ProcurementSearchHighlight!]
     provenance: ProcurementSearchProvenance
   }
   type ProcurementModificationsPage {
     total: Int
     totalEstimated: Boolean!
     items: [ProcurementContractModification!]!
+    "Always \`postgres\`: this grain is answered from the database, never an index."
+    provenance: ProcurementSearchProvenance
   }
 
   # ── detail bundles ──────────────────────────────────────────────────────────

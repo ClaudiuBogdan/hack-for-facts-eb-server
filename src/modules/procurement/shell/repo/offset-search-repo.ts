@@ -30,14 +30,17 @@ import { mapContract, mapDirectAcquisition, mapModification, mapProcedure } from
 import { SEARCH_COUNT_CAP } from '../../core/constants.js';
 import {
   assertDaOffsetSelective,
+  CPV_LEVELS,
   escapeLikePattern,
   interpretCappedCount,
   offsetOf,
   Q_COLUMNS,
   resolveSort,
   usesEngineOnlyFilter,
+  usesEngineOnlySort,
   type ProcurementSearchFilter,
   type SearchGrain,
+  type SqlSearchSort,
 } from '../../core/search.js';
 
 import type { OpenSearchListEngine } from './opensearch-list-repo.js';
@@ -133,6 +136,9 @@ const BINDINGS: Readonly<Record<SearchGrain, GrainBinding>> = {
 
 const ref = (alias: string, column: string): RawBuilder<unknown> => sql.ref(`${alias}.${column}`);
 
+/** Finest level first — a category scope beats a class scope beats a group. */
+const CPV_LEVEL_ORDER = ['cpvCategory', 'cpvClass', 'cpvGroup'] as const;
+
 /** `cpv_code` division range — index-safe (never `substring(cpv_code,1,2)`). */
 const divisionRange = (alias: string, division: string): RawBuilder<unknown> => {
   const col = ref(alias, 'cpv_code');
@@ -173,6 +179,62 @@ const inList = (column: RawBuilder<unknown>, values: readonly string[]): RawBuil
   )})`;
 };
 
+/**
+ * The analysis fact row for a grain, which carries the BUYER's resolved
+ * territory. Buyer geography is therefore NOT index-only: an `exists` on the
+ * fact primary key filters it in SQL too.
+ *
+ * Measured on the DA grain (26M rows), the case that forced this: a 2025 window
+ * + `q` + `buyer_region` ran in 2.66 s, and the join contributed ~1,773 primary-
+ * key lookups on top of a date scan the query already performed. Before it, the
+ * list DROPPED territory and showed 1,736 records under a header counting 31.
+ *
+ * `modifications` is the one grain with no fact row of its own — which is the
+ * whole reason it had no territory filter. It does not need one: an amendment
+ * belongs to a contract, and 52,257 of 52,295 rows (99.93%) carry that
+ * `contract_id`, so it resolves through the PARENT's fact row on the same
+ * primary key. Measured: 80 ms for a region-filtered page, covering 51,201 rows
+ * (97.9%); the remainder are amendments whose parent has no resolved territory.
+ *
+ * Supplier territory is in NO fact table — it resolves through
+ * `companies_v2.territory_resolution` at index-build time and stays engine-only.
+ */
+const FACT_TABLES: Readonly<Partial<Record<SearchGrain, { table: string; pk: string }>>> = {
+  procedures: { table: 'procurement.analysis_facts_procedures', pk: 'procedure_id' },
+  contracts: { table: 'procurement.analysis_facts_contracts', pk: 'contract_id' },
+  direct_acquisitions: {
+    table: 'procurement.analysis_facts_direct_acquisitions',
+    pk: 'da_id',
+  },
+  // Same table and same join column as `contracts` — an amendment inherits its
+  // contract's buyer, so its territory is the contract's territory.
+  modifications: { table: 'procurement.analysis_facts_contracts', pk: 'contract_id' },
+};
+
+const BUYER_GEO_COLUMNS = {
+  region: 'buyer_region',
+  countyCode: 'buyer_county_code',
+  siruta: 'buyer_siruta',
+} as const;
+
+/** `exists (select 1 from <facts> f where f.<pk> = <alias>.<pk> and f.<geo> = …)`. */
+const buyerGeoPredicate = (
+  grain: SearchGrain,
+  alias: string,
+  geo: NonNullable<ProcurementSearchFilter['buyerGeo']>
+): RawBuilder<unknown> | null => {
+  const facts = FACT_TABLES[grain];
+  if (facts === undefined) return null;
+  const conds: RawBuilder<unknown>[] = [];
+  for (const [key, column] of Object.entries(BUYER_GEO_COLUMNS)) {
+    const value = geo[key as keyof typeof BUYER_GEO_COLUMNS];
+    if (value !== undefined) conds.push(sql`${ref('afg', column)} = ${value}`);
+  }
+  if (conds.length === 0) return null;
+  return sql`exists (select 1 from ${sql.table(facts.table)} as ${sql.ref('afg')}
+    where ${ref('afg', facts.pk)} = ${ref(alias, facts.pk)} and ${composeAnd(conds)})`;
+};
+
 /** Compile the validated filter into WHERE conditions for one grain. */
 export const buildSearchConditions = (
   grain: SearchGrain,
@@ -191,9 +253,23 @@ export const buildSearchConditions = (
     conds.push(sql`${ref(alias, 'supplier_cui')} = ${filter.supplierCui}`);
   }
   if (b.hasCpv) {
-    // An exact code is more specific than its division; when both arrive the code wins.
+    // Finest wins: an exact code beats a mid-level, which beats the division —
+    // the same precedence the engine applies. A level is its canonical 8-digit
+    // code truncated to the level's digit length, which `cpvCodePredicate`
+    // compiles to the same left-anchored index range as a short code, so the
+    // mid-levels are NOT index-only either.
+    const level = CPV_LEVEL_ORDER.map((key) => {
+      const code = filter[key];
+      return code === undefined ? null : code.slice(0, CPV_LEVELS[key].digits);
+    }).find((prefix): prefix is string => prefix !== null);
     if (filter.cpvCode !== undefined) conds.push(cpvCodePredicate(alias, filter.cpvCode));
+    else if (level !== undefined) conds.push(cpvCodePredicate(alias, level));
     else if (filter.cpvDivision !== undefined) conds.push(divisionRange(alias, filter.cpvDivision));
+  }
+
+  if (filter.buyerGeo !== undefined) {
+    const geo = buyerGeoPredicate(grain, alias, filter.buyerGeo);
+    if (geo !== null) conds.push(geo);
   }
   if (b.hasSourceSystem && filter.sourceSystem !== undefined) {
     conds.push(inList(ref(alias, 'source_system'), filter.sourceSystem));
@@ -371,12 +447,26 @@ export interface ProcurementOffsetSearchRepo {
 }
 
 /** `ORDER BY <col> <dir> NULLS LAST, <pk> DESC` — the total order (invariant 1). */
-const orderClause = (grain: SearchGrain, page: OffsetSearchRequest): RawBuilder<unknown> => {
+const orderClause = (grain: SearchGrain, sort: SqlSearchSort): RawBuilder<unknown> => {
   const b = BINDINGS[grain];
-  const sort = resolveSort(grain, page.sort);
-  const dir = sort.direction === 'asc' ? sql`asc` : sql`desc`;
-  return sql`${ref(b.alias, sort.column)} ${dir} nulls last, ${ref(b.alias, sort.pk)} desc`;
+  const resolved = resolveSort(grain, sort);
+  const dir = resolved.direction === 'asc' ? sql`asc` : sql`desc`;
+  return sql`${ref(b.alias, resolved.column)} ${dir} nulls last, ${ref(b.alias, resolved.pk)} desc`;
 };
+
+/**
+ * Narrow a request sort to one SQL can express, or null. `relevance` is BM25:
+ * there is no column for it, and answering a relevance request with a date order
+ * under the same label is exactly the silent substitution this surface refuses.
+ */
+const sqlSort = (page: OffsetSearchRequest): SqlSearchSort | null =>
+  page.sort === 'relevance' ? null : page.sort;
+
+const relevanceUnavailable = (): ApiError =>
+  upstreamError(
+    'sort=relevance needs the search engine, which cannot serve this request',
+    'opensearch'
+  );
 
 /** Per-grain surrogate pk — the column an engine-served page hydrates on. */
 const PK_COLUMNS: Readonly<Record<SearchGrain, string>> = {
@@ -432,10 +522,7 @@ export const makeOffsetSearchRepo = (
     }
     const missing = pks.length - items.length;
     if (missing > 0) {
-      logger?.warn(
-        { grain, missing },
-        'search index lists rows postgres no longer serves'
-      );
+      logger?.warn({ grain, missing }, 'search index lists rows postgres no longer serves');
     }
     return { items, missing };
   };
@@ -456,12 +543,25 @@ export const makeOffsetSearchRepo = (
     facets: readonly string[] | undefined,
     hydrate: (pks: readonly number[]) => Promise<{ items: Out[]; missing: number }>
   ): Promise<Result<OffsetSearchResult<Out>, ApiError> | null> => {
-    const engineOnly = usesEngineOnlyFilter(f);
-    if (engine?.canServe(grain) !== true) {
+    // A relevance ORDER is as engine-only as a geography FILTER: the SQL path
+    // has no `_score`, so falling back would silently reorder the answer.
+    //
+    // And on a grain the engine IS configured for, a free-text `q` is
+    // engine-only too. The two paths do not mean the same thing — the engine
+    // requires every analyzed term across title and both party names, SQL runs
+    // one literal `ILIKE '%q%'` over fewer columns — so falling back would
+    // answer a different question under the same query. Where no index is
+    // configured, SQL remains the declared behaviour for that grain.
+    const engineConfigured = engine?.canServe(grain) === true;
+    const engineOnly =
+      usesEngineOnlyFilter(f) ||
+      usesEngineOnlySort(p.sort) ||
+      (engineConfigured && f.q !== undefined);
+    if (!engineConfigured) {
       return engineOnly
         ? err(
             upstreamError(
-              `search engine not configured for grain ${grain}; geography and CPV level filters cannot be served`,
+              `search engine not configured for grain ${grain}; geography, CPV level filters, an explicit q mode and relevance sort cannot be served`,
               'opensearch'
             )
           )
@@ -496,6 +596,7 @@ export const makeOffsetSearchRepo = (
         total: exact ? page.total : null,
         estimated: !exact,
         facets: page.facets,
+        highlights: page.highlights,
         provenance: { engine: 'opensearch' as const, asOf: page.asOf },
       });
     } catch (error) {
@@ -530,7 +631,13 @@ export const makeOffsetSearchRepo = (
       .select(daSelect)
       .where(sql<SqlBool>`d.da_id = any(cast(${pks} as bigint[])) and d.is_canonical`)
       .execute();
-    return hydrateInOrder('direct_acquisitions', pks, PK_COLUMNS.direct_acquisitions, rows, mapDirectAcquisition);
+    return hydrateInOrder(
+      'direct_acquisitions',
+      pks,
+      PK_COLUMNS.direct_acquisitions,
+      rows,
+      mapDirectAcquisition
+    );
   };
 
   /**
@@ -590,12 +697,14 @@ export const makeOffsetSearchRepo = (
   ): Promise<Result<OffsetSearchResult<ProcurementProcedure>, ApiError>> => {
     const viaEngine = await searchViaEngine('procedures', f, p, facets, hydrateProcedures);
     if (viaEngine !== null) return viaEngine;
+    const sort = sqlSort(p);
+    if (sort === null) return err(relevanceUnavailable());
     const resolved = sqlConditions('procedures', f);
     const rows = db
       .selectFrom('procurement.procedures as p')
       .select(procedureSelect)
       .where(composeAnd(resolved.conds))
-      .orderBy(orderClause('procedures', p))
+      .orderBy(orderClause('procedures', sort))
       .limit(p.pageSize)
       .offset(offsetOf(p))
       .execute();
@@ -613,12 +722,14 @@ export const makeOffsetSearchRepo = (
   ): Promise<Result<OffsetSearchResult<ProcurementContract>, ApiError>> => {
     const viaEngine = await searchViaEngine('contracts', f, p, facets, hydrateContracts);
     if (viaEngine !== null) return viaEngine;
+    const sort = sqlSort(p);
+    if (sort === null) return err(relevanceUnavailable());
     const resolved = sqlConditions('contracts', f);
     const rows = db
       .selectFrom('procurement.contracts as c')
       .select(contractSelect)
       .where(composeAnd(resolved.conds))
-      .orderBy(orderClause('contracts', p))
+      .orderBy(orderClause('contracts', sort))
       .limit(p.pageSize)
       .offset(offsetOf(p))
       .execute();
@@ -645,6 +756,8 @@ export const makeOffsetSearchRepo = (
       hydrateDirectAcquisitions
     );
     if (viaEngine !== null) return viaEngine;
+    const sort = sqlSort(p);
+    if (sort === null) return err(relevanceUnavailable());
     const selective = assertDaOffsetSelective(f, daMaxWindowDays);
     if (selective.isErr()) return err(selective.error);
     const resolved = sqlConditions('direct_acquisitions', f);
@@ -652,7 +765,7 @@ export const makeOffsetSearchRepo = (
       .selectFrom('procurement.direct_acquisitions as d')
       .select(daSelect)
       .where(composeAnd(resolved.conds))
-      .orderBy(orderClause('direct_acquisitions', p))
+      .orderBy(orderClause('direct_acquisitions', sort))
       .limit(p.pageSize)
       .offset(offsetOf(p))
       .execute();
@@ -675,10 +788,16 @@ export const makeOffsetSearchRepo = (
       return Promise.resolve(
         err(
           invalidInput(
-            'geography and CPV level filters are not available on the modifications grain',
+            'geography, CPV level filters and an explicit q mode are not available on the modifications grain',
             'filter'
           )
         )
+      );
+    }
+    const sort = sqlSort(p);
+    if (sort === null) {
+      return Promise.resolve(
+        err(invalidInput('sort=relevance is not available on the modifications grain', 'sort'))
       );
     }
     const resolved = sqlConditions('modifications', f);
@@ -686,7 +805,7 @@ export const makeOffsetSearchRepo = (
       .selectFrom('procurement.contract_modifications as m')
       .select(modificationSelect)
       .where(composeAnd(resolved.conds))
-      .orderBy(orderClause('modifications', p))
+      .orderBy(orderClause('modifications', sort))
       .limit(p.pageSize)
       .offset(offsetOf(p))
       .execute();

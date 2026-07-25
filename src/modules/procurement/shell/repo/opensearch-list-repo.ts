@@ -31,7 +31,7 @@ import { upstreamError, type ApiError } from '@/modules/shared/index.js';
 import { compileListQuery } from '../../core/opensearch-query.js';
 
 import type { ProcurementSearchFilter, SearchGrain } from '../../core/search.js';
-import type { OffsetSearchRequest, SearchFacet } from '../../core/types.js';
+import type { OffsetSearchRequest, SearchFacet, SearchHighlight } from '../../core/types.js';
 
 export interface OpenSearchListConfig {
   readonly url: string;
@@ -55,6 +55,8 @@ export interface OpenSearchListPage {
   /** False when the engine capped the count and reported a lower bound. */
   readonly totalExhaustive: boolean;
   readonly facets: readonly SearchFacet[];
+  /** Match fragments for the hits that had them (empty when `q` is absent). */
+  readonly highlights: readonly SearchHighlight[];
   /** Index build stamp (`_meta.built_at`) — an index without one is refused. */
   readonly asOf: string;
 }
@@ -88,7 +90,46 @@ interface ParsedHits {
   readonly pks: number[];
   readonly total: number;
   readonly totalExhaustive: boolean;
+  /** One entry per hit that carried a `highlight` block, keyed by the item id. */
+  readonly highlights: SearchHighlight[];
 }
+
+/**
+ * Document highlight field → the item field the client renders it into. Each
+ * name field is highlighted through both its analyzers (the base one does not
+ * fold diacritics), and both return the ORIGINAL text — so the first fragment
+ * that exists wins, base before folded.
+ */
+const HIGHLIGHT_KEYS: readonly (readonly [string, 'title' | 'authorityName' | 'supplierName'])[] = [
+  ['title', 'title'],
+  ['title.folded', 'title'],
+  ['authority_name', 'authorityName'],
+  ['authority_name.folded', 'authorityName'],
+  ['supplier_name', 'supplierName'],
+  ['supplier_name.folded', 'supplierName'],
+];
+
+/**
+ * First fragment per known field. Highlighting is presentational, so — unlike
+ * hits and facets — an unreadable block is skipped rather than failing the page:
+ * losing the marks costs the reader emphasis, not correctness.
+ */
+const parseHighlight = (raw: unknown, id: string): SearchHighlight | null => {
+  const block = asRecord(raw);
+  if (block === null) return null;
+  const out: { -readonly [K in keyof SearchHighlight]: SearchHighlight[K] } = { id };
+  let found = false;
+  for (const [field, key] of HIGHLIGHT_KEYS) {
+    if (out[key] !== undefined) continue;
+    const fragments: unknown = block[field];
+    if (!Array.isArray(fragments)) continue;
+    const first: unknown = fragments[0];
+    if (typeof first !== 'string' || first === '') continue;
+    out[key] = first;
+    found = true;
+  }
+  return found ? out : null;
+};
 
 /**
  * A search that timed out, terminated early, or lost a shard still answers
@@ -128,6 +169,7 @@ const parseHits = (payload: Record<string, unknown>, prefix: string): ParsedHits
   const hits = hitsBlock['hits'];
   if (!Array.isArray(hits)) return null;
   const pks: number[] = [];
+  const highlights: SearchHighlight[] = [];
   for (const hit of hits) {
     const record = asRecord(hit);
     if (record === null) return null;
@@ -136,8 +178,12 @@ const parseHits = (payload: Record<string, unknown>, prefix: string): ParsedHits
     const pk = Number(id.slice(prefix.length));
     if (!Number.isSafeInteger(pk)) return null;
     pks.push(pk);
+    if (record['highlight'] !== undefined) {
+      const highlight = parseHighlight(record['highlight'], String(pk));
+      if (highlight !== null) highlights.push(highlight);
+    }
   }
-  return { pks, total, totalExhaustive: relation === 'eq' };
+  return { pks, total, totalExhaustive: relation === 'eq', highlights };
 };
 
 /**
@@ -306,15 +352,14 @@ export const makeOpenSearchListEngine = (config: OpenSearchListConfig): OpenSear
           // An index with no build stamp cannot be dated, and an undated list
           // silently reads as live. Refuse it — the caller degrades to SQL for
           // SQL-serveable filters and fails explicitly for the rest.
-          return err(
-            upstreamError('opensearch list: index carries no build stamp', 'opensearch')
-          );
+          return err(upstreamError('opensearch list: index carries no build stamp', 'opensearch'));
         }
         return ok({
           pks: hits.pks,
           total: hits.total,
           totalExhaustive: hits.totalExhaustive,
           facets: facets ?? [],
+          highlights: hits.highlights,
           asOf,
         });
       } catch (error) {

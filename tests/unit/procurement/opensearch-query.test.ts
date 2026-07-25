@@ -136,6 +136,168 @@ describe('compileListQuery — predicates', () => {
   });
 });
 
+// ── free text: modes, identifiers, relevance, highlight ───────────────────────
+
+/** The `should` group inside `must` — the names-OR-identifiers matcher. */
+const textShoulds = (body: Record<string, unknown>): Record<string, unknown>[] => {
+  const query = body['query'] as {
+    bool: { must?: { bool: { should: Record<string, unknown>[] } }[] };
+  };
+  return query.bool.must?.[0]?.bool.should ?? [];
+};
+
+describe('compileListQuery — q modes', () => {
+  it('defaults to "every word must appear"', () => {
+    const { body } = compileListQuery({
+      grain: 'contracts',
+      filter: { q: 'drumuri comunale' },
+      page,
+    });
+    const [text] = textShoulds(body);
+    expect(text?.['multi_match']).toMatchObject({ type: 'best_fields', operator: 'and' });
+    // The default must NOT be fuzzy: on the live index `fuzziness: AUTO` took
+    // `reparatii drumuri comunale` from 30,667 hits to 90,872.
+    expect(text?.['multi_match']).not.toHaveProperty('fuzziness');
+  });
+
+  it('reads `any` as the broad OR + typo tolerance, and `phrase` as adjacency', () => {
+    const anyBody = compileListQuery({
+      grain: 'contracts',
+      filter: { q: 'drumuri comunale', qMode: 'any' },
+      page,
+    }).body;
+    expect(textShoulds(anyBody)[0]?.['multi_match']).toMatchObject({
+      type: 'best_fields',
+      // ONE edit: `AUTO` allows two on a 6-letter term, and two edits reach a
+      // different word — `Mănuși` matched `MASURI` (2,355 hits vs 863).
+      fuzziness: '1',
+      prefix_length: 2,
+    });
+    const phraseBody = compileListQuery({
+      grain: 'contracts',
+      filter: { q: 'drumuri comunale', qMode: 'phrase' },
+      page,
+    }).body;
+    expect(textShoulds(phraseBody)[0]?.['multi_match']).toMatchObject({ type: 'phrase' });
+  });
+});
+
+describe('compileListQuery — identifiers in q', () => {
+  it('probes the grain identifier keywords, uppercased, for a code-shaped query', () => {
+    // `q="CAN1123309"` scored 0 hits through the analyzed name fields while
+    // `term(notice_no)` matched 30 documents — the SQL path searched these
+    // columns and the engine must not lose them.
+    const { body } = compileListQuery({ grain: 'contracts', filter: { q: 'can1123309' }, page });
+    const shoulds = textShoulds(body);
+    expect(shoulds).toContainEqual({ term: { notice_no: { value: 'CAN1123309', boost: 8 } } });
+    expect(shoulds).toContainEqual({ term: { contract_no: { value: 'CAN1123309', boost: 8 } } });
+    // The raw form too: these keyword fields carry no normalizer.
+    expect(shoulds).toContainEqual({ term: { notice_no: { value: 'can1123309', boost: 8 } } });
+  });
+
+  it('NEVER probes a CNP-shaped identifier — that is personal data', () => {
+    // 408 distinct 13-digit supplier identifiers across 1,184 canonical rows
+    // are CNP-shaped and belong to named natural persons. The kernel withholds
+    // over-10-digit identifiers (P0 containment); probing one here would make a
+    // personal identification number a working query in a public search box.
+    const { body } = compileListQuery({
+      grain: 'contracts',
+      filter: { q: '1850101070016' },
+      page,
+    });
+    const fields = textShoulds(body).flatMap((clause) =>
+      clause['term'] === undefined ? [] : Object.keys(clause['term'] as object)
+    );
+    expect(fields).not.toContain('supplier_cui');
+    expect(fields).not.toContain('authority_cui');
+    // It is still an identifier-shaped token, so the notice/contract probes
+    // stay — they carry no personal data.
+    expect(fields).toContain('notice_no');
+  });
+
+  it('probes both CUIs for an all-digits query, above a name match', () => {
+    const { body } = compileListQuery({ grain: 'contracts', filter: { q: '3897378' }, page });
+    const shoulds = textShoulds(body);
+    expect(shoulds).toContainEqual({ term: { authority_cui: { value: '3897378', boost: 12 } } });
+    expect(shoulds).toContainEqual({ term: { supplier_cui: { value: '3897378', boost: 12 } } });
+    // A digits query is also a valid contract_no, so that probe stays.
+    expect(shoulds).toContainEqual({ term: { contract_no: { value: '3897378', boost: 8 } } });
+  });
+
+  it('never probes a supplier CUI on procedures — a procedure predates its award', () => {
+    const { body } = compileListQuery({ grain: 'procedures', filter: { q: '3897378' }, page });
+    const fields = textShoulds(body).flatMap((clause) =>
+      clause['term'] === undefined ? [] : Object.keys(clause['term'] as object)
+    );
+    expect(fields).toContain('authority_cui');
+    expect(fields).not.toContain('supplier_cui');
+    expect(fields).not.toContain('contract_no');
+  });
+
+  it('probes a code that contains a space — 264,588 real contract numbers do', () => {
+    // `5351 A`, `970 APS`, `A - 2721`. An earlier shape test required a single
+    // whitespace-free token and made every one of them unfindable.
+    const { body } = compileListQuery({ grain: 'contracts', filter: { q: '5351 a' }, page });
+    expect(textShoulds(body)).toContainEqual({
+      term: { contract_no: { value: '5351 A', boost: 8 } },
+    });
+  });
+
+  it('costs a prose query nothing but a dictionary miss', () => {
+    // The probe is exact, so `servicii de paza` cannot widen the result set
+    // through it — but it is still compiled, because a shape test is what
+    // broke the codes with spaces.
+    const { body } = compileListQuery({
+      grain: 'contracts',
+      filter: { q: 'servicii de paza' },
+      page,
+    });
+    const fields = textShoulds(body).flatMap((clause) =>
+      clause['term'] === undefined ? [] : Object.keys(clause['term'] as object)
+    );
+    expect(fields).toEqual(['notice_no', 'notice_no', 'contract_no', 'contract_no']);
+  });
+});
+
+describe('compileListQuery — relevance and highlight', () => {
+  it('orders by score with the pk tiebreak, keeping the order TOTAL', () => {
+    const { body } = compileListQuery({
+      grain: 'contracts',
+      filter: { q: 'spital' },
+      page: { ...page, sort: 'relevance' },
+    });
+    expect(body['sort']).toEqual([{ _score: 'desc' }, { pk: 'desc' }]);
+  });
+
+  it('asks for fragments only when there is a query to highlight', () => {
+    const withQ = compileListQuery({ grain: 'contracts', filter: { q: 'spital' }, page }).body;
+    expect(withQ['highlight']).toMatchObject({
+      // Sentinels, not markup: the client renders its own element. Control
+      // characters do NOT work here \u2014 the highlighter trims one that lands at
+      // the very start or end of a field.
+      pre_tags: ['\u27E6'],
+      post_tags: ['\u27E7'],
+      require_field_match: false,
+    });
+    const withoutQ = compileListQuery({ grain: 'contracts', filter: {}, page }).body;
+    expect(withoutQ['highlight']).toBeUndefined();
+  });
+
+  it('highlights only the name fields a grain actually has, through both analyzers', () => {
+    // `.folded` too: the highlighter analyzes the query with the FIELD's
+    // analyzer, and `title` does not fold diacritics — a reader searching
+    // `scoala` matched `Școala Gimnazială` and got no marks without this.
+    const { body } = compileListQuery({ grain: 'procedures', filter: { q: 'spital' }, page });
+    const highlight = body['highlight'] as { fields: Record<string, unknown> };
+    expect(Object.keys(highlight.fields)).toEqual([
+      'title',
+      'title.folded',
+      'authority_name',
+      'authority_name.folded',
+    ]);
+  });
+});
+
 describe('compileListQuery — facets', () => {
   it('compiles requested dimensions to terms aggregations', () => {
     const { body, facetDims } = compileListQuery({

@@ -4,21 +4,46 @@
  * and the direct-acquisition selectivity matrix. Pure — no DB, no mocking library.
  */
 
+import {
+  DummyDriver,
+  Kysely,
+  PostgresAdapter,
+  PostgresIntrospector,
+  PostgresQueryCompiler,
+} from 'kysely';
 import { describe, expect, it } from 'vitest';
 
 import { SEARCH_COUNT_CAP, SEARCH_WINDOW_MAX } from '@/modules/procurement/core/constants.js';
 import {
   assertDaOffsetSelective,
+  assertSortServeable,
   escapeLikePattern,
   interpretCappedCount,
   offsetOf,
   parseOffsetRequest,
   parseQ,
   resolveSort,
+  usesEngineOnlyFilter,
   type ProcurementSearchFilter,
+  type SearchGrain,
 } from '@/modules/procurement/core/search.js';
+import { buildSearchConditions } from '@/modules/procurement/shell/repo/offset-search-repo.js';
 
 const DA_WINDOW_DAYS = 366;
+
+/**
+ * Compile the raw fragments to real SQL text — a `RawBuilder` is opaque
+ * otherwise, and the point of these tests is the predicate that reaches
+ * Postgres.
+ */
+const dummyDb = new Kysely<Record<string, never>>({
+  dialect: {
+    createAdapter: () => new PostgresAdapter(),
+    createDriver: () => new DummyDriver(),
+    createIntrospector: (d) => new PostgresIntrospector(d),
+    createQueryCompiler: () => new PostgresQueryCompiler(),
+  },
+});
 
 describe('capped exact count boundary', () => {
   const items = ['a'];
@@ -42,9 +67,23 @@ describe('capped exact count boundary', () => {
     expect(r.items).toEqual(items); // the page still serves
   });
 
-  it('a small exact count passes through', () => {
-    expect(interpretCappedCount(items, 0)).toEqual({ items, total: 0, estimated: false });
-    expect(interpretCappedCount(items, 42)).toEqual({ items, total: 42, estimated: false });
+  it('a small exact count passes through, and says the database answered', () => {
+    const postgres = { engine: 'postgres', asOf: null };
+    expect(interpretCappedCount(items, 0)).toEqual({
+      items,
+      total: 0,
+      estimated: false,
+      provenance: postgres,
+    });
+    expect(interpretCappedCount(items, 42)).toEqual({
+      items,
+      total: 42,
+      estimated: false,
+      provenance: postgres,
+    });
+    // A live page is dated by nothing: `asOf` is null, which is what the client
+    // reads as "read live" rather than "as of a build".
+    expect(interpretCappedCount(items, null).provenance).toEqual(postgres);
   });
 });
 
@@ -63,7 +102,32 @@ describe('page window cap', () => {
   it('rejects a pageSize over the max, a zero page, and a bad sort', () => {
     expect(parseOffsetRequest(1, 101, undefined).isErr()).toBe(true);
     expect(parseOffsetRequest(0, 20, undefined).isErr()).toBe(true);
-    expect(parseOffsetRequest(1, 20, 'relevance').isErr()).toBe(true);
+    expect(parseOffsetRequest(1, 20, 'score_desc').isErr()).toBe(true);
+  });
+
+  it('makes an explicit default q-mode behave exactly like an absent one', () => {
+    // Only `any` and `phrase` have no SQL expression. Treating the DEFAULT as
+    // engine-only made the same request behave two ways depending on whether
+    // the client sent the default explicitly: an implicit `q` on an unindexed
+    // grain fell back to SQL while `qMode: all` failed outright.
+    expect(usesEngineOnlyFilter({ q: 'spital' })).toBe(false);
+    expect(usesEngineOnlyFilter({ q: 'spital', qMode: 'all' })).toBe(false);
+    expect(usesEngineOnlyFilter({ q: 'spital', qMode: 'any' })).toBe(true);
+    expect(usesEngineOnlyFilter({ q: 'spital', qMode: 'phrase' })).toBe(true);
+  });
+
+  // `relevance` parses (it is a real sort token); whether it can be SERVED
+  // depends on the grain and the filter, which `parseOffsetRequest` cannot see.
+  it('accepts relevance as a sort token but only serves it with a q on an indexed grain', () => {
+    expect(parseOffsetRequest(1, 20, 'relevance').isOk()).toBe(true);
+    expect(assertSortServeable('contracts', 'relevance', { q: 'spital' }).isOk()).toBe(true);
+    // Nothing to rank against: every document ties at a constant score, so the
+    // "ranking" would really be the pk tiebreak wearing a relevance label.
+    expect(assertSortServeable('contracts', 'relevance', {}).isErr()).toBe(true);
+    // SQL-only grain: no `_score` exists to order by.
+    expect(assertSortServeable('modifications', 'relevance', { q: 'spital' }).isErr()).toBe(true);
+    // Every other sort is serveable everywhere.
+    expect(assertSortServeable('modifications', 'date_desc', {}).isOk()).toBe(true);
   });
 
   it('defaults to page 1 / date_desc', () => {
@@ -109,6 +173,57 @@ describe('sort → column map (per grain) and the total order', () => {
   });
 });
 
+describe('filters SQL can serve without the search index', () => {
+  const db = dummyDb;
+  const sqlOf = (grain: SearchGrain, f: ProcurementSearchFilter) =>
+    buildSearchConditions(grain, f)
+      .map((c) => {
+        const compiled = c.compile(db);
+        return `${compiled.sql} ${JSON.stringify(compiled.parameters)}`;
+      })
+      .join(' ');
+
+  it('filters BUYER territory through the analysis fact row', () => {
+    // Not index-only: the fact row carries the buyer's resolved territory, so a
+    // grain with no index still filters by it. Before this, the DA list dropped
+    // territory and showed 1,736 records under a header counting 31.
+    const sql = sqlOf('direct_acquisitions', { buyerGeo: { region: 'Sud-Est' } });
+    expect(sql).toContain('analysis_facts_direct_acquisitions');
+    expect(sql).toContain('buyer_region');
+    expect(sql).toContain('Sud-Est');
+  });
+
+  it('filters a CPV mid-level as a left-anchored code range', () => {
+    // A level is its canonical 8-digit code truncated to the level's length —
+    // the same prefix the engine uses, and an index range in Postgres.
+    expect(sqlOf('direct_acquisitions', { cpvGroup: '45200000' })).toContain('452%');
+    // Finest wins, exactly as the engine resolves it.
+    expect(sqlOf('contracts', { cpvGroup: '45200000', cpvCategory: '45233000' })).toContain(
+      '45233%'
+    );
+  });
+
+  it('resolves modification territory through the PARENT contract fact row', () => {
+    // Modifications are the one grain with no fact row of their own — the
+    // reason territory was missing. An amendment belongs to a contract
+    // (99.93% carry `contract_id`), so it inherits the contract's buyer.
+    const sql = sqlOf('modifications', { buyerGeo: { region: 'Sud-Est' } });
+    expect(sql).toContain('analysis_facts_contracts');
+    expect(sql).toContain('contract_id');
+    expect(sql).toContain('buyer_region');
+  });
+
+  it('still has no CPV of its own on modifications', () => {
+    expect(sqlOf('modifications', { cpvGroup: '45200000' })).not.toContain('452%');
+  });
+
+  it('leaves SUPPLIER territory to the engine — no fact table carries it', () => {
+    expect(usesEngineOnlyFilter({ supplierGeo: { countyCode: 'SB' } })).toBe(true);
+    expect(usesEngineOnlyFilter({ buyerGeo: { countyCode: 'SB' } })).toBe(false);
+    expect(usesEngineOnlyFilter({ cpvGroup: '45200000' })).toBe(false);
+  });
+});
+
 describe('q bounds and ILIKE escaping', () => {
   it('rejects under 3 and over 100 characters', () => {
     expect(parseQ('ab').isErr()).toBe(true);
@@ -130,6 +245,32 @@ describe('q bounds and ILIKE escaping', () => {
     expect(escapeLikePattern('a_b')).toBe('%a\\_b%');
     expect(escapeLikePattern('c\\d')).toBe('%c\\\\d%');
     expect(escapeLikePattern('plain')).toBe('%plain%');
+  });
+});
+
+describe('what free text searches, per grain', () => {
+  const sqlOf = (grain: SearchGrain, f: ProcurementSearchFilter) =>
+    buildSearchConditions(grain, f)
+      .map((c) => c.compile(dummyDb).sql)
+      .join(' ');
+
+  it('searches the modification DESCRIPTION — the grain has no title', () => {
+    // `modification_type` is free text ("…s-a modificat taxa pe valoarea
+    // adăugată (TVA) de la 19% la 21%"), not an enum. Searching only the two
+    // numbers made the grain unsearchable: `tva` matched 14,322 rows in the
+    // description and 1 in the numbers.
+    const sql = sqlOf('modifications', { q: 'tva' });
+    expect(sql).toContain('modification_type');
+    expect(sql).toContain('contract_no');
+  });
+
+  it('searches party names everywhere the grain has them', () => {
+    expect(sqlOf('contracts', { q: 'primaria' })).toContain('supplier_name');
+    expect(sqlOf('direct_acquisitions', { q: 'primaria' })).toContain('authority_name');
+    // A procedure predates its award, so there is no supplier column to search.
+    const procedures = sqlOf('procedures', { q: 'primaria' });
+    expect(procedures).toContain('authority_name');
+    expect(procedures).not.toContain('supplier_name');
   });
 });
 

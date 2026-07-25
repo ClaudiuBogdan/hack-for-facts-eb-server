@@ -207,6 +207,26 @@ export interface SearchFacet {
   readonly otherCount: number;
 }
 
+/**
+ * Where a text query matched inside one record, as a fragment of the ORIGINAL
+ * text with the matched terms wrapped in U+27E6 … U+27E7.
+ *
+ * Those markers are deliberately NOT markup: the client splits on them and
+ * renders its own element, so a title that itself contains `<mark>` — or any
+ * other markup — can never become markup in the page.
+ *
+ * Fragments are presentational only. They come from the search index, which is
+ * as of `SearchProvenance.asOf`, while every rendered value comes from Postgres
+ * — so a fragment is a hint about the match, never a source of record.
+ */
+export interface SearchHighlight {
+  /** The record id (the grain's primary key, as the item's `id` field carries it). */
+  readonly id: string;
+  readonly title?: string;
+  readonly authorityName?: string;
+  readonly supplierName?: string;
+}
+
 /** Which surface answered, and how fresh that answer is. */
 export interface SearchProvenance {
   readonly engine: 'opensearch' | 'postgres';
@@ -220,6 +240,8 @@ export interface OffsetSearchResult<T> {
   readonly estimated: boolean;
   /** Present only when facets were requested AND the engine served the page. */
   readonly facets?: readonly SearchFacet[];
+  /** Present only for a `q` page the engine served; one entry per matched item. */
+  readonly highlights?: readonly SearchHighlight[];
   readonly provenance?: SearchProvenance;
 }
 

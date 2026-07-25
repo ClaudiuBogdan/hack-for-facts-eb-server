@@ -14,12 +14,18 @@
 
 import { err, ok, type Result } from 'neverthrow';
 
-import { invalidInput, normalizeCui, type ApiError } from '@/modules/shared/index.js';
+import {
+  invalidInput,
+  isWithheldOrganizationIdentifier,
+  normalizeCui,
+  type ApiError,
+} from '@/modules/shared/index.js';
 
 import { parseAnalysisScope, type AnalysisScope } from '../../core/analysis-scope.js';
-import { RECORD_KINDS, VALUE_STATES } from '../../core/constants.js';
+import { Q_MODES, RECORD_KINDS, VALUE_STATES } from '../../core/constants.js';
 import {
   CPV_LEVELS,
+  isQMode,
   parseQ,
   type CpvLevelKey,
   type ProcurementGeoScope,
@@ -45,6 +51,8 @@ interface RangeInput {
 
 export interface RawSearchFilter {
   q?: StringQInput;
+  /** `ProcurementQMode` enum value — arrives as a plain string. */
+  qMode?: unknown;
   authorityCui?: StringEqInput;
   supplierCui?: StringEqInput;
   cpvDivision?: StringEqInput;
@@ -168,6 +176,16 @@ const readDecimalRange = (
   return ok(out.gte === undefined && out.lte === undefined ? undefined : out);
 };
 
+/**
+ * A party filter, normalized — and REFUSED when it is a withheld identifier.
+ *
+ * Over-10-digit identifiers are CNP-shaped natural-person identifiers (kernel
+ * P0 containment, 2026-07-22). Without this check the record list answered
+ * `supplierCui: <CNP>` with the person's contracts, name and the CNP itself:
+ * a personal identification number worked as a lookup key on a public surface.
+ * The CONTRACTS stay public — they are public spending — but they are reachable
+ * by title, buyer and party name, not by someone's personal number.
+ */
 const readCui = (
   input: StringEqInput | undefined,
   field: string
@@ -177,6 +195,9 @@ const readCui = (
   if (raw.value === undefined) return ok(undefined);
   const norm = normalizeCui(raw.value);
   if (norm === null) return err(invalidInput(`${field} is not a valid CUI`, field));
+  if (isWithheldOrganizationIdentifier(norm)) {
+    return err(invalidInput(`${field} is not an organization identifier`, field));
+  }
   return ok(norm);
 };
 
@@ -293,6 +314,21 @@ export const translateSearchFilter = (
   if (q.isErr()) return err(q.error);
   if (q.value !== undefined) out.q = q.value;
 
+  if (raw.qMode !== undefined && raw.qMode !== null) {
+    if (!isQMode(raw.qMode)) {
+      return err(invalidInput(`qMode must be one of ${Q_MODES.join(', ')}`, 'qMode'));
+    }
+    // The SQL-only grain has one `ILIKE '%q%'`: it cannot mean "all words",
+    // "any word" or "this phrase". Rejected rather than silently ignored.
+    if (grain === 'modifications') {
+      return err(invalidInput('qMode is not available on the modifications grain', 'qMode'));
+    }
+    if (q.value === undefined) {
+      return err(invalidInput('qMode requires a q filter to apply to', 'qMode'));
+    }
+    out.qMode = raw.qMode;
+  }
+
   const authority = readCui(raw.authorityCui, 'authorityCui');
   if (authority.isErr()) return err(authority.error);
   if (authority.value !== undefined) out.authorityCui = authority.value;
@@ -314,9 +350,10 @@ export const translateSearchFilter = (
       levels.value.cpvClass !== undefined ||
       levels.value.cpvCategory !== undefined)
   ) {
-    // Contract modifications carry no CPV column and are not indexed, so this
-    // filter has nothing to bind to. Rejected, never ignored — an ignored
-    // predicate answers a WIDER question than the one asked.
+    // Contract modifications carry no CPV column at all, so this filter has
+    // nothing to bind to. Rejected, never ignored — an ignored predicate
+    // answers a WIDER question than the one asked. (On the other grains the
+    // levels are a `cpv_code` range, served with or without the index.)
     return err(invalidInput('CPV levels are not available on the modifications grain', 'cpvGroup'));
   }
   if (levels.value.cpvGroup !== undefined) out.cpvGroup = levels.value.cpvGroup;
@@ -325,16 +362,9 @@ export const translateSearchFilter = (
 
   const buyerGeo = readGeoScope(raw, 'buyer');
   if (buyerGeo.isErr()) return err(buyerGeo.error);
-  if (buyerGeo.value !== undefined) {
-    // Same rule for territory: the modifications grain is SQL-only (no index),
-    // and SQL cannot resolve buyer territory on this table.
-    if (grain === 'modifications') {
-      return err(
-        invalidInput('buyer geography is not available on the modifications grain', 'buyerRegion')
-      );
-    }
-    out.buyerGeo = buyerGeo.value;
-  }
+  // Every grain can answer buyer territory: three read their own fact row, and
+  // modifications read the parent contract's on the same key.
+  if (buyerGeo.value !== undefined) out.buyerGeo = buyerGeo.value;
 
   const supplierGeo = readGeoScope(raw, 'supplier');
   if (supplierGeo.isErr()) return err(supplierGeo.error);
@@ -344,10 +374,7 @@ export const translateSearchFilter = (
     // would answer a wider question than the one asked).
     if (grain === 'procedures' || grain === 'modifications') {
       return err(
-        invalidInput(
-          `supplier geography is not available on the ${grain} grain`,
-          'supplierRegion'
-        )
+        invalidInput(`supplier geography is not available on the ${grain} grain`, 'supplierRegion')
       );
     }
     out.supplierGeo = supplierGeo.value;

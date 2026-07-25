@@ -110,8 +110,36 @@ export const PAGE_SIZE_DEFAULT = 20;
 export const Q_MIN_LENGTH = 3;
 export const Q_MAX_LENGTH = 100;
 
-/** The four sorts the client offers. Mapped to a per-grain column in the repo. */
-export const SEARCH_SORTS = ['date_desc', 'date_asc', 'value_desc', 'value_asc'] as const;
+/**
+ * How the search engine interprets a multi-word `q`. Measured on the 1,555,900-doc
+ * contracts index with `reparatii drumuri comunale`:
+ *
+ *   all    → 14 hits      every word must appear (the default)
+ *   any    → 90,872 hits  any word, plus `fuzziness: AUTO` typo tolerance
+ *   phrase → 1 hit        the words adjacent, in order
+ *
+ * `any` is what shipped first and it is unusable as a default: `servicii de paza`
+ * returned 1,072,674 of 1.55M contracts (69% of the index) because one common word
+ * carries the whole match. It survives as the deliberate "broaden this" control.
+ *
+ * Engine-only: the SQL path has one `ILIKE '%q%'` and cannot honour a mode.
+ */
+export const Q_MODES = ['all', 'any', 'phrase'] as const;
+export type QMode = (typeof Q_MODES)[number];
+export const DEFAULT_Q_MODE: QMode = 'all';
+
+/**
+ * The sorts the client offers. Mapped to a per-grain column in the repo, except
+ * `relevance` — that is BM25 `_score`, which only the search engine computes, so
+ * it is rejected on the SQL-only grain and when there is no `q` to score against.
+ */
+export const SEARCH_SORTS = [
+  'date_desc',
+  'date_asc',
+  'value_desc',
+  'value_asc',
+  'relevance',
+] as const;
 export type SearchSort = (typeof SEARCH_SORTS)[number];
 export const DEFAULT_SEARCH_SORT: SearchSort = 'date_desc';
 

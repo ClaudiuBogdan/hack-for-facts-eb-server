@@ -16,6 +16,7 @@ import { err, ok, type Result } from 'neverthrow';
 import {
   GRAPHQL_ERROR_CODE,
   invalidInput,
+  isWithheldOrganizationIdentifier,
   makeBatchLoader,
   type ApiError,
 } from '@/modules/shared/index.js';
@@ -42,6 +43,7 @@ import {
   type SeriesBucket,
 } from '../../core/constants.js';
 import {
+  assertSortServeable,
   parseOffsetRequest,
   SEARCH_FACET_DIMS,
   type SearchGrain,
@@ -83,15 +85,27 @@ const unwrap = <T>(result: Result<T, ApiError>): T => {
   return result.value;
 };
 
-/** A party block. `displayName` prefers the source's own name over the bare CUI. */
+/**
+ * A party block. `displayName` prefers the source's own name over the bare CUI.
+ *
+ * A WITHHELD identifier never leaves this resolver. Over-10-digit identifiers
+ * are CNP-shaped natural-person identifiers (kernel P0 containment,
+ * 2026-07-22), and 1,184 canonical contract rows carry one — the API was
+ * returning the personal number alongside the person's name, and
+ * `displayName` fell back to printing the number when the source had no name.
+ *
+ * The CONTRACT stays public: this is public spending and the record, its value
+ * and the supplier's name as the source published it are all still served. Only
+ * the personal identifier is withheld, and with it the ability to use that
+ * number as a key.
+ */
 const party = (
   cui: string | null,
   name: string | null
-): { cui: string | null; name: string | null; displayName: string | null } => ({
-  cui,
-  name,
-  displayName: name ?? cui,
-});
+): { cui: string | null; name: string | null; displayName: string | null } => {
+  const served = cui !== null && !isWithheldOrganizationIdentifier(cui) ? cui : null;
+  return { cui: served, name, displayName: name ?? served };
+};
 
 /**
  * Validate requested facet dimensions against the grain's allow-list. An
@@ -148,6 +162,9 @@ export const makeProcurementResolvers = (
   ) => {
     const filter = unwrap(translateSearchFilter(a.filter, dateField, grain));
     const page = unwrap(parseOffsetRequest(a.page, a.pageSize ?? PAGE_SIZE_DEFAULT, a.sort));
+    // `relevance` needs something to rank: reject it here, where the grain and
+    // the filter are both known, instead of letting a repo pick another order.
+    unwrap(assertSortServeable(grain, page.sort, filter));
     const facets = unwrap(parseFacetDims(a.facets, grain));
     return { filter, page, facets };
   };
@@ -161,6 +178,7 @@ export const makeProcurementResolvers = (
     totalEstimated: result.estimated,
     items: result.items,
     facets: result.facets ?? null,
+    highlights: result.highlights ?? null,
     provenance: result.provenance ?? null,
   });
 

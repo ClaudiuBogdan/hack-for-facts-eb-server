@@ -241,8 +241,15 @@ const grainNotes = (grain: AnalysisGrain): readonly string[] =>
           ? [MODIFICATION_COUNTS_NOTE]
           : [];
 
+/**
+ * The same words mean something different here than on the record list, and the
+ * counts differ by orders of magnitude — `reparatii drumuri comunale` matched 1
+ * record as a title substring and 14 as an all-words engine search. Disclosed
+ * rather than reconciled: an aggregate that quietly used a different population
+ * than the list it links to is worse than one that says so.
+ */
 const Q_TITLE_CAVEAT =
-  'q filters on record titles (case-insensitive substring); title coverage is partial per grain, so untitled records are excluded from every figure';
+  'q filters on record titles (case-insensitive substring); title coverage is partial per grain, so untitled records are excluded from every figure. The record list reads the same q as a full-text search over titles, party names and identifiers, so its result count legitimately differs from these figures';
 
 const VALUE_BOUNDS_CAVEAT =
   'value bounds restrict every figure (including counts) to records whose accepted awarded value falls in range';
