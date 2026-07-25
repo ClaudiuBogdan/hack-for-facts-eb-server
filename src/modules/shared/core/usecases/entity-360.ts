@@ -12,6 +12,8 @@ import { err, ok, type Result } from 'neverthrow';
 
 import { invalidInput, type ApiError } from '../errors.js';
 import {
+  MAX_SERVED_CUI_DIGITS,
+  isWithheldOrganizationIdentifier,
   normalizeCui,
   type Cui,
   type EntityProfileSlice,
@@ -53,6 +55,21 @@ export interface Entity360 {
  * A query like `entity(cui){ pnrr }` therefore never touches flows or the doc
  * scan. The full eager assembly lives in `makeEntity360` (snapshot/REST use).
  */
+/**
+ * The categorical refusal for a single-identity probe (P0 containment).
+ *
+ * `entity(cui)` is a probe: it answers "what do you know about this identifier"
+ * across every source, so a `null`-but-successful answer would still confirm
+ * non-existence while a populated one confirms existence. Refusing identically
+ * in both cases is the point — the same wording the companies surface uses, so
+ * the two can't drift into disagreeing about the same identifier.
+ */
+const withheldIdentifier = (): ApiError =>
+  invalidInput(
+    `identifiers longer than ${String(MAX_SERVED_CUI_DIGITS)} digits are not served`,
+    'cui'
+  );
+
 export interface EntityCore {
   readonly cui: Cui;
   readonly organization: Organization | null;
@@ -65,6 +82,7 @@ export const makeEntityCore = async (
 ): Promise<Result<EntityCore, ApiError>> => {
   const cui = normalizeCui(rawCui);
   if (cui === null) return err(invalidInput('invalid CUI format', 'cui'));
+  if (isWithheldOrganizationIdentifier(cui)) return err(withheldIdentifier());
 
   const orgRes = await deps.identityRepo.findByCui(cui);
   if (orgRes.isErr()) return err(orgRes.error);
@@ -98,6 +116,10 @@ export const makeEntity360 = async (
 ): Promise<Result<Entity360, ApiError>> => {
   const cui = normalizeCui(rawCui);
   if (cui === null) return err(invalidInput('invalid CUI format', 'cui'));
+  // Refuse BEFORE the fan-out: the eager assembly also reads flows, documents
+  // and per-source presence, so serving it would disclose a natural person's
+  // money and source footprint even with the organization row nulled.
+  if (isWithheldOrganizationIdentifier(cui)) return err(withheldIdentifier());
 
   const { identityRepo, flowsRepo, searchRepo, registry } = deps;
 

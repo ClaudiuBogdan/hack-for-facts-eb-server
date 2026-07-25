@@ -10,7 +10,13 @@ import { sql, type Kysely } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
 import { databaseError, type ApiError } from '../../core/errors.js';
-import { SEARCH_ENTITY_DOC_TYPES, type Cui, type SearchHit } from '../../core/types.js';
+import {
+  MAX_SERVED_CUI_DIGITS,
+  SEARCH_ENTITY_DOC_TYPES,
+  isWithheldOrganizationIdentifier,
+  type Cui,
+  type SearchHit,
+} from '../../core/types.js';
 
 import type { SearchRepo } from '../../core/ports.js';
 import type { ProdDatabase } from '../db/types.js';
@@ -114,7 +120,30 @@ export const makeSearchRepo = (db: Db): SearchRepo => ({
         })
         .where('doc_type', 'in', allowlist)
         .where('visibility', '=', 'public')
-        .where('deleted_at', 'is', null);
+        .where('deleted_at', 'is', null)
+        // P0 containment on the DEGRADED path. `search.documents` still carries
+        // 117,688 `company` docs keyed by a CNP-shaped CUI (the projection purge
+        // is a pending data-layer task), and `visibility='public'` does not
+        // exclude them. Worse, the all-digit branch above matches
+        // `<query> = any(cuis)` — so without this, typing a CNP into search
+        // returns that person's document by direct lookup whenever Meili is
+        // unavailable.
+        //
+        // The test is "has NO servable CUI", not "has a withheld one". Measured:
+        // all 117,688 company docs are keyed ONLY to a withheld id (drop them),
+        // while 2,047 of 2,067 procurement contracts also carry a servable buyer
+        // CUI — those are public acts and must stay searchable; only the 20
+        // keyed solely to a person are withheld. Docs with no CUIs at all (legal
+        // acts, reports) are unaffected.
+        .where(
+          sql<boolean>`(
+            coalesce(cardinality(cuis), 0) = 0
+            or exists (
+              select 1 from unnest(cuis) c
+              where length(c) <= ${sql.lit(MAX_SERVED_CUI_DIGITS)}
+            )
+          )`
+        );
 
       if (opts.county !== undefined && opts.county.trim() !== '') {
         query = query.where('county_name', '=', opts.county.trim());
@@ -153,7 +182,14 @@ export const makeSearchRepo = (db: Db): SearchRepo => ({
             ...(subtitle !== undefined && { subtitle }),
             ...(r.county_name !== null && { countyName: r.county_name }),
             ...(r.url !== null && { url: r.url }),
-            ...(r.cuis.length > 0 && { cuis: r.cuis }),
+            // Scrub withheld ids from the echoed array. The 2,047 retained
+            // contracts legitimately involve a PFA, but the contract is the
+            // public act — the person's identifier is not, and it must not ride
+            // out on a hit that was matched on something else entirely.
+            ...(() => {
+              const servable = r.cuis.filter((c) => !isWithheldOrganizationIdentifier(c));
+              return servable.length > 0 ? { cuis: servable } : {};
+            })(),
           };
         })
       );

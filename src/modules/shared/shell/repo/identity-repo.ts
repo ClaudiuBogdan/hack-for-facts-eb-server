@@ -15,15 +15,17 @@ import { err, ok, type Result } from 'neverthrow';
 
 import { foldDiacritics } from './fold.js';
 import { databaseError, type ApiError } from '../../core/errors.js';
+import {
+  MAX_SERVED_CUI_DIGITS,
+  isWithheldOrganizationIdentifier,
+  type Cui,
+  type OrgIdentifier,
+  type OrgNameMatch,
+  type Organization,
+  type Territory,
+} from '../../core/types.js';
 
 import type { IdentityRepo, OrgResolution } from '../../core/ports.js';
-import type {
-  Cui,
-  OrgIdentifier,
-  OrgNameMatch,
-  Organization,
-  Territory,
-} from '../../core/types.js';
 import type { ProdDatabase } from '../db/types.js';
 
 type Db = Kysely<ProdDatabase>;
@@ -70,8 +72,25 @@ const ORG_COLUMNS = [
   'attrs',
 ] as const;
 
+/**
+ * Withheld identities never leave this repo (P0 containment, 2026-07-22).
+ *
+ * The gate lives at the REPO boundary, not in each use case, because
+ * `core.organizations` is `privacy_class='public'` on every row — including the
+ * 117,688 CNP-shaped ones — so nothing downstream can tell a withheld identity
+ * from a servable one by looking at the row. Fail-closed here means a future
+ * caller inherits containment instead of having to remember it.
+ *
+ * Rows are dropped, not errored: this is the OUTPUT side. The typed categorical
+ * refusal belongs to the single-identity probes (`entity`,
+ * `referenceOrganization`), which reject before they ever reach the repo.
+ */
+const withheld = (org: Organization | null): Organization | null =>
+  org?.cui != null && isWithheldOrganizationIdentifier(org.cui) ? null : org;
+
 export const makeIdentityRepo = (db: Db): IdentityRepo => ({
   async findByCui(cui: Cui): Promise<Result<Organization | null, ApiError>> {
+    if (isWithheldOrganizationIdentifier(cui)) return ok(null);
     try {
       const row = await db
         .selectFrom('core.organizations')
@@ -93,7 +112,9 @@ export const makeIdentityRepo = (db: Db): IdentityRepo => ({
         .where('org_id', '=', orgId)
         .limit(1)
         .executeTakeFirst();
-      return ok(row === undefined ? null : mapOrg(row));
+      // org_id is an opaque surrogate, so the caller cannot pre-screen it — the
+      // withheld check has to happen on the ROW here.
+      return ok(row === undefined ? null : withheld(mapOrg(row)));
     } catch (error) {
       return err(databaseError('findByOrgId failed', error));
     }
@@ -102,9 +123,15 @@ export const makeIdentityRepo = (db: Db): IdentityRepo => ({
   async getIdentifiers(orgId: string): Promise<Result<readonly OrgIdentifier[], ApiError>> {
     try {
       const rows = await db
-        .selectFrom('core.organization_identifiers')
-        .select(['scheme', 'value', 'source'])
-        .where('org_id', '=', orgId)
+        .selectFrom('core.organization_identifiers as oi')
+        // Joined to the spine on purpose: `org_id` is an opaque surrogate, so a
+        // caller holding one from anywhere else could otherwise retrieve exactly
+        // the ONRC identifiers this containment exists to withhold. Identifiers
+        // ARE identity — gating only the name would be theatre.
+        .innerJoin('core.organizations as o', 'o.org_id', 'oi.org_id')
+        .select(['oi.scheme', 'oi.value', 'oi.source'])
+        .where('oi.org_id', '=', orgId)
+        .where(sql<boolean>`(o.cui is null or length(o.cui) <= ${sql.lit(MAX_SERVED_CUI_DIGITS)})`)
         .execute();
       return ok(rows.map((r) => ({ scheme: r.scheme, value: r.value, source: r.source })));
     } catch (error) {
@@ -125,6 +152,13 @@ export const makeIdentityRepo = (db: Db): IdentityRepo => ({
         .where(
           sql<boolean>`coalesce(normalized_name, name) ilike ${'%' + folded.replace(/[%_\\]/gu, '\\$&') + '%'} escape '\\'`
         )
+        // Withheld identities are excluded in SQL rather than filtered after the
+        // fact: a free-text name search is the highest-exposure path in this repo
+        // (a common surname would otherwise return natural persons), and a
+        // post-scan filter would also let them consume the scan cap and silently
+        // starve real matches. NULL-cui orgs are servable — the rule is about
+        // CNP-SHAPED identifiers, not about missing ones.
+        .where(sql<boolean>`(cui is null or length(cui) <= ${sql.lit(MAX_SERVED_CUI_DIGITS)})`)
         .limit(MAX_NAME_FALLBACK_SCAN)
         .execute();
 
@@ -180,6 +214,10 @@ export const makeIdentityRepo = (db: Db): IdentityRepo => ({
   },
 
   async territoryForCui(cui: Cui): Promise<Result<Territory | null, ApiError>> {
+    // A withheld identity's locality is personal data in its own right — the
+    // home address of a sole trader. Short-circuit rather than rely on the
+    // public_entities join happening to miss.
+    if (isWithheldOrganizationIdentifier(cui)) return ok(null);
     try {
       const row = await db
         .selectFrom('core.public_entities as pe')

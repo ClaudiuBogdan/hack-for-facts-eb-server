@@ -12,7 +12,9 @@
 import { err, ok, type Result } from 'neverthrow';
 
 import {
+  MAX_SERVED_CUI_DIGITS,
   invalidInput,
+  isWithheldOrganizationIdentifier,
   normalizeCui,
   type ApiError,
   type CursorPage,
@@ -166,6 +168,17 @@ export const getOrganizationRef = async (
 ): Promise<Result<Organization | null, ApiError>> => {
   const cui = normalizeCui(rawCui);
   if (cui === null) return err(invalidInput('invalid CUI format', 'cui'));
+  // Single-identity probe → categorical refusal, identical whether or not a row
+  // exists (P0 containment). The repo also fails closed; this is the typed
+  // answer the caller sees.
+  if (isWithheldOrganizationIdentifier(cui)) {
+    return err(
+      invalidInput(
+        `identifiers longer than ${String(MAX_SERVED_CUI_DIGITS)} digits are not served`,
+        'cui'
+      )
+    );
+  }
   return deps.identityRepo.findByCui(cui);
 };
 

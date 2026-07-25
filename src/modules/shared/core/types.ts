@@ -50,6 +50,34 @@ export const normalizeCui = (raw: string): Cui | null => {
   return result.length > 0 && result.length <= 13 ? result : null;
 };
 
+/**
+ * Served organization identifiers are at most 10 digits. Longer ones are
+ * CNP-shaped natural-person identifiers (personal data — P0 containment,
+ * 2026-07-22).
+ *
+ * MEASURED on prod 2026-07-25, not assumed: all 117,688 such identifiers carry a
+ * natural-person legal form in `companies_v2.registrations` — PF 116,628, AF 823,
+ * PFA 233, II 3, IF 1 — and zero are SRL/SA. Their `core.organizations.kind` is
+ * nevertheless `'company'`, because they arrive through the ONRC *company*
+ * registry; that label is descriptive, not evidence of legal personality
+ * (CORE_ENTITIES.md §5, B015(a)). Do not weaken this rule on the basis of `kind`.
+ *
+ * This lives in the KERNEL, not in the companies module, because the identity
+ * spine is the thing that must be contained: `core.organizations` carries
+ * `privacy_class='public'` on all 4,022,143 rows including 117,688 >10-digit
+ * identifiers, so `privacy_class` provides no containment on its own. Before
+ * this predicate moved here, `companies` refused such an identifier while
+ * `referenceOrganization` and `entity` happily returned its name, kind and ONRC
+ * identifiers — the same policy decided in two places, one of which said no.
+ *
+ * Callers pass a NORMALIZED cui (`normalizeCui`); the raw form may carry an `RO`
+ * prefix or separators that make a length test meaningless.
+ */
+export const MAX_SERVED_CUI_DIGITS = 10;
+
+export const isWithheldOrganizationIdentifier = (cui: string): boolean =>
+  cui.length > MAX_SERVED_CUI_DIGITS;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Flow & document type registries (§4.3, §4.5) — kept in sync with prod
 // ─────────────────────────────────────────────────────────────────────────────

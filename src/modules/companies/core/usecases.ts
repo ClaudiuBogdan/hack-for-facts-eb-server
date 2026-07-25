@@ -16,6 +16,8 @@
 import { err, ok, type Result } from 'neverthrow';
 
 import {
+  MAX_SERVED_CUI_DIGITS,
+  isWithheldOrganizationIdentifier,
   normalizeCui,
   type ApiError,
   type Counterparty,
@@ -75,11 +77,14 @@ const invalidCui = (): ApiError => ({
  * answer whether or not a row exists, so the refusal never confirms existence.
  * Output-side, resolve/name hits carrying such identifiers are dropped until
  * the search-index purge lands.
+ *
+ * The predicate now lives in the KERNEL (`shared/core/types.ts`) because the
+ * identity spine needs the same rule: this module refused a 13-digit identifier
+ * while `referenceOrganization` / `entity` still returned its name. One
+ * definition, so the two surfaces cannot disagree again. Re-exported under the
+ * companies-local name so existing importers are untouched.
  */
-const MAX_SERVED_CUI_DIGITS = 10;
-
-export const isWithheldCompanyIdentifier = (cui: string): boolean =>
-  cui.length > MAX_SERVED_CUI_DIGITS;
+export const isWithheldCompanyIdentifier = isWithheldOrganizationIdentifier;
 
 const withheldIdentifier = (): ApiError => ({
   type: 'InvalidInput',
@@ -163,6 +168,58 @@ export const normalizeCuiFilter = (filter: FilterInput): Result<FilterInput, Api
     result['exclude'] = { ...(exclude as Record<string, unknown>), cui: r.value };
   }
   return ok(result as FilterInput);
+};
+
+/**
+ * Drop withheld identifiers from an INCLUSION `cui.in` list.
+ *
+ * A batch `cui.in` is a name RESOLUTION ("give me the rows for these ids"), not
+ * a single-identity probe: omitting a withheld id yields a response that is
+ * indistinguishable from "no company carries that id", so it discloses nothing
+ * the output side does not already withhold (`dropWithheldHits`, and
+ * `shell/contributor.ts`, which answer `null` for exactly these ids). This is
+ * the "output-side ... dropped" half of the containment note above.
+ *
+ * Rejecting the whole filter instead meant ONE CNP-shaped supplier CUI inside a
+ * 50-id procurement batch blanked an entire page — natural persons legitimately
+ * win direct acquisitions, so `ProcurementPartyNames` hits this on the hub's
+ * default scope (2026-07-25).
+ *
+ * `eq`, and EVERY `exclude` branch, keep the categorical reject in
+ * `normalizeCuiFilter`: `eq` is the single-identity probe, and an `exclude` list
+ * shifts the total by one, which confirms existence. Un-normalizable values are
+ * kept here so `normalizeCuiFilter` still fails them as `invalidCui` — this
+ * drops withheld input, never malformed input.
+ *
+ * `emptied` is load-bearing: an empty `in` compiles to NO predicate (see
+ * `rejectEmptyIn`), so a batch of ONLY withheld ids must answer an empty page
+ * rather than the unfiltered table.
+ */
+export const dropWithheldCuiInclusion = (
+  filter: FilterInput
+): { readonly filter: FilterInput; readonly emptied: boolean; readonly dropped: number } => {
+  // `unknown`, not the declared FieldFilter: this value arrives from GraphQL /
+  // MCP input, so the runtime null check is real even though the static type
+  // says it cannot happen.
+  const cui: unknown = filter['cui'];
+  if (typeof cui !== 'object' || cui === null) {
+    return { filter, emptied: false, dropped: 0 };
+  }
+  const inV = (cui as Record<string, unknown>)['in'];
+  if (!Array.isArray(inV)) return { filter, emptied: false, dropped: 0 };
+
+  const kept = (inV as unknown[]).filter((v) => {
+    const c = normalizeCui(String(v));
+    return c === null || !isWithheldCompanyIdentifier(c);
+  });
+  const dropped = inV.length - kept.length;
+  if (dropped === 0) return { filter, emptied: false, dropped: 0 };
+
+  return {
+    filter: { ...filter, cui: { ...(cui as Record<string, unknown>), in: kept } } as FilterInput,
+    emptied: kept.length === 0,
+    dropped,
+  };
 };
 
 // ── profile (full assembly + public money) ────────────────────────────────────
@@ -343,10 +400,24 @@ export const makeCompanyList = async (
 ): Promise<Result<CompanyListResponse, ApiError>> => {
   const emptyIn = rejectEmptyIn(args.filter);
   if (emptyIn.isErr()) return err(emptyIn.error);
-  const normFilter = normalizeCuiFilter(args.filter);
+  // Runs BEFORE normalizeCuiFilter, whose categorical reject stays as the
+  // backstop for `eq` / `exclude`. Disclosed as a caveat rather than dropped
+  // silently — the caller sent those ids and is owed the accounting.
+  const withheld = dropWithheldCuiInclusion(args.filter);
+  const caveats: string[] =
+    withheld.dropped > 0
+      ? [`${String(withheld.dropped)} requested identifier(s) are not served and were omitted`]
+      : [];
+  // Validate BEFORE the emptied shortcut. Returning early on an emptied `in`
+  // would skip `normalizeCuiFilter` entirely, so a filter that ALSO carries a
+  // withheld `eq` or `exclude` — reachable through MCP, which does not
+  // pre-normalize the way the GraphQL resolver does — would get a successful
+  // empty page instead of the categorical refusal those branches promise.
+  // Same policy on every transport.
+  const normFilter = normalizeCuiFilter(withheld.filter);
   if (normFilter.isErr()) return err(normFilter.error);
+  if (withheld.emptied) return ok({ rows: [], total: 0, totalEstimated: false, caveats });
   let filter = normFilter.value;
-  const caveats: string[] = [];
 
   // A `q` (name) resolves through Meili first (instant prefix/typo), then the
   // resolved CUI set is ANDed into the filter as `cui.in` (intersecting any

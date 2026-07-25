@@ -24,6 +24,7 @@ import { sql, type Kysely, type RawBuilder, type SqlBool } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
 import {
+  MAX_SERVED_CUI_DIGITS,
   databaseError,
   invalidInput,
   normalizeCui,
@@ -143,7 +144,21 @@ const buildListConditions = (input: FilterInput): Result<RawBuilder<unknown>[], 
   const { physical, virtual } = splitVirtual(input);
   const built = toConditionBuilders(companiesFilterSpec, physical);
   if (built.isErr()) return err(built.error);
-  const conds: RawBuilder<unknown>[] = [sql`o.kind = 'company'`, ...built.value];
+  // P0 containment on the LIST path. `o.kind = 'company'` does not exclude
+  // natural persons: all 117,688 CNP-shaped identifiers carry kind='company'
+  // (they arrive via the ONRC company registry) and every one of them is a
+  // PF/AF/PFA/II/IF legal form. Without this, paging the public list reached a
+  // natural person's name at offset 698 — 2.95% of the table is PF, so deep
+  // paging returns them steadily. Filtering the INPUT cui filter was not enough;
+  // an unfiltered browse never passes a cui at all.
+  //
+  // Placed here so the rows query and the bounded-total subquery, which share
+  // this `where`, can never disagree about the population.
+  const conds: RawBuilder<unknown>[] = [
+    sql`o.kind = 'company'`,
+    sql`(o.cui is null or length(o.cui) <= ${sql.lit(MAX_SERVED_CUI_DIGITS)})`,
+    ...built.value,
+  ];
 
   const caen = caenExists(fieldOf(virtual, 'caenCode'), false);
   if (caen.isErr()) return err(caen.error);
@@ -550,6 +565,11 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
         .select(['cui', 'name', 'normalized_name', 'county_name'])
         .where('kind', '=', 'company')
         .where('cui', 'is not', null)
+        // Same containment as the list path, in SQL rather than after the scan:
+        // the callers already drop withheld hits from the OUTPUT, but a scan
+        // capped at NAME_FALLBACK_SCAN would let natural persons consume the cap
+        // and silently starve real company matches for a common surname.
+        .where(sql<boolean>`length(cui) <= ${sql.lit(MAX_SERVED_CUI_DIGITS)}`)
         .where(sql<boolean>`coalesce(normalized_name, name) ilike ${needle} escape '\\'`)
         .limit(NAME_FALLBACK_SCAN)
         .execute();

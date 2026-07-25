@@ -447,11 +447,12 @@ describe('withheld identifiers (>10 digits, CNP-shaped — P0 containment 2026-0
     expect(getFlowSummary).not.toHaveBeenCalled();
   });
 
-  it('rejects withheld values in filter.cui eq/in AND exclude.cui (an exclusion probe would confirm existence)', async () => {
+  it('rejects withheld values in filter.cui eq AND exclude.cui (a probe would confirm existence)', async () => {
     const page = { page: 1, pageSize: 20 };
+    // Inclusion `cui.in` is deliberately NOT here — it is a batch resolution,
+    // not a probe, and is covered by the two tests below.
     const cases = [
       { cui: { eq: WITHHELD_13 } },
-      { cui: { in: ['2816464', WITHHELD_11] } },
       { exclude: { cui: { eq: WITHHELD_13 } } },
       { exclude: { cui: { in: [WITHHELD_11] } } },
     ];
@@ -460,6 +461,38 @@ describe('withheld identifiers (>10 digits, CNP-shaped — P0 containment 2026-0
       expect(res.isErr()).toBe(true);
       expect((res as { error: ApiError }).error.type).toBe('InvalidInput');
     }
+  });
+
+  it('drops withheld ids from an inclusion cui.in and serves the rest (one bad id must not blank a batch)', async () => {
+    const listCompanies = vi.fn(async () => ok({ rows: [], total: 0, estimated: false }));
+    const res = await makeCompanyList(deps({ repo: { listCompanies } }), {
+      filter: { cui: { in: ['2816464', WITHHELD_11, WITHHELD_13] } },
+      sort: 'name',
+      page: { page: 1, pageSize: 20 },
+    });
+
+    expect(res.isOk()).toBe(true);
+    expect(
+      (res as unknown as { value: { caveats: readonly string[] } }).value.caveats.join(' ')
+    ).toContain('not served');
+    // The withheld ids must never reach SQL — dropped at the usecase boundary.
+    const calls = listCompanies.mock.calls as unknown as [{ cui: { in: string[] } }][];
+    expect(calls[0]?.[0].cui.in).toEqual(['2816464']);
+  });
+
+  it('answers an EMPTY page when every requested id is withheld (an empty `in` compiles to no predicate)', async () => {
+    const listCompanies = vi.fn(async () => ok({ rows: [], total: 0, estimated: false }));
+    const res = await makeCompanyList(deps({ repo: { listCompanies } }), {
+      filter: { cui: { in: [WITHHELD_11, WITHHELD_13] } },
+      sort: 'name',
+      page: { page: 1, pageSize: 20 },
+    });
+
+    expect(res.isOk()).toBe(true);
+    expect((res as unknown as { value: { total: number } }).value.total).toBe(0);
+    // The load-bearing assertion: an all-withheld batch must NOT reach the repo,
+    // where an emptied `in` would drop the predicate and scan the whole table.
+    expect(listCompanies).not.toHaveBeenCalled();
   });
 
   it('drops withheld CUIs from name-resolved hits on the list path (empty page, not a leak)', async () => {

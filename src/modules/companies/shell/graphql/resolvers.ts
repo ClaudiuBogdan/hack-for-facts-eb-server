@@ -30,6 +30,7 @@ import {
   makeCompanyProfileData,
   makeCompanyPublicMoney,
   makeCompanyResolve,
+  dropWithheldCuiInclusion,
   normalizeCuiFilter,
   toCompanyResolveHits,
   type CompanyUsecaseDeps,
@@ -97,7 +98,13 @@ export const makeCompaniesResolvers = (deps: CompaniesResolverDeps): Record<stri
         // Compute the cursor fhash from the NORMALIZED filter (the same the usecase
         // applies) so `RO2816464` and `2816464` page the SAME data under the SAME
         // hash — otherwise a re-formatted but equivalent CUI breaks pagination.
-        const normForHash = normalizeCuiFilter(filter);
+        //
+        // Withheld ids are dropped BEFORE the hash for the same reason: the
+        // usecase drops them too, so hashing the raw list would key the cursor on
+        // a filter that is never executed. `makeCompanyList` still receives the
+        // RAW filter — it owns the empty-after-drop case, which must answer an
+        // empty page rather than trip `rejectEmptyIn`.
+        const normForHash = normalizeCuiFilter(dropWithheldCuiInclusion(filter).filter);
         if (normForHash.isErr()) throw toGraphqlError(normForHash.error);
         const fhash = fhashFor(companiesFilterSpec, normForHash.value);
 
