@@ -143,7 +143,9 @@ type ModificationRow = Pick<
   | 'link_method'
   | 'link_confidence'
   | 'authority_cui'
+  | 'authority_name'
   | 'supplier_cui'
+  | 'supplier_name'
   | 'contract_no'
   | 'notice_no'
   | 'modification_date'
@@ -355,7 +357,9 @@ export const mapModification = (r: ModificationRow): ProcurementModification => 
   linkMethod: linkMethod(r.link_method),
   linkConfidence: r.link_confidence,
   authorityCui: r.authority_cui,
+  authorityName: r.authority_name,
   supplierCui: r.supplier_cui,
+  supplierName: r.supplier_name,
   contractNo: r.contract_no,
   noticeNo: r.notice_no,
   modificationDate: r.modification_date,

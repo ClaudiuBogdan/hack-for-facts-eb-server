@@ -135,7 +135,10 @@ export interface ProcurementModification {
   readonly linkMethod: 'notice_no' | 'authority_cui+contract_no' | null;
   readonly linkConfidence: number | null;
   readonly authorityCui: string | null;
+  /** Projected because `q` matches on it — a name-only hit must be explicable. */
+  readonly authorityName: string | null;
   readonly supplierCui: string | null;
+  readonly supplierName: string | null;
   readonly contractNo: string | null;
   readonly noticeNo: string | null;
   readonly modificationDate: string | null;

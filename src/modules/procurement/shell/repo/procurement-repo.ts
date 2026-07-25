@@ -468,7 +468,9 @@ export const makeProcurementRepo = (
     'm.link_method',
     'm.link_confidence',
     'm.authority_cui',
+    'm.authority_name',
     'm.supplier_cui',
+    'm.supplier_name',
     'm.contract_no',
     'm.notice_no',
     sql<string | null>`m.modification_date::text`.as('modification_date'),
@@ -880,7 +882,8 @@ export const makeProcurementRepo = (
     // methods keep their own `this`-free closure identity.
     searchProceduresOffset: (f, p, facets) => offset.searchProceduresOffset(f, p, facets),
     searchContractsOffset: (f, p, facets) => offset.searchContractsOffset(f, p, facets),
-    searchDirectAcquisitionsOffset: (f, p, facets) => offset.searchDirectAcquisitionsOffset(f, p, facets),
+    searchDirectAcquisitionsOffset: (f, p, facets) =>
+      offset.searchDirectAcquisitionsOffset(f, p, facets),
     searchModificationsOffset: (f, p) => offset.searchModificationsOffset(f, p),
     // detail-bundle support
     modificationsForContracts: (ids) => detail.modificationsForContracts(ids),

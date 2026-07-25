@@ -413,7 +413,12 @@ const modificationSelect = [
   'm.link_method',
   'm.link_confidence',
   'm.authority_cui',
+  // Projected because `q` MATCHES on them: without the names a party-name hit
+  // arrives with nothing on the card explaining why it matched (637 live rows
+  // matched on a name alone).
+  'm.authority_name',
   'm.supplier_cui',
+  'm.supplier_name',
   'm.contract_no',
   'm.notice_no',
   sql<string | null>`m.modification_date::text`.as('modification_date'),
@@ -561,7 +566,7 @@ export const makeOffsetSearchRepo = (
       return engineOnly
         ? err(
             upstreamError(
-              `search engine not configured for grain ${grain}; geography, CPV level filters, an explicit q mode and relevance sort cannot be served`,
+              `search engine not configured for grain ${grain}; supplier geography, an explicit q mode and relevance sort cannot be served`,
               'opensearch'
             )
           )
@@ -788,7 +793,7 @@ export const makeOffsetSearchRepo = (
       return Promise.resolve(
         err(
           invalidInput(
-            'geography, CPV level filters and an explicit q mode are not available on the modifications grain',
+            'supplier geography, CPV filters and an explicit q mode are not available on the modifications grain',
             'filter'
           )
         )

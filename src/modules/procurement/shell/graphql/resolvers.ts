@@ -373,8 +373,8 @@ export const makeProcurementResolvers = (
     },
     ProcurementContractModification: {
       id: (m: ProcurementModification) => m.modificationId,
-      authority: (m: ProcurementModification) => party(m.authorityCui, null),
-      supplier: (m: ProcurementModification) => party(m.supplierCui, null),
+      authority: (m: ProcurementModification) => party(m.authorityCui, m.authorityName),
+      supplier: (m: ProcurementModification) => party(m.supplierCui, m.supplierName),
       parentContract: (m: ProcurementModification) =>
         m.contractId === null ? null : contractLoader.load(m.contractId),
     },
