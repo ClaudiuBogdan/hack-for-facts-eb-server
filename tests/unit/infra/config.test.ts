@@ -331,6 +331,19 @@ describe('Configuration', () => {
       expect(config.server.host).toBe('127.0.0.1');
     });
 
+    it('keeps procurement MCP filters disabled unless explicitly enabled', () => {
+      const defaultConfig = createConfig(parseEnv({ ...requiredEnv }));
+      expect(defaultConfig.mcp.procurementFiltersEnabled).toBe(false);
+
+      const enabledConfig = createConfig(
+        parseEnv({
+          ...requiredEnv,
+          MCP_PROCUREMENT_FILTERS_ENABLED: 'true',
+        })
+      );
+      expect(enabledConfig.mcp.procurementFiltersEnabled).toBe(true);
+    });
+
     it('parses enabled campaign-admin keys from ENABLED_ADMIN_CAMPAIGNS', () => {
       const config = createConfig(
         parseEnv({

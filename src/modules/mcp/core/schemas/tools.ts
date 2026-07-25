@@ -381,6 +381,176 @@ export const RankEntitiesOutputSchema = Type.Object({
 export type RankEntitiesOutput = Static<typeof RankEntitiesOutputSchema>;
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 7. query_procurement_filters
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const QueryProcurementFiltersInputSchema = Type.Object(
+  {
+    analysis: Type.Union(
+      [
+        Type.Literal('top_suppliers'),
+        Type.Literal('category_breakdown'),
+        Type.Literal('same_day_direct_acquisition_candidates'),
+      ],
+      {
+        description:
+          'Procurement question type. top_suppliers ranks companies; category_breakdown ranks CPV divisions; same_day_direct_acquisition_candidates lists repeated same-day DA review signals.',
+      }
+    ),
+    sourceGrain: Type.Optional(
+      Type.Union([Type.Literal('direct_acquisition'), Type.Literal('procurement_contract')], {
+        default: 'direct_acquisition',
+        description: 'Procurement flow grain. Spend rankings are gated separately per grain.',
+      })
+    ),
+    rankBy: Type.Optional(
+      Type.Union([Type.Literal('amount_ron'), Type.Literal('flow_count')], {
+        default: 'amount_ron',
+        description:
+          'Ranking metric. amount_ron requires spend-ranking coverage approval; flow_count only requires filter coverage approval.',
+      })
+    ),
+    authorityCui: Type.Optional(
+      Type.String({
+        description: 'Buyer/public authority CUI for institution-specific filters.',
+        examples: ['36727850'],
+      })
+    ),
+    authorityCountyCode: Type.Optional(
+      Type.String({
+        description: 'Buyer county code. Uses authority territory only, not supplier region.',
+        examples: ['B', 'CJ'],
+      })
+    ),
+    authorityRegion: Type.Optional(
+      Type.String({
+        description: 'Buyer development region. Uses authority territory only.',
+        examples: ['București-Ilfov'],
+      })
+    ),
+    cpvDivisionCode: Type.Optional(
+      Type.String({
+        description: 'Two-digit CPV division code, e.g. 45 for construction works.',
+        pattern: '^[0-9]{2}$',
+        examples: ['45', '72'],
+      })
+    ),
+    yearStart: Type.Optional(
+      Type.Number({
+        description: 'First year to include.',
+        minimum: 2006,
+      })
+    ),
+    yearEnd: Type.Optional(
+      Type.Number({
+        description: 'Last year to include.',
+        minimum: 2006,
+      })
+    ),
+    limit: Type.Optional(
+      Type.Number({
+        description: 'Maximum rows to return.',
+        minimum: 1,
+        maximum: 50,
+        default: 10,
+      })
+    ),
+  },
+  {
+    description:
+      'Query deterministic Public Contracts aggregate filters with coverage-gated abstention for agents and MCP.',
+  }
+);
+
+export type QueryProcurementFiltersInput = Static<typeof QueryProcurementFiltersInputSchema>;
+
+const ProcurementQualitySchema = Type.Object({
+  amountCoverageRate: Type.Number(),
+  authorityCuiCoverageRate: Type.Number(),
+  authorityTerritoryCoverageRate: Type.Number(),
+  blockers: Type.Array(Type.String()),
+  cpvCoverageRate: Type.Number(),
+  dateCoverageRate: Type.Number(),
+  filterAnswersAllowed: Type.Boolean(),
+  rowsCount: Type.Number(),
+  sourceGrain: Type.Union([
+    Type.Literal('direct_acquisition'),
+    Type.Literal('procurement_contract'),
+  ]),
+  spendRankingsAllowed: Type.Boolean(),
+  supplierCuiCoverageRate: Type.Number(),
+  supplierRegionFiltersAllowed: Type.Boolean(),
+});
+
+const ProcurementSupplierRankingRowSchema = Type.Object({
+  amountMissingCount: Type.Number(),
+  amountPresentCount: Type.Number(),
+  amountRonSum: Type.Union([Type.Number(), Type.Null()]),
+  authorityCount: Type.Number(),
+  cpvDivisionCode: Type.Union([Type.String(), Type.Null()]),
+  cpvDivisionLabelEn: Type.Union([Type.String(), Type.Null()]),
+  evidenceRefsSample: Type.Array(Type.String()),
+  firstFlowDate: Type.Union([Type.String(), Type.Null()]),
+  flowCount: Type.Number(),
+  lastFlowDate: Type.Union([Type.String(), Type.Null()]),
+  supplierCui: Type.String(),
+  supplierName: Type.Union([Type.String(), Type.Null()]),
+});
+
+const ProcurementCategoryBreakdownRowSchema = Type.Object({
+  amountMissingCount: Type.Number(),
+  amountPresentCount: Type.Number(),
+  amountRonSum: Type.Union([Type.Number(), Type.Null()]),
+  cpvDivisionCode: Type.String(),
+  cpvDivisionLabelEn: Type.Union([Type.String(), Type.Null()]),
+  distinctSupplierCount: Type.Union([Type.Number(), Type.Null()]),
+  evidenceRefsSample: Type.Array(Type.String()),
+  firstFlowDate: Type.Union([Type.String(), Type.Null()]),
+  flowCount: Type.Number(),
+  lastFlowDate: Type.Union([Type.String(), Type.Null()]),
+});
+
+const ProcurementSameDayCandidateRowSchema = Type.Object({
+  amountMissingCount: Type.Number(),
+  amountPresentCount: Type.Number(),
+  authorityCountyName: Type.Union([Type.String(), Type.Null()]),
+  authorityCui: Type.String(),
+  authorityName: Type.Union([Type.String(), Type.Null()]),
+  authorityRegion: Type.Union([Type.String(), Type.Null()]),
+  candidateDate: Type.String(),
+  cpvCode: Type.Union([Type.String(), Type.Null()]),
+  cpvDivisionCode: Type.Union([Type.String(), Type.Null()]),
+  cpvDivisionLabelEn: Type.Union([Type.String(), Type.Null()]),
+  evidenceRefsSample: Type.Array(Type.String()),
+  maxSingleAmountRon: Type.Union([Type.Number(), Type.Null()]),
+  sameDayCount: Type.Number(),
+  sameDayTotalRon: Type.Union([Type.Number(), Type.Null()]),
+  supplierCui: Type.String(),
+  supplierName: Type.Union([Type.String(), Type.Null()]),
+});
+
+export const QueryProcurementFiltersOutputSchema = Type.Object({
+  ok: Type.Boolean(),
+  answerClass: Type.Union([
+    Type.Literal('filter'),
+    Type.Literal('spend_ranking'),
+    Type.Literal('review_signal'),
+  ]),
+  caveats: Type.Array(Type.String()),
+  quality: Type.Optional(ProcurementQualitySchema),
+  query: QueryProcurementFiltersInputSchema,
+  rows: Type.Union([
+    Type.Array(ProcurementSupplierRankingRowSchema),
+    Type.Array(ProcurementCategoryBreakdownRowSchema),
+    Type.Array(ProcurementSameDayCandidateRowSchema),
+  ]),
+  status: Type.Union([Type.Literal('allowed'), Type.Literal('abstained')]),
+  summary: Type.String(),
+});
+
+export type QueryProcurementFiltersOutput = Static<typeof QueryProcurementFiltersOutputSchema>;
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Error Output Schema
 // ─────────────────────────────────────────────────────────────────────────────
 

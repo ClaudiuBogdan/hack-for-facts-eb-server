@@ -89,6 +89,7 @@ export const EnvSchema = Type.Object({
   // SECURITY: Minimum 32 characters for sufficient entropy
   MCP_API_KEY: Type.Optional(Type.String({ minLength: 32 })),
   MCP_SESSION_TTL_SECONDS: Type.Optional(Type.Number({ minimum: 60, default: 3600 })),
+  MCP_PROCUREMENT_FILTERS_ENABLED: Type.Optional(Type.Boolean({ default: false })),
 
   // GPT REST API
   // SECURITY: Minimum 32 characters for sufficient entropy
@@ -286,6 +287,7 @@ export const parseEnv = (env: NodeJS.ProcessEnv): Env => {
       env['MCP_SESSION_TTL_SECONDS'] != null && env['MCP_SESSION_TTL_SECONDS'] !== ''
         ? Number.parseInt(env['MCP_SESSION_TTL_SECONDS'], 10)
         : 3600,
+    MCP_PROCUREMENT_FILTERS_ENABLED: env['MCP_PROCUREMENT_FILTERS_ENABLED'] === 'true',
     // GPT REST API
     GPT_API_KEY: env['GPT_API_KEY'],
     // Agent
@@ -509,6 +511,8 @@ export const createConfig = (env: Env) => ({
     sessionTtlSeconds: env.MCP_SESSION_TTL_SECONDS ?? 3600,
     /** Client base URL for building shareable links (uses cors.clientBaseUrl as fallback) */
     clientBaseUrl: env.CLIENT_BASE_URL ?? '',
+    /** Whether procurement MCP filters are registered */
+    procurementFiltersEnabled: env.MCP_PROCUREMENT_FILTERS_ENABLED ?? false,
   },
   agent: {
     /** Whether the in-app AI agent surface (/api/v1/agent) is enabled */
