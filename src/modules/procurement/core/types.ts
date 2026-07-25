@@ -187,9 +187,85 @@ export interface ContractDetail {
   readonly ted: TedRef | null;
 }
 
+/**
+ * Why a detail body is or is not available for a given DA. The distinction is a
+ * contract-level obligation, not presentation: `da_details` covers ~41% of the
+ * DA grain, and the API must never let "no detail row" read as "nothing was
+ * purchased".
+ *
+ *  - `available`                — a detail body was captured and is served.
+ *  - `not_captured`             — this DA's family HAS a detail feed, but this
+ *                                 row was never captured (the e-licitatie
+ *                                 pre-2020 tail; a backfill is still closing it).
+ *  - `not_available_for_source` — the family has NO detail feed in existence.
+ *                                 seap_da / seap_dan came from bulk spreadsheet
+ *                                 exports; there is nothing to capture, ever.
+ */
+export type DaDetailAvailability = 'available' | 'not_available_for_source' | 'not_captured';
+
+/** One catalog line item: what was actually bought, per line. */
+export interface DaItem {
+  readonly daItemId: string;
+  readonly itemIndex: number;
+  readonly catalogItemCode: string | null;
+  readonly catalogItemName: string | null;
+  readonly catalogItemDescription: string | null;
+  readonly itemMeasureUnit: string | null;
+  readonly cpvCode: string | null;
+  readonly cpvText: string | null;
+  /** Decimal strings — money and quantities never cross the wire as floats. */
+  readonly itemQuantity: string | null;
+  readonly unitPrice: string | null;
+  readonly unitEstimatedPrice: string | null;
+  readonly catalogUnitPrice: string | null;
+  /** unit_price * item_quantity, computed and stored by the database. */
+  readonly lineValue: string | null;
+  readonly sourceUrl: string;
+}
+
+export interface DaDetailBody {
+  readonly description: string | null;
+  readonly deliveryCondition: string | null;
+  readonly paymentCondition: string | null;
+  readonly contractTypeText: string | null;
+  readonly isEuFunded: boolean;
+  readonly euFundText: string | null;
+  readonly caDecisionDate: string | null;
+  readonly caDecisionDeadline: string | null;
+  readonly supplierDecisionDate: string | null;
+  readonly supplierDecisionDeadline: string | null;
+  readonly caRejectionReason: string | null;
+  readonly supplierRejectionReason: string | null;
+  readonly correctionReason: string | null;
+  readonly documentCount: number;
+  readonly itemCount: number;
+  /**
+   * Reconciliation of the item basket against the DA's headline value.
+   * `itemsReconciled === false` means the source's own numbers disagree
+   * (0.3-0.6% of DAs, measured) — the client MUST surface that rather than
+   * render a basket that silently contradicts the value shown above it. `null`
+   * means the source recorded no closing value, so the question is
+   * unanswerable, not answered "no".
+   */
+  readonly itemsTotal: string | null;
+  readonly itemsValueDelta: string | null;
+  readonly itemsReconciled: boolean | null;
+  /**
+   * True when the row's free text carries contact data (measured: 5.75% of
+   * bodies) and this caller is not privileged to see it. The text fields are
+   * then null — withheld, NOT absent — and this flag is how the client says so
+   * honestly instead of rendering a blank section.
+   */
+  readonly textRedacted: boolean;
+  readonly sourceUrl: string;
+  readonly items: readonly DaItem[];
+}
+
 export interface DirectAcquisitionDetail {
   readonly directAcquisition: ProcurementDirectAcquisition;
   readonly duplicates: readonly DuplicateRef[];
+  readonly detail: DaDetailBody | null;
+  readonly detailAvailability: DaDetailAvailability;
 }
 
 // ── offset search (the client contract) ────────────────────────────────────────

@@ -32,6 +32,8 @@ import type {
   ProcurementProcedure,
   TedRef,
   ValueResolution,
+  DaDetailBody,
+  DaItem,
 } from '../../core/types.js';
 import type {
   ProcurementContractModificationsTable,
@@ -380,3 +382,103 @@ export const mapTedRef = (r: { publication_number: string; source_url: string })
   tedNoticeNo: r.publication_number,
   sourceUrl: r.source_url,
 });
+
+// ── direct-acquisition detail (what was actually bought) ──────────────────────
+
+/**
+ * PRIVACY GATE. The data layer stores every free-text field in full and marks
+ * the row `contact_pii` when a versioned detector finds an email, Romanian
+ * mobile number or CNP in it — measured at 5.75% of detail bodies. The platform
+ * rule is "extract everything; gate at the API", and THIS is that gate.
+ *
+ * Withheld text becomes `null` alongside `textRedacted: true`, never a silent
+ * blank: a reader must be able to tell "we are not showing you this" apart from
+ * "the source recorded nothing here". Structured fields (dates, counts, money,
+ * the item basket) are unaffected — the detector only ever fires on prose.
+ */
+const PUBLIC_PRIVACY_CLASS = 'public';
+
+export interface DaDetailBodyRow {
+  description: string | null;
+  delivery_condition: string | null;
+  payment_condition: string | null;
+  contract_type_text: string | null;
+  is_eu_funded: boolean;
+  eu_fund_text: string | null;
+  ca_decision_date: string | null;
+  ca_decision_deadline: string | null;
+  supplier_decision_date: string | null;
+  supplier_decision_deadline: string | null;
+  ca_rejection_reason: string | null;
+  supplier_rejection_reason: string | null;
+  correction_reason: string | null;
+  document_count: number;
+  item_count: number;
+  items_total: string | null;
+  items_value_delta: string | null;
+  items_reconciled: boolean | null;
+  privacy_class: string;
+  source_url: string;
+}
+
+export interface DaItemRow {
+  da_item_id: string;
+  item_index: number;
+  catalog_item_code: string | null;
+  catalog_item_name: string | null;
+  catalog_item_description: string | null;
+  item_measure_unit: string | null;
+  cpv_code: string | null;
+  cpv_text: string | null;
+  item_quantity: string | null;
+  unit_price: string | null;
+  unit_estimated_price: string | null;
+  catalog_unit_price: string | null;
+  line_value: string | null;
+  source_url: string;
+}
+
+export const mapDaItem = (r: DaItemRow): DaItem => ({
+  catalogItemCode: r.catalog_item_code,
+  catalogItemDescription: r.catalog_item_description,
+  catalogItemName: r.catalog_item_name,
+  catalogUnitPrice: r.catalog_unit_price,
+  cpvCode: r.cpv_code,
+  cpvText: r.cpv_text,
+  daItemId: r.da_item_id,
+  itemIndex: r.item_index,
+  itemMeasureUnit: r.item_measure_unit,
+  itemQuantity: r.item_quantity,
+  lineValue: r.line_value,
+  sourceUrl: r.source_url,
+  unitEstimatedPrice: r.unit_estimated_price,
+  unitPrice: r.unit_price,
+});
+
+export const mapDaDetailBody = (r: DaDetailBodyRow, items: readonly DaItemRow[]): DaDetailBody => {
+  const redacted = r.privacy_class !== PUBLIC_PRIVACY_CLASS;
+  const text = (value: string | null): string | null => (redacted ? null : value);
+  return {
+    caDecisionDate: r.ca_decision_date,
+    caDecisionDeadline: r.ca_decision_deadline,
+    caRejectionReason: text(r.ca_rejection_reason),
+    contractTypeText: r.contract_type_text,
+    correctionReason: text(r.correction_reason),
+    deliveryCondition: text(r.delivery_condition),
+    description: text(r.description),
+    documentCount: r.document_count,
+    euFundText: r.eu_fund_text,
+    isEuFunded: r.is_eu_funded,
+    itemCount: r.item_count,
+    items: items.map(mapDaItem),
+    itemsReconciled: r.items_reconciled,
+    itemsTotal: r.items_total,
+    itemsValueDelta: r.items_value_delta,
+    paymentCondition: text(r.payment_condition),
+    sourceUrl: r.source_url,
+    supplierDecisionDate: r.supplier_decision_date,
+    supplierDecisionDeadline: r.supplier_decision_deadline,
+    supplierRejectionReason: text(r.supplier_rejection_reason),
+    textRedacted: redacted,
+  };
+};

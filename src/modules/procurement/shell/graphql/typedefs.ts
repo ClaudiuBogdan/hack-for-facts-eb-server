@@ -459,9 +459,83 @@ export const procurementTypeDefs = /* GraphQL */ `
     ted: ProcurementTedRef
   }
 
+  """
+  Why a detail body is or is not present. Absence of a detail is NOT absence of
+  a purchase: the detail surface covers ~41% of direct acquisitions by design.
+  """
+  enum ProcurementDetailAvailability {
+    "A detail body was captured and is served."
+    AVAILABLE
+    "This family has a detail feed, but this record was never captured (the pre-2020 tail; a backfill is still closing it)."
+    NOT_CAPTURED
+    "This family has NO detail feed in existence - it came from bulk spreadsheet exports, so there is nothing to capture."
+    NOT_AVAILABLE_FOR_SOURCE
+  }
+
+  "One catalog line item: what was actually bought, per line."
+  type ProcurementDaItem {
+    id: ID!
+    itemIndex: Int!
+    catalogItemCode: String
+    catalogItemName: String
+    catalogItemDescription: String
+    itemMeasureUnit: String
+    cpvCode: String
+    cpvText: String
+    "Decimal strings - money and quantities never cross the wire as floats."
+    itemQuantity: String
+    "PER UNIT. Measured: sum(unitPrice x itemQuantity) reproduces the DA value on 99.4% of records."
+    unitPrice: String
+    unitEstimatedPrice: String
+    catalogUnitPrice: String
+    "unitPrice x itemQuantity, computed and stored by the database."
+    lineValue: String
+    sourceUrl: String!
+  }
+
+  "The e-licitatie detail body of a direct acquisition, with its line items."
+  type ProcurementDaDetail {
+    description: String
+    deliveryCondition: String
+    paymentCondition: String
+    contractTypeText: String
+    isEuFunded: Boolean!
+    euFundText: String
+    caDecisionDate: String
+    caDecisionDeadline: String
+    supplierDecisionDate: String
+    supplierDecisionDeadline: String
+    caRejectionReason: String
+    supplierRejectionReason: String
+    correctionReason: String
+    "Documents published on the source page. Their text is not served (sensitive)."
+    documentCount: Int!
+    itemCount: Int!
+    "Sum of the line values, for the reconciliation disclosure."
+    itemsTotal: String
+    itemsValueDelta: String
+    """
+    Whether the item basket sums to the headline value. FALSE means the source
+    own numbers disagree (0.3-0.6% of records) and the client must say so rather
+    than render a basket that contradicts the value shown above it. NULL means
+    the source recorded no closing value - unanswerable, not answered no.
+    """
+    itemsReconciled: Boolean
+    """
+    TRUE when this record free text carries contact data and is withheld from
+    this caller. The text fields are then null - withheld, not absent.
+    """
+    textRedacted: Boolean!
+    sourceUrl: String!
+    items: [ProcurementDaItem!]!
+  }
+
   type ProcurementDirectAcquisitionDetail {
     directAcquisition: ProcurementDirectAcquisition!
     duplicates: [ProcurementDuplicateRef!]!
+    "Null unless detailAvailability is AVAILABLE."
+    detail: ProcurementDaDetail
+    detailAvailability: ProcurementDetailAvailability!
   }
 
   # ── analysis surface (design §5 — one scope, six shapes, rollup-backed) ──────
@@ -722,6 +796,15 @@ export const procurementTypeDefs = /* GraphQL */ `
     top5Share: String
     hhi: String
     totalRon: String
+    """
+    Contract grain only: Σ awarded money in this scope that belongs to
+    multi-member consortium awards and so enters NO supplier's measure (the
+    internal split is not published). \`totalRon\` + this + the unknown-supplier
+    weight reconcile to the scope's attributed total — render it instead of
+    describing the remainder as "supplier unidentified". Null when nothing is
+    withheld, when the amount is not quotable, or when money is gate-suppressed.
+    """
+    valueWithheldAssociationSum: String
     meta: ProcurementAnswerMeta!
   }
 

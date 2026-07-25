@@ -178,6 +178,75 @@ export interface ProcurementCpvCodesTable {
   cpv_level: number | null; // 100% NULL (corrupt)
 }
 
+// ── direct-acquisition detail (what was actually bought) ──────────────────────
+//
+// Covers ~41% of `procurement.direct_acquisitions` BY DESIGN: the seap_da /
+// seap_dan families were loaded from bulk spreadsheet exports and have no detail
+// source in existence, and elicitatie pre-2020 is a capture gap. Row absence
+// therefore means "no detail feed", NEVER "nothing was purchased" — the repo
+// turns that into a typed availability state rather than an empty section.
+// See scrapper `prod-db/PROCUREMENT_CONTRACT.md` §DA-detail amendment.
+//
+// Only SERVED columns are declared. Lineage (`source_detail_hash`,
+// `source_content_hash`, `source_response_id`, `source_last_seen_at`,
+// `projection_version`, `detail_state_id`) is omitted so the repo cannot select
+// it by accident — `detail_state_id` in particular must never be served as a
+// status, since the list capture wins.
+
+export interface ProcurementDaDetailsTable {
+  da_detail_id: string;
+  da_id: string | null;
+  direct_acquisition_id: string;
+  description: string | null;
+  delivery_condition: string | null;
+  payment_condition: string | null;
+  contract_type_id: number | null;
+  contract_type_text: string | null;
+  contract_type_locale_key: string | null;
+  is_eu_funded: boolean;
+  eu_fund_id: number | null;
+  eu_fund_text: string | null;
+  ca_decision_date: string | null;
+  ca_decision_deadline: string | null;
+  supplier_decision_date: string | null;
+  supplier_decision_deadline: string | null;
+  ca_rejection_reason: string | null;
+  supplier_rejection_reason: string | null;
+  correction_reason: string | null;
+  document_count: number;
+  /** numeric → string: the item basket total, for the reconciliation disclosure. */
+  items_total: string | null;
+  items_value_delta: string | null;
+  /** NULL when the source recorded no closing value — "unknown", not "false". */
+  items_reconciled: boolean | null;
+  item_count: number;
+  source_url: string;
+  /** 'public' | 'contact_pii' — free text on contact_pii rows is API-gated. */
+  privacy_class: string;
+}
+
+export interface ProcurementDaItemsTable {
+  da_item_id: string;
+  da_detail_id: string;
+  direct_acquisition_id: string;
+  item_index: number;
+  catalog_item_code: string | null;
+  catalog_item_name: string | null;
+  catalog_item_description: string | null;
+  item_measure_unit: string | null;
+  cpv_code: string | null;
+  cpv_text: string | null;
+  /** numeric → string throughout: money never crosses the wire as a float. */
+  item_quantity: string | null;
+  unit_price: string | null;
+  unit_estimated_price: string | null;
+  catalog_unit_price: string | null;
+  /** Stored generated column: unit_price * item_quantity. */
+  line_value: string | null;
+  source_url: string;
+  privacy_class: string;
+}
+
 // ── TED (Tenders Electronic Daily) linkage ─────────────────────────────────────
 //
 // Only the SERVED columns are declared. `procedure_ted_links` bridges a procedure
@@ -281,6 +350,8 @@ declare module '@/modules/shared/shell/db/types.js' {
     'procurement.contract_modifications': ProcurementContractModificationsTable;
     'procurement.cpv_divisions': ProcurementCpvDivisionsTable;
     'procurement.cpv_codes': ProcurementCpvCodesTable;
+    'procurement.da_details': ProcurementDaDetailsTable;
+    'procurement.da_items': ProcurementDaItemsTable;
     'procurement.ted_notices': ProcurementTedNoticesTable;
     'procurement.procedure_ted_links': ProcurementProcedureTedLinksTable;
     'procurement.analysis_generations': ProcurementAnalysisGenerationsTable;
