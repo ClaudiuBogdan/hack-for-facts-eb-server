@@ -48,7 +48,7 @@ describe('spend class (allow | allow_disclosed | abstain)', () => {
     expect(d.degraded).toBe(true);
     expect(d.reason).toBe('SPEND_SERVED_DISCLOSED');
     expect(d.caveats[0]).toContain('DISCLOSED partial coverage');
-    expect(d.caveats[0]).toContain('0.82');
+    expect(d.caveats[0]).toContain('82.0%');
     expect(d.caveats[0]).toContain('understate');
   });
 
@@ -62,7 +62,7 @@ describe('spend class (allow | allow_disclosed | abstain)', () => {
     expect(d.degraded).toBe(false);
     expect(d.reason).toBe('SPEND_COVERAGE_BELOW_GATE');
     expect(d.caveats[0]).toContain('spend answers abstain');
-    expect(d.caveats[0]).toContain('0.76');
+    expect(d.caveats[0]).toContain('76.0%');
     expect(d.caveats[0]).toContain('omitted, not zeroed');
   });
 });
@@ -78,8 +78,8 @@ describe('time class (disclosed degradation)', () => {
     expect(d.degraded).toBe(true);
     expect(d.reason).toBe('TIME_COVERAGE_DEGRADED');
     expect(d.caveats[0]).toContain('degraded');
-    expect(d.caveats[0]).toContain('0.65');
-    expect(d.caveats[0]).toContain(String(COUNT_TIME_DEGRADE_FLOOR));
+    expect(d.caveats[0]).toContain('65.0%');
+    expect(d.caveats[0]).toContain(`${(COUNT_TIME_DEGRADE_FLOOR * 100).toFixed(1)}%`);
   });
 
   it('abstain → blocked with the floor named', () => {
@@ -87,7 +87,7 @@ describe('time class (disclosed degradation)', () => {
     expect(d.allow).toBe(false);
     expect(d.reason).toBe('TIME_COVERAGE_BELOW_FLOOR');
     expect(d.caveats[0]).toContain('abstain');
-    expect(d.caveats[0]).toContain(String(COUNT_TIME_DEGRADE_FLOOR));
+    expect(d.caveats[0]).toContain(`${(COUNT_TIME_DEGRADE_FLOOR * 100).toFixed(1)}%`);
   });
 });
 
@@ -125,7 +125,78 @@ describe('classes are the contract; coverage numbers are descriptive', () => {
   it('just-below-floor coverage blocks when the class says abstain', () => {
     const d = decideAnswer(quality({ time: 'abstain', date: 0.49 }), 'direct_acquisition', 'time');
     expect(d.allow).toBe(false);
-    expect(d.caveats[0]).toContain('0.49');
+    expect(d.caveats[0]).toContain('49.0%');
+  });
+});
+
+describe('money-weighted coverage text (geo/disclosure wave — additive from gen 8)', () => {
+  it('older generations WITHOUT coverage_money keep rows-only text and identical decisions', () => {
+    const legacy = decideAnswer(quality({ geo: 'degraded' }), 'direct_acquisition', 'geo');
+    expect(legacy.allow).toBe(true);
+    expect(legacy.degraded).toBe(true);
+    expect(legacy.caveats[0]).toContain('of records');
+    expect(legacy.caveats[0]).not.toContain('awarded money');
+  });
+
+  it('generations WITH coverage_money quote BOTH weights; the decision is unchanged', () => {
+    const base = verdict({ geo: 'degraded' });
+    const withMoney = decideAnswer(
+      { direct_acquisition: { ...base, coverage_money: { date: 0.9, geo: 0.453 } } },
+      'direct_acquisition',
+      'geo'
+    );
+    const without = decideAnswer(quality({ geo: 'degraded' }), 'direct_acquisition', 'geo');
+    expect(withMoney.caveats[0]).toContain('of records');
+    expect(withMoney.caveats[0]).toContain('45.3% of awarded money');
+    expect(withMoney.allow).toBe(without.allow);
+    expect(withMoney.degraded).toBe(without.degraded);
+    expect(withMoney.reason).toBe(without.reason);
+  });
+});
+
+describe('supplier-party geo texts (geo/disclosure finding 1)', () => {
+  it('supplier party WITHOUT published supplier coverage quotes NO buyer number', () => {
+    const d = decideAnswer(
+      quality({ geo: 'degraded' }),
+      'direct_acquisition',
+      'geo',
+      undefined,
+      'supplier'
+    );
+    expect(d.allow).toBe(true);
+    expect(d.degraded).toBe(true);
+    expect(d.caveats[0]).toContain('not published by this generation');
+    // The verdict's buyer geo ratio (0.77) must never leak onto supplier text.
+    expect(d.caveats[0]).not.toContain('77.0%');
+  });
+
+  it('supplier party quotes the supplier ratios when the generation publishes them', () => {
+    const base = verdict({ geo: 'degraded' });
+    const q = {
+      direct_acquisition: {
+        ...base,
+        coverage: { ...base.coverage, geo_supplier: 0.95 },
+        coverage_money: { date: 0.9, geo: 0.453, geo_supplier: 0.617 },
+      },
+    };
+    const d = decideAnswer(q, 'direct_acquisition', 'geo', undefined, 'supplier');
+    expect(d.caveats[0]).toContain('supplier-geo coverage 95.0% of records');
+    expect(d.caveats[0]).toContain('61.7% of awarded money');
+    expect(d.caveats[0]).not.toContain('77.0%');
+    expect(d.degraded).toBe(true);
+  });
+
+  it('buyer party is unchanged by the supplier ratios being present', () => {
+    const base = verdict({ geo: 'degraded' });
+    const q = {
+      direct_acquisition: {
+        ...base,
+        coverage: { ...base.coverage, geo_supplier: 0.95 },
+      },
+    };
+    const d = decideAnswer(q, 'direct_acquisition', 'geo');
+    expect(d.caveats[0]).toContain('coverage 77.0% of records');
+    expect(d.caveats[0]).not.toContain('supplier-geo');
   });
 });
 

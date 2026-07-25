@@ -198,6 +198,7 @@ export const MEASURE_IDS = [
   'valueEstimatedSum',
   'valueCeilingSum',
   'valueModAdjustedSum',
+  'valueAwardedMatchedSum',
   'avgValueAwarded',
   'distinctSuppliers',
   'distinctAuthorities',

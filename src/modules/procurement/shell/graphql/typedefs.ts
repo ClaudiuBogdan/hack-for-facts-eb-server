@@ -460,6 +460,7 @@ export const procurementTypeDefs = /* GraphQL */ `
     valueEstimatedSum
     valueCeilingSum
     valueModAdjustedSum
+    valueAwardedMatchedSum
     avgValueAwarded
     distinctSuppliers
     distinctAuthorities
@@ -583,7 +584,21 @@ export const procurementTypeDefs = /* GraphQL */ `
     valueCeilingSum: String
     "Contract grain only: Σ modification-adjusted value (verified anchored chains)."
     valueModAdjustedSum: String
+    """
+    Contract grain only: Σ awarded value over the SAME population as
+    \`valueModAdjustedSum\` (resolvable amendment chains). Pair the two to read the
+    net amendment effect; subtracting \`valueModAdjustedSum\` from the grain-wide
+    \`valueAwardedSum\` compares different populations and is never valid.
+    """
+    valueAwardedMatchedSum: String
     avgValueAwarded: String
+    """
+    Supplier-scoped requests only (association dedup): Σ awarded money in this
+    scope that belongs to multi-member consortium awards and is withheld from
+    per-supplier totals (the internal split is not published). Null on
+    attributed-basis reads; '0.00' means nothing is withheld here.
+    """
+    valueWithheldAssociationSum: String
     minMonth: String
     maxMonth: String
     "One verdict per declared money measure of this grain."
@@ -625,6 +640,13 @@ export const procurementTypeDefs = /* GraphQL */ `
     dimension: ProcurementBreakdownDimension!
     rankedBy: String!
     buckets: [ProcurementBreakdownBucket!]!
+    """
+    Supplier-money breakdowns only (supplier-keyed dimension or supplier-scoped
+    request): consortium money withheld from every bucket in this scope —
+    buckets + this field reconcile to the attributed total (render it under
+    the map/ranking so the buyer and supplier views visibly reconcile).
+    """
+    valueWithheldAssociationSum: String
     meta: ProcurementAnswerMeta!
   }
 

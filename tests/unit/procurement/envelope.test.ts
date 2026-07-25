@@ -21,9 +21,10 @@ import {
   parseAnalysisScope,
   scopeToFilterInput,
 } from '@/modules/procurement/core/analysis-scope.js';
+import { MEASURE_IDS } from '@/modules/procurement/core/constants.js';
 import { buildEnvelope } from '@/modules/procurement/core/envelope.js';
 import { ANSWERABILITY_REASONS } from '@/modules/procurement/core/gate-v2.js';
-import { anchorPolicy } from '@/modules/procurement/core/policy.js';
+import { POLICY_TABLE, anchorPolicy } from '@/modules/procurement/core/policy.js';
 import { procurementTypeDefs } from '@/modules/procurement/shell/graphql/typedefs.js';
 import { ANALYSIS_SCOPE_ZOD_SHAPE } from '@/modules/procurement/shell/mcp/tools.js';
 
@@ -206,6 +207,27 @@ describe('surface parity: SDL == Zod == kernel spec == core fields', () => {
     expect(sdlFields()).toEqual(core);
     expect(Object.keys(ANALYSIS_SCOPE_ZOD_SHAPE)).toEqual(core);
     expect(ANALYSIS_SCOPE_SPEC.fields.map((f) => f.name)).toEqual(core);
+  });
+
+  // The scope-field parity above does NOT cover measures: MEASURE_IDS, the SDL
+  // enum and the policy table drifted independently until this test existed
+  // (codex review, 2026-07-25). A measure the SDL omits is unrequestable; one
+  // the policy omits routes to a confusing failure instead of a named rejection.
+  it('all measure surfaces agree: MEASURE_IDS == SDL enum == policy declarations', () => {
+    const doc = parse(procurementTypeDefs);
+    const sdlMeasures = doc.definitions
+      .filter(
+        (node): node is EnumTypeDefinitionNode =>
+          node.kind === Kind.ENUM_TYPE_DEFINITION &&
+          node.name.value === 'ProcurementAnalysisMeasure'
+      )
+      .flatMap((node) => (node.values ?? []).map((value) => value.name.value));
+    expect([...sdlMeasures].sort()).toEqual([...MEASURE_IDS].sort());
+
+    const declared = new Set(POLICY_TABLE.map((entry) => entry.measure));
+    for (const measure of MEASURE_IDS) {
+      expect(declared.has(measure), `no policy entry declares '${measure}'`).toBe(true);
+    }
   });
 
   it('types answerability states and reasons as closed GraphQL enums', () => {

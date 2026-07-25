@@ -115,11 +115,14 @@ describe('ClickHouse row-filter and dimension scope compilation', () => {
     );
   });
 
-  it('compiles value bounds as accepted-set bani predicates', async () => {
+  it('compiles value bounds as attributed-money bani predicates (association dedup r3)', async () => {
     const body = await statsBody({ valueMin: 1000.5, valueMax: 5_000_000 });
-    expect(body).toContain("value_state IN ('official_exact', 'official_ron_equivalent')");
-    expect(body).toContain('value_awarded_bani >= 100050');
-    expect(body).toContain('value_awarded_bani <= 500000000');
+    // Bounds range over the SERVED money rows: the attributed column is the
+    // carrier-only value (suppressed/quarantined member rows are never money
+    // rows), and its non-NULL test IS the acceptance predicate.
+    expect(body).toContain('value_awarded_attributed_bani IS NOT NULL');
+    expect(body).toContain('value_awarded_attributed_bani >= 100050');
+    expect(body).toContain('value_awarded_attributed_bani <= 500000000');
   });
 
   it('keeps value bounds at the top level of a bounded window (undated rows filtered too)', async () => {
@@ -127,13 +130,13 @@ describe('ClickHouse row-filter and dimension scope compilation', () => {
     // Row filters precede the dated/undated OR-composition: they constrain the
     // WHOLE population, including the undated bucket — not just dated rows.
     expect(body).toContain(
-      "value_awarded_bani >= 100000 AND ((NOT is_undated AND date_basis >= toDate('2025-01-01') AND date_basis < toDate('2026-01-01')) OR is_undated)"
+      "value_awarded_attributed_bani >= 100000 AND ((NOT is_undated AND date_basis >= toDate('2025-01-01') AND date_basis < toDate('2026-01-01')) OR is_undated)"
     );
   });
 
   it('exact bani conversion (binary float 1.05 RON compiles to 105 bani)', async () => {
     const body = await statsBody({ valueMin: 1.05 });
-    expect(body).toContain('value_awarded_bani >= 105');
+    expect(body).toContain('value_awarded_attributed_bani >= 105');
   });
 
   it('keys CPV level breakdowns on canonical 8-digit codes and honors SIRUTA topN', async () => {
@@ -158,5 +161,105 @@ describe('ClickHouse row-filter and dimension scope compilation', () => {
       "if(length(cpv_code) = 8 AND substring(cpv_code, 3, 1) != '0', concat(substring(cpv_code, 1, 3), '00000'), NULL) AS key"
     );
     expect(topBody).toContain('LIMIT 3300');
+  });
+});
+
+describe('association-dedup money routing (design r3, user decisions D3=C/D8)', () => {
+  const makeRepo = (): { repo: AnalysisRepo; fetchSpy: ReturnType<typeof vi.fn> } => {
+    const fetchSpy = vi.fn().mockResolvedValue(emptyStatsResponse());
+    vi.stubGlobal('fetch', fetchSpy);
+    const repo = makeClickhouseAnalysisRepo(
+      { url: 'http://clickhouse.test', database: 'proto' },
+      activeGeneration
+    );
+    return { repo, fetchSpy };
+  };
+  const bodyOf = (fetchSpy: ReturnType<typeof vi.fn>, call = 0): string =>
+    (fetchSpy.mock.calls[call]?.[1] as { body?: string } | undefined)?.body ?? '';
+
+  it('unscoped contract stats aggregate ATTRIBUTED money (one copy per award)', async () => {
+    const { repo, fetchSpy } = makeRepo();
+    await repo.statsFor(route('contract'), {}, '1');
+    const body = bodyOf(fetchSpy);
+    expect(body).toContain('value_awarded_attributed_bani');
+    expect(body).not.toContain('value_awarded_supplier_bani');
+  });
+
+  it('supplier-scoped contract stats aggregate SUPPLIER money (M1 invariant)', async () => {
+    const { repo, fetchSpy } = makeRepo();
+    await repo.statsFor(route('contract'), { supplierCui: '123' }, '1');
+    const body = bodyOf(fetchSpy);
+    expect(body).toContain('value_awarded_supplier_bani');
+    // The attributed column appears ONLY in the withheld disclosure output —
+    // never as the anchor money (M1) — and the anchor sum stays supplier.
+    expect(body).toContain('withheld_bani_out');
+    expect(body).toContain(
+      'toString(sumIf(toInt128(value_awarded_supplier_bani), is_undated AND value_awarded_supplier_bani IS NOT NULL))) AS undated_bani_out'
+    );
+    const beforeWithheld = body.slice(0, body.indexOf('withheld_bani_out'));
+    const afterWithheld = body.slice(beforeWithheld.length + 'withheld_bani_out'.length);
+    expect(beforeWithheld.split('AS awarded_bani_out')[0]).not.toContain(
+      'value_awarded_attributed_bani'
+    );
+    expect(afterWithheld).not.toContain('value_awarded_attributed_bani');
+  });
+
+  it('supplier-scoped stats DISCLOSE the withheld association mass (finding 2)', async () => {
+    const { repo, fetchSpy } = makeRepo();
+    await repo.statsFor(route('contract'), { supplierCui: '123' }, '1');
+    const body = bodyOf(fetchSpy);
+    // Withheld = Σ attributed − Σ supplier over the SAME scope; NULL when the
+    // scope holds no attributed money (never a fabricated zero).
+    expect(body).toContain(
+      'if(countIf(1 AND value_awarded_attributed_bani IS NOT NULL) = 0, NULL,'
+    );
+    expect(body).toMatch(
+      /sumIf\(toInt128\(value_awarded_attributed_bani\)[\s\S]*-\s*ifNull\(sumIf\(toInt128\(value_awarded_supplier_bani\)/
+    );
+  });
+
+  it('attributed-basis stats carry NO withheld output (the field doubles as the supplier-read signal)', async () => {
+    const { repo, fetchSpy } = makeRepo();
+    await repo.statsFor(route('contract'), {}, '1');
+    const body = bodyOf(fetchSpy);
+    expect(body).toContain('NULL AS withheld_bani_out');
+  });
+
+  it('supplier breakdown totals AND buckets share the supplier-money basis', async () => {
+    const { repo, fetchSpy } = makeRepo();
+    await repo.breakdownFor(route('contract'), {}, '1', 'supplier', 10, 'value');
+    for (let i = 0; i < fetchSpy.mock.calls.length; i += 1) {
+      const body = bodyOf(fetchSpy, i);
+      expect(body).toContain('value_awarded_supplier_bani');
+      // Attributed money may appear ONLY in the totals' withheld disclosure;
+      // every aggregation of it must sit inside the withheld_bani_out output.
+      if (body.includes('value_awarded_attributed_bani')) {
+        expect(body).toContain('withheld_bani_out');
+        expect(body.split('AS awarded_bani_out')[0]).not.toContain('value_awarded_attributed_bani');
+      }
+    }
+  });
+
+  it('authority breakdown stays on attributed money', async () => {
+    const { repo, fetchSpy } = makeRepo();
+    await repo.breakdownFor(route('contract'), {}, '1', 'authority', 10, 'value');
+    for (let i = 0; i < fetchSpy.mock.calls.length; i += 1) {
+      expect(bodyOf(fetchSpy, i)).toContain('value_awarded_attributed_bani');
+    }
+  });
+
+  it('concentration always uses supplier money (association money never enters HHI)', async () => {
+    const { repo, fetchSpy } = makeRepo();
+    await repo.concentrationRowsFor(route('contract'), {}, '1', 'value');
+    for (let i = 0; i < fetchSpy.mock.calls.length; i += 1) {
+      const body = bodyOf(fetchSpy, i);
+      if (body.includes('sumIf')) expect(body).toContain('value_awarded_supplier_bani');
+    }
+  });
+
+  it('DA grain is untouched by the association flip (raw awarded column)', async () => {
+    const { repo, fetchSpy } = makeRepo();
+    await repo.statsFor(route('direct_acquisition'), { supplierCui: '123' }, '1');
+    expect(bodyOf(fetchSpy)).toContain('value_awarded_bani');
   });
 });

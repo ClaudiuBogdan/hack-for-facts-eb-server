@@ -65,7 +65,19 @@ const QualityVerdictSchema = Type.Object({
     value: Type.Number(),
     geo: Type.Number(),
     cpv: Type.Number(),
+    // Supplier-party geo row coverage (geo/disclosure follow-up): absent on
+    // older generations and on grains without a supplier (procedures).
+    geo_supplier: Type.Optional(Type.Number()),
   }),
+  // Money-weighted date/geo coverage (geo/disclosure wave): additive from
+  // generation 8, absent on older generations — optional so both validate.
+  coverage_money: Type.Optional(
+    Type.Object({
+      date: Type.Number(),
+      geo: Type.Number(),
+      geo_supplier: Type.Optional(Type.Number()),
+    })
+  ),
   classes: Type.Object({
     spend: SpendClass,
     time: AllowDegradedAbstain,

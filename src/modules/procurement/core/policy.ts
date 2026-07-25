@@ -175,6 +175,20 @@ const valueBasisEntries: readonly PolicyEntry[] = [
     gateClass: 'spend',
     doc: 'Σ modification-adjusted value (RON): awarded + verified anchored amendment chains (final value_after). Contracts with unusable amendment chains are excluded (sequence_unresolved), never silently served as awarded.',
   }),
+  // The like-for-like baseline for valueModAdjustedSum. Subtracting the two
+  // GRAIN-level totals is invalid — valueAwardedSum covers every accepted
+  // contract while the adjusted basis covers only resolvable chains
+  // (`adjusted` + `no_mods`), so the difference reads as a spurious multi-billion
+  // "saving". This measure sums awarded value over the ADJUSTED population, so
+  // adjusted − matched is the net amendment effect and nothing else. Same
+  // population ⇒ same basis verdict as valueModAdjustedSum.
+  entry('contract', 'valueAwardedMatchedSum', {
+    valueBasis: 'modAdjusted',
+    law: 'additive',
+    legalShapes: ['stats'],
+    gateClass: 'spend',
+    doc: 'Σ awarded value (RON) over the modification-adjusted population — the like-for-like baseline for valueModAdjustedSum. Their difference is the net amendment effect; never subtract valueModAdjustedSum from the grain-wide valueAwardedSum.',
+  }),
   entry('framework', 'recordCount', {
     law: 'additive',
     // Breakdowns (rankings/sliced totals) are WITHHELD until the Phase-2

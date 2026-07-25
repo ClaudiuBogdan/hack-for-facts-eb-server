@@ -44,6 +44,7 @@ import {
   scopeDims,
   scopeRowFilters,
   scopeWindow,
+  supplierScoped,
   type AnalysisScope,
 } from './analysis-scope.js';
 import { routeAnalysis, type AnalysisRoute } from './combinations.js';
@@ -106,7 +107,13 @@ export interface AnalysisStatsBlock {
   readonly valueCeilingSum: string | null;
   /** Contract grain only: Σ modification-adjusted value (anchored chains). */
   readonly valueModAdjustedSum: string | null;
+  readonly valueAwardedMatchedSum: string | null;
   readonly avgValueAwarded: string | null;
+  /**
+   * Supplier-money reads only (association dedup): consortium money withheld
+   * from per-supplier totals in this scope. Null on attributed-basis reads.
+   */
+  readonly valueWithheldAssociationSum: string | null;
   readonly minMonth: string | null;
   readonly maxMonth: string | null;
   /** One verdict per declared money measure of this grain. */
@@ -150,6 +157,13 @@ export interface AnalysisBreakdownBlock {
   readonly dimension: BreakdownDimension;
   readonly rankedBy: 'value' | 'count';
   readonly buckets: readonly AnalysisBreakdownBucket[];
+  /**
+   * Supplier-money breakdowns only (supplier-keyed dimension or
+   * supplier-scoped request): the consortium money withheld from every
+   * bucket in this scope — buckets + this field reconcile to the
+   * attributed total (the under-map disclosure). Null otherwise.
+   */
+  readonly valueWithheldAssociationSum: string | null;
   readonly meta: AnswerEnvelope;
 }
 
@@ -313,27 +327,30 @@ const shapeGate = (
   }
   // Every buyer/supplier geography level consults the geo verdict —
   // county/SIRUTA follow the same coverage class as regions (review F2).
-  const geoScopeFields = [
-    scope.buyerRegion,
-    scope.buyerCounty,
-    scope.buyerSiruta,
-    scope.supplierRegion,
-    scope.supplierCounty,
-    scope.supplierSiruta,
-  ];
-  const GEO_DIMS: readonly BreakdownDimension[] = [
-    'buyerRegion',
-    'buyerCounty',
-    'buyerSiruta',
-    'supplierRegion',
-    'supplierCounty',
-    'supplierSiruta',
-  ];
-  if (
-    geoScopeFields.some((v) => v !== undefined) ||
-    (options.dimension !== undefined && GEO_DIMS.includes(options.dimension))
-  ) {
-    decisions.push(decideAnswer(gen.quality, grain, 'geo', cov));
+  // The PARTY decides which coverage ratios the caveat may quote: supplier
+  // surfaces never quote the buyer ratios (geo/disclosure finding 1). When
+  // both parties are involved, buyer wins the text — its ratios exist on
+  // every generation and the class is buyer-decided anyway.
+  const buyerGeoInvolved =
+    scope.buyerRegion !== undefined ||
+    scope.buyerCounty !== undefined ||
+    scope.buyerSiruta !== undefined ||
+    (options.dimension !== undefined &&
+      (['buyerRegion', 'buyerCounty', 'buyerSiruta'] as BreakdownDimension[]).includes(
+        options.dimension
+      ));
+  const supplierGeoInvolved =
+    scope.supplierRegion !== undefined ||
+    scope.supplierCounty !== undefined ||
+    scope.supplierSiruta !== undefined ||
+    (options.dimension !== undefined &&
+      (['supplierRegion', 'supplierCounty', 'supplierSiruta'] as BreakdownDimension[]).includes(
+        options.dimension
+      ));
+  if (buyerGeoInvolved || supplierGeoInvolved) {
+    decisions.push(
+      decideAnswer(gen.quality, grain, 'geo', cov, buyerGeoInvolved ? 'buyer' : 'supplier')
+    );
   }
   return composeGates(decisions);
 };
@@ -354,6 +371,92 @@ const anchorMoneyGate = (
 
 // ── stats ──────────────────────────────────────────────────────────────────────
 
+/**
+ * Association-withheld disclosure (user decision 2026-07-25; assoc review
+ * finding 2): whenever a supplier-money read reports withheld consortium
+ * mass, the envelope must say so with the scope-exact amount and share —
+ * the buyer and supplier surfaces have to reconcile in front of the reader.
+ * `withheldRon` is non-null ONLY on supplier-money reads (repo contract).
+ */
+const withheldCaveats = (
+  withheldRon: string | null,
+  servedRon: string | null
+): readonly string[] => {
+  if (withheldRon === null) return [];
+  const withheld = d(withheldRon);
+  if (!withheld.greaterThan(0)) return [];
+  const attributed = withheld.plus(servedRon ?? '0');
+  const share = attributed.greaterThan(0) ? withheld.div(attributed).mul(100).toFixed(1) : null;
+  return [
+    `supplier attribution: ${withheld.toFixed(MONEY_DP)} RON of ${attributed.toFixed(MONEY_DP)} RON awarded in this scope${share === null ? '' : ` (${share}%)`} belongs to multi-member consortium awards — the internal split is not published, so per-supplier money excludes it (withheld, never redistributed)`,
+  ];
+};
+
+/** Dimensions whose breakdown reads supplier money regardless of scope. */
+const SUPPLIER_KEYED_DIMS: ReadonlySet<BreakdownDimension> = new Set([
+  'supplier',
+  'supplierRegion',
+  'supplierCounty',
+  'supplierSiruta',
+]);
+
+const QUALITATIVE_ENTITY_WITHHELD =
+  'per-supplier money for this supplier excludes any multi-member consortium awards it participates in — the internal split is not published and consortium mass is never attributed to individual members, so no withheld amount is quoted per entity (it would depend on the technical carrier election)';
+const QUALITATIVE_BOUNDED_WITHHELD =
+  'value-bounded supplier reads exclude multi-member consortium awards entirely — their per-supplier values are unpublished, so they cannot satisfy a value bound and no withheld amount is quoted';
+const CARRIER_PLACEMENT_NOTE =
+  "consortium withheld mass is counted in the region of the award's representative (carrier) member";
+
+/**
+ * How the withheld consortium mass is disclosed for a scope (user decisions
+ * 2026-07-25, codex findings 4a/4b):
+ *  - entity scopes (supplierCui) and value-bounded scopes are QUALITATIVE —
+ *    the number would be carrier-dependent (4a) or silently collapsed (4b),
+ *    so the caveat explains the exclusion without quoting an amount;
+ *  - aggregate scopes stay NUMERIC (exact nationally; carrier-placed on
+ *    supplier-geo slices, disclosed by the placement note).
+ * Callers gate on moneyAllowed and grain==='contract' — only supplier-money
+ * contract reads have a withheld population at all.
+ */
+const withheldDisclosure = (
+  scope: AnalysisScope,
+  withheldRon: string | null,
+  servedRon: string | null
+): { readonly ron: string | null; readonly caveats: readonly string[] } => {
+  const qualitative: string[] = [
+    ...(scope.supplierCui !== undefined ? [QUALITATIVE_ENTITY_WITHHELD] : []),
+    ...(scope.valueMin !== undefined || scope.valueMax !== undefined
+      ? [QUALITATIVE_BOUNDED_WITHHELD]
+      : []),
+  ];
+  if (qualitative.length > 0) return { ron: null, caveats: qualitative };
+  const numeric = withheldCaveats(withheldRon, servedRon);
+  const placement =
+    numeric.length > 0 &&
+    (scope.supplierCounty !== undefined ||
+      scope.supplierRegion !== undefined ||
+      scope.supplierSiruta !== undefined)
+      ? [CARRIER_PLACEMENT_NOTE]
+      : [];
+  return { ron: withheldRon, caveats: [...numeric, ...placement] };
+};
+
+/**
+ * Typed abstention for the mod-adjusted basis under supplier-sliced scopes:
+ * adjustments attach to the CONTRACT (attributed population), so a
+ * supplier-money read has no mod-adjusted column to serve. The policy table
+ * declares the measure legal; the SCOPE makes it unavailable — that is an
+ * abstention with a reason, not a transport error.
+ */
+const SUPPLIER_SCOPE_NO_MOD_ADJUSTED: GateDecision = {
+  allow: false,
+  degraded: false,
+  caveats: [
+    'mod-adjusted money exists only for the attributed (buyer-side) population — supplier-scoped reads abstain on this basis (per-supplier adjustment splits are not published)',
+  ],
+  reason: 'GENERATION_LACKS_CAPABILITY',
+};
+
 const statsBlockFor = async (
   deps: AnalysisDeps,
   gen: ActiveGeneration,
@@ -372,9 +475,16 @@ const statsBlockFor = async (
     policyFor(grain, 'valueEstimatedSum') !== undefined
       ? decideMoney(gen.quality, cov, grain, 'estimated')
       : null;
+  // Mod-adjusted money exists only at the ATTRIBUTED (buyer) grain; the
+  // supplier-money profile deliberately omits it (mixing populations). A
+  // supplier-scoped read must therefore ABSTAIN the basis with a typed
+  // verdict — never publish a 'served' verdict beside a NULL value
+  // (geo/disclosure review finding 5).
   const modGate =
     policyFor(grain, 'valueModAdjustedSum') !== undefined
-      ? decideMoney(gen.quality, cov, grain, 'modAdjusted')
+      ? supplierScoped(scope)
+        ? SUPPLIER_SCOPE_NO_MOD_ADJUSTED
+        : decideMoney(gen.quality, cov, grain, 'modAdjusted')
       : null;
   const basisCaveats = [
     ...(estGate !== null && (estGate.degraded || !estGate.allow) ? estGate.caveats : []),
@@ -392,6 +502,11 @@ const statsBlockFor = async (
       : []),
     ...(estGate !== null ? [verdictOf('valueEstimatedSum', estGate)] : []),
     ...(modGate !== null ? [verdictOf('valueModAdjustedSum', modGate)] : []),
+    // Same population as the adjusted basis ⇒ same verdict; publishing it
+    // keeps the client from pairing a served baseline with an abstained total.
+    ...(modGate !== null && policyFor(grain, 'valueAwardedMatchedSum') !== undefined
+      ? [verdictOf('valueAwardedMatchedSum', modGate)]
+      : []),
   ];
   const spendGates = spend !== null ? [spend] : [];
   const moneyAllowed = spend?.allow ?? false;
@@ -409,7 +524,9 @@ const statsBlockFor = async (
       valueEstimatedSum: null,
       valueCeilingSum: null,
       valueModAdjustedSum: null,
+      valueAwardedMatchedSum: null,
       avgValueAwarded: null,
+      valueWithheldAssociationSum: null,
       minMonth: null,
       maxMonth: null,
       moneyVerdicts,
@@ -446,6 +563,10 @@ const statsBlockFor = async (
     modGate !== null && modGate.allow && read.valueModAdjustedSum !== null
       ? d(read.valueModAdjustedSum).toFixed(MONEY_DP)
       : null;
+  const awardedMatched =
+    modGate !== null && modGate.allow && read.valueAwardedMatchedSum !== null
+      ? d(read.valueAwardedMatchedSum).toFixed(MONEY_DP)
+      : null;
   const withValue = d(read.withValue);
   const avg =
     awarded !== null && withValue.greaterThan(0)
@@ -455,6 +576,18 @@ const statsBlockFor = async (
     moneyAllowed && !awardedObserved && grain !== 'framework' && grain !== 'modification'
       ? [NO_AWARDED_VALUES_CAVEAT]
       : [];
+  // Withheld consortium mass follows the SAME anchor gate as the money it
+  // qualifies (it is awarded-basis mass) — never disclosed as a number when
+  // the money itself is suppressed. Disclosure mode (numeric vs qualitative)
+  // is decided by the scope shape (findings 4a/4b).
+  // Only supplier-money reads have a withheld population (repo profile
+  // election mirrors supplierScoped) — a buyer read under value bounds is
+  // NOT affected and gets no consortium caveat.
+  const withheldD =
+    moneyAllowed && grain === 'contract' && supplierScoped(scope)
+      ? withheldDisclosure(scope, read.valueWithheldAssociationSum, read.valueAwardedSum)
+      : { ron: null, caveats: [] as readonly string[] };
+  const withheld = withheldD.ron !== null ? d(withheldD.ron).toFixed(MONEY_DP) : null;
 
   return ok({
     grain,
@@ -465,7 +598,9 @@ const statsBlockFor = async (
     valueEstimatedSum: estimated,
     valueCeilingSum: ceiling,
     valueModAdjustedSum: modAdjusted,
+    valueAwardedMatchedSum: awardedMatched,
     avgValueAwarded: avg,
+    valueWithheldAssociationSum: withheld,
     minMonth: read.minMonth,
     maxMonth: read.maxMonth,
     moneyVerdicts,
@@ -476,7 +611,7 @@ const statsBlockFor = async (
       readsOf(read),
       canonicalScope,
       moneyAllowed,
-      [...noValueCaveats, ...basisCaveats, ...scopeNotes(grain, scope)]
+      [...noValueCaveats, ...basisCaveats, ...withheldD.caveats, ...scopeNotes(grain, scope)]
     ),
   });
 };
@@ -562,7 +697,14 @@ export const analysisSeries = async (
       );
     }
 
-    const spend = decideMoney(gen.quality, cov, grain, policy.valueBasis ?? anchorBasis(grain));
+    // A supplier-sliced scope has no mod-adjusted column (attributed-only
+    // population) — substitute the typed abstention BEFORE gate composition
+    // so the request abstains instead of reaching the repo and erroring
+    // (geo/disclosure review finding 5).
+    const spend =
+      policy.valueBasis === 'modAdjusted' && supplierScoped(scope)
+        ? SUPPLIER_SCOPE_NO_MOD_ADJUSTED
+        : decideMoney(gen.quality, cov, grain, policy.valueBasis ?? anchorBasis(grain));
     const blockedBlock = (gated: GateDecision): AnalysisSeriesBlock => ({
       grain,
       measure,
@@ -666,20 +808,42 @@ export const analysisSeries = async (
       undatedCount: undated?.recordCount ?? '0',
       undatedValueRon: undated?.valueAwardedSum ?? null,
     };
+
+    // Supplier-money series exclude the withheld consortium mass exactly like
+    // stats/breakdown do — the envelope must say so here too (geo/disclosure
+    // review finding 2). Qualitative scopes (entity / value-bounded, findings
+    // 4a/4b) get their caveat WITHOUT the extra stats read; numeric scopes
+    // fetch the scope-total withheld with one extra stats read.
+    const supplierMoneySeries =
+      grain === 'contract' &&
+      supplierScoped(scope) &&
+      policy.gateClass === 'spend' &&
+      (policy.valueBasis ?? anchorBasis(grain)) === 'awarded';
+    let seriesWithheldCaveats: readonly string[] = [];
+    if (supplierMoneySeries) {
+      const qualitative = withheldDisclosure(scope, null, null);
+      if (qualitative.caveats.length > 0) {
+        seriesWithheldCaveats = qualitative.caveats;
+      } else {
+        const statsR = await deps.analysisRepo.statsFor(route, scope, gen.buildId);
+        if (statsR.isErr()) return err(statsR.error);
+        seriesWithheldCaveats = withheldDisclosure(
+          scope,
+          statsR.value.valueWithheldAssociationSum,
+          statsR.value.valueAwardedSum
+        ).caveats;
+      }
+    }
+
     blocks.push({
       grain,
       measure,
       bucket,
       points,
-      meta: buildEnvelope(
-        policy,
-        gated,
-        gen.buildId,
-        reads,
-        canonicalScope,
-        spend.allow,
-        scopeNotes(grain, scope)
-      ),
+      meta: buildEnvelope(policy, gated, gen.buildId, reads, canonicalScope, spend.allow, [
+        ...seriesWithheldCaveats,
+        ...scopeNotes(grain, scope),
+      ]),
     });
   }
   return ok(blocks);
@@ -744,6 +908,7 @@ const breakdownBlockFor = async (
       dimension,
       rankedBy,
       buckets: [],
+      valueWithheldAssociationSum: null,
       meta: buildEnvelope(
         policy,
         composeGates([blockGate, ...spendGates]),
@@ -812,20 +977,25 @@ const breakdownBlockFor = async (
     ...answerGate,
     caveats: [...answerGate.caveats, ...rankCaveats],
   };
+  // Disclosure mode by scope shape (findings 4a/4b); the withheld population
+  // exists only when this breakdown reads supplier money (supplier-scoped
+  // request or supplier-keyed dimension — mirrors the repo's election).
+  const supplierMoneyRead =
+    grain === 'contract' && (supplierScoped(scope) || SUPPLIER_KEYED_DIMS.has(dimension));
+  const withheldD =
+    moneyAllowed && supplierMoneyRead
+      ? withheldDisclosure(scope, totals.valueWithheldAssociationSum, totals.valueAwardedSum)
+      : { ron: null, caveats: [] as readonly string[] };
   return ok({
     grain,
     dimension,
     rankedBy,
     buckets: outBuckets,
-    meta: buildEnvelope(
-      policy,
-      gate,
-      gen.buildId,
-      readsOf(totals),
-      canonicalScope,
-      moneyAllowed,
-      scopeNotes(grain, scope)
-    ),
+    valueWithheldAssociationSum: withheldD.ron !== null ? d(withheldD.ron).toFixed(MONEY_DP) : null,
+    meta: buildEnvelope(policy, gate, gen.buildId, readsOf(totals), canonicalScope, moneyAllowed, [
+      ...withheldD.caveats,
+      ...scopeNotes(grain, scope),
+    ]),
   });
 };
 
@@ -932,6 +1102,24 @@ export const analysisConcentration = async (
 
     const basisLabel = basis === 'value' ? 'awarded value' : 'record count';
     const semanticsCaveats = [
+      // Concentration always runs on supplier money: HHI/top shares are
+      // computed over the ATTRIBUTABLE mass only — the withheld share is
+      // disclosed so nobody reads them as shares of all awarded money.
+      // The NUMBER follows the spend gate: a count-basis request while spend
+      // abstains must not leak gate-suppressed money (review finding 3) —
+      // basis=value only reaches here with spend allowed (composed gate).
+      ...(spend.allow
+        ? withheldDisclosure(
+            input.scope,
+            totals.valueWithheldAssociationSum,
+            totals.valueAwardedSum
+          ).caveats
+        : totals.valueWithheldAssociationSum !== null &&
+            d(totals.valueWithheldAssociationSum).greaterThan(0)
+          ? [
+              'per-supplier money in this scope excludes multi-member consortium awards (split unpublished); the amount is not quoted because spend answers abstain for this grain',
+            ]
+          : []),
       `HHI/top shares are computed over known suppliers with positive ${basisLabel} (${String(measures.length)} of ${String(rows.length)} known suppliers)`,
       ...(unknownSupplierMeasure !== null && d(unknownSupplierMeasure).greaterThan(0)
         ? [

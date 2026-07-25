@@ -143,11 +143,19 @@ export interface AnalysisStatsRead {
   readonly valueCeilingSum: string | null;
   /** Contract grain only: Σ modification-adjusted value (null elsewhere). */
   readonly valueModAdjustedSum: string | null;
+  readonly valueAwardedMatchedSum: string | null;
   readonly minMonth: string | null;
   readonly maxMonth: string | null;
   /** The `month_start IS NULL` bucket under the same dimensions (design §3.2). */
   readonly undatedCount: string;
   readonly undatedValueRon: string | null;
+  /**
+   * Association-withheld mass (supplier-money reads only): Σ attributed −
+   * Σ supplier over the same scope — the multi-member consortium money whose
+   * internal split is unobservable. Null on attributed-basis reads AND when
+   * the scope holds no attributed money; '0.00' means "nothing withheld".
+   */
+  readonly valueWithheldAssociationSum: string | null;
 }
 
 /** One monthly series row; `month: null` tags the undated bucket. */

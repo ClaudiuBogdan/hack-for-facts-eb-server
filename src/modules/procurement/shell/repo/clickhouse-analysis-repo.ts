@@ -87,6 +87,14 @@ interface GrainSqlProfile {
   readonly modAdjusted?: { readonly col: string; readonly accept: string };
   /** Distinct-supplier key expression (differs where identity keys are absent). */
   readonly supplierDistinctExpr?: string;
+  /**
+   * Association-withheld disclosure (user decision 2026-07-25, codex review
+   * finding 2): on supplier-money profiles, the scope-exact withheld mass =
+   * Σ attributed − Σ supplier over the same population. Present ONLY on the
+   * supplier variant — its non-null read result doubles as the "this was a
+   * supplier-money read" signal for the usecase caveats.
+   */
+  readonly withheldFrom?: { readonly col: string; readonly accept: string };
 }
 
 /** High-confidence supplier identity (mirrors spec F14 supplier rule). */
@@ -134,20 +142,55 @@ const GRAIN_SQL: Record<string, GrainSqlProfile> = {
   },
 };
 
+/**
+ * Contract-grain money serves the ASSOCIATION-ATTRIBUTED columns
+ * (PROCUREMENT_ASSOCIATION_DEDUP_DESIGN r3, locked 2026-07-25): consortium
+ * awards are published once per member with the full value on each row, so
+ * raw value_awarded_bani multi-counts ~30% of the national total. Exactly
+ * one row per award group carries value_awarded_attributed_bani; acceptance
+ * IS the non-NULL carrier test (the data layer's gates guarantee
+ * carrier ⊆ accepted states). withValue therefore counts value-bearing
+ * AWARDS, not member observations (M3 law).
+ */
 const CONTRACT_PROFILE: GrainSqlProfile = {
   base: CORE_BASE,
-  accept: CORE_ACCEPT,
-  anchorCol: 'value_awarded_bani',
+  accept: 'value_awarded_attributed_bani IS NOT NULL',
+  anchorCol: 'value_awarded_attributed_bani',
   anchorField: 'awarded',
   estimated: { col: 'value_estimated_bani', accept: ESTIMATED_ACCEPT },
   modAdjusted: {
-    col: 'value_mod_adjusted_bani',
-    accept: "mod_adjustment_state IN ('adjusted', 'no_mods')",
+    col: 'value_mod_adjusted_attributed_bani',
+    accept: 'value_mod_adjusted_attributed_bani IS NOT NULL',
   },
   supplierDistinctExpr: `uniqExactIf(supplier_identity_key, ${SUPPLIER_KEY_VALID})`,
 };
 
-const profileFor = (grain: string): GrainSqlProfile => GRAIN_SQL[grain] ?? CONTRACT_PROFILE;
+/**
+ * Supplier-dimension variant (user decision D3=C): named-supplier money
+ * NEVER includes multi-member association money — shares are unobservable.
+ * value_awarded_supplier_bani carries single awards + single-member
+ * duplicate groups only; the withheld association mass is disclosed, not
+ * silently reassigned. Selected for supplier-scoped requests, supplier-keyed
+ * breakdowns, and concentration.
+ */
+// Mod-adjusted money exists only at the ATTRIBUTED grain — mixing it with
+// supplier money would compare different populations (review finding 1).
+// Supplier-scoped requests abstain on the mod-adjusted basis entirely
+// (the key is OMITTED, not undefined — exactOptionalPropertyTypes).
+// eslint-disable-next-line @typescript-eslint/naming-convention -- the underscore marks the deliberately omitted key, never referenced again
+const { modAdjusted: _contractModAdjusted, ...CONTRACT_PROFILE_NO_MOD } = CONTRACT_PROFILE;
+const CONTRACT_SUPPLIER_PROFILE: GrainSqlProfile = {
+  ...CONTRACT_PROFILE_NO_MOD,
+  accept: 'value_awarded_supplier_bani IS NOT NULL',
+  anchorCol: 'value_awarded_supplier_bani',
+  withheldFrom: {
+    col: 'value_awarded_attributed_bani',
+    accept: 'value_awarded_attributed_bani IS NOT NULL',
+  },
+};
+
+const profileFor = (grain: string, supplierMoney = false): GrainSqlProfile =>
+  GRAIN_SQL[grain] ?? (supplierMoney ? CONTRACT_SUPPLIER_PROFILE : CONTRACT_PROFILE);
 
 /**
  * Per-grain column overrides: modifications expose the LINKED contract's
@@ -199,6 +242,18 @@ const SUPPLIER_SCOPE_FIELDS: readonly (keyof AnalysisScope)[] = [
   'supplierRegion',
   'supplierSiruta',
 ];
+
+/** A supplier-scoped request must aggregate supplier-attributable money. */
+const supplierScoped = (scope: AnalysisScope): boolean =>
+  SUPPLIER_SCOPE_FIELDS.some((field) => scope[field] !== undefined);
+
+/** Breakdown dimensions keyed on the supplier — same money rule applies. */
+const SUPPLIER_BREAKDOWN_DIMS: ReadonlySet<string> = new Set([
+  'supplier',
+  'supplierRegion',
+  'supplierCounty',
+  'supplierSiruta',
+]);
 
 const BREAKDOWN_DIM_COLUMNS: Record<string, string> = {
   authority: 'authority_cui',
@@ -258,10 +313,14 @@ interface CompiledScope {
   readonly impossible: boolean;
 }
 
-const compileScope = (route: AnalysisRoute, scope: AnalysisScope): CompiledScope => {
+const compileScope = (
+  route: AnalysisRoute,
+  scope: AnalysisScope,
+  supplierMoney = false
+): CompiledScope => {
   const grain = route.grain;
   const table = TABLE_BY_GRAIN[grain] ?? 'facts_contracts_v2';
-  const profile = profileFor(grain);
+  const profile = profileFor(grain, supplierMoney);
   // Value-contract rule (frozen facts, 2026-07-22): cancelled records are
   // excluded from every transaction/spend measure on the CORE grains. The
   // value-basis populations serve their full row set (no canonicality/status
@@ -304,7 +363,16 @@ const compileScope = (route: AnalysisRoute, scope: AnalysisScope): CompiledScope
   }
 
   if (scope.q !== undefined && scope.q !== '') {
-    conds.push(`positionCaseInsensitiveUTF8(ifNull(title, ''), ${escapeString(scope.q)}) > 0`);
+    const rowMatch = `positionCaseInsensitiveUTF8(ifNull(title, ''), ${escapeString(scope.q)}) > 0`;
+    // Group-aware q (assoc design §4.3): an association's money sits on ONE
+    // carrier row, but the searched title may live on a sibling member row
+    // (multi-title groups measured 481). A row also matches when any row of
+    // its award group matches.
+    conds.push(
+      table === 'facts_contracts_v2'
+        ? `(${rowMatch} OR award_key IN (SELECT award_key FROM ${table} WHERE award_key IS NOT NULL AND ${rowMatch}))`
+        : rowMatch
+    );
   }
 
   // Value bounds restrict the ROW population to the grain's ANCHOR money in
@@ -350,10 +418,12 @@ const EMPTY_STATS: AnalysisStatsRead = {
   valueEstimatedSum: null,
   valueCeilingSum: null,
   valueModAdjustedSum: null,
+  valueAwardedMatchedSum: null,
   minMonth: null,
   maxMonth: null,
   undatedCount: '0',
   undatedValueRon: null,
+  valueWithheldAssociationSum: null,
 };
 
 export const makeClickhouseAnalysisRepo = (
@@ -393,8 +463,11 @@ export const makeClickhouseAnalysisRepo = (
   };
 
   const statsSelect = (p: GrainSqlProfile, dated: string): string => {
+    // Null law (assoc review finding 3): a sum is NULL when no row satisfies
+    // the MONEY predicate — an association-only supplier scope must answer
+    // "withheld", never "0.00".
     const moneySum = (col: string, accept: string): string =>
-      `if(countIf(${dated}) = 0, NULL, toString(sumIf(toInt128(${col}), ${dated} AND ${accept})))`;
+      `if(countIf(${dated} AND ${accept}) = 0, NULL, toString(sumIf(toInt128(${col}), ${dated} AND ${accept})))`;
     const anchorSum = p.anchorCol === null ? 'NULL' : moneySum(p.anchorCol, p.accept);
     return `
       toString(countIf(${dated})) AS rows,
@@ -404,15 +477,27 @@ export const makeClickhouseAnalysisRepo = (
       ${p.estimated === undefined ? 'NULL' : moneySum(p.estimated.col, `${p.estimated.accept} AND ${p.estimated.col} IS NOT NULL`)} AS estimated_bani_out,
       ${p.anchorField === 'ceiling' ? anchorSum : 'NULL'} AS ceiling_bani_out,
       ${p.modAdjusted === undefined ? 'NULL' : moneySum(p.modAdjusted.col, p.modAdjusted.accept)} AS mod_adjusted_bani_out,
+      ${
+        p.modAdjusted === undefined || p.anchorCol === null
+          ? 'NULL'
+          : moneySum(p.anchorCol, p.modAdjusted.accept)
+      } AS awarded_matched_bani_out,
       if(countIf(${dated} AND NOT is_undated) = 0, NULL,
          formatDateTime(minIf(date_basis, ${dated} AND NOT is_undated), '%Y-%m')) AS min_month,
       if(countIf(${dated} AND NOT is_undated) = 0, NULL,
          formatDateTime(maxIf(date_basis, ${dated} AND NOT is_undated), '%Y-%m')) AS max_month,
+      ${
+        p.withheldFrom === undefined || p.anchorCol === null
+          ? 'NULL'
+          : `if(countIf(${dated} AND ${p.withheldFrom.accept}) = 0, NULL,
+         toString(ifNull(sumIf(toInt128(${p.withheldFrom.col}), ${dated} AND ${p.withheldFrom.accept}), 0)
+                - ifNull(sumIf(toInt128(${p.anchorCol}), ${dated} AND ${p.accept}), 0)))`
+      } AS withheld_bani_out,
       toString(countIf(is_undated)) AS undated_count,
       ${
         p.anchorCol === null
           ? 'NULL'
-          : `if(countIf(is_undated) = 0, NULL,
+          : `if(countIf(is_undated AND ${p.accept}) = 0, NULL,
          toString(sumIf(toInt128(${p.anchorCol}), is_undated AND ${p.accept})))`
       } AS undated_bani_out`;
   };
@@ -425,10 +510,12 @@ export const makeClickhouseAnalysisRepo = (
     estimated_bani_out: string | null;
     ceiling_bani_out: string | null;
     mod_adjusted_bani_out: string | null;
+    awarded_matched_bani_out: string | null;
     min_month: string | null;
     max_month: string | null;
     undated_count: string;
     undated_bani_out: string | null;
+    withheld_bani_out: string | null;
   }
 
   const toStats = (row: RawStats | undefined): AnalysisStatsRead =>
@@ -442,25 +529,39 @@ export const makeClickhouseAnalysisRepo = (
           valueEstimatedSum: baniToRon(row.estimated_bani_out),
           valueCeilingSum: baniToRon(row.ceiling_bani_out),
           valueModAdjustedSum: baniToRon(row.mod_adjusted_bani_out),
+          valueAwardedMatchedSum: baniToRon(row.awarded_matched_bani_out),
           minMonth: row.min_month,
           maxMonth: row.max_month,
           undatedCount: row.undated_count,
           undatedValueRon: baniToRon(row.undated_bani_out),
+          valueWithheldAssociationSum: baniToRon(row.withheld_bani_out),
         };
 
-  const statsFor: AnalysisRepo['statsFor'] = async (route, scope, _buildId) => {
-    const c = compileScope(route, scope);
+  const statsCore = async (
+    route: AnalysisRoute,
+    scope: AnalysisScope,
+    supplierMoney: boolean
+  ): Promise<Result<AnalysisStatsRead, ApiError>> => {
+    const c = compileScope(route, scope, supplierMoney);
     if (c.impossible) return ok(EMPTY_STATS);
     const r = await query<RawStats>(
-      `SELECT ${statsSelect(profileFor(route.grain), c.dated)} FROM ${c.table} WHERE ${c.where}`
+      `SELECT ${statsSelect(profileFor(route.grain, supplierMoney), c.dated)} FROM ${c.table} WHERE ${c.where}`
     );
     return r.map((rows) => toStats(rows[0]));
   };
 
-  const measureExpr = (grain: string, measure: MeasureId, dated: string): string | null => {
-    const p = profileFor(grain);
+  const statsFor: AnalysisRepo['statsFor'] = async (route, scope, _buildId) =>
+    statsCore(route, scope, supplierScoped(scope));
+
+  const measureExpr = (
+    grain: string,
+    measure: MeasureId,
+    dated: string,
+    supplierMoney = false
+  ): string | null => {
+    const p = profileFor(grain, supplierMoney);
     const moneySum = (col: string, accept: string): string =>
-      `if(countIf(${dated}) = 0, NULL, toString(sumIf(toInt128(${col}), ${dated} AND ${accept})))`;
+      `if(countIf(${dated} AND ${accept}) = 0, NULL, toString(sumIf(toInt128(${col}), ${dated} AND ${accept})))`;
     switch (measure) {
       case 'recordCount':
         return `toString(countIf(${dated}))`;
@@ -478,6 +579,10 @@ export const makeClickhouseAnalysisRepo = (
         return p.modAdjusted === undefined
           ? null
           : moneySum(p.modAdjusted.col, p.modAdjusted.accept);
+      // valueAwardedMatchedSum is deliberately absent: policy declares it for
+      // `stats` only, and statsSelect computes it directly. Implementing it
+      // here would sit outside MONETARY_MEASURES, so enabling series later
+      // would emit bani labelled as RON — a silent 100× error.
       case 'valueEstimatedSum':
         return p.estimated === undefined
           ? null
@@ -496,13 +601,16 @@ export const makeClickhouseAnalysisRepo = (
   ]);
 
   const seriesFor: AnalysisRepo['seriesFor'] = async (route, scope, _buildId, measure) => {
-    const c = compileScope(route, scope);
-    const p = profileFor(route.grain);
+    const sup = supplierScoped(scope);
+    const c = compileScope(route, scope, sup);
+    const p = profileFor(route.grain, sup);
     if (c.impossible) return ok([]);
-    const expr = measureExpr(route.grain, measure, 'NOT is_undated');
+    const expr = measureExpr(route.grain, measure, 'NOT is_undated', sup);
     if (expr === null) return err(databaseError(`series measure '${measure}' unsupported`));
     const anchorBani =
-      p.anchorCol === null ? 'NULL' : `toString(sumIf(toInt128(${p.anchorCol}), ${p.accept}))`;
+      p.anchorCol === null
+        ? 'NULL'
+        : `if(countIf(${p.accept}) = 0, NULL, toString(sumIf(toInt128(${p.anchorCol}), ${p.accept})))`;
     const r = await query<{
       month: string | null;
       value: string | null;
@@ -538,8 +646,9 @@ export const makeClickhouseAnalysisRepo = (
     key,
     bucket
   ) => {
-    const c = compileScope(route, scope);
-    const p = profileFor(route.grain);
+    const sup = supplierScoped(scope);
+    const c = compileScope(route, scope, sup);
+    const p = profileFor(route.grain, sup);
     if (c.impossible) return ok([]);
     if (
       key === 'supplier' &&
@@ -552,7 +661,9 @@ export const makeClickhouseAnalysisRepo = (
         ? (p.supplierDistinctExpr ?? `uniqExactIf(supplier_cui, supplier_cui IS NOT NULL)`)
         : `uniqExactIf(authority_cui, authority_cui IS NOT NULL)`;
     const anchorBani =
-      p.anchorCol === null ? 'NULL' : `toString(sumIf(toInt128(${p.anchorCol}), ${p.accept}))`;
+      p.anchorCol === null
+        ? 'NULL'
+        : `if(countIf(${p.accept}) = 0, NULL, toString(sumIf(toInt128(${p.anchorCol}), ${p.accept})))`;
     const bucketExpr = BUCKET_LABEL[bucket];
     const r = await query<{
       bucket: string | null;
@@ -585,13 +696,17 @@ export const makeClickhouseAnalysisRepo = (
   const breakdownFor: AnalysisRepo['breakdownFor'] = async (
     route,
     scope,
-    buildId,
+    _buildId,
     dimension,
     topN,
     rankBy
   ) => {
-    const c = compileScope(route, scope);
-    const totalsR = await statsFor(route, scope, buildId);
+    // Supplier-keyed breakdowns aggregate supplier-attributable money, and
+    // the TOTALS row must use the SAME money basis or the derived 'other'
+    // bucket would silently absorb the withheld association mass (M1).
+    const sup = supplierScoped(scope) || SUPPLIER_BREAKDOWN_DIMS.has(dimension);
+    const c = compileScope(route, scope, sup);
+    const totalsR = await statsCore(route, scope, sup);
     if (totalsR.isErr()) return err(totalsR.error);
     const totals = totalsR.value;
     if (c.impossible) return ok({ buckets: [], totals });
@@ -608,7 +723,7 @@ export const makeClickhouseAnalysisRepo = (
 
     // ORDER BY must use the numeric aggregate, NOT the toString() output
     // alias (string alias would rank lexicographically — alias-shadow trap).
-    const p = profileFor(route.grain);
+    const p = profileFor(route.grain, sup);
     const anchorAgg =
       p.anchorCol === null
         ? '0'
@@ -686,12 +801,15 @@ export const makeClickhouseAnalysisRepo = (
   const concentrationRowsFor: AnalysisRepo['concentrationRowsFor'] = async (
     route,
     scope,
-    buildId,
+    _buildId,
     basis
   ) => {
-    const c = compileScope(route, scope);
-    const p = profileFor(route.grain);
-    const totalsR = await statsFor(route, scope, buildId);
+    // Concentration is supplier-keyed by definition → supplier money always
+    // (association money never enters HHI; the withheld share is disclosed
+    // via the coverage/caveat layer).
+    const c = compileScope(route, scope, true);
+    const p = profileFor(route.grain, true);
+    const totalsR = await statsCore(route, scope, true);
     if (totalsR.isErr()) return err(totalsR.error);
     const totals = totalsR.value;
     if (c.impossible || SUPPLIERLESS_GRAINS.has(route.grain) || p.anchorCol === null) {

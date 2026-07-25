@@ -569,3 +569,305 @@ describe('one generation per request (S1)', () => {
     expect(result._unsafeUnwrapErr().message).toContain('topN must be an integer from 1 to 100');
   });
 });
+
+describe('association-withheld disclosure (user decision 2026-07-25, finding 2)', () => {
+  const ALLOW_ALL = {
+    contract: verdict(),
+    direct_acquisition: verdict(),
+    procedure: verdict(),
+  };
+
+  it('supplier-scoped stats expose the withheld mass AND a caveat with amount + share', async () => {
+    const { repo } = fakeAnalysisRepo({
+      quality: ALLOW_ALL,
+      stats: () => statsRead({ valueAwardedSum: '45.70', valueWithheldAssociationSum: '54.30' }),
+    });
+    const result = (
+      await analysisStats(
+        { analysisRepo: repo },
+        { scope: { grain: 'contract', supplierCounty: 'CJ' } }
+      )
+    )._unsafeUnwrap();
+    const block = result.blocks[0];
+    expect(block?.valueWithheldAssociationSum).toBe('54.30');
+    const caveat = block?.meta.caveats.find((c) => c.includes('consortium awards'));
+    expect(caveat).toContain('54.30 RON');
+    expect(caveat).toContain('100.00 RON');
+    expect(caveat).toContain('(54.3%)');
+    expect(caveat).toContain('withheld, never redistributed');
+    // Supplier-geo slices place consortium mass at the carrier — disclosed.
+    expect(block?.meta.caveats.some((c) => c.includes('carrier'))).toBe(true);
+  });
+
+  it('buyer (attributed) stats never disclose withheld — even if the read carries it', async () => {
+    const { repo } = fakeAnalysisRepo({
+      quality: ALLOW_ALL,
+      stats: () => statsRead({ valueAwardedSum: '45.70', valueWithheldAssociationSum: '54.30' }),
+    });
+    const result = (
+      await analysisStats({ analysisRepo: repo }, { scope: { grain: 'contract' } })
+    )._unsafeUnwrap();
+    const block = result.blocks[0];
+    expect(block?.valueWithheldAssociationSum).toBeNull();
+    expect(block?.meta.caveats.some((c) => c.includes('consortium'))).toBe(false);
+  });
+
+  it('withheld 0.00 serves the field but NO caveat (nothing is withheld here)', async () => {
+    const { repo } = fakeAnalysisRepo({
+      quality: ALLOW_ALL,
+      stats: () => statsRead({ valueWithheldAssociationSum: '0.00' }),
+    });
+    const result = (
+      await analysisStats(
+        { analysisRepo: repo },
+        { scope: { grain: 'contract', supplierCounty: 'CJ' } }
+      )
+    )._unsafeUnwrap();
+    const block = result.blocks[0];
+    expect(block?.valueWithheldAssociationSum).toBe('0.00');
+    expect(block?.meta.caveats.some((c) => c.includes('consortium'))).toBe(false);
+  });
+
+  it('entity scopes (supplierCui) serve the QUALITATIVE caveat and no number (finding 4a)', async () => {
+    const { repo } = fakeAnalysisRepo({
+      quality: ALLOW_ALL,
+      stats: () => statsRead({ valueAwardedSum: '45.70', valueWithheldAssociationSum: '54.30' }),
+    });
+    const result = (
+      await analysisStats(
+        { analysisRepo: repo },
+        { scope: { grain: 'contract', supplierCui: '123' } }
+      )
+    )._unsafeUnwrap();
+    const block = result.blocks[0];
+    expect(block?.valueWithheldAssociationSum).toBeNull();
+    const caveat = block?.meta.caveats.find((c) => c.includes('consortium'));
+    expect(caveat).toContain('carrier election');
+    expect(caveat).not.toContain('54.30');
+  });
+
+  it('value-bounded supplier reads suppress the number with the bounded caveat (finding 4b)', async () => {
+    const { repo } = fakeAnalysisRepo({
+      quality: ALLOW_ALL,
+      stats: () => statsRead({ valueAwardedSum: '45.70', valueWithheldAssociationSum: '0.00' }),
+    });
+    const result = (
+      await analysisStats(
+        { analysisRepo: repo },
+        { scope: { grain: 'contract', supplierCounty: 'CJ', valueMin: 1000 } }
+      )
+    )._unsafeUnwrap();
+    const block = result.blocks[0];
+    expect(block?.valueWithheldAssociationSum).toBeNull();
+    const caveat = block?.meta.caveats.find((c) => c.includes('consortium'));
+    expect(caveat).toContain('value-bounded');
+    expect(caveat).toContain('cannot satisfy a value bound');
+  });
+
+  it('an abstaining spend gate suppresses the withheld number and its caveat', async () => {
+    const { repo } = fakeAnalysisRepo({
+      // live-like: contract spend abstains
+      stats: () => statsRead({ valueWithheldAssociationSum: '54.30' }),
+    });
+    const result = (
+      await analysisStats({ analysisRepo: repo }, { scope: { grain: 'contract' } })
+    )._unsafeUnwrap();
+    const block = result.blocks[0];
+    expect(block?.valueWithheldAssociationSum).toBeNull();
+    expect(block?.meta.caveats.some((c) => c.includes('consortium'))).toBe(false);
+  });
+
+  it('attributed-basis reads (repo returns null) disclose nothing', async () => {
+    const { repo } = fakeAnalysisRepo({ quality: ALLOW_ALL });
+    const result = (
+      await analysisStats({ analysisRepo: repo }, { scope: { grain: 'contract' } })
+    )._unsafeUnwrap();
+    const block = result.blocks[0];
+    expect(block?.valueWithheldAssociationSum).toBeNull();
+    expect(block?.meta.caveats.some((c) => c.includes('consortium'))).toBe(false);
+  });
+
+  it('breakdown blocks carry the withheld total for the under-map reconciliation', async () => {
+    const { repo } = fakeAnalysisRepo({
+      quality: ALLOW_ALL,
+      breakdown: {
+        buckets: [
+          {
+            key: 'Bucuresti-Ilfov',
+            kind: 'top',
+            recordCount: '10',
+            withValue: '10',
+            valueAwardedSum: '30.39',
+          },
+        ],
+        totals: statsRead({
+          rows: '10',
+          withValue: '10',
+          valueAwardedSum: '30.39',
+          undatedCount: '0',
+          valueWithheldAssociationSum: '54.30',
+        }),
+      },
+    });
+    const result = (
+      await analysisBreakdown(
+        { analysisRepo: repo },
+        { scope: { grain: 'contract' }, dimension: 'supplierRegion' }
+      )
+    )._unsafeUnwrap();
+    const block = result[0];
+    expect(block?.valueWithheldAssociationSum).toBe('54.30');
+    expect(block?.meta.caveats.some((c) => c.includes('consortium'))).toBe(true);
+  });
+
+  it('concentration discloses the withheld share next to HHI', async () => {
+    const { repo } = fakeAnalysisRepo({
+      quality: ALLOW_ALL,
+      concentration: {
+        rows: [
+          { supplierKey: 'RO:1', measure: '60.00' },
+          { supplierKey: 'RO:2', measure: '40.00' },
+        ],
+        totals: statsRead({
+          valueAwardedSum: '100.00',
+          valueWithheldAssociationSum: '25.00',
+        }),
+        unknownSupplierMeasure: null,
+      },
+    });
+    const result = (
+      await analysisConcentration(
+        { analysisRepo: repo },
+        { scope: { grain: 'contract' }, basis: 'value' }
+      )
+    )._unsafeUnwrap();
+    const block = result[0];
+    expect(block?.meta.caveats.some((c) => c.includes('consortium'))).toBe(true);
+    expect(block?.meta.caveats.find((c) => c.includes('consortium'))).toContain('(20.0%)');
+  });
+
+  it('supplier-scoped money SERIES carry the withheld caveat (review finding 2)', async () => {
+    const { repo, calls } = fakeAnalysisRepo({
+      quality: ALLOW_ALL,
+      series: [
+        {
+          month: '2025-01',
+          value: '30.39',
+          recordCount: '10',
+          withValue: '10',
+          valueAwardedSum: '30.39',
+        },
+      ],
+      stats: () => statsRead({ valueAwardedSum: '30.39', valueWithheldAssociationSum: '54.30' }),
+    });
+    const blocks = (
+      await analysisSeries(
+        { analysisRepo: repo },
+        {
+          scope: { grain: 'contract', supplierCounty: 'CJ' },
+          bucket: 'month',
+          measure: 'valueAwardedSum',
+        }
+      )
+    )._unsafeUnwrap();
+    const caveat = blocks[0]?.meta.caveats.find((c) => c.includes('consortium'));
+    expect(caveat).toContain('54.30 RON');
+    expect(calls.some((c) => c.method === 'statsFor')).toBe(true);
+  });
+
+  it('buyer-scoped money series fetch NO withheld stats and carry no caveat', async () => {
+    const { repo, calls } = fakeAnalysisRepo({
+      quality: ALLOW_ALL,
+      series: [
+        {
+          month: '2025-01',
+          value: '100.00',
+          recordCount: '10',
+          withValue: '10',
+          valueAwardedSum: '100.00',
+        },
+      ],
+    });
+    const blocks = (
+      await analysisSeries(
+        { analysisRepo: repo },
+        {
+          scope: { grain: 'contract', authorityCui: '4267117' },
+          bucket: 'month',
+          measure: 'valueAwardedSum',
+        }
+      )
+    )._unsafeUnwrap();
+    expect(blocks[0]?.meta.caveats.some((c) => c.includes('consortium'))).toBe(false);
+    expect(calls.some((c) => c.method === 'statsFor')).toBe(false);
+  });
+
+  it('count-basis concentration NEVER quotes gate-suppressed money (review finding 3)', async () => {
+    // LIVE_LIKE_QUALITY (default): contract spend abstains.
+    const { repo } = fakeAnalysisRepo({
+      concentration: {
+        rows: [
+          { supplierKey: 'RO:1', measure: '60' },
+          { supplierKey: 'RO:2', measure: '40' },
+        ],
+        totals: statsRead({ valueAwardedSum: '100.00', valueWithheldAssociationSum: '25.00' }),
+        unknownSupplierMeasure: null,
+      },
+    });
+    const result = (
+      await analysisConcentration(
+        { analysisRepo: repo },
+        { scope: { grain: 'contract' }, basis: 'count' }
+      )
+    )._unsafeUnwrap();
+    const caveats = result[0]?.meta.caveats ?? [];
+    expect(caveats.some((c) => c.includes('25.00'))).toBe(false);
+    expect(caveats.some((c) => c.includes('20.0%'))).toBe(false);
+    expect(
+      caveats.some((c) => c.includes('consortium') && c.includes('amount is not quoted'))
+    ).toBe(true);
+  });
+
+  it('supplier-scoped stats ABSTAIN the mod-adjusted basis with a typed verdict (review finding 5)', async () => {
+    const { repo } = fakeAnalysisRepo({
+      quality: ALLOW_ALL,
+      stats: () =>
+        statsRead({
+          valueAwardedSum: '30.39',
+          valueWithheldAssociationSum: '0.00',
+          valueModAdjustedSum: '999.00', // must never be served under a supplier scope
+        }),
+    });
+    const result = (
+      await analysisStats(
+        { analysisRepo: repo },
+        { scope: { grain: 'contract', supplierCounty: 'CJ' } }
+      )
+    )._unsafeUnwrap();
+    const block = result.blocks[0];
+    expect(block?.valueModAdjustedSum).toBeNull();
+    const modVerdict = block?.moneyVerdicts.find((v) => v.measure === 'valueModAdjustedSum');
+    expect(modVerdict?.answerability).toBe('abstained');
+    expect(modVerdict?.reason).toBe('GENERATION_LACKS_CAPABILITY');
+    expect(modVerdict?.caveats.some((c) => c.includes('mod-adjusted'))).toBe(true);
+  });
+
+  it('supplier-scoped mod-adjusted SERIES abstain instead of erroring (review finding 5)', async () => {
+    const { repo, calls } = fakeAnalysisRepo({ quality: ALLOW_ALL });
+    const blocks = (
+      await analysisSeries(
+        { analysisRepo: repo },
+        {
+          scope: { grain: 'contract', supplierCounty: 'CJ' },
+          bucket: 'month',
+          measure: 'valueModAdjustedSum',
+        }
+      )
+    )._unsafeUnwrap();
+    const block = blocks[0];
+    expect(block?.points).toEqual([]);
+    expect(block?.meta.answerability).toBe('abstained');
+    expect(block?.meta.caveats.some((c) => c.includes('mod-adjusted'))).toBe(true);
+    expect(calls.some((c) => c.method === 'seriesFor')).toBe(false);
+  });
+});

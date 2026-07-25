@@ -52,6 +52,27 @@ export interface GrainQualityVerdict {
     readonly value: number;
     readonly geo: number;
     readonly cpv: number;
+    /**
+     * Supplier-party geo row coverage (geo/disclosure wave follow-up):
+     * `geo` above is BUYER coverage — quoting it on supplier surfaces
+     * misattributed the number (codex finding 1). Absent on grains without
+     * a supplier (procedures) and on generations before it was published.
+     */
+    readonly geo_supplier?: number;
+  };
+  /**
+   * Money-weighted date/geo coverage (geo/disclosure wave, additive from
+   * generation 8): the row-share ratios above systematically overstate what
+   * a MONEY answer covers when the unknown rows are the large ones (measured
+   * 86.1% of rows vs 45.3% of 2025 awarded money pre-enrichment). Used for
+   * caveat text only — classes stay decided on row ratios (their floors were
+   * measured on row share). Absent on older generations.
+   */
+  readonly coverage_money?: {
+    readonly date: number;
+    readonly geo: number;
+    /** Supplier-party money-weighted geo coverage (same follow-up). */
+    readonly geo_supplier?: number;
   };
   readonly classes: {
     /**
@@ -99,6 +120,14 @@ const abstain = (caveat: string, reason: AnswerabilityReason): GateDecision => (
 });
 
 /**
+ * Coverage ratios in caveats are USER-FACING text (they render on the client
+ * and in MCP answers), so they read as percentages. Interpolating the raw
+ * float leaked strings like "coverage 0.5858550511813565" into the UI.
+ * One decimal keeps 0.9273 → 92.7% distinguishable from the 95% gate.
+ */
+const pct = (ratio: number): string => `${(ratio * 100).toFixed(1)}%`;
+
+/**
  * Decide whether an answer class is served for a grain. Counts are always
  * allowed; every other class needs a quality verdict — a grain without one (or
  * no active generation quality at all) abstains rather than serving unvetted
@@ -108,7 +137,9 @@ export const decideAnswer = (
   quality: GenerationQuality | undefined,
   grain: AnalysisGrain,
   gateClass: GateClass,
-  basisCoverage?: readonly BasisCoverageRow[]
+  basisCoverage?: readonly BasisCoverageRow[],
+  /** Which party a GEO gate is about — supplier surfaces must never quote the buyer ratios (finding 1). */
+  geoParty: 'buyer' | 'supplier' = 'buyer'
 ): GateDecision => {
   if (gateClass === 'count') return ALLOW;
 
@@ -133,13 +164,13 @@ export const decideAnswer = (
             allow: true,
             degraded: true,
             caveats: [
-              `${gateClass} answers are degraded for grain '${grain}': ${metaBasis} coverage ${String(row.coverage)} (floor ${String(BASIS_DISCLOSED_FLOOR)}) — interpret with the undated/unknown context`,
+              `${gateClass} answers are degraded for grain '${grain}': ${metaBasis} coverage ${pct(row.coverage)} (floor ${pct(BASIS_DISCLOSED_FLOOR)}) — interpret with the undated/unknown context`,
             ],
             reason: gateClass === 'time' ? 'TIME_COVERAGE_DEGRADED' : 'GEO_COVERAGE_DEGRADED',
           };
         }
         return abstain(
-          `${gateClass} answers abstain for grain '${grain}': ${metaBasis} coverage ${String(row.coverage)} is below the disclosure floor ${String(BASIS_DISCLOSED_FLOOR)}`,
+          `${gateClass} answers abstain for grain '${grain}': ${metaBasis} coverage ${pct(row.coverage)} is below the disclosure floor ${pct(BASIS_DISCLOSED_FLOOR)}`,
           gateClass === 'time' ? 'TIME_COVERAGE_BELOW_FLOOR' : 'GEO_COVERAGE_BELOW_FLOOR'
         );
       }
@@ -157,32 +188,60 @@ export const decideAnswer = (
         allow: true,
         degraded: true,
         caveats: [
-          `spend answers are served with DISCLOSED partial coverage for grain '${grain}': accepted-value coverage ${String(verdict.coverage.value)} sits between the disclosure floor and the full-allow gate — totals understate the true spend`,
+          `spend answers are served with DISCLOSED partial coverage for grain '${grain}': accepted-value coverage ${pct(verdict.coverage.value)} sits between the disclosure floor and the full-allow gate — totals understate the true spend`,
         ],
         reason: 'SPEND_SERVED_DISCLOSED',
       };
     }
     return abstain(
-      `spend answers abstain for grain '${grain}': value coverage ${String(verdict.coverage.value)} is below the spend gate (money is omitted, not zeroed)`,
+      `spend answers abstain for grain '${grain}': value coverage ${pct(verdict.coverage.value)} is below the spend gate (money is omitted, not zeroed)`,
       'SPEND_COVERAGE_BELOW_GATE'
     );
   }
 
   const cls = gateClass === 'time' ? verdict.classes.time : verdict.classes.geo;
-  const coverage = gateClass === 'time' ? verdict.coverage.date : verdict.coverage.geo;
+  // The published `geo` ratios are BUYER coverage. A supplier-geo surface must
+  // never quote them (codex finding 1): it uses the supplier-party ratios when
+  // the generation publishes them, and quotes NO number otherwise — the
+  // named/unknown buckets carry the scope-exact supplier split either way.
+  const supplierGeo = gateClass === 'geo' && geoParty === 'supplier';
+  const coverage = supplierGeo
+    ? verdict.coverage.geo_supplier
+    : gateClass === 'time'
+      ? verdict.coverage.date
+      : verdict.coverage.geo;
+  // Row share alone misled readers (86.1% of records was 45.3% of the money):
+  // when the generation publishes money-weighted coverage, the caveat quotes
+  // BOTH weights; either way the row ratio is labeled as a record share.
+  const moneyCoverage = supplierGeo
+    ? verdict.coverage_money?.geo_supplier
+    : gateClass === 'time'
+      ? verdict.coverage_money?.date
+      : verdict.coverage_money?.geo;
+  const partyLabel = supplierGeo ? 'supplier-geo ' : '';
+  const coverageText =
+    coverage === undefined
+      ? 'supplier-geo coverage is not published by this generation (the buyer-geo ratio does not apply to supplier surfaces); the named/unknown buckets carry the scope-exact regional split'
+      : moneyCoverage === undefined
+        ? `${partyLabel}coverage ${pct(coverage)} of records`
+        : `${partyLabel}coverage ${pct(coverage)} of records / ${pct(moneyCoverage)} of awarded money`;
   if (cls === 'allow') return ALLOW;
   if (cls === 'degraded') {
     return {
       allow: true,
       degraded: true,
       caveats: [
-        `${gateClass} answers are degraded for grain '${grain}': coverage ${String(coverage)} (floor ${String(COUNT_TIME_DEGRADE_FLOOR)}) — interpret with the undated/unknown context`,
+        coverage === undefined
+          ? `geo answers are degraded for grain '${grain}' (class decided on buyer-geo rows): ${coverageText}`
+          : `${gateClass} answers are degraded for grain '${grain}': ${coverageText} (floor ${pct(COUNT_TIME_DEGRADE_FLOOR)} of records) — interpret with the undated/unknown context`,
       ],
       reason: gateClass === 'time' ? 'TIME_COVERAGE_DEGRADED' : 'GEO_COVERAGE_DEGRADED',
     };
   }
   return abstain(
-    `${gateClass} answers abstain for grain '${grain}': coverage ${String(coverage)} is below the degrade floor ${String(COUNT_TIME_DEGRADE_FLOOR)}`,
+    coverage === undefined
+      ? `geo answers abstain for grain '${grain}' (class decided on buyer-geo rows): ${coverageText}`
+      : `${gateClass} answers abstain for grain '${grain}': ${coverageText} is below the degrade floor ${pct(COUNT_TIME_DEGRADE_FLOOR)} of records`,
     gateClass === 'time' ? 'TIME_COVERAGE_BELOW_FLOOR' : 'GEO_COVERAGE_BELOW_FLOOR'
   );
 };
@@ -257,13 +316,13 @@ export const decideMoney = (
       allow: true,
       degraded: true,
       caveats: [
-        `${BASIS_LABEL[basis]} answers are served with DISCLOSED partial coverage for grain '${grain}': coverage ${String(row.coverage)} sits between the disclosure floor ${String(BASIS_DISCLOSED_FLOOR)} and the full-allow gate ${String(BASIS_ALLOW_FLOOR)} — totals understate the ${BASIS_LABEL[basis]} population`,
+        `${BASIS_LABEL[basis]} answers are served with DISCLOSED partial coverage for grain '${grain}': coverage ${pct(row.coverage)} sits between the disclosure floor ${pct(BASIS_DISCLOSED_FLOOR)} and the full-allow gate ${pct(BASIS_ALLOW_FLOOR)} — totals understate the ${BASIS_LABEL[basis]} population`,
       ],
       reason: 'SPEND_SERVED_DISCLOSED',
     };
   }
   return abstain(
-    `${BASIS_LABEL[basis]} answers abstain for grain '${grain}': coverage ${String(row.coverage)} is below the disclosure floor ${String(BASIS_DISCLOSED_FLOOR)} (money is omitted, not zeroed)`,
+    `${BASIS_LABEL[basis]} answers abstain for grain '${grain}': coverage ${pct(row.coverage)} is below the disclosure floor ${pct(BASIS_DISCLOSED_FLOOR)} (money is omitted, not zeroed)`,
     'SPEND_COVERAGE_BELOW_GATE'
   );
 };

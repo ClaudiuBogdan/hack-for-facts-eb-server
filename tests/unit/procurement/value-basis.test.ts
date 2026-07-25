@@ -84,6 +84,45 @@ describe('per-basis money gates (live build-6 coverage shape)', () => {
     expect(block.valueAwardedSum).not.toBeNull();
   });
 
+  it('serves the matched awarded baseline beside the adjusted total, on one shared verdict', async () => {
+    const r = await analysisStats(
+      deps({
+        stats: () =>
+          statsRead({
+            valueAwardedSum: '1745406366748.49',
+            valueModAdjustedSum: '1608556483453.57',
+            valueAwardedMatchedSum: '1607958929815.85',
+          }),
+      }),
+      { scope: { grain: 'contract' } }
+    );
+    const block = r._unsafeUnwrap().blocks[0]!;
+    // The pair shares a population, so their difference is the net amendment
+    // effect (+597,553,637.72 RON on live build 7) — while subtracting the
+    // adjusted total from the GRAIN-WIDE awarded sum would read as −137bn.
+    expect(block.valueAwardedMatchedSum).toBe('1607958929815.85');
+    expect(block.valueModAdjustedSum).toBe('1608556483453.57');
+    const verdicts = new Map(block.moneyVerdicts.map((v) => [v.measure, v.answerability]));
+    expect(verdicts.get('valueAwardedMatchedSum')).toBe(verdicts.get('valueModAdjustedSum'));
+  });
+
+  it('withholds the matched baseline whenever the adjusted basis abstains', async () => {
+    const r = await analysisStats(
+      deps({
+        basisCoverage: [],
+        stats: () =>
+          statsRead({
+            valueModAdjustedSum: '1608556483453.57',
+            valueAwardedMatchedSum: '1607958929815.85',
+          }),
+      }),
+      { scope: { grain: 'contract' } }
+    );
+    const block = r._unsafeUnwrap().blocks[0]!;
+    expect(block.valueAwardedMatchedSum).toBeNull();
+    expect(block.valueModAdjustedSum).toBeNull();
+  });
+
   it('estimated follows ITS OWN verdict: contracts abstain (0.1953), procedures disclose (0.9273)', async () => {
     const r = await analysisStats(deps(), { scope: {} });
     const blocks = r._unsafeUnwrap().blocks;

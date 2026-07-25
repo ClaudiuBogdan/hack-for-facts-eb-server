@@ -328,6 +328,19 @@ export const parseAnalysisScope = (raw: RawAnalysisScope): Result<AnalysisScope,
 export const scopeDims = (scope: AnalysisScope): readonly ScopeDimField[] =>
   SCOPE_DIM_FIELDS.filter((f) => scope[f] !== undefined);
 
+/**
+ * True when the scope slices the supplier dimension — the repo elects the
+ * supplier-money profile for these (D3=C: named-supplier money, association
+ * mass withheld). Mirrors the repo's SUPPLIER_SCOPE_FIELDS; the usecases need
+ * the same predicate to keep gate/caveat semantics aligned with the columns
+ * the repo actually reads.
+ */
+export const supplierScoped = (scope: AnalysisScope): boolean =>
+  scope.supplierCui !== undefined ||
+  scope.supplierCounty !== undefined ||
+  scope.supplierRegion !== undefined ||
+  scope.supplierSiruta !== undefined;
+
 /** The row-filter fields actually set on a scope (they narrow, like dims). */
 export const scopeRowFilters = (
   scope: AnalysisScope
