@@ -176,6 +176,16 @@ export interface AnalysisConcentrationBlock {
   readonly top5Share: string | null;
   readonly hhi: string | null;
   readonly totalRon: string | null;
+  /**
+   * Contract grain only: the awarded money in scope that belongs to
+   * multi-member consortium awards and therefore enters NO supplier's measure
+   * (the internal split is unpublished). `totalRon` + this + the
+   * unknown-supplier weight reconcile to the scope's attributed total, so a
+   * surface can state truthfully what the concentration covers instead of
+   * calling the remainder "supplier unidentified". Null when the amount is not
+   * quotable (see the qualitative disclosure modes) or nothing is withheld.
+   */
+  readonly valueWithheldAssociationSum: string | null;
   readonly meta: AnswerEnvelope;
 }
 
@@ -220,6 +230,15 @@ const PROCEDURE_LIFECYCLE_NOTE =
 
 const NO_AWARDED_VALUES_CAVEAT =
   'no awarded values observed in scope — the sum is null (unobserved), not zero';
+
+/**
+ * The value→count ranking fallback (repo-decided): a value ORDER BY over a
+ * scope with no value-bearing rows on this breakdown's money basis is an
+ * all-zero tie, and reporting rankedBy=value for it would name a ranking that
+ * was never made. The buckets below ARE count-ranked (re-ranked before top-N).
+ */
+const NO_VALUE_TO_RANK_CAVEAT =
+  'ranked by record count: no record in this scope carries an accepted value on this breakdown’s money basis, so a value ranking would order an all-zero tie';
 
 const CALLOFF_PARTIAL_NOTE =
   'call-offs are the REPORTED subsequent contracts under framework agreements (~63k reported vs ~828k frameworks) — framework execution is mostly unobserved, and call-off totals must never be summed with contract awards (double-counts framework spend)';
@@ -896,28 +915,27 @@ const breakdownBlockFor = async (
 
   // An explicit count request always ranks by count; value (explicit or the
   // default) still yields to the money gate — never rank by suppressed money.
-  const rankedBy: 'value' | 'count' =
+  const requestedRankedBy: 'value' | 'count' =
     rankByReq === 'count' || spend === null ? 'count' : spend.allow ? 'value' : 'count';
-  const rankCaveats =
-    rankedBy === 'count' && rankByReq !== 'count' && spend !== null
-      ? ['ranked by record count (money ranking is gate-suppressed)']
-      : [];
-  const policy = anchorPolicy(
-    grain,
-    rankedBy === 'value'
-      ? (moneyAnchorMeasure(grain) as 'valueAwardedSum' | 'valueCeilingSum' | 'recordCount')
-      : 'recordCount'
-  );
+  const gateSuppressedRank =
+    requestedRankedBy === 'count' && rankByReq !== 'count' && spend !== null;
+  const rankPolicy = (basis: 'value' | 'count'): PolicyEntry =>
+    anchorPolicy(
+      grain,
+      basis === 'value'
+        ? (moneyAnchorMeasure(grain) as 'valueAwardedSum' | 'valueCeilingSum' | 'recordCount')
+        : 'recordCount'
+    );
 
   if (!blockGate.allow) {
     return ok({
       grain,
       dimension,
-      rankedBy,
+      rankedBy: requestedRankedBy,
       buckets: [],
       valueWithheldAssociationSum: null,
       meta: buildEnvelope(
-        policy,
+        rankPolicy(requestedRankedBy),
         composeGates([blockGate, ...spendGates]),
         gen.buildId,
         null,
@@ -934,10 +952,20 @@ const breakdownBlockFor = async (
     gen.buildId,
     dimension,
     topN,
-    rankedBy
+    requestedRankedBy
   );
   if (readR.isErr()) return err(readR.error);
   const { buckets, totals } = readR.value;
+  // The repo may downgrade a value ranking to counts when the scope holds no
+  // value-bearing row on THIS breakdown's money basis (an all-zero ORDER BY is
+  // not a value ranking). It re-ranks before the top-N cut, so the population
+  // below IS the count-ranked one — the block follows the read, never the ask.
+  const rankedBy = readR.value.rankedBy;
+  const rankCaveats = [
+    ...(gateSuppressedRank ? ['ranked by record count (money ranking is gate-suppressed)'] : []),
+    ...(requestedRankedBy === 'value' && rankedBy === 'count' ? [NO_VALUE_TO_RANK_CAVEAT] : []),
+  ];
+  const policy = rankPolicy(rankedBy);
 
   // Reconciliation by construction (design §3.3): the three bucket kinds must sum
   // exactly to the same read's totals. A mismatch is an internal fault. Null money
@@ -1074,6 +1102,7 @@ export const analysisConcentration = async (
         top5Share: null,
         hhi: null,
         totalRon: null,
+        valueWithheldAssociationSum: null,
         meta: buildEnvelope(
           policy,
           requestedGate,
@@ -1107,26 +1136,31 @@ export const analysisConcentration = async (
       ? measures.reduce((acc, v) => acc.plus(v.div(total).pow(2)), new Decimal(0))
       : null;
 
+    // Concentration always runs on supplier money: HHI/top shares are computed
+    // over the ATTRIBUTABLE mass only — the withheld share is disclosed (as a
+    // structured amount AND in prose) so nobody reads them as shares of all
+    // awarded money, and no surface has to call the remainder "supplier
+    // unidentified". The NUMBER follows the spend gate: a count-basis request
+    // while spend abstains must not leak gate-suppressed money (review finding
+    // 3) — basis=value only reaches here with spend allowed (composed gate).
+    // `totals.valueWithheldAssociationSum` is a supplier-money-read field, so
+    // it is null on every grain but contract (repo profile contract).
+    const withheldD = spend.allow
+      ? withheldDisclosure(input.scope, totals.valueWithheldAssociationSum, totals.valueAwardedSum)
+      : {
+          ron: null,
+          caveats:
+            totals.valueWithheldAssociationSum !== null &&
+            d(totals.valueWithheldAssociationSum).greaterThan(0)
+              ? [
+                  'per-supplier money in this scope excludes multi-member consortium awards (split unpublished); the amount is not quoted because spend answers abstain for this grain',
+                ]
+              : [],
+        };
+
     const basisLabel = basis === 'value' ? 'awarded value' : 'record count';
     const semanticsCaveats = [
-      // Concentration always runs on supplier money: HHI/top shares are
-      // computed over the ATTRIBUTABLE mass only — the withheld share is
-      // disclosed so nobody reads them as shares of all awarded money.
-      // The NUMBER follows the spend gate: a count-basis request while spend
-      // abstains must not leak gate-suppressed money (review finding 3) —
-      // basis=value only reaches here with spend allowed (composed gate).
-      ...(spend.allow
-        ? withheldDisclosure(
-            input.scope,
-            totals.valueWithheldAssociationSum,
-            totals.valueAwardedSum
-          ).caveats
-        : totals.valueWithheldAssociationSum !== null &&
-            d(totals.valueWithheldAssociationSum).greaterThan(0)
-          ? [
-              'per-supplier money in this scope excludes multi-member consortium awards (split unpublished); the amount is not quoted because spend answers abstain for this grain',
-            ]
-          : []),
+      ...withheldD.caveats,
       `HHI/top shares are computed over known suppliers with positive ${basisLabel} (${String(measures.length)} of ${String(rows.length)} known suppliers)`,
       ...(unknownSupplierMeasure !== null && d(unknownSupplierMeasure).greaterThan(0)
         ? [
@@ -1144,6 +1178,8 @@ export const analysisConcentration = async (
       hhi: hhi !== null ? hhi.toFixed(RATIO_DP) : null,
       // Null (not zero) when no positive-basis supplier was observed (S8).
       totalRon: basis === 'value' && measures.length > 0 ? total.toFixed(MONEY_DP) : null,
+      valueWithheldAssociationSum:
+        withheldD.ron !== null ? d(withheldD.ron).toFixed(MONEY_DP) : null,
       meta: buildEnvelope(
         policy,
         {

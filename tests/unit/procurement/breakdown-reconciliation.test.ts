@@ -8,11 +8,9 @@ import { describe, expect, it } from 'vitest';
 
 import { analysisBreakdown } from '@/modules/procurement/core/analysis-usecases.js';
 
-import { fakeAnalysisRepo, statsRead } from './analysis-fakes.js';
+import { fakeAnalysisRepo, statsRead, type FakeBreakdownRead } from './analysis-fakes.js';
 
-import type { AnalysisBreakdownRead } from '@/modules/procurement/core/ports.js';
-
-const read = (over: Partial<AnalysisBreakdownRead> = {}): AnalysisBreakdownRead => ({
+const read = (over: Partial<FakeBreakdownRead> = {}): FakeBreakdownRead => ({
   buckets: [
     { kind: 'top', key: '4267117', recordCount: '50', withValue: '40', valueAwardedSum: '500.00' },
     { kind: 'top', key: '4305857', recordCount: '30', withValue: '25', valueAwardedSum: '300.00' },
