@@ -177,7 +177,7 @@ const objectsAndQuery = /* GraphQL */ `
     countySiruta: SIRUTA
     "Number of MIPE progress snapshots for this commitment's contract."
     progressCount: Int!
-    "The most recent progress snapshot (cheap single-row), or null."
+    "The most recent progress snapshot explicitly linked to this commitment, or null."
     latestProgress: PnrrCommitmentSnapshot
     retrievedAt: DateTime
   }

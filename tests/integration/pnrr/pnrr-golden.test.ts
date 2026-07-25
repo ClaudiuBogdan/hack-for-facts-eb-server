@@ -147,6 +147,88 @@ d('PNRR golden (live prod)', () => {
     expect(p.grainNote).toContain('different grains');
   });
 
+  it('commitment lists expose the latest MIPE progress snapshot', async () => {
+    const sample = await pool.query<{
+      commitment_key: string;
+      beneficiary_cui: string;
+      contract_number: string;
+    }>(
+      `select c.commitment_key, c.beneficiary_cui, c.contract_number
+       from pnrr.commitments c
+       where c.beneficiary_cui is not null
+         and c.contract_number is not null
+         and exists (
+           select 1
+           from pnrr.commitment_snapshots s
+           where s.commitment_key = c.commitment_key
+         )
+       order by c.commitment_key
+       limit 1`
+    );
+    const commitment = sample.rows[0];
+    expect(commitment).toBeDefined();
+    if (commitment === undefined) return;
+
+    const expected = await pool.query<{
+      snapshot_id: string;
+      source_record_id: string;
+      snapshot_date: string;
+    }>(
+      `select s.snapshot_id, s.source_record_id, s.snapshot_date::text
+       from pnrr.commitment_snapshots s
+       where s.commitment_key = $1
+       order by s.snapshot_date desc, s.snapshot_id desc, s.source_record_id desc
+       limit 1`,
+      [commitment.commitment_key]
+    );
+
+    const res = await gql(
+      `query($cuis:[String!]!,$contract:String!){
+        pnrrCommitments(
+          filter:{
+            beneficiaryCui:{in:$cuis}
+            contractNumber:{eq:$contract}
+          }
+          first:20
+        ){
+          edges {
+            node {
+              commitmentKey
+              latestProgress { snapshotId sourceRecordId snapshotDate }
+            }
+          }
+        }
+      }`,
+      {
+        cuis: [commitment.beneficiary_cui],
+        contract: commitment.contract_number,
+      }
+    );
+    expect(res.errors).toBeUndefined();
+    const nodes = (
+      res.data as {
+        pnrrCommitments: {
+          edges: {
+            node: {
+              commitmentKey: string;
+              latestProgress: {
+                snapshotId: string;
+                sourceRecordId: string;
+                snapshotDate: string;
+              } | null;
+            };
+          }[];
+        };
+      }
+    ).pnrrCommitments.edges.map((edge) => edge.node);
+    const node = nodes.find((item) => item.commitmentKey === commitment.commitment_key);
+    expect(node?.latestProgress).toEqual({
+      snapshotId: expected.rows[0]?.snapshot_id,
+      sourceRecordId: expected.rows[0]?.source_record_id,
+      snapshotDate: expected.rows[0]?.snapshot_date,
+    });
+  });
+
   it('payment_direction labels match the row-sign law (no mislabeled row exists)', async () => {
     const sql = await pool.query<{ violations: string }>(
       `select count(*) violations from pnrr.payments

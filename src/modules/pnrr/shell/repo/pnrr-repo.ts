@@ -55,6 +55,7 @@ import {
   mapProgramIndicator,
   mapSnapshot,
   num,
+  type SnapshotRow,
 } from './mappers.js';
 import {
   pnrrAcquisitionsFilterSpec,
@@ -649,6 +650,27 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
           sql<string>`(select count(*) from pnrr.commitment_snapshots s where s.beneficiary_cui = c.beneficiary_cui and s.contract_number = c.contract_number)`.as(
             'progress_count'
           ),
+          sql<SnapshotRow | null>`(
+            select jsonb_build_object(
+              'snapshot_id', s.snapshot_id,
+              'source_record_id', s.source_record_id,
+              'snapshot_date', s.snapshot_date::text,
+              'beneficiary_cui', s.beneficiary_cui,
+              'contract_number', s.contract_number,
+              'commitment_key', s.commitment_key,
+              'link_confidence', s.link_confidence,
+              'financial_progress', s.financial_progress::text,
+              'physical_progress', s.physical_progress::text,
+              'stage', s.stage,
+              'received_eur', s.received_eur::text,
+              'paid_eur', s.paid_eur::text,
+              'allocated_eur', s.allocated_eur::text
+            )
+            from pnrr.commitment_snapshots s
+            where s.commitment_key = c.commitment_key
+            order by s.snapshot_date desc, s.snapshot_id desc, s.source_record_id desc
+            limit 1
+          )`.as('latest_progress'),
         ])
         .where(composeWhere(conds))
         .orderBy(sql`c.commitment_date desc nulls last`)
@@ -658,7 +680,9 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
 
       const hasMore = rows.length > limit;
       const pageRows = hasMore ? rows.slice(0, limit) : rows;
-      const items = pageRows.map((r) => mapCommitment(r, null));
+      const items = pageRows.map((r) =>
+        mapCommitment(r, r.latest_progress === null ? null : mapSnapshot(r.latest_progress))
+      );
       let next: string | null = null;
       if (hasMore) {
         const last = pageRows[pageRows.length - 1];
@@ -677,26 +701,26 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
     }
   };
 
-  /** Resolve commitmentKey → (beneficiary_cui, contract_number) → bounded snapshots. */
+  /** Resolve commitmentKey → bounded snapshots explicitly linked to that commitment. */
   const getCommitmentProgress = async (
     commitmentKey: string
   ): Promise<Result<readonly PnrrCommitmentSnapshot[], ApiError>> => {
     try {
       const commit = await db
         .selectFrom('pnrr.commitments as c')
-        .select(['c.beneficiary_cui', 'c.contract_number'])
+        .select('c.commitment_key')
         .where('c.commitment_key', '=', commitmentKey)
         .limit(1)
         .executeTakeFirst();
       if (commit === undefined) return err(notFoundCommitment(commitmentKey));
-      if (commit.beneficiary_cui === null || commit.contract_number === null) return ok([]);
 
       const rows = await db
         .selectFrom('pnrr.commitment_snapshots as s')
         .select(snapshotColumns())
-        .where('s.beneficiary_cui', '=', commit.beneficiary_cui)
-        .where('s.contract_number', '=', commit.contract_number)
+        .where('s.commitment_key', '=', commit.commitment_key)
         .orderBy('s.snapshot_date', 'asc')
+        .orderBy('s.snapshot_id', 'asc')
+        .orderBy('s.source_record_id', 'asc')
         .limit(2000)
         .execute();
       return ok(rows.map(mapSnapshot));
