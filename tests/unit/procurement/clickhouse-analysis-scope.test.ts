@@ -140,11 +140,14 @@ describe('ClickHouse row-filter and dimension scope compilation', () => {
   });
 
   it('keys CPV level breakdowns on canonical 8-digit codes and honors SIRUTA topN', async () => {
+    // Statement order: totals → unknown (NULL-key) → top-N. The unknown read
+    // runs before the top-N because it decides the ranking basis (§ honest
+    // value-ranking fallback), so it is call 1 and the top-N is call 2.
     const fetchSpy = vi
       .fn()
       .mockResolvedValueOnce(emptyStatsResponse())
-      .mockResolvedValueOnce(Response.json({ data: [] }))
-      .mockResolvedValueOnce(Response.json({ data: [{ cnt: '0', wv: '0', awarded_bani: '0' }] }));
+      .mockResolvedValueOnce(Response.json({ data: [{ cnt: '0', wv: '0', awarded_bani: '0' }] }))
+      .mockResolvedValueOnce(Response.json({ data: [] }));
     vi.stubGlobal('fetch', fetchSpy);
     const repo = makeClickhouseAnalysisRepo(
       { url: 'http://clickhouse.test', database: 'proto' },
@@ -154,7 +157,7 @@ describe('ClickHouse row-filter and dimension scope compilation', () => {
     const result = await repo.breakdownFor(route('contract'), {}, '1', 'cpvGroup', 3300, 'count');
 
     expect(result.isOk()).toBe(true);
-    const topBody = (fetchSpy.mock.calls[1]?.[1] as { body?: string } | undefined)?.body ?? '';
+    const topBody = (fetchSpy.mock.calls[2]?.[1] as { body?: string } | undefined)?.body ?? '';
     // Canonical 8-digit group keys; coarser-level codes (zero group digit,
     // e.g. a bare division 45000000) fall to NULL → the unknown bucket.
     expect(topBody).toContain(

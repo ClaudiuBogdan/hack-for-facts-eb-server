@@ -94,6 +94,15 @@ export const BASIS_COVERAGE_ROWS = [
   { grain: 'modification', basis: 'buyer_geo', population: 'all_rows', coverage: 0.6223 },
 ] as const;
 
+/**
+ * A breakdown fixture may omit `rankedBy`: a repo that CAN rank by the asked
+ * basis echoes the request, so the fake does too. Pin it explicitly to
+ * exercise the repo's value→count fallback (no value-bearing rows in scope).
+ */
+export type FakeBreakdownRead = Omit<AnalysisBreakdownRead, 'rankedBy'> & {
+  readonly rankedBy?: 'value' | 'count';
+};
+
 export interface RecordedCall {
   readonly method: string;
   readonly grain: string;
@@ -112,7 +121,7 @@ export interface FakeAnalysisRepoOptions {
   readonly stats?: (grain: string) => AnalysisStatsRead;
   readonly series?: readonly AnalysisSeriesRow[];
   readonly distinct?: readonly AnalysisDistinctRow[];
-  readonly breakdown?: AnalysisBreakdownRead;
+  readonly breakdown?: FakeBreakdownRead;
   readonly concentration?: ConcentrationRead;
   readonly basisCoverage?: readonly {
     grain: string;
@@ -148,12 +157,11 @@ export const fakeAnalysisRepo = (options: FakeAnalysisRepoOptions = {}): FakeAna
     },
     breakdownFor: (route, _scope, _buildId, dimension, topN, rankBy) => {
       record('breakdownFor', route, [dimension, topN, rankBy]);
-      return okp(
-        options.breakdown ?? {
-          buckets: [],
-          totals: statsRead({ rows: '0', withValue: '0', valueAwardedSum: '0', undatedCount: '0' }),
-        }
-      );
+      const fixture: FakeBreakdownRead = options.breakdown ?? {
+        buckets: [],
+        totals: statsRead({ rows: '0', withValue: '0', valueAwardedSum: '0', undatedCount: '0' }),
+      };
+      return okp({ ...fixture, rankedBy: fixture.rankedBy ?? rankBy });
     },
     concentrationRowsFor: (route, _scope, _buildId, basis) => {
       record('concentrationRowsFor', route, [basis]);

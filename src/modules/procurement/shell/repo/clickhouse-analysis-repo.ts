@@ -311,6 +311,14 @@ interface CompiledScope {
   readonly dated: string;
   /** True when the scope can never match (structural N/A, e.g. supplier dims on procedures). */
   readonly impossible: boolean;
+  /**
+   * True when the request carries a time window. `where` then deliberately
+   * keeps undated rows (they feed the disclosure counts) while `dated` drives
+   * every period measure — so any GROUPED read must additionally require at
+   * least one dated row per key, or a key present only outside the window
+   * surfaces as a zero-record bucket (see `datedGroupHaving`).
+   */
+  readonly bounded: boolean;
 }
 
 const compileScope = (
@@ -404,11 +412,25 @@ const compileScope = (
   // PG parity (analysis-repo.ts compileScope): with no time bounds the dated
   // predicate is TRUE — headline aggregates include undated rows; a bounded
   // window prunes undated from the dated aggregates only.
-  const dated = bounds.length > 0 ? `(NOT is_undated AND ${bounds.join(' AND ')})` : '1';
+  const bounded = bounds.length > 0;
+  const dated = bounded ? `(NOT is_undated AND ${bounds.join(' AND ')})` : '1';
   conds.push(`(${dated} OR is_undated)`);
 
-  return { table, where: conds.join(' AND '), dated, impossible };
+  return { table, where: conds.join(' AND '), dated, impossible, bounded };
 };
+
+/**
+ * The GROUP BY guard for dimension keys in a BOUNDED period. `where` keeps
+ * undated rows so the disclosure counts stay whole, but a key represented ONLY
+ * by undated rows is not present in the requested period at all: it must not
+ * take a top-N slot, and it must not be counted as a distinct supplier. Keys
+ * with dated rows and no accepted money stay (they are count-capable answers).
+ *
+ * Unbounded scopes keep their documented all-time semantics — every row is
+ * "dated" there, so no guard is emitted.
+ */
+const datedGroupHaving = (c: CompiledScope): string =>
+  c.bounded ? `HAVING countIf(${c.dated}) > 0` : '';
 
 const EMPTY_STATS: AnalysisStatsRead = {
   rows: '0',
@@ -706,10 +728,11 @@ export const makeClickhouseAnalysisRepo = (
     // bucket would silently absorb the withheld association mass (M1).
     const sup = supplierScoped(scope) || SUPPLIER_BREAKDOWN_DIMS.has(dimension);
     const c = compileScope(route, scope, sup);
+    const p = profileFor(route.grain, sup);
     const totalsR = await statsCore(route, scope, sup);
     if (totalsR.isErr()) return err(totalsR.error);
     const totals = totalsR.value;
-    if (c.impossible) return ok({ buckets: [], totals });
+    if (c.impossible) return ok({ buckets: [], totals, rankedBy: 'count' });
 
     const column =
       BREAKDOWN_DIM_COLUMNS[dimension] === undefined
@@ -718,17 +741,36 @@ export const makeClickhouseAnalysisRepo = (
     if (column === undefined)
       return err(databaseError(`breakdown dimension '${dimension}' unsupported`));
     if (column === 'supplier_identity_key' && SUPPLIERLESS_GRAINS.has(route.grain)) {
-      return ok({ buckets: [], totals });
+      return ok({ buckets: [], totals, rankedBy: 'count' });
     }
 
     // ORDER BY must use the numeric aggregate, NOT the toString() output
     // alias (string alias would rank lexicographically — alias-shadow trap).
-    const p = profileFor(route.grain, sup);
     const anchorAgg =
       p.anchorCol === null
         ? '0'
         : `ifNull(sumIf(toInt128(${p.anchorCol}), ${c.dated} AND ${p.accept}), 0)`;
-    const rankExpr = rankBy === 'value' && p.anchorCol !== null ? anchorAgg : `countIf(${c.dated})`;
+
+    // The unknown (NULL-key) read runs FIRST because it decides the ranking:
+    // `totals.withValue − unknown.wv` is the number of value-bearing rows that
+    // can reach a named bucket. When it is zero, a value ORDER BY would sort an
+    // all-zero tie and the answer would claim a money ranking it never made —
+    // so the top-N is genuinely re-ranked by record count BEFORE the LIMIT, and
+    // the read reports `rankedBy: 'count'`. Costs no extra statement.
+    const unknownR = await query<{ cnt: string; wv: string; awarded_bani: string }>(`
+      SELECT
+        toString(countIf(${c.dated})) AS cnt,
+        toString(countIf(${c.dated} AND ${p.accept})) AS wv,
+        toString(${anchorAgg}) AS awarded_bani
+      FROM ${c.table}
+      WHERE ${c.where} AND ${column} IS NULL`);
+    if (unknownR.isErr()) return err(unknownR.error);
+    const unknown = unknownR.value[0] ?? { cnt: '0', wv: '0', awarded_bani: '0' };
+
+    const valueBearingInBuckets = BigInt(totals.withValue) - BigInt(unknown.wv);
+    const rankedBy: 'value' | 'count' =
+      rankBy === 'value' && p.anchorCol !== null && valueBearingInBuckets > 0n ? 'value' : 'count';
+    const rankExpr = rankedBy === 'value' ? anchorAgg : `countIf(${c.dated})`;
     interface RawBucket {
       key: string;
       cnt: string;
@@ -743,19 +785,10 @@ export const makeClickhouseAnalysisRepo = (
       FROM ${c.table}
       WHERE ${c.where} AND ${column} IS NOT NULL
       GROUP BY key
+      ${datedGroupHaving(c)}
       ORDER BY ${rankExpr} DESC, key ASC
       LIMIT ${String(Math.max(1, Math.min(topN, TOPN_SIRUTA_MAX)))}`);
     if (topR.isErr()) return err(topR.error);
-
-    const unknownR = await query<{ cnt: string; wv: string; awarded_bani: string }>(`
-      SELECT
-        toString(countIf(${c.dated})) AS cnt,
-        toString(countIf(${c.dated} AND ${p.accept})) AS wv,
-        toString(${anchorAgg}) AS awarded_bani
-      FROM ${c.table}
-      WHERE ${c.where} AND ${column} IS NULL`);
-    if (unknownR.isErr()) return err(unknownR.error);
-    const unknown = unknownR.value[0] ?? { cnt: '0', wv: '0', awarded_bani: '0' };
 
     // `other` = dated totals − top buckets − unknown, all exact BigInt.
     let otherCnt = BigInt(totals.rows);
@@ -795,7 +828,7 @@ export const makeClickhouseAnalysisRepo = (
       withValue: unknown.wv,
       valueAwardedSum: baniToRon(unknown.awarded_bani),
     });
-    return ok({ buckets, totals } satisfies AnalysisBreakdownRead);
+    return ok({ buckets, totals, rankedBy } satisfies AnalysisBreakdownRead);
   };
 
   const concentrationRowsFor: AnalysisRepo['concentrationRowsFor'] = async (
@@ -819,11 +852,15 @@ export const makeClickhouseAnalysisRepo = (
       basis === 'value'
         ? `toString(ifNull(sumIf(toInt128(${p.anchorCol}), ${c.dated} AND ${p.accept}), 0))`
         : `toString(countIf(${c.dated}))`;
+    // Same bounded-period rule as the breakdown: a supplier present only on
+    // undated rows is not in the requested period, so it must not inflate the
+    // distinct-supplier count with a zero-measure row.
     const rowsR = await query<{ supplier_key: string; measure: string }>(`
       SELECT supplier_cui AS supplier_key, ${measure} AS measure
       FROM ${c.table}
       WHERE ${c.where} AND supplier_cui IS NOT NULL
-      GROUP BY supplier_key`);
+      GROUP BY supplier_key
+      ${datedGroupHaving(c)}`);
     if (rowsR.isErr()) return err(rowsR.error);
     const unknownR = await query<{ measure: string }>(`
       SELECT ${measure} AS measure FROM ${c.table}

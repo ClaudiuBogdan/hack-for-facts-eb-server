@@ -190,6 +190,14 @@ export interface AnalysisBreakdownBucketRow {
 export interface AnalysisBreakdownRead {
   readonly buckets: readonly AnalysisBreakdownBucketRow[];
   readonly totals: AnalysisStatsRead;
+  /**
+   * The basis the buckets were ACTUALLY ranked and limited by. A requested
+   * `value` ranking over a scope with no value-bearing rows on the read's money
+   * basis would order an all-zero tie, so the repo re-ranks by record count
+   * BEFORE applying top-N and reports `count` here. Never a relabeling: the
+   * returned population is the count-ranked one.
+   */
+  readonly rankedBy: 'value' | 'count';
 }
 
 export interface ConcentrationRow {
