@@ -110,6 +110,7 @@ const makeDeps = (presences: (SourcePresence | null)[]): Entity360Deps => {
   return {
     identityRepo: {
       findByCui: () => Promise.resolve(ok(org)),
+      findManyByCui: () => Promise.resolve(ok(new Map([[org.cui ?? '', org]]))),
       findByOrgId: () => Promise.resolve(ok(org)),
       getIdentifiers: () =>
         Promise.resolve(ok([{ scheme: 'cui', value: '16054368', source: 'anaf' }])),

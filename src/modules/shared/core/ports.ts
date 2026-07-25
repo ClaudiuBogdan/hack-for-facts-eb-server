@@ -41,6 +41,20 @@ export interface OrgResolution {
 
 export interface IdentityRepo {
   findByCui(cui: Cui): Promise<Result<Organization | null, ApiError>>;
+  /**
+   * Batch identity lookup — ONE statement, keyed by CUI.
+   *
+   * The only batch primitive on the spine. Callers that need N names (a
+   * leaderboard, a breakdown, an MCP answer) must use this: the `organizationByCui`
+   * loader previously ran `Promise.all(keys.map(findByCui))`, which is N round
+   * trips wearing a DataLoader costume.
+   *
+   * Absent keys are simply missing from the map — a caller distinguishes "not
+   * served" from "not found" by asking, not by reading a null. Withheld
+   * identifiers are dropped from the inputs (P0 containment) and therefore never
+   * appear as keys.
+   */
+  findManyByCui(cuis: readonly Cui[]): Promise<Result<ReadonlyMap<Cui, Organization>, ApiError>>;
   findByOrgId(orgId: string): Promise<Result<Organization | null, ApiError>>;
   getIdentifiers(orgId: string): Promise<Result<readonly OrgIdentifier[], ApiError>>;
   /** Meili-primary name search with a bounded pg fallback (§15.7). */

@@ -63,6 +63,38 @@ describe('identity repo — containment is in the SQL, not just the use case', (
     expect(sql[0]).toContain('core');
   });
 
+  it('findManyByCui is ONE statement for many keys, and drops withheld ids from it', async () => {
+    const { db, sql } = recordingDb();
+    await makeIdentityRepo(db).findManyByCui([SERVED, '4305857', WITHHELD_13, SERVED]);
+
+    // The entire point of the primitive: N keys, one round trip.
+    expect(sql).toHaveLength(1);
+    const stmt = sql[0] ?? '';
+    // Two distinct servable keys (the duplicate is de-duped), and the withheld
+    // one is absent from the statement rather than filtered afterwards.
+    expect(stmt.match(/\$\d+/gu)).toHaveLength(2);
+  });
+
+  it('findManyByCui CHUNKS past the per-statement bound instead of truncating', async () => {
+    const { db, sql } = recordingDb();
+    // 600 distinct servable ids: three statements, and every id must appear.
+    const many = Array.from({ length: 600 }, (_, i) => String(10_000_000 + i));
+    await makeIdentityRepo(db).findManyByCui(many);
+
+    expect(sql).toHaveLength(3);
+    const totalParams = sql.reduce((n, s) => n + (s.match(/\$\d+/gu)?.length ?? 0), 0);
+    // The load-bearing assertion: no id is silently dropped.
+    expect(totalParams).toBe(600);
+  });
+
+  it('findManyByCui issues NO statement when every key is withheld', async () => {
+    const { db, sql } = recordingDb();
+    const res = await makeIdentityRepo(db).findManyByCui([WITHHELD_13]);
+
+    expect(sql).toHaveLength(0);
+    expect((res as unknown as { value: ReadonlyMap<string, unknown> }).value.size).toBe(0);
+  });
+
   it('territoryForCui issues NO statement for a withheld identifier', async () => {
     const { db, sql } = recordingDb();
     await makeIdentityRepo(db).territoryForCui(WITHHELD_13);

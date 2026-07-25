@@ -32,6 +32,17 @@ type Db = Kysely<ProdDatabase>;
 
 const MAX_NAME_FALLBACK_SCAN = 200;
 
+/**
+ * Per-STATEMENT chunk size for `findManyByCui` — a bound on the IN-list handed
+ * to the planner, never a bound on the answer (the lookup chunks past it).
+ *
+ * Sized from the measured consumer need: the procurement leaderboard asks for
+ * `PROCUREMENT_RANKINGS_TOP_N` = 100 buyers plus 100 suppliers, so 250 serves
+ * every real request in one round trip. Re-validate if a consumer starts asking
+ * for thousands.
+ */
+const MAX_IDENTITY_BATCH = 250;
+
 const mapOrg = (row: {
   org_id: string;
   cui: string | null;
@@ -101,6 +112,45 @@ export const makeIdentityRepo = (db: Db): IdentityRepo => ({
       return ok(row === undefined ? null : mapOrg(row));
     } catch (error) {
       return err(databaseError('findByCui failed', error));
+    }
+  },
+
+  async findManyByCui(
+    cuis: readonly Cui[]
+  ): Promise<Result<ReadonlyMap<Cui, Organization>, ApiError>> {
+    // Withheld ids are dropped BEFORE the query, not filtered after: they must
+    // not appear in the statement at all. De-duped because a leaderboard can ask
+    // for the same party twice.
+    const servable = [...new Set(cuis.filter((c) => !isWithheldOrganizationIdentifier(c)))];
+    if (servable.length === 0) return ok(new Map());
+    try {
+      const byCui = new Map<Cui, Organization>();
+      // CHUNKED, not truncated. `MAX_IDENTITY_BATCH` bounds the IN-list the
+      // planner sees, but silently dropping the overflow would answer
+      // "unidentified" for real organizations with no way for the caller to
+      // know — a silent cap, which this platform forbids. Chunking keeps the
+      // statement bounded AND the answer complete; a caller asking for 600 ids
+      // pays 3 statements instead of losing 350 names.
+      for (let i = 0; i < servable.length; i += MAX_IDENTITY_BATCH) {
+        const chunk = servable.slice(i, i + MAX_IDENTITY_BATCH);
+        const rows = await db
+          .selectFrom('core.organizations')
+          .select([...ORG_COLUMNS])
+          .where('cui', 'in', chunk)
+          .execute();
+        for (const row of rows) {
+          const org = mapOrg(row);
+          // `cui` is NOT NULL for every row reachable by this predicate, but the
+          // column is nullable — key defensively rather than assert.
+          if (org.cui !== null) byCui.set(org.cui, org);
+        }
+      }
+      return ok(byCui);
+    } catch (error) {
+      // Deliberately an error, never an empty map: a DB failure that degrades to
+      // "no such organization" would render every party as unidentified and look
+      // like a data gap instead of an outage.
+      return err(databaseError('findManyByCui failed', error));
     }
   },
 

@@ -55,19 +55,27 @@ export interface KernelLoaders {
 }
 
 /**
- * Per-request kernel loaders. `organizationByCui` batches identity lookups so a
- * list of `Entity` resolves orgs in one round trip. (The identity repo currently
- * resolves per-CUI; the loader still de-dupes within a request.)
+ * Per-request kernel loaders. `organizationByCui` resolves a whole request's
+ * identities in ONE statement via `findManyByCui`.
+ *
+ * It previously ran `Promise.all(keys.map(findByCui))` — batched scheduling over
+ * N round trips — and mapped a repo error to `null`, so a database outage
+ * rendered as "every organization is unknown". Both are fixed here: one query,
+ * and a failure REJECTS so the caller surfaces an error instead of a page full
+ * of silently unidentified parties.
  */
 export const makeKernelLoaders = (identityRepo: IdentityRepo): KernelLoaders => {
   const organizationByCui = makeBatchLoader<Organization | null>(async (keys) => {
-    const entries = await Promise.all(
-      keys.map(async (cui): Promise<[string, Organization | null]> => {
-        const res = await identityRepo.findByCui(cui);
-        return [cui, res.isOk() ? res.value : null];
-      })
-    );
-    return new Map(entries);
+    const res = await identityRepo.findManyByCui(keys);
+    if (res.isErr()) {
+      // A real Error, with the typed ApiError preserved as `cause`: the batch
+      // must REJECT so the caller reports an outage, and an ApiError is a plain
+      // object that would otherwise reject with a non-Error value.
+      throw new Error(res.error.message, { cause: res.error });
+    }
+    // A key absent from the map is a genuine miss (unknown or withheld CUI) and
+    // resolves to the loader's `missing` value.
+    return new Map<string, Organization | null>(res.value);
   }, null);
 
   return { organizationByCui };

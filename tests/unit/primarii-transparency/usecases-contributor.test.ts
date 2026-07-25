@@ -108,6 +108,7 @@ const makeDeps = (over: Partial<PrimariiRepository> = {}): PrimariiDeps => ({
   repo: makeRepo(over),
   identityRepo: {
     findByCui: () => okR(null),
+    findManyByCui: () => okR(new Map()),
     findByOrgId: () => okR(null),
     getIdentifiers: () => okR([]),
     searchByName: (q: string) =>

@@ -39,6 +39,43 @@ export const baseTypeDefs = /* GraphQL */ `
     source: String!
   }
 
+  "Why a label carries no name — never inferred from a null canonicalName."
+  enum OrganizationLabelStatus {
+    "The spine has a canonical registry name for this CUI."
+    named
+    """
+    The spine has the organization but no name yet: a minted placeholder whose
+    stored name is the CUI itself. Present in analytics, not yet nameable.
+    """
+    placeholder
+    """
+    No servable identity — unknown, malformed, or restricted. Deliberately one
+    state: distinguishing them would turn the field into an existence oracle.
+    """
+    unavailable
+  }
+
+  "A name for one requested identifier, resolved from the identity spine."
+  type OrganizationLabel {
+    """
+    The normalized identifier, or null when the input was malformed or is not
+    served. Correlate by POSITION: the list always matches the request length
+    and order.
+    """
+    cui: CUI
+    "The canonical registry name. Null unless status is named."
+    canonicalName: String
+    """
+    Human-cased name. Currently ALWAYS null: the derived display_name mangles
+    585,811 rows (diacritics, and acronyms such as CFR → Cfr), and the canonical
+    casing is the raw registry string. Reserved for a repaired derivation.
+    """
+    displayName: String
+    "Spine kind (company/public_entity/ngo/unknown). Descriptive only — never a membership test."
+    kind: String
+    status: OrganizationLabelStatus!
+  }
+
   "A SIRUTA-keyed territory (core.territories)."
   type Territory {
     id: Int!
@@ -195,6 +232,21 @@ export const baseTypeDefs = /* GraphQL */ `
     health: HealthReport!
     "Cross-source entity-360 addressed by CUI."
     entity(cui: CUI!): Entity
+    """
+    Batch name lookup on the identity SPINE — one label per requested identifier,
+    in the order asked, resolved in a single query.
+
+    Use this to label parties in any multi-party display (rankings, breakdowns,
+    record lists) instead of querying a role registry. referencePublicEntities
+    answers only for public INSTITUTIONS and companies() only for the ANAF
+    registry, so a buyer that is a state company resolves in neither — 41.5% of
+    contract award money is spent by buyers they cannot name.
+
+    Read the status field rather than testing canonicalName for null. Bounded at
+    250 identifiers per request; more is an InvalidInput error, never a silent
+    truncation.
+    """
+    organizationLabels(cuis: [String!]!): [OrganizationLabel!]!
     "Hybrid global search (Meili-primary, pg fallback). county = canonical county name; year = exact match."
     searchEntities(
       q: String!

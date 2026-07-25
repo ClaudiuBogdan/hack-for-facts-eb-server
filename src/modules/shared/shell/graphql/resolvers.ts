@@ -18,6 +18,7 @@ import {
   type Entity360Deps,
 } from '../../core/usecases/entity-360.js';
 import { makeGlobalSearch, type GlobalSearchDeps } from '../../core/usecases/global-search.js';
+import { makeOrganizationLabels } from '../../core/usecases/organization-labels.js';
 
 import type { ContributorRegistry, FlowsRepo, IdentityRepo, SearchRepo } from '../../core/ports.js';
 import type { FlowSummary, SourcePresence, Territory } from '../../core/types.js';
@@ -80,6 +81,9 @@ export const makeKernelResolvers = (deps: KernelResolverDeps): Record<string, un
 
   Query: {
     health: async () => deps.health(),
+
+    organizationLabels: async (_root: unknown, args: { cuis: readonly string[] }) =>
+      unwrap(await makeOrganizationLabels({ identityRepo: deps.identityRepo }, args.cuis)),
 
     entity: async (_root: unknown, args: EntityArgs): Promise<EntityCore | null> => {
       // Lazy: resolve the non-flow core only. flowsIn/flowsOut are field
