@@ -22,6 +22,7 @@ import {
   type MeiliClient,
 } from '@/modules/shared/index.js';
 
+import { DOSSIER_CHILD_READ_CONCURRENCY, makeConcurrencyGate } from './concurrency.js';
 import {
   COHESION_VOTE_CAP,
   PARLIAMENT_RESOLVE_DIMS,
@@ -247,15 +248,22 @@ export const getBillDossier = async (
   if (keysRes.isErr()) return err(keysRes.error);
   const viewBillKeys = keysRes.value;
 
+  // 2026-07-26 connection-exhaustion fix: a resolved pair asks for 2 views × 6 child
+  // families, and starting all 12 at once burned 12 simultaneous connections for ONE
+  // request — enough to trip `FATAL: too many connections for role
+  // transparenta_prod_agent_readonly` and abort the dossier. The gate throttles STARTS
+  // only, at DOSSIER_CHILD_READ_CONCURRENCY; every read below still runs to completion,
+  // in the same tuple positions, so the merge and first-error-wins scan are untouched.
+  const gate = makeConcurrencyGate(DOSSIER_CHILD_READ_CONCURRENCY);
   const perView = await Promise.all(
     viewBillKeys.map((k) =>
       Promise.all([
-        deps.repo.getBillEvents(k),
-        deps.repo.getBillDocuments(k),
-        deps.repo.getBillInitiators(k),
-        deps.repo.listVotesForBill(k),
-        deps.repo.getBillActLinks(k),
-        deps.repo.getBillVoteLinks(k),
+        gate(() => deps.repo.getBillEvents(k)),
+        gate(() => deps.repo.getBillDocuments(k)),
+        gate(() => deps.repo.getBillInitiators(k)),
+        gate(() => deps.repo.listVotesForBill(k)),
+        gate(() => deps.repo.getBillActLinks(k)),
+        gate(() => deps.repo.getBillVoteLinks(k)),
       ])
     )
   );
