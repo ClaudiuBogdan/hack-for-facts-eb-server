@@ -14,6 +14,7 @@
 
 import { readFileSync } from 'node:fs';
 
+import compressPlugin from '@fastify/compress';
 import corsPlugin from '@fastify/cors';
 import { makeExecutableSchema } from '@graphql-tools/schema';
 import fastifyLib, { type FastifyInstance } from 'fastify';
@@ -198,6 +199,38 @@ export const buildRedesignApp = async (deps: BuildRedesignAppDeps): Promise<Rede
 };
 
 /**
+ * Register response compression app-wide.
+ *
+ * WHY HERE. Compression belongs at the app layer, not inside a route: it is an
+ * `onSend` transform that must apply to every JSON response (a full sitting
+ * transcript, a big GraphQL result), negotiate `Accept-Encoding` per request, and
+ * leave `ETag` a representation-level validator that stays valid for every encoding.
+ * A route that gzipped its own buffer would break both the negotiation and the 304
+ * path.
+ *
+ * `@fastify/compress` is a declared, locked runtime dependency. A missing install
+ * must fail the build/boot instead of quietly serving large transcript responses
+ * uncompressed.
+ *
+ * EXPORTED so a test can register the REAL plugin with the REAL options on a bare
+ * Fastify scope — proving both that a large response is actually gzipped app-wide and
+ * that no route compresses on its own (see
+ * `tests/integration/redesign-compression.test.ts`). Booting the whole redesign app
+ * would need a live kernel/postgres, which a unit-level gate must not require.
+ */
+export const registerCompression = async (app: FastifyInstance): Promise<void> => {
+  await app.register(compressPlugin, {
+    // Compress JSON/text only, and only when it is worth the CPU. 1 KiB is the
+    // conventional floor: below it the framing overhead can exceed the saving.
+    global: true,
+    threshold: 1024,
+    encodings: ['br', 'gzip', 'deflate'],
+    // Never rewrite an already-encoded payload.
+    inflateIfDeflated: false,
+  });
+};
+
+/**
  * Registers the redesign kernel surface (GraphQL + MCP + health/ready) onto an
  * EXISTING Fastify scope. Does NOT create the Fastify instance and does NOT
  * register CORS — the caller owns those.
@@ -217,6 +250,10 @@ export const registerRedesignSurface = async (
   app: FastifyInstance,
   deps: BuildRedesignAppDeps
 ): Promise<Kernel> => {
+  // Registered FIRST so its onSend hook wraps every route declared below (Fastify
+  // hooks are inherited by routes registered after the plugin, not before).
+  await registerCompression(app);
+
   const kernel = await makeKernel(deps.kernelConfig);
 
   // Release the kernel (pg pool + clients) when the owning scope closes.
@@ -251,6 +288,7 @@ export const registerRedesignSurface = async (
   const moduleSlices: GraphqlSlice[] = [];
   const moduleResolvers: Record<string, unknown>[] = [];
   const moduleMcpTools: KernelMcpTool[] = [];
+  let parliamentRoutes: import('fastify').FastifyPluginAsync | undefined;
 
   if (enabledModules.includes('pnrr')) {
     const pnrr = makePnrrModule({
@@ -441,6 +479,14 @@ export const registerRedesignSurface = async (
     moduleSlices.push(parliament.graphqlSlice);
     moduleResolvers.push(parliament.graphqlResolvers);
     moduleMcpTools.push(...parliament.mcpTools);
+    // The ONE REST route on the redesign surface: the cacheable canonical
+    // full-transcript read. Registered here (not in the GraphQL/MCP block above)
+    // because it needs its own path prefix; it serves the SAME usecase output as the
+    // `parliamentStenogramSession` GraphQL root, and adds ETag / If-None-Match / 304
+    // + Cache-Control, which a POSTed GraphQL query cannot express. Deferred to the
+    // end of the module wiring so a route registration failure cannot prevent the
+    // GraphQL slice from being collected.
+    parliamentRoutes = parliament.routesPlugin;
   }
 
   if (enabledModules.includes('judicial')) {
@@ -486,6 +532,16 @@ export const registerRedesignSurface = async (
     validationRules: makeGraphQLValidationRules(isProduction),
     errorFormatter: makeGraphQLErrorFormatter(isProduction),
   });
+
+  // Parliament's only REST route: the cacheable canonical full-transcript read.
+  // It serves the SAME usecase output as the `parliamentStenogramSession` GraphQL
+  // root and the `get_parliament_stenogram_session` MCP tool, and adds the HTTP
+  // caching semantics (ETag / If-None-Match → 304 / Cache-Control) that a POSTed
+  // GraphQL query cannot express. Any compression registered on this app applies
+  // unchanged — the route sends a plain payload and only sets Vary: Accept-Encoding.
+  if (parliamentRoutes !== undefined) {
+    await app.register(parliamentRoutes, { prefix: '/api/v1/parliament' });
+  }
 
   // ── MCP (JSON-RPC over HTTP) ─────────────────────────────────────────────────
   // Direct JSON-RPC dispatch (no SDK hono/socket bridge, which crashes under

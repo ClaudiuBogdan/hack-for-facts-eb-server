@@ -83,6 +83,10 @@ const resolverDeps = (repo: ParliamentRepo) => ({
   legalActLoader: undefined,
   searchEngineUp: false,
   isApiKeyAuthorized: (): boolean => false,
+  // No canonical transcript search projection wired: these tests exercise the member
+  // roots, and a null port is the honest "a stenogram q would return
+  // SEARCH_UNAVAILABLE" state rather than a stub that pretends search works.
+  transcriptSearch: null,
 });
 
 type FieldResolver = (parent: unknown, args: unknown) => Promise<unknown>;

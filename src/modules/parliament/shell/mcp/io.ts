@@ -5,12 +5,15 @@
  * kernel `{ ok, kind, query?, link?, item|items?, summary? }` object. Naming
  * `<verb>_parliament_<noun>` (§6.3). NEVER emits excluded columns (§2.6).
  *
- * Five tools (discovery + query families, §6.3):
+ * Eight tools (discovery + query families, §6.3):
  *   resolve_parliament_filters   (discovery) → kind 'resolution'
  *   get_parliament_law_lineage   (marquee)   → kind 'lineage'
  *   get_parliament_member_activity           → kind 'member_activity'
  *   rank_parliament_vote_cohesion            → kind 'cohesion'
  *   search_parliament_speeches               → kind 'speeches'
+ *   search_parliament_stenogram_sessions     → kind 'stenogram_sessions'  (canonical SEARCH)
+ *   get_parliament_stenogram_session         → kind 'stenogram_transcript' (canonical READ)
+ *   get_parliament_speech_context            → kind 'speech_context'       (canonical READ)
  */
 
 import { z } from 'zod';
@@ -21,6 +24,9 @@ export const PARLIAMENT_MCP_KINDS = {
   memberActivity: 'member_activity',
   cohesion: 'cohesion',
   speeches: 'speeches',
+  stenogramSessions: 'stenogram_sessions',
+  stenogramTranscript: 'stenogram_transcript',
+  speechContext: 'speech_context',
 } as const;
 
 export const resolveParliamentFiltersInput = {
@@ -113,6 +119,85 @@ export const searchParliamentSpeechesInput = {
     .optional()
     .describe(
       'Opaque pagination cursor from a previous call (meta.nextCursor). MUST be replayed with the SAME q/mandateKey/chamber/from/to — a changed query invalidates the cursor.'
+    ),
+};
+
+/**
+ * Canonical stenogram SEARCH (sittings). Unlike `search_parliament_speeches` this
+ * needs no boundedness argument — `stenogram_sessions` is one row per captured
+ * sitting with an indexed date. `q` is a FULL-HISTORY search over the canonical
+ * transcript projection; when the projection is unavailable the tool returns an
+ * in-band `{ok:false, error:'SEARCH_UNAVAILABLE'}` rather than quietly matching
+ * titles only, so an agent can never mistake a narrow answer for a complete one.
+ */
+export const searchParliamentStenogramSessionsInput = {
+  q: z
+    .string()
+    .optional()
+    .describe(
+      'Free-text search across the WHOLE canonical transcript history (every public reading block). Refused with SEARCH_UNAVAILABLE when the transcript search projection is not available — there is deliberately no title-only fallback.'
+    ),
+  chamber: z
+    .enum(['camera_deputatilor', 'senat', 'comun'])
+    .optional()
+    .describe('Assembly of the sitting (comun = a joint sitting).'),
+  from: z.string().optional().describe('Earliest sitting date (YYYY-MM-DD).'),
+  to: z.string().optional().describe('Latest sitting date (YYYY-MM-DD), inclusive.'),
+  year: z.number().int().optional().describe('Calendar year of the sitting.'),
+  availability: z
+    .enum(['COMPLETE', 'PARTIAL', 'SOURCE_ONLY'])
+    .optional()
+    .describe(
+      'COMPLETE = has speech blocks; PARTIAL = readable but no printed speaker heading; SOURCE_ONLY = capture yields no reading at all (held with its official URL).'
+    ),
+  mandateKey: z
+    .string()
+    .optional()
+    .describe(
+      'Only sittings where this speaker mandate key holds at least one public contribution. Resolve a person → mandateKey first via resolve_parliament_filters.'
+    ),
+  limit: z.number().int().min(1).max(100).optional().describe('Max sittings (default 20).'),
+  after: z
+    .string()
+    .optional()
+    .describe(
+      'Opaque pagination cursor from a previous call (meta.nextCursor). MUST be replayed with the SAME arguments — a changed filter or q invalidates it.'
+    ),
+};
+
+/** Canonical stenogram READ: one sitting plus a bounded slice of its ordered reading. */
+export const getParliamentStenogramSessionInput = {
+  sessionKey: z
+    .string()
+    .describe(
+      "The sitting's session key (e.g. 'cdep:9043'), from search_parliament_stenogram_sessions or a speech's sessionKey."
+    ),
+  offset: z
+    .number()
+    .int()
+    .min(0)
+    .optional()
+    .describe('0-based block offset in the OFFICIAL printed order (default 0).'),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(500)
+    .optional()
+    .describe('Reading blocks to return (default 100, max 500). Read meta.totalSegments to page.'),
+};
+
+/**
+ * Canonical context of one contribution. Accepts a canonical `canon:` key OR a
+ * LEGACY `cdep:` / `senat:` key — the legacy key is resolved through
+ * `parliament.speech_redirects`, which is how an old deep link reaches the canonical
+ * reading.
+ */
+export const getParliamentSpeechContextInput = {
+  speechKey: z
+    .string()
+    .describe(
+      "A speech key: canonical ('canon:cdep:9043#00042') or legacy ('cdep:cdep_stenogram:9043:9:718'). A legacy key is redirected to its canonical block, or to the sitting alone when no single block could be proven."
     ),
 };
 

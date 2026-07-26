@@ -271,6 +271,107 @@ export interface SpeechesTable {
   source_url: string | null;
   source_url_kind: string | null;
   source_ref: Jsonb | null;
+  // ── canonical-stenogram pointers (scrapper migration 20260726T140000, ADDITIVE) ──
+  // Every PRE-EXISTING row takes the defaults (false / NULL), so a legacy row is by
+  // construction NON-canonical. The DB pins the key-space equivalence
+  // (`parliament_speeches_canonical_key_space_check`):
+  //   is_canonical  ⇔  speech_key LIKE 'canon:%'  ⇔  stenogram_segment_key IS NOT NULL
+  // which is what makes the legacy (`cdep:%` / `senat:%`) and canonical populations
+  // provably disjoint. NOT YET APPLIED to the live serving DB — every read of these
+  // three columns goes through the repo's memoized canonical probe, exactly like
+  // `parliament.speech_texts` (a missing column fails at PARSE time).
+  is_canonical: boolean;
+  stenogram_session_key: string | null; // FK → stenogram_sessions.session_key
+  stenogram_segment_key: string | null; // segment identity; position is encoded in the key
+}
+
+// ── canonical stenogram (scrapper migration 20260726T140000) ─────────────────
+// The re-derived READING of a sitting: one session per stored capture, ordered
+// reading blocks under it, and a redirect per legacy speech row. `evidence` on
+// `speech_redirects` is internal matcher/reviewer state and is deliberately
+// UNBOUND (the `person_identity_candidates.evidence` precedent) so a stray select
+// is a compile error.
+
+export interface StenogramSessionsTable {
+  session_key: string; // PK — `cdep:<ids>` | `senat:<raw session_key>`
+  chamber: string; // 'camera_deputatilor' | 'senat' | 'comun' (CHECK)
+  session_date: DateCol | null;
+  // Provenance of session_date: CDep parses the sitting TITLE (the raw
+  // sitting_date column is condemned); Senate carries a real date.
+  session_date_source: string; // 'stenogram_title' | 'session_date' | 'none' (CHECK)
+  title: string | null;
+  source_system: string; // 'cdep_stenogram' | 'senat_stenogram' (CHECK)
+  availability: string; // 'COMPLETE' | 'PARTIAL' | 'SOURCE_ONLY' (CHECK)
+  source_url: string; // NOT NULL — the E2 traceability terminator
+  source_url_kind: string; // 'exact' | 'lossy_root' | 'raw_response' (CHECK)
+  source_ref: Jsonb;
+  // Optional link to the agenda-owned sitting spine. Unlinked is NORMAL (the
+  // agenda lane only knows the sittings its own source published).
+  sitting_key: string | null;
+  presiding_text: string | null;
+  start_time_text: string | null;
+  end_time_text: string | null;
+  // Denormalised shape of the parse (a cache the loader gate re-derives from
+  // stenogram_segments and BLOCKS on drift), so a consumer can size a session
+  // without scanning its blocks. Availability is FULLY determined by these in BOTH
+  // directions (`parliament_stenogram_sessions_availability_semantics_check`):
+  //   SOURCE_ONLY ⇔ segment_count = 0
+  //   PARTIAL     ⇔ segment_count > 0 and speech_count = 0
+  //   COMPLETE    ⇔ speech_count > 0
+  segment_count: number;
+  speech_count: number;
+  speaker_count: number;
+  // Integrity anchors. `capture_digest` fixes the SOURCE BYTES the reading was
+  // derived from (NULL for a SOURCE_ONLY sitting — there is no usable capture);
+  // `canonical_digest` fixes the ORDERED READING itself and is NOT NULL. The loader
+  // gate recomputes the canonical digest from `stenogram_segments` and BLOCKS on a
+  // mismatch, so "this row describes exactly these blocks, in this order" is
+  // provable by query. Read-only here: the server verifies nothing, it just carries
+  // them so a client can detect a re-parse.
+  capture_digest: string | null;
+  canonical_digest: string;
+  attrs: Jsonb;
+  privacy_class: string; // 'public' | 'restricted' (CHECK, default 'public')
+  source_updated_at: Tstz | null;
+  loaded_at: Tstz | null;
+  updated_at: Tstz | null;
+}
+
+export interface StenogramSegmentsTable {
+  segment_key: string; // PK — `<session_key>#<position padded to 5>`
+  session_key: string; // FK → stenogram_sessions (on delete cascade)
+  position: number; // 0-based position in the OFFICIAL printed order
+  segment_kind: string; // 'SPEECH' | 'AGENDA_HEADING' | 'VOTE_RESULT' | 'CONTEXT' (CHECK)
+  text: string; // the reading block (NOT a snippet — speeches.summary is the snippet)
+  text_chars: number; // DB-enforced = length(text)
+  speaker_name: string | null; // name AS PRINTED, honorific stripped; never an identity
+  speaker_ref: string | null; // the source's OWN locator (CDep idm); SPEECH only
+  mandate_key: string | null; // roster-validated identity ONLY; NULL is expected
+  speech_key: string | null; // the canonical serving speech row; SPEECH only
+  agenda_ref: string | null; // source-printed agenda reference (CDep `S<n>` / Senate GUID)
+  source_url: string; // NOT NULL — traceability terminator
+  source_url_kind: string; // 'exact' | 'lossy_root' | 'raw_response' (CHECK)
+  source_ref: Jsonb;
+  attrs: Jsonb;
+  privacy_class: string; // 'public' | 'restricted' (CHECK, default 'public')
+  loaded_at: Tstz | null;
+  updated_at: Tstz | null;
+}
+
+export interface SpeechRedirectsTable {
+  legacy_speech_key: string; // PK + FK → speeches (on delete cascade)
+  session_key: string; // FK → stenogram_sessions — ALWAYS present
+  // Present ONLY for mapping_kind='exact_segment'; the DB CHECK pins
+  // (mapping_kind='exact_segment') = (all three pointers NOT NULL), so a
+  // 'session_only' row is an honest coarse redirect, never a guessed one.
+  canonical_speech_key: string | null;
+  canonical_segment_key: string | null;
+  canonical_position: number | null;
+  mapping_kind: string; // 'session_only' | 'exact_segment' (CHECK)
+  match_method: string; // e.g. 'cdep_sitting_ids' | 'senate_raw_speech_key'
+  // evidence — internal matcher/reviewer state; NEVER surfaced; OMITTED
+  privacy_class: string; // 'public' | 'restricted' (CHECK, default 'public')
+  updated_at: Tstz | null;
 }
 
 export interface MemberDeclarationsTable {
@@ -433,6 +534,9 @@ declare module '@/modules/shared/shell/db/types.js' {
     'parliament.control_items': ControlItemsTable;
     'parliament.member_initiatives': MemberInitiativesTable;
     'parliament.speeches': SpeechesTable;
+    'parliament.stenogram_sessions': StenogramSessionsTable;
+    'parliament.stenogram_segments': StenogramSegmentsTable;
+    'parliament.speech_redirects': SpeechRedirectsTable;
     'parliament.member_declarations': MemberDeclarationsTable;
     'parliament.bill_metadata': ParliamentBillMetadataTable;
     'parliament.control_item_metadata': ParliamentControlItemMetadataTable;

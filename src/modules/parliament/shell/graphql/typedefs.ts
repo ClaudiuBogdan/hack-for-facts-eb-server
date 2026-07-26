@@ -47,6 +47,7 @@ import {
   memberVotesFilterSpec,
   membersFilterSpec,
   parliamentSpeechesFilterSpec,
+  stenogramSessionsFilterSpec,
   votesFilterSpec,
 } from '../filters/specs.js';
 
@@ -54,6 +55,7 @@ const votesFilter = toGraphQLInput(votesFilterSpec);
 const memberVotesFilter = toGraphQLInput(memberVotesFilterSpec);
 const memberSpeechesFilter = toGraphQLInput(memberSpeechesFilterSpec);
 const speechesFilter = toGraphQLInput(parliamentSpeechesFilterSpec);
+const stenogramSessionsFilter = toGraphQLInput(stenogramSessionsFilterSpec);
 const membersFilter = toGraphQLInput(membersFilterSpec);
 const billsFilter = toGraphQLInput(billsFilterSpec);
 const controlFilter = toGraphQLInput(controlItemsFilterSpec);
@@ -456,6 +458,149 @@ const objectsAndQuery = /* GraphQL */ `
     sourceUrlKind: String
     "Verbatim transcript text (parliament.speech_texts). Resolved lazily — only fetched when selected — and null when the transcript is not yet loaded for this turn. Transcript coverage is PARTIAL (a parallel backfill): a null fullText means 'not loaded', not 'no speech'."
     fullText: String
+    "True for a CANONICAL contribution (a re-derived reading block, speechKey prefix 'canon:'). PREFER these: a canonical row carries the whole turn and a provable position in the sitting, while a legacy row is an over-split snippet of the same words. false on every legacy row AND on any row read from a database where the canonical stenogram migration is not applied."
+    isCanonical: Boolean!
+    "The canonical stenogram session (sitting) this turn belongs to — pass it to parliamentStenogramSession for the full ordered transcript. null on a legacy row; use parliamentSpeechContext(speechKey) to resolve a legacy key to its sitting through speech_redirects."
+    sessionKey: ID
+    "0-based position of this turn in the OFFICIAL printed order of the sitting. null on a legacy row (position is only defined for a canonical reading block). null NEVER means position 0."
+    position: Int
+    "Canonical context: the reading block, its sitting, and the neighbouring contributions. Resolved lazily; accepts legacy keys through speech_redirects; null when this turn has no canonical mapping yet."
+    context: ParliamentSpeechContext
+  }
+
+  "How much of the official transcript a capture yields. SOURCE_ONLY = a blank/navigation-only capture: the sitting and its official URL are held and NO reading is served (the DB pins SOURCE_ONLY ⇒ 0 blocks, so it can never claim 'no content' while carrying content)."
+  enum ParliamentStenogramAvailability {
+    COMPLETE
+    PARTIAL
+    SOURCE_ONLY
+  }
+  "Kind of a canonical reading block: someone speaking, the agenda heading the following blocks sit under, an official vote result, or transcript narration/context."
+  enum ParliamentStenogramSegmentKind {
+    SPEECH
+    AGENDA_HEADING
+    VOTE_RESULT
+    CONTEXT
+  }
+
+  "One canonical stenogram session — a captured sitting and the parent of its ordered reading. Counters are a stored shape of the parse (the loader gate re-derives and blocks on drift), so a client can size a sitting without fetching its blocks."
+  type ParliamentStenogramSession {
+    sessionKey: ID!
+    chamber: String!
+    "Sitting date. NULL when the source carries no trustworthy date — read sessionDateSource; the date is never inferred."
+    sessionDate: Date
+    "Provenance of sessionDate: 'stenogram_title' (CDep — parsed from the printed sitting title, because the raw sitting_date column is unusable), 'session_date' (Senate — a real source date), or 'none' (no trustworthy date; sessionDate is null)."
+    sessionDateSource: String!
+    title: String
+    "Official system the capture came from: cdep_stenogram | senat_stenogram."
+    sourceSystem: String!
+    availability: ParliamentStenogramAvailability!
+    "Official transcript URL — always present (a session with no navigable path back to the source is a defect, not a row)."
+    sourceUrl: String!
+    "SOURCE PRECISION of sourceUrl: 'exact' → deep-links this sitting (safe to present as authoritative); 'lossy_root' → resolves only to the sitting/section root (Senate captures carry no per-turn anchor); 'raw_response' → points at the stored capture, not a live page."
+    sourceUrlKind: String!
+    "Link to the agenda-owned sitting spine. null is NORMAL — the agenda lane only knows the sittings its own source published; it is not a defect."
+    sittingKey: ID
+    presidingText: String
+    startTimeText: String
+    endTimeText: String
+    segmentCount: Int!
+    speechCount: Int!
+    speakerCount: Int!
+    "Integrity anchor of the ORDERED reading, recomputed and gate-blocked by the loader. Changes when a re-parse changes the reading — use it to tell a real change from a no-op refresh without diffing blocks."
+    canonicalDigest: String!
+    "Integrity anchor of the SOURCE BYTES the reading was derived from. null for a SOURCE_ONLY sitting (there is no usable capture)."
+    captureDigest: String
+    sourceUpdatedAt: String
+  }
+
+  "A sitting as a NAVIGATION TARGET: enough to label it and to open its official source, without pretending to be a fetched sitting."
+  type ParliamentStenogramSessionRef {
+    sessionKey: ID!
+    chamber: String!
+    sessionDate: Date
+    title: String
+    availability: ParliamentStenogramAvailability!
+    sourceUrl: String!
+    "SOURCE PRECISION — do not present a 'lossy_root' URL as an exact deep link."
+    sourceUrlKind: String!
+  }
+
+  "Previous/next sitting around this one, CHAMBER-SCOPED so the control never jumps between assemblies (a joint 'comun' sitting is a different assembly). Ordering is the same deterministic keyset the sittings list pages by, so stepping and paging always agree. null at the ends of a chamber's history; a non-public neighbour is simply absent."
+  type ParliamentSittingNavigation {
+    previous: ParliamentStenogramSessionRef
+    next: ParliamentStenogramSessionRef
+  }
+
+  "One canonical reading block, in the OFFICIAL printed order. (sessionKey, position) IS the identity — segmentKey encodes the pair and the database enforces it unique, so the two can never disagree."
+  type ParliamentStenogramSegment {
+    segmentKey: ID!
+    sessionKey: ID!
+    "0-based position in the official printed order of the transcript."
+    position: Int!
+    kind: ParliamentStenogramSegmentKind!
+    "The reading block: this turn's paragraphs coalesced in exact source order. NOT a snippet — ParliamentSpeech.summary is the snippet, this is the text."
+    text: String!
+    textChars: Int!
+    "Speaker name AS PRINTED by the official transcript (honorific stripped). NEVER an identity, and null for narration."
+    speakerName: String
+    "The source's OWN speaker locator (CDep idm) — a raw locator, not an identity."
+    speakerRef: String
+    "Roster-validated speaker identity. null is the honest, EXPECTED value for guests, ministers, and any speaker the source did not print an id for — a name is never turned into a member."
+    mandateKey: ID
+    "The resolved member (lazy). null when mandateKey is null."
+    member: ParliamentMember
+    "The canonical serving speech row for this block (SPEECH blocks only)."
+    speechKey: ID
+    "Source-printed agenda reference in scope (CDep section anchor / Senate agenda GUID)."
+    agendaRef: String
+    sourceUrl: String!
+    "SOURCE PRECISION — same taxonomy as the session's sourceUrlKind."
+    sourceUrlKind: String!
+  }
+
+  "A sitting plus its ordered reading and its sitting navigation. On THIS root segments is a bounded slice (offset/limit) — totalSegments is always the full public block count, so a client knows whether to page. The REST endpoint GET /api/v1/parliament/stenograms/:sessionKey/transcript returns the COMPLETE reading in one response instead."
+  type ParliamentStenogramTranscript {
+    session: ParliamentStenogramSession!
+    segments: [ParliamentStenogramSegment!]!
+    totalSegments: Int!
+    navigation: ParliamentSittingNavigation!
+  }
+
+  "How a LEGACY speech key was mapped onto the canonical reading. 'exact_segment' carries all three canonical pointers; 'session_only' resolves the sitting alone — the honest coarse answer used when a single block could not be PROVEN, never a guessed turn."
+  type ParliamentSpeechRedirect {
+    legacySpeechKey: ID!
+    sessionKey: ID!
+    canonicalSpeechKey: ID
+    canonicalSegmentKey: ID
+    canonicalPosition: Int
+    mappingKind: String!
+    "How the mapping was established (e.g. 'cdep_sitting_ids', 'senate_raw_speech_key') — auditable without re-deriving it."
+    matchMethod: String!
+  }
+
+  "The canonical context of one contribution: its reading block, its sitting (with sittingKey + counters for sitting navigation), and the neighbouring CONTRIBUTIONS — the previous/next SPEECH blocks, not the adjacent printed block, which is usually narration."
+  type ParliamentSpeechContext {
+    "The key that was REQUESTED (canonical or legacy) — echoed so a client can tell a redirect happened."
+    speechKey: ID!
+    session: ParliamentStenogramSession!
+    "The reading block. null when the requested legacy key resolved only to the sitting (redirect.mappingKind = 'session_only')."
+    segment: ParliamentStenogramSegment
+    previousContribution: ParliamentStenogramSegment
+    nextContribution: ParliamentStenogramSegment
+    "Set ONLY when the requested key was legacy and was resolved through parliament.speech_redirects. null for a canonical key."
+    redirect: ParliamentSpeechRedirect
+  }
+
+  type ParliamentStenogramSessionEdge {
+    node: ParliamentStenogramSession!
+    cursor: String!
+  }
+  "Canonical stenogram sessions (cursor; keyset sessionDate desc, sessionKey desc — a dateless capture sorts LAST). total is capped at 10,000; totalEstimated:true means the real total exceeds the cap OR a full-history q resolved more sittings than it could return."
+  type ParliamentStenogramSessionConnection {
+    edges: [ParliamentStenogramSessionEdge!]!
+    pageInfo: PageInfo!
+    total: Int!
+    totalEstimated: Boolean!
   }
   type ParliamentInitiative {
     initiativeKey: ID!
@@ -755,6 +900,24 @@ const objectsAndQuery = /* GraphQL */ `
     ): ParliamentSpeechActivity
     "One speech by key (deep link). Returns null for an unknown key AND for a quarantined/non-public row (never leaks via deep link). fullText resolves lazily; null fullText means the transcript is not loaded yet (partial coverage), not that the speech is empty."
     parliamentSpeech(speechKey: ID!): ParliamentSpeech
+    "Canonical stenogram sittings (cursor; keyset sessionDate desc). UNLIKE parliamentSpeeches this needs NO boundedness argument — the table is one row per captured sitting and sessionDate is indexed. filter: chamber / sessionDate range / year / availability / sourceSystem / mandateKey (sittings where that speaker holds a public contribution). q is a FULL-HISTORY search over the canonical transcript search projection: when that projection is unavailable the field returns a SEARCH_UNAVAILABLE error in errors[] (this field null) — it NEVER silently degrades to a title-only or window-bounded match, because that would answer a narrower question while looking like a full answer. Only privacy_class='public' sittings are ever served."
+    parliamentStenogramSessions(
+      filter: ParliamentStenogramSessionsFilter
+      "Free-text search over the whole canonical transcript history. Part of the cursor identity: a cursor minted under one q cannot replay under another."
+      q: String
+      first: Int
+      after: String
+    ): ParliamentStenogramSessionConnection
+    "One sitting plus its ordered PUBLIC reading and its previous/next sitting. Typed errors in errors[] (this field null): NOT_FOUND (no such sitting, or non-public) and TRANSCRIPT_UNAVAILABLE (the sitting is real but yields no reading — a SOURCE_ONLY capture, no public blocks, or the canonical projection is not deployed here). A TRANSCRIPT_UNAVAILABLE error carries extensions.session (sessionKey/title/chamber/sessionDate/sourceUrl/sourceUrlKind) whenever the sitting is held, so a client can still offer the official-transcript action without a second request. segments is a bounded slice ordered by position; page it with offset/limit and read totalSegments for the full count. GET /api/v1/parliament/stenograms/:sessionKey/transcript returns the COMPLETE reading in one response."
+    parliamentStenogramSession(
+      sessionKey: ID!
+      "0-based block offset in the printed order (default 0)."
+      offset: Int
+      "Blocks per read (default 500, max 2000)."
+      limit: Int
+    ): ParliamentStenogramTranscript
+    "Canonical context for a contribution: the reading block, its sitting, and the previous/next CONTRIBUTION. Accepts a canonical 'canon:' key OR a LEGACY 'cdep:'/'senat:' key, which is resolved through parliament.speech_redirects — so an old deep link reaches the canonical reading. Returns null (never an error) when the key is unknown or the canonical lane has not mapped it yet."
+    parliamentSpeechContext(speechKey: ID!): ParliamentSpeechContext
     "Marquee: act → bills → final votes → ballots. roles default to final_adoption,final_rejection; pass specific roles (e.g. [amendment, procedural]) or roles:[all] to widen to every linked vote. bill.voteLinks is UNFILTERED, so by default the two views differ — lineage.caveats reports how many non-default linked votes were omitted so they reconcile."
     parliamentActLineage(
       actId: ID!
@@ -800,4 +963,4 @@ const objectsAndQuery = /* GraphQL */ `
   }
 `;
 
-export const parliamentTypeDefs = `${objectsAndQuery}\n\n${votesFilter}\n\n${memberVotesFilter}\n\n${memberSpeechesFilter}\n\n${speechesFilter}\n\n${membersFilter}\n\n${billsFilter}\n\n${controlFilter}`;
+export const parliamentTypeDefs = `${objectsAndQuery}\n\n${votesFilter}\n\n${memberVotesFilter}\n\n${memberSpeechesFilter}\n\n${speechesFilter}\n\n${stenogramSessionsFilter}\n\n${membersFilter}\n\n${billsFilter}\n\n${controlFilter}`;

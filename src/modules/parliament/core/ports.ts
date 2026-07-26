@@ -36,7 +36,13 @@ import type {
   ParliamentResolveDim,
   ParliamentSpeech,
   ParliamentSpeechActivity,
+  ParliamentSittingNavigation,
+  ParliamentSpeechPopulation,
+  ParliamentSpeechRedirect,
   ParliamentSpeechSearchDepth,
+  ParliamentStenogramError,
+  ParliamentStenogramSegment,
+  ParliamentStenogramSession,
   ParliamentVote,
   ParliamentVoteGroupBreakdown,
 } from './types.js';
@@ -71,7 +77,7 @@ export interface BallotResolution {
   readonly resolved: number;
 }
 
-export interface ParliamentRepo {
+export interface ParliamentRepo extends ParliamentStenogramRepo {
   // ── members / groups / persons ──────────────────────────────────────────────
   latestLegislature(): Promise<Result<string | null, ApiError>>;
   listMembers(
@@ -233,7 +239,16 @@ export interface ParliamentRepo {
     page: CursorPageRequest,
     filter: FilterInput,
     q: string | undefined
-  ): Promise<Result<CursorPage<ParliamentSpeech> & { total: number }, ApiError>>;
+  ): Promise<
+    Result<
+      CursorPage<ParliamentSpeech> & {
+        total: number;
+        /** The APPLIED served population — the shell MUST fold it into per-edge cursors. */
+        population: ParliamentSpeechPopulation;
+      },
+      ApiError
+    >
+  >;
   /**
    * Per-day speech activity for one calendar year, under the SAME memberSpeechesFilterSpec
    * conditions + `q` as listMemberSpeechesCursor (drives the interventii heatmap). Each
@@ -291,6 +306,8 @@ export interface ParliamentRepo {
         total: number;
         totalEstimated: boolean;
         searchDepth: ParliamentSpeechSearchDepth | null;
+        /** The APPLIED served population — the shell MUST fold it into per-edge cursors. */
+        population: ParliamentSpeechPopulation;
       },
       ApiError
     >
@@ -404,6 +421,183 @@ export interface ParliamentRepo {
   listMemberCommitteeMemberships(
     mandateKey: string
   ): Promise<Result<readonly ParliamentCommitteeMembership[], ApiError>>;
+}
+
+/**
+ * The canonical-stenogram slice of the repo (scrapper migration 20260726T140000).
+ * Split out so the reading surface is reviewable on its own; `ParliamentRepo`
+ * includes it, so there is still ONE port and ONE implementation object.
+ *
+ * PROJECTION AVAILABILITY IS FIRST-CLASS. The migration is additive and NOT applied
+ * to the live serving DB yet, and a missing relation/column fails at PARSE time (no
+ * runtime guard inside the SQL can save it — the `parliament.speech_texts` lesson).
+ * So every method here is gated on a memoized probe and returns
+ * `TranscriptUnavailable{reason:'projection_unavailable'}` rather than a Database
+ * error, and `canonicalSpeechColumnsAvailable()` lets the LEGACY speech projection
+ * decide whether it may select the three additive `parliament.speeches` columns.
+ *
+ * PRIVACY (contract §5): every method filters `privacy_class = 'public'` with STRICT
+ * equality on EVERY table it touches — session, segment, speech, and redirect —
+ * and never coalesces a null to public.
+ */
+export interface ParliamentStenogramRepo {
+  /**
+   * True when the three additive `parliament.speeches` columns
+   * (`is_canonical`, `stenogram_session_key`, `stenogram_segment_key`) are
+   * selectable. Memoized with a short negative TTL so the migration landing
+   * mid-process enables them WITHOUT a restart.
+   */
+  canonicalSpeechColumnsAvailable(): Promise<boolean>;
+  /** True when the canonical session/segment relations are queryable (same probe discipline). */
+  stenogramProjectionAvailable(): Promise<boolean>;
+  /**
+   * Canonical sessions, keyset `(coalesce(session_date::text,'') desc, session_key
+   * desc)` — a uniform 2-tuple, NULL date coalesced in BOTH the ORDER BY and the
+   * tuple predicate so a dateless capture sorts last and pagination never skips or
+   * duplicates at the null boundary. Driving index
+   * `parliament_stenogram_sessions_date_idx (session_date desc)`.
+   *
+   * `sessionKeys`, when present, is the (already bounded) result of the canonical
+   * full-history search — the repo intersects it with the spec conditions and keeps
+   * the SAME keyset order, so a `q` page is ordered exactly like an unsearched one.
+   * The cursor fhash is derived INSIDE the repo from the filter AND `q`.
+   */
+  listStenogramSessions(
+    page: CursorPageRequest,
+    filter: FilterInput,
+    q: string | undefined,
+    sessionKeys: readonly string[] | undefined
+  ): Promise<
+    Result<
+      CursorPage<ParliamentStenogramSession> & { total: number; totalEstimated: boolean },
+      ParliamentStenogramError
+    >
+  >;
+  /** One session by PK. Resolves null for an unknown OR non-public row (no deep-link leak). */
+  findStenogramSession(
+    sessionKey: string
+  ): Promise<Result<ParliamentStenogramSession | null, ParliamentStenogramError>>;
+  /**
+   * The ordered PUBLIC reading of one session, plus the total public block count.
+   * `offset`/`limit` slice by `position` (the unique `(session_key, position)`
+   * index), so a very large transcript can be read in bounded pages without
+   * changing the order.
+   */
+  listStenogramSegments(
+    sessionKey: string,
+    slice: { readonly offset: number; readonly limit: number }
+  ): Promise<
+    Result<
+      { segments: readonly ParliamentStenogramSegment[]; total: number },
+      ParliamentStenogramError
+    >
+  >;
+  /**
+   * The chamber-scoped chronological neighbours of one sitting, under the SAME
+   * deterministic keyset as `listStenogramSessions`. The anchor tuple is passed in
+   * (the caller already holds the session), so this is two bounded index reads and
+   * never a self-join over the table. Non-public neighbours are skipped, not
+   * surfaced as a hole.
+   */
+  adjacentSessions(anchor: {
+    readonly sessionKey: string;
+    readonly sessionDate: string | null;
+    readonly chamber: string;
+  }): Promise<Result<ParliamentSittingNavigation, ParliamentStenogramError>>;
+  /**
+   * The canonical block a speech_key belongs to (partial unique index on speech_key).
+   * The canonical `parliament.speeches` row is ALSO gated (public + not quarantined),
+   * so a restricted canonical speech cannot be reached through its public block.
+   */
+  findSegmentBySpeechKey(
+    speechKey: string
+  ): Promise<Result<ParliamentStenogramSegment | null, ParliamentStenogramError>>;
+  findSegmentByKey(
+    segmentKey: string
+  ): Promise<Result<ParliamentStenogramSegment | null, ParliamentStenogramError>>;
+  /**
+   * True when `speechKey` names a PUBLIC, non-quarantined `parliament.speeches` row.
+   * Used to gate a redirect's `canonical_speech_key` before the block it points at is
+   * served: the block and the speech row carry INDEPENDENT `privacy_class` values, so
+   * a public block whose canonical speech row is restricted must not be served.
+   */
+  canonicalSpeechIsPublic(speechKey: string): Promise<Result<boolean, ParliamentStenogramError>>;
+  /** A LEGACY speech row's redirect (public rows only); null when none exists. */
+  findSpeechRedirect(
+    legacySpeechKey: string
+  ): Promise<Result<ParliamentSpeechRedirect | null, ParliamentStenogramError>>;
+  /**
+   * The previous/next CONTRIBUTION (`segment_kind='SPEECH'`) around a position in a
+   * session — not the neighbouring printed block, which is usually narration.
+   */
+  adjacentContributions(
+    sessionKey: string,
+    position: number
+  ): Promise<
+    Result<
+      {
+        previous: ParliamentStenogramSegment | null;
+        next: ParliamentStenogramSegment | null;
+      },
+      ParliamentStenogramError
+    >
+  >;
+}
+
+/**
+ * The canonical FULL-HISTORY transcript search projection (foundation §9): the
+ * REBUILDABLE `search.documents` rows of doc_type `parliament_speech_segment` — ONE
+ * document per canonical PUBLIC SPEECH reading block, built by the scrapper's
+ * `buildParliamentSearchDocumentsSelect`. Never a second source of truth, and never a
+ * title-only substitute.
+ *
+ * The unit is the READING BLOCK, and the scrapper is explicit that there is NO
+ * fallback to the legacy `parliament.speeches` grain: an empty canonical layer yields
+ * zero docs rather than silently re-indexing the over-split shape the canonical model
+ * replaced. This port mirrors that stance — `available()` is what makes the
+ * UNAVAILABLE contract honest, so a `q` is refused rather than answered narrowly.
+ */
+export interface ParliamentTranscriptSearchPort {
+  /** The projection's `search.documents.doc_type` (the single centralized constant). */
+  readonly docType: string;
+  /**
+   * `available` distinguishes the two ways the projection can be missing so an
+   * operator sees WHICH one: `reason:'relation_unavailable'` (no readable
+   * `search.documents`) vs `'doc_type_unbuilt'` (readable, but the doc type holds no
+   * public document — e.g. `PARLIAMENT_SPEECH_SEARCH_MODE=off`, which is the current
+   * state). Both refuse a `q`; neither degrades it.
+   */
+  available(): Promise<{
+    readonly available: boolean;
+    readonly reason: 'ok' | 'relation_unavailable' | 'doc_type_unbuilt';
+  }>;
+  /**
+   * Sessions whose PUBLIC canonical blocks match `q`, best sitting first.
+   *
+   * Ranking and grouping happen IN SQL, per session, BEFORE the cap is applied —
+   * otherwise a single long sitting (one doc per block, thousands of blocks) would
+   * fill the cap and crowd every other sitting out of the result, which reads to a
+   * user as "only one sitting ever mentioned this". `matchedBlocks` is the per-session
+   * hit count, carried so a caller can show why a sitting ranked where it did.
+   *
+   * `truncated:true` means more SESSIONS matched than the cap allowed, so a derived
+   * total is an under-count and must be reported estimated.
+   */
+  searchSessionKeys(
+    q: string,
+    limit: number
+  ): Promise<
+    Result<
+      {
+        readonly sessions: readonly {
+          readonly sessionKey: string;
+          readonly matchedBlocks: number;
+        }[];
+        readonly truncated: boolean;
+      },
+      ParliamentStenogramError
+    >
+  >;
 }
 
 /** Internal count shape backing the (deferred) recipient→CUI contributor. */

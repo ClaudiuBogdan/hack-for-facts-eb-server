@@ -302,23 +302,34 @@ describe('parliamentSpeeches filter spec — derivation + conditions (global ste
   });
 });
 
-describe('parliamentSpeechesFhash — filter + q + APPLIED-depth binding', () => {
+describe('parliamentSpeechesFhash — filter + q + APPLIED-depth + APPLIED-population binding', () => {
+  const LEGACY = 'LEGACY';
   it('varies by filter, q, and depth', () => {
     const filter = { spokenAt: { between: { from: '2025-01-01', to: '2025-03-31' } } };
-    expect(parliamentSpeechesFhash(filter, 'lege', 'TITLE_SUMMARY')).not.toEqual(
-      parliamentSpeechesFhash({ chamber: { eq: 'senat' } }, 'lege', 'TITLE_SUMMARY')
+    expect(parliamentSpeechesFhash(filter, 'lege', 'TITLE_SUMMARY', LEGACY)).not.toEqual(
+      parliamentSpeechesFhash({ chamber: { eq: 'senat' } }, 'lege', 'TITLE_SUMMARY', LEGACY)
     );
-    expect(parliamentSpeechesFhash(filter, 'lege', 'TITLE_SUMMARY')).not.toEqual(
-      parliamentSpeechesFhash(filter, 'buget', 'TITLE_SUMMARY')
+    expect(parliamentSpeechesFhash(filter, 'lege', 'TITLE_SUMMARY', LEGACY)).not.toEqual(
+      parliamentSpeechesFhash(filter, 'buget', 'TITLE_SUMMARY', LEGACY)
     );
     // A probe flip mid-pagination (TITLE_SUMMARY ↔ FULL_TEXT) forks the fhash, so
     // in-flight cursors are invalidated with the clean "restart pagination" error.
-    expect(parliamentSpeechesFhash(filter, 'lege', 'TITLE_SUMMARY')).not.toEqual(
-      parliamentSpeechesFhash(filter, 'lege', 'FULL_TEXT')
+    expect(parliamentSpeechesFhash(filter, 'lege', 'TITLE_SUMMARY', LEGACY)).not.toEqual(
+      parliamentSpeechesFhash(filter, 'lege', 'FULL_TEXT', LEGACY)
     );
     // no-q uses the 'none' depth token and differs from any q-bearing hash.
-    expect(parliamentSpeechesFhash(filter, undefined, 'none')).not.toEqual(
-      parliamentSpeechesFhash(filter, 'lege', 'TITLE_SUMMARY')
+    expect(parliamentSpeechesFhash(filter, undefined, 'none', LEGACY)).not.toEqual(
+      parliamentSpeechesFhash(filter, 'lege', 'TITLE_SUMMARY', LEGACY)
+    );
+  });
+
+  it('varies by the APPLIED served population (the canonical-migration probe flip)', () => {
+    const filter = { spokenAt: { between: { from: '2025-01-01', to: '2025-03-31' } } };
+    // When the canonical migration lands, legacy rows with a redirect stop being served.
+    // That changes the row set, so an in-flight cursor MUST be refused rather than
+    // silently skipping or duplicating turns.
+    expect(parliamentSpeechesFhash(filter, undefined, 'none', 'LEGACY')).not.toEqual(
+      parliamentSpeechesFhash(filter, undefined, 'none', 'CANONICAL_PREFERRED')
     );
   });
 
@@ -326,20 +337,22 @@ describe('parliamentSpeechesFhash — filter + q + APPLIED-depth binding', () =>
     const a = parliamentSpeechesFhash(
       { chamber: { eq: 'senat' }, spokenAt: { gte: '2025-01-01', lte: '2025-03-31' } },
       'lege',
-      'FULL_TEXT'
+      'FULL_TEXT',
+      LEGACY
     );
     const b = parliamentSpeechesFhash(
       { spokenAt: { lte: '2025-03-31', gte: '2025-01-01' }, chamber: { eq: 'senat' } },
       'lege',
-      'FULL_TEXT'
+      'FULL_TEXT',
+      LEGACY
     );
     expect(a).toEqual(b);
   });
 
   it('rejects a cursor encoded under depth A, decoded under depth B (probe flip)', () => {
     const filter = { spokenAt: { between: { from: '2025-01-01', to: '2025-03-31' } } };
-    const fhashA = parliamentSpeechesFhash(filter, 'lege', 'FULL_TEXT');
-    const fhashB = parliamentSpeechesFhash(filter, 'lege', 'TITLE_SUMMARY');
+    const fhashA = parliamentSpeechesFhash(filter, 'lege', 'FULL_TEXT', LEGACY);
+    const fhashB = parliamentSpeechesFhash(filter, 'lege', 'TITLE_SUMMARY', LEGACY);
     const cursor = buildNextCursor({
       sort: 'spokenAt',
       dir: 'desc',
@@ -352,32 +365,44 @@ describe('parliamentSpeechesFhash — filter + q + APPLIED-depth binding', () =>
   });
 });
 
-describe('memberSpeechesFhash — parent + filter + q binding (Codex #2)', () => {
+describe('memberSpeechesFhash — parent + filter + q + population binding (Codex #2)', () => {
+  const LEGACY = 'LEGACY';
   it('differs across mandates for the same filter + q', () => {
     const filter = { chamber: { eq: 'senat' } };
-    expect(memberSpeechesFhash('1:2024:79', filter, 'lege')).not.toEqual(
-      memberSpeechesFhash('2:2000:92', filter, 'lege')
+    expect(memberSpeechesFhash('1:2024:79', filter, 'lege', LEGACY)).not.toEqual(
+      memberSpeechesFhash('2:2000:92', filter, 'lege', LEGACY)
     );
   });
 
   it('differs across filters for the same mandate + q', () => {
     const mk = '1:2024:79';
-    expect(memberSpeechesFhash(mk, { chamber: { eq: 'senat' } }, 'lege')).not.toEqual(
-      memberSpeechesFhash(mk, { chamber: { eq: 'comun' } }, 'lege')
+    expect(memberSpeechesFhash(mk, { chamber: { eq: 'senat' } }, 'lege', LEGACY)).not.toEqual(
+      memberSpeechesFhash(mk, { chamber: { eq: 'comun' } }, 'lege', LEGACY)
     );
   });
 
   it('differs across the q token for the same mandate + filter', () => {
     const mk = '1:2024:79';
-    expect(memberSpeechesFhash(mk, {}, 'lege')).not.toEqual(memberSpeechesFhash(mk, {}, 'buget'));
+    expect(memberSpeechesFhash(mk, {}, 'lege', LEGACY)).not.toEqual(
+      memberSpeechesFhash(mk, {}, 'buget', LEGACY)
+    );
     // absent q vs a present q also differ.
-    expect(memberSpeechesFhash(mk, {}, undefined)).not.toEqual(memberSpeechesFhash(mk, {}, 'lege'));
+    expect(memberSpeechesFhash(mk, {}, undefined, LEGACY)).not.toEqual(
+      memberSpeechesFhash(mk, {}, 'lege', LEGACY)
+    );
+  });
+
+  it('differs across the APPLIED served population (the canonical-migration probe flip)', () => {
+    const mk = '1:2024:79';
+    expect(memberSpeechesFhash(mk, {}, undefined, 'LEGACY')).not.toEqual(
+      memberSpeechesFhash(mk, {}, undefined, 'CANONICAL_PREFERRED')
+    );
   });
 
   it('rejects a cursor encoded under q=A, decoded under q=B (same mandate + filter)', () => {
     const mk = '1:2024:79';
-    const fhashA = memberSpeechesFhash(mk, {}, 'lege');
-    const fhashB = memberSpeechesFhash(mk, {}, 'buget');
+    const fhashA = memberSpeechesFhash(mk, {}, 'lege', LEGACY);
+    const fhashB = memberSpeechesFhash(mk, {}, 'buget', LEGACY);
     const cursor = buildNextCursor({
       sort: 'spokenAt',
       dir: 'desc',
@@ -391,7 +416,7 @@ describe('memberSpeechesFhash — parent + filter + q binding (Codex #2)', () =>
 
   it('round-trips a speeches cursor under the SAME mandate + filter + q (2-tuple keyset)', () => {
     const mk = '1:2024:79';
-    const fhash = memberSpeechesFhash(mk, { chamber: { eq: 'senat' } }, undefined);
+    const fhash = memberSpeechesFhash(mk, { chamber: { eq: 'senat' } }, undefined, LEGACY);
     const cursor = buildNextCursor({
       sort: 'spokenAt',
       dir: 'desc',

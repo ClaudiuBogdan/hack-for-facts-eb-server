@@ -44,7 +44,16 @@ const makeRepo = (over: Partial<ParliamentRepo>): ParliamentRepo => {
 const deps = (repo: ParliamentRepo): ParliamentUsecaseDeps => ({ repo, meili: null });
 
 const emptyPage = () =>
-  okp({ items: [], next: null, total: 0, totalEstimated: false, searchDepth: null });
+  okp({
+    items: [],
+    next: null,
+    total: 0,
+    totalEstimated: false,
+    searchDepth: null,
+    // The repo reports the APPLIED served population so the shell can fold it into
+    // per-edge cursors; these usecase tests run under the pre-migration default.
+    population: 'LEGACY' as const,
+  });
 
 const list = (filter: FilterInput, over: Partial<ParliamentRepo> = {}, q?: string) =>
   listParliamentSpeeches(deps(makeRepo(over)), { filter, page: { first: 20 }, q });
@@ -366,6 +375,12 @@ describe('getParliamentSpeech — passthrough', () => {
       summary: null,
       sourceUrl: null,
       sourceUrlKind: null,
+      // A LEGACY row: the canonical pointers are false/null by construction (the DB
+      // key-space CHECK ties `is_canonical` to the `canon:` prefix), and they read
+      // the same way on a database where the canonical migration is not applied.
+      isCanonical: false,
+      sessionKey: null,
+      position: null,
     };
     const findSpeech = vi.fn(() => okp<typeof speech | null>(speech));
     const r = await getParliamentSpeech(deps(makeRepo({ findSpeech })), 'senat:123');

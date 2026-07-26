@@ -30,7 +30,11 @@ import {
   type FilterInput,
 } from '@/modules/shared/index.js';
 
-import { VOTE_CHAMBERS_OK } from '../../core/types.js';
+import {
+  STENOGRAM_AVAILABILITIES,
+  STENOGRAM_SOURCE_SYSTEMS,
+  VOTE_CHAMBERS_OK,
+} from '../../core/types.js';
 
 /** Live enum domains (verified against transparenta_prod 2026-06-17). */
 export const VOTE_CHAMBERS = VOTE_CHAMBERS_OK;
@@ -269,18 +273,25 @@ export const memberSpeechesFilterSpec: CollectionFilterSpec = {
 };
 
 /**
- * Parent-bound fhash for a member-speeches cursor: the mandate, the filter AND the
- * normalized text token `q` derive it (Codex #2), so a cursor cannot be replayed
- * against a different member, filter OR search term. Callers MUST pass the SAME
- * normalized `q` the repo used (see `normalizeSpeechQ`); the hash does not normalize.
+ * Parent-bound fhash for a member-speeches cursor: the mandate, the filter, the
+ * normalized text token `q` AND the APPLIED served population derive it (Codex #2), so
+ * a cursor cannot be replayed against a different member, filter, search term — or a
+ * different POPULATION.
+ *
+ * The population token matters because the canonical-preference rule is probe-driven: if
+ * the canonical migration lands between two pages, the row set changes underneath an
+ * in-flight cursor. Folding it in turns that into the clean "restart pagination" error
+ * instead of a page that silently skips or duplicates turns. Callers MUST pass the SAME
+ * normalized `q` and the SAME population the repo used; the hash does not derive either.
  */
 export const memberSpeechesFhash = (
   mandateKey: string,
   filter: FilterInput,
-  q: string | undefined
+  q: string | undefined,
+  population: string
 ): string =>
   filterHash(
-    `memberSpeeches:${mandateKey}:${canonicalizeFilters(memberSpeechesFilterSpec, filter)}:${q ?? ''}`
+    `memberSpeeches:${mandateKey}:${canonicalizeFilters(memberSpeechesFilterSpec, filter)}:${q ?? ''}:${population}`
   );
 
 // ── global speeches (stenograme; cursor; bounded by mandateKey OR a spokenAt
@@ -332,21 +343,22 @@ export const parliamentSpeechesFilterSpec: CollectionFilterSpec = {
 };
 
 /**
- * Cursor fhash for the global speeches connection: the filter, the normalized
- * text token `q` AND the APPLIED search depth derive it (depth token 'none' when
- * no q), so a cursor cannot be replayed against a different filter, search term,
- * or a probe-flipped depth (the flip surfaces as the clean "restart pagination"
- * error instead of a silently inconsistent page). Callers MUST pass the SAME
- * normalized `q` the repo used (see `normalizeSpeechQ`); the hash does not
- * normalize.
+ * Cursor fhash for the global speeches connection: the filter, the normalized text token
+ * `q`, the APPLIED search depth (token 'none' when no q) AND the APPLIED served
+ * population derive it — so a cursor cannot be replayed against a different filter,
+ * search term, a probe-flipped depth, or a probe-flipped population. Both probe flips
+ * surface as the clean "restart pagination" error instead of a silently inconsistent
+ * page. Callers MUST pass the SAME normalized `q`, depth and population the repo used;
+ * the hash derives none of them.
  */
 export const parliamentSpeechesFhash = (
   filter: FilterInput,
   q: string | undefined,
-  depth: string
+  depth: string,
+  population: string
 ): string =>
   filterHash(
-    `parliamentSpeeches:${canonicalizeFilters(parliamentSpeechesFilterSpec, filter)}:${q ?? ''}:${depth}`
+    `parliamentSpeeches:${canonicalizeFilters(parliamentSpeechesFilterSpec, filter)}:${q ?? ''}:${depth}:${population}`
   );
 
 // ── members (offset+total; bounded by legislature) ───────────────────────────
@@ -557,11 +569,101 @@ export const controlItemsFilterSpec: CollectionFilterSpec = {
   sort: { default: 'itemDate', allowed: ['itemDate', 'itemKey'] },
 };
 
+// ── canonical stenogram sessions (cursor; UNBOUNDED IS SAFE HERE) ─────────────
+//
+// Unlike `parliamentSpeeches`, this list needs NO boundedness guard: the driving
+// index `parliament_stenogram_sessions_date_idx (session_date desc)` exists, and the
+// table is one row per captured sitting (thousands), not 1.4M turns. Stated here so
+// the asymmetry with the speeches guard is deliberate and visible.
+//
+// VIRTUAL fields (repo-intercepted; the kernel composer SKIPS them):
+//   - `year`       → a session_date range (there is no year column, and wrapping the
+//                    indexed column in extract() would forfeit the index)
+//   - `mandateKey` → an EXISTS over stenogram_segments (cross-table; a speaker is a
+//                    property of the READING, not of the session row)
+// Alias `ss` = parliament.stenogram_sessions (matches the repo FROM clause).
+export const stenogramSessionsFilterSpec: CollectionFilterSpec = {
+  collection: 'parliamentStenogramSessions',
+  fields: [
+    {
+      name: 'chamber',
+      type: 'enum',
+      ops: ['eq', 'in'],
+      column: { alias: 'ss', column: 'chamber' },
+      enumValues: [...VOTE_CHAMBERS],
+      array: true,
+      description: 'Assembly of the sitting: camera_deputatilor | senat | comun (a joint sitting).',
+    },
+    {
+      name: 'sessionDate',
+      type: 'date',
+      ops: ['gte', 'lte', 'between'],
+      column: { alias: 'ss', column: 'session_date' },
+      description:
+        'Sitting-date range (valid YYYY-MM-DD only). Rides parliament_stenogram_sessions_date_idx. A capture whose source carries no trustworthy date has a NULL date and matches NO date filter (it is never dated by inference).',
+    },
+    {
+      name: 'year',
+      type: 'int',
+      ops: ['eq', 'in'],
+      column: { alias: 'ss', column: 'session_date' },
+      array: true,
+      virtual: true,
+      description:
+        'Calendar year(s) of the sitting. Repo-intercepted into a session_date range per year so the date index still drives the scan (extract(year …) would not). Dateless captures never match.',
+    },
+    {
+      name: 'availability',
+      type: 'enum',
+      ops: ['eq', 'in'],
+      column: { alias: 'ss', column: 'availability' },
+      enumValues: [...STENOGRAM_AVAILABILITIES],
+      array: true,
+      description:
+        'How much reading the capture yields: COMPLETE (has speech blocks) | PARTIAL (readable, no printed speaker heading) | SOURCE_ONLY (blank/navigation-only capture — held with its official URL, no reading served).',
+    },
+    {
+      name: 'sourceSystem',
+      type: 'enum',
+      ops: ['eq', 'in'],
+      column: { alias: 'ss', column: 'source_system' },
+      enumValues: [...STENOGRAM_SOURCE_SYSTEMS],
+      array: true,
+      description: 'Official system the capture came from: cdep_stenogram | senat_stenogram.',
+    },
+    {
+      name: 'mandateKey',
+      type: 'string',
+      ops: ['eq', 'in'],
+      column: { alias: 'ss', column: 'session_key' },
+      array: true,
+      virtual: true,
+      description:
+        'Sittings in which the given speaker mandate key(s) hold at least one PUBLIC contribution. Repo-intercepted into an EXISTS over stenogram_segments (segment_kind=SPEECH). Blocks whose speaker could not be roster-resolved carry a null mandate_key and never match.',
+    },
+  ],
+  sort: { default: 'sessionDate', allowed: ['sessionDate'] },
+};
+
+/**
+ * Cursor fhash for the stenogram-sessions connection: the filter AND the normalized
+ * full-history `q` derive it, so a cursor cannot be replayed under a different
+ * filter or search term (it would otherwise page through a different ordered set).
+ * `q` is NOT a spec field — it is answered by the canonical search projection, not
+ * by a column, so it enters as a separate argument on every surface and the repo
+ * receives the resolved session keys.
+ */
+export const stenogramSessionsFhash = (filter: FilterInput, q: string | undefined): string =>
+  filterHash(
+    `parliamentStenogramSessions:${canonicalizeFilters(stenogramSessionsFilterSpec, filter)}:${q ?? ''}`
+  );
+
 export const PARLIAMENT_FILTER_SPECS = {
   parliamentVotes: votesFilterSpec,
   parliamentMemberVotes: memberVotesFilterSpec,
   parliamentMemberSpeeches: memberSpeechesFilterSpec,
   parliamentSpeeches: parliamentSpeechesFilterSpec,
+  parliamentStenogramSessions: stenogramSessionsFilterSpec,
   parliamentMembers: membersFilterSpec,
   parliamentBills: billsFilterSpec,
   parliamentControlItems: controlItemsFilterSpec,

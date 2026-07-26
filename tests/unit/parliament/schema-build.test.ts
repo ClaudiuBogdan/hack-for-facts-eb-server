@@ -106,6 +106,108 @@ describe('parliament SDL — builds with the new B1–B4 surface', () => {
       expect(speechFields[name]).toBeDefined();
   });
 
+  it('declares the canonical stenogram types + roots, and keeps the legacy speech surface intact', () => {
+    for (const name of [
+      'ParliamentStenogramSession',
+      'ParliamentStenogramSegment',
+      'ParliamentStenogramTranscript',
+      'ParliamentStenogramSessionConnection',
+      'ParliamentStenogramSessionEdge',
+      'ParliamentSpeechContext',
+      'ParliamentSpeechRedirect',
+      'ParliamentStenogramAvailability',
+      'ParliamentStenogramSegmentKind',
+      'ParliamentStenogramSessionsFilter',
+      'ParliamentStenogramSessionRef',
+      'ParliamentSittingNavigation',
+    ]) {
+      expect(schema.getType(name), name).toBeDefined();
+    }
+
+    const q = schema.getQueryType()?.getFields() ?? {};
+    for (const root of [
+      'parliamentStenogramSessions',
+      'parliamentStenogramSession',
+      'parliamentSpeechContext',
+    ]) {
+      expect(q[root], root).toBeDefined();
+    }
+    // The pre-existing speech roots are UNTOUCHED (the old contract is preserved).
+    for (const root of ['parliamentSpeeches', 'parliamentSpeech', 'parliamentSpeechActivity']) {
+      expect(q[root], root).toBeDefined();
+    }
+
+    // The sessions search takes a full-history `q` alongside the filter + cursor args.
+    const sessions = q['parliamentStenogramSessions'];
+    const sessionArgs =
+      sessions !== undefined && 'args' in sessions ? sessions.args.map((a) => a.name) : [];
+    for (const arg of ['filter', 'q', 'first', 'after']) expect(sessionArgs).toContain(arg);
+
+    // The transcript read is sliceable, so a large sitting can be paged.
+    const transcript = q['parliamentStenogramSession'];
+    const transcriptArgs =
+      transcript !== undefined && 'args' in transcript ? transcript.args.map((a) => a.name) : [];
+    for (const arg of ['sessionKey', 'offset', 'limit']) expect(transcriptArgs).toContain(arg);
+  });
+
+  it('the transcript carries non-null sitting navigation, and the session carries its digests', () => {
+    const transcript = schema.getType('ParliamentStenogramTranscript');
+    const fields =
+      transcript !== undefined && transcript !== null && 'getFields' in transcript
+        ? transcript.getFields()
+        : {};
+    // Non-null: a sitting always HAS a navigation answer, even when both ends are null.
+    expect(String(fields['navigation']?.type)).toBe('ParliamentSittingNavigation!');
+
+    const session = schema.getType('ParliamentStenogramSession');
+    const sessionFields =
+      session !== undefined && session !== null && 'getFields' in session
+        ? session.getFields()
+        : {};
+    // canonicalDigest is NOT NULL in the migration; captureDigest is null for SOURCE_ONLY.
+    expect(String(sessionFields['canonicalDigest']?.type)).toBe('String!');
+    expect(String(sessionFields['captureDigest']?.type)).toBe('String');
+
+    // A nav target is a label plus a destination — and its source URL/precision are
+    // non-null, because the migration makes a session without a terminator impossible.
+    const ref = schema.getType('ParliamentStenogramSessionRef');
+    const refFields =
+      ref !== undefined && ref !== null && 'getFields' in ref ? ref.getFields() : {};
+    expect(String(refFields['sourceUrl']?.type)).toBe('String!');
+    expect(String(refFields['sourceUrlKind']?.type)).toBe('String!');
+    // Neighbours themselves ARE nullable (the ends of a chamber's history).
+    const nav = schema.getType('ParliamentSittingNavigation');
+    const navFields =
+      nav !== undefined && nav !== null && 'getFields' in nav ? nav.getFields() : {};
+    expect(String(navFields['previous']?.type)).toBe('ParliamentStenogramSessionRef');
+    expect(String(navFields['next']?.type)).toBe('ParliamentStenogramSessionRef');
+  });
+
+  it('ParliamentSpeech exposes sessionKey + position + isCanonical + context (additive)', () => {
+    const speech = schema.getType('ParliamentSpeech');
+    const speechFields =
+      speech !== undefined && speech !== null && 'getFields' in speech ? speech.getFields() : {};
+    for (const name of ['isCanonical', 'sessionKey', 'position', 'context']) {
+      expect(speechFields[name], name).toBeDefined();
+    }
+    // `position` must stay NULLABLE: null means "not a canonical block", and a
+    // non-null Int would have to invent 0 for every legacy row.
+    expect(String(speechFields['position']?.type)).toBe('Int');
+    expect(String(speechFields['sessionKey']?.type)).toBe('ID');
+  });
+
+  it('the stenogram session filter surfaces chamber, date, year, availability and speaker', () => {
+    const filter = schema.getType('ParliamentStenogramSessionsFilter');
+    const fields =
+      filter !== undefined && filter !== null && 'getFields' in filter ? filter.getFields() : {};
+    for (const name of ['chamber', 'sessionDate', 'year', 'availability', 'mandateKey']) {
+      expect(fields[name], name).toBeDefined();
+    }
+    // `q` is NOT a filter field: it is answered by the canonical search projection,
+    // not by a column, so it enters as its own root argument on every surface.
+    expect(fields['q']).toBeUndefined();
+  });
+
   it('the committee detail carries roster + linked bills + meetings count', () => {
     const detail = schema.getType('ParliamentCommitteeDetail');
     const fields =

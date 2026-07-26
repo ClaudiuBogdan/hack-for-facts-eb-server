@@ -68,6 +68,15 @@ const makeCapturingDb = (
 /** Collapse whitespace so multi-line raw SQL can be asserted on substrings. */
 const flat = (s: string): string => s.replace(/\s+/gu, ' ').trim();
 
+/**
+ * Capability probes are `limit 0` schema checks, not counted reads: the repo must know
+ * whether the additive canonical columns/relations are queryable BEFORE it may emit the
+ * canonical-preference predicate (a missing column fails at PARSE time). They return no
+ * rows by construction, so they are excluded from the assertions below, which are about
+ * the counting statement itself.
+ */
+const isCapabilityProbe = (query: Captured): boolean => /\blimit 0\b/u.test(query.sql);
+
 describe('memberActivityCounts — one statement, mirrored predicates', () => {
   const runCounts = async (): Promise<Captured[]> => {
     const captured: Captured[] = [];
@@ -91,7 +100,7 @@ describe('memberActivityCounts — one statement, mirrored predicates', () => {
       initiatives: 31,
       declarations: 0,
     });
-    return captured;
+    return captured.filter((q) => !isCapabilityProbe(q));
   };
 
   it('issues exactly ONE query for all five totals', async () => {

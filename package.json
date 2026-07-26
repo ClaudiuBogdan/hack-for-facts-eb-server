@@ -76,6 +76,7 @@
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.8",
     "@ai-sdk/openai": "^4.0.8",
+    "@fastify/compress": "^8.0.1",
     "@fastify/cors": "^11.2.0",
     "@fastify/helmet": "^13.0.2",
     "@fastify/multipart": "^10.0.0",

@@ -63,6 +63,7 @@ import {
   type PersonRow,
   type VoteRow,
 } from './mappers.js';
+import { makeParliamentStenogramRepo } from './stenogram-repo.js';
 import {
   COHESION_VOTE_CAP,
   type ParliamentActivityCounts,
@@ -89,6 +90,7 @@ import {
   type ParliamentPersonCandidate,
   type ParliamentSpeech,
   type ParliamentSpeechActivity,
+  type ParliamentSpeechPopulation,
   type ParliamentSpeechSearchDepth,
   type ParliamentVote,
   type ParliamentVoteGroupBreakdown,
@@ -241,6 +243,38 @@ const SPEECH_SELECT = [
   's.source_url_kind',
 ] as const;
 
+/**
+ * The three ADDITIVE canonical pointers (scrapper migration 20260726T140000),
+ * appended to the speech projection ONLY when the canonical probe says the columns
+ * exist — they are not applied to the live serving DB yet, and selecting a missing
+ * column fails at PARSE time, which would break EVERY existing speech query rather
+ * than just the canonical read.
+ *
+ * When absent we still select the three ALIASES, as SQL literals, so the projection
+ * keeps a FIXED shape and arity on both kinds of database: one row type, one mapper,
+ * no optional-column branching at the call sites. The literals are the honest
+ * defaults (`false` / NULL / NULL) — i.e. "not canonical / not available", which is
+ * exactly what a pre-migration row is.
+ *
+ * PREFERENCE IS EXPRESSED, NOT IMPOSED. Canonical contributions are the better read
+ * (whole turn + a provable position), and every surface says so — `isCanonical` is on
+ * the view model and the SDL/tool descriptions tell clients to prefer it. What we do
+ * NOT do is inject `is_canonical desc` into the existing keyset ORDER BY: that would
+ * change the legacy list contract and invalidate every in-flight speech cursor (the
+ * fhash covers the filter, not the sort columns). Callers that want canonical-only
+ * reading go through the stenogram surface, which is canonical by construction.
+ */
+const speechCanonicalSelect = (hasCanonical: boolean) =>
+  [
+    sql<boolean>`${hasCanonical ? sql`s.is_canonical` : sql`false`}`.as('is_canonical'),
+    sql<string | null>`${hasCanonical ? sql`s.stenogram_session_key` : sql`null::text`}`.as(
+      'stenogram_session_key'
+    ),
+    sql<string | null>`${hasCanonical ? sql`s.stenogram_segment_key` : sql`null::text`}`.as(
+      'stenogram_segment_key'
+    ),
+  ] as const;
+
 // control-population.v2 (user decision 2026-07-22): motions leaked into
 // control_items via a shared attachment lane (6 rows) but are a different
 // public act — every served control read excludes them. Prod rows retained
@@ -258,6 +292,52 @@ const CONTROL_NO_MOTION = sql`c.control_type is distinct from 'motion'`;
  * class instead of publishing it.
  */
 const SPEECH_PUBLIC = sql`s.privacy_class = 'public'`;
+
+/**
+ * THE DEFAULT-SERVING POPULATION RULE for every anonymous speech collection.
+ *
+ * `parliament.speeches` carries two generations of rows for the same words — LEGACY
+ * over-split fragments and CANONICAL whole-turn rows (`canon:` key-space, migration
+ * 20260726T140000). Serving both would double-surface every re-derived sitting and
+ * inflate member intervention counts and heatmaps by the over-split factor.
+ *
+ * So a legacy row is SUPPRESSED exactly when the loader has PROVEN where its content
+ * now lives: a `speech_redirects` row pointing into a canonical sitting. Equivalence is
+ * never inferred from text, speaker name, or date — only from that source-keyed mapping.
+ *
+ * WHAT THE PREDICATE CONDITIONS ON, AND WHY:
+ *  - `s.is_canonical` — a canonical row is always served; it IS the preferred shape.
+ *  - a legacy row survives unless a redirect maps it into a **public** sitting:
+ *      · `sr.privacy_class='public'` — a restricted redirect is not evidence we may act
+ *        on, so the legacy row stays (never suppressed by a row we must not read).
+ *      · `ss.privacy_class='public'` — if the canonical SITTING is restricted, its
+ *        canonical rows are unservable, so suppressing the legacy row would make the
+ *        sitting vanish from the API entirely.
+ *  - it does NOT condition on the individual canonical speech row's class. Suppression
+ *    is decided at SITTING grain deliberately: a `session_only` redirect proves the
+ *    sitting but not the turn, and the canonical sitting may hold several contributions
+ *    by that member. Conditioning per-row would keep the legacy fragments of a sitting
+ *    that IS canonically served — the double-surfacing this exists to prevent.
+ *
+ * DIRECTION OF FAILURE. The predicate only ever REMOVES rows, so it cannot expose
+ * anything; and it removes only when a public replacement sitting exists, so it cannot
+ * silently empty the corpus. A legacy row with no redirect is always retained.
+ *
+ * Emitted ONLY when BOTH canonical probes pass (the additive `speeches.is_canonical`
+ * column AND the two new relations). Pre-migration the predicate is absent entirely and
+ * every surface is byte-identical to its legacy self.
+ */
+const SPEECH_CANONICAL_PREFERRED = sql`(
+  s.is_canonical
+  or not exists (
+    select 1
+    from parliament.speech_redirects sr
+    join parliament.stenogram_sessions ss on ss.session_key = sr.session_key
+    where sr.legacy_speech_key = s.speech_key
+      and sr.privacy_class = 'public'
+      and ss.privacy_class = 'public'
+  )
+)`;
 /** Same gate on the 1:1 transcript side table (§6) — a text row carries its own class. */
 const SPEECH_TEXT_PUBLIC = sql`t.privacy_class = 'public'`;
 const CONTROL_PUBLIC = sql`c.privacy_class = 'public'`;
@@ -358,6 +438,36 @@ const containsValue = (f: Record<string, unknown> | undefined): string | undefin
 };
 
 export const makeParliamentRepo = (db: Db): ParliamentRepo => {
+  // The canonical-stenogram slice (scrapper migration 20260726T140000). Built first
+  // because the LEGACY speech projection consults its
+  // `canonicalSpeechColumnsAvailable()` probe before selecting the three additive
+  // `parliament.speeches` columns.
+  const stenogram = makeParliamentStenogramRepo(db);
+
+  /**
+   * Which population the speech surfaces may serve right now. Requires BOTH probes:
+   * `SPEECH_CANONICAL_PREFERRED` reads the additive `speeches.is_canonical` column AND
+   * joins the two new relations, and a missing column or relation fails at PARSE time —
+   * so the predicate must not be emitted unless both are queryable. Either probe
+   * negative ⇒ exact legacy behaviour.
+   */
+  const speechPopulation = async (): Promise<ParliamentSpeechPopulation> => {
+    const [columns, relations] = await Promise.all([
+      stenogram.canonicalSpeechColumnsAvailable(),
+      stenogram.stenogramProjectionAvailable(),
+    ]);
+    return columns && relations ? 'CANONICAL_PREFERRED' : 'LEGACY';
+  };
+
+  /**
+   * The population predicate for a given applied population, or `[]` pre-migration.
+   * Spread into a condition list so the legacy SQL is unchanged, not merely equivalent.
+   */
+  const populationConds = (
+    population: ParliamentSpeechPopulation
+  ): readonly RawBuilder<unknown>[] =>
+    population === 'CANONICAL_PREFERRED' ? [SPEECH_CANONICAL_PREFERRED] : [];
+
   // `parliament.speech_texts` is created by a parallel backfill that may be running
   // RIGHT NOW, so we probe USABILITY (can we read full_text?), not mere catalog
   // existence — and we do NOT permanently memoize a negative result: a TRUE result is
@@ -1592,6 +1702,16 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
   const memberActivityCounts = async (
     mandateKey: string
   ): Promise<Result<ParliamentActivityCounts, ApiError>> => {
+    // The speeches sub-count MUST use the same population rule as the speech lists, or
+    // the member profile's "interventions" badge inflates by the legacy over-split
+    // factor while the list beneath it shows the canonical turns. This count also feeds
+    // `careerTotals.speeches` on the person view.
+    const speechConds = composeWhere([
+      sql`s.mandate_key = ${mandateKey}`,
+      sql`s.quarantined = false`,
+      SPEECH_PUBLIC,
+      ...populationConds(await speechPopulation()),
+    ]);
     try {
       const r = await sql<{
         votes: string;
@@ -1614,9 +1734,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
               and ${CONTROL_PUBLIC})                                  as control_items,
           (select count(*)
              from parliament.speeches s
-            where s.mandate_key = ${mandateKey}
-              and s.quarantined = false
-              and ${SPEECH_PUBLIC})                                   as speeches,
+            where ${speechConds})                                     as speeches,
           (select count(*)
              from parliament.member_initiatives mi
             where mi.mandate_key = ${mandateKey}
@@ -1698,12 +1816,20 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     offsetActivity<ParliamentSpeech>(
       'listMemberSpeeches',
       async (p) => {
+        const population = await speechPopulation();
+        const hasCanonical = population === 'CANONICAL_PREFERRED';
+        // The population predicate goes on BOTH the rows and the count, so the page and
+        // its `total` can never describe different populations.
+        const conds = [
+          sql`s.mandate_key = ${mandateKey}`,
+          sql`s.quarantined = false`, // §2.6 — quarantined excluded by default
+          SPEECH_PUBLIC,
+          ...populationConds(population),
+        ];
         const rows = await db
           .selectFrom('parliament.speeches as s')
-          .select(SPEECH_SELECT)
-          .where('s.mandate_key', '=', mandateKey)
-          .where('s.quarantined', '=', false) // §2.6 — quarantined excluded by default
-          .where(sql<SqlBool>`${SPEECH_PUBLIC}`)
+          .select([...SPEECH_SELECT, ...speechCanonicalSelect(hasCanonical)])
+          .where(composeWhere(conds))
           .orderBy('s.spoken_at', 'desc')
           // speech_key DESC — the table's UNIQUE key as a tiebreak, so `spoken_at`
           // ties get a TOTAL order and offset pages never skip/duplicate a turn
@@ -1715,9 +1841,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
         const cnt = await db
           .selectFrom('parliament.speeches as s')
           .select(sql<string>`count(*)`.as('cnt'))
-          .where('s.mandate_key', '=', mandateKey)
-          .where('s.quarantined', '=', false)
-          .where(sql<SqlBool>`${SPEECH_PUBLIC}`)
+          .where(composeWhere(conds))
           .executeTakeFirst();
         return { rows: rows.map(mapSpeech), total: Number(cnt?.cnt ?? 0) };
       },
@@ -1732,19 +1856,32 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     page: CursorPageRequest,
     filter: FilterInput,
     q: string | undefined
-  ): Promise<Result<CursorPage<ParliamentSpeech> & { total: number }, ApiError>> => {
+  ): Promise<
+    Result<
+      CursorPage<ParliamentSpeech> & {
+        total: number;
+        population: ParliamentSpeechPopulation;
+      },
+      ApiError
+    >
+  > => {
     const limit = Math.min(Math.max(page.first, 1), 100);
-    const fhash = memberSpeechesFhash(mandateKey, filter, q);
     // Non-virtual spec (spokenAt/chamber on `s`) → compiles straight to SQL.
     const built = toConditionBuilders(memberSpeechesFilterSpec, filter);
     if (built.isErr()) return err(built.error);
-    const hasTexts = await speechTextsExists();
+    const [hasTexts, population] = await Promise.all([speechTextsExists(), speechPopulation()]);
+    const hasCanonical = population === 'CANONICAL_PREFERRED';
+    // The APPLIED population is folded into the cursor fhash: a probe flip mid-pagination
+    // changes which rows exist, so an in-flight cursor must be rejected with the clean
+    // "restart pagination" error rather than silently skipping or duplicating turns.
+    const fhash = memberSpeechesFhash(mandateKey, filter, q, population);
     // baseConds = the FILTERED member slice (drives the exact total); the keyset
     // predicate is added ON TOP for the page but MUST NOT touch the count.
     const baseConds: RawBuilder<unknown>[] = [
       sql`s.mandate_key = ${mandateKey}`,
       sql`s.quarantined = false`, // §2.6 — quarantined excluded by default
       SPEECH_PUBLIC,
+      ...populationConds(population),
       ...built.value,
     ];
     if (q !== undefined && q !== '') baseConds.push(speechSearchPredicate(q, hasTexts));
@@ -1767,7 +1904,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
       const [rows, cnt] = await Promise.all([
         db
           .selectFrom('parliament.speeches as s')
-          .select(SPEECH_SELECT)
+          .select([...SPEECH_SELECT, ...speechCanonicalSelect(hasCanonical)])
           .where(composeWhere(pageConds))
           .orderBy(sql`${dateKey} desc, s.speech_key desc`)
           .limit(limit + 1)
@@ -1791,7 +1928,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
               lastKeys: [last.spoken_at ?? '', last.speech_key],
             })
           : null;
-      return ok({ items, next, total: Number(cnt?.cnt ?? 0) });
+      return ok({ items, next, total: Number(cnt?.cnt ?? 0), population });
     } catch (e) {
       return err(databaseError('listMemberSpeechesCursor failed', e));
     }
@@ -1805,11 +1942,14 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
   ): Promise<Result<ParliamentMemberSpeechActivity, ApiError>> => {
     const built = toConditionBuilders(memberSpeechesFilterSpec, filter);
     if (built.isErr()) return err(built.error);
-    const hasTexts = await speechTextsExists();
+    // The heatmap MUST count the same population the list shows, or the calendar and
+    // the connection total disagree by the over-split factor.
+    const [hasTexts, population] = await Promise.all([speechTextsExists(), speechPopulation()]);
     const baseConds: RawBuilder<unknown>[] = [
       sql`s.mandate_key = ${mandateKey}`,
       sql`s.quarantined = false`,
       SPEECH_PUBLIC,
+      ...populationConds(population),
       ...built.value,
     ];
     if (q !== undefined && q !== '') baseConds.push(speechSearchPredicate(q, hasTexts));
@@ -1887,7 +2027,8 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
    * INCLUDED — they are real data.
    */
   const buildGlobalSpeechConditions = (
-    filter: FilterInput
+    filter: FilterInput,
+    population: ParliamentSpeechPopulation
   ): Result<RawBuilder<unknown>[], ApiError> => {
     const physical: Record<string, unknown> = {};
     for (const key of ['spokenAt', 'chamber', 'mandateKey'] as const) {
@@ -1902,6 +2043,9 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
       ...built.value,
       sql`s.quarantined = false`, // §2.6 — quarantined excluded on every global surface
       SPEECH_PUBLIC,
+      // The default-serving population rule — see SPEECH_CANONICAL_PREFERRED. Built in
+      // HERE so the global list and the global activity heatmap cannot diverge.
+      ...populationConds(population),
     ]);
   };
 
@@ -1916,6 +2060,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
         total: number;
         totalEstimated: boolean;
         searchDepth: ParliamentSpeechSearchDepth | null;
+        population: ParliamentSpeechPopulation;
       },
       ApiError
     >
@@ -1929,8 +2074,12 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
           ? 'FULL_TEXT'
           : 'TITLE_SUMMARY'
         : null;
-    const fhash = parliamentSpeechesFhash(filter, q, searchDepth ?? 'none');
-    const condsRes = buildGlobalSpeechConditions(filter);
+    const population = await speechPopulation();
+    const hasCanonical = population === 'CANONICAL_PREFERRED';
+    // Both probe-derived facts ride in the fhash for the same reason: either flipping
+    // mid-pagination changes the row set, and a stale cursor must be refused cleanly.
+    const fhash = parliamentSpeechesFhash(filter, q, searchDepth ?? 'none', population);
+    const condsRes = buildGlobalSpeechConditions(filter, population);
     if (condsRes.isErr()) return err(condsRes.error);
     // baseConds = the FILTERED global slice (drives the capped total); the keyset
     // predicate is added ON TOP for the page but MUST NOT touch the count.
@@ -1959,7 +2108,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
       const [rows, countRow] = await Promise.all([
         db
           .selectFrom('parliament.speeches as s')
-          .select(SPEECH_SELECT)
+          .select([...SPEECH_SELECT, ...speechCanonicalSelect(hasCanonical)])
           .where(composeWhere(pageConds))
           .orderBy(sql`${dateKey} desc, s.speech_key desc`)
           .limit(limit + 1)
@@ -1997,6 +2146,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
         total: totalEstimated ? LIST_TOTAL_CAP : rawCount,
         totalEstimated,
         searchDepth,
+        population,
       });
     } catch (e) {
       return err(databaseError('listSpeeches failed', e));
@@ -2019,7 +2169,9 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
           ? 'FULL_TEXT'
           : 'TITLE_SUMMARY'
         : null;
-    const condsRes = buildGlobalSpeechConditions(filter);
+    // Same population as the global list, so the stenograme heatmap and the connection
+    // total can never describe different row sets.
+    const condsRes = buildGlobalSpeechConditions(filter, await speechPopulation());
     if (condsRes.isErr()) return err(condsRes.error);
     const baseConds = condsRes.value;
     if (q !== undefined && q !== '') {
@@ -2070,10 +2222,11 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
   ): Promise<Result<ParliamentSpeech | null, ApiError>> => {
     // speeches_pkey point read, with the SAME global privacy predicates as the list
     // — a quarantined/non-public row resolves null, never leaks via deep link.
+    const hasCanonical = await stenogram.canonicalSpeechColumnsAvailable();
     try {
       const row = await db
         .selectFrom('parliament.speeches as s')
-        .select(SPEECH_SELECT)
+        .select([...SPEECH_SELECT, ...speechCanonicalSelect(hasCanonical)])
         .where('s.speech_key', '=', speechKey)
         .where(sql<SqlBool>`s.quarantined = false`)
         .where(sql<SqlBool>`${SPEECH_PUBLIC}`)
@@ -2826,6 +2979,8 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
   };
 
   return {
+    // The canonical-stenogram slice: one port, one object (see ParliamentRepo).
+    ...stenogram,
     latestLegislature,
     listMembers,
     findMember,

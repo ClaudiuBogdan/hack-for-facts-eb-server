@@ -62,12 +62,24 @@ const makeCapturingDb = (captured: Captured[]): Kysely<ProdDatabase> => {
  * present AND the fail-open form is gone.
  */
 const expectPublicSpeechQueries = (queries: readonly Captured[]): void => {
-  expect(queries.length).toBeGreaterThan(0);
-  for (const query of queries) {
+  const reads = queries.filter((q) => !isCapabilityProbe(q));
+  expect(reads.length).toBeGreaterThan(0);
+  for (const query of reads) {
     expect(query.sql).toContain("s.privacy_class = 'public'");
     expect(query.sql).not.toContain('coalesce(s.privacy_class');
   }
 };
+
+/**
+ * Capability probes are `limit 0` schema checks, not row reads: they prove a
+ * relation/column is selectable before the repo dares emit a branch referencing it
+ * (`parliament.speech_texts`, and the three additive canonical-stenogram columns on
+ * `parliament.speeches`). They return no rows by construction, so they carry no
+ * privacy gate — and requiring one would force the probe to reference columns it is
+ * checking the existence of. Excluded here so the gate assertion below covers every
+ * actual read and nothing else.
+ */
+const isCapabilityProbe = (query: Captured): boolean => /\blimit 0\b/u.test(query.sql);
 
 describe('member speech repository privacy', () => {
   it('applies the public-row gate to offset rows and their total', async () => {
@@ -87,8 +99,9 @@ describe('member speech repository privacy', () => {
     const cursorStart = captured.length;
     const cursor = await repo.listMemberSpeechesCursor('1:2024:1', { first: 20 }, {}, undefined);
     expect(cursor.isOk()).toBe(true);
-    // The first query is the speech_texts usability probe, not a speech read.
-    expectPublicSpeechQueries(captured.slice(cursorStart + 1));
+    // `expectPublicSpeechQueries` drops the capability probes (speech_texts + the
+    // canonical-stenogram columns) itself, so the whole captured slice can be asserted.
+    expectPublicSpeechQueries(captured.slice(cursorStart));
 
     const activityStart = captured.length;
     const activity = await repo.memberSpeechActivity('1:2024:1', 2025, {}, undefined);

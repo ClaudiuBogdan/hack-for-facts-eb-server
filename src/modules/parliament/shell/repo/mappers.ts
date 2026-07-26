@@ -26,6 +26,10 @@ import {
   type ParliamentPerson,
   type ParliamentPersonConfidence,
   type ParliamentSpeech,
+  type ParliamentSpeechRedirect,
+  type ParliamentStenogramSegment,
+  type ParliamentStenogramSession,
+  type ParliamentStenogramSessionRef,
   type ParliamentTally,
   type ParliamentVote,
   type SafeAttrs,
@@ -331,7 +335,32 @@ export interface SpeechRow {
   summary: string | null;
   source_url: string | null;
   source_url_kind: string | null;
+  // Canonical-stenogram pointers. OPTIONAL on the row type on purpose: they are
+  // selected only when the repo's canonical probe says the additive columns exist,
+  // so a database without the migration yields a row WITHOUT these keys and the
+  // mapper reports the honest "not canonical / not available" defaults.
+  is_canonical?: boolean | null;
+  stenogram_session_key?: string | null;
+  stenogram_segment_key?: string | null;
 }
+
+/**
+ * Decode the 0-based printed position from a canonical segment key
+ * (`<session_key>#<position padded to 5>`). The key IS its (session, position)
+ * identity — the scrapper mints it with `canonicalSegmentKey()` and the DB enforces
+ * a unique `(session_key, position)` index over the same pair — so decoding is
+ * reading the contract, not inferring from data. Anything that is not a `#`-suffixed
+ * run of digits returns null rather than a guessed 0.
+ */
+export const positionFromSegmentKey = (segmentKey: string | null | undefined): number | null => {
+  if (segmentKey == null) return null;
+  const hash = segmentKey.lastIndexOf('#');
+  if (hash < 0) return null;
+  const suffix = segmentKey.slice(hash + 1);
+  if (!/^\d+$/u.test(suffix)) return null;
+  const position = Number.parseInt(suffix, 10);
+  return Number.isSafeInteger(position) && position >= 0 ? position : null;
+};
 
 export const mapSpeech = (r: SpeechRow): ParliamentSpeech => ({
   speechKey: r.speech_key,
@@ -343,6 +372,139 @@ export const mapSpeech = (r: SpeechRow): ParliamentSpeech => ({
   summary: r.summary,
   sourceUrl: r.source_url,
   sourceUrlKind: r.source_url_kind,
+  // `=== true` (not a truthiness test): the column is absent on a pre-migration DB
+  // and must then read as false, never undefined, on a non-optional view field.
+  isCanonical: r.is_canonical === true,
+  sessionKey: r.stenogram_session_key ?? null,
+  position: positionFromSegmentKey(r.stenogram_segment_key),
+});
+
+// ── canonical stenogram (migration 20260726T140000) ──────────────────────────
+
+export interface StenogramSessionRow {
+  session_key: string;
+  chamber: string;
+  session_date: string | null; // ::text
+  session_date_source: string;
+  title: string | null;
+  source_system: string;
+  availability: string;
+  source_url: string;
+  source_url_kind: string;
+  sitting_key: string | null;
+  presiding_text: string | null;
+  start_time_text: string | null;
+  end_time_text: string | null;
+  segment_count: number;
+  speech_count: number;
+  speaker_count: number;
+  capture_digest: string | null;
+  canonical_digest: string;
+  source_updated_at: string | null; // ::text
+}
+
+/** The navigation-target row (a sitting as a previous/next link). */
+export interface StenogramSessionRefRow {
+  session_key: string;
+  chamber: string;
+  session_date: string | null; // ::text
+  title: string | null;
+  availability: string;
+  source_url: string;
+  source_url_kind: string;
+}
+
+export const mapStenogramSessionRef = (
+  r: StenogramSessionRefRow
+): ParliamentStenogramSessionRef => ({
+  sessionKey: r.session_key,
+  chamber: r.chamber,
+  sessionDate: r.session_date,
+  title: r.title,
+  availability: r.availability,
+  sourceUrl: r.source_url,
+  sourceUrlKind: r.source_url_kind,
+});
+
+/**
+ * Row → session view model. NOTHING is defaulted: `availability`,
+ * `session_date_source`, `source_url_kind` and `chamber` are DB CHECK domains, so
+ * an unexpected value is a data defect that must stay VISIBLE rather than be
+ * silently normalised into a friendlier enum member.
+ */
+export const mapStenogramSession = (r: StenogramSessionRow): ParliamentStenogramSession => ({
+  sessionKey: r.session_key,
+  chamber: r.chamber,
+  sessionDate: r.session_date,
+  sessionDateSource: r.session_date_source,
+  title: r.title,
+  sourceSystem: r.source_system,
+  availability: r.availability,
+  sourceUrl: r.source_url,
+  sourceUrlKind: r.source_url_kind,
+  sittingKey: r.sitting_key,
+  presidingText: r.presiding_text,
+  startTimeText: r.start_time_text,
+  endTimeText: r.end_time_text,
+  segmentCount: r.segment_count,
+  speechCount: r.speech_count,
+  speakerCount: r.speaker_count,
+  captureDigest: r.capture_digest,
+  canonicalDigest: r.canonical_digest,
+  sourceUpdatedAt: r.source_updated_at,
+});
+
+export interface StenogramSegmentRow {
+  segment_key: string;
+  session_key: string;
+  position: number;
+  segment_kind: string;
+  text: string;
+  text_chars: number;
+  speaker_name: string | null;
+  speaker_ref: string | null;
+  mandate_key: string | null;
+  speech_key: string | null;
+  agenda_ref: string | null;
+  source_url: string;
+  source_url_kind: string;
+}
+
+export const mapStenogramSegment = (r: StenogramSegmentRow): ParliamentStenogramSegment => ({
+  segmentKey: r.segment_key,
+  sessionKey: r.session_key,
+  position: r.position,
+  kind: r.segment_kind,
+  text: r.text,
+  textChars: r.text_chars,
+  speakerName: r.speaker_name,
+  speakerRef: r.speaker_ref,
+  mandateKey: r.mandate_key,
+  speechKey: r.speech_key,
+  agendaRef: r.agenda_ref,
+  sourceUrl: r.source_url,
+  sourceUrlKind: r.source_url_kind,
+});
+
+export interface SpeechRedirectRow {
+  legacy_speech_key: string;
+  session_key: string;
+  canonical_speech_key: string | null;
+  canonical_segment_key: string | null;
+  canonical_position: number | null;
+  mapping_kind: string;
+  match_method: string;
+}
+
+/** Row → redirect view model. `evidence` is internal matcher state and never read. */
+export const mapSpeechRedirect = (r: SpeechRedirectRow): ParliamentSpeechRedirect => ({
+  legacySpeechKey: r.legacy_speech_key,
+  sessionKey: r.session_key,
+  canonicalSpeechKey: r.canonical_speech_key,
+  canonicalSegmentKey: r.canonical_segment_key,
+  canonicalPosition: r.canonical_position,
+  mappingKind: r.mapping_kind,
+  matchMethod: r.match_method,
 });
 
 export interface InitiativeRow {

@@ -12,9 +12,11 @@
 import { err, ok, type Result } from 'neverthrow';
 
 import {
+  databaseError,
   foldDiacritics,
   invalidInput,
   normalizeOffset,
+  notFound,
   type ApiError,
   type CursorPage,
   type CursorPageRequest,
@@ -27,6 +29,9 @@ import {
   COHESION_VOTE_CAP,
   PARLIAMENT_RESOLVE_DIMS,
   VOTE_CHAMBERS_OK,
+  searchUnavailable,
+  toStenogramSessionRef,
+  transcriptUnavailable,
   type MemberActivityKind,
   type ParliamentActLineage,
   type ParliamentActivityCounts,
@@ -50,20 +55,38 @@ import {
   type ParliamentPersonCareer,
   type ParliamentResolveDim,
   type ParliamentResolveHit,
+  type ParliamentSittingNavigation,
   type ParliamentSpeech,
   type ParliamentSpeechActivity,
+  type ParliamentSpeechContext,
+  type ParliamentSpeechPopulation,
+  type ParliamentSpeechRedirect,
   type ParliamentSpeechSearchDepth,
+  type ParliamentStenogramError,
+  type ParliamentStenogramSegment,
+  type ParliamentStenogramSession,
+  type ParliamentStenogramTranscript,
   type ParliamentVote,
   type ParliamentVoteDetail,
   type VoteChamber,
 } from './types.js';
 
-import type { OffsetResult, ParliamentRepo } from './ports.js';
+import type { OffsetResult, ParliamentRepo, ParliamentTranscriptSearchPort } from './ports.js';
 
 export interface ParliamentUsecaseDeps {
   readonly repo: ParliamentRepo;
   /** Kernel Meili client for name resolution (null → pg fallback only). */
   readonly meili: MeiliClient | null;
+}
+
+/**
+ * The stenogram usecases additionally need the canonical full-history transcript
+ * search projection. It is EXPLICITLY nullable and never defaulted to a substitute:
+ * `null` means the surface answers a `q` with `SearchUnavailable`, which is the whole
+ * point of the port (a silent title-only fallback is the failure mode we refuse).
+ */
+export interface ParliamentStenogramUsecaseDeps extends ParliamentUsecaseDeps {
+  readonly transcriptSearch: ParliamentTranscriptSearchPort | null;
 }
 
 const VOTE_CHAMBER_SET = new Set(VOTE_CHAMBERS_OK);
@@ -434,7 +457,15 @@ export const getMemberSpeechesConnection = (
   page: CursorPageRequest,
   filter: FilterInput = {},
   rawQ?: string | null
-): Promise<Result<CursorPage<ParliamentSpeech> & { total: number }, ApiError>> =>
+): Promise<
+  Result<
+    CursorPage<ParliamentSpeech> & {
+      total: number;
+      population: ParliamentSpeechPopulation;
+    },
+    ApiError
+  >
+> =>
   (async () => {
     const q = normalizeSpeechQ(rawQ);
     if (q !== undefined && q.length > SPEECH_Q_MAX) {
@@ -640,6 +671,7 @@ export const listParliamentSpeeches = (
       total: number;
       totalEstimated: boolean;
       searchDepth: ParliamentSpeechSearchDepth | null;
+      population: ParliamentSpeechPopulation;
     },
     ApiError
   >
@@ -705,6 +737,392 @@ export const getParliamentSpeech = (
   deps: ParliamentUsecaseDeps,
   speechKey: string
 ): Promise<Result<ParliamentSpeech | null, ApiError>> => deps.repo.findSpeech(speechKey);
+
+// ── canonical stenogram (sessions / transcript / contribution context) ─────────
+//
+// Three usecases back all four surfaces (GraphQL, MCP, REST, and the module's own
+// tests), so a boundedness, privacy, or availability decision cannot differ between
+// them. Every one returns `Result<…, ParliamentStenogramError>` — the kernel
+// `ApiError` WIDENED with the two module-owned variants — and never throws.
+//
+// NO BOUNDEDNESS GUARD HERE, deliberately. `parliamentSpeeches` needs one because
+// `parliament.speeches` has 1.4M rows and no date index; `stenogram_sessions` is one
+// row per captured sitting with `session_date desc` indexed, so an unfiltered first
+// page is a cheap index scan. The asymmetry is stated rather than copied.
+
+/** Max sessions a full-history `q` may resolve before the total is reported estimated. */
+export const STENOGRAM_SEARCH_SESSION_CAP = 2_000;
+
+/** Default / max reading blocks returned in one transcript read. */
+export const STENOGRAM_SEGMENT_PAGE_DEFAULT = 500;
+export const STENOGRAM_SEGMENT_PAGE_MAX = 2_000;
+
+/** `q` length cap, identical to the speech surfaces' `SPEECH_Q_MAX`. */
+export const STENOGRAM_Q_MAX = SPEECH_Q_MAX;
+
+export interface ParliamentStenogramSessionsInput {
+  readonly filter: FilterInput;
+  readonly page: CursorPageRequest;
+  readonly q?: string | null | undefined;
+}
+
+/**
+ * Canonical sessions, optionally narrowed by a FULL-HISTORY `q` over the canonical
+ * transcript search projection.
+ *
+ * The `q` path is two-stage on purpose: the projection resolves candidate SESSION
+ * keys, then the repo re-reads every served fact from `parliament.stenogram_*` under
+ * the same keyset order and the same privacy gates. So the index can only affect
+ * WHICH sessions are found, never WHAT is served — and a stale or partial index can
+ * never publish a restricted row.
+ *
+ * When the projection is unavailable the call is REFUSED with `SearchUnavailable`.
+ * It does not fall back to a title-only match or a bounded legacy ILIKE: both answer
+ * a narrower question while looking like a full-history answer.
+ */
+export const listParliamentStenogramSessions = (
+  deps: ParliamentStenogramUsecaseDeps,
+  input: ParliamentStenogramSessionsInput
+): Promise<
+  Result<
+    CursorPage<ParliamentStenogramSession> & { total: number; totalEstimated: boolean },
+    ParliamentStenogramError
+  >
+> =>
+  (async () => {
+    const q = normalizeSpeechQ(input.q);
+    if (q !== undefined && q.length > STENOGRAM_Q_MAX) {
+      return err(invalidInput(`q must be at most ${String(STENOGRAM_Q_MAX)} characters`, 'q'));
+    }
+    if (q === undefined) {
+      return deps.repo.listStenogramSessions(input.page, input.filter, undefined, undefined);
+    }
+    if (deps.transcriptSearch === null) {
+      return err(
+        searchUnavailable(
+          'full-history transcript search is not configured on this server; no title-only fallback is offered'
+        )
+      );
+    }
+    const probe = await deps.transcriptSearch.available();
+    if (!probe.available) {
+      // Name WHICH way it is missing: an operator needs to tell "search.documents is
+      // unreadable" from "the doc type was never built" (the current state, with the
+      // loader's speech mode off). Neither degrades the answer.
+      const detail =
+        probe.reason === 'relation_unavailable'
+          ? 'search.documents is not readable on this database'
+          : `doc type ${deps.transcriptSearch.docType} holds no public canonical reading blocks (projection not built)`;
+      return err(
+        searchUnavailable(
+          `full-history transcript search is unavailable: ${detail}; no title-only fallback is offered`,
+          deps.transcriptSearch.docType
+        )
+      );
+    }
+    const hits = await deps.transcriptSearch.searchSessionKeys(q, STENOGRAM_SEARCH_SESSION_CAP);
+    // A transport/DB failure inside the projection propagates as an error — it is
+    // never converted into an empty hit set (which would read as "no sitting matched").
+    if (hits.isErr()) return err(hits.error);
+    const listed = await deps.repo.listStenogramSessions(
+      input.page,
+      input.filter,
+      q,
+      hits.value.sessions.map((s) => s.sessionKey)
+    );
+    if (listed.isErr()) return listed;
+    // A truncated SITTING set means the real match count exceeds what we resolved, so
+    // the total is an UNDER-count — flag it rather than presenting a cap as exact.
+    return ok(hits.value.truncated ? { ...listed.value, totalEstimated: true } : listed.value);
+  })();
+
+/**
+ * One session plus its ordered PUBLIC reading. Typed outcomes, all three distinct:
+ *  - unknown or non-public session  → `NotFound`
+ *  - `availability='SOURCE_ONLY'`   → `TranscriptUnavailable{reason:'source_only'}`.
+ *    The row is REAL and honest ("we hold the sitting and its official URL and serve
+ *    no reading"), so collapsing it into NotFound would misreport the data; it is a
+ *    distinct fact and gets a distinct code.
+ *  - public blocks all restricted   → `TranscriptUnavailable{reason:'no_public_segments'}`
+ *  - projection not deployed        → `TranscriptUnavailable{reason:'projection_unavailable'}`
+ *    (raised by the repo probe).
+ */
+export const getParliamentStenogramSession = (
+  deps: ParliamentStenogramUsecaseDeps,
+  sessionKey: string,
+  slice: { readonly offset?: number; readonly limit?: number } = {}
+): Promise<Result<ParliamentStenogramTranscript, ParliamentStenogramError>> =>
+  (async () => {
+    const key = sessionKey.trim();
+    if (key === '') return err(invalidInput('sessionKey is required', 'sessionKey'));
+    const offset =
+      slice.offset !== undefined && Number.isInteger(slice.offset) && slice.offset >= 0
+        ? slice.offset
+        : 0;
+    const limit =
+      slice.limit !== undefined && Number.isInteger(slice.limit) && slice.limit >= 1
+        ? Math.min(slice.limit, STENOGRAM_SEGMENT_PAGE_MAX)
+        : STENOGRAM_SEGMENT_PAGE_DEFAULT;
+
+    const resolved = await resolveReadableSession(deps, key);
+    if (resolved.isErr()) return err(resolved.error);
+    const { session, navigation } = resolved.value;
+
+    const segmentsRes = await deps.repo.listStenogramSegments(key, { offset, limit });
+    if (segmentsRes.isErr()) return err(segmentsRes.error);
+    const { segments, total } = segmentsRes.value;
+    const guard = guardPublicSegments(session, navigation, total);
+    if (guard.isErr()) return err(guard.error);
+    return ok({ session, segments, totalSegments: total, navigation });
+  })();
+
+/**
+ * Absolute ceiling on the blocks one COMPLETE transcript response may carry. The
+ * measured CDep worst case is ~2.4k blocks per sitting (and the canonical count is
+ * strictly lower than the legacy over-split one), so this is ~20× headroom. It exists
+ * so a corrupt session (a position explosion) cannot turn one request into an
+ * unbounded read — and if it ever trips, the answer is an explicit error, NEVER a
+ * silently truncated transcript presented as complete.
+ */
+export const STENOGRAM_TRANSCRIPT_MAX_BLOCKS = 50_000;
+
+/** Chunk size the complete read pages the repo with (an internal detail). */
+export const STENOGRAM_TRANSCRIPT_CHUNK = 2_000;
+
+/**
+ * The COMPLETE ordered public reading of one sitting, in one value.
+ *
+ * This is what the REST transcript endpoint serves: a caller asking for "the
+ * transcript" must get the whole transcript, not a first page that looks like one. It
+ * pages the repo internally in `STENOGRAM_TRANSCRIPT_CHUNK` blocks so a 2,400-block
+ * sitting is still bounded per query, and it verifies contiguity as it goes — if the
+ * public block count changes mid-read (a concurrent re-parse or privacy flip), the read
+ * is retried-free and reported as a Database inconsistency rather than stitched into a
+ * transcript with a hole in it.
+ *
+ * The GraphQL/MCP surfaces keep the SLICED read above: a schema client selecting a
+ * sitting should not be forced to materialise thousands of blocks it did not ask for.
+ */
+export const getParliamentStenogramTranscript = (
+  deps: ParliamentStenogramUsecaseDeps,
+  sessionKey: string
+): Promise<Result<ParliamentStenogramTranscript, ParliamentStenogramError>> =>
+  (async () => {
+    const key = sessionKey.trim();
+    if (key === '') return err(invalidInput('sessionKey is required', 'sessionKey'));
+
+    const resolved = await resolveReadableSession(deps, key);
+    if (resolved.isErr()) return err(resolved.error);
+    const { session, navigation } = resolved.value;
+
+    const segments: ParliamentStenogramSegment[] = [];
+    let total = 0;
+    for (let offset = 0; ; offset += STENOGRAM_TRANSCRIPT_CHUNK) {
+      const pageRes = await deps.repo.listStenogramSegments(key, {
+        offset,
+        limit: STENOGRAM_TRANSCRIPT_CHUNK,
+      });
+      if (pageRes.isErr()) return err(pageRes.error);
+      const page = pageRes.value;
+      if (offset === 0) {
+        total = page.total;
+        const guard = guardPublicSegments(session, navigation, total);
+        if (guard.isErr()) return err(guard.error);
+      } else if (page.total !== total) {
+        // The corpus moved under us. Say so — a stitched-together transcript from two
+        // different states of the reading would be silently wrong.
+        return err(
+          databaseError(
+            `session '${key}' changed while its transcript was being read (public block count ${String(total)} → ${String(page.total)}); retry`
+          )
+        );
+      }
+      if (page.segments.length === 0) break;
+      segments.push(...page.segments);
+      if (segments.length > STENOGRAM_TRANSCRIPT_MAX_BLOCKS) {
+        return err(
+          databaseError(
+            `session '${key}' exceeds the ${String(STENOGRAM_TRANSCRIPT_MAX_BLOCKS)}-block transcript ceiling; refusing to serve a partial transcript as complete`
+          )
+        );
+      }
+      if (segments.length >= total) break;
+    }
+    if (segments.length !== total) {
+      return err(
+        databaseError(
+          `session '${key}' yielded ${String(segments.length)} of ${String(total)} public blocks; refusing to serve an incomplete transcript`
+        )
+      );
+    }
+    return ok({ session, segments, totalSegments: total, navigation });
+  })();
+
+/**
+ * Resolve a session to a READABLE one, or to the typed refusal that explains why —
+ * with the sitting's own metadata attached so a client can still offer the official
+ * source. Shared by the sliced and the complete read so the two can never disagree
+ * about what "not found" and "unavailable" mean.
+ */
+const resolveReadableSession = async (
+  deps: ParliamentStenogramUsecaseDeps,
+  key: string
+): Promise<
+  Result<
+    { session: ParliamentStenogramSession; navigation: ParliamentSittingNavigation },
+    ParliamentStenogramError
+  >
+> => {
+  const sessionRes = await deps.repo.findStenogramSession(key);
+  // A Database/Upstream failure from the repo propagates AS IS. It must never become
+  // NotFound — "we could not read" is not "it does not exist" (requirement: no
+  // silent swallowing of transport errors as not-found).
+  if (sessionRes.isErr()) return err(sessionRes.error);
+  const session = sessionRes.value;
+  if (session === null) {
+    return err(notFound(`no canonical stenogram session '${key}'`, 'stenogram_session'));
+  }
+  const navRes = await deps.repo.adjacentSessions({
+    sessionKey: session.sessionKey,
+    sessionDate: session.sessionDate,
+    chamber: session.chamber,
+  });
+  if (navRes.isErr()) return err(navRes.error);
+  const navigation = navRes.value;
+
+  if (session.availability === 'SOURCE_ONLY') {
+    // A REAL sitting we hold, whose transcript we do not. The session ref rides along
+    // so the client can render "open the official transcript" with the right precision
+    // instead of firing a second request that would only fail again.
+    return err(
+      transcriptUnavailable(
+        `sitting '${key}' is known but no usable transcript capture is held (availability SOURCE_ONLY); the official source URL is still available`,
+        key,
+        'source_only',
+        toStenogramSessionRef(session)
+      )
+    );
+  }
+  return ok({ session, navigation });
+};
+
+/**
+ * A session that claims a reading but exposes no PUBLIC block is an explicit refusal,
+ * never an empty "transcript". The DB's availability biconditional guarantees a
+ * non-SOURCE_ONLY session HAS blocks, so a zero public count here means every block is
+ * restricted (or its canonical speech row is) — a privacy outcome, and it is reported
+ * as one.
+ */
+const guardPublicSegments = (
+  session: ParliamentStenogramSession,
+  _navigation: ParliamentSittingNavigation,
+  total: number
+): Result<true, ParliamentStenogramError> =>
+  total === 0
+    ? err(
+        transcriptUnavailable(
+          `sitting '${session.sessionKey}' has no public reading blocks`,
+          session.sessionKey,
+          'no_public_segments',
+          toStenogramSessionRef(session)
+        )
+      )
+    : ok(true);
+
+/**
+ * The canonical context of one contribution, accepting a canonical `canon:` key OR a
+ * LEGACY `cdep:` / `senat:` key.
+ *
+ * LEGACY COMPATIBILITY IS THE POINT. The old speech API keeps working unchanged; this
+ * usecase is how a legacy key reaches its canonical reading, via
+ * `parliament.speech_redirects`:
+ *  - `exact_segment` → the proven block, with its previous/next CONTRIBUTION.
+ *  - `session_only`  → the sitting only (`segment` null). The honest coarse answer;
+ *    a guessed turn would be worse than none.
+ * `null` means "no canonical context" — an unknown key, or a legacy row the canonical
+ * lane has not mapped yet. It is never an error and never a throw, so a deep link to
+ * an unmapped speech degrades instead of failing.
+ */
+export const getParliamentSpeechContext = (
+  deps: ParliamentStenogramUsecaseDeps,
+  speechKey: string
+): Promise<Result<ParliamentSpeechContext | null, ParliamentStenogramError>> =>
+  (async () => {
+    const key = speechKey.trim();
+    if (key === '') return err(invalidInput('speechKey is required', 'speechKey'));
+
+    // 1. Canonical key → its own reading block (the preferred path).
+    const direct = await deps.repo.findSegmentBySpeechKey(key);
+    if (direct.isErr()) return err(direct.error);
+    if (direct.value !== null) {
+      return buildSpeechContext(deps, key, direct.value.sessionKey, direct.value, null);
+    }
+
+    // 2. Legacy key → the redirect row.
+    const redirectRes = await deps.repo.findSpeechRedirect(key);
+    if (redirectRes.isErr()) return err(redirectRes.error);
+    const redirect = redirectRes.value;
+    if (redirect === null) return ok(null);
+
+    if (redirect.canonicalSegmentKey === null) {
+      // mapping_kind='session_only' — the sitting is resolved, the turn is not. No
+      // highlight is fabricated: `segment` stays null so a client cannot render a
+      // guessed turn as if the source had proven it.
+      return buildSpeechContext(deps, key, redirect.sessionKey, null, redirect);
+    }
+    // The redirect names a canonical SPEECH row as well as a block, and the two carry
+    // INDEPENDENT privacy classes — so gate the speech row before serving the block it
+    // points at. Fail-closed: anything other than a proven public row drops the
+    // highlight back to a session-only answer.
+    if (redirect.canonicalSpeechKey !== null) {
+      const speechPublic = await deps.repo.canonicalSpeechIsPublic(redirect.canonicalSpeechKey);
+      if (speechPublic.isErr()) return err(speechPublic.error);
+      if (!speechPublic.value) {
+        return buildSpeechContext(deps, key, redirect.sessionKey, null, redirect);
+      }
+    }
+    const segmentRes = await deps.repo.findSegmentByKey(redirect.canonicalSegmentKey);
+    if (segmentRes.isErr()) return err(segmentRes.error);
+    // A redirect whose target block is missing or restricted degrades to the sitting
+    // rather than 404-ing a legacy key that a client may have deep-linked for years.
+    return buildSpeechContext(deps, key, redirect.sessionKey, segmentRes.value, redirect);
+  })();
+
+/** Assemble the context: session + segment + the neighbouring CONTRIBUTIONS. */
+const buildSpeechContext = async (
+  deps: ParliamentStenogramUsecaseDeps,
+  speechKey: string,
+  sessionKey: string,
+  segment: ParliamentStenogramSegment | null,
+  redirect: ParliamentSpeechRedirect | null
+): Promise<Result<ParliamentSpeechContext | null, ParliamentStenogramError>> => {
+  const sessionRes = await deps.repo.findStenogramSession(sessionKey);
+  if (sessionRes.isErr()) return err(sessionRes.error);
+  const session = sessionRes.value;
+  // A restricted/absent session means there is no PUBLIC context to serve — null,
+  // not a partial answer that leaks the session's existence.
+  if (session === null) return ok(null);
+  if (segment === null) {
+    return ok({
+      speechKey,
+      session,
+      segment: null,
+      previousContribution: null,
+      nextContribution: null,
+      redirect,
+    });
+  }
+  const adjacent = await deps.repo.adjacentContributions(sessionKey, segment.position);
+  if (adjacent.isErr()) return err(adjacent.error);
+  return ok({
+    speechKey,
+    session,
+    segment,
+    previousContribution: adjacent.value.previous,
+    nextContribution: adjacent.value.next,
+    redirect,
+  });
+};
 
 // ── standalone control items list ──────────────────────────────────────────────
 

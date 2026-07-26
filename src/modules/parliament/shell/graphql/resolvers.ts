@@ -26,6 +26,18 @@ import {
 } from '@/modules/shared/index.js';
 
 import {
+  parliamentStenogramErrorCode,
+  type ParliamentBallot,
+  type ParliamentCommittee,
+  type ParliamentMemberVote,
+  type ParliamentResolveDim,
+  type ParliamentSpeech,
+  type ParliamentSpeechPopulation,
+  type ParliamentSpeechSearchDepth,
+  type ParliamentStenogramError,
+  type ParliamentVote,
+} from '../../core/types.js';
+import {
   dataQualityCandidates,
   getBillDossier,
   getCommittee,
@@ -42,6 +54,8 @@ import {
   getMemberVotes,
   getParliamentSpeech,
   getParliamentSpeechActivity,
+  getParliamentSpeechContext,
+  getParliamentStenogramSession,
   getPersonCareer,
   normalizeSpeechQ,
   getVoteBallots,
@@ -52,9 +66,11 @@ import {
   listGroups,
   listMembers,
   listParliamentSpeeches,
+  listParliamentStenogramSessions,
   listVotes,
   rankVoteCohesion,
   resolveFilters,
+  type ParliamentStenogramUsecaseDeps,
   type ParliamentUsecaseDeps,
 } from '../../core/usecases.js';
 import {
@@ -62,21 +78,19 @@ import {
   memberSpeechesFhash,
   memberVotesFhash,
   parliamentSpeechesFhash,
+  stenogramSessionsFhash,
   votesFilterSpec,
 } from '../filters/specs.js';
 
-import type {
-  ParliamentBallot,
-  ParliamentCommittee,
-  ParliamentMemberVote,
-  ParliamentResolveDim,
-  ParliamentSpeech,
-  ParliamentSpeechSearchDepth,
-  ParliamentVote,
-} from '../../core/types.js';
+import type { ParliamentTranscriptSearchPort } from '../../core/ports.js';
 import type { Result } from 'neverthrow';
 
 export interface ParliamentResolverDeps extends ParliamentUsecaseDeps {
+  /**
+   * The canonical full-history transcript search projection. Nullable: `null` makes
+   * a stenogram `q` return SEARCH_UNAVAILABLE rather than a title-only answer.
+   */
+  readonly transcriptSearch: ParliamentTranscriptSearchPort | null;
   /** Kernel cross-link loader (registered by the legal module). May be undefined if legal is disabled. */
   readonly legalActLoader: LegalActByIdLoader | undefined;
   /** True when an aux search engine is available (relaxes the votes q-only bound). */
@@ -93,6 +107,37 @@ const toGraphqlError = (error: ApiError): GraphQLError =>
 const unwrap = <T>(result: Result<T, ApiError>): T => {
   if (result.isErr()) throw toGraphqlError(result.error);
   return result.value;
+};
+
+/**
+ * Same as `unwrap`, for the WIDENED stenogram error union. The two module-owned
+ * variants get their own `extensions.code` (`TRANSCRIPT_UNAVAILABLE`,
+ * `SEARCH_UNAVAILABLE`) from the single shared mapper, so the vocabulary a client
+ * branches on is identical on GraphQL, REST and MCP. `reason` / `docType` ride along
+ * in the extensions because they are the actionable part (a SOURCE_ONLY capture is
+ * permanent; a missing projection is an operational gap).
+ */
+const toStenogramGraphqlError = (error: ParliamentStenogramError): GraphQLError =>
+  new GraphQLError(error.message, {
+    extensions: {
+      code: parliamentStenogramErrorCode(error),
+      type: error.type,
+      ...(error.type === 'TranscriptUnavailable' && {
+        reason: error.reason,
+        sessionKey: error.sessionKey,
+        // The sitting itself, whenever we hold it. This is what keeps
+        // TRANSCRIPT_UNAVAILABLE actionable and distinct from NOT_FOUND: a
+        // SOURCE_ONLY sitting is real, and the client renders its label plus an
+        // "open the official transcript" action straight from here.
+        session: error.session,
+      }),
+      ...(error.type === 'SearchUnavailable' && { docType: error.docType }),
+    },
+  });
+
+const unwrapStenogram = <T>(result: Result<T, ParliamentStenogramError>): T => {
+  if (result.isOk()) return result.value;
+  throw toStenogramGraphqlError(result.error);
 };
 
 const clampFirst = (first: number | undefined, max: number): number =>
@@ -115,6 +160,12 @@ const sansNull = (filter: FilterInput | undefined): FilterInput => {
 
 export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<string, unknown> => {
   const { legalActLoader } = deps;
+  /** The stenogram usecases take the search port alongside the repo. */
+  const stenogramDeps: ParliamentStenogramUsecaseDeps = {
+    repo: deps.repo,
+    meili: deps.meili,
+    transcriptSearch: deps.transcriptSearch,
+  };
 
   const voteConnection = (
     page: CursorPage<ParliamentVote>,
@@ -198,15 +249,19 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
   };
 
   const memberSpeechConnection = (
-    page: CursorPage<ParliamentSpeech> & { total: number },
+    page: CursorPage<ParliamentSpeech> & {
+      total: number;
+      population: ParliamentSpeechPopulation;
+    },
     mandateKey: string,
     filter: FilterInput,
     q: string | undefined
   ) => {
     // Per-edge cursors MUST use the SAME fhash the repo encoded `next` with
-    // (memberSpeechesFhash(mandateKey, filter, q)) and the SAME keyset shape
-    // ([spokenAt, speechKey]) so paging on an edge cursor matches.
-    const fhash = memberSpeechesFhash(mandateKey, filter, q);
+    // (memberSpeechesFhash(mandateKey, filter, q, APPLIED population)) and the SAME
+    // keyset shape ([spokenAt, speechKey]) so paging on an edge cursor matches. The
+    // population comes back FROM the repo — never re-derived here, which could disagree.
+    const fhash = memberSpeechesFhash(mandateKey, filter, q, page.population);
     return {
       edges: page.items.map((node) => ({
         node,
@@ -227,15 +282,17 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
       total: number;
       totalEstimated: boolean;
       searchDepth: ParliamentSpeechSearchDepth | null;
+      population: ParliamentSpeechPopulation;
     },
     filter: FilterInput,
     q: string | undefined
   ) => {
     // Per-edge cursors MUST use the SAME fhash the repo encoded `next` with —
-    // parliamentSpeechesFhash(filter, q, APPLIED depth; 'none' when no q) — and the
-    // SAME keyset shape ([spokenAt ?? '', speechKey]) so paging on an edge cursor
-    // matches the repo tuple predicate exactly.
-    const fhash = parliamentSpeechesFhash(filter, q, page.searchDepth ?? 'none');
+    // parliamentSpeechesFhash(filter, q, APPLIED depth; 'none' when no q, APPLIED
+    // population) — and the SAME keyset shape ([spokenAt ?? '', speechKey]) so paging on
+    // an edge cursor matches the repo tuple predicate exactly. Both probe-derived values
+    // come back FROM the repo rather than being re-derived here.
+    const fhash = parliamentSpeechesFhash(filter, q, page.searchDepth ?? 'none', page.population);
     return {
       edges: page.items.map((node) => ({
         node,
@@ -418,6 +475,51 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
 
       parliamentSpeech: async (_r: unknown, args: { speechKey: string }) =>
         unwrap(await getParliamentSpeech(deps, args.speechKey)),
+
+      parliamentStenogramSessions: async (
+        _r: unknown,
+        args: { filter?: Record<string, unknown>; q?: string; first?: number; after?: string }
+      ) => {
+        const filter = sansNull(args.filter as FilterInput | undefined);
+        // Normalize q ONCE and thread the SAME value into the usecase (→ repo fhash)
+        // and the connection builder, so a per-edge cursor matches the repo's `next`.
+        const q = normalizeSpeechQ(args.q);
+        const page = {
+          first: clampFirst(args.first, 100),
+          ...(args.after != null && { after: args.after }),
+        };
+        const res = await listParliamentStenogramSessions(stenogramDeps, { filter, page, q });
+        const value = unwrapStenogram(res);
+        const fhash = stenogramSessionsFhash(filter, q);
+        return {
+          edges: value.items.map((node) => ({
+            node,
+            cursor: buildNextCursor({
+              sort: 'sessionDate',
+              dir: 'desc',
+              fhash,
+              lastKeys: [node.sessionDate ?? '', node.sessionKey],
+            }),
+          })),
+          pageInfo: { hasNextPage: value.next !== null, endCursor: value.next },
+          total: value.total,
+          totalEstimated: value.totalEstimated,
+        };
+      },
+
+      parliamentStenogramSession: async (
+        _r: unknown,
+        args: { sessionKey: string; offset?: number; limit?: number }
+      ) =>
+        unwrapStenogram(
+          await getParliamentStenogramSession(stenogramDeps, args.sessionKey, {
+            ...(args.offset !== undefined && { offset: args.offset }),
+            ...(args.limit !== undefined && { limit: args.limit }),
+          })
+        ),
+
+      parliamentSpeechContext: async (_r: unknown, args: { speechKey: string }) =>
+        unwrapStenogram(await getParliamentSpeechContext(stenogramDeps, args.speechKey)),
 
       parliamentActLineage: async (
         _r: unknown,
@@ -646,6 +748,30 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
           : unwrap(await deps.repo.getSpeechFullText(parent.speechKey)),
       // member is LAZY (the ParliamentControlItem.member pattern): one findMember
       // lookup, only when selected; a NULL-mandate turn resolves null.
+      member: async (parent: { mandateKey: string | null }) =>
+        parent.mandateKey === null ? null : unwrap(await deps.repo.findMember(parent.mandateKey)),
+      // context is LAZY and NARROWLY tolerant. A speech read must not fail merely
+      // because the canonical projection is not deployed on this database, so THAT one
+      // condition resolves null (the dedicated parliamentSpeechContext root reports it
+      // explicitly for a caller who asked for context specifically).
+      //
+      // Everything else PROPAGATES. A Database/Upstream/Timeout failure is not "this
+      // turn has no canonical context" — swallowing it here would turn an outage into
+      // a silent, plausible-looking null on every speech in the response.
+      context: async (parent: { speechKey: string }) => {
+        const res = await getParliamentSpeechContext(stenogramDeps, parent.speechKey);
+        if (res.isOk()) return res.value;
+        const error = res.error;
+        if (error.type === 'TranscriptUnavailable' && error.reason === 'projection_unavailable') {
+          return null;
+        }
+        throw toStenogramGraphqlError(error);
+      },
+    },
+
+    ParliamentStenogramSegment: {
+      // Lazy member resolution, same shape as ParliamentSpeech.member: an unmatched
+      // speaker (guest, minister) has a null mandateKey and resolves null.
       member: async (parent: { mandateKey: string | null }) =>
         parent.mandateKey === null ? null : unwrap(await deps.repo.findMember(parent.mandateKey)),
     },

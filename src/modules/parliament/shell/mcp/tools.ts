@@ -8,24 +8,39 @@
 import {
   getParliamentLawLineageInput,
   getParliamentMemberActivityInput,
+  getParliamentSpeechContextInput,
+  getParliamentStenogramSessionInput,
   PARLIAMENT_MCP_KINDS,
   rankParliamentVoteCohesionInput,
   resolveParliamentFiltersInput,
   searchParliamentSpeechesInput,
+  searchParliamentStenogramSessionsInput,
 } from './io.js';
+import {
+  parliamentStenogramErrorCode,
+  type MemberActivityKind,
+  type ParliamentResolveDim,
+  type ParliamentStenogramError,
+} from '../../core/types.js';
 import {
   getLineageForAct,
   getMemberActivityBundle,
+  getParliamentSpeechContext,
+  getParliamentStenogramSession,
   listParliamentSpeeches,
+  listParliamentStenogramSessions,
   rankVoteCohesion,
   resolveFilters,
-  type ParliamentUsecaseDeps,
+  type ParliamentStenogramUsecaseDeps,
 } from '../../core/usecases.js';
 
-import type { MemberActivityKind, ParliamentResolveDim } from '../../core/types.js';
 import type { FilterInput, KernelMcpTool, McpToolOutput } from '@/modules/shared/index.js';
 
-export interface ParliamentMcpDeps extends ParliamentUsecaseDeps {
+/**
+ * MCP deps INCLUDE the transcript search port (`ParliamentStenogramUsecaseDeps`), so
+ * the stenogram tools call exactly the same usecases as GraphQL and REST.
+ */
+export interface ParliamentMcpDeps extends ParliamentStenogramUsecaseDeps {
   readonly clientBaseUrl: string;
 }
 
@@ -285,5 +300,195 @@ export const makeParliamentMcpTools = (deps: ParliamentMcpDeps): readonly Kernel
     },
   };
 
-  return [resolveTool, lineageTool, activityTool, cohesionTool, speechesTool];
+  // ── canonical stenogram: one SEARCH tool + two READ tools ────────────────────
+  // All three go through the SAME usecases the GraphQL roots and the REST transcript
+  // route use, so boundedness, privacy and availability cannot differ per surface.
+  // Availability/refusal errors surface IN-BAND as {ok:false, error:<code>} with the
+  // SAME code vocabulary REST and GraphQL use (`parliamentStenogramErrorCode`).
+  const stenogramErrorOut = (kind: string, error: ParliamentStenogramError): McpToolOutput => ({
+    ok: false,
+    kind,
+    error: error.message,
+    // `errorCode` is the kernel's transport-neutral field, aligned with GraphQL's
+    // extensions.code — so an agent branches on the SAME vocabulary REST and GraphQL
+    // use. `errorType` only exists for the kernel variants (the two module-owned ones
+    // are outside `ApiError['type']`), and is set only when it applies.
+    errorCode: parliamentStenogramErrorCode(error),
+    ...(error.type !== 'TranscriptUnavailable' &&
+      error.type !== 'SearchUnavailable' && { errorType: error.type }),
+    // A refusal must still be ACTIONABLE. For a sitting we hold but cannot read, the
+    // session ref travels with the failure so an agent can cite the official
+    // transcript URL (with its precision) instead of reporting a dead end — the same
+    // payload REST and GraphQL attach.
+    ...(error.type === 'TranscriptUnavailable' && {
+      meta: {
+        reason: error.reason,
+        sessionKey: error.sessionKey,
+        session: error.session,
+      },
+    }),
+    ...(error.type === 'SearchUnavailable' && { meta: { docType: error.docType } }),
+  });
+
+  const stenogramSessionsTool: KernelMcpTool = {
+    name: 'search_parliament_stenogram_sessions',
+    description:
+      'Canonical parliamentary transcripts (stenograme) at the SITTING grain: filter by chamber, date window or year, availability, and/or a speaker mandateKey, with optional free-text q across the WHOLE transcript history. Needs no date bound (one row per captured sitting, indexed by date). Returns each sitting with its official source URL, source precision, and block/speech/speaker counts — then read one with get_parliament_stenogram_session. If q cannot be answered over the full history the call FAILS with SEARCH_UNAVAILABLE rather than silently matching titles only.',
+    inputShape: searchParliamentStenogramSessionsInput,
+    async handler(args): Promise<McpToolOutput> {
+      const q = strArg(args, 'q');
+      const chamber = strArg(args, 'chamber');
+      const from = strArg(args, 'from');
+      const to = strArg(args, 'to');
+      const availability = strArg(args, 'availability');
+      const mandateKey = strArg(args, 'mandateKey');
+      const after = strArg(args, 'after');
+      const yearRaw = args['year'];
+      const year = typeof yearRaw === 'number' && Number.isInteger(yearRaw) ? yearRaw : undefined;
+      const limit = Math.min(Math.max(intArg(args, 'limit', 20), 1), 100);
+      // The SAME FilterInput shape the GraphQL root builds — one filter vocabulary.
+      const filter: FilterInput = {
+        ...(chamber !== undefined && { chamber: { eq: chamber } }),
+        ...(availability !== undefined && { availability: { eq: availability } }),
+        ...(mandateKey !== undefined && { mandateKey: { eq: mandateKey } }),
+        ...(year !== undefined && { year: { eq: year } }),
+        ...((from !== undefined || to !== undefined) && {
+          sessionDate: {
+            ...(from !== undefined && { gte: from }),
+            ...(to !== undefined && { lte: to }),
+          },
+        }),
+      };
+      const res = await listParliamentStenogramSessions(deps, {
+        filter,
+        page: { first: limit, ...(after !== undefined && { after }) },
+        q,
+      });
+      if (res.isErr()) return stenogramErrorOut(PARLIAMENT_MCP_KINDS.stenogramSessions, res.error);
+      const page = res.value;
+      const count = page.totalEstimated ? `≥${n(page.total)}` : n(page.total);
+      return {
+        ok: true,
+        kind: PARLIAMENT_MCP_KINDS.stenogramSessions,
+        query: { q, chamber, from, to, year, availability, mandateKey, limit },
+        link: `${clientBaseUrl}/parlament/stenograme`,
+        items: page.items,
+        meta: {
+          total: page.total,
+          totalEstimated: page.totalEstimated,
+          hasNextPage: page.next !== null,
+          nextCursor: page.next,
+          searchScope: q === undefined ? null : 'full_history_canonical_blocks',
+        },
+        summary: `${count} sitting(s); showing ${n(page.items.length)}${
+          q === undefined ? '' : ' matched across the full canonical transcript history'
+        }.`,
+      };
+    },
+  };
+
+  const stenogramTranscriptTool: KernelMcpTool = {
+    name: 'get_parliament_stenogram_session',
+    description:
+      "Read one sitting's canonical transcript: the ordered reading blocks in OFFICIAL printed order, each with its kind (SPEECH / AGENDA_HEADING / VOTE_RESULT / CONTEXT), the speaker name AS PRINTED, the roster-validated mandateKey when the source printed a member id (null for guests/ministers — never guessed from a name), the agenda reference in scope, and per-block source precision. Large sittings are paged with offset/limit (read meta.totalSegments). Fails with TRANSCRIPT_UNAVAILABLE when the sitting is real but yields no reading (a SOURCE_ONLY capture), and NOT_FOUND when there is no such sitting.",
+    inputShape: getParliamentStenogramSessionInput,
+    async handler(args): Promise<McpToolOutput> {
+      const sessionKey = strArg(args, 'sessionKey');
+      if (sessionKey === undefined) {
+        return errorOut(PARLIAMENT_MCP_KINDS.stenogramTranscript, 'sessionKey is required');
+      }
+      const offset = Math.max(intArg(args, 'offset', 0), 0);
+      // A tighter default than REST/GraphQL: an MCP result is read by a model, so the
+      // block budget per call is deliberately small.
+      const limit = Math.min(Math.max(intArg(args, 'limit', 100), 1), 500);
+      const res = await getParliamentStenogramSession(deps, sessionKey, { offset, limit });
+      if (res.isErr()) {
+        return stenogramErrorOut(PARLIAMENT_MCP_KINDS.stenogramTranscript, res.error);
+      }
+      const { session, segments, totalSegments, navigation } = res.value;
+      const shown = offset + segments.length;
+      return {
+        ok: true,
+        kind: PARLIAMENT_MCP_KINDS.stenogramTranscript,
+        query: { sessionKey, offset, limit },
+        link: session.sourceUrl,
+        item: { session, segments, navigation },
+        meta: {
+          totalSegments,
+          offset,
+          returned: segments.length,
+          hasMore: shown < totalSegments,
+          availability: session.availability,
+          sourceUrlKind: session.sourceUrlKind,
+          canonicalDigest: session.canonicalDigest,
+          // Chamber-scoped neighbours, so an agent can walk a chamber's sittings
+          // without re-deriving the ordering.
+          previousSessionKey: navigation.previous?.sessionKey ?? null,
+          nextSessionKey: navigation.next?.sessionKey ?? null,
+        },
+        summary:
+          `${session.title ?? sessionKey} (${session.chamber}, ${session.sessionDate ?? 'undated'}): ` +
+          `blocks ${n(offset)}–${n(shown)} of ${n(totalSegments)}, ${n(session.speechCount)} speeches by ${n(session.speakerCount)} speaker(s).`,
+      };
+    },
+  };
+
+  const speechContextTool: KernelMcpTool = {
+    name: 'get_parliament_speech_context',
+    description:
+      "Place one contribution in its sitting: the canonical reading block, the sitting it belongs to, and the previous/next CONTRIBUTION (the neighbouring speeches, not the adjacent narration). Accepts a canonical 'canon:' key OR a LEGACY 'cdep:'/'senat:' key — a legacy key is resolved through the speech redirects, so an old link still lands on the canonical reading; when only the sitting could be proven, the block is null and the redirect says 'session_only'. Returns no item (never an error) for a key the canonical lane has not mapped.",
+    inputShape: getParliamentSpeechContextInput,
+    async handler(args): Promise<McpToolOutput> {
+      const speechKey = strArg(args, 'speechKey');
+      if (speechKey === undefined) {
+        return errorOut(PARLIAMENT_MCP_KINDS.speechContext, 'speechKey is required');
+      }
+      const res = await getParliamentSpeechContext(deps, speechKey);
+      if (res.isErr()) return stenogramErrorOut(PARLIAMENT_MCP_KINDS.speechContext, res.error);
+      const context = res.value;
+      if (context === null) {
+        return {
+          ok: true,
+          kind: PARLIAMENT_MCP_KINDS.speechContext,
+          query: { speechKey },
+          summary: `No canonical stenogram context for speech ${speechKey} (unknown key, or not mapped to a canonical reading yet).`,
+        };
+      }
+      const redirected = context.redirect !== null;
+      return {
+        ok: true,
+        kind: PARLIAMENT_MCP_KINDS.speechContext,
+        query: { speechKey },
+        link: context.segment?.sourceUrl ?? context.session.sourceUrl,
+        item: context,
+        meta: {
+          redirected,
+          mappingKind: context.redirect?.mappingKind ?? null,
+          position: context.segment?.position ?? null,
+          sessionKey: context.session.sessionKey,
+          sittingKey: context.session.sittingKey,
+          speechCount: context.session.speechCount,
+        },
+        summary:
+          (redirected ? `Legacy key ${speechKey} redirected to ` : '') +
+          (context.segment !== null
+            ? `block ${n(context.segment.position)} of ${context.session.sessionKey}` +
+              ` (${context.segment.speakerName ?? 'unattributed'}), ` +
+              (context.previousContribution === null ? 'first' : 'with a previous') +
+              ` contribution and ${context.nextContribution === null ? 'no next' : 'a next'} one.`
+            : `sitting ${context.session.sessionKey} only — no single reading block could be proven for this legacy row.`),
+      };
+    },
+  };
+
+  return [
+    resolveTool,
+    lineageTool,
+    activityTool,
+    cohesionTool,
+    speechesTool,
+    stenogramSessionsTool,
+    stenogramTranscriptTool,
+    speechContextTool,
+  ];
 };

@@ -296,15 +296,19 @@ describe('normalizeSpeechQ — trim + lower-case + empty→undefined (idempotent
 describe('memberSpeechesFhash — case-insensitivity of q (shared cursor identity)', () => {
   it("'Lege' and 'lege' produce the SAME fhash via the normalized token", () => {
     // The fhash consumes the normalized value, so case variants must not fork cursors.
-    expect(memberSpeechesFhash('1:2024:79', {}, normalizeSpeechQ('Lege'))).toEqual(
-      memberSpeechesFhash('1:2024:79', {}, normalizeSpeechQ('lege'))
+    expect(memberSpeechesFhash('1:2024:79', {}, normalizeSpeechQ('Lege'), 'LEGACY')).toEqual(
+      memberSpeechesFhash('1:2024:79', {}, normalizeSpeechQ('lege'), 'LEGACY')
     );
   });
 });
 
 describe('getMemberSpeechesConnection — forwards filter + normalized q; length guard', () => {
   it('threads mandate/page/filter and the NORMALIZED q to the repo', async () => {
-    const listMemberSpeechesCursor = vi.fn(() => okp({ items: [], next: null, total: 0 }));
+    // `population` is what the repo reports back so the shell can fold the APPLIED
+    // served population into per-edge cursors; pre-migration that is 'LEGACY'.
+    const listMemberSpeechesCursor = vi.fn(() =>
+      okp({ items: [], next: null, total: 0, population: 'LEGACY' as const })
+    );
     const filter = { chamber: { eq: 'senat' } };
     const r = await getMemberSpeechesConnection(
       deps(makeRepo({ listMemberSpeechesCursor })),
@@ -323,7 +327,11 @@ describe('getMemberSpeechesConnection — forwards filter + normalized q; length
   });
 
   it('rejects a q longer than the max BEFORE the repo', async () => {
-    const listMemberSpeechesCursor = vi.fn(() => okp({ items: [], next: null, total: 0 }));
+    // `population` is what the repo reports back so the shell can fold the APPLIED
+    // served population into per-edge cursors; pre-migration that is 'LEGACY'.
+    const listMemberSpeechesCursor = vi.fn(() =>
+      okp({ items: [], next: null, total: 0, population: 'LEGACY' as const })
+    );
     const r = await getMemberSpeechesConnection(
       deps(makeRepo({ listMemberSpeechesCursor })),
       '1:2024:79',
@@ -337,7 +345,11 @@ describe('getMemberSpeechesConnection — forwards filter + normalized q; length
   });
 
   it('passes q=undefined when the token normalizes to empty', async () => {
-    const listMemberSpeechesCursor = vi.fn(() => okp({ items: [], next: null, total: 0 }));
+    // `population` is what the repo reports back so the shell can fold the APPLIED
+    // served population into per-edge cursors; pre-migration that is 'LEGACY'.
+    const listMemberSpeechesCursor = vi.fn(() =>
+      okp({ items: [], next: null, total: 0, population: 'LEGACY' as const })
+    );
     await getMemberSpeechesConnection(
       deps(makeRepo({ listMemberSpeechesCursor })),
       '1:2024:79',
