@@ -204,8 +204,21 @@ export interface ContractDetail {
  *  - `not_available_for_source` — the family has NO detail feed in existence.
  *                                 seap_da / seap_dan came from bulk spreadsheet
  *                                 exports; there is nothing to capture, ever.
+ *  - `temporarily_unavailable`  — the detail lookup itself failed (timeout, a
+ *                                 projection mid-rollout). Says nothing about
+ *                                 the source: the base record above it is valid
+ *                                 and complete, and retrying may well answer.
+ *                                 NEVER reported for a missing row — that is
+ *                                 one of the two states above.
+ *
+ * Internal values are the SCREAMING_SNAKE GraphQL enum names lowercased; the
+ * resolver map in `shell/graphql/resolvers.ts` derives its keys from that.
  */
-export type DaDetailAvailability = 'available' | 'not_available_for_source' | 'not_captured';
+export type DaDetailAvailability =
+  | 'available'
+  | 'not_available_for_source'
+  | 'not_captured'
+  | 'temporarily_unavailable';
 
 /** One catalog line item: what was actually bought, per line. */
 export interface DaItem {

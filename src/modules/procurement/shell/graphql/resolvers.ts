@@ -60,6 +60,7 @@ import {
 
 import type { AnalysisRepo, ProcurementRepo } from '../../core/ports.js';
 import type {
+  DaDetailAvailability,
   OffsetSearchResult,
   ProcurementContract,
   ProcurementDirectAcquisition,
@@ -134,6 +135,30 @@ interface SearchArgs {
   pageSize?: number;
   facets?: readonly string[] | null;
 }
+
+/**
+ * Enum value mapping (@graphql-tools/schema convention): keys are the GraphQL
+ * enum NAMES, values are the internal representation the domain model emits.
+ * graphql-tools matches an internal value back to its enum name through this
+ * map — WITHOUT it, serializing the lowercase `'not_available_for_source'`
+ * against `ProcurementDetailAvailability` finds no member and throws. That threw
+ * on a NON-NULL field, so the null bubbled up and nulled the whole
+ * `procurementDirectAcquisition` bundle: every seap_da / seap_dan detail page
+ * (the majority of the DA grain) failed outright over a value that was correct.
+ *
+ * `Uppercase<DaDetailAvailability>` keys the map off the domain union itself, so
+ * a new internal availability value fails to COMPILE here until it is mapped,
+ * rather than failing at runtime on one source family's pages. The naming
+ * convention it relies on — enum name = internal value uppercased — is pinned by
+ * `tests/integration/procurement/detail-availability-graphql.test.ts`, which executes
+ * the real schema once per value.
+ */
+const DETAIL_AVAILABILITY_ENUM: Record<Uppercase<DaDetailAvailability>, DaDetailAvailability> = {
+  AVAILABLE: 'available',
+  NOT_AVAILABLE_FOR_SOURCE: 'not_available_for_source',
+  NOT_CAPTURED: 'not_captured',
+  TEMPORARILY_UNAVAILABLE: 'temporarily_unavailable',
+};
 
 export const makeProcurementResolvers = (
   deps: ProcurementResolverDeps
@@ -385,6 +410,9 @@ export const makeProcurementResolvers = (
       __resolveType: (node: Record<string, unknown>) =>
         'contractId' in node ? 'ProcurementContract' : 'ProcurementDirectAcquisition',
     },
+
+    // GraphQL enum name → internal domain value (see DETAIL_AVAILABILITY_ENUM).
+    ProcurementDetailAvailability: DETAIL_AVAILABILITY_ENUM,
   };
 };
 

@@ -33,6 +33,7 @@ import {
 } from '@/modules/shared/index.js';
 
 import { contractDisplayTitleCandidatesSelect } from './contract-display-title-projection.js';
+import { assembleDirectAcquisitionDetail } from './da-detail-bundle.js';
 import { makeProcurementDetailRepo } from './detail-repo.js';
 import {
   assertDaSelective,
@@ -77,7 +78,6 @@ import type {
   ProcurementDirectAcquisition,
   ProcurementModification,
   ProcurementProcedure,
-  DaDetailAvailability,
   DaDetailBody,
 } from '../../core/types.js';
 
@@ -150,7 +150,11 @@ export const makeProcurementRepo = (
   db: Db,
   daMaxWindowDays = DA_LIST_MAX_WINDOW_DAYS_DEFAULT,
   searchEngine?: OpenSearchListEngine,
-  logger?: { warn: (obj: Record<string, unknown>, msg: string) => void }
+  logger?: {
+    warn: (obj: Record<string, unknown>, msg: string) => void;
+    /** Degraded-but-served paths log here (see `da-detail-bundle.ts`). */
+    error?: (obj: Record<string, unknown>, msg: string) => void;
+  }
 ): ProcurementRepo => {
   // The offset-search + detail surfaces are their own modules; this repo composes
   // them so callers still see one `ProcurementRepo` port.
@@ -561,17 +565,81 @@ export const makeProcurementRepo = (
   const DA_ITEM_LIMIT = 500;
 
   /**
-   * Why no detail row exists, when none does. `seap_da` / `seap_dan` were loaded
-   * from bulk spreadsheet exports and have no detail endpoint behind them — that
-   * is permanent and must be reported differently from the e-licitatie pre-2020
-   * capture gap, which an active backfill is still closing.
+   * Read the OPTIONAL detail body + its item basket. `null` = no row exists;
+   * THROWS when the lookup itself failed. `assembleDirectAcquisitionDetail`
+   * owns the difference — it is the only caller, and the two outcomes mean
+   * opposite things to a reader.
    */
-  const availabilityForMissing = (sourceSystem: string): DaDetailAvailability =>
-    sourceSystem === 'elicitatie_da' ? 'not_captured' : 'not_available_for_source';
+  const loadDaDetailBody = async (daId: string): Promise<DaDetailBody | null> => {
+    const row = await db
+      .selectFrom('procurement.da_details as dd')
+      .select([
+        'dd.da_detail_id',
+        'dd.description',
+        'dd.delivery_condition',
+        'dd.payment_condition',
+        'dd.contract_type_text',
+        'dd.is_eu_funded',
+        'dd.eu_fund_text',
+        'dd.ca_rejection_reason',
+        'dd.supplier_rejection_reason',
+        'dd.correction_reason',
+        'dd.document_count',
+        'dd.item_count',
+        'dd.items_reconciled',
+        'dd.privacy_class',
+        'dd.source_url',
+        sql<string | null>`dd.ca_decision_date::text`.as('ca_decision_date'),
+        sql<string | null>`dd.ca_decision_deadline::text`.as('ca_decision_deadline'),
+        sql<string | null>`dd.supplier_decision_date::text`.as('supplier_decision_date'),
+        sql<string | null>`dd.supplier_decision_deadline::text`.as('supplier_decision_deadline'),
+        sql<string | null>`dd.items_total::text`.as('items_total'),
+        sql<string | null>`dd.items_value_delta::text`.as('items_value_delta'),
+      ])
+      .where('dd.da_id', '=', daId)
+      .limit(1)
+      .executeTakeFirst();
+
+    if (row === undefined) return null;
+
+    const items = await db
+      .selectFrom('procurement.da_items as di')
+      .select([
+        'di.da_item_id',
+        'di.item_index',
+        'di.catalog_item_code',
+        'di.catalog_item_name',
+        'di.catalog_item_description',
+        'di.item_measure_unit',
+        'di.cpv_code',
+        'di.cpv_text',
+        'di.source_url',
+        sql<string | null>`di.item_quantity::text`.as('item_quantity'),
+        sql<string | null>`di.unit_price::text`.as('unit_price'),
+        sql<string | null>`di.unit_estimated_price::text`.as('unit_estimated_price'),
+        sql<string | null>`di.catalog_unit_price::text`.as('catalog_unit_price'),
+        sql<string | null>`di.line_value::text`.as('line_value'),
+      ])
+      .where('di.da_detail_id', '=', row.da_detail_id)
+      .orderBy('di.item_index', 'asc')
+      .limit(DA_ITEM_LIMIT)
+      .execute();
+
+    if (items.length === DA_ITEM_LIMIT) {
+      logger?.warn(
+        { daId, limit: DA_ITEM_LIMIT },
+        'da-detail item limit reached; the item list is TRUNCATED for this direct acquisition'
+      );
+    }
+
+    return mapDaDetailBody(row, items);
+  };
 
   const getDirectAcquisitionDetail = async (
     id: string
   ): Promise<Result<DirectAcquisitionDetail | null, ApiError>> => {
+    // The REQUIRED half. A real failure stays a failure and a missing row stays
+    // a 404 — neither is ever softened into a detail-availability state.
     const daR = await getDirectAcquisition(id);
     if (daR.isErr()) return err(daR.error);
     if (daR.value === null) return ok(null);
@@ -584,82 +652,14 @@ export const makeProcurementRepo = (
     });
     if (dupsR.isErr()) return err(dupsR.error);
 
-    let body: DaDetailBody | null = null;
-    let availability: DaDetailAvailability = availabilityForMissing(da.sourceSystem);
-    try {
-      const row = await db
-        .selectFrom('procurement.da_details as dd')
-        .select([
-          'dd.da_detail_id',
-          'dd.description',
-          'dd.delivery_condition',
-          'dd.payment_condition',
-          'dd.contract_type_text',
-          'dd.is_eu_funded',
-          'dd.eu_fund_text',
-          'dd.ca_rejection_reason',
-          'dd.supplier_rejection_reason',
-          'dd.correction_reason',
-          'dd.document_count',
-          'dd.item_count',
-          'dd.items_reconciled',
-          'dd.privacy_class',
-          'dd.source_url',
-          sql<string | null>`dd.ca_decision_date::text`.as('ca_decision_date'),
-          sql<string | null>`dd.ca_decision_deadline::text`.as('ca_decision_deadline'),
-          sql<string | null>`dd.supplier_decision_date::text`.as('supplier_decision_date'),
-          sql<string | null>`dd.supplier_decision_deadline::text`.as('supplier_decision_deadline'),
-          sql<string | null>`dd.items_total::text`.as('items_total'),
-          sql<string | null>`dd.items_value_delta::text`.as('items_value_delta'),
-        ])
-        .where('dd.da_id', '=', da.daId)
-        .limit(1)
-        .executeTakeFirst();
-
-      if (row !== undefined) {
-        const items = await db
-          .selectFrom('procurement.da_items as di')
-          .select([
-            'di.da_item_id',
-            'di.item_index',
-            'di.catalog_item_code',
-            'di.catalog_item_name',
-            'di.catalog_item_description',
-            'di.item_measure_unit',
-            'di.cpv_code',
-            'di.cpv_text',
-            'di.source_url',
-            sql<string | null>`di.item_quantity::text`.as('item_quantity'),
-            sql<string | null>`di.unit_price::text`.as('unit_price'),
-            sql<string | null>`di.unit_estimated_price::text`.as('unit_estimated_price'),
-            sql<string | null>`di.catalog_unit_price::text`.as('catalog_unit_price'),
-            sql<string | null>`di.line_value::text`.as('line_value'),
-          ])
-          .where('di.da_detail_id', '=', row.da_detail_id)
-          .orderBy('di.item_index', 'asc')
-          .limit(DA_ITEM_LIMIT)
-          .execute();
-
-        if (items.length === DA_ITEM_LIMIT) {
-          logger?.warn(
-            { daId: da.daId, limit: DA_ITEM_LIMIT },
-            'da-detail item limit reached; the item list is TRUNCATED for this direct acquisition'
-          );
-        }
-
-        body = mapDaDetailBody(row, items);
-        availability = 'available';
-      }
-    } catch (error) {
-      return err(databaseError('getDirectAcquisitionDetail: detail body failed', error));
-    }
-
-    return ok({
-      detail: body,
-      detailAvailability: availability,
-      directAcquisition: da,
-      duplicates: dupsR.value,
-    });
+    return ok(
+      await assembleDirectAcquisitionDetail({
+        da,
+        duplicates: dupsR.value,
+        loadDetailBody: loadDaDetailBody,
+        ...(logger !== undefined && { logger }),
+      })
+    );
   };
 
   // ───────────────────────────────────────────────────────────────────────────

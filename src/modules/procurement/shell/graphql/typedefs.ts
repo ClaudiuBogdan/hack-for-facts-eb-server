@@ -482,6 +482,13 @@ export const procurementTypeDefs = /* GraphQL */ `
     NOT_CAPTURED
     "This family has NO detail feed in existence - it came from bulk spreadsheet exports, so there is nothing to capture."
     NOT_AVAILABLE_FOR_SOURCE
+    """
+    The detail lookup FAILED for this request (timeout, a projection mid-rollout).
+    Says nothing about the source: the record, its parties and its value above
+    are valid and complete, and a retry may well answer. Never reported for a
+    detail row that is simply absent.
+    """
+    TEMPORARILY_UNAVAILABLE
   }
 
   "One catalog line item: what was actually bought, per line."
