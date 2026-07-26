@@ -2,8 +2,9 @@
  * PNRR PII structural gate (§2.5/§8.2). Static assertions (no live DB):
  *  - the GraphQL SDL emits no `contact_*` / `isPersonalRecipient` field and never
  *    references the private contacts table;
- *  - the repo source never SELECTs `announcement_contacts_private`,
- *    `is_personal_recipient`, or projects `attrs` / `*_raw` provenance columns;
+ *  - the repo reads the default-deny public payments view and never SELECTs
+ *    `announcement_contacts_private`, `is_personal_recipient`, or projects
+ *    private identifiers / raw provenance;
  *  - the view-model types carry no PII fields.
  *
  * These mirror the loader's search-PII gate and the §2.5 structural exclusion.
@@ -51,32 +52,43 @@ describe('PNRR PII gate — repo source', () => {
     expect(repoSource).not.toMatch(/announcement_contacts_private/u);
   });
 
-  it('never PROJECTS is_personal_recipient (only filters it OUT)', () => {
-    // The PII gate WHERE clause (`is_personal_recipient is distinct from true`)
-    // legitimately names the column to EXCLUDE flagged rows. What must never
-    // happen is selecting/aliasing it into output. Assert every occurrence is the
-    // exclusion guard, and none is a projection.
-    const occurrences = repoSource.match(/is_personal_recipient/gu) ?? [];
-    expect(occurrences.length).toBeGreaterThan(0); // the defensive guard exists
-    // Each occurrence must be part of the exclusion predicate (distinct-from-true).
-    expect(repoSource).toContain('is_personal_recipient`)} is distinct from true');
-    // It must never appear inside a `.select([ ... ])` projection.
-    expect(repoSource).not.toMatch(/select\([^)]*is_personal_recipient/su);
-    // And never aliased as an output column.
-    expect(repoSource).not.toMatch(/is_personal_recipient'?\s*\.as\(/u);
+  it('reads payments only through the default-deny public view', () => {
+    expect(repoSource).toContain('pnrr.api_payments');
+    expect(repoSource).not.toContain("selectFrom('pnrr.payments");
+    expect(repoSource).not.toMatch(/\bfrom pnrr\.payments\b/u);
+    expect(repoSource).not.toContain('is_personal_recipient');
+  });
+
+  it('reads commitments and procurement only through public barrier views', () => {
+    for (const view of [
+      'pnrr.api_commitments',
+      'pnrr.api_commitment_snapshots',
+      'pnrr.api_procurement_announcements',
+      'pnrr.api_procurement_lots',
+      'pnrr.api_procurement_acquisitions',
+      'pnrr.api_procurement_participants',
+    ]) {
+      expect(repoSource).toContain(view);
+    }
+    for (const table of [
+      'commitments',
+      'commitment_snapshots',
+      'announcements',
+      'lots',
+      'acquisitions',
+      'contractors',
+    ]) {
+      expect(repoSource).not.toMatch(
+        new RegExp(`(?:selectFrom\\('|from |join )pnrr\\.${table}\\b`, 'u')
+      );
+    }
   });
 
   it('never selects raw/provenance columns into a projection', () => {
-    // status_raw / county_id_raw / source_record_hash / transform_version /
-    // raw_item_id / run_id must never appear in a SELECT.
-    for (const col of [
-      'status_raw',
-      'county_id_raw',
-      'source_record_hash',
-      'transform_version',
-      'raw_item_id',
-      'run_id',
-    ]) {
+    // Row-level source internals must never appear in a public projection.
+    // `run_id` is intentionally public as the optimistic release token and
+    // `status_raw` is the source-native public lifecycle label.
+    for (const col of ['county_id_raw', 'source_record_hash', 'transform_version', 'raw_item_id']) {
       expect(repoSource).not.toContain(col);
     }
   });

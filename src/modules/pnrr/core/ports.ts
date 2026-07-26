@@ -20,11 +20,25 @@ import type {
   PnrrContractorRankRow,
   PnrrEntity,
   PnrrEntityProfile,
+  PnrrFundingApplicationListing,
+  PnrrFundingCall,
+  PnrrCatalogResource,
+  PnrrDocumentReference,
   PnrrMeasure,
+  PnrrAnalysisScope,
+  PnrrCapability,
+  PnrrOverview,
+  PnrrPlaceProfile,
+  PnrrPlaceSummary,
+  PnrrProject,
+  PnrrProjectFacets,
+  PnrrRelease,
+  PnrrVerificationSummary,
   PnrrPayment,
   PnrrPaymentAggRow,
   PnrrPaymentGroupBy,
   PnrrProgramIndicator,
+  PnrrProgramRevision,
   PnrrResolveDim,
   PnrrResolveHit,
 } from './types.js';
@@ -35,6 +49,8 @@ import type { Result } from 'neverthrow';
 export interface CursorPageRequest {
   readonly first: number;
   readonly after?: string;
+  /** Release observed at request start; serving surfaces always provide it. */
+  readonly releaseId?: string;
 }
 
 export interface PnrrRepository {
@@ -59,11 +75,51 @@ export interface PnrrRepository {
     f: FilterInput,
     page: CursorPageRequest
   ): Promise<Result<CursorPage<PnrrCommitment>, ApiError>>;
-  /** Bounded to the commitment's (beneficiary_cui, contract_number) so unlinked snapshots stay reachable. */
+  getCommitment(key: string): Promise<Result<PnrrCommitment | null, ApiError>>;
+  /** Bounded to snapshots explicitly linked by commitment_key. */
   getCommitmentProgress(
     commitmentKey: string
   ): Promise<Result<readonly PnrrCommitmentSnapshot[], ApiError>>;
   listProgramIndicators(): Promise<Result<readonly PnrrProgramIndicator[], ApiError>>;
+  listFundingCalls(
+    page: CursorPageRequest,
+    releaseId?: string
+  ): Promise<Result<CursorPage<PnrrFundingCall>, ApiError>>;
+  listFundingApplicationListings(
+    page: CursorPageRequest,
+    releaseId?: string
+  ): Promise<Result<CursorPage<PnrrFundingApplicationListing>, ApiError>>;
+  listProgramRevisions(
+    page: CursorPageRequest,
+    releaseId?: string
+  ): Promise<Result<CursorPage<PnrrProgramRevision>, ApiError>>;
+  listCatalogResources(
+    page: CursorPageRequest,
+    releaseId?: string
+  ): Promise<Result<CursorPage<PnrrCatalogResource>, ApiError>>;
+  listDocumentReferences(
+    page: CursorPageRequest,
+    releaseId?: string
+  ): Promise<Result<CursorPage<PnrrDocumentReference>, ApiError>>;
+
+  // ── source-aware explorer ──
+  listProjects(
+    f: FilterInput,
+    page: CursorPageRequest,
+    releaseId?: string
+  ): Promise<Result<CursorPage<PnrrProject>, ApiError>>;
+  getProject(key: string): Promise<Result<PnrrProject | null, ApiError>>;
+  getProjectHistory(key: string): Promise<Result<readonly PnrrProject[], ApiError>>;
+  getProjectFacets(f: FilterInput): Promise<Result<PnrrProjectFacets, ApiError>>;
+  getCurrentRelease(): Promise<Result<PnrrRelease, ApiError>>;
+  getCapabilities(): Promise<Result<readonly PnrrCapability[], ApiError>>;
+  getOverview(scope: PnrrAnalysisScope): Promise<Result<PnrrOverview, ApiError>>;
+  getPlaceProfile(
+    countySiruta: string,
+    scope: PnrrAnalysisScope
+  ): Promise<Result<PnrrPlaceProfile | null, ApiError>>;
+  listPlaces(scope: PnrrAnalysisScope): Promise<Result<readonly PnrrPlaceSummary[], ApiError>>;
+  getVerification(scope: PnrrAnalysisScope): Promise<Result<PnrrVerificationSummary, ApiError>>;
 
   // ── procurement graph ──
   listAcquisitions(

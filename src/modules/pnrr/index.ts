@@ -14,6 +14,7 @@ import { makePnrrResolvers } from './shell/graphql/resolvers.js';
 import { pnrrTypeDefs } from './shell/graphql/typedefs.js';
 import { makePnrrMcpTools } from './shell/mcp/tools.js';
 import { makePnrrRepo } from './shell/repo/pnrr-repo.js';
+import { makePnrrRestRoutes } from './shell/rest/routes.js';
 
 import type { PnrrRepository } from './core/ports.js';
 import type {
@@ -23,6 +24,7 @@ import type {
   ProdDatabase,
   SourceContributor,
 } from '@/modules/shared/index.js';
+import type { FastifyPluginAsync } from 'fastify';
 import type { Kysely } from 'kysely';
 
 export interface PnrrModuleDeps {
@@ -37,6 +39,7 @@ export interface PnrrModule {
   readonly graphqlSlice: GraphqlSlice;
   readonly graphqlResolvers: Record<string, unknown>;
   readonly mcpTools: readonly KernelMcpTool[];
+  readonly restPlugin: FastifyPluginAsync;
   readonly contributor: SourceContributor;
 }
 
@@ -50,6 +53,7 @@ export const makePnrrModule = (deps: PnrrModuleDeps): PnrrModule => {
     graphqlSlice: { source: 'pnrr', typeDefs: pnrrTypeDefs },
     graphqlResolvers: makePnrrResolvers({ repo, registry: deps.registry }),
     mcpTools: makePnrrMcpTools({ repo, clientBaseUrl }),
+    restPlugin: makePnrrRestRoutes({ repo }),
     contributor,
   };
 };

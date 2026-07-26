@@ -20,7 +20,8 @@ export type PnrrContractorRole =
   | 'foreign_winning_bidder'
   | 'subcontractor'
   | 'association_leader'
-  | 'third_party_support';
+  | 'third_party_support'
+  | 'unknown';
 
 export const PNRR_CONTRACTOR_ROLES: readonly PnrrContractorRole[] = [
   'winning_bidder',
@@ -28,6 +29,7 @@ export const PNRR_CONTRACTOR_ROLES: readonly PnrrContractorRole[] = [
   'subcontractor',
   'association_leader',
   'third_party_support',
+  'unknown',
 ];
 
 export type PnrrMeasureType = 'investment' | 'reform';
@@ -54,7 +56,174 @@ export const PNRR_RESOLVE_DIMS: readonly PnrrResolveDim[] = [
   'contractor',
 ];
 
-export type PnrrContractorRankBy = 'value' | 'awards';
+/** Procurement participant values and winning-role policy are unresolved. */
+export type PnrrContractorRankBy = 'value' | 'awards' | 'relationships';
+
+export type PnrrProcurementValueState =
+  | 'additive'
+  | 'reported_unresolved'
+  | 'non_additive'
+  | 'unavailable';
+
+export type PnrrAnswerState = 'served' | 'degraded' | 'abstained';
+export type PnrrGrain =
+  | 'program'
+  | 'payment'
+  | 'commitment'
+  | 'progress_observation'
+  | 'organization'
+  | 'place'
+  | 'verification';
+export type PnrrAnalysisMeasure = 'count' | 'amount' | 'progress' | 'coverage';
+export type PnrrTimeRole = 'payment_date' | 'commitment_date' | 'snapshot_date' | 'retrieved_at';
+export type PnrrGeographyRole = 'beneficiary_county' | 'implementation_county' | 'inferred_uat';
+
+/**
+ * Canonical analytical scope shared by GraphQL, REST and MCP. Optional fields
+ * are source-native filters; the server echoes the normalized scope verbatim.
+ */
+export interface PnrrAnalysisScope {
+  readonly grain: PnrrGrain;
+  readonly measure: PnrrAnalysisMeasure;
+  readonly componentCode: string | null;
+  readonly beneficiaryCui: Cui | null;
+  readonly countySiruta: Siruta | null;
+  readonly from: IsoDate | null;
+  readonly to: IsoDate | null;
+  readonly timeRole: PnrrTimeRole;
+  readonly geographyRole: PnrrGeographyRole;
+  readonly currency: 'RON' | 'EUR' | null;
+  readonly resolutionPolicyVersion: 'pnrr-resolution-v1';
+}
+
+export interface PnrrCoverage {
+  readonly field: string;
+  readonly covered: number;
+  readonly total: number;
+  readonly percent: number | null;
+}
+
+export interface PnrrLaneFreshness {
+  readonly lane: string;
+  readonly state: PnrrAnswerState | 'legacy_unversioned';
+  readonly asOf: IsoDateTime | null;
+  readonly suspended: boolean;
+  readonly reasonCodes: readonly string[];
+}
+
+export interface PnrrRelease {
+  readonly releaseId: string;
+  readonly releaseKind: 'operational_snapshot' | 'backfill' | 'corrective';
+  readonly state: PnrrAnswerState;
+  readonly sourceSnapshotAt: IsoDateTime | null;
+  readonly completedAt: IsoDateTime | null;
+  readonly lanes: readonly PnrrLaneFreshness[];
+  readonly limitation: string;
+}
+
+export interface PnrrCapability {
+  readonly id: string;
+  readonly releaseId: string;
+  readonly state: PnrrAnswerState | 'legacy_unversioned';
+  readonly reasonCodes: readonly string[];
+  readonly limitation: string | null;
+}
+
+export interface PnrrAnswerMeta {
+  readonly scope: PnrrAnalysisScope;
+  readonly state: PnrrAnswerState;
+  readonly reasonCodes: readonly string[];
+  readonly coverage: readonly PnrrCoverage[];
+  readonly release: PnrrRelease;
+  readonly caveats: readonly string[];
+  readonly provenance: readonly string[];
+}
+
+export interface PnrrMoneyFact {
+  readonly factType:
+    | 'plan_allocation'
+    | 'eu_receipt'
+    | 'national_reported_payment'
+    | 'beneficiary_payment'
+    | 'commitment';
+  readonly amount: Money | null;
+  readonly currency: 'RON' | 'EUR';
+  readonly aggregationState: PnrrProcurementValueState;
+  readonly coveredCount: number;
+  readonly totalCount: number;
+}
+
+export interface PnrrOverview {
+  readonly meta: PnrrAnswerMeta;
+  readonly program: {
+    readonly snapshotDate: IsoDate | null;
+    readonly projectCount: number | null;
+    readonly allocationEur: PnrrMoneyFact;
+    readonly receivedEur: PnrrMoneyFact;
+    readonly paidEur: PnrrMoneyFact;
+  };
+  readonly beneficiaryPayments: {
+    readonly count: number;
+    readonly netRon: PnrrMoneyFact;
+    readonly grossRon: PnrrMoneyFact;
+    readonly reversalRon: PnrrMoneyFact;
+    readonly firstDate: IsoDate | null;
+    readonly lastDate: IsoDate | null;
+  };
+  readonly commitments: {
+    readonly count: number;
+    readonly additiveCount: number;
+    readonly unresolvedCount: number;
+    readonly additiveRon: PnrrMoneyFact;
+  };
+  readonly delivery: {
+    readonly observedCount: number;
+    readonly completedCount: number;
+    readonly overHundredCount: number;
+    readonly missingFinancialProgressCount: number;
+    readonly missingPhysicalProgressCount: number;
+  };
+}
+
+export interface PnrrPlaceProfile {
+  readonly meta: PnrrAnswerMeta;
+  readonly countySiruta: Siruta;
+  readonly countyName: string | null;
+  readonly paymentCount: number;
+  readonly paymentNetRon: Money | null;
+  readonly commitmentCount: number;
+  readonly additiveCommitmentCount: number;
+  readonly unresolvedCommitmentCount: number;
+  readonly additiveCommitmentRon: Money | null;
+  readonly projectObservationCount: number;
+  readonly sourceLocalityLabelCount: number;
+  readonly sourceLocalityLabelValue: null;
+}
+
+export interface PnrrPlaceSummary {
+  readonly countySiruta: Siruta;
+  readonly countyName: string;
+  readonly paymentCount: number;
+  readonly paymentNetRon: Money | null;
+  readonly commitmentCount: number;
+  readonly additiveCommitmentCount: number;
+  readonly unresolvedCommitmentCount: number;
+  readonly additiveCommitmentRon: Money | null;
+  readonly projectObservationCount: number;
+  readonly sourceLocalityLabelCount: number;
+  readonly sourceLocalityLabelValue: null;
+}
+
+export interface PnrrVerificationSummary {
+  readonly meta: PnrrAnswerMeta;
+  readonly ruleSetVersion: 'pnrr-verification-v1';
+  readonly unresolvedCommitmentCount: number;
+  readonly duplicatePaymentGroupCount: number;
+  readonly missingCommitmentSourceUrlCount: number;
+  readonly endBeforeStartCount: number;
+  readonly overHundredProgressCount: number;
+  readonly missingProgressLinkCount: number;
+}
 
 /** A name→value discovery hit. Module-local (see DESIGN.md: kernel should hoist a shared ResolveHit). */
 export interface PnrrResolveHit {
@@ -120,6 +289,7 @@ export interface PnrrCommitment {
   readonly beneficiaryName: string | null;
   readonly idAngajament: string | null;
   readonly contractNumber: string | null;
+  readonly contractTitle: string | null;
   readonly componentCode: string | null;
   readonly measureCode: string | null;
   readonly totalValue: Money | null;
@@ -130,10 +300,20 @@ export interface PnrrCommitment {
   readonly financialProgress: number | null;
   readonly physicalProgress: number | null;
   readonly commitmentDate: IsoDate | null;
+  readonly startDate: IsoDate | null;
   readonly endDate: IsoDate | null;
   readonly status: string;
   readonly countyName: string | null;
   readonly countySiruta: Siruta | null;
+  readonly localityName: string | null;
+  readonly sourceSystem: string | null;
+  readonly sourceUrl: string | null;
+  readonly aggregationState: string;
+  readonly envelopeObservationCount: number;
+  readonly qualityIssues: readonly string[];
+  readonly dateQuality: string;
+  readonly reportedTotalValue: Money | null;
+  readonly reportedEuValue: Money | null;
   readonly progressCount: number;
   readonly latestProgress: PnrrCommitmentSnapshot | null;
   readonly retrievedAt: IsoDateTime | null;
@@ -155,6 +335,86 @@ export interface PnrrCommitmentSnapshot {
   readonly allocatedEur: Money | null;
 }
 
+/**
+ * One public MIPE project-progress observation. `projectKey` is release-scoped
+ * observation identity until persisted project_key_v1 membership is available.
+ * Progress values are source ratios (1 = 100%), not percentages.
+ */
+export interface PnrrProject {
+  readonly projectKey: string;
+  readonly projectKeyVersion: 'mipe_observation_v1' | 'project_key_v1';
+  readonly sourceObservationId: string;
+  readonly snapshotId: string;
+  readonly snapshotDate: IsoDate;
+  readonly endpointName: string;
+  readonly itemKey: string | null;
+  readonly commitmentBusinessId: string | null;
+  readonly contractNumber: string | null;
+  readonly contractTitle: string | null;
+  readonly beneficiaryCui: Cui | null;
+  readonly beneficiaryName: string | null;
+  readonly beneficiaryType: string | null;
+  readonly componentCode: string | null;
+  readonly measureCode: string | null;
+  readonly submeasureCode: string | null;
+  readonly responsibleInstitutionCode: string | null;
+  readonly responsibleInstitutionName: string | null;
+  readonly financingSource: string | null;
+  readonly commitmentDate: IsoDate | null;
+  readonly startDate: IsoDate | null;
+  readonly endDate: IsoDate | null;
+  readonly lastFundingDate: IsoDate | null;
+  readonly totalValueRon: Money | null;
+  readonly euContributionRon: Money | null;
+  readonly nationalPublicValueRon: Money | null;
+  readonly vatRon: Money | null;
+  readonly ineligibleValueRon: Money | null;
+  readonly receivedAmountRon: Money | null;
+  readonly allocatedEur: Money | null;
+  readonly paidEur: Money | null;
+  readonly receivedEur: Money | null;
+  readonly prefinancingEur: Money | null;
+  readonly suspendedEur: Money | null;
+  readonly revokedEur: Money | null;
+  readonly projectCount: number | null;
+  readonly contractBeneficiaryCount: number | null;
+  readonly paymentBeneficiaryCount: number | null;
+  readonly nationalImpactProjectCount: number | null;
+  readonly paymentCount: number | null;
+  readonly beneficiaryCount: number | null;
+  readonly totalEur: Money | null;
+  readonly totalRon: Money | null;
+  readonly financialProgressRatio: number | null;
+  readonly physicalProgressRatio: number | null;
+  readonly countyName: string | null;
+  readonly countySiruta: Siruta | null;
+  readonly localityName: string | null;
+  readonly impact: string | null;
+  readonly timelineMonth: string | null;
+  readonly timelineLabel: string | null;
+  readonly status: string | null;
+  readonly sourceSystem: string;
+  readonly sourceUrl: string;
+  readonly retrievedAt: IsoDateTime;
+  readonly linkedCommitmentKey: string | null;
+  readonly commitmentRelationship: 'candidate_project' | null;
+  readonly commitmentAggregationState: string | null;
+}
+
+export interface PnrrProjectFacetValue {
+  readonly value: string;
+  readonly label: string | null;
+  readonly count: number;
+}
+
+export interface PnrrProjectFacets {
+  readonly totalCount: number;
+  readonly components: readonly PnrrProjectFacetValue[];
+  readonly measures: readonly PnrrProjectFacetValue[];
+  readonly statuses: readonly PnrrProjectFacetValue[];
+  readonly counties: readonly PnrrProjectFacetValue[];
+}
+
 export interface PnrrProgramIndicator {
   readonly snapshotId: string;
   readonly snapshotDate: IsoDate;
@@ -162,6 +422,79 @@ export interface PnrrProgramIndicator {
   readonly allocatedEur: Money | null;
   readonly receivedEur: Money | null;
   readonly paidEur: Money | null;
+}
+
+export interface PnrrFundingCall {
+  readonly callId: string;
+  readonly title: string;
+  readonly budgetRon: Money | null;
+  readonly totalEligibleValueRon: Money | null;
+  readonly sourceSystem: string;
+  readonly sourceUrl: string;
+  readonly retrievedAt: IsoDateTime;
+}
+
+export interface PnrrFundingApplicationListing {
+  readonly listingId: string;
+  readonly listingCandidateKey: string;
+  readonly callId: string | null;
+  readonly sourceRequestCallId: string | null;
+  readonly applicantCui: Cui | null;
+  readonly applicantName: string | null;
+  readonly sentAt: IsoDateTime | null;
+  readonly orderNumber: string | null;
+  readonly completenessStatus: string;
+  readonly sourceSystem: string;
+  readonly sourceUrl: string;
+  readonly retrievedAt: IsoDateTime;
+}
+
+export interface PnrrProgramRevision {
+  readonly revisionId: string;
+  readonly identifierScheme: string;
+  readonly legalReference: string;
+  readonly celex: string | null;
+  readonly legalStatus: string;
+  readonly isCurrentAdopted: boolean;
+  readonly effectiveDate: IsoDate | null;
+  readonly sourceAuthority: string;
+  readonly sourceUrl: string;
+  readonly documentCount: number;
+  readonly textReadyDocumentCount: number;
+  readonly ocrRequiredDocumentCount: number;
+}
+
+export interface PnrrCatalogResource {
+  readonly resourceId: string;
+  readonly packageId: string | null;
+  readonly resourceName: string | null;
+  readonly format: string | null;
+  readonly mimeType: string | null;
+  readonly datastoreActive: boolean | null;
+  readonly fileUrl: string | null;
+  readonly lastModified: IsoDateTime | null;
+  readonly declaredHash: string | null;
+  readonly sourceSystem: string;
+  readonly sourceUrl: string;
+  readonly retrievedAt: IsoDateTime;
+}
+
+export interface PnrrDocumentReference {
+  readonly documentKey: string;
+  readonly acquisitionKey: string | null;
+  readonly lotKey: string | null;
+  readonly announcementKey: string | null;
+  readonly programRevisionId: string | null;
+  readonly language: string | null;
+  readonly documentRole: string | null;
+  readonly fileName: string | null;
+  readonly mimeType: string | null;
+  readonly documentType: string | null;
+  readonly sourceUrl: string;
+  readonly retrievedAt: IsoDateTime | null;
+  readonly contentSha256: string | null;
+  readonly extractionState: string;
+  readonly hasObjectCustody: boolean;
 }
 
 // ── procurement graph ─────────────────────────────────────────────────────────
@@ -188,6 +521,8 @@ export interface PnrrAcquisition {
   readonly procedureType: string | null;
   readonly signedAt: IsoDate | null;
   readonly fullContractValue: Money | null;
+  readonly valueAggregationState: PnrrProcurementValueState;
+  readonly valueReason: string;
   readonly currency: string | null;
   readonly awardCriterion: string | null;
   readonly frameworkAgreement: boolean | null;
@@ -209,10 +544,14 @@ export interface PnrrContractor {
   readonly contractorKey: string;
   readonly acquisitionKey: string | null;
   readonly role: PnrrContractorRole;
+  /** Exact source role retained when `role` must fall back to `unknown`. */
+  readonly sourceRole: string;
   readonly contractorCui: Cui | null; // null for foreign
   readonly contractorName: string | null;
   readonly contractorCountry: string | null;
   readonly contractValue: Money | null;
+  readonly valueAggregationState: PnrrProcurementValueState;
+  readonly valueReason: string;
   readonly currency: string | null;
   readonly confidence: string | null;
   readonly validationStatus: string | null;
@@ -296,8 +635,15 @@ export interface PnrrCommitmentSummary {
 export interface PnrrProcurementSummary {
   readonly acquisitionsAsBeneficiary: number;
   readonly acquisitionsValue: Money | null;
+  /** Legacy field retained for API compatibility; counts source participant rows. */
   readonly wonAsContractor: number;
+  /** Legacy money field retained but abstained until the acquisition value law is resolved. */
   readonly wonValue: Money | null;
+  readonly participantRelationCount: number;
+  readonly unknownRelationshipCount: number;
+  readonly participantValue: Money | null;
+  readonly valueAggregationState: 'unavailable';
+  readonly valueReason: string;
 }
 
 export interface PnrrEntityProfile {
@@ -312,8 +658,13 @@ export interface PnrrEntityProfile {
 export interface PnrrContractorRankRow {
   readonly contractorCui: Cui | null;
   readonly contractorName: string | null;
+  /** Legacy field retained for API compatibility; mirrors participantRelationCount. */
   readonly awardCount: number;
+  readonly participantRelationCount: number;
+  readonly unknownRelationshipCount: number;
   readonly totalValue: Money | null;
+  readonly valueAggregationState: 'unavailable';
+  readonly valueReason: string;
   readonly roles: readonly PnrrContractorRole[];
 }
 

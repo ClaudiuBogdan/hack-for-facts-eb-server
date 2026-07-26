@@ -14,7 +14,70 @@
  * predicate. The repo enforces "at least one driving predicate" per collection.
  */
 
-import type { CollectionFilterSpec } from '@/modules/shared/index.js';
+import { err, ok, type Result } from 'neverthrow';
+
+import {
+  invalidInput,
+  isWithheldOrganizationIdentifier,
+  normalizeCui,
+  type ApiError,
+  type CollectionFilterSpec,
+  type FilterInput,
+} from '@/modules/shared/index.js';
+
+const CUI_FILTER_FIELDS = new Set(['cui', 'beneficiaryCui', 'contractorCui']);
+
+/**
+ * Canonicalize every PNRR CUI filter before hashing, cursor decoding, or SQL.
+ * This keeps equivalent spellings (`RO 12-34` and `1234`) in one scope and
+ * applies the kernel's public natural-person identifier containment rule.
+ */
+export const normalizePnrrFilter = (input: FilterInput): Result<FilterInput, ApiError> => {
+  const normalizeContainer = (
+    container: Readonly<Record<string, unknown>>
+  ): Result<Readonly<Record<string, unknown>>, ApiError> => {
+    const output: Record<string, unknown> = { ...container };
+    for (const field of CUI_FILTER_FIELDS) {
+      const rawFilter = container[field];
+      if (rawFilter === undefined || rawFilter === null || typeof rawFilter !== 'object') continue;
+      const fieldFilter = rawFilter as Readonly<Record<string, unknown>>;
+      const next: Record<string, unknown> = { ...fieldFilter };
+      const normalizeValue = (value: unknown): Result<string, ApiError> => {
+        const normalized = normalizeCui(String(value));
+        if (normalized === null) return err(invalidInput('invalid CUI format', field));
+        if (isWithheldOrganizationIdentifier(normalized)) {
+          return err(invalidInput('organization identifier is not publicly served', field));
+        }
+        return ok(normalized);
+      };
+
+      if (typeof fieldFilter['eq'] === 'string' || typeof fieldFilter['eq'] === 'number') {
+        const normalized = normalizeValue(fieldFilter['eq']);
+        if (normalized.isErr()) return err(normalized.error);
+        next['eq'] = normalized.value;
+      }
+      if (Array.isArray(fieldFilter['in'])) {
+        const values: string[] = [];
+        for (const value of fieldFilter['in']) {
+          const normalized = normalizeValue(value);
+          if (normalized.isErr()) return err(normalized.error);
+          values.push(normalized.value);
+        }
+        next['in'] = values;
+      }
+      output[field] = next;
+    }
+    return ok(output);
+  };
+
+  const top = normalizeContainer(input);
+  if (top.isErr()) return err(top.error);
+  const exclude = input.exclude;
+  if (exclude === undefined) return ok(top.value as FilterInput);
+  const normalizedExclude = normalizeContainer(exclude);
+  if (normalizedExclude.isErr()) return err(normalizedExclude.error);
+  return ok({ ...top.value, exclude: normalizedExclude.value } as FilterInput);
+};
 
 /** C1–C16 (the 16 live components). */
 export const PNRR_COMPONENT_CODES: readonly string[] = Array.from(
@@ -230,6 +293,62 @@ export const pnrrCommitmentsFilterSpec: CollectionFilterSpec = {
   sort: { default: 'commitment_date', allowed: ['commitment_date', 'total_value'] },
 };
 
+/**
+ * MIPE's current project-progress observations. This is deliberately separate
+ * from commitment envelopes: project rows are source observations, while
+ * commitments are ORDS/accounting facts that can have a candidate relationship.
+ */
+export const pnrrProjectsFilterSpec: CollectionFilterSpec = {
+  collection: 'pnrr_projects',
+  fields: [
+    {
+      name: 'beneficiaryCui',
+      type: 'string',
+      ops: ['eq', 'in'],
+      column: { alias: 'p', column: 'beneficiary_cui' },
+    },
+    {
+      name: 'contractNumber',
+      type: 'string',
+      ops: ['eq'],
+      column: { alias: 'p', column: 'contract_number' },
+    },
+    {
+      name: 'componentCode',
+      type: 'enum',
+      ops: ['eq', 'in'],
+      enumValues: PNRR_COMPONENT_CODES,
+      column: { alias: 'p', column: 'component_code' },
+    },
+    {
+      name: 'measureCode',
+      type: 'string',
+      ops: ['eq'],
+      column: { alias: 'p', column: 'measure_raw' },
+    },
+    {
+      name: 'status',
+      type: 'enum',
+      ops: ['eq', 'in'],
+      enumValues: [...PNRR_COMMITMENT_STATUS_VALUES],
+      column: { alias: 'p', column: 'status_raw' },
+    },
+    {
+      name: 'countySiruta',
+      type: 'string',
+      ops: ['eq', 'in'],
+      column: { alias: 'p', column: 'county_siruta' },
+    },
+    {
+      name: 'snapshotDate',
+      type: 'date',
+      ops: ['between'],
+      column: { alias: 'p', column: 'snapshot_date' },
+    },
+  ],
+  sort: { default: 'snapshot_date', allowed: ['snapshot_date', 'total_value'] },
+};
+
 export const pnrrAcquisitionsFilterSpec: CollectionFilterSpec = {
   collection: 'pnrr_acquisitions',
   fields: [
@@ -297,7 +416,7 @@ export const pnrrAcquisitionsFilterSpec: CollectionFilterSpec = {
       description: 'Residual filter.',
     },
   ],
-  sort: { default: 'signed_at', allowed: ['signed_at', 'full_contract_value'] },
+  sort: { default: 'signed_at', allowed: ['signed_at'] },
 };
 
 export const pnrrContractorsFilterSpec: CollectionFilterSpec = {
@@ -344,7 +463,7 @@ export const pnrrContractorsFilterSpec: CollectionFilterSpec = {
       description: 'Residual filter.',
     },
   ],
-  sort: { default: 'contract_value', allowed: ['contract_value'] },
+  sort: { default: 'contractor_key', allowed: ['contractor_key'] },
 };
 
 export const pnrrMeasuresFilterSpec: CollectionFilterSpec = {
@@ -382,6 +501,7 @@ export const PNRR_FILTER_SPECS = {
   entities: pnrrEntitiesFilterSpec,
   payments: pnrrPaymentsFilterSpec,
   commitments: pnrrCommitmentsFilterSpec,
+  projects: pnrrProjectsFilterSpec,
   acquisitions: pnrrAcquisitionsFilterSpec,
   contractors: pnrrContractorsFilterSpec,
   measures: pnrrMeasuresFilterSpec,

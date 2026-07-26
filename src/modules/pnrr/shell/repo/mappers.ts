@@ -34,7 +34,15 @@ export const num = (v: string | number | null | undefined): number | null => {
 const roleOf = (raw: string): PnrrContractorRole =>
   (PNRR_CONTRACTOR_ROLES as readonly string[]).includes(raw)
     ? (raw as PnrrContractorRole)
-    : 'winning_bidder';
+    : 'unknown';
+
+const PROCUREMENT_VALUE_REASON = 'participant_allocation_unresolved';
+
+export const publicOrganizationIdentity = (
+  cui: string | null,
+  name: string | null
+): { cui: string | null; name: string | null } =>
+  cui !== null && /^[0-9]{1,10}$/u.test(cui) ? { cui, name } : { cui: null, name: null };
 
 const directionOf = (raw: string | null): PnrrPaymentDirection | null =>
   raw === 'disbursement' || raw === 'reversal' || raw === 'zero_adjustment' ? raw : null;
@@ -96,25 +104,28 @@ export interface PaymentRow {
   retrieved_at: string | null;
 }
 
-export const mapPayment = (r: PaymentRow): PnrrPayment => ({
-  paymentKey: r.payment_key,
-  beneficiaryCui: r.beneficiary_cui,
-  beneficiaryName: r.beneficiary_name,
-  componentCode: r.component_code,
-  measureFenix: r.measure_fenix,
-  measureRaw: r.measure_raw,
-  amountLei: r.amount_lei,
-  amountEur: r.amount_eur,
-  paymentDirection: directionOf(r.payment_direction),
-  paymentDate: r.payment_date,
-  countyName: r.county_name,
-  countySiruta: r.county_siruta,
-  localityName: r.locality_name,
-  caenDivision: r.caen_division,
-  financingSource: r.financing_source,
-  sourceSystem: r.source_system,
-  retrievedAt: r.retrieved_at,
-});
+export const mapPayment = (r: PaymentRow): PnrrPayment => {
+  const beneficiary = publicOrganizationIdentity(r.beneficiary_cui, r.beneficiary_name);
+  return {
+    paymentKey: r.payment_key,
+    beneficiaryCui: beneficiary.cui,
+    beneficiaryName: beneficiary.name,
+    componentCode: r.component_code,
+    measureFenix: r.measure_fenix,
+    measureRaw: r.measure_raw,
+    amountLei: r.amount_lei,
+    amountEur: r.amount_eur,
+    paymentDirection: directionOf(r.payment_direction),
+    paymentDate: r.payment_date,
+    countyName: r.county_name,
+    countySiruta: r.county_siruta,
+    localityName: r.locality_name,
+    caenDivision: r.caen_division,
+    financingSource: r.financing_source,
+    sourceSystem: r.source_system,
+    retrievedAt: r.retrieved_at,
+  };
+};
 
 export interface CommitmentRow {
   commitment_key: string;
@@ -122,6 +133,7 @@ export interface CommitmentRow {
   beneficiary_name: string | null;
   id_angajament: string | null;
   contract_number: string | null;
+  contract_title?: string | null;
   component_code: string | null;
   measure_code: string | null;
   total_value: string | null;
@@ -132,10 +144,20 @@ export interface CommitmentRow {
   financial_progress: string | null;
   physical_progress: string | null;
   commitment_date: string | null;
+  start_date?: string | null;
   end_date: string | null;
   status: string | null;
   county_name: string | null;
   county_siruta: string | null;
+  locality_name?: string | null;
+  source_system?: string | null;
+  source_url?: string | null;
+  aggregation_state?: string;
+  envelope_observation_count?: number;
+  quality_issues?: string[];
+  date_quality?: string;
+  reported_total_value?: string | null;
+  reported_eu_value?: string | null;
   retrieved_at: string | null;
   progress_count: string;
 }
@@ -143,30 +165,44 @@ export interface CommitmentRow {
 export const mapCommitment = (
   r: CommitmentRow,
   latestProgress: PnrrCommitmentSnapshot | null
-): PnrrCommitment => ({
-  commitmentKey: r.commitment_key,
-  beneficiaryCui: r.beneficiary_cui,
-  beneficiaryName: r.beneficiary_name,
-  idAngajament: r.id_angajament,
-  contractNumber: r.contract_number,
-  componentCode: r.component_code,
-  measureCode: r.measure_code,
-  totalValue: r.total_value,
-  euValue: r.eu_value,
-  nationalPublicValue: r.national_public_value,
-  vatValue: r.vat_value,
-  ineligibleValue: r.ineligible_value,
-  financialProgress: num(r.financial_progress),
-  physicalProgress: num(r.physical_progress),
-  commitmentDate: r.commitment_date,
-  endDate: r.end_date,
-  status: r.status ?? '',
-  countyName: r.county_name,
-  countySiruta: r.county_siruta,
-  progressCount: Number(r.progress_count),
-  latestProgress,
-  retrievedAt: r.retrieved_at,
-});
+): PnrrCommitment => {
+  const beneficiary = publicOrganizationIdentity(r.beneficiary_cui, r.beneficiary_name);
+  return {
+    commitmentKey: r.commitment_key,
+    beneficiaryCui: beneficiary.cui,
+    beneficiaryName: beneficiary.name,
+    idAngajament: r.id_angajament,
+    contractNumber: r.contract_number,
+    contractTitle: r.contract_title ?? null,
+    componentCode: r.component_code,
+    measureCode: r.measure_code,
+    totalValue: r.total_value,
+    euValue: r.eu_value,
+    nationalPublicValue: r.national_public_value,
+    vatValue: r.vat_value,
+    ineligibleValue: r.ineligible_value,
+    financialProgress: num(r.financial_progress),
+    physicalProgress: num(r.physical_progress),
+    commitmentDate: r.commitment_date,
+    startDate: r.start_date ?? null,
+    endDate: r.end_date,
+    status: r.status ?? '',
+    countyName: r.county_name,
+    countySiruta: r.county_siruta,
+    localityName: r.locality_name ?? null,
+    sourceSystem: r.source_system ?? null,
+    sourceUrl: r.source_url ?? null,
+    aggregationState: r.aggregation_state ?? 'legacy_unversioned',
+    envelopeObservationCount: r.envelope_observation_count ?? 1,
+    qualityIssues: r.quality_issues ?? [],
+    dateQuality: r.date_quality ?? 'unknown',
+    reportedTotalValue: r.reported_total_value ?? null,
+    reportedEuValue: r.reported_eu_value ?? null,
+    progressCount: Number(r.progress_count),
+    latestProgress,
+    retrievedAt: r.retrieved_at,
+  };
+};
 
 export interface SnapshotRow {
   snapshot_id: string;
@@ -188,7 +224,7 @@ export const mapSnapshot = (r: SnapshotRow): PnrrCommitmentSnapshot => ({
   snapshotId: r.snapshot_id,
   sourceRecordId: r.source_record_id,
   snapshotDate: r.snapshot_date,
-  beneficiaryCui: r.beneficiary_cui,
+  beneficiaryCui: publicOrganizationIdentity(r.beneficiary_cui, null).cui,
   contractNumber: r.contract_number,
   commitmentKey: r.commitment_key,
   linkConfidence: num(r.link_confidence),
@@ -231,18 +267,21 @@ export interface AnnouncementRow {
   county_siruta: string | null;
 }
 
-export const mapAnnouncement = (r: AnnouncementRow): PnrrAnnouncement => ({
-  announcementKey: r.announcement_key,
-  platformProjectId: r.platform_project_id,
-  applicantCui: r.applicant_cui,
-  applicantName: r.applicant_name,
-  projectName: r.project_name,
-  callName: r.call_name,
-  componentCode: r.component_code,
-  budgetValue: r.budget_value,
-  status: r.status ?? '',
-  countySiruta: r.county_siruta,
-});
+export const mapAnnouncement = (r: AnnouncementRow): PnrrAnnouncement => {
+  const applicant = publicOrganizationIdentity(r.applicant_cui, r.applicant_name);
+  return {
+    announcementKey: r.announcement_key,
+    platformProjectId: r.platform_project_id,
+    applicantCui: applicant.cui,
+    applicantName: applicant.name,
+    projectName: r.project_name,
+    callName: r.call_name,
+    componentCode: r.component_code,
+    budgetValue: r.budget_value,
+    status: r.status ?? '',
+    countySiruta: r.county_siruta,
+  };
+};
 
 export interface AcquisitionRow {
   acquisition_key: string;
@@ -262,23 +301,31 @@ export interface AcquisitionRow {
   contractor_count: string;
 }
 
-export const mapAcquisition = (r: AcquisitionRow): PnrrAcquisition => ({
-  acquisitionKey: r.acquisition_key,
-  announcementKey: r.announcement_key,
-  beneficiaryCui: r.beneficiary_cui,
-  beneficiaryName: r.beneficiary_name,
-  procedureType: r.procedure_type,
-  signedAt: r.signed_at,
-  fullContractValue: r.full_contract_value,
-  currency: r.currency,
-  awardCriterion: r.award_criterion,
-  frameworkAgreement: r.framework_agreement,
-  hasAssociationLeader: r.has_association_leader,
-  hasThirdPartySupport: r.has_third_party_support,
-  hasSubcontractor: r.has_subcontractor,
-  contractorCount: Number(r.contractor_count),
-  retrievedAt: r.retrieved_at,
-});
+export const mapAcquisition = (
+  r: AcquisitionRow,
+  includeReportedValue = false
+): PnrrAcquisition => {
+  const beneficiary = publicOrganizationIdentity(r.beneficiary_cui, r.beneficiary_name);
+  return {
+    acquisitionKey: r.acquisition_key,
+    announcementKey: r.announcement_key,
+    beneficiaryCui: beneficiary.cui,
+    beneficiaryName: beneficiary.name,
+    procedureType: r.procedure_type,
+    signedAt: r.signed_at,
+    fullContractValue: includeReportedValue ? r.full_contract_value : null,
+    valueAggregationState: includeReportedValue ? 'reported_unresolved' : 'unavailable',
+    valueReason: PROCUREMENT_VALUE_REASON,
+    currency: r.currency,
+    awardCriterion: r.award_criterion,
+    frameworkAgreement: r.framework_agreement,
+    hasAssociationLeader: r.has_association_leader,
+    hasThirdPartySupport: r.has_third_party_support,
+    hasSubcontractor: r.has_subcontractor,
+    contractorCount: Number(r.contractor_count),
+    retrievedAt: r.retrieved_at,
+  };
+};
 
 export interface LotRow {
   lot_key: string;
@@ -307,18 +354,24 @@ export interface ContractorRow {
   validation_status: string | null;
 }
 
-export const mapContractor = (r: ContractorRow): PnrrContractor => ({
-  contractorKey: r.contractor_key,
-  acquisitionKey: r.acquisition_key,
-  role: roleOf(r.role),
-  contractorCui: r.contractor_cui,
-  contractorName: r.contractor_name,
-  contractorCountry: r.contractor_country,
-  contractValue: r.contract_value,
-  currency: r.currency,
-  confidence: r.confidence,
-  validationStatus: r.validation_status,
-});
+export const mapContractor = (r: ContractorRow): PnrrContractor => {
+  const contractor = publicOrganizationIdentity(r.contractor_cui, r.contractor_name);
+  return {
+    contractorKey: r.contractor_key,
+    acquisitionKey: r.acquisition_key,
+    role: roleOf(r.role),
+    sourceRole: r.role,
+    contractorCui: contractor.cui,
+    contractorName: contractor.name,
+    contractorCountry: r.contractor_country,
+    contractValue: null,
+    valueAggregationState: 'unavailable',
+    valueReason: PROCUREMENT_VALUE_REASON,
+    currency: r.currency,
+    confidence: r.confidence,
+    validationStatus: r.validation_status,
+  };
+};
 
 export interface ComponentRow {
   component_code: string;

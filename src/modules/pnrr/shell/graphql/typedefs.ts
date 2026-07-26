@@ -15,12 +15,14 @@ import {
   pnrrEntitiesFilterSpec,
   pnrrMeasuresFilterSpec,
   pnrrPaymentsFilterSpec,
+  pnrrProjectsFilterSpec,
 } from '../../core/filters.js';
 
 const filterInputs = [
   pnrrEntitiesFilterSpec,
   pnrrPaymentsFilterSpec,
   pnrrCommitmentsFilterSpec,
+  pnrrProjectsFilterSpec,
   pnrrAcquisitionsFilterSpec,
   pnrrContractorsFilterSpec,
   pnrrMeasuresFilterSpec,
@@ -35,6 +37,7 @@ const objectsAndQuery = /* GraphQL */ `
     subcontractor
     association_leader
     third_party_support
+    unknown
   }
   enum PnrrMeasureType {
     investment
@@ -49,6 +52,7 @@ const objectsAndQuery = /* GraphQL */ `
   enum PnrrContractorRankBy {
     value
     awards
+    relationships
   }
   enum PnrrResolveDim {
     entity
@@ -56,6 +60,183 @@ const objectsAndQuery = /* GraphQL */ `
     measure
     county
     contractor
+  }
+  enum PnrrAnswerState {
+    served
+    degraded
+    abstained
+    legacy_unversioned
+  }
+  enum PnrrGrain {
+    program
+    payment
+    commitment
+    progress_observation
+    organization
+    place
+    verification
+  }
+  enum PnrrAnalysisMeasure {
+    count
+    amount
+    progress
+    coverage
+  }
+  enum PnrrTimeRole {
+    payment_date
+    commitment_date
+    snapshot_date
+    retrieved_at
+  }
+  enum PnrrGeographyRole {
+    beneficiary_county
+    implementation_county
+    inferred_uat
+  }
+  input PnrrAnalysisScopeInput {
+    grain: PnrrGrain
+    measure: PnrrAnalysisMeasure
+    componentCode: String
+    beneficiaryCui: CUI
+    countySiruta: SIRUTA
+    from: Date
+    to: Date
+    timeRole: PnrrTimeRole
+    geographyRole: PnrrGeographyRole
+    currency: String
+    resolutionPolicyVersion: String
+  }
+  type PnrrAnalysisScope {
+    grain: PnrrGrain!
+    measure: PnrrAnalysisMeasure!
+    componentCode: String
+    beneficiaryCui: CUI
+    countySiruta: SIRUTA
+    from: Date
+    to: Date
+    timeRole: PnrrTimeRole!
+    geographyRole: PnrrGeographyRole!
+    currency: String
+    resolutionPolicyVersion: String!
+  }
+  type PnrrCoverage {
+    field: String!
+    covered: Int!
+    total: Int!
+    percent: Float
+  }
+  type PnrrLaneFreshness {
+    lane: String!
+    state: PnrrAnswerState!
+    asOf: DateTime
+    suspended: Boolean!
+    reasonCodes: [String!]!
+  }
+  type PnrrRelease {
+    releaseId: ID!
+    releaseKind: String!
+    state: PnrrAnswerState!
+    sourceSnapshotAt: DateTime
+    completedAt: DateTime
+    lanes: [PnrrLaneFreshness!]!
+    limitation: String!
+  }
+  type PnrrCapability {
+    id: ID!
+    releaseId: ID!
+    state: PnrrAnswerState!
+    reasonCodes: [String!]!
+    limitation: String
+  }
+  type PnrrAnswerMeta {
+    scope: PnrrAnalysisScope!
+    state: PnrrAnswerState!
+    reasonCodes: [String!]!
+    coverage: [PnrrCoverage!]!
+    release: PnrrRelease!
+    caveats: [String!]!
+    provenance: [String!]!
+  }
+  type PnrrMoneyFact {
+    factType: String!
+    amount: Money
+    currency: String!
+    aggregationState: String!
+    coveredCount: Int!
+    totalCount: Int!
+  }
+  type PnrrProgramOverview {
+    snapshotDate: Date
+    projectCount: Int
+    allocationEur: PnrrMoneyFact!
+    receivedEur: PnrrMoneyFact!
+    paidEur: PnrrMoneyFact!
+  }
+  type PnrrPaymentOverview {
+    count: Int!
+    netRon: PnrrMoneyFact!
+    grossRon: PnrrMoneyFact!
+    reversalRon: PnrrMoneyFact!
+    firstDate: Date
+    lastDate: Date
+  }
+  type PnrrCommitmentOverview {
+    count: Int!
+    additiveCount: Int!
+    unresolvedCount: Int!
+    additiveRon: PnrrMoneyFact!
+  }
+  type PnrrDeliveryOverview {
+    observedCount: Int!
+    completedCount: Int!
+    overHundredCount: Int!
+    missingFinancialProgressCount: Int!
+    missingPhysicalProgressCount: Int!
+  }
+  type PnrrOverview {
+    meta: PnrrAnswerMeta!
+    program: PnrrProgramOverview!
+    beneficiaryPayments: PnrrPaymentOverview!
+    commitments: PnrrCommitmentOverview!
+    delivery: PnrrDeliveryOverview!
+  }
+  type PnrrPlaceProfile {
+    meta: PnrrAnswerMeta!
+    countySiruta: SIRUTA!
+    countyName: String
+    paymentCount: Int!
+    paymentNetRon: Money
+    commitmentCount: Int!
+    additiveCommitmentCount: Int!
+    unresolvedCommitmentCount: Int!
+    additiveCommitmentRon: Money
+    projectObservationCount: Int!
+    sourceLocalityLabelCount: Int!
+    sourceLocalityLabelValue: Money
+  }
+
+  type PnrrPlaceSummary {
+    countySiruta: SIRUTA!
+    countyName: String!
+    paymentCount: Int!
+    paymentNetRon: Money
+    commitmentCount: Int!
+    additiveCommitmentCount: Int!
+    unresolvedCommitmentCount: Int!
+    additiveCommitmentRon: Money
+    projectObservationCount: Int!
+    sourceLocalityLabelCount: Int!
+    sourceLocalityLabelValue: Money
+  }
+  type PnrrVerificationSummary {
+    meta: PnrrAnswerMeta!
+    ruleSetVersion: String!
+    unresolvedCommitmentCount: Int!
+    duplicatePaymentGroupCount: Int!
+    missingCommitmentSourceUrlCount: Int!
+    endBeforeStartCount: Int!
+    overHundredProgressCount: Int!
+    missingProgressLinkCount: Int!
   }
 
   type PnrrEntityRoles {
@@ -118,8 +299,15 @@ const objectsAndQuery = /* GraphQL */ `
   type PnrrProcurementSummary {
     acquisitionsAsBeneficiary: Int!
     acquisitionsValue: Money
+    "Legacy count retained for compatibility. Prefer participantRelationCount."
     wonAsContractor: Int!
+    "Legacy money retained for compatibility; null while acquisition values are unresolved."
     wonValue: Money
+    participantRelationCount: Int!
+    unknownRelationshipCount: Int!
+    participantValue: Money
+    valueAggregationState: String!
+    valueReason: String!
   }
 
   "Entity rollup. Grains are kept separate (see grainNote) and never summed."
@@ -161,6 +349,7 @@ const objectsAndQuery = /* GraphQL */ `
     beneficiaryName: String
     idAngajament: String
     contractNumber: String
+    contractTitle: String
     componentCode: String
     measureCode: String
     totalValue: Money
@@ -171,10 +360,20 @@ const objectsAndQuery = /* GraphQL */ `
     financialProgress: Float
     physicalProgress: Float
     commitmentDate: Date
+    startDate: Date
     endDate: Date
     status: String!
     countyName: String
     countySiruta: SIRUTA
+    localityName: String
+    sourceSystem: String
+    sourceUrl: String
+    aggregationState: String!
+    envelopeObservationCount: Int!
+    qualityIssues: [String!]!
+    dateQuality: String!
+    reportedTotalValue: Money
+    reportedEuValue: Money
     "Number of MIPE progress snapshots for this commitment's contract."
     progressCount: Int!
     "The most recent progress snapshot explicitly linked to this commitment, or null."
@@ -197,6 +396,68 @@ const objectsAndQuery = /* GraphQL */ `
     receivedEur: Money
     paidEur: Money
     allocatedEur: Money
+  }
+
+  "A public MIPE project-progress observation. Progress fields are ratios: 1 means 100%."
+  type PnrrProject {
+    projectKey: ID!
+    projectKeyVersion: String!
+    sourceObservationId: ID!
+    snapshotId: ID!
+    snapshotDate: Date!
+    endpointName: String!
+    itemKey: String
+    commitmentBusinessId: String
+    contractNumber: String
+    contractTitle: String
+    beneficiaryCui: CUI
+    beneficiaryName: String
+    beneficiaryType: String
+    componentCode: String
+    measureCode: String
+    submeasureCode: String
+    responsibleInstitutionCode: String
+    responsibleInstitutionName: String
+    financingSource: String
+    commitmentDate: Date
+    startDate: Date
+    endDate: Date
+    lastFundingDate: Date
+    totalValueRon: Money
+    euContributionRon: Money
+    nationalPublicValueRon: Money
+    vatRon: Money
+    ineligibleValueRon: Money
+    receivedAmountRon: Money
+    allocatedEur: Money
+    paidEur: Money
+    receivedEur: Money
+    prefinancingEur: Money
+    suspendedEur: Money
+    revokedEur: Money
+    projectCount: Float
+    contractBeneficiaryCount: Float
+    paymentBeneficiaryCount: Float
+    nationalImpactProjectCount: Float
+    paymentCount: Float
+    beneficiaryCount: Float
+    totalEur: Money
+    totalRon: Money
+    financialProgressRatio: Float
+    physicalProgressRatio: Float
+    countyName: String
+    countySiruta: SIRUTA
+    localityName: String
+    impact: String
+    timelineMonth: String
+    timelineLabel: String
+    status: String
+    sourceSystem: String!
+    sourceUrl: String!
+    retrievedAt: DateTime!
+    linkedCommitmentKey: ID
+    commitmentRelationship: String
+    commitmentAggregationState: String
   }
 
   type PnrrProgramIndicator {
@@ -238,16 +499,19 @@ const objectsAndQuery = /* GraphQL */ `
     procedureType: String
     signedAt: Date
     fullContractValue: Money
+    "reported_unresolved only on the dedicated detail query; otherwise null."
+    valueAggregationState: String!
+    valueReason: String!
     currency: String
     awardCriterion: String
     frameworkAgreement: Boolean
     hasAssociationLeader: Boolean
     hasThirdPartySupport: Boolean
     hasSubcontractor: Boolean
-    "Number of contractors (winners/subs) on this acquisition."
+    "Number of source participant relationships on this acquisition."
     contractorCount: Int!
     retrievedAt: DateTime
-    "Bounded child: the winner/subcontractor graph for this acquisition."
+    "Bounded child: source participant relationships for this acquisition."
     contractors: [PnrrContractor!]!
   }
 
@@ -262,10 +526,14 @@ const objectsAndQuery = /* GraphQL */ `
     contractorKey: ID!
     acquisitionKey: ID
     role: PnrrContractorRole!
+    sourceRole: String!
     contractorCui: CUI
     contractorName: String
     contractorCountry: String
     contractValue: Money
+    "reported_unresolved only inside acquisition detail; otherwise null."
+    valueAggregationState: String!
+    valueReason: String!
     currency: String
     confidence: String
     validationStatus: String
@@ -274,8 +542,13 @@ const objectsAndQuery = /* GraphQL */ `
   type PnrrContractorRankRow {
     contractorCui: CUI
     contractorName: String
+    "Legacy count retained for compatibility. Prefer participantRelationCount."
     awardCount: Int!
+    participantRelationCount: Int!
+    unknownRelationshipCount: Int!
     totalValue: Money
+    valueAggregationState: String!
+    valueReason: String!
     roles: [PnrrContractorRole!]!
   }
 
@@ -334,6 +607,134 @@ const objectsAndQuery = /* GraphQL */ `
     edges: [PnrrCommitmentEdge!]!
     pageInfo: PageInfo!
   }
+  type PnrrProjectConnection {
+    edges: [PnrrProjectEdge!]!
+    pageInfo: PageInfo!
+  }
+  type PnrrProjectEdge {
+    node: PnrrProject!
+    cursor: String!
+  }
+  type PnrrProjectFacetValue {
+    value: String!
+    label: String
+    count: Int!
+  }
+  type PnrrProjectFacets {
+    totalCount: Int!
+    components: [PnrrProjectFacetValue!]!
+    measures: [PnrrProjectFacetValue!]!
+    statuses: [PnrrProjectFacetValue!]!
+    counties: [PnrrProjectFacetValue!]!
+  }
+  type PnrrFundingCall {
+    callId: ID!
+    title: String!
+    budgetRon: Money
+    totalEligibleValueRon: Money
+    sourceSystem: String!
+    sourceUrl: String!
+    retrievedAt: DateTime!
+  }
+  type PnrrFundingCallConnection {
+    edges: [PnrrFundingCallEdge!]!
+    pageInfo: PageInfo!
+  }
+  type PnrrFundingCallEdge {
+    node: PnrrFundingCall!
+    cursor: String!
+  }
+  type PnrrFundingApplicationListing {
+    listingId: ID!
+    listingCandidateKey: ID!
+    callId: ID
+    sourceRequestCallId: ID
+    applicantCui: CUI
+    applicantName: String
+    sentAt: DateTime
+    orderNumber: String
+    completenessStatus: String!
+    sourceSystem: String!
+    sourceUrl: String!
+    retrievedAt: DateTime!
+  }
+  type PnrrFundingApplicationListingConnection {
+    edges: [PnrrFundingApplicationListingEdge!]!
+    pageInfo: PageInfo!
+  }
+  type PnrrFundingApplicationListingEdge {
+    node: PnrrFundingApplicationListing!
+    cursor: String!
+  }
+  type PnrrProgramRevision {
+    revisionId: ID!
+    identifierScheme: String!
+    legalReference: String!
+    celex: String
+    legalStatus: String!
+    isCurrentAdopted: Boolean!
+    effectiveDate: Date
+    sourceAuthority: String!
+    sourceUrl: String!
+    documentCount: Int!
+    textReadyDocumentCount: Int!
+    ocrRequiredDocumentCount: Int!
+  }
+  type PnrrProgramRevisionConnection {
+    edges: [PnrrProgramRevisionEdge!]!
+    pageInfo: PageInfo!
+  }
+  type PnrrProgramRevisionEdge {
+    node: PnrrProgramRevision!
+    cursor: String!
+  }
+  type PnrrCatalogResource {
+    resourceId: ID!
+    packageId: ID
+    resourceName: String
+    format: String
+    mimeType: String
+    datastoreActive: Boolean
+    fileUrl: String
+    lastModified: DateTime
+    declaredHash: String
+    sourceSystem: String!
+    sourceUrl: String!
+    retrievedAt: DateTime!
+  }
+  type PnrrCatalogResourceConnection {
+    edges: [PnrrCatalogResourceEdge!]!
+    pageInfo: PageInfo!
+  }
+  type PnrrCatalogResourceEdge {
+    node: PnrrCatalogResource!
+    cursor: String!
+  }
+  type PnrrDocumentReference {
+    documentKey: ID!
+    acquisitionKey: ID
+    lotKey: ID
+    announcementKey: ID
+    programRevisionId: ID
+    language: String
+    documentRole: String
+    fileName: String
+    mimeType: String
+    documentType: String
+    sourceUrl: String!
+    retrievedAt: DateTime
+    contentSha256: String
+    extractionState: String!
+    hasObjectCustody: Boolean!
+  }
+  type PnrrDocumentReferenceConnection {
+    edges: [PnrrDocumentReferenceEdge!]!
+    pageInfo: PageInfo!
+  }
+  type PnrrDocumentReferenceEdge {
+    node: PnrrDocumentReference!
+    cursor: String!
+  }
   type PnrrCommitmentEdge {
     node: PnrrCommitment!
     cursor: String!
@@ -356,45 +757,110 @@ const objectsAndQuery = /* GraphQL */ `
   }
 
   extend type Query {
+    pnrrCurrentRelease: PnrrRelease!
+    pnrrCapabilities(assertReleaseId: ID): [PnrrCapability!]!
+    pnrrOverview(scope: PnrrAnalysisScopeInput, assertReleaseId: ID): PnrrOverview!
     "PNRR entity directory (CUI spine). Default sort cui asc."
-    pnrrEntities(filter: PnrrEntitiesFilter, first: Int = 20, after: String): PnrrEntityConnection!
-    pnrrEntity(cui: CUI!): PnrrEntity
-    pnrrEntityProfile(cui: CUI!): PnrrEntityProfile
+    pnrrEntities(
+      filter: PnrrEntitiesFilter
+      first: Int = 20
+      after: String
+      assertReleaseId: ID
+    ): PnrrEntityConnection!
+    pnrrEntity(cui: CUI!, assertReleaseId: ID): PnrrEntity
+    pnrrEntityProfile(cui: CUI!, assertReleaseId: ID): PnrrEntityProfile
     "Source-native PNRR cash disbursements. Needs an indexed driving predicate."
-    pnrrPayments(filter: PnrrPaymentsFilter, first: Int = 20, after: String): PnrrPaymentConnection!
+    pnrrPayments(
+      filter: PnrrPaymentsFilter
+      first: Int = 20
+      after: String
+      assertReleaseId: ID
+    ): PnrrPaymentConnection!
     pnrrPaymentAggregate(
       filter: PnrrPaymentsFilter
       groupBy: PnrrPaymentGroupBy!
+      assertReleaseId: ID
     ): [PnrrPaymentAggRow!]!
     pnrrCommitments(
       filter: PnrrCommitmentsFilter
       first: Int = 20
       after: String
+      assertReleaseId: ID
     ): PnrrCommitmentConnection!
+    pnrrProjects(
+      filter: PnrrProjectsFilter
+      first: Int = 20
+      after: String
+      assertReleaseId: ID
+    ): PnrrProjectConnection!
+    pnrrProject(key: ID!, assertReleaseId: ID): PnrrProject
+    pnrrProjectHistory(key: ID!, assertReleaseId: ID): [PnrrProject!]!
+    pnrrProjectFacets(filter: PnrrProjectsFilter, assertReleaseId: ID): PnrrProjectFacets!
+    pnrrFundingCalls(
+      first: Int = 20
+      after: String
+      assertReleaseId: ID
+    ): PnrrFundingCallConnection!
+    pnrrFundingApplicationListings(
+      first: Int = 20
+      after: String
+      assertReleaseId: ID
+    ): PnrrFundingApplicationListingConnection!
+    pnrrProgramRevisions(
+      first: Int = 20
+      after: String
+      assertReleaseId: ID
+    ): PnrrProgramRevisionConnection!
+    pnrrCatalogResources(
+      first: Int = 20
+      after: String
+      assertReleaseId: ID
+    ): PnrrCatalogResourceConnection!
+    pnrrDocumentReferences(
+      first: Int = 20
+      after: String
+      assertReleaseId: ID
+    ): PnrrDocumentReferenceConnection!
+    pnrrCommitment(key: ID!, assertReleaseId: ID): PnrrCommitment
     "MIPE progress series for one commitment (bounded; resilient to unlinked snapshots)."
-    pnrrCommitmentProgress(commitmentKey: ID!): [PnrrCommitmentSnapshot!]!
+    pnrrCommitmentProgress(commitmentKey: ID!, assertReleaseId: ID): [PnrrCommitmentSnapshot!]!
     pnrrAcquisitions(
       filter: PnrrAcquisitionsFilter
       first: Int = 20
       after: String
+      assertReleaseId: ID
     ): PnrrAcquisitionConnection!
-    pnrrAcquisition(key: ID!): PnrrAcquisitionDetail
+    pnrrAcquisition(key: ID!, assertReleaseId: ID): PnrrAcquisitionDetail
     pnrrContractors(
       filter: PnrrContractorsFilter
       first: Int = 20
       after: String
+      assertReleaseId: ID
     ): PnrrContractorConnection!
-    "Top PNRR contractors from source facts (self-awards excluded)."
+    "PNRR organizations ranked by participant-relation count; role policy and money unavailable."
     pnrrContractorRank(
       filter: PnrrContractorsFilter
-      by: PnrrContractorRankBy = value
+      by: PnrrContractorRankBy = relationships
       limit: Int = 20
+      assertReleaseId: ID
     ): [PnrrContractorRankRow!]!
-    pnrrComponents: [PnrrComponent!]!
-    pnrrMeasures(filter: PnrrMeasuresFilter): [PnrrMeasure!]!
-    pnrrProgramIndicators: [PnrrProgramIndicator!]!
+    pnrrComponents(assertReleaseId: ID): [PnrrComponent!]!
+    pnrrMeasures(filter: PnrrMeasuresFilter, assertReleaseId: ID): [PnrrMeasure!]!
+    pnrrProgramIndicators(assertReleaseId: ID): [PnrrProgramIndicator!]!
+    pnrrPlace(
+      countySiruta: SIRUTA!
+      scope: PnrrAnalysisScopeInput
+      assertReleaseId: ID
+    ): PnrrPlaceProfile
+    pnrrPlaces(scope: PnrrAnalysisScopeInput, assertReleaseId: ID): [PnrrPlaceSummary!]!
+    pnrrVerification(scope: PnrrAnalysisScopeInput, assertReleaseId: ID): PnrrVerificationSummary!
     "Resolve a free-text query to a filter value (name→CUI, label→component, etc.)."
-    pnrrResolve(dim: PnrrResolveDim!, q: String!, limit: Int = 10): [PnrrResolveHit!]!
+    pnrrResolve(
+      dim: PnrrResolveDim!
+      q: String!
+      limit: Int = 10
+      assertReleaseId: ID
+    ): [PnrrResolveHit!]!
   }
 
   extend type Entity {

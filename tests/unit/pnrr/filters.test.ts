@@ -14,6 +14,8 @@ import {
   pnrrEntitiesFilterSpec,
   pnrrMeasuresFilterSpec,
   pnrrPaymentsFilterSpec,
+  pnrrProjectsFilterSpec,
+  normalizePnrrFilter,
 } from '@/modules/pnrr/core/filters.js';
 import { canonicalizeFilters, fhashFor } from '@/modules/shared/core/filters/derive.js';
 import {
@@ -29,6 +31,7 @@ const ALL_SPECS = [
   pnrrEntitiesFilterSpec,
   pnrrPaymentsFilterSpec,
   pnrrCommitmentsFilterSpec,
+  pnrrProjectsFilterSpec,
   pnrrAcquisitionsFilterSpec,
   pnrrContractorsFilterSpec,
   pnrrMeasuresFilterSpec,
@@ -70,6 +73,18 @@ describe('pnrr filter specs — SQL compilation', () => {
     expect(parameters).toEqual(['16054368', '4267117']);
   });
 
+  it('projects use MIPE snapshot and project-observation columns', () => {
+    const built = toConditionBuilders(pnrrProjectsFilterSpec, {
+      beneficiaryCui: { eq: '4297649' },
+      snapshotDate: { between: { from: '2026-01-01', to: '2026-06-30' } },
+    });
+    expect(built.isOk()).toBe(true);
+    const { sql, parameters } = compileWhere(built._unsafeUnwrap());
+    expect(sql).toContain('"p"."beneficiary_cui" = $1');
+    expect(sql).toContain('"p"."snapshot_date"');
+    expect(parameters).toEqual(['4297649', '2026-01-01', '2026-06-30']);
+  });
+
   it('payments measureFenix isNull compiles to IS NULL (coverage probe)', () => {
     const built = toConditionBuilders(pnrrPaymentsFilterSpec, { measureFenix: { isNull: true } });
     const { sql } = compileWhere(built._unsafeUnwrap());
@@ -99,6 +114,27 @@ describe('pnrr filter specs — SQL compilation', () => {
 });
 
 describe('pnrr filter specs — canonicalization stability (fhash contract)', () => {
+  it('normalizes equivalent CUI spellings before hashing', () => {
+    const normalized = normalizePnrrFilter({
+      beneficiaryCui: { eq: ' RO 16-054-368 ' },
+    })._unsafeUnwrap();
+    expect(normalized).toEqual({ beneficiaryCui: { eq: '16054368' } });
+    expect(fhashFor(pnrrPaymentsFilterSpec, normalized)).toBe(
+      fhashFor(pnrrPaymentsFilterSpec, {
+        beneficiaryCui: { eq: '16054368' },
+      })
+    );
+  });
+
+  it('rejects CNP-shaped identifiers on both include and exclude filters', () => {
+    expect(normalizePnrrFilter({ beneficiaryCui: { eq: '1234567890123' } }).isErr()).toBe(true);
+    expect(
+      normalizePnrrFilter({
+        exclude: { beneficiaryCui: { in: ['1234567890123'] } },
+      }).isErr()
+    ).toBe(true);
+  });
+
   it('REST string year and GraphQL number year fold to the same canonical form', () => {
     // payments has no `year` canonicalization issue (int), use componentCode IN order-independence.
     const a = canonicalizeFilters(pnrrPaymentsFilterSpec, { componentCode: { in: ['C4', 'C1'] } });

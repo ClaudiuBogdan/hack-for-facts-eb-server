@@ -86,6 +86,7 @@ export interface PnrrCommitmentsTable {
   beneficiary_name: string | null;
   id_angajament: string | null;
   contract_number: string | null;
+  contract_title: string | null;
   component_code: string | null;
   measure_code: string | null;
   total_value: string | null; // numeric → string
@@ -96,14 +97,145 @@ export interface PnrrCommitmentsTable {
   financial_progress: string | null; // numeric → string (Float at the edge)
   physical_progress: string | null;
   commitment_date: string | null; // date
+  start_date: string | null;
   end_date: string | null; // date
   status: string | null;
   county_name: string | null;
   county_siruta: string | null;
+  locality_name: string | null;
   source_system: string | null;
+  source_url: string | null;
+  privacy_class: string;
+  is_withdrawn: boolean;
+  envelope_candidate_key_v1: string | null;
+  date_quality: string;
+  reported_total_value: string | null;
+  reported_eu_value: string | null;
+  reported_national_public_value: string | null;
+  reported_vat_value: string | null;
+  reported_ineligible_value: string | null;
   retrieved_at: Tstz | null;
   attrs: Jsonb;
 }
+
+/** Public-only projection; privacy_class and is_personal_recipient are filtered by the view. */
+export type PnrrApiPaymentsTable = Omit<PnrrPaymentsTable, 'is_personal_recipient'>;
+
+export interface PnrrApiCommitmentsTable {
+  envelope_candidate_key_v1: string;
+  commitment_key: string;
+  beneficiary_cui: string | null;
+  beneficiary_name: string | null;
+  id_angajament: string | null;
+  contract_number: string | null;
+  contract_title: string | null;
+  component_code: string | null;
+  measure_code: string | null;
+  submeasure_code: string | null;
+  financing_source: string | null;
+  commitment_date: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  status: string | null;
+  status_raw: string | null;
+  financial_progress: string | null;
+  physical_progress: string | null;
+  county_name: string | null;
+  county_siruta: string | null;
+  locality_name: string | null;
+  source_system: string | null;
+  source_url: string | null;
+  source_record_hash: string;
+  retrieved_at: Tstz | null;
+  transform_version: string;
+  date_quality: string;
+  aggregation_state: string;
+  reported_total_value: string | null;
+  reported_eu_value: string | null;
+  reported_national_public_value: string | null;
+  reported_vat_value: string | null;
+  reported_ineligible_value: string | null;
+  total_value: string | null;
+  eu_value: string | null;
+  national_public_value: string | null;
+  vat_value: string | null;
+  ineligible_value: string | null;
+  envelope_observation_count: number;
+  quality_issues: string[];
+}
+
+export interface PnrrProgressObservationsTable {
+  observation_id: string;
+  snapshot_id: string;
+  snapshot_date: string;
+  endpoint_name: string;
+  record_kind: string;
+  item_key: string | null;
+  commitment_envelope_key_v1: string | null;
+  commitment_business_id: string | null;
+  contract_number: string | null;
+  contract_title?: string | null;
+  beneficiary_cui: string | null;
+  beneficiary_name: string | null;
+  beneficiary_type?: string | null;
+  component_code: string | null;
+  measure_raw: string | null;
+  submeasure_raw: string | null;
+  responsible_institution_code: string | null;
+  responsible_institution_name: string | null;
+  financing_source: string | null;
+  commitment_date?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  last_funding_date?: string | null;
+  total_value: string | null;
+  eu_value: string | null;
+  national_public_value: string | null;
+  vat_value: string | null;
+  ineligible_value: string | null;
+  received_amount_lei: string | null;
+  allocated_eur: string | null;
+  paid_eur: string | null;
+  received_eur: string | null;
+  prefinancing_eur: string | null;
+  suspended_eur: string | null;
+  revoked_eur: string | null;
+  project_count: string | null;
+  contract_beneficiary_count?: string | null;
+  payment_beneficiary_count?: string | null;
+  national_impact_project_count?: string | null;
+  payment_count?: string | null;
+  beneficiary_count?: string | null;
+  total_eur?: string | null;
+  total_ron?: string | null;
+  financial_progress: string | null;
+  physical_progress: string | null;
+  county_name: string | null;
+  county_siruta: string | null;
+  locality_name: string | null;
+  impact_raw?: string | null;
+  timeline_month?: string | null;
+  timeline_label?: string | null;
+  status_raw: string | null;
+  source_system: string;
+  source_url: string;
+  source_record_hash: string;
+  retrieved_at: Tstz;
+  privacy_class: string;
+}
+
+export type PnrrApiProgressCurrentTable = Omit<PnrrProgressObservationsTable, 'privacy_class'>;
+
+export type PnrrApiProjectsV1Table = PnrrProgressObservationsTable & {
+  project_key_v1: string;
+  project_key_version: 'project_key_v1';
+  membership_digest: string;
+  observation_count: number;
+  collision_state: string;
+  canonical_observation_id: string;
+  membership_state: string;
+  membership_reason_codes: unknown;
+};
 
 export interface PnrrCommitmentSnapshotsTable {
   snapshot_id: string;
@@ -193,6 +325,33 @@ export interface PnrrContractorsTable {
   attrs: Jsonb;
 }
 
+export type PnrrApiProcurementAnnouncementsTable = Omit<
+  PnrrAnnouncementsTable,
+  'is_personal_recipient' | 'attrs'
+>;
+
+export type PnrrApiProcurementLotsTable = Omit<PnrrLotsTable, 'attrs'>;
+
+export type PnrrApiProcurementAcquisitionsTable = Omit<
+  PnrrAcquisitionsTable,
+  'full_contract_value' | 'attrs'
+> & {
+  reported_full_contract_value: string | null;
+  value_aggregation_state: string;
+  value_reason: string;
+};
+
+export type PnrrApiProcurementParticipantsTable = Omit<
+  PnrrContractorsTable,
+  'contract_value' | 'currency' | 'attrs'
+> & {
+  source_role: string;
+  value_aggregation_state: string;
+  value_reason: string;
+};
+
+export type PnrrApiCommitmentSnapshotsTable = PnrrCommitmentSnapshotsTable;
+
 // ── taxonomy / dimensions ─────────────────────────────────────────────────────
 
 export interface PnrrComponentsTable {
@@ -222,13 +381,23 @@ declare module '@/modules/shared/shell/db/types.js' {
     'pnrr.entities': PnrrEntitiesTable;
     'pnrr.entity_registry_links': PnrrEntityRegistryLinksTable;
     'pnrr.payments': PnrrPaymentsTable;
+    'pnrr.api_payments': PnrrApiPaymentsTable;
     'pnrr.commitments': PnrrCommitmentsTable;
+    'pnrr.api_commitments': PnrrApiCommitmentsTable;
+    'pnrr.progress_observations': PnrrProgressObservationsTable;
+    'pnrr.api_progress_current': PnrrApiProgressCurrentTable;
+    'pnrr.api_projects_v1': PnrrApiProjectsV1Table;
     'pnrr.commitment_snapshots': PnrrCommitmentSnapshotsTable;
+    'pnrr.api_commitment_snapshots': PnrrApiCommitmentSnapshotsTable;
     'pnrr.program_indicators': PnrrProgramIndicatorsTable;
     'pnrr.announcements': PnrrAnnouncementsTable;
+    'pnrr.api_procurement_announcements': PnrrApiProcurementAnnouncementsTable;
     'pnrr.acquisitions': PnrrAcquisitionsTable;
+    'pnrr.api_procurement_acquisitions': PnrrApiProcurementAcquisitionsTable;
     'pnrr.lots': PnrrLotsTable;
+    'pnrr.api_procurement_lots': PnrrApiProcurementLotsTable;
     'pnrr.contractors': PnrrContractorsTable;
+    'pnrr.api_procurement_participants': PnrrApiProcurementParticipantsTable;
     'pnrr.components': PnrrComponentsTable;
     'pnrr.measures': PnrrMeasuresTable;
     /* eslint-enable @typescript-eslint/naming-convention -- restore the rule after the schema-qualified table keys */

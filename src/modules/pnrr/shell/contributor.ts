@@ -30,7 +30,7 @@ export const toProfileSlice = (profile: PnrrEntityProfile): EntityProfileSlice =
   const summary =
     `${String(p.count)} PNRR payment(s)` +
     (p.totalLei !== null ? ` totalling ${p.totalLei} lei` : '') +
-    `; ${String(profile.commitments.count)} commitment(s); won ${String(profile.procurement.wonAsContractor)} contract(s).`;
+    `; ${String(profile.commitments.count)} commitment(s); ${String(profile.procurement.participantRelationCount)} procurement participant relation(s).`;
   return {
     source: PNRR_SOURCE,
     kind: 'pnrr_entity_profile',
@@ -50,15 +50,15 @@ export const makePnrrContributor = (repo: PnrrRepository): SourceContributor => 
 
     const payCount = profile.payments.count;
     const commitCount = profile.commitments.count;
-    const wonCount = profile.procurement.wonAsContractor;
+    const participantCount = profile.procurement.participantRelationCount;
     const acqCount = profile.procurement.acquisitionsAsBeneficiary;
-    const present = payCount > 0 || commitCount > 0 || wonCount > 0 || acqCount > 0;
+    const present = payCount > 0 || commitCount > 0 || participantCount > 0 || acqCount > 0;
 
     const badges: string[] = [];
     if (payCount > 0) badges.push('pnrr-beneficiary');
     if (commitCount > 0) badges.push('pnrr-commitments');
     if (acqCount > 0) badges.push('pnrr-procurer');
-    if (wonCount > 0) badges.push('pnrr-contractor');
+    if (participantCount > 0) badges.push('pnrr-procurement-participant');
 
     return ok({
       source: PNRR_SOURCE,
@@ -71,7 +71,7 @@ export const makePnrrContributor = (repo: PnrrRepository): SourceContributor => 
         payments: payCount,
         commitments: commitCount,
         acquisitionsAsBeneficiary: acqCount,
-        wonAsContractor: wonCount,
+        participantRelationCount: participantCount,
       },
     });
   },

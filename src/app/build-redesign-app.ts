@@ -288,6 +288,7 @@ export const registerRedesignSurface = async (
   const moduleSlices: GraphqlSlice[] = [];
   const moduleResolvers: Record<string, unknown>[] = [];
   const moduleMcpTools: KernelMcpTool[] = [];
+  let pnrrRestPlugin: import('fastify').FastifyPluginAsync | undefined;
   let parliamentRoutes: import('fastify').FastifyPluginAsync | undefined;
 
   if (enabledModules.includes('pnrr')) {
@@ -300,6 +301,7 @@ export const registerRedesignSurface = async (
     moduleSlices.push(pnrr.graphqlSlice);
     moduleResolvers.push(pnrr.graphqlResolvers);
     moduleMcpTools.push(...pnrr.mcpTools);
+    pnrrRestPlugin = pnrr.restPlugin;
   }
 
   if (enabledModules.includes('reference')) {
@@ -533,6 +535,9 @@ export const registerRedesignSurface = async (
     errorFormatter: makeGraphQLErrorFormatter(isProduction),
   });
 
+  if (pnrrRestPlugin !== undefined) {
+    await app.register(pnrrRestPlugin, { prefix: '/api/v1/pnrr' });
+  }
   // Parliament's only REST route: the cacheable canonical full-transcript read.
   // It serves the SAME usecase output as the `parliamentStenogramSession` GraphQL
   // root and the `get_parliament_stenogram_session` MCP tool, and adds the HTTP
