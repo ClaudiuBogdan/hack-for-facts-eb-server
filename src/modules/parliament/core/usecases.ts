@@ -365,6 +365,19 @@ export const listVotes = (
         )
       );
     }
+    // groupVote-without-bound guard: the group-plurality predicate is a correlated
+    // aggregate over vote_records, which has NO index on group_name or choice — it
+    // re-reads every ballot of every candidate vote (~200 per vote, 4.1M in total,
+    // measured ~0.9s unbounded vs ~47ms over a 296-vote window on prod 2026-07-28).
+    // Same rule as the q fallback: refuse, never silently run the slow scan.
+    if (fieldHasValue(f, 'groupVote') && !hasVoteBound(f)) {
+      return err(
+        invalidInput(
+          'votes groupVote filter requires a chamber, voteDate or billKey bound (no index on vote_records.group_name/choice)',
+          'groupVote'
+        )
+      );
+    }
     return deps.repo.listVotes(f, input.sort, input.dir, input.page);
   })();
 

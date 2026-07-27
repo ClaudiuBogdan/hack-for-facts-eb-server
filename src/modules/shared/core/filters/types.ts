@@ -55,11 +55,31 @@ export interface FilterColumn {
   readonly arrayKind?: 'text' | 'jsonb';
 }
 
+/**
+ * One member of a COMPOSITE filter field (see `FilterFieldSpec.composite`).
+ * A member is a plain named value, NOT an operator: composite members are
+ * supplied together and mean nothing apart.
+ */
+export interface FilterCompositeMember {
+  readonly name: string;
+  readonly type: FilterFieldType;
+  readonly enumValues?: readonly string[];
+  /**
+   * GraphQL type name to render instead of the scalar derived from `type` —
+   * used to reuse an EXISTING module enum (e.g. `ParliamentVoteChoice`) so the
+   * SDL does not grow a second, drifting copy of the same domain.
+   */
+  readonly graphqlType?: string;
+  /** Rendered `T!` in SDL and required in the TypeBox object. */
+  readonly required?: boolean;
+  readonly description?: string;
+}
+
 export interface FilterFieldSpec {
   /** REST query param name + GraphQL input field name. */
   readonly name: string;
   readonly type: FilterFieldType;
-  /** Allowed operators for this field. */
+  /** Allowed operators for this field. Empty for a `composite` field (no op shape). */
   readonly ops: readonly FilterOp[];
   /** Driving column (partition/index-aware; declared by the source plan). */
   readonly column: FilterColumn;
@@ -81,6 +101,19 @@ export interface FilterFieldSpec {
    * A non-virtual field with no real column would otherwise emit broken SQL.
    */
   readonly virtual?: boolean;
+  /**
+   * A COMPOSITE field: its value is NOT the `{ op: value }` shape but a fixed
+   * record of named members that only mean something TOGETHER — e.g. "group X
+   * voted `choice`" needs a group AND a choice, and neither half is a filter on
+   * its own. Declaring two independent fields would let a caller send half a
+   * predicate and silently get a different question answered.
+   *
+   * A composite field MUST also be `virtual: true` — the derived predicate is a
+   * repo-owned join/aggregate, never a column op — and `ops` is empty. The SQL
+   * composer refuses to compile a non-virtual composite rather than emitting an
+   * operator error that reads like a caller mistake.
+   */
+  readonly composite?: readonly FilterCompositeMember[];
 }
 
 export interface CollectionFilterSpec {

@@ -65,9 +65,20 @@ const canonValue = (type: FilterFieldSpec['type'], v: FilterValue): unknown => {
 
 const canonFieldFilter = (field: FilterFieldSpec, ff: FieldFilter): Record<string, unknown> => {
   const out: Record<string, unknown> = {};
+  // A COMPOSITE field's keys are named members, not operators — canonicalize each
+  // by ITS OWN type (an int member must not fold through the field's string rule),
+  // and drop keys the spec does not declare so junk cannot alter the hash.
+  const members =
+    field.composite === undefined ? undefined : new Map(field.composite.map((m) => [m.name, m]));
   for (const op of Object.keys(ff).sort()) {
     const value = ff[op];
-    if (value !== undefined) out[op] = canonValue(field.type, value);
+    if (value === undefined) continue;
+    if (members !== undefined) {
+      const member = members.get(op);
+      if (member !== undefined) out[op] = canonValue(member.type, value);
+      continue;
+    }
+    out[op] = canonValue(field.type, value);
   }
   return out;
 };

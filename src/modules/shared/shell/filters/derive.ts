@@ -258,6 +258,12 @@ export const toConditionBuilders = (
     // Virtual fields are translated by the repo (partition/join/rollup), not
     // compiled here — a non-column virtual field would emit broken SQL (#60b).
     if (field.virtual === true) continue;
+    // A composite field's keys are members, not operators: there is no column op
+    // that can express it, so a non-virtual composite is a SPEC authoring bug.
+    // Say that, instead of the misleading "operator 'group' not allowed".
+    if (field.composite !== undefined) {
+      return err(invalidInput(`composite field '${key}' must be virtual (repo-intercepted)`, key));
+    }
     const ff = input[key];
     if (ff === undefined || typeof ff !== 'object') continue;
     const built = buildFieldConditions(field, ff, false);

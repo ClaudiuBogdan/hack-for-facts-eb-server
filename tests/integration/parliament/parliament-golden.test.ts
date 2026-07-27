@@ -2254,4 +2254,209 @@ d('Parliament golden (live prod)', () => {
     expect(unbounded.ok).toBe(false);
     expect(unbounded.error).toContain('mandateKey');
   }, 30_000);
+
+  /**
+   * `filter.groupVote` — the derived group-PLURALITY stance, checked against the
+   * ballots themselves. The expectations are COMPUTED from vote_records inside the
+   * test (an independent per-vote argmax, not the repo's EXISTS), so the suite
+   * proves the two agree instead of pinning constants that drift as data loads.
+   */
+  describe('groupVote — plurality drill-down (live ballots)', () => {
+    const CHAMBER = 'camera_deputatilor';
+    const FROM = '2026-01-28';
+    const TO = '2026-07-28';
+    const GROUP = 'PSD';
+
+    /** Per-choice vote counts where GROUP's plurality was that choice; ties excluded. */
+    const sqlPlurality = async (): Promise<{ byChoice: Map<string, number>; ties: number }> => {
+      const res = await pool.query<{ plurality: string; cnt: string }>(
+        `with w as (
+           select v.vote_key from parliament.votes v
+           where v.chamber = $1 and v.vote_date between $2::date and $3::date
+         ), c as (
+           select vr.vote_key,
+             count(*) filter (where vr.choice='pentru')     as p,
+             count(*) filter (where vr.choice='impotriva')  as i,
+             count(*) filter (where vr.choice='abtinere')   as a,
+             count(*) filter (where vr.choice='nu_a_votat') as n
+           from parliament.vote_records vr join w on w.vote_key = vr.vote_key
+           where vr.group_name = $4
+           group by 1
+         )
+         select case
+                  when p>i and p>a and p>n then 'pentru'
+                  when i>p and i>a and i>n then 'impotriva'
+                  when a>p and a>i and a>n then 'abtinere'
+                  when n>p and n>i and n>a then 'nu_a_votat'
+                  else 'TIE' end as plurality,
+                count(*)::text as cnt
+         from c group by 1`,
+        [CHAMBER, FROM, TO, GROUP]
+      );
+      const byChoice = new Map(
+        res.rows.filter((r) => r.plurality !== 'TIE').map((r) => [r.plurality, Number(r.cnt)])
+      );
+      const ties = Number(res.rows.find((r) => r.plurality === 'TIE')?.cnt ?? 0);
+      return { byChoice, ties };
+    };
+
+    /** Page the connection to exhaustion and return the matched vote keys. */
+    const gqlVoteKeys = async (choice: string): Promise<readonly string[]> => {
+      const keys: string[] = [];
+      let after: string | null = null;
+      for (let page = 0; page < 20; page++) {
+        const data: {
+          parliamentVotes: {
+            edges: readonly { node: { voteKey: string } }[];
+            pageInfo: { hasNextPage: boolean; endCursor: string | null };
+          } | null;
+        } = expectGqlData(
+          await gql(
+            `query($chamber:String!, $from:Date!, $to:Date!, $group:String!, $choice:ParliamentVoteChoice!, $after:String) {
+               parliamentVotes(
+                 filter:{
+                   chamber:{eq:$chamber}
+                   voteDate:{between:{from:$from, to:$to}}
+                   groupVote:{group:$group, choice:$choice}
+                 }
+                 first:100
+                 after:$after
+               ) {
+                 edges { node { voteKey } }
+                 pageInfo { hasNextPage endCursor }
+               }
+             }`,
+            { chamber: CHAMBER, from: FROM, to: TO, group: GROUP, choice, after }
+          )
+        );
+        const conn = requireValue(data.parliamentVotes, 'parliamentVotes');
+        keys.push(...conn.edges.map((e) => e.node.voteKey));
+        if (!conn.pageInfo.hasNextPage) break;
+        after = conn.pageInfo.endCursor;
+      }
+      return keys;
+    };
+
+    it('the four plurality buckets partition the window, ties excluded from BOTH sides', async () => {
+      const { byChoice, ties } = await sqlPlurality();
+      const windowVotes = await pool.query<{ cnt: string }>(
+        `select count(*)::text as cnt from parliament.votes
+         where chamber = $1 and vote_date between $2::date and $3::date`,
+        [CHAMBER, FROM, TO]
+      );
+      const total = Number(windowVotes.rows[0]?.cnt ?? 0);
+      expect(total).toBeGreaterThan(0);
+
+      const perChoice = new Map<string, readonly string[]>();
+      for (const choice of ['pentru', 'impotriva', 'abtinere', 'nu_a_votat']) {
+        const keys = await gqlVoteKeys(choice);
+        // The API agrees with an independent per-vote argmax over the same ballots.
+        expect(keys.length).toBe(byChoice.get(choice) ?? 0);
+        perChoice.set(choice, keys);
+      }
+
+      // A vote is attributed to AT MOST ONE stance (no double-counting), and the
+      // shortfall against the window is exactly the tied votes — the tie rule means
+      // a tied vote appears under NEITHER tied choice.
+      const all = [...perChoice.values()].flat();
+      expect(new Set(all).size).toBe(all.length);
+      expect(all.length).toBe(total - ties);
+      // The window must actually EXERCISE the tie rule, else this proves nothing.
+      expect(ties).toBeGreaterThan(0);
+
+      // nu_a_votat is a stance, not a hole: "the group mostly did not show up" is
+      // expressible and DOES attribute votes.
+      expect((perChoice.get('nu_a_votat') ?? []).length).toBeGreaterThan(0);
+    }, 60_000);
+
+    it('a tied vote is served under NEITHER tied choice', async () => {
+      // Find a live vote where GROUP's top two choices tie.
+      const tie = await pool.query<{ vote_key: string; top: string; other: string }>(
+        `with w as (
+           select v.vote_key from parliament.votes v
+           where v.chamber = $1 and v.vote_date between $2::date and $3::date
+         ), c as (
+           select vr.vote_key, vr.choice, count(*) as n
+           from parliament.vote_records vr join w on w.vote_key = vr.vote_key
+           where vr.group_name = $4
+           group by 1, 2
+         ), ranked as (
+           select vote_key, choice, n, rank() over (partition by vote_key order by n desc) as rnk
+           from c
+         )
+         select vote_key,
+                min(choice) filter (where rnk = 1) as top,
+                max(choice) filter (where rnk = 1) as other
+         from ranked group by vote_key
+         having count(*) filter (where rnk = 1) > 1
+         limit 1`,
+        [CHAMBER, FROM, TO, GROUP]
+      );
+      const row = tie.rows[0];
+      // A window with no tie cannot exercise the rule — fail loudly rather than pass vacuously.
+      expect(row).toBeDefined();
+      if (row === undefined) return;
+      expect(row.top).not.toBe(row.other);
+      for (const choice of [row.top, row.other]) {
+        expect(await gqlVoteKeys(choice)).not.toContain(row.vote_key);
+      }
+    }, 60_000);
+
+    it('matches the stored group_name EXACTLY (no fuzzy bridging of the vocabulary gap)', async () => {
+      // The directory spelling of an unaffiliated bloc is NOT the ballot spelling.
+      expect(await gqlVoteKeys('pentru')).not.toHaveLength(0);
+      const misspelled: { parliamentVotes: { edges: readonly unknown[] } | null } = expectGqlData(
+        await gql(
+          `query($chamber:String!, $from:Date!, $to:Date!) {
+             parliamentVotes(
+               filter:{
+                 chamber:{eq:$chamber}
+                 voteDate:{between:{from:$from, to:$to}}
+                 groupVote:{group:"psd", choice:pentru}
+               }
+               first:5
+             ) { edges { node { voteKey } } }
+           }`,
+          { chamber: CHAMBER, from: FROM, to: TO }
+        )
+      );
+      // Lower-cased spelling is a DIFFERENT name: zero rows, never a fuzzy hit.
+      expect(requireValue(misspelled.parliamentVotes, 'parliamentVotes').edges).toHaveLength(0);
+    }, 60_000);
+
+    it('an UNBOUNDED groupVote list resolves null + INVALID_INPUT (no 4.1M-ballot scan)', async () => {
+      const res = await gql<{ parliamentVotes: null }>(
+        `{
+           parliamentVotes(filter:{groupVote:{group:"PSD", choice:pentru}}, first:5) {
+             edges { node { voteKey } }
+           }
+         }`
+      );
+      expect(res.data?.parliamentVotes ?? null).toBeNull();
+      expect(res.errors?.[0]?.message).toContain('groupVote');
+      expect(res.errors?.[0]?.extensions?.code ?? res.errors?.[0]?.extensions?.type).toContain(
+        'INVALID'
+      );
+    }, 30_000);
+
+    it('the filtered vote count is NOT the cohesion bar percentage (different denominators)', async () => {
+      const cohesion = expectGqlData(
+        await gql<{ parliamentVoteCohesion: readonly { groupName: string; voteCount: number }[] }>(
+          `query($chamber:ParliamentChamber!, $from:Date!, $to:Date!, $group:String!) {
+             parliamentVoteCohesion(chamber:$chamber, from:$from, to:$to, group:$group) {
+               groupName voteCount
+             }
+           }`,
+          { chamber: CHAMBER, from: FROM, to: TO, group: GROUP }
+        )
+      );
+      const bar = cohesion.parliamentVoteCohesion.find((g) => g.groupName === GROUP);
+      const forVotes = (await gqlVoteKeys('pentru')).length;
+      expect(bar).toBeDefined();
+      // Cohesion counts every vote the group balloted in; the filter counts the votes
+      // whose PLURALITY was pentru — a strict subset, so a client must never present
+      // the filtered count as the bar's percentage of the same window.
+      expect(forVotes).toBeLessThan(bar?.voteCount ?? 0);
+    }, 60_000);
+  });
 });

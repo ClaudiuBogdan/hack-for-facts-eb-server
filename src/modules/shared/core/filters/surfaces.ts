@@ -11,7 +11,7 @@
 
 import { Type, type TObject, type TSchema } from '@sinclair/typebox';
 
-import type { CollectionFilterSpec, FilterFieldSpec, FilterOp } from './types.js';
+import type { CollectionFilterSpec, FilterFieldSpec, FilterFieldType, FilterOp } from './types.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TypeBox (REST)
@@ -20,7 +20,11 @@ import type { CollectionFilterSpec, FilterFieldSpec, FilterOp } from './types.js
 /** REST validation for a money value: a decimal STRING (never a float). */
 const MONEY_PATTERN = '^-?\\d+(\\.\\d+)?$';
 
-const scalarSchema = (field: FilterFieldSpec): TSchema => {
+/** The typed scalar of a field OR of a composite member (same type mapping). */
+const scalarSchema = (field: {
+  readonly type: FilterFieldType;
+  readonly enumValues?: readonly string[];
+}): TSchema => {
   switch (field.type) {
     case 'int':
       return Type.Integer();
@@ -66,6 +70,14 @@ const opSchema = (field: FilterFieldSpec, op: FilterOp): TSchema => {
 
 const fieldFilterSchema = (field: FilterFieldSpec): TObject => {
   const props: Record<string, TSchema> = {};
+  // Composite fields carry named members, not operators (§14.2).
+  if (field.composite !== undefined) {
+    for (const member of field.composite) {
+      const schema = scalarSchema(member);
+      props[member.name] = member.required === true ? schema : Type.Optional(schema);
+    }
+    return Type.Object(props, { additionalProperties: false });
+  }
   for (const op of field.ops) {
     props[op] = Type.Optional(opSchema(field, op));
   }
@@ -156,6 +168,23 @@ export const toGraphQLInput = (spec: CollectionFilterSpec): string => {
   for (const field of spec.fields) {
     const fieldType = `${prefix}${pascal(field.name)}Filter`;
     const rangeType = `${prefix}${pascal(field.name)}Range`;
+    const desc =
+      field.description !== undefined ? `  "${escapeSdlDescription(field.description)}"\n` : '';
+
+    // A COMPOSITE field renders its named members instead of operator fields —
+    // the members are one indivisible predicate, so `!` on a required member is
+    // what stops a caller sending half of it (§14.2).
+    if (field.composite !== undefined) {
+      const memberLines = field.composite.map((m) => {
+        const type = m.graphqlType ?? GQL_SCALAR[m.type];
+        const mDesc =
+          m.description !== undefined ? `  "${escapeSdlDescription(m.description)}"\n` : '';
+        return `${mDesc}  ${m.name}: ${type}${m.required === true ? '!' : ''}`;
+      });
+      blocks.push(`${desc}input ${fieldType} {\n${memberLines.join('\n')}\n}`);
+      fieldLines.push(`  ${field.name}: ${fieldType}`);
+      continue;
+    }
 
     if (field.ops.includes('between')) {
       const scalar = GQL_SCALAR[field.type];
@@ -163,8 +192,6 @@ export const toGraphQLInput = (spec: CollectionFilterSpec): string => {
     }
 
     const opLines = field.ops.map((op) => opFieldSdl(field, op, rangeType));
-    const desc =
-      field.description !== undefined ? `  "${escapeSdlDescription(field.description)}"\n` : '';
     blocks.push(`${desc}input ${fieldType} {\n${opLines.join('\n')}\n}`);
 
     fieldLines.push(`  ${field.name}: ${fieldType}`);

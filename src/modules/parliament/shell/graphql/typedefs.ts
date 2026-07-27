@@ -910,7 +910,7 @@ const objectsAndQuery = /* GraphQL */ `
       pageSize: Int
     ): ParliamentBillPage
     parliamentBill(billKey: ID!): ParliamentBill
-    "Votes (cursor; default voteDate desc). vote_records are NEVER listed flat here."
+    "Votes (cursor; default voteDate desc). vote_records are NEVER listed flat here. filter.groupVote drills into a group's ballot split — votes where the group's PLURALITY stance was a given choice — and REQUIRES a chamber, voteDate or billKey bound (else INVALID_INPUT in errors[], this field null); its count does NOT equal a parliamentVoteCohesion percentage of the same window, because cohesion measures ballot slots and this measures votes."
     parliamentVotes(
       filter: ParliamentVotesFilter
       sort: ParliamentVoteSort

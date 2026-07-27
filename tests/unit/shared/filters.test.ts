@@ -425,3 +425,84 @@ describe('virtual fields are skipped by toConditionBuilders (#60b)', () => {
     expect(compiled.sql).toBe('');
   });
 });
+
+describe('composite fields — a predicate that needs more than one value (§14.2)', () => {
+  const compositeSpec: CollectionFilterSpec = {
+    collection: 'ballots',
+    fields: [
+      { name: 'chamber', type: 'string', ops: ['eq'], column: { alias: 'v', column: 'chamber' } },
+      {
+        name: 'groupVote',
+        type: 'string',
+        ops: [],
+        column: { alias: 'v', column: 'vote_key' },
+        virtual: true,
+        composite: [
+          { name: 'group', type: 'string', required: true, description: 'Stored group name.' },
+          {
+            name: 'choice',
+            type: 'enum',
+            enumValues: ['pentru', 'impotriva'],
+            graphqlType: 'BallotChoice',
+            required: true,
+          },
+        ],
+      },
+    ],
+    sort: { default: 'voteDate', allowed: ['voteDate'] },
+  };
+
+  it('renders named members (both required) instead of operator fields', () => {
+    const sdl = toGraphQLInput(compositeSpec);
+    expect(sdl).toContain('input BallotsGroupVoteFilter {');
+    expect(sdl).toContain('group: String!');
+    // A declared graphqlType reuses the module enum instead of widening to String.
+    expect(sdl).toContain('choice: BallotChoice!');
+    expect(sdl).toContain('"Stored group name."');
+    expect(sdl).not.toContain('BallotsGroupVoteRange');
+    expect(sdl).toContain('groupVote: BallotsGroupVoteFilter');
+  });
+
+  it('validates the members (required, enum domain) on the REST surface', () => {
+    const schema = toTypeBox(compositeSpec) as unknown as {
+      properties: { groupVote: { required: string[]; properties: Record<string, unknown> } };
+    };
+    expect(schema.properties.groupVote.required).toEqual(['group', 'choice']);
+    expect(Object.keys(schema.properties.groupVote.properties)).toEqual(['group', 'choice']);
+  });
+
+  it('hashes each member, so a cursor is bound to the WHOLE predicate', () => {
+    const base = fhashFor(compositeSpec, { groupVote: { group: 'PSD', choice: 'pentru' } });
+    expect(base).not.toBe(
+      fhashFor(compositeSpec, { groupVote: { group: 'AUR', choice: 'pentru' } })
+    );
+    expect(base).not.toBe(
+      fhashFor(compositeSpec, { groupVote: { group: 'PSD', choice: 'impotriva' } })
+    );
+    // An undeclared member cannot smuggle itself into the hash.
+    expect(base).toBe(
+      fhashFor(compositeSpec, { groupVote: { group: 'PSD', choice: 'pentru', junk: 'x' } })
+    );
+  });
+
+  it('is skipped by the SQL composer (the repo owns the predicate)', () => {
+    const res = toConditionBuilders(compositeSpec, {
+      chamber: { eq: 'senat' },
+      groupVote: { group: 'PSD', choice: 'pentru' },
+    });
+    const compiled = compileWhere(res._unsafeUnwrap());
+    expect(compiled.parameters).toEqual(['senat']);
+  });
+
+  it('refuses a NON-virtual composite as a spec bug, not a caller mistake', () => {
+    const broken: CollectionFilterSpec = {
+      ...compositeSpec,
+      fields: compositeSpec.fields.map((f) =>
+        f.name === 'groupVote' ? { ...f, virtual: false } : f
+      ),
+    };
+    const res = toConditionBuilders(broken, { groupVote: { group: 'PSD', choice: 'pentru' } });
+    expect(res.isErr()).toBe(true);
+    if (res.isErr()) expect(res.error.message).toContain('must be virtual');
+  });
+});

@@ -98,6 +98,7 @@ import {
 import {
   BILL_STATUSES,
   BILL_TYPES,
+  VOTE_CHOICES,
   billsFilterSpec,
   controlItemsFilterSpec,
   memberSpeechesFhash,
@@ -452,6 +453,82 @@ export const enumSelection = (
 const containsValue = (f: Record<string, unknown> | undefined): string | undefined => {
   if (f === undefined) return undefined;
   return typeof f['contains'] === 'string' ? f['contains'] : undefined;
+};
+
+/** A member of a composite field, treating a runtime `null` as absent. */
+const compositeMember = (f: Record<string, unknown>, name: string): unknown => {
+  const v: unknown = f[name];
+  return v === null ? undefined : v;
+};
+
+/**
+ * `votes.groupVote` (virtual, COMPOSITE) → "the group's PLURALITY stance on this
+ * vote was `choice`". A group has no stance in the data — its members each cast a
+ * ballot — so the stance is DERIVED as the choice with the MOST vote_records rows
+ * for that group on that vote. Three rules, all deliberate and all visible in the
+ * SQL below:
+ *
+ *  1. PLURALITY over ALL FOUR choices, nu_a_votat included: "the group mostly did
+ *     not show up" is a real, honest answer, so a vote CAN be attributed to
+ *     nu_a_votat. Computing it over cast ballots only would silently re-attribute
+ *     those votes to whatever the handful of attendees did.
+ *  2. A TIE matches NEITHER tied choice — hence STRICT `>` against every other
+ *     choice, not `>=`. Picking a winner by sort order would invent a position the
+ *     group never took. (Real example: cdep:37014, PSD 38 pentru / 38 nu_a_votat.)
+ *  3. A group with NO ballots on a vote never matches — the `> 0` guard, since an
+ *     ungrouped aggregate over zero rows still yields one all-zeros row.
+ *
+ * `group_name` is matched EXACTLY (surrounding whitespace trimmed, nothing else):
+ * vote_records and the parliamentGroups nomenclator disagree on vocabulary, and
+ * fuzzy-bridging that gap would answer a question the caller did not ask.
+ *
+ * Returns `null` when the field is absent (nothing to add), an InvalidInput when
+ * it is half-sent or carries an unknown choice — never a silently dropped
+ * predicate, which would widen the result set to every vote.
+ */
+export const buildGroupVoteCondition = (
+  f: Record<string, unknown> | undefined
+): Result<RawBuilder<unknown> | null, ApiError> => {
+  if (f === undefined) return ok(null);
+  const rawGroup = compositeMember(f, 'group');
+  const rawChoice = compositeMember(f, 'choice');
+  // Neither member present (`groupVote:{}`) = the field was not used.
+  if (rawGroup === undefined && rawChoice === undefined) return ok(null);
+
+  const group = typeof rawGroup === 'string' ? rawGroup.trim() : '';
+  if (group === '') {
+    return err(
+      invalidInput(
+        'groupVote.group is required — the group name exactly as vote_records spells it',
+        'groupVote.group'
+      )
+    );
+  }
+  if (
+    typeof rawChoice !== 'string' ||
+    !VOTE_CHOICES.includes(rawChoice as (typeof VOTE_CHOICES)[number])
+  ) {
+    return err(
+      invalidInput(
+        `groupVote.choice is required and must be one of ${VOTE_CHOICES.join(', ')}`,
+        'groupVote.choice'
+      )
+    );
+  }
+
+  const tally = (choice: string): RawBuilder<unknown> =>
+    sql`count(*) filter (where vr.choice = ${choice})`;
+  const target = tally(rawChoice);
+  const beatsEveryOther = VOTE_CHOICES.filter((c) => c !== rawChoice).map(
+    (c) => sql`${target} > ${tally(c)}`
+  );
+  // Correlated on vote_key so the aggregate rides vote_records_pkey (vote_key,
+  // row_index) — the only usable index; group_name/choice are post-scan filters.
+  return ok(
+    sql`exists (select 1 from parliament.vote_records vr
+                where vr.vote_key = v.vote_key and vr.group_name = ${group}
+                having ${target} > 0 and ${sql.join(beatsEveryOther, sql` and `)})`
+  );
 };
 
 export const makeParliamentRepo = (db: Db): ParliamentRepo => {
@@ -1335,6 +1412,11 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
              or lower(translate(coalesce(v.attrs->>'source_title', ''), ${FOLD_FROM}, ${FOLD_TO})) like ${folded} escape '\\')`
       );
     }
+
+    // groupVote (virtual, COMPOSITE): the group's PLURALITY stance on the vote.
+    const groupVote = buildGroupVoteCondition(fieldFilter(filter, 'groupVote'));
+    if (groupVote.isErr()) return err(groupVote.error);
+    if (groupVote.value !== null) conds.push(groupVote.value);
     return ok(conds);
   };
 

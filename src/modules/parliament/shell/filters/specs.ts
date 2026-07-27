@@ -11,6 +11,8 @@
  *
  * VIRTUAL fields (repo-intercepted; the kernel composer SKIPS them, §15.6 / #60b):
  *   - votes.q / bills.q          → Meili-primary; ILIKE fallback needs a bound
+ *   - votes.groupVote            → per-vote group PLURALITY (vote_records EXISTS;
+ *                                  COMPOSITE input — needs a group AND a choice)
  *   - members.group / members.judet → slug→exact match (resolved in TS)
  *   - members.q                  → unaccent-free ILIKE on full_name (bounded by legislature)
  *   - bills.hasLaw / bills.actId → join to bill_act_links (cross-table EXISTS)
@@ -21,6 +23,10 @@
  * btree on most filter columns — those predicates are post-scan filters over a
  * few-thousand-row table (cheap by row count, not by index), stated plainly here
  * rather than naming a non-existent index (the "no speculative index" rule).
+ * vote_records (4,164,568 rows, verified 2026-07-28) carries ONLY
+ * vote_records_pkey (vote_key, row_index) and vote_records_mandate_idx
+ * (mandate_key) — there is NO index on group_name or choice, which is why
+ * votes.groupVote requires a bounding vote predicate rather than naming one.
  */
 
 import {
@@ -120,7 +126,7 @@ export const BILL_STATUSES = [
 ] as const;
 
 /** Repo-intercepted virtual filter fields per collection (kernel composer skips). */
-export const VOTES_VIRTUAL_FIELDS = ['q'] as const;
+export const VOTES_VIRTUAL_FIELDS = ['q', 'groupVote'] as const;
 export const MEMBERS_VIRTUAL_FIELDS = ['group', 'judet', 'q'] as const;
 // `year` is virtual: it must match plx_year OR senate_year (Codex BLOCKER #3 —
 // a non-virtual plx_year-only field silently drops Senate-only bills).
@@ -181,6 +187,43 @@ export const votesFilterSpec: CollectionFilterSpec = {
       virtual: true,
       description:
         'Title search. Meili-backed when up; ILIKE fallback REQUIRES chamber and/or a vote-date bound (no FTS index; repo-intercepted).',
+    },
+    // COMPOSITE (not `{eq:…}`): the predicate needs a group AND a choice — neither
+    // half is a filter on its own ("votes where PSD did something" and "votes with
+    // any pentru ballot" are different, mostly useless, questions), and two
+    // independent op fields would let a caller send half a predicate and get a
+    // different question silently answered. The kernel `composite` shape renders
+    // both members in ONE input with `!` on each, so GraphQL rejects the half-sent
+    // form at validation. It is `virtual` because the predicate is a correlated
+    // aggregate over vote_records, not a column op the composer could compile.
+    {
+      name: 'groupVote',
+      type: 'string',
+      ops: [],
+      // Correlation column, like bills.hasLaw declares bill_key: the EXISTS joins
+      // vote_records on v.vote_key. The composer never reads it (virtual).
+      column: { alias: 'v', column: 'vote_key' },
+      virtual: true,
+      composite: [
+        {
+          name: 'group',
+          type: 'string',
+          required: true,
+          description:
+            'Group name EXACTLY as vote_records spells it — the ballot vocabulary, NOT the parliamentGroups directory vocabulary (the two disagree: ballots carry e.g. "neafiliat", "Senatori neafiliați", "PIR", "POT"). Case-sensitive, no fuzzy/slug matching: take the value from parliamentVote.groupBreakdown[].groupName or parliamentVoteCohesion[].groupName. An unknown spelling matches nothing rather than guessing.',
+        },
+        {
+          name: 'choice',
+          type: 'enum',
+          enumValues: [...VOTE_CHOICES],
+          graphqlType: 'ParliamentVoteChoice',
+          required: true,
+          description:
+            'The stance to match: pentru | impotriva | abtinere | nu_a_votat (nu_a_votat = the group mostly did not cast a ballot).',
+        },
+      ],
+      description:
+        "Votes where the group's PLURALITY stance was `choice`. A group has no single stance in the data — a 91-member group splits — so the stance is DERIVED: the choice with the MOST vote_records rows for that group on that vote. Three rules, all deliberate: (1) the plurality is computed over ALL FOUR choices INCLUDING nu_a_votat, so \"the group mostly did not show up\" is expressible and a vote CAN be attributed to nu_a_votat; (2) a TIE for the plurality matches NEITHER tied choice — the group did not take that position, and picking one by sort order would invent a stance; (3) a group with no ballots on a vote never matches. DIFFERENT DENOMINATOR from the cohesion bar: parliamentVoteCohesion.forPct is a share of the group's BALLOT SLOTS across the window, this counts VOTES whose plurality was that choice — do NOT present the filtered count as the bar's percentage. BOUNDEDNESS: there is NO index on vote_records.group_name or .choice — the predicate rides vote_records_pkey (vote_key, row_index) once per candidate vote, so it REQUIRES a chamber, voteDate or billKey bound (else INVALID_INPUT, never a silent 4.1M-ballot scan). Repo-intercepted.",
     },
   ],
   sort: { default: 'voteDate', allowed: ['voteDate', 'voteKey'] },
