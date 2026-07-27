@@ -1345,8 +1345,21 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
 
   const getBillEvents = async (billKey: string) => {
     try {
+      // The procedure model is 1:1 with the captured event, so it rides on the
+      // same row rather than as a second collection. LEFT JOIN, because an event
+      // loaded before the derive last ran is legitimately unclassified and the
+      // timeline must still render it.
+      //
+      // `links` are the edges presented UNDER this step (step_position), NOT the
+      // ones whose anchor happens to sit on this row: an anchor found on an
+      // attachment belongs to the step that attachment folds into. On prod that
+      // carries 206,130 edges up to a step they would otherwise be stranded
+      // beneath.
       const rows = await db
         .selectFrom('parliament.bill_events as e')
+        .leftJoin('parliament.bill_procedure_steps as s', (join) =>
+          join.onRef('s.bill_key', '=', 'e.bill_key').onRef('s.position', '=', 'e.position')
+        )
         .select([
           'e.bill_key',
           'e.position',
@@ -1357,6 +1370,22 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
           'e.committee',
           'e.vote_idv',
           'e.docs',
+          's.row_kind',
+          's.parent_position',
+          's.step_kind',
+          's.actor_kind',
+          sql`coalesce((
+            select jsonb_agg(jsonb_build_object(
+              'linkKind', l.link_kind,
+              'targetKey', l.target_key,
+              'sourceHref', l.source_href,
+              'sourceText', l.source_text,
+              'resolutionStatus', l.resolution_status,
+              'matchMethod', l.match_method
+            ) order by l.link_kind, l.source_href)
+            from parliament.bill_step_links l
+            where l.bill_key = e.bill_key and l.step_position = e.position
+          ), '[]'::jsonb)`.as('links'),
         ])
         .where('e.bill_key', '=', billKey)
         .orderBy('e.position', 'asc')
