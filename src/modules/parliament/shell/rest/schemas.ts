@@ -91,6 +91,12 @@ const StenogramSegmentSchema = Type.Object({
   agendaRef: Type.Union([Type.String(), Type.Null()]),
   sourceUrl: Type.String(),
   sourceUrlKind: Type.String(),
+  // Speaker identity (scrapper migration 20260727T140000). All four are null on a
+  // database without it, and `speakerResolution` is null on a non-SPEECH block.
+  personId: Type.Union([Type.String(), Type.Null()]),
+  speakerResolution: Type.Union([Type.String(), Type.Null()]),
+  speakerMethod: Type.Union([Type.String(), Type.Null()]),
+  speakerConfidence: Type.Union([Type.String(), Type.Null()]),
 });
 
 export const TranscriptResponseSchema = Type.Object({

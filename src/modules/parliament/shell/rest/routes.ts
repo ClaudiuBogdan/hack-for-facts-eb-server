@@ -139,6 +139,10 @@ const canonicalTranscriptPayload = (transcript: ParliamentStenogramTranscript): 
       g.agendaRef,
       g.sourceUrl,
       g.sourceUrlKind,
+      g.personId,
+      g.speakerResolution,
+      g.speakerMethod,
+      g.speakerConfidence,
     ]),
   ]);
 };

@@ -381,6 +381,8 @@ describe('getParliamentSpeech — passthrough', () => {
       isCanonical: false,
       sessionKey: null,
       position: null,
+      // No mandate ⇒ no person: a person only ever arrives THROUGH a mandate.
+      personId: null,
     };
     const findSpeech = vi.fn(() => okp<typeof speech | null>(speech));
     const r = await getParliamentSpeech(deps(makeRepo({ findSpeech })), 'senat:123');

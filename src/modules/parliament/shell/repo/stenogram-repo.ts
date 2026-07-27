@@ -152,6 +152,31 @@ const SEGMENT_SELECT = [
   'sg.source_url_kind',
 ] as const;
 
+/**
+ * The speaker-identity columns (scrapper migration 20260727T140000), selected only
+ * when the database actually has them.
+ *
+ * Same shape-preserving trick the canonical speech columns use: when the migration
+ * is absent we still select the four ALIASES as SQL literals, so the row type and
+ * the mapper have ONE shape on both kinds of database and no call site has to
+ * branch. The literals are the honest defaults — "no identity recorded" is exactly
+ * what a pre-migration row is. Naming a missing column instead would fail at PARSE
+ * time and take down every transcript read, not just the identity part of it.
+ */
+const segmentIdentitySelect = (hasIdentity: boolean) =>
+  [
+    sql<string | null>`${hasIdentity ? sql`sg.person_id::text` : sql`null::text`}`.as('person_id'),
+    sql<string | null>`${hasIdentity ? sql`sg.speaker_resolution` : sql`null::text`}`.as(
+      'speaker_resolution'
+    ),
+    sql<string | null>`${hasIdentity ? sql`sg.speaker_method` : sql`null::text`}`.as(
+      'speaker_method'
+    ),
+    sql<string | null>`${hasIdentity ? sql`sg.speaker_confidence` : sql`null::text`}`.as(
+      'speaker_confidence'
+    ),
+  ] as const;
+
 /** The deduped, non-empty string values a virtual field's eq + in select. */
 const virtualStrings = (filter: FilterInput, name: string): readonly string[] => {
   const ff: unknown = filter[name];
@@ -230,6 +255,18 @@ export const makeParliamentStenogramRepo = (db: Db): ParliamentStenogramRepo => 
     sql`select is_canonical, stenogram_session_key, stenogram_segment_key
         from parliament.speeches limit 0`
   );
+  const speakerIdentityColumnsAvailable = makeProbe(
+    sql`select person_id, speaker_resolution, speaker_method, speaker_confidence
+        from parliament.stenogram_segments limit 0`
+  );
+  /**
+   * The block projection, identity included when the DB has it. One place, so a new
+   * read cannot accidentally ship a segment without its speaker provenance — the
+   * failure mode would be an unlinked name with no stated reason, which is exactly
+   * what this whole change exists to end.
+   */
+  const segmentSelect = async () =>
+    [...SEGMENT_SELECT, ...segmentIdentitySelect(await speakerIdentityColumnsAvailable())] as const;
 
   const unavailable = (sessionKey: string | null): ParliamentStenogramError =>
     transcriptUnavailable(
@@ -428,7 +465,7 @@ export const makeParliamentStenogramRepo = (db: Db): ParliamentStenogramRepo => 
       const [rows, countRow] = await Promise.all([
         db
           .selectFrom('parliament.stenogram_segments as sg')
-          .select(SEGMENT_SELECT)
+          .select(await segmentSelect())
           .where(where)
           // Contract 3: the OFFICIAL printed order, over the unique
           // (session_key, position) index.
@@ -469,7 +506,7 @@ export const makeParliamentStenogramRepo = (db: Db): ParliamentStenogramRepo => 
     try {
       const row = await db
         .selectFrom('parliament.stenogram_segments as sg')
-        .select(SEGMENT_SELECT)
+        .select(await segmentSelect())
         .where(sql<SqlBool>`sg.${sql.ref(column)} = ${value}`)
         .where(sql<SqlBool>`${SEGMENT_PUBLIC}`)
         .where(
@@ -609,14 +646,14 @@ export const makeParliamentStenogramRepo = (db: Db): ParliamentStenogramRepo => 
       const [prevRow, nextRow] = await Promise.all([
         db
           .selectFrom('parliament.stenogram_segments as sg')
-          .select(SEGMENT_SELECT)
+          .select(await segmentSelect())
           .where(composeWhere([...base, sql`sg.position < ${position}`]))
           .orderBy('sg.position', 'desc')
           .limit(1)
           .executeTakeFirst(),
         db
           .selectFrom('parliament.stenogram_segments as sg')
-          .select(SEGMENT_SELECT)
+          .select(await segmentSelect())
           .where(composeWhere([...base, sql`sg.position > ${position}`]))
           .orderBy('sg.position', 'asc')
           .limit(1)
@@ -633,6 +670,7 @@ export const makeParliamentStenogramRepo = (db: Db): ParliamentStenogramRepo => 
 
   return {
     canonicalSpeechColumnsAvailable,
+    speakerIdentityColumnsAvailable,
     stenogramProjectionAvailable,
     listStenogramSessions,
     findStenogramSession,

@@ -349,6 +349,15 @@ export interface StenogramSegmentsTable {
   mandate_key: string | null; // roster-validated identity ONLY; NULL is expected
   speech_key: string | null; // the canonical serving speech row; SPEECH only
   agenda_ref: string | null; // source-printed agenda reference (CDep `S<n>` / Senate GUID)
+  // Speaker identity (migration 20260727T140000). person_id is the career-stable id
+  // behind the per-legislature mandate_key; speaker_resolution is the typed reason a
+  // turn does or does not carry one; method/confidence are its provenance.
+  person_id: string | null; // bigint → string
+  speaker_resolution: string; // 'resolved'|'non_member_capacity'|'ambiguous'|'unresolved'|'not_applicable'
+  speaker_method: string | null;
+  speaker_confidence: string | null; // 'exact'|'high'|'medium'|'low'
+  speaker_source_mandate: string | null; // the mandate the SOURCE printed
+  speaker_candidates: Jsonb | null;
   source_url: string; // NOT NULL — traceability terminator
   source_url_kind: string; // 'exact' | 'lossy_root' | 'raw_response' (CHECK)
   source_ref: Jsonb;

@@ -452,6 +452,8 @@ const objectsAndQuery = /* GraphQL */ `
     mandateKey: ID
     "The resolved member (lazy — one lookup, only when selected). null when mandateKey is null."
     member: ParliamentMember
+    "The PERSON behind the mandate — stable across a career spanning several legislatures, unlike the per-legislature mandateKey. Pass it to parliamentPerson. null when mandateKey is null. The typed resolution state and its provenance (speakerResolution / speakerMethod / speakerConfidence) live on the canonical READING BLOCK, not here — reach them via context.segment, so there is exactly one place a resolution is recorded."
+    personId: ID
     "Link back to the source stenogram. See sourceUrlKind for how precisely it locates this turn."
     sourceUrl: String
     "'exact' → deep-links this turn (safe to present as an authoritative link). 'lossy_root' → resolves only to the sitting/section root (Senate stenograms carry no per-turn anchor); do NOT present as an exact deep-link to this speech."
@@ -531,6 +533,36 @@ const objectsAndQuery = /* GraphQL */ `
     next: ParliamentStenogramSessionRef
   }
 
+  """
+  WHY a turn does or does not carry a speaker identity. Four states, never one
+  overloaded null (scrapper migration 20260727T140000):
+   - RESOLVED             the speaker is known, and spoke AS a member.
+   - NON_MEMBER_CAPACITY  this turn is NOT a member intervention — a minister,
+                          secretary of state, official or guest. Deliberately not
+                          "not a member": ministers frequently hold a mandate at the
+                          same time, and the source is saying they are not speaking
+                          under it here. Show a role/guest badge, never a link.
+   - AMBIGUOUS            two or more roster candidates survived; we refuse to guess.
+   - UNRESOLVED           we could not resolve it and do not claim to know why
+                          beyond speakerMethod.
+  """
+  enum ParliamentSpeakerResolution {
+    RESOLVED
+    NON_MEMBER_CAPACITY
+    AMBIGUOUS
+    UNRESOLVED
+  }
+
+  "Strength of a speaker-identity claim. Only ever set on RESOLVED / NON_MEMBER_CAPACITY — the two states that make a claim."
+  enum ParliamentSpeakerConfidence {
+    "Read from the source's OWN printed member id — cdep.ro prints the full mandate key next to the speaker."
+    EXACT
+    HIGH
+    "A labelled name match (Senate only — senat.ro prints no member id anywhere), unique within the legislature's roster."
+    MEDIUM
+    LOW
+  }
+
   "One canonical reading block, in the OFFICIAL printed order. (sessionKey, position) IS the identity — segmentKey encodes the pair and the database enforces it unique, so the two can never disagree."
   type ParliamentStenogramSegment {
     segmentKey: ID!
@@ -549,6 +581,14 @@ const objectsAndQuery = /* GraphQL */ `
     mandateKey: ID
     "The resolved member (lazy). null when mandateKey is null."
     member: ParliamentMember
+    "The PERSON behind the mandate — stable across a career that spans several legislatures (mandateKey is per-legislature). Pass it to parliamentPerson. null unless speakerResolution is RESOLVED."
+    personId: ID
+    "WHY this turn does or does not carry an identity. Non-null on every SPEECH block — an unlinked name is never silent about its reason."
+    speakerResolution: ParliamentSpeakerResolution
+    "Which rule produced speakerResolution, e.g. 'source_member_anchor' (the source printed the mandate) or 'roster_name_unique' (a labelled name match). Recorded even when nothing resolved, so an unresolved turn says which rule gave up."
+    speakerMethod: String
+    "How strong the claim is. null on AMBIGUOUS/UNRESOLVED, which claim nothing."
+    speakerConfidence: ParliamentSpeakerConfidence
     "The canonical serving speech row for this block (SPEECH blocks only)."
     speechKey: ID
     "Source-printed agenda reference in scope (CDep section anchor / Senate agenda GUID)."

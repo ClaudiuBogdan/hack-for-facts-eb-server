@@ -357,6 +357,13 @@ export interface ParliamentSpeech {
   readonly isCanonical: boolean;
   readonly sessionKey: string | null;
   readonly position: number | null;
+  /**
+   * The PERSON behind the mandate — stable across a career spanning several
+   * legislatures, unlike the per-legislature mandateKey. null when mandateKey is
+   * null, and on a database without migration 20260727T140000. The typed resolution
+   * state and its provenance live on the canonical READING BLOCK, not here.
+   */
+  readonly personId: string | null;
 }
 
 /**
@@ -848,6 +855,19 @@ export interface ParliamentStenogramSegment {
   readonly agendaRef: string | null;
   readonly sourceUrl: string;
   readonly sourceUrlKind: string;
+  /**
+   * Speaker identity, as resolved by the data layer (scrapper migration
+   * 20260727T140000). All four are null on a database where that migration has not
+   * been applied — the repo probes for the columns and emits literals rather than
+   * failing the whole read.
+   *
+   * `speakerResolution` is the field the UI should branch on: an unlinked name is
+   * NOT the same event as a guest speaker, and both differ from "we could not tell".
+   */
+  readonly personId: string | null;
+  readonly speakerResolution: string | null;
+  readonly speakerMethod: string | null;
+  readonly speakerConfidence: string | null;
 }
 
 /**

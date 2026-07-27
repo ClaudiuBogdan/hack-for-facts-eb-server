@@ -342,6 +342,8 @@ export interface SpeechRow {
   is_canonical?: boolean | null;
   stenogram_session_key?: string | null;
   stenogram_segment_key?: string | null;
+  /** Same optionality contract, for migration 20260727T140000. */
+  person_id?: string | null;
 }
 
 /**
@@ -377,6 +379,7 @@ export const mapSpeech = (r: SpeechRow): ParliamentSpeech => ({
   isCanonical: r.is_canonical === true,
   sessionKey: r.stenogram_session_key ?? null,
   position: positionFromSegmentKey(r.stenogram_segment_key),
+  personId: r.person_id ?? null,
 });
 
 // ── canonical stenogram (migration 20260726T140000) ──────────────────────────
@@ -468,6 +471,10 @@ export interface StenogramSegmentRow {
   agenda_ref: string | null;
   source_url: string;
   source_url_kind: string;
+  person_id: string | null;
+  speaker_resolution: string | null;
+  speaker_method: string | null;
+  speaker_confidence: string | null;
 }
 
 export const mapStenogramSegment = (r: StenogramSegmentRow): ParliamentStenogramSegment => ({
@@ -484,6 +491,15 @@ export const mapStenogramSegment = (r: StenogramSegmentRow): ParliamentStenogram
   agendaRef: r.agenda_ref,
   sourceUrl: r.source_url,
   sourceUrlKind: r.source_url_kind,
+  personId: r.person_id,
+  // 'not_applicable' is a DB-level value for narration; the API models "this block
+  // is not a turn" as the absence of a resolution, not as a fifth enum member.
+  speakerResolution:
+    r.speaker_resolution === null || r.speaker_resolution === 'not_applicable'
+      ? null
+      : r.speaker_resolution.toUpperCase(),
+  speakerMethod: r.speaker_method,
+  speakerConfidence: r.speaker_confidence === null ? null : r.speaker_confidence.toUpperCase(),
 });
 
 export interface SpeechRedirectRow {

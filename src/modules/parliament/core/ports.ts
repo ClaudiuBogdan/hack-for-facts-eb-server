@@ -448,6 +448,14 @@ export interface ParliamentStenogramRepo {
    * mid-process enables them WITHOUT a restart.
    */
   canonicalSpeechColumnsAvailable(): Promise<boolean>;
+  /**
+   * Does this database carry the speaker-identity columns (scrapper migration
+   * 20260727T140000)? Its OWN probe, not folded into the canonical one: the two
+   * come from different migrations and a DB can legitimately have one without the
+   * other, so sharing a probe would either lose a present column or name an absent
+   * one (a parse error that takes down every speech read).
+   */
+  speakerIdentityColumnsAvailable(): Promise<boolean>;
   /** True when the canonical session/segment relations are queryable (same probe discipline). */
   stenogramProjectionAvailable(): Promise<boolean>;
   /**

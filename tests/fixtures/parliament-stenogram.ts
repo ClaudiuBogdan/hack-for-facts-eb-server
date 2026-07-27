@@ -50,6 +50,8 @@ export interface FakeStenogramData {
   readonly projectionAvailable?: boolean;
   /** false → the three additive `parliament.speeches` columns are not selectable. */
   readonly canonicalColumnsAvailable?: boolean;
+  /** false → the speaker-identity columns (migration 20260727T140000) are absent. */
+  readonly speakerIdentityColumnsAvailable?: boolean;
   /**
    * Canonical `parliament.speeches` keys that are RESTRICTED or quarantined. The
    * speech row's `privacy_class` is independent of its block's, so a public block whose
@@ -108,6 +110,11 @@ export const stenogramSegment = (
     agendaRef: 'S1',
     sourceUrl: 'https://www.cdep.ro/pls/steno/steno2015.stenograma?ids=9043',
     sourceUrlKind: 'exact',
+    // A CDep turn the source itself identified — the default the fixtures assume.
+    personId: '4242',
+    speakerResolution: 'RESOLVED',
+    speakerMethod: 'source_member_anchor',
+    speakerConfidence: 'EXACT',
     ...over,
   };
 };
@@ -180,6 +187,8 @@ export const makeFakeStenogramRepo = (data: FakeStenogramData = {}): ParliamentS
   return {
     canonicalSpeechColumnsAvailable: () =>
       Promise.resolve(data.canonicalColumnsAvailable ?? projectionAvailable),
+    speakerIdentityColumnsAvailable: () =>
+      Promise.resolve(data.speakerIdentityColumnsAvailable ?? projectionAvailable),
     stenogramProjectionAvailable: () => Promise.resolve(projectionAvailable),
 
     listStenogramSessions: (
