@@ -132,6 +132,38 @@ export interface BillEventsTable {
   docs: Jsonb;
 }
 
+/** parliament.bill_procedure_steps — 1:1 with bill_events (the derived interpretation). */
+export interface BillProcedureStepsTable {
+  bill_key: string;
+  position: number;
+  row_kind: string;
+  parent_position: number | null;
+  step_kind: string | null;
+  kind_method: string;
+  resolver_version: string;
+  actor_kind: string;
+  chamber_code: string | null;
+  extras: Jsonb;
+}
+
+/** parliament.bill_step_links — stage-level edges resolved from source anchors. */
+export interface BillStepLinksTable {
+  bill_step_link_id: number;
+  bill_key: string;
+  position: number;
+  step_position: number;
+  link_kind: string;
+  target_key: string | null;
+  source_href: string;
+  source_text: string | null;
+  resolution_status: string;
+  match_method: string;
+  confidence: number | null;
+  confidence_label: string | null;
+  evidence: Jsonb;
+  resolver_version: string;
+}
+
 export interface BillDocumentsTable {
   bill_key: string;
   url: string;
@@ -535,6 +567,8 @@ declare module '@/modules/shared/shell/db/types.js' {
     'parliament.person_identity_candidates': PersonIdentityCandidatesTable;
     'parliament.bills': ParliamentBillsTable;
     'parliament.bill_events': BillEventsTable;
+    'parliament.bill_procedure_steps': BillProcedureStepsTable;
+    'parliament.bill_step_links': BillStepLinksTable;
     'parliament.bill_documents': BillDocumentsTable;
     'parliament.bill_act_links': BillActLinksTable;
     'parliament.bill_vote_links': BillVoteLinksTable;

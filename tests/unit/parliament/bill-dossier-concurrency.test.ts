@@ -179,6 +179,13 @@ const billEvent = (
   committee: null,
   voteIdv: null,
   docs: [],
+  // An event that the procedure derive has not classified yet — the shape the
+  // dossier must still merge and render, never drop.
+  rowKind: null,
+  parentPosition: null,
+  stepKind: null,
+  actorKind: null,
+  links: [],
 });
 
 const billDocument = (sourceBillKey: string, url: string): ParliamentBillDocument => ({

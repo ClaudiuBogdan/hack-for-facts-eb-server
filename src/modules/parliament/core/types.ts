@@ -147,6 +147,21 @@ export interface ParliamentBill {
   readonly updatedAt: string | null;
 }
 
+/**
+ * A stage-level edge resolved from a SOURCE ANCHOR printed on the bill's
+ * procedure table — never from a name. `targetKey` is populated only when
+ * `resolutionStatus` is 'linked'; otherwise the status says WHY, and
+ * `sourceHref` remains the navigable terminator.
+ */
+export interface ParliamentBillStepLink {
+  readonly linkKind: string;
+  readonly targetKey: string | null;
+  readonly sourceHref: string;
+  readonly sourceText: string | null;
+  readonly resolutionStatus: string;
+  readonly matchMethod: string;
+}
+
 export interface ParliamentBillEvent {
   /** Bill view that contributed this event to a merged dossier. */
   readonly sourceBillKey: string;
@@ -158,6 +173,17 @@ export interface ParliamentBillEvent {
   readonly committee: readonly string[] | null;
   readonly voteIdv: string | null; // explicit timeline→vote evidence
   readonly docs: readonly unknown[];
+  /**
+   * Procedure model (parliament.bill_procedure_steps, 1:1 with the captured
+   * event). All null until the derive has run for this bill — a caller must
+   * render the row regardless, never drop it.
+   */
+  readonly rowKind: string | null;
+  readonly parentPosition: number | null;
+  readonly stepKind: string | null;
+  readonly actorKind: string | null;
+  /** Edges presented under THIS step (includes those anchored on its attachments). */
+  readonly links: readonly ParliamentBillStepLink[];
 }
 
 export interface ParliamentBillDocument {

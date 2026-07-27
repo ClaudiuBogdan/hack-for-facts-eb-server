@@ -70,6 +70,11 @@ const objectsAndQuery = /* GraphQL */ `
     adoptat
     respins
   }
+  "A statement about the COUNTS ONLY. It says nothing about whether the bill passed — the motion being voted may itself be a rejection."
+  enum ParliamentTallyRelation {
+    for_exceeds_against
+    for_does_not_exceed_against
+  }
   enum ParliamentVoteChoice {
     pentru
     impotriva
@@ -242,7 +247,13 @@ const objectsAndQuery = /* GraphQL */ `
     voteDate: Date
     title: String
     tally: ParliamentTally!
+    "DEPRECATED and MISNAMED — this is NOT the bill's fate. The loader computes it as (pentru greater than impotriva) and nothing else; the source publishes no outcome word for either chamber. On a REJECTION motion it therefore inverts: 2,995 of the 3,009 divisions that bill_vote_links calls 'final_rejection' carry outcome='adoptat' (measured 2026-07-28). It also ignores the constitutional-majority rule, so it is not even a valid 'did the motion carry' test for an organic law. Read tallyRelation for what the number actually says, and voteLinks.role for the procedural meaning."
     outcome: ParliamentVoteOutcome
+      @deprecated(
+        reason: "Reads as a bill outcome but only compares two counts, and inverts on rejection motions (2,995/3,009). Use tallyRelation for the tally fact and ParliamentBillVoteLink.role for adoption/rejection."
+      )
+    "What the tally literally says, named for what it measures: whether more members voted 'pentru' than 'impotriva'. Carries NO claim about the bill — a chamber voting to REJECT a bill produces for_exceeds_against. Null when the source published no counts."
+    tallyRelation: ParliamentTallyRelation
     divisionNumber: Int
     billKey: ID
     bill: ParliamentBill
@@ -345,10 +356,35 @@ const objectsAndQuery = /* GraphQL */ `
     eventDateText: String
     description: String
     chamberCode: String
-    "Referral committee(s) for this event, extracted from the description (M5). An event commonly references more than one (e.g. report + opinion); null when the event references none (votes, readings). The full text remains in 'description'."
+    "DISPLAY-LEGACY, NON-AUTHORITATIVE. Committee name(s) scraped out of the description (M5). Measured 2026-07-28: 4,147 distinct strings for 499 real committees, only 1.9% matching a registry name, and 70.6% longer than 90 chars ('Comisia Buget - finanţe va depune raportul suplimentar până la data de 27.04.2001'). NEVER link or facet on this — use 'links' with linkKind='committee', which resolves from the source anchor at 99.88%."
     committee: [String!]
     voteIdv: String
     docs: JSON
+
+    # ── procedure model (parliament.bill_procedure_steps, 1:1 with this event) ──
+    "'step' | 'attachment' | 'unclassified'. The source prints a <tr> per attached document/committee anchor as well as per procedural step — cdep.ro shows 7 procedural rows for bill 23135 while this list faithfully holds 12. An 'attachment' folds UNDER parentPosition; it is never a procedural event. Null until the derive has run: render the row anyway, never drop it."
+    rowKind: String
+    "For an attachment, the position of the step it belongs to."
+    parentPosition: Int
+    "Typed procedural kind (referral_report, opinion_received, adopted, rejected, promulgation, …). NULL means the kind has NOT been established — it is not a claim that the step is 'other'. ~91% of cdep and ~88% of senat steps type on a rule."
+    stepKind: String
+    "Who ACTED: chamber | committee | government | other | unknown. A referral ('trimis pentru raport la: Comisia X') is the CHAMBER acting — the committee is the target and appears in 'links', not here."
+    actorKind: String
+    "Stage-level edges presented under this step, resolved from source anchors only. Includes edges whose anchor sits on one of this step's attachments, so a committee referenced only by an attachment still reaches the step."
+    links: [ParliamentBillStepLink!]!
+  }
+
+  "A stage-level edge resolved from a SOURCE ANCHOR the chamber itself printed — never from a name. targetKey is non-null ONLY when resolutionStatus='linked'; otherwise the status says why, and sourceHref stays the human-openable terminator."
+  type ParliamentBillStepLink {
+    "committee | vote | stenogram | agenda | document | act. 'stenogram' targets a stenogram session key; 'agenda' is a plenary/joint work-programme day (senat.ro reuses its ComisieID parameter for these — 38,741 anchors that are NOT committees)."
+    linkKind: String!
+    "Resolved key in its own domain (committeeKey / voteKey / sessionKey). Null unless resolutionStatus='linked'."
+    targetKey: ID
+    sourceHref: String!
+    sourceText: String
+    "linked | unresolved_registry | out_of_corpus | unresolved. 'unresolved_registry' means the target is REAL but absent from our registry (the Senate committee registry holds 33 of the 183 GUIDs the source references) — a different fact from 'we looked and could not find it'."
+    resolutionStatus: String!
+    matchMethod: String!
   }
   type ParliamentBillDocument {
     "Bill view that contributed this document to the merged dossier."
@@ -850,9 +886,12 @@ const objectsAndQuery = /* GraphQL */ `
     node: ParliamentVote!
     cursor: String!
   }
+  "Votes (cursor; keyset voteDate desc, voteKey desc). total is the count over the filtered slice — the SAME filter as the page, kind partition and groupVote plurality included — CAPPED at 10,000; totalEstimated:true means the real total exceeds the cap."
   type ParliamentVoteConnection {
     edges: [ParliamentVoteEdge!]!
     pageInfo: PageInfo!
+    total: Int!
+    totalEstimated: Boolean!
   }
   type ParliamentBallotEdge {
     node: ParliamentBallot!
@@ -910,7 +949,7 @@ const objectsAndQuery = /* GraphQL */ `
       pageSize: Int
     ): ParliamentBillPage
     parliamentBill(billKey: ID!): ParliamentBill
-    "Votes (cursor; default voteDate desc). vote_records are NEVER listed flat here. filter.groupVote drills into a group's ballot split — votes where the group's PLURALITY stance was a given choice — and REQUIRES a chamber, voteDate or billKey bound (else INVALID_INPUT in errors[], this field null); its count does NOT equal a parliamentVoteCohesion percentage of the same window, because cohesion measures ballot slots and this measures votes."
+    "Votes (cursor; default voteDate desc). vote_records are NEVER listed flat here. connection.total counts the whole filtered slice (capped at 10,000, totalEstimated flags the cap) so a list can size its filter without paging it. filter.kind splits the corpus into legislative (the bill_key COLUMN) vs amendment/procedural/chamber_decision/attendance (TITLE heuristics) vs unclassified (14.4%, a served bucket rather than a silent hole) — read the field description before presenting a bucket as fact. filter.groupVote drills into a group's ballot split — votes where the group's PLURALITY stance was a given choice — and REQUIRES a chamber, voteDate or billKey bound (else INVALID_INPUT in errors[], this field null); its count does NOT equal a parliamentVoteCohesion percentage of the same window, because cohesion measures ballot slots and this measures votes."
     parliamentVotes(
       filter: ParliamentVotesFilter
       sort: ParliamentVoteSort

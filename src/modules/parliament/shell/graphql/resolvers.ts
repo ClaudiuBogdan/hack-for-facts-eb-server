@@ -168,7 +168,7 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
   };
 
   const voteConnection = (
-    page: CursorPage<ParliamentVote>,
+    page: CursorPage<ParliamentVote> & { total: number; totalEstimated: boolean },
     sort: string,
     dir: 'asc' | 'desc',
     fhash: string
@@ -188,6 +188,10 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
       hasNextPage: page.next !== null,
       endCursor: page.next,
     },
+    // The count over the SAME filter as the page (capped; see the repo) — what
+    // lets the list say "412 votes match" instead of only "the most recent 10".
+    total: page.total,
+    totalEstimated: page.totalEstimated,
   });
 
   const ballotConnection = (page: CursorPage<ParliamentBallot>, voteKey: string) => {
@@ -847,6 +851,20 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
     },
 
     ParliamentVote: {
+      // Derived from the COUNTS THEMSELVES, not from `outcome` — the point of the
+      // field is to stop laundering a two-number comparison through a word that
+      // reads as the bill's fate. Null counts stay null: a vote whose tally the
+      // source never published makes no statement at all (202 such rows), and
+      // defaulting it to "adopted" is exactly the fabrication being removed.
+      tallyRelation: (parent: {
+        tally?: { pentru?: number | null; impotriva?: number | null } | null;
+      }) => {
+        const pentru = parent.tally?.pentru;
+        if (pentru == null) return null;
+        return pentru > (parent.tally?.impotriva ?? 0)
+          ? 'for_exceeds_against'
+          : 'for_does_not_exceed_against';
+      },
       groupBreakdown: async (parent: { voteKey: string; groupBreakdownData?: unknown }) =>
         parent.groupBreakdownData !== undefined
           ? parent.groupBreakdownData

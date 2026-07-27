@@ -16,6 +16,7 @@ import {
   type ParliamentBill,
   type ParliamentBillDocument,
   type ParliamentBillEvent,
+  type ParliamentBillStepLink,
   type ParliamentCommittee,
   type ParliamentCommitteeMembership,
   type ParliamentControlItem,
@@ -193,7 +194,16 @@ export interface BillEventRow {
   committee: string[] | null;
   vote_idv: string | null;
   docs: unknown;
+  // Procedure model (1:1 with the event, LEFT JOINed — null until the derive runs).
+  row_kind?: string | null;
+  parent_position?: number | null;
+  step_kind?: string | null;
+  actor_kind?: string | null;
+  links?: unknown;
 }
+
+const toStepLinks = (value: unknown): readonly ParliamentBillStepLink[] =>
+  Array.isArray(value) ? (value as readonly ParliamentBillStepLink[]) : [];
 
 export const mapBillEvent = (r: BillEventRow): ParliamentBillEvent => ({
   sourceBillKey: r.bill_key,
@@ -205,6 +215,11 @@ export const mapBillEvent = (r: BillEventRow): ParliamentBillEvent => ({
   committee: r.committee,
   voteIdv: r.vote_idv,
   docs: Array.isArray(r.docs) ? (r.docs as readonly unknown[]) : [],
+  rowKind: r.row_kind ?? null,
+  parentPosition: r.parent_position ?? null,
+  stepKind: r.step_kind ?? null,
+  actorKind: r.actor_kind ?? null,
+  links: toStepLinks(r.links),
 });
 
 export interface BillDocumentRow {
