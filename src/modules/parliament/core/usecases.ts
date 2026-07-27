@@ -351,7 +351,9 @@ export interface VotesInput {
 export const listVotes = (
   deps: ParliamentUsecaseDeps,
   input: VotesInput
-): Promise<Result<CursorPage<ParliamentVote>, ApiError>> =>
+): Promise<
+  Result<CursorPage<ParliamentVote> & { total: number; totalEstimated: boolean }, ApiError>
+> =>
   (async () => {
     // q-only-without-bound guard (Codex SHOULD-FIX): when the search engine is down
     // the ILIKE fallback needs a bounding predicate, else it scans 20k votes title-wide.
@@ -365,11 +367,12 @@ export const listVotes = (
         )
       );
     }
-    // groupVote-without-bound guard: the group-plurality predicate is a correlated
-    // aggregate over vote_records, which has NO index on group_name or choice — it
-    // re-reads every ballot of every candidate vote (~200 per vote, 4.1M in total,
-    // measured ~0.9s unbounded vs ~47ms over a 296-vote window on prod 2026-07-28).
-    // Same rule as the q fallback: refuse, never silently run the slow scan.
+    // groupVote-without-bound guard: BOTH readings (bare participation, and the
+    // plurality argmax when `choice` is sent) are correlated subqueries over
+    // vote_records, which has NO index on group_name or choice — they re-read the
+    // ballots of every candidate vote (~200 per vote, 4.1M in total, measured ~0.9s
+    // unbounded vs ~47ms over a 296-vote window on prod 2026-07-28). Same rule as the
+    // q fallback: refuse, never silently run the slow scan.
     if (fieldHasValue(f, 'groupVote') && !hasVoteBound(f)) {
       return err(
         invalidInput(
@@ -378,6 +381,12 @@ export const listVotes = (
         )
       );
     }
+    // `kind` deliberately has NO bound guard: unlike groupVote it never leaves the
+    // 20,745-row votes table — `legislative` is a bill_key column test and the other
+    // buckets are title regexes over that same small table (measured 65ms for the
+    // page AND the capped count together, prod 2026-07-28). Requiring a bound here
+    // would refuse the one question the filter exists to answer ("how much of the
+    // WHOLE corpus is amendment noise?").
     return deps.repo.listVotes(f, input.sort, input.dir, input.page);
   })();
 

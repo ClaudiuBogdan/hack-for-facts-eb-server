@@ -159,12 +159,21 @@ export interface ParliamentRepo extends ParliamentStenogramRepo {
   // ── votes / records ───────────────────────────────────────────────────────────
   // The repo derives the cursor `fhash` from the spec + filter internally (it owns
   // the spec); the usecase passes only the validated filter — no core→shell import.
+  /**
+   * votes_chamber_date_idx. `total` is the count over the FILTERED slice (the
+   * keyset predicate is excluded, so it does not shrink as the client pages),
+   * CAPPED at 10,000 with `totalEstimated:true` flagging the cap — the same
+   * contract as listSpeeches. The count is issued concurrently with the page and
+   * carries the same filter, `kind` partition and `groupVote` aggregate included.
+   */
   listVotes(
     filter: FilterInput,
     sort: string,
     dir: 'asc' | 'desc',
     page: CursorPageRequest
-  ): Promise<Result<CursorPage<ParliamentVote>, ApiError>>; // votes_chamber_date_idx
+  ): Promise<
+    Result<CursorPage<ParliamentVote> & { total: number; totalEstimated: boolean }, ApiError>
+  >;
   findVote(voteKey: string): Promise<Result<ParliamentVote | null, ApiError>>; // votes_pkey
   listVotesForBill(billKey: string): Promise<Result<readonly ParliamentVote[], ApiError>>; // votes_bill_idx
   /**

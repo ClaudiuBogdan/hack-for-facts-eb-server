@@ -99,6 +99,8 @@ import {
   BILL_STATUSES,
   BILL_TYPES,
   VOTE_CHOICES,
+  VOTE_KINDS,
+  VOTE_KIND_TITLE_RULES,
   billsFilterSpec,
   controlItemsFilterSpec,
   memberSpeechesFhash,
@@ -462,11 +464,22 @@ const compositeMember = (f: Record<string, unknown>, name: string): unknown => {
 };
 
 /**
- * `votes.groupVote` (virtual, COMPOSITE) → "the group's PLURALITY stance on this
- * vote was `choice`". A group has no stance in the data — its members each cast a
- * ballot — so the stance is DERIVED as the choice with the MOST vote_records rows
- * for that group on that vote. Three rules, all deliberate and all visible in the
- * SQL below:
+ * `votes.groupVote` (virtual, COMPOSITE) → votes seen through ONE group's ballots.
+ * It compiles TWO different predicates, and `choice` picks which:
+ *
+ *  (A) NO `choice` — PARTICIPATION: `exists (… vr.group_name = $g)`, every vote the
+ *      group cast at least one ballot on. `nu_a_votat` rows count: they are recorded
+ *      ballots, so "the group was there and mostly abstained from voting" is still
+ *      participation. This is the reading a filter panel needs when a reader picks a
+ *      party and no stance, and it is deliberately NOT the union of the four
+ *      stance-filtered sets — a vote the group TIED on belongs to no stance yet
+ *      unmistakably belongs here.
+ *
+ *  (B) WITH `choice` — the group's PLURALITY stance on the vote, i.e. (A) plus an
+ *      argmax. A group has no stance in the data — its members each cast a ballot —
+ *      so the stance is DERIVED as the choice with the MOST vote_records rows for
+ *      that group on that vote. Three rules, all deliberate and all visible in the
+ *      SQL below:
  *
  *  1. PLURALITY over ALL FOUR choices, nu_a_votat included: "the group mostly did
  *     not show up" is a real, honest answer, so a vote CAN be attributed to
@@ -483,8 +496,9 @@ const compositeMember = (f: Record<string, unknown>, name: string): unknown => {
  * fuzzy-bridging that gap would answer a question the caller did not ask.
  *
  * Returns `null` when the field is absent (nothing to add), an InvalidInput when
- * it is half-sent or carries an unknown choice — never a silently dropped
- * predicate, which would widen the result set to every vote.
+ * `group` is missing or `choice` is present but unknown — never a silently dropped
+ * predicate, which would widen the result set to every vote. A MISSING `choice` is
+ * not a dropped predicate: it is reading (A), which still names a group.
  */
 export const buildGroupVoteCondition = (
   f: Record<string, unknown> | undefined
@@ -497,6 +511,9 @@ export const buildGroupVoteCondition = (
 
   const group = typeof rawGroup === 'string' ? rawGroup.trim() : '';
   if (group === '') {
+    // Still an error when only `choice` arrives: "votes with any pentru ballot" is
+    // nearly the whole corpus, so honouring it alone would answer a question nobody
+    // asked while looking like a filter.
     return err(
       invalidInput(
         'groupVote.group is required — the group name exactly as vote_records spells it',
@@ -504,15 +521,21 @@ export const buildGroupVoteCondition = (
       )
     );
   }
+  // Correlated on vote_key so the aggregate rides vote_records_pkey (vote_key,
+  // row_index) — the only usable index; group_name/choice are post-scan filters.
+  const scoped = sql`select 1 from parliament.vote_records vr
+                     where vr.vote_key = v.vote_key and vr.group_name = ${group}`;
+  // (A) PARTICIPATION: the group appears on the ballot sheet at all. A bare semi-join
+  // — no `having`, so it stops at the first matching row instead of tallying four
+  // counts per candidate vote.
+  if (rawChoice === undefined) return ok(sql`exists (${scoped})`);
+
   if (
     typeof rawChoice !== 'string' ||
     !VOTE_CHOICES.includes(rawChoice as (typeof VOTE_CHOICES)[number])
   ) {
     return err(
-      invalidInput(
-        `groupVote.choice is required and must be one of ${VOTE_CHOICES.join(', ')}`,
-        'groupVote.choice'
-      )
+      invalidInput(`groupVote.choice must be one of ${VOTE_CHOICES.join(', ')}`, 'groupVote.choice')
     );
   }
 
@@ -522,13 +545,80 @@ export const buildGroupVoteCondition = (
   const beatsEveryOther = VOTE_CHOICES.filter((c) => c !== rawChoice).map(
     (c) => sql`${target} > ${tally(c)}`
   );
-  // Correlated on vote_key so the aggregate rides vote_records_pkey (vote_key,
-  // row_index) — the only usable index; group_name/choice are post-scan filters.
+  // (B) PLURALITY: the same scoped rows, argmaxed.
   return ok(
-    sql`exists (select 1 from parliament.vote_records vr
-                where vr.vote_key = v.vote_key and vr.group_name = ${group}
+    sql`exists (${scoped}
                 having ${target} > 0 and ${sql.join(beatsEveryOther, sql` and `)})`
   );
+};
+
+/**
+ * `votes.kind` (virtual) → the ordered vote-kind partition, compiled from the
+ * SAME `VOTE_KIND_TITLE_RULES` the GraphQL description is rendered from — the
+ * documented regex IS the executed regex, by construction.
+ *
+ * The shape of every bucket:
+ *   - `legislative`      → `v.bill_key is not null` (the COLUMN; votes_bill_idx).
+ *   - a title rule       → `v.bill_key is null` AND it fails every EARLIER rule
+ *                          AND it matches its own — that "fails every earlier"
+ *                          chain is what makes the buckets disjoint instead of
+ *                          overlapping (44 non-bill votes match two rules).
+ *   - `unclassified`     → `v.bill_key is null` AND it fails EVERY rule. It is a
+ *                          served bucket, not a silent remainder: 14.4% of the
+ *                          corpus has no usable title signal and a citizen
+ *                          filtering the list must be able to see that set.
+ *
+ * The title is folded (lower + diacritics) exactly like the `q` fallback, so
+ * `Prezenţa` and `prezenta` are one needle. No title index exists — this is a
+ * sequential scan of a 20,745-row table (~65ms measured, count included), which
+ * is why it needs no bound guard, unlike `groupVote`.
+ */
+const foldedVoteTitle: RawBuilder<string> = sql<string>`lower(translate(coalesce(v.title, ''), ${FOLD_FROM}, ${FOLD_TO}))`;
+
+const voteKindPredicate = (kind: string): RawBuilder<unknown> => {
+  if (kind === 'legislative') return sql`v.bill_key is not null`;
+  const index = VOTE_KIND_TITLE_RULES.findIndex((r) => r.kind === kind);
+  // `unclassified` (index -1 — it has no rule of its own) fails every rule;
+  // a title rule fails every EARLIER rule and matches its own.
+  const earlier = (
+    index === -1 ? VOTE_KIND_TITLE_RULES : VOTE_KIND_TITLE_RULES.slice(0, index)
+  ).map((r) => sql`${foldedVoteTitle} !~ ${r.pattern}`);
+  const own = VOTE_KIND_TITLE_RULES[index];
+  const parts: RawBuilder<unknown>[] = [
+    sql`v.bill_key is null`,
+    ...earlier,
+    ...(own === undefined ? [] : [sql`${foldedVoteTitle} ~ ${own.pattern}`]),
+  ];
+  return sql`(${sql.join(parts, sql` and `)})`;
+};
+
+export const buildVoteKindCondition = (
+  f: Record<string, unknown> | undefined
+): Result<RawBuilder<unknown> | null, ApiError> => {
+  if (f === undefined) return ok(null);
+  const eq: unknown = f['eq'] ?? undefined;
+  const inList: unknown = f['in'] ?? undefined;
+  // Honouring one and dropping the other would answer a different question than
+  // the caller asked; the buckets are disjoint, so the two can never be combined
+  // into anything but the empty set.
+  if (eq !== undefined && inList !== undefined) {
+    return err(invalidInput('kind takes eq OR in, not both', 'kind'));
+  }
+  const raw: unknown = eq ?? inList;
+  if (raw === undefined) return ok(null);
+  const wanted = Array.isArray(raw) ? (raw as unknown[]) : [raw];
+  // `in: []` means "match nothing", never "no filter" — a dropped predicate would
+  // widen the list to the whole corpus (kernel #60h, kept in the virtual path).
+  if (wanted.length === 0) return ok(sql`false`);
+  const kinds: string[] = [];
+  for (const value of wanted) {
+    if (typeof value !== 'string' || !VOTE_KINDS.includes(value as (typeof VOTE_KINDS)[number])) {
+      return err(invalidInput(`kind must be one of ${VOTE_KINDS.join(', ')}`, 'kind'));
+    }
+    if (!kinds.includes(value)) kinds.push(value);
+  }
+  // The buckets are disjoint, so a multi-value `in` is a plain OR of them.
+  return ok(sql`(${sql.join(kinds.map(voteKindPredicate), sql` or `)})`);
 };
 
 export const makeParliamentRepo = (db: Db): ParliamentRepo => {
@@ -1417,6 +1507,11 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     const groupVote = buildGroupVoteCondition(fieldFilter(filter, 'groupVote'));
     if (groupVote.isErr()) return err(groupVote.error);
     if (groupVote.value !== null) conds.push(groupVote.value);
+
+    // kind (virtual): the ordered bill_key + title-regex partition.
+    const kind = buildVoteKindCondition(fieldFilter(filter, 'kind'));
+    if (kind.isErr()) return err(kind.error);
+    if (kind.value !== null) conds.push(kind.value);
     return ok(conds);
   };
 
@@ -1425,10 +1520,16 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     sort: string,
     dir: 'asc' | 'desc',
     page: CursorPageRequest
-  ): Promise<Result<CursorPage<ParliamentVote>, ApiError>> => {
+  ): Promise<
+    Result<CursorPage<ParliamentVote> & { total: number; totalEstimated: boolean }, ApiError>
+  > => {
     const condsRes = buildVoteConditions(filter);
     if (condsRes.isErr()) return err(condsRes.error);
-    const conds = condsRes.value;
+    // baseConds = the FILTERED slice, which drives the capped total; the keyset
+    // predicate below is added ON TOP for the page and MUST NOT touch the count
+    // (else `total` would shrink page by page). Same split as listSpeeches.
+    const baseConds = condsRes.value;
+    const conds = [...baseConds];
     const fhash = fhashFor(votesFilterSpec, filter);
     const limit = Math.min(Math.max(page.first, 1), 100);
 
@@ -1460,13 +1561,34 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
       ? sql`v.vote_key ${dirSql}`
       : sql`${dateKey} ${dirSql}, v.vote_key ${dirSql}`;
     try {
-      const rows = await db
-        .selectFrom('parliament.votes as v')
-        .select(VOTE_SELECT)
-        .where(where)
-        .orderBy(order)
-        .limit(limit + 1)
-        .execute();
+      // Capped count (the listSpeeches/listBills pattern): count(*) over a LIMIT
+      // cap+1 subselect, issued CONCURRENTLY with the page query. Measured on prod
+      // 2026-07-28: 7.6ms unfiltered, 1.1ms for kind:legislative, 65ms for a title
+      // rule — and 330-540ms for the heaviest ALLOWED groupVote filter (a
+      // chamber-only bound), where the page query alone already costs 344-515ms
+      // because its ORDER BY forces the same correlated aggregate over the same
+      // candidate set. The count therefore adds latency only up to the max of the
+      // two, never a second full pass.
+      const [rows, countRow] = await Promise.all([
+        db
+          .selectFrom('parliament.votes as v')
+          .select(VOTE_SELECT)
+          .where(where)
+          .orderBy(order)
+          .limit(limit + 1)
+          .execute(),
+        db
+          .selectFrom(
+            db
+              .selectFrom('parliament.votes as v')
+              .select(sql<number>`1`.as('one'))
+              .where(composeWhere(baseConds))
+              .limit(LIST_TOTAL_CAP + 1)
+              .as('capped')
+          )
+          .select(sql<string>`count(*)`.as('cnt'))
+          .executeTakeFirst(),
+      ]);
       const hasMore = rows.length > limit;
       const sliced = hasMore ? rows.slice(0, limit) : rows;
       const items = sliced.map((r) => mapVote(r as VoteRow));
@@ -1480,7 +1602,14 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
               lastKeys: byKeyOnly ? [last.vote_key] : [last.vote_date ?? '', last.vote_key],
             })
           : null;
-      return ok({ items, next });
+      const rawCount = Number(countRow?.cnt ?? 0);
+      const totalEstimated = rawCount > LIST_TOTAL_CAP;
+      return ok({
+        items,
+        next,
+        total: totalEstimated ? LIST_TOTAL_CAP : rawCount,
+        totalEstimated,
+      });
     } catch (e) {
       return err(databaseError('listVotes failed', e));
     }

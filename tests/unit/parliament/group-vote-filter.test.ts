@@ -1,17 +1,21 @@
 /**
- * `parliamentVotes(filter.groupVote)` — the derived group-PLURALITY stance.
+ * `parliamentVotes(filter.groupVote)` — votes seen through one group's ballots.
  *
- * "PSD voted pentru" is not a fact in vote_records: 91 members each cast their own
- * ballot. The filter therefore derives a stance, and the three rules that make that
- * derivation honest are exactly what this file pins:
+ * The field compiles TWO predicates, and `choice` picks which:
  *
- *   1. PLURALITY over ALL FOUR choices — nu_a_votat included, so "the group mostly
- *      did not show up" is expressible and a vote CAN be attributed to it.
- *   2. A TIE matches NEITHER tied choice (strict `>` against every other choice) —
- *      the group did not take that position, and sort order must not invent one.
- *   3. EXACT group_name matching — vote_records and the parliamentGroups
- *      nomenclator disagree on vocabulary, and fuzzy-bridging would silently answer
- *      a different question.
+ *   (A) NO `choice` — PARTICIPATION: every vote the group cast at least one ballot
+ *       on. A bare semi-join, no argmax.
+ *   (B) WITH `choice` — the group's derived PLURALITY stance. "PSD voted pentru" is
+ *       not a fact in vote_records: 91 members each cast their own ballot. The three
+ *       rules that make that derivation honest are what this file pins:
+ *         1. PLURALITY over ALL FOUR choices — nu_a_votat included, so "the group
+ *            mostly did not show up" is expressible and a vote CAN be attributed.
+ *         2. A TIE matches NEITHER tied choice (strict `>` against every other
+ *            choice) — the group did not take that position, and sort order must not
+ *            invent one. This is also why (B) is a STRICT subset of (A).
+ *         3. EXACT group_name matching — vote_records and the parliamentGroups
+ *            nomenclator disagree on vocabulary, and fuzzy-bridging would silently
+ *            answer a different question.
  *
  * The SQL is compiled by the REAL Kysely query against a capturing driver, so the
  * predicate asserted here is the predicate that ships. The live-data proof that the
@@ -85,14 +89,18 @@ const makeCapturingDb = (captured: Captured[]): Kysely<ProdDatabase> => {
 /** Collapse whitespace so the multi-line raw predicate can be asserted on substrings. */
 const flat = (s: string): string => s.replace(/\s+/gu, ' ').trim();
 
-/** Compile the real listVotes query and return the flattened SQL + parameters. */
+/**
+ * Compile the real listVotes PAGE query and return the flattened SQL + parameters.
+ * listVotes issues two queries CONCURRENTLY (the page + the capped total), so the
+ * page is picked by its `order by` rather than by arrival order.
+ */
 const compileVotes = async (filter: FilterInput): Promise<Captured> => {
   const captured: Captured[] = [];
   const repo = makeParliamentRepo(makeCapturingDb(captured));
   const res = await repo.listVotes(filter, 'voteDate', 'desc', { first: 20 });
   expect(res.isOk()).toBe(true);
-  const query = captured[0];
-  if (query === undefined) throw new Error('no query captured');
+  const query = captured.find((c) => c.sql.includes('order by'));
+  if (query === undefined) throw new Error('no page query captured');
   return { sql: flat(query.sql), parameters: query.parameters };
 };
 
@@ -107,25 +115,37 @@ describe('groupVote — the composite input shape', () => {
     if (r.isOk()) expect(r.value).toHaveLength(0);
   });
 
-  it('renders BOTH members as required in the derived SDL (no half-sent predicate)', () => {
+  it('renders `group` REQUIRED and `choice` OPTIONAL in the derived SDL', () => {
     const sdl = toGraphQLInput(votesFilterSpec);
     expect(sdl).toContain('input ParliamentVotesGroupVoteFilter');
+    // `group` keeps its `!`: a bare `choice` is "any vote with a pentru ballot",
+    // which is nearly the whole corpus, not a subset.
     expect(sdl).toContain('group: String!');
-    // Reuses the module enum rather than growing a second copy of the domain.
-    expect(sdl).toContain('choice: ParliamentVoteChoice!');
+    // `choice` drops its `!`: omitting it is the PARTICIPATION reading, a narrower
+    // question in its own right. Still reuses the module enum rather than growing a
+    // second copy of the domain.
+    expect(sdl).toContain('choice: ParliamentVoteChoice\n');
+    expect(sdl).not.toContain('choice: ParliamentVoteChoice!');
     expect(sdl).toContain('groupVote: ParliamentVotesGroupVoteFilter');
     // The two-number caveat must reach the client that links from the cohesion bar.
     expect(sdl).toContain('BALLOT SLOTS');
+    // Both readings must be stated where the client actually reads them.
+    expect(sdl).toContain('PARTICIPATION');
   });
 
-  it('binds a cursor to BOTH members (a different group or choice = a different fhash)', () => {
+  it('binds a cursor to BOTH members (group, choice, and choice-vs-no-choice differ)', () => {
     const base = fhashFor(votesFilterSpec, { groupVote: { group: 'PSD', choice: 'pentru' } });
     const otherChoice = fhashFor(votesFilterSpec, {
       groupVote: { group: 'PSD', choice: 'impotriva' },
     });
     const otherGroup = fhashFor(votesFilterSpec, { groupVote: { group: 'AUR', choice: 'pentru' } });
+    // The participation reading returns a DIFFERENT (wider) set, so it must not
+    // share a cursor with any stance — else a page-2 cursor would replay across it.
+    const participation = fhashFor(votesFilterSpec, { groupVote: { group: 'PSD' } });
     expect(base).not.toBe(otherChoice);
     expect(base).not.toBe(otherGroup);
+    expect(participation).not.toBe(base);
+    expect(participation).not.toBe(fhashFor(votesFilterSpec, { groupVote: { group: 'AUR' } }));
   });
 });
 
@@ -138,19 +158,30 @@ describe('groupVote — input validation (never a silently dropped predicate)', 
     expect(buildGroupVoteCondition({})._unsafeUnwrap()).toBeNull();
   });
 
-  it('rejects a HALF-sent predicate rather than widening the result set', () => {
-    const noChoice = buildGroupVoteCondition({ group: 'PSD' });
-    expect(noChoice.isErr()).toBe(true);
-    if (noChoice.isErr()) expect(noChoice.error.type).toBe('InvalidInput');
-
+  it('rejects a `choice` with no `group` — that is not a subset of the votes', () => {
     const noGroup = buildGroupVoteCondition({ choice: 'pentru' });
     expect(noGroup.isErr()).toBe(true);
-    if (noGroup.isErr()) expect(noGroup.error.type).toBe('InvalidInput');
+    if (noGroup.isErr()) {
+      expect(noGroup.error.type).toBe('InvalidInput');
+      expect(noGroup.error.message).toContain('group');
+    }
+  });
+
+  it('ACCEPTS a `group` with no `choice` — the participation reading, not half a predicate', () => {
+    const r = buildGroupVoteCondition({ group: 'PSD' });
+    expect(r.isOk()).toBe(true);
+    if (r.isOk()) expect(r.value).not.toBeNull();
+    // A runtime null choice reads as absent (the GraphQL arg is nullable), so it
+    // takes the same participation path rather than erroring.
+    expect(buildGroupVoteCondition({ group: 'PSD', choice: null })._unsafeUnwrap()).not.toBeNull();
   });
 
   it('rejects an unknown choice and a blank group', () => {
     expect(buildGroupVoteCondition({ group: 'PSD', choice: 'maybe' }).isErr()).toBe(true);
     expect(buildGroupVoteCondition({ group: '   ', choice: 'pentru' }).isErr()).toBe(true);
+    // A blank group is blank under BOTH readings — the participation path must not
+    // become a back door to an unnamed group.
+    expect(buildGroupVoteCondition({ group: '   ' }).isErr()).toBe(true);
     // A runtime null on either member reads as absent, not as a crash.
     expect(buildGroupVoteCondition({ group: null, choice: null })._unsafeUnwrap()).toBeNull();
   });
@@ -251,6 +282,60 @@ describe('groupVote — the plurality predicate that ships', () => {
   });
 });
 
+describe('groupVote — the PARTICIPATION predicate (choice omitted)', () => {
+  it('is a bare semi-join on the group: no argmax, no tally, no having', async () => {
+    const captured = await compileVotes({
+      chamber: { eq: 'camera_deputatilor' },
+      groupVote: { group: 'PSD' },
+    });
+    expect(captured.sql).toContain(
+      'exists (select 1 from parliament.vote_records vr where vr.vote_key = v.vote_key and vr.group_name = $2)'
+    );
+    // The four-way tally belongs to the plurality reading only — participation must
+    // not pay for it, and must not inherit its tie rule.
+    expect(captured.sql).not.toContain('count(*) filter');
+    expect(captured.sql).not.toContain('having');
+    // The group is the ONLY bound value the predicate adds.
+    expect(captured.parameters.slice(1, -1)).toEqual(['PSD']);
+  });
+
+  it('never constrains vr.choice — every one of the four counts as taking part', async () => {
+    const { sql } = await compileVotes({
+      chamber: { eq: 'camera_deputatilor' },
+      groupVote: { group: 'PSD' },
+    });
+    // Including nu_a_votat: those are RECORDED ballots, so the group was on the sheet.
+    expect(sql).not.toContain('vr.choice');
+  });
+
+  it('matches group_name EXACTLY here too — no ilike, no fold', async () => {
+    const captured = await compileVotes({
+      chamber: { eq: 'camera_deputatilor' },
+      groupVote: { group: 'Senatori neafiliați' },
+    });
+    expect(captured.parameters).toContain('Senatori neafiliați');
+    expect(captured.sql).not.toContain('vr.group_name ilike');
+    expect(captured.sql).not.toContain('lower(vr.group_name');
+  });
+
+  it('the plurality predicate is the SAME scoped rows plus an argmax (B ⊂ A)', async () => {
+    const participation = await compileVotes({
+      chamber: { eq: 'camera_deputatilor' },
+      groupVote: { group: 'PSD' },
+    });
+    const plurality = await compileVotes({
+      chamber: { eq: 'camera_deputatilor' },
+      groupVote: { group: 'PSD', choice: 'pentru' },
+    });
+    // The plurality SQL is the participation SQL with a `having` appended, which is
+    // the structural reason a stance can only ever narrow the participation set.
+    const scoped =
+      'select 1 from parliament.vote_records vr where vr.vote_key = v.vote_key and vr.group_name = $2';
+    expect(participation.sql).toContain(scoped);
+    expect(plurality.sql).toContain(`${scoped} having`);
+  });
+});
+
 describe('groupVote — boundedness (there is no group_name/choice index)', () => {
   const okp = <T>(v: T): Promise<Result<T, ApiError>> => Promise.resolve(ok(v));
   const makeRepo = (over: Partial<ParliamentRepo>): ParliamentRepo =>
@@ -287,7 +372,9 @@ describe('groupVote — boundedness (there is no group_name/choice index)', () =
       { voteDate: { between: { from: '2026-01-28', to: '2026-07-28' } } },
       { billKey: { eq: '12760' } },
     ]) {
-      const listVotesFn = vi.fn(() => okp({ items: [], next: null }));
+      const listVotesFn = vi.fn(() =>
+        okp({ items: [], next: null, total: 0, totalEstimated: false })
+      );
       const r = await listVotes(deps(makeRepo({ listVotes: listVotesFn })), {
         filter: { ...bound, groupVote: { group: 'PSD', choice: 'pentru' } },
         sort: 'voteDate',
@@ -297,6 +384,21 @@ describe('groupVote — boundedness (there is no group_name/choice index)', () =
       });
       expect(r.isOk()).toBe(true);
       expect(listVotesFn).toHaveBeenCalledOnce();
+    }
+  });
+
+  it('refuses an UNBOUNDED participation list too (same table, same missing index)', async () => {
+    const r = await listVotes(deps(makeRepo({})), {
+      filter: { groupVote: { group: 'PSD' } },
+      sort: 'voteDate',
+      dir: 'desc',
+      page: { first: 20 },
+      searchEngineUp: true,
+    });
+    expect(r.isErr()).toBe(true);
+    if (r.isErr()) {
+      expect(r.error.type).toBe('InvalidInput');
+      expect(r.error.message).toContain('groupVote');
     }
   });
 

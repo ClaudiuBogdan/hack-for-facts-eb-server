@@ -11,8 +11,12 @@
  *
  * VIRTUAL fields (repo-intercepted; the kernel composer SKIPS them, §15.6 / #60b):
  *   - votes.q / bills.q          → Meili-primary; ILIKE fallback needs a bound
- *   - votes.groupVote            → per-vote group PLURALITY (vote_records EXISTS;
- *                                  COMPOSITE input — needs a group AND a choice)
+ *   - votes.groupVote            → per-vote group PLURALITY, or bare PARTICIPATION
+ *                                  when `choice` is omitted (vote_records EXISTS;
+ *                                  COMPOSITE input — `group` required, `choice` not)
+ *   - votes.kind                 → bill_key column + ORDERED title regexes
+ *                                  (VOTE_KIND_TITLE_RULES; partition incl. a
+ *                                  real `unclassified` bucket)
  *   - members.group / members.judet → slug→exact match (resolved in TS)
  *   - members.q                  → unaccent-free ILIKE on full_name (bounded by legislature)
  *   - bills.hasLaw / bills.actId → join to bill_act_links (cross-table EXISTS)
@@ -125,8 +129,126 @@ export const BILL_STATUSES = [
   'in_progress',
 ] as const;
 
+/**
+ * Vote KIND buckets — "votes on actual laws" vs amendment-by-amendment vs
+ * housekeeping. The buckets are NOT equally solid, and the API must not pretend
+ * they are:
+ *
+ *   - `legislative` is a COLUMN: `votes.bill_key is not null` (rides
+ *     votes_bill_idx). It is the one bucket that does not guess.
+ *   - the other four are TITLE HEURISTICS over `votes.title`, a messy free-text
+ *     field with no index and no controlled vocabulary.
+ *   - `unclassified` is the residual, and it is LARGE (14.4% of the corpus) —
+ *     it exists so a third of the votes are not silently dropped out of every
+ *     bucket.
+ *
+ * The buckets are an ORDERED, DISJOINT, EXHAUSTIVE partition: `legislative`
+ * first (the column), then the title rules in the declared order, first match
+ * wins, and `unclassified` is "matched nothing". Ordering barely bites — only
+ * 44 of 9,178 non-bill votes match more than one title rule (measured) — but it
+ * is declared rather than emergent so `unclassified` has a meaning.
+ *
+ * `VOTE_KIND_TITLE_RULES` is the SINGLE source of the shape: the repo compiles
+ * its `pattern`s into SQL and `voteKindDescription()` renders the SAME strings
+ * into the GraphQL description, so the documented regex cannot drift from the
+ * executed one.
+ */
+export const VOTE_KINDS = [
+  'legislative',
+  'amendment',
+  'procedural',
+  'chamber_decision',
+  'attendance',
+  'unclassified',
+] as const;
+
+export type VoteKind = (typeof VOTE_KINDS)[number];
+
+export interface VoteKindTitleRule {
+  readonly kind: VoteKind;
+  /**
+   * POSIX regex matched against the FOLDED title —
+   * `lower(translate(coalesce(v.title,''), <diacritics>))` — so `Prezenţa` and
+   * `prezenta` are the same needle. Case/diacritic folding is the ONLY
+   * normalization; the pattern is otherwise matched as written.
+   */
+  readonly pattern: string;
+  /** Rows landing in this bucket under THIS precedence (prod, 2026-07-28). */
+  readonly measured: number;
+  /** What the rule is actually recognizing, in the words of the titles. */
+  readonly gloss: string;
+}
+
+/** Ordered: first match wins (see the partition note above). */
+export const VOTE_KIND_TITLE_RULES: readonly VoteKindTitleRule[] = [
+  {
+    kind: 'attendance',
+    pattern: 'prezent',
+    measured: 172,
+    gloss: 'roll-call / quorum checks ("Verificare prezenta", "Prezenta la vot")',
+  },
+  {
+    kind: 'chamber_decision',
+    pattern: '(^ph ?-? ?cd|proiect\\w* de hotarare)',
+    measured: 824,
+    gloss:
+      'chamber decisions (hotărâri): the "PH CD 23/2025" / "PHCD 75/2022" reference form AND the spelled-out "Proiect(ul) de Hotărâre …" form',
+  },
+  {
+    kind: 'amendment',
+    pattern: '(^art\\.? ?[0-9]|amr|amendament|^anexa |nr\\.? ?crt)',
+    measured: 3774,
+    gloss:
+      'amendment- and article-grain votes ("Art.54 - Amr.274-3", "Anexa 3/15 - amendament respins 318", "nr. crt. 3 - amendamente respinse")',
+  },
+  {
+    kind: 'procedural',
+    pattern:
+      '(ordin\\w* de zi|prelungir|timp\\w* dezbatere|retrimitere la comisie|program\\w* de lucru|sistar)',
+    measured: 1425,
+    gloss:
+      'housekeeping: agenda changes, sitting-time extensions, debate-time allocation, referral back to committee, suspension of debate',
+  },
+];
+
+/** Bucket sizes that are NOT title rules (prod, 2026-07-28; total 20,745). */
+export const VOTE_KIND_MEASURED = {
+  corpus: 20_745,
+  legislative: 11_567,
+  unclassified: 2_983,
+  /** Unclassified votes whose title is a SYNTHESIZED date (attrs.title_kind='date'). */
+  unclassifiedDateTitles: 1_488,
+  /** Unclassified votes whose title is a bare bill reference ("PL 434/2025"). */
+  unclassifiedBareRefs: 266,
+  /** legislative rows whose OWN attrs.vote_action says "amendament"/"amr". */
+  legislativeWithAmendmentAction: 889,
+} as const;
+
+/**
+ * The `kind` field description, RENDERED from the rules above so the documented
+ * regexes are the executed regexes.
+ */
+const voteKindDescription = (): string => {
+  /** Thousands separators — the counts are read by humans in a schema explorer. */
+  const n = (x: number): string => String(x).replace(/\B(?=(\d{3})+(?!\d))/gu, ',');
+  const m = VOTE_KIND_MEASURED;
+  const rules = VOTE_KIND_TITLE_RULES.map(
+    (r) => `\`${r.kind}\` = /${r.pattern}/ — ${r.gloss} (${n(r.measured)})`
+  ).join('; ');
+  return (
+    'Vote KIND: what the chamber was voting ON. The buckets are an ordered, disjoint, exhaustive partition of the corpus ' +
+    `(${n(m.corpus)} votes, prod 2026-07-28) — but they are NOT equally solid, and that asymmetry is the point. ` +
+    `ONE bucket is a COLUMN: \`legislative\` = \`votes.bill_key is not null\` (${n(m.legislative)}), the vote is linked to a bill — a real, indexable signal (votes_bill_idx), NOT a title regex. ` +
+    'THE OTHER FOUR ARE TITLE HEURISTICS over a messy free-text field with no controlled vocabulary and no index; they are matched, first-rule-wins in this order, against the lower-cased diacritic-folded title, and ONLY on votes with no bill_key: ' +
+    `${rules}. ` +
+    `Everything that matches nothing is \`unclassified\` (${n(m.unclassified)}, 14.4%) — a real bucket, not a hole: ${n(m.unclassifiedDateTitles)} of those carry a SYNTHESIZED date title ("Vot din 13 mai 2020", attrs.title_kind='date') that says nothing about the subject, and ${n(m.unclassifiedBareRefs)} are a bare bill reference ("PL 434/2025", "Pl-x nr.246/2017") that a human would file as legislative but the bill link does not exist for. ` +
+    `KNOWN MISFILING, measured not guessed: \`legislative\` is "linked to a bill", NOT "a vote on the law as a whole" — ${n(m.legislativeWithAmendmentAction)} of its rows carry an amendment-flavoured attrs.vote_action ("Amendament respins 1", "Amr.2"), because for a bill-linked vote the title is the BILL's title and the stage lives in attrs. So kind:amendment UNDERCOUNTS amendment votes and kind:legislative is the wider "this vote belongs to a bill's file". ` +
+    'COST: the title rules are a sequential scan of the 20,745-row votes table (~65ms measured for the whole regex set, count included) — small by row count, not by index; there is no title index and none is claimed. `legislative` alone rides votes_bill_idx. No bound is required. Repo-intercepted.'
+  );
+};
+
 /** Repo-intercepted virtual filter fields per collection (kernel composer skips). */
-export const VOTES_VIRTUAL_FIELDS = ['q', 'groupVote'] as const;
+export const VOTES_VIRTUAL_FIELDS = ['q', 'groupVote', 'kind'] as const;
 export const MEMBERS_VIRTUAL_FIELDS = ['group', 'judet', 'q'] as const;
 // `year` is virtual: it must match plx_year OR senate_year (Codex BLOCKER #3 —
 // a non-virtual plx_year-only field silently drops Senate-only bills).
@@ -188,14 +310,29 @@ export const votesFilterSpec: CollectionFilterSpec = {
       description:
         'Title search. Meili-backed when up; ILIKE fallback REQUIRES chamber and/or a vote-date bound (no FTS index; repo-intercepted).',
     },
-    // COMPOSITE (not `{eq:…}`): the predicate needs a group AND a choice — neither
-    // half is a filter on its own ("votes where PSD did something" and "votes with
-    // any pentru ballot" are different, mostly useless, questions), and two
-    // independent op fields would let a caller send half a predicate and get a
-    // different question silently answered. The kernel `composite` shape renders
-    // both members in ONE input with `!` on each, so GraphQL rejects the half-sent
-    // form at validation. It is `virtual` because the predicate is a correlated
-    // aggregate over vote_records, not a column op the composer could compile.
+    // VIRTUAL: `legislative` is a column test and the other buckets are title
+    // regexes with an ordering — neither is an `{op: value}` on one column, so the
+    // kernel composer cannot express it and the repo compiles it from the SAME
+    // VOTE_KIND_TITLE_RULES the description above is rendered from.
+    {
+      name: 'kind',
+      type: 'enum',
+      ops: ['eq', 'in'],
+      // Declared column = the bucket that is REAL (bill_key / votes_bill_idx). The
+      // composer never reads it (virtual); it names the driving signal.
+      column: { alias: 'v', column: 'bill_key' },
+      enumValues: [...VOTE_KINDS],
+      virtual: true,
+      description: voteKindDescription(),
+    },
+    // COMPOSITE (not `{eq:…}`): the two members are ONE predicate whose meaning
+    // changes with the group, so they cannot be two independent op fields — `choice`
+    // alone ("votes with any pentru ballot") is every vote, not a subset, which is
+    // why `group` is `!` in the SDL and `choice` is not. `choice` is OPTIONAL because
+    // its absence is a real, narrower question — "every vote this group balloted in"
+    // — not half a predicate; a caller who omits `group` still gets an error at
+    // GraphQL validation. It is `virtual` because both readings are correlated
+    // subqueries over vote_records, not a column op the composer could compile.
     {
       name: 'groupVote',
       type: 'string',
@@ -217,13 +354,14 @@ export const votesFilterSpec: CollectionFilterSpec = {
           type: 'enum',
           enumValues: [...VOTE_CHOICES],
           graphqlType: 'ParliamentVoteChoice',
-          required: true,
+          // OPTIONAL: omitting it is the PARTICIPATION reading, not a half-sent
+          // predicate — see the field description for the two readings.
           description:
-            'The stance to match: pentru | impotriva | abtinere | nu_a_votat (nu_a_votat = the group mostly did not cast a ballot).',
+            'The PLURALITY stance to match: pentru | impotriva | abtinere | nu_a_votat (nu_a_votat = the group mostly did not cast a ballot). OMIT IT to match every vote the group took part in, whatever it decided — that is a wider set than the four stances summed, because a TIED vote belongs to no stance.',
         },
       ],
       description:
-        "Votes where the group's PLURALITY stance was `choice`. A group has no single stance in the data — a 91-member group splits — so the stance is DERIVED: the choice with the MOST vote_records rows for that group on that vote. Three rules, all deliberate: (1) the plurality is computed over ALL FOUR choices INCLUDING nu_a_votat, so \"the group mostly did not show up\" is expressible and a vote CAN be attributed to nu_a_votat; (2) a TIE for the plurality matches NEITHER tied choice — the group did not take that position, and picking one by sort order would invent a stance; (3) a group with no ballots on a vote never matches. DIFFERENT DENOMINATOR from the cohesion bar: parliamentVoteCohesion.forPct is a share of the group's BALLOT SLOTS across the window, this counts VOTES whose plurality was that choice — do NOT present the filtered count as the bar's percentage. BOUNDEDNESS: there is NO index on vote_records.group_name or .choice — the predicate rides vote_records_pkey (vote_key, row_index) once per candidate vote, so it REQUIRES a chamber, voteDate or billKey bound (else INVALID_INPUT, never a silent 4.1M-ballot scan). Repo-intercepted.",
+        "Votes seen through ONE group's ballots. It has TWO readings, and which one runs depends on `choice`. (A) WITHOUT `choice` — PARTICIPATION: every vote on which the group cast at least one ballot, whatever that ballot was, `nu_a_votat` rows included (they are recorded ballots, not missing rows). This is the wider set: it is what a reader who picked a party but no stance means, and it does NOT equal the four stance-filtered sets added up, because a vote where the group TIED belongs to no stance yet the group was plainly there. (B) WITH `choice` — the group's PLURALITY stance. A group has no single stance in the data — a 91-member group splits — so the stance is DERIVED: the choice with the MOST vote_records rows for that group on that vote. Three rules, all deliberate: (1) the plurality is computed over ALL FOUR choices INCLUDING nu_a_votat, so \"the group mostly did not show up\" is expressible and a vote CAN be attributed to nu_a_votat; (2) a TIE for the plurality matches NEITHER tied choice — the group did not take that position, and picking one by sort order would invent a stance; (3) a group with no ballots on a vote never matches — which is exactly reading (A)'s test, so (B) is always a subset of (A). `group` is REQUIRED under both readings: a `choice` on its own would be \"votes with any pentru ballot anywhere\", which is nearly every vote, not a subset. DIFFERENT DENOMINATOR from the cohesion bar: parliamentVoteCohesion.forPct is a share of the group's BALLOT SLOTS across the window, this counts VOTES — do NOT present the filtered count as the bar's percentage. BOUNDEDNESS (both readings): there is NO index on vote_records.group_name or .choice — the predicate rides vote_records_pkey (vote_key, row_index) once per candidate vote, so it REQUIRES a chamber, voteDate or billKey bound (else INVALID_INPUT, never a silent 4.1M-ballot scan). Repo-intercepted.",
     },
   ],
   sort: { default: 'voteDate', allowed: ['voteDate', 'voteKey'] },

@@ -134,7 +134,9 @@ describe('listVotes — q-only bound guard', () => {
   });
 
   it('allows a q query WITH a chamber bound', async () => {
-    const listVotesFn = vi.fn(() => okp({ items: [], next: null }));
+    const listVotesFn = vi.fn(() =>
+      okp({ items: [], next: null, total: 0, totalEstimated: false })
+    );
     const r = await listVotes(deps(makeRepo({ listVotes: listVotesFn })), {
       filter: { q: { contains: 'lege' }, chamber: { eq: 'senat' } },
       sort: 'voteDate',
@@ -158,7 +160,9 @@ describe('listVotes — q-only bound guard', () => {
   });
 
   it('allows a q-only query when the search engine is UP', async () => {
-    const listVotesFn = vi.fn(() => okp({ items: [], next: null }));
+    const listVotesFn = vi.fn(() =>
+      okp({ items: [], next: null, total: 0, totalEstimated: false })
+    );
     const r = await listVotes(deps(makeRepo({ listVotes: listVotesFn })), {
       filter: { q: { contains: 'lege' } },
       sort: 'voteDate',

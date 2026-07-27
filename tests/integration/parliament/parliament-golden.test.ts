@@ -2458,5 +2458,520 @@ d('Parliament golden (live prod)', () => {
       // the filtered count as the bar's percentage of the same window.
       expect(forVotes).toBeLessThan(bar?.voteCount ?? 0);
     }, 60_000);
+
+    /**
+     * PARTICIPATION (`groupVote` with NO `choice`) — "every vote this group took
+     * part in". The client's filter panel lets a reader pick a party without picking
+     * a stance, and that must be the WIDER set, not a fifth stance and not an error.
+     */
+    describe('participation — a group with no choice', () => {
+      /** connection.total for a groupVote filter over the standard window. */
+      const totalFor = async (groupVoteSdl: string): Promise<number> => {
+        const data = expectGqlData(
+          await gql<{ parliamentVotes: { total: number } | null }>(
+            `query($chamber:String!, $from:Date!, $to:Date!) {
+               parliamentVotes(
+                 filter:{
+                   chamber:{eq:$chamber}
+                   voteDate:{between:{from:$from, to:$to}}
+                   groupVote:${groupVoteSdl}
+                 }
+                 first:1
+               ) { total totalEstimated }
+             }`,
+            { chamber: CHAMBER, from: FROM, to: TO }
+          )
+        );
+        return requireValue(data.parliamentVotes, 'parliamentVotes').total;
+      };
+
+      it('matches an independent SQL semi-join over the same ballots', async () => {
+        const res = await pool.query<{ cnt: string }>(
+          `select count(*)::text as cnt from parliament.votes v
+           where v.chamber = $1 and v.vote_date between $2::date and $3::date
+             and exists (select 1 from parliament.vote_records vr
+                         where vr.vote_key = v.vote_key and vr.group_name = $4)`,
+          [CHAMBER, FROM, TO, GROUP]
+        );
+        const expected = Number(res.rows[0]?.cnt ?? 0);
+        expect(expected).toBeGreaterThan(0);
+        expect(await totalFor(`{group:"${GROUP}"}`)).toBe(expected);
+      }, 60_000);
+
+      it('is WIDER than any single stance, and is exactly the four stances PLUS the ties', async () => {
+        const { byChoice, ties } = await sqlPlurality();
+        const participation = await totalFor(`{group:"${GROUP}"}`);
+        const stances = [...byChoice.values()].reduce((a, b) => a + b, 0);
+
+        // The whole point of the reading: a TIED vote has no plurality, so it falls
+        // out of all four stance filters — yet the group unmistakably took part.
+        expect(ties).toBeGreaterThan(0);
+        expect(participation).toBe(stances + ties);
+        expect(participation).toBeGreaterThan(byChoice.get('pentru') ?? 0);
+      }, 60_000);
+
+      it('never exceeds the window itself (it is a filter, not a cross join)', async () => {
+        const windowVotes = await pool.query<{ cnt: string }>(
+          `select count(*)::text as cnt from parliament.votes
+           where chamber = $1 and vote_date between $2::date and $3::date`,
+          [CHAMBER, FROM, TO]
+        );
+        const total = Number(windowVotes.rows[0]?.cnt ?? 0);
+        expect(await totalFor(`{group:"${GROUP}"}`)).toBeLessThanOrEqual(total);
+      }, 60_000);
+
+      it('still matches group_name EXACTLY — the lower-cased spelling is a different, empty question', async () => {
+        expect(await totalFor(`{group:"psd"}`)).toBe(0);
+      }, 60_000);
+
+      it('still REQUIRES a bound (the missing index does not care which reading runs)', async () => {
+        const res = await gql<{ parliamentVotes: null }>(
+          `{ parliamentVotes(filter:{groupVote:{group:"PSD"}}, first:5) { total } }`
+        );
+        expect(res.data?.parliamentVotes ?? null).toBeNull();
+        expect(res.errors?.[0]?.message).toContain('groupVote');
+      }, 30_000);
+
+      it('a `choice` with NO `group` is still an error — it does not describe a subset', async () => {
+        const res = await gql<{ parliamentVotes: null }>(
+          `query($chamber:String!, $from:Date!, $to:Date!) {
+             parliamentVotes(
+               filter:{
+                 chamber:{eq:$chamber}
+                 voteDate:{between:{from:$from, to:$to}}
+                 groupVote:{choice:pentru}
+               }
+               first:5
+             ) { total }
+           }`,
+          { chamber: CHAMBER, from: FROM, to: TO }
+        );
+        expect(res.data?.parliamentVotes ?? null).toBeNull();
+        expect(res.errors?.[0]?.message).toContain('group');
+      }, 30_000);
+
+      it('pages under its own cursor, and refuses a cursor minted under a stance', async () => {
+        const page = async (
+          groupVoteSdl: string,
+          after: string | null
+        ): Promise<{
+          keys: readonly string[];
+          endCursor: string | null;
+          hasNextPage: boolean;
+        }> => {
+          const data = expectGqlData(
+            await gql<{
+              parliamentVotes: {
+                edges: readonly { node: { voteKey: string } }[];
+                pageInfo: { hasNextPage: boolean; endCursor: string | null };
+              } | null;
+            }>(
+              `query($chamber:String!, $from:Date!, $to:Date!, $after:String) {
+                 parliamentVotes(
+                   filter:{
+                     chamber:{eq:$chamber}
+                     voteDate:{between:{from:$from, to:$to}}
+                     groupVote:${groupVoteSdl}
+                   }
+                   first:2
+                   after:$after
+                 ) {
+                   edges { node { voteKey } }
+                   pageInfo { hasNextPage endCursor }
+                 }
+               }`,
+              { chamber: CHAMBER, from: FROM, to: TO, after }
+            )
+          );
+          const conn = requireValue(data.parliamentVotes, 'parliamentVotes');
+          return {
+            keys: conn.edges.map((e) => e.node.voteKey),
+            endCursor: conn.pageInfo.endCursor,
+            hasNextPage: conn.pageInfo.hasNextPage,
+          };
+        };
+
+        const first = await page(`{group:"${GROUP}"}`, null);
+        expect(first.hasNextPage).toBe(true);
+        const cursor = requireValue(first.endCursor, 'endCursor');
+        const second = await page(`{group:"${GROUP}"}`, cursor);
+        expect(second.keys.some((k) => first.keys.includes(k))).toBe(false);
+
+        // Participation and a stance are DIFFERENT result sets, so they must not share
+        // a cursor: replaying one under the other is a refusal, not a shifted page.
+        const crossed = await gql<{ parliamentVotes: null }>(
+          `query($chamber:String!, $from:Date!, $to:Date!, $after:String) {
+             parliamentVotes(
+               filter:{
+                 chamber:{eq:$chamber}
+                 voteDate:{between:{from:$from, to:$to}}
+                 groupVote:{group:"${GROUP}", choice:pentru}
+               }
+               first:2
+               after:$after
+             ) { edges { node { voteKey } } }
+           }`,
+          { chamber: CHAMBER, from: FROM, to: TO, after: cursor }
+        );
+        expect(crossed.data?.parliamentVotes ?? null).toBeNull();
+        expect(crossed.errors?.[0]?.message).toContain('cursor');
+      }, 60_000);
+    });
+  });
+  /**
+   * `total` / `totalEstimated` on ParliamentVoteConnection, and the `kind`
+   * partition it is used to size. Every expectation is CHECKED AGAINST AN
+   * INDEPENDENT SQL COUNT over the same slice — the point of the field is that a
+   * client can trust the number without paging the list, so a drifting count is
+   * worse than no count.
+   */
+  describe('votes total + kind partition (live prod)', () => {
+    const CHAMBER = 'senat'; // every bucket in this chamber is under the 10k cap
+    const KINDS = [
+      'legislative',
+      'amendment',
+      'procedural',
+      'chamber_decision',
+      'attendance',
+      'unclassified',
+    ] as const;
+
+    interface VotePage {
+      readonly total: number;
+      readonly totalEstimated: boolean;
+      readonly edges: readonly { readonly node: { readonly voteKey: string } }[];
+      readonly pageInfo: { readonly hasNextPage: boolean; readonly endCursor: string | null };
+    }
+
+    const votes = async (
+      filterSdl: string,
+      first = 3,
+      after: string | null = null
+    ): Promise<VotePage> => {
+      const data = expectGqlData(
+        await gql<{ parliamentVotes: VotePage | null }>(
+          `query($after:String) {
+             parliamentVotes(filter:${filterSdl}, first:${String(first)}, after:$after) {
+               total totalEstimated
+               edges { node { voteKey } }
+               pageInfo { hasNextPage endCursor }
+             }
+           }`,
+          { after }
+        )
+      );
+      return requireValue(data.parliamentVotes, 'parliamentVotes');
+    };
+
+    const sqlCount = async (where: string, params: readonly unknown[] = []): Promise<number> => {
+      const res = await pool.query<{ cnt: string }>(
+        `select count(*)::text as cnt from parliament.votes v where ${where}`,
+        [...params]
+      );
+      return Number(res.rows[0]?.cnt ?? 0);
+    };
+
+    it('matches an independent SQL count(*) over the SAME filter', async () => {
+      const page = await votes(
+        `{chamber:{eq:"${CHAMBER}"}, voteDate:{between:{from:"2024-01-01", to:"2026-07-28"}}}`
+      );
+      const expected = await sqlCount(
+        `v.chamber = $1 and v.vote_date between $2::date and $3::date`,
+        [CHAMBER, '2024-01-01', '2026-07-28']
+      );
+      expect(expected).toBeGreaterThan(0);
+      expect(page.total).toBe(expected);
+      expect(page.totalEstimated).toBe(false);
+      // The page is a page; the total is the whole filtered slice.
+      expect(page.edges.length).toBeLessThanOrEqual(3);
+    }, 60_000);
+
+    it('caps at 10,000 and SAYS SO (the listSpeeches contract), rather than reporting a partial count', async () => {
+      const page = await votes('{}');
+      const corpus = await sqlCount('true');
+      expect(corpus).toBeGreaterThan(10_000);
+      expect(page.total).toBe(10_000);
+      expect(page.totalEstimated).toBe(true);
+    }, 60_000);
+
+    it('does not shrink as the client pages (the keyset predicate is excluded from the count)', async () => {
+      const filter = `{chamber:{eq:"${CHAMBER}"}, kind:{eq:"procedural"}}`;
+      const first = await votes(filter, 2);
+      expect(first.pageInfo.hasNextPage).toBe(true);
+      const second = await votes(filter, 2, first.pageInfo.endCursor);
+      expect(second.total).toBe(first.total);
+      expect(second.edges[0]?.node.voteKey).not.toBe(first.edges[0]?.node.voteKey);
+    }, 60_000);
+
+    it('the six kinds PARTITION the chamber: the bucket totals sum to the unfiltered total', async () => {
+      const all = await votes(`{chamber:{eq:"${CHAMBER}"}}`);
+      const expected = await sqlCount('v.chamber = $1', [CHAMBER]);
+      expect(all.total).toBe(expected);
+      expect(all.totalEstimated).toBe(false);
+
+      const totals = new Map<string, number>();
+      for (const kind of KINDS) {
+        const page = await votes(`{chamber:{eq:"${CHAMBER}"}, kind:{eq:"${kind}"}}`);
+        expect(page.totalEstimated).toBe(false);
+        totals.set(kind, page.total);
+      }
+      const sum = [...totals.values()].reduce((a, b) => a + b, 0);
+      // Disjoint AND exhaustive: nothing double-counted, nothing silently dropped.
+      expect(sum).toBe(all.total);
+      // `unclassified` is a SERVED bucket, not an empty formality.
+      expect(totals.get('unclassified') ?? 0).toBeGreaterThan(0);
+      // The one bucket that is a column, checked against the column itself.
+      expect(totals.get('legislative')).toBe(
+        await sqlCount('v.chamber = $1 and v.bill_key is not null', [CHAMBER])
+      );
+    }, 120_000);
+
+    it('an `in` of two buckets equals the sum of the two (the buckets do not overlap)', async () => {
+      const both = await votes(
+        `{chamber:{eq:"${CHAMBER}"}, kind:{in:["attendance","procedural"]}}`
+      );
+      const attendance = await votes(`{chamber:{eq:"${CHAMBER}"}, kind:{eq:"attendance"}}`);
+      const procedural = await votes(`{chamber:{eq:"${CHAMBER}"}, kind:{eq:"procedural"}}`);
+      expect(both.total).toBe(attendance.total + procedural.total);
+    }, 60_000);
+
+    it('an unknown bucket is INVALID_INPUT, never a silently unfiltered list', async () => {
+      const res = await gql<{ parliamentVotes: null }>(
+        `{ parliamentVotes(filter:{kind:{eq:"budget"}}, first:1) { total edges { node { voteKey } } } }`
+      );
+      expect(res.data?.parliamentVotes ?? null).toBeNull();
+      expect(res.errors?.[0]?.message).toContain('kind');
+    }, 30_000);
+
+    it('counts a groupVote slice exactly — the count runs the same correlated aggregate', async () => {
+      const filter =
+        '{chamber:{eq:"camera_deputatilor"}, voteDate:{between:{from:"2026-01-28", to:"2026-07-28"}}, groupVote:{group:"PSD", choice:pentru}}';
+      const page = await votes(filter, 100);
+      const keys: string[] = page.edges.map((e) => e.node.voteKey);
+      let after = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null;
+      for (let i = 0; i < 10 && after !== null; i++) {
+        const next = await votes(filter, 100, after);
+        keys.push(...next.edges.map((e) => e.node.voteKey));
+        expect(next.total).toBe(page.total);
+        after = next.pageInfo.hasNextPage ? next.pageInfo.endCursor : null;
+      }
+      // The eager count equals what exhaustive paging actually yields.
+      expect(page.total).toBe(keys.length);
+      expect(page.totalEstimated).toBe(false);
+      expect(page.total).toBeGreaterThan(0);
+    }, 120_000);
+
+    /**
+     * REGRESSION (kernel fhash): the cursor `fhash` used to lower-case string
+     * values, so a cursor minted under `group:"PSD"` decoded cleanly under
+     * `group:"psd"` — a filter that matches NOTHING, because vote_records.group_name
+     * is case-sensitive — and the client saw an empty page instead of an error.
+     */
+    it('a cursor minted under group "PSD" is REFUSED under "psd", not silently paged empty', async () => {
+      const window =
+        'chamber:{eq:"camera_deputatilor"}, voteDate:{between:{from:"2026-01-28", to:"2026-07-28"}}';
+      const first = await votes(`{${window}, groupVote:{group:"PSD", choice:pentru}}`, 2);
+      expect(first.pageInfo.hasNextPage).toBe(true);
+      const cursor = requireValue(first.pageInfo.endCursor, 'endCursor');
+
+      const replayed = await gql<{ parliamentVotes: null }>(
+        `query($after:String) {
+           parliamentVotes(
+             filter:{${window}, groupVote:{group:"psd", choice:pentru}}
+             first:2
+             after:$after
+           ) { total edges { node { voteKey } } }
+         }`,
+        { after: cursor }
+      );
+      expect(replayed.data?.parliamentVotes ?? null).toBeNull();
+      expect(replayed.errors?.[0]?.message).toContain('cursor');
+
+      // And the lower-cased spelling itself is a different, EMPTY question — the
+      // error above is the cursor guard, not a coincidence of the empty result.
+      const lower = await votes(`{${window}, groupVote:{group:"psd", choice:pentru}}`, 2);
+      expect(lower.total).toBe(0);
+      expect(lower.edges).toHaveLength(0);
+    }, 60_000);
+  });
+
+  /**
+   * `parliamentVotes(dir:)` — the sort DIRECTION, against live rows.
+   *
+   * The resolver hardcoded `desc`, so "oldest first" was unreachable even though the
+   * usecase and the repo already took a direction. Two things need proving on real
+   * data rather than compiled SQL: an ASC page really walks the corpus forward
+   * without repeating or skipping (for BOTH sorts, not just the date one), and a
+   * cursor does not survive a flip of the direction it was minted under — the same
+   * refusal the `group:"PSD"`-vs-`"psd"` case mismatch above produces.
+   */
+  describe('votes sort direction (live prod)', () => {
+    const CHAMBER = 'senat';
+    const FROM = '2026-01-28';
+    const TO = '2026-07-28';
+    const FILTER_SDL = `{chamber:{eq:"${CHAMBER}"}, voteDate:{between:{from:"${FROM}", to:"${TO}"}}}`;
+
+    interface DirPage {
+      readonly edges: readonly {
+        readonly node: { readonly voteKey: string; readonly voteDate: string | null };
+      }[];
+      readonly pageInfo: { readonly hasNextPage: boolean; readonly endCursor: string | null };
+    }
+
+    const page = async (
+      sort: string,
+      dir: string,
+      first = 5,
+      after: string | null = null
+    ): Promise<DirPage> => {
+      const data = expectGqlData(
+        await gql<{ parliamentVotes: DirPage | null }>(
+          `query($after:String) {
+             parliamentVotes(filter:${FILTER_SDL}, sort:${sort}, dir:${dir}, first:${String(first)}, after:$after) {
+               edges { node { voteKey voteDate } }
+               pageInfo { hasNextPage endCursor }
+             }
+           }`,
+          { after }
+        )
+      );
+      return requireValue(data.parliamentVotes, 'parliamentVotes');
+    };
+
+    /** Walk `pages` pages of `first` and return the concatenated keys. */
+    const walk = async (
+      sort: string,
+      dir: string,
+      first: number,
+      pages: number
+    ): Promise<string[]> => {
+      const keys: string[] = [];
+      let after: string | null = null;
+      for (let i = 0; i < pages; i++) {
+        const p: DirPage = await page(sort, dir, first, after);
+        keys.push(...p.edges.map((e) => e.node.voteKey));
+        if (!p.pageInfo.hasNextPage) break;
+        after = p.pageInfo.endCursor;
+      }
+      return keys;
+    };
+
+    /** The SAME order the repo compiles: coalesce(date,'') then vote_key. */
+    const sqlKeys = async (orderBy: string, limit: number): Promise<string[]> => {
+      const res = await pool.query<{ vote_key: string }>(
+        `select v.vote_key from parliament.votes v
+         where v.chamber = $1 and v.vote_date between $2::date and $3::date
+         order by ${orderBy} limit ${String(limit)}`,
+        [CHAMBER, FROM, TO]
+      );
+      return res.rows.map((r) => r.vote_key);
+    };
+
+    it('ASC really reverses the list — the first row is the window OLDEST, not the newest', async () => {
+      const asc = await page('voteDate', 'ASC', 1);
+      const desc = await page('voteDate', 'DESC', 1);
+      const oldest = asc.edges[0]?.node.voteDate;
+      const newest = desc.edges[0]?.node.voteDate;
+      expect(oldest).toBeDefined();
+      expect(newest).toBeDefined();
+      expect(String(oldest) < String(newest)).toBe(true);
+      // Against the window itself, so this is not just "the two ends differ".
+      const bounds = await pool.query<{ lo: string; hi: string }>(
+        `select min(vote_date)::text as lo, max(vote_date)::text as hi from parliament.votes
+         where chamber = $1 and vote_date between $2::date and $3::date`,
+        [CHAMBER, FROM, TO]
+      );
+      expect(oldest).toBe(bounds.rows[0]?.lo);
+      expect(newest).toBe(bounds.rows[0]?.hi);
+    }, 60_000);
+
+    it('OMITTING dir is still DESC — existing callers do not move', async () => {
+      const data = expectGqlData(
+        await gql<{ parliamentVotes: DirPage | null }>(
+          `{ parliamentVotes(filter:${FILTER_SDL}, first:5) {
+               edges { node { voteKey } } pageInfo { hasNextPage endCursor } } }`
+        )
+      );
+      const implicit = requireValue(data.parliamentVotes, 'parliamentVotes');
+      const explicit = await page('voteDate', 'DESC', 5);
+      expect(implicit.edges.map((e) => e.node.voteKey)).toEqual(
+        explicit.edges.map((e) => e.node.voteKey)
+      );
+    }, 60_000);
+
+    it('voteDate/ASC pages forward with no repeats and no gaps', async () => {
+      const keys = await walk('voteDate', 'ASC', 5, 4);
+      expect(keys.length).toBeGreaterThan(5);
+      expect(new Set(keys).size).toBe(keys.length);
+      expect(keys).toEqual(
+        await sqlKeys(`coalesce(v.vote_date::text,'') asc, v.vote_key asc`, keys.length)
+      );
+    }, 60_000);
+
+    it('voteKey/ASC pages correctly too — not only the date sort', async () => {
+      const keys = await walk('voteKey', 'ASC', 5, 4);
+      expect(keys.length).toBeGreaterThan(5);
+      expect(new Set(keys).size).toBe(keys.length);
+      // Strictly increasing: a keyset that did not flip with the ORDER BY would
+      // re-serve page 1 or jump past rows here.
+      expect([...keys].sort()).toEqual(keys);
+      expect(keys).toEqual(await sqlKeys('v.vote_key asc', keys.length));
+    }, 60_000);
+
+    it('voteKey/DESC still pages the other way', async () => {
+      const keys = await walk('voteKey', 'DESC', 5, 3);
+      expect(new Set(keys).size).toBe(keys.length);
+      expect(keys).toEqual(await sqlKeys('v.vote_key desc', keys.length));
+    }, 60_000);
+
+    /**
+     * REGRESSION GUARD for the new argument: `dir` is CURSOR IDENTITY, exactly like
+     * `sort` and the filter hash. A DESC cursor accepted by an ASC page would seek
+     * the reversed keyset from the wrong end of the list — wrong rows, no error.
+     */
+    it('a cursor minted under DESC is REFUSED under ASC (the same clean INVALID_INPUT as the case mismatch)', async () => {
+      const first = await page('voteDate', 'DESC', 2);
+      expect(first.pageInfo.hasNextPage).toBe(true);
+      const cursor = requireValue(first.pageInfo.endCursor, 'endCursor');
+
+      const flipped = await gql<{ parliamentVotes: null }>(
+        `query($after:String) {
+           parliamentVotes(filter:${FILTER_SDL}, sort:voteDate, dir:ASC, first:2, after:$after) {
+             edges { node { voteKey } }
+           }
+         }`,
+        { after: cursor }
+      );
+      expect(flipped.data?.parliamentVotes ?? null).toBeNull();
+      expect(flipped.errors?.[0]?.message).toContain('cursor');
+      expect(flipped.errors?.[0]?.extensions?.code).toBe('INVALID_INPUT');
+
+      // And the ASC page is a real, working page on its own — the error above is the
+      // cursor guard, not ASC being broken.
+      const ascPage = await page('voteDate', 'ASC', 2);
+      expect(ascPage.edges).toHaveLength(2);
+    }, 60_000);
+
+    it('an ASC cursor is refused under DESC, on the voteKey sort as well', async () => {
+      for (const [minted, replayed] of [
+        ['ASC', 'DESC'],
+        ['DESC', 'ASC'],
+      ] as const) {
+        for (const sort of ['voteDate', 'voteKey']) {
+          const first = await page(sort, minted, 2);
+          const cursor = requireValue(first.pageInfo.endCursor, 'endCursor');
+          const res = await gql<{ parliamentVotes: null }>(
+            `query($after:String) {
+               parliamentVotes(filter:${FILTER_SDL}, sort:${sort}, dir:${replayed}, first:2, after:$after) {
+                 edges { node { voteKey } }
+               }
+             }`,
+            { after: cursor }
+          );
+          expect(res.data?.parliamentVotes ?? null, `${sort} ${minted}→${replayed}`).toBeNull();
+          expect(res.errors?.[0]?.extensions?.code).toBe('INVALID_INPUT');
+        }
+      }
+    }, 120_000);
   });
 });

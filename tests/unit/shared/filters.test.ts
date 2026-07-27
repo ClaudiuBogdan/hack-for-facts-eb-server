@@ -256,10 +256,59 @@ describe('canonicalizeFilters + filterHash', () => {
     expect(omitted).toEqual(explicit);
   });
 
-  it('folds case in string values', () => {
+  it('folds case for an ILIKE operator, whose SQL ignores case too', () => {
     const lo = canonicalizeFilters(spec, { title: { contains: 'ROAD' } });
     const hi = canonicalizeFilters(spec, { title: { contains: 'road' } });
     expect(lo).toEqual(hi);
+    expect(canonicalizeFilters(spec, { title: { prefix: 'ROAD' } })).toEqual(
+      canonicalizeFilters(spec, { title: { prefix: 'road' } })
+    );
+  });
+
+  /**
+   * REGRESSION (found reviewing the groupVote commit): the fhash must not fold a
+   * distinction the QUERY preserves. `=`/`in`/`<`/`>` are case-SENSITIVE in
+   * Postgres, so folding them made `cui:{eq:"RO123x"}` and `cui:{eq:"ro123X"}`
+   * share a cursor — the cursor decoded happily against a filter that returns a
+   * DIFFERENT set of rows, and the client silently paged the wrong (usually empty)
+   * result instead of getting an error.
+   */
+  describe('case is folded ONLY where the query folds it', () => {
+    it('keeps case for eq / in — those compile to case-SENSITIVE SQL', () => {
+      expect(fhashFor(spec, { cui: { eq: 'PSD' } })).not.toBe(
+        fhashFor(spec, { cui: { eq: 'psd' } })
+      );
+      expect(fhashFor(spec, { cui: { in: ['PSD', 'AUR'] } })).not.toBe(
+        fhashFor(spec, { cui: { in: ['psd', 'aur'] } })
+      );
+    });
+
+    it('keeps case in a between range and in an exclude block', () => {
+      expect(fhashFor(spec, { cui: { eq: 'RO1' } })).not.toBe(
+        fhashFor(spec, { cui: { eq: 'ro1' } })
+      );
+      expect(fhashFor(spec, { exclude: { cui: { eq: 'RO1' } } })).not.toBe(
+        fhashFor(spec, { exclude: { cui: { eq: 'ro1' } } })
+      );
+    });
+
+    it('keeps case for `contains` on an ARRAY column — that compiles to @>, not ILIKE', () => {
+      expect(fhashFor(spec, { tags: { contains: 'Road' } })).not.toBe(
+        fhashFor(spec, { tags: { contains: 'road' } })
+      );
+      expect(fhashFor(spec, { jtags: { in: ['Road'] } })).not.toBe(
+        fhashFor(spec, { jtags: { in: ['road'] } })
+      );
+    });
+
+    it('leaves the non-string coercions alone (numbers, money, bools still fold)', () => {
+      expect(fhashFor(spec, { year: { eq: '2020' as unknown as number } })).toBe(
+        fhashFor(spec, { year: { eq: 2020 } })
+      );
+      expect(fhashFor(spec, { value: { eq: '100.00' } })).toBe(
+        fhashFor(spec, { value: { eq: '100' } })
+      );
+    });
   });
 
   it('coerces numeric fields so REST "2020" == GraphQL 2020 (tri-surface parity)', () => {
@@ -482,6 +531,12 @@ describe('composite fields — a predicate that needs more than one value (§14.
     // An undeclared member cannot smuggle itself into the hash.
     expect(base).toBe(
       fhashFor(compositeSpec, { groupVote: { group: 'PSD', choice: 'pentru', junk: 'x' } })
+    );
+    // A member's predicate is repo-owned and matches EXACTLY (vote_records.group_name
+    // is case-sensitive), so the cursor must distinguish "PSD" from "psd" — sharing
+    // an fhash let a cursor minted on PSD page an empty psd result set.
+    expect(base).not.toBe(
+      fhashFor(compositeSpec, { groupVote: { group: 'psd', choice: 'pentru' } })
     );
   });
 

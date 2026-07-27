@@ -113,6 +113,11 @@ const objectsAndQuery = /* GraphQL */ `
     voteDate
     voteKey
   }
+  "Sort direction (Parliament*-prefixed to avoid a cross-module collision; the kernel base SDL has no SortDir — LegalSortDir/JudicialSortDir are the same shape, module-local)."
+  enum ParliamentSortDir {
+    ASC
+    DESC
+  }
 
   type ParliamentGroup {
     groupId: ID!
@@ -949,10 +954,12 @@ const objectsAndQuery = /* GraphQL */ `
       pageSize: Int
     ): ParliamentBillPage
     parliamentBill(billKey: ID!): ParliamentBill
-    "Votes (cursor; default voteDate desc). vote_records are NEVER listed flat here. connection.total counts the whole filtered slice (capped at 10,000, totalEstimated flags the cap) so a list can size its filter without paging it. filter.kind splits the corpus into legislative (the bill_key COLUMN) vs amendment/procedural/chamber_decision/attendance (TITLE heuristics) vs unclassified (14.4%, a served bucket rather than a silent hole) — read the field description before presenting a bucket as fact. filter.groupVote drills into a group's ballot split — votes where the group's PLURALITY stance was a given choice — and REQUIRES a chamber, voteDate or billKey bound (else INVALID_INPUT in errors[], this field null); its count does NOT equal a parliamentVoteCohesion percentage of the same window, because cohesion measures ballot slots and this measures votes."
+    "Votes (cursor; sort voteDate, dir DESC by default). vote_records are NEVER listed flat here. connection.total counts the whole filtered slice (capped at 10,000, totalEstimated flags the cap) so a list can size its filter without paging it. filter.kind splits the corpus into legislative (the bill_key COLUMN) vs amendment/procedural/chamber_decision/attendance (TITLE heuristics) vs unclassified (14.4%, a served bucket rather than a silent hole) — read the field description before presenting a bucket as fact. filter.groupVote drills into a group's ballot split: WITH a choice it is the votes whose PLURALITY stance for that group was that choice, WITHOUT one it is every vote the group balloted in at all (the wider set — a tied vote has no plurality but is still participation). Either way it REQUIRES a chamber, voteDate or billKey bound (else INVALID_INPUT in errors[], this field null), and its count does NOT equal a parliamentVoteCohesion percentage of the same window, because cohesion measures ballot slots and this measures votes."
     parliamentVotes(
       filter: ParliamentVotesFilter
       sort: ParliamentVoteSort
+      "Sort direction (default DESC — newest first on voteDate). Part of the cursor identity exactly like sort: a cursor minted under DESC is REFUSED under ASC with INVALID_INPUT ('restart pagination'), never silently replayed against the reversed keyset."
+      dir: ParliamentSortDir = DESC
       first: Int
       after: String
     ): ParliamentVoteConnection

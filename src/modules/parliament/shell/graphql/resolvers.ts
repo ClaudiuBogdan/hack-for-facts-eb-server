@@ -399,10 +399,20 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
 
       parliamentVotes: async (
         _r: unknown,
-        args: { filter?: Record<string, unknown>; sort?: string; first?: number; after?: string }
+        args: {
+          filter?: Record<string, unknown>;
+          sort?: string;
+          dir?: string;
+          first?: number;
+          after?: string;
+        }
       ) => {
         const sort = args.sort === 'voteKey' ? 'voteKey' : 'voteDate';
-        const dir = 'desc' as const;
+        // DESC stays the default, so every existing caller keeps its order. `dir` is
+        // threaded into decodeCursor/buildNextCursor exactly like `sort` (repo +
+        // voteConnection below), which is what makes a DESC cursor replayed under ASC
+        // a clean INVALID_INPUT instead of a silently reversed page.
+        const dir = args.dir === 'ASC' ? 'asc' : 'desc';
         const filter = sansNull(args.filter as FilterInput | undefined);
         const page = {
           first: clampFirst(args.first, 100),
