@@ -1423,15 +1423,19 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     from parliament.sitting_agenda_sittings m
     join parliament.sittings st on st.sitting_key = m.sitting_key
     where m.agenda_key = a.agenda_key
+      and m.privacy_class = 'public'
+      and st.privacy_class = 'public'
   ), '[]'::jsonb)`.as('sittings');
 
   const agendaCounts = [
+    // Counts must describe exactly the population the detail read serves, or
+    // the header promises points the page will not show.
     sql<number>`(select count(*)::int from parliament.sitting_agenda_items i
-      where i.agenda_key = a.agenda_key and i.is_current)`.as('item_count'),
+      where i.agenda_key = a.agenda_key and i.is_current
+        and i.privacy_class = 'public')`.as('item_count'),
     sql<number>`(select count(distinct i.bill_key)::int from parliament.sitting_agenda_items i
-      where i.agenda_key = a.agenda_key and i.is_current and i.bill_key is not null)`.as(
-      'bill_count'
-    ),
+      where i.agenda_key = a.agenda_key and i.is_current and i.bill_key is not null
+        and i.privacy_class = 'public')`.as('bill_count'),
     // Bills the agenda NAMES, whether or not we hold a dossier for one.
     //
     // `bill_count` answers "how many can I open", which is not the same question
@@ -1620,7 +1624,12 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
                                   else 'cdep:' || st.stenogram_ids end`.as('stenogram_session_key'),
         ])
         .where('l.bill_key', '=', billKey)
+        // Default-deny across EVERY table the row exposes: a public link must
+        // not leak a restricted agenda, sitting or point through its join.
         .where('l.privacy_class', '=', 'public')
+        .where('st.privacy_class', '=', 'public')
+        .where('a.privacy_class', '=', 'public')
+        .where('i.privacy_class', '=', 'public')
         // Only CURRENT points: a bill dropped from a revised order of business
         // must not still read as scheduled.
         .where('i.is_current', '=', true)
