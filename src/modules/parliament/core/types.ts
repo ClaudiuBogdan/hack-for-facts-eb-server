@@ -1146,7 +1146,14 @@ export interface ParliamentAgenda {
   readonly sourceUrl: string;
   readonly sittings: readonly ParliamentAgendaSitting[];
   readonly itemCount: number;
+  /** Bills on the agenda we hold a dossier for, and can therefore link. */
   readonly billCount: number;
+  /**
+   * Bills the agenda NAMES. Equal to `billCount` except where a bill is too new
+   * to have been ingested — 151 items over 112 agendas, but concentrated in the
+   * freshest agenda, so a list that features the newest must use this one.
+   */
+  readonly namedBillCount: number;
 }
 
 /** An order of business plus its ordered points. */
@@ -1177,9 +1184,28 @@ export interface ParliamentBillScheduling {
 
 export interface ParliamentAgendaFilter {
   readonly chamber?: string | null;
+  /**
+   * Bounds on `approved_date` — the date the Chamber ADOPTED the plan.
+   *
+   * 391 of 1,297 agendas carry no approval date, and they are not an old-data
+   * artefact: the gap runs 8%-54% in every year from 2001 to 2026, and past half
+   * in 2011-2012. Any of these bounds therefore drops up to half a year's
+   * agendas. Prefer the sitting bounds below unless the approval act itself is
+   * what is being asked about.
+   */
   readonly dateFrom?: string | null;
   readonly dateTo?: string | null;
   readonly year?: number | null;
+  /**
+   * Bounds on the SITTING dates the agenda covers — the days it plans for.
+   *
+   * This is the axis a reader actually means by "agendas from 2019", and unlike
+   * the approval date every one of the 1,297 agendas has at least one sitting
+   * date. An agenda spanning a week matches if ANY of its days falls in range.
+   */
+  readonly sittingFrom?: string | null;
+  readonly sittingTo?: string | null;
+  readonly sittingYear?: number | null;
   /** Free-text over the agenda title. */
   readonly q?: string | null;
 }

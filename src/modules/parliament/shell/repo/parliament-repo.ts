@@ -1432,6 +1432,17 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
       where i.agenda_key = a.agenda_key and i.is_current and i.bill_key is not null)`.as(
       'bill_count'
     ),
+    // Bills the agenda NAMES, whether or not we hold a dossier for one.
+    //
+    // `bill_count` answers "how many can I open", which is not the same question
+    // and undercounts by exactly the bills too new to have been ingested — 151
+    // items across 112 agendas, but concentrated in the freshest agenda, which
+    // is the one a list features. The order of business for 27-31 July 2026
+    // names six bills and links three.
+    sql<number>`(select count(distinct i.bill_label)::int from parliament.sitting_agenda_items i
+      where i.agenda_key = a.agenda_key and i.is_current and i.bill_label is not null)`.as(
+      'named_bill_count'
+    ),
   ];
 
   const agendaWhere = (filter: ParliamentAgendaFilter | null | undefined): RawBuilder<SqlBool> => {
@@ -1444,6 +1455,26 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     if (to !== null && to !== '') conds.push(sql`a.approved_date <= ${to}::date`);
     const year = filter?.year ?? null;
     if (year !== null) conds.push(sql`extract(year from a.approved_date) = ${year}`);
+    // Sitting bounds. An agenda covering a week matches if ANY of its days falls
+    // in range, which is what "agendas from March" means to a reader. Unlike the
+    // approval bounds above these lose nothing: every agenda has a sitting date,
+    // while 391 have no approval date, spread 8%-54% across every year.
+    const sittingFrom = filter?.sittingFrom ?? null;
+    if (sittingFrom !== null && sittingFrom !== '') {
+      conds.push(sql`exists (select 1 from parliament.sitting_agenda_sittings s
+        where s.agenda_key = a.agenda_key and s.sitting_date >= ${sittingFrom}::date)`);
+    }
+    const sittingTo = filter?.sittingTo ?? null;
+    if (sittingTo !== null && sittingTo !== '') {
+      conds.push(sql`exists (select 1 from parliament.sitting_agenda_sittings s
+        where s.agenda_key = a.agenda_key and s.sitting_date <= ${sittingTo}::date)`);
+    }
+    const sittingYear = filter?.sittingYear ?? null;
+    if (sittingYear !== null) {
+      conds.push(sql`exists (select 1 from parliament.sitting_agenda_sittings s
+        where s.agenda_key = a.agenda_key
+          and extract(year from s.sitting_date) = ${sittingYear})`);
+    }
     const q = (filter?.q ?? '').trim();
     if (q !== '') {
       const needle = `%${escapeLike(foldDiacritics(q).toLowerCase())}%`;
@@ -1474,9 +1505,17 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
           ...agendaCounts,
         ])
         .where(where)
-        // An agenda with no approved date is a real published plan; it sorts
-        // into its own bucket instead of pretending to be the oldest.
-        .orderBy(sql`a.approved_date desc nulls last`)
+        // Newest SITTING first, not newest approval.
+        //
+        // Ordering by approval date put the 391 agendas that carry none — 30% of
+        // the archive, and 8%-54% of every individual year — in one lump at the
+        // very end, so a 2011 plan landed below a 2001 one for no reason a
+        // reader could see. Every agenda has a sitting date, so this orders the
+        // whole archive on the axis the page is actually about.
+        .orderBy(
+          sql`(select max(s.sitting_date) from parliament.sitting_agenda_sittings s
+                      where s.agenda_key = a.agenda_key) desc nulls last`
+        )
         .orderBy('a.agenda_key', 'desc')
         .offset(offset)
         .limit(limit)

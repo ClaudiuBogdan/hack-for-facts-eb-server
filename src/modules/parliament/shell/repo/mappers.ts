@@ -247,6 +247,7 @@ export interface AgendaRow {
   sittings: unknown;
   item_count: number;
   bill_count: number;
+  named_bill_count: number;
 }
 
 export const mapAgenda = (r: AgendaRow): ParliamentAgenda => ({
@@ -263,6 +264,7 @@ export const mapAgenda = (r: AgendaRow): ParliamentAgenda => ({
   sittings: toAgendaSittings(r.sittings),
   itemCount: r.item_count,
   billCount: r.bill_count,
+  namedBillCount: r.named_bill_count,
 });
 
 export interface AgendaItemRow {

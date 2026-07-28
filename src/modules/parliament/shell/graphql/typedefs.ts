@@ -1030,8 +1030,10 @@ const objectsAndQuery = /* GraphQL */ `
     sittings: [ParliamentAgendaSitting!]!
     "Count of CURRENT points."
     itemCount: Int!
-    "Distinct bills across the CURRENT points."
+    "Distinct bills across the CURRENT points that we hold a dossier for, and can therefore link."
     billCount: Int!
+    "Distinct bills the CURRENT points NAME, including any too new to have been ingested. Equal to billCount except on 112 agendas, but the gap concentrates in the freshest one — which is the one a list features."
+    namedBillCount: Int!
   }
 
   "An order of business with its ordered points."
@@ -1068,10 +1070,23 @@ const objectsAndQuery = /* GraphQL */ `
 
   input ParliamentAgendaFilter {
     chamber: String
-    "Filters on approvedDate. An agenda with no approved date is excluded by any date bound."
+    """
+    Filters on approvedDate. An agenda with no approved date is excluded by any
+    of these bounds — that is 391 of 1,297 agendas, spread 8%-54% across every
+    year from 2001 to 2026, so a year here can hide half of what it names.
+    Prefer the sitting bounds unless the approval act is the question.
+    """
     dateFrom: String
     dateTo: String
     year: Int
+    """
+    Bounds on the sitting days the agenda plans for — the axis a reader means by
+    "agendas from 2019". Every agenda has at least one sitting date, and one
+    spanning a week matches if ANY of its days falls in range.
+    """
+    sittingFrom: String
+    sittingTo: String
+    sittingYear: Int
     "Diacritics-insensitive substring over the agenda title."
     q: String
   }
