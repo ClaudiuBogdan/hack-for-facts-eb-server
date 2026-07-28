@@ -27,6 +27,7 @@ import {
 
 import {
   parliamentStenogramErrorCode,
+  type ParliamentAgendaFilter,
   type ParliamentBallot,
   type ParliamentCommittee,
   type ParliamentMemberVote,
@@ -396,6 +397,39 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
           voteLinks: dossier.voteLinks,
         };
       },
+
+      // ── plenary agenda ─────────────────────────────────────────────────────
+      parliamentAgendas: async (
+        _r: unknown,
+        args: {
+          filter?: Record<string, unknown>;
+          offset?: number;
+          limit?: number;
+        }
+      ) => {
+        const limit = Math.min(Math.max(args.limit ?? 20, 1), 100);
+        const offset = Math.max(args.offset ?? 0, 0);
+        const connection = unwrap(
+          await deps.repo.listAgendas(
+            (args.filter ?? null) as ParliamentAgendaFilter | null,
+            offset,
+            limit
+          )
+        );
+        return { nodes: connection.nodes, total: connection.total };
+      },
+
+      parliamentAgenda: async (_r: unknown, args: { agendaKey: string }) => {
+        const detail = unwrap(await deps.repo.getAgenda(args.agendaKey));
+        if (detail === null) return null;
+        // The SDL splits the agenda from its points so a client can select the
+        // header without paying for 200 items.
+        const { items, ...agenda } = detail;
+        return { agenda, items };
+      },
+
+      parliamentBillScheduling: async (_r: unknown, args: { billKey: string }) =>
+        unwrap(await deps.repo.getBillScheduling(args.billKey)),
 
       parliamentVotes: async (
         _r: unknown,

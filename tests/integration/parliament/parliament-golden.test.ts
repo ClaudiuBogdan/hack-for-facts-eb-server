@@ -2974,4 +2974,173 @@ d('Parliament golden (live prod)', () => {
       }
     }, 120_000);
   });
+  describe('plenary agenda (ordinea de zi) — live prod', () => {
+    it('the sitting spine is fully dated, and the dates come from the transcript', async () => {
+      // The whole serving surface rests on this: before 2026-07-28 the agenda
+      // lane left 1,990 of 2,102 sittings undated because it read a weekly
+      // column the source populates almost nowhere.
+      const res = await pool.query<{ total: string; dated: string; from_steno: string }>(
+        `select count(*)::text as total,
+                count(*) filter (where sitting_date is not null)::text as dated,
+                count(*) filter (where sitting_date_source = 'stenogram_session')::text as from_steno
+           from parliament.sittings`
+      );
+      const row = res.rows[0];
+      expect(Number(row?.dated)).toBe(Number(row?.total));
+      expect(Number(row?.from_steno)).toBeGreaterThanOrEqual(1990);
+    }, 30_000);
+
+    it('no scheduling edge claims debate or a vote', async () => {
+      // debated_in_session / voted_in_session require a transcript or division
+      // anchor that nothing produces yet. A populated row means somebody
+      // promoted a plan to proof.
+      const res = await pool.query<{ cnt: string }>(
+        `select count(*)::text as cnt from parliament.bill_sitting_links
+          where relationship_kind <> 'scheduled_on_agenda'`
+      );
+      expect(Number(res.rows[0]?.cnt)).toBe(0);
+    }, 30_000);
+
+    it('the weekly parser no longer emits the nested wrapper row', async () => {
+      // One phantom block existed on all 940 captured weeks; 72 of them paired
+      // an agenda with a sitting the source never linked.
+      const res = await pool.query<{ cnt: string }>(
+        `select count(*)::text as cnt from parliament.sitting_schedule_blocks
+          where is_current and block_text like '%text-decoration:underline%'`
+      );
+      expect(Number(res.rows[0]?.cnt)).toBe(0);
+    }, 30_000);
+
+    it('lists orders of business newest-first and reaches a human-openable source', async () => {
+      const res = await gql<{
+        parliamentAgendas: {
+          total: number;
+          nodes: {
+            agendaKey: string;
+            approvedDate: string | null;
+            sourceUrl: string;
+            itemCount: number;
+            billCount: number;
+            sittings: { sittingKey: string; date: string | null; dateSource: string }[];
+          }[];
+        } | null;
+      }>(
+        `query {
+          parliamentAgendas(limit: 5) {
+            total
+            nodes {
+              agendaKey approvedDate sourceUrl itemCount billCount
+              sittings { sittingKey date dateSource }
+            }
+          }
+        }`
+      );
+      expect(res.errors).toBeUndefined();
+      const page = res.data?.parliamentAgendas;
+      expect(page?.total).toBeGreaterThanOrEqual(1296);
+      expect(page?.nodes.length).toBe(5);
+      const dates = (page?.nodes ?? [])
+        .map((n) => n.approvedDate)
+        .filter((d): d is string => d !== null);
+      expect([...dates].sort().reverse()).toEqual(dates);
+      for (const node of page?.nodes ?? []) {
+        expect(node.sourceUrl).toMatch(/^https:\/\/www\.cdep\.ro\/.*oid=\d+$/u);
+        expect(node.itemCount).toBeGreaterThanOrEqual(0);
+      }
+    }, 60_000);
+
+    it('serves the ordered CURRENT points of one agenda, with their documents', async () => {
+      const pick = await pool.query<{ agenda_key: string }>(
+        `select a.agenda_key from parliament.sitting_agendas a
+          join parliament.sitting_agenda_items i
+            on i.agenda_key = a.agenda_key and i.is_current
+          where a.approved_date is not null
+          group by a.agenda_key
+          having count(*) filter (where i.bill_key is not null) > 3
+          order by a.approved_date desc
+          limit 1`
+      );
+      const agendaKey = pick.rows[0]?.agenda_key;
+      expect(agendaKey).toBeDefined();
+
+      const res = await gql<{
+        parliamentAgenda: {
+          agenda: { agendaKey: string; itemCount: number };
+          items: {
+            rowIndex: number;
+            itemKind: string;
+            billKey: string | null;
+            resolutionStatus: string;
+            committeeRapporteurs: string[];
+            documents: { url: string }[];
+          }[];
+        } | null;
+      }>(
+        `query($k: ID!) {
+          parliamentAgenda(agendaKey: $k) {
+            agenda { agendaKey itemCount }
+            items {
+              rowIndex itemKind billKey resolutionStatus committeeRapporteurs
+              documents { url }
+            }
+          }
+        }`,
+        { k: agendaKey }
+      );
+      expect(res.errors).toBeUndefined();
+      const detail = res.data?.parliamentAgenda;
+      expect(detail?.agenda.agendaKey).toBe(agendaKey);
+      // The header count and the served points are the same population.
+      expect(detail?.items.length).toBe(detail?.agenda.itemCount);
+      const rowIndexes = (detail?.items ?? []).map((i) => i.rowIndex);
+      expect([...rowIndexes].sort((a, b) => a - b)).toEqual(rowIndexes);
+      // A resolved point names a bill; an unresolved one must not pretend to.
+      for (const item of detail?.items ?? []) {
+        if (item.resolutionStatus === 'linked') expect(item.billKey).not.toBeNull();
+      }
+    }, 60_000);
+
+    it('an unknown agenda key is null, not an error', async () => {
+      const res = await gql<{ parliamentAgenda: unknown }>(
+        `query { parliamentAgenda(agendaKey: "cdep_agenda_ordinezi:oid:0") { agenda { agendaKey } } }`
+      );
+      expect(res.errors).toBeUndefined();
+      expect(res.data?.parliamentAgenda).toBeNull();
+    }, 30_000);
+
+    it("a bill's scheduling history is dated, ordered, and claims only scheduling", async () => {
+      const pick = await pool.query<{ bill_key: string }>(
+        `select bill_key from parliament.bill_sitting_links
+          group by bill_key having count(*) between 3 and 12 limit 1`
+      );
+      const billKey = pick.rows[0]?.bill_key;
+      expect(billKey).toBeDefined();
+
+      const res = await gql<{
+        parliamentBillScheduling: {
+          sittingDate: string | null;
+          sittingDateSource: string;
+          relationshipKind: string;
+          resolutionStatus: string;
+          agendaKey: string;
+        }[];
+      }>(
+        `query($k: ID!) {
+          parliamentBillScheduling(billKey: $k) {
+            sittingDate sittingDateSource relationshipKind resolutionStatus agendaKey
+          }
+        }`,
+        { k: billKey }
+      );
+      expect(res.errors).toBeUndefined();
+      const rows = res.data?.parliamentBillScheduling ?? [];
+      expect(rows.length).toBeGreaterThanOrEqual(3);
+      for (const row of rows) {
+        expect(row.relationshipKind).toBe('scheduled_on_agenda');
+        expect(['exact', 'candidate']).toContain(row.resolutionStatus);
+      }
+      const dates = rows.map((r) => r.sittingDate).filter((d): d is string => d !== null);
+      expect([...dates].sort()).toEqual(dates);
+    }, 60_000);
+  });
 });

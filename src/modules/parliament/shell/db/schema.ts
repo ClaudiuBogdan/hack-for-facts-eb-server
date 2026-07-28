@@ -494,6 +494,138 @@ export interface ParliamentControlItemMetadataTable {
 // UNBOUND (PDL-003 — raw event labels/names must never be served; omitting them
 // from the Kysely interface makes a stray select a compile error).
 
+/**
+ * `parliament.sittings` — the agenda lane's sitting spine.
+ *
+ * NOT a registry of every plenary sitting: `stenogram_sessions` is that (11,103
+ * captures vs 2,110 rows here). This table holds the sittings an order of
+ * business actually maps onto, which is why it is date-navigable — every row
+ * carries a date as of 2026-07-28.
+ */
+export interface ParliamentSittingsTable {
+  sitting_key: string; // PK — `cdep_stenogram:<ids>` | `cdep_agenda:<oid>:<date>`
+  chamber: string;
+  sitting_date: DateCol | null;
+  // 'stenogram_session' = copied from the stenogram lane's session row (the
+  // sitting's own printed title) and the authority; 'weekly_agenda' = the
+  // PLANNED week, which loses to a transcript date; 'ordinezi_title' = parsed
+  // from the order-of-business title; 'none' = no trustworthy date.
+  sitting_date_source: string;
+  title: string | null;
+  source_system: string;
+  stenogram_ids: string | null;
+  attrs: Jsonb;
+  privacy_class: string;
+  source_updated_at: Tstz | null;
+  updated_at: Tstz | null;
+}
+
+/** `parliament.sitting_agendas` — one published order of business. */
+export interface ParliamentSittingAgendasTable {
+  agenda_key: string; // PK
+  oid: string; // the source's own id, unique
+  chamber: string;
+  title: string | null;
+  approved_date: DateCol | null;
+  approved_date_text: string | null;
+  pdf_url: string | null;
+  attrs: Jsonb;
+  privacy_class: string;
+  source_updated_at: Tstz | null;
+  updated_at: Tstz | null;
+}
+
+/** `parliament.sitting_agenda_sittings` — which sittings an agenda covers. */
+export interface ParliamentSittingAgendaSittingsTable {
+  agenda_key: string;
+  sitting_key: string;
+  sitting_date: DateCol | null;
+  resolution_status: string; // 'exact' | 'candidate' (CHECK)
+  match_method: string;
+  evidence: Jsonb;
+  privacy_class: string;
+  updated_at: Tstz | null;
+}
+
+/**
+ * `parliament.sitting_agenda_items` — the ordered points of one agenda.
+ *
+ * `is_current` is load-bearing: the lane retains superseded revisions
+ * (107,404 tombstones against 97,348 current rows), so an unfiltered read
+ * serves withdrawn versions of the order of business as if they were live.
+ */
+export interface ParliamentSittingAgendaItemsTable {
+  agenda_item_key: string; // PK
+  agenda_key: string;
+  row_index: number;
+  anchor: string | null;
+  item_number_text: string | null;
+  item_kind: string; // 'administrative' | 'debate' | 'unknown' (CHECK)
+  bill_key: string | null;
+  source_bill_idp: string | null;
+  bill_label: string | null;
+  bill_family: string | null;
+  title_text: string | null;
+  description_text: string | null;
+  ozitm: string | null;
+  law_category: string | null;
+  senate_disposition: string | null;
+  senate_disposition_date: DateCol | null;
+  // Verbatim source strings naming the reporting committee and its
+  // recommendation. NOT yet resolved to committee keys — see
+  // PARLIAMENT_AGENDA_MODEL.md §5; and note that rows loaded before
+  // 2026-07-28 carry a distribution date truncated to its day.
+  committee_rapporteurs: string[];
+  procedure_urgency: boolean;
+  decisional_chamber: boolean;
+  debate_reservation: boolean;
+  resolution_status: string; // 'linked' | 'unresolved' | 'not_applicable' (CHECK)
+  is_current: boolean;
+  attrs: Jsonb;
+  privacy_class: string;
+  source_updated_at: Tstz | null;
+  updated_at: Tstz | null;
+}
+
+/** `parliament.sitting_agenda_item_documents` — documents attached to a point. */
+export interface ParliamentSittingAgendaItemDocumentsTable {
+  agenda_item_document_key: string; // PK
+  agenda_item_key: string | null;
+  bill_key: string | null;
+  ozitm: string;
+  document_url: string;
+  label: string | null;
+  document_date: DateCol | null;
+  manifest_side: string; // 'project_file' | 'caseta_scan' | 'unknown' (CHECK)
+  is_current: boolean;
+  attrs: Jsonb;
+  privacy_class: string;
+  updated_at: Tstz | null;
+}
+
+/**
+ * `parliament.bill_sitting_links` — a bill was PLACED ON an order of business.
+ *
+ * `relationship_kind` is `scheduled_on_agenda` on every row. It is NOT evidence
+ * of debate or of a vote; `debated_in_session`/`voted_in_session` are reserved
+ * for edges anchored to a transcript or a division and are deliberately empty
+ * (the loader gate BLOCKS if either appears).
+ */
+export interface ParliamentBillSittingLinksTable {
+  bill_sitting_link_id: string; // bigint → string
+  bill_key: string;
+  sitting_key: string;
+  agenda_item_key: string;
+  agenda_key: string;
+  relationship_kind: string;
+  resolution_status: string; // 'exact' | 'candidate' (CHECK)
+  match_method: string;
+  evidence: Jsonb;
+  privacy_class: string;
+  created_at: Tstz | null;
+  updated_at: Tstz | null;
+}
+
 export interface ParliamentCommitteesTable {
   committee_key: string;
   chamber: string; // 'cdep' | 'senate'
@@ -588,6 +720,12 @@ declare module '@/modules/shared/shell/db/types.js' {
     'parliament.committee_documents': ParliamentCommitteeDocumentsTable;
     'parliament.committee_bill_links': ParliamentCommitteeBillLinksTable;
     'parliament.committee_meetings': ParliamentCommitteeMeetingsTable;
+    'parliament.sittings': ParliamentSittingsTable;
+    'parliament.sitting_agendas': ParliamentSittingAgendasTable;
+    'parliament.sitting_agenda_sittings': ParliamentSittingAgendaSittingsTable;
+    'parliament.sitting_agenda_items': ParliamentSittingAgendaItemsTable;
+    'parliament.sitting_agenda_item_documents': ParliamentSittingAgendaItemDocumentsTable;
+    'parliament.bill_sitting_links': ParliamentBillSittingLinksTable;
     /* eslint-enable @typescript-eslint/naming-convention -- restore the rule after the schema-qualified table keys */
   }
 }

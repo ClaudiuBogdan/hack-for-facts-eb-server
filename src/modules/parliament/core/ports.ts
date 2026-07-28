@@ -15,7 +15,11 @@ import type {
   ParliamentBallot,
   ParliamentBill,
   ParliamentBillActLink,
+  ParliamentAgendaConnection,
+  ParliamentAgendaDetail,
+  ParliamentAgendaFilter,
   ParliamentBillDocument,
+  ParliamentBillScheduling,
   ParliamentBillEvent,
   ParliamentBillVoteLink,
   ParliamentCommittee,
@@ -148,6 +152,17 @@ export interface ParliamentRepo extends ParliamentStenogramRepo {
   getBillDossierViewKeys(billKey: string): Promise<Result<readonly string[], ApiError>>;
   getBillEvents(billKey: string): Promise<Result<readonly ParliamentBillEvent[], ApiError>>;
   getBillDocuments(billKey: string): Promise<Result<readonly ParliamentBillDocument[], ApiError>>;
+  // ── plenary agenda (ordinea de zi) ──────────────────────────────────────────
+  listAgendas(
+    filter: ParliamentAgendaFilter | null | undefined,
+    offset: number,
+    limit: number
+  ): Promise<Result<ParliamentAgendaConnection, ApiError>>;
+  getAgenda(agendaKey: string): Promise<Result<ParliamentAgendaDetail | null, ApiError>>;
+  /** A bill's appearances on an order of business. SCHEDULING only. */
+  getBillScheduling(
+    billKey: string
+  ): Promise<Result<readonly ParliamentBillScheduling[], ApiError>>;
   // Initiators are surfaced AS ParliamentMember in the SDL; return the FULL member
   // (not a reduced projection) so every ParliamentMember field — legislature,
   // normalizedName, constituencyName, birthDate, and the nested group/person/interval

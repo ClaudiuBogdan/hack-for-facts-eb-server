@@ -41,8 +41,11 @@ import {
   mapAiBillMetadata,
   mapAiControlItemMetadata,
   mapBill,
+  mapAgenda,
+  mapAgendaItem,
   mapBillDocument,
   mapBillEvent,
+  mapBillScheduling,
   mapCommittee,
   mapCommitteeMembership,
   mapControlItem,
@@ -92,6 +95,7 @@ import {
   type ParliamentSpeechActivity,
   type ParliamentSpeechPopulation,
   type ParliamentSpeechSearchDepth,
+  type ParliamentAgendaFilter,
   type ParliamentVote,
   type ParliamentVoteGroupBreakdown,
 } from '../../core/types.js';
@@ -1393,6 +1397,200 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
       return ok(rows.map(mapBillEvent));
     } catch (e) {
       return err(databaseError('getBillEvents failed', e));
+    }
+  };
+
+  // ── plenary agenda (ordinea de zi) ─────────────────────────────────────────
+  //
+  // Two rules run through every query here. Items are filtered `is_current`,
+  // because the lane retains superseded revisions (107,404 tombstones against
+  // 97,348 live rows) and serving a withdrawn order of business as the live one
+  // is a correctness bug, not a display nit. And ordering is by date with
+  // `sitting_date is null` sorted into its own bucket rather than silently
+  // last — an undated sitting has no place in a chronology.
+
+  const agendaSittingsJson = sql`coalesce((
+    select jsonb_agg(jsonb_build_object(
+      'sittingKey', st.sitting_key,
+      'chamber', st.chamber,
+      'date', st.sitting_date::text,
+      'dateSource', st.sitting_date_source,
+      'title', st.title,
+      'stenogramSessionKey', case when st.stenogram_ids is null then null
+                                  else 'cdep:' || st.stenogram_ids end,
+      'resolutionStatus', m.resolution_status
+    ) order by st.sitting_date asc nulls last, st.sitting_key asc)
+    from parliament.sitting_agenda_sittings m
+    join parliament.sittings st on st.sitting_key = m.sitting_key
+    where m.agenda_key = a.agenda_key
+  ), '[]'::jsonb)`.as('sittings');
+
+  const agendaCounts = [
+    sql<number>`(select count(*)::int from parliament.sitting_agenda_items i
+      where i.agenda_key = a.agenda_key and i.is_current)`.as('item_count'),
+    sql<number>`(select count(distinct i.bill_key)::int from parliament.sitting_agenda_items i
+      where i.agenda_key = a.agenda_key and i.is_current and i.bill_key is not null)`.as(
+      'bill_count'
+    ),
+  ];
+
+  const agendaWhere = (filter: ParliamentAgendaFilter | null | undefined): RawBuilder<SqlBool> => {
+    const conds: RawBuilder<unknown>[] = [sql`a.privacy_class = 'public'`];
+    const chamber = filter?.chamber ?? null;
+    if (chamber !== null && chamber !== '') conds.push(sql`a.chamber = ${chamber}`);
+    const from = filter?.dateFrom ?? null;
+    if (from !== null && from !== '') conds.push(sql`a.approved_date >= ${from}::date`);
+    const to = filter?.dateTo ?? null;
+    if (to !== null && to !== '') conds.push(sql`a.approved_date <= ${to}::date`);
+    const year = filter?.year ?? null;
+    if (year !== null) conds.push(sql`extract(year from a.approved_date) = ${year}`);
+    const q = (filter?.q ?? '').trim();
+    if (q !== '') {
+      const needle = `%${escapeLike(foldDiacritics(q).toLowerCase())}%`;
+      conds.push(
+        sql`translate(lower(coalesce(a.title, '')), ${FOLD_FROM}, ${FOLD_TO}) like ${needle}`
+      );
+    }
+    return composeWhere(conds);
+  };
+
+  const listAgendas = async (
+    filter: ParliamentAgendaFilter | null | undefined,
+    offset: number,
+    limit: number
+  ) => {
+    try {
+      const where = agendaWhere(filter);
+      const rows = await db
+        .selectFrom('parliament.sitting_agendas as a')
+        .select([
+          'a.agenda_key',
+          'a.chamber',
+          'a.title',
+          sql<string | null>`a.approved_date::text`.as('approved_date'),
+          'a.approved_date_text',
+          'a.pdf_url',
+          agendaSittingsJson,
+          ...agendaCounts,
+        ])
+        .where(where)
+        // An agenda with no approved date is a real published plan; it sorts
+        // into its own bucket instead of pretending to be the oldest.
+        .orderBy(sql`a.approved_date desc nulls last`)
+        .orderBy('a.agenda_key', 'desc')
+        .offset(offset)
+        .limit(limit)
+        .execute();
+      const totalRow = await db
+        .selectFrom('parliament.sitting_agendas as a')
+        .select(sql<number>`least(count(*), ${LIST_TOTAL_CAP})::int`.as('total'))
+        .where(where)
+        .executeTakeFirst();
+      return ok({
+        nodes: rows.map(mapAgenda),
+        total: totalRow?.total ?? 0,
+      });
+    } catch (e) {
+      return err(databaseError('listAgendas failed', e));
+    }
+  };
+
+  const getAgenda = async (agendaKey: string) => {
+    try {
+      const row = await db
+        .selectFrom('parliament.sitting_agendas as a')
+        .select([
+          'a.agenda_key',
+          'a.chamber',
+          'a.title',
+          sql<string | null>`a.approved_date::text`.as('approved_date'),
+          'a.approved_date_text',
+          'a.pdf_url',
+          agendaSittingsJson,
+          ...agendaCounts,
+        ])
+        .where('a.agenda_key', '=', agendaKey)
+        .where(sql<SqlBool>`a.privacy_class = 'public'`)
+        .executeTakeFirst();
+      if (row === undefined) return ok(null);
+
+      const items = await db
+        .selectFrom('parliament.sitting_agenda_items as i')
+        .select([
+          'i.agenda_item_key',
+          'i.row_index',
+          'i.item_number_text',
+          'i.item_kind',
+          'i.bill_key',
+          'i.bill_label',
+          'i.bill_family',
+          'i.title_text',
+          'i.description_text',
+          'i.law_category',
+          'i.senate_disposition',
+          sql<string | null>`i.senate_disposition_date::text`.as('senate_disposition_date'),
+          'i.committee_rapporteurs',
+          'i.procedure_urgency',
+          'i.decisional_chamber',
+          'i.debate_reservation',
+          'i.resolution_status',
+          sql`coalesce((
+            select jsonb_agg(jsonb_build_object(
+              'url', d.document_url,
+              'label', d.label,
+              'date', d.document_date::text,
+              'manifestSide', d.manifest_side
+            ) order by d.document_url)
+            from parliament.sitting_agenda_item_documents d
+            where d.agenda_item_key = i.agenda_item_key
+              and d.is_current
+              and d.privacy_class = 'public'
+          ), '[]'::jsonb)`.as('documents'),
+        ])
+        .where('i.agenda_key', '=', agendaKey)
+        .where('i.is_current', '=', true)
+        .where(sql<SqlBool>`i.privacy_class = 'public'`)
+        .orderBy('i.row_index', 'asc')
+        .execute();
+
+      return ok({ ...mapAgenda(row), items: items.map(mapAgendaItem) });
+    } catch (e) {
+      return err(databaseError('getAgenda failed', e));
+    }
+  };
+
+  const getBillScheduling = async (billKey: string) => {
+    try {
+      const rows = await db
+        .selectFrom('parliament.bill_sitting_links as l')
+        .innerJoin('parliament.sittings as st', 'st.sitting_key', 'l.sitting_key')
+        .innerJoin('parliament.sitting_agendas as a', 'a.agenda_key', 'l.agenda_key')
+        .innerJoin('parliament.sitting_agenda_items as i', 'i.agenda_item_key', 'l.agenda_item_key')
+        .select([
+          'l.agenda_key',
+          'l.agenda_item_key',
+          'a.title as agenda_title',
+          'l.sitting_key',
+          sql<string | null>`st.sitting_date::text`.as('sitting_date'),
+          'st.sitting_date_source',
+          'st.chamber',
+          'l.relationship_kind',
+          'l.resolution_status',
+          'i.item_number_text',
+          sql<string | null>`case when st.stenogram_ids is null then null
+                                  else 'cdep:' || st.stenogram_ids end`.as('stenogram_session_key'),
+        ])
+        .where('l.bill_key', '=', billKey)
+        .where('l.privacy_class', '=', 'public')
+        // Only CURRENT points: a bill dropped from a revised order of business
+        // must not still read as scheduled.
+        .where('i.is_current', '=', true)
+        .orderBy(sql`st.sitting_date asc nulls last`)
+        .orderBy('l.sitting_key', 'asc')
+        .execute();
+      return ok(rows.map(mapBillScheduling));
+    } catch (e) {
+      return err(databaseError('getBillScheduling failed', e));
     }
   };
 
@@ -3276,6 +3474,9 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     findBill,
     getBillDossierViewKeys,
     getBillEvents,
+    listAgendas,
+    getAgenda,
+    getBillScheduling,
     getBillDocuments,
     getBillInitiators,
     getBillActLinks,

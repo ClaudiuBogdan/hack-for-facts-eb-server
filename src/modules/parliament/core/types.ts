@@ -1061,3 +1061,130 @@ export const COHESION_VOTE_CAP = 500;
 /** The closed chamber enum (core copy; the filter spec re-declares it for the kernel). */
 export const VOTE_CHAMBERS_OK = ['camera_deputatilor', 'senat', 'comun'] as const;
 export type VoteChamber = (typeof VOTE_CHAMBERS_OK)[number];
+
+// ── plenary agenda (ordinea de zi) ───────────────────────────────────────────
+
+/**
+ * A sitting as the agenda lane knows it.
+ *
+ * `date` is present on every row today, but the field stays nullable and
+ * carries its own provenance: a caller must be able to tell a genuinely
+ * dateless capture from one this lane simply has not dated, and must never
+ * order the undated as if they were dated.
+ */
+export interface ParliamentAgendaSitting {
+  readonly sittingKey: string;
+  readonly chamber: string;
+  readonly date: string | null;
+  /**
+   * 'stenogram_session' — the sitting's own printed transcript title (the
+   * authority). 'ordinezi_title' — parsed from the order-of-business title.
+   * 'weekly_agenda' — the PLANNED week; it loses to a transcript date.
+   * 'none' — no trustworthy date.
+   */
+  readonly dateSource: string;
+  readonly title: string | null;
+  /** The stenogram session key, when this sitting has a captured transcript. */
+  readonly stenogramSessionKey: string | null;
+  /** How firmly the agenda maps onto this sitting: 'exact' | 'candidate'. */
+  readonly resolutionStatus: string | null;
+}
+
+/** A document printed against one point of an order of business. */
+export interface ParliamentAgendaItemDocument {
+  readonly url: string;
+  readonly label: string | null;
+  readonly date: string | null;
+  readonly manifestSide: string;
+}
+
+/** One numbered point of an order of business. */
+export interface ParliamentAgendaItem {
+  readonly agendaItemKey: string;
+  readonly rowIndex: number;
+  readonly numberText: string | null;
+  /** 'administrative' | 'debate' | 'unknown'. */
+  readonly itemKind: string;
+  readonly billKey: string | null;
+  readonly billLabel: string | null;
+  readonly billFamily: string | null;
+  readonly titleText: string | null;
+  readonly descriptionText: string | null;
+  readonly lawCategory: string | null;
+  readonly senateDisposition: string | null;
+  readonly senateDispositionDate: string | null;
+  /**
+   * Verbatim source strings naming the reporting committee and its
+   * recommendation, e.g. `Comisia juridică (Respingere) - distribuit -
+   * 26.04.2016`. Deliberately unparsed: resolving a short committee name needs
+   * the legislature, and 47 of them are prefix-ambiguous across 109,250
+   * mentions. Present them as source text, not as a resolved committee.
+   */
+  readonly committeeRapporteurs: readonly string[];
+  readonly procedureUrgency: boolean;
+  readonly decisionalChamber: boolean;
+  readonly debateReservation: boolean;
+  /** 'linked' | 'unresolved' | 'not_applicable' for the bill reference. */
+  readonly resolutionStatus: string;
+  readonly documents: readonly ParliamentAgendaItemDocument[];
+}
+
+/**
+ * One published order of business.
+ *
+ * An agenda is a PLAN. Nothing here is evidence that a point was reached,
+ * debated or voted — that comes from the transcript and the division lists.
+ */
+export interface ParliamentAgenda {
+  readonly agendaKey: string;
+  readonly chamber: string;
+  readonly title: string | null;
+  readonly approvedDate: string | null;
+  readonly approvedDateText: string | null;
+  /** The official PDF of the order of business, when the source published one. */
+  readonly pdfUrl: string | null;
+  readonly sourceUrl: string;
+  readonly sittings: readonly ParliamentAgendaSitting[];
+  readonly itemCount: number;
+  readonly billCount: number;
+}
+
+/** An order of business plus its ordered points. */
+export interface ParliamentAgendaDetail extends ParliamentAgenda {
+  readonly items: readonly ParliamentAgendaItem[];
+}
+
+/**
+ * A bill's appearance on an order of business.
+ *
+ * This proves SCHEDULING and nothing more. `relationshipKind` is
+ * `scheduled_on_agenda` on every row that exists today.
+ */
+export interface ParliamentBillScheduling {
+  readonly agendaKey: string;
+  readonly agendaItemKey: string;
+  readonly agendaTitle: string | null;
+  readonly sittingKey: string;
+  readonly sittingDate: string | null;
+  readonly sittingDateSource: string;
+  readonly chamber: string;
+  readonly relationshipKind: string;
+  /** 'exact' | 'candidate' — a candidate mapping must not be shown as certain. */
+  readonly resolutionStatus: string;
+  readonly itemNumberText: string | null;
+  readonly stenogramSessionKey: string | null;
+}
+
+export interface ParliamentAgendaFilter {
+  readonly chamber?: string | null;
+  readonly dateFrom?: string | null;
+  readonly dateTo?: string | null;
+  readonly year?: number | null;
+  /** Free-text over the agenda title. */
+  readonly q?: string | null;
+}
+
+export interface ParliamentAgendaConnection {
+  readonly nodes: readonly ParliamentAgenda[];
+  readonly total: number;
+}

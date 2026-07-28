@@ -16,6 +16,11 @@ import {
   type ParliamentBill,
   type ParliamentBillDocument,
   type ParliamentBillEvent,
+  type ParliamentAgenda,
+  type ParliamentAgendaItem,
+  type ParliamentAgendaItemDocument,
+  type ParliamentAgendaSitting,
+  type ParliamentBillScheduling,
   type ParliamentBillStepLink,
   type ParliamentCommittee,
   type ParliamentCommitteeMembership,
@@ -220,6 +225,114 @@ export const mapBillEvent = (r: BillEventRow): ParliamentBillEvent => ({
   stepKind: r.step_kind ?? null,
   actorKind: r.actor_kind ?? null,
   links: toStepLinks(r.links),
+});
+
+// ── plenary agenda ───────────────────────────────────────────────────────────
+
+const AGENDA_SOURCE_BASE = 'https://www.cdep.ro/ords/pls/caseta/ecaseta2015.OrdineZi?oid=';
+
+const toAgendaSittings = (value: unknown): readonly ParliamentAgendaSitting[] =>
+  Array.isArray(value) ? (value as readonly ParliamentAgendaSitting[]) : [];
+
+const toAgendaDocuments = (value: unknown): readonly ParliamentAgendaItemDocument[] =>
+  Array.isArray(value) ? (value as readonly ParliamentAgendaItemDocument[]) : [];
+
+export interface AgendaRow {
+  agenda_key: string;
+  chamber: string;
+  title: string | null;
+  approved_date: string | null;
+  approved_date_text: string | null;
+  pdf_url: string | null;
+  sittings: unknown;
+  item_count: number;
+  bill_count: number;
+}
+
+export const mapAgenda = (r: AgendaRow): ParliamentAgenda => ({
+  agendaKey: r.agenda_key,
+  chamber: r.chamber,
+  title: r.title,
+  approvedDate: r.approved_date,
+  approvedDateText: r.approved_date_text,
+  pdfUrl: r.pdf_url,
+  // Every agenda must reach a human-openable source. The key carries the
+  // source's own oid (`cdep_agenda_ordinezi:oid:2939`), so the page is
+  // reconstructable even for the 391 agendas the source never date-stamped.
+  sourceUrl: `${AGENDA_SOURCE_BASE}${r.agenda_key.split(':').pop() ?? ''}`,
+  sittings: toAgendaSittings(r.sittings),
+  itemCount: r.item_count,
+  billCount: r.bill_count,
+});
+
+export interface AgendaItemRow {
+  agenda_item_key: string;
+  row_index: number;
+  item_number_text: string | null;
+  item_kind: string;
+  bill_key: string | null;
+  bill_label: string | null;
+  bill_family: string | null;
+  title_text: string | null;
+  description_text: string | null;
+  law_category: string | null;
+  senate_disposition: string | null;
+  senate_disposition_date: string | null;
+  committee_rapporteurs: string[] | null;
+  procedure_urgency: boolean;
+  decisional_chamber: boolean;
+  debate_reservation: boolean;
+  resolution_status: string;
+  documents: unknown;
+}
+
+export const mapAgendaItem = (r: AgendaItemRow): ParliamentAgendaItem => ({
+  agendaItemKey: r.agenda_item_key,
+  rowIndex: r.row_index,
+  numberText: r.item_number_text,
+  itemKind: r.item_kind,
+  billKey: r.bill_key,
+  billLabel: r.bill_label,
+  billFamily: r.bill_family,
+  titleText: r.title_text,
+  descriptionText: r.description_text,
+  lawCategory: r.law_category,
+  senateDisposition: r.senate_disposition,
+  senateDispositionDate: r.senate_disposition_date,
+  committeeRapporteurs: r.committee_rapporteurs ?? [],
+  procedureUrgency: r.procedure_urgency,
+  decisionalChamber: r.decisional_chamber,
+  debateReservation: r.debate_reservation,
+  resolutionStatus: r.resolution_status,
+  documents: toAgendaDocuments(r.documents),
+});
+
+export interface BillSchedulingRow {
+  agenda_key: string;
+  agenda_item_key: string;
+  agenda_title: string | null;
+  sitting_key: string;
+  sitting_date: string | null;
+  sitting_date_source: string;
+  chamber: string;
+  relationship_kind: string;
+  resolution_status: string;
+  item_number_text: string | null;
+  stenogram_session_key: string | null;
+}
+
+export const mapBillScheduling = (r: BillSchedulingRow): ParliamentBillScheduling => ({
+  agendaKey: r.agenda_key,
+  agendaItemKey: r.agenda_item_key,
+  agendaTitle: r.agenda_title,
+  sittingKey: r.sitting_key,
+  sittingDate: r.sitting_date,
+  sittingDateSource: r.sitting_date_source,
+  chamber: r.chamber,
+  relationshipKind: r.relationship_kind,
+  resolutionStatus: r.resolution_status,
+  itemNumberText: r.item_number_text,
+  stenogramSessionKey: r.stenogram_session_key,
 });
 
 export interface BillDocumentRow {

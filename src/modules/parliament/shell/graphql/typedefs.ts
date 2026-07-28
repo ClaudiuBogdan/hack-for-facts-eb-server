@@ -933,6 +933,155 @@ const objectsAndQuery = /* GraphQL */ `
   # propagating a non-null violation to the root Query and wiping every sibling field.
   # This matches the already-nullable parliamentActLineage and the in-band MCP {ok:false}
   # behaviour. The INNER types stay non-null ([T!] / connection edges).
+  """
+  A sitting an order of business maps onto.
+
+  date carries its own provenance in dateSource, and a null date is NOT an
+  ordering hint: an undated sitting belongs in its own bucket, never interleaved
+  into a chronology. (Every row carries a date today; the field stays nullable
+  because the source, not this schema, decides that.)
+  """
+  type ParliamentAgendaSitting {
+    sittingKey: ID!
+    chamber: String!
+    date: String
+    "'stenogram_session' = the sitting's OWN printed transcript title, and the authority. 'ordinezi_title' = parsed from the order-of-business title. 'weekly_agenda' = the PLANNED week, which loses to a transcript date. 'none' = no trustworthy date."
+    dateSource: String!
+    title: String
+    "The transcript for this sitting, when one was captured. Pass to parliamentStenogramSession."
+    stenogramSessionKey: ID
+    "'exact' | 'candidate' — how firmly the agenda maps onto this sitting. A candidate mapping must not be presented as certain."
+    resolutionStatus: String
+  }
+
+  "A document printed against one point of an order of business."
+  type ParliamentAgendaItemDocument {
+    url: String!
+    label: String
+    date: String
+    "'project_file' | 'caseta_scan' | 'unknown' — which side of the source manifest published it."
+    manifestSide: String!
+  }
+
+  """
+  One numbered point of an order of business.
+
+  Only CURRENT points are ever served: the lane retains superseded revisions
+  (107,404 tombstones against 97,348 live rows) and a withdrawn point must not
+  read as live.
+  """
+  type ParliamentAgendaItem {
+    agendaItemKey: ID!
+    "Position in the printed order, 0-based."
+    rowIndex: Int!
+    "The source's own numbering, e.g. '1.'."
+    numberText: String
+    "'administrative' | 'debate' | 'unknown'."
+    itemKind: String!
+    "The bill this point concerns. Null when the point is administrative or the reference did not resolve — read resolutionStatus."
+    billKey: ID
+    billLabel: String
+    billFamily: String
+    titleText: String
+    descriptionText: String
+    lawCategory: String
+    "What the Senate did with this bill, as printed on the agenda."
+    senateDisposition: String
+    senateDispositionDate: String
+    """
+    VERBATIM source strings naming the reporting committee and its
+    recommendation, e.g. 'Comisia juridică (Respingere) - distribuit - 26.04.2016'.
+    Deliberately UNRESOLVED: committees are keyed per (legislature, chamber) and
+    47 of these short names are prefix-ambiguous across 109,250 mentions, so
+    resolving them needs era scoping and a stratified audit. Present them as
+    source text — never as a linked committee. Rows captured before 2026-07-28
+    carry a distribution date truncated to its day (a parser defect since fixed).
+    """
+    committeeRapporteurs: [String!]!
+    procedureUrgency: Boolean!
+    decisionalChamber: Boolean!
+    "The source flagged that debate depends on a report not yet filed."
+    debateReservation: Boolean!
+    "'linked' | 'unresolved' | 'not_applicable' for the bill reference."
+    resolutionStatus: String!
+    documents: [ParliamentAgendaItemDocument!]!
+  }
+
+  """
+  One published order of business (ordinea de zi) of the Chamber of Deputies.
+
+  An agenda is a PLAN. Nothing on it is evidence that a point was reached,
+  debated or voted — debate comes from the transcript, votes from the division
+  lists. The Senate's plenary agenda is NOT extracted, so absence here says
+  nothing about a bill's treatment in the Senate.
+  """
+  type ParliamentAgenda {
+    agendaKey: ID!
+    chamber: String!
+    title: String
+    "When the Standing Bureau approved this order of business. Null on 391 of 1,296 agendas — the source did not print one; render as undated, not as oldest."
+    approvedDate: String
+    approvedDateText: String
+    "The official PDF of the order of business, when the source published one."
+    pdfUrl: String
+    "The order-of-business page on cdep.ro."
+    sourceUrl: String!
+    "The sittings this order of business covers (an agenda can span several days)."
+    sittings: [ParliamentAgendaSitting!]!
+    "Count of CURRENT points."
+    itemCount: Int!
+    "Distinct bills across the CURRENT points."
+    billCount: Int!
+  }
+
+  "An order of business with its ordered points."
+  type ParliamentAgendaDetail {
+    agenda: ParliamentAgenda!
+    items: [ParliamentAgendaItem!]!
+  }
+
+  """
+  A bill's appearance on an order of business.
+
+  This proves SCHEDULING and nothing else. relationshipKind is
+  'scheduled_on_agenda' on every row that exists; 'debated_in_session' and
+  'voted_in_session' are reserved for edges anchored to a transcript or a
+  division and are deliberately unpopulated. Do not render this as "debated on".
+  """
+  type ParliamentBillScheduling {
+    agendaKey: ID!
+    agendaItemKey: ID!
+    agendaTitle: String
+    sittingKey: ID!
+    sittingDate: String
+    "Provenance of sittingDate — see ParliamentAgendaSitting.dateSource."
+    sittingDateSource: String!
+    chamber: String!
+    "'scheduled_on_agenda' on every row today."
+    relationshipKind: String!
+    "'exact' | 'candidate'."
+    resolutionStatus: String!
+    itemNumberText: String
+    "The transcript of that sitting, when captured."
+    stenogramSessionKey: ID
+  }
+
+  input ParliamentAgendaFilter {
+    chamber: String
+    "Filters on approvedDate. An agenda with no approved date is excluded by any date bound."
+    dateFrom: String
+    dateTo: String
+    year: Int
+    "Diacritics-insensitive substring over the agenda title."
+    q: String
+  }
+
+  type ParliamentAgendaPage {
+    nodes: [ParliamentAgenda!]!
+    "Capped at 10,000."
+    total: Int!
+  }
+
   extend type Query {
     "Members of a legislature (default = latest). Offset page bounded by legislature."
     parliamentMembers(
@@ -954,6 +1103,16 @@ const objectsAndQuery = /* GraphQL */ `
       pageSize: Int
     ): ParliamentBillPage
     parliamentBill(billKey: ID!): ParliamentBill
+    "Published orders of business, newest approved first; an agenda with no approved date sorts into its own bucket at the end rather than pretending to be the oldest. CDep only — the Senate plenary agenda is not extracted."
+    parliamentAgendas(
+      filter: ParliamentAgendaFilter
+      offset: Int = 0
+      limit: Int = 20
+    ): ParliamentAgendaPage
+    "One order of business with its ordered CURRENT points. Returns null when the key is unknown or the agenda is not public."
+    parliamentAgenda(agendaKey: ID!): ParliamentAgendaDetail
+    "Every order of business a bill was PLACED ON, oldest sitting first. Scheduling evidence only — never proof of debate or of a vote."
+    parliamentBillScheduling(billKey: ID!): [ParliamentBillScheduling!]!
     "Votes (cursor; sort voteDate, dir DESC by default). vote_records are NEVER listed flat here. connection.total counts the whole filtered slice (capped at 10,000, totalEstimated flags the cap) so a list can size its filter without paging it. filter.kind splits the corpus into legislative (the bill_key COLUMN) vs amendment/procedural/chamber_decision/attendance (TITLE heuristics) vs unclassified (14.4%, a served bucket rather than a silent hole) — read the field description before presenting a bucket as fact. filter.groupVote drills into a group's ballot split: WITH a choice it is the votes whose PLURALITY stance for that group was that choice, WITHOUT one it is every vote the group balloted in at all (the wider set — a tied vote has no plurality but is still participation). Either way it REQUIRES a chamber, voteDate or billKey bound (else INVALID_INPUT in errors[], this field null), and its count does NOT equal a parliamentVoteCohesion percentage of the same window, because cohesion measures ballot slots and this measures votes."
     parliamentVotes(
       filter: ParliamentVotesFilter
