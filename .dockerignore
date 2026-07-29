@@ -36,6 +36,7 @@ argocd/
 # Environment files
 .env*
 !.env.example
+.claude/
 
 # Editor and OS files
 .DS_Store

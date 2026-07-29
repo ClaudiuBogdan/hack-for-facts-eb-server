@@ -311,4 +311,4 @@ Steps 2–4 are the critical path; 1 lands immediately; 6–8 are one workstream
 
 - MCP spec 2025-06-18 — transports (Streamable HTTP requirements, sessions, resumability) and authorization (OAuth 2.1, RFC 9728 discovery, audience binding): modelcontextprotocol.io/specification/2025-06-18.
 - OpenAI Apps SDK — MCP server + UI resources + OAuth/PKCE requirements for ChatGPT apps: developers.openai.com/apps-sdk.
-- Repo docs verified against code: `docs/AGENT-MODULE-SPEC.md` (matches implementation; v1.1 resume unbuilt), `docs/MCP-MODULE-SPEC.md` (describes the legacy module slated for deletion), `docs/MCP-PROMPTS.md`, `scripts/redesign/README.md` (two-database topology).
+- Repo docs verified against code: `docs/AGENT-MODULE-SPEC.md` (matches implementation; v1.1 resume unbuilt), `docs/MCP-MODULE-SPEC.md` (describes the legacy module slated for deletion), and `docs/MCP-PROMPTS.md`.

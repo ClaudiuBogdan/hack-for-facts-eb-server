@@ -130,7 +130,9 @@ security-results/
 __pycache__/
 scripts/input/
 scripts/output/
-scripts/k8s-port-forward.sh
+
+# Machine-local development helpers, tunnels, and credential generators
+/scripts/local/
 
 .claude/
 .local/admin-events/
