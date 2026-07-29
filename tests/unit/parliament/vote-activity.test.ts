@@ -68,6 +68,41 @@ const makeCapturingDb = (
   });
 };
 
+/** Like the capturing db, but a query matching `failOn` throws — an un-migrated relation. */
+const makeCapturingDbFailing = (captured: Captured[], failOn: RegExp): Kysely<ProdDatabase> => {
+  const connection: DatabaseConnection = {
+    executeQuery<R>(query: CompiledQuery): Promise<QueryResult<R>> {
+      captured.push({ sql: query.sql, parameters: query.parameters });
+      if (failOn.test(query.sql)) {
+        return Promise.reject(
+          new Error('relation "parliament.vote_capture_coverage" does not exist')
+        );
+      }
+      return Promise.resolve({ rows: [] as R[] });
+    },
+    streamQuery(): AsyncIterableIterator<QueryResult<never>> {
+      throw new Error('streamQuery not supported in the capturing db');
+    },
+  };
+  const driver: Driver = {
+    init: () => Promise.resolve(),
+    acquireConnection: () => Promise.resolve(connection),
+    beginTransaction: () => Promise.resolve(),
+    commitTransaction: () => Promise.resolve(),
+    rollbackTransaction: () => Promise.resolve(),
+    releaseConnection: () => Promise.resolve(),
+    destroy: () => Promise.resolve(),
+  };
+  return new Kysely<ProdDatabase>({
+    dialect: {
+      createAdapter: () => new PostgresAdapter(),
+      createDriver: () => driver,
+      createIntrospector: (db) => new PostgresIntrospector(db),
+      createQueryCompiler: () => new PostgresQueryCompiler(),
+    },
+  });
+};
+
 const flat = (s: string): string => s.replace(/\s+/gu, ' ').trim();
 const isCapabilityProbe = (q: Captured): boolean => /\blimit 0\b/u.test(q.sql);
 
@@ -180,6 +215,23 @@ describe('voteActivity — coverage', () => {
     const captured = await run();
     const cov = captured.find((c) => c.sql.includes('vote_capture_coverage'));
     expect(flat(cov?.sql ?? '')).not.toMatch(/c\.chamber = any/u);
+  });
+
+  /**
+   * The counts and the coverage annotation ship on separate schedules. Before the
+   * scrapper migration lands, the heatmap must still draw its squares and simply
+   * decline to claim what it covers — the two-state reading the client already
+   * handles — rather than failing the whole field over a missing caveat table.
+   */
+  it('still serves the counts when the coverage tables are not migrated yet', async () => {
+    const captured: Captured[] = [];
+    const db = makeCapturingDbFailing(captured, /vote_capture/u);
+    const repo = makeParliamentRepo(db);
+    const r = await repo.voteActivity(2024, {});
+    expect(r.isOk()).toBe(true);
+    expect(r._unsafeUnwrap().coverage).toEqual([]);
+    // The day query still ran; only the annotation was skipped.
+    expect(captured.some((c) => /group by/iu.test(c.sql))).toBe(true);
   });
 });
 

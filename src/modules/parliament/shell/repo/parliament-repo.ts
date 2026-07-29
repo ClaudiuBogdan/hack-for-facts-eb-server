@@ -690,6 +690,38 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     return speechTextsProbeInFlight;
   };
 
+  /**
+   * Same probe shape for the additive vote-coverage relations (scrapper migration
+   * 20260727T142000). The counts and the coverage annotation deploy on their own
+   * schedules, and a heatmap that hard-fails because its caveat table has not been
+   * migrated yet is strictly worse than one that draws the counts and declines to
+   * claim what it covers — which is exactly the two-state reading the client had
+   * before coverage existed, and it already handles an absent block.
+   */
+  let voteCoverageUsable = false;
+  let lastCoverageNegativeProbeAt = 0;
+  let voteCoverageProbeInFlight: Promise<boolean> | undefined;
+  const voteCoverageExists = (): Promise<boolean> => {
+    if (voteCoverageUsable) return Promise.resolve(true);
+    if (voteCoverageProbeInFlight !== undefined) return voteCoverageProbeInFlight;
+    if (Date.now() - lastCoverageNegativeProbeAt < SPEECH_TEXTS_NEG_TTL_MS)
+      return Promise.resolve(false);
+    voteCoverageProbeInFlight = (async () => {
+      try {
+        await sql`select chamber from parliament.vote_capture_coverage limit 0`.execute(db);
+        await sql`select gap_date from parliament.vote_capture_gaps limit 0`.execute(db);
+        voteCoverageUsable = true;
+        return true;
+      } catch {
+        lastCoverageNegativeProbeAt = Date.now();
+        return false;
+      } finally {
+        voteCoverageProbeInFlight = undefined;
+      }
+    })();
+    return voteCoverageProbeInFlight;
+  };
+
   // ── members / groups / persons ──────────────────────────────────────────────
   const latestLegislature = async (): Promise<Result<string | null, ApiError>> => {
     try {
@@ -1951,6 +1983,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
         ? composeWhere([sql`c.chamber = any(${chambers}::text[])`])
         : composeWhere([]);
 
+    const coverageAvailable = await voteCoverageExists();
     try {
       const [dayRows, yearRows, coverageRows] = await Promise.all([
         db
@@ -1976,36 +2009,38 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
           .where(yearsWhere)
           .orderBy(sql`1`, 'asc')
           .execute(),
-        db
-          .selectFrom('parliament.vote_capture_coverage as c')
-          .select([
-            'c.chamber',
-            'c.source_system',
-            'c.scope',
-            'c.source_url',
-            sql<string | null>`c.source_available_from::text`.as('source_available_from'),
-            sql<string>`c.observed_from::text`.as('observed_from'),
-            sql<string>`c.observed_through::text`.as('observed_through'),
-            sql<string>`c.finalized_through::text`.as('finalized_through'),
-            sql<string>`c.as_of::text`.as('as_of'),
-            // upper(r) - 1: Postgres canonicalises daterange to half-open
-            // [from, to+1), so surfacing upper() verbatim would publish one day
-            // of coverage we do not have.
-            sql<
-              { from: string; to: string }[]
-            >`coalesce((select jsonb_agg(jsonb_build_object('from', lower(r)::text, 'to', (upper(r) - 1)::text) order by lower(r)) from unnest(c.ranges) r), '[]'::jsonb)`.as(
-              'ranges'
-            ),
-            sql<
-              { date: string; status: string; reason: string | null }[]
-            >`coalesce((select jsonb_agg(jsonb_build_object('date', g.gap_date::text, 'status', upper(g.status), 'reason', g.reason) order by g.gap_date) from parliament.vote_capture_gaps g where g.chamber = c.chamber and g.source_system = c.source_system), '[]'::jsonb)`.as(
-              'gaps'
-            ),
-          ])
-          .where(coverageWhere)
-          .orderBy('c.chamber', 'asc')
-          .orderBy('c.source_system', 'asc')
-          .execute(),
+        !coverageAvailable
+          ? Promise.resolve([])
+          : db
+              .selectFrom('parliament.vote_capture_coverage as c')
+              .select([
+                'c.chamber',
+                'c.source_system',
+                'c.scope',
+                'c.source_url',
+                sql<string | null>`c.source_available_from::text`.as('source_available_from'),
+                sql<string>`c.observed_from::text`.as('observed_from'),
+                sql<string>`c.observed_through::text`.as('observed_through'),
+                sql<string>`c.finalized_through::text`.as('finalized_through'),
+                sql<string>`c.as_of::text`.as('as_of'),
+                // upper(r) - 1: Postgres canonicalises daterange to half-open
+                // [from, to+1), so surfacing upper() verbatim would publish one day
+                // of coverage we do not have.
+                sql<
+                  { from: string; to: string }[]
+                >`coalesce((select jsonb_agg(jsonb_build_object('from', lower(r)::text, 'to', (upper(r) - 1)::text) order by lower(r)) from unnest(c.ranges) r), '[]'::jsonb)`.as(
+                  'ranges'
+                ),
+                sql<
+                  { date: string; status: string; reason: string | null }[]
+                >`coalesce((select jsonb_agg(jsonb_build_object('date', g.gap_date::text, 'status', upper(g.status), 'reason', g.reason) order by g.gap_date) from parliament.vote_capture_gaps g where g.chamber = c.chamber and g.source_system = c.source_system), '[]'::jsonb)`.as(
+                  'gaps'
+                ),
+              ])
+              .where(coverageWhere)
+              .orderBy('c.chamber', 'asc')
+              .orderBy('c.source_system', 'asc')
+              .execute(),
       ]);
 
       const days = dayRows.map((r) => ({
