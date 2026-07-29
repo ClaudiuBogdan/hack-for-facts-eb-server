@@ -50,18 +50,18 @@ describe('normalizeCui', () => {
 
 describe('scalars serialize precision-safe strings', () => {
   it('BigInt serializes a bigint to a string and rejects JS numbers', () => {
-    expect(BigIntScalar.coerceOutputValue('9007199254740993')).toBe('9007199254740993');
-    expect(BigIntScalar.coerceOutputValue(10n)).toBe('10');
+    expect(BigIntScalar.serialize('9007199254740993')).toBe('9007199254740993');
+    expect(BigIntScalar.serialize(10n)).toBe('10');
     // A JS number could already have lost precision → reject (precision-strict).
-    expect(() => BigIntScalar.coerceOutputValue(42)).toThrow();
+    expect(() => BigIntScalar.serialize(42)).toThrow();
   });
   it('Money passes through a string, accepts null, rejects floats', () => {
-    expect(MoneyScalar.coerceOutputValue('33126174845.17')).toBe('33126174845.17');
-    expect(MoneyScalar.coerceOutputValue(null)).toBeNull();
-    expect(() => MoneyScalar.coerceOutputValue(1.23)).toThrow();
+    expect(MoneyScalar.serialize('33126174845.17')).toBe('33126174845.17');
+    expect(MoneyScalar.serialize(null)).toBeNull();
+    expect(() => MoneyScalar.serialize(1.23)).toThrow();
   });
   it('CUI serializes a string', () => {
-    expect(CUIScalar.coerceOutputValue('16054368')).toBe('16054368');
+    expect(CUIScalar.serialize('16054368')).toBe('16054368');
   });
 });
 

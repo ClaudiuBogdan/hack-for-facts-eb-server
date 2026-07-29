@@ -67,7 +67,7 @@ const isTypeExtension = (def: DefinitionNode): boolean =>
   def.kind === Kind.SCALAR_TYPE_EXTENSION;
 
 const namedDefName = (def: DefinitionNode): string | undefined =>
-  'name' in def && def.name !== undefined ? def.name.value : undefined;
+  'name' in def ? def.name.value : undefined;
 
 const fieldsOf = (def: DefinitionNode): string[] => {
   if (
