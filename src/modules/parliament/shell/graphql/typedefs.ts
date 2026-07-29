@@ -417,8 +417,8 @@ const objectsAndQuery = /* GraphQL */ `
     observedFrom: Date!
     "Latest day we polled."
     observedThrough: Date!
-    "Latest day whose record is SETTLED (polled after the sitting closed). Days after this are provisional: the cdep lane polls each day at 04:30 that same morning, before any sitting can occur."
-    finalizedThrough: Date!
+    "Latest day whose record is SETTLED (polled after the sitting closed), as a PREFIX: every observed day at or below it was re-polled. Days after it are provisional — the cdep lane polls each day at 04:30 that same morning, before any sitting can occur, so a zero there is not a confirmed quiet day. NULL means nothing is settled; render it as nothing confirmed, never as everything confirmed."
+    finalizedThrough: Date
     "When this coverage row was computed."
     asOf: DateTime!
     "Non-contiguous, because a single [from,to] cannot express a crawl with holes."

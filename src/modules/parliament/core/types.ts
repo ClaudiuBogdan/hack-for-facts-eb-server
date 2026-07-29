@@ -535,8 +535,16 @@ export interface ParliamentVoteCoverage {
   readonly sourceAvailableFrom: string | null;
   readonly observedFrom: string;
   readonly observedThrough: string;
-  /** Latest day whose record is SETTLED. Days after it are provisional. */
-  readonly finalizedThrough: string;
+  /**
+   * Latest day whose record is SETTLED — every observed day at or below it was
+   * re-polled after the day ended. Days after it are PROVISIONAL: we looked, but
+   * possibly before the sitting closed, so a zero there is not a confirmed quiet
+   * day. It is a prefix, never `max(settled day)`.
+   *
+   * NULL when no prefix is settled at all. A reader must render that as "nothing
+   * confirmed" — treating it as an open-ended frontier is the exact inversion.
+   */
+  readonly finalizedThrough: string | null;
   readonly asOf: string;
   readonly ranges: readonly ParliamentVoteCoverageRange[];
   readonly gaps: readonly ParliamentVoteCoverageGap[];

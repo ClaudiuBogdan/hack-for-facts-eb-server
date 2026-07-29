@@ -708,8 +708,21 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
       return Promise.resolve(false);
     voteCoverageProbeInFlight = (async () => {
       try {
-        await sql`select chamber from parliament.vote_capture_coverage limit 0`.execute(db);
+        // Readiness is about ROWS, not schema. `limit 0` proves only that the
+        // migration ran; between the migration and the first derive the tables
+        // exist and are empty, and an empty coverage array is indistinguishable
+        // from "this API is too old to know" — which the client renders as its
+        // two-state grid. Serving an empty annotation in that window would let a
+        // never-crawled day read as a confirmed quiet one. So the probe latches
+        // positive only once a coverage row is actually there.
+        const row = await sql`select 1 as ok from parliament.vote_capture_coverage limit 1`.execute(
+          db
+        );
         await sql`select gap_date from parliament.vote_capture_gaps limit 0`.execute(db);
+        if (row.rows.length === 0) {
+          lastCoverageNegativeProbeAt = Date.now();
+          return false;
+        }
         voteCoverageUsable = true;
         return true;
       } catch {
@@ -1966,7 +1979,14 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     // availableYears is NOT year-bounded: it tells the client which years hold
     // divisions at all. It can only ever mean that — which is why an un-crawled
     // decade is made askable by coverage.sourceAvailableFrom, not by this list.
-    const yearsWhere = composeWhere([...baseConds, sql`v.vote_date is not null`]);
+    //
+    // It is also NOT filter-bounded, for the same reason. It drives the year
+    // picker, so applying the caller's filter both contradicts the sentence above
+    // (a year the reader can still navigate to would vanish the moment they typed
+    // a search) and puts an unbounded, correlated scan of the 4.16M-row ballot
+    // table behind every keystroke, since `q`/`groupVote` reach vote_records and
+    // nothing here bounds the year. Privacy is the only predicate it keeps.
+    const yearsWhere = composeWhere([VOTE_PUBLIC, sql`v.vote_date is not null`]);
 
     // Coverage is scoped to the chambers actually asked for (all of them when
     // the filter names none), because a reader filtered to the Senate must not
@@ -2021,7 +2041,9 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
                 sql<string | null>`c.source_available_from::text`.as('source_available_from'),
                 sql<string>`c.observed_from::text`.as('observed_from'),
                 sql<string>`c.observed_through::text`.as('observed_through'),
-                sql<string>`c.finalized_through::text`.as('finalized_through'),
+                // NULLable: no settled prefix is a real state, and it must not be
+                // read as "everything up to observed_from is confirmed".
+                sql<string | null>`c.finalized_through::text`.as('finalized_through'),
                 sql<string>`c.as_of::text`.as('as_of'),
                 // upper(r) - 1: Postgres canonicalises daterange to half-open
                 // [from, to+1), so surfacing upper() verbatim would publish one day

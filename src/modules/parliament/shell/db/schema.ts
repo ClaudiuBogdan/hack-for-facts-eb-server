@@ -227,7 +227,8 @@ export interface ParliamentVoteCaptureCoverageTable {
   source_available_from: DateCol | null;
   observed_from: DateCol;
   observed_through: DateCol;
-  finalized_through: DateCol;
+  /** NULL when no contiguous prefix of the observed days has been re-polled. */
+  finalized_through: DateCol | null;
   ranges: unknown; // daterange[]
   as_of: Tstz;
 }

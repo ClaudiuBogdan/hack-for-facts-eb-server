@@ -36,13 +36,23 @@ interface Captured {
   readonly parameters: readonly unknown[];
 }
 
+/** The readiness probe: it asks for a coverage ROW, so it is `limit 1`. */
+const isCoverageProbe = (sql: string): boolean =>
+  sql.includes('vote_capture_coverage') && /\blimit 1\b/u.test(sql);
+
 const makeCapturingDb = (
   captured: Captured[],
-  rows: readonly unknown[] = []
+  rows: readonly unknown[] = [],
+  { derived = true }: { derived?: boolean } = {}
 ): Kysely<ProdDatabase> => {
   const connection: DatabaseConnection = {
     executeQuery<R>(query: CompiledQuery): Promise<QueryResult<R>> {
       captured.push({ sql: query.sql, parameters: query.parameters });
+      // A derived deployment has a coverage row; without one the repo correctly
+      // declines to annotate, which would starve the assertions below.
+      if (derived && isCoverageProbe(query.sql)) {
+        return Promise.resolve({ rows: [{ ok: 1 }] as R[] });
+      }
       return Promise.resolve({ rows: rows as R[] });
     },
     streamQuery(): AsyncIterableIterator<QueryResult<never>> {
@@ -104,7 +114,8 @@ const makeCapturingDbFailing = (captured: Captured[], failOn: RegExp): Kysely<Pr
 };
 
 const flat = (s: string): string => s.replace(/\s+/gu, ' ').trim();
-const isCapabilityProbe = (q: Captured): boolean => /\blimit 0\b/u.test(q.sql);
+const isCapabilityProbe = (q: Captured): boolean =>
+  /\blimit 0\b/u.test(q.sql) || isCoverageProbe(q.sql);
 
 const run = async (filter: FilterInput = {}): Promise<Captured[]> => {
   const captured: Captured[] = [];
@@ -178,6 +189,22 @@ describe('voteActivity — grain and predicate', () => {
     expect(years).toBeDefined();
     expect(years?.parameters).not.toContain('2024-01-01');
   });
+
+  /**
+   * Nor filter-bound. The year picker must keep offering every year that holds
+   * divisions — otherwise a search makes years disappear from navigation — and a
+   * filtered, year-unbounded scan would reach vote_records (4.16M) on every
+   * keystroke now that the chart follows the list's filters.
+   */
+  it('does NOT filter-bound availableYears, but still applies privacy', async () => {
+    const captured = await run({ q: { contains: 'buget' }, chamber: { eq: 'senat' } });
+    const years = captured.find((c) => /distinct/iu.test(c.sql) && /extract/iu.test(c.sql));
+    expect(years).toBeDefined();
+    const sql = flat(years?.sql ?? '');
+    expect(sql).toMatch(/v\.privacy_class = 'public'/u);
+    expect(sql).not.toMatch(/attrs->>'source_title'/u);
+    expect(years?.parameters).not.toContain('senat');
+  });
 });
 
 describe('voteActivity — coverage', () => {
@@ -232,6 +259,30 @@ describe('voteActivity — coverage', () => {
     expect(r._unsafeUnwrap().coverage).toEqual([]);
     // The day query still ran; only the annotation was skipped.
     expect(captured.some((c) => /group by/iu.test(c.sql))).toBe(true);
+  });
+
+  /**
+   * Readiness is about ROWS. Between the migration and the first derive the
+   * tables exist and are empty; probing with `limit 0` would report the
+   * annotation available and then serve an empty one, which the client cannot
+   * tell apart from an old API — so a never-crawled day would read as a
+   * confirmed quiet one. The probe must therefore ASK FOR A ROW.
+   */
+  it('probes for a coverage ROW, not merely the relation', async () => {
+    const captured: Captured[] = [];
+    // `derived: false` = migrated but never derived: the relations answer, and
+    // they are empty.
+    const repo = makeParliamentRepo(makeCapturingDb(captured, [], { derived: false }));
+    const r = await repo.voteActivity(2024, {});
+    expect(r.isOk()).toBe(true);
+
+    expect(captured.some((q) => isCoverageProbe(q.sql))).toBe(true);
+    // The probe came back empty, so no coverage is claimed and the client keeps
+    // its two-state reading rather than being handed a silently empty annotation.
+    expect(r._unsafeUnwrap().coverage).toEqual([]);
+    expect(
+      captured.filter((q) => !isCapabilityProbe(q)).some((q) => q.sql.includes('vote_capture_gaps'))
+    ).toBe(false);
   });
 });
 
