@@ -909,6 +909,14 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
           ? 'for_exceeds_against'
           : 'for_does_not_exceed_against';
       },
+      // `vote_action` is already whitelisted into the domain object by
+      // VOTE_ATTR_KEYS; it was simply never exposed, so every client was left
+      // with the bill's title as the only description of a division. Read off
+      // the safe attrs projection — never off raw attrs (§2.6).
+      voteAction: (parent: { attrs?: Record<string, unknown> | null }) => {
+        const value = parent.attrs?.['vote_action'];
+        return typeof value === 'string' && value.trim().length > 0 ? value : null;
+      },
       groupBreakdown: async (parent: { voteKey: string; groupBreakdownData?: unknown }) =>
         parent.groupBreakdownData !== undefined
           ? parent.groupBreakdownData
