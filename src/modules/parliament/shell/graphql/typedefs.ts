@@ -259,8 +259,8 @@ const objectsAndQuery = /* GraphQL */ `
       )
     "What the tally literally says, named for what it measures: whether more members voted 'pentru' than 'impotriva'. Carries NO claim about the bill — a chamber voting to REJECT a bill produces for_exceeds_against. Null when the source published no counts."
     tallyRelation: ParliamentTallyRelation
-    "What the chamber actually voted ON, in its own words — 'raport de respingere (a legii)', 'Retragerea de pe ordinea de zi a votului final'. Read this before title: for a bill-linked division, title is the BILL's title, which names the SUBJECT and not the QUESTION, so two divisions on one bill are indistinguishable by title alone. It is also what reconciles a tally with a fate — the Senate's 101-to-1 on L385/2018 was 101 votes FOR the rejection report. Extracted from the chamber's own vote header by the display derive; null where no motion could be read (9,223 of 20,745 rows, measured 2026-07-29)."
-    voteAction: String
+    "The chamber's OWN LABEL for what this division was about — what cdep.ro prints as 'Subiect vot'. It is whatever the chamber wrote there: a motion ('raport de respingere (a legii)'), a document version ('Text initial'), an amendment and sometimes its author, an article or annexe, a procedural item ('Retragerea de pe ordinea de zi a votului final'), or a debate-time allocation. Read it before title: for a bill-linked division, title is the BILL's title, identical across every division on that bill, so two of them cannot be told apart by title alone. It carries NO claim about whether anything carried — for that, read tallyRelation for the counts and ParliamentBillVoteLink.role for the procedural outcome. Extracted from the chamber's own vote header by the display derive; null where no label could be read."
+    voteSubject: String
     divisionNumber: Int
     billKey: ID
     bill: ParliamentBill
