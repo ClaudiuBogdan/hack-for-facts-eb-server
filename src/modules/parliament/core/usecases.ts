@@ -58,6 +58,7 @@ import {
   type ParliamentSittingNavigation,
   type ParliamentSpeech,
   type ParliamentSpeechActivity,
+  type ParliamentVoteActivity,
   type ParliamentSpeechContext,
   type ParliamentSpeechPopulation,
   type ParliamentSpeechRedirect,
@@ -721,6 +722,37 @@ export const listParliamentSpeeches = (
       q,
       speechesFullTextEligible(input.filter)
     );
+  })();
+
+/**
+ * Chamber-scope per-day vote activity (the votes-hub heatmap).
+ *
+ * NO `hasVoteBound` GUARD, deliberately — and getting this wrong is the trap the
+ * design calls out by name. `listVotes` refuses a `q` (and a `groupVote`) with no
+ * chamber/voteDate/billKey bound, because unbounded those scan title-wide or
+ * re-read 4.1M ballots. This field's `year` argument IS that bound and is
+ * mandatory, so reusing `hasVoteBound` verbatim — which inspects a filter that
+ * `voteDate` has deliberately been removed from — would reject every q-search on
+ * the chart while the list beside it answered happily.
+ */
+export const getParliamentVoteActivity = (
+  deps: ParliamentUsecaseDeps,
+  year: number,
+  filter: FilterInput = {}
+): Promise<Result<ParliamentVoteActivity, ApiError>> =>
+  (async () => {
+    if (fieldHasValue(filter, 'voteDate')) {
+      return err(
+        invalidInput(
+          'voteDate is not accepted on parliamentVoteActivity; the year argument bounds the range',
+          'voteDate'
+        )
+      );
+    }
+    if (!Number.isInteger(year) || year < 1990 || year > 2100) {
+      return err(invalidInput('year must be an integer between 1990 and 2100', 'year'));
+    }
+    return deps.repo.voteActivity(year, filter);
   })();
 
 export const getParliamentSpeechActivity = (

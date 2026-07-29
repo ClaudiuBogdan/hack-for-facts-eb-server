@@ -93,6 +93,8 @@ import {
   type ParliamentPersonCandidate,
   type ParliamentSpeech,
   type ParliamentSpeechActivity,
+  type ParliamentVoteActivity,
+  type ParliamentVoteGapStatus,
   type ParliamentSpeechPopulation,
   type ParliamentSpeechSearchDepth,
   type ParliamentAgendaFilter,
@@ -1904,6 +1906,141 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     }
   };
 
+  /**
+   * Chamber-scope per-day division counts + the capture coverage behind them.
+   *
+   * Reuses `buildVoteConditions` VERBATIM so the heatmap and the list under it
+   * share one predicate builder and can never describe different row sets. The
+   * grain is the DIVISION (one `votes` row) — at chamber scope a ballot count
+   * would answer a different question in the same pixels.
+   *
+   * Two partitions of `total` come off ONE scan of a 20,745-row table on the
+   * (chamber, vote_date desc) index; the second partition is free.
+   */
+  const voteActivity = async (
+    year: number,
+    filter: FilterInput
+  ): Promise<Result<ParliamentVoteActivity, ApiError>> => {
+    const condsRes = buildVoteConditions(filter);
+    if (condsRes.isErr()) return err(condsRes.error);
+    const baseConds = [...condsRes.value, VOTE_PUBLIC];
+    const yearStart = `${String(year)}-01-01`;
+    const yearEnd = `${String(year)}-12-31`;
+    const daysWhere = composeWhere([
+      ...baseConds,
+      sql`v.vote_date >= ${yearStart}`,
+      sql`v.vote_date <= ${yearEnd}`,
+    ]);
+    // availableYears is NOT year-bounded: it tells the client which years hold
+    // divisions at all. It can only ever mean that — which is why an un-crawled
+    // decade is made askable by coverage.sourceAvailableFrom, not by this list.
+    const yearsWhere = composeWhere([...baseConds, sql`v.vote_date is not null`]);
+
+    // Coverage is scoped to the chambers actually asked for (all of them when
+    // the filter names none), because a reader filtered to the Senate must not
+    // be told about the Chamber's crawl window.
+    const chamberSel = stringValues(fieldFilter(filter, 'chamber'));
+    const chambers = [
+      ...new Set([
+        ...(chamberSel.eq !== undefined ? [chamberSel.eq] : []),
+        ...(chamberSel.in ?? []),
+      ]),
+    ];
+    const coverageWhere =
+      chambers.length > 0
+        ? composeWhere([sql`c.chamber = any(${chambers}::text[])`])
+        : composeWhere([]);
+
+    try {
+      const [dayRows, yearRows, coverageRows] = await Promise.all([
+        db
+          .selectFrom('parliament.votes as v')
+          .select([
+            sql<string>`v.vote_date::text`.as('date'),
+            sql<string>`count(*)`.as('total'),
+            sql<string>`count(*) filter (where v.outcome = 'adoptat')`.as('adoptat'),
+            sql<string>`count(*) filter (where v.outcome = 'respins')`.as('respins'),
+            sql<string>`count(*) filter (where v.outcome is null)`.as('fara_rezultat'),
+            sql<string>`count(*) filter (where v.chamber = 'camera_deputatilor')`.as('camera'),
+            sql<string>`count(*) filter (where v.chamber = 'senat')`.as('senat'),
+            sql<string>`count(*) filter (where v.chamber = 'comun')`.as('comun'),
+          ])
+          .where(daysWhere)
+          .groupBy('v.vote_date')
+          .orderBy('v.vote_date', 'asc')
+          .execute(),
+        db
+          .selectFrom('parliament.votes as v')
+          .select(sql<number>`extract(year from v.vote_date)::int`.as('year'))
+          .distinct()
+          .where(yearsWhere)
+          .orderBy(sql`1`, 'asc')
+          .execute(),
+        db
+          .selectFrom('parliament.vote_capture_coverage as c')
+          .select([
+            'c.chamber',
+            'c.source_system',
+            'c.scope',
+            'c.source_url',
+            sql<string | null>`c.source_available_from::text`.as('source_available_from'),
+            sql<string>`c.observed_from::text`.as('observed_from'),
+            sql<string>`c.observed_through::text`.as('observed_through'),
+            sql<string>`c.finalized_through::text`.as('finalized_through'),
+            sql<string>`c.as_of::text`.as('as_of'),
+            // upper(r) - 1: Postgres canonicalises daterange to half-open
+            // [from, to+1), so surfacing upper() verbatim would publish one day
+            // of coverage we do not have.
+            sql<
+              { from: string; to: string }[]
+            >`coalesce((select jsonb_agg(jsonb_build_object('from', lower(r)::text, 'to', (upper(r) - 1)::text) order by lower(r)) from unnest(c.ranges) r), '[]'::jsonb)`.as(
+              'ranges'
+            ),
+            sql<
+              { date: string; status: string; reason: string | null }[]
+            >`coalesce((select jsonb_agg(jsonb_build_object('date', g.gap_date::text, 'status', upper(g.status), 'reason', g.reason) order by g.gap_date) from parliament.vote_capture_gaps g where g.chamber = c.chamber and g.source_system = c.source_system), '[]'::jsonb)`.as(
+              'gaps'
+            ),
+          ])
+          .where(coverageWhere)
+          .orderBy('c.chamber', 'asc')
+          .orderBy('c.source_system', 'asc')
+          .execute(),
+      ]);
+
+      const days = dayRows.map((r) => ({
+        date: r.date,
+        total: Number(r.total),
+        adoptat: Number(r.adoptat),
+        respins: Number(r.respins),
+        faraRezultat: Number(r.fara_rezultat),
+        camera: Number(r.camera),
+        senat: Number(r.senat),
+        comun: Number(r.comun),
+      }));
+      const coverage = coverageRows.map((r) => ({
+        chamber: r.chamber,
+        sourceSystem: r.source_system,
+        scope: r.scope,
+        sourceUrl: r.source_url,
+        sourceAvailableFrom: r.source_available_from,
+        observedFrom: r.observed_from,
+        observedThrough: r.observed_through,
+        finalizedThrough: r.finalized_through,
+        asOf: r.as_of,
+        ranges: r.ranges,
+        gaps: r.gaps.map((g) => ({
+          date: g.date,
+          status: g.status as ParliamentVoteGapStatus,
+          reason: g.reason,
+        })),
+      }));
+      return ok({ year, days, availableYears: yearRows.map((r) => r.year), coverage });
+    } catch (e) {
+      return err(databaseError('voteActivity failed', e));
+    }
+  };
+
   const listVotesForBill = async (
     billKey: string
   ): Promise<Result<readonly ParliamentVote[], ApiError>> => {
@@ -3537,6 +3674,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     ballotResolution,
     listMemberVotes,
     memberVoteActivity,
+    voteActivity,
     memberActivityCounts,
     listMemberControlItems,
     listMemberSpeeches,

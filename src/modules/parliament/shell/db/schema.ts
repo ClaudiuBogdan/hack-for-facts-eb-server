@@ -213,6 +213,34 @@ export interface BillVoteLinksTable {
 
 // ── votes / records ──────────────────────────────────────────────────────────
 
+/**
+ * What the vote crawl covers (scrapper migration 20260727T142000). Read with
+ * `lower(r)` / `upper(r) - 1`: Postgres canonicalises every daterange to the
+ * half-open `[from, to+1)`, so a reader that surfaces `upper()` verbatim
+ * publishes one day of coverage the crawl does not have.
+ */
+export interface ParliamentVoteCaptureCoverageTable {
+  chamber: string;
+  source_system: string;
+  scope: string;
+  source_url: string;
+  source_available_from: DateCol | null;
+  observed_from: DateCol;
+  observed_through: DateCol;
+  finalized_through: DateCol;
+  ranges: unknown; // daterange[]
+  as_of: Tstz;
+}
+
+export interface ParliamentVoteCaptureGapsTable {
+  chamber: string;
+  source_system: string;
+  gap_date: DateCol;
+  // 'failed' | 'skipped' | 'parser_empty' | 'provisional' | 'source_limited'
+  status: string;
+  reason: string | null;
+}
+
 export interface ParliamentVotesTable {
   vote_key: string;
   chamber: string;
@@ -706,6 +734,8 @@ declare module '@/modules/shared/shell/db/types.js' {
     'parliament.bill_vote_links': BillVoteLinksTable;
     'parliament.votes': ParliamentVotesTable;
     'parliament.vote_records': VoteRecordsTable;
+    'parliament.vote_capture_coverage': ParliamentVoteCaptureCoverageTable;
+    'parliament.vote_capture_gaps': ParliamentVoteCaptureGapsTable;
     'parliament.control_items': ControlItemsTable;
     'parliament.member_initiatives': MemberInitiativesTable;
     'parliament.speeches': SpeechesTable;

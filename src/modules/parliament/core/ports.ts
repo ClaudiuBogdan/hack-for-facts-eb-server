@@ -40,6 +40,7 @@ import type {
   ParliamentResolveDim,
   ParliamentSpeech,
   ParliamentSpeechActivity,
+  ParliamentVoteActivity,
   ParliamentSittingNavigation,
   ParliamentSpeechPopulation,
   ParliamentSpeechRedirect,
@@ -233,6 +234,23 @@ export interface ParliamentRepo extends ParliamentStenogramRepo {
     year: number,
     filter: FilterInput
   ): Promise<Result<ParliamentMemberVoteActivity, ApiError>>;
+  /**
+   * CHAMBER-scope per-day voting activity — one row per DIVISION, under the same
+   * `buildVoteConditions` the votes list uses, so chart and list share exactly one
+   * predicate builder and cannot drift.
+   *
+   * NOT the same question as `memberVoteActivity`, which counts one member's
+   * BALLOTS: at chamber scope a ballot count would report the tens of thousands of
+   * individual votes cast rather than the number of times the chamber divided.
+   *
+   * `coverage` comes from `parliament.vote_capture_coverage` and is NOT bounded by
+   * the year — it is what lets the client distinguish "captured, nothing happened"
+   * from "we never fetched this".
+   */
+  voteActivity(
+    year: number,
+    filter: FilterInput
+  ): Promise<Result<ParliamentVoteActivity, ApiError>>;
   /**
    * The five per-mandate activity totals (votes / control / speeches / initiatives /
    * declarations) in ONE bounded round trip. Every sub-count mirrors the predicates

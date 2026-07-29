@@ -354,6 +354,93 @@ const objectsAndQuery = /* GraphQL */ `
     searchDepth: ParliamentSpeechSearchDepth
   }
 
+  "One calendar day of chamber voting activity (the votes-hub heatmap cell). TWO independent partitions of total: adoptat + respins + faraRezultat, and camera + senat + comun."
+  type ParliamentVoteActivityDay {
+    date: Date!
+    "Divisions held that day within the filtered set — the SAME rows parliamentVotes lists. A DIVISION count, not a ballot count, so a busy day reads in the hundreds rather than the tens of thousands its ballots would."
+    total: Int!
+    adoptat: Int!
+    respins: Int!
+    "Divisions whose source published a tally but no result (202 rows corpus-wide). NOT 'amânat' — the source simply says nothing."
+    faraRezultat: Int!
+    camera: Int!
+    senat: Int!
+    comun: Int!
+  }
+
+  "A window the crawl actually covers. Inclusive at both ends."
+  type ParliamentVoteCoverageRange {
+    from: Date!
+    to: Date!
+  }
+
+  enum ParliamentVoteGapStatus {
+    "Request failed."
+    FAILED
+    "Request never ran."
+    SKIPPED
+    "The day's own month calendar listed it and the page returned nothing."
+    PARSER_EMPTY
+    "Polled, but before the day closed."
+    PROVISIONAL
+    "The source itself does not publish this day."
+    SOURCE_LIMITED
+  }
+
+  "A typed gap. A bare date list cannot distinguish 'fetched and empty' from 'never fetched' from 'the source publishes nothing here' — and conflating them is the bug this whole field exists to prevent."
+  type ParliamentVoteCoverageGap {
+    date: Date!
+    status: ParliamentVoteGapStatus!
+    reason: String
+  }
+
+  """
+  What the capture actually covers, so a day we never fetched — or fetched before
+  the sitting finished — is never drawn as a quiet day. Derived from the crawl
+  ledger on every load, never hard-coded.
+
+  Keyed by (chamber, sourceSystem) rather than chamber alone, because scope is the
+  honest name for what the numbers measure: the Senate rows are Senate ELECTRONIC
+  PLENARY divisions, and for 46 days of 2020 the Senate voted by telephone roll
+  call — minuted, but never published here.
+  """
+  type ParliamentVoteCoverage {
+    chamber: String!
+    sourceSystem: String!
+    "Human-readable scope, shown to the reader — the chart must not imply it counts every vote."
+    scope: String!
+    "Where a reader can check this for themselves."
+    sourceUrl: String!
+    "Earliest day the SOURCE publishes, independent of what we hold (cdep 2006-02-06). This is what makes an uncaptured year askable-but-empty rather than invisible."
+    sourceAvailableFrom: Date
+    "Earliest day WE polled."
+    observedFrom: Date!
+    "Latest day we polled."
+    observedThrough: Date!
+    "Latest day whose record is SETTLED (polled after the sitting closed). Days after this are provisional: the cdep lane polls each day at 04:30 that same morning, before any sitting can occur."
+    finalizedThrough: Date!
+    "When this coverage row was computed."
+    asOf: DateTime!
+    "Non-contiguous, because a single [from,to] cannot express a crawl with holes."
+    ranges: [ParliamentVoteCoverageRange!]!
+    gaps: [ParliamentVoteCoverageGap!]!
+  }
+
+  """
+  Per-day chamber voting activity for one calendar year (drives the votes-hub
+  heatmap). Reflects the SAME filter as parliamentVotes — a voteDate inside filter
+  is rejected, the year argument bounds the range. availableYears is every year
+  with at least one matching division, NOT bounded by the requested year. coverage
+  is NOT bounded by the year either: outside a coverage window there is no data to
+  have, and a client that zero-fills there is making a false claim about the record.
+  """
+  type ParliamentVoteActivity {
+    year: Int!
+    days: [ParliamentVoteActivityDay!]!
+    availableYears: [Int!]!
+    coverage: [ParliamentVoteCoverage!]!
+  }
+
   type ParliamentBillEvent {
     "Bill view that contributed this event to the merged dossier."
     sourceBillKey: ID!
@@ -1160,6 +1247,8 @@ const objectsAndQuery = /* GraphQL */ `
       filter: ParliamentSpeechesFilter
       q: String
     ): ParliamentSpeechActivity
+    "Per-day CHAMBER voting activity for one calendar year (drives the votes-hub heatmap). Same filter semantics as parliamentVotes EXCEPT a voteDate inside filter is rejected — the year argument bounds the range, and it also satisfies the q/groupVote boundedness rule the list enforces. One row per DIVISION, not per ballot. coverage is NOT year-bounded."
+    parliamentVoteActivity(year: Int!, filter: ParliamentVotesFilter): ParliamentVoteActivity
     "One speech by key (deep link). Returns null for an unknown key AND for a quarantined/non-public row (never leaks via deep link). fullText resolves lazily; null fullText means the transcript is not loaded yet (partial coverage), not that the speech is empty."
     parliamentSpeech(speechKey: ID!): ParliamentSpeech
     "Canonical stenogram sittings (cursor; keyset sessionDate desc). UNLIKE parliamentSpeeches this needs NO boundedness argument — the table is one row per captured sitting and sessionDate is indexed. filter: chamber / sessionDate range / year / availability / sourceSystem / mandateKey (sittings where that speaker holds a public contribution). q is a FULL-HISTORY search over the canonical transcript search projection: when that projection is unavailable the field returns a SEARCH_UNAVAILABLE error in errors[] (this field null) — it NEVER silently degrades to a title-only or window-bounded match, because that would answer a narrower question while looking like a full answer. Only privacy_class='public' sittings are ever served."

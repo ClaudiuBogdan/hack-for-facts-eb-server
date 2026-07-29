@@ -465,6 +465,98 @@ export interface ParliamentSpeechActivity {
   readonly searchDepth: ParliamentSpeechSearchDepth | null;
 }
 
+/**
+ * One calendar day of CHAMBER voting activity — the votes-hub heatmap cell.
+ *
+ * The unit is the DIVISION, not the ballot: one row of `parliament.votes`, the
+ * same row `parliamentVotes` lists, so the chart and the list beneath it can
+ * never describe different sets. A busy day therefore reads in the hundreds, not
+ * in the tens of thousands its ballots would.
+ *
+ * Two independent partitions of `total` ride on the same row because they answer
+ * different questions and cost one scan together:
+ *   adoptat + respins + faraRezultat = total   (how contested was the day)
+ *   camera  + senat   + comun        = total   (who was sitting)
+ */
+export interface ParliamentVoteActivityDay {
+  readonly date: string; // YYYY-MM-DD
+  readonly total: number;
+  readonly adoptat: number;
+  readonly respins: number;
+  /**
+   * The source published a tally but no result — 202 rows corpus-wide. NOT
+   * "amânat": the source simply says nothing, and naming it for a procedural
+   * outcome it never asserted would invent a fact.
+   */
+  readonly faraRezultat: number;
+  readonly camera: number;
+  readonly senat: number;
+  readonly comun: number;
+}
+
+/** A contiguous window the crawl actually covers. Inclusive at both ends. */
+export interface ParliamentVoteCoverageRange {
+  readonly from: string;
+  readonly to: string;
+}
+
+export type ParliamentVoteGapStatus =
+  | 'FAILED'
+  | 'SKIPPED'
+  | 'PARSER_EMPTY'
+  | 'PROVISIONAL'
+  | 'SOURCE_LIMITED';
+
+export interface ParliamentVoteCoverageGap {
+  readonly date: string;
+  readonly status: ParliamentVoteGapStatus;
+  readonly reason: string | null;
+}
+
+/**
+ * What the capture actually covers, so a day we never fetched — or fetched
+ * before the sitting finished — is never drawn as a quiet day.
+ *
+ * Keyed by (chamber, sourceSystem) rather than chamber alone because `scope` is
+ * the honest name for what the numbers measure: the Senate rows are "Senate
+ * electronic plenary divisions", which for 46 days of 2020 covers nothing at all
+ * because the Senate voted by telephone roll call, minuted but never published.
+ */
+export interface ParliamentVoteCoverage {
+  readonly chamber: string;
+  readonly sourceSystem: string;
+  readonly scope: string;
+  readonly sourceUrl: string;
+  /**
+   * Earliest day the SOURCE publishes, independent of what we hold. This is what
+   * makes an uncaptured year askable-but-empty rather than invisible:
+   * `availableYears` can only ever mean "years containing held divisions".
+   */
+  readonly sourceAvailableFrom: string | null;
+  readonly observedFrom: string;
+  readonly observedThrough: string;
+  /** Latest day whose record is SETTLED. Days after it are provisional. */
+  readonly finalizedThrough: string;
+  readonly asOf: string;
+  readonly ranges: readonly ParliamentVoteCoverageRange[];
+  readonly gaps: readonly ParliamentVoteCoverageGap[];
+}
+
+/**
+ * Per-day chamber voting activity for one calendar year.
+ *
+ * `coverage` is deliberately NOT bounded by `year`: outside a coverage window
+ * there is no data to have, and a client that zero-fills there is making a false
+ * claim about the record. The client needs the whole window to decide which
+ * years are even askable.
+ */
+export interface ParliamentVoteActivity {
+  readonly year: number;
+  readonly days: readonly ParliamentVoteActivityDay[];
+  readonly availableYears: readonly number[];
+  readonly coverage: readonly ParliamentVoteCoverage[];
+}
+
 /** Declaration metadata ONLY — never content; `fileHash` excluded (§2.6). */
 export interface ParliamentDeclarationMeta {
   readonly declarationType: string;

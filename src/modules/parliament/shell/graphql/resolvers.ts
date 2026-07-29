@@ -55,6 +55,7 @@ import {
   getMemberVotes,
   getParliamentSpeech,
   getParliamentSpeechActivity,
+  getParliamentVoteActivity,
   getParliamentSpeechContext,
   getParliamentStenogramSession,
   getPersonCareer,
@@ -518,6 +519,18 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
             args.year,
             sansNull(args.filter as FilterInput | undefined),
             normalizeSpeechQ(args.q)
+          )
+        ),
+
+      parliamentVoteActivity: async (
+        _r: unknown,
+        args: { year: number; filter?: Record<string, unknown> }
+      ) =>
+        unwrap(
+          await getParliamentVoteActivity(
+            deps,
+            args.year,
+            sansNull(args.filter as FilterInput | undefined)
           )
         ),
 
