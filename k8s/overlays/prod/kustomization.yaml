@@ -439,6 +439,11 @@ patches:
       - op: replace
         path: /metadata/namespace
         value: hack-for-facts-prod
+      # Two replicas plus one rollout surge use at most 75 connections,
+      # leaving 10 connections of headroom under the prod role limit.
+      - op: add
+        path: /data/PROD_DB_POOL_MAX
+        value: '25'
 
   - target:
       kind: PersistentVolumeClaim
