@@ -261,6 +261,12 @@ export interface ParliamentVote {
   /** EXACT cdep.ro/senat.ro division page (§6 traceability). Null until backfilled. */
   readonly sourceUrl: string | null;
   readonly tallyMismatch: boolean; // from attrs — surfaced as a warning flag
+  /**
+   * The vote-kind bucket, computed in SQL from the SAME rules the `kind` FILTER
+   * executes (`VOTE_KIND_TITLE_RULES`). One of `VOTE_KINDS`; never null — the
+   * partition is exhaustive and `unclassified` is a served bucket, not a hole.
+   */
+  readonly kind: string;
   readonly attrs: SafeAttrs; // whitelisted to VOTE_ATTR_KEYS by the mapper
 }
 

@@ -227,6 +227,7 @@ const vote = (voteKey: string, title: string): ParliamentVote => ({
   lawReference: null,
   sourceUrl: null,
   tallyMismatch: false,
+  kind: 'legislative',
   attrs: {},
 });
 

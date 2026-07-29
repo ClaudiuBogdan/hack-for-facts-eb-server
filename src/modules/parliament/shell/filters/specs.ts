@@ -189,10 +189,10 @@ export const VOTE_KIND_TITLE_RULES: readonly VoteKindTitleRule[] = [
   },
   {
     kind: 'chamber_decision',
-    pattern: '(^ph ?-? ?cd|proiect\\w* de hotarare)',
-    measured: 824,
+    pattern: '(^ph ?-? ?cd|^ph *-|proiect\\w* de hotarare)',
+    measured: 1103,
     gloss:
-      'chamber decisions (hotărâri): the "PH CD 23/2025" / "PHCD 75/2022" reference form AND the spelled-out "Proiect(ul) de Hotărâre …" form',
+      'chamber decisions (hotărâri): the "PH CD 23/2025" / "PHCD 75/2022" reference form, the Senate\'s "PH - …" form ("PH - COM (2026) 16 final", "PH - Regulament Senat", "PH - validarea unui mandat de senator"), AND the spelled-out "Proiect(ul) de Hotărâre …" form',
   },
   {
     kind: 'amendment',
@@ -205,17 +205,25 @@ export const VOTE_KIND_TITLE_RULES: readonly VoteKindTitleRule[] = [
     kind: 'procedural',
     pattern:
       '(ordin\\w* de zi|prelungir|timp\\w* dezbatere|retrimitere la comisie|program\\w* de lucru|sistar)',
-    measured: 1425,
+    measured: 1424,
     gloss:
       'housekeeping: agenda changes, sitting-time extensions, debate-time allocation, referral back to committee, suspension of debate',
   },
 ];
 
-/** Bucket sizes that are NOT title rules (prod, 2026-07-28; total 20,745). */
+/**
+ * Bucket sizes that are NOT title rules (prod, total 20,745).
+ *
+ * `unclassified` re-measured 2026-07-29 when the `PH - …` Senate hotărâre form
+ * joined `chamber_decision` (2,983 → 2,705; 278 rows moved, 233 of them the
+ * "PH - COM (…) final" EU-document opinions). The remaining figures are the
+ * 2026-07-28 measurements — the PH rule cannot touch them (bare refs start with
+ * PL/L; the misfiling count is scoped to rows that HAVE a bill_key).
+ */
 export const VOTE_KIND_MEASURED = {
   corpus: 20_745,
   legislative: 11_567,
-  unclassified: 2_983,
+  unclassified: 2_705,
   /** Unclassified votes whose title is a SYNTHESIZED date (attrs.title_kind='date'). */
   unclassifiedDateTitles: 1_488,
   /** Unclassified votes whose title is a bare bill reference ("PL 434/2025"). */

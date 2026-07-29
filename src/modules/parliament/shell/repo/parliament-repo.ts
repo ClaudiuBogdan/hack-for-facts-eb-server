@@ -134,6 +134,69 @@ const LIST_TOTAL_CAP = 10_000;
 const FOLD_FROM = 'ăâîșşțţĂÂÎȘŞȚŢ';
 const FOLD_TO = 'aaissttaaisstt';
 
+/**
+ * The folded vote title the kind rules are matched against — lower + diacritics,
+ * exactly like the `q` fallback, so `Prezenţa` and `prezenta` are one needle.
+ *
+ * ONE definition, two embeddings: the WHERE form binds the fold strings as
+ * parameters, the SELECT form inlines them (see `voteKindExpr`). Splitting it
+ * into two template literals would be two things to keep in step.
+ *
+ * Declared here rather than beside `voteKindPredicate` because `VOTE_SELECT`
+ * consumes `voteKindExpr` at module-init time and `const` has no hoisting.
+ */
+const foldedTitle = (embed: (s: string) => RawBuilder<string>): RawBuilder<string> =>
+  sql<string>`lower(translate(coalesce(v.title, ''), ${embed(FOLD_FROM)}, ${embed(FOLD_TO)}))`;
+
+const foldedVoteTitle = foldedTitle((s) => sql<string>`${s}`);
+
+/**
+ * Every constant inlined below is a compile-time literal from a frozen rule
+ * table, never user input — but `sql.lit` is a raw splice, so this asserts the
+ * property rather than trusting that a future rule keeps it. A pattern needing
+ * an apostrophe must switch to a bound parameter, not slip through.
+ */
+for (const s of [
+  FOLD_FROM,
+  FOLD_TO,
+  ...VOTE_KIND_TITLE_RULES.flatMap((r) => [r.pattern, r.kind]),
+]) {
+  if (s.includes("'") || s.includes('\\\\')) {
+    throw new Error(`vote-kind constant is not safe to inline: ${s}`);
+  }
+}
+
+/**
+ * The vote-kind partition as a SELECTED VALUE — `ParliamentVote.kind`.
+ *
+ * Compiled from the SAME `VOTE_KIND_TITLE_RULES` as the `kind` FILTER
+ * (`voteKindPredicate`, below) and as the GraphQL description. A CASE is
+ * first-match-wins, which is exactly the precedence that predicate spells out as
+ * an explicit "fails every earlier rule" chain — so `kind: X` returns precisely
+ * the rows whose `kind` field reads `X`. Verified on prod rather than argued:
+ * field and filter agree on all 20,745 rows, zero off-diagonal.
+ *
+ * Everything here is INLINED rather than bound. A selected expression sits ahead
+ * of the whole WHERE clause, so twelve bind parameters here would renumber every
+ * placeholder in every vote query — which is both a diff across unrelated tests
+ * and a numbering that shifts again each time a rule is added.
+ *
+ * Cost is within measurement noise, because unlike the filter these regexes run
+ * only over the rows a page has already selected, never across the 20,745-row
+ * table: prod, a 21-row page, 27.4ms without the expression and 22.0ms with it
+ * (both dominated by the ORDER BY sort); the 500-row bill path, 0.12ms.
+ */
+const voteKindExpr: RawBuilder<string> = sql<string>`(case
+    when v.bill_key is not null then 'legislative'
+    ${sql.join(
+      VOTE_KIND_TITLE_RULES.map(
+        (r) =>
+          sql`when ${foldedTitle((s) => sql.lit(s))} ~ ${sql.lit(r.pattern)} then ${sql.lit(r.kind)}`
+      ),
+      sql` `
+    )}
+    else 'unclassified' end)`;
+
 const composeWhere = (conds: readonly RawBuilder<unknown>[]): RawBuilder<SqlBool> =>
   conds.length === 0 ? sql<SqlBool>`true` : sql<SqlBool>`${sql.join(conds, sql` and `)}`;
 
@@ -237,6 +300,9 @@ const VOTE_SELECT = [
   // E2 source-traceability (§6): the EXACT cdep.ro/senat.ro division page.
   'v.source_url',
   'v.attrs',
+  // What the chamber was voting ON, for the 8,408 divisions with no bill link
+  // and no printed subject — where title and tally are all a card otherwise has.
+  voteKindExpr.as('kind'),
 ] as const;
 
 /** Speech projection reused by the offset list AND the cursor connection (dates `::text`). */
@@ -578,8 +644,10 @@ export const buildGroupVoteCondition = (
  * `Prezenţa` and `prezenta` are one needle. No title index exists — this is a
  * sequential scan of a 20,745-row table (~65ms measured, count included), which
  * is why it needs no bound guard, unlike `groupVote`.
+ *
+ * `foldedVoteTitle` and the SELECTED form of this partition (`voteKindExpr`) are
+ * declared near the top of the file — `VOTE_SELECT` needs them at module init.
  */
-const foldedVoteTitle: RawBuilder<string> = sql<string>`lower(translate(coalesce(v.title, ''), ${FOLD_FROM}, ${FOLD_TO}))`;
 
 const voteKindPredicate = (kind: string): RawBuilder<unknown> => {
   if (kind === 'legislative') return sql`v.bill_key is not null`;
@@ -1803,6 +1871,43 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
   };
 
   // ── votes / records ───────────────────────────────────────────────────────────
+  /**
+   * The edge set of ONE division. Served by `bill_vote_links_current_uq`, the
+   * unique index on (vote_key, coalesce(bill_key,'')) — its leading column is
+   * vote_key, so no new index is needed (verified on prod: Index Scan, 0.12ms).
+   *
+   * Unbounded on purpose: the observed maximum is two bills per vote, so a LIMIT
+   * would be a cap with nothing to cap.
+   */
+  const getVoteLinks = async (
+    voteKey: string
+  ): Promise<Result<readonly ParliamentBillVoteLink[], ApiError>> => {
+    try {
+      const rows = await db
+        .selectFrom('parliament.bill_vote_links as bvl')
+        .select([
+          'bvl.vote_key',
+          'bvl.bill_key',
+          'bvl.role',
+          'bvl.resolution_status',
+          'bvl.confidence_label',
+        ])
+        .where('bvl.vote_key', '=', voteKey)
+        .execute();
+      return ok(
+        rows.map((r) => ({
+          voteKey: r.vote_key,
+          billKey: r.bill_key,
+          role: r.role,
+          resolutionStatus: r.resolution_status,
+          confidenceLabel: r.confidence_label ?? 'none',
+        }))
+      );
+    } catch (e) {
+      return err(databaseError('getVoteLinks failed', e));
+    }
+  };
+
   const buildVoteConditions = (filter: FilterInput): Result<RawBuilder<unknown>[], ApiError> => {
     const physical: Record<string, unknown> = {};
     for (const key of ['chamber', 'outcome', 'voteDate', 'billKey'] as const) {
@@ -3724,6 +3829,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     getBillActLinks,
     getBillVoteLinks,
     listVotes,
+    getVoteLinks,
     findVote,
     listVotesForBill,
     listVoteRecords,

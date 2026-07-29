@@ -58,6 +58,7 @@ const fakeVote = (voteKey: string) => ({
   lawReference: null,
   sourceUrl: null,
   tallyMismatch: false,
+  kind: 'legislative',
   attrs: {},
 });
 

@@ -193,6 +193,7 @@ describe('mapVote — tally shape + tallyMismatch from attrs', () => {
     law_reference: null,
     source_url: 'https://www.cdep.ro/pls/steno/eVot.Nominal?idv=29892',
     attrs: { tally_mismatch: true, source_title: 'ST', secret: 'x' },
+    kind: 'legislative',
   };
 
   it('maps the tally with camelCase nuAVotat and surfaces tallyMismatch', () => {

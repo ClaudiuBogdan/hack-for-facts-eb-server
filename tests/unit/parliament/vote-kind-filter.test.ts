@@ -108,6 +108,23 @@ const compileVotes = async (
 const patternParams = (captured: Captured): readonly unknown[] =>
   captured.parameters.filter((p) => VOTE_KIND_TITLE_RULES.some((r) => r.pattern === p));
 
+/**
+ * The WHERE clause alone.
+ *
+ * These assertions are about what the FILTER scans, and the filter is the WHERE
+ * clause. The select list now carries the same rules as a projected value
+ * (`ParliamentVote.kind`), inlined rather than bound — so a whole-statement
+ * search finds title regexes on every vote query and would say nothing about
+ * whether `kind: legislative` still rides votes_bill_idx, which is the fact
+ * being pinned.
+ */
+const whereOf = (captured: Captured): string => {
+  const from = captured.sql.indexOf(' where ');
+  if (from === -1) return '';
+  const to = captured.sql.indexOf(' order by ', from);
+  return to === -1 ? captured.sql.slice(from) : captured.sql.slice(from, to);
+};
+
 describe('kind — one declaration, two consumers (no doc/SQL drift)', () => {
   it('is declared virtual, so the kernel composer emits NO SQL for it', () => {
     const r = toConditionBuilders(votesFilterSpec, { kind: { eq: 'amendment' } });
@@ -157,8 +174,8 @@ describe('kind — one declaration, two consumers (no doc/SQL drift)', () => {
 describe('kind — the buckets are an ordered, disjoint, exhaustive partition', () => {
   it('legislative is the COLUMN — no title regex anywhere in the predicate', async () => {
     const { page } = await compileVotes({ kind: { eq: 'legislative' } });
-    expect(page.sql).toContain('v.bill_key is not null');
-    expect(page.sql).not.toContain('translate(coalesce(v.title');
+    expect(whereOf(page)).toContain('v.bill_key is not null');
+    expect(whereOf(page)).not.toContain('translate(coalesce(v.title');
     expect(patternParams(page)).toHaveLength(0);
   });
 
@@ -172,9 +189,9 @@ describe('kind — the buckets are an ordered, disjoint, exhaustive partition', 
         ...VOTE_KIND_TITLE_RULES.slice(0, index).map((r) => r.pattern),
         rule.pattern,
       ]);
-      const negations = page.sql.match(/!~/gu) ?? [];
+      const negations = whereOf(page).match(/!~/gu) ?? [];
       expect(negations).toHaveLength(index);
-      expect(page.sql.match(/ ~ /gu) ?? []).toHaveLength(1);
+      expect(whereOf(page).match(/ ~ /gu) ?? []).toHaveLength(1);
     }
   });
 
@@ -183,8 +200,8 @@ describe('kind — the buckets are an ordered, disjoint, exhaustive partition', 
     expect(page.sql).toContain('v.bill_key is null');
     expect(patternParams(page)).toEqual(VOTE_KIND_TITLE_RULES.map((r) => r.pattern));
     // EVERY rule negated, none matched — the complement of the other five buckets.
-    expect(page.sql.match(/!~/gu) ?? []).toHaveLength(VOTE_KIND_TITLE_RULES.length);
-    expect(page.sql).not.toMatch(/ ~ [^~]/u);
+    expect(whereOf(page).match(/!~/gu) ?? []).toHaveLength(VOTE_KIND_TITLE_RULES.length);
+    expect(whereOf(page)).not.toMatch(/ ~ [^~]/u);
   });
 
   it('folds case + diacritics on the title, exactly like the q fallback', async () => {
@@ -204,7 +221,7 @@ describe('kind — the buckets are an ordered, disjoint, exhaustive partition', 
 
   it('emits NO title predicate when kind is absent', async () => {
     const { page } = await compileVotes({ chamber: { eq: 'camera_deputatilor' } });
-    expect(page.sql).not.toContain('translate(coalesce(v.title');
+    expect(whereOf(page)).not.toContain('translate(coalesce(v.title');
   });
 });
 

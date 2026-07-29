@@ -386,6 +386,8 @@ export interface VoteRow {
   /** E2 traceability (prod migration 20260701T172000) — EXACT division page. */
   source_url: string | null;
   attrs: unknown;
+  /** Computed by `voteKindExpr` in VOTE_SELECT, not a stored column. */
+  kind: string;
 }
 
 export const mapVote = (r: VoteRow): ParliamentVote => {
@@ -412,6 +414,7 @@ export const mapVote = (r: VoteRow): ParliamentVote => {
     lawReference: r.law_reference,
     sourceUrl: r.source_url,
     tallyMismatch: rawAttrs['tally_mismatch'] != null,
+    kind: r.kind,
     attrs,
   };
 };

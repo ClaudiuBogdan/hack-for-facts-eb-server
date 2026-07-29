@@ -171,6 +171,13 @@ export interface ParliamentRepo extends ParliamentStenogramRepo {
   getBillInitiators(billKey: string): Promise<Result<readonly ParliamentMember[], ApiError>>;
   getBillActLinks(billKey: string): Promise<Result<readonly ParliamentBillActLink[], ApiError>>;
   getBillVoteLinks(billKey: string): Promise<Result<readonly ParliamentBillVoteLink[], ApiError>>;
+  /**
+   * The same edge table read from the VOTE side — what a single division was
+   * procedurally for. Its own query rather than a filter over
+   * `getBillVoteLinks`: reaching it from the bill would mean already knowing
+   * which bill, which is exactly what a vote-detail page does not.
+   */
+  getVoteLinks(voteKey: string): Promise<Result<readonly ParliamentBillVoteLink[], ApiError>>;
 
   // ── votes / records ───────────────────────────────────────────────────────────
   // The repo derives the cursor `fhash` from the spec + filter internally (it owns

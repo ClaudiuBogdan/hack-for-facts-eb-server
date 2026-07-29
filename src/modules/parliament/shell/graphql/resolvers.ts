@@ -905,9 +905,18 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
 
     ParliamentBillVoteLink: {
       vote: async (parent: { voteKey: string }) => unwrap(await deps.repo.findVote(parent.voteKey)),
+      // Reached from the VOTE side, where `billKey` is an opaque string: a
+      // vote-detail page needs the bill's TITLE and number to say anything at
+      // all about what was on the floor.
+      bill: async (parent: { billKey?: string | null }) =>
+        parent.billKey == null ? null : unwrap(await deps.repo.findBill(parent.billKey)),
     },
 
     ParliamentVote: {
+      // Every bill this division touches, WITH the edge's role. `billKey` holds
+      // at most one and carries no role; 1,502 divisions link to two.
+      voteLinks: async (parent: { voteKey: string }) =>
+        unwrap(await deps.repo.getVoteLinks(parent.voteKey)),
       // Derived from the COUNTS THEMSELVES, not from `outcome` — the point of the
       // field is to stop laundering a two-number comparison through a word that
       // reads as the bill's fate. Null counts stay null: a vote whose tally the

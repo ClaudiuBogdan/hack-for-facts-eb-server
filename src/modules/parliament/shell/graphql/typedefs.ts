@@ -48,6 +48,7 @@ import {
   membersFilterSpec,
   parliamentSpeechesFilterSpec,
   stenogramSessionsFilterSpec,
+  VOTE_KINDS,
   votesFilterSpec,
 } from '../filters/specs.js';
 
@@ -59,6 +60,14 @@ const stenogramSessionsFilter = toGraphQLInput(stenogramSessionsFilterSpec);
 const membersFilter = toGraphQLInput(membersFilterSpec);
 const billsFilter = toGraphQLInput(billsFilterSpec);
 const controlFilter = toGraphQLInput(controlItemsFilterSpec);
+
+/**
+ * RENDERED from VOTE_KINDS, exactly like the filter inputs above, so the enum a
+ * client can read on ParliamentVote.kind and the vocabulary the kind FILTER
+ * accepts are the same list — adding a bucket cannot update one and miss the
+ * other.
+ */
+const voteKindEnum = `enum ParliamentVoteKind {\n${VOTE_KINDS.map((k) => `  ${k}`).join('\n')}\n}`;
 
 const objectsAndQuery = /* GraphQL */ `
   enum ParliamentChamber {
@@ -255,15 +264,19 @@ const objectsAndQuery = /* GraphQL */ `
     "DEPRECATED and MISNAMED — this is NOT the bill's fate. The loader computes it as (pentru greater than impotriva) and nothing else; the source publishes no outcome word for either chamber. On a REJECTION motion it therefore inverts: 2,995 of the 3,009 divisions that bill_vote_links calls 'final_rejection' carry outcome='adoptat' (measured 2026-07-28). It also ignores the constitutional-majority rule, so it is not even a valid 'did the motion carry' test for an organic law. Read tallyRelation for what the number actually says, and voteLinks.role for the procedural meaning."
     outcome: ParliamentVoteOutcome
       @deprecated(
-        reason: "Reads as a bill outcome but only compares two counts, and inverts on rejection motions (2,995/3,009). Use tallyRelation for the tally fact and ParliamentBillVoteLink.role for adoption/rejection."
+        reason: "Reads as a bill outcome but only compares two counts, and inverts on rejection motions (2,995/3,009). Use tallyRelation for the tally fact and voteLinks.role for the motion - and COMPOSE them, because neither is the bill's fate alone."
       )
     "What the tally literally says, named for what it measures: whether more members voted 'pentru' than 'impotriva'. Carries NO claim about the bill — a chamber voting to REJECT a bill produces for_exceeds_against. Null when the source published no counts."
     tallyRelation: ParliamentTallyRelation
-    "The chamber's OWN LABEL for what this division was about — what cdep.ro prints as 'Subiect vot'. It is whatever the chamber wrote there: a motion ('raport de respingere (a legii)'), a document version ('Text initial'), an amendment and sometimes its author, an article or annexe, a procedural item ('Retragerea de pe ordinea de zi a votului final'), or a debate-time allocation. Read it before title: for a bill-linked division, title is the BILL's title, identical across every division on that bill, so two of them cannot be told apart by title alone. It carries NO claim about whether anything carried — for that, read tallyRelation for the counts and ParliamentBillVoteLink.role for the procedural outcome. Extracted from the chamber's own vote header by the display derive; null where no label could be read."
+    "The chamber's OWN LABEL for what this division was about — what cdep.ro prints as 'Subiect vot'. It is whatever the chamber wrote there: a motion ('raport de respingere (a legii)'), a document version ('Text initial'), an amendment and sometimes its author, an article or annexe, a procedural item ('Retragerea de pe ordinea de zi a votului final'), or a debate-time allocation. Read it before title: for a bill-linked division, title is the BILL's title, identical across every division on that bill, so two of them cannot be told apart by title alone. It carries NO claim about whether anything carried — for that, read voteLinks.role for the motion and tallyRelation for whether it carried, and compose the two. Extracted from the chamber's own vote header by the display derive; null where no label could be read."
     voteSubject: String
+    "Which bucket of the vote-kind partition this division falls in — the SAME classification the 'kind' FILTER accepts, computed in SQL from one shared rule set, so kind:X returns exactly the rows whose kind reads X. Never null: the partition is exhaustive and 'unclassified' is a served bucket, not a hole. Read it when voteSubject is null, which is the normal case off the legislative bucket (93.4% of legislative divisions carry a subject; 3-8% elsewhere) — there the TITLE is already the motion and the kind is what places it. See the 'kind' filter field for the per-bucket rules, their measured sizes, and the known misfilings."
+    kind: ParliamentVoteKind!
     divisionNumber: Int
     billKey: ID
     bill: ParliamentBill
+    "Every bill this division is linked to, WITH the role of each edge - the only place a vote states what it was procedurally FOR. Prefer it to billKey: that column holds at most one bill and carries no role, while 1,502 divisions link to two. Empty for the 8,408 divisions with no bill link at all. IMPORTANT: role names the MOTION ON THE FLOOR, not the result. A final_adoption motion can be voted DOWN (441 links) and a final_rejection motion can FAIL (8). The bill's fate is role composed with tallyRelation, never either alone."
+    voteLinks: [ParliamentBillVoteLink!]!
     lawReference: String
     "Official cdep.ro / senat.ro page for this division (source-traceability §6). Null on rows the backfill has not reached."
     sourceUrl: String
@@ -514,6 +527,9 @@ const objectsAndQuery = /* GraphQL */ `
     voteKey: ID!
     vote: ParliamentVote
     billKey: ID
+    "The bill this edge points at. Null when the key resolves to no bill row. Reachable from the VOTE side (ParliamentVote.voteLinks), where billKey alone identifies nothing to a reader."
+    bill: ParliamentBill
+    "What was ON THE FLOOR, not what happened to it: 'final_adoption' is a motion to adopt the bill, which can be and has been voted DOWN. Compose with the division's tallyRelation to get the chamber's decision."
     role: String!
     resolutionStatus: String!
     confidenceLabel: String!
@@ -1314,4 +1330,4 @@ const objectsAndQuery = /* GraphQL */ `
   }
 `;
 
-export const parliamentTypeDefs = `${objectsAndQuery}\n\n${votesFilter}\n\n${memberVotesFilter}\n\n${memberSpeechesFilter}\n\n${speechesFilter}\n\n${stenogramSessionsFilter}\n\n${membersFilter}\n\n${billsFilter}\n\n${controlFilter}`;
+export const parliamentTypeDefs = `${objectsAndQuery}\n\n${voteKindEnum}\n\n${votesFilter}\n\n${memberVotesFilter}\n\n${memberSpeechesFilter}\n\n${speechesFilter}\n\n${stenogramSessionsFilter}\n\n${membersFilter}\n\n${billsFilter}\n\n${controlFilter}`;
