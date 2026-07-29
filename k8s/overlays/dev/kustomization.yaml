@@ -12,6 +12,7 @@ resources:
   - ./secrets/sealed-registry-secret.yaml
   - ./secrets/sealed-redis-auth.yaml
   - ./secrets/sealed-bullmq-redis-auth.yaml
+  - ./secrets/sealed-chronos-prod-opensearch-reader-credentials.yaml
 
 patches:
   - target:

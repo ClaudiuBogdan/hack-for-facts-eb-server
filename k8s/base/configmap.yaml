@@ -20,6 +20,20 @@ data:
   SPECIAL_RATE_LIMIT_HEADER: 'x-api-key'
   SPECIAL_RATE_LIMIT_MAX: '6000'
 
+  # Temporary Phoenix -> Chronos serving bridge.
+  # Credentials remain in namespace-scoped Secrets. OpenSearch also requires
+  # chronos-prod-opensearch-reader-credentials/ca.pem mounted at the path below.
+  REDESIGN_SURFACE_ENABLED: 'true'
+  PROD_MEILI_HOST: 'http://chronos-prod-meilisearch:7700'
+  PROD_MEILI_INDEXES: 'entities'
+  PROD_OPENSEARCH_URL: 'https://chronos-prod-opensearch:9200'
+  PROD_OPENSEARCH_CA_FILE: '/var/run/secrets/chronos-opensearch/ca.pem'
+  PROD_OPENSEARCH_TLS_SERVERNAME: 'transparenta-eu-etl-opensearch.transparenta-eu-etl-prod.svc.cluster.local'
+  PROD_CLICKHOUSE_URL: 'http://chronos-prod-clickhouse:8123'
+  PROD_CLICKHOUSE_DATABASE: 'proto'
+  # Deliberately omit PROCUREMENT_SEARCH_OPENSEARCH_INDEXES until its serving
+  # corpus and grain-to-index contract are approved.
+
   # Logging Configuration
   LOG_LEVEL: 'info'
   LOG_BATCH_SIZE: '100'

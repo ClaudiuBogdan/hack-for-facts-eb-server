@@ -74,6 +74,10 @@ spec:
                 secretKeyRef:
                   name: bullmq-redis-auth
                   key: BULLMQ_REDIS_PASSWORD
+          volumeMounts:
+            - name: chronos-opensearch-ca
+              mountPath: /var/run/secrets/chronos-opensearch
+              readOnly: true
           resources:
             limits:
               cpu: '3'
@@ -112,3 +116,10 @@ spec:
                   - /nodejs/bin/node
                   - -e
                   - "try { process.kill(1, 'SIGUSR2'); } catch {} setTimeout(() => process.exit(0), 20000)"
+      volumes:
+        - name: chronos-opensearch-ca
+          secret:
+            secretName: chronos-prod-opensearch-reader-credentials
+            items:
+              - key: ca.pem
+                path: ca.pem
