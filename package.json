@@ -53,26 +53,6 @@
     "prepare": "husky",
     "clean": "rm -rf dist coverage deps-graph.svg"
   },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild"
-    ],
-    "overrides": {
-      "handlebars": ">=4.7.9",
-      "ip-address": "10.1.1",
-      "qs": "6.15.2",
-      "brace-expansion@5": "5.0.6",
-      "@opentelemetry/core@2": "2.8.0",
-      "next": "16.2.3",
-      "vite": "8.0.8",
-      "fast-uri": "3.1.2",
-      "hono": "4.12.25",
-      "path-to-regexp": ">=8.4.0",
-      "postcss": "8.5.12",
-      "uuid": "14.0.0",
-      "ws": "8.21.0"
-    }
-  },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.8",
     "@ai-sdk/openai": "^4.0.8",

@@ -29,7 +29,7 @@ WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
 
 # Copy only the files required to resolve and build the application
-COPY package.json pnpm-lock.yaml tsconfig.json tsconfig.build.json ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json tsconfig.build.json ./
 
 # Install full dependency graph for the TypeScript build without lifecycle hooks
 RUN --mount=type=cache,id=pnpm-bookworm,target=/root/.local/share/pnpm/store \
@@ -52,7 +52,7 @@ WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
 
 # Copy package files only; runtime dependencies do not need the source tree
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 
 # Install production dependencies without executing install scripts
 RUN --mount=type=cache,id=pnpm-bookworm,target=/root/.local/share/pnpm/store \
