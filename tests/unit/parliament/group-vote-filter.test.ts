@@ -289,7 +289,7 @@ describe('groupVote — the PARTICIPATION predicate (choice omitted)', () => {
       groupVote: { group: 'PSD' },
     });
     expect(captured.sql).toContain(
-      'exists (select 1 from parliament.vote_records vr where vr.vote_key = v.vote_key and vr.group_name = $2)'
+      "exists (select 1 from parliament.vote_records vr where vr.vote_key = v.vote_key and vr.group_name = $2 and vr.privacy_class = 'public')"
     );
     // The four-way tally belongs to the plurality reading only — participation must
     // not pay for it, and must not inherit its tie rule.
@@ -330,7 +330,7 @@ describe('groupVote — the PARTICIPATION predicate (choice omitted)', () => {
     // The plurality SQL is the participation SQL with a `having` appended, which is
     // the structural reason a stance can only ever narrow the participation set.
     const scoped =
-      'select 1 from parliament.vote_records vr where vr.vote_key = v.vote_key and vr.group_name = $2';
+      "select 1 from parliament.vote_records vr where vr.vote_key = v.vote_key and vr.group_name = $2 and vr.privacy_class = 'public'";
     expect(participation.sql).toContain(scoped);
     expect(plurality.sql).toContain(`${scoped} having`);
   });

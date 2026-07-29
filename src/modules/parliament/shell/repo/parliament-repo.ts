@@ -596,7 +596,8 @@ export const buildGroupVoteCondition = (
   // Correlated on vote_key so the aggregate rides vote_records_pkey (vote_key,
   // row_index) — the only usable index; group_name/choice are post-scan filters.
   const scoped = sql`select 1 from parliament.vote_records vr
-                     where vr.vote_key = v.vote_key and vr.group_name = ${group}`;
+                     where vr.vote_key = v.vote_key and vr.group_name = ${group}
+                       and ${VOTE_RECORD_PUBLIC}`;
   // (A) PARTICIPATION: the group appears on the ballot sheet at all. A bare semi-join
   // — no `having`, so it stops at the first matching row instead of tallying four
   // counts per candidate vote.
@@ -1955,7 +1956,10 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     // baseConds = the FILTERED slice, which drives the capped total; the keyset
     // predicate below is added ON TOP for the page and MUST NOT touch the count
     // (else `total` would shrink page by page). Same split as listSpeeches.
-    const baseConds = condsRes.value;
+    // §2.6 default-deny: the list was the ONE vote reader without VOTE_PUBLIC —
+    // dormant while all 20,745 live votes are public, fail-open the moment one
+    // is not. Applied to baseConds so the page AND the total share it.
+    const baseConds = [...condsRes.value, VOTE_PUBLIC];
     const conds = [...baseConds];
     const fhash = fhashFor(votesFilterSpec, filter);
     const limit = Math.min(Math.max(page.first, 1), 100);
@@ -2048,6 +2052,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
         .selectFrom('parliament.votes as v')
         .select(VOTE_SELECT)
         .where('v.vote_key', '=', voteKey)
+        .where('v.privacy_class', '=', 'public')
         .limit(1)
         .executeTakeFirst();
       return ok(row === undefined ? null : mapVote(row as VoteRow));
@@ -2211,6 +2216,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
         .selectFrom('parliament.votes as v')
         .select(VOTE_SELECT)
         .where('v.bill_key', '=', billKey)
+        .where('v.privacy_class', '=', 'public')
         .orderBy('v.vote_date', 'asc')
         .limit(500)
         .execute();
@@ -2229,7 +2235,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
   ): Promise<Result<CursorPage<ParliamentBallot>, ApiError>> => {
     const limit = Math.min(Math.max(page.first, 1), 200);
     const fhash = ballotFhash(voteKey);
-    const conds: RawBuilder<unknown>[] = [sql`vr.vote_key = ${voteKey}`];
+    const conds: RawBuilder<unknown>[] = [sql`vr.vote_key = ${voteKey}`, VOTE_RECORD_PUBLIC];
     if (page.after !== undefined) {
       const dec = decodeCursor(page.after, { sort: 'rowIndex', dir: 'asc', fhash });
       if (dec.isErr()) return err(dec.error);
@@ -2293,6 +2299,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
           sql<string>`count(*) filter (where vr.choice = 'nu_a_votat')`.as('nu_a_votat'),
         ])
         .where('vr.vote_key', '=', voteKey)
+        .where('vr.privacy_class', '=', 'public')
         .groupBy('vr.group_name')
         .orderBy(sql`count(*) desc`)
         .execute();
@@ -2319,6 +2326,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
           sql<string>`count(vr.mandate_key)`.as('resolved'),
         ])
         .where('vr.vote_key', '=', voteKey)
+        .where('vr.privacy_class', '=', 'public')
         .executeTakeFirst();
       return ok({ total: Number(row?.total ?? 0), resolved: Number(row?.resolved ?? 0) });
     } catch (e) {
@@ -3255,7 +3263,8 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
           'bvl.confidence_label as bvl_conf',
         ])
         .where(sql`bal.target_act_id`, '=', sql`${actId}::bigint`)
-        .where('bal.resolution_status', '=', 'linked');
+        .where('bal.resolution_status', '=', 'linked')
+        .where('v.privacy_class', '=', 'public');
       if (roles.length > 0) qb = qb.where('bvl.role', 'in', [...roles]);
       const rows = await qb.orderBy('v.vote_date', 'asc').execute();
       return ok(
@@ -3296,6 +3305,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
         .selectFrom('parliament.votes as v')
         .select('v.vote_key')
         .where('v.bill_key', '=', billKey)
+        .where('v.privacy_class', '=', 'public')
         .limit(COHESION_VOTE_CAP + 1)
         .execute();
       return ok(rows.map((r) => r.vote_key));
@@ -3315,6 +3325,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
         .selectFrom('parliament.votes as v')
         .select('v.vote_key')
         .where('v.chamber', '=', chamber)
+        .where('v.privacy_class', '=', 'public')
         .where(sql`v.vote_date`, '>=', sql`${from}::date`)
         .where(sql`v.vote_date`, '<=', sql`${to}::date`)
         .limit(cap + 1)
@@ -3348,6 +3359,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
           sql<string>`count(distinct vr.vote_key)`.as('vote_count'),
         ])
         .where('vr.vote_key', 'in', [...voteKeys])
+        .where('vr.privacy_class', '=', 'public')
         .where('vr.group_name', 'is not', null);
       if (group !== undefined) qb = qb.where('vr.group_name', '=', group);
       const rows = await qb.groupBy('vr.group_name').execute();
@@ -3456,6 +3468,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
           sql<string | null>`max(vote_date)::text`.as('latest_vote_date'),
           sql<string | null>`max(updated_at)::text`.as('last_loaded_at'),
         ])
+        .where('privacy_class', '=', 'public')
         .executeTakeFirst();
       return ok({
         latestVoteDate: row?.latest_vote_date ?? null,
