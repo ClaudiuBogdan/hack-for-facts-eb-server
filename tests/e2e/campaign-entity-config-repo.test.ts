@@ -146,11 +146,18 @@ function makeAudienceReader(entityCuis: readonly string[] = []) {
   };
 }
 
-function makeRepo(connectionString: string): LearningProgressRepository {
-  return makeLearningProgressRepo({
-    db: createKyselyClient<UserDatabase>(connectionString),
-    logger: pinoLogger({ level: 'silent' }),
-  });
+function makeRepo(connectionString: string): {
+  db: Kysely<UserDatabase>;
+  repo: LearningProgressRepository;
+} {
+  const db = createKyselyClient<UserDatabase>(connectionString);
+  return {
+    db,
+    repo: makeLearningProgressRepo({
+      db,
+      logger: pinoLogger({ level: 'silent' }),
+    }),
+  };
 }
 
 describe('campaign entity config persistence', () => {
@@ -162,7 +169,7 @@ describe('campaign entity config persistence', () => {
     }
 
     const database = await startTestDatabase();
-    const repo = makeRepo(database.connectionString);
+    const { db, repo } = makeRepo(database.connectionString);
     const entityRepo = makeEntityRepo(['12345678', '87654321']);
 
     try {
@@ -253,6 +260,7 @@ describe('campaign entity config persistence', () => {
         '12345678',
       ]);
     } finally {
+      await db.destroy();
       await database.stop();
     }
   });
@@ -263,7 +271,7 @@ describe('campaign entity config persistence', () => {
     }
 
     const database = await startTestDatabase();
-    const repo = makeRepo(database.connectionString);
+    const { db, repo } = makeRepo(database.connectionString);
     const entityRepo = makeEntityRepo(['12345678']);
 
     try {
@@ -353,6 +361,7 @@ describe('campaign entity config persistence', () => {
       expect(staleUpdate.isErr()).toBe(true);
       expect(staleUpdate._unsafeUnwrapErr().type).toBe('ConflictError');
     } finally {
+      await db.destroy();
       await database.stop();
     }
   });
@@ -365,7 +374,7 @@ describe('campaign entity config persistence', () => {
     }
 
     const database = await startTestDatabase();
-    const repo = makeRepo(database.connectionString);
+    const { db, repo } = makeRepo(database.connectionString);
     const entityRepo = makeEntityRepo(['11111111', '22222222', '33333333']);
 
     try {
@@ -508,6 +517,7 @@ describe('campaign entity config persistence', () => {
         nextCursor: null,
       });
     } finally {
+      await db.destroy();
       await database.stop();
     }
   });
@@ -518,7 +528,7 @@ describe('campaign entity config persistence', () => {
     }
 
     const database = await startTestDatabase();
-    const repo = makeRepo(database.connectionString);
+    const { db, repo } = makeRepo(database.connectionString);
 
     try {
       await withPgClient(database.connectionString, async (client) => {
@@ -582,6 +592,7 @@ describe('campaign entity config persistence', () => {
         retryable: false,
       });
     } finally {
+      await db.destroy();
       await database.stop();
     }
   });

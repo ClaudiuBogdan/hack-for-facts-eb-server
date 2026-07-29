@@ -181,13 +181,22 @@ const CURRENT_USER_SCHEMA = fs.readFileSync(
   'utf-8'
 );
 
+const USER_MIGRATIONS_DIRECTORY = path.join(process.cwd(), 'src/infra/database/user/migrations');
+const UNIFIED_PRODUCTION_MIGRATION_FILENAME = '202604021100_unify_production_user_schema.sql';
 const UNIFIED_PRODUCTION_MIGRATION = fs.readFileSync(
-  path.join(
-    process.cwd(),
-    'src/infra/database/user/migrations/202604021100_unify_production_user_schema.sql'
-  ),
+  path.join(USER_MIGRATIONS_DIRECTORY, UNIFIED_PRODUCTION_MIGRATION_FILENAME),
   'utf-8'
 );
+const POST_UNIFIED_PRODUCTION_MIGRATIONS = fs
+  .readdirSync(USER_MIGRATIONS_DIRECTORY)
+  .filter(
+    (filename) => filename.endsWith('.sql') && filename > UNIFIED_PRODUCTION_MIGRATION_FILENAME
+  )
+  .sort()
+  .map((filename) => ({
+    filename,
+    sql: fs.readFileSync(path.join(USER_MIGRATIONS_DIRECTORY, filename), 'utf-8'),
+  }));
 
 interface StartedTestDatabase {
   connectionString: string;
@@ -622,6 +631,9 @@ describe('Unified production user DB migration', () => {
         );
 
         await client.query(UNIFIED_PRODUCTION_MIGRATION);
+        for (const migration of POST_UNIFIED_PRODUCTION_MIGRATIONS) {
+          await client.query(migration.sql);
+        }
 
         const shortLinks = await client.query<{
           code: string;

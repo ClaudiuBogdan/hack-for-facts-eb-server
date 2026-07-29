@@ -158,7 +158,9 @@ const createMetricReader = (config: TelemetryConfig) => {
 const createLogProcessor = (config: TelemetryConfig) => {
   // Use console exporter for development/debugging when configured
   if (process.env['OTEL_LOGS_EXPORTER'] === 'console') {
-    return new BatchLogRecordProcessor(new ConsoleLogRecordExporter());
+    return new BatchLogRecordProcessor({
+      exporter: new ConsoleLogRecordExporter(),
+    });
   }
 
   const exporter = new OTLPLogExporter({
@@ -166,7 +168,7 @@ const createLogProcessor = (config: TelemetryConfig) => {
     headers: getExporterHeaders(config),
   });
 
-  return new BatchLogRecordProcessor(exporter);
+  return new BatchLogRecordProcessor({ exporter });
 };
 
 /**

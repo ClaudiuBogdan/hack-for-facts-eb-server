@@ -441,8 +441,12 @@ function buildCampaignAdminItemsCteSql(input: GetCampaignAdminStatsInput) {
           when (${threadSummaryInteractionsSql}) then (
             select iet.phase
             from institutionemailthreads as iet
-            where iet.entity_cui = record->'scope'->>'entityCui'
-              and iet.campaign_key = ${input.campaignKey}
+            where iet.entity_cui = userinteractions.record->'scope'->>'entityCui'
+              and coalesce(
+                iet.campaign_key,
+                iet.record->>'campaignKey',
+                iet.record->>'campaign'
+              ) = ${input.campaignKey}
               and iet.record->>'submissionPath' = ${'platform_send'}
             order by iet.created_at desc
             limit 1
@@ -868,11 +872,15 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
     }
 
     const interactionFiltersSql = buildCampaignAdminInteractionFiltersSql(input.interactions);
-    const entityCuiSql = sql<string | null>`record->'scope'->>'entityCui'`;
+    const entityCuiSql = sql<string | null>`userinteractions.record->'scope'->>'entityCui'`;
     const threadSubquerySql = sql`
       from institutionemailthreads as iet
       where iet.entity_cui = ${entityCuiSql}
-        and iet.campaign_key = ${input.campaignKey}
+        and coalesce(
+          iet.campaign_key,
+          iet.record->>'campaignKey',
+          iet.record->>'campaign'
+        ) = ${input.campaignKey}
         and iet.record->>'submissionPath' = ${'platform_send'}
       order by iet.created_at desc
       limit 1
@@ -882,7 +890,11 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
         select 1
         from institutionemailthreads as iet
         where iet.entity_cui = ${entityCuiSql}
-          and iet.campaign_key = ${input.campaignKey}
+          and coalesce(
+            iet.campaign_key,
+            iet.record->>'campaignKey',
+            iet.record->>'campaign'
+          ) = ${input.campaignKey}
           and iet.record->>'submissionPath' = ${'platform_send'}
       )
     `;
@@ -1504,16 +1516,14 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
       const hasMore = result.rows.length > input.limit;
       const pageRows = result.rows.slice(0, input.limit);
       const totalCount = pageRows[0]?.total_count ?? 0;
-      const items = pageRows.map(
-        (row): CampaignAdminUserRow => ({
-          userId: row.user_id,
-          interactionCount: row.interaction_count,
-          pendingReviewCount: row.pending_review_count,
-          latestUpdatedAt: toIsoString(row.latest_updated_at),
-          latestInteractionId: row.latest_interaction_id,
-          latestEntityCui: row.latest_entity_cui,
-        })
-      );
+      const items = pageRows.map((row): CampaignAdminUserRow => ({
+        userId: row.user_id,
+        interactionCount: row.interaction_count,
+        pendingReviewCount: row.pending_review_count,
+        latestUpdatedAt: toIsoString(row.latest_updated_at),
+        latestInteractionId: row.latest_interaction_id,
+        latestEntityCui: row.latest_entity_cui,
+      }));
       const lastItem = items.at(-1);
 
       return ok({
@@ -1683,15 +1693,13 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
             none: statsRow.thread_phase_none,
           },
         },
-        riskFlagCandidates: riskCandidateResult.rows.map(
-          (row): CampaignAdminRiskFlagCandidate => ({
-            interactionId: row.interaction_id,
-            entityCui: row.entity_cui,
-            institutionEmail: row.institution_email,
-            threadPhase: row.thread_phase,
-            count: row.item_count,
-          })
-        ),
+        riskFlagCandidates: riskCandidateResult.rows.map((row): CampaignAdminRiskFlagCandidate => ({
+          interactionId: row.interaction_id,
+          entityCui: row.entity_cui,
+          institutionEmail: row.institution_email,
+          threadPhase: row.thread_phase,
+          count: row.item_count,
+        })),
       });
     } catch (error) {
       this.log.error({ err: error, input }, 'Failed to load campaign-admin interaction stats');
@@ -1837,14 +1845,12 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
             record_key: input.record.key,
             record: sql`${JSON.stringify(input.record)}::jsonb`,
             audit_events: sql`${JSON.stringify(
-              input.auditEvents.map(
-                (auditEvent): StoredInteractiveAuditEvent => ({
-                  ...auditEvent,
-                  seq: updatedSeq,
-                  sourceClientEventId: input.eventId,
-                  sourceClientId: input.clientId,
-                })
-              )
+              input.auditEvents.map((auditEvent): StoredInteractiveAuditEvent => ({
+                ...auditEvent,
+                seq: updatedSeq,
+                sourceClientEventId: input.eventId,
+                sourceClientId: input.clientId,
+              }))
             )}::jsonb`,
             updated_seq: sql`${updatedSeq}::bigint`,
             created_at: rowTimestamp,
@@ -1887,14 +1893,12 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
       const updatedSeq = await this.allocateSequence();
       const nextAuditEvents = [
         ...existingRecord.auditEvents,
-        ...input.auditEvents.map(
-          (auditEvent): StoredInteractiveAuditEvent => ({
-            ...auditEvent,
-            seq: updatedSeq,
-            sourceClientEventId: input.eventId,
-            sourceClientId: input.clientId,
-          })
-        ),
+        ...input.auditEvents.map((auditEvent): StoredInteractiveAuditEvent => ({
+          ...auditEvent,
+          seq: updatedSeq,
+          sourceClientEventId: input.eventId,
+          sourceClientId: input.clientId,
+        })),
       ].sort(sortAuditEvents);
 
       const nextRecord = shouldReplaceRecord ? input.record : existingRecord.record;

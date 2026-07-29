@@ -239,7 +239,7 @@ describe('notification platform retention', () => {
           window_end_utc: new Date('2025-01-10T06:00:00.000Z'),
           dispatch_at_utc: new Date('2025-01-10T06:00:00.000Z'),
           status: 'rendered',
-          rendered_item_ids: [expiredLogicalId],
+          rendered_item_ids: JSON.stringify([expiredLogicalId]),
           overflow_count: 0,
           delivery_id: null,
           claim_token: null,

@@ -316,7 +316,13 @@ export const makeInstitutionCorrespondenceRepo = (
           .selectFrom('institutionemailthreads')
           .selectAll()
           .where('entity_cui', '=', input.entityCui)
-          .where('campaign_key', '=', input.campaign)
+          .where(
+            sql<boolean>`coalesce(
+              institutionemailthreads.campaign_key,
+              institutionemailthreads.record->>'campaignKey',
+              institutionemailthreads.record->>'campaign'
+            ) = ${input.campaign}`
+          )
           .where('phase', '!=', 'failed')
           .where(sql<boolean>`record->>'submissionPath' = ${'platform_send'}`)
           .orderBy('created_at', 'desc')

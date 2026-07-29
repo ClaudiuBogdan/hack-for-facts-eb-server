@@ -344,28 +344,32 @@ async function assertMigratedOutbox(
   expect(indexes.rows.map((row) => row.indexname)).toEqual([
     'idx_notification_outbox_created_at',
     'idx_notification_outbox_delivery_key_unique',
-    'idx_notification_outbox_scope_type_reference',
     'idx_notification_outbox_reference',
     'idx_notification_outbox_resend_email_id',
+    'idx_notification_outbox_scope_type_reference',
     'idx_notification_outbox_sending_stuck',
     'idx_notification_outbox_status_pending',
-    'idx_notification_outbox_user_sent_at_desc',
     'idx_notification_outbox_user_scope',
+    'idx_notification_outbox_user_sent_at_desc',
   ]);
 
-  const constraints = await client.query<{ conname: string }>(
+  const constraints = await client.query<{ has_unique_delivery_key: boolean }>(
     `
-      SELECT conname
-      FROM pg_constraint
-      WHERE conrelid = 'notificationsoutbox'::regclass
-        AND contype = 'u'
-      ORDER BY conname
+      SELECT EXISTS (
+        SELECT 1
+        FROM pg_constraint AS con
+        JOIN pg_attribute AS attribute
+          ON attribute.attrelid = con.conrelid
+         AND attribute.attnum = con.conkey[1]
+        WHERE con.conrelid = 'notificationsoutbox'::regclass
+          AND con.contype = 'u'
+          AND cardinality(con.conkey) = 1
+          AND attribute.attname = 'delivery_key'
+      ) AS has_unique_delivery_key
     `
   );
 
-  expect(constraints.rows.map((row) => row.conname)).toContain(
-    'notificationsoutbox_delivery_key_key'
-  );
+  expect(constraints.rows).toEqual([{ has_unique_delivery_key: true }]);
 
   const unsubscribeColumns = await client.query<{ column_name: string }>(
     `
@@ -685,7 +689,8 @@ describe('NotificationOutbox migration', () => {
             delivery_key TEXT UNIQUE NOT NULL,
             status VARCHAR(20) NOT NULL DEFAULT 'pending',
             metadata JSONB,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            sent_at TIMESTAMPTZ
           );
         `);
 
@@ -825,7 +830,9 @@ describe('NotificationOutbox migration', () => {
             reference_id TEXT,
             scope_key TEXT NOT NULL,
             status VARCHAR(20) NOT NULL DEFAULT 'pending',
-            metadata JSONB
+            metadata JSONB,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            sent_at TIMESTAMPTZ
           );
 
           CREATE TABLE Notifications (

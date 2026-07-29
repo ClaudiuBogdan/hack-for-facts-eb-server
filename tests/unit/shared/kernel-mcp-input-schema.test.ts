@@ -89,7 +89,7 @@ describe('kernel MCP input schema', () => {
       result: { isError: true },
     });
     expect(JSON.stringify(response)).toContain('MCP error -32602');
-    expect(JSON.stringify(response)).toContain('unrecognized_keys');
+    expect(JSON.stringify(response)).toContain('Unrecognized key');
     expect(calls).toBe(0);
     await dispatcher.close();
   });

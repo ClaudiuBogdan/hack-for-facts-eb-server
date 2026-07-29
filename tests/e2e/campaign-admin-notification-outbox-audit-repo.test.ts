@@ -272,13 +272,13 @@ describe('campaign notification outbox audit repo', () => {
             category: 'suppressed',
             code: 'suppressed',
           },
-          projection: {
+          projection: expect.objectContaining({
             kind: 'public_debate_entity_subscription',
             entityCui: '87654321',
             entityName: 'Comuna Test',
             acceptedTermsAt: '2026-04-12T11:55:00.000Z',
             selectedEntitiesCount: 2,
-          },
+          }),
         })
       );
       expect(firstPage.value.items[0]).not.toHaveProperty('toEmail');

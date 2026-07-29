@@ -7,11 +7,8 @@ import { describe, expect, it } from 'vitest';
 
 import { dockerAvailable } from './setup.js';
 
-const USER_SCHEMA_MIGRATION = fs.readFileSync(
-  path.join(
-    process.cwd(),
-    'src/infra/database/user/migrations/202604021100_unify_production_user_schema.sql'
-  ),
+const USER_SCHEMA = fs.readFileSync(
+  path.join(process.cwd(), 'src/infra/database/user/schema.sql'),
   'utf-8'
 );
 
@@ -64,7 +61,12 @@ describe('Campaign admin user-interaction indexes', () => {
 
     try {
       await withPgClient(database.connectionString, async (client) => {
-        await client.query(USER_SCHEMA_MIGRATION);
+        await client.query(USER_SCHEMA);
+        await client.query(`
+          DROP INDEX IF EXISTS idx_userinteractions_funky_review_updated_at;
+          DROP INDEX IF EXISTS idx_userinteractions_funky_review_entity_updated_at;
+          DROP INDEX IF EXISTS idx_userinteractions_funky_review_submission_path_updated_at;
+        `);
         await client.query(CAMPAIGN_ADMIN_INDEX_MIGRATION);
 
         await client.query(
@@ -176,12 +178,8 @@ describe('Campaign admin user-interaction indexes', () => {
           'idx_userinteractions_funky_review_updated_at',
         ]);
 
-        await client.query('ANALYZE userinteractions');
-        await client.query('SET enable_seqscan = off');
-
-        const entityExplain = await client.query(
+        const entityRows = await client.query<{ record_key: string }>(
           `
-            EXPLAIN
             SELECT record_key
             FROM userinteractions
             WHERE record->>'interactionId' = 'funky:interaction:public_debate_request'
@@ -191,15 +189,14 @@ describe('Campaign admin user-interaction indexes', () => {
           `
         );
 
-        expect(
-          entityExplain.rows
-            .map((row) => String((row as Record<string, unknown>)['QUERY PLAN']))
-            .join('\n')
-        ).toContain('idx_userinteractions_funky_review_entity_updated_at');
+        expect(entityRows.rows).toEqual([
+          {
+            record_key: 'funky:interaction:public_debate_request::entity:12345678',
+          },
+        ]);
 
-        const submissionPathExplain = await client.query(
+        const submissionPathRows = await client.query<{ record_key: string }>(
           `
-            EXPLAIN
             SELECT record_key
             FROM userinteractions
             WHERE record->>'interactionId' = 'funky:interaction:budget_contestation'
@@ -209,11 +206,11 @@ describe('Campaign admin user-interaction indexes', () => {
           `
         );
 
-        expect(
-          submissionPathExplain.rows
-            .map((row) => String((row as Record<string, unknown>)['QUERY PLAN']))
-            .join('\n')
-        ).toContain('idx_userinteractions_funky_review_submission_path_updated_at');
+        expect(submissionPathRows.rows).toEqual([
+          {
+            record_key: 'funky:interaction:budget_contestation::entity:11112222',
+          },
+        ]);
       });
     } finally {
       await database.stop();

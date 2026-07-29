@@ -267,7 +267,7 @@ export const makeAgentRoutes = (deps: AgentRoutesDeps): FastifyPluginAsync => {
         if (typeof value === 'string' || Array.isArray(value)) rawHeaders[name] = value;
         else if (typeof value === 'number') rawHeaders[name] = String(value);
       }
-      pipeUIMessageStreamToResponse({
+      await pipeUIMessageStreamToResponse({
         response: reply.raw,
         stream: uiStream,
         headers: { ...rawHeaders, 'cache-control': 'no-store' },

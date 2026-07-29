@@ -180,7 +180,7 @@ export class KyselyDigestBatchRepo implements DigestBatchRepo {
         .updateTable('notification_digest_batches')
         .set({
           status: 'rendered',
-          rendered_item_ids: input.renderedItemIds,
+          rendered_item_ids: JSON.stringify(input.renderedItemIds),
           overflow_count: input.overflowCount,
           delivery_id: input.deliveryId,
           claim_token: null,

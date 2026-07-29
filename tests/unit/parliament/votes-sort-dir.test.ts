@@ -139,7 +139,9 @@ describe('parliamentVotes(dir:) — the SDL surface', () => {
     expect(dir).toBeDefined();
     expect(String(dir?.type)).toBe('ParliamentSortDir');
     // The default is what keeps this additive: no client that omits `dir` moves.
-    expect(dir?.defaultValue).toBe('DESC');
+    expect(dir?.default).toMatchObject({
+      literal: { kind: 'EnumValue', value: 'DESC' },
+    });
   });
 
   it('reuses ONE asc/desc vocabulary — the module-local ASC/DESC enum, not a second convention', () => {
