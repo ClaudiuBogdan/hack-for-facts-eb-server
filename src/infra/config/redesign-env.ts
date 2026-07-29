@@ -79,7 +79,9 @@ const parseIntOr = (raw: string | undefined, fallback: number): number => {
 };
 
 export const loadRedesignConfig = (env: NodeJS.ProcessEnv): RedesignConfig => {
-  const cleaned = Value.Clean(RedesignEnvSchema, Value.Convert(RedesignEnvSchema, { ...env }));
+  const converted = Value.Convert(RedesignEnvSchema, { ...env });
+  const defaulted = Value.Default(RedesignEnvSchema, converted);
+  const cleaned = Value.Clean(RedesignEnvSchema, defaulted);
   if (!Value.Check(RedesignEnvSchema, cleaned)) {
     const errors = [...Value.Errors(RedesignEnvSchema, cleaned)].map(
       (e) => `${e.path}: ${e.message}`
