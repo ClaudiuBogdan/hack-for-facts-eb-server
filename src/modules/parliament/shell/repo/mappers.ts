@@ -429,6 +429,13 @@ export interface ControlItemRow {
   recipient: string | null;
   item_date: string | null;
   response_status: string | null;
+  requested_response_mode?: string | null;
+  response_evidence_state?: string | null;
+  response_count?: number | null;
+  response_document_count?: number | null;
+  first_valid_response_date?: string | null;
+  latest_valid_response_date?: string | null;
+  recipient_count?: number | null;
   author_name: string | null;
   mandate_key: string | null;
   /** E2 traceability (prod migration 20260701T172000) — EXACT source page. */
@@ -452,6 +459,19 @@ export const mapControlItem = (r: ControlItemRow): ParliamentControlItem => ({
   recipient: r.recipient,
   itemDate: r.item_date,
   responseStatus: r.response_status,
+  requestedResponseMode: r.requested_response_mode ?? null,
+  responseEvidenceState:
+    r.response_evidence_state === 'observed_response' ||
+    r.response_evidence_state === 'no_response_observed' ||
+    r.response_evidence_state === 'parse_incomplete' ||
+    r.response_evidence_state === 'not_extracted'
+      ? r.response_evidence_state
+      : null,
+  responseCount: r.response_count ?? 0,
+  responseDocumentCount: r.response_document_count ?? 0,
+  firstValidResponseDate: r.first_valid_response_date ?? null,
+  latestValidResponseDate: r.latest_valid_response_date ?? null,
+  recipientCount: r.recipient_count ?? 0,
   chamber: chamberFromMandateKey(r.mandate_key),
   authorName: r.author_name,
   mandateKey: r.mandate_key,

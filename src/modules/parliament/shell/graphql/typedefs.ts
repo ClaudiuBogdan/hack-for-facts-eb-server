@@ -90,6 +90,12 @@ const objectsAndQuery = /* GraphQL */ `
     abtinere
     nu_a_votat
   }
+  enum ParliamentVotePositionStatus {
+    confirmed
+    conflicting_choice
+    unknown_marker
+    identity_conflict
+  }
   enum ParliamentControlType {
     question
     interpellation
@@ -241,13 +247,21 @@ const objectsAndQuery = /* GraphQL */ `
     impotriva: Int!
     abtinere: Int!
     nuAVotat: Int!
+    "Logical positions with contradictory observed choices. They count as participation but never as a choice."
+    conflicting: Int!
+    "Unknown source markers or identity-conflict positions. They count as participation but never as a choice."
+    unknown: Int!
   }
 
   type ParliamentBallot {
+    positionKey: ID!
     rowIndex: Int!
     memberName: String
     groupName: String
     choice: ParliamentVoteChoice
+    positionStatus: ParliamentVotePositionStatus!
+    observationCount: Int!
+    observedChoices: [ParliamentVoteChoice!]!
     mandateKey: ID
     member: ParliamentMember
     matchMethod: String
@@ -288,18 +302,22 @@ const objectsAndQuery = /* GraphQL */ `
 
   "A member's ballot joined to its vote (the member voting profile row)."
   type ParliamentMemberVote {
+    positionKey: ID!
     voteKey: ID!
     chamber: String!
     voteDate: Date
     title: String
     outcome: ParliamentVoteOutcome
     choice: ParliamentVoteChoice
+    positionStatus: ParliamentVotePositionStatus!
+    observationCount: Int!
+    observedChoices: [ParliamentVoteChoice!]!
     rowIndex: Int!
     billKey: ID
     vote: ParliamentVote
   }
 
-  "One calendar day of a member's ballots (the activity-heatmap cell); the four choice counts sum to total."
+  "One calendar day of a member's logical positions. Four effective-choice counts plus conflicting and unknown sum to total."
   type ParliamentMemberVoteActivityDay {
     date: Date!
     total: Int!
@@ -307,6 +325,8 @@ const objectsAndQuery = /* GraphQL */ `
     impotriva: Int!
     abtinere: Int!
     nuAVotat: Int!
+    conflicting: Int!
+    unknown: Int!
   }
   "A member's per-day voting activity for one year. availableYears is every year the member has any (filtered) ballot, NOT bounded by the requested year."
   type ParliamentMemberVoteActivity {
@@ -578,6 +598,15 @@ const objectsAndQuery = /* GraphQL */ `
     recipient: String
     itemDate: Date
     responseStatus: String
+    "Source-requested answer mode; never evidence that a response exists."
+    requestedResponseMode: String
+    "Typed observed-response evidence. Null only when the additive projection is absent for this item."
+    responseEvidenceState: String
+    responseCount: Int!
+    responseDocumentCount: Int!
+    firstValidResponseDate: Date
+    latestValidResponseDate: Date
+    recipientCount: Int!
     chamber: String
     authorName: String
     "Official interpelări/întrebări detail page (source-traceability §6). Null on rows the backfill has not reached."
@@ -835,6 +864,8 @@ const objectsAndQuery = /* GraphQL */ `
     againstPct: Float!
     abstainPct: Float!
     absentPct: Float!
+    conflictingPct: Float!
+    unknownPct: Float!
     "Rice cohesion |for-against|/(for+against), 0..1. NULL when the group cast no DECIDED (for/against) votes in the set — Rice is undefined there, NOT 0 (a 0 would read as 'maximally divided'; M13). Gauge significance with voteCount."
     cohesionIndex: Float
     voteCount: Int!

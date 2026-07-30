@@ -434,9 +434,26 @@ const SPEECH_CANONICAL_PREFERRED = sql`(
 const SPEECH_TEXT_PUBLIC = sql`t.privacy_class = 'public'`;
 const CONTROL_PUBLIC = sql`c.privacy_class = 'public'`;
 const VOTE_PUBLIC = sql`v.privacy_class = 'public'`;
-const VOTE_RECORD_PUBLIC = sql`vr.privacy_class = 'public'`;
 const INITIATIVE_PUBLIC = sql`mi.privacy_class = 'public'`;
 const DECLARATION_PUBLIC = sql`d.privacy_class = 'public'`;
+
+type VotePositionAlias = 'vp' | 'gp';
+
+/**
+ * One population rule for every public ballot reader. A position participates
+ * when it is the current public derivation; its choice participates only when
+ * the derivation confirmed one effective choice.
+ */
+const votePositionPopulation = (alias: VotePositionAlias): RawBuilder<SqlBool> =>
+  sql`${sql.ref(`${alias}.is_current`)} = true and ${sql.ref(`${alias}.privacy_class`)} = 'public'`;
+const votePositionHasEffectiveChoice = (alias: VotePositionAlias): RawBuilder<SqlBool> =>
+  sql`${sql.ref(`${alias}.position_status`)} = 'confirmed'
+      and ${sql.ref(`${alias}.effective_choice`)} is not null`;
+
+const observedChoicesOf = (value: unknown): readonly string[] =>
+  Array.isArray(value)
+    ? value.filter((choice): choice is string => typeof choice === 'string')
+    : [];
 
 const BILL_SELECT = [
   'b.bill_key',
@@ -539,19 +556,14 @@ const compositeMember = (f: Record<string, unknown>, name: string): unknown => {
  * `votes.groupVote` (virtual, COMPOSITE) → votes seen through ONE group's ballots.
  * It compiles TWO different predicates, and `choice` picks which:
  *
- *  (A) NO `choice` — PARTICIPATION: `exists (… vr.group_name = $g)`, every vote the
- *      group cast at least one ballot on. `nu_a_votat` rows count: they are recorded
- *      ballots, so "the group was there and mostly abstained from voting" is still
- *      participation. This is the reading a filter panel needs when a reader picks a
- *      party and no stance, and it is deliberately NOT the union of the four
- *      stance-filtered sets — a vote the group TIED on belongs to no stance yet
- *      unmistakably belongs here.
+ *  (A) NO `choice` — PARTICIPATION: every current logical position contributes,
+ *      including conflicting and unknown positions.
  *
  *  (B) WITH `choice` — the group's PLURALITY stance on the vote, i.e. (A) plus an
  *      argmax. A group has no stance in the data — its members each cast a ballot —
- *      so the stance is DERIVED as the choice with the MOST vote_records rows for
- *      that group on that vote. Three rules, all deliberate and all visible in the
- *      SQL below:
+ *      so the stance is DERIVED as the choice with the MOST confirmed effective
+ *      positions for that group on that vote. Conflicts and unknowns never become a
+ *      choice. Three rules are visible in the SQL below:
  *
  *  1. PLURALITY over ALL FOUR choices, nu_a_votat included: "the group mostly did
  *     not show up" is a real, honest answer, so a vote CAN be attributed to
@@ -564,7 +576,7 @@ const compositeMember = (f: Record<string, unknown>, name: string): unknown => {
  *     ungrouped aggregate over zero rows still yields one all-zeros row.
  *
  * `group_name` is matched EXACTLY (surrounding whitespace trimmed, nothing else):
- * vote_records and the parliamentGroups nomenclator disagree on vocabulary, and
+ * ballot observations and the parliamentGroups nomenclator disagree on vocabulary, and
  * fuzzy-bridging that gap would answer a question the caller did not ask.
  *
  * Returns `null` when the field is absent (nothing to add), an InvalidInput when
@@ -588,16 +600,22 @@ export const buildGroupVoteCondition = (
     // asked while looking like a filter.
     return err(
       invalidInput(
-        'groupVote.group is required — the group name exactly as vote_records spells it',
+        'groupVote.group is required — use the exact group name returned by the vote position',
         'groupVote.group'
       )
     );
   }
-  // Correlated on vote_key so the aggregate rides vote_records_pkey (vote_key,
-  // row_index) — the only usable index; group_name/choice are post-scan filters.
-  const scoped = sql`select 1 from parliament.vote_records vr
-                     where vr.vote_key = v.vote_key and vr.group_name = ${group}
-                       and ${VOTE_RECORD_PUBLIC}`;
+  // Correlated on vote_key, using one representative immutable observation only
+  // for source group spelling. This prevents repeated captures from inflating the
+  // group's tally while preserving exact source vocabulary.
+  const scoped = sql`select 1
+                     from parliament.vote_positions gp
+                     join parliament.vote_observations go
+                       on go.observation_key = gp.representative_observation_key
+                     where gp.vote_key = v.vote_key
+                       and go.group_name = ${group}
+                       and gp.group_name_variant_count = 1
+                       and ${votePositionPopulation('gp')}`;
   // (A) PARTICIPATION: the group appears on the ballot sheet at all. A bare semi-join
   // — no `having`, so it stops at the first matching row instead of tallying four
   // counts per candidate vote.
@@ -613,7 +631,10 @@ export const buildGroupVoteCondition = (
   }
 
   const tally = (choice: string): RawBuilder<unknown> =>
-    sql`count(*) filter (where vr.choice = ${choice})`;
+    sql`count(*) filter (
+      where ${votePositionHasEffectiveChoice('gp')}
+        and gp.effective_choice = ${choice}
+    )`;
   const target = tally(rawChoice);
   const beatsEveryOther = VOTE_CHOICES.filter((c) => c !== rawChoice).map(
     (c) => sql`${target} > ${tally(c)}`
@@ -2235,41 +2256,64 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
   ): Promise<Result<CursorPage<ParliamentBallot>, ApiError>> => {
     const limit = Math.min(Math.max(page.first, 1), 200);
     const fhash = ballotFhash(voteKey);
-    const conds: RawBuilder<unknown>[] = [sql`vr.vote_key = ${voteKey}`, VOTE_RECORD_PUBLIC];
+    const conds: RawBuilder<unknown>[] = [
+      sql`vp.vote_key = ${voteKey}`,
+      votePositionPopulation('vp'),
+    ];
     if (page.after !== undefined) {
       const dec = decodeCursor(page.after, { sort: 'rowIndex', dir: 'asc', fhash });
       if (dec.isErr()) return err(dec.error);
-      const keys = requireCursorKeys(dec.value.keys, 1, [0]);
+      const keys = requireCursorKeys(dec.value.keys, 2, [0]);
       if (keys.isErr()) return err(keys.error);
-      conds.push(sql`vr.row_index > ${Number(keys.value[0])}`);
+      const [rowIndex = '0', positionKey = ''] = keys.value;
+      conds.push(
+        sql`(vo.source_row_index, vp.position_key) > (${Number(rowIndex)}, ${positionKey})`
+      );
     }
     try {
-      // LEFT JOIN members to surface the resolved member's constituency on each
-      // ballot. Still parent-bound (vr.vote_key = voteKey → low hundreds of rows),
-      // so the heavy-query rule holds — this is NOT an unparented vote_records scan.
+      // One current logical position per ballot group; the representative
+      // observation supplies only source-audit fields.
       const rows = await db
-        .selectFrom('parliament.vote_records as vr')
-        .leftJoin('parliament.members as m', 'm.mandate_key', 'vr.mandate_key')
+        .selectFrom('parliament.vote_positions as vp')
+        .innerJoin(
+          'parliament.vote_observations as vo',
+          'vo.observation_key',
+          'vp.representative_observation_key'
+        )
+        .leftJoin('parliament.members as m', 'm.mandate_key', 'vp.mandate_key')
         .select([
-          'vr.row_index',
-          'vr.member_name',
-          'vr.group_name',
-          'vr.choice',
-          'vr.mandate_key',
-          'vr.match_method',
+          'vp.position_key',
+          'vo.source_row_index',
+          'vo.member_name',
+          'vo.group_name',
+          'vp.effective_choice',
+          'vp.position_status',
+          'vp.observation_count',
+          'vp.observed_choices',
+          'vp.group_name_variant_count',
+          'vp.mandate_key',
+          'vo.match_method',
           'm.constituency_name',
         ])
         .where(composeWhere(conds))
-        .orderBy('vr.row_index', 'asc')
+        .orderBy('vo.source_row_index', 'asc')
+        .orderBy('vp.position_key', 'asc')
         .limit(limit + 1)
         .execute();
       const hasMore = rows.length > limit;
       const sliced = hasMore ? rows.slice(0, limit) : rows;
       const items: ParliamentBallot[] = sliced.map((r) => ({
-        rowIndex: r.row_index,
+        positionKey: r.position_key,
+        rowIndex: r.source_row_index,
         memberName: r.member_name,
-        groupName: r.group_name,
-        choice: r.choice,
+        // Repeated source captures can disagree on the member's group even
+        // when their choice agrees. Do not publish an arbitrary representative
+        // spelling as an attributed group.
+        groupName: r.group_name_variant_count === 1 ? r.group_name : null,
+        choice: r.effective_choice,
+        positionStatus: r.position_status as ParliamentBallot['positionStatus'],
+        observationCount: r.observation_count,
+        observedChoices: observedChoicesOf(r.observed_choices),
         mandateKey: r.mandate_key,
         matchMethod: r.match_method,
         constituencyName: r.constituency_name,
@@ -2277,7 +2321,12 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
       const last = sliced[sliced.length - 1];
       const next =
         hasMore && last !== undefined
-          ? buildNextCursor({ sort: 'rowIndex', dir: 'asc', fhash, lastKeys: [last.row_index] })
+          ? buildNextCursor({
+              sort: 'rowIndex',
+              dir: 'asc',
+              fhash,
+              lastKeys: [last.source_row_index, last.position_key],
+            })
           : null;
       return ok({ items, next });
     } catch (e) {
@@ -2290,17 +2339,41 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
   ): Promise<Result<readonly ParliamentVoteGroupBreakdown[], ApiError>> => {
     try {
       const rows = await db
-        .selectFrom('parliament.vote_records as vr')
+        .selectFrom('parliament.vote_positions as vp')
+        .innerJoin(
+          'parliament.vote_observations as vo',
+          'vo.observation_key',
+          'vp.representative_observation_key'
+        )
         .select([
-          'vr.group_name',
-          sql<string>`count(*) filter (where vr.choice = 'pentru')`.as('pentru'),
-          sql<string>`count(*) filter (where vr.choice = 'impotriva')`.as('impotriva'),
-          sql<string>`count(*) filter (where vr.choice = 'abtinere')`.as('abtinere'),
-          sql<string>`count(*) filter (where vr.choice = 'nu_a_votat')`.as('nu_a_votat'),
+          'vo.group_name',
+          sql<string>`count(*) filter (
+            where ${votePositionHasEffectiveChoice('vp')}
+              and vp.effective_choice = 'pentru'
+          )`.as('pentru'),
+          sql<string>`count(*) filter (
+            where ${votePositionHasEffectiveChoice('vp')}
+              and vp.effective_choice = 'impotriva'
+          )`.as('impotriva'),
+          sql<string>`count(*) filter (
+            where ${votePositionHasEffectiveChoice('vp')}
+              and vp.effective_choice = 'abtinere'
+          )`.as('abtinere'),
+          sql<string>`count(*) filter (
+            where ${votePositionHasEffectiveChoice('vp')}
+              and vp.effective_choice = 'nu_a_votat'
+          )`.as('nu_a_votat'),
+          sql<string>`count(*) filter (
+            where vp.position_status = 'conflicting_choice'
+          )`.as('conflicting'),
+          sql<string>`count(*) filter (
+            where vp.position_status in ('unknown_marker', 'identity_conflict')
+          )`.as('unknown'),
         ])
-        .where('vr.vote_key', '=', voteKey)
-        .where('vr.privacy_class', '=', 'public')
-        .groupBy('vr.group_name')
+        .where('vp.vote_key', '=', voteKey)
+        .where(votePositionPopulation('vp'))
+        .where('vp.group_name_variant_count', '=', 1)
+        .groupBy('vo.group_name')
         .orderBy(sql`count(*) desc`)
         .execute();
       return ok(
@@ -2310,6 +2383,8 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
           impotriva: Number(r.impotriva),
           abtinere: Number(r.abtinere),
           nuAVotat: Number(r.nu_a_votat),
+          conflicting: Number(r.conflicting),
+          unknown: Number(r.unknown),
         }))
       );
     } catch (e) {
@@ -2320,13 +2395,13 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
   const ballotResolution = async (voteKey: string): Promise<Result<BallotResolution, ApiError>> => {
     try {
       const row = await db
-        .selectFrom('parliament.vote_records as vr')
+        .selectFrom('parliament.vote_positions as vp')
         .select([
           sql<string>`count(*)`.as('total'),
-          sql<string>`count(vr.mandate_key)`.as('resolved'),
+          sql<string>`count(vp.mandate_key)`.as('resolved'),
         ])
-        .where('vr.vote_key', '=', voteKey)
-        .where('vr.privacy_class', '=', 'public')
+        .where('vp.vote_key', '=', voteKey)
+        .where(votePositionPopulation('vp'))
         .executeTakeFirst();
       return ok({ total: Number(row?.total ?? 0), resolved: Number(row?.resolved ?? 0) });
     } catch (e) {
@@ -2342,14 +2417,14 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
   ): Promise<Result<CursorPage<ParliamentMemberVote> & { total: number }, ApiError>> => {
     const limit = Math.min(Math.max(page.first, 1), 100);
     const fhash = memberVotesFhash(mandateKey, filter);
-    // Spec conditions (voteDate/chamber/outcome on `v`, choice on `vr`) AND the
+    // Spec conditions (voteDate/chamber/outcome on `v`, confirmed choice on `vp`) AND the
     // mandate bound — ANDed into the same WHERE. Non-virtual spec, so the filter
     // compiles directly.
     const built = toConditionBuilders(memberVotesFilterSpec, filter);
     if (built.isErr()) return err(built.error);
     const where = composeWhere([
-      sql`vr.mandate_key = ${mandateKey}`,
-      VOTE_RECORD_PUBLIC,
+      sql`vp.mandate_key = ${mandateKey}`,
+      votePositionPopulation('vp'),
       VOTE_PUBLIC,
       ...built.value,
     ]);
@@ -2357,12 +2432,21 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     // (vote_date desc, vote_key desc, row_index) — the mandate index has no date.
     try {
       const rows = await db
-        .selectFrom('parliament.vote_records as vr')
-        .innerJoin('parliament.votes as v', 'v.vote_key', 'vr.vote_key')
+        .selectFrom('parliament.vote_positions as vp')
+        .innerJoin(
+          'parliament.vote_observations as vo',
+          'vo.observation_key',
+          'vp.representative_observation_key'
+        )
+        .innerJoin('parliament.votes as v', 'v.vote_key', 'vp.vote_key')
         .select([
-          'vr.vote_key',
-          'vr.row_index',
-          'vr.choice',
+          'vp.position_key',
+          'vp.vote_key',
+          'vo.source_row_index',
+          'vp.effective_choice',
+          'vp.position_status',
+          'vp.observation_count',
+          'vp.observed_choices',
           'v.chamber',
           sql<string | null>`v.vote_date::text`.as('vote_date'),
           'v.title',
@@ -2374,13 +2458,17 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
       const total = rows.length;
       const sorted = rows
         .map((r) => ({
+          positionKey: r.position_key,
           voteKey: r.vote_key,
           chamber: r.chamber,
           voteDate: r.vote_date,
           title: r.title,
           outcome: r.outcome,
-          choice: r.choice,
-          rowIndex: r.row_index,
+          choice: r.effective_choice,
+          positionStatus: r.position_status as ParliamentMemberVote['positionStatus'],
+          observationCount: r.observation_count,
+          observedChoices: observedChoicesOf(r.observed_choices),
+          rowIndex: r.source_row_index,
           billKey: r.bill_key,
         }))
         .sort((a, b) => {
@@ -2388,21 +2476,25 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
           const db2 = b.voteDate ?? '';
           if (da !== db2) return da < db2 ? 1 : -1; // date desc
           if (a.voteKey !== b.voteKey) return a.voteKey < b.voteKey ? 1 : -1; // key desc
-          return a.rowIndex - b.rowIndex;
+          if (a.rowIndex !== b.rowIndex) return a.rowIndex - b.rowIndex;
+          return a.positionKey.localeCompare(b.positionKey);
         });
 
       let startIdx = 0;
       if (page.after !== undefined) {
         const dec = decodeCursor(page.after, { sort: 'memberVote', dir: 'desc', fhash });
         if (dec.isErr()) return err(dec.error);
-        const keys = requireCursorKeys(dec.value.keys, 3, [2]);
+        const keys = requireCursorKeys(dec.value.keys, 4, [2]);
         if (keys.isErr()) return err(keys.error);
-        const [kDate = '', kKey = '', kRow = '0'] = keys.value;
+        const [kDate = '', kKey = '', kRow = '0', kPosition = ''] = keys.value;
         startIdx = sorted.findIndex(
           (r) =>
             (r.voteDate ?? '') < kDate ||
             ((r.voteDate ?? '') === kDate && r.voteKey < kKey) ||
-            ((r.voteDate ?? '') === kDate && r.voteKey === kKey && r.rowIndex > Number(kRow))
+            ((r.voteDate ?? '') === kDate &&
+              r.voteKey === kKey &&
+              (r.rowIndex > Number(kRow) ||
+                (r.rowIndex === Number(kRow) && r.positionKey > kPosition)))
         );
         if (startIdx < 0) startIdx = sorted.length;
       }
@@ -2415,7 +2507,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
               sort: 'memberVote',
               dir: 'desc',
               fhash,
-              lastKeys: [last.voteDate ?? '', last.voteKey, last.rowIndex],
+              lastKeys: [last.voteDate ?? '', last.voteKey, last.rowIndex, last.positionKey],
             })
           : null;
       return ok({ items: slice, next, total });
@@ -2437,16 +2529,16 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     const yearStart = `${String(year)}-01-01`;
     const yearEnd = `${String(year)}-12-31`;
     const daysWhere = composeWhere([
-      sql`vr.mandate_key = ${mandateKey}`,
-      VOTE_RECORD_PUBLIC,
+      sql`vp.mandate_key = ${mandateKey}`,
+      votePositionPopulation('vp'),
       VOTE_PUBLIC,
       sql`v.vote_date >= ${yearStart}`,
       sql`v.vote_date <= ${yearEnd}`,
       ...specConds,
     ]);
     const yearsWhere = composeWhere([
-      sql`vr.mandate_key = ${mandateKey}`,
-      VOTE_RECORD_PUBLIC,
+      sql`vp.mandate_key = ${mandateKey}`,
+      votePositionPopulation('vp'),
       VOTE_PUBLIC,
       sql`v.vote_date is not null`,
       ...specConds,
@@ -2454,23 +2546,41 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     try {
       const [dayRows, yearRows] = await Promise.all([
         db
-          .selectFrom('parliament.vote_records as vr')
-          .innerJoin('parliament.votes as v', 'v.vote_key', 'vr.vote_key')
+          .selectFrom('parliament.vote_positions as vp')
+          .innerJoin('parliament.votes as v', 'v.vote_key', 'vp.vote_key')
           .select([
             sql<string>`v.vote_date::text`.as('date'),
             sql<string>`count(*)`.as('total'),
-            sql<string>`count(*) filter (where vr.choice = 'pentru')`.as('pentru'),
-            sql<string>`count(*) filter (where vr.choice = 'impotriva')`.as('impotriva'),
-            sql<string>`count(*) filter (where vr.choice = 'abtinere')`.as('abtinere'),
-            sql<string>`count(*) filter (where vr.choice = 'nu_a_votat')`.as('nu_a_votat'),
+            sql<string>`count(*) filter (
+              where ${votePositionHasEffectiveChoice('vp')}
+                and vp.effective_choice = 'pentru'
+            )`.as('pentru'),
+            sql<string>`count(*) filter (
+              where ${votePositionHasEffectiveChoice('vp')}
+                and vp.effective_choice = 'impotriva'
+            )`.as('impotriva'),
+            sql<string>`count(*) filter (
+              where ${votePositionHasEffectiveChoice('vp')}
+                and vp.effective_choice = 'abtinere'
+            )`.as('abtinere'),
+            sql<string>`count(*) filter (
+              where ${votePositionHasEffectiveChoice('vp')}
+                and vp.effective_choice = 'nu_a_votat'
+            )`.as('nu_a_votat'),
+            sql<string>`count(*) filter (
+              where vp.position_status = 'conflicting_choice'
+            )`.as('conflicting'),
+            sql<string>`count(*) filter (
+              where vp.position_status in ('unknown_marker', 'identity_conflict')
+            )`.as('unknown'),
           ])
           .where(daysWhere)
           .groupBy('v.vote_date')
           .orderBy('v.vote_date', 'asc')
           .execute(),
         db
-          .selectFrom('parliament.vote_records as vr')
-          .innerJoin('parliament.votes as v', 'v.vote_key', 'vr.vote_key')
+          .selectFrom('parliament.vote_positions as vp')
+          .innerJoin('parliament.votes as v', 'v.vote_key', 'vp.vote_key')
           .select(sql<number>`extract(year from v.vote_date)::int`.as('year'))
           .distinct()
           .where(yearsWhere)
@@ -2484,6 +2594,8 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
         impotriva: Number(r.impotriva),
         abtinere: Number(r.abtinere),
         nuAVotat: Number(r.nu_a_votat),
+        conflicting: Number(r.conflicting),
+        unknown: Number(r.unknown),
       }));
       const availableYears = yearRows.map((r) => r.year);
       return ok({ year, days, availableYears });
@@ -2505,9 +2617,10 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
    * Every sub-count is a bounded, index-served `count(*)` over a `mandate_key`
    * slice, and each one MIRRORS EXACTLY the predicates of the list it counts —
    * control: CONTROL_NO_MOTION + CONTROL_PUBLIC; speeches: quarantined=false +
-   * SPEECH_PUBLIC; votes: the `vote_records ⋈ votes` shape of `listMemberVotes`
+   * SPEECH_PUBLIC; votes: the current `vote_positions ⋈ votes` population used by
+   * `listMemberVotes`
    * (so `activityCounts.votes` still equals the unfiltered connection `total`).
-   * `vote_records` stays parent-bounded by `mandate_key` (§3.1).
+   * `vote_positions` stays parent-bounded by `mandate_key` (§3.1).
    */
   const memberActivityCounts = async (
     mandateKey: string
@@ -2532,10 +2645,10 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
       }>`
         select
           (select count(*)
-             from parliament.vote_records vr
-             join parliament.votes v on v.vote_key = vr.vote_key
-            where vr.mandate_key = ${mandateKey}
-              and ${VOTE_RECORD_PUBLIC}
+             from parliament.vote_positions vp
+             join parliament.votes v on v.vote_key = vp.vote_key
+            where vp.mandate_key = ${mandateKey}
+              and ${votePositionPopulation('vp')}
               and ${VOTE_PUBLIC})                                    as votes,
           (select count(*)
              from parliament.control_items c
@@ -2587,6 +2700,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
       async (p) => {
         const rows = await db
           .selectFrom('parliament.control_items as c')
+          .leftJoin('parliament.control_filter_projection as cfp', 'cfp.item_key', 'c.item_key')
           .select([
             'c.item_key',
             'c.control_type',
@@ -2595,6 +2709,15 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
             'c.recipient',
             sql<string | null>`c.item_date::text`.as('item_date'),
             'c.response_status',
+            'cfp.requested_response_mode',
+            'cfp.response_evidence_state',
+            'cfp.response_count',
+            'cfp.response_document_count',
+            sql<string | null>`cfp.first_valid_response_date::text`.as('first_valid_response_date'),
+            sql<string | null>`cfp.latest_valid_response_date::text`.as(
+              'latest_valid_response_date'
+            ),
+            'cfp.recipient_count',
             'c.author_name',
             'c.mandate_key',
             'c.source_url',
@@ -3146,7 +3269,13 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     filter: FilterInput
   ): { conds: RawBuilder<unknown>[]; error?: ApiError } => {
     const physical: Record<string, unknown> = {};
-    for (const key of ['controlType', 'responseStatus', 'itemDate'] as const) {
+    for (const key of [
+      'controlType',
+      'responseStatus',
+      'responseEvidenceState',
+      'responseDate',
+      'itemDate',
+    ] as const) {
       // Read as unknown: FilterInput omits null, but a GraphQL nullable field CAN arrive
       // as null at runtime — skip it (treat null as absent) so the kernel composer never
       // sees a null value (which it would mishandle).
@@ -3210,6 +3339,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     try {
       const rows = await db
         .selectFrom('parliament.control_items as c')
+        .leftJoin('parliament.control_filter_projection as cfp', 'cfp.item_key', 'c.item_key')
         .select([
           'c.item_key',
           'c.control_type',
@@ -3218,6 +3348,13 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
           'c.recipient',
           sql<string | null>`c.item_date::text`.as('item_date'),
           'c.response_status',
+          'cfp.requested_response_mode',
+          'cfp.response_evidence_state',
+          'cfp.response_count',
+          'cfp.response_document_count',
+          sql<string | null>`cfp.first_valid_response_date::text`.as('first_valid_response_date'),
+          sql<string | null>`cfp.latest_valid_response_date::text`.as('latest_valid_response_date'),
+          'cfp.recipient_count',
           'c.author_name',
           'c.mandate_key',
           'c.source_url',
@@ -3349,31 +3486,64 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     }
     try {
       let qb = db
-        .selectFrom('parliament.vote_records as vr')
+        .selectFrom('parliament.vote_positions as vp')
+        .innerJoin(
+          'parliament.vote_observations as vo',
+          'vo.observation_key',
+          'vp.representative_observation_key'
+        )
         .select([
-          'vr.group_name',
-          sql<string>`count(*) filter (where vr.choice = 'pentru')`.as('pentru'),
-          sql<string>`count(*) filter (where vr.choice = 'impotriva')`.as('impotriva'),
-          sql<string>`count(*) filter (where vr.choice = 'abtinere')`.as('abtinere'),
-          sql<string>`count(*) filter (where vr.choice = 'nu_a_votat')`.as('nu_a_votat'),
-          sql<string>`count(distinct vr.vote_key)`.as('vote_count'),
+          'vo.group_name',
+          sql<string>`count(*) filter (
+            where ${votePositionHasEffectiveChoice('vp')}
+              and vp.effective_choice = 'pentru'
+          )`.as('pentru'),
+          sql<string>`count(*) filter (
+            where ${votePositionHasEffectiveChoice('vp')}
+              and vp.effective_choice = 'impotriva'
+          )`.as('impotriva'),
+          sql<string>`count(*) filter (
+            where ${votePositionHasEffectiveChoice('vp')}
+              and vp.effective_choice = 'abtinere'
+          )`.as('abtinere'),
+          sql<string>`count(*) filter (
+            where ${votePositionHasEffectiveChoice('vp')}
+              and vp.effective_choice = 'nu_a_votat'
+          )`.as('nu_a_votat'),
+          sql<string>`count(*) filter (
+            where vp.position_status = 'conflicting_choice'
+          )`.as('conflicting'),
+          sql<string>`count(*) filter (
+            where vp.position_status in ('unknown_marker', 'identity_conflict')
+          )`.as('unknown'),
+          sql<string>`count(distinct vp.vote_key)`.as('vote_count'),
         ])
-        .where('vr.vote_key', 'in', [...voteKeys])
-        .where('vr.privacy_class', '=', 'public')
-        .where('vr.group_name', 'is not', null);
-      if (group !== undefined) qb = qb.where('vr.group_name', '=', group);
-      const rows = await qb.groupBy('vr.group_name').execute();
+        .where('vp.vote_key', 'in', [...voteKeys])
+        .where(votePositionPopulation('vp'))
+        .where('vp.group_name_variant_count', '=', 1)
+        .where('vo.group_name', 'is not', null);
+      if (group !== undefined) qb = qb.where('vo.group_name', '=', group);
+      const rows = await qb.groupBy('vo.group_name').execute();
       return ok(
         rows.map((r) => {
           const pentru = Number(r.pentru);
           const impotriva = Number(r.impotriva);
           const abtinere = Number(r.abtinere);
           const absent = Number(r.nu_a_votat);
-          const total = pentru + impotriva + abtinere + absent;
+          const conflicting = Number(r.conflicting);
+          const unknown = Number(r.unknown);
+          const total = pentru + impotriva + abtinere + absent + conflicting + unknown;
           // M12: largest-remainder (Hamilton) apportionment so the four percentages sum
           // to EXACTLY 100.00 — independent half-up rounding of each could yield 99.99/100.01.
-          const [forPct = 0, againstPct = 0, abstainPct = 0, absentPct = 0] = largestRemainderPct(
-            [pentru, impotriva, abtinere, absent],
+          const [
+            forPct = 0,
+            againstPct = 0,
+            abstainPct = 0,
+            absentPct = 0,
+            conflictingPct = 0,
+            unknownPct = 0,
+          ] = largestRemainderPct(
+            [pentru, impotriva, abtinere, absent, conflicting, unknown],
             total
           );
           // Rice cohesion: |for - against| / (for + against), 0..1. M13: NULL when there
@@ -3388,6 +3558,8 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
             againstPct,
             abstainPct,
             absentPct,
+            conflictingPct,
+            unknownPct,
             cohesionIndex,
             voteCount: Number(r.vote_count),
           };

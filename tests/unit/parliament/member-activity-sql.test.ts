@@ -108,13 +108,14 @@ describe('memberActivityCounts — one statement, mirrored predicates', () => {
     expect(captured).toHaveLength(1);
   });
 
-  it('binds every sub-count to the mandate (vote_records is never scanned unparented)', async () => {
+  it('binds every sub-count to the mandate (vote_positions is never scanned unparented)', async () => {
     const captured = await runCounts();
     const q = captured[0];
     expect(q?.parameters).toEqual(['1:2024:7', '1:2024:7', '1:2024:7', '1:2024:7', '1:2024:7']);
     const text = flat(q?.sql ?? '');
-    expect(text).toContain('from parliament.vote_records vr');
-    expect(text).toContain('where vr.mandate_key = $1');
+    expect(text).toContain('from parliament.vote_positions vp');
+    expect(text).toContain('where vp.mandate_key = $1');
+    expect(text).toContain('"vp"."is_current" = true');
   });
 
   it('mirrors the control-list predicates (no motions, strict public)', async () => {
@@ -132,7 +133,7 @@ describe('memberActivityCounts — one statement, mirrored predicates', () => {
 
   it('strictly gates every other counted activity table', async () => {
     const text = flat((await runCounts())[0]?.sql ?? '');
-    expect(text).toContain("vr.privacy_class = 'public'");
+    expect(text).toContain('"vp"."privacy_class" = \'public\'');
     expect(text).toContain("v.privacy_class = 'public'");
     expect(text).toContain("mi.privacy_class = 'public'");
     expect(text).toContain("d.privacy_class = 'public'");
@@ -211,7 +212,8 @@ describe('other member activity privacy — strict and count/list aligned', () =
     const r = await repo.listMemberVotes('2:2024:100', { first: 20 });
     expect(r.isOk()).toBe(true);
     expect(captured).toHaveLength(1);
-    expect(captured[0]?.sql).toContain("vr.privacy_class = 'public'");
+    expect(captured[0]?.sql).toContain('"vp"."privacy_class" = \'public\'');
+    expect(captured[0]?.sql).toContain('"vp"."is_current" = true');
     expect(captured[0]?.sql).toContain("v.privacy_class = 'public'");
   });
 

@@ -277,6 +277,65 @@ export interface VoteRecordsTable {
   privacy_class: string; // 'public' | 'restricted' (migration 20260701T171000)
 }
 
+/** Lossless parser-versioned ballot evidence; served only through vote_positions. */
+export interface VoteObservationsTable {
+  observation_key: string;
+  vote_key: string;
+  source_row_index: number;
+  native_member_id: string | null;
+  member_name: string | null;
+  group_name: string | null;
+  choice: string | null;
+  mandate_key: string | null;
+  match_method: string | null;
+  source_url: string;
+  privacy_class: string;
+}
+
+/** Current logical ballot positions derived from all immutable observations. */
+export interface VotePositionsTable {
+  position_key: string;
+  vote_key: string;
+  ballot_group_key: string;
+  grouping_method: string;
+  derivation_version: string;
+  native_member_id: string | null;
+  mandate_key: string | null;
+  representative_observation_key: string;
+  position_status: string;
+  effective_choice: string | null;
+  observed_choices: Jsonb;
+  observation_count: number;
+  source_position_count: number;
+  unknown_marker_count: number;
+  identity_count: number;
+  member_name_variant_count: number;
+  group_name_variant_count: number;
+  is_current: boolean;
+  source_url: string;
+  privacy_class: string;
+  derived_at: Tstz;
+}
+
+export interface ControlFilterProjectionTable {
+  item_key: string;
+  requested_response_mode: string | null;
+  response_evidence_state: string;
+  response_count: number;
+  response_document_count: number;
+  first_valid_response_date: DateCol | null;
+  latest_valid_response_date: DateCol | null;
+  recipient_count: number;
+  source_page_observation_key: string | null;
+  source_parse_run_key: string | null;
+  parser_status: string | null;
+  issue_flags: Jsonb;
+  build_version: string;
+  source_url: string;
+  privacy_class: string;
+  built_at: Tstz;
+}
+
 // ── member activity ──────────────────────────────────────────────────────────
 
 export interface ControlItemsTable {
@@ -735,9 +794,12 @@ declare module '@/modules/shared/shell/db/types.js' {
     'parliament.bill_vote_links': BillVoteLinksTable;
     'parliament.votes': ParliamentVotesTable;
     'parliament.vote_records': VoteRecordsTable;
+    'parliament.vote_observations': VoteObservationsTable;
+    'parliament.vote_positions': VotePositionsTable;
     'parliament.vote_capture_coverage': ParliamentVoteCaptureCoverageTable;
     'parliament.vote_capture_gaps': ParliamentVoteCaptureGapsTable;
     'parliament.control_items': ControlItemsTable;
+    'parliament.control_filter_projection': ControlFilterProjectionTable;
     'parliament.member_initiatives': MemberInitiativesTable;
     'parliament.speeches': SpeechesTable;
     'parliament.stenogram_sessions': StenogramSessionsTable;

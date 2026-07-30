@@ -12,7 +12,7 @@
  * VIRTUAL fields (repo-intercepted; the kernel composer SKIPS them, §15.6 / #60b):
  *   - votes.q / bills.q          → Meili-primary; ILIKE fallback needs a bound
  *   - votes.groupVote            → per-vote group PLURALITY, or bare PARTICIPATION
- *                                  when `choice` is omitted (vote_records EXISTS;
+ *                                  when `choice` is omitted (vote_positions EXISTS;
  *                                  COMPOSITE input — `group` required, `choice` not)
  *   - votes.kind                 → bill_key column + ORDERED title regexes
  *                                  (VOTE_KIND_TITLE_RULES; partition incl. a
@@ -27,10 +27,10 @@
  * btree on most filter columns — those predicates are post-scan filters over a
  * few-thousand-row table (cheap by row count, not by index), stated plainly here
  * rather than naming a non-existent index (the "no speculative index" rule).
- * vote_records (4,164,568 rows, verified 2026-07-28) carries ONLY
- * vote_records_pkey (vote_key, row_index) and vote_records_mandate_idx
- * (mandate_key) — there is NO index on group_name or choice, which is why
- * votes.groupVote requires a bounding vote predicate rather than naming one.
+ * Vote serving uses the current, public parliament.vote_positions projection.
+ * Group names come from each position's representative immutable observation.
+ * votes.groupVote remains bounded because group_name is intentionally not a
+ * global search dimension.
  */
 
 import {
@@ -72,6 +72,12 @@ export const CONTROL_TYPES = [
   'question_or_interpellation',
   'interpellation_pm',
   'political_declaration',
+] as const;
+export const CONTROL_RESPONSE_EVIDENCE_STATES = [
+  'observed_response',
+  'no_response_observed',
+  'parse_incomplete',
+  'not_extracted',
 ] as const;
 
 /**
@@ -355,7 +361,7 @@ export const votesFilterSpec: CollectionFilterSpec = {
           type: 'string',
           required: true,
           description:
-            'Group name EXACTLY as vote_records spells it — the ballot vocabulary, NOT the parliamentGroups directory vocabulary (the two disagree: ballots carry e.g. "neafiliat", "Senatori neafiliați", "PIR", "POT"). Case-sensitive, no fuzzy/slug matching: take the value from parliamentVote.groupBreakdown[].groupName or parliamentVoteCohesion[].groupName. An unknown spelling matches nothing rather than guessing.',
+            'Group name EXACTLY as the canonical vote position spells it — the ballot vocabulary, NOT the parliamentGroups directory vocabulary (the two disagree: ballots carry e.g. "neafiliat", "Senatori neafiliați", "PIR", "POT"). Case-sensitive, no fuzzy/slug matching: take the value from parliamentVote.groupBreakdown[].groupName or parliamentVoteCohesion[].groupName. An unknown spelling matches nothing rather than guessing.',
         },
         {
           name: 'choice',
@@ -410,10 +416,11 @@ export const memberVotesFilterSpec: CollectionFilterSpec = {
       name: 'choice',
       type: 'enum',
       ops: ['eq', 'in'],
-      column: { alias: 'vr', column: 'choice' },
+      column: { alias: 'vp', column: 'effective_choice' },
       enumValues: [...VOTE_CHOICES],
       array: true,
-      description: "This member's ballot: pentru | impotriva | abtinere | nu_a_votat.",
+      description:
+        "This member's confirmed effective ballot: pentru | impotriva | abtinere | nu_a_votat. Conflicting and unknown positions match no choice.",
     },
   ],
   sort: { default: 'voteDate', allowed: ['voteDate'] },
@@ -719,6 +726,24 @@ export const controlItemsFilterSpec: CollectionFilterSpec = {
       column: { alias: 'c', column: 'response_status' },
       description:
         'RAW source response status string — NOT an answered/unanswered fact. null means "no structured response status was extracted" (ALL Senate rows + most legacy CDep rows are null because response evidence extraction does not exist for them yet), and non-null values mix requested mode, answer mode, and legacy page-text fragments. Do NOT present isNull as "unanswered"; honest response-evidence fields land with the control evidence topology (PARLIAMENT_READINESS_TODO.md T1).',
+    },
+    {
+      name: 'responseEvidenceState',
+      type: 'enum',
+      ops: ['eq', 'in'],
+      column: { alias: 'cfp', column: 'response_evidence_state' },
+      enumValues: [...CONTROL_RESPONSE_EVIDENCE_STATES],
+      array: true,
+      description:
+        'Typed observed-response evidence. observed_response means at least one parsed response block; no_response_observed applies only to a completed parse; parse_incomplete and not_extracted remain explicit.',
+    },
+    {
+      name: 'responseDate',
+      type: 'date',
+      ops: ['gte', 'lte', 'between'],
+      column: { alias: 'cfp', column: 'latest_valid_response_date' },
+      description:
+        'Latest valid date printed by an observed response block. Requested-answer mode never satisfies this filter.',
     },
     {
       name: 'itemDate',
