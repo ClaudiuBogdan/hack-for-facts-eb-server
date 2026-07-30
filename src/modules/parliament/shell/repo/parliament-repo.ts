@@ -67,6 +67,7 @@ import {
   type VoteRow,
 } from './mappers.js';
 import { makeParliamentStenogramRepo } from './stenogram-repo.js';
+import { PARLIAMENT_BALLOT_PAGE_LIMIT } from '../../core/constants.js';
 import {
   COHESION_VOTE_CAP,
   type ParliamentActivityCounts,
@@ -2233,7 +2234,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     voteKey: string,
     page: CursorPageRequest
   ): Promise<Result<CursorPage<ParliamentBallot>, ApiError>> => {
-    const limit = Math.min(Math.max(page.first, 1), 200);
+    const limit = Math.min(Math.max(page.first, 1), PARLIAMENT_BALLOT_PAGE_LIMIT);
     const fhash = ballotFhash(voteKey);
     const conds: RawBuilder<unknown>[] = [sql`vr.vote_key = ${voteKey}`, VOTE_RECORD_PUBLIC];
     if (page.after !== undefined) {

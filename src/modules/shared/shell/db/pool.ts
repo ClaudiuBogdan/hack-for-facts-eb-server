@@ -71,6 +71,7 @@ const prodTypeParsers = {
 export interface ProdDbConfig {
   readonly connectionString: string;
   readonly max?: number;
+  readonly min?: number;
   readonly connectionTimeoutMillis?: number;
   readonly idleTimeoutMillis?: number;
   readonly ssl?: boolean;
@@ -104,10 +105,15 @@ const stripSslmode = (connectionString: string): string =>
   connectionString.replace(/([?&])sslmode=[a-z-]+&?/iu, '$1').replace(/[?&]$/u, '');
 
 export const createProdDb = (config: ProdDbConfig): ProdDb => {
+  const max = config.max ?? 15;
+  // pg-pool does not preconnect `min` clients; after real traffic it retains
+  // this bounded floor instead of paying a new TLS tunnel handshake after idle.
+  const min = Math.min(config.min ?? 4, max);
   const ssl = sslOptionFor(config);
   const pool = new Pool({
     connectionString: stripSslmode(config.connectionString),
-    max: config.max ?? 15,
+    max,
+    min,
     connectionTimeoutMillis: config.connectionTimeoutMillis ?? 10_000,
     idleTimeoutMillis: config.idleTimeoutMillis ?? 30_000,
     // Read-only default; per-query class timeouts are set in repos (§5.5).

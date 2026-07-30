@@ -25,6 +25,7 @@ import {
   type LegalActByIdLoader,
 } from '@/modules/shared/index.js';
 
+import { PARLIAMENT_BALLOT_PAGE_LIMIT } from '../../core/constants.js';
 import {
   parliamentStenogramErrorCode,
   type ParliamentAgendaFilter,
@@ -61,7 +62,6 @@ import {
   getPersonCareer,
   normalizeSpeechQ,
   getVoteBallots,
-  getVoteDetail,
   listBills,
   listCommittees,
   listControlItems,
@@ -462,10 +462,8 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
       },
 
       parliamentVote: async (_r: unknown, args: { voteKey: string }) => {
-        const detail = unwrap(await getVoteDetail(deps, args.voteKey));
-        if (detail === null) return null;
-        // Flatten: the vote object carries groupBreakdown via the field resolver below.
-        return { ...detail.vote, groupBreakdownData: detail.groupBreakdown };
+        // Fetch only identity here; selected child fields resolve concurrently.
+        return unwrap(await deps.repo.findVote(args.voteKey));
       },
 
       parliamentControlItems: async (
@@ -950,7 +948,7 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
           : unwrap(await deps.repo.voteGroupBreakdown(parent.voteKey)),
       ballots: async (parent: { voteKey: string }, args: { first?: number; after?: string }) => {
         const page = {
-          first: clampFirst(args.first, 200),
+          first: clampFirst(args.first, PARLIAMENT_BALLOT_PAGE_LIMIT),
           ...(args.after != null && { after: args.after }),
         };
         const res = unwrap(await getVoteBallots(deps, parent.voteKey, page));

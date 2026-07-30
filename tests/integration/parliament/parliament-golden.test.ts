@@ -365,7 +365,7 @@ d('Parliament golden (live prod)', () => {
           outcome
           tally { pentru impotriva abtinere nuAVotat present }
           groupBreakdown { groupName pentru }
-          ballots(first:200) { edges { node { rowIndex choice mandateKey constituencyName } } }
+          ballots(first:500) { edges { node { rowIndex choice mandateKey constituencyName } } }
         }
       }`,
       { voteKey: VOTE }
@@ -393,12 +393,11 @@ d('Parliament golden (live prod)', () => {
     );
     expect(andronache.constituencyName).toBe('BRAŞOV');
     // Across the vote, 261/277 ballots resolve to a member with a constituency; the
-    // ballots connection is capped at 200 per page, so the first page surfaces a
-    // substantial (~186) constituency-bearing slice — the județ column is populated.
+    // measured 500-row page covers this full vote in one response.
     const resolvedWithConstituency = vote.ballots.edges.filter(
       (edge) => edge.node.mandateKey !== null && edge.node.constituencyName !== null
     );
-    expect(resolvedWithConstituency.length).toBeGreaterThanOrEqual(150);
+    expect(resolvedWithConstituency).toHaveLength(261);
   });
 
   it('Member and person golden (GraphQL): Gabriel Andronache links mandate 2:2020:12 to person 2264', async () => {

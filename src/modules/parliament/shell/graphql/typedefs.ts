@@ -282,7 +282,7 @@ const objectsAndQuery = /* GraphQL */ `
     sourceUrl: String
     tallyMismatch: Boolean!
     groupBreakdown: [ParliamentVoteGroupBreakdown!]!
-    "Ballots for this vote (cursor). 'first' is capped at 200 — deliberately higher than the 100 root-collection cap because a single vote's ballot set is parent-bound and bounded by chamber size."
+    "Ballots for this vote (cursor). 'first' is capped at 500 — the measured maximum is 447 public ballots (2026-07-30), and the set remains parent-bound by vote."
     ballots(first: Int, after: String): ParliamentBallotConnection!
   }
 
