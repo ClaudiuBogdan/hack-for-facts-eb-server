@@ -200,15 +200,26 @@ export interface AnalysisBreakdownRead {
   readonly rankedBy: 'value' | 'count';
 }
 
-export interface ConcentrationRow {
-  readonly supplierKey: string;
-  /** The basis measure (awarded value sum or record count) as a decimal string. */
-  readonly measure: string;
-}
-
 export interface ConcentrationRead {
-  /** One row per DISTINCT KNOWN supplier in scope (zero-basis suppliers included). */
-  readonly rows: readonly ConcentrationRow[];
+  /** DISTINCT KNOWN suppliers in scope (zero-basis suppliers included). */
+  readonly supplierCount: number;
+  /** Known suppliers whose basis measure is strictly positive. */
+  readonly positiveSupplierCount: number;
+  /**
+   * Exact positive-basis aggregates. Value-basis values are RON decimal
+   * strings; count-basis values are record-count decimal strings.
+   *
+   * Returning these six scalars instead of one row per supplier keeps the
+   * HTTP response bounded while leaving ratio/HHI calculation in core.
+   */
+  readonly measureTotal: string;
+  readonly top1Measure: string;
+  readonly top5Measure: string;
+  /**
+   * Sum of each positive supplier measure squared. Value basis is RON²;
+   * count basis is records².
+   */
+  readonly measureSquaredSum: string;
   readonly totals: AnalysisStatsRead;
   /**
    * The basis measure held by records with an UNKNOWN (NULL) supplier — they
@@ -257,7 +268,7 @@ export interface AnalysisRepo {
     topN: number,
     rankBy: 'value' | 'count'
   ): Promise<Result<AnalysisBreakdownRead, ApiError>>;
-  concentrationRowsFor(
+  concentrationFor(
     route: AnalysisRoute,
     scope: AnalysisScope,
     buildId: string,

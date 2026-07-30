@@ -42,7 +42,6 @@ import type {
   AnalysisRepo,
   AnalysisStatsRead,
   ConcentrationRead,
-  ConcentrationRow,
 } from '../../core/ports.js';
 
 export interface ClickhouseAnalysisConfig {
@@ -294,14 +293,28 @@ const BUCKET_LABEL: Record<SeriesBucket, string> = {
 const escapeString = (value: string): string =>
   `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
 
-/** Exact bani (Int64/Int128 decimal string) → RON decimal string. */
-const baniToRon = (bani: string | null | undefined): string | null => {
-  if (bani === null || bani === undefined) return null;
-  const v = BigInt(bani);
+/** Exact scaled-integer string → decimal string, without float conversion. */
+const scaledIntegerToDecimal = (
+  raw: string | null | undefined,
+  decimalPlaces: number
+): string | null => {
+  if (raw === null || raw === undefined) return null;
+  const v = BigInt(raw);
+  const scale = 10n ** BigInt(decimalPlaces);
   const sign = v < 0n ? '-' : '';
   const abs = v < 0n ? -v : v;
-  return `${sign}${(abs / 100n).toString()}.${(abs % 100n).toString().padStart(2, '0')}`;
+  return `${sign}${(abs / scale).toString()}.${(abs % scale)
+    .toString()
+    .padStart(decimalPlaces, '0')}`;
 };
+
+/** Exact bani (Int64/Int128 decimal string) → RON decimal string. */
+const baniToRon = (bani: string | null | undefined): string | null =>
+  scaledIntegerToDecimal(bani, 2);
+
+/** Exact bani² (Decimal256 scale 0 string) → RON² decimal string. */
+const baniSquaredToRonSquared = (baniSquared: string): string =>
+  scaledIntegerToDecimal(baniSquared, 4) ?? '0.0000';
 
 interface CompiledScope {
   readonly table: string;
@@ -831,7 +844,7 @@ export const makeClickhouseAnalysisRepo = (
     return ok({ buckets, totals, rankedBy } satisfies AnalysisBreakdownRead);
   };
 
-  const concentrationRowsFor: AnalysisRepo['concentrationRowsFor'] = async (
+  const concentrationFor: AnalysisRepo['concentrationFor'] = async (
     route,
     scope,
     _buildId,
@@ -845,39 +858,91 @@ export const makeClickhouseAnalysisRepo = (
     const totalsR = await statsCore(route, scope, true);
     if (totalsR.isErr()) return err(totalsR.error);
     const totals = totalsR.value;
+    const empty: ConcentrationRead = {
+      supplierCount: 0,
+      positiveSupplierCount: 0,
+      measureTotal: basis === 'value' ? '0.00' : '0',
+      top1Measure: basis === 'value' ? '0.00' : '0',
+      top5Measure: basis === 'value' ? '0.00' : '0',
+      measureSquaredSum: basis === 'value' ? '0.0000' : '0',
+      totals,
+      unknownSupplierMeasure: null,
+    };
     if (c.impossible || SUPPLIERLESS_GRAINS.has(route.grain) || p.anchorCol === null) {
-      return ok({ rows: [], totals, unknownSupplierMeasure: null });
+      return ok(empty);
     }
     const measure =
       basis === 'value'
-        ? `toString(ifNull(sumIf(toInt128(${p.anchorCol}), ${c.dated} AND ${p.accept}), 0))`
-        : `toString(countIf(${c.dated}))`;
+        ? `ifNull(sumIf(toInt128(${p.anchorCol}), ${c.dated} AND ${p.accept}), 0)`
+        : `countIf(${c.dated})`;
     // Same bounded-period rule as the breakdown: a supplier present only on
     // undated rows is not in the requested period, so it must not inflate the
-    // distinct-supplier count with a zero-measure row.
-    const rowsR = await query<{ supplier_key: string; measure: string }>(`
-      SELECT supplier_cui AS supplier_key, ${measure} AS measure
-      FROM ${c.table}
-      WHERE ${c.where} AND supplier_cui IS NOT NULL
-      GROUP BY supplier_key
-      ${datedGroupHaving(c)}`);
-    if (rowsR.isErr()) return err(rowsR.error);
-    const unknownR = await query<{ measure: string }>(`
-      SELECT ${measure} AS measure FROM ${c.table}
-      WHERE ${c.where} AND supplier_cui IS NULL`);
-    if (unknownR.isErr()) return err(unknownR.error);
-    const rows: ConcentrationRow[] = rowsR.value.map((row) => ({
-      supplierKey: row.supplier_key,
-      measure: basis === 'value' ? (baniToRon(row.measure) ?? '0.00') : row.measure,
-    }));
-    const unknownRaw = unknownR.value[0]?.measure ?? null;
+    // distinct-supplier count with a zero-measure row. NULL supplier is kept
+    // as one grouped row so its excluded weight is returned by the same
+    // bounded response.
+    const aggregateR = await query<{
+      supplier_count: string;
+      positive_supplier_count: string;
+      measure_total: string;
+      top1_measure: string;
+      top5_measure: string;
+      measure_squared_sum: string;
+      unknown_measure: string;
+    }>(`
+      SELECT
+        toString(countIf(supplier_key IS NOT NULL)) AS supplier_count,
+        toString(countIf(supplier_key IS NOT NULL AND measure > 0)) AS positive_supplier_count,
+        toString(sumIf(toDecimal256(measure, 0),
+                       supplier_key IS NOT NULL AND measure > 0)) AS measure_total,
+        toString(maxIf(toDecimal256(measure, 0),
+                       supplier_key IS NOT NULL AND measure > 0)) AS top1_measure,
+        toString(arraySum(arraySlice(arrayReverseSort(groupArrayIf(
+          toDecimal256(measure, 0), supplier_key IS NOT NULL AND measure > 0
+        )), 1, 5))) AS top5_measure,
+        toString(sumIf(
+          toDecimal256(measure, 0) * toDecimal256(measure, 0),
+          supplier_key IS NOT NULL AND measure > 0
+        )) AS measure_squared_sum,
+        toString(sumIf(toDecimal256(measure, 0), supplier_key IS NULL)) AS unknown_measure
+      FROM (
+        SELECT supplier_cui AS supplier_key, ${measure} AS measure
+        FROM ${c.table}
+        WHERE ${c.where}
+        GROUP BY supplier_key
+        ${datedGroupHaving(c)}
+      )`);
+    if (aggregateR.isErr()) return err(aggregateR.error);
+    const aggregate = aggregateR.value[0];
+    if (aggregate === undefined) return ok(empty);
+    const supplierCountRaw = BigInt(aggregate.supplier_count);
+    const positiveSupplierCountRaw = BigInt(aggregate.positive_supplier_count);
+    if (
+      supplierCountRaw > BigInt(Number.MAX_SAFE_INTEGER) ||
+      positiveSupplierCountRaw > BigInt(Number.MAX_SAFE_INTEGER)
+    ) {
+      return err(databaseError('clickhouse concentration supplier count exceeds safe integer'));
+    }
+    const unknownRaw = aggregate.unknown_measure;
     const unknownSupplierMeasure =
-      unknownRaw === null || unknownRaw === '0'
-        ? null
-        : basis === 'value'
-          ? baniToRon(unknownRaw)
-          : unknownRaw;
-    return ok({ rows, totals, unknownSupplierMeasure } satisfies ConcentrationRead);
+      unknownRaw === '0' ? null : basis === 'value' ? baniToRon(unknownRaw) : unknownRaw;
+    return ok({
+      supplierCount: Number(supplierCountRaw),
+      positiveSupplierCount: Number(positiveSupplierCountRaw),
+      measureTotal:
+        basis === 'value'
+          ? (baniToRon(aggregate.measure_total) ?? '0.00')
+          : aggregate.measure_total,
+      top1Measure:
+        basis === 'value' ? (baniToRon(aggregate.top1_measure) ?? '0.00') : aggregate.top1_measure,
+      top5Measure:
+        basis === 'value' ? (baniToRon(aggregate.top5_measure) ?? '0.00') : aggregate.top5_measure,
+      measureSquaredSum:
+        basis === 'value'
+          ? baniSquaredToRonSquared(aggregate.measure_squared_sum)
+          : aggregate.measure_squared_sum,
+      totals,
+      unknownSupplierMeasure,
+    } satisfies ConcentrationRead);
   };
 
   // Per-build basis coverage (immutable rows — cached for the process life).
@@ -900,7 +965,7 @@ export const makeClickhouseAnalysisRepo = (
     seriesFor,
     distinctSeriesFor,
     breakdownFor,
-    concentrationRowsFor,
+    concentrationFor,
   };
 };
 
@@ -920,6 +985,6 @@ export const makeUnconfiguredAnalysisRepo = (): AnalysisRepo => {
     seriesFor: () => Promise.resolve(unconfigured()),
     distinctSeriesFor: () => Promise.resolve(unconfigured()),
     breakdownFor: () => Promise.resolve(unconfigured()),
-    concentrationRowsFor: () => Promise.resolve(unconfigured()),
+    concentrationFor: () => Promise.resolve(unconfigured()),
   };
 };

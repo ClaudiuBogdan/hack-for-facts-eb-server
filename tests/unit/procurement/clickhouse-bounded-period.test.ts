@@ -62,6 +62,22 @@ const statsResponse = (over: Record<string, unknown> = {}): Response =>
     ],
   });
 
+const concentrationResponse = (over: Record<string, unknown> = {}): Response =>
+  Response.json({
+    data: [
+      {
+        supplier_count: '0',
+        positive_supplier_count: '0',
+        measure_total: '0',
+        top1_measure: '0',
+        top5_measure: '0',
+        measure_squared_sum: '0',
+        unknown_measure: '0',
+        ...over,
+      },
+    ],
+  });
+
 const bodies = (spy: ReturnType<typeof vi.fn>): readonly string[] =>
   spy.mock.calls.map((call) => (call[1] as { body?: string } | undefined)?.body ?? '');
 
@@ -165,11 +181,10 @@ describe('bounded-period supplier keys (concentration)', () => {
     const spy = vi
       .fn()
       .mockResolvedValueOnce(statsResponse())
-      .mockResolvedValueOnce(Response.json({ data: [] }))
-      .mockResolvedValueOnce(Response.json({ data: [{ measure: '0' }] }));
+      .mockResolvedValueOnce(concentrationResponse());
     const repo = makeRepo(spy);
 
-    const result = await repo.concentrationRowsFor(route('contract'), SCOPE_2025, '1', 'value');
+    const result = await repo.concentrationFor(route('contract'), SCOPE_2025, '1', 'value');
 
     expect(result.isOk()).toBe(true);
     const rowsBody = bodies(spy)[1] ?? '';
@@ -181,37 +196,33 @@ describe('bounded-period supplier keys (concentration)', () => {
     const spy = vi
       .fn()
       .mockResolvedValueOnce(statsResponse())
-      .mockResolvedValueOnce(Response.json({ data: [] }))
-      .mockResolvedValueOnce(Response.json({ data: [{ measure: '0' }] }));
+      .mockResolvedValueOnce(concentrationResponse());
     const repo = makeRepo(spy);
-    await repo.concentrationRowsFor(route('contract'), { authorityCui: '36727850' }, '1', 'value');
+    await repo.concentrationFor(route('contract'), { authorityCui: '36727850' }, '1', 'value');
 
     expect(bodies(spy)[1]).not.toContain('HAVING');
   });
 
-  it('reports only the suppliers ClickHouse returns (supplierCount follows the guard)', async () => {
+  it('returns one exact aggregate row, including zero-basis suppliers', async () => {
     const spy = vi
       .fn()
       .mockResolvedValueOnce(statsResponse())
       .mockResolvedValueOnce(
-        Response.json({
-          data: [
-            { supplier_key: '111', measure: '0' },
-            { supplier_key: '222', measure: '0' },
-          ],
-        })
-      )
-      .mockResolvedValueOnce(Response.json({ data: [{ measure: '0' }] }));
+        concentrationResponse({ supplier_count: '2', positive_supplier_count: '0' })
+      );
     const repo = makeRepo(spy);
 
     const read = (
-      await repo.concentrationRowsFor(route('contract'), SCOPE_2025, '1', 'value')
+      await repo.concentrationFor(route('contract'), SCOPE_2025, '1', 'value')
     )._unsafeUnwrap();
 
-    expect(read.rows.map((row) => row.supplierKey)).toEqual(['111', '222']);
-    // Every measure is zero — no positive supplier value exists to concentrate.
-    expect(read.rows.every((row) => row.measure === '0.00')).toBe(true);
+    expect(read.supplierCount).toBe(2);
+    expect(read.positiveSupplierCount).toBe(0);
+    expect(read.measureTotal).toBe('0.00');
+    expect(read.measureSquaredSum).toBe('0.0000');
     expect(read.unknownSupplierMeasure).toBeNull();
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(bodies(spy)[1]).toContain('AS measure_squared_sum');
   });
 });
 

@@ -21,7 +21,7 @@ import { fakeAnalysisRepo, statsRead, verdict, type FakeBreakdownRead } from './
 
 import type { AnalysisScope } from '@/modules/procurement/core/analysis-scope.js';
 import type { GenerationQuality } from '@/modules/procurement/core/gate-v2.js';
-import type { ConcentrationRow } from '@/modules/procurement/core/ports.js';
+import type { ConcentrationRead } from '@/modules/procurement/core/ports.js';
 
 /** Contract spend allows, so the money verdicts below are about the DATA, not the gate. */
 const SPENDING_QUALITY: GenerationQuality = {
@@ -169,19 +169,21 @@ describe('supplier breakdown with no supplier-attributable money', () => {
 
 describe('concentration with no supplier-attributable money', () => {
   /** Ten dated known suppliers, none of them holding attributable money. */
-  const zeroRows: readonly ConcentrationRow[] = Array.from({ length: 10 }, (_, i) => ({
-    supplierKey: `4${String(i).padStart(6, '0')}`,
-    measure: '0.00',
-  }));
+  const zeroConcentration: ConcentrationRead = {
+    supplierCount: 10,
+    positiveSupplierCount: 0,
+    measureTotal: '0.00',
+    top1Measure: '0.00',
+    top5Measure: '0.00',
+    measureSquaredSum: '0.0000',
+    totals: ALL_WITHHELD_TOTALS,
+    unknownSupplierMeasure: null,
+  };
 
   it('counts the dated known suppliers but leaves every share null', async () => {
     const { repo } = fakeAnalysisRepo({
       quality: SPENDING_QUALITY,
-      concentration: {
-        rows: zeroRows,
-        totals: ALL_WITHHELD_TOTALS,
-        unknownSupplierMeasure: null,
-      },
+      concentration: zeroConcentration,
     });
 
     const blocks = (
@@ -199,11 +201,7 @@ describe('concentration with no supplier-attributable money', () => {
   it('publishes the withheld consortium mass as a structured amount', async () => {
     const { repo } = fakeAnalysisRepo({
       quality: SPENDING_QUALITY,
-      concentration: {
-        rows: zeroRows,
-        totals: ALL_WITHHELD_TOTALS,
-        unknownSupplierMeasure: null,
-      },
+      concentration: zeroConcentration,
     });
 
     const blocks = (
@@ -220,11 +218,7 @@ describe('concentration with no supplier-attributable money', () => {
   it('quotes no amount for a value-bounded scope (the number would be silently collapsed)', async () => {
     const { repo } = fakeAnalysisRepo({
       quality: SPENDING_QUALITY,
-      concentration: {
-        rows: zeroRows,
-        totals: ALL_WITHHELD_TOTALS,
-        unknownSupplierMeasure: null,
-      },
+      concentration: zeroConcentration,
     });
 
     const blocks = (
@@ -245,11 +239,7 @@ describe('concentration with no supplier-attributable money', () => {
   it('withholds the amount when the spend gate abstains for the grain', async () => {
     const { repo } = fakeAnalysisRepo({
       quality: { ...SPENDING_QUALITY, contract: verdict({ spend: 'abstain', value: 0.76 }) },
-      concentration: {
-        rows: zeroRows,
-        totals: ALL_WITHHELD_TOTALS,
-        unknownSupplierMeasure: null,
-      },
+      concentration: zeroConcentration,
     });
 
     const blocks = (

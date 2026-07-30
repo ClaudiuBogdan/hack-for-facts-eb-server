@@ -253,7 +253,7 @@ describe('association-dedup money routing (design r3, user decisions D3=C/D8)', 
 
   it('concentration always uses supplier money (association money never enters HHI)', async () => {
     const { repo, fetchSpy } = makeRepo();
-    await repo.concentrationRowsFor(route('contract'), {}, '1', 'value');
+    await repo.concentrationFor(route('contract'), {}, '1', 'value');
     for (let i = 0; i < fetchSpy.mock.calls.length; i += 1) {
       const body = bodyOf(fetchSpy, i);
       if (body.includes('sumIf')) expect(body).toContain('value_awarded_supplier_bani');

@@ -1116,25 +1116,26 @@ export const analysisConcentration = async (
       continue;
     }
 
-    const readR = await deps.analysisRepo.concentrationRowsFor(
-      route,
-      input.scope,
-      gen.buildId,
-      basis
-    );
+    const readR = await deps.analysisRepo.concentrationFor(route, input.scope, gen.buildId, basis);
     if (readR.isErr()) return err(readR.error);
-    const { rows, totals, unknownSupplierMeasure } = readR.value;
+    const {
+      supplierCount,
+      positiveSupplierCount,
+      measureTotal,
+      top1Measure,
+      top5Measure,
+      measureSquaredSum,
+      totals,
+      unknownSupplierMeasure,
+    } = readR.value;
 
     // supplierCount = distinct KNOWN suppliers in scope; HHI/top shares are
-    // computed over the positive-basis subset only — both facts are disclosed.
-    const measures = rows.map((r) => new Decimal(r.measure)).filter((v) => v.greaterThan(0));
-    const total = measures.reduce((acc, v) => acc.plus(v), new Decimal(0));
-    const sorted = [...measures].sort((a, b) => b.comparedTo(a));
-    const top1 = sorted[0] ?? new Decimal(0);
-    const top5 = sorted.slice(0, 5).reduce((acc, v) => acc.plus(v), new Decimal(0));
-    const hhi = total.greaterThan(0)
-      ? measures.reduce((acc, v) => acc.plus(v.div(total).pow(2)), new Decimal(0))
-      : null;
+    // computed over the positive-basis subset only. ClickHouse returns exact
+    // aggregate scalars; core retains the business calculation and rounding.
+    const total = new Decimal(measureTotal);
+    const top1 = new Decimal(top1Measure);
+    const top5 = new Decimal(top5Measure);
+    const hhi = total.greaterThan(0) ? new Decimal(measureSquaredSum).div(total.pow(2)) : null;
 
     // Concentration always runs on supplier money: HHI/top shares are computed
     // over the ATTRIBUTABLE mass only — the withheld share is disclosed (as a
@@ -1161,7 +1162,7 @@ export const analysisConcentration = async (
     const basisLabel = basis === 'value' ? 'awarded value' : 'record count';
     const semanticsCaveats = [
       ...withheldD.caveats,
-      `HHI/top shares are computed over known suppliers with positive ${basisLabel} (${String(measures.length)} of ${String(rows.length)} known suppliers)`,
+      `HHI/top shares are computed over known suppliers with positive ${basisLabel} (${String(positiveSupplierCount)} of ${String(supplierCount)} known suppliers)`,
       ...(unknownSupplierMeasure !== null && d(unknownSupplierMeasure).greaterThan(0)
         ? [
             `records with an unknown supplier are excluded from concentration and hold ${unknownSupplierMeasure} of ${basisLabel} in scope`,
@@ -1172,12 +1173,12 @@ export const analysisConcentration = async (
     blocks.push({
       grain,
       basis,
-      supplierCount: rows.length,
+      supplierCount,
       top1Share: total.greaterThan(0) ? top1.div(total).toFixed(RATIO_DP) : null,
       top5Share: total.greaterThan(0) ? top5.div(total).toFixed(RATIO_DP) : null,
       hhi: hhi !== null ? hhi.toFixed(RATIO_DP) : null,
       // Null (not zero) when no positive-basis supplier was observed (S8).
-      totalRon: basis === 'value' && measures.length > 0 ? total.toFixed(MONEY_DP) : null,
+      totalRon: basis === 'value' && positiveSupplierCount > 0 ? total.toFixed(MONEY_DP) : null,
       valueWithheldAssociationSum:
         withheldD.ron !== null ? d(withheldD.ron).toFixed(MONEY_DP) : null,
       meta: buildEnvelope(

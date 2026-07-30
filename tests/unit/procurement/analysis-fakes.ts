@@ -163,10 +163,19 @@ export const fakeAnalysisRepo = (options: FakeAnalysisRepoOptions = {}): FakeAna
       };
       return okp({ ...fixture, rankedBy: fixture.rankedBy ?? rankBy });
     },
-    concentrationRowsFor: (route, _scope, _buildId, basis) => {
-      record('concentrationRowsFor', route, [basis]);
+    concentrationFor: (route, _scope, _buildId, basis) => {
+      record('concentrationFor', route, [basis]);
       return okp(
-        options.concentration ?? { rows: [], totals: statsRead(), unknownSupplierMeasure: null }
+        options.concentration ?? {
+          supplierCount: 0,
+          positiveSupplierCount: 0,
+          measureTotal: '0',
+          top1Measure: '0',
+          top5Measure: '0',
+          measureSquaredSum: '0',
+          totals: statsRead(),
+          unknownSupplierMeasure: null,
+        }
       );
     },
   };

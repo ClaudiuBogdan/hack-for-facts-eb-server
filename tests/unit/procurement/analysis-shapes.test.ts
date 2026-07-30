@@ -275,12 +275,16 @@ describe('analysisBreakdown — topN contract', () => {
 });
 
 describe('analysisConcentration — basis forcing + Decimal outputs', () => {
-  const rows = [
-    { supplierKey: 'A', measure: '600.00' },
-    { supplierKey: 'B', measure: '300.00' },
-    { supplierKey: 'C', measure: '100.00' },
-  ];
-  const read = { rows, totals: statsRead(), unknownSupplierMeasure: null };
+  const read = {
+    supplierCount: 3,
+    positiveSupplierCount: 3,
+    measureTotal: '1000.00',
+    top1Measure: '600.00',
+    top5Measure: '1000.00',
+    measureSquaredSum: '460000.0000',
+    totals: statsRead(),
+    unknownSupplierMeasure: null,
+  };
 
   it('computes HHI/top shares as decimal strings on the value basis', async () => {
     const { repo } = fakeAnalysisRepo({ concentration: read });
@@ -314,7 +318,7 @@ describe('analysisConcentration — basis forcing + Decimal outputs', () => {
     expect(blocks[0]?.totalRon).toBeNull();
     expect(blocks[0]?.meta.answerability).toBe('abstained');
     expect(blocks[0]?.meta.reason).toBe('SPEND_COVERAGE_BELOW_GATE');
-    expect(calls.some((c) => c.method === 'concentrationRowsFor')).toBe(false);
+    expect(calls.some((c) => c.method === 'concentrationFor')).toBe(false);
   });
 });
 
@@ -423,10 +427,12 @@ describe('null money is preserved end-to-end (S8)', () => {
   it('concentration: no positive-basis supplier → totalRon null, count intact', async () => {
     const { repo } = fakeAnalysisRepo({
       concentration: {
-        rows: [
-          { supplierKey: 'A', measure: '0' },
-          { supplierKey: 'B', measure: '0' },
-        ],
+        supplierCount: 2,
+        positiveSupplierCount: 0,
+        measureTotal: '0.00',
+        top1Measure: '0.00',
+        top5Measure: '0.00',
+        measureSquaredSum: '0.0000',
         totals: statsRead({ valueAwardedSum: null }),
         unknownSupplierMeasure: null,
       },
@@ -447,11 +453,12 @@ describe('concentration semantics (S7)', () => {
   it('counts ALL known suppliers, computes HHI over positives, and discloses both + the unknown weight', async () => {
     const { repo } = fakeAnalysisRepo({
       concentration: {
-        rows: [
-          { supplierKey: 'A', measure: '600.00' },
-          { supplierKey: 'B', measure: '400.00' },
-          { supplierKey: 'C', measure: '0' },
-        ],
+        supplierCount: 3,
+        positiveSupplierCount: 2,
+        measureTotal: '1000.00',
+        top1Measure: '600.00',
+        top5Measure: '1000.00',
+        measureSquaredSum: '520000.0000',
         totals: statsRead(),
         unknownSupplierMeasure: '123.45',
       },
@@ -724,10 +731,12 @@ describe('association-withheld disclosure (user decision 2026-07-25, finding 2)'
     const { repo } = fakeAnalysisRepo({
       quality: ALLOW_ALL,
       concentration: {
-        rows: [
-          { supplierKey: 'RO:1', measure: '60.00' },
-          { supplierKey: 'RO:2', measure: '40.00' },
-        ],
+        supplierCount: 2,
+        positiveSupplierCount: 2,
+        measureTotal: '100.00',
+        top1Measure: '60.00',
+        top5Measure: '100.00',
+        measureSquaredSum: '5200.0000',
         totals: statsRead({
           valueAwardedSum: '100.00',
           valueWithheldAssociationSum: '25.00',
@@ -806,10 +815,12 @@ describe('association-withheld disclosure (user decision 2026-07-25, finding 2)'
     // LIVE_LIKE_QUALITY (default): contract spend abstains.
     const { repo } = fakeAnalysisRepo({
       concentration: {
-        rows: [
-          { supplierKey: 'RO:1', measure: '60' },
-          { supplierKey: 'RO:2', measure: '40' },
-        ],
+        supplierCount: 2,
+        positiveSupplierCount: 2,
+        measureTotal: '100',
+        top1Measure: '60',
+        top5Measure: '100',
+        measureSquaredSum: '5200',
         totals: statsRead({ valueAwardedSum: '100.00', valueWithheldAssociationSum: '25.00' }),
         unknownSupplierMeasure: null,
       },
