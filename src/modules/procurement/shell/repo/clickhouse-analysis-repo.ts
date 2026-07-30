@@ -23,10 +23,13 @@
  * DEV-ONLY shortcuts (accepted for the iteration slice, not production):
  *  - scope values are escaped and inlined (parsed/validated upstream);
  *    the production loader/serving path binds parameters;
- *  - breakdown runs top-N + totals as two statements over the immutable
- *    table and derives `other` by exact BigInt subtraction.
+ *  - breakdown derives `other` by exact BigInt subtraction over immutable
+ *    facts. Concurrent identical statements are single-flighted, and compact
+ *    HTTP rows are reconstructed only after their envelope is validated.
  */
 
+import { Type, type Static, type TObject } from '@sinclair/typebox';
+import { Value } from '@sinclair/typebox/value';
 import { err, ok, type Result } from 'neverthrow';
 
 import { databaseError, type ApiError, type Logger } from '@/modules/shared/index.js';
@@ -461,12 +464,154 @@ const EMPTY_STATS: AnalysisStatsRead = {
   valueWithheldAssociationSum: null,
 };
 
+const IntegerStringSchema = Type.String({ pattern: '^-?[0-9]+$' });
+const CountStringSchema = Type.String({ pattern: '^[0-9]+$' });
+const NullableIntegerStringSchema = Type.Union([IntegerStringSchema, Type.Null()]);
+const NullableMonthSchema = Type.Union([
+  Type.String({ pattern: '^[0-9]{4}-[0-9]{2}$' }),
+  Type.Null(),
+]);
+
+const RawStatsRowSchema = Type.Object(
+  {
+    rows: CountStringSchema,
+    with_value: CountStringSchema,
+    with_estimated: CountStringSchema,
+    awarded_bani_out: NullableIntegerStringSchema,
+    estimated_bani_out: NullableIntegerStringSchema,
+    ceiling_bani_out: NullableIntegerStringSchema,
+    mod_adjusted_bani_out: NullableIntegerStringSchema,
+    awarded_matched_bani_out: NullableIntegerStringSchema,
+    min_month: NullableMonthSchema,
+    max_month: NullableMonthSchema,
+    undated_count: CountStringSchema,
+    undated_bani_out: NullableIntegerStringSchema,
+    withheld_bani_out: NullableIntegerStringSchema,
+  },
+  { additionalProperties: false }
+);
+
+const RawSeriesRowSchema = Type.Object(
+  {
+    month: NullableMonthSchema,
+    value: NullableIntegerStringSchema,
+    record_count: CountStringSchema,
+    with_value: CountStringSchema,
+    awarded_bani_out: NullableIntegerStringSchema,
+  },
+  { additionalProperties: false }
+);
+
+const RawDistinctSeriesRowSchema = Type.Object(
+  {
+    bucket: Type.Union([Type.String(), Type.Null()]),
+    value: CountStringSchema,
+    record_count: CountStringSchema,
+    with_value: CountStringSchema,
+    awarded_bani_out: NullableIntegerStringSchema,
+  },
+  { additionalProperties: false }
+);
+
+const RawUnknownBucketRowSchema = Type.Object(
+  {
+    cnt: CountStringSchema,
+    wv: CountStringSchema,
+    awarded_bani: IntegerStringSchema,
+  },
+  { additionalProperties: false }
+);
+
+const RawBucketRowSchema = Type.Object(
+  {
+    key: Type.String(),
+    cnt: CountStringSchema,
+    wv: CountStringSchema,
+    awarded_bani: IntegerStringSchema,
+  },
+  { additionalProperties: false }
+);
+
+const RawConcentrationRowSchema = Type.Object(
+  {
+    supplier_count: CountStringSchema,
+    positive_supplier_count: CountStringSchema,
+    measure_total: CountStringSchema,
+    top1_measure: CountStringSchema,
+    top5_measure: CountStringSchema,
+    measure_squared_sum: CountStringSchema,
+    unknown_measure: IntegerStringSchema,
+  },
+  { additionalProperties: false }
+);
+
+const BasisCoverageRowSchema = Type.Object(
+  {
+    grain: Type.String(),
+    basis: Type.String(),
+    population: Type.String(),
+    coverage: Type.Number(),
+  },
+  { additionalProperties: false }
+);
+
+const ClickhouseCompactResponseSchema = Type.Object(
+  {
+    meta: Type.Array(
+      Type.Object({
+        name: Type.String(),
+        type: Type.String(),
+      })
+    ),
+    data: Type.Array(Type.Array(Type.Unknown())),
+  },
+  { additionalProperties: true }
+);
+
+const compactRows = <S extends TObject>(
+  payload: unknown,
+  rowSchema: S
+): Result<readonly Static<S>[], ApiError> => {
+  if (!Value.Check(ClickhouseCompactResponseSchema, payload)) {
+    return err(databaseError('clickhouse returned an invalid JSONCompact response'));
+  }
+  const names = payload.meta.map((column) => column.name);
+  if (new Set(names).size !== names.length) {
+    return err(databaseError('clickhouse returned duplicate JSONCompact column names'));
+  }
+  const expectedNames = Object.keys(rowSchema.properties);
+  if (
+    names.length !== expectedNames.length ||
+    expectedNames.some((name) => !names.includes(name))
+  ) {
+    return err(databaseError('clickhouse returned unexpected JSONCompact columns'));
+  }
+  const rows: Static<S>[] = [];
+  for (const values of payload.data) {
+    if (values.length !== names.length) {
+      return err(databaseError('clickhouse returned a malformed JSONCompact row'));
+    }
+    const row: unknown = Object.fromEntries(names.map((name, index) => [name, values[index]]));
+    if (!Value.Check(rowSchema, row)) {
+      return err(databaseError('clickhouse returned an invalid JSONCompact row'));
+    }
+    rows.push(row);
+  }
+  return ok(rows);
+};
+
 export const makeClickhouseAnalysisRepo = (
   config: ClickhouseAnalysisConfig,
   activeGeneration: AnalysisRepo['activeGeneration'],
   logger?: Logger
 ): AnalysisRepo => {
-  const query = async <T>(sql: string): Promise<Result<readonly T[], ApiError>> => {
+  const inFlightQueries = new Map<string, Promise<Result<readonly unknown[], ApiError>>>();
+
+  const runQuery = async <S extends TObject>(
+    sql: string,
+    rowSchema: S
+  ): Promise<Result<readonly Static<S>[], ApiError>> => {
+    const startedAt = performance.now();
     try {
       const url = new URL(config.url);
       url.searchParams.set('database', config.database);
@@ -476,7 +621,7 @@ export const makeClickhouseAnalysisRepo = (
       const response = await fetch(url, {
         method: 'POST',
         headers,
-        body: `${sql} FORMAT JSON`,
+        body: `${sql} FORMAT JSONCompact`,
         signal: AbortSignal.timeout(30_000),
       });
       if (!response.ok) {
@@ -489,12 +634,44 @@ export const makeClickhouseAnalysisRepo = (
           databaseError(`clickhouse HTTP ${String(response.status)}: ${body.slice(0, 300)}`)
         );
       }
-      const parsed = (await response.json()) as { data: readonly T[] };
-      return ok(parsed.data);
+      const parsed: unknown = await response.json();
+      const rows = compactRows(parsed, rowSchema);
+      if (rows.isOk()) {
+        const contentLength = response.headers.get('content-length');
+        const parsedContentLength = contentLength === null ? null : Number(contentLength);
+        logger?.debug(
+          {
+            elapsedMs: Number((performance.now() - startedAt).toFixed(1)),
+            responseBytes:
+              parsedContentLength !== null && Number.isFinite(parsedContentLength)
+                ? parsedContentLength
+                : null,
+            rows: rows.value.length,
+            format: 'JSONCompact',
+          },
+          'clickhouse query completed'
+        );
+      }
+      return rows;
     } catch (error) {
       logger?.error({ error: String(error) }, 'clickhouse query error');
       return err(databaseError(`clickhouse unreachable: ${String(error)}`));
     }
+  };
+
+  const query = <S extends TObject>(
+    sql: string,
+    rowSchema: S
+  ): Promise<Result<readonly Static<S>[], ApiError>> => {
+    const pending = inFlightQueries.get(sql);
+    if (pending !== undefined) {
+      return pending as Promise<Result<readonly Static<S>[], ApiError>>;
+    }
+    const started = runQuery(sql, rowSchema).finally(() => {
+      inFlightQueries.delete(sql);
+    });
+    inFlightQueries.set(sql, started);
+    return started;
   };
 
   const statsSelect = (p: GrainSqlProfile, dated: string): string => {
@@ -537,21 +714,7 @@ export const makeClickhouseAnalysisRepo = (
       } AS undated_bani_out`;
   };
 
-  interface RawStats {
-    rows: string;
-    with_value: string;
-    with_estimated: string;
-    awarded_bani_out: string | null;
-    estimated_bani_out: string | null;
-    ceiling_bani_out: string | null;
-    mod_adjusted_bani_out: string | null;
-    awarded_matched_bani_out: string | null;
-    min_month: string | null;
-    max_month: string | null;
-    undated_count: string;
-    undated_bani_out: string | null;
-    withheld_bani_out: string | null;
-  }
+  type RawStats = Static<typeof RawStatsRowSchema>;
 
   const toStats = (row: RawStats | undefined): AnalysisStatsRead =>
     row === undefined
@@ -579,8 +742,9 @@ export const makeClickhouseAnalysisRepo = (
   ): Promise<Result<AnalysisStatsRead, ApiError>> => {
     const c = compileScope(route, scope, supplierMoney);
     if (c.impossible) return ok(EMPTY_STATS);
-    const r = await query<RawStats>(
-      `SELECT ${statsSelect(profileFor(route.grain, supplierMoney), c.dated)} FROM ${c.table} WHERE ${c.where}`
+    const r = await query(
+      `SELECT ${statsSelect(profileFor(route.grain, supplierMoney), c.dated)} FROM ${c.table} WHERE ${c.where}`,
+      RawStatsRowSchema
     );
     return r.map((rows) => toStats(rows[0]));
   };
@@ -646,13 +810,8 @@ export const makeClickhouseAnalysisRepo = (
       p.anchorCol === null
         ? 'NULL'
         : `if(countIf(${p.accept}) = 0, NULL, toString(sumIf(toInt128(${p.anchorCol}), ${p.accept})))`;
-    const r = await query<{
-      month: string | null;
-      value: string | null;
-      record_count: string;
-      with_value: string;
-      awarded_bani_out: string | null;
-    }>(`
+    const r = await query(
+      `
       SELECT
         if(is_undated, NULL, formatDateTime(toStartOfMonth(date_basis), '%Y-%m')) AS month,
         ${expr} AS value,
@@ -662,7 +821,9 @@ export const makeClickhouseAnalysisRepo = (
       FROM ${c.table}
       WHERE ${c.where} AND (${c.dated} OR is_undated)
       GROUP BY month
-      ORDER BY month ASC NULLS LAST`);
+      ORDER BY month ASC NULLS LAST`,
+      RawSeriesRowSchema
+    );
     return r.map((rows) =>
       rows.map((row) => ({
         month: row.month,
@@ -700,13 +861,8 @@ export const makeClickhouseAnalysisRepo = (
         ? 'NULL'
         : `if(countIf(${p.accept}) = 0, NULL, toString(sumIf(toInt128(${p.anchorCol}), ${p.accept})))`;
     const bucketExpr = BUCKET_LABEL[bucket];
-    const r = await query<{
-      bucket: string | null;
-      value: string;
-      record_count: string;
-      with_value: string;
-      awarded_bani_out: string | null;
-    }>(`
+    const r = await query(
+      `
       SELECT
         if(is_undated, NULL, ${bucketExpr}) AS bucket,
         toString(${keyExpr}) AS value,
@@ -716,7 +872,9 @@ export const makeClickhouseAnalysisRepo = (
       FROM ${c.table}
       WHERE ${c.where} AND (${c.dated} OR is_undated)
       GROUP BY bucket
-      ORDER BY bucket ASC NULLS LAST`);
+      ORDER BY bucket ASC NULLS LAST`,
+      RawDistinctSeriesRowSchema
+    );
     return r.map((rows) =>
       rows.map((row) => ({
         bucket: row.bucket,
@@ -770,13 +928,16 @@ export const makeClickhouseAnalysisRepo = (
     // all-zero tie and the answer would claim a money ranking it never made —
     // so the top-N is genuinely re-ranked by record count BEFORE the LIMIT, and
     // the read reports `rankedBy: 'count'`. Costs no extra statement.
-    const unknownR = await query<{ cnt: string; wv: string; awarded_bani: string }>(`
+    const unknownR = await query(
+      `
       SELECT
         toString(countIf(${c.dated})) AS cnt,
         toString(countIf(${c.dated} AND ${p.accept})) AS wv,
         toString(${anchorAgg}) AS awarded_bani
       FROM ${c.table}
-      WHERE ${c.where} AND ${column} IS NULL`);
+      WHERE ${c.where} AND ${column} IS NULL`,
+      RawUnknownBucketRowSchema
+    );
     if (unknownR.isErr()) return err(unknownR.error);
     const unknown = unknownR.value[0] ?? { cnt: '0', wv: '0', awarded_bani: '0' };
 
@@ -784,13 +945,8 @@ export const makeClickhouseAnalysisRepo = (
     const rankedBy: 'value' | 'count' =
       rankBy === 'value' && p.anchorCol !== null && valueBearingInBuckets > 0n ? 'value' : 'count';
     const rankExpr = rankedBy === 'value' ? anchorAgg : `countIf(${c.dated})`;
-    interface RawBucket {
-      key: string;
-      cnt: string;
-      wv: string;
-      awarded_bani: string;
-    }
-    const topR = await query<RawBucket>(`
+    const topR = await query(
+      `
       SELECT ${column} AS key,
         toString(countIf(${c.dated})) AS cnt,
         toString(countIf(${c.dated} AND ${p.accept})) AS wv,
@@ -800,7 +956,9 @@ export const makeClickhouseAnalysisRepo = (
       GROUP BY key
       ${datedGroupHaving(c)}
       ORDER BY ${rankExpr} DESC, key ASC
-      LIMIT ${String(Math.max(1, Math.min(topN, TOPN_SIRUTA_MAX)))}`);
+      LIMIT ${String(Math.max(1, Math.min(topN, TOPN_SIRUTA_MAX)))}`,
+      RawBucketRowSchema
+    );
     if (topR.isErr()) return err(topR.error);
 
     // `other` = dated totals − top buckets − unknown, all exact BigInt.
@@ -880,15 +1038,8 @@ export const makeClickhouseAnalysisRepo = (
     // distinct-supplier count with a zero-measure row. NULL supplier is kept
     // as one grouped row so its excluded weight is returned by the same
     // bounded response.
-    const aggregateR = await query<{
-      supplier_count: string;
-      positive_supplier_count: string;
-      measure_total: string;
-      top1_measure: string;
-      top5_measure: string;
-      measure_squared_sum: string;
-      unknown_measure: string;
-    }>(`
+    const aggregateR = await query(
+      `
       SELECT
         toString(countIf(supplier_key IS NOT NULL)) AS supplier_count,
         toString(countIf(supplier_key IS NOT NULL AND measure > 0)) AS positive_supplier_count,
@@ -910,7 +1061,9 @@ export const makeClickhouseAnalysisRepo = (
         WHERE ${c.where}
         GROUP BY supplier_key
         ${datedGroupHaving(c)}
-      )`);
+      )`,
+      RawConcentrationRowSchema
+    );
     if (aggregateR.isErr()) return err(aggregateR.error);
     const aggregate = aggregateR.value[0];
     if (aggregate === undefined) return ok(empty);
@@ -950,8 +1103,9 @@ export const makeClickhouseAnalysisRepo = (
   const basisCoverage: AnalysisRepo['basisCoverage'] = async (buildId) => {
     const cached = coverageCache.get(buildId);
     if (cached !== undefined) return ok(cached);
-    const r = await query<BasisCoverageRow>(
-      `SELECT grain, basis, population, coverage FROM meta_value_coverage_v2 WHERE build_id = ${escapeString(buildId)}`
+    const r = await query(
+      `SELECT grain, basis, population, coverage FROM meta_value_coverage_v2 WHERE build_id = ${escapeString(buildId)}`,
+      BasisCoverageRowSchema
     );
     if (r.isErr()) return err(r.error);
     coverageCache.set(buildId, r.value);

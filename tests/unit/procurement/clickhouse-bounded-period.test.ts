@@ -20,6 +20,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { makeClickhouseAnalysisRepo } from '@/modules/procurement/shell/repo/clickhouse-analysis-repo.js';
 
+import { compactResponse } from './clickhouse-response.js';
+
 import type { AnalysisScope } from '@/modules/procurement/core/analysis-scope.js';
 import type { AnalysisRoute } from '@/modules/procurement/core/combinations.js';
 import type { AnalysisRepo } from '@/modules/procurement/core/ports.js';
@@ -41,42 +43,38 @@ const SCOPE_2025: AnalysisScope = {
 };
 
 const statsResponse = (over: Record<string, unknown> = {}): Response =>
-  Response.json({
-    data: [
-      {
-        rows: '26',
-        with_value: '0',
-        with_estimated: '0',
-        awarded_bani_out: null,
-        estimated_bani_out: null,
-        ceiling_bani_out: null,
-        mod_adjusted_bani_out: null,
-        awarded_matched_bani_out: null,
-        min_month: '2025-01',
-        max_month: '2025-12',
-        undated_count: '1',
-        undated_bani_out: null,
-        withheld_bani_out: '2226299608300',
-        ...over,
-      },
-    ],
-  });
+  compactResponse([
+    {
+      rows: '26',
+      with_value: '0',
+      with_estimated: '0',
+      awarded_bani_out: null,
+      estimated_bani_out: null,
+      ceiling_bani_out: null,
+      mod_adjusted_bani_out: null,
+      awarded_matched_bani_out: null,
+      min_month: '2025-01',
+      max_month: '2025-12',
+      undated_count: '1',
+      undated_bani_out: null,
+      withheld_bani_out: '2226299608300',
+      ...over,
+    },
+  ]);
 
 const concentrationResponse = (over: Record<string, unknown> = {}): Response =>
-  Response.json({
-    data: [
-      {
-        supplier_count: '0',
-        positive_supplier_count: '0',
-        measure_total: '0',
-        top1_measure: '0',
-        top5_measure: '0',
-        measure_squared_sum: '0',
-        unknown_measure: '0',
-        ...over,
-      },
-    ],
-  });
+  compactResponse([
+    {
+      supplier_count: '0',
+      positive_supplier_count: '0',
+      measure_total: '0',
+      top1_measure: '0',
+      top5_measure: '0',
+      measure_squared_sum: '0',
+      unknown_measure: '0',
+      ...over,
+    },
+  ]);
 
 const bodies = (spy: ReturnType<typeof vi.fn>): readonly string[] =>
   spy.mock.calls.map((call) => (call[1] as { body?: string } | undefined)?.body ?? '');
@@ -98,8 +96,8 @@ describe('bounded-period dimension keys (breakdown)', () => {
     const spy = vi
       .fn()
       .mockResolvedValueOnce(statsResponse())
-      .mockResolvedValueOnce(Response.json({ data: [{ cnt: '0', wv: '0', awarded_bani: '0' }] }))
-      .mockResolvedValueOnce(Response.json({ data: [] }));
+      .mockResolvedValueOnce(compactResponse([{ cnt: '0', wv: '0', awarded_bani: '0' }]))
+      .mockResolvedValueOnce(compactResponse([], ['key', 'cnt', 'wv', 'awarded_bani']));
     const repo = makeRepo(spy);
 
     const result = await repo.breakdownFor(
@@ -124,8 +122,8 @@ describe('bounded-period dimension keys (breakdown)', () => {
     const spy = vi
       .fn()
       .mockResolvedValueOnce(statsResponse())
-      .mockResolvedValueOnce(Response.json({ data: [{ cnt: '0', wv: '0', awarded_bani: '0' }] }))
-      .mockResolvedValueOnce(Response.json({ data: [] }));
+      .mockResolvedValueOnce(compactResponse([{ cnt: '0', wv: '0', awarded_bani: '0' }]))
+      .mockResolvedValueOnce(compactResponse([], ['key', 'cnt', 'wv', 'awarded_bani']));
     const repo = makeRepo(spy);
     await repo.breakdownFor(route('contract'), SCOPE_2025, '1', 'supplier', 10, 'value');
 
@@ -140,8 +138,8 @@ describe('bounded-period dimension keys (breakdown)', () => {
     const spy = vi
       .fn()
       .mockResolvedValueOnce(statsResponse())
-      .mockResolvedValueOnce(Response.json({ data: [{ cnt: '0', wv: '0', awarded_bani: '0' }] }))
-      .mockResolvedValueOnce(Response.json({ data: [] }));
+      .mockResolvedValueOnce(compactResponse([{ cnt: '0', wv: '0', awarded_bani: '0' }]))
+      .mockResolvedValueOnce(compactResponse([], ['key', 'cnt', 'wv', 'awarded_bani']));
     const repo = makeRepo(spy);
     await repo.breakdownFor(
       route('contract'),
@@ -159,9 +157,9 @@ describe('bounded-period dimension keys (breakdown)', () => {
     const spy = vi
       .fn()
       .mockResolvedValueOnce(statsResponse())
-      .mockResolvedValueOnce(Response.json({ data: [{ cnt: '0', wv: '0', awarded_bani: '0' }] }))
+      .mockResolvedValueOnce(compactResponse([{ cnt: '0', wv: '0', awarded_bani: '0' }]))
       .mockResolvedValueOnce(
-        Response.json({ data: [{ key: '23533797', cnt: '4', wv: '0', awarded_bani: '0' }] })
+        compactResponse([{ key: '23533797', cnt: '4', wv: '0', awarded_bani: '0' }])
       );
     const repo = makeRepo(spy);
 
@@ -234,8 +232,8 @@ describe('honest value-ranking fallback (breakdown)', () => {
     const spy = vi
       .fn()
       .mockResolvedValueOnce(withValue('0'))
-      .mockResolvedValueOnce(Response.json({ data: [{ cnt: '0', wv: '0', awarded_bani: '0' }] }))
-      .mockResolvedValueOnce(Response.json({ data: [] }));
+      .mockResolvedValueOnce(compactResponse([{ cnt: '0', wv: '0', awarded_bani: '0' }]))
+      .mockResolvedValueOnce(compactResponse([], ['key', 'cnt', 'wv', 'awarded_bani']));
     const repo = makeRepo(spy);
 
     const read = (
@@ -254,8 +252,8 @@ describe('honest value-ranking fallback (breakdown)', () => {
     const spy = vi
       .fn()
       .mockResolvedValueOnce(withValue('5', { awarded_bani_out: '2226299608300' }))
-      .mockResolvedValueOnce(Response.json({ data: [{ cnt: '0', wv: '0', awarded_bani: '0' }] }))
-      .mockResolvedValueOnce(Response.json({ data: [] }));
+      .mockResolvedValueOnce(compactResponse([{ cnt: '0', wv: '0', awarded_bani: '0' }]))
+      .mockResolvedValueOnce(compactResponse([], ['key', 'cnt', 'wv', 'awarded_bani']));
     const repo = makeRepo(spy);
 
     const read = (
@@ -273,9 +271,9 @@ describe('honest value-ranking fallback (breakdown)', () => {
       // All five valued rows have a NULL dimension key → no named bucket can
       // carry money, so a value ORDER BY over the named keys is still a tie.
       .mockResolvedValueOnce(
-        Response.json({ data: [{ cnt: '5', wv: '5', awarded_bani: '2226299608300' }] })
+        compactResponse([{ cnt: '5', wv: '5', awarded_bani: '2226299608300' }])
       )
-      .mockResolvedValueOnce(Response.json({ data: [] }));
+      .mockResolvedValueOnce(compactResponse([], ['key', 'cnt', 'wv', 'awarded_bani']));
     const repo = makeRepo(spy);
 
     const read = (
@@ -290,8 +288,8 @@ describe('honest value-ranking fallback (breakdown)', () => {
     const spy = vi
       .fn()
       .mockResolvedValueOnce(withValue('5', { awarded_bani_out: '2226299608300' }))
-      .mockResolvedValueOnce(Response.json({ data: [{ cnt: '0', wv: '0', awarded_bani: '0' }] }))
-      .mockResolvedValueOnce(Response.json({ data: [] }));
+      .mockResolvedValueOnce(compactResponse([{ cnt: '0', wv: '0', awarded_bani: '0' }]))
+      .mockResolvedValueOnce(compactResponse([], ['key', 'cnt', 'wv', 'awarded_bani']));
     const repo = makeRepo(spy);
 
     const read = (
@@ -305,8 +303,8 @@ describe('honest value-ranking fallback (breakdown)', () => {
     const spy = vi
       .fn()
       .mockResolvedValueOnce(withValue('0'))
-      .mockResolvedValueOnce(Response.json({ data: [{ cnt: '0', wv: '0', awarded_bani: '0' }] }))
-      .mockResolvedValueOnce(Response.json({ data: [] }));
+      .mockResolvedValueOnce(compactResponse([{ cnt: '0', wv: '0', awarded_bani: '0' }]))
+      .mockResolvedValueOnce(compactResponse([], ['key', 'cnt', 'wv', 'awarded_bani']));
     const repo = makeRepo(spy);
 
     const read = (

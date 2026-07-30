@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { makeClickhouseAnalysisRepo } from '@/modules/procurement/shell/repo/clickhouse-analysis-repo.js';
 
+import { compactResponse } from './clickhouse-response.js';
+
 import type { AnalysisRoute } from '@/modules/procurement/core/combinations.js';
 import type { AnalysisRepo } from '@/modules/procurement/core/ports.js';
 
@@ -11,21 +13,23 @@ const activeGeneration: AnalysisRepo['activeGeneration'] = () =>
   Promise.reject(new Error('activeGeneration is not used by these tests'));
 
 const emptyStatsResponse = (): Response =>
-  Response.json({
-    data: [
-      {
-        rows: '0',
-        with_value: '0',
-        with_estimated: '0',
-        awarded_bani_out: null,
-        estimated_bani_out: null,
-        min_month: null,
-        max_month: null,
-        undated_count: '0',
-        undated_bani_out: null,
-      },
-    ],
-  });
+  compactResponse([
+    {
+      rows: '0',
+      with_value: '0',
+      with_estimated: '0',
+      awarded_bani_out: null,
+      estimated_bani_out: null,
+      ceiling_bani_out: null,
+      mod_adjusted_bani_out: null,
+      awarded_matched_bani_out: null,
+      min_month: null,
+      max_month: null,
+      undated_count: '0',
+      undated_bani_out: null,
+      withheld_bani_out: null,
+    },
+  ]);
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -146,8 +150,8 @@ describe('ClickHouse row-filter and dimension scope compilation', () => {
     const fetchSpy = vi
       .fn()
       .mockResolvedValueOnce(emptyStatsResponse())
-      .mockResolvedValueOnce(Response.json({ data: [{ cnt: '0', wv: '0', awarded_bani: '0' }] }))
-      .mockResolvedValueOnce(Response.json({ data: [] }));
+      .mockResolvedValueOnce(compactResponse([{ cnt: '0', wv: '0', awarded_bani: '0' }]))
+      .mockResolvedValueOnce(compactResponse([], ['key', 'cnt', 'wv', 'awarded_bani']));
     vi.stubGlobal('fetch', fetchSpy);
     const repo = makeClickhouseAnalysisRepo(
       { url: 'http://clickhouse.test', database: 'proto' },
