@@ -6,14 +6,14 @@
  *   (A) NO `choice` — PARTICIPATION: every vote the group cast at least one ballot
  *       on. A bare semi-join, no argmax.
  *   (B) WITH `choice` — the group's derived PLURALITY stance. "PSD voted pentru" is
- *       not a fact at group grain: members each hold a logical position. The three
+ *       not a fact in vote_records: 91 members each cast their own ballot. The three
  *       rules that make that derivation honest are what this file pins:
  *         1. PLURALITY over ALL FOUR choices — nu_a_votat included, so "the group
  *            mostly did not show up" is expressible and a vote CAN be attributed.
  *         2. A TIE matches NEITHER tied choice (strict `>` against every other
  *            choice) — the group did not take that position, and sort order must not
  *            invent one. This is also why (B) is a STRICT subset of (A).
- *         3. EXACT group_name matching — source observations and parliamentGroups
+ *         3. EXACT group_name matching — vote_records and the parliamentGroups
  *            nomenclator disagree on vocabulary, and fuzzy-bridging would silently
  *            answer a different question.
  *
@@ -198,13 +198,14 @@ describe('groupVote — the plurality predicate that ships', () => {
       groupVote: { group: 'PSD', choice: 'pentru' },
     });
     // Exactly three rival comparisons — one per other choice.
-    const comparisons = captured.sql.match(/> count\(\*\) filter/gu) ?? [];
+    const comparisons =
+      captured.sql.match(
+        /count\(\*\) filter \(where vr\.choice = \$\d+\) > count\(\*\) filter \(where vr\.choice = \$\d+\)/gu
+      ) ?? [];
     expect(comparisons).toHaveLength(3);
     // TIE RULE: strict `>` only — a `>=` would let a tied group match BOTH sides of
     // its own split (real case: cdep:37014, PSD 38 pentru / 38 nu_a_votat).
-    expect(captured.sql).not.toContain('>=');
-    expect(captured.sql).toContain('"gp"."position_status" = \'confirmed\'');
-    expect(captured.sql).toContain('"gp"."effective_choice" is not null');
+    expect(captured.sql).not.toMatch(/count\(\*\) filter \(where vr\.choice = \$\d+\) >=/u);
     // The bound values pair the target against each rival exactly once.
     expect(predicateParams(captured)).toEqual([
       'PSD',
@@ -249,8 +250,7 @@ describe('groupVote — the plurality predicate that ships', () => {
       chamber: { eq: 'camera_deputatilor' },
       groupVote: { group: 'PSD', choice: 'pentru' },
     });
-    expect(sql).toContain('having count(*) filter');
-    expect(sql).toMatch(/gp\.effective_choice = \$\d+\s*\) > 0 and/u);
+    expect(sql).toMatch(/having count\(\*\) filter \(where vr\.choice = \$\d+\) > 0 and/u);
   });
 
   it('matches group_name EXACTLY — no ilike, no fold, no slug bridging', async () => {
@@ -259,28 +259,26 @@ describe('groupVote — the plurality predicate that ships', () => {
       // The ballot vocabulary, diacritics and all — passed through untouched.
       groupVote: { group: 'Senatori neafiliați', choice: 'pentru' },
     });
-    expect(captured.sql).toMatch(/go\.group_name = \$\d+/u);
+    expect(captured.sql).toMatch(/vr\.group_name = \$\d+/u);
     expect(captured.parameters).toContain('Senatori neafiliați');
-    expect(captured.sql).not.toContain('go.group_name ilike');
-    expect(captured.sql).not.toContain('translate(go.group_name');
-    expect(captured.sql).not.toContain('lower(go.group_name');
+    expect(captured.sql).not.toContain('vr.group_name ilike');
+    expect(captured.sql).not.toContain('translate(vr.group_name');
+    expect(captured.sql).not.toContain('lower(vr.group_name');
   });
 
-  it('correlates current positions on vote_key and joins one representative observation', async () => {
+  it('correlates on vote_key so the aggregate rides vote_records_pkey', async () => {
     const { sql } = await compileVotes({
       chamber: { eq: 'camera_deputatilor' },
       groupVote: { group: 'PSD', choice: 'pentru' },
     });
-    expect(sql).toContain('exists (select 1 from parliament.vote_positions gp');
-    expect(sql).toContain('gp.vote_key = v.vote_key');
-    expect(sql).toContain('go.observation_key = gp.representative_observation_key');
-    expect(sql).toContain('"gp"."is_current" = true');
-    expect(sql).toContain('gp.group_name_variant_count = 1');
+    expect(sql).toContain(
+      'exists (select 1 from parliament.vote_records vr where vr.vote_key = v.vote_key'
+    );
   });
 
-  it('emits no position predicate when groupVote is absent', async () => {
+  it('emits NO vote_records predicate when groupVote is absent', async () => {
     const { sql } = await compileVotes({ chamber: { eq: 'camera_deputatilor' } });
-    expect(sql).not.toContain('vote_positions');
+    expect(sql).not.toContain('vote_records');
   });
 });
 
@@ -290,9 +288,9 @@ describe('groupVote — the PARTICIPATION predicate (choice omitted)', () => {
       chamber: { eq: 'camera_deputatilor' },
       groupVote: { group: 'PSD' },
     });
-    expect(captured.sql).toContain('exists (select 1 from parliament.vote_positions gp');
-    expect(captured.sql).toContain('go.group_name = $2');
-    expect(captured.sql).toContain('"gp"."is_current" = true');
+    expect(captured.sql).toContain(
+      "exists (select 1 from parliament.vote_records vr where vr.vote_key = v.vote_key and vr.group_name = $2 and vr.privacy_class = 'public')"
+    );
     // The four-way tally belongs to the plurality reading only — participation must
     // not pay for it, and must not inherit its tie rule.
     expect(captured.sql).not.toContain('count(*) filter');
@@ -301,14 +299,13 @@ describe('groupVote — the PARTICIPATION predicate (choice omitted)', () => {
     expect(captured.parameters.slice(1, -1)).toEqual(['PSD']);
   });
 
-  it('never constrains effective choice or status — conflicts still participate', async () => {
+  it('never constrains vr.choice — every one of the four counts as taking part', async () => {
     const { sql } = await compileVotes({
       chamber: { eq: 'camera_deputatilor' },
       groupVote: { group: 'PSD' },
     });
     // Including nu_a_votat: those are RECORDED ballots, so the group was on the sheet.
-    expect(sql).not.toContain('effective_choice');
-    expect(sql).not.toContain('position_status');
+    expect(sql).not.toContain('vr.choice');
   });
 
   it('matches group_name EXACTLY here too — no ilike, no fold', async () => {
@@ -317,8 +314,8 @@ describe('groupVote — the PARTICIPATION predicate (choice omitted)', () => {
       groupVote: { group: 'Senatori neafiliați' },
     });
     expect(captured.parameters).toContain('Senatori neafiliați');
-    expect(captured.sql).not.toContain('go.group_name ilike');
-    expect(captured.sql).not.toContain('lower(go.group_name');
+    expect(captured.sql).not.toContain('vr.group_name ilike');
+    expect(captured.sql).not.toContain('lower(vr.group_name');
   });
 
   it('the plurality predicate is the SAME scoped rows plus an argmax (B ⊂ A)', async () => {
@@ -332,11 +329,10 @@ describe('groupVote — the PARTICIPATION predicate (choice omitted)', () => {
     });
     // The plurality SQL is the participation SQL with a `having` appended, which is
     // the structural reason a stance can only ever narrow the participation set.
-    const scoped = 'select 1 from parliament.vote_positions gp';
+    const scoped =
+      "select 1 from parliament.vote_records vr where vr.vote_key = v.vote_key and vr.group_name = $2 and vr.privacy_class = 'public'";
     expect(participation.sql).toContain(scoped);
-    expect(plurality.sql).toContain(scoped);
-    expect(participation.sql).not.toContain('having');
-    expect(plurality.sql).toContain('having');
+    expect(plurality.sql).toContain(`${scoped} having`);
   });
 });
 

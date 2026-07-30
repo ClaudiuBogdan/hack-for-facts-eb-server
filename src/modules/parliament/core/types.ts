@@ -276,27 +276,14 @@ export interface ParliamentVoteGroupBreakdown {
   readonly impotriva: number;
   readonly abtinere: number;
   readonly nuAVotat: number;
-  readonly conflicting: number;
-  readonly unknown: number;
 }
 
-export type ParliamentVotePositionStatus =
-  | 'confirmed'
-  | 'conflicting_choice'
-  | 'unknown_marker'
-  | 'identity_conflict';
-
-/** A canonical ballot position, retaining its lossless observation summary. */
+/** A ballot row (parented by a vote or a member — never an unparented scan). */
 export interface ParliamentBallot {
-  readonly positionKey: string;
   readonly rowIndex: number;
   readonly memberName: string | null; // raw source name (audit)
   readonly groupName: string | null; // raw group AT vote
-  /** Effective choice exists only for a confirmed position. */
-  readonly choice: string | null;
-  readonly positionStatus: ParliamentVotePositionStatus;
-  readonly observationCount: number;
-  readonly observedChoices: readonly string[];
+  readonly choice: string | null; // 'pentru'|'impotriva'|'abtinere'|'nu_a_votat'
   readonly mandateKey: string | null; // nullable BY DESIGN
   readonly matchMethod: string | null;
   // constituencyName is JOINed from the resolved member (mandate_key → members):
@@ -308,16 +295,12 @@ export interface ParliamentBallot {
 
 /** A member's ballot joined to its vote (the `listMemberVotes` row). */
 export interface ParliamentMemberVote {
-  readonly positionKey: string;
   readonly voteKey: string;
   readonly chamber: string;
   readonly voteDate: string | null;
   readonly title: string | null;
   readonly outcome: string | null;
-  readonly choice: string | null; // null for conflicting/unknown positions
-  readonly positionStatus: ParliamentVotePositionStatus;
-  readonly observationCount: number;
-  readonly observedChoices: readonly string[];
+  readonly choice: string | null; // this member's ballot
   readonly rowIndex: number;
   readonly billKey: string | null;
 }
@@ -330,8 +313,6 @@ export interface ParliamentMemberVoteActivityDay {
   readonly impotriva: number;
   readonly abtinere: number;
   readonly nuAVotat: number;
-  readonly conflicting: number;
-  readonly unknown: number;
 }
 
 /** A member's per-day voting activity for one year + the years with any activity. */
@@ -357,19 +338,6 @@ export interface ParliamentControlItem {
   readonly recipient: string | null;
   readonly itemDate: string | null;
   readonly responseStatus: string | null;
-  /** Requested mode is source intent, never proof that a response exists. */
-  readonly requestedResponseMode: string | null;
-  readonly responseEvidenceState:
-    | 'observed_response'
-    | 'no_response_observed'
-    | 'parse_incomplete'
-    | 'not_extracted'
-    | null;
-  readonly responseCount: number;
-  readonly responseDocumentCount: number;
-  readonly firstValidResponseDate: string | null;
-  readonly latestValidResponseDate: string | null;
-  readonly recipientCount: number;
   readonly chamber: string | null; // senat | camera_deputatilor, derived from mandate_key prefix (1:/2:)
   readonly authorName: string | null;
   readonly mandateKey: string | null;
@@ -539,11 +507,7 @@ export interface ParliamentVoteCoverageRange {
 }
 
 export type ParliamentVoteGapStatus =
-  | 'FAILED'
-  | 'SKIPPED'
-  | 'PARSER_EMPTY'
-  | 'PROVISIONAL'
-  | 'SOURCE_LIMITED';
+  'FAILED' | 'SKIPPED' | 'PARSER_EMPTY' | 'PROVISIONAL' | 'SOURCE_LIMITED';
 
 export interface ParliamentVoteCoverageGap {
   readonly date: string;
@@ -667,8 +631,6 @@ export interface ParliamentGroupCohesion {
   readonly againstPct: number;
   readonly abstainPct: number;
   readonly absentPct: number;
-  readonly conflictingPct: number;
-  readonly unknownPct: number;
   readonly cohesionIndex: number | null; // Rice-style 0..1; null when no decided votes (M13)
   readonly voteCount: number;
 }
@@ -1133,9 +1095,7 @@ export interface ParliamentSearchUnavailableError {
 
 /** Every stenogram surface returns this union; it WIDENS the kernel `ApiError`. */
 export type ParliamentStenogramError =
-  | ApiError
-  | ParliamentTranscriptUnavailableError
-  | ParliamentSearchUnavailableError;
+  ApiError | ParliamentTranscriptUnavailableError | ParliamentSearchUnavailableError;
 
 export const transcriptUnavailable = (
   message: string,

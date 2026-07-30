@@ -204,12 +204,7 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
       voteKey,
       edges: page.items.map((node) => ({
         node,
-        cursor: buildNextCursor({
-          sort: 'rowIndex',
-          dir: 'asc',
-          fhash,
-          lastKeys: [node.rowIndex, node.positionKey],
-        }),
+        cursor: buildNextCursor({ sort: 'rowIndex', dir: 'asc', fhash, lastKeys: [node.rowIndex] }),
       })),
       pageInfo: { hasNextPage: page.next !== null, endCursor: page.next },
     };
@@ -251,7 +246,7 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
           sort: 'memberVote',
           dir: 'desc',
           fhash,
-          lastKeys: [node.voteDate ?? '', node.voteKey, node.rowIndex, node.positionKey],
+          lastKeys: [node.voteDate ?? '', node.voteKey, node.rowIndex],
         }),
       })),
       pageInfo: { hasNextPage: page.next !== null, endCursor: page.next },
