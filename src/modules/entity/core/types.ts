@@ -64,8 +64,10 @@ export interface Entity {
   cui: string;
   /** Entity name */
   name: string;
-  /** Entity type classification */
+  /** Entity type classification. Legacy coarse taxonomy — prefer tags. */
   entity_type: string | null;
+  /** Faceted classification tags (namespace::value); ancestor roll-up materialized. */
+  tags: string[];
   /** Default report type for this entity (DB enum value) */
   default_report_type: DbReportType;
   /** Reference to UAT (Administrative Territorial Unit) */

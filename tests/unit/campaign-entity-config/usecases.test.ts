@@ -33,6 +33,7 @@ function createEntity(input: { cui: string; name?: string }): Entity {
     last_updated: null,
     main_creditor_1_cui: null,
     main_creditor_2_cui: null,
+    tags: [],
   } as unknown as Entity;
 }
 

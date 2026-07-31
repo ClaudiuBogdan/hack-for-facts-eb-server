@@ -616,6 +616,29 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
     // ─────────────────────────────────────────────────────────────────────────
 
     Entity: {
+      /**
+       * Normalizes every parent shape to tag strings. Entity parents come from
+       * TWO sources: the entity repo (already flattened to string[]) and the
+       * report/main_creditor loaders (raw rows where tags is the jsonb
+       * {tag, ruleId, confidence}[] — pg parses it). The SDL declares
+       * [String!]!, so an unflattened object or a missing column must never
+       * leak through.
+       */
+      tags: (parent: { tags?: unknown }): string[] => {
+        if (!Array.isArray(parent.tags)) return [];
+        return (parent.tags as unknown[])
+          .map((t) =>
+            typeof t === 'string'
+              ? t
+              : typeof t === 'object' &&
+                  t !== null &&
+                  typeof (t as { tag?: unknown }).tag === 'string'
+                ? (t as { tag: string }).tag
+                : null
+          )
+          .filter((t): t is string => t !== null);
+      },
+
       // eslint-disable-next-line @typescript-eslint/naming-convention -- GraphQL field name
       default_report_type: (parent: Entity): string => {
         return parent.default_report_type;

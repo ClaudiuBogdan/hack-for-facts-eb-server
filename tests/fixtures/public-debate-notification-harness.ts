@@ -57,6 +57,7 @@ const makeTestEntityRepo = (entityNames: Record<string, string>): EntityReposito
       last_updated: null,
       main_creditor_1_cui: null,
       main_creditor_2_cui: null,
+      tags: [],
     });
   },
   async getByIds(cuis) {
@@ -75,6 +76,7 @@ const makeTestEntityRepo = (entityNames: Record<string, string>): EntityReposito
             last_updated: null,
             main_creditor_1_cui: null,
             main_creditor_2_cui: null,
+            tags: [],
           },
         ])
       )
@@ -454,8 +456,7 @@ const createSharedNotificationsRepo = (): {
             (!notification.isActive ||
               (
                 (notification.config as Record<string, unknown> | null)?.['channels'] as
-                  | Record<string, unknown>
-                  | undefined
+                  Record<string, unknown> | undefined
               )?.['email'] === false)
         )
       );
@@ -501,8 +502,7 @@ const createSharedNotificationsRepo = (): {
             }
 
             const channels = (candidate.config as Record<string, unknown> | null)?.['channels'] as
-              | Record<string, unknown>
-              | undefined;
+              Record<string, unknown> | undefined;
             return channels?.['email'] === false;
           });
 

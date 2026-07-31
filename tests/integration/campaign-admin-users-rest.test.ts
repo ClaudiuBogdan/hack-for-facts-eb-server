@@ -267,6 +267,7 @@ function makeTestEntityRepo(entityNames: Record<string, string>): EntityReposito
               last_updated: null,
               main_creditor_1_cui: null,
               main_creditor_2_cui: null,
+              tags: [],
             }
       );
     },
@@ -291,6 +292,7 @@ function makeTestEntityRepo(entityNames: Record<string, string>): EntityReposito
                       last_updated: null,
                       main_creditor_1_cui: null,
                       main_creditor_2_cui: null,
+                      tags: [],
                     },
                   ] as const,
                 ];

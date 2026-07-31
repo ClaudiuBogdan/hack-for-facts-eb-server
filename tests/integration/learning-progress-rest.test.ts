@@ -225,6 +225,7 @@ const makeEntityRepo = (entities: Record<string, string>): EntityRepository => (
       last_updated: new Date(),
       main_creditor_1_cui: null,
       main_creditor_2_cui: null,
+      tags: [],
     });
   },
   async getByIds(cuis) {
@@ -245,6 +246,7 @@ const makeEntityRepo = (entities: Record<string, string>): EntityRepository => (
               last_updated: new Date(),
               main_creditor_1_cui: null,
               main_creditor_2_cui: null,
+              tags: [],
             },
           ])
       )

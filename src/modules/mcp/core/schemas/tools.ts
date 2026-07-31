@@ -361,7 +361,9 @@ export type RankEntitiesInput = Static<typeof RankEntitiesInputSchema>;
 export const EntityRankingRowSchema = Type.Object({
   entity_cui: Type.String(),
   entity_name: Type.String(),
-  entity_type: Type.Union([Type.String(), Type.Null()]),
+  entity_type: Type.Union([Type.String(), Type.Null()], {
+    description: 'DEPRECATED legacy coarse taxonomy — filter by tags instead.',
+  }),
   uat_id: Type.Union([Type.Number(), Type.Null()]),
   county_code: Type.Union([Type.String(), Type.Null()]),
   county_name: Type.Union([Type.String(), Type.Null()]),

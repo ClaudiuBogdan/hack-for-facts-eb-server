@@ -57,6 +57,7 @@ export const createReportLoaders = (db: BudgetDbClient): MercuriusLoaders => {
             'last_updated',
             'main_creditor_1_cui',
             'main_creditor_2_cui',
+            'tags',
           ])
           .where('cui', 'in', cuis)
           .execute();
@@ -94,6 +95,7 @@ export const createReportLoaders = (db: BudgetDbClient): MercuriusLoaders => {
             'last_updated',
             'main_creditor_1_cui',
             'main_creditor_2_cui',
+            'tags',
           ])
           .where('cui', 'in', cuis)
           .execute();

@@ -33,7 +33,7 @@ export const EntityAnalyticsSchema = /* GraphQL */ `
     entity_name: String!
 
     "Entity type (e.g., uat, admin_county_council, public_institution)"
-    entity_type: String
+    entity_type: String @deprecated(reason: "Legacy coarse taxonomy. Read tags instead.")
 
     "Associated UAT ID (if applicable)"
     uat_id: ID

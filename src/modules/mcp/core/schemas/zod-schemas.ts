@@ -414,7 +414,10 @@ export const RankEntitiesOutputZod = z.object({
     z.object({
       entity_cui: z.string(),
       entity_name: z.string(),
-      entity_type: z.string().nullable(),
+      entity_type: z
+        .string()
+        .nullable()
+        .describe('DEPRECATED legacy coarse taxonomy — filter by tags instead.'),
       uat_id: z.number().nullable(),
       county_code: z.string().nullable(),
       county_name: z.string().nullable(),

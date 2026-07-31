@@ -95,6 +95,7 @@ export const ExecutionAnalyticsSchema = /* GraphQL */ `
     regions: [String!]
     uat_ids: [ID!]
     entity_types: [String!]
+      @deprecated(reason: "Legacy coarse taxonomy. Use tags (kind::/level::/...) instead.")
     "Exclude entities carrying ANY of these faceted tags (namespace::value)."
     tags: [String!]
   }
@@ -123,6 +124,7 @@ export const ExecutionAnalyticsSchema = /* GraphQL */ `
     regions: [String!]
     uat_ids: [ID!]
     entity_types: [String!]
+      @deprecated(reason: "Legacy coarse taxonomy. Use tags (kind::/level::/...) instead.")
     is_uat: Boolean
     search: String
     """

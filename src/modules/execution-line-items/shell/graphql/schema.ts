@@ -80,7 +80,7 @@ export const ExecutionLineItemSchema = /* GraphQL */ `
     name: String!
     uat_id: Int
     address: String
-    entity_type: String
+    entity_type: String @deprecated(reason: "Legacy coarse taxonomy. Read tags instead.")
     is_uat: Boolean!
   }
 

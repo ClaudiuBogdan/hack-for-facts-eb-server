@@ -46,6 +46,7 @@ function makeEntityRepoStub(options?: {
               last_updated: null,
               main_creditor_1_cui: null,
               main_creditor_2_cui: null,
+              tags: [],
             }
       );
     },
@@ -74,6 +75,7 @@ function makeEntityRepoStub(options?: {
                       last_updated: null,
                       main_creditor_1_cui: null,
                       main_creditor_2_cui: null,
+                      tags: [],
                     },
                   ] as const,
                 ];

@@ -177,6 +177,22 @@ describe('shared builder integration', () => {
     expect(compiled.parameters).toContain('[{"tag":"kind::hospital"}]');
   });
 
+  it('is_uat stays an independent predicate next to tags — the map depends on it', () => {
+    // is_uat is its own column, written by the classifier; the tag engine only
+    // READS it. A tags filter must never replace, imply, or suppress the
+    // is_uat condition.
+    const ctx = createFilterContext({ hasEntityJoin: true });
+    const conditions = buildEntityConditions(
+      { is_uat: true, tags: ['uat::commune', 'kind::uat'] },
+      ctx
+    );
+    const compiled = compileConditions(conditions);
+    expect(compiled.sql).toContain('is_uat = TRUE');
+    expect(compiled.sql).toContain('@>');
+    // Three independent AND-ed conditions: is_uat + one per facet (uat, kind).
+    expect(conditions).toHaveLength(3);
+  });
+
   it('buildExclusionConditions includes the tag exclusion when the entity join is on', () => {
     const ctx = createFilterContext({ hasEntityJoin: true });
     const conditions = buildExclusionConditions({ tags: ['kind::hospital'] }, 'ch', ctx);

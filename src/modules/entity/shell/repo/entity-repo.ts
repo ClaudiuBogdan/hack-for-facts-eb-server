@@ -54,6 +54,8 @@ interface EntityRow {
   last_updated: unknown;
   main_creditor_1_cui: string | null;
   main_creditor_2_cui: string | null;
+  /** jsonb array of {tag, ruleId, confidence}; pg parses it. Defaults to []. */
+  tags: { tag: string; ruleId: string; confidence: number }[] | null;
   total_count?: string;
   relevance?: number;
 }
@@ -88,6 +90,7 @@ class KyselyEntityRepo implements EntityRepository {
           'last_updated',
           'main_creditor_1_cui',
           'main_creditor_2_cui',
+          'tags',
         ])
         .where('cui', '=', cui)
         .executeTakeFirst();
@@ -121,6 +124,7 @@ class KyselyEntityRepo implements EntityRepository {
           'last_updated',
           'main_creditor_1_cui',
           'main_creditor_2_cui',
+          'tags',
         ])
         .where('cui', 'in', cuis)
         .execute();
@@ -159,6 +163,7 @@ class KyselyEntityRepo implements EntityRepository {
           'last_updated',
           'main_creditor_1_cui',
           'main_creditor_2_cui',
+          'tags',
           sql<string>`COUNT(*) OVER()`.as('total_count'),
         ]);
 
@@ -213,6 +218,7 @@ class KyselyEntityRepo implements EntityRepository {
           'last_updated',
           'main_creditor_1_cui',
           'main_creditor_2_cui',
+          'tags',
         ])
         .where((eb) =>
           eb.or([eb('main_creditor_1_cui', '=', cui), eb('main_creditor_2_cui', '=', cui)])
@@ -263,6 +269,7 @@ class KyselyEntityRepo implements EntityRepository {
           'last_updated',
           'main_creditor_1_cui',
           'main_creditor_2_cui',
+          'tags',
         ])
         .where('cui', 'in', parentCuis)
         .execute();
@@ -293,6 +300,7 @@ class KyselyEntityRepo implements EntityRepository {
           'e.last_updated',
           'e.main_creditor_1_cui',
           'e.main_creditor_2_cui',
+          'e.tags',
         ])
         .where('u.county_code', '=', countyCode)
         .where((eb) =>
@@ -438,6 +446,8 @@ class KyselyEntityRepo implements EntityRepository {
       last_updated: lastUpdated,
       main_creditor_1_cui: row.main_creditor_1_cui,
       main_creditor_2_cui: row.main_creditor_2_cui,
+      // Flatten to the tag strings; ruleId/confidence are internal provenance.
+      tags: (row.tags ?? []).map((t) => t.tag),
     };
   }
 

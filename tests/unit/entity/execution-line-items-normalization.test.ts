@@ -44,6 +44,7 @@ function createTestEntity(overrides: Partial<Entity> = {}): Entity {
     last_updated: new Date('2023-01-01'),
     main_creditor_1_cui: null,
     main_creditor_2_cui: null,
+    tags: [],
     ...overrides,
   };
 }

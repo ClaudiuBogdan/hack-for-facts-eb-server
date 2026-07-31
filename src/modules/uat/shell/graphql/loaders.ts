@@ -79,6 +79,7 @@ export const createUATLoaders = (db: BudgetDbClient): MercuriusLoaders => {
             'e.last_updated',
             'e.main_creditor_1_cui',
             'e.main_creditor_2_cui',
+            'e.tags',
             'u.county_code',
           ])
           .where((eb) =>

@@ -21,7 +21,10 @@ export const EntitySchema = /* GraphQL */ `
     name: String!
 
     "Entity type classification (e.g., uat, public_institution, ministry)"
-    entity_type: String
+    entity_type: String @deprecated(reason: "Legacy coarse taxonomy. Read tags instead.")
+
+    "Faceted classification tags (namespace::value across 9 facets, e.g. kind::hospital, level::local). Ancestor roll-up is materialized: a gymnasium school also carries kind::school."
+    tags: [String!]!
 
     "Default report type for this entity"
     default_report_type: ReportType!
@@ -168,6 +171,7 @@ export const EntitySchema = /* GraphQL */ `
 
     "Entity type filter"
     entity_type: String
+      @deprecated(reason: "Legacy coarse taxonomy. Use tags (kind::/level::/...) instead.")
 
     "UAT ID filter"
     uat_id: Int
