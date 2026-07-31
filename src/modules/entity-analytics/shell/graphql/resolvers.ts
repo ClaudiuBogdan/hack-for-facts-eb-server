@@ -1,4 +1,5 @@
 import { Frequency } from '@/common/types/temporal.js';
+import { assertValidTagFilterInput } from '@/infra/graphql/validate-tag-filter.js';
 
 import {
   getEntityAnalytics,
@@ -182,6 +183,7 @@ export const makeEntityAnalyticsResolvers = (
         },
         context: MercuriusContext
       ) => {
+        assertValidTagFilterInput(args.filter);
         const sort = mapSortOrder(args.sort);
         const input = toEntityAnalyticsInput(args.filter, sort, args.limit, args.offset);
 

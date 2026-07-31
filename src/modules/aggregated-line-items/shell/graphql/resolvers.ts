@@ -1,4 +1,5 @@
 import { Frequency } from '@/common/types/temporal.js';
+import { assertValidTagFilterInput } from '@/infra/graphql/validate-tag-filter.js';
 
 import {
   getAggregatedLineItems,
@@ -126,6 +127,7 @@ export const makeAggregatedLineItemsResolvers = (
         },
         context: MercuriusContext
       ) => {
+        assertValidTagFilterInput(args.filter);
         const input = toAggregatedLineItemsInput(args.filter, args.limit, args.offset);
 
         const result = await getAggregatedLineItems(deps, input);

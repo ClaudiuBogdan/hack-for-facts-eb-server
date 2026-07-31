@@ -15,6 +15,7 @@ import {
   type DbExecutionReportType,
 } from '@/common/types/report-types.js';
 import { Frequency } from '@/common/types/temporal.js';
+import { assertValidTagFilterInput } from '@/infra/graphql/validate-tag-filter.js';
 import {
   SORTABLE_FIELDS,
   type ExecutionLineItem,
@@ -459,8 +460,7 @@ const getDbReportType = (parent: Entity, gqlReportType?: string): DbExecutionRep
       );
     }
     const mapped = GQL_TO_DB_REPORT_TYPE[gqlReportType as GqlReportType] as
-      | DbReportType
-      | undefined;
+      DbReportType | undefined;
     if (mapped !== undefined) {
       if (isCommitmentDbReportType(mapped)) {
         throw new Error(
@@ -737,6 +737,11 @@ export const makeEntityResolvers = (deps: MakeEntityResolversDeps): IResolvers =
           entity_cuis: [parent.cui],
           report_type: reportType,
         };
+
+        // Validate BEFORE the repo call: this resolver swallows repo errors
+        // into an empty page, which would turn a malformed tag into silent
+        // "no data". Throwing BAD_USER_INPUT here survives prod redaction.
+        assertValidTagFilterInput(filter);
 
         const rawSortField = args.sort?.field ?? args.sort?.by ?? 'year';
         // SECURITY: SEC-012 - Validate sort field against allowlist

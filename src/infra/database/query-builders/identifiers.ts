@@ -104,6 +104,8 @@ export const EntityColumns = {
   default_report_type: 'default_report_type',
   main_creditor_1_cui: 'main_creditor_1_cui',
   main_creditor_2_cui: 'main_creditor_2_cui',
+  /** jsonb array of {tag, ruleId, confidence} objects — see budget/types.ts EntityFacetTag */
+  tags: 'tags',
 } as const;
 
 export type EntityColumn = keyof typeof EntityColumns;

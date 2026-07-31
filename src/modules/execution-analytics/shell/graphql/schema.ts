@@ -95,6 +95,8 @@ export const ExecutionAnalyticsSchema = /* GraphQL */ `
     regions: [String!]
     uat_ids: [ID!]
     entity_types: [String!]
+    "Exclude entities carrying ANY of these faceted tags (namespace::value)."
+    tags: [String!]
   }
 
   input AnalyticsFilterInput {
@@ -123,6 +125,12 @@ export const ExecutionAnalyticsSchema = /* GraphQL */ `
     entity_types: [String!]
     is_uat: Boolean
     search: String
+    """
+    Faceted classification tags (namespace::value, e.g. 'kind::hospital').
+    OR within a facet, AND across facets. Ancestor roll-up is materialized,
+    so 'kind::school' also matches every school subtype.
+    """
+    tags: [String!]
 
     # Population & Aggregation
     min_population: Int

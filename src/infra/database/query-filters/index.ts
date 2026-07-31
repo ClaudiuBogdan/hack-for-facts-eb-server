@@ -105,6 +105,12 @@ export {
   // Condition builders
   buildEntityConditions,
   buildUatConditions,
+
+  // Faceted tag filters (OR within facet, AND across facets)
+  buildTagConditions,
+  buildTagExclusionCondition,
+  assertValidTagFilter,
+  TAG_FILTER_PATTERN,
 } from './entity-filter.js';
 
 // ─────────────────────────────────────────────────────────────────────────────

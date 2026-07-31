@@ -56,6 +56,13 @@ CREATE TABLE Entities (
     last_updated TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     main_creditor_1_cui VARCHAR(20),
     main_creditor_2_cui VARCHAR(20),
+    -- Faceted classification tags synced from transparenta_prod
+    -- core.public_entities (DDL owned by the scrapper repo:
+    -- scripts/db/phoenix-sync/migrations/20260731_add_entities_tags.sql). Array of
+    -- {tag, ruleId, confidence} OBJECTS — filter with object containment
+    -- (tags @> '[{"tag":"kind::hospital"}]'), never a scalar array. UNRELATED to
+    -- the legacy Tags/EntityTags join tables below.
+    tags JSONB NOT NULL DEFAULT '[]'::jsonb,
     FOREIGN KEY (uat_id) REFERENCES UATs(id) ON DELETE RESTRICT,
     CHECK (
         main_creditor_1_cui IS NULL
@@ -1193,6 +1200,8 @@ CREATE INDEX idx_reports_budget_sector_id ON Reports (budget_sector_id);
 -- Entities indexes
 CREATE INDEX idx_entities_uat_id ON Entities (uat_id);
 CREATE INDEX idx_entities_type ON Entities(entity_type) WHERE entity_type IS NOT NULL;
+-- jsonb_path_ops: @> is the only operator the analytics tag filter uses.
+CREATE INDEX idx_entities_tags_gin ON Entities USING gin (tags jsonb_path_ops);
 
 -- EntityProfiles indexes
 CREATE INDEX idx_entity_profiles_profile_type ON EntityProfiles (profile_type);

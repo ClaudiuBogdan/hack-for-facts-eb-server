@@ -13,6 +13,7 @@
 import { sql } from 'kysely';
 
 import { col, hasValues, toNumericIds, escapeLikeWildcards } from './composer.js';
+import { buildTagExclusionCondition } from './entity-filter.js';
 
 import type { FilterContext, SqlCondition, ExclusionFilter } from './types.js';
 
@@ -93,6 +94,11 @@ export function buildExclusionConditions(
           sql`(${col(e, 'uat_id')} IS NULL OR ${col(e, 'uat_id')} NOT IN (${sql.join(ids)}))`
         );
       }
+    }
+
+    const tagExclusion = buildTagExclusionCondition(exclude.tags);
+    if (tagExclusion !== undefined) {
+      conditions.push(tagExclusion);
     }
   }
 

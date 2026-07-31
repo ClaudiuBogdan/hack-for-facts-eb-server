@@ -158,6 +158,12 @@ export interface GeographicFilter {
   min_population?: number | null;
   max_population?: number | null;
   search?: string;
+  /**
+   * Faceted classification tags (`namespace::value`, e.g. `kind::hospital`).
+   * OR within a facet, AND across facets — grouping is derived from the
+   * segment before the first `::`.
+   */
+  tags?: readonly string[];
 }
 
 /**
@@ -182,6 +188,8 @@ export interface ExclusionFilter {
   uat_ids?: readonly string[];
   county_codes?: readonly string[];
   regions?: readonly string[];
+  /** Exclude entities carrying ANY of these tags (flat any-match, no facet grouping). */
+  tags?: readonly string[];
 }
 
 /**

@@ -6,6 +6,7 @@
  */
 
 import { Frequency } from '@/common/types/temporal.js';
+import { assertValidTagFilterInput } from '@/infra/graphql/validate-tag-filter.js';
 import {
   resolveNormalizationRequest,
   type DataPoint,
@@ -103,6 +104,7 @@ interface GraphQLAnalyticsFilterInput {
   entity_types?: string[];
   is_uat?: boolean;
   search?: string;
+  tags?: string[];
   min_population?: number;
   max_population?: number;
   aggregate_min_amount?: number;
@@ -129,6 +131,7 @@ interface GraphQLAnalyticsFilterInput {
     regions?: string[];
     uat_ids?: string[];
     entity_types?: string[];
+    tags?: string[];
   };
 }
 
@@ -155,6 +158,10 @@ const mapPeriodType = (type: 'MONTH' | 'QUARTER' | 'YEAR'): Frequency => {
  * Note: AnalyticsFilter keeps IDs as strings - repo does the conversion.
  */
 const transformFilter = (input: GraphQLAnalyticsFilterInput): AnalyticsFilter => {
+  // Reject malformed tags at the input boundary so they surface as
+  // BAD_USER_INPUT (survives prod redaction), not a retryable repo error.
+  assertValidTagFilterInput(input);
+
   const frequency = mapPeriodType(input.report_period.type);
 
   // Cast to AnalyticsFilter to handle exactOptionalPropertyTypes
@@ -194,6 +201,7 @@ const transformFilter = (input: GraphQLAnalyticsFilterInput): AnalyticsFilter =>
     entity_types: input.entity_types,
     is_uat: input.is_uat,
     search: input.search,
+    tags: input.tags,
     min_population: input.min_population,
     max_population: input.max_population,
     aggregate_min_amount: input.aggregate_min_amount,
@@ -219,6 +227,7 @@ const transformFilter = (input: GraphQLAnalyticsFilterInput): AnalyticsFilter =>
             regions: input.exclude.regions,
             uat_ids: input.exclude.uat_ids,
             entity_types: input.exclude.entity_types,
+            tags: input.exclude.tags,
           } as AnalyticsExclude)
         : undefined,
   } as AnalyticsFilter;

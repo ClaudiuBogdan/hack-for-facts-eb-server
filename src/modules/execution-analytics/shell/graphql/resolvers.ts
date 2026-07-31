@@ -1,4 +1,5 @@
 import { isCommitmentDbReportType } from '@/common/types/report-types.js';
+import { assertValidTagFilterInput } from '@/infra/graphql/validate-tag-filter.js';
 
 import {
   Frequency,
@@ -72,6 +73,7 @@ export const makeExecutionAnalyticsResolvers = (deps: GetAnalyticsSeriesDeps): I
     },
     Query: {
       executionAnalytics: async (_: unknown, { inputs }: { inputs: GqlAnalyticsInput[] }) => {
+        for (const input of inputs) assertValidTagFilterInput(input.filter);
         // Map GraphQL inputs to internal domain types
         const domainInputs = inputs.map(toAnalyticsInput);
         const result = await getAnalyticsSeries(deps, domainInputs);

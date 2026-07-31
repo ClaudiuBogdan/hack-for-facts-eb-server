@@ -6,7 +6,8 @@
 
 import { ok, err, type Result } from 'neverthrow';
 
-import { databaseError, toMcpError, type McpError } from '../errors.js';
+import { databaseError, invalidInputError, toMcpError, type McpError } from '../errors.js';
+import { findInvalidTagFilterValue, invalidTagFilterMessage } from '../tag-filter-validation.js';
 import { DEFAULT_RANKING_LIMIT, MAX_RANKING_LIMIT } from '../types.js';
 
 import type { RankEntitiesInput, RankEntitiesOutput } from '../schemas/tools.js';
@@ -113,6 +114,7 @@ function toInternalFilter(input: RankEntitiesInput): Record<string, unknown> {
   if (filter.countyCodes !== undefined) internal['county_codes'] = filter.countyCodes;
   if (filter.regions !== undefined) internal['regions'] = filter.regions;
   if (filter.isUat !== undefined) internal['is_uat'] = filter.isUat;
+  if (filter.tags !== undefined) internal['tags'] = filter.tags;
 
   // Population constraints
   if (filter.minPopulation !== undefined) internal['min_population'] = filter.minPopulation;
@@ -149,6 +151,7 @@ function toInternalFilter(input: RankEntitiesInput): Record<string, unknown> {
       exclude['economic_codes'] = filter.exclude.economic_codes;
     if (filter.exclude.economic_prefixes !== undefined)
       exclude['economic_prefixes'] = filter.exclude.economic_prefixes;
+    if (filter.exclude.tags !== undefined) exclude['tags'] = filter.exclude.tags;
     internal['exclude'] = exclude;
   }
 
@@ -184,6 +187,10 @@ export async function rankEntities(
   input: RankEntitiesInput
 ): Promise<Result<RankEntitiesOutput, McpError>> {
   const { sort, limit: inputLimit, offset: inputOffset } = input;
+
+  // Loud rejection: a dropped/ignored malformed tag would silently widen.
+  const invalidTag = findInvalidTagFilterValue(input.filter);
+  if (invalidTag !== undefined) return err(invalidInputError(invalidTagFilterMessage(invalidTag)));
 
   // Validate and clamp pagination
   const limit = clamp(inputLimit ?? DEFAULT_RANKING_LIMIT, 1, MAX_RANKING_LIMIT);

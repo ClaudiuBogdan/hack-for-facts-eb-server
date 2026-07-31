@@ -1,0 +1,14 @@
+-- MOVED — deliberately contains no executable DDL.
+--
+-- The entities.tags migration lives in the SCRAPPER repo:
+--   hack-for-facts-eb-scrapper/scripts/db/phoenix-sync/migrations/20260731_add_entities_tags.sql
+--
+-- Rationale: the server's binding contract (AGENTS.md / 00-foundation-shared-kernel)
+-- is read-only over the serving DB — loaders and migrations belong to the scrapper.
+-- This stub exists only because this directory is where the one earlier hand-applied
+-- migration (20260326_add_entityprofiles.sql, pre-contract) taught readers to look.
+--
+-- The column IS part of this repo's read contract: see schema.sql (Entities.tags)
+-- and types.ts (EntityFacetTag). Note schema.sql is not a passive mirror — the
+-- test harness (tests/infra/test-db.ts) builds throwaway databases from it, so
+-- it must stay in lockstep with the scrapper-owned migration.

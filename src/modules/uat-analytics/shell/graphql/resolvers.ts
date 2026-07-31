@@ -6,6 +6,7 @@
  */
 
 import { Frequency } from '@/common/types/temporal.js';
+import { assertValidTagFilterInput } from '@/infra/graphql/validate-tag-filter.js';
 
 import { getHeatmapData } from '../../core/usecases/get-heatmap-data.js';
 
@@ -35,11 +36,7 @@ export interface MakeUATAnalyticsResolversDeps {
  * GraphQL normalization mode (includes legacy euro modes for backwards compatibility).
  */
 type GqlHeatmapNormalization =
-  | 'total'
-  | 'per_capita'
-  | 'percent_gdp'
-  | 'total_euro'
-  | 'per_capita_euro';
+  'total' | 'per_capita' | 'percent_gdp' | 'total_euro' | 'per_capita_euro';
 
 /**
  * GraphQL filter input type (uses PeriodType enum with MONTH/QUARTER/YEAR).
@@ -161,6 +158,7 @@ export const makeUATAnalyticsResolvers = (deps: MakeUATAnalyticsResolversDeps): 
         args: HeatmapUATDataArgs
       ): Promise<GqlHeatmapUATDataPoint[]> => {
         // Convert GraphQL input to domain types
+        assertValidTagFilterInput(args.filter);
         const filter = toAnalyticsFilter(args.filter);
         const options = toTransformationOptions(args);
 

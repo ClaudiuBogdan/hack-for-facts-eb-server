@@ -30,6 +30,20 @@ export interface UATs {
   last_updated: Generated<Timestamp>;
 }
 
+/**
+ * One faceted classification tag on an entity, e.g.
+ * `{tag: 'kind::hospital', ruleId: 'CATEGORY_MAP', confidence: 9}`.
+ * `tag` is `namespace::value` across 9 facets (kind, sector, service, level,
+ * coverage, governance, uat, role, funder); `confidence` (1-10) is provenance
+ * strength, not probability — do not threshold on it. Unrelated to the legacy
+ * Tags/EntityTags join tables.
+ */
+export interface EntityFacetTag {
+  tag: string;
+  ruleId: string;
+  confidence: number;
+}
+
 // Entities Table
 export interface Entities {
   cui: string;
@@ -42,6 +56,12 @@ export interface Entities {
   last_updated: Generated<Timestamp>;
   main_creditor_1_cui: string | null;
   main_creditor_2_cui: string | null;
+  /** Synced from transparenta_prod core.public_entities; ancestor roll-up is
+   * materialized in the array. Filter with object containment
+   * (`tags @> '[{"tag":"..."}]'`), never a scalar array. Insert side is a JSON
+   * STRING (pg serializes a JS array as a postgres array literal, not json) and
+   * optional because the column defaults to '[]'. */
+  tags: ColumnType<EntityFacetTag[], string | undefined, string>;
 }
 
 // EntityProfiles Table

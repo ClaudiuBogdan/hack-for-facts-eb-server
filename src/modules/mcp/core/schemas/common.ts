@@ -131,6 +131,11 @@ export const ExcludeFilterSchema = Type.Object(
     functional_prefixes: Type.Optional(Type.Array(Type.String())),
     economic_codes: Type.Optional(Type.Array(Type.String())),
     economic_prefixes: Type.Optional(Type.Array(Type.String())),
+    tags: Type.Optional(
+      Type.Array(Type.String(), {
+        description: 'Exclude entities carrying ANY of these faceted tags (namespace::value)',
+      })
+    ),
   },
   { description: 'Exclusion filters to exclude specific entities or classifications.' }
 );
@@ -170,6 +175,14 @@ export const AnalyticsFilterSchema = Type.Object(
     isUat: Type.Optional(
       Type.Boolean({
         description: 'Filter to only UAT entities (true) or non-UAT (false)',
+      })
+    ),
+    tags: Type.Optional(
+      Type.Array(Type.String(), {
+        description:
+          'Faceted classification tags (namespace::value, e.g. "kind::hospital"). ' +
+          'OR within a facet, AND across facets. Ancestor roll-up is materialized: ' +
+          '"kind::school" also matches every school subtype.',
       })
     ),
 

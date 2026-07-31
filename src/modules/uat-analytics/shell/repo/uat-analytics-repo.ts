@@ -21,6 +21,8 @@ import {
   extractYear,
   toNumericIds,
   escapeLikeWildcards,
+  buildTagConditions,
+  buildTagExclusionCondition,
 } from '@/infra/database/query-filters/index.js';
 
 import { createDatabaseError, type UATAnalyticsError } from '../../core/errors.js';
@@ -398,7 +400,9 @@ export class KyselyUATAnalyticsRepo implements UATAnalyticsRepository {
     const needsEntityJoin =
       filter.is_uat !== undefined ||
       (filter.entity_types !== undefined && filter.entity_types.length > 0) ||
-      (filter.exclude?.entity_types !== undefined && filter.exclude.entity_types.length > 0);
+      (filter.tags !== undefined && filter.tags.length > 0) ||
+      (filter.exclude?.entity_types !== undefined && filter.exclude.entity_types.length > 0) ||
+      (filter.exclude?.tags !== undefined && filter.exclude.tags.length > 0);
 
     if (!needsEntityJoin) {
       return query;
@@ -412,6 +416,12 @@ export class KyselyUATAnalyticsRepo implements UATAnalyticsRepository {
 
     if (filter.is_uat !== undefined) {
       query = query.where('e.is_uat', '=', filter.is_uat);
+    }
+
+    // Faceted tags: the join detection above turns the join on for tags, so
+    // the predicate MUST be applied here or the filter silently widens.
+    for (const tagCondition of buildTagConditions(filter.tags)) {
+      query = query.where(tagCondition);
     }
 
     return query;
@@ -526,6 +536,12 @@ export class KyselyUATAnalyticsRepo implements UATAnalyticsRepository {
       query = query.where((eb: ExpressionBuilder<any, any>) =>
         eb.or([eb('e.entity_type', 'is', null), eb('e.entity_type', 'not in', ex.entity_types)])
       );
+    }
+
+    // Tag exclusions (requires entity join) - NULL-safe by construction
+    const tagExclusion = buildTagExclusionCondition(ex.tags);
+    if (tagExclusion !== undefined) {
+      query = query.where(tagExclusion);
     }
 
     return query;

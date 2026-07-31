@@ -26,18 +26,7 @@ export type PeriodType = 'MONTH' | 'QUARTER' | 'YEAR';
 
 /** Month as two-digit string */
 export type TMonth =
-  | '01'
-  | '02'
-  | '03'
-  | '04'
-  | '05'
-  | '06'
-  | '07'
-  | '08'
-  | '09'
-  | '10'
-  | '11'
-  | '12';
+  '01' | '02' | '03' | '04' | '05' | '06' | '07' | '08' | '09' | '10' | '11' | '12';
 
 /** Quarter as Q1-Q4 */
 export type TQuarter = 'Q1' | 'Q2' | 'Q3' | 'Q4';
@@ -102,6 +91,8 @@ export interface AnalyticsExclude {
   regions?: string[];
   uat_ids?: string[]; // String for GraphQL input, converted to number in repo
   entity_types?: string[];
+  /** Exclude entities carrying ANY of these faceted tags (namespace::value). */
+  tags?: string[];
 }
 
 export interface AnalyticsFilter {
@@ -130,6 +121,12 @@ export interface AnalyticsFilter {
   entity_types?: string[];
   is_uat?: boolean;
   search?: string;
+  /**
+   * Faceted classification tags (namespace::value, e.g. 'kind::hospital').
+   * OR within a facet, AND across facets. Ancestor roll-up is materialized in
+   * the data, so 'kind::school' also matches every school subtype.
+   */
+  tags?: string[];
 
   // Population constraints
   min_population?: number | null;

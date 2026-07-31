@@ -87,6 +87,10 @@ const ExcludeFilterSchema = z.object({
   functional_prefixes: z.array(z.string()).optional(),
   economic_codes: z.array(z.string()).optional(),
   economic_prefixes: z.array(z.string()).optional(),
+  tags: z
+    .array(z.string())
+    .describe('Exclude entities carrying ANY of these faceted tags (namespace::value)')
+    .optional(),
 });
 
 /** Analytics filter for querying budget data */
@@ -100,6 +104,14 @@ const AnalyticsFilterSchema = z.object({
   countyCodes: z.array(z.string()).describe('Filter by county codes (e.g., "CJ", "B")').optional(),
   regions: z.array(z.string()).describe('Filter by development regions').optional(),
   isUat: z.boolean().describe('Filter to only UAT entities (true) or non-UAT (false)').optional(),
+  tags: z
+    .array(z.string())
+    .describe(
+      'Faceted classification tags (namespace::value, e.g. "kind::hospital"). ' +
+        'OR within a facet, AND across facets. Ancestor roll-up is materialized: ' +
+        '"kind::school" also matches every school subtype.'
+    )
+    .optional(),
 
   // Population constraints
   minPopulation: z.number().describe('Minimum population threshold').optional(),

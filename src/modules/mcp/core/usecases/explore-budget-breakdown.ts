@@ -7,7 +7,8 @@
 import { Decimal } from 'decimal.js';
 import { ok, err, type Result } from 'neverthrow';
 
-import { databaseError, toMcpError, type McpError } from '../errors.js';
+import { databaseError, invalidInputError, toMcpError, type McpError } from '../errors.js';
+import { findInvalidTagFilterValue, invalidTagFilterMessage } from '../tag-filter-validation.js';
 import {
   validatePeriodSelection,
   normalizeClassificationCode,
@@ -286,6 +287,12 @@ export async function exploreBudgetBreakdown(
     return err(periodValidation.error);
   }
 
+  // Loud rejection: a dropped/ignored malformed tag would silently widen.
+  const invalidTag = findInvalidTagFilterValue(filter);
+  if (invalidTag !== undefined) {
+    return err(invalidInputError(invalidTagFilterMessage(invalidTag)));
+  }
+
   // Normalize filter
   const normalizedFilter = normalizeFilterClassificationCodes(filter);
 
@@ -319,12 +326,22 @@ export async function exploreBudgetBreakdown(
     ['economic_codes', 'economic_codes'],
     ['economicPrefixes', 'economic_prefixes'],
     ['economic_prefixes', 'economic_prefixes'],
+    // The shared MCP filter schema advertises tags — accepting and dropping it
+    // would silently WIDEN the breakdown, the exact failure the tag filter is
+    // built to reject loudly.
+    ['tags', 'tags'],
   ];
 
   for (const [inputField, outputField] of fieldMappings) {
     if (normalizedFilter[inputField] !== undefined) {
       internalFilter[outputField] = normalizedFilter[inputField];
     }
+  }
+
+  // Pass through schema-declared exclusions (incl. exclude.tags); the
+  // excludeEcCodes convenience arg below merges on top.
+  if (normalizedFilter['exclude'] !== undefined) {
+    internalFilter['exclude'] = normalizedFilter['exclude'];
   }
 
   // Apply path-based prefix filter
@@ -337,14 +354,25 @@ export async function exploreBudgetBreakdown(
     }
   }
 
-  // Apply economic exclusions
+  // Apply economic exclusions: COPY and UNION, never clobber. A schema-declared
+  // filter.exclude.economic_prefixes and the excludeEcCodes convenience arg can
+  // both be supplied; discarding either silently WIDENS the breakdown, and
+  // assigning into the shared reference would mutate the caller's input.
   if (excludeEcCodes !== undefined && excludeEcCodes.length > 0) {
     const existingExclude = internalFilter['exclude'];
     const exclude: Record<string, unknown> =
       typeof existingExclude === 'object' && existingExclude !== null
-        ? (existingExclude as Record<string, unknown>)
+        ? { ...(existingExclude as Record<string, unknown>) }
         : {};
-    exclude['economic_prefixes'] = excludeEcCodes.map((c) => normalizeClassificationCode(c) + '.');
+    const existingPrefixes = Array.isArray(exclude['economic_prefixes'])
+      ? (exclude['economic_prefixes'] as string[])
+      : [];
+    exclude['economic_prefixes'] = [
+      ...new Set([
+        ...existingPrefixes,
+        ...excludeEcCodes.map((c) => normalizeClassificationCode(c) + '.'),
+      ]),
+    ];
     internalFilter['exclude'] = exclude;
   }
 

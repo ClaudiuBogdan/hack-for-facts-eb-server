@@ -10,6 +10,7 @@ import { ok, err, type Result } from 'neverthrow';
 import { Frequency } from '@/common/types/temporal.js';
 
 import { databaseError, toMcpError, invalidInputError, type McpError } from '../errors.js';
+import { findInvalidTagFilterValue, invalidTagFilterMessage } from '../tag-filter-validation.js';
 import {
   MAX_TIMESERIES_SERIES,
   type Granularity,
@@ -174,6 +175,7 @@ function toInternalFilter(
     ['countyCodes', 'county_codes'],
     ['regions', 'regions'],
     ['isUat', 'is_uat'],
+    ['tags', 'tags'],
     ['minPopulation', 'min_population'],
     ['maxPopulation', 'max_population'],
     ['functionalCodes', 'functional_codes'],
@@ -293,6 +295,14 @@ export async function queryTimeseries(
   const periodValidation = validatePeriodSelection(period.selection, period.type);
   if (periodValidation.isErr()) {
     return err(periodValidation.error);
+  }
+
+  // Loud rejection: a dropped/ignored malformed tag would silently widen.
+  for (const s of series) {
+    const invalidTag = findInvalidTagFilterValue(s.filter);
+    if (invalidTag !== undefined) {
+      return err(invalidInputError(invalidTagFilterMessage(invalidTag)));
+    }
   }
 
   // Build analytics inputs for each series

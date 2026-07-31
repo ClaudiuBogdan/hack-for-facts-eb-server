@@ -24,6 +24,8 @@ import {
   extractYear,
   toNumericIds,
   escapeLikeWildcards,
+  buildTagConditions,
+  buildTagExclusionCondition,
 } from '@/infra/database/query-filters/index.js';
 
 import { createDatabaseError, type CountyAnalyticsError } from '../../core/errors.js';
@@ -279,6 +281,10 @@ export class KyselyCountyAnalyticsRepo implements CountyAnalyticsRepository {
       conditions.push(sql`e.is_uat = ${filter.is_uat}`);
     }
 
+    // Faceted tags (requires entity join): needsEntityJoin turns the join on
+    // for tags, so the predicate MUST be applied here or the filter widens.
+    conditions.push(...buildTagConditions(filter.tags));
+
     // UAT filters (filter at entity level to control which entities contribute)
     if (filter.uat_ids !== undefined && filter.uat_ids.length > 0) {
       const numericIds = toNumericIds(filter.uat_ids);
@@ -483,6 +489,12 @@ export class KyselyCountyAnalyticsRepo implements CountyAnalyticsRepository {
     if (ex.entity_types !== undefined && ex.entity_types.length > 0) {
       conditions.push(sql`(e.entity_type IS NULL OR e.entity_type != ALL(${ex.entity_types}))`);
     }
+
+    // Tag exclusions (requires entity join) - NULL-safe by construction
+    const tagExclusion = buildTagExclusionCondition(ex.tags);
+    if (tagExclusion !== undefined) {
+      conditions.push(tagExclusion);
+    }
   }
 
   /**
@@ -512,7 +524,9 @@ export class KyselyCountyAnalyticsRepo implements CountyAnalyticsRepository {
     return (
       filter.is_uat !== undefined ||
       (filter.entity_types !== undefined && filter.entity_types.length > 0) ||
-      (filter.exclude?.entity_types !== undefined && filter.exclude.entity_types.length > 0)
+      (filter.tags !== undefined && filter.tags.length > 0) ||
+      (filter.exclude?.entity_types !== undefined && filter.exclude.entity_types.length > 0) ||
+      (filter.exclude?.tags !== undefined && filter.exclude.tags.length > 0)
     );
   }
 

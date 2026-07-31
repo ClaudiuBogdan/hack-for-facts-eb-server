@@ -16,6 +16,8 @@ import {
   escapeLikeWildcards,
   needsEntityJoin,
   needsUatJoin,
+  buildTagConditions,
+  buildTagExclusionCondition,
 } from '@/infra/database/query-filters/index.js';
 
 import {
@@ -449,6 +451,12 @@ class KyselyExecutionLineItemRepo implements ExecutionLineItemRepository {
           .replace(/_/g, '\\_');
         query = query.where('e.name', 'ilike', `%${escapedSearch}%`);
       }
+
+      // Faceted tags: needsEntityJoin turns the join on for tags, so the
+      // predicate MUST be applied here or the filter silently widens.
+      for (const tagCondition of buildTagConditions(filter.tags)) {
+        query = query.where(tagCondition);
+      }
     }
 
     // Apply UAT join if needed
@@ -573,6 +581,12 @@ class KyselyExecutionLineItemRepo implements ExecutionLineItemRepository {
           eb.or([eb('e.uat_id', 'is', null), eb('e.uat_id', 'not in', numericIds)])
         );
       }
+    }
+
+    // Tag exclusions - NULL-safe by construction (preserves rows with no entity)
+    const tagExclusion = buildTagExclusionCondition(ex.tags);
+    if (tagExclusion !== undefined) {
+      query = query.where(tagExclusion);
     }
 
     // County code exclusions - must preserve NULL county_code rows

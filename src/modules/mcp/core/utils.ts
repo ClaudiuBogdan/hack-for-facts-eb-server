@@ -96,6 +96,23 @@ export function normalizeFilterClassificationCodes(
     }
   }
 
+  // The exclude sub-object gets the same treatment, on a FRESH copy. Two
+  // reasons: an exclusion written "65" must match like the include "65." does
+  // (an unnormalized exclusion silently fails to exclude — widening), and the
+  // top-level spread above still aliases the caller's nested exclude object,
+  // so a downstream mutation would write into the caller's input.
+  const exclude = result['exclude'];
+  if (typeof exclude === 'object' && exclude !== null && !Array.isArray(exclude)) {
+    const excludeCopy: Record<string, unknown> = { ...(exclude as Record<string, unknown>) };
+    for (const field of CLASSIFICATION_CODE_FIELDS) {
+      const value = excludeCopy[field];
+      if (Array.isArray(value)) {
+        excludeCopy[field] = normalizeClassificationCodes(value as string[]);
+      }
+    }
+    result['exclude'] = excludeCopy;
+  }
+
   return result;
 }
 
