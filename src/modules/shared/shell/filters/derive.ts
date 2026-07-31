@@ -155,6 +155,18 @@ const opSql = (
         // membership against an array column: overlap (§15.6). text[] → `&&`;
         // jsonb array → `?|` over a text[] of the coerced values.
         const arr = sqlArray(coerced);
+        const elementKey = field.column.jsonbElementKey;
+        if (field.column.arrayKind === 'jsonb' && elementKey !== undefined) {
+          // Objects, not scalars: `?|` tests top-level KEYS, so against
+          // `[{"tag":"kind::school"}]` it asks "is there a key kind::school?" —
+          // always false, no error. Unnest and read the key instead.
+          return ok(
+            wrap(
+              sql`exists (select 1 from jsonb_array_elements(${colRef}) as _e
+                    where _e ->> ${elementKey} = any(${arr}))`
+            )
+          );
+        }
         return ok(
           wrap(
             field.column.arrayKind === 'jsonb' ? sql`${colRef} ?| ${arr}` : sql`${colRef} && ${arr}`
@@ -184,6 +196,20 @@ const opSql = (
           coerced.push(c.value);
         }
         const arr = sqlArray(coerced);
+        const elementKey = field.column.jsonbElementKey;
+        if (field.column.arrayKind === 'jsonb' && elementKey !== undefined) {
+          // CONTAINS-ALL over objects. `@> to_jsonb(text[])` compares scalars to
+          // objects: valid jsonb, zero rows, no error — which is how this went
+          // unnoticed. Build the object form so `@>` keeps its containment
+          // semantics and stays usable by a GIN index on the column.
+          return ok(
+            wrap(
+              sql`${colRef} @> (
+                select coalesce(jsonb_agg(jsonb_build_object(${elementKey}, _v)), '[]'::jsonb)
+                from unnest(${arr}) as _v)`
+            )
+          );
+        }
         return ok(
           wrap(
             field.column.arrayKind === 'jsonb'

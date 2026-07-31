@@ -116,9 +116,16 @@ export const referencePublicEntityFilterSpec: CollectionFilterSpec = {
       name: 'tags',
       type: 'string',
       ops: ['contains'],
-      column: { alias: 'pe', column: 'tags', arrayColumn: true, arrayKind: 'jsonb' },
+      column: {
+        alias: 'pe',
+        column: 'tags',
+        arrayColumn: true,
+        arrayKind: 'jsonb',
+        // Elements are {tag, ruleId, confidence}, not bare strings.
+        jsonbElementKey: 'tag',
+      },
       description:
-        'jsonb-array CONTAINS-ALL (@>): matches entities carrying every supplied tag (not substring, not any-overlap). No GIN index — bounded seq over 15k rows.',
+        'jsonb-array CONTAINS-ALL (@>): matches entities carrying every supplied tag (not substring, not any-overlap). No GIN index — bounded seq over 15k rows. Faceted vocabulary, `::`-namespaced, with ancestor roll-up: kind::school matches kind::school::gymnasium too.',
     },
     {
       name: 'sirutaCode',

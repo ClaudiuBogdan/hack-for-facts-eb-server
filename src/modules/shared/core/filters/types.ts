@@ -14,16 +14,7 @@
 
 /** The set of operators a field may support. */
 export type FilterOp =
-  | 'eq'
-  | 'in'
-  | 'gt'
-  | 'gte'
-  | 'lt'
-  | 'lte'
-  | 'between'
-  | 'prefix'
-  | 'contains'
-  | 'isNull';
+  'eq' | 'in' | 'gt' | 'gte' | 'lt' | 'lte' | 'between' | 'prefix' | 'contains' | 'isNull';
 
 /**
  * `money` is a precision-safe decimal: validated/compiled as a STRING (never a
@@ -50,9 +41,17 @@ export interface FilterColumn {
    * Set `arrayKind` to pick the operator family:
    *  - `'text'`  (default when `arrayColumn` is true): native `text[]` → `&&`/`@>`.
    *  - `'jsonb'`: jsonb array → `?|` (overlap) / `@> to_jsonb(array[…])` (contains).
+   *
+   * `jsonbElementKey` is for a jsonb array whose elements are OBJECTS rather than
+   * scalars — `core.public_entities.tags` stores `{tag, ruleId, confidence}` per
+   * entry, keeping the rule provenance next to the tag. Without it the operators
+   * above compare a scalar against an object and silently match NOTHING: they are
+   * type-correct jsonb, they return no rows, and no error is raised anywhere.
    */
   readonly arrayColumn?: boolean;
   readonly arrayKind?: 'text' | 'jsonb';
+  /** Key to read from each element when a jsonb array holds objects, e.g. `'tag'`. */
+  readonly jsonbElementKey?: string;
 }
 
 /**
