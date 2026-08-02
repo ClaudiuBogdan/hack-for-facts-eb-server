@@ -87,6 +87,21 @@ describe('Campaign subscription stats REST API', () => {
     });
   });
 
+  it.each([
+    ['native IPv6', '2001:db8::1'],
+    ['IPv4-mapped IPv6', '::ffff:192.0.2.1'],
+  ])('accepts requests from %s clients', async (_label, remoteAddress) => {
+    app = await createTestApp();
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/campaigns/funky/subscription-stats',
+      remoteAddress,
+    });
+
+    expect(response.statusCode).toBe(200);
+  });
+
   it('rejects invalid campaign identifiers', async () => {
     app = await createTestApp();
 
@@ -133,14 +148,17 @@ describe('Campaign subscription stats REST API', () => {
     const first = await app.inject({
       method: 'GET',
       url: '/api/v1/campaigns/funky/subscription-stats',
+      remoteAddress: '2001:db8::1',
     });
     const second = await app.inject({
       method: 'GET',
       url: '/api/v1/campaigns/funky/subscription-stats',
+      remoteAddress: '2001:db8::1',
     });
     const third = await app.inject({
       method: 'GET',
       url: '/api/v1/campaigns/funky/subscription-stats',
+      remoteAddress: '2001:db8::1',
     });
 
     expect(first.statusCode).toBe(200);

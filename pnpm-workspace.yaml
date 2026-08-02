@@ -3,7 +3,7 @@ onlyBuiltDependencies:
 
 overrides:
   handlebars: '>=4.7.9'
-  ip-address: 10.1.1
+  ip-address: 10.2.0
   qs: 6.15.2
   'brace-expansion@1': 5.0.8
   'brace-expansion@2': 5.0.8
