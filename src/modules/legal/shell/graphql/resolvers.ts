@@ -23,6 +23,7 @@ import {
   type FilterInput,
 } from '@/modules/shared/index.js';
 
+import { versionProvenanceNote } from '../../core/provenance.js';
 import {
   getAct,
   getActLinksIn,
@@ -42,11 +43,13 @@ import { legalActsSpec } from '../filters/legal-acts.spec.js';
 import type { LegalActsRepo, LegalGraphRepo, LegalTreeRepo } from '../../core/ports.js';
 import type {
   LegalAct,
+  LegalActCard,
   LegalActStatus,
   LegalDocument,
   LegalRelation,
   LegalResolveDim,
   LegalSortKey,
+  LegalVersionProvenance,
 } from '../../core/types.js';
 import type { Result } from 'neverthrow';
 
@@ -134,6 +137,25 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
     return res.value;
   }, null);
 
+  // §5.2-C provenance. Batched because every search hit exposes `act`, so an
+  // unbatched resolver would be one statement per hit.
+  const provenanceLoader = makeBatchLoader<LegalVersionProvenance | null>(async (actIds) => {
+    const res = await acts.versionProvenanceForActs(actIds);
+    if (res.isErr()) throw toGraphqlError(res.error);
+    return res.value;
+  }, null);
+
+  /** An act with no provenance row (dangling id) still answers honestly. */
+  const provenanceOrUnknown = (prov: LegalVersionProvenance | null): LegalVersionProvenance =>
+    prov ?? {
+      versionKind: '',
+      versionDate: null,
+      sourceUrl: null,
+      amendedAfterPublication: 0,
+      latestConsolidationDate: null,
+      latestConsolidationLoaded: false,
+    };
+
   return {
     // Enum resolvers map GQL value name → internal value (graphql-tools convention),
     // so an internal `'abrogat-partial'` serializes to `ABROGAT_PARTIAL` automatically.
@@ -214,8 +236,18 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
         const docs = unwrap(await getActVersions(acts, parent.actId));
         return docs.length;
       },
-      amendedAfterPublication: async (parent: LegalAct) =>
-        unwrap(await acts.countAmendmentsAfter(parent.actId)),
+      // The act-card path already carries the count; every other path reads it
+      // off the batched provenance loader rather than one count per act.
+      amendedAfterPublication: async (parent: LegalAct) => {
+        const onCard = (parent as Partial<LegalActCard>).amendedAfterPublication;
+        if (typeof onCard === 'number') return onCard;
+        return provenanceOrUnknown(await provenanceLoader.load(parent.actId))
+          .amendedAfterPublication;
+      },
+      versionProvenance: async (parent: LegalAct) =>
+        provenanceOrUnknown(await provenanceLoader.load(parent.actId)),
+      textProvenance: async (parent: LegalAct) =>
+        versionProvenanceNote(provenanceOrUnknown(await provenanceLoader.load(parent.actId))),
       documents: async (parent: LegalAct) => unwrap(await getActVersions(acts, parent.actId)),
       links: async (
         parent: LegalAct,

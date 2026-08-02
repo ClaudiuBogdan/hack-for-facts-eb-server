@@ -9,6 +9,7 @@
 import { err, ok, type Result } from 'neverthrow';
 import { describe, expect, it, vi } from 'vitest';
 
+import { LEGAL_ORIGINAL_TEXT_CAVEAT } from '@/modules/legal/core/provenance.js';
 import { searchLegal, type LegalSearchDeps } from '@/modules/legal/core/usecases.js';
 import {
   upstreamError,
@@ -18,7 +19,12 @@ import {
 } from '@/modules/shared/index.js';
 
 import type { LegalActsRepo, LegalRetrievalRepo } from '@/modules/legal/core/ports.js';
-import type { LegalActCard, LegalDocHit, LegalSectionHit } from '@/modules/legal/core/types.js';
+import type {
+  LegalActCard,
+  LegalDocHit,
+  LegalSectionHit,
+  LegalVersionProvenance,
+} from '@/modules/legal/core/types.js';
 
 const card: LegalActCard = {
   actId: '66150',
@@ -46,9 +52,19 @@ const capabilities = (semantic: boolean): CapabilityResolver => ({
   forDomain: () => ({ semantic }),
 });
 
+const provenance: LegalVersionProvenance = {
+  versionKind: 'corp',
+  versionDate: '2015-09-10',
+  sourceUrl: 'https://legislatie.just.ro/Public/DetaliiDocument/171282',
+  amendedAfterPublication: 295,
+  latestConsolidationDate: null,
+  latestConsolidationLoaded: false,
+};
+
 const makeDeps = (over: {
   semanticReady?: boolean;
   getActCard?: LegalActsRepo['getActCard'];
+  versionProvenanceForActs?: LegalActsRepo['versionProvenanceForActs'];
   searchSections?: LegalRetrievalRepo['searchSections'];
   searchDocs?: LegalRetrievalRepo['searchDocs'];
   embed?: SyntheticClient['embed'];
@@ -67,6 +83,12 @@ const makeDeps = (over: {
     acts: {
       getActCard:
         over.getActCard ?? (async (): Promise<Result<LegalActCard | null, ApiError>> => ok(null)),
+      versionProvenanceForActs:
+        over.versionProvenanceForActs ??
+        (async (
+          actIds: readonly string[]
+        ): Promise<Result<ReadonlyMap<string, LegalVersionProvenance>, ApiError>> =>
+          ok(new Map(actIds.map((id) => [id, provenance])))),
     } as unknown as LegalActsRepo,
     synthetic: {
       embed:
@@ -98,7 +120,7 @@ describe('searchLegal — identifier router', () => {
     const out = res._unsafeUnwrap();
     expect(out.acts).toHaveLength(1);
     expect(out.acts[0]?.act.actId).toBe('66150');
-    expect(out.caveats[0]).toContain('modificat de 295 acte');
+    expect(out.caveats[0]).toContain('modificat de 295 de acte');
     expect(embed).not.toHaveBeenCalled();
   });
 });
@@ -157,6 +179,88 @@ describe('searchLegal — semantic gating', () => {
     expect(res._unsafeUnwrap().caveats).toContain('semantic search unavailable');
     // lexical fallback ran with a null vector
     expect(searchDocs).toHaveBeenCalledWith(null, expect.anything());
+  });
+});
+
+describe('searchLegal — version provenance (§5.2-C honesty)', () => {
+  const docHit: LegalDocHit = {
+    act: {
+      actId: '66150',
+      actNaturalKey: 'lege:227:2015:',
+      actType: 'lege',
+      actNumber: '227',
+      actYear: 2015,
+      issuerSlug: 'parlamentul',
+      canonicalDocumentId: '171282',
+      displayCitation: 'Legea nr. 227/2015',
+      status: 'in-vigoare',
+      statusEvidence: {},
+      entryIntoForce: '2015-09-10',
+      inDegree: 2621,
+    },
+    summary: null,
+    score: 0.8,
+    provenance: null, // the repo leaves it null; the usecase fills it
+  };
+
+  it('attaches provenance to every hit and caveats the result set', async () => {
+    const deps = makeDeps({ searchDocs: async () => ok([docHit]) });
+    const res = await searchLegal(deps, {
+      q: 'cota de TVA',
+      filter: {},
+      channel: 'docs',
+      includeHistorical: false,
+      limit: 5,
+    });
+    const out = res._unsafeUnwrap();
+    expect(out.acts[0]?.provenance?.versionDate).toBe('2015-09-10');
+    expect(out.acts[0]?.provenance?.amendedAfterPublication).toBe(295);
+    expect(out.caveats).toContain(LEGAL_ORIGINAL_TEXT_CAVEAT);
+  });
+
+  it('resolves provenance for the whole result set in ONE batched call', async () => {
+    const versionProvenanceForActs = vi.fn(async (actIds: readonly string[]) =>
+      ok(new Map(actIds.map((id) => [id, provenance])))
+    );
+    const deps = makeDeps({
+      searchDocs: async () => ok([docHit]),
+      versionProvenanceForActs,
+    });
+    await searchLegal(deps, {
+      q: 'cota de TVA',
+      filter: {},
+      channel: 'docs',
+      includeHistorical: false,
+      limit: 5,
+    });
+    expect(versionProvenanceForActs).toHaveBeenCalledTimes(1);
+    expect(versionProvenanceForActs).toHaveBeenCalledWith(['66150']);
+  });
+
+  it('an empty result set carries no version caveat (no noise)', async () => {
+    const deps = makeDeps({});
+    const res = await searchLegal(deps, {
+      q: 'nimic',
+      filter: {},
+      channel: 'auto',
+      includeHistorical: false,
+      limit: 5,
+    });
+    expect(res._unsafeUnwrap().caveats).not.toContain(LEGAL_ORIGINAL_TEXT_CAVEAT);
+  });
+
+  it('the citation short-circuit stamps the act card hit too', async () => {
+    const deps = makeDeps({ getActCard: async () => ok(card) });
+    const res = await searchLegal(deps, {
+      q: 'legea 227/2015',
+      filter: {},
+      channel: 'auto',
+      includeHistorical: false,
+      limit: 5,
+    });
+    const out = res._unsafeUnwrap();
+    expect(out.acts[0]?.provenance?.versionKind).toBe('corp');
+    expect(out.caveats).toContain(LEGAL_ORIGINAL_TEXT_CAVEAT);
   });
 });
 

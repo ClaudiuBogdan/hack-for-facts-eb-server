@@ -79,6 +79,10 @@ const objectsAndQuery = /* GraphQL */ `
     versionCount: Int!
     "Incoming modifica/completeaza edge count — the §5.2-C honesty badge."
     amendedAfterPublication: Int!
+    "Which version the served text/summary actually is (§5.2-C). Batched per request."
+    versionProvenance: LegalVersionProvenance!
+    "The same fact rendered in Romanian, ready to show next to any text answer."
+    textProvenance: String!
     documents: [LegalDocument!]!
     links(
       direction: LegalLinkDirection!
@@ -108,6 +112,20 @@ const objectsAndQuery = /* GraphQL */ `
     moPart: Int
     moNumber: String
     moDate: Date
+  }
+
+  "Version provenance for a served text (§5.2-C). The corpus is published-form text only: version_kind is original|corp|stub-header|republicare and consolidare rows do not exist yet, so latestConsolidation* reads null/false until the consolidation-timeline lane loads them."
+  type LegalVersionProvenance {
+    "The canonical document's version_kind ('' when the act has no canonical document)."
+    versionKind: String!
+    versionDate: Date
+    "The legislatie.just.ro deep link — where the consolidated form can be checked. Never our own act page, which serves this same published text."
+    sourceUrl: String
+    "Incoming modifica/completeaza edges — how many times the act changed after this text."
+    amendedAfterPublication: Int!
+    latestConsolidationDate: Date
+    "False while a consolidation is only a timeline anchor we have not fetched."
+    latestConsolidationLoaded: Boolean!
   }
 
   type LegalActSummary {

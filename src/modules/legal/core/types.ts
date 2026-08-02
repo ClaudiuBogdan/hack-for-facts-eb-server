@@ -236,6 +236,32 @@ export interface LegalNode {
 // Retrieval (RAG) result shapes
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * What version of an act a served text/summary actually is (§5.2-C honesty).
+ * Read off the act's CANONICAL `act_documents` row + its incoming amendment
+ * edges; rendered to Romanian by `core/provenance.ts`.
+ *
+ * `latestConsolidation*` is forward-compat: `version_kind='consolidare'` is 0
+ * rows today, so it reads null/false and its clause is absent. It starts
+ * populating itself the moment the consolidation-timeline lane loads rows — no
+ * server change required.
+ */
+export interface LegalVersionProvenance {
+  readonly versionKind: string; // canonical doc's version_kind ('' when no canonical doc)
+  readonly versionDate: IsoDate | null;
+  readonly amendedAfterPublication: number; // incoming modifica/completeaza edges
+  /**
+   * The document's `legislatie.just.ro` deep link — where a reader can see the
+   * consolidated form. This is the ONLY link the note may carry: our own act page
+   * serves the very text the note is warning about, so linking there is circular.
+   */
+  readonly sourceUrl: string | null;
+  /** Newest `version_kind='consolidare'` row for the act, when one exists. */
+  readonly latestConsolidationDate: IsoDate | null;
+  /** False while that consolidation is only a timeline anchor (not fetched yet). */
+  readonly latestConsolidationLoaded: boolean;
+}
+
 /** A provision-level retrieval hit (section_embeddings → parent doc/act/node). */
 export interface LegalSectionHit {
   readonly actId: string;
@@ -251,6 +277,8 @@ export interface LegalSectionHit {
   readonly snippet: string | null; // grounded snippet from document_summaries
   readonly portalDeepLink: string | null; // deep link to the portal node
   readonly score: number; // fused/cosine
+  /** Which version this text is (§5.2-C); attached by the usecase, batched per result set. */
+  readonly provenance: LegalVersionProvenance | null;
 }
 
 /** A doc-channel hit (topical "about X"): the act + its summary + score. */
@@ -258,6 +286,8 @@ export interface LegalDocHit {
   readonly act: LegalAct;
   readonly summary: LegalActSummary | null;
   readonly score: number;
+  /** Which version this text is (§5.2-C); attached by the usecase, batched per result set. */
+  readonly provenance: LegalVersionProvenance | null;
 }
 
 /** The hybrid search result (§5 R7 / MCP search_legal_acts). */

@@ -40,9 +40,11 @@ import {
   mapAct,
   mapCitationKey,
   mapDocument,
+  mapProvenance,
   mapStatusEvent,
   mapSummary,
   type ActRow,
+  type ProvenanceRow,
   type StatusEventRow,
   type SummaryRow,
 } from './mappers.js';
@@ -56,6 +58,7 @@ import {
   type LegalDocument,
   type LegalEventSource,
   type LegalStatusEvent,
+  type LegalVersionProvenance,
 } from '../../core/types.js';
 import { legalActsSpec } from '../filters/legal-acts.spec.js';
 
@@ -432,6 +435,95 @@ export const makeLegalActsRepo = (db: Db): LegalActsRepo => {
     }
   };
 
+  /**
+   * §5.2-C version provenance. The two variants below differ ONLY in which
+   * document they stamp (an act's canonical one vs. a directly-addressed one),
+   * so they share these fragments and each runs as a SINGLE statement — two
+   * round trips would also mean two snapshots, and the version and its amendment
+   * count must be read consistently.
+   */
+  const amendedCount = sql`
+    (select count(*) from legal.act_references r
+      where r.target_act_id = a.act_id
+        and r.relation in (${sql.join(
+          AMENDMENT_RELATIONS.map((rel) => sql`${rel}`),
+          sql`, `
+        )})) as amended`;
+
+  /**
+   * Newest `consolidare` row for the act. `document_id` breaks ties so the row
+   * is deterministic when two consolidations share a date (or both are null) —
+   * without it the served date could flip between identical queries. Finds
+   * nothing today (0 rows corpus-wide); it is what lets the "ultima consolidare"
+   * clause appear with no code change once the timeline lane loads rows.
+   */
+  const consolidationLateral = sql`
+    left join lateral (
+      select c.version_date, c.extraction_status
+      from legal.act_documents c
+      where c.act_id = a.act_id and c.version_kind = 'consolidare'
+      order by c.version_date desc nulls last, c.document_id desc
+      limit 1
+    ) cons on true`;
+
+  const PROVENANCE_SELECT = sql`
+    a.act_id,
+    d.version_kind,
+    d.version_date::text as version_date,
+    d.source_url,
+    ${amendedCount},
+    cons.version_date::text as consolidation_date,
+    cons.extraction_status as consolidation_status`;
+
+  const versionProvenanceForActs = async (
+    actIds: readonly string[]
+  ): Promise<Result<ReadonlyMap<string, LegalVersionProvenance>, ApiError>> => {
+    const ids = [...new Set(actIds.filter((id) => ID_RE.test(id)))];
+    if (ids.length === 0) return ok(new Map());
+    try {
+      const result = await sql<ProvenanceRow>`
+        select ${PROVENANCE_SELECT}
+        from legal.acts a
+        left join legal.act_documents d on d.document_id = a.canonical_document_id
+        ${consolidationLateral}
+        where a.act_id in (${sql.join(
+          ids.map((id) => sql`${id}::bigint`),
+          sql`, `
+        )})
+      `.execute(db);
+      const map = new Map<string, LegalVersionProvenance>();
+      for (const r of result.rows) map.set(r.act_id, mapProvenance(r));
+      return ok(map);
+    } catch (error) {
+      return err(databaseError('versionProvenanceForActs failed', error));
+    }
+  };
+
+  /**
+   * The document-scoped variant: the node surface answers from ONE document, so
+   * it is stamped with THAT document's version, not the act's canonical one
+   * (they differ whenever a non-canonical expression is addressed directly).
+   * Driven FROM the addressed document, joined to its act.
+   */
+  const versionProvenanceForDocument = async (
+    documentId: string
+  ): Promise<Result<LegalVersionProvenance | null, ApiError>> => {
+    try {
+      const result = await sql<ProvenanceRow>`
+        select ${PROVENANCE_SELECT}
+        from legal.act_documents d
+        join legal.acts a on a.act_id = d.act_id
+        ${consolidationLateral}
+        where d.document_id = ${documentId}
+        limit 1
+      `.execute(db);
+      const row = result.rows[0];
+      return ok(row === undefined ? null : mapProvenance(row));
+    } catch (error) {
+      return err(databaseError('versionProvenanceForDocument failed', error));
+    }
+  };
+
   const canonicalDocumentsForActs = async (
     actIds: readonly string[]
   ): Promise<Result<ReadonlyMap<string, LegalDocument>, ApiError>> => {
@@ -528,6 +620,8 @@ export const makeLegalActsRepo = (db: Db): LegalActsRepo => {
     listDocuments,
     getSummary,
     countAmendmentsAfter,
+    versionProvenanceForActs,
+    versionProvenanceForDocument,
     canonicalDocumentsForActs,
     summariesForDocuments,
   };

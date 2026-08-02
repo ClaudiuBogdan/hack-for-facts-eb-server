@@ -17,6 +17,7 @@ import {
   type LegalRelation,
   type LegalStatusEvent,
   type LegalEventSource,
+  type LegalVersionProvenance,
   LEGAL_ACT_STATUSES,
   LEGAL_RELATIONS,
 } from '../../core/types.js';
@@ -109,6 +110,33 @@ export const mapDocument = (r: DocRow): LegalDocument => ({
   moPart: r.mo_part,
   moNumber: r.mo_number,
   moDate: r.mo_date,
+});
+
+export interface ProvenanceRow {
+  act_id: string;
+  version_kind: string | null; // null only if an act had no canonical document
+  version_date: string | null;
+  source_url: string | null;
+  amended: string | number; // count(*) → int8, driver-dependent
+  consolidation_date: string | null;
+  consolidation_status: string | null;
+}
+
+/**
+ * A consolidation row counts as LOADED once it has been fetched. The timeline
+ * lane writes anchors as `extraction_status='not_fetched'`; a null status is a
+ * row we cannot vouch for either, so both read as not-loaded.
+ */
+export const mapProvenance = (r: ProvenanceRow): LegalVersionProvenance => ({
+  versionKind: r.version_kind ?? '',
+  versionDate: r.version_date,
+  sourceUrl: r.source_url,
+  amendedAfterPublication: Number(r.amended),
+  latestConsolidationDate: r.consolidation_date,
+  latestConsolidationLoaded:
+    r.consolidation_date !== null &&
+    r.consolidation_status !== null &&
+    r.consolidation_status !== 'not_fetched',
 });
 
 export interface SummaryRow {

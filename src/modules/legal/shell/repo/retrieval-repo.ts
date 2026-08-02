@@ -276,6 +276,7 @@ const toSectionHit = (r: SectionHitRow): LegalSectionHit => ({
   charEnd: r.char_end,
   snippet: r.summary ?? r.plain_language_summary ?? null,
   portalDeepLink: null, // filled by the usecase from clientBaseUrl + section
+  provenance: null, // filled by the usecase in ONE batch over the result set
   score: Number.isFinite(r.dist) ? 1 - r.dist : 0, // cosine distance → similarity
 });
 
@@ -316,5 +317,11 @@ const toDocHit = (r: DocHitRow): LegalDocHit => {
           confidence: r.confidence,
           source_extraction_status: r.source_extraction_status,
         });
-  return { act, summary, score: Number.isFinite(r.dist) ? 1 - r.dist : 0 };
+  return {
+    act,
+    summary,
+    // filled by the usecase in ONE batch over the result set
+    provenance: null,
+    score: Number.isFinite(r.dist) ? 1 - r.dist : 0,
+  };
 };

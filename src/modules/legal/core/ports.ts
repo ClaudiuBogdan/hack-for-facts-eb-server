@@ -26,6 +26,7 @@ import type {
   LegalReferenceEdge,
   LegalRelation,
   LegalSectionHit,
+  LegalVersionProvenance,
 } from './types.js';
 import type { ApiError, CursorPage, FilterInput } from '@/modules/shared/index.js';
 import type { Result } from 'neverthrow';
@@ -58,6 +59,23 @@ export interface LegalActsRepo extends LegalRepoBase {
   getSummary(documentId: string): Promise<Result<LegalActSummary | null, ApiError>>;
   /** Incoming modifica/completeaza count — the §5.2-C honesty badge. */
   countAmendmentsAfter(actId: string): Promise<Result<number, ApiError>>;
+  /**
+   * Version provenance for many acts in ONE statement: canonical `version_kind`/
+   * `version_date` + the amendment count + the newest `consolidare` row (0 rows
+   * today — the lookup is what makes the forward-compat clause free). Batched
+   * because every search hit needs it; measured 67ms warm for the 50 most-cited
+   * acts in the corpus (the worst case) — re-validate if the corpus grows.
+   */
+  versionProvenanceForActs(
+    actIds: readonly string[]
+  ): Promise<Result<ReadonlyMap<string, LegalVersionProvenance>, ApiError>>;
+  /**
+   * Provenance for ONE document — the node/tree surface, where the answer is
+   * that document's own expression, not necessarily the act's canonical one.
+   */
+  versionProvenanceForDocument(
+    documentId: string
+  ): Promise<Result<LegalVersionProvenance | null, ApiError>>;
   // ── batched lazy resolvers (GraphQL fan-out; avoid N+1) ──
   /** Canonical document for many acts (act-card lazy field batching). */
   canonicalDocumentsForActs(

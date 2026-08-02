@@ -57,6 +57,7 @@ export interface LegalActDocumentsTable {
   status_markers: string[] | null; // text[]
   extraction_status: string | null;
   compatibility_tier: string | null;
+  source_url: string | null; // legislatie.just.ro deep link — 100% populated
   mo_part: number | null; // smallint — best-effort hint (broken; §13)
   mo_number: string | null;
   mo_date: string | null; // date

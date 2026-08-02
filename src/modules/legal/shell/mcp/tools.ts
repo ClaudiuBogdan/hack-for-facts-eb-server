@@ -21,6 +21,11 @@ import {
   LEGAL_MCP_KINDS,
 } from './io.js';
 import {
+  LEGAL_ORIGINAL_TEXT_CAVEAT,
+  amendmentCountPhrase,
+  versionProvenanceNote,
+} from '../../core/provenance.js';
+import {
   getAct,
   getActLinksIn,
   getActLinksOut,
@@ -34,7 +39,7 @@ import {
 
 import type { LegalActsRepo, LegalGraphRepo, LegalTreeRepo } from '../../core/ports.js';
 import type { LegalActRef } from '../../core/repo-base.js';
-import type { LegalRelation, LegalResolveDim } from '../../core/types.js';
+import type { LegalRelation, LegalResolveDim, LegalVersionProvenance } from '../../core/types.js';
 import type { FilterInput, KernelMcpTool, McpToolOutput } from '@/modules/shared/index.js';
 
 export interface LegalMcpDeps {
@@ -79,6 +84,22 @@ const refOf = (args: Record<string, unknown>): LegalActRef | null => {
 export const makeLegalMcpTools = (deps: LegalMcpDeps): readonly KernelMcpTool[] => {
   const { acts, graph, tree, searchDeps, resolveDeps, clientBaseUrl } = deps;
   const actLink = (actId: string): string => `${clientBaseUrl}/legal/acts/${actId}`;
+  const noteFor = (prov: LegalVersionProvenance | null): string | null =>
+    prov === null ? null : versionProvenanceNote(prov);
+
+  /**
+   * The provenance envelope every single-item tool returns, so an agent reads
+   * the caveats programmatically instead of parsing them out of `summary`
+   * (the same contract `search_legal_acts` gives for a result set).
+   */
+  const provenanceMeta = (
+    prov: LegalVersionProvenance | null,
+    note: string | null
+  ): Record<string, unknown> => ({
+    textProvenance: note,
+    versionProvenance: prov,
+    caveats: note === null ? [LEGAL_ORIGINAL_TEXT_CAVEAT] : [note, LEGAL_ORIGINAL_TEXT_CAVEAT],
+  });
 
   const resolveFilters: KernelMcpTool = {
     name: 'resolve_legal_filters',
@@ -114,13 +135,20 @@ export const makeLegalMcpTools = (deps: LegalMcpDeps): readonly KernelMcpTool[] 
       const card = res.value;
       if (card === null)
         return { ok: true, kind: LEGAL_MCP_KINDS.actCard, query: ref, summary: 'No matching act.' };
+      const provRes = await acts.versionProvenanceForActs([card.actId]);
+      if (provRes.isErr()) return errorOut(LEGAL_MCP_KINDS.actCard, provRes.error.message);
+      const provenance = provRes.value.get(card.actId) ?? null;
+      const note = noteFor(provenance);
       return {
         ok: true,
         kind: LEGAL_MCP_KINDS.actCard,
         query: ref,
         link: actLink(card.actId),
         item: card,
-        summary: `${card.displayCitation} — status: ${card.status}; modificat de ${n(card.amendedAfterPublication)} acte.`,
+        meta: provenanceMeta(provenance, note),
+        summary:
+          `${card.displayCitation} — status: ${card.status}; ${amendmentCountPhrase(card.amendedAfterPublication)}.` +
+          (note === null ? '' : ` ${note}`),
       };
     },
   };
@@ -143,13 +171,24 @@ export const makeLegalMcpTools = (deps: LegalMcpDeps): readonly KernelMcpTool[] 
       });
       if (res.isErr()) return errorOut(LEGAL_MCP_KINDS.search, res.error.message);
       const { acts: actHits, sections, caveats } = res.value;
+      // Stamp each hit with its own version note: an agent quoting one act must
+      // not have to infer provenance from a set-level caveat.
+      const stampedActs = actHits.map((h) => ({
+        ...h,
+        textProvenance: noteFor(h.provenance),
+      }));
+      const stampedSections = sections.map((s) => ({
+        ...s,
+        textProvenance: noteFor(s.provenance),
+      }));
       return {
         ok: true,
         kind: LEGAL_MCP_KINDS.search,
         query: { q, channel },
         link: `${clientBaseUrl}/legal/search?q=${encodeURIComponent(q)}`,
-        items: [...actHits],
-        item: { acts: actHits, sections, caveats },
+        items: stampedActs,
+        item: { acts: stampedActs, sections: stampedSections, caveats },
+        meta: { caveats },
         summary:
           `${n(actHits.length)} acte / ${n(sections.length)} secțiuni pentru „${q}".` +
           (caveats.length > 0 ? ` ${caveats.join(' ')}` : ''),
@@ -246,13 +285,23 @@ export const makeLegalMcpTools = (deps: LegalMcpDeps): readonly KernelMcpTool[] 
       }
       const res = await getActTree(tree, { documentId, path, depth: 1 });
       if (res.isErr()) return errorOut(LEGAL_MCP_KINDS.node, res.error.message);
+      // The node belongs to THIS document, so it is stamped with that document's
+      // own version rather than the act's canonical one.
+      const provRes = await acts.versionProvenanceForDocument(documentId);
+      if (provRes.isErr()) return errorOut(LEGAL_MCP_KINDS.node, provRes.error.message);
+      const docLink = `${clientBaseUrl}/legal/documents/${documentId}?path=${encodeURIComponent(path)}`;
+      const provenance = provRes.value;
+      const note = noteFor(provenance);
       return {
         ok: true,
         kind: LEGAL_MCP_KINDS.node,
         query: { documentId, path },
-        link: `${clientBaseUrl}/legal/documents/${documentId}?path=${encodeURIComponent(path)}`,
+        link: docLink,
         items: res.value,
-        summary: `${n(res.value.length)} child node(s) under ${path}. Node text lives in the portal (deep link).`,
+        meta: provenanceMeta(provenance, note),
+        summary:
+          `${n(res.value.length)} child node(s) under ${path}. Node text lives in the portal (deep link).` +
+          (note === null ? '' : ` ${note}`),
       };
     },
   };

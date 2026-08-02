@@ -14,6 +14,7 @@
 import { err, ok, type Result } from 'neverthrow';
 
 import { parseCitation } from './citation.js';
+import { LEGAL_ORIGINAL_TEXT_CAVEAT, amendmentCountPhrase } from './provenance.js';
 
 import type {
   CursorPageRequest,
@@ -39,6 +40,7 @@ import type {
   LegalSortKey,
   LegalStatusEvent,
   LegalTimelineEntry,
+  LegalVersionProvenance,
 } from './types.js';
 import type {
   ApiError,
@@ -201,8 +203,12 @@ export const searchLegal = async (
     if (cardRes.value !== null) {
       const card = cardRes.value;
       caveats.push(honestyCaveat(card));
+      caveats.push(LEGAL_ORIGINAL_TEXT_CAVEAT);
+      const provRes = await deps.acts.versionProvenanceForActs([card.actId]);
+      if (provRes.isErr()) return err(provRes.error);
+      const provenance = provRes.value.get(card.actId) ?? null;
       return ok({
-        acts: [{ act: stripCard(card), summary: card.summary, score: 1 }],
+        acts: [{ act: stripCard(card), summary: card.summary, score: 1, provenance }],
         sections: [],
         caveats,
       });
@@ -234,10 +240,27 @@ export const searchLegal = async (
   if (secRes.isErr()) return err(secRes.error);
   if (docRes.isErr()) return err(docRes.error);
 
+  // §5.2-C version provenance: ONE batched lookup for every act in the result set,
+  // so no hit is served as current law without saying which version it is. The
+  // status badge below is free from the hit row; this is the one extra statement.
+  const actIds = [
+    ...new Set([...docRes.value.map((d) => d.act.actId), ...secRes.value.map((s) => s.actId)]),
+  ];
+  const provRes = await deps.acts.versionProvenanceForActs(actIds);
+  if (provRes.isErr()) return err(provRes.error);
+  const provenanceOf = (actId: string): LegalVersionProvenance | null =>
+    provRes.value.get(actId) ?? null;
+
   const sections = secRes.value.map((s) => ({
     ...s,
     portalDeepLink: portalLink(deps.clientBaseUrl, s.actId, s.sectionKey),
+    provenance: provenanceOf(s.actId),
   }));
+  const acts = docRes.value.map((d) => ({ ...d, provenance: provenanceOf(d.act.actId) }));
+
+  // The corpus is published-form text only, so the whole result set carries one
+  // version caveat; the per-act counts ride on each hit's own provenance.
+  if (acts.length > 0 || sections.length > 0) caveats.push(LEGAL_ORIGINAL_TEXT_CAVEAT);
 
   // §5.2-C honesty: a status-badge caveat per distinct NON-current act in the
   // result set (in-vigoare needs no warning). Status rides on every hit, so this
@@ -248,14 +271,14 @@ export const searchLegal = async (
     seen.add(actId);
     caveats.push(`${citation}: status ${status} — verificați versiunea în vigoare.`);
   };
-  for (const d of docRes.value) warnIfHistorical(d.act.actId, d.act.displayCitation, d.act.status);
+  for (const d of acts) warnIfHistorical(d.act.actId, d.act.displayCitation, d.act.status);
   for (const s of sections) warnIfHistorical(s.actId, s.displayCitation, s.status);
 
-  return ok({ acts: docRes.value, sections, caveats });
+  return ok({ acts, sections, caveats });
 };
 
 const honestyCaveat = (card: LegalActCard): string =>
-  `${card.displayCitation}: status ${card.status}; modificat de ${String(card.amendedAfterPublication)} acte.`;
+  `${card.displayCitation}: status ${card.status}; ${amendmentCountPhrase(card.amendedAfterPublication)}.`;
 
 const portalLink = (base: string, actId: string, sectionKey: string): string =>
   `${base}/legal/acts/${actId}?section=${encodeURIComponent(sectionKey)}`;
@@ -305,14 +328,12 @@ export const resolveLegalFilters = async (
     const candidates = await deps.acts.resolveActCandidates({ citation: q });
     if (candidates.isErr()) return err(candidates.error);
     return ok(
-      candidates.value.slice(0, limit).map(
-        (a): ResolveHit => ({
-          kind: 'act',
-          value: a.actId,
-          label: a.displayCitation,
-          hint: a.status,
-        })
-      )
+      candidates.value.slice(0, limit).map((a): ResolveHit => ({
+        kind: 'act',
+        value: a.actId,
+        label: a.displayCitation,
+        hint: a.status,
+      }))
     );
   }
   if (dim === 'issuer') return deps.vocab.resolveIssuers(q, limit);
