@@ -1878,6 +1878,11 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
           'bvl.confidence_label',
         ])
         .where('bvl.bill_key', '=', billKey)
+        // 'retracted' means the resolver no longer derives this edge. Excluded
+        // rather than filtered to 'linked' because this surface deliberately
+        // EXPOSES resolutionStatus — a candidate/ambiguous edge is informative
+        // evidence, a retracted one is a claim we have withdrawn.
+        .where('bvl.resolution_status', '!=', 'retracted')
         .execute();
       return ok(
         rows.map((r) => ({
@@ -1916,6 +1921,9 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
           'bvl.confidence_label',
         ])
         .where('bvl.vote_key', '=', voteKey)
+        // See getBillVoteLinks: withdrawn claims are excluded, other statuses
+        // are surfaced with their status intact.
+        .where('bvl.resolution_status', '!=', 'retracted')
         .execute();
       return ok(
         rows.map((r) => ({
@@ -3402,6 +3410,13 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
         ])
         .where(sql`bal.target_act_id`, '=', sql`${actId}::bigint`)
         .where('bal.resolution_status', '=', 'linked')
+        // The vote edge is held to the SAME standard as the act edge above.
+        // This is a factual lineage claim ("these divisions decided this act"),
+        // not an evidence listing, so only fully-resolved edges qualify — the
+        // asymmetry of demanding `linked` on one join and accepting anything on
+        // the other was an oversight, and it is the join that would have served
+        // retracted rows once retraction is activated.
+        .where('bvl.resolution_status', '=', 'linked')
         .where('v.privacy_class', '=', 'public');
       if (roles.length > 0) qb = qb.where('bvl.role', 'in', [...roles]);
       const rows = await qb.orderBy('v.vote_date', 'asc').execute();
