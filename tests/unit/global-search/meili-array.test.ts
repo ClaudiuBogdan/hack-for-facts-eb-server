@@ -2,11 +2,11 @@
  * Kernel — `buildEntitiesFilter` (the Meili ARRAY filter for the entities index)
  * plus the `validEntityDocTypes` / `normalizeCounty` helpers.
  *
- * Covers the security/allowlist contract: visibility is always pinned; unknown
- * doc_types are dropped; non-integer years are ignored; only shape-valid counties
- * are kept (no quote/operator injection); and the emitted shape is Meili's
- * documented ARRAY-of-expression-STRINGS form (NOT a `['AND', [field,op,val]]`
- * token form, which Meili rejects).
+ * Covers the security/allowlist contract: privacy_class is always pinned;
+ * unknown doc_types and roles are dropped; only shape-valid counties are kept
+ * (no quote/operator injection); and the emitted shape is Meili's documented
+ * ARRAY-of-expression-STRINGS form (NOT a `['AND', [field,op,val]]` token form,
+ * which Meili rejects).
  */
 
 import { describe, expect, it } from 'vitest';
@@ -18,14 +18,14 @@ import {
 } from '@/modules/shared/core/filters/meili-array.js';
 import { SEARCH_ENTITY_DOC_TYPES } from '@/modules/shared/core/types.js';
 
-describe('buildEntitiesFilter — visibility gate', () => {
-  it('always pins visibility = "public", even with no inputs', () => {
-    expect(buildEntitiesFilter({})).toEqual(['visibility = "public"']);
+describe('buildEntitiesFilter — privacy gate', () => {
+  it('always pins privacy_class = "public", even with no inputs', () => {
+    expect(buildEntitiesFilter({})).toEqual(['privacy_class = "public"']);
   });
 
-  it('keeps visibility first when other clauses are present', () => {
-    const filter = buildEntitiesFilter({ docTypes: ['company'], county: 'Cluj', year: 2024 });
-    expect(filter[0]).toBe('visibility = "public"');
+  it('keeps the privacy clause first when other clauses are present', () => {
+    const filter = buildEntitiesFilter({ docTypes: ['company'], county: 'Cluj', isActive: true });
+    expect(filter[0]).toBe('privacy_class = "public"');
   });
 });
 
@@ -37,7 +37,7 @@ describe('buildEntitiesFilter — doc_type allowlist', () => {
 
   it('drops unknown doc_types (and omits the clause when none remain valid)', () => {
     const filter = buildEntitiesFilter({ docTypes: ['nope', 'also_bad'] });
-    expect(filter).toEqual(['visibility = "public"']);
+    expect(filter).toEqual(['privacy_class = "public"']);
   });
 
   it('keeps only the valid subset when mixed with unknowns', () => {
@@ -57,17 +57,30 @@ describe('buildEntitiesFilter — doc_type allowlist', () => {
   });
 });
 
-describe('buildEntitiesFilter — year', () => {
-  it('emits year = <int> (unquoted number)', () => {
-    expect(buildEntitiesFilter({ year: 2024 })).toContain('year = 2024');
+describe('buildEntitiesFilter — roles', () => {
+  it('emits a roles IN clause for valid roles', () => {
+    expect(buildEntitiesFilter({ roles: ['pnrr_entity'] })).toContain('roles IN ["pnrr_entity"]');
   });
 
-  it('ignores a non-integer (float) year', () => {
-    expect(buildEntitiesFilter({ year: 2024.5 })).toEqual(['visibility = "public"']);
+  it('drops unknown roles entirely', () => {
+    expect(buildEntitiesFilter({ roles: ['nope'] })).toEqual(['privacy_class = "public"']);
   });
 
-  it('ignores a NaN year', () => {
-    expect(buildEntitiesFilter({ year: Number.NaN })).toEqual(['visibility = "public"']);
+  it('separates doc_type (what it IS) from roles (what it PLAYS)', () => {
+    const filter = buildEntitiesFilter({ docTypes: ['organization'], roles: ['pnrr_entity'] });
+    expect(filter).toContain('doc_type IN ["organization"]');
+    expect(filter).toContain('roles IN ["pnrr_entity"]');
+  });
+});
+
+describe('buildEntitiesFilter — is_active', () => {
+  it('emits an unquoted boolean', () => {
+    expect(buildEntitiesFilter({ isActive: true })).toContain('is_active = true');
+    expect(buildEntitiesFilter({ isActive: false })).toContain('is_active = false');
+  });
+
+  it('omits the clause when not requested', () => {
+    expect(buildEntitiesFilter({})).toEqual(['privacy_class = "public"']);
   });
 });
 
@@ -87,26 +100,32 @@ describe('buildEntitiesFilter — county', () => {
   });
 
   it('omits the county clause for an empty / whitespace-only string', () => {
-    expect(buildEntitiesFilter({ county: '' })).toEqual(['visibility = "public"']);
-    expect(buildEntitiesFilter({ county: '   ' })).toEqual(['visibility = "public"']);
+    expect(buildEntitiesFilter({ county: '' })).toEqual(['privacy_class = "public"']);
+    expect(buildEntitiesFilter({ county: '   ' })).toEqual(['privacy_class = "public"']);
   });
 
   it('drops a county carrying quotes / operators (injection guard)', () => {
-    expect(buildEntitiesFilter({ county: 'Cluj" OR visibility = "restricted' })).toEqual([
-      'visibility = "public"',
+    expect(buildEntitiesFilter({ county: 'Cluj" OR privacy_class = "restricted' })).toEqual([
+      'privacy_class = "public"',
     ]);
-    expect(buildEntitiesFilter({ county: 'a]b' })).toEqual(['visibility = "public"']);
+    expect(buildEntitiesFilter({ county: 'a]b' })).toEqual(['privacy_class = "public"']);
   });
 });
 
 describe('buildEntitiesFilter — combined shape', () => {
-  it('produces visibility, doc_type, county, year clauses in order', () => {
-    const filter = buildEntitiesFilter({ docTypes: ['company'], county: 'Cluj', year: 2024 });
+  it('produces privacy_class, doc_type, roles, county, is_active clauses in order', () => {
+    const filter = buildEntitiesFilter({
+      docTypes: ['company'],
+      roles: ['pnrr_entity'],
+      county: 'Cluj',
+      isActive: true,
+    });
     expect(filter).toEqual([
-      'visibility = "public"',
+      'privacy_class = "public"',
       'doc_type IN ["company"]',
+      'roles IN ["pnrr_entity"]',
       'county_name = "Cluj"',
-      'year = 2024',
+      'is_active = true',
     ]);
   });
 });

@@ -119,7 +119,7 @@ export const makeKernelMcpTools = (deps: KernelMcpDeps): readonly KernelMcpTool[
   const searchEntities: KernelMcpTool = {
     name: 'search_entities',
     description:
-      'Free-text global search across every entity-grade type (companies, organizations, legal acts, members, bills, procurement, PNRR, …). Returns the merged, relevance-ranked list with a type badge per hit, optionally narrowed by docTypes / county / year. Use this to FIND entities when you only have a name or keyword; then use resolve_entity / get_entity_snapshot for a specific CUI.',
+      'Free-text global search across every quick-searchable identity (companies, public institutions, NGOs, public enterprises, PNRR entities, MPs, bills, committees, legal acts, Monitorul Oficial acts). Returns the merged, relevance-ranked list with a type badge per hit, optionally narrowed by docTypes / roles / county / isActive. One document per identity: use docTypes for what a thing IS and roles for what it PLAYS (a municipality that is also a PNRR beneficiary is one hit carrying both). Use this to FIND entities when you only have a name or keyword; then use resolve_entity / get_entity_snapshot for a specific CUI.',
     inputShape: {
       query: z.string().describe('Free-text query (entity name, keyword, or CUI).'),
       docTypes: z
@@ -130,7 +130,14 @@ export const makeKernelMcpTools = (deps: KernelMcpDeps): readonly KernelMcpTool[
         .string()
         .optional()
         .describe('Canonical county name (case-sensitive, e.g. "Cluj").'),
-      year: z.number().int().optional().describe('Exact year filter.'),
+      roles: z
+        .array(z.string())
+        .optional()
+        .describe('Restrict to identities playing these roles (e.g. ["pnrr_entity"]).'),
+      isActive: z
+        .boolean()
+        .optional()
+        .describe('Only currently-active entities (half of all companies are struck off).'),
       limit: z.number().int().optional().describe('Max hits to return (default 20, max 50).'),
     },
     async handler(args): Promise<McpToolOutput> {
@@ -139,14 +146,18 @@ export const makeKernelMcpTools = (deps: KernelMcpDeps): readonly KernelMcpTool[
         ? args['docTypes'].filter((t): t is string => typeof t === 'string')
         : undefined;
       const county = typeof args['county'] === 'string' ? args['county'] : undefined;
-      const year = typeof args['year'] === 'number' ? args['year'] : undefined;
+      const roles = Array.isArray(args['roles'])
+        ? args['roles'].filter((r): r is string => typeof r === 'string')
+        : undefined;
+      const isActive = typeof args['isActive'] === 'boolean' ? args['isActive'] : undefined;
       const limit = typeof args['limit'] === 'number' ? args['limit'] : undefined;
 
       const res = await makeGlobalSearch(deps.globalSearchDeps, {
         q: query,
         ...(docTypes !== undefined && { docTypes }),
         ...(county !== undefined && { county }),
-        ...(year !== undefined && { year }),
+        ...(roles !== undefined && { roles }),
+        ...(isActive !== undefined && { isActive }),
         ...(limit !== undefined && { limit }),
       });
       if (res.isErr()) return { ok: false, kind: 'entity_search', error: res.error.message };

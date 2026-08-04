@@ -42,8 +42,18 @@ const mapHit = (h: Record<string, unknown>, indexUid: string): SearchHit => {
   const countyName = asString(h['county_name']);
   const url = asString(h['url']);
   const rankBoost = h['rank_boost'];
-  const cuis = h['cuis'];
-  const year = h['year'];
+  // Palette docs carry `identifiers` (CUI + ONRC number + citations); legacy
+  // docs carried `cuis`. Accept both, and derive `cuis` as the all-numeric
+  // subset so the CUI-spine deep-link never receives a J-number or a citation.
+  const identifiersRaw = h['identifiers'] ?? h['cuis'];
+  const identifiers = Array.isArray(identifiersRaw)
+    ? identifiersRaw.filter((v): v is string => typeof v === 'string')
+    : undefined;
+  const cuis = identifiers?.filter((v) => /^\d+$/u.test(v));
+  const roles = Array.isArray(h['roles'])
+    ? h['roles'].filter((r): r is string => typeof r === 'string')
+    : undefined;
+  const isActive = h['is_active'];
 
   return {
     id: typeof id === 'string' ? id : typeof id === 'number' ? String(id) : '',
@@ -60,10 +70,10 @@ const mapHit = (h: Record<string, unknown>, indexUid: string): SearchHit => {
     ...(countyName !== undefined && { countyName }),
     ...(url !== undefined && { url }),
     ...(typeof rankBoost === 'number' && { rankBoost }),
-    ...(Array.isArray(cuis) && {
-      cuis: cuis.filter((c): c is string => typeof c === 'string'),
-    }),
-    ...(typeof year === 'number' && { year }),
+    ...(cuis !== undefined && { cuis }),
+    ...(identifiers !== undefined && { identifiers }),
+    ...(roles !== undefined && { roles }),
+    ...(typeof isActive === 'boolean' && { isActive }),
   };
 };
 

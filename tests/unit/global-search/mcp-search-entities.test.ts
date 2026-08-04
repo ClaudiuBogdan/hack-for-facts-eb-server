@@ -196,7 +196,7 @@ describe('search_entities — privacy whitelist (no visibility / no raw attrs le
 });
 
 describe('search_entities — arg coercion', () => {
-  it('forwards docTypes / county / year / limit when valid', async () => {
+  it('forwards docTypes / county / isActive / limit when valid', async () => {
     const searchEntities = vi.fn(async () =>
       ok({ hits: [], facetDistribution: {}, estimatedTotalHits: 0 })
     );
@@ -215,17 +215,17 @@ describe('search_entities — arg coercion', () => {
       query: 'acme',
       docTypes: ['company', 7],
       county: 'Cluj',
-      year: 2024,
+      isActive: true,
       limit: 5,
     });
 
     // docTypes filters non-strings; the usecase receives ['company'] → meili filter.
     expect(searchEntities).toHaveBeenCalledWith('acme', 'entities', {
       filter: [
-        'visibility = "public"',
+        'privacy_class = "public"',
         'doc_type IN ["company"]',
         'county_name = "Cluj"',
-        'year = 2024',
+        'is_active = true',
       ],
       facets: ['doc_type'],
       limit: 5,

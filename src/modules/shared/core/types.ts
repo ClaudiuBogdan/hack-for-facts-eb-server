@@ -320,6 +320,12 @@ export interface SearchHit {
   readonly rankBoost?: number;
   /** Associated CUI identifiers (exact-match filter). */
   readonly cuis?: readonly string[];
+  /** Every searchable identifier: CUIs, ONRC numbers, citations, PLx numbers. */
+  readonly identifiers?: readonly string[];
+  /** Every role this identity plays (organization + pnrr_entity + …). */
+  readonly roles?: readonly string[];
+  /** False for struck-off companies and repealed acts. */
+  readonly isActive?: boolean;
   /** Year (facet/sort). */
   readonly year?: number;
 }
@@ -340,28 +346,40 @@ export interface SearchFacet {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * The entity-grade `doc_type` set of the `entities` Meili index — the allowlist
- * for global-search filters. KEEP IN SYNC with `ENTITY_DOC_TYPES` in the
- * scrapper's `entities-index.ts` / `ENTITIES_INDEX_CONTRACT.md`. This is
- * deliberately DISTINCT from the kernel's `DOC_TYPES` (the full, stale
- * `search.documents` set, which lacks company/organization/member/bill/ngo/
- * public_enterprise) — validate entity-search filters against THIS constant.
+ * The `doc_type` set of the `entities` Meili palette index — the allowlist for
+ * global-search filters. KEEP IN SYNC with `PALETTE_DOC_TYPES` in the scrapper's
+ * `src/search/palette-contract.ts`. Deliberately DISTINCT from the kernel's
+ * `DOC_TYPES` (the full `search.documents` set) — validate entity-search filters
+ * against THIS constant.
+ *
+ * These are IDENTITIES, one document each, not roles: a CUI that is both a
+ * municipality and a PNRR beneficiary presents as `organization` and carries
+ * both in `roles`. Filter on `roles` to ask "everything that is a PNRR entity"
+ * (which still reports its full population); filter on `doc_type` to ask "what
+ * kind of thing is this".
+ *
+ * Removed 2026-08-05: `procurement_contract` / `procurement_procedure` (record
+ * corpora searched THROUGH, owned by the procurement list engine — an identifier
+ * router handles CAN-number lookups) and `pnrr_project` (never had a single row).
+ * Added: `committee`.
  */
 export const SEARCH_ENTITY_DOC_TYPES = [
   'organization',
   'company',
   'public_enterprise',
   'ngo',
+  'pnrr_entity',
   'member',
   'bill',
+  'committee',
   'legal_act',
   'mo_act',
-  'pnrr_project',
-  'pnrr_entity',
-  'procurement_contract',
-  'procurement_procedure',
 ] as const;
 export type SearchEntityDocType = (typeof SEARCH_ENTITY_DOC_TYPES)[number];
+
+/** Role values a palette identity can carry (superset shape of doc_type). */
+export const SEARCH_ENTITY_ROLES = SEARCH_ENTITY_DOC_TYPES;
+export type SearchEntityRole = SearchEntityDocType;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Cross-source aggregation shapes (§4.4 — canonical open shapes)

@@ -56,7 +56,10 @@ export interface GlobalSearchInput {
   readonly docTypes?: readonly string[];
   /** Canonical county name (Meili equality is case-sensitive — see the filter builder). */
   readonly county?: string;
-  readonly year?: number;
+  /** Identities playing this role (a CUI can be organization + pnrr_entity). */
+  readonly roles?: readonly string[];
+  /** Only currently-active entities. */
+  readonly isActive?: boolean;
   readonly limit?: number;
   readonly offset?: number;
 }
@@ -161,12 +164,13 @@ export const makeGlobalSearch = async (
     logSearch('meili', 0, 0, true);
     return err(invalidInput('county must be a canonical county name', 'county'));
   }
-  const year = input.year !== undefined && Number.isInteger(input.year) ? input.year : undefined;
+  const roles = validEntityDocTypes(input.roles);
 
   const filterArgs = {
     ...(docTypes.length > 0 && { docTypes }),
     ...(county !== undefined && { county }),
-    ...(year !== undefined && { year }),
+    ...(roles.length > 0 && { roles }),
+    ...(input.isActive !== undefined && { isActive: input.isActive }),
   };
 
   const index = meiliIndexes[0] ?? 'entities';

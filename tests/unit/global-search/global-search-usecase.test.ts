@@ -176,14 +176,19 @@ describe('makeGlobalSearch — Meili ok path', () => {
 
   it('passes q + filter + facets + clamped limit to the meili client', async () => {
     const { deps, spies } = makeDeps({});
-    await makeGlobalSearch(deps, { q: 'acme', docTypes: ['company'], county: 'Cluj', year: 2024 });
+    await makeGlobalSearch(deps, {
+      q: 'acme',
+      docTypes: ['company'],
+      county: 'Cluj',
+      isActive: true,
+    });
 
     expect(spies.meiliSearch).toHaveBeenCalledWith('acme', 'entities', {
       filter: [
-        'visibility = "public"',
+        'privacy_class = "public"',
         'doc_type IN ["company"]',
         'county_name = "Cluj"',
-        'year = 2024',
+        'is_active = true',
       ],
       facets: ['doc_type'],
       limit: 20,
@@ -248,13 +253,13 @@ describe('makeGlobalSearch — degrade to postgres', () => {
       q: 'acme',
       docTypes: ['company', 'nope'],
       county: 'Cluj',
-      year: 2024,
+      isActive: true,
     });
 
     expect(spies.repoSearch).toHaveBeenCalledWith('acme', {
       docTypes: ['company'],
       county: 'Cluj',
-      year: 2024,
+      isActive: true,
       limit: 20,
     });
   });
@@ -349,12 +354,12 @@ describe('makeGlobalSearch — limit/offset clamping', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('makeGlobalSearch — allowlist pin when docTypes omitted', () => {
-  it('pins the FULL entity allowlist on the Meili filter (not just visibility)', async () => {
+  it('pins the FULL entity allowlist on the Meili filter (not just the privacy gate)', async () => {
     const { deps, spies } = makeDeps({});
     await makeGlobalSearch(deps, { q: 'acme' });
 
     const filter = (spies.meiliSearch.mock.calls[0]?.[2] as { filter: readonly string[] }).filter;
-    expect(filter).toContain('visibility = "public"');
+    expect(filter).toContain('privacy_class = "public"');
     const expectedIn = `doc_type IN [${SEARCH_ENTITY_DOC_TYPES.map((t) => `"${t}"`).join(', ')}]`;
     expect(filter).toContain(expectedIn);
   });

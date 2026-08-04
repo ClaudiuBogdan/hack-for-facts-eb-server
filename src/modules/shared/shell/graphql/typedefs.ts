@@ -161,7 +161,12 @@ export const baseTypeDefs = /* GraphQL */ `
     rankBoost: Float
     "Associated CUI identifiers (exact-match filter / CUI-spine deep-link)."
     cuis: [String!]
-    year: Int
+    "Every searchable identifier: CUIs, ONRC numbers, citations, PLx numbers."
+    identifiers: [String!]
+    "Every role this identity plays (a municipality may also be a PNRR entity)."
+    roles: [String!]
+    "False for struck-off companies and repealed acts."
+    isActive: Boolean
   }
 
   "One facet bucket (e.g. doc_type distribution → the type-filter chips)."
@@ -247,12 +252,19 @@ export const baseTypeDefs = /* GraphQL */ `
     truncation.
     """
     organizationLabels(cuis: [String!]!): [OrganizationLabel!]!
-    "Hybrid global search (Meili-primary, pg fallback). county = canonical county name; year = exact match."
+    """
+    Global search over the entity palette (Meili-primary, pg fallback).
+    One hit per IDENTITY: docTypes narrows what a thing IS, roles narrows what
+    it PLAYS (a municipality that is also a PNRR beneficiary is one hit carrying
+    both). county is a canonical county name. isActive drops struck-off
+    entities. NOTE: no backticks here - this SDL is a TS template literal.
+    """
     searchEntities(
       q: String!
       docTypes: [String!]
+      roles: [String!]
       county: String
-      year: Int
+      isActive: Boolean
       limit: Int
       offset: Int
     ): GlobalSearchResult!

@@ -58,7 +58,8 @@ interface SearchArgs {
   q: string;
   docTypes?: string[];
   county?: string;
-  year?: number;
+  roles?: readonly string[];
+  isActive?: boolean;
   limit?: number;
   offset?: number;
 }
@@ -112,7 +113,8 @@ export const makeKernelResolvers = (deps: KernelResolverDeps): Record<string, un
         q: args.q,
         ...(args.docTypes !== undefined && { docTypes: args.docTypes }),
         ...(args.county !== undefined && { county: args.county }),
-        ...(args.year !== undefined && { year: args.year }),
+        ...(args.roles !== undefined && { roles: args.roles }),
+        ...(args.isActive !== undefined && { isActive: args.isActive }),
         ...(args.limit !== undefined && { limit: args.limit }),
         ...(args.offset !== undefined && { offset: args.offset }),
       };
@@ -124,7 +126,8 @@ export const makeKernelResolvers = (deps: KernelResolverDeps): Record<string, un
         q: args.q,
         docTypes: (args.docTypes ?? []).slice().sort(),
         county: args.county ?? null,
-        year: args.year ?? null,
+        roles: (args.roles ?? []).slice().sort(),
+        isActive: args.isActive ?? null,
         limit: args.limit ?? null,
         offset: args.offset ?? null,
       })}`;

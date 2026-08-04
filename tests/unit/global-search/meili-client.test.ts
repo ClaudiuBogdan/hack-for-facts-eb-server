@@ -161,8 +161,9 @@ describe('searchEntities — mapHit', () => {
       county_name: 'Cluj',
       url: 'https://example.test/acme',
       rank_boost: 12,
-      cuis: ['42', 99, 'RO7'],
-      year: 2024,
+      identifiers: ['42', 99, 'J12/345/2001'],
+      roles: ['company', 'pnrr_entity'],
+      is_active: true,
       _rankingScore: 0.87,
       visibility: 'public',
       attrs: { kind: 'srl', status: 'active' },
@@ -188,8 +189,12 @@ describe('searchEntities — mapHit', () => {
     expect(hit.countyName).toBe('Cluj');
     expect(hit.url).toBe('https://example.test/acme');
     expect(hit.rankBoost).toBe(12);
-    expect(hit.cuis).toEqual(['42', 'RO7']); // non-string cuis dropped
-    expect(hit.year).toBe(2024);
+    // identifiers keeps every searchable form; cuis is the all-numeric subset so
+    // a CUI-spine deep-link never receives an ONRC number. Non-strings dropped.
+    expect(hit.identifiers).toEqual(['42', 'J12/345/2001']);
+    expect(hit.cuis).toEqual(['42']);
+    expect(hit.roles).toEqual(['company', 'pnrr_entity']);
+    expect(hit.isActive).toBe(true);
     // `attrs` is the WHOLE raw hit (companies-repo + the MCP whitelist rely on it).
     expect(hit.attrs).toEqual(rawHit);
     expect(hit.attrs['visibility']).toBe('public');
