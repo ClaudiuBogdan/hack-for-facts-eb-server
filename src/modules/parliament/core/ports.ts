@@ -14,6 +14,7 @@ import type {
   ParliamentAiControlItemMetadata,
   ParliamentBallot,
   ParliamentBill,
+  ParliamentBillActivity,
   ParliamentBillActLink,
   ParliamentAgendaConnection,
   ParliamentAgendaDetail,
@@ -258,6 +259,20 @@ export interface ParliamentRepo extends ParliamentStenogramRepo {
     year: number,
     filter: FilterInput
   ): Promise<Result<ParliamentVoteActivity, ApiError>>;
+  /**
+   * Per-day legislative activity — bills counted by `last_event_date` under the
+   * same `buildBillConditions` + canonical-only predicate the bills list uses,
+   * so chart and list share exactly one predicate builder and cannot drift.
+   * `availableYears` is the DISTINCT set of years holding any canonical bill's
+   * last event — NOT bounded by the year argument and NOT filter-bounded (it
+   * drives the year picker; see `voteActivity` for the reasoning) — clamped to
+   * the servable 1990–2100 range so the picker never advertises a year the
+   * usecase guard would then reject.
+   */
+  billActivity(
+    year: number,
+    filter: FilterInput
+  ): Promise<Result<ParliamentBillActivity, ApiError>>;
   /**
    * The five per-mandate activity totals (votes / control / speeches / initiatives /
    * declarations) in ONE bounded round trip. Every sub-count mirrors the predicates

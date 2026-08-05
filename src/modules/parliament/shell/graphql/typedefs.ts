@@ -474,6 +474,32 @@ const objectsAndQuery = /* GraphQL */ `
     coverage: [ParliamentVoteCoverage!]!
   }
 
+  "One calendar day of legislative activity (the bills-hub heatmap cell)."
+  type ParliamentBillActivityDay {
+    date: Date!
+    "Bills whose most recent timeline event (attrs.last_event_date — the same key the default updated_desc sort reads) falls on this day, within the filtered set — the SAME rows parliamentBills lists (canonical views only). A BILL count, not an event count: one square per bill, keyed to the recency date the list cards print as 'Actualizat', so the chart and the list beside it agree. A bill with no dated event at all appears on NO day (it has no last_event_date), so the days can sum below the list total for the same filter."
+    total: Int!
+  }
+
+  """
+  Per-day legislative activity for one calendar year (drives the bills-hub
+  heatmap). Reflects the SAME filter as parliamentBills; filter.year stays the
+  bill's REGISTRATION year (an orthogonal facet), while the year argument bounds
+  the calendar range. Counts are a CURRENT-RECENCY SNAPSHOT, not an immutable
+  per-day tally: a bill contributes to exactly one day — its latest event — so a
+  bill gaining a new event moves off its old day, and an older day retains only
+  the bills untouched since. availableYears is every servable year (1990–2100)
+  holding at least one canonical bill's last event — NOT bounded by the requested
+  year and NOT filter-bounded (it drives the year picker). No coverage arm: bill
+  timelines are captured whole from the dossier page, so there is no crawl-window
+  ledger to consult.
+  """
+  type ParliamentBillActivity {
+    year: Int!
+    days: [ParliamentBillActivityDay!]!
+    availableYears: [Int!]!
+  }
+
   type ParliamentBillEvent {
     "Bill view that contributed this event to the merged dossier."
     sourceBillKey: ID!
@@ -1296,6 +1322,8 @@ const objectsAndQuery = /* GraphQL */ `
     ): ParliamentSpeechActivity
     "Per-day CHAMBER voting activity for one calendar year (drives the votes-hub heatmap). Same filter semantics as parliamentVotes EXCEPT a voteDate inside filter is rejected — the year argument bounds the range, and it also satisfies the q/groupVote boundedness rule the list enforces. One row per DIVISION, not per ballot. coverage is NOT year-bounded."
     parliamentVoteActivity(year: Int!, filter: ParliamentVotesFilter): ParliamentVoteActivity
+    "Per-day legislative activity (bills-hub heatmap). TWO year semantics meet here, deliberately: the year ARGUMENT is the calendar year of the heatmap (bounds last_event_date); filter.year stays the bill's REGISTRATION year (plx/senate number) exactly as on parliamentBills — 'bills registered in 2020, active in 2021' is a legitimate composition, not a conflict."
+    parliamentBillActivity(year: Int!, filter: ParliamentBillsFilter): ParliamentBillActivity
     "One speech by key (deep link). Returns null for an unknown key AND for a quarantined/non-public row (never leaks via deep link). fullText resolves lazily; null fullText means the transcript is not loaded yet (partial coverage), not that the speech is empty."
     parliamentSpeech(speechKey: ID!): ParliamentSpeech
     "Canonical stenogram sittings (cursor; keyset sessionDate desc). UNLIKE parliamentSpeeches this needs NO boundedness argument — the table is one row per captured sitting and sessionDate is indexed. filter: chamber / sessionDate range / year / availability / sourceSystem / mandateKey (sittings where that speaker holds a public contribution). q is a FULL-HISTORY search over the canonical transcript search projection: when that projection is unavailable the field returns a SEARCH_UNAVAILABLE error in errors[] (this field null) — it NEVER silently degrades to a title-only or window-bounded match, because that would answer a narrower question while looking like a full answer. Only privacy_class='public' sittings are ever served."

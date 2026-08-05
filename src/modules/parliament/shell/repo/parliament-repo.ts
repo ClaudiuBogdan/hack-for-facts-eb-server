@@ -75,6 +75,7 @@ import {
   type ParliamentAiControlItemMetadata,
   type ParliamentBallot,
   type ParliamentBill,
+  type ParliamentBillActivity,
   type ParliamentBillActLink,
   type ParliamentBillVoteLink,
   type ParliamentCommittee,
@@ -2249,6 +2250,74 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     }
   };
 
+  const billActivity = async (
+    year: number,
+    filter: FilterInput
+  ): Promise<Result<ParliamentBillActivity, ApiError>> => {
+    const condsRes = buildBillConditions(filter);
+    if (condsRes.isErr()) return err(condsRes.error);
+    // The SAME rows parliamentBills pages: caller's filter + canonical-only.
+    // The day key is attrs.last_event_date — the key the default updated_desc
+    // sort reads — stored as ISO YYYY-MM-DD text, so the year bound is a text
+    // range plus a fixed-width shape guard (a malformed value like '2026-1-5'
+    // would otherwise sort inside the range and group as its own day; the
+    // guard checks SHAPE, not calendar validity — '2026-02-31' passes, exactly
+    // as the Date scalar and the client accept it).
+    const lastEvent = sql`(b.attrs->>'last_event_date')`;
+    const wellFormed = sql`${lastEvent} ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'`;
+    const yearStart = `${String(year)}-01-01`;
+    const yearEnd = `${String(year)}-12-31`;
+    const daysWhere = composeWhere([
+      ...condsRes.value,
+      sql<boolean>`b.is_canonical`,
+      wellFormed,
+      sql`${lastEvent} >= ${yearStart}`,
+      sql`${lastEvent} <= ${yearEnd}`,
+    ]);
+    // availableYears: NOT requested-year-bounded and NOT filter-bounded — it
+    // drives the year picker, so a year the reader can still navigate to must
+    // not vanish the moment they type a search (same law as voteActivity).
+    // It keeps two predicates only: canonical-only (the default-visibility
+    // rule, not a caller choice) and the SERVABLE year range — the picker must
+    // never advertise a year the usecase's 1990–2100 guard would then reject.
+    const yearsWhere = composeWhere([
+      sql<boolean>`b.is_canonical`,
+      wellFormed,
+      sql`${lastEvent} >= '1990-01-01'`,
+      sql`${lastEvent} <= '2100-12-31'`,
+    ]);
+    try {
+      const [dayRows, yearRows] = await Promise.all([
+        db
+          .selectFrom('parliament.bills as b')
+          .select([
+            sql<string>`(b.attrs->>'last_event_date')`.as('date'),
+            sql<string>`count(*)`.as('total'),
+          ])
+          .where(daysWhere)
+          .groupBy(sql`(b.attrs->>'last_event_date')`)
+          .orderBy(sql`1`, 'asc')
+          .execute(),
+        db
+          .selectFrom('parliament.bills as b')
+          .select(
+            sql<number>`substring((b.attrs->>'last_event_date') from 1 for 4)::int`.as('year')
+          )
+          .distinct()
+          .where(yearsWhere)
+          .orderBy(sql`1`, 'asc')
+          .execute(),
+      ]);
+      return ok({
+        year,
+        days: dayRows.map((r) => ({ date: r.date, total: Number(r.total) })),
+        availableYears: yearRows.map((r) => r.year),
+      });
+    } catch (e) {
+      return err(databaseError('billActivity failed', e));
+    }
+  };
+
   const listVotesForBill = async (
     billKey: string
   ): Promise<Result<readonly ParliamentVote[], ApiError>> => {
@@ -4050,6 +4119,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     listMemberVotes,
     memberVoteActivity,
     voteActivity,
+    billActivity,
     memberActivityCounts,
     listMemberControlItems,
     listMemberSpeeches,

@@ -281,10 +281,7 @@ export interface ParliamentVoteGroupBreakdown {
 }
 
 export type ParliamentVotePositionStatus =
-  | 'confirmed'
-  | 'conflicting_choice'
-  | 'unknown_marker'
-  | 'identity_conflict';
+  'confirmed' | 'conflicting_choice' | 'unknown_marker' | 'identity_conflict';
 
 /** A canonical ballot position, retaining its lossless observation summary. */
 export interface ParliamentBallot {
@@ -360,11 +357,7 @@ export interface ParliamentControlItem {
   /** Requested mode is source intent, never proof that a response exists. */
   readonly requestedResponseMode: string | null;
   readonly responseEvidenceState:
-    | 'observed_response'
-    | 'no_response_observed'
-    | 'parse_incomplete'
-    | 'not_extracted'
-    | null;
+    'observed_response' | 'no_response_observed' | 'parse_incomplete' | 'not_extracted' | null;
   readonly responseCount: number;
   readonly responseDocumentCount: number;
   readonly firstValidResponseDate: string | null;
@@ -539,11 +532,7 @@ export interface ParliamentVoteCoverageRange {
 }
 
 export type ParliamentVoteGapStatus =
-  | 'FAILED'
-  | 'SKIPPED'
-  | 'PARSER_EMPTY'
-  | 'PROVISIONAL'
-  | 'SOURCE_LIMITED';
+  'FAILED' | 'SKIPPED' | 'PARSER_EMPTY' | 'PROVISIONAL' | 'SOURCE_LIMITED';
 
 export interface ParliamentVoteCoverageGap {
   readonly date: string;
@@ -601,6 +590,28 @@ export interface ParliamentVoteActivity {
   readonly days: readonly ParliamentVoteActivityDay[];
   readonly availableYears: readonly number[];
   readonly coverage: readonly ParliamentVoteCoverage[];
+}
+
+/** One calendar day of legislative activity (the bills-hub heatmap cell). */
+export interface ParliamentBillActivityDay {
+  readonly date: string;
+  readonly total: number;
+}
+
+/**
+ * Per-day legislative activity for one calendar year: bills counted by
+ * `last_event_date` — the SAME key the default `updated_desc` list sort reads —
+ * so the aggregate is a GROUP BY over the same rows `parliamentBills` pages,
+ * not a new dataset. Counts are a current-recency snapshot (a bill sits on
+ * exactly one day, its latest event, and moves when a new event lands); a bill
+ * with no dated event appears on no day. `availableYears` is clamped to the
+ * servable 1990–2100 range. No coverage arm: bill timelines are captured whole
+ * from the dossier page, so there is no crawl-window ledger to consult.
+ */
+export interface ParliamentBillActivity {
+  readonly year: number;
+  readonly days: readonly ParliamentBillActivityDay[];
+  readonly availableYears: readonly number[];
 }
 
 /** Declaration metadata ONLY — never content; `fileHash` excluded (§2.6). */
@@ -1133,9 +1144,7 @@ export interface ParliamentSearchUnavailableError {
 
 /** Every stenogram surface returns this union; it WIDENS the kernel `ApiError`. */
 export type ParliamentStenogramError =
-  | ApiError
-  | ParliamentTranscriptUnavailableError
-  | ParliamentSearchUnavailableError;
+  ApiError | ParliamentTranscriptUnavailableError | ParliamentSearchUnavailableError;
 
 export const transcriptUnavailable = (
   message: string,

@@ -37,6 +37,7 @@ import {
   type ParliamentActivityCounts,
   type ParliamentBallot,
   type ParliamentBill,
+  type ParliamentBillActivity,
   type ParliamentBillDossier,
   type ParliamentCommittee,
   type ParliamentCommitteeDetail,
@@ -896,6 +897,28 @@ export const getParliamentVoteActivity = (
       return err(invalidInput('year must be an integer between 1990 and 2100', 'year'));
     }
     return deps.repo.voteActivity(year, filter);
+  })();
+
+/**
+ * Per-day legislative activity (the bills-hub heatmap): bills counted by
+ * `last_event_date` under the SAME filter the bills list uses.
+ *
+ * `filter.year` is deliberately ACCEPTED, unlike `voteDate` on the vote analog:
+ * it is the bill's REGISTRATION year (plx/senate number year), an orthogonal
+ * facet to the heatmap's calendar year — "bills registered in 2020, active in
+ * 2021" is a legitimate question. The bills filter has no per-day field, so
+ * there is nothing that could contradict the `year` argument.
+ */
+export const getParliamentBillActivity = (
+  deps: ParliamentUsecaseDeps,
+  year: number,
+  filter: FilterInput = {}
+): Promise<Result<ParliamentBillActivity, ApiError>> =>
+  (async () => {
+    if (!Number.isInteger(year) || year < 1990 || year > 2100) {
+      return err(invalidInput('year must be an integer between 1990 and 2100', 'year'));
+    }
+    return deps.repo.billActivity(year, filter);
   })();
 
 export const getParliamentSpeechActivity = (
