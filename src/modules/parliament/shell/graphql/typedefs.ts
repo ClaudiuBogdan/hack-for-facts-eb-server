@@ -638,6 +638,8 @@ const objectsAndQuery = /* GraphQL */ `
     initiatorTypeConfidence: String
     "WHICH rule produced initiatorType — 'initiators:guvern' (9,919) or 'initiators:members' (9,365). The honesty field: it names the evidence, so a reader can tell why we say what we say. Open vocabulary."
     initiatorTypeMethod: String
+    "When WE last recorded a change to this bill's source rows — max(updated_at) over the raw project/status/event/registration tables, already selected by the repo but never exposed until 2026-08-05. NOT the date the chamber changed the bill, and NOT a per-bill freshness signal: 34,224 of 41,990 rows share the single 2026-06-28 backfill stamp (a 2010 Senate bill included), and only the small daily tail (107/530/462 rows on 07-24/08-01/08-03) reflects an observed change. Label it as OUR capture time or do not show it."
+    sourceUpdatedAt: String
     "Dossier completeness (2026-07-22; root-independent since 2026-08-05): every bill_key whose children are merged into events/documents/initiators/relatedVotes/actLinks/voteLinks — the requested view plus its resolved-pair navetă twin. [billKey] alone when the bill has no accepted twin (incl. ambiguous dup-review groups, which are never blended). Resolves on EVERY parent path (dossier root, list rows, voteLinks.bill), matching the child fields, which are always the dossier union."
     dossierBillKeys: [String!]
     events: [ParliamentBillEvent!]!
@@ -751,7 +753,6 @@ const objectsAndQuery = /* GraphQL */ `
     canonicalDigest: String!
     "Integrity anchor of the SOURCE BYTES the reading was derived from. null for a SOURCE_ONLY sitting (there is no usable capture)."
     captureDigest: String
-    sourceUpdatedAt: String
   }
 
   "A sitting as a NAVIGATION TARGET: enough to label it and to open its official source, without pretending to be a fetched sitting."
