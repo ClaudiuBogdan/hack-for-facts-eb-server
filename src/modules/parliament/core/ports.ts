@@ -152,8 +152,27 @@ export interface ParliamentRepo extends ParliamentStenogramRepo {
    * with exactly 1 canonical. Ambiguous review groups return [billKey] alone.
    */
   getBillDossierViewKeys(billKey: string): Promise<Result<readonly string[], ApiError>>;
-  getBillEvents(billKey: string): Promise<Result<readonly ParliamentBillEvent[], ApiError>>;
-  getBillDocuments(billKey: string): Promise<Result<readonly ParliamentBillDocument[], ApiError>>;
+  /**
+   * ── Dossier child families ────────────────────────────────────────────────
+   * Every reader below takes the ACCEPTED VIEW SET (batching fix, 2026-08-05),
+   * not one key: a resolved pair otherwise cost 2 statements per family, and on
+   * the measured ~23ms API↔DB path round trips — not query execution (2.4ms for
+   * a whole dossier) — are what the page costs.
+   *
+   * CONTRACT every implementation owes its callers, because BILL_CHILD_FAMILIES'
+   * merge laws depend on it and `bill_key = any($1)` does not preserve order:
+   *   1. rows come back ordered by the POSITION of their bill_key in `billKeys`
+   *      (requested view first), then by the family's own within-view order;
+   *   2. any per-view cap stays PER VIEW (BILL_CHILD_PER_VIEW_LIMIT), never a
+   *      budget shared across views;
+   *   3. every other predicate is carried verbatim from the single-key form.
+   */
+  getBillEvents(
+    billKeys: readonly string[]
+  ): Promise<Result<readonly ParliamentBillEvent[], ApiError>>;
+  getBillDocuments(
+    billKeys: readonly string[]
+  ): Promise<Result<readonly ParliamentBillDocument[], ApiError>>;
   // ── plenary agenda (ordinea de zi) ──────────────────────────────────────────
   listAgendas(
     filter: ParliamentAgendaFilter | null | undefined,
@@ -169,9 +188,15 @@ export interface ParliamentRepo extends ParliamentStenogramRepo {
   // (not a reduced projection) so every ParliamentMember field — legislature,
   // normalizedName, constituencyName, birthDate, and the nested group/person/interval
   // resolvers — is populated regardless of entry path (H10).
-  getBillInitiators(billKey: string): Promise<Result<readonly ParliamentMember[], ApiError>>;
-  getBillActLinks(billKey: string): Promise<Result<readonly ParliamentBillActLink[], ApiError>>;
-  getBillVoteLinks(billKey: string): Promise<Result<readonly ParliamentBillVoteLink[], ApiError>>;
+  getBillInitiators(
+    billKeys: readonly string[]
+  ): Promise<Result<readonly ParliamentMember[], ApiError>>;
+  getBillActLinks(
+    billKeys: readonly string[]
+  ): Promise<Result<readonly ParliamentBillActLink[], ApiError>>;
+  getBillVoteLinks(
+    billKeys: readonly string[]
+  ): Promise<Result<readonly ParliamentBillVoteLink[], ApiError>>;
   /**
    * The same edge table read from the VOTE side — what a single division was
    * procedurally for. Its own query rather than a filter over
@@ -199,7 +224,10 @@ export interface ParliamentRepo extends ParliamentStenogramRepo {
     Result<CursorPage<ParliamentVote> & { total: number; totalEstimated: boolean }, ApiError>
   >;
   findVote(voteKey: string): Promise<Result<ParliamentVote | null, ApiError>>; // votes_pkey
-  listVotesForBill(billKey: string): Promise<Result<readonly ParliamentVote[], ApiError>>; // votes_bill_idx
+  /** Dossier child family — see the view-set contract above `getBillEvents`. */
+  listVotesForBill(
+    billKeys: readonly string[]
+  ): Promise<Result<readonly ParliamentVote[], ApiError>>; // votes_bill_idx
   /**
    * vote_records_pkey (vote_key prefix) — a single vote's ballots (low hundreds).
    * The cursor `fhash` is derived INTERNALLY from the parent `voteKey` (Codex

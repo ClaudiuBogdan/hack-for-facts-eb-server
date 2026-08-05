@@ -220,30 +220,37 @@ const BILL: ParliamentBill = {
  * mandate/vote keys across views (dedupe) and byte-identical observation rows
  * (kept). Used by BOTH the wiring test and the dossier-equivalence test.
  */
+/**
+ * A batched fake honouring the port's ordering contract (2026-08-05): ONE call
+ * per family for the whole view set, rows grouped by bill_key in the order the
+ * caller listed them — what `array_position($1, bill_key)` produces in SQL.
+ * Every merge law under test (concat order, dedupe-keeps-first) is defined
+ * against that ordering, so the fakes must not be free to reorder.
+ */
+const byView =
+  <T>(rowsFor: (billKey: string) => readonly T[]) =>
+  (billKeys: readonly string[]) =>
+    okp<readonly T[]>(billKeys.flatMap((k) => [...rowsFor(k)]));
+
 const richPairRepo = (): Partial<ParliamentRepo> => ({
   ...PAIR,
   findBill: () => okp<ParliamentBill | null>(BILL),
-  getBillEvents: (k: string) =>
-    okp<readonly ParliamentBillEvent[]>(
-      k === 'A' ? [billEvent('A', 1)] : [billEvent('B', 1), billEvent('B', 2)]
-    ),
-  getBillDocuments: (k: string) =>
-    okp<readonly ParliamentBillDocument[]>([billDocument(k, 'https://cdep.ro/x.pdf')]),
-  getBillInitiators: (k: string) =>
-    okp<readonly ParliamentMember[]>(
-      k === 'A'
-        ? [member('1:2024:7', 'Barcari Dorina')]
-        : [member('1:2024:7', 'STALE TWIN ROW'), member('2:2024:11', 'Popa Elena')]
-    ),
-  listVotesForBill: (k: string) =>
-    okp<readonly ParliamentVote[]>(
-      k === 'A'
-        ? [vote('cdep:9001', 'vot final')]
-        : [vote('cdep:9001', 'STALE TWIN ROW'), vote('senat:5501', 'vot Senat')]
-    ),
-  getBillActLinks: () => okp<readonly ParliamentBillActLink[]>([actLink('77')]),
-  getBillVoteLinks: (k: string) =>
-    okp<readonly ParliamentBillVoteLink[]>([voteLink('cdep:9001', k)]),
+  getBillEvents: byView((k) =>
+    k === 'A' ? [billEvent('A', 1)] : [billEvent('B', 1), billEvent('B', 2)]
+  ),
+  getBillDocuments: byView((k) => [billDocument(k, 'https://cdep.ro/x.pdf')]),
+  getBillInitiators: byView((k) =>
+    k === 'A'
+      ? [member('1:2024:7', 'Barcari Dorina')]
+      : [member('1:2024:7', 'STALE TWIN ROW'), member('2:2024:11', 'Popa Elena')]
+  ),
+  listVotesForBill: byView((k) =>
+    k === 'A'
+      ? [vote('cdep:9001', 'vot final')]
+      : [vote('cdep:9001', 'STALE TWIN ROW'), vote('senat:5501', 'vot Senat')]
+  ),
+  getBillActLinks: byView(() => [actLink('77')]),
+  getBillVoteLinks: byView((k) => [voteLink('cdep:9001', k)]),
 });
 
 // ── 1. wiring: all six lazy fields read their OWN family across both views ──
@@ -326,8 +333,8 @@ describe('ParliamentBill lazy children — dossier-union on every parent path', 
   it('relatedVotes serves the suppressed twin’s votes when the direct key has none', async () => {
     // The exact live shape: canonical view 'A' owns ZERO vote rows; every
     // division sits on the suppressed twin 'B'. Pre-fix this returned [].
-    const listVotesForBill = vi.fn((k: string) =>
-      okp<readonly ParliamentVote[]>(
+    const listVotesForBill = vi.fn(
+      byView((k: string) =>
         k === 'A' ? [] : [vote('cdep:9001', 'vot final'), vote('cdep:9002', 'raport')]
       )
     );
@@ -337,8 +344,9 @@ describe('ParliamentBill lazy children — dossier-union on every parent path', 
     const votes = (await fields['relatedVotes']?.({ billKey: 'A' }, {})) as ParliamentVote[];
 
     expect(votes.map((v) => v.voteKey)).toEqual(['cdep:9001', 'cdep:9002']);
-    expect(listVotesForBill).toHaveBeenCalledTimes(2);
-    expect(listVotesForBill.mock.calls.map((c) => c[0])).toEqual(['A', 'B']);
+    // ONE batched read for the whole accepted view set (was one per view).
+    expect(listVotesForBill).toHaveBeenCalledTimes(1);
+    expect(listVotesForBill.mock.calls[0]?.[0]).toEqual(['A', 'B']);
   });
 
   it('a parent prefilled by the dossier root short-circuits (no repo call at all)', async () => {
@@ -362,7 +370,7 @@ describe('ParliamentBill lazy children — dossier-union on every parent path', 
   });
 
   it('a single-view bill reads exactly its own key', async () => {
-    const listVotesForBill = vi.fn((_k: string) =>
+    const listVotesForBill = vi.fn((_ks: readonly string[]) =>
       okp<readonly ParliamentVote[]>([vote('cdep:1', 'v')])
     );
     const repo = makeRepo({
@@ -376,7 +384,7 @@ describe('ParliamentBill lazy children — dossier-union on every parent path', 
     )._unsafeUnwrap();
     expect(votes.map((v) => v.voteKey)).toEqual(['cdep:1']);
     expect(listVotesForBill).toHaveBeenCalledTimes(1);
-    expect(listVotesForBill.mock.calls[0]?.[0]).toBe('A');
+    expect(listVotesForBill.mock.calls[0]?.[0]).toEqual(['A']);
   });
 
   it('propagates a view-key resolution failure', async () => {
@@ -393,8 +401,8 @@ describe('ParliamentBill lazy children — dossier-union on every parent path', 
   it('propagates a child-read failure on the SECOND view (never silently partial)', async () => {
     const repo = makeRepo({
       ...PAIR,
-      listVotesForBill: (k: string) =>
-        k === 'B'
+      listVotesForBill: (ks: readonly string[]) =>
+        ks.includes('B')
           ? errp<readonly ParliamentVote[]>('listVotesForBill failed')
           : okp<readonly ParliamentVote[]>([vote('cdep:1', 'v')]),
     });
@@ -525,7 +533,8 @@ describe('BillChildReadScope — request-scoped coalescing and bounding', () => 
     const fields = billFields(
       makeRepo({
         getBillDossierViewKeys: (k: string) => park<readonly string[]>([k, `${k}:twin`]),
-        listVotesForBill: (k: string) => park<readonly ParliamentVote[]>([vote(`v:${k}`, 't')]),
+        listVotesForBill: (ks: readonly string[]) =>
+          park<readonly ParliamentVote[]>(ks.map((k) => vote(`v:${k}`, 't'))),
       })
     );
 
@@ -546,7 +555,8 @@ describe('BillChildReadScope — request-scoped coalescing and bounding', () => 
     expect(all).toHaveLength(25);
     expect(all[0]?.map((v) => v.voteKey)).toEqual(['v:bill0', 'v:bill0:twin']);
     expect(peak).toBeLessThanOrEqual(DOSSIER_CHILD_READ_CONCURRENCY);
-    // The bound actually bit: 75 total reads could not all run at once.
+    // The bound actually bit: 50 total reads (25 view-key reads + 25 batched
+    // family reads, down from 75 before batching) could not all run at once.
     expect(peak).toBe(DOSSIER_CHILD_READ_CONCURRENCY);
   });
 });

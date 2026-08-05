@@ -67,7 +67,7 @@ import {
   type VoteRow,
 } from './mappers.js';
 import { makeParliamentStenogramRepo } from './stenogram-repo.js';
-import { PARLIAMENT_BALLOT_PAGE_LIMIT } from '../../core/constants.js';
+import { BILL_CHILD_PER_VIEW_LIMIT, PARLIAMENT_BALLOT_PAGE_LIMIT } from '../../core/constants.js';
 import {
   COHESION_VOTE_CAP,
   type ParliamentActivityCounts,
@@ -1497,7 +1497,29 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     }
   };
 
-  const getBillEvents = async (billKey: string) => {
+  /**
+   * Dossier child reads take the ACCEPTED VIEW SET, not a single key (batching
+   * fix, 2026-08-05). A resolved navetă pair used to cost 2 statements per
+   * family — 12 for one bill — and on the measured ~23ms API↔DB path (Phoenix →
+   * Chronos) that was ~6 sequential waves for one page while the database itself
+   * executed 2.4ms. One statement per family halves the waves, and on a list
+   * page it removes the per-row × per-view multiplication entirely.
+   *
+   * `bill_key = any($1)` does NOT preserve the array's order, and the merge laws
+   * in BILL_CHILD_FAMILIES ride on requested-view-first: concatenation order for
+   * events/documents/actLinks/voteLinks, and dedupe-KEEPS-FIRST for initiators
+   * (by mandate_key) and relatedVotes (by vote_key). Both readers below
+   * therefore rank by `array_position` FIRST and only then apply the family's
+   * own within-view order — without it, "keeps first" would be whatever order
+   * the planner happened to emit.
+   */
+  const anyOfViews = (billKeys: readonly string[], col: string): RawBuilder<SqlBool> =>
+    sql<SqlBool>`${sql.ref(col)} = any(${billKeys}::text[])`;
+
+  const viewRank = (billKeys: readonly string[], col: string): RawBuilder<number> =>
+    sql<number>`array_position(${billKeys}::text[], ${sql.ref(col)})`;
+
+  const getBillEvents = async (billKeys: readonly string[]) => {
     try {
       // The procedure model is 1:1 with the captured event, so it rides on the
       // same row rather than as a second collection. LEFT JOIN, because an event
@@ -1541,7 +1563,8 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
             where l.bill_key = e.bill_key and l.step_position = e.position
           ), '[]'::jsonb)`.as('links'),
         ])
-        .where('e.bill_key', '=', billKey)
+        .where(anyOfViews(billKeys, 'e.bill_key'))
+        .orderBy(viewRank(billKeys, 'e.bill_key'))
         .orderBy('e.position', 'asc')
         .execute();
       return ok(rows.map(mapBillEvent));
@@ -1792,13 +1815,18 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     }
   };
 
-  const getBillDocuments = async (billKey: string) => {
+  const getBillDocuments = async (billKeys: readonly string[]) => {
     try {
       const rows = await db
         .selectFrom('parliament.bill_documents as d')
         .select(['d.bill_key', 'd.url', 'd.label', 'd.kind', 'd.position'])
-        .where('d.bill_key', '=', billKey)
+        .where(anyOfViews(billKeys, 'd.bill_key'))
+        .orderBy(viewRank(billKeys, 'd.bill_key'))
         .orderBy('d.position', 'asc')
+        // Tiebreak to a TOTAL order: the primary key is (bill_key, url), so
+        // `position` alone is not unique within a view (and is nullable). Same
+        // nondeterminism class the live differential caught in getBillVoteLinks.
+        .orderBy('d.url', 'asc')
         .execute();
       return ok(rows.map(mapBillDocument));
     } catch (e) {
@@ -1807,7 +1835,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
   };
 
   const getBillInitiators = async (
-    billKey: string
+    billKeys: readonly string[]
   ): Promise<Result<readonly ParliamentMember[], ApiError>> => {
     try {
       // H10: select the FULL member columns and map via mapMember, so an initiator
@@ -1815,13 +1843,32 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
       // legislature/normalizedName/constituencyName/birthDate/profileUrl plus the nested
       // group/person/interval resolvers. The set is NOT filtered by is_current
       // (attribution is never gated; a superseded/deceased initiator is kept).
-      const rows = await db
+      // Per-view cap, preserved exactly under batching. It does not bite today
+      // (largest real bill: 268 initiators, measured 2026-08-05) but it is kept
+      // PER VIEW rather than shared across the pair, so the day a bill does
+      // exceed it the paired dossier truncates each view independently instead
+      // of letting the requested view starve its twin.
+      const ranked = db
         .selectFrom('parliament.member_initiatives as mi')
         .innerJoin('parliament.members as m', 'm.mandate_key', 'mi.mandate_key')
         .select(MEMBER_SELECT)
-        .where('mi.bill_key', '=', billKey)
-        .orderBy('m.full_name', 'asc')
-        .limit(500)
+        .select(viewRank(billKeys, 'mi.bill_key').as('view_rank'))
+        .select(
+          // mandate_key tiebreaks to a TOTAL order: two members can share a
+          // full_name (and it is nullable), so name alone leaves both the served
+          // order and the cap's row choice to the planner.
+          sql<number>`row_number() over (partition by mi.bill_key order by m.full_name asc, m.mandate_key asc)`.as(
+            'view_row'
+          )
+        )
+        .where(anyOfViews(billKeys, 'mi.bill_key'));
+      const rows = await db
+        .selectFrom(ranked.as('t'))
+        .selectAll()
+        .where('t.view_row', '<=', BILL_CHILD_PER_VIEW_LIMIT)
+        .orderBy('t.view_rank')
+        .orderBy('t.full_name', 'asc')
+        .orderBy('t.mandate_key', 'asc')
         .execute();
       return ok(rows.map((r) => mapMember(r as MemberRow)));
     } catch (e) {
@@ -1852,7 +1899,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
   });
 
   const getBillActLinks = async (
-    billKey: string
+    billKeys: readonly string[]
   ): Promise<Result<readonly ParliamentBillActLink[], ApiError>> => {
     try {
       const rows = await db
@@ -1868,7 +1915,19 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
           'bal.confidence_label',
           'bal.primary_method',
         ])
-        .where('bal.bill_key', '=', billKey)
+        .where(anyOfViews(billKeys, 'bal.bill_key'))
+        .orderBy(viewRank(billKeys, 'bal.bill_key'))
+        // Total order WITHIN a view, matching `bill_act_links_current_uq` minus
+        // its leading bill_key. Act links carry no natural sequence, so before
+        // this the served order was whatever plan the planner picked — stable
+        // by luck under a single-key index scan, and observably NOT stable once
+        // the read batches both views. An observation list the client renders
+        // in order must not reshuffle between requests.
+        .orderBy(sql`bal.relationship_kind`)
+        .orderBy(sql`coalesce(bal.target_act_type, '')`)
+        .orderBy(sql`coalesce(bal.target_act_number, '')`)
+        .orderBy(sql`coalesce(bal.target_act_year, 0)`)
+        .orderBy(sql`coalesce(bal.target_issuer_slug, '')`)
         .execute();
       return ok(rows.map(mapActLink));
     } catch (e) {
@@ -1877,7 +1936,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
   };
 
   const getBillVoteLinks = async (
-    billKey: string
+    billKeys: readonly string[]
   ): Promise<Result<readonly ParliamentBillVoteLink[], ApiError>> => {
     try {
       const rows = await db
@@ -1889,12 +1948,21 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
           'bvl.resolution_status',
           'bvl.confidence_label',
         ])
-        .where('bvl.bill_key', '=', billKey)
+        .where(anyOfViews(billKeys, 'bvl.bill_key'))
         // 'retracted' means the resolver no longer derives this edge. Excluded
         // rather than filtered to 'linked' because this surface deliberately
         // EXPOSES resolutionStatus — a candidate/ambiguous edge is informative
         // evidence, a retracted one is a claim we have withdrawn.
         .where('bvl.resolution_status', '!=', 'retracted')
+        .orderBy(viewRank(billKeys, 'bvl.bill_key'))
+        // Total order WITHIN a view: `bill_vote_links_current_uq` is
+        // (vote_key, coalesce(bill_key,'')), so vote_key alone is unique once
+        // bill_key is fixed. Added with the batching change because the live
+        // differential caught this family — and only this family — returning
+        // the same 12 rows in a different order for senat:68-2017 once both
+        // views were read in one statement. There was never a within-view
+        // ORDER BY; the old order was a planner accident.
+        .orderBy('bvl.vote_key', 'asc')
         .execute();
       return ok(
         rows.map((r) => ({
@@ -2319,16 +2387,39 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
   };
 
   const listVotesForBill = async (
-    billKey: string
+    billKeys: readonly string[]
   ): Promise<Result<readonly ParliamentVote[], ApiError>> => {
     try {
-      const rows = await db
+      // The 500 cap is PER VIEW, not per request — batching the accepted view
+      // set into one statement must not silently turn it into a shared budget
+      // (measured 2026-08-05: max 425 votes on any one bill, 0 bills over the
+      // cap, so this is a guard rather than live truncation — but a shared
+      // budget would change WHICH rows survive the day that stops being true).
+      const ranked = db
         .selectFrom('parliament.votes as v')
         .select(VOTE_SELECT)
-        .where('v.bill_key', '=', billKey)
-        .where('v.privacy_class', '=', 'public')
-        .orderBy('v.vote_date', 'asc')
-        .limit(500)
+        .select(viewRank(billKeys, 'v.bill_key').as('view_rank'))
+        .select(
+          // vote_key tiebreaks to a TOTAL order (votes_pkey): vote_date alone
+          // ties freely, which would make BOTH the served order and — the day
+          // the cap bites — WHICH rows survive it nondeterministic.
+          sql<number>`row_number() over (partition by v.bill_key order by v.vote_date asc, v.vote_key asc)`.as(
+            'view_row'
+          )
+        )
+        .where(anyOfViews(billKeys, 'v.bill_key'))
+        .where('v.privacy_class', '=', 'public');
+      const rows = await db
+        .selectFrom(ranked.as('t'))
+        .selectAll()
+        .where('t.view_row', '<=', BILL_CHILD_PER_VIEW_LIMIT)
+        .orderBy('t.view_rank')
+        // `vote_date` here is VOTE_SELECT's `::text` projection, so this sorts
+        // lexically while the window above ranks the raw date. Equivalent under
+        // ISO dates (which is how every date on this surface is served), and
+        // the vote_key tiebreak makes the tie behaviour identical either way.
+        .orderBy('t.vote_date', 'asc')
+        .orderBy('t.vote_key', 'asc')
         .execute();
       return ok(rows.map((r) => mapVote(r as VoteRow)));
     } catch (e) {

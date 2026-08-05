@@ -282,9 +282,16 @@ const dedupeBy = <T>(rows: readonly T[], keyOf: (row: T) => string): readonly T[
 const concatObservations = <T>(rows: readonly T[]): readonly T[] => rows;
 
 interface BillChildFamily<T> {
+  /**
+   * Reads the WHOLE accepted view set in one statement (batching fix,
+   * 2026-08-05). The port contract (ports.ts, above `getBillEvents`) guarantees
+   * the rows arrive ordered requested-view-first, which is what makes the
+   * `merge` laws below well-defined — concat order for the observation
+   * families, dedupe-keeps-first for initiators and relatedVotes.
+   */
   readonly read: (
     deps: ParliamentUsecaseDeps,
-    viewKey: string
+    viewKeys: readonly string[]
   ) => Promise<Result<readonly T[], ApiError>>;
   readonly merge: (rows: readonly T[]) => readonly T[];
 }
@@ -293,27 +300,27 @@ const billChildFamily = <T>(spec: BillChildFamily<T>): BillChildFamily<T> => spe
 
 const BILL_CHILD_FAMILIES = {
   events: billChildFamily({
-    read: (deps, k) => deps.repo.getBillEvents(k),
+    read: (deps, ks) => deps.repo.getBillEvents(ks),
     merge: concatObservations,
   }),
   documents: billChildFamily({
-    read: (deps, k) => deps.repo.getBillDocuments(k),
+    read: (deps, ks) => deps.repo.getBillDocuments(ks),
     merge: concatObservations,
   }),
   initiators: billChildFamily({
-    read: (deps, k) => deps.repo.getBillInitiators(k),
+    read: (deps, ks) => deps.repo.getBillInitiators(ks),
     merge: (rows) => dedupeBy(rows, (m) => m.mandateKey),
   }),
   relatedVotes: billChildFamily({
-    read: (deps, k) => deps.repo.listVotesForBill(k),
+    read: (deps, ks) => deps.repo.listVotesForBill(ks),
     merge: (rows) => dedupeBy(rows, (vote) => vote.voteKey),
   }),
   actLinks: billChildFamily({
-    read: (deps, k) => deps.repo.getBillActLinks(k),
+    read: (deps, ks) => deps.repo.getBillActLinks(ks),
     merge: concatObservations,
   }),
   voteLinks: billChildFamily({
-    read: (deps, k) => deps.repo.getBillVoteLinks(k),
+    read: (deps, ks) => deps.repo.getBillVoteLinks(ks),
     merge: concatObservations,
   }),
 } as const;
@@ -322,50 +329,62 @@ export const getBillDossier = async (
   deps: ParliamentUsecaseDeps,
   billKey: string
 ): Promise<Result<ParliamentBillDossier | null, ApiError>> => {
-  const b = await deps.repo.findBill(billKey);
-  if (b.isErr()) return err(b.error);
-  if (b.value === null) return ok(null);
-
   // 2026-07-22 readiness fix: read children across the FULL accepted view set —
   // the requested view plus its resolved-pair navetă twin — so a canonical read
   // no longer drops the suppressed source view's events/documents/links.
   // Ambiguous dup-review groups resolve to [billKey] alone (never blended).
-  const keysRes = await deps.repo.getBillDossierViewKeys(billKey);
+  //
+  // The two reads are independent (one keys on bills_pkey, the other on the dup
+  // group), so they share a wave rather than costing two — worth doing because
+  // on the measured API↔DB path a round trip is ~23ms against 2.4ms of total
+  // query execution for the whole dossier.
+  const [b, keysRes] = await Promise.all([
+    deps.repo.findBill(billKey),
+    deps.repo.getBillDossierViewKeys(billKey),
+  ]);
+  if (b.isErr()) return err(b.error);
+  // NOT-FOUND outranks a view-key failure. `findBill` is authoritative about
+  // existence, and the view-key read is only co-issued to save a wave — so a
+  // bill that does not exist must still answer `null`, never a 500, when that
+  // speculative read happens to fail. (Before the reads were parallelised the
+  // question could not arise: the null short-circuited first.)
+  if (b.value === null) return ok(null);
   if (keysRes.isErr()) return err(keysRes.error);
   const viewBillKeys = keysRes.value;
 
-  // 2026-07-26 connection-exhaustion fix: a resolved pair asks for 2 views × 6 child
+  // 2026-07-26 connection-exhaustion fix: a resolved pair asked for 2 views × 6 child
   // families, and starting all 12 at once burned 12 simultaneous connections for ONE
   // request — enough to trip `FATAL: too many connections for role
   // transparenta_prod_agent_readonly` and abort the dossier. The gate throttles STARTS
   // only, at DOSSIER_CHILD_READ_CONCURRENCY; every read below still runs to completion,
   // in the same tuple positions, so the merge and first-error-wins scan are untouched.
+  //
+  // Since 2026-08-05 each family reads the whole view set in ONE statement, so a
+  // paired dossier costs 6 statements rather than 12 — the gate now bounds 6
+  // instead of 12 and the page drops from ~3 child waves to ~2. The gate stays:
+  // it is what keeps a LIST page's fan-out bounded, and that is unchanged.
   const gate = makeConcurrencyGate(DOSSIER_CHILD_READ_CONCURRENCY);
   const fam = BILL_CHILD_FAMILIES;
-  const perView = await Promise.all(
-    viewBillKeys.map((k) =>
-      Promise.all([
-        gate(() => fam.events.read(deps, k)),
-        gate(() => fam.documents.read(deps, k)),
-        gate(() => fam.initiators.read(deps, k)),
-        gate(() => fam.relatedVotes.read(deps, k)),
-        gate(() => fam.actLinks.read(deps, k)),
-        gate(() => fam.voteLinks.read(deps, k)),
-      ])
-    )
-  );
-  for (const six of perView) {
-    for (const r of six) {
-      if (r.isErr()) return err(r.error);
-    }
+  const six = await Promise.all([
+    gate(() => fam.events.read(deps, viewBillKeys)),
+    gate(() => fam.documents.read(deps, viewBillKeys)),
+    gate(() => fam.initiators.read(deps, viewBillKeys)),
+    gate(() => fam.relatedVotes.read(deps, viewBillKeys)),
+    gate(() => fam.actLinks.read(deps, viewBillKeys)),
+    gate(() => fam.voteLinks.read(deps, viewBillKeys)),
+  ]);
+  for (const r of six) {
+    if (r.isErr()) return err(r.error);
   }
   // Merge laws per child family — see BILL_CHILD_FAMILIES for the locked rules.
-  const events = fam.events.merge(perView.flatMap((v) => v[0]._unsafeUnwrap()));
-  const documents = fam.documents.merge(perView.flatMap((v) => v[1]._unsafeUnwrap()));
-  const initiators = fam.initiators.merge(perView.flatMap((v) => v[2]._unsafeUnwrap()));
-  const relatedVotes = fam.relatedVotes.merge(perView.flatMap((v) => v[3]._unsafeUnwrap()));
-  const actLinks = fam.actLinks.merge(perView.flatMap((v) => v[4]._unsafeUnwrap()));
-  const voteLinks = fam.voteLinks.merge(perView.flatMap((v) => v[5]._unsafeUnwrap()));
+  // The reads already arrive requested-view-first (port contract), so the merge
+  // laws apply to the concatenated rows exactly as they did to the per-view flat.
+  const events = fam.events.merge(six[0]._unsafeUnwrap());
+  const documents = fam.documents.merge(six[1]._unsafeUnwrap());
+  const initiators = fam.initiators.merge(six[2]._unsafeUnwrap());
+  const relatedVotes = fam.relatedVotes.merge(six[3]._unsafeUnwrap());
+  const actLinks = fam.actLinks.merge(six[4]._unsafeUnwrap());
+  const voteLinks = fam.voteLinks.merge(six[5]._unsafeUnwrap());
 
   return ok({
     viewBillKeys,
@@ -435,15 +454,9 @@ const readBillChildFamily = async <T>(
 ): Promise<Result<readonly T[], ApiError>> => {
   const keysRes = await scope.viewKeys(billKey);
   if (keysRes.isErr()) return err(keysRes.error);
-  const perView = await Promise.all(
-    keysRes.value.map((k) => scope.run(() => family.read(deps, k)))
-  );
-  const rows: T[] = [];
-  for (const r of perView) {
-    if (r.isErr()) return err(r.error);
-    rows.push(...r.value);
-  }
-  return ok(family.merge(rows));
+  const res = await scope.run(() => family.read(deps, keysRes.value));
+  if (res.isErr()) return err(res.error);
+  return ok(family.merge(res.value));
 };
 
 export const getBillDossierEvents = (

@@ -91,11 +91,16 @@ const FAMILIES = [
 ] as const;
 type Family = (typeof FAMILIES)[number];
 
-type ChildRead<T> = (billKey: string) => Promise<Result<readonly T[], ApiError>>;
+type ChildRead<T> = (billKeys: readonly string[]) => Promise<Result<readonly T[], ApiError>>;
 
 /**
  * Wraps each child read in a latch: the call records its start (so we can observe
  * in-flight counts and start order) and then parks until `releaseAll()`.
+ *
+ * Since the 2026-08-05 batching change a family is read ONCE for the whole
+ * accepted view set, so a start is recorded as `family@A+B` — the assertions
+ * below check the view set a family was asked for, not how many times it was
+ * asked.
  */
 const makeLatches = () => {
   const started: string[] = [];
@@ -106,16 +111,16 @@ const makeLatches = () => {
   const latch =
     <T>(
       family: Family,
-      respond: (billKey: string) => Result<readonly T[], ApiError>
+      respond: (billKeys: readonly string[]) => Result<readonly T[], ApiError>
     ): ChildRead<T> =>
-    (billKey) => {
-      started.push(`${family}@${billKey}`);
+    (billKeys) => {
+      started.push(`${family}@${billKeys.join('+')}`);
       inFlight += 1;
       peak = Math.max(peak, inFlight);
       return new Promise<Result<readonly T[], ApiError>>((resolve) => {
         parked.push(() => {
           inFlight -= 1;
-          resolve(respond(billKey));
+          resolve(respond(billKeys));
         });
       });
     };
@@ -274,14 +279,15 @@ describe('getBillDossier — bounded child fan-out', () => {
     expect(DOSSIER_CHILD_READ_CONCURRENCY).toBeGreaterThanOrEqual(1);
   });
 
-  it('never exceeds the ceiling for a two-view pair, yet still runs all 12 reads', async () => {
+  it('reads a two-view pair in 6 statements, never exceeding the ceiling', async () => {
     const latches = makeLatches();
     const repo = makeRepo({ ...PAIR, ...latches.empty() });
 
     const run = getBillDossier(deps(repo), 'A');
 
     // The whole fan-out has had every chance to start: only the ceiling holds it back.
-    // Pre-fix this was 12 — one connection per child read, from a single page load.
+    // Originally 12 connections per page load (one per view per family); the gate cut
+    // the peak to 4, and the 2026-08-05 batching cut the COUNT to 6.
     await tick();
     expect(latches.inFlight()).toBe(DOSSIER_CHILD_READ_CONCURRENCY);
     expect(latches.inFlight()).toBeLessThanOrEqual(MAX_CHILD_READS_IN_FLIGHT);
@@ -299,15 +305,15 @@ describe('getBillDossier — bounded child fan-out', () => {
 
     const r = await run;
     expect(r.isOk()).toBe(true);
-    // 2 views × 6 families, every one of them actually performed…
-    expect(latches.started).toHaveLength(12);
-    // …but never more than the ceiling at a time (12 / 4 = 3 waves).
+    // ONE read per family for the whole view set — not one per view per family.
+    expect(latches.started).toHaveLength(FAMILIES.length);
+    // …still never more than the ceiling at a time (6 / 4 = 2 waves, was 3).
     expect(latches.peak()).toBe(DOSSIER_CHILD_READ_CONCURRENCY);
     expect(latches.peak()).toBeLessThanOrEqual(MAX_CHILD_READS_IN_FLIGHT);
-    expect(waves).toBe(Math.ceil(12 / DOSSIER_CHILD_READ_CONCURRENCY));
+    expect(waves).toBe(Math.ceil(FAMILIES.length / DOSSIER_CHILD_READ_CONCURRENCY));
   });
 
-  it('starts the reads requested-view-first, in family order (FIFO, not reordered)', async () => {
+  it('asks each family for the FULL view set, requested view first, in family order', async () => {
     const latches = makeLatches();
     const repo = makeRepo({ ...PAIR, ...latches.empty() });
 
@@ -316,10 +322,9 @@ describe('getBillDossier — bounded child fan-out', () => {
     while (latches.releaseAll() > 0) await tick();
     await run;
 
-    expect(latches.started).toEqual([
-      ...FAMILIES.map((f) => `${f}@A`),
-      ...FAMILIES.map((f) => `${f}@B`),
-    ]);
+    // 'A+B', never 'B+A': the merge laws (concat order, dedupe-keeps-first) are
+    // only well-defined because the requested view leads the array handed down.
+    expect(latches.started).toEqual(FAMILIES.map((f) => `${f}@A+B`));
   });
 
   it('holds the ceiling for a single-view bill too (6 reads, 2 waves)', async () => {
@@ -335,7 +340,7 @@ describe('getBillDossier — bounded child fan-out', () => {
     while (latches.releaseAll() > 0) await tick();
 
     expect((await run).isOk()).toBe(true);
-    expect(latches.started).toHaveLength(6);
+    expect(latches.started).toEqual(FAMILIES.map((f) => `${f}@A`));
     expect(latches.peak()).toBe(Math.min(6, DOSSIER_CHILD_READ_CONCURRENCY));
     expect(latches.peak()).toBeLessThanOrEqual(MAX_CHILD_READS_IN_FLIGHT);
   });
@@ -350,22 +355,32 @@ describe('getBillDossier — merge laws survive the throttle', () => {
     return r._unsafeUnwrap();
   };
 
+  /**
+   * A batched fake that HONOURS the port's ordering contract: one call for the
+   * whole view set, rows grouped by bill_key in the order the caller listed them
+   * — exactly what `array_position($1, bill_key)` produces in SQL. The merge
+   * laws below are only well-defined against that ordering, so the fakes are
+   * deliberately not free to answer in an arbitrary order.
+   */
+  const byView =
+    <T>(rowsFor: (billKey: string) => readonly T[]) =>
+    (billKeys: readonly string[]) =>
+      okp<readonly T[]>(billKeys.flatMap((k) => [...rowsFor(k)]));
+
   it('concatenates observation families requested-view-first with NO value dedupe', async () => {
     const dossier = await merged({
       // Same (position, description) from both views: two source observations, kept.
-      getBillEvents: (k: string) =>
-        okp<readonly ParliamentBillEvent[]>(
-          k === 'A'
-            ? [billEvent('A', 1, 'Adoptat')]
-            : [billEvent('B', 1, 'Adoptat'), billEvent('B', 2, 'Promulgat')]
-        ),
+      getBillEvents: byView((k) =>
+        k === 'A'
+          ? [billEvent('A', 1, 'Adoptat')]
+          : [billEvent('B', 1, 'Adoptat'), billEvent('B', 2, 'Promulgat')]
+      ),
       // Same URL from both views.
-      getBillDocuments: (k: string) =>
-        okp<readonly ParliamentBillDocument[]>([billDocument(k, 'https://cdep.ro/pl-x-23135.pdf')]),
+      getBillDocuments: byView((k) => [billDocument(k, 'https://cdep.ro/pl-x-23135.pdf')]),
       // Byte-identical act links — the strongest no-dedupe case (no source column).
-      getBillActLinks: () => okp<readonly ParliamentBillActLink[]>([ACT_LINK]),
+      getBillActLinks: byView(() => [ACT_LINK]),
       // Same voteKey twice: voteLinks are observations, only relatedVotes dedupe on it.
-      getBillVoteLinks: () => okp<readonly ParliamentBillVoteLink[]>([VOTE_LINK]),
+      getBillVoteLinks: byView(() => [VOTE_LINK]),
       getBillInitiators: () => okp<readonly ParliamentMember[]>([]),
       listVotesForBill: () => okp<readonly ParliamentVote[]>([]),
     });
@@ -385,12 +400,11 @@ describe('getBillDossier — merge laws survive the throttle', () => {
 
   it('dedupes initiators by mandateKey, keeping the requested view’s row', async () => {
     const dossier = await merged({
-      getBillInitiators: (k: string) =>
-        okp<readonly ParliamentMember[]>(
-          k === 'A'
-            ? [member('1:2024:7', 'Barcari Dorina'), member('1:2024:8', 'Ionescu Radu')]
-            : [member('1:2024:7', 'STALE TWIN ROW'), member('2:2024:11', 'Popa Elena')]
-        ),
+      getBillInitiators: byView((k) =>
+        k === 'A'
+          ? [member('1:2024:7', 'Barcari Dorina'), member('1:2024:8', 'Ionescu Radu')]
+          : [member('1:2024:7', 'STALE TWIN ROW'), member('2:2024:11', 'Popa Elena')]
+      ),
       getBillEvents: () => okp<readonly ParliamentBillEvent[]>([]),
       getBillDocuments: () => okp<readonly ParliamentBillDocument[]>([]),
       listVotesForBill: () => okp<readonly ParliamentVote[]>([]),
@@ -408,12 +422,11 @@ describe('getBillDossier — merge laws survive the throttle', () => {
 
   it('dedupes relatedVotes by voteKey, keeping the requested view’s row', async () => {
     const dossier = await merged({
-      listVotesForBill: (k: string) =>
-        okp<readonly ParliamentVote[]>(
-          k === 'A'
-            ? [vote('cdep:9001', 'vot final'), vote('cdep:9002', 'raport')]
-            : [vote('cdep:9001', 'STALE TWIN ROW'), vote('senat:5501', 'vot Senat')]
-        ),
+      listVotesForBill: byView((k) =>
+        k === 'A'
+          ? [vote('cdep:9001', 'vot final'), vote('cdep:9002', 'raport')]
+          : [vote('cdep:9001', 'STALE TWIN ROW'), vote('senat:5501', 'vot Senat')]
+      ),
       getBillEvents: () => okp<readonly ParliamentBillEvent[]>([]),
       getBillDocuments: () => okp<readonly ParliamentBillDocument[]>([]),
       getBillInitiators: () => okp<readonly ParliamentMember[]>([]),
@@ -442,9 +455,18 @@ describe('getBillDossier — failure semantics unchanged', () => {
     getBillVoteLinks: () => okp<readonly ParliamentBillVoteLink[]>([]),
   };
 
-  it('returns not-found without reading any child (findBill is the only call)', async () => {
+  // findBill and getBillDossierViewKeys are issued TOGETHER since 2026-08-05 —
+  // they are independent reads and sharing a wave saves ~23ms on the API↔DB
+  // path for every bill that exists. The deliberate cost: a miss (or a findBill
+  // failure) now also pays the view-key read, which is a bounded indexed lookup
+  // that returns nothing for an unknown key. What must NOT regress is the
+  // expensive part — no CHILD family is read. The Proxy repo enforces that by
+  // throwing on any family call these fixtures do not provide.
+  const viewKeysOnly = { getBillDossierViewKeys: () => okp<readonly string[]>(['nope']) };
+
+  it('returns not-found without reading any CHILD family', async () => {
     const r = await getBillDossier(
-      deps(makeRepo({ findBill: () => okp<ParliamentBill | null>(null) })),
+      deps(makeRepo({ findBill: () => okp<ParliamentBill | null>(null), ...viewKeysOnly })),
       'nope'
     );
 
@@ -452,9 +474,50 @@ describe('getBillDossier — failure semantics unchanged', () => {
     expect(r._unsafeUnwrap()).toBeNull();
   });
 
-  it('propagates a findBill failure', async () => {
+  it('propagates a findBill failure, and prefers it over the co-issued view-key read', async () => {
     const r = await getBillDossier(
-      deps(makeRepo({ findBill: () => errp<ParliamentBill | null>('findBill failed') })),
+      deps(
+        makeRepo({
+          findBill: () => errp<ParliamentBill | null>('findBill failed'),
+          ...viewKeysOnly,
+        })
+      ),
+      'A'
+    );
+
+    expect(r.isErr()).toBe(true);
+    expect(r._unsafeUnwrapErr().message).toBe('findBill failed');
+  });
+
+  it('still answers NOT-FOUND when the co-issued view-key read fails', async () => {
+    // Regression guard (review finding, 2026-08-05): parallelising the two reads
+    // made a failing view-key read able to turn a legitimate 404 into a 500.
+    // findBill is authoritative about existence; the view-key read is
+    // speculative, so a miss must survive its failure.
+    const r = await getBillDossier(
+      deps(
+        makeRepo({
+          findBill: () => okp<ParliamentBill | null>(null),
+          getBillDossierViewKeys: () => errp<readonly string[]>('viewKeys failed'),
+        })
+      ),
+      'nope'
+    );
+
+    expect(r.isOk()).toBe(true);
+    expect(r._unsafeUnwrap()).toBeNull();
+  });
+
+  it('reports the findBill failure even when the view-key read ALSO fails', async () => {
+    // Both halves of the parallel wave fail. The scan order is fixed (bill
+    // first), so the message a client sees stays deterministic.
+    const r = await getBillDossier(
+      deps(
+        makeRepo({
+          findBill: () => errp<ParliamentBill | null>('findBill failed'),
+          getBillDossierViewKeys: () => errp<readonly string[]>('viewKeys failed'),
+        })
+      ),
       'A'
     );
 
@@ -477,16 +540,16 @@ describe('getBillDossier — failure semantics unchanged', () => {
     expect(r._unsafeUnwrapErr().message).toBe('getBillDossierViewKeys failed');
   });
 
-  it('fails the whole dossier when a required family fails on the SECOND view', async () => {
-    // The 12th read — the last one the gate lets start. A throttled child that fails
+  it('fails the whole dossier when the LAST family the gate starts fails', async () => {
+    // The 6th read — the last one the gate lets start. A throttled child that fails
     // must still fail the Result (the bound must not silently skip it).
     const r = await getBillDossier(
       deps(
         makeRepo({
           ...PAIR,
           ...allOk,
-          getBillVoteLinks: (k: string) =>
-            k === 'B'
+          getBillVoteLinks: (ks: readonly string[]) =>
+            ks.includes('B')
               ? errp<readonly ParliamentBillVoteLink[]>('getBillVoteLinks failed')
               : okp<readonly ParliamentBillVoteLink[]>([]),
         })
@@ -499,16 +562,16 @@ describe('getBillDossier — failure semantics unchanged', () => {
   });
 
   it('picks the first error by POSITION, not by which read failed first in time', async () => {
-    // B/getBillEvents (position [1][0]) fails immediately; A/getBillVoteLinks
-    // (position [0][5]) fails much later. The pre-throttle code scanned
-    // perView in order, so A/getBillVoteLinks wins — that must not drift into
-    // "whichever rejected first", which would make the error message nondeterministic.
+    // voteLinks (family position 5) fails immediately; events (position 0) fails
+    // much later. The scan walks the six results in family order, so EVENTS wins
+    // — that must not drift into "whichever rejected first", which would make
+    // the error message nondeterministic under load.
     let failSlow = (): void => {
       throw new Error('latch not armed');
     };
-    const slow = new Promise<Result<readonly ParliamentBillVoteLink[], ApiError>>((resolve) => {
+    const slow = new Promise<Result<readonly ParliamentBillEvent[], ApiError>>((resolve) => {
       failSlow = () => {
-        resolve(err(databaseError('A/getBillVoteLinks failed LAST')));
+        resolve(err(databaseError('events failed LAST')));
       };
     });
 
@@ -517,12 +580,8 @@ describe('getBillDossier — failure semantics unchanged', () => {
         makeRepo({
           ...PAIR,
           ...allOk,
-          getBillEvents: (k: string) =>
-            k === 'B'
-              ? errp<readonly ParliamentBillEvent[]>('B/getBillEvents failed FIRST')
-              : okp<readonly ParliamentBillEvent[]>([]),
-          getBillVoteLinks: (k: string) =>
-            k === 'A' ? slow : okp<readonly ParliamentBillVoteLink[]>([]),
+          getBillEvents: () => slow,
+          getBillVoteLinks: () => errp<readonly ParliamentBillVoteLink[]>('voteLinks failed FIRST'),
         })
       ),
       'A'
@@ -533,7 +592,7 @@ describe('getBillDossier — failure semantics unchanged', () => {
 
     const r = await run;
     expect(r.isErr()).toBe(true);
-    expect(r._unsafeUnwrapErr().message).toBe('A/getBillVoteLinks failed LAST');
+    expect(r._unsafeUnwrapErr().message).toBe('events failed LAST');
   });
 });
 
