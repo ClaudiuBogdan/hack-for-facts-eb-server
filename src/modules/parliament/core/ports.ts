@@ -469,7 +469,7 @@ export interface ParliamentRepo extends ParliamentStenogramRepo {
     chamber: string | undefined,
     legislature: string | undefined,
     page: CursorPageRequest
-  ): Promise<Result<CursorPage<ParliamentCommittee>, ApiError>>; // keyset committee_key
+  ): Promise<Result<CursorPage<ParliamentCommittee>, ApiError>>; // keyset (name, committee_key)
   findCommittee(committeeKey: string): Promise<Result<ParliamentCommittee | null, ApiError>>; // committees_pkey
   /** Committee roster: cdep via mandate_key, senate via the current-roster attr join; senate_profile excluded. */
   listCommitteeRoster(

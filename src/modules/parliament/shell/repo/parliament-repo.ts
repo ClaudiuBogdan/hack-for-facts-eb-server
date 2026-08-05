@@ -3868,17 +3868,37 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     if (chamber !== undefined) conds.push(sql`co.chamber = ${rawCommitteeChamber(chamber)}`);
     if (legislature !== undefined) conds.push(sql`co.legislature = ${legislature}`);
     if (page.after !== undefined) {
-      const dec = decodeCursor(page.after, { sort: 'committeeKey', dir: 'asc', fhash });
+      // Cursors minted under the old `committeeKey` sort fail this check and
+      // surface as "restart pagination" — the intended graceful break, not a bug.
+      const dec = decodeCursor(page.after, { sort: 'committeeName', dir: 'asc', fhash });
       if (dec.isErr()) return err(dec.error);
-      const keys = requireCursorKeys(dec.value.keys, 1);
+      const keys = requireCursorKeys(dec.value.keys, 2);
       if (keys.isErr()) return err(keys.error);
-      conds.push(sql`co.committee_key > ${keys.value[0] ?? ''}`);
+      const [name = '', key = ''] = keys.value;
+      conds.push(sql`(co.name, co.committee_key) > (${name}, ${key})`);
     }
     try {
+      // Ordered by NAME, not by `committee_key`. The key is an opaque per-chamber
+      // id — a cdep path (`cdep:2:2024:11`) or a Senate UUID — so ordering by it
+      // scattered a chamber's committees arbitrarily: the two IDENTICALLY named
+      // Senate rows for "Comisia pentru comunicații, tehnologia informației și
+      // inteligență artificială" landed at #117 and #172 of 191, with a third,
+      // near-identically named committee at #54. All three are adjacent at
+      // #83-85 now. Any reader holding a bounded prefix saw an arbitrary subset.
+      //
+      // The keyset below needs a DETERMINISTIC collation applied identically by
+      // the ORDER BY and the row comparison — that is the requirement, and any
+      // deterministic collation satisfies it. This database's `C` locale is what
+      // additionally makes the order BYTE order rather than linguistic, so
+      // linguistic ordering stays a presentation concern (the client re-sorts
+      // with `localeCompare(…, 'ro')`). `committee_key` is the tiebreak, so
+      // duplicate names page deterministically — cdep carries more of that load
+      // than the Senate did (59 duplicate names, max repeat 16, vs 38 and 9).
       const rows = await db
         .selectFrom('parliament.committees as co')
         .select(COMMITTEE_SELECT)
         .where(composeWhere(conds))
+        .orderBy('co.name', 'asc')
         .orderBy('co.committee_key', 'asc')
         .limit(limit + 1)
         .execute();
@@ -3889,10 +3909,10 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
       const next =
         hasMore && last !== undefined
           ? buildNextCursor({
-              sort: 'committeeKey',
+              sort: 'committeeName',
               dir: 'asc',
               fhash,
-              lastKeys: [last.committee_key],
+              lastKeys: [last.name, last.committee_key],
             })
           : null;
       return ok({ items, next });

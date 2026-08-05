@@ -252,11 +252,15 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
     return {
       edges: page.items.map((node) => ({
         node,
+        // Must match the repo's keyset EXACTLY — sort id and both keys. An edge
+        // cursor is a resumption point a caller may replay instead of
+        // `pageInfo.endCursor`; minting it in a shape `listCommittees` no longer
+        // decodes turns every such replay into InvalidInput.
         cursor: buildNextCursor({
-          sort: 'committeeKey',
+          sort: 'committeeName',
           dir: 'asc',
           fhash,
-          lastKeys: [node.committeeKey],
+          lastKeys: [node.name, node.committeeKey],
         }),
       })),
       pageInfo: { hasNextPage: page.next !== null, endCursor: page.next },

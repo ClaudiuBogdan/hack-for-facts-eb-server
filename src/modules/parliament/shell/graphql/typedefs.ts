@@ -1372,7 +1372,7 @@ const objectsAndQuery = /* GraphQL */ `
     ): ParliamentPersonCandidatePage
     "Loader/data freshness: the newest vote date + the last load timestamp (B4)."
     parliamentDataFreshness: ParliamentDataFreshness
-    "Committees (cursor; optional chamber = camera_deputatilor|senat, legislature). Ordered by committee key."
+    "Committees (cursor; optional chamber = camera_deputatilor|senat, legislature). Ordered by name ascending under a deterministic collation, with committee key as the tiebreak. Apply linguistic (Romanian) ordering client-side."
     parliamentCommittees(
       chamber: String
       legislature: String
