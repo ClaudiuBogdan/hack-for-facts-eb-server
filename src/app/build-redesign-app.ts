@@ -290,6 +290,7 @@ export const registerRedesignSurface = async (
   const moduleMcpTools: KernelMcpTool[] = [];
   let pnrrRestPlugin: import('fastify').FastifyPluginAsync | undefined;
   let parliamentRoutes: import('fastify').FastifyPluginAsync | undefined;
+  let legalRoutes: import('fastify').FastifyPluginAsync | undefined;
 
   if (enabledModules.includes('pnrr')) {
     const pnrr = makePnrrModule({
@@ -463,6 +464,10 @@ export const registerRedesignSurface = async (
     moduleSlices.push(legal.graphqlSlice);
     moduleResolvers.push(legal.graphqlResolvers);
     moduleMcpTools.push(...legal.mcpTools);
+    // The cacheable TLDF render routes (ETag / If-None-Match / Cache-Control on
+    // a large immutable-per-generation artifact — the parliament-transcript
+    // pattern). GraphQL carries only `LegalDocument.render` availability.
+    legalRoutes = legal.routesPlugin;
   }
 
   if (enabledModules.includes('parliament')) {
@@ -546,6 +551,11 @@ export const registerRedesignSurface = async (
   // unchanged — the route sends a plain payload and only sets Vary: Accept-Encoding.
   if (parliamentRoutes !== undefined) {
     await app.register(parliamentRoutes, { prefix: '/api/v1/parliament' });
+  }
+  // Legal's REST routes: the TLDF render document/chunk reads (same cacheable
+  // pattern; the body never travels over GraphQL).
+  if (legalRoutes !== undefined) {
+    await app.register(legalRoutes, { prefix: '/api/v1/legal' });
   }
 
   // ── MCP (JSON-RPC over HTTP) ─────────────────────────────────────────────────

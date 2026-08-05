@@ -327,6 +327,81 @@ export interface LegalActHonesty {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Document render (TLDF artifact serving over document_generations/document_render)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** `legal.document_generations.render_status` — the D1b promotion states. */
+export type LegalRenderStatus = 'served' | 'content_unavailable' | 'superseded_pending';
+
+/**
+ * Render availability for one document expression: the `document_generations`
+ * row plus the physical `chunk_count` read off render row 0. This is what
+ * GraphQL serves (`LegalDocument.render`) so the act page can decide what to
+ * offer WITHOUT paying for the artifact body — the body itself travels only
+ * over the cacheable REST route.
+ */
+export interface LegalRenderInfo {
+  readonly documentId: string;
+  readonly renderStatus: LegalRenderStatus;
+  readonly privacyClass: string; // 'public' | 'restricted' — property of the expression
+  readonly runId: string; // bigint → string; names the raw structure run
+  readonly textSha256: string;
+  readonly compilerVersion: string;
+  readonly compiledAt: string; // timestamptz ISO
+  /** Physical chunk count from render row 0; null when no render rows exist. */
+  readonly chunkCount: number | null;
+}
+
+/** One physical `legal.document_render` row, payload UNPARSED (jsonb object). */
+export interface LegalRenderRow {
+  readonly chunkIndex: number;
+  readonly chunkCount: number;
+  readonly blockId: string | null;
+  /** The stored TLDF physical payload — envelope, manifest, or chunk group. */
+  readonly payload: Record<string, unknown>;
+}
+
+/**
+ * What the REST base route serves: the complete TLDF envelope for a
+ * single-chunk document, or the physical MANIFEST for a chunked one — never a
+ * partial `blocks[]` that could pass for the whole document.
+ */
+export type LegalRenderPayloadKind = 'envelope' | 'manifest' | 'chunk';
+
+export interface LegalRenderPayload {
+  readonly kind: LegalRenderPayloadKind;
+  readonly chunkIndex: number;
+  readonly info: LegalRenderInfo;
+  readonly tldf: Record<string, unknown>;
+}
+
+/**
+ * Module-local render failures (beyond the kernel `ApiError` set — there is no
+ * kernel 409/403 variant, so the REST shell maps these directly):
+ *  - `render_not_found`      → 404: no generation row / no such chunk.
+ *  - `render_restricted`     → 403: the expression exists but is not public
+ *                               (the ACT's existence is already public; a 404
+ *                               here would lie).
+ *  - `render_unavailable`    → 409: we hold the document but no servable text
+ *                               (`content_unavailable` | `superseded_pending`).
+ *  - `render_inconsistent`   → 409: stored rows violate the physical-layout
+ *                               invariants; a partial reading is never served.
+ */
+export type LegalRenderError =
+  | { readonly reason: 'render_not_found'; readonly documentId: string }
+  | { readonly reason: 'render_restricted'; readonly documentId: string }
+  | {
+      readonly reason: 'render_unavailable';
+      readonly documentId: string;
+      readonly renderStatus: Exclude<LegalRenderStatus, 'served'>;
+    }
+  | {
+      readonly reason: 'render_inconsistent';
+      readonly documentId: string;
+      readonly detail: string;
+    };
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Freshness note (no loader watermark for legal yet → interim TTL-only, §10)
 // ─────────────────────────────────────────────────────────────────────────────
 

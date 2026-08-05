@@ -111,6 +111,20 @@ const objectsAndQuery = /* GraphQL */ `
     moPart: Int
     moNumber: String
     moDate: Date
+    "Render availability (null = never compiled). The artifact BODY travels only over the cacheable REST route GET /api/v1/legal/documents/{documentId}/render."
+    render: LegalRenderInfo
+  }
+
+  "TLDF render availability for one document expression (legal.document_generations + row-0 chunk_count). status: served | content_unavailable | superseded_pending; only served+public documents answer on the REST render route."
+  type LegalRenderInfo {
+    documentId: String!
+    renderStatus: String!
+    privacyClass: String!
+    textSha256: String!
+    compilerVersion: String!
+    compiledAt: String!
+    "Physical chunk count; null when a generation exists but render rows are missing (inconsistent — the REST route answers 409)."
+    chunkCount: Int
   }
 
   "Version provenance for a served text (§5.2-C). The corpus is published-form text only: version_kind is original|corp|stub-header|republicare and consolidare rows do not exist yet, so latestConsolidation* reads null/false until the consolidation-timeline lane loads them."

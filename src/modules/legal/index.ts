@@ -33,13 +33,16 @@ import { makeLegalMcpTools } from './shell/mcp/tools.js';
 import { makeLegalActsRepo } from './shell/repo/acts-repo.js';
 import { makeLegalGraphRepo } from './shell/repo/graph-repo.js';
 import { makeLegalOutlineRepo } from './shell/repo/outline-repo.js';
+import { makeLegalRenderRepo } from './shell/repo/render-repo.js';
 import { makeLegalRetrievalRepo } from './shell/repo/retrieval-repo.js';
 import { makeLegalVocabRepo } from './shell/repo/vocab-repo.js';
+import { makeLegalRoutes } from './shell/rest/routes.js';
 
 import type {
   LegalActsRepo,
   LegalGraphRepo,
   LegalOutlineRepo,
+  LegalRenderRepo,
   LegalRetrievalRepo,
 } from './core/ports.js';
 import type { LegalRepoBase } from './core/repo-base.js';
@@ -88,6 +91,7 @@ export interface LegalRepos {
   readonly acts: LegalActsRepo;
   readonly graph: LegalGraphRepo;
   readonly outline: LegalOutlineRepo;
+  readonly render: LegalRenderRepo;
   readonly retrieval: LegalRetrievalRepo;
 }
 
@@ -106,6 +110,8 @@ export interface LegalModule {
   readonly legalActLoader: LegalActByIdLoader;
   /** Effective semantic readiness (kernel slot AND live HNSW), exposed for tests/health. */
   readonly semanticReady: boolean;
+  /** The cacheable TLDF render routes; mounted at `/api/v1/legal` by the app. */
+  readonly routesPlugin: ReturnType<typeof makeLegalRoutes>;
 }
 
 /**
@@ -119,9 +125,10 @@ export const makeLegalModule = async (deps: LegalModuleDeps): Promise<LegalModul
   const acts = makeLegalActsRepo(deps.db);
   const graph = makeLegalGraphRepo(deps.db);
   const outline = makeLegalOutlineRepo(deps.db);
+  const render = makeLegalRenderRepo(deps.db);
   const retrieval = makeLegalRetrievalRepo(deps.db);
   const vocab = makeLegalVocabRepo(deps.db);
-  const repos: LegalRepos = { base: acts, acts, graph, outline, retrieval };
+  const repos: LegalRepos = { base: acts, acts, graph, outline, render, retrieval };
 
   // 2. effective semantic gate: kernel slot AND live HNSW indexes (never mutates
   //    the kernel slot — a local AND that degrades to lexical when the index is gone).
@@ -147,7 +154,14 @@ export const makeLegalModule = async (deps: LegalModuleDeps): Promise<LegalModul
   const resolveDeps: ResolveLegalFiltersDeps = { base: acts, acts, vocab };
 
   // 5. GraphQL slice + MCP tools (acts area).
-  const actsResolvers = makeLegalResolvers({ acts, graph, outline, searchDeps, resolveDeps });
+  const actsResolvers = makeLegalResolvers({
+    acts,
+    graph,
+    outline,
+    render,
+    searchDeps,
+    resolveDeps,
+  });
   const actsMcpTools = makeLegalMcpTools({
     acts,
     graph,
@@ -182,6 +196,7 @@ export const makeLegalModule = async (deps: LegalModuleDeps): Promise<LegalModul
     repos,
     legalActLoader,
     semanticReady,
+    routesPlugin: makeLegalRoutes({ render }),
   };
 };
 
@@ -230,8 +245,10 @@ export type {
   LegalActsRepo,
   LegalGraphRepo,
   LegalOutlineRepo,
+  LegalRenderRepo,
   LegalRetrievalRepo,
 } from './core/ports.js';
+export { makeLegalRoutes, type MakeLegalRoutesDeps } from './shell/rest/routes.js';
 export type { LegalRepoBase, LegalActRef } from './core/repo-base.js';
 export * from './core/types.js';
 export { legalActsSpec, LEGAL_FILTER_SPECS } from './shell/filters/legal-acts.spec.js';

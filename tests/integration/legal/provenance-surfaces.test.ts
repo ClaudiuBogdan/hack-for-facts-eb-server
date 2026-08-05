@@ -168,6 +168,13 @@ describe('LegalAct provenance resolvers', () => {
       acts: repo,
       graph: {} as never,
       outline: outlineFake,
+      // These tests never touch LegalDocument.render; a throwing fake keeps
+      // any accidental call loud instead of silently null.
+      render: {
+        renderInfo: () => Promise.reject(new Error('render not under test')),
+        renderInfoForDocuments: () => Promise.reject(new Error('render not under test')),
+        renderRow: () => Promise.reject(new Error('render not under test')),
+      },
       searchDeps: searchDepsWith([], repo),
       resolveDeps: {} as never,
     });

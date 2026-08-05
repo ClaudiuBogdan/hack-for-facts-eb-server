@@ -25,6 +25,8 @@ import type {
   LegalOutlineEntry,
   LegalReferenceEdge,
   LegalRelation,
+  LegalRenderInfo,
+  LegalRenderRow,
   LegalSectionHit,
   LegalVersionProvenance,
 } from './types.js';
@@ -136,6 +138,28 @@ export interface LegalOutlineRepo {
     documentId: string,
     numberKey: string
   ): Promise<Result<LegalOutlineEntry | null, ApiError>>;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LegalRenderRepo — the TLDF artifact tables (document_generations + document_render)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface LegalRenderRepo {
+  /**
+   * Availability for one document: the generation row + row-0 `chunk_count`.
+   * Returns null when no generation row exists. NO privacy/status gating here —
+   * the usecase gates so 403/409 stay distinguishable from 404.
+   */
+  renderInfo(documentId: string): Promise<Result<LegalRenderInfo | null, ApiError>>;
+  /** Batched availability (GraphQL `LegalDocument.render` over a version list). */
+  renderInfoForDocuments(
+    documentIds: readonly string[]
+  ): Promise<Result<ReadonlyMap<string, LegalRenderInfo>, ApiError>>;
+  /** One physical row (payload unparsed); null when the row does not exist. */
+  renderRow(
+    documentId: string,
+    chunkIndex: number
+  ): Promise<Result<LegalRenderRow | null, ApiError>>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

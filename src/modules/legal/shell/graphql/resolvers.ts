@@ -40,13 +40,19 @@ import {
 } from '../../core/usecases.js';
 import { legalActsSpec } from '../filters/legal-acts.spec.js';
 
-import type { LegalActsRepo, LegalGraphRepo, LegalOutlineRepo } from '../../core/ports.js';
+import type {
+  LegalActsRepo,
+  LegalGraphRepo,
+  LegalOutlineRepo,
+  LegalRenderRepo,
+} from '../../core/ports.js';
 import type {
   LegalAct,
   LegalActCard,
   LegalActStatus,
   LegalDocument,
   LegalRelation,
+  LegalRenderInfo,
   LegalResolveDim,
   LegalSortKey,
   LegalVersionProvenance,
@@ -57,6 +63,7 @@ export interface LegalResolverDeps {
   readonly acts: LegalActsRepo;
   readonly graph: LegalGraphRepo;
   readonly outline: LegalOutlineRepo;
+  readonly render: LegalRenderRepo;
   readonly searchDeps: LegalSearchDeps;
   readonly resolveDeps: ResolveLegalFiltersDeps;
 }
@@ -121,7 +128,7 @@ const sortKeysOf = (act: LegalAct, sort: LegalSortKey): readonly (string | numbe
 };
 
 export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unknown> => {
-  const { acts, graph, outline, searchDeps, resolveDeps } = deps;
+  const { acts, graph, outline, render, searchDeps, resolveDeps } = deps;
 
   // Batched act loader for edge `targetAct`/`sourceAct` (tolerates dangling → null).
   // The batch fn returns a Map<id, V>; the loader fills missing keys with `null`.
@@ -141,6 +148,14 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
   // unbatched resolver would be one statement per hit.
   const provenanceLoader = makeBatchLoader<LegalVersionProvenance | null>(async (actIds) => {
     const res = await acts.versionProvenanceForActs(actIds);
+    if (res.isErr()) throw toGraphqlError(res.error);
+    return res.value;
+  }, null);
+
+  // Render availability, batched: an act page lists its whole version cluster,
+  // so an unbatched resolver would be one generation lookup per document.
+  const renderInfoLoader = makeBatchLoader<LegalRenderInfo | null>(async (documentIds) => {
+    const res = await render.renderInfoForDocuments(documentIds);
     if (res.isErr()) throw toGraphqlError(res.error);
     return res.value;
   }, null);
@@ -290,6 +305,12 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
         };
       },
       timeline: async (parent: LegalAct) => unwrap(await getActTimeline(acts, graph, parent.actId)),
+    },
+
+    LegalDocument: {
+      // null = never compiled. The artifact body is NOT served here — only the
+      // availability card; the body travels over the cacheable REST route.
+      render: async (parent: LegalDocument) => renderInfoLoader.load(parent.documentId),
     },
 
     LegalReferenceEdge: {

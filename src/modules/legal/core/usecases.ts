@@ -22,6 +22,7 @@ import type {
   LegalGraphRepo,
   LegalOutlineOptions,
   LegalOutlineRepo,
+  LegalRenderRepo,
   LegalRetrievalQuery,
   LegalRetrievalRepo,
 } from './ports.js';
@@ -36,6 +37,10 @@ import type {
   LegalOutlineEntry,
   LegalReferenceEdge,
   LegalRelation,
+  LegalRenderError,
+  LegalRenderInfo,
+  LegalRenderPayload,
+  LegalRenderPayloadKind,
   LegalResolveDim,
   LegalSearchResult,
   LegalSortKey,
@@ -164,6 +169,106 @@ export const getOutlineEntry = (
   documentId: string,
   path: string
 ): Promise<Result<LegalOutlineEntry | null, ApiError>> => repo.entryByPath(documentId, path);
+
+// ── document render (the TLDF artifact, served over REST) ───────────────────────
+
+/**
+ * One read path for both REST routes: the base route is `chunkIndex=0` (the
+ * complete envelope for a single-chunk document, the physical MANIFEST for a
+ * chunked one), `/chunks/:i` is any physical row. Gating order matters:
+ * not-found (404) → unavailable (409, no servable text) → inconsistent (409,
+ * rows missing under a served generation) → restricted (403). Restricted is
+ * checked LAST because the expression-level privacy class lives on the render
+ * rows: it is only a trustworthy answer once the rows are known to exist. A
+ * restricted expression answers 403, never 404 — its act's existence is
+ * already public, and only a `served` + `public` generation ever reaches a
+ * payload read.
+ *
+ * The payload's physical marker is re-checked against its position (row 0 of a
+ * chunked doc must be a manifest, a chunked row must be a chunk group, a
+ * single-row doc must be a plain envelope): the DDL binds identity fields but
+ * cannot express cross-row layout, so a violation here is served as
+ * `render_inconsistent` (409) — never a partial or mislabeled reading.
+ */
+export const getDocumentRenderChunk = async (
+  repo: LegalRenderRepo,
+  documentId: string,
+  chunkIndex: number
+): Promise<Result<LegalRenderPayload, LegalRenderError | ApiError>> => {
+  const infoRes = await repo.renderInfo(documentId);
+  if (infoRes.isErr()) return err(infoRes.error);
+  const info = infoRes.value;
+  if (info === null) return err({ reason: 'render_not_found', documentId });
+  if (info.renderStatus !== 'served') {
+    return err({ reason: 'render_unavailable', documentId, renderStatus: info.renderStatus });
+  }
+  if (info.chunkCount === null) {
+    return err({
+      reason: 'render_inconsistent',
+      documentId,
+      detail: 'generation is served but no render rows exist',
+    });
+  }
+  if (info.privacyClass !== 'public') return err({ reason: 'render_restricted', documentId });
+  if (chunkIndex >= info.chunkCount) {
+    // The chunk RESOURCE does not exist — same class as an unknown document.
+    return err({ reason: 'render_not_found', documentId });
+  }
+
+  const rowRes = await repo.renderRow(documentId, chunkIndex);
+  if (rowRes.isErr()) return err(rowRes.error);
+  const row = rowRes.value;
+  if (row === null) {
+    return err({
+      reason: 'render_inconsistent',
+      documentId,
+      detail: `chunk ${String(chunkIndex)} missing while chunk_count=${String(info.chunkCount)}`,
+    });
+  }
+  if (row.chunkCount !== info.chunkCount) {
+    return err({
+      reason: 'render_inconsistent',
+      documentId,
+      detail: `row chunk_count ${String(row.chunkCount)} != ${String(info.chunkCount)}`,
+    });
+  }
+
+  const physical = row.payload['physical'];
+  const kind: LegalRenderPayloadKind | null =
+    chunkIndex > 0
+      ? physical === 'chunk'
+        ? 'chunk'
+        : null
+      : info.chunkCount === 1
+        ? physical === undefined
+          ? 'envelope'
+          : null
+        : physical === 'manifest'
+          ? 'manifest'
+          : null;
+  if (kind === null) {
+    return err({
+      reason: 'render_inconsistent',
+      documentId,
+      detail: `chunk ${String(chunkIndex)} carries physical=${String(physical)} under chunk_count=${String(info.chunkCount)}`,
+    });
+  }
+  return ok({ kind, chunkIndex, info, tldf: row.payload });
+};
+
+/** The base render read: the logical artifact (envelope) or its manifest. */
+export const getDocumentRender = (
+  repo: LegalRenderRepo,
+  documentId: string
+): Promise<Result<LegalRenderPayload, LegalRenderError | ApiError>> =>
+  getDocumentRenderChunk(repo, documentId, 0);
+
+/** Batched availability for the GraphQL `LegalDocument.render` field. */
+export const getRenderInfoForDocuments = (
+  repo: LegalRenderRepo,
+  documentIds: readonly string[]
+): Promise<Result<ReadonlyMap<string, LegalRenderInfo>, ApiError>> =>
+  repo.renderInfoForDocuments(documentIds);
 
 // ── retrieval (RAG) ─────────────────────────────────────────────────────────────
 

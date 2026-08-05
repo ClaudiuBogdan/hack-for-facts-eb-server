@@ -173,6 +173,32 @@ export interface LegalSectionEmbeddingsTable {
   source_updated_at: Tstz | null;
 }
 
+// ── TLDF render artifact (document_generations + document_render) ─────────────
+
+export interface LegalDocumentGenerationsTable {
+  document_id: string; // text, PK
+  run_id: string; // bigint → string
+  body_sha256: string;
+  text_sha256: string;
+  tree_digest: string;
+  link_digest: string;
+  structure_parser_version: string;
+  compiler_version: string;
+  compiled_at: Tstz;
+  render_status: string; // 'served' | 'content_unavailable' | 'superseded_pending'
+}
+
+export interface LegalDocumentRenderTable {
+  document_id: string; // text
+  run_id: string; // bigint → string
+  chunk_index: number; // integer
+  chunk_count: number; // integer
+  block_id: string | null;
+  tldf: Jsonb; // the physical TLDF payload — envelope, manifest, or chunk group
+  privacy_class: string; // 'public' | 'restricted'
+  compiled_at: Tstz;
+}
+
 /**
  * Declaration-merge the acts/sections `legal.*` tables onto the kernel
  * `ProdDatabase`. 06 adds `legal.mo_issues` / `legal.mo_act_publications` /
@@ -189,6 +215,8 @@ declare module '@/modules/shared/shell/db/types.js' {
     'legal.act_status_events': LegalActStatusEventsTable;
     'legal.external_acts': LegalExternalActsTable;
     'legal.document_nodes': LegalDocumentNodesTable;
+    'legal.document_generations': LegalDocumentGenerationsTable;
+    'legal.document_render': LegalDocumentRenderTable;
     'legal.document_summaries': LegalDocumentSummariesTable;
     'legal.document_embeddings': LegalDocumentEmbeddingsTable;
     'legal.section_embeddings': LegalSectionEmbeddingsTable;
