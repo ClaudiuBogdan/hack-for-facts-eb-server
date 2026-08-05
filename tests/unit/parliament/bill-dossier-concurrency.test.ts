@@ -165,7 +165,25 @@ const BILL: ParliamentBill = {
   lastEventDate: '2026-05-04',
   isCanonical: true,
   canonicalBillKey: null,
-  attrs: {},
+  // Published from attrs since 2026-08-05; this fixture carries none of them.
+  decisionChamber: null,
+  lawCharacter: null,
+  procedureUrgency: null,
+  procedureRegime: null,
+  objectOfRegulation: null,
+  lastEventDescription: null,
+  firstEventDate: null,
+  lastEventSource: null,
+  cdepProjectUrl: null,
+  senateDetailUrl: null,
+  senateFileUrl: null,
+  senateOpinionsUrl: null,
+  senateCod: null,
+  governmentENumber: null,
+  governmentEYear: null,
+  initiatorType: null,
+  initiatorTypeConfidence: null,
+  initiatorTypeMethod: null,
   sourceUpdatedAt: null,
   updatedAt: null,
 };
@@ -217,7 +235,6 @@ const member = (mandateKey: string, fullName: string): ParliamentMember => ({
   isCurrent: true,
   mandateEndDate: null,
   mandateEndReason: null,
-  attrs: {},
 });
 
 const vote = (voteKey: string, title: string): ParliamentVote => ({
@@ -233,7 +250,8 @@ const vote = (voteKey: string, title: string): ParliamentVote => ({
   sourceUrl: null,
   tallyMismatch: false,
   kind: 'legislative',
-  attrs: {},
+  voteSubject: null,
+  voteDateTimeText: null,
 });
 
 const ACT_LINK: ParliamentBillActLink = {

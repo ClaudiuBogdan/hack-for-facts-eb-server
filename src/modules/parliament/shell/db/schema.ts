@@ -112,9 +112,19 @@ export interface ParliamentBillsTable {
   // B1 canonicality (migration 20260701T173000): is_canonical is the default-visible
   // flag (§3); canonical_bill_key points a suppressed Senate navetă twin at its
   // canonical CDep key (null on canonical rows). dup_group_id / canonical_match_* /
-  // dup_review / decision_chamber are internal dedup provenance — deliberately UNBOUND.
+  // dup_review are internal dedup provenance — deliberately UNBOUND.
   is_canonical: boolean;
   canonical_bill_key: string | null;
+  // BOUND 2026-08-05, correcting the grouping above: decision_chamber was listed
+  // with the dedup provenance, but it is not provenance. Those columns record HOW WE
+  // DECIDED a twin; this one is a SOURCE FACT ABOUT THE BILL — which chamber casts
+  // the final vote under art. 75 — that merely happens to be computed in the B1
+  // derive because the dedup needed it. It is bound (not read out of attrs) because
+  // the loader's derive owns the normalization `nullif(trim(camera_decizionala),'-')`,
+  // and re-deriving that server-side would be a second definition free to drift. The
+  // derive recomputes the whole table every load and its divergence from attrs is a
+  // BLOCKING gate term, so the column cannot go stale silently.
+  decision_chamber: string | null;
   attrs: Jsonb;
   source_updated_at: Tstz | null;
   updated_at: Tstz | null;

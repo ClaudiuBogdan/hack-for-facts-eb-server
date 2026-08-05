@@ -59,7 +59,8 @@ const fakeVote = (voteKey: string) => ({
   sourceUrl: null,
   tallyMismatch: false,
   kind: 'legislative',
-  attrs: {},
+  voteSubject: null,
+  voteDateTimeText: null,
 });
 
 describe('rankVoteCohesion — mode + cap guards (Codex BLOCKER #1)', () => {

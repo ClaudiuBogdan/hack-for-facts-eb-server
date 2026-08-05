@@ -1,21 +1,22 @@
 /**
- * Parliament unit tests — mappers + the PRIVACY invariant (§2.6). Asserts that the
- * `attrs` whitelist drops unknown/PII keys, declaration metadata never carries
+ * Parliament unit tests — mappers + the PRIVACY invariant (§2.6). Asserts that no
+ * view model carries a passthrough `attrs` bag, declaration metadata never carries
  * file_hash, the tally shape is correct, bigint/date stay strings, and the
  * dangling legal-act loader tolerates a missing id (returns null, never throws).
+ *
+ * The gate that USED to live here — `safeAttrs` whitelisting the bag after it
+ * arrived — is gone. Its replacement is structural and enforced one layer earlier,
+ * in SQL: see `attrs-projection-gate.test.ts`, which compiles the repo's real
+ * queries and fails if any of them selects a raw `attrs` column. The mapper-level
+ * assertions kept here are the second half of that pair: a row type with no bag
+ * cannot produce a view model with one.
  */
 
 import { ok } from 'neverthrow';
 import { describe, expect, it } from 'vitest';
 
 import { makeLegalActLoader, type LegalActsRepo } from '@/modules/legal/index.js';
-import {
-  AI_DISCLAIMER,
-  AI_TRUST_CLASS,
-  BILL_ATTR_KEYS,
-  MEMBER_ATTR_KEYS,
-  VOTE_ATTR_KEYS,
-} from '@/modules/parliament/core/types.js';
+import { AI_DISCLAIMER, AI_TRUST_CLASS } from '@/modules/parliament/core/types.js';
 import {
   mapAiBillMetadata,
   mapAiControlItemMetadata,
@@ -27,7 +28,6 @@ import {
   mapDeclaration,
   mapMember,
   mapVote,
-  safeAttrs,
   type AiBillMetadataRow,
   type AiControlItemMetadataRow,
   type BillRow,
@@ -65,44 +65,7 @@ describe('merged dossier child source identity', () => {
   });
 });
 
-describe('safeAttrs — privacy whitelist (Codex BLOCKER #4)', () => {
-  it('keeps only whitelisted keys and drops everything else', () => {
-    const raw = {
-      status_text: 'adoptat',
-      // PII / provenance that must NEVER leak even if it lands in attrs:
-      birth_date_text: '12 mai 1970',
-      birth_date_parse_method: 'regex',
-      cluster_key: 'secret-anchor',
-      file_hash: 'deadbeef',
-      evidence: { matcher: 'x' },
-      unknown_future_key: 'leak?',
-    };
-    const out = safeAttrs(raw, BILL_ATTR_KEYS);
-    expect(out['status_text']).toBe('adoptat');
-    expect(out['birth_date_text']).toBeUndefined();
-    expect(out['cluster_key']).toBeUndefined();
-    expect(out['file_hash']).toBeUndefined();
-    expect(out['evidence']).toBeUndefined();
-    expect(out['unknown_future_key']).toBeUndefined();
-  });
-
-  it('drops non-primitive values (objects/arrays) even for whitelisted keys', () => {
-    const out = safeAttrs(
-      { status_text: { nested: 'object' }, source_title: ['a'] },
-      BILL_ATTR_KEYS
-    );
-    expect(out['status_text']).toBeUndefined();
-    expect(out['source_title']).toBeUndefined();
-  });
-
-  it('returns an empty object for null / array / non-object input', () => {
-    expect(safeAttrs(null, MEMBER_ATTR_KEYS)).toEqual({});
-    expect(safeAttrs([1, 2], MEMBER_ATTR_KEYS)).toEqual({});
-    expect(safeAttrs('string', MEMBER_ATTR_KEYS)).toEqual({});
-  });
-});
-
-describe('mapMember — bigint/date as strings, attrs whitelisted, no PII', () => {
+describe('mapMember — bigint/date as strings, no attrs bag, no PII', () => {
   const row: MemberRow = {
     mandate_key: '2:2020:12',
     chamber: 'camera_deputatilor',
@@ -117,32 +80,44 @@ describe('mapMember — bigint/date as strings, attrs whitelisted, no PII', () =
     is_current: true,
     mandate_end_date: null,
     mandate_end_reason: null,
-    attrs: { source_title: 'X', profile_url: 'http://x', birth_date_text: 'LEAK' },
+    profile_url: 'http://x',
+    cv_pdf_url: null,
   };
 
-  it('emits string scalars and a whitelisted attrs object', () => {
+  it('emits string scalars', () => {
     const m = mapMember(row);
     expect(m.personId).toBe('2264');
     expect(typeof m.personId).toBe('string');
     expect(m.birthDate).toBe('1970-05-12');
-    expect(m.attrs['source_title']).toBe('X');
-    expect(m.attrs['profile_url']).toBe('http://x');
-    // The PII key that leaked into attrs is stripped.
-    expect((m.attrs as Record<string, unknown>)['birth_date_text']).toBeUndefined();
   });
 
-  it('surfaces profileUrl flat from the whitelisted attrs (Gap 4)', () => {
+  /**
+   * The member bag was the strongest argument for extracting keys in SQL rather
+   * than filtering after arrival: live `members.attrs` carries
+   * `senate_current_roster_alias_evidence` (an OBJECT of internal match evidence)
+   * plus eight sibling `senate_current_roster_alias_*` provenance keys. Under the
+   * old design all of it was fetched on every request — including on a vote page
+   * fanning out up to 500 ballots — and was one unreviewed whitelist entry away
+   * from a public surface. It is now unreachable: MemberRow has no bag to read.
+   */
+  it('has no attrs bag on the row type OR the view model — the bag is unreachable', () => {
+    const m = mapMember(row);
+    expect(Object.keys(m)).not.toContain('attrs');
+    expect(Object.keys(row)).not.toContain('attrs');
+    expect(Object.keys(m)).not.toContain('senate_current_roster_alias_evidence');
+  });
+
+  it('surfaces profileUrl flat from its own extracted column (Gap 4)', () => {
     expect(mapMember(row).profileUrl).toBe('http://x');
   });
 
-  it('leaves profileUrl null when attrs carries no profile_url', () => {
-    const noProfile: MemberRow = { ...row, attrs: { source_title: 'X' } };
+  it('leaves profileUrl null when the source carries no profile_url', () => {
+    const noProfile: MemberRow = { ...row, profile_url: null };
     expect(mapMember(noProfile).profileUrl).toBeNull();
   });
 
-  it('surfaces cvPdfUrl flat from the whitelisted attrs (B3), null when absent', () => {
-    expect(MEMBER_ATTR_KEYS).toContain('cv_pdf_url');
-    const withCv: MemberRow = { ...row, attrs: { cv_pdf_url: 'https://cdep.ro/cv/12.pdf' } };
+  it('surfaces cvPdfUrl flat from its own extracted column (B3), null when absent', () => {
+    const withCv: MemberRow = { ...row, cv_pdf_url: 'https://cdep.ro/cv/12.pdf' };
     expect(mapMember(withCv).cvPdfUrl).toBe('https://cdep.ro/cv/12.pdf');
     expect(mapMember(row).cvPdfUrl).toBeNull(); // base row has no cv_pdf_url
   });
@@ -176,7 +151,7 @@ describe('mapMember — bigint/date as strings, attrs whitelisted, no PII', () =
   });
 });
 
-describe('mapVote — tally shape + tallyMismatch from attrs', () => {
+describe('mapVote — tally shape, printed subject/time, no attrs bag', () => {
   const row: VoteRow = {
     vote_key: 'cdep:29892',
     chamber: 'camera_deputatilor',
@@ -192,36 +167,51 @@ describe('mapVote — tally shape + tallyMismatch from attrs', () => {
     bill_key: '12760',
     law_reference: null,
     source_url: 'https://www.cdep.ro/pls/steno/eVot.Nominal?idv=29892',
-    attrs: { tally_mismatch: true, source_title: 'ST', secret: 'x' },
+    tally_mismatch: true,
+    vote_subject: 'raport de respingere (a legii)',
+    vote_datetime_text: '04.05.2022 11:29',
     kind: 'legislative',
   };
 
-  it('maps the tally with camelCase nuAVotat and surfaces tallyMismatch', () => {
+  it('maps the tally with camelCase nuAVotat and passes tallyMismatch through', () => {
     const v = mapVote(row);
     expect(v.tally).toEqual({ pentru: 275, impotriva: 0, abtinere: 1, nuAVotat: 1, present: 277 });
     expect(v.tallyMismatch).toBe(true);
-    expect(v.attrs['source_title']).toBe('ST');
-    expect((v.attrs as Record<string, unknown>)['secret']).toBeUndefined();
-    expect(VOTE_ATTR_KEYS).toContain('tally_mismatch');
   });
 
-  // M1 regression: the loader writes tally_mismatch as a JSON OBJECT, not a boolean.
-  // safeAttrs drops the object (non-primitive), so the old `attrs['tally_mismatch']
-  // === true` was false for 0/4855 votes. The flag is now read from RAW attrs (presence),
-  // and the object itself is never exposed (§2.6 — only a boolean is surfaced).
-  it('surfaces tallyMismatch=true when tally_mismatch is an OBJECT (the real loader shape)', () => {
-    const v = mapVote({
-      ...row,
-      attrs: { tally_mismatch: { pentru: { official: 168, recorded: 84 } }, source_title: 'ST' },
-    });
-    expect(v.tallyMismatch).toBe(true);
-    // the object internals must NOT leak into the whitelisted attrs view
-    expect((v.attrs as Record<string, unknown>)['tally_mismatch']).toBeUndefined();
+  it('has no attrs bag on the row type OR the view model', () => {
+    const v = mapVote(row);
+    expect(Object.keys(v)).not.toContain('attrs');
+    expect(Object.keys(row)).not.toContain('attrs');
   });
 
-  it('leaves tallyMismatch=false when attrs carries no tally_mismatch key', () => {
-    expect(mapVote({ ...row, attrs: { source_title: 'ST' } }).tallyMismatch).toBe(false);
-    expect(mapVote({ ...row, attrs: null }).tallyMismatch).toBe(false);
+  /**
+   * M1 regression, restated for the SQL projection. The loader writes
+   * `tally_mismatch` as a JSON OBJECT ({pentru:{official,recorded},…}) on 925
+   * votes, and only its PRESENCE is public — the per-choice split is not (§2.6).
+   * The mapper now passes through a boolean the SELECT already reduced, so the
+   * object cannot reach this layer at all. The reduction itself (including that a
+   * JSON-null value reads false, matching the old `!= null`) is pinned in
+   * `attrs-projection-gate.test.ts`, where the SQL is visible.
+   */
+  it('carries the mismatch flag as a boolean, never the object behind it', () => {
+    expect(mapVote(row).tallyMismatch).toBe(true);
+    expect(typeof mapVote(row).tallyMismatch).toBe('boolean');
+    expect(mapVote({ ...row, tally_mismatch: false }).tallyMismatch).toBe(false);
+  });
+
+  it('surfaces the chamber-printed subject and the printed date+time', () => {
+    const v = mapVote(row);
+    expect(v.voteSubject).toBe('raport de respingere (a legii)');
+    expect(v.voteDateTimeText).toBe('04.05.2022 11:29');
+  });
+
+  // 6,702 of 20,860 votes are Senate rows, whose feed publishes no time at all.
+  it('leaves the printed time null for a Senate vote rather than inventing one', () => {
+    const senate = mapVote({ ...row, vote_datetime_text: null, vote_subject: null });
+    expect(senate.voteDateTimeText).toBeNull();
+    expect(senate.voteSubject).toBeNull();
+    expect(senate.voteDate).toBe('2022-05-04'); // the date still stands on its own
   });
 });
 
@@ -260,67 +250,64 @@ describe('mapDeclaration — metadata only, NEVER file_hash or content', () => {
   });
 });
 
-describe('mapBill — dates/timestamps as strings, attrs whitelisted, flat classification', () => {
-  it('keeps known bill attrs and drops the rest', () => {
-    const row: BillRow = {
-      bill_key: '12760',
-      plx_number: '237',
-      plx_year: 2012,
-      senate_number: null,
-      senate_year: null,
-      title: 'Proiect de Lege',
-      final_law_number: '423',
-      final_law_year: 2023,
-      status_text: 'Lege 423/2023 29.12.2023',
-      bill_type: 'Proiect de Lege pentru aprobarea O.U.G. nr. 21/2012',
-      last_event_date: '2023-12-01',
-      is_canonical: true,
-      canonical_bill_key: null,
-      attrs: { status_text: 'adoptat', last_event_date: '2023-12-01', internal_secret: 'x' },
-      source_updated_at: '2024-01-01T00:00:00Z',
-      updated_at: '2024-01-02T00:00:00Z',
-    };
-    const b = mapBill(row);
-    expect(b.finalLawNumber).toBe('423');
-    expect(b.attrs['status_text']).toBe('adoptat');
-    expect(b.attrs['last_event_date']).toBe('2023-12-01');
-    expect((b.attrs as Record<string, unknown>)['internal_secret']).toBeUndefined();
-    expect(BILL_ATTR_KEYS).toContain('status_text');
-    expect(b.lastEventDate).toBe('2023-12-01'); // surfaced flat from the extracted column
+describe('mapBill — dates/timestamps as strings, no attrs bag, flat classification', () => {
+  /** Every attrs-derived field absent — the shape of a bill with no procedure block. */
+  const BARE: BillRow = {
+    bill_key: '12760',
+    plx_number: '237',
+    plx_year: 2012,
+    senate_number: null,
+    senate_year: null,
+    title: 'Proiect de Lege',
+    final_law_number: '423',
+    final_law_year: 2023,
+    status_text: 'Lege 423/2023 29.12.2023',
+    bill_type: 'Proiect de Lege pentru aprobarea O.U.G. nr. 21/2012',
+    last_event_date: '2023-12-01',
+    is_canonical: true,
+    canonical_bill_key: null,
+    decision_chamber: null,
+    law_character: null,
+    procedure_urgency: null,
+    procedure_regime: null,
+    object_of_regulation: null,
+    last_event_description: null,
+    first_event_date: null,
+    last_event_source: null,
+    cdep_project_url: null,
+    senate_detail_url: null,
+    senate_file_url: null,
+    senate_opinions_url: null,
+    senate_cod: null,
+    government_e_number: null,
+    government_e_year: null,
+    initiator_type: null,
+    initiator_type_confidence: null,
+    initiator_type_method: null,
+    source_updated_at: '2024-01-01T00:00:00Z',
+    updated_at: '2024-01-02T00:00:00Z',
+  };
+
+  it('has no attrs bag on the row type OR the view model', () => {
+    const b = mapBill(BARE);
+    expect(Object.keys(b)).not.toContain('attrs');
+    expect(Object.keys(BARE)).not.toContain('attrs');
   });
 
   it('surfaces statusText + billType flat from the extracted columns (Gap 2)', () => {
-    const row: BillRow = {
-      bill_key: '12760',
-      plx_number: '237',
-      plx_year: 2012,
-      senate_number: null,
-      senate_year: null,
-      title: 'Proiect de Lege',
-      final_law_number: '423',
-      final_law_year: 2023,
-      status_text: 'Lege 423/2023 29.12.2023',
-      bill_type: 'Proiect de Lege pentru aprobarea O.U.G. nr. 21/2012',
-      last_event_date: '2023-12-29',
-      is_canonical: true,
-      canonical_bill_key: null,
-      attrs: {},
-      source_updated_at: null,
-      updated_at: null,
-    };
-    const b = mapBill(row);
+    const b = mapBill(BARE);
+    expect(b.finalLawNumber).toBe('423');
     expect(b.statusText).toBe('Lege 423/2023 29.12.2023');
     expect(b.billType).toBe('Proiect de Lege pentru aprobarea O.U.G. nr. 21/2012');
-    expect(b.lastEventDate).toBe('2023-12-29');
+    expect(b.lastEventDate).toBe('2023-12-01');
   });
 
   it('leaves statusText / billType null when the source carries neither', () => {
-    const row: BillRow = {
+    const b = mapBill({
+      ...BARE,
       bill_key: 'x',
       plx_number: null,
       plx_year: null,
-      senate_number: null,
-      senate_year: null,
       title: null,
       final_law_number: null,
       final_law_year: null,
@@ -330,16 +317,85 @@ describe('mapBill — dates/timestamps as strings, attrs whitelisted, flat class
       // A suppressed bicameral (Senate navetá) twin: non-canonical, points at its CDep twin.
       is_canonical: false,
       canonical_bill_key: '12760',
-      attrs: {},
-      source_updated_at: null,
-      updated_at: null,
-    };
-    const b = mapBill(row);
+    });
     expect(b.statusText).toBeNull();
     expect(b.billType).toBeNull();
     // B1 canonicality is surfaced flat for the client redirect (§3).
     expect(b.isCanonical).toBe(false);
     expect(b.canonicalBillKey).toBe('12760');
+  });
+
+  /**
+   * The procedure facts (2026-08-05). These lived in `attrs.procedure`, a jsonb
+   * OBJECT that the old primitives-only whitelist silently dropped — so they were
+   * fetched on every request and published nowhere. Values are the live vocabulary.
+   */
+  it('surfaces the procedure facts the old whitelist dropped', () => {
+    const b = mapBill({
+      ...BARE,
+      decision_chamber: 'Camera Deputaţilor',
+      law_character: 'organic',
+      procedure_urgency: true,
+      procedure_regime: 'cf. Constitutiei revizuita în 2003',
+    });
+    expect(b.decisionChamber).toBe('Camera Deputaţilor');
+    expect(b.lawCharacter).toBe('organic');
+    expect(b.procedureUrgency).toBe(true);
+    expect(b.procedureRegime).toBe('cf. Constitutiei revizuita în 2003');
+  });
+
+  /**
+   * Tri-state, and the null is load-bearing: 21,242 of 41,990 bills carry no
+   * procedure block at all. Collapsing that null to false would tell a reader the
+   * chamber decided this bill was NOT urgent, which the source never said.
+   */
+  it('keeps procedureUrgency null — never false — when the source said nothing', () => {
+    expect(mapBill(BARE).procedureUrgency).toBeNull();
+    expect(mapBill({ ...BARE, procedure_urgency: false }).procedureUrgency).toBe(false);
+  });
+
+  it('surfaces the four source links, narrative, and cross-source identifiers', () => {
+    const b = mapBill({
+      ...BARE,
+      cdep_project_url: 'https://www.cdep.ro/pls/proiecte/upl_pck.proiect?idp=1',
+      senate_detail_url: 'https://www.senat.ro/legis/lista.aspx?cod=1',
+      senate_file_url: 'https://www.senat.ro/fisa.aspx?cod=1',
+      senate_opinions_url: 'https://www.senat.ro/avize.aspx?cod=1',
+      object_of_regulation: 'Reglementarea regimului deșeurilor.',
+      last_event_description: 'Vot final — adoptat',
+      last_event_source: 'votes',
+      senate_cod: 'b123',
+      government_e_number: '412',
+      government_e_year: '2012',
+    });
+    expect(b.cdepProjectUrl).toContain('cdep.ro');
+    expect(b.senateDetailUrl).toContain('senat.ro');
+    expect(b.senateFileUrl).toContain('fisa');
+    expect(b.senateOpinionsUrl).toContain('avize');
+    expect(b.objectOfRegulation).toBe('Reglementarea regimului deșeurilor.');
+    expect(b.lastEventDescription).toBe('Vot final — adoptat');
+    expect(b.lastEventSource).toBe('votes');
+    expect(b.senateCod).toBe('b123');
+    // Both stay STRINGS: the source stores the year as text, and a numeric cast
+    // would silently null any non-numeric registration.
+    expect(b.governmentENumber).toBe('412');
+    expect(b.governmentEYear).toBe('2012');
+    expect(typeof b.governmentEYear).toBe('string');
+  });
+
+  it('carries the initiator classification WITH the rule that produced it', () => {
+    const b = mapBill({
+      ...BARE,
+      initiator_type: 'government',
+      initiator_type_confidence: 'high',
+      initiator_type_method: 'initiators:guvern',
+    });
+    expect(b.initiatorType).toBe('government');
+    expect(b.initiatorTypeConfidence).toBe('high');
+    // The honesty field: a derived value must arrive with its evidence, so a
+    // reader can tell WHY we say it. Serving the value alone would present our
+    // classification as if the chamber had printed it.
+    expect(b.initiatorTypeMethod).toBe('initiators:guvern');
   });
 });
 

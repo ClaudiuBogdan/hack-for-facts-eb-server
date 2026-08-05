@@ -14,31 +14,44 @@ import { GRAPHQL_ERROR_CODE, HTTP_STATUS, type ApiError } from '@/modules/shared
 // ── members / groups / persons ───────────────────────────────────────────────
 
 /**
- * `attrs` whitelist (Codex BLOCKER #4): the raw `attrs` jsonb is NEVER passed
- * through to a view model — the mapper projects ONLY these known-safe keys, so an
- * unreviewed future key (or a provenance value that leaked into attrs) can never
- * reach a public GraphQL/MCP surface. Any view-model `attrs` field is a
- * `SafeAttrs` (a whitelisted subset), not the raw column.
+ * THE `attrs` RULE (supersedes the `SafeAttrs` whitelist, 2026-08-05).
+ *
+ * The raw `attrs` jsonb is NEVER selected into a view model. Every published fact
+ * is extracted by name in SQL and lands on a typed, named field — so **the SELECT
+ * list is the privacy gate**, enforced at the point the bytes leave Postgres.
+ *
+ * This replaces the previous "select the whole bag, whitelist it in TypeScript"
+ * design, which had three defects the whitelist could not fix:
+ *   1. It shipped the ENTIRE bag across the API↔DB link and discarded ~93% of it
+ *      after arrival — the gate ran after the cost was already paid.
+ *   2. It could not gate what it could not see: `members.attrs` carries
+ *      `senate_current_roster_alias_evidence` (internal match evidence), one
+ *      unreviewed key away from a public surface.
+ *   3. It silently dropped whitelisted keys whose value is an OBJECT — so
+ *      `bills.attrs.procedure` (camera decizională, caracter, procedură de
+ *      urgență: the facts that say how a bill travels) was fetched on every
+ *      request and thrown away, unpublished, for the whole life of the API.
+ *
+ * Measured on Chronos 2026-08-05, re-validate at full scale: the named projection
+ * costs 278B/bill vs 595B for the bag (−53%), 20B/vote vs 327B (−94%), and
+ * 82B/member vs 328B (−75%) — while publishing strictly MORE than before.
+ *
+ * To publish a new attrs key: add the SQL extraction to the entity's `*_SELECT`,
+ * a field here, and a field in the SDL. Never add a passthrough bag.
+ *
+ * SCOPE, stated precisely so this does not read as a guarantee it is not: the rule
+ * holds for the parliament module's ENTITY reads (bills, votes, members). Two
+ * passthrough bags survive it and are NOT covered:
+ *   - `ParliamentBillEvent.docs` — `bill_events.docs` is still selected whole and
+ *     published as `docs: JSON` (195B/row, ~5.5kB per dossier, max 45.7kB). Its only
+ *     keys are href/text/kind, so it is trivially nameable; it is left alone here
+ *     ONLY because it is an already-published SDL field with client consumers, so
+ *     narrowing it is a breaking change that needs its own slice.
+ *   - `search.documents.attrs` in the shared search repo, which the GraphQL path
+ *     fetches (608B/row × 50) and discards entirely.
+ * Both are recorded as follow-ups. Do not cite this comment as proof that no bag
+ * reaches a public surface anywhere — it is a rule about these three entities.
  */
-export const MEMBER_ATTR_KEYS = [
-  'last_event_date',
-  'source_title',
-  'procedure',
-  'profile_url',
-  'cv_pdf_url',
-] as const;
-export const BILL_ATTR_KEYS = [
-  'status_text',
-  'last_event_date',
-  'first_event_date',
-  'procedure',
-  'source_title',
-  'event_count',
-] as const;
-export const VOTE_ATTR_KEYS = ['source_title', 'tally_mismatch', 'vote_action'] as const;
-
-/** A whitelisted attrs projection (string-keyed; values are primitives only). */
-export type SafeAttrs = Record<string, string | number | boolean | null>;
 
 export interface ParliamentMember {
   readonly mandateKey: string; // PK; THE attribution key
@@ -66,7 +79,6 @@ export interface ParliamentMember {
   readonly isCurrent: boolean;
   readonly mandateEndDate: string | null; // date::text
   readonly mandateEndReason: string | null;
-  readonly attrs: SafeAttrs; // whitelisted to MEMBER_ATTR_KEYS by the mapper
 }
 
 export interface ParliamentGroup {
@@ -142,7 +154,72 @@ export interface ParliamentBill {
   // bill LIST returns canonical rows only; findBill still resolves either (deep links).
   readonly isCanonical: boolean;
   readonly canonicalBillKey: string | null;
-  readonly attrs: SafeAttrs; // whitelisted to BILL_ATTR_KEYS by the mapper
+  // ── How the bill travels (source `attrs.procedure`) ────────────────────────
+  // These were acquired from cdep.ro/senat.ro and never published: `procedure` is
+  // a jsonb OBJECT, and the old whitelist kept primitives only, so it was fetched
+  // on every request and dropped. Coverage measured on Chronos 2026-08-05.
+  //
+  // decisionChamber: WHICH chamber casts the final, unappealable vote (art. 75
+  //   Constitution) — 16,421 of 41,990 bills. Read from the `decision_chamber`
+  //   COLUMN, not from attrs: the column is recomputed whole-table in every load's
+  //   `derives` stage, its drift from `attrs.procedure.camera_decizionala` is a
+  //   BLOCKING gate term (live 0/41,990), and it already normalizes the source's
+  //   `'-'` placeholder (21 bills) to null.
+  //
+  //   OPEN string, NEVER an enum. 16,410 rows carry the clean vocabulary
+  //   ('Camera Deputaţilor' 13,196 | 'Senatul' 2,874 | 'Camera Deputaţilor +
+  //   Senatul' 340), but on 11 rows the CDep parser welds prose into the value —
+  //   e.g. an MP's name spliced into the article reference ("…prevazuta la Florin
+  //   Iordacheart.73 alin.3 lit.o"). Cause found 2026-08-05: the metadata-table
+  //   parser uses bare cheerio `.text()`, which concatenates descendant nodes with
+  //   no separator; the SAME file already fixes this for the procedure cell with
+  //   `separatedCellText` but never applies it to the metadata table. That is a
+  //   SCRAPPER-side fix (parser + details reparse + derive re-run), tracked
+  //   separately. Until it lands, a reader must not render this in a fixed-width
+  //   badge without matching the known vocabulary first.
+  readonly decisionChamber: string | null;
+  // lawCharacter: 'ordinar' (9,248) | 'organic' (5,514) | 'constitutional' (3) —
+  //   the majority the bill needs. Open vocabulary; render unknown values as nothing.
+  readonly lawCharacter: string | null;
+  // procedureUrgency: the fast track. Source prints 'da' (4,697) | 'nu' (16,051);
+  //   ONLY those two map to true/false — any other value reads null rather than
+  //   silently becoming false.
+  readonly procedureUrgency: boolean | null;
+  // procedureRegime: which constitutional text governs the procedure —
+  //   'cf. Constitutiei revizuita în 2003' (16,442) | 'cf. Constitutiei din 1991' (4,306).
+  readonly procedureRegime: string | null;
+  // ── Narrative the source printed ──────────────────────────────────────────
+  // objectOfRegulation: the bill's own statement of what it regulates. Rare
+  //   (1,007 bills) but the single most informative sentence when present.
+  readonly objectOfRegulation: string | null;
+  // lastEventDescription: what the most recent timeline event actually WAS, next
+  //   to the `lastEventDate` the list already sorts by (20,745 bills).
+  readonly lastEventDescription: string | null;
+  // The other end of the timeline (20,747 bills) — when the bill FIRST moved. It sat
+  // on the old whitelist and reached the view model, but no SDL field ever served it.
+  readonly firstEventDate: string | null;
+  // ── Freshness / provenance ────────────────────────────────────────────────
+  readonly lastEventSource: string | null; // which source reported the last event (6,081)
+  // ── Human-openable source pages (platform rule: every row keeps a path back) ─
+  readonly cdepProjectUrl: string | null; // 19,029
+  readonly senateDetailUrl: string | null; // 21,242
+  readonly senateFileUrl: string | null; // attrs.senate_fisa_url — the Senate "fişă" (19,356)
+  readonly senateOpinionsUrl: string | null; // 21,240
+  // ── Cross-source identifiers ──────────────────────────────────────────────
+  readonly senateCod: string | null; // 21,240 — the Senate join key (agenda lane)
+  // The Government's own "E" registration number. BOTH are strings in the source;
+  // the year is NOT cast to a number, so a non-numeric value can never be lost.
+  readonly governmentENumber: string | null; // 8,852
+  readonly governmentEYear: string | null; // 8,852
+  // ── DERIVED, not sourced ──────────────────────────────────────────────────
+  // Who initiated the bill, computed by rule from the initiators list — the
+  // chamber never printed this. 19,284 bills, exactly two outcomes today:
+  // government|high|initiators:guvern (9,919) and parliamentary|high|initiators:members (9,365).
+  // `initiatorTypeMethod` names the rule that produced the value, so a reader can
+  // tell WHY we say it; it is the honesty field, not decoration.
+  readonly initiatorType: string | null;
+  readonly initiatorTypeConfidence: string | null;
+  readonly initiatorTypeMethod: string | null;
   readonly sourceUpdatedAt: string | null; // timestamptz ISO
   readonly updatedAt: string | null;
 }
@@ -267,7 +344,31 @@ export interface ParliamentVote {
    * partition is exhaustive and `unclassified` is a served bucket, not a hole.
    */
   readonly kind: string;
-  readonly attrs: SafeAttrs; // whitelisted to VOTE_ATTR_KEYS by the mapper
+  /**
+   * What the chamber printed under "Subiect vot" (source `attrs.vote_action`,
+   * 11,622 of 20,860 votes). Often a motion, but just as legitimately a document
+   * version, an amendment, an article, or a debate-time allocation — so it is
+   * served as a subject, not an action. Previously reached the resolver through
+   * the attrs bag; now a column.
+   */
+  readonly voteSubject: string | null;
+  /**
+   * The division's date AND clock time exactly as CDep printed it in its own vote
+   * feed ('DD.MM.YYYY HH:MM' — the raw `TIME_VOT` field, stored verbatim). This is
+   * the ONLY reason a time of day may be shown at all: `voteDate` is a DATE column
+   * that carries none.
+   *
+   * CDep-only, so 14,158 of 20,860 votes (67.9%) — the Senate feed publishes no
+   * time. A reader must degrade to the date alone, not assume 00:00.
+   *
+   * Do NOT treat "the date part matches `voteDate`" as corroboration: `voteDate` is
+   * DERIVED from this string's date prefix (`parseRomanianDatePrefix`), so the two
+   * agree by construction on all 14,158 rows. That measurement tests the promotion
+   * function, not the value. The date is independently corroborated elsewhere
+   * (99.8% of chamber-days have a stenogram sitting the same day); the clock time
+   * has NO independent cross-check — it is trustworthy only as verbatim source text.
+   */
+  readonly voteDateTimeText: string | null;
 }
 
 export interface ParliamentVoteGroupBreakdown {

@@ -66,7 +66,6 @@ const MEMBER: ParliamentMember = {
   mandateEndDate: null,
   mandateEndReason: null,
   personId: '4242',
-  attrs: {},
 };
 
 const COUNTS: ParliamentActivityCounts = {

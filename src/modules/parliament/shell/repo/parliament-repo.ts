@@ -58,7 +58,6 @@ import {
   mapVote,
   type AiBillMetadataRow,
   type AiControlItemMetadataRow,
-  type BillRow,
   type CommitteeMembershipCoreRow,
   type CommitteeRow,
   type ControlItemRow,
@@ -267,7 +266,48 @@ const requireCursorKeys = (
   return ok(keys);
 };
 
-/** Field selectors reused across queries (dates `::text`, bigint `::text`). */
+/**
+ * Extract ONE attrs key as text, and only when it genuinely holds a JSON string.
+ *
+ * Two guards, both inherited from the `safeAttrs` whitelist this replaced:
+ *  - `jsonb_typeof(…) = 'string'` reproduces its primitives-only rule. `->>`
+ *    stringifies whatever it finds, so without this an object landing in, say,
+ *    `object_of_regulation` would be published to readers as raw JSON. Every key
+ *    published here is type `string` on all live rows (Chronos 2026-08-05), so the
+ *    guard changes no row today; it is the contract, not a correction.
+ *  - `nullif(btrim(…), '')` makes a whitespace-only value read as ABSENT rather
+ *    than as a blank label. (No published key holds an empty value today either.)
+ *
+ * Built with `sql.ref` + `sql.lit` and a fold of `->`, never `sql.raw` (banned in
+ * repositories): the column is a quoted reference and each path segment is an
+ * escaped literal, so nothing here can be interpolated as SQL text.
+ */
+const attrText = (
+  column: 'b.attrs' | 'v.attrs' | 'm.attrs',
+  ...path: readonly [string, ...string[]]
+): RawBuilder<string | null> => {
+  // Fold `->` over the whole path: `attrs->'procedure'->'caracter'`. Then `#>>'{}'`
+  // takes that jsonb value out as text — which, for the string values this guard
+  // admits, is the unquoted string.
+  const asJson = path.reduce<RawBuilder<unknown>>(
+    (acc, key) => sql`${acc}->${sql.lit(key)}`,
+    sql.ref(column)
+  );
+  return sql<string | null>`case when jsonb_typeof(${asJson}) = 'string'
+    then nullif(btrim(${asJson}#>>'{}'), '')
+    else null
+  end`;
+};
+
+/**
+ * Field selectors reused across queries (dates `::text`, bigint `::text`).
+ *
+ * NONE of these select the raw `attrs` jsonb. Every published key is extracted by
+ * name here, so this list is the privacy gate — see "THE `attrs` RULE" in
+ * `core/types.ts` for why the previous select-the-bag-then-whitelist-in-TS design
+ * was replaced, AND for the two passthrough bags that rule does not cover (one of
+ * them is `'e.docs'` in `getBillEvents`, in this same file).
+ */
 const MEMBER_SELECT = [
   'm.mandate_key',
   'm.chamber',
@@ -282,7 +322,16 @@ const MEMBER_SELECT = [
   'm.is_current',
   sql<string | null>`m.mandate_end_date::text`.as('mandate_end_date'),
   'm.mandate_end_reason',
-  'm.attrs',
+  // The member attrs bag averages 328B of which 82B was ever used; it also carries
+  // `senate_current_roster_alias_evidence` (internal match evidence) and eight
+  // sibling provenance keys that must never reach a public surface.
+  //
+  // This projection also fans out further than any other: `ParliamentBallot.member`
+  // resolves through `findMember` PER BALLOT, so `ballots(first:500){member{…}}`
+  // runs this select 500 times (the N+1 itself is tracked separately). A bill's
+  // initiators reach 268. Per-row waste is multiplied by those factors.
+  attrText('m.attrs', 'profile_url').as('profile_url'),
+  attrText('m.attrs', 'cv_pdf_url').as('cv_pdf_url'),
 ] as const;
 
 const VOTE_SELECT = [
@@ -301,7 +350,25 @@ const VOTE_SELECT = [
   'v.law_reference',
   // E2 source-traceability (§6): the EXACT cdep.ro/senat.ro division page.
   'v.source_url',
-  'v.attrs',
+  // What the chamber printed under "Subiect vot" (11,622 of 20,860 votes) — for
+  // the divisions with no bill link, this and the tally are all a card has.
+  attrText('v.attrs', 'vote_action').as('vote_subject'),
+  // The division's printed date+time ('DD.MM.YYYY HH:MM', CDep's own TIME_VOT).
+  // The only source of a clock time — `vote_date` is a DATE and carries none.
+  attrText('v.attrs', 'vote_datetime_text').as('vote_datetime_text'),
+  // PRESENCE only. `tally_mismatch` is a jsonb OBJECT holding the per-choice
+  // official-vs-recorded split on 925 votes; the internals stay private (§2.6), so
+  // the flag is reduced to a boolean HERE and the object never crosses the wire.
+  //
+  // `jsonb_typeof(…) <> 'null'` and NOT `is not null`: it reproduces the mapper's
+  // old `rawAttrs['tally_mismatch'] != null` EXACTLY, including that a JSON-null
+  // value reads false. `(attrs->'k') is not null` would flip those rows to true,
+  // because `->` returns jsonb 'null' — not SQL NULL — when the key holds a null.
+  // Live today all 925 values are objects, so this changes no row; it keeps the
+  // predicate correct if the loader ever writes a null.
+  sql<boolean>`coalesce(jsonb_typeof(v.attrs->'tally_mismatch') <> 'null', false)`.as(
+    'tally_mismatch'
+  ),
   // What the chamber was voting ON, for the 8,408 divisions with no bill link
   // and no printed subject — where title and tally are all a card otherwise has.
   voteKindExpr.as('kind'),
@@ -468,16 +535,58 @@ const BILL_SELECT = [
   'b.final_law_year',
   // Source-stored classification extracted flat from attrs (Gap 2): the real
   // status string + initiative type the client previously derived from title.
-  sql<string | null>`b.attrs->>'status_text'`.as('status_text'),
-  sql<string | null>`b.attrs#>>'{procedure,tip_initiativa}'`.as('bill_type'),
+  attrText('b.attrs', 'status_text').as('status_text'),
+  attrText('b.attrs', 'procedure', 'tip_initiativa').as('bill_type'),
   // last_event_date (already ISO YYYY-MM-DD in attrs) — the key the default
   // 'updated_desc' sort uses; surfaced flat so the client can show/verify recency.
-  sql<string | null>`b.attrs->>'last_event_date'`.as('last_event_date'),
-  'b.attrs',
+  attrText('b.attrs', 'last_event_date').as('last_event_date'),
   // B1 canonicality (§3): is_canonical drives default list visibility; canonical_bill_key
   // points a suppressed Senate twin at its canonical CDep key (null on a canonical row).
   'b.is_canonical',
   'b.canonical_bill_key',
+  // ── attrs.procedure: HOW the bill travels ────────────────────────────────
+  // Published for the first time here. `procedure` is a jsonb OBJECT, and the old
+  // TS whitelist kept primitives only, so these were fetched on every request and
+  // silently dropped — acquired, held, and shown nowhere.
+  //
+  // decision_chamber comes from the COLUMN, not from attrs: it is recomputed
+  // whole-table in the loader's `derives` stage, its drift from
+  // `attrs.procedure.camera_decizionala` is a blocking gate term (live 0/41,990),
+  // and it already maps the source's '-' placeholder to null.
+  'b.decision_chamber',
+  attrText('b.attrs', 'procedure', 'caracter').as('law_character'),
+  // 'da' → true, 'nu' → false, ANYTHING else → null. A future third value must not
+  // silently become "not urgent"; null says "the source did not tell us".
+  sql<boolean | null>`case lower(${attrText('b.attrs', 'procedure', 'procedura_urgenta')})
+    when 'da' then true
+    when 'nu' then false
+    else null
+  end`.as('procedure_urgency'),
+  attrText('b.attrs', 'procedure', 'procedura_legislativa').as('procedure_regime'),
+  // ── Narrative the source printed ─────────────────────────────────────────
+  attrText('b.attrs', 'object_of_regulation').as('object_of_regulation'),
+  attrText('b.attrs', 'last_event_description').as('last_event_description'),
+  // The other end of the timeline (20,747 bills). It was on the old whitelist and
+  // so reached the view model, but no SDL field ever served it — acquired data with
+  // no reader, which is the defect this whole change is about. Published now that
+  // the cost of a named field is one line.
+  attrText('b.attrs', 'first_event_date').as('first_event_date'),
+  attrText('b.attrs', 'last_event_source').as('last_event_source'),
+  // ── Human-openable source pages ──────────────────────────────────────────
+  attrText('b.attrs', 'cdep_project_url').as('cdep_project_url'),
+  attrText('b.attrs', 'senate_detail_url').as('senate_detail_url'),
+  attrText('b.attrs', 'senate_fisa_url').as('senate_file_url'),
+  attrText('b.attrs', 'senate_opinions_url').as('senate_opinions_url'),
+  // ── Cross-source identifiers ─────────────────────────────────────────────
+  attrText('b.attrs', 'senate_cod').as('senate_cod'),
+  // Both stay TEXT. government_e_year is a string in the source; casting it to a
+  // number would turn any non-numeric value into a silent null.
+  attrText('b.attrs', 'government_e_number').as('government_e_number'),
+  attrText('b.attrs', 'government_e_year').as('government_e_year'),
+  // ── DERIVED by us, not printed by the chamber ────────────────────────────
+  attrText('b.attrs', 'initiator_classification', 'value').as('initiator_type'),
+  attrText('b.attrs', 'initiator_classification', 'confidence').as('initiator_type_confidence'),
+  attrText('b.attrs', 'initiator_classification', 'method').as('initiator_type_method'),
   sql<string | null>`b.source_updated_at::text`.as('source_updated_at'),
   sql<string | null>`b.updated_at::text`.as('updated_at'),
 ] as const;
@@ -933,7 +1042,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
         .where(where)
         .executeTakeFirst();
       const total = Number(countRow?.cnt ?? 0);
-      return ok({ rows: rows.map((r) => mapMember(r as MemberRow)), total, estimated: false });
+      return ok({ rows: rows.map((r) => mapMember(r)), total, estimated: false });
     } catch (e) {
       return err(databaseError('listMembers failed', e));
     }
@@ -949,7 +1058,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
         .where('m.mandate_key', '=', mandateKey)
         .limit(1)
         .executeTakeFirst();
-      return ok(row === undefined ? null : mapMember(row as MemberRow));
+      return ok(row === undefined ? null : mapMember(row));
     } catch (e) {
       return err(databaseError('findMember failed', e));
     }
@@ -1043,7 +1152,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
       // roster (e.g. PSD = 1,336) with no `total` for the caller to detect the loss. The
       // roster is naturally bounded by the members table (~5,289 rows).
       const rows = await qb.orderBy(sql`m.full_name asc nulls last`).execute();
-      return ok(rows.map((r) => mapMember(r as MemberRow)));
+      return ok(rows.map((r) => mapMember(r)));
     } catch (e) {
       return err(databaseError('listGroupMembers failed', e));
     }
@@ -1107,7 +1216,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
         .where(sql`m.person_id`, '=', personId)
         .orderBy('m.legislature', 'desc')
         .execute();
-      return ok(rows.map((r) => mapMember(r as MemberRow)));
+      return ok(rows.map((r) => mapMember(r)));
     } catch (e) {
       return err(databaseError('listPersonMandates failed', e));
     }
@@ -1324,12 +1433,20 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     if (billTypeVals.value.matchNothing)
       conds.push(sql`false`); // explicit in:[] → match nothing (#60h)
     else if (billTypeVals.value.values.length > 0) {
+      // Read through `attrText`, the SAME expression BILL_SELECT serves these two
+      // keys with. A second, raw `->>` copy here would be free to disagree with the
+      // value the card renders — the filter could bucket a bill whose billType reads
+      // null, or miss one it displays. (Live today: 0 of 41,990 bills hold a
+      // non-string or whitespace-padded value in either key, so this unifies a
+      // divergence that has not happened yet.)
+      const tipInitiativa = attrText('b.attrs', 'procedure', 'tip_initiativa');
+      const initiatorValue = attrText('b.attrs', 'initiator_classification', 'value');
       const pred = (v: string): RawBuilder<unknown> =>
         v === 'government'
-          ? sql`(b.attrs#>>'{procedure,tip_initiativa}' ilike 'Proiect de Lege%'
-                 or b.attrs#>>'{initiator_classification,value}' = 'government')`
-          : sql`(b.attrs#>>'{procedure,tip_initiativa}' ilike 'Propunere legislativa%'
-                 or b.attrs#>>'{initiator_classification,value}' = 'parliamentary')`;
+          ? sql`(${tipInitiativa} ilike 'Proiect de Lege%'
+                 or ${initiatorValue} = 'government')`
+          : sql`(${tipInitiativa} ilike 'Propunere legislativa%'
+                 or ${initiatorValue} = 'parliamentary')`;
       conds.push(sql`(${sql.join(billTypeVals.value.values.map(pred), sql` or `)})`);
     }
 
@@ -1348,7 +1465,9 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     if (statusVals.value.matchNothing)
       conds.push(sql`false`); // explicit in:[] → match nothing (#60h)
     else if (statusVals.value.values.length > 0) {
-      const st = sql`lower(coalesce(b.attrs->>'status_text', ''))`;
+      // Same one-definition rule as billType above: `attrText` is what BILL_SELECT
+      // serves `statusText` with, so bucket and card can never read different text.
+      const st = sql`lower(coalesce(${attrText('b.attrs', 'status_text')}, ''))`;
       const promulgated = sql`(${st} like 'lege %' or ${st} = 'lege' or ${st} like 'a devenit lege%')`;
       const rejected = sql`${st} like 'respins%'`;
       const withdrawn = sql`(${st} like 'retras%' or ${st} like 'restituit%')`;
@@ -1381,7 +1500,10 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
 
   const billOrderBy = (sort: string): RawBuilder<unknown> => {
     // last_event_date lives in attrs; NULLS LAST. Title sorts are direct.
-    const lastEvent = sql`(b.attrs->>'last_event_date')`;
+    // `attrText` again — the list must ORDER BY exactly the value its cards print
+    // as 'Actualizat'. No index is lost: there is no expression index on this key
+    // (checked on Chronos 2026-08-05), so the sort was already a full expression sort.
+    const lastEvent = attrText('b.attrs', 'last_event_date');
     switch (sort) {
       case 'updated_asc':
         return sql`${lastEvent} asc nulls last, b.bill_key asc`;
@@ -1431,7 +1553,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
       const rawCount = Number(countRow?.cnt ?? 0);
       const estimated = rawCount > LIST_TOTAL_CAP;
       return ok({
-        rows: rows.map((r) => mapBill(r as BillRow)),
+        rows: rows.map((r) => mapBill(r)),
         total: estimated ? LIST_TOTAL_CAP : rawCount,
         estimated,
       });
@@ -1448,7 +1570,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
         .where('b.bill_key', '=', billKey)
         .limit(1)
         .executeTakeFirst();
-      return ok(row === undefined ? null : mapBill(row as BillRow));
+      return ok(row === undefined ? null : mapBill(row));
     } catch (e) {
       return err(databaseError('findBill failed', e));
     }
@@ -2132,7 +2254,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
       ]);
       const hasMore = rows.length > limit;
       const sliced = hasMore ? rows.slice(0, limit) : rows;
-      const items = sliced.map((r) => mapVote(r as VoteRow));
+      const items = sliced.map((r) => mapVote(r));
       const last = sliced[sliced.length - 1] as VoteRow | undefined;
       const next =
         hasMore && last !== undefined
@@ -2165,7 +2287,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
         .where('v.privacy_class', '=', 'public')
         .limit(1)
         .executeTakeFirst();
-      return ok(row === undefined ? null : mapVote(row as VoteRow));
+      return ok(row === undefined ? null : mapVote(row));
     } catch (e) {
       return err(databaseError('findVote failed', e));
     }
@@ -3616,7 +3738,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
         .where(sql`bal.target_act_id`, '=', sql`${actId}::bigint`)
         .where('bal.resolution_status', '=', 'linked')
         .execute();
-      return ok(rows.map((r) => mapBill(r as BillRow)));
+      return ok(rows.map((r) => mapBill(r)));
     } catch (e) {
       return err(databaseError('billsForActId failed', e));
     }
@@ -4171,7 +4293,7 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
         .where('cbl.resolution_status', '=', 'linked')
         .where(sql<boolean>`b.is_canonical`)
         .executeTakeFirst();
-      return ok({ bills: rows.map((r) => mapBill(r as BillRow)), total: Number(cntRow?.cnt ?? 0) });
+      return ok({ bills: rows.map((r) => mapBill(r)), total: Number(cntRow?.cnt ?? 0) });
     } catch (e) {
       return err(databaseError('listCommitteeLinkedBills failed', e));
     }

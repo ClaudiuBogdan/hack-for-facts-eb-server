@@ -1020,19 +1020,15 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
           ? 'for_exceeds_against'
           : 'for_does_not_exceed_against';
       },
-      // `vote_action` is already whitelisted into the domain object by
-      // VOTE_ATTR_KEYS; it was simply never exposed, so every client was left
-      // with the bill's title as the only description of a division. Read off
-      // the safe attrs projection — never off raw attrs (§2.6).
+      // `voteSubject` needs no resolver: `attrs.vote_action` is now extracted by
+      // name in VOTE_SELECT and lands on the domain object as `voteSubject`, so
+      // the default resolver serves it. It used to be dug out of the attrs bag
+      // here — the last reason the bag was carried across the wire at all.
       //
       // Served as `voteSubject`, not `voteAction`: the underlying column holds
       // whatever the chamber printed under "Subiect vot", which is often a
       // motion but just as legitimately a document version, an amendment, an
       // article, or a debate-time allocation. The storage name is historical.
-      voteSubject: (parent: { attrs?: Record<string, unknown> | null }) => {
-        const value = parent.attrs?.['vote_action'];
-        return typeof value === 'string' && value.trim().length > 0 ? value : null;
-      },
       groupBreakdown: async (parent: { voteKey: string; groupBreakdownData?: unknown }) =>
         parent.groupBreakdownData !== undefined
           ? parent.groupBreakdownData

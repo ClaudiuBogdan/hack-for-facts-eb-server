@@ -1,16 +1,14 @@
 /**
  * Parliament module — row → view-model mappers (plan 04 §2). Row types mirror the
  * `::text`-cast SQL projection (dates as strings, bigint as strings); mappers
- * convert to the camelCase domain models. The `attrs` jsonb is NEVER passed
- * through raw — `safeAttrs` whitelists known keys (privacy, §2.6 / Codex #4).
+ * convert to the camelCase domain models. The `attrs` jsonb is NEVER selected —
+ * every published key is extracted by name in SQL, so the SELECT list is the
+ * privacy gate (see "THE `attrs` RULE" in `core/types.ts`).
  */
 
 import {
   AI_DISCLAIMER,
   AI_TRUST_CLASS,
-  BILL_ATTR_KEYS,
-  MEMBER_ATTR_KEYS,
-  VOTE_ATTR_KEYS,
   type ParliamentAiBillMetadata,
   type ParliamentAiControlItemMetadata,
   type ParliamentBill,
@@ -38,22 +36,7 @@ import {
   type ParliamentStenogramSessionRef,
   type ParliamentTally,
   type ParliamentVote,
-  type SafeAttrs,
 } from '../../core/types.js';
-
-/** Project a raw jsonb attrs object down to a whitelist of primitive-valued keys. */
-export const safeAttrs = (raw: unknown, keys: readonly string[]): SafeAttrs => {
-  const out: SafeAttrs = {};
-  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return out;
-  const obj = raw as Record<string, unknown>;
-  for (const k of keys) {
-    const v = obj[k];
-    if (v === null || typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
-      out[k] = v;
-    }
-  }
-  return out;
-};
 
 const confidenceOf = (raw: string | null): ParliamentPersonConfidence => {
   switch (raw) {
@@ -82,35 +65,28 @@ export interface MemberRow {
   is_current: boolean;
   mandate_end_date: string | null;
   mandate_end_reason: string | null;
-  attrs: unknown;
+  /** attrs.profile_url / attrs.cv_pdf_url, extracted by name in MEMBER_SELECT. */
+  profile_url: string | null;
+  cv_pdf_url: string | null;
 }
 
-export const mapMember = (r: MemberRow): ParliamentMember => {
-  const attrs = safeAttrs(r.attrs, MEMBER_ATTR_KEYS);
-  // profile_url is already in the MEMBER_ATTR_KEYS whitelist; surface it flat
-  // (string only — defend against a non-string primitive sneaking through).
-  const profileUrl = typeof attrs['profile_url'] === 'string' ? attrs['profile_url'] : null;
-  // B3: cv_pdf_url is whitelisted in MEMBER_ATTR_KEYS; surface it flat (string only).
-  const cvPdfUrl = typeof attrs['cv_pdf_url'] === 'string' ? attrs['cv_pdf_url'] : null;
-  return {
-    mandateKey: r.mandate_key,
-    chamber: r.chamber,
-    legislature: r.legislature,
-    fullName: r.full_name,
-    normalizedName: r.normalized_name,
-    groupName: r.group_name,
-    groupId: r.group_id,
-    constituencyName: r.constituency_name,
-    birthDate: r.birth_date,
-    personId: r.person_id,
-    isCurrent: r.is_current,
-    mandateEndDate: r.mandate_end_date,
-    mandateEndReason: r.mandate_end_reason,
-    profileUrl,
-    cvPdfUrl,
-    attrs,
-  };
-};
+export const mapMember = (r: MemberRow): ParliamentMember => ({
+  mandateKey: r.mandate_key,
+  chamber: r.chamber,
+  legislature: r.legislature,
+  fullName: r.full_name,
+  normalizedName: r.normalized_name,
+  groupName: r.group_name,
+  groupId: r.group_id,
+  constituencyName: r.constituency_name,
+  birthDate: r.birth_date,
+  personId: r.person_id,
+  isCurrent: r.is_current,
+  mandateEndDate: r.mandate_end_date,
+  mandateEndReason: r.mandate_end_reason,
+  profileUrl: r.profile_url,
+  cvPdfUrl: r.cv_pdf_url,
+});
 
 export interface PersonRow {
   person_id: string;
@@ -165,7 +141,26 @@ export interface BillRow {
   last_event_date: string | null;
   is_canonical: boolean;
   canonical_bill_key: string | null;
-  attrs: unknown;
+  // All extracted by name from attrs in BILL_SELECT — the bag itself is never selected.
+  decision_chamber: string | null;
+  law_character: string | null;
+  /** Already reduced to a tri-state in SQL: 'da'→true, 'nu'→false, anything else→null. */
+  procedure_urgency: boolean | null;
+  procedure_regime: string | null;
+  object_of_regulation: string | null;
+  last_event_description: string | null;
+  first_event_date: string | null;
+  last_event_source: string | null;
+  cdep_project_url: string | null;
+  senate_detail_url: string | null;
+  senate_file_url: string | null;
+  senate_opinions_url: string | null;
+  senate_cod: string | null;
+  government_e_number: string | null;
+  government_e_year: string | null;
+  initiator_type: string | null;
+  initiator_type_confidence: string | null;
+  initiator_type_method: string | null;
   source_updated_at: string | null;
   updated_at: string | null;
 }
@@ -184,7 +179,24 @@ export const mapBill = (r: BillRow): ParliamentBill => ({
   lastEventDate: r.last_event_date,
   isCanonical: r.is_canonical,
   canonicalBillKey: r.canonical_bill_key,
-  attrs: safeAttrs(r.attrs, BILL_ATTR_KEYS),
+  decisionChamber: r.decision_chamber,
+  lawCharacter: r.law_character,
+  procedureUrgency: r.procedure_urgency,
+  procedureRegime: r.procedure_regime,
+  objectOfRegulation: r.object_of_regulation,
+  lastEventDescription: r.last_event_description,
+  firstEventDate: r.first_event_date,
+  lastEventSource: r.last_event_source,
+  cdepProjectUrl: r.cdep_project_url,
+  senateDetailUrl: r.senate_detail_url,
+  senateFileUrl: r.senate_file_url,
+  senateOpinionsUrl: r.senate_opinions_url,
+  senateCod: r.senate_cod,
+  governmentENumber: r.government_e_number,
+  governmentEYear: r.government_e_year,
+  initiatorType: r.initiator_type,
+  initiatorTypeConfidence: r.initiator_type_confidence,
+  initiatorTypeMethod: r.initiator_type_method,
   sourceUpdatedAt: r.source_updated_at,
   updatedAt: r.updated_at,
 });
@@ -385,39 +397,39 @@ export interface VoteRow {
   law_reference: string | null;
   /** E2 traceability (prod migration 20260701T172000) — EXACT division page. */
   source_url: string | null;
-  attrs: unknown;
+  /**
+   * The loader writes `tally_mismatch` as a JSON OBJECT
+   * ({pentru:{official,recorded},…}) on the 925 votes whose source tally disagrees
+   * with the per-ballot count. Only its PRESENCE is public — the object internals
+   * are never exposed (§2.6) — so VOTE_SELECT reduces it to a boolean in SQL and
+   * the object never crosses the wire. (This is why a whitelist-shaped jsonb
+   * projection would not have worked: the old mapper had to read the RAW bag to
+   * see a key whose value the whitelist itself would strip.)
+   */
+  tally_mismatch: boolean;
+  /** attrs.vote_action / attrs.vote_datetime_text, extracted by name in VOTE_SELECT. */
+  vote_subject: string | null;
+  vote_datetime_text: string | null;
   /** Computed by `voteKindExpr` in VOTE_SELECT, not a stored column. */
   kind: string;
 }
 
-export const mapVote = (r: VoteRow): ParliamentVote => {
-  const attrs = safeAttrs(r.attrs, VOTE_ATTR_KEYS);
-  // The loader writes `tally_mismatch` as a JSON OBJECT ({pentru:{official,recorded},…})
-  // on the ~454 votes whose source tally disagrees with the per-ballot count. `safeAttrs`
-  // drops non-primitive values, so the flag is detected on the RAW attrs — presence-only,
-  // surfaced as a boolean (the object internals are never exposed, §2.6). The old
-  // `attrs['tally_mismatch'] === true` could never be true (the value is an object, and
-  // safeAttrs had already stripped it) → it read false for 0/4855 votes.
-  const rawAttrs =
-    r.attrs !== null && typeof r.attrs === 'object' && !Array.isArray(r.attrs)
-      ? (r.attrs as Record<string, unknown>)
-      : {};
-  return {
-    voteKey: r.vote_key,
-    chamber: r.chamber,
-    voteDate: r.vote_date,
-    title: r.title,
-    tally: tallyOf(r),
-    outcome: r.outcome,
-    divisionNumber: r.division_number,
-    billKey: r.bill_key,
-    lawReference: r.law_reference,
-    sourceUrl: r.source_url,
-    tallyMismatch: rawAttrs['tally_mismatch'] != null,
-    kind: r.kind,
-    attrs,
-  };
-};
+export const mapVote = (r: VoteRow): ParliamentVote => ({
+  voteKey: r.vote_key,
+  chamber: r.chamber,
+  voteDate: r.vote_date,
+  title: r.title,
+  tally: tallyOf(r),
+  outcome: r.outcome,
+  divisionNumber: r.division_number,
+  billKey: r.bill_key,
+  lawReference: r.law_reference,
+  sourceUrl: r.source_url,
+  tallyMismatch: r.tally_mismatch,
+  kind: r.kind,
+  voteSubject: r.vote_subject,
+  voteDateTimeText: r.vote_datetime_text,
+});
 
 // ── member activity ──────────────────────────────────────────────────────────
 

@@ -273,6 +273,8 @@ const objectsAndQuery = /* GraphQL */ `
     voteKey: ID!
     chamber: String!
     voteDate: Date
+    "The division's date AND clock time exactly as CDep printed it ('DD.MM.YYYY HH:MM', the raw TIME_VOT field stored verbatim). The ONLY source of a time of day — voteDate is a DATE and carries none — so it is what tells two divisions on the same bill on the same day apart. CDep-only: 14,158 of 20,860 votes (67.9%); the Senate feed publishes no time, so a client MUST fall back to voteDate alone and never assume 00:00. Show it as printed; do NOT re-parse it into a timestamp and re-format it in the viewer's timezone, which would invent an offset the source never stated. NOTE for anyone validating this field: voteDate is DERIVED from this string's date prefix, so 'the two agree' (all 14,158 rows) tests the promotion function, not the value."
+    voteDateTimeText: String
     title: String
     tally: ParliamentTally!
     "DEPRECATED and MISNAMED — this is NOT the bill's fate. The loader computes it as (pentru greater than impotriva) and nothing else; the source publishes no outcome word for either chamber. On a REJECTION motion it therefore inverts: 2,995 of the 3,009 divisions that bill_vote_links calls 'final_rejection' carry outcome='adoptat' (measured 2026-07-28). It also ignores the constitutional-majority rule, so it is not even a valid 'did the motion carry' test for an organic law. Read tallyRelation for what the number actually says, and voteLinks.role for the procedural meaning."
@@ -600,6 +602,42 @@ const objectsAndQuery = /* GraphQL */ `
     isCanonical: Boolean!
     "On a non-canonical (suppressed) twin, the canonical CDep bill_key to redirect to; null on a canonical bill."
     canonicalBillKey: String
+    "WHICH chamber casts the final, unappealable vote on this bill (art. 75 of the Constitution) — the single fact that says where the bill's fate is decided. 16,421 of 41,990 bills; null where the source printed none (incl. the 21 rows printing the '-' placeholder). OPEN STRING, NOT an enum: 16,410 rows carry 'Camera Deputaţilor' (13,196), 'Senatul' (2,874) or 'Camera Deputaţilor + Senatul' (340), but on 11 rows the CDep metadata parser welds adjacent prose into the cell (an MP's name spliced into the article reference). Match the known vocabulary before rendering it in a fixed-width badge; show unrecognised values as plain text or not at all."
+    decisionChamber: String
+    "The majority this bill needs: 'ordinar' (9,248), 'organic' (5,514), 'constitutional' (3) — source attrs.procedure.caracter, 14,765 bills. Open vocabulary; render an unrecognised value as nothing rather than raw."
+    lawCharacter: String
+    "The fast track (procedură de urgență). True on 4,697 bills, false on 16,051, null on the 21,242 where the source printed no procedure block. Tri-state ON PURPOSE: the source prints 'da'/'nu' and ONLY those map to true/false, so a value we have not seen reads null instead of silently becoming 'not urgent'. Never collapse null to false."
+    procedureUrgency: Boolean
+    "Which constitutional text governs the procedure — 'cf. Constitutiei revizuita în 2003' (16,442) or 'cf. Constitutiei din 1991' (4,306). Context for reading the other procedure fields, not a fact about the bill's content."
+    procedureRegime: String
+    "The bill's OWN statement of what it regulates (attrs.object_of_regulation), as printed by the source. Rare — 1,007 of 41,990 bills (2.4%), averaging 466 characters — but where present it is the most informative sentence about the bill, and the only prose beyond the title. A surface that shows it MUST render cleanly for the 97.6% that have none."
+    objectOfRegulation: String
+    "What the most recent timeline event actually WAS, alongside the lastEventDate the default sort already uses (20,745 bills, averaging 77 characters). Without it a client can say when a bill last moved but not what happened."
+    lastEventDescription: String
+    "Date of the bill's FIRST timeline event — when it started moving (20,747 of 41,990 bills). Pairs with lastEventDate: together they bound how long the bill has been in play. Held since acquisition but never served until 2026-08-05."
+    firstEventDate: Date
+    "Provenance of lastEventDate/lastEventDescription: which lane reported the most recent event. Today the only value is 'votes' (6,081 bills) — meaning the recency signal came from a division rather than from the bill's own printed timeline. Null on the rest. Open vocabulary."
+    lastEventSource: String
+    "Official cdep.ro project page for this bill (19,029 bills). Part of the four-link set that keeps every bill navigable back to a human-openable source; each may be null independently, because a bill is typically present on one chamber's site and not the other's."
+    cdepProjectUrl: String
+    "Official senat.ro detail page for this bill (21,242 bills)."
+    senateDetailUrl: String
+    "Official senat.ro 'fişă' (record sheet) for this bill (19,356 bills)."
+    senateFileUrl: String
+    "Official senat.ro page listing the opinions/avize on this bill (21,240 bills)."
+    senateOpinionsUrl: String
+    "The Senate's own code for this bill (21,240 bills) — the join key the Senate agenda lane matches on. Exposed for cross-referencing against senat.ro, not for display."
+    senateCod: String
+    "The Government's own 'E' registration number for a government-initiated bill (8,852 bills). STRING, not Int — the source stores it as text and a cast would silently null any non-numeric value."
+    governmentENumber: String
+    "The year of the Government's 'E' registration (8,852 bills). STRING for the same reason as governmentENumber."
+    governmentEYear: String
+    "DERIVED BY US, NOT PRINTED BY THE CHAMBER: who initiated the bill — 'government' (9,919) or 'parliamentary' (9,365), on 19,284 of 41,990 bills. Computed by rule from the initiators list, which is itself served on this type, so a reader can check the conclusion against its inputs. Read initiatorTypeMethod for WHICH rule produced it; present this as our classification, never as a source statement."
+    initiatorType: String
+    "Confidence in initiatorType. Constant 'high' on all 19,284 classified bills today, because the only rules in use are deterministic — so it is NOT a graded score and a UI should not render it as one while that holds."
+    initiatorTypeConfidence: String
+    "WHICH rule produced initiatorType — 'initiators:guvern' (9,919) or 'initiators:members' (9,365). The honesty field: it names the evidence, so a reader can tell why we say what we say. Open vocabulary."
+    initiatorTypeMethod: String
     "Dossier completeness (2026-07-22; root-independent since 2026-08-05): every bill_key whose children are merged into events/documents/initiators/relatedVotes/actLinks/voteLinks — the requested view plus its resolved-pair navetă twin. [billKey] alone when the bill has no accepted twin (incl. ambiguous dup-review groups, which are never blended). Resolves on EVERY parent path (dossier root, list rows, voteLinks.bill), matching the child fields, which are always the dossier union."
     dossierBillKeys: [String!]
     events: [ParliamentBillEvent!]!
