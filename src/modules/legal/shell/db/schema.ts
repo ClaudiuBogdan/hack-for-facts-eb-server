@@ -199,6 +199,26 @@ export interface LegalDocumentRenderTable {
   compiled_at: Tstz;
 }
 
+/** The portal's source-asserted anchor graph (one row per mark occurrence). */
+export interface LegalDocumentLinkEdgesTable {
+  edge_id: string; // bigint identity → string
+  document_id: string; // the CITING document
+  run_id: string; // bigint → string
+  source_node_path: string | null;
+  char_start: number;
+  char_end: number;
+  link_text: string | null;
+  link_kind: string; // 'act' | 'act_missing_id' | 'external' | 'internal'
+  target_document_id: string | null;
+  target_act_id: string | null; // bigint → string
+  target_fragment: string | null;
+  target_node_path: string | null;
+  href: string | null;
+  target_resolution: string | null;
+  ordinal: number;
+  privacy_class: string; // 'public' | 'restricted'
+}
+
 /**
  * Declaration-merge the acts/sections `legal.*` tables onto the kernel
  * `ProdDatabase`. 06 adds `legal.mo_issues` / `legal.mo_act_publications` /
@@ -217,6 +237,7 @@ declare module '@/modules/shared/shell/db/types.js' {
     'legal.document_nodes': LegalDocumentNodesTable;
     'legal.document_generations': LegalDocumentGenerationsTable;
     'legal.document_render': LegalDocumentRenderTable;
+    'legal.document_link_edges': LegalDocumentLinkEdgesTable;
     'legal.document_summaries': LegalDocumentSummariesTable;
     'legal.document_embeddings': LegalDocumentEmbeddingsTable;
     'legal.section_embeddings': LegalSectionEmbeddingsTable;

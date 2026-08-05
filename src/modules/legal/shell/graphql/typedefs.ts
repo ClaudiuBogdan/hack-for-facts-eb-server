@@ -89,7 +89,38 @@ const objectsAndQuery = /* GraphQL */ `
       relation: [LegalRelation!]
       first: Int = 50
     ): LegalReferenceConnection!
+    "Incoming ANCHORS — links the portal itself asserts in citing documents' text (document_link_edges). A DIFFERENT graph from links: anchors are source assertions at mark grain, links are LLM-inferred normative relations; they disagree by construction and both disagreements are informative. Real totalCount; keyset-paged."
+    incomingAnchors(first: Int = 50, after: String): LegalIncomingAnchorConnection!
     timeline: [LegalTimelineEntry!]!
+  }
+
+  "One incoming anchor occurrence. charStart/charEnd locate it in the CITING document's rendered text; linkText is the anchor's own words on the source page."
+  type LegalIncomingAnchor {
+    "Keyset paging key only — minted per compile, never a stable identity. The natural key is (sourceDocumentId, ordinal)."
+    edgeId: BigInt!
+    sourceDocumentId: String!
+    "The citing act (batched loader; null for a document without an act row)."
+    sourceAct: LegalAct
+    sourceNodePath: String
+    ordinal: Int!
+    linkText: String
+    "e.g. 'art. 5' when the anchor points at a provision, not the whole act."
+    targetFragment: String
+    "The resolved node path in OUR corpus when the fragment is held (held_fragment_resolved)."
+    targetNodePath: String
+    targetResolution: String
+    charStart: Int!
+    charEnd: Int!
+  }
+  type LegalIncomingAnchorEdge {
+    node: LegalIncomingAnchor!
+    cursor: String!
+  }
+  type LegalIncomingAnchorConnection {
+    edges: [LegalIncomingAnchorEdge!]!
+    pageInfo: PageInfo!
+    "The REAL count of public incoming anchors — never the page size."
+    totalCount: Int!
   }
 
   "A document expression of an act. documentId is TEXT (never BigInt). moPart/moNumber/moDate are best-effort hints (the authoritative act↔MO join is mo_act_publications.act_id — owned by 06)."

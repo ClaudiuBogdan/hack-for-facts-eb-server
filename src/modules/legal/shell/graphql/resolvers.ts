@@ -17,6 +17,7 @@ import {
   GRAPHQL_ERROR_CODE,
   buildNextCursor,
   fhashFor,
+  filterHash,
   makeBatchLoader,
   type ApiError,
   type CursorPage,
@@ -288,23 +289,68 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
           (r) => RELATION_FROM_GQL[r] ?? (r as LegalRelation)
         );
         const rels = relations.length > 0 ? relations : undefined;
-        const limit = args.first ?? 50;
+        // 199 cap: the repo clamps reads at 200, so the +1 probe must stay
+        // inside it — at exactly 200 the probe would be silently truncated
+        // and hasNextPage would read false with more edges present.
+        const limit = Math.min(args.first ?? 50, 199);
+        // limit+1 probe: hasNextPage is a fact, not a hardcoded false, and
+        // totalCount is NULL (unknown) rather than the page size — a bounded
+        // read cannot know the hub's true fan-out and must not claim to.
         if (args.direction === 'OUT' || args.direction === 'out') {
-          const edges = unwrap(await getActLinksOut(graph, parent.actId, rels, limit));
+          const edges = unwrap(await getActLinksOut(graph, parent.actId, rels, limit + 1));
+          const hasNextPage = edges.length > limit;
           return {
-            edges: edges.map((edge) => ({ ...edge, sourceAct: null })),
-            pageInfo: { hasNextPage: false, endCursor: null },
-            totalCount: edges.length,
+            edges: (hasNextPage ? edges.slice(0, limit) : edges).map((edge) => ({
+              ...edge,
+              sourceAct: null,
+            })),
+            pageInfo: { hasNextPage, endCursor: null },
+            totalCount: null,
           };
         }
-        const inEdges = unwrap(await getActLinksIn(graph, parent.actId, rels, limit));
+        const inEdges = unwrap(await getActLinksIn(graph, parent.actId, rels, limit + 1));
+        const hasNextPage = inEdges.length > limit;
         return {
-          edges: inEdges.map(({ edge, sourceAct }) => ({ ...edge, sourceAct })),
-          pageInfo: { hasNextPage: false, endCursor: null },
-          totalCount: inEdges.length,
+          edges: (hasNextPage ? inEdges.slice(0, limit) : inEdges).map(({ edge, sourceAct }) => ({
+            ...edge,
+            sourceAct,
+          })),
+          pageInfo: { hasNextPage, endCursor: null },
+          totalCount: null,
+        };
+      },
+      incomingAnchors: async (parent: LegalAct, args: { first?: number; after?: string }) => {
+        const page = unwrap(
+          await graph.incomingAnchors(parent.actId, {
+            first: args.first ?? 50,
+            ...(args.after !== undefined && { after: args.after }),
+          })
+        );
+        // Per-edge cursors re-encode the repo's keyset (edge_id asc, fhash
+        // bound to the act) — sort/dir/scope must match graph-repo's
+        // ANCHOR_SORT or a resumed cursor would be rejected.
+        const fhash = filterHash(`anchors:${parent.actId}`);
+        const edges = page.items.map((node) => ({
+          node,
+          cursor: buildNextCursor({
+            sort: 'edge_id',
+            dir: 'asc',
+            fhash,
+            lastKeys: [node.edgeId],
+          }),
+        }));
+        return {
+          edges,
+          pageInfo: { hasNextPage: page.next !== null, endCursor: page.next },
+          totalCount: page.totalCount,
         };
       },
       timeline: async (parent: LegalAct) => unwrap(await getActTimeline(acts, graph, parent.actId)),
+    },
+
+    LegalIncomingAnchor: {
+      sourceAct: async (parent: { sourceActId: string | null }) =>
+        parent.sourceActId === null ? null : actLoader.load(parent.sourceActId),
     },
 
     LegalDocument: {

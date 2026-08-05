@@ -21,6 +21,7 @@ import type {
   LegalDocHit,
   LegalDocument,
   LegalExternalAct,
+  LegalIncomingAnchorsPage,
   LegalIncomingEdge,
   LegalOutlineEntry,
   LegalReferenceEdge,
@@ -110,6 +111,19 @@ export interface LegalGraphRepo {
     limit: number
   ): Promise<Result<readonly LegalIncomingEdge[], ApiError>>;
   externalAct(externalActId: string): Promise<Result<LegalExternalAct | null, ApiError>>;
+  /**
+   * Incoming ANCHORS — the portal's own typographic link graph
+   * (`document_link_edges`, `link_kind='act'`, public rows), keyset-paged on
+   * `(target_act_id, edge_id)` with the REAL total from a count query (the
+   * page-size-as-total bug is documented in act-detail.md §9.1 — never
+   * reshipped). A separate surface from `incomingRefs` by design: anchors are
+   * source assertions, references are LLM inferences, and they disagree
+   * informatively.
+   */
+  incomingAnchors(
+    actId: string,
+    page: CursorPageRequest
+  ): Promise<Result<LegalIncomingAnchorsPage, ApiError>>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

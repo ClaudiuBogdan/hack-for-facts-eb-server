@@ -11,13 +11,21 @@
 import { sql, type Kysely } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
-import { type ApiError, type ProdDatabase, databaseError } from '@/modules/shared/index.js';
+import {
+  type ApiError,
+  type ProdDatabase,
+  buildNextCursor,
+  databaseError,
+  decodeCursor,
+  filterHash,
+} from '@/modules/shared/index.js';
 
 import { mapAct, mapExternalAct, mapReferenceEdge, type ActRow } from './mappers.js';
 
-import type { LegalGraphRepo } from '../../core/ports.js';
+import type { CursorPageRequest, LegalGraphRepo } from '../../core/ports.js';
 import type {
   LegalExternalAct,
+  LegalIncomingAnchorsPage,
   LegalIncomingEdge,
   LegalReferenceEdge,
   LegalRelation,
@@ -26,6 +34,8 @@ import type {
 type Db = Kysely<ProdDatabase>;
 const ID_RE = /^\d+$/u;
 const MAX_EDGES = 200;
+const MAX_ANCHOR_PAGE = 100;
+const ANCHOR_SORT = 'edge_id';
 
 const clampEdges = (n: number): number => Math.min(Math.max(Math.floor(n), 1), MAX_EDGES);
 
@@ -148,5 +158,90 @@ export const makeLegalGraphRepo = (db: Db): LegalGraphRepo => {
     }
   };
 
-  return { outgoingRefs, incomingRefs, externalAct };
+  const incomingAnchors = async (
+    actId: string,
+    page: CursorPageRequest
+  ): Promise<Result<LegalIncomingAnchorsPage, ApiError>> => {
+    if (!ID_RE.test(actId)) return ok({ items: [], next: null, totalCount: 0 });
+    const limit = Math.min(Math.max(page.first, 1), MAX_ANCHOR_PAGE);
+    // The cursor binds the act: a cursor minted for one act's anchors must
+    // not silently page a different act's.
+    const fhash = filterHash(`anchors:${actId}`);
+
+    let afterEdgeId: string | undefined;
+    if (page.after !== undefined) {
+      const decoded = decodeCursor(page.after, { sort: ANCHOR_SORT, dir: 'asc', fhash });
+      if (decoded.isErr()) return err(decoded.error);
+      const raw = decoded.value.keys[0];
+      if (raw === undefined || !ID_RE.test(raw)) {
+        return err(databaseError('anchors cursor carries a non-numeric key'));
+      }
+      afterEdgeId = raw;
+    }
+
+    try {
+      const serving = () =>
+        db
+          .selectFrom('legal.document_link_edges as e')
+          .where('e.link_kind', '=', 'act')
+          .where('e.target_act_id', '=', actId)
+          .where('e.privacy_class', '=', 'public');
+
+      let q = serving()
+        .leftJoin('legal.act_documents as d', 'd.document_id', 'e.document_id')
+        .select([
+          'e.edge_id',
+          'e.document_id',
+          'e.source_node_path',
+          'e.ordinal',
+          'e.link_text',
+          'e.target_fragment',
+          'e.target_node_path',
+          'e.target_resolution',
+          'e.char_start',
+          'e.char_end',
+          'd.act_id as source_act_id',
+        ]);
+      if (afterEdgeId !== undefined) {
+        q = q.where('e.edge_id', '>', afterEdgeId);
+      }
+      // One count + one page. The REAL total, not the page size (§9.1);
+      // `document_link_edges_target_act` keeps both reads on the index.
+      const [rows, total] = await Promise.all([
+        q
+          .orderBy('e.edge_id', 'asc')
+          .limit(limit + 1)
+          .execute(),
+        serving()
+          .select((eb) => eb.fn.countAll<string>().as('n'))
+          .executeTakeFirst(),
+      ]);
+
+      const hasMore = rows.length > limit;
+      const pageRows = hasMore ? rows.slice(0, limit) : rows;
+      const items = pageRows.map((row) => ({
+        edgeId: row.edge_id,
+        sourceDocumentId: row.document_id,
+        sourceActId: row.source_act_id,
+        sourceNodePath: row.source_node_path,
+        ordinal: row.ordinal,
+        linkText: row.link_text,
+        targetFragment: row.target_fragment,
+        targetNodePath: row.target_node_path,
+        targetResolution: row.target_resolution,
+        charStart: row.char_start,
+        charEnd: row.char_end,
+      }));
+      const last = items[items.length - 1];
+      const next =
+        hasMore && last !== undefined
+          ? buildNextCursor({ sort: ANCHOR_SORT, dir: 'asc', fhash, lastKeys: [last.edgeId] })
+          : null;
+      return ok({ items, next, totalCount: Number(total?.n ?? 0) });
+    } catch (error) {
+      return err(databaseError('incomingAnchors failed', error));
+    }
+  };
+
+  return { outgoingRefs, incomingRefs, externalAct, incomingAnchors };
 };

@@ -326,6 +326,37 @@ export interface LegalActHonesty {
   readonly amendedAfterPublication: number;
 }
 
+/**
+ * One incoming ANCHOR — a typographic link the portal itself asserts in a
+ * citing document's text (`document_link_edges`, TLDF mark grain). This is a
+ * DIFFERENT graph from `LegalReferenceEdge` (LLM-inferred normative
+ * relations): the two disagree by construction, and both disagreements are
+ * informative — an anchor proves the source page links here; a reference
+ * edge claims a normative relation. Keys: `edgeId` pages, `(sourceDocumentId,
+ * ordinal)` is the natural identity; `charStart`/`charEnd` locate the anchor
+ * in the citing document's rendered text.
+ */
+export interface LegalIncomingAnchor {
+  readonly edgeId: string; // bigint → string (keyset key; NOT a stable identity)
+  readonly sourceDocumentId: string; // the citing document expression
+  readonly sourceActId: string | null; // the citing act (joined via act_documents)
+  readonly sourceNodePath: string | null;
+  readonly ordinal: number;
+  readonly linkText: string | null; // the anchor's own words on the source page
+  readonly targetFragment: string | null; // 'art. 5' when the anchor is sub-act
+  readonly targetNodePath: string | null; // resolved node in OUR corpus, when held
+  readonly targetResolution: string | null;
+  readonly charStart: number;
+  readonly charEnd: number;
+}
+
+/** A page of incoming anchors plus the REAL total (never the page size). */
+export interface LegalIncomingAnchorsPage {
+  readonly items: readonly LegalIncomingAnchor[];
+  readonly next: string | null;
+  readonly totalCount: number;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Document render (TLDF artifact serving over document_generations/document_render)
 // ─────────────────────────────────────────────────────────────────────────────
