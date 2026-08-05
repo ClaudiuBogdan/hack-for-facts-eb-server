@@ -45,6 +45,7 @@ const DIMENSION_SCOPE_FIELD: Readonly<Record<BreakdownDimension, ScopeDimField>>
   status: 'status',
   procedureType: 'procedureType',
   recordKind: 'recordKind',
+  frameworkRole: 'frameworkRole',
   buyerRegion: 'buyerRegion',
   buyerCounty: 'buyerCounty',
   buyerSiruta: 'buyerSiruta',
@@ -91,6 +92,19 @@ const PROCEDURE_NO_SUPPLIER =
 
 const RECORD_KIND_CONTRACT_ONLY =
   'record_kind exists only on the contract grain (award record vs framework umbrella is a contract-record property; direct acquisitions and procedures carry none)';
+
+const FRAMEWORK_ROLE_CONTRACT_ONLY =
+  'framework_role exists only on the contract grain (a framework role is a property of a contract record; direct acquisitions have no framework channel, and the framework/call-off populations ARE the roles)';
+
+/**
+ * A frameworkRole breakdown under the purchases-only default would render one
+ * bucket and read as "there are no frameworks" — the exact misreading this
+ * wave exists to end. Auto-widening instead would be worse: the buckets would
+ * no longer sum to the stats answer for the same scope. Force the caller to
+ * say `all` out loud.
+ */
+const FRAMEWORK_ROLE_BREAKDOWN_NEEDS_ALL =
+  "breakdown(frameworkRole) needs scope.frameworkRole='all': the contract grain defaults to purchases only, so a role distribution under the default is a single bucket, and widening it silently would make the buckets disagree with procurementStats for the same scope";
 
 // ── value-basis wave populations (design v1.1): explicit-only grains with
 // narrower capability surfaces than the three core grains ──────────────────────
@@ -231,10 +245,15 @@ export const routeAnalysis = (
   // that is a stats answer, not a distribution.
   if (shape === 'breakdown' && dimension !== undefined) {
     const fixingField = DIMENSION_SCOPE_FIELD[dimension];
-    const fixedBy =
-      scope[fixingField] !== undefined
-        ? fixingField
-        : (CPV_FINER_SCOPES[dimension] ?? []).find((field) => scope[field] !== undefined);
+    // frameworkRole='all' is the OPPOSITE of a fixing value — it widens the
+    // population back to every role, which is precisely what makes a role
+    // distribution meaningful. Every other scope value pins one bucket.
+    const fixesDimension =
+      scope[fixingField] !== undefined &&
+      !(fixingField === 'frameworkRole' && scope.frameworkRole === 'all');
+    const fixedBy = fixesDimension
+      ? fixingField
+      : (CPV_FINER_SCOPES[dimension] ?? []).find((field) => scope[field] !== undefined);
     if (fixedBy !== undefined) {
       return err(
         invalidInput(
@@ -242,6 +261,12 @@ export const routeAnalysis = (
           'dimension'
         )
       );
+    }
+    // Request-level, NOT a per-grain capability: routed as a grain exclusion
+    // it gets swallowed by the implicit fan-out ("no grain can answer this")
+    // and the caller never learns which word to add.
+    if (dimension === 'frameworkRole' && scope.frameworkRole === undefined) {
+      return err(invalidInput(FRAMEWORK_ROLE_BREAKDOWN_NEEDS_ALL, 'frameworkRole'));
     }
   }
 
@@ -271,6 +296,11 @@ export const routeAnalysis = (
       (dims.includes('recordKind') || dimension === 'recordKind')
     ) {
       excluded = RECORD_KIND_CONTRACT_ONLY;
+    } else if (
+      grain !== 'contract' &&
+      (dims.includes('frameworkRole') || dimension === 'frameworkRole')
+    ) {
+      excluded = FRAMEWORK_ROLE_CONTRACT_ONLY;
     } else if (
       grain === 'direct_acquisition' &&
       (dims.includes('procedureType') || dimension === 'procedureType')

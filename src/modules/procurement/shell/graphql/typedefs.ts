@@ -628,6 +628,7 @@ export const procurementTypeDefs = /* GraphQL */ `
     status
     procedureType
     recordKind
+    frameworkRole
     buyerRegion
     buyerCounty
     buyerSiruta
@@ -668,6 +669,17 @@ export const procurementTypeDefs = /* GraphQL */ `
     procedureType: String
     "Contract grain only: contract_award | framework_agreement."
     recordKind: String
+    """
+    Contract grain only: standalone | framework_ceiling | call_off | all.
+
+    ABSENT IS NOT "no filter". The contract grain defaults to PURCHASES ONLY
+    (standalone, plus rows the data layer has not stamped yet). A framework
+    ceiling is an umbrella's maximum rather than money spent, and serving
+    ceilings as awards overstated the 2016-2025 window by 20.8%. Pass \`all\`
+    to include ceilings and call-offs — that is the pre-2026-08 behaviour and
+    the only way ceiling money enters an award total.
+    """
+    frameworkRole: String
     grain: ProcurementAnalysisGrain
     from: String
     to: String

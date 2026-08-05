@@ -100,6 +100,48 @@ describe('ClickHouse row-filter and dimension scope compilation', () => {
     expect(body).toContain("record_kind = 'framework_agreement'");
   });
 
+  // The framework-role default is the one scope field whose ABSENCE adds a
+  // predicate, so it needs its own pins: silently losing it would restore the
+  // +20.8% award inflation with every gate still green.
+  it('defaults the contract grain to purchases only (ceilings and call-offs excluded)', async () => {
+    const body = await statsBody({});
+    expect(body).toContain("(framework_role IS NULL OR framework_role = 'standalone')");
+  });
+
+  it('treats an unstamped row as a purchase, never as a framework', async () => {
+    // NULL must pass the default: rows the data layer has not stamped yet are
+    // real purchases in the overwhelming majority, and excluding them would
+    // delete live money from every total.
+    expect(await statsBody({})).toContain('framework_role IS NULL OR');
+  });
+
+  it("frameworkRole='all' is the explicit opt-out — no role predicate at all", async () => {
+    const body = await statsBody({ frameworkRole: 'all' });
+    expect(body).not.toContain('framework_role');
+  });
+
+  it('an explicit role compiles to equality, without the default disjunction', async () => {
+    const ceilings = await statsBody({ frameworkRole: 'framework_ceiling' });
+    expect(ceilings).toContain("framework_role = 'framework_ceiling'");
+    expect(ceilings).not.toContain('framework_role IS NULL');
+    expect(await statsBody({ frameworkRole: 'call_off' })).toContain("framework_role = 'call_off'");
+  });
+
+  it('never applies the role predicate to grains that have no such column', async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(emptyStatsResponse());
+    vi.stubGlobal('fetch', fetchSpy);
+    const repo = makeClickhouseAnalysisRepo(
+      { url: 'http://clickhouse.test', database: 'proto' },
+      activeGeneration
+    );
+    for (const grain of ['direct_acquisition', 'procedure'] as const) {
+      fetchSpy.mockClear();
+      await repo.statsFor(route(grain), {}, '1');
+      const request = fetchSpy.mock.calls[0]?.[1] as { body?: string } | undefined;
+      expect(request?.body ?? '').not.toContain('framework_role');
+    }
+  });
+
   it('compiles CPV level scopes as cpv_code prefix matches at the level length', async () => {
     expect(await statsBody({ cpvGroup: '45200000' })).toContain(
       "startsWith(ifNull(cpv_code, ''), '452')"

@@ -228,6 +228,40 @@ describe('recordKind is contract-grain only', () => {
   });
 });
 
+describe('frameworkRole is contract-grain only, and its breakdown must say all', () => {
+  it('an explicit non-contract grain with frameworkRole is rejected structurally', () => {
+    for (const grain of ['direct_acquisition', 'procedure'] as const) {
+      expect(errorOf({ frameworkRole: 'standalone', grain }, 'stats')).toContain(
+        'the contract grain'
+      );
+    }
+    // The value-basis populations reject earlier, through their own column
+    // capability set — a different sentence, the same structural refusal.
+    for (const grain of ['framework', 'calloff'] as const) {
+      expect(errorOf({ frameworkRole: 'standalone', grain }, 'stats')).toContain(
+        'does not carry the frameworkRole dimension'
+      );
+    }
+  });
+
+  it('a frameworkRole breakdown under the purchases-only default is refused, not silently widened', () => {
+    // Rendering one bucket would read as "there are no frameworks" — the
+    // misreading this wave exists to end. Auto-widening would be worse: the
+    // buckets would stop summing to procurementStats for the same scope.
+    expect(errorOf({}, 'breakdown', 'frameworkRole')).toContain("frameworkRole='all'");
+  });
+
+  it("frameworkRole='all' unlocks the role breakdown instead of reading as a fixed bucket", () => {
+    expect(grainsOf({ frameworkRole: 'all' }, 'breakdown', 'frameworkRole')).toEqual(['contract']);
+  });
+
+  it('a single-role scope pins the role breakdown to one bucket (the existing rule)', () => {
+    expect(errorOf({ frameworkRole: 'call_off' }, 'breakdown', 'frameworkRole')).toContain(
+      'single-bucket'
+    );
+  });
+});
+
 describe('CPV hierarchy: a finer scope fixes every coarser breakdown', () => {
   it('a cpvCode scope fixes category, class, group and division breakdowns', () => {
     for (const dimension of ['cpvCategory', 'cpvClass', 'cpvGroup', 'cpvDivision'] as const) {

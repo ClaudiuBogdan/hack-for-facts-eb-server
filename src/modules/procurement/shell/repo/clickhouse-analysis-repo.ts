@@ -278,6 +278,7 @@ const BREAKDOWN_DIM_COLUMNS: Record<string, string> = {
   status: 'status',
   procedureType: 'procedure_type',
   recordKind: 'record_kind',
+  frameworkRole: 'framework_role',
   buyerRegion: 'buyer_region',
   buyerCounty: 'buyer_county_code',
   buyerSiruta: 'toString(buyer_siruta_uat)',
@@ -362,6 +363,27 @@ const compileScope = (
     const value = scope[field];
     if (typeof value === 'string' && value !== '') {
       conds.push(`${grainColumn(grain, column)} = ${escapeString(value)}`);
+    }
+  }
+
+  // Framework role — the ONE scope field whose ABSENCE adds a predicate.
+  //
+  // A framework ceiling is an umbrella's maximum, not money anyone spent, and
+  // a call-off is a purchase under one. Serving them as awards inflated the
+  // contract grain by +20.8% on 2016-2025 (123,180.8 M RON) because
+  // record_kind is minted from a SEAP-only field and labelled none of the
+  // 1.15M e-licitatie rows. So the contract grain now defaults to purchases,
+  // and 'all' is the explicit, named way back to the old number.
+  //
+  // NULL passes the default: the data layer has not stamped that row yet, and
+  // treating unstamped rows as frameworks would silently delete real
+  // purchases from every total. Absence of evidence excludes nothing.
+  if (grain === 'contract') {
+    const role = scope.frameworkRole;
+    if (role === undefined) {
+      conds.push("(framework_role IS NULL OR framework_role = 'standalone')");
+    } else if (role !== 'all') {
+      conds.push(`framework_role = ${escapeString(role)}`);
     }
   }
   // SIRUTA scopes target numeric UAT columns; non-numeric input can never

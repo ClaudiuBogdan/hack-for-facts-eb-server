@@ -27,10 +27,12 @@ import {
 
 import {
   ANALYSIS_GRAINS,
+  FRAMEWORK_ROLE_FILTERS,
   Q_MAX_LENGTH,
   Q_MIN_LENGTH,
   RECORD_KINDS,
   type AnalysisGrain,
+  type FrameworkRoleFilter,
   type RecordKind,
 } from './constants.js';
 
@@ -53,6 +55,11 @@ export interface AnalysisScope {
   readonly procedureType?: string;
   /** Contract-grain only: award record vs framework umbrella. */
   readonly recordKind?: RecordKind;
+  /**
+   * Contract-grain only. UNSET means the purchases-only default (standalone
+   * or not-yet-stamped); `all` opts back into ceilings and call-offs.
+   */
+  readonly frameworkRole?: FrameworkRoleFilter;
   readonly grain?: AnalysisGrain;
   /** `YYYY-MM`, inclusive. Mutually exclusive with `year`. */
   readonly from?: string;
@@ -83,6 +90,7 @@ export const SCOPE_DIM_FIELDS = [
   'status',
   'procedureType',
   'recordKind',
+  'frameworkRole',
 ] as const;
 export type ScopeDimField = (typeof SCOPE_DIM_FIELDS)[number];
 
@@ -251,6 +259,20 @@ export const parseAnalysisScope = (raw: RawAnalysisScope): Result<AnalysisScope,
       );
     }
     out.recordKind = recordKind.value as RecordKind;
+  }
+
+  const frameworkRole = readString(raw['frameworkRole'], 'frameworkRole');
+  if (frameworkRole.isErr()) return err(frameworkRole.error);
+  if (frameworkRole.value !== undefined) {
+    if (!(FRAMEWORK_ROLE_FILTERS as readonly string[]).includes(frameworkRole.value)) {
+      return err(
+        invalidInput(
+          `frameworkRole must be one of ${FRAMEWORK_ROLE_FILTERS.join(', ')}`,
+          'frameworkRole'
+        )
+      );
+    }
+    out.frameworkRole = frameworkRole.value as FrameworkRoleFilter;
   }
 
   if (out.q !== undefined && (out.q.length < Q_MIN_LENGTH || out.q.length > Q_MAX_LENGTH)) {

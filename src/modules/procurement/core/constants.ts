@@ -89,6 +89,34 @@ export const VALUE_COMPARABLE_BASES = ['official', 'derived_bnr'] as const;
  */
 export const RECORD_KINDS = ['contract_award', 'framework_agreement'] as const;
 export type RecordKind = (typeof RECORD_KINDS)[number];
+
+/**
+ * Framework role — the member-edge role of the framework spine, stamped per
+ * contract row from the source-native markers (e-licitatie contractType, SEAP
+ * framework observation).
+ *
+ * This is NOT a second record_kind. record_kind is minted from a SEAP-only
+ * field, so it labels zero e-licitatie rows: 467,343 canonical e-licitatie
+ * rows carrying 589.59 bn RON were served as ordinary awards even when they
+ * are framework ceilings (an umbrella's maximum, never spent as such) or
+ * call-offs (the purchases UNDER an umbrella, which are real but whose parent
+ * ceiling must not be added to them). Counting ceilings as awards inflated
+ * the 2016-2025 window by +20.8%.
+ *
+ * Serving therefore defaults the contract grain to PURCHASES ONLY. NULL means
+ * the data layer has not stamped the row yet and is treated as a purchase —
+ * absence of evidence, and the pre-stamp corpus is overwhelmingly standalone.
+ */
+export const FRAMEWORK_ROLES = ['standalone', 'framework_ceiling', 'call_off'] as const;
+export type FrameworkRole = (typeof FRAMEWORK_ROLES)[number];
+
+/**
+ * Accepted `frameworkRole` scope values: the three roles, plus `all` — the
+ * explicit opt-out of the purchases-only default. `all` is the ONLY way to
+ * see ceiling money in an award total, and it is never the default.
+ */
+export const FRAMEWORK_ROLE_FILTERS = [...FRAMEWORK_ROLES, 'all'] as const;
+export type FrameworkRoleFilter = (typeof FRAMEWORK_ROLE_FILTERS)[number];
 export type ValueComparableBasis = (typeof VALUE_COMPARABLE_BASES)[number];
 
 export const PROCEDURE_SOURCE_SYSTEMS = ['elicitatie', 'seap_notice'] as const;
@@ -257,6 +285,7 @@ export const BREAKDOWN_DIMENSIONS = [
   'status',
   'procedureType',
   'recordKind',
+  'frameworkRole',
   'buyerRegion',
   'buyerCounty',
   'buyerSiruta',
