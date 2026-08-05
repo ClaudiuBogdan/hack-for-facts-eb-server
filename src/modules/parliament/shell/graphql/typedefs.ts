@@ -753,6 +753,7 @@ const objectsAndQuery = /* GraphQL */ `
     canonicalDigest: String!
     "Integrity anchor of the SOURCE BYTES the reading was derived from. null for a SOURCE_ONLY sitting (there is no usable capture)."
     captureDigest: String
+    sourceUpdatedAt: String
   }
 
   "A sitting as a NAVIGATION TARGET: enough to label it and to open its official source, without pretending to be a fetched sitting."

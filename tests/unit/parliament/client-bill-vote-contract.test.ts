@@ -1,5 +1,6 @@
 /**
- * Client↔server contract guard for the BILL and VOTE detail surfaces (no DB).
+ * Client↔server contract guard for the parliament BILL, VOTE and STENOGRAM
+ * documents (no DB).
  *
  * The transparenta.eu client ships hand-written GraphQL documents — there is no
  * codegen in that repo — and they are the real consumers of this module's SDL.
@@ -275,5 +276,262 @@ describe('the client bill/vote documents validate against this SDL', () => {
     `);
     expect(errors).not.toEqual([]);
     expect(errors.join(' ')).toContain('fieldThatDoesNotExist');
+  });
+});
+
+/** Verbatim from the client's parliament-stenograms-queries.ts (PARLIAMENT_STENOGRAM_SESSIONS_QUERY). */
+const CLIENT_STENOGRAM_SESSIONS_QUERY = `
+
+  query ParliamentStenogramSessions(
+    $first: Int
+    $after: String
+    $filter: ParliamentStenogramSessionsFilter
+    $q: String
+  ) {
+    parliamentStenogramSessions(
+      first: $first
+      after: $after
+      filter: $filter
+      q: $q
+    ) {
+      total
+      totalEstimated
+      edges {
+        cursor
+        node { 
+  sessionKey
+  chamber
+  sessionDate
+  sessionDateSource
+  title
+  sourceSystem
+  availability
+  sourceUrl
+  sourceUrlKind
+  sittingKey
+  presidingText
+  startTimeText
+  endTimeText
+  segmentCount
+  speechCount
+  speakerCount
+  sourceUpdatedAt
+  canonicalDigest
+  captureDigest
+ }
+      }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+    }
+  }
+`;
+
+/** Verbatim from the client's parliament-stenograms-queries.ts (PARLIAMENT_STENOGRAM_SESSION_QUERY). */
+const CLIENT_STENOGRAM_SESSION_QUERY = `
+
+  query ParliamentStenogramSession(
+    $sessionKey: ID!
+    $offset: Int
+    $limit: Int
+  ) {
+    parliamentStenogramSession(
+      sessionKey: $sessionKey
+      offset: $offset
+      limit: $limit
+    ) {
+      totalSegments
+      session { 
+  sessionKey
+  chamber
+  sessionDate
+  sessionDateSource
+  title
+  sourceSystem
+  availability
+  sourceUrl
+  sourceUrlKind
+  sittingKey
+  presidingText
+  startTimeText
+  endTimeText
+  segmentCount
+  speechCount
+  speakerCount
+  sourceUpdatedAt
+  canonicalDigest
+  captureDigest
+ }
+      segments { 
+  segmentKey
+  sessionKey
+  position
+  kind
+  text
+  textChars
+  speakerName
+  speakerRef
+  mandateKey
+  speechKey
+  agendaRef
+  sourceUrl
+  sourceUrlKind
+  personId
+  speakerResolution
+  speakerMethod
+  speakerConfidence
+ }
+      navigation {
+        previous { 
+  sessionKey
+  chamber
+  sessionDate
+  title
+  availability
+  sourceUrl
+  sourceUrlKind
+ }
+        next { 
+  sessionKey
+  chamber
+  sessionDate
+  title
+  availability
+  sourceUrl
+  sourceUrlKind
+ }
+      }
+    }
+  }
+`;
+
+/** Verbatim from the client's parliament-stenograms-queries.ts (PARLIAMENT_SPEECH_CONTEXT_QUERY). */
+const CLIENT_SPEECH_CONTEXT_QUERY = `
+
+  query ParliamentSpeechContext($speechKey: ID!) {
+    parliamentSpeechContext(speechKey: $speechKey) {
+      speechKey
+      session { 
+  sessionKey
+  chamber
+  sessionDate
+  sessionDateSource
+  title
+  sourceSystem
+  availability
+  sourceUrl
+  sourceUrlKind
+  sittingKey
+  presidingText
+  startTimeText
+  endTimeText
+  segmentCount
+  speechCount
+  speakerCount
+  sourceUpdatedAt
+  canonicalDigest
+  captureDigest
+ }
+      segment { 
+  segmentKey
+  sessionKey
+  position
+  kind
+  text
+  textChars
+  speakerName
+  speakerRef
+  mandateKey
+  speechKey
+  agendaRef
+  sourceUrl
+  sourceUrlKind
+  personId
+  speakerResolution
+  speakerMethod
+  speakerConfidence
+ }
+      previousContribution { 
+  segmentKey
+  sessionKey
+  position
+  kind
+  text
+  textChars
+  speakerName
+  speakerRef
+  mandateKey
+  speechKey
+  agendaRef
+  sourceUrl
+  sourceUrlKind
+  personId
+  speakerResolution
+  speakerMethod
+  speakerConfidence
+ }
+      nextContribution { 
+  segmentKey
+  sessionKey
+  position
+  kind
+  text
+  textChars
+  speakerName
+  speakerRef
+  mandateKey
+  speechKey
+  agendaRef
+  sourceUrl
+  sourceUrlKind
+  personId
+  speakerResolution
+  speakerMethod
+  speakerConfidence
+ }
+      redirect {
+        legacySpeechKey
+        sessionKey
+        canonicalSpeechKey
+        canonicalSegmentKey
+        canonicalPosition
+        mappingKind
+        matchMethod
+      }
+    }
+  }
+`;
+
+describe('the client stenogram documents validate against this SDL', () => {
+  /*
+   * These exist because of a real regression, not a hypothetical one.
+   *
+   * The commit that added `sourceUpdatedAt` to `ParliamentBill` DELETED the
+   * field of the same name from `ParliamentStenogramSession` — collateral from
+   * a whole-file regex used while mutation-testing the guard above, where only
+   * the bill occurrence was put back. The bill and vote documents still
+   * validated, typecheck passed, and all 487 unit tests passed, because nothing
+   * covered the stenogram document. The stenogram reader would have gone blank
+   * on deploy, in exactly the way this file exists to prevent.
+   *
+   * A guard over three of a client's documents proves nothing about the fourth.
+   */
+  it('accepts the sessions LIST document', () => {
+    expect(errorsFor(CLIENT_STENOGRAM_SESSIONS_QUERY)).toEqual([]);
+  });
+
+  it('accepts the single SESSION document', () => {
+    expect(errorsFor(CLIENT_STENOGRAM_SESSION_QUERY)).toEqual([]);
+  });
+
+  it('accepts the speech-CONTEXT document', () => {
+    expect(errorsFor(CLIENT_SPEECH_CONTEXT_QUERY)).toEqual([]);
+  });
+
+  it('covers the field whose loss started this', () => {
+    // Pins the specific selection, so a future edit cannot quietly drop the
+    // stenogram field again and still pass the three checks above.
+    expect(CLIENT_STENOGRAM_SESSION_QUERY).toContain('sourceUpdatedAt');
   });
 });
