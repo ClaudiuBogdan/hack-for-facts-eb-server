@@ -12,7 +12,6 @@ import {
   type LegalDocument,
   type LegalActSummary,
   type LegalExternalAct,
-  type LegalNode,
   type LegalReferenceEdge,
   type LegalRelation,
   type LegalStatusEvent,
@@ -231,32 +230,6 @@ export const mapStatusEvent = (r: StatusEventRow): LegalStatusEvent => ({
   sourceActId: r.source_act_id,
   evidence: asObject(r.evidence),
   eventSource: toEventSource(r.event_source),
-});
-
-export interface NodeRow {
-  node_id: string;
-  document_id: string;
-  parent_node_id: string | null;
-  node_kind: string;
-  label: string | null;
-  number_key: string | null;
-  path: string;
-  order_index: number;
-  char_start: number | null;
-  char_end: number | null;
-}
-
-export const mapNode = (r: NodeRow): LegalNode => ({
-  nodeId: r.node_id,
-  documentId: r.document_id,
-  parentNodeId: r.parent_node_id,
-  nodeKind: r.node_kind,
-  label: r.label,
-  numberKey: r.number_key,
-  path: r.path,
-  orderIndex: r.order_index,
-  charStart: r.char_start,
-  charEnd: r.char_end,
 });
 
 export interface ExternalActRow {

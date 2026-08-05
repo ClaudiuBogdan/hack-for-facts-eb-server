@@ -20,7 +20,7 @@ import { makeLegalResolvers } from '@/modules/legal/shell/graphql/resolvers.js';
 import { legalTypeDefs } from '@/modules/legal/shell/graphql/typedefs.js';
 import { makeLegalMcpTools } from '@/modules/legal/shell/mcp/tools.js';
 
-import type { LegalActsRepo, LegalTreeRepo } from '@/modules/legal/core/ports.js';
+import type { LegalActsRepo, LegalOutlineRepo } from '@/modules/legal/core/ports.js';
 import type {
   LegalAct,
   LegalActCard,
@@ -85,10 +85,24 @@ const makeActsFake = (): { repo: LegalActsRepo; forActs: ReturnType<typeof vi.fn
   return { repo, forActs };
 };
 
-const treeFake = {
-  nodeByPath: async () => ok({ nodeId: '1', documentId: '171282', path: '1' }),
-  nodeChildren: async () => ok([]),
-} as unknown as LegalTreeRepo;
+const outlineFake = {
+  entryByPath: async () =>
+    ok({
+      documentId: '171282',
+      path: '1',
+      nodeKind: 'articol',
+      label: 'Articolul 1',
+      numberKey: '1',
+      numberSystem: 'arabic',
+      numberStatus: null,
+      depth: 7,
+      orderIndex: 0,
+      charStart: 0,
+      charEnd: 100,
+    }),
+  outline: async () => ok({ items: [], next: null }),
+  entryByArticle: async () => ok(null),
+} as unknown as LegalOutlineRepo;
 
 const searchDepsWith = (docs: readonly LegalDocHit[], repo: LegalActsRepo): LegalSearchDeps =>
   ({
@@ -153,7 +167,7 @@ describe('LegalAct provenance resolvers', () => {
     const r = makeLegalResolvers({
       acts: repo,
       graph: {} as never,
-      tree: treeFake,
+      outline: outlineFake,
       searchDeps: searchDepsWith([], repo),
       resolveDeps: {} as never,
     });
@@ -221,7 +235,7 @@ describe('MCP provenance envelopes', () => {
     makeLegalMcpTools({
       acts: repo,
       graph: {} as never,
-      tree: treeFake,
+      outline: outlineFake,
       searchDeps: searchDepsWith(docs, repo),
       resolveDeps: {} as never,
       clientBaseUrl: 'https://transparenta.eu',

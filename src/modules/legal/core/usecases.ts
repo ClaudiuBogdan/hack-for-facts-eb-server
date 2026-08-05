@@ -20,9 +20,10 @@ import type {
   CursorPageRequest,
   LegalActsRepo,
   LegalGraphRepo,
+  LegalOutlineOptions,
+  LegalOutlineRepo,
   LegalRetrievalQuery,
   LegalRetrievalRepo,
-  LegalTreeRepo,
 } from './ports.js';
 import type { LegalActRef, LegalRepoBase } from './repo-base.js';
 import type {
@@ -32,7 +33,7 @@ import type {
   LegalDocument,
   LegalExternalAct,
   LegalIncomingEdge,
-  LegalNode,
+  LegalOutlineEntry,
   LegalReferenceEdge,
   LegalRelation,
   LegalResolveDim,
@@ -151,20 +152,18 @@ export const getStatusEvents = (
   actId: string
 ): Promise<Result<readonly LegalStatusEvent[], ApiError>> => base.getStatusEvents(actId);
 
-// ── tree (structure only) ──────────────────────────────────────────────────────
+// ── outline (the one TOC authority) ─────────────────────────────────────────────
 
-export const getActTree = async (
-  repo: LegalTreeRepo,
-  args: { documentId: string; path?: string; depth: number }
-): Promise<Result<readonly LegalNode[], ApiError>> => {
-  if (args.path !== undefined && args.path !== '') {
-    const node = await repo.nodeByPath(args.documentId, args.path);
-    if (node.isErr()) return err(node.error);
-    if (node.value === null) return ok([]);
-    return repo.nodeChildren(args.documentId, node.value.nodeId, args.depth);
-  }
-  return repo.nodeChildren(args.documentId, null, args.depth);
-};
+export const getDocumentOutline = (
+  repo: LegalOutlineRepo,
+  options: LegalOutlineOptions
+): Promise<Result<CursorPage<LegalOutlineEntry>, ApiError>> => repo.outline(options);
+
+export const getOutlineEntry = (
+  repo: LegalOutlineRepo,
+  documentId: string,
+  path: string
+): Promise<Result<LegalOutlineEntry | null, ApiError>> => repo.entryByPath(documentId, path);
 
 // ── retrieval (RAG) ─────────────────────────────────────────────────────────────
 

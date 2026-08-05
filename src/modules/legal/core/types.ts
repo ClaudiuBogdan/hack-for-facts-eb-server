@@ -216,19 +216,30 @@ export interface LegalStatusEvent {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Intra-act tree (structure only — node TEXT is not in prod, §3.4)
+// Document outline (TOC over legal.document_nodes v2 — the ONE TOC authority)
 // ─────────────────────────────────────────────────────────────────────────────
 
-export interface LegalNode {
-  readonly nodeId: string;
+/**
+ * One TOC entry. The stable key is `(documentId, path)` — NEVER a node id:
+ * `document_nodes.node_id` is `generated always as identity` under a scoped
+ * delete-then-insert lane, so ids are minted fresh on every recompile and must
+ * not appear in URLs, cursors, or any served payload. `charStart`/`charEnd`
+ * locate the entry inside the folded clean text (UTF-16 code units), which is
+ * how the reader maps a TOC jump onto the render manifest's chunk spans.
+ */
+export interface LegalOutlineEntry {
   readonly documentId: string;
-  readonly parentNodeId: string | null;
-  readonly nodeKind: string; // articol|alineat|capitol|...
+  readonly path: string;
+  readonly nodeKind: string; // carte|parte|titlu|capitol|subcapitol|sectiune|articol|anexa|apendice
   readonly label: string | null; // 'Articolul 291'
   readonly numberKey: string | null; // '291', '291^1', 'IV'
-  readonly path: string; // materialized path
+  readonly numberSystem: string | null;
+  /** unparsed/ambiguous numbering surfaces honestly, never as a fake number. */
+  readonly numberStatus: string | null;
+  /** Presentation depth from the fixed grammar rank — never parsed from path. */
+  readonly depth: number;
   readonly orderIndex: number;
-  readonly charStart: number | null; // offset into clean_text (forward-compat locator)
+  readonly charStart: number | null;
   readonly charEnd: number | null;
 }
 

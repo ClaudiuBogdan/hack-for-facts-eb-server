@@ -30,14 +30,14 @@ import {
   getActLinksIn,
   getActLinksOut,
   getActTimeline,
-  getActTree,
+  getOutlineEntry,
   resolveLegalFilters,
   searchLegal,
   type LegalSearchDeps,
   type ResolveLegalFiltersDeps,
 } from '../../core/usecases.js';
 
-import type { LegalActsRepo, LegalGraphRepo, LegalTreeRepo } from '../../core/ports.js';
+import type { LegalActsRepo, LegalGraphRepo, LegalOutlineRepo } from '../../core/ports.js';
 import type { LegalActRef } from '../../core/repo-base.js';
 import type { LegalRelation, LegalResolveDim, LegalVersionProvenance } from '../../core/types.js';
 import type { FilterInput, KernelMcpTool, McpToolOutput } from '@/modules/shared/index.js';
@@ -45,7 +45,7 @@ import type { FilterInput, KernelMcpTool, McpToolOutput } from '@/modules/shared
 export interface LegalMcpDeps {
   readonly acts: LegalActsRepo;
   readonly graph: LegalGraphRepo;
-  readonly tree: LegalTreeRepo;
+  readonly outline: LegalOutlineRepo;
   readonly searchDeps: LegalSearchDeps;
   readonly resolveDeps: ResolveLegalFiltersDeps;
   readonly clientBaseUrl: string;
@@ -82,7 +82,7 @@ const refOf = (args: Record<string, unknown>): LegalActRef | null => {
 };
 
 export const makeLegalMcpTools = (deps: LegalMcpDeps): readonly KernelMcpTool[] => {
-  const { acts, graph, tree, searchDeps, resolveDeps, clientBaseUrl } = deps;
+  const { acts, graph, outline, searchDeps, resolveDeps, clientBaseUrl } = deps;
   const actLink = (actId: string): string => `${clientBaseUrl}/legal/acts/${actId}`;
   const noteFor = (prov: LegalVersionProvenance | null): string | null =>
     prov === null ? null : versionProvenanceNote(prov);
@@ -156,7 +156,7 @@ export const makeLegalMcpTools = (deps: LegalMcpDeps): readonly KernelMcpTool[] 
   const searchLegalActs: KernelMcpTool = {
     name: 'search_legal_acts',
     description:
-      'Legal retrieval: identifier router (citation → act), then pgvector semantic search over acts + provisions when the legal semantic gate is on, else a bounded lexical fallback. Returns acts + section hits (citation + article label + grounded snippet + portal deep link). Honours status/domain/category/type/year filters; serves canonical text only. Node TEXT is not served (use the deep link).',
+      'Legal retrieval: identifier router (citation → act), then pgvector semantic search over acts + provisions when the legal semantic gate is on, else a bounded lexical fallback. Returns acts + section hits (citation + article label + grounded snippet + reader deep link). Honours status/domain/category/type/year filters; serves canonical text only.',
     inputShape: searchLegalActsInput,
     async handler(args): Promise<McpToolOutput> {
       const q = str(args, 'q');
@@ -275,7 +275,7 @@ export const makeLegalMcpTools = (deps: LegalMcpDeps): readonly KernelMcpTool[] 
   const getLegalNode: KernelMcpTool = {
     name: 'get_legal_node',
     description:
-      'Locate a structural node (article/paragraph) within an act document: returns label, kind, materialized path, char range, and a portal deep link. Node TEXT is not in the serving DB (use the portal deep link).',
+      'Locate a structural node (article/heading) within an act document by its stable (documentId, path) key: returns label, kind, numbering (with honesty status), char range into the rendered clean text, and a reader deep link.',
     inputShape: getLegalNodeInput,
     async handler(args): Promise<McpToolOutput> {
       const documentId = str(args, 'documentId');
@@ -283,24 +283,27 @@ export const makeLegalMcpTools = (deps: LegalMcpDeps): readonly KernelMcpTool[] 
       if (documentId === undefined || path === undefined) {
         return errorOut(LEGAL_MCP_KINDS.node, 'documentId and path are required');
       }
-      const res = await getActTree(tree, { documentId, path, depth: 1 });
+      const res = await getOutlineEntry(outline, documentId, path);
       if (res.isErr()) return errorOut(LEGAL_MCP_KINDS.node, res.error.message);
       // The node belongs to THIS document, so it is stamped with that document's
       // own version rather than the act's canonical one.
       const provRes = await acts.versionProvenanceForDocument(documentId);
       if (provRes.isErr()) return errorOut(LEGAL_MCP_KINDS.node, provRes.error.message);
-      const docLink = `${clientBaseUrl}/legal/documents/${documentId}?path=${encodeURIComponent(path)}`;
+      const docLink = `${clientBaseUrl}/legal/documents/${documentId}?nod=${encodeURIComponent(path)}`;
       const provenance = provRes.value;
       const note = noteFor(provenance);
+      const items = res.value === null ? [] : [res.value];
       return {
         ok: true,
         kind: LEGAL_MCP_KINDS.node,
         query: { documentId, path },
         link: docLink,
-        items: res.value,
+        items,
         meta: provenanceMeta(provenance, note),
         summary:
-          `${n(res.value.length)} child node(s) under ${path}. Node text lives in the portal (deep link).` +
+          (res.value === null
+            ? `No outline entry at ${path}.`
+            : `${res.value.label ?? res.value.nodeKind} at ${path} (chars ${String(res.value.charStart ?? 0)}–${String(res.value.charEnd ?? 0)}).`) +
           (note === null ? '' : ` ${note}`),
       };
     },

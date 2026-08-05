@@ -29,8 +29,8 @@ import {
   getActLinksIn,
   getActLinksOut,
   getActTimeline,
-  getActTree,
   getActVersions,
+  getDocumentOutline,
   getExternalAct,
   listActs,
   resolveLegalFilters,
@@ -40,7 +40,7 @@ import {
 } from '../../core/usecases.js';
 import { legalActsSpec } from '../filters/legal-acts.spec.js';
 
-import type { LegalActsRepo, LegalGraphRepo, LegalTreeRepo } from '../../core/ports.js';
+import type { LegalActsRepo, LegalGraphRepo, LegalOutlineRepo } from '../../core/ports.js';
 import type {
   LegalAct,
   LegalActCard,
@@ -56,7 +56,7 @@ import type { Result } from 'neverthrow';
 export interface LegalResolverDeps {
   readonly acts: LegalActsRepo;
   readonly graph: LegalGraphRepo;
-  readonly tree: LegalTreeRepo;
+  readonly outline: LegalOutlineRepo;
   readonly searchDeps: LegalSearchDeps;
   readonly resolveDeps: ResolveLegalFiltersDeps;
 }
@@ -121,7 +121,7 @@ const sortKeysOf = (act: LegalAct, sort: LegalSortKey): readonly (string | numbe
 };
 
 export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unknown> => {
-  const { acts, graph, tree, searchDeps, resolveDeps } = deps;
+  const { acts, graph, outline, searchDeps, resolveDeps } = deps;
 
   // Batched act loader for edge `targetAct`/`sourceAct` (tolerates dangling → null).
   // The batch fn returns a Map<id, V>; the loader fills missing keys with `null`.
@@ -204,6 +204,22 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
             limit: args.limit ?? 20,
           })
         ),
+      legalDocumentOutline: async (
+        _r: unknown,
+        args: { documentId: string; maxDepth?: number; first?: number; after?: string }
+      ) => {
+        const page = unwrap(
+          await getDocumentOutline(outline, {
+            documentId: args.documentId,
+            maxDepth: args.maxDepth ?? 3,
+            page: {
+              first: args.first ?? 200,
+              ...(args.after !== undefined && { after: args.after }),
+            },
+          })
+        );
+        return { entries: page.items, next: page.next };
+      },
       legalExternalAct: async (_r: unknown, args: { externalActId: string }) =>
         unwrap(await getExternalAct(graph, args.externalActId)),
       legalResolve: async (_r: unknown, args: { dim: string; q: string; limit?: number }) =>
@@ -274,20 +290,6 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
         };
       },
       timeline: async (parent: LegalAct) => unwrap(await getActTimeline(acts, graph, parent.actId)),
-      tree: async (
-        parent: LegalAct,
-        args: { documentId?: string; path?: string; depth?: number }
-      ) => {
-        const documentId = args.documentId ?? parent.canonicalDocumentId;
-        if (documentId === null) return [];
-        return unwrap(
-          await getActTree(tree, {
-            documentId,
-            ...(args.path !== undefined && { path: args.path }),
-            depth: args.depth ?? 1,
-          })
-        );
-      },
     },
 
     LegalReferenceEdge: {

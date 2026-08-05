@@ -4,7 +4,7 @@
  * Four repos, all extending (or composing) `LegalRepoBase`:
  *  - `LegalActsRepo`     — list/detail/versions/summary (§3.2).
  *  - `LegalGraphRepo`    — citation/amendment graph (§3.3) — bounded, hub-guarded.
- *  - `LegalTreeRepo`     — intra-act structure, NO passage text (§3.4).
+ *  - `LegalOutlineRepo`  — the document TOC over `document_nodes` v2 (§3.4).
  *  - `LegalRetrievalRepo`— full-text + semantic RAG (§3.5) — HNSW bound-vector rule.
  *
  * Every method returns `Result<T, ApiError>`; reads `legal.*` only. The query
@@ -22,7 +22,7 @@ import type {
   LegalDocument,
   LegalExternalAct,
   LegalIncomingEdge,
-  LegalNode,
+  LegalOutlineEntry,
   LegalReferenceEdge,
   LegalRelation,
   LegalSectionHit,
@@ -111,17 +111,31 @@ export interface LegalGraphRepo {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// §3.4 LegalTreeRepo — intra-act structure (LG-4 context); NO passage text
+// §3.4 LegalOutlineRepo — the document TOC (one authority: document_nodes v2)
 // ─────────────────────────────────────────────────────────────────────────────
 
-export interface LegalTreeRepo {
-  nodeChildren(
+export interface LegalOutlineOptions {
+  readonly documentId: string;
+  /** TOC indent budget (core/outline.ts grammar ranks). */
+  readonly maxDepth: number;
+  readonly page: CursorPageRequest;
+}
+
+export interface LegalOutlineRepo {
+  /**
+   * Heading rows only (`role IS NULL` + outline kinds), ordered by
+   * `order_index`, keyset-paged. The one TOC authority — the reader never
+   * derives structure from render blocks.
+   */
+  outline(options: LegalOutlineOptions): Promise<Result<CursorPage<LegalOutlineEntry>, ApiError>>;
+  entryByPath(
     documentId: string,
-    parentNodeId: string | null,
-    depth: number
-  ): Promise<Result<readonly LegalNode[], ApiError>>;
-  nodeByPath(documentId: string, path: string): Promise<Result<LegalNode | null, ApiError>>;
-  nodeByArticle(documentId: string, numberKey: string): Promise<Result<LegalNode | null, ApiError>>;
+    path: string
+  ): Promise<Result<LegalOutlineEntry | null, ApiError>>;
+  entryByArticle(
+    documentId: string,
+    numberKey: string
+  ): Promise<Result<LegalOutlineEntry | null, ApiError>>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

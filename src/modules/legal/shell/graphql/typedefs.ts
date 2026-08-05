@@ -90,7 +90,6 @@ const objectsAndQuery = /* GraphQL */ `
       first: Int = 50
     ): LegalReferenceConnection!
     timeline: [LegalTimelineEntry!]!
-    tree(documentId: String, path: String, depth: Int = 1): [LegalNode!]!
   }
 
   "A document expression of an act. documentId is TEXT (never BigInt). moPart/moNumber/moDate are best-effort hints (the authoritative act↔MO join is mo_act_publications.act_id — owned by 06)."
@@ -192,18 +191,27 @@ const objectsAndQuery = /* GraphQL */ `
     eventSource: String!
   }
 
-  "An intra-act structure node. Carries a char range as a forward-compat locator — node TEXT is not served (§3.4)."
-  type LegalNode {
-    nodeId: BigInt!
+  "A document TOC entry (document_nodes v2, role IS NULL headings only). Stable key is (documentId, path) — node ids are recompile-scoped and never served. charStart/charEnd locate the entry in the rendered clean text (UTF-16 units) for chunk-targeted fetches."
+  type LegalOutlineEntry {
     documentId: String!
-    parentNodeId: BigInt
+    path: String!
     nodeKind: String!
     label: String
     numberKey: String
-    path: String!
+    numberSystem: String
+    "parsed | unparsed | ambiguous — an unparsed number is reported, never faked."
+    numberStatus: String
+    "Fixed grammar-rank indent depth (carte=1 … articol=7; anexa restarts at 1)."
+    depth: Int!
     orderIndex: Int!
     charStart: Int
     charEnd: Int
+  }
+
+  type LegalOutlineConnection {
+    entries: [LegalOutlineEntry!]!
+    "Opaque keyset cursor; null when the outline is exhausted."
+    next: String
   }
 
   type LegalExternalAct {
@@ -213,7 +221,7 @@ const objectsAndQuery = /* GraphQL */ `
     kind: String!
   }
 
-  "A provision-level retrieval hit. snippet is grounded from document_summaries; charStart/charEnd are a forward-compat locator (not served text — §3.4)."
+  "A provision-level retrieval hit. snippet is grounded from document_summaries; charStart/charEnd locate the provision in the document's rendered clean text (REST render endpoint)."
   type LegalSectionHit {
     act: LegalAct!
     documentId: String!
@@ -280,6 +288,13 @@ const objectsAndQuery = /* GraphQL */ `
       includeHistorical: Boolean = false
       limit: Int = 20
     ): LegalSearchResult!
+    "Document TOC: role-null heading nodes in document order, keyset-paged. THE outline authority — the reader derives no structure from render blocks."
+    legalDocumentOutline(
+      documentId: String!
+      maxDepth: Int = 3
+      first: Int = 200
+      after: String
+    ): LegalOutlineConnection!
     legalExternalAct(externalActId: BigInt!): LegalExternalAct
     "Resolve a free-text query to a filter value (citation→actId, name→issuerSlug, label→domain/category)."
     legalResolve(dim: String!, q: String!, limit: Int = 10): [LegalResolveHit!]!

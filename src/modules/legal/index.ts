@@ -32,15 +32,15 @@ import { makeLegalActLoader } from './shell/loader/legal-act-loader.js';
 import { makeLegalMcpTools } from './shell/mcp/tools.js';
 import { makeLegalActsRepo } from './shell/repo/acts-repo.js';
 import { makeLegalGraphRepo } from './shell/repo/graph-repo.js';
+import { makeLegalOutlineRepo } from './shell/repo/outline-repo.js';
 import { makeLegalRetrievalRepo } from './shell/repo/retrieval-repo.js';
-import { makeLegalTreeRepo } from './shell/repo/tree-repo.js';
 import { makeLegalVocabRepo } from './shell/repo/vocab-repo.js';
 
 import type {
   LegalActsRepo,
   LegalGraphRepo,
+  LegalOutlineRepo,
   LegalRetrievalRepo,
-  LegalTreeRepo,
 } from './core/ports.js';
 import type { LegalRepoBase } from './core/repo-base.js';
 import type {
@@ -87,7 +87,7 @@ export interface LegalRepos {
   readonly base: LegalRepoBase;
   readonly acts: LegalActsRepo;
   readonly graph: LegalGraphRepo;
-  readonly tree: LegalTreeRepo;
+  readonly outline: LegalOutlineRepo;
   readonly retrieval: LegalRetrievalRepo;
 }
 
@@ -115,13 +115,13 @@ export interface LegalModule {
 export const makeLegalModule = async (deps: LegalModuleDeps): Promise<LegalModule> => {
   const clientBaseUrl = deps.clientBaseUrl ?? 'https://transparenta.eu';
 
-  // 1. acts-area repos (LegalActsRepo extends LegalRepoBase) + graph/tree/retrieval.
+  // 1. acts-area repos (LegalActsRepo extends LegalRepoBase) + graph/outline/retrieval.
   const acts = makeLegalActsRepo(deps.db);
   const graph = makeLegalGraphRepo(deps.db);
-  const tree = makeLegalTreeRepo(deps.db);
+  const outline = makeLegalOutlineRepo(deps.db);
   const retrieval = makeLegalRetrievalRepo(deps.db);
   const vocab = makeLegalVocabRepo(deps.db);
-  const repos: LegalRepos = { base: acts, acts, graph, tree, retrieval };
+  const repos: LegalRepos = { base: acts, acts, graph, outline, retrieval };
 
   // 2. effective semantic gate: kernel slot AND live HNSW indexes (never mutates
   //    the kernel slot — a local AND that degrades to lexical when the index is gone).
@@ -147,11 +147,11 @@ export const makeLegalModule = async (deps: LegalModuleDeps): Promise<LegalModul
   const resolveDeps: ResolveLegalFiltersDeps = { base: acts, acts, vocab };
 
   // 5. GraphQL slice + MCP tools (acts area).
-  const actsResolvers = makeLegalResolvers({ acts, graph, tree, searchDeps, resolveDeps });
+  const actsResolvers = makeLegalResolvers({ acts, graph, outline, searchDeps, resolveDeps });
   const actsMcpTools = makeLegalMcpTools({
     acts,
     graph,
-    tree,
+    outline,
     searchDeps,
     resolveDeps,
     clientBaseUrl,
@@ -229,8 +229,8 @@ const deepMergeResolvers = (
 export type {
   LegalActsRepo,
   LegalGraphRepo,
+  LegalOutlineRepo,
   LegalRetrievalRepo,
-  LegalTreeRepo,
 } from './core/ports.js';
 export type { LegalRepoBase, LegalActRef } from './core/repo-base.js';
 export * from './core/types.js';

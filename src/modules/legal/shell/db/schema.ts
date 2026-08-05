@@ -122,6 +122,10 @@ export interface LegalDocumentNodesTable {
   char_start: number | null; // integer
   char_end: number | null; // integer
   splitter_version: string | null;
+  // v2 columns (tldf-projection lane, migration 20260804T122000+):
+  role: string | null; // NULL = structural node; non-null = in-node run row
+  number_system: string | null;
+  number_status: string | null; // parsed|unparsed|ambiguous|numberless
 }
 
 export interface LegalDocumentSummariesTable {
