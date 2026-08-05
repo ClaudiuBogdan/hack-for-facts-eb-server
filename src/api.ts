@@ -75,7 +75,7 @@ const main = async (): Promise<void> => {
   // The app configures Postgres SSL explicitly via DATABASE_SSL / per-pool options
   // and never connects through bare libpq PG* vars. Strip the ambient libpq
   // `PGSSLMODE` so it can't silently flip `ssl` on the pg clients — e.g. when a dev
-  // has sourced `.claude/redesign-psql.env` (griffin psql tooling, PGSSLMODE=require)
+  // has sourced `.claude/redesign-psql.env` (Chronos psql tooling, PGSSLMODE=require)
   // into the shell that runs `pnpm dev`, which would otherwise force SSL onto the
   // plain phoenix-dev DB forwards. Deployed servers never set PGSSLMODE, so this is
   // a no-op there.
@@ -128,7 +128,7 @@ const main = async (): Promise<void> => {
   // Create auth provider if configured
   const authProvider = createAuthProvider(config, logger);
 
-  // Optionally resolve the redesign kernel config (griffin-prod) so the redesign
+  // Optionally resolve the redesign kernel config (Chronos production) so the redesign
   // GraphQL/MCP surface can be mounted on this same port (/api/v1/*). The flag
   // defaults off and is only set for local dev — deployed legacy servers skip this
   // entirely. Wrapped so a missing/invalid redesign env can never crash the server.

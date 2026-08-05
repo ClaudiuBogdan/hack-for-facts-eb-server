@@ -98,7 +98,7 @@ export interface AppDeps {
   /** Optional correspondence recovery runtime factory for tests */
   correspondenceRecoveryRuntimeFactory?: CorrespondenceRecoveryRuntimeFactory;
   /**
-   * Redesign kernel config (griffin-prod data source). When provided AND
+   * Redesign kernel config (Chronos production data source). When provided AND
    * `config.redesignSurface.enabled` is true, `buildApp` mounts the redesign
    * GraphQL (`/api/v1/graphql`) + MCP (`/api/v1/mcp`) + health surface on the
    * same port. Omitted in deployed legacy servers, so the surface is never built.

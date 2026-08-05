@@ -167,6 +167,8 @@ export const baseTypeDefs = /* GraphQL */ `
     roles: [String!]
     "False for struck-off companies and repealed acts."
     isActive: Boolean
+    "Deprecated compatibility field for pre-palette clients; always null."
+    year: Int @deprecated(reason: "Ambiguous across entity types; use source-specific filters")
   }
 
   "One facet bucket (e.g. doc_type distribution → the type-filter chips)."
@@ -265,6 +267,7 @@ export const baseTypeDefs = /* GraphQL */ `
       roles: [String!]
       county: String
       isActive: Boolean
+      year: Int @deprecated(reason: "Ignored compatibility argument for pre-palette clients")
       limit: Int
       offset: Int
     ): GlobalSearchResult!

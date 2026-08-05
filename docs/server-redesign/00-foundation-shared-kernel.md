@@ -5,8 +5,11 @@
 > explicitly in its plan with rationale.
 >
 > **Scope:** the from-scratch redesign of the server's data-source modules on the
-> `dev` branch, served from the production database `transparenta_prod` (griffin,
-> `transparenta-eu-etl-prod`). It supersedes the monolithic `unified` exploration
+> `dev` branch, served from the production database `transparenta_prod` and
+> search services on Chronos (`transparenta-eu`). Local development uses the
+> guarded `chronos-prod-*` Tailscale services directly; Griffin tunnel references
+> elsewhere in these plans are dated evidence, not current access instructions.
+> It supersedes the monolithic `unified` exploration
 > module (preserved on `feat/unified-explorer`) with **one module per data source
 > over a shared kernel**, each exposing **REST + GraphQL + MCP**.
 

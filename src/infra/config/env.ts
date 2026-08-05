@@ -55,7 +55,7 @@ export const EnvSchema = Type.Object({
   BULLMQ_REDIS_PASSWORD: Type.Optional(Type.String()),
 
   // Redesign surface (module-per-source kernel) mounted on the legacy port.
-  // SECURITY/DEPLOY: defaults to false. Deployed legacy servers (no griffin-prod
+  // SECURITY/DEPLOY: defaults to false. Deployed legacy servers (no Chronos production
   // access) leave this unset, so the kernel is never built and `/api/v1/*` redesign
   // routes are never registered — identical behavior to before this flag existed.
   REDESIGN_SURFACE_ENABLED: Type.Optional(Type.Boolean({ default: false })),

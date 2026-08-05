@@ -1104,7 +1104,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
   // Optionally mount the redesign kernel surface on the SAME port (/api/v1/*)
   // ─────────────────────────────────────────────────────────────────────────────
   // Feature-flagged + fail-safe. Only when REDESIGN_SURFACE_ENABLED=true AND the
-  // redesign kernel config (griffin-prod) is provided — deployed legacy servers
+  // redesign kernel config (Chronos production) is provided — deployed legacy servers
   // satisfy neither, so this is a no-op there and the app is unchanged.
   //
   // Registered in an ENCAPSULATED child scope so its Mercurius instance lives in a
@@ -1112,7 +1112,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
   // is a plain plugin, so neither decorates the root). The surface reuses the legacy
   // global CORS (no second CORS) and is mounted with GraphiQL disabled to avoid a
   // duplicate `GET /graphiql` route. The kernel pg pool is lazy and Meili/OpenSearch
-  // capability probing degrades rather than throwing, so a down griffin does not fail
+  // capability probing degrades rather than throwing, so unavailable Chronos services do not fail
   // boot. The inner try/catch additionally guards any unexpected boot-time throw so
   // the legacy API always comes up.
   if (config.redesignSurface.enabled && deps.redesignKernelConfig !== undefined) {

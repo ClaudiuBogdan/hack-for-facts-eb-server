@@ -1,10 +1,15 @@
 # Server Redesign — Module-per-Source over a Shared Kernel
 
 Plans for a from-scratch rebuild of the server's data-source modules on the `dev`
-branch, served from the production database `transparenta_prod` (griffin,
-`transparenta-eu-etl-prod`). It supersedes the monolithic `unified` exploration
+branch, served from the production database `transparenta_prod` and search
+services on Chronos (`transparenta-eu`). Local development reaches the guarded
+`chronos-prod-*` Tailscale services directly; it does not use the retired Griffin
+localhost forwards. It supersedes the monolithic `unified` exploration
 module (preserved on `feat/unified-explorer`) with **one module per data source
 over a shared kernel**, each exposing **REST + GraphQL + MCP**.
+
+References below that name Griffin describe dated schema probes or historical
+deployment state. They are evidence timestamps, not current connection guidance.
 
 Authored 2026-06-16 by an orchestrated fleet: one planning subagent per data
 source (each grounded in the live prod schema + scrapper migrations + per-source
