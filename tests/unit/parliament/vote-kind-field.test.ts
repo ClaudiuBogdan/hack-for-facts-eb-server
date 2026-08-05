@@ -135,7 +135,11 @@ describe('ParliamentVote.voteLinks — the role, from the vote side', () => {
     const q = captured.find((c) => c.sql.includes('bill_vote_links'));
     expect(q).toBeDefined();
     expect(flat(q?.sql ?? '')).toContain('"bvl"."vote_key" = $1');
-    expect(q?.parameters).toEqual(['senat:DE89A4FC-E2E8-467B-B730-3DA7A0EEA476']);
+    expect(flat(q?.sql ?? '')).toContain('"bvl"."resolution_status" != $2');
+    expect(q?.parameters).toEqual([
+      'senat:DE89A4FC-E2E8-467B-B730-3DA7A0EEA476',
+      'retracted',
+    ]);
     // The role is the point of the field; selecting the edge without it would
     // leave the caller exactly where billKey already left them.
     expect(flat(q?.sql ?? '')).toContain('"bvl"."role"');
