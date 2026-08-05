@@ -574,15 +574,15 @@ const objectsAndQuery = /* GraphQL */ `
     isCanonical: Boolean!
     "On a non-canonical (suppressed) twin, the canonical CDep bill_key to redirect to; null on a canonical bill."
     canonicalBillKey: String
-    "Dossier completeness (2026-07-22): on the parliamentBill dossier read, every bill_key whose children are merged into events/documents/initiators/relatedVotes/actLinks/voteLinks — the requested view plus its resolved-pair navetă twin. [billKey] alone when the bill has no accepted twin (incl. ambiguous dup-review groups, which are never blended). null when the bill was reached outside the dossier read (e.g. list rows), where children are per-view."
+    "Dossier completeness (2026-07-22; root-independent since 2026-08-05): every bill_key whose children are merged into events/documents/initiators/relatedVotes/actLinks/voteLinks — the requested view plus its resolved-pair navetă twin. [billKey] alone when the bill has no accepted twin (incl. ambiguous dup-review groups, which are never blended). Resolves on EVERY parent path (dossier root, list rows, voteLinks.bill), matching the child fields, which are always the dossier union."
     dossierBillKeys: [String!]
     events: [ParliamentBillEvent!]!
     documents: [ParliamentBillDocument!]!
     initiators: [ParliamentMember!]!
-    "DEPRECATED — use voteLinks. relatedVotes is 'votes WHERE bill_key = this bill' only: it drops the cross-chamber vote twin (stored under the other chamber's bill key) and carries no role/resolutionStatus."
+    "DEPRECATED — use voteLinks. Since 2026-08-05 relatedVotes reads the accepted dossier view set (requested view + resolved-pair twin) on every parent path, so it no longer drops a twin's own divisions. It still shows only votes whose votes.bill_key points at one of those views — a division linked only through bill_vote_links, or sitting under an unresolved/ambiguous twin group, is still absent — and it still carries no role/resolutionStatus."
     relatedVotes: [ParliamentVote!]!
       @deprecated(
-        reason: "Use voteLinks (role-bearing, cross-chamber). relatedVotes omits the cross-chamber vote twin and has no role/resolutionStatus."
+        reason: "Use voteLinks (role-bearing). relatedVotes misses divisions linked only via bill_vote_links and has no role/resolutionStatus, so it cannot distinguish a final-adoption division from a procedural one."
       )
     actLinks: [ParliamentBillActLink!]!
     voteLinks: [ParliamentBillVoteLink!]!

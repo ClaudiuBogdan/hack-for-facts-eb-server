@@ -42,6 +42,12 @@ import {
 import {
   dataQualityCandidates,
   getBillDossier,
+  getBillDossierActLinks,
+  getBillDossierDocuments,
+  getBillDossierEvents,
+  getBillDossierInitiators,
+  getBillDossierRelatedVotes,
+  getBillDossierVoteLinks,
   getCommittee,
   getDataFreshness,
   getLineageForAct,
@@ -63,6 +69,8 @@ import {
   normalizeSpeechQ,
   getVoteBallots,
   listBills,
+  makeBillChildReadScope,
+  type BillChildReadScope,
   listCommittees,
   listControlItems,
   listGroups,
@@ -162,6 +170,24 @@ const sansNull = (filter: FilterInput | undefined): FilterInput => {
 
 export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<string, unknown> => {
   const { legalActLoader } = deps;
+  /**
+   * Request-scoped lazy bill-child read scopes (M2/B-F19). Mercurius builds one
+   * context object per request, so keying on it gives every lazy child read in
+   * a response ONE bounded start-gate and ONE memoized view-key resolution per
+   * billKey. Keyed on the parent bill object when the context is unusable
+   * (unit harnesses call fields without one) — still coalesced per bill.
+   * WeakMap: scopes die with their request/parent, never accumulate.
+   */
+  const billChildScopes = new WeakMap<object, BillChildReadScope>();
+  const scopeFor = (ctx: unknown, parent: object): BillChildReadScope => {
+    const key = typeof ctx === 'object' && ctx !== null ? ctx : parent;
+    let scope = billChildScopes.get(key);
+    if (scope === undefined) {
+      scope = makeBillChildReadScope(deps);
+      billChildScopes.set(key, scope);
+    }
+    return scope;
+  };
   /** The stenogram usecases take the search port alongside the repo. */
   const stenogramDeps: ParliamentStenogramUsecaseDeps = {
     repo: deps.repo,
@@ -868,30 +894,73 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
     },
 
     ParliamentBill: {
-      events: async (parent: { billKey: string; events?: unknown }) =>
+      // M2/B-F19 (2026-08-05): lazy fallbacks read the SAME dossier view set as
+      // the `parliamentBill` root (requested view + accepted navetă twin), so a
+      // child field means the same thing on every parent path — a bill reached
+      // from the bills list, `voteLinks.bill`, or an initiative no longer serves
+      // a direct-key subset (previously an EMPTY vote list on 3,276 canonical
+      // bills whose votes sit on the suppressed twin). All lazy reads in one
+      // request share a `BillChildReadScope` keyed on the mercurius per-request
+      // context: one bounded gate (GraphQL fans these out across every list row
+      // at once) and one memoized view-key read per billKey (so dossierBillKeys
+      // and the children it describes come from a single snapshot). When no
+      // usable context exists (unit harnesses), the scope falls back to the
+      // parent object — still coalesced and bounded per bill.
+      events: async (parent: { billKey: string; events?: unknown }, _a: unknown, ctx: unknown) =>
         parent.events !== undefined
           ? parent.events
-          : unwrap(await deps.repo.getBillEvents(parent.billKey)),
-      documents: async (parent: { billKey: string; documents?: unknown }) =>
+          : unwrap(await getBillDossierEvents(deps, scopeFor(ctx, parent), parent.billKey)),
+      documents: async (
+        parent: { billKey: string; documents?: unknown },
+        _a: unknown,
+        ctx: unknown
+      ) =>
         parent.documents !== undefined
           ? parent.documents
-          : unwrap(await deps.repo.getBillDocuments(parent.billKey)),
-      initiators: async (parent: { billKey: string; initiators?: unknown }) =>
+          : unwrap(await getBillDossierDocuments(deps, scopeFor(ctx, parent), parent.billKey)),
+      initiators: async (
+        parent: { billKey: string; initiators?: unknown },
+        _a: unknown,
+        ctx: unknown
+      ) =>
         parent.initiators !== undefined
           ? parent.initiators
-          : unwrap(await deps.repo.getBillInitiators(parent.billKey)),
-      relatedVotes: async (parent: { billKey: string; relatedVotes?: unknown }) =>
+          : unwrap(await getBillDossierInitiators(deps, scopeFor(ctx, parent), parent.billKey)),
+      relatedVotes: async (
+        parent: { billKey: string; relatedVotes?: unknown },
+        _a: unknown,
+        ctx: unknown
+      ) =>
         parent.relatedVotes !== undefined
           ? parent.relatedVotes
-          : unwrap(await deps.repo.listVotesForBill(parent.billKey)),
-      actLinks: async (parent: { billKey: string; actLinks?: unknown }) =>
+          : unwrap(await getBillDossierRelatedVotes(deps, scopeFor(ctx, parent), parent.billKey)),
+      actLinks: async (
+        parent: { billKey: string; actLinks?: unknown },
+        _a: unknown,
+        ctx: unknown
+      ) =>
         parent.actLinks !== undefined
           ? parent.actLinks
-          : unwrap(await deps.repo.getBillActLinks(parent.billKey)),
-      voteLinks: async (parent: { billKey: string; voteLinks?: unknown }) =>
+          : unwrap(await getBillDossierActLinks(deps, scopeFor(ctx, parent), parent.billKey)),
+      voteLinks: async (
+        parent: { billKey: string; voteLinks?: unknown },
+        _a: unknown,
+        ctx: unknown
+      ) =>
         parent.voteLinks !== undefined
           ? parent.voteLinks
-          : unwrap(await deps.repo.getBillVoteLinks(parent.billKey)),
+          : unwrap(await getBillDossierVoteLinks(deps, scopeFor(ctx, parent), parent.billKey)),
+      // Root-independent since the M2 fix: resolves lazily off any parent, so a
+      // client can always see WHICH views the children above were merged from —
+      // through the same scope memo, so it reports the snapshot actually used.
+      dossierBillKeys: async (
+        parent: { billKey: string; dossierBillKeys?: unknown },
+        _a: unknown,
+        ctx: unknown
+      ) =>
+        parent.dossierBillKeys !== undefined
+          ? parent.dossierBillKeys
+          : unwrap(await scopeFor(ctx, parent).viewKeys(parent.billKey)),
       // B1: lazy — NON-AUTHORITATIVE AI metadata, only fetched when explicitly selected.
       aiMetadata: async (parent: { billKey: string }) =>
         unwrap(await deps.repo.findBillAiMetadata(parent.billKey)),

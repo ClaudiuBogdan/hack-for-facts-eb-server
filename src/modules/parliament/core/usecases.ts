@@ -256,6 +256,67 @@ export const listBills = (
     normalizeOffset(input.page.page, input.page.pageSize)
   );
 
+/**
+ * The six dossier child families — read + merge law per family, defined ONCE
+ * and consumed by BOTH the eager `getBillDossier` and the lazy per-family
+ * readers below, so the two paths cannot drift.
+ *
+ * Merge laws (panel-locked, 2026-07-22): events / documents / act-links /
+ * vote-links stay source-qualified OBSERVATIONS — concatenated per view
+ * (requested view first), never value-deduplicated; relatedVotes deduplicate
+ * by stable vote_key (the same voting event may be linked from both views);
+ * initiators deduplicate by mandate_key (same member mentioned in both views).
+ * Concatenation order and dedupe-keeps-first both ride on
+ * `getBillDossierViewKeys` returning the requested view first.
+ */
+const dedupeBy = <T>(rows: readonly T[], keyOf: (row: T) => string): readonly T[] => {
+  const seen = new Set<string>();
+  return rows.filter((row) => {
+    if (seen.has(keyOf(row))) return false;
+    seen.add(keyOf(row));
+    return true;
+  });
+};
+
+const concatObservations = <T>(rows: readonly T[]): readonly T[] => rows;
+
+interface BillChildFamily<T> {
+  readonly read: (
+    deps: ParliamentUsecaseDeps,
+    viewKey: string
+  ) => Promise<Result<readonly T[], ApiError>>;
+  readonly merge: (rows: readonly T[]) => readonly T[];
+}
+
+const billChildFamily = <T>(spec: BillChildFamily<T>): BillChildFamily<T> => spec;
+
+const BILL_CHILD_FAMILIES = {
+  events: billChildFamily({
+    read: (deps, k) => deps.repo.getBillEvents(k),
+    merge: concatObservations,
+  }),
+  documents: billChildFamily({
+    read: (deps, k) => deps.repo.getBillDocuments(k),
+    merge: concatObservations,
+  }),
+  initiators: billChildFamily({
+    read: (deps, k) => deps.repo.getBillInitiators(k),
+    merge: (rows) => dedupeBy(rows, (m) => m.mandateKey),
+  }),
+  relatedVotes: billChildFamily({
+    read: (deps, k) => deps.repo.listVotesForBill(k),
+    merge: (rows) => dedupeBy(rows, (vote) => vote.voteKey),
+  }),
+  actLinks: billChildFamily({
+    read: (deps, k) => deps.repo.getBillActLinks(k),
+    merge: concatObservations,
+  }),
+  voteLinks: billChildFamily({
+    read: (deps, k) => deps.repo.getBillVoteLinks(k),
+    merge: concatObservations,
+  }),
+} as const;
+
 export const getBillDossier = async (
   deps: ParliamentUsecaseDeps,
   billKey: string
@@ -279,15 +340,16 @@ export const getBillDossier = async (
   // only, at DOSSIER_CHILD_READ_CONCURRENCY; every read below still runs to completion,
   // in the same tuple positions, so the merge and first-error-wins scan are untouched.
   const gate = makeConcurrencyGate(DOSSIER_CHILD_READ_CONCURRENCY);
+  const fam = BILL_CHILD_FAMILIES;
   const perView = await Promise.all(
     viewBillKeys.map((k) =>
       Promise.all([
-        gate(() => deps.repo.getBillEvents(k)),
-        gate(() => deps.repo.getBillDocuments(k)),
-        gate(() => deps.repo.getBillInitiators(k)),
-        gate(() => deps.repo.listVotesForBill(k)),
-        gate(() => deps.repo.getBillActLinks(k)),
-        gate(() => deps.repo.getBillVoteLinks(k)),
+        gate(() => fam.events.read(deps, k)),
+        gate(() => fam.documents.read(deps, k)),
+        gate(() => fam.initiators.read(deps, k)),
+        gate(() => fam.relatedVotes.read(deps, k)),
+        gate(() => fam.actLinks.read(deps, k)),
+        gate(() => fam.voteLinks.read(deps, k)),
       ])
     )
   );
@@ -296,32 +358,13 @@ export const getBillDossier = async (
       if (r.isErr()) return err(r.error);
     }
   }
-  // Merge laws per child family (panel-locked aggregation rules):
-  //  - events/documents/act-links/vote-links stay source-qualified OBSERVATIONS —
-  //    concatenated per view (requested view first), never value-deduplicated;
-  //  - relatedVotes deduplicate by stable vote_key (the same voting event may be
-  //    linked from both views);
-  //  - initiators deduplicate by mandate_key (same member mentioned in both views).
-  const events = perView.flatMap((v) => v[0]._unsafeUnwrap());
-  const documents = perView.flatMap((v) => v[1]._unsafeUnwrap());
-  const seenMandates = new Set<string>();
-  const initiators = perView
-    .flatMap((v) => v[2]._unsafeUnwrap())
-    .filter((m) => {
-      if (seenMandates.has(m.mandateKey)) return false;
-      seenMandates.add(m.mandateKey);
-      return true;
-    });
-  const seenVotes = new Set<string>();
-  const relatedVotes = perView
-    .flatMap((v) => v[3]._unsafeUnwrap())
-    .filter((vote) => {
-      if (seenVotes.has(vote.voteKey)) return false;
-      seenVotes.add(vote.voteKey);
-      return true;
-    });
-  const actLinks = perView.flatMap((v) => v[4]._unsafeUnwrap());
-  const voteLinks = perView.flatMap((v) => v[5]._unsafeUnwrap());
+  // Merge laws per child family — see BILL_CHILD_FAMILIES for the locked rules.
+  const events = fam.events.merge(perView.flatMap((v) => v[0]._unsafeUnwrap()));
+  const documents = fam.documents.merge(perView.flatMap((v) => v[1]._unsafeUnwrap()));
+  const initiators = fam.initiators.merge(perView.flatMap((v) => v[2]._unsafeUnwrap()));
+  const relatedVotes = fam.relatedVotes.merge(perView.flatMap((v) => v[3]._unsafeUnwrap()));
+  const actLinks = fam.actLinks.merge(perView.flatMap((v) => v[4]._unsafeUnwrap()));
+  const voteLinks = fam.voteLinks.merge(perView.flatMap((v) => v[5]._unsafeUnwrap()));
 
   return ok({
     viewBillKeys,
@@ -337,6 +380,106 @@ export const getBillDossier = async (
     voteLinks,
   });
 };
+
+/**
+ * Per-family dossier-union readers (M2/B-F19 readiness fix, 2026-08-05).
+ *
+ * The lazy `ParliamentBill` field resolvers used to fall back to a DIRECT-KEY
+ * read while the `parliamentBill` root serves the dossier union — one GraphQL
+ * field, root-dependent semantics. That mattered: 10,171 of 18,009 linked
+ * vote edges sit on suppressed navetă twins, so a direct-key read on 3,276
+ * canonical bills returned an empty vote list whose dossier has votes.
+ *
+ * These readers give every parent path (bills list rows, `voteLinks.bill`,
+ * `ParliamentInitiative.bill`, …) the SAME accepted view set and the SAME
+ * merge laws as `getBillDossier` (BILL_CHILD_FAMILIES above).
+ *
+ * Every read runs through a `BillChildReadScope` — GraphQL fans field
+ * resolvers out across EVERY list row concurrently, so without a shared bound
+ * a shallow public query (`parliamentBills(pageSize:100)` or
+ * `parliamentCommittee.linkedBills` at 200 rows, × up to 2 views × families)
+ * schedules hundreds of statements at once against a pool of 15 — the exact
+ * class of the 2026-07-26 connection-exhaustion incident the dossier gate was
+ * built for. The scope carries ONE start-throttling gate for all lazy child
+ * reads in a request, and memoizes `getBillDossierViewKeys` per billKey so
+ * the seven fields of one bill share a single view-set snapshot — which also
+ * keeps `dossierBillKeys` consistent with the children it describes (the
+ * canonical derive rewrites dup groups between statements on sync nights).
+ */
+export interface BillChildReadScope {
+  readonly run: <T>(task: () => Promise<T>) => Promise<T>;
+  readonly viewKeys: (billKey: string) => Promise<Result<readonly string[], ApiError>>;
+}
+
+export const makeBillChildReadScope = (deps: ParliamentUsecaseDeps): BillChildReadScope => {
+  const run = makeConcurrencyGate(DOSSIER_CHILD_READ_CONCURRENCY);
+  const memo = new Map<string, Promise<Result<readonly string[], ApiError>>>();
+  return {
+    run,
+    viewKeys: (billKey) => {
+      const hit = memo.get(billKey);
+      if (hit !== undefined) return hit;
+      const created = run(() => deps.repo.getBillDossierViewKeys(billKey));
+      memo.set(billKey, created);
+      return created;
+    },
+  };
+};
+
+const readBillChildFamily = async <T>(
+  deps: ParliamentUsecaseDeps,
+  scope: BillChildReadScope,
+  billKey: string,
+  family: BillChildFamily<T>
+): Promise<Result<readonly T[], ApiError>> => {
+  const keysRes = await scope.viewKeys(billKey);
+  if (keysRes.isErr()) return err(keysRes.error);
+  const perView = await Promise.all(
+    keysRes.value.map((k) => scope.run(() => family.read(deps, k)))
+  );
+  const rows: T[] = [];
+  for (const r of perView) {
+    if (r.isErr()) return err(r.error);
+    rows.push(...r.value);
+  }
+  return ok(family.merge(rows));
+};
+
+export const getBillDossierEvents = (
+  deps: ParliamentUsecaseDeps,
+  scope: BillChildReadScope,
+  billKey: string
+) => readBillChildFamily(deps, scope, billKey, BILL_CHILD_FAMILIES.events);
+
+export const getBillDossierDocuments = (
+  deps: ParliamentUsecaseDeps,
+  scope: BillChildReadScope,
+  billKey: string
+) => readBillChildFamily(deps, scope, billKey, BILL_CHILD_FAMILIES.documents);
+
+export const getBillDossierInitiators = (
+  deps: ParliamentUsecaseDeps,
+  scope: BillChildReadScope,
+  billKey: string
+) => readBillChildFamily(deps, scope, billKey, BILL_CHILD_FAMILIES.initiators);
+
+export const getBillDossierRelatedVotes = (
+  deps: ParliamentUsecaseDeps,
+  scope: BillChildReadScope,
+  billKey: string
+) => readBillChildFamily(deps, scope, billKey, BILL_CHILD_FAMILIES.relatedVotes);
+
+export const getBillDossierActLinks = (
+  deps: ParliamentUsecaseDeps,
+  scope: BillChildReadScope,
+  billKey: string
+) => readBillChildFamily(deps, scope, billKey, BILL_CHILD_FAMILIES.actLinks);
+
+export const getBillDossierVoteLinks = (
+  deps: ParliamentUsecaseDeps,
+  scope: BillChildReadScope,
+  billKey: string
+) => readBillChildFamily(deps, scope, billKey, BILL_CHILD_FAMILIES.voteLinks);
 
 // ── votes / records ──────────────────────────────────────────────────────────
 
@@ -1272,7 +1415,10 @@ export const getLineageForAct = async (
   }
 
   // M15: caveats now carry real coverage signals (were empty for every act with a
-  // lineage). They let a consumer reconcile this view with the unfiltered bill.voteLinks.
+  // lineage). They let a consumer APPROXIMATELY reconcile this view with
+  // bill.voteLinks — that field is looser on two axes: it is the dossier
+  // view-set union (both views of a resolved pair) and it excludes only
+  // 'retracted', while lineage votes are act-scoped and strictly 'linked'.
   const caveats: string[] = [];
   if (allLinked.length === 0) {
     caveats.push('No vote is linked for this act (lineage covers the dense-vote era ~2016+).');

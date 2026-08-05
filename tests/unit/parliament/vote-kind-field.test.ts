@@ -135,6 +135,9 @@ describe('ParliamentVote.voteLinks — the role, from the vote side', () => {
     const q = captured.find((c) => c.sql.includes('bill_vote_links'));
     expect(q).toBeDefined();
     expect(flat(q?.sql ?? '')).toContain('"bvl"."vote_key" = $1');
+    // Retracted edges are claims we have WITHDRAWN — excluded on every active
+    // read (2026-08-04), while candidate/ambiguous edges stay surfaced with
+    // their resolutionStatus intact.
     expect(flat(q?.sql ?? '')).toContain('"bvl"."resolution_status" != $2');
     expect(q?.parameters).toEqual([
       'senat:DE89A4FC-E2E8-467B-B730-3DA7A0EEA476',

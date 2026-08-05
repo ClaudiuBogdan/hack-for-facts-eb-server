@@ -1469,12 +1469,23 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
       const rows = await db
         .selectFrom('parliament.bills as b')
         .select(['b.bill_key', 'b.is_canonical'])
+        // dup_review is deliberately UNBOUND in ParliamentBillsTable (internal
+        // dedup provenance) — read it as a raw expression, not a binding.
+        .select(sql<string | null>`b.dup_review`.as('dup_review'))
         .where(
           sql<SqlBool>`b.dup_group_id is not null and b.dup_group_id = (select b2.dup_group_id from parliament.bills b2 where b2.bill_key = ${billKey})`
         )
         .execute();
       const canonicalCount = rows.filter((r) => r.is_canonical).length;
-      if (rows.length === 2 && canonicalCount === 1) {
+      // A review mark on ANY member quarantines the WHOLE group. This makes the
+      // "dup-review groups are never blended" promise self-enforcing rather
+      // than incidental: today only `multi_senate` groups carry a mark and they
+      // already fail the pair rule (measured 2026-08-05: 19,078 blending
+      // pairs, 0 reviewed; 46 reviewed groups, none pair-shaped), but the
+      // CHECK also reserves `law_inconsistent`, and a future 2-row group with
+      // that mark and one canonical row would blend silently without this.
+      const underReview = rows.some((r) => r.dup_review !== null);
+      if (rows.length === 2 && canonicalCount === 1 && !underReview) {
         // Requested view first so downstream merges keep a stable anchor.
         const keys = rows.map((r) => r.bill_key);
         return ok([billKey, ...keys.filter((k) => k !== billKey)]);
