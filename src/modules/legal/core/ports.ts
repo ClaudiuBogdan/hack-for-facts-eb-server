@@ -203,4 +203,26 @@ export interface LegalRetrievalRepo {
     qVec: readonly number[] | null,
     q: LegalRetrievalQuery
   ): Promise<Result<readonly LegalDocHit[], ApiError>>;
+  /**
+   * Hydrate ENGINE-selected section keys (OpenSearch answers keys-only, so every
+   * value the reader sees still comes from Postgres).
+   *
+   * This applies the SAME serving gates the SQL paths do — canonical-document
+   * only, and no `suspicious` summary — so a key the engine surfaced but the
+   * database refuses is ABSENT from the returned map rather than served. The
+   * caller counts what it asked for versus what came back; a silent drop would
+   * shorten a result page with no one the wiser.
+   *
+   * Keyed by `sectionFusionKey(documentId, sectionKey)` — the one encoding
+   * shared by the engine legs, the fusion and this lookup.
+   */
+  hydrateSections(
+    keys: readonly LegalSectionKey[]
+  ): Promise<Result<ReadonlyMap<string, LegalSectionHit>, ApiError>>;
+}
+
+/** One section address as the engine emits it. */
+export interface LegalSectionKey {
+  readonly documentId: string;
+  readonly sectionKey: string;
 }

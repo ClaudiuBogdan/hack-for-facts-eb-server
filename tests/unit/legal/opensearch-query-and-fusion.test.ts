@@ -9,7 +9,12 @@ import {
   HIGHLIGHT_OPEN,
   type LegalEngineFilter,
 } from '@/modules/legal/core/legal-opensearch-query.js';
-import { rrfFuse, RRF_K_DEFAULT } from '@/modules/legal/core/legal-search-fusion.js';
+import {
+  parseSectionFusionKey,
+  rrfFuse,
+  sectionFusionKey,
+  RRF_K_DEFAULT,
+} from '@/modules/legal/core/legal-search-fusion.js';
 
 describe('compileLegalFilter', () => {
   it('always includes the privacy gate, even on an empty filter', () => {
@@ -123,5 +128,33 @@ describe('rrfFuse', () => {
 
   it('fuses nothing to nothing', () => {
     expect(rrfFuse([])).toEqual([]);
+  });
+});
+
+describe('section fusion keys', () => {
+  // Built, never typed: a literal NUL has no business in a source file.
+  const NUL = String.fromCharCode(0);
+
+  it('round-trips a two-column section address', () => {
+    const key = sectionFusionKey('100023', 'art-5-alin-2');
+    expect(parseSectionFusionKey(key)).toEqual({
+      documentId: '100023',
+      sectionKey: 'art-5-alin-2',
+    });
+  });
+
+  it('survives a section key containing every plausible separator but NUL', () => {
+    // Real section keys carry dots, colons, slashes and spaces; if any of those
+    // were the separator, hydration would look up a truncated address and drop
+    // the hit — silently, since a missing key just shortens the page.
+    const nasty = 'anexa 1/cap. II:art. 3^1 - lit. a)';
+    const parsed = parseSectionFusionKey(sectionFusionKey('999', nasty));
+    expect(parsed).toEqual({ documentId: '999', sectionKey: nasty });
+  });
+
+  it('refuses a key that is not a section address', () => {
+    expect(parseSectionFusionKey('100023')).toBeNull();
+    expect(parseSectionFusionKey(`${NUL}art-1`)).toBeNull();
+    expect(parseSectionFusionKey(`100023${NUL}`)).toBeNull();
   });
 });

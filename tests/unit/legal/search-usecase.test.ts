@@ -79,6 +79,11 @@ const makeDeps = (over: {
       searchDocs:
         over.searchDocs ??
         (async (): Promise<Result<readonly LegalDocHit[], ApiError>> => ok(docs)),
+      // The SQL search paths never hydrate engine keys — a call here would mean
+      // the usecase took the engine branch, which these tests do not exercise.
+      hydrateSections: () => {
+        throw new Error('hydrateSections is not under test');
+      },
     },
     acts: {
       getActCard:

@@ -14,6 +14,24 @@
 
 export const RRF_K_DEFAULT = 60;
 
+/**
+ * A section is identified by TWO columns, and three separate places have to
+ * agree on how they become one fusion key: the engine legs that emit it, the
+ * fusion that ranks it, and the hydration that looks it back up. One encoding,
+ * defined here. NUL is the separator because it cannot occur in either column.
+ */
+export const sectionFusionKey = (documentId: string, sectionKey: string): string =>
+  `${documentId}\u0000${sectionKey}`;
+
+/** Inverse of {@link sectionFusionKey}; null when the key is not a section key. */
+export const parseSectionFusionKey = (
+  key: string
+): { documentId: string; sectionKey: string } | null => {
+  const at = key.indexOf('\u0000');
+  if (at <= 0 || at === key.length - 1) return null;
+  return { documentId: key.slice(0, at), sectionKey: key.slice(at + 1) };
+};
+
 export interface FusionLeg<TKey extends string = string> {
   /** Which engine leg produced this ranking (diagnostic, carried to hits). */
   readonly leg: string;

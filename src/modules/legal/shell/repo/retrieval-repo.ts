@@ -29,9 +29,10 @@ import {
 } from '@/modules/shared/index.js';
 
 import { mapAct, mapSummary, toStatus, type ActRow } from './mappers.js';
+import { sectionFusionKey } from '../../core/legal-search-fusion.js';
 import { legalActsSpec } from '../filters/legal-acts.spec.js';
 
-import type { LegalRetrievalQuery, LegalRetrievalRepo } from '../../core/ports.js';
+import type { LegalRetrievalQuery, LegalRetrievalRepo, LegalSectionKey } from '../../core/ports.js';
 import type { LegalDocHit, LegalSectionHit } from '../../core/types.js';
 
 type Db = Kysely<ProdDatabase>;
@@ -232,7 +233,59 @@ export const makeLegalRetrievalRepo = (db: Db): LegalRetrievalRepo => {
     }
   };
 
-  return { searchSections, searchDocs };
+  /**
+   * Engine-hit hydration. Reads the section catalogue from
+   * `legal.section_embeddings` — today that IS the catalogue (it is the only
+   * prod table carrying `section_key` + `node_path`), which is why the SQL
+   * paths above join it too; if a dedicated sections table ever lands, this is
+   * the one place to repoint.
+   *
+   * The canonical-only join is NOT optional: 1,764 non-canonical documents
+   * carry section rows, and serving one presents a superseded expression as
+   * the act's text.
+   */
+  const hydrateSections = async (
+    keys: readonly LegalSectionKey[]
+  ): Promise<Result<ReadonlyMap<string, LegalSectionHit>, ApiError>> => {
+    if (keys.length === 0) return ok(new Map());
+    const documentIds = keys.map((k) => k.documentId);
+    const sectionKeys = keys.map((k) => k.sectionKey);
+    try {
+      const rows = await db.transaction().execute(async (trx) => {
+        await sql`set local statement_timeout = ${sql.lit(STMT_TIMEOUT_MS)}`.execute(trx);
+        const r = await sql<SectionHitRow>`
+          select se.document_id, se.section_key, se.article_number, se.node_path,
+                 0::float8 as dist,
+                 a.act_id, a.display_citation, a.status,
+                 n.label as node_label, n.char_start, n.char_end,
+                 s.summary, s.plain_language_summary, s.source_extraction_status
+          from unnest(${documentIds}::text[], ${sectionKeys}::text[])
+               as k(document_id, section_key)
+          join legal.section_embeddings se
+            on se.document_id = k.document_id
+           and se.section_key = k.section_key
+           and se.config_key = ${SECTION_CONFIG}
+          join legal.acts a on a.canonical_document_id = se.document_id
+          join legal.act_documents d
+            on d.document_id = se.document_id and d.is_canonical
+          left join legal.document_summaries s on s.document_id = se.document_id
+          left join legal.document_nodes n
+            on n.document_id = se.document_id and n.path = se.node_path
+          where (s.source_extraction_status is distinct from 'suspicious')
+        `.execute(trx);
+        return r.rows;
+      });
+      return ok(
+        new Map(
+          rows.map((row) => [sectionFusionKey(row.document_id, row.section_key), toSectionHit(row)])
+        )
+      );
+    } catch (error) {
+      return err(databaseError('hydrateSections failed', error));
+    }
+  };
+
+  return { searchSections, searchDocs, hydrateSections };
 };
 
 // ── row shapes + mappers ──────────────────────────────────────────────────────
