@@ -444,8 +444,45 @@ export const registerRedesignSurface = async (
     // prefix; discover the model id from the synthetic client (env override wins).
     const embedRes = await kernel.clients.syntheticClient.discoverEmbeddingModel();
     const embeddingModel = embedRes.isOk() ? embedRes.value : 'nomic-embed-text-v1.5';
+    // The legal search engine. Same discipline as procurement: the connection
+    // may come from the kernel-wide PROD_OPENSEARCH_* settings, but the path is
+    // NEVER enabled implicitly — it turns on only when the aliases are named in
+    // LEGAL_SEARCH_OPENSEARCH_ACTS_INDEX / _SECTIONS_INDEX. With no acts alias
+    // legalSearch answers from Postgres and reports engine: 'postgres'; with no
+    // sections alias the sections channel degrades with a stated caveat rather
+    // than disappearing. TLS: *_CA_FILE pins the private CA and *_TLS_SERVERNAME
+    // must be a cert SAN (a port-forwarded localhost host is not one).
+    const legalEnv = (dedicated: string, shared: string): string | undefined =>
+      process.env[`LEGAL_SEARCH_OPENSEARCH_${dedicated}`] ?? process.env[shared];
+    const legalSearchUrl = legalEnv('URL', 'PROD_OPENSEARCH_URL');
+    const legalActsIndex = process.env['LEGAL_SEARCH_OPENSEARCH_ACTS_INDEX'];
+    const legalSectionsIndex = process.env['LEGAL_SEARCH_OPENSEARCH_SECTIONS_INDEX'];
+    const legalSearchCaFile = legalEnv('CA_FILE', 'PROD_OPENSEARCH_CA_FILE');
+    const legalSearchUser = legalEnv('USERNAME', 'PROD_OPENSEARCH_USERNAME');
+    const legalSearchPassword = legalEnv('PASSWORD', 'PROD_OPENSEARCH_PASSWORD');
+    const legalSearchServername = legalEnv('TLS_SERVERNAME', 'PROD_OPENSEARCH_TLS_SERVERNAME');
+    const legalSearchEnabled =
+      legalSearchUrl !== undefined &&
+      legalSearchUrl !== '' &&
+      ((legalActsIndex !== undefined && legalActsIndex !== '') ||
+        (legalSectionsIndex !== undefined && legalSectionsIndex !== ''));
+
     const legal = await makeLegalModule({
       db: kernel.db,
+      ...(legalSearchEnabled && {
+        searchEngine: {
+          url: legalSearchUrl,
+          ...(legalActsIndex !== undefined &&
+            legalActsIndex !== '' && { actsIndex: legalActsIndex }),
+          ...(legalSectionsIndex !== undefined &&
+            legalSectionsIndex !== '' && { sectionsIndex: legalSectionsIndex }),
+          ...(legalSearchUser !== undefined && { username: legalSearchUser }),
+          ...(legalSearchPassword !== undefined && { password: legalSearchPassword }),
+          ...(legalSearchCaFile !== undefined &&
+            legalSearchCaFile !== '' && { caCert: readFileSync(legalSearchCaFile, 'utf8') }),
+          ...(legalSearchServername !== undefined && { tlsServername: legalSearchServername }),
+        },
+      }),
       meiliClient: kernel.clients.meiliClient,
       openSearchClient: kernel.clients.openSearchClient,
       synthetic: kernel.clients.syntheticClient,

@@ -32,6 +32,10 @@ import { makeLegalActLoader } from './shell/loader/legal-act-loader.js';
 import { makeLegalMcpTools } from './shell/mcp/tools.js';
 import { makeLegalActsRepo } from './shell/repo/acts-repo.js';
 import { makeLegalGraphRepo } from './shell/repo/graph-repo.js';
+import {
+  makeLegalSearchEngine,
+  type LegalEngineConfig,
+} from './shell/repo/opensearch-legal-repo.js';
 import { makeLegalOutlineRepo } from './shell/repo/outline-repo.js';
 import { makeLegalRenderRepo } from './shell/repo/render-repo.js';
 import { makeLegalRetrievalRepo } from './shell/repo/retrieval-repo.js';
@@ -82,6 +86,12 @@ export interface LegalModuleDeps {
   /** The discovered/overridden embedding model id (nomic; `search_query:` prefix). */
   readonly embeddingModel: string;
   readonly clientBaseUrl?: string;
+  /**
+   * The OpenSearch search engine. Absent = this deployment has no legal index
+   * and `legalSearch` answers from Postgres, saying so through its `engine`
+   * field. Never enabled implicitly: the caller has to name the aliases.
+   */
+  readonly searchEngine?: LegalEngineConfig;
   readonly logger?: LegalModuleLogger;
 }
 
@@ -142,9 +152,12 @@ export const makeLegalModule = async (deps: LegalModuleDeps): Promise<LegalModul
   });
 
   // 4. usecase dep bundles (shared by GraphQL + MCP — tri-surface equivalence).
+  const engine =
+    deps.searchEngine === undefined ? undefined : makeLegalSearchEngine(deps.searchEngine);
   const searchDeps: LegalSearchDeps = {
     retrieval,
     acts,
+    ...(engine !== undefined && { engine }),
     synthetic: deps.synthetic,
     capabilities: deps.capabilities,
     embeddingModel: deps.embeddingModel,

@@ -293,6 +293,18 @@ const objectsAndQuery = /* GraphQL */ `
     acts: [LegalDocHit!]!
     sections: [LegalSectionHit!]!
     caveats: [String!]!
+    "WHICH path answered: 'opensearch' | 'postgres'. The two have different guarantees — the engine knows real totals, the Postgres path only ever returns a bounded slice — so the client is told rather than left to assume."
+    engine: String!
+    "Real match count for the acts channel; NULL when the answering path cannot count (never the page size)."
+    actsTotal: Int
+    "Real match count for the sections channel; NULL when that channel did not run or cannot count."
+    sectionsTotal: Int
+    "False when a total is a lower bound, or when the path cannot count at all."
+    totalsExhaustive: Boolean!
+    "True when a leg the request wanted could not run (missing index, embedder down). caveats says which, in Romanian."
+    degraded: Boolean!
+    "Index build stamp (_meta.built_at) behind the answer; null on the Postgres path."
+    asOf: String
   }
 
   type LegalActConnection {
@@ -325,7 +337,7 @@ const objectsAndQuery = /* GraphQL */ `
       first: Int = 20
       after: String
     ): LegalActConnection!
-    "Retrieval (v1): identifier router (citation→act) → pgvector HNSW when the legal semantic gate is on, else a bounded Postgres lexical fallback. Engine RRF fusion (Meili + OpenSearch BM25) is planned, not yet wired."
+    "Retrieval: identifier router (citation→act) first; then the OpenSearch engine when this deployment has an index — BM25 over legal-acts/legal-sections fused with the section kNN leg by app-layer RRF, keys-only, hydrated from Postgres. Without an index the bounded Postgres path answers and says so via the engine field. An engine that FAILS errors; it is never silently replaced by a lexical scan. A filter the engine cannot express is refused, not widened."
     legalSearch(
       q: String!
       filter: LegalActsFilter
