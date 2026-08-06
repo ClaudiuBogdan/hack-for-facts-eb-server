@@ -278,6 +278,31 @@ describe('listCommitteeDocuments — privacy and one-bill-per-document, on real 
     expect(new Set(seen).size).toBe(3);
     expect(seen).not.toContain('doc-restricted');
   });
+
+  it('reports the true total on an EMPTY terminal page', async () => {
+    // The walk above stops at `next === null` and so never asks for the page
+    // AFTER the last row — but a client legitimately can, by replaying the final
+    // EDGE cursor rather than pageInfo.endCursor. That page is empty, and the
+    // total rides on the document rows: with no row to carry the scalar, the
+    // connection reported `total: 0` for a committee that has three documents,
+    // which reads as "this committee published nothing".
+    const full = await repo!.listCommitteeDocuments(COMMITTEE, { first: 50 });
+    expect(full.isOk()).toBe(true);
+    if (!full.isOk()) return;
+    expect(full.value.next).toBeNull();
+    const lastEdge = full.value.cursors[full.value.cursors.length - 1]!;
+
+    const past = await repo!.listCommitteeDocuments(COMMITTEE, { first: 50, after: lastEdge });
+    expect(past.isOk()).toBe(true);
+    if (!past.isOk()) return;
+
+    expect(past.value.items).toHaveLength(0);
+    expect(past.value.next).toBeNull();
+    // The committee still has three visible documents, and the empty page must
+    // say so rather than contradicting the page the reader just saw.
+    expect(past.value.total).toBe(full.value.total);
+    expect(past.value.total).toBe(3);
+  });
 });
 
 describe('listCommitteeLinkedBills — privacy on the document arm, on real rows', () => {

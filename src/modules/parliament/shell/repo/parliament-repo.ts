@@ -4378,8 +4378,8 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
    * must already exist. It is shared by the page and by the total so the two can
    * never disagree about what is visible.
    */
-  const committeeDocumentsVisible = (alias: string, committeeKey: string): RawBuilder<unknown> =>
-    sql`${sql.ref(`${alias}.committee_key`)} = ${committeeKey}
+  const committeeDocumentsVisible = (alias: string, committeeKey: string): RawBuilder<SqlBool> =>
+    sql<SqlBool>`${sql.ref(`${alias}.committee_key`)} = ${committeeKey}
         and ${sql.ref(`${alias}.privacy_class`)} = 'public'`;
 
   const listCommitteeDocuments = async (
@@ -4482,12 +4482,30 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
           lastKeys: [r.ord, r.committee_document_key],
         });
       const last = sliced[sliced.length - 1];
+      // The total is a SCALAR ON THE ROWS, so an empty page has nothing to carry
+      // it — and an empty page is reachable: replaying the final EDGE cursor asks
+      // for everything after the last row. Defaulting to 0 there told the reader
+      // a committee with documents had published nothing, contradicting the page
+      // they had just seen. Falling back to a count-only statement is safe
+      // precisely because the page is empty: there are no rows for the total to
+      // be snapshot-inconsistent WITH. The common path stays one statement.
+      const total =
+        rows[0] !== undefined
+          ? Number(rows[0].total)
+          : Number(
+              (
+                await db
+                  .selectFrom('parliament.committee_documents as cd')
+                  .select(sql<string>`count(*)`.as('cnt'))
+                  .where(committeeDocumentsVisible('cd', committeeKey))
+                  .executeTakeFirst()
+              )?.cnt ?? 0
+            );
       return ok({
         items: sliced.map((r) => mapCommitteeDocument(r)),
         cursors: sliced.map(cursorFor),
         next: hasMore && last !== undefined ? cursorFor(last) : null,
-        // No rows means nothing matched the committee+privacy predicate at all.
-        total: Number(sliced[0]?.total ?? rows[0]?.total ?? 0),
+        total,
       });
     } catch (e) {
       return err(databaseError('listCommitteeDocuments failed', e));

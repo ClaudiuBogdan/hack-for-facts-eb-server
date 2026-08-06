@@ -331,3 +331,35 @@ describe('listCommitteeDocuments — the privacy gate and the edge cursors', () 
     expect(captured[1]!.parameters).toContain('a');
   });
 });
+
+describe('listCommitteeDocuments — the total costs one statement on the common path', () => {
+  it('reads a NON-EMPTY page in a single statement', async () => {
+    const captured: Captured[] = [];
+    const repo = makeParliamentRepo(makeDb(captured, [[row('a', '2024-03-01')]]));
+    await repo.listCommitteeDocuments(SENATE, { first: 20 });
+
+    // The total rides on the rows, so a served page never pays a second round
+    // trip for it (~23 ms on this platform) and never straddles a loader commit.
+    expect(captured).toHaveLength(1);
+    expect(flat(captured[0]!.sql)).toContain('select count(*) from parliament.committee_documents');
+  });
+
+  it('falls back to a count-only statement ONLY when the page is empty', async () => {
+    const captured: Captured[] = [];
+    const repo = makeParliamentRepo(makeDb(captured, [[], [{ cnt: '188' }]]));
+    const res = await repo.listCommitteeDocuments(SENATE, { first: 20 });
+
+    expect(res.isOk()).toBe(true);
+    if (!res.isOk()) return;
+    // An empty page is reachable by replaying the final EDGE cursor. The scalar
+    // total has no row to ride on there, and answering 0 would tell the reader a
+    // committee with documents published nothing. A second statement is safe
+    // here precisely because there are no rows for it to disagree with.
+    expect(captured).toHaveLength(2);
+    expect(res.value.total).toBe(188);
+    // Same predicate as the page — committee AND privacy — with no keyset bound.
+    const fallback = flat(captured[1]!.sql);
+    expect(fallback).toContain('"cd"."privacy_class" = \'public\'');
+    expect(fallback).not.toContain('cd.committee_document_key) <');
+  });
+});
