@@ -83,19 +83,23 @@ const predicateOf = (sqlText: string): string => {
 
 const KEY = 'senate:ef36e8b3-2fb2-43e8-bd6d-1ad040db24b3';
 
-const run = async (): Promise<{ rows: Captured; count: Captured }> => {
+/**
+ * ONE statement — the page and its total are read together. Two statements could
+ * straddle a loader commit and report a total the page provably contradicts, and
+ * would cost a second ~23 ms round trip to do it.
+ */
+const run = async (): Promise<Captured> => {
   const captured: Captured[] = [];
   const repo = makeParliamentRepo(makeDb(captured, []));
   const res = await repo.listCommitteeLinkedBills(KEY, COMMITTEE_LINKED_BILLS_CAP);
   expect(res.isOk()).toBe(true);
-  expect(captured).toHaveLength(2);
-  return { rows: captured[0]!, count: captured[1]! };
+  expect(captured).toHaveLength(1);
+  return captured[0]!;
 };
 
 describe('listCommitteeLinkedBills — the committee → bills predicate', () => {
   it('unions the referral step-links with the document links (UNION, never UNION ALL)', async () => {
-    const { rows } = await run();
-    const text = flat(rows.sql);
+    const text = flat((await run()).sql);
 
     expect(text).toContain('from parliament.bill_step_links l');
     expect(text).toContain("l.link_kind = 'committee'");
@@ -109,12 +113,10 @@ describe('listCommitteeLinkedBills — the committee → bills predicate', () =>
   });
 
   it('joins through coalesce(canonical_bill_key, bill_key) and never filters is_canonical', async () => {
-    const { rows, count } = await run();
+    const stmt = await run();
 
-    for (const [label, stmt] of [
-      ['rows', rows],
-      ['count', count],
-    ] as const) {
+    {
+      const label = 'rows';
       const text = flat(stmt.sql);
       expect(text, label).toContain('coalesce(src.canonical_bill_key, src.bill_key)');
       // The load-bearing negative, scoped to the PREDICATE. `is_canonical` is a
@@ -129,8 +131,7 @@ describe('listCommitteeLinkedBills — the committee → bills predicate', () =>
   });
 
   it('orders by the shared bill sort (updated_desc), not by bill_key', async () => {
-    const { rows } = await run();
-    const text = flat(rows.sql);
+    const text = flat((await run()).sql);
 
     // billOrderBy('updated_desc') — last_event_date desc nulls last, key as tiebreak.
     expect(text).toContain('order by case when jsonb_typeof("b"."attrs"->\'last_event_date\')');
@@ -140,32 +141,45 @@ describe('listCommitteeLinkedBills — the committee → bills predicate', () =>
     expect(text).not.toContain('order by "b"."bill_key" asc');
   });
 
-  it('reads the page and the total through the SAME predicate text and parameters', async () => {
-    const { rows, count } = await run();
+  it('measures the total in the SAME statement as the page it describes', async () => {
+    const stmt = await run();
+    const text = flat(stmt.sql);
 
-    // Byte-identical, placeholders included: BILL_SELECT and billOrderBy build with
-    // sql.lit, so neither statement shifts the union's $1/$2 numbering. If a future
-    // edit introduces a bound parameter ahead of the WHERE, this fails loudly
-    // rather than letting the two reads drift into disagreeing about the total.
-    expect(predicateOf(flat(count.sql))).toBe(predicateOf(flat(rows.sql)));
-    expect(predicateOf(flat(rows.sql))).toContain('$1');
-    expect(predicateOf(flat(rows.sql))).toContain('$2');
-    expect(count.parameters).toEqual([KEY, KEY]);
-    expect(rows.parameters).toEqual([KEY, KEY, COMMITTEE_LINKED_BILLS_CAP]);
+    // A WINDOW count, not a second statement: a window is computed before LIMIT,
+    // so it names the whole matching set, and being in the same statement it is
+    // necessarily the same snapshot as the rows. The predicate is therefore ONE
+    // predicate by construction — there is no second copy that could drift.
+    expect(text).toContain('count(*) over () as "total"');
+    expect(predicateOf(text)).toContain('$1');
+    expect(predicateOf(text)).toContain('$2');
+    expect(stmt.parameters).toEqual([KEY, KEY, COMMITTEE_LINKED_BILLS_CAP]);
+    // …and the predicate appears exactly once in the statement.
+    expect(text.split('b.bill_key in (').length - 1).toBe(1);
+  });
 
-    // The count is over `bills` under that predicate — the rows the cap could have
-    // served — so `total >= served` holds by construction.
-    expect(flat(count.sql)).toContain('select count(*) as "cnt" from "parliament"."bills" as "b"');
+  it('gates the document arm on privacy — restricted rows are stored, never served', async () => {
+    const text = flat((await run()).sql);
+
+    // Both sides of the document arm: a restricted DOCUMENT must not surface its
+    // bill, and neither must a restricted LINK. Strict equality, never
+    // coalesce(privacy_class,'public') — that is the fail-open no-op this file's
+    // speech-privacy section already documents.
+    expect(text).toContain("cd.privacy_class = 'public'");
+    expect(text).toContain("cbl.privacy_class = 'public'");
+    expect(text).not.toContain('coalesce(cd.privacy_class');
+    expect(text).not.toContain('coalesce(cbl.privacy_class');
   });
 
   it('bounds the page at the measured cap, and the cap is the only limit', async () => {
-    const { rows, count } = await run();
+    const stmt = await run();
 
     expect(COMMITTEE_LINKED_BILLS_CAP).toBe(500);
-    expect(flat(rows.sql)).toContain('limit $3');
-    expect(rows.parameters[2]).toBe(COMMITTEE_LINKED_BILLS_CAP);
-    // The total must not be bounded by anything — a capped count would report the
-    // cap back as the truth and the truncation would become invisible.
-    expect(flat(count.sql)).not.toContain('limit');
+    expect(flat(stmt.sql)).toContain('limit $3');
+    expect(stmt.parameters[2]).toBe(COMMITTEE_LINKED_BILLS_CAP);
+    // The window count is evaluated BEFORE the limit, so the cap bounds the rows
+    // served without bounding the total that reports the truncation.
+    expect(flat(stmt.sql).indexOf('count(*) over ()')).toBeLessThan(
+      flat(stmt.sql).indexOf('limit $3')
+    );
   });
 });

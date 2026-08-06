@@ -78,6 +78,22 @@ export interface LineageVoteRow {
   readonly confidenceLabel: string;
 }
 
+/**
+ * A committee-documents page: the rows, the exact total, and EVERY edge's cursor.
+ *
+ * The cursors are carried rather than rebuilt by the shell because they encode
+ * the sort key, and the sort key has exactly one definition — the ordinal the
+ * database computed. A shell that re-derived them from `docDate` would be a
+ * second definition, and any drift between the two turns a replayed edge cursor
+ * into InvalidInput. `total` rides along for the same reason the cursors do: it
+ * is measured by the statement that produced the page, so it cannot describe a
+ * different snapshot.
+ */
+export interface CommitteeDocumentPage extends CursorPage<ParliamentCommitteeDocument> {
+  readonly total: number;
+  readonly cursors: readonly string[];
+}
+
 /** Per-vote ballot resolution counts (for lineage summary). */
 export interface BallotResolution {
   readonly total: number;
@@ -513,9 +529,7 @@ export interface ParliamentRepo extends ParliamentStenogramRepo {
   listCommitteeDocuments(
     committeeKey: string,
     page: CursorPageRequest
-  ): Promise<Result<CursorPage<ParliamentCommitteeDocument>, ApiError>>;
-  /** Exact document count for ONE committee — resolved lazily, only when selected. */
-  committeeDocumentsCount(committeeKey: string): Promise<Result<number, ApiError>>;
+  ): Promise<Result<CommitteeDocumentPage, ApiError>>;
   committeeMeetingsCount(committeeKey: string): Promise<Result<number, ApiError>>;
   /** A member's committee seats (cdep by mandate_key; senate_committee via the attr join when the member is a current senator). */
   listMemberCommitteeMemberships(

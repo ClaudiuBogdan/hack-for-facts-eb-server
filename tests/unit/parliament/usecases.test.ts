@@ -563,7 +563,9 @@ describe('getCommittee — the detail ROOT is the committee row alone (B2)', () 
       okp({ bills: [{ billKey: '12760' } as never], total: 3 })
     );
     const committeeMeetingsCount = vi.fn(() => okp(42));
-    const listCommitteeDocuments = vi.fn(() => okp({ items: [], next: null }));
+    const listCommitteeDocuments = vi.fn(() =>
+      okp({ items: [], cursors: [], next: null, total: 0 })
+    );
     const r = await getCommittee(
       deps(
         makeRepo({

@@ -267,3 +267,67 @@ describe('mapCommitteeDocument — the docType policy', () => {
     ]);
   });
 });
+
+describe('listCommitteeDocuments — the privacy gate and the edge cursors', () => {
+  it('gates documents and their links strictly, never coalesce-wrapped', async () => {
+    const captured: Captured[] = [];
+    const repo = makeParliamentRepo(makeDb(captured, [[row('d1', '2024-03-01')]]));
+    await repo.listCommitteeDocuments(SENATE, { first: 20 });
+    const text = flat(captured[0]!.sql);
+
+    // The document gate bounds the PAGE and the TOTAL — a total that counted
+    // restricted rows would tell the reader a document exists that the page can
+    // never show them.
+    // `sql.ref` quotes the identifiers, so the emitted form is "cd"."privacy_class".
+    expect(text).toContain('"cd"."privacy_class" = \'public\'');
+    expect(text).toContain('"cdt"."privacy_class" = \'public\'');
+    // The LINK gate sits inside the bill subquery, so a public document whose
+    // only link is restricted stays visible with a null billKey rather than
+    // disappearing from its committee.
+    expect(text).toContain("cbl.privacy_class = 'public'");
+    // Strict equality. `privacy_class` is NOT NULL with a two-value CHECK, so a
+    // coalesce is the fail-open no-op the speech-privacy section documents.
+    expect(text).not.toContain('coalesce("cd"."privacy_class"');
+    expect(text).not.toContain('coalesce(cbl.privacy_class');
+  });
+
+  it('resolves ONE bill per document by subquery, never by a fan-out join', async () => {
+    const captured: Captured[] = [];
+    const repo = makeParliamentRepo(makeDb(captured, [[row('d1', '2024-03-01')]]));
+    await repo.listCommitteeDocuments(SENATE, { first: 20 });
+    const text = flat(captured[0]!.sql);
+
+    // committee_bill_links is keyed (document, scheme, value, year), so a join
+    // can legitimately emit one document twice — two edges sharing one (ord,key)
+    // cursor, an arbitrary billKey, and a skipped row at the page boundary.
+    expect(text).not.toContain('left join "parliament"."committee_bill_links"');
+    expect(text).toContain('from parliament.committee_bill_links cbl');
+    expect(text).toContain('limit 1');
+    // Deterministic pick, not an arbitrary one.
+    expect(text).toContain('order by coalesce(lb.canonical_bill_key, lb.bill_key)');
+  });
+
+  it('mints one cursor per row, and an EDGE cursor replays like endCursor', async () => {
+    const captured: Captured[] = [];
+    const repo = makeParliamentRepo(
+      makeDb(captured, [[row('a', '2024-03-01'), row('b', null)], [row('b', null)]])
+    );
+    const first = await repo.listCommitteeDocuments(SENATE, { first: 2 });
+    expect(first.isOk()).toBe(true);
+    if (!first.isOk()) return;
+
+    // One cursor per node — the connection zips them positionally.
+    expect(first.value.cursors).toHaveLength(first.value.items.length);
+
+    // Replay the FIRST edge's cursor. An edge cursor is a resumption point a
+    // caller may use instead of pageInfo.endCursor; it used to be re-derived in
+    // TypeScript from docDate, a second definition of the sort key that turns
+    // any drift into InvalidInput on exactly this call.
+    const edge = first.value.cursors[0]!;
+    const replay = await repo.listCommitteeDocuments(SENATE, { first: 2, after: edge });
+    expect(replay.isOk()).toBe(true);
+    // It reached SQL, carrying the ordinal the DATABASE minted for row 'a'.
+    expect(captured[1]!.parameters).toContain('20240301');
+    expect(captured[1]!.parameters).toContain('a');
+  });
+});

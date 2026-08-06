@@ -1649,9 +1649,13 @@ d('Parliament golden (live prod)', () => {
     );
     const committee = requireValue(data.parliamentCommittee, 'senate committee ef36e8b3');
     // Zero here is the pre-fix behaviour: the document-link path alone covers 4%
-    // of Senate documents, so this committee served no bills at all.
-    expect(committee.linkedBillsTotal).toBeGreaterThan(0);
-    expect(committee.linkedBills.length).toBeGreaterThan(0);
+    // of Senate documents, so this committee served no bills at all. But `> 0`
+    // is too weak to be worth asserting — it would pass if 197 collapsed to 1,
+    // which is the shape a regression in the union or the coalesce actually
+    // takes (filtering is_canonical on the edge's own bill leaves 10). 100 is a
+    // floor with room for the corpus to grow, not a pin on today's 197.
+    expect(committee.linkedBillsTotal).toBeGreaterThanOrEqual(100);
+    expect(committee.linkedBills.length).toBeGreaterThanOrEqual(100);
     expect(committee.linkedBills.length).toBeLessThanOrEqual(committee.linkedBillsTotal);
     // The coalesce is what makes this true: the EDGES point at suppressed twins,
     // but every bill served here is the canonical one the reader can open.

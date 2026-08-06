@@ -40,7 +40,6 @@ import {
   type ParliamentBillActivity,
   type ParliamentBillDossier,
   type ParliamentCommittee,
-  type ParliamentCommitteeDocument,
   type ParliamentCommitteeMembership,
   type ParliamentControlItem,
   type ParliamentDataFreshness,
@@ -74,7 +73,12 @@ import {
   type VoteChamber,
 } from './types.js';
 
-import type { OffsetResult, ParliamentRepo, ParliamentTranscriptSearchPort } from './ports.js';
+import type {
+  CommitteeDocumentPage,
+  OffsetResult,
+  ParliamentRepo,
+  ParliamentTranscriptSearchPort,
+} from './ports.js';
 
 export interface ParliamentUsecaseDeps {
   readonly repo: ParliamentRepo;
@@ -1704,7 +1708,7 @@ export const getCommitteeDocuments = (
   deps: ParliamentUsecaseDeps,
   committeeKey: string,
   page: CursorPageRequest
-): Promise<Result<CursorPage<ParliamentCommitteeDocument>, ApiError>> =>
+): Promise<Result<CommitteeDocumentPage, ApiError>> =>
   deps.repo.listCommitteeDocuments(committeeKey, page);
 
 // ── member-activity bundle (MCP) ───────────────────────────────────────────────

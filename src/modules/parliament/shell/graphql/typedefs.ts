@@ -1052,7 +1052,7 @@ const objectsAndQuery = /* GraphQL */ `
     linkedBills: [ParliamentBill!]!
     linkedBillsTotal: Int!
     meetingsCount: Int!
-    "Documents this committee published (cursor; newest-dated first, undated last). 'first' is capped at 100, default 20. Declared ONLY here and never on ParliamentCommittee: one committee per request is what keeps a list of 191 committees from fanning out into 191 document reads."
+    "Documents this committee published (cursor; newest-dated first, undated last). 'first' is capped at 100, default 20. Declared ONLY here and never on ParliamentCommittee, so one root selects one committee's documents rather than a 191-row list fanning out into 191 keyset reads; the per-OPERATION bound is the kernel's 50-alias limit, since aliases can repeat this root."
     documents(first: Int, after: String): ParliamentCommitteeDocumentConnection!
   }
   "A document a committee published. sourceUrl is the traceability terminator; documentUrl is the file itself where the source printed one."
@@ -1066,14 +1066,14 @@ const objectsAndQuery = /* GraphQL */ `
     "The file. NULL where the source page links no document; fall back to sourceUrl."
     documentUrl: String
     sourceUrl: String!
-    "The canonical bill this document concerns, resolved through canonical_bill_key so a referral filed against a suppressed twin still points at the served dossier. NULL when the document resolves to no bill — which is 96% of Senate rows."
+    "The canonical bill this document concerns, resolved through canonical_bill_key so a referral filed against a suppressed twin still points at the served dossier. Exactly one bill per document, chosen deterministically where the source filed several link rows. NULL when the document resolves to no public bill link — which is 96% of Senate rows."
     billKey: String
   }
   type ParliamentCommitteeDocumentEdge {
     node: ParliamentCommitteeDocument!
     cursor: String!
   }
-  "Documents for ONE committee (parented by committee_key). 'total' is the EXACT count for that committee, resolved lazily — a page pays for it only when it asks. NOTE: it counts the committee's REACHABLE documents; 49,574 of the 94,200 stored rows (all Camera) carry no committee_key at all and belong to no committee here."
+  "Documents for ONE committee (parented by committee_key). 'total' is the EXACT count of that committee's VISIBLE documents, measured by the same statement that produced the page — so it can never describe a different snapshot than the rows beside it. NOTE: it counts the committee's REACHABLE documents; 49,574 of the 94,200 stored rows (all Camera) carry no committee_key at all and belong to no committee here."
   type ParliamentCommitteeDocumentConnection {
     edges: [ParliamentCommitteeDocumentEdge!]!
     pageInfo: PageInfo!

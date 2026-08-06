@@ -28,7 +28,6 @@ import {
 import {
   COMMITTEE_DOCUMENT_PAGE_DEFAULT,
   COMMITTEE_DOCUMENT_PAGE_LIMIT,
-  committeeDocumentOrd,
   PARLIAMENT_BALLOT_PAGE_LIMIT,
 } from '../../core/constants.js';
 import {
@@ -37,7 +36,6 @@ import {
   type ParliamentBallot,
   type ParliamentBill,
   type ParliamentCommittee,
-  type ParliamentCommitteeDocument,
   type ParliamentMemberVote,
   type ParliamentResolveDim,
   type ParliamentSpeech,
@@ -104,7 +102,7 @@ import {
   votesFilterSpec,
 } from '../filters/specs.js';
 
-import type { ParliamentTranscriptSearchPort } from '../../core/ports.js';
+import type { CommitteeDocumentPage, ParliamentTranscriptSearchPort } from '../../core/ports.js';
 import type { Result } from 'neverthrow';
 
 export interface ParliamentResolverDeps extends ParliamentUsecaseDeps {
@@ -300,32 +298,17 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
     };
   };
 
-  const committeeDocumentConnection = (
-    page: CursorPage<ParliamentCommitteeDocument>,
-    committeeKey: string
-  ) => {
-    // Same fhash the repo encoded `next` with — and the same one it VALIDATES an
-    // incoming cursor against, which is what makes a cursor minted on committee A
-    // unusable against committee B instead of quietly paging the wrong set.
-    const fhash = filterHash(`committee-documents:${committeeKey}`);
-    return {
-      // Carried so ParliamentCommitteeDocumentConnection.total can count lazily.
-      committeeKey,
-      edges: page.items.map((node) => ({
-        node,
-        // The ordinal here must be the SAME reading the repo sorted by, so an edge
-        // cursor resumes where the row actually sat. `committeeDocumentOrd` is the
-        // TS twin of the repo's coalesce, pinned equal by test.
-        cursor: buildNextCursor({
-          sort: 'docOrd',
-          dir: 'desc',
-          fhash,
-          lastKeys: [committeeDocumentOrd(node.docDate), node.committeeDocumentKey],
-        }),
-      })),
-      pageInfo: { hasNextPage: page.next !== null, endCursor: page.next },
-    };
-  };
+  const committeeDocumentConnection = (page: CommitteeDocumentPage) => ({
+    // Every cursor is the repo's, minted from the ordinal the DATABASE computed.
+    // These used to be re-derived here from `node.docDate`, which made the sort
+    // key two things — the trap this field was designed to avoid — and any drift
+    // between them turns a replayed edge cursor into InvalidInput.
+    edges: page.items.map((node, i) => ({ node, cursor: page.cursors[i] ?? '' })),
+    pageInfo: { hasNextPage: page.next !== null, endCursor: page.next },
+    // Measured by the statement that produced the page, so it can never describe
+    // a different snapshot than the rows it accompanies.
+    total: page.total,
+  });
 
   const memberVoteConnection = (
     page: CursorPage<ParliamentMemberVote> & { total: number },
@@ -1153,15 +1136,8 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
           ...(args.after != null && { after: args.after }),
         };
         const res = unwrap(await getCommitteeDocuments(deps, parent.committeeKey, page));
-        return committeeDocumentConnection(res, parent.committeeKey);
+        return committeeDocumentConnection(res);
       },
-    },
-
-    ParliamentCommitteeDocumentConnection: {
-      // Exact count for THIS committee, one statement, only when selected — the
-      // same lazy rule ParliamentBallotConnection.total follows.
-      total: async (parent: { committeeKey: string }) =>
-        unwrap(await deps.repo.committeeDocumentsCount(parent.committeeKey)),
     },
 
     Entity: {
