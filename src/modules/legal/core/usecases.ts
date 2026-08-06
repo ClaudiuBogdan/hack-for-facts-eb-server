@@ -13,7 +13,19 @@
 
 import { err, ok, type Result } from 'neverthrow';
 
+import {
+  invalidInput,
+  type ApiError,
+  type CapabilityResolver,
+  type CursorPage,
+  type FilterInput,
+  type ResolveHit,
+  type SyntheticClient,
+} from '@/modules/shared/index.js';
+
 import { parseCitation } from './citation.js';
+import { toEngineFilter } from './legal-engine-filter.js';
+import { searchWithEngine } from './legal-engine-search.js';
 import { LEGAL_ORIGINAL_TEXT_CAVEAT, amendmentCountPhrase } from './provenance.js';
 
 import type {
@@ -25,12 +37,14 @@ import type {
   LegalRenderRepo,
   LegalRetrievalQuery,
   LegalRetrievalRepo,
+  LegalSearchEngine,
 } from './ports.js';
 import type { LegalActRef, LegalRepoBase } from './repo-base.js';
 import type {
   LegalAct,
   LegalActCard,
   LegalActStatus,
+  LegalDocHit,
   LegalDocument,
   LegalExternalAct,
   LegalIncomingEdge,
@@ -41,6 +55,7 @@ import type {
   LegalRenderInfo,
   LegalRenderPayload,
   LegalRenderPayloadKind,
+  LegalSectionHit,
   LegalResolveDim,
   LegalSearchResult,
   LegalSortKey,
@@ -48,14 +63,6 @@ import type {
   LegalTimelineEntry,
   LegalVersionProvenance,
 } from './types.js';
-import type {
-  ApiError,
-  CapabilityResolver,
-  CursorPage,
-  FilterInput,
-  ResolveHit,
-  SyntheticClient,
-} from '@/modules/shared/index.js';
 
 const SORT_DB: Record<
   LegalSortKey,
@@ -274,6 +281,13 @@ export const getRenderInfoForDocuments = (
 
 export interface LegalSearchDeps {
   readonly retrieval: LegalRetrievalRepo;
+  /**
+   * The search engine. Absent (or serving no index) means this deployment has
+   * not been cut over yet and the Postgres path answers — a DEPLOYMENT state,
+   * reported as `engine: 'postgres'`, never a silent per-request substitution
+   * for an engine that failed.
+   */
+  readonly engine?: LegalSearchEngine;
   readonly acts: LegalActsRepo;
   readonly synthetic: SyntheticClient;
   readonly capabilities: CapabilityResolver;
@@ -315,8 +329,70 @@ export const searchLegal = async (
         acts: [{ act: stripCard(card), summary: card.summary, score: 1, provenance }],
         sections: [],
         caveats,
+        // An identifier lookup: exactly one act, found by name, no retrieval.
+        engine: 'postgres',
+        actsTotal: 1,
+        sectionsTotal: null,
+        totalsExhaustive: true,
+        degraded: false,
+        asOf: null,
       });
     }
+  }
+
+  // 2. The engine path, when this deployment has an index. It either answers
+  //    or fails — it never silently hands the question to the lexical scan.
+  if (deps.engine !== undefined && (deps.engine.canServeActs() || deps.engine.canServeSections())) {
+    const translated = toEngineFilter(query.filter, query.includeHistorical);
+    if (translated.unsupported.length > 0) {
+      // Serving a partly-understood filter would answer a broader question
+      // than the one asked, under the narrower label the caller chose.
+      return err(
+        invalidInput(
+          `legal search: the engine cannot express ${translated.unsupported.join(', ')}`,
+          'filter'
+        )
+      );
+    }
+    const outcome = await searchWithEngine(
+      {
+        engine: deps.engine,
+        acts: deps.acts,
+        retrieval: deps.retrieval,
+        ...(deps.semanticReady && {
+          embedQuery: (text: string) =>
+            deps.synthetic.embed(`${QUERY_PREFIX}${text}`, deps.embeddingModel),
+        }),
+      },
+      {
+        q: query.q,
+        filter: translated.filter,
+        channel: query.channel,
+        limit: query.limit,
+      }
+    );
+    if (outcome.isErr()) return err(outcome.error);
+
+    const engineCaveats = [...caveats, ...outcome.value.caveats];
+    const sections = outcome.value.sections.map((s) => ({
+      ...s,
+      portalDeepLink: portalLink(deps.clientBaseUrl, s.actId, s.sectionKey),
+    }));
+    if (outcome.value.acts.length > 0 || sections.length > 0) {
+      engineCaveats.push(LEGAL_ORIGINAL_TEXT_CAVEAT);
+    }
+    engineCaveats.push(...historicalCaveats(outcome.value.acts, sections));
+    return ok({
+      acts: outcome.value.acts,
+      sections,
+      caveats: engineCaveats,
+      engine: 'opensearch',
+      actsTotal: outcome.value.actsTotal,
+      sectionsTotal: outcome.value.sectionsTotal,
+      totalsExhaustive: outcome.value.totalsExhaustive,
+      degraded: outcome.value.degraded,
+      asOf: outcome.value.asOf,
+    });
   }
 
   // 2. Embed the query (semantic) or fall back to lexical.
@@ -366,19 +442,45 @@ export const searchLegal = async (
   // version caveat; the per-act counts ride on each hit's own provenance.
   if (acts.length > 0 || sections.length > 0) caveats.push(LEGAL_ORIGINAL_TEXT_CAVEAT);
 
-  // §5.2-C honesty: a status-badge caveat per distinct NON-current act in the
-  // result set (in-vigoare needs no warning). Status rides on every hit, so this
-  // is free (no per-act amendment query — that lives on the act card / its tool).
+  caveats.push(...historicalCaveats(acts, sections));
+
+  return ok({
+    acts,
+    sections,
+    caveats,
+    engine: 'postgres',
+    // The Postgres path returns a bounded slice and never counts the corpus,
+    // so it reports no total rather than passing the page size off as one.
+    actsTotal: null,
+    sectionsTotal: null,
+    totalsExhaustive: false,
+    // The lexical fallback IS a degraded answer: it ran because the semantic
+    // gate was off or the embedder failed, and `caveats` already says so.
+    degraded: qVec === null,
+    asOf: null,
+  });
+};
+
+/**
+ * §5.2-C honesty: one status caveat per distinct NON-current act in the result
+ * set (`in-vigoare` needs no warning). Status rides on every hit, so this costs
+ * no query. Shared by both retrieval paths — the warning a reader gets must not
+ * depend on which engine answered.
+ */
+const historicalCaveats = (
+  acts: readonly LegalDocHit[],
+  sections: readonly LegalSectionHit[]
+): string[] => {
+  const out: string[] = [];
   const seen = new Set<string>();
-  const warnIfHistorical = (actId: string, citation: string, status: LegalActStatus): void => {
+  const warn = (actId: string, citation: string, status: LegalActStatus): void => {
     if (status === 'in-vigoare' || seen.has(actId)) return;
     seen.add(actId);
-    caveats.push(`${citation}: status ${status} — verificați versiunea în vigoare.`);
+    out.push(`${citation}: status ${status} — verificați versiunea în vigoare.`);
   };
-  for (const d of acts) warnIfHistorical(d.act.actId, d.act.displayCitation, d.act.status);
-  for (const s of sections) warnIfHistorical(s.actId, s.displayCitation, s.status);
-
-  return ok({ acts, sections, caveats });
+  for (const d of acts) warn(d.act.actId, d.act.displayCitation, d.act.status);
+  for (const s of sections) warn(s.actId, s.displayCitation, s.status);
+  return out;
 };
 
 const honestyCaveat = (card: LegalActCard): string =>

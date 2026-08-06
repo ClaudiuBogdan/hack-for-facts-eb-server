@@ -306,6 +306,21 @@ export interface LegalSearchResult {
   readonly acts: readonly LegalDocHit[];
   readonly sections: readonly LegalSectionHit[];
   readonly caveats: readonly string[]; // §5.2-C honesty + semantic-gate caveats
+  /**
+   * WHICH path answered. The two have different guarantees — the engine knows
+   * real totals, the Postgres path only ever returns a bounded slice — so the
+   * reader is told which one produced the list rather than left to assume.
+   */
+  readonly engine: 'opensearch' | 'postgres';
+  /** Real match count per channel; null when that channel cannot count. */
+  readonly actsTotal: number | null;
+  readonly sectionsTotal: number | null;
+  /** False when a total is a lower bound, or when the path cannot count at all. */
+  readonly totalsExhaustive: boolean;
+  /** True when a leg the request wanted could not run; `caveats` says which. */
+  readonly degraded: boolean;
+  /** Index build stamp behind the answer; null for the Postgres path. */
+  readonly asOf: string | null;
 }
 
 /** A merged act timeline entry (status events + amendment edges, LG-2). */
