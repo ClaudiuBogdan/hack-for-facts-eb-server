@@ -33,9 +33,9 @@ import {
   buildActsBm25Body,
   buildSectionsBm25Body,
   buildSectionsKnnBody,
-  type LegalEngineFilter,
-  type LegalEngineWindow,
 } from '../../core/legal-opensearch-query.js';
+
+import type { LegalEngineHit, LegalEnginePage, LegalSearchEngine } from '../../core/ports.js';
 
 export interface LegalEngineConfig {
   readonly url: string;
@@ -60,53 +60,6 @@ export type LegalEngineTransport = (
   path: string,
   body?: unknown
 ) => Promise<{ status: number; text: string }>;
-
-/**
- * One engine hit. Keys only — `snippet` is the sole display string the engine
- * is allowed to produce, because a highlight fragment cannot be reconstructed
- * from Postgres.
- */
-export interface LegalEngineHit {
-  readonly documentId: string;
-  readonly actId: string | null;
-  readonly sectionKey: string | null;
-  readonly snippet: string | null;
-}
-
-export interface LegalEnginePage {
-  /** Hits in ENGINE RANK ORDER (best first) — the fusion depends on it. */
-  readonly hits: readonly LegalEngineHit[];
-  readonly total: number;
-  /** False when the engine capped the count and reported a lower bound. */
-  readonly totalExhaustive: boolean;
-  /** Index build stamp (`_meta.built_at`) — an index without one is refused. */
-  readonly asOf: string;
-}
-
-export interface LegalSearchEngine {
-  canServeActs(): boolean;
-  canServeSections(): boolean;
-  searchActsBm25(
-    q: string,
-    filter: LegalEngineFilter,
-    window: LegalEngineWindow
-  ): Promise<Result<LegalEnginePage, ApiError>>;
-  searchSectionsBm25(
-    q: string,
-    filter: LegalEngineFilter,
-    window: LegalEngineWindow
-  ): Promise<Result<LegalEnginePage, ApiError>>;
-  /**
-   * The vector leg. It rides the SAME compiled filter as the BM25 leg (the
-   * query module guarantees this) — an unfiltered kNN leg would answer a
-   * different question than the leg it is fused with.
-   */
-  searchSectionsKnn(
-    queryVector: readonly number[],
-    filter: LegalEngineFilter,
-    size: number
-  ): Promise<Result<LegalEnginePage, ApiError>>;
-}
 
 const META_TTL_MS = 5 * 60_000;
 

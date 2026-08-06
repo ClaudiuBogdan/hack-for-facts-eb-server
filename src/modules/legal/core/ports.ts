@@ -13,6 +13,7 @@
  * as a `$n::vector` literal (the §3.5 HNSW-parameter rule).
  */
 
+import type { LegalEngineFilter, LegalEngineWindow } from './legal-opensearch-query.js';
 import type { LegalActRef, LegalRepoBase } from './repo-base.js';
 import type {
   LegalAct,
@@ -225,4 +226,64 @@ export interface LegalRetrievalRepo {
 export interface LegalSectionKey {
   readonly documentId: string;
   readonly sectionKey: string;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LegalSearchEngine — the OpenSearch port (implemented in shell/repo)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * One engine hit. Keys only — `snippet` is the sole display string the engine
+ * is allowed to produce, because a highlight fragment cannot be rebuilt from
+ * Postgres. Everything else the reader sees is hydrated from the database.
+ */
+export interface LegalEngineHit {
+  readonly documentId: string;
+  readonly actId: string | null;
+  readonly sectionKey: string | null;
+  readonly snippet: string | null;
+}
+
+export interface LegalEnginePage {
+  /** Hits in ENGINE RANK ORDER (best first) — the fusion depends on it. */
+  readonly hits: readonly LegalEngineHit[];
+  readonly total: number;
+  /** False when the engine capped the count and reported a lower bound. */
+  readonly totalExhaustive: boolean;
+  /** Index build stamp (`_meta.built_at`) — an index without one is refused. */
+  readonly asOf: string;
+}
+
+/**
+ * The search engine as the USECASE sees it. The port lives in core so the
+ * usecase can depend on it without importing the shell; the transport that
+ * implements it is `shell/repo/opensearch-legal-repo.ts`.
+ *
+ * Every method returns `err` on any engine trouble and the caller must NOT
+ * substitute a lexical SQL scan for it — that silent substitution answers a
+ * different question than the one asked.
+ */
+export interface LegalSearchEngine {
+  canServeActs(): boolean;
+  canServeSections(): boolean;
+  searchActsBm25(
+    q: string,
+    filter: LegalEngineFilter,
+    window: LegalEngineWindow
+  ): Promise<Result<LegalEnginePage, ApiError>>;
+  searchSectionsBm25(
+    q: string,
+    filter: LegalEngineFilter,
+    window: LegalEngineWindow
+  ): Promise<Result<LegalEnginePage, ApiError>>;
+  /**
+   * The vector leg. It rides the SAME compiled filter as the BM25 leg (the
+   * query module guarantees this) — an unfiltered kNN leg would answer a
+   * different question than the leg it is fused with.
+   */
+  searchSectionsKnn(
+    queryVector: readonly number[],
+    filter: LegalEngineFilter,
+    size: number
+  ): Promise<Result<LegalEnginePage, ApiError>>;
 }
