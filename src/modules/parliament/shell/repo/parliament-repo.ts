@@ -350,9 +350,26 @@ const VOTE_SELECT = [
   'v.law_reference',
   // E2 source-traceability (§6): the EXACT cdep.ro/senat.ro division page.
   'v.source_url',
-  // What the chamber printed under "Subiect vot" (11,622 of 20,860 votes) — for
-  // the divisions with no bill link, this and the tally are all a card has.
-  attrText('v.attrs', 'vote_action').as('vote_subject'),
+  // What the chamber printed for this division — for a division with no bill
+  // link, this and the tally are all a card has.
+  //
+  // COALESCED, and the fallback is the fix for "a filter you cannot see": the
+  // vote free-text search matches `source_title` (line ~2162), but only
+  // `vote_action` was ever DISPLAYED. So 7,753 divisions were searchable by a
+  // label the page never showed — you could match "Verificare prezenta" and get
+  // a card carrying only a bill title, with none of your words on it.
+  //
+  // Safe as a fallback rather than a replacement, measured over all 20,871
+  // votes: `vote_action` is present on 11,630 and `source_title` on 19,383, and
+  // on every one of the 11,630 where both exist `source_title` CONTAINS
+  // `vote_action` (0 exceptions) — it is the same label plus a bill-reference
+  // prefix the card already shows. So preferring `vote_action` keeps the
+  // shorter, non-redundant text where we have it, and the 7,753 that had
+  // nothing gain the chamber's own words. No row loses anything.
+  sql<string | null>`coalesce(
+    ${attrText('v.attrs', 'vote_action')},
+    ${attrText('v.attrs', 'source_title')}
+  )`.as('vote_subject'),
   // The division's printed date+time ('DD.MM.YYYY HH:MM', CDep's own TIME_VOT).
   // The only source of a clock time — `vote_date` is a DATE and carries none.
   attrText('v.attrs', 'vote_datetime_text').as('vote_datetime_text'),

@@ -1,17 +1,21 @@
 /**
- * Client↔server contract guard for the global stenograme surface (no DB).
+ * Filter-INPUT contract guard for the global stenograme surface (no DB).
  *
- * The transparenta.eu client ships hand-written GraphQL documents for
- * `parliamentSpeeches` / `parliamentSpeechActivity` / `parliamentSpeech`
- * (src/features/parliament/api/graphql/parliament-speeches-queries.ts). Those
- * documents are the real consumer of this module's SDL, but they live in
- * another repo, so a renamed field or a tightened nullability here would only
- * break at runtime, in the browser.
+ * This file used to also inline the client's three speeches documents as
+ * hand-typed copies and validate them. Those copies had DRIFTED — they omitted
+ * `isCanonical`, `sessionKey` and `position`, which the real client does select
+ * — so removing one of those SDL fields would have left this guard green while
+ * the deployed client 400s. A hand-maintained copy of someone else's file is a
+ * guard that decays silently.
  *
- * The documents are INLINED below (verbatim copies, kept in sync deliberately)
- * and validated against the built parliament schema. A failure here means the
- * client would 400 against this server — fix the SDL or ship a client change
- * with it.
+ * Document validation now lives in `client-parliament-contract.test.ts`, which
+ * validates ALL 32 client parliament documents from a fixture GENERATED out of
+ * the client repo, so it cannot drift or omit.
+ *
+ * What stays here is what that generated guard does NOT cover: the shape of the
+ * filter INPUT the client constructs at runtime. A document proves the client
+ * can ask; these prove the server accepts the argument literal it actually
+ * sends.
  */
 
 import { buildSchema, parse, validate } from 'graphql';
@@ -30,99 +34,6 @@ const KERNEL_STUBS = `
 `;
 
 const schema = buildSchema(`${KERNEL_STUBS}\n${parliamentTypeDefs}`);
-
-/** Verbatim from the client's parliament-speeches-queries.ts. */
-const CLIENT_SPEECHES_QUERY = `
-  query ParliamentSpeeches(
-    $first: Int
-    $after: String
-    $filter: ParliamentSpeechesFilter
-    $q: String
-  ) {
-    parliamentSpeeches(first: $first, after: $after, filter: $filter, q: $q) {
-      total
-      totalEstimated
-      searchDepth
-      edges {
-        cursor
-        node {
-          speechKey
-          spokenAt
-          title
-          summary
-          chamber
-          sourceUrl
-          sourceUrlKind
-          fullText
-          speakerName
-          member {
-            mandateKey
-            fullName
-            chamber
-            groupName
-          }
-        }
-      }
-      pageInfo {
-        hasNextPage
-        endCursor
-      }
-    }
-  }
-`;
-
-const CLIENT_SPEECH_ACTIVITY_QUERY = `
-  query ParliamentSpeechActivity(
-    $year: Int!
-    $filter: ParliamentSpeechesFilter
-    $q: String
-  ) {
-    parliamentSpeechActivity(year: $year, filter: $filter, q: $q) {
-      year
-      availableYears
-      searchDepth
-      days {
-        date
-        total
-        proprie
-        comun
-      }
-    }
-  }
-`;
-
-const CLIENT_SPEECH_QUERY = `
-  query ParliamentSpeech($speechKey: ID!) {
-    parliamentSpeech(speechKey: $speechKey) {
-      speechKey
-      spokenAt
-      title
-      summary
-      chamber
-      sourceUrl
-      sourceUrlKind
-      fullText
-      speakerName
-      member {
-        mandateKey
-        fullName
-        chamber
-        groupName
-      }
-    }
-  }
-`;
-
-describe('client stenograme documents validate against the parliament SDL', () => {
-  it.each([
-    ['ParliamentSpeeches', CLIENT_SPEECHES_QUERY],
-    ['ParliamentSpeechActivity', CLIENT_SPEECH_ACTIVITY_QUERY],
-    ['ParliamentSpeech', CLIENT_SPEECH_QUERY],
-  ])('%s', (_name, document) => {
-    const errors = validate(schema, parse(document));
-    expect(errors.map((e) => e.message)).toEqual([]);
-  });
-});
 
 describe('the filter input the client builds is accepted', () => {
   it('exposes ParliamentSpeechesFilter with mandateKey/chamber/spokenAt', () => {
