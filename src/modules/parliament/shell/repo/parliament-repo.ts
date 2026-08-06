@@ -47,6 +47,7 @@ import {
   mapBillEvent,
   mapBillScheduling,
   mapCommittee,
+  mapCommitteeDocument,
   mapCommitteeMembership,
   mapControlItem,
   mapDeclaration,
@@ -66,7 +67,13 @@ import {
   type VoteRow,
 } from './mappers.js';
 import { makeParliamentStenogramRepo } from './stenogram-repo.js';
-import { BILL_CHILD_PER_VIEW_LIMIT, PARLIAMENT_BALLOT_PAGE_LIMIT } from '../../core/constants.js';
+import {
+  BILL_CHILD_PER_VIEW_LIMIT,
+  COMMITTEE_DOCUMENT_ORD_SENTINEL,
+  COMMITTEE_DOCUMENT_PAGE_LIMIT,
+  isCommitteeDocumentOrd,
+  PARLIAMENT_BALLOT_PAGE_LIMIT,
+} from '../../core/constants.js';
 import {
   COHESION_VOTE_CAP,
   type ParliamentActivityCounts,
@@ -78,6 +85,7 @@ import {
   type ParliamentBillActLink,
   type ParliamentBillVoteLink,
   type ParliamentCommittee,
+  type ParliamentCommitteeDocument,
   type ParliamentCommitteeMembership,
   type ParliamentControlItem,
   type ParliamentDataFreshness,
@@ -4273,46 +4281,180 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     }
   };
 
+  /**
+   * The bills a committee has touched, as ONE predicate — built here so the page
+   * and its total read the SAME set and the cap can never misreport what it cut.
+   *
+   * TWO ARMS, because neither alone is the committee's work:
+   *  - `bill_step_links` (link_kind='committee') is the referral anchor the bill's
+   *    own dossier prints. It is where the Senate's 115,890 relinked referrals
+   *    live, and it is 96% of the Senate substrate.
+   *  - `committee_bill_links` (via `committee_documents`) is the document-side
+   *    resolution. Kept because 307 (committee, bill) pairs appear in NO step link.
+   * UNION, not UNION ALL: the arms overlap on 26,661 edges.
+   *
+   * `coalesce(canonical_bill_key, bill_key)` — NOT an `is_canonical` filter on the
+   * edge's own bill. 194,269 edges legitimately point at a non-canonical twin: a
+   * referral anchor is printed on the dossier of the twin that was referred, while
+   * B1 makes the CDep row canonical. Filtering `src.is_canonical` here returns 10
+   * bills for `senate:ef36e8b3-…` where 197 exist (measured on Chronos 2026-08-06).
+   * The edges are not wrong and must not be "fixed" — the coalesce is the join.
+   *
+   * Read-time, deliberately NOT a projection table. Measured on Chronos 2026-08-06
+   * over the largest committee (cdep:2:2008:11 — 19,640 edges, 3,352 distinct
+   * bills): 62 ms warm, 105-115 ms cold, against a 16 ms median committee. Revisit
+   * only if getCommittee p50 crosses ~250 ms.
+   */
+  const committeeBillKeysSql = (committeeKey: string): RawBuilder<boolean> =>
+    sql<boolean>`b.bill_key in (
+      select coalesce(src.canonical_bill_key, src.bill_key) as bill_key
+      from parliament.bill_step_links l
+      join parliament.bills src on src.bill_key = l.bill_key
+      where l.link_kind = 'committee'
+        and l.resolution_status = 'linked'
+        and l.target_key = ${committeeKey}
+      union
+      select coalesce(src.canonical_bill_key, src.bill_key)
+      from parliament.committee_bill_links cbl
+      join parliament.committee_documents cd
+        on cd.committee_document_key = cbl.committee_document_key
+      join parliament.bills src on src.bill_key = cbl.bill_key
+      where cd.committee_key = ${committeeKey}
+        and cbl.resolution_status = 'linked'
+    )`;
+
   const listCommitteeLinkedBills = async (
     committeeKey: string,
     cap: number
   ): Promise<Result<{ bills: readonly ParliamentBill[]; total: number }, ApiError>> => {
+    // ONE expression object, used twice. Sharing the built predicate — rather than
+    // writing the union out at both call sites — is what makes "the total counts
+    // exactly the rows the cap truncated" a property of the code instead of a
+    // convention two edits could drift apart.
+    const linked = committeeBillKeysSql(committeeKey);
     try {
-      // committee → documents → resolved (linked) bill; canonical bills only. A bill
-      // can link via several documents, so DISTINCT dedupes; the total is the exact
-      // distinct count (bounded — 29,983 links resolve across 114 committees).
+      // ORDER BY the shared bill sort, NOT bill_key: keys are text, so `asc` puts
+      // all 20,748 numeric CDep keys ahead of every 'senat:' key — under a cap that
+      // categorically hides the Senate half of a joint committee's work.
       const rows = await db
-        .selectFrom('parliament.committee_bill_links as cbl')
-        .innerJoin(
-          'parliament.committee_documents as cd',
-          'cd.committee_document_key',
-          'cbl.committee_document_key'
-        )
-        .innerJoin('parliament.bills as b', 'b.bill_key', 'cbl.bill_key')
+        .selectFrom('parliament.bills as b')
         .select(BILL_SELECT)
-        .distinct()
-        .where('cd.committee_key', '=', committeeKey)
-        .where('cbl.resolution_status', '=', 'linked')
-        .where(sql<boolean>`b.is_canonical`)
-        .orderBy('b.bill_key', 'asc')
+        .where(linked)
+        .orderBy(billOrderBy('updated_desc'))
         .limit(cap)
         .execute();
+      // Counted over `bills` under the SAME predicate, not over the union alone:
+      // the total then names rows the page could actually have served, so
+      // total >= rows holds by construction rather than by assumption.
       const cntRow = await db
-        .selectFrom('parliament.committee_bill_links as cbl')
-        .innerJoin(
-          'parliament.committee_documents as cd',
-          'cd.committee_document_key',
-          'cbl.committee_document_key'
-        )
-        .innerJoin('parliament.bills as b', 'b.bill_key', 'cbl.bill_key')
-        .select(sql<string>`count(distinct b.bill_key)`.as('cnt'))
-        .where('cd.committee_key', '=', committeeKey)
-        .where('cbl.resolution_status', '=', 'linked')
-        .where(sql<boolean>`b.is_canonical`)
+        .selectFrom('parliament.bills as b')
+        .select(sql<string>`count(*)`.as('cnt'))
+        .where(linked)
         .executeTakeFirst();
       return ok({ bills: rows.map((r) => mapBill(r)), total: Number(cntRow?.cnt ?? 0) });
     } catch (e) {
       return err(databaseError('listCommitteeLinkedBills failed', e));
+    }
+  };
+
+  /** Parent-bound fhash: a documents cursor is bound to its committee_key. */
+  const committeeDocumentFhash = (committeeKey: string): string =>
+    filterHash(`committee-documents:${committeeKey}`);
+
+  const listCommitteeDocuments = async (
+    committeeKey: string,
+    page: CursorPageRequest
+  ): Promise<Result<CursorPage<ParliamentCommitteeDocument>, ApiError>> => {
+    const limit = Math.min(Math.max(page.first, 1), COMMITTEE_DOCUMENT_PAGE_LIMIT);
+    const fhash = committeeDocumentFhash(committeeKey);
+    // ONE ordinal expression, referenced by the projection, the sort AND the
+    // keyset comparison. Written out three times it would be three things that
+    // can drift, and any drift between the sort and the comparison silently skips
+    // or repeats rows rather than failing. See COMMITTEE_DOCUMENT_ORD_SENTINEL for
+    // why the coalesce exists at all (NULL doc_date + three-valued ROW compare).
+    const ord = sql<string>`coalesce(to_char(cd.doc_date, 'YYYYMMDD'), ${COMMITTEE_DOCUMENT_ORD_SENTINEL})`;
+    const conds: RawBuilder<unknown>[] = [sql`cd.committee_key = ${committeeKey}`];
+    if (page.after !== undefined) {
+      // Cross-committee replay is rejected HERE, by the fhash: the cursor is
+      // signed over this committee_key, so a cursor minted on another committee
+      // fails the envelope check before any key reaches SQL.
+      const dec = decodeCursor(page.after, { sort: 'docOrd', dir: 'desc', fhash });
+      if (dec.isErr()) return err(dec.error);
+      const keys = requireCursorKeys(dec.value.keys, 2);
+      if (keys.isErr()) return err(keys.error);
+      const [ordKey = '', docKey = ''] = keys.value;
+      if (!isCommitteeDocumentOrd(ordKey)) {
+        return err(invalidInput('malformed cursor; restart pagination', 'cursor'));
+      }
+      conds.push(sql`(${ord}, cd.committee_document_key) < (${ordKey}, ${docKey})`);
+    }
+    try {
+      // 49,574 of the 94,200 committee_documents rows (52.6%, all CDep) carry a
+      // NULL committee_key and are unreachable from ANY committee — they resolve
+      // to no committee at all in the source capture. This field therefore serves
+      // a committee's documents, not "the committee's complete document record",
+      // and must never be presented as the latter.
+      const rows = await db
+        .selectFrom('parliament.committee_documents as cd')
+        // At most one linked bill per document (0 documents link to two distinct
+        // canonical bills — Chronos 2026-08-06), so the join cannot fan the page
+        // out and break the (ord, key) uniqueness the keyset depends on.
+        .leftJoin('parliament.committee_bill_links as cbl', (join) =>
+          join
+            .onRef('cbl.committee_document_key', '=', 'cd.committee_document_key')
+            .on('cbl.resolution_status', '=', 'linked')
+        )
+        .leftJoin('parliament.bills as lb', 'lb.bill_key', 'cbl.bill_key')
+        .select([
+          'cd.committee_document_key',
+          'cd.committee_key',
+          'cd.title',
+          'cd.doc_type',
+          sql<string | null>`cd.doc_date::text`.as('doc_date'),
+          'cd.document_url',
+          'cd.source_url',
+          // Same coalesce as the bills union: a document's referral can be filed
+          // against a suppressed twin, and the reader must land on the canonical
+          // dossier rather than on a page that redirects away.
+          sql<string | null>`coalesce(lb.canonical_bill_key, lb.bill_key)`.as('bill_key'),
+          ord.as('ord'),
+        ])
+        .where(composeWhere(conds))
+        .orderBy(sql`${ord} desc, cd.committee_document_key desc`)
+        .limit(limit + 1)
+        .execute();
+      const hasMore = rows.length > limit;
+      const sliced = hasMore ? rows.slice(0, limit) : rows;
+      const last = sliced[sliced.length - 1];
+      const next =
+        hasMore && last !== undefined
+          ? // Minted from the ordinal the DATABASE returned, never recomputed from
+            // doc_date here — so the cursor and the sort cannot disagree.
+            buildNextCursor({
+              sort: 'docOrd',
+              dir: 'desc',
+              fhash,
+              lastKeys: [last.ord, last.committee_document_key],
+            })
+          : null;
+      return ok({ items: sliced.map((r) => mapCommitteeDocument(r)), next });
+    } catch (e) {
+      return err(databaseError('listCommitteeDocuments failed', e));
+    }
+  };
+
+  const committeeDocumentsCount = async (
+    committeeKey: string
+  ): Promise<Result<number, ApiError>> => {
+    try {
+      const row = await db
+        .selectFrom('parliament.committee_documents as cd')
+        .select(sql<string>`count(*)`.as('cnt'))
+        .where('cd.committee_key', '=', committeeKey)
+        .executeTakeFirst();
+      return ok(Number(row?.cnt ?? 0));
+    } catch (e) {
+      return err(databaseError('committeeDocumentsCount failed', e));
     }
   };
 
@@ -4397,6 +4539,8 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
     findCommittee,
     listCommitteeRoster,
     listCommitteeLinkedBills,
+    listCommitteeDocuments,
+    committeeDocumentsCount,
     committeeMeetingsCount,
     listMemberCommitteeMemberships,
   };

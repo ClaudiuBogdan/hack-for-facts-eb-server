@@ -1048,10 +1048,36 @@ const objectsAndQuery = /* GraphQL */ `
     sourceUrl: String!
     "Roster memberships (cdep by mandate, senate via the current-roster join; senate_profile noise excluded). Unlinked seats appear with a null member."
     members: [ParliamentCommitteeMembership!]!
-    "Bills resolved from this committee's documents (resolution_status='linked', canonical). Bounded at 200; linkedBillsTotal is the exact distinct count."
+    "Bills this committee touched: the referral step-links (link_kind='committee') UNION the document links, each keyed through coalesce(canonical_bill_key, bill_key) so a referral anchored on a suppressed twin still resolves to the canonical bill. Sorted newest-activity-first and bounded at 500 — linkedBillsTotal is the exact count over the SAME set, so a truncated list is never silent (measured 2026-08-06: 386 committees serve bills, median 196, max 3,352, 86 above the bound)."
     linkedBills: [ParliamentBill!]!
     linkedBillsTotal: Int!
     meetingsCount: Int!
+    "Documents this committee published (cursor; newest-dated first, undated last). 'first' is capped at 100, default 20. Declared ONLY here and never on ParliamentCommittee: one committee per request is what keeps a list of 191 committees from fanning out into 191 document reads."
+    documents(first: Int, after: String): ParliamentCommitteeDocumentConnection!
+  }
+  "A document a committee published. sourceUrl is the traceability terminator; documentUrl is the file itself where the source printed one."
+  type ParliamentCommitteeDocument {
+    committeeDocumentKey: ID!
+    title: String
+    "The document's kind, on CAMERA rows only — NULL on every Senate row, by policy. The Senate classifier read senat.ro's navigation-menu label (identical on 817 of 2,056 rows) and, checked against the source pages, filed a newsletter and a JPEG as minutes. Absent beats wrong: a badge is read as the institution's own filing."
+    docType: String
+    "The date the source printed. NULL on 1,980 of 2,056 Senate rows — those documents are ordered last, not dropped."
+    docDate: Date
+    "The file. NULL where the source page links no document; fall back to sourceUrl."
+    documentUrl: String
+    sourceUrl: String!
+    "The canonical bill this document concerns, resolved through canonical_bill_key so a referral filed against a suppressed twin still points at the served dossier. NULL when the document resolves to no bill — which is 96% of Senate rows."
+    billKey: String
+  }
+  type ParliamentCommitteeDocumentEdge {
+    node: ParliamentCommitteeDocument!
+    cursor: String!
+  }
+  "Documents for ONE committee (parented by committee_key). 'total' is the EXACT count for that committee, resolved lazily — a page pays for it only when it asks. NOTE: it counts the committee's REACHABLE documents; 49,574 of the 94,200 stored rows (all Camera) carry no committee_key at all and belong to no committee here."
+  type ParliamentCommitteeDocumentConnection {
+    edges: [ParliamentCommitteeDocumentEdge!]!
+    pageInfo: PageInfo!
+    total: Int!
   }
   type ParliamentCommitteeEdge {
     node: ParliamentCommittee!

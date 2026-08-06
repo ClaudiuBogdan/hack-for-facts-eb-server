@@ -1530,6 +1530,137 @@ d('Parliament golden (live prod)', () => {
     expect(committee.linkedBills.length).toBeLessThanOrEqual(committee.linkedBillsTotal);
   }, 30_000);
 
+  /**
+   * A SENATE committee's documents, end to end.
+   *
+   * NOTHING HERE IS A HARDCODED COUNT, deliberately. This suite runs against live
+   * `transparenta_prod`, and a Senate committee-PDF backfill is expected to grow
+   * these rows; a pinned 188 would then fail as data growth rather than as a
+   * defect, and the first fix would be to bump the number — which is how a golden
+   * test stops meaning anything. What IS pinned are the properties that must hold
+   * at ANY size: docType is null on every Senate row (policy, not sparsity), the
+   * undated rows are SERVED rather than dropped, and a full cursor walk yields
+   * exactly `total` DISTINCT keys — the one assertion the null-date keyset bug
+   * would have failed (it returned 3 of 188 without erroring).
+   */
+  it('B2: senate committee documents page fully, with Senate docType suppressed', async () => {
+    const SENATE_COMMITTEE = 'senate:a3ba8a6b-8b59-47b1-8932-0d30b5f7add1';
+    interface DocPage {
+      readonly parliamentCommittee: {
+        readonly documents: {
+          readonly total: number;
+          readonly edges: readonly {
+            readonly cursor: string;
+            readonly node: {
+              readonly committeeDocumentKey: string;
+              readonly docType: string | null;
+              readonly docDate: string | null;
+              readonly sourceUrl: string;
+            };
+          }[];
+          readonly pageInfo: { readonly hasNextPage: boolean; readonly endCursor: string | null };
+        };
+      } | null;
+    }
+    const DOC_QUERY = `query($k: ID!, $first: Int, $after: String) {
+      parliamentCommittee(committeeKey:$k) {
+        documents(first:$first, after:$after) {
+          total
+          edges { cursor node { committeeDocumentKey docType docDate sourceUrl } }
+          pageInfo { hasNextPage endCursor }
+        }
+      }
+    }`;
+
+    const first = expectGqlData(await gql<DocPage>(DOC_QUERY, { k: SENATE_COMMITTEE, first: 100 }));
+    const page = requireValue(first.parliamentCommittee, 'senate committee').documents;
+    expect(page.total).toBeGreaterThan(0);
+
+    // Walk the whole connection. The bound is a safety net on a runaway cursor,
+    // not an expected stopping point — it is checked below.
+    const keys: string[] = [];
+    const dated: string[] = [];
+    let node = page;
+    for (let drawn = 1; ; drawn += 1) {
+      for (const edge of node.edges) {
+        keys.push(edge.node.committeeDocumentKey);
+        // The policy: EVERY Senate row serves a null docType, whatever the
+        // column holds. The classifier read senat.ro's navigation menu.
+        expect(edge.node.docType, edge.node.committeeDocumentKey).toBeNull();
+        expect(edge.node.sourceUrl.length).toBeGreaterThan(0);
+        if (edge.node.docDate !== null) dated.push(edge.node.committeeDocumentKey);
+      }
+      if (!node.pageInfo.hasNextPage || node.pageInfo.endCursor === null) break;
+      expect(drawn, 'cursor walk did not terminate').toBeLessThan(50);
+      const next = expectGqlData(
+        await gql<DocPage>(DOC_QUERY, {
+          k: SENATE_COMMITTEE,
+          first: 100,
+          after: node.pageInfo.endCursor,
+        })
+      );
+      node = requireValue(next.parliamentCommittee, 'senate committee page').documents;
+    }
+
+    // The load-bearing one: every row the total counts is reachable by paging,
+    // and no row is served twice. The undated-row keyset bug failed exactly here.
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(keys).toHaveLength(page.total);
+    // Undated rows dominate this committee — they must be SERVED, not skipped.
+    expect(dated.length).toBeLessThan(keys.length);
+
+    // A cursor is bound to its committee: replaying one against another is
+    // INVALID_INPUT, never a silently mis-paged set.
+    const stolen = requireValue(page.pageInfo.endCursor ?? page.edges[0]?.cursor, 'a cursor');
+    const replay = await gql<DocPage>(DOC_QUERY, {
+      k: 'senate:ef36e8b3-2fb2-43e8-bd6d-1ad040db24b3',
+      first: 5,
+      after: stolen,
+    });
+    expect(replay.errors?.length ?? 0).toBeGreaterThan(0);
+    expect(replay.errors?.[0]?.extensions?.code).toBe('INVALID_INPUT');
+  }, 60_000);
+
+  /**
+   * The Phase B union, proven on the committee it was built for. Again no pinned
+   * count: what must hold is that a Senate committee with referral step-links
+   * serves bills AT ALL (it served zero before), and that the total is consistent
+   * with the capped page.
+   */
+  it('B2: a senate committee serves bills from the referral step-links', async () => {
+    const data = expectGqlData(
+      await gql<{
+        parliamentCommittee: {
+          readonly linkedBills: readonly {
+            readonly billKey: string;
+            readonly isCanonical: boolean;
+          }[];
+          readonly linkedBillsTotal: number;
+        } | null;
+      }>(
+        `query($k: ID!) {
+          parliamentCommittee(committeeKey:$k) {
+            linkedBills { billKey isCanonical }
+            linkedBillsTotal
+          }
+        }`,
+        { k: 'senate:ef36e8b3-2fb2-43e8-bd6d-1ad040db24b3' }
+      )
+    );
+    const committee = requireValue(data.parliamentCommittee, 'senate committee ef36e8b3');
+    // Zero here is the pre-fix behaviour: the document-link path alone covers 4%
+    // of Senate documents, so this committee served no bills at all.
+    expect(committee.linkedBillsTotal).toBeGreaterThan(0);
+    expect(committee.linkedBills.length).toBeGreaterThan(0);
+    expect(committee.linkedBills.length).toBeLessThanOrEqual(committee.linkedBillsTotal);
+    // The coalesce is what makes this true: the EDGES point at suppressed twins,
+    // but every bill served here is the canonical one the reader can open.
+    expect(committee.linkedBills.every((b) => b.isCanonical)).toBe(true);
+    expect(new Set(committee.linkedBills.map((b) => b.billKey)).size).toBe(
+      committee.linkedBills.length
+    );
+  }, 30_000);
+
   it('B1: bill 12760 aiMetadata is non-null, NON-AUTHORITATIVE (trust class + disclaimer + valueClass)', async () => {
     const data = expectGqlData(
       await gql<{

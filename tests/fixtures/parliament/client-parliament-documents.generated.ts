@@ -7,7 +7,7 @@
  * client-parliament-contract.test.ts, which validates each against the built
  * SDL. See the generator for why this is generated and not hand-picked.
  *
- * Extracted 32 documents from 4 client modules.
+ * Extracted 33 documents from 4 client modules.
  */
 
 export interface ClientDocument {
@@ -131,6 +131,11 @@ export const CLIENT_PARLIAMENT_DOCUMENTS: readonly ClientDocument[] = [
     file: 'parliament-queries.ts',
     name: 'PARLIAMENT_COMMITTEE_QUERY',
     body: '\n  query ParliamentCommittee($committeeKey: ID!) {\n    parliamentCommittee(committeeKey: $committeeKey) {\n      committeeKey\n      chamber\n      name\n      legislature\n      committeeType\n      sourceUrl\n      members {\n        membershipKey\n        role\n        joinedDate\n        leftDate\n        isBureau\n        sourceUrl\n        member {\n          mandateKey\n          fullName\n          chamber\n          groupName\n        }\n      }\n      linkedBills {\n        billKey\n        plxNumber\n        plxYear\n        senateNumber\n        senateYear\n        title\n        finalLawNumber\n        finalLawYear\n        statusText\n        billType\n        lastEventDate\n      }\n      linkedBillsTotal\n      meetingsCount\n    }\n  }\n',
+  },
+  {
+    file: 'parliament-queries.ts',
+    name: 'PARLIAMENT_COMMITTEE_DOCUMENTS_QUERY',
+    body: '\n  query ParliamentCommitteeDocuments(\n    $committeeKey: ID!\n    $first: Int\n    $after: String\n  ) {\n    parliamentCommittee(committeeKey: $committeeKey) {\n      committeeKey\n      documents(first: $first, after: $after) {\n        total\n        edges {\n          node {\n            committeeDocumentKey\n            title\n            docType\n            docDate\n            documentUrl\n            sourceUrl\n            billKey\n          }\n        }\n        pageInfo {\n          hasNextPage\n          endCursor\n        }\n      }\n    }\n  }\n',
   },
   {
     file: 'parliament-stenograms-queries.ts',

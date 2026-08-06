@@ -25,12 +25,19 @@ import {
   type LegalActByIdLoader,
 } from '@/modules/shared/index.js';
 
-import { PARLIAMENT_BALLOT_PAGE_LIMIT } from '../../core/constants.js';
+import {
+  COMMITTEE_DOCUMENT_PAGE_DEFAULT,
+  COMMITTEE_DOCUMENT_PAGE_LIMIT,
+  committeeDocumentOrd,
+  PARLIAMENT_BALLOT_PAGE_LIMIT,
+} from '../../core/constants.js';
 import {
   parliamentStenogramErrorCode,
   type ParliamentAgendaFilter,
   type ParliamentBallot,
+  type ParliamentBill,
   type ParliamentCommittee,
+  type ParliamentCommitteeDocument,
   type ParliamentMemberVote,
   type ParliamentResolveDim,
   type ParliamentSpeech,
@@ -49,6 +56,10 @@ import {
   getBillDossierRelatedVotes,
   getBillDossierVoteLinks,
   getCommittee,
+  getCommitteeDocuments,
+  getCommitteeLinkedBills,
+  getCommitteeMeetingsCount,
+  getCommitteeRoster,
   getDataFreshness,
   getLineageForAct,
   getMember,
@@ -169,8 +180,30 @@ const sansNull = (filter: FilterInput | undefined): FilterInput => {
   ) as FilterInput;
 };
 
+/**
+ * The `parliamentCommittee` root's return value: the committee row, plus a slot
+ * for the one child read two fields share. Mutable by design — the memo is written
+ * on first use — and per-request, because the root resolver builds it fresh.
+ */
+interface CommitteeDetailParent {
+  readonly committeeKey: string;
+  linkedOnce?: Promise<{ bills: readonly ParliamentBill[]; total: number }>;
+}
+
 export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<string, unknown> => {
   const { legalActLoader } = deps;
+
+  /**
+   * `linkedBills` and `linkedBillsTotal` are ONE read. Selecting both must not run
+   * it twice, and — more importantly — must not run it as two statements that could
+   * disagree about the total the cap truncated.
+   */
+  const linkedBillsOf = (
+    parent: CommitteeDetailParent
+  ): Promise<{ bills: readonly ParliamentBill[]; total: number }> => {
+    parent.linkedOnce ??= getCommitteeLinkedBills(deps, parent.committeeKey).then(unwrap);
+    return parent.linkedOnce;
+  };
   /**
    * Request-scoped lazy bill-child read scopes (M2/B-F19). Mercurius builds one
    * context object per request, so keying on it gives every lazy child read in
@@ -261,6 +294,33 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
           dir: 'asc',
           fhash,
           lastKeys: [node.name, node.committeeKey],
+        }),
+      })),
+      pageInfo: { hasNextPage: page.next !== null, endCursor: page.next },
+    };
+  };
+
+  const committeeDocumentConnection = (
+    page: CursorPage<ParliamentCommitteeDocument>,
+    committeeKey: string
+  ) => {
+    // Same fhash the repo encoded `next` with — and the same one it VALIDATES an
+    // incoming cursor against, which is what makes a cursor minted on committee A
+    // unusable against committee B instead of quietly paging the wrong set.
+    const fhash = filterHash(`committee-documents:${committeeKey}`);
+    return {
+      // Carried so ParliamentCommitteeDocumentConnection.total can count lazily.
+      committeeKey,
+      edges: page.items.map((node) => ({
+        node,
+        // The ordinal here must be the SAME reading the repo sorted by, so an edge
+        // cursor resumes where the row actually sat. `committeeDocumentOrd` is the
+        // TS twin of the repo's coalesce, pinned equal by test.
+        cursor: buildNextCursor({
+          sort: 'docOrd',
+          dir: 'desc',
+          fhash,
+          lastKeys: [committeeDocumentOrd(node.docDate), node.committeeDocumentKey],
         }),
       })),
       pageInfo: { hasNextPage: page.next !== null, endCursor: page.next },
@@ -698,17 +758,12 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
       },
 
       parliamentCommittee: async (_r: unknown, args: { committeeKey: string }) => {
-        const detail = unwrap(await getCommittee(deps, args.committeeKey));
-        if (detail === null) return null;
-        // Flatten the committee fields onto the detail (the members/linkedBills/
-        // meetingsCount stay as carried arrays/scalars — no field resolvers needed).
-        return {
-          ...detail.committee,
-          members: detail.members,
-          linkedBills: detail.linkedBills,
-          linkedBillsTotal: detail.linkedBillsTotal,
-          meetingsCount: detail.meetingsCount,
-        };
+        const committee = unwrap(await getCommittee(deps, args.committeeKey));
+        if (committee === null) return null;
+        // The committee row alone. Roster, bills and counts are FIELD RESOLVERS
+        // (see ParliamentCommitteeDetail below) — the page pages its documents
+        // now, and re-entering this root per "load more" used to re-pay all three.
+        return { ...committee };
       },
     },
 
@@ -1072,6 +1127,41 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
       // when the client selects `total` — so a normal `ballots(first:n)` page pays nothing.
       total: async (parent: { voteKey: string }) =>
         unwrap(await deps.repo.ballotResolution(parent.voteKey)).total,
+    },
+
+    ParliamentCommitteeDetail: {
+      members: async (parent: CommitteeDetailParent) =>
+        unwrap(await getCommitteeRoster(deps, parent.committeeKey)),
+      // Both of these come from ONE repo read, memoized on the parent: the page and
+      // its total must be measured by the same statement, and selecting both must
+      // not run it twice. The memo lives on the parent object, so its lifetime is
+      // exactly this committee in this request.
+      linkedBills: async (parent: CommitteeDetailParent) => (await linkedBillsOf(parent)).bills,
+      linkedBillsTotal: async (parent: CommitteeDetailParent) =>
+        (await linkedBillsOf(parent)).total,
+      meetingsCount: async (parent: CommitteeDetailParent) =>
+        unwrap(await getCommitteeMeetingsCount(deps, parent.committeeKey)),
+      documents: async (
+        parent: CommitteeDetailParent,
+        args: { first?: number; after?: string }
+      ) => {
+        const page = {
+          first: clampFirst(
+            args.first ?? COMMITTEE_DOCUMENT_PAGE_DEFAULT,
+            COMMITTEE_DOCUMENT_PAGE_LIMIT
+          ),
+          ...(args.after != null && { after: args.after }),
+        };
+        const res = unwrap(await getCommitteeDocuments(deps, parent.committeeKey, page));
+        return committeeDocumentConnection(res, parent.committeeKey);
+      },
+    },
+
+    ParliamentCommitteeDocumentConnection: {
+      // Exact count for THIS committee, one statement, only when selected — the
+      // same lazy rule ParliamentBallotConnection.total follows.
+      total: async (parent: { committeeKey: string }) =>
+        unwrap(await deps.repo.committeeDocumentsCount(parent.committeeKey)),
     },
 
     Entity: {

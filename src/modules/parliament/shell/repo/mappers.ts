@@ -21,6 +21,7 @@ import {
   type ParliamentBillScheduling,
   type ParliamentBillStepLink,
   type ParliamentCommittee,
+  type ParliamentCommitteeDocument,
   type ParliamentCommitteeMembership,
   type ParliamentControlItem,
   type ParliamentDeclarationMeta,
@@ -844,6 +845,42 @@ export const mapCommittee = (r: CommitteeRow): ParliamentCommittee => ({
   legislature: r.legislature,
   committeeType: r.committee_type,
   sourceUrl: r.source_url,
+});
+
+export interface CommitteeDocumentRow {
+  committee_document_key: string;
+  committee_key: string | null;
+  title: string | null;
+  doc_type: string | null;
+  doc_date: string | null;
+  document_url: string | null;
+  source_url: string;
+  bill_key: string | null;
+}
+
+/**
+ * Map a committee document, applying the ONE classification policy this surface has.
+ *
+ * SENATE `doc_type` IS SUPPRESSED, and that is a correctness decision, not a gap.
+ * The column is populated on all 2,056 Senate rows (933 `proces_verbal`, 824
+ * `sinteza`, 237 `raport`, …) — but it was derived by substring-matching
+ * `doc_type_raw`, which on senat.ro is the page's NAVIGATION MENU label, identical
+ * on 817 rows. Checked against the source pages, that classifier labelled a
+ * newsletter and a JPEG as `proces_verbal`. A wrong badge is worse than none: it
+ * is read as the institution's own filing, so the reader cannot tell it is a guess.
+ * CDep rows are classified from the document's own row and pass through.
+ *
+ * The chamber comes from the committee KEY-SPACE, not from a join: every reachable
+ * row is `cdep:…` (42,570) or `senate:…` (2,056) — checked on Chronos 2026-08-06.
+ */
+export const mapCommitteeDocument = (r: CommitteeDocumentRow): ParliamentCommitteeDocument => ({
+  committeeDocumentKey: r.committee_document_key,
+  title: r.title,
+  docType: r.committee_key?.startsWith('senate:') === true ? null : r.doc_type,
+  docDate: r.doc_date,
+  documentUrl: r.document_url,
+  sourceUrl: r.source_url,
+  billKey: r.bill_key,
 });
 
 /** A committee-membership row's SERVABLE core fields (PDL-003: no group/raw name). */

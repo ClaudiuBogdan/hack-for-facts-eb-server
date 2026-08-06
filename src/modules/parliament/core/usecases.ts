@@ -40,7 +40,8 @@ import {
   type ParliamentBillActivity,
   type ParliamentBillDossier,
   type ParliamentCommittee,
-  type ParliamentCommitteeDetail,
+  type ParliamentCommitteeDocument,
+  type ParliamentCommitteeMembership,
   type ParliamentControlItem,
   type ParliamentDataFreshness,
   type ParliamentGroup,
@@ -1641,8 +1642,18 @@ export const getDataFreshness = (
 
 // ── committees (B2) ─────────────────────────────────────────────────────────────
 
-/** The linked-bills bounded cap for a committee detail (like the ballots 200 cap). */
-export const COMMITTEE_LINKED_BILLS_CAP = 200;
+/**
+ * The linked-bills bound for a committee detail. NOT silent: the response also
+ * carries the exact total over the same predicate, so a truncated list can say so.
+ *
+ * Measured on Chronos 2026-08-06 over the step-link ∪ document-link set: 386
+ * committees serve at least one bill, median 196, max 3,352; 192 exceed 200 and 86
+ * exceed 500. Raised 200 → 500 because at 200 half the serving committees were cut.
+ * The ceiling is the API↔DB link, not the query: BILL_SELECT is ~1-2 KB/row over
+ * ~0.5 MB/s, so 500 rows ≈ 1-2 s and the full 3,352 would be 6-14 s. Measured;
+ * re-validate at full scale.
+ */
+export const COMMITTEE_LINKED_BILLS_CAP = 500;
 
 export const listCommittees = (
   deps: ParliamentUsecaseDeps,
@@ -1652,31 +1663,49 @@ export const listCommittees = (
 ): Promise<Result<CursorPage<ParliamentCommittee>, ApiError>> =>
   deps.repo.listCommittees(chamber, legislature, page);
 
-export const getCommittee = async (
+/**
+ * The committee detail ROOT — the committee row, and nothing else.
+ *
+ * It used to assemble the roster, the linked bills and the meetings count eagerly,
+ * which was fine while the page was one shot. `documents` makes it a page a reader
+ * PAGES: every "load more" re-entered `parliamentCommittee`, so each click re-paid
+ * the roster, up to 500 bills (~78 KB of BILL_SELECT) and 3 statements it had
+ * already served and the client already had. The children are field resolvers now
+ * — each one costs exactly the client that selected it.
+ */
+export const getCommittee = (
   deps: ParliamentUsecaseDeps,
   committeeKey: string
-): Promise<Result<ParliamentCommitteeDetail | null, ApiError>> => {
-  const c = await deps.repo.findCommittee(committeeKey);
-  if (c.isErr()) return err(c.error);
-  if (c.value === null) return ok(null);
+): Promise<Result<ParliamentCommittee | null, ApiError>> => deps.repo.findCommittee(committeeKey);
 
-  const [roster, linked, meetings] = await Promise.all([
-    deps.repo.listCommitteeRoster(committeeKey),
-    deps.repo.listCommitteeLinkedBills(committeeKey, COMMITTEE_LINKED_BILLS_CAP),
-    deps.repo.committeeMeetingsCount(committeeKey),
-  ]);
-  if (roster.isErr()) return err(roster.error);
-  if (linked.isErr()) return err(linked.error);
-  if (meetings.isErr()) return err(meetings.error);
+export const getCommitteeRoster = (
+  deps: ParliamentUsecaseDeps,
+  committeeKey: string
+): Promise<Result<readonly ParliamentCommitteeMembership[], ApiError>> =>
+  deps.repo.listCommitteeRoster(committeeKey);
 
-  return ok({
-    committee: c.value,
-    members: roster.value,
-    linkedBills: linked.value.bills,
-    linkedBillsTotal: linked.value.total,
-    meetingsCount: meetings.value,
-  });
-};
+/**
+ * The bills AND their total in one read — the pair is deliberately not splittable,
+ * because a total measured by a different statement than the page is a total that
+ * can disagree with it.
+ */
+export const getCommitteeLinkedBills = (
+  deps: ParliamentUsecaseDeps,
+  committeeKey: string
+): Promise<Result<{ bills: readonly ParliamentBill[]; total: number }, ApiError>> =>
+  deps.repo.listCommitteeLinkedBills(committeeKey, COMMITTEE_LINKED_BILLS_CAP);
+
+export const getCommitteeMeetingsCount = (
+  deps: ParliamentUsecaseDeps,
+  committeeKey: string
+): Promise<Result<number, ApiError>> => deps.repo.committeeMeetingsCount(committeeKey);
+
+export const getCommitteeDocuments = (
+  deps: ParliamentUsecaseDeps,
+  committeeKey: string,
+  page: CursorPageRequest
+): Promise<Result<CursorPage<ParliamentCommitteeDocument>, ApiError>> =>
+  deps.repo.listCommitteeDocuments(committeeKey, page);
 
 // ── member-activity bundle (MCP) ───────────────────────────────────────────────
 

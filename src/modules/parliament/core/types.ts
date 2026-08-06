@@ -920,6 +920,37 @@ export interface ParliamentCommitteeMembership {
   readonly member: ParliamentMember | null;
 }
 
+/**
+ * A document a committee published (report, opinion, minutes, agenda synthesis).
+ *
+ * WHAT IS DELIBERATELY ABSENT, so nobody re-adds it as an oversight:
+ *  - `doc_type_raw` — never published in any shape. On CDep it is a 2-character
+ *    internal code; on Senate it is senat.ro's NAVIGATION-MENU label, identical on
+ *    817 of 2,056 rows ("Urmărirea procesului legislativ"). Substring-matching it
+ *    produced `proces_verbal` for a newsletter and for a JPEG, disproven against
+ *    the source pages themselves.
+ *  - `custody_status` / `object_key` — 100% `link_only`. We hold no bytes, so a
+ *    "download from us" affordance would be a false promise; `documentUrl` and
+ *    `sourceUrl` point at whoever does.
+ *  - `meeting_key` (76 rows, and no meetings type to point at), `co_committees`
+ *    (names, not keys — unjoinable), and the Senate deadline/resolution columns
+ *    (too thinly populated to read as a fact).
+ */
+export interface ParliamentCommitteeDocument {
+  readonly committeeDocumentKey: string;
+  readonly title: string | null;
+  /**
+   * NULL for every Senate row, by policy rather than by absence — see the mapper.
+   * CDep values pass through as the loader classified them.
+   */
+  readonly docType: string | null;
+  readonly docDate: string | null;
+  readonly documentUrl: string | null;
+  readonly sourceUrl: string;
+  /** The canonical bill this document concerns, when one document links to one. */
+  readonly billKey: string | null;
+}
+
 /** The committee detail view: committee + roster + linked bills + a meetings count. */
 export interface ParliamentCommitteeDetail {
   readonly committee: ParliamentCommittee;

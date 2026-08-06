@@ -11,6 +11,8 @@ import { COHESION_VOTE_CAP } from '@/modules/parliament/core/types.js';
 import {
   COMMITTEE_LINKED_BILLS_CAP,
   getCommittee,
+  getCommitteeLinkedBills,
+  getCommitteeRoster,
   getDataFreshness,
   getLineageForAct,
   getMemberSpeechActivity,
@@ -520,7 +522,14 @@ describe('getLineageForAct — marquee assembly + ballots gate', () => {
   });
 });
 
-describe('getCommittee — detail assembly (B2)', () => {
+describe('getCommittee — the detail ROOT is the committee row alone (B2)', () => {
+  /**
+   * This used to assemble roster + bills + meetings eagerly. `documents` made the
+   * page one a reader PAGES, and every "load more" re-entered this root — so each
+   * click re-paid a roster, up to 500 bills and 3 statements the client already
+   * held. The children are field resolvers now, and what this pins is the NEGATIVE:
+   * resolving the root must touch nothing but `findCommittee`.
+   */
   const committee = {
     committeeKey: 'cdep:2:2024:1',
     chamber: 'camera_deputatilor',
@@ -547,13 +556,14 @@ describe('getCommittee — detail assembly (B2)', () => {
     if (r.isOk()) expect(r.value).toBeNull();
   });
 
-  it('assembles committee + roster + linked bills (with cap) + meetings count', async () => {
+  it('reads ONLY the committee row — no roster, no bills, no counts', async () => {
     const findCommittee = vi.fn(() => okp(committee));
     const listCommitteeRoster = vi.fn(() => okp([membership]));
     const listCommitteeLinkedBills = vi.fn(() =>
       okp({ bills: [{ billKey: '12760' } as never], total: 3 })
     );
     const committeeMeetingsCount = vi.fn(() => okp(42));
+    const listCommitteeDocuments = vi.fn(() => okp({ items: [], next: null }));
     const r = await getCommittee(
       deps(
         makeRepo({
@@ -561,43 +571,43 @@ describe('getCommittee — detail assembly (B2)', () => {
           listCommitteeRoster,
           listCommitteeLinkedBills,
           committeeMeetingsCount,
+          listCommitteeDocuments,
         })
       ),
       'cdep:2:2024:1'
     );
     expect(r.isOk()).toBe(true);
-    if (r.isOk() && r.value !== null) {
-      expect(r.value.committee.committeeKey).toBe('cdep:2:2024:1');
-      expect(r.value.members).toHaveLength(1);
-      expect(r.value.linkedBills).toHaveLength(1);
-      expect(r.value.linkedBillsTotal).toBe(3);
-      expect(r.value.meetingsCount).toBe(42);
+    if (r.isOk() && r.value !== null) expect(r.value.committeeKey).toBe('cdep:2:2024:1');
+
+    expect(findCommittee).toHaveBeenCalledTimes(1);
+    for (const child of [
+      listCommitteeRoster,
+      listCommitteeLinkedBills,
+      committeeMeetingsCount,
+      listCommitteeDocuments,
+    ]) {
+      expect(child).not.toHaveBeenCalled();
     }
-    // linked bills are fetched with the bounded cap.
+  });
+
+  it('fetches the linked bills with the bounded cap when that field IS selected', async () => {
+    const listCommitteeLinkedBills = vi.fn(() => okp({ bills: [], total: 0 }));
+    const r = await getCommitteeLinkedBills(
+      deps(makeRepo({ listCommitteeLinkedBills })),
+      'cdep:2:2024:1'
+    );
+    expect(r.isOk()).toBe(true);
     expect(listCommitteeLinkedBills).toHaveBeenCalledWith(
       'cdep:2:2024:1',
       COMMITTEE_LINKED_BILLS_CAP
     );
   });
 
-  it('propagates a repo error from the roster', async () => {
-    const findCommittee = vi.fn(() => okp(committee));
+  it('propagates a repo error from a child read', async () => {
     const listCommitteeRoster = vi.fn(() =>
       Promise.resolve(err<never, ApiError>({ type: 'Database', message: 'boom' }))
     );
-    const listCommitteeLinkedBills = vi.fn(() => okp({ bills: [], total: 0 }));
-    const committeeMeetingsCount = vi.fn(() => okp(0));
-    const r = await getCommittee(
-      deps(
-        makeRepo({
-          findCommittee,
-          listCommitteeRoster,
-          listCommitteeLinkedBills,
-          committeeMeetingsCount,
-        })
-      ),
-      'cdep:2:2024:1'
-    );
+    const r = await getCommitteeRoster(deps(makeRepo({ listCommitteeRoster })), 'cdep:2:2024:1');
     expect(r.isErr()).toBe(true);
   });
 });

@@ -52,9 +52,9 @@ describe('every client parliament document validates against this SDL', () => {
   it('covers the whole client surface, not a sample', () => {
     // A count pin. If the client gains a document and the fixture is not
     // regenerated, the new one is unguarded — and silence would look identical
-    // to coverage. Measured 2026-08-06: 23 in parliament-queries.ts, 3 each in
+    // to coverage. Measured 2026-08-06: 24 in parliament-queries.ts, 3 each in
     // the stenograms/speeches/agenda modules.
-    expect(CLIENT_PARLIAMENT_DOCUMENTS).toHaveLength(32);
+    expect(CLIENT_PARLIAMENT_DOCUMENTS).toHaveLength(33);
     const files = new Set(CLIENT_PARLIAMENT_DOCUMENTS.map((d) => d.file));
     expect(files.size).toBe(4);
   });

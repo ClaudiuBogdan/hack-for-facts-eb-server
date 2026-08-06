@@ -222,4 +222,46 @@ describe('parliament SDL — builds with the new B1–B4 surface', () => {
       expect(fields[name], name).toBeDefined();
     }
   });
+
+  /**
+   * WHERE `documents` IS DECLARED IS THE WHOLE N+1 ARGUMENT.
+   *
+   * On the DETAIL type it is reachable through exactly one path — Query
+   * .parliamentCommittee, one committee per request — so a document read is
+   * bounded by construction. On the LIST type `ParliamentCommittee` the same
+   * field would fan a 191-row committee page out into 191 keyset reads, and
+   * nothing in the resolver could refuse it. The placement IS the bound, so it
+   * is asserted rather than left to reviewer memory.
+   */
+  it('declares documents on the committee DETAIL only, never on the list type', () => {
+    for (const name of [
+      'ParliamentCommitteeDocument',
+      'ParliamentCommitteeDocumentEdge',
+      'ParliamentCommitteeDocumentConnection',
+    ]) {
+      expect(schema.getType(name), name).toBeDefined();
+    }
+
+    const detail = schema.getType('ParliamentCommitteeDetail');
+    const detailFields =
+      detail !== undefined && detail !== null && 'getFields' in detail ? detail.getFields() : {};
+    const documents = detailFields['documents'];
+    expect(documents).toBeDefined();
+    expect(String(documents?.type)).toBe('ParliamentCommitteeDocumentConnection!');
+    const args = documents !== undefined && 'args' in documents ? documents.args : [];
+    expect(args.map((a) => a.name).sort()).toEqual(['after', 'first']);
+
+    const list = schema.getType('ParliamentCommittee');
+    const listFields =
+      list !== undefined && list !== null && 'getFields' in list ? list.getFields() : {};
+    expect(listFields['documents']).toBeUndefined();
+  });
+
+  it('never publishes docTypeRaw in any shape', () => {
+    // 2-character CDep codes and ~950-character Senate navigation blobs. The
+    // served `docType` is a policy decision built from it; the raw value is not
+    // a fact a reader can act on, in any type.
+    expect(parliamentTypeDefs).not.toContain('docTypeRaw');
+    expect(parliamentTypeDefs).not.toContain('doc_type_raw');
+  });
 });

@@ -24,6 +24,7 @@ import type {
   ParliamentBillEvent,
   ParliamentBillVoteLink,
   ParliamentCommittee,
+  ParliamentCommitteeDocument,
   ParliamentCommitteeMembership,
   ParliamentControlItem,
   ParliamentDataFreshness,
@@ -503,11 +504,18 @@ export interface ParliamentRepo extends ParliamentStenogramRepo {
   listCommitteeRoster(
     committeeKey: string
   ): Promise<Result<readonly ParliamentCommitteeMembership[], ApiError>>;
-  /** Bills linked to a committee's documents (resolution_status='linked', canonical). Bounded + exact total. */
+  /** Bills this committee touched: referral step-links ∪ document links, keyed through canonical_bill_key. Bounded + exact total over the same predicate. */
   listCommitteeLinkedBills(
     committeeKey: string,
     cap: number
   ): Promise<Result<{ bills: readonly ParliamentBill[]; total: number }, ApiError>>;
+  /** A committee's documents, keyset-paged on (coalesced doc-date ordinal, key) DESC. */
+  listCommitteeDocuments(
+    committeeKey: string,
+    page: CursorPageRequest
+  ): Promise<Result<CursorPage<ParliamentCommitteeDocument>, ApiError>>;
+  /** Exact document count for ONE committee — resolved lazily, only when selected. */
+  committeeDocumentsCount(committeeKey: string): Promise<Result<number, ApiError>>;
   committeeMeetingsCount(committeeKey: string): Promise<Result<number, ApiError>>;
   /** A member's committee seats (cdep by mandate_key; senate_committee via the attr join when the member is a current senator). */
   listMemberCommitteeMemberships(
