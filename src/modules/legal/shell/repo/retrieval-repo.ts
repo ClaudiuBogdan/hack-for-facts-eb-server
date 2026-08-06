@@ -29,6 +29,7 @@ import {
 } from '@/modules/shared/index.js';
 
 import { mapAct, mapSummary, toStatus, type ActRow } from './mappers.js';
+import { LEGAL_LIVE_STATUSES } from '../../core/legal-engine-filter.js';
 import { sectionFusionKey } from '../../core/legal-search-fusion.js';
 import { legalActsSpec } from '../filters/legal-acts.spec.js';
 
@@ -42,9 +43,6 @@ const DOC_CONFIG = 'general-v1';
 const STMT_TIMEOUT_MS = 5000;
 const EF_SEARCH = 150;
 const MAX_LIMIT = 50;
-
-/** Acts with these statuses are "live" (the §5.2-C default unless includeHistorical). */
-const LIVE_STATUSES = ['in-vigoare', 'modificat', 'abrogat-partial', 'suspendat', 'necunoscut'];
 
 const clampLimit = (n: number): number => Math.min(Math.max(Math.floor(n), 1), MAX_LIMIT);
 
@@ -66,7 +64,7 @@ const historicalGate = (includeHistorical: boolean): RawBuilder<unknown> =>
   includeHistorical
     ? sql`true`
     : sql`a.status in (${sql.join(
-        LIVE_STATUSES.map((s) => sql`${s}`),
+        LEGAL_LIVE_STATUSES.map((s) => sql`${s}`),
         sql`, `
       )})`;
 
