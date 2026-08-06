@@ -22,6 +22,7 @@
  * Then run the parliament tests. A failure means the deployed client would
  * break against this server: ship the SDL change first, or ship both together.
  */
+import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -111,13 +112,23 @@ const body = documents
   )
   .join('\n');
 
-writeFileSync(
-  join(
-    import.meta.dirname,
-    '../tests/fixtures/parliament/client-parliament-documents.generated.ts',
-  ),
-  `${header}${body}\n];\n`,
+const target = join(
+  import.meta.dirname,
+  '../tests/fixtures/parliament/client-parliament-documents.generated.ts',
 );
+writeFileSync(target, `${header}${body}\n];\n`);
+
+// Format the output with the repo's own formatter before we finish.
+//
+// Without this the script is not idempotent: it emits JSON double quotes, the
+// pre-commit hook rewrites them to single quotes, and so EVERY regeneration
+// shows a ~94-line diff that is pure quote churn. That is worse than cosmetic —
+// the whole point of committing this fixture is that a real client change shows
+// up as a reviewable diff, and noise that large hides exactly that signal.
+execFileSync('npx', ['prettier', '--write', target], {
+  cwd: join(import.meta.dirname, '..'),
+  stdio: 'inherit',
+});
 
 console.log(`extracted ${documents.length} documents:`);
 for (const { file, name } of documents) console.log(`  ${file}  ${name}`);
