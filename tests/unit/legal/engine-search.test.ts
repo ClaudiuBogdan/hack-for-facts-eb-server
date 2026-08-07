@@ -248,21 +248,44 @@ describe('searchWithEngine — hydration is the authority', () => {
     expect(res.value.unhydratedHits).toBe(1);
   });
 
-  it('prefers the engine highlight over the stored summary snippet', async () => {
+  it('NEVER lets an engine string reach the reader, however useful it looks', async () => {
+    // The highlight does show where the query matched — and it is a copy of the
+    // text as it was WHEN THE INDEX WAS BUILT. A document can stay canonical
+    // while its text changes, so serving the highlight would put a stale string
+    // in front of a reader as the law, over a Postgres row that disagrees.
     const key = sectionFusionKey('d9', 'art:5');
     const deps = depsWith({
       engine: {
         canServeActs: () => false,
         searchSectionsBm25: () =>
           Promise.resolve(
-            ok(page([{ documentId: 'd9', sectionKey: 'art:5', snippet: 'text cu ⟦taxe⟧' }]))
+            ok(page([{ documentId: 'd9', sectionKey: 'art:5', snippet: 'STALE INDEX TEXT' }]))
           ),
       },
       sections: new Map([[key, sectionRow('d9', 'art:5')]]),
     });
     const res = await searchWithEngine(deps, request);
-    // The highlight shows WHERE the query matched; the stored summary does not.
-    expect(res.isOk() && res.value.sections[0]?.snippet).toBe('text cu ⟦taxe⟧');
+    expect(res.isOk()).toBe(true);
+    if (!res.isOk()) return;
+    expect(res.value.sections[0]?.snippet).toBe(sectionRow('d9', 'art:5').snippet);
+    expect(res.value.sections[0]?.snippet).not.toBe('STALE INDEX TEXT');
+  });
+
+  it('counts a sections hit that carries no section key rather than skipping it', async () => {
+    const deps = depsWith({
+      engine: {
+        canServeActs: () => false,
+        searchSectionsBm25: () =>
+          // No sectionKey at all: the hit addresses nothing.
+          Promise.resolve(ok(page([{ documentId: 'd9' }]))),
+      },
+      sections: new Map(),
+    });
+    const res = await searchWithEngine(deps, request);
+    expect(res.isOk()).toBe(true);
+    if (!res.isOk()) return;
+    expect(res.value.sections).toHaveLength(0);
+    expect(res.value.unhydratedHits).toBe(1);
   });
 
   it('attaches version provenance to every hit in one batch', async () => {

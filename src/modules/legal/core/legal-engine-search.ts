@@ -193,15 +193,17 @@ export const searchWithEngine = async (
   const sectionHitsOut: LegalSectionHit[] = [];
   if (bm25Hits !== null || knnHits !== null) {
     const legs: FusionLeg[] = [];
-    const snippetByKey = new Map<string, string>();
     const collect = (page: typeof bm25Hits, leg: string): void => {
       if (page === null) return;
       const keys: string[] = [];
       for (const hit of page.hits) {
-        if (hit.sectionKey === null) continue;
-        const key = sectionFusionKey(hit.documentId, hit.sectionKey);
-        keys.push(key);
-        if (hit.snippet !== null && !snippetByKey.has(key)) snippetByKey.set(key, hit.snippet);
+        // A sections hit with no section_key addresses nothing. It is counted,
+        // never skipped in silence: the page is shorter than the ranking says.
+        if (hit.sectionKey === null) {
+          unhydratedHits += 1;
+          continue;
+        }
+        keys.push(sectionFusionKey(hit.documentId, hit.sectionKey));
       }
       legs.push({ leg, keys });
     };
@@ -225,10 +227,15 @@ export const searchWithEngine = async (
         unhydratedHits += 1;
         continue;
       }
-      // The engine's highlight beats the stored summary snippet: it shows WHERE
-      // the query matched. Fall back to the grounded summary when there is none.
-      const snippet = snippetByKey.get(hit.key) ?? row.snippet;
-      sectionHitsOut.push({ ...row, snippet, score: hit.score });
+      // NO DISPLAY STRING COMES FROM THE ENGINE. The highlight shows where the
+      // query matched, which is genuinely useful — and it is a copy of the text
+      // AS IT WAS WHEN THE INDEX WAS BUILT. A document can stay canonical while
+      // its text changes, and hydration would still succeed, so the engine's
+      // highlight would be served as the law over a Postgres row that disagrees
+      // with it. The whole point of the keys-only contract is that the database
+      // is the last word on every string a reader sees; the highlight was the
+      // one exception, and one exception is the hole.
+      sectionHitsOut.push({ ...row, score: hit.score });
     }
   }
 

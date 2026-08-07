@@ -24,7 +24,7 @@ import {
 } from '@/modules/shared/index.js';
 
 import { parseCitation } from './citation.js';
-import { toEngineFilter } from './legal-engine-filter.js';
+import { LEGAL_LIVE_STATUSES, toEngineFilter } from './legal-engine-filter.js';
 import { searchWithEngine } from './legal-engine-search.js';
 import { LEGAL_ORIGINAL_TEXT_CAVEAT, amendmentCountPhrase } from './provenance.js';
 
@@ -306,20 +306,45 @@ export const effectiveSemantic = (deps: {
   hnswReady: boolean;
 }): boolean => deps.capabilities.forDomain('legal').semantic && deps.hnswReady;
 
+/**
+ * The citation shortcut answers with ONE act, from Postgres, before any filter
+ * is compiled. That is only safe when the caller asked a question the shortcut
+ * can actually answer: no filter to honour, and a channel that wants acts.
+ * Anything else goes down the normal path.
+ */
+const citationShortcutAllowed = (query: LegalRetrievalQuery): boolean => {
+  if (query.channel === 'sections') return false;
+  return !Object.entries(query.filter).some(
+    ([field, value]) => field !== 'q' && value !== undefined
+  );
+};
+
 export const searchLegal = async (
   deps: LegalSearchDeps,
   query: LegalRetrievalQuery
 ): Promise<Result<LegalSearchResult, ApiError>> => {
   const caveats: string[] = [];
 
-  // 1. Identifier router: a clean citation short-circuits to the act (no embeddings).
+  // 1. Identifier router: a clean citation short-circuits to the act (no
+  //    embeddings) — but ONLY when the shortcut cannot change the question.
+  //    It answers from Postgres before any filter is translated, so taking it
+  //    with a filter set, or on the sections channel, silently returns an act
+  //    the caller may have excluded, on a channel they did not ask for, and
+  //    labels it `totalsExhaustive: true`. When the shortcut is not allowed the
+  //    query falls through to ordinary retrieval, which applies everything.
   const parsed = parseCitation(query.q);
-  if (parsed !== null) {
+  if (parsed !== null && citationShortcutAllowed(query)) {
     const ref: LegalActRef = { citation: query.q };
     const cardRes = await deps.acts.getActCard(ref);
     if (cardRes.isErr()) return err(cardRes.error);
-    if (cardRes.value !== null) {
-      const card = cardRes.value;
+    // The historical gate still applies to the resolved act: an identifier is
+    // not a request for law that is no longer in force.
+    const card =
+      cardRes.value !== null &&
+      (query.includeHistorical || LEGAL_LIVE_STATUSES.includes(cardRes.value.status))
+        ? cardRes.value
+        : null;
+    if (card !== null) {
       caveats.push(honestyCaveat(card));
       caveats.push(LEGAL_ORIGINAL_TEXT_CAVEAT);
       const provRes = await deps.acts.versionProvenanceForActs([card.actId]);
@@ -336,6 +361,7 @@ export const searchLegal = async (
         totalsExhaustive: true,
         degraded: false,
         asOf: null,
+        unhydratedHits: 0,
       });
     }
   }
@@ -392,6 +418,8 @@ export const searchLegal = async (
       totalsExhaustive: outcome.value.totalsExhaustive,
       degraded: outcome.value.degraded,
       asOf: outcome.value.asOf,
+      // Engine hits Postgres refused: the page is SHORTER than the ranking.
+      unhydratedHits: outcome.value.unhydratedHits,
     });
   }
 
@@ -458,6 +486,9 @@ export const searchLegal = async (
     // gate was off or the embedder failed, and `caveats` already says so.
     degraded: qVec === null,
     asOf: null,
+    // The lexical path selects and hydrates in one query; nothing is dropped
+    // between an engine's ranking and the database.
+    unhydratedHits: 0,
   });
 };
 

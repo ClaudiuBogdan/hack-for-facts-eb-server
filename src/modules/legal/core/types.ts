@@ -321,6 +321,14 @@ export interface LegalSearchResult {
   readonly degraded: boolean;
   /** Index build stamp behind the answer; null for the Postgres path. */
   readonly asOf: string | null;
+  /**
+   * Engine hits the database REFUSED to hydrate — non-canonical, absent, or
+   * failing a privacy gate — and which are therefore missing from this page.
+   * The page is shorter than the engine's ranking says it should be, and that
+   * has to be visible: a silently shortened list is indistinguishable from a
+   * genuinely small result set.
+   */
+  readonly unhydratedHits: number;
 }
 
 /** A merged act timeline entry (status events + amendment edges, LG-2). */

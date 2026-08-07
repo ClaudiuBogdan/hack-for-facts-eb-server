@@ -23,8 +23,21 @@ describe('toEngineFilter', () => {
     expect(filter.status).toBeUndefined();
   });
 
-  it('lets an explicit status filter win over the default', () => {
+  it('INTERSECTS an explicit status with the live set instead of letting it win', () => {
+    // The SQL path ANDs the two. Letting the explicit list replace the default
+    // made the same request return abrogated acts from the engine and none
+    // from Postgres — two surfaces disagreeing about what "current law" means.
     const { filter } = toEngineFilter({ status: { in: ['abrogat'] } }, false);
+    expect(filter.status).toEqual([]);
+  });
+
+  it('keeps the live members of a mixed explicit status', () => {
+    const { filter } = toEngineFilter({ status: { in: ['abrogat', 'in-vigoare'] } }, false);
+    expect(filter.status).toEqual(['in-vigoare']);
+  });
+
+  it('lets an explicit status stand when history WAS asked for', () => {
+    const { filter } = toEngineFilter({ status: { in: ['abrogat'] } }, true);
     expect(filter.status).toEqual(['abrogat']);
   });
 
@@ -75,9 +88,22 @@ describe('toEngineFilter', () => {
     expect(unsupported).toContain('year.eq');
   });
 
-  it('carries the query text without turning it into a clause', () => {
-    const { filter, unsupported } = toEngineFilter({ q: { contains: 'taxe' } }, true);
-    expect(unsupported).toEqual([]);
-    expect(filter).toEqual({});
+  it('NAMES filter.q rather than accepting and discarding it', () => {
+    // filter.q is a SECOND text constraint, distinct from the query. Dropping
+    // it silently returned the unnarrowed answer under the narrower label.
+    const { unsupported } = toEngineFilter({ q: { contains: 'taxe' } }, true);
+    expect(unsupported).toContain('q');
+  });
+
+  it('NAMES an operator that is valid on another field but not this one', () => {
+    // MCP takes an open record, so this shape is reachable; it used to become
+    // an EXACT terms filter and answer a different question.
+    const { unsupported } = toEngineFilter({ actType: { contains: 'leg' } }, true);
+    expect(unsupported).toContain('actType.contains');
+  });
+
+  it('NAMES a range operator applied to an exact-match field', () => {
+    const { unsupported } = toEngineFilter({ year: { gte: 2015 } }, true);
+    expect(unsupported).toContain('year.gte');
   });
 });

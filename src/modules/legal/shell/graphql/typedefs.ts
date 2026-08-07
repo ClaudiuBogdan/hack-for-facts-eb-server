@@ -305,6 +305,8 @@ const objectsAndQuery = /* GraphQL */ `
     degraded: Boolean!
     "Index build stamp (_meta.built_at) behind the answer; null on the Postgres path."
     asOf: String
+    "Engine hits the database REFUSED to hydrate — non-canonical, absent, or failing a privacy gate — and so MISSING from this page. Non-zero means the list is shorter than the engine's ranking; a silently shortened page is indistinguishable from a genuinely small result set. Always 0 on the Postgres path, which selects and hydrates in one query."
+    unhydratedHits: Int!
   }
 
   type LegalActConnection {

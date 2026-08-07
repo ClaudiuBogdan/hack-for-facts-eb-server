@@ -30,23 +30,23 @@ export const LEGAL_LIVE_STATUSES: readonly string[] = [
   'necunoscut',
 ];
 
-/** Fields the engine filter understands; anything else is reported, not dropped. */
-const SUPPORTED_FIELDS = new Set([
-  'actType',
-  'issuerSlug',
-  'status',
-  'year',
-  'yearFrom',
-  'yearTo',
-  'domain',
-  'category',
-  'penaltiesMentioned',
-  // `q` is the query TEXT, carried separately — not a filter clause.
-  'q',
-]);
-
-/** Ops that map cleanly onto term/terms/range clauses. */
-const SUPPORTED_OPS = new Set(['eq', 'in', 'gte', 'lte', 'contains']);
+/**
+ * Field → the operators THAT FIELD can express, not a global allowlist. A
+ * shared set let `actType: { contains: 'leg' }` — which MCP accepts, since its
+ * filter input is an open record — translate into an EXACT terms filter, so a
+ * substring request came back as an equality answer with no warning.
+ */
+const FIELD_OPS: Readonly<Record<string, readonly string[]>> = {
+  actType: ['eq', 'in'],
+  issuerSlug: ['eq', 'in'],
+  status: ['eq', 'in'],
+  domain: ['eq', 'in'],
+  category: ['eq', 'in'],
+  penaltiesMentioned: ['eq'],
+  year: ['eq'],
+  yearFrom: ['gte'],
+  yearTo: ['lte'],
+};
 
 export interface EngineFilterTranslation {
   readonly filter: LegalEngineFilter;
@@ -86,15 +86,23 @@ export const toEngineFilter = (
       unsupported.push('exclude');
       continue;
     }
-    if (!SUPPORTED_FIELDS.has(field)) {
+    if (field === 'q') {
+      // `q` inside the filter is a SECOND text constraint, distinct from the
+      // query this translator is given. It was accepted and thrown away, so a
+      // caller narrowing by text got the unnarrowed answer back. There is no
+      // engine clause for it here, so it is named and the request refused.
+      unsupported.push('q');
+      continue;
+    }
+    const fieldOps = FIELD_OPS[field];
+    if (fieldOps === undefined) {
       unsupported.push(field);
       continue;
     }
-    if (field === 'q') continue;
 
     const ops = raw as Record<string, unknown>;
     for (const [op, value] of Object.entries(ops)) {
-      if (!SUPPORTED_OPS.has(op)) {
+      if (!fieldOps.includes(op)) {
         unsupported.push(`${field}.${op}`);
         continue;
       }
@@ -158,10 +166,17 @@ export const toEngineFilter = (
     }
   }
 
-  // §5.2-C: historical acts stay out unless asked for. An explicit status
-  // filter wins — the caller asked a narrower question on purpose.
-  if (!includeHistorical && out.status === undefined) {
-    out.status = [...LEGAL_LIVE_STATUSES];
+  // §5.2-C: historical acts stay out unless asked for. An explicit status is
+  // INTERSECTED with the live set, never allowed to replace it — the SQL path
+  // ANDs the two, so letting the explicit list win here made the same request
+  // return abrogated acts from the engine and none from Postgres. Asking for
+  // `status: abrogat` with `includeHistorical: false` is a contradiction, and
+  // the honest answer to a contradiction is the empty set, not history.
+  if (!includeHistorical) {
+    out.status =
+      out.status === undefined
+        ? [...LEGAL_LIVE_STATUSES]
+        : out.status.filter((status) => LEGAL_LIVE_STATUSES.includes(status));
   }
 
   return { filter: out, unsupported };
