@@ -112,7 +112,17 @@ export const makeLegalRetrievalRepo = (db: Db): LegalRetrievalRepo => {
             join legal.acts a on a.canonical_document_id = c.document_id
             join legal.act_documents d on d.document_id = c.document_id and d.is_canonical
             left join legal.document_summaries s on s.document_id = c.document_id
-            left join legal.document_nodes n on n.document_id = c.document_id and n.path = c.node_path
+            -- Generation pin: document_nodes still holds legacy split-v2 rows,
+            -- and the served section corpus is split-v1 while the node table is
+            -- v4.1, so an unpinned (document_id, path) match resolves to a
+            -- RETIRED node. Measured: of 2,938,113 section rows only 13,484
+            -- match a node at all and ZERO match the current generation, so
+            -- every label this join used to attach was stale. Pinned, those
+            -- rows report NULL, which is the honest answer until split-v3.
+            left join legal.document_generations gn on gn.document_id = c.document_id
+            left join legal.document_nodes n
+              on n.document_id = c.document_id and n.path = c.node_path
+             and n.run_id = gn.run_id
             where ${pre.value} and ${liveGate}
               and (s.source_extraction_status is distinct from 'suspicious')
             order by c.dist asc
@@ -150,7 +160,11 @@ export const makeLegalRetrievalRepo = (db: Db): LegalRetrievalRepo => {
           join legal.section_embeddings se
             on se.document_id = ca.canonical_document_id and se.config_key = ${SECTION_CONFIG}
           left join legal.document_summaries ds on ds.document_id = se.document_id
-          left join legal.document_nodes n on n.document_id = se.document_id and n.path = se.node_path
+          -- Generation pin — see the note on the searchSections join above.
+          left join legal.document_generations gn on gn.document_id = se.document_id
+          left join legal.document_nodes n
+            on n.document_id = se.document_id and n.path = se.node_path
+           and n.run_id = gn.run_id
           where (ds.source_extraction_status is distinct from 'suspicious')
           order by ca.in_degree desc, se.section_key asc
           limit ${sql.lit(limit)}
@@ -267,8 +281,11 @@ export const makeLegalRetrievalRepo = (db: Db): LegalRetrievalRepo => {
           join legal.act_documents d
             on d.document_id = se.document_id and d.is_canonical
           left join legal.document_summaries s on s.document_id = se.document_id
+          -- Generation pin — see the note on the searchSections join above.
+          left join legal.document_generations gn on gn.document_id = se.document_id
           left join legal.document_nodes n
             on n.document_id = se.document_id and n.path = se.node_path
+           and n.run_id = gn.run_id
           where (s.source_extraction_status is distinct from 'suspicious')
         `.execute(trx);
         return r.rows;

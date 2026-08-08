@@ -246,8 +246,8 @@ const objectsAndQuery = /* GraphQL */ `
     numberSystem: String
     "parsed | unparsed | ambiguous — an unparsed number is reported, never faked."
     numberStatus: String
-    "Fixed grammar-rank indent depth (carte=1 … articol=7; anexa restarts at 1)."
-    depth: Int!
+    "Fixed grammar-rank indent depth (carte=1 … articol=7; anexa restarts at 1). Null when the node is not a TOC heading — nodeByPath resolves any structural node, and an alineat or a portion wrapper has no outline depth."
+    depth: Int
     orderIndex: Int!
     charStart: Int
     charEnd: Int

@@ -68,3 +68,18 @@ export const OUTLINE_MAX_DEPTH_DEFAULT = 3;
 export function outlineTypesForDepth(maxDepth: number): OutlineHeadingType[] {
   return OUTLINE_HEADING_TYPES.filter((type) => OUTLINE_DEPTH_RANK[type] <= maxDepth);
 }
+
+/**
+ * The indent depth of any node type, or null when it is not a TOC heading.
+ *
+ * Takes `string | null` rather than `OutlineHeadingType` deliberately. A cast
+ * at the call site (`RANK[row.node_type as OutlineHeadingType]`) type-checks
+ * while returning `undefined` for every non-heading node — the lookup a path
+ * resolver performs constantly, since it resolves alineate, note and portion
+ * wrappers too. The widened parameter makes the miss a value, not a lie.
+ */
+export function outlineDepthFor(nodeType: string | null): number | null {
+  if (nodeType === null) return null;
+  const ranks: Readonly<Record<string, number | undefined>> = OUTLINE_DEPTH_RANK;
+  return ranks[nodeType] ?? null;
+}

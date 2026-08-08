@@ -236,8 +236,15 @@ export interface LegalOutlineEntry {
   readonly numberSystem: string | null;
   /** unparsed/ambiguous numbering surfaces honestly, never as a fake number. */
   readonly numberStatus: string | null;
-  /** Presentation depth from the fixed grammar rank — never parsed from path. */
-  readonly depth: number;
+  /**
+   * Presentation depth from the fixed grammar rank — never parsed from path.
+   * NULL when the node is not a TOC heading at all: `entryByPath` resolves any
+   * structural node (an alineat, a nota, a POR portion wrapper), and those have
+   * no place in the outline hierarchy. Reporting `null` is the honest answer;
+   * the previous non-null type made the lookup hand back `undefined` under a
+   * `number` annotation.
+   */
+  readonly depth: number | null;
   readonly orderIndex: number;
   readonly charStart: number | null;
   readonly charEnd: number | null;

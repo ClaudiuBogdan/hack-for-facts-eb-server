@@ -16,6 +16,7 @@ import {
   OUTLINE_DEPTH_RANK,
   OUTLINE_HEADING_TYPES,
   OUTLINE_MAX_DEPTH_DEFAULT,
+  outlineDepthFor,
   outlineTypesForDepth,
   type OutlineHeadingType,
 } from '@/modules/legal/core/outline.js';
@@ -73,5 +74,17 @@ describe('outline grammar', () => {
   it('returns nothing for a budget below the shallowest rank', () => {
     // The repo short-circuits on an empty list rather than sending `IN ()`.
     expect(outlineTypesForDepth(0)).toEqual([]);
+  });
+});
+
+describe('outlineDepthFor', () => {
+  it('ranks heading types and returns null for everything else', () => {
+    expect(outlineDepthFor('ART')).toBe(7);
+    expect(outlineDepthFor('ANX')).toBe(1);
+    // The cases that made the old cast return undefined under a `number` type:
+    // a demoted portion wrapper, an ordinary structural node, and no node.
+    expect(outlineDepthFor('POR')).toBeNull();
+    expect(outlineDepthFor('ALN')).toBeNull();
+    expect(outlineDepthFor(null)).toBeNull();
   });
 });

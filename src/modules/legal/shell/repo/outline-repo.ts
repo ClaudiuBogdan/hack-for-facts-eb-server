@@ -38,11 +38,7 @@ import {
   filterHash,
 } from '@/modules/shared/index.js';
 
-import {
-  OUTLINE_DEPTH_RANK,
-  outlineTypesForDepth,
-  type OutlineHeadingType,
-} from '../../core/outline.js';
+import { outlineDepthFor, outlineTypesForDepth } from '../../core/outline.js';
 
 import type { LegalOutlineOptions, LegalOutlineRepo } from '../../core/ports.js';
 import type { LegalOutlineEntry } from '../../core/types.js';
@@ -67,24 +63,36 @@ interface OutlineRow {
   char_end: number | null;
 }
 
-const mapEntry = (row: OutlineRow): LegalOutlineEntry => ({
-  documentId: row.document_id,
-  path: row.path,
-  // `role IS NULL` rows always carry a node_kind (DDL:
-  // `(disposition = 'role') = (node_kind IS NULL)`), and every caller filters
-  // on role. The fallback is unreachable rather than cosmetic — it exists so a
-  // contract change surfaces as a visibly wrong kind, not a crash.
-  nodeKind: row.node_kind ?? 'necunoscut',
-  label: row.label,
-  numberKey: row.number_key,
-  numberSystem: row.number_system,
-  numberStatus: row.number_status,
-  // Rows are pre-filtered to outline TYPES, so the cast cannot miss.
-  depth: OUTLINE_DEPTH_RANK[row.node_type as OutlineHeadingType],
-  orderIndex: row.order_index,
-  charStart: row.char_start,
-  charEnd: row.char_end,
-});
+const mapEntry = (row: OutlineRow): LegalOutlineEntry => {
+  if (row.node_kind === null) {
+    // The DDL states `(disposition = 'role') = (node_kind IS NULL)` and every
+    // caller filters `role IS NULL`, so this is unreachable — which is exactly
+    // why it throws instead of substituting a placeholder. Inventing a kind
+    // here would serve a fabricated structure under a broken producer
+    // contract; the throw becomes a databaseError at the call site.
+    throw new Error(
+      `document_nodes ${row.document_id}${row.path} has role IS NULL but no node_kind — ` +
+        'the v2 node contract is violated'
+    );
+  }
+  return {
+    documentId: row.document_id,
+    path: row.path,
+    nodeKind: row.node_kind,
+    label: row.label,
+    numberKey: row.number_key,
+    numberSystem: row.number_system,
+    numberStatus: row.number_status,
+    // `outline` pre-filters to heading types so this always resolves there.
+    // `entryByPath` does NOT — it resolves any structural node, and an alineat
+    // or a POR wrapper has no outline rank. Null says so; the previous code
+    // returned `undefined` through a `number` annotation.
+    depth: outlineDepthFor(row.node_type),
+    orderIndex: row.order_index,
+    charStart: row.char_start,
+    charEnd: row.char_end,
+  };
+};
 
 export const makeLegalOutlineRepo = (db: Db): LegalOutlineRepo => {
   // Every read goes through this select: the generation join is the pin, and
