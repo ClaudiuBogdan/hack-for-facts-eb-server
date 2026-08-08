@@ -131,6 +131,11 @@ const vote = (voteKey: string, title: string): ParliamentVote => ({
   kind: 'legislative',
   voteSubject: null,
   voteDateTimeText: null,
+  // W1.3: mirror the legacy billKey so `bill` still resolves for these
+  // fixtures — they exercise dossier/child wiring, not resolution.
+  resolutionStatus: 'resolved',
+  resolutionMethod: 'agree',
+  resolvedDisplayBillKey: 'B',
 });
 
 const member = (mandateKey: string, fullName: string): ParliamentMember => ({

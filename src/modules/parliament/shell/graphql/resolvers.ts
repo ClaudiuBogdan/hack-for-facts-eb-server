@@ -93,6 +93,7 @@ import {
   type ParliamentStenogramUsecaseDeps,
   type ParliamentUsecaseDeps,
 } from '../../core/usecases.js';
+import { assertedBillKeyForVote } from '../../core/vote-resolution.js';
 import {
   controlItemsFilterSpec,
   memberSpeechesFhash,
@@ -1079,8 +1080,32 @@ export const makeParliamentResolvers = (deps: ParliamentResolverDeps): Record<st
         const res = unwrap(await getVoteBallots(deps, parent.voteKey, page));
         return ballotConnection(res, parent.voteKey);
       },
-      bill: async (parent: { billKey: string | null }) =>
-        parent.billKey === null ? null : unwrap(await deps.repo.findBill(parent.billKey)),
+      /**
+       * The vote-to-bill assertion, and the ONE place the resolution contract is
+       * enforced on the read path.
+       *
+       * Previously this returned `findBill(parent.billKey)` — the legacy column —
+       * which asserted a bill for rows the resolver had deliberately refused to
+       * resolve, and asserted nothing for 860 rows it HAD resolved. Now the bill
+       * comes from `resolvedDisplayBillKey` and only for a status that actually
+       * asserts:
+       *
+       *   resolved / adjudicated -> the bill
+       *   unresolved             -> null (the resolver abstained)
+       *   conflict               -> null (2-3 competing dossiers; see voteLinks)
+       *   null status            -> null (not stamped yet)
+       *
+       * There is deliberately NO fallback to `billKey` when the resolved key is
+       * absent: falling back is exactly the false assertion this removes.
+       */
+      bill: async (parent: {
+        resolutionStatus: string | null;
+        resolvedDisplayBillKey: string | null;
+      }) => {
+        const billKey = assertedBillKeyForVote(parent);
+        if (billKey === null) return null;
+        return unwrap(await deps.repo.findBill(billKey));
+      },
     },
 
     ParliamentMemberVote: {

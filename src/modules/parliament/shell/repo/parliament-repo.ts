@@ -397,6 +397,12 @@ const VOTE_SELECT = [
   // What the chamber was voting ON, for the 8,408 divisions with no bill link
   // and no printed subject — where title and tally are all a card otherwise has.
   voteKindExpr.as('kind'),
+  // W1.3 resolution contract. Served alongside the legacy `bill_key` rather than
+  // replacing it, so no existing consumer breaks in the same deploy that
+  // introduces the honest answer.
+  'v.resolution_status',
+  'v.resolution_method',
+  'v.resolved_display_bill_key',
 ] as const;
 
 /** Speech projection reused by the offset list AND the cursor connection (dates `::text`). */

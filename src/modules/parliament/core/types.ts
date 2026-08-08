@@ -369,6 +369,28 @@ export interface ParliamentVote {
    * has NO independent cross-check — it is trustworthy only as verbatim source text.
    */
   readonly voteDateTimeText: string | null;
+  /**
+   * W1.3 resolution contract — the authoritative vote to bill answer.
+   *
+   * `billKey` above is the LEGACY single-valued alias, kept for compatibility.
+   * It is not the contract and it disagrees with it: measured 2026-08-08, 860
+   * resolved votes carry a NULL `billKey`, and the 8,341 `unresolved` votes
+   * carry neither a `billKey` nor a link (so they assert nothing, which is
+   * correct). Read these fields, not `billKey`.
+   *
+   * - `resolved` / `adjudicated` — `resolvedDisplayBillKey` is the bill.
+   * - `unresolved` — the resolver ABSTAINED (no evidence). Not "no bill exists";
+   *   "we will not assert one". Must render as an explicit state, because a
+   *   reader cannot otherwise tell it from ordinary absence.
+   * - `conflict` — evidence points at two or more DIFFERENT dossiers. Measured:
+   *   18 votes, each spanning 2-3 distinct cases. Their `voteLinks` are real
+   *   observations and stay visible, but none of them may be presented as THE
+   *   bill.
+   * - null — the resolver has not stamped this row yet.
+   */
+  readonly resolutionStatus: string | null;
+  readonly resolutionMethod: string | null;
+  readonly resolvedDisplayBillKey: string | null;
 }
 
 export interface ParliamentVoteGroupBreakdown {
