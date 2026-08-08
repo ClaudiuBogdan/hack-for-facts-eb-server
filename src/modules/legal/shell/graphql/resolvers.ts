@@ -234,7 +234,24 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
             },
           })
         );
-        return { entries: page.items, next: page.next };
+        // SDL keeps `depth: Int!`. That guarantee is real on THIS path and only
+        // this one: the outline query filters to ranked heading types, so every
+        // row it returns has a grammar rank. `entryByPath` (MCP only) resolves
+        // any structural node and legitimately yields a null depth, which is
+        // why the core type is nullable — weakening the published GraphQL field
+        // to match it would break generated clients to describe a case that
+        // cannot reach them. A null here means the repo filter and the rank
+        // table disagree; that is a contract violation, not a nullable value.
+        const entries = page.items.map((entry) => {
+          if (entry.depth === null) {
+            throw new Error(
+              `legalDocumentOutline: ${entry.documentId}${entry.path} passed the heading-type ` +
+                'filter but has no grammar rank — outline filter and OUTLINE_DEPTH_RANK disagree'
+            );
+          }
+          return { ...entry, depth: entry.depth };
+        });
+        return { entries, next: page.next };
       },
       legalExternalAct: async (_r: unknown, args: { externalActId: string }) =>
         unwrap(await getExternalAct(graph, args.externalActId)),

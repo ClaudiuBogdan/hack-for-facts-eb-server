@@ -87,4 +87,13 @@ describe('outlineDepthFor', () => {
     expect(outlineDepthFor('ALN')).toBeNull();
     expect(outlineDepthFor(null)).toBeNull();
   });
+
+  it('does not leak inherited object properties through the rank lookup', () => {
+    // A bare index on a plain object reaches the prototype: before the
+    // Object.hasOwn guard, this returned Object.prototype.constructor — a
+    // function handed back through a `number | null` signature.
+    for (const inherited of ['constructor', 'toString', 'valueOf', '__proto__']) {
+      expect(outlineDepthFor(inherited)).toBeNull();
+    }
+  });
 });

@@ -80,6 +80,10 @@ export function outlineTypesForDepth(maxDepth: number): OutlineHeadingType[] {
  */
 export function outlineDepthFor(nodeType: string | null): number | null {
   if (nodeType === null) return null;
+  // Object.hasOwn, not a bare index: indexing a plain object with an arbitrary
+  // string reaches the prototype, so `outlineDepthFor('constructor')` would
+  // hand back a function through a `number | null` signature.
+  if (!Object.hasOwn(OUTLINE_DEPTH_RANK, nodeType)) return null;
   const ranks: Readonly<Record<string, number | undefined>> = OUTLINE_DEPTH_RANK;
   return ranks[nodeType] ?? null;
 }
