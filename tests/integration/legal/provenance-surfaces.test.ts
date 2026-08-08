@@ -101,7 +101,6 @@ const outlineFake = {
       charEnd: 100,
     }),
   outline: async () => ok({ items: [], next: null }),
-  entryByArticle: async () => ok(null),
 } as unknown as LegalOutlineRepo;
 
 const searchDepsWith = (docs: readonly LegalDocHit[], repo: LegalActsRepo): LegalSearchDeps =>

@@ -123,6 +123,12 @@ export interface LegalDocumentNodesTable {
   char_end: number | null; // integer
   splitter_version: string | null;
   // v2 columns (tldf-projection lane, migration 20260804T122000+):
+  // NULL on the 10,152 legacy split-v2 rows that still sit in this table, so
+  // every read pins the generation by joining document_generations on
+  // (document_id, run_id) — the generation FK is still NOT VALID, so a non-NULL
+  // run_id is not by itself proof of the SERVED run.
+  run_id: string | null; // bigint → string
+  node_type: string | null; // grammar token (ART, PRT, POR, …); outline keys on this
   role: string | null; // NULL = structural node; non-null = in-node run row
   number_system: string | null;
   number_status: string | null; // parsed|unparsed|ambiguous|numberless

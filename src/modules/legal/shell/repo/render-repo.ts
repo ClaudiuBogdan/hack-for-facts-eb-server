@@ -50,7 +50,14 @@ export const makeLegalRenderRepo = (db: Db): LegalRenderRepo => {
     db
       .selectFrom('legal.document_generations as g')
       .leftJoin('legal.document_render as r', (join) =>
-        join.onRef('r.document_id', '=', 'g.document_id').on('r.chunk_index', '=', 0)
+        join
+          .onRef('r.document_id', '=', 'g.document_id')
+          // Bind the generation too, so a render row left behind by an older
+          // run can never describe the served one. Measured 0 of 226,123 rows
+          // cross-generation today (the lane writes both in one transaction);
+          // the bind makes that structural instead of incidental.
+          .onRef('r.run_id', '=', 'g.run_id')
+          .on('r.chunk_index', '=', 0)
       )
       .select([
         'g.document_id',

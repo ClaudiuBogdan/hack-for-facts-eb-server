@@ -145,13 +145,16 @@ export interface LegalOutlineRepo {
    * derives structure from render blocks.
    */
   outline(options: LegalOutlineOptions): Promise<Result<CursorPage<LegalOutlineEntry>, ApiError>>;
+  /**
+   * Resolve ONE node by its stable `(document_id, path)` key. There is
+   * deliberately no `entryByArticle(documentId, numberKey)` sibling: article
+   * numbers restart inside annexes, so 5,303 documents hold 32,484 duplicate
+   * (document_id, number_key) article groups and no single-row answer is
+   * honest. `path` is the identity.
+   */
   entryByPath(
     documentId: string,
     path: string
-  ): Promise<Result<LegalOutlineEntry | null, ApiError>>;
-  entryByArticle(
-    documentId: string,
-    numberKey: string
   ): Promise<Result<LegalOutlineEntry | null, ApiError>>;
 }
 
