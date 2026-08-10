@@ -21,6 +21,7 @@ import { err, ok, type Result } from 'neverthrow';
 import {
   type ApiError,
   type CursorPage,
+  type FilterInput,
   type ProdDatabase,
   buildNextCursor,
   databaseError,
@@ -373,6 +374,28 @@ export const makeLegalActsRepo = (db: Db): LegalActsRepo => {
     }
   };
 
+  /**
+   * Filtered count over the SAME FROM and kernel conditions as `listActs` —
+   * the two must never drift, or the KPI number would disagree with the list
+   * under it. The canonical-doc and summary joins are LEFT joins on unique
+   * keys (one canonical per act; one summary per document), so they cannot
+   * inflate the count.
+   */
+  const countActs = async (filter: FilterInput): Promise<Result<number, ApiError>> => {
+    const kernel = kernelConditions(legalActsSpec, filter);
+    if (kernel.isErr()) return err(kernel.error);
+    try {
+      const result = await sql<{ cnt: string }>`
+        select count(*) as cnt
+        from ${actsListFrom}
+        where ${kernel.value}
+      `.execute(db);
+      return ok(Number(result.rows[0]?.cnt ?? 0));
+    } catch (error) {
+      return err(databaseError('countActs failed', error));
+    }
+  };
+
   const getCanonicalDocument = async (
     actId: string
   ): Promise<Result<LegalDocument | null, ApiError>> => {
@@ -615,6 +638,7 @@ export const makeLegalActsRepo = (db: Db): LegalActsRepo => {
     getStatusEvents,
     // LegalActsRepo
     listActs,
+    countActs,
     getActCard,
     getCanonicalDocument,
     listDocuments,

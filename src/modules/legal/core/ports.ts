@@ -55,6 +55,8 @@ export interface LegalActListOptions {
 export interface LegalActsRepo extends LegalRepoBase {
   /** Paged acts list. Cursor sort tuple ALWAYS ends in `act_id` (non-unique sorts). */
   listActs(o: LegalActListOptions): Promise<Result<CursorPage<LegalAct>, ApiError>>;
+  /** Filtered COUNT over the same FROM/conditions as `listActs`. Resolved lazily — only when a connection's totalCount is actually selected. */
+  countActs(filter: FilterInput): Promise<Result<number, ApiError>>;
   /** Detail card: act + canonical doc + summary + aliases + keys + amendedAfter. */
   getActCard(ref: LegalActRef): Promise<Result<LegalActCard | null, ApiError>>;
   getCanonicalDocument(actId: string): Promise<Result<LegalDocument | null, ApiError>>;

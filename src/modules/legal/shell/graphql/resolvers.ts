@@ -199,7 +199,13 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
             page: { first: args.first ?? 20, ...(args.after != null && { after: args.after }) },
           })
         );
-        return toActConnection(page, filter, sort, dir);
+        return toActConnection(page, filter, sort, dir, async () => {
+          // Lazy: runs only when the query actually selects totalCount. A
+          // count failure degrades to null (unknown) — it never fails the
+          // list it annotates.
+          const counted = await acts.countActs(filter);
+          return counted.isOk() ? counted.value : null;
+        });
       },
       legalSearch: async (
         _r: unknown,
@@ -365,6 +371,14 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
       timeline: async (parent: LegalAct) => unwrap(await getActTimeline(acts, graph, parent.actId)),
     },
 
+    LegalActConnection: {
+      // The connection carries totalCount as a thunk (or null); resolving it
+      // here rather than via the default field resolver keeps the laziness
+      // explicit and engine-independent (graphql-jit vs graphql-js).
+      totalCount: async (parent: { totalCount: null | (() => Promise<number | null>) }) =>
+        typeof parent.totalCount === 'function' ? parent.totalCount() : parent.totalCount,
+    },
+
     LegalIncomingAnchor: {
       sourceAct: async (parent: { sourceActId: string | null }) =>
         parent.sourceActId === null ? null : actLoader.load(parent.sourceActId),
@@ -398,11 +412,12 @@ const toActConnection = (
   page: CursorPage<LegalAct>,
   filter: FilterInput,
   sort: LegalSortKey,
-  dir: 'asc' | 'desc'
+  dir: 'asc' | 'desc',
+  countTotal?: () => Promise<number | null>
 ): {
   edges: { node: LegalAct; cursor: string }[];
   pageInfo: { hasNextPage: boolean; endCursor: string | null };
-  totalCount: number | null;
+  totalCount: null | (() => Promise<number | null>);
 } => {
   const fhash = fhashFor(legalActsSpec, filter);
   const edges = page.items.map((node) => ({
@@ -415,7 +430,10 @@ const toActConnection = (
       hasNextPage: page.next !== null,
       endCursor: edges.length > 0 ? (edges[edges.length - 1]?.cursor ?? null) : null,
     },
-    totalCount: null,
+    // A thunk, resolved by the explicit LegalActConnection.totalCount
+    // resolver only when the field is selected — the count query never runs
+    // for a list that did not ask for it.
+    totalCount: countTotal ?? null,
   };
 };
 
