@@ -292,7 +292,14 @@ const CASES: readonly { name: string; query: string; variables: Record<string, u
     name: 'acts directory (legal-acts-api.live.ts)',
     query: ACTS_DIRECTORY_QUERY,
     variables: {
-      filter: { actType: { in: ['lege'] }, year: { eq: 2015 }, status: { in: ['in-vigoare'] } },
+      filter: {
+        actType: { in: ['lege'] },
+        year: { eq: 2015 },
+        status: { in: ['in-vigoare'] },
+        // The domain-grid tiles emit this family — the whole reason this
+        // suite exists is an unshipped filter reaching the client.
+        domain: { in: ['fiscal-si-bugetar'] },
+      },
       first: 20,
       after: null,
     },
