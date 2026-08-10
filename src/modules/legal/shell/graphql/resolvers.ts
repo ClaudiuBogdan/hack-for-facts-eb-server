@@ -2,7 +2,7 @@
  * Legal module — GraphQL resolvers (plan §6). Thin: parse args → call the SAME
  * usecase MCP calls. `ApiError` → `GraphQLError` with `extensions.code`. Cursor
  * pages → Relay connections (per-edge cursor re-encoded, bound to the active
- * fhash). Lazy `LegalAct` fields (canonical/summary/links/timeline/tree) resolve
+ * fhash). Lazy `LegalAct` fields (canonical/summary/links/timeline) resolve
  * via the repos; `targetAct`/`sourceAct` on edges resolve via a batched act loader.
  *
  * ENUM MAPPING (Codex finding #6): DB values are lowercase/hyphenated

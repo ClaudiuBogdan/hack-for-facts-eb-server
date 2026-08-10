@@ -1,10 +1,17 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { createApp } from '@/app/build-app.js';
+import { createTestAuthProvider } from '@/modules/auth/index.js';
 
 import { makeTestConfig } from '../fixtures/builders.js';
-import { makeFakeBudgetDb, makeFakeDatasetRepo, makeFakeInsDb } from '../fixtures/fakes.js';
+import {
+  makeFakeBudgetDb,
+  makeFakeDatasetRepo,
+  makeFakeInsDb,
+  makeFakeKyselyDb,
+} from '../fixtures/fakes.js';
 
+import type { UserDatabase } from '@/infra/database/user/types.js';
 import type { FastifyInstance } from 'fastify';
 
 /**
@@ -70,5 +77,100 @@ describe('redesign surface mount — deploy-safety invariant', () => {
       payload: { query: '{ __typename }' },
     });
     expect(redesign.statusCode).toBe(404);
+  });
+});
+
+/**
+ * Global-auth interaction for the public GET prefixes (/api/v1/legal/ …).
+ *
+ * The predicate matrix itself is unit-pinned in
+ * tests/unit/app/global-auth-bypass.test.ts; these cases pin the wiring:
+ * with the legacy auth preHandler active (userDb + authProvider present),
+ * an anonymous GET under a public prefix must reach the mounted redesign
+ * route (anything but 401), while with the flag off the pre-flag behavior
+ * is unchanged.
+ */
+describe('redesign surface mount — public GET prefixes vs legacy auth', () => {
+  let app: FastifyInstance | undefined;
+
+  afterEach(async () => {
+    if (app !== undefined) {
+      await app.close();
+      app = undefined;
+    }
+  });
+
+  const authedDeps = () => ({
+    budgetDb: makeFakeBudgetDb(),
+    insDb: makeFakeInsDb(),
+    datasetRepo: makeFakeDatasetRepo(),
+    userDb: makeFakeKyselyDb<UserDatabase>(),
+    authProvider: createTestAuthProvider().provider,
+  });
+
+  // Bogus fast-fail endpoints: the kernel pg pool is lazy and Meili/OpenSearch
+  // probing degrades, so the mount succeeds without any live service.
+  const kernelConfig = {
+    prodDatabaseUrl: 'postgres://test:test@127.0.0.1:1/test',
+    meiliHost: '',
+    meiliApiKey: '',
+    opensearchUrl: '',
+  };
+
+  it('anonymous GET under /api/v1/legal/ is not blocked by legacy auth when mounted', async () => {
+    app = await createApp({
+      fastifyOptions: { logger: false },
+      deps: {
+        ...authedDeps(),
+        config: makeTestConfig({ redesignSurface: { enabled: true } }),
+        redesignKernelConfig: kernelConfig,
+      },
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/legal/documents/171282/render',
+    });
+    // The route exists and auth is bypassed; the bogus DB yields a 5xx, a
+    // 404/409 would be a data answer — the invariant is only "never 401".
+    expect(response.statusCode).not.toBe(401);
+  });
+
+  it('anonymous POST under the prefix is never bypassed', async () => {
+    app = await createApp({
+      fastifyOptions: { logger: false },
+      deps: {
+        ...authedDeps(),
+        config: makeTestConfig({ redesignSurface: { enabled: true } }),
+        redesignKernelConfig: kernelConfig,
+      },
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/legal/documents/171282/render',
+      payload: {},
+    });
+    // No POST route exists under the prefix; the request must not be treated
+    // as public (404 route-not-found or 401 from auth are both acceptable —
+    // never a 2xx/5xx from a handler).
+    expect([401, 404]).toContain(response.statusCode);
+  });
+
+  it('flag off: requests under the prefix keep the pre-flag behavior', async () => {
+    app = await createApp({
+      fastifyOptions: { logger: false },
+      deps: { ...authedDeps(), config: makeTestConfig() },
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/legal/documents/171282/render',
+    });
+    // Unregistered path on the legacy surface: the global auth preHandler
+    // fires only for matched routes, so this pins whatever the legacy app
+    // did before the flag existed — a non-2xx refusal.
+    expect(response.statusCode).toBeGreaterThanOrEqual(400);
+    expect([401, 404]).toContain(response.statusCode);
   });
 });
