@@ -236,7 +236,9 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
             maxDepth: args.maxDepth ?? 3,
             page: {
               first: args.first ?? 200,
-              ...(args.after !== undefined && { after: args.after }),
+              // `!= null`: an explicit `after: null` variable is a normal
+              // GraphQL first-page request, not a malformed cursor.
+              ...(args.after != null && { after: args.after }),
             },
           })
         );
@@ -346,7 +348,9 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
         const page = unwrap(
           await graph.incomingAnchors(parent.actId, {
             first: args.first ?? 50,
-            ...(args.after !== undefined && { after: args.after }),
+            // `!= null`: an explicit `after: null` variable is a normal
+            // GraphQL first-page request, not a malformed cursor.
+            ...(args.after != null && { after: args.after }),
           })
         );
         // Per-edge cursors re-encode the repo's keyset (edge_id asc, fhash
