@@ -9,14 +9,14 @@
 import { sql, type Kysely } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
-import { databaseError, type ApiError } from '../../core/errors.js';
 import {
-  MAX_SERVED_CUI_DIGITS,
-  SEARCH_ENTITY_DOC_TYPES,
-  isWithheldOrganizationIdentifier,
-  type Cui,
-  type SearchHit,
-} from '../../core/types.js';
+  isWithheldLookupKey,
+  scrubWithheldIdentifiers,
+  servableDocumentRowSql,
+  servableIdentifierSetSql,
+} from './document-privacy.js';
+import { databaseError, type ApiError } from '../../core/errors.js';
+import { SEARCH_ENTITY_DOC_TYPES, type Cui, type SearchHit } from '../../core/types.js';
 
 import type { SearchRepo } from '../../core/ports.js';
 import type { ProdDatabase } from '../db/types.js';
@@ -25,11 +25,22 @@ type Db = Kysely<ProdDatabase>;
 
 export const makeSearchRepo = (db: Db): SearchRepo => ({
   async countByCui(cui: Cui): Promise<Result<number, ApiError>> {
+    // A withheld identifier is not a key. Answered before the query runs, so
+    // the number never exists in this process at all.
+    if (isWithheldLookupKey(cui)) return ok(0);
     try {
       const row = await db
         .selectFrom('search.documents')
         .select(sql<string>`count(*)`.as('total'))
         .where(sql<boolean>`${cui} = any(cuis)`)
+        // This count is SERVED — entity-360 renders it and a GraphQL resolver
+        // returns it. Unfiltered it answered "how many documents mention this
+        // identifier?" for ANY identifier, including a withheld one, and a
+        // number is a complete answer to that question: no field-level scrub can
+        // redact a count. It also counted tombstoned and non-public rows, so it
+        // was wrong as a served figure quite apart from privacy.
+        .where(servableDocumentRowSql)
+        .where(servableIdentifierSetSql)
         .executeTakeFirst();
       return ok(Number(row?.total ?? 0));
     } catch (error) {
@@ -52,22 +63,25 @@ export const makeSearchRepo = (db: Db): SearchRepo => ({
       let query = db
         .selectFrom('search.documents')
         .select(['doc_id', 'doc_type', 'title', 'body', 'attrs'])
-        .where(sql<boolean>`title ilike ${'%' + escapedRaw + '%'} escape '\\'`);
+        .where(sql<boolean>`title ilike ${'%' + escapedRaw + '%'} escape '\\'`)
+        // The engines-down path had no visibility, tombstone or containment
+        // filter at all — so while Meili was unavailable it was the one surface
+        // that would return a withheld-keyed document by title match.
+        .where(servableDocumentRowSql)
+        .where(servableIdentifierSetSql);
       if (docTypes.length > 0) query = query.where('doc_type', 'in', [...docTypes]);
 
       const rows = await query.limit(capped).execute();
       return ok(
-        rows.map(
-          (r): SearchHit => ({
-            id: r.doc_id,
-            docType: r.doc_type,
-            title: r.title,
-            snippet: r.body !== null ? r.body.slice(0, 200) : null,
-            score: null,
-            source: 'postgres',
-            attrs: r.attrs,
-          })
-        )
+        rows.map((r): SearchHit => ({
+          id: r.doc_id,
+          docType: r.doc_type,
+          title: r.title,
+          snippet: r.body !== null ? r.body.slice(0, 200) : null,
+          score: null,
+          source: 'postgres',
+          attrs: r.attrs,
+        }))
       );
     } catch (error) {
       return err(databaseError('fallbackTextSearch failed', error));
@@ -115,6 +129,16 @@ export const makeSearchRepo = (db: Db): SearchRepo => ({
             sql<boolean>`body ilike ${like} escape '\\'`,
             sql<boolean>`doc_id ilike ${like} escape '\\'`,
           ];
+          // DELIBERATELY LEFT AS-IS. This branch is a lookup key by another
+          // name, and by the reasoning in `isWithheldLookupKey` it arguably
+          // should not fire for a withheld id. But an existing test
+          // (`identity-containment-sql.test.ts`) asserts the opposite in as many
+          // words -- "the CNP lookup path exists and is guarded" -- so a
+          // previous decision chose row-level containment here on purpose.
+          // Changing it is the open identifier-level-vs-row-level question
+          // (task #15), which belongs to the user, not to a passing test I
+          // could rewrite. The asymmetry with countByCui/listByCui is real and
+          // is written up rather than silently resolved.
           if (isDigits) ors.push(sql<boolean>`${trimmed} = any(cuis)`);
           return eb.or(ors);
         })
@@ -135,15 +159,7 @@ export const makeSearchRepo = (db: Db): SearchRepo => ({
         // CUI — those are public acts and must stay searchable; only the 20
         // keyed solely to a person are withheld. Docs with no CUIs at all (legal
         // acts, reports) are unaffected.
-        .where(
-          sql<boolean>`(
-            coalesce(cardinality(cuis), 0) = 0
-            or exists (
-              select 1 from unnest(cuis) c
-              where length(c) <= ${sql.lit(MAX_SERVED_CUI_DIGITS)}
-            )
-          )`
-        );
+        .where(servableIdentifierSetSql);
 
       if (opts.county !== undefined && opts.county.trim() !== '') {
         query = query.where('county_name', '=', opts.county.trim());
@@ -187,7 +203,7 @@ export const makeSearchRepo = (db: Db): SearchRepo => ({
             // public act — the person's identifier is not, and it must not ride
             // out on a hit that was matched on something else entirely.
             ...(() => {
-              const servable = r.cuis.filter((c) => !isWithheldOrganizationIdentifier(c));
+              const servable = scrubWithheldIdentifiers(r.cuis);
               return servable.length > 0 ? { cuis: servable } : {};
             })(),
           };

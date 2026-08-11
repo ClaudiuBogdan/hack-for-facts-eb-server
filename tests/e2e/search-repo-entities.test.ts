@@ -24,6 +24,7 @@ import { Kysely, PostgresDialect } from 'kysely';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it as vitestIt } from 'vitest';
 
+import { makeDocumentRepo } from '@/modules/shared/shell/repo/document-repo.js';
 import { makeSearchRepo } from '@/modules/shared/shell/repo/search-repo.js';
 
 import type { SearchRepo } from '@/modules/shared/core/ports.js';
@@ -63,6 +64,11 @@ const it = (name: string, test: () => unknown): void => {
     await test();
   });
 };
+
+/** 13 digits — a person-shaped identifier, longer than MAX_SERVED_CUI_DIGITS. */
+const WITHHELD_CUI = '1234567890123';
+/** The servable identifier sharing a document with it. */
+const SERVABLE_CUI = '222';
 
 const DDL = `
   drop schema if exists search cascade;
@@ -135,6 +141,26 @@ const SEED: SeedRow[] = [
   { doc_id: 'company:5', doc_type: 'company', title: 'Gamma SRL', body: 'a special acme partner' },
   // Tombstoned (deleted_at set) but otherwise matches "acme" — must be excluded.
   { doc_id: 'company:6', doc_type: 'company', title: 'ACME Deleted SRL', deleted: true },
+  // WITHHELD-ONLY: keyed solely to a person-shaped identifier (>10 digits).
+  // Public and not tombstoned, so ONLY the containment rule can exclude it —
+  // which is what makes it a real test of that rule rather than of visibility.
+  {
+    doc_id: 'company:7',
+    doc_type: 'company',
+    title: 'ACME Persoana Fizica',
+    cuis: [WITHHELD_CUI],
+  },
+  // DUAL-KEYED: a public act that also names a person. The row must SURVIVE and
+  // the person's identifier must NOT ride out on it. Measured 2026-08-12, prod
+  // currently has zero of these — the case is seeded here precisely because the
+  // permissive row rule exists for it, and an untested branch is where it will
+  // break when the case returns.
+  {
+    doc_id: 'company:8',
+    doc_type: 'company',
+    title: 'ACME Contract Public',
+    cuis: [SERVABLE_CUI, WITHHELD_CUI],
+  },
 ];
 
 /**
@@ -220,7 +246,9 @@ describe('searchEntities (e2e) — visibility / tombstone / allowlist gate', () 
     const got = ids(res._unsafeUnwrap());
 
     // company:1 (title+body), company:3 (title), company:5 (body).
-    expect(got).toEqual(['company:1', 'company:3', 'company:5']);
+    // company:8 is the dual-keyed public act added for the privacy cases: it
+    // matches "acme" on its title and legitimately survives the row rule.
+    expect(got).toEqual(['company:1', 'company:3', 'company:5', 'company:8']);
     // restricted (company:2), judicial_case:1, tombstoned (company:6) excluded.
     expect(got).not.toContain('company:2');
     expect(got).not.toContain('judicial_case:1');
@@ -244,7 +272,9 @@ describe('searchEntities (e2e) — docTypes narrowing', () => {
   it('restricts to a requested valid doc type', async () => {
     if (!dockerAvailable) return;
     const res = await repo!.searchEntities('acme', { docTypes: ['company'], limit: 50 });
-    expect(ids(res._unsafeUnwrap())).toEqual(['company:1', 'company:3', 'company:5']);
+    // company:8 is the dual-keyed public act added for the privacy cases: it
+    // matches "acme" on its title and legitimately survives the row rule.
+    expect(ids(res._unsafeUnwrap())).toEqual(['company:1', 'company:3', 'company:5', 'company:8']);
   });
 
   it('returns [] when every requested docType is invalid (all-invalid short-circuit)', async () => {
@@ -260,7 +290,9 @@ describe('searchEntities (e2e) — docTypes narrowing', () => {
       docTypes: ['judicial_case', 'company'],
       limit: 50,
     });
-    expect(ids(res._unsafeUnwrap())).toEqual(['company:1', 'company:3', 'company:5']);
+    // company:8 is the dual-keyed public act added for the privacy cases: it
+    // matches "acme" on its title and legitimately survives the row rule.
+    expect(ids(res._unsafeUnwrap())).toEqual(['company:1', 'company:3', 'company:5', 'company:8']);
   });
 });
 
@@ -366,5 +398,80 @@ describe('fallbackTextSearch (e2e)', () => {
   it('returns [] for an empty query', async () => {
     if (!dockerAvailable) return;
     expect((await repo!.fallbackTextSearch('  ', [], 50))._unsafeUnwrap()).toEqual([]);
+  });
+});
+
+describe('the withheld-identifier gate, on every read path over search.documents', () => {
+  it('searchEntities drops a document keyed ONLY to a person', async () => {
+    const res = await repo?.searchEntities('acme', { limit: 50 });
+    const rows = res?._unsafeUnwrap() ?? [];
+    expect(rows.map((r) => r.docId)).not.toContain('company:7');
+  });
+
+  it('searchEntities KEEPS a dual-keyed public act but scrubs the person from it', async () => {
+    // Both halves matter. Dropping the row would remove a public act from the
+    // surface; echoing the array would publish the identifier. The row filter is
+    // only safe because this scrub runs.
+    const res = await repo?.searchEntities('acme', { limit: 50 });
+    const rows = res?._unsafeUnwrap() ?? [];
+    const hit = rows.find((r) => r.docId === 'company:8');
+    expect(hit).toBeDefined();
+    expect(hit?.cuis).toEqual([SERVABLE_CUI]);
+  });
+
+  it('countByCui answers 0 for a withheld identifier', async () => {
+    // A count cannot be scrubbed: the number IS the answer to "how many
+    // documents mention this person?". Unfiltered, this returned 2.
+    const result = await repo?.countByCui(WITHHELD_CUI);
+    expect(result?.isOk()).toBe(true);
+    expect(result?._unsafeUnwrap()).toBe(0);
+  });
+
+  it('countByCui is unchanged for a servable identifier', async () => {
+    // MUTATE TO ABSENT in the other direction: the gate must not quietly
+    // deflate ordinary counts, or it would be indistinguishable from a bug.
+    const result = await repo?.countByCui(SERVABLE_CUI);
+    expect(result?._unsafeUnwrap()).toBe(1);
+  });
+
+  it('fallbackTextSearch drops the withheld-only document', async () => {
+    // The engines-down path: the ONE surface that answers while Meili is down.
+    const result = await repo?.fallbackTextSearch('acme', [], 50);
+    const hitIds = (result?._unsafeUnwrap() ?? []).map((h) => h.id);
+    expect(hitIds).not.toContain('company:7');
+    expect(hitIds).not.toContain('company:6');
+    expect(hitIds).toContain('company:1');
+  });
+
+  it('documentRepo.findById refuses the withheld-only document', async () => {
+    const repoDocs = makeDocumentRepo(db!);
+    expect((await repoDocs.findById('company:7'))._unsafeUnwrap()).toBeNull();
+    expect((await repoDocs.findById('company:1'))._unsafeUnwrap()).not.toBeNull();
+  });
+
+  it('documentRepo scrubs the person from a dual-keyed document', async () => {
+    const repoDocs = makeDocumentRepo(db!);
+    const doc = (await repoDocs.findById('company:8'))._unsafeUnwrap();
+    expect(doc?.cuis).toEqual([SERVABLE_CUI]);
+  });
+
+  it('PINS the open asymmetry: search still resolves a withheld id, the CUI-keyed reads do not', async () => {
+    // Not an endorsement -- a pin. `searchEntities` keeps the guarded CNP
+    // lookup because an existing test states that decision explicitly, while
+    // countByCui/listByCui refuse the key because they had no filter at all and
+    // no decision behind them. Both behaviours are asserted here so that
+    // whoever settles task #15 changes them together and cannot move one by
+    // accident.
+    const byPerson = await repo?.searchEntities(WITHHELD_CUI, { limit: 50 });
+    expect((byPerson?._unsafeUnwrap() ?? []).map((r) => r.docId)).toContain('company:8');
+    // ...and the identifier is still scrubbed from what comes back.
+    const hit = (byPerson?._unsafeUnwrap() ?? []).find((r) => r.docId === 'company:8');
+    expect(hit?.cuis).toEqual([SERVABLE_CUI]);
+  });
+
+  it('documentRepo.listByCui returns nothing for a withheld identifier', async () => {
+    const repoDocs = makeDocumentRepo(db!);
+    const rows = (await repoDocs.listByCui(WITHHELD_CUI, 50))._unsafeUnwrap();
+    expect(rows).toEqual([]);
   });
 });
