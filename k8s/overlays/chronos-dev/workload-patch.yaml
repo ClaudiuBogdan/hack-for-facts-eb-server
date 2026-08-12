@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hack-for-facts-eb-server
+  annotations:
+    image-sha: sha256:ae844e43de7fdbe9b429ac154e4706affa1c99b237e7ea23501413b1ee123d4f
+spec:
+  replicas: 2
+  template:
+    spec:
+      serviceAccountName: hack-for-facts-eb-server
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      tolerations:
+        - key: dedicated
+          operator: Equal
+          value: compute
+          effect: NoSchedule
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: hack-for-facts-eb-server

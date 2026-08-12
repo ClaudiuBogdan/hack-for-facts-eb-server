@@ -1,0 +1,25 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: transparenta-eu-dev
+
+resources:
+  - ../../base
+  - service-account.yaml
+
+labels:
+  - includeSelectors: true
+    includeTemplates: true
+    pairs:
+      app.kubernetes.io/name: hack-for-facts-eb-server
+      app.kubernetes.io/part-of: transparenta-eu
+      app.kubernetes.io/environment: development
+
+images:
+  - name: harbor.devostack.com/hack-for-facts/hack-for-facts-eb-server
+    newName: harbor.devostack.com/hack-for-facts/hack-for-facts-eb-server
+    digest: sha256:ae844e43de7fdbe9b429ac154e4706affa1c99b237e7ea23501413b1ee123d4f
+
+patches:
+  - path: remove-platform-owned-resources.yaml
+  - path: workload-patch.yaml
