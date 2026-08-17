@@ -670,14 +670,8 @@ export const procurementTypeDefs = /* GraphQL */ `
     "Contract grain only: contract_award | framework_agreement."
     recordKind: String
     """
-    Contract grain only: standalone | framework_ceiling | call_off | all.
-
-    ABSENT IS NOT "no filter". The contract grain defaults to PURCHASES ONLY
-    (standalone, plus rows the data layer has not stamped yet). A framework
-    ceiling is an umbrella's maximum rather than money spent, and serving
-    ceilings as awards overstated the 2016-2025 window by 20.8%. Pass \`all\`
-    to include ceilings and call-offs — that is the pre-2026-08 behaviour and
-    the only way ceiling money enters an award total.
+    Temporarily unavailable until the active ClickHouse data build publishes
+    framework roles.
     """
     frameworkRole: String
     grain: ProcurementAnalysisGrain

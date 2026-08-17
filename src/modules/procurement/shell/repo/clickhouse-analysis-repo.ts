@@ -34,7 +34,12 @@ import { err, ok, type Result } from 'neverthrow';
 
 import { databaseError, type ApiError, type Logger } from '@/modules/shared/index.js';
 
-import { TOPN_SIRUTA_MAX, type MeasureId, type SeriesBucket } from '../../core/constants.js';
+import {
+  PROCUREMENT_DATA_AVAILABILITY,
+  TOPN_SIRUTA_MAX,
+  type MeasureId,
+  type SeriesBucket,
+} from '../../core/constants.js';
 
 import type { AnalysisScope } from '../../core/analysis-scope.js';
 import type { AnalysisRoute } from '../../core/combinations.js';
@@ -278,7 +283,7 @@ const BREAKDOWN_DIM_COLUMNS: Record<string, string> = {
   status: 'status',
   procedureType: 'procedure_type',
   recordKind: 'record_kind',
-  frameworkRole: 'framework_role',
+  ...(PROCUREMENT_DATA_AVAILABILITY.frameworkRole ? { frameworkRole: 'framework_role' } : {}),
   buyerRegion: 'buyer_region',
   buyerCounty: 'buyer_county_code',
   buyerSiruta: 'toString(buyer_siruta_uat)',
@@ -378,7 +383,9 @@ const compileScope = (
   // NULL passes the default: the data layer has not stamped that row yet, and
   // treating unstamped rows as frameworks would silently delete real
   // purchases from every total. Absence of evidence excludes nothing.
-  if (grain === 'contract') {
+  if (!PROCUREMENT_DATA_AVAILABILITY.frameworkRole && scope.frameworkRole !== undefined) {
+    impossible = true;
+  } else if (PROCUREMENT_DATA_AVAILABILITY.frameworkRole && grain === 'contract') {
     const role = scope.frameworkRole;
     if (role === undefined) {
       conds.push("(framework_role IS NULL OR framework_role = 'standalone')");

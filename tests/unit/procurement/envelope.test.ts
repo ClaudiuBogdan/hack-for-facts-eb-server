@@ -175,6 +175,14 @@ describe('canonical scope echo + fhash input', () => {
     expect(parseAnalysisScope({ recordKind: 'framework' }).isErr()).toBe(true);
   });
 
+  it('rejects frameworkRole while the active ClickHouse build lacks the column', () => {
+    const result = parseAnalysisScope({ frameworkRole: 'standalone' });
+    expect(result._unsafeUnwrapErr()).toMatchObject({
+      field: 'frameworkRole',
+      message: expect.stringContaining('temporarily unavailable'),
+    });
+  });
+
   it('bounds q length and value ranges', () => {
     expect(parseAnalysisScope({ q: 'drum' })._unsafeUnwrap().q).toBe('drum');
     expect(parseAnalysisScope({ q: 'ab' }).isErr()).toBe(true);

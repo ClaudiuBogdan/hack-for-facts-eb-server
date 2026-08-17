@@ -49,6 +49,7 @@ import {
 } from './analysis-scope.js';
 import { routeAnalysis, type AnalysisRoute } from './combinations.js';
 import {
+  PROCUREMENT_DATA_AVAILABILITY,
   TOPN_SIRUTA_MAX,
   type AnalysisGrain,
   type BreakdownDimension,
@@ -249,16 +250,21 @@ const FRAMEWORK_CEILING_NOTE =
 const MODIFICATION_COUNTS_NOTE =
   'modifications are amendment events, not purchases — this population serves counts only; usable amendment values reach analytics solely through the contract grain’s modification-adjusted measure';
 
+const LEGACY_CONTRACT_POPULATION_NOTE =
+  'temporary framework-role compatibility mode: contract analytics include standalone awards, framework ceilings and call-offs from the legacy build-8 population; these are legacy totals, not purchases-only spending, until the framework-role data build is published';
+
 const grainNotes = (grain: AnalysisGrain): readonly string[] =>
   grain === 'procedure'
     ? [PROCEDURE_LIFECYCLE_NOTE]
-    : grain === 'calloff'
-      ? [CALLOFF_PARTIAL_NOTE]
-      : grain === 'framework'
-        ? [FRAMEWORK_CEILING_NOTE]
-        : grain === 'modification'
-          ? [MODIFICATION_COUNTS_NOTE]
-          : [];
+    : grain === 'contract' && !PROCUREMENT_DATA_AVAILABILITY.frameworkRole
+      ? [LEGACY_CONTRACT_POPULATION_NOTE]
+      : grain === 'calloff'
+        ? [CALLOFF_PARTIAL_NOTE]
+        : grain === 'framework'
+          ? [FRAMEWORK_CEILING_NOTE]
+          : grain === 'modification'
+            ? [MODIFICATION_COUNTS_NOTE]
+            : [];
 
 /**
  * The same words mean something different here than on the record list, and the

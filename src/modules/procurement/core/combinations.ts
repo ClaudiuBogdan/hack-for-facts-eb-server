@@ -23,6 +23,7 @@ import { invalidInput, type ApiError } from '@/modules/shared/index.js';
 import { scopeDims, type AnalysisScope, type ScopeDimField } from './analysis-scope.js';
 import {
   CORE_ANALYSIS_GRAINS,
+  PROCUREMENT_DATA_AVAILABILITY,
   type AnalysisGrain,
   type BreakdownDimension,
   type MeasureId,
@@ -220,6 +221,18 @@ export const routeAnalysis = (
   dimension?: BreakdownDimension,
   measure?: MeasureId
 ): Result<readonly AnalysisRoute[], ApiError> => {
+  if (
+    !PROCUREMENT_DATA_AVAILABILITY.frameworkRole &&
+    (scope.frameworkRole !== undefined || dimension === 'frameworkRole')
+  ) {
+    return err(
+      invalidInput(
+        'frameworkRole is temporarily unavailable until the active ClickHouse data build publishes it',
+        scope.frameworkRole !== undefined ? 'frameworkRole' : 'dimension'
+      )
+    );
+  }
+
   if (shape === 'concentration' && scope.supplierCui !== undefined) {
     return err(
       invalidInput(
