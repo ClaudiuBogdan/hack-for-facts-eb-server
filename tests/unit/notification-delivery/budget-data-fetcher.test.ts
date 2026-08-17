@@ -11,6 +11,7 @@ import {
 
 import type { AnalyticsFilter } from '@/common/types/analytics.js';
 import type { ClassificationPeriodData } from '@/modules/aggregated-line-items/index.js';
+import type { NormalizationFactors } from '@/modules/normalization/index.js';
 import type { DataFetcher } from '@/modules/notification-delivery/core/ports.js';
 
 const testLogger = pinoLogger({ level: 'silent' });
@@ -45,6 +46,24 @@ const makeClassificationRow = (
   count: 1,
 });
 
+const makeAnalyticsAlertConfig = (
+  filterOverrides: Record<string, unknown> = {}
+): Record<string, unknown> => ({
+  title: 'Învățământ alert',
+  filter: {
+    account_category: 'ch',
+    normalization: 'total',
+    inflation_adjusted: false,
+    show_period_growth: false,
+    report_period: {
+      type: 'YEAR',
+      selection: { dates: ['2025'] },
+    },
+    ...filterOverrides,
+  },
+  conditions: [],
+});
+
 const getPeriodDate = (period: AnalyticsFilter['report_period']): string => {
   return period.selection.dates?.[0] ?? '';
 };
@@ -57,6 +76,7 @@ const makeFetcher = (input: {
     budgetBalance: Decimal;
   };
   aggregatedRows?: ClassificationPeriodData[];
+  normalizationFactors?: NormalizationFactors;
 }): {
   fetcher: DataFetcher;
   getTotals: ReturnType<typeof vi.fn>;
@@ -113,14 +133,17 @@ const makeFetcher = (input: {
       getClassificationPeriodData,
     } as never,
     normalization: {
-      generateFactors: async () => ({
-        inflation: new Map(),
-        exchangeRates: new Map(),
-        gdp: new Map(),
-      }),
+      generateFactors: async () =>
+        input.normalizationFactors ?? {
+          cpi: new Map(),
+          eur: new Map(),
+          usd: new Map(),
+          gdp: new Map(),
+          population: new Map(),
+        },
       normalize: async () => ok([]),
       invalidateCache: () => undefined,
-    } as never,
+    },
     populationRepo: {
       getFilteredPopulation: async () => ok(new Decimal(0)),
     } as never,
@@ -158,6 +181,118 @@ describe('toDeliveryError', () => {
 });
 
 describe('makeBudgetDataFetcher', () => {
+  it('uses the calculation currency for empty-condition analytics alerts', async () => {
+    const { fetcher, getClassificationPeriodData } = makeFetcher({
+      totalsByPeriod: {},
+      aggregatedRows: [makeClassificationRow('65.02', '39990667.8')],
+      normalizationFactors: {
+        cpi: new Map(),
+        eur: new Map([['2026', new Decimal('5')]]),
+        usd: new Map(),
+        gdp: new Map(),
+        population: new Map(),
+      },
+    });
+
+    const result = await fetcher.fetchAlertData(
+      makeAnalyticsAlertConfig({ currency: 'EUR' }),
+      '2026-07'
+    );
+
+    expect(result.isOk()).toBe(true);
+    const alertData = result._unsafeUnwrap();
+    expect(alertData).not.toBeNull();
+    if (alertData === null) {
+      throw new Error('Expected analytics alert data');
+    }
+
+    expect(alertData.actualValue.toString()).toBe('7998133.56');
+    expect(alertData.unit).toBe('EUR');
+    expect(alertData.triggeredConditions).toEqual([]);
+    expect(getClassificationPeriodData).toHaveBeenCalledWith(
+      expect.objectContaining({
+        currency: 'EUR',
+        normalization: 'total',
+        report_period: {
+          type: 'MONTH',
+          selection: { dates: ['2026-07'] },
+        },
+      })
+    );
+  });
+
+  it.each([
+    ['an omitted currency', {}],
+    ['a null currency', { currency: null }],
+  ])('defaults %s to RON', async (_label, filterOverrides) => {
+    const { fetcher, getClassificationPeriodData } = makeFetcher({
+      totalsByPeriod: {},
+      aggregatedRows: [],
+    });
+
+    const result = await fetcher.fetchAlertData(
+      makeAnalyticsAlertConfig(filterOverrides),
+      '2026-07'
+    );
+
+    expect(result.isOk()).toBe(true);
+    const alertData = result._unsafeUnwrap();
+    expect(alertData).not.toBeNull();
+    if (alertData === null) {
+      throw new Error('Expected analytics alert data');
+    }
+
+    expect(alertData.unit).toBe('RON');
+    expect(getClassificationPeriodData).toHaveBeenCalledWith(
+      expect.objectContaining({ currency: 'RON' })
+    );
+  });
+
+  it('preserves the implicit EUR currency from legacy normalization', async () => {
+    const { fetcher, getClassificationPeriodData } = makeFetcher({
+      totalsByPeriod: {},
+      aggregatedRows: [],
+    });
+
+    const result = await fetcher.fetchAlertData(
+      makeAnalyticsAlertConfig({ normalization: 'total_euro' }),
+      '2026-07'
+    );
+
+    expect(result.isOk()).toBe(true);
+    const alertData = result._unsafeUnwrap();
+    expect(alertData).not.toBeNull();
+    if (alertData === null) {
+      throw new Error('Expected analytics alert data');
+    }
+
+    expect(alertData.unit).toBe('EUR');
+    expect(getClassificationPeriodData).toHaveBeenCalledWith(
+      expect.objectContaining({
+        currency: 'EUR',
+        normalization: 'total',
+      })
+    );
+  });
+
+  it('rejects an invalid analytics alert currency before querying data', async () => {
+    const { fetcher, getClassificationPeriodData } = makeFetcher({
+      totalsByPeriod: {},
+      aggregatedRows: [],
+    });
+
+    const result = await fetcher.fetchAlertData(
+      makeAnalyticsAlertConfig({ currency: 'GBP' }),
+      '2026-07'
+    );
+
+    expect(result.isErr()).toBe(true);
+    expect(result._unsafeUnwrapErr()).toMatchObject({
+      message: 'Analytics alert filter.currency is invalid',
+    });
+    expect(getClassificationPeriodData).not.toHaveBeenCalled();
+  });
+
   it('returns separate monthly delta and YTD totals for monthly newsletters', async () => {
     const { fetcher, getMonthlyYtdTotals } = makeFetcher({
       totalsByPeriod: {

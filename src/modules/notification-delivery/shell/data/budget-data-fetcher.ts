@@ -23,7 +23,7 @@ import type {
   NewsletterData,
   NewsletterFinancialSummary,
 } from '../../core/ports.js';
-import type { AnalyticsFilter, PeriodDate } from '@/common/types/analytics.js';
+import type { AnalyticsFilter, Currency, PeriodDate } from '@/common/types/analytics.js';
 import type { BudgetDbClient } from '@/infra/database/client.js';
 import type { DatasetRepo } from '@/modules/datasets/index.js';
 import type {
@@ -241,6 +241,22 @@ const buildTriggeredConditions = (
 
 const resolveAccountCategory = (value: unknown): 'vn' | 'ch' | null => {
   if (value === 'vn' || value === 'ch') {
+    return value;
+  }
+
+  return null;
+};
+
+const resolveCurrency = (value: unknown, normalization: unknown): Currency | null => {
+  if (value === undefined || value === null) {
+    if (normalization === 'total_euro' || normalization === 'per_capita_euro') {
+      return 'EUR';
+    }
+
+    return DEFAULT_CURRENCY;
+  }
+
+  if (value === 'RON' || value === 'EUR' || value === 'USD') {
     return value;
   }
 
@@ -619,18 +635,28 @@ export const makeBudgetDataFetcher = (config: BudgetDataFetcherConfig): DataFetc
       if (isAnalyticsAlertConfig(config)) {
         const normalizedFilter = normalizeFilterObject(config.filter);
         const accountCategory = resolveAccountCategory(normalizedFilter['account_category']);
+        const currency = resolveCurrency(
+          normalizedFilter['currency'],
+          normalizedFilter['normalization']
+        );
 
         if (accountCategory === null) {
           return err(createValidationError('Analytics alert filter.account_category is required'));
         }
 
+        if (currency === null) {
+          return err(createValidationError('Analytics alert filter.currency is invalid'));
+        }
+
         const filter: AnalyticsFilter & {
+          currency: Currency;
           normalization: 'total';
           inflation_adjusted: false;
           show_period_growth: false;
         } = {
           ...(normalizedFilter as unknown as AnalyticsFilter),
           account_category: accountCategory,
+          currency,
           report_period: buildReportPeriod(periodKey, 'monthly'),
           normalization: 'total',
           inflation_adjusted: false,
@@ -658,7 +684,7 @@ export const makeBudgetDataFetcher = (config: BudgetDataFetcherConfig): DataFetc
           return sum.plus(new Decimal(node.amount));
         }, new Decimal(0));
         const triggeredConditions = buildTriggeredConditions(actualValue, config.conditions);
-        const unit = config.conditions[0]?.unit ?? DEFAULT_CURRENCY;
+        const unit = filter.currency;
 
         return ok({
           title: config.title ?? 'Alerta bugetara',
