@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: chronos-gitops-canary
+  labels:
+    app.kubernetes.io/name: chronos-gitops-canary
+    app.kubernetes.io/part-of: chronos-gitops-foundation
+    app.kubernetes.io/managed-by: argocd
+data:
+  message: chronos-gitops-canary-v1
+  ownership: workload-repository
+  persistence: disposable
+
