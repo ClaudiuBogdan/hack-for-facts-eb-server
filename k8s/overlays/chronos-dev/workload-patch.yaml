@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: hack-for-facts-eb-server
   annotations:
-    image-sha: sha256:ae844e43de7fdbe9b429ac154e4706affa1c99b237e7ea23501413b1ee123d4f
+    image-sha: sha256:99aef3d8d6ee27d726163628d5ab59303d70f3e51f8a926c29ad3f05e1a281a5
 spec:
   replicas: 2
   template:
@@ -25,3 +25,39 @@ spec:
           labelSelector:
             matchLabels:
               app: hack-for-facts-eb-server
+      containers:
+        - name: hack-for-facts-eb-server
+          args:
+            - dist/redesign-api.js
+          env:
+            - name: BULLMQ_REDIS_PASSWORD
+              $patch: delete
+            - name: PROD_MEILI_SEARCH_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: chronos-prod-meilisearch-search-credentials
+                  key: apiKey
+            - name: PROD_OPENSEARCH_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: chronos-prod-opensearch-reader-credentials
+                  key: username
+            - name: PROD_OPENSEARCH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: chronos-prod-opensearch-reader-credentials
+                  key: password
+          readinessProbe:
+            httpGet:
+              path: /api/v1/ready
+              port: 3000
+          startupProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 3000
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 3000
+          lifecycle:
+            $patch: delete

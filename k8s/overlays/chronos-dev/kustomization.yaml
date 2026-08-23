@@ -18,8 +18,9 @@ labels:
 images:
   - name: harbor.devostack.com/hack-for-facts/hack-for-facts-eb-server
     newName: harbor.devostack.com/hack-for-facts/hack-for-facts-eb-server
-    digest: sha256:ae844e43de7fdbe9b429ac154e4706affa1c99b237e7ea23501413b1ee123d4f
+    digest: sha256:99aef3d8d6ee27d726163628d5ab59303d70f3e51f8a926c29ad3f05e1a281a5
 
 patches:
   - path: remove-platform-owned-resources.yaml
+  - path: configmap-patch.yaml
   - path: workload-patch.yaml

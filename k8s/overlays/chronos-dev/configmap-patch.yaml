@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hack-for-facts-eb-server-config
+  namespace: hack-for-facts
+data:
+  PORT: '3000'
+  HOST: 0.0.0.0
+  LOG_LEVEL: info
+  PROD_ALLOWED_ORIGINS: https://dev-chronos.transparenta.eu
+  PROD_CLIENT_BASE_URL: https://dev-chronos.transparenta.eu
+  PROD_DB_POOL_MAX: '10'
+  PROD_MEILI_HOST: http://transparenta-eu-etl-meilisearch.transparenta-eu-etl-prod.svc.cluster.local:7700
+  PROD_MEILI_INDEXES: entities
+  PROD_OPENSEARCH_URL: https://transparenta-eu-etl-opensearch.transparenta-eu-etl-prod.svc.cluster.local:9200
+  PROD_OPENSEARCH_CA_FILE: /var/run/secrets/chronos-opensearch/ca.pem
+  PROD_OPENSEARCH_TLS_SERVERNAME: transparenta-eu-etl-opensearch.transparenta-eu-etl-prod.svc.cluster.local
+  PROD_CLICKHOUSE_URL: ''
