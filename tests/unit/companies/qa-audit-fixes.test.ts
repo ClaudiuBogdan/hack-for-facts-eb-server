@@ -196,6 +196,16 @@ describe('M6 — financials.lines nullable/string money contract', () => {
   });
 });
 
+describe('sourceSystem mapping (publisher seam)', () => {
+  it('maps the snake_case source_system column onto sourceSystem', () => {
+    const row = {
+      ...(yearRow(2018, '0.00', '0.00') as unknown as FinancialRow),
+      source_system: 'mfp',
+    };
+    expect(mapFinancialYear(row).sourceSystem).toBe('mfp');
+  });
+});
+
 describe('M10 — companyResolve honors limit:0', () => {
   it('returns no hits for limit 0 instead of flooring to 1', async () => {
     const resolveByName = vi.fn(async () =>

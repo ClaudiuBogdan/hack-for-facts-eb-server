@@ -264,6 +264,15 @@ describe('makeCompanyFinancialQualityAssessment', () => {
           numericValue: '-1200.00',
           thresholdValue: '0.00',
         },
+        // values ride in the METRIC'S unit — this one is a headcount, not RON
+        {
+          year: 2023,
+          flagCode: 'employees_outlier',
+          metricName: 'employees',
+          severity: 'warning',
+          numericValue: '5009387154',
+          thresholdValue: '1000000',
+        },
       ],
     };
     const getFinancialQualityAssessment = vi.fn(async () => ok(assessment));

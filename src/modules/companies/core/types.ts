@@ -160,15 +160,18 @@ export interface CompanyFinancials {
  * qualifies a figure ("this was flagged"), it never suppresses one. Severity
  * domain today: 'info' | 'review' | 'warning' — kept a string (not an enum) so
  * a new upstream class degrades to an unknown label instead of a serialization
- * error on an advisory surface.
+ * error on an advisory surface. numericValue/thresholdValue are exact decimal
+ * strings in the metric's own unit (RON, headcount, ratio) — not Money.
  */
 export interface CompanyFinancialQualityFlag {
   readonly year: number;
   readonly flagCode: string;
   readonly metricName: string;
   readonly severity: string;
-  readonly numericValue: Money | null;
-  readonly thresholdValue: Money | null;
+  /** Exact decimal string in the METRIC'S OWN UNIT (RON, headcount, or ratio) — NOT always money. */
+  readonly numericValue: string | null;
+  /** Same unit rules as numericValue (employees_outlier threshold is a headcount). */
+  readonly thresholdValue: string | null;
 }
 
 /**
@@ -177,8 +180,10 @@ export interface CompanyFinancialQualityFlag {
  * clean", never "never checked". The lane last ran 2026-06-30, BEFORE the
  * FY2008–2018 MFP backfill (2026-08-18), so 7.4M statement-years exist that
  * were never assessed. The coverage range is MEASURED (min/max flagged year
- * corpus-wide + lane watermark), not hardcoded, so it heals itself when the
- * scrapper's derived lane re-runs — absence outside the range = not assessed.
+ * corpus-wide, public-class only), not hardcoded — but it is a LOWER BOUND:
+ * the table stores anomalies only, so a scanned-and-fully-clean edge year
+ * reads as not-assessed (conservative), and assessedAt is the newest flag's
+ * creation date, not a true lane watermark.
  */
 export interface CompanyFinancialQualityAssessment {
   readonly assessedYearFrom: number | null;
@@ -330,7 +335,7 @@ export interface CompanyCoverage {
  * `computedAt` is stamped by the shell (no clock in core).
  */
 export interface CompanyHubStats {
-  /** Every company on the CUI spine (= the STATUS leg's denominator). */
+  /** Every company on the CUI spine (= the STATUS leg's denominator). NOT the whole ONRC registry: ~86k registry entries have no CUI and are structurally absent (issue 49). */
   readonly totalCompanies: number;
   /** Companies in ONRC lifecycle status `1048` (funcțiune). */
   readonly activeCompanies: number;

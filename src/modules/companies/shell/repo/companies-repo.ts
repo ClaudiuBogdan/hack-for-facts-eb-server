@@ -310,6 +310,44 @@ const mapListRow = (row: {
 });
 
 export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
+  // The quality-flag coverage triple is CUI-invariant (a corpus-wide constant),
+  // so recomputing it per request would heap-scan the whole flags table on every
+  // profile view — and that table grows on the next derive run. Memoized with a
+  // short TTL; the only cost of staleness is the range widening a few minutes
+  // late after a lane re-run.
+  const COVERAGE_TTL_MS = 10 * 60 * 1000;
+  let coverageCache: {
+    at: number;
+    value: { from_year: number | null; to_year: number | null; assessed_at: string | null };
+  } | null = null;
+  const getFlagCoverage = async (): Promise<{
+    from_year: number | null;
+    to_year: number | null;
+    assessed_at: string | null;
+  }> => {
+    if (coverageCache !== null && Date.now() - coverageCache.at < COVERAGE_TTL_MS) {
+      return coverageCache.value;
+    }
+    const row = await db
+      .selectFrom('companies_v2.financial_quality_flags')
+      .select([
+        sql<number | null>`min(year)`.as('from_year'),
+        sql<number | null>`max(year)`.as('to_year'),
+        sql<string | null>`max(created_at)::date::text`.as('assessed_at'),
+      ])
+      // Same positive allowlist as the per-CUI read: a non-public flag row must
+      // not be able to move the coverage range every public caller sees.
+      .where('privacy_class', '=', 'public')
+      .executeTakeFirst();
+    const value = {
+      from_year: row?.from_year ?? null,
+      to_year: row?.to_year ?? null,
+      assessed_at: row?.assessed_at ?? null,
+    };
+    coverageCache = { at: Date.now(), value };
+    return value;
+  };
+
   // ── detail (per-CUI fan-out) ────────────────────────────────────────────────
   const getProfileData = async (
     rawCui: string
@@ -475,23 +513,17 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
           .orderBy('year', 'desc')
           .orderBy('flag_code', 'asc')
           .execute(),
-        // Corpus-wide coverage, MEASURED not hardcoded (224,657 rows — a cheap
-        // aggregate). The lane (last run 2026-06-30) predates the FY2008–2018
-        // MFP backfill, so absence outside [from,to] means "never assessed",
-        // and this range self-corrects when the derived lane re-runs.
-        db
-          .selectFrom('companies_v2.financial_quality_flags')
-          .select([
-            sql<number | null>`min(year)`.as('from_year'),
-            sql<number | null>`max(year)`.as('to_year'),
-            sql<string | null>`max(created_at)::date::text`.as('assessed_at'),
-          ])
-          .executeTakeFirst(),
+        // Corpus-wide coverage, MEASURED not hardcoded, but a LOWER BOUND: the
+        // table stores anomalies only, so the range is the flagged-year envelope
+        // — a scanned-but-fully-clean year at either edge is indistinguishable
+        // from a never-scanned one and reads as "not assessed" (conservative:
+        // this direction never certifies unchecked data as clean).
+        getFlagCoverage(),
       ]);
       return ok({
-        assessedYearFrom: coverage?.from_year ?? null,
-        assessedYearTo: coverage?.to_year ?? null,
-        assessedAt: coverage?.assessed_at ?? null,
+        assessedYearFrom: coverage.from_year,
+        assessedYearTo: coverage.to_year,
+        assessedAt: coverage.assessed_at,
         flags: rows.map((r) => ({
           year: r.year,
           flagCode: r.flag_code,

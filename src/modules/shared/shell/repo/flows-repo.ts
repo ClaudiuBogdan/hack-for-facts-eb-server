@@ -32,6 +32,17 @@ import type {
 } from '../../core/types.js';
 import type { ProdDatabase } from '../db/types.js';
 
+/**
+ * 23,093 `core.organizations` rows (all `kind='unknown'`, measured 2026-08-25)
+ * are placeholders whose name IS their own CUI — CUIs met in procurement/PNRR/
+ * budget flows that exist in no name-bearing registry loaded into prod. Treating
+ * such a row as a canonical name DEGRADES a real flows-side contract name into a
+ * bare number (client repro: a payer rendered as "18264854"). Trim-compared so a
+ * whitespace-padded placeholder cannot slip through.
+ */
+export const isPlaceholderOrganizationName = (name: string, cui: string): boolean =>
+  name.trim() === cui;
+
 type Db = Kysely<ProdDatabase>;
 
 const cuiColumnFor = (direction: FlowDirection): 'payer_cui' | 'payee_cui' =>
@@ -165,12 +176,9 @@ export const makeFlowsRepo = (db: Db): FlowsRepo => ({
           .select(['cui', 'name'])
           .where('cui', 'in', cpCuis)
           .execute();
-        // 23,093 `kind='unknown'` rows are placeholders whose name IS the CUI
-        // (measured 2026-08-25). Overlaying those would DEGRADE a real flows-side
-        // name into a bare number (client bug: payer rendered as "18264854"), so a
-        // self-named org is treated as having no canonical name at all.
         for (const o of orgs)
-          if (o.cui !== null && o.name !== o.cui) canonicalName.set(o.cui, o.name);
+          if (o.cui !== null && !isPlaceholderOrganizationName(o.name, o.cui))
+            canonicalName.set(o.cui, o.name);
       }
 
       return ok(

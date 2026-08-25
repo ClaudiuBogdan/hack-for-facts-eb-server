@@ -110,21 +110,27 @@ const objectsAndQuery = /* GraphQL */ `
     metricName: String!
     "'info' | 'review' | 'warning' today; open domain (kept String so a new upstream class cannot break an advisory surface)."
     severity: String!
-    numericValue: Money
-    thresholdValue: Money
+    "Exact decimal string in the METRIC'S OWN UNIT - RON for money metrics, a headcount for employees, a ratio for ratio checks. NOT always money; do not blanket-format as RON."
+    numericValue: String
+    "Same unit rules as numericValue (e.g. employees_outlier threshold is the headcount 1000000, not RON)."
+    thresholdValue: String
   }
 
   """
   Flags + the MEASURED corpus-wide assessment coverage. Absence semantics are
   load-bearing: no flag for a year INSIDE [assessedYearFrom, assessedYearTo]
-  means checked-and-clean; a year OUTSIDE the range was never assessed (today
-  FY2008-2018: the quality lane last ran 2026-06-30, before the MFP backfill
-  landed). Render out-of-range years as "not yet assessed", never as clean.
+  means checked-and-clean; a year OUTSIDE the range must be rendered as
+  "not yet assessed", never as clean (today FY2008-2018: the quality lane last
+  ran 2026-06-30, before the MFP backfill landed). The range is a LOWER BOUND
+  measured from flagged years (the table stores anomalies only), so an edge
+  year that was scanned and found fully clean also reads as not-assessed -
+  deliberately conservative: the surface may understate coverage but can never
+  certify unchecked data.
   """
   type CompanyFinancialQualityAssessment {
     assessedYearFrom: Int
     assessedYearTo: Int
-    "Watermark of the last quality-lane run (max created_at, date)."
+    "Creation date of the NEWEST flag row - a lower bound on the last lane run, not a true watermark (an upsert-only re-run that inserts no new rows does not move it)."
     assessedAt: Date
     flags: [CompanyFinancialQualityFlag!]!
   }
