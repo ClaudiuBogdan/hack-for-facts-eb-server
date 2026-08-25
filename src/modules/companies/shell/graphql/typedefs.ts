@@ -70,7 +70,7 @@ const objectsAndQuery = /* GraphQL */ `
     asOf: Date
   }
 
-  "One caen_profile row, computed from the 2026-05 captures. TWO-SIDED staleness (desired-vs-existing diff, 2026-08-25): the ONRC authorized leg is pure OMISSION (680,158 July activities missing; nothing shown is wrong, companies just show fewer), but ~20.5k companies' 'anaf' main activity is ACTIVELY STALE - a since-changed code is displayed. Both heal with the profile re-derive; treat cross-source comparisons as as-of May until then."
+  "One caen_profile row, re-derived 2026-08-25 against the current (July-dominant) authorizations input - the earlier May staleness is resolved. A ~370k May residue mirrors the input itself (rows absent from the July capture, legitimacy tracked upstream), not derive staleness."
   type CompanyCaenActivity {
     code: String!
     rev: String!
