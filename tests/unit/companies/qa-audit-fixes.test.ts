@@ -70,6 +70,9 @@ const stubRepo = (over: Partial<CompaniesRepository> = {}): CompaniesRepository 
   getFinancialQualityAssessment: vi.fn(async () =>
     ok({ assessedYears: [], assessedAt: null, flags: [] })
   ),
+  getRegistrationDiffData: vi.fn(async () =>
+    ok({ fromCaptureDate: null, toCaptureDate: null, captureCount: 0, earlier: null, later: null })
+  ),
   listCompanies: vi.fn(async () => ok({ rows: [], total: 0, estimated: false })),
   resolveByName: vi.fn(async () => ok({ hits: [], degraded: false })),
   findByRegistrationNumber: vi.fn(async () => ok([])),

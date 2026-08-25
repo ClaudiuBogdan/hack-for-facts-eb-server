@@ -23,6 +23,7 @@ import type {
   CompanyEntitySlice,
   CompanyFinancialQualityAssessment,
   CompanyFinancialYear,
+  CompanyRegistrationDiffData,
   CompanyGroupBy,
   CompanyGroupCount,
   CompanyListRow,
@@ -52,6 +53,12 @@ export interface CompaniesRepository {
   getFinancialQualityAssessment(
     cui: string
   ): Promise<Result<CompanyFinancialQualityAssessment, ApiError>>;
+  /**
+   * The company's public rows in the two most recent loaded ONRC captures
+   * (ordered by source_published_at) + the capture pair's publication dates.
+   * Restricted rows read as ABSENT — a restricted row must not reveal presence.
+   */
+  getRegistrationDiffData(cui: string): Promise<Result<CompanyRegistrationDiffData, ApiError>>;
 
   // ── list / filter (the filterable collection §7) ──
   /**

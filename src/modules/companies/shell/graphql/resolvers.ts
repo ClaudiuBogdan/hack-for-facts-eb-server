@@ -29,6 +29,7 @@ import {
   makeCompanyList,
   makeCompanyProfileData,
   makeCompanyFinancialQualityAssessment,
+  makeCompanyRegistrationDiff,
   makeCompanyPublicMoney,
   makeCompanyResolve,
   dropWithheldCuiInclusion,
@@ -186,6 +187,8 @@ export const makeCompaniesResolvers = (deps: CompaniesResolverDeps): Record<stri
       // Advisory quality flags — same lazy pattern; only runs when selected.
       financialQualityAssessment: async (parent: { cui: string }) =>
         unwrap(await makeCompanyFinancialQualityAssessment(deps, parent.cui)),
+      registrationDiff: async (parent: { cui: string }) =>
+        unwrap(await makeCompanyRegistrationDiff(deps, parent.cui)),
     },
 
     Entity: {
@@ -204,5 +207,18 @@ export const makeCompaniesResolvers = (deps: CompaniesResolverDeps): Record<stri
     // its enum name via this map, so serialization of the lowercase domain value
     // succeeds. (The keys MUST be the enum names defined in the SDL.)
     CompanyMatchConfidence: { SAFE: 'safe', UNMATCHED: 'unmatched' },
+    CompanyRegistrationField: {
+      LEGAL_NAME: 'legalName',
+      LEGAL_FORM: 'legalForm',
+      COUNTY: 'county',
+      LOCALITY: 'locality',
+    },
+    CompanyRegistrationDiffStatus: {
+      CHANGED: 'changed',
+      UNCHANGED: 'unchanged',
+      APPEARED: 'appeared',
+      DISAPPEARED: 'disappeared',
+      NOT_COMPARABLE: 'not_comparable',
+    },
   };
 };

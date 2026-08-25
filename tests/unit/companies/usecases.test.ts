@@ -15,7 +15,9 @@ import {
   makeCompanyList,
   makeCompanyProfile,
   makeCompanyProfileData,
+  diffRegistrationCaptures,
   makeCompanyFinancialQualityAssessment,
+  makeCompanyRegistrationDiff,
   makeCompanyPublicMoney,
   makeCompanyResolve,
   type CompanyUsecaseDeps,
@@ -23,7 +25,11 @@ import {
 import { makeCompaniesContributor } from '@/modules/companies/shell/contributor.js';
 
 import type { CompaniesRepository, CompanyProfileData } from '@/modules/companies/core/ports.js';
-import type { CompanyFinancialYear } from '@/modules/companies/core/types.js';
+import type {
+  CompanyFinancialYear,
+  CompanyRegistrationCaptureRow,
+  CompanyRegistrationDiffData,
+} from '@/modules/companies/core/types.js';
 import type { ApiError, FlowsRepo } from '@/modules/shared/index.js';
 
 /** Unwrap an ok Result in tests (throws if err — surfaces the failure clearly). */
@@ -99,6 +105,9 @@ const stubRepo = (over: Partial<CompaniesRepository> = {}): CompaniesRepository 
   getFinancials: vi.fn(async () => ok([])),
   getFinancialQualityAssessment: vi.fn(async () =>
     ok({ assessedYears: [], assessedAt: null, flags: [] })
+  ),
+  getRegistrationDiffData: vi.fn(async () =>
+    ok({ fromCaptureDate: null, toCaptureDate: null, captureCount: 0, earlier: null, later: null })
   ),
   listCompanies: vi.fn(async () => ok({ rows: [], total: 0, estimated: false })),
   resolveByName: vi.fn(async () => ok({ hits: [], degraded: false })),
@@ -298,6 +307,117 @@ describe('makeCompanyFinancialQualityAssessment', () => {
   });
 });
 
+describe('diffRegistrationCaptures (pure two-capture diff)', () => {
+  const row = (
+    over: Partial<CompanyRegistrationCaptureRow> = {}
+  ): CompanyRegistrationCaptureRow => ({
+    legalName: 'ACME S.R.L.',
+    normalizedLegalName: 'acme srl',
+    legalForm: 'SRL',
+    county: 'Iasi',
+    locality: 'Iasi',
+    ...over,
+  });
+  const data = (over: Partial<CompanyRegistrationDiffData> = {}): CompanyRegistrationDiffData => ({
+    fromCaptureDate: '2026-05-06',
+    toCaptureDate: '2026-07-08',
+    captureCount: 2,
+    earlier: row(),
+    later: row(),
+    ...over,
+  });
+
+  it('UNCHANGED when both captures carry identical values', () => {
+    const d = diffRegistrationCaptures(data());
+    expect(d.status).toBe('unchanged');
+    expect(d.changes).toEqual([]);
+    expect(d.fromCaptureDate).toBe('2026-05-06');
+    expect(d.toCaptureDate).toBe('2026-07-08');
+  });
+
+  it('CHANGED lists exactly the moved fields, reporting RAW values', () => {
+    const d = diffRegistrationCaptures(
+      data({
+        later: row({
+          legalName: 'ACME TRADING S.R.L.',
+          normalizedLegalName: 'acme trading srl',
+          county: 'Cluj',
+        }),
+      })
+    );
+    expect(d.status).toBe('changed');
+    expect(d.changes).toEqual([
+      { field: 'legalName', from: 'ACME S.R.L.', to: 'ACME TRADING S.R.L.' },
+      { field: 'county', from: 'Iasi', to: 'Cluj' },
+    ]);
+  });
+
+  it('a pure re-spelling of the name (same normalized form) is NOT a change', () => {
+    const d = diffRegistrationCaptures(
+      data({ later: row({ legalName: 'Acme SRL', normalizedLegalName: 'acme srl' }) })
+    );
+    expect(d.status).toBe('unchanged');
+  });
+
+  it('null -> value transitions are changes (from: null)', () => {
+    const d = diffRegistrationCaptures(
+      data({ earlier: row({ legalForm: null }), later: row({ legalForm: 'SRL' }) })
+    );
+    expect(d.status).toBe('changed');
+    expect(d.changes).toEqual([{ field: 'legalForm', from: null, to: 'SRL' }]);
+  });
+
+  it('APPEARED / DISAPPEARED when present in exactly one capture', () => {
+    expect(diffRegistrationCaptures(data({ earlier: null })).status).toBe('appeared');
+    expect(diffRegistrationCaptures(data({ later: null })).status).toBe('disappeared');
+  });
+
+  it('NOT_COMPARABLE with fewer than two captures - even if a row exists', () => {
+    const d = diffRegistrationCaptures(data({ captureCount: 1, earlier: null }));
+    expect(d.status).toBe('not_comparable');
+    expect(d.changes).toEqual([]);
+  });
+
+  it('NOT_COMPARABLE when the company has no public row in either capture', () => {
+    expect(diffRegistrationCaptures(data({ earlier: null, later: null })).status).toBe(
+      'not_comparable'
+    );
+  });
+});
+
+describe('makeCompanyRegistrationDiff', () => {
+  it('normalizes the CUI and returns the computed diff', async () => {
+    const getRegistrationDiffData = vi.fn(async () =>
+      ok({
+        fromCaptureDate: '2026-05-06',
+        toCaptureDate: '2026-07-08',
+        captureCount: 2,
+        earlier: null,
+        later: {
+          legalName: 'NOVA S.R.L.',
+          normalizedLegalName: 'nova srl',
+          legalForm: 'SRL',
+          county: 'Cluj',
+          locality: 'Cluj-Napoca',
+        },
+      })
+    );
+    const d = deps({ repo: { getRegistrationDiffData: getRegistrationDiffData } });
+    const res = await makeCompanyRegistrationDiff(d, 'RO2816464');
+    expect(res.isOk()).toBe(true);
+    expect(res._unsafeUnwrap().status).toBe('appeared');
+    expect(getRegistrationDiffData).toHaveBeenCalledWith('2816464');
+  });
+
+  it('rejects an invalid CUI without touching the repo', async () => {
+    const getRegistrationDiffData = vi.fn();
+    const d = deps({ repo: { getRegistrationDiffData: getRegistrationDiffData } });
+    const res = await makeCompanyRegistrationDiff(d, 'not-a-cui');
+    expect(res.isErr()).toBe(true);
+    expect(getRegistrationDiffData).not.toHaveBeenCalled();
+  });
+});
+
 describe('makeCompanyList', () => {
   it('normalizes filter.cui (eq + in) at the boundary', async () => {
     const listCompanies = vi.fn(async () => ok({ rows: [], total: 0, estimated: false }));
@@ -490,6 +610,7 @@ describe('withheld identifiers (>10 digits, CNP-shaped — P0 containment 2026-0
       await makeCompanyFinancials(d, WITHHELD_11),
       await makeCompanyPublicMoney(d, WITHHELD_13),
       await makeCompanyFinancialQualityAssessment(d, WITHHELD_13),
+      await makeCompanyRegistrationDiff(d, WITHHELD_13),
     ];
     for (const res of results) {
       expect(res.isErr()).toBe(true);

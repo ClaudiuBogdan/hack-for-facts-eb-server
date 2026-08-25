@@ -28,6 +28,7 @@ import {
 import {
   makeCompanyCountyProfile,
   makeCompanyFinancialQualityAssessment,
+  makeCompanyRegistrationDiff,
   makeCompanyFinancials,
   makeCompanyList,
   makeCompanyProfile,
@@ -135,6 +136,8 @@ export const makeCompaniesMcpTools = (deps: CompaniesMcpDeps): readonly KernelMc
       const cui = strArg(args, 'cui');
       const res = await makeCompanyProfile(deps, cui);
       if (res.isErr()) return errorOut('company', res.error.message);
+      // Advisory parity with GraphQL Company.registrationDiff (H2: null on error).
+      const diff = await makeCompanyRegistrationDiff(deps, cui);
       const p = res.value;
       if (p === null)
         return { ok: true, kind: 'company', query: { cui }, summary: `No company for CUI ${cui}.` };
@@ -163,6 +166,7 @@ export const makeCompaniesMcpTools = (deps: CompaniesMcpDeps): readonly KernelMc
           territory: mcpTerritory(p.territory),
           latestFinancial: latest ?? null,
           publicMoney: pm,
+          registrationDiff: diff.isOk() ? diff.value : null,
           asOf: p.asOf,
         },
         summary,

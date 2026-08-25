@@ -125,6 +125,34 @@ export interface CompaniesFinancialQualityFlagsTable {
   created_at: Tstz;
 }
 
+/** One row per (cui, capture). ~8.38M rows over two loaded captures; 244,408 restricted (read paths allowlist public). */
+export interface CompaniesRegistrationHistoryTable {
+  cui: string;
+  legal_name: string;
+  normalized_legal_name: string;
+  legal_form: string | null;
+  // `raw_status` exists but is 100% NULL (8,378,866/8,378,866, measured
+  // 2026-08-25) — deliberately untyped so a status diff that can never fire
+  // cannot be built against it.
+  raw_county: string | null;
+  raw_locality: string | null;
+  source_snapshot_id: string;
+  privacy_class: string;
+}
+
+/**
+ * Capture dimension (applied 2026-08-25; populated by a guarded upsert, no
+ * scheduled lane — current-as-of-today, not self-maintaining).
+ * `retrieved_at` is DELIBERATELY untyped: freshness must never be served from
+ * retrieval — `source_published_at` is what "as of" means to a user, NULL means
+ * UNKNOWN and must not be coalesced (captures differ by up to 129 days).
+ */
+export interface CompaniesSourceSnapshotsTable {
+  source_snapshot_id: string;
+  source_published_at: string | null; // date
+  privacy_class: string;
+}
+
 export interface CompaniesStatusFlagsTable {
   cui: string;
   status_code: string;
@@ -155,6 +183,8 @@ declare module '@/modules/shared/shell/db/types.js' {
     'companies_v2.caen_profile': CompaniesCaenActivitiesTable;
     'companies_v2.status_flags': CompaniesStatusFlagsTable;
     'companies_v2.financial_quality_flags': CompaniesFinancialQualityFlagsTable;
+    'companies_v2.registration_history': CompaniesRegistrationHistoryTable;
+    'companies_v2.source_snapshots': CompaniesSourceSnapshotsTable;
     'companies_v2.eu_branches': CompaniesEuBranchesTable;
     'companies_v2.registration_identifiers': {
       scheme: string;

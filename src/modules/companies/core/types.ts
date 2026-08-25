@@ -194,6 +194,58 @@ export interface CompanyFinancialQualityAssessment {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Registration diff (two most recent loaded ONRC captures)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Closed set — the GraphQL enum mirrors it; adding a field is a contract change.
+ * `status` is deliberately NOT here: registration_history.raw_status is 100% NULL
+ * (8,378,866/8,378,866 measured 2026-08-25) and no complete per-capture status set
+ * exists anywhere in prod — a status diff could never fire and would read as
+ * "nothing ever changed". Status history is unavailable, stated rather than faked.
+ */
+export type CompanyRegistrationField = 'legalName' | 'legalForm' | 'county' | 'locality';
+
+export interface CompanyRegistrationChange {
+  readonly field: CompanyRegistrationField;
+  readonly from: string | null;
+  readonly to: string | null;
+}
+
+/**
+ * `not_comparable` is load-bearing (the FY2020 lesson): it is served when fewer
+ * than two captures are loaded corpus-wide OR the company has no public row in
+ * either capture — never collapsed into `unchanged` (asserts a comparison that
+ * did not happen) or null (reads as lookup failure).
+ */
+export type CompanyRegistrationDiffStatus =
+  'changed' | 'unchanged' | 'appeared' | 'disappeared' | 'not_comparable';
+
+/** One capture-side registration row (public rows only; restricted reads as absent). */
+export interface CompanyRegistrationCaptureRow {
+  readonly legalName: string;
+  readonly normalizedLegalName: string;
+  readonly legalForm: string | null;
+  readonly county: string | null;
+  readonly locality: string | null;
+}
+
+export interface CompanyRegistrationDiffData {
+  readonly fromCaptureDate: string | null;
+  readonly toCaptureDate: string | null;
+  readonly captureCount: number;
+  readonly earlier: CompanyRegistrationCaptureRow | null;
+  readonly later: CompanyRegistrationCaptureRow | null;
+}
+
+export interface CompanyRegistrationDiff {
+  readonly fromCaptureDate: string | null;
+  readonly toCaptureDate: string | null;
+  readonly status: CompanyRegistrationDiffStatus;
+  readonly changes: readonly CompanyRegistrationChange[];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // CAEN, representatives, EU branches
 // ─────────────────────────────────────────────────────────────────────────────
 

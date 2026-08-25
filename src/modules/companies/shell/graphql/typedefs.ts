@@ -154,6 +154,46 @@ const objectsAndQuery = /* GraphQL */ `
     trajectory: CompanyFinancialTrajectory
   }
 
+  "Closed set of diffable registration fields. STATUS is deliberately absent: registration_history.raw_status is 100% NULL and no complete per-capture status set exists in prod - status history is unavailable, stated rather than served as a diff that can never fire. Coded CURRENT status stays on Company.headlineStatus."
+  enum CompanyRegistrationField {
+    LEGAL_NAME
+    LEGAL_FORM
+    COUNTY
+    LOCALITY
+  }
+
+  enum CompanyRegistrationDiffStatus {
+    CHANGED
+    UNCHANGED
+    "Present only in the later capture (newly registered or newly public)."
+    APPEARED
+    "Present only in the earlier capture - no longer in the published capture; struck-off vs gone-restricted is indistinguishable BY DESIGN and no cause is implied."
+    DISAPPEARED
+    "Comparison impossible: fewer than two captures loaded corpus-wide, or the company has no public row in either capture. Never collapsed into UNCHANGED or null."
+    NOT_COMPARABLE
+  }
+
+  type CompanyRegistrationChange {
+    field: CompanyRegistrationField!
+    "Raw registry values as published (legalName reports the raw spelling even though equality is judged on the normalized form)."
+    from: String
+    to: String
+  }
+
+  """
+  Diff of the two most recent LOADED ONRC captures (today: published 2026-05-06
+  vs 2026-07-08), self-extending to latest-vs-previous as captures load. Dates
+  are ONRC PUBLICATION dates (null = unknown; never our retrieval time - the
+  two differ by up to 129 days).
+  """
+  type CompanyRegistrationDiff {
+    fromCaptureDate: Date
+    toCaptureDate: Date
+    status: CompanyRegistrationDiffStatus!
+    "Non-empty only when status = CHANGED."
+    changes: [CompanyRegistrationChange!]!
+  }
+
   type CompanyAsOf {
     onrc: Date
     anaf: Date
@@ -206,6 +246,8 @@ const objectsAndQuery = /* GraphQL */ `
     financials: [CompanyFinancialYear!]!
     "Warn-only quality flags + measured assessment coverage; lazily resolved. Nullable for per-field error isolation (audit H2) - an advisory failure must not null the whole profile."
     financialQualityAssessment: CompanyFinancialQualityAssessment
+    "Two-capture registration diff; lazily resolved. Nullable for per-field error isolation (H2)."
+    registrationDiff: CompanyRegistrationDiff
     euBranches: [CompanyEuBranch!]!
     "Public money received (payee), via the kernel FlowsRepo. Null when none."
     publicMoney: CompanyPublicMoney

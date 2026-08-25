@@ -42,6 +42,11 @@ import {
   type CompanyNameHit,
   type CompanyProfile,
   type CompanyFinancialQualityAssessment,
+  type CompanyRegistrationCaptureRow,
+  type CompanyRegistrationChange,
+  type CompanyRegistrationDiff,
+  type CompanyRegistrationDiffData,
+  type CompanyRegistrationField,
   type CompanyPublicMoney,
   type CompanyResolveDim,
   type CompanySort,
@@ -253,6 +258,54 @@ export const makeCompanyFinancialQualityAssessment = async (
   if (cui === null) return err(invalidCui());
   if (isWithheldCompanyIdentifier(cui)) return err(withheldIdentifier());
   return deps.repo.getFinancialQualityAssessment(cui);
+};
+
+const REGISTRATION_DIFF_FIELDS: readonly {
+  readonly field: CompanyRegistrationField;
+  readonly pick: (r: CompanyRegistrationCaptureRow) => string | null;
+  /** Equality damper: legalName compares on the normalized form so a pure re-spelling is not a "change"; raw values are still what gets reported. */
+  readonly key: (r: CompanyRegistrationCaptureRow) => string | null;
+}[] = [
+  {
+    field: 'legalName',
+    pick: (r) => r.legalName,
+    key: (r) => r.normalizedLegalName,
+  },
+  { field: 'legalForm', pick: (r) => r.legalForm, key: (r) => r.legalForm?.trim() ?? null },
+  { field: 'county', pick: (r) => r.county, key: (r) => r.county?.trim() ?? null },
+  { field: 'locality', pick: (r) => r.locality, key: (r) => r.locality?.trim() ?? null },
+];
+
+/** Pure two-capture diff. Exported for unit tests; no I/O. */
+export const diffRegistrationCaptures = (
+  data: CompanyRegistrationDiffData
+): CompanyRegistrationDiff => {
+  const base = { fromCaptureDate: data.fromCaptureDate, toCaptureDate: data.toCaptureDate };
+  if (data.captureCount < 2 || (data.earlier === null && data.later === null)) {
+    return { ...base, status: 'not_comparable', changes: [] };
+  }
+  if (data.earlier === null) return { ...base, status: 'appeared', changes: [] };
+  if (data.later === null) return { ...base, status: 'disappeared', changes: [] };
+  const earlier = data.earlier;
+  const later = data.later;
+  const changes: CompanyRegistrationChange[] = [];
+  for (const f of REGISTRATION_DIFF_FIELDS) {
+    if (f.key(earlier) !== f.key(later)) {
+      changes.push({ field: f.field, from: f.pick(earlier), to: f.pick(later) });
+    }
+  }
+  return { ...base, status: changes.length > 0 ? 'changed' : 'unchanged', changes };
+};
+
+/** Two-capture registration diff. Lazy field resolver target (`Company.registrationDiff`). */
+export const makeCompanyRegistrationDiff = async (
+  deps: Pick<CompanyUsecaseDeps, 'repo'>,
+  rawCui: string
+): Promise<Result<CompanyRegistrationDiff, ApiError>> => {
+  const cui = normalizeCui(rawCui);
+  if (cui === null) return err(invalidCui());
+  if (isWithheldCompanyIdentifier(cui)) return err(withheldIdentifier());
+  return (await deps.repo.getRegistrationDiffData(cui)).map(diffRegistrationCaptures);
 };
 
 const buildPublicMoney = async (

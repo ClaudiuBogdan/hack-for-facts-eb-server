@@ -65,6 +65,8 @@ import {
   type CompanyCoverage,
   type CompanyEntitySlice,
   type CompanyFinancialQualityAssessment,
+  type CompanyRegistrationCaptureRow,
+  type CompanyRegistrationDiffData,
   type CompanyFinancialYear,
   type CompanyGroupBy,
   type CompanyGroupCount,
@@ -495,6 +497,104 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
       return ok(rows.map((r) => mapFinancialYear(r)));
     } catch (error) {
       return err(databaseError('getFinancials failed', error));
+    }
+  };
+
+  // The two most recent LOADED captures — derived from the fact table via an
+  // EXISTS guard, never from the dimension alone: the dimension carries four
+  // captures but the facts only two, and ordering the dimension by publication
+  // would pick an EMPTY June capture and report every company as newly
+  // appeared (measured 2026-08-25). The EXISTS is an index seek on
+  // (source_snapshot_id, source_row_number), present and absent alike.
+  const CAPTURE_PAIR_TTL_MS = 10 * 60 * 1000;
+  let capturePairCache: {
+    at: number;
+    promise: Promise<readonly { id: string; published_at: string | null }[]>;
+  } | null = null;
+  const getLoadedCapturePair = (): Promise<
+    readonly { id: string; published_at: string | null }[]
+  > => {
+    if (capturePairCache !== null && Date.now() - capturePairCache.at < CAPTURE_PAIR_TTL_MS) {
+      return capturePairCache.promise;
+    }
+    const promise = (async () => {
+      const rows = await db
+        .selectFrom('companies_v2.source_snapshots as s')
+        .select([
+          's.source_snapshot_id as id',
+          sql<string | null>`s.source_published_at::text`.as('published_at'),
+        ])
+        .where('s.privacy_class', '=', 'public')
+        .where((eb) =>
+          eb.exists(
+            eb
+              .selectFrom('companies_v2.registration_history as rh')
+              .select('rh.source_snapshot_id')
+              .whereRef('rh.source_snapshot_id', '=', 's.source_snapshot_id')
+          )
+        )
+        .orderBy(sql`s.source_published_at desc nulls last`)
+        .limit(2)
+        .execute();
+      return rows;
+    })();
+    capturePairCache = { at: Date.now(), promise };
+    promise.catch(() => {
+      if (capturePairCache?.promise === promise) capturePairCache = null;
+    });
+    return promise;
+  };
+
+  const getRegistrationDiffData = async (
+    rawCui: string
+  ): Promise<Result<CompanyRegistrationDiffData, ApiError>> => {
+    const cui = normalizeCui(rawCui);
+    if (cui === null) return err(invalidInput('invalid CUI format', 'cui'));
+    try {
+      const captures = await getLoadedCapturePair();
+      // captures[0] = later, captures[1] = earlier (published desc)
+      const later = captures[0];
+      const earlier = captures[1];
+      const rowFor = async (
+        capture: { id: string } | undefined
+      ): Promise<CompanyRegistrationCaptureRow | null> => {
+        if (capture === undefined) return null;
+        const r = await db
+          .selectFrom('companies_v2.registration_history')
+          .select([
+            'legal_name',
+            'normalized_legal_name',
+            'legal_form',
+            'raw_county',
+            'raw_locality',
+          ])
+          .where('cui', '=', cui)
+          .where('source_snapshot_id', '=', capture.id)
+          // Restricted rows read as ABSENT — presence itself must not leak.
+          // Verified safe: privacy_class is capture-stable (0 CUIs differ), so
+          // this can never manufacture a phantom disappearance.
+          .where('privacy_class', '=', 'public')
+          .limit(1)
+          .executeTakeFirst();
+        if (r === undefined) return null;
+        return {
+          legalName: r.legal_name,
+          normalizedLegalName: r.normalized_legal_name,
+          legalForm: r.legal_form,
+          county: r.raw_county,
+          locality: r.raw_locality,
+        };
+      };
+      const [laterRow, earlierRow] = await Promise.all([rowFor(later), rowFor(earlier)]);
+      return ok({
+        fromCaptureDate: earlier?.published_at ?? null,
+        toCaptureDate: later?.published_at ?? null,
+        captureCount: captures.length,
+        earlier: earlierRow,
+        later: laterRow,
+      });
+    } catch (error) {
+      return err(databaseError('getRegistrationDiffData failed', error));
     }
   };
 
@@ -1087,6 +1187,7 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
     getProfileData,
     getFinancials,
     getFinancialQualityAssessment,
+    getRegistrationDiffData,
     listCompanies,
     resolveByName,
     findByRegistrationNumber,
