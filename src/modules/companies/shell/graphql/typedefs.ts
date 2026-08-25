@@ -70,10 +70,12 @@ const objectsAndQuery = /* GraphQL */ `
     asOf: Date
   }
 
+  "One caen_profile row. AS-OF CAVEAT: the 'anaf' and 'derived' legs are computed from the 2026-05 captures while the ONRC authorizations input has moved to July (+680k rows net, measured 2026-08-25) - treat cross-source comparisons as as-of May until the profile re-derive lands (scrapper register)."
   type CompanyCaenActivity {
     code: String!
     rev: String!
     label: String
+    "'onrc' (authorized set, May capture) | 'anaf' (main activity, May snapshot) | 'derived' (cross-source comparison, computed against the May registry)."
     source: String!
   }
   "Restricted in companies_v2; public profile returns an empty list until an authorized surface is added."
