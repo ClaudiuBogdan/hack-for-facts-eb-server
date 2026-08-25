@@ -149,7 +149,9 @@ export const makeLegalRetrievalRepo = (db: Db): LegalRetrievalRepo => {
             left join legal.document_summaries s on s.document_id = d.document_id
             where a.display_citation ilike ${pattern} escape '\\'
               and ${pre.value} and ${liveGate}
-            order by a.in_degree desc
+            -- act_id breaks the tie: in_degree is 0 for 79.7% of acts, so it
+            -- orders almost nothing on its own (see searchDocs below).
+            order by a.in_degree desc, a.act_id asc
             limit 20
           )
           select se.document_id, se.section_key, se.article_number, se.node_path, 0::float8 as dist,
@@ -234,7 +236,15 @@ export const makeLegalRetrievalRepo = (db: Db): LegalRetrievalRepo => {
           where ${pre.value} and ${liveGate}
             and (s.source_extraction_status is distinct from 'suspicious')
             and a.display_citation ilike ${pattern} escape '\\'
-          order by a.in_degree desc
+          -- DETERMINISTIC TIEBREAK. 178,854 of 224,539 acts (79.7%, measured
+          -- 2026-08) have in_degree 0, so for four acts in five this ORDER BY
+          -- imposes no order and PostgreSQL returns tied rows in whatever order
+          -- the plan yields. Measured before this line: five identical
+          -- codul-muncii searches returned two different orderings, so two
+          -- users got different results for one query and any paging over it
+          -- repeated or skipped rows. The sections query above already uses
+          -- se.section_key for exactly this.
+          order by a.in_degree desc, a.act_id asc
           limit ${sql.lit(limit)}
         `.execute(trx);
         return r.rows;

@@ -238,7 +238,15 @@ export const makeLegalActsRepo = (db: Db): LegalActsRepo => {
     try {
       const rows = await selectActs()
         .where(sql<boolean>`a.display_citation ilike ${pattern} escape '\\'`)
+        // DETERMINISTIC TIEBREAK. `in_degree` alone does not order this result:
+        // 178,854 of 224,539 acts (79.7%, measured 2026-08) have in_degree 0, so
+        // for four acts in five the sort key is constant and PostgreSQL returns
+        // tied rows in whatever order the plan yields. Measured: five identical
+        // `codul muncii` searches returned two different orderings. Under a
+        // LIMIT that means two users get different results for one query, and
+        // any paging over it repeats or skips rows.
         .orderBy('a.in_degree', 'desc')
+        .orderBy('a.act_id', 'asc')
         .limit(capped)
         .execute();
       return ok(rows.map((r) => mapAct(r as unknown as ActRow)));
@@ -272,7 +280,10 @@ export const makeLegalActsRepo = (db: Db): LegalActsRepo => {
           .where('ck.act_type', '=', parsed.actType)
           .where('ck.act_number', '=', parsed.actNumber)
           .where('ck.act_year', '=', parsed.actYear)
+          // Same tie as `searchActsByName`: citation-key candidates for one
+          // (type, number, year) routinely share in_degree 0.
           .orderBy('a.in_degree', 'desc')
+          .orderBy('a.act_id', 'asc')
           .limit(25)
           .execute();
         if (rows.length > 0) return ok(rows.map((r) => mapAct(r as unknown as ActRow)));
