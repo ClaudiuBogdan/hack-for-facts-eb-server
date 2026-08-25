@@ -70,7 +70,7 @@ const objectsAndQuery = /* GraphQL */ `
     asOf: Date
   }
 
-  "One caen_profile row. AS-OF CAVEAT: the 'anaf' and 'derived' legs are computed from the 2026-05 captures while the ONRC authorizations input has moved to July (+680k rows net, measured 2026-08-25) - treat cross-source comparisons as as-of May until the profile re-derive lands (scrapper register)."
+  "One caen_profile row, computed from the 2026-05 captures. TWO-SIDED staleness (desired-vs-existing diff, 2026-08-25): the ONRC authorized leg is pure OMISSION (680,158 July activities missing; nothing shown is wrong, companies just show fewer), but ~20.5k companies' 'anaf' main activity is ACTIVELY STALE - a since-changed code is displayed. Both heal with the profile re-derive; treat cross-source comparisons as as-of May until then."
   type CompanyCaenActivity {
     code: String!
     rev: String!
