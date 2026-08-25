@@ -18,6 +18,7 @@ import {
   buildNextCursor,
   fhashFor,
   filterHash,
+  invalidInput,
   makeBatchLoader,
   type ApiError,
   type CursorPage,
@@ -26,6 +27,8 @@ import {
 
 import { versionProvenanceNote } from '../../core/provenance.js';
 import {
+  countLegalActs,
+  countRecentChanges,
   getAct,
   getActLinksIn,
   getActLinksOut,
@@ -33,13 +36,16 @@ import {
   getActVersions,
   getDocumentOutline,
   getExternalAct,
+  getRecentChanges,
   listActs,
+  normalizeRecentChangesFilter,
   resolveLegalFilters,
   searchLegal,
   type LegalSearchDeps,
   type ResolveLegalFiltersDeps,
 } from '../../core/usecases.js';
 import { legalActsSpec } from '../filters/legal-acts.spec.js';
+import { RECENT_CHANGES_SORT, recentChangesFhash } from '../repo/filter-helpers.js';
 
 import type {
   LegalActsRepo,
@@ -51,7 +57,9 @@ import type {
   LegalAct,
   LegalActCard,
   LegalActStatus,
+  LegalCountDimension,
   LegalDocument,
+  LegalEventSource,
   LegalRelation,
   LegalRenderInfo,
   LegalResolveDim,
@@ -113,6 +121,17 @@ const SORT_FROM_GQL: Record<string, LegalSortKey> = {
   ACT_YEAR: 'act_year',
   ENTRY_INTO_FORCE: 'entry_into_force',
   DISPLAY_CITATION: 'display_citation',
+};
+
+// Arg-only mapping (the LegalSortKey pattern) — deliberately NOT registered in
+// the enum-resolver maps: those translate OUTPUT values, and a double mapping
+// would rewrite the arg before this lookup.
+const DIM_FROM_GQL: Record<string, LegalCountDimension> = {
+  DOMAIN: 'domain',
+  ACT_TYPE: 'act_type',
+  STATUS: 'status',
+  ISSUER: 'issuer',
+  YEAR: 'year',
 };
 
 const sortKeysOf = (act: LegalAct, sort: LegalSortKey): readonly (string | number | null)[] => {
@@ -206,6 +225,86 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
           const counted = await acts.countActs(filter);
           return counted.isOk() ? counted.value : null;
         });
+      },
+      legalActCounts: async (
+        _r: unknown,
+        args: { groupBy: string; filter?: FilterInput; topN?: number }
+      ) => {
+        const dim = DIM_FROM_GQL[args.groupBy];
+        if (dim === undefined) {
+          // The SDL enum already gates this; the guard keeps a direct caller honest.
+          throw toGraphqlError(invalidInput(`invalid groupBy '${args.groupBy}'`, 'groupBy'));
+        }
+        // `?? undefined`: an explicit null variable means "default", not zero.
+        return unwrap(await countLegalActs(acts, dim, args.filter ?? {}, args.topN ?? undefined));
+      },
+      legalRecentChanges: async (
+        _r: unknown,
+        args: {
+          since?: string;
+          until?: string;
+          kinds?: string[];
+          eventSource?: string;
+          undatedOnly?: boolean;
+          first?: number;
+          after?: string;
+        }
+      ) => {
+        // Normalize ONCE here (the usecase re-normalizes idempotently): the
+        // per-edge cursors below must hash the same canonical filter the repo
+        // minted `next` under, or a resumed edge cursor would be rejected.
+        const norm = normalizeRecentChangesFilter({
+          ...(args.since != null && { since: args.since }),
+          ...(args.until != null && { until: args.until }),
+          ...(args.kinds != null && { kinds: args.kinds }),
+          // Cast only: membership is validated by the normalizer, not here.
+          ...(args.eventSource != null && { eventSource: args.eventSource as LegalEventSource }),
+          ...(args.undatedOnly != null && { undatedOnly: args.undatedOnly }),
+        });
+        if (norm.isErr()) throw toGraphqlError(norm.error);
+        const filter = norm.value;
+        const page = unwrap(
+          await getRecentChanges(acts, {
+            ...filter,
+            page: {
+              first: args.first ?? 20,
+              // `!= null`: an explicit `after: null` variable is a normal
+              // GraphQL first-page request, not a malformed cursor.
+              ...(args.after != null && { after: args.after }),
+            },
+          })
+        );
+        const fhash = recentChangesFhash(filter);
+        const edges = page.items.map((node) => ({
+          node,
+          // Re-encodes the repo's keyset (effective_date desc, event_id desc;
+          // '' = null-date sentinel) — sort/dir/fhash must match
+          // listRecentChanges or a resumed cursor would be rejected.
+          cursor: buildNextCursor({
+            sort: RECENT_CHANGES_SORT,
+            dir: 'desc',
+            fhash,
+            lastKeys: [node.effectiveDate ?? '', node.eventId],
+          }),
+        }));
+        return {
+          edges,
+          pageInfo: {
+            hasNextPage: page.next !== null,
+            endCursor: edges.length > 0 ? (edges[edges.length - 1]?.cursor ?? null) : null,
+          },
+          // Lazy thunk: the real filtered count runs only when selected. On
+          // failure it THROWS: the nullable field still resolves null, but a
+          // field-level errors entry says why (verified under graphql-js
+          // execution in tests) — `isOk() ? value : null` would swallow the
+          // ApiError, and the count is a full scan today, so a timeout is the
+          // likeliest failure exactly when the total matters most.
+          totalCount: async (): Promise<number | null> => {
+            const counted = await countRecentChanges(acts, filter);
+            if (counted.isErr()) throw toGraphqlError(counted.error);
+            return counted.value;
+          },
+        };
       },
       legalSearch: async (
         _r: unknown,
@@ -383,7 +482,22 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
         typeof parent.totalCount === 'function' ? parent.totalCount() : parent.totalCount,
     },
 
+    LegalRecentChangeConnection: {
+      // Same lazy-thunk contract as LegalActConnection: the count query runs
+      // only when the field is selected.
+      totalCount: async (parent: { totalCount: null | (() => Promise<number | null>) }) =>
+        typeof parent.totalCount === 'function' ? parent.totalCount() : parent.totalCount,
+    },
+
     LegalIncomingAnchor: {
+      sourceAct: async (parent: { sourceActId: string | null }) =>
+        parent.sourceActId === null ? null : actLoader.load(parent.sourceActId),
+    },
+
+    LegalRecentChange: {
+      // "act X amended by act Y": Y arrives as a whole act through the SAME
+      // batched loader the anchor/edge surfaces use — one statement per page,
+      // not one per row; a dangling id answers null.
       sourceAct: async (parent: { sourceActId: string | null }) =>
         parent.sourceActId === null ? null : actLoader.load(parent.sourceActId),
     },

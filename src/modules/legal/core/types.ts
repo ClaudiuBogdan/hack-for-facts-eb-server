@@ -88,6 +88,47 @@ export const LEGAL_RESOLVE_DIMS: readonly LegalResolveDim[] = [
   'status',
 ];
 
+/** Grouping dimensions for the grouped act counts (landing grid / facets). */
+export type LegalCountDimension = 'domain' | 'act_type' | 'status' | 'issuer' | 'year';
+export const LEGAL_COUNT_DIMENSIONS: readonly LegalCountDimension[] = [
+  'domain',
+  'act_type',
+  'status',
+  'issuer',
+  'year',
+];
+
+/**
+ * One grouped count bucket. `key` is the RAW DB vocabulary value
+ * ('fiscal-si-bugetar', 'in-vigoare', '2015'). Only keys that appear in the
+ * corresponding filter field's `enumValues` are accepted back by
+ * `LegalActsFilter` — `act_type` is an OPEN vocabulary in the live DB (256
+ * distinct values vs the 18 the filter accepts, measured 2026-08; `anexa`,
+ * `protocol`, `ghid`, … are real keys the filter refuses). `domain`/`status`
+ * are closed vocabularies, so their keys always round-trip. `label` is a
+ * display form when one exists (issuer slugs de-hyphenated, the vocab-repo
+ * precedent) and null otherwise — the enum/year keys ARE their own display
+ * value.
+ */
+export interface LegalCountBucket {
+  readonly key: string;
+  readonly label: string | null;
+  readonly count: number;
+}
+
+/**
+ * The grouped-counts envelope. The topN cap is REAL, so the truncation is
+ * served rather than silent (the no-silent-caps rule): `bucketsTruncated`
+ * says the vocabulary was cut, and `otherCount` carries the exact sum of the
+ * unserved buckets' counts — which keeps a partition dimension summable to
+ * its total (for DOMAIN it sums unserved (act, domain) pairs, not acts).
+ */
+export interface LegalActCountsResult {
+  readonly buckets: readonly LegalCountBucket[];
+  readonly bucketsTruncated: boolean;
+  readonly otherCount: number;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Acts (the spine — 05-owned base type)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -213,6 +254,26 @@ export interface LegalStatusEvent {
   readonly sourceActId: string | null;
   readonly evidence: Record<string, unknown>;
   readonly eventSource: LegalEventSource;
+}
+
+/**
+ * One GLOBAL feed entry ("Modificări"): a status event + the affected act's
+ * display identity, read in the SAME statement (no lazy fan-out). `eventSource`
+ * is surfaced honestly — portal and monitorul-oficial rows are never merged.
+ */
+export interface LegalRecentChange {
+  readonly eventId: string;
+  readonly eventKind: string;
+  readonly effectiveDate: IsoDate | null;
+  readonly eventSource: LegalEventSource;
+  /** The acting act (e.g. the amending law) when the event records one. */
+  readonly sourceActId: string | null;
+  readonly evidence: Record<string, unknown>;
+  // the affected act's identity:
+  readonly actId: string;
+  readonly actNaturalKey: string;
+  readonly displayCitation: string;
+  readonly status: LegalActStatus;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -12,6 +12,7 @@ import {
   type LegalDocument,
   type LegalActSummary,
   type LegalExternalAct,
+  type LegalRecentChange,
   type LegalReferenceEdge,
   type LegalRelation,
   type LegalStatusEvent,
@@ -244,4 +245,31 @@ export const mapExternalAct = (r: ExternalActRow): LegalExternalAct => ({
   identityKey: r.identity_key,
   displayCitation: r.display_citation,
   kind: r.kind,
+});
+
+/** One global-feed row: a status event + the affected act's identity columns. */
+export interface RecentChangeRow {
+  event_id: string;
+  event_kind: string;
+  effective_date: string | null;
+  source_act_id: string | null;
+  evidence: unknown;
+  event_source: string;
+  act_id: string;
+  act_natural_key: string;
+  display_citation: string;
+  status: string;
+}
+
+export const mapRecentChange = (r: RecentChangeRow): LegalRecentChange => ({
+  eventId: r.event_id,
+  eventKind: r.event_kind,
+  effectiveDate: r.effective_date,
+  eventSource: toEventSource(r.event_source),
+  sourceActId: r.source_act_id,
+  evidence: asObject(r.evidence),
+  actId: r.act_id,
+  actNaturalKey: r.act_natural_key,
+  displayCitation: r.display_citation,
+  status: toStatus(r.status),
 });

@@ -19,12 +19,16 @@ import type {
   LegalAct,
   LegalActCard,
   LegalActSummary,
+  LegalCountBucket,
+  LegalCountDimension,
   LegalDocHit,
   LegalDocument,
+  LegalEventSource,
   LegalExternalAct,
   LegalIncomingAnchorsPage,
   LegalIncomingEdge,
   LegalOutlineEntry,
+  LegalRecentChange,
   LegalReferenceEdge,
   LegalRelation,
   LegalRenderInfo,
@@ -32,7 +36,7 @@ import type {
   LegalSectionHit,
   LegalVersionProvenance,
 } from './types.js';
-import type { ApiError, CursorPage, FilterInput } from '@/modules/shared/index.js';
+import type { ApiError, CursorPage, FilterInput, IsoDate } from '@/modules/shared/index.js';
 import type { Result } from 'neverthrow';
 
 /** A first/after cursor page request (the kernel cursor envelope binds the fhash). */
@@ -52,11 +56,69 @@ export interface LegalActListOptions {
   readonly page: CursorPageRequest;
 }
 
+/**
+ * The global status-event feed filter. `since`/`until` are INCLUSIVE
+ * `effective_date` bounds — a date window therefore excludes undated events
+ * (SQL comparison semantics, stated rather than papered over). `kinds` narrows
+ * `event_kind`: OMIT it for all kinds; an explicit empty (or blank-only) list
+ * is REJECTED as invalidInput — one API must not read `[]` as "everything"
+ * here while kernel filters read `in: []` as "nothing". `eventSource` scopes
+ * to one pipeline ('portal' | 'monitorul-oficial'). `undatedOnly` serves ONLY
+ * the null-`effective_date` events (25.2% of the table, measured 2026-08) —
+ * they trail the default feed and NO date window can reach them; combining it
+ * with `since`/`until` is rejected (the intersection is empty by construction).
+ */
+export interface LegalRecentChangesFilter {
+  readonly since?: IsoDate;
+  readonly until?: IsoDate;
+  readonly kinds?: readonly string[];
+  readonly eventSource?: LegalEventSource;
+  readonly undatedOnly?: boolean;
+}
+
+export interface LegalRecentChangesQuery extends LegalRecentChangesFilter {
+  readonly page: CursorPageRequest;
+}
+
 export interface LegalActsRepo extends LegalRepoBase {
   /** Paged acts list. Cursor sort tuple ALWAYS ends in `act_id` (non-unique sorts). */
   listActs(o: LegalActListOptions): Promise<Result<CursorPage<LegalAct>, ApiError>>;
   /** Filtered COUNT over the same FROM/conditions as `listActs`. Resolved lazily — only when a connection's totalCount is actually selected. */
   countActs(filter: FilterInput): Promise<Result<number, ApiError>>;
+  /**
+   * Grouped act counts for the landing grid / facets — ONE statement instead of
+   * one round-trip per cell. Same FROM + kernel conditions as `listActs` (the
+   * filter must behave identically). `domain` unnests the CANONICAL document
+   * summary's `text[]` — the same rows the `domain` filter compiles against —
+   * so a cell's count always equals the filtered list behind it; domains
+   * asserted only by non-canonical versions are deliberately not counted, and
+   * a multi-domain act counts once per domain (distinct per bucket).
+   * Partition contract: `status`/`act_type` PARTITION the corpus; `issuer`/
+   * `year` are disjoint but omit value-less acts; `domain` OVERLAPS (~2.26
+   * domains per summarized act, measured 2026-08 — buckets sum above the act
+   * total). Keys are the RAW DB vocabulary — for the OPEN `act_type` (256
+   * live values vs 18 filter-accepted, measured 2026-08) most keys are NOT
+   * valid filter values. Counts are facet-SCOPED to the filter: a bucket
+   * equals its filtered list only when the grouped dimension is unconstrained
+   * in the filter. NULL group keys are omitted. Ordered count desc; returns
+   * the FULL vocabulary — the serving cap (topN) lives in the usecase, which
+   * reports the truncation.
+   */
+  countActsBy(
+    dim: LegalCountDimension,
+    filter: FilterInput
+  ): Promise<Result<readonly LegalCountBucket[], ApiError>>;
+  /**
+   * The GLOBAL date-ordered status-event feed ("Modificări"):
+   * `act_status_events` joined to `acts` for display identity, keyset-paged on
+   * `(effective_date desc nulls last, event_id desc)` — undated events sort
+   * last and stay reachable (the acts-list null-section rule).
+   */
+  listRecentChanges(
+    q: LegalRecentChangesQuery
+  ): Promise<Result<CursorPage<LegalRecentChange>, ApiError>>;
+  /** Filtered COUNT over the same FROM/conditions as `listRecentChanges`. Lazy — only when totalCount is selected. */
+  countRecentChanges(filter: LegalRecentChangesFilter): Promise<Result<number, ApiError>>;
   /** Detail card: act + canonical doc + summary + aliases + keys + amendedAfter. */
   getActCard(ref: LegalActRef): Promise<Result<LegalActCard | null, ApiError>>;
   getCanonicalDocument(actId: string): Promise<Result<LegalDocument | null, ApiError>>;

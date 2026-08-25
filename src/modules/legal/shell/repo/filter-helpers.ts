@@ -4,8 +4,9 @@
  * `year`/`yearFrom`/`yearTo` all map to the same physical column `a.act_year`;
  * the kernel composer handles them directly (eq/gte/lte) so there are NO virtual
  * fields in legal (unlike pnrr). These helpers cover: composing the kernel
- * conditions, the unconditional canonical JOIN, and the `(sortcol, act_id)`
- * keyset cursor where `act_id` is the bigint tiebreaker.
+ * conditions, the unconditional canonical JOIN, and the `(sortcol, bigint-spine)`
+ * keyset cursor — `a.act_id` tiebreaks the acts list, `e.event_id` the
+ * recent-changes feed.
  */
 
 import { sql, type RawBuilder, type SqlBool } from 'kysely';
@@ -15,8 +16,11 @@ import {
   type ApiError,
   type CollectionFilterSpec,
   type FilterInput,
+  filterHash,
   toConditionBuilders,
 } from '@/modules/shared/index.js';
+
+import type { LegalRecentChangesFilter } from '../../core/ports.js';
 
 /** Join a list of conditions with AND (TRUE if empty). */
 export const composeWhere = (conds: readonly RawBuilder<unknown>[]): RawBuilder<SqlBool> =>
@@ -48,13 +52,15 @@ export const actsListFrom = sql`
 `;
 
 /**
- * Build the keyset cursor predicate for a `(sortExpr, act_id)` tuple. `sortExpr`
- * is a trusted internal SQL fragment (the sort column / expression); `actId` is
- * the bigint tiebreaker compared as `::bigint` (NOT text — string ordering would
- * mis-sort '9' vs '100'). NULL sort values sort LAST in both directions; the
- * cursor encodes a NULL sort value as the empty-string sentinel.
+ * Build the keyset cursor predicate for a `(sortExpr, tiebreak)` tuple.
+ * `sortExpr` is a trusted internal SQL fragment (the sort column / expression);
+ * the tiebreaker is a UNIQUE bigint spine compared as `::bigint` (NOT text —
+ * string ordering would mis-sort '9' vs '100'). It defaults to `a.act_id` (the
+ * acts list); the recent-changes feed passes `e.event_id`. NULL sort values
+ * sort LAST in both directions; the cursor encodes a NULL sort value as the
+ * empty-string sentinel.
  *
- *  - desc: keep rows strictly "after" (sort < c, or sort = c and act_id < key,
+ *  - desc: keep rows strictly "after" (sort < c, or sort = c and tiebreak < key,
  *    plus the trailing NULL section when c is non-null).
  *  - asc: mirror image.
  */
@@ -77,15 +83,15 @@ export const keysetCursor = (
   sortExpr: RawBuilder<unknown>,
   cast: SortCast,
   cVal: string,
-  cActId: string,
-  dir: 'asc' | 'desc'
+  cKey: string,
+  dir: 'asc' | 'desc',
+  tiebreakExpr: RawBuilder<unknown> = sql`a.act_id`
 ): RawBuilder<unknown> => {
-  const actId = sql`a.act_id`;
-  const k = sql`${cActId}::bigint`;
+  const k = sql`${cKey}::bigint`;
   const cmp = dir === 'desc' ? sql`<` : sql`>`;
   if (cVal === '') {
-    // Already inside the NULL-sort section: only the act_id tiebreak applies.
-    return sql`(${sortExpr} is null and ${actId} ${cmp} ${k})`;
+    // Already inside the NULL-sort section: only the tiebreak applies.
+    return sql`(${sortExpr} is null and ${tiebreakExpr} ${cmp} ${k})`;
   }
   const v = castValue(cVal, cast);
   // Both directions are NULLS LAST, so the trailing null-sort section comes AFTER
@@ -94,8 +100,31 @@ export const keysetCursor = (
   // (Codex finding: the asc path dropped it).
   if (dir === 'desc') {
     // sort desc nulls last: smaller sort, OR the null section, OR equal+key.
-    return sql`(${sortExpr} ${cmp} ${v} or ${sortExpr} is null or (${sortExpr} = ${v} and ${actId} ${cmp} ${k}))`;
+    return sql`(${sortExpr} ${cmp} ${v} or ${sortExpr} is null or (${sortExpr} = ${v} and ${tiebreakExpr} ${cmp} ${k}))`;
   }
   // sort asc nulls last: larger sort, OR the null section, OR equal+key.
-  return sql`(${sortExpr} ${cmp} ${v} or ${sortExpr} is null or (${sortExpr} = ${v} and ${actId} ${cmp} ${k}))`;
+  return sql`(${sortExpr} ${cmp} ${v} or ${sortExpr} is null or (${sortExpr} = ${v} and ${tiebreakExpr} ${cmp} ${k}))`;
 };
+
+// ── the global recent-changes feed: ONE sort + fhash definition ──────────────
+
+/** The feed's cursor sort name (envelope `sort`); direction is always desc. */
+export const RECENT_CHANGES_SORT = 'effective_date';
+
+/**
+ * The feed cursor's fhash. ONE definition shared by the repo (mint/verify) and
+ * the GraphQL resolver (per-edge cursors) — two hand-rolled serializations
+ * would drift. Callers pass the NORMALIZED filter
+ * (`normalizeRecentChangesFilter`), whose canonical kinds order/dedup is what
+ * makes the same logical filter hash identically on every surface.
+ */
+export const recentChangesFhash = (filter: LegalRecentChangesFilter): string =>
+  filterHash(
+    `recent-changes:${JSON.stringify({
+      since: filter.since ?? null,
+      until: filter.until ?? null,
+      kinds: filter.kinds !== undefined && filter.kinds.length > 0 ? filter.kinds : null,
+      eventSource: filter.eventSource ?? null,
+      undatedOnly: filter.undatedOnly === true ? true : null,
+    })}`
+  );

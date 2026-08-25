@@ -13,6 +13,10 @@
  * summary s) + the kernel-composed WHERE + the `(sortExpr, act_id)` keyset cursor.
  * `act_id` is the bigint tiebreaker (compared `::bigint`, not text). All sorts use
  * `NULLS LAST` in both directions so the cursor's null-section logic is stable.
+ *
+ * Aggregates/feed: `countActsBy` groups the SAME filtered set the list serves;
+ * `listRecentChanges` is the global `(effective_date desc, event_id desc)`
+ * keyset feed over `act_status_events` joined to `acts`.
  */
 
 import { sql, type Kysely, type RawBuilder } from 'kysely';
@@ -31,10 +35,13 @@ import {
 } from '@/modules/shared/index.js';
 
 import {
+  RECENT_CHANGES_SORT,
   actsListFrom,
   clampLimit,
+  composeWhere,
   kernelConditions,
   keysetCursor,
+  recentChangesFhash,
   type SortCast,
 } from './filter-helpers.js';
 import {
@@ -42,10 +49,12 @@ import {
   mapCitationKey,
   mapDocument,
   mapProvenance,
+  mapRecentChange,
   mapStatusEvent,
   mapSummary,
   type ActRow,
   type ProvenanceRow,
+  type RecentChangeRow,
   type StatusEventRow,
   type SummaryRow,
 } from './mappers.js';
@@ -56,20 +65,31 @@ import {
   type LegalActCard,
   type LegalActSummary,
   type LegalCitationKey,
+  type LegalCountBucket,
+  type LegalCountDimension,
   type LegalDocument,
   type LegalEventSource,
+  type LegalRecentChange,
   type LegalStatusEvent,
   type LegalVersionProvenance,
 } from '../../core/types.js';
 import { legalActsSpec } from '../filters/legal-acts.spec.js';
 
-import type { LegalActListOptions, LegalActsRepo } from '../../core/ports.js';
+import type {
+  LegalActListOptions,
+  LegalActsRepo,
+  LegalRecentChangesFilter,
+  LegalRecentChangesQuery,
+} from '../../core/ports.js';
 import type { LegalActRef } from '../../core/repo-base.js';
 
 type Db = Kysely<ProdDatabase>;
 
 const MAX_LIST = 100;
+const MAX_CHANGES_PAGE = 100;
 const ID_RE = /^\d+$/u;
+/** A cursor date key: the '' null-sentinel or a plain ISO date. */
+const DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/u;
 
 /** The raw select list for `legal.acts a` (used in the sql`` list query). */
 const ACT_SELECT = sql`
@@ -396,6 +416,191 @@ export const makeLegalActsRepo = (db: Db): LegalActsRepo => {
     }
   };
 
+  /**
+   * Grouped counts over the SAME FROM + kernel conditions as `listActs`/
+   * `countActs` — a grid cell's number must never disagree with the list behind
+   * it. Per dimension: `domain` unnests the summary `text[]` (an act counts
+   * once per domain it belongs to; `count(distinct a.act_id)` guards a dirty
+   * duplicate element), the rest group one acts column — the LEFT joins are on
+   * unique keys, so `count(*)` is a per-act count there. NULL group keys are
+   * dropped (`key` is a filter value; NULL is not one). Result size is bounded
+   * by the dimension's vocabulary (16 domains … a few hundred issuers/years) —
+   * no LIMIT, so nothing is silently capped.
+   */
+  const DIM_SQL: Record<
+    string,
+    { key: RawBuilder<unknown>; count: RawBuilder<unknown>; lateral?: RawBuilder<unknown> }
+  > = {
+    domain: {
+      key: sql`dom.domain`,
+      count: sql`count(distinct a.act_id)`,
+      lateral: sql`cross join lateral unnest(s.domains) as dom(domain)`,
+    },
+    act_type: { key: sql`a.act_type`, count: sql`count(*)` },
+    status: { key: sql`a.status`, count: sql`count(*)` },
+    issuer: { key: sql`a.issuer_slug`, count: sql`count(*)` },
+    year: { key: sql`a.act_year::text`, count: sql`count(*)` },
+  };
+
+  /** issuer slugs get the vocab-repo display form; the other keys ARE the label. */
+  const bucketLabel = (dim: LegalCountDimension, key: string): string | null =>
+    dim === 'issuer' ? key.replace(/-/gu, ' ') : null;
+
+  const countActsBy = async (
+    dim: LegalCountDimension,
+    filter: FilterInput
+  ): Promise<Result<readonly LegalCountBucket[], ApiError>> => {
+    const dimSql = DIM_SQL[dim];
+    if (dimSql === undefined) return err(invalidInput(`invalid dimension '${dim}'`, 'groupBy'));
+    const kernel = kernelConditions(legalActsSpec, filter);
+    if (kernel.isErr()) return err(kernel.error);
+    const from =
+      dimSql.lateral === undefined ? actsListFrom : sql`${actsListFrom} ${dimSql.lateral}`;
+    try {
+      const result = await sql<{ key: string | null; cnt: string }>`
+        select ${dimSql.key} as key, ${dimSql.count} as cnt
+        from ${from}
+        where ${kernel.value} and ${dimSql.key} is not null
+        group by ${dimSql.key}
+        order by ${dimSql.count} desc, ${dimSql.key} asc
+      `.execute(db);
+      return ok(
+        result.rows
+          .filter((r): r is { key: string; cnt: string } => r.key !== null)
+          .map((r) => ({ key: r.key, label: bucketLabel(dim, r.key), count: Number(r.cnt) }))
+      );
+    } catch (error) {
+      return err(databaseError('countActsBy failed', error));
+    }
+  };
+
+  // ── the global status-event feed ("Modificări") ─────────────────────────────
+
+  /**
+   * INNER join: a feed entry IS "event + act identity" — `act_id` is the events
+   * table's FK into `acts`, and an orphan event has nothing to display.
+   */
+  const recentChangesFrom = sql`
+    legal.act_status_events e
+    join legal.acts a on a.act_id = e.act_id
+  `;
+
+  const RECENT_CHANGE_SELECT = sql`
+    e.event_id, e.event_kind, e.effective_date::text as effective_date,
+    e.source_act_id, e.evidence, e.event_source,
+    a.act_id, a.act_natural_key, a.display_citation, a.status
+  `;
+
+  /**
+   * Conditions shared by the page and its count — the two must never drift, or
+   * totalCount would disagree with the feed under it (the `countActs` rule).
+   * `since`/`until` are inclusive; a NULL `effective_date` fails both bounds
+   * (SQL comparison), so a date window honestly excludes undated events.
+   */
+  const recentChangesConds = (f: LegalRecentChangesFilter): RawBuilder<unknown>[] => {
+    const conds: RawBuilder<unknown>[] = [];
+    if (f.since !== undefined) conds.push(sql`e.effective_date >= ${f.since}::date`);
+    if (f.until !== undefined) conds.push(sql`e.effective_date <= ${f.until}::date`);
+    if (f.undatedOnly === true) conds.push(sql`e.effective_date is null`);
+    if (f.kinds !== undefined && f.kinds.length > 0) {
+      conds.push(
+        sql`e.event_kind in (${sql.join(
+          f.kinds.map((k) => sql`${k}`),
+          sql`, `
+        )})`
+      );
+    }
+    if (f.eventSource !== undefined) conds.push(sql`e.event_source = ${f.eventSource}`);
+    return conds;
+  };
+
+  const listRecentChanges = async (
+    q: LegalRecentChangesQuery
+  ): Promise<Result<CursorPage<LegalRecentChange>, ApiError>> => {
+    const limit = clampLimit(q.page.first, MAX_CHANGES_PAGE);
+    // The fhash binds the filter (normalized by the usecase): a cursor minted
+    // under one date window / kind set must not silently page another.
+    const fhash = recentChangesFhash(q);
+
+    let cursorDate: string | undefined;
+    let cursorEventId: string | undefined;
+    if (q.page.after !== undefined) {
+      const decoded = decodeCursor(q.page.after, {
+        sort: RECENT_CHANGES_SORT,
+        dir: 'desc',
+        fhash,
+      });
+      if (decoded.isErr()) return err(decoded.error);
+      const [dateKey, eventKey] = decoded.value.keys;
+      if (eventKey === undefined || !ID_RE.test(eventKey)) {
+        return err(databaseError('recent-changes cursor carries a non-numeric event key'));
+      }
+      // '' is the null-date sentinel (the keyset null-section rule); anything
+      // else must be a plain date or the `::date` bind would 500 downstream.
+      if (dateKey === undefined || (dateKey !== '' && !DATE_KEY_RE.test(dateKey))) {
+        return err(databaseError('recent-changes cursor carries a malformed date key'));
+      }
+      cursorDate = dateKey;
+      cursorEventId = eventKey;
+    }
+
+    const conds = recentChangesConds(q);
+    if (cursorDate !== undefined && cursorEventId !== undefined) {
+      conds.push(
+        keysetCursor(
+          sql`e.effective_date`,
+          'date',
+          cursorDate,
+          cursorEventId,
+          'desc',
+          sql`e.event_id`
+        )
+      );
+    }
+
+    try {
+      const result = await sql<RecentChangeRow>`
+        select ${RECENT_CHANGE_SELECT}
+        from ${recentChangesFrom}
+        where ${composeWhere(conds)}
+        order by e.effective_date desc nulls last, e.event_id desc
+        limit ${limit + 1}
+      `.execute(db);
+      const rows = result.rows;
+      const hasMore = rows.length > limit;
+      const pageRows = hasMore ? rows.slice(0, limit) : rows;
+      const items = pageRows.map(mapRecentChange);
+      let next: string | null = null;
+      const last = items[items.length - 1];
+      if (hasMore && last !== undefined) {
+        next = buildNextCursor({
+          sort: RECENT_CHANGES_SORT,
+          dir: 'desc',
+          fhash,
+          lastKeys: [last.effectiveDate ?? '', last.eventId],
+        });
+      }
+      return ok({ items, next });
+    } catch (error) {
+      return err(databaseError('listRecentChanges failed', error));
+    }
+  };
+
+  const countRecentChanges = async (
+    filter: LegalRecentChangesFilter
+  ): Promise<Result<number, ApiError>> => {
+    try {
+      const result = await sql<{ cnt: string }>`
+        select count(*) as cnt
+        from ${recentChangesFrom}
+        where ${composeWhere(recentChangesConds(filter))}
+      `.execute(db);
+      return ok(Number(result.rows[0]?.cnt ?? 0));
+    } catch (error) {
+      return err(databaseError('countRecentChanges failed', error));
+    }
+  };
+
   const getCanonicalDocument = async (
     actId: string
   ): Promise<Result<LegalDocument | null, ApiError>> => {
@@ -639,6 +844,9 @@ export const makeLegalActsRepo = (db: Db): LegalActsRepo => {
     // LegalActsRepo
     listActs,
     countActs,
+    countActsBy,
+    listRecentChanges,
+    countRecentChanges,
     getActCard,
     getCanonicalDocument,
     listDocuments,

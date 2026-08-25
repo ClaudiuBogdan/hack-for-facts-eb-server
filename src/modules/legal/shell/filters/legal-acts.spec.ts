@@ -24,10 +24,12 @@
 import type { CollectionFilterSpec } from '@/modules/shared/index.js';
 
 /**
- * Enum value sets. These are the FALLBACK literals; the live values are resolved
- * at boot from the DB (`resolveLegalVocab`, see shell/filters/vocab.ts) so a new
- * act_type/domain/category added by the loader surfaces without a code change.
- * Declared here so the spec is self-contained for tests + the GraphQL `enumValues`.
+ * Enum value sets — the ACCEPTED filter literals (the kernel's `coerceScalar`
+ * rejects values outside them). `domain`/`status`/`category` are closed
+ * vocabularies; `act_type` is OPEN in the live DB (256 distinct values vs the
+ * 18 accepted here, measured 2026-08), so `legalActCounts`/`legalResolve` can
+ * surface act_type keys this filter refuses. Declared here so the spec is
+ * self-contained for tests + the GraphQL `enumValues`.
  */
 
 /** `legal.acts.act_type` — the legal instrument (verified live: ~30 values). */
