@@ -118,18 +118,17 @@ const objectsAndQuery = /* GraphQL */ `
 
   """
   Flags + the MEASURED corpus-wide assessment coverage. Absence semantics are
-  load-bearing: no flag for a year INSIDE [assessedYearFrom, assessedYearTo]
-  means checked-and-clean; a year OUTSIDE the range must be rendered as
-  "not yet assessed", never as clean (today FY2008-2018: the quality lane last
-  ran 2026-06-30, before the MFP backfill landed). The range is a LOWER BOUND
-  measured from flagged years (the table stores anomalies only), so an edge
-  year that was scanned and found fully clean also reads as not-assessed -
-  deliberately conservative: the surface may understate coverage but can never
-  certify unchecked data.
+  load-bearing: no flag for a year IN assessedYears means checked-and-clean;
+  a year NOT in assessedYears must be rendered as "not yet assessed", never
+  as clean. A SET, not a range - interior gaps are real (FY2020 has zero
+  flags corpus-wide today, and FY2008-2018 predates the quality lane's last
+  run of 2026-06-30). Still a lower bound: the table stores anomalies only,
+  so a year scanned and found fully clean corpus-wide is indistinguishable
+  from a never-scanned one - deliberately conservative.
   """
   type CompanyFinancialQualityAssessment {
-    assessedYearFrom: Int
-    assessedYearTo: Int
+    "Ascending distinct years holding at least one flag corpus-wide (today: 2019, 2021-2025)."
+    assessedYears: [Int!]!
     "Creation date of the NEWEST flag row - a lower bound on the last lane run, not a true watermark (an upsert-only re-run that inserts no new rows does not move it)."
     assessedAt: Date
     flags: [CompanyFinancialQualityFlag!]!
@@ -199,8 +198,8 @@ const objectsAndQuery = /* GraphQL */ `
     "Public representative names are withheld until the v2 restricted person data has an access-gated API path."
     representatives: [CompanyRepresentative!]!
     financials: [CompanyFinancialYear!]!
-    "Warn-only quality flags + measured assessment coverage; lazily resolved."
-    financialQualityAssessment: CompanyFinancialQualityAssessment!
+    "Warn-only quality flags + measured assessment coverage; lazily resolved. Nullable for per-field error isolation (audit H2) - an advisory failure must not null the whole profile."
+    financialQualityAssessment: CompanyFinancialQualityAssessment
     euBranches: [CompanyEuBranch!]!
     "Public money received (payee), via the kernel FlowsRepo. Null when none."
     publicMoney: CompanyPublicMoney

@@ -50,6 +50,7 @@ import {
   mapCaen,
   mapEuBranch,
   mapFinancialYear,
+  mapQualityFlag,
   mapFiscal,
   mapHeadlineStatus,
   mapCountyDisplayName,
@@ -309,6 +310,11 @@ const mapListRow = (row: {
   registrationDatePresent: row.registration_date !== null,
 });
 
+interface FlagCoverage {
+  readonly years: readonly number[];
+  readonly assessed_at: string | null;
+}
+
 export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
   // The quality-flag coverage triple is CUI-invariant (a corpus-wide constant),
   // so recomputing it per request would heap-scan the whole flags table on every
@@ -316,36 +322,35 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
   // short TTL; the only cost of staleness is the range widening a few minutes
   // late after a lane re-run.
   const COVERAGE_TTL_MS = 10 * 60 * 1000;
-  let coverageCache: {
-    at: number;
-    value: { from_year: number | null; to_year: number | null; assessed_at: string | null };
-  } | null = null;
-  const getFlagCoverage = async (): Promise<{
-    from_year: number | null;
-    to_year: number | null;
-    assessed_at: string | null;
-  }> => {
+  // Singleflight: the PROMISE is cached, so concurrent misses share one scan
+  // instead of dogpiling at TTL expiry; a rejected promise is evicted so an
+  // error is never served from cache.
+  let coverageCache: { at: number; promise: Promise<FlagCoverage> } | null = null;
+  const getFlagCoverage = (): Promise<FlagCoverage> => {
     if (coverageCache !== null && Date.now() - coverageCache.at < COVERAGE_TTL_MS) {
-      return coverageCache.value;
+      return coverageCache.promise;
     }
-    const row = await db
-      .selectFrom('companies_v2.financial_quality_flags')
-      .select([
-        sql<number | null>`min(year)`.as('from_year'),
-        sql<number | null>`max(year)`.as('to_year'),
-        sql<string | null>`max(created_at)::date::text`.as('assessed_at'),
-      ])
-      // Same positive allowlist as the per-CUI read: a non-public flag row must
-      // not be able to move the coverage range every public caller sees.
-      .where('privacy_class', '=', 'public')
-      .executeTakeFirst();
-    const value = {
-      from_year: row?.from_year ?? null,
-      to_year: row?.to_year ?? null,
-      assessed_at: row?.assessed_at ?? null,
-    };
-    coverageCache = { at: Date.now(), value };
-    return value;
+    const promise = (async (): Promise<FlagCoverage> => {
+      const row = await db
+        .selectFrom('companies_v2.financial_quality_flags')
+        .select([
+          // The SET of flagged years, not min/max: FY2020 has zero flags while
+          // its neighbours have tens of thousands (measured 2026-08-25), and a
+          // range would certify that interior gap as checked-and-clean.
+          sql<number[] | null>`array_agg(distinct year order by year)`.as('years'),
+          sql<string | null>`max(created_at)::date::text`.as('assessed_at'),
+        ])
+        // Same positive allowlist as the per-CUI read: a non-public flag row must
+        // not be able to move the coverage set every public caller sees.
+        .where('privacy_class', '=', 'public')
+        .executeTakeFirst();
+      return { years: row?.years ?? [], assessed_at: row?.assessed_at ?? null };
+    })();
+    coverageCache = { at: Date.now(), promise };
+    promise.catch(() => {
+      if (coverageCache?.promise === promise) coverageCache = null;
+    });
+    return promise;
   };
 
   // ── detail (per-CUI fan-out) ────────────────────────────────────────────────
@@ -521,17 +526,9 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
         getFlagCoverage(),
       ]);
       return ok({
-        assessedYearFrom: coverage.from_year,
-        assessedYearTo: coverage.to_year,
+        assessedYears: coverage.years,
         assessedAt: coverage.assessed_at,
-        flags: rows.map((r) => ({
-          year: r.year,
-          flagCode: r.flag_code,
-          metricName: r.metric_name,
-          severity: r.severity,
-          numericValue: r.numeric_value,
-          thresholdValue: r.threshold_value,
-        })),
+        flags: rows.map(mapQualityFlag),
       });
     } catch (error) {
       return err(databaseError('getFinancialQualityAssessment failed', error));

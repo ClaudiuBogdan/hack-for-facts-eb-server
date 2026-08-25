@@ -10,6 +10,7 @@ import type {
   CompanyCaenActivity,
   CompanyEuBranch,
   CompanyFinancialSummary,
+  CompanyFinancialQualityFlag,
   CompanyFinancialYear,
   CompanyFiscal,
   CompanyRepresentative,
@@ -210,6 +211,25 @@ const stringifyLines = (lines: Record<string, unknown> | null): Record<string, u
   for (const [k, v] of Object.entries(lines)) out[k] = typeof v === 'number' ? String(v) : v;
   return out;
 };
+
+/** A financial_quality_flags row (numerics pre-cast to text; unit is the metric's own). */
+export interface QualityFlagRow {
+  year: number;
+  flag_code: string;
+  metric_name: string;
+  severity: string;
+  numeric_value: string | null;
+  threshold_value: string | null;
+}
+
+export const mapQualityFlag = (r: QualityFlagRow): CompanyFinancialQualityFlag => ({
+  year: r.year,
+  flagCode: r.flag_code,
+  metricName: r.metric_name,
+  severity: r.severity,
+  numericValue: r.numeric_value,
+  thresholdValue: r.threshold_value,
+});
 
 export const mapFinancialYear = (r: FinancialRow): CompanyFinancialYear => ({
   year: r.year,

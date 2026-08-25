@@ -68,7 +68,7 @@ const stubRepo = (over: Partial<CompaniesRepository> = {}): CompaniesRepository 
   getProfileData: vi.fn(async () => ok(null)),
   getFinancials: vi.fn(async () => ok([])),
   getFinancialQualityAssessment: vi.fn(async () =>
-    ok({ assessedYearFrom: null, assessedYearTo: null, assessedAt: null, flags: [] })
+    ok({ assessedYears: [], assessedAt: null, flags: [] })
   ),
   listCompanies: vi.fn(async () => ok({ rows: [], total: 0, estimated: false })),
   resolveByName: vi.fn(async () => ok({ hits: [], degraded: false })),

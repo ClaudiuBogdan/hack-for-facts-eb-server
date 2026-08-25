@@ -27,6 +27,7 @@ import {
 } from '../../core/types.js';
 import {
   makeCompanyCountyProfile,
+  makeCompanyFinancialQualityAssessment,
   makeCompanyFinancials,
   makeCompanyList,
   makeCompanyProfile,
@@ -172,7 +173,7 @@ export const makeCompaniesMcpTools = (deps: CompaniesMcpDeps): readonly KernelMc
   const getFinancials: KernelMcpTool = {
     name: 'get_company_financials',
     description:
-      'Financial-statement (bilanț) year series for a company by CUI, plus computed latest year and a latest-vs-prior trajectory. Values are exact decimal strings; employees is a bigint string.',
+      'Financial-statement (bilanț) year series for a company by CUI, plus computed latest year and a latest-vs-prior trajectory. Values are exact decimal strings; employees is a bigint string. Each year carries sourceSystem (anaf FY2019+, mfp FY2008-2018). qualityAssessment carries warn-only flags + the measured set of ASSESSED years - a year absent from assessedYears was never quality-checked and must not be presented as clean.',
     inputShape: { cui: z.string().describe('The company CUI/CIF (digits only).') },
     async handler(args): Promise<McpToolOutput> {
       const cui = strArg(args, 'cui');
@@ -186,12 +187,15 @@ export const makeCompaniesMcpTools = (deps: CompaniesMcpDeps): readonly KernelMc
           query: { cui },
           summary: `No financials for CUI ${cui}.`,
         };
+      // Advisory parity with GraphQL Company.financialQualityAssessment: an
+      // assessment failure must not take down the financials payload (H2).
+      const qa = await makeCompanyFinancialQualityAssessment(deps, cui);
       return {
         ok: true,
         kind: 'financials',
         query: { cui },
         link: companyLink(cui),
-        item: f,
+        item: { ...f, qualityAssessment: qa.isOk() ? qa.value : null },
         summary:
           `${n(f.years.length)} financial year(s) for CUI ${cui}` +
           (f.latest !== null

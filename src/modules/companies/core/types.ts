@@ -179,15 +179,16 @@ export interface CompanyFinancialQualityFlag {
  * communicates through absence — "no flag" must only ever mean "checked,
  * clean", never "never checked". The lane last ran 2026-06-30, BEFORE the
  * FY2008–2018 MFP backfill (2026-08-18), so 7.4M statement-years exist that
- * were never assessed. The coverage range is MEASURED (min/max flagged year
- * corpus-wide, public-class only), not hardcoded — but it is a LOWER BOUND:
- * the table stores anomalies only, so a scanned-and-fully-clean edge year
- * reads as not-assessed (conservative), and assessedAt is the newest flag's
- * creation date, not a true lane watermark.
+ * were never assessed. Coverage is the MEASURED SET of flagged years
+ * (public-class only), not a min/max range — measured 2026-08-25 the set is
+ * {2019, 2021..2025}: FY2020 has ZERO flags, so a range would have asserted
+ * it clean. Still a LOWER BOUND (anomalies-only table): a scanned-and-fully-
+ * clean year reads as not-assessed (conservative), and assessedAt is the
+ * newest flag's creation date, not a true lane watermark.
  */
 export interface CompanyFinancialQualityAssessment {
-  readonly assessedYearFrom: number | null;
-  readonly assessedYearTo: number | null;
+  /** Ascending distinct years with corpus-wide flags. Interior gaps are REAL (FY2020 has none today). */
+  readonly assessedYears: readonly number[];
   readonly assessedAt: string | null;
   readonly flags: readonly CompanyFinancialQualityFlag[];
 }

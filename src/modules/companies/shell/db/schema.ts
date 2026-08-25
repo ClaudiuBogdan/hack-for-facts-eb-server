@@ -119,6 +119,8 @@ export interface CompaniesFinancialQualityFlagsTable {
   numeric_value: string | null; // numeric → string
   threshold_value: string | null;
   privacy_class: string;
+  /** Read via raw max(created_at) in the coverage aggregate — typed so a rename fails typecheck-adjacent review, not runtime. */
+  created_at: Tstz;
 }
 
 export interface CompaniesStatusFlagsTable {
