@@ -129,7 +129,7 @@ export const makeCompaniesMcpTools = (deps: CompaniesMcpDeps): readonly KernelMc
   const getSnapshot: KernelMcpTool = {
     name: 'get_company_snapshot',
     description:
-      'Compact profile for a company by CUI: headline status, fiscal flags, latest financial year, territory, and total public money received (as a payee). For the full financial series use get_company_financials.',
+      'Compact profile for a company by CUI: headline status, fiscal flags, latest financial year, territory, and total public money received (as a payee). For the full financial series use get_company_financials - and use its qualityAssessment before presenting any figure as reliable: FY2019+ is published by ANAF and FY2008-2018 by MFP (different publishers), and not every year has been quality-assessed.',
     inputShape: { cui: z.string().describe('The company CUI/CIF (digits only).') },
     async handler(args): Promise<McpToolOutput> {
       const cui = strArg(args, 'cui');

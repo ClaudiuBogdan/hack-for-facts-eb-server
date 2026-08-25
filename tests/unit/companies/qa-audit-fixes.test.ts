@@ -198,11 +198,13 @@ describe('M6 — financials.lines nullable/string money contract', () => {
 
 describe('sourceSystem mapping (publisher seam)', () => {
   it('maps the snake_case source_system column onto sourceSystem', () => {
+    // yearRow(2018) already carries camelCase sourceSystem:'mfp'; the snake_case
+    // column DELIBERATELY differs so a mapper regressed to r.sourceSystem fails.
     const row = {
       ...(yearRow(2018, '0.00', '0.00') as unknown as FinancialRow),
-      source_system: 'mfp',
+      source_system: 'anaf',
     };
-    expect(mapFinancialYear(row).sourceSystem).toBe('mfp');
+    expect(mapFinancialYear(row).sourceSystem).toBe('anaf');
   });
 });
 

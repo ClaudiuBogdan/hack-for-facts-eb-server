@@ -124,7 +124,11 @@ const objectsAndQuery = /* GraphQL */ `
   flags corpus-wide today, and FY2008-2018 predates the quality lane's last
   run of 2026-06-30). Still a lower bound: the table stores anomalies only,
   so a year scanned and found fully clean corpus-wide is indistinguishable
-  from a never-scanned one - deliberately conservative.
+  from a never-scanned one - deliberately conservative. Two further honest
+  limits: a year in the set was assessed AS OF assessedAt, so statements
+  filed after that date are unchecked even in an assessed year (FY2025 is
+  visibly half-assessed today); and the rule set evolves (4-6 flag codes
+  per year), so "clean" in different years means different rule counts.
   """
   type CompanyFinancialQualityAssessment {
     "Ascending distinct years holding at least one flag corpus-wide (today: 2019, 2021-2025)."

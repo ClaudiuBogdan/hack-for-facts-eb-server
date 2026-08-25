@@ -169,6 +169,9 @@ export const makeFlowsRepo = (db: Db): FlowsRepo => ({
         // 23,093 `kind='unknown'` rows are minted placeholders whose name IS the
         // CUI (measured 2026-08-25) — overlaying one DEGRADES a real flows-side
         // name into a bare number. Same predicate as the kernel labels path.
+        // A placeholder counterparty whose flows-side name is ALSO null serves
+        // name:null (cui rides in its own field) — honest "name unknown", never
+        // the CUI masquerading as a name.
         for (const o of orgs)
           if (o.cui !== null && !isPlaceholderName(o.name, o.cui)) canonicalName.set(o.cui, o.name);
       }

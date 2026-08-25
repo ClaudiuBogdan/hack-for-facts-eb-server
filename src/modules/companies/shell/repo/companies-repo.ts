@@ -409,6 +409,9 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
           .selectFrom('companies_v2.financials')
           .select(financialColumns())
           .where('cui', '=', cui)
+          // The CHECK admits 'personal_moderate'/'restricted'; all rows are
+          // public today, but the platform gates on class, not distribution.
+          .where('privacy_class', '=', 'public')
           .orderBy('year', 'desc')
           .execute(),
         db
@@ -486,6 +489,7 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
         .selectFrom('companies_v2.financials')
         .select(financialColumns())
         .where('cui', '=', cui)
+        .where('privacy_class', '=', 'public')
         .orderBy('year', 'desc')
         .execute();
       return ok(rows.map((r) => mapFinancialYear(r)));
@@ -966,6 +970,7 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
       .selectFrom('companies_v2.financials')
       .select(['cui', ...financialColumns()])
       .where('cui', 'in', [...cuis])
+      .where('privacy_class', '=', 'public')
       .distinctOn('cui')
       .orderBy('cui')
       .orderBy('year', 'desc')

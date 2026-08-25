@@ -90,6 +90,8 @@ export interface CompaniesFinancialsTable {
   patrimony_regie: string | null;
   /** 'anaf' (FY2019+) | 'mfp' (FY2008–2018); the publisher seam is CHECK-enforced at 2019. */
   source_system: string;
+  /** CHECK admits 'public' | 'personal_moderate' | 'restricted'; every read path allowlists 'public'. */
+  privacy_class: string;
   source_indicator_count: number;
   selected_metric_count: number;
   // `metric_issue_count` exists in the table but is ABOLISHED (wrong on ~7.1M MFP
