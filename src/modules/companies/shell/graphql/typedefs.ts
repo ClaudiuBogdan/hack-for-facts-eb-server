@@ -248,7 +248,7 @@ const objectsAndQuery = /* GraphQL */ `
 
   "Landing aggregate for the /companies hub. SERVED FROM CACHE (6h TTL, stale-while-revalidate): the three underlying scans cost ~30s together, so this is never computed on a request path. computedAt is the instant the legs actually ran, which may be hours old."
   type CompanyHubStats {
-    "Every company on the CUI spine."
+    "Every company on the CUI spine. NOT the whole ONRC registry: ~86k registry entries (2.1%, incl. ~29k SRL and ~1.7k SA) have no CUI and are structurally absent from the CUI-keyed corpus (measured 2026-08-25)."
     totalCompanies: Int!
     "Companies in ONRC lifecycle status 1048 (funcțiune)."
     activeCompanies: Int!

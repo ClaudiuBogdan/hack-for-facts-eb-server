@@ -308,7 +308,7 @@ export const makeCompaniesMcpTools = (deps: CompaniesMcpDeps): readonly KernelMc
   const hubStats: KernelMcpTool = {
     name: 'company_hub_stats',
     description:
-      'Registry-wide company overview: total and active company counts, the full ONRC status mix, the top 10 counties by active companies, and the CAEN-division breakdown of active companies. Takes no arguments. Served from a 6h cache — computedAt says when the underlying scans ran. Use for "how many companies …" / "which county has most companies" questions instead of paging list_companies.',
+      'CUI-spine company overview (NOT the whole ONRC registry — ~86k registry entries with no CUI, 2.1%, are structurally absent): total and active company counts, the full ONRC status mix, the top 10 counties by active companies, and the CAEN-division breakdown of active companies. Takes no arguments. Served from a 6h cache — computedAt says when the underlying scans ran. Use for "how many companies …" / "which county has most companies" questions instead of paging list_companies.',
     inputShape: {},
     async handler(): Promise<McpToolOutput> {
       const res = await deps.hubStats.get();
