@@ -165,7 +165,12 @@ export const makeFlowsRepo = (db: Db): FlowsRepo => ({
           .select(['cui', 'name'])
           .where('cui', 'in', cpCuis)
           .execute();
-        for (const o of orgs) if (o.cui !== null) canonicalName.set(o.cui, o.name);
+        // 23,093 `kind='unknown'` rows are placeholders whose name IS the CUI
+        // (measured 2026-08-25). Overlaying those would DEGRADE a real flows-side
+        // name into a bare number (client bug: payer rendered as "18264854"), so a
+        // self-named org is treated as having no canonical name at all.
+        for (const o of orgs)
+          if (o.cui !== null && o.name !== o.cui) canonicalName.set(o.cui, o.name);
       }
 
       return ok(
