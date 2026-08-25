@@ -223,28 +223,35 @@ export const makeLegalMcpTools = (deps: LegalMcpDeps): readonly KernelMcpTool[] 
       const direction = str(args, 'direction') ?? 'in';
       const relRaw = Array.isArray(args['relation']) ? (args['relation'] as string[]) : undefined;
       const relations = relRaw?.map((r) => r as LegalRelation);
-      const limit = intArg(args, 'limit', 50);
+      const after = str(args, 'after');
+      const page = { first: intArg(args, 'limit', 50), ...(after !== undefined && { after }) };
       if (direction === 'out') {
-        const edges = await getActLinksOut(graph, act.actId, relations, limit);
-        if (edges.isErr()) return errorOut(LEGAL_MCP_KINDS.links, edges.error.message);
+        const out = await getActLinksOut(graph, act.actId, relations, page);
+        if (out.isErr()) return errorOut(LEGAL_MCP_KINDS.links, out.error.message);
         return {
           ok: true,
           kind: LEGAL_MCP_KINDS.links,
           query: { ...ref, direction },
           link: `${actLink(act.actId)}/links?direction=out`,
-          items: edges.value,
-          summary: `${n(edges.value.length)} outgoing reference(s) for ${act.displayCitation}.`,
+          items: out.value.items,
+          meta: { next: out.value.next },
+          summary:
+            `${n(out.value.items.length)} outgoing reference(s) for ${act.displayCitation}.` +
+            (out.value.next === null ? '' : ' More available via meta.next.'),
         };
       }
-      const edges = await getActLinksIn(graph, act.actId, relations, limit);
-      if (edges.isErr()) return errorOut(LEGAL_MCP_KINDS.links, edges.error.message);
+      const incoming = await getActLinksIn(graph, act.actId, relations, page);
+      if (incoming.isErr()) return errorOut(LEGAL_MCP_KINDS.links, incoming.error.message);
       return {
         ok: true,
         kind: LEGAL_MCP_KINDS.links,
         query: { ...ref, direction },
         link: `${actLink(act.actId)}/links?direction=in`,
-        items: edges.value,
-        summary: `${n(edges.value.length)} incoming reference(s) for ${act.displayCitation}.`,
+        items: incoming.value.items,
+        meta: { next: incoming.value.next },
+        summary:
+          `${n(incoming.value.items.length)} incoming reference(s) for ${act.displayCitation}.` +
+          (incoming.value.next === null ? '' : ' More available via meta.next.'),
       };
     },
   };

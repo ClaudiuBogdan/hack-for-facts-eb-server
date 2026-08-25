@@ -160,21 +160,35 @@ export interface LegalActsRepo extends LegalRepoBase {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface LegalGraphRepo {
-  /** Outgoing: what this act cites (its canonical document's references). Bounded. */
+  /**
+   * Outgoing: what this act cites (its canonical document's references),
+   * keyset-paged on the `act_references` PK `(source_document_id, ref_index)`.
+   * For OUT the source document is the act's ONE canonical doc, so the first
+   * component is constant and the visible order stays today's `ref_index asc`;
+   * the tuple is unique by PK either way. Page cap 199 — the +1 probe must
+   * stay inside the 200-row physical hub guard. totalCount is deliberately
+   * never reported (act-detail.md §9.1: a bounded read must not claim a hub's
+   * fan-out); the CURSOR is what makes the rest reachable.
+   */
   outgoingRefs(
     actId: string,
     relations: readonly LegalRelation[] | undefined,
-    limit: number
-  ): Promise<Result<readonly LegalReferenceEdge[], ApiError>>;
+    page: CursorPageRequest
+  ): Promise<Result<CursorPage<LegalReferenceEdge>, ApiError>>;
   /**
-   * Incoming: what cites/amends/abrogates this act (+ the citing act). ALWAYS
-   * limit-bounded (hub guard: Legea 47/1992 has 23,527 in-edges — §3.3).
+   * Incoming: what cites/amends/abrogates this act (+ the citing act), keyset-
+   * paged on the SAME PK tuple. For IN, `ref_index` alone ties across
+   * thousands of citing documents (the pre-cursor `ref_index asc` order was
+   * NON-DETERMINISTIC under those ties), so `(source_document_id, ref_index)`
+   * is what makes deep pages stable — edges arrive grouped by citing document.
+   * Hub guard: Legea 47/1992 has 26,277 in-edges; every page is bounded and
+   * the cursor reaches all of them.
    */
   incomingRefs(
     actId: string,
     relations: readonly LegalRelation[] | undefined,
-    limit: number
-  ): Promise<Result<readonly LegalIncomingEdge[], ApiError>>;
+    page: CursorPageRequest
+  ): Promise<Result<CursorPage<LegalIncomingEdge>, ApiError>>;
   externalAct(externalActId: string): Promise<Result<LegalExternalAct | null, ApiError>>;
   /**
    * Incoming ANCHORS — the portal's own typographic link graph

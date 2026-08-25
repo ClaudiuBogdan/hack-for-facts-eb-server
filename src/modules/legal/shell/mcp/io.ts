@@ -86,7 +86,15 @@ export const getLegalActLinksInput = {
     .min(1)
     .max(200)
     .optional()
-    .describe('Max edges (bounded; hub guard). Default 50.'),
+    .describe(
+      'Page size (default 50; effective cap 199 — the +1 probe stays inside the 200-row hub guard).'
+    ),
+  after: z
+    .string()
+    .optional()
+    .describe(
+      'Opaque keyset cursor from a previous call (meta.next); same direction/relations required.'
+    ),
 };
 
 export const getLegalActTimelineInput = {

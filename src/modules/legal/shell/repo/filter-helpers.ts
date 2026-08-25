@@ -118,6 +118,30 @@ export const RECENT_CHANGES_SORT = 'effective_date';
  * (`normalizeRecentChangesFilter`), whose canonical kinds order/dedup is what
  * makes the same logical filter hash identically on every surface.
  */
+// ── LegalAct.links: ONE sort + fhash definition (repo mint/verify + resolver endCursor) ──
+
+/** The links cursor sort name: the act_references PK tuple (source_document_id, ref_index). */
+export const LINKS_SORT = 'source_ref';
+
+/**
+ * The links cursor's fhash: binds direction, act AND the relation set, so a
+ * cursor minted under one relation filter (or the other direction, or another
+ * act) can never resume this one. Canonicalizes internally (dedupe + sort;
+ * empty == undefined == all relations), which is what lets the repo and the
+ * resolver derive identical hashes from unnormalized inputs.
+ */
+export const linksFhash = (
+  direction: 'in' | 'out',
+  actId: string,
+  relations: readonly string[] | undefined
+): string => {
+  const canon =
+    relations === undefined || relations.length === 0
+      ? '*'
+      : [...new Set(relations)].sort().join(',');
+  return filterHash(`links:${direction}:${actId}:${canon}`);
+};
+
 export const recentChangesFhash = (filter: LegalRecentChangesFilter): string =>
   filterHash(
     `recent-changes:${JSON.stringify({

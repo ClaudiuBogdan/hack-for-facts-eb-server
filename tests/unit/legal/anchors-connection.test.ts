@@ -67,8 +67,8 @@ const act: LegalAct = {
 };
 
 const makeGraphFake = (overrides: Partial<LegalGraphRepo>): LegalGraphRepo => ({
-  outgoingRefs: () => Promise.resolve(ok([])),
-  incomingRefs: () => Promise.resolve(ok([])),
+  outgoingRefs: () => Promise.resolve(ok({ items: [], next: null })),
+  incomingRefs: () => Promise.resolve(ok({ items: [], next: null })),
   externalAct: () => Promise.resolve(ok(null)),
   incomingAnchors: () => Promise.resolve(ok({ items: [], next: null, totalCount: 0 })),
   ...overrides,
@@ -152,11 +152,13 @@ describe('LegalAct.incomingAnchors', () => {
 });
 
 describe('LegalAct.links pagination honesty', () => {
-  it('reports hasNextPage from the limit+1 probe and totalCount null, never the page size', async () => {
+  it('reports hasNextPage from the repo page and totalCount null, never the page size', async () => {
     const graph = makeGraphFake({
-      // The repo hands back exactly limit+1 rows → there IS a next page.
-      outgoingRefs: (_actId, _rels, limit) =>
-        Promise.resolve(ok(Array.from({ length: limit }, (_, i) => refEdge(i)))),
+      // The repo's probe found more rows → a REAL next cursor rides the page.
+      outgoingRefs: (_actId, _rels, page) =>
+        Promise.resolve(
+          ok({ items: Array.from({ length: page.first }, (_, i) => refEdge(i)), next: 'more' })
+        ),
     });
     const resolvers = resolversWith(graph);
     const connection = (await resolvers['links']?.(act, {
@@ -165,12 +167,15 @@ describe('LegalAct.links pagination honesty', () => {
     })) as AnchorConnection;
     expect(connection.edges).toHaveLength(3);
     expect(connection.pageInfo.hasNextPage).toBe(true);
+    // The self-contradiction this surface shipped with — hasNextPage true,
+    // endCursor null — must never come back.
+    expect(connection.pageInfo.endCursor).not.toBeNull();
     expect(connection.totalCount).toBeNull();
   });
 
-  it('reports hasNextPage false when the probe comes back short', async () => {
+  it('reports hasNextPage false on the final page — with endCursor still REAL', async () => {
     const graph = makeGraphFake({
-      outgoingRefs: () => Promise.resolve(ok([refEdge(0), refEdge(1)])),
+      outgoingRefs: () => Promise.resolve(ok({ items: [refEdge(0), refEdge(1)], next: null })),
     });
     const resolvers = resolversWith(graph);
     const connection = (await resolvers['links']?.(act, {
@@ -179,5 +184,6 @@ describe('LegalAct.links pagination honesty', () => {
     })) as AnchorConnection;
     expect(connection.edges).toHaveLength(2);
     expect(connection.pageInfo.hasNextPage).toBe(false);
+    expect(connection.pageInfo.endCursor).not.toBeNull();
   });
 });

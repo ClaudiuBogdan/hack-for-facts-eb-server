@@ -104,17 +104,17 @@ export const getActLinksOut = (
   repo: LegalGraphRepo,
   actId: string,
   relations: readonly LegalRelation[] | undefined,
-  limit: number
-): Promise<Result<readonly LegalReferenceEdge[], ApiError>> =>
-  repo.outgoingRefs(actId, relations, limit);
+  page: CursorPageRequest
+): Promise<Result<CursorPage<LegalReferenceEdge>, ApiError>> =>
+  repo.outgoingRefs(actId, relations, page);
 
 export const getActLinksIn = (
   repo: LegalGraphRepo,
   actId: string,
   relations: readonly LegalRelation[] | undefined,
-  limit: number
-): Promise<Result<readonly LegalIncomingEdge[], ApiError>> =>
-  repo.incomingRefs(actId, relations, limit);
+  page: CursorPageRequest
+): Promise<Result<CursorPage<LegalIncomingEdge>, ApiError>> =>
+  repo.incomingRefs(actId, relations, page);
 
 export const getExternalAct = (
   repo: LegalGraphRepo,
@@ -130,7 +130,10 @@ export const getActTimeline = async (
 ): Promise<Result<readonly LegalTimelineEntry[], ApiError>> => {
   const [eventsRes, amendRes] = await Promise.all([
     base.getStatusEvents(actId),
-    graph.incomingRefs(actId, ['modifica', 'completeaza', 'abroga'], 200),
+    // 199, not 200: the paged repo probes first+1 inside the 200-row physical
+    // hub guard, so the max single page narrows by one row. The timeline is a
+    // bounded merge either way; it deliberately reads one page, no cursor walk.
+    graph.incomingRefs(actId, ['modifica', 'completeaza', 'abroga'], { first: 199 }),
   ]);
   if (eventsRes.isErr()) return err(eventsRes.error);
   if (amendRes.isErr()) return err(amendRes.error);
@@ -146,7 +149,7 @@ export const getActTimeline = async (
       evidence: e.evidence,
     });
   }
-  for (const { edge, sourceAct } of amendRes.value) {
+  for (const { edge, sourceAct } of amendRes.value.items) {
     entries.push({
       kind: 'amendment',
       effectiveDate: sourceAct?.entryIntoForce ?? null,

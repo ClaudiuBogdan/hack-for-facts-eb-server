@@ -45,7 +45,12 @@ import {
   type ResolveLegalFiltersDeps,
 } from '../../core/usecases.js';
 import { legalActsSpec } from '../filters/legal-acts.spec.js';
-import { RECENT_CHANGES_SORT, recentChangesFhash } from '../repo/filter-helpers.js';
+import {
+  LINKS_SORT,
+  RECENT_CHANGES_SORT,
+  linksFhash,
+  recentChangesFhash,
+} from '../repo/filter-helpers.js';
 
 import type {
   LegalActsRepo,
@@ -407,39 +412,59 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
       documents: async (parent: LegalAct) => unwrap(await getActVersions(acts, parent.actId)),
       links: async (
         parent: LegalAct,
-        args: { direction: string; relation?: string[]; first?: number }
+        args: { direction: string; relation?: string[]; first?: number; after?: string }
       ) => {
         const relations = (args.relation ?? []).map(
           (r) => RELATION_FROM_GQL[r] ?? (r as LegalRelation)
         );
         const rels = relations.length > 0 ? relations : undefined;
-        // 199 cap: the repo clamps reads at 200, so the +1 probe must stay
-        // inside it — at exactly 200 the probe would be silently truncated
-        // and hasNextPage would read false with more edges present.
-        const limit = Math.min(args.first ?? 50, 199);
-        // limit+1 probe: hasNextPage is a fact, not a hardcoded false, and
-        // totalCount is NULL (unknown) rather than the page size — a bounded
-        // read cannot know the hub's true fan-out and must not claim to.
-        if (args.direction === 'OUT' || args.direction === 'out') {
-          const edges = unwrap(await getActLinksOut(graph, parent.actId, rels, limit + 1));
-          const hasNextPage = edges.length > limit;
+        const direction = args.direction === 'OUT' || args.direction === 'out' ? 'out' : 'in';
+        const page = {
+          first: args.first ?? 50,
+          // `!= null`: an explicit `after: null` variable is a normal
+          // GraphQL first-page request, not a malformed cursor.
+          ...(args.after != null && { after: args.after }),
+        };
+        // totalCount stays NULL — deliberate (act-detail.md §9.1): a bounded
+        // read must not claim a hub's true fan-out. What changed is the
+        // CURSOR: endCursor is the last edge's REAL cursor on every page
+        // (including the final one), so a 26k-edge hub is actually walkable —
+        // hasNextPage true + endCursor null was self-contradicting Relay.
+        // The cursor re-encodes the repo's PK keyset (source_document_id,
+        // ref_index; LINKS_SORT asc, fhash bound to direction+act+relations)
+        // — it must match graph-repo or a resumed cursor would be rejected.
+        const fhash = linksFhash(direction, parent.actId, rels);
+        const endCursorOf = (doc: string, ref: number): string =>
+          buildNextCursor({
+            sort: LINKS_SORT,
+            dir: 'asc',
+            fhash,
+            lastKeys: [doc, String(ref)],
+          });
+        if (direction === 'out') {
+          const outPage = unwrap(await getActLinksOut(graph, parent.actId, rels, page));
+          const last = outPage.items[outPage.items.length - 1];
           return {
-            edges: (hasNextPage ? edges.slice(0, limit) : edges).map((edge) => ({
-              ...edge,
-              sourceAct: null,
-            })),
-            pageInfo: { hasNextPage, endCursor: null },
+            edges: outPage.items.map((edge) => ({ ...edge, sourceAct: null })),
+            pageInfo: {
+              hasNextPage: outPage.next !== null,
+              endCursor:
+                last === undefined ? null : endCursorOf(last.sourceDocumentId, last.refIndex),
+            },
             totalCount: null,
           };
         }
-        const inEdges = unwrap(await getActLinksIn(graph, parent.actId, rels, limit + 1));
-        const hasNextPage = inEdges.length > limit;
+        const inPage = unwrap(await getActLinksIn(graph, parent.actId, rels, page));
+        const last = inPage.items[inPage.items.length - 1];
         return {
-          edges: (hasNextPage ? inEdges.slice(0, limit) : inEdges).map(({ edge, sourceAct }) => ({
-            ...edge,
-            sourceAct,
-          })),
-          pageInfo: { hasNextPage, endCursor: null },
+          edges: inPage.items.map(({ edge, sourceAct }) => ({ ...edge, sourceAct })),
+          pageInfo: {
+            hasNextPage: inPage.next !== null,
+            endCursor:
+              last === undefined
+                ? null
+                : endCursorOf(last.edge.sourceDocumentId, last.edge.refIndex),
+          },
           totalCount: null,
         };
       },

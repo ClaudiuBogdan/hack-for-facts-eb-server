@@ -109,10 +109,12 @@ const objectsAndQuery = /* GraphQL */ `
     "The same fact rendered in Romanian, ready to show next to any text answer."
     textProvenance: String!
     documents: [LegalDocument!]!
+    "The citation/amendment graph, keyset-paged on the act_references PK (sourceDocumentId, refIndex) — the cursor is bound to direction + relation set, page cap 199. endCursor is the last edge's REAL cursor on every page (resume with after); IN edges arrive in deterministic PK order, grouped by citing document. totalCount is deliberately null: a bounded read must not claim a hub's fan-out (act-detail.md 9.1)."
     links(
       direction: LegalLinkDirection!
       relation: [LegalRelation!]
       first: Int = 50
+      after: String
     ): LegalReferenceConnection!
     "Incoming ANCHORS — links the portal itself asserts in citing documents' text (document_link_edges). A DIFFERENT graph from links: anchors are source assertions at mark grain, links are LLM-inferred normative relations; they disagree by construction and both disagreements are informative. Real totalCount; keyset-paged."
     incomingAnchors(first: Int = 50, after: String): LegalIncomingAnchorConnection!
@@ -237,6 +239,7 @@ const objectsAndQuery = /* GraphQL */ `
   type LegalReferenceConnection {
     edges: [LegalReferenceEdge!]!
     pageInfo: PageInfo!
+    "Always null by design (act-detail.md 9.1): a bounded read cannot know a hub's true fan-out and must not claim to. Page with pageInfo.endCursor instead."
     totalCount: Int
   }
 
