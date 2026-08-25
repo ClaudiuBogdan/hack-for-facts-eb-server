@@ -136,6 +136,45 @@ describe('redesign surface mount — public GET prefixes vs legacy auth', () => 
     expect(response.statusCode).not.toBe(401);
   });
 
+  it('GraphQL auth context: anonymous and invalid-token POSTs stay public (never 401)', async () => {
+    // The unified mount passes authProvider into the redesign surface, which
+    // builds a mercurius auth context. The load-bearing invariant of that
+    // wiring is that the PUBLIC surface stays public: no token and a garbage
+    // token must both resolve to the anonymous context, never a rejection.
+    //
+    // KNOWN LIMIT (opus review 2026-08-25): this passes byte-identically with
+    // the `context:` wiring deleted — { __typename } never reads ctx.auth. It
+    // guards a throwing/rejecting builder, not the wiring itself. The REAL pin
+    // is the first auth-consuming field (Company.administrators): its test must
+    // assert valid-token → populated AND no-token → withheld, through THIS
+    // unified mount (the standalone redesign server never passes authProvider).
+    app = await createApp({
+      fastifyOptions: { logger: false },
+      deps: {
+        ...authedDeps(),
+        config: makeTestConfig({ redesignSurface: { enabled: true } }),
+        redesignKernelConfig: kernelConfig,
+      },
+    });
+
+    const anonymous = await app.inject({
+      method: 'POST',
+      url: '/api/v1/graphql',
+      payload: { query: '{ __typename }' },
+    });
+    expect(anonymous.statusCode).toBe(200);
+    expect(anonymous.json()).toEqual({ data: { __typename: 'Query' } });
+
+    const invalidToken = await app.inject({
+      method: 'POST',
+      url: '/api/v1/graphql',
+      headers: { authorization: 'Bearer not-a-real-token' },
+      payload: { query: '{ __typename }' },
+    });
+    expect(invalidToken.statusCode).toBe(200);
+    expect(invalidToken.json()).toEqual({ data: { __typename: 'Query' } });
+  });
+
   it('anonymous POST under the prefix is never bypassed', async () => {
     app = await createApp({
       fastifyOptions: { logger: false },

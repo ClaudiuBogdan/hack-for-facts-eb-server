@@ -24,6 +24,7 @@ import {
   makeGraphQLErrorFormatter,
   makeGraphQLValidationRules,
 } from '../infra/graphql/security.js';
+import { makeGraphQLContext, type AuthProvider } from '../modules/auth/index.js';
 import { makeBudgetModule } from '../modules/budget/index.js';
 import { makeCompaniesModule } from '../modules/companies/index.js';
 import { makeJudicialModule } from '../modules/judicial/index.js';
@@ -44,7 +45,6 @@ import {
 import type { UserDatabase } from '../infra/database/user/types.js';
 import type { AgentModuleConfig } from '../modules/agent/index.js';
 import type { QuotaRedis } from '../modules/agent/shell/quota/quota-store.js';
-import type { AuthProvider } from '../modules/auth/index.js';
 import type { Kysely } from 'kysely';
 
 /**
@@ -100,6 +100,15 @@ export interface BuildRedesignAppDeps {
   readonly procurementWarmCache?: boolean;
   /** When set, mounts the authenticated agent surface at /api/v1/agent. */
   readonly agent?: RedesignAgentDeps;
+  /**
+   * When set, the GraphQL surface builds an auth context (bearer verification
+   * via the auth module) so resolvers can distinguish authenticated callers
+   * (first consumer: Company.administrators). The surface STAYS public: an
+   * absent or invalid token yields the anonymous context, never a rejection —
+   * same rule as the legacy GraphQL. Absent on the standalone redesign server,
+   * where every caller is anonymous.
+   */
+  readonly authProvider?: AuthProvider;
 }
 
 export interface RedesignApp {
@@ -575,6 +584,9 @@ export const registerRedesignSurface = async (
     allowBatchedQueries: false,
     validationRules: makeGraphQLValidationRules(isProduction),
     errorFormatter: makeGraphQLErrorFormatter(isProduction),
+    ...(deps.authProvider !== undefined && {
+      context: makeGraphQLContext({ authProvider: deps.authProvider }),
+    }),
   });
 
   if (pnrrRestPlugin !== undefined) {

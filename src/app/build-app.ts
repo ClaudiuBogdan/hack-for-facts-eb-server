@@ -1219,6 +1219,9 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
           logLevel: config.logger.level,
           ...(redesignClientBaseUrl !== undefined && { clientBaseUrl: redesignClientBaseUrl }),
           ...(agentDeps !== undefined && { agent: agentDeps }),
+          // Auth context for the redesign GraphQL: verified bearer → authenticated
+          // resolver context; missing/invalid → anonymous. Never a 401 here.
+          ...(deps.authProvider !== undefined && { authProvider: deps.authProvider }),
         });
         child.log.info(
           'Redesign surface mounted on this port at /api/v1/graphql (+ /api/v1/mcp, /api/v1/health, /api/v1/ready)'
