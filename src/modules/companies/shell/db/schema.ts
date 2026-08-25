@@ -88,9 +88,14 @@ export interface CompaniesFinancialsTable {
   provisions: string | null;
   total_equity: string | null;
   patrimony_regie: string | null;
+  /** 'anaf' (FY2019+) | 'mfp' (FY2008–2018); the publisher seam is CHECK-enforced at 2019. */
+  source_system: string;
   source_indicator_count: number;
   selected_metric_count: number;
-  metric_issue_count: number;
+  // `metric_issue_count` exists in the table but is ABOLISHED (wrong on ~7.1M MFP
+  // rows; scrapper d85663f2, 2026-08-19). Deliberately untyped so it can never be
+  // selected; the omission signal lives in `applicable_metric_count`.
+  applicable_metric_count: number | null;
   quality_flag_count: number;
   derived_at: Tstz;
 }

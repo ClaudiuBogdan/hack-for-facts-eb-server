@@ -149,6 +149,7 @@ export const mapEuBranch = (row: {
 /** A financials row (money/employees as strings). `summary` carries the 20 typed metrics. */
 export interface FinancialRow {
   year: number;
+  source_system: string;
   turnover: string | null;
   net_profit: string | null;
   net_loss: string | null;
@@ -212,6 +213,7 @@ const stringifyLines = (lines: Record<string, unknown> | null): Record<string, u
 
 export const mapFinancialYear = (r: FinancialRow): CompanyFinancialYear => ({
   year: r.year,
+  sourceSystem: r.source_system,
   turnover: r.turnover,
   netProfit: r.net_profit,
   netLoss: r.net_loss,

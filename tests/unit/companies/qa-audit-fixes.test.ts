@@ -35,6 +35,7 @@ const unwrap = <T>(r: Result<T, ApiError>): T => {
 
 const yearRow = (year: number, netProfit: string, netLoss: string): CompanyFinancialYear => ({
   year,
+  sourceSystem: year >= 2019 ? 'anaf' : 'mfp',
   turnover: '0.00',
   netProfit,
   netLoss,

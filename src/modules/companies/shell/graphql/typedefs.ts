@@ -90,6 +90,8 @@ const objectsAndQuery = /* GraphQL */ `
 
   type CompanyFinancialYear {
     year: Int!
+    "Publisher of this statement year: 'anaf' (FY2019+) or 'mfp' (FY2008–2018 bulk). The seam is CHECK-enforced at 2019 — clients should mark it when charting across it."
+    sourceSystem: String!
     turnover: Money
     netProfit: Money
     netLoss: Money

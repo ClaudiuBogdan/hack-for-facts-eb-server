@@ -128,6 +128,8 @@ export interface CompanyFinancialSummary {
 
 export interface CompanyFinancialYear {
   readonly year: number;
+  /** Publisher: 'anaf' (FY2019+) or 'mfp' (FY2008–2018 bulk backfill). Seam CHECK-enforced at 2019. */
+  readonly sourceSystem: string;
   readonly turnover: Money | null;
   readonly netProfit: Money | null;
   readonly netLoss: Money | null;

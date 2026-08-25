@@ -38,6 +38,7 @@ const finYear = (
   netProfit: string | null = null
 ): CompanyFinancialYear => ({
   year,
+  sourceSystem: year >= 2019 ? 'anaf' : 'mfp',
   turnover,
   netProfit,
   netLoss: null,
@@ -560,8 +561,8 @@ describe('error propagation', () => {
     const dbErr: ApiError = { type: 'Database', message: 'boom' };
     const d = deps({
       repo: {
-        getProfileData: vi.fn(
-          async (): Promise<Result<CompanyProfileData | null, ApiError>> => err(dbErr)
+        getProfileData: vi.fn(async (): Promise<Result<CompanyProfileData | null, ApiError>> =>
+          err(dbErr)
         ),
       },
     });

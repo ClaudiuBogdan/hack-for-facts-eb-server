@@ -110,6 +110,7 @@ const composeWhere = (conds: readonly RawBuilder<unknown>[]): RawBuilder<SqlBool
 const financialColumns = () =>
   [
     'year',
+    'source_system',
     sql<string | null>`turnover::text`.as('turnover'),
     sql<string | null>`net_profit::text`.as('net_profit'),
     sql<string | null>`net_loss::text`.as('net_loss'),
@@ -540,15 +541,13 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
           const hits = ordered
             .filter((o) => nameByCui.has(o.cui))
             .slice(0, capped)
-            .map(
-              (o): CompanyNameHit => ({
-                dim: 'name',
-                value: o.cui,
-                label: nameByCui.get(o.cui) ?? o.label,
-                cui: o.cui,
-                confidence: o.score,
-              })
-            );
+            .map((o): CompanyNameHit => ({
+              dim: 'name',
+              value: o.cui,
+              label: nameByCui.get(o.cui) ?? o.label,
+              cui: o.cui,
+              confidence: o.score,
+            }));
           if (hits.length > 0) return ok({ hits, degraded: false });
         }
         // Meili reachable but no company hit (e.g. company index not built yet) → pg fallback.
@@ -584,15 +583,13 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
         })
         .sort((a, b) => b.score - a.score)
         .slice(0, capped)
-        .map(
-          ({ r, score }): CompanyNameHit => ({
-            dim: 'name',
-            value: r.cui ?? '',
-            label: r.name,
-            cui: r.cui,
-            confidence: score,
-          })
-        );
+        .map(({ r, score }): CompanyNameHit => ({
+          dim: 'name',
+          value: r.cui ?? '',
+          label: r.name,
+          cui: r.cui,
+          confidence: score,
+        }));
       return ok({ hits: ranked, degraded: true });
     } catch (error) {
       return err(databaseError('resolveByName fallback failed', error));
