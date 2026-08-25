@@ -171,6 +171,22 @@ export interface CompanyFinancialQualityFlag {
   readonly thresholdValue: Money | null;
 }
 
+/**
+ * The flags PLUS the corpus-wide assessment coverage. A warn-only surface
+ * communicates through absence — "no flag" must only ever mean "checked,
+ * clean", never "never checked". The lane last ran 2026-06-30, BEFORE the
+ * FY2008–2018 MFP backfill (2026-08-18), so 7.4M statement-years exist that
+ * were never assessed. The coverage range is MEASURED (min/max flagged year
+ * corpus-wide + lane watermark), not hardcoded, so it heals itself when the
+ * scrapper's derived lane re-runs — absence outside the range = not assessed.
+ */
+export interface CompanyFinancialQualityAssessment {
+  readonly assessedYearFrom: number | null;
+  readonly assessedYearTo: number | null;
+  readonly assessedAt: string | null;
+  readonly flags: readonly CompanyFinancialQualityFlag[];
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // CAEN, representatives, EU branches
 // ─────────────────────────────────────────────────────────────────────────────

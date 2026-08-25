@@ -28,7 +28,7 @@ import {
   makeCompanyFinancials,
   makeCompanyList,
   makeCompanyProfileData,
-  makeCompanyFinancialQualityFlags,
+  makeCompanyFinancialQualityAssessment,
   makeCompanyPublicMoney,
   makeCompanyResolve,
   dropWithheldCuiInclusion,
@@ -184,8 +184,8 @@ export const makeCompaniesResolvers = (deps: CompaniesResolverDeps): Record<stri
       publicMoney: async (parent: { cui: string }) =>
         unwrap(await makeCompanyPublicMoney(deps, parent.cui)),
       // Advisory quality flags — same lazy pattern; only runs when selected.
-      financialQualityFlags: async (parent: { cui: string }) =>
-        unwrap(await makeCompanyFinancialQualityFlags(deps, parent.cui)),
+      financialQualityAssessment: async (parent: { cui: string }) =>
+        unwrap(await makeCompanyFinancialQualityAssessment(deps, parent.cui)),
     },
 
     Entity: {

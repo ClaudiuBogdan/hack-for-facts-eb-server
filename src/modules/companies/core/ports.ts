@@ -21,7 +21,7 @@ import type {
   CaenCodeHit,
   CompanyCoverage,
   CompanyEntitySlice,
-  CompanyFinancialQualityFlag,
+  CompanyFinancialQualityAssessment,
   CompanyFinancialYear,
   CompanyGroupBy,
   CompanyGroupCount,
@@ -48,10 +48,10 @@ export interface CompaniesRepository {
   /** Parallel fan-out, each `WHERE cui = $1`; presence decided first by the cheap org seek. */
   getProfileData(cui: string): Promise<Result<CompanyProfileData | null, ApiError>>;
   getFinancials(cui: string): Promise<Result<readonly CompanyFinancialYear[], ApiError>>;
-  /** Warn-only quality flags over all statement years (224,657 rows total, all public-class). */
-  getFinancialQualityFlags(
+  /** Warn-only quality flags + measured corpus-wide assessment coverage (all public-class). */
+  getFinancialQualityAssessment(
     cui: string
-  ): Promise<Result<readonly CompanyFinancialQualityFlag[], ApiError>>;
+  ): Promise<Result<CompanyFinancialQualityAssessment, ApiError>>;
 
   // ── list / filter (the filterable collection §7) ──
   /**

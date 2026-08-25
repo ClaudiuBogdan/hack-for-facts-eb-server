@@ -114,6 +114,21 @@ const objectsAndQuery = /* GraphQL */ `
     thresholdValue: Money
   }
 
+  """
+  Flags + the MEASURED corpus-wide assessment coverage. Absence semantics are
+  load-bearing: no flag for a year INSIDE [assessedYearFrom, assessedYearTo]
+  means checked-and-clean; a year OUTSIDE the range was never assessed (today
+  FY2008-2018: the quality lane last ran 2026-06-30, before the MFP backfill
+  landed). Render out-of-range years as "not yet assessed", never as clean.
+  """
+  type CompanyFinancialQualityAssessment {
+    assessedYearFrom: Int
+    assessedYearTo: Int
+    "Watermark of the last quality-lane run (max created_at, date)."
+    assessedAt: Date
+    flags: [CompanyFinancialQualityFlag!]!
+  }
+
   type CompanyFinancialTrajectory {
     fromYear: Int
     toYear: Int
@@ -178,8 +193,8 @@ const objectsAndQuery = /* GraphQL */ `
     "Public representative names are withheld until the v2 restricted person data has an access-gated API path."
     representatives: [CompanyRepresentative!]!
     financials: [CompanyFinancialYear!]!
-    "Warn-only quality flags across all statement years; lazily resolved."
-    financialQualityFlags: [CompanyFinancialQualityFlag!]!
+    "Warn-only quality flags + measured assessment coverage; lazily resolved."
+    financialQualityAssessment: CompanyFinancialQualityAssessment!
     euBranches: [CompanyEuBranch!]!
     "Public money received (payee), via the kernel FlowsRepo. Null when none."
     publicMoney: CompanyPublicMoney

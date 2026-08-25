@@ -63,7 +63,7 @@ import {
   type CaenCodeHit,
   type CompanyCoverage,
   type CompanyEntitySlice,
-  type CompanyFinancialQualityFlag,
+  type CompanyFinancialQualityAssessment,
   type CompanyFinancialYear,
   type CompanyGroupBy,
   type CompanyGroupCount,
@@ -451,41 +451,58 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
     }
   };
 
-  const getFinancialQualityFlags = async (
+  const getFinancialQualityAssessment = async (
     rawCui: string
-  ): Promise<Result<readonly CompanyFinancialQualityFlag[], ApiError>> => {
+  ): Promise<Result<CompanyFinancialQualityAssessment, ApiError>> => {
     const cui = normalizeCui(rawCui);
     if (cui === null) return err(invalidInput('invalid CUI format', 'cui'));
     try {
       // Defence-in-depth: the table measures 100% public today, but the platform
       // rule gates on class, not on today's distribution — positive allowlist.
-      const rows = await db
-        .selectFrom('companies_v2.financial_quality_flags')
-        .select([
-          'year',
-          'flag_code',
-          'metric_name',
-          'severity',
-          sql<string | null>`numeric_value::text`.as('numeric_value'),
-          sql<string | null>`threshold_value::text`.as('threshold_value'),
-        ])
-        .where('cui', '=', cui)
-        .where('privacy_class', '=', 'public')
-        .orderBy('year', 'desc')
-        .orderBy('flag_code', 'asc')
-        .execute();
-      return ok(
-        rows.map((r) => ({
+      const [rows, coverage] = await Promise.all([
+        db
+          .selectFrom('companies_v2.financial_quality_flags')
+          .select([
+            'year',
+            'flag_code',
+            'metric_name',
+            'severity',
+            sql<string | null>`numeric_value::text`.as('numeric_value'),
+            sql<string | null>`threshold_value::text`.as('threshold_value'),
+          ])
+          .where('cui', '=', cui)
+          .where('privacy_class', '=', 'public')
+          .orderBy('year', 'desc')
+          .orderBy('flag_code', 'asc')
+          .execute(),
+        // Corpus-wide coverage, MEASURED not hardcoded (224,657 rows — a cheap
+        // aggregate). The lane (last run 2026-06-30) predates the FY2008–2018
+        // MFP backfill, so absence outside [from,to] means "never assessed",
+        // and this range self-corrects when the derived lane re-runs.
+        db
+          .selectFrom('companies_v2.financial_quality_flags')
+          .select([
+            sql<number | null>`min(year)`.as('from_year'),
+            sql<number | null>`max(year)`.as('to_year'),
+            sql<string | null>`max(created_at)::date::text`.as('assessed_at'),
+          ])
+          .executeTakeFirst(),
+      ]);
+      return ok({
+        assessedYearFrom: coverage?.from_year ?? null,
+        assessedYearTo: coverage?.to_year ?? null,
+        assessedAt: coverage?.assessed_at ?? null,
+        flags: rows.map((r) => ({
           year: r.year,
           flagCode: r.flag_code,
           metricName: r.metric_name,
           severity: r.severity,
           numericValue: r.numeric_value,
           thresholdValue: r.threshold_value,
-        }))
-      );
+        })),
+      });
     } catch (error) {
-      return err(databaseError('getFinancialQualityFlags failed', error));
+      return err(databaseError('getFinancialQualityAssessment failed', error));
     }
   };
 
@@ -1035,7 +1052,7 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
   return {
     getProfileData,
     getFinancials,
-    getFinancialQualityFlags,
+    getFinancialQualityAssessment,
     listCompanies,
     resolveByName,
     findByRegistrationNumber,

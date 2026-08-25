@@ -41,7 +41,7 @@ import {
   type CompanyListRow,
   type CompanyNameHit,
   type CompanyProfile,
-  type CompanyFinancialQualityFlag,
+  type CompanyFinancialQualityAssessment,
   type CompanyPublicMoney,
   type CompanyResolveDim,
   type CompanySort,
@@ -245,14 +245,14 @@ export const makeCompanyPublicMoney = async (
  * Warn-only quality flags for a company's statement years. Lazy field resolver
  * target (`Company.financialQualityFlags`) — the common profile path skips it.
  */
-export const makeCompanyFinancialQualityFlags = async (
+export const makeCompanyFinancialQualityAssessment = async (
   deps: Pick<CompanyUsecaseDeps, 'repo'>,
   rawCui: string
-): Promise<Result<readonly CompanyFinancialQualityFlag[], ApiError>> => {
+): Promise<Result<CompanyFinancialQualityAssessment, ApiError>> => {
   const cui = normalizeCui(rawCui);
   if (cui === null) return err(invalidCui());
   if (isWithheldCompanyIdentifier(cui)) return err(withheldIdentifier());
-  return deps.repo.getFinancialQualityFlags(cui);
+  return deps.repo.getFinancialQualityAssessment(cui);
 };
 
 const buildPublicMoney = async (

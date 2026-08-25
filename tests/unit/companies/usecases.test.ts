@@ -15,7 +15,7 @@ import {
   makeCompanyList,
   makeCompanyProfile,
   makeCompanyProfileData,
-  makeCompanyFinancialQualityFlags,
+  makeCompanyFinancialQualityAssessment,
   makeCompanyPublicMoney,
   makeCompanyResolve,
   type CompanyUsecaseDeps,
@@ -97,7 +97,9 @@ const profileData = (cui: string): CompanyProfileData => ({
 const stubRepo = (over: Partial<CompaniesRepository> = {}): CompaniesRepository => ({
   getProfileData: vi.fn(async () => ok(profileData('2816464'))),
   getFinancials: vi.fn(async () => ok([])),
-  getFinancialQualityFlags: vi.fn(async () => ok([])),
+  getFinancialQualityAssessment: vi.fn(async () =>
+    ok({ assessedYearFrom: null, assessedYearTo: null, assessedAt: null, flags: [] })
+  ),
   listCompanies: vi.fn(async () => ok({ rows: [], total: 0, estimated: false })),
   resolveByName: vi.fn(async () => ok({ hits: [], degraded: false })),
   findByRegistrationNumber: vi.fn(async () => ok([])),
@@ -247,34 +249,43 @@ describe('makeCompanyFinancials trajectory (precision-safe)', () => {
   });
 });
 
-describe('makeCompanyFinancialQualityFlags', () => {
-  it('normalizes the CUI and returns the repo flags (advisory, warn-only)', async () => {
-    const flags = [
-      {
-        year: 2024,
-        flagCode: 'negative_where_unexpected',
-        metricName: 'turnover',
-        severity: 'warning',
-        numericValue: '-1200.00',
-        thresholdValue: '0.00',
-      },
-    ];
-    const getFinancialQualityFlags = vi.fn(async () => ok(flags));
-    const d = deps({ repo: { getFinancialQualityFlags: getFinancialQualityFlags } });
-    const res = await makeCompanyFinancialQualityFlags(d, 'RO2816464');
+describe('makeCompanyFinancialQualityAssessment', () => {
+  it('normalizes the CUI and returns flags with the measured coverage range', async () => {
+    const assessment = {
+      assessedYearFrom: 2019,
+      assessedYearTo: 2025,
+      assessedAt: '2026-06-30',
+      flags: [
+        {
+          year: 2024,
+          flagCode: 'negative_where_unexpected',
+          metricName: 'turnover',
+          severity: 'warning',
+          numericValue: '-1200.00',
+          thresholdValue: '0.00',
+        },
+      ],
+    };
+    const getFinancialQualityAssessment = vi.fn(async () => ok(assessment));
+    const d = deps({
+      repo: { getFinancialQualityAssessment: getFinancialQualityAssessment },
+    });
+    const res = await makeCompanyFinancialQualityAssessment(d, 'RO2816464');
     expect(res.isOk()).toBe(true);
-    expect(res._unsafeUnwrap()).toEqual(flags);
+    expect(res._unsafeUnwrap()).toEqual(assessment);
     // the repo must receive the NORMALIZED cui, same contract as every per-CUI path
-    expect(getFinancialQualityFlags).toHaveBeenCalledWith('2816464');
+    expect(getFinancialQualityAssessment).toHaveBeenCalledWith('2816464');
   });
 
   it('rejects an invalid CUI without touching the repo', async () => {
-    const getFinancialQualityFlags = vi.fn();
-    const d = deps({ repo: { getFinancialQualityFlags: getFinancialQualityFlags as never } });
-    const res = await makeCompanyFinancialQualityFlags(d, 'not-a-cui');
+    const getFinancialQualityAssessment = vi.fn();
+    const d = deps({
+      repo: { getFinancialQualityAssessment: getFinancialQualityAssessment as never },
+    });
+    const res = await makeCompanyFinancialQualityAssessment(d, 'not-a-cui');
     expect(res.isErr()).toBe(true);
     expect((res as { error: ApiError }).error.type).toBe('InvalidInput');
-    expect(getFinancialQualityFlags).not.toHaveBeenCalled();
+    expect(getFinancialQualityAssessment).not.toHaveBeenCalled();
   });
 });
 
@@ -469,7 +480,7 @@ describe('withheld identifiers (>10 digits, CNP-shaped — P0 containment 2026-0
       await makeCompanyProfileData(d, WITHHELD_13),
       await makeCompanyFinancials(d, WITHHELD_11),
       await makeCompanyPublicMoney(d, WITHHELD_13),
-      await makeCompanyFinancialQualityFlags(d, WITHHELD_13),
+      await makeCompanyFinancialQualityAssessment(d, WITHHELD_13),
     ];
     for (const res of results) {
       expect(res.isErr()).toBe(true);
