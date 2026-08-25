@@ -219,6 +219,7 @@ export const makeCompaniesResolvers = (deps: CompaniesResolverDeps): Record<stri
       APPEARED: 'appeared',
       DISAPPEARED: 'disappeared',
       NOT_COMPARABLE: 'not_comparable',
+      AMBIGUOUS: 'ambiguous',
     },
   };
 };

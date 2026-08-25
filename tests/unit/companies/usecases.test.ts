@@ -107,7 +107,15 @@ const stubRepo = (over: Partial<CompaniesRepository> = {}): CompaniesRepository 
     ok({ assessedYears: [], assessedAt: null, flags: [] })
   ),
   getRegistrationDiffData: vi.fn(async () =>
-    ok({ fromCaptureDate: null, toCaptureDate: null, captureCount: 0, earlier: null, later: null })
+    ok({
+      fromCaptureDate: null,
+      toCaptureDate: null,
+      captureCount: 0,
+      earlier: null,
+      later: null,
+      earlierMultiple: false,
+      laterMultiple: false,
+    })
   ),
   listCompanies: vi.fn(async () => ok({ rows: [], total: 0, estimated: false })),
   resolveByName: vi.fn(async () => ok({ hits: [], degraded: false })),
@@ -324,6 +332,8 @@ describe('diffRegistrationCaptures (pure two-capture diff)', () => {
     captureCount: 2,
     earlier: row(),
     later: row(),
+    earlierMultiple: false,
+    laterMultiple: false,
     ...over,
   });
 
@@ -383,6 +393,22 @@ describe('diffRegistrationCaptures (pure two-capture diff)', () => {
       'not_comparable'
     );
   });
+
+  it('AMBIGUOUS when either capture holds multiple rows - beats every single-row verdict', () => {
+    // The live bug this pins: CUI 10009384 carries TWO companies in BOTH
+    // captures; an arbitrary limit-1 pick manufactured a false rename.
+    const d = diffRegistrationCaptures(
+      data({ laterMultiple: true, later: row({ legalName: 'CANIFORT PREST SRL' }) })
+    );
+    expect(d.status).toBe('ambiguous');
+    expect(d.changes).toEqual([]);
+    expect(diffRegistrationCaptures(data({ earlierMultiple: true })).status).toBe('ambiguous');
+    // but NOT_COMPARABLE still wins when there is nothing to compare at all
+    expect(
+      diffRegistrationCaptures(data({ captureCount: 1, earlierMultiple: true, earlier: null }))
+        .status
+    ).toBe('not_comparable');
+  });
 });
 
 describe('makeCompanyRegistrationDiff', () => {
@@ -400,6 +426,8 @@ describe('makeCompanyRegistrationDiff', () => {
           county: 'Cluj',
           locality: 'Cluj-Napoca',
         },
+        earlierMultiple: false,
+        laterMultiple: false,
       })
     );
     const d = deps({ repo: { getRegistrationDiffData: getRegistrationDiffData } });

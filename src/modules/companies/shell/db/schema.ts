@@ -125,8 +125,9 @@ export interface CompaniesFinancialQualityFlagsTable {
   created_at: Tstz;
 }
 
-/** One row per (cui, capture). ~8.38M rows over two loaded captures; 244,408 restricted (read paths allowlist public). */
+/** Grain is (source_snapshot_id, source_row_number) — NOT one row per (cui, capture): ~95k CUIs carry 2–8 rows per snapshot (ONRC re-registration history). ~8.38M rows over two loaded captures; 244,408 restricted (read paths allowlist public). */
 export interface CompaniesRegistrationHistoryTable {
+  /** Nullable in the DB (86,438 NULL-cui rows per capture); typed non-null because every read filters `cui = $1`. */
   cui: string;
   legal_name: string;
   normalized_legal_name: string;

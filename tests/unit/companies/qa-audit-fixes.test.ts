@@ -71,7 +71,15 @@ const stubRepo = (over: Partial<CompaniesRepository> = {}): CompaniesRepository 
     ok({ assessedYears: [], assessedAt: null, flags: [] })
   ),
   getRegistrationDiffData: vi.fn(async () =>
-    ok({ fromCaptureDate: null, toCaptureDate: null, captureCount: 0, earlier: null, later: null })
+    ok({
+      fromCaptureDate: null,
+      toCaptureDate: null,
+      captureCount: 0,
+      earlier: null,
+      later: null,
+      earlierMultiple: false,
+      laterMultiple: false,
+    })
   ),
   listCompanies: vi.fn(async () => ok({ rows: [], total: 0, estimated: false })),
   resolveByName: vi.fn(async () => ok({ hits: [], degraded: false })),

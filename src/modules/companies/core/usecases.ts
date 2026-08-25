@@ -284,6 +284,11 @@ export const diffRegistrationCaptures = (
   if (data.captureCount < 2 || (data.earlier === null && data.later === null)) {
     return { ...base, status: 'not_comparable', changes: [] };
   }
+  // Ambiguity beats every single-row verdict: with multiple registrations on
+  // one CUI, any picked pair can fake a change (or hide one).
+  if (data.earlierMultiple || data.laterMultiple) {
+    return { ...base, status: 'ambiguous', changes: [] };
+  }
   if (data.earlier === null) return { ...base, status: 'appeared', changes: [] };
   if (data.later === null) return { ...base, status: 'disappeared', changes: [] };
   const earlier = data.earlier;

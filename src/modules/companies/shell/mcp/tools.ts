@@ -24,6 +24,9 @@ import {
   type CompanyGroupBy,
   type CompanyResolveDim,
   type CompanySort,
+  type CompanyRegistrationDiff,
+  type CompanyRegistrationDiffStatus,
+  type CompanyRegistrationField,
 } from '../../core/types.js';
 import {
   makeCompanyCountyProfile,
@@ -74,6 +77,30 @@ const n = (x: number): string => String(x);
  * (audit M13 — MCP emitted the lowercase domain value 'safe' while GraphQL emitted
  * the enum name 'SAFE').
  */
+// Same M13 rule as mcpTerritory, for the diff enums: MCP must emit the
+// GraphQL enum NAMES (CHANGED / LEGAL_NAME), never the lowercase domain
+// values — an agent string-matching GraphQL vocabulary must match here too.
+const MCP_DIFF_STATUS: Readonly<Record<CompanyRegistrationDiffStatus, string>> = {
+  changed: 'CHANGED',
+  unchanged: 'UNCHANGED',
+  appeared: 'APPEARED',
+  disappeared: 'DISAPPEARED',
+  not_comparable: 'NOT_COMPARABLE',
+  ambiguous: 'AMBIGUOUS',
+};
+const MCP_DIFF_FIELD: Readonly<Record<CompanyRegistrationField, string>> = {
+  legalName: 'LEGAL_NAME',
+  legalForm: 'LEGAL_FORM',
+  county: 'COUNTY',
+  locality: 'LOCALITY',
+};
+const mcpRegistrationDiff = (d: CompanyRegistrationDiff): Record<string, unknown> => ({
+  fromCaptureDate: d.fromCaptureDate,
+  toCaptureDate: d.toCaptureDate,
+  status: MCP_DIFF_STATUS[d.status],
+  changes: d.changes.map((c) => ({ field: MCP_DIFF_FIELD[c.field], from: c.from, to: c.to })),
+});
+
 const mcpTerritory = (t: { matchConfidence: 'safe' | 'unmatched' } | null): unknown =>
   t === null ? null : { ...t, matchConfidence: t.matchConfidence.toUpperCase() };
 
@@ -136,8 +163,6 @@ export const makeCompaniesMcpTools = (deps: CompaniesMcpDeps): readonly KernelMc
       const cui = strArg(args, 'cui');
       const res = await makeCompanyProfile(deps, cui);
       if (res.isErr()) return errorOut('company', res.error.message);
-      // Advisory parity with GraphQL Company.registrationDiff (H2: null on error).
-      const diff = await makeCompanyRegistrationDiff(deps, cui);
       const p = res.value;
       if (p === null)
         return { ok: true, kind: 'company', query: { cui }, summary: `No company for CUI ${cui}.` };
@@ -152,6 +177,9 @@ export const makeCompaniesMcpTools = (deps: CompaniesMcpDeps): readonly KernelMc
           ? `; ${String(latest.year)} turnover ${latest.turnover ?? 'n/a'} RON, ${latest.employees ?? 'n/a'} employees`
           : '') +
         `; received ${pm?.totalRon ?? '0'} RON public money.`;
+      // Advisory parity with GraphQL Company.registrationDiff (H2: null on
+      // error); after the null check so an unknown CUI pays no extra queries.
+      const diff = await makeCompanyRegistrationDiff(deps, cui);
       return {
         ok: true,
         kind: 'company',
@@ -166,7 +194,7 @@ export const makeCompaniesMcpTools = (deps: CompaniesMcpDeps): readonly KernelMc
           territory: mcpTerritory(p.territory),
           latestFinancial: latest ?? null,
           publicMoney: pm,
-          registrationDiff: diff.isOk() ? diff.value : null,
+          registrationDiff: diff.isOk() ? mcpRegistrationDiff(diff.value) : null,
           asOf: p.asOf,
         },
         summary,

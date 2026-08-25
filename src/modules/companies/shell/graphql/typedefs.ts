@@ -171,6 +171,8 @@ const objectsAndQuery = /* GraphQL */ `
     DISAPPEARED
     "Comparison impossible: fewer than two captures loaded corpus-wide, or the company has no public row in either capture. Never collapsed into UNCHANGED or null."
     NOT_COMPARABLE
+    "The CUI maps to MULTIPLE registry rows in at least one capture (~95k CUIs carry 2-8 rows per snapshot: ONRC re-registration history, e.g. two J-numbers on one CUI) - a single-company diff is undefined, so no changes are asserted. Render as 'multiple registrations share this identifier', never as unchanged."
+    AMBIGUOUS
   }
 
   type CompanyRegistrationChange {
@@ -181,10 +183,11 @@ const objectsAndQuery = /* GraphQL */ `
   }
 
   """
-  Diff of the two most recent LOADED ONRC captures (today: published 2026-05-06
-  vs 2026-07-08), self-extending to latest-vs-previous as captures load. Dates
-  are ONRC PUBLICATION dates (null = unknown; never our retrieval time - the
-  two differ by up to 129 days).
+  Diff of the two most recent LOADED, DATED ONRC captures (today: published
+  2026-05-06 vs 2026-07-08); extends to latest-vs-previous as new captures are
+  loaded AND dated (the capture dimension has no scheduled refresh lane, so
+  this follows data operations, not the calendar). Dates are ONRC PUBLICATION
+  dates (never our retrieval time - the two differ by up to 129 days).
   """
   type CompanyRegistrationDiff {
     fromCaptureDate: Date

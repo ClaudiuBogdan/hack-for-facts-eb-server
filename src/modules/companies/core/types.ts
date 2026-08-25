@@ -219,7 +219,7 @@ export interface CompanyRegistrationChange {
  * did not happen) or null (reads as lookup failure).
  */
 export type CompanyRegistrationDiffStatus =
-  'changed' | 'unchanged' | 'appeared' | 'disappeared' | 'not_comparable';
+  'changed' | 'unchanged' | 'appeared' | 'disappeared' | 'not_comparable' | 'ambiguous';
 
 /** One capture-side registration row (public rows only; restricted reads as absent). */
 export interface CompanyRegistrationCaptureRow {
@@ -236,6 +236,17 @@ export interface CompanyRegistrationDiffData {
   readonly captureCount: number;
   readonly earlier: CompanyRegistrationCaptureRow | null;
   readonly later: CompanyRegistrationCaptureRow | null;
+  /**
+   * True when the capture holds MORE THAN ONE public row for the CUI. The
+   * table's grain is (source_snapshot_id, source_row_number) — NOT cui — and
+   * ~95k CUIs carry 2–8 rows per snapshot BY DESIGN (ONRC re-registration
+   * history; 190,304 (cui, capture) pairs, 47,996 with differing names). A
+   * single-row diff is undefined there: an arbitrary pick manufactured a
+   * false rename on the first live repro (CUI 10009384). Either flag →
+   * status 'ambiguous'.
+   */
+  readonly earlierMultiple: boolean;
+  readonly laterMultiple: boolean;
 }
 
 export interface CompanyRegistrationDiff {

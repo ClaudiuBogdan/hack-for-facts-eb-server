@@ -525,6 +525,10 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
           sql<string | null>`s.source_published_at::text`.as('published_at'),
         ])
         .where('s.privacy_class', '=', 'public')
+        // Only DATED captures participate: a NULL publication date cannot be
+        // ordered honestly (and nulls-last would silently freeze the pair or,
+        // if both were null, arbitrarily invert appeared/disappeared).
+        .where('s.source_published_at', 'is not', null)
         .where((eb) =>
           eb.exists(
             eb
@@ -555,11 +559,17 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
       // captures[0] = later, captures[1] = earlier (published desc)
       const later = captures[0];
       const earlier = captures[1];
-      const rowFor = async (
+      // limit 2, not 1: the grain is (source_snapshot_id, source_row_number) —
+      // NOT cui — and ~95k CUIs carry 2–8 rows per snapshot by design (ONRC
+      // re-registration history; 190,304 (cui, capture) pairs, 47,996 with
+      // differing names). A limit-1 pick is nondeterministic and manufactured a
+      // false rename on the first live repro; a second row means the
+      // single-company diff is undefined → surfaced as 'ambiguous'.
+      const rowsFor = async (
         capture: { id: string } | undefined
-      ): Promise<CompanyRegistrationCaptureRow | null> => {
-        if (capture === undefined) return null;
-        const r = await db
+      ): Promise<{ row: CompanyRegistrationCaptureRow | null; multiple: boolean }> => {
+        if (capture === undefined) return { row: null, multiple: false };
+        const rows = await db
           .selectFrom('companies_v2.registration_history')
           .select([
             'legal_name',
@@ -574,24 +584,30 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
           // Verified safe: privacy_class is capture-stable (0 CUIs differ), so
           // this can never manufacture a phantom disappearance.
           .where('privacy_class', '=', 'public')
-          .limit(1)
-          .executeTakeFirst();
-        if (r === undefined) return null;
+          .limit(2)
+          .execute();
+        const r = rows[0];
+        if (r === undefined) return { row: null, multiple: false };
         return {
-          legalName: r.legal_name,
-          normalizedLegalName: r.normalized_legal_name,
-          legalForm: r.legal_form,
-          county: r.raw_county,
-          locality: r.raw_locality,
+          row: {
+            legalName: r.legal_name,
+            normalizedLegalName: r.normalized_legal_name,
+            legalForm: r.legal_form,
+            county: r.raw_county,
+            locality: r.raw_locality,
+          },
+          multiple: rows.length > 1,
         };
       };
-      const [laterRow, earlierRow] = await Promise.all([rowFor(later), rowFor(earlier)]);
+      const [laterRes, earlierRes] = await Promise.all([rowsFor(later), rowsFor(earlier)]);
       return ok({
         fromCaptureDate: earlier?.published_at ?? null,
         toCaptureDate: later?.published_at ?? null,
         captureCount: captures.length,
-        earlier: earlierRow,
-        later: laterRow,
+        earlier: earlierRes.row,
+        later: laterRes.row,
+        earlierMultiple: earlierRes.multiple,
+        laterMultiple: laterRes.multiple,
       });
     } catch (error) {
       return err(databaseError('getRegistrationDiffData failed', error));
