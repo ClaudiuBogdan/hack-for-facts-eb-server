@@ -109,6 +109,18 @@ export interface CompaniesCaenActivitiesTable {
   authorization_type: string | null;
 }
 
+/** Warn-only (cui, year) statement flags. All 224,657 rows privacy_class='public' (measured 2026-08-25). */
+export interface CompaniesFinancialQualityFlagsTable {
+  cui: string;
+  year: number;
+  flag_code: string;
+  metric_name: string;
+  severity: string; // 'info' | 'review' | 'warning' today; open domain
+  numeric_value: string | null; // numeric → string
+  threshold_value: string | null;
+  privacy_class: string;
+}
+
 export interface CompaniesStatusFlagsTable {
   cui: string;
   status_code: string;
@@ -138,6 +150,7 @@ declare module '@/modules/shared/shell/db/types.js' {
     'companies_v2.financials': CompaniesFinancialsTable;
     'companies_v2.caen_profile': CompaniesCaenActivitiesTable;
     'companies_v2.status_flags': CompaniesStatusFlagsTable;
+    'companies_v2.financial_quality_flags': CompaniesFinancialQualityFlagsTable;
     'companies_v2.eu_branches': CompaniesEuBranchesTable;
     'companies_v2.registration_identifiers': {
       scheme: string;

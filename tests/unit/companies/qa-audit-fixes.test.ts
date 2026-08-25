@@ -67,6 +67,7 @@ const yearRow = (year: number, netProfit: string, netLoss: string): CompanyFinan
 const stubRepo = (over: Partial<CompaniesRepository> = {}): CompaniesRepository => ({
   getProfileData: vi.fn(async () => ok(null)),
   getFinancials: vi.fn(async () => ok([])),
+  getFinancialQualityFlags: vi.fn(async () => ok([])),
   listCompanies: vi.fn(async () => ok({ rows: [], total: 0, estimated: false })),
   resolveByName: vi.fn(async () => ok({ hits: [], degraded: false })),
   findByRegistrationNumber: vi.fn(async () => ok([])),

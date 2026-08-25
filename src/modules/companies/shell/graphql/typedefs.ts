@@ -103,6 +103,17 @@ const objectsAndQuery = /* GraphQL */ `
     lines: JSON
   }
 
+  "A warn-only data-quality flag on one (cui, year) statement. Advisory: qualifies a figure, never suppresses one."
+  type CompanyFinancialQualityFlag {
+    year: Int!
+    flagCode: String!
+    metricName: String!
+    "'info' | 'review' | 'warning' today; open domain (kept String so a new upstream class cannot break an advisory surface)."
+    severity: String!
+    numericValue: Money
+    thresholdValue: Money
+  }
+
   type CompanyFinancialTrajectory {
     fromYear: Int
     toYear: Int
@@ -167,6 +178,8 @@ const objectsAndQuery = /* GraphQL */ `
     "Public representative names are withheld until the v2 restricted person data has an access-gated API path."
     representatives: [CompanyRepresentative!]!
     financials: [CompanyFinancialYear!]!
+    "Warn-only quality flags across all statement years; lazily resolved."
+    financialQualityFlags: [CompanyFinancialQualityFlag!]!
     euBranches: [CompanyEuBranch!]!
     "Public money received (payee), via the kernel FlowsRepo. Null when none."
     publicMoney: CompanyPublicMoney

@@ -63,6 +63,7 @@ import {
   type CaenCodeHit,
   type CompanyCoverage,
   type CompanyEntitySlice,
+  type CompanyFinancialQualityFlag,
   type CompanyFinancialYear,
   type CompanyGroupBy,
   type CompanyGroupCount,
@@ -447,6 +448,44 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
       return ok(rows.map((r) => mapFinancialYear(r)));
     } catch (error) {
       return err(databaseError('getFinancials failed', error));
+    }
+  };
+
+  const getFinancialQualityFlags = async (
+    rawCui: string
+  ): Promise<Result<readonly CompanyFinancialQualityFlag[], ApiError>> => {
+    const cui = normalizeCui(rawCui);
+    if (cui === null) return err(invalidInput('invalid CUI format', 'cui'));
+    try {
+      // Defence-in-depth: the table measures 100% public today, but the platform
+      // rule gates on class, not on today's distribution — positive allowlist.
+      const rows = await db
+        .selectFrom('companies_v2.financial_quality_flags')
+        .select([
+          'year',
+          'flag_code',
+          'metric_name',
+          'severity',
+          sql<string | null>`numeric_value::text`.as('numeric_value'),
+          sql<string | null>`threshold_value::text`.as('threshold_value'),
+        ])
+        .where('cui', '=', cui)
+        .where('privacy_class', '=', 'public')
+        .orderBy('year', 'desc')
+        .orderBy('flag_code', 'asc')
+        .execute();
+      return ok(
+        rows.map((r) => ({
+          year: r.year,
+          flagCode: r.flag_code,
+          metricName: r.metric_name,
+          severity: r.severity,
+          numericValue: r.numeric_value,
+          thresholdValue: r.threshold_value,
+        }))
+      );
+    } catch (error) {
+      return err(databaseError('getFinancialQualityFlags failed', error));
     }
   };
 
@@ -996,6 +1035,7 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
   return {
     getProfileData,
     getFinancials,
+    getFinancialQualityFlags,
     listCompanies,
     resolveByName,
     findByRegistrationNumber,

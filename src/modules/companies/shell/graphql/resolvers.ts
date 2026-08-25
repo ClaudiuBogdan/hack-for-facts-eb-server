@@ -28,6 +28,7 @@ import {
   makeCompanyFinancials,
   makeCompanyList,
   makeCompanyProfileData,
+  makeCompanyFinancialQualityFlags,
   makeCompanyPublicMoney,
   makeCompanyResolve,
   dropWithheldCuiInclusion,
@@ -182,6 +183,9 @@ export const makeCompaniesResolvers = (deps: CompaniesResolverDeps): Record<stri
       // ~1.2s-on-a-high-degree-payee flows scan runs when the client selects it.
       publicMoney: async (parent: { cui: string }) =>
         unwrap(await makeCompanyPublicMoney(deps, parent.cui)),
+      // Advisory quality flags — same lazy pattern; only runs when selected.
+      financialQualityFlags: async (parent: { cui: string }) =>
+        unwrap(await makeCompanyFinancialQualityFlags(deps, parent.cui)),
     },
 
     Entity: {

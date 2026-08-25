@@ -155,6 +155,22 @@ export interface CompanyFinancials {
   readonly trajectory: CompanyFinancialTrajectory | null;
 }
 
+/**
+ * A warn-only data-quality flag on one (cui, year) statement. Advisory: it
+ * qualifies a figure ("this was flagged"), it never suppresses one. Severity
+ * domain today: 'info' | 'review' | 'warning' — kept a string (not an enum) so
+ * a new upstream class degrades to an unknown label instead of a serialization
+ * error on an advisory surface.
+ */
+export interface CompanyFinancialQualityFlag {
+  readonly year: number;
+  readonly flagCode: string;
+  readonly metricName: string;
+  readonly severity: string;
+  readonly numericValue: Money | null;
+  readonly thresholdValue: Money | null;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // CAEN, representatives, EU branches
 // ─────────────────────────────────────────────────────────────────────────────

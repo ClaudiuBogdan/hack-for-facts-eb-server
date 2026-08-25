@@ -15,6 +15,7 @@ import {
   makeCompanyList,
   makeCompanyProfile,
   makeCompanyProfileData,
+  makeCompanyFinancialQualityFlags,
   makeCompanyPublicMoney,
   makeCompanyResolve,
   type CompanyUsecaseDeps,
@@ -96,6 +97,7 @@ const profileData = (cui: string): CompanyProfileData => ({
 const stubRepo = (over: Partial<CompaniesRepository> = {}): CompaniesRepository => ({
   getProfileData: vi.fn(async () => ok(profileData('2816464'))),
   getFinancials: vi.fn(async () => ok([])),
+  getFinancialQualityFlags: vi.fn(async () => ok([])),
   listCompanies: vi.fn(async () => ok({ rows: [], total: 0, estimated: false })),
   resolveByName: vi.fn(async () => ok({ hits: [], degraded: false })),
   findByRegistrationNumber: vi.fn(async () => ok([])),
@@ -242,6 +244,37 @@ describe('makeCompanyFinancials trajectory (precision-safe)', () => {
     const d = deps({ repo: { getFinancials: vi.fn(async () => ok([finYear(2024, '1', '1')])) } });
     const res = await makeCompanyFinancials(d, '2816464');
     expect((res as { value: { trajectory: unknown } }).value.trajectory).toBeNull();
+  });
+});
+
+describe('makeCompanyFinancialQualityFlags', () => {
+  it('normalizes the CUI and returns the repo flags (advisory, warn-only)', async () => {
+    const flags = [
+      {
+        year: 2024,
+        flagCode: 'negative_where_unexpected',
+        metricName: 'turnover',
+        severity: 'warning',
+        numericValue: '-1200.00',
+        thresholdValue: '0.00',
+      },
+    ];
+    const getFinancialQualityFlags = vi.fn(async () => ok(flags));
+    const d = deps({ repo: { getFinancialQualityFlags: getFinancialQualityFlags } });
+    const res = await makeCompanyFinancialQualityFlags(d, 'RO2816464');
+    expect(res.isOk()).toBe(true);
+    expect(res._unsafeUnwrap()).toEqual(flags);
+    // the repo must receive the NORMALIZED cui, same contract as every per-CUI path
+    expect(getFinancialQualityFlags).toHaveBeenCalledWith('2816464');
+  });
+
+  it('rejects an invalid CUI without touching the repo', async () => {
+    const getFinancialQualityFlags = vi.fn();
+    const d = deps({ repo: { getFinancialQualityFlags: getFinancialQualityFlags as never } });
+    const res = await makeCompanyFinancialQualityFlags(d, 'not-a-cui');
+    expect(res.isErr()).toBe(true);
+    expect((res as { error: ApiError }).error.type).toBe('InvalidInput');
+    expect(getFinancialQualityFlags).not.toHaveBeenCalled();
   });
 });
 
@@ -436,6 +469,7 @@ describe('withheld identifiers (>10 digits, CNP-shaped — P0 containment 2026-0
       await makeCompanyProfileData(d, WITHHELD_13),
       await makeCompanyFinancials(d, WITHHELD_11),
       await makeCompanyPublicMoney(d, WITHHELD_13),
+      await makeCompanyFinancialQualityFlags(d, WITHHELD_13),
     ];
     for (const res of results) {
       expect(res.isErr()).toBe(true);
