@@ -4,10 +4,11 @@
  *
  * WHY THIS IS A SHARED MODULE AND NOT THREE COPIES. The containment predicate
  * already existed, correct and carefully reasoned, inside `searchEntities` —
- * and three sibling read paths over the SAME table had no filter at all:
- * `countByCui`, `fallbackTextSearch`, and the whole of `document-repo`. A rule
- * that lives in the body of one query protects that query. Copying it into four
- * would protect four until someone edits one of them.
+ * and sibling read paths over the SAME table had no filter at all:
+ * `countByCui`, the whole of `document-repo`, and the since-removed
+ * `fallbackTextSearch`. A rule that lives in the body of one query protects
+ * that query. Copying it around would protect each copy until someone edits
+ * one of them.
  *
  * THE DESIGN THIS IMPLEMENTS is deliberately two-layer, and both layers are
  * load-bearing:
@@ -56,9 +57,21 @@ export const servableIdentifierSetSql = sql<boolean>`(
   )
 )`;
 
-/** Rows that are published and not tombstoned. */
+/**
+ * Rows that are published, not tombstoned, and public-classed.
+ *
+ * `privacy_class` was added here 2026-08-25 (panel Q5): the Meili engine pins
+ * `privacy_class = "public"` on every query, but the pg paths pinned only
+ * `visibility` — and the two columns DISAGREE on 117,688 rows (measured live:
+ * `visibility='public'` AND `privacy_class='restricted'`, the P0A CNP-keyed
+ * companies). Those rows were contained only by `servableIdentifierSetSql`
+ * plus loader-side fail-closed writes — construction, not a pinned predicate.
+ * Pinning both makes every pg read default-deny on `restricted`, matching the
+ * engine (B012 server follow-up). Strictly narrowing: 0 non-public rows exist
+ * outside the CNP set today.
+ */
 export const servableDocumentRowSql = sql<boolean>`(
-  visibility = 'public' and deleted_at is null
+  visibility = 'public' and deleted_at is null and privacy_class = 'public'
 )`;
 
 /**

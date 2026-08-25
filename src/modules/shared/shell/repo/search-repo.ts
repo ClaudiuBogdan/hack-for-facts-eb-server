@@ -48,45 +48,9 @@ export const makeSearchRepo = (db: Db): SearchRepo => ({
     }
   },
 
-  async fallbackTextSearch(
-    q: string,
-    docTypes: readonly string[],
-    limit: number
-  ): Promise<Result<readonly SearchHit[], ApiError>> {
-    const trimmed = q.trim();
-    if (trimmed === '') return ok([]);
-    const capped = Math.min(Math.max(limit, 1), 50);
-    const escapedRaw = trimmed.replace(/[%_\\]/gu, '\\$&');
-    try {
-      // `search.documents.title` is NOT folded → match the RAW query so
-      // diacritic titles are found (this is the engines-down fallback). §15.7.
-      let query = db
-        .selectFrom('search.documents')
-        .select(['doc_id', 'doc_type', 'title', 'body', 'attrs'])
-        .where(sql<boolean>`title ilike ${'%' + escapedRaw + '%'} escape '\\'`)
-        // The engines-down path had no visibility, tombstone or containment
-        // filter at all — so while Meili was unavailable it was the one surface
-        // that would return a withheld-keyed document by title match.
-        .where(servableDocumentRowSql)
-        .where(servableIdentifierSetSql);
-      if (docTypes.length > 0) query = query.where('doc_type', 'in', [...docTypes]);
-
-      const rows = await query.limit(capped).execute();
-      return ok(
-        rows.map((r): SearchHit => ({
-          id: r.doc_id,
-          docType: r.doc_type,
-          title: r.title,
-          snippet: r.body !== null ? r.body.slice(0, 200) : null,
-          score: null,
-          source: 'postgres',
-          attrs: r.attrs,
-        }))
-      );
-    } catch (error) {
-      return err(databaseError('fallbackTextSearch failed', error));
-    }
-  },
+  // `fallbackTextSearch` removed 2026-08-25 (SEARCH_LAYER_REVIEW D9): no
+  // production caller, and its e2e test documented that it did NOT pin
+  // visibility — weaker privacy than the live `searchEntities` sibling.
 
   async searchEntities(
     q: string,
@@ -143,8 +107,12 @@ export const makeSearchRepo = (db: Db): SearchRepo => ({
           return eb.or(ors);
         })
         .where('doc_type', 'in', allowlist)
-        .where('visibility', '=', 'public')
-        .where('deleted_at', 'is', null)
+        // The SHARED row predicate — visibility + tombstone + privacy_class —
+        // rather than inline copies: the Meili engine pins privacy_class on
+        // every query, and the two engines must answer with the same
+        // population (panel Q5: 117,688 rows are visibility='public' yet
+        // privacy_class='restricted').
+        .where(servableDocumentRowSql)
         // P0 containment on the DEGRADED path. `search.documents` still carries
         // 117,688 `company` docs keyed by a CNP-shaped CUI (the projection purge
         // is a pending data-layer task), and `visibility='public'` does not

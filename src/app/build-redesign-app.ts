@@ -440,6 +440,9 @@ export const registerRedesignSurface = async (
       registry: kernel.contributors,
       flowsRepo: kernel.flowsRepo,
       meili: kernel.clients.meiliClient,
+      // Same resolution as the kernel's global search (global-search.ts):
+      // first configured index, `entities` by default.
+      meiliEntitiesIndex: deps.kernelConfig.meiliIndexes?.[0] ?? 'entities',
       ...(deps.clientBaseUrl !== undefined && { clientBaseUrl: deps.clientBaseUrl }),
     });
     kernel.contributors.register(companies.contributor);

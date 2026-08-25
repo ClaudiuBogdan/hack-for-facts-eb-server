@@ -23,6 +23,7 @@
 import { sql, type Kysely, type RawBuilder, type SqlBool } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
+import { buildEntitiesFilter } from '@/modules/shared/core/filters/index.js';
 import {
   MAX_SERVED_CUI_DIGITS,
   databaseError,
@@ -317,7 +318,23 @@ interface FlagCoverage {
   readonly assessed_at: string | null;
 }
 
-export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
+export interface CompaniesRepoOptions {
+  /**
+   * The Meili index for name resolution — the kernel-configured palette index
+   * (`PROD_MEILI_INDEXES[0]`, default `entities`). The previous hardcoded
+   * `['organizations','companies']` pair named indexes retired with the
+   * palette cutover; multiSearch answered ok-with-empty-hits on their absence,
+   * so every resolve silently took the pg fallback with no log and no
+   * degraded signal (SEARCH_LAYER_REVIEW_2026-08-25.md F11).
+   */
+  readonly meiliEntitiesIndex?: string;
+}
+
+export const makeCompaniesRepo = (
+  db: Db,
+  repoOptions: CompaniesRepoOptions = {}
+): CompaniesRepository => {
+  const meiliEntitiesIndex = repoOptions.meiliEntitiesIndex ?? 'entities';
   // The quality-flag coverage triple is CUI-invariant (a corpus-wide constant),
   // so recomputing it per request would heap-scan the whole flags table on every
   // profile view — and that table grows on the next derive run. Memoized with a
@@ -708,24 +725,31 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
     meili: MeiliClient | null
   ): Promise<Result<{ hits: readonly CompanyNameHit[]; degraded: boolean }, ApiError>> => {
     const capped = Math.min(Math.max(Math.floor(limit), 1), 50);
-    // PRIMARY: Meili (company/organizations index). Degrade silently to pg on any error.
+    // PRIMARY: the palette index, filtered to identities that play the
+    // `company` ROLE. `roles` rather than `doc_type`: the palette collapses
+    // one document per identity, so a CUI that is also a public entity
+    // presents as `organization` — the role filter still finds it, and the
+    // kind='company' validation below keeps the §link-not-merge contract.
+    // The filter builder always pins privacy_class = "public".
     if (meili !== null) {
-      const m = await meili.multiSearch(q, ['organizations', 'companies'], capped);
+      const m = await meili.searchEntities(q, meiliEntitiesIndex, {
+        filter: buildEntitiesFilter({ roles: ['company'] }),
+        limit: capped,
+      });
       if (m.isOk()) {
         // Collect candidate CUIs (ordered by Meili score), then VALIDATE them
-        // against core.organizations(kind='company') — the shared `organizations`
-        // index also carries public entities, so a raw Meili hit may be a
-        // non-company CUI (§link-not-merge: we only resolve to companies here).
+        // against core.organizations(kind='company').
         const ordered: { cui: string; label: string; score: number | null }[] = [];
         const seen = new Set<string>();
-        for (const result of m.value) {
-          for (const hit of result.hits) {
-            const cui =
-              typeof hit.attrs['cui'] === 'string' ? normalizeCui(hit.attrs['cui']) : null;
-            if (cui === null || seen.has(cui)) continue;
-            seen.add(cui);
-            ordered.push({ cui, label: hit.title, score: hit.score });
-          }
+        for (const hit of m.value.hits) {
+          // Palette docs key CUI identities by doc_key (= the CUI); `cuis` is
+          // the mapper-derived all-numeric identifier subset. No `attrs.cui`
+          // exists on palette docs — that was the retired per-source shape.
+          const raw = hit.docKey ?? hit.cuis?.[0];
+          const cui = typeof raw === 'string' ? normalizeCui(raw) : null;
+          if (cui === null || seen.has(cui)) continue;
+          seen.add(cui);
+          ordered.push({ cui, label: hit.title, score: hit.score });
         }
         if (ordered.length > 0) {
           const valid = await db
@@ -755,7 +779,7 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
             }));
           if (hits.length > 0) return ok({ hits, degraded: false });
         }
-        // Meili reachable but no company hit (e.g. company index not built yet) → pg fallback.
+        // Meili reachable but no company-role hit for this query → pg fallback.
       }
     }
     // DEGRADED fallback: capped, kind='company'-scoped, TS diacritic fold. No unaccent,

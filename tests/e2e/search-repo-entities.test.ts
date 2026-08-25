@@ -376,30 +376,8 @@ describe('countByCui (e2e)', () => {
   });
 });
 
-describe('fallbackTextSearch (e2e)', () => {
-  it('matches the RAW (diacritic-preserving) title and slices the body snippet', async () => {
-    if (!dockerAvailable) return;
-    const res = await repo!.fallbackTextSearch('Industrial', [], 50);
-    const hits = res._unsafeUnwrap();
-    const hit = hits.find((h) => h.id === 'company:1');
-    expect(hit).toBeDefined();
-    expect(hit!.source).toBe('postgres');
-    expect(hit!.snippet).toBe('manufacturer of widgets');
-  });
-
-  it('narrows by docTypes (no NOT engine-grade gate — this is the raw fallback)', async () => {
-    if (!dockerAvailable) return;
-    // Unlike searchEntities, fallbackTextSearch does NOT pin visibility — it is
-    // the engines-down path. Restricting docTypes still narrows the rows.
-    const res = await repo!.fallbackTextSearch('ACME', ['judicial_case'], 50);
-    expect(res._unsafeUnwrap().map((h) => h.id)).toEqual(['judicial_case:1']);
-  });
-
-  it('returns [] for an empty query', async () => {
-    if (!dockerAvailable) return;
-    expect((await repo!.fallbackTextSearch('  ', [], 50))._unsafeUnwrap()).toEqual([]);
-  });
-});
+// The `fallbackTextSearch (e2e)` suite was removed with the method
+// (2026-08-25): it had no production caller and did not pin visibility.
 
 describe('the withheld-identifier gate, on every read path over search.documents', () => {
   it('searchEntities drops a document keyed ONLY to a person', async () => {
@@ -434,14 +412,8 @@ describe('the withheld-identifier gate, on every read path over search.documents
     expect(result?._unsafeUnwrap()).toBe(1);
   });
 
-  it('fallbackTextSearch drops the withheld-only document', async () => {
-    // The engines-down path: the ONE surface that answers while Meili is down.
-    const result = await repo?.fallbackTextSearch('acme', [], 50);
-    const hitIds = (result?._unsafeUnwrap() ?? []).map((h) => h.id);
-    expect(hitIds).not.toContain('company:7');
-    expect(hitIds).not.toContain('company:6');
-    expect(hitIds).toContain('company:1');
-  });
+  // The fallbackTextSearch withheld-gate case was removed with the method
+  // (2026-08-25); searchEntities carries the equivalent assertion above.
 
   it('documentRepo.findById refuses the withheld-only document', async () => {
     const repoDocs = makeDocumentRepo(db!);

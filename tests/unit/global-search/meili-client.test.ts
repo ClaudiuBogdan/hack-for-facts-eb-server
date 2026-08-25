@@ -6,9 +6,8 @@
  * passthrough, NO `attributesToHighlight`), the degrade signal (any non-OK
  * response — including an `index_not_found` body — surfaces as `err`), and the
  * hit mapping (subtitle→snippet, _rankingScore→score, doc_type from the doc,
- * `attrs` = the WHOLE raw hit, tolerant of missing fields). A legacy
- * `multiSearch` test pins that mapHit still puts the whole hit in `attrs` so
- * companies-repo (which reads `hit.attrs['cui']`) never regresses.
+ * `attrs` = the WHOLE raw hit, tolerant of missing fields — including the
+ * retired per-source doc shape, pinned through the live method).
  */
 
 import { fromThrowable } from 'neverthrow';
@@ -254,79 +253,30 @@ describe('searchEntities — mapHit', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Legacy multiSearch regression — companies-repo reads hit.attrs['cui']
+// Retired-shape tolerance — mapHit through searchEntities
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('multiSearch — mapHit keeps the whole hit in attrs (companies-repo contract)', () => {
-  it('exposes the raw hit (incl. cui) under attrs so companies-repo can read it', async () => {
+describe('searchEntities — retired per-source doc shape tolerance', () => {
+  // multiSearch and its suite were removed 2026-08-26 (zero production
+  // callers after the companies-repo re-point). mapHit deliberately still
+  // tolerates the retired shape (body, no doc_type, cuis) so a mispointed
+  // index degrades to partial hits rather than throwing — pinned here through
+  // the live method.
+  it('maps a retired-shape doc: attrs carries the raw hit, docType falls back to the index uid', async () => {
     fetchSpy.mockResolvedValue(
       jsonResponse({
-        results: [
-          {
-            indexUid: 'organizations',
-            hits: [{ id: 'org:1', name: 'ACME', cui: '42' }],
-            estimatedTotalHits: 1,
-          },
-        ],
+        hits: [{ id: 'org:1', name: 'ACME', cui: '42', body: 'a body' }],
+        estimatedTotalHits: 1,
       })
     );
 
-    const res = await client.multiSearch('acme', ['organizations'], 10);
-    const value = res._unsafeUnwrap();
-    const hit = value[0]!.hits[0]!;
+    const res = await client.searchEntities('acme', 'organizations', { limit: 10 });
+    const hit = res._unsafeUnwrap().hits[0]!;
 
     expect(hit.attrs['cui']).toBe('42');
-    expect(hit.docType).toBe('organizations'); // no doc_type on the legacy doc → index uid
-    expect(value[0]!.totalHits).toBe(1);
-  });
-
-  it('returns ok([]) for no indexes without calling fetch', async () => {
-    const res = await client.multiSearch('acme', [], 10);
-    expect(res._unsafeUnwrap()).toEqual([]);
-    expect(fetchSpy).not.toHaveBeenCalled();
-  });
-
-  it('falls back to per-index search when multi-search reports index_not_found', async () => {
-    fetchSpy
-      // 1) /multi-search → 404 index_not_found
-      .mockResolvedValueOnce(errorResponse(404, '{"code":"index_not_found"}'))
-      // 2) per-index /indexes/organizations/search → ok with a hit
-      .mockResolvedValueOnce(
-        jsonResponse({ hits: [{ id: 'org:1', cui: '42' }], estimatedTotalHits: 1 })
-      )
-      // 3) per-index /indexes/companies/search → non-OK → empty bucket (no throw)
-      .mockResolvedValueOnce(errorResponse(500, 'boom'));
-
-    const res = await client.multiSearch('acme', ['organizations', 'companies'], 5);
-    const value = res._unsafeUnwrap();
-
-    expect(fetchSpy).toHaveBeenCalledTimes(3);
-    expect(value).toHaveLength(2);
-    expect(value[0]!.hits[0]!.attrs['cui']).toBe('42');
-    expect(value[1]!.hits).toEqual([]); // failed index degrades to an empty bucket
-  });
-
-  it('surfaces a non-OK multi-search (not index_not_found) as an err', async () => {
-    fetchSpy.mockResolvedValue(errorResponse(502, 'bad gateway'));
-    const res = await client.multiSearch('acme', ['organizations'], 5);
-    expect(res.isErr()).toBe(true);
-    expect(res._unsafeUnwrapErr().type).toBe('Upstream');
-  });
-
-  it('surfaces a thrown multi-search fetch as an err', async () => {
-    fetchSpy.mockRejectedValue(new Error('network down'));
-    const res = await client.multiSearch('acme', ['organizations'], 5);
-    expect(res.isErr()).toBe(true);
-    expect(res._unsafeUnwrapErr().type).toBe('Upstream');
-  });
-
-  it('returns an empty bucket (no throw) when a per-index fallback fetch throws', async () => {
-    fetchSpy
-      .mockResolvedValueOnce(errorResponse(404, 'index_not_found'))
-      .mockRejectedValueOnce(new Error('per-index network drop'));
-
-    const res = await client.multiSearch('acme', ['organizations'], 5);
-    expect(res._unsafeUnwrap()).toEqual([{ index: 'organizations', hits: [], totalHits: 0 }]);
+    expect(hit.docType).toBe('organizations'); // no doc_type on the doc → index uid
+    expect(hit.title).toBe('ACME'); // name fallback
+    expect(hit.snippet).toBe('a body'); // body fallback when no subtitle
   });
 });
 

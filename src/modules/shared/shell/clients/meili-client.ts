@@ -1,22 +1,22 @@
 /**
  * Shared Kernel — Meilisearch client (foundation §4.6).
  *
- * Native-fetch multi-search for instant entity-name / prefix autocomplete.
- * Falls back to per-index search when an index is missing. Failures are
- * `Upstream` errors so the global-search usecase can degrade to pg.
+ * Native-fetch single-index search over the palette `entities` index for
+ * instant entity-name / identifier autocomplete. Failures — including a
+ * missing/corrupt index — are `Upstream` errors so the global-search usecase
+ * can degrade to pg.
  */
 
 import { ok, err, type Result } from 'neverthrow';
 
 import { upstreamError, type ApiError } from '../../core/errors.js';
 
-import type { EntitiesSearchResult, MeiliClient, MeiliSearchResult } from '../../core/ports.js';
+import type { EntitiesSearchResult, MeiliClient } from '../../core/ports.js';
 import type { SearchHit } from '../../core/types.js';
 
 export interface MeiliClientConfig {
   readonly host: string;
   readonly apiKey: string;
-  readonly timeoutMs?: number;
 }
 
 /** Palette budget for the single-index `entities` search (tighter than the 5s default). */
@@ -26,10 +26,12 @@ const asString = (value: unknown): string | undefined =>
   typeof value === 'string' ? value : undefined;
 
 /**
- * Map one raw Meili hit to a `SearchHit`. Serves BOTH the legacy `multiSearch`
- * path (docs carry `body`, no `doc_type`) and the `entities` path (docs carry
- * `subtitle`, `doc_type`, and the entity projection fields). Everything beyond
- * the core contract is optional — missing fields are simply omitted.
+ * Map one raw Meili hit to a `SearchHit`. Tolerates BOTH the palette `entities`
+ * shape (docs carry `subtitle`, `doc_type`, and the entity projection fields)
+ * and the retired per-source shape (docs carried `body`, no `doc_type`) —
+ * the tolerance stays so a mispointed index degrades to partial hits rather
+ * than throwing. Everything beyond the core contract is optional — missing
+ * fields are simply omitted.
  */
 const mapHit = (h: Record<string, unknown>, indexUid: string): SearchHit => {
   const id = h['id'] ?? h['doc_id'] ?? '';
@@ -78,91 +80,11 @@ const mapHit = (h: Record<string, unknown>, indexUid: string): SearchHit => {
 };
 
 export const makeMeiliClient = (config: MeiliClientConfig): MeiliClient => {
-  const timeout = config.timeoutMs ?? 5000;
-
-  const searchIndividually = async (
-    q: string,
-    indexes: readonly string[],
-    limit: number
-  ): Promise<readonly MeiliSearchResult[]> => {
-    const results: MeiliSearchResult[] = [];
-    for (const indexUid of indexes) {
-      try {
-        const resp = await fetch(`${config.host}/indexes/${indexUid}/search`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${config.apiKey}`,
-          },
-          body: JSON.stringify({ q, limit }),
-          signal: AbortSignal.timeout(timeout),
-        });
-        if (!resp.ok) {
-          results.push({ index: indexUid, hits: [], totalHits: 0 });
-          continue;
-        }
-        const data = (await resp.json()) as {
-          hits: Record<string, unknown>[];
-          estimatedTotalHits?: number;
-        };
-        results.push({
-          index: indexUid,
-          hits: data.hits.map((h) => mapHit(h, indexUid)),
-          totalHits: data.estimatedTotalHits ?? data.hits.length,
-        });
-      } catch {
-        results.push({ index: indexUid, hits: [], totalHits: 0 });
-      }
-    }
-    return results;
-  };
-
+  // `multiSearch`/`searchIndividually` (and the `timeoutMs` config) were
+  // removed 2026-08-26 with the port entry — zero production callers after
+  // the companies-repo re-point (D9). `searchEntities` keeps its own tight
+  // 1s budget; the health check its 3s.
   return {
-    async multiSearch(
-      q: string,
-      indexes: readonly string[],
-      limit: number
-    ): Promise<Result<readonly MeiliSearchResult[], ApiError>> {
-      if (indexes.length === 0) return ok([]);
-      try {
-        const resp = await fetch(`${config.host}/multi-search`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${config.apiKey}`,
-          },
-          body: JSON.stringify({ queries: indexes.map((indexUid) => ({ indexUid, q, limit })) }),
-          signal: AbortSignal.timeout(timeout),
-        });
-
-        if (!resp.ok) {
-          const text = await resp.text().catch(() => '');
-          if (text.includes('index_not_found')) {
-            return ok(await searchIndividually(q, indexes, limit));
-          }
-          return err(upstreamError(`meilisearch ${String(resp.status)}: ${text}`, 'meilisearch'));
-        }
-
-        const data = (await resp.json()) as {
-          results: {
-            indexUid: string;
-            hits: Record<string, unknown>[];
-            estimatedTotalHits?: number;
-          }[];
-        };
-        return ok(
-          data.results.map((r) => ({
-            index: r.indexUid,
-            hits: r.hits.map((h) => mapHit(h, r.indexUid)),
-            totalHits: r.estimatedTotalHits ?? r.hits.length,
-          }))
-        );
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : 'unknown error';
-        return err(upstreamError(`meilisearch request failed: ${msg}`, 'meilisearch', error));
-      }
-    },
-
     async searchEntities(
       q: string,
       index: string,

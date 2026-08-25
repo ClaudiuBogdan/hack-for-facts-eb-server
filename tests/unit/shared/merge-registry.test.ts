@@ -128,7 +128,6 @@ const makeDeps = (presences: (SourcePresence | null)[]): Entity360Deps => {
     },
     searchRepo: {
       countByCui: () => Promise.resolve(ok(7)),
-      fallbackTextSearch: () => Promise.resolve(ok([])),
       searchEntities: () => Promise.resolve(ok([])),
     },
     registry,
