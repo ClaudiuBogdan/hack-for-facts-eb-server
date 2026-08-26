@@ -35,9 +35,14 @@ export interface TldfRun {
   readonly span: TldfSpan;
   readonly role?: TldfRunRole;
   readonly sep?: TldfSep;
+  /**
+   * Own-extent source strike of the ROLE node this run was folded from
+   * (v1.1 source-state amendment, 2026-08-26). Omitted = none.
+   */
+  readonly struck?: 'partial' | 'full';
 }
 
-/** Closed kind enum (schema $defs.kind — no 'tabel' in v1). */
+/** Closed kind enum (schema $defs.kind), v1.1: 23 v1.0 kinds + the six presentation families. */
 export const TLDF_KIND_VALUES = [
   'articol',
   'alineat',
@@ -62,6 +67,12 @@ export const TLDF_KIND_VALUES = [
   'semnatura',
   'paragraf',
   'citat',
+  'tabel',
+  'rand',
+  'celula',
+  'imagine',
+  'lista',
+  'element_lista',
 ] as const;
 export type TldfKind = (typeof TLDF_KIND_VALUES)[number];
 
@@ -82,11 +93,49 @@ export interface TldfBlock {
   readonly origin?: TldfOrigin;
   /** Presentation nesting by hull containment, never legal structure. */
   readonly placement?: 'positional';
+  /** CEL only; absent is the canonical 1×1 encoding (v1.1). */
+  readonly grid?: TldfGrid;
+  /** IMG/imagine only; source provenance, never a store locator (v1.1). */
+  readonly asset?: TldfAsset;
+  /**
+   * Own-extent source strike (v1.1 source-state amendment, 2026-08-26).
+   * Omitted = none. 'full' is the only carrier for zero-text nodes; 'partial'
+   * pairs with exact 'struck' marks. Source structure, never a rendering
+   * verdict, and a strike alone asserts NO legal state.
+   */
+  readonly struck?: 'partial' | 'full';
+  /**
+   * Present iff the narrow legal rule validated the strike as repealed
+   * apparatus (balanced literal s over span.S_PAR in a consolidation).
+   */
+  readonly struck_repealed?: true;
+  /** Amendment apparatus; omitted = not detected (NOT the same as operative). */
+  readonly annotation_role?: 'amendment_note';
+  /**
+   * Consolidated colour state; emitted for BOTH true and false, omitted only
+   * for the no-effective-colour observation.
+   */
+  readonly changed_since_base_form?: boolean;
   readonly content: readonly TldfRun[];
   readonly children?: readonly TldfBlock[];
 }
 
-export type TldfMarkKind = 'reference' | 'legal_ref' | 'ref';
+/** Source colspan/rowspan, bounded by the serving smallint contract (v1.1). */
+export interface TldfGrid {
+  readonly cols: number;
+  readonly rows: number;
+}
+
+/** Served image description — content identity and dimensions, no locator. */
+export interface TldfAsset {
+  readonly sha256?: string;
+  readonly width?: number;
+  readonly height?: number;
+  readonly alt?: string;
+}
+
+export type TldfMarkKind =
+  'reference' | 'legal_ref' | 'ref' | 'italic' | 'underline' | 'bold' | 'struck';
 export type TldfLinkKind = 'act' | 'act_missing_id' | 'external' | 'internal';
 
 export type TldfResolutionState =
@@ -140,7 +189,7 @@ export interface TldfGeneration {
 
 export interface TldfEnvelope {
   readonly format: 'tldf';
-  readonly format_version: '1.0';
+  readonly format_version: '1.0' | '1.1';
   readonly compiler_version: string;
   readonly document_id: string;
   readonly generation: TldfGeneration;
