@@ -157,10 +157,12 @@ jobs:
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v "${{ github.workspace }}/.trivycache:/root/.cache/" \
+            -v "${{ github.workspace }}/.trivyignore:/.trivyignore:ro" \
             aquasec/trivy:0.69.1 image \
             --format table \
             --exit-code 1 \
             --ignore-unfixed \
+            --ignorefile /.trivyignore \
             --vuln-type os,library \
             --severity CRITICAL,HIGH \
             "${{ env.DOCKER_REGISTRY }}/hack-for-facts-eb-server:${{ github.sha }}"

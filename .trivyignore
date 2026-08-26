@@ -1,0 +1,8 @@
+# Time-boxed acceptances only — every entry needs a reason and an expiry.
+
+# OpenSSL unbounded memory growth in QUIC (libssl3t64 3.5.6-1~deb13u2).
+# Debian shipped the fix (3.5.7-1~deb13u2) but gcr.io/distroless/nodejs24-debian13
+# has not rebuilt on it yet (digest checked 2026-08-26). Node links its own
+# OpenSSL statically and the server does not speak QUIC, so the vulnerable
+# shared lib is not on any request path. Re-check the base digest before expiry.
+CVE-2026-14456 exp:2026-09-30
