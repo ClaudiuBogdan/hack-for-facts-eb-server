@@ -218,7 +218,9 @@ export const makeLegalActsRepo = (db: Db): LegalActsRepo => {
         .where('ck.act_number', '=', k.actNumber)
         .where('ck.act_year', '=', k.actYear)
         .where('ck.issuer_slug', '=', k.issuerSlug)
+        // Same tie as the other in_degree orderings: 79.7% of acts sit at 0.
         .orderBy('a.in_degree', 'desc')
+        .orderBy('a.act_id', 'asc')
         .limit(25)
         .execute();
       return ok(rows.map((r) => mapAct(r as unknown as ActRow)));
@@ -296,7 +298,13 @@ export const makeLegalActsRepo = (db: Db): LegalActsRepo => {
       const aliasRows = await selectActs()
         .innerJoin('legal.act_aliases as al', 'al.act_id', 'a.act_id')
         .where('al.alias', '=', citation.toLowerCase())
+        // The alias path ties HARDEST. Measured: 15 aliases resolve to several
+        // acts at an identical in_degree, including codul civil (6774 vs 33630),
+        // codul penal, and codul muncii (three acts, all at 0). Without a
+        // tiebreak, legalAct(citation:"codul muncii") can answer with a
+        // different act between two identical calls.
         .orderBy('a.in_degree', 'desc')
+        .orderBy('a.act_id', 'asc')
         .limit(25)
         .execute();
       if (aliasRows.length > 0) return ok(aliasRows.map((r) => mapAct(r as unknown as ActRow)));

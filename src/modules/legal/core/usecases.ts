@@ -262,6 +262,9 @@ const LEGAL_EVENT_SOURCES: readonly LegalEventSource[] = ['portal', 'monitorul-o
  * binding a text input to `kinds` would serve the entire corpus the moment the
  * user typed a space.
  */
+/** Mirrors the repo's page clamp so the refusal is visible to the caller. */
+const MAX_RECENT_CHANGES_PAGE = 100;
+
 /** Upper bound on `kinds`; the table holds 12 distinct event kinds. */
 const MAX_RECENT_CHANGE_KINDS = 64;
 
@@ -319,6 +322,15 @@ export const getRecentChanges = async (
   repo: LegalActsRepo,
   q: LegalRecentChangesQuery
 ): Promise<Result<CursorPage<LegalRecentChange>, ApiError>> => {
+  // REFUSE an over-large page rather than silently serving a smaller one. The
+  // repo clamps to 100, so `first: 500` used to return 100 through GraphQL
+  // while the MCP zod schema refused the same value outright — one surface
+  // quietly truncating and the other rejecting. This is the same reasoning
+  // applied to `topN` and to `kinds`: a bound the caller cannot see is a bound
+  // the caller will misread.
+  if (q.page.first > MAX_RECENT_CHANGES_PAGE) {
+    return err(invalidInput(`'first' accepts at most ${String(MAX_RECENT_CHANGES_PAGE)}`, 'first'));
+  }
   const norm = normalizeRecentChangesFilter(q);
   if (norm.isErr()) return err(norm.error);
   return repo.listRecentChanges({ ...norm.value, page: q.page });
