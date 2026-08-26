@@ -370,6 +370,24 @@ describe('normalizeRecentChangesFilter', () => {
     expect(norm._unsafeUnwrap()).toEqual({ kinds: ['abrogare-totala', 'modificare'] });
   });
 
+  it('CAPS kinds at 64, refusing rather than failing as a masked internal error', () => {
+    // Nothing upstream bounds the list: the SDL types it [String!] and the MCP
+    // schema z.array(z.string()), and every entry becomes a bind parameter. Past
+    // PostgreSQL's 65,535-parameter protocol limit the query dies as a masked
+    // "Internal server error" instead of a clear refusal, so the boundary is
+    // enforced here. 64 is far above real use — the table holds 12 kinds.
+    const at = normalizeRecentChangesFilter({
+      kinds: Array.from({ length: 64 }, (_, i) => `k${String(i)}`),
+    });
+    expect(at.isOk()).toBe(true);
+
+    const over = normalizeRecentChangesFilter({
+      kinds: Array.from({ length: 65 }, (_, i) => `k${String(i)}`),
+    });
+    expect(over.isErr()).toBe(true);
+    expect(over.isErr() && over.error.message).toContain('at most 64');
+  });
+
   it('REJECTS an explicit empty or blank-only kinds — never widened to the whole corpus', () => {
     // kernel filters read `in: []` as "match nothing"; silently reading [] as
     // "match everything" here would give one API two opposite emptinesses, and

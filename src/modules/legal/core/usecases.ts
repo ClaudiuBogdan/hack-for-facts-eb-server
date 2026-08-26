@@ -262,6 +262,9 @@ const LEGAL_EVENT_SOURCES: readonly LegalEventSource[] = ['portal', 'monitorul-o
  * binding a text input to `kinds` would serve the entire corpus the moment the
  * user typed a space.
  */
+/** Upper bound on `kinds`; the table holds 12 distinct event kinds. */
+const MAX_RECENT_CHANGE_KINDS = 64;
+
 export const normalizeRecentChangesFilter = (
   f: LegalRecentChangesFilter
 ): Result<LegalRecentChangesFilter, ApiError> => {
@@ -272,6 +275,17 @@ export const normalizeRecentChangesFilter = (
   let kinds: readonly string[] | undefined;
   if (f.kinds !== undefined) {
     const cleaned = [...new Set(f.kinds.map((k) => k.trim()).filter((k) => k !== ''))].sort();
+    // A cap, because nothing upstream imposes one. The SDL types this as
+    // [String!] and the MCP zod schema as z.array(z.string()), so a caller can
+    // send an arbitrarily long list; each entry becomes a bind parameter, and
+    // past PostgreSQL's 65,535-parameter protocol limit the query fails as a
+    // masked internal error rather than a clear refusal. 64 is far above any
+    // real use: the table holds 12 distinct event kinds.
+    if (cleaned.length > MAX_RECENT_CHANGE_KINDS) {
+      return err(
+        invalidInput(`'kinds' accepts at most ${String(MAX_RECENT_CHANGE_KINDS)} values`, 'kinds')
+      );
+    }
     if (cleaned.length === 0) {
       return err(
         invalidInput("'kinds' must name at least one event kind; omit it for all kinds", 'kinds')
