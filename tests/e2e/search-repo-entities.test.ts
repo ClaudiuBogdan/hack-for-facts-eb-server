@@ -1,20 +1,20 @@
 /**
- * E2E — `makeSearchRepo(db).searchEntities(...)` against a real Postgres
+ * E2E — `makeSearchRepo(db)` against a real Postgres
  * (testcontainer) with a minimal `search.documents` table.
  *
  * The shared e2e setup (`tests/e2e/setup.ts`) starts the LEGACY budget/user
  * schema container, which has no `search.*` schema. This repo is part of the
  * prod serving DB, so the test stands up its OWN container with just the columns
- * `searchEntities` reads — matching `SearchDocuments` in
+ * these reads touch — matching `SearchDocuments` in
  * `src/modules/shared/shell/db/types.ts`.
  *
  * Docker-guarded: when Docker is unavailable the suite SKIPS cleanly (the shared
  * setup-file pattern), never fails.
  *
- * Covers the visibility/tombstone/allowlist gate, ILIKE on title/body/doc_id,
- * the all-digits EXACT cui match (matches a row whose title does NOT contain the
- * digits), county + year (year via `extract(year from doc_date)`) filters, the
- * all-invalid-docTypes empty short-circuit, and the limit cap.
+ * Covers `countByCui` and the withheld-identifier gate across every remaining
+ * read path over `search.documents`. The `searchEntities` suites were removed
+ * with the method itself on 2026-08-26 (SEARCH_LAYER_REVIEW_2026-08-25.md D5) —
+ * the outage path no longer reads this table.
  */
 
 import { execSync } from 'node:child_process';
@@ -236,132 +236,6 @@ afterAll(async () => {
   if (container !== undefined) await container.stop();
 });
 
-const ids = (hits: readonly { id: string }[]): string[] => hits.map((h) => h.id).sort();
-
-describe('searchEntities (e2e) — visibility / tombstone / allowlist gate', () => {
-  it('returns only public, non-deleted, entity-grade rows that match', async () => {
-    if (!dockerAvailable) return;
-    const res = await repo!.searchEntities('acme', { limit: 50 });
-    expect(res.isOk()).toBe(true);
-    const got = ids(res._unsafeUnwrap());
-
-    // company:1 (title+body), company:3 (title), company:5 (body).
-    // company:8 is the dual-keyed public act added for the privacy cases: it
-    // matches "acme" on its title and legitimately survives the row rule.
-    expect(got).toEqual(['company:1', 'company:3', 'company:5', 'company:8']);
-    // restricted (company:2), judicial_case:1, tombstoned (company:6) excluded.
-    expect(got).not.toContain('company:2');
-    expect(got).not.toContain('judicial_case:1');
-    expect(got).not.toContain('company:6');
-  });
-
-  it('excludes a restricted row even when it matches the query', async () => {
-    if (!dockerAvailable) return;
-    const res = await repo!.searchEntities('Hidden', { limit: 50 });
-    expect(res._unsafeUnwrap()).toEqual([]);
-  });
-
-  it('excludes a non-entity doc_type (judicial_case)', async () => {
-    if (!dockerAvailable) return;
-    const res = await repo!.searchEntities('litigation', { limit: 50 });
-    expect(res._unsafeUnwrap()).toEqual([]);
-  });
-});
-
-describe('searchEntities (e2e) — docTypes narrowing', () => {
-  it('restricts to a requested valid doc type', async () => {
-    if (!dockerAvailable) return;
-    const res = await repo!.searchEntities('acme', { docTypes: ['company'], limit: 50 });
-    // company:8 is the dual-keyed public act added for the privacy cases: it
-    // matches "acme" on its title and legitimately survives the row rule.
-    expect(ids(res._unsafeUnwrap())).toEqual(['company:1', 'company:3', 'company:5', 'company:8']);
-  });
-
-  it('returns [] when every requested docType is invalid (all-invalid short-circuit)', async () => {
-    if (!dockerAvailable) return;
-    const res = await repo!.searchEntities('acme', { docTypes: ['not_a_type'], limit: 50 });
-    expect(res._unsafeUnwrap()).toEqual([]);
-  });
-
-  it('keeps only the entity-grade subset when a docType is non-entity', async () => {
-    if (!dockerAvailable) return;
-    // 'judicial_case' is NOT entity-grade → dropped; 'company' kept.
-    const res = await repo!.searchEntities('acme', {
-      docTypes: ['judicial_case', 'company'],
-      limit: 50,
-    });
-    // company:8 is the dual-keyed public act added for the privacy cases: it
-    // matches "acme" on its title and legitimately survives the row rule.
-    expect(ids(res._unsafeUnwrap())).toEqual(['company:1', 'company:3', 'company:5', 'company:8']);
-  });
-});
-
-describe('searchEntities (e2e) — exact CUI match for digit queries', () => {
-  it('matches a row by its cuis array when q is all digits (title does NOT contain it)', async () => {
-    if (!dockerAvailable) return;
-    const res = await repo!.searchEntities('7654321', { limit: 50 });
-    const got = ids(res._unsafeUnwrap());
-    expect(got).toContain('company:4'); // title 'Beta Trading SRL', cuis ['7654321']
-  });
-
-  it('does not exact-cui-match a non-digit query', async () => {
-    if (!dockerAvailable) return;
-    const res = await repo!.searchEntities('Beta', { limit: 50 });
-    expect(ids(res._unsafeUnwrap())).toEqual(['company:4']); // ILIKE on title only
-  });
-});
-
-describe('searchEntities (e2e) — county + year filters', () => {
-  it('filters by county_name', async () => {
-    if (!dockerAvailable) return;
-    const res = await repo!.searchEntities('acme', { county: 'Cluj', limit: 50 });
-    expect(ids(res._unsafeUnwrap())).toEqual(['company:1']);
-  });
-
-  it('filters by year via extract(year from doc_date)', async () => {
-    if (!dockerAvailable) return;
-    const res2024 = await repo!.searchEntities('acme', { year: 2024, limit: 50 });
-    expect(ids(res2024._unsafeUnwrap())).toEqual(['company:1']);
-
-    const res2022 = await repo!.searchEntities('acme', { year: 2022, limit: 50 });
-    expect(ids(res2022._unsafeUnwrap())).toEqual(['company:3']);
-  });
-
-  it('combines county + year (no row → empty)', async () => {
-    if (!dockerAvailable) return;
-    const res = await repo!.searchEntities('acme', { county: 'Cluj', year: 2022, limit: 50 });
-    expect(res._unsafeUnwrap()).toEqual([]);
-  });
-});
-
-describe('searchEntities (e2e) — bounds + mapping', () => {
-  it('caps the result count at the requested limit', async () => {
-    if (!dockerAvailable) return;
-    const res = await repo!.searchEntities('acme', { limit: 1 });
-    expect(res._unsafeUnwrap()).toHaveLength(1);
-  });
-
-  it('returns [] for an empty/whitespace query without scanning', async () => {
-    if (!dockerAvailable) return;
-    expect((await repo!.searchEntities('', { limit: 50 }))._unsafeUnwrap()).toEqual([]);
-    expect((await repo!.searchEntities('   ', { limit: 50 }))._unsafeUnwrap()).toEqual([]);
-  });
-
-  it('maps a hit with source "postgres", docKey, attrs, county, url, and cuis', async () => {
-    if (!dockerAvailable) return;
-    const res = await repo!.searchEntities('Industrial', { limit: 50 });
-    const hit = res._unsafeUnwrap().find((h) => h.id === 'company:1');
-    expect(hit).toBeDefined();
-    expect(hit!.source).toBe('postgres');
-    expect(hit!.docId).toBe('company:1');
-    expect(hit!.docKey).toBe('1'); // substring after the first ':'
-    expect(hit!.countyName).toBe('Cluj');
-    expect(hit!.url).toBe('https://x.test/acme');
-    expect(hit!.cuis).toEqual(['111']);
-    expect(hit!.attrs).toEqual({ kind: 'srl' });
-  });
-});
-
 describe('countByCui (e2e)', () => {
   it('counts documents whose cuis array contains the CUI', async () => {
     if (!dockerAvailable) return;
@@ -380,22 +254,9 @@ describe('countByCui (e2e)', () => {
 // (2026-08-25): it had no production caller and did not pin visibility.
 
 describe('the withheld-identifier gate, on every read path over search.documents', () => {
-  it('searchEntities drops a document keyed ONLY to a person', async () => {
-    const res = await repo?.searchEntities('acme', { limit: 50 });
-    const rows = res?._unsafeUnwrap() ?? [];
-    expect(rows.map((r) => r.docId)).not.toContain('company:7');
-  });
-
-  it('searchEntities KEEPS a dual-keyed public act but scrubs the person from it', async () => {
-    // Both halves matter. Dropping the row would remove a public act from the
-    // surface; echoing the array would publish the identifier. The row filter is
-    // only safe because this scrub runs.
-    const res = await repo?.searchEntities('acme', { limit: 50 });
-    const rows = res?._unsafeUnwrap() ?? [];
-    const hit = rows.find((r) => r.docId === 'company:8');
-    expect(hit).toBeDefined();
-    expect(hit?.cuis).toEqual([SERVABLE_CUI]);
-  });
+  // The two `searchEntities` cases here went with the method (2026-08-26, D5).
+  // They asserted row-level containment over `search.documents` on the degrade
+  // path; that path no longer reads this table at all.
 
   it('countByCui answers 0 for a withheld identifier', async () => {
     // A count cannot be scrubbed: the number IS the answer to "how many
@@ -427,19 +288,23 @@ describe('the withheld-identifier gate, on every read path over search.documents
     expect(doc?.cuis).toEqual([SERVABLE_CUI]);
   });
 
-  it('PINS the open asymmetry: search still resolves a withheld id, the CUI-keyed reads do not', async () => {
-    // Not an endorsement -- a pin. `searchEntities` keeps the guarded CNP
-    // lookup because an existing test states that decision explicitly, while
-    // countByCui/listByCui refuse the key because they had no filter at all and
-    // no decision behind them. Both behaviours are asserted here so that
-    // whoever settles task #15 changes them together and cannot move one by
-    // accident.
-    const byPerson = await repo?.searchEntities(WITHHELD_CUI, { limit: 50 });
-    expect((byPerson?._unsafeUnwrap() ?? []).map((r) => r.docId)).toContain('company:8');
-    // ...and the identifier is still scrubbed from what comes back.
-    const hit = (byPerson?._unsafeUnwrap() ?? []).find((r) => r.docId === 'company:8');
-    expect(hit?.cuis).toEqual([SERVABLE_CUI]);
-  });
+  // THE ASYMMETRY THIS SUITE USED TO PIN IS CLOSED (2026-08-26).
+  //
+  // It pinned that search resolved a withheld identifier while the CUI-keyed
+  // reads refused it — row-level containment on one path, identifier-level on
+  // the others — and asked whoever settled the question to move them together.
+  // Removing the ILIKE degrade path settled it by construction: the outage path
+  // is now `identityRepo.findByCui`, which refuses a withheld id BEFORE issuing
+  // any statement, so every read path is identifier-level. That also makes the
+  // degrade path agree with the primary one, where the palette physically
+  // withholds over-length CUIs from the index (P0A) and Meili could never have
+  // resolved one — the asymmetry existed only because the fallback read a
+  // different store.
+  //
+  // The replacement assertion is a unit test, because there is no longer any SQL
+  // to observe here: "the DEGRADED path cannot serve a person-only identity" in
+  // tests/unit/shared/identity-containment-sql.test.ts asserts that ZERO
+  // statements are issued for a withheld identifier.
 
   it('documentRepo.listByCui returns nothing for a withheld identifier', async () => {
     const repoDocs = makeDocumentRepo(db!);

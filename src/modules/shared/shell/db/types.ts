@@ -34,6 +34,14 @@ export interface CoreOrganizations {
   locality_name: string | null;
   siruta_code: number | null; // integer in organizations (cast ::text on read)
   first_seen_source: string;
+  /**
+   * Serving privacy class. Modelled here so identity reads can PIN it rather
+   * than inferring privacy from identifier length — measured 2026-08-26, all
+   * 117,688 `restricted` organizations happen to carry a >10-digit (CNP-shaped)
+   * CUI, so the length guard excludes them today by coincidence of two
+   * separately-maintained populations, not by asserting the thing it means.
+   */
+  privacy_class: string | null;
   attrs: Jsonb;
   created_at: Tstz;
   updated_at: Tstz;

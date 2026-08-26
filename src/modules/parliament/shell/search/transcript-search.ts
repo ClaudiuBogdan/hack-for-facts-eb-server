@@ -50,7 +50,7 @@
 import { sql, type Kysely } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
-import { databaseError } from '@/modules/shared/index.js';
+import { databaseError, servableDocumentRowSql } from '@/modules/shared/index.js';
 
 import {
   PARLIAMENT_TRANSCRIPT_SEARCH_DOC_TYPE,
@@ -94,8 +94,14 @@ export const makeParliamentTranscriptSearch = (db: Db): ParliamentTranscriptSear
           .selectFrom('search.documents')
           .select(sql<number>`1`.as('one'))
           .where('doc_type', '=', PARLIAMENT_TRANSCRIPT_SEARCH_DOC_TYPE)
-          .where('visibility', '=', 'public')
-          .where('deleted_at', 'is', null)
+          // The SHARED servable predicate (visibility + tombstone + the
+          // CANONICAL privacy_class column). This probe previously checked only
+          // visibility and the tombstone while the search below pinned just the
+          // `attrs` copy of the class — the same split that disagrees on 117,688
+          // rows elsewhere in this table (SEARCH_LAYER_REVIEW_2026-08-25.md
+          // F13/F16). The probe decides whether the whole surface is available,
+          // so it must not be the more permissive of the two.
+          .where(servableDocumentRowSql)
           // A doc we could not attribute to a sitting is not a usable doc (see the
           // header) — so it must not make the projection look built either.
           .where(sql<boolean>`nullif(attrs->>'session_key', '') is not null`)
@@ -150,10 +156,10 @@ export const makeParliamentTranscriptSearch = (db: Db): ParliamentTranscriptSear
           sql<string | null>`max(doc_date)::text`.as('latest_doc_date'),
         ])
         .where('doc_type', '=', PARLIAMENT_TRANSCRIPT_SEARCH_DOC_TYPE)
-        .where('visibility', '=', 'public')
-        .where('deleted_at', 'is', null)
-        // Defence in depth: `visibility` is DERIVED from this, so requiring both means
-        // a projection bug that sets one without the other cannot leak a block.
+        .where(servableDocumentRowSql)
+        // Defence in depth on TOP of the shared predicate: the `attrs` copy must
+        // agree with the canonical column. Until 2026-08-26 only this copy was
+        // checked here, and the shared predicate was not used at all (F16).
         .where(sql<boolean>`attrs->>'privacy_class' = 'public'`)
         // Only canonical reading blocks, and only ones we can attribute to a sitting.
         .where(sql<boolean>`attrs->>'unit_kind' = 'stenogram-reading-block'`)

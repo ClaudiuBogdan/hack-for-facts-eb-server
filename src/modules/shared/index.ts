@@ -195,7 +195,6 @@ export const makeKernel = async (config: KernelConfig): Promise<Kernel> => {
   };
   const globalSearchDeps: GlobalSearchDeps = {
     meiliClient,
-    searchRepo,
     meiliIndexes: config.meiliIndexes ?? [...DEFAULT_MEILI_INDEXES],
     ...(config.logger !== undefined && { logger: config.logger }),
   };
@@ -376,6 +375,15 @@ export { type KernelCache } from './shell/middleware/cache.js';
 export { type RateLimiter } from './shell/middleware/rate-limiter.js';
 // Diacritic folding (§15.7) — re-exported so modules don't reach into shell/repo.
 export { foldDiacritics } from './shell/repo/fold.js';
+/**
+ * The canonical "this `search.documents` row may be served" predicate —
+ * visibility + tombstone + the canonical `privacy_class` column. Exported so
+ * every reader of that table asks the SAME question: the two privacy signals
+ * disagree on 117,688 rows, and each surface that spelled the check out by hand
+ * ended up pinning a different subset of them
+ * (SEARCH_LAYER_REVIEW_2026-08-25.md F13/F16).
+ */
+export { servableDocumentRowSql } from './shell/repo/document-privacy.js';
 
 /**
  * The minimal structured-logger contract modules accept (a pino `Logger` and

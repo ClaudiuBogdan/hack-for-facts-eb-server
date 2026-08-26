@@ -16,9 +16,10 @@
  */
 
 import { GraphQLError } from 'graphql';
-import { ok } from 'neverthrow';
+import { err, ok } from 'neverthrow';
 import { describe, expect, it, vi } from 'vitest';
 
+import { upstreamError } from '@/modules/shared/core/errors.js';
 import {
   makeKernelResolvers,
   type KernelResolverDeps,
@@ -63,11 +64,18 @@ const makeRecordingCache = (): KernelCache & { wrapCalls: string[] } => {
     get: (k) => store.get(k),
     set: (k, v) => store.set(k, v),
     invalidateByPrefix: () => undefined,
-    async wrap<T>(key: string, compute: () => Promise<T>): Promise<T> {
+    async wrap<T>(
+      key: string,
+      compute: () => Promise<T>,
+      shouldCache?: (value: T) => boolean
+    ): Promise<T> {
       wrapCalls.push(key);
       if (store.has(key)) return store.get(key) as T;
       const v = await compute();
-      store.set(key, v);
+      // HONOUR the predicate. A fake that always stored would report a cache hit
+      // for a degraded answer, letting "never cache a transient" pass here while
+      // production violated it.
+      if (shouldCache === undefined || shouldCache(v)) store.set(key, v);
       return v;
     },
   };
@@ -93,7 +101,6 @@ const makeDeps = (opts: {
     );
   const globalSearchDeps: GlobalSearchDeps = {
     meiliClient: { searchEntities } as never,
-    searchRepo: { searchEntities: vi.fn(async () => ok([])) } as never,
     meiliIndexes: ['entities'],
   };
   const cache = opts.cache ?? makeRecordingCache();
@@ -119,7 +126,12 @@ interface SearchResolvers {
       root: unknown,
       args: Record<string, unknown>,
       context: unknown
-    ) => Promise<{ engine: string; hits: readonly SearchHit[]; estimatedTotalHits: number }>;
+    ) => Promise<{
+      engine: string;
+      degraded: boolean;
+      hits: readonly SearchHit[];
+      estimatedTotalHits: number;
+    }>;
   };
 }
 
@@ -255,6 +267,43 @@ describe('searchEntities resolver — caching', () => {
     await resolver(deps)(null, { q: 'x', docTypes: ['company', 'bill'] }, ctx());
     const keys = cache.wrapCalls;
     expect(keys[0]).toBe(keys[1]);
+  });
+
+  it('does NOT cache a degraded answer — it recomputes, and recovers', async () => {
+    // The failure this prevents: a 60s TTL pinning "search unavailable" and
+    // replaying it to every caller for a minute after the engine came back.
+    const searchSpy = vi
+      .fn()
+      // First call: engine down → the reduced outage path, degraded.
+      .mockResolvedValueOnce(err(upstreamError('meili down', 'meilisearch')))
+      // Second call: engine healthy again.
+      .mockResolvedValue(ok({ hits: [makeHit()], facetDistribution: {}, estimatedTotalHits: 1 }));
+    const { deps } = makeDeps({ searchSpy, cache: makeRecordingCache() });
+
+    const first = await resolver(deps)(null, { q: 'acme' }, ctx());
+    expect(first.degraded).toBe(true);
+    expect(first.hits).toEqual([]);
+
+    const second = await resolver(deps)(null, { q: 'acme' }, ctx());
+    // Recomputed rather than served from cache — the whole point.
+    expect(searchSpy).toHaveBeenCalledTimes(2);
+    expect(second.degraded).toBe(false);
+    expect(second.hits).toHaveLength(1);
+  });
+
+  it('DOES cache a healthy answer (the predicate is not just "never cache")', async () => {
+    // The other direction: a predicate that always refused would make the cache
+    // useless while passing the test above.
+    const searchSpy = vi.fn(async () =>
+      ok({ hits: [makeHit()], facetDistribution: {}, estimatedTotalHits: 1 })
+    );
+    const { deps } = makeDeps({ searchSpy, cache: makeRecordingCache() });
+
+    const first = await resolver(deps)(null, { q: 'acme' }, ctx());
+    await resolver(deps)(null, { q: 'acme' }, ctx());
+
+    expect(first.degraded).toBe(false);
+    expect(searchSpy).toHaveBeenCalledTimes(1);
   });
 });
 

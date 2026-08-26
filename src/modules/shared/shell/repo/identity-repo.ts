@@ -107,6 +107,15 @@ export const makeIdentityRepo = (db: Db): IdentityRepo => ({
         .selectFrom('core.organizations')
         .select([...ORG_COLUMNS])
         .where('cui', '=', cui)
+        // PIN the privacy class rather than inferring it from identifier
+        // length. A no-op on today's data — every `restricted` organization
+        // also carries a >10-digit CUI, so the guard above already excludes all
+        // 117,688 of them — which is precisely why it must not be relied on:
+        // the two populations are maintained independently and nothing forces
+        // them to stay identical. Fails CLOSED on an unexpected value (NULL
+        // included); measured 2026-08-26, prod carries only 'public' and
+        // 'restricted'.
+        .where('privacy_class', '=', 'public')
         .limit(1)
         .executeTakeFirst();
       return ok(row === undefined ? null : mapOrg(row));
@@ -137,6 +146,11 @@ export const makeIdentityRepo = (db: Db): IdentityRepo => ({
           .selectFrom('core.organizations')
           .select([...ORG_COLUMNS])
           .where('cui', 'in', chunk)
+          // Same pin as `findByCui`, and NOT redundant with it: this is the
+          // method the `organizationByCui` DataLoader actually calls, so an
+          // invariant enforced only on the single-row lookup would leave the
+          // GraphQL batch path unguarded.
+          .where('privacy_class', '=', 'public')
           .execute();
         for (const row of rows) {
           const org = mapOrg(row);
@@ -160,6 +174,9 @@ export const makeIdentityRepo = (db: Db): IdentityRepo => ({
         .selectFrom('core.organizations')
         .select([...ORG_COLUMNS])
         .where('org_id', '=', orgId)
+        // Same pin as the CUI lookups: an opaque surrogate is not a licence to
+        // serve a restricted identity.
+        .where('privacy_class', '=', 'public')
         .limit(1)
         .executeTakeFirst();
       // org_id is an opaque surrogate, so the caller cannot pre-screen it — the
@@ -209,6 +226,11 @@ export const makeIdentityRepo = (db: Db): IdentityRepo => ({
         // starve real matches. NULL-cui orgs are servable — the rule is about
         // CNP-SHAPED identifiers, not about missing ones.
         .where(sql<boolean>`(cui is null or length(cui) <= ${sql.lit(MAX_SERVED_CUI_DIGITS)})`)
+        // AND the declared class, not only the identifier shape. The two
+        // populations coincide today (measured 2026-08-26: every `restricted`
+        // organization also has a >10-digit CUI) and are maintained separately,
+        // so relying on the shape alone would make privacy an accident.
+        .where('privacy_class', '=', 'public')
         .limit(MAX_NAME_FALLBACK_SCAN)
         .execute();
 

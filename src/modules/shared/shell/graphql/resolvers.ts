@@ -132,7 +132,15 @@ export const makeKernelResolvers = (deps: KernelResolverDeps): Record<string, un
         offset: args.offset ?? null,
       })}`;
       return unwrap(
-        await deps.cache.wrap(cacheKey, () => makeGlobalSearch(deps.globalSearchDeps, searchInput))
+        await deps.cache.wrap(
+          cacheKey,
+          () => makeGlobalSearch(deps.globalSearchDeps, searchInput),
+          // Cache FACTS only. A degraded answer (engine unreachable, so the
+          // reduced outage path answered) and a failed Result are both
+          // transient: storing either pins it for the full TTL and keeps
+          // serving it to every caller after the engine has recovered.
+          (res) => res.isOk() && !res.value.degraded
+        )
       );
     },
   },

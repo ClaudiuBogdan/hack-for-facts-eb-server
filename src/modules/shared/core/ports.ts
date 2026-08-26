@@ -128,28 +128,27 @@ export interface FlowsRepo {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface SearchRepo {
-  /** Count search.documents whose `cuis` array contains the CUI. */
+  /**
+   * Count search.documents whose `cuis` array contains the CUI.
+   *
+   * KNOWN WRONG, KEPT DELIBERATELY (user decision 2026-08-26: leave
+   * `search.documents` alone). The projection behind this count is only
+   * partially maintained, so `Entity.documentCount` under-reports for several
+   * doc types. Retiring it is D6 in SEARCH_LAYER_REVIEW_2026-08-25.md, which was
+   * considered and explicitly deferred — do not "fix" the count here; the fix is
+   * to re-point the surface at domain tables or at SourcePresence.
+   */
   countByCui(cui: Cui): Promise<Result<number, ApiError>>;
   // `fallbackTextSearch` was removed 2026-08-25: it had NO production caller
-  // (tests only) and, unlike `searchEntities`, did not pin visibility — dead
-  // code with weaker privacy than its live sibling
-  // (SEARCH_LAYER_REVIEW_2026-08-25.md D9).
-  /**
-   * Visibility-scoped, entity-doc-type-scoped Postgres fallback for the global
-   * entity search — always filters `visibility='public'` + `deleted_at IS NULL`
-   * + the entity-grade `doc_type` set, optionally narrowed by `docTypes`/county/
-   * year. The Meili-parity degrade path (impl lands in T2). Empty `q` → no rows.
-   */
-  searchEntities(
-    q: string,
-    opts: {
-      readonly docTypes?: readonly string[];
-      readonly county?: string;
-      readonly year?: number;
-      readonly limit: number;
-      readonly offset?: number;
-    }
-  ): Promise<Result<readonly SearchHit[], ApiError>>;
+  // (tests only) and did not pin visibility — dead code with weaker privacy
+  // than its live sibling (SEARCH_LAYER_REVIEW_2026-08-25.md D9).
+  //
+  // `searchEntities` followed it 2026-08-26 (D5). It was the global search's
+  // degrade path: `title/body/doc_id ILIKE '%q%'` over 13.8M rows with no
+  // trigram index — a sequential scan that turned a search outage into a
+  // database incident while looking like a working fallback. The outage path is
+  // now an exact-CUI lookup over the indexed identity spine, in the usecase, so
+  // this port keeps exactly one method and one reader of `search.documents`.
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
