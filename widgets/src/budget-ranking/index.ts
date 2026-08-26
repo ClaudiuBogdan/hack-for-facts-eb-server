@@ -112,7 +112,8 @@ const render = (output: ToolEnvelope, handle: WidgetHandle): void => {
   for (const tr of root.querySelectorAll<HTMLElement>('tbody tr')) {
     const open = (): void => {
       const cui = tr.dataset['cui'];
-      if (cui !== undefined && cui !== '') handle.openLink(`${SITE_BASE}/entitati/${cui}`);
+      if (cui !== undefined && cui !== '')
+        handle.openLink(`${SITE_BASE}/entitati/${encodeURIComponent(cui)}`);
     };
     tr.addEventListener('click', open);
     tr.addEventListener('keydown', (event) => {

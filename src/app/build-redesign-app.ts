@@ -622,7 +622,23 @@ export const registerRedesignSurface = async (
     moduleMcpResources
   );
 
+  // The route is anonymous until per-user MCP auth lands, so it gets the same
+  // per-IP token bucket the searchEntities resolver uses (namespaced key, so
+  // the budgets don't collide). One host turn is a handful of requests
+  // (initialize, tools/list, tools/call, resources/read), well inside the
+  // bucket; shared egress IPs (ChatGPT) may need tuning under real traffic.
   app.post('/api/v1/mcp', async (request, reply) => {
+    const limit = kernel.rateLimiter.consume(`mcp:${request.ip}`);
+    if (!limit.allowed) {
+      return reply
+        .code(429)
+        .header('retry-after', String(Math.max(1, Math.ceil(limit.retryAfterMs / 1000))))
+        .send({
+          jsonrpc: '2.0',
+          id: null,
+          error: { code: -32000, message: 'Rate limit exceeded — retry later' },
+        });
+    }
     const response = await mcpDispatcher.dispatch(request.body);
     if (response === null) return reply.code(202).send();
     return reply.code(200).send(response);

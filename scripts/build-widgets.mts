@@ -57,8 +57,13 @@ const WIDGETS: readonly WidgetSpec[] = [
   },
 ];
 
-/** `</script>` inside the bundle would close the inline tag early. */
-const escapeInlineScript = (js: string): string => js.replaceAll('</script', '<\\/script');
+/**
+ * `</script>` / `</style>` inside inlined content would close the tag early
+ * (the HTML parser matches end tags case-insensitively). `\/` is a legal
+ * escape for `/` in both JS strings and CSS, so the content is unchanged.
+ */
+const escapeInlineScript = (js: string): string => js.replace(/<\/script/gi, '<\\/script');
+const escapeInlineStyle = (css: string): string => css.replace(/<\/style/gi, '<\\/style');
 
 for (const widget of WIDGETS) {
   const entry = join(repoRoot, 'widgets', 'src', widget.name, 'index.ts');
@@ -72,8 +77,12 @@ for (const widget of WIDGETS) {
     legalComments: 'none',
   });
   const js = escapeInlineScript(result.outputFiles[0]?.text ?? '');
-  const themeCss = readFileSync(join(repoRoot, 'widgets', 'src', 'lib', 'theme.css'), 'utf8');
-  const widgetCss = readFileSync(join(repoRoot, 'widgets', 'src', widget.name, 'style.css'), 'utf8');
+  const themeCss = escapeInlineStyle(
+    readFileSync(join(repoRoot, 'widgets', 'src', 'lib', 'theme.css'), 'utf8')
+  );
+  const widgetCss = escapeInlineStyle(
+    readFileSync(join(repoRoot, 'widgets', 'src', widget.name, 'style.css'), 'utf8')
+  );
 
   const html = `<!doctype html>
 <html lang="ro">

@@ -8,7 +8,8 @@
  *   npx -y @modelcontextprotocol/inspector@latest      # Apps tab
  *   # or: SERVERS='["http://localhost:3999/mcp"]' npm start   (ext-apps/examples/basic-host)
  *
- * Fixture-only by design: no DB, no search engine, safe to run anywhere.
+ * Fixture-only by design: no DB, no search engine. Binds loopback only —
+ * tunnel it explicitly (ngrok) if a remote host needs to reach it.
  */
 
 import { createServer } from 'node:http';
@@ -108,9 +109,23 @@ const server = createServer((req, res) => {
     res.writeHead(405, { allow: 'POST' }).end();
     return;
   }
+  const MAX_BODY_BYTES = 1_048_576; // 1 MiB — a JSON-RPC request is tiny.
   let body = '';
-  req.on('data', (chunk: Buffer) => (body += chunk.toString()));
+  let received = 0;
+  let tooLarge = false;
+  req.on('data', (chunk: Buffer) => {
+    if (tooLarge) return;
+    received += chunk.length;
+    if (received > MAX_BODY_BYTES) {
+      tooLarge = true;
+      res.writeHead(413).end();
+      req.destroy();
+      return;
+    }
+    body += chunk.toString();
+  });
   req.on('end', () => {
+    if (tooLarge) return;
     void (async () => {
       try {
         // eslint-disable-next-line no-restricted-syntax -- dev fixture endpoint: malformed JSON falls through to the -32700 reply below
@@ -129,6 +144,6 @@ const server = createServer((req, res) => {
   });
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, '127.0.0.1', () => {
   console.log(`widget dev MCP endpoint: http://localhost:${String(PORT)}/mcp (fixtures only)`);
 });

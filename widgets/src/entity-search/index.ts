@@ -49,9 +49,18 @@ const isInactive = (hit: SearchHitView): boolean => {
   return /inactiv|radiat|dizolv|închis|inchis|repealed|struck/i.test(status);
 };
 
+/**
+ * `url` originates in the search index over scraped data — treat it as
+ * untrusted. Allow only absolute http(s) URLs (the field's purpose: external
+ * source deep-links) or site-relative paths; anything else (other schemes,
+ * protocol-relative `//`, host-suffix fragments) is dropped.
+ */
 const hitUrl = (hit: SearchHitView): string | undefined => {
-  if (hit.url === undefined || hit.url === '') return undefined;
-  return /^https?:\/\//.test(hit.url) ? hit.url : `${SITE_BASE}${hit.url}`;
+  const url = hit.url;
+  if (url === undefined || url === '') return undefined;
+  if (/^https?:\/\//i.test(url)) return url;
+  if (url.startsWith('/') && !url.startsWith('//')) return `${SITE_BASE}${url}`;
+  return undefined;
 };
 
 const renderRow = (hit: SearchHitView, index: number): string => {

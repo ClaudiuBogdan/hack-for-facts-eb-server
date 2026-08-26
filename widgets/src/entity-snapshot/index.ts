@@ -97,7 +97,7 @@ const render = (output: ToolEnvelope, handle: WidgetHandle): void => {
 
   root.querySelector<HTMLElement>('[data-open-site]')?.addEventListener('click', () => {
     const cui = item.cui ?? '';
-    handle.openLink(cui !== '' ? `${SITE_BASE}/entitati/${cui}` : SITE_BASE);
+    handle.openLink(cui !== '' ? `${SITE_BASE}/entitati/${encodeURIComponent(cui)}` : SITE_BASE);
   });
 };
 
