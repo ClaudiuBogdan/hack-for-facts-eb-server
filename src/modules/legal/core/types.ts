@@ -243,8 +243,14 @@ export interface LegalExternalAct {
 // Status events (shared substrate — portal AND mo write rows; server reads both)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** The event source discriminator. 06 contributes `'monitorul-oficial'` rows. */
-export type LegalEventSource = 'portal' | 'monitorul-oficial';
+/**
+ * The event source discriminator. 06 contributes `'monitorul-oficial'` rows.
+ * `'necunoscut'` is OUTPUT-ONLY (grok r5, 2026-08-26): the live vocabulary is
+ * exactly the two pipelines (84,484 rows, 0 others measured 2026-08), but a
+ * third writer must surface as unknown, never silently relabel as 'portal'.
+ * The FILTER vocabulary (`LEGAL_EVENT_SOURCES`) deliberately stays the two.
+ */
+export type LegalEventSource = 'portal' | 'monitorul-oficial' | 'necunoscut';
 
 export interface LegalStatusEvent {
   readonly eventId: string;

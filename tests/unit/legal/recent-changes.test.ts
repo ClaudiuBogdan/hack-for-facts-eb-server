@@ -405,6 +405,11 @@ describe('normalizeRecentChangesFilter', () => {
     });
     const badSource = normalizeRecentChangesFilter({ eventSource: 'scraper' as never });
     expect(badSource.isErr() && badSource.error.message).toContain('eventSource');
+    // 'necunoscut' is the OUTPUT-ONLY unknown token (grok r5, 2026-08-26): a
+    // row from a third writer surfaces as it, but nobody may FILTER by it —
+    // the filter vocabulary stays the two real pipelines.
+    const unknownToken = normalizeRecentChangesFilter({ eventSource: 'necunoscut' });
+    expect(unknownToken.isErr() && unknownToken.error.message).toContain('eventSource');
 
     expect(normalizeRecentChangesFilter({ undatedOnly: true })._unsafeUnwrap()).toEqual({
       undatedOnly: true,

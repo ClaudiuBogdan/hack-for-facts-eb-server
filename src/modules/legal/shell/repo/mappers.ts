@@ -33,8 +33,9 @@ export const toStatus = (s: string | null): LegalActStatus =>
 export const toRelation = (s: string): LegalRelation =>
   RELATION_SET.has(s) ? (s as LegalRelation) : 'face-referire';
 
+/** Coerce to the closed source vocab (unknown → 'necunoscut', same rule as status). */
 const toEventSource = (s: string): LegalEventSource =>
-  s === 'monitorul-oficial' ? 'monitorul-oficial' : 'portal';
+  s === 'monitorul-oficial' || s === 'portal' ? s : 'necunoscut';
 
 /** Coerce a jsonb column to a plain object (null/non-object → {}). */
 const asObject = (v: unknown): Record<string, unknown> =>
