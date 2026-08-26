@@ -31,6 +31,13 @@ export default defineConfig(
       '.opencode/**',
       'old_code_repositories',
       'tmp-*.ts',
+      // Scratch dir (gitignored): probe/verify one-offs, not in the tsconfig project.
+      'tmp/**',
+      // Browser-side MCP App widget sources: own tsconfig (widgets/tsconfig.json),
+      // outside the server's type-aware lint project.
+      'widgets/**',
+      // Generated MCP App widget bundles (scripts/build-widgets.mts).
+      'src/**/*.gen.ts',
       'tests/golden-master/snapshots/**',
     ],
   },

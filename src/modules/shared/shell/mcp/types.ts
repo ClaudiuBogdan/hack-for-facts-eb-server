@@ -41,11 +41,40 @@ export interface McpToolOutput<T = unknown> {
   readonly error?: string;
 }
 
+/**
+ * MCP Apps (SEP-1865) UI binding for a tool: which `ui://` resource the host
+ * should render for this tool's results. `visibility` defaults to
+ * `["model","app"]`; `["app"]` makes a tool widget-callable but model-hidden.
+ */
+export interface KernelMcpToolUi {
+  readonly resourceUri: string;
+  readonly visibility?: readonly ('model' | 'app')[];
+}
+
 export interface KernelMcpTool {
   readonly name: string; // `<verb>_<domain>_<noun>`
+  readonly title?: string;
   readonly description: string;
   readonly inputShape: ZodRawShape;
   /** Reject unknown top-level keys instead of Zod's default strip behavior. */
   readonly strictInput?: boolean;
+  /** Present ⇒ hosts that support MCP Apps render this tool's results as a widget. */
+  readonly ui?: KernelMcpToolUi;
   handler(args: Record<string, unknown>): Promise<McpToolOutput>;
+}
+
+/**
+ * A kernel-served MCP resource. Widget templates (`ui://` URIs with the
+ * MCP Apps HTML mimetype) and static guides both fit; `meta` rides into the
+ * resource's `_meta` (e.g. `{ ui: { prefersBorder: true, csp: {...} } }`).
+ */
+export interface KernelMcpResource {
+  readonly name: string;
+  readonly uri: string;
+  readonly title?: string;
+  readonly description?: string;
+  /** Defaults to the MCP Apps HTML mimetype for `ui://` URIs. */
+  readonly mimeType?: string;
+  readonly meta?: Readonly<Record<string, unknown>>;
+  readonly text: string;
 }

@@ -1,0 +1,84 @@
+/*
+ * Shared widget theme — the client's `--pnrr-*` visual language (brutalist:
+ * hard 2px borders, off-white canvas, white cards, lime accent), with a dark
+ * set toggled by the host theme via `data-theme` on <html>.
+ */
+
+:root {
+  --w-bg: #fafaf8;
+  --w-card: #ffffff;
+  --w-border: #1f1f1f;
+  --w-text: #1f1f1f;
+  --w-text-muted: #55554f;
+  --w-accent: #b6ff00;
+  --w-accent-text: #1f1f1f;
+  --w-chip-bg: #f0f0ec;
+  --w-danger: #c92a2a;
+  --w-chart: #1d4ed8; /* single-series hue, validated vs light surfaces */
+  --w-radius: 10px;
+}
+
+/* Fallback when the host doesn't push a theme through the bridge. */
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme='light']) {
+    --w-bg: #161615;
+    --w-card: #1f1f1e;
+    --w-border: #e8e8e4;
+    --w-text: #fafaf8;
+    --w-text-muted: #b0b0a8;
+    --w-accent: #b6ff00;
+    --w-accent-text: #1f1f1f;
+    --w-chip-bg: #2a2a28;
+    --w-danger: #ff6b6b;
+    --w-chart: #3b82f6; /* validated vs dark surface #1f1f1e */
+  }
+}
+
+html[data-theme='dark'] {
+  --w-bg: #161615;
+  --w-card: #1f1f1e;
+  --w-border: #e8e8e4;
+  --w-text: #fafaf8;
+  --w-text-muted: #b0b0a8;
+  --w-accent: #b6ff00;
+  --w-accent-text: #1f1f1f;
+  --w-chip-bg: #2a2a28;
+  --w-danger: #ff6b6b;
+  --w-chart: #3b82f6;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--w-bg);
+  color: var(--w-text);
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.card {
+  background: var(--w-card);
+  border: 2px solid var(--w-border);
+  border-radius: var(--w-radius);
+  overflow: hidden;
+}
+
+.muted {
+  color: var(--w-text-muted);
+}
+
+a {
+  color: inherit;
+}

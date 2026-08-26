@@ -17,7 +17,7 @@ import { readFileSync } from 'node:fs';
 import compressPlugin from '@fastify/compress';
 import corsPlugin from '@fastify/cors';
 import { makeExecutableSchema } from '@graphql-tools/schema';
-import fastifyLib, { type FastifyInstance } from 'fastify';
+import fastifyLib, { type FastifyInstance, type FastifyReply } from 'fastify';
 import mercuriusPlugin from 'mercurius';
 
 import {
@@ -39,6 +39,7 @@ import {
   type Kernel,
   type KernelConfig,
   type GraphqlSlice,
+  type KernelMcpResource,
   type KernelMcpTool,
 } from '../modules/shared/index.js';
 
@@ -297,6 +298,7 @@ export const registerRedesignSurface = async (
   const moduleSlices: GraphqlSlice[] = [];
   const moduleResolvers: Record<string, unknown>[] = [];
   const moduleMcpTools: KernelMcpTool[] = [];
+  const moduleMcpResources: KernelMcpResource[] = [];
   let pnrrRestPlugin: import('fastify').FastifyPluginAsync | undefined;
   let parliamentRoutes: import('fastify').FastifyPluginAsync | undefined;
   let legalRoutes: import('fastify').FastifyPluginAsync | undefined;
@@ -358,6 +360,7 @@ export const registerRedesignSurface = async (
     moduleSlices.push(budget.graphqlSlice);
     moduleResolvers.push(budget.graphqlResolvers);
     moduleMcpTools.push(...budget.mcpTools);
+    moduleMcpResources.push(...budget.mcpResources);
   }
 
   if (enabledModules.includes('procurement')) {
@@ -614,13 +617,23 @@ export const registerRedesignSurface = async (
   // Direct JSON-RPC dispatch (no SDK hono/socket bridge, which crashes under
   // Fastify with `socket.destroySoon is not a function`). Works under a real
   // listen and inject() alike.
-  const mcpDispatcher = kernel.buildMcpDispatcher([...moduleMcpTools, ...(deps.mcpTools ?? [])]);
+  const mcpDispatcher = kernel.buildMcpDispatcher(
+    [...moduleMcpTools, ...(deps.mcpTools ?? [])],
+    moduleMcpResources
+  );
 
   app.post('/api/v1/mcp', async (request, reply) => {
     const response = await mcpDispatcher.dispatch(request.body);
     if (response === null) return reply.code(202).send();
     return reply.code(200).send(response);
   });
+
+  // Streamable HTTP: a client MAY issue GET (server→client SSE stream) or
+  // DELETE (session teardown). A stateless JSON server answers 405, not 404.
+  const methodNotAllowed = async (_request: unknown, reply: FastifyReply) =>
+    reply.code(405).header('allow', 'POST').send();
+  app.get('/api/v1/mcp', methodNotAllowed);
+  app.delete('/api/v1/mcp', methodNotAllowed);
 
   app.addHook('onClose', async () => {
     await mcpDispatcher.close();

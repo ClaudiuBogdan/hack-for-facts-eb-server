@@ -11,6 +11,11 @@
 import { z } from 'zod';
 
 import {
+  BUDGET_BREAKDOWN_WIDGET_URI,
+  BUDGET_RANKING_WIDGET_URI,
+  BUDGET_TIMESERIES_WIDGET_URI,
+} from './widgets/resources.js';
+import {
   ACCOUNT_CATEGORIES,
   BUDGET_GRAIN_NOTE,
   EXECUTION_REPORT_TYPES,
@@ -177,6 +182,8 @@ export const makeBudgetMcpTools = (deps: BudgetMcpDeps): readonly KernelMcpTool[
 
   const rankBudget: KernelMcpTool = {
     name: 'rank_budget_entities',
+    title: 'Clasament bugetar Transparenta.eu',
+    ui: { resourceUri: BUDGET_RANKING_WIDGET_URI },
     description:
       'Rank entities by execution income/expense/balance for a year (MV path, normalization factors applied). Optionally restrict by county/region/UAT. Bounded top-N.',
     inputShape: {
@@ -199,11 +206,7 @@ export const makeBudgetMcpTools = (deps: BudgetMcpDeps): readonly KernelMcpTool[
       const metric = strOr(args, 'metric', 'EXPENSE') as BudgetRankingMetric;
       const reportType = strOr(args, 'reportType', 'EXECUTION_DETAILED') as ExecutionReportType;
       const normalization = strOr(args, 'normalization', 'TOTAL') as
-        | 'TOTAL'
-        | 'TOTAL_EURO'
-        | 'PER_CAPITA'
-        | 'PER_CAPITA_EURO'
-        | 'PERCENT_GDP';
+        'TOTAL' | 'TOTAL_EURO' | 'PER_CAPITA' | 'PER_CAPITA_EURO' | 'PERCENT_GDP';
       const countyCodes = Array.isArray(args['countyCodes'])
         ? (args['countyCodes'] as unknown[]).map(String)
         : undefined;
@@ -236,6 +239,8 @@ export const makeBudgetMcpTools = (deps: BudgetMcpDeps): readonly KernelMcpTool[
 
   const aggregate: KernelMcpTool = {
     name: 'aggregate_budget_by_classification',
+    title: 'Structură pe clasificații Transparenta.eu',
+    ui: { resourceUri: BUDGET_BREAKDOWN_WIDGET_URI },
     description:
       'Spend/income broken down by functional×economic classification for a year (fact path; pruned to one partition leaf). Requires year + reportType + accountCategory; optionally one entity.',
     inputShape: {
@@ -305,6 +310,8 @@ export const makeBudgetMcpTools = (deps: BudgetMcpDeps): readonly KernelMcpTool[
 
   const timeseries: KernelMcpTool = {
     name: 'get_budget_timeseries',
+    title: 'Evoluție bugetară Transparenta.eu',
+    ui: { resourceUri: BUDGET_TIMESERIES_WIDGET_URI },
     description:
       'Execution time series for one entity (MV path): income/expense/balance over years/months/quarters, with optional normalization (real EUR, per-capita, % GDP).',
     inputShape: {
@@ -322,11 +329,7 @@ export const makeBudgetMcpTools = (deps: BudgetMcpDeps): readonly KernelMcpTool[
       const metric = strOr(args, 'metric', 'EXPENSE') as BudgetRankingMetric;
       const frequency = strOr(args, 'frequency', 'YEAR') as BudgetFrequency;
       const normalization = strOr(args, 'normalization', 'TOTAL') as
-        | 'TOTAL'
-        | 'TOTAL_EURO'
-        | 'PER_CAPITA'
-        | 'PER_CAPITA_EURO'
-        | 'PERCENT_GDP';
+        'TOTAL' | 'TOTAL_EURO' | 'PER_CAPITA' | 'PER_CAPITA_EURO' | 'PERCENT_GDP';
       const res = await budgetTimeseries(repo, {
         entityCui: cui,
         reportType,

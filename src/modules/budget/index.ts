@@ -15,6 +15,7 @@ import { makeBudgetContributor } from './shell/contributor.js';
 import { makeBudgetResolvers } from './shell/graphql/resolvers.js';
 import { budgetTypeDefs } from './shell/graphql/typedefs.js';
 import { makeBudgetMcpTools } from './shell/mcp/tools.js';
+import { makeBudgetMcpResources } from './shell/mcp/widgets/resources.js';
 import { makeBudgetRepo } from './shell/repo/budget-repo.js';
 import { makeBudgetDiscoveryRepo } from './shell/repo/discovery-repo.js';
 
@@ -22,6 +23,7 @@ import type { BudgetDiscoveryRepo, BudgetRepo } from './core/ports.js';
 import type {
   ContributorRegistry,
   GraphqlSlice,
+  KernelMcpResource,
   KernelMcpTool,
   ProdDatabase,
   SourceContributor,
@@ -41,6 +43,8 @@ export interface BudgetModule {
   readonly graphqlSlice: GraphqlSlice;
   readonly graphqlResolvers: Record<string, unknown>;
   readonly mcpTools: readonly KernelMcpTool[];
+  /** MCP App widget templates (SEP-1865) served by the kernel MCP server. */
+  readonly mcpResources: readonly KernelMcpResource[];
   readonly contributor: SourceContributor;
 }
 
@@ -56,6 +60,7 @@ export const makeBudgetModule = (deps: BudgetModuleDeps): BudgetModule => {
     graphqlSlice: { source: 'budget', typeDefs: budgetTypeDefs },
     graphqlResolvers: makeBudgetResolvers({ repo, discovery, registry: deps.registry }),
     mcpTools: makeBudgetMcpTools({ repo, discovery, clientBaseUrl }),
+    mcpResources: makeBudgetMcpResources(),
     contributor,
   };
 };

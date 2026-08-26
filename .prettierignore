@@ -1,1 +1,3 @@
 src/modules/procurement/core/procurement-analysis-combinations-v2.json
+# Generated MCP App widget bundles (scripts/build-widgets.mts)
+src/**/*.gen.ts
