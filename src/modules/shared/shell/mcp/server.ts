@@ -64,6 +64,9 @@ export const createKernelMcpServer = (
       ...(tool.title !== undefined && { title: tool.title }),
       description: tool.description,
       inputSchema: kernelToolInputSchema(tool),
+      // Unannotated tools are assumed destructive/open-world by hosts (ChatGPT
+      // brands them WRITE/DESTRUCTIVE and prompts accordingly) — false here.
+      annotations: READ_ONLY_ANNOTATIONS,
     };
     const handler = async (args: Record<string, unknown>) => toolResponse(await tool.handler(args));
     if (tool.ui !== undefined) {
@@ -73,7 +76,6 @@ export const createKernelMcpServer = (
         tool.name,
         {
           ...base,
-          annotations: READ_ONLY_ANNOTATIONS,
           _meta: {
             ui: { resourceUri, ...(visibility !== undefined && { visibility: [...visibility] }) },
             // ChatGPT's pre-standard alias; harmless elsewhere.
