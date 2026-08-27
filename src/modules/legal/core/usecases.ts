@@ -403,14 +403,14 @@ export const getDocumentRenderChunk = async (
     return err({ reason: 'render_not_found', documentId });
   }
 
-  const rowRes = await repo.renderRow(documentId, chunkIndex);
+  const rowRes = await repo.renderRow(documentId, info.runId, chunkIndex);
   if (rowRes.isErr()) return err(rowRes.error);
   const row = rowRes.value;
   if (row === null) {
     return err({
       reason: 'render_inconsistent',
       documentId,
-      detail: `chunk ${String(chunkIndex)} missing while chunk_count=${String(info.chunkCount)}`,
+      detail: `no row for generation ${info.runId} at chunk ${String(chunkIndex)} while chunk_count=${String(info.chunkCount)} - missing or superseded by a recompile`,
     });
   }
   if (row.chunkCount !== info.chunkCount) {
@@ -418,6 +418,31 @@ export const getDocumentRenderChunk = async (
       reason: 'render_inconsistent',
       documentId,
       detail: `row chunk_count ${String(row.chunkCount)} != ${String(info.chunkCount)}`,
+    });
+  }
+
+  // Generation pin. renderInfo and renderRow are two non-transactional
+  // reads and renderRow selects by (document_id, chunk_index) alone, so a
+  // recompile between them can hand back a row from ANOTHER generation --
+  // labeled by the meta/ETag built from `info` while carrying an older
+  // body, with document-level mark offsets applied to the wrong text. The
+  // DDL binds each payload's generation.run_id to its own row, so
+  // comparing the payload head to `info` here closes the race the same
+  // way reassembleTldf pins chunk heads to the manifest.
+  const payloadGeneration = row.payload['generation'];
+  const payloadRunId =
+    typeof payloadGeneration === 'object' && payloadGeneration !== null
+      ? (payloadGeneration as Record<string, unknown>)['run_id']
+      : undefined;
+  // text_sha256 is strict: every physical payload shape (envelope,
+  // manifest, chunk group) carries it, so an absent field is a corrupt
+  // row, not a tolerable variant.
+  const payloadTextSha = row.payload['text_sha256'];
+  if (String(payloadRunId) !== info.runId || payloadTextSha !== info.textSha256) {
+    return err({
+      reason: 'render_inconsistent',
+      documentId,
+      detail: `chunk ${String(chunkIndex)} carries generation ${String(payloadRunId)} while the served generation is ${info.runId}`,
     });
   }
 
