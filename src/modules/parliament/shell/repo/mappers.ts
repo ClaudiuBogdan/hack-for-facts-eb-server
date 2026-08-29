@@ -413,6 +413,9 @@ export interface VoteRow {
   vote_datetime_text: string | null;
   /** Computed by `voteKindExpr` in VOTE_SELECT, not a stored column. */
   kind: string;
+  resolution_status: string | null;
+  resolution_method: string | null;
+  resolved_display_bill_key: string | null;
 }
 
 export const mapVote = (r: VoteRow): ParliamentVote => ({
@@ -430,6 +433,9 @@ export const mapVote = (r: VoteRow): ParliamentVote => ({
   kind: r.kind,
   voteSubject: r.vote_subject,
   voteDateTimeText: r.vote_datetime_text,
+  resolutionStatus: r.resolution_status,
+  resolutionMethod: r.resolution_method,
+  resolvedDisplayBillKey: r.resolved_display_bill_key,
 });
 
 // ── member activity ──────────────────────────────────────────────────────────

@@ -270,6 +270,7 @@ export const MEMBERS_VIRTUAL_FIELDS = ['group', 'judet', 'q'] as const;
 // procedure.tip_initiativa / bucket on status_text), not a plain column op.
 export const BILLS_VIRTUAL_FIELDS = [
   'q',
+  'lastEventDate',
   'hasLaw',
   'publishedInMo',
   'actId',
@@ -687,6 +688,15 @@ export const billsFilterSpec: CollectionFilterSpec = {
       virtual: true,
       description:
         'Lifecycle bucket from status_text (v2, 5 disjoint buckets): promulgated = "Lege …"/"A devenit lege…" (became law); rejected = "respins…"; withdrawn = "retras…"/"restituit…"; lapsed = "clasat…"/"procedura legislativa încetată"; in_progress = none of the above. Repo-intercepted. Residual (no index).',
+    },
+    {
+      name: 'lastEventDate',
+      type: 'date',
+      ops: ['gte', 'lte', 'between'],
+      column: { alias: 'b', column: 'attrs' },
+      virtual: true,
+      description:
+        'Date range over attrs.last_event_date — the same current-recency key the default updated_desc sort, list cards and bill-activity heatmap use. Repo-intercepted JSON expression; residual (no expression index).',
     },
     {
       name: 'q',

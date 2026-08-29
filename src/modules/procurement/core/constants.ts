@@ -117,6 +117,20 @@ export type FrameworkRole = (typeof FRAMEWORK_ROLES)[number];
  */
 export const FRAMEWORK_ROLE_FILTERS = [...FRAMEWORK_ROLES, 'all'] as const;
 export type FrameworkRoleFilter = (typeof FRAMEWORK_ROLE_FILTERS)[number];
+
+/**
+ * TEMPORARY build-8 compatibility switch.
+ *
+ * The currently active ClickHouse contract fact table does not publish the
+ * `framework_role` column yet. Keep contract analytics on the legacy,
+ * unfiltered population until the replacement data build is active. Remove
+ * this constant and every guarded compatibility branch together after that
+ * rollout; the purchases-only framework-role contract then becomes canonical
+ * again.
+ */
+export const PROCUREMENT_DATA_AVAILABILITY: Readonly<{ frameworkRole: boolean }> = {
+  frameworkRole: false,
+};
 export type ValueComparableBasis = (typeof VALUE_COMPARABLE_BASES)[number];
 
 export const PROCEDURE_SOURCE_SYSTEMS = ['elicitatie', 'seap_notice'] as const;

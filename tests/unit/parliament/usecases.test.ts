@@ -63,6 +63,11 @@ const fakeVote = (voteKey: string) => ({
   kind: 'legislative',
   voteSubject: null,
   voteDateTimeText: null,
+  // W1.3: mirror the legacy billKey so `bill` still resolves for these
+  // fixtures — they exercise dossier/child wiring, not resolution.
+  resolutionStatus: 'resolved',
+  resolutionMethod: 'agree',
+  resolvedDisplayBillKey: '12760',
 });
 
 describe('rankVoteCohesion — mode + cap guards (Codex BLOCKER #1)', () => {

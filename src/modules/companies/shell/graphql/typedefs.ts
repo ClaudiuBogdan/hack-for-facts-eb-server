@@ -70,10 +70,12 @@ const objectsAndQuery = /* GraphQL */ `
     asOf: Date
   }
 
+  "One caen_profile row, re-derived 2026-08-25 against the current (July-dominant) authorizations input - the earlier May staleness is resolved. A ~370k May residue mirrors the input itself (rows absent from the July capture, legitimacy tracked upstream), not derive staleness."
   type CompanyCaenActivity {
     code: String!
     rev: String!
     label: String
+    "'onrc' (authorized set, May capture) | 'anaf' (main activity, May snapshot) | 'derived' (cross-source comparison, computed against the May registry)."
     source: String!
   }
   "Restricted in companies_v2; public profile returns an empty list until an authorized surface is added."
@@ -90,6 +92,8 @@ const objectsAndQuery = /* GraphQL */ `
 
   type CompanyFinancialYear {
     year: Int!
+    "Publisher of this statement year: 'anaf' (FY2019+) or 'mfp' (FY2008–2018 bulk). The seam is CHECK-enforced at 2019 — clients should mark it when charting across it."
+    sourceSystem: String!
     turnover: Money
     netProfit: Money
     netLoss: Money
@@ -99,6 +103,41 @@ const objectsAndQuery = /* GraphQL */ `
     summary: JSON!
     "Nullable in v2 profiles; canonical statement lines live in companies_v2.financial_indicators."
     lines: JSON
+  }
+
+  "A warn-only data-quality flag on one (cui, year) statement. Advisory: qualifies a figure, never suppresses one."
+  type CompanyFinancialQualityFlag {
+    year: Int!
+    flagCode: String!
+    metricName: String!
+    "'info' | 'review' | 'warning' today; open domain (kept String so a new upstream class cannot break an advisory surface)."
+    severity: String!
+    "Exact decimal string in the METRIC'S OWN UNIT - RON for money metrics, a headcount for employees, a ratio for ratio checks. NOT always money; do not blanket-format as RON."
+    numericValue: String
+    "Same unit rules as numericValue (e.g. employees_outlier threshold is the headcount 1000000, not RON)."
+    thresholdValue: String
+  }
+
+  """
+  Flags + the MEASURED corpus-wide assessment coverage. Absence semantics are
+  load-bearing: no flag for a year IN assessedYears means checked-and-clean;
+  a year NOT in assessedYears must be rendered as "not yet assessed", never
+  as clean. A SET, not a range - interior gaps are real (FY2020 has zero
+  flags corpus-wide today, and FY2008-2018 predates the quality lane's last
+  run of 2026-06-30). Still a lower bound: the table stores anomalies only,
+  so a year scanned and found fully clean corpus-wide is indistinguishable
+  from a never-scanned one - deliberately conservative. Two further honest
+  limits: a year in the set was assessed AS OF assessedAt, so statements
+  filed after that date are unchecked even in an assessed year (FY2025 is
+  visibly half-assessed today); and the rule set evolves (4-6 flag codes
+  per year), so "clean" in different years means different rule counts.
+  """
+  type CompanyFinancialQualityAssessment {
+    "Ascending distinct years holding at least one flag corpus-wide (today: 2019, 2021-2025)."
+    assessedYears: [Int!]!
+    "Creation date of the NEWEST flag row - a lower bound on the last lane run, not a true watermark (an upsert-only re-run that inserts no new rows does not move it)."
+    assessedAt: Date
+    flags: [CompanyFinancialQualityFlag!]!
   }
 
   type CompanyFinancialTrajectory {
@@ -113,6 +152,49 @@ const objectsAndQuery = /* GraphQL */ `
     years: [CompanyFinancialYear!]!
     latest: CompanyFinancialYear
     trajectory: CompanyFinancialTrajectory
+  }
+
+  "Closed set of diffable registration fields. STATUS is deliberately absent: registration_history.raw_status is 100% NULL and no complete per-capture status set exists in prod - status history is unavailable, stated rather than served as a diff that can never fire. Coded CURRENT status stays on Company.headlineStatus."
+  enum CompanyRegistrationField {
+    LEGAL_NAME
+    LEGAL_FORM
+    COUNTY
+    LOCALITY
+  }
+
+  enum CompanyRegistrationDiffStatus {
+    CHANGED
+    UNCHANGED
+    "Present only in the later capture (newly registered or newly public)."
+    APPEARED
+    "Present only in the earlier capture - no longer in the published capture; struck-off vs gone-restricted is indistinguishable BY DESIGN and no cause is implied."
+    DISAPPEARED
+    "Comparison impossible: fewer than two captures loaded corpus-wide, or the company has no public row in either capture. Never collapsed into UNCHANGED or null."
+    NOT_COMPARABLE
+    "The CUI maps to MULTIPLE registry rows in at least one capture (~95k CUIs carry 2-8 rows per snapshot: ONRC re-registration history, e.g. two J-numbers on one CUI) - a single-company diff is undefined, so no changes are asserted. Render as 'multiple registrations share this identifier', never as unchanged."
+    AMBIGUOUS
+  }
+
+  type CompanyRegistrationChange {
+    field: CompanyRegistrationField!
+    "Raw registry values as published (legalName reports the raw spelling even though equality is judged on the normalized form)."
+    from: String
+    to: String
+  }
+
+  """
+  Diff of the two most recent LOADED, DATED ONRC captures (today: published
+  2026-05-06 vs 2026-07-08); extends to latest-vs-previous as new captures are
+  loaded AND dated (the capture dimension has no scheduled refresh lane, so
+  this follows data operations, not the calendar). Dates are ONRC PUBLICATION
+  dates (never our retrieval time - the two differ by up to 129 days).
+  """
+  type CompanyRegistrationDiff {
+    fromCaptureDate: Date
+    toCaptureDate: Date
+    status: CompanyRegistrationDiffStatus!
+    "Non-empty only when status = CHANGED."
+    changes: [CompanyRegistrationChange!]!
   }
 
   type CompanyAsOf {
@@ -165,6 +247,10 @@ const objectsAndQuery = /* GraphQL */ `
     "Public representative names are withheld until the v2 restricted person data has an access-gated API path."
     representatives: [CompanyRepresentative!]!
     financials: [CompanyFinancialYear!]!
+    "Warn-only quality flags + measured assessment coverage; lazily resolved. Nullable for per-field error isolation (audit H2) - an advisory failure must not null the whole profile."
+    financialQualityAssessment: CompanyFinancialQualityAssessment
+    "Two-capture registration diff; lazily resolved. Nullable for per-field error isolation (H2)."
+    registrationDiff: CompanyRegistrationDiff
     euBranches: [CompanyEuBranch!]!
     "Public money received (payee), via the kernel FlowsRepo. Null when none."
     publicMoney: CompanyPublicMoney
@@ -218,7 +304,7 @@ const objectsAndQuery = /* GraphQL */ `
 
   "Landing aggregate for the /companies hub. SERVED FROM CACHE (6h TTL, stale-while-revalidate): the three underlying scans cost ~30s together, so this is never computed on a request path. computedAt is the instant the legs actually ran, which may be hours old."
   type CompanyHubStats {
-    "Every company on the CUI spine."
+    "Every company on the CUI spine. NOT the whole ONRC registry: ~86k registry entries (2.1%, incl. ~29k SRL and ~1.7k SA) have no CUI and are structurally absent from the CUI-keyed corpus (measured 2026-08-25)."
     totalCompanies: Int!
     "Companies in ONRC lifecycle status 1048 (funcțiune)."
     activeCompanies: Int!

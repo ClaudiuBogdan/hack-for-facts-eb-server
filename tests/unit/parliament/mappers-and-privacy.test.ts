@@ -170,6 +170,9 @@ describe('mapVote — tally shape, printed subject/time, no attrs bag', () => {
     tally_mismatch: true,
     vote_subject: 'raport de respingere (a legii)',
     vote_datetime_text: '04.05.2022 11:29',
+    resolution_status: 'resolved',
+    resolution_method: 'agree',
+    resolved_display_bill_key: '19860',
     kind: 'legislative',
   };
 

@@ -23,6 +23,7 @@
 import { sql, type Kysely, type RawBuilder, type SqlBool } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
+import { buildEntitiesFilter } from '@/modules/shared/core/filters/index.js';
 import {
   MAX_SERVED_CUI_DIGITS,
   databaseError,
@@ -50,6 +51,7 @@ import {
   mapCaen,
   mapEuBranch,
   mapFinancialYear,
+  mapQualityFlag,
   mapFiscal,
   mapHeadlineStatus,
   mapCountyDisplayName,
@@ -63,6 +65,9 @@ import {
   type CaenCodeHit,
   type CompanyCoverage,
   type CompanyEntitySlice,
+  type CompanyFinancialQualityAssessment,
+  type CompanyRegistrationCaptureRow,
+  type CompanyRegistrationDiffData,
   type CompanyFinancialYear,
   type CompanyGroupBy,
   type CompanyGroupCount,
@@ -110,6 +115,7 @@ const composeWhere = (conds: readonly RawBuilder<unknown>[]): RawBuilder<SqlBool
 const financialColumns = () =>
   [
     'year',
+    'source_system',
     sql<string | null>`turnover::text`.as('turnover'),
     sql<string | null>`net_profit::text`.as('net_profit'),
     sql<string | null>`net_loss::text`.as('net_loss'),
@@ -307,7 +313,65 @@ const mapListRow = (row: {
   registrationDatePresent: row.registration_date !== null,
 });
 
-export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
+interface FlagCoverage {
+  readonly years: readonly number[];
+  readonly assessed_at: string | null;
+}
+
+export interface CompaniesRepoOptions {
+  /**
+   * The Meili index for name resolution — the kernel-configured palette index
+   * (`PROD_MEILI_INDEXES[0]`, default `entities`). The previous hardcoded
+   * `['organizations','companies']` pair named indexes retired with the
+   * palette cutover; multiSearch answered ok-with-empty-hits on their absence,
+   * so every resolve silently took the pg fallback with no log and no
+   * degraded signal (SEARCH_LAYER_REVIEW_2026-08-25.md F11).
+   */
+  readonly meiliEntitiesIndex?: string;
+}
+
+export const makeCompaniesRepo = (
+  db: Db,
+  repoOptions: CompaniesRepoOptions = {}
+): CompaniesRepository => {
+  const meiliEntitiesIndex = repoOptions.meiliEntitiesIndex ?? 'entities';
+  // The quality-flag coverage triple is CUI-invariant (a corpus-wide constant),
+  // so recomputing it per request would heap-scan the whole flags table on every
+  // profile view — and that table grows on the next derive run. Memoized with a
+  // short TTL; the only cost of staleness is the range widening a few minutes
+  // late after a lane re-run.
+  const COVERAGE_TTL_MS = 10 * 60 * 1000;
+  // Singleflight: the PROMISE is cached, so concurrent misses share one scan
+  // instead of dogpiling at TTL expiry; a rejected promise is evicted so an
+  // error is never served from cache.
+  let coverageCache: { at: number; promise: Promise<FlagCoverage> } | null = null;
+  const getFlagCoverage = (): Promise<FlagCoverage> => {
+    if (coverageCache !== null && Date.now() - coverageCache.at < COVERAGE_TTL_MS) {
+      return coverageCache.promise;
+    }
+    const promise = (async (): Promise<FlagCoverage> => {
+      const row = await db
+        .selectFrom('companies_v2.financial_quality_flags')
+        .select([
+          // The SET of flagged years, not min/max: FY2020 has zero flags while
+          // its neighbours have tens of thousands (measured 2026-08-25), and a
+          // range would certify that interior gap as checked-and-clean.
+          sql<number[] | null>`array_agg(distinct year order by year)`.as('years'),
+          sql<string | null>`max(created_at)::date::text`.as('assessed_at'),
+        ])
+        // Same positive allowlist as the per-CUI read: a non-public flag row must
+        // not be able to move the coverage set every public caller sees.
+        .where('privacy_class', '=', 'public')
+        .executeTakeFirst();
+      return { years: row?.years ?? [], assessed_at: row?.assessed_at ?? null };
+    })();
+    coverageCache = { at: Date.now(), promise };
+    promise.catch(() => {
+      if (coverageCache?.promise === promise) coverageCache = null;
+    });
+    return promise;
+  };
+
   // ── detail (per-CUI fan-out) ────────────────────────────────────────────────
   const getProfileData = async (
     rawCui: string
@@ -364,6 +428,9 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
           .selectFrom('companies_v2.financials')
           .select(financialColumns())
           .where('cui', '=', cui)
+          // The CHECK admits 'personal_moderate'/'restricted'; all rows are
+          // public today, but the platform gates on class, not distribution.
+          .where('privacy_class', '=', 'public')
           .orderBy('year', 'desc')
           .execute(),
         db
@@ -441,11 +508,167 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
         .selectFrom('companies_v2.financials')
         .select(financialColumns())
         .where('cui', '=', cui)
+        .where('privacy_class', '=', 'public')
         .orderBy('year', 'desc')
         .execute();
       return ok(rows.map((r) => mapFinancialYear(r)));
     } catch (error) {
       return err(databaseError('getFinancials failed', error));
+    }
+  };
+
+  // The two most recent LOADED captures — derived from the fact table via an
+  // EXISTS guard, never from the dimension alone: the dimension carries four
+  // captures but the facts only two, and ordering the dimension by publication
+  // would pick an EMPTY June capture and report every company as newly
+  // appeared (measured 2026-08-25). The EXISTS is an index seek on
+  // (source_snapshot_id, source_row_number), present and absent alike.
+  const CAPTURE_PAIR_TTL_MS = 10 * 60 * 1000;
+  let capturePairCache: {
+    at: number;
+    promise: Promise<readonly { id: string; published_at: string | null }[]>;
+  } | null = null;
+  const getLoadedCapturePair = (): Promise<
+    readonly { id: string; published_at: string | null }[]
+  > => {
+    if (capturePairCache !== null && Date.now() - capturePairCache.at < CAPTURE_PAIR_TTL_MS) {
+      return capturePairCache.promise;
+    }
+    const promise = (async () => {
+      const rows = await db
+        .selectFrom('companies_v2.source_snapshots as s')
+        .select([
+          's.source_snapshot_id as id',
+          sql<string | null>`s.source_published_at::text`.as('published_at'),
+        ])
+        .where('s.privacy_class', '=', 'public')
+        // Only DATED captures participate: a NULL publication date cannot be
+        // ordered honestly (and nulls-last would silently freeze the pair or,
+        // if both were null, arbitrarily invert appeared/disappeared).
+        .where('s.source_published_at', 'is not', null)
+        .where((eb) =>
+          eb.exists(
+            eb
+              .selectFrom('companies_v2.registration_history as rh')
+              .select('rh.source_snapshot_id')
+              .whereRef('rh.source_snapshot_id', '=', 's.source_snapshot_id')
+          )
+        )
+        .orderBy(sql`s.source_published_at desc nulls last`)
+        .limit(2)
+        .execute();
+      return rows;
+    })();
+    capturePairCache = { at: Date.now(), promise };
+    promise.catch(() => {
+      if (capturePairCache?.promise === promise) capturePairCache = null;
+    });
+    return promise;
+  };
+
+  const getRegistrationDiffData = async (
+    rawCui: string
+  ): Promise<Result<CompanyRegistrationDiffData, ApiError>> => {
+    const cui = normalizeCui(rawCui);
+    if (cui === null) return err(invalidInput('invalid CUI format', 'cui'));
+    try {
+      const captures = await getLoadedCapturePair();
+      // captures[0] = later, captures[1] = earlier (published desc)
+      const later = captures[0];
+      const earlier = captures[1];
+      // limit 2, not 1: the grain is (source_snapshot_id, source_row_number) —
+      // NOT cui — and ~95k CUIs carry 2–8 rows per snapshot by design (ONRC
+      // re-registration history; 190,304 (cui, capture) pairs, 47,996 with
+      // differing names). A limit-1 pick is nondeterministic and manufactured a
+      // false rename on the first live repro; a second row means the
+      // single-company diff is undefined → surfaced as 'ambiguous'.
+      const rowsFor = async (
+        capture: { id: string } | undefined
+      ): Promise<{ row: CompanyRegistrationCaptureRow | null; multiple: boolean }> => {
+        if (capture === undefined) return { row: null, multiple: false };
+        const rows = await db
+          .selectFrom('companies_v2.registration_history')
+          .select([
+            'legal_name',
+            'normalized_legal_name',
+            'legal_form',
+            'raw_county',
+            'raw_locality',
+          ])
+          .where('cui', '=', cui)
+          .where('source_snapshot_id', '=', capture.id)
+          // Restricted rows read as ABSENT — presence itself must not leak.
+          // Verified safe: privacy_class is capture-stable (0 CUIs differ), so
+          // this can never manufacture a phantom disappearance.
+          .where('privacy_class', '=', 'public')
+          .limit(2)
+          .execute();
+        const r = rows[0];
+        if (r === undefined) return { row: null, multiple: false };
+        return {
+          row: {
+            legalName: r.legal_name,
+            normalizedLegalName: r.normalized_legal_name,
+            legalForm: r.legal_form,
+            county: r.raw_county,
+            locality: r.raw_locality,
+          },
+          multiple: rows.length > 1,
+        };
+      };
+      const [laterRes, earlierRes] = await Promise.all([rowsFor(later), rowsFor(earlier)]);
+      return ok({
+        fromCaptureDate: earlier?.published_at ?? null,
+        toCaptureDate: later?.published_at ?? null,
+        captureCount: captures.length,
+        earlier: earlierRes.row,
+        later: laterRes.row,
+        earlierMultiple: earlierRes.multiple,
+        laterMultiple: laterRes.multiple,
+      });
+    } catch (error) {
+      return err(databaseError('getRegistrationDiffData failed', error));
+    }
+  };
+
+  const getFinancialQualityAssessment = async (
+    rawCui: string
+  ): Promise<Result<CompanyFinancialQualityAssessment, ApiError>> => {
+    const cui = normalizeCui(rawCui);
+    if (cui === null) return err(invalidInput('invalid CUI format', 'cui'));
+    try {
+      // Defence-in-depth: the table measures 100% public today, but the platform
+      // rule gates on class, not on today's distribution — positive allowlist.
+      const [rows, coverage] = await Promise.all([
+        db
+          .selectFrom('companies_v2.financial_quality_flags')
+          .select([
+            'year',
+            'flag_code',
+            'metric_name',
+            'severity',
+            sql<string | null>`numeric_value::text`.as('numeric_value'),
+            sql<string | null>`threshold_value::text`.as('threshold_value'),
+          ])
+          .where('cui', '=', cui)
+          .where('privacy_class', '=', 'public')
+          .orderBy('year', 'desc')
+          .orderBy('flag_code', 'asc')
+          .execute(),
+        // Corpus-wide coverage, MEASURED not hardcoded, but a LOWER BOUND: the
+        // table stores anomalies only, so the range is the flagged-year envelope
+        // — a scanned-but-fully-clean year at either edge is indistinguishable
+        // from a never-scanned one and reads as "not assessed" (conservative:
+        // this direction never certifies unchecked data as clean).
+        getFlagCoverage(),
+      ]);
+      return ok({
+        assessedYears: coverage.years,
+        assessedAt: coverage.assessed_at,
+        flags: rows.map(mapQualityFlag),
+      });
+    } catch (error) {
+      return err(databaseError('getFinancialQualityAssessment failed', error));
     }
   };
 
@@ -502,24 +725,31 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
     meili: MeiliClient | null
   ): Promise<Result<{ hits: readonly CompanyNameHit[]; degraded: boolean }, ApiError>> => {
     const capped = Math.min(Math.max(Math.floor(limit), 1), 50);
-    // PRIMARY: Meili (company/organizations index). Degrade silently to pg on any error.
+    // PRIMARY: the palette index, filtered to identities that play the
+    // `company` ROLE. `roles` rather than `doc_type`: the palette collapses
+    // one document per identity, so a CUI that is also a public entity
+    // presents as `organization` — the role filter still finds it, and the
+    // kind='company' validation below keeps the §link-not-merge contract.
+    // The filter builder always pins privacy_class = "public".
     if (meili !== null) {
-      const m = await meili.multiSearch(q, ['organizations', 'companies'], capped);
+      const m = await meili.searchEntities(q, meiliEntitiesIndex, {
+        filter: buildEntitiesFilter({ roles: ['company'] }),
+        limit: capped,
+      });
       if (m.isOk()) {
         // Collect candidate CUIs (ordered by Meili score), then VALIDATE them
-        // against core.organizations(kind='company') — the shared `organizations`
-        // index also carries public entities, so a raw Meili hit may be a
-        // non-company CUI (§link-not-merge: we only resolve to companies here).
+        // against core.organizations(kind='company').
         const ordered: { cui: string; label: string; score: number | null }[] = [];
         const seen = new Set<string>();
-        for (const result of m.value) {
-          for (const hit of result.hits) {
-            const cui =
-              typeof hit.attrs['cui'] === 'string' ? normalizeCui(hit.attrs['cui']) : null;
-            if (cui === null || seen.has(cui)) continue;
-            seen.add(cui);
-            ordered.push({ cui, label: hit.title, score: hit.score });
-          }
+        for (const hit of m.value.hits) {
+          // Palette docs key CUI identities by doc_key (= the CUI); `cuis` is
+          // the mapper-derived all-numeric identifier subset. No `attrs.cui`
+          // exists on palette docs — that was the retired per-source shape.
+          const raw = hit.docKey ?? hit.cuis?.[0];
+          const cui = typeof raw === 'string' ? normalizeCui(raw) : null;
+          if (cui === null || seen.has(cui)) continue;
+          seen.add(cui);
+          ordered.push({ cui, label: hit.title, score: hit.score });
         }
         if (ordered.length > 0) {
           const valid = await db
@@ -540,18 +770,16 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
           const hits = ordered
             .filter((o) => nameByCui.has(o.cui))
             .slice(0, capped)
-            .map(
-              (o): CompanyNameHit => ({
-                dim: 'name',
-                value: o.cui,
-                label: nameByCui.get(o.cui) ?? o.label,
-                cui: o.cui,
-                confidence: o.score,
-              })
-            );
+            .map((o): CompanyNameHit => ({
+              dim: 'name',
+              value: o.cui,
+              label: nameByCui.get(o.cui) ?? o.label,
+              cui: o.cui,
+              confidence: o.score,
+            }));
           if (hits.length > 0) return ok({ hits, degraded: false });
         }
-        // Meili reachable but no company hit (e.g. company index not built yet) → pg fallback.
+        // Meili reachable but no company-role hit for this query → pg fallback.
       }
     }
     // DEGRADED fallback: capped, kind='company'-scoped, TS diacritic fold. No unaccent,
@@ -584,15 +812,13 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
         })
         .sort((a, b) => b.score - a.score)
         .slice(0, capped)
-        .map(
-          ({ r, score }): CompanyNameHit => ({
-            dim: 'name',
-            value: r.cui ?? '',
-            label: r.name,
-            cui: r.cui,
-            confidence: score,
-          })
-        );
+        .map(({ r, score }): CompanyNameHit => ({
+          dim: 'name',
+          value: r.cui ?? '',
+          label: r.name,
+          cui: r.cui,
+          confidence: score,
+        }));
       return ok({ hits: ranked, degraded: true });
     } catch (error) {
       return err(databaseError('resolveByName fallback failed', error));
@@ -884,6 +1110,7 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
       .selectFrom('companies_v2.financials')
       .select(['cui', ...financialColumns()])
       .where('cui', 'in', [...cuis])
+      .where('privacy_class', '=', 'public')
       .distinctOn('cui')
       .orderBy('cui')
       .orderBy('year', 'desc')
@@ -999,6 +1226,8 @@ export const makeCompaniesRepo = (db: Db): CompaniesRepository => {
   return {
     getProfileData,
     getFinancials,
+    getFinancialQualityAssessment,
+    getRegistrationDiffData,
     listCompanies,
     resolveByName,
     findByRegistrationNumber,

@@ -35,6 +35,7 @@ const unwrap = <T>(r: Result<T, ApiError>): T => {
 
 const yearRow = (year: number, netProfit: string, netLoss: string): CompanyFinancialYear => ({
   year,
+  sourceSystem: year >= 2019 ? 'anaf' : 'mfp',
   turnover: '0.00',
   netProfit,
   netLoss,
@@ -66,6 +67,20 @@ const yearRow = (year: number, netProfit: string, netLoss: string): CompanyFinan
 const stubRepo = (over: Partial<CompaniesRepository> = {}): CompaniesRepository => ({
   getProfileData: vi.fn(async () => ok(null)),
   getFinancials: vi.fn(async () => ok([])),
+  getFinancialQualityAssessment: vi.fn(async () =>
+    ok({ assessedYears: [], assessedAt: null, flags: [] })
+  ),
+  getRegistrationDiffData: vi.fn(async () =>
+    ok({
+      fromCaptureDate: null,
+      toCaptureDate: null,
+      captureCount: 0,
+      earlier: null,
+      later: null,
+      earlierMultiple: false,
+      laterMultiple: false,
+    })
+  ),
   listCompanies: vi.fn(async () => ok({ rows: [], total: 0, estimated: false })),
   resolveByName: vi.fn(async () => ok({ hits: [], degraded: false })),
   findByRegistrationNumber: vi.fn(async () => ok([])),
@@ -189,6 +204,18 @@ describe('M6 — financials.lines nullable/string money contract', () => {
   it('keeps null lines null', () => {
     const row = yearRow(2024, '0.00', '0.00') as unknown as FinancialRow;
     expect(mapFinancialYear(row).lines).toBeNull();
+  });
+});
+
+describe('sourceSystem mapping (publisher seam)', () => {
+  it('maps the snake_case source_system column onto sourceSystem', () => {
+    // yearRow(2018) already carries camelCase sourceSystem:'mfp'; the snake_case
+    // column DELIBERATELY differs so a mapper regressed to r.sourceSystem fails.
+    const row = {
+      ...(yearRow(2018, '0.00', '0.00') as unknown as FinancialRow),
+      source_system: 'anaf',
+    };
+    expect(mapFinancialYear(row).sourceSystem).toBe('anaf');
   });
 });
 

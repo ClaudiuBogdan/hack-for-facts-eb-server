@@ -2,7 +2,7 @@
  * Legal module — GraphQL resolvers (plan §6). Thin: parse args → call the SAME
  * usecase MCP calls. `ApiError` → `GraphQLError` with `extensions.code`. Cursor
  * pages → Relay connections (per-edge cursor re-encoded, bound to the active
- * fhash). Lazy `LegalAct` fields (canonical/summary/links/timeline/tree) resolve
+ * fhash). Lazy `LegalAct` fields (canonical/summary/links/timeline) resolve
  * via the repos; `targetAct`/`sourceAct` on edges resolve via a batched act loader.
  *
  * ENUM MAPPING (Codex finding #6): DB values are lowercase/hyphenated
@@ -18,6 +18,7 @@ import {
   buildNextCursor,
   fhashFor,
   filterHash,
+  invalidInput,
   makeBatchLoader,
   type ApiError,
   type CursorPage,
@@ -26,6 +27,8 @@ import {
 
 import { versionProvenanceNote } from '../../core/provenance.js';
 import {
+  countLegalActs,
+  countRecentChanges,
   getAct,
   getActLinksIn,
   getActLinksOut,
@@ -33,13 +36,21 @@ import {
   getActVersions,
   getDocumentOutline,
   getExternalAct,
+  getRecentChanges,
   listActs,
+  normalizeRecentChangesFilter,
   resolveLegalFilters,
   searchLegal,
   type LegalSearchDeps,
   type ResolveLegalFiltersDeps,
 } from '../../core/usecases.js';
 import { legalActsSpec } from '../filters/legal-acts.spec.js';
+import {
+  LINKS_SORT,
+  RECENT_CHANGES_SORT,
+  linksFhash,
+  recentChangesFhash,
+} from '../repo/filter-helpers.js';
 
 import type {
   LegalActsRepo,
@@ -51,7 +62,9 @@ import type {
   LegalAct,
   LegalActCard,
   LegalActStatus,
+  LegalCountDimension,
   LegalDocument,
+  LegalEventSource,
   LegalRelation,
   LegalRenderInfo,
   LegalResolveDim,
@@ -113,6 +126,17 @@ const SORT_FROM_GQL: Record<string, LegalSortKey> = {
   ACT_YEAR: 'act_year',
   ENTRY_INTO_FORCE: 'entry_into_force',
   DISPLAY_CITATION: 'display_citation',
+};
+
+// Arg-only mapping (the LegalSortKey pattern) — deliberately NOT registered in
+// the enum-resolver maps: those translate OUTPUT values, and a double mapping
+// would rewrite the arg before this lookup.
+const DIM_FROM_GQL: Record<string, LegalCountDimension> = {
+  DOMAIN: 'domain',
+  ACT_TYPE: 'act_type',
+  STATUS: 'status',
+  ISSUER: 'issuer',
+  YEAR: 'year',
 };
 
 const sortKeysOf = (act: LegalAct, sort: LegalSortKey): readonly (string | number | null)[] => {
@@ -199,7 +223,93 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
             page: { first: args.first ?? 20, ...(args.after != null && { after: args.after }) },
           })
         );
-        return toActConnection(page, filter, sort, dir);
+        return toActConnection(page, filter, sort, dir, async () => {
+          // Lazy: runs only when the query actually selects totalCount. A
+          // count failure degrades to null (unknown) — it never fails the
+          // list it annotates.
+          const counted = await acts.countActs(filter);
+          return counted.isOk() ? counted.value : null;
+        });
+      },
+      legalActCounts: async (
+        _r: unknown,
+        args: { groupBy: string; filter?: FilterInput; topN?: number }
+      ) => {
+        const dim = DIM_FROM_GQL[args.groupBy];
+        if (dim === undefined) {
+          // The SDL enum already gates this; the guard keeps a direct caller honest.
+          throw toGraphqlError(invalidInput(`invalid groupBy '${args.groupBy}'`, 'groupBy'));
+        }
+        // `?? undefined`: an explicit null variable means "default", not zero.
+        return unwrap(await countLegalActs(acts, dim, args.filter ?? {}, args.topN ?? undefined));
+      },
+      legalRecentChanges: async (
+        _r: unknown,
+        args: {
+          since?: string;
+          until?: string;
+          kinds?: string[];
+          eventSource?: string;
+          undatedOnly?: boolean;
+          first?: number;
+          after?: string;
+        }
+      ) => {
+        // Normalize ONCE here (the usecase re-normalizes idempotently): the
+        // per-edge cursors below must hash the same canonical filter the repo
+        // minted `next` under, or a resumed edge cursor would be rejected.
+        const norm = normalizeRecentChangesFilter({
+          ...(args.since != null && { since: args.since }),
+          ...(args.until != null && { until: args.until }),
+          ...(args.kinds != null && { kinds: args.kinds }),
+          // Cast only: membership is validated by the normalizer, not here.
+          ...(args.eventSource != null && { eventSource: args.eventSource as LegalEventSource }),
+          ...(args.undatedOnly != null && { undatedOnly: args.undatedOnly }),
+        });
+        if (norm.isErr()) throw toGraphqlError(norm.error);
+        const filter = norm.value;
+        const page = unwrap(
+          await getRecentChanges(acts, {
+            ...filter,
+            page: {
+              first: args.first ?? 20,
+              // `!= null`: an explicit `after: null` variable is a normal
+              // GraphQL first-page request, not a malformed cursor.
+              ...(args.after != null && { after: args.after }),
+            },
+          })
+        );
+        const fhash = recentChangesFhash(filter);
+        const edges = page.items.map((node) => ({
+          node,
+          // Re-encodes the repo's keyset (effective_date desc, event_id desc;
+          // '' = null-date sentinel) — sort/dir/fhash must match
+          // listRecentChanges or a resumed cursor would be rejected.
+          cursor: buildNextCursor({
+            sort: RECENT_CHANGES_SORT,
+            dir: 'desc',
+            fhash,
+            lastKeys: [node.effectiveDate ?? '', node.eventId],
+          }),
+        }));
+        return {
+          edges,
+          pageInfo: {
+            hasNextPage: page.next !== null,
+            endCursor: edges.length > 0 ? (edges[edges.length - 1]?.cursor ?? null) : null,
+          },
+          // Lazy thunk: the real filtered count runs only when selected. On
+          // failure it THROWS: the nullable field still resolves null, but a
+          // field-level errors entry says why (verified under graphql-js
+          // execution in tests) — `isOk() ? value : null` would swallow the
+          // ApiError, and the count is a full scan today, so a timeout is the
+          // likeliest failure exactly when the total matters most.
+          totalCount: async (): Promise<number | null> => {
+            const counted = await countRecentChanges(acts, filter);
+            if (counted.isErr()) throw toGraphqlError(counted.error);
+            return counted.value;
+          },
+        };
       },
       legalSearch: async (
         _r: unknown,
@@ -230,11 +340,30 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
             maxDepth: args.maxDepth ?? 3,
             page: {
               first: args.first ?? 200,
-              ...(args.after !== undefined && { after: args.after }),
+              // `!= null`: an explicit `after: null` variable is a normal
+              // GraphQL first-page request, not a malformed cursor.
+              ...(args.after != null && { after: args.after }),
             },
           })
         );
-        return { entries: page.items, next: page.next };
+        // SDL keeps `depth: Int!`. That guarantee is real on THIS path and only
+        // this one: the outline query filters to ranked heading types, so every
+        // row it returns has a grammar rank. `entryByPath` (MCP only) resolves
+        // any structural node and legitimately yields a null depth, which is
+        // why the core type is nullable — weakening the published GraphQL field
+        // to match it would break generated clients to describe a case that
+        // cannot reach them. A null here means the repo filter and the rank
+        // table disagree; that is a contract violation, not a nullable value.
+        const entries = page.items.map((entry) => {
+          if (entry.depth === null) {
+            throw new Error(
+              `legalDocumentOutline: ${entry.documentId}${entry.path} passed the heading-type ` +
+                'filter but has no grammar rank — outline filter and OUTLINE_DEPTH_RANK disagree'
+            );
+          }
+          return { ...entry, depth: entry.depth };
+        });
+        return { entries, next: page.next };
       },
       legalExternalAct: async (_r: unknown, args: { externalActId: string }) =>
         unwrap(await getExternalAct(graph, args.externalActId)),
@@ -283,39 +412,59 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
       documents: async (parent: LegalAct) => unwrap(await getActVersions(acts, parent.actId)),
       links: async (
         parent: LegalAct,
-        args: { direction: string; relation?: string[]; first?: number }
+        args: { direction: string; relation?: string[]; first?: number; after?: string }
       ) => {
         const relations = (args.relation ?? []).map(
           (r) => RELATION_FROM_GQL[r] ?? (r as LegalRelation)
         );
         const rels = relations.length > 0 ? relations : undefined;
-        // 199 cap: the repo clamps reads at 200, so the +1 probe must stay
-        // inside it — at exactly 200 the probe would be silently truncated
-        // and hasNextPage would read false with more edges present.
-        const limit = Math.min(args.first ?? 50, 199);
-        // limit+1 probe: hasNextPage is a fact, not a hardcoded false, and
-        // totalCount is NULL (unknown) rather than the page size — a bounded
-        // read cannot know the hub's true fan-out and must not claim to.
-        if (args.direction === 'OUT' || args.direction === 'out') {
-          const edges = unwrap(await getActLinksOut(graph, parent.actId, rels, limit + 1));
-          const hasNextPage = edges.length > limit;
+        const direction = args.direction === 'OUT' || args.direction === 'out' ? 'out' : 'in';
+        const page = {
+          first: args.first ?? 50,
+          // `!= null`: an explicit `after: null` variable is a normal
+          // GraphQL first-page request, not a malformed cursor.
+          ...(args.after != null && { after: args.after }),
+        };
+        // totalCount stays NULL — deliberate (act-detail.md §9.1): a bounded
+        // read must not claim a hub's true fan-out. What changed is the
+        // CURSOR: endCursor is the last edge's REAL cursor on every page
+        // (including the final one), so a 26k-edge hub is actually walkable —
+        // hasNextPage true + endCursor null was self-contradicting Relay.
+        // The cursor re-encodes the repo's PK keyset (source_document_id,
+        // ref_index; LINKS_SORT asc, fhash bound to direction+act+relations)
+        // — it must match graph-repo or a resumed cursor would be rejected.
+        const fhash = linksFhash(direction, parent.actId, rels);
+        const endCursorOf = (doc: string, ref: number): string =>
+          buildNextCursor({
+            sort: LINKS_SORT,
+            dir: 'asc',
+            fhash,
+            lastKeys: [doc, String(ref)],
+          });
+        if (direction === 'out') {
+          const outPage = unwrap(await getActLinksOut(graph, parent.actId, rels, page));
+          const last = outPage.items[outPage.items.length - 1];
           return {
-            edges: (hasNextPage ? edges.slice(0, limit) : edges).map((edge) => ({
-              ...edge,
-              sourceAct: null,
-            })),
-            pageInfo: { hasNextPage, endCursor: null },
+            edges: outPage.items.map((edge) => ({ ...edge, sourceAct: null })),
+            pageInfo: {
+              hasNextPage: outPage.next !== null,
+              endCursor:
+                last === undefined ? null : endCursorOf(last.sourceDocumentId, last.refIndex),
+            },
             totalCount: null,
           };
         }
-        const inEdges = unwrap(await getActLinksIn(graph, parent.actId, rels, limit + 1));
-        const hasNextPage = inEdges.length > limit;
+        const inPage = unwrap(await getActLinksIn(graph, parent.actId, rels, page));
+        const last = inPage.items[inPage.items.length - 1];
         return {
-          edges: (hasNextPage ? inEdges.slice(0, limit) : inEdges).map(({ edge, sourceAct }) => ({
-            ...edge,
-            sourceAct,
-          })),
-          pageInfo: { hasNextPage, endCursor: null },
+          edges: inPage.items.map(({ edge, sourceAct }) => ({ ...edge, sourceAct })),
+          pageInfo: {
+            hasNextPage: inPage.next !== null,
+            endCursor:
+              last === undefined
+                ? null
+                : endCursorOf(last.edge.sourceDocumentId, last.edge.refIndex),
+          },
           totalCount: null,
         };
       },
@@ -323,7 +472,9 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
         const page = unwrap(
           await graph.incomingAnchors(parent.actId, {
             first: args.first ?? 50,
-            ...(args.after !== undefined && { after: args.after }),
+            // `!= null`: an explicit `after: null` variable is a normal
+            // GraphQL first-page request, not a malformed cursor.
+            ...(args.after != null && { after: args.after }),
           })
         );
         // Per-edge cursors re-encode the repo's keyset (edge_id asc, fhash
@@ -348,7 +499,30 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
       timeline: async (parent: LegalAct) => unwrap(await getActTimeline(acts, graph, parent.actId)),
     },
 
+    LegalActConnection: {
+      // The connection carries totalCount as a thunk (or null); resolving it
+      // here rather than via the default field resolver keeps the laziness
+      // explicit and engine-independent (graphql-jit vs graphql-js).
+      totalCount: async (parent: { totalCount: null | (() => Promise<number | null>) }) =>
+        typeof parent.totalCount === 'function' ? parent.totalCount() : parent.totalCount,
+    },
+
+    LegalRecentChangeConnection: {
+      // Same lazy-thunk contract as LegalActConnection: the count query runs
+      // only when the field is selected.
+      totalCount: async (parent: { totalCount: null | (() => Promise<number | null>) }) =>
+        typeof parent.totalCount === 'function' ? parent.totalCount() : parent.totalCount,
+    },
+
     LegalIncomingAnchor: {
+      sourceAct: async (parent: { sourceActId: string | null }) =>
+        parent.sourceActId === null ? null : actLoader.load(parent.sourceActId),
+    },
+
+    LegalRecentChange: {
+      // "act X amended by act Y": Y arrives as a whole act through the SAME
+      // batched loader the anchor/edge surfaces use — one statement per page,
+      // not one per row; a dangling id answers null.
       sourceAct: async (parent: { sourceActId: string | null }) =>
         parent.sourceActId === null ? null : actLoader.load(parent.sourceActId),
     },
@@ -381,11 +555,12 @@ const toActConnection = (
   page: CursorPage<LegalAct>,
   filter: FilterInput,
   sort: LegalSortKey,
-  dir: 'asc' | 'desc'
+  dir: 'asc' | 'desc',
+  countTotal?: () => Promise<number | null>
 ): {
   edges: { node: LegalAct; cursor: string }[];
   pageInfo: { hasNextPage: boolean; endCursor: string | null };
-  totalCount: number | null;
+  totalCount: null | (() => Promise<number | null>);
 } => {
   const fhash = fhashFor(legalActsSpec, filter);
   const edges = page.items.map((node) => ({
@@ -398,7 +573,10 @@ const toActConnection = (
       hasNextPage: page.next !== null,
       endCursor: edges.length > 0 ? (edges[edges.length - 1]?.cursor ?? null) : null,
     },
-    totalCount: null,
+    // A thunk, resolved by the explicit LegalActConnection.totalCount
+    // resolver only when the field is selected — the count query never runs
+    // for a list that did not ask for it.
+    totalCount: countTotal ?? null,
   };
 };
 

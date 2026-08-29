@@ -24,6 +24,7 @@ import { baseTypeDefs } from './shell/graphql/typedefs.js';
 import { createMcpHttpDispatcher, type McpHttpDispatcher } from './shell/mcp/http-dispatch.js';
 import { createKernelMcpServer } from './shell/mcp/server.js';
 import { makeKernelMcpTools } from './shell/mcp/tools.js';
+import { makeKernelMcpResources } from './shell/mcp/widgets/resources.js';
 import { createCache, type KernelCache } from './shell/middleware/cache.js';
 import { createRateLimiter, type RateLimiter } from './shell/middleware/rate-limiter.js';
 import { makeDocumentRepo } from './shell/repo/document-repo.js';
@@ -46,7 +47,7 @@ import type {
   TerritoryRepo,
 } from './core/ports.js';
 import type { HealthReport, ServiceStatus } from './core/types.js';
-import type { KernelMcpTool } from './shell/mcp/types.js';
+import type { KernelMcpResource, KernelMcpTool } from './shell/mcp/types.js';
 
 export interface KernelConfig {
   readonly prodDatabaseUrl: string;
@@ -106,14 +107,20 @@ export interface Kernel {
     typeDefs: string;
     resolvers: Record<string, unknown>;
   };
-  /** Build the MCP server from kernel + module-contributed tools. */
-  buildMcpServer(moduleTools: readonly KernelMcpTool[]): ReturnType<typeof createKernelMcpServer>;
+  /** Build the MCP server from kernel + module-contributed tools/resources. */
+  buildMcpServer(
+    moduleTools: readonly KernelMcpTool[],
+    moduleResources?: readonly KernelMcpResource[]
+  ): ReturnType<typeof createKernelMcpServer>;
   /**
    * Build an HTTP JSON-RPC dispatcher over the MCP server (kernel + module
    * tools). Per-request server lifecycle; avoids the SDK's hono/socket bridge;
    * safe under Fastify + inject().
    */
-  buildMcpDispatcher(moduleTools: readonly KernelMcpTool[]): McpHttpDispatcher;
+  buildMcpDispatcher(
+    moduleTools: readonly KernelMcpTool[],
+    moduleResources?: readonly KernelMcpResource[]
+  ): McpHttpDispatcher;
   readonly mcpTools: readonly KernelMcpTool[];
   health(): Promise<HealthReport>;
   close(): Promise<void>;
@@ -188,7 +195,6 @@ export const makeKernel = async (config: KernelConfig): Promise<Kernel> => {
   };
   const globalSearchDeps: GlobalSearchDeps = {
     meiliClient,
-    searchRepo,
     meiliIndexes: config.meiliIndexes ?? [...DEFAULT_MEILI_INDEXES],
     ...(config.logger !== undefined && { logger: config.logger }),
   };
@@ -201,6 +207,7 @@ export const makeKernel = async (config: KernelConfig): Promise<Kernel> => {
     globalSearchDeps,
     clientBaseUrl: config.clientBaseUrl ?? 'https://transparenta.eu',
   });
+  const mcpResources = makeKernelMcpResources();
 
   const health = async (): Promise<HealthReport> => {
     // Bound the whole probe so a hung dependency can't stall the liveness check.
@@ -302,12 +309,26 @@ export const makeKernel = async (config: KernelConfig): Promise<Kernel> => {
       });
       return { typeDefs: merged.typeDefs, resolvers };
     },
-    buildMcpDispatcher(moduleTools: readonly KernelMcpTool[]) {
+    buildMcpDispatcher(
+      moduleTools: readonly KernelMcpTool[],
+      moduleResources: readonly KernelMcpResource[] = []
+    ) {
       // Per-request server factory (MCP session state must not cross requests).
-      return createMcpHttpDispatcher(() => createKernelMcpServer([...mcpTools, ...moduleTools]));
+      return createMcpHttpDispatcher(() =>
+        createKernelMcpServer([...mcpTools, ...moduleTools], {}, [
+          ...mcpResources,
+          ...moduleResources,
+        ])
+      );
     },
-    buildMcpServer(moduleTools: readonly KernelMcpTool[]) {
-      return createKernelMcpServer([...mcpTools, ...moduleTools]);
+    buildMcpServer(
+      moduleTools: readonly KernelMcpTool[],
+      moduleResources: readonly KernelMcpResource[] = []
+    ) {
+      return createKernelMcpServer([...mcpTools, ...moduleTools], {}, [
+        ...mcpResources,
+        ...moduleResources,
+      ]);
     },
     mcpTools,
     health,
@@ -342,13 +363,27 @@ export { mergeGraphqlSlices, KERNEL_BASE_TYPES, type GraphqlSlice } from './shel
 export { baseTypeDefs } from './shell/graphql/typedefs.js';
 export { scalarResolvers, scalarTypeDefs } from './shell/graphql/scalars.js';
 export { makeBatchLoader, type BatchLoader } from './shell/graphql/dataloaders.js';
-export type { KernelMcpTool, McpToolOutput } from './shell/mcp/types.js';
+export type {
+  KernelMcpResource,
+  KernelMcpTool,
+  KernelMcpToolUi,
+  McpToolOutput,
+} from './shell/mcp/types.js';
 export { kernelToolInputSchema } from './shell/mcp/input-schema.js';
 export { createMcpHttpDispatcher, type McpHttpDispatcher } from './shell/mcp/http-dispatch.js';
 export { type KernelCache } from './shell/middleware/cache.js';
 export { type RateLimiter } from './shell/middleware/rate-limiter.js';
 // Diacritic folding (§15.7) — re-exported so modules don't reach into shell/repo.
 export { foldDiacritics } from './shell/repo/fold.js';
+/**
+ * The canonical "this `search.documents` row may be served" predicate —
+ * visibility + tombstone + the canonical `privacy_class` column. Exported so
+ * every reader of that table asks the SAME question: the two privacy signals
+ * disagree on 117,688 rows, and each surface that spelled the check out by hand
+ * ended up pinning a different subset of them
+ * (SEARCH_LAYER_REVIEW_2026-08-25.md F13/F16).
+ */
+export { servableDocumentRowSql } from './shell/repo/document-privacy.js';
 
 /**
  * The minimal structured-logger contract modules accept (a pino `Logger` and

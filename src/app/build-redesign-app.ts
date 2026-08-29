@@ -17,13 +17,14 @@ import { readFileSync } from 'node:fs';
 import compressPlugin from '@fastify/compress';
 import corsPlugin from '@fastify/cors';
 import { makeExecutableSchema } from '@graphql-tools/schema';
-import fastifyLib, { type FastifyInstance } from 'fastify';
+import fastifyLib, { type FastifyInstance, type FastifyReply } from 'fastify';
 import mercuriusPlugin from 'mercurius';
 
 import {
   makeGraphQLErrorFormatter,
   makeGraphQLValidationRules,
 } from '../infra/graphql/security.js';
+import { makeGraphQLContext, type AuthProvider } from '../modules/auth/index.js';
 import { makeBudgetModule } from '../modules/budget/index.js';
 import { makeCompaniesModule } from '../modules/companies/index.js';
 import { makeJudicialModule } from '../modules/judicial/index.js';
@@ -38,13 +39,13 @@ import {
   type Kernel,
   type KernelConfig,
   type GraphqlSlice,
+  type KernelMcpResource,
   type KernelMcpTool,
 } from '../modules/shared/index.js';
 
 import type { UserDatabase } from '../infra/database/user/types.js';
 import type { AgentModuleConfig } from '../modules/agent/index.js';
 import type { QuotaRedis } from '../modules/agent/shell/quota/quota-store.js';
-import type { AuthProvider } from '../modules/auth/index.js';
 import type { Kysely } from 'kysely';
 
 /**
@@ -100,6 +101,15 @@ export interface BuildRedesignAppDeps {
   readonly procurementWarmCache?: boolean;
   /** When set, mounts the authenticated agent surface at /api/v1/agent. */
   readonly agent?: RedesignAgentDeps;
+  /**
+   * When set, the GraphQL surface builds an auth context (bearer verification
+   * via the auth module) so resolvers can distinguish authenticated callers
+   * (first consumer: Company.administrators). The surface STAYS public: an
+   * absent or invalid token yields the anonymous context, never a rejection —
+   * same rule as the legacy GraphQL. Absent on the standalone redesign server,
+   * where every caller is anonymous.
+   */
+  readonly authProvider?: AuthProvider;
 }
 
 export interface RedesignApp {
@@ -288,6 +298,7 @@ export const registerRedesignSurface = async (
   const moduleSlices: GraphqlSlice[] = [];
   const moduleResolvers: Record<string, unknown>[] = [];
   const moduleMcpTools: KernelMcpTool[] = [];
+  const moduleMcpResources: KernelMcpResource[] = [];
   let pnrrRestPlugin: import('fastify').FastifyPluginAsync | undefined;
   let parliamentRoutes: import('fastify').FastifyPluginAsync | undefined;
   let legalRoutes: import('fastify').FastifyPluginAsync | undefined;
@@ -349,6 +360,7 @@ export const registerRedesignSurface = async (
     moduleSlices.push(budget.graphqlSlice);
     moduleResolvers.push(budget.graphqlResolvers);
     moduleMcpTools.push(...budget.mcpTools);
+    moduleMcpResources.push(...budget.mcpResources);
   }
 
   if (enabledModules.includes('procurement')) {
@@ -431,6 +443,9 @@ export const registerRedesignSurface = async (
       registry: kernel.contributors,
       flowsRepo: kernel.flowsRepo,
       meili: kernel.clients.meiliClient,
+      // Same resolution as the kernel's global search (global-search.ts):
+      // first configured index, `entities` by default.
+      meiliEntitiesIndex: deps.kernelConfig.meiliIndexes?.[0] ?? 'entities',
       ...(deps.clientBaseUrl !== undefined && { clientBaseUrl: deps.clientBaseUrl }),
     });
     kernel.contributors.register(companies.contributor);
@@ -575,6 +590,9 @@ export const registerRedesignSurface = async (
     allowBatchedQueries: false,
     validationRules: makeGraphQLValidationRules(isProduction),
     errorFormatter: makeGraphQLErrorFormatter(isProduction),
+    ...(deps.authProvider !== undefined && {
+      context: makeGraphQLContext({ authProvider: deps.authProvider }),
+    }),
   });
 
   if (pnrrRestPlugin !== undefined) {
@@ -599,13 +617,39 @@ export const registerRedesignSurface = async (
   // Direct JSON-RPC dispatch (no SDK hono/socket bridge, which crashes under
   // Fastify with `socket.destroySoon is not a function`). Works under a real
   // listen and inject() alike.
-  const mcpDispatcher = kernel.buildMcpDispatcher([...moduleMcpTools, ...(deps.mcpTools ?? [])]);
+  const mcpDispatcher = kernel.buildMcpDispatcher(
+    [...moduleMcpTools, ...(deps.mcpTools ?? [])],
+    moduleMcpResources
+  );
 
+  // The route is anonymous until per-user MCP auth lands, so it gets the same
+  // per-IP token bucket the searchEntities resolver uses (namespaced key, so
+  // the budgets don't collide). One host turn is a handful of requests
+  // (initialize, tools/list, tools/call, resources/read), well inside the
+  // bucket; shared egress IPs (ChatGPT) may need tuning under real traffic.
   app.post('/api/v1/mcp', async (request, reply) => {
+    const limit = kernel.rateLimiter.consume(`mcp:${request.ip}`);
+    if (!limit.allowed) {
+      return reply
+        .code(429)
+        .header('retry-after', String(Math.max(1, Math.ceil(limit.retryAfterMs / 1000))))
+        .send({
+          jsonrpc: '2.0',
+          id: null,
+          error: { code: -32000, message: 'Rate limit exceeded — retry later' },
+        });
+    }
     const response = await mcpDispatcher.dispatch(request.body);
     if (response === null) return reply.code(202).send();
     return reply.code(200).send(response);
   });
+
+  // Streamable HTTP: a client MAY issue GET (server→client SSE stream) or
+  // DELETE (session teardown). A stateless JSON server answers 405, not 404.
+  const methodNotAllowed = async (_request: unknown, reply: FastifyReply) =>
+    reply.code(405).header('allow', 'POST').send();
+  app.get('/api/v1/mcp', methodNotAllowed);
+  app.delete('/api/v1/mcp', methodNotAllowed);
 
   app.addHook('onClose', async () => {
     await mcpDispatcher.close();

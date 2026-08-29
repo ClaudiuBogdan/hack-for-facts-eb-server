@@ -21,7 +21,9 @@ import type {
   CaenCodeHit,
   CompanyCoverage,
   CompanyEntitySlice,
+  CompanyFinancialQualityAssessment,
   CompanyFinancialYear,
+  CompanyRegistrationDiffData,
   CompanyGroupBy,
   CompanyGroupCount,
   CompanyListRow,
@@ -47,6 +49,16 @@ export interface CompaniesRepository {
   /** Parallel fan-out, each `WHERE cui = $1`; presence decided first by the cheap org seek. */
   getProfileData(cui: string): Promise<Result<CompanyProfileData | null, ApiError>>;
   getFinancials(cui: string): Promise<Result<readonly CompanyFinancialYear[], ApiError>>;
+  /** Warn-only quality flags + measured corpus-wide assessment coverage (all public-class). */
+  getFinancialQualityAssessment(
+    cui: string
+  ): Promise<Result<CompanyFinancialQualityAssessment, ApiError>>;
+  /**
+   * The company's public rows in the two most recent loaded ONRC captures
+   * (ordered by source_published_at) + the capture pair's publication dates.
+   * Restricted rows read as ABSENT — a restricted row must not reveal presence.
+   */
+  getRegistrationDiffData(cui: string): Promise<Result<CompanyRegistrationDiffData, ApiError>>;
 
   // ── list / filter (the filterable collection §7) ──
   /**

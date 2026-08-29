@@ -211,8 +211,15 @@ export const baseTypeDefs = /* GraphQL */ `
   type GlobalSearchResult {
     query: String!
     engine: String!
+    """
+    True when the search engine was unreachable and this answer came from the
+    reduced outage path (exact-identifier lookup only). Empty hits then mean
+    "we could not look", NOT "no matches" — tell the user that instead of
+    rendering an empty state, and do not cache the answer.
+    """
+    degraded: Boolean!
     hits: [SearchHit!]!
-    "Doc-type facet distribution → type-filter chips (empty on the pg fallback)."
+    "Doc-type facet distribution → type-filter chips (empty on the degraded path)."
     facets: [SearchFacet!]!
     "Meili's approximate total (capped by maxTotalHits, default 1000); on the pg path it is the hit count."
     estimatedTotalHits: Int!

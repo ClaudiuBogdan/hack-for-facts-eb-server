@@ -98,7 +98,7 @@ export const ANALYSIS_SCOPE_ZOD_SHAPE = {
     .enum(FRAMEWORK_ROLE_FILTERS)
     .optional()
     .describe(
-      'Contract grain only. OMITTING THIS IS NOT "no filter": the contract grain defaults to purchases only (standalone + not-yet-stamped rows), because framework ceilings are an umbrella maximum rather than money spent and counting them overstated 2016-2025 by 20.8%. Pass "all" to include ceilings and call-offs.'
+      'Temporarily unavailable until the active ClickHouse data build publishes framework roles.'
     ),
   grain: z.enum(ANALYSIS_GRAINS).optional().describe('Absent = all grains the matrix supports.'),
   from: z.string().optional().describe('YYYY-MM, inclusive (XOR year).'),

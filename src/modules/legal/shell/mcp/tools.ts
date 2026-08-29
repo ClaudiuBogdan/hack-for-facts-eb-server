@@ -3,7 +3,8 @@
  * resolver calls; output is the kernel `{ ok, kind, query?, link?, item|items?,
  * summary? }` object. Two families: discovery (`resolve_legal_filters`) + query
  * (`get_legal_act`, `search_legal_acts`, `get_legal_act_links`,
- * `get_legal_act_timeline`, `get_legal_node`). Naming is `<verb>_legal_<noun>`.
+ * `get_legal_act_timeline`, `get_legal_node`, `count_legal_acts`,
+ * `get_legal_recent_changes`). Naming is `<verb>_legal_<noun>`.
  *
  * `search_legal_acts` returns citations + grounded snippet + node locator (act +
  * node label + char range + portal deep link) so agent answers are verifiable —
@@ -12,10 +13,12 @@
  */
 
 import {
+  countLegalActsInput,
   getLegalActInput,
   getLegalActLinksInput,
   getLegalActTimelineInput,
   getLegalNodeInput,
+  getLegalRecentChangesInput,
   resolveLegalFiltersInput,
   searchLegalActsInput,
   LEGAL_MCP_KINDS,
@@ -26,11 +29,13 @@ import {
   versionProvenanceNote,
 } from '../../core/provenance.js';
 import {
+  countLegalActs,
   getAct,
   getActLinksIn,
   getActLinksOut,
   getActTimeline,
   getOutlineEntry,
+  getRecentChanges,
   resolveLegalFilters,
   searchLegal,
   type LegalSearchDeps,
@@ -39,7 +44,13 @@ import {
 
 import type { LegalActsRepo, LegalGraphRepo, LegalOutlineRepo } from '../../core/ports.js';
 import type { LegalActRef } from '../../core/repo-base.js';
-import type { LegalRelation, LegalResolveDim, LegalVersionProvenance } from '../../core/types.js';
+import type {
+  LegalCountDimension,
+  LegalEventSource,
+  LegalRelation,
+  LegalResolveDim,
+  LegalVersionProvenance,
+} from '../../core/types.js';
 import type { FilterInput, KernelMcpTool, McpToolOutput } from '@/modules/shared/index.js';
 
 export interface LegalMcpDeps {
@@ -212,28 +223,35 @@ export const makeLegalMcpTools = (deps: LegalMcpDeps): readonly KernelMcpTool[] 
       const direction = str(args, 'direction') ?? 'in';
       const relRaw = Array.isArray(args['relation']) ? (args['relation'] as string[]) : undefined;
       const relations = relRaw?.map((r) => r as LegalRelation);
-      const limit = intArg(args, 'limit', 50);
+      const after = str(args, 'after');
+      const page = { first: intArg(args, 'limit', 50), ...(after !== undefined && { after }) };
       if (direction === 'out') {
-        const edges = await getActLinksOut(graph, act.actId, relations, limit);
-        if (edges.isErr()) return errorOut(LEGAL_MCP_KINDS.links, edges.error.message);
+        const out = await getActLinksOut(graph, act.actId, relations, page);
+        if (out.isErr()) return errorOut(LEGAL_MCP_KINDS.links, out.error.message);
         return {
           ok: true,
           kind: LEGAL_MCP_KINDS.links,
           query: { ...ref, direction },
           link: `${actLink(act.actId)}/links?direction=out`,
-          items: edges.value,
-          summary: `${n(edges.value.length)} outgoing reference(s) for ${act.displayCitation}.`,
+          items: out.value.items,
+          meta: { next: out.value.next },
+          summary:
+            `${n(out.value.items.length)} outgoing reference(s) for ${act.displayCitation}.` +
+            (out.value.next === null ? '' : ' More available via meta.next.'),
         };
       }
-      const edges = await getActLinksIn(graph, act.actId, relations, limit);
-      if (edges.isErr()) return errorOut(LEGAL_MCP_KINDS.links, edges.error.message);
+      const incoming = await getActLinksIn(graph, act.actId, relations, page);
+      if (incoming.isErr()) return errorOut(LEGAL_MCP_KINDS.links, incoming.error.message);
       return {
         ok: true,
         kind: LEGAL_MCP_KINDS.links,
         query: { ...ref, direction },
         link: `${actLink(act.actId)}/links?direction=in`,
-        items: edges.value,
-        summary: `${n(edges.value.length)} incoming reference(s) for ${act.displayCitation}.`,
+        items: incoming.value.items,
+        meta: { next: incoming.value.next },
+        summary:
+          `${n(incoming.value.items.length)} incoming reference(s) for ${act.displayCitation}.` +
+          (incoming.value.next === null ? '' : ' More available via meta.next.'),
       };
     },
   };
@@ -309,6 +327,79 @@ export const makeLegalMcpTools = (deps: LegalMcpDeps): readonly KernelMcpTool[] 
     },
   };
 
+  const countLegalActsTool: KernelMcpTool = {
+    name: 'count_legal_acts',
+    description:
+      'Grouped act counts by domain / act_type / status / issuer / year, with the same optional filter as search_legal_acts — one call for a whole facet grid. Bucket keys are RAW DB values ("fiscal-si-bugetar", "in-vigoare", "2015"); domain/status keys always round-trip into the filter, but act_type is an OPEN vocabulary (256 live values vs the 18 the filter accepts), so most act_type keys are NOT valid filter values. label is a display form when one exists. Partition contract: status/act_type partition the corpus; issuer/year omit acts without a value; domain OVERLAPS — a multi-tag on the canonical summary, an act counts once per domain it carries, so domain buckets sum above the act total. limit caps the served buckets (default 20); a cut list is flagged via meta.bucketsTruncated + meta.otherCount, never silently short.',
+    inputShape: countLegalActsInput,
+    async handler(args): Promise<McpToolOutput> {
+      const dim = str(args, 'groupBy') as LegalCountDimension | undefined;
+      if (dim === undefined) return errorOut(LEGAL_MCP_KINDS.counts, 'groupBy is required');
+      const filter = filterArg(args);
+      const rawLimit = args['limit'];
+      const topN = typeof rawLimit === 'number' ? Math.floor(rawLimit) : undefined;
+      const res = await countLegalActs(acts, dim, filter, topN);
+      if (res.isErr()) return errorOut(LEGAL_MCP_KINDS.counts, res.error.message);
+      const { buckets, bucketsTruncated, otherCount } = res.value;
+      const top = buckets[0];
+      return {
+        ok: true,
+        kind: LEGAL_MCP_KINDS.counts,
+        query: { groupBy: dim, filter, ...(topN !== undefined && { limit: topN }) },
+        link: `${clientBaseUrl}/legal`,
+        items: buckets,
+        meta: { bucketsTruncated, otherCount },
+        summary:
+          `${n(buckets.length)} ${dim} bucket(s) over the filtered acts` +
+          (top !== undefined ? `; top: ${top.key} (${n(top.count)})` : '') +
+          (bucketsTruncated
+            ? `; truncated — ${n(otherCount)} more across the unserved tail.`
+            : '.'),
+      };
+    },
+  };
+
+  const getLegalRecentChanges: KernelMcpTool = {
+    name: 'get_legal_recent_changes',
+    description:
+      'The global date-ordered status-event feed ("Modificări"): each entry is one act_status_events row (kind, effective date, source portal|monitorul-oficial, evidence, acting act) plus the affected act identity. Ordered by EFFECTIVE date, so the unfiltered feed LEADS with future-dated, not-yet-in-force events — pass until = today for "what already changed". since/until are inclusive YYYY-MM-DD bounds; 25.2% of events have NO effective_date and are reachable only via undatedOnly, never via a window. Keyset-paged via meta.next with the SAME filters.',
+    inputShape: getLegalRecentChangesInput,
+    async handler(args): Promise<McpToolOutput> {
+      const since = str(args, 'since');
+      const until = str(args, 'until');
+      const kinds = Array.isArray(args['kinds']) ? (args['kinds'] as string[]) : undefined;
+      const eventSource = str(args, 'eventSource');
+      const undatedOnly = boolArg(args, 'undatedOnly');
+      const after = str(args, 'after');
+      const res = await getRecentChanges(acts, {
+        ...(since !== undefined && { since }),
+        ...(until !== undefined && { until }),
+        ...(kinds !== undefined && { kinds }),
+        // Cast only: membership is validated by the usecase normalizer.
+        ...(eventSource !== undefined && { eventSource: eventSource as LegalEventSource }),
+        ...(undatedOnly && { undatedOnly }),
+        page: { first: intArg(args, 'limit', 20), ...(after !== undefined && { after }) },
+      });
+      if (res.isErr()) return errorOut(LEGAL_MCP_KINDS.changes, res.error.message);
+      const { items, next } = res.value;
+      const newest = items[0]?.effectiveDate ?? '—';
+      const oldest = items[items.length - 1]?.effectiveDate ?? '—';
+      return {
+        ok: true,
+        kind: LEGAL_MCP_KINDS.changes,
+        query: { since, until, kinds, eventSource, undatedOnly },
+        link: `${clientBaseUrl}/legal`,
+        items,
+        meta: { next },
+        summary:
+          items.length === 0
+            ? 'No status events match.'
+            : `${n(items.length)} status event(s), ${newest} → ${oldest} (newest first).` +
+              (next === null ? '' : ' More available via meta.next.'),
+      };
+    },
+  };
+
   return [
     resolveFilters,
     getLegalAct,
@@ -316,5 +407,7 @@ export const makeLegalMcpTools = (deps: LegalMcpDeps): readonly KernelMcpTool[] 
     getLegalActLinks,
     getLegalActTimeline,
     getLegalNode,
+    countLegalActsTool,
+    getLegalRecentChanges,
   ];
 };

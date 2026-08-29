@@ -397,6 +397,12 @@ const VOTE_SELECT = [
   // What the chamber was voting ON, for the 8,408 divisions with no bill link
   // and no printed subject — where title and tally are all a card otherwise has.
   voteKindExpr.as('kind'),
+  // W1.3 resolution contract. Served alongside the legacy `bill_key` rather than
+  // replacing it, so no existing consumer breaks in the same deploy that
+  // introduces the honest answer.
+  'v.resolution_status',
+  'v.resolution_method',
+  'v.resolved_display_bill_key',
 ] as const;
 
 /** Speech projection reused by the offset list AND the cursor connection (dates `::text`). */
@@ -680,6 +686,58 @@ export const enumSelection = (
 const containsValue = (f: Record<string, unknown> | undefined): string | undefined => {
   if (f === undefined) return undefined;
   return typeof f['contains'] === 'string' ? f['contains'] : undefined;
+};
+
+/** A real calendar day, not merely a string matching the ISO date shape. */
+const isValidIsoDay = (value: unknown): value is string => {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/u.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+};
+
+/**
+ * Compile one repo-owned date range while preserving the kernel filter law:
+ * gte, lte and between operands are AND-composed. The GraphQL Date scalar is
+ * deliberately transport-only, so virtual JSON date fields validate here
+ * before any value can reach PostgreSQL.
+ */
+const virtualDateRangeConditions = (
+  f: Record<string, unknown> | undefined,
+  expression: RawBuilder<unknown>,
+  fieldName: string
+): Result<RawBuilder<unknown>[], ApiError> => {
+  if (f === undefined) return ok([]);
+  const conditions: RawBuilder<unknown>[] = [];
+  const dateError = (): ApiError =>
+    invalidInput(`${fieldName} dates must be valid YYYY-MM-DD values`, fieldName);
+  const addLower = (value: unknown): Result<true, ApiError> => {
+    if (value === undefined || value === null) return ok(true);
+    if (!isValidIsoDay(value)) return err(dateError());
+    conditions.push(sql`${expression} >= ${value}`);
+    return ok(true);
+  };
+  const addUpper = (value: unknown): Result<true, ApiError> => {
+    if (value === undefined || value === null) return ok(true);
+    if (!isValidIsoDay(value)) return err(dateError());
+    conditions.push(sql`${expression} <= ${value}`);
+    return ok(true);
+  };
+
+  const lower = addLower(f['gte']);
+  if (lower.isErr()) return err(lower.error);
+  const upper = addUpper(f['lte']);
+  if (upper.isErr()) return err(upper.error);
+
+  const between: unknown = f['between'];
+  if (between !== undefined && between !== null) {
+    if (typeof between !== 'object' || Array.isArray(between)) return err(dateError());
+    const range = between as Record<string, unknown>;
+    const from = addLower(range['from']);
+    if (from.isErr()) return err(from.error);
+    const to = addUpper(range['to']);
+    if (to.isErr()) return err(to.error);
+  }
+  return ok(conditions);
 };
 
 /** A member of a composite field, treating a runtime `null` as absent. */
@@ -1418,6 +1476,22 @@ export const makeParliamentRepo = (db: Db): ParliamentRepo => {
       if (typeof year['eq'] === 'number') conds.push(yOr(sql`=`, year['eq']));
       if (typeof year['gte'] === 'number') conds.push(yOr(sql`>=`, year['gte']));
       if (typeof year['lte'] === 'number') conds.push(yOr(sql`<=`, year['lte']));
+    }
+
+    // lastEventDate (virtual): attrs.last_event_date is the exact current-recency
+    // key the list selects/sorts and the hub heatmap groups. Keeping the range
+    // in this ONE predicate builder makes a clicked heatmap day reconcile with
+    // parliamentBills and parliamentBillActivity by construction.
+    const lastEvent = sql`(b.attrs->>'last_event_date')`;
+    const lastEventRange = virtualDateRangeConditions(
+      fieldFilter(filter, 'lastEventDate'),
+      lastEvent,
+      'lastEventDate'
+    );
+    if (lastEventRange.isErr()) return err(lastEventRange.error);
+    if (lastEventRange.value.length > 0) {
+      conds.push(sql`${lastEvent} ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'`);
+      conds.push(...lastEventRange.value);
     }
 
     // hasLaw (virtual): EXISTS a linked (consolidated act) bill_act_links row.

@@ -358,6 +358,15 @@ const REDESIGN_SURFACE_ROUTE_PATHS = new Set([
   '/api/v1/health',
   '/api/v1/ready',
 ]);
+// GET/HEAD-only public data prefixes of the redesign REST surface. Every route
+// registered under these prefixes is a public read (legal render additionally
+// fails closed on privacy_class/render_status in its usecase). /api/v1/agent/
+// is deliberately NOT here — it is the one authenticated redesign REST prefix.
+const REDESIGN_SURFACE_PUBLIC_GET_PREFIXES = [
+  '/api/v1/legal/',
+  '/api/v1/parliament/',
+  '/api/v1/pnrr/',
+];
 const NOTIFICATION_ADMIN_ROUTE_PREFIX = '/api/v1/admin/notifications';
 const GPT_ROUTE_PREFIX = '/api/v1/gpt/';
 const WEBHOOK_CLERK_ROUTE_PATH = '/api/v1/webhooks/clerk';
@@ -484,8 +493,10 @@ function isCampaignSubscriptionStatsRoute(url: string): boolean {
   );
 }
 
-function shouldBypassGlobalAuthValidation(
-  request: import('fastify').FastifyRequest,
+// Exported for unit tests only — the auth-bypass matrix (method × prefix ×
+// mounted flag) is pinned in tests/unit/app/global-auth-bypass.test.ts.
+export function shouldBypassGlobalAuthValidation(
+  request: Pick<import('fastify').FastifyRequest, 'method' | 'url'>,
   redesignSurfaceMounted: boolean
 ): boolean {
   const path = getRequestPath(request.url);
@@ -507,6 +518,14 @@ function shouldBypassGlobalAuthValidation(
   // them must behave exactly as before the flag existed (401 from the auth
   // middleware, not a 404 short-circuit).
   if (redesignSurfaceMounted && REDESIGN_SURFACE_ROUTE_PATHS.has(path)) {
+    return true;
+  }
+
+  if (
+    redesignSurfaceMounted &&
+    (request.method === 'GET' || request.method === 'HEAD') &&
+    REDESIGN_SURFACE_PUBLIC_GET_PREFIXES.some((prefix) => path.startsWith(prefix))
+  ) {
     return true;
   }
 
@@ -1200,6 +1219,9 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
           logLevel: config.logger.level,
           ...(redesignClientBaseUrl !== undefined && { clientBaseUrl: redesignClientBaseUrl }),
           ...(agentDeps !== undefined && { agent: agentDeps }),
+          // Auth context for the redesign GraphQL: verified bearer → authenticated
+          // resolver context; missing/invalid → anonymous. Never a 401 here.
+          ...(deps.authProvider !== undefined && { authProvider: deps.authProvider }),
         });
         child.log.info(
           'Redesign surface mounted on this port at /api/v1/graphql (+ /api/v1/mcp, /api/v1/health, /api/v1/ready)'

@@ -86,8 +86,16 @@ const makeFakeRenderRepo = (docs: ReadonlyMap<string, FakeDoc>): LegalRenderRepo
         )
       )
     ),
-  renderRow: (documentId, chunkIndex) => {
-    const row = docs.get(documentId)?.rows.find((r) => r.chunk_index === chunkIndex);
+  renderRow: (documentId, runId, chunkIndex) => {
+    const doc = docs.get(documentId);
+    // Mirror the SQL bind: a row whose generation differs from the served
+    // one does not exist for this read.
+    const rowRunId = (doc?.rows[0]?.tldf as { generation?: { run_id?: number } } | undefined)
+      ?.generation?.run_id;
+    if (doc !== undefined && rowRunId !== undefined && String(rowRunId) !== runId) {
+      return Promise.resolve(ok(null));
+    }
+    const row = doc?.rows.find((r) => r.chunk_index === chunkIndex);
     return Promise.resolve(
       ok(
         row === undefined
@@ -335,16 +343,113 @@ describe('getDocumentRenderChunk cross-row layout guard', () => {
   });
 
   it('refuses a single-row document whose payload carries a physical marker', async () => {
+    // The foreign payload's head is doctored to MATCH the served
+    // generation, so the run-id bind and the head pin both pass and the
+    // refusal comes from the physical-marker check this test names
+    // (opus serving review C1: an earlier version died at the SQL bind
+    // and left the layout guard untested).
+    const singleHead = singleRows[0]!.tldf as {
+      generation: Record<string, unknown>;
+      text_sha256: string;
+    };
+    const forgedPayload = {
+      ...chunkedRows[0]!.tldf,
+      document_id: '100023',
+      generation: singleHead.generation,
+      text_sha256: singleHead.text_sha256,
+    };
     const forged = new Map<string, FakeDoc>([
       [
         '100023',
         {
           info: infoFor('100023', singleRows),
-          rows: [{ ...singleRows[0]!, tldf: chunkedRows[0]?.tldf as never }],
+          rows: [{ ...singleRows[0]!, tldf: forgedPayload }],
         },
       ],
     ]);
     const outcome = await getDocumentRenderChunk(makeFakeRenderRepo(forged), '100023', 0);
+    expect(outcome.isErr()).toBe(true);
+    if (outcome.isErr()) {
+      expect(outcome.error).toMatchObject({ reason: 'render_inconsistent' });
+      expect(String((outcome.error as { detail?: string }).detail)).toContain('physical');
+    }
+  });
+
+  it('refuses a chunk row from ANOTHER generation (recompile race): run_id pin', async () => {
+    // renderInfo and renderRow are two non-transactional reads; a
+    // recompile between them serves a row whose payload names a different
+    // run than the meta/ETag built from info. The usecase must 409, never
+    // serve a mixed-generation body (marks would land on wrong text).
+    const base = chunkedRows[1]!;
+    const head = base.tldf as { generation: { run_id: number } };
+    const staleGeneration = {
+      ...(base.tldf['generation'] as Record<string, unknown>),
+      run_id: head.generation.run_id + 1,
+    };
+    const forged = new Map<string, FakeDoc>([
+      [
+        '100019',
+        {
+          info: infoFor('100019', chunkedRows),
+          rows: [
+            chunkedRows[0]!,
+            { ...base, tldf: { ...base.tldf, generation: staleGeneration } },
+            chunkedRows[2]!,
+          ],
+        },
+      ],
+    ]);
+    const outcome = await getDocumentRenderChunk(makeFakeRenderRepo(forged), '100019', 1);
+    expect(outcome.isErr()).toBe(true);
+    if (outcome.isErr()) {
+      expect(outcome.error).toMatchObject({ reason: 'render_inconsistent' });
+      expect(String((outcome.error as { detail?: string }).detail)).toContain('generation');
+    }
+  });
+
+  it('refuses a FORGED ROW-0 payload (manifest) from another generation — the pin is not chunk-only', async () => {
+    const base = chunkedRows[0]!;
+    const head = base.tldf as { generation: { run_id: number } };
+    const staleGeneration = {
+      ...(base.tldf['generation'] as Record<string, unknown>),
+      run_id: head.generation.run_id + 1,
+    };
+    const forged = new Map<string, FakeDoc>([
+      [
+        '100019',
+        {
+          info: infoFor('100019', chunkedRows),
+          rows: [
+            { ...base, tldf: { ...base.tldf, generation: staleGeneration } },
+            chunkedRows[1]!,
+            chunkedRows[2]!,
+          ],
+        },
+      ],
+    ]);
+    const outcome = await getDocumentRenderChunk(makeFakeRenderRepo(forged), '100019', 0);
+    expect(outcome.isErr()).toBe(true);
+    if (outcome.isErr()) {
+      expect(outcome.error).toMatchObject({ reason: 'render_inconsistent' });
+    }
+  });
+
+  it('refuses a chunk row whose text_sha256 disagrees with the served generation', async () => {
+    const base = chunkedRows[1]!;
+    const forged = new Map<string, FakeDoc>([
+      [
+        '100019',
+        {
+          info: infoFor('100019', chunkedRows),
+          rows: [
+            chunkedRows[0]!,
+            { ...base, tldf: { ...base.tldf, text_sha256: 'f'.repeat(64) } },
+            chunkedRows[2]!,
+          ],
+        },
+      ],
+    ]);
+    const outcome = await getDocumentRenderChunk(makeFakeRenderRepo(forged), '100019', 1);
     expect(outcome.isErr()).toBe(true);
     if (outcome.isErr()) {
       expect(outcome.error).toMatchObject({ reason: 'render_inconsistent' });

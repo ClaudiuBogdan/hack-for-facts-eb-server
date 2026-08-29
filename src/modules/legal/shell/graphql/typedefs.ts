@@ -57,6 +57,31 @@ const objectsAndQuery = /* GraphQL */ `
     DESC
   }
 
+  "Grouping dimension for legalActCounts. Bucket keys are the RAW DB vocabulary ('fiscal-si-bugetar' / 'in-vigoare' / '2015'), never the enum spelling — and NOT every key is a valid filter value (see LegalCountBucket). Partition contract: STATUS and ACT_TYPE partition the corpus; ISSUER and YEAR are disjoint but omit acts without a value; DOMAIN OVERLAPS (multi-tag) — see legalActCounts."
+  enum LegalCountDimension {
+    DOMAIN
+    ACT_TYPE
+    STATUS
+    ISSUER
+    YEAR
+  }
+
+  "One grouped count bucket. key is the RAW DB value; it round-trips into LegalActsFilter ONLY where the filter field accepts it — domain/status are closed vocabularies and always round-trip, while act_type is OPEN in the live DB (256 distinct values vs the 18 the filter accepts, measured 2026-08: 'anexa', 'protocol', 'ghid', … are real keys the filter rejects — the same caveat applies to legalResolve dim:'act_type'). label is a display form when one exists (issuer slugs de-hyphenated) and null otherwise — the enum/year keys are their own display value."
+  type LegalCountBucket {
+    key: String!
+    label: String
+    count: Int!
+  }
+
+  "The grouped-counts envelope. The topN cap is real, so a cut list is SERVED as such, never silently short (no-silent-caps)."
+  type LegalActCountsResult {
+    buckets: [LegalCountBucket!]!
+    "True when topN cut the vocabulary — the tail exists but was not served."
+    bucketsTruncated: Boolean!
+    "Exact sum of the unserved buckets' counts (0 when complete) — keeps a partition dimension summable to its total. For DOMAIN it sums unserved (act, domain) pairs, not acts."
+    otherCount: Int!
+  }
+
   "The shared legal-act base type (§9). 06 EXTENDS this with Mo*-typed gazette fields; it never redeclares it."
   type LegalAct {
     actId: BigInt!
@@ -84,10 +109,12 @@ const objectsAndQuery = /* GraphQL */ `
     "The same fact rendered in Romanian, ready to show next to any text answer."
     textProvenance: String!
     documents: [LegalDocument!]!
+    "The citation/amendment graph, keyset-paged on the act_references PK (sourceDocumentId, refIndex) — the cursor is bound to direction + relation set, page cap 199. endCursor is the last edge's REAL cursor on every page (resume with after); IN edges arrive in deterministic PK order, grouped by citing document. totalCount is deliberately null: a bounded read must not claim a hub's fan-out (act-detail.md 9.1)."
     links(
       direction: LegalLinkDirection!
       relation: [LegalRelation!]
       first: Int = 50
+      after: String
     ): LegalReferenceConnection!
     "Incoming ANCHORS — links the portal itself asserts in citing documents' text (document_link_edges). A DIFFERENT graph from links: anchors are source assertions at mark grain, links are LLM-inferred normative relations; they disagree by construction and both disagreements are informative. Real totalCount; keyset-paged."
     incomingAnchors(first: Int = 50, after: String): LegalIncomingAnchorConnection!
@@ -212,6 +239,7 @@ const objectsAndQuery = /* GraphQL */ `
   type LegalReferenceConnection {
     edges: [LegalReferenceEdge!]!
     pageInfo: PageInfo!
+    "Always null by design (act-detail.md 9.1): a bounded read cannot know a hub's true fan-out and must not claim to. Page with pageInfo.endCursor instead."
     totalCount: Int
   }
 
@@ -234,6 +262,37 @@ const objectsAndQuery = /* GraphQL */ `
     sourceActId: BigInt
     evidence: JSON!
     eventSource: String!
+  }
+
+  "One global-feed entry: a status event + the affected act's identity, read in the same statement (no lazy fan-out)."
+  type LegalRecentChange {
+    eventId: BigInt!
+    "abrogare-totala | modificare | promulgare | … (act_status_events.event_kind)."
+    eventKind: String!
+    effectiveDate: Date
+    "Which pipeline recorded the event: 'portal' | 'monitorul-oficial'. Surfaced honestly, never merged."
+    eventSource: String!
+    "The acting act's id (e.g. the amending law) when the event records one."
+    sourceActId: BigInt
+    "The acting act resolved (batched loader — no per-row round-trips); null when the event records none or the id dangles."
+    sourceAct: LegalAct
+    "The event's stored evidence/notes (jsonb; shape varies by source)."
+    evidence: JSON!
+    "The affected act's identity."
+    actId: BigInt!
+    actNaturalKey: String!
+    displayCitation: String!
+    status: LegalActStatus!
+  }
+  type LegalRecentChangeEdge {
+    node: LegalRecentChange!
+    cursor: String!
+  }
+  type LegalRecentChangeConnection {
+    edges: [LegalRecentChangeEdge!]!
+    pageInfo: PageInfo!
+    "Real filtered count, resolved lazily (only when selected); null when the count fails — never the page size."
+    totalCount: Int
   }
 
   "A document TOC entry (document_nodes v2, role IS NULL headings only). Stable key is (documentId, path) — node ids are recompile-scoped and never served. charStart/charEnd locate the entry in the rendered clean text (UTF-16 units) for chunk-targeted fetches."
@@ -339,6 +398,22 @@ const objectsAndQuery = /* GraphQL */ `
       first: Int = 20
       after: String
     ): LegalActConnection!
+    "Grouped act counts for the landing grid / facets — ONE query instead of one per cell. filter has the exact legalActs semantics (same spec-compiled WHERE); counts are facet-SCOPED to it, so a bucket equals legalActs(filter + that key).totalCount only when the grouped dimension is UNCONSTRAINED in the filter — filtering the grouped dimension scopes the grid, it does not re-derive it. PARTITION CONTRACT — read before summing buckets: STATUS and ACT_TYPE partition the corpus (single always-present values; served buckets + otherCount sum to totalCount). ISSUER and YEAR are disjoint but OMIT acts with no issuer/year, so they can sum below it. DOMAIN OVERLAPS: domains is a multi-value tag (~2.26 per summarized act, measured 2026-08), an act counts once per domain it carries, and DOMAIN buckets sum ABOVE the act total — never read the 16-cell grid as a partition. DOMAIN reads ONLY the canonical document's summary — the same rows the legalActs domain filter sees; domains asserted only by non-canonical versions are deliberately not counted. NULL group keys are omitted. topN caps the served buckets (default 20 — DOMAIN and STATUS arrive complete; max 100, YEAR 300 so the full year histogram stays requestable); a cut list is flagged via bucketsTruncated + otherCount, never silently short. Ordered count desc, key asc."
+    legalActCounts(
+      groupBy: LegalCountDimension!
+      filter: LegalActsFilter
+      topN: Int
+    ): LegalActCountsResult!
+    "The global date-ordered status-event feed ('Modificări'). Ordered by EFFECTIVE date, so the feed can LEAD with future-dated, not-yet-in-force events (8 rows dated 2027 sit on top of the unfiltered feed, measured 2026-08) — pass until = today for only-already-effective changes. since/until are INCLUSIVE YYYY-MM-DD bounds on effective_date. 21,266 of 84,484 events (25.2%, measured 2026-08) have NO effective_date: they trail the feed (at first:20 they start around page 3,161) and ANY since/until window excludes them — undatedOnly: true serves exactly that cohort (combining it with a window is rejected: the intersection is empty by construction). kinds narrows event_kind — omit it for all kinds; an explicit empty or blank-only list is rejected, never read as 'everything'. eventSource scopes to one pipeline: 'portal' | 'monitorul-oficial'. Keyset on (effective_date desc, event_id desc); the cursor is bound to the filter."
+    legalRecentChanges(
+      since: String
+      until: String
+      kinds: [String!]
+      eventSource: String
+      undatedOnly: Boolean
+      first: Int = 20
+      after: String
+    ): LegalRecentChangeConnection!
     "Retrieval: identifier router (citation→act) first; then the OpenSearch engine when this deployment has an index — BM25 over legal-acts/legal-sections fused with the section kNN leg by app-layer RRF, keys-only, hydrated from Postgres. Without an index the bounded Postgres path answers and says so via the engine field. An engine that FAILS errors; it is never silently replaced by a lexical scan. A filter the engine cannot express is refused, not widened."
     legalSearch(
       q: String!

@@ -128,30 +128,27 @@ export interface FlowsRepo {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface SearchRepo {
-  /** Count search.documents whose `cuis` array contains the CUI. */
-  countByCui(cui: Cui): Promise<Result<number, ApiError>>;
-  /** Bounded ILIKE fallback over search.documents (when aux engines are down). */
-  fallbackTextSearch(
-    q: string,
-    docTypes: readonly string[],
-    limit: number
-  ): Promise<Result<readonly SearchHit[], ApiError>>;
   /**
-   * Visibility-scoped, entity-doc-type-scoped Postgres fallback for the global
-   * entity search — always filters `visibility='public'` + `deleted_at IS NULL`
-   * + the entity-grade `doc_type` set, optionally narrowed by `docTypes`/county/
-   * year. The Meili-parity degrade path (impl lands in T2). Empty `q` → no rows.
+   * Count search.documents whose `cuis` array contains the CUI.
+   *
+   * KNOWN WRONG, KEPT DELIBERATELY (user decision 2026-08-26: leave
+   * `search.documents` alone). The projection behind this count is only
+   * partially maintained, so `Entity.documentCount` under-reports for several
+   * doc types. Retiring it is D6 in SEARCH_LAYER_REVIEW_2026-08-25.md, which was
+   * considered and explicitly deferred — do not "fix" the count here; the fix is
+   * to re-point the surface at domain tables or at SourcePresence.
    */
-  searchEntities(
-    q: string,
-    opts: {
-      readonly docTypes?: readonly string[];
-      readonly county?: string;
-      readonly year?: number;
-      readonly limit: number;
-      readonly offset?: number;
-    }
-  ): Promise<Result<readonly SearchHit[], ApiError>>;
+  countByCui(cui: Cui): Promise<Result<number, ApiError>>;
+  // `fallbackTextSearch` was removed 2026-08-25: it had NO production caller
+  // (tests only) and did not pin visibility — dead code with weaker privacy
+  // than its live sibling (SEARCH_LAYER_REVIEW_2026-08-25.md D9).
+  //
+  // `searchEntities` followed it 2026-08-26 (D5). It was the global search's
+  // degrade path: `title/body/doc_id ILIKE '%q%'` over 13.8M rows with no
+  // trigram index — a sequential scan that turned a search outage into a
+  // database incident while looking like a working fallback. The outage path is
+  // now an exact-CUI lookup over the indexed identity spine, in the usecase, so
+  // this port keeps exactly one method and one reader of `search.documents`.
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -167,12 +164,6 @@ export interface DocumentRepo {
 // External clients (§4.6)
 // ─────────────────────────────────────────────────────────────────────────────
 
-export interface MeiliSearchResult {
-  readonly index: string;
-  readonly hits: readonly SearchHit[];
-  readonly totalHits: number;
-}
-
 /**
  * The result of a single-index `entities` search: mapped hits, the raw facet
  * distribution from Meili (`{ field: { value: count } }`), and the approximate
@@ -186,11 +177,10 @@ export interface EntitiesSearchResult {
 }
 
 export interface MeiliClient {
-  multiSearch(
-    q: string,
-    indexes: readonly string[],
-    limit: number
-  ): Promise<Result<readonly MeiliSearchResult[], ApiError>>;
+  // `multiSearch` (and `MeiliSearchResult`) removed 2026-08-26: after
+  // companies-repo re-pointed name resolution at the palette index, the
+  // legacy multi-index path had zero production callers — the same D9
+  // rationale that removed `fallbackTextSearch`.
   /**
    * Single-index search against the `entities` index. `filter` is Meili's array
    * filter form (built by `buildEntitiesFilter` — never a hand-built string);

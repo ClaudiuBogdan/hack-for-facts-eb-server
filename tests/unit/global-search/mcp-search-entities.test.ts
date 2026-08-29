@@ -64,7 +64,6 @@ const buildTools = (
 
   const globalSearchDeps: GlobalSearchDeps = {
     meiliClient: { searchEntities } as never,
-    searchRepo: { searchEntities: vi.fn(async () => ok([])) } as never,
     meiliIndexes: ['entities'],
   };
 
@@ -109,6 +108,9 @@ describe('search_entities — structured envelope', () => {
     expect(res.items).toHaveLength(1);
     expect(res.meta).toEqual({
       engine: 'meili',
+      // An MCP caller relays this envelope as fact, so it must be able to tell
+      // "nothing matched" from "we could not look" (D5).
+      degraded: false,
       estimatedTotalHits: 1,
       returned: 1,
       facets: [{ field: 'doc_type', value: 'company', count: 1 }],
@@ -124,25 +126,31 @@ describe('search_entities — structured envelope', () => {
     expect(res.summary).toBe('No entities matched "zzz".');
   });
 
-  it('reports the usecase error as { ok:false }', async () => {
-    // No index → degrade to searchRepo; force searchRepo to error → usecase err.
-    const searchEntitiesRepo = vi.fn(async () => err(upstreamError('db down', 'pg')));
-    const deps: KernelMcpDeps = {
-      identityRepo: { searchByName: vi.fn(async () => ok([])) } as never,
-      entity360Deps: {} as never,
-      globalSearchDeps: {
-        meiliClient: { searchEntities: vi.fn() } as never,
-        searchRepo: { searchEntities: searchEntitiesRepo } as never,
-        meiliIndexes: [],
-      },
-      clientBaseUrl: 'https://transparenta.eu',
-    };
-    const tool = getSearchTool(makeKernelMcpTools(deps));
-    const res = await tool.handler({ query: 'acme' });
+  it('reports a usecase error as { ok:false }', async () => {
+    // A malformed county is the remaining error the usecase raises: the degrade
+    // path itself no longer errors, it returns `degraded: true` with no hits.
+    const tools = buildTools({ hits: [] });
+    const res = await getSearchTool(tools).handler({
+      query: 'acme',
+      county: 'Cluj"] OR true',
+    });
 
     expect(res.ok).toBe(false);
     expect(res.kind).toBe('entity_search');
     expect(res.error).toBeDefined();
+  });
+
+  it('tells a DEGRADED caller that empty is not "no matches"', async () => {
+    // An LLM relays this sentence to a user as fact. During an outage
+    // "No entities matched" is simply false.
+    const tools = buildTools('err');
+    const res = await getSearchTool(tools).handler({ query: 'acme' });
+
+    expect(res.ok).toBe(true);
+    expect(res.items).toEqual([]);
+    expect((res.meta as { degraded: boolean }).degraded).toBe(true);
+    expect(res.summary).toContain('DEGRADED');
+    expect(res.summary).not.toContain('No entities matched');
   });
 });
 
@@ -205,7 +213,6 @@ describe('search_entities — arg coercion', () => {
       entity360Deps: {} as never,
       globalSearchDeps: {
         meiliClient: { searchEntities } as never,
-        searchRepo: { searchEntities: vi.fn(async () => ok([])) } as never,
         meiliIndexes: ['entities'],
       },
       clientBaseUrl: 'https://transparenta.eu',

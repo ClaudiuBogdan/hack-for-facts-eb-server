@@ -16,6 +16,7 @@ import { err, ok, type Result } from 'neverthrow';
 import { databaseError, invalidInput, type ApiError } from '../../core/errors.js';
 import { filterHash } from '../../core/filters/derive.js';
 import { buildNextCursor, decodeCursor, type CursorPage } from '../../core/pagination.js';
+import { isPlaceholderName } from '../../core/usecases/organization-labels.js';
 
 import type { FlowListOptions, FlowsRepo } from '../../core/ports.js';
 import type {
@@ -165,7 +166,14 @@ export const makeFlowsRepo = (db: Db): FlowsRepo => ({
           .select(['cui', 'name'])
           .where('cui', 'in', cpCuis)
           .execute();
-        for (const o of orgs) if (o.cui !== null) canonicalName.set(o.cui, o.name);
+        // 23,093 `kind='unknown'` rows are minted placeholders whose name IS the
+        // CUI (measured 2026-08-25) — overlaying one DEGRADES a real flows-side
+        // name into a bare number. Same predicate as the kernel labels path.
+        // A placeholder counterparty whose flows-side name is ALSO null serves
+        // name:null (cui rides in its own field) — honest "name unknown", never
+        // the CUI masquerading as a name.
+        for (const o of orgs)
+          if (o.cui !== null && !isPlaceholderName(o.name, o.cui)) canonicalName.set(o.cui, o.name);
       }
 
       return ok(

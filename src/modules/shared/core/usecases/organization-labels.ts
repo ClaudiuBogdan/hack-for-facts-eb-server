@@ -65,7 +65,7 @@ const UNAVAILABLE: OrganizationLabel = {
  * carries a numeric name that differs from its CUI, and a broader test would
  * suppress it — and any future legitimate numeric registry name.
  */
-const isPlaceholderName = (name: string, cui: Cui): boolean => name.trim() === cui;
+export const isPlaceholderName = (name: string, cui: Cui): boolean => name.trim() === cui;
 
 export interface OrganizationLabelsDeps {
   readonly identityRepo: IdentityRepo;

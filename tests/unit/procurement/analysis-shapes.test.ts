@@ -33,6 +33,17 @@ describe('analysisStats — labeled per-grain blocks', () => {
     expect(Object.keys(result)).toEqual(['blocks']); // nothing sums the grains
   });
 
+  it('labels contract totals as the temporary legacy population', async () => {
+    const { repo } = fakeAnalysisRepo();
+    const result = (await analysisStats({ analysisRepo: repo }, { scope: {} }))._unsafeUnwrap();
+    const contract = result.blocks.find((block) => block.grain === 'contract');
+    expect(
+      contract?.meta.caveats.some((caveat) =>
+        caveat.startsWith('temporary framework-role compatibility mode')
+      )
+    ).toBe(true);
+  });
+
   it('nulls money (not zero) with a caveat where spend abstains; serves it where allowed', async () => {
     const { repo } = fakeAnalysisRepo(); // live-like: contract spend abstains
     const result = (await analysisStats({ analysisRepo: repo }, { scope: {} }))._unsafeUnwrap();

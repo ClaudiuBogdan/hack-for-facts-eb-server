@@ -270,6 +270,20 @@ export interface ParliamentVotesTable {
   // senat.ro division URL; nullable because the backfill is per-row.
   source_url: string | null;
   privacy_class: string; // 'public' | 'restricted' (migration 20260701T171000)
+  // W1.3 vote-resolution contract (prod migration 20260805T090000). The
+  // AUTHORITATIVE answer to "which bill was this division about"; `bill_key`
+  // above is the legacy single-valued alias and is NOT the contract.
+  //
+  //   resolution_status: 'resolved' | 'unresolved' | 'conflict' | 'adjudicated'
+  //   resolution_method: how it was decided ('agree', 'attrs_only',
+  //                      'event_only', 'no_evidence', 'conflict_*', …)
+  //
+  // NULL on both means the resolver has not run for that row yet (the derive is
+  // all-or-nothing, so a blocked batch leaves whole cohorts unstamped).
+  resolution_status: string | null;
+  resolution_method: string | null;
+  resolved_case_key: string | null;
+  resolved_display_bill_key: string | null;
   attrs: Jsonb;
   source_updated_at: Tstz | null;
   updated_at: Tstz | null;

@@ -34,6 +34,8 @@ import type {
   LegalGraphRepo,
   LegalOutlineOptions,
   LegalOutlineRepo,
+  LegalRecentChangesFilter,
+  LegalRecentChangesQuery,
   LegalRenderRepo,
   LegalRetrievalQuery,
   LegalRetrievalRepo,
@@ -43,12 +45,16 @@ import type { LegalActRef, LegalRepoBase } from './repo-base.js';
 import type {
   LegalAct,
   LegalActCard,
+  LegalActCountsResult,
   LegalActStatus,
+  LegalCountDimension,
   LegalDocHit,
   LegalDocument,
+  LegalEventSource,
   LegalExternalAct,
   LegalIncomingEdge,
   LegalOutlineEntry,
+  LegalRecentChange,
   LegalReferenceEdge,
   LegalRelation,
   LegalRenderError,
@@ -98,17 +104,17 @@ export const getActLinksOut = (
   repo: LegalGraphRepo,
   actId: string,
   relations: readonly LegalRelation[] | undefined,
-  limit: number
-): Promise<Result<readonly LegalReferenceEdge[], ApiError>> =>
-  repo.outgoingRefs(actId, relations, limit);
+  page: CursorPageRequest
+): Promise<Result<CursorPage<LegalReferenceEdge>, ApiError>> =>
+  repo.outgoingRefs(actId, relations, page);
 
 export const getActLinksIn = (
   repo: LegalGraphRepo,
   actId: string,
   relations: readonly LegalRelation[] | undefined,
-  limit: number
-): Promise<Result<readonly LegalIncomingEdge[], ApiError>> =>
-  repo.incomingRefs(actId, relations, limit);
+  page: CursorPageRequest
+): Promise<Result<CursorPage<LegalIncomingEdge>, ApiError>> =>
+  repo.incomingRefs(actId, relations, page);
 
 export const getExternalAct = (
   repo: LegalGraphRepo,
@@ -124,7 +130,10 @@ export const getActTimeline = async (
 ): Promise<Result<readonly LegalTimelineEntry[], ApiError>> => {
   const [eventsRes, amendRes] = await Promise.all([
     base.getStatusEvents(actId),
-    graph.incomingRefs(actId, ['modifica', 'completeaza', 'abroga'], 200),
+    // 199, not 200: the paged repo probes first+1 inside the 200-row physical
+    // hub guard, so the max single page narrows by one row. The timeline is a
+    // bounded merge either way; it deliberately reads one page, no cursor walk.
+    graph.incomingRefs(actId, ['modifica', 'completeaza', 'abroga'], { first: 199 }),
   ]);
   if (eventsRes.isErr()) return err(eventsRes.error);
   if (amendRes.isErr()) return err(amendRes.error);
@@ -140,7 +149,7 @@ export const getActTimeline = async (
       evidence: e.evidence,
     });
   }
-  for (const { edge, sourceAct } of amendRes.value) {
+  for (const { edge, sourceAct } of amendRes.value.items) {
     entries.push({
       kind: 'amendment',
       effectiveDate: sourceAct?.entryIntoForce ?? null,
@@ -163,6 +172,178 @@ export const getStatusEvents = (
   base: LegalRepoBase,
   actId: string
 ): Promise<Result<readonly LegalStatusEvent[], ApiError>> => base.getStatusEvents(actId);
+
+// ── grouped counts + the global change feed ─────────────────────────────────
+
+/**
+ * The topN cap (the procurement `TOPN_DEFAULT`/`TOPN_MAX` pattern). Without it
+ * ISSUER answers 6,005 buckets — 1.8 MB of GraphQL and twice that over MCP —
+ * while the tail is unusable (5,036 buckets count <= 3; the top 20 carry 71.6%,
+ * measured 2026-08). The default of 20 serves DOMAIN (16) and STATUS (7)
+ * complete; YEAR is a histogram whose FULL span (~1832–2027, ≈200 buckets)
+ * must stay requestable, so it gets its own ceiling (re-validate if the span
+ * grows).
+ */
+export const LEGAL_COUNTS_TOPN_DEFAULT = 20;
+export const LEGAL_COUNTS_TOPN_MAX = 100;
+export const LEGAL_COUNTS_TOPN_YEAR_MAX = 300;
+
+const countsTopNMaxFor = (dim: LegalCountDimension): number =>
+  dim === 'year' ? LEGAL_COUNTS_TOPN_YEAR_MAX : LEGAL_COUNTS_TOPN_MAX;
+
+const normalizeCountsTopN = (
+  topN: number | undefined,
+  maxTopN: number
+): Result<number, ApiError> => {
+  if (topN === undefined) return ok(LEGAL_COUNTS_TOPN_DEFAULT);
+  if (!Number.isInteger(topN) || topN < 1 || topN > maxTopN) {
+    return err(invalidInput(`topN must be an integer from 1 to ${String(maxTopN)}`, 'topN'));
+  }
+  return ok(topN);
+};
+
+export const countLegalActs = async (
+  repo: LegalActsRepo,
+  dim: LegalCountDimension,
+  filter: FilterInput,
+  topN?: number
+): Promise<Result<LegalActCountsResult, ApiError>> => {
+  const n = normalizeCountsTopN(topN, countsTopNMaxFor(dim));
+  if (n.isErr()) return err(n.error);
+  const res = await repo.countActsBy(dim, filter);
+  if (res.isErr()) return err(res.error);
+  const served = res.value.slice(0, n.value);
+  const tail = res.value.slice(n.value);
+  // The cap is real, so the truncation is SERVED, never silent: the flag plus
+  // the tail's exact remainder (keeps a partition dimension summable).
+  return ok({
+    buckets: served,
+    bucketsTruncated: tail.length > 0,
+    otherCount: tail.reduce((sum, b) => sum + b.count, 0),
+  });
+};
+
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/u;
+
+const checkFeedDate = (
+  value: string | undefined,
+  field: 'since' | 'until'
+): Result<string | undefined, ApiError> => {
+  if (value === undefined) return ok(undefined);
+  // Format AND calendar validity. The round-trip guards V8's lenient parse:
+  // '2026-02-31' does NOT parse to NaN — it ROLLS OVER to March 3rd (measured
+  // on Node 26) — so `Number.isNaN` alone would let a bad day through to fail
+  // later as a 500 off the `::date` bind. A valid ISO date-only string parses
+  // as UTC midnight, so its toISOString date part equals the input exactly.
+  const t = Date.parse(value);
+  if (
+    !ISO_DATE_RE.test(value) ||
+    Number.isNaN(t) ||
+    new Date(t).toISOString().slice(0, 10) !== value
+  ) {
+    return err(invalidInput(`'${field}' must be a valid YYYY-MM-DD date`, field));
+  }
+  return ok(value);
+};
+
+const LEGAL_EVENT_SOURCES: readonly LegalEventSource[] = ['portal', 'monitorul-oficial'];
+
+/**
+ * Canonicalize the feed filter so every surface (GraphQL, MCP) and every
+ * consumer of it (the SQL conditions AND the cursor fhash) sees ONE form:
+ * dates validated, kinds trimmed/deduped/sorted, eventSource membership
+ * checked. Idempotent — normalizing a normalized filter is a no-op, which is
+ * what lets the repo and the resolver both derive the same fhash without
+ * drifting.
+ *
+ * An explicit empty (or blank-only) `kinds` is REJECTED, never widened: kernel
+ * filters read `in: []` as "match nothing", so silently reading `[]` as "match
+ * everything" here would give one API two opposite emptinesses — and a UI
+ * binding a text input to `kinds` would serve the entire corpus the moment the
+ * user typed a space.
+ */
+/** Mirrors the repo's page clamp so the refusal is visible to the caller. */
+const MAX_RECENT_CHANGES_PAGE = 100;
+
+/** Upper bound on `kinds`; the table holds 12 distinct event kinds. */
+const MAX_RECENT_CHANGE_KINDS = 64;
+
+export const normalizeRecentChangesFilter = (
+  f: LegalRecentChangesFilter
+): Result<LegalRecentChangesFilter, ApiError> => {
+  const since = checkFeedDate(f.since, 'since');
+  if (since.isErr()) return err(since.error);
+  const until = checkFeedDate(f.until, 'until');
+  if (until.isErr()) return err(until.error);
+  let kinds: readonly string[] | undefined;
+  if (f.kinds !== undefined) {
+    const cleaned = [...new Set(f.kinds.map((k) => k.trim()).filter((k) => k !== ''))].sort();
+    // A cap, because nothing upstream imposes one. The SDL types this as
+    // [String!] and the MCP zod schema as z.array(z.string()), so a caller can
+    // send an arbitrarily long list; each entry becomes a bind parameter, and
+    // past PostgreSQL's 65,535-parameter protocol limit the query fails as a
+    // masked internal error rather than a clear refusal. 64 is far above any
+    // real use: the table holds 12 distinct event kinds.
+    if (cleaned.length > MAX_RECENT_CHANGE_KINDS) {
+      return err(
+        invalidInput(`'kinds' accepts at most ${String(MAX_RECENT_CHANGE_KINDS)} values`, 'kinds')
+      );
+    }
+    if (cleaned.length === 0) {
+      return err(
+        invalidInput("'kinds' must name at least one event kind; omit it for all kinds", 'kinds')
+      );
+    }
+    kinds = cleaned;
+  }
+  if (f.eventSource !== undefined && !LEGAL_EVENT_SOURCES.includes(f.eventSource)) {
+    return err(
+      invalidInput(`'eventSource' must be one of ${LEGAL_EVENT_SOURCES.join(', ')}`, 'eventSource')
+    );
+  }
+  const undatedOnly = f.undatedOnly === true;
+  if (undatedOnly && (since.value !== undefined || until.value !== undefined)) {
+    // Undated events fail every date comparison, so the intersection is empty
+    // by construction — refuse it instead of serving a confident zero.
+    return err(
+      invalidInput("'undatedOnly' cannot be combined with 'since'/'until'", 'undatedOnly')
+    );
+  }
+  return ok({
+    ...(since.value !== undefined && { since: since.value }),
+    ...(until.value !== undefined && { until: until.value }),
+    ...(kinds !== undefined && { kinds }),
+    ...(f.eventSource !== undefined && { eventSource: f.eventSource }),
+    ...(undatedOnly && { undatedOnly: true }),
+  });
+};
+
+export const getRecentChanges = async (
+  repo: LegalActsRepo,
+  q: LegalRecentChangesQuery
+): Promise<Result<CursorPage<LegalRecentChange>, ApiError>> => {
+  // REFUSE an over-large page rather than silently serving a smaller one. The
+  // repo clamps to 100, so `first: 500` used to return 100 through GraphQL
+  // while the MCP zod schema refused the same value outright — one surface
+  // quietly truncating and the other rejecting. This is the same reasoning
+  // applied to `topN` and to `kinds`: a bound the caller cannot see is a bound
+  // the caller will misread.
+  if (q.page.first > MAX_RECENT_CHANGES_PAGE) {
+    return err(invalidInput(`'first' accepts at most ${String(MAX_RECENT_CHANGES_PAGE)}`, 'first'));
+  }
+  const norm = normalizeRecentChangesFilter(q);
+  if (norm.isErr()) return err(norm.error);
+  return repo.listRecentChanges({ ...norm.value, page: q.page });
+};
+
+export const countRecentChanges = async (
+  repo: LegalActsRepo,
+  filter: LegalRecentChangesFilter
+): Promise<Result<number, ApiError>> => {
+  const norm = normalizeRecentChangesFilter(filter);
+  if (norm.isErr()) return err(norm.error);
+  return repo.countRecentChanges(norm.value);
+};
 
 // ── outline (the one TOC authority) ─────────────────────────────────────────────
 
@@ -222,14 +403,14 @@ export const getDocumentRenderChunk = async (
     return err({ reason: 'render_not_found', documentId });
   }
 
-  const rowRes = await repo.renderRow(documentId, chunkIndex);
+  const rowRes = await repo.renderRow(documentId, info.runId, chunkIndex);
   if (rowRes.isErr()) return err(rowRes.error);
   const row = rowRes.value;
   if (row === null) {
     return err({
       reason: 'render_inconsistent',
       documentId,
-      detail: `chunk ${String(chunkIndex)} missing while chunk_count=${String(info.chunkCount)}`,
+      detail: `no row for generation ${info.runId} at chunk ${String(chunkIndex)} while chunk_count=${String(info.chunkCount)} - missing or superseded by a recompile`,
     });
   }
   if (row.chunkCount !== info.chunkCount) {
@@ -237,6 +418,31 @@ export const getDocumentRenderChunk = async (
       reason: 'render_inconsistent',
       documentId,
       detail: `row chunk_count ${String(row.chunkCount)} != ${String(info.chunkCount)}`,
+    });
+  }
+
+  // Generation pin. renderInfo and renderRow are two non-transactional
+  // reads and renderRow selects by (document_id, chunk_index) alone, so a
+  // recompile between them can hand back a row from ANOTHER generation --
+  // labeled by the meta/ETag built from `info` while carrying an older
+  // body, with document-level mark offsets applied to the wrong text. The
+  // DDL binds each payload's generation.run_id to its own row, so
+  // comparing the payload head to `info` here closes the race the same
+  // way reassembleTldf pins chunk heads to the manifest.
+  const payloadGeneration = row.payload['generation'];
+  const payloadRunId =
+    typeof payloadGeneration === 'object' && payloadGeneration !== null
+      ? (payloadGeneration as Record<string, unknown>)['run_id']
+      : undefined;
+  // text_sha256 is strict: every physical payload shape (envelope,
+  // manifest, chunk group) carries it, so an absent field is a corrupt
+  // row, not a tolerable variant.
+  const payloadTextSha = row.payload['text_sha256'];
+  if (String(payloadRunId) !== info.runId || payloadTextSha !== info.textSha256) {
+    return err({
+      reason: 'render_inconsistent',
+      documentId,
+      detail: `chunk ${String(chunkIndex)} carries generation ${String(payloadRunId)} while the served generation is ${info.runId}`,
     });
   }
 

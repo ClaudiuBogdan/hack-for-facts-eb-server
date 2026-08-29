@@ -1,7 +1,13 @@
 /**
  * Legal module — `LegalGraphRepo` (plan §3.3). Citation/amendment graph over
- * `legal.act_references` + `legal.external_acts`. Every read is `limit`-bounded
- * (hub guard: Legea 47/1992 has 23,527 in-edges — never an unbounded fan-out).
+ * `legal.act_references` + `legal.external_acts`. Every read is page-bounded
+ * (hub guard: Legea 47/1992 has 26,277 in-edges — never an unbounded fan-out)
+ * and keyset-paged on the `act_references` PK `(source_document_id,
+ * ref_index)`, the one tuple that is unique in BOTH directions: OUT pins one
+ * canonical source document (order degenerates to `ref_index asc`, unchanged),
+ * IN spans thousands of source documents where `ref_index` alone ties
+ * massively. `source_document_id` is compared and ordered under the same
+ * column collation, so the cursor predicate and ORDER BY agree by construction.
  *
  * Indexes hit: `act_references_target (target_act_id, relation)` for incoming;
  * `act_references_pkey (source_document_id, ref_index)` prefix for outgoing (via
@@ -13,6 +19,7 @@ import { err, ok, type Result } from 'neverthrow';
 
 import {
   type ApiError,
+  type CursorPage,
   type ProdDatabase,
   buildNextCursor,
   databaseError,
@@ -20,6 +27,7 @@ import {
   filterHash,
 } from '@/modules/shared/index.js';
 
+import { LINKS_SORT, linksFhash } from './filter-helpers.js';
 import { mapAct, mapExternalAct, mapReferenceEdge, type ActRow } from './mappers.js';
 
 import type { CursorPageRequest, LegalGraphRepo } from '../../core/ports.js';
@@ -34,10 +42,12 @@ import type {
 type Db = Kysely<ProdDatabase>;
 const ID_RE = /^\d+$/u;
 const MAX_EDGES = 200;
+/** Page cap: the +1 probe must stay INSIDE the physical MAX_EDGES read bound. */
+const MAX_LINKS_PAGE = MAX_EDGES - 1;
 const MAX_ANCHOR_PAGE = 100;
 const ANCHOR_SORT = 'edge_id';
 
-const clampEdges = (n: number): number => Math.min(Math.max(Math.floor(n), 1), MAX_EDGES);
+const clampLinksPage = (n: number): number => Math.min(Math.max(Math.floor(n), 1), MAX_LINKS_PAGE);
 
 export const makeLegalGraphRepo = (db: Db): LegalGraphRepo => {
   const selectRefs = () =>
@@ -57,13 +67,43 @@ export const makeLegalGraphRepo = (db: Db): LegalGraphRepo => {
         'r.resolver_version',
       ]);
 
+  /**
+   * Decode + validate a links `after` cursor: keys are the PK tuple
+   * `(source_document_id, ref_index)`. Validated here so a tampered key fails
+   * cleanly instead of surfacing as a bind error mid-query.
+   */
+  const decodeLinksCursor = (
+    after: string | undefined,
+    fhash: string
+  ): Result<{ doc: string; ref: number } | null, ApiError> => {
+    if (after === undefined) return ok(null);
+    const decoded = decodeCursor(after, { sort: LINKS_SORT, dir: 'asc', fhash });
+    if (decoded.isErr()) return err(decoded.error);
+    const [doc, ref] = decoded.value.keys;
+    if (doc === undefined || doc === '') {
+      return err(databaseError('links cursor carries an empty document key'));
+    }
+    if (ref === undefined || !ID_RE.test(ref)) {
+      return err(databaseError('links cursor carries a non-numeric ref key'));
+    }
+    return ok({ doc, ref: Number.parseInt(ref, 10) });
+  };
+
+  /** Strictly-after predicate on the PK tuple: no repeats (strict >), no skips (=+tiebreak). */
+  const afterPk = (cursor: { doc: string; ref: number }): ReturnType<typeof sql<boolean>> =>
+    sql<boolean>`(r.source_document_id > ${cursor.doc} or (r.source_document_id = ${cursor.doc} and r.ref_index > ${cursor.ref}))`;
+
   const outgoingRefs = async (
     actId: string,
     relations: readonly LegalRelation[] | undefined,
-    limit: number
-  ): Promise<Result<readonly LegalReferenceEdge[], ApiError>> => {
-    if (!ID_RE.test(actId)) return ok([]);
-    const capped = clampEdges(limit);
+    page: CursorPageRequest
+  ): Promise<Result<CursorPage<LegalReferenceEdge>, ApiError>> => {
+    if (!ID_RE.test(actId)) return ok({ items: [], next: null });
+    const limit = clampLinksPage(page.first);
+    const fhash = linksFhash('out', actId, relations);
+    const cursorRes = decodeLinksCursor(page.after, fhash);
+    if (cursorRes.isErr()) return err(cursorRes.error);
+    const cursor = cursorRes.value;
     try {
       // The act's canonical document is the source of its outgoing references.
       let q = selectRefs()
@@ -72,8 +112,26 @@ export const makeLegalGraphRepo = (db: Db): LegalGraphRepo => {
       if (relations !== undefined && relations.length > 0) {
         q = q.where('r.relation', 'in', [...relations]);
       }
-      const rows = await q.orderBy('r.ref_index', 'asc').limit(capped).execute();
-      return ok(rows.map((r) => mapReferenceEdge(r)));
+      if (cursor !== null) q = q.where(afterPk(cursor));
+      const rows = await q
+        .orderBy('r.source_document_id', 'asc')
+        .orderBy('r.ref_index', 'asc')
+        .limit(limit + 1)
+        .execute();
+      const hasMore = rows.length > limit;
+      const pageRows = hasMore ? rows.slice(0, limit) : rows;
+      const items = pageRows.map((r) => mapReferenceEdge(r));
+      const last = items[items.length - 1];
+      const next =
+        hasMore && last !== undefined
+          ? buildNextCursor({
+              sort: LINKS_SORT,
+              dir: 'asc',
+              fhash,
+              lastKeys: [last.sourceDocumentId, String(last.refIndex)],
+            })
+          : null;
+      return ok({ items, next });
     } catch (error) {
       return err(databaseError('outgoingRefs failed', error));
     }
@@ -82,10 +140,14 @@ export const makeLegalGraphRepo = (db: Db): LegalGraphRepo => {
   const incomingRefs = async (
     actId: string,
     relations: readonly LegalRelation[] | undefined,
-    limit: number
-  ): Promise<Result<readonly LegalIncomingEdge[], ApiError>> => {
-    if (!ID_RE.test(actId)) return ok([]);
-    const capped = clampEdges(limit);
+    page: CursorPageRequest
+  ): Promise<Result<CursorPage<LegalIncomingEdge>, ApiError>> => {
+    if (!ID_RE.test(actId)) return ok({ items: [], next: null });
+    const limit = clampLinksPage(page.first);
+    const fhash = linksFhash('in', actId, relations);
+    const cursorRes = decodeLinksCursor(page.after, fhash);
+    if (cursorRes.isErr()) return err(cursorRes.error);
+    const cursor = cursorRes.value;
     try {
       // act_references_target (target_act_id, relation) drives this. Join back to
       // the citing act via its canonical document (the edge's source_document_id).
@@ -95,6 +157,7 @@ export const makeLegalGraphRepo = (db: Db): LegalGraphRepo => {
       if (relations !== undefined && relations.length > 0) {
         q = q.where('r.relation', 'in', [...relations]);
       }
+      if (cursor !== null) q = q.where(afterPk(cursor));
       const rows = await q
         .select([
           'sa.act_id as sa_act_id',
@@ -110,11 +173,17 @@ export const makeLegalGraphRepo = (db: Db): LegalGraphRepo => {
           sql<string | null>`sa.entry_into_force::text`.as('sa_entry_into_force'),
           'sa.in_degree as sa_in_degree',
         ])
+        // The PK order — NOT bare ref_index, which ties across every citing
+        // document and made deep IN reads non-deterministic. Edges arrive
+        // grouped by citing document.
+        .orderBy('r.source_document_id', 'asc')
         .orderBy('r.ref_index', 'asc')
-        .limit(capped)
+        .limit(limit + 1)
         .execute();
 
-      const edges: LegalIncomingEdge[] = rows.map((row) => {
+      const hasMore = rows.length > limit;
+      const pageRows = hasMore ? rows.slice(0, limit) : rows;
+      const edges: LegalIncomingEdge[] = pageRows.map((row) => {
         const edge = mapReferenceEdge(row);
         const sourceAct =
           row.sa_act_id === null
@@ -135,7 +204,17 @@ export const makeLegalGraphRepo = (db: Db): LegalGraphRepo => {
               } as unknown as ActRow);
         return { edge, sourceAct };
       });
-      return ok(edges);
+      const last = edges[edges.length - 1];
+      const next =
+        hasMore && last !== undefined
+          ? buildNextCursor({
+              sort: LINKS_SORT,
+              dir: 'asc',
+              fhash,
+              lastKeys: [last.edge.sourceDocumentId, String(last.edge.refIndex)],
+            })
+          : null;
+      return ok({ items: edges, next });
     } catch (error) {
       return err(databaseError('incomingRefs failed', error));
     }

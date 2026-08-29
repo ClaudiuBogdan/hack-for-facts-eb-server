@@ -10,6 +10,7 @@ import type {
   CompanyCaenActivity,
   CompanyEuBranch,
   CompanyFinancialSummary,
+  CompanyFinancialQualityFlag,
   CompanyFinancialYear,
   CompanyFiscal,
   CompanyRepresentative,
@@ -149,6 +150,7 @@ export const mapEuBranch = (row: {
 /** A financials row (money/employees as strings). `summary` carries the 20 typed metrics. */
 export interface FinancialRow {
   year: number;
+  source_system: string;
   turnover: string | null;
   net_profit: string | null;
   net_loss: string | null;
@@ -210,8 +212,28 @@ const stringifyLines = (lines: Record<string, unknown> | null): Record<string, u
   return out;
 };
 
+/** A financial_quality_flags row (numerics pre-cast to text; unit is the metric's own). */
+export interface QualityFlagRow {
+  year: number;
+  flag_code: string;
+  metric_name: string;
+  severity: string;
+  numeric_value: string | null;
+  threshold_value: string | null;
+}
+
+export const mapQualityFlag = (r: QualityFlagRow): CompanyFinancialQualityFlag => ({
+  year: r.year,
+  flagCode: r.flag_code,
+  metricName: r.metric_name,
+  severity: r.severity,
+  numericValue: r.numeric_value,
+  thresholdValue: r.threshold_value,
+});
+
 export const mapFinancialYear = (r: FinancialRow): CompanyFinancialYear => ({
   year: r.year,
+  sourceSystem: r.source_system,
   turnover: r.turnover,
   netProfit: r.net_profit,
   netLoss: r.net_loss,

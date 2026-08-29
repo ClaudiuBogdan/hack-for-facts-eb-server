@@ -69,8 +69,12 @@ describe('filter specs — virtual fields are declared and skipped by the SQL co
     expect(sdl).toContain('input ParliamentVotesFilter');
     expect(sdl).toContain('chamber:');
     expect(sdl).toContain('outcome:');
-    // bills year is virtual but STILL surfaces in the GraphQL input (documentation).
-    expect(toGraphQLInput(billsFilterSpec)).toContain('year:');
+    // Virtual bill fields STILL surface in the GraphQL input: the repo owns
+    // their JSON/OR predicates, while every transport inherits the same shape.
+    const billSdl = toGraphQLInput(billsFilterSpec);
+    expect(billSdl).toContain('year:');
+    expect(billSdl).toContain('lastEventDate:');
+    expect(billSdl).toContain('input ParliamentBillsLastEventDateFilter');
   });
 });
 

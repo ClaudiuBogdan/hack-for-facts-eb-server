@@ -128,6 +128,8 @@ export interface CompanyFinancialSummary {
 
 export interface CompanyFinancialYear {
   readonly year: number;
+  /** Publisher: 'anaf' (FY2019+) or 'mfp' (FY2008–2018 bulk backfill). Seam CHECK-enforced at 2019. */
+  readonly sourceSystem: string;
   readonly turnover: Money | null;
   readonly netProfit: Money | null;
   readonly netLoss: Money | null;
@@ -151,6 +153,107 @@ export interface CompanyFinancials {
   readonly years: readonly CompanyFinancialYear[];
   readonly latest: CompanyFinancialYear | null;
   readonly trajectory: CompanyFinancialTrajectory | null;
+}
+
+/**
+ * A warn-only data-quality flag on one (cui, year) statement. Advisory: it
+ * qualifies a figure ("this was flagged"), it never suppresses one. Severity
+ * domain today: 'info' | 'review' | 'warning' — kept a string (not an enum) so
+ * a new upstream class degrades to an unknown label instead of a serialization
+ * error on an advisory surface. numericValue/thresholdValue are exact decimal
+ * strings in the metric's own unit (RON, headcount, ratio) — not Money.
+ */
+export interface CompanyFinancialQualityFlag {
+  readonly year: number;
+  readonly flagCode: string;
+  readonly metricName: string;
+  readonly severity: string;
+  /** Exact decimal string in the METRIC'S OWN UNIT (RON, headcount, or ratio) — NOT always money. */
+  readonly numericValue: string | null;
+  /** Same unit rules as numericValue (employees_outlier threshold is a headcount). */
+  readonly thresholdValue: string | null;
+}
+
+/**
+ * The flags PLUS the corpus-wide assessment coverage. A warn-only surface
+ * communicates through absence — "no flag" must only ever mean "checked,
+ * clean", never "never checked". The lane last ran 2026-06-30, BEFORE the
+ * FY2008–2018 MFP backfill (2026-08-18), so 7.4M statement-years exist that
+ * were never assessed. Coverage is the MEASURED SET of flagged years
+ * (public-class only), not a min/max range — measured 2026-08-25 the set is
+ * {2019, 2021..2025}: FY2020 has ZERO flags, so a range would have asserted
+ * it clean. Still a LOWER BOUND (anomalies-only table): a scanned-and-fully-
+ * clean year reads as not-assessed (conservative), and assessedAt is the
+ * newest flag's creation date, not a true lane watermark.
+ */
+export interface CompanyFinancialQualityAssessment {
+  /** Ascending distinct years with corpus-wide flags. Interior gaps are REAL (FY2020 has none today). */
+  readonly assessedYears: readonly number[];
+  readonly assessedAt: string | null;
+  readonly flags: readonly CompanyFinancialQualityFlag[];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Registration diff (two most recent loaded ONRC captures)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Closed set — the GraphQL enum mirrors it; adding a field is a contract change.
+ * `status` is deliberately NOT here: registration_history.raw_status is 100% NULL
+ * (8,378,866/8,378,866 measured 2026-08-25) and no complete per-capture status set
+ * exists anywhere in prod — a status diff could never fire and would read as
+ * "nothing ever changed". Status history is unavailable, stated rather than faked.
+ */
+export type CompanyRegistrationField = 'legalName' | 'legalForm' | 'county' | 'locality';
+
+export interface CompanyRegistrationChange {
+  readonly field: CompanyRegistrationField;
+  readonly from: string | null;
+  readonly to: string | null;
+}
+
+/**
+ * `not_comparable` is load-bearing (the FY2020 lesson): it is served when fewer
+ * than two captures are loaded corpus-wide OR the company has no public row in
+ * either capture — never collapsed into `unchanged` (asserts a comparison that
+ * did not happen) or null (reads as lookup failure).
+ */
+export type CompanyRegistrationDiffStatus =
+  'changed' | 'unchanged' | 'appeared' | 'disappeared' | 'not_comparable' | 'ambiguous';
+
+/** One capture-side registration row (public rows only; restricted reads as absent). */
+export interface CompanyRegistrationCaptureRow {
+  readonly legalName: string;
+  readonly normalizedLegalName: string;
+  readonly legalForm: string | null;
+  readonly county: string | null;
+  readonly locality: string | null;
+}
+
+export interface CompanyRegistrationDiffData {
+  readonly fromCaptureDate: string | null;
+  readonly toCaptureDate: string | null;
+  readonly captureCount: number;
+  readonly earlier: CompanyRegistrationCaptureRow | null;
+  readonly later: CompanyRegistrationCaptureRow | null;
+  /**
+   * True when the capture holds MORE THAN ONE public row for the CUI. The
+   * table's grain is (source_snapshot_id, source_row_number) — NOT cui — and
+   * ~95k CUIs carry 2–8 rows per snapshot BY DESIGN (ONRC re-registration
+   * history; 190,304 (cui, capture) pairs, 47,996 with differing names). A
+   * single-row diff is undefined there: an arbitrary pick manufactured a
+   * false rename on the first live repro (CUI 10009384). Either flag →
+   * status 'ambiguous'.
+   */
+  readonly earlierMultiple: boolean;
+  readonly laterMultiple: boolean;
+}
+
+export interface CompanyRegistrationDiff {
+  readonly fromCaptureDate: string | null;
+  readonly toCaptureDate: string | null;
+  readonly status: CompanyRegistrationDiffStatus;
+  readonly changes: readonly CompanyRegistrationChange[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -296,7 +399,7 @@ export interface CompanyCoverage {
  * `computedAt` is stamped by the shell (no clock in core).
  */
 export interface CompanyHubStats {
-  /** Every company on the CUI spine (= the STATUS leg's denominator). */
+  /** Every company on the CUI spine (= the STATUS leg's denominator). NOT the whole ONRC registry: ~86k registry entries have no CUI and are structurally absent (issue 49). */
   readonly totalCompanies: number;
   /** Companies in ONRC lifecycle status `1048` (funcțiune). */
   readonly activeCompanies: number;

@@ -166,6 +166,58 @@ describe('billActivity — repo SQL contract', () => {
     expect(res.year).toBe(2026);
   });
 
+  it('uses one lastEventDate range for the list and activity aggregate', async () => {
+    const captured: Captured[] = [];
+    const repo = makeParliamentRepo(makeDb(captured, []));
+    const filter = {
+      lastEventDate: { gte: '2026-08-04', lte: '2026-08-04' },
+    };
+
+    const list = await repo.listBills(filter, 'updated_desc', { page: 1, pageSize: 10 });
+    const activity = await repo.billActivity(2026, filter);
+
+    expect(list.isOk()).toBe(true);
+    expect(activity.isOk()).toBe(true);
+    const listRows = captured[0];
+    const listCount = captured[1];
+    const activityDays = captured[2];
+    const activityYears = captured[3];
+    if (
+      listRows === undefined ||
+      listCount === undefined ||
+      activityDays === undefined ||
+      activityYears === undefined
+    ) {
+      throw new Error('expected list rows/count and activity days/years queries');
+    }
+    expect(listRows.parameters.slice(0, 2)).toEqual(['2026-08-04', '2026-08-04']);
+    expect(listCount.parameters.slice(0, 2)).toEqual(['2026-08-04', '2026-08-04']);
+    expect(activityDays.parameters).toEqual([
+      '2026-08-04',
+      '2026-08-04',
+      '2026-01-01',
+      '2026-12-31',
+    ]);
+    expect(activityYears.parameters).toEqual([]);
+  });
+
+  it('rejects an impossible lastEventDate before either bill query runs', async () => {
+    const captured: Captured[] = [];
+    const repo = makeParliamentRepo(makeDb(captured, []));
+
+    const list = await repo.listBills({ lastEventDate: { gte: '2026-02-30' } }, 'updated_desc', {
+      page: 1,
+      pageSize: 10,
+    });
+    const activity = await repo.billActivity(2026, {
+      lastEventDate: { lte: '2026-02-30' },
+    });
+
+    expect(list.isErr() && list.error.type).toBe('InvalidInput');
+    expect(activity.isErr() && activity.error.type).toBe('InvalidInput');
+    expect(captured).toHaveLength(0);
+  });
+
   it('surfaces an invalid filter as InvalidInput, before any query runs', async () => {
     const captured: Captured[] = [];
     const repo = makeParliamentRepo(makeDb(captured, []));

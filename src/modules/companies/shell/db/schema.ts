@@ -88,9 +88,16 @@ export interface CompaniesFinancialsTable {
   provisions: string | null;
   total_equity: string | null;
   patrimony_regie: string | null;
+  /** 'anaf' (FY2019+) | 'mfp' (FY2008–2018); the publisher seam is CHECK-enforced at 2019. */
+  source_system: string;
+  /** CHECK admits 'public' | 'personal_moderate' | 'restricted'; every read path allowlists 'public'. */
+  privacy_class: string;
   source_indicator_count: number;
   selected_metric_count: number;
-  metric_issue_count: number;
+  // `metric_issue_count` exists in the table but is ABOLISHED (wrong on ~7.1M MFP
+  // rows; scrapper d85663f2, 2026-08-19). Deliberately untyped so it can never be
+  // selected; the omission signal lives in `applicable_metric_count`.
+  applicable_metric_count: number | null;
   quality_flag_count: number;
   derived_at: Tstz;
 }
@@ -102,6 +109,49 @@ export interface CompaniesCaenActivitiesTable {
   caen_code: string;
   relation: string;
   authorization_type: string | null;
+}
+
+/** Warn-only (cui, year) statement flags. All 224,657 rows privacy_class='public' (measured 2026-08-25). */
+export interface CompaniesFinancialQualityFlagsTable {
+  cui: string;
+  year: number;
+  flag_code: string;
+  metric_name: string;
+  severity: string; // 'info' | 'review' | 'warning' today; open domain
+  numeric_value: string | null; // numeric → string
+  threshold_value: string | null;
+  privacy_class: string;
+  /** Read via raw max(created_at) in the coverage aggregate — typed so a rename fails typecheck-adjacent review, not runtime. */
+  created_at: Tstz;
+}
+
+/** Grain is (source_snapshot_id, source_row_number) — NOT one row per (cui, capture): ~95k CUIs carry 2–8 rows per snapshot (ONRC re-registration history). ~8.38M rows over two loaded captures; 244,408 restricted (read paths allowlist public). */
+export interface CompaniesRegistrationHistoryTable {
+  /** Nullable in the DB (86,438 NULL-cui rows per capture); typed non-null because every read filters `cui = $1`. */
+  cui: string;
+  legal_name: string;
+  normalized_legal_name: string;
+  legal_form: string | null;
+  // `raw_status` exists but is 100% NULL (8,378,866/8,378,866, measured
+  // 2026-08-25) — deliberately untyped so a status diff that can never fire
+  // cannot be built against it.
+  raw_county: string | null;
+  raw_locality: string | null;
+  source_snapshot_id: string;
+  privacy_class: string;
+}
+
+/**
+ * Capture dimension (applied 2026-08-25; populated by a guarded upsert, no
+ * scheduled lane — current-as-of-today, not self-maintaining).
+ * `retrieved_at` is DELIBERATELY untyped: freshness must never be served from
+ * retrieval — `source_published_at` is what "as of" means to a user, NULL means
+ * UNKNOWN and must not be coalesced (captures differ by up to 129 days).
+ */
+export interface CompaniesSourceSnapshotsTable {
+  source_snapshot_id: string;
+  source_published_at: string | null; // date
+  privacy_class: string;
 }
 
 export interface CompaniesStatusFlagsTable {
@@ -133,6 +183,9 @@ declare module '@/modules/shared/shell/db/types.js' {
     'companies_v2.financials': CompaniesFinancialsTable;
     'companies_v2.caen_profile': CompaniesCaenActivitiesTable;
     'companies_v2.status_flags': CompaniesStatusFlagsTable;
+    'companies_v2.financial_quality_flags': CompaniesFinancialQualityFlagsTable;
+    'companies_v2.registration_history': CompaniesRegistrationHistoryTable;
+    'companies_v2.source_snapshots': CompaniesSourceSnapshotsTable;
     'companies_v2.eu_branches': CompaniesEuBranchesTable;
     'companies_v2.registration_identifiers': {
       scheme: string;

@@ -12,6 +12,7 @@
 
 import { z } from 'zod';
 
+import { ENTITY_SEARCH_WIDGET_URI, ENTITY_SNAPSHOT_WIDGET_URI } from './widgets/resources.js';
 import { makeEntity360, type Entity360Deps } from '../../core/usecases/entity-360.js';
 import { makeGlobalSearch, type GlobalSearchDeps } from '../../core/usecases/global-search.js';
 
@@ -79,6 +80,8 @@ export const makeKernelMcpTools = (deps: KernelMcpDeps): readonly KernelMcpTool[
 
   const getEntitySnapshot: KernelMcpTool = {
     name: 'get_entity_snapshot',
+    title: 'Profil entitate Transparenta.eu',
+    ui: { resourceUri: ENTITY_SNAPSHOT_WIDGET_URI },
     description:
       'Cross-source snapshot for an entity by CUI: identity, territory, money-flow summaries (in/out), document count, and per-source presence badges.',
     inputShape: {
@@ -118,6 +121,8 @@ export const makeKernelMcpTools = (deps: KernelMcpDeps): readonly KernelMcpTool[
 
   const searchEntities: KernelMcpTool = {
     name: 'search_entities',
+    title: 'Căutare entități Transparenta.eu',
+    ui: { resourceUri: ENTITY_SEARCH_WIDGET_URI },
     description:
       'Free-text global search across every quick-searchable identity (companies, public institutions, NGOs, public enterprises, PNRR entities, MPs, bills, committees, legal acts, Monitorul Oficial acts). Returns the merged, relevance-ranked list with a type badge per hit, optionally narrowed by docTypes / roles / county / isActive. One document per identity: use docTypes for what a thing IS and roles for what it PLAYS (a municipality that is also a PNRR beneficiary is one hit carrying both). Use this to FIND entities when you only have a name or keyword; then use resolve_entity / get_entity_snapshot for a specific CUI.',
     inputShape: {
@@ -162,7 +167,7 @@ export const makeKernelMcpTools = (deps: KernelMcpDeps): readonly KernelMcpTool[
       });
       if (res.isErr()) return { ok: false, kind: 'entity_search', error: res.error.message };
 
-      const { engine, hits, facets, estimatedTotalHits } = res.value;
+      const { engine, degraded, hits, facets, estimatedTotalHits } = res.value;
       // The entities doc carries a small whitelisted `attrs` sub-object (kind,
       // status, group_name, chamber, issuer, …). `SearchHit.attrs` is the WHOLE
       // raw hit (it also holds `visibility`), so expose ONLY the nested
@@ -192,9 +197,16 @@ export const makeKernelMcpTools = (deps: KernelMcpDeps): readonly KernelMcpTool[
         kind: 'entity_search',
         query,
         items,
-        meta: { engine, estimatedTotalHits, returned: items.length, facets },
-        summary:
-          items.length === 0
+        meta: { engine, degraded, estimatedTotalHits, returned: items.length, facets },
+        // "No entities matched" is a CLAIM ABOUT THE WORLD, and during an engine
+        // outage it is false — the reduced path only resolves exact identifiers
+        // (D5). An LLM caller relays this sentence to a user as fact, so a
+        // degraded run has to describe its own limits instead of answering.
+        summary: degraded
+          ? items.length === 0
+            ? `Search is DEGRADED: the search engine is unavailable, so "${query}" could not be looked up. This is NOT evidence that no such entity exists. While degraded only an exact numeric identifier (CUI) resolves — retry later for a real answer.`
+            : `Search is DEGRADED: the search engine is unavailable. "${query}" resolved as an exact identifier only; ranked matches are unavailable and other entities may exist.`
+          : items.length === 0
             ? `No entities matched "${query}".`
             : `${String(items.length)} of ~${String(estimatedTotalHits)} matches for "${query}" (engine: ${engine}).`,
       };

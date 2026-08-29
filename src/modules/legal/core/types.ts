@@ -88,6 +88,47 @@ export const LEGAL_RESOLVE_DIMS: readonly LegalResolveDim[] = [
   'status',
 ];
 
+/** Grouping dimensions for the grouped act counts (landing grid / facets). */
+export type LegalCountDimension = 'domain' | 'act_type' | 'status' | 'issuer' | 'year';
+export const LEGAL_COUNT_DIMENSIONS: readonly LegalCountDimension[] = [
+  'domain',
+  'act_type',
+  'status',
+  'issuer',
+  'year',
+];
+
+/**
+ * One grouped count bucket. `key` is the RAW DB vocabulary value
+ * ('fiscal-si-bugetar', 'in-vigoare', '2015'). Only keys that appear in the
+ * corresponding filter field's `enumValues` are accepted back by
+ * `LegalActsFilter` — `act_type` is an OPEN vocabulary in the live DB (256
+ * distinct values vs the 18 the filter accepts, measured 2026-08; `anexa`,
+ * `protocol`, `ghid`, … are real keys the filter refuses). `domain`/`status`
+ * are closed vocabularies, so their keys always round-trip. `label` is a
+ * display form when one exists (issuer slugs de-hyphenated, the vocab-repo
+ * precedent) and null otherwise — the enum/year keys ARE their own display
+ * value.
+ */
+export interface LegalCountBucket {
+  readonly key: string;
+  readonly label: string | null;
+  readonly count: number;
+}
+
+/**
+ * The grouped-counts envelope. The topN cap is REAL, so the truncation is
+ * served rather than silent (the no-silent-caps rule): `bucketsTruncated`
+ * says the vocabulary was cut, and `otherCount` carries the exact sum of the
+ * unserved buckets' counts — which keeps a partition dimension summable to
+ * its total (for DOMAIN it sums unserved (act, domain) pairs, not acts).
+ */
+export interface LegalActCountsResult {
+  readonly buckets: readonly LegalCountBucket[];
+  readonly bucketsTruncated: boolean;
+  readonly otherCount: number;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Acts (the spine — 05-owned base type)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -202,8 +243,14 @@ export interface LegalExternalAct {
 // Status events (shared substrate — portal AND mo write rows; server reads both)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** The event source discriminator. 06 contributes `'monitorul-oficial'` rows. */
-export type LegalEventSource = 'portal' | 'monitorul-oficial';
+/**
+ * The event source discriminator. 06 contributes `'monitorul-oficial'` rows.
+ * `'necunoscut'` is OUTPUT-ONLY (grok r5, 2026-08-26): the live vocabulary is
+ * exactly the two pipelines (84,484 rows, 0 others measured 2026-08), but a
+ * third writer must surface as unknown, never silently relabel as 'portal'.
+ * The FILTER vocabulary (`LEGAL_EVENT_SOURCES`) deliberately stays the two.
+ */
+export type LegalEventSource = 'portal' | 'monitorul-oficial' | 'necunoscut';
 
 export interface LegalStatusEvent {
   readonly eventId: string;
@@ -213,6 +260,26 @@ export interface LegalStatusEvent {
   readonly sourceActId: string | null;
   readonly evidence: Record<string, unknown>;
   readonly eventSource: LegalEventSource;
+}
+
+/**
+ * One GLOBAL feed entry ("Modificări"): a status event + the affected act's
+ * display identity, read in the SAME statement (no lazy fan-out). `eventSource`
+ * is surfaced honestly — portal and monitorul-oficial rows are never merged.
+ */
+export interface LegalRecentChange {
+  readonly eventId: string;
+  readonly eventKind: string;
+  readonly effectiveDate: IsoDate | null;
+  readonly eventSource: LegalEventSource;
+  /** The acting act (e.g. the amending law) when the event records one. */
+  readonly sourceActId: string | null;
+  readonly evidence: Record<string, unknown>;
+  // the affected act's identity:
+  readonly actId: string;
+  readonly actNaturalKey: string;
+  readonly displayCitation: string;
+  readonly status: LegalActStatus;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -236,8 +303,15 @@ export interface LegalOutlineEntry {
   readonly numberSystem: string | null;
   /** unparsed/ambiguous numbering surfaces honestly, never as a fake number. */
   readonly numberStatus: string | null;
-  /** Presentation depth from the fixed grammar rank — never parsed from path. */
-  readonly depth: number;
+  /**
+   * Presentation depth from the fixed grammar rank — never parsed from path.
+   * NULL when the node is not a TOC heading at all: `entryByPath` resolves any
+   * structural node (an alineat, a nota, a POR portion wrapper), and those have
+   * no place in the outline hierarchy. Reporting `null` is the honest answer;
+   * the previous non-null type made the lookup hand back `undefined` under a
+   * `number` annotation.
+   */
+  readonly depth: number | null;
   readonly orderIndex: number;
   readonly charStart: number | null;
   readonly charEnd: number | null;

@@ -24,9 +24,14 @@ import {
   type CompanyGroupBy,
   type CompanyResolveDim,
   type CompanySort,
+  type CompanyRegistrationDiff,
+  type CompanyRegistrationDiffStatus,
+  type CompanyRegistrationField,
 } from '../../core/types.js';
 import {
   makeCompanyCountyProfile,
+  makeCompanyFinancialQualityAssessment,
+  makeCompanyRegistrationDiff,
   makeCompanyFinancials,
   makeCompanyList,
   makeCompanyProfile,
@@ -72,6 +77,30 @@ const n = (x: number): string => String(x);
  * (audit M13 — MCP emitted the lowercase domain value 'safe' while GraphQL emitted
  * the enum name 'SAFE').
  */
+// Same M13 rule as mcpTerritory, for the diff enums: MCP must emit the
+// GraphQL enum NAMES (CHANGED / LEGAL_NAME), never the lowercase domain
+// values — an agent string-matching GraphQL vocabulary must match here too.
+const MCP_DIFF_STATUS: Readonly<Record<CompanyRegistrationDiffStatus, string>> = {
+  changed: 'CHANGED',
+  unchanged: 'UNCHANGED',
+  appeared: 'APPEARED',
+  disappeared: 'DISAPPEARED',
+  not_comparable: 'NOT_COMPARABLE',
+  ambiguous: 'AMBIGUOUS',
+};
+const MCP_DIFF_FIELD: Readonly<Record<CompanyRegistrationField, string>> = {
+  legalName: 'LEGAL_NAME',
+  legalForm: 'LEGAL_FORM',
+  county: 'COUNTY',
+  locality: 'LOCALITY',
+};
+const mcpRegistrationDiff = (d: CompanyRegistrationDiff): Record<string, unknown> => ({
+  fromCaptureDate: d.fromCaptureDate,
+  toCaptureDate: d.toCaptureDate,
+  status: MCP_DIFF_STATUS[d.status],
+  changes: d.changes.map((c) => ({ field: MCP_DIFF_FIELD[c.field], from: c.from, to: c.to })),
+});
+
 const mcpTerritory = (t: { matchConfidence: 'safe' | 'unmatched' } | null): unknown =>
   t === null ? null : { ...t, matchConfidence: t.matchConfidence.toUpperCase() };
 
@@ -128,7 +157,7 @@ export const makeCompaniesMcpTools = (deps: CompaniesMcpDeps): readonly KernelMc
   const getSnapshot: KernelMcpTool = {
     name: 'get_company_snapshot',
     description:
-      'Compact profile for a company by CUI: headline status, fiscal flags, latest financial year, territory, and total public money received (as a payee). For the full financial series use get_company_financials.',
+      'Compact profile for a company by CUI: headline status, fiscal flags, latest financial year, territory, and total public money received (as a payee). For the full financial series use get_company_financials - and use its qualityAssessment before presenting any figure as reliable: FY2019+ is published by ANAF and FY2008-2018 by MFP (different publishers), and not every year has been quality-assessed.',
     inputShape: { cui: z.string().describe('The company CUI/CIF (digits only).') },
     async handler(args): Promise<McpToolOutput> {
       const cui = strArg(args, 'cui');
@@ -148,6 +177,9 @@ export const makeCompaniesMcpTools = (deps: CompaniesMcpDeps): readonly KernelMc
           ? `; ${String(latest.year)} turnover ${latest.turnover ?? 'n/a'} RON, ${latest.employees ?? 'n/a'} employees`
           : '') +
         `; received ${pm?.totalRon ?? '0'} RON public money.`;
+      // Advisory parity with GraphQL Company.registrationDiff (H2: null on
+      // error); after the null check so an unknown CUI pays no extra queries.
+      const diff = await makeCompanyRegistrationDiff(deps, cui);
       return {
         ok: true,
         kind: 'company',
@@ -162,6 +194,7 @@ export const makeCompaniesMcpTools = (deps: CompaniesMcpDeps): readonly KernelMc
           territory: mcpTerritory(p.territory),
           latestFinancial: latest ?? null,
           publicMoney: pm,
+          registrationDiff: diff.isOk() ? mcpRegistrationDiff(diff.value) : null,
           asOf: p.asOf,
         },
         summary,
@@ -172,7 +205,7 @@ export const makeCompaniesMcpTools = (deps: CompaniesMcpDeps): readonly KernelMc
   const getFinancials: KernelMcpTool = {
     name: 'get_company_financials',
     description:
-      'Financial-statement (bilanț) year series for a company by CUI, plus computed latest year and a latest-vs-prior trajectory. Values are exact decimal strings; employees is a bigint string.',
+      'Financial-statement (bilanț) year series for a company by CUI, plus computed latest year and a latest-vs-prior trajectory. Values are exact decimal strings; employees is a bigint string. Each year carries sourceSystem (anaf FY2019+, mfp FY2008-2018). qualityAssessment carries warn-only flags + the measured set of ASSESSED years - a year absent from assessedYears was never quality-checked and must not be presented as clean.',
     inputShape: { cui: z.string().describe('The company CUI/CIF (digits only).') },
     async handler(args): Promise<McpToolOutput> {
       const cui = strArg(args, 'cui');
@@ -186,12 +219,15 @@ export const makeCompaniesMcpTools = (deps: CompaniesMcpDeps): readonly KernelMc
           query: { cui },
           summary: `No financials for CUI ${cui}.`,
         };
+      // Advisory parity with GraphQL Company.financialQualityAssessment: an
+      // assessment failure must not take down the financials payload (H2).
+      const qa = await makeCompanyFinancialQualityAssessment(deps, cui);
       return {
         ok: true,
         kind: 'financials',
         query: { cui },
         link: companyLink(cui),
-        item: f,
+        item: { ...f, qualityAssessment: qa.isOk() ? qa.value : null },
         summary:
           `${n(f.years.length)} financial year(s) for CUI ${cui}` +
           (f.latest !== null
@@ -308,7 +344,7 @@ export const makeCompaniesMcpTools = (deps: CompaniesMcpDeps): readonly KernelMc
   const hubStats: KernelMcpTool = {
     name: 'company_hub_stats',
     description:
-      'Registry-wide company overview: total and active company counts, the full ONRC status mix, the top 10 counties by active companies, and the CAEN-division breakdown of active companies. Takes no arguments. Served from a 6h cache — computedAt says when the underlying scans ran. Use for "how many companies …" / "which county has most companies" questions instead of paging list_companies.',
+      'CUI-spine company overview (NOT the whole ONRC registry — ~86k registry entries with no CUI, 2.1%, are structurally absent): total and active company counts, the full ONRC status mix, the top 10 counties by active companies, and the CAEN-division breakdown of active companies. Takes no arguments. Served from a 6h cache — computedAt says when the underlying scans ran. Use for "how many companies …" / "which county has most companies" questions instead of paging list_companies.',
     inputShape: {},
     async handler(): Promise<McpToolOutput> {
       const res = await deps.hubStats.get();

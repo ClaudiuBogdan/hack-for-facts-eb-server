@@ -1,8 +1,10 @@
 # Chronos development overlay
 
-This source-only overlay renders the redesign-only, read-only Transparenta.eu
-API workload for the future Chronos namespace `transparenta-eu-dev`. It is not
-an installation instruction and has not been applied.
+This overlay renders the redesign-only, read-only Transparenta.eu API workload
+deployed as an internal canary in the Chronos namespace
+`transparenta-eu-dev`. Argo remains pinned to an exact reviewed commit, so
+updating this branch does not change the live cluster until a separate manual
+sync is approved.
 
 The overlay intentionally owns only the Deployment, Service, ServiceAccount,
 ConfigMap, and PodDisruptionBudget. It excludes the Phoenix `VirtualService`,

@@ -19,12 +19,16 @@ import type {
   LegalAct,
   LegalActCard,
   LegalActSummary,
+  LegalCountBucket,
+  LegalCountDimension,
   LegalDocHit,
   LegalDocument,
+  LegalEventSource,
   LegalExternalAct,
   LegalIncomingAnchorsPage,
   LegalIncomingEdge,
   LegalOutlineEntry,
+  LegalRecentChange,
   LegalReferenceEdge,
   LegalRelation,
   LegalRenderInfo,
@@ -32,7 +36,7 @@ import type {
   LegalSectionHit,
   LegalVersionProvenance,
 } from './types.js';
-import type { ApiError, CursorPage, FilterInput } from '@/modules/shared/index.js';
+import type { ApiError, CursorPage, FilterInput, IsoDate } from '@/modules/shared/index.js';
 import type { Result } from 'neverthrow';
 
 /** A first/after cursor page request (the kernel cursor envelope binds the fhash). */
@@ -52,9 +56,69 @@ export interface LegalActListOptions {
   readonly page: CursorPageRequest;
 }
 
+/**
+ * The global status-event feed filter. `since`/`until` are INCLUSIVE
+ * `effective_date` bounds — a date window therefore excludes undated events
+ * (SQL comparison semantics, stated rather than papered over). `kinds` narrows
+ * `event_kind`: OMIT it for all kinds; an explicit empty (or blank-only) list
+ * is REJECTED as invalidInput — one API must not read `[]` as "everything"
+ * here while kernel filters read `in: []` as "nothing". `eventSource` scopes
+ * to one pipeline ('portal' | 'monitorul-oficial'). `undatedOnly` serves ONLY
+ * the null-`effective_date` events (25.2% of the table, measured 2026-08) —
+ * they trail the default feed and NO date window can reach them; combining it
+ * with `since`/`until` is rejected (the intersection is empty by construction).
+ */
+export interface LegalRecentChangesFilter {
+  readonly since?: IsoDate;
+  readonly until?: IsoDate;
+  readonly kinds?: readonly string[];
+  readonly eventSource?: LegalEventSource;
+  readonly undatedOnly?: boolean;
+}
+
+export interface LegalRecentChangesQuery extends LegalRecentChangesFilter {
+  readonly page: CursorPageRequest;
+}
+
 export interface LegalActsRepo extends LegalRepoBase {
   /** Paged acts list. Cursor sort tuple ALWAYS ends in `act_id` (non-unique sorts). */
   listActs(o: LegalActListOptions): Promise<Result<CursorPage<LegalAct>, ApiError>>;
+  /** Filtered COUNT over the same FROM/conditions as `listActs`. Resolved lazily — only when a connection's totalCount is actually selected. */
+  countActs(filter: FilterInput): Promise<Result<number, ApiError>>;
+  /**
+   * Grouped act counts for the landing grid / facets — ONE statement instead of
+   * one round-trip per cell. Same FROM + kernel conditions as `listActs` (the
+   * filter must behave identically). `domain` unnests the CANONICAL document
+   * summary's `text[]` — the same rows the `domain` filter compiles against —
+   * so a cell's count always equals the filtered list behind it; domains
+   * asserted only by non-canonical versions are deliberately not counted, and
+   * a multi-domain act counts once per domain (distinct per bucket).
+   * Partition contract: `status`/`act_type` PARTITION the corpus; `issuer`/
+   * `year` are disjoint but omit value-less acts; `domain` OVERLAPS (~2.26
+   * domains per summarized act, measured 2026-08 — buckets sum above the act
+   * total). Keys are the RAW DB vocabulary — for the OPEN `act_type` (256
+   * live values vs 18 filter-accepted, measured 2026-08) most keys are NOT
+   * valid filter values. Counts are facet-SCOPED to the filter: a bucket
+   * equals its filtered list only when the grouped dimension is unconstrained
+   * in the filter. NULL group keys are omitted. Ordered count desc; returns
+   * the FULL vocabulary — the serving cap (topN) lives in the usecase, which
+   * reports the truncation.
+   */
+  countActsBy(
+    dim: LegalCountDimension,
+    filter: FilterInput
+  ): Promise<Result<readonly LegalCountBucket[], ApiError>>;
+  /**
+   * The GLOBAL date-ordered status-event feed ("Modificări"):
+   * `act_status_events` joined to `acts` for display identity, keyset-paged on
+   * `(effective_date desc nulls last, event_id desc)` — undated events sort
+   * last and stay reachable (the acts-list null-section rule).
+   */
+  listRecentChanges(
+    q: LegalRecentChangesQuery
+  ): Promise<Result<CursorPage<LegalRecentChange>, ApiError>>;
+  /** Filtered COUNT over the same FROM/conditions as `listRecentChanges`. Lazy — only when totalCount is selected. */
+  countRecentChanges(filter: LegalRecentChangesFilter): Promise<Result<number, ApiError>>;
   /** Detail card: act + canonical doc + summary + aliases + keys + amendedAfter. */
   getActCard(ref: LegalActRef): Promise<Result<LegalActCard | null, ApiError>>;
   getCanonicalDocument(actId: string): Promise<Result<LegalDocument | null, ApiError>>;
@@ -96,21 +160,35 @@ export interface LegalActsRepo extends LegalRepoBase {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface LegalGraphRepo {
-  /** Outgoing: what this act cites (its canonical document's references). Bounded. */
+  /**
+   * Outgoing: what this act cites (its canonical document's references),
+   * keyset-paged on the `act_references` PK `(source_document_id, ref_index)`.
+   * For OUT the source document is the act's ONE canonical doc, so the first
+   * component is constant and the visible order stays today's `ref_index asc`;
+   * the tuple is unique by PK either way. Page cap 199 — the +1 probe must
+   * stay inside the 200-row physical hub guard. totalCount is deliberately
+   * never reported (act-detail.md §9.1: a bounded read must not claim a hub's
+   * fan-out); the CURSOR is what makes the rest reachable.
+   */
   outgoingRefs(
     actId: string,
     relations: readonly LegalRelation[] | undefined,
-    limit: number
-  ): Promise<Result<readonly LegalReferenceEdge[], ApiError>>;
+    page: CursorPageRequest
+  ): Promise<Result<CursorPage<LegalReferenceEdge>, ApiError>>;
   /**
-   * Incoming: what cites/amends/abrogates this act (+ the citing act). ALWAYS
-   * limit-bounded (hub guard: Legea 47/1992 has 23,527 in-edges — §3.3).
+   * Incoming: what cites/amends/abrogates this act (+ the citing act), keyset-
+   * paged on the SAME PK tuple. For IN, `ref_index` alone ties across
+   * thousands of citing documents (the pre-cursor `ref_index asc` order was
+   * NON-DETERMINISTIC under those ties), so `(source_document_id, ref_index)`
+   * is what makes deep pages stable — edges arrive grouped by citing document.
+   * Hub guard: Legea 47/1992 has 26,277 in-edges; every page is bounded and
+   * the cursor reaches all of them.
    */
   incomingRefs(
     actId: string,
     relations: readonly LegalRelation[] | undefined,
-    limit: number
-  ): Promise<Result<readonly LegalIncomingEdge[], ApiError>>;
+    page: CursorPageRequest
+  ): Promise<Result<CursorPage<LegalIncomingEdge>, ApiError>>;
   externalAct(externalActId: string): Promise<Result<LegalExternalAct | null, ApiError>>;
   /**
    * Incoming ANCHORS — the portal's own typographic link graph
@@ -145,13 +223,16 @@ export interface LegalOutlineRepo {
    * derives structure from render blocks.
    */
   outline(options: LegalOutlineOptions): Promise<Result<CursorPage<LegalOutlineEntry>, ApiError>>;
+  /**
+   * Resolve ONE node by its stable `(document_id, path)` key. There is
+   * deliberately no `entryByArticle(documentId, numberKey)` sibling: article
+   * numbers restart inside annexes, so 5,303 documents hold 32,484 duplicate
+   * (document_id, number_key) article groups and no single-row answer is
+   * honest. `path` is the identity.
+   */
   entryByPath(
     documentId: string,
     path: string
-  ): Promise<Result<LegalOutlineEntry | null, ApiError>>;
-  entryByArticle(
-    documentId: string,
-    numberKey: string
   ): Promise<Result<LegalOutlineEntry | null, ApiError>>;
 }
 
@@ -170,9 +251,15 @@ export interface LegalRenderRepo {
   renderInfoForDocuments(
     documentIds: readonly string[]
   ): Promise<Result<ReadonlyMap<string, LegalRenderInfo>, ApiError>>;
-  /** One physical row (payload unparsed); null when the row does not exist. */
+  /**
+   * One physical row (payload unparsed); null when the row does not exist
+   * FOR THIS GENERATION — the runId bind makes a recompile-race row from
+   * another generation indistinguishable from a missing row (409 upstream)
+   * instead of a silently mixed body.
+   */
   renderRow(
     documentId: string,
+    runId: string,
     chunkIndex: number
   ): Promise<Result<LegalRenderRow | null, ApiError>>;
 }

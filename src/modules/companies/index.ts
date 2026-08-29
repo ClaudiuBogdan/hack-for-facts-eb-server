@@ -37,6 +37,8 @@ export interface CompaniesModuleDeps {
   readonly flowsRepo: FlowsRepo;
   /** Kernel Meili client for name resolution (null → pg fallback only). */
   readonly meili: MeiliClient | null;
+  /** Palette index for name resolution (kernel `PROD_MEILI_INDEXES[0]`). */
+  readonly meiliEntitiesIndex?: string;
   readonly clientBaseUrl?: string;
   /** `companyHubStats` cache TTL. Defaults to 6h (`HUB_STATS_DEFAULT_TTL_MS`). */
   readonly hubStatsTtlMs?: number;
@@ -51,7 +53,11 @@ export interface CompaniesModule {
 }
 
 export const makeCompaniesModule = (deps: CompaniesModuleDeps): CompaniesModule => {
-  const repo = makeCompaniesRepo(deps.db);
+  const repo = makeCompaniesRepo(deps.db, {
+    ...(deps.meiliEntitiesIndex !== undefined && {
+      meiliEntitiesIndex: deps.meiliEntitiesIndex,
+    }),
+  });
   const contributor = makeCompaniesContributor(repo);
   const clientBaseUrl = deps.clientBaseUrl ?? 'https://transparenta.eu';
   const usecaseDeps = { repo, flowsRepo: deps.flowsRepo, meili: deps.meili };

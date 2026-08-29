@@ -21,8 +21,16 @@ export interface KernelCache {
   get(key: string): unknown;
   set(key: string, value: unknown): void;
   invalidateByPrefix(prefix: string): void;
-  /** Read-through helper: returns cached value or computes + stores it. */
-  wrap<T>(key: string, compute: () => Promise<T>): Promise<T>;
+  /**
+   * Read-through helper: returns the cached value, or computes it.
+   *
+   * `shouldCache` decides whether the COMPUTED value is worth storing; omitted
+   * means "always", the historical behaviour. It exists because not every
+   * returned value is a fact: a degraded search answer, or a failed `Result`,
+   * would otherwise be pinned for the whole TTL and replayed to every caller
+   * long after the underlying engine recovered.
+   */
+  wrap<T>(key: string, compute: () => Promise<T>, shouldCache?: (value: T) => boolean): Promise<T>;
 }
 
 export const createCache = (config: CacheConfig): KernelCache => {
@@ -61,11 +69,15 @@ export const createCache = (config: CacheConfig): KernelCache => {
     invalidateByPrefix(prefix: string): void {
       for (const k of store.keys()) if (k.startsWith(prefix)) store.delete(k);
     },
-    async wrap<T>(key: string, compute: () => Promise<T>): Promise<T> {
+    async wrap<T>(
+      key: string,
+      compute: () => Promise<T>,
+      shouldCache?: (value: T) => boolean
+    ): Promise<T> {
       const hit = get(key) as T | undefined;
       if (hit !== undefined) return hit;
       const value = await compute();
-      set(key, value);
+      if (shouldCache === undefined || shouldCache(value)) set(key, value);
       return value;
     },
   };
