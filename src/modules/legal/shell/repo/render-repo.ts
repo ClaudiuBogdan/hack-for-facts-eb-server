@@ -97,6 +97,7 @@ export const makeLegalRenderRepo = (db: Db): LegalRenderRepo => {
 
   const renderRow = async (
     documentId: string,
+    runId: string,
     chunkIndex: number
   ): Promise<Result<LegalRenderRow | null, ApiError>> => {
     try {
@@ -104,6 +105,7 @@ export const makeLegalRenderRepo = (db: Db): LegalRenderRepo => {
         .selectFrom('legal.document_render')
         .select(['chunk_index', 'chunk_count', 'block_id', 'tldf'])
         .where('document_id', '=', documentId)
+        .where('run_id', '=', runId)
         .where('chunk_index', '=', chunkIndex)
         .executeTakeFirst();
       if (row === undefined) return ok(null);

@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hack-for-facts-eb-server
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  template:
+    spec:
+      serviceAccountName: hack-for-facts-eb-server
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      tolerations:
+        - key: dedicated
+          operator: Equal
+          value: compute
+          effect: NoSchedule
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: hack-for-facts-eb-server
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: hack-for-facts-eb-server
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: hack-for-facts-eb-server
+          args:
+            - dist/redesign-api.js
+          env:
+            - name: BULLMQ_REDIS_PASSWORD
+              $patch: delete
+            - name: PROD_MEILI_SEARCH_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: chronos-prod-meilisearch-search-credentials
+                  key: apiKey
+            - name: PROD_OPENSEARCH_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: chronos-prod-opensearch-reader-credentials
+                  key: username
+            - name: PROD_OPENSEARCH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: chronos-prod-opensearch-reader-credentials
+                  key: password
+          readinessProbe:
+            httpGet:
+              path: /api/v1/ready
+              port: 3000
+          startupProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 3000
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 3000
+          lifecycle:
+            $patch: delete

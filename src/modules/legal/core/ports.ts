@@ -251,9 +251,15 @@ export interface LegalRenderRepo {
   renderInfoForDocuments(
     documentIds: readonly string[]
   ): Promise<Result<ReadonlyMap<string, LegalRenderInfo>, ApiError>>;
-  /** One physical row (payload unparsed); null when the row does not exist. */
+  /**
+   * One physical row (payload unparsed); null when the row does not exist
+   * FOR THIS GENERATION — the runId bind makes a recompile-race row from
+   * another generation indistinguishable from a missing row (409 upstream)
+   * instead of a silently mixed body.
+   */
   renderRow(
     documentId: string,
+    runId: string,
     chunkIndex: number
   ): Promise<Result<LegalRenderRow | null, ApiError>>;
 }

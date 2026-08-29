@@ -1,0 +1,83 @@
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: istio-transparenta-api-virtualservice
+  namespace: hack-for-facts
+$patch: delete
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: postgres-db
+  namespace: hack-for-facts
+$patch: delete
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: postgres-ins
+  namespace: hack-for-facts
+$patch: delete
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: postgres-userdata
+  namespace: hack-for-facts
+$patch: delete
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: hack-for-facts
+$patch: delete
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: hack-for-facts
+$patch: delete
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bullmq-redis
+  namespace: hack-for-facts
+$patch: delete
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bullmq-redis
+  namespace: hack-for-facts
+$patch: delete
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bullmq-redis-data
+  namespace: hack-for-facts
+$patch: delete
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-ingress
+  namespace: hack-for-facts
+$patch: delete
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bullmq-redis-ingress
+  namespace: hack-for-facts
+$patch: delete
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-ingress
+  namespace: hack-for-facts
+$patch: delete
