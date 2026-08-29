@@ -17,6 +17,7 @@ import {
 } from './widgets/resources.js';
 import {
   ACCOUNT_CATEGORIES,
+  BUDGET_FREQUENCIES,
   BUDGET_GRAIN_NOTE,
   EXECUTION_REPORT_TYPES,
   type AccountCategory,
@@ -185,10 +186,13 @@ export const makeBudgetMcpTools = (deps: BudgetMcpDeps): readonly KernelMcpTool[
     title: 'Clasament bugetar Transparenta.eu',
     ui: { resourceUri: BUDGET_RANKING_WIDGET_URI },
     description:
-      'Rank entities by execution income/expense/balance for a year (MV path, normalization factors applied). Optionally restrict by county/region/UAT. Bounded top-N.',
+      'Rank entities by execution income/expense/balance for one period (MV path, normalization factors applied). Optionally restrict by entity, main creditor, county, region, UAT, or population. Bounded top-N.',
     inputShape: {
       year: z.number().int().describe('Reporting year.'),
       reportType: z.enum(EXECUTION_REPORT_TYPES).optional().describe('Default EXECUTION_DETAILED.'),
+      frequency: z.enum(BUDGET_FREQUENCIES).optional().describe('Default YEAR.'),
+      month: z.number().int().min(1).max(12).optional(),
+      quarter: z.number().int().min(1).max(4).optional(),
       metric: z
         .enum(['INCOME', 'EXPENSE', 'BALANCE'])
         .optional()
@@ -196,8 +200,15 @@ export const makeBudgetMcpTools = (deps: BudgetMcpDeps): readonly KernelMcpTool[
       normalization: z
         .enum(['TOTAL', 'TOTAL_EURO', 'PER_CAPITA', 'PER_CAPITA_EURO', 'PERCENT_GDP'])
         .optional(),
+      entityCuis: z.array(z.string()).optional().describe('Restrict to these entity CUIs.'),
+      mainCreditorCui: z.string().min(1).optional().describe('Restrict to one main creditor CUI.'),
+      excludeEntityCuis: z.array(z.string()).optional().describe('Exclude these entity CUIs.'),
       countyCodes: z.array(z.string()).optional().describe('Restrict to these county codes.'),
+      regions: z.array(z.string()).optional().describe('Restrict to these development regions.'),
       isUat: z.boolean().optional().describe('Restrict to UAT entities only.'),
+      minPopulation: z.number().int().optional(),
+      maxPopulation: z.number().int().optional(),
+      ascending: z.boolean().optional().describe('Sort smallest amount first.'),
       limit: z.number().int().min(1).max(100).optional().describe('Top-N (default 20).'),
     },
     async handler(args): Promise<McpToolOutput> {
@@ -205,27 +216,71 @@ export const makeBudgetMcpTools = (deps: BudgetMcpDeps): readonly KernelMcpTool[
       if (year <= 0) return errorOut('ranking', 'year is required');
       const metric = strOr(args, 'metric', 'EXPENSE') as BudgetRankingMetric;
       const reportType = strOr(args, 'reportType', 'EXECUTION_DETAILED') as ExecutionReportType;
+      const frequency = strOr(args, 'frequency', 'YEAR') as BudgetFrequency;
       const normalization = strOr(args, 'normalization', 'TOTAL') as
         'TOTAL' | 'TOTAL_EURO' | 'PER_CAPITA' | 'PER_CAPITA_EURO' | 'PERCENT_GDP';
+      const entityCuis = Array.isArray(args['entityCuis'])
+        ? (args['entityCuis'] as unknown[]).map(String)
+        : undefined;
+      const mainCreditorCuiValue = strArg(args, 'mainCreditorCui');
+      const mainCreditorCui = mainCreditorCuiValue.length > 0 ? mainCreditorCuiValue : undefined;
+      const excludeEntityCuis = Array.isArray(args['excludeEntityCuis'])
+        ? (args['excludeEntityCuis'] as unknown[]).map(String)
+        : undefined;
       const countyCodes = Array.isArray(args['countyCodes'])
         ? (args['countyCodes'] as unknown[]).map(String)
         : undefined;
+      const regions = Array.isArray(args['regions'])
+        ? (args['regions'] as unknown[]).map(String)
+        : undefined;
       const isUat = typeof args['isUat'] === 'boolean' ? args['isUat'] : undefined;
+      const minPopulation = intArg(args, 'minPopulation', Number.NaN);
+      const maxPopulation = intArg(args, 'maxPopulation', Number.NaN);
+      const ascending = typeof args['ascending'] === 'boolean' ? args['ascending'] : undefined;
+      const month = intArg(args, 'month', Number.NaN);
+      const quarter = intArg(args, 'quarter', Number.NaN);
       const res = await rankEntities(repo, {
         year,
         reportType,
+        frequency,
+        ...(Number.isInteger(month) && { month }),
+        ...(Number.isInteger(quarter) && { quarter }),
         metric,
         normalization,
         limit: intArg(args, 'limit', 20),
+        ...(entityCuis !== undefined && { entityCuis }),
+        ...(mainCreditorCui !== undefined && { mainCreditorCui }),
+        ...(excludeEntityCuis !== undefined && { excludeEntityCuis }),
         ...(countyCodes !== undefined && { countyCodes }),
+        ...(regions !== undefined && { regions }),
         ...(isUat !== undefined && { isUat }),
+        ...(Number.isFinite(minPopulation) && { minPopulation }),
+        ...(Number.isFinite(maxPopulation) && { maxPopulation }),
+        ...(ascending !== undefined && { ascending }),
       });
       if (res.isErr()) return errorOut('ranking', res.error.message);
       const top = res.value[0];
       return {
         ok: true,
         kind: 'ranking',
-        query: { year, reportType, metric, normalization },
+        query: {
+          year,
+          reportType,
+          frequency,
+          metric,
+          normalization,
+          ...(Number.isInteger(month) && { month }),
+          ...(Number.isInteger(quarter) && { quarter }),
+          ...(entityCuis !== undefined && { entityCuis }),
+          ...(mainCreditorCui !== undefined && { mainCreditorCui }),
+          ...(excludeEntityCuis !== undefined && { excludeEntityCuis }),
+          ...(countyCodes !== undefined && { countyCodes }),
+          ...(regions !== undefined && { regions }),
+          ...(isUat !== undefined && { isUat }),
+          ...(Number.isFinite(minPopulation) && { minPopulation }),
+          ...(Number.isFinite(maxPopulation) && { maxPopulation }),
+          ...(ascending !== undefined && { ascending }),
+        },
         link: `${clientBaseUrl}/buget/clasament`,
         items: res.value,
         summary:

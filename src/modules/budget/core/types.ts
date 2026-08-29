@@ -159,10 +159,7 @@ export interface RankedEntity {
 }
 
 export type CommitmentRankingMetric =
-  | 'plati_trezor'
-  | 'plati_non_trezor'
-  | 'credite_angajament'
-  | 'receptii_totale';
+  'plati_trezor' | 'plati_non_trezor' | 'credite_angajament' | 'receptii_totale';
 
 export interface RankedCommitmentEntity {
   readonly entityCui: string;
@@ -386,8 +383,14 @@ export interface CommitmentTimeseriesQuery {
 export interface EntityRankingQuery {
   readonly year: number;
   readonly reportType: ExecutionReportType;
+  readonly frequency: BudgetFrequency;
+  readonly month?: number;
+  readonly quarter?: number;
   readonly metric: BudgetRankingMetric;
   readonly normalization: BudgetNormalization;
+  readonly entityCuis?: readonly string[];
+  readonly mainCreditorCui?: string;
+  readonly excludeEntityCuis?: readonly string[];
   readonly countyCodes?: readonly string[];
   readonly regions?: readonly string[];
   readonly isUat?: boolean;

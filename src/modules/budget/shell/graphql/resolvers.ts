@@ -22,6 +22,15 @@ import {
   type FilterInput,
 } from '@/modules/shared/index.js';
 
+import {
+  BUDGET_FREQUENCIES,
+  EXECUTION_REPORT_TYPES,
+  type AccountCategory,
+  type BudgetFrequency,
+  type BudgetNormalization,
+  type CommitmentReportType,
+  type ExecutionReportType,
+} from '../../core/constants.js';
 import { budgetCommitmentFactFilterSpec, budgetFactFilterSpec } from '../../core/filters.js';
 import {
   aggregateByClassification,
@@ -46,19 +55,13 @@ import {
   resolveBudgetFilter,
 } from '../../core/usecases.js';
 
-import type {
-  AccountCategory,
-  BudgetFrequency,
-  BudgetNormalization,
-  CommitmentReportType,
-  ExecutionReportType,
-} from '../../core/constants.js';
 import type { BudgetDiscoveryRepo, BudgetRepo } from '../../core/ports.js';
 import type {
   BudgetRankingMetric,
   BudgetResolveDim,
   CommitmentLineItem,
   CommitmentRankingMetric,
+  EntityRankingQuery,
   ExecutionLineItem,
 } from '../../core/types.js';
 import type { Result } from 'neverthrow';
@@ -574,56 +577,124 @@ const metricToField = (
   }
 };
 
-const readEq = (filter: FilterInput, name: string): string | undefined => {
+const readOperation = (filter: FilterInput, name: string, operation: string): unknown => {
   const f = filter[name];
   if (f === undefined || typeof f !== 'object') return undefined;
-  const eq = (f as Record<string, unknown>)['eq'];
-  return typeof eq === 'string' || typeof eq === 'number' || typeof eq === 'boolean'
-    ? String(eq)
+  return (f as Record<string, unknown>)[operation];
+};
+
+const readEq = (filter: FilterInput, name: string): string | undefined => {
+  const value = readOperation(filter, name, 'eq');
+  return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+    ? String(value)
     : undefined;
 };
 
-/** Parse the ranking FilterInput (year/reportType + geo) into an EntityRankingQuery core. */
-const parseRankingFilter = (
-  filter: FilterInput
-): {
-  year: number;
-  reportType: ExecutionReportType;
-  countyCodes?: readonly string[];
-  regions?: readonly string[];
-  isUat?: boolean;
-  minPopulation?: number;
-  maxPopulation?: number;
-} => {
+const readIn = (filter: FilterInput, name: string): readonly string[] | undefined => {
+  const value = readOperation(filter, name, 'in');
+  return Array.isArray(value) ? value.map((entry) => String(entry)) : undefined;
+};
+
+const readOneOrMany = (filter: FilterInput, name: string): readonly string[] | undefined => {
+  const inValues = readIn(filter, name);
+  const eq = readEq(filter, name);
+  if (eq !== undefined && inValues !== undefined) {
+    return inValues.includes(eq) ? [eq] : [];
+  }
+  if (eq !== undefined) return [eq];
+  return inValues !== undefined ? [...new Set(inValues)] : undefined;
+};
+
+const readNumberOperation = (
+  filter: FilterInput,
+  name: string,
+  operation: 'eq' | 'gte' | 'lte'
+): number | undefined => {
+  const value = readOperation(filter, name, operation);
+  if (typeof value !== 'string' && typeof value !== 'number') return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
+const readExcludedIn = (filter: FilterInput, name: string): readonly string[] | undefined => {
+  const exclude = filter.exclude;
+  if (exclude === undefined || typeof exclude !== 'object' || Array.isArray(exclude)) {
+    return undefined;
+  }
+  return readIn(exclude, name);
+};
+
+const invalidRankingFilter = (message: string, field: string): GraphQLError =>
+  new GraphQLError(message, {
+    extensions: { code: 'INVALID_INPUT', type: 'InvalidInput', field },
+  });
+
+const isExecutionReportType = (value: string): value is ExecutionReportType =>
+  EXECUTION_REPORT_TYPES.some((candidate) => candidate === value);
+
+const isBudgetFrequency = (value: string): value is BudgetFrequency =>
+  BUDGET_FREQUENCIES.some((candidate) => candidate === value);
+
+type ParsedRankingFilter = Omit<
+  EntityRankingQuery,
+  'metric' | 'normalization' | 'ascending' | 'limit'
+>;
+
+/** Parse every advertised ranking filter, explicitly rejecting unsupported ranges. */
+export const parseRankingFilter = (filter: FilterInput): ParsedRankingFilter => {
+  if (readOperation(filter, 'year', 'between') !== undefined) {
+    throw invalidRankingFilter('ranking supports one filter.year value', 'year');
+  }
   const yearStr = readEq(filter, 'year');
   const year = yearStr !== undefined ? Number(yearStr) : NaN;
-  if (!Number.isInteger(year)) {
-    throw new GraphQLError('ranking requires filter.year', {
-      extensions: { code: 'INVALID_INPUT', type: 'InvalidInput' },
-    });
+  if (!Number.isInteger(year) || year <= 0) {
+    throw invalidRankingFilter('ranking requires filter.year.eq', 'year');
   }
-  const reportType = (readEq(filter, 'reportType') ?? 'EXECUTION_DETAILED') as ExecutionReportType;
-  const counties = readIn(filter, 'countyCodes');
-  const regions = readIn(filter, 'regions');
+  if (readOperation(filter, 'month', 'in') !== undefined) {
+    throw invalidRankingFilter('ranking supports one filter.month value', 'month');
+  }
+  if (readOperation(filter, 'quarter', 'in') !== undefined) {
+    throw invalidRankingFilter('ranking supports one filter.quarter value', 'quarter');
+  }
+  const reportTypeValue = readEq(filter, 'reportType') ?? 'EXECUTION_DETAILED';
+  if (!isExecutionReportType(reportTypeValue)) {
+    throw invalidRankingFilter('invalid ranking report type', 'reportType');
+  }
+  const frequencyValue = readEq(filter, 'frequency') ?? 'YEAR';
+  if (!isBudgetFrequency(frequencyValue)) {
+    throw invalidRankingFilter('invalid ranking frequency', 'frequency');
+  }
+  const month = readNumberOperation(filter, 'month', 'eq');
+  const quarter = readNumberOperation(filter, 'quarter', 'eq');
+  const entityCuis = readOneOrMany(filter, 'entityCuis');
+  const mainCreditorCui = readEq(filter, 'mainCreditorCui');
+  if (mainCreditorCui === '') {
+    throw invalidRankingFilter('ranking main creditor CUI cannot be empty', 'mainCreditorCui');
+  }
+  const excludedEntityCuis = [
+    ...(readIn(filter, 'excludeEntityCuis') ?? []),
+    ...(readExcludedIn(filter, 'excludeEntityCuis') ?? []),
+  ];
+  const counties = readOneOrMany(filter, 'countyCodes');
+  const regions = readOneOrMany(filter, 'regions');
   const isUatStr = readEq(filter, 'isUat');
-  const minPop = readEq(filter, 'minPopulation');
-  const maxPop = readEq(filter, 'maxPopulation');
+  const minPopulation = readNumberOperation(filter, 'minPopulation', 'gte');
+  const maxPopulation = readNumberOperation(filter, 'maxPopulation', 'lte');
   return {
     year,
-    reportType,
+    reportType: reportTypeValue,
+    frequency: frequencyValue,
+    ...(month !== undefined && { month }),
+    ...(quarter !== undefined && { quarter }),
+    ...(entityCuis !== undefined && { entityCuis }),
+    ...(mainCreditorCui !== undefined && { mainCreditorCui }),
+    ...(excludedEntityCuis.length > 0 && {
+      excludeEntityCuis: [...new Set(excludedEntityCuis)],
+    }),
     ...(counties !== undefined && { countyCodes: counties }),
     ...(regions !== undefined && { regions }),
     ...(isUatStr !== undefined && { isUat: isUatStr === 'true' }),
-    ...(minPop !== undefined &&
-      Number.isFinite(Number(minPop)) && { minPopulation: Number(minPop) }),
-    ...(maxPop !== undefined &&
-      Number.isFinite(Number(maxPop)) && { maxPopulation: Number(maxPop) }),
+    ...(minPopulation !== undefined && { minPopulation }),
+    ...(maxPopulation !== undefined && { maxPopulation }),
   };
-};
-
-const readIn = (filter: FilterInput, name: string): readonly string[] | undefined => {
-  const f = filter[name];
-  if (f === undefined || typeof f !== 'object') return undefined;
-  const v = (f as Record<string, unknown>)['in'];
-  return Array.isArray(v) ? v.map((x) => String(x)) : undefined;
 };

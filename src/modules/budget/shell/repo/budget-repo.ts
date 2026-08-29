@@ -911,6 +911,37 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
   const rankEntities = async (
     q: EntityRankingQuery
   ): Promise<Result<readonly RankedEntity[], ApiError>> => {
+    if (!Number.isInteger(q.year) || q.year <= 0) {
+      return err(invalidInput('ranking year must be a positive integer', 'year'));
+    }
+    if (q.mainCreditorCui === '') {
+      return err(invalidInput('ranking main creditor CUI cannot be empty', 'mainCreditorCui'));
+    }
+    if (q.frequency === 'YEAR' && (q.month !== undefined || q.quarter !== undefined)) {
+      return err(invalidInput('yearly ranking cannot filter month or quarter', 'frequency'));
+    }
+    if (q.frequency === 'MONTH' && q.quarter !== undefined) {
+      return err(invalidInput('monthly ranking cannot filter quarter', 'quarter'));
+    }
+    if (q.frequency === 'MONTH' && q.month === undefined) {
+      return err(invalidInput('monthly ranking requires a month', 'month'));
+    }
+    if (q.frequency === 'QUARTER' && q.month !== undefined) {
+      return err(invalidInput('quarterly ranking cannot filter month', 'month'));
+    }
+    if (q.frequency === 'QUARTER' && q.quarter === undefined) {
+      return err(invalidInput('quarterly ranking requires a quarter', 'quarter'));
+    }
+    if (q.month !== undefined && (!Number.isInteger(q.month) || q.month < 1 || q.month > 12)) {
+      return err(invalidInput('ranking month must be between 1 and 12', 'month'));
+    }
+    if (
+      q.quarter !== undefined &&
+      (!Number.isInteger(q.quarter) || q.quarter < 1 || q.quarter > 4)
+    ) {
+      return err(invalidInput('ranking quarter must be between 1 and 4', 'quarter'));
+    }
+
     const reportLabel = EXECUTION_REPORT_TYPE_LABELS[q.reportType];
     const col = metricColumn(q.metric);
     const limit = clamp(q.limit, 1, RANK_LIMIT_MAX);
@@ -928,31 +959,65 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
         sql`mv.year = ${q.year}`,
         sql`mv.report_type = ${reportLabel}`,
       ];
-      if (q.countyCodes !== undefined && q.countyCodes.length > 0) {
+      if (q.month !== undefined) {
+        conds.push(sql`${sql.ref('mv.month')} = ${q.month}`);
+      }
+      if (q.quarter !== undefined) {
+        conds.push(sql`${sql.ref('mv.quarter')} = ${q.quarter}`);
+      }
+      if (q.entityCuis !== undefined) {
         conds.push(
-          sql`t.county_code in (${sql.join(
-            q.countyCodes.map((c) => sql`${c}`),
+          q.entityCuis.length === 0
+            ? sql`false`
+            : sql`mv.entity_cui in (${sql.join(
+                q.entityCuis.map((cui) => sql`${cui}`),
+                sql`, `
+              )})`
+        );
+      }
+      if (q.mainCreditorCui !== undefined) {
+        conds.push(sql`mv.main_creditor_cui = ${q.mainCreditorCui}`);
+      }
+      if (q.excludeEntityCuis !== undefined && q.excludeEntityCuis.length > 0) {
+        conds.push(
+          sql`mv.entity_cui not in (${sql.join(
+            q.excludeEntityCuis.map((cui) => sql`${cui}`),
             sql`, `
           )})`
         );
       }
-      if (q.regions !== undefined && q.regions.length > 0) {
+      if (q.countyCodes !== undefined) {
         conds.push(
-          sql`t.region in (${sql.join(
-            q.regions.map((r) => sql`${r}`),
-            sql`, `
-          )})`
+          q.countyCodes.length === 0
+            ? sql`false`
+            : sql`t.county_code in (${sql.join(
+                q.countyCodes.map((c) => sql`${c}`),
+                sql`, `
+              )})`
+        );
+      }
+      if (q.regions !== undefined) {
+        conds.push(
+          q.regions.length === 0
+            ? sql`false`
+            : sql`t.region in (${sql.join(
+                q.regions.map((r) => sql`${r}`),
+                sql`, `
+              )})`
         );
       }
       if (q.isUat !== undefined) conds.push(sql`e.is_uat = ${q.isUat}`);
       if (q.minPopulation !== undefined) conds.push(sql`t.population >= ${q.minPopulation}`);
       if (q.maxPopulation !== undefined) conds.push(sql`t.population <= ${q.maxPopulation}`);
 
-      const metricExpr = sql`coalesce(mv.${sql.ref(col)},0) * ${multiplier}::numeric`;
-      const perCapitaExpr = sql`case when t.population > 0 then (coalesce(mv.${sql.ref(col)},0) * ${multiplier}::numeric / t.population) else null end`;
+      // The summary MVs retain main_creditor_cui in their grain. A ranking that
+      // does not select one creditor must therefore collapse all creditor rows
+      // to one result per entity before ordering or applying the limit.
+      const metricExpr = sql`sum(coalesce(mv.${sql.ref(col)},0)) * ${multiplier}::numeric`;
+      const perCapitaExpr = sql`case when t.population > 0 then (sum(coalesce(mv.${sql.ref(col)},0)) * ${multiplier}::numeric / t.population) else null end`;
       const orderExpr = perCapita ? perCapitaExpr : metricExpr;
 
-      let base = db.selectFrom(execMvName('YEAR'));
+      let base = db.selectFrom(execMvName(q.frequency));
       if (needsGeo) {
         base = base
           .leftJoin('core.public_entities as e', 'e.cui', 'mv.entity_cui')
@@ -981,6 +1046,8 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
             : sql<string | null>`null::text`.as('county_code'),
         ])
         .where(composeAnd(conds))
+        .groupBy(sql`mv.entity_cui, e.name, mv.year`)
+        .$if(needsGeo, (qb) => qb.groupBy(sql`t.population, t.county_code`))
         .orderBy(sql`${orderExpr} ${dirSql(q.ascending === true ? 'asc' : 'desc')} nulls last`)
         .orderBy('mv.entity_cui', 'asc')
         .limit(limit)

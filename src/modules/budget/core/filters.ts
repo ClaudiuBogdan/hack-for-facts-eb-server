@@ -434,7 +434,7 @@ export const budgetRankingFilterSpec: CollectionFilterSpec = {
     {
       name: 'year',
       type: 'int',
-      ops: ['eq', 'between'],
+      ops: ['eq'],
       column: { alias: 'mv', column: 'year' },
       description: 'MV year filter (mandatory for rankings).',
     },
@@ -447,17 +447,24 @@ export const budgetRankingFilterSpec: CollectionFilterSpec = {
       default: 'EXECUTION_DETAILED',
     },
     {
+      name: 'frequency',
+      type: 'enum',
+      ops: ['eq'],
+      enumValues: BUDGET_FREQUENCIES,
+      column: { alias: 'mv', column: 'frequency_virtual' },
+      default: 'YEAR',
+      description: 'Selects the annual, quarterly, or monthly execution MV.',
+    },
+    {
       name: 'month',
       type: 'int',
-      ops: ['eq', 'in'],
-      array: true,
+      ops: ['eq'],
       column: { alias: 'mv', column: 'month' },
     },
     {
       name: 'quarter',
       type: 'int',
-      ops: ['eq', 'in'],
-      array: true,
+      ops: ['eq'],
       column: { alias: 'mv', column: 'quarter' },
     },
     {
@@ -472,6 +479,15 @@ export const budgetRankingFilterSpec: CollectionFilterSpec = {
       type: 'string',
       ops: ['eq'],
       column: { alias: 'mv', column: 'main_creditor_cui' },
+    },
+    {
+      name: 'excludeEntityCuis',
+      type: 'string',
+      ops: ['in'],
+      array: true,
+      exclude: true,
+      column: { alias: 'mv', column: 'entity_cui' },
+      description: 'Exclusion only.',
     },
     // ── geo / entity filters resolve via the core join (entity + territory)
     {
@@ -641,7 +657,13 @@ export const BUDGET_COMMITMENT_VIRTUAL_FIELDS = [
 ] as const;
 
 /** Ranking/MV-spec fields the repo intercepts (year/reportType mapped to MV cols). */
-export const BUDGET_RANKING_VIRTUAL_FIELDS = ['year', 'reportType', 'month', 'quarter'] as const;
+export const BUDGET_RANKING_VIRTUAL_FIELDS = [
+  'year',
+  'reportType',
+  'frequency',
+  'month',
+  'quarter',
+] as const;
 
 /** The §0.3 pruning-triple field names (fact path) — non-removable. */
 export const BUDGET_FACT_GATE_FIELDS = ['reportingYear', 'reportType', 'accountCategory'] as const;
@@ -673,7 +695,7 @@ export const budgetCommitmentFactKernelSpec: CollectionFilterSpec = dropFields(
   BUDGET_COMMITMENT_VIRTUAL_FIELDS
 );
 
-/** The ranking/MV spec the kernel composer sees (year/reportType/month/quarter intercepted). */
+/** The ranking/MV spec the kernel composer sees (MV-selector fields intercepted). */
 export const budgetRankingKernelSpec: CollectionFilterSpec = dropFields(
   budgetRankingFilterSpec,
   BUDGET_RANKING_VIRTUAL_FIELDS
