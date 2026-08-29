@@ -2,9 +2,9 @@
 
 This overlay renders the redesign-only, read-only Transparenta.eu API workload
 deployed as an internal canary in the Chronos namespace
-`transparenta-eu-dev`. Argo remains pinned to an exact reviewed commit, so
-updating this branch does not change the live cluster until a separate manual
-sync is approved.
+`transparenta-eu-dev`. Argo tracks `refs/heads/dev` with manual sync, prune off,
+and self-heal off, so a branch update changes only the reviewed desired state
+until a separate sync is approved.
 
 The overlay intentionally owns only the Deployment, Service, ServiceAccount,
 ConfigMap, and PodDisruptionBudget. It excludes the Phoenix `VirtualService`,
@@ -26,15 +26,15 @@ separate, narrowly scoped Argo secrets Application owns the `secrets/` path.
 
 Before any sync:
 
-- reconfirm the pinned image digest and prove it contains
-  `dist/redesign-api.js`;
-- generate and validate all registered strict Chronos ciphertext from the
-  dedicated BWS project;
+- confirm the inherited base image uses the exact Git SHA tag written by the
+  existing dev CI and contains `dist/redesign-api.js`;
+- confirm the existing SealedSecrets remain Synced and Healthy; normal image
+  rollouts do not regenerate them or access BWS;
 - prove all required service endpoints and side effects are fenced;
 - pass the platform, registry, policy, recovery, and ingress gates in the
   Phoenix-to-Chronos application migration plan;
-- pin the Argo Application to an exact reviewed commit SHA and keep manual
-  sync, prune off, self-heal off, and deletion finalizers absent.
+- keep the Argo Application on `refs/heads/dev` with manual sync, prune off,
+  self-heal off, and deletion finalizers absent.
 
 Render without applying:
 

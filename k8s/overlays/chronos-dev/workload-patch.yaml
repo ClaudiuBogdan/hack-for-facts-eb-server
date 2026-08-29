@@ -2,8 +2,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: hack-for-facts-eb-server
-  annotations:
-    image-sha: sha256:99aef3d8d6ee27d726163628d5ab59303d70f3e51f8a926c29ad3f05e1a281a5
 spec:
   replicas: 2
   strategy:
