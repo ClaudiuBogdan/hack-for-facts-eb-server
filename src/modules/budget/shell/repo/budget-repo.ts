@@ -71,6 +71,8 @@ import {
 import {
   ACCOUNT_CATEGORY_LABELS,
   BUDGET_TRANSFER_EXCLUSIONS,
+  BUCHAREST_COUNTY_CODE,
+  BUCHAREST_SIRUTA_CODE,
   COMMITMENT_REPORT_TYPE_LABELS,
   EXECUTION_AMOUNT_COLUMN,
   EXECUTION_REPORT_TYPE_LABELS,
@@ -93,6 +95,7 @@ import {
 import type { BudgetRepo } from '../../core/ports.js';
 import type {
   AggregatedBudgetRow,
+  AggregateTimeseriesQuery,
   ApprovedBudgetFact,
   BudgetAsOf,
   BudgetClassification,
@@ -113,22 +116,28 @@ import type {
   CommitmentTimeseriesQuery,
   CountyHeatmapPoint,
   EntityRankingQuery,
+  EntityRankingPageQuery,
   ExecutionLineItem,
   GatedOffsetPage,
   HeatmapQuery,
   RankedCommitmentEntity,
   RankedEntity,
+  RankedEntityPage,
   SummaryQuery,
   TimeseriesQuery,
+  UatHeatmapPoint,
 } from '../../core/types.js';
 
 type Db = Kysely<ProdDatabase>;
 
 const FACT_LIMIT_MAX = 100;
 const AGG_LIMIT_MAX = 100;
+const COMPLETE_AGGREGATE_GUARD = 10_000;
 const RANK_LIMIT_MAX = 100;
+const RANK_PAGE_LIMIT_MAX = 500;
 const DIM_LIMIT_MAX = 200;
 const OFFICIAL_PAGE_MAX = 100;
+const DECIMAL_MONEY_PATTERN = /^-?\d+(\.\d+)?$/u;
 
 const clamp = (n: number, lo: number, hi: number): number =>
   Math.min(Math.max(Math.floor(n), lo), hi);
@@ -169,6 +178,22 @@ const metricColumn = (
   m: 'INCOME' | 'EXPENSE' | 'BALANCE'
 ): 'total_income' | 'total_expense' | 'budget_balance' =>
   m === 'INCOME' ? 'total_income' : m === 'EXPENSE' ? 'total_expense' : 'budget_balance';
+
+/** Canonical county population rule shared by rankings, series, and heatmaps. */
+const canonicalCountyPopulationAggregate = (alias: string): RawBuilder<unknown> => {
+  const countyCode = sql.ref(`${alias}.county_code`);
+  const sirutaCode = sql.ref(`${alias}.siruta_code`);
+  const population = sql.ref(`${alias}.population`);
+  return sql`max(
+    case
+      when ${countyCode} = ${BUCHAREST_COUNTY_CODE} and ${sirutaCode} = ${BUCHAREST_SIRUTA_CODE}
+        then ${population}
+      when ${countyCode} <> ${BUCHAREST_COUNTY_CODE} and ${sirutaCode} = ${countyCode}
+        then ${population}
+      else null
+    end
+  )`;
+};
 
 /**
  * The MONTHLY commitment MV carries ONLY these 4 cumulative metrics (+ a separate
@@ -837,20 +862,52 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
         q.normalization
       );
       // Per-capita divides by entity population in SQL (entity-grain; §3.4).
+      // Use the validated CUI parameter instead of mv.entity_cui so the
+      // aggregate query never references an ungrouped MV column.
       const popExpr = perCapita
-        ? sql`(select nullif(t.population, 0) from core.public_entities pe join core.territories t on t.territorial_siruta_code = pe.territorial_siruta_code where pe.cui = mv.entity_cui)`
+        ? sql`(
+            select nullif(
+              case
+                when pe.category = 'uat_county' then (
+                  select ${canonicalCountyPopulationAggregate('candidate')}
+                  from core.territories candidate
+                  where candidate.county_code = t.county_code
+                )
+                when pe.is_uat then t.population
+                else null
+              end,
+              0
+            )
+            from core.public_entities pe
+            left join core.territories t
+              on t.territorial_siruta_code = pe.territorial_siruta_code
+            where pe.cui = ${cui}
+          )`
         : sql`1`;
 
-      const rows = await db
+      // The execution MVs retain main_creditor_cui in their grain. A public
+      // entity series is not creditor-scoped, so collapse those rows before
+      // emitting one point per period (the same rule used by rankings).
+      const amountExpr = sql`sum(coalesce(mv.${sql.ref(col)},0)) * ${multCase}`;
+      const normalizedAmountExpr = perCapita
+        ? sql`(${amountExpr} / nullif((${popExpr}), 0))`
+        : amountExpr;
+
+      let seriesQuery = db
         .selectFrom(execMvName(q.frequency))
         .select([
           'mv.year',
           periodSelect.as('period'),
-          sql<string>`(coalesce(mv.${sql.ref(col)},0) * ${multCase} / coalesce(${popExpr}, 1))::text`.as(
-            'amount'
-          ),
+          sql<string>`(${normalizedAmountExpr})::text`.as('amount'),
         ])
         .where(composeAnd(conds))
+        .groupBy('mv.year')
+        .groupBy(periodSelect);
+      if (perCapita) {
+        // Unknown denominators are no-data, never a fabricated zero amount.
+        seriesQuery = seriesQuery.having(sql<SqlBool>`(${popExpr}) > 0`);
+      }
+      const rows = await seriesQuery
         .orderBy('mv.year', 'asc')
         .orderBy(periodSelect, 'asc')
         .execute();
@@ -861,6 +918,78 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
       return ok(points);
     } catch (error) {
       return err(databaseError('executionTimeseries failed', error));
+    }
+  };
+
+  const aggregateTimeseries = async (
+    q: AggregateTimeseriesQuery
+  ): Promise<Result<readonly BudgetSeriesPoint[], ApiError>> => {
+    if (isPerCapita(q.normalization)) {
+      return err(
+        invalidInput(
+          'per-capita normalization requires an explicit entity or territory scope',
+          'normalization'
+        )
+      );
+    }
+    const invalidYearFrom = !Number.isInteger(q.yearFrom) || q.yearFrom <= 0;
+    const invalidYearTo = !Number.isInteger(q.yearTo) || q.yearTo <= 0;
+    const invalidRange = q.yearFrom > q.yearTo || q.yearTo - q.yearFrom >= 25;
+    if (invalidYearFrom || invalidYearTo || invalidRange) {
+      return err(invalidInput('aggregate timeseries year range is invalid or too wide', 'year'));
+    }
+    const reportLabel = EXECUTION_REPORT_TYPE_LABELS[q.reportType];
+    const col = metricColumn(q.metric);
+    try {
+      const conds: RawBuilder<unknown>[] = [sql`mv.report_type = ${reportLabel}`];
+      conds.push(sql`mv.year >= ${q.yearFrom}`);
+      conds.push(sql`mv.year <= ${q.yearTo}`);
+      if (q.isUat !== undefined) conds.push(sql`e.is_uat = ${q.isUat}`);
+      const periodSelect =
+        q.frequency === 'MONTH'
+          ? sql<number | null>`mv.month`
+          : q.frequency === 'QUARTER'
+            ? sql<number | null>`mv.quarter`
+            : sql<number | null>`null::int`;
+      let multiplier: RawBuilder<unknown> = sql`1::numeric`;
+      if (q.normalization !== 'TOTAL') {
+        let yearsBase = db.selectFrom(execMvName(q.frequency));
+        if (q.isUat !== undefined) {
+          yearsBase = yearsBase.leftJoin('core.public_entities as e', 'e.cui', 'mv.entity_cui');
+        }
+        const yearsPresent = await yearsBase
+          .select(sql<number>`distinct mv.year`.as('year'))
+          .where(composeAnd(conds))
+          .execute();
+        multiplier = factorCaseExpr(
+          yearsPresent.map((row) => row.year),
+          q.normalization
+        );
+      }
+      const amountExpr = sql`sum(coalesce(mv.${sql.ref(col)},0)) * ${multiplier}`;
+      let seriesBase = db.selectFrom(execMvName(q.frequency));
+      if (q.isUat !== undefined) {
+        seriesBase = seriesBase.leftJoin('core.public_entities as e', 'e.cui', 'mv.entity_cui');
+      }
+      const rows = await seriesBase
+        .select([
+          'mv.year',
+          periodSelect.as('period'),
+          sql<string>`(${amountExpr})::text`.as('amount'),
+        ])
+        .where(composeAnd(conds))
+        .groupBy('mv.year')
+        .groupBy(periodSelect)
+        .orderBy('mv.year', 'asc')
+        .orderBy(periodSelect, 'asc')
+        .execute();
+      return ok(
+        rows.map((row) =>
+          seriesPoint(row.year, (row as { period: number | null }).period, q.frequency, row.amount)
+        )
+      );
+    } catch (error) {
+      return err(databaseError('aggregateTimeseries failed', error));
     }
   };
 
@@ -908,9 +1037,9 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
   // rankings (MV path + factor; bounded top-N)
   // ───────────────────────────────────────────────────────────────────────────
 
-  const rankEntities = async (
-    q: EntityRankingQuery
-  ): Promise<Result<readonly RankedEntity[], ApiError>> => {
+  const rankEntitiesPage = async (
+    q: EntityRankingPageQuery
+  ): Promise<Result<RankedEntityPage, ApiError>> => {
     if (!Number.isInteger(q.year) || q.year <= 0) {
       return err(invalidInput('ranking year must be a positive integer', 'year'));
     }
@@ -944,16 +1073,40 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
 
     const reportLabel = EXECUTION_REPORT_TYPE_LABELS[q.reportType];
     const col = metricColumn(q.metric);
-    const limit = clamp(q.limit, 1, RANK_LIMIT_MAX);
-    const perCapita = isPerCapita(q.normalization) || false;
+    if (!Number.isInteger(q.limit) || q.limit < 1 || q.limit > RANK_PAGE_LIMIT_MAX) {
+      return err(
+        invalidInput(`ranking limit must be between 1 and ${String(RANK_PAGE_LIMIT_MAX)}`, 'limit')
+      );
+    }
+    if (!Number.isInteger(q.offset) || q.offset < 0 || q.offset > 100_000) {
+      return err(invalidInput('ranking offset must be between 0 and 100000', 'offset'));
+    }
+    const limit = q.limit;
+    const perCapita = isPerCapita(q.normalization);
     const multiplier = yearMultiplier(q.normalization, q.year);
-    const needsGeo =
-      (q.countyCodes?.length ?? 0) > 0 ||
-      (q.regions?.length ?? 0) > 0 ||
-      q.isUat !== undefined ||
-      q.minPopulation !== undefined ||
-      q.maxPopulation !== undefined ||
-      perCapita;
+    // Rankings always return their entity metadata and denominator, even when
+    // TOTAL is the primary amount. This keeps table columns honest without a
+    // second client query. County councils use the canonical county aggregate
+    // population; ordinary institutions never inherit the population of the
+    // locality where their headquarters happen to be.
+    const countyPopulationTable = sql<{
+      county_code: string;
+      population: number | null;
+    }>`(
+      select
+        candidate.county_code,
+        (${canonicalCountyPopulationAggregate('candidate')})::int as population
+      from core.territories candidate
+      where candidate.county_code is not null
+      group by candidate.county_code
+    )`.as('county_population');
+    const populationExpr = sql`
+      case
+        when e.category = 'uat_county' then county_population.population
+        when e.is_uat then t.population
+        else null
+      end
+    `;
     try {
       const conds: RawBuilder<unknown>[] = [
         sql`mv.year = ${q.year}`,
@@ -1007,53 +1160,77 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
         );
       }
       if (q.isUat !== undefined) conds.push(sql`e.is_uat = ${q.isUat}`);
-      if (q.minPopulation !== undefined) conds.push(sql`t.population >= ${q.minPopulation}`);
-      if (q.maxPopulation !== undefined) conds.push(sql`t.population <= ${q.maxPopulation}`);
+      if (q.minPopulation !== undefined) {
+        conds.push(sql`${populationExpr} >= ${q.minPopulation}`);
+      }
+      if (q.maxPopulation !== undefined) {
+        conds.push(sql`${populationExpr} <= ${q.maxPopulation}`);
+      }
 
       // The summary MVs retain main_creditor_cui in their grain. A ranking that
       // does not select one creditor must therefore collapse all creditor rows
       // to one result per entity before ordering or applying the limit.
       const metricExpr = sql`sum(coalesce(mv.${sql.ref(col)},0)) * ${multiplier}::numeric`;
-      const perCapitaExpr = sql`case when t.population > 0 then (sum(coalesce(mv.${sql.ref(col)},0)) * ${multiplier}::numeric / t.population) else null end`;
-      const orderExpr = perCapita ? perCapitaExpr : metricExpr;
+      const perCapitaExpr = sql`case when (${populationExpr}) > 0 then (${metricExpr} / (${populationExpr})) else null end`;
+      const orderExpr = (() => {
+        switch (q.sort) {
+          case 'PER_CAPITA':
+            return perCapitaExpr;
+          case 'ENTITY_NAME':
+            return sql`e.name`;
+          case 'ENTITY_TYPE':
+            return sql`e.entity_type`;
+          case 'POPULATION':
+            return populationExpr;
+          case 'COUNTY':
+            return sql`t.county_name`;
+          case 'AMOUNT':
+            return metricExpr;
+          default:
+            return perCapita ? perCapitaExpr : metricExpr;
+        }
+      })();
 
-      let base = db.selectFrom(execMvName(q.frequency));
-      if (needsGeo) {
-        base = base
-          .leftJoin('core.public_entities as e', 'e.cui', 'mv.entity_cui')
-          .leftJoin(
-            'core.territories as t',
-            't.territorial_siruta_code',
-            'e.territorial_siruta_code'
-          );
-      } else {
-        base = base.leftJoin('core.public_entities as e', 'e.cui', 'mv.entity_cui');
-      }
-      const rows = await base
+      const base = db
+        .selectFrom(execMvName(q.frequency))
+        .leftJoin('core.public_entities as e', 'e.cui', 'mv.entity_cui')
+        .leftJoin('core.territories as t', 't.territorial_siruta_code', 'e.territorial_siruta_code')
+        .leftJoin(countyPopulationTable, 'county_population.county_code', 't.county_code');
+      let rankingQuery = base
         .select([
           'mv.entity_cui',
           sql<string | null>`e.name`.as('entity_name'),
           'mv.year',
           sql<string>`(${metricExpr})::text`.as('amount'),
-          needsGeo
-            ? sql<string | null>`(${perCapitaExpr})::text`.as('per_capita')
-            : sql<string | null>`null::text`.as('per_capita'),
-          needsGeo
-            ? sql<number | null>`t.population`.as('population')
-            : sql<number | null>`null::int`.as('population'),
-          needsGeo
-            ? sql<string | null>`t.county_code`.as('county_code')
-            : sql<string | null>`null::text`.as('county_code'),
+          sql<string | null>`(${perCapitaExpr})::text`.as('per_capita'),
+          sql<number | null>`(${populationExpr})::int`.as('population'),
+          sql<string | null>`t.county_code`.as('county_code'),
+          sql<string | null>`t.county_name`.as('county_name'),
+          sql<string | null>`e.entity_type`.as('entity_type'),
+          sql<number | null>`t.id`.as('territory_id'),
+          sql<string>`count(*) over()`.as('total_count'),
         ])
         .where(composeAnd(conds))
-        .groupBy(sql`mv.entity_cui, e.name, mv.year`)
-        .$if(needsGeo, (qb) => qb.groupBy(sql`t.population, t.county_code`))
+        .groupBy(
+          sql`mv.entity_cui, e.name, mv.year, e.category, e.entity_type, e.is_uat, t.id, t.population, t.county_code, t.county_name, county_population.population`
+        );
+      if (perCapita) {
+        rankingQuery = rankingQuery.having(sql<SqlBool>`(${populationExpr}) > 0`);
+      }
+      const rows = await rankingQuery
         .orderBy(sql`${orderExpr} ${dirSql(q.ascending === true ? 'asc' : 'desc')} nulls last`)
         .orderBy('mv.entity_cui', 'asc')
         .limit(limit)
+        .offset(q.offset)
         .execute();
-      return ok(
-        rows.map((r) => ({
+      let total = rows[0] !== undefined ? Number(rows[0].total_count) : 0;
+      if (rows.length === 0 && q.offset > 0) {
+        const firstPage = await rankEntitiesPage({ ...q, limit: 1, offset: 0 });
+        if (firstPage.isErr()) return err(firstPage.error);
+        total = firstPage.value.total;
+      }
+      return ok({
+        items: rows.map((r) => ({
           entityCui: r.entity_cui,
           entityName: r.entity_name,
           reportType: q.reportType,
@@ -1062,11 +1239,27 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
           perCapita: r.per_capita,
           population: r.population,
           countyCode: r.county_code,
-        }))
-      );
+          countyName: r.county_name,
+          entityType: r.entity_type,
+          territoryId: r.territory_id,
+        })),
+        total,
+      });
     } catch (error) {
-      return err(databaseError('rankEntities failed', error));
+      return err(databaseError('rankEntitiesPage failed', error));
     }
+  };
+
+  const rankEntities = async (
+    q: EntityRankingQuery
+  ): Promise<Result<readonly RankedEntity[], ApiError>> => {
+    if (!Number.isInteger(q.limit) || q.limit < 1 || q.limit > RANK_LIMIT_MAX) {
+      return err(
+        invalidInput(`ranking limit must be between 1 and ${String(RANK_LIMIT_MAX)}`, 'limit')
+      );
+    }
+    const page = await rankEntitiesPage({ ...q, offset: 0 });
+    return page.map((value) => value.items);
   };
 
   const rankCommitmentEntities = async (
@@ -1117,7 +1310,22 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
     });
     if (gateR.isErr()) return err(gateR.error);
     const gate = gateR.value;
-    const limit = clamp(q.limit, 1, AGG_LIMIT_MAX);
+    if (
+      q.complete !== true &&
+      (!Number.isInteger(q.limit) || q.limit < 1 || q.limit > AGG_LIMIT_MAX)
+    ) {
+      return err(
+        invalidInput(`classification limit must be between 1 and ${String(AGG_LIMIT_MAX)}`, 'limit')
+      );
+    }
+    if (q.complete === true && q.limit !== 50) {
+      return err(
+        invalidInput('complete classification mode does not accept a custom limit', 'limit')
+      );
+    }
+    // Complete mode is an explicit, fail-closed capability. Its safety guard is
+    // server-owned so clients neither duplicate nor silently drift from it.
+    const limit = q.complete === true ? COMPLETE_AGGREGATE_GUARD : q.limit;
 
     // Normalization for a classification aggregate: per-capita has NO bucket-grain
     // population, so it is rejected; TOTAL_EURO / PERCENT_GDP apply a single-year
@@ -1139,6 +1347,26 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
         )
       );
     }
+    if (q.minAmount !== undefined && !DECIMAL_MONEY_PATTERN.test(q.minAmount)) {
+      return err(invalidInput('classification minimum amount must be a decimal', 'minAmount'));
+    }
+    if (q.maxAmount !== undefined && !DECIMAL_MONEY_PATTERN.test(q.maxAmount)) {
+      return err(invalidInput('classification maximum amount must be a decimal', 'maxAmount'));
+    }
+    const rowMinAmount = fieldOf(q.filter, 'minAmount')?.['gte'];
+    const rowMaxAmount = fieldOf(q.filter, 'maxAmount')?.['lte'];
+    if (
+      rowMinAmount !== undefined &&
+      (typeof rowMinAmount !== 'string' || !DECIMAL_MONEY_PATTERN.test(rowMinAmount))
+    ) {
+      return err(invalidInput('row minimum amount must be a decimal', 'filter.minAmount'));
+    }
+    if (
+      rowMaxAmount !== undefined &&
+      (typeof rowMaxAmount !== 'string' || !DECIMAL_MONEY_PATTERN.test(rowMaxAmount))
+    ) {
+      return err(invalidInput('row maximum amount must be a decimal', 'filter.maxAmount'));
+    }
     const aggMult =
       gate.years.eq !== undefined ? yearMultiplier(q.normalization, gate.years.eq) : 1;
 
@@ -1149,6 +1377,7 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
     if (built.isErr()) return err(built.error);
 
     const conds: RawBuilder<unknown>[] = [...execGatePredicates(gate, 'eli'), ...built.value];
+    conds.push(...amountRange(q.filter, gate.frequency, 'eli'));
     const tuple = periodTuple(q.filter, gate.frequency, 'eli');
     if (tuple !== undefined) conds.push(tuple);
     if (wantsExcludeTransfers(q.filter)) conds.push(transferExclusion('eli'));
@@ -1157,10 +1386,10 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
     // The normalized aggregate sum (multiplier applied in numeric SQL).
     const sumExpr = sql`(sum(eli.${sql.ref(amountCol)}) * ${aggMult}::numeric)`;
     const havingConds: RawBuilder<unknown>[] = [];
-    if (q.minAmount !== undefined && /^-?\d+(\.\d+)?$/u.test(q.minAmount)) {
+    if (q.minAmount !== undefined) {
       havingConds.push(sql`${sumExpr} >= ${q.minAmount}::numeric`);
     }
-    if (q.maxAmount !== undefined && /^-?\d+(\.\d+)?$/u.test(q.maxAmount)) {
+    if (q.maxAmount !== undefined) {
       havingConds.push(sql`${sumExpr} <= ${q.maxAmount}::numeric`);
     }
 
@@ -1190,8 +1419,16 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
       if (havingConds.length > 0) query = query.having(composeAnd(havingConds));
       const rows = await query
         .orderBy(sql`${sumExpr} desc nulls last`)
-        .limit(limit)
+        .limit(q.complete === true ? limit + 1 : limit)
         .execute();
+      if (q.complete === true && rows.length > limit) {
+        return err(
+          invalidInput(
+            `classification aggregate exceeds the ${String(limit)}-row completeness guard`,
+            'limit'
+          )
+        );
+      }
       return ok(
         rows.map((r) => ({
           functionalCode: r.functional_code,
@@ -1208,8 +1445,80 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
   };
 
   // ───────────────────────────────────────────────────────────────────────────
-  // county heatmap (MV → county rollup)
+  // UAT/county heatmaps (MV → canonical territory rollups)
   // ───────────────────────────────────────────────────────────────────────────
+
+  const uatHeatmap = async (
+    q: HeatmapQuery
+  ): Promise<Result<readonly UatHeatmapPoint[], ApiError>> => {
+    const reportLabel = EXECUTION_REPORT_TYPE_LABELS[q.reportType];
+    const col = metricColumn(q.metric);
+    const multiplier = yearMultiplier(q.normalization, q.year);
+    const amountExpr = sql`sum(coalesce(mv.${sql.ref(col)},0)) * ${multiplier}::numeric`;
+    try {
+      const result = await sql<{
+        territory_id: number;
+        entity_cui: string;
+        uat_name: string;
+        siruta_code: string | null;
+        county_code: string | null;
+        county_name: string | null;
+        region: string | null;
+        amount: string;
+        per_capita: string | null;
+        population: number | null;
+      }>`
+        select
+          territory.id as territory_id,
+          territory.uat_code as entity_cui,
+          territory.name as uat_name,
+          territory.siruta_code,
+          territory.county_code,
+          territory.county_name,
+          territory.region,
+          (${amountExpr})::text as amount,
+          case
+            when territory.population > 0
+              then ((${amountExpr}) / territory.population)::text
+            else null
+          end as per_capita,
+          territory.population
+        from core.territories territory
+        inner join budget.mv_execution_summary_annual mv
+          on mv.entity_cui = territory.uat_code
+          and mv.year = ${q.year}
+          and mv.report_type = ${reportLabel}
+        where territory.uat_code is not null
+        group by
+          territory.id,
+          territory.uat_code,
+          territory.name,
+          territory.siruta_code,
+          territory.county_code,
+          territory.county_name,
+          territory.region,
+          territory.population
+        order by territory.id asc
+      `.execute(db);
+      return ok(
+        result.rows.map((row) => ({
+          territoryId: row.territory_id,
+          entityCui: row.entity_cui,
+          uatName: row.uat_name,
+          sirutaCode: row.siruta_code,
+          countyCode: row.county_code,
+          countyName: row.county_name,
+          region: row.region,
+          year: q.year,
+          amount: row.amount,
+          perCapita: row.per_capita,
+          population: row.population,
+        }))
+      );
+    } catch (error) {
+      return err(databaseError('uatHeatmap failed', error));
+    }
+  };
 
   const countyHeatmap = async (
     q: HeatmapQuery
@@ -1217,47 +1526,90 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
     const reportLabel = EXECUTION_REPORT_TYPE_LABELS[q.reportType];
     const col = metricColumn(q.metric);
     const multiplier = yearMultiplier(q.normalization, q.year);
-    const perCapita = isPerCapita(q.normalization);
     try {
-      const rows = await db
-        .selectFrom(execMvName('YEAR'))
-        .innerJoin('core.public_entities as e', 'e.cui', 'mv.entity_cui')
-        .innerJoin(
-          'core.territories as t',
-          't.territorial_siruta_code',
-          'e.territorial_siruta_code'
+      // Map data is UAT-grain: join the entity CUI directly to the canonical
+      // territory's uat_code. Joining every located public entity through
+      // core.public_entities over-counts Bucharest and other institution-rich
+      // counties. County population is the canonical county territory value,
+      // not SUM(DISTINCT population), which deduplicates equal *values* rather
+      // than territories and can double-count county + locality populations.
+      const amountExpr = sql`sum(coalesce(mv.${sql.ref(col)},0)) * ${multiplier}::numeric`;
+      const rows = await sql<{
+        county_code: string;
+        county_name: string | null;
+        county_entity_cui: string | null;
+        amount: string;
+        per_capita: string | null;
+        population: number | null;
+        entity_count: string;
+      }>`
+        with county_info as (
+          select distinct on (territory.county_code)
+            territory.county_code,
+            territory.county_name,
+            (
+              select candidate.uat_code
+              from core.territories candidate
+              where candidate.county_code = territory.county_code
+                and (
+                  (candidate.county_code = ${BUCHAREST_COUNTY_CODE}
+                    and candidate.siruta_code = ${BUCHAREST_SIRUTA_CODE})
+                  or (candidate.county_code <> ${BUCHAREST_COUNTY_CODE}
+                    and candidate.siruta_code = candidate.county_code)
+                )
+              order by candidate.id
+              limit 1
+            ) as county_entity_cui,
+            (
+              select ${canonicalCountyPopulationAggregate('candidate')}
+              from core.territories candidate
+              where candidate.county_code = territory.county_code
+            )::int as population
+          from core.territories territory
+          where territory.county_code is not null
+          order by
+            territory.county_code,
+            territory.county_name nulls last,
+            territory.id
         )
-        .select([
-          sql<string | null>`t.county_code`.as('county_code'),
-          sql<string | null>`max(t.county_name)`.as('county_name'),
-          sql<string>`(sum(coalesce(mv.${sql.ref(col)},0)) * ${multiplier}::numeric)::text`.as(
-            'amount'
-          ),
-          sql<number | null>`sum(distinct t.population)`.as('population'),
-          sql<string>`count(distinct mv.entity_cui)`.as('entity_count'),
-        ])
-        .where(
-          sql<SqlBool>`mv.year = ${q.year} and mv.report_type = ${reportLabel} and t.county_code is not null`
-        )
-        .groupBy('t.county_code')
-        .orderBy(sql`sum(coalesce(mv.${sql.ref(col)},0)) desc nulls last`)
-        .execute();
+        select
+          county.county_code,
+          county.county_name,
+          county.county_entity_cui,
+          (${amountExpr})::text as amount,
+          case
+            when county.population > 0
+              then ((${amountExpr}) / county.population)::text
+            else null
+          end as per_capita,
+          county.population,
+          count(distinct mv.entity_cui)::text as entity_count
+        from county_info county
+        left join core.territories territory
+          on territory.county_code = county.county_code
+        left join budget.mv_execution_summary_annual mv
+          on mv.entity_cui = territory.uat_code
+          and mv.year = ${q.year}
+          and mv.report_type = ${reportLabel}
+        group by
+          county.county_code,
+          county.county_name,
+          county.county_entity_cui,
+          county.population
+        having count(mv.entity_cui) > 0
+        order by (${amountExpr}) desc nulls last, county.county_code asc
+      `.execute(db);
       return ok(
-        rows
-          .filter((r): r is typeof r & { county_code: string } => r.county_code !== null)
-          .map((r) => {
-            const pop = r.population;
-            const amountNum = Number(r.amount);
-            return {
-              countyCode: r.county_code,
-              countyName: r.county_name,
-              year: q.year,
-              amount: r.amount,
-              perCapita: perCapita && pop !== null && pop > 0 ? String(amountNum / pop) : null,
-              population: pop,
-              entityCount: Number(r.entity_count),
-            };
-          })
+        rows.rows.map((r) => ({
+          countyCode: r.county_code,
+          countyName: r.county_name,
+          countyEntityCui: r.county_entity_cui,
+          year: q.year,
+          amount: r.amount,
+          perCapita: r.per_capita,
+          population: r.population,
+          entityCount: Number(r.entity_count),
+        }))
       );
     } catch (error) {
       return err(databaseError('countyHeatmap failed', error));
@@ -1414,20 +1766,23 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
         from ${tableRef} as d
         ${where}
         order by ${code} asc
-        limit ${limit}
+        limit ${limit + 1}
       `;
       const result = await stmt.execute(db);
-      const rows = result.rows;
+      const hasMore = result.rows.length > limit;
+      const rows = result.rows.slice(0, limit);
       const caveats =
         rows.length === 0
           ? [
               'budget classification catalog is not loaded; functional/economic names are available on fact rows',
             ]
-          : [];
+          : hasMore
+            ? [`budget classification result exceeds the ${String(limit)}-item response limit`]
+            : [];
       return ok({
         items: rows.map(mapClassification),
-        total: rows.length,
-        estimated: false,
+        total: hasMore ? null : rows.length,
+        estimated: hasMore,
         caveats,
       });
     } catch (error) {
@@ -1737,10 +2092,13 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
     getEntitySummary,
     getCommitmentSummary,
     executionTimeseries,
+    aggregateTimeseries,
     commitmentTimeseries,
     rankEntities,
+    rankEntitiesPage,
     rankCommitmentEntities,
     aggregateByClassification,
+    uatHeatmap,
     countyHeatmap,
     listReports,
     getReport,

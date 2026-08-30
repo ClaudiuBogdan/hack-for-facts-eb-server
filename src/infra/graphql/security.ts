@@ -1,6 +1,7 @@
 import {
   GraphQLError,
   NoSchemaIntrospectionCustomRule,
+  type ASTNode,
   type GraphQLFormattedError,
   type ValidationRule,
 } from 'graphql';
@@ -17,12 +18,27 @@ const MAX_QUERY_DEPTH = 10;
  */
 const MAX_QUERY_FIELDS = 500;
 const MAX_QUERY_ALIASES = 50;
+const MAX_HEAVY_BUDGET_FIELDS = 2;
+export const HEAVY_BUDGET_FIELD_NAMES = [
+  'budgetAggregateByClassification',
+  'budgetAggregateTimeseries',
+  'budgetEntityRanking',
+  'budgetEntityRankingPage',
+  'budgetUatHeatmap',
+  'budgetCountyHeatmap',
+] as const;
+const HEAVY_BUDGET_FIELDS = new Set<string>(HEAVY_BUDGET_FIELD_NAMES);
+
+const validationError = (message: string, node: ASTNode | readonly ASTNode[]) =>
+  new GraphQLError(message, { nodes: node });
 
 const makeDocumentSizeRule = (): ValidationRule => (context) => {
   let fieldCount = 0;
   let aliasCount = 0;
+  let heavyBudgetFieldCount = 0;
   let fieldErrorReported = false;
   let aliasErrorReported = false;
+  let heavyBudgetFieldErrorReported = false;
 
   return {
     // eslint-disable-next-line @typescript-eslint/naming-convention -- GraphQL AST visitor keys use node-kind names.
@@ -31,9 +47,7 @@ const makeDocumentSizeRule = (): ValidationRule => (context) => {
       if (fieldCount > MAX_QUERY_FIELDS && !fieldErrorReported) {
         fieldErrorReported = true;
         context.reportError(
-          new GraphQLError(`Query exceeds maximum field count of ${String(MAX_QUERY_FIELDS)}.`, {
-            nodes: node,
-          })
+          validationError(`Query exceeds maximum field count of ${String(MAX_QUERY_FIELDS)}.`, node)
         );
       }
 
@@ -42,9 +56,23 @@ const makeDocumentSizeRule = (): ValidationRule => (context) => {
         if (aliasCount > MAX_QUERY_ALIASES && !aliasErrorReported) {
           aliasErrorReported = true;
           context.reportError(
-            new GraphQLError(`Query exceeds maximum alias count of ${String(MAX_QUERY_ALIASES)}.`, {
-              nodes: node,
-            })
+            validationError(
+              `Query exceeds maximum alias count of ${String(MAX_QUERY_ALIASES)}.`,
+              node
+            )
+          );
+        }
+      }
+
+      if (HEAVY_BUDGET_FIELDS.has(node.name.value)) {
+        heavyBudgetFieldCount += 1;
+        if (heavyBudgetFieldCount > MAX_HEAVY_BUDGET_FIELDS && !heavyBudgetFieldErrorReported) {
+          heavyBudgetFieldErrorReported = true;
+          context.reportError(
+            validationError(
+              `Query exceeds maximum heavy budget field count of ${String(MAX_HEAVY_BUDGET_FIELDS)}.`,
+              node
+            )
           );
         }
       }

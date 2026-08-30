@@ -146,6 +146,8 @@ export interface BudgetSeriesPoint {
 // ── rankings (MV path + factor) ───────────────────────────────────────────────
 
 export type BudgetRankingMetric = 'INCOME' | 'EXPENSE' | 'BALANCE';
+export type EntityRankingSort =
+  'AMOUNT' | 'PER_CAPITA' | 'ENTITY_NAME' | 'ENTITY_TYPE' | 'POPULATION' | 'COUNTY';
 
 export interface RankedEntity {
   readonly entityCui: string;
@@ -156,6 +158,14 @@ export interface RankedEntity {
   readonly perCapita: Money | null;
   readonly population: number | null;
   readonly countyCode: string | null;
+  readonly countyName: string | null;
+  readonly entityType: string | null;
+  readonly territoryId: number | null;
+}
+
+export interface RankedEntityPage {
+  readonly items: readonly RankedEntity[];
+  readonly total: number;
 }
 
 export type CommitmentRankingMetric =
@@ -185,11 +195,26 @@ export interface AggregatedBudgetRow {
 export interface CountyHeatmapPoint {
   readonly countyCode: string;
   readonly countyName: string | null;
+  readonly countyEntityCui: string | null;
   readonly year: number;
   readonly amount: Money;
   readonly perCapita: Money | null;
   readonly population: number | null;
   readonly entityCount: number;
+}
+
+export interface UatHeatmapPoint {
+  readonly territoryId: number;
+  readonly entityCui: string;
+  readonly uatName: string;
+  readonly sirutaCode: string | null;
+  readonly countyCode: string | null;
+  readonly countyName: string | null;
+  readonly region: string | null;
+  readonly year: number;
+  readonly amount: Money;
+  readonly perCapita: Money | null;
+  readonly population: number | null;
 }
 
 // ── reports ───────────────────────────────────────────────────────────────────
@@ -340,6 +365,7 @@ export interface ClassificationAggregateQuery {
   readonly minAmount?: string;
   readonly maxAmount?: string;
   readonly limit: number;
+  readonly complete?: boolean;
 }
 
 export interface SummaryQuery {
@@ -367,6 +393,16 @@ export interface TimeseriesQuery {
   readonly yearFrom?: number;
   readonly yearTo?: number;
   readonly normalization: BudgetNormalization;
+}
+
+export interface AggregateTimeseriesQuery {
+  readonly reportType: ExecutionReportType;
+  readonly metric: BudgetRankingMetric;
+  readonly frequency: BudgetFrequency;
+  readonly yearFrom: number;
+  readonly yearTo: number;
+  readonly normalization: BudgetNormalization;
+  readonly isUat?: boolean;
 }
 
 /** Commitment time series (MV path); `metric` is a commitment metric column. */
@@ -397,7 +433,12 @@ export interface EntityRankingQuery {
   readonly minPopulation?: number;
   readonly maxPopulation?: number;
   readonly ascending?: boolean;
+  readonly sort?: EntityRankingSort;
   readonly limit: number;
+}
+
+export interface EntityRankingPageQuery extends EntityRankingQuery {
+  readonly offset: number;
 }
 
 export interface CommitmentRankingQuery {

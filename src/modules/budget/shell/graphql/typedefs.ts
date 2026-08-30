@@ -62,6 +62,14 @@ const objectsAndQuery = /* GraphQL */ `
     EXPENSE
     BALANCE
   }
+  enum BudgetEntityRankingSort {
+    AMOUNT
+    PER_CAPITA
+    ENTITY_NAME
+    ENTITY_TYPE
+    POPULATION
+    COUNTY
+  }
   "Commitment metrics present at every MV frequency (the safe common subset)."
   enum BudgetCommitmentMetric {
     credite_angajament
@@ -212,7 +220,21 @@ const objectsAndQuery = /* GraphQL */ `
     perCapita: Money
     population: Int
     countyCode: String
+    countyName: String
+    entityType: String
+    territoryId: Int
     entity: Entity
+  }
+
+  type BudgetEntityRankingPageInfo {
+    totalCount: Int!
+    hasNextPage: Boolean!
+    hasPreviousPage: Boolean!
+  }
+
+  type BudgetEntityRankingPage {
+    nodes: [BudgetRankedEntity!]!
+    pageInfo: BudgetEntityRankingPageInfo!
   }
 
   type BudgetRankedCommitmentEntity {
@@ -237,11 +259,26 @@ const objectsAndQuery = /* GraphQL */ `
   type BudgetCountyHeatmapPoint {
     countyCode: String!
     countyName: String
+    countyEntityCui: CUI
     year: Int!
     amount: Money!
     perCapita: Money
     population: Int
     entityCount: Int!
+  }
+
+  type BudgetUatHeatmapPoint {
+    territoryId: Int!
+    entityCui: CUI!
+    uatName: String!
+    sirutaCode: SIRUTA
+    countyCode: String
+    countyName: String
+    region: String
+    year: Int!
+    amount: Money!
+    perCapita: Money
+    population: Int
   }
 
   type BudgetReport {
@@ -430,6 +467,16 @@ const objectsAndQuery = /* GraphQL */ `
       yearTo: Int
       normalization: BudgetNormalization = TOTAL
     ): [BudgetSeriesPoint!]!
+    "National/aggregate execution time series (MV path; no implicit entity scope)."
+    budgetAggregateTimeseries(
+      reportType: BudgetReportType!
+      metric: BudgetRankingMetric!
+      frequency: BudgetFrequency!
+      yearFrom: Int!
+      yearTo: Int!
+      normalization: BudgetNormalization = TOTAL
+      isUat: Boolean
+    ): [BudgetSeriesPoint!]!
     "Commitment time series (MV path)."
     budgetCommitmentTimeseries(
       cui: CUI!
@@ -445,8 +492,19 @@ const objectsAndQuery = /* GraphQL */ `
       metric: BudgetRankingMetric = EXPENSE
       normalization: BudgetNormalization = TOTAL
       ascending: Boolean = false
+      sort: BudgetEntityRankingSort
       limit: Int = 50
     ): [BudgetRankedEntity!]!
+    "Offset-paged entity ranking for bounded analytics tables and CSV export."
+    budgetEntityRankingPage(
+      filter: BudgetRankingFilter
+      metric: BudgetRankingMetric = EXPENSE
+      normalization: BudgetNormalization = TOTAL
+      ascending: Boolean = false
+      sort: BudgetEntityRankingSort
+      limit: Int = 50
+      offset: Int = 0
+    ): BudgetEntityRankingPage!
     "Bounded top-N commitment ranking (MV path)."
     budgetCommitmentRanking(
       year: Int!
@@ -454,13 +512,14 @@ const objectsAndQuery = /* GraphQL */ `
       metric: BudgetCommitmentMetric = plati_trezor
       limit: Int = 50
     ): [BudgetRankedCommitmentEntity!]!
-    "Spend/income by functional×economic classification within ONE pruned leaf (fact path)."
+    "Spend/income by functional×economic classification within ONE pruned leaf. complete=true uses the server completeness guard and requires the default limit."
     budgetAggregateByClassification(
       filter: BudgetFactFilter!
       normalization: BudgetNormalization = TOTAL
       minAmount: Money
       maxAmount: Money
       limit: Int = 50
+      complete: Boolean = false
     ): [BudgetAggregatedRow!]!
     "County heatmap (MV → county rollup)."
     budgetCountyHeatmap(
@@ -469,6 +528,13 @@ const objectsAndQuery = /* GraphQL */ `
       metric: BudgetRankingMetric = EXPENSE
       normalization: BudgetNormalization = TOTAL
     ): [BudgetCountyHeatmapPoint!]!
+    "Complete UAT heatmap (MV → canonical territory rollup; never top-N)."
+    budgetUatHeatmap(
+      year: Int!
+      reportType: BudgetReportType!
+      metric: BudgetRankingMetric = EXPENSE
+      normalization: BudgetNormalization = TOTAL
+    ): [BudgetUatHeatmapPoint!]!
     "Report registry (requires ≥1 of entityCui / reportingYear / reportType)."
     budgetReports(filter: BudgetReportFilter!, page: Int, pageSize: Int): BudgetReportGated!
     budgetReport(reportId: ID!): BudgetReport

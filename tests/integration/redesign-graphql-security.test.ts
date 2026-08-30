@@ -1,6 +1,9 @@
+import { buildSchema, Kind, parse, validate } from 'graphql';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { buildRedesignApp } from '@/app/build-redesign-app.js';
+import { HEAVY_BUDGET_FIELD_NAMES, makeGraphQLValidationRules } from '@/infra/graphql/security.js';
+import { budgetTypeDefs } from '@/modules/budget/shell/graphql/typedefs.js';
 
 import type { FastifyInstance } from 'fastify';
 
@@ -14,6 +17,7 @@ interface GraphQLResponse {
 
 describe('redesign GraphQL security policy', () => {
   let app: FastifyInstance;
+  let factAggregateExecutions = 0;
   const previousNodeEnv = process.env['NODE_ENV'];
 
   beforeAll(async () => {
@@ -30,13 +34,26 @@ describe('redesign GraphQL security policy', () => {
       graphqlSlices: [
         {
           source: 'security-test',
-          typeDefs: 'extend type Query { securityTestFailure: String! }',
+          typeDefs:
+            'extend type Query { securityTestFailure: String!, budgetAggregateByClassification: String!, budgetAggregateTimeseries: String!, budgetUatHeatmap: String! }',
         },
       ],
       graphqlResolvers: {
         Query: {
           securityTestFailure: () => {
             throw new Error('sensitive database detail');
+          },
+          budgetAggregateByClassification: () => {
+            factAggregateExecutions += 1;
+            return 'ok';
+          },
+          budgetAggregateTimeseries: () => {
+            factAggregateExecutions += 1;
+            return 'ok';
+          },
+          budgetUatHeatmap: () => {
+            factAggregateExecutions += 1;
+            return 'ok';
           },
         },
       },
@@ -79,6 +96,48 @@ describe('redesign GraphQL security policy', () => {
     expect(response.errors?.[0]).toMatchObject({
       message: 'Internal server error',
     });
+  });
+
+  it('allows two heavy budget fields', () => {
+    const schema = buildSchema(`type Query {
+      budgetAggregateByClassification: String!
+      budgetAggregateTimeseries: String!
+    }`);
+    const errors = validate(
+      schema,
+      parse(`query BoundedBudgetWork {
+        first: budgetAggregateByClassification
+        second: budgetAggregateTimeseries
+      }`),
+      makeGraphQLValidationRules(false)
+    );
+    expect(errors).toEqual([]);
+  });
+
+  it('keeps every configured heavy field tied to the budget SDL', () => {
+    const document = parse(budgetTypeDefs);
+    const queryFields = new Set(
+      document.definitions.flatMap((definition) =>
+        definition.kind === Kind.OBJECT_TYPE_EXTENSION && definition.name.value === 'Query'
+          ? (definition.fields ?? []).map((field) => field.name.value)
+          : []
+      )
+    );
+    for (const fieldName of HEAVY_BUDGET_FIELD_NAMES) {
+      expect(queryFields.has(fieldName), fieldName).toBe(true);
+    }
+  });
+
+  it('blocks mixed heavy budget fields before execution', async () => {
+    factAggregateExecutions = 0;
+    const response = await query(`query FactFanOut {
+      first: budgetAggregateByClassification
+      second: budgetAggregateTimeseries
+      third: budgetUatHeatmap
+    }`);
+    expect(response.data).toBeNull();
+    expect(response.errors?.[0]?.message).toBe('Internal server error');
+    expect(factAggregateExecutions).toBe(0);
   });
 
   it('redacts internal resolver errors in production', async () => {

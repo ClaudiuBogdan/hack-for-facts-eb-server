@@ -10,6 +10,7 @@ import type { AccountCategory, ExecutionReportType } from './constants.js';
 import type { BudgetDiscoveryRepo, BudgetRepo } from './ports.js';
 import type {
   AggregatedBudgetRow,
+  AggregateTimeseriesQuery,
   ApprovedBudgetFact,
   BudgetAsOf,
   BudgetClassification,
@@ -31,14 +32,17 @@ import type {
   CommitmentTimeseriesQuery,
   CountyHeatmapPoint,
   EntityRankingQuery,
+  EntityRankingPageQuery,
   ExecutionLineItem,
   GatedOffsetPage,
   HeatmapQuery,
   RankedCommitmentEntity,
   RankedEntity,
+  RankedEntityPage,
   ResolveMatch,
   SummaryQuery,
   TimeseriesQuery,
+  UatHeatmapPoint,
 } from './types.js';
 import type { ApiError, CursorPage, FilterInput } from '@/modules/shared/index.js';
 import type { Result } from 'neverthrow';
@@ -80,6 +84,11 @@ export const budgetTimeseries = (
   q: TimeseriesQuery
 ): Promise<Result<readonly BudgetSeriesPoint[], ApiError>> => repo.executionTimeseries(q);
 
+export const aggregateTimeseries = (
+  repo: BudgetRepo,
+  q: AggregateTimeseriesQuery
+): Promise<Result<readonly BudgetSeriesPoint[], ApiError>> => repo.aggregateTimeseries(q);
+
 export const commitmentTimeseries = (
   repo: BudgetRepo,
   q: CommitmentTimeseriesQuery
@@ -92,6 +101,11 @@ export const rankEntities = (
   q: EntityRankingQuery
 ): Promise<Result<readonly RankedEntity[], ApiError>> => repo.rankEntities(q);
 
+export const rankEntitiesPage = (
+  repo: BudgetRepo,
+  q: EntityRankingPageQuery
+): Promise<Result<RankedEntityPage, ApiError>> => repo.rankEntitiesPage(q);
+
 export const rankCommitmentEntities = (
   repo: BudgetRepo,
   q: CommitmentRankingQuery
@@ -103,6 +117,11 @@ export const aggregateByClassification = (
   repo: BudgetRepo,
   q: ClassificationAggregateQuery
 ): Promise<Result<readonly AggregatedBudgetRow[], ApiError>> => repo.aggregateByClassification(q);
+
+export const uatHeatmap = (
+  repo: BudgetRepo,
+  q: HeatmapQuery
+): Promise<Result<readonly UatHeatmapPoint[], ApiError>> => repo.uatHeatmap(q);
 
 export const countyHeatmap = (
   repo: BudgetRepo,

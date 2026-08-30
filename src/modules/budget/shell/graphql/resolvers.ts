@@ -34,6 +34,7 @@ import {
 import { budgetCommitmentFactFilterSpec, budgetFactFilterSpec } from '../../core/filters.js';
 import {
   aggregateByClassification,
+  aggregateTimeseries,
   budgetAsOf,
   budgetTimeseries,
   budgetVsExecution,
@@ -52,7 +53,9 @@ import {
   listReports,
   rankCommitmentEntities,
   rankEntities,
+  rankEntitiesPage,
   resolveBudgetFilter,
+  uatHeatmap,
 } from '../../core/usecases.js';
 
 import type { BudgetDiscoveryRepo, BudgetRepo } from '../../core/ports.js';
@@ -62,6 +65,7 @@ import type {
   CommitmentLineItem,
   CommitmentRankingMetric,
   EntityRankingQuery,
+  EntityRankingSort,
   ExecutionLineItem,
 } from '../../core/types.js';
 import type { Result } from 'neverthrow';
@@ -263,6 +267,30 @@ export const makeBudgetResolvers = (deps: BudgetResolverDeps): Record<string, un
           })
         ),
 
+      budgetAggregateTimeseries: async (
+        _r: unknown,
+        args: {
+          reportType: ExecutionReportType;
+          metric: BudgetRankingMetric;
+          frequency: BudgetFrequency;
+          yearFrom: number;
+          yearTo: number;
+          normalization?: BudgetNormalization;
+          isUat?: boolean | null;
+        }
+      ) =>
+        unwrap(
+          await aggregateTimeseries(repo, {
+            reportType: args.reportType,
+            metric: args.metric,
+            frequency: args.frequency,
+            yearFrom: args.yearFrom,
+            yearTo: args.yearTo,
+            normalization: args.normalization ?? 'TOTAL',
+            ...(typeof args.isUat === 'boolean' && { isUat: args.isUat }),
+          })
+        ),
+
       budgetCommitmentTimeseries: async (
         _r: unknown,
         args: {
@@ -292,6 +320,7 @@ export const makeBudgetResolvers = (deps: BudgetResolverDeps): Record<string, un
           metric?: BudgetRankingMetric;
           normalization?: BudgetNormalization;
           ascending?: boolean;
+          sort?: EntityRankingSort;
           limit?: number;
         }
       ) => {
@@ -302,9 +331,46 @@ export const makeBudgetResolvers = (deps: BudgetResolverDeps): Record<string, un
             metric: args.metric ?? 'EXPENSE',
             normalization: args.normalization ?? 'TOTAL',
             ascending: args.ascending ?? false,
+            ...(args.sort !== undefined && { sort: args.sort }),
             limit: args.limit ?? 50,
           })
         );
+      },
+
+      budgetEntityRankingPage: async (
+        _r: unknown,
+        args: {
+          filter?: FilterInput;
+          metric?: BudgetRankingMetric;
+          normalization?: BudgetNormalization;
+          ascending?: boolean;
+          sort?: EntityRankingSort;
+          limit?: number;
+          offset?: number;
+        }
+      ) => {
+        const ranking = parseRankingFilter(args.filter ?? {});
+        const limit = args.limit ?? 50;
+        const offset = args.offset ?? 0;
+        const page = unwrap(
+          await rankEntitiesPage(repo, {
+            ...ranking,
+            metric: args.metric ?? 'EXPENSE',
+            normalization: args.normalization ?? 'TOTAL',
+            ascending: args.ascending ?? false,
+            ...(args.sort !== undefined && { sort: args.sort }),
+            limit,
+            offset,
+          })
+        );
+        return {
+          nodes: page.items,
+          pageInfo: {
+            totalCount: page.total,
+            hasNextPage: offset + page.items.length < page.total,
+            hasPreviousPage: offset > 0,
+          },
+        };
       },
 
       budgetCommitmentRanking: async (
@@ -333,6 +399,7 @@ export const makeBudgetResolvers = (deps: BudgetResolverDeps): Record<string, un
           minAmount?: string;
           maxAmount?: string;
           limit?: number;
+          complete?: boolean;
         }
       ) =>
         unwrap(
@@ -340,6 +407,7 @@ export const makeBudgetResolvers = (deps: BudgetResolverDeps): Record<string, un
             filter: args.filter,
             normalization: args.normalization ?? 'TOTAL',
             limit: args.limit ?? 50,
+            complete: args.complete ?? false,
             ...(args.minAmount !== undefined && { minAmount: args.minAmount }),
             ...(args.maxAmount !== undefined && { maxAmount: args.maxAmount }),
           })
@@ -356,6 +424,24 @@ export const makeBudgetResolvers = (deps: BudgetResolverDeps): Record<string, un
       ) =>
         unwrap(
           await countyHeatmap(repo, {
+            year: args.year,
+            reportType: args.reportType,
+            metric: args.metric ?? 'EXPENSE',
+            normalization: args.normalization ?? 'TOTAL',
+          })
+        ),
+
+      budgetUatHeatmap: async (
+        _r: unknown,
+        args: {
+          year: number;
+          reportType: ExecutionReportType;
+          metric?: BudgetRankingMetric;
+          normalization?: BudgetNormalization;
+        }
+      ) =>
+        unwrap(
+          await uatHeatmap(repo, {
             year: args.year,
             reportType: args.reportType,
             metric: args.metric ?? 'EXPENSE',

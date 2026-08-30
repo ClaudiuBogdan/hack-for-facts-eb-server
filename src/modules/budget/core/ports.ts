@@ -14,6 +14,7 @@
 import type { AccountCategory, ExecutionReportType } from './constants.js';
 import type {
   AggregatedBudgetRow,
+  AggregateTimeseriesQuery,
   ApprovedBudgetFact,
   BudgetAsOf,
   BudgetClassification,
@@ -35,14 +36,17 @@ import type {
   CommitmentTimeseriesQuery,
   CountyHeatmapPoint,
   EntityRankingQuery,
+  EntityRankingPageQuery,
   ExecutionLineItem,
   GatedOffsetPage,
   HeatmapQuery,
   RankedCommitmentEntity,
   RankedEntity,
+  RankedEntityPage,
   ResolveMatch,
   SummaryQuery,
   TimeseriesQuery,
+  UatHeatmapPoint,
 } from './types.js';
 import type { ApiError, CursorPage, FilterInput, SourcePresence } from '@/modules/shared/index.js';
 import type { Result } from 'neverthrow';
@@ -72,12 +76,16 @@ export interface BudgetRepo {
     q: CommitmentSummaryQuery
   ): Promise<Result<readonly CommitmentEntitySummary[], ApiError>>;
   executionTimeseries(q: TimeseriesQuery): Promise<Result<readonly BudgetSeriesPoint[], ApiError>>;
+  aggregateTimeseries(
+    q: AggregateTimeseriesQuery
+  ): Promise<Result<readonly BudgetSeriesPoint[], ApiError>>;
   commitmentTimeseries(
     q: CommitmentTimeseriesQuery
   ): Promise<Result<readonly BudgetSeriesPoint[], ApiError>>;
 
   // ── rankings (MV path + normalization factors, §3.4; bounded top-N) ──
   rankEntities(q: EntityRankingQuery): Promise<Result<readonly RankedEntity[], ApiError>>;
+  rankEntitiesPage(q: EntityRankingPageQuery): Promise<Result<RankedEntityPage, ApiError>>;
   rankCommitmentEntities(
     q: CommitmentRankingQuery
   ): Promise<Result<readonly RankedCommitmentEntity[], ApiError>>;
@@ -87,7 +95,8 @@ export interface BudgetRepo {
     q: ClassificationAggregateQuery
   ): Promise<Result<readonly AggregatedBudgetRow[], ApiError>>;
 
-  // ── geo heatmap (MV → county rollup, §3.4) ──
+  // ── geo heatmaps (MV → UAT/county rollup, §3.4) ──
+  uatHeatmap(q: HeatmapQuery): Promise<Result<readonly UatHeatmapPoint[], ApiError>>;
   countyHeatmap(q: HeatmapQuery): Promise<Result<readonly CountyHeatmapPoint[], ApiError>>;
 
   // ── reports (metadata; bounded by entity/year/report_type indexes) ──
