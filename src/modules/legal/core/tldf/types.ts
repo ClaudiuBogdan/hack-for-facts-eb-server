@@ -1,8 +1,14 @@
 /**
- * TLDF 1.0 — the server-side READ contract, PORTED (never imported) from the
- * scrapper's compiler mirror (`src/sources/portal-legislativ/prod/tldf/
- * format.ts` @ tldf-compiler-v3; authority: scrapper `prod-db/
- * tldf-v1.schema.json`, spec `prod-db/TLDF_SCHEMA_SPEC.md`).
+ * TLDF 1.0 AND 1.1 — the server-side READ contract, PORTED (never imported)
+ * from the scrapper's compiler mirror (`src/sources/portal-legislativ/prod/
+ * tldf/format.ts` @ tldf-compiler-v4; authority: scrapper `prod-db/
+ * tldf-v1.schema.json` for 1.0 and `prod-db/tldf-v1.1.schema.json` for 1.1,
+ * spec `prod-db/TLDF_SCHEMA_SPEC.md`).
+ *
+ * Both versions are live: since 2026-09-01 prod serves 221,264 documents at
+ * format 1.1 / tldf-compiler-v4 and 1,266 at 1.0 / tldf-compiler-v3. The
+ * version is constant WITHIN a document (no document carries both), so a mixed
+ * corpus never produces a mixed body.
  *
  * The port is deliberate: the server consumes artifacts across a DB boundary
  * and must fail loudly on contract drift rather than silently absorb a

@@ -259,6 +259,42 @@ export const makeLegalGraphRepo = (db: Db): LegalGraphRepo => {
     }
 
     try {
+      // NO GENERATION JOIN HERE, AND THAT IS DELIBERATE — the database
+      // already guarantees it. These rows serve `char_start`/`char_end`,
+      // offsets into ONE generation's clean text, so the question "could this
+      // return anchors into text we no longer serve?" is the right one to ask.
+      // The answer is no, by three VALIDATED constraints (checked 2026-09-01):
+      //   * `document_link_edges_generation_fk` FOREIGN KEY
+      //     (document_id, run_id) REFERENCES document_generations
+      //     (document_id, run_id), convalidated = true
+      //   * `document_link_edges.run_id` is NOT NULL (0 rows null)
+      //   * `document_generations_pkey` is PRIMARY KEY (document_id) ALONE —
+      //     exactly ONE generation row per document
+      // Together: an edge's run_id IS the served generation's run_id, and a
+      // recompile cannot violate an enforced FK.
+      //
+      // A pinning join was written here and then REMOVED after measuring it.
+      // It is a provable no-op (0 of 2,844,824 edges differ), and because the
+      // count and the page share this builder, it landed on the count path:
+      // hub act 185829, count went 148 ms / 31,072 buffers -> 225 ms / 98,077
+      // buffers, since the planner builds a hash over the whole
+      // document_generations index on every call. Paging a hub at 100/page
+      // re-runs that count per page.
+      //
+      // This differs from `render-repo.ts:56-59`, which DOES bind the
+      // generation: `document_render` has no such FK, so there the join is the
+      // guarantee rather than a restatement of one. Module policy, for the
+      // record: `retrieval-repo` pins with a LEFT join and degrades to NULL;
+      // `outline-repo` pins with an INNER join and drops the row.
+      //
+      // WHAT THIS BUILDER DOES NOT GIVE YOU: the page and the count below run
+      // as two statements under `Promise.all`, so they may take different
+      // pool connections and different READ COMMITTED snapshots. Sharing
+      // `serving()` makes their PREDICATE identical, not their snapshot — a
+      // projection committing between the two can leave `totalCount` counting
+      // a population the page did not see. Exact same-snapshot agreement would
+      // need one statement (a window count) or a shared repeatable-read
+      // transaction; neither is worth it for an anchor list.
       const serving = () =>
         db
           .selectFrom('legal.document_link_edges as e')
@@ -284,8 +320,11 @@ export const makeLegalGraphRepo = (db: Db): LegalGraphRepo => {
       if (afterEdgeId !== undefined) {
         q = q.where('e.edge_id', '>', afterEdgeId);
       }
-      // One count + one page. The REAL total, not the page size (§9.1);
-      // `document_link_edges_target_act` keeps both reads on the index.
+      // One count + one page. The REAL total, not the page size (§9.1).
+      // The two reads use DIFFERENT indexes: the page rides
+      // `document_link_edges_target_act_edge_idx` (target + edge_id, so the
+      // keyset order is free) and the count rides
+      // `document_link_edges_target_act`.
       const [rows, total] = await Promise.all([
         q
           .orderBy('e.edge_id', 'asc')

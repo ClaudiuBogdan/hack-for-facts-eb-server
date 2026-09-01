@@ -11,16 +11,18 @@
  *    content. Ordering is `order_index` (document order, unique per document —
  *    verified over all 70,062,662 rows), depth is the fixed grammar rank
  *    (core/outline.ts).
- *  - GENERATION PIN — `document_nodes` still holds 10,152 legacy split-v2 rows
- *    over 137 documents (`run_id IS NULL`), and they carry `role IS NULL`, a
- *    label and a number_key, so the two filters above match them. Measured on
- *    exactly those documents, the unpinned predicate returned 10,015 legacy
- *    rows and ZERO current rows: their whole TOC came from a retired
- *    generation, when the honest answer is an empty outline. The join to
- *    `document_generations` on `(document_id, run_id)` is what makes the pin
- *    structural — `run_id IS NOT NULL` would not, because the generation FK is
- *    still NOT VALID. Evidence: scrapper
- *    prod-db/LEGAL_NODES_V41_SERVING_AUDIT_2026-08-08.md §3 D1.
+ *  - GENERATION PIN — kept, but its ORIGINAL justification is now dead and is
+ *    recorded here so nobody re-derives it. It used to read: 10,152 legacy
+ *    split-v2 rows over 137 documents carry `run_id IS NULL` and match the two
+ *    filters above, so an unpinned predicate served a retired generation's
+ *    whole TOC (scrapper prod-db/LEGAL_NODES_V41_SERVING_AUDIT_2026-08-08.md
+ *    §3 D1). That population cannot exist any more: as of 2026-09-01
+ *    `document_nodes_run_id_not_null` is VALIDATED with 0 null rows, and
+ *    `document_nodes_generation_fk` is VALIDATED too — so `run_id` alone now
+ *    WOULD identify a real generation. The join stays because it is still the
+ *    thing that pins to the SERVED generation rather than merely a valid one,
+ *    which matters on a corpus that is now permanently mixed (221,264
+ *    portal-tree-v6 + 1,266 portal-tree-v5).
  *
  * The stable key is `(document_id, path)`; `node_id` is minted fresh on
  * every recompile and never leaves this repo.

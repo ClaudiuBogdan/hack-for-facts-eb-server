@@ -112,13 +112,16 @@ export const makeLegalRetrievalRepo = (db: Db): LegalRetrievalRepo => {
             join legal.acts a on a.canonical_document_id = c.document_id
             join legal.act_documents d on d.document_id = c.document_id and d.is_canonical
             left join legal.document_summaries s on s.document_id = c.document_id
-            -- Generation pin: document_nodes still holds legacy split-v2 rows,
-            -- and the served section corpus is split-v1 while the node table is
-            -- v4.1, so an unpinned (document_id, path) match resolves to a
-            -- RETIRED node. Measured: of 2,938,113 section rows only 13,484
-            -- match a node at all and ZERO match the current generation, so
-            -- every label this join used to attach was stale. Pinned, those
-            -- rows report NULL, which is the honest answer until split-v3.
+            -- Generation pin. The served section corpus is split-v1 while the
+            -- node table is now portal-tree-v6 (was v4.1 when this note was
+            -- written), so an unpinned (document_id, path) match resolves to a
+            -- RETIRED node. Re-measured 2026-09-01: all 2,938,113 section rows
+            -- over 221,301 documents are splitter_version='split-v1', and a
+            -- 20,000-row sample resolved to ZERO document_nodes rows at any
+            -- generation. Pinned, they report NULL, which is the honest answer
+            -- until split-v3 -- but note the consequence: nodeLabel/charStart/
+            -- charEnd are NULL for EVERY section hit corpus-wide, so the
+            -- provision-level deep link is dead until the re-embed.
             left join legal.document_generations gn on gn.document_id = c.document_id
             left join legal.document_nodes n
               on n.document_id = c.document_id and n.path = c.node_path

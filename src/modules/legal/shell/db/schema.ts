@@ -12,8 +12,12 @@
  *  - `vector(768)` is NEVER selected into a row type (it streams as a SQL literal in
  *    the HNSW order-by); the column is typed as `unknown` and never projected.
  *
- * Only the columns the module reads are typed; the `embedding` vector column is
- * declared `never`-readable so a stray `select('embedding')` is a type error.
+ * Historically only the columns the module reads were typed. `document_nodes`
+ * is now typed in full against the live DDL (2026-09-01) so the schema is
+ * checkable against the database rather than against current usage; the other
+ * tables still follow the read-only-columns rule. The `embedding` vector column
+ * is declared `never`-readable so a stray `select('embedding')` is a type
+ * error.
  */
 
 import type { ColumnType } from 'kysely';
@@ -22,6 +26,9 @@ import type { ColumnType } from 'kysely';
 type Tstz = ColumnType<string, never, never>;
 /** jsonb column: object on read; server is read-only so write types are unused. */
 type Jsonb = ColumnType<Record<string, unknown>, never, never>;
+/** jsonb ARRAY column. `own_text` is `[[start, end], ...]`, not an object, so
+ * the `Jsonb` Record type above would mistype it. */
+type JsonbArray = ColumnType<readonly unknown[], never, never>;
 /** a pgvector column — present in the table but never selected into a row. */
 type Vector = ColumnType<never, never, never>;
 
@@ -114,7 +121,11 @@ export interface LegalDocumentNodesTable {
   node_id: string; // bigint → string
   document_id: string; // text
   parent_node_id: string | null; // bigint → string
-  node_kind: string;
+  // NULLABLE in the live DDL: `(disposition = 'role') = (node_kind IS NULL)`,
+  // so the 13,491,697 role rows carry NULL here. It was declared non-null,
+  // which contradicted `outline-repo.ts:55`, whose own row type has always
+  // said `string | null` and whose :67 branch handles the null.
+  node_kind: string | null;
   label: string | null;
   number_key: string | null;
   path: string;
@@ -122,16 +133,91 @@ export interface LegalDocumentNodesTable {
   char_start: number | null; // integer
   char_end: number | null; // integer
   splitter_version: string | null;
-  // v2 columns (tldf-projection lane, migration 20260804T122000+):
-  // NULL on the 10,152 legacy split-v2 rows that still sit in this table, so
-  // every read pins the generation by joining document_generations on
-  // (document_id, run_id) — the generation FK is still NOT VALID, so a non-NULL
-  // run_id is not by itself proof of the SERVED run.
-  run_id: string | null; // bigint → string
+  // v2 columns (tldf-projection lane, migration 20260804T122000+).
+  // NOT NULL since the v6 load: `document_nodes_run_id_not_null` is VALIDATED
+  // and 0 rows are null (checked 2026-09-01). The previous note here said this
+  // was NULL on 10,152 legacy split-v2 rows and that the generation FK was
+  // still NOT VALID — both are now false: `document_nodes_generation_fk` is
+  // VALIDATED too. Reads still join document_generations on
+  // (document_id, run_id), which remains correct and cheap; it is simply no
+  // longer the only thing standing between a caller and a retired generation.
+  run_id: string; // bigint → string
   node_type: string | null; // grammar token (ART, PRT, POR, …); outline keys on this
   role: string | null; // NULL = structural node; non-null = in-node run row
   number_system: string | null;
   number_status: string | null; // parsed|unparsed|ambiguous|numberless
+  // ── TLDF v1.1 (portal-tree-v6 / tldf-compiler-v4, live 2026-09-01) ─────────
+  // The live table has 33 columns; this type declared 16, so the rest were
+  // UNSELECTABLE — Kysely cannot project a column it does not know about.
+  // Typing them does NOT expose them: there is still no query, resolver or
+  // route that reads any of the columns below. This removes the type-layer
+  // blocker; the API surface is separate work.
+  disposition: string | null; // node|role|presentation|facsimile|unmarked
+  origin: string | null;
+  source_element_id: string | null;
+  source_ordinal: number | null; // integer
+  own_text: JsonbArray | null; // [[start, end], ...] span pairs
+  structure_parser_version: string | null;
+  colspan: number | null; // smallint — table cell geometry (v1.1)
+  rowspan: number | null; // smallint
+  source_strike_scope: string | null;
+  source_struck_repealed: boolean | null;
+  annotation_role: string | null;
+  changed_since_base_form: boolean | null;
+  // ── provenance / privacy (present since the v2 lane, never typed here) ────
+  source_url: string | null;
+  privacy_class: string; // NOT NULL in the DDL
+  privacy_tags: string[] | null; // text[]
+  contains_personal_data: boolean; // NOT NULL in the DDL
+  updated_at: Tstz | null;
+}
+
+/**
+ * `legal.document_node_assets` — one row per `imagine` node
+ * (237,522 rows as of 2026-09-01).
+ *
+ * KEYED ON `node_id`, which is recompile-scoped and deliberately never served
+ * (`outline-repo.ts:25-26`), so any asset lookup must resolve
+ * `(document_id, path)` -> `node_id` PINNED to the served generation before
+ * joining here.
+ *
+ * `bytes_held` is FALSE and `sha256` NULL on every live row today: the image
+ * bytes are not in object storage, and `src` is a live origin URL. An endpoint
+ * built against this table now would proxy the origin per request, which is
+ * exactly what the envelope's no-locator design exists to avoid.
+ */
+export interface LegalDocumentNodeAssetsTable {
+  node_id: string; // bigint → string
+  asset_id: string;
+  src: string;
+  source_src: string;
+  width: number | null; // smallint
+  height: number | null; // smallint
+  alt: string | null;
+  sha256: string | null;
+  bytes_held: boolean;
+  privacy_class: string;
+}
+
+/**
+ * `legal.document_source_strikes` — source-state strike facts (129 rows over
+ * 77 documents as of 2026-09-01). The per-block signal already reaches clients inside the
+ * TLDF envelope (`struck`, `struck_repealed`); this table is the relational
+ * side, and every live row is `mechanism='s'`, `syntax_status='balanced'`,
+ * `legal_repealed=false`.
+ */
+export interface LegalDocumentSourceStrikesTable {
+  document_id: string;
+  run_id: string; // bigint → string
+  ordinal: number; // integer
+  source_path: string;
+  mechanism: string;
+  syntax_status: string;
+  direct_s_par_child: boolean;
+  legal_repealed: boolean;
+  char_start: number | null;
+  char_end: number | null;
+  privacy_class: string;
 }
 
 export interface LegalDocumentSummariesTable {
@@ -241,6 +327,8 @@ declare module '@/modules/shared/shell/db/types.js' {
     'legal.act_status_events': LegalActStatusEventsTable;
     'legal.external_acts': LegalExternalActsTable;
     'legal.document_nodes': LegalDocumentNodesTable;
+    'legal.document_node_assets': LegalDocumentNodeAssetsTable;
+    'legal.document_source_strikes': LegalDocumentSourceStrikesTable;
     'legal.document_generations': LegalDocumentGenerationsTable;
     'legal.document_render': LegalDocumentRenderTable;
     'legal.document_link_edges': LegalDocumentLinkEdgesTable;
