@@ -349,10 +349,14 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
         // SDL keeps `depth: Int!`. That guarantee is real on THIS path and only
         // this one: the outline query filters to ranked heading types, so every
         // row it returns has a grammar rank. `entryByPath` (MCP only) resolves
-        // any structural node and legitimately yields a null depth, which is
+        // any addressable node and legitimately yields a null depth, which is
         // why the core type is nullable — weakening the published GraphQL field
         // to match it would break generated clients to describe a case that
-        // cannot reach them. A null here means the repo filter and the rank
+        // cannot reach them. Since TLDF v1.1 that null-depth population is much
+        // larger than the alineate/note/portion wrappers it was written for:
+        // `entryByPath` filters only `role IS NULL`, which all 40,857,924
+        // `disposition='presentation'` rows satisfy, so a caller-supplied path
+        // can now resolve a table cell (checked 2026-09-01). A null here means the repo filter and the rank
         // table disagree; that is a contract violation, not a nullable value.
         const entries = page.items.map((entry) => {
           if (entry.depth === null) {

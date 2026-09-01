@@ -293,7 +293,7 @@ export const makeLegalMcpTools = (deps: LegalMcpDeps): readonly KernelMcpTool[] 
   const getLegalNode: KernelMcpTool = {
     name: 'get_legal_node',
     description:
-      'Locate a structural node (article/heading) within an act document by its stable (documentId, path) key: returns label, kind, numbering (with honesty status), char range into the rendered clean text, and a reader deep link.',
+      'Locate a node within an act document by its stable (documentId, path) key: returns label, kind, numbering (with honesty status), char range into the rendered clean text, and a reader deep link. Resolves ANY addressable node, not only articles and headings — since TLDF v1.1 that includes presentation nodes (tabel/rand/celula/imagine/lista), which carry a null depth because they have no grammar rank.',
     inputShape: getLegalNodeInput,
     async handler(args): Promise<McpToolOutput> {
       const documentId = str(args, 'documentId');
