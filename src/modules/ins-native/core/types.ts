@@ -176,6 +176,9 @@ export interface InsUnitView {
 export interface InsMemberView {
   readonly datasetCode: string;
   readonly dimIndex: number;
+  /** The dimension's labels, carried so a row's hydration needs no second read. */
+  readonly dimLabelRo: string;
+  readonly dimLabelEn: string | null;
   readonly nomItemId: number;
   readonly ordinal: number | null;
   readonly labelRo: string;
@@ -311,7 +314,13 @@ export interface InsPage<T> {
  * that a limit could truncate).
  */
 export type SlotPredicate =
-  readonly number[] | { readonly memberLevel: InsTerritoryLevel; readonly dimIndex: number };
+  | readonly number[]
+  | {
+      readonly memberLevel: InsTerritoryLevel;
+      readonly dimIndex: number;
+      /** An explicit member list to intersect with (a classification pin on the same slot). */
+      readonly ids?: readonly number[];
+    };
 
 /** One AND-group of slot pins: slot → predicate. */
 export type SlotPins = ReadonlyMap<number, SlotPredicate>;

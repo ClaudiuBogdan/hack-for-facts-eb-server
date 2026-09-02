@@ -231,6 +231,8 @@ const datasetFrom = sql`
 interface MemberRow {
   dataset_code: string;
   dim_index: number;
+  dim_label_ro: string;
+  dim_label_en: string | null;
   nom_item_id: number;
   ordinal: number | null;
   member_role: string;
@@ -253,6 +255,8 @@ interface MemberRow {
 const toMember = (r: MemberRow): InsMemberView => ({
   datasetCode: r.dataset_code,
   dimIndex: r.dim_index,
+  dimLabelRo: r.dim_label_ro,
+  dimLabelEn: r.dim_label_en,
   nomItemId: r.nom_item_id,
   ordinal: r.ordinal,
   labelRo: r.label_override ?? r.label_ro,
@@ -277,13 +281,15 @@ const toMember = (r: MemberRow): InsMemberView => ({
 });
 
 const memberSelect = sql`
-  m.dataset_code, m.dim_index, m.nom_item_id, m.ordinal, m.member_role, m.label_override,
+  m.dataset_code, m.dim_index, dd.label_ro as dim_label_ro, dd.label_en as dim_label_en,
+  m.nom_item_id, m.ordinal, m.member_role, m.label_override,
   m.parent_nom_item_id, n.label_ro, n.label_en, mt.resolution as territory_resolution,
   t.territory_id, t.code, t.siruta_code, t.level, t.name_ro, t.parent_id, t.core_territory_id,
   p.code as parent_code, p.name_ro as parent_name_ro`;
 
 const memberFrom = sql`
   from ins.dataset_dimension_members m
+  join ins.dataset_dimensions dd on dd.dataset_code = m.dataset_code and dd.dim_index = m.dim_index
   join ins.nomenclature_items n on n.nom_item_id = m.nom_item_id
   left join ins.member_territory mt
     on mt.dataset_code = m.dataset_code and mt.dim_index = m.dim_index and mt.nom_item_id = m.nom_item_id
@@ -376,6 +382,13 @@ const pinGroupSql = (datasetCode: string, pins: SlotPins): RawBuilder<unknown> =
       select mt.nom_item_id from ins.member_territory mt
       where mt.dataset_code = ${datasetCode} and mt.dim_index = ${pred.dimIndex}
         and mt.resolution = 'RESOLVED' and mt.territory_level = ${pred.memberLevel})`);
+    if (pred.ids !== undefined) {
+      parts.push(
+        pred.ids.length === 0
+          ? sql`false`
+          : sql`${slotColumn(slot)} in (${sql.join(pred.ids.map((id) => sql`${id}`))})`
+      );
+    }
   }
   return parts.length === 0 ? sql`true` : sql`(${sql.join(parts, sql` and `)})`;
 };

@@ -266,6 +266,7 @@ export const territoryLevelPins = (
   if (dims.length === 0) return null;
   const pins = new Map<number, SlotPredicate>();
   let expressed = false;
+  const levelDepth = TERRITORY_LEVEL_DEPTH[level];
   for (const dim of dims) {
     if (level !== 'NATIONAL' && dim.levels.includes(level)) {
       pins.set(dim.slotIndex, { memberLevel: level, dimIndex: dim.dimIndex });
@@ -273,10 +274,14 @@ export const territoryLevelPins = (
       continue;
     }
     const dimGrain = Math.max(...dim.levels.map(depthOf));
-    if (dimGrain > TERRITORY_LEVEL_DEPTH[level] && dim.totalNomItemId !== null) {
+    // Finer than the level: the level's row is this dimension's TOTAL.
+    if (dimGrain > levelDepth && dim.totalNomItemId !== null) {
       pins.set(dim.slotIndex, [dim.totalNomItemId]);
       continue;
     }
+    // Coarser than the level (the county dimension of a LAU request): every
+    // LAU row carries its own county member, so the slot stays unconstrained.
+    if (dimGrain < levelDepth) continue;
     return null;
   }
   return expressed || level === 'NATIONAL' ? pins : null;
@@ -458,15 +463,20 @@ export const periodPredicates = (
     // between them, and only at the token's own periodicity (an annual token never
     // matches the monthly rows overlapping that year).
     const ranges: { start: string; end: string }[] = [];
-    const periodicities = new Set<InsPeriodicity>(out.periodicities ?? []);
+    let periodicity: InsPeriodicity | undefined = period.periodicity;
     for (const token of period.tokens) {
       const b = periodTokenBounds(token);
       if (b === null) return err(invalidInput(`invalid period token ${token}`, 'period'));
+      // Every token must be of ONE periodicity (the filter's, when given): a
+      // year token next to a month token cannot mean one thing.
+      if (periodicity !== undefined && b.periodicity !== periodicity) {
+        return err(invalidInput(`period token ${token} is not ${periodicity}`, 'period'));
+      }
+      periodicity = b.periodicity;
       ranges.push({ start: b.start, end: b.end });
-      periodicities.add(b.periodicity);
     }
     out.periodRanges = ranges;
-    out.periodicities = [...periodicities];
+    if (periodicity !== undefined) out.periodicities = [periodicity];
     return ok(out);
   }
   if (period.start !== undefined) {
@@ -494,8 +504,13 @@ const mergePins = (base: SlotPins, extra: SlotPins): SlotPins => {
       out.set(slot, pred);
       continue;
     }
-    // Two explicit lists on one slot intersect; an explicit list narrows a level predicate.
-    out.set(slot, isMemberList(existing) ? pred.filter((id) => existing.includes(id)) : pred);
+    // Two explicit lists intersect; a level predicate keeps its level AND narrows to the list.
+    out.set(
+      slot,
+      isMemberList(existing)
+        ? pred.filter((id) => existing.includes(id))
+        : { ...existing, ids: pred }
+    );
   }
   return out;
 };

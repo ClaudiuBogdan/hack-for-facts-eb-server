@@ -219,6 +219,8 @@ const M: MemberSeed[] = [
 const toMember = (m: MemberSeed): InsMemberView => ({
   datasetCode: m.dataset,
   dimIndex: m.dim,
+  dimLabelRo: (DIMENSIONS[m.dataset] ?? []).find((d) => d.dimIndex === m.dim)?.labelRo ?? '',
+  dimLabelEn: null,
   nomItemId: m.id,
   ordinal: m.id,
   labelRo: m.label,
@@ -407,6 +409,7 @@ const matchesGroup = (f: Fact, pins: SlotPins): boolean => {
     }
     const m = M.find((x) => x.dataset === f.dataset && x.dim === pred.dimIndex && x.id === v);
     if (m?.node?.level !== pred.memberLevel) return false;
+    if (pred.ids !== undefined && !pred.ids.includes(v)) return false;
   }
   return true;
 };

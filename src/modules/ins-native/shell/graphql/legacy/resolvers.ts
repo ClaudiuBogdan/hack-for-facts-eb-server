@@ -313,15 +313,12 @@ export interface GqlClassificationValue {
   readonly sort_order: number | null;
 }
 
-const toGqlClassificationValue = (
-  m: InsMemberView,
-  dim: { labelRo: string; labelEn: string | null } | undefined
-): GqlClassificationValue => ({
+const toGqlClassificationValue = (m: InsMemberView): GqlClassificationValue => ({
   id: `${m.datasetCode}:${dimensionCode(m.dimIndex)}:${memberCode(m.nomItemId)}`,
   type_id: m.dimIndex,
   type_code: dimensionCode(m.dimIndex),
-  type_name_ro: dim?.labelRo ?? null,
-  type_name_en: dim?.labelEn ?? null,
+  type_name_ro: m.dimLabelRo,
+  type_name_en: m.dimLabelEn,
   code: memberCode(m.nomItemId),
   name_ro: m.labelRo,
   name_en: m.labelEn,
@@ -398,19 +395,19 @@ export interface GqlObservation {
   readonly dimensions: Record<string, unknown>;
 }
 
-const toGqlObservation = (
-  o: InsObservationView,
-  k: number,
-  dims: ReadonlyMap<number, InsDimensionView>
-): GqlObservation => ({
-  id: observationRef(o.coordinate, k),
+/** k = the classification arity: every classification dimension has a member in every row. */
+const arityOf = (o: InsObservationView): number =>
+  o.coordinate.slots.reduce<number>((k, v, i) => (v === null ? k : i + 1), 0);
+
+const toGqlObservation = (o: InsObservationView): GqlObservation => ({
+  id: observationRef(o.coordinate, arityOf(o)),
   dataset_code: o.coordinate.datasetCode,
   territory: o.territory === null ? null : toGqlTerritory(o.territory),
   time_period: toGqlTimePeriod(o.period),
   unit: toGqlUnit(o.unit),
   value: o.value,
   value_status: o.valueStatus,
-  classifications: o.members.map((m) => toGqlClassificationValue(m, dims.get(m.dimIndex))),
+  classifications: o.members.map(toGqlClassificationValue),
   // The legacy `dimensions` JSON shape, kept: territory/period/unit keys plus
   // the classification map (now keyed by D<n> with member codes).
   dimensions: {
@@ -528,19 +525,13 @@ export const makeInsLegacyResolvers = (deps: InsLegacyResolverDeps): Record<stri
     return dims.value.map(toGqlDimension);
   };
 
-  const observationsPage = async (
-    datasetCode: string,
+  // Pure: the snapshot the usecase read is the only read; nothing here hits the DB.
+  const observationsPage = (
     page: InsPage<InsObservationView>
-  ): Promise<{ nodes: GqlObservation[]; pageInfo: GqlPageInfo }> => {
-    const dims = await listDimensions(repo, datasetCode);
-    if (dims.isErr()) throw toGraphqlError(dims.error);
-    const byIndex = new Map(dims.value.map((d) => [d.dimIndex, d]));
-    const k = dims.value.filter((d) => d.role === 'classification').length;
-    return {
-      nodes: page.nodes.map((o) => toGqlObservation(o, k, byIndex)),
-      pageInfo: toPageInfo(page),
-    };
-  };
+  ): { nodes: GqlObservation[]; pageInfo: GqlPageInfo } => ({
+    nodes: page.nodes.map(toGqlObservation),
+    pageInfo: toPageInfo(page),
+  });
 
   const dimensionValues = async (
     view: InsDimensionView,
@@ -585,8 +576,7 @@ export const makeInsLegacyResolvers = (deps: InsLegacyResolverDeps): Record<stri
           offset_order: m.ordinal ?? 0,
           territory: m.territory === null ? null : toGqlTerritory(m.territory),
           time_period: period === undefined ? null : toGqlTimePeriod(period),
-          classification_value:
-            view.role === 'classification' ? toGqlClassificationValue(m, view) : null,
+          classification_value: view.role === 'classification' ? toGqlClassificationValue(m) : null,
           unit: unit === undefined ? null : toGqlUnit(unit),
         };
       }),
@@ -594,37 +584,19 @@ export const makeInsLegacyResolvers = (deps: InsLegacyResolverDeps): Record<stri
     };
   };
 
-  const latestValue = async (v: InsLatestValue) => ({
+  const latestValue = (v: InsLatestValue) => ({
     dataset: toGqlDataset(v.dataset),
-    observation:
-      v.observation === null
-        ? null
-        : ((
-            await observationsPage(v.dataset.code, {
-              nodes: [v.observation],
-              totalCount: 1,
-              hasNextPage: false,
-              hasPreviousPage: false,
-            })
-          ).nodes[0] ?? null),
+    observation: v.observation === null ? null : toGqlObservation(v.observation),
     latestPeriod: latestPeriodOf(v.observation),
     matchStrategy: v.matchStrategy,
     hasData: v.observation !== null,
   });
 
-  const dashboardGroup = async (g: InsDashboardGroup) => {
-    const page = await observationsPage(g.dataset.code, {
-      nodes: g.observations,
-      totalCount: g.observations.length,
-      hasNextPage: g.truncated,
-      hasPreviousPage: false,
-    });
-    return {
-      dataset: toGqlDataset(g.dataset),
-      observations: page.nodes,
-      latestPeriod: latestPeriodOf(g.observations[0] ?? null),
-    };
-  };
+  const dashboardGroup = (g: InsDashboardGroup) => ({
+    dataset: toGqlDataset(g.dataset),
+    observations: g.observations.map(toGqlObservation),
+    latestPeriod: latestPeriodOf(g.observations[0] ?? null),
+  });
 
   return {
     InsDataset: {
@@ -718,7 +690,7 @@ export const makeInsLegacyResolvers = (deps: InsLegacyResolverDeps): Record<stri
           opt(args.offset)
         );
         if (page.isErr()) throw toGraphqlError(page.error);
-        return observationsPage(args.datasetCode.trim().toUpperCase(), page.value);
+        return observationsPage(page.value);
       },
       insUatDashboard: async (
         _p: unknown,
@@ -732,7 +704,7 @@ export const makeInsLegacyResolvers = (deps: InsLegacyResolverDeps): Record<stri
           period === undefined ? undefined : { tokens: [period] }
         );
         if (groups.isErr()) throw toGraphqlError(groups.error);
-        return Promise.all(groups.value.map(dashboardGroup));
+        return groups.value.map(dashboardGroup);
       },
       insLatestDatasetValues: async (
         _p: unknown,
@@ -749,7 +721,7 @@ export const makeInsLegacyResolvers = (deps: InsLegacyResolverDeps): Record<stri
           opt(args.preferredClassificationCodes) ?? []
         );
         if (values.isErr()) throw toGraphqlError(values.error);
-        return Promise.all(values.value.map(latestValue));
+        return values.value.map(latestValue);
       },
     },
   };

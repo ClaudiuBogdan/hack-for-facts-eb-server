@@ -169,6 +169,44 @@ describe('TOTAL on a dimension without a TOTAL member (D1b)', () => {
     expect(group?.get(4)).toEqual([112]);
   });
 
+  it('territoryLevels: [LAU] reads every locality row (the county slot stays unconstrained)', async () => {
+    const repo = makeFakeRepo();
+    const page = await listObservations(
+      repo,
+      'POPTEST',
+      {
+        territoryLevels: ['LAU'],
+        classificationValueCodes: ['TOTAL'],
+        classificationTypeCodes: ['D0', 'D1'],
+      },
+      100
+    );
+    expect(new Set(values(page._unsafeUnwrap()).map((v) => v.split('-')[0]))).toEqual(
+      new Set(['CLJ', 'ALB'])
+    );
+    expect(repo.factQueries[0]?.pinGroups[0]?.has(3)).toBe(false);
+  });
+
+  it('a classification pin on a level-predicated slot narrows it, never replaces it', async () => {
+    const repo = makeFakeRepo();
+    const page = await listObservations(
+      repo,
+      'POPTEST',
+      {
+        territoryLevels: ['NUTS3'],
+        classificationTypeCodes: ['D2'],
+        classificationValueCodes: ['3064'],
+      },
+      100
+    );
+    expect(page._unsafeUnwrap().nodes).toEqual([]); // the national TOTAL is not a NUTS3 member
+    expect(repo.factQueries[0]?.pinGroups[0]?.get(3)).toEqual({
+      memberLevel: 'NUTS3',
+      dimIndex: 2,
+      ids: [3064],
+    });
+  });
+
   it('an offset beyond the end reports an unknown total, not the offset', async () => {
     const repo = makeFakeRepo();
     const page = await listObservations(repo, 'POPTEST', { territoryCodes: ['CJ'] }, 10, 100);
@@ -198,6 +236,9 @@ describe('period predicates', () => {
       periodEnd: '2020-09-30',
     });
     expect(periodPredicates({ tokens: ['20x'] }).isErr()).toBe(true);
+    // mixed granularities in one dates list cannot mean one thing
+    expect(periodPredicates({ tokens: ['2020', '2020-06'] }).isErr()).toBe(true);
+    expect(periodPredicates({ periodicity: 'ANNUAL', tokens: ['2020-06'] }).isErr()).toBe(true);
   });
 });
 
