@@ -119,6 +119,39 @@ describe('legacy classifications', () => {
     });
   });
 
+  it('reports a clamp that leaves rows behind, and stays silent otherwise', async () => {
+    const r = repo({
+      listClassifications: async () => ok({ rows: [{ code: '01', name: 'x' }], totalCount: 2500 }),
+    });
+    const clamped: unknown[] = [];
+    await listLegacyClassifications(
+      r,
+      'functional',
+      { limit: 10000 },
+      { onClamped: (i) => clamped.push(i) }
+    );
+    expect(clamped).toEqual([
+      { kind: 'functional', requested: 10000, clamp: 2000, totalCount: 2500 },
+    ]);
+    // Within the clamp, or clamped but nothing left behind: no event.
+    await listLegacyClassifications(
+      r,
+      'functional',
+      { limit: 100 },
+      { onClamped: (i) => clamped.push(i) }
+    );
+    const small = repo({
+      listClassifications: async () => ok({ rows: [], totalCount: 1117 }),
+    });
+    await listLegacyClassifications(
+      small,
+      'functional',
+      { limit: 10000 },
+      { onClamped: (i) => clamped.push(i) }
+    );
+    expect(clamped).toHaveLength(1);
+  });
+
   it('computes hasNextPage = offset + rows.length < totalCount (the classification formula)', async () => {
     const r = repo({
       listClassifications: async () =>

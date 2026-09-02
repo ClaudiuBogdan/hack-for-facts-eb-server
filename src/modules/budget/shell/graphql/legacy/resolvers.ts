@@ -24,6 +24,7 @@ import {
   listLegacyBudgetSectors,
   listLegacyClassifications,
   listLegacyFundingSources,
+  type LegacyClassificationOptions,
 } from '../../../core/legacy-dimensions/usecases.js';
 
 import type {
@@ -98,6 +99,8 @@ export const toGraphqlSeries = (series: LegacyAnalyticsSeries): GraphqlAnalytics
 export interface BudgetLegacyResolverDeps extends LegacyExecutionSeriesDeps {
   /** The four dimension roots (design 13 §4 "dimension usecases"). */
   readonly dimensions: LegacyDimensionRepo;
+  /** Fired when a classification list was clamped below the requested limit (never silent). */
+  readonly onClassificationClamped?: LegacyClassificationOptions['onClamped'];
 }
 
 interface LegacyDimensionArgs {
@@ -185,7 +188,10 @@ export const makeBudgetLegacyResolvers = (
         await listLegacyClassifications(
           deps.dimensions,
           'functional',
-          classificationInput(args, args.filter?.functional_codes)
+          classificationInput(args, args.filter?.functional_codes),
+          deps.onClassificationClamped === undefined
+            ? {}
+            : { onClamped: deps.onClassificationClamped }
         )
       );
       return {
@@ -198,7 +204,10 @@ export const makeBudgetLegacyResolvers = (
         await listLegacyClassifications(
           deps.dimensions,
           'economic',
-          classificationInput(args, args.filter?.economic_codes)
+          classificationInput(args, args.filter?.economic_codes),
+          deps.onClassificationClamped === undefined
+            ? {}
+            : { onClamped: deps.onClassificationClamped }
         )
       );
       return {

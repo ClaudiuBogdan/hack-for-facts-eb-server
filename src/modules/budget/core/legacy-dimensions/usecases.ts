@@ -9,8 +9,9 @@
  * `hasPreviousPage = offset > 0` everywhere.
  *
  * Documented deltas (design 13 §1 "fix the bugs, document every difference"):
- *  - non-integer `[ID!]` values are `InvalidInput` (legacy silently dropped them
- *    and widened the result — design 13 §7 delta 11 policy); "integer" is strict:
+ *  - non-integer `[ID!]` values are `InvalidInput` (legacy `parseInt` narrowed
+ *    "12abc" to 12 and dropped NaN/negatives, widening the result — design 13
+ *    §7 delta 11 policy); "integer" is strict:
  *    whitespace-padded or decimal forms (" 2", "1.5") are rejected too, where
  *    legacy `parseInt` accepted them;
  *  - the carried classification SDL still says "max: 1000" (byte identity);
@@ -20,9 +21,12 @@
  *  - the FUNCTIONAL classification count uses the same predicate as the rows
  *    (legacy counted `contains` matches while listing `prefix` matches for a
  *    code-like search; the economic repo was already consistent);
- *  - an explicit `null` for `filter`, `search` or a code/id list means "no
- *    filter" (the SDL allows the null); legacy answered `Internal server error`
- *    (it called `.trim()` / `.length` on the null — codex r2 probe 2026-09-02).
+ *  - an explicit `null` means "no filter" everywhere (the SDL allows it); legacy
+ *    answered `Internal server error` for `filter: null` on sectors / funding
+ *    sources, `search: null` on all four roots and a null code list (`.trim()` /
+ *    `.length` on the null — codex r2 probe 2026-09-02), and was fine elsewhere.
+ *  - the classification clamp (2000) is LOGGED when it truncates a result
+ *    (`onClamped`), never silent: the recurrence of S1-10 must be visible.
  */
 
 import { err, ok, type Result } from 'neverthrow';
@@ -134,10 +138,21 @@ export const listLegacyFundingSources = async (
   });
 };
 
+export interface LegacyClassificationOptions {
+  /** Observability hook: the requested limit exceeded the clamp AND rows were left behind. */
+  readonly onClamped?: (info: {
+    readonly kind: LegacyClassificationKind;
+    readonly requested: number;
+    readonly clamp: number;
+    readonly totalCount: number;
+  }) => void;
+}
+
 export const listLegacyClassifications = async (
   repo: LegacyDimensionRepo,
   kind: LegacyClassificationKind,
-  input: LegacyClassificationPageInput
+  input: LegacyClassificationPageInput,
+  options: LegacyClassificationOptions = {}
 ): Promise<Result<LegacyPage<LegacyClassification>, ApiError>> => {
   const limit = clampLimit(
     input.limit,
@@ -157,6 +172,10 @@ export const listLegacyClassifications = async (
     offset,
   });
   if (result.isErr()) return err(result.error);
+  const requested = input.limit ?? LEGACY_CLASSIFICATIONS_DEFAULT_LIMIT;
+  if (requested > limit && offset + limit < result.value.totalCount) {
+    options.onClamped?.({ kind, requested, clamp: limit, totalCount: result.value.totalCount });
+  }
   const nodes = result.value.rows.map((r) => ({ code: r.code, name: r.name ?? '' }));
   return ok({
     nodes,

@@ -105,6 +105,11 @@ export const makeBudgetModule = (deps: BudgetModuleDeps): BudgetModule => {
     factors: deps.legacyFactors,
     population: legacyPopulation,
     dimensions: legacyDimensions,
+    onClassificationClamped: ({ kind, requested, clamp, totalCount }) =>
+      deps.logger?.warn(
+        { kind, requested, clamp, totalCount },
+        'legacy classification list clamped below the requested limit — rows left behind'
+      ),
     onCapped: ({ seriesId, cap }) =>
       deps.logger?.warn(
         { seriesId, cap, max: LEGACY_ANALYTICS_MAX_POINTS },
