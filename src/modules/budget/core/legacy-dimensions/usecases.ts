@@ -10,7 +10,11 @@
  *
  * Documented deltas (design 13 §1 "fix the bugs, document every difference"):
  *  - non-integer `[ID!]` values are `InvalidInput` (legacy silently dropped them
- *    and widened the result — design 13 §7 delta 11 policy);
+ *    and widened the result — design 13 §7 delta 11 policy); "integer" is strict:
+ *    whitespace-padded or decimal forms (" 2", "1.5") are rejected too, where
+ *    legacy `parseInt` accepted them;
+ *  - the carried classification SDL still says "max: 1000" (byte identity);
+ *    the clamp is 2000 (S1-10);
  *  - `totalCount` when the page is empty is the real count (legacy sectors /
  *    funding sources answered 0 for an offset past the end);
  *  - the FUNCTIONAL classification count uses the same predicate as the rows
