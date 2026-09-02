@@ -1,0 +1,456 @@
+/**
+ * The frozen legacy INS SDL, served by the native module (docs/server-redesign/13
+ * §3 rule 1; plan INS_SERVING_CUTOVER_PLAN_2026-09-02 §3.1).
+ *
+ * Byte-for-byte the legacy `InsSchema` (`src/modules/ins/shell/graphql/schema.ts`)
+ * for the 8 roots the client sends, minus:
+ *  - `insUatIndicators` and `insCompare` (not ported — decision D5; no client
+ *    document sends them);
+ *  - nothing else. Types, fields, argument lists and defaults are unchanged; a
+ *    CI test pins the diff against the legacy fixture.
+ * plus:
+ *  - three additive enum values on `InsPeriodicity` (`SEMESTRIAL`, `RANGE`,
+ *    `OTHER`): the native `ins.periods` spine has them (one served dataset is
+ *    `OTHER`), and a non-null `periodicity` cannot lie about it. Additive, no
+ *    document breaks; recorded as an interface addition for the one-by-one talk.
+ *
+ * `PageInfo` is the kernel type EXTENDED by the budget module's legacy
+ * collision slice (`budgetLegacyCollisionTypeDefs`: totalCount, hasPreviousPage,
+ * startCursor) — this slice must not extend it again (the merge gate rejects
+ * two slices adding one field); the INS connections populate those fields.
+ * `Date` / `DateTime` / `JSON` are the KERNEL scalars (string pass-through;
+ * dates are `YYYY-MM-DD`, timestamps ISO), a declared golden-master delta on
+ * date leaves. `PeriodDate` and `ReportPeriodInput` are declared by the budget
+ * module's legacy slice: the budget module must be in the mounted set.
+ */
+
+export const insLegacyTypeDefs = /* GraphQL */ `
+  """
+  INS periodicity values.
+  """
+  enum InsPeriodicity {
+    ANNUAL
+    QUARTERLY
+    MONTHLY
+    SEMESTRIAL
+    RANGE
+    OTHER
+  }
+
+  """
+  INS territory levels (NUTS + LAU hierarchy).
+  """
+  enum InsTerritoryLevel {
+    NATIONAL
+    NUTS1
+    NUTS2
+    NUTS3
+    LAU
+  }
+
+  """
+  INS sync status for datasets.
+  """
+  enum InsSyncStatus {
+    PENDING
+    SYNCING
+    SYNCED
+    FAILED
+    STALE
+  }
+
+  """
+  Whether a dataset's observations have been loaded, independent of the
+  upstream sync pipeline state exposed by InsSyncStatus.
+  """
+  enum InsDataStatus {
+    AVAILABLE
+    CATALOG_ONLY
+  }
+
+  """
+  INS latest value match strategy.
+  """
+  enum InsLatestMatchStrategy {
+    PREFERRED_CLASSIFICATION
+    TOTAL_FALLBACK
+    REPRESENTATIVE_FALLBACK
+    NO_DATA
+  }
+
+  """
+  INS dimension type.
+  """
+  enum InsDimensionType {
+    TEMPORAL
+    TERRITORIAL
+    CLASSIFICATION
+    UNIT_OF_MEASURE
+  }
+
+  """
+  INS dataset (matrix) metadata.
+  """
+  type InsDataset {
+    id: ID!
+    code: String!
+    name_ro: String
+    name_en: String
+    definition_ro: String
+    definition_en: String
+    periodicity: [InsPeriodicity!]!
+    year_range: [Int!]
+    dimension_count: Int!
+    has_uat_data: Boolean!
+    has_county_data: Boolean!
+    has_siruta: Boolean!
+    sync_status: InsSyncStatus
+    data_status: InsDataStatus!
+    last_sync_at: DateTime
+    context_code: String
+    context_name_ro: String
+    context_name_en: String
+    context_path: String
+    metadata: JSON
+    dimensions: [InsDimension!]!
+  }
+
+  """
+  Paginated connection of INS datasets.
+  """
+  type InsDatasetConnection {
+    nodes: [InsDataset!]!
+    pageInfo: PageInfo!
+  }
+
+  """
+  INS context (taxonomy node).
+  """
+  type InsContext {
+    id: ID!
+    code: String!
+    name_ro: String
+    name_en: String
+    name_ro_markdown: String
+    name_en_markdown: String
+    level: Int
+    parent_id: Int
+    parent_code: String
+    path: String!
+    matrix_count: Int!
+  }
+
+  """
+  Paginated connection of INS contexts.
+  """
+  type InsContextConnection {
+    nodes: [InsContext!]!
+    pageInfo: PageInfo!
+  }
+
+  """
+  Dimension metadata for an INS dataset.
+  """
+  type InsDimension {
+    index: Int!
+    type: InsDimensionType!
+    label_ro: String
+    label_en: String
+    classification_type: InsClassificationType
+    is_hierarchical: Boolean!
+    option_count: Int!
+    values(
+      filter: InsDimensionValueFilterInput
+      limit: Int = 50
+      offset: Int = 0
+    ): InsDimensionValueConnection!
+  }
+
+  """
+  A single dimension value (nomItemId) mapped to canonical entities.
+  """
+  type InsDimensionValue {
+    nom_item_id: Int!
+    dimension_type: InsDimensionType!
+    label_ro: String
+    label_en: String
+    parent_nom_item_id: Int
+    offset_order: Int!
+    territory: InsTerritory
+    time_period: InsTimePeriod
+    classification_value: InsClassificationValue
+    unit: InsUnit
+  }
+
+  type InsDimensionValueConnection {
+    nodes: [InsDimensionValue!]!
+    pageInfo: PageInfo!
+  }
+
+  input InsDimensionValueFilterInput {
+    search: String
+  }
+
+  """
+  INS territory entity.
+  """
+  type InsTerritory {
+    id: ID!
+    code: String!
+    siruta_code: String
+    level: InsTerritoryLevel!
+    name_ro: String!
+    path: String
+    parent_id: Int
+    """
+    Parent territory (the containing county, for LAU rows). Only populated by
+    the insTerritories query.
+    """
+    parent_code: String
+    parent_name_ro: String
+  }
+
+  type InsTerritoryConnection {
+    nodes: [InsTerritory!]!
+    pageInfo: PageInfo!
+  }
+
+  input InsTerritoryFilterInput {
+    """
+    Diacritic-insensitive substring match on the territory name.
+    """
+    search: String
+    levels: [InsTerritoryLevel!]
+    parentCode: String
+    sirutaCodes: [String!]
+  }
+
+  """
+  INS time period.
+  """
+  type InsTimePeriod {
+    id: ID!
+    year: Int!
+    quarter: Int
+    month: Int
+    periodicity: InsPeriodicity!
+    period_start: Date
+    period_end: Date
+    label_ro: String
+    label_en: String
+    iso_period: String!
+  }
+
+  """
+  INS classification type.
+  """
+  type InsClassificationType {
+    id: ID!
+    code: String!
+    name_ro: String
+    name_en: String
+    is_hierarchical: Boolean!
+    value_count: Int
+  }
+
+  """
+  INS classification value.
+  """
+  type InsClassificationValue {
+    id: ID!
+    type_id: Int!
+    type_code: String!
+    type_name_ro: String
+    type_name_en: String
+    code: String!
+    name_ro: String
+    name_en: String
+    level: Int
+    parent_id: Int
+    sort_order: Int
+  }
+
+  """
+  INS unit of measure.
+  """
+  type InsUnit {
+    id: ID!
+    code: String!
+    symbol: String
+    name_ro: String
+    name_en: String
+  }
+
+  """
+  Single INS observation (data point).
+  """
+  type InsObservation {
+    id: ID!
+    dataset_code: String!
+    territory: InsTerritory
+    time_period: InsTimePeriod!
+    unit: InsUnit
+    value: String
+    value_status: String
+    classifications: [InsClassificationValue!]!
+    dimensions: JSON!
+  }
+
+  type InsObservationConnection {
+    nodes: [InsObservation!]!
+    pageInfo: PageInfo!
+  }
+
+  type InsLatestDatasetValue {
+    dataset: InsDataset!
+    observation: InsObservation
+    latestPeriod: String
+    matchStrategy: InsLatestMatchStrategy!
+    hasData: Boolean!
+  }
+
+  """
+  Filter datasets by code, search, and metadata.
+  """
+  input InsDatasetFilterInput {
+    search: String
+    codes: [String!]
+    contextCode: String
+    rootContextCode: String
+    periodicity: [InsPeriodicity!]
+    syncStatus: [InsSyncStatus!]
+    """
+    Omit to list only datasets whose observations are loaded. Provide any value
+    (including an empty list) to list the full INS Tempo catalog, optionally
+    narrowed to the given statuses.
+    """
+    dataStatus: [InsDataStatus!]
+    hasUatData: Boolean
+    hasCountyData: Boolean
+  }
+
+  input InsContextFilterInput {
+    search: String
+    level: Int
+    parentCode: String
+    rootContextCode: String
+  }
+
+  input InsEntitySelectorInput {
+    sirutaCode: String
+    territoryCode: String
+    territoryLevel: InsTerritoryLevel
+  }
+
+  """
+  Filter observations by dimensions.
+  """
+  input InsObservationFilterInput {
+    territoryCodes: [String!]
+    sirutaCodes: [String!]
+    territoryLevels: [InsTerritoryLevel!]
+    unitCodes: [String!]
+    classificationValueCodes: [String!]
+    classificationTypeCodes: [String!]
+    period: ReportPeriodInput
+    hasValue: Boolean
+  }
+
+  """
+  A dataset grouped with its observations for a UAT dashboard.
+  """
+  type InsUatDatasetGroup {
+    dataset: InsDataset!
+    observations: [InsObservation!]!
+    latestPeriod: String
+  }
+
+  extend type Query {
+    """
+    List INS datasets (matrices) with optional filtering.
+    """
+    insDatasets(
+      filter: InsDatasetFilterInput
+      limit: Int = 20
+      offset: Int = 0
+    ): InsDatasetConnection!
+
+    """
+    Get a single INS dataset by code.
+    """
+    insDataset(code: String!): InsDataset
+
+    """
+    Query paginated values for one INS dataset dimension.
+    """
+    insDatasetDimensionValues(
+      datasetCode: String!
+      dimensionIndex: Int!
+      filter: InsDimensionValueFilterInput
+      limit: Int = 50
+      offset: Int = 0
+    ): InsDimensionValueConnection!
+
+    """
+    List INS territories (NUTS + LAU hierarchy) with optional filtering.
+    """
+    insTerritories(
+      filter: InsTerritoryFilterInput
+      limit: Int = 20
+      offset: Int = 0
+    ): InsTerritoryConnection!
+
+    """
+    List INS contexts (taxonomy nodes) with optional filtering.
+    """
+    insContexts(
+      filter: InsContextFilterInput
+      limit: Int = 20
+      offset: Int = 0
+    ): InsContextConnection!
+
+    """
+    Query INS observations for a dataset.
+    """
+    insObservations(
+      datasetCode: String!
+      filter: InsObservationFilterInput
+      limit: Int = 50
+      offset: Int = 0
+    ): InsObservationConnection!
+
+    """
+    Load all UAT-level indicators for a specific territory, grouped by dataset.
+    Optimized for rendering a UAT dashboard in a single request.
+    """
+    insUatDashboard(
+      sirutaCode: String!
+      period: PeriodDate
+      contextCode: String
+    ): [InsUatDatasetGroup!]!
+
+    """
+    Return the latest available value per dataset for a selected entity.
+    """
+    insLatestDatasetValues(
+      entity: InsEntitySelectorInput!
+      datasetCodes: [String!]!
+      preferredClassificationCodes: [String!]
+    ): [InsLatestDatasetValue!]!
+  }
+`;
+
+/** The legacy roots this slice serves (the 8 the client sends). */
+export const INS_LEGACY_ROOTS = [
+  'insDatasets',
+  'insDataset',
+  'insDatasetDimensionValues',
+  'insTerritories',
+  'insContexts',
+  'insObservations',
+  'insUatDashboard',
+  'insLatestDatasetValues',
+] as const;
+
+/** The legacy roots deliberately NOT ported (decision D5). */
+export const INS_LEGACY_ROOTS_DROPPED = ['insUatIndicators', 'insCompare'] as const;

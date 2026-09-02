@@ -1,0 +1,327 @@
+import { describe, expect, it } from 'vitest';
+
+import {
+  classificationPins,
+  defaultSeriesFor,
+  listLatestValues,
+  listObservations,
+  periodPredicates,
+  resolveTerritoryNodes,
+  territoryPinGroups,
+  uatDashboard,
+} from '@/modules/ins-native/core/usecases.js';
+
+import {
+  AB,
+  CJ,
+  CLUJ_NAPOCA,
+  CNTTEST,
+  DIMENSIONS,
+  POPTEST,
+  RO,
+  RO11,
+  makeFakeRepo,
+} from './fake-repo.js';
+
+const values = (page: { nodes: readonly { value: string | null }[] }): string[] =>
+  page.nodes.map((n) => n.value ?? '');
+
+describe('territory resolution → slot pins', () => {
+  it('a LAU pins its locality member AND its county member (so the identity index prefix is usable)', async () => {
+    const repo = makeFakeRepo();
+    const groups = await territoryPinGroups(repo, 'POPTEST', [CLUJ_NAPOCA]);
+    expect(groups.isOk()).toBe(true);
+    const pins = groups._unsafeUnwrap()[0]?.pins;
+    expect(pins?.get(3)).toEqual([3075]); // county slot → Cluj
+    expect(pins?.get(4)).toEqual([931]); // locality slot → Cluj-Napoca
+  });
+
+  it('a county pins its county member and the locality dimension at its TOTAL member', async () => {
+    const repo = makeFakeRepo();
+    const pins = (await territoryPinGroups(repo, 'POPTEST', [CJ]))._unsafeUnwrap()[0]?.pins;
+    expect(pins?.get(3)).toEqual([3075]);
+    expect(pins?.get(4)).toEqual([112]);
+  });
+
+  it('the national node pins every territorial dimension at its TOTAL member', async () => {
+    const repo = makeFakeRepo();
+    const pins = (await territoryPinGroups(repo, 'POPTEST', [RO]))._unsafeUnwrap()[0]?.pins;
+    expect(pins?.get(3)).toEqual([3064]);
+    expect(pins?.get(4)).toEqual([112]);
+  });
+
+  it('a region on a county-family (reg-j) dimension pins its own member; a LAU on it has no series', async () => {
+    const repo = makeFakeRepo();
+    const region = (await territoryPinGroups(repo, 'CNTTEST', [RO11]))._unsafeUnwrap();
+    expect(region[0]?.pins.get(1)).toEqual([8001]);
+    const lau = (await territoryPinGroups(repo, 'CNTTEST', [CLUJ_NAPOCA]))._unsafeUnwrap();
+    expect(lau).toEqual([]); // the dimension's grain (NUTS3/NUTS2) is above a LAU → no row for it
+  });
+
+  it('mixed-level territoryCodes resolve in one list (LAU code == SIRUTA)', async () => {
+    const repo = makeFakeRepo();
+    const nodes = await resolveTerritoryNodes(repo, { territoryCodes: ['RO', 'CJ', '54975'] });
+    expect(nodes._unsafeUnwrap()?.map((n) => n.code)).toEqual(['RO', 'CJ', '54975']);
+  });
+
+  it('sirutaCodes and territoryCodes intersect; levels narrow', async () => {
+    const repo = makeFakeRepo();
+    const both = await resolveTerritoryNodes(repo, {
+      sirutaCodes: ['54975'],
+      territoryCodes: ['CJ'],
+    });
+    expect(both._unsafeUnwrap()).toEqual([]);
+    const lvl = await resolveTerritoryNodes(repo, { territoryLevels: ['NUTS3'] });
+    expect(
+      lvl
+        ._unsafeUnwrap()
+        ?.map((n) => n.code)
+        .sort()
+    ).toEqual(['AB', 'CJ']);
+  });
+});
+
+describe('classification pins', () => {
+  it('TOTAL alone pins every classification dimension that has a TOTAL', async () => {
+    const repo = makeFakeRepo();
+    const pins = await classificationPins(repo, 'POPTEST', DIMENSIONS['POPTEST'] ?? [], {
+      classificationValueCodes: ['TOTAL'],
+    });
+    expect([...pins._unsafeUnwrap().entries()]).toEqual([
+      [1, [1]],
+      [2, [105]],
+      [3, [3064]],
+      [4, [112]],
+    ]);
+  });
+
+  it('with type codes, TOTAL applies only to the listed dimensions and member codes only inside them', async () => {
+    const repo = makeFakeRepo();
+    const pins = await classificationPins(repo, 'POPTEST', DIMENSIONS['POPTEST'] ?? [], {
+      classificationTypeCodes: ['D0', 'D1'],
+      classificationValueCodes: ['TOTAL', '106'],
+    });
+    expect([...pins._unsafeUnwrap().entries()]).toEqual([
+      [1, [1]],
+      [2, [105, 106]],
+    ]);
+  });
+
+  it('a legacy slug is not a member code, and a member of another dataset is refused', async () => {
+    const repo = makeFakeRepo();
+    const slug = await classificationPins(repo, 'POPTEST', DIMENSIONS['POPTEST'] ?? [], {
+      classificationValueCodes: ['1634_ANI'],
+    });
+    expect(slug.isErr() && slug.error.type === 'InvalidInput').toBe(true);
+    const foreign = await classificationPins(repo, 'POPTEST', DIMENSIONS['POPTEST'] ?? [], {
+      classificationValueCodes: ['8002'],
+    });
+    expect(
+      foreign.isErr() &&
+        foreign.error.type === 'InvalidInput' &&
+        foreign.error.field === 'classificationValueCodes'
+    ).toBe(true);
+    const badType = await classificationPins(repo, 'POPTEST', DIMENSIONS['POPTEST'] ?? [], {
+      classificationTypeCodes: ['SEX'],
+    });
+    expect(
+      badType.isErr() &&
+        badType.error.type === 'InvalidInput' &&
+        badType.error.field === 'classificationTypeCodes'
+    ).toBe(true);
+  });
+});
+
+describe('period predicates', () => {
+  it('tokens are EXACT periods (never the span between them); interval bounds are parsed; bad tokens are InvalidInput', () => {
+    expect(periodPredicates({ tokens: ['2016', '2025'] })._unsafeUnwrap()).toEqual({
+      periodRanges: [
+        { start: '2016-01-01', end: '2016-12-31' },
+        { start: '2025-01-01', end: '2025-12-31' },
+      ],
+    });
+    expect(
+      periodPredicates({
+        periodicity: 'QUARTERLY',
+        start: '2020-Q2',
+        end: '2020-Q3',
+      })._unsafeUnwrap()
+    ).toEqual({
+      periodicities: ['QUARTERLY'],
+      periodStart: '2020-04-01',
+      periodEnd: '2020-09-30',
+    });
+    expect(periodPredicates({ tokens: ['20x'] }).isErr()).toBe(true);
+  });
+});
+
+describe('insObservations', () => {
+  it('the landing comparison: three territories of mixed level, TOTAL on the classifications, newest first', async () => {
+    const repo = makeFakeRepo();
+    const page = await listObservations(repo, 'POPTEST', {
+      territoryCodes: ['RO', 'CJ', '54975'],
+      classificationValueCodes: ['TOTAL'],
+      classificationTypeCodes: ['D0', 'D1'],
+    });
+    const got = values(page._unsafeUnwrap());
+    expect(got).toEqual([
+      'RO-1-105-2021',
+      'CJ-1-105-2021',
+      'CLJ-1-105-2021',
+      'RO-1-105-2020',
+      'CJ-1-105-2020',
+      'CLJ-1-105-2020',
+      'RO-1-105-2019',
+      'CJ-1-105-2019',
+      'CLJ-1-105-2019',
+    ]);
+    // One fact query, three OR-ed pin groups: no cross-product row (e.g. CJ county × RO locality total is the CJ row itself, never AB × Cluj-Napoca).
+    expect(repo.factQueries).toHaveLength(1);
+    expect(repo.factQueries[0]?.pinGroups).toHaveLength(3);
+    expect(page._unsafeUnwrap().totalCount).toBe(9);
+  });
+
+  it('a LAU history via sirutaCodes + LAU level, with a period window', async () => {
+    const repo = makeFakeRepo();
+    const page = await listObservations(repo, 'POPTEST', {
+      sirutaCodes: ['54975'],
+      territoryLevels: ['LAU'],
+      classificationValueCodes: ['TOTAL'],
+      period: { periodicity: 'ANNUAL', start: '2020', end: '2021' },
+    });
+    expect(values(page._unsafeUnwrap())).toEqual(['CLJ-1-105-2021', 'CLJ-1-105-2020']);
+  });
+
+  it('unpinned classification dimensions return every member row (the client pins them; the server never guesses)', async () => {
+    const repo = makeFakeRepo();
+    const page = await listObservations(repo, 'POPTEST', { territoryCodes: ['CJ'] }, 100);
+    expect(page._unsafeUnwrap().nodes).toHaveLength(27); // 3 age × 3 sex × 3 years
+  });
+
+  it('limit + 1 paging: totalCount is unknown (null) while more rows exist, exact on the last page', async () => {
+    const repo = makeFakeRepo();
+    const first = await listObservations(repo, 'POPTEST', { territoryCodes: ['CJ'] }, 10, 0);
+    expect(first._unsafeUnwrap().hasNextPage).toBe(true);
+    expect(first._unsafeUnwrap().totalCount).toBeNull();
+    const last = await listObservations(repo, 'POPTEST', { territoryCodes: ['CJ'] }, 10, 20);
+    expect(last._unsafeUnwrap().hasNextPage).toBe(false);
+    expect(last._unsafeUnwrap().hasPreviousPage).toBe(true);
+    expect(last._unsafeUnwrap().totalCount).toBe(27);
+  });
+
+  it('unknown territory codes and an unknown dataset are empty pages (aliased batches survive); unit codes are validated', async () => {
+    const repo = makeFakeRepo();
+    const none = await listObservations(repo, 'POPTEST', { territoryCodes: ['ZZ'] });
+    expect(none._unsafeUnwrap().nodes).toEqual([]);
+    const missing = await listObservations(repo, 'NOPE', {});
+    expect(missing._unsafeUnwrap()).toEqual({
+      nodes: [],
+      totalCount: 0,
+      hasNextPage: false,
+      hasPreviousPage: false,
+    });
+    const unit = await listObservations(repo, 'CNTTEST', {
+      territoryCodes: ['CJ'],
+      unitCodes: ['9999'],
+    });
+    expect(
+      unit.isErr() && unit.error.type === 'InvalidInput' && unit.error.field === 'unitCodes'
+    ).toBe(true);
+    const eur = await listObservations(repo, 'CNTTEST', {
+      territoryCodes: ['CJ'],
+      unitCodes: ['9508'],
+    });
+    expect(values(eur._unsafeUnwrap())).toEqual(['CJ-9508-2020', 'CJ-9508-2019']);
+  });
+});
+
+describe('default series and latest values (decision D2: no arbitrary row)', () => {
+  it('a fully pinnable dataset resolves TOTAL_FALLBACK for a LAU; a preferred member code upgrades the strategy', async () => {
+    const repo = makeFakeRepo();
+    const dims = DIMENSIONS['POPTEST'] ?? [];
+    const fallback = await defaultSeriesFor(repo, POPTEST, dims, CLUJ_NAPOCA, ['TOTAL']);
+    expect(fallback._unsafeUnwrap()?.strategy).toBe('TOTAL_FALLBACK');
+    expect(fallback._unsafeUnwrap()?.spec.slots).toEqual([1, 105, 3075, 931, null, null, null]);
+    const preferred = await defaultSeriesFor(repo, POPTEST, dims, CLUJ_NAPOCA, ['106']);
+    expect(preferred._unsafeUnwrap()?.strategy).toBe('PREFERRED_CLASSIFICATION');
+    expect(preferred._unsafeUnwrap()?.spec.slots[1]).toBe(106);
+  });
+
+  it('a dataset with two units and no manifest pin has NO default series', async () => {
+    const repo = makeFakeRepo();
+    const res = await defaultSeriesFor(repo, CNTTEST, DIMENSIONS['CNTTEST'] ?? [], CJ, []);
+    expect(res._unsafeUnwrap()).toBeNull();
+  });
+
+  it('insLatestDatasetValues batches every resolvable series into one read and answers NO_DATA for the rest', async () => {
+    const repo = makeFakeRepo();
+    const res = await listLatestValues(
+      repo,
+      { territoryCode: 'CJ', territoryLevel: 'NUTS3' },
+      ['POPTEST', 'CNTTEST', 'EMPTYTEST', 'NOPE'],
+      ['TOTAL']
+    );
+    const out = res._unsafeUnwrap();
+    expect(out.map((v) => [v.dataset.code, v.matchStrategy, v.observation?.value ?? null])).toEqual(
+      [
+        ['POPTEST', 'TOTAL_FALLBACK', 'CJ-1-105-2021'],
+        ['CNTTEST', 'NO_DATA', null],
+        ['EMPTYTEST', 'NO_DATA', null],
+      ]
+    );
+    expect(repo.seriesReads).toEqual([['POPTEST|25']]);
+  });
+
+  it('the national entity pins the territorial dimensions at their TOTAL members', async () => {
+    const repo = makeFakeRepo();
+    const res = await listLatestValues(repo, { territoryCode: 'RO', territoryLevel: 'NATIONAL' }, [
+      'POPTEST',
+    ]);
+    expect(res._unsafeUnwrap()[0]?.observation?.value).toBe('RO-1-105-2021');
+  });
+
+  it('an unknown entity is InvalidInput, never an empty success', async () => {
+    const repo = makeFakeRepo();
+    const res = await listLatestValues(repo, { sirutaCode: '999999' }, ['POPTEST']);
+    expect(
+      res.isErr() && res.error.type === 'InvalidInput' && res.error.field === 'entity.sirutaCode'
+    ).toBe(true);
+  });
+});
+
+describe('insUatDashboard', () => {
+  it('returns the LAU-bound datasets with their default series, newest first, without a global cap', async () => {
+    const repo = makeFakeRepo();
+    const res = await uatDashboard(repo, '54975', undefined, undefined);
+    const groups = res._unsafeUnwrap();
+    expect(groups.map((g) => g.dataset.code)).toEqual(['POPTEST']);
+    expect(groups[0]?.observations.map((o) => o.value)).toEqual([
+      'CLJ-1-105-2021',
+      'CLJ-1-105-2020',
+      'CLJ-1-105-2019',
+    ]);
+    expect(groups[0]?.truncated).toBe(false);
+  });
+
+  it('a period token filters the rows; a county SIRUTA is refused', async () => {
+    const repo = makeFakeRepo();
+    const res = await uatDashboard(repo, '54975', undefined, { tokens: ['2020'] });
+    expect(res._unsafeUnwrap()[0]?.observations.map((o) => o.value)).toEqual(['CLJ-1-105-2020']);
+    const bad = await uatDashboard(repo, 'CJ', undefined, undefined);
+    expect(bad.isErr()).toBe(true);
+  });
+});
+
+describe('the AB/Alba Iulia pair proves pins are exact, not cross-multiplied', () => {
+  it('requesting Alba Iulia and Cluj county never returns Alba county or Cluj-Napoca rows', async () => {
+    const repo = makeFakeRepo();
+    const page = await listObservations(repo, 'POPTEST', {
+      territoryCodes: ['1017', 'CJ'],
+      classificationValueCodes: ['TOTAL'],
+    });
+    const got = values(page._unsafeUnwrap());
+    expect(got.every((v) => v.startsWith('ALB-') || v.startsWith('CJ-'))).toBe(true);
+    expect(got).toHaveLength(6);
+    expect(AB.code).toBe('AB');
+  });
+});
