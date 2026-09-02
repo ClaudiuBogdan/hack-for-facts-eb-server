@@ -22,6 +22,7 @@ import { escapeLike, foldSearch } from '../../core/fold.js';
 import {
   INS_TERRITORY_LEVELS,
   MAX_SLOTS,
+  isMemberList,
   type InsContext,
   type InsDataStatus,
   type InsDatasetFilter,
@@ -37,6 +38,7 @@ import {
   type InsPeriodicity,
   type InsSeriesSpec,
   type InsTerritoryLevel,
+  type SlotPins,
   type InsTerritoryNode,
   type InsUnitKind,
   type InsUnitView,
@@ -47,6 +49,7 @@ import type {
   InsRepo,
   InsSeriesRow,
   InsTerritoryBinding,
+  InsTerritoryDimension,
 } from '../../core/ports.js';
 import type { ApiError, ProdDatabase } from '@/modules/shared/index.js';
 
@@ -58,11 +61,17 @@ const SERIES_PER_STATEMENT = 40;
 type Db = Kysely<ProdDatabase>;
 type Trx = Transaction<ProdDatabase>;
 
-const dbError = (cause: unknown, what: string): ApiError => ({
-  type: 'Database',
-  message: `ins repository failed: ${what}`,
-  cause,
-});
+const isStatementTimeout = (error: unknown): boolean => {
+  const code = (error as { code?: unknown } | null)?.code;
+  if (code === '57014') return true;
+  const message = error instanceof Error ? error.message : '';
+  return message.includes('statement timeout');
+};
+
+const dbError = (cause: unknown, what: string): ApiError =>
+  isStatementTimeout(cause)
+    ? { type: 'Timeout', message: `ins repository timed out: ${what}` }
+    : { type: 'Database', message: `ins repository failed: ${what}`, cause };
 
 const toInt = (v: string | number | null): number | null => (v === null ? null : Number(v));
 
@@ -347,15 +356,26 @@ const factOrder = sql`
 
 const slotColumn = (slot: number): RawBuilder<unknown> => sql.ref(`o.dim${String(slot)}_member_id`);
 
-/** One AND-group: `(o.dimA in (...) and o.dimB in (...))`. */
-const pinGroupSql = (pins: ReadonlyMap<number, readonly number[]>): RawBuilder<unknown> => {
+/**
+ * One AND-group: `(o.dimA in (...) and o.dimB in (...))`. A level predicate
+ * becomes a semi-join on member_territory (every member bound at that level),
+ * never an id list a limit could truncate.
+ */
+const pinGroupSql = (datasetCode: string, pins: SlotPins): RawBuilder<unknown> => {
   const parts: RawBuilder<unknown>[] = [];
-  for (const [slot, ids] of pins) {
-    if (ids.length === 0) {
-      parts.push(sql`false`);
+  for (const [slot, pred] of pins) {
+    if (isMemberList(pred)) {
+      if (pred.length === 0) {
+        parts.push(sql`false`);
+        continue;
+      }
+      parts.push(sql`${slotColumn(slot)} in (${sql.join(pred.map((id) => sql`${id}`))})`);
       continue;
     }
-    parts.push(sql`${slotColumn(slot)} in (${sql.join(ids.map((id) => sql`${id}`))})`);
+    parts.push(sql`${slotColumn(slot)} in (
+      select mt.nom_item_id from ins.member_territory mt
+      where mt.dataset_code = ${datasetCode} and mt.dim_index = ${pred.dimIndex}
+        and mt.resolution = 'RESOLVED' and mt.territory_level = ${pred.memberLevel})`);
   }
   return parts.length === 0 ? sql`true` : sql`(${sql.join(parts, sql` and `)})`;
 };
@@ -465,25 +485,40 @@ const hydrate = async (
 // The repository
 // ─────────────────────────────────────────────────────────────────────────────
 
-const readTx = async <T>(
-  db: Db,
-  what: string,
-  fn: (trx: Trx) => Promise<T>
-): Promise<Result<T, ApiError>> => {
-  try {
-    const value = await db
-      .transaction()
-      .setIsolationLevel('repeatable read')
-      .execute(async (trx) => {
-        await sql`set transaction read only`.execute(trx);
-        await sql`set local statement_timeout = ${sql.lit(INS_READ_TIMEOUT_MS)}`.execute(trx);
-        return fn(trx);
-      });
-    return ok(value);
-  } catch (cause) {
-    return err(dbError(cause, what));
-  }
-};
+/** Runs one read inside a repeatable-read, read-only transaction (or an enclosing one). */
+type Runner = <T>(what: string, fn: (trx: Trx) => Promise<T>) => Promise<Result<T, ApiError>>;
+
+const openSnapshot = async <T>(db: Db, fn: (trx: Trx) => Promise<T>): Promise<T> =>
+  db
+    .transaction()
+    .setIsolationLevel('repeatable read')
+    .execute(async (trx) => {
+      await sql`set transaction read only`.execute(trx);
+      await sql`set local statement_timeout = ${sql.lit(INS_READ_TIMEOUT_MS)}`.execute(trx);
+      return fn(trx);
+    });
+
+/** A fresh snapshot per read (the default when no request-level snapshot is open). */
+const perReadRunner =
+  (db: Db): Runner =>
+  async (what, fn) => {
+    try {
+      return ok(await openSnapshot(db, fn));
+    } catch (cause) {
+      return err(dbError(cause, what));
+    }
+  };
+
+/** Every read inside ONE already-open snapshot. */
+const inTrxRunner =
+  (trx: Trx): Runner =>
+  async (what, fn) => {
+    try {
+      return ok(await fn(trx));
+    } catch (cause) {
+      return err(dbError(cause, what));
+    }
+  };
 
 const likeNeedle = (needle: string): string => `%${escapeLike(foldSearch(needle))}%`;
 
@@ -494,7 +529,9 @@ const page = <T>(rows: readonly T[], total: number, limit: number, offset: numbe
   hasPreviousPage: offset > 0,
 });
 
-export const makeInsRepo = (db: Db): InsRepo => {
+export const makeInsRepo = (db: Db): InsRepo => makeRepoOn(db, perReadRunner(db));
+
+const makeRepoOn = (db: Db, readTx: Runner): InsRepo => {
   const datasetWhere = (filter: InsDatasetFilter): RawBuilder<unknown> => {
     const parts: RawBuilder<unknown>[] = [sql`true`];
     if (filter.codes !== undefined && filter.codes.length > 0) {
@@ -552,7 +589,7 @@ export const makeInsRepo = (db: Db): InsRepo => {
 
   return {
     async listDatasets(filter, limit, offset) {
-      return readTx(db, 'listDatasets', async (trx) => {
+      return readTx('listDatasets', async (trx) => {
         const res = await sql<DatasetRow & { total: string }>`
           select ${datasetSelect}, count(*) over() as total ${datasetFrom}
           where ${datasetWhere(filter)}
@@ -565,7 +602,7 @@ export const makeInsRepo = (db: Db): InsRepo => {
     },
 
     async getDataset(code) {
-      return readTx(db, 'getDataset', async (trx) => {
+      return readTx('getDataset', async (trx) => {
         const res =
           await sql<DatasetRow>`select ${datasetSelect} ${datasetFrom} where d.dataset_code = ${code}`.execute(
             trx
@@ -577,7 +614,7 @@ export const makeInsRepo = (db: Db): InsRepo => {
 
     async getDatasets(codes) {
       if (codes.length === 0) return ok([]);
-      return readTx(db, 'getDatasets', async (trx) => {
+      return readTx('getDatasets', async (trx) => {
         const res = await sql<DatasetRow>`select ${datasetSelect} ${datasetFrom}
           where d.dataset_code in (${sql.join(codes.map((c) => sql`${c}`))})`.execute(trx);
         const byCode = new Map(res.rows.map((r) => [r.dataset_code, toDataset(r)]));
@@ -589,7 +626,7 @@ export const makeInsRepo = (db: Db): InsRepo => {
     },
 
     async listDimensions(datasetCode) {
-      return readTx(db, 'listDimensions', async (trx) => {
+      return readTx('listDimensions', async (trx) => {
         const res = await sql<{
           dataset_code: string;
           dim_index: number;
@@ -623,11 +660,11 @@ export const makeInsRepo = (db: Db): InsRepo => {
     },
 
     async listMembers(datasetCode, dimIndex, search, limit, offset) {
-      return readTx(db, 'listMembers', async (trx) => {
+      return readTx('listMembers', async (trx) => {
         const needle =
           search === undefined
             ? sql`true`
-            : sql`(lower(n.label_ro) like ${likeNeedle(search)} or lower(coalesce(n.label_en, '')) like ${likeNeedle(search)})`;
+            : sql`(lower(unaccent(n.label_ro)) like ${likeNeedle(search)} or lower(unaccent(coalesce(n.label_en, ''))) like ${likeNeedle(search)})`;
         const res = await sql<MemberRow & { total: string }>`
           select ${memberSelect}, count(*) over() as total ${memberFrom}
           where m.dataset_code = ${datasetCode} and m.dim_index = ${dimIndex} and ${needle}
@@ -640,7 +677,7 @@ export const makeInsRepo = (db: Db): InsRepo => {
 
     async membersByIds(datasetCode, nomItemIds) {
       if (nomItemIds.length === 0) return ok([]);
-      return readTx(db, 'membersByIds', async (trx) => {
+      return readTx('membersByIds', async (trx) => {
         const res = await sql<MemberRow>`select ${memberSelect} ${memberFrom}
           where m.dataset_code = ${datasetCode}
             and m.nom_item_id in (${sql.join(nomItemIds.map((id) => sql`${id}`))})
@@ -650,14 +687,14 @@ export const makeInsRepo = (db: Db): InsRepo => {
     },
 
     async listUnits(datasetCode) {
-      return readTx(db, 'listUnits', async (trx) =>
+      return readTx('listUnits', async (trx) =>
         (await unitSql(datasetCode).execute(trx)).rows.map(toUnit)
       );
     },
 
     async periodsByLabels(labels) {
       if (labels.length === 0) return ok([]);
-      return readTx(db, 'periodsByLabels', async (trx) => {
+      return readTx('periodsByLabels', async (trx) => {
         const res = await sql<{
           period_id: number;
           periodicity: string;
@@ -677,7 +714,7 @@ export const makeInsRepo = (db: Db): InsRepo => {
     },
 
     async listContexts(filter, limit, offset) {
-      return readTx(db, 'listContexts', async (trx) => {
+      return readTx('listContexts', async (trx) => {
         const parts: RawBuilder<unknown>[] = [sql`true`];
         if (filter.search !== undefined && filter.search.trim() !== '') {
           parts.push(sql`c.name_search like ${likeNeedle(filter.search)}`);
@@ -728,7 +765,7 @@ export const makeInsRepo = (db: Db): InsRepo => {
     },
 
     async listTerritories(filter, limit, offset) {
-      return readTx(db, 'listTerritories', async (trx) => {
+      return readTx('listTerritories', async (trx) => {
         const parts: RawBuilder<unknown>[] = [sql`true`];
         if (filter.search !== undefined && filter.search.trim() !== '') {
           parts.push(sql`t.name_search like ${likeNeedle(filter.search)}`);
@@ -756,7 +793,7 @@ export const makeInsRepo = (db: Db): InsRepo => {
 
     async territoriesByCodes(codes, levels) {
       if (codes.length === 0) return ok([]);
-      return readTx(db, 'territoriesByCodes', async (trx) => {
+      return readTx('territoriesByCodes', async (trx) => {
         const levelPart =
           levels === undefined || levels.length === 0
             ? sql`true`
@@ -771,7 +808,7 @@ export const makeInsRepo = (db: Db): InsRepo => {
 
     async territoriesBySiruta(sirutaCodes) {
       if (sirutaCodes.length === 0) return ok([]);
-      return readTx(db, 'territoriesBySiruta', async (trx) => {
+      return readTx('territoriesBySiruta', async (trx) => {
         const res = await territoryQuery(
           sql`t.siruta_code in (${sql.join(sirutaCodes.map((s) => sql`${s.trim()}`))})`,
           levelOrder
@@ -781,7 +818,7 @@ export const makeInsRepo = (db: Db): InsRepo => {
     },
 
     async ancestorsOf(territoryId) {
-      return readTx(db, 'ancestorsOf', async (trx) => {
+      return readTx('ancestorsOf', async (trx) => {
         const res = await sql<NodeRow & { depth: number }>`
           with recursive up as (
             select t.parent_id, 1 as depth from ins.territory_nodes t where t.territory_id = ${territoryId}
@@ -798,42 +835,77 @@ export const makeInsRepo = (db: Db): InsRepo => {
       });
     },
 
-    async territoryBindings(datasetCode, territoryIds) {
-      return readTx(db, 'territoryBindings', async (trx) => {
-        const idPart =
-          territoryIds.length === 0
-            ? sql`false`
-            : sql`mt.territory_id in (${sql.join(territoryIds.map((id) => sql`${id}`))})`;
+    withSnapshot(fn) {
+      return openSnapshot(db, (trx) => fn(makeRepoOn(db, inTrxRunner(trx)))).catch(
+        (cause: unknown) => err(dbError(cause, 'withSnapshot'))
+      );
+    },
+
+    async territoryDimensions(datasetCode) {
+      return readTx('territoryDimensions', async (trx) => {
+        // Levels come from the RESOLVED members of the whole dimension (a TOTAL
+        // row's territory_level is nullable and NULL on the live locality rows);
+        // the TOTAL member is the dimension's member_role = 'TOTAL' member.
         const res = await sql<{
-          dataset_code: string;
+          dim_index: number;
+          slot_index: number;
+          levels: string[] | null;
+          total_nom_item_id: number | null;
+        }>`
+          select dd.dim_index, dd.slot_index,
+                 (select array_agg(distinct mt.territory_level order by mt.territory_level)
+                    from ins.member_territory mt
+                   where mt.dataset_code = dd.dataset_code and mt.dim_index = dd.dim_index
+                     and mt.resolution = 'RESOLVED' and mt.territory_level is not null) as levels,
+                 (select m.nom_item_id from ins.dataset_dimension_members m
+                   where m.dataset_code = dd.dataset_code and m.dim_index = dd.dim_index
+                     and m.member_role = 'TOTAL') as total_nom_item_id
+          from ins.dataset_dimensions dd
+          where dd.dataset_code = ${datasetCode} and dd.slot_index is not null
+            and exists (select 1 from ins.member_territory mt
+                         where mt.dataset_code = dd.dataset_code and mt.dim_index = dd.dim_index
+                           and mt.resolution = 'RESOLVED')
+          order by dd.dim_index`.execute(trx);
+        return res.rows.map((r): InsTerritoryDimension => ({
+          datasetCode,
+          dimIndex: r.dim_index,
+          slotIndex: r.slot_index,
+          levels: (r.levels ?? []) as InsTerritoryLevel[],
+          totalNomItemId: r.total_nom_item_id,
+        }));
+      });
+    },
+
+    async territoryBindings(datasetCode, territoryIds) {
+      if (territoryIds.length === 0) return ok([]);
+      return readTx('territoryBindings', async (trx) => {
+        const res = await sql<{
           dim_index: number;
           slot_index: number;
           nom_item_id: number;
-          territory_id: string | null;
-          territory_level: string | null;
-          resolution: string;
+          territory_id: string;
+          territory_level: string;
         }>`
-          select mt.dataset_code, mt.dim_index, dd.slot_index, mt.nom_item_id, mt.territory_id,
-                 mt.territory_level, mt.resolution
+          select mt.dim_index, dd.slot_index, mt.nom_item_id, mt.territory_id, mt.territory_level
           from ins.member_territory mt
           join ins.dataset_dimensions dd on dd.dataset_code = mt.dataset_code and dd.dim_index = mt.dim_index
           where mt.dataset_code = ${datasetCode} and dd.slot_index is not null
-            and (${idPart} or mt.resolution = 'TOTAL_MEMBER')
+            and mt.resolution = 'RESOLVED'
+            and mt.territory_id in (${sql.join(territoryIds.map((id) => sql`${id}`))})
           order by mt.dim_index, mt.nom_item_id`.execute(trx);
         return res.rows.map((r): InsTerritoryBinding => ({
-          datasetCode: r.dataset_code,
+          datasetCode,
           dimIndex: r.dim_index,
           slotIndex: r.slot_index,
           nomItemId: r.nom_item_id,
-          territoryId: toInt(r.territory_id),
-          territoryLevel: r.territory_level as InsTerritoryLevel | null,
-          resolution: r.resolution,
+          territoryId: Number(r.territory_id),
+          territoryLevel: r.territory_level as InsTerritoryLevel,
         }));
       });
     },
 
     async totalMember(datasetCode, dimIndex) {
-      return readTx(db, 'totalMember', async (trx) => {
+      return readTx('totalMember', async (trx) => {
         const res = await sql<{ nom_item_id: number }>`
           select nom_item_id from ins.dataset_dimension_members
           where dataset_code = ${datasetCode} and dim_index = ${dimIndex} and member_role = 'TOTAL'`.execute(
@@ -845,7 +917,7 @@ export const makeInsRepo = (db: Db): InsRepo => {
 
     async defaultPins(datasetCodes) {
       if (datasetCodes.length === 0) return ok([]);
-      return readTx(db, 'defaultPins', async (trx) => {
+      return readTx('defaultPins', async (trx) => {
         const res = await sql<{
           dataset_code: string;
           dim_index: number;
@@ -865,7 +937,7 @@ export const makeInsRepo = (db: Db): InsRepo => {
     },
 
     async datasetsWithLevel(level) {
-      return readTx(db, 'datasetsWithLevel', async (trx) => {
+      return readTx('datasetsWithLevel', async (trx) => {
         const column =
           level === 'LAU'
             ? sql`has_lau`
@@ -883,10 +955,15 @@ export const makeInsRepo = (db: Db): InsRepo => {
     },
 
     async listObservations(query) {
-      return readTx(db, 'listObservations', async (trx) => {
+      return readTx('listObservations', async (trx) => {
         const parts: RawBuilder<unknown>[] = [sql`o.dataset_code = ${query.datasetCode}`];
         if (query.pinGroups.length > 0) {
-          parts.push(sql`(${sql.join(query.pinGroups.map(pinGroupSql), sql` or `)})`);
+          parts.push(
+            sql`(${sql.join(
+              query.pinGroups.map((g) => pinGroupSql(query.datasetCode, g)),
+              sql` or `
+            )})`
+          );
         }
         if (query.unitNomItemIds !== undefined && query.unitNomItemIds.length > 0) {
           parts.push(
@@ -929,8 +1006,12 @@ export const makeInsRepo = (db: Db): InsRepo => {
         const { views } = await hydrate(trx, query.datasetCode, rows);
         return {
           nodes: views,
-          // Exact only when the whole population fits in this page (D7); otherwise unknown.
-          totalCount: hasNextPage ? null : query.offset + rows.length,
+          // Exact only when the whole population ends inside this page (D7);
+          // unknown when more rows exist or when the offset overshot the end.
+          totalCount:
+            hasNextPage || (rows.length === 0 && query.offset > 0)
+              ? null
+              : query.offset + rows.length,
           hasNextPage,
           hasPreviousPage: query.offset > 0,
         };
@@ -960,7 +1041,7 @@ export const makeInsRepo = (db: Db): InsRepo => {
         );
       }
       const periodSql = periodParts.length === 0 ? sql`true` : sql.join(periodParts, sql` and `);
-      return readTx(db, 'latestForSeries', async (trx) => {
+      return readTx('latestForSeries', async (trx) => {
         const out: InsSeriesRow[] = [];
         for (let i = 0; i < series.length; i += SERIES_PER_STATEMENT) {
           const chunk = series.slice(i, i + SERIES_PER_STATEMENT);
@@ -1010,6 +1091,9 @@ export const makeInsRepo = (db: Db): InsRepo => {
 
 /** Exported for the plan/EXPLAIN tests: the fact predicate a query compiles to. */
 export const factPredicateSql = (query: InsFactQuery): RawBuilder<unknown> =>
-  sql`o.dataset_code = ${query.datasetCode} and (${sql.join(query.pinGroups.map(pinGroupSql), sql` or `)})`;
+  sql`o.dataset_code = ${query.datasetCode} and (${sql.join(
+    query.pinGroups.map((g) => pinGroupSql(query.datasetCode, g)),
+    sql` or `
+  )})`;
 
 export type { InsSeriesSpec };

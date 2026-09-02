@@ -32,6 +32,7 @@ import {
   MAX_OBSERVATION_LIMIT,
   MAX_TERRITORY_LIMIT,
   TERRITORY_LEVEL_DEPTH,
+  isMemberList,
   type InsContext,
   type InsContextFilter,
   type InsDashboardGroup,
@@ -52,9 +53,10 @@ import {
   type InsTerritoryFilter,
   type InsTerritoryNode,
   type SlotPins,
+  type SlotPredicate,
 } from './types.js';
 
-import type { InsRepo, InsTerritoryBinding } from './ports.js';
+import type { InsRepo, InsTerritoryBinding, InsTerritoryDimension } from './ports.js';
 import type { ApiError } from '@/modules/shared/index.js';
 
 const invalidInput = (message: string, field?: string): ApiError => ({
@@ -170,15 +172,20 @@ export const listTerritories = (
 export const resolveTerritoryNodes = async (
   repo: InsRepo,
   filter: Pick<InsObservationFilter, 'territoryCodes' | 'sirutaCodes' | 'territoryLevels'>
-): Promise<Result<readonly InsTerritoryNode[] | null, ApiError>> => {
+): Promise<
+  Result<
+    readonly InsTerritoryNode[] | { readonly levels: readonly InsTerritoryLevel[] } | null,
+    ApiError
+  >
+> => {
   const wantsSiruta = filter.sirutaCodes !== undefined && filter.sirutaCodes.length > 0;
   const wantsCodes = filter.territoryCodes !== undefined && filter.territoryCodes.length > 0;
   const levels = filter.territoryLevels;
   if (!wantsSiruta && !wantsCodes) {
-    // Levels alone (e.g. NATIONAL) select every node of those levels.
+    // Levels alone select EVERY territory of those levels — expressed as a level
+    // predicate on the dimension, never as a node list a limit could truncate.
     if (levels === undefined || levels.length === 0) return ok(null);
-    const nodes = await repo.listTerritories({ levels }, MAX_TERRITORY_LIMIT, 0);
-    return nodes.isErr() ? err(nodes.error) : ok(nodes.value.nodes);
+    return ok({ levels });
   }
   let selected: InsTerritoryNode[] | null = null;
   if (wantsCodes) {
@@ -200,65 +207,79 @@ export const resolveTerritoryNodes = async (
   return ok(filtered);
 };
 
+const depthOf = (level: InsTerritoryLevel | null): number =>
+  level === null ? -1 : TERRITORY_LEVEL_DEPTH[level];
+
 /**
  * The slot pins one spine node implies in one dataset: for every territorial
- * dimension of the dataset, the member bound to the node or to one of its
- * ancestors; for a dimension whose grain is BELOW the node (e.g. the locality
- * dimension when the node is a county), the dimension's TOTAL member. A node
- * with no binding in any dimension, or a node below every bound grain, has no
- * series in this dataset → null.
+ * dimension, the member bound to the node or to one of its ancestors (the
+ * deepest wins); for a dimension whose members are all BELOW the node (the
+ * locality dimension when the node is a county), the dimension's TOTAL member.
+ * A node deeper than every grain the dataset binds (a locality in a
+ * county-only dataset), or a node bound in no dimension, has no series → null:
+ * a node is never answered with an ancestor's row.
  */
 export const territoryPinsFor = (
   node: InsTerritoryNode,
   ancestors: readonly InsTerritoryNode[],
+  dims: readonly InsTerritoryDimension[],
   bindings: readonly InsTerritoryBinding[]
 ): SlotPins | null => {
-  const chain = [node, ...ancestors];
-  const chainIds = new Map(chain.map((n) => [n.territoryId, n]));
-  const byDim = new Map<number, InsTerritoryBinding[]>();
-  for (const b of bindings) {
-    const list = byDim.get(b.dimIndex) ?? [];
-    list.push(b);
-    byDim.set(b.dimIndex, list);
-  }
-  if (byDim.size === 0) return null;
+  if (dims.length === 0) return null;
+  const chainIds = new Set([node, ...ancestors].map((n) => n.territoryId));
   const nodeDepth = TERRITORY_LEVEL_DEPTH[node.level];
-  const depthOf = (level: InsTerritoryLevel | null): number =>
-    level === null ? -1 : TERRITORY_LEVEL_DEPTH[level];
-  // The finest grain any territorial dimension of the dataset binds: a node
-  // deeper than that has no row of its own (a locality in a county-only
-  // dataset must never be answered with its county's value).
-  let finestGrain = -1;
-  for (const [, dimBindings] of byDim) {
-    for (const b of dimBindings) finestGrain = Math.max(finestGrain, depthOf(b.territoryLevel));
-  }
+  const finestGrain = Math.max(...dims.flatMap((d) => d.levels.map(depthOf)));
   if (nodeDepth > finestGrain) return null;
 
-  const pins = new Map<number, readonly number[]>();
+  const pins = new Map<number, SlotPredicate>();
   let boundToChain = false;
-  for (const [, dimBindings] of byDim) {
-    const onChain = dimBindings
-      .filter((b) => b.territoryId !== null && chainIds.has(b.territoryId))
+  for (const dim of dims) {
+    const onChain = bindings
+      .filter((b) => b.dimIndex === dim.dimIndex && chainIds.has(b.territoryId))
       .sort((a, b) => depthOf(b.territoryLevel) - depthOf(a.territoryLevel));
     const best = onChain[0];
     if (best !== undefined) {
-      // The deepest chain node bound in this dimension (the node itself over its ancestors).
-      pins.set(best.slotIndex, [best.nomItemId]);
+      pins.set(dim.slotIndex, [best.nomItemId]);
       boundToChain = true;
       continue;
     }
-    // The dimension binds nodes at some grain; if that grain is below the node,
-    // the node's row is the dimension's TOTAL member.
-    const dimGrain = Math.max(...dimBindings.map((b) => depthOf(b.territoryLevel)));
-    const total = dimBindings.find((b) => b.resolution === 'TOTAL_MEMBER');
-    if (dimGrain > nodeDepth && total !== undefined) {
-      pins.set(total.slotIndex, [total.nomItemId]);
+    const dimGrain = Math.max(...dim.levels.map(depthOf));
+    if (dimGrain > nodeDepth && dim.totalNomItemId !== null) {
+      pins.set(dim.slotIndex, [dim.totalNomItemId]);
       continue;
     }
-    // A dimension the node cannot be expressed in: no series.
     return null;
   }
   return boundToChain || node.level === 'NATIONAL' ? pins : null;
+};
+
+/**
+ * The pins for "every territory at level L" (a `territoryLevels`-only filter):
+ * dimensions with members at L take the level predicate (a semi-join, never a
+ * capped id list); dimensions bound only deeper take their TOTAL; a dataset
+ * with no way to express L has no rows at that level → null.
+ */
+export const territoryLevelPins = (
+  level: InsTerritoryLevel,
+  dims: readonly InsTerritoryDimension[]
+): SlotPins | null => {
+  if (dims.length === 0) return null;
+  const pins = new Map<number, SlotPredicate>();
+  let expressed = false;
+  for (const dim of dims) {
+    if (level !== 'NATIONAL' && dim.levels.includes(level)) {
+      pins.set(dim.slotIndex, { memberLevel: level, dimIndex: dim.dimIndex });
+      expressed = true;
+      continue;
+    }
+    const dimGrain = Math.max(...dim.levels.map(depthOf));
+    if (dimGrain > TERRITORY_LEVEL_DEPTH[level] && dim.totalNomItemId !== null) {
+      pins.set(dim.slotIndex, [dim.totalNomItemId]);
+      continue;
+    }
+    return null;
+  }
+  return expressed || level === 'NATIONAL' ? pins : null;
 };
 
 /** One AND-group per node, OR-ed by the repository. Nodes without a series are dropped. */
@@ -267,6 +288,8 @@ export const territoryPinGroups = async (
   datasetCode: string,
   nodes: readonly InsTerritoryNode[]
 ): Promise<Result<readonly { node: InsTerritoryNode; pins: SlotPins }[], ApiError>> => {
+  const dims = await repo.territoryDimensions(datasetCode);
+  if (dims.isErr()) return err(dims.error);
   const ancestorsByNode = new Map<number, readonly InsTerritoryNode[]>();
   const allIds = new Set<number>();
   for (const node of nodes) {
@@ -283,6 +306,7 @@ export const territoryPinGroups = async (
     const pins = territoryPinsFor(
       node,
       ancestorsByNode.get(node.territoryId) ?? [],
+      dims.value,
       bindings.value
     );
     if (pins !== null) groups.push({ node, pins });
@@ -302,9 +326,10 @@ export const territoryPinGroups = async (
  *    `TOTAL` means that dimension's TOTAL member);
  *  - without type codes: each member code pins the dimension it belongs to;
  *    `TOTAL` alone pins EVERY classification dimension to its TOTAL member.
- * A code that belongs to no dimension is an `InvalidInput`; a dimension with no
- * TOTAL when TOTAL was asked yields no pin for it (the caller treats an
- * unpinned dimension per its own rule).
+ * A code that belongs to no dimension is an `InvalidInput`. A dimension that
+ * was asked for TOTAL but has no TOTAL member cannot be pinned: the result
+ * carries it in `unpinnable`, and the caller answers NO_DATA / an empty page
+ * (decision D1b: never a label match, never every member).
  */
 export const classificationPins = async (
   repo: InsRepo,
@@ -312,7 +337,7 @@ export const classificationPins = async (
   dimensions: readonly InsDimensionView[],
   filter: Pick<InsObservationFilter, 'classificationTypeCodes' | 'classificationValueCodes'>,
   options: { readonly territoryPinned?: boolean } = {}
-): Promise<Result<SlotPins, ApiError>> => {
+): Promise<Result<{ pins: SlotPins; unpinnable: readonly number[] }, ApiError>> => {
   const classification = slotted(dimensions);
   const bySlotOfDim = new Map(classification.map((d) => [d.dimIndex, d.slotIndex]));
   // The implicit TOTAL (no type codes) never touches a territorial dimension when
@@ -349,13 +374,17 @@ export const classificationPins = async (
   }
 
   const dimsForTotal = targetDims.length > 0 ? targetDims : implicitTotalDims;
+  const unpinnable: number[] = [];
   if (wantsTotal) {
     for (const dimIndex of dimsForTotal) {
       const slot = bySlotOfDim.get(dimIndex);
       if (slot === undefined) continue;
       const total = await repo.totalMember(datasetCode, dimIndex);
       if (total.isErr()) return err(total.error);
-      if (total.value === null) continue;
+      if (total.value === null) {
+        unpinnable.push(dimIndex);
+        continue;
+      }
       pins.set(slot, [...(pins.get(slot) ?? []), total.value]);
     }
   }
@@ -381,7 +410,7 @@ export const classificationPins = async (
       );
     }
   }
-  return ok(pins);
+  return ok({ pins, unpinnable });
 };
 
 /** Unit codes are unit member ids; unknown ones are an InvalidInput. */
@@ -425,14 +454,19 @@ export const periodPredicates = (
   } = {};
   if (period.periodicity !== undefined) out.periodicities = [period.periodicity];
   if (period.tokens !== undefined && period.tokens.length > 0) {
-    // `dates` selects EXACTLY those periods (the legacy semantics), never the span between them.
+    // `dates` selects EXACTLY those periods (the legacy semantics), never the span
+    // between them, and only at the token's own periodicity (an annual token never
+    // matches the monthly rows overlapping that year).
     const ranges: { start: string; end: string }[] = [];
+    const periodicities = new Set<InsPeriodicity>(out.periodicities ?? []);
     for (const token of period.tokens) {
       const b = periodTokenBounds(token);
       if (b === null) return err(invalidInput(`invalid period token ${token}`, 'period'));
       ranges.push({ start: b.start, end: b.end });
+      periodicities.add(b.periodicity);
     }
     out.periodRanges = ranges;
+    out.periodicities = [...periodicities];
     return ok(out);
   }
   if (period.start !== undefined) {
@@ -453,13 +487,24 @@ export const periodPredicates = (
 // ─────────────────────────────────────────────────────────────────────────────
 
 const mergePins = (base: SlotPins, extra: SlotPins): SlotPins => {
-  const out = new Map<number, readonly number[]>(base);
-  for (const [slot, ids] of extra) {
+  const out = new Map<number, SlotPredicate>(base);
+  for (const [slot, pred] of extra) {
     const existing = out.get(slot);
-    // A territory pin and a classification pin on the same slot intersect.
-    out.set(slot, existing === undefined ? ids : ids.filter((id) => existing.includes(id)));
+    if (existing === undefined || !isMemberList(pred)) {
+      out.set(slot, pred);
+      continue;
+    }
+    // Two explicit lists on one slot intersect; an explicit list narrows a level predicate.
+    out.set(slot, isMemberList(existing) ? pred.filter((id) => existing.includes(id)) : pred);
   }
   return out;
+};
+
+const EMPTY_PAGE: InsPage<InsObservationView> = {
+  nodes: [],
+  totalCount: 0,
+  hasNextPage: false,
+  hasPreviousPage: false,
 };
 
 /**
@@ -468,57 +513,74 @@ const mergePins = (base: SlotPins, extra: SlotPins): SlotPins => {
  * An empty resolved territory set (every requested code unknown) is an empty
  * page, not an error — the legacy surface behaved the same.
  */
-export const listObservations = async (
-  repo: InsRepo,
+export const listObservations = (
+  outer: InsRepo,
   datasetCode: string,
   filter: InsObservationFilter,
   limit?: number,
   offset?: number
-): Promise<Result<InsPage<InsObservationView>, ApiError>> => {
-  const code = datasetCode.trim().toUpperCase();
-  const dimensions = await repo.listDimensions(code);
-  if (dimensions.isErr()) return err(dimensions.error);
-  // An unknown dataset is an EMPTY page, not an error: the entity page sends
-  // aliased batches of literal codes, and one unknown code must not void the batch.
-  if (dimensions.value.length === 0) {
-    return ok({ nodes: [], totalCount: 0, hasNextPage: false, hasPreviousPage: false });
-  }
+): Promise<Result<InsPage<InsObservationView>, ApiError>> =>
+  outer.withSnapshot(async (repo) => {
+    const code = datasetCode.trim().toUpperCase();
+    const dimensions = await repo.listDimensions(code);
+    if (dimensions.isErr()) return err(dimensions.error);
+    // An unknown dataset is an EMPTY page, not an error: the entity page sends
+    // aliased batches of literal codes, and one unknown code must not void the batch.
+    if (dimensions.value.length === 0) return ok(EMPTY_PAGE);
 
-  const nodes = await resolveTerritoryNodes(repo, filter);
-  if (nodes.isErr()) return err(nodes.error);
-  const classPins = await classificationPins(repo, code, dimensions.value, filter, {
-    territoryPinned: nodes.value !== null,
-  });
-  if (classPins.isErr()) return err(classPins.error);
-  const units = await unitPins(repo, code, filter.unitCodes);
-  if (units.isErr()) return err(units.error);
-  const period = periodPredicates(filter.period);
-  if (period.isErr()) return err(period.error);
+    const nodes = await resolveTerritoryNodes(repo, filter);
+    if (nodes.isErr()) return err(nodes.error);
+    const classPins = await classificationPins(repo, code, dimensions.value, filter, {
+      territoryPinned: nodes.value !== null,
+    });
+    if (classPins.isErr()) return err(classPins.error);
+    // TOTAL asked on a dimension without a TOTAL member: nothing matches (D1b).
+    if (classPins.value.unpinnable.length > 0) return ok(EMPTY_PAGE);
+    const units = await unitPins(repo, code, filter.unitCodes);
+    if (units.isErr()) return err(units.error);
+    const period = periodPredicates(filter.period);
+    if (period.isErr()) return err(period.error);
 
-  let pinGroups: readonly SlotPins[];
-  if (nodes.value === null) {
-    pinGroups = [classPins.value];
-  } else {
-    const groups = await territoryPinGroups(repo, code, nodes.value);
-    if (groups.isErr()) return err(groups.error);
-    pinGroups = groups.value.map((g) => mergePins(g.pins, classPins.value));
-    if (pinGroups.length === 0) {
-      return ok({ nodes: [], totalCount: 0, hasNextPage: false, hasPreviousPage: false });
+    let pinGroups: readonly SlotPins[];
+    if (nodes.value === null) {
+      pinGroups = [classPins.value.pins];
+    } else if ('levels' in nodes.value) {
+      const dims = await repo.territoryDimensions(code);
+      if (dims.isErr()) return err(dims.error);
+      pinGroups = nodes.value.levels.flatMap((level) => {
+        const pins = territoryLevelPins(level, dims.value);
+        return pins === null ? [] : [mergePins(pins, classPins.value.pins)];
+      });
+      if (pinGroups.length === 0) return ok(EMPTY_PAGE);
+    } else {
+      const groups = await territoryPinGroups(repo, code, nodes.value);
+      if (groups.isErr()) return err(groups.error);
+      pinGroups = groups.value.map((g) => mergePins(g.pins, classPins.value.pins));
+      if (pinGroups.length === 0) return ok(EMPTY_PAGE);
     }
-  }
-  const pageLimit = clamp(limit, DEFAULT_OBSERVATION_LIMIT, MAX_OBSERVATION_LIMIT);
-  const pageOffset = offsetOf(offset);
-  const query: InsFactQuery = {
-    datasetCode: code,
-    pinGroups,
-    ...(units.value !== undefined && { unitNomItemIds: units.value }),
-    ...period.value,
-    ...(filter.hasValue !== undefined && { hasValue: filter.hasValue }),
-    limit: pageLimit,
-    offset: pageOffset,
-  };
-  return repo.listObservations(query);
-};
+    // A request that pins nothing at all is the whole-dataset scan the design
+    // forbids (34 M rows on POP107D): refuse it, never run it.
+    if (pinGroups.every((g) => g.size === 0) && units.value === undefined) {
+      return err(
+        invalidInput(
+          'insObservations needs a territory, a classification pin or a unit; an unpinned read of a whole dataset is not served',
+          'filter'
+        )
+      );
+    }
+    const pageLimit = clamp(limit, DEFAULT_OBSERVATION_LIMIT, MAX_OBSERVATION_LIMIT);
+    const pageOffset = offsetOf(offset);
+    const query: InsFactQuery = {
+      datasetCode: code,
+      pinGroups,
+      ...(units.value !== undefined && { unitNomItemIds: units.value }),
+      ...period.value,
+      ...(filter.hasValue !== undefined && { hasValue: filter.hasValue }),
+      limit: pageLimit,
+      offset: pageOffset,
+    };
+    return repo.listObservations(query);
+  });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Default series, latest values, dashboard
@@ -555,22 +617,22 @@ export const defaultSeriesFor = async (
     if (groups.isErr()) return err(groups.error);
     const group = groups.value[0];
     if (group === undefined) return ok(null);
-    for (const [slot, ids] of group.pins) {
-      const id = ids[0];
+    for (const [slot, pred] of group.pins) {
+      const id = isMemberList(pred) ? pred[0] : undefined;
       if (id === undefined) return ok(null);
       slots[slot - 1] = id;
       const dim = classification.find((d) => d.slotIndex === slot);
       if (dim !== undefined) pinnedDims.add(dim.dimIndex);
     }
   } else {
-    // National scope on a territorial dataset: every territorial dimension at its TOTAL member.
-    const bindings = await repo.territoryBindings(dataset.code, []);
-    if (bindings.isErr()) return err(bindings.error);
-    for (const b of bindings.value) {
-      if (b.resolution === 'TOTAL_MEMBER' && !pinnedDims.has(b.dimIndex)) {
-        slots[b.slotIndex - 1] = b.nomItemId;
-        pinnedDims.add(b.dimIndex);
-      }
+    // National scope on a territorial dataset: every territorial dimension at
+    // its TOTAL member; a territorial dimension without one has no national row.
+    const dims = await repo.territoryDimensions(dataset.code);
+    if (dims.isErr()) return err(dims.error);
+    for (const dim of dims.value) {
+      if (dim.totalNomItemId === null) return ok(null);
+      slots[dim.slotIndex - 1] = dim.totalNomItemId;
+      pinnedDims.add(dim.dimIndex);
     }
   }
 
@@ -643,11 +705,19 @@ const resolveEntity = async (
 };
 
 /** `insLatestDatasetValues`: one batched read for every resolvable default series. */
-export const listLatestValues = async (
-  repo: InsRepo,
+export const listLatestValues = (
+  outer: InsRepo,
   entity: InsEntitySelector,
   datasetCodes: readonly string[],
   preferredCodes: readonly string[] = []
+): Promise<Result<readonly InsLatestValue[], ApiError>> =>
+  outer.withSnapshot((repo) => latestValuesIn(repo, entity, datasetCodes, preferredCodes));
+
+const latestValuesIn = async (
+  repo: InsRepo,
+  entity: InsEntitySelector,
+  datasetCodes: readonly string[],
+  preferredCodes: readonly string[]
 ): Promise<Result<readonly InsLatestValue[], ApiError>> => {
   if (datasetCodes.length === 0) return ok([]);
   if (datasetCodes.length > MAX_BATCH_DATASETS) {
@@ -704,24 +774,19 @@ export const listLatestValues = async (
   );
 };
 
-/** Does a period satisfy the resolved predicates (span bounds and/or explicit ranges)? */
-export const periodMatches = (
-  period: { readonly periodStart: string; readonly periodEnd: string },
-  p: PeriodPredicates
-): boolean => {
-  if (p.periodStart !== undefined && period.periodEnd < p.periodStart) return false;
-  if (p.periodEnd !== undefined && period.periodStart > p.periodEnd) return false;
-  if (p.periodRanges !== undefined && p.periodRanges.length > 0) {
-    return p.periodRanges.some((r) => period.periodEnd >= r.start && period.periodStart <= r.end);
-  }
-  return true;
-};
-
 /**
  * `insUatDashboard`: every dataset bound at LAU (optionally under one context),
  * the default series of the given UAT, its most recent rows — batched.
  */
-export const uatDashboard = async (
+export const uatDashboard = (
+  outer: InsRepo,
+  sirutaCode: string,
+  contextCode: string | undefined,
+  period: InsPeriodFilter | undefined
+): Promise<Result<readonly InsDashboardGroup[], ApiError>> =>
+  outer.withSnapshot((repo) => dashboardIn(repo, sirutaCode, contextCode, period));
+
+const dashboardIn = async (
   repo: InsRepo,
   sirutaCode: string,
   contextCode: string | undefined,

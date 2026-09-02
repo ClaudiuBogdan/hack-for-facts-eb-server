@@ -69,9 +69,9 @@ const attachResolvers = (
         'serialize' in value
       ) {
         const scalar = value as GraphQLScalarType;
-        type.serialize = scalar.serialize.bind(scalar);
-        type.parseValue = scalar.parseValue.bind(scalar);
-        type.parseLiteral = scalar.parseLiteral.bind(scalar);
+        type.serialize = (v: unknown): unknown => scalar.serialize(v);
+        type.parseValue = (v: unknown): unknown => scalar.parseValue(v);
+        type.parseLiteral = (ast, vars): unknown => scalar.parseLiteral(ast, vars);
         continue;
       }
       if (!isObjectType(type) || typeof value !== 'object' || value === null) continue;

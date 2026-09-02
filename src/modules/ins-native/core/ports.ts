@@ -30,16 +30,27 @@ import type {
 import type { ApiError } from '@/modules/shared/index.js';
 import type { Result } from 'neverthrow';
 
-/** A member bound to a spine node in one dataset dimension. */
+/** A RESOLVED member bound to a spine node in one dataset dimension. */
 export interface InsTerritoryBinding {
   readonly datasetCode: string;
   readonly dimIndex: number;
   readonly slotIndex: number;
   readonly nomItemId: number;
-  readonly territoryId: number | null;
-  readonly territoryLevel: InsTerritoryLevel | null;
-  /** `RESOLVED` | `TOTAL_MEMBER` | … — TOTAL_MEMBER rows carry no node. */
-  readonly resolution: string;
+  readonly territoryId: number;
+  readonly territoryLevel: InsTerritoryLevel;
+}
+
+/**
+ * A territorial dimension of a dataset: the spine levels its RESOLVED members
+ * bind to (computed over the WHOLE dimension, never inferred from a TOTAL row's
+ * nullable level) and its TOTAL member, if any.
+ */
+export interface InsTerritoryDimension {
+  readonly datasetCode: string;
+  readonly dimIndex: number;
+  readonly slotIndex: number;
+  readonly levels: readonly InsTerritoryLevel[];
+  readonly totalNomItemId: number | null;
 }
 
 /** The default pin for one non-time dimension of a dataset (ins.default_series). */
@@ -114,7 +125,11 @@ export interface InsCatalogRepo {
   ): Promise<Result<readonly InsTerritoryNode[], ApiError>>;
   /** A node and its ancestors up to NATIONAL, deepest first. */
   ancestorsOf(territoryId: number): Promise<Result<readonly InsTerritoryNode[], ApiError>>;
-  /** Every binding of the dataset's territorial dimensions onto the given nodes (+ TOTAL members). */
+  /** The dataset's territorial dimensions (levels present, TOTAL member). */
+  territoryDimensions(
+    datasetCode: string
+  ): Promise<Result<readonly InsTerritoryDimension[], ApiError>>;
+  /** The RESOLVED bindings of the dataset's territorial dimensions onto the given nodes. */
   territoryBindings(
     datasetCode: string,
     territoryIds: readonly number[]
@@ -141,4 +156,14 @@ export interface InsFactRepo {
   ): Promise<Result<readonly InsSeriesRow[], ApiError>>;
 }
 
-export interface InsRepo extends InsCatalogRepo, InsFactRepo {}
+export interface InsRepo extends InsCatalogRepo, InsFactRepo {
+  /**
+   * Run `fn` against a repository bound to ONE repeatable-read, read-only
+   * snapshot, so every catalog read and the fact read of a request see the same
+   * publication moment (a promotion between two calls can otherwise combine old
+   * pins with new facts).
+   */
+  withSnapshot<T>(
+    fn: (repo: InsRepo) => Promise<Result<T, ApiError>>
+  ): Promise<Result<T, ApiError>>;
+}

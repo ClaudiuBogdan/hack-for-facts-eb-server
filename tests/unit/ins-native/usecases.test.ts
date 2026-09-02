@@ -60,8 +60,14 @@ describe('territory resolution → slot pins', () => {
 
   it('mixed-level territoryCodes resolve in one list (LAU code == SIRUTA)', async () => {
     const repo = makeFakeRepo();
-    const nodes = await resolveTerritoryNodes(repo, { territoryCodes: ['RO', 'CJ', '54975'] });
-    expect(nodes._unsafeUnwrap()?.map((n) => n.code)).toEqual(['RO', 'CJ', '54975']);
+    const nodes = (
+      await resolveTerritoryNodes(repo, { territoryCodes: ['RO', 'CJ', '54975'] })
+    )._unsafeUnwrap();
+    expect(nodes !== null && 'levels' in nodes ? nodes : (nodes ?? []).map((n) => n.code)).toEqual([
+      'RO',
+      'CJ',
+      '54975',
+    ]);
   });
 
   it('sirutaCodes and territoryCodes intersect; levels narrow', async () => {
@@ -71,13 +77,9 @@ describe('territory resolution → slot pins', () => {
       territoryCodes: ['CJ'],
     });
     expect(both._unsafeUnwrap()).toEqual([]);
+    // Levels alone are a level PREDICATE (every node of the level), never a capped node list.
     const lvl = await resolveTerritoryNodes(repo, { territoryLevels: ['NUTS3'] });
-    expect(
-      lvl
-        ._unsafeUnwrap()
-        ?.map((n) => n.code)
-        .sort()
-    ).toEqual(['AB', 'CJ']);
+    expect(lvl._unsafeUnwrap()).toEqual({ levels: ['NUTS3'] });
   });
 });
 
@@ -87,12 +89,13 @@ describe('classification pins', () => {
     const pins = await classificationPins(repo, 'POPTEST', DIMENSIONS['POPTEST'] ?? [], {
       classificationValueCodes: ['TOTAL'],
     });
-    expect([...pins._unsafeUnwrap().entries()]).toEqual([
+    expect([...pins._unsafeUnwrap().pins.entries()]).toEqual([
       [1, [1]],
       [2, [105]],
       [3, [3064]],
       [4, [112]],
     ]);
+    expect(pins._unsafeUnwrap().unpinnable).toEqual([]);
   });
 
   it('with type codes, TOTAL applies only to the listed dimensions and member codes only inside them', async () => {
@@ -101,7 +104,7 @@ describe('classification pins', () => {
       classificationTypeCodes: ['D0', 'D1'],
       classificationValueCodes: ['TOTAL', '106'],
     });
-    expect([...pins._unsafeUnwrap().entries()]).toEqual([
+    expect([...pins._unsafeUnwrap().pins.entries()]).toEqual([
       [1, [1]],
       [2, [105, 106]],
     ]);
@@ -132,6 +135,48 @@ describe('classification pins', () => {
   });
 });
 
+describe('TOTAL on a dimension without a TOTAL member (D1b)', () => {
+  it('reports the dimension as unpinnable, and insObservations answers an empty page, never every member', async () => {
+    const repo = makeFakeRepo();
+    const pins = await classificationPins(repo, 'EMPTYTEST', DIMENSIONS['EMPTYTEST'] ?? [], {
+      classificationValueCodes: ['TOTAL'],
+    });
+    expect(pins._unsafeUnwrap().unpinnable).toEqual([0]);
+    const page = await listObservations(repo, 'EMPTYTEST', { classificationValueCodes: ['TOTAL'] });
+    expect(page._unsafeUnwrap().nodes).toEqual([]);
+    expect(repo.factQueries).toHaveLength(0);
+  });
+
+  it('an unpinned whole-dataset read is refused, not run', async () => {
+    const repo = makeFakeRepo();
+    const res = await listObservations(repo, 'POPTEST', {});
+    expect(res.isErr() && res.error.type === 'InvalidInput').toBe(true);
+    expect(repo.factQueries).toHaveLength(0);
+  });
+
+  it('territoryLevels alone compiles to a level predicate on the territorial dimension', async () => {
+    const repo = makeFakeRepo();
+    const page = await listObservations(repo, 'POPTEST', {
+      territoryLevels: ['NUTS3'],
+      classificationValueCodes: ['TOTAL'],
+      classificationTypeCodes: ['D0', 'D1'],
+    });
+    expect(new Set(values(page._unsafeUnwrap()).map((v) => v.split('-')[0]))).toEqual(
+      new Set(['CJ', 'AB'])
+    );
+    const group = repo.factQueries[0]?.pinGroups[0];
+    expect(group?.get(3)).toEqual({ memberLevel: 'NUTS3', dimIndex: 2 });
+    expect(group?.get(4)).toEqual([112]);
+  });
+
+  it('an offset beyond the end reports an unknown total, not the offset', async () => {
+    const repo = makeFakeRepo();
+    const page = await listObservations(repo, 'POPTEST', { territoryCodes: ['CJ'] }, 10, 100);
+    expect(page._unsafeUnwrap().nodes).toEqual([]);
+    expect(page._unsafeUnwrap().totalCount).toBeNull();
+  });
+});
+
 describe('period predicates', () => {
   it('tokens are EXACT periods (never the span between them); interval bounds are parsed; bad tokens are InvalidInput', () => {
     expect(periodPredicates({ tokens: ['2016', '2025'] })._unsafeUnwrap()).toEqual({
@@ -139,6 +184,7 @@ describe('period predicates', () => {
         { start: '2016-01-01', end: '2016-12-31' },
         { start: '2025-01-01', end: '2025-12-31' },
       ],
+      periodicities: ['ANNUAL'],
     });
     expect(
       periodPredicates({

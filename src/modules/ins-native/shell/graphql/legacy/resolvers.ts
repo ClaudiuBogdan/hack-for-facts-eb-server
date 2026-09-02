@@ -368,7 +368,7 @@ export const toGqlDataset = (d: InsDatasetView): GqlDataset => ({
   has_siruta: d.hasLau,
   sync_status: d.dataStatus === 'AVAILABLE' ? 'SYNCED' : 'PENDING',
   data_status: d.dataStatus,
-  last_sync_at: d.computedAt,
+  last_sync_at: toIsoTimestamp(d.computedAt),
   context_code: d.contextCode,
   context_name_ro: d.contextNameRo,
   context_name_en: d.contextNameEn,
@@ -395,7 +395,7 @@ export interface GqlObservation {
   readonly value: string | null;
   readonly value_status: string | null;
   readonly classifications: readonly GqlClassificationValue[];
-  readonly dimensions: Record<string, number>;
+  readonly dimensions: Record<string, unknown>;
 }
 
 const toGqlObservation = (
@@ -411,7 +411,22 @@ const toGqlObservation = (
   value: o.value,
   value_status: o.valueStatus,
   classifications: o.members.map((m) => toGqlClassificationValue(m, dims.get(m.dimIndex))),
-  dimensions: Object.fromEntries(o.members.map((m) => [dimensionCode(m.dimIndex), m.nomItemId])),
+  // The legacy `dimensions` JSON shape, kept: territory/period/unit keys plus
+  // the classification map (now keyed by D<n> with member codes).
+  dimensions: {
+    ...(o.territory !== null && { territory_code: o.territory.code }),
+    ...(o.territory?.sirutaCode !== null &&
+      o.territory?.sirutaCode !== undefined && {
+        siruta_code: o.territory.sirutaCode,
+      }),
+    period: isoPeriodToken(o.period.periodicity, o.period.periodStart),
+    unit_code: memberCode(o.unit.nomItemId),
+    ...(o.members.length > 0 && {
+      classifications: Object.fromEntries(
+        o.members.map((m) => [dimensionCode(m.dimIndex), memberCode(m.nomItemId)])
+      ),
+    }),
+  },
 });
 
 export interface GqlContext {
@@ -489,6 +504,13 @@ const toGqlDimension = (d: InsDimensionView): GqlDimension => ({
   option_count: d.optionCount,
   dimensionView: d,
 });
+
+/** The pool returns timestamptz as `YYYY-MM-DD HH:MM:SS[.ffffff]+00`; the legacy wire was ISO. */
+const toIsoTimestamp = (v: string | null): string | null => {
+  if (v === null) return null;
+  const d = new Date(v.includes('T') ? v : v.replace(' ', 'T'));
+  return Number.isNaN(d.getTime()) ? v : d.toISOString();
+};
 
 const latestPeriodOf = (o: InsObservationView | null): string | null =>
   o === null ? null : isoPeriodToken(o.period.periodicity, o.period.periodStart);

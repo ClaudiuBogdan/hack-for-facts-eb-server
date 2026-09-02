@@ -13,26 +13,29 @@
 
 import { ok, type Result } from 'neverthrow';
 
+import {
+  isMemberList,
+  type InsContext,
+  type InsDatasetView,
+  type InsDimensionView,
+  type InsFactQuery,
+  type InsMemberView,
+  type InsObservationView,
+  type InsPage,
+  type InsPeriodView,
+  type InsTerritoryLevel,
+  type InsTerritoryNode,
+  type InsUnitView,
+  type SlotPins,
+} from '@/modules/ins-native/core/types.js';
+
 import type {
   InsDefaultPin,
   InsRepo,
   InsSeriesRow,
   InsTerritoryBinding,
+  InsTerritoryDimension,
 } from '@/modules/ins-native/core/ports.js';
-import type {
-  InsContext,
-  InsDatasetView,
-  InsDimensionView,
-  InsFactQuery,
-  InsMemberView,
-  InsObservationView,
-  InsPage,
-  InsPeriodView,
-  InsTerritoryLevel,
-  InsTerritoryNode,
-  InsUnitView,
-  SlotPins,
-} from '@/modules/ins-native/core/types.js';
 import type { ApiError } from '@/modules/shared/index.js';
 
 const node = (
@@ -395,9 +398,15 @@ const membersOf = (datasetCode: string): InsMemberView[] =>
   M.filter((m) => m.dataset === datasetCode).map(toMember);
 
 const matchesGroup = (f: Fact, pins: SlotPins): boolean => {
-  for (const [slot, ids] of pins) {
+  for (const [slot, pred] of pins) {
     const v = f.slots[slot - 1] ?? null;
-    if (v === null || !ids.includes(v)) return false;
+    if (v === null) return false;
+    if (isMemberList(pred)) {
+      if (!pred.includes(v)) return false;
+      continue;
+    }
+    const m = M.find((x) => x.dataset === f.dataset && x.dim === pred.dimIndex && x.id === v);
+    if (m?.node?.level !== pred.memberLevel) return false;
   }
   return true;
 };
@@ -491,189 +500,209 @@ export const makeFakeRepo = (): InsRepo & {
       datasetCount: 3,
     },
   ];
-  return {
-    factQueries,
-    seriesReads,
-    listDatasets: (filter, limit, offset) => {
-      let rows = datasets;
-      if (filter.dataStatus === undefined) rows = rows.filter((d) => d.dataStatus === 'AVAILABLE');
-      else if (filter.dataStatus.length > 0)
-        rows = rows.filter((d) => (filter.dataStatus ?? []).includes(d.dataStatus));
-      if (filter.codes !== undefined)
-        rows = rows.filter((d) => (filter.codes ?? []).includes(d.code));
-      if (filter.search !== undefined)
-        rows = rows.filter((d) =>
-          d.nameRo.toLowerCase().includes(filter.search?.toLowerCase() ?? '')
-        );
-      if (filter.hasUatData !== undefined)
-        rows = rows.filter((d) => d.hasLau === filter.hasUatData);
-      if (filter.hasCountyData !== undefined)
-        rows = rows.filter((d) => d.hasCounty === filter.hasCountyData);
-      return R(page(rows, rows.length, limit, offset));
-    },
-    getDataset: (code) => R(datasets.find((d) => d.code === code) ?? null),
-    getDatasets: (codes) => R(codes.flatMap((c) => datasets.filter((d) => d.code === c))),
-    listDimensions: (datasetCode) => R(DIMENSIONS[datasetCode] ?? []),
-    listMembers: (datasetCode, dimIndex, search, limit, offset) => {
-      let rows = membersOf(datasetCode).filter((m) => m.dimIndex === dimIndex);
-      if (search !== undefined)
-        rows = rows.filter((m) => m.labelRo.toLowerCase().includes(search.toLowerCase()));
-      return R(page(rows, rows.length, limit, offset));
-    },
-    membersByIds: (datasetCode, ids) =>
-      R(membersOf(datasetCode).filter((m) => ids.includes(m.nomItemId))),
-    listUnits: (datasetCode) => R(UNITS[datasetCode] ?? []),
-    periodsByLabels: (labels) => R(PERIODS.filter((p) => labels.includes(p.labelRo))),
-    listContexts: (filter, limit, offset) => {
-      let rows = contexts;
-      if (filter.level !== undefined) rows = rows.filter((c) => c.level === filter.level);
-      if (filter.parentCode !== undefined)
-        rows = rows.filter((c) => c.parentCode === filter.parentCode);
-      return R(page(rows, rows.length, limit, offset));
-    },
-    listTerritories: (filter, limit, offset) => {
-      let rows = NODES;
-      if (filter.levels !== undefined && filter.levels.length > 0)
-        rows = rows.filter((n) => (filter.levels ?? []).includes(n.level));
-      if (filter.search !== undefined)
-        rows = rows.filter((n) =>
-          n.nameRo.toLowerCase().includes(filter.search?.toLowerCase() ?? '')
-        );
-      if (filter.sirutaCodes !== undefined)
-        rows = rows.filter(
-          (n) => n.sirutaCode !== null && (filter.sirutaCodes ?? []).includes(n.sirutaCode)
-        );
-      if (filter.parentCode !== undefined)
-        rows = rows.filter((n) => n.parentCode === filter.parentCode);
-      return R(page(rows, rows.length, limit, offset));
-    },
-    territoriesByCodes: (codes, levels) =>
-      R(
-        NODES.filter(
-          (n) =>
-            codes.map((c) => c.toUpperCase()).includes(n.code) &&
-            (levels === undefined || levels.length === 0 || levels.includes(n.level))
-        )
-      ),
-    territoriesBySiruta: (codes) =>
-      R(NODES.filter((n) => n.sirutaCode !== null && codes.includes(n.sirutaCode))),
-    ancestorsOf: (id) => {
-      const out: InsTerritoryNode[] = [];
-      let parentId = NODES.find((n) => n.territoryId === id)?.parentId ?? null;
-      while (parentId !== null) {
-        const parent = NODES.find((n) => n.territoryId === parentId);
-        if (parent === undefined) break;
-        out.push(parent);
-        parentId = parent.parentId;
-      }
-      return R(out);
-    },
-    territoryBindings: (datasetCode, ids) => {
-      const dims = DIMENSIONS[datasetCode] ?? [];
-      const out: InsTerritoryBinding[] = [];
-      for (const m of M) {
-        if (m.dataset !== datasetCode) continue;
-        const d = dims.find((x) => x.dimIndex === m.dim);
-        if (d?.isTerritorial !== true || d.slotIndex === null) continue;
-        const isTotal = m.total === true;
-        if (!isTotal && (m.node === undefined || !ids.includes(m.node.territoryId))) continue;
-        out.push({
-          datasetCode,
-          dimIndex: m.dim,
-          slotIndex: d.slotIndex,
-          nomItemId: m.id,
-          territoryId: m.node?.territoryId ?? null,
-          territoryLevel: m.node?.level ?? null,
-          resolution: isTotal ? 'TOTAL_MEMBER' : 'RESOLVED',
-        });
-      }
-      // The grain of a dimension is visible on its TOTAL row too, as in the real
-      // table (territory_level is filled from the derivation's spine level).
-      return R(
-        out.map((b) => {
-          if (b.resolution !== 'TOTAL_MEMBER') return b;
-          const grain =
-            M.find((m) => m.dataset === datasetCode && m.dim === b.dimIndex && m.node !== undefined)
-              ?.node?.level ?? null;
-          return { ...b, territoryLevel: grain };
-        })
-      );
-    },
-    totalMember: (datasetCode, dimIndex) => {
-      const totals = M.filter(
-        (m) => m.dataset === datasetCode && m.dim === dimIndex && m.role === 'TOTAL'
-      );
-      return R(totals.length === 1 ? (totals[0]?.id ?? null) : null);
-    },
-    defaultPins: (codes) => R(DEFAULTS.filter((p) => codes.includes(p.datasetCode))),
-    datasetsWithLevel: (level) =>
-      R(
-        datasets
-          .filter((d) => (level === 'LAU' ? d.hasLau : level === 'NUTS3' ? d.hasCounty : true))
-          .map((d) => d.code)
-      ),
-    listObservations: (query) => {
-      factQueries.push(query);
-      let rows = FACTS.filter((f) => f.dataset === query.datasetCode);
-      if (query.pinGroups.length > 0)
-        rows = rows.filter((f) => query.pinGroups.some((g) => matchesGroup(f, g)));
-      if (query.unitNomItemIds !== undefined)
-        rows = rows.filter((f) => (query.unitNomItemIds ?? []).includes(f.unit));
-      if (query.periodStart !== undefined)
-        rows = rows.filter(
-          (f) => (TIME_TO_PERIOD.get(f.time)?.periodEnd ?? '') >= (query.periodStart ?? '')
-        );
-      if (query.periodEnd !== undefined)
-        rows = rows.filter(
-          (f) => (TIME_TO_PERIOD.get(f.time)?.periodStart ?? '') <= (query.periodEnd ?? '')
-        );
-      const ranges = query.periodRanges ?? [];
-      if (ranges.length > 0) {
-        rows = rows.filter((f) => {
-          const p = TIME_TO_PERIOD.get(f.time);
-          return (
-            p !== undefined && ranges.some((r) => p.periodEnd >= r.start && p.periodStart <= r.end)
+  const repo: InsRepo & { readonly factQueries: InsFactQuery[]; readonly seriesReads: string[][] } =
+    {
+      factQueries,
+      seriesReads,
+      withSnapshot: (fn) => fn(repo),
+      listDatasets: (filter, limit, offset) => {
+        let rows = datasets;
+        if (filter.dataStatus === undefined)
+          rows = rows.filter((d) => d.dataStatus === 'AVAILABLE');
+        else if (filter.dataStatus.length > 0)
+          rows = rows.filter((d) => (filter.dataStatus ?? []).includes(d.dataStatus));
+        if (filter.codes !== undefined)
+          rows = rows.filter((d) => (filter.codes ?? []).includes(d.code));
+        if (filter.search !== undefined)
+          rows = rows.filter((d) =>
+            d.nameRo.toLowerCase().includes(filter.search?.toLowerCase() ?? '')
           );
-        });
-      }
-      rows = [...rows].sort(sortNewest);
-      const window = rows.slice(query.offset, query.offset + query.limit + 1);
-      const hasNextPage = window.length > query.limit;
-      const kept = window.slice(0, query.limit);
-      return R({
-        nodes: kept.map(toObservation),
-        totalCount: hasNextPage ? null : query.offset + kept.length,
-        hasNextPage,
-        hasPreviousPage: query.offset > 0,
-      });
-    },
-    latestForSeries: (series, perSeries, period) => {
-      seriesReads.push(series.map((s) => s.key));
-      const out: InsSeriesRow[] = [];
-      const inPeriod = (f: Fact): boolean => {
-        const p = TIME_TO_PERIOD.get(f.time);
-        if (p === undefined) return false;
-        if (period?.periodStart !== undefined && p.periodEnd < period.periodStart) return false;
-        if (period?.periodEnd !== undefined && p.periodStart > period.periodEnd) return false;
-        const ranges = period?.periodRanges ?? [];
-        return (
-          ranges.length === 0 ||
-          ranges.some((r) => p.periodEnd >= r.start && p.periodStart <= r.end)
+        if (filter.hasUatData !== undefined)
+          rows = rows.filter((d) => d.hasLau === filter.hasUatData);
+        if (filter.hasCountyData !== undefined)
+          rows = rows.filter((d) => d.hasCounty === filter.hasCountyData);
+        return R(page(rows, rows.length, limit, offset));
+      },
+      getDataset: (code) => R(datasets.find((d) => d.code === code) ?? null),
+      getDatasets: (codes) => R(codes.flatMap((c) => datasets.filter((d) => d.code === c))),
+      listDimensions: (datasetCode) => R(DIMENSIONS[datasetCode] ?? []),
+      listMembers: (datasetCode, dimIndex, search, limit, offset) => {
+        let rows = membersOf(datasetCode).filter((m) => m.dimIndex === dimIndex);
+        if (search !== undefined)
+          rows = rows.filter((m) => m.labelRo.toLowerCase().includes(search.toLowerCase()));
+        return R(page(rows, rows.length, limit, offset));
+      },
+      membersByIds: (datasetCode, ids) =>
+        R(membersOf(datasetCode).filter((m) => ids.includes(m.nomItemId))),
+      listUnits: (datasetCode) => R(UNITS[datasetCode] ?? []),
+      periodsByLabels: (labels) => R(PERIODS.filter((p) => labels.includes(p.labelRo))),
+      listContexts: (filter, limit, offset) => {
+        let rows = contexts;
+        if (filter.level !== undefined) rows = rows.filter((c) => c.level === filter.level);
+        if (filter.parentCode !== undefined)
+          rows = rows.filter((c) => c.parentCode === filter.parentCode);
+        return R(page(rows, rows.length, limit, offset));
+      },
+      listTerritories: (filter, limit, offset) => {
+        let rows = NODES;
+        if (filter.levels !== undefined && filter.levels.length > 0)
+          rows = rows.filter((n) => (filter.levels ?? []).includes(n.level));
+        if (filter.search !== undefined)
+          rows = rows.filter((n) =>
+            n.nameRo.toLowerCase().includes(filter.search?.toLowerCase() ?? '')
+          );
+        if (filter.sirutaCodes !== undefined)
+          rows = rows.filter(
+            (n) => n.sirutaCode !== null && (filter.sirutaCodes ?? []).includes(n.sirutaCode)
+          );
+        if (filter.parentCode !== undefined)
+          rows = rows.filter((n) => n.parentCode === filter.parentCode);
+        return R(page(rows, rows.length, limit, offset));
+      },
+      territoriesByCodes: (codes, levels) =>
+        R(
+          NODES.filter(
+            (n) =>
+              codes.map((c) => c.toUpperCase()).includes(n.code) &&
+              (levels === undefined || levels.length === 0 || levels.includes(n.level))
+          )
+        ),
+      territoriesBySiruta: (codes) =>
+        R(NODES.filter((n) => n.sirutaCode !== null && codes.includes(n.sirutaCode))),
+      ancestorsOf: (id) => {
+        const out: InsTerritoryNode[] = [];
+        let parentId = NODES.find((n) => n.territoryId === id)?.parentId ?? null;
+        while (parentId !== null) {
+          const parent = NODES.find((n) => n.territoryId === parentId);
+          if (parent === undefined) break;
+          out.push(parent);
+          parentId = parent.parentId;
+        }
+        return R(out);
+      },
+      territoryDimensions: (datasetCode) => {
+        const dims = DIMENSIONS[datasetCode] ?? [];
+        const out: InsTerritoryDimension[] = [];
+        for (const d of dims) {
+          if (!d.isTerritorial || d.slotIndex === null) continue;
+          const members = M.filter((m) => m.dataset === datasetCode && m.dim === d.dimIndex);
+          const levels = [
+            ...new Set(members.flatMap((m) => (m.node === undefined ? [] : [m.node.level]))),
+          ];
+          const total = members.find((m) => m.role === 'TOTAL');
+          out.push({
+            datasetCode,
+            dimIndex: d.dimIndex,
+            slotIndex: d.slotIndex,
+            levels,
+            totalNomItemId: total?.id ?? null,
+          });
+        }
+        return R(out);
+      },
+      territoryBindings: (datasetCode, ids) => {
+        const dims = DIMENSIONS[datasetCode] ?? [];
+        const out: InsTerritoryBinding[] = [];
+        for (const m of M) {
+          if (
+            m.dataset !== datasetCode ||
+            m.node === undefined ||
+            !ids.includes(m.node.territoryId)
+          )
+            continue;
+          const d = dims.find((x) => x.dimIndex === m.dim);
+          if (d?.isTerritorial !== true || d.slotIndex === null) continue;
+          out.push({
+            datasetCode,
+            dimIndex: m.dim,
+            slotIndex: d.slotIndex,
+            nomItemId: m.id,
+            territoryId: m.node.territoryId,
+            territoryLevel: m.node.level,
+          });
+        }
+        return R(out);
+      },
+      totalMember: (datasetCode, dimIndex) => {
+        const totals = M.filter(
+          (m) => m.dataset === datasetCode && m.dim === dimIndex && m.role === 'TOTAL'
         );
-      };
-      for (const s of series) {
-        const rows = FACTS.filter(
-          (f) =>
-            f.dataset === s.datasetCode &&
-            f.unit === s.unitNomItemId &&
-            f.slots.every((v, i) => (s.slots[i] ?? null) === v) &&
-            inPeriod(f)
-        )
-          .sort(sortNewest)
-          .slice(0, perSeries);
-        for (const f of rows) out.push({ seriesKey: s.key, observation: toObservation(f) });
-      }
-      return R(out);
-    },
-  };
+        return R(totals.length === 1 ? (totals[0]?.id ?? null) : null);
+      },
+      defaultPins: (codes) => R(DEFAULTS.filter((p) => codes.includes(p.datasetCode))),
+      datasetsWithLevel: (level) =>
+        R(
+          datasets
+            .filter((d) => (level === 'LAU' ? d.hasLau : level === 'NUTS3' ? d.hasCounty : true))
+            .map((d) => d.code)
+        ),
+      listObservations: (query) => {
+        factQueries.push(query);
+        let rows = FACTS.filter((f) => f.dataset === query.datasetCode);
+        if (query.pinGroups.length > 0)
+          rows = rows.filter((f) => query.pinGroups.some((g) => matchesGroup(f, g)));
+        if (query.unitNomItemIds !== undefined)
+          rows = rows.filter((f) => (query.unitNomItemIds ?? []).includes(f.unit));
+        if (query.periodStart !== undefined)
+          rows = rows.filter(
+            (f) => (TIME_TO_PERIOD.get(f.time)?.periodEnd ?? '') >= (query.periodStart ?? '')
+          );
+        if (query.periodEnd !== undefined)
+          rows = rows.filter(
+            (f) => (TIME_TO_PERIOD.get(f.time)?.periodStart ?? '') <= (query.periodEnd ?? '')
+          );
+        const ranges = query.periodRanges ?? [];
+        if (ranges.length > 0) {
+          rows = rows.filter((f) => {
+            const p = TIME_TO_PERIOD.get(f.time);
+            return (
+              p !== undefined &&
+              ranges.some((r) => p.periodEnd >= r.start && p.periodStart <= r.end)
+            );
+          });
+        }
+        rows = [...rows].sort(sortNewest);
+        const window = rows.slice(query.offset, query.offset + query.limit + 1);
+        const hasNextPage = window.length > query.limit;
+        const kept = window.slice(0, query.limit);
+        return R({
+          nodes: kept.map(toObservation),
+          totalCount:
+            hasNextPage || (kept.length === 0 && query.offset > 0)
+              ? null
+              : query.offset + kept.length,
+          hasNextPage,
+          hasPreviousPage: query.offset > 0,
+        });
+      },
+      latestForSeries: (series, perSeries, period) => {
+        seriesReads.push(series.map((s) => s.key));
+        const out: InsSeriesRow[] = [];
+        const inPeriod = (f: Fact): boolean => {
+          const p = TIME_TO_PERIOD.get(f.time);
+          if (p === undefined) return false;
+          if (period?.periodStart !== undefined && p.periodEnd < period.periodStart) return false;
+          if (period?.periodEnd !== undefined && p.periodStart > period.periodEnd) return false;
+          const ranges = period?.periodRanges ?? [];
+          return (
+            ranges.length === 0 ||
+            ranges.some((r) => p.periodEnd >= r.start && p.periodStart <= r.end)
+          );
+        };
+        for (const s of series) {
+          const rows = FACTS.filter(
+            (f) =>
+              f.dataset === s.datasetCode &&
+              f.unit === s.unitNomItemId &&
+              f.slots.every((v, i) => (s.slots[i] ?? null) === v) &&
+              inPeriod(f)
+          )
+            .sort(sortNewest)
+            .slice(0, perSeries);
+          for (const f of rows) out.push({ seriesKey: s.key, observation: toObservation(f) });
+        }
+        return R(out);
+      },
+    };
+  return repo;
 };

@@ -212,13 +212,13 @@ const seed = async (client: pg.Client): Promise<void> => {
       ('EMPTYTEST', 1, 4399, 1, 'UNKNOWN', '{}'), ('EMPTYTEST', 2, 9685, 1, 'UNKNOWN', '{}');
 
     insert into ins.member_territory (dataset_code, dim_index, nom_item_id, territory_id, territory_level, siruta_code, territory_code, method, resolution) values
-      ('POPTEST', 2, 3064, null, 'NUTS3', null, null, 'county-name', 'TOTAL_MEMBER'),
+      ('POPTEST', 2, 3064, null, null, null, null, 'county-name', 'TOTAL_MEMBER'),
       ('POPTEST', 2, 3075, 25, 'NUTS3', null, 'CJ', 'county-name', 'RESOLVED'),
       ('POPTEST', 2, 3065, 14, 'NUTS3', null, 'AB', 'county-name', 'RESOLVED'),
-      ('POPTEST', 3, 112, null, 'LAU', null, null, 'locality-prefix', 'TOTAL_MEMBER'),
+      ('POPTEST', 3, 112, null, null, null, null, 'locality-prefix', 'TOTAL_MEMBER'),
       ('POPTEST', 3, 931, 931, 'LAU', '54975', '54975', 'locality-prefix', 'RESOLVED'),
       ('POPTEST', 3, 113, 56, 'LAU', '1017', '1017', 'locality-prefix', 'RESOLVED'),
-      ('CNTTEST', 0, 8000, null, 'NUTS3', null, null, 'reg-j-name', 'TOTAL_MEMBER'),
+      ('CNTTEST', 0, 8000, null, null, null, null, 'reg-j-name', 'TOTAL_MEMBER'),
       ('CNTTEST', 0, 8001, 6, 'NUTS2', null, 'RO11', 'reg-j-name', 'RESOLVED'),
       ('CNTTEST', 0, 8002, 25, 'NUTS3', null, 'CJ', 'reg-j-name', 'RESOLVED');
 
@@ -325,7 +325,9 @@ beforeAll(async () => {
 
   pgClient = new pg.Client({ connectionString });
   await pgClient.connect();
-  await pgClient.query('drop schema if exists ins cascade;');
+  await pgClient.query(
+    'drop schema if exists ins cascade; create extension if not exists unaccent;'
+  );
   // The kernel pool: int8/date/timestamp come back as wire strings, as in production.
   db = createProdDb({ connectionString, max: 4 }).db;
   for (const file of MIGRATIONS) {
@@ -493,6 +495,21 @@ describe('ins-native repository over the real scrapper DDL (e2e)', () => {
     expect(region._unsafeUnwrap().nodes.map((o) => o.value)).toEqual(['22', '20']);
     const lau = await listObservations(r(), 'CNTTEST', { sirutaCodes: ['54975'] });
     expect(lau._unsafeUnwrap().nodes).toEqual([]);
+  });
+
+  it('territoryLevels alone reads every county through a level semi-join; a diacritic needle finds members', async () => {
+    const page = await listObservations(r(), 'POPTEST', {
+      territoryLevels: ['NUTS3'],
+      classificationValueCodes: ['TOTAL'],
+      classificationTypeCodes: ['D0', 'D1'],
+    });
+    expect(new Set(page._unsafeUnwrap().nodes.map((o) => o.territory?.code))).toEqual(
+      new Set(['CJ', 'AB'])
+    );
+    const members = await listDimensionValues(r(), 'POPTEST', 3, 'cluj-napoca', 50, 0);
+    expect(members._unsafeUnwrap().nodes.map((m) => m.nomItemId)).toEqual([931]);
+    const beyond = await listObservations(r(), 'POPTEST', { territoryCodes: ['CJ'] }, 10, 100);
+    expect(beyond._unsafeUnwrap().totalCount).toBeNull();
   });
 
   it('plan: a fully pinned series probes the identity index on the pruned partition', async () => {

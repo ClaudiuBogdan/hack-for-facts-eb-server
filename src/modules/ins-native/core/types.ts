@@ -304,8 +304,19 @@ export interface InsPage<T> {
 // Resolved series (what the usecases hand the repository)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** One AND-group of slot pins: slot → allowed member ids (OR within a slot). */
-export type SlotPins = ReadonlyMap<number, readonly number[]>;
+/**
+ * What a slot is pinned to: an explicit member-id list (OR within the slot), or
+ * every member of a territorial dimension bound at one spine level (the
+ * `territoryLevels`-only filter — compiled to a semi-join, never to an id list
+ * that a limit could truncate).
+ */
+export type SlotPredicate =
+  readonly number[] | { readonly memberLevel: InsTerritoryLevel; readonly dimIndex: number };
+
+/** One AND-group of slot pins: slot → predicate. */
+export type SlotPins = ReadonlyMap<number, SlotPredicate>;
+
+export const isMemberList = (pred: SlotPredicate): pred is readonly number[] => Array.isArray(pred);
 
 /**
  * A fact query, fully resolved to physical predicates. `pinGroups` are OR-ed
