@@ -25,8 +25,9 @@ import {
   makeGraphQLValidationRules,
 } from '../infra/graphql/security.js';
 import { makeGraphQLContext, type AuthProvider } from '../modules/auth/index.js';
-import { makeBudgetModule } from '../modules/budget/index.js';
+import { makeBudgetModule, makeDatasetFactorSource } from '../modules/budget/index.js';
 import { makeCompaniesModule } from '../modules/companies/index.js';
+import { createDatasetRepo } from '../modules/datasets/index.js';
 import { makeJudicialModule } from '../modules/judicial/index.js';
 import { makeLegalModule } from '../modules/legal/index.js';
 import { makeParliamentModule } from '../modules/parliament/index.js';
@@ -351,9 +352,19 @@ export const registerRedesignSurface = async (
   }
 
   if (enabledModules.includes('budget')) {
+    // The legacy `executionAnalytics` root normalizes with the YAML reference
+    // datasets (CPI / FX / GDP / population) until program D2 lands the
+    // `core.normalization_factors` tables behind the same port. fs-backed, no DB.
+    const datasetsRoot = process.env['DATASETS_ROOT'] ?? './datasets/yaml';
+    const legacyFactors = makeDatasetFactorSource(
+      createDatasetRepo({ rootDir: datasetsRoot }),
+      app.log
+    );
     const budget = makeBudgetModule({
       db: kernel.db,
       registry: kernel.contributors,
+      legacyFactors,
+      logger: app.log,
       ...(deps.clientBaseUrl !== undefined && { clientBaseUrl: deps.clientBaseUrl }),
     });
     kernel.contributors.register(budget.contributor);
