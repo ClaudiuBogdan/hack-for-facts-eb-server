@@ -19,6 +19,7 @@ import corsPlugin from '@fastify/cors';
 import { makeExecutableSchema } from '@graphql-tools/schema';
 import fastifyLib, { type FastifyInstance, type FastifyReply } from 'fastify';
 import mercuriusPlugin from 'mercurius';
+import { err, ok } from 'neverthrow';
 
 import {
   makeGraphQLErrorFormatter,
@@ -28,6 +29,7 @@ import { makeGraphQLContext, type AuthProvider } from '../modules/auth/index.js'
 import { makeBudgetModule, makeDatasetFactorSource } from '../modules/budget/index.js';
 import { makeCompaniesModule } from '../modules/companies/index.js';
 import { createDatasetRepo } from '../modules/datasets/index.js';
+import { makeInsNativeModule } from '../modules/ins-native/index.js';
 import { makeJudicialModule } from '../modules/judicial/index.js';
 import { makeLegalModule } from '../modules/legal/index.js';
 import { makeParliamentModule } from '../modules/parliament/index.js';
@@ -97,6 +99,13 @@ export interface BuildRedesignAppDeps {
     | 'judicial'
     | 'procurement'
     | 'primarii-transparency'
+    /**
+     * The Chronos-reading INS module (program slice 3.2). OPT-IN: not in the
+     * default set while the S1-7 interim mounts the legacy INS roots under the
+     * same names (the merge gate would throw). The switch-over commit moves it
+     * into the default set and deletes the interim.
+     */
+    | 'ins-native'
   )[];
   /** Disable procurement's fire-and-forget preload for isolated cold benchmarks. */
   readonly procurementWarmCache?: boolean;
@@ -372,6 +381,24 @@ export const registerRedesignSurface = async (
     moduleResolvers.push(budget.graphqlResolvers);
     moduleMcpTools.push(...budget.mcpTools);
     moduleMcpResources.push(...budget.mcpResources);
+  }
+
+  if (enabledModules.includes('ins-native')) {
+    // Entity presence: CUI → the entity's UAT SIRUTA through the kernel identity hub.
+    const insNative = makeInsNativeModule({
+      db: kernel.db,
+      registry: kernel.contributors,
+      ...(deps.clientBaseUrl !== undefined && { clientBaseUrl: deps.clientBaseUrl }),
+      sirutaForCui: async (cui) => {
+        const territory = await kernel.identityRepo.territoryForCui(cui);
+        if (territory.isErr()) return err(territory.error);
+        return ok(territory.value?.territorialSirutaCode ?? null);
+      },
+    });
+    kernel.contributors.register(insNative.contributor);
+    moduleSlices.push(insNative.graphqlSlice);
+    moduleResolvers.push(insNative.graphqlResolvers);
+    moduleMcpTools.push(...insNative.mcpTools);
   }
 
   if (enabledModules.includes('procurement')) {

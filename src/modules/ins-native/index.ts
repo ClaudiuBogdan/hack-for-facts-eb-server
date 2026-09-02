@@ -10,7 +10,7 @@
 
 import './shell/db/schema.js';
 
-import { makeInsContributor } from './shell/contributor.js';
+import { makeInsContributor, type InsContributorDeps } from './shell/contributor.js';
 import { makeInsLegacyResolvers } from './shell/graphql/legacy/resolvers.js';
 import { insLegacyTypeDefs } from './shell/graphql/legacy/typedefs.js';
 import { makeInsMcpTools } from './shell/mcp/tools.js';
@@ -33,6 +33,8 @@ export interface InsNativeModuleDeps {
   readonly clientBaseUrl?: string;
   /** Inject a repository (tests); defaults to the Chronos repository. */
   readonly repo?: InsRepo;
+  /** CUI → the entity's UAT SIRUTA (kernel identity hub); absent = no entity presence. */
+  readonly sirutaForCui?: InsContributorDeps['sirutaForCui'];
 }
 
 export interface InsNativeModule {
@@ -53,7 +55,10 @@ export const makeInsNativeModule = (deps: InsNativeModuleDeps): InsNativeModule 
     graphqlSlice: { source: INS_NATIVE_SOURCE, typeDefs: insLegacyTypeDefs },
     graphqlResolvers: makeInsLegacyResolvers({ repo }),
     mcpTools: makeInsMcpTools({ repo, clientBaseUrl }),
-    contributor: makeInsContributor(repo),
+    contributor: makeInsContributor(
+      repo,
+      deps.sirutaForCui === undefined ? {} : { sirutaForCui: deps.sirutaForCui }
+    ),
   };
 };
 
