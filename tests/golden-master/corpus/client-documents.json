@@ -1,0 +1,1214 @@
+{
+  "meta": {
+    "generator": "scripts/gm/gen-client-corpus.mts",
+    "clientCommit": "6681754d819e7fc9cc7ce8db7629d8655a65c36c",
+    "clientBranch": "dev"
+  },
+  "entries": [
+    {
+      "id": "execution-analytics-entity-income-expense",
+      "status": "live",
+      "timeoutMs": 180000,
+      "variablesSource": "lib/chart-links.ts buildEntityIncomeExpenseChartState (series ids + defaultYearRange) → components/charts/hooks/useChartData.ts normalizeAnalyticsFilter → lib/api/charts.ts getChartAnalytics prepareFilterForServer",
+      "variables": {
+        "inputs": [
+          {
+            "seriesId": "4b42c976",
+            "filter": {
+              "account_category": "vn",
+              "report_type": "PRINCIPAL_AGGREGATED",
+              "entity_cuis": ["4305857"],
+              "normalization": "total",
+              "currency": "RON",
+              "inflation_adjusted": false,
+              "show_period_growth": false,
+              "report_period": {
+                "type": "YEAR",
+                "selection": {
+                  "interval": {
+                    "start": "2016",
+                    "end": "2026"
+                  }
+                }
+              },
+              "exclude": {
+                "functional_prefixes": ["36.02.05", "37.02.03", "37.02.04", "47.02.04"]
+              }
+            }
+          },
+          {
+            "seriesId": "35fd44fc",
+            "filter": {
+              "account_category": "ch",
+              "report_type": "PRINCIPAL_AGGREGATED",
+              "entity_cuis": ["4305857"],
+              "normalization": "total",
+              "currency": "RON",
+              "inflation_adjusted": false,
+              "show_period_growth": false,
+              "report_period": {
+                "type": "YEAR",
+                "selection": {
+                  "interval": {
+                    "start": "2016",
+                    "end": "2026"
+                  }
+                }
+              },
+              "exclude": {
+                "economic_prefixes": ["51.01", "51.02"]
+              }
+            }
+          }
+        ]
+      },
+      "document": "\n    query GetExecutionLineItemsAnalytics($inputs: [AnalyticsInput!]!) {\n      executionAnalytics(inputs: $inputs) {\n        seriesId\n        xAxis { name type unit }\n        yAxis { name type unit }\n        data { x y }\n      }\n    }\n  ",
+      "source": "src/lib/api/charts.ts:12-21"
+    },
+    {
+      "id": "static-chart-analytics-ro",
+      "status": "live",
+      "variablesSource": "lib/api/charts.ts getStaticChartAnalytics (lang omitted when locale is not en); ids from server datasets/yaml",
+      "variables": {
+        "seriesIds": ["ro.economics.gdp.yearly", "ro.demographics.population.yearly"]
+      },
+      "document": "\n    query GetStaticChartAnalytics($seriesIds: [ID!]!, $lang: String) {\n      staticChartAnalytics(seriesIds: $seriesIds, lang: $lang) {\n        seriesId\n        xAxis { name type unit }\n        yAxis { name type unit }\n        data { x y }\n      }\n    }\n  ",
+      "source": "src/lib/api/charts.ts:37-46"
+    },
+    {
+      "id": "static-chart-analytics-en",
+      "status": "live",
+      "variablesSource": "lib/api/charts.ts getStaticChartAnalytics (lang: \"en\")",
+      "variables": {
+        "seriesIds": ["ro.economics.gdp.yearly", "ro.demographics.population.yearly"],
+        "lang": "en"
+      },
+      "document": "\n    query GetStaticChartAnalytics($seriesIds: [ID!]!, $lang: String) {\n      staticChartAnalytics(seriesIds: $seriesIds, lang: $lang) {\n        seriesId\n        xAxis { name type unit }\n        yAxis { name type unit }\n        data { x y }\n      }\n    }\n  ",
+      "source": "src/lib/api/charts.ts:37-46"
+    },
+    {
+      "id": "get-datasets-invalid",
+      "status": "invalid-today",
+      "variablesSource": "lib/api/datasets.ts getDatasets (lang: locale.toUpperCase())",
+      "note": "Selects data { x y } on Dataset, which has no data field — validation error today; the client swallows it (hooks/filters/useDatasetStore.tsx).",
+      "variables": {
+        "ids": ["ro.economics.gdp.yearly"],
+        "lang": "RO"
+      },
+      "document": "\n    query GetDatasets($ids: [ID!]!, $lang: String) {\n      datasets(filter: { ids: $ids }, lang: $lang) {\n        nodes {\n          id\n          name\n          description\n          sourceName\n          sourceUrl\n          xAxis { name type unit }\n          yAxis { name type unit }\n          data { x y }\n        }\n      }\n    }\n  ",
+      "source": "src/lib/api/datasets.ts:19-34"
+    },
+    {
+      "id": "datasets-list-ro",
+      "status": "live",
+      "variablesSource": "DatasetList.tsx (useMultiSelectInfinite pageSize 100, lang omitted when not en)",
+      "variables": {
+        "search": "",
+        "limit": 100,
+        "offset": 0
+      },
+      "document": "\n              query Datasets($search: String!, $limit: Int!, $offset: Int!, $lang: String) {\n                datasets(filter: { search: $search }, limit: $limit, offset: $offset, lang: $lang) {\n                    nodes {\n                        id\n                        name\n                        description\n                        sourceName\n                        sourceUrl\n                        xAxis { name type unit }\n                        yAxis { name type unit }\n                    }\n                  pageInfo { totalCount hasNextPage }\n                }\n              }\n            ",
+      "source": "src/components/charts/components/series-config/DatasetList.tsx:41-56"
+    },
+    {
+      "id": "datasets-list-en",
+      "status": "live",
+      "variablesSource": "DatasetList.tsx (lang: \"en\")",
+      "variables": {
+        "search": "",
+        "limit": 100,
+        "offset": 0,
+        "lang": "en"
+      },
+      "document": "\n              query Datasets($search: String!, $limit: Int!, $offset: Int!, $lang: String) {\n                datasets(filter: { search: $search }, limit: $limit, offset: $offset, lang: $lang) {\n                    nodes {\n                        id\n                        name\n                        description\n                        sourceName\n                        sourceUrl\n                        xAxis { name type unit }\n                        yAxis { name type unit }\n                    }\n                  pageInfo { totalCount hasNextPage }\n                }\n              }\n            ",
+      "source": "src/components/charts/components/series-config/DatasetList.tsx:41-56"
+    },
+    {
+      "id": "heatmap-county-default-map",
+      "status": "live",
+      "timeoutMs": 180000,
+      "variablesSource": "schemas/map-filters.ts defaultMapFilters → routes/map.tsx normalizedFilters (DEFAULT_CURRENCY, DEFAULT_INFLATION_ADJUSTED) → lib/api/dataDiscovery.ts prepareFilterForServer",
+      "variables": {
+        "filter": {
+          "account_category": "ch",
+          "report_period": {
+            "type": "YEAR",
+            "selection": {
+              "interval": {
+                "start": "2025",
+                "end": "2025"
+              }
+            }
+          },
+          "normalization": "total",
+          "is_uat": true,
+          "report_type": "PRINCIPAL_AGGREGATED",
+          "currency": "RON",
+          "inflation_adjusted": false,
+          "show_period_growth": false,
+          "exclude": {
+            "economic_prefixes": ["51.01", "51.02"],
+            "functional_prefixes": ["36.02.05", "37.02.03", "37.02.04", "47.02.04"]
+          }
+        }
+      },
+      "document": "\n  query GetHeatmapCountyData($filter: AnalyticsFilterInput!) {\n    heatmapCountyData(filter: $filter) {\n      county_code\n      county_name\n      county_population\n      total_amount\n      per_capita_amount\n      county_entity {\n        cui\n        name\n      }\n    }\n  }\n",
+      "source": "src/lib/api/dataDiscovery.ts:17-31"
+    },
+    {
+      "id": "heatmap-uat-default-map",
+      "status": "live",
+      "timeoutMs": 180000,
+      "variablesSource": "same as heatmap-county-default-map (routes/map.tsx prefetches both by mapViewType)",
+      "variables": {
+        "filter": {
+          "account_category": "ch",
+          "report_period": {
+            "type": "YEAR",
+            "selection": {
+              "interval": {
+                "start": "2025",
+                "end": "2025"
+              }
+            }
+          },
+          "normalization": "total",
+          "is_uat": true,
+          "report_type": "PRINCIPAL_AGGREGATED",
+          "currency": "RON",
+          "inflation_adjusted": false,
+          "show_period_growth": false,
+          "exclude": {
+            "economic_prefixes": ["51.01", "51.02"],
+            "functional_prefixes": ["36.02.05", "37.02.03", "37.02.04", "47.02.04"]
+          }
+        }
+      },
+      "document": "\n  query GetHeatmapUATData($filter: AnalyticsFilterInput!) {\n    heatmapUATData(filter: $filter) {\n      uat_id\n      uat_name\n      uat_code\n      siruta_code\n      county_code\n      county_name\n      population\n      amount\n      total_amount\n      per_capita_amount\n    }\n  }\n",
+      "source": "src/lib/api/dataDiscovery.ts:33-48"
+    },
+    {
+      "id": "entity-analytics-table-default",
+      "status": "live",
+      "timeoutMs": 180000,
+      "variablesSource": "hooks/useEntityAnalyticsFilter.ts defaultEntityAnalyticsFilter → routes/entity-analytics.tsx effectiveFilter (pageSize 25, no sort) → lib/api/entity-analytics.ts fetchEntityAnalytics prepareFilterForServer",
+      "variables": {
+        "filter": {
+          "account_category": "ch",
+          "report_period": {
+            "type": "YEAR",
+            "selection": {
+              "interval": {
+                "start": "2025",
+                "end": "2025"
+              }
+            }
+          },
+          "normalization": "total",
+          "report_type": "PRINCIPAL_AGGREGATED",
+          "currency": "RON",
+          "inflation_adjusted": false,
+          "show_period_growth": false,
+          "exclude": {
+            "economic_prefixes": ["51.01", "51.02"],
+            "functional_prefixes": ["36.02.05", "37.02.03", "37.02.04", "47.02.04"]
+          }
+        },
+        "limit": 25,
+        "offset": 0
+      },
+      "document": "\n  query EntityAnalytics($filter: AnalyticsFilterInput!, $sort: SortOrder, $limit: Int, $offset: Int) {\n    entityAnalytics(filter: $filter, sort: $sort, limit: $limit, offset: $offset) {\n      nodes {\n        entity_cui\n        entity_name\n        entity_type\n        uat_id\n        county_code\n        county_name\n        population\n        amount\n        total_amount\n        per_capita_amount\n      }\n      pageInfo {\n        totalCount\n        hasNextPage\n        hasPreviousPage\n      }\n    }\n  }\n",
+      "source": "src/lib/api/entity-analytics.ts:10-32"
+    },
+    {
+      "id": "entity-analytics-sorted-total-amount-desc",
+      "status": "live",
+      "timeoutMs": 180000,
+      "variablesSource": "routes/entity-analytics.lazy.tsx (sort {by: mapColumnIdToSortBy(\"total_amount\"), order: \"desc\"})",
+      "variables": {
+        "filter": {
+          "account_category": "ch",
+          "report_period": {
+            "type": "YEAR",
+            "selection": {
+              "interval": {
+                "start": "2025",
+                "end": "2025"
+              }
+            }
+          },
+          "normalization": "total",
+          "report_type": "PRINCIPAL_AGGREGATED",
+          "currency": "RON",
+          "inflation_adjusted": false,
+          "show_period_growth": false,
+          "exclude": {
+            "economic_prefixes": ["51.01", "51.02"],
+            "functional_prefixes": ["36.02.05", "37.02.03", "37.02.04", "47.02.04"]
+          }
+        },
+        "sort": {
+          "by": "total_amount",
+          "order": "desc"
+        },
+        "limit": 25,
+        "offset": 0
+      },
+      "document": "\n  query EntityAnalytics($filter: AnalyticsFilterInput!, $sort: SortOrder, $limit: Int, $offset: Int) {\n    entityAnalytics(filter: $filter, sort: $sort, limit: $limit, offset: $offset) {\n      nodes {\n        entity_cui\n        entity_name\n        entity_type\n        uat_id\n        county_code\n        county_name\n        population\n        amount\n        total_amount\n        per_capita_amount\n      }\n      pageInfo {\n        totalCount\n        hasNextPage\n        hasPreviousPage\n      }\n    }\n  }\n",
+      "source": "src/lib/api/entity-analytics.ts:10-32"
+    },
+    {
+      "id": "entity-analytics-csv-export-page",
+      "status": "live",
+      "timeoutMs": 180000,
+      "variablesSource": "routes/entity-analytics.lazy.tsx CSV export loop (pageSizeBatch 500)",
+      "variables": {
+        "filter": {
+          "account_category": "ch",
+          "report_period": {
+            "type": "YEAR",
+            "selection": {
+              "interval": {
+                "start": "2025",
+                "end": "2025"
+              }
+            }
+          },
+          "normalization": "total",
+          "report_type": "PRINCIPAL_AGGREGATED",
+          "currency": "RON",
+          "inflation_adjusted": false,
+          "show_period_growth": false,
+          "exclude": {
+            "economic_prefixes": ["51.01", "51.02"],
+            "functional_prefixes": ["36.02.05", "37.02.03", "37.02.04", "47.02.04"]
+          }
+        },
+        "sort": {
+          "by": "total_amount",
+          "order": "desc"
+        },
+        "limit": 500,
+        "offset": 0
+      },
+      "document": "\n  query EntityAnalytics($filter: AnalyticsFilterInput!, $sort: SortOrder, $limit: Int, $offset: Int) {\n    entityAnalytics(filter: $filter, sort: $sort, limit: $limit, offset: $offset) {\n      nodes {\n        entity_cui\n        entity_name\n        entity_type\n        uat_id\n        county_code\n        county_name\n        population\n        amount\n        total_amount\n        per_capita_amount\n      }\n      pageInfo {\n        totalCount\n        hasNextPage\n        hasPreviousPage\n      }\n    }\n  }\n",
+      "source": "src/lib/api/entity-analytics.ts:10-32"
+    },
+    {
+      "id": "aggregated-line-items-lesson-national",
+      "status": "live",
+      "timeoutMs": 300000,
+      "variablesSource": "features/challenges/hooks/use-challenge-lesson-entity-data.ts useChallengeLessonNationalAggregatedLineItems (limit 150000; BudgetCodeAnchors.tsx passes CHALLENGE_LESSON_DEFAULT_NATIONAL_EXPENSE_EXCLUSIONS) → fetchAggregatedLineItems prepareFilterForServer",
+      "variables": {
+        "filter": {
+          "account_category": "ch",
+          "report_period": {
+            "type": "YEAR",
+            "selection": {
+              "interval": {
+                "start": "2025",
+                "end": "2025"
+              }
+            }
+          },
+          "report_type": "PRINCIPAL_AGGREGATED",
+          "normalization": "total",
+          "currency": "RON",
+          "inflation_adjusted": false,
+          "is_uat": true,
+          "show_period_growth": false,
+          "exclude": {
+            "economic_prefixes": ["51.01", "51.02"]
+          }
+        },
+        "limit": 150000
+      },
+      "document": "\n  query AggregatedLineItems(\n    $filter: AnalyticsFilterInput!\n    $limit: Int\n    $offset: Int\n  ) {\n    aggregatedLineItems(filter: $filter, limit: $limit, offset: $offset) {\n      nodes {\n        fn_c: functional_code\n        fn_n: functional_name\n        ec_c: economic_code\n        ec_n: economic_name\n        amount\n        count\n      }\n      pageInfo {\n        totalCount\n        hasNextPage\n        hasPreviousPage\n      }\n    }\n  }\n",
+      "source": "src/lib/api/entity-analytics.ts:34-56"
+    },
+    {
+      "id": "aggregated-line-items-entity-analytics-page",
+      "status": "live",
+      "timeoutMs": 300000,
+      "variablesSource": "routes/entity-analytics.lazy.tsx fetchAggregatedLineItems({ filter: effectiveFilter, limit: 150000 }) with an entity_cuis filter",
+      "variables": {
+        "filter": {
+          "account_category": "ch",
+          "report_period": {
+            "type": "YEAR",
+            "selection": {
+              "interval": {
+                "start": "2025",
+                "end": "2025"
+              }
+            }
+          },
+          "normalization": "total",
+          "report_type": "PRINCIPAL_AGGREGATED",
+          "currency": "RON",
+          "inflation_adjusted": false,
+          "entity_cuis": ["4305857"],
+          "show_period_growth": false,
+          "exclude": {
+            "economic_prefixes": ["51.01", "51.02"],
+            "functional_prefixes": ["36.02.05", "37.02.03", "37.02.04", "47.02.04"]
+          }
+        },
+        "limit": 150000
+      },
+      "document": "\n  query AggregatedLineItems(\n    $filter: AnalyticsFilterInput!\n    $limit: Int\n    $offset: Int\n  ) {\n    aggregatedLineItems(filter: $filter, limit: $limit, offset: $offset) {\n      nodes {\n        fn_c: functional_code\n        fn_n: functional_name\n        ec_c: economic_code\n        ec_n: economic_name\n        amount\n        count\n      }\n      pageInfo {\n        totalCount\n        hasNextPage\n        hasPreviousPage\n      }\n    }\n  }\n",
+      "source": "src/lib/api/entity-analytics.ts:34-56"
+    },
+    {
+      "id": "national-budget-sectors",
+      "status": "live",
+      "variablesSource": "national-budget-api.ts fetchBudgetSectors (limit 100, offset 0)",
+      "variables": {
+        "limit": 100,
+        "offset": 0
+      },
+      "document": "\n  query BudgetSectors($limit: Int, $offset: Int) {\n    budgetSectors(limit: $limit, offset: $offset) {\n      nodes {\n        sector_id\n        sector_description\n      }\n      pageInfo {\n        totalCount\n        hasNextPage\n      }\n    }\n  }\n",
+      "source": "src/features/national-budget/national-budget-api.ts:5-18"
+    },
+    {
+      "id": "national-budget-funding-sources",
+      "status": "live",
+      "variablesSource": "national-budget-api.ts fetchFundingSources (limit 200, offset 0)",
+      "variables": {
+        "limit": 200,
+        "offset": 0
+      },
+      "document": "\n  query NationalBudgetFundingSources($limit: Int, $offset: Int) {\n    fundingSources(limit: $limit, offset: $offset) {\n      nodes {\n        source_id\n        source_description\n      }\n      pageInfo {\n        totalCount\n        hasNextPage\n      }\n    }\n  }\n",
+      "source": "src/features/national-budget/national-budget-api.ts:20-33"
+    },
+    {
+      "id": "entity-search-cluj-napoca",
+      "status": "live",
+      "variablesSource": "lib/api/entities.ts searchEntities ← components/entities/EntitySearch/useEntitySearch.ts (limit 8)",
+      "variables": {
+        "filter": {
+          "search": "Cluj-Napoca"
+        },
+        "limit": 8
+      },
+      "document": "\n  query EntitySearch($filter: EntityFilter, $limit: Int) {\n    entities(filter: $filter, limit: $limit) {\n      nodes {\n        name\n        cui\n        entity_type\n        is_uat\n        uat {\n          county_name\n          name\n        }\n      }\n      # If your API returns pagination info for search, you can include it here\n      # pageInfo {\n      #   totalCount\n      # }\n    }\n  }\n",
+      "source": "src/lib/api/entities.ts:312-331"
+    },
+    {
+      "id": "entity-search-uat-only",
+      "status": "live",
+      "variablesSource": "lib/api/entities.ts searchEntities with options.isUat (campaign entity selector)",
+      "variables": {
+        "filter": {
+          "search": "Cluj",
+          "is_uat": true
+        },
+        "limit": 8
+      },
+      "document": "\n  query EntitySearch($filter: EntityFilter, $limit: Int) {\n    entities(filter: $filter, limit: $limit) {\n      nodes {\n        name\n        cui\n        entity_type\n        is_uat\n        uat {\n          county_name\n          name\n        }\n      }\n      # If your API returns pagination info for search, you can include it here\n      # pageInfo {\n      #   totalCount\n      # }\n    }\n  }\n",
+      "source": "src/lib/api/entities.ts:312-331"
+    },
+    {
+      "id": "entity-search-uat-finder",
+      "status": "live",
+      "variablesSource": "features/learning/components/interactive/useUATFinder.ts (SEARCH_LIMIT 15)",
+      "variables": {
+        "filter": {
+          "search": "Sibiu"
+        },
+        "limit": 15
+      },
+      "document": "\n  query EntitySearch($filter: EntityFilter, $limit: Int) {\n    entities(filter: $filter, limit: $limit) {\n      nodes {\n        name\n        cui\n        entity_type\n        is_uat\n        uat {\n          county_name\n          name\n        }\n      }\n      # If your API returns pagination info for search, you can include it here\n      # pageInfo {\n      #   totalCount\n      # }\n    }\n  }\n",
+      "source": "src/lib/api/entities.ts:312-331"
+    },
+    {
+      "id": "commitments-summary-entity-2025",
+      "status": "live",
+      "timeoutMs": 120000,
+      "variablesSource": "lib/api/commitments.ts buildCommitmentsFilter ← components/entities/views/Commitments.tsx base filter (no showPeriodGrowth) ← challenge-entity-analysis-page.tsx reportPeriod (YEAR DEFAULT_SELECTED_YEAR); fetchCommitmentsSummary defaults limit 50 offset 0",
+      "variables": {
+        "filter": {
+          "report_period": {
+            "type": "YEAR",
+            "selection": {
+              "interval": {
+                "start": "2025",
+                "end": "2025"
+              }
+            }
+          },
+          "report_type": "PRINCIPAL_AGGREGATED",
+          "entity_cuis": ["4305857"],
+          "normalization": "total",
+          "currency": "RON",
+          "inflation_adjusted": false,
+          "exclude_transfers": true
+        },
+        "limit": 50,
+        "offset": 0
+      },
+      "document": "\n  query CommitmentsSummary($filter: CommitmentsFilterInput!, $limit: Int, $offset: Int) {\n    commitmentsSummary(filter: $filter, limit: $limit, offset: $offset) {\n      nodes {\n        __typename\n        ... on CommitmentsMonthlySummary {\n          year\n          month\n          entity_cui\n          entity_name\n          report_type\n          credite_angajament\n          plati_trezor\n          plati_non_trezor\n          receptii_totale\n          receptii_neplatite_change\n          total_plati\n        }\n        ... on CommitmentsQuarterlySummary {\n          year\n          quarter\n          entity_cui\n          entity_name\n          report_type\n          credite_angajament\n          limita_credit_angajament\n          credite_bugetare\n          credite_angajament_initiale\n          credite_bugetare_initiale\n          credite_angajament_definitive\n          credite_bugetare_definitive\n          credite_angajament_disponibile\n          credite_bugetare_disponibile\n          receptii_totale\n          plati_trezor\n          plati_non_trezor\n          receptii_neplatite\n          total_plati\n          execution_rate\n          commitment_rate\n        }\n        ... on CommitmentsAnnualSummary {\n          year\n          entity_cui\n          entity_name\n          report_type\n          credite_angajament\n          limita_credit_angajament\n          credite_bugetare\n          credite_angajament_initiale\n          credite_bugetare_initiale\n          credite_angajament_definitive\n          credite_bugetare_definitive\n          credite_angajament_disponibile\n          credite_bugetare_disponibile\n          receptii_totale\n          plati_trezor\n          plati_non_trezor\n          receptii_neplatite\n          total_plati\n          execution_rate\n          commitment_rate\n        }\n      }\n      pageInfo {\n        totalCount\n        hasNextPage\n        hasPreviousPage\n      }\n    }\n  }\n",
+      "source": "src/lib/api/commitments.ts:25-96"
+    },
+    {
+      "id": "commitments-line-items-entity-2025",
+      "status": "dead",
+      "timeoutMs": 120000,
+      "variablesSource": "lib/api/commitments.ts fetchCommitmentsLineItems (defaults limit 50 offset 0) — no non-test consumer",
+      "variables": {
+        "filter": {
+          "report_period": {
+            "type": "YEAR",
+            "selection": {
+              "interval": {
+                "start": "2025",
+                "end": "2025"
+              }
+            }
+          },
+          "report_type": "PRINCIPAL_AGGREGATED",
+          "entity_cuis": ["4305857"],
+          "normalization": "total",
+          "currency": "RON",
+          "inflation_adjusted": false,
+          "exclude_transfers": true
+        },
+        "limit": 50,
+        "offset": 0
+      },
+      "document": "\n  query CommitmentsLineItems($filter: CommitmentsFilterInput!, $limit: Int, $offset: Int) {\n    commitmentsLineItems(filter: $filter, limit: $limit, offset: $offset) {\n      nodes {\n        id\n        year\n        month\n        report_type\n        entity_cui\n        entity_name\n        budget_sector_id\n        budget_sector_name\n        funding_source_id\n        funding_source_name\n        functional_code\n        functional_name\n        economic_code\n        economic_name\n        credite_angajament\n        limita_credit_angajament\n        credite_bugetare\n        credite_angajament_initiale\n        credite_bugetare_initiale\n        credite_angajament_definitive\n        credite_bugetare_definitive\n        credite_angajament_disponibile\n        credite_bugetare_disponibile\n        receptii_totale\n        plati_trezor\n        plati_non_trezor\n        receptii_neplatite\n        monthly_plati_trezor\n        monthly_plati_non_trezor\n        monthly_receptii_totale\n        monthly_receptii_neplatite_change\n        monthly_credite_angajament\n        is_quarterly\n        quarter\n        is_yearly\n        anomaly\n      }\n      pageInfo {\n        totalCount\n        hasNextPage\n        hasPreviousPage\n      }\n    }\n  }\n",
+      "source": "src/lib/api/commitments.ts:98-146"
+    },
+    {
+      "id": "commitments-aggregated-credite-bugetare-definitive",
+      "status": "live",
+      "timeoutMs": 120000,
+      "variablesSource": "Commitments.tsx budgetAggInput → useCommitmentsAggregatedAll → lib/api/commitments.ts fetchCommitmentsAggregatedAll (limit overridden to pageSize 500, offset 0)",
+      "variables": {
+        "input": {
+          "filter": {
+            "report_period": {
+              "type": "YEAR",
+              "selection": {
+                "interval": {
+                  "start": "2025",
+                  "end": "2025"
+                }
+              }
+            },
+            "report_type": "PRINCIPAL_AGGREGATED",
+            "entity_cuis": ["4305857"],
+            "normalization": "total",
+            "currency": "RON",
+            "inflation_adjusted": false,
+            "exclude_transfers": true
+          },
+          "metric": "CREDITE_BUGETARE_DEFINITIVE",
+          "limit": 500,
+          "offset": 0
+        }
+      },
+      "document": "\n  query CommitmentsAggregated($input: CommitmentsAggregatedInput!) {\n    commitmentsAggregated(input: $input) {\n      nodes {\n        functional_code\n        functional_name\n        economic_code\n        economic_name\n        amount\n        count\n      }\n      pageInfo {\n        totalCount\n        hasNextPage\n        hasPreviousPage\n      }\n    }\n  }\n",
+      "source": "src/lib/api/commitments.ts:148-166"
+    },
+    {
+      "id": "commitments-aggregated-plati-trezor",
+      "status": "live",
+      "timeoutMs": 120000,
+      "variablesSource": "lib/api/commitments.ts buildPaidAggregatedInputs → fetchCommitmentsAggregatedAll (pageSize 500)",
+      "variables": {
+        "input": {
+          "filter": {
+            "report_period": {
+              "type": "YEAR",
+              "selection": {
+                "interval": {
+                  "start": "2025",
+                  "end": "2025"
+                }
+              }
+            },
+            "report_type": "PRINCIPAL_AGGREGATED",
+            "entity_cuis": ["4305857"],
+            "normalization": "total",
+            "currency": "RON",
+            "inflation_adjusted": false,
+            "exclude_transfers": true
+          },
+          "metric": "PLATI_TREZOR",
+          "limit": 500,
+          "offset": 0
+        }
+      },
+      "document": "\n  query CommitmentsAggregated($input: CommitmentsAggregatedInput!) {\n    commitmentsAggregated(input: $input) {\n      nodes {\n        functional_code\n        functional_name\n        economic_code\n        economic_name\n        amount\n        count\n      }\n      pageInfo {\n        totalCount\n        hasNextPage\n        hasPreviousPage\n      }\n    }\n  }\n",
+      "source": "src/lib/api/commitments.ts:148-166"
+    },
+    {
+      "id": "commitments-analytics-entity-trend",
+      "status": "live",
+      "timeoutMs": 120000,
+      "variablesSource": "Commitments.tsx analyticsInputs (three series over trendFilter, showPeriodGrowth passed) ← challenge-entity-analysis-page.tsx trendPeriod (buildChallengeEntityAnalysisTrendPeriod over defaultYearRange)",
+      "variables": {
+        "inputs": [
+          {
+            "filter": {
+              "report_period": {
+                "type": "YEAR",
+                "selection": {
+                  "interval": {
+                    "start": "2016",
+                    "end": "2026"
+                  }
+                }
+              },
+              "report_type": "PRINCIPAL_AGGREGATED",
+              "entity_cuis": ["4305857"],
+              "normalization": "total",
+              "currency": "RON",
+              "inflation_adjusted": false,
+              "show_period_growth": false,
+              "exclude_transfers": true
+            },
+            "metric": "CREDITE_BUGETARE_DEFINITIVE",
+            "seriesId": "budget"
+          },
+          {
+            "filter": {
+              "report_period": {
+                "type": "YEAR",
+                "selection": {
+                  "interval": {
+                    "start": "2016",
+                    "end": "2026"
+                  }
+                }
+              },
+              "report_type": "PRINCIPAL_AGGREGATED",
+              "entity_cuis": ["4305857"],
+              "normalization": "total",
+              "currency": "RON",
+              "inflation_adjusted": false,
+              "show_period_growth": false,
+              "exclude_transfers": true
+            },
+            "metric": "CREDITE_ANGAJAMENT",
+            "seriesId": "commitments"
+          },
+          {
+            "filter": {
+              "report_period": {
+                "type": "YEAR",
+                "selection": {
+                  "interval": {
+                    "start": "2016",
+                    "end": "2026"
+                  }
+                }
+              },
+              "report_type": "PRINCIPAL_AGGREGATED",
+              "entity_cuis": ["4305857"],
+              "normalization": "total",
+              "currency": "RON",
+              "inflation_adjusted": false,
+              "show_period_growth": false,
+              "exclude_transfers": true
+            },
+            "metric": "PLATI_TREZOR",
+            "seriesId": "payments_trezor"
+          }
+        ]
+      },
+      "document": "\n  query CommitmentsAnalytics($inputs: [CommitmentsAnalyticsInput!]!) {\n    commitmentsAnalytics(inputs: $inputs) {\n      seriesId\n      metric\n      xAxis { name type unit }\n      yAxis { name type unit }\n      data { x y growth_percent }\n    }\n  }\n",
+      "source": "src/lib/api/commitments.ts:168-178"
+    },
+    {
+      "id": "commitment-vs-execution-entity",
+      "status": "dead",
+      "timeoutMs": 120000,
+      "variablesSource": "lib/api/commitments.ts fetchCommitmentVsExecution — no non-test consumer",
+      "variables": {
+        "input": {
+          "filter": {
+            "report_period": {
+              "type": "YEAR",
+              "selection": {
+                "interval": {
+                  "start": "2025",
+                  "end": "2025"
+                }
+              }
+            },
+            "report_type": "PRINCIPAL_AGGREGATED",
+            "entity_cuis": ["4305857"],
+            "normalization": "total",
+            "currency": "RON",
+            "inflation_adjusted": false,
+            "exclude_transfers": true
+          },
+          "commitments_metric": "PLATI_TREZOR"
+        }
+      },
+      "document": "\n  query CommitmentVsExecution($input: CommitmentExecutionComparisonInput!) {\n    commitmentVsExecution(input: $input) {\n      frequency\n      data {\n        period\n        commitment_value\n        execution_value\n        difference\n        difference_percent\n        commitment_growth_percent\n        execution_growth_percent\n        difference_growth_percent\n      }\n      total_commitment\n      total_execution\n      total_difference\n      overall_difference_percent\n      matched_count\n      unmatched_commitment_count\n      unmatched_execution_count\n    }\n  }\n",
+      "source": "src/lib/api/commitments.ts:180-203"
+    },
+    {
+      "id": "entity-names",
+      "status": "live",
+      "variablesSource": "lib/api/labels.ts getEntityLabels (ids stringified)",
+      "variables": {
+        "entityCuis": ["4305857", "4270740"]
+      },
+      "document": "\n    query EntityNames($entityCuis: [ID!]) {\n      entities(filter: { cuis: $entityCuis }, limit: 1000) {\n        nodes {\n          cui\n          name\n          uat {\n            county_name\n          }\n        }\n      }\n    }\n  ",
+      "source": "src/lib/api/labels.ts:50-62"
+    },
+    {
+      "id": "uat-names-invalid",
+      "status": "invalid-today",
+      "variablesSource": "lib/api/labels.ts getUatLabels",
+      "note": "$uatIds declared [String!]! but UATFilterInput.ids is [ID!] — validation error today; fetcher returns [].",
+      "variables": {
+        "uatIds": ["1"]
+      },
+      "document": "\n    query UatNames($uatIds: [String!]!) {\n        uats(filter: { ids: $uatIds }) {\n            nodes {\n                id\n                name\n            }\n        }\n    }\n",
+      "source": "src/lib/api/labels.ts:65-74"
+    },
+    {
+      "id": "functional-classification-names",
+      "status": "live",
+      "variablesSource": "lib/api/labels.ts getFunctionalClassificationLabels",
+      "variables": {
+        "codes": ["65.02", "51.02"]
+      },
+      "document": "\n    query FunctionalClassificationNames($codes: [String!]) {\n        functionalClassifications(filter: { functional_codes: $codes }) {\n            nodes {\n                code: functional_code\n                name: functional_name\n            }\n        }\n    }\n",
+      "source": "src/lib/api/labels.ts:77-86"
+    },
+    {
+      "id": "economic-classification-names",
+      "status": "live",
+      "variablesSource": "lib/api/labels.ts getEconomicClassificationLabels",
+      "variables": {
+        "codes": ["10.01", "20.01"]
+      },
+      "document": "\n    query EconomicClassificationNames($codes: [String!]) {\n        economicClassifications(filter: { economic_codes: $codes }) {\n            nodes {\n                code: economic_code\n                name: economic_name\n            }\n        }\n    }\n",
+      "source": "src/lib/api/labels.ts:88-97"
+    },
+    {
+      "id": "budget-sector-names-invalid",
+      "status": "invalid-today",
+      "variablesSource": "lib/api/labels.ts getBudgetSectorLabels",
+      "note": "$ids declared [String!] but BudgetSectorFilterInput.sector_ids is [ID!] — validation error today.",
+      "variables": {
+        "ids": ["1", "2"]
+      },
+      "document": "\n    query BudgetSectorNames($ids: [String!]) {\n        budgetSectors(filter: { sector_ids: $ids }) {\n            nodes {\n                sector_id\n                sector_description\n            }\n        }\n    }\n",
+      "source": "src/lib/api/labels.ts:99-108"
+    },
+    {
+      "id": "funding-source-names-invalid",
+      "status": "invalid-today",
+      "variablesSource": "lib/api/labels.ts getFundingSourceLabels",
+      "note": "$ids declared [String!] but FundingSourceFilterInput.source_ids is [ID!] — validation error today.",
+      "variables": {
+        "ids": ["1", "4"]
+      },
+      "document": "\n    query FundingSourceNames($ids: [String!]) {\n        fundingSources(filter: { source_ids: $ids }) {\n            nodes {\n                source_id\n                source_description\n            }\n        }\n    }\n",
+      "source": "src/lib/api/labels.ts:110-119"
+    },
+    {
+      "id": "all-functional-classifications",
+      "status": "live",
+      "timeoutMs": 120000,
+      "variablesSource": "lib/api/labels.ts getAllFunctionalClassifications (no variables)",
+      "variables": {},
+      "document": "\n    query AllFunctionalClassifications {\n        functionalClassifications(limit: 10000) {\n            nodes {\n                code: functional_code\n                name: functional_name\n            }\n        }\n    }\n",
+      "source": "src/lib/api/labels.ts:121-130"
+    },
+    {
+      "id": "all-economic-classifications",
+      "status": "live",
+      "timeoutMs": 120000,
+      "variablesSource": "lib/api/labels.ts getAllEconomicClassifications (no variables)",
+      "variables": {},
+      "document": "\n    query AllEconomicClassifications {\n        economicClassifications(limit: 10000) {\n            nodes {\n                code: economic_code\n                name: economic_name\n            }\n        }\n    }\n",
+      "source": "src/lib/api/labels.ts:132-141"
+    },
+    {
+      "id": "picker-budget-sectors",
+      "status": "live",
+      "variablesSource": "BudgetSectorFilter.tsx fetchPage",
+      "variables": {
+        "search": "",
+        "limit": 100,
+        "offset": 0
+      },
+      "document": "\n              query BudgetSectors($search: String!, $limit: Int!, $offset: Int!) {\n                budgetSectors(filter: { search: $search }, limit: $limit, offset: $offset) {\n                    nodes { \n                        sector_id\n                        sector_description\n                    }\n                  pageInfo { totalCount hasNextPage }\n                }\n              }\n            ",
+      "source": "src/components/filters/budget-sector-filter/BudgetSectorFilter.tsx:37-47"
+    },
+    {
+      "id": "picker-counties",
+      "status": "live",
+      "variablesSource": "CountyList.tsx fetchPage",
+      "variables": {
+        "search": "",
+        "limit": 100,
+        "offset": 0
+      },
+      "document": "\n        query Counties($search: String!, $limit: Int!, $offset: Int!) {\n          uats(filter: { search: $search, is_county: true }, limit: $limit, offset: $offset) {\n            nodes {\n              county_code\n              county_name\n            }\n            pageInfo { totalCount hasNextPage }\n          }\n        }\n      ",
+      "source": "src/components/filters/county-filter/CountyList.tsx:33-43"
+    },
+    {
+      "id": "picker-economic-classifications",
+      "status": "live",
+      "variablesSource": "EconomicClassificationList.tsx fetchPage",
+      "variables": {
+        "search": "",
+        "limit": 100,
+        "offset": 0
+      },
+      "document": "\n              query EconomicClassifications($search: String!, $limit: Int!, $offset: Int!) {\n                economicClassifications(filter: { search: $search }, limit: $limit, offset: $offset) {\n                    nodes {\n                        economic_code\n                        economic_name\n                    }\n                  pageInfo { totalCount hasNextPage }\n                }\n              }\n            ",
+      "source": "src/components/filters/economic-classification-filter/EconomicClassificationList.tsx:38-48"
+    },
+    {
+      "id": "picker-economic-classifications-search-code",
+      "status": "live",
+      "variablesSource": "EconomicClassificationList.tsx fetchPage (code search)",
+      "variables": {
+        "search": "10.01",
+        "limit": 100,
+        "offset": 0
+      },
+      "document": "\n              query EconomicClassifications($search: String!, $limit: Int!, $offset: Int!) {\n                economicClassifications(filter: { search: $search }, limit: $limit, offset: $offset) {\n                    nodes {\n                        economic_code\n                        economic_name\n                    }\n                  pageInfo { totalCount hasNextPage }\n                }\n              }\n            ",
+      "source": "src/components/filters/economic-classification-filter/EconomicClassificationList.tsx:38-48"
+    },
+    {
+      "id": "picker-entities",
+      "status": "live",
+      "variablesSource": "EntityList.tsx fetchPage",
+      "variables": {
+        "search": "",
+        "limit": 100,
+        "offset": 0
+      },
+      "document": "\n              query Entities($search: String!, $limit: Int!, $offset: Int!) {\n                entities(filter: { search: $search }, limit: $limit, offset: $offset) {\n                    nodes { \n                        name\n                        cui\n                        uat{\n                            name\n                            county_code\n                        }\n                    }\n                  pageInfo { totalCount hasNextPage }\n                }\n              }\n            ",
+      "source": "src/components/filters/entity-filter/EntityList.tsx:41-55"
+    },
+    {
+      "id": "picker-entities-search-cluj",
+      "status": "live",
+      "variablesSource": "EntityList.tsx fetchPage (search term)",
+      "variables": {
+        "search": "Cluj",
+        "limit": 100,
+        "offset": 0
+      },
+      "document": "\n              query Entities($search: String!, $limit: Int!, $offset: Int!) {\n                entities(filter: { search: $search }, limit: $limit, offset: $offset) {\n                    nodes { \n                        name\n                        cui\n                        uat{\n                            name\n                            county_code\n                        }\n                    }\n                  pageInfo { totalCount hasNextPage }\n                }\n              }\n            ",
+      "source": "src/components/filters/entity-filter/EntityList.tsx:41-55"
+    },
+    {
+      "id": "picker-functional-classifications",
+      "status": "live",
+      "variablesSource": "FunctionalClassificationList.tsx fetchPage",
+      "variables": {
+        "search": "",
+        "limit": 100,
+        "offset": 0
+      },
+      "document": "\n              query FunctionalClassifications($search: String!, $limit: Int!, $offset: Int!) {\n                functionalClassifications(filter: { search: $search }, limit: $limit, offset: $offset) {\n                    nodes { \n                        functional_code\n                        functional_name\n                    }\n                  pageInfo { totalCount hasNextPage }\n                }\n              }\n            ",
+      "source": "src/components/filters/functional-classification-filter/FunctionalClassificationList.tsx:38-48"
+    },
+    {
+      "id": "picker-funding-sources",
+      "status": "live",
+      "variablesSource": "FundingSourceFilter.tsx fetchPage",
+      "variables": {
+        "search": "",
+        "limit": 100,
+        "offset": 0
+      },
+      "document": "\n              query FundingSources($search: String!, $limit: Int!, $offset: Int!) {\n                fundingSources(filter: { search: $search }, limit: $limit, offset: $offset) {\n                    nodes { \n                        source_id\n                        source_description\n                    }\n                  pageInfo { totalCount hasNextPage }\n                }\n              }\n            ",
+      "source": "src/components/filters/funding-source-filter/FundingSourceFilter.tsx:37-47"
+    },
+    {
+      "id": "picker-uats",
+      "status": "live",
+      "variablesSource": "UatList.tsx fetchPage",
+      "variables": {
+        "search": "",
+        "limit": 100,
+        "offset": 0
+      },
+      "document": "\n              query Uats($search: String!, $limit: Int!, $offset: Int!) {\n                uats(filter: { search: $search }, limit: $limit, offset: $offset) {\n                    nodes { \n                        id\n                        name\n                        county_code\n                        county_name\n                    }\n                  pageInfo { totalCount hasNextPage }\n                }\n              }\n            ",
+      "source": "src/components/filters/uat-filter/UatList.tsx:39-51"
+    },
+    {
+      "id": "picker-uats-search-cluj",
+      "status": "live",
+      "variablesSource": "UatList.tsx fetchPage (search term)",
+      "variables": {
+        "search": "Cluj",
+        "limit": 100,
+        "offset": 0
+      },
+      "document": "\n              query Uats($search: String!, $limit: Int!, $offset: Int!) {\n                uats(filter: { search: $search }, limit: $limit, offset: $offset) {\n                    nodes { \n                        id\n                        name\n                        county_code\n                        county_name\n                    }\n                  pageInfo { totalCount hasNextPage }\n                }\n              }\n            ",
+      "source": "src/components/filters/uat-filter/UatList.tsx:39-51"
+    },
+    {
+      "id": "ins-territories-search-cluj",
+      "status": "live",
+      "variablesSource": "features/statistics/api/territory-search-api.ts (limit 20) → graphql/statistics-fetchers.ts searchInsTerritories",
+      "variables": {
+        "filter": {
+          "search": "Cluj"
+        },
+        "limit": 20,
+        "offset": 0
+      },
+      "document": "\n  query InsTerritories($filter: InsTerritoryFilterInput, $limit: Int, $offset: Int) {\n    insTerritories(filter: $filter, limit: $limit, offset: $offset) {\n      nodes { \n  code\n  siruta_code\n  level\n  name_ro\n  parent_code\n  parent_name_ro\n }\n      pageInfo { totalCount hasNextPage hasPreviousPage }\n    }\n  }\n",
+      "source": "src/features/statistics/api/graphql/ins-queries.ts:112-119"
+    },
+    {
+      "id": "ins-territories-counties",
+      "status": "live",
+      "variablesSource": "features/statistics/hooks/use-comparisons.ts countyQuery ({levels: [NUTS3]}, limit 60)",
+      "variables": {
+        "filter": {
+          "levels": ["NUTS3"]
+        },
+        "limit": 60,
+        "offset": 0
+      },
+      "document": "\n  query InsTerritories($filter: InsTerritoryFilterInput, $limit: Int, $offset: Int) {\n    insTerritories(filter: $filter, limit: $limit, offset: $offset) {\n      nodes { \n  code\n  siruta_code\n  level\n  name_ro\n  parent_code\n  parent_name_ro\n }\n      pageInfo { totalCount hasNextPage hasPreviousPage }\n    }\n  }\n",
+      "source": "src/features/statistics/api/graphql/ins-queries.ts:112-119"
+    },
+    {
+      "id": "ins-territories-by-siruta",
+      "status": "live",
+      "variablesSource": "features/statistics/hooks/use-comparisons.ts identityQuery (sirutaCodes, limit 1)",
+      "variables": {
+        "filter": {
+          "sirutaCodes": ["54975"]
+        },
+        "limit": 1,
+        "offset": 0
+      },
+      "document": "\n  query InsTerritories($filter: InsTerritoryFilterInput, $limit: Int, $offset: Int) {\n    insTerritories(filter: $filter, limit: $limit, offset: $offset) {\n      nodes { \n  code\n  siruta_code\n  level\n  name_ro\n  parent_code\n  parent_name_ro\n }\n      pageInfo { totalCount hasNextPage hasPreviousPage }\n    }\n  }\n",
+      "source": "src/features/statistics/api/graphql/ins-queries.ts:112-119"
+    },
+    {
+      "id": "ins-datasets-explorer-default",
+      "status": "live",
+      "variablesSource": "features/statistics/lib/explorer-filter.ts buildDatasetFilterInput({}), EXPLORER_PAGE_SIZE, explorerOffset({}) → statistics-fetchers.ts fetchInsDatasetPage",
+      "variables": {
+        "filter": {
+          "dataStatus": ["AVAILABLE", "CATALOG_ONLY"]
+        },
+        "limit": 25,
+        "offset": 0
+      },
+      "document": "\n  query InsDatasetsExplorer($filter: InsDatasetFilterInput, $limit: Int, $offset: Int) {\n    insDatasets(filter: $filter, limit: $limit, offset: $offset) {\n      nodes { \n  id\n  code\n  name_ro\n  name_en\n  definition_ro\n  definition_en\n  periodicity\n  year_range\n  dimension_count\n  has_uat_data\n  has_county_data\n  has_siruta\n  sync_status\n  data_status\n  last_sync_at\n  context_code\n  context_name_ro\n  context_name_en\n  context_path\n  metadata\n }\n      pageInfo { totalCount hasNextPage hasPreviousPage }\n    }\n  }\n",
+      "source": "src/features/statistics/api/graphql/ins-queries.ts:103-110"
+    },
+    {
+      "id": "ins-datasets-explorer-available-search",
+      "status": "live",
+      "variablesSource": "explorer-filter.ts buildDatasetFilterInput({ q, stare: \"available\" }) (use-comparisons.ts useComparisonDatasetSearch)",
+      "variables": {
+        "filter": {
+          "dataStatus": ["AVAILABLE"],
+          "search": "populatia"
+        },
+        "limit": 25,
+        "offset": 0
+      },
+      "document": "\n  query InsDatasetsExplorer($filter: InsDatasetFilterInput, $limit: Int, $offset: Int) {\n    insDatasets(filter: $filter, limit: $limit, offset: $offset) {\n      nodes { \n  id\n  code\n  name_ro\n  name_en\n  definition_ro\n  definition_en\n  periodicity\n  year_range\n  dimension_count\n  has_uat_data\n  has_county_data\n  has_siruta\n  sync_status\n  data_status\n  last_sync_at\n  context_code\n  context_name_ro\n  context_name_en\n  context_path\n  metadata\n }\n      pageInfo { totalCount hasNextPage hasPreviousPage }\n    }\n  }\n",
+      "source": "src/features/statistics/api/graphql/ins-queries.ts:103-110"
+    },
+    {
+      "id": "statistics-landing-data",
+      "status": "live",
+      "timeoutMs": 120000,
+      "variablesSource": "features/statistics/api/statistics-api.ts fetchLandingData + lib/landing-constants.ts (SSR loader routes/statistici/index.tsx)",
+      "variables": {
+        "nationalCodes": ["POP107D", "FOM104D", "SOM101F", "LOC101B"],
+        "decadeCode": "POP107D",
+        "decadeYears": ["2016", "2025"],
+        "exampleCode": "FOM104D",
+        "exampleTerritories": ["RO", "CJ", "54975"]
+      },
+      "document": "\n  query StatisticsLandingData(\n    $nationalCodes: [String!]!\n    $decadeCode: String!\n    $decadeYears: [PeriodDate!]!\n    $exampleCode: String!\n    $exampleTerritories: [String!]!\n  ) {\n    latest: insLatestDatasetValues(\n      entity: { territoryCode: \"RO\", territoryLevel: NATIONAL }\n      datasetCodes: $nationalCodes\n      preferredClassificationCodes: [\"TOTAL\"]\n    ) {\n      \n  latestPeriod\n  matchStrategy\n  hasData\n  dataset { code name_ro name_en periodicity }\n  observation {\n    value\n    value_status\n    unit { code symbol name_ro }\n    time_period { iso_period year periodicity }\n    classifications { type_code code name_ro }\n  }\n\n    }\n    decade: insObservations(\n      datasetCode: $decadeCode\n      filter: {\n        territoryLevels: [NUTS3]\n        period: { type: YEAR, selection: { dates: $decadeYears } }\n        classificationValueCodes: [\"TOTAL\"]\n        classificationTypeCodes: [\"SEX\", \"AGE_GROUP\"]\n      }\n      limit: 200\n    ) {\n      pageInfo { totalCount }\n      nodes {\n        value\n        value_status\n        territory { code name_ro }\n        time_period { iso_period year }\n        unit { symbol name_ro }\n      }\n    }\n    example: insObservations(\n      datasetCode: $exampleCode\n      filter: { territoryCodes: $exampleTerritories, hasValue: true }\n      limit: 300\n    ) {\n      nodes {\n        value\n        territory { code siruta_code level name_ro }\n        time_period { iso_period year }\n        unit { symbol }\n      }\n    }\n  }\n",
+      "source": "src/features/statistics/api/graphql/ins-queries.ts:266-313"
+    },
+    {
+      "id": "statistics-landing-catalog",
+      "status": "live",
+      "variablesSource": "statistics-fetchers.ts fetchStatisticsLandingCatalog (no variables; SSR loader routes/statistici/index.tsx)",
+      "variables": {},
+      "document": "\n  query StatisticsLandingCatalog {\n    loaded: insDatasets(limit: 1) { pageInfo { totalCount } }\n    catalog: insDatasets(filter: { dataStatus: [] }, limit: 1) { pageInfo { totalCount } }\n    t1: insDatasets(filter: { rootContextCode: \"1\" }, limit: 1) { pageInfo { totalCount } }\n    t2: insDatasets(filter: { rootContextCode: \"2\" }, limit: 1) { pageInfo { totalCount } }\n    t3: insDatasets(filter: { rootContextCode: \"3\" }, limit: 1) { pageInfo { totalCount } }\n    t4: insDatasets(filter: { rootContextCode: \"4\" }, limit: 1) { pageInfo { totalCount } }\n    t5: insDatasets(filter: { rootContextCode: \"5\" }, limit: 1) { pageInfo { totalCount } }\n    t6: insDatasets(filter: { rootContextCode: \"6\" }, limit: 1) { pageInfo { totalCount } }\n    t7: insDatasets(filter: { rootContextCode: \"7\" }, limit: 1) { pageInfo { totalCount } }\n    t8: insDatasets(filter: { rootContextCode: \"8\" }, limit: 1) { pageInfo { totalCount } }\n  }\n",
+      "source": "src/features/statistics/api/graphql/ins-queries.ts:323-336"
+    },
+    {
+      "id": "statistics-uat-snapshot-cluj-napoca",
+      "status": "live",
+      "variablesSource": "statistics-api.ts fetchUatSnapshot (LANDING_NATIONAL_DATASET_CODES) → statistics-fetchers.ts fetchStatisticsUatSnapshot",
+      "variables": {
+        "siruta": "54975",
+        "codes": ["POP107D", "FOM104D", "SOM101F", "LOC101B"]
+      },
+      "document": "\n  query StatisticsUatSnapshot($siruta: String!, $codes: [String!]!) {\n    latest: insLatestDatasetValues(\n      entity: { sirutaCode: $siruta }\n      datasetCodes: $codes\n      preferredClassificationCodes: [\"TOTAL\"]\n    ) {\n      \n  latestPeriod\n  matchStrategy\n  hasData\n  dataset { code name_ro name_en periodicity }\n  observation {\n    value\n    value_status\n    unit { code symbol name_ro }\n    time_period { iso_period year periodicity }\n    classifications { type_code code name_ro }\n  }\n\n    }\n    territory: insTerritories(filter: { sirutaCodes: [$siruta] }, limit: 1) {\n      nodes { \n  code\n  siruta_code\n  level\n  name_ro\n  parent_code\n  parent_name_ro\n }\n    }\n  }\n",
+      "source": "src/features/statistics/api/graphql/ins-queries.ts:344-357"
+    },
+    {
+      "id": "statistics-dataset-tier0-pop107d-national",
+      "status": "live",
+      "variablesSource": "routes/statistici/seturi/$cod.tsx (NATIONAL_ENTITY, lib/dataset-selection.ts) → statistics-fetchers.ts fetchStatisticsDatasetTier0",
+      "variables": {
+        "code": "POP107D",
+        "codes": ["POP107D"],
+        "entity": {
+          "territoryCode": "RO",
+          "territoryLevel": "NATIONAL"
+        }
+      },
+      "document": "\n  query StatisticsDatasetTier0($code: String!, $codes: [String!]!, $entity: InsEntitySelectorInput!) {\n    dataset: insDataset(code: $code) {\n      \n  id\n  code\n  name_ro\n  name_en\n  definition_ro\n  definition_en\n  periodicity\n  year_range\n  dimension_count\n  has_uat_data\n  has_county_data\n  has_siruta\n  sync_status\n  data_status\n  last_sync_at\n  context_code\n  context_name_ro\n  context_name_en\n  context_path\n  metadata\n\n      dimensions {\n        index\n        type\n        label_ro\n        label_en\n        is_hierarchical\n        option_count\n        classification_type {\n          code\n          name_ro\n          name_en\n          is_hierarchical\n        }\n      }\n    }\n    latest: insLatestDatasetValues(\n      entity: $entity\n      datasetCodes: $codes\n      preferredClassificationCodes: [\"TOTAL\"]\n    ) {\n      \n  latestPeriod\n  matchStrategy\n  hasData\n  dataset { code name_ro name_en periodicity }\n  observation {\n    value\n    value_status\n    unit { code symbol name_ro }\n    time_period { iso_period year periodicity }\n    classifications { type_code code name_ro }\n  }\n\n    }\n  }\n",
+      "source": "src/features/statistics/api/graphql/ins-queries.ts:364-391"
+    },
+    {
+      "id": "statistics-dataset-series-pop107d-national",
+      "status": "live",
+      "timeoutMs": 120000,
+      "variablesSource": "lib/dataset-selection.ts buildSeriesFilter (national scope, SEX+AGE_GROUP TOTAL), SERIES_MAX_ROWS → statistics-fetchers.ts fetchStatisticsDatasetSeries (withRelated = contextCode !== null)",
+      "variables": {
+        "code": "POP107D",
+        "filter": {
+          "territoryLevels": ["NATIONAL"],
+          "classificationValueCodes": ["TOTAL"],
+          "classificationTypeCodes": ["SEX", "AGE_GROUP"]
+        },
+        "limit": 1000,
+        "contextCode": null,
+        "withRelated": false
+      },
+      "document": "\n  query StatisticsDatasetSeries(\n    $code: String!\n    $filter: InsObservationFilterInput\n    $limit: Int\n    $contextCode: String\n    $withRelated: Boolean!\n  ) {\n    series: insObservations(datasetCode: $code, filter: $filter, limit: $limit) {\n      pageInfo { totalCount hasNextPage hasPreviousPage }\n      nodes {\n        value\n        value_status\n        time_period { iso_period year quarter month periodicity }\n        territory { code siruta_code level name_ro }\n        unit { code symbol name_ro }\n        classifications { type_code type_name_ro code name_ro sort_order }\n      }\n    }\n    related: insDatasets(filter: { contextCode: $contextCode }, limit: 7) @include(if: $withRelated) {\n      pageInfo { totalCount }\n      nodes { code name_ro data_status }\n    }\n  }\n",
+      "source": "src/features/statistics/api/graphql/ins-queries.ts:399-423"
+    },
+    {
+      "id": "statistics-dataset-series-pop107d-with-related",
+      "status": "live",
+      "timeoutMs": 120000,
+      "variablesSource": "same builder with a context code (@include(if: $withRelated) exercised); contextCode \"1\" is the level-0 social-statistics context",
+      "variables": {
+        "code": "POP107D",
+        "filter": {
+          "territoryLevels": ["NATIONAL"],
+          "classificationValueCodes": ["TOTAL"],
+          "classificationTypeCodes": ["SEX", "AGE_GROUP"]
+        },
+        "limit": 1000,
+        "contextCode": "1",
+        "withRelated": true
+      },
+      "document": "\n  query StatisticsDatasetSeries(\n    $code: String!\n    $filter: InsObservationFilterInput\n    $limit: Int\n    $contextCode: String\n    $withRelated: Boolean!\n  ) {\n    series: insObservations(datasetCode: $code, filter: $filter, limit: $limit) {\n      pageInfo { totalCount hasNextPage hasPreviousPage }\n      nodes {\n        value\n        value_status\n        time_period { iso_period year quarter month periodicity }\n        territory { code siruta_code level name_ro }\n        unit { code symbol name_ro }\n        classifications { type_code type_name_ro code name_ro sort_order }\n      }\n    }\n    related: insDatasets(filter: { contextCode: $contextCode }, limit: 7) @include(if: $withRelated) {\n      pageInfo { totalCount }\n      nodes { code name_ro data_status }\n    }\n  }\n",
+      "source": "src/features/statistics/api/graphql/ins-queries.ts:399-423"
+    },
+    {
+      "id": "statistics-territory-hub-cluj-napoca",
+      "status": "live",
+      "timeoutMs": 180000,
+      "variablesSource": "statistics-api.live.ts → statistics-fetchers.ts fetchStatisticsTerritoryHubData",
+      "variables": {
+        "sirutaCode": "54975"
+      },
+      "document": "\n  query StatisticsTerritoryHub($sirutaCode: String!) {\n    dashboard: insUatDashboard(sirutaCode: $sirutaCode) {\n      latestPeriod\n      dataset { \n  id\n  code\n  name_ro\n  name_en\n  definition_ro\n  definition_en\n  periodicity\n  year_range\n  dimension_count\n  has_uat_data\n  has_county_data\n  has_siruta\n  sync_status\n  data_status\n  last_sync_at\n  context_code\n  context_name_ro\n  context_name_en\n  context_path\n  metadata\n }\n      observations {\n        value\n        value_status\n        time_period { iso_period year quarter month periodicity }\n        territory { code siruta_code level name_ro }\n        unit { code symbol name_ro }\n        classifications { type_code type_name_ro code name_ro sort_order }\n      }\n    }\n    identity: insTerritories(filter: { sirutaCodes: [$sirutaCode] }, limit: 1) {\n      nodes { \n  code\n  siruta_code\n  level\n  name_ro\n  parent_code\n  parent_name_ro\n }\n    }\n  }\n",
+      "source": "src/features/statistics/api/graphql/ins-queries.ts:430-448"
+    },
+    {
+      "id": "statistics-territory-hub-context-cj",
+      "status": "live",
+      "variablesSource": "statistics-fetchers.ts fetchStatisticsTerritoryHubContext (withCounty = countyCode !== null; benchmarkCodes = LANDING_NATIONAL_DATASET_CODES)",
+      "variables": {
+        "countyCode": "CJ",
+        "benchmarkCodes": ["POP107D", "FOM104D", "SOM101F", "LOC101B"],
+        "withCounty": true
+      },
+      "document": "\n  query StatisticsTerritoryHubContext(\n    $countyCode: String\n    $benchmarkCodes: [String!]!\n    $withCounty: Boolean!\n  ) {\n    loaded: insDatasets(limit: 1) { pageInfo { totalCount } }\n    catalog: insDatasets(filter: { dataStatus: [] }, limit: 1) { pageInfo { totalCount } }\n    county: insLatestDatasetValues(\n      entity: { territoryCode: $countyCode, territoryLevel: NUTS3 }\n      datasetCodes: $benchmarkCodes\n      preferredClassificationCodes: [\"TOTAL\"]\n    ) @include(if: $withCounty) {\n      \n  latestPeriod\n  matchStrategy\n  hasData\n  dataset { code name_ro name_en periodicity }\n  observation {\n    value\n    value_status\n    unit { code symbol name_ro }\n    time_period { iso_period year periodicity }\n    classifications { type_code code name_ro }\n  }\n\n    }\n    national: insLatestDatasetValues(\n      entity: { territoryCode: \"RO\", territoryLevel: NATIONAL }\n      datasetCodes: $benchmarkCodes\n      preferredClassificationCodes: [\"TOTAL\"]\n    ) {\n      \n  latestPeriod\n  matchStrategy\n  hasData\n  dataset { code name_ro name_en periodicity }\n  observation {\n    value\n    value_status\n    unit { code symbol name_ro }\n    time_period { iso_period year periodicity }\n    classifications { type_code code name_ro }\n  }\n\n    }\n  }\n",
+      "source": "src/features/statistics/api/graphql/ins-queries.ts:456-479"
+    },
+    {
+      "id": "statistics-territory-hub-context-no-county",
+      "status": "live",
+      "variablesSource": "statistics-fetchers.ts fetchStatisticsTerritoryHubContext with countyCode null (@include toggle exercised)",
+      "variables": {
+        "countyCode": null,
+        "benchmarkCodes": ["POP107D", "FOM104D", "SOM101F", "LOC101B"],
+        "withCounty": false
+      },
+      "document": "\n  query StatisticsTerritoryHubContext(\n    $countyCode: String\n    $benchmarkCodes: [String!]!\n    $withCounty: Boolean!\n  ) {\n    loaded: insDatasets(limit: 1) { pageInfo { totalCount } }\n    catalog: insDatasets(filter: { dataStatus: [] }, limit: 1) { pageInfo { totalCount } }\n    county: insLatestDatasetValues(\n      entity: { territoryCode: $countyCode, territoryLevel: NUTS3 }\n      datasetCodes: $benchmarkCodes\n      preferredClassificationCodes: [\"TOTAL\"]\n    ) @include(if: $withCounty) {\n      \n  latestPeriod\n  matchStrategy\n  hasData\n  dataset { code name_ro name_en periodicity }\n  observation {\n    value\n    value_status\n    unit { code symbol name_ro }\n    time_period { iso_period year periodicity }\n    classifications { type_code code name_ro }\n  }\n\n    }\n    national: insLatestDatasetValues(\n      entity: { territoryCode: \"RO\", territoryLevel: NATIONAL }\n      datasetCodes: $benchmarkCodes\n      preferredClassificationCodes: [\"TOTAL\"]\n    ) {\n      \n  latestPeriod\n  matchStrategy\n  hasData\n  dataset { code name_ro name_en periodicity }\n  observation {\n    value\n    value_status\n    unit { code symbol name_ro }\n    time_period { iso_period year periodicity }\n    classifications { type_code code name_ro }\n  }\n\n    }\n  }\n",
+      "source": "src/features/statistics/api/graphql/ins-queries.ts:456-479"
+    },
+    {
+      "id": "ins-uat-dashboard-cluj-napoca",
+      "status": "dead",
+      "timeoutMs": 180000,
+      "variablesSource": "graphql/ins-fetchers.ts getInsUatDashboard — no non-test consumer; contextCode omitted",
+      "variables": {
+        "sirutaCode": "54975",
+        "period": "2022"
+      },
+      "document": "\n  query InsUatDashboard($sirutaCode: String!, $period: PeriodDate, $contextCode: String) {\n    insUatDashboard(sirutaCode: $sirutaCode, period: $period, contextCode: $contextCode) {\n      latestPeriod\n      dataset { \n  id\n  code\n  name_ro\n  name_en\n  definition_ro\n  definition_en\n  periodicity\n  year_range\n  dimension_count\n  has_uat_data\n  has_county_data\n  has_siruta\n  sync_status\n  data_status\n  last_sync_at\n  context_code\n  context_name_ro\n  context_name_en\n  context_path\n  metadata\n }\n      observations { \n  dataset_code\n  value\n  value_status\n  time_period { iso_period year quarter month periodicity }\n  territory { code siruta_code level name_ro }\n  unit { code symbol name_ro }\n  classifications { id type_code type_name_ro type_name_en code name_ro name_en sort_order }\n }\n    }\n  }\n",
+      "source": "src/features/statistics/api/graphql/ins-queries.ts:50-58"
+    },
+    {
+      "id": "ins-datasets-by-codes",
+      "status": "dead",
+      "variablesSource": "graphql/ins-fetchers.ts getInsDatasetsByCodes (limit: min(codes.length, 200)) — only reached through dead getInsCountyDashboard",
+      "variables": {
+        "codes": ["POP107D", "FOM104D"],
+        "limit": 2
+      },
+      "document": "\n  query InsDatasetsByCodes($codes: [String!], $limit: Int) {\n    insDatasets(filter: { codes: $codes }, limit: $limit, offset: 0) {\n      nodes { \n  id\n  code\n  name_ro\n  name_en\n  definition_ro\n  definition_en\n  periodicity\n  year_range\n  dimension_count\n  has_uat_data\n  has_county_data\n  has_siruta\n  sync_status\n  data_status\n  last_sync_at\n  context_code\n  context_name_ro\n  context_name_en\n  context_path\n  metadata\n }\n    }\n  }\n",
+      "source": "src/features/statistics/api/graphql/ins-queries.ts:60-66"
+    },
+    {
+      "id": "ins-contexts-all",
+      "status": "live",
+      "variablesSource": "components/entities/views/ins-stats-view.tsx useInsContexts (limit 500) → ins-fetchers.ts getInsContexts",
+      "variables": {
+        "limit": 500,
+        "offset": 0
+      },
+      "document": "\n  query InsContexts($filter: InsContextFilterInput, $limit: Int, $offset: Int) {\n    insContexts(filter: $filter, limit: $limit, offset: $offset) {\n      nodes {\n        id\n        code\n        name_ro\n        name_en\n        name_ro_markdown\n        name_en_markdown\n        level\n        parent_id\n        parent_code\n        path\n        matrix_count\n      }\n      pageInfo { totalCount hasNextPage hasPreviousPage }\n    }\n  }\n",
+      "source": "src/features/statistics/api/graphql/ins-queries.ts:68-87"
+    },
+    {
+      "id": "ins-datasets-catalog-uat",
+      "status": "live",
+      "timeoutMs": 120000,
+      "variablesSource": "ins-stats-view.tsx useInsDatasetCatalog ({hasUatData: true}, limit 500) → ins-fetchers.ts getInsDatasetsCatalog",
+      "variables": {
+        "filter": {
+          "hasUatData": true
+        },
+        "limit": 500,
+        "offset": 0
+      },
+      "document": "\n  query InsDatasets($filter: InsDatasetFilterInput, $limit: Int, $offset: Int) {\n    insDatasets(filter: $filter, limit: $limit, offset: $offset) {\n      nodes { \n  id\n  code\n  name_ro\n  name_en\n  definition_ro\n  definition_en\n  periodicity\n  year_range\n  dimension_count\n  has_uat_data\n  has_county_data\n  has_siruta\n  sync_status\n  data_status\n  last_sync_at\n  context_code\n  context_name_ro\n  context_name_en\n  context_path\n  metadata\n }\n      pageInfo { totalCount hasNextPage hasPreviousPage }\n    }\n  }\n",
+      "source": "src/features/statistics/api/graphql/ins-queries.ts:89-96"
+    },
+    {
+      "id": "ins-datasets-search-populatia",
+      "status": "live",
+      "variablesSource": "components/charts/components/series-config/ins-dataset-list.tsx → ins-fetchers.ts searchInsDatasets (limit 50)",
+      "variables": {
+        "filter": {
+          "search": "populatia"
+        },
+        "limit": 50,
+        "offset": 0
+      },
+      "document": "\n  query InsDatasets($filter: InsDatasetFilterInput, $limit: Int, $offset: Int) {\n    insDatasets(filter: $filter, limit: $limit, offset: $offset) {\n      nodes { \n  id\n  code\n  name_ro\n  name_en\n  definition_ro\n  definition_en\n  periodicity\n  year_range\n  dimension_count\n  has_uat_data\n  has_county_data\n  has_siruta\n  sync_status\n  data_status\n  last_sync_at\n  context_code\n  context_name_ro\n  context_name_en\n  context_path\n  metadata\n }\n      pageInfo { totalCount hasNextPage hasPreviousPage }\n    }\n  }\n",
+      "source": "src/features/statistics/api/graphql/ins-queries.ts:89-96"
+    },
+    {
+      "id": "ins-dataset-details-pop107d",
+      "status": "live",
+      "variablesSource": "ins-fetchers.ts getInsDatasetDetails (dataset-detail-api.ts, comparisons-api.ts)",
+      "variables": {
+        "code": "POP107D"
+      },
+      "document": "\n  query InsDatasetDetails($code: String!) {\n    insDataset(code: $code) {\n      \n  id\n  code\n  name_ro\n  name_en\n  definition_ro\n  definition_en\n  periodicity\n  year_range\n  dimension_count\n  has_uat_data\n  has_county_data\n  has_siruta\n  sync_status\n  data_status\n  last_sync_at\n  context_code\n  context_name_ro\n  context_name_en\n  context_path\n  metadata\n\n      dimensions {\n        index\n        type\n        label_ro\n        label_en\n        is_hierarchical\n        option_count\n        classification_type {\n          code\n          name_ro\n          name_en\n          is_hierarchical\n        }\n      }\n    }\n  }\n",
+      "source": "src/features/statistics/api/graphql/ins-queries.ts:121-141"
+    },
+    {
+      "id": "ins-dataset-dimension-values-pop107d-dim0",
+      "status": "live",
+      "variablesSource": "ins-fetchers.ts getInsDatasetDimensionValues (search defaults to \"\", limit 50, offset 0)",
+      "variables": {
+        "datasetCode": "POP107D",
+        "dimensionIndex": 0,
+        "search": "",
+        "limit": 50,
+        "offset": 0
+      },
+      "document": "\n  query InsDatasetDimensionValues(\n    $datasetCode: String!\n    $dimensionIndex: Int!\n    $search: String\n    $limit: Int\n    $offset: Int\n  ) {\n    insDatasetDimensionValues(\n      datasetCode: $datasetCode\n      dimensionIndex: $dimensionIndex\n      filter: { search: $search }\n      limit: $limit\n      offset: $offset\n    ) {\n      nodes {\n        nom_item_id\n        dimension_type\n        label_ro\n        label_en\n        parent_nom_item_id\n        offset_order\n        territory { code siruta_code level name_ro }\n        time_period { iso_period year quarter month periodicity }\n        classification_value { type_code code name_ro }\n        unit { code symbol name_ro }\n      }\n      pageInfo { totalCount hasNextPage hasPreviousPage }\n    }\n  }\n",
+      "source": "src/features/statistics/api/graphql/ins-queries.ts:143-173"
+    },
+    {
+      "id": "ins-observations-comparison-fom104d",
+      "status": "live",
+      "timeoutMs": 120000,
+      "variablesSource": "features/statistics/api/comparisons-api.ts buildComparisonObservationFilter (RO + county + LAU), COMPARISON_OBSERVATION_LIMIT 500 → ins-fetchers.ts getInsObservationsPage",
+      "variables": {
+        "datasetCode": "FOM104D",
+        "filter": {
+          "territoryCodes": ["RO", "CJ", "54975"]
+        },
+        "limit": 500,
+        "offset": 0
+      },
+      "document": "\n  query InsObservations($datasetCode: String!, $filter: InsObservationFilterInput, $limit: Int, $offset: Int) {\n    insObservations(datasetCode: $datasetCode, filter: $filter, limit: $limit, offset: $offset) {\n      nodes { \n  dataset_code\n  value\n  value_status\n  time_period { iso_period year quarter month periodicity }\n  territory { code siruta_code level name_ro }\n  unit { code symbol name_ro }\n  classifications { id type_code type_name_ro type_name_en code name_ro name_en sort_order }\n }\n      pageInfo { totalCount hasNextPage hasPreviousPage }\n    }\n  }\n",
+      "source": "src/features/statistics/api/graphql/ins-queries.ts:175-182"
+    },
+    {
+      "id": "ins-dataset-history-pop107d-cluj-napoca",
+      "status": "live",
+      "timeoutMs": 120000,
+      "variablesSource": "components/entities/views/ins-stats-view.filters.ts buildHistoryFilter (LAU) → ins-fetchers.ts getInsDatasetHistory (pageSize 1000, offset 0)",
+      "variables": {
+        "datasetCode": "POP107D",
+        "filter": {
+          "sirutaCodes": ["54975"],
+          "territoryLevels": ["LAU"]
+        },
+        "limit": 1000,
+        "offset": 0
+      },
+      "document": "\n  query InsDatasetHistory($datasetCode: String!, $filter: InsObservationFilterInput, $limit: Int, $offset: Int) {\n    insObservations(datasetCode: $datasetCode, filter: $filter, limit: $limit, offset: $offset) {\n      nodes { \n  dataset_code\n  value\n  value_status\n  time_period { iso_period year quarter month periodicity }\n  territory { code siruta_code level name_ro }\n  unit { code symbol name_ro }\n  classifications { id type_code type_name_ro type_name_en code name_ro name_en sort_order }\n }\n      pageInfo { totalCount hasNextPage hasPreviousPage }\n    }\n  }\n",
+      "source": "src/features/statistics/api/graphql/ins-queries.ts:184-191"
+    },
+    {
+      "id": "ins-dataset-dimensions-pop107d",
+      "status": "live",
+      "variablesSource": "ins-fetchers.ts getInsDatasetDimensions (lib/hooks/use-ins-dashboard.ts insDatasetDimensionsQueryOptions)",
+      "variables": {
+        "datasetCode": "POP107D"
+      },
+      "document": "\n  query InsDatasetDimensions($datasetCode: String!) {\n    insDatasets(filter: { codes: [$datasetCode] }, limit: 1, offset: 0) {\n      nodes {\n        code\n        dimensions {\n          index\n          type\n          label_ro\n          label_en\n          classification_type { code name_ro name_en }\n        }\n      }\n    }\n  }\n",
+      "source": "src/features/statistics/api/graphql/ins-queries.ts:193-208"
+    },
+    {
+      "id": "ins-observations-batch-uat-top-metrics",
+      "status": "live",
+      "timeoutMs": 120000,
+      "variablesSource": "buildInsObservationsBatchQuery(INS_TOP_METRICS_BY_LEVEL.uat codes, lib/ins/ins-metric-registry.ts) + ins-stats-view.filters.ts buildIndicatorPeriodFilter(page reportPeriod, LAU) → ins-fetchers.ts getInsObservationsBatch (limit 200)",
+      "variables": {
+        "filter": {
+          "sirutaCodes": ["54975"],
+          "territoryLevels": ["LAU"],
+          "period": {
+            "type": "YEAR",
+            "selection": {
+              "interval": {
+                "start": "2025",
+                "end": "2025"
+              }
+            }
+          }
+        },
+        "limit": 200
+      },
+      "document": "\n    query InsObservationsBatch($filter: InsObservationFilterInput, $limit: Int) {\n      d0: insObservations(datasetCode: \"POP107D\", filter: $filter, limit: $limit, offset: 0) {\n  nodes { \n  dataset_code\n  value\n  value_status\n  time_period { iso_period year quarter month periodicity }\n  territory { code siruta_code level name_ro }\n  unit { code symbol name_ro }\n  classifications { id type_code type_name_ro type_name_en code name_ro name_en sort_order }\n }\n  pageInfo { totalCount hasNextPage hasPreviousPage }\n}\nd1: insObservations(datasetCode: \"FOM104D\", filter: $filter, limit: $limit, offset: 0) {\n  nodes { \n  dataset_code\n  value\n  value_status\n  time_period { iso_period year quarter month periodicity }\n  territory { code siruta_code level name_ro }\n  unit { code symbol name_ro }\n  classifications { id type_code type_name_ro type_name_en code name_ro name_en sort_order }\n }\n  pageInfo { totalCount hasNextPage hasPreviousPage }\n}\nd2: insObservations(datasetCode: \"SOM101F\", filter: $filter, limit: $limit, offset: 0) {\n  nodes { \n  dataset_code\n  value\n  value_status\n  time_period { iso_period year quarter month periodicity }\n  territory { code siruta_code level name_ro }\n  unit { code symbol name_ro }\n  classifications { id type_code type_name_ro type_name_en code name_ro name_en sort_order }\n }\n  pageInfo { totalCount hasNextPage hasPreviousPage }\n}\nd3: insObservations(datasetCode: \"LOC101B\", filter: $filter, limit: $limit, offset: 0) {\n  nodes { \n  dataset_code\n  value\n  value_status\n  time_period { iso_period year quarter month periodicity }\n  territory { code siruta_code level name_ro }\n  unit { code symbol name_ro }\n  classifications { id type_code type_name_ro type_name_en code name_ro name_en sort_order }\n }\n  pageInfo { totalCount hasNextPage hasPreviousPage }\n}\n    }\n  ",
+      "source": "src/features/statistics/api/graphql/ins-queries.ts:216-238"
+    },
+    {
+      "id": "campaign-uat-directory",
+      "status": "dead",
+      "timeoutMs": 120000,
+      "variablesSource": "subscription-stats.ts (CAMPAIGN_UAT_DIRECTORY_LIMIT 4000 — hook use-campaign-uat-directory.ts unreferenced)",
+      "variables": {
+        "limit": 4000
+      },
+      "document": "\n  query CampaignUatDirectory($limit: Int!) {\n    uats(filter: { is_county: false }, limit: $limit, offset: 0) {\n      nodes {\n        id\n        uat_code\n        siruta_code\n        name\n        county_name\n      }\n    }\n  }\n",
+      "source": "src/features/campaigns/buget/api/subscription-stats.ts:55-67"
+    }
+  ]
+}

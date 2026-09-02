@@ -2,11 +2,13 @@
  * Vitest Configuration for Golden Master E2E Tests
  *
  * This configuration is used exclusively for Golden Master tests that verify
- * GraphQL query outputs against known-good snapshots.
+ * GraphQL query outputs against known-good snapshots (snapshot mode) or
+ * against a baseline endpoint (cutover mode, TEST_GM_BASELINE_URL).
  *
  * Usage:
- *   pnpm test:gm                    # Run Golden Master tests
+ *   pnpm test:gm                    # Run Golden Master tests (snapshot mode)
  *   pnpm test:gm -- --update        # Update snapshots
+ *   pnpm test:gm:cutover            # Baseline /graphql vs target /api/v1/graphql
  */
 
 import path from 'node:path';
@@ -31,6 +33,9 @@ export default defineConfig({
 
     // Setup file for Golden Master tests
     setupFiles: ['./tests/golden-master/setup.ts'],
+
+    // One run id for the whole run + the cutover summary in teardown
+    globalSetup: ['./tests/golden-master/global-setup.ts'],
 
     // Snapshot configuration
     snapshotFormat: {
