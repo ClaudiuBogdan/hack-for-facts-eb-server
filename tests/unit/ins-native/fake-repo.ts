@@ -647,15 +647,27 @@ export const makeFakeRepo = (): InsRepo & {
         hasPreviousPage: query.offset > 0,
       });
     },
-    latestForSeries: (series, perSeries) => {
+    latestForSeries: (series, perSeries, period) => {
       seriesReads.push(series.map((s) => s.key));
       const out: InsSeriesRow[] = [];
+      const inPeriod = (f: Fact): boolean => {
+        const p = TIME_TO_PERIOD.get(f.time);
+        if (p === undefined) return false;
+        if (period?.periodStart !== undefined && p.periodEnd < period.periodStart) return false;
+        if (period?.periodEnd !== undefined && p.periodStart > period.periodEnd) return false;
+        const ranges = period?.periodRanges ?? [];
+        return (
+          ranges.length === 0 ||
+          ranges.some((r) => p.periodEnd >= r.start && p.periodStart <= r.end)
+        );
+      };
       for (const s of series) {
         const rows = FACTS.filter(
           (f) =>
             f.dataset === s.datasetCode &&
             f.unit === s.unitNomItemId &&
-            f.slots.every((v, i) => (s.slots[i] ?? null) === v)
+            f.slots.every((v, i) => (s.slots[i] ?? null) === v) &&
+            inPeriod(f)
         )
           .sort(sortNewest)
           .slice(0, perSeries);

@@ -754,12 +754,15 @@ export const uatDashboard = async (
     specs.push(series.value.spec);
     byKey.set(series.value.spec.key, dataset);
   }
+  // The period narrows INSIDE the batched read (a period older than the newest
+  // rows must still be found), never after the per-series limit.
   const rows =
-    specs.length === 0 ? ok([]) : await repo.latestForSeries(specs, DASHBOARD_ROWS_PER_DATASET + 1);
+    specs.length === 0
+      ? ok([])
+      : await repo.latestForSeries(specs, DASHBOARD_ROWS_PER_DATASET + 1, bounds.value);
   if (rows.isErr()) return err(rows.error);
   const grouped = new Map<string, InsObservationView[]>();
   for (const r of rows.value) {
-    if (!periodMatches(r.observation.period, bounds.value)) continue;
     const list = grouped.get(r.seriesKey) ?? [];
     list.push(r.observation);
     grouped.set(r.seriesKey, list);

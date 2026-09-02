@@ -937,8 +937,29 @@ export const makeInsRepo = (db: Db): InsRepo => {
       });
     },
 
-    async latestForSeries(series, perSeries) {
+    async latestForSeries(series, perSeries, period) {
       if (series.length === 0) return ok([]);
+      const periodParts: RawBuilder<unknown>[] = [];
+      if (period?.periodStart !== undefined)
+        periodParts.push(sql`o.period_end >= ${period.periodStart}::date`);
+      if (period?.periodEnd !== undefined)
+        periodParts.push(sql`o.period_start <= ${period.periodEnd}::date`);
+      if (period?.periodicities !== undefined && period.periodicities.length > 0) {
+        periodParts.push(
+          sql`pe.periodicity in (${sql.join(period.periodicities.map((p) => sql`${p}`))})`
+        );
+      }
+      if (period?.periodRanges !== undefined && period.periodRanges.length > 0) {
+        periodParts.push(
+          sql`(${sql.join(
+            period.periodRanges.map(
+              (r) => sql`(o.period_end >= ${r.start}::date and o.period_start <= ${r.end}::date)`
+            ),
+            sql` or `
+          )})`
+        );
+      }
+      const periodSql = periodParts.length === 0 ? sql`true` : sql.join(periodParts, sql` and `);
       return readTx(db, 'latestForSeries', async (trx) => {
         const out: InsSeriesRow[] = [];
         for (let i = 0; i < series.length; i += SERIES_PER_STATEMENT) {
@@ -956,6 +977,7 @@ export const makeInsRepo = (db: Db): InsRepo => {
               where o.dataset_code = ${s.datasetCode}
                 and ${sql.join(slotParts, sql` and `)}
                 and o.unit_nom_item_id = ${s.unitNomItemId}
+                and ${periodSql}
               ${factOrder}
               limit ${perSeries})`;
           });

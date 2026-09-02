@@ -20,6 +20,7 @@ import type {
   InsObservationView,
   InsPage,
   InsPeriodView,
+  InsPeriodicity,
   InsSeriesSpec,
   InsTerritoryFilter,
   InsTerritoryLevel,
@@ -47,6 +48,14 @@ export interface InsDefaultPin {
   readonly dimIndex: number;
   readonly nomItemId: number;
   readonly policy: string;
+}
+
+/** Period predicates for a batched series read (same semantics as InsFactQuery). */
+export interface InsSeriesPeriod {
+  readonly periodicities?: readonly InsPeriodicity[];
+  readonly periodStart?: string;
+  readonly periodEnd?: string;
+  readonly periodRanges?: readonly { readonly start: string; readonly end: string }[];
 }
 
 /** A fact row returned from a batched series read, keyed by the series it answers. */
@@ -120,10 +129,15 @@ export interface InsCatalogRepo {
 export interface InsFactRepo {
   /** Facts-first page read (limit + 1 inside), hydrated from the catalogs. */
   listObservations(query: InsFactQuery): Promise<Result<InsPage<InsObservationView>, ApiError>>;
-  /** For each fully pinned series, its most recent `perSeries` observations (one batched statement). */
+  /**
+   * For each fully pinned series, its most recent `perSeries` observations (one
+   * batched statement). `period` narrows INSIDE the statement, so a requested
+   * period older than the newest `perSeries` rows is still found.
+   */
   latestForSeries(
     series: readonly InsSeriesSpec[],
-    perSeries: number
+    perSeries: number,
+    period?: InsSeriesPeriod
   ): Promise<Result<readonly InsSeriesRow[], ApiError>>;
 }
 
