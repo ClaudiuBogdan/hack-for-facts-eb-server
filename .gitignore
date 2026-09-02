@@ -142,3 +142,6 @@ scripts/output/
 .env
 .env.*
 !.env.example
+
+# Golden Master cutover reports (tests/golden-master/report.ts, TEST_GM_REPORT_DIR default)
+tests/golden-master/reports/

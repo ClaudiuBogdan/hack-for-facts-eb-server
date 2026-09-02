@@ -86,7 +86,7 @@ jobs:
           TEST_GM_API_URL: ${{ env.DEV_API_URL }}
         run: |
           echo "Testing against: $TEST_GM_API_URL"
-          pnpm vitest run tests/golden-master --config vitest.gm.config.ts 2>&1 | tee test-output.txt
+          pnpm test:gm 2>&1 | tee test-output.txt
           exit ${PIPESTATUS[0]}
 
       - name: Upload test results
@@ -126,7 +126,7 @@ jobs:
           TEST_GM_API_URL: ${{ env.PROD_API_URL }}
         run: |
           echo "Testing against: $TEST_GM_API_URL"
-          pnpm vitest run tests/golden-master --config vitest.gm.config.ts 2>&1 | tee test-output.txt
+          pnpm test:gm 2>&1 | tee test-output.txt
           exit ${PIPESTATUS[0]}
 
       - name: Upload test results
