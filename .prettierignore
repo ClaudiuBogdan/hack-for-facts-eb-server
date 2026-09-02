@@ -1,3 +1,5 @@
 src/modules/procurement/core/procurement-analysis-combinations-v2.json
 # Generated MCP App widget bundles (scripts/build-widgets.mts)
 src/**/*.gen.ts
+# Pinned legacy SDL fixture: byte-identical to the legacy sources by construction (sdl-identity.test.ts); never reformat.
+tests/unit/budget/legacy-analytics/fixtures/legacy-execution-analytics.graphql

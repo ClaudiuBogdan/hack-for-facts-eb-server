@@ -1,0 +1,210 @@
+# directive @oneOf <- src/infra/graphql/common/directives.ts
+"Indicates that an input object should have exactly one field set"
+  directive @oneOf on INPUT_OBJECT
+
+# scalar PeriodDate <- src/infra/graphql/common/scalars.ts
+"A string representing a Year (YYYY), Year-Month (YYYY-MM), or Year-Quarter (YYYY-Q[1-4])"
+  scalar PeriodDate
+
+# enum Currency <- src/infra/graphql/common/enums.ts
+"Supported currencies for financial data"
+  enum Currency {
+    "Romanian Leu"
+    RON
+    "Euro"
+    EUR
+    "US Dollar"
+    USD
+  }
+
+# enum ReportType <- src/infra/graphql/common/enums.ts
+"Type of report"
+  enum ReportType {
+    "Executie bugetara agregata la nivel de ordonator principal"
+    PRINCIPAL_AGGREGATED
+    "Executie bugetara agregata la nivel de ordonator secundar"
+    SECONDARY_AGGREGATED
+    "Executie bugetara detaliata"
+    DETAILED
+    "Executie - Angajamente bugetare agregat principal"
+    COMMITMENT_PRINCIPAL_AGGREGATED
+    "Executie - Angajamente bugetare agregat secundar"
+    COMMITMENT_SECONDARY_AGGREGATED
+    "Executie - Angajamente bugetare detaliat"
+    COMMITMENT_DETAILED
+  }
+
+# enum PeriodType <- src/infra/graphql/common/enums.ts
+"Period type for temporal filtering"
+  enum PeriodType {
+    "Monthly period"
+    MONTH
+    "Quarterly period"
+    QUARTER
+    "Yearly period"
+    YEAR
+  }
+
+# enum AxisDataType <- src/modules/execution-analytics/shell/graphql/schema.ts
+enum AxisDataType {
+    STRING
+    INTEGER
+    FLOAT
+    DATE
+  }
+
+# enum AccountCategory <- src/modules/execution-analytics/shell/graphql/schema.ts
+enum AccountCategory {
+    vn
+    ch
+  }
+
+# enum Normalization <- src/modules/execution-analytics/shell/graphql/schema.ts
+enum Normalization {
+    total
+    total_euro
+    per_capita
+    per_capita_euro
+    percent_gdp
+  }
+
+# enum ExpenseType <- src/modules/execution-analytics/shell/graphql/schema.ts
+enum ExpenseType {
+    dezvoltare
+    functionare
+  }
+
+# enum AnomalyType <- src/modules/execution-analytics/shell/graphql/schema.ts
+enum AnomalyType {
+    YTD_ANOMALY
+    MISSING_LINE_ITEM
+  }
+
+# type Axis <- src/modules/execution-analytics/shell/graphql/schema.ts
+type Axis {
+    name: String!
+    type: AxisDataType!
+    unit: String!
+  }
+
+# type AnalyticsDataPoint <- src/modules/execution-analytics/shell/graphql/schema.ts
+type AnalyticsDataPoint {
+    x: String!
+    y: Float!
+  }
+
+# type AnalyticsSeries <- src/modules/execution-analytics/shell/graphql/schema.ts
+type AnalyticsSeries {
+    seriesId: String!
+    xAxis: Axis!
+    yAxis: Axis!
+    data: [AnalyticsDataPoint!]!
+  }
+
+# input PeriodIntervalInput <- src/modules/execution-analytics/shell/graphql/schema.ts
+input PeriodIntervalInput {
+    start: PeriodDate!
+    end: PeriodDate!
+  }
+
+# input PeriodSelection <- src/modules/execution-analytics/shell/graphql/schema.ts
+input PeriodSelection @oneOf {
+    interval: PeriodIntervalInput
+    dates: [PeriodDate!]
+  }
+
+# input ReportPeriodInput <- src/modules/execution-analytics/shell/graphql/schema.ts
+input ReportPeriodInput {
+    "Uses PeriodType enum from common/graphql (MONTH, QUARTER, YEAR)"
+    type: PeriodType!
+    selection: PeriodSelection!
+  }
+
+# input AnalyticsExcludeInput <- src/modules/execution-analytics/shell/graphql/schema.ts
+input AnalyticsExcludeInput {
+    report_ids: [ID!]
+    entity_cuis: [String!]
+    main_creditor_cui: String
+    functional_codes: [String!]
+    functional_prefixes: [String!]
+    economic_codes: [String!]
+    economic_prefixes: [String!]
+    funding_source_ids: [ID!]
+    budget_sector_ids: [ID!]
+    expense_types: [ExpenseType!]
+    program_codes: [String!]
+
+    county_codes: [String!]
+    regions: [String!]
+    uat_ids: [ID!]
+    entity_types: [String!]
+      @deprecated(reason: "Legacy coarse taxonomy. Use tags (kind::/level::/...) instead.")
+    "Exclude entities carrying ANY of these faceted tags (namespace::value)."
+    tags: [String!]
+  }
+
+# input AnalyticsFilterInput <- src/modules/execution-analytics/shell/graphql/schema.ts
+input AnalyticsFilterInput {
+    # Required scope
+    account_category: AccountCategory!
+    report_period: ReportPeriodInput!
+
+    # Dimensions
+    report_type: ReportType
+    main_creditor_cui: String
+    report_ids: [ID!]
+    entity_cuis: [String!]
+    functional_codes: [String!]
+    functional_prefixes: [String!]
+    economic_codes: [String!]
+    economic_prefixes: [String!]
+    funding_source_ids: [ID!]
+    budget_sector_ids: [ID!]
+    expense_types: [ExpenseType!]
+    program_codes: [String!]
+
+    # Geography
+    county_codes: [String!]
+    regions: [String!]
+    uat_ids: [ID!]
+    entity_types: [String!]
+      @deprecated(reason: "Legacy coarse taxonomy. Use tags (kind::/level::/...) instead.")
+    is_uat: Boolean
+    search: String
+    """
+    Faceted classification tags (namespace::value, e.g. 'kind::hospital').
+    OR within a facet, AND across facets. Ancestor roll-up is materialized,
+    so 'kind::school' also matches every school subtype.
+    """
+    tags: [String!]
+
+    # Population & Aggregation
+    min_population: Int
+    max_population: Int
+    aggregate_min_amount: Float
+    aggregate_max_amount: Float
+
+    # Transforms
+    normalization: Normalization
+    inflation_adjusted: Boolean
+    currency: Currency
+    show_period_growth: Boolean
+
+    # Thresholds
+    item_min_amount: Float
+    item_max_amount: Float
+
+    # Exclusions
+    exclude: AnalyticsExcludeInput
+  }
+
+# input AnalyticsInput <- src/modules/execution-analytics/shell/graphql/schema.ts
+input AnalyticsInput {
+    filter: AnalyticsFilterInput!
+    seriesId: String
+  }
+
+# extend type Query <- src/modules/execution-analytics/shell/graphql/schema.ts
+extend type Query {
+    executionAnalytics(inputs: [AnalyticsInput!]!): [AnalyticsSeries!]!
+  }
