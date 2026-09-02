@@ -19,7 +19,10 @@ import {
 } from './core/legacy-analytics/ports.js';
 import { makeBudgetContributor } from './shell/contributor.js';
 import { makeBudgetLegacyResolvers } from './shell/graphql/legacy/resolvers.js';
-import { budgetLegacyTypeDefs } from './shell/graphql/legacy/typedefs.js';
+import {
+  budgetLegacyCollisionTypeDefs,
+  budgetLegacyTypeDefs,
+} from './shell/graphql/legacy/typedefs.js';
 import { makeBudgetResolvers } from './shell/graphql/resolvers.js';
 import { budgetTypeDefs } from './shell/graphql/typedefs.js';
 import { makeBudgetMcpTools } from './shell/mcp/tools.js';
@@ -27,6 +30,7 @@ import { makeBudgetMcpResources } from './shell/mcp/widgets/resources.js';
 import { makeBudgetRepo } from './shell/repo/budget-repo.js';
 import { makeBudgetDiscoveryRepo } from './shell/repo/discovery-repo.js';
 import { makeLegacyAnalyticsRepo } from './shell/repo/legacy-analytics-repo.js';
+import { makeLegacyDimensionRepo } from './shell/repo/legacy-dimension-repo.js';
 import { makeLegacyPopulationRepo } from './shell/repo/legacy-population-repo.js';
 
 import type { BudgetDiscoveryRepo, BudgetRepo } from './core/ports.js';
@@ -92,6 +96,7 @@ export const makeBudgetModule = (deps: BudgetModuleDeps): BudgetModule => {
   const discovery = makeBudgetDiscoveryRepo(deps.db);
   const legacyAnalytics = makeLegacyAnalyticsRepo(deps.db);
   const legacyPopulation = makeLegacyPopulationRepo(deps.db);
+  const legacyDimensions = makeLegacyDimensionRepo(deps.db);
   const contributor = makeBudgetContributor(repo);
   const clientBaseUrl = deps.clientBaseUrl ?? 'https://transparenta.eu';
 
@@ -99,6 +104,7 @@ export const makeBudgetModule = (deps: BudgetModuleDeps): BudgetModule => {
     aggregate: legacyAnalytics,
     factors: deps.legacyFactors,
     population: legacyPopulation,
+    dimensions: legacyDimensions,
     onCapped: ({ seriesId, cap }) =>
       deps.logger?.warn(
         { seriesId, cap, max: LEGACY_ANALYTICS_MAX_POINTS },
@@ -111,7 +117,10 @@ export const makeBudgetModule = (deps: BudgetModuleDeps): BudgetModule => {
     discovery,
     legacyAnalytics,
     legacyPopulation,
-    graphqlSlice: { source: 'budget', typeDefs: `${budgetTypeDefs}\n${budgetLegacyTypeDefs}` },
+    graphqlSlice: {
+      source: 'budget',
+      typeDefs: `${budgetTypeDefs}\n${budgetLegacyTypeDefs}\n${budgetLegacyCollisionTypeDefs}`,
+    },
     graphqlResolvers: mergeResolvers(
       makeBudgetResolvers({ repo, discovery, registry: deps.registry }),
       legacyResolvers

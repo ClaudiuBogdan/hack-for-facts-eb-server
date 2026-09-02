@@ -310,6 +310,62 @@ describe('golden-master allowlist: matching', () => {
     }
   });
 
+  it('total-count-change: a contract-break that only an exact pin admits (never a pattern)', () => {
+    const totalCount: Difference = {
+      class: 'contract-break',
+      kind: 'total-count-change',
+      path: '$.data.economicClassifications.pageInfo.totalCount',
+      expected: 23,
+      actual: 19,
+      message: 'pageInfo must match exactly',
+    };
+    const pageInfo: Difference = {
+      ...totalCount,
+      kind: 'page-info-change',
+      path: '$.data.x.pageInfo.hasNextPage',
+    };
+
+    // Unpinned: blocking. Drift and systematic entries never cover it.
+    expect(applyAllowlist([totalCount], { entries: [] }, KEY).blocking).toEqual([totalCount]);
+    const patterns = validateAllowlist({
+      entries: [
+        { ...drift, root: 'economicClassifications', pathPattern: 'pageInfo.totalCount' },
+        {
+          type: 'systematic',
+          deltaId: 's1',
+          root: 'economicClassifications',
+          pathPattern: 'pageInfo.totalCount',
+          kind: 'value-change',
+          predicate: { ratio: { min: 0.5, max: 0.9 } },
+          reason: 'r',
+        },
+      ],
+    });
+    expect(applyAllowlist([totalCount], patterns, KEY).blocking).toEqual([totalCount]);
+
+    // Exact pin: admitted and recorded as allowed; wrong numbers or key: blocking.
+    const exact = validateAllowlist({
+      entries: [pinned(totalCount.path, 23, 19, KEY, 'total-count-change')],
+    });
+    const applied = applyAllowlist([totalCount], exact, KEY);
+    expect(applied.blocking).toEqual([]);
+    expect(applied.allowed[0]?.entry.type).toBe('pinned');
+    for (const entry of [
+      pinned(totalCount.path, 23, 18, KEY, 'total-count-change'),
+      pinned(totalCount.path, 23, 19, OTHER_KEY, 'total-count-change'),
+      pinned(totalCount.path, 23, 19, KEY, 'value-change'),
+    ]) {
+      const result = applyAllowlist([totalCount], validateAllowlist({ entries: [entry] }), KEY);
+      expect(result.blocking, JSON.stringify(entry)).toEqual([totalCount]);
+    }
+
+    // Other pageInfo changes stay unpinnable contract-breaks.
+    expect(() =>
+      validateAllowlist({ entries: [pinned(pageInfo.path, true, false, KEY, 'page-info-change')] })
+    ).toThrow(AllowlistValidationError);
+    expect(applyAllowlist([pageInfo], exact, KEY).blocking).toEqual([pageInfo]);
+  });
+
   it('pinned: matches by sha256 fingerprints with lossless numbers', () => {
     const difference = numeric('$.data.total', 9007199254740992, 1);
     difference.actual = new LosslessNumber('9007199254740993');

@@ -1,3 +1,133 @@
 {
-  "entries": []
+  "entries": [
+    {
+      "type": "pinned",
+      "key": "1c44b98047a5b5d2e87341f8b94400854632282a0f4a9cc8b6a43762fe99a7d0:c0712f83238ca80bf0ed75985254c5e8b57b47486fa74af6a8eab75fe146bee5",
+      "path": "$.data.economicClassifications.pageInfo.totalCount",
+      "kind": "total-count-change",
+      "before": 761,
+      "after": 757,
+      "reason": "S1-8: the Chronos catalog has 757 economic / 1,117 functional rows; Phoenix 761 / 1,122 (synthetic '00.00.00' / '0' rows and codes absent from the authority listing — under investigation by the data-classification-catalog agent; re-pin after the catalog fix)."
+    },
+    {
+      "type": "pinned",
+      "key": "14af574ecbf907b8f4d7256717b91ab4ab6998dc06eb8934359fb180baca8914:c0712f83238ca80bf0ed75985254c5e8b57b47486fa74af6a8eab75fe146bee5",
+      "path": "$.data.functionalClassifications.pageInfo.totalCount",
+      "kind": "total-count-change",
+      "before": 1122,
+      "after": 1117,
+      "reason": "S1-8: the Chronos catalog has 757 economic / 1,117 functional rows; Phoenix 761 / 1,122 (synthetic '00.00.00' / '0' rows and codes absent from the authority listing — under investigation by the data-classification-catalog agent; re-pin after the catalog fix)."
+    },
+    {
+      "type": "drift",
+      "deltaId": "s1-8-classification-catalog-functional",
+      "root": "functionalClassifications",
+      "pathPattern": "nodes[*].functional_code",
+      "kind": "value-drift",
+      "explanation": "S1-8 (scrapper BUDGET_REDESIGN_TASK_OVERVIEW_2026-09-02 §0): the kernel serves the Chronos classification catalog verbatim; it differs from the Phoenix catalog in name text (diacritics, whitespace, footnote markers, a few authority-level disagreements) and Phoenix carries synthetic/absent codes ('0', '00.00.00', 30.08.01, 41.02.30, 41.02.31, 41.17.00, 56.83.01-03), which shifts array positions. The data layer is correcting the catalog (data-classification-catalog agent, 2026-09-02); re-measured after that lands. Narrowed to the documents that select these roots so a predicate regression on any other document cannot hide under it.",
+      "caseKeys": [
+        "14af574ecbf907b8f4d7256717b91ab4ab6998dc06eb8934359fb180baca8914:c0712f83238ca80bf0ed75985254c5e8b57b47486fa74af6a8eab75fe146bee5"
+      ]
+    },
+    {
+      "type": "drift",
+      "deltaId": "s1-8-classification-catalog-functional",
+      "root": "functionalClassifications",
+      "pathPattern": "nodes[*].functional_name",
+      "kind": "value-drift",
+      "explanation": "S1-8 (scrapper BUDGET_REDESIGN_TASK_OVERVIEW_2026-09-02 §0): the kernel serves the Chronos classification catalog verbatim; it differs from the Phoenix catalog in name text (diacritics, whitespace, footnote markers, a few authority-level disagreements) and Phoenix carries synthetic/absent codes ('0', '00.00.00', 30.08.01, 41.02.30, 41.02.31, 41.17.00, 56.83.01-03), which shifts array positions. The data layer is correcting the catalog (data-classification-catalog agent, 2026-09-02); re-measured after that lands. Narrowed to the documents that select these roots so a predicate regression on any other document cannot hide under it.",
+      "caseKeys": [
+        "14af574ecbf907b8f4d7256717b91ab4ab6998dc06eb8934359fb180baca8914:c0712f83238ca80bf0ed75985254c5e8b57b47486fa74af6a8eab75fe146bee5"
+      ]
+    },
+    {
+      "type": "drift",
+      "deltaId": "s1-8-s1-10-classification-all-functional",
+      "root": "functionalClassifications",
+      "pathPattern": "nodes[*].code",
+      "kind": "value-drift",
+      "explanation": "S1-10: the legacy clamp of 1000 truncated the 'all classifications' documents (limit 10000); the kernel clamps at 2000 and returns the whole Chronos catalog (1,117 functional / 757 economic), so the array grows and the positions from index 1000 on are new rows. Combined with the S1-8 name/position drift on the first 1000.",
+      "caseKeys": [
+        "f7b4ca9cf4d5d52ce66d42b9eb995e8e3f61d9efb6100d4348353650ae51103c:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+      ]
+    },
+    {
+      "type": "drift",
+      "deltaId": "s1-8-s1-10-classification-all-functional",
+      "root": "functionalClassifications",
+      "pathPattern": "nodes[*].name",
+      "kind": "value-drift",
+      "explanation": "S1-10: the legacy clamp of 1000 truncated the 'all classifications' documents (limit 10000); the kernel clamps at 2000 and returns the whole Chronos catalog (1,117 functional / 757 economic), so the array grows and the positions from index 1000 on are new rows. Combined with the S1-8 name/position drift on the first 1000.",
+      "caseKeys": [
+        "f7b4ca9cf4d5d52ce66d42b9eb995e8e3f61d9efb6100d4348353650ae51103c:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+      ]
+    },
+    {
+      "type": "drift",
+      "deltaId": "s1-8-s1-10-classification-all-functional",
+      "root": "functionalClassifications",
+      "pathPattern": "nodes",
+      "kind": "array-cardinality",
+      "explanation": "S1-10: the legacy clamp of 1000 truncated the 'all classifications' documents (limit 10000); the kernel clamps at 2000 and returns the whole Chronos catalog (1,117 functional / 757 economic), so the array grows and the positions from index 1000 on are new rows. Combined with the S1-8 name/position drift on the first 1000.",
+      "caseKeys": [
+        "f7b4ca9cf4d5d52ce66d42b9eb995e8e3f61d9efb6100d4348353650ae51103c:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+      ]
+    },
+    {
+      "type": "drift",
+      "deltaId": "s1-8-classification-catalog-economic",
+      "root": "economicClassifications",
+      "pathPattern": "nodes[*].economic_code",
+      "kind": "value-drift",
+      "explanation": "S1-8 (scrapper BUDGET_REDESIGN_TASK_OVERVIEW_2026-09-02 §0): the kernel serves the Chronos classification catalog verbatim; it differs from the Phoenix catalog in name text (diacritics, whitespace, footnote markers, a few authority-level disagreements) and Phoenix carries synthetic/absent codes ('0', '00.00.00', 30.08.01, 41.02.30, 41.02.31, 41.17.00, 56.83.01-03), which shifts array positions. The data layer is correcting the catalog (data-classification-catalog agent, 2026-09-02); re-measured after that lands. Narrowed to the documents that select these roots so a predicate regression on any other document cannot hide under it.",
+      "caseKeys": [
+        "1c44b98047a5b5d2e87341f8b94400854632282a0f4a9cc8b6a43762fe99a7d0:c0712f83238ca80bf0ed75985254c5e8b57b47486fa74af6a8eab75fe146bee5"
+      ]
+    },
+    {
+      "type": "drift",
+      "deltaId": "s1-8-classification-catalog-economic",
+      "root": "economicClassifications",
+      "pathPattern": "nodes[*].economic_name",
+      "kind": "value-drift",
+      "explanation": "S1-8 (scrapper BUDGET_REDESIGN_TASK_OVERVIEW_2026-09-02 §0): the kernel serves the Chronos classification catalog verbatim; it differs from the Phoenix catalog in name text (diacritics, whitespace, footnote markers, a few authority-level disagreements) and Phoenix carries synthetic/absent codes ('0', '00.00.00', 30.08.01, 41.02.30, 41.02.31, 41.17.00, 56.83.01-03), which shifts array positions. The data layer is correcting the catalog (data-classification-catalog agent, 2026-09-02); re-measured after that lands. Narrowed to the documents that select these roots so a predicate regression on any other document cannot hide under it.",
+      "caseKeys": [
+        "1c44b98047a5b5d2e87341f8b94400854632282a0f4a9cc8b6a43762fe99a7d0:c0712f83238ca80bf0ed75985254c5e8b57b47486fa74af6a8eab75fe146bee5",
+        "1c44b98047a5b5d2e87341f8b94400854632282a0f4a9cc8b6a43762fe99a7d0:711be43fc867e06bf468b78fabd8bfd41ec42edb47395782d4140207b53a7305"
+      ]
+    },
+    {
+      "type": "drift",
+      "deltaId": "s1-8-classification-all-economic",
+      "root": "economicClassifications",
+      "pathPattern": "nodes[*].code",
+      "kind": "value-drift",
+      "explanation": "S1-8 only: the Chronos economic catalog (757 rows) serves verbatim; Phoenix has 761 (synthetic '00.00.00' and the 56.83.01-03 rows absent from Chronos — under investigation by the data-classification-catalog agent). Both sides are below the clamp, so S1-10 has no effect here: the array shrinks by 4 and every position after the first removed row shifts. Re-measured after the catalog fix lands.",
+      "caseKeys": [
+        "f3ea5faad9af7a6aea24619ae7a6e7cefb4bb05e7bf98b4b978392f5e18e0fd6:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+      ]
+    },
+    {
+      "type": "drift",
+      "deltaId": "s1-8-classification-all-economic",
+      "root": "economicClassifications",
+      "pathPattern": "nodes[*].name",
+      "kind": "value-drift",
+      "explanation": "S1-8 only: the Chronos economic catalog (757 rows) serves verbatim; Phoenix has 761 (synthetic '00.00.00' and the 56.83.01-03 rows absent from Chronos — under investigation by the data-classification-catalog agent). Both sides are below the clamp, so S1-10 has no effect here: the array shrinks by 4 and every position after the first removed row shifts. Re-measured after the catalog fix lands.",
+      "caseKeys": [
+        "f3ea5faad9af7a6aea24619ae7a6e7cefb4bb05e7bf98b4b978392f5e18e0fd6:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+      ]
+    },
+    {
+      "type": "drift",
+      "deltaId": "s1-8-classification-all-economic",
+      "root": "economicClassifications",
+      "pathPattern": "nodes",
+      "kind": "array-cardinality",
+      "explanation": "S1-8 only: the Chronos economic catalog (757 rows) serves verbatim; Phoenix has 761 (synthetic '00.00.00' and the 56.83.01-03 rows absent from Chronos — under investigation by the data-classification-catalog agent). Both sides are below the clamp, so S1-10 has no effect here: the array shrinks by 4 and every position after the first removed row shifts. Re-measured after the catalog fix lands.",
+      "caseKeys": [
+        "f3ea5faad9af7a6aea24619ae7a6e7cefb4bb05e7bf98b4b978392f5e18e0fd6:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+      ]
+    }
+  ]
 }

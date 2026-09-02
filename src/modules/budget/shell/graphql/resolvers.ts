@@ -485,7 +485,7 @@ export const makeBudgetResolvers = (deps: BudgetResolverDeps): Record<string, un
             ...(args.codes !== undefined && { codes: args.codes }),
           })
         ),
-      budgetSectors: async (_r: unknown, args: { search?: string; ids?: number[] }) =>
+      budgetSectorCatalog: async (_r: unknown, args: { search?: string; ids?: number[] }) =>
         unwrap(
           await listBudgetSectors(repo, {
             ...(args.search !== undefined && { search: args.search }),

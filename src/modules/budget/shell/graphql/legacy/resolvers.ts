@@ -20,11 +20,22 @@ import {
   legacyExecutionSeries,
   type LegacyExecutionSeriesDeps,
 } from '../../../core/legacy-analytics/usecase.js';
+import {
+  listLegacyBudgetSectors,
+  listLegacyClassifications,
+  listLegacyFundingSources,
+} from '../../../core/legacy-dimensions/usecases.js';
 
 import type {
   LegacyAnalyticsInput,
   LegacyAnalyticsSeries,
 } from '../../../core/legacy-analytics/types.js';
+import type { LegacyDimensionRepo } from '../../../core/legacy-dimensions/ports.js';
+import type {
+  LegacyClassificationPageInput,
+  LegacyDimensionPageInput,
+} from '../../../core/legacy-dimensions/types.js';
+import type { Result } from 'neverthrow';
 
 const toGraphqlError = (error: ApiError): GraphQLError =>
   new GraphQLError(error.message, {
@@ -84,11 +95,74 @@ export const toGraphqlSeries = (series: LegacyAnalyticsSeries): GraphqlAnalytics
   data: series.data.map((p) => ({ x: p.x, y: p.y.toNumber() })),
 });
 
+export interface BudgetLegacyResolverDeps extends LegacyExecutionSeriesDeps {
+  /** The four dimension roots (design 13 §4 "dimension usecases"). */
+  readonly dimensions: LegacyDimensionRepo;
+}
+
+interface LegacyDimensionArgs {
+  filter?: {
+    search?: string | null;
+    sector_ids?: string[] | null;
+    source_ids?: string[] | null;
+  } | null;
+  limit?: number | null;
+  offset?: number | null;
+}
+
+interface LegacyClassificationArgs {
+  filter?: {
+    search?: string | null;
+    functional_codes?: string[] | null;
+    economic_codes?: string[] | null;
+  } | null;
+  limit?: number | null;
+  offset?: number | null;
+}
+
+const unwrap = <T>(result: Result<T, ApiError>): T => {
+  if (result.isErr()) throw toGraphqlError(result.error);
+  return result.value;
+};
+
+const pageInput = (
+  args: LegacyDimensionArgs,
+  ids: readonly string[] | null | undefined
+): LegacyDimensionPageInput => ({
+  search: args.filter?.search,
+  ids,
+  limit: args.limit,
+  offset: args.offset,
+});
+
+const classificationInput = (
+  args: LegacyClassificationArgs,
+  codes: readonly string[] | null | undefined
+): LegacyClassificationPageInput => ({
+  search: args.filter?.search,
+  codes,
+  limit: args.limit,
+  offset: args.offset,
+});
+
 export const makeBudgetLegacyResolvers = (
-  deps: LegacyExecutionSeriesDeps
+  deps: BudgetLegacyResolverDeps
 ): Record<string, unknown> => ({
   PeriodDate: PeriodDateScalar,
   ReportType: GQL_TO_DB_REPORT_TYPE,
+  FundingSource: {
+    /**
+     * Carried for SDL identity, not served: no client document sends it and the
+     * kernel's line-item path requires the year / report type / account category
+     * triple this field never carried (user decision S1-11; portable on request).
+     */
+    executionLineItems: (): never => {
+      throw new GraphQLError(
+        'FundingSource.executionLineItems is not served on this endpoint (design 13 §2: never sent by the client)',
+        { extensions: { code: 'NOT_PORTED', type: 'NotPorted' } }
+      );
+    },
+  },
   Query: {
     executionAnalytics: async (
       _parent: unknown,
@@ -97,6 +171,40 @@ export const makeBudgetLegacyResolvers = (
       const result = await legacyExecutionSeries(deps, args.inputs);
       if (result.isErr()) throw toGraphqlError(result.error);
       return result.value.map(toGraphqlSeries);
+    },
+    budgetSectors: async (_parent: unknown, args: LegacyDimensionArgs) =>
+      unwrap(
+        await listLegacyBudgetSectors(deps.dimensions, pageInput(args, args.filter?.sector_ids))
+      ),
+    fundingSources: async (_parent: unknown, args: LegacyDimensionArgs) =>
+      unwrap(
+        await listLegacyFundingSources(deps.dimensions, pageInput(args, args.filter?.source_ids))
+      ),
+    functionalClassifications: async (_parent: unknown, args: LegacyClassificationArgs) => {
+      const page = unwrap(
+        await listLegacyClassifications(
+          deps.dimensions,
+          'functional',
+          classificationInput(args, args.filter?.functional_codes)
+        )
+      );
+      return {
+        nodes: page.nodes.map((n) => ({ functional_code: n.code, functional_name: n.name })),
+        pageInfo: page.pageInfo,
+      };
+    },
+    economicClassifications: async (_parent: unknown, args: LegacyClassificationArgs) => {
+      const page = unwrap(
+        await listLegacyClassifications(
+          deps.dimensions,
+          'economic',
+          classificationInput(args, args.filter?.economic_codes)
+        )
+      );
+      return {
+        nodes: page.nodes.map((n) => ({ economic_code: n.code, economic_name: n.name })),
+        pageInfo: page.pageInfo,
+      };
     },
   },
 });

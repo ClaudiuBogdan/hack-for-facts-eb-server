@@ -185,9 +185,9 @@ freshness/quality signal, not a queryable collection).
 
 - Budget facts are **not yet in `flows.money_flows`** (no `budget_*` flow*type
   live — verified: only `direct_acquisition`/`procurement*\_`/`pnrr\_\_`). So the
-cross-source flow view (kernel `FlowsRepo`) carries **no budget rows today**.
-This module owns its native facts; it registers a `FLOW_TYPES` value
-(`budget_execution`) for when the scrapper `flows` lane projects budget (§4.3),
+  cross-source flow view (kernel `FlowsRepo`) carries **no budget rows today**.
+  This module owns its native facts; it registers a `FLOW_TYPES` value
+  (`budget_execution`) for when the scrapper `flows` lane projects budget (§4.3),
   but the contributor's flow slice is **capability-gated to empty** until then.
 - Budget facts are **not yet in `search.documents`** (no `budget_*` doc_type live).
   The module declares `budget_entity` / `budget_report` doc_types it will own
@@ -634,7 +634,7 @@ extend type Query {
   budgetReport(reportId: ID!): BudgetReport
   budgetFunctionalClassifications(search: String, codes: [String!], page: Int, pageSize: Int): BudgetClassificationConnection!
   budgetEconomicClassifications(search: String, codes: [String!], page: Int, pageSize: Int): BudgetClassificationConnection!
-  budgetSectors(search: String, ids: [Int!]): [BudgetSector!]!
+  budgetSectorCatalog(search: String, ids: [Int!]): [BudgetSectorCatalogEntry!]!   # renamed 2026-09-02: the legacy `budgetSectors` root keeps its name on the kernel (design 13 §3)
   budgetFundingSources(search: String, ids: [Int!]): [BudgetFundingSource!]!
   budgetApprovedFacts(filter: BudgetApprovedFactFilterInput!, page: Int, pageSize: Int): BudgetApprovedFactConnection!
   budgetVsExecution(filter: BudgetVsExecutionFilterInput!, page: Int, pageSize: Int): BudgetVsExecutionConnection!

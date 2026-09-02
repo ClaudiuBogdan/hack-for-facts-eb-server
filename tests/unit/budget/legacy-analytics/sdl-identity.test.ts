@@ -38,10 +38,14 @@ import { CommonScalars } from '../../../../src/infra/graphql/common/scalars.js';
 import { makeBudgetLegacyResolvers } from '../../../../src/modules/budget/shell/graphql/legacy/resolvers.js';
 import {
   BUDGET_LEGACY_SDL_PROVENANCE,
+  budgetLegacyCollisionTypeDefs,
   budgetLegacyTypeDefs,
 } from '../../../../src/modules/budget/shell/graphql/legacy/typedefs.js';
 import { budgetTypeDefs } from '../../../../src/modules/budget/shell/graphql/typedefs.js';
+import { BudgetSectorSchema } from '../../../../src/modules/budget-sector/shell/graphql/schema.js';
+import { ClassificationSchema } from '../../../../src/modules/classification/shell/graphql/schema.js';
 import { ExecutionAnalyticsSchema } from '../../../../src/modules/execution-analytics/shell/graphql/schema.js';
+import { FundingSourceSchema } from '../../../../src/modules/funding-sources/shell/graphql/schema.js';
 import {
   baseTypeDefs,
   mergeGraphqlSlices,
@@ -53,6 +57,9 @@ const LEGACY_SOURCES: Record<keyof typeof BUDGET_LEGACY_SDL_PROVENANCE, string> 
   'src/infra/graphql/common/scalars.ts': CommonScalars,
   'src/infra/graphql/common/enums.ts': CommonEnums,
   'src/modules/execution-analytics/shell/graphql/schema.ts': ExecutionAnalyticsSchema,
+  'src/modules/budget-sector/shell/graphql/schema.ts': BudgetSectorSchema,
+  'src/modules/funding-sources/shell/graphql/schema.ts': FundingSourceSchema,
+  'src/modules/classification/shell/graphql/schema.ts': ClassificationSchema,
 };
 
 const FIXTURE_PATH = path.resolve(
@@ -71,7 +78,7 @@ describe('legacy executionAnalytics SDL — byte identity with the PINNED fixtur
   it('the fixture is non-empty and carries exactly the provenance keys', () => {
     expect(fixture.size).toBeGreaterThan(0);
     expect(new Set(fixture.keys())).toEqual(CARRIED);
-    expect(CARRIED.size).toBe(20);
+    expect(CARRIED.size).toBe(40);
   });
 
   for (const key of CARRIED) {
@@ -119,7 +126,7 @@ describe('legacy executionAnalytics SDL — the fixture is current with the LIVE
 });
 
 describe('legacy executionAnalytics SDL — kernel boot gate', () => {
-  const sliceTypeDefs = `${budgetTypeDefs}\n${budgetLegacyTypeDefs}`;
+  const sliceTypeDefs = `${budgetTypeDefs}\n${budgetLegacyTypeDefs}\n${budgetLegacyCollisionTypeDefs}`;
 
   it('passes the kernel merge gate as part of the budget slice', () => {
     expect(() =>
@@ -137,6 +144,11 @@ describe('legacy executionAnalytics SDL — kernel boot gate', () => {
         aggregate: { legacyExecutionAggregate: () => Promise.reject(new Error('unused')) },
         factors: { yearly: () => Promise.reject(new Error('unused')) },
         population: { scopedPopulation: () => Promise.reject(new Error('unused')) },
+        dimensions: {
+          listSectors: () => Promise.reject(new Error('unused')),
+          listFundingSources: () => Promise.reject(new Error('unused')),
+          listClassifications: () => Promise.reject(new Error('unused')),
+        },
       }),
     };
     const schema = makeExecutableSchema({ typeDefs: merged.typeDefs, resolvers });

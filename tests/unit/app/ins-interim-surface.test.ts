@@ -1,7 +1,7 @@
 /**
  * S1-7 interim: the legacy INS SDL mounted on the kernel surface with the two
- * scalar renames and the design-13 `PageInfo` extension
- * (src/app/ins-interim-surface.ts). Pins the merge preconditions, the rename
+ * scalar renames (src/app/ins-interim-surface.ts); the design-13 `PageInfo`
+ * extension is owned by the budget legacy slice and only depended upon here. Pins the merge preconditions, the rename
  * set, the PageInfo field coverage and the legacy scalar serialization, so a
  * later edit to either side cannot silently change what /api/v1/graphql serves.
  */
@@ -19,7 +19,10 @@ import {
   makeInsInterimTypeDefs,
 } from '@/app/ins-interim-surface.js';
 import { CommonTypes } from '@/infra/graphql/common/index.js';
-import { budgetLegacyTypeDefs } from '@/modules/budget/shell/graphql/legacy/typedefs.js';
+import {
+  budgetLegacyCollisionTypeDefs,
+  budgetLegacyTypeDefs,
+} from '@/modules/budget/shell/graphql/legacy/typedefs.js';
 import { budgetTypeDefs } from '@/modules/budget/shell/graphql/typedefs.js';
 import { InsSchema, makeInsResolvers, type InsRepository } from '@/modules/ins/index.js';
 import { baseTypeDefs, mergeGraphqlSlices, type GraphqlSlice } from '@/modules/shared/index.js';
@@ -40,7 +43,7 @@ const INS_ROOTS = [
 
 const budgetSlice: GraphqlSlice = {
   source: 'budget',
-  typeDefs: `${budgetTypeDefs}\n${budgetLegacyTypeDefs}`,
+  typeDefs: `${budgetTypeDefs}\n${budgetLegacyTypeDefs}\n${budgetLegacyCollisionTypeDefs}`,
 };
 
 const INTERIM_SDL = makeInsInterimTypeDefs();
@@ -74,9 +77,8 @@ describe('S1-7 interim INS surface — SDL', () => {
       expect(interimNames.has(from)).toBe(false);
       expect(interimNames.has(to)).toBe(true);
     }
-    const added = new Set(['PageInfo', 'totalCount', 'hasPreviousPage', 'startCursor']);
     const expected = new Set([...legacyNames].map((n) => INS_INTERIM_SCALAR_RENAMES[n] ?? n));
-    for (const n of interimNames) expect(expected.has(n) || added.has(n)).toBe(true);
+    for (const n of interimNames) expect(expected.has(n)).toBe(true);
   });
 
   it('renames type positions only: no INS field, argument or enum value shares a renamed name', () => {
@@ -130,21 +132,19 @@ describe('S1-7 interim INS surface — SDL', () => {
     for (const root of INS_ROOTS) expect(queryFields).toContain(root);
   });
 
-  it('extends the kernel PageInfo to cover every legacy PageInfo field, keeping the type name', () => {
+  it('does not extend PageInfo itself: the budget legacy slice owns the design-13 extension', () => {
+    expect(INTERIM_SDL).not.toMatch(/PageInfo\s*\{/);
     const merged = mergeGraphqlSlices(baseTypeDefs, [budgetSlice, ...surface().graphqlSlices]);
     const kernelPageInfo = objectFields(merged.typeDefs, 'PageInfo');
-    const legacyPageInfo = Object.keys(
+    const legacyPageInfo =
       (
         parse(CommonTypes).definitions.find(
           (d) => d.kind === Kind.OBJECT_TYPE_DEFINITION && d.name.value === 'PageInfo'
         ) as { fields?: { name: { value: string } }[] }
-      ).fields?.reduce((acc, f) => ({ ...acc, [f.name.value]: true }), {}) ?? {}
-    );
+      ).fields?.map((f) => f.name.value) ?? [];
     expect(legacyPageInfo.length).toBeGreaterThan(0);
+    // With the budget slice mounted, every legacy PageInfo field resolves.
     for (const f of legacyPageInfo) expect(kernelPageInfo).toContain(f);
-    // Extended, never re-declared (the merge gate would reject a re-declaration).
-    expect(INTERIM_SDL).not.toMatch(/^\s*type PageInfo\b/m);
-    expect(INTERIM_SDL).toMatch(/^\s*extend type PageInfo\b/m);
   });
 
   it('depends on the budget legacy slice for ReportPeriodInput / PeriodDate (documented precondition)', () => {

@@ -753,14 +753,23 @@ export function renderSummaryMarkdown(summary: RunSummary, reports: readonly Cas
   lines.push('## All cases');
   lines.push('');
   lines.push(
-    '| Case | Status | Verdict | HTTP b/t | Contract | Parity (blocking/allowed) | Rounding | Leaves | Baseline root shape | Extra keys | Defects |'
+    '| Case | Status | Verdict | HTTP b/t | Contract (blocking/pinned) | Parity (blocking/allowed) | Rounding | Leaves | Baseline root shape | Extra keys | Defects |'
   );
   lines.push('|---|---|---|---|---|---|---|---|---|---|---|');
   for (const report of reports) {
-    const allowedCount = report.allowedByEntry.reduce((sum, e) => sum + e.matches, 0);
-    const parityBlocking = report.counts['data-parity'] - allowedCount;
+    // Allowed matches are counted per CLASS: a pinned `total-count-change` is a
+    // contract-break, never a data-parity difference (allowlist.ts PINNABLE_KINDS).
+    // `allowedByEntry` carries every match (hidden ones included); the pinned
+    // contract-breaks are always listed, so they are counted from `allowed`.
+    const allowedTotal = report.allowedByEntry.reduce((sum, e) => sum + e.matches, 0);
+    const allowedContract = report.allowed.filter(
+      (a) => a.difference.class === 'contract-break'
+    ).length;
+    const allowedParity = allowedTotal - allowedContract;
+    const parityBlocking = report.counts['data-parity'] - allowedParity;
+    const contractBlocking = report.counts['contract-break'] - allowedContract;
     lines.push(
-      `| ${report.id} | ${report.status} | ${report.verdict} | ${String(report.sides.baseline.status)}/${String(report.sides.target.status)} | ${String(report.counts['contract-break'])} | ${String(parityBlocking)}/${String(allowedCount)} | ${String(report.counts.rounding)} | ${String(report.leavesCompared)} | ${shapeText(report.sides.baseline.rootShape)} | ${String(report.warnings.filter((w) => w.kind !== 'baseline-empty').length)} | ${String(report.defects.length)} |`
+      `| ${report.id} | ${report.status} | ${report.verdict} | ${String(report.sides.baseline.status)}/${String(report.sides.target.status)} | ${String(contractBlocking)}/${String(allowedContract)} | ${String(parityBlocking)}/${String(allowedParity)} | ${String(report.counts.rounding)} | ${String(report.leavesCompared)} | ${shapeText(report.sides.baseline.rootShape)} | ${String(report.warnings.filter((w) => w.kind !== 'baseline-empty').length)} | ${String(report.defects.length)} |`
     );
   }
   lines.push('');

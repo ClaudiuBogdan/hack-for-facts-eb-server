@@ -96,6 +96,15 @@ const DRIFT_ENTRY: AllowlistEntry = {
   kind: 'value-drift',
   explanation: 'Chronos re-statements',
 };
+
+const parityDifference = (path: string): Difference => ({
+  class: 'data-parity',
+  kind: 'value-change',
+  path,
+  expected: '1',
+  actual: '2',
+  message: 'differs',
+});
 const DRIFT_ENTRY_ID = 'drift|f0-aggregated|aggregatedLineItems|nodes[*].amount|value-drift';
 
 describe('golden-master report', () => {
@@ -267,6 +276,11 @@ describe('golden-master report', () => {
         id: 'a',
         verdict: 'pass-with-warnings',
         counts: { 'contract-break': 0, 'data-parity': 3, rounding: 0 },
+        allowed: [1, 2, 3].map((i) => ({
+          difference: parityDifference(`$.data.aggregatedLineItems.nodes[${String(i)}].amount`),
+          entry: DRIFT_ENTRY,
+          relativeDifference: 0.05,
+        })),
         allowedByEntry: [
           {
             entryId: DRIFT_ENTRY_ID,
@@ -325,7 +339,7 @@ describe('golden-master report', () => {
     expect(markdown).toContain(
       '| 2 | 5 | 50.0000% | b $.data.aggregatedLineItems.nodes[0].amount |'
     );
-    expect(markdown).toContain('| a | live | pass-with-warnings | 200/200 | 0 | 0/3 |');
+    expect(markdown).toContain('| a | live | pass-with-warnings | 200/200 | 0/0 | 0/3 |');
   });
 
   it('lists at most MAX_LISTED_PER_ARRAY records per innermost array when writing, with a marker', () => {

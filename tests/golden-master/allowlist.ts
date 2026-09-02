@@ -68,7 +68,20 @@ import { canonicalJsonStringify } from '../../src/common/canonical-json/index.js
 // Schema
 // =============================================================================
 
-const PINNABLE_KINDS: readonly DifferenceKind[] = ['null-change', 'array-length', 'value-change'];
+/**
+ * `total-count-change` joined the pinnable kinds on 2026-09-02 (legacy dimension
+ * roots on the kernel): a `pageInfo.totalCount` that moves for a DOCUMENTED reason
+ * (a catalog with a different row count, a fixed legacy count bug) can only be
+ * admitted per case with the exact before/after numbers — never as a pattern.
+ * `page-info-change` (hasNextPage / cursors) stays unpinnable: pageInfo must
+ * otherwise match exactly (design 13 §6).
+ */
+const PINNABLE_KINDS: readonly DifferenceKind[] = [
+  'null-change',
+  'array-length',
+  'value-change',
+  'total-count-change',
+];
 
 const CASE_KEY_PATTERN = '^[0-9a-f]{64}:[0-9a-f]{64}$';
 const DELTA_ID_PATTERN = '^[a-z0-9][a-z0-9-]*$';
@@ -370,7 +383,13 @@ export function entryMatchesDifference(
   caseKey: string,
   difference: Difference
 ): boolean {
-  if (difference.class !== 'data-parity') return false;
+  // A `total-count-change` is a contract-break that ONLY an exact pin can admit
+  // (see PINNABLE_KINDS); every other contract-break is never allowlistable.
+  if (difference.class === 'contract-break') {
+    if (difference.kind !== 'total-count-change' || entry.type !== 'pinned') return false;
+  } else if (difference.class !== 'data-parity') {
+    return false;
+  }
 
   if (entry.type === 'pinned') {
     if (entry.key !== caseKey) return false;
@@ -417,7 +436,8 @@ export interface AppliedAllowlist {
 
 /**
  * Splits a case's differences into blocking / allowed / informational.
- * `contract-break` is always blocking; `rounding` is always informational;
+ * `contract-break` is always blocking — except a `total-count-change` that an
+ * exact `pinned` entry admits; `rounding` is always informational;
  * `data-parity` is blocking unless an entry accepts it (the first matching
  * entry in file order is recorded).
  */
@@ -433,7 +453,7 @@ export function applyAllowlist(
       result.informational.push(difference);
       continue;
     }
-    if (difference.class === 'contract-break') {
+    if (difference.class === 'contract-break' && difference.kind !== 'total-count-change') {
       result.blocking.push(difference);
       continue;
     }

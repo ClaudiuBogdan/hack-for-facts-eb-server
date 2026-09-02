@@ -22,13 +22,19 @@ import { CommonDirectives } from '../../../../src/infra/graphql/common/directive
 import { CommonEnums } from '../../../../src/infra/graphql/common/enums.js';
 import { CommonScalars } from '../../../../src/infra/graphql/common/scalars.js';
 import { BUDGET_LEGACY_SDL_PROVENANCE } from '../../../../src/modules/budget/shell/graphql/legacy/typedefs.js';
+import { BudgetSectorSchema } from '../../../../src/modules/budget-sector/shell/graphql/schema.js';
+import { ClassificationSchema } from '../../../../src/modules/classification/shell/graphql/schema.js';
 import { ExecutionAnalyticsSchema } from '../../../../src/modules/execution-analytics/shell/graphql/schema.js';
+import { FundingSourceSchema } from '../../../../src/modules/funding-sources/shell/graphql/schema.js';
 
 const LEGACY_SOURCES: Record<keyof typeof BUDGET_LEGACY_SDL_PROVENANCE, string> = {
   'src/infra/graphql/common/directives.ts': CommonDirectives,
   'src/infra/graphql/common/scalars.ts': CommonScalars,
   'src/infra/graphql/common/enums.ts': CommonEnums,
   'src/modules/execution-analytics/shell/graphql/schema.ts': ExecutionAnalyticsSchema,
+  'src/modules/budget-sector/shell/graphql/schema.ts': BudgetSectorSchema,
+  'src/modules/funding-sources/shell/graphql/schema.ts': FundingSourceSchema,
+  'src/modules/classification/shell/graphql/schema.ts': ClassificationSchema,
 };
 
 /** The fixture document: every provenance definition, byte-identical, in order. */
@@ -39,7 +45,10 @@ export const renderLegacyFixture = (): string => {
     for (const key of keys) {
       const text = defs.get(key);
       if (text === undefined) throw new Error(`legacy source ${file} lacks ${key}`);
-      parts.push(`# ${key} <- ${file}\n${text}`);
+      // A root field is only valid SDL inside a Query extension; the identity
+      // test re-extracts it per field, so the wrapper is not compared.
+      const rendered = key.startsWith('Query.') ? `extend type Query {\n${text}\n}` : text;
+      parts.push(`# ${key} <- ${file}\n${rendered}`);
     }
   }
   return `${parts.join('\n\n')}\n`;

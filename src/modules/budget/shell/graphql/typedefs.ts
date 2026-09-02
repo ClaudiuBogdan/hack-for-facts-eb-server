@@ -300,7 +300,8 @@ const objectsAndQuery = /* GraphQL */ `
     code: String!
     name: String
   }
-  type BudgetSector {
+  "Kernel budget-sector catalog entry (the legacy BudgetSector type keeps its name on the legacy root, design 13 §3)."
+  type BudgetSectorCatalogEntry {
     sectorId: Int!
     sectorDescription: String
   }
@@ -549,7 +550,8 @@ const objectsAndQuery = /* GraphQL */ `
       codes: [String!]
       limit: Int = 50
     ): BudgetClassificationGated!
-    budgetSectors(search: String, ids: [Int!]): [BudgetSector!]!
+    "Budget-sector catalog (renamed from budgetSectors: the legacy root keeps that name, design 13 §3)."
+    budgetSectorCatalog(search: String, ids: [Int!]): [BudgetSectorCatalogEntry!]!
     budgetFundingSources(search: String, ids: [Int!]): [BudgetFundingSource!]!
     "Approved (planned) budget facts (budget-official; works on its own data)."
     budgetApprovedFacts(

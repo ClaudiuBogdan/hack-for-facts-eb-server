@@ -20,15 +20,12 @@
  *  - `PageInfo`: the kernel type has only `hasNextPage`/`endCursor`; the legacy
  *    connections and the client documents read `totalCount`, `hasPreviousPage`
  *    (and the legacy SDL also declares `startCursor`, which the INS resolvers
- *    never populate — it is null on both endpoints, kept so a document that
- *    selects it still validates). Per design 13 §3 the slice EXTENDS the kernel
- *    `PageInfo` with those fields, nullable on the type (the INS resolvers
- *    populate `totalCount` and `hasPreviousPage`; kernel connections leave all
- *    three null). The type name is unchanged, so fragments on `PageInfo` and
- *    `__typename` answer exactly as on the legacy endpoint. When the budget
- *    legacy slice (design 13) needs the same extension, it moves there — the
- *    merge gate rejects two slices adding the same field, so this cannot be
- *    silently duplicated.
+ *    never populate — null on both endpoints). The budget module's legacy slice
+ *    owns the design-13 §3 resolution — `extend type PageInfo { totalCount
+ *    hasPreviousPage startCursor }` in `budgetLegacyCollisionTypeDefs` — so the
+ *    type name is unchanged and fragments on `PageInfo` / `__typename` answer
+ *    exactly as on the legacy endpoint. This slice DEPENDS on it (like
+ *    `ReportPeriodInput`): the budget module must be in the mounted set.
  *  - `Date` → `InsDate`, `DateTime` → `InsDateTime`: the legacy endpoint
  *    declares these scalars without an implementation, so a JS `Date` from the
  *    INS pool is serialized by `JSON.stringify` (`toJSON()` → ISO string). The
@@ -59,21 +56,6 @@ export const INS_INTERIM_SCALAR_RENAMES: Readonly<Record<string, string>> = {
   Date: 'InsDate',
   DateTime: 'InsDateTime',
 };
-
-/**
- * The legacy `PageInfo` fields the kernel `PageInfo` lacks
- * (src/infra/graphql/common/types.ts vs src/modules/shared/shell/graphql/typedefs.ts).
- */
-export const INS_INTERIM_PAGE_INFO_EXTENSION = /* GraphQL */ `
-  extend type PageInfo {
-    "Total count of items matching the query (legacy INS connections; null on kernel connections)"
-    totalCount: Int
-    "Indicates if there are more pages before the current page (legacy INS connections; null on kernel connections)"
-    hasPreviousPage: Boolean
-    "Cursor of the first edge in the page (legacy INS connections; null on kernel connections)"
-    startCursor: String
-  }
-`;
 
 const TYPE_DEFINITION_KINDS: ReadonlySet<string> = new Set([
   Kind.SCALAR_TYPE_DEFINITION,
@@ -123,15 +105,13 @@ export const InsDateTimeScalar = legacyIdentityScalar(
 );
 
 /**
- * The interim SDL: `InsSchema` with the scalar renames, the `PageInfo`
- * extension and the two scalar declarations. Computed on demand (not at
- * import) so a failure here surfaces inside the redesign mount's try/catch in
- * build-app.ts, never at legacy boot.
+ * The interim SDL: `InsSchema` with the scalar renames and the two scalar
+ * declarations. Computed on demand (not at import) so a failure here surfaces
+ * inside the redesign mount's try/catch in build-app.ts, never at legacy boot.
  */
 export const makeInsInterimTypeDefs = (): string =>
   [
     print(renameScalars(parse(InsSchema))),
-    INS_INTERIM_PAGE_INFO_EXTENSION.trim(),
     `scalar ${InsDateScalar.name}\nscalar ${InsDateTimeScalar.name}`,
   ].join('\n\n');
 
