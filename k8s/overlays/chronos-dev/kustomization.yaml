@@ -4,23 +4,24 @@ kind: Kustomization
 namespace: transparenta-eu-dev
 
 resources:
-  - ../../base
-  - service-account.yaml
+- ../../base
+- service-account.yaml
 
 labels:
-  - includeSelectors: true
-    includeTemplates: true
-    pairs:
-      app.kubernetes.io/name: hack-for-facts-eb-server
-      app.kubernetes.io/part-of: transparenta-eu
-      app.kubernetes.io/environment: development
+- includeSelectors: true
+  includeTemplates: true
+  pairs:
+    app.kubernetes.io/environment: development
+    app.kubernetes.io/name: hack-for-facts-eb-server
+    app.kubernetes.io/part-of: transparenta-eu
 
 patches:
-  - path: remove-platform-owned-resources.yaml
-  - path: configmap-patch.yaml
-  - path: workload-patch.yaml
+- path: remove-platform-owned-resources.yaml
+- path: configmap-patch.yaml
+- path: workload-patch.yaml
 
 # Chronos image pin is independent of the shared Phoenix base.
 images:
-  - name: harbor.devostack.com/hack-for-facts/hack-for-facts-eb-server
-    newTag: 4fa8e4ea0f365464136ff588ec5647952c5de655
+- name: harbor.devostack.com/hack-for-facts/hack-for-facts-eb-server
+  newName: harbor.devostack.com/hack-for-facts/hack-for-facts-eb-server
+  newTag: ea92f239389582f9f3844e6e3effb31983d80e37
