@@ -147,6 +147,11 @@ export {
   makeDatasetFactorSource,
   type DatasetReader,
 } from './shell/factors/dataset-factor-source.js';
+export {
+  makeFactorSetSource,
+  LEGACY_FACTOR_SET_ID,
+  LEGACY_FACTOR_SET_DIGEST,
+} from './shell/factors/factor-set-source.js';
 export * from './core/types.js';
 export {
   ACCOUNT_CATEGORIES,

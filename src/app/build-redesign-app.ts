@@ -26,12 +26,17 @@ import {
   makeGraphQLValidationRules,
 } from '../infra/graphql/security.js';
 import { makeGraphQLContext, type AuthProvider } from '../modules/auth/index.js';
-import { makeBudgetModule, makeDatasetFactorSource } from '../modules/budget/index.js';
+import {
+  makeBudgetModule,
+  makeFactorSetSource,
+  LEGACY_FACTOR_SET_ID,
+  LEGACY_FACTOR_SET_DIGEST,
+} from '../modules/budget/index.js';
 import { makeCompaniesModule } from '../modules/companies/index.js';
-import { createDatasetRepo } from '../modules/datasets/index.js';
 import { makeInsNativeModule } from '../modules/ins-native/index.js';
 import { makeJudicialModule } from '../modules/judicial/index.js';
 import { makeLegalModule } from '../modules/legal/index.js';
+import { makeFactorSetReader } from '../modules/normalization/index.js';
 import { makeParliamentModule } from '../modules/parliament/index.js';
 import { makePnrrModule } from '../modules/pnrr/index.js';
 import { makePrimariiTransparencyModule } from '../modules/primarii-transparency/index.js';
@@ -361,13 +366,13 @@ export const registerRedesignSurface = async (
   }
 
   if (enabledModules.includes('budget')) {
-    // The legacy `executionAnalytics` root normalizes with the YAML reference
-    // datasets (CPI / FX / GDP / population) until program D2 lands the
-    // `core.normalization_factors` tables behind the same port. fs-backed, no DB.
-    const datasetsRoot = process.env['DATASETS_ROOT'] ?? './datasets/yaml';
-    const legacyFactors = makeDatasetFactorSource(
-      createDatasetRepo({ rootDir: datasetsRoot }),
-      app.log
+    // Normalization Phase A: set 1 is the immutable snapshot of the legacy YAML.
+    // Explicit internal pin: promotion/current-pointer changes cannot change
+    // legacy calculations before the release policy and parity gates land.
+    const legacyFactors = makeFactorSetSource(
+      makeFactorSetReader(kernel.db),
+      LEGACY_FACTOR_SET_ID,
+      LEGACY_FACTOR_SET_DIGEST
     );
     const budget = makeBudgetModule({
       db: kernel.db,

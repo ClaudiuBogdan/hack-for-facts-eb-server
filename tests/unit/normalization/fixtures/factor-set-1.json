@@ -1,0 +1,1049 @@
+{
+  "rows": [
+    { "kind": "cpi_index", "value": "100.600000000000", "frequency": "YEAR", "periodKey": "1971" },
+    { "kind": "cpi_index", "value": "100.600000000000", "frequency": "YEAR", "periodKey": "1972" },
+    { "kind": "cpi_index", "value": "101.304200000000", "frequency": "YEAR", "periodKey": "1973" },
+    { "kind": "cpi_index", "value": "102.418546200000", "frequency": "YEAR", "periodKey": "1974" },
+    { "kind": "cpi_index", "value": "102.623383292400", "frequency": "YEAR", "periodKey": "1975" },
+    { "kind": "cpi_index", "value": "103.239123592154", "frequency": "YEAR", "periodKey": "1976" },
+    { "kind": "cpi_index", "value": "103.858558333707", "frequency": "YEAR", "periodKey": "1977" },
+    { "kind": "cpi_index", "value": "105.520295267047", "frequency": "YEAR", "periodKey": "1978" },
+    { "kind": "cpi_index", "value": "107.630701172388", "frequency": "YEAR", "periodKey": "1979" },
+    { "kind": "cpi_index", "value": "109.890945897008", "frequency": "YEAR", "periodKey": "1980" },
+    { "kind": "cpi_index", "value": "113.297565219815", "frequency": "YEAR", "periodKey": "1981" },
+    { "kind": "cpi_index", "value": "133.464531828942", "frequency": "YEAR", "periodKey": "1982" },
+    { "kind": "cpi_index", "value": "138.936577633929", "frequency": "YEAR", "periodKey": "1983" },
+    { "kind": "cpi_index", "value": "140.464879987902", "frequency": "YEAR", "periodKey": "1984" },
+    { "kind": "cpi_index", "value": "141.588599027805", "frequency": "YEAR", "periodKey": "1985" },
+    { "kind": "cpi_index", "value": "143.004485018083", "frequency": "YEAR", "periodKey": "1986" },
+    { "kind": "cpi_index", "value": "144.291525383246", "frequency": "YEAR", "periodKey": "1987" },
+    { "kind": "cpi_index", "value": "147.465938941677", "frequency": "YEAR", "periodKey": "1988" },
+    { "kind": "cpi_index", "value": "149.088064270036", "frequency": "YEAR", "periodKey": "1989" },
+    { "kind": "cpi_index", "value": "156.691555547808", "frequency": "YEAR", "periodKey": "1990" },
+    { "kind": "cpi_index", "value": "423.380583090176", "frequency": "YEAR", "periodKey": "1991" },
+    { "kind": "cpi_index", "value": "1314.173329911906", "frequency": "YEAR", "periodKey": "1992" },
+    { "kind": "cpi_index", "value": "4679.771227816298", "frequency": "YEAR", "periodKey": "1993" },
+    {
+      "kind": "cpi_index",
+      "value": "11077.018496241178",
+      "frequency": "YEAR",
+      "periodKey": "1994"
+    },
+    {
+      "kind": "cpi_index",
+      "value": "14654.895470527079",
+      "frequency": "YEAR",
+      "periodKey": "1995"
+    },
+    {
+      "kind": "cpi_index",
+      "value": "20340.994913091585",
+      "frequency": "YEAR",
+      "periodKey": "1996"
+    },
+    {
+      "kind": "cpi_index",
+      "value": "51828.855038557359",
+      "frequency": "YEAR",
+      "periodKey": "1997"
+    },
+    {
+      "kind": "cpi_index",
+      "value": "82459.708366344758",
+      "frequency": "YEAR",
+      "periodKey": "1998"
+    },
+    {
+      "kind": "cpi_index",
+      "value": "120226.254798130658",
+      "frequency": "YEAR",
+      "periodKey": "1999"
+    },
+    {
+      "kind": "cpi_index",
+      "value": "175169.653240876368",
+      "frequency": "YEAR",
+      "periodKey": "2000"
+    },
+    {
+      "kind": "cpi_index",
+      "value": "235603.183608978715",
+      "frequency": "YEAR",
+      "periodKey": "2001"
+    },
+    {
+      "kind": "cpi_index",
+      "value": "288613.899920998926",
+      "frequency": "YEAR",
+      "periodKey": "2002"
+    },
+    {
+      "kind": "cpi_index",
+      "value": "332771.826608911762",
+      "frequency": "YEAR",
+      "periodKey": "2003"
+    },
+    {
+      "kind": "cpi_index",
+      "value": "372371.673975372262",
+      "frequency": "YEAR",
+      "periodKey": "2004"
+    },
+    {
+      "kind": "cpi_index",
+      "value": "405885.124633155765",
+      "frequency": "YEAR",
+      "periodKey": "2005"
+    },
+    {
+      "kind": "cpi_index",
+      "value": "432511.188809090783",
+      "frequency": "YEAR",
+      "periodKey": "2006"
+    },
+    {
+      "kind": "cpi_index",
+      "value": "453444.730347450777",
+      "frequency": "YEAR",
+      "periodKey": "2007"
+    },
+    {
+      "kind": "cpi_index",
+      "value": "489040.141679725663",
+      "frequency": "YEAR",
+      "periodKey": "2008"
+    },
+    {
+      "kind": "cpi_index",
+      "value": "516377.485599622328",
+      "frequency": "YEAR",
+      "periodKey": "2009"
+    },
+    {
+      "kind": "cpi_index",
+      "value": "547824.874472639328",
+      "frequency": "YEAR",
+      "periodKey": "2010"
+    },
+    {
+      "kind": "cpi_index",
+      "value": "579543.934704605145",
+      "frequency": "YEAR",
+      "periodKey": "2011"
+    },
+    {
+      "kind": "cpi_index",
+      "value": "598842.747730268496",
+      "frequency": "YEAR",
+      "periodKey": "2012"
+    },
+    {
+      "kind": "cpi_index",
+      "value": "622676.689089933182",
+      "frequency": "YEAR",
+      "periodKey": "2013"
+    },
+    {
+      "kind": "cpi_index",
+      "value": "629339.329663195467",
+      "frequency": "YEAR",
+      "periodKey": "2014"
+    },
+    {
+      "kind": "cpi_index",
+      "value": "625626.227618182614",
+      "frequency": "YEAR",
+      "periodKey": "2015"
+    },
+    {
+      "kind": "cpi_index",
+      "value": "615929.021090100784",
+      "frequency": "YEAR",
+      "periodKey": "2016"
+    },
+    {
+      "kind": "cpi_index",
+      "value": "624182.469972708134",
+      "frequency": "YEAR",
+      "periodKey": "2017"
+    },
+    {
+      "kind": "cpi_index",
+      "value": "653082.118332444521",
+      "frequency": "YEAR",
+      "periodKey": "2018"
+    },
+    {
+      "kind": "cpi_index",
+      "value": "678095.163464577146",
+      "frequency": "YEAR",
+      "periodKey": "2019"
+    },
+    {
+      "kind": "cpi_index",
+      "value": "695929.066263695525",
+      "frequency": "YEAR",
+      "periodKey": "2020"
+    },
+    {
+      "kind": "cpi_index",
+      "value": "731073.484110012149",
+      "frequency": "YEAR",
+      "periodKey": "2021"
+    },
+    {
+      "kind": "cpi_index",
+      "value": "831961.624917193825",
+      "frequency": "YEAR",
+      "periodKey": "2022"
+    },
+    {
+      "kind": "cpi_index",
+      "value": "918485.633908581983",
+      "frequency": "YEAR",
+      "periodKey": "2023"
+    },
+    {
+      "kind": "cpi_index",
+      "value": "969828.980844071716",
+      "frequency": "YEAR",
+      "periodKey": "2024"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "100.600000000000",
+      "frequency": "YEAR",
+      "periodKey": "1971"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "100.000000000000",
+      "frequency": "YEAR",
+      "periodKey": "1972"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "100.700000000000",
+      "frequency": "YEAR",
+      "periodKey": "1973"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "101.100000000000",
+      "frequency": "YEAR",
+      "periodKey": "1974"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "100.200000000000",
+      "frequency": "YEAR",
+      "periodKey": "1975"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "100.600000000000",
+      "frequency": "YEAR",
+      "periodKey": "1976"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "100.600000000000",
+      "frequency": "YEAR",
+      "periodKey": "1977"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "101.600000000000",
+      "frequency": "YEAR",
+      "periodKey": "1978"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "102.000000000000",
+      "frequency": "YEAR",
+      "periodKey": "1979"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "102.100000000000",
+      "frequency": "YEAR",
+      "periodKey": "1980"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "103.100000000000",
+      "frequency": "YEAR",
+      "periodKey": "1981"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "117.800000000000",
+      "frequency": "YEAR",
+      "periodKey": "1982"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "104.100000000000",
+      "frequency": "YEAR",
+      "periodKey": "1983"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "101.100000000000",
+      "frequency": "YEAR",
+      "periodKey": "1984"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "100.800000000000",
+      "frequency": "YEAR",
+      "periodKey": "1985"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "101.000000000000",
+      "frequency": "YEAR",
+      "periodKey": "1986"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "100.900000000000",
+      "frequency": "YEAR",
+      "periodKey": "1987"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "102.200000000000",
+      "frequency": "YEAR",
+      "periodKey": "1988"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "101.100000000000",
+      "frequency": "YEAR",
+      "periodKey": "1989"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "105.100000000000",
+      "frequency": "YEAR",
+      "periodKey": "1990"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "270.200000000000",
+      "frequency": "YEAR",
+      "periodKey": "1991"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "310.400000000000",
+      "frequency": "YEAR",
+      "periodKey": "1992"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "356.100000000000",
+      "frequency": "YEAR",
+      "periodKey": "1993"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "236.700000000000",
+      "frequency": "YEAR",
+      "periodKey": "1994"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "132.300000000000",
+      "frequency": "YEAR",
+      "periodKey": "1995"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "138.800000000000",
+      "frequency": "YEAR",
+      "periodKey": "1996"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "254.800000000000",
+      "frequency": "YEAR",
+      "periodKey": "1997"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "159.100000000000",
+      "frequency": "YEAR",
+      "periodKey": "1998"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "145.800000000000",
+      "frequency": "YEAR",
+      "periodKey": "1999"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "145.700000000000",
+      "frequency": "YEAR",
+      "periodKey": "2000"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "134.500000000000",
+      "frequency": "YEAR",
+      "periodKey": "2001"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "122.500000000000",
+      "frequency": "YEAR",
+      "periodKey": "2002"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "115.300000000000",
+      "frequency": "YEAR",
+      "periodKey": "2003"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "111.900000000000",
+      "frequency": "YEAR",
+      "periodKey": "2004"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "109.000000000000",
+      "frequency": "YEAR",
+      "periodKey": "2005"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "106.560000000000",
+      "frequency": "YEAR",
+      "periodKey": "2006"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "104.840000000000",
+      "frequency": "YEAR",
+      "periodKey": "2007"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "107.850000000000",
+      "frequency": "YEAR",
+      "periodKey": "2008"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "105.590000000000",
+      "frequency": "YEAR",
+      "periodKey": "2009"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "106.090000000000",
+      "frequency": "YEAR",
+      "periodKey": "2010"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "105.790000000000",
+      "frequency": "YEAR",
+      "periodKey": "2011"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "103.330000000000",
+      "frequency": "YEAR",
+      "periodKey": "2012"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "103.980000000000",
+      "frequency": "YEAR",
+      "periodKey": "2013"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "101.070000000000",
+      "frequency": "YEAR",
+      "periodKey": "2014"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "99.410000000000",
+      "frequency": "YEAR",
+      "periodKey": "2015"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "98.450000000000",
+      "frequency": "YEAR",
+      "periodKey": "2016"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "101.340000000000",
+      "frequency": "YEAR",
+      "periodKey": "2017"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "104.630000000000",
+      "frequency": "YEAR",
+      "periodKey": "2018"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "103.830000000000",
+      "frequency": "YEAR",
+      "periodKey": "2019"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "102.630000000000",
+      "frequency": "YEAR",
+      "periodKey": "2020"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "105.050000000000",
+      "frequency": "YEAR",
+      "periodKey": "2021"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "113.800000000000",
+      "frequency": "YEAR",
+      "periodKey": "2022"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "110.400000000000",
+      "frequency": "YEAR",
+      "periodKey": "2023"
+    },
+    {
+      "kind": "cpi_yoy_index",
+      "value": "105.590000000000",
+      "frequency": "YEAR",
+      "periodKey": "2024"
+    },
+    {
+      "kind": "gdp_ron",
+      "value": "513641000000.000000000000",
+      "frequency": "YEAR",
+      "periodKey": "2010"
+    },
+    {
+      "kind": "gdp_ron",
+      "value": "557348000000.000000000000",
+      "frequency": "YEAR",
+      "periodKey": "2011"
+    },
+    {
+      "kind": "gdp_ron",
+      "value": "587499000000.000000000000",
+      "frequency": "YEAR",
+      "periodKey": "2012"
+    },
+    {
+      "kind": "gdp_ron",
+      "value": "628581000000.000000000000",
+      "frequency": "YEAR",
+      "periodKey": "2013"
+    },
+    {
+      "kind": "gdp_ron",
+      "value": "668144000000.000000000000",
+      "frequency": "YEAR",
+      "periodKey": "2014"
+    },
+    {
+      "kind": "gdp_ron",
+      "value": "712832000000.000000000000",
+      "frequency": "YEAR",
+      "periodKey": "2015"
+    },
+    {
+      "kind": "gdp_ron",
+      "value": "759228000000.000000000000",
+      "frequency": "YEAR",
+      "periodKey": "2016"
+    },
+    {
+      "kind": "gdp_ron",
+      "value": "858300000000.000000000000",
+      "frequency": "YEAR",
+      "periodKey": "2017"
+    },
+    {
+      "kind": "gdp_ron",
+      "value": "940477000000.000000000000",
+      "frequency": "YEAR",
+      "periodKey": "2018"
+    },
+    {
+      "kind": "gdp_ron",
+      "value": "1053880000000.000000000000",
+      "frequency": "YEAR",
+      "periodKey": "2019"
+    },
+    {
+      "kind": "gdp_ron",
+      "value": "1053000000000.000000000000",
+      "frequency": "YEAR",
+      "periodKey": "2020"
+    },
+    {
+      "kind": "gdp_ron",
+      "value": "1189089000000.000000000000",
+      "frequency": "YEAR",
+      "periodKey": "2021"
+    },
+    {
+      "kind": "gdp_ron",
+      "value": "1409000000000.000000000000",
+      "frequency": "YEAR",
+      "periodKey": "2022"
+    },
+    {
+      "kind": "gdp_ron",
+      "value": "1598576000000.000000000000",
+      "frequency": "YEAR",
+      "periodKey": "2023"
+    },
+    {
+      "kind": "gdp_ron",
+      "value": "1766068000000.000000000000",
+      "frequency": "YEAR",
+      "periodKey": "2024"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "0.600000000000",
+      "frequency": "YEAR",
+      "periodKey": "1971"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "0.000000000000",
+      "frequency": "YEAR",
+      "periodKey": "1972"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "0.700000000000",
+      "frequency": "YEAR",
+      "periodKey": "1973"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "1.100000000000",
+      "frequency": "YEAR",
+      "periodKey": "1974"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "0.200000000000",
+      "frequency": "YEAR",
+      "periodKey": "1975"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "0.600000000000",
+      "frequency": "YEAR",
+      "periodKey": "1976"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "0.600000000000",
+      "frequency": "YEAR",
+      "periodKey": "1977"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "1.600000000000",
+      "frequency": "YEAR",
+      "periodKey": "1978"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "2.000000000000",
+      "frequency": "YEAR",
+      "periodKey": "1979"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "2.100000000000",
+      "frequency": "YEAR",
+      "periodKey": "1980"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "3.100000000000",
+      "frequency": "YEAR",
+      "periodKey": "1981"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "17.800000000000",
+      "frequency": "YEAR",
+      "periodKey": "1982"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "4.100000000000",
+      "frequency": "YEAR",
+      "periodKey": "1983"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "1.100000000000",
+      "frequency": "YEAR",
+      "periodKey": "1984"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "0.800000000000",
+      "frequency": "YEAR",
+      "periodKey": "1985"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "1.000000000000",
+      "frequency": "YEAR",
+      "periodKey": "1986"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "0.900000000000",
+      "frequency": "YEAR",
+      "periodKey": "1987"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "2.200000000000",
+      "frequency": "YEAR",
+      "periodKey": "1988"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "1.100000000000",
+      "frequency": "YEAR",
+      "periodKey": "1989"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "5.100000000000",
+      "frequency": "YEAR",
+      "periodKey": "1990"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "170.200000000000",
+      "frequency": "YEAR",
+      "periodKey": "1991"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "210.400000000000",
+      "frequency": "YEAR",
+      "periodKey": "1992"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "256.100000000000",
+      "frequency": "YEAR",
+      "periodKey": "1993"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "136.700000000000",
+      "frequency": "YEAR",
+      "periodKey": "1994"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "32.300000000000",
+      "frequency": "YEAR",
+      "periodKey": "1995"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "38.800000000000",
+      "frequency": "YEAR",
+      "periodKey": "1996"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "154.800000000000",
+      "frequency": "YEAR",
+      "periodKey": "1997"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "59.100000000000",
+      "frequency": "YEAR",
+      "periodKey": "1998"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "45.800000000000",
+      "frequency": "YEAR",
+      "periodKey": "1999"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "45.700000000000",
+      "frequency": "YEAR",
+      "periodKey": "2000"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "34.500000000000",
+      "frequency": "YEAR",
+      "periodKey": "2001"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "22.500000000000",
+      "frequency": "YEAR",
+      "periodKey": "2002"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "15.300000000000",
+      "frequency": "YEAR",
+      "periodKey": "2003"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "11.900000000000",
+      "frequency": "YEAR",
+      "periodKey": "2004"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "9.000000000000",
+      "frequency": "YEAR",
+      "periodKey": "2005"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "6.600000000000",
+      "frequency": "YEAR",
+      "periodKey": "2006"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "4.800000000000",
+      "frequency": "YEAR",
+      "periodKey": "2007"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "7.900000000000",
+      "frequency": "YEAR",
+      "periodKey": "2008"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "5.600000000000",
+      "frequency": "YEAR",
+      "periodKey": "2009"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "6.100000000000",
+      "frequency": "YEAR",
+      "periodKey": "2010"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "5.800000000000",
+      "frequency": "YEAR",
+      "periodKey": "2011"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "3.300000000000",
+      "frequency": "YEAR",
+      "periodKey": "2012"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "4.000000000000",
+      "frequency": "YEAR",
+      "periodKey": "2013"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "1.100000000000",
+      "frequency": "YEAR",
+      "periodKey": "2014"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "-0.600000000000",
+      "frequency": "YEAR",
+      "periodKey": "2015"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "-1.500000000000",
+      "frequency": "YEAR",
+      "periodKey": "2016"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "1.300000000000",
+      "frequency": "YEAR",
+      "periodKey": "2017"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "4.600000000000",
+      "frequency": "YEAR",
+      "periodKey": "2018"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "3.800000000000",
+      "frequency": "YEAR",
+      "periodKey": "2019"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "2.600000000000",
+      "frequency": "YEAR",
+      "periodKey": "2020"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "5.100000000000",
+      "frequency": "YEAR",
+      "periodKey": "2021"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "13.800000000000",
+      "frequency": "YEAR",
+      "periodKey": "2022"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "10.400000000000",
+      "frequency": "YEAR",
+      "periodKey": "2023"
+    },
+    {
+      "kind": "inflation_rate",
+      "value": "5.600000000000",
+      "frequency": "YEAR",
+      "periodKey": "2024"
+    },
+    {
+      "kind": "population_ro",
+      "value": "19870000.000000000000",
+      "frequency": "YEAR",
+      "periodKey": "2015"
+    },
+    {
+      "kind": "population_ro",
+      "value": "19760000.000000000000",
+      "frequency": "YEAR",
+      "periodKey": "2016"
+    },
+    {
+      "kind": "population_ro",
+      "value": "19640000.000000000000",
+      "frequency": "YEAR",
+      "periodKey": "2017"
+    },
+    {
+      "kind": "population_ro",
+      "value": "19530000.000000000000",
+      "frequency": "YEAR",
+      "periodKey": "2018"
+    },
+    {
+      "kind": "population_ro",
+      "value": "19410000.000000000000",
+      "frequency": "YEAR",
+      "periodKey": "2019"
+    },
+    {
+      "kind": "population_ro",
+      "value": "19200000.000000000000",
+      "frequency": "YEAR",
+      "periodKey": "2020"
+    },
+    {
+      "kind": "population_ro",
+      "value": "19050000.000000000000",
+      "frequency": "YEAR",
+      "periodKey": "2021"
+    },
+    {
+      "kind": "population_ro",
+      "value": "19050000.000000000000",
+      "frequency": "YEAR",
+      "periodKey": "2022"
+    },
+    {
+      "kind": "population_ro",
+      "value": "19050000.000000000000",
+      "frequency": "YEAR",
+      "periodKey": "2023"
+    },
+    { "kind": "ron_per_eur", "value": "3.623400000000", "frequency": "YEAR", "periodKey": "2005" },
+    { "kind": "ron_per_eur", "value": "3.524500000000", "frequency": "YEAR", "periodKey": "2006" },
+    { "kind": "ron_per_eur", "value": "3.337300000000", "frequency": "YEAR", "periodKey": "2007" },
+    { "kind": "ron_per_eur", "value": "3.682700000000", "frequency": "YEAR", "periodKey": "2008" },
+    { "kind": "ron_per_eur", "value": "4.237300000000", "frequency": "YEAR", "periodKey": "2009" },
+    { "kind": "ron_per_eur", "value": "4.209900000000", "frequency": "YEAR", "periodKey": "2010" },
+    { "kind": "ron_per_eur", "value": "4.237900000000", "frequency": "YEAR", "periodKey": "2011" },
+    { "kind": "ron_per_eur", "value": "4.456000000000", "frequency": "YEAR", "periodKey": "2012" },
+    { "kind": "ron_per_eur", "value": "4.419000000000", "frequency": "YEAR", "periodKey": "2013" },
+    { "kind": "ron_per_eur", "value": "4.444600000000", "frequency": "YEAR", "periodKey": "2014" },
+    { "kind": "ron_per_eur", "value": "4.445000000000", "frequency": "YEAR", "periodKey": "2015" },
+    { "kind": "ron_per_eur", "value": "4.490800000000", "frequency": "YEAR", "periodKey": "2016" },
+    { "kind": "ron_per_eur", "value": "4.568100000000", "frequency": "YEAR", "periodKey": "2017" },
+    { "kind": "ron_per_eur", "value": "4.653500000000", "frequency": "YEAR", "periodKey": "2018" },
+    { "kind": "ron_per_eur", "value": "4.745200000000", "frequency": "YEAR", "periodKey": "2019" },
+    { "kind": "ron_per_eur", "value": "4.837100000000", "frequency": "YEAR", "periodKey": "2020" },
+    { "kind": "ron_per_eur", "value": "4.920400000000", "frequency": "YEAR", "periodKey": "2021" },
+    { "kind": "ron_per_eur", "value": "4.931500000000", "frequency": "YEAR", "periodKey": "2022" },
+    { "kind": "ron_per_eur", "value": "4.946500000000", "frequency": "YEAR", "periodKey": "2023" },
+    { "kind": "ron_per_eur", "value": "4.974600000000", "frequency": "YEAR", "periodKey": "2024" },
+    { "kind": "ron_per_eur", "value": "5.024500000000", "frequency": "YEAR", "periodKey": "2025" },
+    { "kind": "ron_per_usd", "value": "2.913700000000", "frequency": "YEAR", "periodKey": "2005" },
+    { "kind": "ron_per_usd", "value": "2.809000000000", "frequency": "YEAR", "periodKey": "2006" },
+    { "kind": "ron_per_usd", "value": "2.438300000000", "frequency": "YEAR", "periodKey": "2007" },
+    { "kind": "ron_per_usd", "value": "2.518900000000", "frequency": "YEAR", "periodKey": "2008" },
+    { "kind": "ron_per_usd", "value": "3.049300000000", "frequency": "YEAR", "periodKey": "2009" },
+    { "kind": "ron_per_usd", "value": "3.177900000000", "frequency": "YEAR", "periodKey": "2010" },
+    { "kind": "ron_per_usd", "value": "3.048600000000", "frequency": "YEAR", "periodKey": "2011" },
+    { "kind": "ron_per_usd", "value": "3.468200000000", "frequency": "YEAR", "periodKey": "2012" },
+    { "kind": "ron_per_usd", "value": "3.327900000000", "frequency": "YEAR", "periodKey": "2013" },
+    { "kind": "ron_per_usd", "value": "3.349200000000", "frequency": "YEAR", "periodKey": "2014" },
+    { "kind": "ron_per_usd", "value": "4.005700000000", "frequency": "YEAR", "periodKey": "2015" },
+    { "kind": "ron_per_usd", "value": "4.059200000000", "frequency": "YEAR", "periodKey": "2016" },
+    { "kind": "ron_per_usd", "value": "4.052500000000", "frequency": "YEAR", "periodKey": "2017" },
+    { "kind": "ron_per_usd", "value": "3.941600000000", "frequency": "YEAR", "periodKey": "2018" },
+    { "kind": "ron_per_usd", "value": "4.237900000000", "frequency": "YEAR", "periodKey": "2019" },
+    { "kind": "ron_per_usd", "value": "4.244000000000", "frequency": "YEAR", "periodKey": "2020" },
+    { "kind": "ron_per_usd", "value": "4.160400000000", "frequency": "YEAR", "periodKey": "2021" },
+    { "kind": "ron_per_usd", "value": "4.688500000000", "frequency": "YEAR", "periodKey": "2022" },
+    { "kind": "ron_per_usd", "value": "4.574300000000", "frequency": "YEAR", "periodKey": "2023" },
+    { "kind": "ron_per_usd", "value": "4.598400000000", "frequency": "YEAR", "periodKey": "2024" },
+    { "kind": "ron_per_usd", "value": "4.622500000000", "frequency": "YEAR", "periodKey": "2025" }
+  ],
+  "digest": "69cc0473af19ffb406fe9f2ed3f82c7785a3aa4ea6df74dfd360220c92e41078",
+  "factorSetId": "1"
+}

@@ -182,3 +182,46 @@ unadjusted; growth after normalization with 0 for the first / missing / zero
 predecessor; economic exclusions on the expense side only; faceted tags (OR within a
 facet, AND across); `search` as name ILIKE; MONTH / QUARTER / YEAR amount columns via
 the period flags (sum-equivalent on Chronos, measured).
+
+## 9. Normalization Phase A — versioned factor reader (2026-09-04)
+
+The kernel composition now supplies `executionAnalytics` with factors from
+`core.normalization_factors` through normalization's `FactorSetReader`. It pins
+set `1` **and** manifest digest
+`69cc0473af19ffb406fe9f2ed3f82c7785a3aa4ea6df74dfd360220c92e41078`, implementing
+S1-5 and normalization design Phase A. A rebuilt database with another snapshot
+at ID 1 fails explicitly. `current()` exists but remains unused by this path;
+this is an internal compatibility pin, not public eligibility or promotion.
+
+Reads are lazy. One SQL statement obtains the immutable set identity and rows;
+successful frozen snapshots are cached per ID and concurrent loads share work.
+Failures retry. The mutable current pointer is never cached. Numeric values
+remain decimal text until the existing isolated 40-digit Decimal policy consumes
+them; stored CPI levels are not chain-linked again.
+
+The database adapter requires the configured snapshot and each requested yearly
+series. Missing sets, wrong manifest identity, invalid values, duplicate keys,
+missing kinds, or interior annual gaps return a typed error. Unlike the YAML
+oracle's legacy missing-dataset behavior (§7), they never serve unadjusted values
+under a normalized label. Subannual rows do not affect yearly factor selection.
+
+No GraphQL shape, existing arithmetic, or client transport changes in this phase.
+The legacy `/graphql` normalization and the datasets YAML remain unchanged.
+Application SQL is SELECT-only; migrations and factor promotion are not part of
+this release. **Deployment scope: server `dev` only (user decision 2026-09-04).**
+
+Verification: all 120 consumed annual factors, including all 54 CPI price levels,
+match the current server YAML exactly as Decimal values. The 228-row reference
+fixture records the database snapshot and digest; tests also exercise actual
+hash-pinned D2 and ETL prerequisite migration DDL on a dedicated empty PostgreSQL
+database. Run the SQL regression with `E2E_FACTOR_PG_URL` naming a localhost
+`budget_phase_a*` throwaway, `SCRAPPER_REPO_ROOT`, and `TEST_E2E_REQUIRED=1`.
+The unit regression runs under the default test suite. Live API comparison is a
+separate gate; the existing execution golden-master cases do not by themselves
+cover CPI, GDP, or USD. Exact all-factor equivalence supplies that coverage.
+
+The strict paired-kernel check is
+`tests/golden-master/specs/factor-source-parity.gm.test.ts`, run with
+`--config vitest.config.ts`, `PHASE_A_BASELINE_URL` and `PHASE_A_TARGET_URL`.
+Those separate opt-in variables keep this exact-equality check out of the
+legacy-to-kernel extended replay, whose documented numeric deltas remain valid.

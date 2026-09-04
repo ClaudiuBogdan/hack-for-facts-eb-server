@@ -6,8 +6,8 @@
  *    reported, never silent).
  *  - `FactorSource` — the yearly reference series (CPI price LEVEL, FX, GDP,
  *    country population) in the program-D2 `factor_kind` vocabulary AND
- *    representation. Today implemented over the datasets module's YAML;
- *    program D2 lands `core.normalization_factors` behind the SAME port.
+ *    representation. The kernel uses a manifest-checked versioned database
+ *    snapshot; the datasets YAML adapter remains the equivalence-test oracle.
  *  - `PopulationSource` — the filter-wide per-capita denominator over the kernel
  *    `core.*` hubs (legacy `PopulationRepository` semantics, plan 13 §4).
  */
@@ -56,8 +56,9 @@ export interface FactorSource {
   /**
    * The yearly series for a factor kind, keyed by year, in the D2
    * representation above. `null` when the dataset is not available — the
-   * `legacy` normalization policy then leaves values unadjusted (program D2),
-   * and the adapter logs the absence.
+   * YAML oracle only: the `legacy` normalization policy leaves values
+   * unadjusted and logs absence. The versioned database adapter requires the
+   * configured set, manifest and yearly kind; missing data returns an error.
    */
   yearly(kind: FactorKind): Promise<Result<YearlySeries | null, ApiError>>;
 }

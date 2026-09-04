@@ -1,5 +1,14 @@
 // Ports
 export type {
+  FactorKind,
+  FactorRow,
+  FactorTable,
+  FactorReadError,
+  FactorSetReader,
+} from './core/factor-set-reader.js';
+export { makeFactorSetReader } from './shell/factor-set-repo.js';
+
+export type {
   NormalizationDatasetProvider,
   DatasetProviderError,
   NormalizationPort,
