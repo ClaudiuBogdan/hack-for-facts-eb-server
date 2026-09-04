@@ -195,3 +195,13 @@ kubectl top pods -n hack-for-facts-<env>
 - [Sealed Secrets Documentation](https://github.com/bitnami-labs/sealed-secrets)
 - [ArgoCD Documentation](https://argo-cd.readthedocs.io/)
 - [CloudNativePG Documentation](https://cloudnative-pg.io/docs/)
+
+## Chronos migration deployment boundary (2026-09-05)
+
+User-approved migration work publishes server/client `dev` and updates only
+`overlays/chronos-dev`. The shared base image remains frozen so existing Phoenix
+rendered workloads do not change. Production promotion from this dev branch is
+suspended for the migration: do not merge these delivery changes to `main` or
+trigger production promotion until a separate production plan is approved.
+The client's existing production job still reads the frozen shared-base image;
+it must not be redirected to the Chronos development pin.

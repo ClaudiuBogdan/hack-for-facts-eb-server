@@ -7,13 +7,9 @@ plaintext authority.
 Generate from this repository only:
 
 ```bash
-BWS_ACCESS_TOKEN="$(security find-generic-password \
-  -a "$USER" \
-  -s chronos-bws-access-token \
-  -w)" \
-  pnpm secrets:seal:chronos -- \
-    --kubeconfig "$HOME/.kube/chronos.yaml" \
-    --context chronos
+pnpm secrets:seal:chronos -- \
+  --kubeconfig "$HOME/.kube/chronos.yaml" \
+  --context chronos
 ```
 
 The generator verifies the Chronos API identity and Ready durable node, checks
@@ -25,3 +21,15 @@ Never add plaintext Secret YAML, PEM, passwords, tokens, kubeconfigs, BWS
 exports, or environment files here. Workload Kustomization deliberately does
 not import this directory; a separate narrowly scoped Argo secrets Application
 owns it.
+
+## Local credential handling
+
+Run the sealing command from this repository with explicit Chronos kubeconfig and
+context. It checks the target, controller and Kustomization before requesting a
+credential. On macOS it reads the current account's Keychain item
+`transparenta-bws-access-token`; otherwise it prompts without echo in a terminal.
+The token is passed only to the Bitwarden child process, never on the command line
+or in files/logs. Normal sealing fetches only the registered Bitwarden record IDs
+and verifies their project/key identity. Raw Secret JSON stays in memory and feeds
+kubeseal through stdin. Only validated ciphertext is written. Generation does not
+apply anything to Kubernetes. Never paste a token into a command or a chat.

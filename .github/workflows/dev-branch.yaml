@@ -51,6 +51,8 @@ jobs:
           node-version: 24
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile
+      - name: Test secret sealing safeguards
+        run: pnpm secrets:test
       - name: Check circular dependencies
         run: pnpm deps:check
       - name: Validate datasets
@@ -173,9 +175,9 @@ jobs:
 
       - name: Update Image Tag and SHA in Kustomization
         run: |
-          cd ./k8s/base
+          cd ./k8s/overlays/chronos-dev
           kustomize edit set image ${{ env.DOCKER_REGISTRY }}/hack-for-facts-eb-server=${{ env.DOCKER_REGISTRY }}/hack-for-facts-eb-server:${{ github.sha }}
-          sed -i "s| image-sha: .*| image-sha: ${{ github.sha }}|" kustomization.yaml
+          sed -i "s| image-sha: .*| image-sha: ${{ github.sha }}|" workload-patch.yaml
 
       - name: Commit and Push Changes
         env:
@@ -183,6 +185,6 @@ jobs:
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add k8s/base/kustomization.yaml
-          git diff --staged --quiet || HUSKY=0 git commit -m "ci(image): Update dev image tag to ${{ github.sha }}"
+          git add k8s/overlays/chronos-dev/kustomization.yaml k8s/overlays/chronos-dev/workload-patch.yaml
+          git diff --staged --quiet || HUSKY=0 git commit -m "ci(image): Pin Chronos dev ${GITHUB_SHA:0:12}"
           git push origin dev

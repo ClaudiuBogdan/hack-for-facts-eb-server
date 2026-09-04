@@ -12,7 +12,7 @@
   "scripts": {
     "check:staged-secrets": "node scripts/check-staged-secrets.mjs",
     "secrets:seal:chronos": "node scripts/seal-bitwarden-secrets.mjs --registry k8s/overlays/chronos-dev/secrets.registry.json",
-    "secrets:test": "node --test scripts/seal-bitwarden-secrets.test.mjs",
+    "secrets:test": "node --test scripts/seal-bitwarden-secrets.test.mjs scripts/seal-token.test.mjs",
     "dev": "tsx watch --clear-screen=false --env-file=.env --env-file-if-exists=.claude/redesign-prod.env src/api.ts",
     "dev:redesign": "tsx watch --env-file=.claude/redesign-prod.env src/redesign-api.ts",
     "build": "tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json",
