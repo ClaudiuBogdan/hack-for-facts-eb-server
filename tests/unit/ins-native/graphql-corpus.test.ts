@@ -29,14 +29,17 @@ import {
   type GraphQLScalarType,
   type GraphQLSchema,
 } from 'graphql';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { PeriodDateScalar } from '@/modules/budget/shell/graphql/legacy/resolvers.js';
 import { budgetLegacyTypeDefs } from '@/modules/budget/shell/graphql/legacy/typedefs.js';
 import { makeInsNativeModule } from '@/modules/ins-native/index.js';
+import { makeInsLegacyResolvers } from '@/modules/ins-native/shell/graphql/legacy/resolvers.js';
 import { baseTypeDefs, scalarResolvers } from '@/modules/shared/index.js';
 
 import { makeFakeRepo } from './fake-repo.js';
+
+import type { InsRepo } from '@/modules/ins-native/core/ports.js';
 
 interface CorpusEntry {
   id: string;
@@ -95,7 +98,9 @@ const PAGE_INFO_EXTENSION = /* GraphQL */ `
   }
 `;
 
-const buildTestSchema = (): GraphQLSchema => {
+const buildTestSchema = (
+  repoForContext?: (context: unknown) => Promise<InsRepo>
+): GraphQLSchema => {
   const module = makeInsNativeModule({
     db: {} as never,
     registry: { register: () => undefined, list: () => [], get: () => undefined },
@@ -109,7 +114,17 @@ const buildTestSchema = (): GraphQLSchema => {
   return attachResolvers(schema, [
     scalarResolvers,
     { PeriodDate: PeriodDateScalar },
-    module.graphqlResolvers,
+    repoForContext === undefined
+      ? module.graphqlResolvers
+      : makeInsLegacyResolvers({
+          // Any accidental pool-backed resolver path must fail this test.
+          repo: new Proxy({} as InsRepo, {
+            get: () => {
+              throw new Error('unscoped INS repository');
+            },
+          }),
+          repoForContext,
+        }),
   ]);
 };
 
@@ -158,6 +173,27 @@ describe('golden-master INS corpus over the native slice (fake repository)', () 
       expect(result.data).toBeDefined();
     });
   }
+
+  it('all client documents resolve roots and nested fields through their operation context', async () => {
+    const context = { operation: 'one-publication' };
+    const scopedRepo = makeFakeRepo();
+    const accessor = vi.fn(async (received: unknown) => {
+      expect(received).toBe(context);
+      return scopedRepo;
+    });
+    const scopedSchema = buildTestSchema(accessor);
+    for (const entry of entries) {
+      accessor.mockClear();
+      const result = await graphql({
+        schema: scopedSchema,
+        source: toFakeWorld(entry.query ?? entry.document ?? ''),
+        variableValues: adapt(entry.variables),
+        contextValue: context,
+      });
+      expect(result.errors ?? [], entry.id).toEqual([]);
+      expect(accessor, entry.id).toHaveBeenCalled();
+    }
+  });
 
   it('statistics-landing-data: latest tiles + decade + example carry the legacy leaf shapes', async () => {
     const entry = entries.find((e) => e.id === 'statistics-landing-data');

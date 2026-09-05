@@ -123,6 +123,16 @@ export const createProdDb = (config: ProdDbConfig): ProdDb => {
     ...(ssl !== undefined ? { ssl } : {}),
   });
 
+  // pg-pool removes its idle error listener while a connection is checked out.
+  // Observe physical-client failures for that interval too: pg still rejects
+  // outstanding queries and evicts the non-queryable client on normal release.
+  // Never log the client/error object (pool errors can carry connection config).
+  pool.on('connect', (client) => {
+    client.on('error', () => {
+      console.error('[prod-db pool] connection lost; active reads will fail');
+    });
+  });
+
   // An idle client dropped by the network (dev port-forwards especially)
   // emits 'error' on the pool; without a listener Node treats it as an
   // unhandled 'error' event and kills the process. The client is already

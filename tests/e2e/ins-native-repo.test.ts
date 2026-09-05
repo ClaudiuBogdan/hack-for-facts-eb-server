@@ -40,6 +40,10 @@ import {
   uatDashboard,
 } from '@/modules/ins-native/core/usecases.js';
 import { makeInsRepo } from '@/modules/ins-native/shell/repo/ins-repo.js';
+import {
+  INS_OPERATION_TIMEOUT_MS,
+  makeInsReadSession,
+} from '@/modules/ins-native/shell/repo/read-session.js';
 import { createProdDb } from '@/modules/shared/shell/db/pool.js';
 
 import type { InsRepo } from '@/modules/ins-native/core/ports.js';
@@ -100,14 +104,18 @@ const unavailable = (reason: string): void => {
   console.warn(`${reason} — ins-native e2e SKIPPED.`);
 };
 
-const it = (name: string, fn: () => Promise<void>): void => {
-  vitestIt(name, async () => {
-    if (!ready) {
-      console.warn(`skipped (${unavailableReason ?? 'not ready'}): ${name}`);
-      return;
-    }
-    await fn();
-  });
+const it = (name: string, fn: () => Promise<void>, timeout?: number): void => {
+  vitestIt(
+    name,
+    async () => {
+      if (!ready) {
+        console.warn(`skipped (${unavailableReason ?? 'not ready'}): ${name}`);
+        return;
+      }
+      await fn();
+    },
+    timeout
+  );
 };
 
 const assertScrapperMigrations = (scrapperRoot: string): void => {
@@ -354,7 +362,237 @@ const r = (): InsRepo => {
   return repo;
 };
 
+/** Independent lock-state witness, bounded to this fixture's database. */
+const waitForBlockedInsRead = async (writer: pg.Client): Promise<number> => {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const state = await writer.query<{ pid: number }>(`
+      select distinct locks.pid from pg_locks locks
+      where locks.database = (select oid from pg_database where datname = current_database())
+        and locks.relation = 'ins.datasets'::regclass and not locks.granted
+        and pg_backend_pid() = any(pg_blocking_pids(locks.pid))
+    `);
+    if (state.rows.length === 1 && state.rows[0] !== undefined) return state.rows[0].pid;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error('INS reader did not reach the fixture table lock within 100 polls');
+};
+
 describe('ins-native repository over the real scrapper DDL (e2e)', () => {
+  it('nested reads retain the publication snapshot while another connection publishes', async () => {
+    if (pgClient === undefined) throw new Error('writer not ready');
+    const writer = pgClient;
+    const original = (await r().getDataset('POPTEST'))._unsafeUnwrap();
+    if (original === null) throw new Error('seed dataset missing');
+    const publishedName = 'A newer publication';
+    try {
+      const result = await r().withSnapshot(async (snapshot) => {
+        const before = await snapshot.getDataset('POPTEST');
+        expect(before._unsafeUnwrap()?.nameRo).toBe(original.nameRo);
+        await writer.query('update ins.datasets set matrix_name_ro = $1 where dataset_code = $2', [
+          publishedName,
+          'POPTEST',
+        ]);
+        return snapshot.withSnapshot((nested) => nested.getDataset('POPTEST'));
+      });
+      expect(result._unsafeUnwrap()?.nameRo).toBe(original.nameRo);
+      expect((await r().getDataset('POPTEST'))._unsafeUnwrap()?.nameRo).toBe(publishedName);
+    } finally {
+      await writer.query('update ins.datasets set matrix_name_ro = $1 where dataset_code = $2', [
+        original.nameRo,
+        'POPTEST',
+      ]);
+    }
+  });
+
+  it('operation sessions share one snapshot across parallel callers and reject reads after closing', async () => {
+    if (db === undefined || pgClient === undefined) throw new Error('fixture not ready');
+    const writer = pgClient;
+    const original = (await r().getDataset('POPTEST'))._unsafeUnwrap();
+    if (original === null) throw new Error('seed dataset missing');
+    const session = makeInsReadSession(db);
+    try {
+      const [first, second] = await Promise.all([session.getRepo(), session.getRepo()]);
+      const scoped = first._unsafeUnwrap();
+      expect(second._unsafeUnwrap()).toBe(scoped);
+      expect((await scoped.getDataset('POPTEST'))._unsafeUnwrap()?.nameRo).toBe(original.nameRo);
+      await writer.query('update ins.datasets set matrix_name_ro = $1 where dataset_code = $2', [
+        'Published after session read',
+        'POPTEST',
+      ]);
+      const again = await second
+        ._unsafeUnwrap()
+        .withSnapshot((nested) => nested.getDataset('POPTEST'));
+      expect(again._unsafeUnwrap()?.nameRo).toBe(original.nameRo);
+      const closing = session.close();
+      expect(session.close()).toBe(closing);
+      expect((await closing).isOk()).toBe(true);
+      expect((await session.getRepo())._unsafeUnwrapErr().type).toBe('ServiceUnavailable');
+      expect((await scoped.getDataset('POPTEST'))._unsafeUnwrapErr().type).toBe(
+        'ServiceUnavailable'
+      );
+      expect((await r().getDataset('POPTEST'))._unsafeUnwrap()?.nameRo).toBe(
+        'Published after session read'
+      );
+    } finally {
+      await session.close();
+      await writer.query('update ins.datasets set matrix_name_ro = $1 where dataset_code = $2', [
+        original.nameRo,
+        'POPTEST',
+      ]);
+    }
+  });
+
+  it('setup failure settles readiness and cleanup without reopening', async () => {
+    const unavailable = createProdDb({
+      connectionString: 'postgres://unused@127.0.0.1:1/unavailable',
+      connectionTimeoutMillis: 500,
+      max: 1,
+    });
+    const session = makeInsReadSession(unavailable.db);
+    try {
+      const failed = await session.getRepo();
+      expect(failed.isErr()).toBe(true);
+      expect((await session.getRepo())._unsafeUnwrapErr()).toEqual(failed._unsafeUnwrapErr());
+      expect((await session.close())._unsafeUnwrapErr()).toEqual(failed._unsafeUnwrapErr());
+    } finally {
+      await session.close();
+      await unavailable.db.destroy();
+    }
+  });
+
+  it(
+    'the operation deadline closes admission and releases the snapshot connection',
+    async () => {
+      if (db === undefined) throw new Error('fixture not ready');
+      const session = makeInsReadSession(db);
+      try {
+        const scoped = (await session.getRepo())._unsafeUnwrap();
+        expect((await scoped.getDataset('POPTEST')).isOk()).toBe(true);
+        // Exercise the real production deadline; no timer or SQL cancellation mocks.
+        await new Promise((resolve) => setTimeout(resolve, INS_OPERATION_TIMEOUT_MS + 100));
+        expect((await session.getRepo())._unsafeUnwrapErr().type).toBe('Timeout');
+        expect((await scoped.getDataset('POPTEST'))._unsafeUnwrapErr().type).toBe('Timeout');
+        expect((await session.close()).isOk()).toBe(true);
+      } finally {
+        await session.close();
+      }
+      expect((await r().getDataset('POPTEST'))._unsafeUnwrap()?.code).toBe('POPTEST');
+    },
+    INS_OPERATION_TIMEOUT_MS + 15_000
+  );
+
+  it('closing while pool acquisition is pending releases the eventual connection', async () => {
+    if (db === undefined) throw new Error('fixture not ready');
+    const database = db;
+    let releaseHolders!: () => void;
+    const held = new Promise<void>((resolve) => {
+      releaseHolders = resolve;
+    });
+    let signalAcquired!: () => void;
+    const acquired = new Promise<void>((resolve) => {
+      signalAcquired = resolve;
+    });
+    let holders = 0;
+    // Occupy the fixture's four connections without a transaction or table lock.
+    const leases = Array.from({ length: 4 }, () =>
+      database.connection().execute(async () => {
+        holders += 1;
+        if (holders === 4) signalAcquired();
+        await held;
+      })
+    );
+    const session = makeInsReadSession(database);
+    try {
+      await acquired;
+      const opening = session.getRepo();
+      const closing = session.close();
+      expect((await opening)._unsafeUnwrapErr().type).toBe('ServiceUnavailable');
+      releaseHolders();
+      await Promise.all(leases);
+      expect((await closing).isOk()).toBe(true);
+      expect((await session.getRepo()).isErr()).toBe(true);
+    } finally {
+      releaseHolders();
+      await Promise.all(leases);
+      await session.close();
+    }
+    expect((await r().getDataset('POPTEST'))._unsafeUnwrap()?.code).toBe('POPTEST');
+  });
+
+  it('a failed read does not poison another field in the same operation snapshot', async () => {
+    if (db === undefined) throw new Error('fixture not ready');
+    const session = makeInsReadSession(db);
+    try {
+      const scoped = (await session.getRepo())._unsafeUnwrap();
+      // Deliberately exercise PostgreSQL's negative-LIMIT error through the real
+      // repository, below the usecase input guard, while another field is queued.
+      const [failed, sibling] = await Promise.all([
+        scoped.listDatasets({}, -1, 0),
+        scoped.getDataset('POPTEST'),
+      ]);
+      expect(failed.isErr()).toBe(true);
+      expect(sibling._unsafeUnwrap()?.code).toBe('POPTEST');
+    } finally {
+      expect((await session.close()).isOk()).toBe(true);
+    }
+  });
+
+  it('failed savepoint recovery closes the session and settles queued fields', async () => {
+    if (db === undefined || pgClient === undefined) throw new Error('fixture not ready');
+    const writer = pgClient;
+    const session = makeInsReadSession(db);
+    const scoped = (await session.getRepo())._unsafeUnwrap();
+    await writer.query('begin');
+    try {
+      await writer.query('lock table ins.datasets in access exclusive mode');
+      const active = scoped.getDataset('POPTEST');
+      const pid = await waitForBlockedInsRead(writer);
+      const queued = scoped.getDataset('CNTTEST');
+      // Only terminate the reader in this uniquely named throwaway database.
+      await writer.query('select pg_terminate_backend($1)', [pid]);
+      const [first, second] = await Promise.all([active, queued]);
+      expect(first.isErr()).toBe(true);
+      expect(second._unsafeUnwrapErr()).toEqual(first._unsafeUnwrapErr());
+      expect((await session.close()).isErr()).toBe(true);
+      expect((await session.getRepo()).isErr()).toBe(true);
+    } finally {
+      await writer.query('rollback');
+      await session.close();
+    }
+    // The dead connection is released; a new operation can still serve data.
+    expect((await r().getDataset('POPTEST'))._unsafeUnwrap()?.code).toBe('POPTEST');
+  });
+
+  it('closing an operation drains admitted reads before returning its connection', async () => {
+    if (db === undefined || pgClient === undefined) throw new Error('fixture not ready');
+    const writer = pgClient;
+    const session = makeInsReadSession(db);
+    const scoped = (await session.getRepo())._unsafeUnwrap();
+    await writer.query('begin');
+    try {
+      await writer.query('lock table ins.datasets in access exclusive mode');
+      const admitted = scoped.getDataset('POPTEST');
+      await waitForBlockedInsRead(writer);
+      const queued = scoped.getDataset('CNTTEST');
+      let closed = false;
+      const closing = session.close().then((result) => {
+        closed = true;
+        return result;
+      });
+      // A writer holds the table lock: the admitted read cannot finish yet.
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(closed).toBe(false);
+      expect((await scoped.getDataset('POPTEST')).isErr()).toBe(true);
+      await writer.query('rollback');
+      expect((await admitted)._unsafeUnwrap()?.code).toBe('POPTEST');
+      expect((await queued)._unsafeUnwrapErr().type).toBe('ServiceUnavailable');
+      expect((await closing).isOk()).toBe(true);
+    } finally {
+      await writer.query('rollback');
+      await session.close();
+    }
+  });
+
   it('catalog: datasets list loaded-only by default, the full catalog on demand, diacritic-insensitive search', async () => {
     const loaded = await listDatasets(r(), {}, 50, 0);
     expect(loaded._unsafeUnwrap().nodes.map((d) => d.code)).toEqual(['CNTTEST', 'POPTEST']);

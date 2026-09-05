@@ -10,11 +10,14 @@
 
 import './shell/db/schema.js';
 
+import { GraphQLError } from 'graphql';
+
 import { makeInsContributor, type InsContributorDeps } from './shell/contributor.js';
 import { makeInsLegacyResolvers } from './shell/graphql/legacy/resolvers.js';
 import { insLegacyTypeDefs } from './shell/graphql/legacy/typedefs.js';
 import { makeInsMcpTools } from './shell/mcp/tools.js';
 import { makeInsRepo } from './shell/repo/ins-repo.js';
+import { makeInsReadSession, type InsReadSession } from './shell/repo/read-session.js';
 
 import type { InsRepo } from './core/ports.js';
 import type {
@@ -39,6 +42,7 @@ export interface InsNativeModuleDeps {
 
 export interface InsNativeModule {
   readonly repo: InsRepo;
+  readonly createReadSession: () => InsReadSession;
   readonly graphqlSlice: GraphqlSlice;
   readonly graphqlResolvers: Record<string, unknown>;
   readonly mcpTools: readonly KernelMcpTool[];
@@ -52,8 +56,30 @@ export const makeInsNativeModule = (deps: InsNativeModuleDeps): InsNativeModule 
   const clientBaseUrl = deps.clientBaseUrl ?? 'https://transparenta.eu';
   return {
     repo,
+    createReadSession: () => makeInsReadSession(deps.db),
     graphqlSlice: { source: INS_NATIVE_SOURCE, typeDefs: insLegacyTypeDefs },
-    graphqlResolvers: makeInsLegacyResolvers({ repo }),
+    graphqlResolvers: makeInsLegacyResolvers({
+      repo,
+      ...(deps.repo === undefined && {
+        repoForContext: async (context: unknown): Promise<InsRepo> => {
+          const session = (context as { insReadSession?: InsReadSession } | null)?.insReadSession;
+          if (session === undefined) {
+            throw new GraphQLError('INS operation session unavailable', {
+              extensions: { code: 'SERVICE_UNAVAILABLE' },
+            });
+          }
+          const result = await session.getRepo();
+          if (result.isErr()) {
+            throw new GraphQLError(result.error.message, {
+              extensions: {
+                code: result.error.type === 'Timeout' ? 'TIMEOUT' : 'SERVICE_UNAVAILABLE',
+              },
+            });
+          }
+          return result.value;
+        },
+      }),
+    }),
     mcpTools: makeInsMcpTools({ repo, clientBaseUrl }),
     contributor: makeInsContributor(
       repo,
@@ -70,3 +96,5 @@ export {
   INS_LEGACY_ROOTS_DROPPED,
 } from './shell/graphql/legacy/typedefs.js';
 export { makeInsRepo } from './shell/repo/ins-repo.js';
+
+export { makeInsReadSession, type InsReadSession } from './shell/repo/read-session.js';

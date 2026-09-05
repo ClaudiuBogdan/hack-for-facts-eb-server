@@ -21,6 +21,7 @@ import fastifyLib, { type FastifyInstance, type FastifyReply } from 'fastify';
 import mercuriusPlugin from 'mercurius';
 import { err, ok } from 'neverthrow';
 
+import { makeInsGraphqlLifecycle } from './ins-graphql-session.js';
 import {
   makeGraphQLErrorFormatter,
   makeGraphQLValidationRules,
@@ -33,7 +34,7 @@ import {
   LEGACY_FACTOR_SET_DIGEST,
 } from '../modules/budget/index.js';
 import { makeCompaniesModule } from '../modules/companies/index.js';
-import { makeInsNativeModule } from '../modules/ins-native/index.js';
+import { makeInsNativeModule, type InsReadSession } from '../modules/ins-native/index.js';
 import { makeJudicialModule } from '../modules/judicial/index.js';
 import { makeLegalModule } from '../modules/legal/index.js';
 import { makeFactorSetReader } from '../modules/normalization/index.js';
@@ -388,6 +389,8 @@ export const registerRedesignSurface = async (
     moduleMcpResources.push(...budget.mcpResources);
   }
 
+  let createInsSession: (() => InsReadSession) | undefined;
+
   if (enabledModules.includes('ins-native')) {
     // Entity presence: CUI → the entity's UAT SIRUTA through the kernel identity hub.
     const insNative = makeInsNativeModule({
@@ -400,6 +403,7 @@ export const registerRedesignSurface = async (
         return ok(territory.value?.territorialSirutaCode ?? null);
       },
     });
+    createInsSession = insNative.createReadSession;
     kernel.contributors.register(insNative.contributor);
     moduleSlices.push(insNative.graphqlSlice);
     moduleResolvers.push(insNative.graphqlResolvers);
@@ -626,6 +630,16 @@ export const registerRedesignSurface = async (
 
   const isProduction = process.env['NODE_ENV'] === 'production';
 
+  const authContext =
+    deps.authProvider === undefined
+      ? undefined
+      : makeGraphQLContext({ authProvider: deps.authProvider });
+  const insLifecycle =
+    createInsSession === undefined
+      ? undefined
+      : makeInsGraphqlLifecycle(app, createInsSession, authContext);
+  const graphqlContext = insLifecycle?.context ?? authContext;
+
   await app.register(mercuriusPlugin, {
     schema,
     path: '/api/v1/graphql',
@@ -633,10 +647,9 @@ export const registerRedesignSurface = async (
     allowBatchedQueries: false,
     validationRules: makeGraphQLValidationRules(isProduction),
     errorFormatter: makeGraphQLErrorFormatter(isProduction),
-    ...(deps.authProvider !== undefined && {
-      context: makeGraphQLContext({ authProvider: deps.authProvider }),
-    }),
+    ...(graphqlContext !== undefined && { context: graphqlContext }),
   });
+  insLifecycle?.registerHooks();
 
   if (pnrrRestPlugin !== undefined) {
     await app.register(pnrrRestPlugin, { prefix: '/api/v1/pnrr' });

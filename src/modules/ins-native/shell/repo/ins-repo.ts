@@ -15,9 +15,18 @@
  * hydration see one publication moment.
  */
 
-import { sql, type Kysely, type RawBuilder, type Transaction } from 'kysely';
-import { err, ok, type Result } from 'neverthrow';
+import { sql, type RawBuilder } from 'kysely';
+import { err, ok } from 'neverthrow';
 
+import {
+  dbError,
+  inTrxRunner,
+  openSnapshot,
+  perReadRunner,
+  type Db,
+  type Runner,
+  type Trx,
+} from './snapshot.js';
 import { escapeLike, foldSearch } from '../../core/fold.js';
 import {
   INS_TERRITORY_LEVELS,
@@ -51,27 +60,9 @@ import type {
   InsTerritoryBinding,
   InsTerritoryDimension,
 } from '../../core/ports.js';
-import type { ApiError, ProdDatabase } from '@/modules/shared/index.js';
 
-/** Interactive read budget; exports get their own path (plan §3.3). */
-export const INS_READ_TIMEOUT_MS = 30_000;
 /** Series per batched statement; above this the UNION ALL is split. */
 const SERIES_PER_STATEMENT = 40;
-
-type Db = Kysely<ProdDatabase>;
-type Trx = Transaction<ProdDatabase>;
-
-const isStatementTimeout = (error: unknown): boolean => {
-  const code = (error as { code?: unknown } | null)?.code;
-  if (code === '57014') return true;
-  const message = error instanceof Error ? error.message : '';
-  return message.includes('statement timeout');
-};
-
-const dbError = (cause: unknown, what: string): ApiError =>
-  isStatementTimeout(cause)
-    ? { type: 'Timeout', message: `ins repository timed out: ${what}` }
-    : { type: 'Database', message: `ins repository failed: ${what}`, cause };
 
 const toInt = (v: string | number | null): number | null => (v === null ? null : Number(v));
 
@@ -498,41 +489,6 @@ const hydrate = async (
 // The repository
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Runs one read inside a repeatable-read, read-only transaction (or an enclosing one). */
-type Runner = <T>(what: string, fn: (trx: Trx) => Promise<T>) => Promise<Result<T, ApiError>>;
-
-const openSnapshot = async <T>(db: Db, fn: (trx: Trx) => Promise<T>): Promise<T> =>
-  db
-    .transaction()
-    .setIsolationLevel('repeatable read')
-    .execute(async (trx) => {
-      await sql`set transaction read only`.execute(trx);
-      await sql`set local statement_timeout = ${sql.lit(INS_READ_TIMEOUT_MS)}`.execute(trx);
-      return fn(trx);
-    });
-
-/** A fresh snapshot per read (the default when no request-level snapshot is open). */
-const perReadRunner =
-  (db: Db): Runner =>
-  async (what, fn) => {
-    try {
-      return ok(await openSnapshot(db, fn));
-    } catch (cause) {
-      return err(dbError(cause, what));
-    }
-  };
-
-/** Every read inside ONE already-open snapshot. */
-const inTrxRunner =
-  (trx: Trx): Runner =>
-  async (what, fn) => {
-    try {
-      return ok(await fn(trx));
-    } catch (cause) {
-      return err(dbError(cause, what));
-    }
-  };
-
 const likeNeedle = (needle: string): string => `%${escapeLike(foldSearch(needle))}%`;
 
 const page = <T>(rows: readonly T[], total: number, limit: number, offset: number): InsPage<T> => ({
@@ -544,7 +500,11 @@ const page = <T>(rows: readonly T[], total: number, limit: number, offset: numbe
 
 export const makeInsRepo = (db: Db): InsRepo => makeRepoOn(db, perReadRunner(db));
 
-const makeRepoOn = (db: Db, readTx: Runner): InsRepo => {
+/** Module-private assembly seam: every nested usecase retains this snapshot. */
+export const makeInsSnapshotRepo = (db: Db, runner: Runner): InsRepo =>
+  makeRepoOn(db, runner, true);
+
+const makeRepoOn = (db: Db, readTx: Runner, snapshotBound = false): InsRepo => {
   const datasetWhere = (filter: InsDatasetFilter): RawBuilder<unknown> => {
     const parts: RawBuilder<unknown>[] = [sql`true`];
     if (filter.codes !== undefined && filter.codes.length > 0) {
@@ -600,7 +560,7 @@ const makeRepoOn = (db: Db, readTx: Runner): InsRepo => {
 
   const levelOrder = sql`order by array_position(array['NATIONAL','NUTS1','NUTS2','NUTS3','LAU']::text[], t.level), t.name_search, t.territory_id`;
 
-  return {
+  const repository: InsRepo = {
     async listDatasets(filter, limit, offset) {
       return readTx('listDatasets', async (trx) => {
         const res = await sql<DatasetRow & { total: string }>`
@@ -849,7 +809,9 @@ const makeRepoOn = (db: Db, readTx: Runner): InsRepo => {
     },
 
     withSnapshot(fn) {
-      return openSnapshot(db, (trx) => fn(makeRepoOn(db, inTrxRunner(trx)))).catch(
+      // Nested usecases must retain the request publication snapshot.
+      if (snapshotBound) return fn(repository);
+      return openSnapshot(db, (trx) => fn(makeRepoOn(db, inTrxRunner(trx), true))).catch(
         (cause: unknown) => err(dbError(cause, 'withSnapshot'))
       );
     },
@@ -1093,6 +1055,8 @@ const makeRepoOn = (db: Db, readTx: Runner): InsRepo => {
       });
     },
   };
+
+  return repository;
 
   async function countDatasets(trx: Trx, filter: InsDatasetFilter): Promise<number> {
     const res = await sql<{

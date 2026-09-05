@@ -63,6 +63,8 @@ import type {
 
 export interface InsLegacyResolverDeps {
   readonly repo: InsRepo;
+  /** App-owned operation repository; standalone resolver tests may use repo. */
+  readonly repoForContext?: (context: unknown) => Promise<InsRepo>;
 }
 
 const toGraphqlError = (error: ApiError): GraphQLError =>
@@ -517,9 +519,10 @@ const latestPeriodOf = (o: InsObservationView | null): string | null =>
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const makeInsLegacyResolvers = (deps: InsLegacyResolverDeps): Record<string, unknown> => {
-  const { repo } = deps;
+  const repoFor = (context: unknown): Promise<InsRepo> =>
+    deps.repoForContext?.(context) ?? Promise.resolve(deps.repo);
 
-  const dimensionsFor = async (datasetCode: string): Promise<GqlDimension[]> => {
+  const dimensionsFor = async (repo: InsRepo, datasetCode: string): Promise<GqlDimension[]> => {
     const dims = await listDimensions(repo, datasetCode);
     if (dims.isErr()) throw toGraphqlError(dims.error);
     return dims.value.map(toGqlDimension);
@@ -534,6 +537,7 @@ export const makeInsLegacyResolvers = (deps: InsLegacyResolverDeps): Record<stri
   });
 
   const dimensionValues = async (
+    repo: InsRepo,
     view: InsDimensionView,
     args: {
       filter?: { search?: string | null } | null;
@@ -600,17 +604,23 @@ export const makeInsLegacyResolvers = (deps: InsLegacyResolverDeps): Record<stri
 
   return {
     InsDataset: {
-      dimensions: (parent: GqlDataset) => dimensionsFor(parent.code),
+      dimensions: async (parent: GqlDataset, _args: unknown, context: unknown) =>
+        dimensionsFor(await repoFor(context), parent.code),
     },
     InsDimension: {
-      values: (parent: GqlDimension, args: Parameters<typeof dimensionValues>[1]) =>
-        dimensionValues(parent.dimensionView, args),
+      values: async (
+        parent: GqlDimension,
+        args: Parameters<typeof dimensionValues>[2],
+        context: unknown
+      ) => dimensionValues(await repoFor(context), parent.dimensionView, args),
     },
     Query: {
       insDatasets: async (
         _p: unknown,
-        args: { filter?: GqlDatasetFilter | null; limit?: number | null; offset?: number | null }
+        args: { filter?: GqlDatasetFilter | null; limit?: number | null; offset?: number | null },
+        context: unknown
       ) => {
+        const repo = await repoFor(context);
         const page = await listDatasets(
           repo,
           mapDatasetFilter(args.filter),
@@ -620,7 +630,8 @@ export const makeInsLegacyResolvers = (deps: InsLegacyResolverDeps): Record<stri
         if (page.isErr()) throw toGraphqlError(page.error);
         return { nodes: page.value.nodes.map(toGqlDataset), pageInfo: toPageInfo(page.value) };
       },
-      insDataset: async (_p: unknown, args: { code: string }) => {
+      insDataset: async (_p: unknown, args: { code: string }, context: unknown) => {
+        const repo = await repoFor(context);
         const d = await getDataset(repo, args.code);
         if (d.isErr()) throw toGraphqlError(d.error);
         return d.value === null ? null : toGqlDataset(d.value);
@@ -633,8 +644,10 @@ export const makeInsLegacyResolvers = (deps: InsLegacyResolverDeps): Record<stri
           filter?: { search?: string | null } | null;
           limit?: number | null;
           offset?: number | null;
-        }
+        },
+        context: unknown
       ) => {
+        const repo = await repoFor(context);
         const dims = await listDimensions(repo, args.datasetCode.trim().toUpperCase());
         if (dims.isErr()) throw toGraphqlError(dims.error);
         const view = dims.value.find((d) => d.dimIndex === args.dimensionIndex);
@@ -645,12 +658,14 @@ export const makeInsLegacyResolvers = (deps: InsLegacyResolverDeps): Record<stri
             resource: 'insDatasetDimensionValues',
           });
         }
-        return dimensionValues(view, args);
+        return dimensionValues(repo, view, args);
       },
       insTerritories: async (
         _p: unknown,
-        args: { filter?: GqlTerritoryFilter | null; limit?: number | null; offset?: number | null }
+        args: { filter?: GqlTerritoryFilter | null; limit?: number | null; offset?: number | null },
+        context: unknown
       ) => {
+        const repo = await repoFor(context);
         const page = await listTerritories(
           repo,
           mapTerritoryFilter(args.filter),
@@ -662,8 +677,10 @@ export const makeInsLegacyResolvers = (deps: InsLegacyResolverDeps): Record<stri
       },
       insContexts: async (
         _p: unknown,
-        args: { filter?: GqlContextFilter | null; limit?: number | null; offset?: number | null }
+        args: { filter?: GqlContextFilter | null; limit?: number | null; offset?: number | null },
+        context: unknown
       ) => {
+        const repo = await repoFor(context);
         const page = await listContexts(
           repo,
           mapContextFilter(args.filter),
@@ -680,8 +697,10 @@ export const makeInsLegacyResolvers = (deps: InsLegacyResolverDeps): Record<stri
           filter?: GqlObservationFilter | null;
           limit?: number | null;
           offset?: number | null;
-        }
+        },
+        context: unknown
       ) => {
+        const repo = await repoFor(context);
         const page = await listObservations(
           repo,
           args.datasetCode,
@@ -694,8 +713,10 @@ export const makeInsLegacyResolvers = (deps: InsLegacyResolverDeps): Record<stri
       },
       insUatDashboard: async (
         _p: unknown,
-        args: { sirutaCode: string; period?: string | null; contextCode?: string | null }
+        args: { sirutaCode: string; period?: string | null; contextCode?: string | null },
+        context: unknown
       ) => {
+        const repo = await repoFor(context);
         const period = opt(args.period);
         const groups = await uatDashboard(
           repo,
@@ -712,8 +733,10 @@ export const makeInsLegacyResolvers = (deps: InsLegacyResolverDeps): Record<stri
           entity: GqlEntitySelector;
           datasetCodes: string[];
           preferredClassificationCodes?: string[] | null;
-        }
+        },
+        context: unknown
       ) => {
+        const repo = await repoFor(context);
         const values = await listLatestValues(
           repo,
           mapEntity(args.entity),
