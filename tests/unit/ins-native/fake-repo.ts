@@ -14,7 +14,6 @@
 import { ok, type Result } from 'neverthrow';
 
 import {
-  isMemberList,
   type InsContext,
   type InsDatasetView,
   type InsDimensionView,
@@ -410,20 +409,11 @@ for (const time of [4399, 4418]) {
 const membersOf = (datasetCode: string): InsMemberView[] =>
   M.filter((m) => m.dataset === datasetCode).map(toMember);
 
-const matchesGroup = (f: Fact, pins: SlotPins): boolean => {
-  for (const [slot, pred] of pins) {
-    const v = f.slots[slot - 1] ?? null;
-    if (v === null) return false;
-    if (isMemberList(pred)) {
-      if (!pred.includes(v)) return false;
-      continue;
-    }
-    const m = M.find((x) => x.dataset === f.dataset && x.dim === pred.dimIndex && x.id === v);
-    if (m?.node?.level !== pred.memberLevel) return false;
-    if (pred.ids !== undefined && !pred.ids.includes(v)) return false;
-  }
-  return true;
-};
+const matchesGroup = (f: Fact, pins: SlotPins): boolean =>
+  [...pins].every(([slot, ids]) => {
+    const value = f.slots[slot - 1] ?? null;
+    return value !== null && ids.includes(value);
+  });
 
 /** Independent source tuple fixture, identical in shape to the actual PG seed. */
 const GEO_TUPLES: Readonly<
@@ -721,6 +711,22 @@ export const makeFakeRepo = (): InsRepo & {
       listObservations: (query) => {
         factQueries.push(query);
         let rows = FACTS.filter((f) => f.dataset === query.datasetCode);
+        rows = rows.filter((f) => {
+          const view = toObservation(f);
+          const scope = query.geoScope;
+          if (scope.kind === 'nonGeographic') return view.geography === null;
+          if (scope.kind === 'explicitSource')
+            return scope.pairs.some(
+              (pairs) => JSON.stringify(pairs) === JSON.stringify(view.geography?.pairs)
+            );
+          const node = view.territory;
+          return (
+            node !== null &&
+            view.geography?.qualified === false &&
+            (scope.territoryIds === undefined || scope.territoryIds.includes(node.territoryId)) &&
+            (scope.levels === undefined || scope.levels.includes(node.level))
+          );
+        });
         if (query.pinGroups.length > 0)
           rows = rows.filter((f) => query.pinGroups.some((g) => matchesGroup(f, g)));
         if (query.unitNomItemIds !== undefined)

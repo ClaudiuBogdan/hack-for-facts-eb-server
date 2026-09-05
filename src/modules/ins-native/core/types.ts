@@ -227,6 +227,19 @@ export interface InsPeriodView {
 /** The full ordered source identity, separate from any interpreted territory. */
 export type InsGeoPairs = readonly (readonly [dimIndex: number, nomItemId: number])[];
 
+/** Required internal scope: raw source access is never inferred from omission. */
+export type InsGeoScope =
+  | {
+      readonly kind: 'modern';
+      readonly territoryIds?: readonly number[];
+      readonly levels?: readonly InsTerritoryLevel[];
+    }
+  | { readonly kind: 'explicitSource'; readonly pairs: readonly InsGeoPairs[] }
+  | { readonly kind: 'nonGeographic' };
+
+export type InsTerritorySelection =
+  readonly InsTerritoryNode[] | { readonly levels: readonly InsTerritoryLevel[] } | null;
+
 export interface InsGeographicDimension {
   readonly dimIndex: number;
   readonly slotIndex: number;
@@ -344,34 +357,13 @@ export interface InsPage<T> {
 // Resolved series (what the usecases hand the repository)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * What a slot is pinned to: an explicit member-id list (OR within the slot), or
- * every member of a territorial dimension bound at one spine level (the
- * `territoryLevels`-only filter — compiled to a semi-join, never to an id list
- * that a limit could truncate).
- */
-export type SlotPredicate =
-  | readonly number[]
-  | {
-      readonly memberLevel: InsTerritoryLevel;
-      readonly dimIndex: number;
-      /** An explicit member list to intersect with (a classification pin on the same slot). */
-      readonly ids?: readonly number[];
-    };
+/** One AND-group of explicit member-id lists (OR within each slot). */
+export type SlotPins = ReadonlyMap<number, readonly number[]>;
 
-/** One AND-group of slot pins: slot → predicate. */
-export type SlotPins = ReadonlyMap<number, SlotPredicate>;
-
-export const isMemberList = (pred: SlotPredicate): pred is readonly number[] => Array.isArray(pred);
-
-/**
- * A fact query, fully resolved to physical predicates. `pinGroups` are OR-ed
- * (one group per requested territory, each an AND over its slots), so a mixed
- * LAU + county + national request never cross-multiplies into rows that
- * belong to none of them.
- */
+/** Physical classification groups intersect a complete geographic scope. */
 export interface InsFactQuery {
   readonly datasetCode: string;
+  readonly geoScope: InsGeoScope;
   readonly pinGroups: readonly SlotPins[];
   readonly unitNomItemIds?: readonly number[];
   readonly periodicities?: readonly InsPeriodicity[];

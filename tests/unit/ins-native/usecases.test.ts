@@ -165,8 +165,9 @@ describe('TOTAL on a dimension without a TOTAL member (D1b)', () => {
       new Set(['CJ', 'AB'])
     );
     const group = repo.factQueries[0]?.pinGroups[0];
-    expect(group?.get(3)).toEqual({ memberLevel: 'NUTS3', dimIndex: 2 });
-    expect(group?.get(4)).toEqual([112]);
+    expect(group?.has(3)).toBe(false);
+    expect(group?.has(4)).toBe(false);
+    expect(repo.factQueries[0]?.geoScope).toEqual({ kind: 'modern', levels: ['NUTS3'] });
   });
 
   it('territoryLevels: [LAU] reads every locality row (the county slot stays unconstrained)', async () => {
@@ -200,11 +201,8 @@ describe('TOTAL on a dimension without a TOTAL member (D1b)', () => {
       100
     );
     expect(page._unsafeUnwrap().nodes).toEqual([]); // the national TOTAL is not a NUTS3 member
-    expect(repo.factQueries[0]?.pinGroups[0]?.get(3)).toEqual({
-      memberLevel: 'NUTS3',
-      dimIndex: 2,
-      ids: [3064],
-    });
+    expect(repo.factQueries[0]?.pinGroups[0]?.get(3)).toEqual([3064]);
+    expect(repo.factQueries[0]?.geoScope).toEqual({ kind: 'modern', levels: ['NUTS3'] });
   });
 
   it('an offset beyond the end reports an unknown total, not the offset', async () => {
@@ -262,9 +260,9 @@ describe('insObservations', () => {
       'CJ-1-105-2019',
       'CLJ-1-105-2019',
     ]);
-    // One fact query, three OR-ed pin groups: no cross-product row (e.g. CJ county × RO locality total is the CJ row itself, never AB × Cluj-Napoca).
+    // One fact query intersects classifications with complete published tuples.
     expect(repo.factQueries).toHaveLength(1);
-    expect(repo.factQueries[0]?.pinGroups).toHaveLength(3);
+    expect(repo.factQueries[0]?.pinGroups).toHaveLength(1);
     expect(page._unsafeUnwrap().totalCount).toBe(9);
   });
 

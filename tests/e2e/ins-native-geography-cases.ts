@@ -2,6 +2,7 @@
 import { sql, type Kysely } from 'kysely';
 import { expect } from 'vitest';
 
+import { listObservations } from '@/modules/ins-native/core/usecases.js';
 import {
   makeInsLegacyResolvers,
   type GqlObservation,
@@ -16,6 +17,15 @@ import type { ProdDatabase } from '@/modules/shared/index.js';
 type RegisterCase = (name: string, fn: () => Promise<void>) => void;
 const query: InsFactQuery = {
   datasetCode: 'POPTEST',
+  geoScope: {
+    kind: 'explicitSource',
+    pairs: [
+      [
+        [2, 3075],
+        [3, 931],
+      ],
+    ],
+  },
   pinGroups: [
     new Map([
       [1, [1]],
@@ -42,6 +52,172 @@ export const registerInsGeographyCases = (
   it: RegisterCase,
   database: () => Kysely<ProdDatabase>
 ): void => {
+  it('geography selection rejects an internal modern scope without an explicit bound', () =>
+    inInsFixture(database(), async (_trx, repo) => {
+      const result = await repo.listObservations({ ...query, geoScope: { kind: 'modern' } });
+      expect(result._unsafeUnwrapErr().type).toBe('ServiceUnavailable');
+    }));
+
+  it('geography selection applies rules to actual cell periods and preserves explicit source access', () =>
+    inInsFixture(database(), async (trx, repo) => {
+      await historicalRule.execute(trx);
+      const modern = (
+        await listObservations(repo, 'POPTEST', {
+          sirutaCodes: ['54975'],
+          classificationValueCodes: ['TOTAL'],
+        })
+      )._unsafeUnwrap().nodes;
+      expect(modern.map((r) => r.period.periodStart)).toEqual(['2021-01-01']);
+      const old = (
+        await listObservations(repo, 'POPTEST', {
+          territoryLevels: ['LAU'],
+          classificationValueCodes: ['TOTAL'],
+          period: { start: '2019', end: '2020' },
+        })
+      )._unsafeUnwrap().nodes;
+      expect(old).toHaveLength(2);
+      expect(old.every((r) => r.territory?.code === '1017')).toBe(true);
+      const original = (
+        await listObservations(repo, 'POPTEST', {
+          classificationValueCodes: ['1', '105', '3075', '931'],
+        })
+      )._unsafeUnwrap().nodes;
+      expect(original).toHaveLength(3);
+      expect(original.filter((r) => r.geography?.qualified === true)).toHaveLength(2);
+      // Even complete source pins do not bypass an explicitly requested modern scope.
+      const intersection = (
+        await listObservations(repo, 'POPTEST', {
+          territoryCodes: ['54975'],
+          classificationValueCodes: ['1', '105', '3075', '931'],
+        })
+      )._unsafeUnwrap().nodes;
+      expect(intersection).toHaveLength(1);
+      await sql`update ins.observations set period_start='2020-12-31'
+        where dataset_code='POPTEST' and time_nom_item_id=4437`.execute(trx);
+      const overlapping = (
+        await listObservations(repo, 'POPTEST', {
+          territoryCodes: ['54975'],
+          classificationValueCodes: ['TOTAL'],
+        })
+      )._unsafeUnwrap().nodes;
+      expect(overlapping).toEqual([]);
+    }));
+
+  for (const [flag, count] of [
+    ['includes_sai', 0],
+    ['spelling_variant', 3],
+  ] as const) {
+    it(`geography selection distinguishes coverage and label flag ${flag}`, () =>
+      inInsFixture(database(), async (trx, repo) => {
+        await sql`update ins.dataset_geo_tuples set flags=${[flag]}::text[]
+          where dataset_code='POPTEST' and territory_id=931`.execute(trx);
+        const modern = (
+          await listObservations(repo, 'POPTEST', {
+            territoryCodes: ['54975'],
+            classificationValueCodes: ['TOTAL'],
+          })
+        )._unsafeUnwrap().nodes;
+        expect(modern).toHaveLength(count);
+        expect((await repo.listObservations(query))._unsafeUnwrap().nodes).toHaveLength(3);
+      }));
+  }
+  for (const resolution of ['CONTEXTUAL', 'UNRESOLVED'] as const) {
+    it(`geography selection excludes ${resolution} from modern nodes and levels`, () =>
+      inInsFixture(database(), async (trx, repo) => {
+        await sql`update ins.dataset_geo_tuples set resolution=${resolution},territory_id=null,
+          context_territory_id=${resolution === 'CONTEXTUAL' ? 25 : null},has_modern_facts=false
+          where dataset_code='POPTEST' and geo_pairs='[[2,3075],[3,931]]'`.execute(trx);
+        expect(
+          (
+            await listObservations(repo, 'POPTEST', {
+              territoryCodes: ['54975'],
+              classificationValueCodes: ['TOTAL'],
+            })
+          )._unsafeUnwrap().nodes
+        ).toEqual([]);
+        const levels = (
+          await listObservations(repo, 'POPTEST', {
+            territoryLevels: ['LAU'],
+            classificationValueCodes: ['TOTAL'],
+          })
+        )._unsafeUnwrap().nodes;
+        expect(levels).toHaveLength(3);
+        expect(levels.every((r) => r.territory?.code === '1017')).toBe(true);
+        expect((await repo.listObservations(query))._unsafeUnwrap().nodes).toHaveLength(3);
+      }));
+  }
+  it('geography selection lists every exact source tuple for a node without merging values', () =>
+    inInsFixture(database(), async (trx, repo) => {
+      await sql`update ins.dataset_geo_tuples set territory_id=931
+        where dataset_code='POPTEST' and geo_pairs='[[2,3065],[3,113]]'`.execute(trx);
+      const rows = (
+        await listObservations(repo, 'POPTEST', {
+          territoryCodes: ['54975'],
+          classificationValueCodes: ['TOTAL'],
+        })
+      )._unsafeUnwrap().nodes;
+      expect(rows).toHaveLength(6);
+      expect(new Set(rows.map((r) => JSON.stringify(r.geography?.pairs))).size).toBe(2);
+      expect(new Set(rows.map((r) => JSON.stringify(r.coordinate))).size).toBe(6);
+    }));
+  it('geography selection requires complete explicit pins, and never interprets implicit TOTAL as source access', () =>
+    inInsFixture(database(), async (_trx, repo) => {
+      for (const classificationValueCodes of [
+        ['TOTAL'],
+        ['931'],
+        ['3075'],
+        ['3075', '3065', '931'],
+      ]) {
+        const result = await listObservations(repo, 'POPTEST', { classificationValueCodes });
+        expect(result._unsafeUnwrapErr().type).toBe('InvalidInput');
+      }
+      const national = (
+        await listObservations(repo, 'POPTEST', {
+          classificationTypeCodes: ['D0', 'D1', 'D2', 'D3'],
+          classificationValueCodes: ['TOTAL'],
+        })
+      )._unsafeUnwrap().nodes;
+      expect(national).toHaveLength(3);
+      expect(national.every((r) => r.territory?.code === 'RO')).toBe(true);
+      // Both members exist, but this complete source combination was never observed.
+      const absent = (
+        await listObservations(repo, 'POPTEST', {
+          classificationValueCodes: ['1', '105', '3065', '931'],
+        })
+      )._unsafeUnwrap().nodes;
+      expect(absent).toEqual([]);
+    }));
+  it('geography selection permits national non-geographic data and rejects lower-level attribution', () =>
+    inInsFixture(database(), async (trx, repo) => {
+      await sql`delete from ins.dataset_geo_tuples where dataset_code='CNTTEST';
+        delete from ins.dataset_geo_dimensions where dataset_code='CNTTEST';
+        update ins.dataset_coverage set geo_dimension_count=0,geo_tuple_count=0 where dataset_code='CNTTEST'`.execute(
+        trx
+      );
+      for (const territoryCodes of [undefined, ['RO'], ['RO', 'CJ']]) {
+        const rows = (
+          await listObservations(repo, 'CNTTEST', {
+            ...(territoryCodes === undefined ? {} : { territoryCodes }),
+            classificationValueCodes: ['8000'],
+            unitCodes: ['9507'],
+          })
+        )._unsafeUnwrap().nodes;
+        expect(rows).toHaveLength(2);
+        expect(rows.every((r) => r.territory === null && r.geography === null)).toBe(true);
+      }
+      for (const filter of [{ territoryCodes: ['CJ'] }, { territoryLevels: ['LAU'] as const }]) {
+        expect(
+          (
+            await listObservations(repo, 'CNTTEST', {
+              ...filter,
+              classificationValueCodes: ['8000'],
+              unitCodes: ['9507'],
+            })
+          )._unsafeUnwrap().nodes
+        ).toEqual([]);
+      }
+    }));
+
   it('geography hydration preserves whole source coordinates and exact modern identity', () =>
     inInsFixture(database(), async (_trx, repo) => {
       const page = (await repo.listObservations(query))._unsafeUnwrap();
@@ -118,6 +294,15 @@ export const registerInsGeographyCases = (
       const rows = (
         await repo.listObservations({
           ...query,
+          geoScope: {
+            kind: 'explicitSource',
+            pairs: [
+              [
+                [2, 3064],
+                [3, 112],
+              ],
+            ],
+          },
           pinGroups: [
             new Map([
               [3, [3064]],
@@ -208,6 +393,7 @@ export const registerInsGeographyCases = (
       const rows = (
         await repo.listObservations({
           datasetCode: 'CNTTEST',
+          geoScope: { kind: 'nonGeographic' },
           pinGroups: [new Map([[1, [8000]]])],
           limit: 10,
           offset: 0,
@@ -232,6 +418,19 @@ export const registerInsGeographyCases = (
       const rows = (
         await repo.listObservations({
           ...query,
+          geoScope: {
+            kind: 'explicitSource',
+            pairs: [
+              [
+                [2, 3075],
+                [3, 931],
+              ],
+              [
+                [2, 3065],
+                [3, 931],
+              ],
+            ],
+          },
           pinGroups: [
             new Map([
               [1, [1]],
@@ -290,7 +489,10 @@ export const registerInsGeographyCases = (
         null,
         {
           datasetCode: 'POPTEST',
-          filter: { territoryCodes: ['54975'], classificationValueCodes: ['TOTAL'] },
+          filter: {
+            classificationTypeCodes: ['D0', 'D1', 'D2', 'D3'],
+            classificationValueCodes: ['1', '105', '3075', '931'],
+          },
           limit: 10,
         },
         {}
@@ -301,8 +503,8 @@ export const registerInsGeographyCases = (
       if (tool === undefined) throw new Error('series tool missing');
       const mcp = await tool.handler({
         datasetCode: 'POPTEST',
-        territoryCodes: ['54975'],
-        classificationValueCodes: ['TOTAL'],
+        classificationTypeCodes: ['D0', 'D1', 'D2', 'D3'],
+        classificationValueCodes: ['1', '105', '3075', '931'],
         limit: 10,
       });
       expect(mcp.ok).toBe(true);

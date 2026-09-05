@@ -12,6 +12,18 @@ import type { ProdDatabase } from '@/modules/shared/index.js';
 type RegisterCase = (name: string, fn: () => Promise<void>) => void;
 
 const mismatches: readonly (readonly [string, string])[] = [
+  [
+    'tuple arity',
+    "update ins.dataset_geo_tuples set geo_pairs='[[2,3075]]' where dataset_code='POPTEST' and territory_id=931",
+  ],
+  [
+    'tuple dimension order coherence',
+    "update ins.dataset_geo_tuples set geo_pairs='[[1,3075],[3,931]]' where dataset_code='POPTEST' and territory_id=931",
+  ],
+  [
+    'geographic physical mapping',
+    "update ins.dataset_geo_dimensions set slot_index=1 where dataset_code='POPTEST' and dim_index=2",
+  ],
   ['missing coverage', "delete from ins.dataset_coverage where dataset_code='POPTEST'"],
   [
     'positive geography without tuples',
@@ -158,6 +170,7 @@ export const registerInsPublicationCases = (
           (
             await repo.listObservations({
               datasetCode: 'POPTEST',
+              geoScope: { kind: 'modern', levels: ['LAU'] },
               pinGroups: [new Map([[1, [1]]])],
               limit: 1,
               offset: 0,

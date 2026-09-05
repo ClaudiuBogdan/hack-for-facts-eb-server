@@ -1,23 +1,15 @@
 /**
- * INS native module — the repository over Chronos `ins.*` (plan §3.3).
- *
- * Catalog reads are plain Kysely over the small catalog tables. Fact reads are
- * raw SQL built from FULLY RESOLVED physical predicates: `dataset_code = $1`
- * (partition pruning) + one OR-ed AND-group of `dimN_member_id` pins per
- * requested territory + unit / period predicates, ordered by the total
- * contract `period_end desc, period_start desc, identity tuple`, read with
- * `limit + 1` and NEVER counted. Batched series reads (`latestForSeries`) are
- * one `UNION ALL` of per-series identity-index probes.
- *
- * Every multi-statement read runs in one REPEATABLE READ, READ ONLY
- * transaction with `set local statement_timeout` INSIDE it (the legacy
- * `SET LOCAL` outside a transaction was a no-op), so a page and its catalog
- * hydration see one publication moment.
+ * Native Chronos INS reads. Observation lists intersect physical classification
+ * pins with complete published geographic tuples and actual-period eligibility.
+ * Rows retain their source identity; paging reads limit+1 and never counts facts.
+ * Default-series probes remain fully pinned while their selection is migrated.
+ * All reads and hydration share a repeatable-read, read-only snapshot.
  */
 
 import { sql, type RawBuilder } from 'kysely';
 import { err, ok } from 'neverthrow';
 
+import { observationGeographySql } from './geography-sql.js';
 import { geographicView, readGeographicDimensions, readGeographicTuples } from './geography.js';
 import { InsPublicationUnavailable } from './publication-error.js';
 import {
@@ -38,14 +30,12 @@ import { nodeSelect, toNode, type NodeRow } from './territory.js';
 import { escapeLike, foldSearch } from '../../core/fold.js';
 import {
   MAX_SLOTS,
-  isMemberList,
   type InsContext,
   type InsDataStatus,
   type InsDatasetFilter,
   type InsDatasetView,
   type InsDimensionRole,
   type InsDimensionView,
-  type InsFactQuery,
   type InsMemberRole,
   type InsMemberView,
   type InsObservationView,
@@ -329,34 +319,13 @@ const factOrder = sql`
 
 const slotColumn = (slot: number): RawBuilder<unknown> => sql.ref(`o.dim${String(slot)}_member_id`);
 
-/**
- * One AND-group: `(o.dimA in (...) and o.dimB in (...))`. A level predicate
- * becomes a semi-join on member_territory (every member bound at that level),
- * never an id list a limit could truncate.
- */
-const pinGroupSql = (datasetCode: string, pins: SlotPins): RawBuilder<unknown> => {
-  const parts: RawBuilder<unknown>[] = [];
-  for (const [slot, pred] of pins) {
-    if (isMemberList(pred)) {
-      if (pred.length === 0) {
-        parts.push(sql`false`);
-        continue;
-      }
-      parts.push(sql`${slotColumn(slot)} in (${sql.join(pred.map((id) => sql`${id}`))})`);
-      continue;
-    }
-    parts.push(sql`${slotColumn(slot)} in (
-      select mt.nom_item_id from ins.member_territory mt
-      where mt.dataset_code = ${datasetCode} and mt.dim_index = ${pred.dimIndex}
-        and mt.resolution = 'RESOLVED' and mt.territory_level = ${pred.memberLevel})`);
-    if (pred.ids !== undefined) {
-      parts.push(
-        pred.ids.length === 0
-          ? sql`false`
-          : sql`${slotColumn(slot)} in (${sql.join(pred.ids.map((id) => sql`${id}`))})`
-      );
-    }
-  }
+/** Explicit classification pins, independent of geographic interpretation. */
+const pinGroupSql = (pins: SlotPins): RawBuilder<unknown> => {
+  const parts = [...pins].map(([slot, ids]) =>
+    ids.length === 0
+      ? sql`false`
+      : sql`${slotColumn(slot)} in (${sql.join(ids.map((id) => sql`${id}`))})`
+  );
   return parts.length === 0 ? sql`true` : sql`(${sql.join(parts, sql` and `)})`;
 };
 
@@ -926,11 +895,15 @@ const makeRepoOn = (db: Db, readTx: Runner, snapshotBound = false): InsRepo => {
     async listObservations(query) {
       return readTx('listObservations', async (trx) => {
         await assertDatasetsPublished(trx, [query.datasetCode]);
-        const parts: RawBuilder<unknown>[] = [sql`o.dataset_code = ${query.datasetCode}`];
+        const dimensions = await readGeographicDimensions(trx, query.datasetCode);
+        const parts: RawBuilder<unknown>[] = [
+          sql`o.dataset_code = ${query.datasetCode}`,
+          observationGeographySql(query.datasetCode, dimensions, query.geoScope),
+        ];
         if (query.pinGroups.length > 0) {
           parts.push(
             sql`(${sql.join(
-              query.pinGroups.map((g) => pinGroupSql(query.datasetCode, g)),
+              query.pinGroups.map((g) => pinGroupSql(g)),
               sql` or `
             )})`
           );
@@ -1064,12 +1037,5 @@ const makeRepoOn = (db: Db, readTx: Runner, snapshotBound = false): InsRepo => {
     return Number(res.rows[0]?.n ?? 0);
   }
 };
-
-/** Exported for the plan/EXPLAIN tests: the fact predicate a query compiles to. */
-export const factPredicateSql = (query: InsFactQuery): RawBuilder<unknown> =>
-  sql`o.dataset_code = ${query.datasetCode} and (${sql.join(
-    query.pinGroups.map((g) => pinGroupSql(query.datasetCode, g)),
-    sql` or `
-  )})`;
 
 export type { InsSeriesSpec };

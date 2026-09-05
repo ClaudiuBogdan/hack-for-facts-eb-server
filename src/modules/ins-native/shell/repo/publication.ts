@@ -35,14 +35,18 @@ export const datasetPublicationFrom = (
   ) r on true
   cross join lateral (
     select count(*) as n,
+      array_agg(g.dim_index order by g.dim_index) as dimension_indices,
       count(*) filter (where g.role = 'single') as singles,
       count(*) filter (where g.role = 'nested_parent') as parents,
       count(*) filter (where g.role = 'nested_child') as children,
       coalesce(bool_and(g.custody_sha256 = d.pivot_custody_sha256
         and g.contract_version = ${INS_GEOGRAPHY_VERSION}
         and g.privacy_class = 'public'
-        and g.role in ('single','nested_parent','nested_child')), true) as valid
-    from ins.dataset_geo_dimensions g where g.dataset_code = d.dataset_code
+        and g.role in ('single','nested_parent','nested_child')
+        and dd.semantic_role = 'classification' and dd.slot_index is not null and dd.slot_index = g.slot_index), true) as valid
+    from ins.dataset_geo_dimensions g
+    join ins.dataset_dimensions dd on dd.dataset_code=g.dataset_code and dd.dim_index=g.dim_index
+    where g.dataset_code = d.dataset_code
   ) gd
   cross join lateral (
     select count(*) as n,
@@ -51,7 +55,10 @@ export const datasetPublicationFrom = (
         and g.privacy_class = 'public'
         and g.resolution in ('EXACT','CONTEXTUAL','UNRESOLVED')
         and not g.has_incoherent_facts
-        and g.flags <@ ${INS_SUPPORTED_GEO_FLAGS}::text[]), true) as valid
+        and g.flags <@ ${INS_SUPPORTED_GEO_FLAGS}::text[]
+        and jsonb_array_length(g.geo_pairs) = gd.n
+        and not exists (select 1 from jsonb_array_elements(g.geo_pairs) with ordinality p(pair,position)
+          where (p.pair->>0)::int is distinct from gd.dimension_indices[p.position::int])), true) as valid
     from ins.dataset_geo_tuples g where g.dataset_code = d.dataset_code
   ) gt
   cross join lateral (

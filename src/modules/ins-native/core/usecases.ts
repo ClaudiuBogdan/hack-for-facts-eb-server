@@ -1,17 +1,14 @@
 /**
- * INS native module — usecases (pure orchestration over the repository port).
- *
- * Every public identifier is resolved HERE, before the repository sees a fact
- * query: territory tokens → spine nodes → the dataset's bound members (and the
- * TOTAL members of the territorial dimensions the node is above); `D<n>` +
- * member codes → slot pins; the `TOTAL` alias → the dimension's TOTAL member;
- * the default-series registry → the pins a tile needs. Unresolvable input is an
- * `InvalidInput` (never a 23 M-row scan) or a `NO_DATA` (never an arbitrary
- * row).
+ * Public identifiers resolve to typed repository inputs here. Observation lists
+ * use complete source coordinates or explicit modern geographic scopes; numeric
+ * classification members and TOTAL resolve separately and intersect that scope.
+ * Default-series geography still uses the transitional binding helpers below,
+ * pending the next prerequisite before native INS is enabled.
  */
 
 import { err, ok, type Result } from 'neverthrow';
 
+import { observationGeoScope } from './geography.js';
 import {
   isTotalAlias,
   parseDimensionCode,
@@ -32,7 +29,6 @@ import {
   MAX_OBSERVATION_LIMIT,
   MAX_TERRITORY_LIMIT,
   TERRITORY_LEVEL_DEPTH,
-  isMemberList,
   type InsContext,
   type InsContextFilter,
   type InsDashboardGroup,
@@ -53,7 +49,6 @@ import {
   type InsTerritoryFilter,
   type InsTerritoryNode,
   type SlotPins,
-  type SlotPredicate,
 } from './types.js';
 
 import type { InsRepo, InsTerritoryBinding, InsTerritoryDimension } from './ports.js';
@@ -231,7 +226,7 @@ export const territoryPinsFor = (
   const finestGrain = Math.max(...dims.flatMap((d) => d.levels.map(depthOf)));
   if (nodeDepth > finestGrain) return null;
 
-  const pins = new Map<number, SlotPredicate>();
+  const pins = new Map<number, readonly number[]>();
   let boundToChain = false;
   for (const dim of dims) {
     const onChain = bindings
@@ -251,40 +246,6 @@ export const territoryPinsFor = (
     return null;
   }
   return boundToChain || node.level === 'NATIONAL' ? pins : null;
-};
-
-/**
- * The pins for "every territory at level L" (a `territoryLevels`-only filter):
- * dimensions with members at L take the level predicate (a semi-join, never a
- * capped id list); dimensions bound only deeper take their TOTAL; a dataset
- * with no way to express L has no rows at that level → null.
- */
-export const territoryLevelPins = (
-  level: InsTerritoryLevel,
-  dims: readonly InsTerritoryDimension[]
-): SlotPins | null => {
-  if (dims.length === 0) return null;
-  const pins = new Map<number, SlotPredicate>();
-  let expressed = false;
-  const levelDepth = TERRITORY_LEVEL_DEPTH[level];
-  for (const dim of dims) {
-    if (level !== 'NATIONAL' && dim.levels.includes(level)) {
-      pins.set(dim.slotIndex, { memberLevel: level, dimIndex: dim.dimIndex });
-      expressed = true;
-      continue;
-    }
-    const dimGrain = Math.max(...dim.levels.map(depthOf));
-    // Finer than the level: the level's row is this dimension's TOTAL.
-    if (dimGrain > levelDepth && dim.totalNomItemId !== null) {
-      pins.set(dim.slotIndex, [dim.totalNomItemId]);
-      continue;
-    }
-    // Coarser than the level (the county dimension of a LAU request): every
-    // LAU row carries its own county member, so the slot stays unconstrained.
-    if (dimGrain < levelDepth) continue;
-    return null;
-  }
-  return expressed || level === 'NATIONAL' ? pins : null;
 };
 
 /** One AND-group per node, OR-ed by the repository. Nodes without a series are dropped. */
@@ -342,7 +303,16 @@ export const classificationPins = async (
   dimensions: readonly InsDimensionView[],
   filter: Pick<InsObservationFilter, 'classificationTypeCodes' | 'classificationValueCodes'>,
   options: { readonly territoryPinned?: boolean } = {}
-): Promise<Result<{ pins: SlotPins; unpinnable: readonly number[] }, ApiError>> => {
+): Promise<
+  Result<
+    {
+      pins: SlotPins;
+      explicitPins: ReadonlyMap<number, readonly number[]>;
+      unpinnable: readonly number[];
+    },
+    ApiError
+  >
+> => {
   const classification = slotted(dimensions);
   const bySlotOfDim = new Map(classification.map((d) => [d.dimIndex, d.slotIndex]));
   // The implicit TOTAL (no type codes) never touches a territorial dimension when
@@ -353,6 +323,7 @@ export const classificationPins = async (
   const typeCodes = filter.classificationTypeCodes ?? [];
   const valueCodes = filter.classificationValueCodes ?? [];
   const pins = new Map<number, number[]>();
+  const explicitPins = new Map<number, number[]>();
 
   const targetDims: number[] = [];
   for (const code of typeCodes) {
@@ -391,6 +362,8 @@ export const classificationPins = async (
         continue;
       }
       pins.set(slot, [...(pins.get(slot) ?? []), total.value]);
+      if (targetDims.length > 0)
+        explicitPins.set(slot, [...(explicitPins.get(slot) ?? []), total.value]);
     }
   }
 
@@ -404,6 +377,7 @@ export const classificationPins = async (
       if (targetDims.length > 0 && !targetDims.includes(m.dimIndex)) continue;
       found.add(m.nomItemId);
       pins.set(slot, [...(pins.get(slot) ?? []), m.nomItemId]);
+      explicitPins.set(slot, [...(explicitPins.get(slot) ?? []), m.nomItemId]);
     }
     const missing = memberIds.filter((id) => !found.has(id));
     if (missing.length > 0) {
@@ -415,7 +389,7 @@ export const classificationPins = async (
       );
     }
   }
-  return ok({ pins, unpinnable });
+  return ok({ pins, explicitPins, unpinnable });
 };
 
 /** Unit codes are unit member ids; unknown ones are an InvalidInput. */
@@ -496,25 +470,6 @@ export const periodPredicates = (
 // Observations
 // ─────────────────────────────────────────────────────────────────────────────
 
-const mergePins = (base: SlotPins, extra: SlotPins): SlotPins => {
-  const out = new Map<number, SlotPredicate>(base);
-  for (const [slot, pred] of extra) {
-    const existing = out.get(slot);
-    if (existing === undefined || !isMemberList(pred)) {
-      out.set(slot, pred);
-      continue;
-    }
-    // Two explicit lists intersect; a level predicate keeps its level AND narrows to the list.
-    out.set(
-      slot,
-      isMemberList(existing)
-        ? pred.filter((id) => existing.includes(id))
-        : { ...existing, ids: pred }
-    );
-  }
-  return out;
-};
-
 const EMPTY_PAGE: InsPage<InsObservationView> = {
   nodes: [],
   totalCount: 0,
@@ -563,37 +518,28 @@ export const listObservations = (
     const period = periodPredicates(filter.period);
     if (period.isErr()) return err(period.error);
 
-    let pinGroups: readonly SlotPins[];
-    if (nodes.value === null) {
-      pinGroups = [classPins.value.pins];
-    } else if ('levels' in nodes.value) {
-      const dims = await repo.territoryDimensions(code);
-      if (dims.isErr()) return err(dims.error);
-      pinGroups = nodes.value.levels.flatMap((level) => {
-        const pins = territoryLevelPins(level, dims.value);
-        return pins === null ? [] : [mergePins(pins, classPins.value.pins)];
-      });
-      if (pinGroups.length === 0) return ok(EMPTY_PAGE);
-    } else {
-      const groups = await territoryPinGroups(repo, code, nodes.value);
-      if (groups.isErr()) return err(groups.error);
-      pinGroups = groups.value.map((g) => mergePins(g.pins, classPins.value.pins));
-      if (pinGroups.length === 0) return ok(EMPTY_PAGE);
-    }
-    // A request that pins nothing at all is the whole-dataset scan the design
-    // forbids (34 M rows on POP107D): refuse it, never run it.
-    if (pinGroups.every((g) => g.size === 0) && units.value === undefined) {
+    const scope = observationGeoScope(dimensions.value, nodes.value, classPins.value.explicitPins);
+    if (scope.isErr()) return err(scope.error);
+    if (scope.value === null) return ok(EMPTY_PAGE);
+    // Non-geographic reads still need a classification or unit bound.
+    if (
+      scope.value.kind === 'nonGeographic' &&
+      classPins.value.pins.size === 0 &&
+      units.value === undefined
+    ) {
       return err(
         invalidInput(
-          'insObservations needs a territory, a classification pin or a unit; an unpinned read of a whole dataset is not served',
+          'insObservations needs a classification pin or a unit for a non-geographic dataset',
           'filter'
         )
       );
     }
+    const pinGroups = [classPins.value.pins];
     const pageLimit = clamp(limit, DEFAULT_OBSERVATION_LIMIT, MAX_OBSERVATION_LIMIT);
     const pageOffset = offsetOf(offset);
     const query: InsFactQuery = {
       datasetCode: code,
+      geoScope: scope.value,
       pinGroups,
       ...(units.value !== undefined && { unitNomItemIds: units.value }),
       ...period.value,
@@ -644,7 +590,7 @@ export const defaultSeriesFor = async (
     const group = groups.value[0];
     if (group === undefined) return ok(null);
     for (const [slot, pred] of group.pins) {
-      const id = isMemberList(pred) ? pred[0] : undefined;
+      const id = pred[0];
       if (id === undefined) return ok(null);
       slots[slot - 1] = id;
       const dim = classification.find((d) => d.slotIndex === slot);

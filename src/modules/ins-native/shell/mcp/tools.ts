@@ -142,7 +142,10 @@ export const makeInsMcpTools = (deps: InsMcpDeps): readonly KernelMcpTool[] => {
       territoryCodes: z
         .array(z.string())
         .min(1)
-        .describe('Territory codes (SIRUTA, county letter, NUTS, RO).'),
+        .optional()
+        .describe(
+          'Territory codes (SIRUTA, county letter, NUTS, RO). Omit only for non-geographic data or explicit pins on every geographic dimension.'
+        ),
       classificationValueCodes: z
         .array(z.string())
         .optional()
