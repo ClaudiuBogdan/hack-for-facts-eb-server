@@ -82,6 +82,7 @@ export interface LegacyAnalyticsFilter {
   readonly uat_ids?: Maybe<readonly string[]>;
   readonly entity_types?: Maybe<readonly string[]>;
   readonly is_uat?: Maybe<boolean>;
+  readonly is_territorial_executive?: Maybe<boolean>;
   readonly search?: Maybe<string>;
   readonly tags?: Maybe<readonly string[]>;
   readonly min_population?: Maybe<number>;
@@ -176,6 +177,7 @@ export interface LegacyAggregateQuery {
   readonly uatIds?: readonly number[];
   readonly entityTypes?: readonly string[];
   readonly isUat?: boolean;
+  readonly isTerritorialExecutive?: boolean;
   readonly search?: string;
   /** Validated faceted tags grouped by facet: OR within a group, AND across groups. */
   readonly tagFacets?: readonly (readonly string[])[];
@@ -202,9 +204,12 @@ export interface NormalizationPlan {
  * + shell/repo/population-repo.ts `computeFilteredPopulation`): entity_cuis →
  * uat_ids → county_codes → entity_types → is_uat === true → country. Regions,
  * tags, search and population bounds do NOT narrow the denominator (legacy).
+ * Executive-field requests instead use the full shared entity/geography
+ * predicates and an ancestor-maximal union; explicit geography retains priority.
  */
 export type PopulationScope =
   | { readonly kind: 'country' }
+  | { readonly kind: 'entityUnion'; readonly selection: LegacyAggregateQuery }
   | { readonly kind: 'entities'; readonly cuis: readonly string[] }
   | { readonly kind: 'territories'; readonly ids: readonly number[] }
   | { readonly kind: 'counties'; readonly codes: readonly string[] }

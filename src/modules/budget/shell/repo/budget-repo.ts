@@ -44,6 +44,7 @@ import {
 } from '@/modules/shared/index.js';
 
 import { factorCaseExpr, isPerCapita, yearMultiplier } from './analytics.js';
+import { countyExecutiveCuiSql } from './county-executive.js';
 import {
   fieldOf,
   intIn,
@@ -72,8 +73,6 @@ import {
 import {
   ACCOUNT_CATEGORY_LABELS,
   BUDGET_TRANSFER_EXCLUSIONS,
-  BUCHAREST_COUNTY_CODE,
-  BUCHAREST_SIRUTA_CODE,
   COMMITMENT_REPORT_TYPE_LABELS,
   EXECUTION_AMOUNT_COLUMN,
   EXECUTION_REPORT_TYPE_LABELS,
@@ -365,6 +364,7 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
   const EXEC_CORE_FIELDS = [
     'entityTypes',
     'isUat',
+    'isTerritorialExecutive',
     'countyCodes',
     'regions',
     'minPopulation',
@@ -532,7 +532,14 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
   // commitment facts (FACT path; pruning PAIR)
   // ───────────────────────────────────────────────────────────────────────────
 
-  const COMMIT_CORE_FIELDS = ['entityTypes', 'isUat', 'countyCodes', 'regions', 'q'];
+  const COMMIT_CORE_FIELDS = [
+    'entityTypes',
+    'isUat',
+    'isTerritorialExecutive',
+    'countyCodes',
+    'regions',
+    'q',
+  ];
 
   const listCommitmentLineItems = async (
     q: BudgetCommitmentFactQuery
@@ -849,12 +856,7 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
         ? sql`(
             select nullif(
               case
-                when pe.category = 'uat_county' then (
-                  select ${canonicalCountyPopulationAggregate('candidate')}
-                  from core.territories candidate
-                  where candidate.county_code = t.county_code
-                )
-                when pe.is_uat then t.population
+                when pe.is_territorial_executive then t.population
                 else null
               end,
               0
@@ -926,6 +928,8 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
       conds.push(sql`mv.year >= ${q.yearFrom}`);
       conds.push(sql`mv.year <= ${q.yearTo}`);
       if (q.isUat !== undefined) conds.push(sql`e.is_uat = ${q.isUat}`);
+      if (q.isTerritorialExecutive !== undefined)
+        conds.push(sql`e.is_territorial_executive = ${q.isTerritorialExecutive}`);
       const periodSelect =
         q.frequency === 'MONTH'
           ? sql<number | null>`mv.month`
@@ -935,7 +939,7 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
       let multiplier: RawBuilder<unknown> = sql`1::numeric`;
       if (q.normalization !== 'TOTAL') {
         let yearsBase = db.selectFrom(execMvName(q.frequency));
-        if (q.isUat !== undefined) {
+        if (q.isUat !== undefined || q.isTerritorialExecutive !== undefined) {
           yearsBase = yearsBase.leftJoin('core.public_entities as e', 'e.cui', 'mv.entity_cui');
         }
         const yearsPresent = await yearsBase
@@ -949,7 +953,7 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
       }
       const amountExpr = sql`sum(coalesce(mv.${sql.ref(col)},0)) * ${multiplier}`;
       let seriesBase = db.selectFrom(execMvName(q.frequency));
-      if (q.isUat !== undefined) {
+      if (q.isUat !== undefined || q.isTerritorialExecutive !== undefined) {
         seriesBase = seriesBase.leftJoin('core.public_entities as e', 'e.cui', 'mv.entity_cui');
       }
       const rows = await seriesBase
@@ -1067,27 +1071,10 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
     const multiplier = yearMultiplier(q.normalization, q.year);
     // Rankings always return their entity metadata and denominator, even when
     // TOTAL is the primary amount. This keeps table columns honest without a
-    // second client query. County councils use the canonical county aggregate
-    // population; ordinary institutions never inherit the population of the
+    // second client query. Executives use their canonical geographic anchor;
+    // ordinary institutions never inherit the population of the
     // locality where their headquarters happen to be.
-    const countyPopulationTable = sql<{
-      county_code: string;
-      population: number | null;
-    }>`(
-      select
-        candidate.county_code,
-        (${canonicalCountyPopulationAggregate('candidate')})::int as population
-      from core.territories candidate
-      where candidate.county_code is not null
-      group by candidate.county_code
-    )`.as('county_population');
-    const populationExpr = sql`
-      case
-        when e.category = 'uat_county' then county_population.population
-        when e.is_uat then t.population
-        else null
-      end
-    `;
+    const populationExpr = sql`case when e.is_territorial_executive then t.population else null end`;
     try {
       const conds: RawBuilder<unknown>[] = [
         sql`mv.year = ${q.year}`,
@@ -1141,6 +1128,8 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
         );
       }
       if (q.isUat !== undefined) conds.push(sql`e.is_uat = ${q.isUat}`);
+      if (q.isTerritorialExecutive !== undefined)
+        conds.push(sql`e.is_territorial_executive = ${q.isTerritorialExecutive}`);
       if (q.minPopulation !== undefined) {
         conds.push(sql`${populationExpr} >= ${q.minPopulation}`);
       }
@@ -1175,8 +1164,7 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
       const base = db
         .selectFrom(execMvName(q.frequency))
         .leftJoin('core.public_entities as e', 'e.cui', 'mv.entity_cui')
-        .leftJoin('core.territories as t', 't.id', 'e.territory_id')
-        .leftJoin(countyPopulationTable, 'county_population.county_code', 't.county_code');
+        .leftJoin('core.territories as t', 't.id', 'e.territory_id');
       let rankingQuery = base
         .select([
           'mv.entity_cui',
@@ -1193,7 +1181,7 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
         ])
         .where(composeAnd(conds))
         .groupBy(
-          sql`mv.entity_cui, e.name, mv.year, e.category, e.entity_type, e.is_uat, t.id, t.population, t.county_code, t.county_name, county_population.population`
+          sql`mv.entity_cui, e.name, mv.year, e.entity_type, e.is_territorial_executive, t.id, t.population, t.county_code, t.county_name`
         );
       if (perCapita) {
         rankingQuery = rankingQuery.having(sql<SqlBool>`(${populationExpr}) > 0`);
@@ -1524,19 +1512,7 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
           select distinct on (territory.county_code)
             territory.county_code,
             territory.county_name,
-            (
-              select candidate.uat_code
-              from core.territories candidate
-              where candidate.county_code = territory.county_code
-                and (
-                  (candidate.county_code = ${BUCHAREST_COUNTY_CODE}
-                    and candidate.siruta_code = ${BUCHAREST_SIRUTA_CODE})
-                  or (candidate.county_code <> ${BUCHAREST_COUNTY_CODE}
-                    and candidate.siruta_code = candidate.county_code)
-                )
-              order by candidate.id
-              limit 1
-            ) as county_entity_cui,
+            ${countyExecutiveCuiSql(sql`territory.county_code`)} as county_entity_cui,
             (
               select ${canonicalCountyPopulationAggregate('candidate')}
               from core.territories candidate

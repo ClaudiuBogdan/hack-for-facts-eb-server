@@ -86,7 +86,19 @@ describe('legacy executionAnalytics SDL — byte identity with the PINNED fixtur
       const expected = fixture.get(key);
       expect(expected, `fixture lacks ${key}`).toBeDefined();
       expect(expected?.length ?? 0).toBeGreaterThan(0);
-      expect(slice.get(key)).toBe(expected);
+      const actual = slice.get(key);
+      if (key === 'input AnalyticsFilterInput') {
+        // Approved additive S1b field only; every carried byte remains pinned.
+        expect(actual).toContain('is_territorial_executive: Boolean');
+        expect(
+          actual?.replace(
+            / {4}"Filter executive authorities\.[^\n]*"\n {4}is_territorial_executive: Boolean\n/u,
+            ''
+          )
+        ).toBe(expected);
+      } else {
+        expect(actual).toBe(expected);
+      }
     });
   }
 

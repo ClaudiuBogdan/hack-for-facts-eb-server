@@ -38,6 +38,7 @@ const CLUJ: ReferencePublicEntity = {
   category: 'uat_municipality',
   tags: [],
   isUat: true,
+  isTerritorialExecutive: true,
   territorialSirutaCode: '54975',
   uatMapping: { method: 'direct_cif', confidence: 'exact', unresolvedReason: null },
   parents: { cui1: null, cui2: null },
@@ -50,6 +51,11 @@ const CLUJ: ReferencePublicEntity = {
 };
 
 const CLUJ_TERRITORY: Territory = {
+  level: 'uat',
+  kind: 'municipality',
+  territoryKey: 'siruta:54975',
+  parentId: null,
+  nutsCode: null,
   id: 1,
   territorialSirutaCode: '54975',
   sirutaCode: '54975',

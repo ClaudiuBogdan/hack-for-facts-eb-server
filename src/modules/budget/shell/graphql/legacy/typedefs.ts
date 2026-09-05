@@ -180,6 +180,8 @@ export const budgetLegacyTypeDefs = /* GraphQL */ `
     entity_types: [String!]
       @deprecated(reason: "Legacy coarse taxonomy. Use tags (kind::/level::/...) instead.")
     is_uat: Boolean
+    "Filter executive authorities. When present, entity-scoped per-capita uses selected administrative anchor population, not institution service areas; explicit county/territory scope priority is retained."
+    is_territorial_executive: Boolean
     search: String
     """
     Faceted classification tags (namespace::value, e.g. 'kind::hospital').

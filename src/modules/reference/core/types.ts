@@ -58,6 +58,7 @@ export interface ReferencePublicEntityCard {
   readonly category: string | null;
   readonly tags: readonly string[];
   readonly isUat: boolean;
+  readonly isTerritorialExecutive: boolean;
   readonly territorialSirutaCode: string | null;
   readonly uatMapping: ReferenceUatMapping;
   readonly parents: ReferenceParentCreditors;

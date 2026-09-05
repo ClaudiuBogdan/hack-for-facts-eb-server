@@ -266,12 +266,10 @@ describe('budget ranking repository filters', () => {
     expect(sql).not.toContain('mv.main_creditor_cui =');
     expect(sql).toContain('left join "core"."territories" as "t"');
     expect(sql).toContain(
-      'group by mv.entity_cui, e.name, mv.year, e.category, e.entity_type, e.is_uat, t.id, t.population, t.county_code, t.county_name'
+      'group by mv.entity_cui, e.name, mv.year, e.entity_type, e.is_territorial_executive, t.id, t.population, t.county_code, t.county_name'
     );
-    expect(sql).toContain("when e.category = 'uat_county' then");
-    expect(sql).toContain('when e.is_uat then t.population');
-    expect(sql).toContain('county_population');
-    expect(sql.match(/core\.territories candidate/gu)).toHaveLength(1);
+    expect(sql).toContain('when e.is_territorial_executive then t.population else null end');
+    expect(sql).not.toContain('county_population');
     expect(sql).not.toContain('candidate.county_code = t.county_code');
     expect(sql).toContain('having (');
     expect(sql).toContain('> 0');
@@ -341,7 +339,9 @@ describe('budget ranking repository filters', () => {
     expect(sql).toContain('/ county.population)::text');
     expect(sql).toContain('having count(mv.entity_cui) > 0');
     expect(sql).not.toContain('sum(distinct');
-    expect(sql).not.toContain('core.public_entities');
+    expect(sql).toContain('executive.territory_id = candidate.id');
+    expect(sql).toContain('executive.is_territorial_executive');
+    expect(sql).toContain('case when count(*) = 1 then min(executive.cui) else null end');
   });
 
   it('returns the complete UAT grain without a top-N limit', async () => {

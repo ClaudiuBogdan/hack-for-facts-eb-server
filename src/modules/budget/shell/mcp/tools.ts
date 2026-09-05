@@ -205,7 +205,11 @@ export const makeBudgetMcpTools = (deps: BudgetMcpDeps): readonly KernelMcpTool[
       excludeEntityCuis: z.array(z.string()).optional().describe('Exclude these entity CUIs.'),
       countyCodes: z.array(z.string()).optional().describe('Restrict to these county codes.'),
       regions: z.array(z.string()).optional().describe('Restrict to these development regions.'),
-      isUat: z.boolean().optional().describe('Restrict to UAT entities only.'),
+      isUat: z.boolean().optional().describe('Filter UAT membership; false excludes UATs.'),
+      isTerritorialExecutive: z
+        .boolean()
+        .optional()
+        .describe('Filter geographic executive authorities; false excludes executives.'),
       minPopulation: z.number().int().optional(),
       maxPopulation: z.number().int().optional(),
       ascending: z.boolean().optional().describe('Sort smallest amount first.'),
@@ -234,6 +238,10 @@ export const makeBudgetMcpTools = (deps: BudgetMcpDeps): readonly KernelMcpTool[
         ? (args['regions'] as unknown[]).map(String)
         : undefined;
       const isUat = typeof args['isUat'] === 'boolean' ? args['isUat'] : undefined;
+      const isTerritorialExecutive =
+        typeof args['isTerritorialExecutive'] === 'boolean'
+          ? args['isTerritorialExecutive']
+          : undefined;
       const minPopulation = intArg(args, 'minPopulation', Number.NaN);
       const maxPopulation = intArg(args, 'maxPopulation', Number.NaN);
       const ascending = typeof args['ascending'] === 'boolean' ? args['ascending'] : undefined;
@@ -254,6 +262,7 @@ export const makeBudgetMcpTools = (deps: BudgetMcpDeps): readonly KernelMcpTool[
         ...(countyCodes !== undefined && { countyCodes }),
         ...(regions !== undefined && { regions }),
         ...(isUat !== undefined && { isUat }),
+        ...(isTerritorialExecutive !== undefined && { isTerritorialExecutive }),
         ...(Number.isFinite(minPopulation) && { minPopulation }),
         ...(Number.isFinite(maxPopulation) && { maxPopulation }),
         ...(ascending !== undefined && { ascending }),
@@ -277,6 +286,7 @@ export const makeBudgetMcpTools = (deps: BudgetMcpDeps): readonly KernelMcpTool[
           ...(countyCodes !== undefined && { countyCodes }),
           ...(regions !== undefined && { regions }),
           ...(isUat !== undefined && { isUat }),
+          ...(isTerritorialExecutive !== undefined && { isTerritorialExecutive }),
           ...(Number.isFinite(minPopulation) && { minPopulation }),
           ...(Number.isFinite(maxPopulation) && { maxPopulation }),
           ...(ascending !== undefined && { ascending }),

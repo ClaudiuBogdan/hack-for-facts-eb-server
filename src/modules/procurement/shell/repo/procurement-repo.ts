@@ -285,11 +285,7 @@ export const makeProcurementRepo = (
       if (needsCoreJoin(filter)) {
         base = base
           .leftJoin('core.public_entities as e', 'e.cui', 'p.authority_cui')
-          .leftJoin(
-            'core.territories as t',
-            't.territorial_siruta_code',
-            'e.territorial_siruta_code'
-          );
+          .leftJoin('core.territories as t', 't.id', 'e.territory_id');
       }
       const rows = await base
         .select(procedureSelect)
@@ -433,11 +429,7 @@ export const makeProcurementRepo = (
       if (needsCoreJoin(filter)) {
         base = base
           .leftJoin('core.public_entities as e', 'e.cui', 'c.authority_cui')
-          .leftJoin(
-            'core.territories as t',
-            't.territorial_siruta_code',
-            'e.territorial_siruta_code'
-          );
+          .leftJoin('core.territories as t', 't.id', 'e.territory_id');
       }
       const rows = await base
         .select(contractSelect)

@@ -43,14 +43,19 @@ import { afterAll, beforeAll, describe, expect, it as vitestIt } from 'vitest';
 
 import { cleanFilter } from '@/modules/budget/core/legacy-analytics/clean.js';
 import { legacyDecimal } from '@/modules/budget/core/legacy-analytics/decimal.js';
+import { resolvePopulationScope } from '@/modules/budget/core/legacy-analytics/population.js';
 import { legacyExecutionSeries } from '@/modules/budget/core/legacy-analytics/usecase.js';
 import { chainLinkCpiLevels } from '@/modules/budget/shell/factors/cpi-level.js';
+import { makeBudgetRepo } from '@/modules/budget/shell/repo/budget-repo.js';
+import { countyExecutiveCuiSql } from '@/modules/budget/shell/repo/county-executive.js';
+import { makeBudgetDiscoveryRepo } from '@/modules/budget/shell/repo/discovery-repo.js';
 import { makeFundingSourceMap } from '@/modules/budget/shell/repo/funding-source-map.js';
 import {
   makeLegacyAnalyticsRepo,
   legacyAggregateSql,
 } from '@/modules/budget/shell/repo/legacy-analytics-repo.js';
 import { makeLegacyPopulationRepo } from '@/modules/budget/shell/repo/legacy-population-repo.js';
+import { entityPopulationUnionSql } from '@/modules/budget/shell/repo/population-union.js';
 import { makeTerritoryQueryRepo } from '@/modules/reference/shell/repo/territory-query-repo.js';
 import { makeIdentityRepo } from '@/modules/shared/shell/repo/identity-repo.js';
 import { makeTerritoryRepo } from '@/modules/shared/shell/repo/territory-repo.js';
@@ -81,7 +86,7 @@ const resolveScrapperRoot = (): string | undefined => {
 };
 
 /**
- * The five scrapper prod migrations this suite imports, pinned by the sha256 of
+ * The seven scrapper prod migrations this suite imports, pinned by the sha256 of
  * their CONTENT (sibling `main` @ 82b88cd7, 2026-09-02). A content pin detects a
  * changed migration under the same filename and is indifferent to unrelated
  * later migrations (the lexically-latest "head" pin did the opposite). Bump a
@@ -99,10 +104,14 @@ const MIGRATION_SHA256: Readonly<Record<string, string>> = {
     '05cefa428b161119b41723205ed877fd6d03b85ea3fd57c3c0913da3adde5406',
   '20260612T110400__budget_summary_mvs.ts':
     'cbfecd2b626597cc65c83a8bbcf0f1bdf233551cd4ab20f4fc5da511b6ad1373',
+  '20260707T120000__etl_sync_policy.ts':
+    '28a2f2f4c0e7d0365bd8a79cf7cbcc5f5f55702739d6f49fe20876f65e4be5e9',
   '20260709T170000__budget_funding_source_compat.ts':
     '0a8f6c0c85543f4ac4651b18a8951615ffdaea02e960472fc3b1d6f717e7602d',
   '20260902T100000__core_territory_hierarchy.ts':
     '504717852207bab89c352ce9326c900c25263eed8d823aafb53e3200d2c062a7',
+  '20260902T100100__core_territory_l2_shape.ts':
+    'c7df922a6645a71b47dba955947e3d91a0919cb0a369cc7a4ee232e1a4311385',
 };
 const MIGRATIONS = Object.keys(MIGRATION_SHA256);
 
@@ -520,7 +529,9 @@ beforeAll(async () => {
 
   pgClient = new pg.Client({ connectionString });
   await pgClient.connect();
-  await pgClient.query('drop schema if exists budget cascade; drop schema if exists core cascade;');
+  await pgClient.query(
+    'drop schema if exists budget cascade; drop schema if exists core cascade; drop schema if exists etl cascade;'
+  );
 
   const pool = new pg.Pool({ connectionString });
   db = new Kysely<ProdDatabase>({ dialect: new PostgresDialect({ pool }) });
@@ -542,6 +553,10 @@ beforeAll(async () => {
                   when county_code='B' and siruta_code<>'179132' then 'sector'
                   else 'municipality' end,
       territory_key = 'siruta:' || territorial_siruta_code;
+    update core.territories child set parent_id=parent.id
+    from core.territories parent
+    where (child.level='uat' and child.county_code<>'B' and parent.level='county' and child.county_code=parent.county_code)
+       or (child.level='locality' and child.kind='sector' and parent.territorial_siruta_code='179132');
     update core.public_entities e set territory_id=t.id,territorial_level=t.level,
       is_territorial_executive=e.is_uat
     from core.territories t where t.territorial_siruta_code=e.territorial_siruta_code;
@@ -1231,5 +1246,301 @@ describe('S1 native territory anchors and county presentation', () => {
     expect(cluj.isOk() && cluj.value.map((r) => r.name)).toEqual(['Cluj-Napoca']);
     const sectors = await repo.searchUat('SECTORUL', 100);
     expect(sectors.isOk() && sectors.value.length).toBe(6);
+  });
+});
+
+const rollbackTerritoryFixture = async (
+  action: (trx: Kysely<ProdDatabase>) => Promise<void>
+): Promise<void> => {
+  const rollback = new Error('rollback isolated territory fixture');
+  try {
+    await db!.transaction().execute(async (trx) => {
+      await action(trx);
+      throw rollback;
+    });
+  } catch (error) {
+    if (error !== rollback) throw error;
+  }
+};
+const unionPopulation = async (
+  trx: Kysely<ProdDatabase>,
+  filter: Partial<LegacyAnalyticsFilter>
+): Promise<string | null> => {
+  const result = await entityPopulationUnionSql(
+    cleanFilter(baseFilter(filter))._unsafeUnwrap()
+  ).execute(trx);
+  return result.rows[0]!.total;
+};
+
+describe('S1b administrative anchor population union', () => {
+  it('native ranking and aggregate timeseries honor an executive-only request after is_uat flips', async () => {
+    await rollbackTerritoryFixture(async (trx) => {
+      await sql`refresh materialized view budget.mv_execution_summary_annual`.execute(trx);
+      await sql`update core.public_entities set is_uat=false, entity_type='admin_county_council',
+        territory_id=(select id from core.territories where territorial_siruta_code='12') where cui='111'`.execute(
+        trx
+      );
+      const repo = makeBudgetRepo(trx);
+      const ranking = (
+        await repo.rankEntities({
+          year: 2024,
+          frequency: 'YEAR',
+          reportType: 'EXECUTION_DETAILED',
+          metric: 'EXPENSE',
+          normalization: 'PER_CAPITA',
+          limit: 50,
+          entityCuis: ['111'],
+          isTerritorialExecutive: true,
+        })
+      )._unsafeUnwrap();
+      expect(ranking).toHaveLength(1);
+      expect(ranking[0]!.population).toBe(700000);
+      expect(ranking[0]!.perCapita).not.toBeNull();
+      const series = (
+        await repo.aggregateTimeseries({
+          yearFrom: 2024,
+          yearTo: 2024,
+          frequency: 'YEAR',
+          reportType: 'EXECUTION_DETAILED',
+          metric: 'EXPENSE',
+          normalization: 'TOTAL',
+          isTerritorialExecutive: true,
+        })
+      )._unsafeUnwrap();
+      expect(series).toHaveLength(1);
+      const noExecutives = (
+        await repo.rankEntities({
+          year: 2024,
+          frequency: 'YEAR',
+          reportType: 'EXECUTION_DETAILED',
+          metric: 'EXPENSE',
+          normalization: 'TOTAL',
+          limit: 50,
+          entityCuis: ['111'],
+          isTerritorialExecutive: false,
+        })
+      )._unsafeUnwrap();
+      expect(noExecutives).toEqual([]);
+    });
+  });
+
+  it('retains selected ancestors and equal-valued distinct siblings, not population DISTINCT', async () => {
+    await rollbackTerritoryFixture(async (trx) => {
+      expect(await unionPopulation(trx, { is_territorial_executive: true })).toBe('2416983');
+      expect(
+        await unionPopulation(trx, { is_territorial_executive: true, entity_cuis: ['111', '444'] })
+      ).toBe('700000');
+      expect(
+        await unionPopulation(trx, {
+          is_territorial_executive: true,
+          entity_cuis: ['4179132', '4179141', '4179150'],
+        })
+      ).toBe('1716983');
+      expect(
+        await unionPopulation(trx, {
+          is_territorial_executive: true,
+          entity_cuis: ['4179141', '4179150'],
+        })
+      ).toBe('515271');
+      await sql`update core.territories set population=224764 where territorial_siruta_code='179150'`.execute(
+        trx
+      );
+      expect(
+        await unionPopulation(trx, {
+          is_territorial_executive: true,
+          entity_cuis: ['4179141', '4179150'],
+        })
+      ).toBe('449528');
+    });
+  });
+
+  it('preserves old-field-only overlap while the new field intersects types and both booleans', async () => {
+    await rollbackTerritoryFixture(async (trx) => {
+      const repo = makeLegacyPopulationRepo(trx);
+      const oldFilter = cleanFilter(
+        baseFilter({ entity_types: ['uat', 'admin_county_council'], is_uat: true })
+      )._unsafeUnwrap();
+      // Legacy's mixed county-council type shortcut selects its counties only.
+      expect(
+        (await repo.scopedPopulation(resolvePopulationScope(oldFilter)))._unsafeUnwrap()?.toString()
+      ).toBe('700000');
+      const newFilter = { ...oldFilter, isTerritorialExecutive: true };
+      expect(
+        (await repo.scopedPopulation(resolvePopulationScope(newFilter)))._unsafeUnwrap()?.toString()
+      ).toBe('2416983');
+      expect(
+        await unionPopulation(trx, { is_territorial_executive: true, is_uat: false })
+      ).toBeNull();
+      await sql`update core.public_entities set is_uat=false where cui='444'`.execute(trx);
+      expect(await unionPopulation(trx, { is_territorial_executive: true, is_uat: false })).toBe(
+        '700000'
+      );
+      expect(
+        await unionPopulation(trx, {
+          is_territorial_executive: false,
+          entity_types: ['admin_county_council'],
+        })
+      ).toBeNull();
+      expect(
+        await unionPopulation(trx, { is_territorial_executive: true, entity_types: ['education'] })
+      ).toBeNull();
+      expect(
+        await unionPopulation(trx, { is_territorial_executive: false, entity_types: ['education'] })
+      ).toBe('270000');
+      expect(
+        await unionPopulation(trx, {
+          is_territorial_executive: false,
+          is_uat: true,
+          entity_cuis: ['222'],
+        })
+      ).toBeNull();
+    });
+  });
+
+  it('applies regions, exclusions, search, tags and population bounds with the numerator predicates', async () => {
+    await rollbackTerritoryFixture(async (trx) => {
+      expect(
+        await unionPopulation(trx, { is_territorial_executive: true, regions: ['Nord-Vest'] })
+      ).toBe('700000');
+      expect(
+        await unionPopulation(trx, {
+          is_territorial_executive: true,
+          exclude: { entity_cuis: ['444'], county_codes: ['B'] },
+        })
+      ).toBe('290000');
+      expect(
+        await unionPopulation(trx, { is_territorial_executive: true, search: 'Cluj-Napoca' })
+      ).toBe('290000');
+      expect(
+        await unionPopulation(trx, {
+          is_territorial_executive: true,
+          tags: ['kind::uat'],
+          regions: ['Nord-Vest'],
+        })
+      ).toBe('290000');
+      expect(
+        await unionPopulation(trx, {
+          is_territorial_executive: true,
+          max_population: 300000,
+          regions: ['Nord-Vest'],
+        })
+      ).toBe('290000');
+      expect(
+        await unionPopulation(trx, {
+          is_territorial_executive: false,
+          exclude: { entity_cuis: ['333'] },
+        })
+      ).toBe('270000');
+    });
+  });
+
+  it('fails on missing anchors, broken roots and cycles, without requiring covered-child population', async () => {
+    await rollbackTerritoryFixture(async (trx) => {
+      expect(
+        await unionPopulation(trx, { is_territorial_executive: false, entity_cuis: ['333'] })
+      ).toBeNull();
+      await sql`update core.territories set population=null where territorial_siruta_code='54975'`.execute(
+        trx
+      );
+      expect(
+        await unionPopulation(trx, { is_territorial_executive: true, entity_cuis: ['111', '444'] })
+      ).toBe('700000');
+      expect(
+        await unionPopulation(trx, { is_territorial_executive: true, entity_cuis: ['111'] })
+      ).toBeNull();
+      await sql`update core.territories set population=0 where territorial_siruta_code='12'`.execute(
+        trx
+      );
+      expect(
+        await unionPopulation(trx, { is_territorial_executive: true, entity_cuis: ['111', '444'] })
+      ).toBeNull();
+      await sql`update core.territories set population=null where territorial_siruta_code='12'`.execute(
+        trx
+      );
+      expect(
+        await unionPopulation(trx, { is_territorial_executive: true, entity_cuis: ['111', '444'] })
+      ).toBeNull();
+    });
+    await rollbackTerritoryFixture(async (trx) => {
+      await sql`update core.territories set parent_id=null where territorial_siruta_code='54975'`.execute(
+        trx
+      );
+      expect(
+        await unionPopulation(trx, { is_territorial_executive: true, entity_cuis: ['111', '444'] })
+      ).toBeNull();
+    });
+    await rollbackTerritoryFixture(async (trx) => {
+      await sql`update core.territories set parent_id=(select id from core.territories where territorial_siruta_code='54975') where territorial_siruta_code='12'`.execute(
+        trx
+      );
+      expect(
+        await unionPopulation(trx, { is_territorial_executive: true, entity_cuis: ['111', '444'] })
+      ).toBeNull();
+    });
+  });
+
+  it('applies territory discovery guards before direct-name matches and limits', async () => {
+    await rollbackTerritoryFixture(async (trx) => {
+      await sql`insert into core.territories (name,level,kind,territory_key) values ('Buc','region','development_region','nuts:RO11')`.execute(
+        trx
+      );
+      await sql`insert into core.territories (territorial_siruta_code,name,level,kind,territory_key,county_code) values ('403','Bucu','county','county','siruta:403','B')`.execute(
+        trx
+      );
+      const result = await makeBudgetDiscoveryRepo(trx).resolve('territory', 'Buc', 1);
+      expect(result.isOk()).toBe(true);
+      if (result.isErr()) throw new Error(result.error.message);
+      expect(result.value).toHaveLength(1);
+      expect(BUCHAREST_ROWS.map(([siruta]) => siruta)).toContain(result.value[0]?.value);
+    });
+  });
+
+  it('keeps PMB fiscal representation and executive union stable across the real L2 shape', async () => {
+    await rollbackTerritoryFixture(async (trx) => {
+      const representative = async (county: string) =>
+        (
+          await sql<{
+            cui: string | null;
+          }>`select ${countyExecutiveCuiSql(sql`${county}`)} as cui`.execute(trx)
+        ).rows[0]!.cui;
+      expect(await representative('B')).toBe('4179132');
+      expect(await representative('CJ')).toBe('444');
+      await sql`insert into core.territories (name,level,kind,territory_key) values ('Romania','country','country','nuts:RO')`.execute(
+        trx
+      );
+      expect(
+        await unionPopulation(trx, { is_territorial_executive: true, entity_cuis: ['4179132'] })
+      ).toBeNull();
+      await sql`insert into core.territories (name,level,kind,territory_key,parent_id) select 'Test region','region','development_region','nuts:RO11',id from core.territories where territory_key='nuts:RO'`.execute(
+        trx
+      );
+      await sql`update core.territories set parent_id=(select id from core.territories where territory_key='nuts:RO11') where level='county'`.execute(
+        trx
+      );
+      await sql`insert into core.territories (territorial_siruta_code,siruta_code,name,county_code,level,kind,territory_key,parent_id,population)
+        select '403','B','B county','B','county','county','siruta:403',id,2000000 from core.territories where territory_key='nuts:RO11'`.execute(
+        trx
+      );
+      expect(
+        await unionPopulation(trx, { is_territorial_executive: true, entity_cuis: ['4179132'] })
+      ).toBeNull();
+      await sql`update core.territories set parent_id=(select id from core.territories where territorial_siruta_code='403') where territorial_siruta_code='179132'`.execute(
+        trx
+      );
+      await sql`update core.public_entities set is_uat=false where cui='444'`.execute(trx);
+      // Even rewritten legacy code cannot change the stable PMB executive lookup.
+      await sql`update core.territories set siruta_code='changed' where territorial_siruta_code='179132'`.execute(
+        trx
+      );
+      expect(await representative('B')).toBe('4179132');
+      expect(await unionPopulation(trx, { is_territorial_executive: true })).toBe('2416983');
+      expect(await unionPopulation(trx, { is_territorial_executive: true, is_uat: false })).toBe(
+        '700000'
+      );
+      await sql`insert into core.public_entities (cui,name,is_uat,is_territorial_executive,territory_id) select '9999','Duplicate executive',true,true,id from core.territories where territorial_siruta_code='179132'`.execute(
+        trx
+      );
+      expect(await representative('B')).toBeNull();
+    });
   });
 });

@@ -76,9 +76,14 @@ export const baseTypeDefs = /* GraphQL */ `
     status: OrganizationLabelStatus!
   }
 
-  "A SIRUTA-keyed territory (core.territories)."
+  "A canonical geographic node with optional SIRUTA/NUTS identifiers."
   type Territory {
     id: Int!
+    level: String
+    kind: String
+    territoryKey: String
+    parentId: Int
+    nutsCode: String
     territorialSirutaCode: SIRUTA
     sirutaCode: SIRUTA
     countySirutaCode: SIRUTA

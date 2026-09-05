@@ -212,6 +212,12 @@ export const budgetFactFilterSpec: CollectionFilterSpec = {
     },
     { name: 'isUat', type: 'bool', ops: ['eq'], column: { alias: 'e', column: 'is_uat' } },
     {
+      name: 'isTerritorialExecutive',
+      type: 'bool',
+      ops: ['eq'],
+      column: { alias: 'e', column: 'is_territorial_executive' },
+    },
+    {
       name: 'countyCodes',
       type: 'string',
       ops: ['in', 'eq'],
@@ -391,6 +397,12 @@ export const budgetCommitmentFactFilterSpec: CollectionFilterSpec = {
     },
     { name: 'isUat', type: 'bool', ops: ['eq'], column: { alias: 'e', column: 'is_uat' } },
     {
+      name: 'isTerritorialExecutive',
+      type: 'bool',
+      ops: ['eq'],
+      column: { alias: 'e', column: 'is_territorial_executive' },
+    },
+    {
       name: 'countyCodes',
       type: 'string',
       ops: ['in', 'eq'],
@@ -505,6 +517,12 @@ export const budgetRankingFilterSpec: CollectionFilterSpec = {
       column: { alias: 't', column: 'region' },
     },
     { name: 'isUat', type: 'bool', ops: ['eq'], column: { alias: 'e', column: 'is_uat' } },
+    {
+      name: 'isTerritorialExecutive',
+      type: 'bool',
+      ops: ['eq'],
+      column: { alias: 'e', column: 'is_territorial_executive' },
+    },
     {
       name: 'minPopulation',
       type: 'int',

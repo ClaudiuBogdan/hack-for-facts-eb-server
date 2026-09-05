@@ -113,6 +113,14 @@ export const referencePublicEntityFilterSpec: CollectionFilterSpec = {
       description: 'Is this a UAT (administrative-territorial unit)?',
     },
     {
+      name: 'isTerritorialExecutive',
+      type: 'bool',
+      ops: ['eq'],
+      column: { alias: 'pe', column: 'is_territorial_executive' },
+      description:
+        'An executive authority anchored at a geographic node; independent of creditor hierarchy.',
+    },
+    {
       name: 'tags',
       type: 'string',
       ops: ['contains'],

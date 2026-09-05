@@ -184,6 +184,7 @@ export const cleanFilter = (f: LegacyAnalyticsFilter): Result<LegacyAggregateQue
   const regions = list(f.regions);
   const entityTypes = list(f.entity_types);
   const isUat = f.is_uat ?? undefined;
+  const isTerritorialExecutive = f.is_territorial_executive ?? undefined;
   const trimmedSearch = text(f.search)?.trim();
   const search = trimmedSearch === undefined || trimmedSearch === '' ? undefined : trimmedSearch;
   const minPopulation = bounded(f.min_population);
@@ -214,6 +215,7 @@ export const cleanFilter = (f: LegacyAnalyticsFilter): Result<LegacyAggregateQue
     ...(uatIds.value !== undefined && { uatIds: uatIds.value }),
     ...(entityTypes !== undefined && { entityTypes }),
     ...(isUat !== undefined && { isUat }),
+    ...(isTerritorialExecutive !== undefined && { isTerritorialExecutive }),
     ...(search !== undefined && { search }),
     ...(tagFacets !== undefined && { tagFacets }),
     ...(minPopulation !== undefined && { minPopulation }),

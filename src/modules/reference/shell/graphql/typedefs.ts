@@ -84,7 +84,9 @@ const objectsAndQuery = /* GraphQL */ `
     category: String
     tags: [String!]!
     isUat: Boolean!
-    "Territory link key on core.territories (no FK)."
+    "An executive fiscal authority anchored at a geographic node, independent of creditor parents."
+    isTerritorialExecutive: Boolean!
+    "Optional legacy SIRUTA identifier; the canonical territory uses territory_id."
     territorialSirutaCode: SIRUTA
     "Canonical kernel Territory (county/region/population), resolved via the kernel TerritoryRepo. Null on lists / unresolved links."
     territory: Territory

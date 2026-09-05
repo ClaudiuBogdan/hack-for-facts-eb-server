@@ -403,6 +403,7 @@ export interface AggregateTimeseriesQuery {
   readonly yearTo: number;
   readonly normalization: BudgetNormalization;
   readonly isUat?: boolean;
+  readonly isTerritorialExecutive?: boolean;
 }
 
 /** Commitment time series (MV path); `metric` is a commitment metric column. */
@@ -430,6 +431,7 @@ export interface EntityRankingQuery {
   readonly countyCodes?: readonly string[];
   readonly regions?: readonly string[];
   readonly isUat?: boolean;
+  readonly isTerritorialExecutive?: boolean;
   readonly minPopulation?: number;
   readonly maxPopulation?: number;
   readonly ascending?: boolean;

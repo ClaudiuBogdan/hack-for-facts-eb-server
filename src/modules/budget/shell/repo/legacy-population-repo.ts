@@ -1,50 +1,19 @@
 /**
- * Filter-wide per-capita population over the kernel hubs — the port of the
- * legacy `KyselyPopulationRepo` (normalization/shell/repo/population-repo.ts)
- * onto `core.public_entities` (`e`) + `core.territories` (`t`), joined through
- * `e.territory_id = t.id` (uats.id ≡ t.id).
+ * Filter-wide per-capita population over canonical entity/territory anchors.
+ * Requests with the executive field use the administrative union in
+ * population-union.ts, except explicit geographic scopes keep legacy priority.
  *
- * Rules kept verbatim: entity CUIs → their territories' population
- * (:169-178); uat ids → direct (:183-196); county codes → the county-level
- * territory rows (:202-218: `siruta_code = county_code`, Bucharest via SIRUTA
- * 179132 — verified live 2026-09-02: 41 county rows + 1 Bucharest row =
- * 19,053,815); entity types with `admin_county_council` → the counties those
- * councils sit in (:226-249; INERT on Chronos: 0 entities carry that type
- * today); other entity types → their territories (:252-271); `is_uat` alone →
- * every UAT entity's territory (:277-286).
+ * Without that field, preserve the carried scope contract: explicit CUIs and
+ * territory IDs deduplicate by ID but retain ancestor/child overlap. Entity-type
+ * and all-UAT scopes use native UAT/sector nodes, suppressing PMB when selected
+ * sectors have it as their parent. County scopes select native counties, with
+ * PMB compatibility only while Bucharest county is absent. County-council type
+ * selection retains its legacy county-only shortcut.
  *
- * Intentional deltas (documented in docs/server-redesign/13 §7):
- *
- *  - PER-CAPITA DENOMINATOR (codex 2026-09-02 finding 1, program §1.17).
- *    Legacy summed `SUM(DISTINCT u.population)` (:173, :256, :267, :281) —
- *    deduplicating by VALUE — over a hierarchy that mixes levels: the 41 county
- *    rows and Bucharest municipality (179132) sit in the same set as the UATs and
- *    sectors they contain. Measured on Chronos 2026-09-02 for `is_uat = true`:
- *      · legacy `SUM(DISTINCT population)`  = 36,237,856 over 3,228 territories
- *        (each person counted ≈1.9×; equal populations collapsed);
- *      · deduplicated by `t.id`              = 38,107,630 over 3,228 (still 2×);
- *      · `UAT_LEVEL_UNIVERSE` below          = 19,053,815 over 3,186 rows
- *        = the county-row national total (YAML `population_ro` 2023: 19,050,000).
- *    So `byEntityTerritories` deduplicates by `t.id` and, for the `allUats` and
- *    `entityTypes` scopes, restricts the set to the UAT-level universe: EXCLUDE
- *    county rows (`t.siruta_code = t.county_code`, 41 rows = 17,336,832) and
- *    EXCLUDE Bucharest municipality 179132 (1,716,983) when any of its six
- *    sectors is in the same set (the sectors sum to exactly the municipality).
- *    Per-capita values on these scopes roughly DOUBLE vs Phoenix. Numerators are
- *    untouched (the `is_uat` / `entity_types` filters are filter semantics, not
- *    a bug — program §1.17 notes L2's `is_uat` redefinition moves them later).
- *    `entities` (entity_cuis) and `territories` (uat_ids) scopes are NOT
- *    restricted: the caller named the rows, and a county-council CUI or a
- *    county `uat_id` legitimately means that county's population — a list that
- *    mixes a container with its parts double-counts, as it did in legacy (risk
- *    documented, not fixed here). The county-council path keeps the county
- *    populations as is.
- *  - a database error is returned (the caller aborts) instead of silently
- *    disabling per-capita and serving nominal values under a "/capita" label
- *    (legacy `normalization/core/population.ts:37-51`).
- *  - the COUNTRY denominator is served by the usecase from the reference-data
- *    port (`population_ro`), not from the county-row sum (:63-83) — program D2:
- *    19,050,000 (YAML 2023) vs 19,053,815 (county rows), a ×1.0002 shift.
+ * Database errors and missing/invalid population remain unavailable; the
+ * usecase must never return nominal amounts under a per-capita label. Legacy
+ * country population still comes from the reference factor port. Annual INS
+ * population is a separate migration prerequisite.
  */
 
 import { sql, type Kysely } from 'kysely';
@@ -52,12 +21,14 @@ import { err, ok, type Result } from 'neverthrow';
 
 import {
   isCountyTerritory,
+  isUatPresentationTerritory,
   databaseError,
   type ApiError,
   type ProdDatabase,
 } from '@/modules/shared/index.js';
 
-import { BUCHAREST_COUNTY_CODE, BUCHAREST_SIRUTA_CODE } from '../../core/constants.js';
+import { entityPopulationUnionSql } from './population-union.js';
+import { BUCHAREST_SIRUTA_CODE } from '../../core/constants.js';
 import { legacyDecimal } from '../../core/legacy-analytics/decimal.js';
 
 import type { PopulationSource } from '../../core/legacy-analytics/ports.js';
@@ -80,26 +51,19 @@ interface CountyRow {
 const countyLevelRow = isCountyTerritory('t');
 
 /**
- * UAT_LEVEL_UNIVERSE — the level-safe population universe over a deduplicated
- * territory set `d(id, population, siruta_code, county_code)`:
- *   · not a county row (`siruta_code = county_code`);
- *   · not Bucharest municipality 179132 when any of its sectors (county 'B',
- *     `siruta_code <> 179132`) is in the SAME set `d`.
- * Measured on Chronos 2026-09-02 over the `is_uat = true` entities: 3,186 rows,
- * 19,053,815 persons (= the national county-row total).
- *
- * S1a compatibility proxy only. L1 columns exist, but S1b must replace this
- * with native level/kind selection BEFORE L2 inserts the Bucharest county node
- * or rewrites county identifiers. Preserve the measured pre-L2 result above.
+ * Carried old-field-only denominator: native UAT/sector presentation nodes,
+ * excluding PMB when its selected sector children are present. This preserves
+ * the old compatibility boundary; new executive-field requests use the maximal
+ * ancestor union in population-union.ts instead (including all e/t predicates).
  */
 const uatLevelUniverse = sql`(
-  ${sql.ref('d.siruta_code')} <> ${sql.ref('d.county_code')}
+  ${isUatPresentationTerritory('d')}
   and not (
-    ${sql.ref('d.siruta_code')} = ${BUCHAREST_SIRUTA_CODE}
+    ${sql.ref('d.territorial_siruta_code')} = ${BUCHAREST_SIRUTA_CODE}
     and exists (
       select 1 from d as s
-      where ${sql.ref('s.county_code')} = ${BUCHAREST_COUNTY_CODE}
-        and ${sql.ref('s.siruta_code')} <> ${BUCHAREST_SIRUTA_CODE}
+      where s.level = 'locality' and s.kind = 'sector'
+        and s.parent_id = d.id
     )
   )
 )`;
@@ -140,8 +104,7 @@ export const makeLegacyPopulationRepo = (db: Db): PopulationSource => {
         select distinct
           ${sql.ref('t.id')} as id,
           ${sql.ref('t.population')} as population,
-          ${sql.ref('t.siruta_code')} as siruta_code,
-          ${sql.ref('t.county_code')} as county_code
+          t.territorial_siruta_code, t.level, t.kind, t.parent_id
         from core.public_entities as e
         join core.territories as t on t.id = e.territory_id
         where ${entityWhere}
@@ -158,6 +121,8 @@ export const makeLegacyPopulationRepo = (db: Db): PopulationSource => {
   ): Promise<Result<Decimal | null, ApiError>> => {
     try {
       switch (scope.kind) {
+        case 'entityUnion':
+          return ok(toDecimal((await entityPopulationUnionSql(scope.selection).execute(db)).rows));
         case 'country':
           // Served by the usecase from the reference-data port; never queried here.
           return ok(null);

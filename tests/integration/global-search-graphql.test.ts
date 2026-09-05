@@ -363,6 +363,11 @@ const ORG: Organization = {
 };
 
 const TERRITORY: Territory = {
+  level: 'uat',
+  kind: 'municipality',
+  territoryKey: 'siruta:54975',
+  parentId: null,
+  nutsCode: null,
   id: 1,
   territorialSirutaCode: '54975',
   sirutaCode: '54975',

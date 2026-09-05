@@ -75,6 +75,7 @@ const CARD_COLUMNS = [
   'pe.category',
   'pe.tags',
   'pe.is_uat',
+  'pe.is_territorial_executive',
   'pe.territorial_siruta_code',
   'pe.uat_mapping_method',
   'pe.uat_mapping_confidence',

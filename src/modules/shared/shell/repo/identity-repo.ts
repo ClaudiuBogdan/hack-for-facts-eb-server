@@ -296,6 +296,11 @@ export const makeIdentityRepo = (db: Db): IdentityRepo => ({
         .innerJoin('core.territories as t', 't.id', 'pe.territory_id')
         .select([
           't.id',
+          't.level',
+          't.kind',
+          't.territory_key',
+          't.parent_id',
+          't.nuts_code',
           't.territorial_siruta_code',
           't.siruta_code',
           't.county_siruta_code',
@@ -313,6 +318,11 @@ export const makeIdentityRepo = (db: Db): IdentityRepo => ({
       if (row === undefined) return ok(null);
       return ok({
         id: row.id,
+        level: row.level,
+        kind: row.kind,
+        territoryKey: row.territory_key,
+        parentId: row.parent_id,
+        nutsCode: row.nuts_code,
         territorialSirutaCode: row.territorial_siruta_code,
         sirutaCode: row.siruta_code,
         countySirutaCode: row.county_siruta_code,

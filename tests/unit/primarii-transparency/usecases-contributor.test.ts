@@ -71,6 +71,11 @@ const PROFILE: PrimariiEntityProfile = {
 };
 
 const NEAMT_TERRITORY: Territory = {
+  level: 'uat',
+  kind: 'municipality',
+  territoryKey: 'siruta:54975',
+  parentId: null,
+  nutsCode: null,
   id: 7,
   territorialSirutaCode: '123456',
   sirutaCode: '123456',

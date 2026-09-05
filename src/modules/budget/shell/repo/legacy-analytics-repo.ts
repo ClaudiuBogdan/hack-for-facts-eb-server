@@ -55,6 +55,7 @@ import {
 
 import { FUNDING_SOURCE_NO_MATCH } from './filter-helpers.js';
 import { makeFundingSourceMap, type FundingSourceMapLoader } from './funding-source-map.js';
+import { legacyEntityConditions } from './legacy-entity-predicates.js';
 import {
   EXECUTION_AMOUNT_COLUMN,
   EXECUTION_REPORT_TYPE_LABELS,
@@ -122,10 +123,6 @@ const noPrefixNullSafe = (col: RawBuilder<unknown>, prefixes: readonly string[])
     sql` and `
   )}))`;
 
-/** `e.tags @> '[{"tag":"x"}]'::jsonb` — the shape the jsonb_path_ops GIN serves. */
-const tagContains = (tag: string): Cond =>
-  sql`${sql.ref('e.tags')} @> ${JSON.stringify([{ tag }])}::jsonb`;
-
 /** Whether the query needs the entity / territory joins (only when a predicate uses them). */
 export const legacyJoinNeeds = (
   q: LegacyAggregateQuery
@@ -144,6 +141,7 @@ export const legacyJoinNeeds = (
     territory ||
     q.entityTypes !== undefined ||
     q.isUat !== undefined ||
+    q.isTerritorialExecutive !== undefined ||
     q.search !== undefined ||
     q.tagFacets !== undefined ||
     ex?.entityTypes !== undefined ||
@@ -194,7 +192,6 @@ export const legacyAggregateConditions = (
     conds.push(sql`${sql.ref('eli.main_creditor_cui')} = ${q.mainCreditorCui}`);
   }
   if (q.reportIds !== undefined) conds.push(inList(sql.ref('eli.report_id'), q.reportIds));
-  if (q.entityCuis !== undefined) conds.push(inList(sql.ref('eli.entity_cui'), q.entityCuis));
   if (q.fundingSourceIds !== undefined) {
     // PUBLIC (phoenix ordinal) → STORED id; an unknown public id selects nothing.
     const stored = q.fundingSourceIds.map((id) => toStoredFundingId(id) ?? FUNDING_SOURCE_NO_MATCH);
@@ -214,31 +211,7 @@ export const legacyAggregateConditions = (
   if (q.economicPrefixes !== undefined) conds.push(anyPrefix(economic, q.economicPrefixes));
   if (q.programCodes !== undefined) conds.push(inList(sql.ref('eli.program_code'), q.programCodes));
 
-  // ── entity scope (legacy buildEntityConditions; `e` = core.public_entities) ──
-  if (q.entityTypes !== undefined) conds.push(inList(sql.ref('e.entity_type'), q.entityTypes));
-  if (q.isUat !== undefined) conds.push(sql`${sql.ref('e.is_uat')} = ${q.isUat}`);
-  if (q.uatIds !== undefined) conds.push(inList(sql.ref('t.id'), q.uatIds));
-  if (q.search !== undefined) {
-    conds.push(sql`${sql.ref('e.name')} ilike ${'%' + escapeLike(q.search) + '%'}`);
-  }
-  if (q.tagFacets !== undefined) {
-    for (const facet of q.tagFacets) {
-      const ors = facet.map(tagContains);
-      conds.push(
-        ors.length === 1 && ors[0] !== undefined ? ors[0] : sql`(${sql.join(ors, sql` or `)})`
-      );
-    }
-  }
-
-  // ── territory scope (legacy buildUatConditions; `t` = core.territories) ──
-  if (q.countyCodes !== undefined) conds.push(inList(sql.ref('t.county_code'), q.countyCodes));
-  if (q.regions !== undefined) conds.push(inList(sql.ref('t.region'), q.regions));
-  if (q.minPopulation !== undefined) {
-    conds.push(sql`${sql.ref('t.population')} >= ${q.minPopulation}`);
-  }
-  if (q.maxPopulation !== undefined) {
-    conds.push(sql`${sql.ref('t.population')} <= ${q.maxPopulation}`);
-  }
+  conds.push(...legacyEntityConditions(q, 'eli.entity_cui'));
 
   // ── row-level amount thresholds (legacy buildAmountConditions) ──
   if (q.itemMinAmount !== undefined) conds.push(sql`${amount} >= ${q.itemMinAmount}::numeric`);
@@ -249,9 +222,6 @@ export const legacyAggregateConditions = (
   if (ex !== undefined) {
     if (ex.reportIds !== undefined) {
       conds.push(sql`${sql.ref('eli.report_id')} not in (${sql.join(ex.reportIds)})`);
-    }
-    if (ex.entityCuis !== undefined) {
-      conds.push(sql`${sql.ref('eli.entity_cui')} not in (${sql.join(ex.entityCuis)})`);
     }
     if (ex.mainCreditorCui !== undefined) {
       const col = sql.ref('eli.main_creditor_cui');
@@ -293,18 +263,6 @@ export const legacyAggregateConditions = (
     if (ex.programCodes !== undefined) {
       conds.push(notInNullSafe(sql.ref('eli.program_code'), ex.programCodes));
     }
-    if (ex.entityTypes !== undefined) {
-      conds.push(notInNullSafe(sql.ref('e.entity_type'), ex.entityTypes));
-    }
-    if (ex.uatIds !== undefined) conds.push(notInNullSafe(sql.ref('t.id'), ex.uatIds));
-    if (ex.tags !== undefined) {
-      const tags = sql.ref('e.tags');
-      conds.push(sql`(${tags} is null or not (${sql.join(ex.tags.map(tagContains), sql` or `)}))`);
-    }
-    if (ex.countyCodes !== undefined) {
-      conds.push(notInNullSafe(sql.ref('t.county_code'), ex.countyCodes));
-    }
-    if (ex.regions !== undefined) conds.push(notInNullSafe(sql.ref('t.region'), ex.regions));
   }
 
   return conds;

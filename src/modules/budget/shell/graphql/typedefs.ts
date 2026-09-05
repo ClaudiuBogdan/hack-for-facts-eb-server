@@ -477,6 +477,7 @@ const objectsAndQuery = /* GraphQL */ `
       yearTo: Int!
       normalization: BudgetNormalization = TOTAL
       isUat: Boolean
+      isTerritorialExecutive: Boolean
     ): [BudgetSeriesPoint!]!
     "Commitment time series (MV path)."
     budgetCommitmentTimeseries(

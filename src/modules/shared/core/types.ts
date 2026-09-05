@@ -162,9 +162,14 @@ export interface OrgNameMatch {
   readonly score?: number;
 }
 
-/** `core.territories` — the SIRUTA-keyed territory hub (§4.2). */
+/** `core.territories` — canonical geographic nodes with optional source identifiers. */
 export interface Territory {
   readonly id: number;
+  readonly level: string | null;
+  readonly kind: string | null;
+  readonly territoryKey: string | null;
+  readonly parentId: number | null;
+  readonly nutsCode: string | null;
   readonly territorialSirutaCode: Siruta | null;
   readonly sirutaCode: Siruta | null;
   readonly countySirutaCode: Siruta | null;

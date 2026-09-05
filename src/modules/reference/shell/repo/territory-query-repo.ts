@@ -41,6 +41,11 @@ const clampFirst = (first: number): number => Math.min(Math.max(Math.floor(first
 
 const TERRITORY_COLUMNS = [
   't.id',
+  't.level',
+  't.kind',
+  't.territory_key',
+  't.parent_id',
+  't.nuts_code',
   't.territorial_siruta_code',
   't.siruta_code',
   't.county_siruta_code',
@@ -54,6 +59,11 @@ const TERRITORY_COLUMNS = [
 
 interface TerritoryRow {
   id: number;
+  level: string | null;
+  kind: string | null;
+  territory_key: string | null;
+  parent_id: number | null;
+  nuts_code: string | null;
   territorial_siruta_code: string | null;
   siruta_code: string | null;
   county_siruta_code: string | null;
@@ -67,6 +77,11 @@ interface TerritoryRow {
 
 const mapTerritory = (r: TerritoryRow): Territory => ({
   id: r.id,
+  level: r.level,
+  kind: r.kind,
+  territoryKey: r.territory_key,
+  parentId: r.parent_id,
+  nutsCode: r.nuts_code,
   territorialSirutaCode: r.territorial_siruta_code,
   sirutaCode: r.siruta_code,
   countySirutaCode: r.county_siruta_code,

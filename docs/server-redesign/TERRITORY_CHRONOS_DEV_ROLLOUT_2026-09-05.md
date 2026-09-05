@@ -1,7 +1,11 @@
 # Territory prerequisite for the Chronos dev migration
 
-Status: S1a implemented and reviewed locally. SQL regression 22/22; full server
-gates pass (5,316 tests). No territory L2 apply.
+Status: S1a committed and deployed on Chronos dev (code 62afcb92, image pin
+77551935); both replicas healthy. SQL regression 22/22; full server gates passed
+(5,316 tests). S1b implemented locally and approved by Astra high, Fable high and GLM 5.3.
+Server type/lint/dependency/build gates passed; 5,320 tests and 29 PG18 tests passed.
+Client production-build dependency reconciliation is in progress.
+No territory L2 apply.
 User approval is recorded in the scrapper full-migration authorization of Sept 5.
 Only server/client dev branches and Chronos dev deployments are in scope.
 
@@ -36,24 +40,51 @@ population, use absent/conflicting legacy SIRUTA beside a valid FK, and keep the
 existing explicit-CUI overlap behavior visible. Unit tests cover reference list
 resolution by CUI, error propagation and same-tick duplicate requests.
 
-## S1b remains required before L2
+## S1b: native metadata and executive selection
 
-Expose native territory metadata and isTerritorialExecutive through server/client
-selection and responses. Replace the remaining legacy UAT-level population
-proxy before L2 so the new 403 node cannot be mistaken for a sector. Keep
-county-heatmap fiscal representative selection separate from geographic nodes. Preserve explicit persisted is_uat selections; migrate
-app-owned defaults to executive-only selection. Executive-only SQL must request
-the entity join. Population planning must preserve both executive/is_uat predicates
-and handle county-only selections. County councils must retain per-capita UI gates.
-The two procurement-repo legacy SIRUTA joins also require migration before L2.
-The current heatmap representative selector intentionally returns PMB, not the
-future 403 geographic node (whose uat_code is null); S1b must replace the county
-identifier proxy with an explicit executive lookup while preserving PMB.
-No L2 flag flip before that complete server/client path is tested and deployed.
+Territory responses expose nullable level, kind, territoryKey, parentId and nutsCode.
+Public entities expose isTerritorialExecutive independently from isUat. Native
+budget/reference filters and the carried analytics filter preserve explicit true
+and false. Native per-capita entity ranking uses executive eligibility and the
+canonical anchored population; county councils retain client eligibility when
+isUat becomes false. Older DTOs fall back to isUat only when the executive field is
+absent, never when explicitly false or null.
 
-Annual POP107D native normalization, geographic-union sums, INS coordinate handling,
-release control and the remaining missing client/API roots remain later milestones;
-S1a does not claim those capabilities.
+New carried requests that include is_territorial_executive opt into the population
+union of their selected administrative anchors. The numerator and denominator share
+entity/geography predicates, including both flags and their intersections, names,
+tags, types, population bounds and exclusions. Fact-only period, report, creditor,
+classification and amount predicates apply only to the numerator. Explicit
+geographic scope retains the carried API priority. Requests without the new field
+retain their existing denominator behavior, including explicit-CUI overlap.
+
+The union retains selected ancestors once, without counting their selected children
+again. Parent traversal is in one SQL statement and checks missing anchors, dangling
+parents, cycles and missing/nonpositive retained populations. A known selected
+ancestor can cover a child with missing population; a missing ancestor population
+cannot be replaced with child populations. L1 county roots are accepted only while
+no country node exists. Unparented PMB is accepted only while both country and
+Bucharest county are absent. This is administrative anchor coverage, not an estimate
+of institutions' service areas, and currently uses the existing population snapshot.
+Annual POP107D factors remain a separate prerequisite for final acceptance.
+
+County map fiscal representatives resolve explicitly through executive anchors.
+Bucharest remains PMB by its stable municipality identity, independent of geographic
+403 or creditor parent relationships. Ambiguous executive matches return null.
+Procurement's two geography joins use canonical territory_id. Legacy SIRUTA discovery
+excludes unanchored and nonlocal geographic nodes before limiting name matches.
+
+## Remaining prerequisites before L2
+
+Mount and test the native advanced-map provider/routes, carry the executive filter
+through all remaining legacy allowlists (advanced-map, MCP, notifications and report
+loaders), and then migrate app-owned map defaults to executive selection. Existing
+persisted is_uat selections must remain unchanged. These paths are not claimed by
+this S1b slice. No L2 flag flip before the complete path is tested and deployed.
+
+Annual POP107D normalization, INS coordinate handling, release control and the
+remaining missing client/API roots remain later milestones. The complete migration
+is not done until their live page acceptance gates pass.
 
 ## Reviewed acceptance evidence
 

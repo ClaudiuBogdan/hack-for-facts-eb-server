@@ -87,6 +87,11 @@ const CASES: readonly FilterCase[] = [
     expected: { isUat: true },
   },
   {
+    key: 'isTerritorialExecutive.eq',
+    filter: { year: { eq: 2025 }, isTerritorialExecutive: { eq: false } },
+    expected: { isTerritorialExecutive: false },
+  },
+  {
     key: 'minPopulation.gte',
     filter: { year: { eq: 2025 }, minPopulation: { gte: 10_000 } },
     expected: { minPopulation: 10_000 },
@@ -135,9 +140,9 @@ describe('budget ranking filter contract', () => {
   });
 
   it('preserves empty and intersected inclusion semantics', () => {
-    expect(
-      parseRankingFilter({ year: { eq: 2025 }, entityCuis: { in: [] } })
-    ).toMatchObject({ entityCuis: [] });
+    expect(parseRankingFilter({ year: { eq: 2025 }, entityCuis: { in: [] } })).toMatchObject({
+      entityCuis: [],
+    });
     expect(
       parseRankingFilter({
         year: { eq: 2025 },
@@ -228,12 +233,8 @@ describe('budget ranking filter contract', () => {
       clientBaseUrl: 'https://transparenta.eu',
     }).find((candidate) => candidate.name === 'rank_budget_entities');
     expect(tool).toBeDefined();
-    expect(() =>
-      kernelToolInputSchema(tool!).parse({ year: 2025, frequency: 'WEEK' })
-    ).toThrow();
-    expect(() =>
-      kernelToolInputSchema(tool!).parse({ year: 2025, mainCreditorCui: '' })
-    ).toThrow();
+    expect(() => kernelToolInputSchema(tool!).parse({ year: 2025, frequency: 'WEEK' })).toThrow();
+    expect(() => kernelToolInputSchema(tool!).parse({ year: 2025, mainCreditorCui: '' })).toThrow();
     await tool!.handler({
       year: 2025,
       reportType: 'EXECUTION_DETAILED',

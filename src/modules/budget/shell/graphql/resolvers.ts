@@ -277,6 +277,7 @@ export const makeBudgetResolvers = (deps: BudgetResolverDeps): Record<string, un
           yearTo: number;
           normalization?: BudgetNormalization;
           isUat?: boolean | null;
+          isTerritorialExecutive?: boolean | null;
         }
       ) =>
         unwrap(
@@ -288,6 +289,9 @@ export const makeBudgetResolvers = (deps: BudgetResolverDeps): Record<string, un
             yearTo: args.yearTo,
             normalization: args.normalization ?? 'TOTAL',
             ...(typeof args.isUat === 'boolean' && { isUat: args.isUat }),
+            ...(typeof args.isTerritorialExecutive === 'boolean' && {
+              isTerritorialExecutive: args.isTerritorialExecutive,
+            }),
           })
         ),
 
@@ -764,6 +768,7 @@ export const parseRankingFilter = (filter: FilterInput): ParsedRankingFilter => 
   const counties = readOneOrMany(filter, 'countyCodes');
   const regions = readOneOrMany(filter, 'regions');
   const isUatStr = readEq(filter, 'isUat');
+  const executiveStr = readEq(filter, 'isTerritorialExecutive');
   const minPopulation = readNumberOperation(filter, 'minPopulation', 'gte');
   const maxPopulation = readNumberOperation(filter, 'maxPopulation', 'lte');
   return {
@@ -780,6 +785,7 @@ export const parseRankingFilter = (filter: FilterInput): ParsedRankingFilter => 
     ...(counties !== undefined && { countyCodes: counties }),
     ...(regions !== undefined && { regions }),
     ...(isUatStr !== undefined && { isUat: isUatStr === 'true' }),
+    ...(executiveStr !== undefined && { isTerritorialExecutive: executiveStr === 'true' }),
     ...(minPopulation !== undefined && { minPopulation }),
     ...(maxPopulation !== undefined && { maxPopulation }),
   };

@@ -62,9 +62,13 @@ export const makeBudgetDiscoveryRepo = (db: Db): BudgetDiscoveryRepo => {
       .selectFrom('core.territories as t')
       .select(['t.territorial_siruta_code', 't.name', 't.county_name', 't.county_code'])
       .where(
-        sql<boolean>`t.name ilike ${pattern} escape '\\' or t.county_name ilike ${pattern} escape '\\'`
+        sql<boolean>`(t.name ilike ${pattern} escape '\\' or t.county_name ilike ${pattern} escape '\\')`
       )
       .where('t.territorial_siruta_code', 'is not', null)
+      .where('t.level', 'in', ['county', 'uat', 'locality'])
+      .where(
+        sql<boolean>`exists (select 1 from core.public_entities pe where pe.territory_id = t.id)`
+      )
       .orderBy(sql`length(t.name)`)
       .limit(limit + 1)
       .execute();

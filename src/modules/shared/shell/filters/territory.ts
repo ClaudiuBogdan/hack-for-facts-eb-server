@@ -49,6 +49,7 @@ export interface TerritoryFilterValues {
   readonly excludeSiruta?: readonly string[];
   /** `core.public_entities.is_uat` (does NOT need the territories join). */
   readonly isUat?: boolean;
+  readonly isTerritorialExecutive?: boolean;
   readonly populationMin?: number;
   readonly populationMax?: number;
 }
@@ -62,6 +63,7 @@ export const hasTerritoryFilter = (v: TerritoryFilterValues): boolean =>
   v.siruta !== undefined ||
   (v.excludeSiruta !== undefined && v.excludeSiruta.length > 0) ||
   v.isUat !== undefined ||
+  v.isTerritorialExecutive !== undefined ||
   v.populationMin !== undefined ||
   v.populationMax !== undefined;
 
@@ -116,6 +118,9 @@ const innerConditions = (v: TerritoryFilterValues): SqlCondition[] => {
   excludeMembership(siruta, v.excludeSiruta);
 
   if (v.isUat !== undefined) conds.push(sql`${isUat} = ${v.isUat}`);
+  if (v.isTerritorialExecutive !== undefined) {
+    conds.push(sql`pe.is_territorial_executive = ${v.isTerritorialExecutive}`);
+  }
   if (v.populationMin !== undefined) conds.push(sql`${population} >= ${v.populationMin}`);
   if (v.populationMax !== undefined) conds.push(sql`${population} <= ${v.populationMax}`);
 

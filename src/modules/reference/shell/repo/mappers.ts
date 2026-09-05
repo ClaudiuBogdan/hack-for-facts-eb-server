@@ -34,6 +34,7 @@ export interface PublicEntityRow {
   category: string | null;
   tags: unknown;
   is_uat: boolean | null;
+  is_territorial_executive: boolean;
   territorial_siruta_code: string | null;
   uat_mapping_method: string | null;
   uat_mapping_confidence: string | null;
@@ -59,6 +60,7 @@ export const mapPublicEntity = (
   category: r.category,
   tags: toStringArray(r.tags),
   isUat: r.is_uat === true,
+  isTerritorialExecutive: r.is_territorial_executive,
   territorialSirutaCode: r.territorial_siruta_code,
   uatMapping: {
     method: r.uat_mapping_method,

@@ -21,6 +21,11 @@ type Db = Kysely<ProdDatabase>;
 
 const TERRITORY_COLUMNS = [
   'id',
+  'level',
+  'kind',
+  'territory_key',
+  'parent_id',
+  'nuts_code',
   'territorial_siruta_code',
   'siruta_code',
   'county_siruta_code',
@@ -34,6 +39,11 @@ const TERRITORY_COLUMNS = [
 
 const mapTerritory = (row: {
   id: number;
+  level: string | null;
+  kind: string | null;
+  territory_key: string | null;
+  parent_id: number | null;
+  nuts_code: string | null;
   territorial_siruta_code: string | null;
   siruta_code: string | null;
   county_siruta_code: string | null;
@@ -45,6 +55,11 @@ const mapTerritory = (row: {
   population: number | null;
 }): Territory => ({
   id: row.id,
+  level: row.level,
+  kind: row.kind,
+  territoryKey: row.territory_key,
+  parentId: row.parent_id,
+  nutsCode: row.nuts_code,
   territorialSirutaCode: row.territorial_siruta_code,
   sirutaCode: row.siruta_code,
   countySirutaCode: row.county_siruta_code,
