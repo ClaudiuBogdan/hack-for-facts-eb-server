@@ -33,7 +33,7 @@ import {
   type Runner,
   type Trx,
 } from './snapshot.js';
-import { nodeSelect, toNode, type NodeRow } from './territory.js';
+import { nodeSelect, territoryQuerySql, toNode, type NodeRow } from './territory.js';
 import { escapeLike, foldSearch } from '../../core/fold.js';
 import {
   MAX_SLOTS,
@@ -778,6 +778,16 @@ const makeRepoOn = (db: Db, readTx: Runner, snapshotBound = false): InsRepo => {
       });
     },
 
+    async territoriesByCoreId(coreTerritoryId) {
+      return readTx('territoriesByCoreId', async (trx) => {
+        const result =
+          await sql<NodeRow>`${territoryQuerySql(sql`t.core_territory_id=${coreTerritoryId}`)} order by t.territory_id`.execute(
+            trx
+          );
+        return result.rows.map(toNode);
+      });
+    },
+
     async totalMember(datasetCode, dimIndex) {
       return readTx('totalMember', async (trx) => {
         const res = await sql<{ nom_item_id: number }>`
@@ -828,23 +838,6 @@ const makeRepoOn = (db: Db, readTx: Runner, snapshotBound = false): InsRepo => {
           ) and ${contextCode === undefined ? sql`true` : sql`d.context_code in (select context_code from selected_contexts)`}
           order by d.dataset_code`.execute(trx);
         return res.rows.map((row) => row.dataset_code);
-      });
-    },
-
-    async datasetsWithLevel(level) {
-      return readTx('datasetsWithLevel', async (trx) => {
-        const column =
-          level === 'LAU'
-            ? sql`c.has_lau`
-            : level === 'NUTS3'
-              ? sql`c.has_county`
-              : level === 'NATIONAL'
-                ? sql`c.has_national`
-                : sql`c.has_region`;
-        const res = await sql<{ dataset_code: string }>`
-          select d.dataset_code ${datasetFrom}
-          where publication.facts_ready and ${column} order by d.dataset_code`.execute(trx);
-        return res.rows.map((r) => r.dataset_code);
       });
     },
 

@@ -52,6 +52,7 @@ import {
 import { createProdDb } from '@/modules/shared/shell/db/pool.js';
 
 import { registerInsDefaultSeriesCases } from './ins-native-default-series-cases.js';
+import { registerInsEntityBridgeCases } from './ins-native-entity-bridge-cases.js';
 import { registerInsGeographyCases } from './ins-native-geography-cases.js';
 import { registerInsPublicationCases } from './ins-native-publication-cases.js';
 
@@ -430,6 +431,10 @@ const waitForBlockedInsRead = async (writer: pg.Client): Promise<number> => {
 };
 
 describe('ins-native repository over the real scrapper DDL (e2e)', () => {
+  registerInsEntityBridgeCases(it, () => {
+    if (db === undefined) throw new Error('fixture not ready');
+    return db;
+  });
   registerInsGeographyCases(it, () => {
     if (db === undefined) throw new Error('fixture not ready');
     return db;

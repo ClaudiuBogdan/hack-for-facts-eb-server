@@ -101,6 +101,10 @@ export interface InsCatalogRepo {
   territoriesBySiruta(
     sirutaCodes: readonly string[]
   ): Promise<Result<readonly InsTerritoryNode[], ApiError>>;
+  /** Reverse links are checked independently from source-code resolution. */
+  territoriesByCoreId(
+    coreTerritoryId: number
+  ): Promise<Result<readonly InsTerritoryNode[], ApiError>>;
   /** The TOTAL member of a dimension, if it has exactly one. */
   totalMember(datasetCode: string, dimIndex: number): Promise<Result<number | null, ApiError>>;
   defaultPins(datasetCodes: readonly string[]): Promise<Result<readonly InsDefaultPin[], ApiError>>;
@@ -109,8 +113,6 @@ export interface InsCatalogRepo {
     territoryId: number,
     contextCode?: string
   ): Promise<Result<readonly string[], ApiError>>;
-  /** Dataset codes whose territorial dimension binds at the given level. */
-  datasetsWithLevel(level: InsTerritoryLevel): Promise<Result<readonly string[], ApiError>>;
 }
 
 export interface InsFactRepo {

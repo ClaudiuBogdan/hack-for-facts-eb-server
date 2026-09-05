@@ -161,7 +161,7 @@ export const registerInsPublicationCases = (
         )._unsafeUnwrap();
         expect(beyond.nodes).toEqual([]);
         expect(beyond.totalCount).toBe(2);
-        expect((await repo.datasetsWithLevel('LAU'))._unsafeUnwrap()).toEqual([]);
+        expect((await repo.datasetsForTerritory(931))._unsafeUnwrap()).toEqual([]);
         expect(
           (await listObservations(repo, 'POPTEST', { territoryCodes: ['CJ'] }))._unsafeUnwrapErr()
             .type

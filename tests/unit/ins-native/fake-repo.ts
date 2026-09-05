@@ -649,6 +649,7 @@ export const makeFakeRepo = (
         ),
       territoriesBySiruta: (codes) =>
         R(NODES.filter((n) => n.sirutaCode !== null && codes.includes(n.sirutaCode))),
+      territoriesByCoreId: (id) => R(NODES.filter((node) => node.coreTerritoryId === id)),
       totalMember: (datasetCode, dimIndex) => {
         const totals = M.filter(
           (m) => m.dataset === datasetCode && m.dim === dimIndex && m.role === 'TOTAL'
@@ -666,12 +667,6 @@ export const makeFakeRepo = (
                 contextIncludes(contextCode, dataset.contextCode)
             )
             .map((dataset) => dataset.code)
-        ),
-      datasetsWithLevel: (level) =>
-        R(
-          datasets
-            .filter((d) => (level === 'LAU' ? d.hasLau : level === 'NUTS3' ? d.hasCounty : true))
-            .map((d) => d.code)
         ),
       dimensionsForDatasets: (codes) => R(codes.flatMap((code) => DIMENSIONS[code] ?? [])),
       membersForDatasets: (requests) =>

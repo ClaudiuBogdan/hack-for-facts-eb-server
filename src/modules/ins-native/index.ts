@@ -36,8 +36,8 @@ export interface InsNativeModuleDeps {
   readonly clientBaseUrl?: string;
   /** Inject a repository (tests); defaults to the Chronos repository. */
   readonly repo?: InsRepo;
-  /** CUI → the entity's UAT SIRUTA (kernel identity hub); absent = no entity presence. */
-  readonly sirutaForCui?: InsContributorDeps['sirutaForCui'];
+  /** CUI → canonical geographic anchor (kernel identity hub); absent = no presence. */
+  readonly territoryForCui?: InsContributorDeps['territoryForCui'];
 }
 
 export interface InsNativeModule {
@@ -83,7 +83,7 @@ export const makeInsNativeModule = (deps: InsNativeModuleDeps): InsNativeModule 
     mcpTools: makeInsMcpTools({ repo, clientBaseUrl }),
     contributor: makeInsContributor(
       repo,
-      deps.sirutaForCui === undefined ? {} : { sirutaForCui: deps.sirutaForCui }
+      deps.territoryForCui === undefined ? {} : { territoryForCui: deps.territoryForCui }
     ),
   };
 };

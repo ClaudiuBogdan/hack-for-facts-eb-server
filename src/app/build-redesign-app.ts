@@ -19,7 +19,6 @@ import corsPlugin from '@fastify/cors';
 import { makeExecutableSchema } from '@graphql-tools/schema';
 import fastifyLib, { type FastifyInstance, type FastifyReply } from 'fastify';
 import mercuriusPlugin from 'mercurius';
-import { err, ok } from 'neverthrow';
 
 import { makeInsGraphqlLifecycle } from './ins-graphql-session.js';
 import {
@@ -392,16 +391,12 @@ export const registerRedesignSurface = async (
   let createInsSession: (() => InsReadSession) | undefined;
 
   if (enabledModules.includes('ins-native')) {
-    // Entity presence: CUI → the entity's UAT SIRUTA through the kernel identity hub.
+    // INS context uses the full canonical geographic anchor, including county/NUTS level.
     const insNative = makeInsNativeModule({
       db: kernel.db,
       registry: kernel.contributors,
       ...(deps.clientBaseUrl !== undefined && { clientBaseUrl: deps.clientBaseUrl }),
-      sirutaForCui: async (cui) => {
-        const territory = await kernel.identityRepo.territoryForCui(cui);
-        if (territory.isErr()) return err(territory.error);
-        return ok(territory.value?.territorialSirutaCode ?? null);
-      },
+      territoryForCui: (cui) => kernel.identityRepo.territoryForCui(cui),
     });
     createInsSession = insNative.createReadSession;
     kernel.contributors.register(insNative.contributor);

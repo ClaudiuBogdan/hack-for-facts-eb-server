@@ -81,3 +81,28 @@ snapshot; operation deadlines and read-only enforcement remain in effect.
 Regression tests use the real content-pinned producer DDL and independently
 authored synthetic observations, including historical qualification, ambiguity, mixed-dataset identifier
 collisions, missing references, GraphQL/MCP parity and chunk-boundary ordering.
+
+## Entity statistical context
+
+The entity contributor receives the full canonical territory from the kernel,
+including its withholding policy. A public entity can have statistical context
+for its canonical area regardless of fiscal executive status. This does not
+assert jurisdiction, service population or institutional performance.
+
+County nodes use county letters at NUTS3; UATs and sectors use their own SIRUTA
+at LAU. Bucharest county, city and six sectors remain distinct. Country,
+macroregion and development-region anchors use their NUTS codes. Unrecognized
+or contradictory kernel identifiers produce no INS presence.
+
+Within one INS snapshot, exact source identity and reverse core links must agree.
+A missing bridge link is allowed when the source identity is unique. Contradictory
+or duplicate links return ServiceUnavailable; the existing entity aggregator
+suppresses a failed contributor while retaining other sources. Coverage counts certified datasets with modern coverage for the exact node,
+not all datasets at its level.
+Coverage does not prove a unique default series. Public presence attributes expose
+source code, level, name and optional SIRUTA, never the core surrogate ID.
+
+Before enabling INS, validate all 42 county codes against the published source
+spine and measure national-context discovery on the fully loaded catalog. Every
+kernel country, macroregion, development-region and county row must also yield
+a non-null identity through this mapping; validate both sides before enablement.
