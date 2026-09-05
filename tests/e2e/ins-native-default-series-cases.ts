@@ -1,6 +1,7 @@
 import { sql, type Kysely } from 'kysely';
 import { expect } from 'vitest';
 
+import { listObservations } from '@/modules/ins-native/core/usecases.js';
 import { makeInsLegacyResolvers } from '@/modules/ins-native/shell/graphql/legacy/resolvers.js';
 import { makeInsMcpTools } from '@/modules/ins-native/shell/mcp/tools.js';
 
@@ -25,6 +26,43 @@ export const registerInsDefaultSeriesCases = (
   it: RegisterCase,
   database: () => Kysely<ProdDatabase>
 ): void => {
+  it('source integer boundaries survive list input, default pins and hydrated cells', () =>
+    inInsFixture(database(), async (trx, repo) => {
+      let previous = 1;
+      for (const member of [-2147483648, -1, 0, 1000000000, 2147483647]) {
+        await sql`insert into ins.nomenclature_items(nom_item_id,label_ro,label_normalised,first_seen_generation)
+          values(${member},'Boundary member','boundary member',1)`.execute(trx);
+        await sql`insert into ins.dataset_dimension_members(dataset_code,dim_index,nom_item_id,ordinal,member_role,role_signals)
+          values('POPTEST',0,${member},10,'LEAF','{}')`.execute(trx);
+        await sql`update ins.observations set dim1_member_id=${member}
+          where dataset_code='POPTEST' and dim1_member_id=${previous}`.execute(trx);
+        const selected = {
+          ...request('cluj', 931),
+          nonGeographicPins: new Map([
+            [1, member],
+            [2, 105],
+          ]),
+        };
+        const result = (await repo.readDefaultSeries([selected], 1))._unsafeUnwrap()[0];
+        expect(result?.status).toBe('SERIES');
+        expect(result?.observations[0]?.members[0]?.nomItemId).toBe(member);
+        const listed = (
+          await listObservations(
+            repo,
+            'POPTEST',
+            {
+              sirutaCodes: ['54975'],
+              classificationTypeCodes: ['D0', 'D1'],
+              classificationValueCodes: [String(member), '105'],
+            },
+            1,
+            0
+          )
+        )._unsafeUnwrap();
+        expect(listed.nodes[0]?.members[0]?.nomItemId).toBe(member);
+        previous = member;
+      }
+    }));
   it('default source selection counts source tuples rather than observations', () =>
     inInsFixture(database(), async (_trx, repo) => {
       const result = (await repo.readDefaultSeries([request('cluj', 931)], 2))._unsafeUnwrap();

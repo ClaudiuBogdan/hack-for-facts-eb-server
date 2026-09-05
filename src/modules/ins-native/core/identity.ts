@@ -23,7 +23,10 @@ import type { InsCoordinate } from './types.js';
 
 export const TOTAL_ALIAS = 'TOTAL';
 const DIMENSION_CODE = /^D(\d{1,2})$/u;
-const MEMBER_CODE = /^\d{1,9}$/u;
+const MEMBER_CODE = /^-?\d{1,10}$/u;
+// Source nomenclature and observation coordinates use PostgreSQL integer, including zero.
+const SOURCE_MEMBER_MIN = -2147483648;
+const SOURCE_MEMBER_MAX = 2147483647;
 const OBSERVATION_REF_VERSION = 'v1';
 
 /** `D<dimIndex>` for a dimension of a dataset. */
@@ -38,10 +41,16 @@ export const parseDimensionCode = (code: string): number | null => {
 /** The public code of a member: its TEMPO nomItemId. */
 export const memberCode = (nomItemId: number): string => String(nomItemId);
 
-/** Parse a member code into a nomItemId; null when it is not a plain integer. */
+export const isSourceMemberId = (value: number): boolean =>
+  Number.isInteger(value) && value >= SOURCE_MEMBER_MIN && value <= SOURCE_MEMBER_MAX;
+
+/** Parse a member code into a nomItemId; null when it is not a source integer. */
 export const parseMemberCode = (code: string): number | null => {
   const t = code.trim();
-  return MEMBER_CODE.test(t) ? Number(t) : null;
+  if (!MEMBER_CODE.test(t)) return null;
+  const value = Number(t);
+  if (!isSourceMemberId(value)) return null;
+  return value === 0 ? 0 : value;
 };
 
 export const isTotalAlias = (code: string): boolean => code.trim().toUpperCase() === TOTAL_ALIAS;
@@ -71,9 +80,9 @@ export const parseObservationRef = (ref: string): InsCoordinate | null => {
   if (parts.length < 4 || parts[0] !== OBSERVATION_REF_VERSION) return null;
   const datasetCode = parts[1] ?? '';
   if (datasetCode === '') return null;
-  const time = Number(parts[parts.length - 2]);
-  const unit = Number(parts[parts.length - 1]);
-  if (!Number.isInteger(time) || !Number.isInteger(unit)) return null;
+  const time = parseMemberCode(parts[parts.length - 2] ?? '');
+  const unit = parseMemberCode(parts[parts.length - 1] ?? '');
+  if (time === null || unit === null) return null;
   const slotParts = parts.slice(2, -2);
   const slots: (number | null)[] = [];
   for (const p of slotParts) {
@@ -81,8 +90,8 @@ export const parseObservationRef = (ref: string): InsCoordinate | null => {
       slots.push(null);
       continue;
     }
-    const n = Number(p);
-    if (!Number.isInteger(n)) return null;
+    const n = parseMemberCode(p);
+    if (n === null) return null;
     slots.push(n);
   }
   return { datasetCode, slots, timeNomItemId: time, unitNomItemId: unit };

@@ -9,6 +9,7 @@ import {
 } from './geography-sql.js';
 import { InsPublicationUnavailable } from './publication-error.js';
 import { assertDatasetsPublished } from './publication.js';
+import { isSourceMemberId } from '../../core/identity.js';
 import {
   MAX_OBSERVATION_LIMIT,
   type InsDefaultSeriesRequest,
@@ -118,9 +119,7 @@ const readLayouts = async (
       ) ||
       request.nonGeographicPins.size !== nonGeo.length ||
       nonGeo.some((slot) => !request.nonGeographicPins.has(slot)) ||
-      [...request.nonGeographicPins.values()].some(
-        (id) => !Number.isInteger(id) || id < 1 || id > 2147483647
-      ) ||
+      [...request.nonGeographicPins.values()].some((id) => !isSourceMemberId(id)) ||
       !knownUnits.has(JSON.stringify([request.datasetCode, request.unitNomItemId])) ||
       (request.geoScope.kind === 'nonGeographic'
         ? geography.length !== 0

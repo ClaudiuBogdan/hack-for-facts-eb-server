@@ -26,11 +26,32 @@ describe('ins-native identity contract', () => {
   it('member codes are the TEMPO nomItemId; the legacy slugs are not member codes', () => {
     expect(memberCode(9685)).toBe('9685');
     expect(parseMemberCode('9685')).toBe(9685);
+    expect(parseMemberCode(' 9685 ')).toBe(9685);
+    expect(parseMemberCode('009685')).toBe(9685);
+    expect(Object.is(parseMemberCode('-0'), 0)).toBe(true);
     expect(parseMemberCode('TOTAL')).toBeNull();
     expect(parseMemberCode('1634_ANI')).toBeNull();
-    expect(parseMemberCode('-1')).toBeNull();
+    expect(parseMemberCode('-1')).toBe(-1);
     expect(parseMemberCode('1.5')).toBeNull();
   });
+
+  it.each([-2147483648, -1, 0, 1000000000, 2147483647])(
+    'round-trips source integer %i through member and observation identity',
+    (id) => {
+      expect(parseMemberCode(memberCode(id))).toBe(id);
+      const coordinate = { datasetCode: 'TEST', slots: [id], timeNomItemId: id, unitNomItemId: id };
+      expect(parseObservationRef(observationRef(coordinate, 1))).toEqual(coordinate);
+    }
+  );
+  it.each(['2147483648', '-2147483649', '99999999999', '1e3', '0x10', '+1', '1.5'])(
+    'rejects out-of-domain source member %s',
+    (value) => {
+      expect(parseMemberCode(value)).toBeNull();
+      expect(parseObservationRef(`v1:TEST:${value}:1:2`)).toBeNull();
+      expect(parseObservationRef(`v1:TEST:1:${value}:2`)).toBeNull();
+      expect(parseObservationRef(`v1:TEST:1:2:${value}`)).toBeNull();
+    }
+  );
 
   it('TOTAL is the only alias and is case-insensitive', () => {
     expect(isTotalAlias('TOTAL')).toBe(true);
@@ -64,6 +85,8 @@ describe('ins-native identity contract', () => {
     expect(parseObservationRef('v1::1:2:3')).toBeNull();
     expect(parseObservationRef('v1:POP107D:x:2:3')).toBeNull();
     expect(parseObservationRef('v1:POP107D:1:2:z')).toBeNull();
+    expect(parseObservationRef('v1:POP107D:1::2')).toBeNull();
+    expect(parseObservationRef('v1:POP107D:1:2:')).toBeNull();
   });
 
   it('period tokens map to inclusive bounds with the right periodicity', () => {

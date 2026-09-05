@@ -106,3 +106,9 @@ Before enabling INS, validate all 42 county codes against the published source
 spine and measure national-context discovery on the fully loaded catalog. Every
 kernel country, macroregion, development-region and county row must also yield
 a non-null identity through this mapping; validate both sides before enablement.
+
+Source member IDs round-trip through public member codes and opaque observation
+references over the complete signed PostgreSQL integer domain, including zero.
+The parser rejects overflow, fractions and exponent notation; emitted codes
+remain canonical decimal strings. Dimension identity still follows the producer
+contract: classification indexes 0–6, then time and unit as the final dimensions.
