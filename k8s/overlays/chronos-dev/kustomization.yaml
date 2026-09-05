@@ -24,4 +24,4 @@ patches:
 images:
 - name: harbor.devostack.com/hack-for-facts/hack-for-facts-eb-server
   newName: harbor.devostack.com/hack-for-facts/hack-for-facts-eb-server
-  newTag: ea92f239389582f9f3844e6e3effb31983d80e37
+  newTag: 62afcb92ea7e32521c7c80636f297a584bc4cd4b
