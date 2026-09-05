@@ -13,6 +13,8 @@
  *    `OTHER`): the native `ins.periods` spine has them (one served dataset is
  *    `OTHER`), and a non-null `periodicity` cannot lie about it. Additive, no
  *    document breaks; recorded as an interface addition for the one-by-one talk.
+ *  - default-series ambiguity evidence and exact paired `sourcePins` inputs;
+ *    all additive fields/types are enumerated by the SDL identity test.
  *
  * `PageInfo` is the kernel type EXTENDED by the budget module's legacy
  * collision slice (`budgetLegacyCollisionTypeDefs`: totalCount, hasPreviousPage,
@@ -350,9 +352,21 @@ export const insLegacyTypeDefs = /* GraphQL */ `
   }
 
   """
-  Filter observations by dimensions.
+  One exact member in a declared source dimension.
+  """
+  input InsSourcePinInput {
+    dimensionIndex: Int!
+    memberCode: String!
+  }
+
+  """
+  Filter observations by dimensions and intersecting canonical geography.
   """
   input InsObservationFilterInput {
+    """
+    Exact dimension/member pairs. Cannot be combined with classification code lists.
+    """
+    sourcePins: [InsSourcePinInput!]
     territoryCodes: [String!]
     sirutaCodes: [String!]
     territoryLevels: [InsTerritoryLevel!]

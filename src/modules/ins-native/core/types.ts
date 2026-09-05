@@ -326,7 +326,15 @@ export interface InsPeriodFilter {
   readonly tokens?: readonly string[];
 }
 
+/** One exact dataset-scoped classification or geographic member. */
+export interface InsSourcePin {
+  readonly dimensionIndex: number;
+  readonly memberCode: string;
+}
+
 export interface InsObservationFilter {
+  /** Exact pairs; mutually exclusive with the legacy classification lists. */
+  readonly sourcePins?: readonly InsSourcePin[];
   readonly territoryCodes?: readonly string[];
   readonly sirutaCodes?: readonly string[];
   readonly territoryLevels?: readonly InsTerritoryLevel[];

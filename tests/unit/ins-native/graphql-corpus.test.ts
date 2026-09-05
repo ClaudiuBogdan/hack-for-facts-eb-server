@@ -163,6 +163,27 @@ describe('golden-master INS corpus over the native slice (fake repository)', () 
   const schema = buildTestSchema();
   const entries = corpus();
 
+  it('accepts paired source pins through SDL and resolver mapping', async () => {
+    const result = await graphql({
+      schema,
+      source: `query($filter: InsObservationFilterInput!) {
+        insObservations(datasetCode: "POPTEST", filter: $filter, limit: 10) { nodes { value } }
+      }`,
+      variableValues: {
+        filter: {
+          sourcePins: [
+            { dimensionIndex: 0, memberCode: '1' },
+            { dimensionIndex: 1, memberCode: '105' },
+            { dimensionIndex: 2, memberCode: '3075' },
+            { dimensionIndex: 3, memberCode: '931' },
+          ],
+        },
+      },
+    });
+    expect(result.errors ?? []).toEqual([]);
+    expect((result.data?.['insObservations'] as { nodes: unknown[] }).nodes).toHaveLength(3);
+  });
+
   it('finds the live INS corpus documents', () => {
     expect(entries.length).toBeGreaterThanOrEqual(14);
   });

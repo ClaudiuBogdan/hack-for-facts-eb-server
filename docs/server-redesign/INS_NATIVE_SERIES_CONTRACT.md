@@ -112,3 +112,26 @@ references over the complete signed PostgreSQL integer domain, including zero.
 The parser rejects overflow, fractions and exponent notation; emitted codes
 remain canonical decimal strings. Dimension identity still follows the producer
 contract: classification indexes 0–6, then time and unit as the final dimensions.
+
+## Exact source selection input
+
+`InsObservationFilterInput.sourcePins` carries exact dataset-scoped pairs:
+`[{dimensionIndex: 2, memberCode: "3075"}, {dimensionIndex: 3, memberCode: "931"}]`.
+Each pair names a declared classification or geographic dimension. There are at
+most seven entries, with one member per unique dimension. Codes must be canonical
+signed PostgreSQL int32 decimal strings, including `"0"`; whitespace, leading
+zeros, exponent syntax, `"-0"`, and `TOTAL` aliases are rejected. Membership is
+validated in the requested dimension, even when the same ID belongs to multiple
+axes. This avoids the cross-product ambiguity of independent type/value lists.
+
+The paired field is mutually exclusive with `classificationTypeCodes` and
+`classificationValueCodes`, including empty legacy arrays. Omit both legacy
+fields when sending pairs. Unit selections remain independent. Explicit canonical
+territory filters intersect the source pins; source pins never broaden them.
+Without a canonical territory or level, every geographic dimension must be pinned
+to one member. Partial non-geographic selections can be inspected under a bounded
+canonical scope, but do not identify a complete series for charts or aggregation.
+
+This addition is on the native GraphQL surface. Each client must migrate its
+requests as a complete pair-preserving change. MCP input parity and the remaining
+client/data publication gates are required before full INS enablement.

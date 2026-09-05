@@ -16,6 +16,7 @@ import {
   parseMemberCode,
   periodTokenBounds,
 } from './identity.js';
+import { sourcePinsToSlots } from './source-pins.js';
 import {
   DASHBOARD_ROWS_PER_DATASET,
   DEFAULT_CONTEXT_LIMIT,
@@ -222,7 +223,10 @@ export const classificationPins = async (
   repo: InsRepo,
   datasetCode: string,
   dimensions: readonly InsDimensionView[],
-  filter: Pick<InsObservationFilter, 'classificationTypeCodes' | 'classificationValueCodes'>,
+  filter: Pick<
+    InsObservationFilter,
+    'classificationTypeCodes' | 'classificationValueCodes' | 'sourcePins'
+  >,
   options: { readonly territoryPinned?: boolean } = {}
 ): Promise<
   Result<
@@ -234,6 +238,20 @@ export const classificationPins = async (
     ApiError
   >
 > => {
+  if (filter.sourcePins !== undefined) {
+    if (
+      filter.classificationTypeCodes !== undefined ||
+      filter.classificationValueCodes !== undefined
+    ) {
+      return err(
+        invalidInput('sourcePins cannot be combined with classification code lists', 'sourcePins')
+      );
+    }
+    const exact = await sourcePinsToSlots(repo, datasetCode, dimensions, filter.sourcePins);
+    return exact.isErr()
+      ? err(exact.error)
+      : ok({ pins: exact.value, explicitPins: exact.value, unpinnable: [] });
+  }
   const classification = slotted(dimensions);
   const bySlotOfDim = new Map(classification.map((d) => [d.dimIndex, d.slotIndex]));
   // The implicit TOTAL (no type codes) never touches a territorial dimension when

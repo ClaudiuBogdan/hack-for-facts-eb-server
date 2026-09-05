@@ -52,6 +52,56 @@ export const registerInsGeographyCases = (
   it: RegisterCase,
   database: () => Kysely<ProdDatabase>
 ): void => {
+  it('paired source selections preserve reused member IDs through actual SQL and canonical intersections', () =>
+    inInsFixture(database(), async (trx, repo) => {
+      // Both IDs now belong to both dimensions, but only the original ordered tuple has facts.
+      await sql`insert into ins.dataset_dimension_members
+        (dataset_code, dim_index, nom_item_id, ordinal, member_role, role_signals)
+        values ('POPTEST',2,931,4,'LEAF','{}'), ('POPTEST',3,3075,4,'LEAF','{}')`.execute(trx);
+      const sourcePins = [
+        { dimensionIndex: 0, memberCode: '1' },
+        { dimensionIndex: 1, memberCode: '105' },
+        { dimensionIndex: 2, memberCode: '3075' },
+        { dimensionIndex: 3, memberCode: '931' },
+      ];
+      const original = (await listObservations(repo, 'POPTEST', { sourcePins }))._unsafeUnwrap()
+        .nodes;
+      expect(original).toHaveLength(3);
+      expect(original.map((r) => Number(r.value)).sort((a, b) => a - b)).toEqual([
+        281105, 291105, 301105,
+      ]);
+      const swapped = [
+        ...sourcePins.slice(0, 2),
+        { dimensionIndex: 2, memberCode: '931' },
+        { dimensionIndex: 3, memberCode: '3075' },
+      ];
+      expect(
+        (await listObservations(repo, 'POPTEST', { sourcePins: swapped }))._unsafeUnwrap().nodes
+      ).toEqual([]);
+      expect(
+        (
+          await listObservations(repo, 'POPTEST', { sourcePins, sirutaCodes: ['1017'] })
+        )._unsafeUnwrap().nodes
+      ).toEqual([]);
+      expect(
+        (
+          await listObservations(repo, 'POPTEST', { sourcePins, sirutaCodes: ['54975'] })
+        )._unsafeUnwrap().nodes
+      ).toHaveLength(3);
+      expect(
+        (
+          await listObservations(repo, 'POPTEST', { sourcePins: sourcePins.slice(0, 3) })
+        )._unsafeUnwrapErr().type
+      ).toBe('InvalidInput');
+      expect(
+        (
+          await listObservations(repo, 'POPTEST', {
+            sourcePins: [{ dimensionIndex: 2, memberCode: '105' }],
+          })
+        )._unsafeUnwrapErr().type
+      ).toBe('InvalidInput');
+    }));
+
   it('geography selection rejects an internal modern scope without an explicit bound', () =>
     inInsFixture(database(), async (_trx, repo) => {
       const result = await repo.listObservations({ ...query, geoScope: { kind: 'modern' } });

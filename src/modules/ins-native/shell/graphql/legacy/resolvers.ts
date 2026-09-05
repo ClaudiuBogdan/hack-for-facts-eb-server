@@ -117,6 +117,7 @@ interface GqlReportPeriodInput {
 }
 
 interface GqlObservationFilter {
+  sourcePins?: { dimensionIndex: number; memberCode: string }[] | null;
   territoryCodes?: string[] | null;
   sirutaCodes?: string[] | null;
   territoryLevels?: InsTerritoryLevel[] | null;
@@ -204,6 +205,7 @@ const mapObservationFilter = (
   put(f, 'sirutaCodes', input?.sirutaCodes);
   put(f, 'territoryLevels', input?.territoryLevels);
   put(f, 'unitCodes', input?.unitCodes);
+  put(f, 'sourcePins', input?.sourcePins);
   put(f, 'classificationValueCodes', input?.classificationValueCodes);
   put(f, 'classificationTypeCodes', input?.classificationTypeCodes);
   put(f, 'period', mapReportPeriod(input?.period));
