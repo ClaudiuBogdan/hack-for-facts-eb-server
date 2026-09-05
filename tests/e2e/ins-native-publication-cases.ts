@@ -3,32 +3,13 @@ import { sql, type Kysely } from 'kysely';
 import { expect } from 'vitest';
 
 import { listLatestValues, listObservations } from '@/modules/ins-native/core/usecases.js';
-import { makeInsSnapshotRepo } from '@/modules/ins-native/shell/repo/ins-repo.js';
 import { datasetPublicationFrom } from '@/modules/ins-native/shell/repo/publication.js';
-import { inTrxRunner, type Trx } from '@/modules/ins-native/shell/repo/snapshot.js';
 
-import type { InsRepo } from '@/modules/ins-native/core/ports.js';
+import { inInsFixture as inFixture } from './ins-native-fixture.js';
+
 import type { ProdDatabase } from '@/modules/shared/index.js';
 
 type RegisterCase = (name: string, fn: () => Promise<void>) => void;
-
-/** Synthetic mutations and reads share a test transaction that ALWAYS rolls back.
- * Production's read-only enforcement is independently covered by session tests.
- */
-const inFixture = async (
-  db: Kysely<ProdDatabase>,
-  fn: (trx: Trx, repo: InsRepo) => Promise<void>
-): Promise<void> => {
-  const rollback = new Error('test-only rollback');
-  try {
-    await db.transaction().execute(async (trx) => {
-      await fn(trx, makeInsSnapshotRepo(db, inTrxRunner(trx)));
-      throw rollback;
-    });
-  } catch (cause) {
-    if (cause !== rollback) throw cause;
-  }
-};
 
 const mismatches: readonly (readonly [string, string])[] = [
   ['missing coverage', "delete from ins.dataset_coverage where dataset_code='POPTEST'"],

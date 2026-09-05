@@ -21,6 +21,7 @@ import {
   type InsFactQuery,
   type InsMemberView,
   type InsObservationView,
+  type InsGeoPairs,
   type InsPage,
   type InsPeriodView,
   type InsTerritoryLevel,
@@ -424,13 +425,59 @@ const matchesGroup = (f: Fact, pins: SlotPins): boolean => {
   return true;
 };
 
+/** Independent source tuple fixture, identical in shape to the actual PG seed. */
+const GEO_TUPLES: Readonly<
+  Record<string, readonly { pairs: InsGeoPairs; node: InsTerritoryNode }[]>
+> = {
+  POPTEST: [
+    {
+      pairs: [
+        [2, 3064],
+        [3, 112],
+      ],
+      node: RO,
+    },
+    {
+      pairs: [
+        [2, 3075],
+        [3, 112],
+      ],
+      node: CJ,
+    },
+    {
+      pairs: [
+        [2, 3065],
+        [3, 112],
+      ],
+      node: AB,
+    },
+    {
+      pairs: [
+        [2, 3075],
+        [3, 931],
+      ],
+      node: CLUJ_NAPOCA,
+    },
+    {
+      pairs: [
+        [2, 3065],
+        [3, 113],
+      ],
+      node: ALBA_IULIA,
+    },
+  ],
+  CNTTEST: [
+    { pairs: [[0, 8000]], node: RO },
+    { pairs: [[0, 8001]], node: RO11 },
+    { pairs: [[0, 8002]], node: CJ },
+  ],
+};
+
 const toObservation = (f: Fact): InsObservationView => {
   const period = TIME_TO_PERIOD.get(f.time);
   if (period === undefined) throw new Error(`no period for time ${String(f.time)}`);
   const dims = DIMENSIONS[f.dataset] ?? [];
   const members: InsMemberView[] = [];
-  let territory: InsTerritoryNode | null = null;
-  let sawTotalMember = false;
   for (const d of dims) {
     if (d.role !== 'classification' || d.slotIndex === null) continue;
     const id = f.slots[d.slotIndex - 1] ?? null;
@@ -438,11 +485,21 @@ const toObservation = (f: Fact): InsObservationView => {
     const m = M.find((x) => x.dataset === f.dataset && x.dim === d.dimIndex && x.id === id);
     if (m === undefined) continue;
     members.push(toMember(m));
-    if (m.total === true) sawTotalMember = true;
-    if (m.node !== undefined) territory = m.node; // later (deeper) dims override
   }
-  // all territorial members at TOTAL → the national row carries the NATIONAL node
-  if (territory === null && sawTotalMember) territory = RO;
+  const pairs: InsGeoPairs = dims
+    .filter((d) => d.isTerritorial)
+    .map((d) => {
+      if (d.slotIndex === null) throw new Error('fixture geographic slot missing');
+      const member = f.slots[d.slotIndex - 1];
+      if (member === null || member === undefined)
+        throw new Error('fixture geographic member missing');
+      return [d.dimIndex, member] as const;
+    });
+  const tuple = (GEO_TUPLES[f.dataset] ?? []).find(
+    (t) => JSON.stringify(t.pairs) === JSON.stringify(pairs)
+  );
+  if (pairs.length > 0 && tuple === undefined) throw new Error('fixture source tuple missing');
+  const territory = tuple?.node ?? null;
   const unit = (UNITS[f.dataset] ?? []).find((u) => u.nomItemId === f.unit);
   if (unit === undefined) throw new Error('unit missing');
   return {
@@ -457,6 +514,18 @@ const toObservation = (f: Fact): InsObservationView => {
     valueStatus: null,
     currencyCode: unit.currencyRegime,
     members,
+    geography:
+      tuple === undefined
+        ? null
+        : {
+            pairs: tuple.pairs,
+            resolution: 'EXACT',
+            flags: [],
+            resolvedTerritory: tuple.node,
+            contextTerritory: null,
+            applicableRules: [],
+            qualified: false,
+          },
     territory,
     unit,
   };

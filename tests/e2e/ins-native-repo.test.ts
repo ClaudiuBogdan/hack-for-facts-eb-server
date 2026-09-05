@@ -42,6 +42,7 @@ import {
 import { makeInsRepo } from '@/modules/ins-native/shell/repo/ins-repo.js';
 import {
   INS_SUPPORTED_TRANSFORMS,
+  INS_GEO_FLAG_KINDS,
   INS_SUPPORTED_GEO_FLAGS,
 } from '@/modules/ins-native/shell/repo/publication.js';
 import {
@@ -50,6 +51,7 @@ import {
 } from '@/modules/ins-native/shell/repo/read-session.js';
 import { createProdDb } from '@/modules/shared/shell/db/pool.js';
 
+import { registerInsGeographyCases } from './ins-native-geography-cases.js';
 import { registerInsPublicationCases } from './ins-native-publication-cases.js';
 
 import type { InsRepo } from '@/modules/ins-native/core/ports.js';
@@ -356,6 +358,14 @@ beforeAll(async () => {
   const producer = (await import(
     pathToFileURL(path.join(scrapperRoot, 'src/sources/ins/prod/geography-manifest.ts')).href
   )) as Record<'INS_GEOGRAPHY_FLAG_KINDS', readonly { flag: string; kind: string }[]>;
+  expect(INS_GEO_FLAG_KINDS).toEqual(
+    Object.fromEntries(
+      producer.INS_GEOGRAPHY_FLAG_KINDS.filter((f) => f.kind !== 'defect').map((f) => [
+        f.flag,
+        f.kind,
+      ])
+    )
+  );
   expect([...INS_SUPPORTED_GEO_FLAGS].sort()).toEqual(
     producer.INS_GEOGRAPHY_FLAG_KINDS.filter((f) => f.kind !== 'defect')
       .map((f) => f.flag)
@@ -419,6 +429,10 @@ const waitForBlockedInsRead = async (writer: pg.Client): Promise<number> => {
 };
 
 describe('ins-native repository over the real scrapper DDL (e2e)', () => {
+  registerInsGeographyCases(it, () => {
+    if (db === undefined) throw new Error('fixture not ready');
+    return db;
+  });
   registerInsPublicationCases(it, () => {
     if (db === undefined) throw new Error('fixture not ready');
     return db;

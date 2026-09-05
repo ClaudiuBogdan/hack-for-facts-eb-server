@@ -212,6 +212,7 @@ export const makeInsMcpTools = (deps: InsMcpDeps): readonly KernelMcpTool[] => {
             scaleFactor: o.unit.scaleFactor,
           },
           currency: o.currencyCode,
+          geography: o.geography,
           members: o.members.map((m) => ({
             dimension: `D${String(m.dimIndex)}`,
             code: String(m.nomItemId),
@@ -266,6 +267,7 @@ export const makeInsMcpTools = (deps: InsMcpDeps): readonly KernelMcpTool[] => {
           datasetCode: v.dataset.code,
           nameRo: v.dataset.nameRo,
           matchStrategy: v.matchStrategy,
+          geography: v.observation?.geography ?? null,
           period: v.observation?.period.labelRo ?? null,
           value: v.observation?.value ?? null,
           valueStatus: v.observation?.valueStatus ?? null,

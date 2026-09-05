@@ -224,6 +224,36 @@ export interface InsPeriodView {
   readonly labelRo: string;
 }
 
+/** The full ordered source identity, separate from any interpreted territory. */
+export type InsGeoPairs = readonly (readonly [dimIndex: number, nomItemId: number])[];
+
+export interface InsGeographicDimension {
+  readonly dimIndex: number;
+  readonly slotIndex: number;
+}
+
+export interface InsGeographicRule {
+  readonly ruleId: string;
+  readonly appliesFrom: string;
+  readonly appliesTo: string;
+  readonly flag: string;
+  readonly kind: 'coverage';
+  readonly evidenceUrl: string;
+  readonly rationale: string;
+}
+
+export interface InsObservationGeography {
+  readonly pairs: InsGeoPairs;
+  readonly resolution: 'EXACT' | 'CONTEXTUAL' | 'UNRESOLVED';
+  readonly flags: readonly string[];
+  /** Published interpretation, retained even when this observation is qualified. */
+  readonly resolvedTerritory: InsTerritoryNode | null;
+  readonly contextTerritory: InsTerritoryNode | null;
+  /** Only rules overlapping this cell's inclusive period. */
+  readonly applicableRules: readonly InsGeographicRule[];
+  readonly qualified: boolean;
+}
+
 export interface InsObservationView {
   readonly coordinate: InsCoordinate;
   readonly period: InsPeriodView;
@@ -233,7 +263,8 @@ export interface InsObservationView {
   readonly currencyCode: string | null;
   /** The classification members of the row, one per classification dimension in dimIndex order. */
   readonly members: readonly InsMemberView[];
-  /** The territory the row is about: the deepest bound member's node, or null. */
+  readonly geography: InsObservationGeography | null;
+  /** Effective modern territory: only an unqualified EXACT source coordinate. */
   readonly territory: InsTerritoryNode | null;
   readonly unit: InsUnitView;
 }

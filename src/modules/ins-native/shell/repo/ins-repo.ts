@@ -18,6 +18,8 @@
 import { sql, type RawBuilder } from 'kysely';
 import { err, ok } from 'neverthrow';
 
+import { geographicView, readGeographicDimensions, readGeographicTuples } from './geography.js';
+import { InsPublicationUnavailable } from './publication-error.js';
 import {
   assertDatasetsPublished,
   datasetPeriodicities,
@@ -32,9 +34,9 @@ import {
   type Runner,
   type Trx,
 } from './snapshot.js';
+import { nodeSelect, toNode, type NodeRow } from './territory.js';
 import { escapeLike, foldSearch } from '../../core/fold.js';
 import {
-  INS_TERRITORY_LEVELS,
   MAX_SLOTS,
   isMemberList,
   type InsContext,
@@ -53,7 +55,6 @@ import {
   type InsSeriesSpec,
   type InsTerritoryLevel,
   type SlotPins,
-  type InsTerritoryNode,
   type InsUnitKind,
   type InsUnitView,
 } from '../../core/types.js';
@@ -68,8 +69,6 @@ import type {
 
 /** Series per batched statement; above this the UNION ALL is split. */
 const SERIES_PER_STATEMENT = 40;
-
-const toInt = (v: string | number | null): number | null => (v === null ? null : Number(v));
 
 /**
  * A date column as `YYYY-MM-DD`. The kernel pool returns dates as wire strings
@@ -97,41 +96,6 @@ const isoTimestamp = (v: unknown): string | null => {
 // ─────────────────────────────────────────────────────────────────────────────
 // Row → view mapping
 // ─────────────────────────────────────────────────────────────────────────────
-
-interface NodeRow {
-  territory_id: string;
-  code: string;
-  siruta_code: string | null;
-  level: string;
-  name_ro: string;
-  parent_id: string | null;
-  core_territory_id: number | null;
-  parent_code: string | null;
-  parent_name_ro: string | null;
-}
-
-const toNode = (r: NodeRow): InsTerritoryNode => ({
-  territoryId: Number(r.territory_id),
-  code: r.code,
-  sirutaCode: r.siruta_code,
-  level: r.level as InsTerritoryLevel,
-  nameRo: r.name_ro,
-  parentId: toInt(r.parent_id),
-  parentCode: r.parent_code,
-  parentNameRo: r.parent_name_ro,
-  coreTerritoryId: r.core_territory_id,
-});
-
-/** The node select with its parent joined — the one shape every territory read returns. */
-const nodeSelect = sql`
-  t.territory_id, t.code, t.siruta_code, t.level, t.name_ro, t.parent_id, t.core_territory_id,
-  p.code as parent_code, p.name_ro as parent_name_ro`;
-
-const territoryQuerySql = (where: RawBuilder<unknown>): RawBuilder<NodeRow> => sql<NodeRow>`
-  select ${nodeSelect}
-  from ins.territory_nodes t
-  left join ins.territory_nodes p on p.territory_id = t.parent_id
-  where ${where}`;
 
 interface DatasetRow {
   dataset_code: string;
@@ -435,42 +399,56 @@ const hydrate = async (
   const units = new Map(
     (await unitSql(datasetCode).execute(trx)).rows.map((u) => [u.unit_nom_item_id, toUnit(u)])
   );
-  // A row whose territorial members are all TOTAL members is the national row:
-  // it carries the NATIONAL node (the legacy surface answered code 'RO' for it).
-  const needsNational = members.some((m) => m.territoryResolution === 'TOTAL_MEMBER');
-  const national = needsNational
-    ? ((await territoryQuerySql(sql`t.level = 'NATIONAL'`).execute(trx)).rows.map(toNode)[0] ??
-      null)
-    : null;
+  const geoDimensions = await readGeographicDimensions(trx, datasetCode);
+  for (const dimension of geoDimensions) {
+    if (slotToDim.get(dimension.slotIndex) !== dimension.dimIndex) {
+      throw new InsPublicationUnavailable();
+    }
+  }
+  const rowPairs = rows.map((row) =>
+    geoDimensions.map((dimension) => {
+      const member = row[`dim${String(dimension.slotIndex)}_member_id` as keyof FactRow];
+      if (typeof member !== 'number') throw new InsPublicationUnavailable();
+      return [dimension.dimIndex, member] as const;
+    })
+  );
+  const geoTuples = await readGeographicTuples(trx, datasetCode, rowPairs);
 
   const views: InsObservationView[] = [];
   const keys: string[] = [];
-  for (const r of rows) {
+  for (const [rowIndex, r] of rows.entries()) {
     const slots: (number | null)[] = [];
     const rowMembers: InsMemberView[] = [];
-    let territory: InsTerritoryNode | null = null;
-    let territoryDepth = -1;
-    let sawTotalMember = false;
     for (let slot = 1; slot <= MAX_SLOTS; slot++) {
       const id = r[`dim${String(slot)}_member_id` as keyof FactRow] as number | null;
       slots.push(id);
       const dimIndex = slotToDim.get(slot);
-      if (id === null || dimIndex === undefined) continue;
-      const m = memberByKey.get(`${String(dimIndex)}:${String(id)}`);
-      if (m === undefined) continue;
-      rowMembers.push(m);
-      if (m.territoryResolution === 'TOTAL_MEMBER') sawTotalMember = true;
-      if (m.territory !== null) {
-        const depth = INS_TERRITORY_LEVELS.indexOf(m.territory.level);
-        if (depth > territoryDepth) {
-          territoryDepth = depth;
-          territory = m.territory;
-        }
+      if (dimIndex === undefined) {
+        if (id !== null) throw new InsPublicationUnavailable();
+        continue;
       }
+      if (id === null) throw new InsPublicationUnavailable();
+      const m = memberByKey.get(`${String(dimIndex)}:${String(id)}`);
+      if (m === undefined) throw new InsPublicationUnavailable();
+      rowMembers.push(m);
     }
-    if (territory === null && sawTotalMember) territory = national;
     const unit = units.get(r.unit_nom_item_id);
-    if (unit === undefined) continue; // a fact without a measure row is a load defect, not a served row
+    const periodStart = isoDate(r.period_start);
+    const periodEnd = isoDate(r.period_end);
+    if (
+      unit === undefined ||
+      periodStart === null ||
+      periodEnd === null ||
+      periodEnd < periodStart ||
+      !/^\d{4}-\d{2}-\d{2}$/u.test(periodStart) ||
+      !/^\d{4}-\d{2}-\d{2}$/u.test(periodEnd)
+    ) {
+      throw new InsPublicationUnavailable();
+    }
+    const pairs = rowPairs[rowIndex];
+    if (pairs === undefined) throw new InsPublicationUnavailable();
+    const geography = geographicView(pairs, geoTuples, periodStart, periodEnd);
+    const territory = geography?.qualified === false ? geography.resolvedTerritory : null;
     views.push({
       coordinate: {
         datasetCode: r.dataset_code,
@@ -481,14 +459,15 @@ const hydrate = async (
       period: {
         periodId: r.period_id,
         periodicity: r.periodicity as InsPeriodicity,
-        periodStart: isoDate(r.period_start) ?? '',
-        periodEnd: isoDate(r.period_end) ?? '',
+        periodStart,
+        periodEnd,
         labelRo: r.period_label_ro,
       },
       value: r.value,
       valueStatus: r.value_status,
       currencyCode: r.currency_code,
-      members: rowMembers,
+      members: rowMembers.sort((a, b) => a.dimIndex - b.dimIndex),
+      geography,
       territory,
       unit,
     });
@@ -629,8 +608,8 @@ const makeRepoOn = (db: Db, readTx: Runner, snapshotBound = false): InsRepo => {
         }>`
           select dd.dataset_code, dd.dim_index, dd.slot_index, dd.semantic_role, dd.label_ro, dd.label_en,
                  dd.option_count, dd.parent_dim_index,
-                 exists (select 1 from ins.member_territory mt
-                         where mt.dataset_code = dd.dataset_code and mt.dim_index = dd.dim_index) as is_territorial
+                 exists (select 1 from ins.dataset_geo_dimensions gd
+                         where gd.dataset_code = dd.dataset_code and gd.dim_index = dd.dim_index) as is_territorial
           from ins.dataset_dimensions dd
           where dd.dataset_code = ${datasetCode}
           order by dd.dim_index`.execute(trx);

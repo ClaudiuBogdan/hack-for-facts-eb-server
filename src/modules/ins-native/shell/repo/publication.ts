@@ -11,7 +11,11 @@ import type { Trx } from './snapshot.js';
 export const INS_SUPPORTED_TRANSFORMS = [
   '9eea2017d660a114bd404ebe30b1b8c45cbed84f4069018d43bd5814f6c490fc',
 ] as const;
-export const INS_SUPPORTED_GEO_FLAGS: readonly string[] = ['includes_sai', 'spelling_variant'];
+export const INS_GEO_FLAG_KINDS: Readonly<Record<string, 'coverage' | 'label'>> = {
+  includes_sai: 'coverage',
+  spelling_variant: 'label',
+};
+export const INS_SUPPORTED_GEO_FLAGS = Object.keys(INS_GEO_FLAG_KINDS);
 export const INS_GEOGRAPHY_VERSION = 'ins-geography-v1';
 
 /** Small, dataset-keyed catalog checks. Publication gates validate the facts;

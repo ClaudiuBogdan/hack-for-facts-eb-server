@@ -416,6 +416,7 @@ const toGqlObservation = (o: InsObservationView): GqlObservation => ({
   // The legacy `dimensions` JSON shape, kept: territory/period/unit keys plus
   // the classification map (now keyed by D<n> with member codes).
   dimensions: {
+    geography: o.geography,
     ...(o.territory !== null && { territory_code: o.territory.code }),
     ...(o.territory?.sirutaCode !== null &&
       o.territory?.sirutaCode !== undefined && {
