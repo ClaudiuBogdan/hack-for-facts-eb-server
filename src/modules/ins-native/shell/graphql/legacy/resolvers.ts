@@ -22,7 +22,7 @@ import {
   dimensionCode,
   isoPeriodToken,
   memberCode,
-  observationRef,
+  observationViewRef,
   periodParts,
 } from '../../../core/identity.js';
 import {
@@ -402,12 +402,8 @@ export interface GqlObservation {
   readonly dimensions: Record<string, unknown>;
 }
 
-/** k = the classification arity: every classification dimension has a member in every row. */
-const arityOf = (o: InsObservationView): number =>
-  o.coordinate.slots.reduce<number>((k, v, i) => (v === null ? k : i + 1), 0);
-
 const toGqlObservation = (o: InsObservationView): GqlObservation => ({
-  id: observationRef(o.coordinate, arityOf(o)),
+  id: observationViewRef(o),
   dataset_code: o.coordinate.datasetCode,
   territory: o.territory === null ? null : toGqlTerritory(o.territory),
   time_period: toGqlTimePeriod(o.period),

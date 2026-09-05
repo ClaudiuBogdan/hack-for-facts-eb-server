@@ -135,3 +135,37 @@ canonical scope, but do not identify a complete series for charts or aggregation
 This addition is on the native GraphQL surface. Each client must migrate its
 requests as a complete pair-preserving change. MCP input parity and the remaining
 client/data publication gates are required before full INS enablement.
+
+## MCP source inspection and continuation
+
+`get_ins_series` accepts exact `sourcePins` pairs with the same membership and
+geographic admission checks as GraphQL. Legacy classification lists retain their
+TOTAL default; supplying either list together with paired pins fails. Canonical
+territory codes/levels intersect explicit source geography. Unit codes, all six
+native cadences, inclusive period bounds and optional `hasValue` use the existing
+fact query. Omit `hasValue` to retain null source cells. The three existing bound
+syntaxes remain YYYY, YYYY-QN and YYYY-MM; RANGE/OTHER tokens are not invented.
+
+Each page returns shared opaque observation IDs, original decimal strings, status,
+members, units and geographic qualifications. `meta.descriptor` contains the
+source dataset and complete dimension declarations, source URL, custody and
+publication stamps. Multiple identities and qualified rows remain original
+observations, not an automatically resolved series.
+
+The first page defaults to limit 200 and offset zero. Continue with the same
+filters, `meta.nextOffset` and `expectedPublication: meta.publication`. A token
+contains revision ID, source custody hash and transform hash. All three are
+compared in code inside the same snapshot as metadata and facts; none enters SQL.
+Offset greater than zero requires a token. A mismatch returns a failed
+ServiceUnavailable envelope with `meta.reason: PUBLICATION_CHANGED` and
+`meta.currentPublication`; restart at zero rather than combining publications.
+`totalCount` may be null; continuation comes from `hasNextPage`, and `nextOffset`
+advances by actual returned rows. `hasMore` is retained for existing callers.
+
+Unknown datasets preserve the old empty-result behavior with a null descriptor.
+Not-loaded datasets return metadata and empty observations, without a fabricated
+publication token. Uncertified loaded data remains unavailable. Unknown input
+keys now fail explicitly. The input schema enforces at most seven exact pins,
+canonical signed PostgreSQL int32 member IDs, limit 1–1000 and nonnegative int32
+offset. That offset bound is a wire limit, not a workload or latency guarantee;
+statement deadlines and the pre-enablement workload gate remain necessary.

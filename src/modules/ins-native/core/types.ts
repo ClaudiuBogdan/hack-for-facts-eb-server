@@ -319,7 +319,7 @@ export interface InsTerritoryFilter {
 
 /** A period constraint on facts; bounds are inclusive ISO dates. */
 export interface InsPeriodFilter {
-  readonly periodicity?: 'ANNUAL' | 'QUARTERLY' | 'MONTHLY';
+  readonly periodicity?: InsPeriodicity;
   readonly start?: string;
   readonly end?: string;
   /** Explicit period tokens (`2023`, `2023-Q1`, `2023-03`), OR-ed. */

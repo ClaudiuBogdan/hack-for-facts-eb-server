@@ -39,6 +39,7 @@ import {
   listTerritories,
   uatDashboard,
 } from '@/modules/ins-native/core/usecases.js';
+import { makeInsMcpTools } from '@/modules/ins-native/shell/mcp/tools.js';
 import { makeInsRepo } from '@/modules/ins-native/shell/repo/ins-repo.js';
 import {
   INS_SUPPORTED_TRANSFORMS,
@@ -447,6 +448,78 @@ describe('ins-native repository over the real scrapper DDL (e2e)', () => {
     if (db === undefined) throw new Error('fixture not ready');
     return db;
   });
+  it('MCP descriptor and facts retain one snapshot while a second connection publishes', async () => {
+    if (pgClient === undefined) throw new Error('writer not ready');
+    const writer = pgClient,
+      outer = r();
+    const original = (await outer.getDataset('POPTEST'))._unsafeUnwrap()!;
+    let published = false;
+    const wrapped: InsRepo = {
+      ...outer,
+      withSnapshot: (fn) =>
+        outer.withSnapshot(async (scoped) => {
+          let intercepted = false;
+          const wrappedScope: InsRepo = {
+            ...scoped,
+            withSnapshot: (nested) => nested(wrappedScope),
+            getDataset: async (code) => {
+              const before = await scoped.getDataset(code);
+              if (!intercepted) {
+                intercepted = true;
+                await writer.query('begin');
+                try {
+                  await writer.query(
+                    'update ins.datasets set matrix_name_ro=$1 where dataset_code=$2',
+                    ['MCP newer publication', 'POPTEST']
+                  );
+                  await writer.query(
+                    "update ins.observations set value=value+1000 where dataset_code='POPTEST' and dim1_member_id=1 and dim2_member_id=105 and dim3_member_id=3075 and dim4_member_id=931"
+                  );
+                  await writer.query('commit');
+                  published = true;
+                } catch (cause) {
+                  await writer.query('rollback');
+                  throw cause;
+                }
+              }
+              return before;
+            },
+          };
+          return fn(wrappedScope);
+        }),
+    };
+    try {
+      const tool = makeInsMcpTools({ repo: wrapped, clientBaseUrl: 'https://example.test' }).find(
+        (t) => t.name === 'get_ins_series'
+      )!;
+      const response = await tool.handler({
+        datasetCode: 'POPTEST',
+        sourcePins: [
+          { dimensionIndex: 0, memberCode: '1' },
+          { dimensionIndex: 1, memberCode: '105' },
+          { dimensionIndex: 2, memberCode: '3075' },
+          { dimensionIndex: 3, memberCode: '931' },
+        ],
+      });
+      expect(response.ok).toBe(true);
+      expect(response.meta?.['descriptor']).toMatchObject({ nameRo: original.nameRo });
+      expect(response.items?.[0]).toMatchObject({ value: '301105' });
+      expect((await outer.getDataset('POPTEST'))._unsafeUnwrap()?.nameRo).toBe(
+        'MCP newer publication'
+      );
+    } finally {
+      if (published) {
+        await writer.query('update ins.datasets set matrix_name_ro=$1 where dataset_code=$2', [
+          original.nameRo,
+          'POPTEST',
+        ]);
+        await writer.query(
+          "update ins.observations set value=value-1000 where dataset_code='POPTEST' and dim1_member_id=1 and dim2_member_id=105 and dim3_member_id=3075 and dim4_member_id=931"
+        );
+      }
+    }
+  });
+
   it('nested reads retain the publication snapshot while another connection publishes', async () => {
     if (pgClient === undefined) throw new Error('writer not ready');
     const writer = pgClient;

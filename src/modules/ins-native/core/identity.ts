@@ -19,7 +19,7 @@
  * throw, so a resolver can turn it into `InvalidInput` deliberately.
  */
 
-import type { InsCoordinate } from './types.js';
+import type { InsCoordinate, InsObservationView } from './types.js';
 
 export const TOTAL_ALIAS = 'TOTAL';
 const DIMENSION_CODE = /^D(\d{1,2})$/u;
@@ -69,6 +69,16 @@ export const observationRef = (coordinate: InsCoordinate, k: number): string => 
     String(coordinate.unitNomItemId),
   ].join(':');
 };
+
+/** Shared wire identity; hydration validates contiguous expected classification slots. */
+export const observationViewRef = (row: InsObservationView): string =>
+  observationRef(
+    row.coordinate,
+    row.coordinate.slots.reduce<number>(
+      (arity, value, index) => (value === null ? arity : index + 1),
+      0
+    )
+  );
 
 /**
  * Decode an observation ref. The dataset's `k` is not known to the parser, so

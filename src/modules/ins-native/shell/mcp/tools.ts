@@ -6,13 +6,9 @@
 
 import { z } from 'zod';
 
+import { makeInsSeriesTool } from './series.js';
 import { INS_TERRITORY_LEVELS, type InsTerritoryLevel } from '../../core/types.js';
-import {
-  listDatasets,
-  listLatestValues,
-  listObservations,
-  listTerritories,
-} from '../../core/usecases.js';
+import { listDatasets, listLatestValues, listTerritories } from '../../core/usecases.js';
 
 import type { InsRepo } from '../../core/ports.js';
 import type { ApiError, KernelMcpTool, McpToolOutput } from '@/modules/shared/index.js';
@@ -133,99 +129,7 @@ export const makeInsMcpTools = (deps: InsMcpDeps): readonly KernelMcpTool[] => {
     },
   };
 
-  const getSeries: KernelMcpTool = {
-    name: 'get_ins_series',
-    description:
-      'Observations of one INS dataset for one or more territories (codes from resolve_ins_territory), pinned to the TOTAL of every other classification unless member codes are given; newest first.',
-    inputShape: {
-      datasetCode: z.string().describe('INS matrix code, e.g. POP107D.'),
-      territoryCodes: z
-        .array(z.string())
-        .min(1)
-        .optional()
-        .describe(
-          'Territory codes (SIRUTA, county letter, NUTS, RO). Omit only for non-geographic data or explicit pins on every geographic dimension.'
-        ),
-      classificationValueCodes: z
-        .array(z.string())
-        .optional()
-        .describe('Member codes (nomItemId) or TOTAL; default TOTAL on every classification.'),
-      classificationTypeCodes: z
-        .array(z.string())
-        .optional()
-        .describe('Dimension codes D<n> the value codes apply to.'),
-      periodStart: z.string().optional().describe('YYYY, YYYY-QN or YYYY-MM (inclusive).'),
-      periodEnd: z.string().optional().describe('YYYY, YYYY-QN or YYYY-MM (inclusive).'),
-      limit: z.number().int().min(1).max(1000).optional().describe('Max rows (default 200).'),
-    },
-    async handler(args): Promise<McpToolOutput> {
-      const datasetCode = typeof args['datasetCode'] === 'string' ? args['datasetCode'] : '';
-      const territoryCodes = Array.isArray(args['territoryCodes'])
-        ? (args['territoryCodes'] as string[])
-        : [];
-      const valueCodes = Array.isArray(args['classificationValueCodes'])
-        ? (args['classificationValueCodes'] as string[])
-        : ['TOTAL'];
-      const typeCodes = Array.isArray(args['classificationTypeCodes'])
-        ? (args['classificationTypeCodes'] as string[])
-        : undefined;
-      const start = typeof args['periodStart'] === 'string' ? args['periodStart'] : undefined;
-      const end = typeof args['periodEnd'] === 'string' ? args['periodEnd'] : undefined;
-      const res = await listObservations(
-        repo,
-        datasetCode,
-        {
-          territoryCodes,
-          classificationValueCodes: valueCodes,
-          ...(typeCodes !== undefined && { classificationTypeCodes: typeCodes }),
-          ...((start !== undefined || end !== undefined) && {
-            period: { ...(start !== undefined && { start }), ...(end !== undefined && { end }) },
-          }),
-        },
-        typeof args['limit'] === 'number' ? args['limit'] : 200,
-        0
-      );
-      if (res.isErr()) return failure('ins_series', res.error);
-      return {
-        ok: true,
-        kind: 'ins_series',
-        query: {
-          datasetCode,
-          territoryCodes,
-          classificationValueCodes: valueCodes,
-          periodStart: start,
-          periodEnd: end,
-        },
-        link: datasetLink(datasetCode.toUpperCase()),
-        items: res.value.nodes.map((o) => ({
-          period: o.period.labelRo,
-          periodStart: o.period.periodStart,
-          periodEnd: o.period.periodEnd,
-          periodicity: o.period.periodicity,
-          territory:
-            o.territory === null
-              ? null
-              : { code: o.territory.code, level: o.territory.level, nameRo: o.territory.nameRo },
-          value: o.value,
-          valueStatus: o.valueStatus,
-          unit: {
-            code: String(o.unit.nomItemId),
-            label: o.unit.labelRo,
-            baseUnit: o.unit.baseUnit,
-            scaleFactor: o.unit.scaleFactor,
-          },
-          currency: o.currencyCode,
-          geography: o.geography,
-          members: o.members.map((m) => ({
-            dimension: `D${String(m.dimIndex)}`,
-            code: String(m.nomItemId),
-            label: m.labelRo,
-          })),
-        })),
-        meta: { returned: res.value.nodes.length, hasMore: res.value.hasNextPage },
-      };
-    },
-  };
+  const getSeries = makeInsSeriesTool({ repo, datasetLink });
 
   const snapshot: KernelMcpTool = {
     name: 'get_ins_territory_snapshot',

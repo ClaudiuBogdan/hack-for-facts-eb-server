@@ -102,6 +102,86 @@ export const registerInsGeographyCases = (
       ).toBe('InvalidInput');
     }));
 
+  it('MCP pages use exact pins and reject a newly published revision between pages', () =>
+    inInsFixture(database(), async (trx, repo) => {
+      const tool = makeInsMcpTools({ repo, clientBaseUrl: 'https://example.test' }).find(
+        (t) => t.name === 'get_ins_series'
+      )!;
+      const input = {
+        datasetCode: 'POPTEST',
+        sourcePins: [
+          { dimensionIndex: 0, memberCode: '1' },
+          { dimensionIndex: 1, memberCode: '105' },
+          { dimensionIndex: 2, memberCode: '3075' },
+          { dimensionIndex: 3, memberCode: '931' },
+        ],
+        unitCodes: ['9685'],
+        limit: 1,
+      };
+      const first = await tool.handler(input);
+      expect(first.ok).toBe(true);
+      expect(first.items?.[0]).toMatchObject({
+        value: '301105',
+        id: 'v1:POPTEST:1:105:3075:931:4437:9685',
+      });
+      expect(first.meta).toMatchObject({ nextOffset: 1, hasMore: true, totalCount: null });
+      const next = await tool.handler({
+        ...input,
+        offset: 1,
+        expectedPublication: first.meta?.['publication'],
+      });
+      expect(next.items?.[0]).toMatchObject({ value: '291105' });
+      await sql`insert into ins.dataset_revisions
+        (dataset_code,to_custody_sha256,to_custody_algo,to_custody_requests,
+         to_applied_generation,transform_contract_sha256,rows_before,rows_after,
+         coordinates_added,coordinates_removed,coordinates_changed,after_fact_digest_sha256,load_run_id)
+        select dataset_code,to_custody_sha256,to_custody_algo,to_custody_requests,
+          to_applied_generation,transform_contract_sha256,rows_after,rows_after,
+          0,0,0,after_fact_digest_sha256,load_run_id
+        from ins.dataset_revisions where dataset_code='POPTEST'
+        order by revision_id desc limit 1`.execute(trx);
+      const changed = await tool.handler({
+        ...input,
+        offset: 2,
+        expectedPublication: first.meta?.['publication'],
+      });
+      expect(changed).toMatchObject({
+        ok: false,
+        errorType: 'ServiceUnavailable',
+        meta: { reason: 'PUBLICATION_CHANGED' },
+      });
+      expect(changed.meta?.['currentPublication']).not.toEqual(first.meta?.['publication']);
+      expect(changed.items).toBeUndefined();
+    }));
+
+  it('MCP preserves null statuses and explicit historical qualifications in original source rows', () =>
+    inInsFixture(database(), async (trx, repo) => {
+      await historicalRule.execute(trx);
+      await sql`update ins.observations set value=null,value_status='c'
+        where dataset_code='POPTEST' and time_nom_item_id=4437`.execute(trx);
+      const tool = makeInsMcpTools({ repo, clientBaseUrl: 'https://example.test' }).find(
+        (t) => t.name === 'get_ins_series'
+      )!;
+      const input = {
+        datasetCode: 'POPTEST',
+        sourcePins: [
+          { dimensionIndex: 0, memberCode: '1' },
+          { dimensionIndex: 1, memberCode: '105' },
+          { dimensionIndex: 2, memberCode: '3075' },
+          { dimensionIndex: 3, memberCode: '931' },
+        ],
+        unitCodes: ['9685'],
+        periodicity: 'ANNUAL',
+      };
+      const all = await tool.handler(input);
+      expect(all.items).toHaveLength(3);
+      expect(all.items?.[0]).toMatchObject({ value: null, valueStatus: 'c' });
+      expect(all.items?.[1]).toMatchObject({ geography: { qualified: true } });
+      const onlyNull = await tool.handler({ ...input, hasValue: false });
+      expect(onlyNull.items).toHaveLength(1);
+      expect(onlyNull.items?.[0]).toMatchObject({ value: null, valueStatus: 'c' });
+    }));
+
   it('geography selection rejects an internal modern scope without an explicit bound', () =>
     inInsFixture(database(), async (_trx, repo) => {
       const result = await repo.listObservations({ ...query, geoScope: { kind: 'modern' } });
@@ -562,6 +642,7 @@ export const registerInsGeographyCases = (
       expect(items.map((i) => i['geography'])).toEqual(
         graphql.nodes.map((r) => r.dimensions['geography'])
       );
+      expect(items.map((item) => item['id'])).toEqual(graphql.nodes.map((row) => row.id));
       expect(items).toHaveLength(3);
       expect(graphql.nodes.filter((r) => r.territory === null)).toHaveLength(2);
       expect(items.filter((r) => r['territory'] === null)).toHaveLength(2);
