@@ -86,6 +86,7 @@ const dataset = (code: string, k: number, hasLau: boolean, hasCounty: boolean): 
   hasRegion: !hasLau,
   hasNational: true,
   dataStatus: 'AVAILABLE',
+  publicationStatus: 'READY',
   observationCount: 100,
   computedAt: '2026-09-02T10:00:00+00',
   sourceLastUpdate: '2026-08-04',
@@ -94,6 +95,9 @@ const dataset = (code: string, k: number, hasLau: boolean, hasCounty: boolean): 
   contextNameEn: 'A. SOCIAL STATISTICS',
   contextPath: 'A. STATISTICA SOCIALA > POPULATIE',
   custodySha256: 'a'.repeat(64),
+  revisionId: '1',
+  transformContractSha256: 'b'.repeat(64),
+  publishedAt: '2026-09-02T10:00:00+00',
   sourceUrl: `http://statistici.insse.ro:8077/tempo-ins/matrix/${code}?lang=ro`,
 });
 
@@ -102,7 +106,13 @@ export const CNTTEST = dataset('CNTTEST', 1, false, true);
 export const CATALOG_ONLY = {
   ...dataset('EMPTYTEST', 1, false, false),
   dataStatus: 'CATALOG_ONLY' as const,
-  observationCount: 0,
+  publicationStatus: 'NOT_LOADED' as const,
+  observationCount: null,
+  custodySha256: null,
+  revisionId: null,
+  transformContractSha256: null,
+  publishedAt: null,
+  computedAt: null,
   yearRange: null,
 };
 

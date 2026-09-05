@@ -381,6 +381,9 @@ export const toGqlDataset = (d: InsDatasetView): GqlDataset => ({
     has_region_data: d.hasRegion,
     has_national_data: d.hasNational,
     custody_sha256: d.custodySha256,
+    revision_id: d.revisionId,
+    transform_contract_sha256: d.transformContractSha256,
+    published_at: d.publishedAt,
     source_url: d.sourceUrl,
   },
 });

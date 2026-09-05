@@ -2,11 +2,10 @@
  * INS native module — `ProdDatabase` augmentation (module-augmentation pattern).
  *
  * Types the live Chronos `ins.*` schema (scrapper migrations
- * `20260811T140000__ins_prod_schema` … `20260903T100000__ins_serving_catalogs`)
+ * `20260811T140000__ins_prod_schema` … `20260905T120000__ins_geographic_coordinates`)
  * onto the single kernel Kysely instance. Table keys are the schema-qualified
- * live names. Only the columns the module READS are typed — provenance
- * (`response_id`, custody pointers) and load bookkeeping are omitted so the
- * repo cannot select them by accident.
+ * live names. Publication custody and revision bookkeeping are deliberately
+ * typed for read-only admission checks; the server never mutates these stamps.
  *
  * Scalars (foundation §14.1, pool.ts): `bigint` → `string` (int8 parser),
  * `numeric` → `string` (value precision preserved), `date` → `'YYYY-MM-DD'`,
@@ -42,6 +41,10 @@ export interface InsDatasetsTable {
   territory_dim_index: number | null;
   territory_resolution: string | null;
   pivot_custody_sha256: string | null;
+  pivot_custody_algo: number | null;
+  pivot_custody_requests: number | null;
+  pivot_custody_applied_generation: string | null;
+  pivot_custody_applied_rows: string | null;
   is_complete: ReadOnly<boolean>;
 }
 
@@ -166,6 +169,61 @@ export interface InsDatasetCoverageTable {
   source_last_update: string | null; // date
   name_search: string;
   computed_at: string; // timestamptz
+  geo_contract_version: string | null;
+  geo_dimension_count: number | null;
+  geo_tuple_count: number | null;
+  geo_rule_count: number | null;
+}
+
+/** Applied, append-only publication proof; latest is ordered by revision_id. */
+export interface InsDatasetRevisionsTable {
+  revision_id: string;
+  dataset_code: string;
+  to_custody_sha256: string;
+  to_custody_algo: number;
+  to_custody_requests: number;
+  to_applied_generation: string | null;
+  transform_contract_sha256: string;
+  rows_after: string;
+  after_fact_digest_sha256: string;
+  load_run_id: string;
+  applied_at: string;
+}
+
+interface InsGeographyStamp {
+  dataset_code: string;
+  contract_version: string;
+  custody_sha256: string;
+  privacy_class: 'public';
+}
+
+export interface InsGeoDimensionsTable extends InsGeographyStamp {
+  dim_index: number;
+  slot_index: number;
+  role: 'single' | 'nested_parent' | 'nested_child' | 'unreviewed';
+  method: string;
+}
+
+export interface InsGeoTuplesTable extends InsGeographyStamp {
+  geo_pairs: readonly (readonly [number, number])[];
+  resolution: 'EXACT' | 'CONTEXTUAL' | 'INCOHERENT' | 'UNRESOLVED' | 'UNSUPPORTED_ROLES';
+  territory_id: string | null;
+  context_territory_id: string | null;
+  flags: string[];
+  has_modern_facts: boolean;
+  has_qualified_facts: boolean;
+  has_incoherent_facts: boolean;
+}
+
+export interface InsGeoTupleRulesTable extends InsGeographyStamp {
+  geo_pairs: readonly (readonly [number, number])[];
+  rule_id: string;
+  applies_from: string;
+  applies_to: string;
+  flag: string;
+  kind: 'coverage';
+  evidence_url: string;
+  rationale: string;
 }
 
 /** `ins.default_series` — the loader-owned default pin per (dataset, non-time dimension). */
@@ -212,6 +270,10 @@ declare module '@/modules/shared/shell/db/types.js' {
     'ins.territory_nodes': InsTerritoryNodesTable;
     'ins.contexts': InsContextsTable;
     'ins.dataset_coverage': InsDatasetCoverageTable;
+    'ins.dataset_revisions': InsDatasetRevisionsTable;
+    'ins.dataset_geo_dimensions': InsGeoDimensionsTable;
+    'ins.dataset_geo_tuples': InsGeoTuplesTable;
+    'ins.geo_tuple_rules': InsGeoTupleRulesTable;
     'ins.default_series': InsDefaultSeriesTable;
     'ins.observations': InsObservationsTable;
     /* eslint-enable @typescript-eslint/naming-convention -- restore the rule after the schema-qualified table keys */

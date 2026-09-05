@@ -1,6 +1,8 @@
 import { sql, type Kysely, type Transaction } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
+import { InsPublicationUnavailable } from './publication-error.js';
+
 import type { ApiError, ProdDatabase } from '@/modules/shared/index.js';
 
 /** Interactive read budget; exports get their own path (plan §3.3). */
@@ -17,9 +19,13 @@ const isStatementTimeout = (error: unknown): boolean => {
 };
 
 export const dbError = (cause: unknown, what: string): ApiError =>
-  isStatementTimeout(cause)
-    ? { type: 'Timeout', message: `ins repository timed out: ${what}` }
-    : { type: 'Database', message: `ins repository failed: ${what}`, cause };
+  cause instanceof InsPublicationUnavailable
+    ? { type: 'ServiceUnavailable', message: cause.message }
+    : ['42P01', '42703'].includes(String((cause as { code?: unknown } | null)?.code))
+      ? { type: 'ServiceUnavailable', message: 'INS serving schema is unavailable' }
+      : isStatementTimeout(cause)
+        ? { type: 'Timeout', message: `ins repository timed out: ${what}` }
+        : { type: 'Database', message: `ins repository failed: ${what}`, cause };
 
 /** Runs one read inside a repeatable-read, read-only transaction (or an enclosing one). */
 export type Runner = <T>(

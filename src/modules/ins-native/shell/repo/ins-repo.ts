@@ -19,6 +19,11 @@ import { sql, type RawBuilder } from 'kysely';
 import { err, ok } from 'neverthrow';
 
 import {
+  assertDatasetsPublished,
+  datasetPeriodicities,
+  datasetPublicationFrom,
+} from './publication.js';
+import {
   dbError,
   inTrxRunner,
   openSnapshot,
@@ -142,6 +147,11 @@ interface DatasetRow {
   context_path: string | null;
   pivot_custody_sha256: string | null;
   source_url: string;
+  facts_ready: boolean;
+  not_loaded: boolean;
+  revision_id: string | null;
+  transform_contract_sha256: string | null;
+  applied_at: string | null;
   observation_count: string | null;
   first_period_start: string | null;
   last_period_end: string | null;
@@ -163,8 +173,8 @@ interface DatasetRow {
 }
 
 const toDataset = (r: DatasetRow): InsDatasetView => {
-  const count = r.observation_count === null ? 0 : Number(r.observation_count);
-  const observed = r.periodicities_observed ?? [];
+  const count = r.facts_ready && r.observation_count !== null ? Number(r.observation_count) : null;
+  const observed = r.facts_ready ? (r.periodicities_observed ?? []) : [];
   const firstStart = isoDate(r.first_period_start);
   const lastEnd = isoDate(r.last_period_end);
   return {
@@ -177,7 +187,7 @@ const toDataset = (r: DatasetRow): InsDatasetView => {
     dataSourcesRo: r.data_sources_ro,
     periodicities: (observed.length > 0 ? observed : r.periodicities) as InsPeriodicity[],
     yearRange:
-      firstStart !== null && lastEnd !== null
+      r.facts_ready && firstStart !== null && lastEnd !== null
         ? [Number(firstStart.slice(0, 4)), Number(lastEnd.slice(0, 4))]
         : null,
     sourceYearRange:
@@ -188,19 +198,23 @@ const toDataset = (r: DatasetRow): InsDatasetView => {
     classificationDimCount: r.classification_dim_count,
     timeDimIndex: r.time_dim_index,
     unitDimIndex: r.unit_dim_index,
-    hasLau: r.has_lau ?? false,
-    hasCounty: r.has_county ?? false,
-    hasRegion: r.has_region ?? false,
-    hasNational: r.has_national ?? false,
-    dataStatus: count > 0 ? 'AVAILABLE' : 'CATALOG_ONLY',
+    hasLau: r.facts_ready && (r.has_lau ?? false),
+    hasCounty: r.facts_ready && (r.has_county ?? false),
+    hasRegion: r.facts_ready && (r.has_region ?? false),
+    hasNational: r.facts_ready && (r.has_national ?? false),
+    dataStatus: r.facts_ready ? 'AVAILABLE' : 'CATALOG_ONLY',
+    publicationStatus: r.facts_ready ? 'READY' : r.not_loaded ? 'NOT_LOADED' : 'UNCERTIFIED',
     observationCount: count,
-    computedAt: isoTimestamp(r.computed_at),
+    computedAt: r.facts_ready ? isoTimestamp(r.computed_at) : null,
     sourceLastUpdate: isoDate(r.source_last_update) ?? isoDate(r.ultima_actualizare_date),
     contextCode: r.context_code,
     contextNameRo: r.context_name_ro,
     contextNameEn: r.context_name_en,
     contextPath: r.context_path,
-    custodySha256: r.pivot_custody_sha256,
+    custodySha256: r.facts_ready ? r.pivot_custody_sha256 : null,
+    revisionId: r.facts_ready ? r.revision_id : null,
+    transformContractSha256: r.facts_ready ? r.transform_contract_sha256 : null,
+    publishedAt: r.facts_ready ? isoTimestamp(r.applied_at) : null,
     sourceUrl: r.source_url,
   };
 };
@@ -209,15 +223,13 @@ const datasetSelect = sql`
   d.dataset_code, d.matrix_name_ro, d.matrix_name_en, d.periodicities, d.dimension_count,
   d.classification_dim_count, d.time_dim_index, d.unit_dim_index, d.ultima_actualizare_date,
   d.context_code, d.context_path, d.pivot_custody_sha256, d.source_url,
+  publication.facts_ready, publication.not_loaded, r.revision_id, r.transform_contract_sha256, r.applied_at,
   c.observation_count, c.first_period_start, c.last_period_end, c.periodicities_observed,
   c.has_lau, c.has_county, c.has_region, c.has_national, c.definition_ro, c.definition_en,
   c.methodology_ro, c.data_sources_ro, c.source_year_start, c.source_year_end,
   c.source_last_update, c.computed_at, ctx.name_ro as context_name_ro, ctx.name_en as context_name_en`;
 
-const datasetFrom = sql`
-  from ins.datasets d
-  left join ins.dataset_coverage c on c.dataset_code = d.dataset_code
-  left join ins.contexts ctx on ctx.context_code = d.context_code`;
+const datasetFrom = datasetPublicationFrom();
 
 interface MemberRow {
   dataset_code: string;
@@ -527,9 +539,9 @@ const makeRepoOn = (db: Db, readTx: Runner, snapshotBound = false): InsRepo => {
     }
     if (filter.periodicities !== undefined && filter.periodicities.length > 0) {
       const arr = sql`array[${sql.join(filter.periodicities.map((p) => sql`${p}`))}]::text[]`;
-      parts.push(sql`coalesce(c.periodicities_observed, d.periodicities) && ${arr}`);
+      parts.push(sql`${datasetPeriodicities} && ${arr}`);
     }
-    const loaded = sql`coalesce(c.observation_count, 0) > 0`;
+    const loaded = sql`publication.facts_ready`;
     if (filter.dataStatus === undefined) {
       parts.push(loaded);
     } else if (filter.dataStatus.length > 0) {
@@ -538,9 +550,13 @@ const makeRepoOn = (db: Db, readTx: Runner, snapshotBound = false): InsRepo => {
       if (!wants.has('CATALOG_ONLY')) parts.push(loaded);
     }
     if (filter.hasUatData !== undefined)
-      parts.push(sql`coalesce(c.has_lau, false) = ${filter.hasUatData}`);
+      parts.push(
+        sql`(publication.facts_ready and coalesce(c.has_lau, false)) = ${filter.hasUatData}`
+      );
     if (filter.hasCountyData !== undefined)
-      parts.push(sql`coalesce(c.has_county, false) = ${filter.hasCountyData}`);
+      parts.push(
+        sql`(publication.facts_ready and coalesce(c.has_county, false)) = ${filter.hasCountyData}`
+      );
     return sql.join(parts, sql` and `);
   };
 
@@ -915,22 +931,22 @@ const makeRepoOn = (db: Db, readTx: Runner, snapshotBound = false): InsRepo => {
       return readTx('datasetsWithLevel', async (trx) => {
         const column =
           level === 'LAU'
-            ? sql`has_lau`
+            ? sql`c.has_lau`
             : level === 'NUTS3'
-              ? sql`has_county`
+              ? sql`c.has_county`
               : level === 'NATIONAL'
-                ? sql`has_national`
-                : sql`has_region`;
+                ? sql`c.has_national`
+                : sql`c.has_region`;
         const res = await sql<{ dataset_code: string }>`
-          select dataset_code from ins.dataset_coverage where ${column} order by dataset_code`.execute(
-          trx
-        );
+          select d.dataset_code ${datasetFrom}
+          where publication.facts_ready and ${column} order by d.dataset_code`.execute(trx);
         return res.rows.map((r) => r.dataset_code);
       });
     },
 
     async listObservations(query) {
       return readTx('listObservations', async (trx) => {
+        await assertDatasetsPublished(trx, [query.datasetCode]);
         const parts: RawBuilder<unknown>[] = [sql`o.dataset_code = ${query.datasetCode}`];
         if (query.pinGroups.length > 0) {
           parts.push(
@@ -1017,6 +1033,10 @@ const makeRepoOn = (db: Db, readTx: Runner, snapshotBound = false): InsRepo => {
       }
       const periodSql = periodParts.length === 0 ? sql`true` : sql.join(periodParts, sql` and `);
       return readTx('latestForSeries', async (trx) => {
+        await assertDatasetsPublished(
+          trx,
+          series.map((s) => s.datasetCode)
+        );
         const out: InsSeriesRow[] = [];
         for (let i = 0; i < series.length; i += SERIES_PER_STATEMENT) {
           const chunk = series.slice(i, i + SERIES_PER_STATEMENT);

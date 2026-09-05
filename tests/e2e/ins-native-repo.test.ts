@@ -1,6 +1,6 @@
 /**
  * E2E — the INS native repository over the REAL scrapper DDL (PostgreSQL 18):
- * the seven `ins` prod migrations (content-pinned) + the lane's identity index,
+ * the eight `ins` prod migrations (content-pinned) + the lane's identity index,
  * seeded with the same small world the unit-test fake models, then driven
  * through the usecases exactly as the resolvers do.
  *
@@ -17,7 +17,7 @@
  * on a loopback host (an SSH tunnel to the zeus docker host in practice), else a
  * local testcontainer. Skips locally without either; FAILS under `CI` /
  * `TEST_E2E_REQUIRED=1`. The scrapper checkout is `SCRAPPER_REPO_ROOT` or the
- * sibling checkout; the seven migrations must match `MIGRATION_SHA256`.
+ * sibling checkout; the eight migrations must match `MIGRATION_SHA256`.
  */
 
 import { execSync } from 'node:child_process';
@@ -41,10 +41,16 @@ import {
 } from '@/modules/ins-native/core/usecases.js';
 import { makeInsRepo } from '@/modules/ins-native/shell/repo/ins-repo.js';
 import {
+  INS_SUPPORTED_TRANSFORMS,
+  INS_SUPPORTED_GEO_FLAGS,
+} from '@/modules/ins-native/shell/repo/publication.js';
+import {
   INS_OPERATION_TIMEOUT_MS,
   makeInsReadSession,
 } from '@/modules/ins-native/shell/repo/read-session.js';
 import { createProdDb } from '@/modules/shared/shell/db/pool.js';
+
+import { registerInsPublicationCases } from './ins-native-publication-cases.js';
 
 import type { InsRepo } from '@/modules/ins-native/core/ports.js';
 import type { ProdDatabase } from '@/modules/shared/index.js';
@@ -68,7 +74,7 @@ const resolveScrapperRoot = (): string | undefined => {
   return candidates.find((c) => fs.existsSync(path.join(c, 'src', 'db', 'prod-migrations')));
 };
 
-/** Content pins of the seven INS prod migrations (scrapper main @ e8ed19f9, 2026-09-02). */
+/** Content pins of the INS prod migrations, including complete geography (669746b5). */
 const MIGRATION_SHA256: Readonly<Record<string, string>> = {
   '20260811T140000__ins_prod_schema.ts':
     '7a4c6bf0a386e68f3485773e8252ace9651a45da93daeabb698b34aa4d2961d2',
@@ -84,6 +90,8 @@ const MIGRATION_SHA256: Readonly<Record<string, string>> = {
     '39e1bebe29cdb0657d2c4d7e21eeeb29dd783e8a24f5c7582934a0960917cced',
   '20260903T100000__ins_serving_catalogs.ts':
     '2e8038b5430817b06cdf99d925572556ae4b701747c950ad1bd3be857df60df4',
+  '20260905T120000__ins_geographic_coordinates.ts':
+    '74d4bb4c13cfc840146810b0f2b5858b20c8d5c7d3f667a350c6b6cec85c7966',
 };
 const MIGRATIONS = Object.keys(MIGRATION_SHA256);
 
@@ -186,7 +194,7 @@ const seed = async (client: pg.Client): Promise<void> => {
       ultima_actualizare_date, load_status, rows_loaded, source_url, pivot_custody_sha256, pivot_custody_algo,
       pivot_custody_requests, pivot_custody_applied_rows, pivot_custody_applied_generation, territory_dim_index, territory_resolution) values
       ('POPTEST', 1, 'Populația după domiciliu', 'Population by domicile', 'en', '10', 'A. STATISTICA SOCIALA > POPULATIE',
-        6, 4, 4, 5, '{ANNUAL}', 1, '2026-08-04', 'loaded', 45, 'http://x/matrix/POPTEST', '${SHA}', 2, 1, 45, 1, 3, 'RESOLVED'),
+        6, 4, 4, 5, '{ANNUAL}', 1, '2026-08-04', 'loaded', 135, 'http://x/matrix/POPTEST', '${SHA}', 2, 1, 135, 1, 3, 'RESOLVED'),
       ('CNTTEST', 2, 'Cifra de afaceri pe județe', 'Turnover by county', 'en', '10', 'A. STATISTICA SOCIALA > POPULATIE',
         3, 1, 1, 2, '{ANNUAL}', 2, '2026-08-04', 'loaded', 12, 'http://x/matrix/CNTTEST', '${SHA}', 2, 1, 12, 2, 0, 'RESOLVED'),
       ('EMPTYTEST', 3, 'Set fără date', 'Empty set', 'en', '10', 'A. STATISTICA SOCIALA > POPULATIE',
@@ -239,8 +247,33 @@ const seed = async (client: pg.Client): Promise<void> => {
 
     insert into ins.dataset_coverage (dataset_code, custody_sha256, observation_count, first_period_start, last_period_end,
       periodicities_observed, has_lau, has_county, has_region, has_national, definition_ro, name_search) values
-      ('POPTEST', '${SHA}', 45, '2019-01-01', '2021-12-31', '{ANNUAL}', true, true, false, true, 'Numarul persoanelor cu domiciliul', 'populatia dupa domiciliu population by domicile poptest'),
+      ('POPTEST', '${SHA}', 135, '2019-01-01', '2021-12-31', '{ANNUAL}', true, true, false, true, 'Numarul persoanelor cu domiciliul', 'populatia dupa domiciliu population by domicile poptest'),
       ('CNTTEST', '${SHA}', 12, '2019-01-01', '2020-12-31', '{ANNUAL}', false, true, true, true, null, 'cifra de afaceri pe judete turnover by county cnttest');
+
+    insert into ins.dataset_revisions (dataset_code,to_custody_sha256,to_custody_algo,
+      to_custody_requests,to_applied_generation,transform_contract_sha256,rows_before,rows_after,
+      coordinates_added,coordinates_removed,coordinates_changed,after_fact_digest_sha256,load_run_id)
+    select dataset_code,pivot_custody_sha256,2,1,generation_id,'${INS_SUPPORTED_TRANSFORMS[0]}',
+      0,rows_loaded,rows_loaded,0,0,'${SHA}',1 from ins.datasets where dataset_code <> 'EMPTYTEST';
+    insert into ins.dataset_geo_dimensions
+      (dataset_code,dim_index,slot_index,role,method,contract_version,custody_sha256) values
+      ('POPTEST',2,3,'nested_parent','county-name','ins-geography-v1','${SHA}'),
+      ('POPTEST',3,4,'nested_child','locality-prefix','ins-geography-v1','${SHA}'),
+      ('CNTTEST',0,1,'single','reg-j-name','ins-geography-v1','${SHA}');
+    insert into ins.dataset_geo_tuples
+      (dataset_code,geo_pairs,resolution,territory_id,flags,has_modern_facts,
+       has_qualified_facts,has_incoherent_facts,contract_version,custody_sha256) values
+      ('POPTEST','[[2,3064],[3,112]]','EXACT',1,'{}',true,false,false,'ins-geography-v1','${SHA}'),
+      ('POPTEST','[[2,3075],[3,112]]','EXACT',25,'{}',true,false,false,'ins-geography-v1','${SHA}'),
+      ('POPTEST','[[2,3065],[3,112]]','EXACT',14,'{}',true,false,false,'ins-geography-v1','${SHA}'),
+      ('POPTEST','[[2,3075],[3,931]]','EXACT',931,'{}',true,false,false,'ins-geography-v1','${SHA}'),
+      ('POPTEST','[[2,3065],[3,113]]','EXACT',56,'{}',true,false,false,'ins-geography-v1','${SHA}'),
+      ('CNTTEST','[[0,8000]]','EXACT',1,'{}',true,false,false,'ins-geography-v1','${SHA}'),
+      ('CNTTEST','[[0,8001]]','EXACT',6,'{}',true,false,false,'ins-geography-v1','${SHA}'),
+      ('CNTTEST','[[0,8002]]','EXACT',25,'{}',true,false,false,'ins-geography-v1','${SHA}');
+    update ins.dataset_coverage set geo_contract_version='ins-geography-v1',
+      geo_dimension_count=case dataset_code when 'POPTEST' then 2 else 1 end,
+      geo_tuple_count=case dataset_code when 'POPTEST' then 5 else 3 end,geo_rule_count=0;
 
     insert into ins.default_series (dataset_code, dim_index, nom_item_id, policy, manifest_version) values
       ('POPTEST', 0, 1, 'TOTAL_MEMBER', 'v1'), ('POPTEST', 1, 105, 'TOTAL_MEMBER', 'v1'),
@@ -249,7 +282,7 @@ const seed = async (client: pg.Client): Promise<void> => {
       ('CNTTEST', 0, 8000, 'TOTAL_MEMBER', 'v1');
 
     insert into ins.observation_chunks (response_id, dataset_code, generation_id, request_key, enc_query, source_url, physical_row_count, parsed_at) values
-      (1, 'POPTEST', 1, 'ins:pivot:POPTEST:1', '1', 'http://x/pivot', 45, now()),
+      (1, 'POPTEST', 1, 'ins:pivot:POPTEST:1', '1', 'http://x/pivot', 135, now()),
       (2, 'CNTTEST', 2, 'ins:pivot:CNTTEST:1', '1', 'http://x/pivot', 12, now());
   `);
 
@@ -320,6 +353,14 @@ beforeAll(async () => {
     return;
   }
   assertScrapperMigrations(scrapperRoot);
+  const producer = (await import(
+    pathToFileURL(path.join(scrapperRoot, 'src/sources/ins/prod/geography-manifest.ts')).href
+  )) as Record<'INS_GEOGRAPHY_FLAG_KINDS', readonly { flag: string; kind: string }[]>;
+  expect([...INS_SUPPORTED_GEO_FLAGS].sort()).toEqual(
+    producer.INS_GEOGRAPHY_FLAG_KINDS.filter((f) => f.kind !== 'defect')
+      .map((f) => f.flag)
+      .sort()
+  );
 
   const target = new URL(connectionString);
   if (
@@ -378,6 +419,10 @@ const waitForBlockedInsRead = async (writer: pg.Client): Promise<number> => {
 };
 
 describe('ins-native repository over the real scrapper DDL (e2e)', () => {
+  registerInsPublicationCases(it, () => {
+    if (db === undefined) throw new Error('fixture not ready');
+    return db;
+  });
   it('nested reads retain the publication snapshot while another connection publishes', async () => {
     if (pgClient === undefined) throw new Error('writer not ready');
     const writer = pgClient;
@@ -752,7 +797,7 @@ describe('ins-native repository over the real scrapper DDL (e2e)', () => {
 
   it('plan: a fully pinned series probes the identity index on the pruned partition', async () => {
     if (db === undefined) throw new Error('db');
-    // 45 rows: the planner rightly prefers a seq scan, so prove the index is the
+    // 135 rows: the planner rightly prefers a seq scan, so prove the index is the
     // chosen path once sequential scans are discouraged (the production leaf has 34M rows).
     const plan = await db.transaction().execute(async (trx) => {
       await sql`set local enable_seqscan = off`.execute(trx);

@@ -537,6 +537,13 @@ export const listObservations = (
 ): Promise<Result<InsPage<InsObservationView>, ApiError>> =>
   outer.withSnapshot(async (repo) => {
     const code = datasetCode.trim().toUpperCase();
+    const dataset = await repo.getDataset(code);
+    if (dataset.isErr()) return err(dataset.error);
+    if (dataset.value === null || dataset.value.publicationStatus === 'NOT_LOADED')
+      return ok(EMPTY_PAGE);
+    if (dataset.value.dataStatus !== 'AVAILABLE') {
+      return err({ type: 'ServiceUnavailable', message: 'INS dataset publication is unavailable' });
+    }
     const dimensions = await repo.listDimensions(code);
     if (dimensions.isErr()) return err(dimensions.error);
     // An unknown dataset is an EMPTY page, not an error: the entity page sends
@@ -620,6 +627,10 @@ export const defaultSeriesFor = async (
     ApiError
   >
 > => {
+  if (dataset.publicationStatus === 'NOT_LOADED') return ok(null);
+  if (dataset.dataStatus !== 'AVAILABLE') {
+    return err({ type: 'ServiceUnavailable', message: 'INS dataset publication is unavailable' });
+  }
   const classification = slotted(dimensions);
   const unitDim = dimensions.find((d) => d.role === 'unit');
   if (unitDim === undefined) return ok(null);

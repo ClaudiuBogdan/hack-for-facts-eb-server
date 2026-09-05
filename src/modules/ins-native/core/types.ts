@@ -72,6 +72,7 @@ export const TERRITORY_LEVEL_DEPTH: Readonly<Record<InsTerritoryLevel, number>> 
 export type InsDimensionRole = 'classification' | 'time' | 'unit';
 export type InsMemberRole = 'TOTAL' | 'SUBTOTAL' | 'LEAF' | 'OF_WHICH' | 'UNKNOWN';
 export type InsDataStatus = 'AVAILABLE' | 'CATALOG_ONLY';
+export type InsPublicationStatus = 'READY' | 'NOT_LOADED' | 'UNCERTIFIED';
 export type InsUnitKind = 'monetary' | 'intensity-or-mixed' | 'non-monetary';
 export type InsDefaultPolicy = 'TOTAL_MEMBER' | 'SINGLE_UNIT' | 'MANIFEST';
 
@@ -134,7 +135,9 @@ export interface InsDatasetView {
   readonly hasRegion: boolean;
   readonly hasNational: boolean;
   readonly dataStatus: InsDataStatus;
-  readonly observationCount: number;
+  /** Never-loaded data keeps empty semantics; uncertified publications are unavailable. */
+  readonly publicationStatus: InsPublicationStatus;
+  readonly observationCount: number | null;
   /** When the served facts were last (re)computed — the coverage row's timestamp. */
   readonly computedAt: string | null;
   /** TEMPO's own last-update date for the matrix. */
@@ -143,8 +146,11 @@ export interface InsDatasetView {
   readonly contextNameRo: string | null;
   readonly contextNameEn: string | null;
   readonly contextPath: string | null;
-  /** The per-dataset revision key (pivot custody digest); null until first promotion. */
+  /** Certified source custody; transforms can create another revision over the same source. */
   readonly custodySha256: string | null;
+  readonly revisionId: string | null;
+  readonly transformContractSha256: string | null;
+  readonly publishedAt: string | null;
   readonly sourceUrl: string;
 }
 
