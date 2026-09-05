@@ -230,7 +230,7 @@ export const makeInsMcpTools = (deps: InsMcpDeps): readonly KernelMcpTool[] => {
   const snapshot: KernelMcpTool = {
     name: 'get_ins_territory_snapshot',
     description:
-      'Latest default-series value of several INS datasets for one territory (SIRUTA for a locality, county letter with level NUTS3, RO for national). Datasets without a complete default pin answer NO_DATA rather than an arbitrary row.',
+      'Latest default-series value of several INS datasets for one territory (SIRUTA for a locality, county letter with level NUTS3, RO for national). Datasets without a complete default pin answer NO_DATA. Multiple eligible geographic source tuples answer AMBIGUOUS_GEOGRAPHY with two geographicWitnesses, not an exhaustive candidate list. Use get_ins_series to inspect a bounded period or explicitly pin every geographic source dimension.',
     inputShape: {
       datasetCodes: z.array(z.string()).min(1).max(100),
       sirutaCode: z.string().optional(),
@@ -270,6 +270,7 @@ export const makeInsMcpTools = (deps: InsMcpDeps): readonly KernelMcpTool[] => {
           datasetCode: v.dataset.code,
           nameRo: v.dataset.nameRo,
           matchStrategy: v.matchStrategy,
+          geographicWitnesses: v.witnesses,
           geography: v.observation?.geography ?? null,
           period: v.observation?.period.labelRo ?? null,
           value: v.observation?.value ?? null,

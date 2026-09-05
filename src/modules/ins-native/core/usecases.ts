@@ -2,12 +2,13 @@
  * Public identifiers resolve to typed repository inputs here. Observation lists
  * use complete source coordinates or explicit modern geographic scopes; numeric
  * classification members and TOTAL resolve separately and intersect that scope.
- * Default-series geography still uses the transitional binding helpers below,
- * pending the next prerequisite before native INS is enabled.
+ * Default preparation pins classifications; the repository probes complete
+ * eligible source tuples and reports ambiguity before selecting any latest row.
  */
 
 import { err, ok, type Result } from 'neverthrow';
 
+import { buildDefaultSeries, type InsDefaultSelection } from './default-series.js';
 import { observationGeoScope } from './geography.js';
 import {
   isTotalAlias,
@@ -28,7 +29,6 @@ import {
   MAX_DIMENSION_VALUES_LIMIT,
   MAX_OBSERVATION_LIMIT,
   MAX_TERRITORY_LIMIT,
-  TERRITORY_LEVEL_DEPTH,
   type InsContext,
   type InsContextFilter,
   type InsDashboardGroup,
@@ -44,14 +44,13 @@ import {
   type InsPage,
   type InsPeriodFilter,
   type InsPeriodicity,
-  type InsSeriesSpec,
   type InsTerritoryLevel,
   type InsTerritoryFilter,
   type InsTerritoryNode,
   type SlotPins,
 } from './types.js';
 
-import type { InsRepo, InsTerritoryBinding, InsTerritoryDimension } from './ports.js';
+import type { InsRepo } from './ports.js';
 import type { ApiError } from '@/modules/shared/index.js';
 
 const invalidInput = (message: string, field?: string): ApiError => ({
@@ -200,84 +199,6 @@ export const resolveTerritoryNodes = async (
       ? (selected ?? []).filter((n) => levels.includes(n.level))
       : (selected ?? []);
   return ok(filtered);
-};
-
-const depthOf = (level: InsTerritoryLevel | null): number =>
-  level === null ? -1 : TERRITORY_LEVEL_DEPTH[level];
-
-/**
- * The slot pins one spine node implies in one dataset: for every territorial
- * dimension, the member bound to the node or to one of its ancestors (the
- * deepest wins); for a dimension whose members are all BELOW the node (the
- * locality dimension when the node is a county), the dimension's TOTAL member.
- * A node deeper than every grain the dataset binds (a locality in a
- * county-only dataset), or a node bound in no dimension, has no series → null:
- * a node is never answered with an ancestor's row.
- */
-export const territoryPinsFor = (
-  node: InsTerritoryNode,
-  ancestors: readonly InsTerritoryNode[],
-  dims: readonly InsTerritoryDimension[],
-  bindings: readonly InsTerritoryBinding[]
-): SlotPins | null => {
-  if (dims.length === 0) return null;
-  const chainIds = new Set([node, ...ancestors].map((n) => n.territoryId));
-  const nodeDepth = TERRITORY_LEVEL_DEPTH[node.level];
-  const finestGrain = Math.max(...dims.flatMap((d) => d.levels.map(depthOf)));
-  if (nodeDepth > finestGrain) return null;
-
-  const pins = new Map<number, readonly number[]>();
-  let boundToChain = false;
-  for (const dim of dims) {
-    const onChain = bindings
-      .filter((b) => b.dimIndex === dim.dimIndex && chainIds.has(b.territoryId))
-      .sort((a, b) => depthOf(b.territoryLevel) - depthOf(a.territoryLevel));
-    const best = onChain[0];
-    if (best !== undefined) {
-      pins.set(dim.slotIndex, [best.nomItemId]);
-      boundToChain = true;
-      continue;
-    }
-    const dimGrain = Math.max(...dim.levels.map(depthOf));
-    if (dimGrain > nodeDepth && dim.totalNomItemId !== null) {
-      pins.set(dim.slotIndex, [dim.totalNomItemId]);
-      continue;
-    }
-    return null;
-  }
-  return boundToChain || node.level === 'NATIONAL' ? pins : null;
-};
-
-/** One AND-group per node, OR-ed by the repository. Nodes without a series are dropped. */
-export const territoryPinGroups = async (
-  repo: InsRepo,
-  datasetCode: string,
-  nodes: readonly InsTerritoryNode[]
-): Promise<Result<readonly { node: InsTerritoryNode; pins: SlotPins }[], ApiError>> => {
-  const dims = await repo.territoryDimensions(datasetCode);
-  if (dims.isErr()) return err(dims.error);
-  const ancestorsByNode = new Map<number, readonly InsTerritoryNode[]>();
-  const allIds = new Set<number>();
-  for (const node of nodes) {
-    const ancestors = await repo.ancestorsOf(node.territoryId);
-    if (ancestors.isErr()) return err(ancestors.error);
-    ancestorsByNode.set(node.territoryId, ancestors.value);
-    allIds.add(node.territoryId);
-    for (const a of ancestors.value) allIds.add(a.territoryId);
-  }
-  const bindings = await repo.territoryBindings(datasetCode, [...allIds]);
-  if (bindings.isErr()) return err(bindings.error);
-  const groups: { node: InsTerritoryNode; pins: SlotPins }[] = [];
-  for (const node of nodes) {
-    const pins = territoryPinsFor(
-      node,
-      ancestorsByNode.get(node.territoryId) ?? [],
-      dims.value,
-      bindings.value
-    );
-    if (pins !== null) groups.push({ node, pins });
-  }
-  return ok(groups);
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -554,126 +475,83 @@ export const listObservations = (
 // Default series, latest values, dashboard
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Build the fully pinned series of a dataset for one territory node: territory
- * pins + the default-series registry for every remaining classification
- * dimension + the unit; `preferred` member codes override the registry on the
- * dimension they belong to. Returns null (NO_DATA) when any classification
- * dimension or the unit stays unpinned (decision D2).
- */
-export const defaultSeriesFor = async (
+const prepareDefaultSelections = async (
   repo: InsRepo,
-  dataset: InsDatasetView,
-  dimensions: readonly InsDimensionView[],
-  node: InsTerritoryNode | null,
+  datasets: readonly InsDatasetView[],
+  node: InsTerritoryNode,
   preferredCodes: readonly string[]
-): Promise<
-  Result<
-    { spec: InsSeriesSpec; strategy: 'PREFERRED_CLASSIFICATION' | 'TOTAL_FALLBACK' } | null,
-    ApiError
-  >
-> => {
-  if (dataset.publicationStatus === 'NOT_LOADED') return ok(null);
-  if (dataset.dataStatus !== 'AVAILABLE') {
-    return err({ type: 'ServiceUnavailable', message: 'INS dataset publication is unavailable' });
-  }
-  const classification = slotted(dimensions);
-  const unitDim = dimensions.find((d) => d.role === 'unit');
-  if (unitDim === undefined) return ok(null);
-
-  const slots: (number | null)[] = Array.from({ length: 7 }, () => null);
-  const pinnedDims = new Set<number>();
-
-  if (node !== null) {
-    const groups = await territoryPinGroups(repo, dataset.code, [node]);
-    if (groups.isErr()) return err(groups.error);
-    const group = groups.value[0];
-    if (group === undefined) return ok(null);
-    for (const [slot, pred] of group.pins) {
-      const id = pred[0];
-      if (id === undefined) return ok(null);
-      slots[slot - 1] = id;
-      const dim = classification.find((d) => d.slotIndex === slot);
-      if (dim !== undefined) pinnedDims.add(dim.dimIndex);
-    }
-  } else {
-    // National scope on a territorial dataset: every territorial dimension at
-    // its TOTAL member; a territorial dimension without one has no national row.
-    const dims = await repo.territoryDimensions(dataset.code);
-    if (dims.isErr()) return err(dims.error);
-    for (const dim of dims.value) {
-      if (dim.totalNomItemId === null) return ok(null);
-      slots[dim.slotIndex - 1] = dim.totalNomItemId;
-      pinnedDims.add(dim.dimIndex);
-    }
-  }
-
-  let strategy: 'PREFERRED_CLASSIFICATION' | 'TOTAL_FALLBACK' = 'TOTAL_FALLBACK';
-  const preferred = preferredCodes.filter((c) => !isTotalAlias(c)).map(parseMemberCode);
-  if (preferred.some((p) => p === null)) {
+): Promise<Result<ReadonlyMap<string, InsDefaultSelection>, ApiError>> => {
+  const parsed = preferredCodes.filter((code) => !isTotalAlias(code)).map(parseMemberCode);
+  if (parsed.some((id) => id === null))
     return err(
       invalidInput(
         'preferredClassificationCodes must be member codes or TOTAL',
         'preferredClassificationCodes'
       )
     );
-  }
-  if (preferred.length > 0) {
-    const members = await repo.membersByIds(dataset.code, preferred as number[]);
-    if (members.isErr()) return err(members.error);
-    for (const m of members.value) {
-      const dim = classification.find((d) => d.dimIndex === m.dimIndex);
-      if (dim === undefined || pinnedDims.has(dim.dimIndex)) continue;
-      slots[dim.slotIndex - 1] = m.nomItemId;
-      pinnedDims.add(dim.dimIndex);
-      strategy = 'PREFERRED_CLASSIFICATION';
-    }
-  }
-
-  const defaults = await repo.defaultPins([dataset.code]);
+  const preferredIds = parsed.filter((id): id is number => id !== null);
+  const codes = [...new Set(datasets.map((dataset) => dataset.code))];
+  const dimensions = await repo.dimensionsForDatasets(codes);
+  if (dimensions.isErr()) return err(dimensions.error);
+  const defaults = await repo.defaultPins(codes);
   if (defaults.isErr()) return err(defaults.error);
-  let unitNomItemId: number | null = null;
-  for (const pin of defaults.value) {
-    if (pin.dimIndex === unitDim.dimIndex) {
-      unitNomItemId = pin.nomItemId;
-      continue;
-    }
-    const dim = classification.find((d) => d.dimIndex === pin.dimIndex);
-    if (dim === undefined || pinnedDims.has(dim.dimIndex)) continue;
-    slots[dim.slotIndex - 1] = pin.nomItemId;
-    pinnedDims.add(dim.dimIndex);
+  const members = await repo.membersForDatasets(
+    codes.map((code) => ({
+      datasetCode: code,
+      nomItemIds: [
+        ...new Set([
+          ...preferredIds,
+          ...defaults.value.filter((pin) => pin.datasetCode === code).map((pin) => pin.nomItemId),
+        ]),
+      ],
+    }))
+  );
+  if (members.isErr()) return err(members.error);
+  const output = new Map<string, InsDefaultSelection>();
+  for (const dataset of datasets) {
+    const selection = buildDefaultSeries(
+      dataset,
+      dimensions.value,
+      defaults.value,
+      members.value,
+      preferredIds,
+      node
+    );
+    if (selection.isErr()) return err(selection.error);
+    if (selection.value !== null) output.set(dataset.code, selection.value);
   }
-
-  if (unitNomItemId === null) return ok(null);
-  if (classification.some((d) => !pinnedDims.has(d.dimIndex))) return ok(null);
-  const key = `${dataset.code}|${node === null ? 'RO' : String(node.territoryId)}`;
-  return ok({ spec: { key, datasetCode: dataset.code, slots, unitNomItemId }, strategy });
+  return ok(output);
 };
 
-const resolveEntity = async (
+export const resolveEntity = async (
   repo: InsRepo,
   entity: InsEntitySelector
-): Promise<Result<InsTerritoryNode | null, ApiError>> => {
-  if (entity.sirutaCode !== undefined && entity.sirutaCode !== '') {
-    const nodes = await repo.territoriesBySiruta([entity.sirutaCode]);
-    if (nodes.isErr()) return err(nodes.error);
-    return nodes.value[0] === undefined
-      ? err(invalidInput(`unknown SIRUTA code ${entity.sirutaCode}`, 'entity.sirutaCode'))
-      : ok(nodes.value[0]);
+): Promise<Result<InsTerritoryNode, ApiError>> => {
+  if (
+    (entity.sirutaCode === undefined || entity.sirutaCode === '') &&
+    (entity.territoryCode === undefined || entity.territoryCode === '')
+  ) {
+    return err(invalidInput('entity needs sirutaCode or territoryCode', 'entity'));
   }
-  if (entity.territoryCode !== undefined && entity.territoryCode !== '') {
-    const levels = entity.territoryLevel !== undefined ? [entity.territoryLevel] : undefined;
-    const nodes = await repo.territoriesByCodes([entity.territoryCode], levels);
-    if (nodes.isErr()) return err(nodes.error);
-    const node = nodes.value[0];
-    if (node === undefined) {
-      return err(
-        invalidInput(`unknown territory code ${entity.territoryCode}`, 'entity.territoryCode')
-      );
-    }
-    return ok(node.level === 'NATIONAL' ? null : node);
+  const nodes = await resolveTerritoryNodes(repo, {
+    ...(entity.sirutaCode === undefined || entity.sirutaCode === ''
+      ? {}
+      : { sirutaCodes: [entity.sirutaCode] }),
+    ...(entity.territoryCode === undefined || entity.territoryCode === ''
+      ? {}
+      : { territoryCodes: [entity.territoryCode] }),
+    ...(entity.territoryLevel === undefined ? {} : { territoryLevels: [entity.territoryLevel] }),
+  });
+  if (nodes.isErr()) return err(nodes.error);
+  if (
+    nodes.value === null ||
+    'levels' in nodes.value ||
+    nodes.value.length !== 1 ||
+    nodes.value[0] === undefined
+  ) {
+    return err(invalidInput('entity selectors must identify exactly one INS territory', 'entity'));
   }
-  return err(invalidInput('entity needs sirutaCode or territoryCode', 'entity'));
+  return ok(nodes.value[0]);
 };
 
 /** `insLatestDatasetValues`: one batched read for every resolvable default series. */
@@ -699,51 +577,46 @@ const latestValuesIn = async (
   }
   const node = await resolveEntity(repo, entity);
   if (node.isErr()) return err(node.error);
-  const codes = datasetCodes.map((c) => c.trim().toUpperCase());
+  const codes = [...new Set(datasetCodes.map((code) => code.trim().toUpperCase()))];
   const datasets = await repo.getDatasets(codes);
   if (datasets.isErr()) return err(datasets.error);
-  const byCode = new Map(datasets.value.map((d) => [d.code, d]));
-
-  const specs: InsSeriesSpec[] = [];
-  const strategies = new Map<string, 'PREFERRED_CLASSIFICATION' | 'TOTAL_FALLBACK'>();
-  for (const code of codes) {
-    const dataset = byCode.get(code);
-    if (dataset === undefined) continue;
-    const dimensions = await repo.listDimensions(code);
-    if (dimensions.isErr()) return err(dimensions.error);
-    const series = await defaultSeriesFor(
-      repo,
-      dataset,
-      dimensions.value,
-      node.value,
-      preferredCodes
-    );
-    if (series.isErr()) return err(series.error);
-    if (series.value === null) continue;
-    specs.push(series.value.spec);
-    strategies.set(code, series.value.strategy);
-  }
-  const rows = specs.length === 0 ? ok([]) : await repo.latestForSeries(specs, 1);
+  const selections = await prepareDefaultSelections(
+    repo,
+    datasets.value,
+    node.value,
+    preferredCodes
+  );
+  if (selections.isErr()) return err(selections.error);
+  const rows = await repo.readDefaultSeries(
+    [...selections.value.values()].map((selection) => selection.request),
+    1
+  );
   if (rows.isErr()) return err(rows.error);
-  const latestByCode = new Map(
-    rows.value.map((r) => [r.observation.coordinate.datasetCode, r.observation])
-  );
-
-  return ok(
-    codes.flatMap((code) => {
-      const dataset = byCode.get(code);
-      if (dataset === undefined) return [];
-      const observation = latestByCode.get(code) ?? null;
-      return [
-        {
-          dataset,
-          observation,
-          matchStrategy:
-            observation === null ? 'NO_DATA' : (strategies.get(code) ?? 'TOTAL_FALLBACK'),
-        },
-      ];
-    })
-  );
+  const results = new Map(rows.value.map((result) => [result.seriesKey, result]));
+  if (results.size !== selections.value.size)
+    return err({ type: 'ServiceUnavailable', message: 'INS series result is unavailable' });
+  const output: InsLatestValue[] = [];
+  for (const dataset of datasets.value) {
+    const selection = selections.value.get(dataset.code);
+    const result = selection === undefined ? undefined : results.get(selection.request.key);
+    if (selection !== undefined && result === undefined)
+      return err({ type: 'ServiceUnavailable', message: 'INS series result is unavailable' });
+    const observation = result?.status === 'SERIES' ? result.observations[0] : null;
+    if (observation === undefined)
+      return err({ type: 'ServiceUnavailable', message: 'INS series result is unavailable' });
+    output.push({
+      dataset,
+      observation,
+      witnesses: result?.witnesses ?? [],
+      matchStrategy:
+        result?.status === 'AMBIGUOUS_GEOGRAPHY'
+          ? 'AMBIGUOUS_GEOGRAPHY'
+          : observation === null
+            ? 'NO_DATA'
+            : (selection?.strategy ?? 'TOTAL_FALLBACK'),
+    });
+  }
+  return ok(output);
 };
 
 /**
@@ -766,53 +639,41 @@ const dashboardIn = async (
 ): Promise<Result<readonly InsDashboardGroup[], ApiError>> => {
   const node = await resolveEntity(repo, { sirutaCode });
   if (node.isErr()) return err(node.error);
-  if (node.value === null) return err(invalidInput('sirutaCode must name a LAU', 'sirutaCode'));
+  if (node.value.level !== 'LAU')
+    return err(invalidInput('sirutaCode must name a LAU', 'sirutaCode'));
   const bounds = periodPredicates(period);
   if (bounds.isErr()) return err(bounds.error);
-  const lauCodes = await repo.datasetsWithLevel('LAU');
-  if (lauCodes.isErr()) return err(lauCodes.error);
-  const datasets = await repo.getDatasets(lauCodes.value);
+  const codes = await repo.datasetsForTerritory(node.value.territoryId, contextCode);
+  if (codes.isErr()) return err(codes.error);
+  const datasets = await repo.getDatasets(codes.value);
   if (datasets.isErr()) return err(datasets.error);
-  const selected = datasets.value.filter(
-    (d) =>
-      d.dataStatus === 'AVAILABLE' &&
-      (contextCode === undefined ||
-        d.contextCode === contextCode ||
-        (d.contextPath ?? '').includes(contextCode))
+  const selections = await prepareDefaultSelections(repo, datasets.value, node.value, []);
+  if (selections.isErr()) return err(selections.error);
+  const requests = [...selections.value.values()].map((selection) => selection.request);
+  const results = await repo.readDefaultSeries(
+    requests,
+    DASHBOARD_ROWS_PER_DATASET + 1,
+    bounds.value
   );
-  const specs: InsSeriesSpec[] = [];
-  const byKey = new Map<string, InsDatasetView>();
-  for (const dataset of selected) {
-    const dimensions = await repo.listDimensions(dataset.code);
-    if (dimensions.isErr()) return err(dimensions.error);
-    const series = await defaultSeriesFor(repo, dataset, dimensions.value, node.value, []);
-    if (series.isErr()) return err(series.error);
-    if (series.value === null) continue;
-    specs.push(series.value.spec);
-    byKey.set(series.value.spec.key, dataset);
-  }
-  // The period narrows INSIDE the batched read (a period older than the newest
-  // rows must still be found), never after the per-series limit.
-  const rows =
-    specs.length === 0
-      ? ok([])
-      : await repo.latestForSeries(specs, DASHBOARD_ROWS_PER_DATASET + 1, bounds.value);
-  if (rows.isErr()) return err(rows.error);
-  const grouped = new Map<string, InsObservationView[]>();
-  for (const r of rows.value) {
-    const list = grouped.get(r.seriesKey) ?? [];
-    list.push(r.observation);
-    grouped.set(r.seriesKey, list);
-  }
-  const out: InsDashboardGroup[] = [];
-  for (const [key, dataset] of byKey) {
-    const observations = grouped.get(key) ?? [];
-    if (observations.length === 0) continue;
-    out.push({
+  if (results.isErr()) return err(results.error);
+  const byKey = new Map(results.value.map((result) => [result.seriesKey, result]));
+  if (byKey.size !== selections.value.size)
+    return err({ type: 'ServiceUnavailable', message: 'INS series result is unavailable' });
+  const output: InsDashboardGroup[] = [];
+  for (const dataset of datasets.value) {
+    const selection = selections.value.get(dataset.code);
+    if (selection === undefined) continue;
+    const result = byKey.get(selection.request.key);
+    if (result === undefined)
+      return err({ type: 'ServiceUnavailable', message: 'INS series result is unavailable' });
+    if (result.status === 'NO_DATA') continue;
+    output.push({
       dataset,
-      observations: observations.slice(0, DASHBOARD_ROWS_PER_DATASET),
-      truncated: observations.length > DASHBOARD_ROWS_PER_DATASET,
+      status: result.status,
+      witnesses: result.witnesses,
+      observations: result.observations.slice(0, DASHBOARD_ROWS_PER_DATASET),
+      truncated: result.observations.length > DASHBOARD_ROWS_PER_DATASET,
     });
   }
-  return ok(out);
+  return ok(output);
 };

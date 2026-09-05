@@ -75,6 +75,7 @@ export const insLegacyTypeDefs = /* GraphQL */ `
     PREFERRED_CLASSIFICATION
     TOTAL_FALLBACK
     REPRESENTATIVE_FALLBACK
+    AMBIGUOUS_GEOGRAPHY
     NO_DATA
   }
 
@@ -307,6 +308,12 @@ export const insLegacyTypeDefs = /* GraphQL */ `
     latestPeriod: String
     matchStrategy: InsLatestMatchStrategy!
     hasData: Boolean!
+    """
+    Two distinct complete source coordinates proving geographic ambiguity.
+    Each coordinate contains ordered [dimension index, source member id] pairs.
+    Empty unless matchStrategy is AMBIGUOUS_GEOGRAPHY; not a candidate count.
+    """
+    geographicWitnesses: JSON!
   }
 
   """
@@ -359,9 +366,19 @@ export const insLegacyTypeDefs = /* GraphQL */ `
   """
   A dataset grouped with its observations for a UAT dashboard.
   """
+  enum InsDefaultSeriesStatus {
+    SERIES
+    AMBIGUOUS_GEOGRAPHY
+  }
+
   type InsUatDatasetGroup {
     dataset: InsDataset!
     observations: [InsObservation!]!
+    status: InsDefaultSeriesStatus!
+    "Two complete source coordinates proving ambiguity; not all candidates."
+    geographicWitnesses: JSON!
+    "True when more observations exist beyond this dashboard history."
+    truncated: Boolean!
     latestPeriod: String
   }
 

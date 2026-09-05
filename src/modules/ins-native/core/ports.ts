@@ -11,6 +11,8 @@
 
 import type {
   InsContext,
+  InsDefaultSeriesRequest,
+  InsSeriesResult,
   InsContextFilter,
   InsDatasetFilter,
   InsDatasetView,
@@ -21,7 +23,6 @@ import type {
   InsPage,
   InsPeriodView,
   InsPeriodicity,
-  InsSeriesSpec,
   InsTerritoryFilter,
   InsTerritoryLevel,
   InsTerritoryNode,
@@ -29,29 +30,6 @@ import type {
 } from './types.js';
 import type { ApiError } from '@/modules/shared/index.js';
 import type { Result } from 'neverthrow';
-
-/** A RESOLVED member bound to a spine node in one dataset dimension. */
-export interface InsTerritoryBinding {
-  readonly datasetCode: string;
-  readonly dimIndex: number;
-  readonly slotIndex: number;
-  readonly nomItemId: number;
-  readonly territoryId: number;
-  readonly territoryLevel: InsTerritoryLevel;
-}
-
-/**
- * A territorial dimension of a dataset: the spine levels its RESOLVED members
- * bind to (computed over the WHOLE dimension, never inferred from a TOTAL row's
- * nullable level) and its TOTAL member, if any.
- */
-export interface InsTerritoryDimension {
-  readonly datasetCode: string;
-  readonly dimIndex: number;
-  readonly slotIndex: number;
-  readonly levels: readonly InsTerritoryLevel[];
-  readonly totalNomItemId: number | null;
-}
 
 /** The default pin for one non-time dimension of a dataset (ins.default_series). */
 export interface InsDefaultPin {
@@ -69,12 +47,6 @@ export interface InsSeriesPeriod {
   readonly periodRanges?: readonly { readonly start: string; readonly end: string }[];
 }
 
-/** A fact row returned from a batched series read, keyed by the series it answers. */
-export interface InsSeriesRow {
-  readonly seriesKey: string;
-  readonly observation: InsObservationView;
-}
-
 export interface InsCatalogRepo {
   listDatasets(
     filter: InsDatasetFilter,
@@ -85,6 +57,12 @@ export interface InsCatalogRepo {
   /** Datasets by code, in the requested order; unknown codes are omitted. */
   getDatasets(codes: readonly string[]): Promise<Result<readonly InsDatasetView[], ApiError>>;
   listDimensions(datasetCode: string): Promise<Result<readonly InsDimensionView[], ApiError>>;
+  dimensionsForDatasets(
+    datasetCodes: readonly string[]
+  ): Promise<Result<readonly InsDimensionView[], ApiError>>;
+  membersForDatasets(
+    requests: readonly { readonly datasetCode: string; readonly nomItemIds: readonly number[] }[]
+  ): Promise<Result<readonly InsMemberView[], ApiError>>;
   listMembers(
     datasetCode: string,
     dimIndex: number,
@@ -123,37 +101,27 @@ export interface InsCatalogRepo {
   territoriesBySiruta(
     sirutaCodes: readonly string[]
   ): Promise<Result<readonly InsTerritoryNode[], ApiError>>;
-  /** A node and its ancestors up to NATIONAL, deepest first. */
-  ancestorsOf(territoryId: number): Promise<Result<readonly InsTerritoryNode[], ApiError>>;
-  /** The dataset's territorial dimensions (levels present, TOTAL member). */
-  territoryDimensions(
-    datasetCode: string
-  ): Promise<Result<readonly InsTerritoryDimension[], ApiError>>;
-  /** The RESOLVED bindings of the dataset's territorial dimensions onto the given nodes. */
-  territoryBindings(
-    datasetCode: string,
-    territoryIds: readonly number[]
-  ): Promise<Result<readonly InsTerritoryBinding[], ApiError>>;
   /** The TOTAL member of a dimension, if it has exactly one. */
   totalMember(datasetCode: string, dimIndex: number): Promise<Result<number | null, ApiError>>;
   defaultPins(datasetCodes: readonly string[]): Promise<Result<readonly InsDefaultPin[], ApiError>>;
+  /** Published modern coverage for this exact node, optionally below a context. */
+  datasetsForTerritory(
+    territoryId: number,
+    contextCode?: string
+  ): Promise<Result<readonly string[], ApiError>>;
   /** Dataset codes whose territorial dimension binds at the given level. */
   datasetsWithLevel(level: InsTerritoryLevel): Promise<Result<readonly string[], ApiError>>;
 }
 
 export interface InsFactRepo {
-  /** Facts-first page read (limit + 1 inside), hydrated from the catalogs. */
-  listObservations(query: InsFactQuery): Promise<Result<InsPage<InsObservationView>, ApiError>>;
-  /**
-   * For each fully pinned series, its most recent `perSeries` observations (one
-   * batched statement). `period` narrows INSIDE the statement, so a requested
-   * period older than the newest `perSeries` rows is still found.
-   */
-  latestForSeries(
-    series: readonly InsSeriesSpec[],
+  /** Complete-source ambiguity is resolved before reading or hydrating a winner. */
+  readDefaultSeries(
+    requests: readonly InsDefaultSeriesRequest[],
     perSeries: number,
     period?: InsSeriesPeriod
-  ): Promise<Result<readonly InsSeriesRow[], ApiError>>;
+  ): Promise<Result<readonly InsSeriesResult[], ApiError>>;
+  /** Facts-first page read (limit + 1 inside), hydrated from the catalogs. */
+  listObservations(query: InsFactQuery): Promise<Result<InsPage<InsObservationView>, ApiError>>;
 }
 
 export interface InsRepo extends InsCatalogRepo, InsFactRepo {

@@ -51,6 +51,7 @@ import {
 } from '@/modules/ins-native/shell/repo/read-session.js';
 import { createProdDb } from '@/modules/shared/shell/db/pool.js';
 
+import { registerInsDefaultSeriesCases } from './ins-native-default-series-cases.js';
 import { registerInsGeographyCases } from './ins-native-geography-cases.js';
 import { registerInsPublicationCases } from './ins-native-publication-cases.js';
 
@@ -430,6 +431,10 @@ const waitForBlockedInsRead = async (writer: pg.Client): Promise<number> => {
 
 describe('ins-native repository over the real scrapper DDL (e2e)', () => {
   registerInsGeographyCases(it, () => {
+    if (db === undefined) throw new Error('fixture not ready');
+    return db;
+  });
+  registerInsDefaultSeriesCases(it, () => {
     if (db === undefined) throw new Error('fixture not ready');
     return db;
   });

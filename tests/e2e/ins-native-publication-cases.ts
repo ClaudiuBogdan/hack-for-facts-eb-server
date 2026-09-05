@@ -179,12 +179,16 @@ export const registerInsPublicationCases = (
         ).toBe('ServiceUnavailable');
         expect(
           (
-            await repo.latestForSeries(
+            await repo.readDefaultSeries(
               [
                 {
                   key: 'p',
                   datasetCode: 'POPTEST',
-                  slots: [1, 105, 3075, 931, null, null, null],
+                  nonGeographicPins: new Map([
+                    [1, 1],
+                    [2, 105],
+                  ]),
+                  geoScope: { kind: 'modern', territoryIds: [931] },
                   unitNomItemId: 9685,
                 },
               ],

@@ -598,11 +598,15 @@ export const makeInsLegacyResolvers = (deps: InsLegacyResolverDeps): Record<stri
     latestPeriod: latestPeriodOf(v.observation),
     matchStrategy: v.matchStrategy,
     hasData: v.observation !== null,
+    geographicWitnesses: v.witnesses,
   });
 
   const dashboardGroup = (g: InsDashboardGroup) => ({
     dataset: toGqlDataset(g.dataset),
     observations: g.observations.map(toGqlObservation),
+    status: g.status,
+    geographicWitnesses: g.witnesses,
+    truncated: g.truncated,
     latestPeriod: latestPeriodOf(g.observations[0] ?? null),
   });
 

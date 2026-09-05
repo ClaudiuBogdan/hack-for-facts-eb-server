@@ -2,62 +2,19 @@ import { describe, expect, it } from 'vitest';
 
 import {
   classificationPins,
-  defaultSeriesFor,
   listLatestValues,
   listObservations,
   periodPredicates,
   resolveTerritoryNodes,
-  territoryPinGroups,
   uatDashboard,
 } from '@/modules/ins-native/core/usecases.js';
 
-import {
-  AB,
-  CJ,
-  CLUJ_NAPOCA,
-  CNTTEST,
-  DIMENSIONS,
-  POPTEST,
-  RO,
-  RO11,
-  makeFakeRepo,
-} from './fake-repo.js';
+import { AB, DIMENSIONS, makeFakeRepo } from './fake-repo.js';
 
 const values = (page: { nodes: readonly { value: string | null }[] }): string[] =>
   page.nodes.map((n) => n.value ?? '');
 
-describe('territory resolution → slot pins', () => {
-  it('a LAU pins its locality member AND its county member (so the identity index prefix is usable)', async () => {
-    const repo = makeFakeRepo();
-    const groups = await territoryPinGroups(repo, 'POPTEST', [CLUJ_NAPOCA]);
-    expect(groups.isOk()).toBe(true);
-    const pins = groups._unsafeUnwrap()[0]?.pins;
-    expect(pins?.get(3)).toEqual([3075]); // county slot → Cluj
-    expect(pins?.get(4)).toEqual([931]); // locality slot → Cluj-Napoca
-  });
-
-  it('a county pins its county member and the locality dimension at its TOTAL member', async () => {
-    const repo = makeFakeRepo();
-    const pins = (await territoryPinGroups(repo, 'POPTEST', [CJ]))._unsafeUnwrap()[0]?.pins;
-    expect(pins?.get(3)).toEqual([3075]);
-    expect(pins?.get(4)).toEqual([112]);
-  });
-
-  it('the national node pins every territorial dimension at its TOTAL member', async () => {
-    const repo = makeFakeRepo();
-    const pins = (await territoryPinGroups(repo, 'POPTEST', [RO]))._unsafeUnwrap()[0]?.pins;
-    expect(pins?.get(3)).toEqual([3064]);
-    expect(pins?.get(4)).toEqual([112]);
-  });
-
-  it('a region on a county-family (reg-j) dimension pins its own member; a LAU on it has no series', async () => {
-    const repo = makeFakeRepo();
-    const region = (await territoryPinGroups(repo, 'CNTTEST', [RO11]))._unsafeUnwrap();
-    expect(region[0]?.pins.get(1)).toEqual([8001]);
-    const lau = (await territoryPinGroups(repo, 'CNTTEST', [CLUJ_NAPOCA]))._unsafeUnwrap();
-    expect(lau).toEqual([]); // the dimension's grain (NUTS3/NUTS2) is above a LAU → no row for it
-  });
-
+describe('territory selector resolution', () => {
   it('mixed-level territoryCodes resolve in one list (LAU code == SIRUTA)', async () => {
     const repo = makeFakeRepo();
     const nodes = (
@@ -321,23 +278,6 @@ describe('insObservations', () => {
 });
 
 describe('default series and latest values (decision D2: no arbitrary row)', () => {
-  it('a fully pinnable dataset resolves TOTAL_FALLBACK for a LAU; a preferred member code upgrades the strategy', async () => {
-    const repo = makeFakeRepo();
-    const dims = DIMENSIONS['POPTEST'] ?? [];
-    const fallback = await defaultSeriesFor(repo, POPTEST, dims, CLUJ_NAPOCA, ['TOTAL']);
-    expect(fallback._unsafeUnwrap()?.strategy).toBe('TOTAL_FALLBACK');
-    expect(fallback._unsafeUnwrap()?.spec.slots).toEqual([1, 105, 3075, 931, null, null, null]);
-    const preferred = await defaultSeriesFor(repo, POPTEST, dims, CLUJ_NAPOCA, ['106']);
-    expect(preferred._unsafeUnwrap()?.strategy).toBe('PREFERRED_CLASSIFICATION');
-    expect(preferred._unsafeUnwrap()?.spec.slots[1]).toBe(106);
-  });
-
-  it('a dataset with two units and no manifest pin has NO default series', async () => {
-    const repo = makeFakeRepo();
-    const res = await defaultSeriesFor(repo, CNTTEST, DIMENSIONS['CNTTEST'] ?? [], CJ, []);
-    expect(res._unsafeUnwrap()).toBeNull();
-  });
-
   it('insLatestDatasetValues batches every resolvable series into one read and answers NO_DATA for the rest', async () => {
     const repo = makeFakeRepo();
     const res = await listLatestValues(
@@ -354,10 +294,10 @@ describe('default series and latest values (decision D2: no arbitrary row)', () 
         ['EMPTYTEST', 'NO_DATA', null],
       ]
     );
-    expect(repo.seriesReads).toEqual([['POPTEST|25']]);
+    expect(repo.seriesReads).toEqual([[JSON.stringify(['POPTEST', 25])]]);
   });
 
-  it('the national entity pins the territorial dimensions at their TOTAL members', async () => {
+  it('the national entity selects the exact national source tuple', async () => {
     const repo = makeFakeRepo();
     const res = await listLatestValues(repo, { territoryCode: 'RO', territoryLevel: 'NATIONAL' }, [
       'POPTEST',
@@ -368,9 +308,94 @@ describe('default series and latest values (decision D2: no arbitrary row)', () 
   it('an unknown entity is InvalidInput, never an empty success', async () => {
     const repo = makeFakeRepo();
     const res = await listLatestValues(repo, { sirutaCode: '999999' }, ['POPTEST']);
+    expect(res.isErr() && res.error.type === 'InvalidInput' && res.error.field === 'entity').toBe(
+      true
+    );
+  });
+});
+
+describe('default source identity outcomes', () => {
+  it('normalizes and deduplicates dataset inputs in first-request order', async () => {
+    const repo = makeFakeRepo();
+    const rows = (
+      await listLatestValues(repo, { territoryCode: 'RO' }, [' poptest ', 'CNTTEST', 'POPTEST'])
+    )._unsafeUnwrap();
+    expect(rows.map((row) => row.dataset.code)).toEqual(['POPTEST', 'CNTTEST']);
+    expect(repo.seriesReads[0]).toHaveLength(1);
+  });
+  it('reports ambiguity without choosing the newest source or suppressing healthy datasets', async () => {
+    const baseline = (
+      await listLatestValues(makeFakeRepo(), { territoryCode: 'RO' }, ['POPTEST'])
+    )._unsafeUnwrap()[0]!.observation!;
+    const alternative = {
+      ...baseline,
+      geography: {
+        ...baseline.geography!,
+        pairs: [
+          [2, 9999],
+          [3, 9998],
+        ] as const,
+      },
+      period: { ...baseline.period, periodStart: '2018-01-01', periodEnd: '2018-12-31' },
+    };
+    const repo = makeFakeRepo({ extraDefaultObservations: [alternative] });
+    const result = (
+      await listLatestValues(repo, { territoryCode: 'RO' }, ['POPTEST', 'CNTTEST', 'EMPTYTEST'])
+    )._unsafeUnwrap();
+    expect(result.map((row) => row.matchStrategy)).toEqual([
+      'AMBIGUOUS_GEOGRAPHY',
+      'NO_DATA',
+      'NO_DATA',
+    ]);
+    expect(result[0]?.observation).toBeNull();
+    expect(result[0]?.witnesses).toHaveLength(2);
+  });
+  it('ignores empty optional selectors but rejects conflicting nonempty selectors', async () => {
+    for (const entity of [
+      { sirutaCode: '54975', territoryCode: '' },
+      { sirutaCode: '', territoryCode: '54975' },
+    ]) {
+      expect(
+        (await listLatestValues(makeFakeRepo(), entity, ['POPTEST']))._unsafeUnwrap()[0]
+          ?.observation?.territory?.code
+      ).toBe('54975');
+    }
     expect(
-      res.isErr() && res.error.type === 'InvalidInput' && res.error.field === 'entity.sirutaCode'
-    ).toBe(true);
+      (
+        await listLatestValues(makeFakeRepo(), { sirutaCode: '54975', territoryCode: 'CJ' }, [
+          'POPTEST',
+        ])
+      )._unsafeUnwrapErr().type
+    ).toBe('InvalidInput');
+  });
+  it('retains ambiguous dashboards and lets a requested period disambiguate', async () => {
+    const baseline = (
+      await listLatestValues(makeFakeRepo(), { sirutaCode: '54975' }, ['POPTEST'])
+    )._unsafeUnwrap()[0]!.observation!;
+    const alternative = {
+      ...baseline,
+      geography: {
+        ...baseline.geography!,
+        pairs: [
+          [2, 9999],
+          [3, 9998],
+        ] as const,
+      },
+      period: { ...baseline.period, periodStart: '2018-01-01', periodEnd: '2018-12-31' },
+    };
+    const repo = makeFakeRepo({ extraDefaultObservations: [alternative] });
+    const ambiguous = (await uatDashboard(repo, '54975', undefined, undefined))._unsafeUnwrap()[0];
+    expect(ambiguous).toMatchObject({
+      status: 'AMBIGUOUS_GEOGRAPHY',
+      observations: [],
+      truncated: false,
+    });
+    expect(ambiguous?.witnesses).toHaveLength(2);
+    const narrowed = (
+      await uatDashboard(repo, '54975', undefined, { tokens: ['2021'] })
+    )._unsafeUnwrap()[0];
+    expect(narrowed?.status).toBe('SERIES');
+    expect(narrowed?.observations).toHaveLength(1);
   });
 });
 

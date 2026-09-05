@@ -33,6 +33,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { PeriodDateScalar } from '@/modules/budget/shell/graphql/legacy/resolvers.js';
 import { budgetLegacyTypeDefs } from '@/modules/budget/shell/graphql/legacy/typedefs.js';
+import { listLatestValues } from '@/modules/ins-native/core/usecases.js';
 import { makeInsNativeModule } from '@/modules/ins-native/index.js';
 import { makeInsLegacyResolvers } from '@/modules/ins-native/shell/graphql/legacy/resolvers.js';
 import { baseTypeDefs, scalarResolvers } from '@/modules/shared/index.js';
@@ -174,6 +175,42 @@ describe('golden-master INS corpus over the native slice (fake repository)', () 
     });
   }
 
+  it('serializes geographic ambiguity evidence and dashboard status without losing siblings', async () => {
+    const baseline = (
+      await listLatestValues(makeFakeRepo(), { sirutaCode: '54975' }, ['POPTEST'])
+    )._unsafeUnwrap()[0]!.observation!;
+    const alternative = {
+      ...baseline,
+      geography: {
+        ...baseline.geography!,
+        pairs: [
+          [2, 9999],
+          [3, 9998],
+        ] as const,
+      },
+    };
+    const scoped = buildTestSchema(async () =>
+      makeFakeRepo({ extraDefaultObservations: [alternative] })
+    );
+    const result = await graphql({
+      schema: scoped,
+      source: `{
+      insLatestDatasetValues(entity:{sirutaCode:"54975"},datasetCodes:["POPTEST","EMPTYTEST"]){matchStrategy hasData geographicWitnesses observation{value}}
+      insUatDashboard(sirutaCode:"54975"){status geographicWitnesses truncated observations{value}}
+    }`,
+    });
+    expect(result.errors ?? []).toEqual([]);
+    expect(result.data).toMatchObject({
+      insLatestDatasetValues: [
+        { matchStrategy: 'AMBIGUOUS_GEOGRAPHY', hasData: false, observation: null },
+        { matchStrategy: 'NO_DATA', hasData: false, geographicWitnesses: [] },
+      ],
+      insUatDashboard: [{ status: 'AMBIGUOUS_GEOGRAPHY', truncated: false, observations: [] }],
+    });
+    const latest = result.data?.['insLatestDatasetValues'] as { geographicWitnesses: unknown[] }[];
+    expect(latest[0]?.geographicWitnesses).toHaveLength(2);
+  });
+
   it('all client documents resolve roots and nested fields through their operation context', async () => {
     const context = { operation: 'one-publication' };
     const scopedRepo = makeFakeRepo();
@@ -221,7 +258,6 @@ describe('golden-master INS corpus over the native slice (fake repository)', () 
       ['TOTAL_FALLBACK', true],
       ['NO_DATA', false],
       ['NO_DATA', false],
-      ['TOTAL_FALLBACK', true],
     ]);
     expect(data.latest[0]?.latestPeriod).toBe('2021');
     expect(data.latest[0]?.observation?.time_period.iso_period).toBe('2021');

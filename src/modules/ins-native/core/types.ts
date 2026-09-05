@@ -81,7 +81,8 @@ export type InsDefaultPolicy = 'TOTAL_MEMBER' | 'SINGLE_UNIT' | 'MANIFEST';
  * row) no longer exists (decision D2): a dataset without a complete default
  * pin answers NO_DATA.
  */
-export type InsLatestMatchStrategy = 'PREFERRED_CLASSIFICATION' | 'TOTAL_FALLBACK' | 'NO_DATA';
+export type InsLatestMatchStrategy =
+  'PREFERRED_CLASSIFICATION' | 'TOTAL_FALLBACK' | 'NO_DATA' | 'AMBIGUOUS_GEOGRAPHY';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Catalog views
@@ -377,21 +378,47 @@ export interface InsFactQuery {
   readonly offset: number;
 }
 
-/** A fully pinned series (every classification slot and the unit pinned to one member). */
-export interface InsSeriesSpec {
+/** Default selection never overloads a null slot to mean unselected geography. */
+export interface InsDefaultSeriesRequest {
   readonly key: string;
   readonly datasetCode: string;
-  readonly slots: readonly (number | null)[];
+  readonly nonGeographicPins: ReadonlyMap<number, number>;
   readonly unitNomItemId: number;
+  readonly geoScope:
+    | { readonly kind: 'modern'; readonly territoryIds: readonly [number] }
+    | { readonly kind: 'nonGeographic' };
 }
+
+export type InsSeriesResult =
+  | {
+      readonly seriesKey: string;
+      readonly status: 'NO_DATA';
+      readonly observations: readonly [];
+      readonly witnesses: readonly [];
+    }
+  | {
+      readonly seriesKey: string;
+      readonly status: 'AMBIGUOUS_GEOGRAPHY';
+      readonly observations: readonly [];
+      readonly witnesses: readonly [InsGeoPairs, InsGeoPairs];
+    }
+  | {
+      readonly seriesKey: string;
+      readonly status: 'SERIES';
+      readonly observations: readonly InsObservationView[];
+      readonly witnesses: readonly [];
+    };
 
 export interface InsLatestValue {
   readonly dataset: InsDatasetView;
   readonly observation: InsObservationView | null;
   readonly matchStrategy: InsLatestMatchStrategy;
+  readonly witnesses: readonly InsGeoPairs[];
 }
 
 export interface InsDashboardGroup {
+  readonly status: 'SERIES' | 'AMBIGUOUS_GEOGRAPHY';
+  readonly witnesses: readonly InsGeoPairs[];
   readonly dataset: InsDatasetView;
   readonly observations: readonly InsObservationView[];
   /** True when the dataset holds more rows for this series than were returned. */

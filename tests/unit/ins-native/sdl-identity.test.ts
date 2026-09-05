@@ -35,12 +35,40 @@ const nameOf = (d: DefinitionNode): string =>
   'name' in d && d.name !== undefined ? `${d.kind}:${d.name.value}` : d.kind;
 
 /** The legacy SDL as the native slice is allowed to differ from it. */
+const ADDITIVE_TYPES = parse(`
+  enum InsDefaultSeriesStatus { SERIES AMBIGUOUS_GEOGRAPHY }
+  extend type InsLatestDatasetValue { geographicWitnesses: JSON! }
+  extend type InsUatDatasetGroup { status: InsDefaultSeriesStatus! geographicWitnesses: JSON! truncated: Boolean! }
+`);
+
 const legacyExpected = (): DocumentNode => {
   const dropped = new Set<string>(INS_LEGACY_ROOTS_DROPPED);
-  return visit(parse(InsSchema), {
+  const legacy = visit(parse(InsSchema), {
     enter(node) {
       if (node.kind === Kind.OBJECT_TYPE_EXTENSION && node.name.value === 'Query') {
         return { ...node, fields: node.fields?.filter((f) => !dropped.has(f.name.value)) };
+      }
+      if (node.kind === Kind.OBJECT_TYPE_DEFINITION) {
+        const addition = ADDITIVE_TYPES.definitions.find(
+          (def) => def.kind === Kind.OBJECT_TYPE_EXTENSION && def.name.value === node.name.value
+        );
+        if (addition?.kind === Kind.OBJECT_TYPE_EXTENSION) {
+          const fields = [...(node.fields ?? [])];
+          const before =
+            node.name.value === 'InsUatDatasetGroup'
+              ? fields.findIndex((field) => field.name.value === 'latestPeriod')
+              : fields.length;
+          fields.splice(before, 0, ...(addition.fields ?? []));
+          return { ...node, fields };
+        }
+      }
+      if (node.kind === Kind.ENUM_TYPE_DEFINITION && node.name.value === 'InsLatestMatchStrategy') {
+        const values = [...(node.values ?? [])];
+        values.splice(values.length - 1, 0, {
+          kind: Kind.ENUM_VALUE_DEFINITION,
+          name: { kind: Kind.NAME, value: 'AMBIGUOUS_GEOGRAPHY' },
+        });
+        return { ...node, values };
       }
       if (node.kind === Kind.ENUM_TYPE_DEFINITION && node.name.value === 'InsPeriodicity') {
         return {
@@ -57,6 +85,13 @@ const legacyExpected = (): DocumentNode => {
       return undefined;
     },
   });
+  return {
+    ...legacy,
+    definitions: [
+      ...legacy.definitions,
+      ...ADDITIVE_TYPES.definitions.filter((def) => def.kind === Kind.ENUM_TYPE_DEFINITION),
+    ],
+  };
 };
 
 describe('ins-native legacy SDL identity', () => {

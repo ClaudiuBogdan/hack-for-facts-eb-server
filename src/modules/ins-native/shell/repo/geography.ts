@@ -23,40 +23,70 @@ interface GeographicTuple {
   readonly rules: readonly InsGeographicRule[];
 }
 
+export const readGeographicDimensionsForDatasets = async (
+  trx: Trx,
+  datasetCodes: readonly string[]
+): Promise<ReadonlyMap<string, readonly InsGeographicDimension[]>> => {
+  if (datasetCodes.length === 0) return new Map();
+  const result = await sql<{ dataset_code: string; dim_index: number; slot_index: number }>`
+    select dataset_code, dim_index, slot_index from ins.dataset_geo_dimensions
+    where dataset_code = any(${datasetCodes}::text[]) order by dataset_code, dim_index`.execute(
+    trx
+  );
+  const output = new Map<string, InsGeographicDimension[]>();
+  for (const row of result.rows) {
+    const dimensions = output.get(row.dataset_code) ?? [];
+    dimensions.push({ dimIndex: row.dim_index, slotIndex: row.slot_index });
+    output.set(row.dataset_code, dimensions);
+  }
+  return output;
+};
+
 export const readGeographicDimensions = async (
   trx: Trx,
   datasetCode: string
-): Promise<readonly InsGeographicDimension[]> => {
-  const result = await sql<{ dim_index: number; slot_index: number }>`
-    select dim_index, slot_index from ins.dataset_geo_dimensions
-    where dataset_code = ${datasetCode} order by dim_index`.execute(trx);
-  return result.rows.map((r) => ({ dimIndex: r.dim_index, slotIndex: r.slot_index }));
-};
+): Promise<readonly InsGeographicDimension[]> =>
+  (await readGeographicDimensionsForDatasets(trx, [datasetCode])).get(datasetCode) ?? [];
 
 /** Exact JSONB equality uses the catalog's (dataset_code, geo_pairs) primary key.
  * Deduplicate requested tuples only; distinct observation rows are never merged.
  */
-export const readGeographicTuples = async (
+export const readGeographicTuplesForDatasets = async (
   trx: Trx,
-  datasetCode: string,
-  pairs: readonly InsGeoPairs[]
-): Promise<ReadonlyMap<string, GeographicTuple>> => {
-  const requested = new Map(pairs.filter((p) => p.length > 0).map((p) => [JSON.stringify(p), p]));
+  requests: readonly { readonly datasetCode: string; readonly pairs: readonly InsGeoPairs[] }[]
+): Promise<ReadonlyMap<string, ReadonlyMap<string, GeographicTuple>>> => {
+  const requested = new Map(
+    requests.flatMap(({ datasetCode, pairs }) =>
+      pairs
+        .filter((pair) => pair.length > 0)
+        .map(
+          (pair) =>
+            [
+              JSON.stringify([datasetCode, pair]),
+              { dataset_code: datasetCode, geo_pairs: pair },
+            ] as const
+        )
+    )
+  );
   if (requested.size === 0) return new Map();
-  const requestedJson = JSON.stringify([...requested.values()]);
-  const selectedPairs = sql`select value from jsonb_array_elements(${requestedJson}::jsonb)`;
+  const wanted = sql`jsonb_to_recordset(${JSON.stringify([...requested.values()])}::jsonb)
+    as wanted(dataset_code text, geo_pairs jsonb)`;
   const tuples = await sql<{
+    dataset_code: string;
     geo_pairs: InsGeoPairs;
     resolution: GeographicTuple['resolution'];
     flags: string[];
     territory_id: string | null;
     context_territory_id: string | null;
-  }>`select geo_pairs, resolution, flags, territory_id, context_territory_id
-    from ins.dataset_geo_tuples
-    where dataset_code = ${datasetCode} and geo_pairs in (${selectedPairs})`.execute(trx);
+  }>`select g.dataset_code, g.geo_pairs, g.resolution, g.flags, g.territory_id, g.context_territory_id
+    from ins.dataset_geo_tuples g
+    join ${wanted} on wanted.dataset_code=g.dataset_code and wanted.geo_pairs=g.geo_pairs`.execute(
+    trx
+  );
   if (tuples.rows.length !== requested.size) throw new InsPublicationUnavailable();
 
   const rules = await sql<{
+    dataset_code: string;
     geo_pairs: InsGeoPairs;
     rule_id: string;
     applies_from: string;
@@ -65,14 +95,14 @@ export const readGeographicTuples = async (
     kind: 'coverage';
     evidence_url: string;
     rationale: string;
-  }>`select geo_pairs, rule_id, applies_from::text, applies_to::text,
-      flag, kind, evidence_url, rationale
-    from ins.geo_tuple_rules
-    where dataset_code = ${datasetCode} and geo_pairs in (${selectedPairs})
-    order by geo_pairs, applies_from, applies_to, rule_id`.execute(trx);
+  }>`select r.dataset_code, r.geo_pairs, r.rule_id, r.applies_from::text, r.applies_to::text,
+      r.flag, r.kind, r.evidence_url, r.rationale
+    from ins.geo_tuple_rules r
+    join ${wanted} on wanted.dataset_code=r.dataset_code and wanted.geo_pairs=r.geo_pairs
+    order by r.dataset_code, r.geo_pairs, r.applies_from, r.applies_to, r.rule_id`.execute(trx);
   const rulesByPair = new Map<string, InsGeographicRule[]>();
   for (const rule of rules.rows) {
-    const key = JSON.stringify(rule.geo_pairs);
+    const key = JSON.stringify([rule.dataset_code, rule.geo_pairs]);
     const list = rulesByPair.get(key) ?? [];
     list.push({
       ruleId: rule.rule_id,
@@ -105,23 +135,29 @@ export const readGeographicTuples = async (
     if (node === undefined) throw new InsPublicationUnavailable();
     return node;
   };
-  return new Map(
-    tuples.rows.map((row) => {
-      const key = JSON.stringify(row.geo_pairs);
-      return [
-        key,
-        {
-          pairs: row.geo_pairs,
-          resolution: row.resolution,
-          flags: row.flags,
-          resolvedTerritory: nodeFor(row.territory_id),
-          contextTerritory: nodeFor(row.context_territory_id),
-          rules: rulesByPair.get(key) ?? [],
-        },
-      ];
-    })
-  );
+  const output = new Map<string, Map<string, GeographicTuple>>();
+  for (const row of tuples.rows) {
+    const tuplesForDataset = output.get(row.dataset_code) ?? new Map<string, GeographicTuple>();
+    tuplesForDataset.set(JSON.stringify(row.geo_pairs), {
+      pairs: row.geo_pairs,
+      resolution: row.resolution,
+      flags: row.flags,
+      resolvedTerritory: nodeFor(row.territory_id),
+      contextTerritory: nodeFor(row.context_territory_id),
+      rules: rulesByPair.get(JSON.stringify([row.dataset_code, row.geo_pairs])) ?? [],
+    });
+    output.set(row.dataset_code, tuplesForDataset);
+  }
+  return output;
 };
+
+export const readGeographicTuples = async (
+  trx: Trx,
+  datasetCode: string,
+  pairs: readonly InsGeoPairs[]
+): Promise<ReadonlyMap<string, GeographicTuple>> =>
+  (await readGeographicTuplesForDatasets(trx, [{ datasetCode, pairs }])).get(datasetCode) ??
+  new Map();
 
 export const geographicView = (
   pairs: InsGeoPairs,

@@ -11,13 +11,14 @@
  * test assert exactly which rows a resolved query returns.
  */
 
-import { ok, type Result } from 'neverthrow';
+import { err, ok, type Result } from 'neverthrow';
 
 import {
   type InsContext,
   type InsDatasetView,
   type InsDimensionView,
   type InsFactQuery,
+  type InsSeriesResult,
   type InsMemberView,
   type InsObservationView,
   type InsGeoPairs,
@@ -29,13 +30,7 @@ import {
   type SlotPins,
 } from '@/modules/ins-native/core/types.js';
 
-import type {
-  InsDefaultPin,
-  InsRepo,
-  InsSeriesRow,
-  InsTerritoryBinding,
-  InsTerritoryDimension,
-} from '@/modules/ins-native/core/ports.js';
+import type { InsDefaultPin, InsRepo } from '@/modules/ins-native/core/ports.js';
 import type { ApiError } from '@/modules/shared/index.js';
 
 const node = (
@@ -543,7 +538,9 @@ const page = <T>(rows: T[], total: number, limit: number, offset: number): InsPa
 const R = <T>(v: T): Promise<Result<T, ApiError>> => Promise.resolve(ok(v));
 
 /** Every fact query the fake received, for assertions on what the usecases resolved. */
-export const makeFakeRepo = (): InsRepo & {
+export const makeFakeRepo = (
+  options: { readonly extraDefaultObservations?: readonly InsObservationView[] } = {}
+): InsRepo & {
   readonly factQueries: InsFactQuery[];
   readonly seriesReads: string[][];
 } => {
@@ -572,6 +569,17 @@ export const makeFakeRepo = (): InsRepo & {
       datasetCount: 3,
     },
   ];
+  const contextIncludes = (selected: string | undefined, code: string | null): boolean => {
+    if (selected === undefined) return true;
+    const visited = new Set<string>();
+    let current = code;
+    while (current !== null && !visited.has(current)) {
+      if (current === selected) return true;
+      visited.add(current);
+      current = contexts.find((context) => context.code === current)?.parentCode ?? null;
+    }
+    return false;
+  };
   const repo: InsRepo & { readonly factQueries: InsFactQuery[]; readonly seriesReads: string[][] } =
     {
       factQueries,
@@ -641,60 +649,6 @@ export const makeFakeRepo = (): InsRepo & {
         ),
       territoriesBySiruta: (codes) =>
         R(NODES.filter((n) => n.sirutaCode !== null && codes.includes(n.sirutaCode))),
-      ancestorsOf: (id) => {
-        const out: InsTerritoryNode[] = [];
-        let parentId = NODES.find((n) => n.territoryId === id)?.parentId ?? null;
-        while (parentId !== null) {
-          const parent = NODES.find((n) => n.territoryId === parentId);
-          if (parent === undefined) break;
-          out.push(parent);
-          parentId = parent.parentId;
-        }
-        return R(out);
-      },
-      territoryDimensions: (datasetCode) => {
-        const dims = DIMENSIONS[datasetCode] ?? [];
-        const out: InsTerritoryDimension[] = [];
-        for (const d of dims) {
-          if (!d.isTerritorial || d.slotIndex === null) continue;
-          const members = M.filter((m) => m.dataset === datasetCode && m.dim === d.dimIndex);
-          const levels = [
-            ...new Set(members.flatMap((m) => (m.node === undefined ? [] : [m.node.level]))),
-          ];
-          const total = members.find((m) => m.role === 'TOTAL');
-          out.push({
-            datasetCode,
-            dimIndex: d.dimIndex,
-            slotIndex: d.slotIndex,
-            levels,
-            totalNomItemId: total?.id ?? null,
-          });
-        }
-        return R(out);
-      },
-      territoryBindings: (datasetCode, ids) => {
-        const dims = DIMENSIONS[datasetCode] ?? [];
-        const out: InsTerritoryBinding[] = [];
-        for (const m of M) {
-          if (
-            m.dataset !== datasetCode ||
-            m.node === undefined ||
-            !ids.includes(m.node.territoryId)
-          )
-            continue;
-          const d = dims.find((x) => x.dimIndex === m.dim);
-          if (d?.isTerritorial !== true || d.slotIndex === null) continue;
-          out.push({
-            datasetCode,
-            dimIndex: m.dim,
-            slotIndex: d.slotIndex,
-            nomItemId: m.id,
-            territoryId: m.node.territoryId,
-            territoryLevel: m.node.level,
-          });
-        }
-        return R(out);
-      },
       totalMember: (datasetCode, dimIndex) => {
         const totals = M.filter(
           (m) => m.dataset === datasetCode && m.dim === dimIndex && m.role === 'TOTAL'
@@ -702,11 +656,29 @@ export const makeFakeRepo = (): InsRepo & {
         return R(totals.length === 1 ? (totals[0]?.id ?? null) : null);
       },
       defaultPins: (codes) => R(DEFAULTS.filter((p) => codes.includes(p.datasetCode))),
+      datasetsForTerritory: (id, contextCode) =>
+        R(
+          datasets
+            .filter(
+              (dataset) =>
+                dataset.dataStatus === 'AVAILABLE' &&
+                (GEO_TUPLES[dataset.code] ?? []).some((tuple) => tuple.node.territoryId === id) &&
+                contextIncludes(contextCode, dataset.contextCode)
+            )
+            .map((dataset) => dataset.code)
+        ),
       datasetsWithLevel: (level) =>
         R(
           datasets
             .filter((d) => (level === 'LAU' ? d.hasLau : level === 'NUTS3' ? d.hasCounty : true))
             .map((d) => d.code)
+        ),
+      dimensionsForDatasets: (codes) => R(codes.flatMap((code) => DIMENSIONS[code] ?? [])),
+      membersForDatasets: (requests) =>
+        R(
+          requests.flatMap(({ datasetCode, nomItemIds }) =>
+            membersOf(datasetCode).filter((member) => nomItemIds.includes(member.nomItemId))
+          )
         ),
       listObservations: (query) => {
         factQueries.push(query);
@@ -763,31 +735,104 @@ export const makeFakeRepo = (): InsRepo & {
           hasPreviousPage: query.offset > 0,
         });
       },
-      latestForSeries: (series, perSeries, period) => {
-        seriesReads.push(series.map((s) => s.key));
-        const out: InsSeriesRow[] = [];
-        const inPeriod = (f: Fact): boolean => {
-          const p = TIME_TO_PERIOD.get(f.time);
-          if (p === undefined) return false;
-          if (period?.periodStart !== undefined && p.periodEnd < period.periodStart) return false;
-          if (period?.periodEnd !== undefined && p.periodStart > period.periodEnd) return false;
-          const ranges = period?.periodRanges ?? [];
-          return (
-            ranges.length === 0 ||
-            ranges.some((r) => p.periodEnd >= r.start && p.periodStart <= r.end)
+      readDefaultSeries: (requests, perSeries, period) => {
+        if (requests.length > 0) seriesReads.push(requests.map((request) => request.key));
+        if (new Set(requests.map((request) => request.key)).size !== requests.length) {
+          return Promise.resolve(
+            err({ type: 'ServiceUnavailable' as const, message: 'duplicate series key' })
           );
-        };
-        for (const s of series) {
-          const rows = FACTS.filter(
-            (f) =>
-              f.dataset === s.datasetCode &&
-              f.unit === s.unitNomItemId &&
-              f.slots.every((v, i) => (s.slots[i] ?? null) === v) &&
-              inPeriod(f)
-          )
-            .sort(sortNewest)
-            .slice(0, perSeries);
-          for (const f of rows) out.push({ seriesKey: s.key, observation: toObservation(f) });
+        }
+        const out: InsSeriesResult[] = [];
+        const source = [...FACTS.map(toObservation), ...(options.extraDefaultObservations ?? [])];
+        for (const request of requests) {
+          const selected = source.filter((observation) => {
+            if (
+              observation.coordinate.datasetCode !== request.datasetCode ||
+              observation.unit.nomItemId !== request.unitNomItemId
+            )
+              return false;
+            if (
+              [...request.nonGeographicPins].some(
+                ([slot, id]) => observation.coordinate.slots[slot - 1] !== id
+              )
+            )
+              return false;
+            if (
+              period?.periodStart !== undefined &&
+              observation.period.periodEnd < period.periodStart
+            )
+              return false;
+            if (
+              period?.periodEnd !== undefined &&
+              observation.period.periodStart > period.periodEnd
+            )
+              return false;
+            if (
+              period?.periodicities !== undefined &&
+              period.periodicities.length > 0 &&
+              !period.periodicities.includes(observation.period.periodicity)
+            )
+              return false;
+            if (
+              period?.periodRanges !== undefined &&
+              period.periodRanges.length > 0 &&
+              !period.periodRanges.some(
+                (range) =>
+                  observation.period.periodEnd >= range.start &&
+                  observation.period.periodStart <= range.end
+              )
+            )
+              return false;
+            return request.geoScope.kind === 'nonGeographic'
+              ? observation.geography === null
+              : observation.geography?.qualified === false &&
+                  observation.territory?.territoryId === request.geoScope.territoryIds[0];
+          });
+          const witnesses = [
+            ...new Map(
+              selected.flatMap((observation) =>
+                observation.geography === null
+                  ? []
+                  : [
+                      [
+                        JSON.stringify(observation.geography.pairs),
+                        observation.geography.pairs,
+                      ] as const,
+                    ]
+              )
+            ).values(),
+          ];
+          const first = witnesses[0];
+          const second = witnesses[1];
+          if (first !== undefined && second !== undefined) {
+            out.push({
+              seriesKey: request.key,
+              status: 'AMBIGUOUS_GEOGRAPHY',
+              observations: [],
+              witnesses: [first, second],
+            });
+          } else if (selected.length === 0) {
+            out.push({
+              seriesKey: request.key,
+              status: 'NO_DATA',
+              observations: [],
+              witnesses: [],
+            });
+          } else {
+            selected.sort((a, b) => {
+              const end = b.period.periodEnd.localeCompare(a.period.periodEnd);
+              if (end !== 0) return end;
+              const start = b.period.periodStart.localeCompare(a.period.periodStart);
+              if (start !== 0) return start;
+              return JSON.stringify(a.coordinate).localeCompare(JSON.stringify(b.coordinate));
+            });
+            out.push({
+              seriesKey: request.key,
+              status: 'SERIES',
+              observations: selected.slice(0, perSeries),
+              witnesses: [],
+            });
+          }
         }
         return R(out);
       },
