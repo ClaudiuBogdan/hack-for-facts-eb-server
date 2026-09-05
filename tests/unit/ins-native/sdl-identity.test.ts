@@ -37,6 +37,8 @@ const nameOf = (d: DefinitionNode): string =>
 
 /** The legacy SDL as the native slice is allowed to differ from it. */
 const ADDITIVE_TYPES = parse(`
+  type InsEntityContext { territoryCode: String! territoryLevel: InsTerritoryLevel! territoryName: String! sirutaCode: String datasetCount: Int! }
+  extend type Entity { ins: InsEntityContext }
   input InsSourcePinInput { dimensionIndex: Int! memberCode: String! }
   extend input InsObservationFilterInput { sourcePins: [InsSourcePinInput!] }
   enum InsDefaultSeriesStatus { SERIES AMBIGUOUS_GEOGRAPHY }
@@ -105,7 +107,10 @@ const legacyExpected = (): DocumentNode => {
       ...legacy.definitions,
       ...ADDITIVE_TYPES.definitions.filter(
         (def) =>
-          def.kind === Kind.ENUM_TYPE_DEFINITION || def.kind === Kind.INPUT_OBJECT_TYPE_DEFINITION
+          def.kind === Kind.ENUM_TYPE_DEFINITION ||
+          def.kind === Kind.INPUT_OBJECT_TYPE_DEFINITION ||
+          def.kind === Kind.OBJECT_TYPE_DEFINITION ||
+          (def.kind === Kind.OBJECT_TYPE_EXTENSION && def.name.value === 'Entity')
       ),
     ],
   };

@@ -60,6 +60,7 @@ export const makeInsNativeModule = (deps: InsNativeModuleDeps): InsNativeModule 
     graphqlSlice: { source: INS_NATIVE_SOURCE, typeDefs: insLegacyTypeDefs },
     graphqlResolvers: makeInsLegacyResolvers({
       repo,
+      ...(deps.territoryForCui === undefined ? {} : { territoryForCui: deps.territoryForCui }),
       ...(deps.repo === undefined && {
         repoForContext: async (context: unknown): Promise<InsRepo> => {
           const session = (context as { insReadSession?: InsReadSession } | null)?.insReadSession;

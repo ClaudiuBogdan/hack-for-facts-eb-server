@@ -36,6 +36,7 @@ import {
   listTerritories,
   uatDashboard,
 } from '../../../core/usecases.js';
+import { makeInsContributor, type InsContributorDeps } from '../../contributor.js';
 
 import type { InsRepo } from '../../../core/ports.js';
 import type {
@@ -63,6 +64,7 @@ import type {
 
 export interface InsLegacyResolverDeps {
   readonly repo: InsRepo;
+  readonly territoryForCui?: InsContributorDeps['territoryForCui'];
   /** App-owned operation repository; standalone resolver tests may use repo. */
   readonly repoForContext?: (context: unknown) => Promise<InsRepo>;
 }
@@ -609,6 +611,16 @@ export const makeInsLegacyResolvers = (deps: InsLegacyResolverDeps): Record<stri
   });
 
   return {
+    Entity: {
+      ins: async (parent: { cui: string }, _args: unknown, context: unknown) => {
+        const contributor = makeInsContributor(await repoFor(context), {
+          ...(deps.territoryForCui === undefined ? {} : { territoryForCui: deps.territoryForCui }),
+        });
+        const profile = await contributor.profileSlice(parent.cui);
+        if (profile.isErr()) throw toGraphqlError(profile.error);
+        return profile.value?.data ?? null;
+      },
+    },
     InsDataset: {
       dimensions: async (parent: GqlDataset, _args: unknown, context: unknown) =>
         dimensionsFor(await repoFor(context), parent.code),

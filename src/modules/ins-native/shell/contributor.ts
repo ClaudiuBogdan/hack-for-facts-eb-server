@@ -1,56 +1,68 @@
 /** INS statistics about an entity's canonical area, not its fiscal jurisdiction. */
 import { err, ok, type Result } from 'neverthrow';
 
-import { resolveInsEntityTerritory } from '../core/entity-territory.js';
+import {
+  resolveInsEntityContext,
+  type InsEntityContext,
+  type InsEntityContextDeps,
+} from '../core/entity-context.js';
 
 import type { InsRepo } from '../core/ports.js';
 import type {
   ApiError,
-  Cui,
+  EntityProfileSlice,
   SourceContributor,
   SourcePresence,
-  Territory,
 } from '@/modules/shared/index.js';
 
 const INS_SOURCE = 'ins';
-
-export interface InsContributorDeps {
-  /** Kernel identity hub retains withholding policy and canonical level/kind. */
-  territoryForCui?(cui: Cui): Promise<Result<Territory | null, ApiError>>;
+export type InsContributorDeps = InsEntityContextDeps;
+export interface InsEntityProfileSlice extends EntityProfileSlice {
+  readonly source: 'ins';
+  readonly kind: 'territory-context';
+  readonly data: InsEntityContext & Record<string, unknown>;
 }
 
+/** Bind this factory to the operation repo for GraphQL, or the ordinary repo for registry calls. */
 export const makeInsContributor = (
   repo: InsRepo,
   deps: InsContributorDeps = {}
-): SourceContributor => ({
+): SourceContributor & {
+  profileSlice(cui: string): Promise<Result<InsEntityProfileSlice | null, ApiError>>;
+} => ({
   source: INS_SOURCE,
   async presenceFor(cui): Promise<Result<SourcePresence | null, ApiError>> {
+    // Preserve absence for an unwired optional registry contributor. Explicit profile reads fail.
     if (deps.territoryForCui === undefined) return ok(null);
-    const territory = await deps.territoryForCui(cui);
-    if (territory.isErr()) return err(territory.error);
-    if (territory.value === null) return ok(null);
-    const anchor = territory.value;
-    return repo.withSnapshot(async (snapshot) => {
-      const resolved = await resolveInsEntityTerritory(snapshot, anchor);
-      if (resolved.isErr()) return err(resolved.error);
-      const node = resolved.value;
-      if (node === null) return ok(null);
-      const coverage = await snapshot.datasetsForTerritory(node.territoryId);
-      if (coverage.isErr()) return err(coverage.error);
-      if (coverage.value.length === 0) return ok(null);
-      return ok({
-        source: INS_SOURCE,
-        present: true,
-        label: 'Statistici INS',
-        count: coverage.value.length,
-        badges: ['ins', node.level.toLowerCase()],
-        attrs: {
-          territoryCode: node.code,
-          territoryName: node.nameRo,
-          territoryLevel: node.level,
-          ...(node.sirutaCode === null ? {} : { sirutaCode: node.sirutaCode }),
-        },
-      });
+    const result = await resolveInsEntityContext(repo, deps, cui);
+    if (result.isErr()) return err(result.error);
+    const context = result.value;
+    if (context === null || context.datasetCount === 0) return ok(null);
+    return ok({
+      source: INS_SOURCE,
+      present: true,
+      label: 'Statistici INS',
+      count: context.datasetCount,
+      badges: ['ins', context.territoryLevel.toLowerCase()],
+      attrs: {
+        territoryCode: context.territoryCode,
+        territoryName: context.territoryName,
+        territoryLevel: context.territoryLevel,
+        ...(context.sirutaCode === null ? {} : { sirutaCode: context.sirutaCode }),
+      },
     });
+  },
+  async profileSlice(cui) {
+    const result = await resolveInsEntityContext(repo, deps, cui);
+    if (result.isErr()) return err(result.error);
+    return ok(
+      result.value === null
+        ? null
+        : {
+            source: INS_SOURCE,
+            kind: 'territory-context',
+            data: { ...result.value },
+          }
+    );
   },
 });

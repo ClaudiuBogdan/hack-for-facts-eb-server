@@ -469,6 +469,20 @@ export const insLegacyTypeDefs = /* GraphQL */ `
       preferredClassificationCodes: [String!]
     ): [InsLatestDatasetValue!]!
   }
+
+  "Canonical statistical area; coverage counts only certified modern-scope datasets."
+  type InsEntityContext {
+    territoryCode: String!
+    territoryLevel: InsTerritoryLevel!
+    territoryName: String!
+    sirutaCode: String
+    datasetCount: Int!
+  }
+
+  extend type Entity {
+    "Null means no mapped area; a mapped area can have datasetCount zero. Read failures are errors."
+    ins: InsEntityContext
+  }
 `;
 
 /** The legacy roots this slice serves (the 8 the client sends). */
