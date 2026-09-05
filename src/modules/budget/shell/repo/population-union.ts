@@ -9,20 +9,17 @@
  */
 import { sql, type RawBuilder } from 'kysely';
 
-import { andConditions } from '@/modules/shared/index.js';
+import { andConditions, isCountyTerritory } from '@/modules/shared/index.js';
 
 import { legacyEntityConditions } from './legacy-entity-predicates.js';
 
 import type { LegacyAggregateQuery } from '../../core/legacy-analytics/types.js';
 
-export const entityPopulationUnionSql = (
-  q: LegacyAggregateQuery
+/** One union kernel; selection must retain missing requested anchors as NULL IDs. */
+export const selectedPopulationUnionSql = (
+  selection: RawBuilder<unknown>
 ): RawBuilder<{ total: string | null }> => sql`
-  with recursive matched as materialized (
-    select e.cui, t.id, t.parent_id, t.level, t.territorial_siruta_code, t.population
-    from core.public_entities e
-    left join core.territories t on t.id = e.territory_id
-    where ${andConditions(legacyEntityConditions(q, 'e.cui'))}
+  with recursive matched as materialized (${selection}
   ), selected as (
     select distinct id, parent_id, level, territorial_siruta_code, population
     from matched where id is not null
@@ -69,3 +66,36 @@ export const entityPopulationUnionSql = (
   end as total
   from retained
 `;
+
+export const entityPopulationUnionSql = (
+  q: LegacyAggregateQuery
+): RawBuilder<{ total: string | null }> =>
+  selectedPopulationUnionSql(sql`
+    select t.id, t.parent_id, t.level, t.territorial_siruta_code, t.population
+    from core.public_entities e
+    ${q.search === undefined ? sql`` : sql`left join core.organizations o on o.cui = e.cui`}
+    left join core.territories t on t.id = e.territory_id
+    where ${andConditions(legacyEntityConditions(q, 'e.cui'))}
+`);
+
+export const geographicPopulationUnionSql = (
+  scope:
+    | { readonly kind: 'territoriesUnion'; readonly ids: readonly number[] }
+    | { readonly kind: 'countiesUnion'; readonly codes: readonly string[] }
+): RawBuilder<{ total: string | null }> => {
+  const values = scope.kind === 'territoriesUnion' ? scope.ids : scope.codes;
+  if (values.length === 0) return sql`select null::text as total`;
+  const keys = values.map((value) =>
+    scope.kind === 'territoriesUnion' ? sql`(${value}::int)` : sql`(${value}::text)`
+  );
+  const match =
+    scope.kind === 'territoriesUnion'
+      ? sql`t.id = requested.key`
+      : sql`t.county_code = requested.key and ${isCountyTerritory('t')}`;
+  return selectedPopulationUnionSql(sql`
+    select case when count(*) over (partition by requested.key) = 1 then t.id else null end as id,
+      t.parent_id, t.level, t.territorial_siruta_code, t.population
+    from (select distinct key from (values ${sql.join(keys)}) input(key)) requested
+    left join core.territories t on ${match}
+  `);
+};

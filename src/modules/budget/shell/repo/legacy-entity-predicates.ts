@@ -3,7 +3,11 @@
  */
 import { sql, type RawBuilder } from 'kysely';
 
-import { escapeLike } from '@/modules/shared/index.js';
+import {
+  escapeLike,
+  organizationRowIsPublic,
+  organizationIdentifierIsServable,
+} from '@/modules/shared/index.js';
 
 import type { LegacyAggregateQuery } from '../../core/legacy-analytics/types.js';
 
@@ -14,6 +18,18 @@ const notInNullSafe = (col: Cond, values: readonly (string | number)[]): Cond =>
   values.length === 0 ? sql`true` : sql`(${col} is null or ${col} not in (${sql.join(values)}))`;
 const tagContains = (tag: string): Cond =>
   sql`${sql.ref('e.tags')} @> ${JSON.stringify([{ tag }])}::jsonb`;
+
+/** Budget display policy; the caller joins organization evidence before using it. */
+export const budgetEntityNameSql = (cui: Cond): Cond =>
+  sql`coalesce(e.name, case when ${organizationRowIsPublic('o.privacy_class')} then o.name end, ${cui})`;
+
+export const budgetEntitySearchSql = (name: Cond, cuiColumn: string, search: string): Cond => {
+  const pattern = '%' + escapeLike(search) + '%';
+  // Search itself is an identity lookup, including the display-name CUI fallback.
+  return sql`(${organizationIdentifierIsServable(cuiColumn)}
+    and (o.org_id is null or ${organizationRowIsPublic('o.privacy_class')})
+    and (${name} ilike ${pattern} or ${sql.ref(cuiColumn)} ilike ${pattern}))`;
+};
 
 export const legacyEntityConditions = (
   q: LegacyAggregateQuery,
@@ -29,7 +45,7 @@ export const legacyEntityConditions = (
   }
   if (q.uatIds !== undefined) conds.push(inList(sql.ref('t.id'), q.uatIds));
   if (q.search !== undefined) {
-    conds.push(sql`${sql.ref('e.name')} ilike ${'%' + escapeLike(q.search) + '%'}`);
+    conds.push(budgetEntitySearchSql(budgetEntityNameSql(sql.ref(cuiColumn)), cuiColumn, q.search));
   }
   if (q.tagFacets !== undefined) {
     for (const facet of q.tagFacets) {

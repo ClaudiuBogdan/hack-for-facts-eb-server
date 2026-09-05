@@ -18,6 +18,8 @@ import {
   type PopulationSource,
 } from './core/legacy-analytics/ports.js';
 import { makeBudgetContributor } from './shell/contributor.js';
+import { makeBudgetGroupedResolvers } from './shell/graphql/legacy/grouped-resolvers.js';
+import { budgetGroupedTypeDefs } from './shell/graphql/legacy/grouped-typedefs.js';
 import { makeBudgetLegacyResolvers } from './shell/graphql/legacy/resolvers.js';
 import {
   budgetLegacyCollisionTypeDefs,
@@ -29,6 +31,7 @@ import { makeBudgetMcpTools } from './shell/mcp/tools.js';
 import { makeBudgetMcpResources } from './shell/mcp/widgets/resources.js';
 import { makeBudgetRepo } from './shell/repo/budget-repo.js';
 import { makeBudgetDiscoveryRepo } from './shell/repo/discovery-repo.js';
+import { makeGroupedAnalyticsRepo } from './shell/repo/grouped-analytics-repo.js';
 import { makeLegacyAnalyticsRepo } from './shell/repo/legacy-analytics-repo.js';
 import { makeLegacyDimensionRepo } from './shell/repo/legacy-dimension-repo.js';
 import { makeLegacyPopulationRepo } from './shell/repo/legacy-population-repo.js';
@@ -97,6 +100,13 @@ export const makeBudgetModule = (deps: BudgetModuleDeps): BudgetModule => {
   const legacyAnalytics = makeLegacyAnalyticsRepo(deps.db);
   const legacyPopulation = makeLegacyPopulationRepo(deps.db);
   const legacyDimensions = makeLegacyDimensionRepo(deps.db);
+  const groupedResolvers = makeBudgetGroupedResolvers({
+    grouped: makeGroupedAnalyticsRepo(deps.db),
+    factors: deps.legacyFactors,
+    population: legacyPopulation,
+    onClamped: (info) =>
+      deps.logger?.warn(info, 'Grouped analytics limit clamped; pageInfo reports remaining rows'),
+  });
   const contributor = makeBudgetContributor(repo);
   const clientBaseUrl = deps.clientBaseUrl ?? 'https://transparenta.eu';
 
@@ -124,11 +134,11 @@ export const makeBudgetModule = (deps: BudgetModuleDeps): BudgetModule => {
     legacyPopulation,
     graphqlSlice: {
       source: 'budget',
-      typeDefs: `${budgetTypeDefs}\n${budgetLegacyTypeDefs}\n${budgetLegacyCollisionTypeDefs}`,
+      typeDefs: `${budgetTypeDefs}\n${budgetLegacyTypeDefs}\n${budgetLegacyCollisionTypeDefs}\n${budgetGroupedTypeDefs}`,
     },
     graphqlResolvers: mergeResolvers(
       makeBudgetResolvers({ repo, discovery, registry: deps.registry }),
-      legacyResolvers
+      mergeResolvers(legacyResolvers, groupedResolvers)
     ),
     mcpTools: makeBudgetMcpTools({ repo, discovery, clientBaseUrl }),
     mcpResources: makeBudgetMcpResources(),
@@ -164,3 +174,15 @@ export { BUDGET_FILTER_SPECS } from './core/filters.js';
 export { makeBudgetContributor, toProfileSlice } from './shell/contributor.js';
 export { makeBudgetRepo } from './shell/repo/budget-repo.js';
 export { makeBudgetDiscoveryRepo } from './shell/repo/discovery-repo.js';
+
+export {
+  groupedEntityAnalytics,
+  groupedClassificationAnalytics,
+  type GroupedAnalyticsDeps,
+} from './core/legacy-analytics/grouped-usecase.js';
+export type {
+  GroupedAnalyticsRepo,
+  GroupedInput,
+  GroupedEntity,
+  GroupedClassification,
+} from './core/legacy-analytics/grouped-types.js';

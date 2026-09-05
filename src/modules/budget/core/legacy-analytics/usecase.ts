@@ -13,6 +13,7 @@ import { serviceUnavailable, type ApiError } from '@/modules/shared/index.js';
 
 import { cleanFilter } from './clean.js';
 import { legacyDecimal } from './decimal.js';
+import { loadMoneyContext } from './money-context.js';
 import {
   normalizePoints,
   periodAxis,
@@ -64,23 +65,9 @@ const loadContext = async (
   plan: NormalizationPlan,
   scope: ReturnType<typeof resolvePopulationScope>
 ): Promise<Result<NormalizationContext, ApiError>> => {
-  if (plan.mode === 'percent_gdp') {
-    const gdp = await deps.factors.yearly('gdp_ron');
-    if (gdp.isErr()) return err(gdp.error);
-    return ok(gdp.value === null ? {} : { gdp: gdp.value });
-  }
-
-  let ctx: NormalizationContext = {};
-  if (plan.inflationAdjusted) {
-    const cpi = await deps.factors.yearly('cpi_index');
-    if (cpi.isErr()) return err(cpi.error);
-    if (cpi.value !== null) ctx = { ...ctx, cpiIndex: cpi.value };
-  }
-  if (plan.currency === 'EUR' || plan.currency === 'USD') {
-    const fx = await deps.factors.yearly(plan.currency === 'EUR' ? 'ron_per_eur' : 'ron_per_usd');
-    if (fx.isErr()) return err(fx.error);
-    if (fx.value !== null) ctx = { ...ctx, fxRate: fx.value };
-  }
+  const money = await loadMoneyContext(deps.factors, plan);
+  if (money.isErr()) return err(money.error);
+  let ctx = money.value;
   if (plan.mode === 'per_capita') {
     if (scope.kind === 'country') {
       const pop = await deps.factors.yearly('population_ro');

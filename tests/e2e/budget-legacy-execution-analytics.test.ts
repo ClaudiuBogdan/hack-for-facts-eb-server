@@ -43,7 +43,14 @@ import { afterAll, beforeAll, describe, expect, it as vitestIt } from 'vitest';
 
 import { cleanFilter } from '@/modules/budget/core/legacy-analytics/clean.js';
 import { legacyDecimal } from '@/modules/budget/core/legacy-analytics/decimal.js';
-import { resolvePopulationScope } from '@/modules/budget/core/legacy-analytics/population.js';
+import {
+  groupedEntityAnalytics,
+  groupedClassificationAnalytics,
+} from '@/modules/budget/core/legacy-analytics/grouped-usecase.js';
+import {
+  resolvePopulationScope,
+  resolveGroupedPopulationScope,
+} from '@/modules/budget/core/legacy-analytics/population.js';
 import { legacyExecutionSeries } from '@/modules/budget/core/legacy-analytics/usecase.js';
 import { chainLinkCpiLevels } from '@/modules/budget/shell/factors/cpi-level.js';
 import { makeBudgetRepo } from '@/modules/budget/shell/repo/budget-repo.js';
@@ -51,15 +58,23 @@ import { countyExecutiveCuiSql } from '@/modules/budget/shell/repo/county-execut
 import { makeBudgetDiscoveryRepo } from '@/modules/budget/shell/repo/discovery-repo.js';
 import { makeFundingSourceMap } from '@/modules/budget/shell/repo/funding-source-map.js';
 import {
+  makeGroupedAnalyticsRepo,
+  groupedAnalyticsSql,
+} from '@/modules/budget/shell/repo/grouped-analytics-repo.js';
+import {
   makeLegacyAnalyticsRepo,
   legacyAggregateSql,
 } from '@/modules/budget/shell/repo/legacy-analytics-repo.js';
 import { makeLegacyPopulationRepo } from '@/modules/budget/shell/repo/legacy-population-repo.js';
-import { entityPopulationUnionSql } from '@/modules/budget/shell/repo/population-union.js';
+import {
+  entityPopulationUnionSql,
+  geographicPopulationUnionSql,
+} from '@/modules/budget/shell/repo/population-union.js';
 import { makeTerritoryQueryRepo } from '@/modules/reference/shell/repo/territory-query-repo.js';
 import { makeIdentityRepo } from '@/modules/shared/shell/repo/identity-repo.js';
 import { makeTerritoryRepo } from '@/modules/shared/shell/repo/territory-repo.js';
 
+import type { GroupedQuery } from '@/modules/budget/core/legacy-analytics/grouped-types.js';
 import type { FactorKind, FactorSource } from '@/modules/budget/core/legacy-analytics/ports.js';
 import type { LegacyAnalyticsFilter } from '@/modules/budget/core/legacy-analytics/types.js';
 import type { ProdDatabase } from '@/modules/shared/index.js';
@@ -86,7 +101,7 @@ const resolveScrapperRoot = (): string | undefined => {
 };
 
 /**
- * The seven scrapper prod migrations this suite imports, pinned by the sha256 of
+ * The nine scrapper prod migrations this suite imports, pinned by the sha256 of
  * their CONTENT (sibling `main` @ 82b88cd7, 2026-09-02). A content pin detects a
  * changed migration under the same filename and is indifferent to unrelated
  * later migrations (the lexically-latest "head" pin did the opposite). Bump a
@@ -96,6 +111,10 @@ const resolveScrapperRoot = (): string | undefined => {
  * assertion went red.
  */
 const MIGRATION_SHA256: Readonly<Record<string, string>> = {
+  '20260611T220000__companies_domain.ts':
+    '0c84c277726d05d3ed8f0b959cd0c023e86f01b3d7bd3dbcf278223098022f97',
+  '20260630T140000__companies_v2_core_privacy.ts':
+    '150c579c9fd8cbd0cb4bafad4351c0383772710a36e1d2ef8b453ceacdfa2b40',
   // S1 reads the additive native anchor and level fields; verified 2026-09-05.
 
   '20260612T110000__core_reference.ts':
@@ -530,7 +549,7 @@ beforeAll(async () => {
   pgClient = new pg.Client({ connectionString });
   await pgClient.connect();
   await pgClient.query(
-    'drop schema if exists budget cascade; drop schema if exists core cascade; drop schema if exists etl cascade;'
+    'drop schema if exists companies cascade; drop schema if exists budget cascade; drop schema if exists core cascade; drop schema if exists etl cascade;'
   );
 
   const pool = new pg.Pool({ connectionString });
@@ -1542,5 +1561,495 @@ describe('S1b administrative anchor population union', () => {
       );
       expect(await representative('B')).toBeNull();
     });
+  });
+});
+
+const groupedQuery = (
+  filter: Partial<LegacyAnalyticsFilter> = {},
+  overrides: Partial<GroupedQuery> = {}
+): GroupedQuery => ({
+  filter: cleanFilter(baseFilter(filter))._unsafeUnwrap(),
+  moneyMultipliers: new Map([
+    [2023, legacyDecimal(1)],
+    [2024, legacyDecimal(1)],
+  ]),
+  mode: 'total',
+  requirePopulation: false,
+  limit: 50,
+  offset: 0,
+  sort: { by: 'AMOUNT', order: 'DESC' },
+  ...overrides,
+});
+
+describe('native grouped analytics over the real scrapper DDL', () => {
+  it('retains nominal entity money and classification counts against independent SQL', async () => {
+    const deps = {
+      grouped: makeGroupedAnalyticsRepo(db!),
+      factors: noFactors,
+      population: makeLegacyPopulationRepo(db!),
+    };
+    const entities = (await groupedEntityAnalytics(deps, { filter: baseFilter() }))._unsafeUnwrap();
+    const classified = (
+      await groupedClassificationAnalytics(deps, { filter: baseFilter() })
+    )._unsafeUnwrap();
+    const independent = await pgClient!.query<{ cui: string; amount: string; count: string }>(
+      `
+      select entity_cui as cui, sum(ytd_amount)::text as amount, count(*)::text as count
+      from budget.execution_line_items where reporting_year between 2023 and 2024 and is_yearly
+        and account_category='ch' and report_type in ($1,$2) group by entity_cui order by sum(ytd_amount) desc, entity_cui`,
+      [RT1, RT2]
+    );
+    expect(entities.nodes.map((r) => [r.entity_cui, r.total_amount.toString()])).toEqual(
+      independent.rows.map((r) => [r.cui, legacyDecimal(r.amount).toString()])
+    );
+    expect(
+      classified.nodes.reduce((sum, r) => sum.plus(r.amount), legacyDecimal(0)).toFixed(2)
+    ).toBe(independent.rows.reduce((sum, r) => sum.plus(r.amount), legacyDecimal(0)).toFixed(2));
+    expect(classified.nodes.reduce((sum, r) => sum + r.count, 0)).toBe(
+      independent.rows.reduce((sum, r) => sum + Number(r.count), 0)
+    );
+    expect(entities.nodes.find((r) => r.entity_cui === '222')?.per_capita_amount).toBeNull();
+  });
+
+  it('counts independently on zero-limit and out-of-range pages', async () => {
+    const repo = makeGroupedAnalyticsRepo(db!);
+    for (const pagination of [{ limit: 0 }, { offset: 999 }]) {
+      const result = (await repo.entities(groupedQuery({}, pagination)))._unsafeUnwrap();
+      expect(result.nodes).toEqual([]);
+      expect(result.pageInfo.totalCount).toBe(3);
+    }
+  });
+
+  it('keeps unknown classification codes without catalog joins', async () => {
+    await rollbackTerritoryFixture(async (trx) => {
+      await sql`update budget.execution_line_items set functional_code='99.99.99', functional_name='Uncatalogued observation', economic_code=null, economic_name=null where entity_cui='333'`.execute(
+        trx
+      );
+      const result = await groupedAnalyticsSql(
+        'classification',
+        groupedQuery(),
+        () => undefined
+      ).execute(trx);
+      expect(
+        result.rows.some(
+          (r) =>
+            r.functional_code === '99.99.99' &&
+            r.functional_name === 'Uncatalogued observation' &&
+            r.economic_code === null
+        )
+      ).toBe(true);
+    });
+  });
+
+  it('retains an orphan identity, supports fallback CUI search, and checks coverage before paging', async () => {
+    await rollbackTerritoryFixture(async (trx) => {
+      await sql`update budget.execution_line_items set entity_cui='777' where entity_cui='333'`.execute(
+        trx
+      );
+      await sql`insert into core.organizations(cui,name,first_seen_source,privacy_class) values('777','777','budget','public')`.execute(
+        trx
+      );
+      const nominal = await groupedAnalyticsSql(
+        'entity',
+        groupedQuery({ search: '777' }),
+        () => undefined
+      ).execute(trx);
+      expect(nominal.rows[0]?.entity_cui).toBe('777');
+      expect(nominal.rows[0]?.entity_name).toBe('777');
+      expect(nominal.rows[0]?.population).toBeNull();
+      for (const pagination of [{ limit: 0 }, { offset: 999 }]) {
+        const unavailable = await groupedAnalyticsSql(
+          'entity',
+          groupedQuery({}, { mode: 'per_capita', requirePopulation: true, ...pagination }),
+          () => undefined
+        ).execute(trx);
+        expect(unavailable.rows[0]?.missing_coverage).toBe(true);
+      }
+      const narrowed = await groupedAnalyticsSql(
+        'entity',
+        groupedQuery(
+          { is_territorial_executive: true },
+          { mode: 'per_capita', requirePopulation: true }
+        ),
+        () => undefined
+      ).execute(trx);
+      expect(narrowed.rows[0]?.missing_coverage).toBe(false);
+      expect(narrowed.rows[0]?.entity_cui).toBe('111');
+      await sql`delete from core.organizations where cui='777'`.execute(trx);
+      const absent = await groupedAnalyticsSql(
+        'entity',
+        groupedQuery({ search: '777' }),
+        () => undefined
+      ).execute(trx);
+      expect(absent.rows[0]?.entity_name).toBe('777');
+    });
+  });
+
+  it('withholds restricted organization identity even with a PE name, without removing classification money', async () => {
+    await rollbackTerritoryFixture(async (trx) => {
+      await sql`insert into core.organizations(cui,name,first_seen_source,privacy_class) values('111','Restricted evidence','test','restricted')`.execute(
+        trx
+      );
+      const entity = await groupedAnalyticsSql(
+        'entity',
+        groupedQuery({ entity_cuis: ['111'] }),
+        () => undefined
+      ).execute(trx);
+      expect(entity.rows[0]?.total_count).toBe('0');
+      const classification = await groupedAnalyticsSql(
+        'classification',
+        groupedQuery({ entity_cuis: ['111'] }),
+        () => undefined
+      ).execute(trx);
+      expect(Number(classification.rows[0]?.total_count)).toBeGreaterThan(0);
+      // Fault injection: generated types admit NULL, so fail closed even after schema corruption.
+      await sql`alter table core.organizations alter column privacy_class drop not null`.execute(
+        trx
+      );
+      await sql`update core.organizations set privacy_class=null where cui='111'`.execute(trx);
+      expect(
+        (
+          await groupedAnalyticsSql(
+            'entity',
+            groupedQuery({ entity_cuis: ['111'] }),
+            () => undefined
+          ).execute(trx)
+        ).rows[0]?.total_count
+      ).toBe('0');
+    });
+  });
+
+  it('does not use withheld identities as search keys on aggregate roots', async () => {
+    await rollbackTerritoryFixture(async (trx) => {
+      await sql`update budget.execution_line_items set entity_cui='1234567890123' where entity_cui='333'`.execute(
+        trx
+      );
+      await sql`insert into core.organizations(cui,name,first_seen_source,privacy_class) values
+        ('1234567890123','1234567890123','test','public'),('111','Restricted evidence','test','restricted')`.execute(
+        trx
+      );
+      for (const search of ['1234567890123', '111']) {
+        for (const grouping of ['entity', 'classification'] as const) {
+          const result = await groupedAnalyticsSql(
+            grouping,
+            groupedQuery({ search }),
+            () => undefined
+          ).execute(trx);
+          expect(result.rows[0]?.total_count).toBe('0');
+        }
+      }
+      // Aggregate totals without an identity search retain the source money.
+      const total = await groupedAnalyticsSql(
+        'classification',
+        groupedQuery(),
+        () => undefined
+      ).execute(trx);
+      expect(Number(total.rows[0]?.total_count)).toBeGreaterThan(0);
+    });
+  });
+
+  it('divides each year before summing, exposes no single population for differing years', async () => {
+    const populations = () =>
+      sql`select id as territory_id, y.year, y.population from core.territories cross join (values (2023,100), (2024,200)) y(year,population)`;
+    const result = await groupedAnalyticsSql(
+      'entity',
+      groupedQuery({ entity_cuis: ['111'] }, { mode: 'per_capita', requirePopulation: true }),
+      () => undefined,
+      populations
+    ).execute(db!);
+    const independent = await oracle(
+      `x.entity_cui='111' and x.account_category='ch' and x.reporting_year between 2023 and 2024`,
+      [],
+      'YEAR'
+    );
+    const expected = independent.reduce(
+      (sum, row) => sum.plus(legacyDecimal(row.amount).div(row.year === 2023 ? 100 : 200)),
+      legacyDecimal(0)
+    );
+    expect(legacyDecimal(result.rows[0]!.amount!).toFixed(2)).toBe(expected.toFixed(2));
+    expect(result.rows[0]?.population).toBeNull();
+    const missingYear = () =>
+      sql`select id as territory_id, 2023 as year, 100 as population from core.territories`;
+    const unavailable = await groupedAnalyticsSql(
+      'entity',
+      groupedQuery(
+        { entity_cuis: ['111'] },
+        { mode: 'per_capita', requirePopulation: true, limit: 0 }
+      ),
+      () => undefined,
+      missingYear
+    ).execute(db!);
+    expect(unavailable.rows[0]?.missing_coverage).toBe(true);
+  });
+});
+
+describe('native grouped adversarial regressions', () => {
+  it('changes rank only after yearly normalization and applies primary bounds after per-capita division', async () => {
+    await rollbackTerritoryFixture(async (trx) => {
+      // Exactly 100k in 2023 for 111 and 150k in 2024 for 222, regardless of
+      // the seed's unequal fact counts. Division happens only in this test fixture.
+      await sql`with counts as (
+        select entity_cui, reporting_year, count(*) as n
+        from budget.execution_line_items where is_yearly and account_category='ch'
+          and report_type in (${RT1},${RT2}) group by entity_cui, reporting_year
+      ) update budget.execution_line_items x set ytd_amount = case
+          when x.entity_cui='111' and x.reporting_year=2023 then 100000::numeric / c.n
+          when x.entity_cui='222' and x.reporting_year=2024 then 150000::numeric / c.n else 0 end
+        from counts c where c.entity_cui=x.entity_cui and c.reporting_year=x.reporting_year`.execute(
+        trx
+      );
+      await sql`update core.public_entities set is_territorial_executive=true where cui='222'`.execute(
+        trx
+      );
+      const scope = { entity_cuis: ['111', '222'] };
+      const nominal = await groupedAnalyticsSql(
+        'entity',
+        groupedQuery(scope),
+        () => undefined
+      ).execute(trx);
+      expect(nominal.rows[0]?.entity_cui).toBe('222');
+      const factors = new Map([
+        [2023, legacyDecimal(10)],
+        [2024, legacyDecimal(1)],
+      ]);
+      const normalized = await groupedAnalyticsSql(
+        'entity',
+        groupedQuery(scope, { moneyMultipliers: factors }),
+        () => undefined
+      ).execute(trx);
+      expect(normalized.rows[0]?.entity_cui).toBe('111');
+      const threshold = 1;
+      const actual = await groupedAnalyticsSql(
+        'entity',
+        groupedQuery(
+          { ...scope, aggregate_min_amount: threshold },
+          {
+            moneyMultipliers: factors,
+            mode: 'per_capita',
+            requirePopulation: true,
+          }
+        ),
+        () => undefined
+      ).execute(trx);
+      const independent = await sql<{ cui: string; amount: string }>`
+        select x.entity_cui as cui, sum(x.ytd_amount * case when x.reporting_year=2023 then 10 else 1 end / t.population)::text as amount
+        from budget.execution_line_items x join core.public_entities e on e.cui=x.entity_cui
+        join core.territories t on t.id=e.territory_id
+        where x.entity_cui in ('111','222') and x.reporting_year between 2023 and 2024
+          and x.report_type in (${RT1},${RT2}) and x.account_category='ch' and x.is_yearly
+        group by x.entity_cui
+        having sum(x.ytd_amount * case when x.reporting_year=2023 then 10 else 1 end / t.population) >= ${threshold}::numeric
+        order by sum(x.ytd_amount * case when x.reporting_year=2023 then 10 else 1 end / t.population) desc, x.entity_cui
+      `.execute(trx);
+      expect(independent.rows).toHaveLength(1);
+      expect(
+        actual.rows.map((row) => [row.entity_cui, legacyDecimal(row.amount!).toFixed(2)])
+      ).toEqual(independent.rows.map((row) => [row.cui, legacyDecimal(row.amount).toFixed(2)]));
+    });
+  });
+
+  it('uses stable ties and NULLS LAST in both sort directions', async () => {
+    await rollbackTerritoryFixture(async (trx) => {
+      await sql`update budget.execution_line_items set ytd_amount=0`.execute(trx);
+      for (const order of ['ASC', 'DESC'] as const) {
+        const ties = await groupedAnalyticsSql(
+          'entity',
+          groupedQuery({}, { sort: { by: 'AMOUNT', order } }),
+          () => undefined
+        ).execute(trx);
+        expect(ties.rows.map((row) => row.entity_cui)).toEqual(['111', '222', '333']);
+        const nullable = await groupedAnalyticsSql(
+          'entity',
+          groupedQuery({}, { sort: { by: 'POPULATION', order } }),
+          () => undefined
+        ).execute(trx);
+        expect(nullable.rows.map((row) => row.entity_cui)).toEqual(['111', '222', '333']);
+      }
+    });
+  });
+
+  it('checks native grouped scope completeness before hiding an off-page group', async () => {
+    await rollbackTerritoryFixture(async (trx) => {
+      await sql`update core.public_entities set is_territorial_executive=true, territory_id=null where cui='222'`.execute(
+        trx
+      );
+      const query = cleanFilter(baseFilter({ entity_cuis: ['111', '222'] }))._unsafeUnwrap();
+      const scope = resolveGroupedPopulationScope(query);
+      expect(scope.kind).toBe('entityUnion');
+      const population = await makeLegacyPopulationRepo(trx).scopedPopulation(scope);
+      expect(population._unsafeUnwrap()).toBeNull();
+      const calls: unknown[] = [];
+      const result = await groupedClassificationAnalytics(
+        {
+          grouped: {
+            entities: () => Promise.reject(new Error('unused')),
+            classifications: (q) => {
+              calls.push(q);
+              return Promise.reject(new Error('must not run'));
+            },
+          },
+          factors: noFactors,
+          population: makeLegacyPopulationRepo(trx),
+        },
+        {
+          filter: baseFilter({
+            entity_cuis: ['111', '222'],
+            normalization: 'per_capita',
+            aggregate_min_amount: 999999999,
+          }),
+          limit: 0,
+        }
+      );
+      expect(result.isErr()).toBe(true);
+      expect(calls).toHaveLength(0);
+      const cluj = await sql<{
+        id: number;
+      }>`select id from core.territories where territorial_siruta_code='54975'`.execute(trx);
+      const requested = await geographicPopulationUnionSql({
+        kind: 'territoriesUnion',
+        ids: [cluj.rows[0]!.id, 99999999],
+      }).execute(trx);
+      expect(requested.rows[0]?.total).toBeNull();
+    });
+  });
+
+  it('keeps the full explicit geographic denominator and suppresses selected descendants', async () => {
+    const cluj = await sql<{
+      id: number;
+    }>`select id from core.territories where territorial_siruta_code in ('12','54975')`.execute(
+      db!
+    );
+    const query = cleanFilter(
+      baseFilter({ county_codes: ['CJ'], search: 'No matching name' })
+    )._unsafeUnwrap();
+    expect(resolveGroupedPopulationScope(query)).toEqual({ kind: 'countiesUnion', codes: ['CJ'] });
+    expect(
+      (
+        await geographicPopulationUnionSql({
+          kind: 'territoriesUnion',
+          ids: cluj.rows.map((row) => row.id),
+        }).execute(db!)
+      ).rows[0]?.total
+    ).toBe('700000');
+  });
+
+  it('rejects ambiguous county nodes while deduplicating repeated requested keys', async () => {
+    expect(
+      (
+        await geographicPopulationUnionSql({ kind: 'countiesUnion', codes: ['CJ', 'CJ'] }).execute(
+          db!
+        )
+      ).rows[0]?.total
+    ).toBe('700000');
+    await rollbackTerritoryFixture(async (trx) => {
+      await sql`insert into core.territories(territorial_siruta_code,siruta_code,name,county_code,county_name,region,population,level,kind,territory_key)
+        values('99999','99999','Ambiguous county','CJ','Cluj','Nord-Vest',700000,'county','county','test:ambiguous-county')`.execute(
+        trx
+      );
+      expect(
+        (await geographicPopulationUnionSql({ kind: 'countiesUnion', codes: ['CJ'] }).execute(trx))
+          .rows[0]?.total
+      ).toBeNull();
+    });
+  });
+
+  it('does not apply any population arithmetic to GDP percentage', async () => {
+    await rollbackTerritoryFixture(async (trx) => {
+      await sql`update core.territories set population=null`.execute(trx);
+      const result = await groupedAnalyticsSql(
+        'entity',
+        groupedQuery(
+          {},
+          {
+            mode: 'percent_gdp',
+            moneyMultipliers: new Map([
+              [2023, legacyDecimal('0.001')],
+              [2024, legacyDecimal('0.002')],
+            ]),
+          }
+        ),
+        () => undefined
+      ).execute(trx);
+      expect(result.rows[0]?.missing_coverage).toBe(false);
+      expect(result.rows.every((row) => row.per_capita_amount === null)).toBe(true);
+    });
+  });
+
+  it('gates both organization and identifier privacy independently', async () => {
+    await rollbackTerritoryFixture(async (trx) => {
+      const inserted = await sql<{
+        org_id: string;
+      }>`insert into core.organizations(cui,name,first_seen_source,privacy_class) values('888','Public organization','test','public') returning org_id::text`.execute(
+        trx
+      );
+      const id = inserted.rows[0]!.org_id;
+      await sql`insert into core.organization_identifiers(scheme,value,org_id,source,privacy_class) values
+        ('test','public-id',${id}::bigint,'test','public'),('test','restricted-id',${id}::bigint,'test','restricted')`.execute(
+        trx
+      );
+      const repo = makeIdentityRepo(trx);
+      expect((await repo.getIdentifiers(id))._unsafeUnwrap().map((row) => row.value)).toEqual([
+        'public-id',
+      ]);
+      await sql`alter table core.organization_identifiers alter column privacy_class drop not null`.execute(
+        trx
+      );
+      await sql`update core.organization_identifiers set privacy_class=null where value='restricted-id'`.execute(
+        trx
+      );
+      expect((await repo.getIdentifiers(id))._unsafeUnwrap().map((row) => row.value)).toEqual([
+        'public-id',
+      ]);
+      await sql`update core.organizations set privacy_class='restricted' where cui='888'`.execute(
+        trx
+      );
+      expect((await repo.getIdentifiers(id))._unsafeUnwrap()).toEqual([]);
+      await sql`alter table core.organizations alter column privacy_class drop not null`.execute(
+        trx
+      );
+      await sql`update core.organizations set privacy_class=null where cui='888'`.execute(trx);
+      expect((await repo.getIdentifiers(id))._unsafeUnwrap()).toEqual([]);
+    });
+  });
+
+  it('matches direct source sums through representative conditional joins and funding mapping', async () => {
+    const cases: readonly [Partial<LegacyAnalyticsFilter>, string][] = [
+      [
+        { search: 'iasi', tags: ['kind::school'] },
+        `pe.name ilike '%iasi%' and pe.tags @> '[{"tag":"kind::school"}]'`,
+      ],
+      [
+        { exclude: { regions: ['Nord-Vest'] } },
+        `(tt.region is null or tt.region not in ('Nord-Vest'))`,
+      ],
+      [
+        { county_codes: ['CJ'], min_population: 100000 },
+        `tt.county_code='CJ' and tt.population >= 100000`,
+      ],
+      [{ funding_source_ids: ['2'] }, `x.funding_source_id=3`],
+      [
+        { main_creditor_cui: '111', budget_sector_ids: ['5'], program_codes: ['P1'] },
+        `x.main_creditor_cui='111' and x.budget_sector_id=5 and x.program_code='P1'`,
+      ],
+      [
+        { economic_prefixes: ['10'], exclude: { functional_prefixes: ['51'] } },
+        `x.economic_code like '10%' and x.functional_code not like '51%'`,
+      ],
+    ];
+    const repo = makeGroupedAnalyticsRepo(db!);
+    for (const [filter, where] of cases) {
+      const expected = await oracle(
+        `x.account_category='ch' and x.reporting_year between 2023 and 2024 and ${where}`,
+        [],
+        'YEAR'
+      );
+      const expectedTotal = expected.reduce((sum, row) => sum.plus(row.amount), legacyDecimal(0));
+      const entities = (await repo.entities(groupedQuery(filter)))._unsafeUnwrap();
+      const classifications = (await repo.classifications(groupedQuery(filter)))._unsafeUnwrap();
+      for (const page of [entities, classifications])
+        expect(
+          page.nodes.reduce((sum, row) => sum.plus(row.amount), legacyDecimal(0)).toFixed(2)
+        ).toBe(expectedTotal.toFixed(2));
+    }
   });
 });

@@ -40,3 +40,29 @@ export const resolvePopulationScope = (q: LegacyAggregateQuery): PopulationScope
   // `is_uat: false` alone: legacy fell back to the country population.
   return { kind: 'country' };
 };
+
+/** Native grouped roots always use checked geographic unions, including old-field requests. */
+export const resolveGroupedPopulationScope = (q: LegacyAggregateQuery): PopulationScope => {
+  if (q.entityCuis === undefined) {
+    if (q.uatIds !== undefined) return { kind: 'territoriesUnion', ids: q.uatIds };
+    if (q.countyCodes !== undefined) return { kind: 'countiesUnion', codes: q.countyCodes };
+  }
+  const ex = q.exclude;
+  const narrowed =
+    q.entityCuis !== undefined ||
+    q.entityTypes !== undefined ||
+    q.isUat !== undefined ||
+    q.isTerritorialExecutive !== undefined ||
+    q.search !== undefined ||
+    q.tagFacets !== undefined ||
+    q.regions !== undefined ||
+    q.minPopulation !== undefined ||
+    q.maxPopulation !== undefined ||
+    ex?.entityCuis !== undefined ||
+    ex?.entityTypes !== undefined ||
+    ex?.tags !== undefined ||
+    ex?.uatIds !== undefined ||
+    ex?.countyCodes !== undefined ||
+    ex?.regions !== undefined;
+  return narrowed ? { kind: 'entityUnion', selection: q } : { kind: 'country' };
+};

@@ -14,9 +14,12 @@ import { sql, type Kysely } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
 import { foldDiacritics } from './fold.js';
+import {
+  organizationIdentifierIsServable,
+  organizationRowIsPublic,
+} from './organization-privacy.js';
 import { databaseError, type ApiError } from '../../core/errors.js';
 import {
-  MAX_SERVED_CUI_DIGITS,
   isWithheldOrganizationIdentifier,
   type Cui,
   type OrgIdentifier,
@@ -115,7 +118,7 @@ export const makeIdentityRepo = (db: Db): IdentityRepo => ({
         // them to stay identical. Fails CLOSED on an unexpected value (NULL
         // included); measured 2026-08-26, prod carries only 'public' and
         // 'restricted'.
-        .where('privacy_class', '=', 'public')
+        .where(organizationRowIsPublic('privacy_class'))
         .limit(1)
         .executeTakeFirst();
       return ok(row === undefined ? null : mapOrg(row));
@@ -150,7 +153,7 @@ export const makeIdentityRepo = (db: Db): IdentityRepo => ({
           // method the `organizationByCui` DataLoader actually calls, so an
           // invariant enforced only on the single-row lookup would leave the
           // GraphQL batch path unguarded.
-          .where('privacy_class', '=', 'public')
+          .where(organizationRowIsPublic('privacy_class'))
           .execute();
         for (const row of rows) {
           const org = mapOrg(row);
@@ -176,7 +179,7 @@ export const makeIdentityRepo = (db: Db): IdentityRepo => ({
         .where('org_id', '=', orgId)
         // Same pin as the CUI lookups: an opaque surrogate is not a licence to
         // serve a restricted identity.
-        .where('privacy_class', '=', 'public')
+        .where(organizationRowIsPublic('privacy_class'))
         .limit(1)
         .executeTakeFirst();
       // org_id is an opaque surrogate, so the caller cannot pre-screen it — the
@@ -198,7 +201,9 @@ export const makeIdentityRepo = (db: Db): IdentityRepo => ({
         .innerJoin('core.organizations as o', 'o.org_id', 'oi.org_id')
         .select(['oi.scheme', 'oi.value', 'oi.source'])
         .where('oi.org_id', '=', orgId)
-        .where(sql<boolean>`(o.cui is null or length(o.cui) <= ${sql.lit(MAX_SERVED_CUI_DIGITS)})`)
+        .where(organizationIdentifierIsServable('o.cui'))
+        .where(organizationRowIsPublic('o.privacy_class'))
+        .where(organizationRowIsPublic('oi.privacy_class'))
         .execute();
       return ok(rows.map((r) => ({ scheme: r.scheme, value: r.value, source: r.source })));
     } catch (error) {
@@ -225,12 +230,12 @@ export const makeIdentityRepo = (db: Db): IdentityRepo => ({
         // post-scan filter would also let them consume the scan cap and silently
         // starve real matches. NULL-cui orgs are servable — the rule is about
         // CNP-SHAPED identifiers, not about missing ones.
-        .where(sql<boolean>`(cui is null or length(cui) <= ${sql.lit(MAX_SERVED_CUI_DIGITS)})`)
+        .where(organizationIdentifierIsServable('cui'))
         // AND the declared class, not only the identifier shape. The two
         // populations coincide today (measured 2026-08-26: every `restricted`
         // organization also has a >10-digit CUI) and are maintained separately,
         // so relying on the shape alone would make privacy an accident.
-        .where('privacy_class', '=', 'public')
+        .where(organizationRowIsPublic('privacy_class'))
         .limit(MAX_NAME_FALLBACK_SCAN)
         .execute();
 

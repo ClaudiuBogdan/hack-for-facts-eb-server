@@ -27,7 +27,7 @@ import {
   type ProdDatabase,
 } from '@/modules/shared/index.js';
 
-import { entityPopulationUnionSql } from './population-union.js';
+import { entityPopulationUnionSql, geographicPopulationUnionSql } from './population-union.js';
 import { BUCHAREST_SIRUTA_CODE } from '../../core/constants.js';
 import { legacyDecimal } from '../../core/legacy-analytics/decimal.js';
 
@@ -121,6 +121,9 @@ export const makeLegacyPopulationRepo = (db: Db): PopulationSource => {
   ): Promise<Result<Decimal | null, ApiError>> => {
     try {
       switch (scope.kind) {
+        case 'territoriesUnion':
+        case 'countiesUnion':
+          return ok(toDecimal((await geographicPopulationUnionSql(scope).execute(db)).rows));
         case 'entityUnion':
           return ok(toDecimal((await entityPopulationUnionSql(scope.selection).execute(db)).rows));
         case 'country':

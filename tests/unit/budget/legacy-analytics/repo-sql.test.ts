@@ -223,7 +223,8 @@ describe('legacy executionAnalytics aggregate SQL', () => {
     const sql = flat(aggregate.sql);
     expect(sql).toContain('left join core.public_entities as e on e.cui = eli.entity_cui');
     expect(sql).toContain('left join core.territories as t on t.id = e.territory_id');
-    expect(sql).toContain('"e"."name" ilike');
+    expect(sql).toContain('left join core.organizations as o on o.cui = eli.entity_cui');
+    expect(sql).toContain('or "eli"."entity_cui" ilike');
     expect(aggregate.parameters).toContain('%50\\%\\_x%');
     expect(sql).toContain('("e"."tags" @> $');
     expect(sql).toContain('::jsonb or "e"."tags" @> $');

@@ -401,3 +401,8 @@ export {
   isCountyTerritory,
   isUatPresentationTerritory,
 } from './shell/repo/territory-predicates.js';
+
+export {
+  organizationIdentifierIsServable,
+  organizationRowIsPublic,
+} from './shell/repo/organization-privacy.js';

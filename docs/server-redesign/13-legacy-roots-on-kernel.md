@@ -225,3 +225,21 @@ The strict paired-kernel check is
 `--config vitest.config.ts`, `PHASE_A_BASELINE_URL` and `PHASE_A_TARGET_URL`.
 Those separate opt-in variables keep this exact-equality check out of the
 legacy-to-kernel extended replay, whose documented numeric deltas remain valid.
+
+## 2026-09-05 native grouped-root amendment
+
+The approved user decisions supersede carried bugs for the new `entityAnalytics`
+and `aggregatedLineItems` roots. The exact boundary is recorded in
+[NATIVE_GROUPED_ANALYTICS_2026-09-05.md](./NATIVE_GROUPED_ANALYTICS_2026-09-05.md):
+strict exact-year monetary factors; nullable auxiliary population metrics; known
+executive eligibility; checked geographic unions; historical organization-spine
+identity retention; unknown classification retention; primary-value thresholds
+and sorting; honest empty-page counts. GDP percentage has no auxiliary per-capita
+metric. The shared name/CUI search broadening also affects executionAnalytics;
+its carried normalization fallback and old-field scope selection remain separate
+migration debt. Annual population and release-consistent reads are not complete.
+
+These semantic changes are covered by explicit SDL and actual-Postgres tests.
+They are not blanket permissions to suppress golden-master errors. Re-measure
+case-specific drift, including the now-loaded T103000 catalog, during full replay
+before legacy deletion or final enforcement.

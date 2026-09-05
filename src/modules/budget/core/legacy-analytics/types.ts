@@ -210,6 +210,8 @@ export interface NormalizationPlan {
 export type PopulationScope =
   | { readonly kind: 'country' }
   | { readonly kind: 'entityUnion'; readonly selection: LegacyAggregateQuery }
+  | { readonly kind: 'territoriesUnion'; readonly ids: readonly number[] }
+  | { readonly kind: 'countiesUnion'; readonly codes: readonly string[] }
   | { readonly kind: 'entities'; readonly cuis: readonly string[] }
   | { readonly kind: 'territories'; readonly ids: readonly number[] }
   | { readonly kind: 'counties'; readonly codes: readonly string[] }

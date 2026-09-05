@@ -306,6 +306,7 @@ export const legacyAggregateSql = (
       coalesce(sum(${amount}), 0)::text as amount
     from budget.execution_line_items as eli
     ${entityJoin}
+    ${q.search === undefined ? sql`` : sql`left join core.organizations as o on o.cui = eli.entity_cui`}
     ${territoryJoin}
     where ${where}
     group by ${groupBy}
