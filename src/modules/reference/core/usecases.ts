@@ -67,8 +67,7 @@ export const getPublicEntity = async (
   if (res.isErr()) return err(res.error);
   const entity = res.value;
   if (entity === null) return ok(null);
-  if (entity.territorialSirutaCode === null) return ok(entity);
-  const terrRes = await deps.territoryRepo.byTerritorialSiruta(entity.territorialSirutaCode);
+  const terrRes = await deps.identityRepo.territoryForCui(entity.cui);
   if (terrRes.isErr()) return err(terrRes.error);
   return ok({ ...entity, territory: terrRes.value });
 };

@@ -60,7 +60,7 @@ export interface IdentityRepo {
   /** Meili-primary name search with a bounded pg fallback (§15.7). */
   searchByName(q: string, limit: number): Promise<Result<readonly OrgNameMatch[], ApiError>>;
   resolve(cuiOrName: string): Promise<Result<OrgResolution | null, ApiError>>;
-  /** core.public_entities.cui → territorial_siruta_code → core.territories (§15.3). */
+  /** core.public_entities.cui → territory_id → core.territories.id (§15.3). */
   territoryForCui(cui: Cui): Promise<Result<Territory | null, ApiError>>;
 }
 
@@ -70,6 +70,7 @@ export interface IdentityRepo {
 
 export interface TerritoryRepo {
   byTerritorialSiruta(code: Siruta): Promise<Result<Territory | null, ApiError>>;
+  /** UAT/sector presentation within the county; excludes the county node. */
   byCounty(countyCode: string): Promise<Result<readonly Territory[], ApiError>>;
   searchUat(q: string, limit: number): Promise<Result<readonly Territory[], ApiError>>;
   listCounties(): Promise<Result<readonly CountyRef[], ApiError>>;

@@ -28,6 +28,7 @@ import { sql, type Kysely, type RawBuilder, type SqlBool } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
 import {
+  isCountyTerritory,
   type ApiError,
   type CursorPage,
   type FilterInput,
@@ -180,20 +181,8 @@ const metricColumn = (
   m === 'INCOME' ? 'total_income' : m === 'EXPENSE' ? 'total_expense' : 'budget_balance';
 
 /** Canonical county population rule shared by rankings, series, and heatmaps. */
-const canonicalCountyPopulationAggregate = (alias: string): RawBuilder<unknown> => {
-  const countyCode = sql.ref(`${alias}.county_code`);
-  const sirutaCode = sql.ref(`${alias}.siruta_code`);
-  const population = sql.ref(`${alias}.population`);
-  return sql`max(
-    case
-      when ${countyCode} = ${BUCHAREST_COUNTY_CODE} and ${sirutaCode} = ${BUCHAREST_SIRUTA_CODE}
-        then ${population}
-      when ${countyCode} <> ${BUCHAREST_COUNTY_CODE} and ${sirutaCode} = ${countyCode}
-        then ${population}
-      else null
-    end
-  )`;
-};
+const canonicalCountyPopulationAggregate = (alias: string): RawBuilder<unknown> =>
+  sql`max(${sql.ref(`${alias}.population`)}) filter (where ${isCountyTerritory(alias)})`;
 
 /**
  * The MONTHLY commitment MV carries ONLY these 4 cumulative metrics (+ a separate
@@ -470,11 +459,7 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
       if (needsJoin) {
         base = base
           .leftJoin('core.public_entities as e', 'e.cui', 'eli.entity_cui')
-          .leftJoin(
-            'core.territories as t',
-            't.territorial_siruta_code',
-            'e.territorial_siruta_code'
-          );
+          .leftJoin('core.territories as t', 't.id', 'e.territory_id');
       }
       let query = base.select([...execSelect, ...execAmountSelect]).where(composeAnd(conds));
       if (q.sort === 'LINE_ORDER') {
@@ -619,11 +604,7 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
       if (needsJoin) {
         base = base
           .leftJoin('core.public_entities as e', 'e.cui', 'cli.entity_cui')
-          .leftJoin(
-            'core.territories as t',
-            't.territorial_siruta_code',
-            'e.territorial_siruta_code'
-          );
+          .leftJoin('core.territories as t', 't.id', 'e.territory_id');
       }
       let query = base.select(commitmentSelectList()).where(composeAnd(conds));
       if (q.sort === 'LINE_ORDER') {
@@ -880,7 +861,7 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
             )
             from core.public_entities pe
             left join core.territories t
-              on t.territorial_siruta_code = pe.territorial_siruta_code
+              on t.id = pe.territory_id
             where pe.cui = ${cui}
           )`
         : sql`1`;
@@ -1194,7 +1175,7 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
       const base = db
         .selectFrom(execMvName(q.frequency))
         .leftJoin('core.public_entities as e', 'e.cui', 'mv.entity_cui')
-        .leftJoin('core.territories as t', 't.territorial_siruta_code', 'e.territorial_siruta_code')
+        .leftJoin('core.territories as t', 't.id', 'e.territory_id')
         .leftJoin(countyPopulationTable, 'county_population.county_code', 't.county_code');
       let rankingQuery = base
         .select([
@@ -1399,11 +1380,7 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
       if (needsJoin) {
         base = base
           .leftJoin('core.public_entities as e', 'e.cui', 'eli.entity_cui')
-          .leftJoin(
-            'core.territories as t',
-            't.territorial_siruta_code',
-            'e.territorial_siruta_code'
-          );
+          .leftJoin('core.territories as t', 't.id', 'e.territory_id');
       }
       let query = base
         .select([

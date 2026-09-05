@@ -231,6 +231,25 @@ describe('legacyExecutionSeries', () => {
     expect(out[0]?.yAxis.unit).toBe('EUR/capita');
   });
 
+  it.each([null, '0', '-1', 'NaN', 'Infinity'])(
+    'rejects unusable population %s for both country and explicit scopes',
+    async (value) => {
+      const agg = makeAggregate(() => rows);
+      const pop = population(() => (value === null ? null : new Decimal(value)));
+      for (const scope of [{}, { county_codes: ['CJ'] }]) {
+        const res = await legacyExecutionSeries(
+          {
+            aggregate: agg.repo,
+            factors: factors(value === null ? {} : { population_ro: { 2024: value } }),
+            population: pop.source,
+          },
+          [{ filter: filter({ normalization: 'per_capita', ...scope }) }]
+        );
+        expect(res._unsafeUnwrapErr().type).toBe('ServiceUnavailable');
+      }
+    }
+  );
+
   it('a population source error aborts (DELTA: legacy silently disabled per-capita)', async () => {
     const agg = makeAggregate(() => rows);
     const failing: PopulationSource = {

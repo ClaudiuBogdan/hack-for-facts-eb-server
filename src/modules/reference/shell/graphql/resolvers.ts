@@ -3,7 +3,7 @@
  * usecase MCP calls. `ApiError` → `GraphQLError` with `extensions.code`. Cursor
  * pages → Relay connections (each edge re-encodes its node's cursor bound to the
  * active fhash; the connection carries `totalCount`). `ReferencePublicEntity.territory`
- * is a CUI-keyed DataLoader over the kernel TerritoryRepo (no N+1 on lists).
+ * is a CUI-keyed DataLoader over the kernel IdentityRepo (bounded, same-tick deduplicated point lookups).
  * `Entity.reference` goes through the kernel `makeEntityProfileSlice` (contributor
  * parity, §14.7) — never a divergent path.
  */
@@ -21,7 +21,7 @@ import {
   type ContributorRegistry,
   type CursorPage,
   type FilterInput,
-  type TerritoryRepo,
+  type IdentityRepo,
   type Territory,
 } from '@/modules/shared/index.js';
 
@@ -118,7 +118,7 @@ const toConnection = <T>(
 
 export const makeReferenceResolvers = (deps: ReferenceResolverDeps): Record<string, unknown> => {
   // CUI → kernel Territory DataLoader (batched point lookups for list rows).
-  const territoryByCuiLoader = makeTerritoryLoader(deps.territoryRepo);
+  const territoryByCuiLoader = makeTerritoryLoader(deps.identityRepo);
 
   return {
     Query: {
@@ -202,13 +202,12 @@ export const makeReferenceResolvers = (deps: ReferenceResolverDeps): Record<stri
     },
 
     ReferencePublicEntity: {
-      // Lazy territory via a CUI-keyed DataLoader (list rows already carry territorialSirutaCode).
+      // Resolve by the canonical entity anchor; legacy SIRUTA may be absent.
       territory: async (
         parent: ReferencePublicEntity | ReferencePublicEntityCard
       ): Promise<Territory | null> => {
         if ('territory' in parent && parent.territory !== null) return parent.territory;
-        if (parent.territorialSirutaCode === null) return null;
-        return territoryByCuiLoader.load(parent.territorialSirutaCode);
+        return territoryByCuiLoader.load(parent.cui);
       },
     },
 
@@ -223,16 +222,15 @@ export const makeReferenceResolvers = (deps: ReferenceResolverDeps): Record<stri
   };
 };
 
-/** A DataLoader keyed by territorial_siruta_code over the kernel TerritoryRepo. */
-const makeTerritoryLoader = (territoryRepo: TerritoryRepo) =>
-  makeBatchLoader<Territory | null>(async (sirutaCodes) => {
+/** The same CUI-to-anchor lookup used by registry details and entity 360. */
+const makeTerritoryLoader = (identityRepo: IdentityRepo) =>
+  makeBatchLoader<Territory | null>(async (cuis) => {
     const out = new Map<string, Territory | null>();
-    // The kernel repo has no batch-by-siruta method; the list rows are bounded
-    // (page ≤ 100), so resolve each via the point lookup. Dedup keys upstream.
+    // Reference pages are bounded; duplicate entity keys share one lookup.
     await Promise.all(
-      [...new Set(sirutaCodes)].map(async (code) => {
-        const res = await territoryRepo.byTerritorialSiruta(code);
-        out.set(code, res.isOk() ? res.value : null);
+      [...new Set(cuis)].map(async (cui) => {
+        const res = await identityRepo.territoryForCui(cui);
+        out.set(cui, unwrap(res));
       })
     );
     return out;

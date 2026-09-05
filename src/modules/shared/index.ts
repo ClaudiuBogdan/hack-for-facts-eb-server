@@ -396,3 +396,8 @@ export interface Logger {
   error(obj: unknown, msg?: string): void;
   debug(obj: unknown, msg?: string): void;
 }
+
+export {
+  isCountyTerritory,
+  isUatPresentationTerritory,
+} from './shell/repo/territory-predicates.js';

@@ -4,7 +4,7 @@
  * The reference module has VIRTUAL filter fields (no compilable physical column):
  *   - public_entity: `countyCode`/`region` (join core.territories), `parentCui`
  *     (parent1_cui OR parent2_cui), `hasIssues` (jsonb_array_length>0);
- *   - territory: `isUat` (uat_code IS NOT NULL).
+ *   - territory: `isUat` (native UAT/sector presentation levels), `isCounty` (county nodes).
  * They appear in the spec (so they surface in GraphQL/TypeBox + the fhash) but the
  * kernel composer must NOT compile them — their placeholder columns (e.g.
  * `county_code_virtual`) are valid identifiers, so `safeColumnRef` would emit bad

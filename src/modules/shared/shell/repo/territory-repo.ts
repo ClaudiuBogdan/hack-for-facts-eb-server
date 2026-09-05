@@ -10,6 +10,7 @@ import { sql, type Kysely } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
 import { foldDiacritics } from './fold.js';
+import { isUatPresentationTerritory } from './territory-predicates.js';
 import { databaseError, type ApiError } from '../../core/errors.js';
 
 import type { TerritoryRepo } from '../../core/ports.js';
@@ -76,6 +77,7 @@ export const makeTerritoryRepo = (db: Db): TerritoryRepo => ({
         .selectFrom('core.territories')
         .select([...TERRITORY_COLUMNS])
         .where('county_code', '=', countyCode)
+        .where(isUatPresentationTerritory('core.territories'))
         .orderBy('name', 'asc')
         .execute();
       return ok(rows.map(mapTerritory));
@@ -95,6 +97,7 @@ export const makeTerritoryRepo = (db: Db): TerritoryRepo => ({
       const rows = await db
         .selectFrom('core.territories')
         .select([...TERRITORY_COLUMNS])
+        .where(isUatPresentationTerritory('core.territories'))
         .where(sql<boolean>`name ilike ${'%' + escapedRaw + '%'} escape '\\'`)
         .limit(200)
         .execute();

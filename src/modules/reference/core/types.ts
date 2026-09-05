@@ -96,6 +96,7 @@ export interface ReferenceCounty {
   readonly countyCode: string;
   readonly countyName: string;
   readonly region: string | null;
+  /** Count of geographic level=uat nodes; excludes counties and sector localities. */
   readonly uatCount: number;
   readonly population: number | null;
 }
@@ -104,6 +105,7 @@ export interface ReferenceCounty {
 export interface ReferenceRegion {
   readonly region: string;
   readonly countyCount: number;
+  /** Count of geographic level=uat nodes; excludes counties and sector localities. */
   readonly uatCount: number;
 }
 

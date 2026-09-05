@@ -10,7 +10,7 @@
  *   amount by frequency: MONTH→monthly_amount WHERE is_monthly,
  *   QUARTER→quarterly_amount WHERE is_quarterly, YEAR→ytd_amount WHERE is_yearly ·
  *   entities→core.public_entities (cui) · uats→core.territories via
- *   public_entities.territorial_siruta_code · uat_id→core.territories.id ·
+ *   public_entities.territory_id · uat_id→core.territories.id ·
  *   funding_source_ids: phoenix ordinal → stored id via v_funding_sources_compat.
  *
  * Verified live 2026-09-02 (y2025_rt1_ch): 0 rows with `not is_monthly and
@@ -335,7 +335,7 @@ export const legacyAggregateSql = (
     ? sql`left join core.public_entities as e on e.cui = eli.entity_cui`
     : sql``;
   const territoryJoin = joins.territory
-    ? sql`left join core.territories as t on t.territorial_siruta_code = e.territorial_siruta_code`
+    ? sql`left join core.territories as t on t.id = e.territory_id`
     : sql``;
   const where = andConditions(legacyAggregateConditions(q, toStoredFundingId));
   // YEAR: the period column IS the year (legacy grouped by year alone).

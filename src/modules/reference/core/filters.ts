@@ -11,7 +11,7 @@
  * Column `alias` MUST match the table alias the repo uses (`pe` public_entities,
  * `t` territories, `c` classification_codes). VIRTUAL fields (`countyCode`/`region`
  * on public_entities resolve through a territories join; `isUat` on territories is
- * a derived `uat_code IS NOT NULL`) are declared here for surface visibility +
+ * derived from the native UAT/sector presentation levels) are declared here for surface visibility +
  * fhash, and intercepted by the repo (the kernel composer never compiles them).
  *
  * Index-awareness (§3): `name` is GIN-trgm, `entity_type` partial btree, `category`
@@ -141,8 +141,7 @@ export const referencePublicEntityFilterSpec: CollectionFilterSpec = {
       ops: ['eq', 'in'],
       exclude: true,
       column: { alias: 'pe', column: 'county_code_virtual' },
-      description:
-        'VIRTUAL — joins core.territories on territorial_siruta_code, filters t.county_code.',
+      description: 'VIRTUAL — joins the canonical territory_id, filters t.county_code.',
     },
     {
       name: 'region',
@@ -237,7 +236,7 @@ export const referenceTerritoryFilterSpec: CollectionFilterSpec = {
       type: 'bool',
       ops: ['eq'],
       column: { alias: 't', column: 'is_uat_virtual' },
-      description: 'VIRTUAL — derived uat_code IS NOT NULL.',
+      description: 'UATs and Bucharest sectors in the local-government presentation layer.',
     },
     {
       name: 'isCounty',
@@ -245,7 +244,7 @@ export const referenceTerritoryFilterSpec: CollectionFilterSpec = {
       ops: ['eq'],
       column: { alias: 't', column: 'is_county_virtual' },
       description:
-        'VIRTUAL — county-level territory (siruta_code = county_code, including Bucharest).',
+        'County geographic nodes, with the Bucharest municipality used only before its county node exists.',
     },
     {
       name: 'population',

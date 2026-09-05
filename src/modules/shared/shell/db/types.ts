@@ -62,6 +62,9 @@ export interface CorePublicEntities {
   category: string | null;
   tags: Jsonb;
   is_uat: boolean | null;
+  is_territorial_executive: boolean;
+  territory_id: number | null;
+  territorial_level: string | null;
   territorial_siruta_code: string | null;
   uat_mapping_method: string | null;
   uat_mapping_confidence: string | null;
@@ -77,6 +80,11 @@ export interface CorePublicEntities {
 
 export interface CoreTerritories {
   id: number;
+  level: string | null;
+  kind: string | null;
+  parent_id: number | null;
+  territory_key: string | null;
+  nuts_code: string | null;
   territorial_siruta_code: string | null;
   siruta_code: string | null;
   county_siruta_code: string | null;

@@ -13,6 +13,8 @@ import { sql, type Kysely, type RawBuilder, type SqlBool } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
 import {
+  isCountyTerritory,
+  isUatPresentationTerritory,
   type ApiError,
   type FilterInput,
   type ProdDatabase,
@@ -102,19 +104,16 @@ const orderByExpr = (col: string, dir: 'asc' | 'desc'): RawBuilder<unknown> => {
 export const makeTerritoryQueryRepo = (db: Db): TerritoryQueryRepo => {
   const isUatCondition = (input: FilterInput): RawBuilder<unknown> | undefined => {
     const v = boolEq(fieldOf(input, 'isUat'));
-    if (v === true) return sql`t.uat_code is not null`;
-    if (v === false) return sql`t.uat_code is null`;
+    if (v === true) return isUatPresentationTerritory('t');
+    if (v === false) return sql`${isUatPresentationTerritory('t')} is not true`;
     return undefined;
   };
 
   const isCountyCondition = (input: FilterInput): RawBuilder<unknown> | undefined => {
     const v = boolEq(fieldOf(input, 'isCounty'));
-    const county = sql`(
-      t.siruta_code = t.county_code
-      or (t.county_code = 'B' and t.siruta_code = '179132')
-    )`;
+    const county = isCountyTerritory('t');
     if (v === true) return county;
-    if (v === false) return sql`not ${county}`;
+    if (v === false) return sql`${county} is not true`;
     return undefined;
   };
 
@@ -213,8 +212,10 @@ export const makeTerritoryQueryRepo = (db: Db): TerritoryQueryRepo => {
           't.county_code',
           sql<string | null>`max(t.county_name)`.as('county_name'),
           sql<string | null>`max(t.region)`.as('region'),
-          sql<string>`count(*) filter (where t.uat_code is not null)`.as('uat_count'),
-          sql<string | null>`sum(t.population)`.as('population'),
+          sql<string>`count(*) filter (where t.level = 'uat')`.as('uat_count'),
+          sql<string | null>`max(t.population) filter (where ${isCountyTerritory('t')})`.as(
+            'population'
+          ),
         ])
         .where('t.county_code', 'is not', null)
         .groupBy('t.county_code')
@@ -242,8 +243,10 @@ export const makeTerritoryQueryRepo = (db: Db): TerritoryQueryRepo => {
         .selectFrom('core.territories as t')
         .select([
           't.region',
-          sql<string>`count(distinct t.county_code)`.as('county_count'),
-          sql<string>`count(*) filter (where t.uat_code is not null)`.as('uat_count'),
+          sql<string>`count(distinct t.county_code) filter (where ${isCountyTerritory('t')})`.as(
+            'county_count'
+          ),
+          sql<string>`count(*) filter (where t.level = 'uat')`.as('uat_count'),
         ])
         .where('t.region', 'is not', null)
         .groupBy('t.region')

@@ -6,12 +6,12 @@
  * supplied CUI column, via the canonical identity→territory join:
  *
  *     core.public_entities pe (cui)
- *       → pe.territorial_siruta_code = t.territorial_siruta_code
+ *       → pe.territory_id = t.id
  *       → core.territories t
  *
  * The predicate is an `IN (SELECT pe.cui FROM core.public_entities pe …)`
  * semijoin (Postgres plans it as a Nested Loop Semi Join: index seek on
- * `public_entities_pkey` then `territories_territorial_siruta_code_key`), so a
+ * `public_entities_pkey` then `territories_pkey`), so a
  * source module can geo-filter its OWN rows WITHOUT joining `core.*` itself
  * (§3 keeps core private to the kernel).
  *
@@ -44,7 +44,7 @@ export interface TerritoryFilterValues {
   readonly excludeRegion?: readonly string[];
   readonly countyCode?: readonly string[];
   readonly excludeCountyCode?: readonly string[];
-  /** Matched against `core.territories.territorial_siruta_code` (the canonical join key). */
+  /** Matched against `core.territories.territorial_siruta_code` (an optional identifier). */
   readonly siruta?: readonly string[];
   readonly excludeSiruta?: readonly string[];
   /** `core.public_entities.is_uat` (does NOT need the territories join). */
@@ -140,7 +140,7 @@ export const buildTerritoryCuiPredicate = (
   const where = andConditions(innerConditions(values));
   const from = needsTerritoriesJoin(values)
     ? sql`core.public_entities pe
-        join core.territories t on t.territorial_siruta_code = pe.territorial_siruta_code`
+        join core.territories t on t.id = pe.territory_id`
     : sql`core.public_entities pe`;
   return sql`${cuiRef} in (select pe.cui from ${from} where ${where})`;
 };

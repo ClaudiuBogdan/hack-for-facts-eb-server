@@ -36,7 +36,7 @@ import { pathToFileURL } from 'node:url';
 
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { Decimal } from 'decimal.js';
-import { Kysely, PostgresDialect } from 'kysely';
+import { Kysely, PostgresDialect, sql } from 'kysely';
 import { ok } from 'neverthrow';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it as vitestIt } from 'vitest';
@@ -51,6 +51,9 @@ import {
   legacyAggregateSql,
 } from '@/modules/budget/shell/repo/legacy-analytics-repo.js';
 import { makeLegacyPopulationRepo } from '@/modules/budget/shell/repo/legacy-population-repo.js';
+import { makeTerritoryQueryRepo } from '@/modules/reference/shell/repo/territory-query-repo.js';
+import { makeIdentityRepo } from '@/modules/shared/shell/repo/identity-repo.js';
+import { makeTerritoryRepo } from '@/modules/shared/shell/repo/territory-repo.js';
 
 import type { FactorKind, FactorSource } from '@/modules/budget/core/legacy-analytics/ports.js';
 import type { LegacyAnalyticsFilter } from '@/modules/budget/core/legacy-analytics/types.js';
@@ -78,7 +81,7 @@ const resolveScrapperRoot = (): string | undefined => {
 };
 
 /**
- * The four scrapper prod migrations this suite imports, pinned by the sha256 of
+ * The five scrapper prod migrations this suite imports, pinned by the sha256 of
  * their CONTENT (sibling `main` @ 82b88cd7, 2026-09-02). A content pin detects a
  * changed migration under the same filename and is indifferent to unrelated
  * later migrations (the lexically-latest "head" pin did the opposite). Bump a
@@ -88,6 +91,8 @@ const resolveScrapperRoot = (): string | undefined => {
  * assertion went red.
  */
 const MIGRATION_SHA256: Readonly<Record<string, string>> = {
+  // S1 reads the additive native anchor and level fields; verified 2026-09-05.
+
   '20260612T110000__core_reference.ts':
     'fe5b584b1f98d2eeb7e549b854b9b5268e7a90f16c914cb090cb8dab5976aef4',
   '20260612T110200__budget_facts.ts':
@@ -96,6 +101,8 @@ const MIGRATION_SHA256: Readonly<Record<string, string>> = {
     'cbfecd2b626597cc65c83a8bbcf0f1bdf233551cd4ab20f4fc5da511b6ad1373',
   '20260709T170000__budget_funding_source_compat.ts':
     '0a8f6c0c85543f4ac4651b18a8951615ffdaea02e960472fc3b1d6f717e7602d',
+  '20260902T100000__core_territory_hierarchy.ts':
+    '504717852207bab89c352ce9326c900c25263eed8d823aafb53e3200d2c062a7',
 };
 const MIGRATIONS = Object.keys(MIGRATION_SHA256);
 
@@ -522,9 +529,23 @@ beforeAll(async () => {
     const mod = (await import(
       pathToFileURL(path.join(scrapperRoot, 'src', 'db', 'prod-migrations', file)).href
     )) as { up: (db: Kysely<unknown>) => Promise<void> };
-    await mod.up(db as Kysely<unknown>);
+    await db.transaction().execute((trx) => mod.up(trx as unknown as Kysely<unknown>));
   }
   await seed(pgClient);
+  // Explicit test-world L1 projection over the real additive migration DDL.
+  await pgClient.query(`
+    update core.territories set
+      level = case when siruta_code in ('CJ','IS') then 'county'
+                   when county_code='B' and siruta_code<>'179132' then 'locality'
+                   else 'uat' end,
+      kind = case when siruta_code in ('CJ','IS') then 'county'
+                  when county_code='B' and siruta_code<>'179132' then 'sector'
+                  else 'municipality' end,
+      territory_key = 'siruta:' || territorial_siruta_code;
+    update core.public_entities e set territory_id=t.id,territorial_level=t.level,
+      is_territorial_executive=e.is_uat
+    from core.territories t where t.territorial_siruta_code=e.territorial_siruta_code;
+  `);
   ready = true;
 }, 240_000);
 
@@ -1001,8 +1022,9 @@ describe('legacy executionAnalytics over the real scrapper DDL (e2e)', () => {
     } finally {
       for (const [siruta, name] of BUCHAREST_ROWS.slice(1)) {
         await pgClient!.query(
-          `insert into core.public_entities (cui, name, entity_type, is_uat, territorial_siruta_code, tags)
-           values ($1, $2, 'uat', true, $3, '[{"tag":"kind::uat","ruleId":"R","confidence":9}]')`,
+          `insert into core.public_entities (cui, name, entity_type, is_uat, territorial_siruta_code, territory_id, territorial_level, is_territorial_executive, tags)
+           select $1, $2, 'uat', true, $3, t.id, t.level, true, '[{"tag":"kind::uat","ruleId":"R","confidence":9}]'
+           from core.territories t where t.territorial_siruta_code=$3`,
           [`4${siruta}`, `Primaria ${name}`, siruta]
         );
       }
@@ -1077,5 +1099,137 @@ describe('legacy executionAnalytics over the real scrapper DDL (e2e)', () => {
       ])
     );
     expect(rel2.some((r) => r?.endsWith('_default') === true)).toBe(false);
+  });
+});
+
+describe('S1 native territory anchors and county presentation', () => {
+  it('uses the canonical FK even when legacy SIRUTA is absent or disagrees', async () => {
+    await db!.transaction().execute(async (trx) => {
+      const repo = makeIdentityRepo(trx);
+      const expected = await repo.territoryForCui('111');
+      expect(expected.isOk() && expected.value?.name).toBe('Cluj-Napoca');
+      await sql`update core.public_entities set territorial_siruta_code=null where cui='111'`.execute(
+        trx
+      );
+      const missingLegacy = await repo.territoryForCui('111');
+      expect(missingLegacy).toEqual(expected);
+      await sql`update core.public_entities set territorial_siruta_code='12' where cui='111'`.execute(
+        trx
+      );
+      const conflictingLegacy = await repo.territoryForCui('111');
+      expect(conflictingLegacy).toEqual(expected);
+      await sql`update core.public_entities set territorial_siruta_code='54975' where cui='111'`.execute(
+        trx
+      );
+    });
+  });
+
+  it('selects the Bucharest county node once and preserves its missing population', async () => {
+    await db!.transaction().execute(async (trx) => {
+      const repo = makeTerritoryQueryRepo(trx);
+      const before = await repo.listCountyRollups();
+      const presentationBefore = await makeTerritoryRepo(trx).byCounty('B');
+      expect(presentationBefore.isOk() && presentationBefore.value.length).toBe(7);
+      expect(before.isOk() && before.value.find((r) => r.countyCode === 'B')).toMatchObject({
+        population: 1716983,
+        uatCount: 1,
+      });
+      const inserted = await sql<{ id: number }>`
+        insert into core.territories (territorial_siruta_code,siruta_code,county_siruta_code,name,county_code,county_name,region,population,level,kind,territory_key)
+        values ('403','403','403','Bucuresti county','B','Bucuresti','Bucuresti-Ilfov',2000000,'county','county','siruta:403') returning id
+      `.execute(trx);
+      const after = await repo.listCountyRollups();
+      expect(await makeTerritoryRepo(trx).byCounty('B')).toEqual(presentationBefore);
+      const population = await makeLegacyPopulationRepo(trx).scopedPopulation({
+        kind: 'counties',
+        codes: ['B', 'CJ'],
+      });
+      expect(population.isOk() && population.value?.toString()).toBe('2700000');
+      expect(after.isOk() && after.value.find((r) => r.countyCode === 'B')).toMatchObject({
+        population: 2000000,
+        uatCount: 1,
+      });
+      await sql`update core.territories set population=null where id=${inserted.rows[0]!.id}`.execute(
+        trx
+      );
+      const missing = await repo.listCountyRollups();
+      expect(
+        missing.isOk() && missing.value.find((r) => r.countyCode === 'B')?.population
+      ).toBeNull();
+      const unavailable = await legacyExecutionSeries(
+        {
+          aggregate: makeLegacyAnalyticsRepo(db!),
+          factors: noFactors,
+          population: makeLegacyPopulationRepo(trx),
+        },
+        [{ filter: baseFilter({ normalization: 'per_capita', county_codes: ['B', 'CJ'] }) }]
+      );
+      expect(unavailable._unsafeUnwrapErr().type).toBe('ServiceUnavailable');
+      await sql`delete from core.territories where id=${inserted.rows[0]!.id}`.execute(trx);
+    });
+  });
+
+  it('rejects a partial county scope instead of serving nominal values per capita', async () => {
+    const result = await legacyExecutionSeries(
+      {
+        aggregate: makeLegacyAnalyticsRepo(db!),
+        factors: noFactors,
+        population: makeLegacyPopulationRepo(db!),
+      },
+      [{ filter: baseFilter({ normalization: 'per_capita', county_codes: ['CJ', 'XX'] }) }]
+    );
+    expect(result._unsafeUnwrapErr()).toMatchObject({ type: 'ServiceUnavailable' });
+  });
+
+  it('duplicate county nodes cannot mask a missing requested county', async () => {
+    await db!.transaction().execute(async (trx) => {
+      const inserted = await sql<{ id: number }>`
+        insert into core.territories (territorial_siruta_code,siruta_code,county_siruta_code,name,county_code,county_name,region,population,level,kind,territory_key)
+        values ('111111','CJ','12','Duplicate Cluj','CJ','Cluj','Nord-Vest',700000,'county','county','siruta:111111') returning id
+      `.execute(trx);
+      const result = await makeLegacyPopulationRepo(trx).scopedPopulation({
+        kind: 'counties',
+        codes: ['CJ', 'AB'],
+      });
+      expect(result.isOk() && result.value).toBeNull();
+      await sql`delete from core.territories where id=${inserted.rows[0]!.id}`.execute(trx);
+    });
+  });
+
+  it('virtual territory categories partition unknown and native rows consistently', async () => {
+    await db!.transaction().execute(async (trx) => {
+      const inserted = await sql<{ id: number }>`
+        insert into core.territories (territorial_siruta_code,siruta_code,county_siruta_code,county_code,county_name,region,name,level,kind)
+        values ('999001','999001','12','CJ','Cluj','Nord-Vest','Unknown level',null,null),
+          ('999002','999002','12','CJ','Cluj','Nord-Vest','Unknown locality kind','locality',null),
+          ('999003','999003','12','CJ','Cluj','Nord-Vest','Other locality','locality','commune') returning id
+      `.execute(trx);
+      const repo = makeTerritoryQueryRepo(trx);
+      const all = (await repo.list({}, { first: 100 }))._unsafeUnwrap();
+      for (const field of ['isUat', 'isCounty']) {
+        const yes = (await repo.list({ [field]: { eq: true } }, { first: 100 }))._unsafeUnwrap();
+        const no = (await repo.list({ [field]: { eq: false } }, { first: 100 }))._unsafeUnwrap();
+        expect(yes.totalCount).toBe(field === 'isUat' ? 9 : 3);
+        expect(yes.totalCount + no.totalCount).toBe(all.totalCount);
+        const ids = [...yes.items, ...no.items].map((r) => r.id);
+        expect(new Set(ids).size).toBe(all.totalCount);
+        expect(no.items.map((r) => r.id)).toEqual(
+          expect.arrayContaining(inserted.rows.map((r) => r.id))
+        );
+      }
+      await sql`delete from core.territories where id in (${sql.join(inserted.rows.map((r) => r.id))})`.execute(
+        trx
+      );
+    });
+  });
+
+  it('UAT search excludes the county before limiting and includes sector presentation', async () => {
+    const repo = makeTerritoryRepo(db!);
+    const clujCounty = await repo.byCounty('CJ');
+    expect(clujCounty.isOk() && clujCounty.value.map((r) => r.name)).toEqual(['Cluj-Napoca']);
+    const cluj = await repo.searchUat('Cluj', 100);
+    expect(cluj.isOk() && cluj.value.map((r) => r.name)).toEqual(['Cluj-Napoca']);
+    const sectors = await repo.searchUat('SECTORUL', 100);
+    expect(sectors.isOk() && sectors.value.length).toBe(6);
   });
 });

@@ -3,7 +3,7 @@
  *
  * CUI-keyed organization identity over `core.organizations` +
  * `core.organization_identifiers`, plus the CUI→territory join (§15.3) via
- * `core.public_entities.territorial_siruta_code → core.territories`.
+ * `core.public_entities.territory_id → core.territories.id`.
  *
  * Name search is the BOUNDED pg fallback for the Meili-primary path (§15.7):
  * it folds diacritics in TS and matches a capped scan on `normalized_name`
@@ -293,11 +293,7 @@ export const makeIdentityRepo = (db: Db): IdentityRepo => ({
     try {
       const row = await db
         .selectFrom('core.public_entities as pe')
-        .innerJoin(
-          'core.territories as t',
-          't.territorial_siruta_code',
-          'pe.territorial_siruta_code'
-        )
+        .innerJoin('core.territories as t', 't.id', 'pe.territory_id')
         .select([
           't.id',
           't.territorial_siruta_code',
@@ -311,7 +307,6 @@ export const makeIdentityRepo = (db: Db): IdentityRepo => ({
           't.population',
         ])
         .where('pe.cui', '=', cui)
-        .where('pe.territorial_siruta_code', 'is not', null)
         .limit(1)
         .executeTakeFirst();
 

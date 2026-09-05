@@ -9,6 +9,8 @@
 
 import { err, ok, type Result } from 'neverthrow';
 
+import { serviceUnavailable, type ApiError } from '@/modules/shared/index.js';
+
 import { cleanFilter } from './clean.js';
 import { legacyDecimal } from './decimal.js';
 import {
@@ -34,7 +36,6 @@ import type {
   NormalizationPlan,
   YearlySeries,
 } from './types.js';
-import type { ApiError } from '@/modules/shared/index.js';
 import type { Decimal } from 'decimal.js';
 
 export interface LegacyExecutionSeriesDeps {
@@ -89,6 +90,9 @@ const loadContext = async (
       const pop = await deps.population.scopedPopulation(scope);
       if (pop.isErr()) return err(pop.error);
       ctx = { ...ctx, population: pop.value };
+    }
+    if (ctx.population == null || !ctx.population.isFinite() || ctx.population.lte(0)) {
+      return err(serviceUnavailable('Per-capita population is unavailable for the selected scope'));
     }
   }
   return ok(ctx);

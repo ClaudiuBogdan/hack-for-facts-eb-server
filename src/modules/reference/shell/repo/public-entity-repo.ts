@@ -114,7 +114,7 @@ const escapeLike = (s: string): string => s.replace(/[%_\\]/gu, '\\$&');
 export const makePublicEntityRepo = (db: Db): PublicEntityRepo => {
   /**
    * Build the EXISTS predicate for a virtual territory-join field (`countyCode`/
-   * `region`): the entity's territorial_siruta_code links to a territory whose
+   * `region`): the entity's canonical territory_id links to a territory whose
    * `county_code`/`region` is in the supplied values. Used for both the inclusion
    * predicate and (negated) the exclude predicate.
    */
@@ -122,7 +122,7 @@ export const makePublicEntityRepo = (db: Db): PublicEntityRepo => {
     column: 'county_code' | 'region',
     values: readonly string[]
   ): RawBuilder<unknown> =>
-    sql`exists (select 1 from core.territories t where t.territorial_siruta_code = pe.territorial_siruta_code and ${sql.ref(`t.${column}`)} in (${sql.join(
+    sql`exists (select 1 from core.territories t where t.id = pe.territory_id and ${sql.ref(`t.${column}`)} in (${sql.join(
       values.map((v) => sql`${v}`),
       sql`, `
     )}))`;
@@ -324,11 +324,7 @@ export const makePublicEntityRepo = (db: Db): PublicEntityRepo => {
       if (by === 'county') {
         const rows = await db
           .selectFrom('core.public_entities as pe')
-          .leftJoin(
-            'core.territories as t',
-            't.territorial_siruta_code',
-            'pe.territorial_siruta_code'
-          )
+          .leftJoin('core.territories as t', 't.id', 'pe.territory_id')
           .select([
             sql<string | null>`t.county_code`.as('key'),
             sql<string | null>`max(t.county_name)`.as('label'),
@@ -375,11 +371,7 @@ export const makePublicEntityRepo = (db: Db): PublicEntityRepo => {
     try {
       const rows = await db
         .selectFrom('core.public_entities as pe')
-        .leftJoin(
-          'core.territories as t',
-          't.territorial_siruta_code',
-          'pe.territorial_siruta_code'
-        )
+        .leftJoin('core.territories as t', 't.id', 'pe.territory_id')
         .select([
           'pe.cui as value',
           'pe.name as label',
@@ -392,15 +384,13 @@ export const makePublicEntityRepo = (db: Db): PublicEntityRepo => {
         .limit(capped)
         .execute();
       return ok(
-        rows.map(
-          (r): ResolveHit => ({
-            kind: 'public_entity',
-            value: r.value,
-            label: r.label,
-            ...(typeof r.score === 'number' && { score: r.score }),
-            ...(r.hint !== null && { hint: r.hint }),
-          })
-        )
+        rows.map((r): ResolveHit => ({
+          kind: 'public_entity',
+          value: r.value,
+          label: r.label,
+          ...(typeof r.score === 'number' && { score: r.score }),
+          ...(r.hint !== null && { hint: r.hint }),
+        }))
       );
     } catch (error) {
       return err(databaseError('resolve failed', error));

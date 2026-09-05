@@ -2,7 +2,7 @@
  * Filter-wide per-capita population over the kernel hubs — the port of the
  * legacy `KyselyPopulationRepo` (normalization/shell/repo/population-repo.ts)
  * onto `core.public_entities` (`e`) + `core.territories` (`t`), joined through
- * `e.territorial_siruta_code = t.territorial_siruta_code` (uats.id ≡ t.id).
+ * `e.territory_id = t.id` (uats.id ≡ t.id).
  *
  * Rules kept verbatim: entity CUIs → their territories' population
  * (:169-178); uat ids → direct (:183-196); county codes → the county-level
@@ -50,7 +50,12 @@
 import { sql, type Kysely } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
-import { databaseError, type ApiError, type ProdDatabase } from '@/modules/shared/index.js';
+import {
+  isCountyTerritory,
+  databaseError,
+  type ApiError,
+  type ProdDatabase,
+} from '@/modules/shared/index.js';
 
 import { BUCHAREST_COUNTY_CODE, BUCHAREST_SIRUTA_CODE } from '../../core/constants.js';
 import { legacyDecimal } from '../../core/legacy-analytics/decimal.js';
@@ -72,10 +77,7 @@ interface CountyRow {
 }
 
 /** The county-level territory row predicate (legacy `getCountryPopulation`). */
-const countyLevelRow = sql`(
-  (${sql.ref('t.county_code')} = ${BUCHAREST_COUNTY_CODE} and ${sql.ref('t.siruta_code')} = ${BUCHAREST_SIRUTA_CODE})
-  or (${sql.ref('t.county_code')} <> ${BUCHAREST_COUNTY_CODE} and ${sql.ref('t.siruta_code')} = ${sql.ref('t.county_code')})
-)`;
+const countyLevelRow = isCountyTerritory('t');
 
 /**
  * UAT_LEVEL_UNIVERSE — the level-safe population universe over a deduplicated
@@ -86,9 +88,9 @@ const countyLevelRow = sql`(
  * Measured on Chronos 2026-09-02 over the `is_uat = true` entities: 3,186 rows,
  * 19,053,815 persons (= the national county-row total).
  *
- * PRE-D1 PROXY — replace by `territories.level = 'uat'` once program D1 lands
- * the territory hierarchy (`core.territories.level`); the numbers above are the
- * acceptance check for that swap.
+ * S1a compatibility proxy only. L1 columns exist, but S1b must replace this
+ * with native level/kind selection BEFORE L2 inserts the Bucharest county node
+ * or rewrites county identifiers. Preserve the measured pre-L2 result above.
  */
 const uatLevelUniverse = sql`(
   ${sql.ref('d.siruta_code')} <> ${sql.ref('d.county_code')}
@@ -111,10 +113,14 @@ const toDecimal = (rows: readonly TotalRow[]): Decimal | null => {
 export const makeLegacyPopulationRepo = (db: Db): PopulationSource => {
   const byCounties = async (codes: readonly string[]): Promise<Decimal | null> => {
     if (codes.length === 0) return null;
+    const uniqueCodes = [...new Set(codes)];
     const res = await sql<TotalRow>`
-      select sum(${sql.ref('t.population')})::text as total
+      select case when count(*) = ${uniqueCodes.length}
+        and count(distinct t.county_code) = ${uniqueCodes.length}
+        and count(t.population) = count(*)
+        then sum(t.population)::text else null end as total
       from core.territories as t
-      where ${sql.ref('t.county_code')} in (${sql.join(codes)})
+      where ${sql.ref('t.county_code')} in (${sql.join(uniqueCodes)})
         and ${countyLevelRow}
     `.execute(db);
     return toDecimal(res.rows);
@@ -137,7 +143,7 @@ export const makeLegacyPopulationRepo = (db: Db): PopulationSource => {
           ${sql.ref('t.siruta_code')} as siruta_code,
           ${sql.ref('t.county_code')} as county_code
         from core.public_entities as e
-        join core.territories as t on t.territorial_siruta_code = e.territorial_siruta_code
+        join core.territories as t on t.id = e.territory_id
         where ${entityWhere}
       )
       select sum(d.population)::text as total
@@ -178,7 +184,7 @@ export const makeLegacyPopulationRepo = (db: Db): PopulationSource => {
             const counties = await sql<CountyRow>`
               select distinct ${sql.ref('t.county_code')} as county_code
               from core.public_entities as e
-              join core.territories as t on t.territorial_siruta_code = e.territorial_siruta_code
+              join core.territories as t on t.id = e.territory_id
               where ${sql.ref('e.entity_type')} = ${ENTITY_COUNTY_COUNCIL_TYPE}
             `.execute(db);
             return ok(await byCounties(counties.rows.map((r) => r.county_code)));

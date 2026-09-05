@@ -7,7 +7,7 @@
  *  - the four resolve dims are exactly the declared set.
  */
 
-import { ok, type Result } from 'neverthrow';
+import { err, ok, type Result } from 'neverthrow';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -21,8 +21,14 @@ import {
   type ReferenceDeps,
 } from '@/modules/reference/core/usecases.js';
 import { makeReferenceContributor, toProfileSlice } from '@/modules/reference/shell/contributor.js';
-
-import type { ApiError, OrgNameMatch, Territory } from '@/modules/shared/index.js';
+import { makeReferenceResolvers } from '@/modules/reference/shell/graphql/resolvers.js';
+import {
+  createContributorRegistry,
+  databaseError,
+  type ApiError,
+  type OrgNameMatch,
+  type Territory,
+} from '@/modules/shared/index.js';
 
 const CLUJ: ReferencePublicEntity = {
   cui: '4305857',
@@ -101,7 +107,7 @@ const makeDeps = (over: Partial<ReferenceDeps> = {}): ReferenceDeps => ({
         },
       ]),
     resolve: () => okR(null),
-    territoryForCui: () => okR(null),
+    territoryForCui: () => okR<Territory | null>(CLUJ_TERRITORY),
   },
   territoryRepo: {
     byTerritorialSiruta: () => okR<Territory | null>(CLUJ_TERRITORY),
@@ -114,13 +120,85 @@ const makeDeps = (over: Partial<ReferenceDeps> = {}): ReferenceDeps => ({
 });
 
 describe('getPublicEntity enriches with the kernel Territory (single source of truth)', () => {
-  it('attaches the kernel Territory resolved by territorial_siruta_code', async () => {
+  it('attaches the kernel Territory resolved by CUI and canonical FK', async () => {
     const res = await getPublicEntity(makeDeps(), '4305857', false);
     expect(res.isOk()).toBe(true);
     if (res.isOk()) {
       expect(res.value?.territory?.countyName).toBe('CLUJ');
       expect(res.value?.territory?.region).toBe('Nord-Vest');
     }
+  });
+});
+
+describe('canonical entity territory resolution', () => {
+  it('resolves a reference detail with no legacy SIRUTA through its CUI', async () => {
+    const deps = makeDeps();
+    const requested: string[] = [];
+    const result = await getPublicEntity(
+      {
+        ...deps,
+        publicEntities: {
+          ...deps.publicEntities,
+          findByCui: () => okR({ ...CLUJ, territorialSirutaCode: null }),
+        },
+        identityRepo: {
+          ...deps.identityRepo,
+          territoryForCui: (cui) => {
+            requested.push(cui);
+            return okR(CLUJ_TERRITORY);
+          },
+        },
+        territoryRepo: {
+          ...deps.territoryRepo,
+          byTerritorialSiruta: () => {
+            throw new Error('legacy lookup must not run');
+          },
+        },
+      },
+      CLUJ.cui,
+      false
+    );
+    expect(requested).toEqual([CLUJ.cui]);
+    expect(result.isOk() && result.value?.territory).toEqual(CLUJ_TERRITORY);
+  });
+});
+
+describe('reference list territory resolver', () => {
+  const resolver = (deps: ReferenceDeps) => {
+    const result = makeReferenceResolvers({ ...deps, registry: createContributorRegistry() }) as {
+      ReferencePublicEntity: {
+        territory(parent: ReferencePublicEntityCard): Promise<Territory | null>;
+      };
+    };
+    return result.ReferencePublicEntity.territory;
+  };
+  it('loads null-SIRUTA list cards by CUI and deduplicates same-tick requests', async () => {
+    const deps = makeDeps();
+    const calls: string[] = [];
+    const load = resolver({
+      ...deps,
+      identityRepo: {
+        ...deps.identityRepo,
+        territoryForCui: (cui) => {
+          calls.push(cui);
+          return okR(CLUJ_TERRITORY);
+        },
+      },
+    });
+    const card = { ...CLUJ, territorialSirutaCode: null, territory: null };
+    expect(await Promise.all([load(card), load(card)])).toEqual([CLUJ_TERRITORY, CLUJ_TERRITORY]);
+    expect(calls).toEqual([CLUJ.cui]);
+  });
+  it('propagates unavailable lookup instead of presenting an absent territory', async () => {
+    const deps = makeDeps();
+    const load = resolver({
+      ...deps,
+      identityRepo: {
+        ...deps.identityRepo,
+        territoryForCui: () => Promise.resolve(err(databaseError('unavailable'))),
+      },
+    });
+    await expect(load({ ...CLUJ, territory: null })).rejects.toThrow('unavailable');
   });
 });
 

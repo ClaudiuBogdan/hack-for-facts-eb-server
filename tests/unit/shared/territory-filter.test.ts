@@ -27,14 +27,12 @@ describe('buildTerritoryCuiPredicate — semijoin shape', () => {
     expect(pred).not.toBeUndefined();
     const { sql, parameters } = compileCondition(pred!);
     expect(sql).toContain('"ces"."cui" in (select pe.cui from core.public_entities pe');
-    expect(sql).toContain(
-      'join core.territories t on t.territorial_siruta_code = pe.territorial_siruta_code'
-    );
+    expect(sql).toContain('join core.territories t on t.id = pe.territory_id');
     expect(sql).toContain('t.region in ($1, $2)');
     expect(parameters).toEqual(['Vest', 'Centru']);
   });
 
-  it('siruta matches the canonical territorial_siruta_code join key', () => {
+  it('siruta filters the identifier on the canonically joined territory', () => {
     const { sql, parameters } = compileCondition(
       buildTerritoryCuiPredicate(CUI_COL, { siruta: ['120726'] })!
     );
