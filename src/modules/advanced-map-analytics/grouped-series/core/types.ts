@@ -90,10 +90,7 @@ export interface UploadedMapDatasetSeries extends MapRequestSeriesBase {
 }
 
 export type MapRequestSeries =
-  | ExecutionMapSeries
-  | CommitmentsMapSeries
-  | InsMapSeries
-  | UploadedMapDatasetSeries;
+  ExecutionMapSeries | CommitmentsMapSeries | InsMapSeries | UploadedMapDatasetSeries;
 
 export interface GroupedSeriesDataRequest {
   granularity: MapGranularity;
@@ -120,7 +117,8 @@ export interface GroupedSeriesWarning {
 export interface MapSeriesVector {
   seriesId: string;
   unit?: string;
-  valuesBySirutaCode: Map<string, number | undefined>;
+  // Legacy providers may return numbers; native providers preserve decimal text.
+  valuesBySirutaCode: Map<string, string | number | undefined>;
 }
 
 export interface GroupedSeriesProviderOutput {
@@ -148,7 +146,7 @@ export interface GroupedSeriesManifest {
 
 export interface GroupedSeriesMatrixRow {
   sirutaCode: string;
-  valuesBySeriesId: Map<string, number | undefined>;
+  valuesBySeriesId: Map<string, string | undefined>;
 }
 
 export interface GroupedSeriesMatrixData {

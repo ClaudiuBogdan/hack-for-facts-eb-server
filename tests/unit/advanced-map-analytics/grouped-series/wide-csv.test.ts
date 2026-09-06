@@ -10,7 +10,7 @@ describe('serializeWideMatrixCsv', () => {
         {
           sirutaCode: '1001',
           valuesBySeriesId: new Map([
-            ['s1', 10],
+            ['s1', '10'],
             ['s2', undefined],
           ]),
         },
@@ -27,8 +27,8 @@ describe('serializeWideMatrixCsv', () => {
         {
           sirutaCode: '10,01',
           valuesBySeriesId: new Map([
-            ['series,1', 1],
-            ['series"2', 2],
+            ['series,1', '1'],
+            ['series"2', '2'],
           ]),
         },
       ]

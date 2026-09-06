@@ -15,12 +15,12 @@ function escapeCsvCell(value: string): string {
   return `"${escaped}"`;
 }
 
-function toCsvNumericCell(value: number | undefined): string {
+function toCsvNumericCell(value: string | undefined): string {
   if (value === undefined) {
     return 'null';
   }
 
-  return value.toString();
+  return value;
 }
 
 export function serializeWideMatrixCsv(

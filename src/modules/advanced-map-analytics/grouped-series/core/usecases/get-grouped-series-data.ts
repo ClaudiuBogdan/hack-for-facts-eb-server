@@ -4,6 +4,7 @@
  * Builds deterministic wide-matrix data for map rendering.
  */
 
+import { Decimal } from 'decimal.js';
 import { err, ok, type Result } from 'neverthrow';
 
 import {
@@ -113,10 +114,6 @@ export function validateGroupedSeriesRequestSeries(
   return ok(undefined);
 }
 
-function isFiniteNumber(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value);
-}
-
 function normalizeSirutaUniverse(input: string[]): string[] {
   const normalized = new Set<string>();
 
@@ -130,22 +127,36 @@ function normalizeSirutaUniverse(input: string[]): string[] {
   return Array.from(normalized).sort((left, right) => left.localeCompare(right));
 }
 
-function normalizeVector(vector: MapSeriesVector): MapSeriesVector {
-  const normalizedValues = new Map<string, number | undefined>();
+interface NormalizedVector {
+  seriesId: string;
+  unit?: string;
+  valuesBySirutaCode: Map<string, string | undefined>;
+}
 
-  for (const [sirutaCode, value] of vector.valuesBySirutaCode.entries()) {
-    if (isFiniteNumber(value)) {
-      normalizedValues.set(sirutaCode, value);
+// Accept decimal/scientific notation only, never executable spreadsheet cells.
+const DECIMAL_TEXT = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/u;
+
+function normalizeVector(vector: MapSeriesVector): Result<NormalizedVector, GroupedSeriesError> {
+  const valuesBySirutaCode = new Map<string, string | undefined>();
+  for (const [sirutaCode, value] of vector.valuesBySirutaCode) {
+    if (value === undefined) {
+      valuesBySirutaCode.set(sirutaCode, undefined);
       continue;
     }
-
-    normalizedValues.set(sirutaCode, undefined);
+    if (typeof value !== 'string' && typeof value !== 'number') {
+      return err(createProviderError('Map series provider returned an invalid decimal value'));
+    }
+    const text = typeof value === 'number' ? String(value) : value.trim();
+    try {
+      if (!DECIMAL_TEXT.test(text) || !new Decimal(text).isFinite()) {
+        return err(createProviderError('Map series provider returned an invalid decimal value'));
+      }
+    } catch {
+      return err(createProviderError('Map series provider returned an invalid decimal value'));
+    }
+    valuesBySirutaCode.set(sirutaCode, text);
   }
-
-  return {
-    ...vector,
-    valuesBySirutaCode: normalizedValues,
-  };
+  return ok({ ...vector, seriesId: vector.seriesId.trim(), valuesBySirutaCode });
 }
 
 export async function getGroupedSeriesData(
@@ -175,57 +186,42 @@ export async function getGroupedSeriesData(
   }
 
   const seriesOrder = request.series.map((series) => series.id.trim());
-  const vectorBySeriesId = new Map<string, MapSeriesVector>();
+  const vectorBySeriesId = new Map<string, NormalizedVector>();
   const sirutaUniverse = normalizeSirutaUniverse(providerResult.value.sirutaUniverse);
-  const sirutaUniverseSet = new Set<string>(sirutaUniverse);
+  const requestedSeriesIds = new Set(seriesOrder);
 
   for (const vector of providerResult.value.vectors) {
-    const normalizedVector = normalizeVector(vector);
-    vectorBySeriesId.set(normalizedVector.seriesId, normalizedVector);
+    const seriesId = vector.seriesId.trim();
+    if (!requestedSeriesIds.has(seriesId) || vectorBySeriesId.has(seriesId)) {
+      return err(
+        createProviderError('Map series provider returned unexpected or duplicate series')
+      );
+    }
+    const normalized = normalizeVector(vector);
+    if (normalized.isErr()) return err(normalized.error);
+    vectorBySeriesId.set(seriesId, normalized.value);
+  }
+  if (vectorBySeriesId.size !== seriesOrder.length) {
+    return err(createProviderError('Map series provider omitted a requested series'));
   }
 
-  const rows: GroupedSeriesMatrixRow[] = sirutaUniverse.map((sirutaCode) => {
-    const valuesBySeriesId = new Map<string, number | undefined>();
-
-    for (const seriesId of seriesOrder) {
-      const vector = vectorBySeriesId.get(seriesId);
-      const value = vector?.valuesBySirutaCode.get(sirutaCode);
-
-      if (value !== undefined && isFiniteNumber(value)) {
-        valuesBySeriesId.set(seriesId, value);
-      } else {
-        valuesBySeriesId.set(seriesId, undefined);
-      }
-    }
-
-    return {
-      sirutaCode,
-      valuesBySeriesId,
-    };
-  });
+  const rows: GroupedSeriesMatrixRow[] = sirutaUniverse.map((sirutaCode) => ({
+    sirutaCode,
+    valuesBySeriesId: new Map(
+      seriesOrder.map((seriesId) => [
+        seriesId,
+        vectorBySeriesId.get(seriesId)?.valuesBySirutaCode.get(sirutaCode),
+      ])
+    ),
+  }));
 
   const manifestSeries = seriesOrder.map((seriesId) => {
-    const vector = vectorBySeriesId.get(seriesId);
-    let definedValueCount = 0;
-
-    if (vector !== undefined) {
-      for (const [sirutaCode, value] of vector.valuesBySirutaCode.entries()) {
-        if (
-          value !== undefined &&
-          isFiniteNumber(value) &&
-          (sirutaUniverseSet.size === 0 || sirutaUniverseSet.has(sirutaCode))
-        ) {
-          definedValueCount += 1;
-        }
-      }
-    }
-
-    const unit = vector?.unit;
-
+    const unit = vectorBySeriesId.get(seriesId)?.unit;
     return {
       series_id: seriesId,
       ...(unit !== undefined ? { unit } : {}),
-      defined_value_count: definedValueCount,
+      defined_value_count: rows.filter((row) => row.valuesBySeriesId.get(seriesId) !== undefined)
+        .length,
     };
   });
 
