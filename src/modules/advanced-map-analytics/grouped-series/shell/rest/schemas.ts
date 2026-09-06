@@ -122,6 +122,12 @@ export const InsMapSeriesSchema = Type.Object(
     type: Type.Literal('ins-series'),
     datasetCode: Type.Optional(Type.String({ minLength: 1 })),
     period: Type.Optional(ReportPeriodInputSchema),
+    intervalOperation: Type.Optional(
+      Type.Union([Type.Literal('sum'), Type.Literal('average'), Type.Literal('latest')])
+    ),
+    periodicity: Type.Optional(
+      Type.Union([Type.Literal('ANNUAL'), Type.Literal('QUARTERLY'), Type.Literal('MONTHLY')])
+    ),
     aggregation: Type.Optional(
       Type.Union([Type.Literal('sum'), Type.Literal('average'), Type.Literal('first')])
     ),
@@ -142,6 +148,12 @@ export const InsMapSeriesInputSchema = Type.Object(
     type: Type.Literal('ins-series'),
     datasetCode: Type.Optional(Type.String({ minLength: 1 })),
     period: Type.Optional(ReportPeriodInputSchema),
+    intervalOperation: Type.Optional(
+      Type.Union([Type.Literal('sum'), Type.Literal('average'), Type.Literal('latest')])
+    ),
+    periodicity: Type.Optional(
+      Type.Union([Type.Literal('ANNUAL'), Type.Literal('QUARTERLY'), Type.Literal('MONTHLY')])
+    ),
     aggregation: Type.Optional(
       Type.Union([Type.Literal('sum'), Type.Literal('average'), Type.Literal('first')])
     ),
@@ -226,7 +238,7 @@ export const GroupedSeriesPayloadRequestSchema = Type.Object(
 
 export const GroupedSeriesDataBodySchema = Type.Object(
   {
-    granularity: Type.Literal('UAT'),
+    granularity: Type.Union([Type.Literal('UAT'), Type.Literal('County')]),
     series: Type.Array(MapRequestSeriesSchema, {
       minItems: 1,
       maxItems: 64,
@@ -238,7 +250,7 @@ export const GroupedSeriesDataBodySchema = Type.Object(
 
 export const GroupedSeriesDataBodyInputSchema = Type.Object(
   {
-    granularity: Type.Literal('UAT'),
+    granularity: Type.Union([Type.Literal('UAT'), Type.Literal('County')]),
     series: Type.Array(MapRequestSeriesInputSchema, {
       minItems: 1,
       maxItems: 64,
@@ -279,7 +291,7 @@ export const GroupedSeriesManifestSchema = Type.Object(
   {
     generated_at: Type.String({ format: 'date-time' }),
     format: Type.Literal('wide_matrix_v1'),
-    granularity: Type.Literal('UAT'),
+    granularity: Type.Union([Type.Literal('UAT'), Type.Literal('County')]),
     series: Type.Array(GroupedSeriesManifestEntrySchema),
   },
   { additionalProperties: false }

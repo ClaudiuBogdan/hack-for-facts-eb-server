@@ -20,7 +20,7 @@ import type {
 // Request Types
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type MapGranularity = 'UAT';
+export type MapGranularity = 'UAT' | 'County';
 export const GROUPED_SERIES_RESERVED_ID_PREFIXES = ['group_'] as const;
 export const GROUPED_SERIES_UNSAFE_CSV_ID_PREFIXES = ['=', '+', '-', '@'] as const;
 
@@ -76,6 +76,9 @@ export interface InsMapSeries extends MapRequestSeriesBase {
   datasetCode?: string;
   period?: ReportPeriodInput;
   aggregation?: 'sum' | 'average' | 'first';
+  /** Temporal reduction is separate from legacy classification aggregation. */
+  intervalOperation?: 'sum' | 'average' | 'latest';
+  periodicity?: 'ANNUAL' | 'QUARTERLY' | 'MONTHLY';
   territoryCodes?: string[];
   sirutaCodes?: string[];
   unitCodes?: string[];

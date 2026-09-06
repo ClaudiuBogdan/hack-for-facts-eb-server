@@ -1724,6 +1724,70 @@ describe('Advanced Map Analytics REST API', () => {
     expect(body.data.snapshot.description).toBe('Parent description fallback');
   });
 
+  it('preserves county boundaries and INS interval selection when replaying a saved map', async () => {
+    const captured: Parameters<GroupedSeriesProvider['fetchGroupedSeriesVectors']>[0][] = [];
+    const provider = makeGroupedSeriesProvider();
+    const setup = await createTestApp({
+      groupedSeriesProvider: {
+        fetchGroupedSeriesVectors: async (request) => {
+          captured.push(request);
+          return provider.fetchGroupedSeriesVectors(request);
+        },
+      },
+    });
+    try {
+      const headers = { authorization: `Bearer ${setup.testAuth.tokens.user1}` };
+      const created = await setup.app.inject({
+        method: 'POST',
+        url: '/api/v1/advanced-map-analytics/maps',
+        headers,
+        payload: { title: 'County INS', visibility: 'public' },
+      });
+      const mapId = created.json<{ data: { mapId: string } }>().data.mapId;
+      const saved = await setup.app.inject({
+        method: 'POST',
+        url: `/api/v1/advanced-map-analytics/maps/${mapId}/snapshots`,
+        headers,
+        payload: {
+          title: 'County selection',
+          state: {
+            mapViewType: 'County',
+            series: [
+              {
+                id: 'ins',
+                type: 'ins-series',
+                datasetCode: 'POP107D',
+                periodicity: 'ANNUAL',
+                intervalOperation: 'average',
+                period: { type: 'YEAR', selection: { dates: ['2024', '2025'] } },
+              },
+            ],
+          },
+        },
+      });
+      expect(saved.statusCode).toBe(201);
+      const reloaded = await setup.app.inject({
+        method: 'GET',
+        url: `/api/v1/advanced-map-analytics/maps/${mapId}`,
+        headers,
+      });
+      expect(reloaded.statusCode).toBe(200);
+      expect(reloaded.json().data.groupedSeriesData.manifest.granularity).toBe('County');
+      expect(captured.at(-1)).toMatchObject({
+        granularity: 'County',
+        series: [
+          {
+            intervalOperation: 'average',
+            periodicity: 'ANNUAL',
+            period: { selection: { dates: ['2024', '2025'] } },
+          },
+        ],
+      });
+    } finally {
+      await setup.app.close();
+    }
+  });
+
   it('returns map detail with grouped series data in one request', async () => {
     const createMapResponse = await app.inject({
       method: 'POST',

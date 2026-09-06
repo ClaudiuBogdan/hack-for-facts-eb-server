@@ -255,6 +255,10 @@ function normalizeRemoteGroupedSeries(series: unknown): Record<string, unknown> 
       ...(series['datasetCode'] !== undefined ? { datasetCode: series['datasetCode'] } : {}),
       ...(series['period'] !== undefined ? { period: series['period'] } : {}),
       ...(series['aggregation'] !== undefined ? { aggregation: series['aggregation'] } : {}),
+      ...(series['intervalOperation'] !== undefined
+        ? { intervalOperation: series['intervalOperation'] }
+        : {}),
+      ...(series['periodicity'] !== undefined ? { periodicity: series['periodicity'] } : {}),
       ...(series['territoryCodes'] !== undefined
         ? { territoryCodes: series['territoryCodes'] }
         : {}),
@@ -299,12 +303,15 @@ function isRemoteGroupedSeriesCandidate(series: unknown): boolean {
 function buildGroupedSeriesDataBody(
   state: Record<string, unknown>
 ): { body: GroupedSeriesDataBodyInput } | { error: GroupedSeriesError } {
+  const granularity = state['mapViewType'] ?? 'UAT';
+  if (granularity !== 'UAT' && granularity !== 'County')
+    return { error: createGroupedSeriesInvalidInputError('Stored map boundary type is invalid') };
   const rawSeries = state['series'];
 
   if (rawSeries === undefined) {
     return {
       body: {
-        granularity: 'UAT',
+        granularity,
         series: [],
         payload: GROUPED_SERIES_EMPTY_PAYLOAD,
       },
@@ -327,7 +334,7 @@ function buildGroupedSeriesDataBody(
   if (remoteSeries.length === 0) {
     return {
       body: {
-        granularity: 'UAT',
+        granularity,
         series: [],
         payload: GROUPED_SERIES_EMPTY_PAYLOAD,
       },
@@ -335,7 +342,7 @@ function buildGroupedSeriesDataBody(
   }
 
   const candidateBody: unknown = {
-    granularity: 'UAT',
+    granularity,
     series: remoteSeries,
     payload: GROUPED_SERIES_EMPTY_PAYLOAD,
   };
@@ -561,12 +568,15 @@ async function rewriteUploadedDatasetSeriesForPublicRead(
   };
 }
 
-function toEmptyGroupedSeriesData(now: () => Date): GroupedSeriesData {
+function toEmptyGroupedSeriesData(
+  now: () => Date,
+  granularity: 'UAT' | 'County' = 'UAT'
+): GroupedSeriesData {
   return {
     manifest: {
       generated_at: now().toISOString(),
       format: 'wide_matrix_v1',
-      granularity: 'UAT',
+      granularity,
       series: [],
     },
     payload: {
@@ -612,7 +622,7 @@ async function resolveBundledGroupedSeriesData(
 
   if (bodyResult.body.series.length === 0) {
     return {
-      data: toEmptyGroupedSeriesData(now),
+      data: toEmptyGroupedSeriesData(now, bodyResult.body.granularity),
     };
   }
 

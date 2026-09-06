@@ -16,9 +16,7 @@ import { legacyEntityConditions } from './legacy-entity-predicates.js';
 import type { LegacyAggregateQuery } from '../../core/legacy-analytics/types.js';
 
 /** One union kernel; selection must retain missing requested anchors as NULL IDs. */
-export const selectedPopulationUnionSql = (
-  selection: RawBuilder<unknown>
-): RawBuilder<{ total: string | null }> => sql`
+const populationUnionCtes = (selection: RawBuilder<unknown>): RawBuilder<unknown> => sql`
   with recursive matched as materialized (${selection}
   ), selected as (
     select distinct id, parent_id, level, territorial_siruta_code, population
@@ -57,6 +55,12 @@ export const selectedPopulationUnionSql = (
           ))
       ), false))
   )
+`;
+
+export const selectedPopulationUnionSql = (
+  selection: RawBuilder<unknown>
+): RawBuilder<{ total: string | null }> => sql`
+  ${populationUnionCtes(selection)}
   select case
     when not exists (select 1 from invalid)
       and count(*) > 0
@@ -64,6 +68,16 @@ export const selectedPopulationUnionSql = (
       and min(population) > 0
     then sum(population)::text else null
   end as total
+  from retained
+`;
+
+/** The same containment proof, without using snapshot population as a denominator. */
+export const selectedPopulationAnchorIdsSql = (
+  selection: RawBuilder<unknown>
+): RawBuilder<{ ids: number[] | null }> => sql`
+  ${populationUnionCtes(selection)}
+  select case when not exists (select 1 from invalid) and count(*) > 0
+    then array_agg(id order by id) else null end as ids
   from retained
 `;
 

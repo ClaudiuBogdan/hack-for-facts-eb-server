@@ -229,7 +229,7 @@ export async function getGroupedSeriesData(
     manifest: {
       generated_at: (deps.now ?? (() => new Date()))().toISOString(),
       format: 'wide_matrix_v1',
-      granularity: 'UAT',
+      granularity: request.granularity,
       series: manifestSeries,
     },
     seriesOrder,

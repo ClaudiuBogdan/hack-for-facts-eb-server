@@ -101,3 +101,5 @@ export { makeInsRepo } from './shell/repo/ins-repo.js';
 export { makeInsReadSession, type InsReadSession } from './shell/repo/read-session.js';
 
 export { readInsMapData, type InsMapData, type InsMapDataInput } from './core/map-data.js';
+
+export { parseMemberCode } from './core/identity.js';

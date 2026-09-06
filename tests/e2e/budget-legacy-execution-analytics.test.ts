@@ -75,6 +75,7 @@ import {
 import {
   entityPopulationUnionSql,
   geographicPopulationUnionSql,
+  selectedPopulationAnchorIdsSql,
 } from '@/modules/budget/shell/repo/population-union.js';
 import { makeTerritoryQueryRepo } from '@/modules/reference/shell/repo/territory-query-repo.js';
 import { makeIdentityRepo } from '@/modules/shared/shell/repo/identity-repo.js';
@@ -1298,6 +1299,38 @@ const unionPopulation = async (
 };
 
 describe('S1b administrative anchor population union', () => {
+  it('retains canonical anchors without depending on snapshot population', async () => {
+    await rollbackTerritoryFixture(async (trx) => {
+      await sql`update core.territories set population=null`.execute(trx);
+      const select = (codes: readonly string[]) =>
+        selectedPopulationAnchorIdsSql(sql`
+        select t.id, t.parent_id, t.level, t.territorial_siruta_code, t.population
+        from unnest(${codes}::text[]) requested(code)
+        left join core.territories t on t.territorial_siruta_code=requested.code
+      `).execute(trx);
+      const ids = await sql<{
+        id: number;
+        code: string;
+      }>`select id, territorial_siruta_code as code from core.territories where territorial_siruta_code in ('12','54975','179132','179141','179150')`.execute(
+        trx
+      );
+      const byCode = new Map(ids.rows.map((row) => [row.code, row.id]));
+      expect((await select(['12', '54975', '12'])).rows[0]?.ids).toEqual([byCode.get('12')]);
+      expect((await select(['179132', '179141', '179150'])).rows[0]?.ids).toEqual([
+        byCode.get('179132'),
+      ]);
+      expect((await select(['179141', '179150'])).rows[0]?.ids).toEqual(
+        [byCode.get('179141'), byCode.get('179150')].sort((a, b) => a! - b!)
+      );
+      expect((await select(['54975', 'missing'])).rows[0]?.ids).toBeNull();
+      expect((await select([])).rows[0]?.ids).toBeNull();
+      await sql`update core.territories set parent_id=id where territorial_siruta_code='54975'`.execute(
+        trx
+      );
+      expect((await select(['54975'])).rows[0]?.ids).toBeNull();
+    });
+  });
+
   it('native ranking and aggregate timeseries honor an executive-only request after is_uat flips', async () => {
     await rollbackTerritoryFixture(async (trx) => {
       await sql`refresh materialized view budget.mv_execution_summary_annual`.execute(trx);
