@@ -23,6 +23,11 @@ import type { Trx } from './snapshot.js';
 import type { InsSeriesPeriod } from '../../core/ports.js';
 
 const REQUESTS_PER_STATEMENT = 40;
+// PostgreSQL wire protocol ceiling. Each branch has <=32 non-range parameters
+// (seven classification slots, scope, unit, dataset, period bounds and limit).
+// A range contributes two parameters; shrink batches, never truncate selection.
+const MAX_BIND_PARAMETERS = 65_535;
+const MAX_BRANCH_FIXED_PARAMETERS = 32;
 // Preserve the previous maximum hydration batch; this batches, never truncates.
 const MAX_HYDRATION_ROWS = REQUESTS_PER_STATEMENT * (MAX_OBSERVATION_LIMIT + 1);
 
@@ -177,8 +182,15 @@ export const readDefaultSeries = async (
     }
     pending = [];
   };
-  for (let index = 0; index < requests.length; index += REQUESTS_PER_STATEMENT) {
-    const chunk = requests.slice(index, index + REQUESTS_PER_STATEMENT);
+  const requestsPerStatement = Math.min(
+    REQUESTS_PER_STATEMENT,
+    Math.floor(
+      MAX_BIND_PARAMETERS / (MAX_BRANCH_FIXED_PARAMETERS + 2 * (period?.periodRanges?.length ?? 0))
+    )
+  );
+  if (requestsPerStatement < 1) throw new InsPublicationUnavailable();
+  for (let index = 0; index < requests.length; index += requestsPerStatement) {
+    const chunk = requests.slice(index, index + requestsPerStatement);
     const prepared = chunk.map((request) => {
       const layout = layouts.get(request.key);
       if (layout === undefined) throw new InsPublicationUnavailable();

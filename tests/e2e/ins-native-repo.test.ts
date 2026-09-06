@@ -56,6 +56,7 @@ import { registerInsBatchHydrationCases } from './ins-native-batch-hydration-cas
 import { registerInsDefaultSeriesCases } from './ins-native-default-series-cases.js';
 import { registerInsEntityBridgeCases } from './ins-native-entity-bridge-cases.js';
 import { registerInsGeographyCases } from './ins-native-geography-cases.js';
+import { registerInsMapIntervalCases } from './ins-native-map-interval-cases.js';
 import { registerInsMapSeriesCases } from './ins-native-map-series-cases.js';
 import { registerInsPublicationCases } from './ins-native-publication-cases.js';
 
@@ -443,6 +444,10 @@ describe('ins-native repository over the real scrapper DDL (e2e)', () => {
     return db;
   });
   registerInsBatchHydrationCases(it, () => {
+    if (db === undefined) throw new Error('INS test database unavailable');
+    return db;
+  });
+  registerInsMapIntervalCases(it, () => {
     if (db === undefined) throw new Error('INS test database unavailable');
     return db;
   });

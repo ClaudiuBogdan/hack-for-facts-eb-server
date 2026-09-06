@@ -8,6 +8,7 @@ import type {
   InsObservationView,
   InsPeriodicity,
   InsPeriodView,
+  InsSeriesResult,
 } from './types.js';
 import type { ApiError } from '@/modules/shared/index.js';
 
@@ -42,97 +43,113 @@ const comparePeriods = (left: InsPeriodView, right: InsPeriodView): number => {
   return end !== 0 ? end : left.periodStart.localeCompare(right.periodStart);
 };
 
-/**
- * Source ambiguity is checked across the selected frequency's history before
- * the repository returns the newest two cells. The second is an ambiguity
- * witness for duplicate source time members, not a truncated history to sum.
- * Use the operation's InsReadSession repository so its deadline bounds the work.
- */
-export const readLatestMapSeries = (
-  outer: InsRepo,
+export const makeMapSeriesRequests = (
   input: InsLatestMapRequest
-): Promise<Result<InsLatestMapResult, ApiError>> =>
-  outer.withSnapshot(async (repo) => {
-    const codes = new Set(input.territories.map((territory) => territory.code));
-    if (
-      codes.size !== input.territories.length ||
-      codes.has('') ||
-      new Set(input.territories.map((territory) => territory.territoryId)).size !== codes.size
-    ) {
-      return err({
-        type: 'InvalidInput',
-        field: 'territories',
-        message: 'INS map territories must have unique codes and identities',
-      });
-    }
-    const requests: InsDefaultSeriesRequest[] = input.territories.map((territory) => ({
+): Result<InsDefaultSeriesRequest[], ApiError> => {
+  const codes = new Set(input.territories.map((territory) => territory.code));
+  if (
+    codes.size !== input.territories.length ||
+    codes.has('') ||
+    new Set(input.territories.map((territory) => territory.territoryId)).size !== codes.size
+  ) {
+    return err({
+      type: 'InvalidInput',
+      field: 'territories',
+      message: 'INS map territories must have unique codes and identities',
+    });
+  }
+  return ok<InsDefaultSeriesRequest[], ApiError>(
+    input.territories.map((territory) => ({
       key: territory.code,
       datasetCode: input.datasetCode,
       nonGeographicPins: input.nonGeographicPins,
       unitNomItemId: input.unitNomItemId,
       geoScope: { kind: 'modern', territoryIds: [territory.territoryId] },
-    }));
-    const rows = await repo.readDefaultSeries(requests, 2, {
-      periodicities: [input.periodicity],
-    });
-    if (rows.isErr()) return err(rows.error);
-    const results = new Map(rows.value.map((row) => [row.seriesKey, row]));
-    if (
-      results.size !== requests.length ||
-      results.size !== rows.value.length ||
-      [...results.keys()].some((key) => !codes.has(key))
-    )
-      return err(unavailable());
+    }))
+  );
+};
 
-    let referencePeriod: InsPeriodView | null = null;
-    const periodIds = new Map<string, number>();
-    const periodsById = new Map<number, string>();
-    for (const row of results.values()) {
-      if (row.status !== 'SERIES') continue;
-      const [head, second] = row.observations;
-      if (head === undefined || row.observations.length > 2) return err(unavailable());
-      for (const observation of row.observations) {
-        const period = observation.period;
-        const key = periodKey(period);
-        const knownId = periodIds.get(key);
-        const knownPeriod = periodsById.get(period.periodId);
-        if (
-          period.periodicity !== input.periodicity ||
-          (knownId !== undefined && knownId !== period.periodId) ||
-          (knownPeriod !== undefined && knownPeriod !== key)
-        )
-          return err(unavailable());
-        periodIds.set(key, period.periodId);
-        periodsById.set(period.periodId, key);
-      }
+export const selectLatestMapSeries = (
+  requests: readonly InsDefaultSeriesRequest[],
+  rows: readonly InsSeriesResult[],
+  periodicity: InsPeriodicity
+): Result<InsLatestMapResult, ApiError> => {
+  const codes = new Set(requests.map((request) => request.key));
+  const results = new Map(rows.map((row) => [row.seriesKey, row]));
+  if (
+    results.size !== requests.length ||
+    results.size !== rows.length ||
+    [...results.keys()].some((key) => !codes.has(key))
+  )
+    return err(unavailable());
+
+  let referencePeriod: InsPeriodView | null = null;
+  const periodIds = new Map<string, number>();
+  const periodsById = new Map<number, string>();
+  for (const row of results.values()) {
+    if (row.status !== 'SERIES') continue;
+    const [head, second] = row.observations;
+    if (head === undefined || row.observations.length > 2) return err(unavailable());
+    for (const observation of row.observations) {
+      const period = observation.period;
+      const key = periodKey(period);
+      const knownId = periodIds.get(key);
+      const knownPeriod = periodsById.get(period.periodId);
       if (
-        second !== undefined &&
-        (periodKey(head.period) === periodKey(second.period) ||
-          comparePeriods(head.period, second.period) < 0)
+        period.periodicity !== periodicity ||
+        (knownId !== undefined && knownId !== period.periodId) ||
+        (knownPeriod !== undefined && knownPeriod !== key)
       )
         return err(unavailable());
-      if (referencePeriod === null || comparePeriods(head.period, referencePeriod) > 0)
-        referencePeriod = head.period;
+      periodIds.set(key, period.periodId);
+      periodsById.set(period.periodId, key);
     }
+    if (
+      second !== undefined &&
+      (periodKey(head.period) === periodKey(second.period) ||
+        comparePeriods(head.period, second.period) < 0)
+    )
+      return err(unavailable());
+    if (referencePeriod === null || comparePeriods(head.period, referencePeriod) > 0)
+      referencePeriod = head.period;
+  }
 
-    const cells = new Map<string, InsLatestMapCell>();
-    for (const request of requests) {
-      const row = results.get(request.key);
-      if (row === undefined) return err(unavailable());
-      if (row.status === 'AMBIGUOUS_GEOGRAPHY') {
-        cells.set(request.key, { status: row.status, witnesses: row.witnesses });
-      } else if (row.status === 'NO_DATA') {
-        cells.set(request.key, { status: row.status });
-      } else {
-        const head = row.observations[0];
-        if (head === undefined || referencePeriod === null) return err(unavailable());
-        cells.set(
-          request.key,
-          periodKey(head.period) === periodKey(referencePeriod)
-            ? { status: 'OBSERVATION', observation: head }
-            : { status: 'MISSING_REFERENCE_PERIOD' }
-        );
-      }
+  const cells = new Map<string, InsLatestMapCell>();
+  for (const request of requests) {
+    const row = results.get(request.key);
+    if (row === undefined) return err(unavailable());
+    if (row.status === 'AMBIGUOUS_GEOGRAPHY') {
+      cells.set(request.key, { status: row.status, witnesses: row.witnesses });
+    } else if (row.status === 'NO_DATA') {
+      cells.set(request.key, { status: row.status });
+    } else {
+      const head = row.observations[0];
+      if (head === undefined || referencePeriod === null) return err(unavailable());
+      cells.set(
+        request.key,
+        periodKey(head.period) === periodKey(referencePeriod)
+          ? { status: 'OBSERVATION', observation: head }
+          : { status: 'MISSING_REFERENCE_PERIOD' }
+      );
     }
-    return ok({ referencePeriod, cells });
+  }
+  return ok({ referencePeriod, cells });
+};
+
+/** Use the operation's read-session repository to retain its deadline. */
+export const readLatestMapSeries = (
+  outer: InsRepo,
+  input: InsLatestMapRequest
+): Promise<Result<InsLatestMapResult, ApiError>> =>
+  outer.withSnapshot(async (repo) => {
+    const requests = makeMapSeriesRequests(input);
+    if (requests.isErr()) return err(requests.error);
+    // Full-source ambiguity precedes the two newest observations. The second
+    // exposes competing time identities; it is not a history to aggregate.
+    const rows = await repo.readDefaultSeries(requests.value, 2, {
+      periodicities: [input.periodicity],
+    });
+    return rows.isErr()
+      ? err(rows.error)
+      : selectLatestMapSeries(requests.value, rows.value, input.periodicity);
   });

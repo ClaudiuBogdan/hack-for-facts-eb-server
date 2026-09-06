@@ -26,14 +26,24 @@ export interface InsDefaultSelection {
   readonly strategy: 'PREFERRED_CLASSIFICATION' | 'TOTAL_FALLBACK';
 }
 
-export const buildDefaultSeries = (
+export interface InsExplicitSelection {
+  readonly pinsByDimension: ReadonlyMap<number, number>;
+  readonly unitNomItemId?: number;
+}
+
+export interface InsResolvedSelection {
+  readonly nonGeographicPins: ReadonlyMap<number, number>;
+  readonly unitNomItemId: number;
+  readonly hasGeography: boolean;
+}
+
+export const buildInsSelection = (
   dataset: InsDatasetView,
   dimensions: readonly InsDimensionView[],
   defaults: readonly InsDefaultPin[],
   members: readonly InsMemberView[],
-  preferredIds: readonly number[],
-  node: InsTerritoryNode
-): Result<InsDefaultSelection | null, ApiError> => {
+  explicit: InsExplicitSelection
+): Result<InsResolvedSelection | null, ApiError> => {
   if (dataset.publicationStatus === 'NOT_LOADED') return ok(null);
   if (dataset.dataStatus !== 'AVAILABLE') return err(unavailable());
   const dims = dimensions.filter((dimension) => dimension.datasetCode === dataset.code);
@@ -64,24 +74,20 @@ export const buildDefaultSeries = (
       .filter((member) => member.datasetCode === dataset.code)
       .map((member) => [JSON.stringify([member.dimIndex, member.nomItemId]), member])
   );
-  const preferred = new Map<number, Set<number>>();
-  for (const member of byMember.values()) {
-    if (!preferredIds.includes(member.nomItemId)) continue;
-    const dimension = byDim.get(member.dimIndex);
-    if (dimension?.isTerritorial === true) {
-      return err(
-        invalidPreference(
-          'Preferred classification members cannot select geography; use a territory selector or explicit source observations'
-        )
-      );
-    }
-    if (dimension?.role !== 'classification') continue;
-    const ids = preferred.get(member.dimIndex) ?? new Set<number>();
-    ids.add(member.nomItemId);
-    if (ids.size > 1)
-      return err(invalidPreference('Choose one preferred member per classification dimension'));
-    preferred.set(member.dimIndex, ids);
+  for (const [dimIndex, id] of explicit.pinsByDimension) {
+    const dimension = byDim.get(dimIndex);
+    if (
+      dimension?.role !== 'classification' ||
+      dimension.isTerritorial ||
+      !byMember.has(JSON.stringify([dimIndex, id]))
+    )
+      return err(invalidPreference('Choose one source member in each non-geographic dimension'));
   }
+  if (
+    explicit.unitNomItemId !== undefined &&
+    !byMember.has(JSON.stringify([unit.dimIndex, explicit.unitNomItemId]))
+  )
+    return err(invalidPreference('Choose a source unit belonging to this dataset'));
   const defaultsByDim = new Map<number, number>();
   for (const pin of defaults) {
     if (pin.datasetCode !== dataset.code) continue;
@@ -108,28 +114,65 @@ export const buildDefaultSeries = (
     }
     defaultsByDim.set(pin.dimIndex, pin.nomItemId);
   }
-  const unitId = defaultsByDim.get(unit.dimIndex);
+  const unitId = explicit.unitNomItemId ?? defaultsByDim.get(unit.dimIndex);
   const pins = new Map<number, number>();
   for (const dimension of classification) {
     if (dimension.isTerritorial) continue;
     const id =
-      preferred.get(dimension.dimIndex)?.values().next().value ??
-      defaultsByDim.get(dimension.dimIndex);
+      explicit.pinsByDimension.get(dimension.dimIndex) ?? defaultsByDim.get(dimension.dimIndex);
     if (id === undefined) return ok(null);
     if (dimension.slotIndex === null) return err(unavailable());
     pins.set(dimension.slotIndex, id);
   }
-  if (unitId === undefined || (geo.length === 0 && node.level !== 'NATIONAL')) return ok(null);
+  if (unitId === undefined) return ok(null);
+  return ok({ nonGeographicPins: pins, unitNomItemId: unitId, hasGeography: geo.length > 0 });
+};
+
+/** Preserve the legacy preference API; exact map pairs never use global IDs. */
+export const buildDefaultSeries = (
+  dataset: InsDatasetView,
+  dimensions: readonly InsDimensionView[],
+  defaults: readonly InsDefaultPin[],
+  members: readonly InsMemberView[],
+  preferredIds: readonly number[],
+  node: InsTerritoryNode
+): Result<InsDefaultSelection | null, ApiError> => {
+  if (dataset.publicationStatus === 'NOT_LOADED') return ok(null);
+  if (dataset.dataStatus !== 'AVAILABLE') return err(unavailable());
+  const byDim = new Map(
+    dimensions.filter((d) => d.datasetCode === dataset.code).map((d) => [d.dimIndex, d])
+  );
+  const preferred = new Map<number, number>();
+  for (const member of members) {
+    if (member.datasetCode !== dataset.code || !preferredIds.includes(member.nomItemId)) continue;
+    const dimension = byDim.get(member.dimIndex);
+    if (dimension?.isTerritorial === true)
+      return err(
+        invalidPreference(
+          'Preferred classification members cannot select geography; use a territory selector or explicit source observations'
+        )
+      );
+    if (dimension?.role !== 'classification') continue;
+    const prior = preferred.get(member.dimIndex);
+    if (prior !== undefined && prior !== member.nomItemId)
+      return err(invalidPreference('Choose one preferred member per classification dimension'));
+    preferred.set(member.dimIndex, member.nomItemId);
+  }
+  const selected = buildInsSelection(dataset, dimensions, defaults, members, {
+    pinsByDimension: preferred,
+  });
+  if (selected.isErr()) return err(selected.error);
+  if (selected.value === null || (!selected.value.hasGeography && node.level !== 'NATIONAL'))
+    return ok(null);
   return ok({
     request: {
       key: JSON.stringify([dataset.code, node.territoryId]),
       datasetCode: dataset.code,
-      nonGeographicPins: pins,
-      unitNomItemId: unitId,
-      geoScope:
-        geo.length === 0
-          ? { kind: 'nonGeographic' }
-          : { kind: 'modern', territoryIds: [node.territoryId] },
+      nonGeographicPins: selected.value.nonGeographicPins,
+      unitNomItemId: selected.value.unitNomItemId,
+      geoScope: selected.value.hasGeography
+        ? { kind: 'modern', territoryIds: [node.territoryId] }
+        : { kind: 'nonGeographic' },
     },
     strategy: preferred.size === 0 ? 'TOTAL_FALLBACK' : 'PREFERRED_CLASSIFICATION',
   });
