@@ -41,6 +41,7 @@ import { ok } from 'neverthrow';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it as vitestIt } from 'vitest';
 
+import { makeNativeMapTerritoryLookup } from '@/modules/advanced-map-analytics/index.js';
 import { cleanFilter } from '@/modules/budget/core/legacy-analytics/clean.js';
 import { legacyDecimal } from '@/modules/budget/core/legacy-analytics/decimal.js';
 import {
@@ -2299,5 +2300,70 @@ describe('native map execution aggregation', () => {
         ).toBe(legacyDecimal(independent.find((r) => r.year === year)!.amount).toString());
       }
     }
+  });
+});
+
+describe('native map presentation universe over actual territory DDL', () => {
+  it('returns every UAT and sector independently of budgets and population', async () => {
+    await rollbackTerritoryFixture(async (trx) => {
+      await sql`update core.territories set population = null`.execute(trx);
+      expect(await makeNativeMapTerritoryLookup(trx)()).toEqual([
+        '179141',
+        '179150',
+        '179169',
+        '179178',
+        '179187',
+        '179196',
+        '54975',
+        '95060',
+      ]);
+      expect(await makeNativeMapTerritoryLookup(trx, 'County')()).toEqual(['B', 'CJ', 'IS']);
+    });
+  });
+
+  it('keeps county keys stable across L2 without copying PMB into sectors', async () => {
+    await rollbackTerritoryFixture(async (trx) => {
+      await sql`insert into core.territories (territorial_siruta_code, name, level, kind, territory_key, county_code)
+        values ('403', 'Bucuresti county', 'county', 'county', 'siruta:403', 'B')`.execute(trx);
+      expect(await makeNativeMapTerritoryLookup(trx, 'County')()).toEqual(['B', 'CJ', 'IS']);
+      const uats = await makeNativeMapTerritoryLookup(trx)();
+      expect(uats).toHaveLength(8);
+      expect(uats).not.toContain('403');
+      expect(uats).not.toContain('179132');
+      await sql`update core.territories set privacy_class='restricted' where territorial_siruta_code in ('403','54975')`.execute(
+        trx
+      );
+      expect(await makeNativeMapTerritoryLookup(trx, 'County')()).toEqual(['CJ', 'IS']);
+      expect(await makeNativeMapTerritoryLookup(trx)()).not.toContain('54975');
+    });
+  });
+
+  for (const privacy of ['public', 'restricted']) {
+    it(`refuses a duplicate ${privacy} county identity`, async () => {
+      await rollbackTerritoryFixture(async (trx) => {
+        await sql`insert into core.territories (territorial_siruta_code,name,level,kind,territory_key,county_code,privacy_class)
+          values ('99999','Conflicting county','county','county','test:map-duplicate','CJ',${privacy})`.execute(
+          trx
+        );
+        await expect(makeNativeMapTerritoryLookup(trx, 'County')()).rejects.toThrow(
+          'incomplete or ambiguous'
+        );
+      });
+    });
+  }
+
+  it('refuses a missing Bucharest UAT key instead of treating it as PMB', async () => {
+    await rollbackTerritoryFixture(async (trx) => {
+      await sql`insert into core.territories (name,level,kind,territory_key,county_code)
+        values ('Incomplete key','uat','municipality','test:map-missing-key','B')`.execute(trx);
+      await expect(makeNativeMapTerritoryLookup(trx)()).rejects.toThrow('incomplete or ambiguous');
+    });
+  });
+
+  it('refuses an empty public universe', async () => {
+    await rollbackTerritoryFixture(async (trx) => {
+      await sql`update core.territories set privacy_class='restricted'`.execute(trx);
+      await expect(makeNativeMapTerritoryLookup(trx)()).rejects.toThrow('unavailable');
+    });
   });
 });
