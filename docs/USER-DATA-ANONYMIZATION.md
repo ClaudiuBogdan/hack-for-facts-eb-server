@@ -234,3 +234,24 @@ a documented product and retention requirement.
 - `src/modules/clerk-webhooks/shell/handlers/user-deleted-anonymization-handler.ts`
 - `src/infra/database/user/migrations/202604241200_add_user_data_anonymization_audit.sql`
 - `tests/e2e/user-data-anonymizer.test.ts`
+
+### Saved-map write fencing (2026-09-06)
+
+All eight owner mutations in the map and uploaded-dataset repositories acquire
+the existing owner advisory lock first, then check any matching
+`UserDataAnonymizationAudit.user_id_hash` row in the same READ COMMITTED
+transaction. A started or failed deletion is already a permanent write ban;
+these audit tombstones must never expire during routine cleanup. The runtime
+user DB role requires SELECT on this audit table.
+
+The verified deletion handler commits the started marker before its deletion
+transaction takes the same owner lock. An admitted writer finishes before
+deletion clears its data; a waiting or later writer sees the marker and receives
+Forbidden. Neither cached JWTs nor direct repository calls bypass this boundary.
+The public-view counter is exempt because it cannot recreate user content.
+
+`tests/e2e/map-owner-deletion.test.ts` exercises all eight direct mutation paths,
+both race orderings, started markers, replay, and an unrelated owner against
+the actual schema in a unique disposable PostgreSQL namespace. This guarantee
+covers map/dataset writers; unrelated legacy product runtimes remain unmounted
+in the native dev app.

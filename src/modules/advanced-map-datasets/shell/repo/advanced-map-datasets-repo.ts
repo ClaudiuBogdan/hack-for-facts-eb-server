@@ -2,6 +2,10 @@ import { sql, type Transaction } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
 import { acquireAdvancedMapDatasetTransactionLocks } from '@/infra/database/user/advisory-locks.js';
+import {
+  assertUserDataOwnerCanWrite,
+  UserDataOwnerDeletedError,
+} from '@/infra/database/user/owner-write-guard.js';
 
 import {
   createForbiddenError,
@@ -326,40 +330,46 @@ class KyselyAdvancedMapDatasetsRepo implements AdvancedMapDatasetRepository {
     }
 
     try {
-      const result = await this.db.transaction().execute(async (trx) => {
-        const inserted = await trx
-          .insertInto('advancedmapdatasets')
-          .values({
-            id: input.id,
-            public_id: input.publicId,
-            user_id: input.userId,
-            title: input.title,
-            description: input.description,
-            markdown_text: input.markdown,
-            unit: unitResult.value,
-            visibility: input.visibility,
-            row_count: rowsResult.value.length,
-            reference_count: 0,
-            replaced_at: null,
-            updated_at: new Date(),
-          } as never)
-          .returningAll()
-          .executeTakeFirst();
+      const result = await this.db
+        .transaction()
+        .setIsolationLevel('read committed')
+        .execute(async (trx) => {
+          await assertUserDataOwnerCanWrite(trx, input.userId);
+          const inserted = await trx
+            .insertInto('advancedmapdatasets')
+            .values({
+              id: input.id,
+              public_id: input.publicId,
+              user_id: input.userId,
+              title: input.title,
+              description: input.description,
+              markdown_text: input.markdown,
+              unit: unitResult.value,
+              visibility: input.visibility,
+              row_count: rowsResult.value.length,
+              reference_count: 0,
+              replaced_at: null,
+              updated_at: new Date(),
+            } as never)
+            .returningAll()
+            .executeTakeFirst();
 
-        if (inserted === undefined) {
-          throw new Error('Failed to insert dataset row');
-        }
+          if (inserted === undefined) {
+            throw new Error('Failed to insert dataset row');
+          }
 
-        await insertDatasetRows(trx, input.id, rowsResult.value);
+          await insertDatasetRows(trx, input.id, rowsResult.value);
 
-        return {
-          ...toSummary(inserted),
-          rows: [...rowsResult.value],
-        } satisfies AdvancedMapDatasetDetail;
-      });
+          return {
+            ...toSummary(inserted),
+            rows: [...rowsResult.value],
+          } satisfies AdvancedMapDatasetDetail;
+        });
 
       return ok(result);
     } catch (error) {
+      if (error instanceof UserDataOwnerDeletedError)
+        return err(createForbiddenError(error.message));
       this.log.error({ err: error, userId: input.userId }, 'Failed to create dataset');
       return err(createProviderError('Failed to create dataset', error));
     }
@@ -448,81 +458,87 @@ class KyselyAdvancedMapDatasetsRepo implements AdvancedMapDatasetRepository {
     input: UpdateAdvancedMapDatasetMetadataParams
   ): Promise<Result<AdvancedMapDatasetDetail | null, AdvancedMapDatasetError>> {
     try {
-      const txResult = await this.db.transaction().execute(async (trx) => {
-        await acquireAdvancedMapDatasetTransactionLocks(trx, [input.datasetId]);
+      const txResult = await this.db
+        .transaction()
+        .setIsolationLevel('read committed')
+        .execute(async (trx) => {
+          await assertUserDataOwnerCanWrite(trx, input.userId);
+          await acquireAdvancedMapDatasetTransactionLocks(trx, [input.datasetId]);
 
-        const current = await trx
-          .selectFrom('advancedmapdatasets')
-          .selectAll()
-          .where('id', '=', input.datasetId)
-          .where('user_id', '=', input.userId)
-          .where('deleted_at', 'is', null)
-          .forUpdate()
-          .executeTakeFirst();
+          const current = await trx
+            .selectFrom('advancedmapdatasets')
+            .selectAll()
+            .where('id', '=', input.datasetId)
+            .where('user_id', '=', input.userId)
+            .where('deleted_at', 'is', null)
+            .forUpdate()
+            .executeTakeFirst();
 
-        if (current === undefined) {
-          return ok<AdvancedMapDatasetDetail | null, AdvancedMapDatasetError>(null);
-        }
-
-        const currentRow = current as unknown as DatasetRow;
-        if (
-          !input.allowPublicWrite &&
-          (currentRow.visibility === 'public' || input.visibility === 'public')
-        ) {
-          return err(createForbiddenError(PUBLIC_DATASET_WRITE_FORBIDDEN_MESSAGE));
-        }
-
-        const unitResult = validateUnit(input.unit);
-        if (unitResult.isErr()) {
-          return err(unitResult.error);
-        }
-
-        if (currentRow.visibility !== 'private' && input.visibility === 'private') {
-          const references = await listSnapshotBackedReferences(
-            trx,
-            {
-              datasetId: currentRow.id,
-              datasetPublicId: currentRow.public_id,
-            },
-            {
-              publicOnly: true,
-            }
-          );
-          if (references.length > 0) {
-            return err(
-              createDatasetInUseError(
-                references,
-                'Dataset is referenced by public maps and cannot be made private'
-              )
-            );
+          if (current === undefined) {
+            return ok<AdvancedMapDatasetDetail | null, AdvancedMapDatasetError>(null);
           }
-        }
 
-        const updated = await trx
-          .updateTable('advancedmapdatasets')
-          .set({
-            title: input.title,
-            description: input.description,
-            markdown_text: input.markdown,
-            unit: unitResult.value,
-            visibility: input.visibility,
-            updated_at: new Date(),
-          } as never)
-          .where('id', '=', input.datasetId)
-          .where('user_id', '=', input.userId)
-          .where('deleted_at', 'is', null)
-          .returningAll()
-          .executeTakeFirst();
+          const currentRow = current as unknown as DatasetRow;
+          if (
+            !input.allowPublicWrite &&
+            (currentRow.visibility === 'public' || input.visibility === 'public')
+          ) {
+            return err(createForbiddenError(PUBLIC_DATASET_WRITE_FORBIDDEN_MESSAGE));
+          }
 
-        if (updated === undefined) {
-          return ok<AdvancedMapDatasetDetail | null, AdvancedMapDatasetError>(null);
-        }
+          const unitResult = validateUnit(input.unit);
+          if (unitResult.isErr()) {
+            return err(unitResult.error);
+          }
 
-        return ok(await this.toDetail(trx, updated as unknown as DatasetRow));
-      });
+          if (currentRow.visibility !== 'private' && input.visibility === 'private') {
+            const references = await listSnapshotBackedReferences(
+              trx,
+              {
+                datasetId: currentRow.id,
+                datasetPublicId: currentRow.public_id,
+              },
+              {
+                publicOnly: true,
+              }
+            );
+            if (references.length > 0) {
+              return err(
+                createDatasetInUseError(
+                  references,
+                  'Dataset is referenced by public maps and cannot be made private'
+                )
+              );
+            }
+          }
+
+          const updated = await trx
+            .updateTable('advancedmapdatasets')
+            .set({
+              title: input.title,
+              description: input.description,
+              markdown_text: input.markdown,
+              unit: unitResult.value,
+              visibility: input.visibility,
+              updated_at: new Date(),
+            } as never)
+            .where('id', '=', input.datasetId)
+            .where('user_id', '=', input.userId)
+            .where('deleted_at', 'is', null)
+            .returningAll()
+            .executeTakeFirst();
+
+          if (updated === undefined) {
+            return ok<AdvancedMapDatasetDetail | null, AdvancedMapDatasetError>(null);
+          }
+
+          return ok(await this.toDetail(trx, updated as unknown as DatasetRow));
+        });
 
       return txResult;
     } catch (error) {
+      if (error instanceof UserDataOwnerDeletedError)
+        return err(createForbiddenError(error.message));
       this.log.error(
         { err: error, datasetId: input.datasetId, userId: input.userId },
         'Failed to update dataset metadata'
@@ -535,63 +551,69 @@ class KyselyAdvancedMapDatasetsRepo implements AdvancedMapDatasetRepository {
     input: ReplaceAdvancedMapDatasetRowsParams
   ): Promise<Result<AdvancedMapDatasetDetail | null, AdvancedMapDatasetError>> {
     try {
-      const txResult = await this.db.transaction().execute(async (trx) => {
-        await acquireAdvancedMapDatasetTransactionLocks(trx, [input.datasetId]);
+      const txResult = await this.db
+        .transaction()
+        .setIsolationLevel('read committed')
+        .execute(async (trx) => {
+          await assertUserDataOwnerCanWrite(trx, input.userId);
+          await acquireAdvancedMapDatasetTransactionLocks(trx, [input.datasetId]);
 
-        const current = await trx
-          .selectFrom('advancedmapdatasets')
-          .selectAll()
-          .where('id', '=', input.datasetId)
-          .where('user_id', '=', input.userId)
-          .where('deleted_at', 'is', null)
-          .forUpdate()
-          .executeTakeFirst();
+          const current = await trx
+            .selectFrom('advancedmapdatasets')
+            .selectAll()
+            .where('id', '=', input.datasetId)
+            .where('user_id', '=', input.userId)
+            .where('deleted_at', 'is', null)
+            .forUpdate()
+            .executeTakeFirst();
 
-        if (current === undefined) {
-          return ok<AdvancedMapDatasetDetail | null, AdvancedMapDatasetError>(null);
-        }
+          if (current === undefined) {
+            return ok<AdvancedMapDatasetDetail | null, AdvancedMapDatasetError>(null);
+          }
 
-        const currentRow = current as unknown as DatasetRow;
-        if (!input.allowPublicWrite && currentRow.visibility === 'public') {
-          return err(createForbiddenError(PUBLIC_DATASET_WRITE_FORBIDDEN_MESSAGE));
-        }
+          const currentRow = current as unknown as DatasetRow;
+          if (!input.allowPublicWrite && currentRow.visibility === 'public') {
+            return err(createForbiddenError(PUBLIC_DATASET_WRITE_FORBIDDEN_MESSAGE));
+          }
 
-        const rowsResult = validateDatasetRows(input.rows);
-        if (rowsResult.isErr()) {
-          return err(rowsResult.error);
-        }
+          const rowsResult = validateDatasetRows(input.rows);
+          if (rowsResult.isErr()) {
+            return err(rowsResult.error);
+          }
 
-        const updated = await trx
-          .updateTable('advancedmapdatasets')
-          .set({
-            row_count: rowsResult.value.length,
-            replaced_at: new Date(),
-            updated_at: new Date(),
-          } as never)
-          .where('id', '=', input.datasetId)
-          .where('user_id', '=', input.userId)
-          .where('deleted_at', 'is', null)
-          .returningAll()
-          .executeTakeFirst();
+          const updated = await trx
+            .updateTable('advancedmapdatasets')
+            .set({
+              row_count: rowsResult.value.length,
+              replaced_at: new Date(),
+              updated_at: new Date(),
+            } as never)
+            .where('id', '=', input.datasetId)
+            .where('user_id', '=', input.userId)
+            .where('deleted_at', 'is', null)
+            .returningAll()
+            .executeTakeFirst();
 
-        if (updated === undefined) {
-          return ok<AdvancedMapDatasetDetail | null, AdvancedMapDatasetError>(null);
-        }
+          if (updated === undefined) {
+            return ok<AdvancedMapDatasetDetail | null, AdvancedMapDatasetError>(null);
+          }
 
-        await trx
-          .deleteFrom('advancedmapdatasetrows')
-          .where('dataset_id', '=', input.datasetId)
-          .execute();
-        await insertDatasetRows(trx, input.datasetId, rowsResult.value);
+          await trx
+            .deleteFrom('advancedmapdatasetrows')
+            .where('dataset_id', '=', input.datasetId)
+            .execute();
+          await insertDatasetRows(trx, input.datasetId, rowsResult.value);
 
-        return ok({
-          ...toSummary(updated as unknown as DatasetRow),
-          rows: [...rowsResult.value],
-        } satisfies AdvancedMapDatasetDetail);
-      });
+          return ok({
+            ...toSummary(updated as unknown as DatasetRow),
+            rows: [...rowsResult.value],
+          } satisfies AdvancedMapDatasetDetail);
+        });
 
       return txResult;
     } catch (error) {
+      if (error instanceof UserDataOwnerDeletedError)
+        return err(createForbiddenError(error.message));
       this.log.error(
         { err: error, datasetId: input.datasetId, userId: input.userId },
         'Failed to replace dataset rows'
@@ -606,51 +628,57 @@ class KyselyAdvancedMapDatasetsRepo implements AdvancedMapDatasetRepository {
     allowPublicWrite: boolean
   ): Promise<Result<boolean, AdvancedMapDatasetError>> {
     try {
-      const txResult = await this.db.transaction().execute(async (trx) => {
-        await acquireAdvancedMapDatasetTransactionLocks(trx, [datasetId]);
+      const txResult = await this.db
+        .transaction()
+        .setIsolationLevel('read committed')
+        .execute(async (trx) => {
+          await assertUserDataOwnerCanWrite(trx, userId);
+          await acquireAdvancedMapDatasetTransactionLocks(trx, [datasetId]);
 
-        const current = await trx
-          .selectFrom('advancedmapdatasets')
-          .selectAll()
-          .where('id', '=', datasetId)
-          .where('user_id', '=', userId)
-          .where('deleted_at', 'is', null)
-          .forUpdate()
-          .executeTakeFirst();
+          const current = await trx
+            .selectFrom('advancedmapdatasets')
+            .selectAll()
+            .where('id', '=', datasetId)
+            .where('user_id', '=', userId)
+            .where('deleted_at', 'is', null)
+            .forUpdate()
+            .executeTakeFirst();
 
-        if (current === undefined) {
-          return ok<boolean, AdvancedMapDatasetError>(false);
-        }
+          if (current === undefined) {
+            return ok<boolean, AdvancedMapDatasetError>(false);
+          }
 
-        const currentRow = current as unknown as DatasetRow;
-        if (!allowPublicWrite && currentRow.visibility === 'public') {
-          return err(createForbiddenError(PUBLIC_DATASET_WRITE_FORBIDDEN_MESSAGE));
-        }
+          const currentRow = current as unknown as DatasetRow;
+          if (!allowPublicWrite && currentRow.visibility === 'public') {
+            return err(createForbiddenError(PUBLIC_DATASET_WRITE_FORBIDDEN_MESSAGE));
+          }
 
-        const references = await listSnapshotBackedReferences(trx, {
-          datasetId: currentRow.id,
-          datasetPublicId: currentRow.public_id,
+          const references = await listSnapshotBackedReferences(trx, {
+            datasetId: currentRow.id,
+            datasetPublicId: currentRow.public_id,
+          });
+          if (references.length > 0) {
+            return err(createDatasetInUseError(references));
+          }
+
+          const result = await trx
+            .updateTable('advancedmapdatasets')
+            .set({
+              deleted_at: new Date(),
+              updated_at: new Date(),
+            } as never)
+            .where('id', '=', datasetId)
+            .where('user_id', '=', userId)
+            .where('deleted_at', 'is', null)
+            .executeTakeFirst();
+
+          return ok(Number(result.numUpdatedRows) > 0);
         });
-        if (references.length > 0) {
-          return err(createDatasetInUseError(references));
-        }
-
-        const result = await trx
-          .updateTable('advancedmapdatasets')
-          .set({
-            deleted_at: new Date(),
-            updated_at: new Date(),
-          } as never)
-          .where('id', '=', datasetId)
-          .where('user_id', '=', userId)
-          .where('deleted_at', 'is', null)
-          .executeTakeFirst();
-
-        return ok(Number(result.numUpdatedRows) > 0);
-      });
 
       return txResult;
     } catch (error) {
+      if (error instanceof UserDataOwnerDeletedError)
+        return err(createForbiddenError(error.message));
       this.log.error({ err: error, datasetId, userId }, 'Failed to delete dataset');
       return err(createProviderError('Failed to delete dataset', error));
     }

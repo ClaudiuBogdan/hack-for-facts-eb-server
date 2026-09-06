@@ -3,6 +3,8 @@ import { createHash } from 'node:crypto';
 import { sql, type Transaction } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
+import { acquireUserDataOwnerLock } from '@/infra/database/user/advisory-locks.js';
+
 import type { UserDbClient } from '@/infra/database/client.js';
 import type { UserDatabase } from '@/infra/database/user/types.js';
 import type { Logger } from 'pino';
@@ -1091,16 +1093,20 @@ export const makeUserDataAnonymizer = (deps: UserDataAnonymizerDeps): UserDataAn
           startedAt: new Date(),
         });
 
-        const legacySummary = await deps.db.transaction().execute((trx) =>
-          anonymizeDeletedUserInTransaction(
-            trx,
-            {
-              ...input,
-              userId,
-            },
-            anonymizedUserId
-          )
-        );
+        const legacySummary = await deps.db
+          .transaction()
+          .setIsolationLevel('read committed')
+          .execute(async (trx) => {
+            await acquireUserDataOwnerLock(trx, userId);
+            return anonymizeDeletedUserInTransaction(
+              trx,
+              {
+                ...input,
+                userId,
+              },
+              anonymizedUserId
+            );
+          });
 
         const userDataStoreResult =
           deps.userDataStoreEraser === undefined

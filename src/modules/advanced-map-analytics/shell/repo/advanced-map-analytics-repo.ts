@@ -6,6 +6,10 @@ import { sql, type Transaction } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
 import { acquireAdvancedMapDatasetTransactionLocks } from '@/infra/database/user/advisory-locks.js';
+import {
+  assertUserDataOwnerCanWrite,
+  UserDataOwnerDeletedError,
+} from '@/infra/database/user/owner-write-guard.js';
 
 import {
   createForbiddenError,
@@ -384,30 +388,38 @@ class KyselyAdvancedMapAnalyticsRepo implements AdvancedMapAnalyticsRepository {
     input: CreateMapParams
   ): Promise<Result<AdvancedMapAnalyticsMap, AdvancedMapAnalyticsError>> {
     try {
-      const inserted = await this.db
-        .insertInto('advancedmapanalyticsmaps')
-        .values({
-          id: input.mapId,
-          user_id: input.userId,
-          title: input.title,
-          description: input.description,
-          visibility: input.visibility,
-          public_id: input.publicId,
-          last_snapshot: null,
-          last_snapshot_id: null,
-          snapshot_count: 0,
-          public_view_count: 0,
-          updated_at: new Date(),
-        } as never)
-        .returningAll()
-        .executeTakeFirst();
+      return await this.db
+        .transaction()
+        .setIsolationLevel('read committed')
+        .execute(async (trx) => {
+          await assertUserDataOwnerCanWrite(trx, input.userId);
+          const inserted = await trx
+            .insertInto('advancedmapanalyticsmaps')
+            .values({
+              id: input.mapId,
+              user_id: input.userId,
+              title: input.title,
+              description: input.description,
+              visibility: input.visibility,
+              public_id: input.publicId,
+              last_snapshot: null,
+              last_snapshot_id: null,
+              snapshot_count: 0,
+              public_view_count: 0,
+              updated_at: new Date(),
+            } as never)
+            .returningAll()
+            .executeTakeFirst();
 
-      if (inserted === undefined) {
-        return err(createProviderError('Failed to create map'));
-      }
+          if (inserted === undefined) {
+            return err(createProviderError('Failed to create map'));
+          }
 
-      return ok(mapMapRow(inserted as unknown as MapRow));
+          return ok(mapMapRow(inserted as unknown as MapRow));
+        });
     } catch (error) {
+      if (error instanceof UserDataOwnerDeletedError)
+        return err(createForbiddenError(error.message));
       this.log.error(
         { err: error, userId: input.userId },
         'Failed to create advanced map analytics map'
@@ -463,71 +475,77 @@ class KyselyAdvancedMapAnalyticsRepo implements AdvancedMapAnalyticsRepository {
     input: UpdateMapParams
   ): Promise<Result<AdvancedMapAnalyticsMap | null, AdvancedMapAnalyticsError>> {
     try {
-      const txResult = await this.db.transaction().execute(async (trx) => {
-        const mapRow = await trx
-          .selectFrom('advancedmapanalyticsmaps')
-          .selectAll()
-          .where('id', '=', input.mapId)
-          .where('user_id', '=', input.userId)
-          .where('deleted_at', 'is', null)
-          .forUpdate()
-          .executeTakeFirst();
+      const txResult = await this.db
+        .transaction()
+        .setIsolationLevel('read committed')
+        .execute(async (trx) => {
+          await assertUserDataOwnerCanWrite(trx, input.userId);
+          const mapRow = await trx
+            .selectFrom('advancedmapanalyticsmaps')
+            .selectAll()
+            .where('id', '=', input.mapId)
+            .where('user_id', '=', input.userId)
+            .where('deleted_at', 'is', null)
+            .forUpdate()
+            .executeTakeFirst();
 
-        if (mapRow === undefined) {
-          return ok<AdvancedMapAnalyticsMap | null, AdvancedMapAnalyticsError>(null);
-        }
-
-        if (
-          !input.allowPublicWrite &&
-          (mapRow.visibility === 'public' || input.visibility === 'public')
-        ) {
-          return err(createForbiddenError(PUBLIC_MAP_WRITE_FORBIDDEN_MESSAGE));
-        }
-
-        if (input.visibility === 'public') {
-          const referencedDatasetRefs = extractUploadedDatasetReferencesFromSnapshot(
-            mapRow.last_snapshot
-          );
-          const referencedDatasetIds = await resolveUploadedDatasetReferenceIdsForLocking(
-            trx,
-            referencedDatasetRefs
-          );
-          await acquireAdvancedMapDatasetTransactionLocks(trx, referencedDatasetIds);
-
-          const datasetValidationResult = await validateUploadedDatasetAccessForMapWrite(trx, {
-            userId: input.userId,
-            references: referencedDatasetRefs,
-            requireShareable: true,
-          });
-          if (datasetValidationResult.isErr()) {
-            return err(datasetValidationResult.error);
+          if (mapRow === undefined) {
+            return ok<AdvancedMapAnalyticsMap | null, AdvancedMapAnalyticsError>(null);
           }
-        }
 
-        const updated = await trx
-          .updateTable('advancedmapanalyticsmaps')
-          .set({
-            title: input.title,
-            description: input.description,
-            visibility: input.visibility,
-            public_id: input.publicId,
-            updated_at: new Date(),
-          } as never)
-          .where('id', '=', input.mapId)
-          .where('user_id', '=', input.userId)
-          .where('deleted_at', 'is', null)
-          .returningAll()
-          .executeTakeFirst();
+          if (
+            !input.allowPublicWrite &&
+            (mapRow.visibility === 'public' || input.visibility === 'public')
+          ) {
+            return err(createForbiddenError(PUBLIC_MAP_WRITE_FORBIDDEN_MESSAGE));
+          }
 
-        if (updated === undefined) {
-          return ok<AdvancedMapAnalyticsMap | null, AdvancedMapAnalyticsError>(null);
-        }
+          if (input.visibility === 'public') {
+            const referencedDatasetRefs = extractUploadedDatasetReferencesFromSnapshot(
+              mapRow.last_snapshot
+            );
+            const referencedDatasetIds = await resolveUploadedDatasetReferenceIdsForLocking(
+              trx,
+              referencedDatasetRefs
+            );
+            await acquireAdvancedMapDatasetTransactionLocks(trx, referencedDatasetIds);
 
-        return ok(mapMapRow(updated as unknown as MapRow));
-      });
+            const datasetValidationResult = await validateUploadedDatasetAccessForMapWrite(trx, {
+              userId: input.userId,
+              references: referencedDatasetRefs,
+              requireShareable: true,
+            });
+            if (datasetValidationResult.isErr()) {
+              return err(datasetValidationResult.error);
+            }
+          }
+
+          const updated = await trx
+            .updateTable('advancedmapanalyticsmaps')
+            .set({
+              title: input.title,
+              description: input.description,
+              visibility: input.visibility,
+              public_id: input.publicId,
+              updated_at: new Date(),
+            } as never)
+            .where('id', '=', input.mapId)
+            .where('user_id', '=', input.userId)
+            .where('deleted_at', 'is', null)
+            .returningAll()
+            .executeTakeFirst();
+
+          if (updated === undefined) {
+            return ok<AdvancedMapAnalyticsMap | null, AdvancedMapAnalyticsError>(null);
+          }
+
+          return ok(mapMapRow(updated as unknown as MapRow));
+        });
 
       return txResult;
     } catch (error) {
+      if (error instanceof UserDataOwnerDeletedError)
+        return err(createForbiddenError(error.message));
       this.log.error(
         { err: error, mapId: input.mapId, userId: input.userId },
         'Failed to update map'
@@ -542,49 +560,55 @@ class KyselyAdvancedMapAnalyticsRepo implements AdvancedMapAnalyticsRepository {
     allowPublicWrite: boolean
   ): Promise<Result<boolean, AdvancedMapAnalyticsError>> {
     try {
-      const txResult = await this.db.transaction().execute(async (trx) => {
-        const mapRow = await trx
-          .selectFrom('advancedmapanalyticsmaps')
-          .selectAll()
-          .where('id', '=', mapId)
-          .where('user_id', '=', userId)
-          .where('deleted_at', 'is', null)
-          .forUpdate()
-          .executeTakeFirst();
+      const txResult = await this.db
+        .transaction()
+        .setIsolationLevel('read committed')
+        .execute(async (trx) => {
+          await assertUserDataOwnerCanWrite(trx, userId);
+          const mapRow = await trx
+            .selectFrom('advancedmapanalyticsmaps')
+            .selectAll()
+            .where('id', '=', mapId)
+            .where('user_id', '=', userId)
+            .where('deleted_at', 'is', null)
+            .forUpdate()
+            .executeTakeFirst();
 
-        if (mapRow === undefined) {
-          return ok<boolean, AdvancedMapAnalyticsError>(false);
-        }
+          if (mapRow === undefined) {
+            return ok<boolean, AdvancedMapAnalyticsError>(false);
+          }
 
-        if (!allowPublicWrite && mapRow.visibility === 'public') {
-          return err(createForbiddenError(PUBLIC_MAP_WRITE_FORBIDDEN_MESSAGE));
-        }
+          if (!allowPublicWrite && mapRow.visibility === 'public') {
+            return err(createForbiddenError(PUBLIC_MAP_WRITE_FORBIDDEN_MESSAGE));
+          }
 
-        const now = new Date();
-        await trx
-          .updateTable('advancedmapanalyticsmaps')
-          .set({
-            deleted_at: now,
-            updated_at: now,
-          } as never)
-          .where('id', '=', mapId)
-          .where('user_id', '=', userId)
-          .where('deleted_at', 'is', null)
-          .execute();
+          const now = new Date();
+          await trx
+            .updateTable('advancedmapanalyticsmaps')
+            .set({
+              deleted_at: now,
+              updated_at: now,
+            } as never)
+            .where('id', '=', mapId)
+            .where('user_id', '=', userId)
+            .where('deleted_at', 'is', null)
+            .execute();
 
-        const removedDatasetRefs = extractUploadedDatasetReferencesFromSnapshot(
-          mapRow.last_snapshot
-        );
-        const removedDatasetIds = await resolveUploadedDatasetReferenceIdsForLocking(
-          trx,
-          removedDatasetRefs
-        );
-        await applyDatasetReferenceDelta(trx, removedDatasetIds, []);
-        return ok<boolean, AdvancedMapAnalyticsError>(true);
-      });
+          const removedDatasetRefs = extractUploadedDatasetReferencesFromSnapshot(
+            mapRow.last_snapshot
+          );
+          const removedDatasetIds = await resolveUploadedDatasetReferenceIdsForLocking(
+            trx,
+            removedDatasetRefs
+          );
+          await applyDatasetReferenceDelta(trx, removedDatasetIds, []);
+          return ok<boolean, AdvancedMapAnalyticsError>(true);
+        });
 
       return txResult;
     } catch (error) {
+      if (error instanceof UserDataOwnerDeletedError)
+        return err(createForbiddenError(error.message));
       this.log.error({ err: error, mapId, userId }, 'Failed to soft delete map');
       return err(createProviderError('Failed to delete map', error));
     }
@@ -599,117 +623,123 @@ class KyselyAdvancedMapAnalyticsRepo implements AdvancedMapAnalyticsRepository {
     >
   > {
     try {
-      const txResult = await this.db.transaction().execute(async (trx) => {
-        const mapRow = await trx
-          .selectFrom('advancedmapanalyticsmaps')
-          .selectAll()
-          .where('id', '=', input.mapId)
-          .where('user_id', '=', input.userId)
-          .where('deleted_at', 'is', null)
-          .forUpdate()
-          .executeTakeFirst();
+      const txResult = await this.db
+        .transaction()
+        .setIsolationLevel('read committed')
+        .execute(async (trx) => {
+          await assertUserDataOwnerCanWrite(trx, input.userId);
+          const mapRow = await trx
+            .selectFrom('advancedmapanalyticsmaps')
+            .selectAll()
+            .where('id', '=', input.mapId)
+            .where('user_id', '=', input.userId)
+            .where('deleted_at', 'is', null)
+            .forUpdate()
+            .executeTakeFirst();
 
-        if (mapRow === undefined) {
-          return err(createNotFoundError('Map not found'));
-        }
+          if (mapRow === undefined) {
+            return err(createNotFoundError('Map not found'));
+          }
 
-        if (mapRow.snapshot_count >= input.snapshotCap) {
-          return err(createSnapshotLimitReachedError(input.snapshotCap));
-        }
+          if (mapRow.snapshot_count >= input.snapshotCap) {
+            return err(createSnapshotLimitReachedError(input.snapshotCap));
+          }
 
-        if (
-          !input.allowPublicWrite &&
-          (mapRow.visibility === 'public' || input.nextVisibility === 'public')
-        ) {
-          return err(createForbiddenError(PUBLIC_MAP_WRITE_FORBIDDEN_MESSAGE));
-        }
+          if (
+            !input.allowPublicWrite &&
+            (mapRow.visibility === 'public' || input.nextVisibility === 'public')
+          ) {
+            return err(createForbiddenError(PUBLIC_MAP_WRITE_FORBIDDEN_MESSAGE));
+          }
 
-        const now = new Date();
-        const snapshotJson = JSON.stringify(input.snapshotDocument);
-        const removedDatasetRefs = extractUploadedDatasetReferencesFromSnapshot(
-          mapRow.last_snapshot
-        );
-        const addedDatasetRefs = extractUploadedDatasetReferencesFromSnapshot(
-          input.snapshotDocument
-        );
-        const removedDatasetIds = await resolveUploadedDatasetReferenceIdsForLocking(
-          trx,
-          removedDatasetRefs
-        );
-        const addedDatasetIdsForLocking = await resolveUploadedDatasetReferenceIdsForLocking(
-          trx,
-          addedDatasetRefs
-        );
-        const lockedDatasetIds = normalizeDatasetIds([
-          ...removedDatasetIds,
-          ...addedDatasetIdsForLocking,
-        ]);
+          const now = new Date();
+          const snapshotJson = JSON.stringify(input.snapshotDocument);
+          const removedDatasetRefs = extractUploadedDatasetReferencesFromSnapshot(
+            mapRow.last_snapshot
+          );
+          const addedDatasetRefs = extractUploadedDatasetReferencesFromSnapshot(
+            input.snapshotDocument
+          );
+          const removedDatasetIds = await resolveUploadedDatasetReferenceIdsForLocking(
+            trx,
+            removedDatasetRefs
+          );
+          const addedDatasetIdsForLocking = await resolveUploadedDatasetReferenceIdsForLocking(
+            trx,
+            addedDatasetRefs
+          );
+          const lockedDatasetIds = normalizeDatasetIds([
+            ...removedDatasetIds,
+            ...addedDatasetIdsForLocking,
+          ]);
 
-        await acquireAdvancedMapDatasetTransactionLocks(trx, lockedDatasetIds);
+          await acquireAdvancedMapDatasetTransactionLocks(trx, lockedDatasetIds);
 
-        const datasetValidationResult = await validateUploadedDatasetAccessForMapWrite(trx, {
-          userId: input.userId,
-          references: addedDatasetRefs,
-          requireShareable: input.nextVisibility === 'public',
+          const datasetValidationResult = await validateUploadedDatasetAccessForMapWrite(trx, {
+            userId: input.userId,
+            references: addedDatasetRefs,
+            requireShareable: input.nextVisibility === 'public',
+          });
+          if (datasetValidationResult.isErr()) {
+            return err(datasetValidationResult.error);
+          }
+          const addedDatasetIds = datasetValidationResult.value;
+
+          const updatedMap = await trx
+            .updateTable('advancedmapanalyticsmaps')
+            .set({
+              title: input.nextMapTitle,
+              description: input.nextMapDescription,
+              visibility: input.nextVisibility,
+              public_id: input.nextPublicId,
+              last_snapshot_id: input.snapshotId,
+              last_snapshot: sql`${snapshotJson}::jsonb`,
+              snapshot_count: sql<number>`snapshot_count + 1`,
+              updated_at: now,
+            } as never)
+            .where('id', '=', input.mapId)
+            .where('user_id', '=', input.userId)
+            .where('deleted_at', 'is', null)
+            .returningAll()
+            .executeTakeFirst();
+
+          if (updatedMap === undefined) {
+            return err(createNotFoundError('Map not found'));
+          }
+
+          const insertedSnapshot = await trx
+            .insertInto('advancedmapanalyticssnapshots')
+            .values({
+              id: input.snapshotId,
+              map_id: input.mapId,
+              title: input.snapshotTitle,
+              description: input.snapshotDescription,
+              snapshot: sql`${snapshotJson}::jsonb`,
+            } as never)
+            .returningAll()
+            .executeTakeFirst();
+
+          if (insertedSnapshot === undefined) {
+            throw new Error('Failed to insert snapshot row');
+          }
+
+          const snapshotDetail = mapSnapshotDetailRow(insertedSnapshot);
+          if (snapshotDetail === null) {
+            throw new Error('Snapshot payload validation failed after insert');
+          }
+
+          await applyDatasetReferenceDelta(trx, removedDatasetIds, addedDatasetIds);
+
+          return ok({
+            map: mapMapRow(updatedMap as unknown as MapRow),
+            snapshot: snapshotDetail,
+          });
         });
-        if (datasetValidationResult.isErr()) {
-          return err(datasetValidationResult.error);
-        }
-        const addedDatasetIds = datasetValidationResult.value;
-
-        const updatedMap = await trx
-          .updateTable('advancedmapanalyticsmaps')
-          .set({
-            title: input.nextMapTitle,
-            description: input.nextMapDescription,
-            visibility: input.nextVisibility,
-            public_id: input.nextPublicId,
-            last_snapshot_id: input.snapshotId,
-            last_snapshot: sql`${snapshotJson}::jsonb`,
-            snapshot_count: sql<number>`snapshot_count + 1`,
-            updated_at: now,
-          } as never)
-          .where('id', '=', input.mapId)
-          .where('user_id', '=', input.userId)
-          .where('deleted_at', 'is', null)
-          .returningAll()
-          .executeTakeFirst();
-
-        if (updatedMap === undefined) {
-          return err(createNotFoundError('Map not found'));
-        }
-
-        const insertedSnapshot = await trx
-          .insertInto('advancedmapanalyticssnapshots')
-          .values({
-            id: input.snapshotId,
-            map_id: input.mapId,
-            title: input.snapshotTitle,
-            description: input.snapshotDescription,
-            snapshot: sql`${snapshotJson}::jsonb`,
-          } as never)
-          .returningAll()
-          .executeTakeFirst();
-
-        if (insertedSnapshot === undefined) {
-          throw new Error('Failed to insert snapshot row');
-        }
-
-        const snapshotDetail = mapSnapshotDetailRow(insertedSnapshot);
-        if (snapshotDetail === null) {
-          throw new Error('Snapshot payload validation failed after insert');
-        }
-
-        await applyDatasetReferenceDelta(trx, removedDatasetIds, addedDatasetIds);
-
-        return ok({
-          map: mapMapRow(updatedMap as unknown as MapRow),
-          snapshot: snapshotDetail,
-        });
-      });
 
       return txResult;
     } catch (error) {
+      if (error instanceof UserDataOwnerDeletedError)
+        return err(createForbiddenError(error.message));
       this.log.error(
         { err: error, mapId: input.mapId, userId: input.userId },
         'Failed to append snapshot'
