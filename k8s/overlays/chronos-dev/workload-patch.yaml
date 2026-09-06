@@ -43,6 +43,13 @@ spec:
           args:
             - dist/redesign-api.js
           env:
+            - name: USER_DATA_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: transparenta-eu-dev-user-db-app
+                  key: uri
+            - name: USER_DATA_DB_CA_FILE
+              value: /var/run/secrets/chronos-dev-user-db/ca.crt
             - name: BULLMQ_REDIS_PASSWORD
               $patch: delete
             - name: PROD_MEILI_SEARCH_API_KEY
@@ -60,6 +67,10 @@ spec:
                 secretKeyRef:
                   name: chronos-prod-opensearch-reader-credentials
                   key: password
+          volumeMounts:
+            - name: chronos-dev-user-db-ca
+              mountPath: /var/run/secrets/chronos-dev-user-db
+              readOnly: true
           readinessProbe:
             httpGet:
               path: /api/v1/ready
@@ -74,3 +85,10 @@ spec:
               port: 3000
           lifecycle:
             $patch: delete
+      volumes:
+        - name: chronos-dev-user-db-ca
+          secret:
+            secretName: transparenta-eu-dev-user-db-ca
+            items:
+              - key: ca.crt
+                path: ca.crt

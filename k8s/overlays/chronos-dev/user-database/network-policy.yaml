@@ -1,0 +1,53 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: dev-user-database
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: transparenta-eu-dev-user-db
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: hack-for-facts-eb-server
+      ports:
+        - protocol: TCP
+          port: 5432
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: cnpg-system
+      ports:
+        - protocol: TCP
+          port: 8000
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 100.80.7.42/32
+        - ipBlock:
+            cidr: 10.43.0.1/32
+      ports:
+        - protocol: TCP
+          port: 6443
+        - protocol: TCP
+          port: 443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: server-dev-user-database
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: hack-for-facts-eb-server
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: transparenta-eu-dev-user-db
+      ports:
+        - protocol: TCP
+          port: 5432

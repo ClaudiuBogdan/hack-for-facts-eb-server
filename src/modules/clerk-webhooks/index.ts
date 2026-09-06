@@ -24,5 +24,6 @@ export { makeClerkWebhookRoutes, type ClerkWebhookRoutesDeps } from './shell/res
 
 export {
   makeClerkUserDeletedAnonymizationHandler,
+  makeClerkUserDeletionRoutes,
   type ClerkUserDeletedAnonymizationHandlerDeps,
 } from './shell/handlers/user-deleted-anonymization-handler.js';

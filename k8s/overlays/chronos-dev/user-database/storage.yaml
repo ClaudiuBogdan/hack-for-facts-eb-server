@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: transparenta-eu-dev-user-db-data
+  labels:
+    app.kubernetes.io/environment: development
+spec:
+  capacity:
+    storage: 20Gi
+  volumeMode: Filesystem
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: chronos-local-encrypted
+  claimRef:
+    namespace: transparenta-eu-dev
+    name: transparenta-eu-dev-user-db-1
+  local:
+    path: /var/lib/chronos-encrypted/pv/transparenta-eu-dev/user-db-data
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [chronos]

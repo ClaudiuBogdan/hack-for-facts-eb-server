@@ -32,7 +32,9 @@ import {
   LEGACY_FACTOR_SET_ID,
   LEGACY_FACTOR_SET_DIGEST,
 } from '../modules/budget/index.js';
+import { makeClerkUserDeletionRoutes } from '../modules/clerk-webhooks/index.js';
 import { makeCompaniesModule } from '../modules/companies/index.js';
+import { makeDbHealthChecker } from '../modules/health/index.js';
 import { makeInsNativeModule, type InsReadSession } from '../modules/ins-native/index.js';
 import { makeJudicialModule } from '../modules/judicial/index.js';
 import { makeLegalModule } from '../modules/legal/index.js';
@@ -55,6 +57,7 @@ import type { UserDatabase } from '../infra/database/user/types.js';
 import type { AgentModuleConfig } from '../modules/agent/index.js';
 import type { QuotaRedis } from '../modules/agent/shell/quota/quota-store.js';
 import type { Kysely } from 'kysely';
+import type { Logger } from 'pino';
 
 /**
  * Deps for the OPTIONAL agent service module (docs/AGENT-MODULE-SPEC.md).
@@ -125,6 +128,7 @@ export interface BuildRedesignAppDeps {
    * where every caller is anonymous.
    */
   readonly authProvider?: AuthProvider;
+  readonly userData?: { readonly db: Kysely<UserDatabase>; readonly signingSecret: string };
 }
 
 export interface RedesignApp {
@@ -231,13 +235,19 @@ export const buildRedesignApp = async (deps: BuildRedesignAppDeps): Promise<Rede
     credentials: true,
   });
 
-  const kernel = await registerRedesignSurface(app, {
-    ...deps,
-    // Only the standalone app replaces interim INS with certified native INS.
-    modules: deps.modules ?? [...SHARED_DEFAULT_MODULES, 'ins-native'],
-  });
-
-  return { app, kernel };
+  try {
+    const kernel = await registerRedesignSurface(app, {
+      ...deps,
+      modules: deps.modules ?? [...SHARED_DEFAULT_MODULES, 'ins-native'],
+    });
+    return { app, kernel };
+  } catch (error) {
+    // The caller cannot close an app that construction never returned.
+    await app.close().catch(() => {
+      app.log.error('Failed to close incomplete native app');
+    });
+    throw error;
+  }
 };
 
 /**
@@ -305,6 +315,28 @@ export const registerRedesignSurface = async (
   app.addHook('onClose', async () => {
     await kernel.close();
   });
+
+  const userDataHealth =
+    deps.userData === undefined
+      ? undefined
+      : makeDbHealthChecker(deps.userData.db, { name: 'user-database' });
+  if (deps.userData !== undefined) {
+    const userDb = deps.userData.db;
+    app.addHook('onClose', async () => {
+      await userDb.destroy();
+    });
+    if (deps.authProvider === undefined)
+      throw new Error('User data requires configured authentication');
+    // Verify required tombstone storage before registering the deletion receiver.
+    await userDb.selectFrom('userdataanonymizationaudit').select('user_id_hash').limit(0).execute();
+    await app.register(
+      makeClerkUserDeletionRoutes({
+        db: userDb,
+        signingSecret: deps.userData.signingSecret,
+        logger: app.log as Logger,
+      })
+    );
+  }
 
   // ── Source modules (built on the kernel) ─────────────────────────────────────
   // Each module augments ProdDatabase, contributes a GraphQL slice + MCP tools,
@@ -731,17 +763,29 @@ export const registerRedesignSurface = async (
     await app.register(agent.routesPlugin, { prefix: '/api/v1/agent' });
   }
 
+  const publicUserDataHealth = async () => {
+    const check = await userDataHealth?.();
+    // Public status excludes the checker's database error message and connection details.
+    return check === undefined ? undefined : { status: check.status, latencyMs: check.latencyMs };
+  };
+
   // ── Health / readiness ───────────────────────────────────────────────────────
   app.get('/api/v1/health', async (_request, reply) => {
     const report = await kernel.health();
+    const userDatabase = await publicUserDataHealth();
     // Liveness never hard-fails on aux down (§14.11); always 200.
-    return reply.code(200).send(report);
+    return reply.code(200).send({ ...report, ...(userDatabase !== undefined && { userDatabase }) });
   });
 
   app.get('/api/v1/ready', async (_request, reply) => {
     const report = await kernel.health();
-    const ready = report.postgres.status === 'ok';
-    return reply.code(ready ? 200 : 503).send({ ready, ...report });
+    const userDatabase = await publicUserDataHealth();
+    const ready =
+      report.postgres.status === 'ok' &&
+      (userDatabase === undefined || userDatabase.status === 'healthy');
+    return reply
+      .code(ready ? 200 : 503)
+      .send({ ready, ...report, ...(userDatabase !== undefined && { userDatabase }) });
   });
 
   return kernel;

@@ -59,3 +59,31 @@ describe('native Clerk configuration', () => {
     }
   });
 });
+
+describe('native user-data configuration', () => {
+  const base = {
+    PROD_DATABASE_URL: 'postgres://reader@example.invalid/transparenta_prod',
+    CLERK_JWT_KEY: 'public key',
+    CLERK_ISSUER: 'https://example.clerk.accounts.dev',
+    CLERK_AUTHORIZED_PARTIES: 'https://dev.example.test',
+  };
+  const userData = {
+    USER_DATA_DATABASE_URL: 'postgres://app@dev.example.invalid/user_data',
+    USER_DATA_DB_CA_FILE: '/public/ca.crt',
+    CLERK_WEBHOOK_SIGNING_SECRET: 'test-signing-secret',
+  };
+  it('requires auth, dedicated TLS database configuration and deletion verification together', () => {
+    for (const key of Object.keys(userData)) {
+      const incomplete = Object.fromEntries(
+        Object.entries(userData).filter(([name]) => name !== key)
+      );
+      expect(() => loadRedesignConfig({ ...base, ...incomplete })).toThrow(/User data requires/);
+    }
+    expect(() =>
+      loadRedesignConfig({ PROD_DATABASE_URL: base.PROD_DATABASE_URL, ...userData })
+    ).toThrow(/User data requires/);
+    expect(loadRedesignConfig({ ...base, ...userData }).userData?.url).toBe(
+      userData.USER_DATA_DATABASE_URL
+    );
+  });
+});

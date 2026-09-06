@@ -1,6 +1,6 @@
 # Chronos development overlay
 
-This overlay renders the redesign-only, read-only Transparenta.eu API workload
+This overlay renders the native Transparenta.eu API workload
 deployed as an internal canary in the Chronos namespace
 `transparenta-eu-dev`. Argo tracks `refs/heads/dev` with manual sync, prune off,
 and self-heal off, so a branch update changes only the reviewed desired state
@@ -13,10 +13,11 @@ ingress remains centrally owned, while writable state and production-derived
 read-only access remain in the separately approved manual data lane.
 
 The Deployment overrides the image command with `dist/redesign-api.js`. This
-entrypoint does not initialize the legacy budget, INS, user-data, Clerk webhook,
-email, notification, BullMQ, campaign, or agent runtimes. It consumes only the
-Chronos-local read-only production database plus read-only Meilisearch and
-OpenSearch identities. ClickHouse is explicitly disabled for the initial
+entrypoint reads native budget and INS from Chronos through read-only production
+and search identities. Optional development Clerk authentication and the verified
+user-deletion receiver use a separate restricted writable dev user database; see
+[user-database/README.md](user-database/README.md). It never initializes schema or
+mounts legacy email, notification, BullMQ, campaign or user-data writers. ClickHouse is explicitly disabled for the initial
 canary.
 
 Secrets are generated independently from this repository by
@@ -46,5 +47,5 @@ Expected kinds are one ConfigMap, Deployment, PodDisruptionBudget, Service,
 and ServiceAccount. A render containing `VirtualService`, CNPG `Cluster`,
 Redis, BullMQ, PVC, `HTTPRoute`, or a Secret is a failure.
 
-The separate `secrets/` render must contain exactly four SealedSecrets and no
+The separate `secrets/` render must contain exactly six SealedSecrets and no
 raw Secret.

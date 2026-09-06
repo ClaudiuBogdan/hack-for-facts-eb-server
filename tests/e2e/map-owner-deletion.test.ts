@@ -1,15 +1,18 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
+import fastifyLib from 'fastify';
 import { Kysely, PostgresDialect, sql } from 'kysely';
 import pg from 'pg';
 import pinoLogger from 'pino';
+import { Webhook } from 'svix';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { acquireUserDataOwnerLock } from '@/infra/database/user/advisory-locks.js';
 import { assertUserDataOwnerCanWrite } from '@/infra/database/user/owner-write-guard.js';
 import { makeAdvancedMapAnalyticsRepo } from '@/modules/advanced-map-analytics/index.js';
 import { makeAdvancedMapDatasetsRepo } from '@/modules/advanced-map-datasets/index.js';
+import { makeClerkUserDeletionRoutes } from '@/modules/clerk-webhooks/index.js';
 import { makeUserDataAnonymizer } from '@/modules/clerk-webhooks/shell/anonymization/user-data-anonymizer.js';
 
 import type { UserDatabase } from '@/infra/database/user/types.js';
@@ -262,4 +265,55 @@ describe('saved map deletion transaction boundary', () => {
       ).length
     ).toBe(0);
   });
+});
+
+it('the native receiver deletes only after a valid Svix signature', async ({ skip }) => {
+  if (!ready) {
+    skip();
+    return;
+  }
+  const owner = `user_${randomUUID()}`;
+  const maps = makeAdvancedMapAnalyticsRepo({ db, logger });
+  const input = mapInput(owner);
+  expect((await maps.createMap(input)).isOk()).toBe(true);
+  const signingSecret = `whsec_${Buffer.from('disposable-test-signing-key-only').toString('base64')}`;
+  const signer = new Webhook(signingSecret);
+  const app = fastifyLib();
+  await app.register(makeClerkUserDeletionRoutes({ db, signingSecret, logger }));
+  try {
+    const timestamp = new Date();
+    const id = `msg_${randomUUID()}`;
+    const payload = JSON.stringify({
+      data: { id: owner, deleted: true },
+      object: 'event',
+      type: 'user.deleted',
+      timestamp: timestamp.getTime(),
+      instance_id: 'ins_disposable_test',
+    });
+    const headers = {
+      'content-type': 'application/json',
+      'svix-id': id,
+      'svix-timestamp': String(Math.floor(timestamp.getTime() / 1000)),
+      'svix-signature': 'v1,invalid',
+    };
+    expect(
+      (await app.inject({ method: 'POST', url: '/api/v1/webhooks/clerk', payload, headers }))
+        .statusCode
+    ).toBe(401);
+    expect((await maps.getMapForUser(input.mapId, owner)).unwrapOr(null)).not.toBeNull();
+    headers['svix-signature'] = signer.sign(id, timestamp, payload);
+    expect(
+      (await app.inject({ method: 'POST', url: '/api/v1/webhooks/clerk', payload, headers }))
+        .statusCode
+    ).toBe(200);
+    expect((await maps.getMapForUser(input.mapId, owner)).unwrapOr(null)).toBeNull();
+    expect(
+      (await app.inject({ method: 'POST', url: '/api/v1/webhooks/clerk', payload, headers }))
+        .statusCode
+    ).toBe(200);
+    const recreated = await maps.createMap(mapInput(owner));
+    expect(recreated.isErr() && recreated.error.type).toBe('ForbiddenError');
+  } finally {
+    await app.close();
+  }
 });

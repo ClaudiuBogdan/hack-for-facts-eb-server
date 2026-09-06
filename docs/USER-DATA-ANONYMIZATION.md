@@ -255,3 +255,15 @@ both race orderings, started markers, replay, and an unrelated owner against
 the actual schema in a unique disposable PostgreSQL namespace. This guarantee
 covers map/dataset writers; unrelated legacy product runtimes remain unmounted
 in the native dev app.
+
+## Native Chronos development receiver
+
+The optional native user-data configuration requires Clerk authentication, a
+dedicated user-database URL, trusted CA path and webhook signing secret together.
+`makeClerkUserDeletionRoutes` composes the existing verified handler and anonymizer
+inside the Clerk module; the native app never imports the anonymizer directly.
+Startup probes the audit relation and does not run schema initialization. Public
+readiness fails when configured user storage is unavailable without returning DB
+error details. Native map writers are enabled only by their separate feature
+composition. See `k8s/overlays/chronos-dev/user-database/README.md` for custody,
+bootstrap evidence, live validation and rollback boundaries.

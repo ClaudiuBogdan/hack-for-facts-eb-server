@@ -1,0 +1,52 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: transparenta-eu-dev-user-db
+  labels:
+    app.kubernetes.io/environment: development
+spec:
+  imageName: ghcr.io/cloudnative-pg/postgresql:18@sha256:c4d03ff9119154edbdae8879313cdf0aa5143a26e7ae400ca3ebe22dfc680a73
+  instances: 1
+  enableSuperuserAccess: false
+  inheritedMetadata:
+    annotations:
+      sidecar.istio.io/inject: "false"
+  affinity:
+    nodeSelector:
+      kubernetes.io/hostname: chronos
+    podAntiAffinityType: preferred
+  bootstrap:
+    initdb:
+      database: transparenta_dev_userdata
+      owner: transparenta_dev_userdata_owner
+      dataChecksums: true
+      secret:
+        name: transparenta-eu-dev-user-db-bootstrap
+  storage:
+    size: 20Gi
+    storageClass: chronos-local-encrypted
+    pvcTemplate:
+      accessModes: [ReadWriteOnce]
+      volumeName: transparenta-eu-dev-user-db-data
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+  postgresql:
+    parameters:
+      max_connections: "40"
+      password_encryption: scram-sha-256
+  managed:
+    roles:
+      - name: transparenta_dev_userdata_app
+        ensure: present
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        replication: false
+        bypassrls: false
+        passwordSecret:
+          name: transparenta-eu-dev-user-db-app

@@ -8,6 +8,7 @@
 
 import { buildRedesignApp } from './app/build-redesign-app.js';
 import { loadRedesignConfig } from './infra/config/redesign-env.js';
+import { makeUserDataClient } from './infra/database/user-client.js';
 import { makeConfiguredJWTProvider } from './modules/auth/index.js';
 
 const main = async (): Promise<void> => {
@@ -15,14 +16,22 @@ const main = async (): Promise<void> => {
   const authProvider =
     config.auth === undefined ? undefined : await makeConfiguredJWTProvider(config.auth);
 
+  const userDb = config.userData === undefined ? undefined : makeUserDataClient(config.userData);
   const { app, kernel } = await buildRedesignApp({
     kernelConfig: config.kernel,
+    ...(userDb !== undefined &&
+      config.userData !== undefined && {
+        userData: { db: userDb, signingSecret: config.userData.webhookSigningSecret },
+      }),
     ...(authProvider !== undefined && { authProvider }),
     logLevel: config.logLevel,
     corsAllowedOrigins: config.corsAllowedOrigins,
     ...(config.kernel.clientBaseUrl !== undefined && {
       clientBaseUrl: config.kernel.clientBaseUrl,
     }),
+  }).catch(async (error: unknown) => {
+    await userDb?.destroy();
+    throw error;
   });
 
   const shutdown = async (signal: string): Promise<void> => {

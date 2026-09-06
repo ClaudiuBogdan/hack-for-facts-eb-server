@@ -1,6 +1,14 @@
+import {
+  makeUserDataAnonymizer,
+  type UserDataAnonymizer,
+} from '../anonymization/user-data-anonymizer.js';
+import { makeClerkWebhookRoutes } from '../rest/routes.js';
+import { makeClerkWebhookVerifier } from '../svix/verifier.js';
+
 import type { ClerkWebhookEventVerifiedHandler } from '../../core/ports.js';
 import type { ClerkWebhookEvent } from '../../core/types.js';
-import type { UserDataAnonymizer } from '../anonymization/user-data-anonymizer.js';
+import type { UserDbClient } from '@/infra/database/client.js';
+import type { FastifyPluginAsync } from 'fastify';
 import type { Logger } from 'pino';
 
 const USER_DELETED_EVENT_TYPE = 'user.deleted';
@@ -56,3 +64,21 @@ export const makeClerkUserDeletedAnonymizationHandler = (
     );
   };
 };
+
+/** Native product scope: only maps/datasets write this isolated user database. */
+export const makeClerkUserDeletionRoutes = (deps: {
+  readonly db: UserDbClient;
+  readonly signingSecret: string;
+  readonly logger: Logger;
+}): FastifyPluginAsync =>
+  makeClerkWebhookRoutes({
+    webhookVerifier: makeClerkWebhookVerifier({
+      signingSecret: deps.signingSecret,
+      logger: deps.logger,
+    }),
+    logger: deps.logger,
+    onEventVerified: makeClerkUserDeletedAnonymizationHandler({
+      userDataAnonymizer: makeUserDataAnonymizer({ db: deps.db, logger: deps.logger }),
+      logger: deps.logger,
+    }),
+  });

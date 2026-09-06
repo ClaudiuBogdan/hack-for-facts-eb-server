@@ -39,6 +39,10 @@ const RedesignEnvSchema = Type.Object({
   PROD_DB_POOL_MAX: Type.Optional(Type.String()),
   PROD_DB_SSL: Type.Optional(Type.String()),
   LOG_LEVEL: Type.Optional(Type.String()),
+  USER_DATA_DATABASE_URL: Type.Optional(Type.String({ minLength: 1 })),
+  USER_DATA_DB_CA_FILE: Type.Optional(Type.String({ minLength: 1 })),
+  USER_DATA_DB_TLS_SERVERNAME: Type.Optional(Type.String({ minLength: 1 })),
+  CLERK_WEBHOOK_SIGNING_SECRET: Type.Optional(Type.String({ minLength: 1 })),
   CLERK_JWT_KEY: Type.Optional(Type.String({ minLength: 1 })),
   CLERK_ISSUER: Type.Optional(Type.String({ minLength: 1 })),
   CLERK_AUTHORIZED_PARTIES: Type.Optional(Type.String({ minLength: 1 })),
@@ -56,6 +60,12 @@ export interface RedesignConfig {
     readonly jwtKey: string;
     readonly issuer: string;
     readonly authorizedParties: readonly string[];
+  };
+  readonly userData?: {
+    readonly url: string;
+    readonly caFile: string;
+    readonly tlsServername?: string;
+    readonly webhookSigningSecret: string;
   };
   readonly kernel: {
     readonly prodDatabaseUrl: string;
@@ -136,8 +146,37 @@ export const loadRedesignConfig = (env: NodeJS.ProcessEnv): RedesignConfig => {
     auth = { jwtKey, issuer, authorizedParties };
   }
 
+  let userData: RedesignConfig['userData'];
+  if (
+    [
+      e.USER_DATA_DATABASE_URL,
+      e.USER_DATA_DB_CA_FILE,
+      e.USER_DATA_DB_TLS_SERVERNAME,
+      e.CLERK_WEBHOOK_SIGNING_SECRET,
+    ].some((value) => value !== undefined)
+  ) {
+    if (
+      auth === undefined ||
+      e.USER_DATA_DATABASE_URL === undefined ||
+      e.USER_DATA_DB_CA_FILE === undefined ||
+      e.CLERK_WEBHOOK_SIGNING_SECRET === undefined
+    )
+      throw new Error(
+        'User data requires Clerk auth, a dedicated database URL, CA and webhook secret'
+      );
+    userData = {
+      url: e.USER_DATA_DATABASE_URL,
+      caFile: e.USER_DATA_DB_CA_FILE,
+      webhookSigningSecret: e.CLERK_WEBHOOK_SIGNING_SECRET,
+      ...(e.USER_DATA_DB_TLS_SERVERNAME !== undefined && {
+        tlsServername: e.USER_DATA_DB_TLS_SERVERNAME,
+      }),
+    };
+  }
+
   return {
     ...(auth !== undefined && { auth }),
+    ...(userData !== undefined && { userData }),
     port: parseIntOr(e.PORT, 3010),
     host: e.HOST ?? '0.0.0.0',
     logLevel: e.LOG_LEVEL ?? 'info',
