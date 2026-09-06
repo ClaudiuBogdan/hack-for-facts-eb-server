@@ -1,6 +1,6 @@
 /**
- * The native INS module mounts on the kernel endpoint (opt-in `'ins-native'`)
- * next to the budget module (which owns `PeriodDate`, `ReportPeriodInput` and
+ * The native INS module mounts through explicit selection and standalone
+ * defaults next to the budget module (which owns `PeriodDate`, `ReportPeriodInput` and
  * the `PageInfo` extension the INS connections rely on): the merged schema
  * validates, the eight client-sent roots exist, the two dropped roots do not,
  * and the frozen leaf fields are present. No database is reached: the pool
@@ -14,13 +14,16 @@ import { INS_LEGACY_ROOTS, INS_LEGACY_ROOTS_DROPPED } from '@/modules/ins-native
 
 import type { FastifyInstance } from 'fastify';
 
-describe('ins-native module on the kernel endpoint', () => {
+describe.each([
+  { name: 'explicit native selection', modules: ['budget', 'ins-native'] as const },
+  { name: 'standalone defaults', modules: undefined },
+])('ins-native module: $name', ({ modules }) => {
   let app: FastifyInstance | undefined;
 
   beforeAll(async () => {
     const built = await buildRedesignApp({
       logLevel: 'silent',
-      modules: ['budget', 'ins-native'],
+      ...(modules === undefined ? {} : { modules }),
       kernelConfig: {
         prodDatabaseUrl: 'postgres://unused:unused@127.0.0.1:1/unused',
         meiliHost: '',

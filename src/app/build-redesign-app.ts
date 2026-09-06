@@ -91,7 +91,8 @@ export interface BuildRedesignAppDeps {
    */
   readonly corsAllowedOrigins?: readonly string[];
   /**
-   * Source modules to wire into the kernel. Defaults to all built-in modules.
+   * Source modules to wire into the kernel. Standalone defaults include native INS;
+   * the embedded legacy surface retains its interim INS module.
    * Pass `[]` to boot the bare kernel.
    */
   readonly modules?: readonly (
@@ -105,10 +106,9 @@ export interface BuildRedesignAppDeps {
     | 'procurement'
     | 'primarii-transparency'
     /**
-     * The Chronos-reading INS module (program slice 3.2). OPT-IN: not in the
-     * default set while the S1-7 interim mounts the legacy INS roots under the
-     * same names (the merge gate would throw). The switch-over commit moves it
-     * into the default set and deletes the interim.
+     * The Chronos-reading INS module (program slice 3.2). Enabled by default
+     * only in the standalone app. The embedded legacy surface supplies its
+     * interim INS roots, so its shared defaults exclude this module.
      */
     | 'ins-native'
   )[];
@@ -173,6 +173,19 @@ const deepMergeResolvers = (
   return out;
 };
 
+// The legacy embedded surface supplies its interim INS roots separately.
+const SHARED_DEFAULT_MODULES = [
+  'pnrr',
+  'reference',
+  'budget',
+  'companies',
+  'legal',
+  'parliament',
+  'judicial',
+  'procurement',
+  'primarii-transparency',
+] as const;
+
 export const buildRedesignApp = async (deps: BuildRedesignAppDeps): Promise<RedesignApp> => {
   const app = fastifyLib({
     logger: { level: deps.logLevel ?? 'info' },
@@ -218,7 +231,11 @@ export const buildRedesignApp = async (deps: BuildRedesignAppDeps): Promise<Rede
     credentials: true,
   });
 
-  const kernel = await registerRedesignSurface(app, deps);
+  const kernel = await registerRedesignSurface(app, {
+    ...deps,
+    // Only the standalone app replaces interim INS with certified native INS.
+    modules: deps.modules ?? [...SHARED_DEFAULT_MODULES, 'ins-native'],
+  });
 
   return { app, kernel };
 };
@@ -297,19 +314,7 @@ export const registerRedesignSurface = async (
   // legal is wired before parliament + judicial (both read the legal-registered
   // `legalActLoader`); judicial's SDL references LegalAct, so legal must be in the
   // set whenever judicial is.
-  const enabledModules =
-    deps.modules ??
-    ([
-      'pnrr',
-      'reference',
-      'budget',
-      'companies',
-      'legal',
-      'parliament',
-      'judicial',
-      'procurement',
-      'primarii-transparency',
-    ] as const);
+  const enabledModules = deps.modules ?? SHARED_DEFAULT_MODULES;
   const moduleSlices: GraphqlSlice[] = [];
   const moduleResolvers: Record<string, unknown>[] = [];
   const moduleMcpTools: KernelMcpTool[] = [];

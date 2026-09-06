@@ -1,8 +1,10 @@
 # Native INS source series contract
 
-The `ins-native` module reads certified INS publications. It remains disabled
-until the client, canonical territory bridge, publication and workload checks are
-complete. This document describes implemented API behavior, not rollout status.
+The `ins-native` module reads certified INS publications. The standalone redesign
+app includes it by default; explicit module selections remain authoritative.
+The embedded legacy surface keeps its interim INS roots. Deploy the standalone
+activation only after catalog publication, server-role access and workload checks
+pass. This document describes implemented API behavior, not rollout status.
 
 ## Geographic source identity
 
@@ -169,3 +171,19 @@ keys now fail explicitly. The input schema enforces at most seven exact pins,
 canonical signed PostgreSQL int32 member IDs, limit 1–1000 and nonnegative int32
 offset. That offset bound is a wire limit, not a workload or latency guarantee;
 statement deadlines and the pre-enablement workload gate remain necessary.
+
+## Accepted initial catalog publication
+
+The initial catalog producer (scrapper `3df2e31c`) preserves native facts and
+custody. It atomically publishes missing catalogs, audited territory metadata,
+canonical bridge identifiers and zero-fact-delta revisions with a completed load
+run. Final admission uses this module's actual `datasetPublicationFrom` query.
+This is an initial catalog publication, not a historical fact reload.
+
+The allowlist accepts its exact contract hash
+`273b8c7221ee0f225db77b10ee38c4ab24c706b99b8fcb97a9d0c0e2b8a97935` and the normal
+transform's equivalent coverage-aggregation update
+`cbf800c3367bc758cec2879801d9a6fcfb1b44d77ef302fb90dbc5722772460f`.
+The earlier contract remains accepted. Unknown latest transforms still fail
+closed; all custody, count and geography checks remain required. These hashes
+alone neither enable the module nor certify that a publication has been applied.

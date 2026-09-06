@@ -4,12 +4,16 @@ import { InsPublicationUnavailable } from './publication-error.js';
 
 import type { Trx } from './snapshot.js';
 
-/** Exact transform bytes reviewed with the complete-coordinate producer (669746b5).
+/** Exact transform bytes reviewed with the complete-coordinate producers.
  * A new source custody can use this contract; a changed transform needs review.
  * This is not a Git SHA, and an unsupported latest revision never falls back.
  */
 export const INS_SUPPORTED_TRANSFORMS = [
   '9eea2017d660a114bd404ebe30b1b8c45cbed84f4069018d43bd5814f6c490fc',
+  // Initial catalogs over unchanged native facts (producer 3df2e31c).
+  '273b8c7221ee0f225db77b10ee38c4ab24c706b99b8fcb97a9d0c0e2b8a97935',
+  // Normal transform with the equivalent, bounded coverage aggregate.
+  'cbf800c3367bc758cec2879801d9a6fcfb1b44d77ef302fb90dbc5722772460f',
 ] as const;
 export const INS_GEO_FLAG_KINDS: Readonly<Record<string, 'coverage' | 'label'>> = {
   includes_sai: 'coverage',
