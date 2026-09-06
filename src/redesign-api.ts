@@ -8,12 +8,16 @@
 
 import { buildRedesignApp } from './app/build-redesign-app.js';
 import { loadRedesignConfig } from './infra/config/redesign-env.js';
+import { makeConfiguredJWTProvider } from './modules/auth/index.js';
 
 const main = async (): Promise<void> => {
   const config = loadRedesignConfig(process.env);
+  const authProvider =
+    config.auth === undefined ? undefined : await makeConfiguredJWTProvider(config.auth);
 
   const { app, kernel } = await buildRedesignApp({
     kernelConfig: config.kernel,
+    ...(authProvider !== undefined && { authProvider }),
     logLevel: config.logLevel,
     corsAllowedOrigins: config.corsAllowedOrigins,
     ...(config.kernel.clientBaseUrl !== undefined && {

@@ -143,3 +143,5 @@ export {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export { makeMCPAuthService, type MakeMCPAuthServiceDeps } from './shell/middleware/mcp-auth.js';
+
+export { makeConfiguredJWTProvider } from './shell/adapters/configured-jwt-provider.js';

@@ -24,3 +24,38 @@ describe('loadRedesignConfig', () => {
     expect(config.kernel.meiliSearchApiKey).toBe('search-only-test-key');
   });
 });
+
+describe('native Clerk configuration', () => {
+  const base = { PROD_DATABASE_URL: 'postgres://reader@example.invalid/transparenta_prod' };
+  const auth = {
+    CLERK_JWT_KEY: 'test public key',
+    CLERK_ISSUER: 'https://example.clerk.accounts.dev',
+    CLERK_AUTHORIZED_PARTIES: 'https://dev.example.test,http://localhost:60509',
+  };
+  it('keeps anonymous native boot available when auth is absent', () => {
+    expect(loadRedesignConfig(base).auth).toBeUndefined();
+  });
+  it('requires a complete explicit issuer/key/client tuple', () => {
+    for (const name of Object.keys(auth)) {
+      const incomplete = Object.fromEntries(Object.entries(auth).filter(([key]) => key !== name));
+      expect(() => loadRedesignConfig({ ...base, ...incomplete })).toThrow(/Clerk auth requires/);
+    }
+    expect(loadRedesignConfig({ ...base, ...auth }).auth?.authorizedParties).toEqual([
+      'https://dev.example.test',
+      'http://localhost:60509',
+    ]);
+  });
+  it('rejects wildcard, credentialed, insecure remote and path-based clients', () => {
+    for (const value of [
+      '*',
+      'http://remote.example',
+      'https://name:password@dev.example',
+      'https://dev.example/path',
+      'https://dev.example/#fragment',
+    ]) {
+      expect(() =>
+        loadRedesignConfig({ ...base, ...auth, CLERK_AUTHORIZED_PARTIES: value })
+      ).toThrow(/explicit HTTPS or loopback origins/);
+    }
+  });
+});

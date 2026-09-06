@@ -39,6 +39,9 @@ const RedesignEnvSchema = Type.Object({
   PROD_DB_POOL_MAX: Type.Optional(Type.String()),
   PROD_DB_SSL: Type.Optional(Type.String()),
   LOG_LEVEL: Type.Optional(Type.String()),
+  CLERK_JWT_KEY: Type.Optional(Type.String({ minLength: 1 })),
+  CLERK_ISSUER: Type.Optional(Type.String({ minLength: 1 })),
+  CLERK_AUTHORIZED_PARTIES: Type.Optional(Type.String({ minLength: 1 })),
 });
 
 export type RedesignEnv = Static<typeof RedesignEnvSchema>;
@@ -49,6 +52,11 @@ export interface RedesignConfig {
   readonly logLevel: string;
   /** Extra browser origins allowed cross-origin in prod (from PROD_ALLOWED_ORIGINS). */
   readonly corsAllowedOrigins: readonly string[];
+  readonly auth?: {
+    readonly jwtKey: string;
+    readonly issuer: string;
+    readonly authorizedParties: readonly string[];
+  };
   readonly kernel: {
     readonly prodDatabaseUrl: string;
     readonly meiliHost: string;
@@ -98,8 +106,38 @@ export const loadRedesignConfig = (env: NodeJS.ProcessEnv): RedesignConfig => {
           .map((s) => s.trim())
           .filter((s) => s !== '');
   const meiliIndexes = splitCsv(e.PROD_MEILI_INDEXES);
+  const authConfigured =
+    e.CLERK_JWT_KEY !== undefined ||
+    e.CLERK_ISSUER !== undefined ||
+    e.CLERK_AUTHORIZED_PARTIES !== undefined;
+  const authorizedParties = splitCsv(e.CLERK_AUTHORIZED_PARTIES);
+  const isOrigin = (value: string): boolean => {
+    try {
+      const url = new URL(value);
+      return (
+        url.origin === value &&
+        (url.protocol === 'https:' ||
+          (url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)))
+      );
+    } catch {
+      return false;
+    }
+  };
+  let auth: RedesignConfig['auth'];
+  if (authConfigured) {
+    const jwtKey = e.CLERK_JWT_KEY;
+    const issuer = e.CLERK_ISSUER;
+    if (jwtKey === undefined || issuer === undefined || authorizedParties.length === 0)
+      throw new Error('Clerk auth requires a JWT public key, issuer and authorized parties');
+    if (!isOrigin(issuer) || authorizedParties.some((origin) => !isOrigin(origin)))
+      throw new Error(
+        'Clerk issuer and authorized parties must be explicit HTTPS or loopback origins'
+      );
+    auth = { jwtKey, issuer, authorizedParties };
+  }
 
   return {
+    ...(auth !== undefined && { auth }),
     port: parseIntOr(e.PORT, 3010),
     host: e.HOST ?? '0.0.0.0',
     logLevel: e.LOG_LEVEL ?? 'info',
