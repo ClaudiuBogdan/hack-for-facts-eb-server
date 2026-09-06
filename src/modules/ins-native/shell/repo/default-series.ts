@@ -23,6 +23,8 @@ import type { Trx } from './snapshot.js';
 import type { InsSeriesPeriod } from '../../core/ports.js';
 
 const REQUESTS_PER_STATEMENT = 40;
+// Preserve the previous maximum hydration batch; this batches, never truncates.
+const MAX_HYDRATION_ROWS = REQUESTS_PER_STATEMENT * (MAX_OBSERVATION_LIMIT + 1);
 
 interface Layout {
   readonly geography: readonly InsGeographicDimension[];
@@ -159,6 +161,22 @@ export const readDefaultSeries = async (
   await assertDatasetsPublished(trx, [...new Set(requests.map((request) => request.datasetCode))]);
   const layouts = await readLayouts(trx, requests);
   const results: InsSeriesResult[] = [];
+  const outcomes = new Map<string, InsSeriesResult>();
+  const bySeries = new Map<string, InsObservationView[]>();
+  let pending: FactRow[] = [];
+  const flush = async (): Promise<void> => {
+    if (pending.length === 0) return;
+    const observations = await hydrate(pending);
+    if (observations.length !== pending.length) throw new InsPublicationUnavailable();
+    for (const [position, observation] of observations.entries()) {
+      const key = pending[position]?.series_key;
+      if (key === undefined) throw new InsPublicationUnavailable();
+      const values = bySeries.get(key) ?? [];
+      values.push(observation);
+      bySeries.set(key, values);
+    }
+    pending = [];
+  };
   for (let index = 0; index < requests.length; index += REQUESTS_PER_STATEMENT) {
     const chunk = requests.slice(index, index + REQUESTS_PER_STATEMENT);
     const prepared = chunk.map((request) => {
@@ -197,7 +215,6 @@ export const readDefaultSeries = async (
       byKey.set(candidate.series_key, pairs);
     }
     const winnerBranches: RawBuilder<unknown>[] = [];
-    const outcomes = new Map<string, InsSeriesResult>();
     for (const { request, layout, predicate } of prepared) {
       const witnesses = byKey.get(request.key) ?? [];
       const first = witnesses[0];
@@ -245,33 +262,26 @@ export const readDefaultSeries = async (
               trx
             )
           ).rows;
-    const observations = await hydrate(rows);
-    if (observations.length !== rows.length) throw new InsPublicationUnavailable();
-    const bySeries = new Map<string, InsObservationView[]>();
-    for (const [position, observation] of observations.entries()) {
-      const key = rows[position]?.series_key;
-      if (key === undefined) throw new InsPublicationUnavailable();
-      const values = bySeries.get(key) ?? [];
-      values.push(observation);
-      bySeries.set(key, values);
+    if (pending.length + rows.length > MAX_HYDRATION_ROWS) await flush();
+    pending.push(...rows);
+  }
+  await flush();
+  for (const request of requests) {
+    const outcome = outcomes.get(request.key);
+    if (outcome !== undefined) {
+      results.push(outcome);
+      continue;
     }
-    for (const request of chunk) {
-      const outcome = outcomes.get(request.key);
-      if (outcome !== undefined) {
-        results.push(outcome);
-        continue;
-      }
-      const values = bySeries.get(request.key) ?? [];
-      if (request.geoScope.kind === 'modern' && values.length === 0) {
-        // A candidate proved a fact exists in this snapshot with this predicate.
-        throw new InsPublicationUnavailable();
-      }
-      results.push(
-        values.length === 0
-          ? { seriesKey: request.key, status: 'NO_DATA', observations: [], witnesses: [] }
-          : { seriesKey: request.key, status: 'SERIES', observations: values, witnesses: [] }
-      );
+    const values = bySeries.get(request.key) ?? [];
+    if (request.geoScope.kind === 'modern' && values.length === 0) {
+      // A candidate proved a fact exists in this snapshot with this predicate.
+      throw new InsPublicationUnavailable();
     }
+    results.push(
+      values.length === 0
+        ? { seriesKey: request.key, status: 'NO_DATA', observations: [], witnesses: [] }
+        : { seriesKey: request.key, status: 'SERIES', observations: values, witnesses: [] }
+    );
   }
   return results;
 };

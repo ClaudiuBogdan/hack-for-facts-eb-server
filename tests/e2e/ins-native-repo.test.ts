@@ -52,9 +52,11 @@ import {
 } from '@/modules/ins-native/shell/repo/read-session.js';
 import { createProdDb } from '@/modules/shared/shell/db/pool.js';
 
+import { registerInsBatchHydrationCases } from './ins-native-batch-hydration-cases.js';
 import { registerInsDefaultSeriesCases } from './ins-native-default-series-cases.js';
 import { registerInsEntityBridgeCases } from './ins-native-entity-bridge-cases.js';
 import { registerInsGeographyCases } from './ins-native-geography-cases.js';
+import { registerInsMapSeriesCases } from './ins-native-map-series-cases.js';
 import { registerInsPublicationCases } from './ins-native-publication-cases.js';
 
 import type { InsRepo } from '@/modules/ins-native/core/ports.js';
@@ -438,6 +440,14 @@ describe('ins-native repository over the real scrapper DDL (e2e)', () => {
   });
   registerInsGeographyCases(it, () => {
     if (db === undefined) throw new Error('fixture not ready');
+    return db;
+  });
+  registerInsBatchHydrationCases(it, () => {
+    if (db === undefined) throw new Error('INS test database unavailable');
+    return db;
+  });
+  registerInsMapSeriesCases(it, () => {
+    if (db === undefined) throw new Error('INS test database unavailable');
     return db;
   });
   registerInsDefaultSeriesCases(it, () => {

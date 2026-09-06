@@ -40,6 +40,9 @@ export const openSnapshot = async <T>(db: Db, fn: (trx: Trx) => Promise<T>): Pro
     .execute(async (trx) => {
       await sql`set transaction read only`.execute(trx);
       await sql`set local statement_timeout = ${sql.lit(INS_READ_TIMEOUT_MS)}`.execute(trx);
+      // Measured on the 40-territory POP107D candidate query: JIT consumed
+      // 414 of 429 ms (2026-09-06). Revalidate with full-map workloads.
+      await sql`set local jit = off`.execute(trx);
       return fn(trx);
     });
 
