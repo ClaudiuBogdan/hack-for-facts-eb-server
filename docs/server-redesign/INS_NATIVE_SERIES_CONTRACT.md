@@ -182,9 +182,13 @@ This is an initial catalog publication, not a historical fact reload. Its metada
 updates join on NOT NULL primary keys using equality; nullable payload change
 detection remains null-safe. A complete 330,340-row rehearsal preserves the exact
 audited output and changes only the expected 19,530 member annotations.
+The coverage recount groups by dataset/frequency before collecting frequency
+sets. All 45 sampled datasets match the original counts and period coverage;
+the query completes in 3.38 seconds with no temporary-file spill under unchanged
+resource limits. Sampling, geography checks and zero-fact semantics are unchanged.
 
 The allowlist accepts its exact contract hash
-`b30f89a15edf7a38668f3089a6090cdbe53dd7220cce41965a1d75541ab60b89` and the normal
+`bddc45cd6e97a8f93f0c0d6f33fe82d6dad5597cb5b29336c2069147d27a4d2d` and the normal
 transform's equivalent coverage and geographic-grouping optimizations
 `435cb383b7c1ccecb964486ecc8b20eca1bb748e7dd29c5ec97a57715f4c7585`.
 The earlier contract remains accepted. Unknown latest transforms still fail

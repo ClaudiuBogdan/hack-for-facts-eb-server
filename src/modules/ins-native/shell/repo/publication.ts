@@ -11,7 +11,7 @@ import type { Trx } from './snapshot.js';
 export const INS_SUPPORTED_TRANSFORMS = [
   '9eea2017d660a114bd404ebe30b1b8c45cbed84f4069018d43bd5814f6c490fc',
   // Initial catalogs over unchanged facts, with indexed metadata key joins.
-  'b30f89a15edf7a38668f3089a6090cdbe53dd7220cce41965a1d75541ab60b89',
+  'bddc45cd6e97a8f93f0c0d6f33fe82d6dad5597cb5b29336c2069147d27a4d2d',
   // Normal transform with bounded coverage and grouped geography.
   '435cb383b7c1ccecb964486ecc8b20eca1bb748e7dd29c5ec97a57715f4c7585',
 ] as const;
