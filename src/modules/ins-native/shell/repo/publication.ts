@@ -10,10 +10,10 @@ import type { Trx } from './snapshot.js';
  */
 export const INS_SUPPORTED_TRANSFORMS = [
   '9eea2017d660a114bd404ebe30b1b8c45cbed84f4069018d43bd5814f6c490fc',
-  // Initial catalogs over unchanged native facts (producer 3df2e31c).
-  '273b8c7221ee0f225db77b10ee38c4ab24c706b99b8fcb97a9d0c0e2b8a97935',
-  // Normal transform with the equivalent, bounded coverage aggregate.
-  'cbf800c3367bc758cec2879801d9a6fcfb1b44d77ef302fb90dbc5722772460f',
+  // Initial catalogs over unchanged native facts (producer f5d096c2).
+  'b07e45419dd84c341baa1721c42fade59ff2350a55d5861db16b15a76f54b97b',
+  // Normal transform with bounded coverage and grouped geography.
+  '435cb383b7c1ccecb964486ecc8b20eca1bb748e7dd29c5ec97a57715f4c7585',
 ] as const;
 export const INS_GEO_FLAG_KINDS: Readonly<Record<string, 'coverage' | 'label'>> = {
   includes_sai: 'coverage',
