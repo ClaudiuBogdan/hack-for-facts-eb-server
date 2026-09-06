@@ -174,14 +174,17 @@ statement deadlines and the pre-enablement workload gate remain necessary.
 
 ## Accepted initial catalog publication
 
-The initial catalog producer (scrapper `f5d096c2`) preserves native facts and
+The initial catalog producer preserves native facts and
 custody. It atomically publishes missing catalogs, audited territory metadata,
 canonical bridge identifiers and zero-fact-delta revisions with a completed load
 run. Final admission uses this module's actual `datasetPublicationFrom` query.
-This is an initial catalog publication, not a historical fact reload.
+This is an initial catalog publication, not a historical fact reload. Its metadata
+updates join on NOT NULL primary keys using equality; nullable payload change
+detection remains null-safe. A complete 330,340-row rehearsal preserves the exact
+audited output and changes only the expected 19,530 member annotations.
 
 The allowlist accepts its exact contract hash
-`b07e45419dd84c341baa1721c42fade59ff2350a55d5861db16b15a76f54b97b` and the normal
+`b30f89a15edf7a38668f3089a6090cdbe53dd7220cce41965a1d75541ab60b89` and the normal
 transform's equivalent coverage and geographic-grouping optimizations
 `435cb383b7c1ccecb964486ecc8b20eca1bb748e7dd29c5ec97a57715f4c7585`.
 The earlier contract remains accepted. Unknown latest transforms still fail
