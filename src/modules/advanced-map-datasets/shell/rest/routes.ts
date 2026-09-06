@@ -1,5 +1,4 @@
 import multipart from '@fastify/multipart';
-import { sql } from 'kysely';
 
 import { isAuthenticated } from '@/modules/auth/index.js';
 import { requireAuthHandler } from '@/modules/auth/shell/middleware/fastify-auth.js';
@@ -44,7 +43,7 @@ import type {
   AdvancedMapDatasetWritePermissionChecker,
 } from '../../core/ports.js';
 import type { AdvancedMapDatasetIdGenerator } from '../utils/id-generator.js';
-import type { BudgetDbClient } from '@/infra/database/client.js';
+import type { MapTerritoryLookup } from '@/common/ports/map-territory-lookup.js';
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 
 interface MultipartFieldPart {
@@ -72,13 +71,9 @@ interface DatasetMultipartPayload {
   csvText: string;
 }
 
-interface SirutaRow {
-  siruta_code: string;
-}
-
 export interface MakeAdvancedMapDatasetRoutesDeps {
   repo: AdvancedMapDatasetRepository;
-  budgetDb: BudgetDbClient;
+  territoryLookup: MapTerritoryLookup;
   idGenerator: AdvancedMapDatasetIdGenerator;
   writePermissionChecker: AdvancedMapDatasetWritePermissionChecker;
 }
@@ -181,27 +176,27 @@ function parseOptionalNumber(value: unknown): number | undefined {
   return Number.isFinite(value) ? value : undefined;
 }
 
-async function loadNonCountySirutaCodes(budgetDb: BudgetDbClient): Promise<Set<string>> {
-  const nonCountyCondition = sql<boolean>`NOT (
-    u.siruta_code = u.county_code
-    OR (u.county_code = 'B' AND u.siruta_code = '179132')
-  )`;
-
-  const rows: SirutaRow[] = await budgetDb
-    .selectFrom('uats as u')
-    .select(['u.siruta_code'])
-    .where(nonCountyCondition)
-    .orderBy('u.siruta_code', 'asc')
-    .execute();
-
-  return new Set(rows.map((row) => row.siruta_code.trim()).filter((value) => value !== ''));
+async function loadSupportedSirutas(
+  lookup: MapTerritoryLookup,
+  reply: FastifyReply
+): Promise<ReadonlySet<string> | null> {
+  try {
+    return new Set(await lookup());
+  } catch (error) {
+    reply.log.error({ err: error }, 'Map territory lookup failed');
+    await reply.status(500).send({
+      ok: false,
+      error: 'ProviderError',
+      message: 'Failed to load supported map territories',
+    });
+    return null;
+  }
 }
 
-async function validateDatasetRowsAgainstSirutaUniverse(
-  budgetDb: BudgetDbClient,
+function validateDatasetRowsAgainstSirutaUniverse(
+  validSirutas: ReadonlySet<string>,
   rows: readonly import('../../core/types.js').AdvancedMapDatasetRow[]
-): Promise<{ rowNumber: number; message: string }[]> {
-  const validSirutas = await loadNonCountySirutaCodes(budgetDb);
+): { rowNumber: number; message: string }[] {
   const errors: { rowNumber: number; message: string }[] = [];
 
   rows.forEach((row, index) => {
@@ -445,7 +440,9 @@ export const makeAdvancedMapDatasetRoutes = (
           return;
         }
 
-        const rowsResult = await parseUploadedDatasetCsv(deps.budgetDb, payload.csvText);
+        const validSirutas = await loadSupportedSirutas(deps.territoryLookup, reply);
+        if (validSirutas === null) return;
+        const rowsResult = parseUploadedDatasetCsv(validSirutas, payload.csvText);
         if (rowsResult.isErr()) {
           return reply.status(400).send({
             ok: false,
@@ -518,10 +515,9 @@ export const makeAdvancedMapDatasetRoutes = (
           return;
         }
 
-        const rowErrors = await validateDatasetRowsAgainstSirutaUniverse(
-          deps.budgetDb,
-          request.body.rows
-        );
+        const validSirutas = await loadSupportedSirutas(deps.territoryLookup, reply);
+        if (validSirutas === null) return;
+        const rowErrors = validateDatasetRowsAgainstSirutaUniverse(validSirutas, request.body.rows);
         if (rowErrors.length > 0) {
           return reply.status(400).send({
             ok: false,
@@ -749,7 +745,9 @@ export const makeAdvancedMapDatasetRoutes = (
           });
         }
 
-        const rowsResult = await parseUploadedDatasetCsv(deps.budgetDb, payload.csvText);
+        const validSirutas = await loadSupportedSirutas(deps.territoryLookup, reply);
+        if (validSirutas === null) return;
+        const rowsResult = parseUploadedDatasetCsv(validSirutas, payload.csvText);
         if (rowsResult.isErr()) {
           return reply.status(400).send({
             ok: false,
@@ -814,10 +812,9 @@ export const makeAdvancedMapDatasetRoutes = (
           return;
         }
 
-        const rowErrors = await validateDatasetRowsAgainstSirutaUniverse(
-          deps.budgetDb,
-          request.body.rows
-        );
+        const validSirutas = await loadSupportedSirutas(deps.territoryLookup, reply);
+        if (validSirutas === null) return;
+        const rowErrors = validateDatasetRowsAgainstSirutaUniverse(validSirutas, request.body.rows);
         if (rowErrors.length > 0) {
           return reply.status(400).send({
             ok: false,

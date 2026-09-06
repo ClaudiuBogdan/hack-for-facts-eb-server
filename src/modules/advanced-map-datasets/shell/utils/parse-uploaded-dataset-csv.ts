@@ -1,14 +1,8 @@
 import { parse } from 'csv-parse/sync';
 import { Decimal } from 'decimal.js';
-import { sql } from 'kysely';
 import { ok, err, type Result } from 'neverthrow';
 
 import type { AdvancedMapDatasetRow } from '../../core/types.js';
-import type { BudgetDbClient } from '@/infra/database/client.js';
-
-interface SirutaRow {
-  siruta_code: string;
-}
 
 export interface CsvValidationRowError {
   rowNumber: number;
@@ -33,22 +27,6 @@ function csvValidationError(message: string, rows: CsvValidationRowError[]): Csv
   };
 }
 
-async function loadNonCountySirutaCodes(db: BudgetDbClient): Promise<Set<string>> {
-  const nonCountyCondition = sql<boolean>`NOT (
-    u.siruta_code = u.county_code
-    OR (u.county_code = 'B' AND u.siruta_code = '179132')
-  )`;
-
-  const rows: SirutaRow[] = await db
-    .selectFrom('uats as u')
-    .select(['u.siruta_code'])
-    .where(nonCountyCondition)
-    .orderBy('u.siruta_code', 'asc')
-    .execute();
-
-  return new Set(rows.map((row) => row.siruta_code.trim()).filter((value) => value !== ''));
-}
-
 function toTrimmedCell(value: unknown): string {
   if (typeof value !== 'string') {
     return '';
@@ -57,10 +35,10 @@ function toTrimmedCell(value: unknown): string {
   return value.trim();
 }
 
-export async function parseUploadedDatasetCsv(
-  budgetDb: BudgetDbClient,
+export function parseUploadedDatasetCsv(
+  validSirutas: ReadonlySet<string>,
   csvText: string
-): Promise<Result<ParsedUploadedDatasetCsv, CsvValidationError>> {
+): Result<ParsedUploadedDatasetCsv, CsvValidationError> {
   let records: unknown[];
 
   try {
@@ -112,7 +90,6 @@ export async function parseUploadedDatasetCsv(
     );
   }
 
-  const validSirutas = await loadNonCountySirutaCodes(budgetDb);
   const seenSirutas = new Set<string>();
   const validationErrors: CsvValidationRowError[] = [];
   const rows: AdvancedMapDatasetRow[] = [];

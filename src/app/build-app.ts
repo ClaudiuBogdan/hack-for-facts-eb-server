@@ -66,6 +66,7 @@ import {
   makeAdvancedMapAnalyticsRoutes,
   makeAdvancedMapAnalyticsGroupedSeriesRoutes,
   makeDbAdvancedMapAnalyticsGroupedSeriesProvider,
+  makeLegacyMapTerritoryLookup,
   defaultAdvancedMapAnalyticsIdGenerator,
 } from '../modules/advanced-map-analytics/index.js';
 import {
@@ -2541,10 +2542,12 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
             canWrite: () => Promise.resolve(false),
           };
 
+    const mapTerritoryLookup = makeLegacyMapTerritoryLookup(budgetDb);
+
     await app.register(
       makeAdvancedMapDatasetRoutes({
         repo: advancedMapDatasetRepo,
-        budgetDb,
+        territoryLookup: mapTerritoryLookup,
         idGenerator: defaultAdvancedMapDatasetIdGenerator,
         writePermissionChecker: advancedMapDatasetWritePermissionChecker,
       })
@@ -2559,7 +2562,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     });
 
     const groupedSeriesProvider = makeDbAdvancedMapAnalyticsGroupedSeriesProvider({
-      budgetDb,
+      territoryLookup: mapTerritoryLookup,
       datasetRepo: advancedMapDatasetRepo,
       commitmentsRepo,
       insRepo,

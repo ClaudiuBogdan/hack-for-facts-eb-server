@@ -20,32 +20,12 @@ import {
   makeDbAdvancedMapAnalyticsGroupedSeriesProvider,
 } from '@/modules/advanced-map-analytics/index.js';
 
-import type { BudgetDbClient } from '@/infra/database/client.js';
 import type { AdvancedMapDatasetRepository } from '@/modules/advanced-map-datasets/index.js';
 import type { CommitmentsRepository } from '@/modules/commitments/index.js';
 import type { InsRepository } from '@/modules/ins/index.js';
 import type { NormalizationService } from '@/modules/normalization/index.js';
 import type { UATAnalyticsRepository } from '@/modules/uat-analytics/index.js';
 import type { Logger } from 'pino';
-
-function makeBudgetDb(sirutaCodes: string[]): BudgetDbClient {
-  const query = {
-    select: () => ({
-      where: () => ({
-        orderBy: () => ({
-          execute: async () =>
-            sirutaCodes.map((sirutaCode) => ({
-              siruta_code: sirutaCode,
-            })),
-        }),
-      }),
-    }),
-  };
-
-  return {
-    selectFrom: () => query,
-  } as unknown as BudgetDbClient;
-}
 
 function createMockLogger(): Logger {
   return {
@@ -213,7 +193,7 @@ describe('db map series provider cache behavior', () => {
 
     const memoryCache = createMemoryCache({ maxEntries: 100, defaultTtlMs: 60_000 });
     const provider = makeDbAdvancedMapAnalyticsGroupedSeriesProvider({
-      budgetDb: makeBudgetDb(['1001']),
+      territoryLookup: async () => ['1001'],
       commitmentsRepo: {} as unknown as CommitmentsRepository,
       insRepo: {} as unknown as InsRepository,
       normalizationService: makeNormalizationService(),
@@ -264,7 +244,7 @@ describe('db map series provider cache behavior', () => {
     };
 
     const provider = makeDbAdvancedMapAnalyticsGroupedSeriesProvider({
-      budgetDb: makeBudgetDb(['1001']),
+      territoryLookup: async () => ['1001'],
       commitmentsRepo: {} as unknown as CommitmentsRepository,
       insRepo: {} as unknown as InsRepository,
       normalizationService: makeNormalizationService(),
@@ -324,7 +304,7 @@ describe('db map series provider cache behavior', () => {
     };
 
     const provider = makeDbAdvancedMapAnalyticsGroupedSeriesProvider({
-      budgetDb: makeBudgetDb(['1001']),
+      territoryLookup: async () => ['1001'],
       commitmentsRepo: {} as unknown as CommitmentsRepository,
       insRepo: {} as unknown as InsRepository,
       normalizationService: makeNormalizationService(),
@@ -374,7 +354,7 @@ describe('db map series provider cache behavior', () => {
     };
 
     const provider = makeDbAdvancedMapAnalyticsGroupedSeriesProvider({
-      budgetDb: makeBudgetDb(['1001']),
+      territoryLookup: async () => ['1001'],
       commitmentsRepo: {} as unknown as CommitmentsRepository,
       insRepo: {} as unknown as InsRepository,
       normalizationService: makeNormalizationService(),
@@ -437,7 +417,7 @@ describe('db map series provider cache behavior', () => {
     };
 
     const provider = makeDbAdvancedMapAnalyticsGroupedSeriesProvider({
-      budgetDb: makeBudgetDb(['1001']),
+      territoryLookup: async () => ['1001'],
       commitmentsRepo: {} as unknown as CommitmentsRepository,
       insRepo: {} as unknown as InsRepository,
       normalizationService: makeNormalizationService(),
@@ -497,7 +477,7 @@ describe('db map series provider cache behavior', () => {
     } as unknown as CommitmentsRepository;
 
     const provider = makeDbAdvancedMapAnalyticsGroupedSeriesProvider({
-      budgetDb: makeBudgetDb(['1001']),
+      territoryLookup: async () => ['1001'],
       commitmentsRepo,
       insRepo: {} as unknown as InsRepository,
       normalizationService: makeNormalizationService(),
@@ -561,7 +541,7 @@ describe('db map series provider cache behavior', () => {
     } as unknown as CommitmentsRepository;
 
     const provider = makeDbAdvancedMapAnalyticsGroupedSeriesProvider({
-      budgetDb: makeBudgetDb(['1001']),
+      territoryLookup: async () => ['1001'],
       commitmentsRepo,
       insRepo: {} as unknown as InsRepository,
       normalizationService: makeNormalizationService(),
@@ -611,7 +591,7 @@ describe('db map series provider cache behavior', () => {
     const cache = new RecordingCache();
 
     const provider = makeDbAdvancedMapAnalyticsGroupedSeriesProvider({
-      budgetDb: makeBudgetDb(['1001']),
+      territoryLookup: async () => ['1001'],
       commitmentsRepo: {} as unknown as CommitmentsRepository,
       insRepo: {} as unknown as InsRepository,
       normalizationService: makeNormalizationService(),
@@ -662,7 +642,7 @@ describe('db map series provider cache behavior', () => {
     } as unknown as InsRepository;
 
     const provider = makeDbAdvancedMapAnalyticsGroupedSeriesProvider({
-      budgetDb: makeBudgetDb(['1001', '1002']),
+      territoryLookup: async () => ['1001', '1002'],
       commitmentsRepo: {} as unknown as CommitmentsRepository,
       insRepo,
       normalizationService: makeNormalizationService(),
@@ -801,7 +781,7 @@ describe('db map series provider cache behavior', () => {
     };
 
     const provider = makeDbAdvancedMapAnalyticsGroupedSeriesProvider({
-      budgetDb: makeBudgetDb(['1001']),
+      territoryLookup: async () => ['1001'],
       datasetRepo,
       commitmentsRepo: {} as unknown as CommitmentsRepository,
       insRepo: {} as unknown as InsRepository,
@@ -886,7 +866,7 @@ describe('db map series provider cache behavior', () => {
     };
 
     const provider = makeDbAdvancedMapAnalyticsGroupedSeriesProvider({
-      budgetDb: makeBudgetDb(['1001']),
+      territoryLookup: async () => ['1001'],
       datasetRepo,
       commitmentsRepo: {} as unknown as CommitmentsRepository,
       insRepo: {} as unknown as InsRepository,
@@ -985,7 +965,7 @@ describe('db map series provider cache behavior', () => {
     };
 
     const provider = makeDbAdvancedMapAnalyticsGroupedSeriesProvider({
-      budgetDb: makeBudgetDb(['1001']),
+      territoryLookup: async () => ['1001'],
       datasetRepo,
       commitmentsRepo: {} as unknown as CommitmentsRepository,
       insRepo: {} as unknown as InsRepository,
@@ -1021,7 +1001,7 @@ describe('db map series provider cache behavior', () => {
 
   it('rejects uploaded dataset series when both identifiers are provided', async () => {
     const provider = makeDbAdvancedMapAnalyticsGroupedSeriesProvider({
-      budgetDb: makeBudgetDb(['1001']),
+      territoryLookup: async () => ['1001'],
       datasetRepo: {} as unknown as AdvancedMapDatasetRepository,
       commitmentsRepo: {} as unknown as CommitmentsRepository,
       insRepo: {} as unknown as InsRepository,

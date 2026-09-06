@@ -185,3 +185,5 @@ export {
   type GroupedSeriesData,
   serializeWideMatrixCsv,
 } from './grouped-series/index.js';
+
+export { makeLegacyMapTerritoryLookup } from './grouped-series/shell/providers/legacy-map-territory-lookup.js';

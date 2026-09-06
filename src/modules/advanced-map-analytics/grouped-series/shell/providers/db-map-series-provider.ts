@@ -1,4 +1,3 @@
-import { sql } from 'kysely';
 import { err, ok } from 'neverthrow';
 
 import { CacheNamespace, type KeyBuilder, type SilentCachePort } from '@/infra/cache/index.js';
@@ -28,17 +27,13 @@ import type {
   MapSeriesVector,
   UploadedMapDatasetSeries,
 } from '../../core/types.js';
+import type { MapTerritoryLookup } from '@/common/ports/map-territory-lookup.js';
 import type { ReportPeriodInput } from '@/common/types/analytics.js';
-import type { BudgetDbClient } from '@/infra/database/client.js';
 import type { AdvancedMapDatasetRepository } from '@/modules/advanced-map-datasets/index.js';
 import type { CommitmentsRepository } from '@/modules/commitments/index.js';
 import type { InsRepository } from '@/modules/ins/index.js';
 import type { NormalizationService } from '@/modules/normalization/index.js';
 import type { UATAnalyticsRepository } from '@/modules/uat-analytics/index.js';
-
-interface SirutaRow {
-  siruta_code: string;
-}
 
 const DEFAULT_SERIES_CACHE_TTL_MS = 60 * 60 * 1000;
 const SERIES_CACHE_KEY_VERSION = 2;
@@ -76,7 +71,7 @@ interface CachedSeriesVectorEntry {
 }
 
 export interface MakeDbAdvancedMapAnalyticsGroupedSeriesProviderDeps {
-  budgetDb: BudgetDbClient;
+  territoryLookup: MapTerritoryLookup;
   datasetRepo?: AdvancedMapDatasetRepository;
   commitmentsRepo: CommitmentsRepository;
   insRepo: InsRepository;
@@ -495,22 +490,6 @@ function readCachedSeriesEntry(
   };
 }
 
-async function loadNonCountySirutaCodes(db: BudgetDbClient): Promise<string[]> {
-  const nonCountyCondition = sql<boolean>`NOT (
-    u.siruta_code = u.county_code
-    OR (u.county_code = 'B' AND u.siruta_code = '179132')
-  )`;
-
-  const rows: SirutaRow[] = await db
-    .selectFrom('uats as u')
-    .select(['u.siruta_code'])
-    .where(nonCountyCondition)
-    .orderBy('u.siruta_code', 'asc')
-    .execute();
-
-  return rows.map((row) => row.siruta_code.trim()).filter((value) => value !== '');
-}
-
 export function makeDbAdvancedMapAnalyticsGroupedSeriesProvider(
   deps: MakeDbAdvancedMapAnalyticsGroupedSeriesProviderDeps
 ): GroupedSeriesProvider {
@@ -523,7 +502,7 @@ export function makeDbAdvancedMapAnalyticsGroupedSeriesProvider(
       request: GroupedSeriesDataRequest
     ): ReturnType<GroupedSeriesProvider['fetchGroupedSeriesVectors']> {
       try {
-        const sirutaUniverse = await loadNonCountySirutaCodes(deps.budgetDb);
+        const sirutaUniverse = [...(await deps.territoryLookup())];
         const sirutaUniverseSet = new Set<string>(sirutaUniverse);
 
         const vectors: MapSeriesVector[] = [];

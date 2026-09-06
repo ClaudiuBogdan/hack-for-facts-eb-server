@@ -12,7 +12,7 @@ import {
 } from '@/modules/advanced-map-datasets/index.js';
 import { createTestAuthProvider, makeAuthMiddleware } from '@/modules/auth/index.js';
 
-import type { BudgetDbClient } from '@/infra/database/client.js';
+import type { MapTerritoryLookup } from '@/common/ports/map-territory-lookup.js';
 import type {
   AdvancedMapDatasetDetail,
   AdvancedMapDatasetRow,
@@ -289,20 +289,6 @@ function cloneRow(row: AdvancedMapDatasetRow): AdvancedMapDatasetRow {
   };
 }
 
-function makeBudgetDb(): BudgetDbClient {
-  return {
-    selectFrom: () => ({
-      select: () => ({
-        where: () => ({
-          orderBy: () => ({
-            execute: async () => [{ siruta_code: '1001' }],
-          }),
-        }),
-      }),
-    }),
-  } as unknown as BudgetDbClient;
-}
-
 function makeMultipartRequest(parts: { name: string; value?: string; filename?: string }[]) {
   const boundary = '----codex-test-boundary';
   const body = parts
@@ -333,7 +319,11 @@ function makeMultipartRequest(parts: { name: string; value?: string; filename?: 
   };
 }
 
-async function createTestApp(options?: { canWrite?: boolean; initialDatasets?: SeedDataset[] }) {
+async function createTestApp(options?: {
+  canWrite?: boolean;
+  initialDatasets?: SeedDataset[];
+  territoryLookup?: MapTerritoryLookup;
+}) {
   const app = fastifyLib({ logger: false });
   const testAuth = createTestAuthProvider();
   const permissionChecker = {
@@ -345,7 +335,7 @@ async function createTestApp(options?: { canWrite?: boolean; initialDatasets?: S
   await app.register(
     makeAdvancedMapDatasetRoutes({
       repo: new InMemoryAdvancedMapDatasetRepo(options?.initialDatasets),
-      budgetDb: makeBudgetDb(),
+      territoryLookup: options?.territoryLookup ?? (async () => ['1001']),
       idGenerator: {
         generateId: () => '11111111-1111-4111-8111-111111111111',
         generatePublicId: () => '22222222-2222-4222-8222-222222222222',
@@ -771,4 +761,105 @@ describe('advanced map datasets rest', () => {
     expect(response.statusCode).toBe(403);
     expect(setup.permissionChecker.canWrite).toHaveBeenCalledOnce();
   });
+  describe.each(['json-create', 'json-replace', 'csv-create', 'csv-replace'] as const)(
+    '%s territory lookup',
+    (operation) => {
+      function requestOptions() {
+        const replace = operation.endsWith('replace');
+        const csv = operation.startsWith('csv');
+        const multipart = replace ? buildReplaceMultipart() : buildCreateMultipart('private');
+        const rows = [{ sirutaCode: '1001', valueNumber: '0', valueJson: null }];
+        return {
+          method: operation === 'json-replace' ? ('PUT' as const) : ('POST' as const),
+          url:
+            '/api/v1/advanced-map-datasets' +
+            (replace
+              ? '/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/' + (csv ? 'file' : 'rows')
+              : csv
+                ? ''
+                : '/json'),
+          headers: csv ? { 'content-type': multipart.contentType } : {},
+          payload: csv ? multipart.payload : replace ? { rows } : { title: 'Dataset', rows },
+        };
+      }
+
+      it('uses the injected universe once and rejects unsupported keys', async () => {
+        await app.close();
+        let reads = 0;
+        const setup = await createTestApp({
+          initialDatasets: [makeSeedDataset('private')],
+          territoryLookup: async () => {
+            reads += 1;
+            return ['2002'];
+          },
+        });
+        app = setup.app;
+        const request = requestOptions();
+        const response = await app.inject({
+          ...request,
+          headers: {
+            ...request.headers,
+            authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+          },
+        });
+        expect(response.statusCode).toBe(400);
+        expect(reads).toBe(1);
+        expect(response.json().details.rows[0].message).toContain(
+          'unsupported UAT siruta_code: 1001'
+        );
+      });
+
+      it('does not read geography for anonymous writes', async () => {
+        await app.close();
+        let reads = 0;
+        const setup = await createTestApp({
+          initialDatasets: [makeSeedDataset('private')],
+          territoryLookup: async () => {
+            reads += 1;
+            throw new Error('must not read');
+          },
+        });
+        app = setup.app;
+        const response = await app.inject(requestOptions());
+        expect(response.statusCode).toBe(401);
+        expect(reads).toBe(0);
+      });
+
+      it('returns a sanitized server error on lookup failure without saving rows', async () => {
+        await app.close();
+        let reads = 0;
+        const setup = await createTestApp({
+          initialDatasets: [makeSeedDataset('private')],
+          territoryLookup: async () => {
+            reads += 1;
+            throw new Error('private connection detail');
+          },
+        });
+        app = setup.app;
+        const request = requestOptions();
+        const authorization = `Bearer ${setup.testAuth.tokens.user1}`;
+        const response = await app.inject({
+          ...request,
+          headers: { ...request.headers, authorization },
+        });
+        expect(response.statusCode).toBe(500);
+        expect(reads).toBe(1);
+        expect(response.json().message).toBe('Failed to load supported map territories');
+        expect(response.body).not.toContain('private connection detail');
+        const stored = await app.inject({
+          method: 'GET',
+          url: '/api/v1/advanced-map-datasets/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          headers: { authorization },
+        });
+        expect(stored.statusCode).toBe(200);
+        expect(stored.json().data.rows[0].valueNumber).toBe('1.5');
+        const listed = await app.inject({
+          method: 'GET',
+          url: '/api/v1/advanced-map-datasets',
+          headers: { authorization },
+        });
+        expect(listed.json().data.nodes).toHaveLength(1);
+      });
+    }
+  );
 });

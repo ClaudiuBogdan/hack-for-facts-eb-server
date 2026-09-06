@@ -8,7 +8,6 @@ import {
   type GroupedSeriesProvider,
 } from '@/modules/advanced-map-analytics/index.js';
 
-import type { BudgetDbClient } from '@/infra/database/client.js';
 import type { AdvancedMapDatasetRepository } from '@/modules/advanced-map-datasets/index.js';
 import type { CommitmentsRepository } from '@/modules/commitments/index.js';
 import type { InsRepository } from '@/modules/ins/index.js';
@@ -77,25 +76,6 @@ function makeProvider(): GroupedSeriesProvider {
         warnings: [],
       }),
   };
-}
-
-function makeBudgetDb(sirutaCodes: string[]): BudgetDbClient {
-  const query = {
-    select: () => ({
-      where: () => ({
-        orderBy: () => ({
-          execute: async () =>
-            sirutaCodes.map((sirutaCode) => ({
-              siruta_code: sirutaCode,
-            })),
-        }),
-      }),
-    }),
-  };
-
-  return {
-    selectFrom: () => query,
-  } as unknown as BudgetDbClient;
 }
 
 const createTestApp = async (provider: GroupedSeriesProvider) => {
@@ -289,7 +269,7 @@ describe('Advanced Map Analytics REST API', () => {
 
     app = await createTestApp(
       makeDbAdvancedMapAnalyticsGroupedSeriesProvider({
-        budgetDb: makeBudgetDb(['1001']),
+        territoryLookup: async () => ['1001'],
         datasetRepo,
         commitmentsRepo: {} as unknown as CommitmentsRepository,
         insRepo: {} as unknown as InsRepository,
@@ -402,7 +382,7 @@ describe('Advanced Map Analytics REST API', () => {
 
     app = await createTestApp(
       makeDbAdvancedMapAnalyticsGroupedSeriesProvider({
-        budgetDb: makeBudgetDb(['1001']),
+        territoryLookup: async () => ['1001'],
         datasetRepo,
         commitmentsRepo: {} as unknown as CommitmentsRepository,
         insRepo: {} as unknown as InsRepository,
