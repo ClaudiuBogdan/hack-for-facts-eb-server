@@ -186,3 +186,18 @@ export type {
   GroupedEntity,
   GroupedClassification,
 } from './core/legacy-analytics/grouped-types.js';
+
+export { makeBudgetMapRepo } from './shell/repo/map-analytics-repo.js';
+export type {
+  BudgetMapGranularity,
+  BudgetMapInput,
+  BudgetMapYear,
+  BudgetMapRepo,
+} from './core/legacy-analytics/map-types.js';
+
+export { budgetMapValues, type BudgetMapDeps } from './core/legacy-analytics/map-usecase.js';
+export type {
+  BudgetMapPopulation,
+  BudgetMapPopulationSource,
+  BudgetMapResult,
+} from './core/legacy-analytics/map-types.js';

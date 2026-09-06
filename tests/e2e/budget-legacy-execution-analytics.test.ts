@@ -67,6 +67,11 @@ import {
 } from '@/modules/budget/shell/repo/legacy-analytics-repo.js';
 import { makeLegacyPopulationRepo } from '@/modules/budget/shell/repo/legacy-population-repo.js';
 import {
+  mapAnalyticsSql,
+  decodeBudgetMapRows,
+  makeBudgetMapRepo,
+} from '@/modules/budget/shell/repo/map-analytics-repo.js';
+import {
   entityPopulationUnionSql,
   geographicPopulationUnionSql,
 } from '@/modules/budget/shell/repo/population-union.js';
@@ -2050,6 +2055,249 @@ describe('native grouped adversarial regressions', () => {
         expect(
           page.nodes.reduce((sum, row) => sum.plus(row.amount), legacyDecimal(0)).toFixed(2)
         ).toBe(expectedTotal.toFixed(2));
+    }
+  });
+});
+
+describe('native map execution aggregation', () => {
+  it('retains exact yearly amounts and unresolved anchors without dropping facts', async () => {
+    const rows = (
+      await makeBudgetMapRepo(db!).yearlyAmounts(
+        cleanFilter(baseFilter())._unsafeUnwrap(),
+        'County'
+      )
+    )._unsafeUnwrap();
+    const expected = await oracle(
+      "x.account_category='ch' and x.reporting_year between 2023 and 2024",
+      [],
+      'YEAR'
+    );
+    for (const year of [2023, 2024]) {
+      const actual = rows
+        .filter((r) => r.year === year)
+        .reduce((sum, r) => sum.plus(r.nominalAmount), legacyDecimal(0));
+      expect(actual.toString()).toBe(
+        legacyDecimal(expected.find((r) => r.year === year)!.amount).toString()
+      );
+    }
+    expect(rows.filter((r) => r.coverage === 'unresolved')).toHaveLength(2);
+    expect(rows.filter((r) => r.coverage === 'mapped').map((r) => r.territoryCode)).toEqual([
+      'CJ',
+      'CJ',
+      'IS',
+      'IS',
+    ]);
+  });
+
+  it('includes PMB, sector creditors and county institutions in county totals independently of UAT presentation', async () => {
+    await rollbackTerritoryFixture(async (trx) => {
+      await sql`update core.public_entities set territory_id=(select id from core.territories where territorial_siruta_code='179132') where cui='111'`.execute(
+        trx
+      );
+      await sql`update core.public_entities set territory_id=(select id from core.territories where territorial_siruta_code='179141') where cui='222'`.execute(
+        trx
+      );
+      await sql`update core.public_entities set territory_id=(select id from core.territories where territorial_siruta_code='12') where cui='333'`.execute(
+        trx
+      );
+      const q = cleanFilter(baseFilter())._unsafeUnwrap();
+      const counties = (await mapAnalyticsSql(q, 'County', () => undefined).execute(trx)).rows;
+      const uats = (await mapAnalyticsSql(q, 'UAT', () => undefined).execute(trx)).rows;
+      expect(counties.every((r) => r.coverage === 'mapped')).toBe(true);
+      expect(counties.map((r) => r.territory_code)).toEqual(['B', 'B', 'CJ', 'CJ']);
+      expect(uats.filter((r) => r.coverage === 'mapped').map((r) => r.territory_code)).toEqual([
+        '179141',
+        '179141',
+      ]);
+      expect(uats.filter((r) => r.coverage === 'outside_view')).toHaveLength(2);
+      for (const year of [2023, 2024]) {
+        const expected = (
+          await sql<{
+            amount: string;
+          }>`select sum(ytd_amount)::text amount from budget.execution_line_items where entity_cui in ('111','222') and reporting_year=${year} and is_yearly and account_category='ch' and report_type in (${RT1},${RT2})`.execute(
+            trx
+          )
+        ).rows[0]!.amount;
+        expect(
+          legacyDecimal(
+            counties.find((r) => r.territory_code === 'B' && r.year === year)!.amount!
+          ).toString()
+        ).toBe(legacyDecimal(expected).toString());
+      }
+    });
+  });
+
+  it('does not multiply facts when county identity is ambiguous', async () => {
+    await rollbackTerritoryFixture(async (trx) => {
+      await sql`insert into core.territories(territorial_siruta_code,siruta_code,name,county_code,county_name,region,population,level,kind,territory_key) values('99999','99999','Ambiguous county','CJ','Cluj','Nord-Vest',700000,'county','county','test:map-ambiguous-county')`.execute(
+        trx
+      );
+      const q = cleanFilter(baseFilter({ entity_cuis: ['111'] }))._unsafeUnwrap();
+      const rows = (await mapAnalyticsSql(q, 'County', () => undefined).execute(trx)).rows;
+      expect(rows).toHaveLength(2);
+      expect(rows.every((r) => r.coverage === 'unresolved' && r.territory_code === null)).toBe(
+        true
+      );
+      const independent = await oracle(
+        "x.entity_cui='111' and x.account_category='ch' and x.reporting_year between 2023 and 2024",
+        [],
+        'YEAR'
+      );
+      expect(rows.map((r) => legacyDecimal(r.amount!).toString())).toEqual(
+        independent.map((r) => legacyDecimal(r.amount).toString())
+      );
+    });
+  });
+
+  it('preserves funding, source, creditor, classification, search and geography filters', async () => {
+    const cases: readonly [Partial<LegacyAnalyticsFilter>, string][] = [
+      [
+        { search: 'iasi', tags: ['kind::school'] },
+        'pe.name ilike \'%iasi%\' and pe.tags @> \'[{"tag":"kind::school"}]\'',
+      ],
+      [
+        { exclude: { regions: ['Nord-Vest'] } },
+        "(tt.region is null or tt.region not in ('Nord-Vest'))",
+      ],
+      [
+        { county_codes: ['CJ'], min_population: 100000 },
+        "tt.county_code='CJ' and tt.population>=100000",
+      ],
+      [{ funding_source_ids: ['2'] }, 'x.funding_source_id=3'],
+      [
+        { main_creditor_cui: '111', budget_sector_ids: ['5'], program_codes: ['P1'] },
+        "x.main_creditor_cui='111' and x.budget_sector_id=5 and x.program_code='P1'",
+      ],
+      [
+        { economic_prefixes: ['10'], exclude: { functional_prefixes: ['51'] } },
+        "x.economic_code like '10%' and x.functional_code not like '51%'",
+      ],
+      [{ is_territorial_executive: false }, 'pe.is_territorial_executive=false'],
+      [{ is_uat: true }, 'pe.is_uat=true'],
+    ];
+    for (const [filter, where] of cases) {
+      const expected = await oracle(
+        `x.account_category='ch' and x.reporting_year between 2023 and 2024 and ${where}`,
+        [],
+        'YEAR'
+      );
+      const actual = (
+        await makeBudgetMapRepo(db!).yearlyAmounts(
+          cleanFilter(baseFilter(filter))._unsafeUnwrap(),
+          'County'
+        )
+      )._unsafeUnwrap();
+      expect(
+        actual.reduce((sum, r) => sum.plus(r.nominalAmount), legacyDecimal(0)).toString()
+      ).toBe(expected.reduce((sum, r) => sum.plus(r.amount), legacyDecimal(0)).toString());
+    }
+  });
+
+  it('rejects incomplete or non-finite selected amounts instead of serving partial sums', async () => {
+    await rollbackTerritoryFixture(async (trx) => {
+      await sql`update budget.execution_line_items set quarterly_amount=null where entity_cui='111' and reporting_year=2023 and reporting_month=3 and report_type=${RT1}`.execute(
+        trx
+      );
+      const filter = cleanFilter(
+        baseFilter({ report_period: { type: 'QUARTER', selection: { dates: ['2023-Q1'] } } })
+      )._unsafeUnwrap();
+      // The production repository owns a read-only transaction, so invoke its
+      // statement here and verify the same invalid-row signal, without nesting.
+      const rows = (await mapAnalyticsSql(filter, 'County', () => undefined).execute(trx)).rows;
+      expect(rows.some((r) => r.invalid_amount)).toBe(true);
+      expect(decodeBudgetMapRows(rows)._unsafeUnwrapErr()).toEqual({
+        type: 'ServiceUnavailable',
+        message: 'Selected map amounts are incomplete or invalid',
+      });
+      expect(rows.some((r) => r.amount !== null && r.invalid_amount)).toBe(true);
+      await sql`update budget.execution_line_items set ytd_amount='NaN'::numeric where entity_cui='111' and reporting_year=2024 and is_yearly and report_type=${RT1}`.execute(
+        trx
+      );
+      const invalid = (
+        await mapAnalyticsSql(
+          cleanFilter(baseFilter())._unsafeUnwrap(),
+          'County',
+          () => undefined
+        ).execute(trx)
+      ).rows;
+      expect(invalid.some((r) => r.invalid_amount && r.amount === 'NaN')).toBe(true);
+      expect(decodeBudgetMapRows(invalid).isErr()).toBe(true);
+    });
+  });
+
+  it('leaves aggregate limits for the final normalized territory result', async () => {
+    const repo = makeBudgetMapRepo(db!);
+    const base = (
+      await repo.yearlyAmounts(cleanFilter(baseFilter())._unsafeUnwrap(), 'County')
+    )._unsafeUnwrap();
+    const bounded = (
+      await repo.yearlyAmounts(
+        cleanFilter(baseFilter({ aggregate_min_amount: 999999999 }))._unsafeUnwrap(),
+        'County'
+      )
+    )._unsafeUnwrap();
+    expect(bounded).toEqual(base);
+  });
+
+  it('distinguishes incomplete metadata and restricted geography from intentional exclusions', async () => {
+    await rollbackTerritoryFixture(async (trx) => {
+      const query = cleanFilter(baseFilter({ entity_cuis: ['111'] }))._unsafeUnwrap();
+      const check = async (granularity: 'UAT' | 'County') => {
+        const rows = (await mapAnalyticsSql(query, granularity, () => undefined).execute(trx)).rows;
+        expect(rows).toHaveLength(2);
+        expect(rows.every((r) => r.coverage === 'unresolved' && r.territory_code === null)).toBe(
+          true
+        );
+      };
+      await sql`update core.territories set level=null where territorial_siruta_code='54975'`.execute(
+        trx
+      );
+      await check('UAT');
+      await sql`update core.territories set level='locality',kind=null where territorial_siruta_code='54975'`.execute(
+        trx
+      );
+      await check('UAT');
+      await sql`update core.territories set level='uat',privacy_class='restricted' where territorial_siruta_code='54975'`.execute(
+        trx
+      );
+      await check('UAT');
+      await check('County');
+      await sql`update core.territories set privacy_class='public' where territorial_siruta_code='54975'`.execute(
+        trx
+      );
+      await sql`update core.territories set privacy_class='restricted' where territorial_siruta_code='12'`.execute(
+        trx
+      );
+      await check('County');
+    });
+  });
+
+  it('aggregates selected months and quarters into their own years', async () => {
+    for (const [type, dates] of [
+      ['MONTH', ['2023-02', '2024-01']],
+      ['QUARTER', ['2023-Q1', '2024-Q4']],
+    ] as const) {
+      const filter = baseFilter({ report_period: { type, selection: { dates } } });
+      const rows = (
+        await makeBudgetMapRepo(db!).yearlyAmounts(cleanFilter(filter)._unsafeUnwrap(), 'County')
+      )._unsafeUnwrap();
+      const independent = await oracle(
+        "x.account_category='ch' and ((x.reporting_year=2023 and x.reporting_month=" +
+          (type === 'MONTH' ? '2' : '3') +
+          ') or (x.reporting_year=2024 and x.reporting_month=' +
+          (type === 'MONTH' ? '1' : '12') +
+          '))',
+        [],
+        type
+      );
+      for (const year of [2023, 2024]) {
+        expect(
+          rows
+            .filter((r) => r.year === year)
+            .reduce((sum, r) => sum.plus(r.nominalAmount), legacyDecimal(0))
+            .toString()
+        ).toBe(legacyDecimal(independent.find((r) => r.year === year)!.amount).toString());
+      }
     }
   });
 });
