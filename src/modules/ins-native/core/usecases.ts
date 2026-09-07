@@ -17,6 +17,7 @@ import {
   periodTokenBounds,
 } from './identity.js';
 import { sourcePinsToSlots } from './source-pins.js';
+import { resolveInsTerritoryInputs } from './territory-inputs.js';
 import {
   DASHBOARD_ROWS_PER_DATASET,
   DEFAULT_CONTEXT_LIMIT,
@@ -121,13 +122,34 @@ export const listDimensionValues = async (
   if (!Number.isInteger(dimIndex) || dimIndex < 0) {
     return err(invalidInput('dimensionIndex must be a non-negative integer', 'dimensionIndex'));
   }
-  return repo.listMembers(
-    datasetCode,
-    dimIndex,
-    search?.trim() === '' ? undefined : search?.trim(),
-    clamp(limit, DEFAULT_DIMENSION_VALUES_LIMIT, MAX_DIMENSION_VALUES_LIMIT),
-    offsetOf(offset)
-  );
+  return repo.withSnapshot(async (snapshot) => {
+    const page = await snapshot.listMembers(
+      datasetCode,
+      dimIndex,
+      search?.trim() === '' ? undefined : search?.trim(),
+      clamp(limit, DEFAULT_DIMENSION_VALUES_LIMIT, MAX_DIMENSION_VALUES_LIMIT),
+      offsetOf(offset)
+    );
+    if (page.isErr()) return err(page.error);
+    const territories = page.value.nodes.flatMap((member) =>
+      member.territory === null ? [] : [member.territory]
+    );
+    const canonical = await canonicalSirutaCodes(snapshot, territories);
+    if (canonical.isErr()) return err(canonical.error);
+    return ok({
+      ...page.value,
+      nodes: page.value.nodes.map((member) => ({
+        ...member,
+        territory:
+          member.territory === null
+            ? null
+            : {
+                ...member.territory,
+                canonicalSirutaCode: canonical.value.get(member.territory.territoryId) ?? null,
+              },
+      })),
+    });
+  });
 };
 
 export const listContexts = (
@@ -142,17 +164,78 @@ export const listContexts = (
     offsetOf(offset)
   );
 
+/** Enrich catalog nodes without changing their source identity or hierarchy. */
+const canonicalSirutaCodes = async (
+  repo: InsRepo,
+  nodes: readonly InsTerritoryNode[]
+): Promise<Result<ReadonlyMap<number, string | null>, ApiError>> => {
+  const aliases = nodes.some((node) => node.level === 'NUTS3')
+    ? await repo.countyAliases()
+    : ok([]);
+  if (aliases.isErr()) return err(aliases.error);
+  const counties = new Map(
+    aliases.value.map((alias) => [alias.node.territoryId, alias.sirutaCode])
+  );
+  return ok(
+    new Map(
+      nodes.map((node) => [
+        node.territoryId,
+        node.level === 'LAU' ? node.sirutaCode : (counties.get(node.territoryId) ?? null),
+      ])
+    )
+  );
+};
+
 export const listTerritories = (
   repo: InsRepo,
   filter: InsTerritoryFilter,
   limit?: number,
   offset?: number
 ): Promise<Result<InsPage<InsTerritoryNode>, ApiError>> =>
-  repo.listTerritories(
-    filter,
-    clamp(limit, DEFAULT_TERRITORY_LIMIT, MAX_TERRITORY_LIMIT),
-    offsetOf(offset)
-  );
+  repo.withSnapshot(async (snapshot) => {
+    let resolvedFilter = filter;
+    if (filter.sirutaCodes !== undefined && filter.sirutaCodes.length > 0) {
+      const resolved = await resolveInsTerritoryInputs(
+        snapshot,
+        filter.sirutaCodes,
+        'siruta',
+        filter.levels
+      );
+      if (resolved.isErr()) return err(resolved.error);
+      const { sirutaCodes, ...rest } = filter;
+      void sirutaCodes;
+      resolvedFilter = {
+        ...rest,
+        territoryIds: resolved.value.nodes
+          .map((node) => node.territoryId)
+          .filter((id) => filter.territoryIds === undefined || filter.territoryIds.includes(id)),
+      };
+    }
+    if (filter.parentCode !== undefined && filter.parentCode !== '') {
+      const parents = await resolveInsTerritoryInputs(snapshot, [filter.parentCode], 'code');
+      if (parents.isErr()) return err(parents.error);
+      const parent = parents.value.nodes[0];
+      resolvedFilter =
+        parent === undefined
+          ? { ...resolvedFilter, territoryIds: [] }
+          : { ...resolvedFilter, parentCode: parent.code };
+    }
+    const page = await snapshot.listTerritories(
+      resolvedFilter,
+      clamp(limit, DEFAULT_TERRITORY_LIMIT, MAX_TERRITORY_LIMIT),
+      offsetOf(offset)
+    );
+    if (page.isErr()) return err(page.error);
+    const canonical = await canonicalSirutaCodes(snapshot, page.value.nodes);
+    if (canonical.isErr()) return err(canonical.error);
+    return ok({
+      ...page.value,
+      nodes: page.value.nodes.map((node) => ({
+        ...node,
+        canonicalSirutaCode: canonical.value.get(node.territoryId) ?? null,
+      })),
+    });
+  });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Territory resolution → slot pins
@@ -184,16 +267,28 @@ export const resolveTerritoryNodes = async (
   }
   let selected: InsTerritoryNode[] | null = null;
   if (wantsCodes) {
-    const byCode = await repo.territoriesByCodes(filter.territoryCodes ?? [], levels);
+    const byCode = await resolveInsTerritoryInputs(
+      repo,
+      filter.territoryCodes ?? [],
+      'code',
+      levels
+    );
     if (byCode.isErr()) return err(byCode.error);
-    selected = [...byCode.value];
+    selected = [...byCode.value.nodes];
   }
   if (wantsSiruta) {
-    const bySiruta = await repo.territoriesBySiruta(filter.sirutaCodes ?? []);
+    const bySiruta = await resolveInsTerritoryInputs(
+      repo,
+      filter.sirutaCodes ?? [],
+      'siruta',
+      levels
+    );
     if (bySiruta.isErr()) return err(bySiruta.error);
-    const keep = new Set(bySiruta.value.map((n) => n.territoryId));
+    const keep = new Set(bySiruta.value.nodes.map((n) => n.territoryId));
     selected =
-      selected === null ? [...bySiruta.value] : selected.filter((n) => keep.has(n.territoryId));
+      selected === null
+        ? [...bySiruta.value.nodes]
+        : selected.filter((n) => keep.has(n.territoryId));
   }
   const filtered =
     levels !== undefined && levels.length > 0

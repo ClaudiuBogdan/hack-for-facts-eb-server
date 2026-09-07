@@ -635,7 +635,9 @@ export const makeFakeRepo = (
           rows = rows.filter(
             (n) => n.sirutaCode !== null && (filter.sirutaCodes ?? []).includes(n.sirutaCode)
           );
-        if (filter.parentCode !== undefined)
+        if (filter.territoryIds !== undefined)
+          rows = rows.filter((node) => filter.territoryIds?.includes(node.territoryId) === true);
+        if (filter.parentCode !== undefined && filter.parentCode !== '')
           rows = rows.filter((n) => n.parentCode === filter.parentCode);
         return R(page(rows, rows.length, limit, offset));
       },
@@ -649,6 +651,7 @@ export const makeFakeRepo = (
         ),
       territoriesBySiruta: (codes) =>
         R(NODES.filter((n) => n.sirutaCode !== null && codes.includes(n.sirutaCode))),
+      countyAliases: () => R([]),
       territoriesByCoreId: (id) => R(NODES.filter((node) => node.coreTerritoryId === id)),
       territoriesByCoreIds: (ids) =>
         R(

@@ -37,6 +37,7 @@ const nameOf = (d: DefinitionNode): string =>
 
 /** The legacy SDL as the native slice is allowed to differ from it. */
 const ADDITIVE_TYPES = parse(`
+  extend type InsTerritory { canonical_siruta_code: String }
   type InsEntityContext { territoryCode: String! territoryLevel: InsTerritoryLevel! territoryName: String! sirutaCode: String datasetCount: Int! }
   extend type Entity { ins: InsEntityContext }
   input InsSourcePinInput { dimensionIndex: Int! memberCode: String! }

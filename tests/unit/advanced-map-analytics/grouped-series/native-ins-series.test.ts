@@ -7,7 +7,7 @@ import {
   extractNativeInsSeries,
 } from '@/modules/advanced-map-analytics/grouped-series/shell/providers/native-ins-series.js';
 
-import { makeFakeRepo } from '../../ins-native/fake-repo.js';
+import { CJ, AB, makeFakeRepo } from '../../ins-native/fake-repo.js';
 
 import type { InsMapSeries } from '@/modules/advanced-map-analytics/grouped-series/core/types.js';
 
@@ -152,6 +152,34 @@ describe('native INS map request adapter', () => {
 });
 
 describe('native INS map read lifecycle', () => {
+  it('replays old county letters and canonical new inputs with unchanged map keys', async () => {
+    const repo = makeFakeRepo();
+    repo.countyAliases = async () =>
+      ok([
+        { sirutaCode: '127', node: CJ },
+        { sirutaCode: '10', node: AB },
+      ]);
+    const run = (patch: Partial<InsMapSeries>) =>
+      extractNativeInsSeries(
+        () => ({ getRepo: async () => ok(repo), close: async () => ok(undefined) }),
+        { ...series, ...patch },
+        'County',
+        ['CJ', 'AB']
+      );
+    const old = (await run({ territoryCodes: ['CJ'] }))._unsafeUnwrap();
+    const canonical = (await run({ sirutaCodes: ['127'] }))._unsafeUnwrap();
+    expect(canonical).toEqual(old);
+    expect([...canonical.vector.valuesBySirutaCode.keys()]).toEqual(['CJ']);
+    expect(
+      (await run({ territoryCodes: ['CJ'], sirutaCodes: ['127', 'CJ'] }))._unsafeUnwrap()
+    ).toEqual(old);
+    expect(
+      (await run({ territoryCodes: ['CJ'], sirutaCodes: ['10'] }))._unsafeUnwrap().vector
+        .valuesBySirutaCode.size
+    ).toBe(0);
+    expect((await run({ sirutaCodes: ['403'] }))._unsafeUnwrapErr().type).toBe('InvalidInputError');
+  });
+
   it('reads native data, preserves string values and leaves sectors unavailable', async () => {
     const repo = makeFakeRepo();
     let closed = 0;

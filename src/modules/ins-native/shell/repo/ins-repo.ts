@@ -9,6 +9,7 @@
 import { sql, type RawBuilder } from 'kysely';
 import { err, ok } from 'neverthrow';
 
+import { readCountyAliases } from './county-aliases.js';
 import { readDefaultSeries as readDefaultSeriesInSnapshot } from './default-series.js';
 import { factOrder, factSelect, slotColumn, type FactRow } from './facts.js';
 import { geographicCatalogScopeSql, observationGeographySql } from './geography-sql.js';
@@ -734,6 +735,8 @@ const makeRepoOn = (db: Db, readTx: Runner, snapshotBound = false): InsRepo => {
         if (filter.levels !== undefined && filter.levels.length > 0) {
           parts.push(sql`t.level in (${sql.join(filter.levels.map((l) => sql`${l}`))})`);
         }
+        if (filter.territoryIds !== undefined)
+          parts.push(sql`t.territory_id = any(${filter.territoryIds}::bigint[])`);
         if (filter.parentCode !== undefined && filter.parentCode !== '')
           parts.push(sql`p.code = ${filter.parentCode}`);
         if (filter.sirutaCodes !== undefined && filter.sirutaCodes.length > 0) {
@@ -797,6 +800,10 @@ const makeRepoOn = (db: Db, readTx: Runner, snapshotBound = false): InsRepo => {
           );
         return result.rows.map(toNode);
       });
+    },
+
+    async countyAliases() {
+      return readTx('countyAliases', readCountyAliases);
     },
 
     async totalMember(datasetCode, dimIndex) {

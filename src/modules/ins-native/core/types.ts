@@ -93,6 +93,8 @@ export interface InsTerritoryNode {
   /** Public identity: SIRUTA for LAU, county letter for NUTS3, NUTS code above, `RO`. */
   readonly code: string;
   readonly sirutaCode: string | null;
+  /** Canonical SIRUTA exposed by the territory catalog; source code remains stable. */
+  readonly canonicalSirutaCode?: string | null;
   readonly level: InsTerritoryLevel;
   readonly nameRo: string;
   readonly parentId: number | null;
@@ -315,6 +317,8 @@ export interface InsTerritoryFilter {
   readonly levels?: readonly InsTerritoryLevel[];
   readonly parentCode?: string;
   readonly sirutaCodes?: readonly string[];
+  /** Internal resolved identity predicate, applied before catalog pagination. */
+  readonly territoryIds?: readonly number[];
 }
 
 /** A period constraint on facts; bounds are inclusive ISO dates. */

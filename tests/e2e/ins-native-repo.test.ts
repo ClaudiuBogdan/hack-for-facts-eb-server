@@ -53,6 +53,7 @@ import {
 import { createProdDb } from '@/modules/shared/shell/db/pool.js';
 
 import { registerInsBatchHydrationCases } from './ins-native-batch-hydration-cases.js';
+import { registerInsCountyAliasCases } from './ins-native-county-alias-cases.js';
 import { registerInsDefaultSeriesCases } from './ins-native-default-series-cases.js';
 import { registerInsEntityBridgeCases } from './ins-native-entity-bridge-cases.js';
 import { registerInsGeographyCases } from './ins-native-geography-cases.js';
@@ -84,6 +85,15 @@ const resolveScrapperRoot = (): string | undefined => {
 
 /** Content pins of the INS prod migrations, including complete geography (669746b5). */
 const MIGRATION_SHA256: Readonly<Record<string, string>> = {
+  '20260612T110000__core_reference.ts':
+    'fe5b584b1f98d2eeb7e549b854b9b5268e7a90f16c914cb090cb8dab5976aef4',
+  '20260707T120000__etl_sync_policy.ts':
+    '28a2f2f4c0e7d0365bd8a79cf7cbcc5f5f55702739d6f49fe20876f65e4be5e9',
+  '20260902T100000__core_territory_hierarchy.ts':
+    '504717852207bab89c352ce9326c900c25263eed8d823aafb53e3200d2c062a7',
+  '20260902T100100__core_territory_l2_shape.ts':
+    'c7df922a6645a71b47dba955947e3d91a0919cb0a369cc7a4ee232e1a4311385',
+
   '20260811T140000__ins_prod_schema.ts':
     '7a4c6bf0a386e68f3485773e8252ace9651a45da93daeabb698b34aa4d2961d2',
   '20260811T141000__ins_pivot_custody.ts':
@@ -391,7 +401,7 @@ beforeAll(async () => {
   pgClient = new pg.Client({ connectionString });
   await pgClient.connect();
   await pgClient.query(
-    'drop schema if exists ins cascade; create extension if not exists unaccent;'
+    'drop schema if exists ins cascade; drop schema if exists core cascade; drop schema if exists etl cascade; create extension if not exists unaccent;'
   );
   // The kernel pool: int8/date/timestamp come back as wire strings, as in production.
   db = createProdDb({ connectionString, max: 4 }).db;
@@ -404,6 +414,12 @@ beforeAll(async () => {
     await mod.up(db as Kysely<unknown>);
   }
   await seed(pgClient);
+  await pgClient.query(`insert into core.territories
+    (id, territorial_siruta_code, siruta_code, county_siruta_code, name,
+     county_code, county_name, region, level, kind, territory_key)
+    overriding system value values
+    (7002,'127','CJ','127','Cluj','CJ','Cluj','Nord-Vest','county','county','siruta:127'),
+    (7003,'10','AB','10','Alba','AB','Alba','Centru','county','county','siruta:10')`);
   repo = makeInsRepo(db);
   ready = true;
 }, 240_000);
@@ -435,6 +451,10 @@ const waitForBlockedInsRead = async (writer: pg.Client): Promise<number> => {
 };
 
 describe('ins-native repository over the real scrapper DDL (e2e)', () => {
+  registerInsCountyAliasCases(it, () => {
+    if (db === undefined) throw new Error('fixture unavailable');
+    return db;
+  });
   registerInsEntityBridgeCases(it, () => {
     if (db === undefined) throw new Error('fixture not ready');
     return db;

@@ -109,6 +109,10 @@ export interface InsCatalogRepo {
   territoriesByCoreIds(
     coreTerritoryIds: readonly number[]
   ): Promise<Result<readonly InsTerritoryNode[], ApiError>>;
+  /** Validated existing canonical county identities; never a static alias map. */
+  countyAliases(): Promise<
+    Result<readonly { readonly sirutaCode: string; readonly node: InsTerritoryNode }[], ApiError>
+  >;
   /** The TOTAL member of a dimension, if it has exactly one. */
   totalMember(datasetCode: string, dimIndex: number): Promise<Result<number | null, ApiError>>;
   defaultPins(datasetCodes: readonly string[]): Promise<Result<readonly InsDefaultPin[], ApiError>>;

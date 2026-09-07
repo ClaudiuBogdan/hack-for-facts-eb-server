@@ -245,6 +245,7 @@ export interface GqlTerritory {
   readonly id: string;
   readonly code: string;
   readonly siruta_code: string | null;
+  readonly canonical_siruta_code: string | null;
   readonly level: InsTerritoryLevel;
   readonly name_ro: string;
   readonly path: null;
@@ -257,6 +258,7 @@ export const toGqlTerritory = (n: InsTerritoryNode): GqlTerritory => ({
   id: String(n.territoryId),
   code: n.code,
   siruta_code: n.sirutaCode,
+  canonical_siruta_code: n.canonicalSirutaCode ?? null,
   level: n.level,
   name_ro: n.nameRo,
   path: null,

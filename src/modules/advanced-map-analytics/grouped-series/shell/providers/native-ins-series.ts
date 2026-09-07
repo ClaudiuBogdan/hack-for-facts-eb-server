@@ -4,6 +4,7 @@ import { err, ok, type Result } from 'neverthrow';
 import { Frequency, generatePeriodLabels } from '@/common/types/temporal.js';
 import {
   readInsMapData,
+  resolveInsTerritoryInputs,
   parseMemberCode,
   type InsMapDataInput,
   type InsReadSession,
@@ -16,6 +17,7 @@ import {
 } from '../../core/errors.js';
 
 import type { GroupedSeriesWarning, InsMapSeries, MapSeriesVector } from '../../core/types.js';
+import type { ApiError } from '@/modules/shared/index.js';
 
 const MAX_MAP_PERIODS = 1000;
 const PERIOD_PATTERNS = {
@@ -144,18 +146,47 @@ export async function extractNativeInsSeries(
   const filters = [series.territoryCodes, series.sirutaCodes].filter(
     (codes): codes is string[] => codes !== undefined && codes.length > 0
   );
-  if (filters.some((codes) => codes.some((code) => !universe.has(code))))
+  if (granularity === 'UAT' && filters.some((codes) => codes.some((code) => !universe.has(code))))
     return err(
       createInvalidInputError('INS geographic selections must match the selected map boundaries')
     );
-  const selected = new Set(
-    territoryCodes.filter((code) => filters.every((codes) => codes.includes(code)))
-  );
+  let selected = new Set<string>();
   const session = createReadSession();
   let result: Awaited<ReturnType<typeof readInsMapData>>;
   try {
     const repo = await session.getRepo();
-    result = repo.isErr() ? err(repo.error) : await readInsMapData(repo.value, input.value);
+    if (repo.isErr()) result = err(repo.error);
+    else {
+      const normalized: string[][] = [];
+      let invalidFilter = false;
+      let aliasFailure: ApiError | undefined;
+      for (const codes of filters) {
+        if (granularity === 'UAT') normalized.push(codes);
+        else {
+          const resolved = await resolveInsTerritoryInputs(repo.value, codes, 'code', ['NUTS3']);
+          if (resolved.isErr()) {
+            aliasFailure = resolved.error;
+            break;
+          }
+          if (resolved.value.unresolvedCodes.length > 0) invalidFilter = true;
+          normalized.push(resolved.value.nodes.map((node) => node.code));
+        }
+      }
+      invalidFilter ||= normalized.some((codes) => codes.some((code) => !universe.has(code)));
+      selected = new Set(
+        territoryCodes.filter((code) => normalized.every((codes) => codes.includes(code)))
+      );
+      result =
+        aliasFailure !== undefined
+          ? err(aliasFailure)
+          : invalidFilter
+            ? err({
+                type: 'InvalidInput',
+                field: 'territories',
+                message: 'INS geographic selections must match the selected map boundaries',
+              })
+            : await readInsMapData(repo.value, input.value);
+    }
   } catch (cause) {
     await session.close();
     return err(createProviderError('INS map read failed', cause));

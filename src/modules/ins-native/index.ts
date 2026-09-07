@@ -110,3 +110,5 @@ export {
   type AnnualPopulationAdmission,
   type AnnualPopulationResult,
 } from './core/annual-population.js';
+
+export { resolveInsTerritoryInputs } from './core/territory-inputs.js';

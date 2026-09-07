@@ -211,6 +211,11 @@ export const insLegacyTypeDefs = /* GraphQL */ `
     """
     parent_code: String
     parent_name_ro: String
+    """
+    Canonical SIRUTA for constructing new filters; populated by territory and dimension-value catalogs.
+    Existing code, siruta_code and map keys retain their source identities.
+    """
+    canonical_siruta_code: String
   }
 
   type InsTerritoryConnection {
