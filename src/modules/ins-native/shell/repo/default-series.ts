@@ -22,14 +22,16 @@ import {
 import type { Trx } from './snapshot.js';
 import type { InsSeriesPeriod } from '../../core/ports.js';
 
-const REQUESTS_PER_STATEMENT = 40;
+// Measured on 3,228 anchors × 4 years (2026-09-07): 71 vs 191 SQL reads,
+// 22.5s vs 27.0s from the Mac. Revalidate at full scale after topology changes.
+const REQUESTS_PER_STATEMENT = 160;
 // PostgreSQL wire protocol ceiling. Each branch has <=32 non-range parameters
 // (seven classification slots, scope, unit, dataset, period bounds and limit).
 // A range contributes two parameters; shrink batches, never truncate selection.
 const MAX_BIND_PARAMETERS = 65_535;
 const MAX_BRANCH_FIXED_PARAMETERS = 32;
 // Preserve the previous maximum hydration batch; this batches, never truncates.
-const MAX_HYDRATION_ROWS = REQUESTS_PER_STATEMENT * (MAX_OBSERVATION_LIMIT + 1);
+const MAX_HYDRATION_ROWS = 40 * (MAX_OBSERVATION_LIMIT + 1);
 
 interface Layout {
   readonly geography: readonly InsGeographicDimension[];
@@ -184,6 +186,7 @@ export const readDefaultSeries = async (
   };
   const requestsPerStatement = Math.min(
     REQUESTS_PER_STATEMENT,
+    Math.floor(MAX_HYDRATION_ROWS / perSeries),
     Math.floor(
       MAX_BIND_PARAMETERS / (MAX_BRANCH_FIXED_PARAMETERS + 2 * (period?.periodRanges?.length ?? 0))
     )

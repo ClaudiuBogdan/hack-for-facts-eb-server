@@ -19,9 +19,12 @@ import corsPlugin from '@fastify/cors';
 import { makeExecutableSchema } from '@graphql-tools/schema';
 import fastifyLib, { type FastifyInstance, type FastifyReply } from 'fastify';
 import mercuriusPlugin from 'mercurius';
-import { ok } from 'neverthrow';
 
 import { makeInsGraphqlLifecycle } from './ins-graphql-session.js';
+import {
+  makeNativeMapPopulation,
+  NATIVE_MAP_POPULATION_ADMISSION,
+} from './native-map-population.js';
 import { registerNativeMapRoutes } from './native-map-routes.js';
 import {
   makeGraphQLErrorFormatter,
@@ -144,19 +147,6 @@ export interface RedesignApp {
   readonly app: FastifyInstance;
   readonly kernel: Kernel;
 }
-
-const unadmittedMapPopulation: BudgetMapPopulationSource = {
-  annualUnions: (rows) =>
-    Promise.resolve(
-      ok(
-        rows.flatMap((row) =>
-          row.territoryCode === null
-            ? []
-            : [{ territoryCode: row.territoryCode, year: row.year, population: null }]
-        )
-      )
-    ),
-};
 
 /** True for http(s) origins whose host is a loopback address. */
 const isLocalhostOrigin = (origin: string): boolean => {
@@ -486,8 +476,9 @@ export const registerRedesignSurface = async (
           LEGACY_FACTOR_SET_ID,
           LEGACY_FACTOR_SET_DIGEST
         ),
-        // Absent admission is an explicit coverage gap; it never gates nominal/INS routes.
-        population: deps.mapPopulation ?? unadmittedMapPopulation,
+        // The source pin is rechecked per read; missing years/sectors remain unavailable.
+        population:
+          deps.mapPopulation ?? makeNativeMapPopulation(kernel.db, NATIVE_MAP_POPULATION_ADMISSION),
       },
     });
   }

@@ -28,19 +28,19 @@ export const registerInsBatchHydrationCases = (
 ): void => {
   it('batched INS hydration preserves shuffled keys, repeated facts, mixed datasets and missing series', () =>
     inInsFixture(database(), async (_trx, repo) => {
-      const requests = Array.from({ length: 81 }, (_, i) =>
+      const requests = Array.from({ length: 321 }, (_, i) =>
         i % 3 === 0
           ? {
-              ...request(String(81 - i)),
+              ...request(String(321 - i)),
               datasetCode: 'CNTTEST',
               nonGeographicPins: new Map<number, number>(),
               unitNomItemId: 9507,
               geoScope: { kind: 'modern' as const, territoryIds: [25] as const },
             }
           : i % 3 === 1
-            ? request(String(81 - i))
+            ? request(String(321 - i))
             : {
-                ...request(String(81 - i)),
+                ...request(String(321 - i)),
                 geoScope: { kind: 'modern' as const, territoryIds: [999999] as const },
               }
       );
@@ -65,7 +65,7 @@ export const registerInsBatchHydrationCases = (
         dim4_member_id,time_nom_item_id,unit_nom_item_id,period_id,period_start,period_end,value,response_id)
         select 'POPTEST',1,105,3075,931,id,9685,30,'2021-01-01'::date,'2021-12-31'::date,301105,1
         from generate_series(10000,11000) id`.execute(trx);
-      const requests = Array.from({ length: 41 }, (_, i) => request(String(41 - i)));
+      const requests = Array.from({ length: 161 }, (_, i) => request(String(161 - i)));
       const batches: number[] = [];
       const rows = await readDefaultSeries(trx, requests, 1001, undefined, async (facts) => {
         batches.push(facts.length);
@@ -74,7 +74,7 @@ export const registerInsBatchHydrationCases = (
           coordinate: { ...original.coordinate, timeNomItemId: fact.time_nom_item_id },
         }));
       });
-      expect(batches).toEqual([40040, 1001]);
+      expect(batches).toEqual([40040, 40040, 40040, 40040, 1001]);
       expect(rows.map((row) => row.seriesKey)).toEqual(requests.map((r) => r.key));
       expect(rows.every((row) => row.observations.length === 1001)).toBe(true);
       expect(new Set(rows[40]?.observations.map((o) => o.coordinate.timeNomItemId)).size).toBe(

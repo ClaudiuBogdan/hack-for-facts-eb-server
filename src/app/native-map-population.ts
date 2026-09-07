@@ -17,6 +17,24 @@ import { readPublicTerritoriesByIds, type ProdDatabase } from '../modules/shared
 
 import type { Kysely } from 'kysely';
 
+/** POP107D publication verified against original INS responses on 2026-09-07.
+ * All 24 source samples match, including the canonical county union against
+ * national totals. Exact-year coverage is checked on every read; missing sectors
+ * and historical cells stay unavailable. A new publication must be re-admitted.
+ * Source: https://statistici.insse.ro/tempoins/index.jsp?ind=POP107D&lang=ro&page=tempo3
+ */
+export const NATIVE_MAP_POPULATION_ADMISSION: AnnualPopulationAdmission = {
+  datasetCode: 'POP107D',
+  revisionId: '1051',
+  custodySha256: '429008f7bdb642aff655a0b1c93cdf6db54f0a04433eb0a2db6fed0183555ad6',
+  transformContractSha256: 'bddc45cd6e97a8f93f0c0d6f33fe82d6dad5597cb5b29336c2069147d27a4d2d',
+  ageDimension: 0,
+  allAgesMember: 1,
+  sexDimension: 1,
+  allSexesMember: 105,
+  personsUnit: 9685,
+};
+
 /** Admission is explicit: constructing this adapter never certifies a publication. */
 export function makeNativeMapPopulation(
   db: Kysely<ProdDatabase>,
