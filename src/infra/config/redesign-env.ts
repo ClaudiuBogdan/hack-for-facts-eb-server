@@ -43,6 +43,7 @@ const RedesignEnvSchema = Type.Object({
   USER_DATA_DB_CA_FILE: Type.Optional(Type.String({ minLength: 1 })),
   USER_DATA_DB_TLS_SERVERNAME: Type.Optional(Type.String({ minLength: 1 })),
   CLERK_WEBHOOK_SIGNING_SECRET: Type.Optional(Type.String({ minLength: 1 })),
+  CLERK_SECRET_KEY: Type.Optional(Type.String({ minLength: 1 })),
   CLERK_JWT_KEY: Type.Optional(Type.String({ minLength: 1 })),
   CLERK_ISSUER: Type.Optional(Type.String({ minLength: 1 })),
   CLERK_AUTHORIZED_PARTIES: Type.Optional(Type.String({ minLength: 1 })),
@@ -66,6 +67,7 @@ export interface RedesignConfig {
     readonly caFile: string;
     readonly tlsServername?: string;
     readonly webhookSigningSecret: string;
+    readonly clerkSecretKey?: string;
   };
   readonly kernel: {
     readonly prodDatabaseUrl: string;
@@ -165,6 +167,7 @@ export const loadRedesignConfig = (env: NodeJS.ProcessEnv): RedesignConfig => {
         'User data requires Clerk auth, a dedicated database URL, CA and webhook secret'
       );
     userData = {
+      ...(e.CLERK_SECRET_KEY === undefined ? {} : { clerkSecretKey: e.CLERK_SECRET_KEY }),
       url: e.USER_DATA_DATABASE_URL,
       caFile: e.USER_DATA_DB_CA_FILE,
       webhookSigningSecret: e.CLERK_WEBHOOK_SIGNING_SECRET,

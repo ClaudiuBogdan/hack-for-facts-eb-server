@@ -109,6 +109,7 @@ export function mapGroupedSeriesBodyToRequest(
 
   return {
     granularity: body.granularity,
+    ...(body.groups === undefined ? {} : { groups: body.groups }),
     series: body.series.map((series, index) => {
       const explicitId =
         typeof series.id === 'string' && series.id.trim() !== '' ? series.id.trim() : undefined;

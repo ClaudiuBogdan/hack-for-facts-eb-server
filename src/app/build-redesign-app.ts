@@ -19,8 +19,10 @@ import corsPlugin from '@fastify/cors';
 import { makeExecutableSchema } from '@graphql-tools/schema';
 import fastifyLib, { type FastifyInstance, type FastifyReply } from 'fastify';
 import mercuriusPlugin from 'mercurius';
+import { ok } from 'neverthrow';
 
 import { makeInsGraphqlLifecycle } from './ins-graphql-session.js';
+import { registerNativeMapRoutes } from './native-map-routes.js';
 import {
   makeGraphQLErrorFormatter,
   makeGraphQLValidationRules,
@@ -28,6 +30,8 @@ import {
 import { makeGraphQLContext, type AuthProvider } from '../modules/auth/index.js';
 import {
   makeBudgetModule,
+  makeBudgetMapRepo,
+  type BudgetMapPopulationSource,
   makeFactorSetSource,
   LEGACY_FACTOR_SET_ID,
   LEGACY_FACTOR_SET_DIGEST,
@@ -128,13 +132,31 @@ export interface BuildRedesignAppDeps {
    * where every caller is anonymous.
    */
   readonly authProvider?: AuthProvider;
-  readonly userData?: { readonly db: Kysely<UserDatabase>; readonly signingSecret: string };
+  readonly userData?: {
+    readonly db: Kysely<UserDatabase>;
+    readonly signingSecret: string;
+    readonly clerkSecretKey?: string;
+  };
+  readonly mapPopulation?: BudgetMapPopulationSource;
 }
 
 export interface RedesignApp {
   readonly app: FastifyInstance;
   readonly kernel: Kernel;
 }
+
+const unadmittedMapPopulation: BudgetMapPopulationSource = {
+  annualUnions: (rows) =>
+    Promise.resolve(
+      ok(
+        rows.flatMap((row) =>
+          row.territoryCode === null
+            ? []
+            : [{ territoryCode: row.territoryCode, year: row.year, population: null }]
+        )
+      )
+    ),
+};
 
 /** True for http(s) origins whose host is a loopback address. */
 const isLocalhostOrigin = (origin: string): boolean => {
@@ -222,7 +244,7 @@ export const buildRedesignApp = async (deps: BuildRedesignAppDeps): Promise<Rede
       }
       cb(null, allowedOrigins.has(origin));
     },
-    methods: ['GET', 'POST', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: [
       'content-type',
       'authorization',
@@ -440,6 +462,34 @@ export const registerRedesignSurface = async (
     moduleSlices.push(insNative.graphqlSlice);
     moduleResolvers.push(insNative.graphqlResolvers);
     moduleMcpTools.push(...insNative.mcpTools);
+  }
+
+  if (
+    deps.userData !== undefined &&
+    deps.authProvider !== undefined &&
+    enabledModules.includes('budget') &&
+    createInsSession !== undefined
+  ) {
+    await registerNativeMapRoutes(app, {
+      db: kernel.db,
+      rateLimiter: kernel.rateLimiter,
+      userDb: deps.userData.db,
+      authProvider: deps.authProvider,
+      ...(deps.userData.clerkSecretKey === undefined
+        ? {}
+        : { clerkSecretKey: deps.userData.clerkSecretKey }),
+      createInsReadSession: createInsSession,
+      budget: {
+        repo: makeBudgetMapRepo(kernel.db),
+        factors: makeFactorSetSource(
+          makeFactorSetReader(kernel.db),
+          LEGACY_FACTOR_SET_ID,
+          LEGACY_FACTOR_SET_DIGEST
+        ),
+        // Absent admission is an explicit coverage gap; it never gates nominal/INS routes.
+        population: deps.mapPopulation ?? unadmittedMapPopulation,
+      },
+    });
   }
 
   if (enabledModules.includes('procurement')) {

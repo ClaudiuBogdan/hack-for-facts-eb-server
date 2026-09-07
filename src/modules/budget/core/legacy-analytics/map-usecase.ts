@@ -14,8 +14,10 @@ import type {
   BudgetMapPopulationSource,
   BudgetMapRepo,
   BudgetMapResult,
+  BudgetMapYear,
 } from './map-types.js';
 import type { FactorSource } from './ports.js';
+import type { NormalizationPlan } from './types.js';
 import type { Decimal } from 'decimal.js';
 
 export interface BudgetMapDeps {
@@ -43,7 +45,29 @@ export const budgetMapValues = async (
     );
   const result = await deps.repo.yearlyAmounts(query.value, input.granularity);
   if (result.isErr()) return err(result.error);
-  const rows = result.value;
+  return normalizeBudgetMapYears(deps, {
+    rows: result.value,
+    plan,
+    ...(query.value.aggregateMinAmount === undefined
+      ? {}
+      : { minimum: query.value.aggregateMinAmount }),
+    ...(query.value.aggregateMaxAmount === undefined
+      ? {}
+      : { maximum: query.value.aggregateMaxAmount }),
+  });
+};
+
+/** Shared exact-year calculation for execution, commitments and selected groups. */
+export const normalizeBudgetMapYears = async (
+  deps: Pick<BudgetMapDeps, 'factors' | 'population'>,
+  input: {
+    readonly rows: readonly BudgetMapYear[];
+    readonly plan: NormalizationPlan;
+    readonly minimum?: string;
+    readonly maximum?: string;
+  }
+): Promise<Result<BudgetMapResult, ApiError>> => {
+  const { rows, plan } = input;
   if (
     rows.some(
       (row) => typeof row.nominalAmount !== 'string' || !/^-?\d+(?:\.\d+)?$/.test(row.nominalAmount)
@@ -101,10 +125,8 @@ export const budgetMapValues = async (
       // User decision: limits apply to the final territory result, in its output
       // unit, after all selected institutions/years and normalization.
       const outsideBounds =
-        (query.value.aggregateMinAmount !== undefined &&
-          total.amount.lt(query.value.aggregateMinAmount)) ||
-        (query.value.aggregateMaxAmount !== undefined &&
-          total.amount.gt(query.value.aggregateMaxAmount));
+        (input.minimum !== undefined && total.amount.lt(input.minimum)) ||
+        (input.maximum !== undefined && total.amount.gt(input.maximum));
       const status =
         total.missingYears.size > 0
           ? 'unavailable'

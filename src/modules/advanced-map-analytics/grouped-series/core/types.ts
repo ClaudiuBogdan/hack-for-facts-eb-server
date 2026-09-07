@@ -95,7 +95,26 @@ export interface UploadedMapDatasetSeries extends MapRequestSeriesBase {
 export type MapRequestSeries =
   ExecutionMapSeries | CommitmentsMapSeries | InsMapSeries | UploadedMapDatasetSeries;
 
+/** Transient fixed-membership calculations; saved map configuration stays unchanged. */
+export interface FinancialMapGroupRequest {
+  groupWorkspaceId: string;
+  groupId: string;
+  sourceSeriesId: string;
+  memberTerritoryCodes: string[];
+}
+export interface FinancialMapGroupValue {
+  memberTerritoryCodes: readonly string[];
+  groupWorkspaceId: string;
+  groupId: string;
+  sourceSeriesId: string;
+  value: string | null;
+  unit: string;
+  missingYears: readonly number[];
+  unavailableReason?:
+    'source_filtered_member' | 'source_unavailable_member' | 'normalization_unavailable';
+}
 export interface GroupedSeriesDataRequest {
+  groups?: FinancialMapGroupRequest[];
   granularity: MapGranularity;
   series: MapRequestSeries[];
   requestUserId?: string;
@@ -128,6 +147,7 @@ export interface GroupedSeriesProviderOutput {
   sirutaUniverse: string[];
   vectors: MapSeriesVector[];
   warnings: GroupedSeriesWarning[];
+  groupValues?: readonly FinancialMapGroupValue[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -157,4 +177,5 @@ export interface GroupedSeriesMatrixData {
   seriesOrder: string[];
   rows: GroupedSeriesMatrixRow[];
   warnings: GroupedSeriesWarning[];
+  groupValues?: readonly FinancialMapGroupValue[];
 }

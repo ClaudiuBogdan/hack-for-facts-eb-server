@@ -21,7 +21,13 @@ const main = async (): Promise<void> => {
     kernelConfig: config.kernel,
     ...(userDb !== undefined &&
       config.userData !== undefined && {
-        userData: { db: userDb, signingSecret: config.userData.webhookSigningSecret },
+        userData: {
+          db: userDb,
+          signingSecret: config.userData.webhookSigningSecret,
+          ...(config.userData.clerkSecretKey === undefined
+            ? {}
+            : { clerkSecretKey: config.userData.clerkSecretKey }),
+        },
       }),
     ...(authProvider !== undefined && { authProvider }),
     logLevel: config.logLevel,

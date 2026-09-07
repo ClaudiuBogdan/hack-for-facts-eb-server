@@ -36,12 +36,15 @@ import { pathToFileURL } from 'node:url';
 
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { Decimal } from 'decimal.js';
+import fastifyLib from 'fastify';
 import { Kysely, PostgresDialect, sql } from 'kysely';
 import { ok } from 'neverthrow';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it as vitestIt } from 'vitest';
 
+import { registerNativeMapRoutes } from '@/app/native-map-routes.js';
 import { makeNativeMapTerritoryLookup } from '@/modules/advanced-map-analytics/index.js';
+import { toUserId } from '@/modules/auth/index.js';
 import { cleanFilter } from '@/modules/budget/core/legacy-analytics/clean.js';
 import { legacyDecimal } from '@/modules/budget/core/legacy-analytics/decimal.js';
 import {
@@ -55,6 +58,7 @@ import {
 import { legacyExecutionSeries } from '@/modules/budget/core/legacy-analytics/usecase.js';
 import { chainLinkCpiLevels } from '@/modules/budget/shell/factors/cpi-level.js';
 import { makeBudgetRepo } from '@/modules/budget/shell/repo/budget-repo.js';
+import { commitmentsMapSql } from '@/modules/budget/shell/repo/commitments-map-repo.js';
 import { countyExecutiveCuiSql } from '@/modules/budget/shell/repo/county-executive.js';
 import { makeBudgetDiscoveryRepo } from '@/modules/budget/shell/repo/discovery-repo.js';
 import { makeFundingSourceMap } from '@/modules/budget/shell/repo/funding-source-map.js';
@@ -81,6 +85,7 @@ import { makeTerritoryQueryRepo } from '@/modules/reference/shell/repo/territory
 import { makeIdentityRepo } from '@/modules/shared/shell/repo/identity-repo.js';
 import { makeTerritoryRepo } from '@/modules/shared/shell/repo/territory-repo.js';
 
+import type { UserDatabase } from '@/infra/database/user/types.js';
 import type { GroupedQuery } from '@/modules/budget/core/legacy-analytics/grouped-types.js';
 import type { FactorKind, FactorSource } from '@/modules/budget/core/legacy-analytics/ports.js';
 import type { LegacyAnalyticsFilter } from '@/modules/budget/core/legacy-analytics/types.js';
@@ -2398,5 +2403,285 @@ describe('native map presentation universe over actual territory DDL', () => {
       await sql`update core.territories set privacy_class='restricted'`.execute(trx);
       await expect(makeNativeMapTerritoryLookup(trx)()).rejects.toThrow('unavailable');
     });
+  });
+});
+
+describe('native commitment map aggregation', () => {
+  const principal = 'Executie - Angajamente bugetare agregat principal';
+  const detailed = 'Executie - Angajamente bugetare detaliat';
+  const seed = async (
+    trx: Kysely<ProdDatabase>,
+    report: string,
+    entity: string,
+    value: string,
+    economic = '10.01',
+    year = 2024
+  ) => {
+    await sql`insert into budget.commitment_line_items
+      (report_id,line_key,line_order,reporting_year,reporting_month,quarter,entity_cui,report_type,budget_sector_id,functional_code,economic_code,
+       ytd_credite_angajament,ytd_limita_credit_angajament,ytd_credite_bugetare,ytd_credite_angajament_initiale,ytd_credite_bugetare_initiale,
+       ytd_credite_angajament_definitive,ytd_credite_bugetare_definitive,ytd_credite_angajament_disponibile,ytd_credite_bugetare_disponibile,
+       ytd_receptii_totale,ytd_plati_trezor,ytd_plati_non_trezor,ytd_receptii_neplatite,monthly_receptii_neplatite,credite_angajament,is_yearly,is_monthly)
+      values (${report + entity},${economic},1,${year},12,4,${entity},${report},2,'65.02.04',${economic},${value}::numeric,0,0,0,0,0,0,0,0,0,0,0,0,${value}::numeric,${value}::numeric,true,true)`.execute(
+      trx
+    );
+  };
+  it('selects one report priority per entity/year, preserving zero and exact county totals', async () => {
+    await rollbackTerritoryFixture(async (trx) => {
+      await seed(trx, principal, '111', '10.01');
+      await seed(trx, detailed, '111', '999.99');
+      await seed(trx, detailed, '222', '0');
+      const q = cleanFilter(baseFilter())._unsafeUnwrap();
+      const rows = (
+        await commitmentsMapSql(
+          { ...q, reportType: null },
+          'County',
+          'CREDITE_ANGAJAMENT',
+          false,
+          () => undefined
+        ).execute(trx)
+      ).rows;
+      expect(rows.map((row) => [row.territory_code, row.amount])).toEqual([
+        ['CJ', '10.01'],
+        ['IS', '0.00'],
+      ]);
+      const selected = (
+        await commitmentsMapSql(
+          { ...q, reportType: detailed },
+          'County',
+          'CREDITE_ANGAJAMENT',
+          false,
+          () => undefined
+        ).execute(trx)
+      ).rows;
+      expect(selected.find((row) => row.territory_code === 'CJ')?.amount).toBe('999.99');
+    });
+  });
+  it('applies transfer exclusion and item thresholds to the chosen metric, not territory totals', async () => {
+    await rollbackTerritoryFixture(async (trx) => {
+      await seed(trx, principal, '111', '60');
+      await seed(trx, principal, '111', '900', '51.01.01');
+      const q = cleanFilter(baseFilter({ aggregate_min_amount: 100 }))._unsafeUnwrap();
+      const excluded = (
+        await commitmentsMapSql(q, 'County', 'CREDITE_ANGAJAMENT', true, () => undefined).execute(
+          trx
+        )
+      ).rows;
+      expect(excluded[0]?.amount).toBe('60.00');
+      const included = (
+        await commitmentsMapSql(q, 'County', 'CREDITE_ANGAJAMENT', false, () => undefined).execute(
+          trx
+        )
+      ).rows;
+      expect(included[0]?.amount).toBe('960.00');
+      const items = (
+        await commitmentsMapSql(
+          { ...q, itemMinAmount: '100' },
+          'County',
+          'CREDITE_ANGAJAMENT',
+          false,
+          () => undefined
+        ).execute(trx)
+      ).rows;
+      expect(items[0]?.amount).toBe('900.00');
+    });
+  });
+  it('falls back to detailed reports when filters remove the principal report', async () => {
+    await rollbackTerritoryFixture(async (trx) => {
+      await seed(trx, principal, '111', '10', '10.01');
+      await seed(trx, detailed, '111', '20', '20.01');
+      const q = cleanFilter(baseFilter({ economic_prefixes: ['20'] }))._unsafeUnwrap();
+      const rows = (
+        await commitmentsMapSql(
+          { ...q, reportType: null },
+          'County',
+          'CREDITE_ANGAJAMENT',
+          false,
+          () => undefined
+        ).execute(trx)
+      ).rows;
+      expect(rows.map((row) => row.amount)).toEqual(['20.00']);
+    });
+  });
+  it('selects report priority independently for each year', async () => {
+    await rollbackTerritoryFixture(async (trx) => {
+      await seed(trx, principal, '111', '10');
+      await seed(trx, detailed, '111', '999');
+      await seed(trx, detailed, '111', '20', '10.01', 2025);
+      const q = cleanFilter(
+        baseFilter({ report_period: { type: 'YEAR', selection: { dates: ['2024', '2025'] } } })
+      )._unsafeUnwrap();
+      const rows = (
+        await commitmentsMapSql(
+          { ...q, reportType: null },
+          'County',
+          'CREDITE_ANGAJAMENT',
+          false,
+          () => undefined
+        ).execute(trx)
+      ).rows;
+      expect(rows.map((row) => [row.year, row.amount])).toEqual([
+        [2024, '10.00'],
+        [2025, '20.00'],
+      ]);
+    });
+  });
+  it('rejects partial sums when a selected annual amount is missing', async () => {
+    await rollbackTerritoryFixture(async (trx) => {
+      await seed(trx, principal, '111', '10');
+      await seed(trx, principal, '111', '20', '20.01');
+      await sql`update budget.commitment_line_items set credite_angajament = null where economic_code = '20.01'`.execute(
+        trx
+      );
+      const q = cleanFilter(baseFilter())._unsafeUnwrap();
+      const rows = (
+        await commitmentsMapSql(q, 'County', 'CREDITE_ANGAJAMENT', false, () => undefined).execute(
+          trx
+        )
+      ).rows;
+      expect(rows[0]?.amount).toBe('10.00');
+      expect(rows[0]?.invalid_amount).toBe(true);
+      expect(decodeBudgetMapRows(rows).isErr()).toBe(true);
+    });
+  });
+  it('reads the native unpaid-change column instead of the legacy column alias', async () => {
+    await rollbackTerritoryFixture(async (trx) => {
+      await seed(trx, principal, '111', '-3.25');
+      const q = cleanFilter(
+        baseFilter({ report_period: { type: 'MONTH', selection: { dates: ['2024-12'] } } })
+      )._unsafeUnwrap();
+      const rows = (
+        await commitmentsMapSql(
+          q,
+          'County',
+          'RECEPTII_NEPLATITE_CHANGE',
+          false,
+          () => undefined
+        ).execute(trx)
+      ).rows;
+      expect(rows[0]?.amount).toBe('-3.25');
+    });
+  });
+});
+
+describe('mounted native map routes', () => {
+  it('serves native county data and protects private maps with the existing owner rules', async () => {
+    const schema = 'map_routes_' + String(Date.now());
+    const connectionString = process.env['E2E_BUDGET_PG_URL'] ?? container?.getConnectionUri();
+    if (connectionString === undefined) throw new Error('Disposable database required');
+    const setup = new pg.Client({ connectionString });
+    await setup.connect();
+    let userDb: Kysely<UserDatabase> | undefined;
+    const app = fastifyLib({ logger: false });
+    let deny = false;
+    try {
+      await setup.query(`create schema ${schema}`);
+      await setup.query(`set search_path to ${schema}`);
+      await setup.query(fs.readFileSync('src/infra/database/user/schema.sql', 'utf8'));
+      userDb = new Kysely<UserDatabase>({
+        dialect: new PostgresDialect({
+          pool: new pg.Pool({ connectionString, options: `-c search_path=${schema}` }),
+        }),
+      });
+      await registerNativeMapRoutes(app, {
+        db: db!,
+        userDb,
+        rateLimiter: {
+          consume: () => ({ allowed: !deny, remaining: 1, retryAfterMs: deny ? 1000 : 0 }),
+        },
+        authProvider: {
+          verifyToken: (token) =>
+            Promise.resolve(
+              ok({ userId: toUserId(token), expiresAt: new Date(Date.now() + 60000) })
+            ),
+        },
+        budget: {
+          repo: makeBudgetMapRepo(db!),
+          factors: noFactors,
+          population: { annualUnions: () => Promise.resolve(ok([])) },
+        },
+        createInsReadSession: () => {
+          throw new Error('This fixture must not read INS');
+        },
+      });
+      const anonymous = await app.inject({
+        method: 'GET',
+        url: '/api/v1/advanced-map-analytics/maps',
+      });
+      expect(anonymous.statusCode).toBe(401);
+      const created = await app.inject({
+        method: 'POST',
+        url: '/api/v1/advanced-map-analytics/maps',
+        headers: { authorization: 'Bearer owner' },
+        payload: { title: 'Native private fixture', visibility: 'private' },
+      });
+      expect(created.statusCode, created.body).toBe(201);
+      const mapId = created.json<{ data: { mapId: string } }>().data.mapId;
+      const own = await app.inject({
+        method: 'GET',
+        url: `/api/v1/advanced-map-analytics/maps/${mapId}`,
+        headers: { authorization: 'Bearer owner' },
+      });
+      expect(own.statusCode, own.body).toBe(200);
+      const other = await app.inject({
+        method: 'GET',
+        url: `/api/v1/advanced-map-analytics/maps/${mapId}`,
+        headers: { authorization: 'Bearer other' },
+      });
+      expect(other.statusCode).toBe(404);
+      const publish = await app.inject({
+        method: 'POST',
+        url: '/api/v1/advanced-map-analytics/maps',
+        headers: { authorization: 'Bearer owner' },
+        payload: { title: 'Must not publish', visibility: 'public' },
+      });
+      expect(publish.statusCode).toBe(403);
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/v1/advanced-map-analytics/grouped-series',
+        payload: {
+          granularity: 'County',
+          series: [
+            {
+              id: 'execution',
+              type: 'line-items-aggregated-yearly',
+              filter: baseFilter({ report_type: RT1 }),
+            },
+          ],
+          groups: [
+            {
+              groupWorkspaceId: 'workspace',
+              groupId: 'cluj',
+              sourceSeriesId: 'execution',
+              memberTerritoryCodes: ['CJ'],
+            },
+          ],
+          payload: { format: 'csv_wide_matrix_v1', compression: 'none' },
+        },
+      });
+      expect(response.statusCode, response.body).toBe(200);
+      expect(
+        response.json<{ data: { manifest: { granularity: string } } }>().data.manifest.granularity
+      ).toBe('County');
+      expect(response.body).toContain('CJ');
+      expect(response.json<{ data: { groupValues: unknown[] } }>().data.groupValues).toEqual([
+        expect.objectContaining({
+          groupWorkspaceId: 'workspace',
+          groupId: 'cluj',
+          sourceSeriesId: 'execution',
+          memberTerritoryCodes: ['CJ'],
+        }),
+      ]);
+      deny = true;
+      expect(
+        (await app.inject({ method: 'GET', url: '/api/v1/advanced-map-analytics/maps' })).statusCode
+      ).toBe(429);
+    } finally {
+      await app.close();
+      await userDb?.destroy();
+      await setup.query('set search_path to public');
+      await setup.query(`drop schema if exists ${schema} cascade`);
+      await setup.end();
+    }
   });
 });

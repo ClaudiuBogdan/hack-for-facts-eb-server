@@ -152,12 +152,17 @@ export const legacyJoinNeeds = (
 /** Build the WHERE conditions (order: pruning triple first, then the rest). */
 export const legacyAggregateConditions = (
   q: LegacyAggregateQuery,
-  toStoredFundingId: (publicId: number) => number | undefined
+  toStoredFundingId: (publicId: number) => number | undefined,
+  source?: {
+    readonly amount: RawBuilder<unknown>;
+    readonly reportTypes: readonly string[];
+    readonly hasAccountCategory: boolean;
+  }
 ): Cond[] => {
   const conds: Cond[] = [];
   const year = sql.ref('eli.reporting_year');
   const period = periodColumn(q.frequency);
-  const amount = amountColumn(q.frequency);
+  const amount = source?.amount ?? amountColumn(q.frequency);
 
   // ── §0.3 pruning: L1 year(s), L2 report_type (literal, or IN over the three
   //    supported literals when omitted), L3 account_category ──
@@ -165,8 +170,9 @@ export const legacyAggregateConditions = (
   else conds.push(sql`${year} between ${q.period.years.from} and ${q.period.years.to}`);
   const reportType = sql.ref('eli.report_type');
   if (q.reportType !== null) conds.push(sql`${reportType} = ${q.reportType}`);
-  else conds.push(inList(reportType, ALL_EXECUTION_REPORT_TYPE_LITERALS));
-  conds.push(sql`${sql.ref('eli.account_category')} = ${q.accountCategory}`);
+  else conds.push(inList(reportType, source?.reportTypes ?? ALL_EXECUTION_REPORT_TYPE_LITERALS));
+  if (source?.hasAccountCategory !== false)
+    conds.push(sql`${sql.ref('eli.account_category')} = ${q.accountCategory}`);
   conds.push(sql`${flagColumn(q.frequency)} = true`);
 
   // ── period tuple / year-range / date-list predicates (legacy buildPeriodConditions) ──

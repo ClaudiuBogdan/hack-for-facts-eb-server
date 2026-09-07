@@ -111,6 +111,9 @@ export const makeAdvancedMapAnalyticsGroupedSeriesRoutes = (
               data: csvData,
             },
             warnings: result.value.warnings,
+            ...(result.value.groupValues === undefined
+              ? {}
+              : { groupValues: result.value.groupValues }),
           },
         });
       }

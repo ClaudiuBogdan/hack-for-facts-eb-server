@@ -12,6 +12,7 @@ import {
   createProviderError,
   type GroupedSeriesError,
 } from '../errors.js';
+import { validateFinancialMapWork } from '../request-limits.js';
 import {
   GROUPED_SERIES_RESERVED_ID_PREFIXES,
   GROUPED_SERIES_UNSAFE_CSV_ID_PREFIXES,
@@ -174,6 +175,34 @@ export async function getGroupedSeriesData(
     return err(seriesValidationResult.error);
   }
 
+  const workValidation = validateFinancialMapWork(request);
+  if (workValidation.isErr()) return err(workValidation.error);
+
+  const groupKeys = new Set<string>();
+  const sources = new Map(request.series.map((series) => [series.id, series]));
+  if ((request.groups?.length ?? 0) > 256)
+    return err(createInvalidInputError('Too many map groups'));
+  for (const group of request.groups ?? []) {
+    const key = JSON.stringify([group.groupWorkspaceId, group.groupId, group.sourceSeriesId]);
+    const source = sources.get(group.sourceSeriesId);
+    if (
+      groupKeys.has(key) ||
+      group.groupWorkspaceId.trim() === '' ||
+      group.groupId.trim() === '' ||
+      (source?.type !== 'line-items-aggregated-yearly' &&
+        source?.type !== 'commitments-analytics') ||
+      group.memberTerritoryCodes.length === 0 ||
+      group.memberTerritoryCodes.length > 4096 ||
+      new Set(group.memberTerritoryCodes).size !== group.memberTerritoryCodes.length
+    )
+      return err(
+        createInvalidInputError(
+          'Map groups require unique members and an existing financial source'
+        )
+      );
+    groupKeys.add(key);
+  }
+
   let providerResult: Awaited<ReturnType<GroupedSeriesProvider['fetchGroupedSeriesVectors']>>;
   try {
     providerResult = await deps.provider.fetchGroupedSeriesVectors(request);
@@ -183,6 +212,40 @@ export async function getGroupedSeriesData(
 
   if (providerResult.isErr()) {
     return err(providerResult.error);
+  }
+
+  const receivedGroups = providerResult.value.groupValues ?? [];
+  const receivedKeys = new Set(
+    receivedGroups.map((group) =>
+      JSON.stringify([group.groupWorkspaceId, group.groupId, group.sourceSeriesId])
+    )
+  );
+  if (
+    receivedGroups.length !== groupKeys.size ||
+    receivedKeys.size !== groupKeys.size ||
+    [...receivedKeys].some((key) => !groupKeys.has(key))
+  )
+    return err(createProviderError('Map provider omitted or duplicated requested group values'));
+
+  for (const group of receivedGroups) {
+    const expected = request.groups?.find(
+      (value) =>
+        value.groupWorkspaceId === group.groupWorkspaceId &&
+        value.groupId === group.groupId &&
+        value.sourceSeriesId === group.sourceSeriesId
+    );
+    const expectedMembers = new Set(expected?.memberTerritoryCodes);
+    if (
+      expected?.memberTerritoryCodes.length !== group.memberTerritoryCodes.length ||
+      new Set(group.memberTerritoryCodes).size !== expected.memberTerritoryCodes.length ||
+      group.memberTerritoryCodes.some((code) => !expectedMembers.has(code))
+    )
+      return err(createProviderError('Map provider returned mismatched group membership'));
+    if (
+      group.value !== null &&
+      (!DECIMAL_TEXT.test(group.value) || !new Decimal(group.value).isFinite())
+    )
+      return err(createProviderError('Map provider returned an invalid group decimal'));
   }
 
   const seriesOrder = request.series.map((series) => series.id.trim());
@@ -235,5 +298,6 @@ export async function getGroupedSeriesData(
     seriesOrder,
     rows,
     warnings: providerResult.value.warnings,
+    ...(request.groups === undefined ? {} : { groupValues: receivedGroups }),
   });
 }

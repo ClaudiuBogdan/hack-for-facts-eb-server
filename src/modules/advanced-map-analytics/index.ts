@@ -188,3 +188,5 @@ export {
 
 export { makeLegacyMapTerritoryLookup } from './grouped-series/shell/providers/legacy-map-territory-lookup.js';
 export { makeNativeMapTerritoryLookup } from './grouped-series/shell/providers/native-map-territory-lookup.js';
+
+export { makeNativeMapSeriesProvider } from './grouped-series/shell/providers/native-map-series-provider.js';

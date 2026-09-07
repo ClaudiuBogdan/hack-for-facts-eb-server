@@ -24,7 +24,7 @@ import type {
 } from '../../core/legacy-analytics/map-types.js';
 import type { LegacyAggregateQuery } from '../../core/legacy-analytics/types.js';
 
-interface MapRow {
+export interface MapRow {
   territory_code: string | null;
   year: number;
   amount: string | null;
@@ -34,13 +34,8 @@ interface MapRow {
   coverage: BudgetMapYear['coverage'];
 }
 
-/** Exported so actual-DDL tests execute the generated statement, not a SQL imitation. */
-export const mapAnalyticsSql = (
-  q: LegacyAggregateQuery,
-  granularity: BudgetMapGranularity,
-  toStoredFundingId: (publicId: number) => number | undefined
-): RawBuilder<MapRow> => {
-  const amount = sql.ref(`eli.${EXECUTION_AMOUNT_COLUMN[q.frequency]}`);
+/** Shared geometry and coverage rules for both financial sources. */
+export const mapTerritorySql = (granularity: BudgetMapGranularity) => {
   // County grouping deliberately includes county institutions and PMB. The UAT
   // presentation exclusion must never be reused to build county numerators.
   const county = granularity === 'County';
@@ -56,6 +51,20 @@ export const mapAnalyticsSql = (
         when t.privacy_class = 'public' and (t.level in ('country','region','county')
           or (t.level='uat' and t.county_code='B' and t.territorial_siruta_code='179132'))
           then 'outside_view' else 'unresolved' end`;
+  const countyJoin = county
+    ? sql`left join (select county_code, count(*) as matches, count(*) filter (where privacy_class='public') as public_matches from core.territories county_node where ${isCountyTerritory('county_node')} group by county_code) c on c.county_code = t.county_code`
+    : sql``;
+  return { key, coverage, countyJoin };
+};
+
+/** Exported so actual-DDL tests execute the generated statement, not a SQL imitation. */
+export const mapAnalyticsSql = (
+  q: LegacyAggregateQuery,
+  granularity: BudgetMapGranularity,
+  toStoredFundingId: (publicId: number) => number | undefined
+): RawBuilder<MapRow> => {
+  const amount = sql.ref(`eli.${EXECUTION_AMOUNT_COLUMN[q.frequency]}`);
+  const { key, coverage, countyJoin } = mapTerritorySql(granularity);
   return sql<MapRow>`
     with matched as (
       select eli.reporting_year, case when t.privacy_class = 'public' then e.territory_id end as territory_id,
@@ -65,7 +74,7 @@ export const mapAnalyticsSql = (
       left join core.public_entities e on e.cui = eli.entity_cui
       left join core.territories t on t.id = e.territory_id
       ${q.search === undefined ? sql`` : sql`left join core.organizations o on o.cui = eli.entity_cui`}
-      ${county ? sql`left join (select county_code, count(*) as matches, count(*) filter (where privacy_class='public') as public_matches from core.territories county_node where ${isCountyTerritory('county_node')} group by county_code) c on c.county_code = t.county_code` : sql``}
+      ${countyJoin}
       where ${andConditions(legacyAggregateConditions(q, toStoredFundingId))}
     )
     select territory_code, reporting_year as year, coverage,

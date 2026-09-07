@@ -201,3 +201,11 @@ export type {
   BudgetMapPopulationSource,
   BudgetMapResult,
 } from './core/legacy-analytics/map-types.js';
+
+export {
+  commitmentsMapValues,
+  type CommitmentsMapRepo,
+} from './core/legacy-analytics/commitments-map.js';
+export { makeCommitmentsMapRepo } from './shell/repo/commitments-map-repo.js';
+
+export { budgetMapGroupValues } from './core/legacy-analytics/map-groups.js';

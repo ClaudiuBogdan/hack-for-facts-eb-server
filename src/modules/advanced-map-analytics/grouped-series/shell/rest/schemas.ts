@@ -236,6 +236,24 @@ export const GroupedSeriesPayloadRequestSchema = Type.Object(
   { additionalProperties: false }
 );
 
+const FinancialMapGroupRequestSchema = Type.Object(
+  {
+    groupWorkspaceId: Type.String({ minLength: 1, maxLength: 200 }),
+    groupId: Type.String({ minLength: 1, maxLength: 200 }),
+    sourceSeriesId: Type.String({ minLength: 1, maxLength: 200 }),
+    memberTerritoryCodes: Type.Array(Type.String({ minLength: 1, maxLength: 20 }), {
+      minItems: 1,
+      maxItems: 4096,
+      uniqueItems: true,
+    }),
+  },
+  { additionalProperties: false }
+);
+// Explicit request resource guards; reject oversized group inputs instead of truncating.
+const FinancialMapGroupsSchema = Type.Optional(
+  Type.Array(FinancialMapGroupRequestSchema, { maxItems: 256 })
+);
+
 export const GroupedSeriesDataBodySchema = Type.Object(
   {
     granularity: Type.Union([Type.Literal('UAT'), Type.Literal('County')]),
@@ -244,6 +262,7 @@ export const GroupedSeriesDataBodySchema = Type.Object(
       maxItems: 64,
     }),
     payload: GroupedSeriesPayloadRequestSchema,
+    groups: FinancialMapGroupsSchema,
   },
   { additionalProperties: false }
 );
@@ -256,6 +275,7 @@ export const GroupedSeriesDataBodyInputSchema = Type.Object(
       maxItems: 64,
     }),
     payload: GroupedSeriesPayloadRequestSchema,
+    groups: FinancialMapGroupsSchema,
   },
   { additionalProperties: false }
 );
@@ -306,11 +326,32 @@ export const GroupedSeriesPayloadResponseSchema = Type.Object(
   { additionalProperties: false }
 );
 
+const FinancialMapGroupValueSchema = Type.Object(
+  {
+    memberTerritoryCodes: Type.Array(Type.String()),
+    groupWorkspaceId: Type.String(),
+    groupId: Type.String(),
+    sourceSeriesId: Type.String(),
+    value: Type.Union([Type.String({ pattern: '^-?[0-9]+(?:\\.[0-9]+)?$' }), Type.Null()]),
+    unit: Type.String(),
+    missingYears: Type.Array(Type.Integer()),
+    unavailableReason: Type.Optional(
+      Type.Union([
+        Type.Literal('source_filtered_member'),
+        Type.Literal('source_unavailable_member'),
+        Type.Literal('normalization_unavailable'),
+      ])
+    ),
+  },
+  { additionalProperties: false }
+);
+
 export const GroupedSeriesDataSchema = Type.Object(
   {
     manifest: GroupedSeriesManifestSchema,
     payload: GroupedSeriesPayloadResponseSchema,
     warnings: Type.Array(GroupedSeriesWarningSchema),
+    groupValues: Type.Optional(Type.Array(FinancialMapGroupValueSchema)),
   },
   { additionalProperties: false }
 );
