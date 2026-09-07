@@ -100,3 +100,40 @@ This uses the existing population snapshot, not the later annual INS authority.
 Regional county counts remain unchanged. Exact per-county and region snapshots,
 review dispositions and deployment checks are retained in the scrapper's
 `prod-db/evidence/territory-s1a-2026-09-05/`.
+
+## Annual sector admission (2026-09-07)
+
+The earlier L2 prerequisites above are historical: L2 and the INS bridge are now
+published and accepted on Chronos. Native map population already uses the admitted
+annual POP107D publication, with each year's population applied before values are
+combined across years.
+
+This extension admits twelve definitive municipal January 1 domicile observations
+for the six Bucharest sectors in 2024/2025. The source manifest is retained in the
+scrapper at `prod-db/evidence/sector-population-2026-09-07/input-manifest.json`,
+SHA256 `b3d2063f4b8bebe13e3638c13bfd97cc1feeccbf273be060babd9c20b0e5ea72`.
+Its original workbooks and reproducible extraction have exact-version custody.
+The original audit established compatibility with captured POP107D, not common
+revision lineage or current freshness. Other years stay unavailable; census or
+partial totals are never substituted.
+
+The existing read-only snapshot spans canonical ancestor pruning, INS publication
+validation and all twelve source rows. Configured source drift, missing rows,
+changed provenance, conflicting legacy SIRUTA, restricted identities or a new
+competing native sector identity fail closed. A sector-only request still validates
+the native INS publication. The complete source is validated even for an individual
+sector request. This intentionally couples map population availability to the
+configured admission; it prevents partial publication from being served.
+
+Validation: 146 actual-migration PostgreSQL cases pass, including exact years,
+sector unions, parent pruning and adversarial source/identity changes. The full
+unit/integration run passed 5,678 tests with two timeout failures during concurrent
+checks; both affected files pass unchanged with one worker (eight tests). Thirteen
+final composition cases pass. Types, full lint, dependency-cycle checks and local
+build pass. Astra high code review and local GLM 5.3 maximum-thinking security
+review approve the final code and source pins; GLM session
+`ses_f82ba0e9fffeBLKBW1YMHZTyhG`.
+
+Deployment and local server restart must follow verified publication of all twelve
+rows. Final live acceptance is recorded separately after that gate; this source
+change does not claim the remaining factor/commitments migration is complete.

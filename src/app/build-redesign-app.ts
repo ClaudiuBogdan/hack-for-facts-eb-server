@@ -24,6 +24,7 @@ import { makeInsGraphqlLifecycle } from './ins-graphql-session.js';
 import {
   makeNativeMapPopulation,
   NATIVE_MAP_POPULATION_ADMISSION,
+  NATIVE_SECTOR_POPULATION_ADMISSION,
 } from './native-map-population.js';
 import { registerNativeMapRoutes } from './native-map-routes.js';
 import {
@@ -476,9 +477,14 @@ export const registerRedesignSurface = async (
           LEGACY_FACTOR_SET_ID,
           LEGACY_FACTOR_SET_DIGEST
         ),
-        // The source pin is rechecked per read; missing years/sectors remain unavailable.
+        // Both source pins are rechecked per read; unsupported years remain unavailable.
         population:
-          deps.mapPopulation ?? makeNativeMapPopulation(kernel.db, NATIVE_MAP_POPULATION_ADMISSION),
+          deps.mapPopulation ??
+          makeNativeMapPopulation(
+            kernel.db,
+            NATIVE_MAP_POPULATION_ADMISSION,
+            NATIVE_SECTOR_POPULATION_ADMISSION
+          ),
       },
     });
   }

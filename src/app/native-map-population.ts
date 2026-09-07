@@ -2,6 +2,10 @@
 import { err, ok } from 'neverthrow';
 
 import {
+  readAdmittedSectorPopulation,
+  type SectorPopulationAdmission,
+} from './native-sector-population.js';
+import {
   readMapPopulationAnchorSets,
   type BudgetMapPopulationSource,
   type BudgetMapYear,
@@ -19,8 +23,8 @@ import type { Kysely } from 'kysely';
 
 /** POP107D publication verified against original INS responses on 2026-09-07.
  * All 24 source samples match, including the canonical county union against
- * national totals. Exact-year coverage is checked on every read; missing sectors
- * and historical cells stay unavailable. A new publication must be re-admitted.
+ * national totals. Exact-year coverage is checked on every read; missing
+ * historical cells stay unavailable. Municipal sector coverage is separately admitted. A new publication must be re-admitted.
  * Source: https://statistici.insse.ro/tempoins/index.jsp?ind=POP107D&lang=ro&page=tempo3
  */
 export const NATIVE_MAP_POPULATION_ADMISSION: AnnualPopulationAdmission = {
@@ -35,15 +39,29 @@ export const NATIVE_MAP_POPULATION_ADMISSION: AnnualPopulationAdmission = {
   personsUnit: 9685,
 };
 
+/** Twelve definitive municipal cells independently compatible with the pinned POP107D.
+ * Custody manifest SHA256 b3d2063f4b8bebe13e3638c13bfd97cc1feeccbf273be060babd9c20b0e5ea72.
+ * No admission for unsupported years; no census or parent substitution.
+ */
+export const NATIVE_SECTOR_POPULATION_ADMISSION: SectorPopulationAdmission = {
+  ins: NATIVE_MAP_POPULATION_ADMISSION,
+  sources: [
+    'ins-bucharest-domicile-jan1:2024:1c987ddd6c399f144aa4cbec60c1cb8c679c28a9096aca279dbc861c97438796',
+    'ins-bucharest-domicile-jan1:2025:a630961aa07668b72e93bd71b4a0ea1f533c816547254aa758270534d38c5501',
+  ],
+  rowsSha256: '42a94762bacc7698a7909e99cc6e17f9b5a6d43b87d8ff51e8709e7224daa805',
+};
+
 /** Admission is explicit: constructing this adapter never certifies a publication. */
 export function makeNativeMapPopulation(
   db: Kysely<ProdDatabase>,
-  admission: AnnualPopulationAdmission
+  admission: AnnualPopulationAdmission,
+  sectorAdmission?: SectorPopulationAdmission
 ): BudgetMapPopulationSource {
   return {
     annualUnions: (rows) =>
       withInsReadSnapshot(db, ({ trx, repo }) =>
-        readNativeMapPopulation({ trx, repo }, admission, rows)
+        readNativeMapPopulation({ trx, repo }, admission, rows, sectorAdmission)
       ),
   };
 }
@@ -52,7 +70,8 @@ export function makeNativeMapPopulation(
 export async function readNativeMapPopulation(
   { trx, repo }: { trx: Kysely<ProdDatabase>; repo: InsRepo },
   admission: AnnualPopulationAdmission,
-  rows: readonly BudgetMapYear[]
+  rows: readonly BudgetMapYear[],
+  sectorAdmission?: SectorPopulationAdmission
 ): ReturnType<BudgetMapPopulationSource['annualUnions']> {
   const mapped = rows.filter(
     (row): row is BudgetMapYear & { territoryCode: string } =>
@@ -98,6 +117,13 @@ export async function readNativeMapPopulation(
       cell.population,
     ])
   );
+  if (sectorAdmission !== undefined) {
+    const sectors = await readAdmittedSectorPopulation(trx, repo, admission, sectorAdmission);
+    if (sectors.isErr()) return err(sectors.error);
+    for (const sector of sectors.value) {
+      cells.set(JSON.stringify([sector.territoryId, sector.year]), String(sector.population));
+    }
+  }
   return ok(
     mapped.map((row, index) => {
       const anchors = retained[indexes[index] ?? -1];

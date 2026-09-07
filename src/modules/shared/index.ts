@@ -408,3 +408,8 @@ export {
 } from './shell/repo/organization-privacy.js';
 
 export { readPublicTerritoriesByIds } from './shell/repo/territory-repo.js';
+
+export {
+  readTerritoryPopulationSources,
+  type TerritoryPopulationRow,
+} from './shell/repo/territory-population.js';
