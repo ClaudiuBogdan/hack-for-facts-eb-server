@@ -160,16 +160,10 @@ function normalizeVector(vector: MapSeriesVector): Result<NormalizedVector, Grou
   return ok({ ...vector, seriesId: vector.seriesId.trim(), valuesBySirutaCode });
 }
 
-export async function getGroupedSeriesData(
-  deps: GetGroupedSeriesDataDeps,
-  input: GetGroupedSeriesDataInput
-): Promise<Result<GroupedSeriesMatrixData, GroupedSeriesError>> {
-  const { request } = input;
-
-  if (request.series.length === 0) {
-    return err(createInvalidInputError('At least one series is required'));
-  }
-
+/** Shared pre-provider validation for live requests and saved snapshot replay. */
+export function validateGroupedSeriesRequest(
+  request: GroupedSeriesDataRequest
+): Result<void, GroupedSeriesError> {
   const seriesValidationResult = validateGroupedSeriesRequestSeries(request.series);
   if (seriesValidationResult.isErr()) {
     return err(seriesValidationResult.error);
@@ -202,6 +196,27 @@ export async function getGroupedSeriesData(
       );
     groupKeys.add(key);
   }
+
+  return ok(undefined);
+}
+
+export async function getGroupedSeriesData(
+  deps: GetGroupedSeriesDataDeps,
+  input: GetGroupedSeriesDataInput
+): Promise<Result<GroupedSeriesMatrixData, GroupedSeriesError>> {
+  const { request } = input;
+
+  if (request.series.length === 0) {
+    return err(createInvalidInputError('At least one series is required'));
+  }
+
+  const validation = validateGroupedSeriesRequest(request);
+  if (validation.isErr()) return err(validation.error);
+  const groupKeys = new Set(
+    (request.groups ?? []).map((group) =>
+      JSON.stringify([group.groupWorkspaceId, group.groupId, group.sourceSeriesId])
+    )
+  );
 
   let providerResult: Awaited<ReturnType<GroupedSeriesProvider['fetchGroupedSeriesVectors']>>;
   try {

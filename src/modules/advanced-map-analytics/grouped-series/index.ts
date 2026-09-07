@@ -60,6 +60,7 @@ export type { GroupedSeriesProvider } from './core/ports.js';
 export {
   getGroupedSeriesData,
   validateGroupedSeriesRequestSeries,
+  validateGroupedSeriesRequest,
   type GetGroupedSeriesDataDeps,
   type GetGroupedSeriesDataInput,
 } from './core/usecases/get-grouped-series-data.js';

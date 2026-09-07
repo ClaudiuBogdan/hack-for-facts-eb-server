@@ -1724,6 +1724,227 @@ describe('Advanced Map Analytics REST API', () => {
     expect(body.data.snapshot.description).toBe('Parent description fallback');
   });
 
+  it.each(['membership', 'group count', 'period', 'work budget'])(
+    'rejects invalid %s before save, publish and historical replay',
+    async (kind) => {
+      const fetchGroupedSeriesVectors = vi.fn(
+        makeGroupedSeriesProvider().fetchGroupedSeriesVectors
+      );
+      const setup = await createTestApp({ groupedSeriesProvider: { fetchGroupedSeriesVectors } });
+      try {
+        const headers = { authorization: `Bearer ${setup.testAuth.tokens.user1}` };
+        const state = {
+          series: [
+            {
+              id: 'money',
+              type: 'line-items-aggregated-yearly',
+              filter: {
+                normalization: 'per_capita',
+                account_category: 'ch',
+                report_type: 'Executie bugetara agregata la nivel de ordonator principal',
+                report_period: {
+                  type: 'YEAR',
+                  selection: {
+                    interval: { start: '1000', end: kind === 'period' ? '3000' : '1999' },
+                  },
+                },
+              },
+            },
+            {
+              id: 'grouped',
+              type: 'map-grouped-value-series',
+              sourceSeriesId: 'money',
+              groupWorkspaceId: 'w',
+            },
+          ],
+          groupWorkspaces: [
+            {
+              id: 'w',
+              groups: Array.from({ length: kind === 'group count' ? 257 : 1 }, (_, index) => ({
+                id: `g${String(index)}`,
+                memberSirutaCodes:
+                  kind === 'membership'
+                    ? [123]
+                    : Array.from({ length: kind === 'work budget' ? 1049 : 1 }, (_, member) =>
+                        String(index * 2000 + member + 1)
+                      ),
+              })),
+            },
+          ],
+        };
+        const created = await setup.app.inject({
+          method: 'POST',
+          url: '/api/v1/advanced-map-analytics/maps',
+          headers,
+          payload: { title: 'Guard', visibility: 'private' },
+        });
+        const mapId = created.json().data.mapId as string;
+        const saved = await setup.app.inject({
+          method: 'POST',
+          url: `/api/v1/advanced-map-analytics/maps/${mapId}/snapshots`,
+          headers,
+          payload: { title: 'Invalid', state },
+        });
+        expect(saved.statusCode).toBe(400);
+        const owner = (await setup.repo.getMapForUser(mapId, 'user_test_1'))._unsafeUnwrap();
+        // Seed an old snapshot directly in the in-memory fixture, bypassing today's save gate.
+        expect(owner).toBeDefined();
+        const seeded = await setup.repo.appendSnapshot({
+          mapId,
+          userId: owner!.userId,
+          snapshotId: 'historical',
+          snapshotTitle: 'Old',
+          snapshotDescription: null,
+          snapshotDocument: {
+            savedAt: '2026-03-01T11:00:00.000Z',
+            title: 'Old',
+            description: null,
+            state,
+          },
+          nextMapTitle: 'Guard',
+          nextMapDescription: null,
+          nextVisibility: 'private',
+          nextPublicId: null,
+          allowPublicWrite: true,
+          snapshotCap: 10,
+        });
+        expect(seeded.isOk()).toBe(true);
+        const published = await setup.app.inject({
+          method: 'PATCH',
+          url: `/api/v1/advanced-map-analytics/maps/${mapId}`,
+          headers,
+          payload: { visibility: 'public' },
+        });
+        expect(published.statusCode).toBe(400);
+        const replay = await setup.app.inject({
+          method: 'GET',
+          url: `/api/v1/advanced-map-analytics/maps/${mapId}`,
+          headers,
+        });
+        expect(replay.statusCode).toBe(400);
+        expect(fetchGroupedSeriesVectors).not.toHaveBeenCalled();
+      } finally {
+        await setup.app.close();
+      }
+    }
+  );
+
+  it('bundles exact financial groups for owner and anonymous snapshot reads', async () => {
+    const captured: Parameters<GroupedSeriesProvider['fetchGroupedSeriesVectors']>[0][] = [];
+    const provider = makeGroupedSeriesProvider();
+    const setup = await createTestApp({
+      groupedSeriesProvider: {
+        fetchGroupedSeriesVectors: async (request) => {
+          captured.push(request);
+          const result = await provider.fetchGroupedSeriesVectors(request);
+          return result.map((data) => ({
+            ...data,
+            groupValues: (request.groups ?? []).map((group) => ({
+              ...group,
+              value: group.groupId === 'missing' ? null : '9007199254740993.123456789',
+              unit: 'RON/capita',
+              missingYears: group.groupId === 'missing' ? [2025] : [],
+            })),
+          }));
+        },
+      },
+    });
+    try {
+      const headers = { authorization: `Bearer ${setup.testAuth.tokens.user1}` };
+      const created = await setup.app.inject({
+        method: 'POST',
+        url: '/api/v1/advanced-map-analytics/maps',
+        headers,
+        payload: { title: 'Annual unions', visibility: 'public' },
+      });
+      const mapId = created.json().data.mapId as string;
+      const saved = await setup.app.inject({
+        method: 'POST',
+        url: `/api/v1/advanced-map-analytics/maps/${mapId}/snapshots`,
+        headers,
+        payload: {
+          title: 'Fixed membership',
+          state: {
+            series: [
+              {
+                id: 'money',
+                type: 'line-items-aggregated-yearly',
+                enabled: false,
+                filter: {
+                  normalization: 'per_capita',
+                  account_category: 'ch',
+                  report_type: 'Executie bugetara agregata la nivel de ordonator principal',
+                  report_period: { type: 'YEAR', selection: { dates: ['2025'] } },
+                },
+              },
+              {
+                id: 'grouped',
+                type: 'map-grouped-value-series',
+                sourceSeriesId: 'money',
+                groupWorkspaceId: 'w',
+              },
+            ],
+            groupWorkspaces: [
+              {
+                id: 'w',
+                groups: [
+                  { id: 'available', memberSirutaCodes: ['1002', '1001'] },
+                  { id: 'missing', memberSirutaCodes: ['1003'] },
+                ],
+              },
+            ],
+          },
+        },
+      });
+      expect(saved.statusCode).toBe(201);
+      const owner = await setup.app.inject({
+        method: 'GET',
+        url: `/api/v1/advanced-map-analytics/maps/${mapId}`,
+        headers,
+      });
+      const outsider = await setup.app.inject({
+        method: 'GET',
+        url: `/api/v1/advanced-map-analytics/maps/${mapId}`,
+        headers: { authorization: `Bearer ${setup.testAuth.tokens.user2}` },
+      });
+      expect(outsider.statusCode).toBe(404);
+      const publicRead = await setup.app.inject({
+        method: 'GET',
+        url: '/api/v1/advanced-map-analytics/public/public_1',
+      });
+      expect(owner.statusCode).toBe(200);
+      expect(publicRead.statusCode).toBe(200);
+      expect(captured).toHaveLength(2);
+      expect(captured[0]?.requestUserId).toBeDefined();
+      expect(captured[1]?.requestUserId).toBeUndefined();
+      expect(captured[1]?.groups).toEqual(captured[0]?.groups);
+      const expectedGroups = [
+        {
+          groupWorkspaceId: 'w',
+          groupId: 'available',
+          sourceSeriesId: 'money',
+          memberTerritoryCodes: ['1001', '1002'],
+          value: '9007199254740993.123456789',
+          unit: 'RON/capita',
+          missingYears: [],
+        },
+        {
+          groupWorkspaceId: 'w',
+          groupId: 'missing',
+          sourceSeriesId: 'money',
+          memberTerritoryCodes: ['1003'],
+          value: null,
+          unit: 'RON/capita',
+          missingYears: [2025],
+        },
+      ];
+      expect(owner.json().data.groupedSeriesData.groupValues).toEqual(expectedGroups);
+      expect(publicRead.json().data.groupedSeriesData.groupValues).toEqual(expectedGroups);
+    } finally {
+      await setup.app.close();
+    }
+  });
+
   it('preserves county boundaries and INS interval selection when replaying a saved map', async () => {
     const captured: Parameters<GroupedSeriesProvider['fetchGroupedSeriesVectors']>[0][] = [];
     const provider = makeGroupedSeriesProvider();

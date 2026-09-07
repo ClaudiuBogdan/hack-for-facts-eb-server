@@ -31,6 +31,7 @@ import {
   type SnapshotParams,
   type UpdateMapBody,
 } from './schemas.js';
+import { deriveSnapshotFinancialGroups } from './snapshot-financial-groups.js';
 import {
   createInvalidInputError,
   createProviderError,
@@ -52,7 +53,7 @@ import {
 } from '../../grouped-series/core/errors.js';
 import {
   getGroupedSeriesData,
-  validateGroupedSeriesRequestSeries,
+  validateGroupedSeriesRequest,
 } from '../../grouped-series/core/usecases/get-grouped-series-data.js';
 import { validateUploadedDatasetSeriesCompatibility } from '../../grouped-series/shell/providers/extract-uploaded-dataset-series.js';
 import { mapGroupedSeriesBodyToRequest } from '../../grouped-series/shell/rest/map-request-mapper.js';
@@ -341,7 +342,11 @@ function buildGroupedSeriesDataBody(
     };
   }
 
+  const groups = deriveSnapshotFinancialGroups(state);
+  if (groups.isErr()) return { error: groups.error };
+
   const candidateBody: unknown = {
+    groups: groups.value,
     granularity,
     series: remoteSeries,
     payload: GROUPED_SERIES_EMPTY_PAYLOAD,
@@ -356,6 +361,8 @@ function buildGroupedSeriesDataBody(
   }
 
   const typedBody = Value.Cast(GroupedSeriesDataBodyInputSchema, candidateBody);
+  const validation = validateGroupedSeriesRequest(mapGroupedSeriesBodyToRequest(typedBody));
+  if (validation.isErr()) return { error: validation.error };
   return {
     body: typedBody,
   };
@@ -659,6 +666,15 @@ async function resolveBundledGroupedSeriesData(
         data: csvData,
       },
       warnings: groupedSeriesResult.value.warnings,
+      ...(groupedSeriesResult.value.groupValues === undefined
+        ? {}
+        : {
+            groupValues: groupedSeriesResult.value.groupValues.map((group) => ({
+              ...group,
+              memberTerritoryCodes: [...group.memberTerritoryCodes],
+              missingYears: [...group.missingYears],
+            })),
+          }),
     },
   };
 }
@@ -952,8 +968,8 @@ export const makeAdvancedMapAnalyticsRoutes = (
             });
           }
 
-          const groupedSeriesValidationResult = validateGroupedSeriesRequestSeries(
-            mapGroupedSeriesBodyToRequest(groupedSeriesBodyResult.body).series
+          const groupedSeriesValidationResult = validateGroupedSeriesRequest(
+            mapGroupedSeriesBodyToRequest(groupedSeriesBodyResult.body)
           );
           if (groupedSeriesValidationResult.isErr()) {
             const status = getGroupedSeriesHttpStatusForError(groupedSeriesValidationResult.error);
@@ -1170,8 +1186,8 @@ export const makeAdvancedMapAnalyticsRoutes = (
           });
         }
 
-        const groupedSeriesValidationResult = validateGroupedSeriesRequestSeries(
-          mapGroupedSeriesBodyToRequest(groupedSeriesBodyResult.body).series
+        const groupedSeriesValidationResult = validateGroupedSeriesRequest(
+          mapGroupedSeriesBodyToRequest(groupedSeriesBodyResult.body)
         );
         if (groupedSeriesValidationResult.isErr()) {
           const status = getGroupedSeriesHttpStatusForError(groupedSeriesValidationResult.error);
