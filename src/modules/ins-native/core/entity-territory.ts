@@ -39,10 +39,14 @@ export const insIdentityForTerritory = (territory: Territory): InsTerritoryIdent
   if (level === 'county' && kind === 'county') {
     const code = territory.countyCode;
     if (code === null || !/^[A-Z]{1,2}$/u.test(code)) return null;
-    const identifiers = [siruta, territory.countySirutaCode, territory.sirutaCode].filter(
+    // L2's documented legacy column holds the county LETTER on county rows;
+    // only the exact county mnemonic is an alias, not a conflicting SIRUTA.
+    const legacySiruta = territory.sirutaCode === code ? null : territory.sirutaCode;
+    const identifiers = [siruta, territory.countySirutaCode, legacySiruta].filter(
       (value): value is string => value !== null
     );
-    if (new Set(identifiers).size > 1) return null;
+    if (identifiers.some((value) => !/^[1-9][0-9]*$/u.test(value)) || new Set(identifiers).size > 1)
+      return null;
     return { code, level: 'NUTS3' };
   }
   if (!(
@@ -77,9 +81,19 @@ export const resolveInsEntityTerritory = async (
   // Check reverse links even when no exact source node is present.
   const linked = await repo.territoriesByCoreId(territory.id);
   if (linked.isErr()) return err(linked.error);
-  if (exact.value.length > 1 || linked.value.length > 1) return err(unavailable());
-  const node = exact.value[0];
-  const reverse = linked.value[0];
+  return validateIdentity(territory, identity, exact.value, linked.value);
+};
+
+/** Shared adjudication: absence differs from contradictory source/core links. */
+const validateIdentity = (
+  territory: Territory,
+  identity: InsTerritoryIdentity,
+  exact: readonly InsTerritoryNode[],
+  linked: readonly InsTerritoryNode[]
+): Result<InsTerritoryNode | null, ApiError> => {
+  if (exact.length > 1 || linked.length > 1) return err(unavailable());
+  const node = exact[0];
+  const reverse = linked[0];
   if (node === undefined) return reverse === undefined ? ok(null) : err(unavailable());
   if (
     node.code !== identity.code ||
@@ -92,3 +106,76 @@ export const resolveInsEntityTerritory = async (
     return err(unavailable());
   return ok(node);
 };
+
+/** Resolve all canonical anchors in one publication snapshot, without per-node SQL. */
+export const resolveInsTerritories = (
+  outer: InsRepo,
+  territories: readonly Territory[]
+): Promise<Result<ReadonlyMap<number, InsTerritoryNode | null>, ApiError>> =>
+  outer.withSnapshot(async (repo) => {
+    if (new Set(territories.map((territory) => territory.id)).size !== territories.length)
+      return err(unavailable());
+    const result = new Map<number, InsTerritoryNode | null>();
+    const valid: { territory: Territory; identity: InsTerritoryIdentity }[] = [];
+    const identities = new Set<string>();
+    for (const territory of territories) {
+      const identity = insIdentityForTerritory(territory);
+      if (identity === null) {
+        result.set(territory.id, null);
+        continue;
+      }
+      const key = `${identity.level}:${identity.code}`;
+      // Two canonical nodes must never receive the same source population twice.
+      if (identities.has(key)) return err(unavailable());
+      identities.add(key);
+      valid.push({ territory, identity });
+    }
+    if (valid.length === 0) return ok(result);
+    const reverse = await repo.territoriesByCoreIds(valid.map(({ territory }) => territory.id));
+    if (reverse.isErr()) return err(reverse.error);
+    const linkedByCoreId = new Map<number, InsTerritoryNode[]>();
+    const expectedIds = new Set(valid.map(({ territory }) => territory.id));
+    for (const node of reverse.value) {
+      if (node.coreTerritoryId === null || !expectedIds.has(node.coreTerritoryId))
+        return err(unavailable());
+      const nodes = linkedByCoreId.get(node.coreTerritoryId) ?? [];
+      nodes.push(node);
+      linkedByCoreId.set(node.coreTerritoryId, nodes);
+    }
+    const levels = new Set(valid.map(({ identity }) => identity.level));
+    const resolvedNodeIds = new Set<number>();
+    for (const level of levels) {
+      const group = valid.filter(({ identity }) => identity.level === level);
+      // Bound SQL parameters; this is batching, never a sample or truncation.
+      for (let offset = 0; offset < group.length; offset += 1000) {
+        const batch = group.slice(offset, offset + 1000);
+        const codes = batch.map(({ identity }) => identity.code);
+        const exact = await repo.territoriesByCodes(codes, [level]);
+        if (exact.isErr()) return err(exact.error);
+        const byCode = new Map<string, InsTerritoryNode[]>();
+        const expectedCodes = new Set(codes);
+        for (const node of exact.value) {
+          if (node.level !== level || !expectedCodes.has(node.code)) return err(unavailable());
+          const nodes = byCode.get(node.code) ?? [];
+          nodes.push(node);
+          byCode.set(node.code, nodes);
+        }
+        for (const { territory, identity } of batch) {
+          const resolved = validateIdentity(
+            territory,
+            identity,
+            byCode.get(identity.code) ?? [],
+            linkedByCoreId.get(territory.id) ?? []
+          );
+          if (resolved.isErr()) return err(resolved.error);
+          const node = resolved.value;
+          if (node !== null) {
+            if (resolvedNodeIds.has(node.territoryId)) return err(unavailable());
+            resolvedNodeIds.add(node.territoryId);
+          }
+          result.set(territory.id, node);
+        }
+      }
+    }
+    return ok(result);
+  });

@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   insIdentityForTerritory,
   resolveInsEntityTerritory,
+  resolveInsTerritories,
 } from '@/modules/ins-native/core/entity-territory.js';
 import { makeInsContributor } from '@/modules/ins-native/shell/contributor.js';
 
@@ -53,6 +54,20 @@ describe('canonical entity area to INS identity', () => {
         })
       )
     ).toEqual({ code: 'CJ', level: 'NUTS3' });
+  });
+  it('accepts the documented county mnemonic in the legacy siruta field', () => {
+    const county = anchor({
+      level: 'county',
+      kind: 'county',
+      territorialSirutaCode: '54984',
+      countySirutaCode: '54984',
+      sirutaCode: 'CJ',
+      territoryKey: 'siruta:54984',
+    });
+    expect(insIdentityForTerritory(county)).toEqual({ code: 'CJ', level: 'NUTS3' });
+    expect(insIdentityForTerritory({ ...county, sirutaCode: 'VL' })).toBeNull();
+    expect(insIdentityForTerritory({ ...county, sirutaCode: '12345' })).toBeNull();
+    expect(insIdentityForTerritory({ ...county, countySirutaCode: 'wrong' })).toBeNull();
   });
   it('keeps Bucharest county, city and six sector identities distinct', () => {
     const codes = ['179132', '179141', '179150', '179169', '179178', '179187', '179196'];
@@ -258,5 +273,131 @@ describe('INS entity statistical context contributor', () => {
         )
       )._unsafeUnwrapErr()
     ).toEqual(error);
+  });
+});
+
+describe('batched canonical population identities', () => {
+  const withNodes = (nodes: readonly InsTerritoryNode[]): InsRepo => {
+    const repo: InsRepo = {
+      ...makeFakeRepo(),
+      territoriesByCodes: vi.fn<InsRepo['territoriesByCodes']>(async (codes, levels) =>
+        ok(
+          nodes.filter(
+            (node) => codes.includes(node.code) && (levels?.includes(node.level) ?? true)
+          )
+        )
+      ),
+      territoriesByCoreIds: vi.fn<InsRepo['territoriesByCoreIds']>(async (ids) =>
+        ok(
+          nodes.filter(
+            (node) => node.coreTerritoryId !== null && ids.includes(node.coreTerritoryId)
+          )
+        )
+      ),
+      withSnapshot: async (fn) => fn(repo),
+    };
+    return repo;
+  };
+  const county = anchor({
+    id: 7002,
+    level: 'county',
+    kind: 'county',
+    territoryKey: null,
+    territorialSirutaCode: null,
+    sirutaCode: null,
+  });
+
+  it('uses distinct source identities for county and UAT in one snapshot', async () => {
+    const repo = withNodes([CJ, CLUJ_NAPOCA]);
+    const found = (await resolveInsTerritories(repo, [anchor(), county]))._unsafeUnwrap();
+    expect(found.get(7001)?.territoryId).toBe(CLUJ_NAPOCA.territoryId);
+    expect(found.get(7002)?.territoryId).toBe(CJ.territoryId);
+    expect(repo.territoriesByCoreIds).toHaveBeenCalledExactlyOnceWith([7001, 7002]);
+    expect(repo.territoriesByCodes).toHaveBeenCalledTimes(2);
+  });
+  it('keeps missing or unsupported identities unavailable', async () => {
+    const result = (
+      await resolveInsTerritories(withNodes([]), [anchor(), anchor({ id: 7002, kind: 'unknown' })])
+    )._unsafeUnwrap();
+    expect([...result.values()]).toEqual([null, null]);
+  });
+  it('does not substitute PMB when only a sector is requested', async () => {
+    const pmb = { ...CLUJ_NAPOCA, code: '179132', sirutaCode: '179132' };
+    const sector = anchor({
+      level: 'locality',
+      kind: 'sector',
+      territoryKey: 'siruta:179141',
+      territorialSirutaCode: '179141',
+      sirutaCode: '179141',
+      countyCode: 'B',
+    });
+    const repo = withNodes([pmb]);
+    expect((await resolveInsTerritories(repo, [sector]))._unsafeUnwrap().get(7001)).toBeNull();
+    expect(repo.territoriesByCodes).toHaveBeenCalledExactlyOnceWith(['179141'], ['LAU']);
+  });
+  it('rejects duplicate canonical inputs and duplicate source identities', async () => {
+    const repo = withNodes([CLUJ_NAPOCA]);
+    expect((await resolveInsTerritories(repo, [anchor(), anchor()])).isErr()).toBe(true);
+    expect((await resolveInsTerritories(repo, [anchor(), anchor({ id: 7002 })])).isErr()).toBe(
+      true
+    );
+    expect(repo.territoriesByCoreIds).not.toHaveBeenCalled();
+  });
+  it.each([
+    [CLUJ_NAPOCA, { ...CLUJ_NAPOCA, territoryId: 999 }],
+    [{ ...CLUJ_NAPOCA, coreTerritoryId: 999 }],
+    [{ ...CLUJ_NAPOCA, sirutaCode: 'wrong' }],
+    [{ ...CLUJ_NAPOCA, code: 'missing', coreTerritoryId: 7001 }],
+    [
+      { ...CLUJ_NAPOCA, coreTerritoryId: 7001 },
+      { ...CJ, coreTerritoryId: 7001 },
+    ],
+  ])('rejects conflicting source and reverse links: %j', async (...nodes) => {
+    expect(
+      (await resolveInsTerritories(withNodes(nodes), [anchor()]))._unsafeUnwrapErr().type
+    ).toBe('ServiceUnavailable');
+  });
+  it('rejects unexpected rows from the reverse lookup', async () => {
+    const repo = withNodes([CLUJ_NAPOCA]);
+    repo.territoriesByCoreIds = async () => ok([{ ...CLUJ_NAPOCA, coreTerritoryId: 999 }]);
+    expect((await resolveInsTerritories(repo, [anchor()])).isErr()).toBe(true);
+  });
+  it('rejects unrelated rows from exact lookup', async () => {
+    const repo = withNodes([]);
+    repo.territoriesByCodes = async () => ok([CJ]);
+    expect((await resolveInsTerritories(repo, [anchor()])).isErr()).toBe(true);
+  });
+  it('reads through the snapshot repository', async () => {
+    const scoped = withNodes([CLUJ_NAPOCA]);
+    const outer = withNodes([]);
+    outer.withSnapshot = async (fn) => fn(scoped);
+    expect((await resolveInsTerritories(outer, [anchor()]))._unsafeUnwrap().get(7001)).toEqual(
+      CLUJ_NAPOCA
+    );
+    expect(outer.territoriesByCodes).not.toHaveBeenCalled();
+  });
+  it.each(['territoriesByCodes', 'territoriesByCoreIds'] as const)(
+    'preserves %s errors',
+    async (method) => {
+      const repo = withNodes([]);
+      const error: ApiError = { type: 'Timeout', message: 'test timeout' };
+      repo[method] = async () => err(error);
+      expect((await resolveInsTerritories(repo, [anchor()]))._unsafeUnwrapErr()).toBe(error);
+    }
+  );
+  it('batches large universes without dropping territories', async () => {
+    const anchors = Array.from({ length: 1001 }, (_, i) =>
+      anchor({
+        id: i + 1,
+        territoryKey: null,
+        territorialSirutaCode: String(10000 + i),
+        sirutaCode: String(10000 + i),
+      })
+    );
+    const repo = withNodes([]);
+    const result = (await resolveInsTerritories(repo, anchors))._unsafeUnwrap();
+    expect(result.size).toBe(1001);
+    expect(repo.territoriesByCodes).toHaveBeenCalledTimes(2);
+    expect(repo.territoriesByCoreIds).toHaveBeenCalledOnce();
   });
 });

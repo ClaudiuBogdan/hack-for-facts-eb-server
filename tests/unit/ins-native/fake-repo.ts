@@ -650,6 +650,12 @@ export const makeFakeRepo = (
       territoriesBySiruta: (codes) =>
         R(NODES.filter((n) => n.sirutaCode !== null && codes.includes(n.sirutaCode))),
       territoriesByCoreId: (id) => R(NODES.filter((node) => node.coreTerritoryId === id)),
+      territoriesByCoreIds: (ids) =>
+        R(
+          NODES.filter(
+            (node) => node.coreTerritoryId !== null && ids.includes(node.coreTerritoryId)
+          )
+        ),
       totalMember: (datasetCode, dimIndex) => {
         const totals = M.filter(
           (m) => m.dataset === datasetCode && m.dim === dimIndex && m.role === 'TOTAL'

@@ -105,6 +105,10 @@ export interface InsCatalogRepo {
   territoriesByCoreId(
     coreTerritoryId: number
   ): Promise<Result<readonly InsTerritoryNode[], ApiError>>;
+  /** Batch reverse identity proof; missing links are omitted, duplicates retained. */
+  territoriesByCoreIds(
+    coreTerritoryIds: readonly number[]
+  ): Promise<Result<readonly InsTerritoryNode[], ApiError>>;
   /** The TOTAL member of a dimension, if it has exactly one. */
   totalMember(datasetCode: string, dimIndex: number): Promise<Result<number | null, ApiError>>;
   defaultPins(datasetCodes: readonly string[]): Promise<Result<readonly InsDefaultPin[], ApiError>>;

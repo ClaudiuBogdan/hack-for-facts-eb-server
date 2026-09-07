@@ -788,6 +788,17 @@ const makeRepoOn = (db: Db, readTx: Runner, snapshotBound = false): InsRepo => {
       });
     },
 
+    async territoriesByCoreIds(coreTerritoryIds) {
+      if (coreTerritoryIds.length === 0) return ok([]);
+      return readTx('territoriesByCoreIds', async (trx) => {
+        const result =
+          await sql<NodeRow>`${territoryQuerySql(sql`t.core_territory_id = any(${coreTerritoryIds}::integer[])`)} order by t.territory_id`.execute(
+            trx
+          );
+        return result.rows.map(toNode);
+      });
+    },
+
     async totalMember(datasetCode, dimIndex) {
       return readTx('totalMember', async (trx) => {
         const res = await sql<{ nom_item_id: number }>`

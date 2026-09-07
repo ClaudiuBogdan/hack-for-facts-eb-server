@@ -103,3 +103,10 @@ export { makeInsReadSession, type InsReadSession } from './shell/repo/read-sessi
 export { readInsMapData, type InsMapData, type InsMapDataInput } from './core/map-data.js';
 
 export { parseMemberCode } from './core/identity.js';
+
+export { resolveInsTerritories } from './core/entity-territory.js';
+export {
+  readAnnualPopulation,
+  type AnnualPopulationAdmission,
+  type AnnualPopulationResult,
+} from './core/annual-population.js';

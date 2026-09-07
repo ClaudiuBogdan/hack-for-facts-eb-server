@@ -2,6 +2,7 @@ import { sql, type Kysely } from 'kysely';
 import { ok } from 'neverthrow';
 import { expect } from 'vitest';
 
+import { resolveInsTerritories } from '@/modules/ins-native/core/entity-territory.js';
 import { makeInsContributor } from '@/modules/ins-native/shell/contributor.js';
 
 import { inInsFixture } from './ins-native-fixture.js';
@@ -34,6 +35,33 @@ export const registerInsEntityBridgeCases = (
   it: RegisterCase,
   database: () => Kysely<ProdDatabase>
 ): void => {
+  it('batch identity resolves exact nodes and preserves duplicate reverse links', () =>
+    inInsFixture(database(), async (trx, repo) => {
+      expect((await repo.territoriesByCoreIds([]))._unsafeUnwrap()).toEqual([]);
+      const county = {
+        ...anchor,
+        id: 7002,
+        level: 'county',
+        kind: 'county',
+        territorialSirutaCode: '54984',
+        sirutaCode: 'CJ',
+        countySirutaCode: '54984',
+        territoryKey: 'siruta:54984',
+      };
+      expect((await resolveInsTerritories(repo, [county]))._unsafeUnwrap().get(7002)?.code).toBe(
+        'CJ'
+      );
+      expect(
+        (await resolveInsTerritories(repo, [anchor]))._unsafeUnwrap().get(7001)?.territoryId
+      ).toBe(931);
+      await sql`update ins.territory_nodes set core_territory_id=7001 where territory_id in (931,56)`.execute(
+        trx
+      );
+      expect((await repo.territoriesByCoreIds([7001, 9999]))._unsafeUnwrap()).toHaveLength(2);
+      expect((await resolveInsTerritories(repo, [anchor]))._unsafeUnwrapErr().type).toBe(
+        'ServiceUnavailable'
+      );
+    }));
   it('entity bridge resolves exact coverage without equating core and INS surrogate IDs', () =>
     inInsFixture(database(), async (trx, repo) => {
       expect((await repo.territoriesByCoreId(7001))._unsafeUnwrap()).toEqual([]);
