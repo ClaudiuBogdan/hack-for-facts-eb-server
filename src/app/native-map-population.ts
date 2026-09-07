@@ -1,24 +1,20 @@
 /** Exact-year INS population of the canonical union selected by each map cell. */
 import { err, ok } from 'neverthrow';
 
-import {
-  readAdmittedSectorPopulation,
-  type SectorPopulationAdmission,
-} from './native-sector-population.js';
+import { readNativePopulation } from './native-population.js';
 import {
   readMapPopulationAnchorSets,
   type BudgetMapPopulationSource,
   type BudgetMapYear,
 } from '../modules/budget/index.js';
 import {
-  readAnnualPopulation,
-  resolveInsTerritories,
   withInsReadSnapshot,
   type AnnualPopulationAdmission,
   type InsRepo,
 } from '../modules/ins-native/index.js';
-import { readPublicTerritoriesByIds, type ProdDatabase } from '../modules/shared/index.js';
 
+import type { SectorPopulationAdmission } from './native-sector-population.js';
+import type { ProdDatabase } from '../modules/shared/index.js';
 import type { Kysely } from 'kysely';
 
 /** POP107D publication verified against original INS responses on 2026-09-07.
@@ -99,31 +95,17 @@ export async function readNativeMapPopulation(
   }
   const retained = await readMapPopulationAnchorSets(trx, sets);
   const ids = [...new Set(retained.flatMap((scope) => scope ?? []))];
-  const territories = await readPublicTerritoriesByIds(trx, ids);
-  if (territories.isErr()) return err(territories.error);
-  const resolved = await resolveInsTerritories(repo, territories.value);
-  if (resolved.isErr()) return err(resolved.error);
-  const years = [...new Set(mapped.map((row) => row.year))];
-  const population = await readAnnualPopulation(repo, admission, {
-    years,
-    territories: [...resolved.value.entries()].flatMap(([id, node]) =>
-      node === null ? [] : [{ key: String(id), territoryId: node.territoryId }]
-    ),
-  });
+  const population = await readNativePopulation(
+    { trx, repo },
+    admission,
+    ids,
+    [...new Set(mapped.map((row) => row.year))],
+    sectorAdmission
+  );
   if (population.isErr()) return err(population.error);
   const cells = new Map(
-    population.value.cells.map((cell) => [
-      JSON.stringify([Number(cell.key), cell.year]),
-      cell.population,
-    ])
+    population.value.map((cell) => [JSON.stringify([cell.territoryId, cell.year]), cell.population])
   );
-  if (sectorAdmission !== undefined) {
-    const sectors = await readAdmittedSectorPopulation(trx, repo, admission, sectorAdmission);
-    if (sectors.isErr()) return err(sectors.error);
-    for (const sector of sectors.value) {
-      cells.set(JSON.stringify([sector.territoryId, sector.year]), String(sector.population));
-    }
-  }
   return ok(
     mapped.map((row, index) => {
       const anchors = retained[indexes[index] ?? -1];

@@ -21,6 +21,7 @@ import fastifyLib, { type FastifyInstance, type FastifyReply } from 'fastify';
 import mercuriusPlugin from 'mercurius';
 
 import { makeInsGraphqlLifecycle } from './ins-graphql-session.js';
+import { makeNativeBudgetRepo } from './native-budget-repo.js';
 import {
   makeNativeMapPopulation,
   NATIVE_MAP_POPULATION_ADMISSION,
@@ -426,6 +427,15 @@ export const registerRedesignSurface = async (
     );
     const budget = makeBudgetModule({
       db: kernel.db,
+      ...(enabledModules.includes('ins-native')
+        ? {
+            repo: makeNativeBudgetRepo(
+              kernel.db,
+              NATIVE_MAP_POPULATION_ADMISSION,
+              NATIVE_SECTOR_POPULATION_ADMISSION
+            ),
+          }
+        : {}),
       registry: kernel.contributors,
       legacyFactors,
       logger: app.log,

@@ -387,6 +387,7 @@ export interface CommitmentSummaryQuery {
 /** Execution time series (MV path). `metric` selects the MV column (§0.4). */
 export interface TimeseriesQuery {
   readonly entityCui: string;
+  readonly mainCreditorCui?: string;
   readonly reportType: ExecutionReportType;
   readonly metric: BudgetRankingMetric;
   readonly frequency: BudgetFrequency;

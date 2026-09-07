@@ -199,7 +199,15 @@ const MONTHLY_COMMITMENT_METRICS = new Set([
 const monthlyCommitmentGap = (camelMetric: string): boolean =>
   !MONTHLY_COMMITMENT_METRICS.has(camelMetric);
 
-export const makeBudgetRepo = (db: Db): BudgetRepo => {
+export interface BudgetRepoOptions {
+  /** At most one row per territory/year; caller owns the complete read snapshot. */
+  readonly populationRelation?: (selection: {
+    readonly territoryIds: readonly number[];
+    readonly years: readonly number[];
+  }) => Promise<Result<RawBuilder<unknown>, ApiError>>;
+}
+
+export const makeBudgetRepo = (db: Db, options: BudgetRepoOptions = {}): BudgetRepo => {
   // ───────────────────────────────────────────────────────────────────────────
   // funding-source id translation (A1) — stored identity id ⇄ public convention id
   // ───────────────────────────────────────────────────────────────────────────
@@ -819,6 +827,8 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
   ): Promise<Result<readonly BudgetSeriesPoint[], ApiError>> => {
     const cui = normalizeCui(q.entityCui);
     if (cui === null) return err(invalidInput('invalid CUI format', 'entityCui'));
+    const creditor = q.mainCreditorCui === undefined ? undefined : normalizeCui(q.mainCreditorCui);
+    if (creditor === null) return err(invalidInput('invalid CUI format', 'mainCreditorCui'));
     const reportLabel = EXECUTION_REPORT_TYPE_LABELS[q.reportType];
     const col = metricColumn(q.metric);
     const perCapita = isPerCapita(q.normalization);
@@ -827,6 +837,7 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
         sql`mv.entity_cui = ${cui}`,
         sql`mv.report_type = ${reportLabel}`,
       ];
+      if (creditor !== undefined) conds.push(sql`mv.main_creditor_cui = ${creditor}`);
       if (q.yearFrom !== undefined) conds.push(sql`mv.year >= ${q.yearFrom}`);
       if (q.yearTo !== undefined) conds.push(sql`mv.year <= ${q.yearTo}`);
 
@@ -840,11 +851,39 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
       // Apply the per-year normalization multiplier in SQL with `numeric` math
       // (precision-safe — never through a JS float; R1 review). The multiplier is
       // a per-year constant, emitted as a CASE over the distinct years requested.
-      const yearsPresent = await db
-        .selectFrom(execMvName(q.frequency))
-        .select(sql<number>`distinct mv.year`.as('year'))
-        .where(composeAnd(conds))
-        .execute();
+      const needsAnnualPopulation = perCapita && options.populationRelation !== undefined;
+      const needsFactorYears = q.normalization !== 'TOTAL' && q.normalization !== 'PER_CAPITA';
+      const yearsPresent =
+        needsAnnualPopulation || needsFactorYears
+          ? await db
+              .selectFrom(execMvName(q.frequency))
+              .leftJoin('core.public_entities as pe', 'pe.cui', 'mv.entity_cui')
+              .select(['mv.year', 'pe.territory_id', 'pe.is_territorial_executive'])
+              .distinct()
+              .where(composeAnd(conds))
+              .execute()
+          : [];
+      let annualPopulation: RawBuilder<unknown> | undefined;
+      let anchor: number | undefined;
+      if (needsAnnualPopulation) {
+        const anchors = [
+          ...new Set(
+            yearsPresent.flatMap((row) =>
+              row.is_territorial_executive === true && row.territory_id !== null
+                ? [row.territory_id]
+                : []
+            )
+          ),
+        ];
+        anchor = anchors[0];
+        if (anchor === undefined) return ok([]);
+        const population = await options.populationRelation({
+          territoryIds: anchors,
+          years: yearsPresent.map((row) => row.year),
+        });
+        if (population.isErr()) return err(population.error);
+        annualPopulation = population.value;
+      }
       const multCase = factorCaseExpr(
         yearsPresent.map((y) => y.year),
         q.normalization
@@ -852,8 +891,12 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
       // Per-capita divides by entity population in SQL (entity-grain; §3.4).
       // Use the validated CUI parameter instead of mv.entity_cui so the
       // aggregate query never references an ungrouped MV column.
-      const popExpr = perCapita
-        ? sql`(
+      const popExpr =
+        annualPopulation !== undefined
+          ? sql`(select p.population from (${annualPopulation}) p
+          where p.territory_id=${anchor} and p.year=mv.year)`
+          : perCapita
+            ? sql`(
             select nullif(
               case
                 when pe.is_territorial_executive then t.population
@@ -866,10 +909,10 @@ export const makeBudgetRepo = (db: Db): BudgetRepo => {
               on t.id = pe.territory_id
             where pe.cui = ${cui}
           )`
-        : sql`1`;
+            : sql`1`;
 
-      // The execution MVs retain main_creditor_cui in their grain. A public
-      // entity series is not creditor-scoped, so collapse those rows before
+      // The execution MVs retain main_creditor_cui in their grain. After any requested
+      // creditor filter, collapse the remaining rows before
       // emitting one point per period (the same rule used by rankings).
       const amountExpr = sql`sum(coalesce(mv.${sql.ref(col)},0)) * ${multCase}`;
       const normalizedAmountExpr = perCapita

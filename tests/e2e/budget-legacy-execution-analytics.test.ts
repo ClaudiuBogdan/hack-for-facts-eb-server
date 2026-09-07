@@ -85,6 +85,8 @@ import { makeTerritoryQueryRepo } from '@/modules/reference/shell/repo/territory
 import { makeIdentityRepo } from '@/modules/shared/shell/repo/identity-repo.js';
 import { makeTerritoryRepo } from '@/modules/shared/shell/repo/territory-repo.js';
 
+import { registerBudgetEvolutionCases } from './budget-evolution-cases.js';
+
 import type { UserDatabase } from '@/infra/database/user/types.js';
 import type { GroupedQuery } from '@/modules/budget/core/legacy-analytics/grouped-types.js';
 import type { FactorKind, FactorSource } from '@/modules/budget/core/legacy-analytics/ports.js';
@@ -2766,3 +2768,5 @@ describe('mounted native map routes', () => {
     }
   });
 });
+
+registerBudgetEvolutionCases(it, rollbackTerritoryFixture);

@@ -61,6 +61,7 @@ import { registerInsMapIntervalCases } from './ins-native-map-interval-cases.js'
 import { registerInsMapPopulationCases } from './ins-native-map-population-cases.js';
 import { registerInsMapSeriesCases } from './ins-native-map-series-cases.js';
 import { registerInsPublicationCases } from './ins-native-publication-cases.js';
+import { registerNativeBudgetCases, seedNativeBudget } from './native-budget-cases.js';
 
 import type { InsRepo } from '@/modules/ins-native/core/ports.js';
 import type { ProdDatabase } from '@/modules/shared/index.js';
@@ -88,6 +89,10 @@ const resolveScrapperRoot = (): string | undefined => {
 const MIGRATION_SHA256: Readonly<Record<string, string>> = {
   '20260612T110000__core_reference.ts':
     'fe5b584b1f98d2eeb7e549b854b9b5268e7a90f16c914cb090cb8dab5976aef4',
+  '20260612T110200__budget_facts.ts':
+    '05cefa428b161119b41723205ed877fd6d03b85ea3fd57c3c0913da3adde5406',
+  '20260612T110400__budget_summary_mvs.ts':
+    'cbfecd2b626597cc65c83a8bbcf0f1bdf233551cd4ab20f4fc5da511b6ad1373',
   '20260707T120000__etl_sync_policy.ts':
     '28a2f2f4c0e7d0365bd8a79cf7cbcc5f5f55702739d6f49fe20876f65e4be5e9',
   '20260902T100000__core_territory_hierarchy.ts':
@@ -401,9 +406,11 @@ beforeAll(async () => {
 
   pgClient = new pg.Client({ connectionString });
   await pgClient.connect();
-  await pgClient.query(
-    'drop schema if exists ins cascade; drop schema if exists core cascade; drop schema if exists etl cascade; create extension if not exists unaccent;'
-  );
+  // Release each schema's partition locks before dropping the next one.
+  for (const schema of ['budget', 'ins', 'core', 'etl']) {
+    await pgClient.query(`drop schema if exists ${schema} cascade`);
+  }
+  await pgClient.query('create extension if not exists unaccent');
   // The kernel pool: int8/date/timestamp come back as wire strings, as in production.
   db = createProdDb({ connectionString, max: 4 }).db;
   for (const file of MIGRATIONS) {
@@ -421,6 +428,7 @@ beforeAll(async () => {
     overriding system value values
     (7002,'127','CJ','127','Cluj','CJ','Cluj','Nord-Vest','county','county','siruta:127'),
     (7003,'10','AB','10','Alba','AB','Alba','Centru','county','county','siruta:10')`);
+  await seedNativeBudget(db);
   repo = makeInsRepo(db);
   ready = true;
 }, 240_000);
@@ -951,4 +959,9 @@ describe('ins-native repository over the real scrapper DDL (e2e)', () => {
       /observations_source_coordinate|observations_poptest_dataset_code_dim1_member_id/u
     );
   });
+});
+
+registerNativeBudgetCases(it, () => {
+  if (db === undefined) throw new Error('DB not ready');
+  return db;
 });

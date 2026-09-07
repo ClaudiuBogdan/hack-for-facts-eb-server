@@ -381,6 +381,10 @@ export const makeBudgetMcpTools = (deps: BudgetMcpDeps): readonly KernelMcpTool[
       'Execution time series for one entity (MV path): income/expense/balance over years/months/quarters, with optional normalization (real EUR, per-capita, % GDP).',
     inputShape: {
       cui: z.string().describe('Entity CUI.'),
+      mainCreditorCui: z
+        .string()
+        .optional()
+        .describe('Optional main creditor CUI; omission includes all creditor rows.'),
       reportType: z.enum(EXECUTION_REPORT_TYPES).optional(),
       metric: z.enum(['INCOME', 'EXPENSE', 'BALANCE']).optional().describe('Default EXPENSE.'),
       frequency: z.enum(['MONTH', 'QUARTER', 'YEAR']).optional().describe('Default YEAR.'),
@@ -397,6 +401,9 @@ export const makeBudgetMcpTools = (deps: BudgetMcpDeps): readonly KernelMcpTool[
         'TOTAL' | 'TOTAL_EURO' | 'PER_CAPITA' | 'PER_CAPITA_EURO' | 'PERCENT_GDP';
       const res = await budgetTimeseries(repo, {
         entityCui: cui,
+        ...(typeof args['mainCreditorCui'] === 'string' && {
+          mainCreditorCui: args['mainCreditorCui'],
+        }),
         reportType,
         metric,
         frequency,
@@ -408,7 +415,16 @@ export const makeBudgetMcpTools = (deps: BudgetMcpDeps): readonly KernelMcpTool[
       return {
         ok: true,
         kind: 'timeseries',
-        query: { cui, reportType, metric, frequency, normalization },
+        query: {
+          cui,
+          reportType,
+          metric,
+          frequency,
+          normalization,
+          ...(typeof args['mainCreditorCui'] === 'string' && {
+            mainCreditorCui: args['mainCreditorCui'],
+          }),
+        },
         link: entityLink(cui),
         items: res.value,
         summary:

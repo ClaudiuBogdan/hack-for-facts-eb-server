@@ -292,8 +292,8 @@ describe('budget ranking repository filters', () => {
     });
 
     expect(result.isOk()).toBe(true);
-    expect(captured).toHaveLength(2);
-    const sql = flat(captured[1]!.sql);
+    expect(captured).toHaveLength(1);
+    const sql = flat(captured[0]!.sql);
     expect(sql).toContain('sum(coalesce(mv."total_expense",0))');
     expect(sql).toContain('group by "mv"."year", null::int');
     expect(sql).not.toContain('coalesce(mv."total_expense",0) *');
@@ -314,7 +314,7 @@ describe('budget ranking repository filters', () => {
     });
 
     expect(result.isOk()).toBe(true);
-    const sql = flat(captured[1]!.sql);
+    const sql = flat(captured[0]!.sql);
     expect(sql).toContain('having (');
     expect(sql).toContain('> 0');
     expect(sql).not.toContain('else 0::numeric');

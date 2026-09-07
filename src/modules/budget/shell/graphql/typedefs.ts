@@ -461,6 +461,7 @@ const objectsAndQuery = /* GraphQL */ `
     "Execution time series (MV path; \`metric\` selects income/expense/balance; normalization applied per-point)."
     budgetTimeseries(
       cui: CUI!
+      mainCreditorCui: CUI
       reportType: BudgetReportType!
       metric: BudgetRankingMetric!
       frequency: BudgetFrequency!

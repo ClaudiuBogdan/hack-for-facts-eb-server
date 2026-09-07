@@ -49,6 +49,8 @@ import type {
 import type { Kysely } from 'kysely';
 
 export interface BudgetModuleDeps {
+  /** Composition may supply a snapshot-bound native serving adapter. */
+  readonly repo?: BudgetRepo;
   readonly db: Kysely<ProdDatabase>;
   readonly registry: ContributorRegistry;
   /** Client base URL for MCP deep links (defaults to the public site). */
@@ -95,7 +97,7 @@ const mergeResolvers = (
 };
 
 export const makeBudgetModule = (deps: BudgetModuleDeps): BudgetModule => {
-  const repo = makeBudgetRepo(deps.db);
+  const repo = deps.repo ?? makeBudgetRepo(deps.db);
   const discovery = makeBudgetDiscoveryRepo(deps.db);
   const legacyAnalytics = makeLegacyAnalyticsRepo(deps.db);
   const legacyPopulation = makeLegacyPopulationRepo(deps.db);

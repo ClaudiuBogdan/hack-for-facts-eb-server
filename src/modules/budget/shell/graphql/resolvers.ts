@@ -247,6 +247,7 @@ export const makeBudgetResolvers = (deps: BudgetResolverDeps): Record<string, un
         _r: unknown,
         args: {
           cui: string;
+          mainCreditorCui?: string;
           reportType: ExecutionReportType;
           metric: BudgetRankingMetric;
           frequency: BudgetFrequency;
@@ -258,6 +259,7 @@ export const makeBudgetResolvers = (deps: BudgetResolverDeps): Record<string, un
         unwrap(
           await budgetTimeseries(repo, {
             entityCui: args.cui,
+            ...(args.mainCreditorCui != null && { mainCreditorCui: args.mainCreditorCui }),
             reportType: args.reportType,
             metric: args.metric,
             frequency: args.frequency,
