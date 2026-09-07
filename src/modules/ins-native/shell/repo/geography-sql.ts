@@ -26,7 +26,8 @@ export const wholeGeographicTupleSql = (
 
 /** Candidate-level filtering. Period eligibility is deliberately a separate fact predicate. */
 export const geographicCatalogScopeSql = (
-  scope: Extract<InsGeoScope, { kind: 'modern' }>
+  scope: Extract<InsGeoScope, { kind: 'modern' }>,
+  territoryId?: RawBuilder<unknown>
 ): RawBuilder<unknown> => {
   if (scope.territoryIds === undefined && scope.levels === undefined) {
     throw new InsPublicationUnavailable();
@@ -35,7 +36,11 @@ export const geographicCatalogScopeSql = (
     sql`g.resolution = 'EXACT' and not (g.flags && ${COVERAGE_FLAGS}::text[])`,
   ];
   if (scope.territoryIds !== undefined)
-    parts.push(sql`g.territory_id = any(${scope.territoryIds}::bigint[])`);
+    parts.push(
+      territoryId === undefined
+        ? sql`g.territory_id = any(${scope.territoryIds}::bigint[])`
+        : sql`g.territory_id = ${territoryId}`
+    );
   if (scope.levels !== undefined)
     parts.push(sql`exists (select 1 from ins.territory_nodes tn
     where tn.territory_id=g.territory_id and tn.level=any(${scope.levels}::text[]))`);

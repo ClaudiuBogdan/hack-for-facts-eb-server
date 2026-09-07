@@ -25,8 +25,8 @@ import type { InsSeriesPeriod } from '../../core/ports.js';
 // Measured on 3,228 anchors × 4 years (2026-09-07): 71 vs 191 SQL reads,
 // 22.5s vs 27.0s from the Mac. Revalidate at full scale after topology changes.
 const REQUESTS_PER_STATEMENT = 160;
-// PostgreSQL wire protocol ceiling. Each branch has <=32 non-range parameters
-// (seven classification slots, scope, unit, dataset, period bounds and limit).
+// PostgreSQL wire protocol ceiling. Allow <=32 non-range parameters per request,
+// including its VALUES row and an unshared group predicate (the worst case).
 // A range contributes two parameters; shrink batches, never truncate selection.
 const MAX_BIND_PARAMETERS = 65_535;
 const MAX_BRANCH_FIXED_PARAMETERS = 32;
@@ -64,7 +64,8 @@ const periodPredicate = (period?: InsSeriesPeriod): RawBuilder<unknown> => {
 const factsPredicate = (
   request: InsDefaultSeriesRequest,
   layout: Layout,
-  period?: InsSeriesPeriod
+  period?: InsSeriesPeriod,
+  territoryId?: RawBuilder<unknown>
 ): RawBuilder<unknown> => {
   const parts = [
     sql`o.dataset_code=${request.datasetCode}`,
@@ -76,7 +77,7 @@ const factsPredicate = (
   if (request.geoScope.kind === 'modern') {
     parts.push(
       wholeGeographicTupleSql(layout.geography),
-      geographicCatalogScopeSql(request.geoScope),
+      geographicCatalogScopeSql(request.geoScope, territoryId),
       geographicPeriodEligibilitySql(request.geoScope)
     );
   }
@@ -148,6 +149,34 @@ const readLayouts = async (
   return output;
 };
 
+/** Only request identity and territory vary within a compact query group. */
+const groupRequests = (
+  requests: readonly InsDefaultSeriesRequest[]
+): InsDefaultSeriesRequest[][] => {
+  const groups = new Map<string, InsDefaultSeriesRequest[]>();
+  for (const request of requests) {
+    const key = JSON.stringify([
+      request.datasetCode,
+      request.unitNomItemId,
+      [...request.nonGeographicPins].sort(([left], [right]) => left - right),
+      request.geoScope.kind,
+    ]);
+    const group = groups.get(key) ?? [];
+    group.push(request);
+    groups.set(key, group);
+  }
+  return [...groups.values()];
+};
+
+const requestRows = (requests: readonly InsDefaultSeriesRequest[]): RawBuilder<unknown> =>
+  sql`(values ${sql.join(
+    requests.map(
+      (request) => sql`(${request.key}::text,
+    ${request.geoScope.kind === 'modern' ? request.geoScope.territoryIds[0] : null}::bigint)`
+    )
+  )})
+    as requested(series_key, territory_id)`;
+
 /** Caller wraps this complete operation, including hydration, in one Runner savepoint. */
 export const readDefaultSeries = async (
   trx: Trx,
@@ -194,26 +223,28 @@ export const readDefaultSeries = async (
   if (requestsPerStatement < 1) throw new InsPublicationUnavailable();
   for (let index = 0; index < requests.length; index += requestsPerStatement) {
     const chunk = requests.slice(index, index + requestsPerStatement);
-    const prepared = chunk.map((request) => {
-      const layout = layouts.get(request.key);
-      if (layout === undefined) throw new InsPublicationUnavailable();
-      return { request, layout, predicate: factsPredicate(request, layout, period) };
-    });
-    const branches = prepared
-      .filter(({ request }) => request.geoScope.kind === 'modern')
-      .map(
-        ({ request, predicate }) => sql`(select ${request.key}::text as series_key, g.geo_pairs
-        from ins.dataset_geo_tuples g
-        where g.dataset_code=${request.datasetCode}
-          and exists (select 1 from ins.observations o
-            ${
-              period?.periodicities !== undefined && period.periodicities.length > 0
-                ? sql`join ins.periods pe on pe.period_id=o.period_id`
-                : sql``
-            }
-            where ${predicate})
-        order by g.geo_pairs limit 2)`
-      );
+    const groups = groupRequests(chunk);
+    const branches = groups
+      .filter((group) => group[0]?.geoScope.kind === 'modern')
+      .map((group) => {
+        const request = group[0];
+        const layout = request === undefined ? undefined : layouts.get(request.key);
+        if (request === undefined || layout === undefined) throw new InsPublicationUnavailable();
+        const predicate = factsPredicate(request, layout, period, sql`requested.territory_id`);
+        return sql`(select requested.series_key, candidate.geo_pairs
+          from ${requestRows(group)} cross join lateral (
+            select g.geo_pairs from ins.dataset_geo_tuples g
+            where g.dataset_code=${request.datasetCode}
+              and exists (select 1 from ins.observations o
+                ${
+                  period?.periodicities !== undefined && period.periodicities.length > 0
+                    ? sql`join ins.periods pe on pe.period_id=o.period_id`
+                    : sql``
+                }
+                where ${predicate})
+            order by g.geo_pairs limit 2
+          ) candidate)`;
+      });
     const candidates =
       branches.length === 0
         ? []
@@ -230,43 +261,59 @@ export const readDefaultSeries = async (
       byKey.set(candidate.series_key, pairs);
     }
     const winnerBranches: RawBuilder<unknown>[] = [];
-    for (const { request, layout, predicate } of prepared) {
-      const witnesses = byKey.get(request.key) ?? [];
-      const first = witnesses[0];
-      const second = witnesses[1];
-      if (second !== undefined && first !== undefined) {
-        outcomes.set(request.key, {
-          seriesKey: request.key,
-          status: 'AMBIGUOUS_GEOGRAPHY',
-          observations: [],
-          witnesses: [first, second],
-        });
-        continue;
-      }
-      if (request.geoScope.kind === 'modern' && first === undefined) {
-        outcomes.set(request.key, {
-          seriesKey: request.key,
-          status: 'NO_DATA',
-          observations: [],
-          witnesses: [],
-        });
-        continue;
-      }
-      const pins = layout.geography.map((dimension, position) => {
-        const pair = first?.[position];
-        if (pair?.[0] !== dimension.dimIndex) throw new InsPublicationUnavailable();
-        return sql`${slotColumn(dimension.slotIndex)}=${pair[1]}`;
-      });
-      winnerBranches.push(sql`(select ${request.key}::text as series_key, ${factSelect}
-        from ins.observations o join ins.periods pe on pe.period_id=o.period_id
-        ${
-          request.geoScope.kind === 'modern'
-            ? sql`join ins.dataset_geo_tuples g
-          on g.dataset_code=${request.datasetCode} and g.geo_pairs=${JSON.stringify(first)}::jsonb`
-            : sql``
+    for (const group of groups) {
+      const request = group[0];
+      const layout = request === undefined ? undefined : layouts.get(request.key);
+      if (request === undefined || layout === undefined) throw new InsPublicationUnavailable();
+      const winners: RawBuilder<unknown>[] = [];
+      for (const member of group) {
+        const witnesses = byKey.get(member.key) ?? [];
+        const first = witnesses[0];
+        const second = witnesses[1];
+        if (second !== undefined && first !== undefined) {
+          outcomes.set(member.key, {
+            seriesKey: member.key,
+            status: 'AMBIGUOUS_GEOGRAPHY',
+            observations: [],
+            witnesses: [first, second],
+          });
+          continue;
         }
-        where ${predicate} ${pins.length === 0 ? sql`` : sql`and ${sql.join(pins, sql` and `)}`}
-        ${factOrder} limit ${perSeries})`);
+        if (member.geoScope.kind === 'modern' && first === undefined) {
+          outcomes.set(member.key, {
+            seriesKey: member.key,
+            status: 'NO_DATA',
+            observations: [],
+            witnesses: [],
+          });
+          continue;
+        }
+        if (
+          layout.geography.some(
+            (dimension, position) => first?.[position]?.[0] !== dimension.dimIndex
+          )
+        ) {
+          throw new InsPublicationUnavailable();
+        }
+        winners.push(sql`(${member.key}::text,
+          ${member.geoScope.kind === 'modern' ? member.geoScope.territoryIds[0] : null}::bigint,
+          ${first === undefined ? null : JSON.stringify(first)}::jsonb)`);
+      }
+      if (winners.length === 0) continue;
+      const predicate = factsPredicate(request, layout, period, sql`requested.territory_id`);
+      winnerBranches.push(sql`(select requested.series_key, winner.*
+        from (values ${sql.join(winners)}) as requested(series_key, territory_id, geo_pairs)
+        cross join lateral (select ${factSelect}
+          from ins.observations o join ins.periods pe on pe.period_id=o.period_id
+          ${
+            request.geoScope.kind === 'modern'
+              ? sql`join ins.dataset_geo_tuples g
+            on g.dataset_code=${request.datasetCode} and g.geo_pairs=requested.geo_pairs`
+              : sql``
+          }
+          where ${predicate}
+          ${factOrder} limit ${perSeries}
+        ) winner)`);
     }
     const rows =
       winnerBranches.length === 0

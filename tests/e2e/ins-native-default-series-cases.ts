@@ -173,6 +173,56 @@ export const registerInsDefaultSeriesCases = (
         )._unsafeUnwrap()[0]?.status
       ).toBe('NO_DATA');
     }));
+  it('compact batches keep datasets, units, pins and geographic modes separate', () =>
+    inInsFixture(database(), async (trx, repo) => {
+      await sql`delete from ins.dataset_geo_tuples where dataset_code='CNTTEST';
+        delete from ins.dataset_geo_dimensions where dataset_code='CNTTEST';
+        update ins.dataset_coverage set geo_dimension_count=0,geo_tuple_count=0
+        where dataset_code='CNTTEST'`.execute(trx);
+      const money = (key: string, unitNomItemId: number): InsDefaultSeriesRequest => ({
+        key,
+        datasetCode: 'CNTTEST',
+        nonGeographicPins: new Map([[1, 8000]]),
+        unitNomItemId,
+        geoScope: { kind: 'nonGeographic' },
+      });
+      const requests: InsDefaultSeriesRequest[] = [
+        request('cluj-total', 931),
+        money('ron', 9507),
+        {
+          ...request('cluj-male', 931),
+          nonGeographicPins: new Map([
+            [2, 106],
+            [1, 1],
+          ]),
+        },
+        money('eur', 9508),
+        request('national-total', 1),
+        {
+          ...request('cluj-reversed-pins', 931),
+          nonGeographicPins: new Map([
+            [2, 105],
+            [1, 1],
+          ]),
+        },
+        request('absent', 999999),
+      ];
+      const result = (await repo.readDefaultSeries(requests, 1))._unsafeUnwrap();
+      expect(result.map((row) => row.seriesKey)).toEqual(requests.map((row) => row.key));
+      expect(result.map((row) => row.observations.map((observation) => observation.value))).toEqual(
+        [['301105'], ['110'], ['301106'], ['23'], ['301105'], ['301105'], []]
+      );
+      expect(result.map((row) => row.observations[0]?.territory?.territoryId ?? null)).toEqual([
+        931,
+        null,
+        931,
+        null,
+        1,
+        931,
+        null,
+      ]);
+      expect(result[6]?.status).toBe('NO_DATA');
+    }));
   it('default source selection rejects duplicate request keys', () =>
     inInsFixture(database(), async (_trx, repo) => {
       expect(
@@ -219,10 +269,10 @@ export const registerInsDefaultSeriesCases = (
         (await repo.readDefaultSeries([request('cluj', 931)], 1))._unsafeUnwrap()[0]?.status
       ).toBe('NO_DATA');
     }));
-  it('default source selection preserves request and period ordering across the 40-request boundary', () =>
+  it('default source selection preserves request and period ordering across multiple 160-request boundaries', () =>
     inInsFixture(database(), async (_trx, repo) => {
-      const requests = Array.from({ length: 83 }, (_, index) =>
-        request(`request-${String(83 - index)}`, index % 2 === 0 ? 931 : 1)
+      const requests = Array.from({ length: 323 }, (_, index) =>
+        request(`request-${String(323 - index)}`, index % 2 === 0 ? 931 : 1)
       );
       const result = (await repo.readDefaultSeries(requests, 3))._unsafeUnwrap();
       expect(result.map((row) => row.seriesKey)).toEqual(requests.map((row) => row.key));
