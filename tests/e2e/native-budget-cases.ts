@@ -79,9 +79,50 @@ export function registerNativeBudgetCases(
       });
     }
   });
+  it('both native ranking entrypoints return annual metadata, including nominal requests and missing years', async () => {
+    const db = database(),
+      repo = makeNativeBudgetRepo(db, await admission(db));
+    for (const year of [2018, 2019, 2020]) {
+      const q = {
+        year,
+        reportType: 'EXECUTION_DETAILED' as const,
+        metric: 'EXPENSE' as const,
+        frequency: 'YEAR' as const,
+        normalization: 'TOTAL' as const,
+        entityCuis: ['991'],
+        limit: 1,
+      };
+      const top = (await repo.rankEntities(q))._unsafeUnwrap();
+      const page = (await repo.rankEntitiesPage({ ...q, offset: 0 }))._unsafeUnwrap();
+      expect(top).toEqual(page.items);
+      expect(page.total).toBe(1);
+      expect(top[0]!.population).toBe(year === 2018 ? null : year === 2019 ? 281105 : 291105);
+      expect(new Decimal(top[0]!.amount).eq(300)).toBe(true);
+      if (year === 2018) expect(top[0]!.perCapita).toBeNull();
+      else
+        expect(
+          new Decimal(top[0]!.perCapita!)
+            .toDecimalPlaces(15)
+            .eq(new Decimal(300).div(year === 2019 ? 281105 : 291105).toDecimalPlaces(15))
+        ).toBe(true);
+    }
+  });
   it('native budget adapter fails admission closed while nominal and empty series remain independent', async () => {
     const db = database(),
       repo = makeNativeBudgetRepo(db, { ...(await admission(db)), custodySha256: 'f'.repeat(64) });
+    expect(
+      (
+        await repo.rankEntities({
+          year: 2020,
+          reportType: 'EXECUTION_DETAILED',
+          frequency: 'YEAR',
+          metric: 'EXPENSE',
+          normalization: 'TOTAL',
+          entityCuis: ['991'],
+          limit: 1,
+        })
+      )._unsafeUnwrapErr().type
+    ).toBe('ServiceUnavailable');
     expect((await repo.executionTimeseries(query))._unsafeUnwrapErr().type).toBe(
       'ServiceUnavailable'
     );

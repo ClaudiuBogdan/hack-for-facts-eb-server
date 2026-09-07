@@ -78,7 +78,7 @@ describe('budget ranking repository filters', () => {
     expect(sql).toContain('mv.main_creditor_cui =');
     expect(sql).toContain('mv.entity_cui not in');
     expect(sql).toContain('sum(coalesce(mv."total_expense",0))');
-    expect(sql).toContain('group by mv.entity_cui, e.name, mv.year');
+    expect(sql).toContain('group by mv.entity_cui, mv.year, e.name');
     expect(query!.parameters).toEqual(expect.arrayContaining([2025, 3, '111', '222', '999']));
   });
 
@@ -266,12 +266,12 @@ describe('budget ranking repository filters', () => {
     expect(sql).not.toContain('mv.main_creditor_cui =');
     expect(sql).toContain('left join "core"."territories" as "t"');
     expect(sql).toContain(
-      'group by mv.entity_cui, e.name, mv.year, e.entity_type, e.is_territorial_executive, t.id, t.population, t.county_code, t.county_name'
+      'group by mv.entity_cui, mv.year, e.name, e.entity_type, e.is_territorial_executive, t.id, t.population, t.county_code, t.county_name'
     );
     expect(sql).toContain('when e.is_territorial_executive then t.population else null end');
     expect(sql).not.toContain('county_population');
     expect(sql).not.toContain('candidate.county_code = t.county_code');
-    expect(sql).toContain('having (');
+    expect(sql).toContain('where r.population > 0');
     expect(sql).toContain('> 0');
     expect(sql).not.toContain('t.population >=');
     expect(query!.parameters).toContain(1_000);
@@ -565,12 +565,12 @@ describe('budget ranking repository filters', () => {
 
     expect(result.isOk()).toBe(true);
     const sql = flat(captured[0]!.sql);
-    expect(sql).toContain('order by e.name asc nulls last, "mv"."entity_cui" asc');
+    expect(sql).toContain('order by "r"."entity_name" asc nulls last, r.entity_cui asc');
   });
 
   it.each([
-    ['ENTITY_TYPE', 'e.entity_type'],
-    ['COUNTY', 't.county_name'],
+    ['ENTITY_TYPE', '"r"."entity_type"'],
+    ['COUNTY', '"r"."county_name"'],
   ] as const)('sorts %s by the metadata returned to the client', async (sort, expectedSql) => {
     const captured: CapturedQuery[] = [];
     const repo = makeBudgetRepo(makeCapturingDb(captured));

@@ -1112,12 +1112,6 @@ export const makeBudgetRepo = (db: Db, options: BudgetRepoOptions = {}): BudgetR
     const limit = q.limit;
     const perCapita = isPerCapita(q.normalization);
     const multiplier = yearMultiplier(q.normalization, q.year);
-    // Rankings always return their entity metadata and denominator, even when
-    // TOTAL is the primary amount. This keeps table columns honest without a
-    // second client query. Executives use their canonical geographic anchor;
-    // ordinary institutions never inherit the population of the
-    // locality where their headquarters happen to be.
-    const populationExpr = sql`case when e.is_territorial_executive then t.population else null end`;
     try {
       const conds: RawBuilder<unknown>[] = [
         sql`mv.year = ${q.year}`,
@@ -1173,88 +1167,132 @@ export const makeBudgetRepo = (db: Db, options: BudgetRepoOptions = {}): BudgetR
       if (q.isUat !== undefined) conds.push(sql`e.is_uat = ${q.isUat}`);
       if (q.isTerritorialExecutive !== undefined)
         conds.push(sql`e.is_territorial_executive = ${q.isTerritorialExecutive}`);
-      if (q.minPopulation !== undefined) {
-        conds.push(sql`${populationExpr} >= ${q.minPopulation}`);
-      }
-      if (q.maxPopulation !== undefined) {
-        conds.push(sql`${populationExpr} <= ${q.maxPopulation}`);
-      }
-
-      // The summary MVs retain main_creditor_cui in their grain. A ranking that
-      // does not select one creditor must therefore collapse all creditor rows
-      // to one result per entity before ordering or applying the limit.
-      const metricExpr = sql`sum(coalesce(mv.${sql.ref(col)},0)) * ${multiplier}::numeric`;
-      const perCapitaExpr = sql`case when (${populationExpr}) > 0 then (${metricExpr} / (${populationExpr})) else null end`;
-      const orderExpr = (() => {
-        switch (q.sort) {
-          case 'PER_CAPITA':
-            return perCapitaExpr;
-          case 'ENTITY_NAME':
-            return sql`e.name`;
-          case 'ENTITY_TYPE':
-            return sql`e.entity_type`;
-          case 'POPULATION':
-            return populationExpr;
-          case 'COUNTY':
-            return sql`t.county_name`;
-          case 'AMOUNT':
-            return metricExpr;
-          default:
-            return perCapita ? perCapitaExpr : metricExpr;
-        }
-      })();
-
-      const base = db
+      // Collapse creditor rows before ranking. Keep population out of this
+      // candidate set: native annual values may change eligibility and order.
+      const candidates = db
         .selectFrom(execMvName(q.frequency))
         .leftJoin('core.public_entities as e', 'e.cui', 'mv.entity_cui')
-        .leftJoin('core.territories as t', 't.id', 'e.territory_id');
-      let rankingQuery = base
+        .leftJoin('core.territories as t', 't.id', 'e.territory_id')
         .select([
           'mv.entity_cui',
-          sql<string | null>`e.name`.as('entity_name'),
           'mv.year',
-          sql<string>`(${metricExpr})::text`.as('amount'),
-          sql<string | null>`(${perCapitaExpr})::text`.as('per_capita'),
-          sql<number | null>`(${populationExpr})::int`.as('population'),
+          sql<string | null>`e.name`.as('entity_name'),
+          sql`sum(coalesce(mv.${sql.ref(col)},0)) * ${multiplier}::numeric`.as('amount'),
+          sql<boolean | null>`e.is_territorial_executive`.as('is_executive'),
+          sql<number | null>`t.id`.as('territory_id'),
+          sql`case when e.is_territorial_executive then t.population else null end`.as(
+            'population'
+          ),
           sql<string | null>`t.county_code`.as('county_code'),
           sql<string | null>`t.county_name`.as('county_name'),
           sql<string | null>`e.entity_type`.as('entity_type'),
-          sql<number | null>`t.id`.as('territory_id'),
-          sql<string>`count(*) over()`.as('total_count'),
         ])
         .where(composeAnd(conds))
         .groupBy(
-          sql`mv.entity_cui, e.name, mv.year, e.entity_type, e.is_territorial_executive, t.id, t.population, t.county_code, t.county_name`
+          sql`mv.entity_cui, mv.year, e.name, e.entity_type, e.is_territorial_executive, t.id, t.population, t.county_code, t.county_name`
         );
-      if (perCapita) {
-        rankingQuery = rankingQuery.having(sql<SqlBool>`(${populationExpr}) > 0`);
+
+      const sort = q.sort ?? (perCapita ? 'PER_CAPITA' : 'AMOUNT');
+      const sortColumn = {
+        PER_CAPITA: 'r.per_capita',
+        ENTITY_NAME: 'r.entity_name',
+        ENTITY_TYPE: 'r.entity_type',
+        POPULATION: 'r.population',
+        COUNTY: 'r.county_name',
+        AMOUNT: 'r.amount',
+      }[sort];
+      const order = sql`${sql.ref(sortColumn)} ${dirSql(q.ascending === true ? 'asc' : 'desc')} nulls last, r.entity_cui asc`;
+      let populationJoin = sql``;
+      let populationExpr = sql`r.population`;
+      if (options.populationRelation !== undefined) {
+        const populationAffectsSelection =
+          perCapita ||
+          sort === 'PER_CAPITA' ||
+          sort === 'POPULATION' ||
+          q.minPopulation !== undefined ||
+          q.maxPopulation !== undefined;
+        // Nominal pages need population only as metadata. Select the exact page
+        // first, including ordinary institutions; then deduplicate its anchors.
+        const selected = await sql<{ territory_id: number | null; is_executive: boolean | null }>`
+          select r.territory_id, r.is_executive from (${candidates}) r
+          ${populationAffectsSelection ? sql`` : sql`order by ${order} limit ${limit} offset ${q.offset}`}
+        `.execute(db);
+        const territoryIds = [
+          ...new Set(
+            selected.rows.flatMap((row) =>
+              row.is_executive === true && row.territory_id !== null ? [row.territory_id] : []
+            )
+          ),
+        ];
+        let relation: RawBuilder<unknown> = sql`select null::bigint territory_id, null::int as year, null::numeric population where false`;
+        if (territoryIds.length > 0) {
+          const result = await options.populationRelation({ territoryIds, years: [q.year] });
+          if (result.isErr()) return err(result.error);
+          relation = result.value;
+        }
+        populationJoin = sql`left join (${relation}) population
+          on population.territory_id = r.territory_id and population.year = r.year`;
+        populationExpr = sql`case when r.is_executive then population.population else null end`;
       }
-      const rows = await rankingQuery
-        .orderBy(sql`${orderExpr} ${dirSql(q.ascending === true ? 'asc' : 'desc')} nulls last`)
-        .orderBy('mv.entity_cui', 'asc')
-        .limit(limit)
-        .offset(q.offset)
-        .execute();
-      let total = rows[0] !== undefined ? Number(rows[0].total_count) : 0;
-      if (rows.length === 0 && q.offset > 0) {
-        const firstPage = await rankEntitiesPage({ ...q, limit: 1, offset: 0 });
-        if (firstPage.isErr()) return err(firstPage.error);
-        total = firstPage.value.total;
-      }
+      const populationConds: RawBuilder<unknown>[] = [];
+      if (perCapita) populationConds.push(sql`r.population > 0`);
+      if (q.minPopulation !== undefined)
+        populationConds.push(sql`r.population >= ${q.minPopulation}`);
+      if (q.maxPopulation !== undefined)
+        populationConds.push(sql`r.population <= ${q.maxPopulation}`);
+
+      // A count row survives even when the requested offset is past the end.
+      // This avoids recursively fetching another page (and another INS read).
+      const { rows } = await sql<{
+        entity_cui: string | null;
+        entity_name: string | null;
+        year: number;
+        amount: string;
+        per_capita: string | null;
+        population: number | null;
+        county_code: string | null;
+        county_name: string | null;
+        entity_type: string | null;
+        territory_id: number | null;
+        total_count: string;
+      }>`
+        with candidates as (${candidates}),
+        populated as (
+          select r.entity_cui, r.entity_name, r.year, r.amount, r.territory_id,
+            r.county_code, r.county_name, r.entity_type, ${populationExpr} as population
+          from candidates r ${populationJoin}
+        ),
+        ranked as (
+          select r.*, case when r.population > 0 then r.amount / r.population else null end as per_capita
+          from populated r where ${composeAnd(populationConds)}
+        ),
+        totals as (select count(*)::text as total_count from ranked),
+        page as (select r.* from ranked r order by ${order} limit ${limit} offset ${q.offset})
+        select r.entity_cui, r.entity_name, r.year, r.amount::text, r.per_capita::text,
+          r.population::int, r.county_code, r.county_name, r.entity_type, r.territory_id, totals.total_count
+        from totals left join page r on true order by ${order}
+      `.execute(db);
+      const total = Number(rows[0]?.total_count ?? 0);
       return ok({
-        items: rows.map((r) => ({
-          entityCui: r.entity_cui,
-          entityName: r.entity_name,
-          reportType: q.reportType,
-          year: r.year,
-          amount: r.amount,
-          perCapita: r.per_capita,
-          population: r.population,
-          countyCode: r.county_code,
-          countyName: r.county_name,
-          entityType: r.entity_type,
-          territoryId: r.territory_id,
-        })),
+        items: rows.flatMap((r) =>
+          r.entity_cui === null
+            ? []
+            : [
+                {
+                  entityCui: r.entity_cui,
+                  entityName: r.entity_name,
+                  reportType: q.reportType,
+                  year: r.year,
+                  amount: r.amount,
+                  perCapita: r.per_capita,
+                  population: r.population,
+                  countyCode: r.county_code,
+                  countyName: r.county_name,
+                  entityType: r.entity_type,
+                  territoryId: r.territory_id,
+                },
+              ]
+        ),
         total,
       });
     } catch (error) {
