@@ -406,3 +406,5 @@ export {
   organizationIdentifierIsServable,
   organizationRowIsPublic,
 } from './shell/repo/organization-privacy.js';
+
+export { readPublicTerritoriesByIds } from './shell/repo/territory-repo.js';

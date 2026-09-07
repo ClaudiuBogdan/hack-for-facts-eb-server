@@ -7,7 +7,7 @@
  */
 
 import { sql, type RawBuilder } from 'kysely';
-import { err, ok } from 'neverthrow';
+import { err, ok, type Result } from 'neverthrow';
 
 import { readCountyAliases } from './county-aliases.js';
 import { readDefaultSeries as readDefaultSeriesInSnapshot } from './default-series.js';
@@ -27,6 +27,7 @@ import {
 } from './publication.js';
 import {
   dbError,
+  INS_TRANSACTION_TIMEOUT_MS,
   inTrxRunner,
   openSnapshot,
   perReadRunner,
@@ -56,6 +57,7 @@ import {
 } from '../../core/types.js';
 
 import type { InsDefaultPin, InsRepo } from '../../core/ports.js';
+import type { ApiError } from '@/modules/shared/index.js';
 
 /**
  * A date column as `YYYY-MM-DD`. The kernel pool returns dates as wire strings
@@ -460,6 +462,16 @@ export const makeInsRepo = (db: Db): InsRepo => makeRepoOn(db, perReadRunner(db)
 /** Module-private assembly seam: every nested usecase retains this snapshot. */
 export const makeInsSnapshotRepo = (db: Db, runner: Runner): InsRepo =>
   makeRepoOn(db, runner, true);
+
+/** Compose canonical identity and native INS reads within one read-only snapshot. */
+export const withInsReadSnapshot = <T>(
+  db: Db,
+  fn: (context: { trx: Trx; repo: InsRepo }) => Promise<Result<T, ApiError>>
+): Promise<Result<T, ApiError>> =>
+  openSnapshot(db, async (trx) => {
+    await sql`set local transaction_timeout = ${sql.lit(INS_TRANSACTION_TIMEOUT_MS)}`.execute(trx);
+    return fn({ trx, repo: makeInsSnapshotRepo(db, inTrxRunner(trx)) });
+  }).catch((cause: unknown) => err(dbError(cause, 'composed snapshot')));
 
 const makeRepoOn = (db: Db, readTx: Runner, snapshotBound = false): InsRepo => {
   const datasetWhere = (filter: InsDatasetFilter): RawBuilder<unknown> => {

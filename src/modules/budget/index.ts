@@ -209,3 +209,5 @@ export {
 export { makeCommitmentsMapRepo } from './shell/repo/commitments-map-repo.js';
 
 export { budgetMapGroupValues } from './core/legacy-analytics/map-groups.js';
+
+export { readMapPopulationAnchorSets } from './shell/repo/map-population-anchors.js';

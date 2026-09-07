@@ -58,6 +58,7 @@ import { registerInsDefaultSeriesCases } from './ins-native-default-series-cases
 import { registerInsEntityBridgeCases } from './ins-native-entity-bridge-cases.js';
 import { registerInsGeographyCases } from './ins-native-geography-cases.js';
 import { registerInsMapIntervalCases } from './ins-native-map-interval-cases.js';
+import { registerInsMapPopulationCases } from './ins-native-map-population-cases.js';
 import { registerInsMapSeriesCases } from './ins-native-map-series-cases.js';
 import { registerInsPublicationCases } from './ins-native-publication-cases.js';
 
@@ -469,6 +470,10 @@ describe('ins-native repository over the real scrapper DDL (e2e)', () => {
   });
   registerInsMapIntervalCases(it, () => {
     if (db === undefined) throw new Error('INS test database unavailable');
+    return db;
+  });
+  registerInsMapPopulationCases(it, () => {
+    if (db === undefined) throw new Error('db not ready');
     return db;
   });
   registerInsMapSeriesCases(it, () => {

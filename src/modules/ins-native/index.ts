@@ -96,7 +96,7 @@ export {
   INS_LEGACY_ROOTS,
   INS_LEGACY_ROOTS_DROPPED,
 } from './shell/graphql/legacy/typedefs.js';
-export { makeInsRepo } from './shell/repo/ins-repo.js';
+export { makeInsRepo, withInsReadSnapshot } from './shell/repo/ins-repo.js';
 
 export { makeInsReadSession, type InsReadSession } from './shell/repo/read-session.js';
 

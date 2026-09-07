@@ -166,3 +166,24 @@ export const makeTerritoryRepo = (db: Db): TerritoryRepo => ({
     }
   },
 });
+
+/** Batch canonical map anchors without widening the existing TerritoryRepo port. */
+export async function readPublicTerritoriesByIds(
+  db: Db,
+  ids: readonly number[]
+): Promise<Result<readonly Territory[], ApiError>> {
+  if (ids.length === 0) return ok([]);
+  try {
+    const rows = await db
+      .selectFrom('core.territories')
+      .select([...TERRITORY_COLUMNS])
+      .where(
+        sql<boolean>`id in (select value::int from jsonb_array_elements_text(${JSON.stringify(ids)}::jsonb))`
+      )
+      .where(sql<boolean>`privacy_class = 'public'`)
+      .execute();
+    return ok(rows.map(mapTerritory));
+  } catch (cause) {
+    return err(databaseError('readPublicTerritoriesByIds failed', cause));
+  }
+}

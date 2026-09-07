@@ -2,7 +2,14 @@ import { sql } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
 import { makeInsSnapshotRepo } from './ins-repo.js';
-import { dbError, inTrxRunner, openSnapshot, type Db, type Runner } from './snapshot.js';
+import {
+  dbError,
+  inTrxRunner,
+  openSnapshot,
+  INS_TRANSACTION_TIMEOUT_MS,
+  type Db,
+  type Runner,
+} from './snapshot.js';
 
 import type { InsRepo } from '../../core/ports.js';
 import type { ApiError } from '@/modules/shared/index.js';
@@ -16,7 +23,6 @@ export interface InsReadSession {
 // Interactive policy limits, not measured query-performance thresholds. A
 // deadline stops new work; PostgreSQL's transaction limit bounds admitted SQL.
 export const INS_OPERATION_TIMEOUT_MS = 30_000;
-const INS_TRANSACTION_TIMEOUT_MS = 35_000;
 
 export const makeInsReadSession = (db: Db): InsReadSession => {
   // Promise executors run synchronously, before either resolver is used.

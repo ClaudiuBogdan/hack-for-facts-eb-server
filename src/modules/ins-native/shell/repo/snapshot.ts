@@ -7,6 +7,8 @@ import type { ApiError, ProdDatabase } from '@/modules/shared/index.js';
 
 /** Interactive read budget; exports get their own path (plan §3.3). */
 export const INS_READ_TIMEOUT_MS = 30_000;
+/** Interactive transaction policy; bounds multi-statement population and UI reads. */
+export const INS_TRANSACTION_TIMEOUT_MS = 35_000;
 
 export type Db = Kysely<ProdDatabase>;
 export type Trx = Transaction<ProdDatabase>;
