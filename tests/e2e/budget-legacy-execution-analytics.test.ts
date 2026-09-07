@@ -2099,6 +2099,52 @@ describe('native grouped adversarial regressions', () => {
 });
 
 describe('native map execution aggregation', () => {
+  it('preserves executive county execution totals when council UAT flags change', async () => {
+    await rollbackTerritoryFixture(async (trx) => {
+      await sql`update budget.execution_line_items set entity_cui='444' where entity_cui='222'`.execute(
+        trx
+      );
+      const read = async (isUat?: boolean) =>
+        (
+          await mapAnalyticsSql(
+            cleanFilter(
+              baseFilter({
+                entity_cuis: ['111', '444'],
+                is_territorial_executive: true,
+                is_uat: isUat,
+              })
+            )._unsafeUnwrap(),
+            'County',
+            () => undefined
+          ).execute(trx)
+        ).rows;
+      const independent = (
+        await sql<{ year: number; amount: string; hall: string; council: string }>`
+        select reporting_year as year, sum(ytd_amount)::text as amount,
+          sum(ytd_amount) filter (where entity_cui='111')::text as hall,
+          sum(ytd_amount) filter (where entity_cui='444')::text as council
+        from budget.execution_line_items where entity_cui in ('111','444')
+          and reporting_year between 2023 and 2024 and is_yearly and account_category='ch'
+          and report_type in (${RT1},${RT2}) group by reporting_year order by reporting_year
+      `.execute(trx)
+      ).rows;
+      expect(independent).toHaveLength(2);
+      expect(independent.every((row) => legacyDecimal(row.council).greaterThan(0))).toBe(true);
+      const before = await read();
+      expect(before.map((row) => [row.territory_code, row.year, row.amount])).toEqual(
+        independent.map((row) => ['CJ', row.year, row.amount])
+      );
+      await sql`update core.public_entities set is_uat=false where cui='444'`.execute(trx);
+      expect(await read()).toEqual(before);
+      expect((await read(true)).map((row) => [row.territory_code, row.year, row.amount])).toEqual(
+        independent.map((row) => ['CJ', row.year, row.hall])
+      );
+      expect((await read(false)).map((row) => [row.territory_code, row.year, row.amount])).toEqual(
+        independent.map((row) => ['CJ', row.year, row.council])
+      );
+    });
+  });
+
   it('retains exact yearly amounts and unresolved anchors without dropping facts', async () => {
     const rows = (
       await makeBudgetMapRepo(db!).yearlyAmounts(
@@ -2426,6 +2472,41 @@ describe('native commitment map aggregation', () => {
       trx
     );
   };
+  it('preserves executive county commitment totals when council UAT flags change', async () => {
+    await rollbackTerritoryFixture(async (trx) => {
+      await seed(trx, principal, '111', '10.01');
+      await seed(trx, principal, '444', '20.02');
+      const read = async (isUat?: boolean) => {
+        const filter = cleanFilter(
+          baseFilter({ entity_cuis: ['111', '444'], is_territorial_executive: true, is_uat: isUat })
+        )._unsafeUnwrap();
+        return (
+          await commitmentsMapSql(
+            { ...filter, reportType: principal },
+            'County',
+            'CREDITE_ANGAJAMENT',
+            false,
+            () => undefined
+          ).execute(trx)
+        ).rows;
+      };
+      const independent = (
+        await sql<{ amount: string }>`select sum(ytd_credite_angajament)::text as amount
+        from budget.commitment_line_items where entity_cui in ('111','444') and reporting_year=2024
+          and is_yearly and report_type=${principal}`.execute(trx)
+      ).rows[0]!.amount;
+      expect(independent).toBe('30.03');
+      const before = await read();
+      expect(before.map((row) => [row.territory_code, row.year, row.amount])).toEqual([
+        ['CJ', 2024, independent],
+      ]);
+      await sql`update core.public_entities set is_uat=false where cui='444'`.execute(trx);
+      expect(await read()).toEqual(before);
+      expect((await read(true)).map((row) => row.amount)).toEqual(['10.01']);
+      expect((await read(false)).map((row) => row.amount)).toEqual(['20.02']);
+    });
+  });
+
   it('selects one report priority per entity/year, preserving zero and exact county totals', async () => {
     await rollbackTerritoryFixture(async (trx) => {
       await seed(trx, principal, '111', '10.01');
