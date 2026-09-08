@@ -4,7 +4,7 @@
  * Stores one row per user and per client-controlled record key.
  */
 
-import { sql, type Transaction } from 'kysely';
+import { sql } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
 import { FUNKY_PROGRESS_TERMS_ACCEPTED_PREFIX } from '@/common/campaign-keys.js';
@@ -59,14 +59,12 @@ import type { UserDbClient } from '@/infra/database/client.js';
 import type {
   LearningProgressAuditEventRow,
   LearningProgressRecordValueRow,
-  UserDatabase,
 } from '@/infra/database/user/types.js';
 import type { Logger } from 'pino';
 
 export interface LearningProgressRepoOptions {
   db: UserDbConnection;
   logger: Logger;
-  transactionScoped?: boolean;
 }
 
 const USER_INTERACTIONS_TABLE = 'userinteractions' as const;
@@ -80,7 +78,7 @@ const LEARNING_PROGRESS_ROW_COLUMNS = [
   'updated_at',
 ] as const;
 
-type UserDbConnection = UserDbClient | Transaction<UserDatabase>;
+type UserDbConnection = UserDbClient;
 
 function normalizeRecordValueRow(record: LearningProgressRecordValueRow): InteractiveStateRecord {
   return record;
@@ -685,12 +683,10 @@ class LearningProgressTransactionRollbackError extends Error {
 class KyselyLearningProgressRepo implements LearningProgressRepository {
   private readonly db: UserDbConnection;
   private readonly log: Logger;
-  private readonly transactionScoped: boolean;
 
   constructor(options: LearningProgressRepoOptions) {
     this.db = options.db;
     this.log = options.logger.child({ module: 'learning-progress-repo' });
-    this.transactionScoped = options.transactionScoped ?? false;
   }
 
   async getRecords(
@@ -736,7 +732,7 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
         .where('user_id', '=', userId)
         .where('record_key', '=', recordKey);
 
-      if (forUpdate && this.transactionScoped) {
+      if (forUpdate && this.db.isTransaction) {
         query = query.forUpdate();
       }
 
@@ -1711,7 +1707,7 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
     input: UpsertInteractiveRecordInput
   ): Promise<Result<UpsertInteractiveRecordResult, LearningProgressError>> {
     try {
-      if (!this.transactionScoped) {
+      if (!this.db.isTransaction) {
         return await this.withTransaction((transactionalRepo) =>
           transactionalRepo.upsertInteractiveRecord(input)
         );
@@ -1746,7 +1742,7 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
   async withTransaction<T, TError = LearningProgressError>(
     callback: (repo: LearningProgressRepository) => Promise<Result<T, TError>>
   ): Promise<Result<T, TError | LearningProgressError>> {
-    if (this.transactionScoped) {
+    if (this.db.isTransaction) {
       return callback(this);
     }
 
@@ -1755,7 +1751,6 @@ class KyselyLearningProgressRepo implements LearningProgressRepository {
         const transactionalRepo = new KyselyLearningProgressRepo({
           db: transaction,
           logger: this.log,
-          transactionScoped: true,
         });
         const result = await callback(transactionalRepo);
 

@@ -1869,7 +1869,6 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
           const transactionalLearningProgressRepo = makeLearningProgressRepo({
             db: transaction,
             logger: repoLogger,
-            transactionScoped: true,
           });
 
           const syncResult = await syncEvents({ repo: transactionalLearningProgressRepo }, input);

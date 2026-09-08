@@ -6,7 +6,7 @@
 
 import { randomUUID } from 'crypto';
 
-import { sql, type Transaction } from 'kysely';
+import { sql } from 'kysely';
 import { ok, err, type Result } from 'neverthrow';
 
 import {
@@ -32,7 +32,6 @@ import type {
   UpdateNotificationRepoInput,
 } from '../../core/ports.js';
 import type { UserDbClient } from '@/infra/database/client.js';
-import type { UserDatabase } from '@/infra/database/user/types.js';
 import type { Logger } from 'pino';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -63,7 +62,7 @@ export interface NotificationsRepoOptions {
   campaignSubscriptionStatsInvalidator?: CampaignSubscriptionStatsInvalidator;
 }
 
-type UserDbConnection = UserDbClient | Transaction<UserDatabase>;
+type UserDbConnection = UserDbClient;
 
 export interface CampaignSubscriptionStatsInvalidator {
   invalidateCampaign(campaignId: string): Promise<void>;
@@ -110,13 +109,17 @@ class KyselyNotificationsRepo implements NotificationsRepository {
   private readonly db: UserDbConnection;
   private readonly log: Logger;
   private readonly campaignSubscriptionStatsInvalidator:
-    | CampaignSubscriptionStatsInvalidator
-    | undefined;
+    CampaignSubscriptionStatsInvalidator | undefined;
 
   constructor(options: NotificationsRepoOptions) {
     this.db = options.db;
     this.log = options.logger.child({ repo: 'NotificationsRepo' });
     this.campaignSubscriptionStatsInvalidator = options.campaignSubscriptionStatsInvalidator;
+  }
+
+  /** Borrowed connections keep rollback and cache flushing with their outer owner. */
+  private inTransaction<T>(readWrite: (db: UserDbClient) => Promise<T>): Promise<T> {
+    return this.db.isTransaction ? readWrite(this.db) : this.db.transaction().execute(readWrite);
   }
 
   async create(input: CreateNotificationInput): Promise<Result<Notification, NotificationError>> {
@@ -182,7 +185,7 @@ class KyselyNotificationsRepo implements NotificationsRepository {
       const id = randomUUID();
       const now = new Date();
 
-      const row = await this.db.transaction().execute(async (trx) => {
+      const row = await this.inTransaction(async (trx) => {
         const insertValues = {
           id,
           user_id: input.userId,
@@ -489,7 +492,7 @@ class KyselyNotificationsRepo implements NotificationsRepository {
 
     try {
       const updatedAt = new Date();
-      const row = await this.db.transaction().execute(async (trx) => {
+      const row = await this.inTransaction(async (trx) => {
         const updateValues = buildUpdateValues(input, updatedAt);
 
         const updated = await trx
@@ -539,7 +542,7 @@ class KyselyNotificationsRepo implements NotificationsRepository {
 
     try {
       const updatedAt = new Date();
-      const row = await this.db.transaction().execute(async (trx) => {
+      const row = await this.inTransaction(async (trx) => {
         const updateValues = buildUpdateValues(input, updatedAt);
 
         const updatedGlobal = await trx
@@ -601,7 +604,7 @@ class KyselyNotificationsRepo implements NotificationsRepository {
 
     try {
       const updatedAt = new Date();
-      await this.db.transaction().execute(async (trx) => {
+      await this.inTransaction(async (trx) => {
         await this.applyManualNotificationOptInInTransaction(
           trx,
           input.userId,
@@ -637,7 +640,7 @@ class KyselyNotificationsRepo implements NotificationsRepository {
       }
 
       // SECURITY: SEC-019 - Atomic cascade deletion to prevent data inconsistency
-      await this.db.transaction().execute(async (trx) => {
+      await this.inTransaction(async (trx) => {
         await trx.deleteFrom('notificationsoutbox').where('reference_id', '=', id).execute();
         await trx.deleteFrom('notifications').where('id', '=', id).execute();
       });
@@ -665,7 +668,7 @@ class KyselyNotificationsRepo implements NotificationsRepository {
         config
       );
 
-      await this.db.transaction().execute(async (trx) => {
+      await this.inTransaction(async (trx) => {
         await sql`
           INSERT INTO notifications (
             id,
@@ -724,7 +727,7 @@ class KyselyNotificationsRepo implements NotificationsRepository {
   // ─────────────────────────────────────────────────────────────────────────────
 
   private async applyManualNotificationOptInInTransaction(
-    trx: Transaction<UserDatabase>,
+    trx: UserDbClient,
     userId: string,
     notificationType: NotificationType,
     updatedAt: Date
