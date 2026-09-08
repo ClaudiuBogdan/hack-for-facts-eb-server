@@ -247,3 +247,6 @@ export {
 } from './core/legacy-analytics/native-usecase.js';
 export { makeLegacyAnalyticsRepo } from './shell/repo/legacy-analytics-repo.js';
 export type { LegacyAnalyticsInput, PopulationScope } from './core/legacy-analytics/types.js';
+
+export { budgetMoneyPlan, needsMoneyFactor } from './core/money-options.js';
+export type { BudgetMoneyOptions } from './core/money-options.js';

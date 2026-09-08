@@ -4,7 +4,15 @@ import { err, ok, type Result } from 'neverthrow';
 
 import { makeNativeBudgetFactors } from './native-budget-factors.js';
 import { readNativePopulation } from './native-population.js';
-import { makeBudgetRepo, type BudgetRepo, type FactorSource } from '../modules/budget/index.js';
+import {
+  makeBudgetRepo,
+  budgetMoneyPlan,
+  loadMoneyContext,
+  type BudgetMoneyOptions,
+  type FactorKind,
+  type BudgetRepo,
+  type FactorSource,
+} from '../modules/budget/index.js';
 import {
   withInsReadSnapshot,
   type AnnualPopulationAdmission,
@@ -49,23 +57,26 @@ export function makeNativeBudgetRepo(
   // Cold immutable reads must finish before a request reserves a snapshot
   // connection, including when the serving pool has only one connection.
   const prepareMoneyFactors = async (
-    normalization: Parameters<BudgetRepo['rankEntities']>[0]['normalization']
+    normalization: Parameters<BudgetRepo['rankEntities']>[0]['normalization'],
+    options: BudgetMoneyOptions = {}
   ): Promise<Result<FactorSource, ApiError>> => {
-    const kind =
-      normalization === 'PERCENT_GDP'
-        ? 'gdp_ron'
-        : normalization === 'TOTAL_EURO' || normalization === 'PER_CAPITA_EURO'
-          ? 'ron_per_eur'
-          : null;
-    if (kind === null) return ok(moneyFactors);
-    const factors = await moneyFactors.yearly(kind);
-    if (factors.isErr()) return err(factors.error);
+    const loaded = new Map<FactorKind, ReturnType<FactorSource['yearly']>>();
+    const ready = await loadMoneyContext(
+      {
+        yearly: (kind) => {
+          const result = moneyFactors.yearly(kind);
+          loaded.set(kind, result);
+          return result;
+        },
+      },
+      budgetMoneyPlan(normalization, options)
+    );
+    if (ready.isErr()) return err(ready.error);
     return ok({
-      yearly: (requested) =>
+      yearly: (kind) =>
+        loaded.get(kind) ??
         Promise.resolve(
-          requested === kind
-            ? factors
-            : err({ type: 'ServiceUnavailable', message: 'Unexpected monetary factor kind' })
+          err({ type: 'ServiceUnavailable', message: 'Unexpected monetary factor kind' })
         ),
     });
   };
@@ -75,7 +86,7 @@ export function makeNativeBudgetRepo(
       const normalization = query.normalization ?? 'TOTAL';
       if (normalization !== 'PER_CAPITA' && normalization !== 'PER_CAPITA_EURO')
         return base.listExecutionLineItems(query);
-      const ready = await prepareMoneyFactors(normalization);
+      const ready = await prepareMoneyFactors(normalization, query);
       if (ready.isErr()) return err(ready.error);
       return withInsReadSnapshot(db, (context) =>
         snapshotRepo(context, ready.value).listExecutionLineItems(query)
@@ -84,7 +95,7 @@ export function makeNativeBudgetRepo(
     executionTimeseries: async (query) => {
       if (query.normalization !== 'PER_CAPITA' && query.normalization !== 'PER_CAPITA_EURO')
         return base.executionTimeseries(query);
-      const ready = await prepareMoneyFactors(query.normalization);
+      const ready = await prepareMoneyFactors(query.normalization, query);
       if (ready.isErr()) return err(ready.error);
       return withInsReadSnapshot(db, (context) =>
         snapshotRepo(context, ready.value).executionTimeseries(query)
@@ -93,14 +104,14 @@ export function makeNativeBudgetRepo(
     // Both entrypoints need the snapshot: the base top-N method closes over its
     // own page implementation. TOTAL also returns annual population metadata.
     rankEntities: async (query) => {
-      const ready = await prepareMoneyFactors(query.normalization);
+      const ready = await prepareMoneyFactors(query.normalization, query);
       if (ready.isErr()) return err(ready.error);
       return withInsReadSnapshot(db, (context) =>
         snapshotRepo(context, ready.value).rankEntities(query)
       );
     },
     rankEntitiesPage: async (query) => {
-      const ready = await prepareMoneyFactors(query.normalization);
+      const ready = await prepareMoneyFactors(query.normalization, query);
       if (ready.isErr()) return err(ready.error);
       return withInsReadSnapshot(db, (context) =>
         snapshotRepo(context, ready.value).rankEntitiesPage(query)

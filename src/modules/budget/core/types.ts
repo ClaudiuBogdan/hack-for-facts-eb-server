@@ -6,7 +6,6 @@
  * The clean enums (`ReportType`, `AccountCategory`) are mapped to/from the
  * partition literals at the repo boundary (`constants.ts`).
  */
-
 import type {
   AccountCategory,
   BudgetFrequency,
@@ -14,6 +13,7 @@ import type {
   CommitmentReportType,
   ExecutionReportType,
 } from './constants.js';
+import type { BudgetMoneyOptions } from './money-options.js';
 import type { FilterInput, Money } from '@/modules/shared/index.js';
 
 // ── execution fact row ────────────────────────────────────────────────────────
@@ -353,7 +353,7 @@ export interface CursorPageReq {
 }
 
 /** The validated fact-list query: a kernel FilterInput + a page request. */
-export interface BudgetFactQuery {
+export interface BudgetFactQuery extends BudgetMoneyOptions {
   readonly normalization?: BudgetNormalization;
   readonly filter: FilterInput;
   readonly sort: 'LINE_ORDER' | 'AMOUNT_DESC' | 'AMOUNT_ASC';
@@ -394,7 +394,7 @@ export interface CommitmentSummaryQuery {
 }
 
 /** Execution time series (MV path). `metric` selects the MV column (§0.4). */
-export interface TimeseriesQuery {
+export interface TimeseriesQuery extends BudgetMoneyOptions {
   readonly entityCui: string;
   readonly mainCreditorCui?: string;
   readonly reportType: ExecutionReportType;
@@ -427,7 +427,7 @@ export interface CommitmentTimeseriesQuery {
 }
 
 /** Bounded top-N ranking (MV path). NO cursor — rankings are top-N by definition. */
-export interface EntityRankingQuery {
+export interface EntityRankingQuery extends BudgetMoneyOptions {
   readonly year: number;
   readonly reportType: ExecutionReportType;
   readonly frequency: BudgetFrequency;

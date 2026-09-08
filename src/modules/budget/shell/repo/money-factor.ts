@@ -5,46 +5,66 @@ import { err, ok, type Result } from 'neverthrow';
 import { factorCaseExpr, yearMultiplier } from './analytics.js';
 import { loadMoneyContext } from '../../core/legacy-analytics/money-context.js';
 import { exactYearMoneyMultipliers } from '../../core/legacy-analytics/yearly-multipliers.js';
+import {
+  budgetMoneyPlan,
+  needsMoneyFactor,
+  type BudgetMoneyOptions,
+} from '../../core/money-options.js';
 
 import type { BudgetNormalization } from '../../core/constants.js';
 import type { FactorSource } from '../../core/legacy-analytics/ports.js';
-import type { NormalizationPlan } from '../../core/legacy-analytics/types.js';
 import type { ApiError } from '@/modules/shared/index.js';
 
 /** Resolve distinct exact years from one admitted context; absent years remain sparse. */
 export const availableYearMoneyFactors = async (
   source: FactorSource,
   normalization: BudgetNormalization,
-  years: readonly number[]
+  years: readonly number[],
+  options: BudgetMoneyOptions = {}
 ): Promise<Result<ReadonlyMap<number, string>, ApiError>> => {
   const distinctYears = [...new Set(years)];
   if (distinctYears.length === 0) return ok(new Map());
-  if (normalization === 'TOTAL' || normalization === 'PER_CAPITA')
+  if (!needsMoneyFactor(normalization, options))
     return ok(new Map(distinctYears.map((year) => [year, '1'])));
-  const plan: NormalizationPlan = {
-    mode: normalization === 'PERCENT_GDP' ? 'percent_gdp' : 'total',
-    currency: normalization === 'PERCENT_GDP' ? 'RON' : 'EUR',
-    inflationAdjusted: false,
-    showPeriodGrowth: false,
-  };
+  const plan = budgetMoneyPlan(normalization, options);
   const context = await loadMoneyContext(source, plan);
   if (context.isErr()) return err(context.error);
-  const series = plan.mode === 'percent_gdp' ? context.value.gdp : context.value.fxRate;
-  if (series === undefined)
-    return err({ type: 'ServiceUnavailable', message: 'Missing monetary factor kind' });
-  return exactYearMoneyMultipliers(
-    plan,
-    context.value,
-    distinctYears.filter((year) => series.has(year))
-  ).map((factors) => new Map([...factors].map(([year, factor]) => [year, factor.toFixed()])));
+  const required =
+    plan.mode === 'percent_gdp'
+      ? [context.value.gdp]
+      : [
+          ...(plan.inflationAdjusted ? [context.value.cpiIndex] : []),
+          ...(plan.currency !== 'RON' ? [context.value.fxRate] : []),
+        ];
+  for (const series of required) {
+    if (series === undefined)
+      return err({ type: 'ServiceUnavailable', message: 'Missing monetary factor kind' });
+    if ([...series.values()].some((value) => !value.isFinite() || value.lte(0)))
+      return err({ type: 'ServiceUnavailable', message: 'Invalid monetary factor value' });
+  }
+  if (plan.inflationAdjusted && context.value.cpiIndex?.size === 0)
+    return err({ type: 'ServiceUnavailable', message: 'CPI base year is unavailable' });
+  const baseYear =
+    context.value.cpiIndex === undefined ? undefined : Math.max(...context.value.cpiIndex.keys());
+  const eligible = distinctYears.filter((year) => {
+    if (plan.mode === 'percent_gdp') return context.value.gdp?.has(year) === true;
+    if (plan.inflationAdjusted && context.value.cpiIndex?.has(year) !== true) return false;
+    if (plan.currency === 'RON') return true;
+    const rateYear = plan.inflationAdjusted ? baseYear : year;
+    return rateYear !== undefined && context.value.fxRate?.has(rateYear) === true;
+  });
+  return exactYearMoneyMultipliers(plan, context.value, eligible, 'cpi-base-year').map(
+    (factors) => new Map([...factors].map(([year, factor]) => [year, factor.toFixed()]))
+  );
 };
 
 export const availableSingleYearMoneyFactor = async (
   source: FactorSource,
   normalization: BudgetNormalization,
-  year: number
+  year: number,
+  options: BudgetMoneyOptions = {}
 ): Promise<Result<string | null, ApiError>> =>
-  (await availableYearMoneyFactors(source, normalization, [year])).map(
+  (await availableYearMoneyFactors(source, normalization, [year], options)).map(
     (factors) => factors.get(year) ?? null
   );
 
@@ -52,11 +72,19 @@ export const availableSingleYearMoneyFactor = async (
 export const seriesMoneyFactor = async (
   source: FactorSource | undefined,
   normalization: BudgetNormalization,
-  years: readonly number[]
+  years: readonly number[],
+  options: BudgetMoneyOptions = {}
 ): Promise<Result<RawBuilder<unknown>, ApiError>> => {
-  if (source === undefined) return ok(factorCaseExpr(years, normalization));
-  if (normalization === 'TOTAL' || normalization === 'PER_CAPITA') return ok(sql`1::numeric`);
-  return (await availableYearMoneyFactors(source, normalization, years)).map((factors) => {
+  if (source === undefined) {
+    if (options.inflationAdjusted === true || options.currency !== undefined)
+      return err({
+        type: 'ServiceUnavailable',
+        message: 'Native monetary options are unavailable',
+      });
+    return ok(factorCaseExpr(years, normalization));
+  }
+  if (!needsMoneyFactor(normalization, options)) return ok(sql`1::numeric`);
+  return (await availableYearMoneyFactors(source, normalization, years, options)).map((factors) => {
     const whens = [...factors].map(
       ([year, factor]) => sql`when mv.year = ${year} then ${factor}::numeric`
     );

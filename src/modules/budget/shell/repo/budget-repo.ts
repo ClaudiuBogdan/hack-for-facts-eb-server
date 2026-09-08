@@ -98,6 +98,7 @@ import {
 } from '../../core/filters.js';
 import { legacyDecimal } from '../../core/legacy-analytics/decimal.js';
 import { normalizeLineItemAmounts } from '../../core/line-item-amounts.js';
+import { needsMoneyFactor } from '../../core/money-options.js';
 
 import type { FactorSource } from '../../core/legacy-analytics/ports.js';
 import type { BudgetRepo } from '../../core/ports.js';
@@ -424,6 +425,14 @@ export const makeBudgetRepo = (db: Db, options: BudgetRepoOptions = {}): BudgetR
   const listExecutionLineItems = async (
     q: BudgetFactQuery
   ): Promise<Result<CursorPage<ExecutionLineItem>, ApiError>> => {
+    if (
+      options.moneyFactors === undefined &&
+      (q.currency !== undefined || q.inflationAdjusted !== undefined)
+    )
+      return err({
+        type: 'ServiceUnavailable',
+        message: 'Native monetary options are unavailable',
+      });
     const gateR = resolveExecutionGate(q.filter, {
       reportType: 'EXECUTION_DETAILED',
       accountCategory: 'EXPENSE',
@@ -433,10 +442,11 @@ export const makeBudgetRepo = (db: Db, options: BudgetRepoOptions = {}): BudgetR
     const gate = gateR.value;
 
     const normalization = q.normalization ?? 'TOTAL';
+    const normalized = normalization !== 'TOTAL' || needsMoneyFactor(normalization, q);
     const entitySelection = fieldOf(q.filter, 'entityCuis')?.['in'];
     const normalizedYear = fieldOf(q.filter, 'reportingYear')?.['eq'];
     if (
-      normalization !== 'TOTAL' &&
+      normalized &&
       (typeof normalizedYear !== 'number' ||
         !Number.isInteger(normalizedYear) ||
         !Array.isArray(entitySelection) ||
@@ -512,7 +522,7 @@ export const makeBudgetRepo = (db: Db, options: BudgetRepoOptions = {}): BudgetR
       const hasMore = rows.length > limit;
       const pageRows = hasMore ? rows.slice(0, limit) : rows;
       let items = withPublicFunding(pageRows.map(mapExecutionLineItem), fm);
-      if (normalization !== 'TOTAL' && items.length > 0) {
+      if (normalized && items.length > 0) {
         // The validated single-entity/year scope is independent of which creditors own the facts.
         if (
           options.moneyFactors === undefined ||
@@ -527,7 +537,8 @@ export const makeBudgetRepo = (db: Db, options: BudgetRepoOptions = {}): BudgetR
         const factor = await availableSingleYearMoneyFactor(
           options.moneyFactors,
           normalization,
-          year
+          year,
+          q
         );
         if (factor.isErr()) return err(factor.error);
         let population: string | null = '1';
@@ -915,6 +926,14 @@ export const makeBudgetRepo = (db: Db, options: BudgetRepoOptions = {}): BudgetR
   const executionTimeseries = async (
     q: TimeseriesQuery
   ): Promise<Result<readonly BudgetSeriesPoint[], ApiError>> => {
+    if (
+      options.moneyFactors === undefined &&
+      (q.currency !== undefined || q.inflationAdjusted !== undefined)
+    )
+      return err({
+        type: 'ServiceUnavailable',
+        message: 'Native monetary options are unavailable',
+      });
     const cui = normalizeCui(q.entityCui);
     if (cui === null) return err(invalidInput('invalid CUI format', 'entityCui'));
     const creditor = q.mainCreditorCui === undefined ? undefined : normalizeCui(q.mainCreditorCui);
@@ -942,7 +961,7 @@ export const makeBudgetRepo = (db: Db, options: BudgetRepoOptions = {}): BudgetR
       // (precision-safe — never through a JS float; R1 review). The multiplier is
       // a per-year constant, emitted as a CASE over the distinct years requested.
       const needsAnnualPopulation = perCapita && options.populationRelation !== undefined;
-      const needsFactorYears = q.normalization !== 'TOTAL' && q.normalization !== 'PER_CAPITA';
+      const needsFactorYears = needsMoneyFactor(q.normalization, q);
       const yearsPresent =
         needsAnnualPopulation || needsFactorYears
           ? await db
@@ -977,7 +996,8 @@ export const makeBudgetRepo = (db: Db, options: BudgetRepoOptions = {}): BudgetR
       const factor = await seriesMoneyFactor(
         options.moneyFactors,
         q.normalization,
-        yearsPresent.map((y) => y.year)
+        yearsPresent.map((y) => y.year),
+        q
       );
       if (factor.isErr()) return err(factor.error);
       const multCase = factor.value;
@@ -1168,6 +1188,12 @@ export const makeBudgetRepo = (db: Db, options: BudgetRepoOptions = {}): BudgetR
   const rankEntitiesPage = async (
     q: EntityRankingPageQuery
   ): Promise<Result<RankedEntityPage, ApiError>> => {
+    const hasMoneyOptions = q.currency !== undefined || q.inflationAdjusted !== undefined;
+    if (hasMoneyOptions && options.moneyFactors === undefined)
+      return err({
+        type: 'ServiceUnavailable',
+        message: 'Native monetary options are unavailable',
+      });
     if (!Number.isInteger(q.year) || q.year <= 0) {
       return err(invalidInput('ranking year must be a positive integer', 'year'));
     }
@@ -1218,8 +1244,12 @@ export const makeBudgetRepo = (db: Db, options: BudgetRepoOptions = {}): BudgetR
     }
     const limit = q.limit;
     const perCapita = isPerCapita(q.normalization);
-    const money = await singleYearMoneyFactor(options.moneyFactors, q.normalization, q.year);
+    const money =
+      hasMoneyOptions && options.moneyFactors !== undefined
+        ? await availableSingleYearMoneyFactor(options.moneyFactors, q.normalization, q.year, q)
+        : await singleYearMoneyFactor(options.moneyFactors, q.normalization, q.year);
     if (money.isErr()) return err(money.error);
+    if (money.value === null) return ok({ items: [], total: 0 });
     const multiplier = money.value;
     try {
       const conds: RawBuilder<unknown>[] = [

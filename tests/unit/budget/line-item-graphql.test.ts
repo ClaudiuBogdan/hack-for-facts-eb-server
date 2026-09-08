@@ -43,6 +43,36 @@ function fixture(result: Result<CursorPage<ExecutionLineItem>, ApiError>) {
   return { schema, received: () => received };
 }
 describe('line-item GraphQL contract', () => {
+  it('passes optional monetary inputs and rejects invalid currencies at the GraphQL boundary', async () => {
+    const f = fixture(ok({ items: [], next: null }));
+    const source = document
+      .replace(
+        'query($n:BudgetNormalization!)',
+        'query($n:BudgetNormalization!,$currency:BudgetCurrency,$inflation:Boolean)'
+      )
+      .replace(
+        'normalization:$n,',
+        'normalization:$n,currency:$currency,inflationAdjusted:$inflation,'
+      );
+    const result = await graphql({
+      schema: f.schema,
+      source,
+      variableValues: { n: 'TOTAL', currency: 'USD', inflation: true },
+    });
+    expect(result.errors).toBeUndefined();
+    expect(f.received()).toMatchObject({
+      normalization: 'TOTAL',
+      currency: 'USD',
+      inflationAdjusted: true,
+    });
+    const bad = await graphql({
+      schema: f.schema,
+      source,
+      variableValues: { n: 'TOTAL', currency: 'XXX' },
+    });
+    expect(bad.errors).toHaveLength(1);
+  });
+
   it('serializes exact decimal strings and nullable normalized amounts through the production SDL/resolver', async () => {
     const row = {
       executionLineItemId: '1',

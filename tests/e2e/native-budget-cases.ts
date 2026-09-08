@@ -328,6 +328,109 @@ export function registerNativeBudgetCases(
       await sql`delete from core.territories where id=7999`.execute(db);
     }
   });
+  it('native entity CPI and base-year FX agree between series and original line amounts', async () => {
+    const db = database();
+    const factors: FactorSource = {
+      yearly: async (kind) =>
+        ok(
+          new Map([
+            [2019, new Decimal(kind === 'cpi_index' ? 100 : 2)],
+            [2020, new Decimal(kind === 'cpi_index' ? 120 : 3)],
+          ])
+        ),
+    };
+    const repo = makeNativeBudgetRepo(db, await nativeBudgetAdmission(db), undefined, factors);
+    for (const currency of ['RON', 'EUR', 'USD'] as const) {
+      for (const normalization of ['TOTAL', 'PER_CAPITA'] as const) {
+        const result = (
+          await repo.executionTimeseries({
+            ...query,
+            normalization,
+            currency,
+            inflationAdjusted: true,
+          })
+        )._unsafeUnwrap();
+        expect(result.map((point) => point.period.year)).toEqual([2019, 2020]);
+        for (const point of result) {
+          const year = point.period.year;
+          const multiplier = new Exact(year === 2019 ? '1.2' : '1')
+            .div(currency === 'RON' ? 1 : 3)
+            .div(normalization === 'TOTAL' ? 1 : year === 2019 ? 281105 : 291105);
+          expect(new Exact(point.amount).toFixed(15)).toBe(
+            new Exact(300).mul(multiplier).toFixed(15)
+          );
+          const ranking = (
+            await repo.rankEntities({
+              year,
+              frequency: 'YEAR',
+              reportType: 'EXECUTION_DETAILED',
+              metric: 'EXPENSE',
+              entityCuis: ['991'],
+              normalization,
+              currency,
+              inflationAdjusted: true,
+              limit: 5,
+            })
+          )._unsafeUnwrap();
+          expect(ranking).toHaveLength(1);
+          expect(
+            new Exact(
+              normalization === 'TOTAL' ? ranking[0]!.amount : ranking[0]!.perCapita!
+            ).toFixed(15)
+          ).toBe(new Exact(point.amount).toFixed(15));
+          const lines = (
+            await repo.listExecutionLineItems({
+              normalization,
+              currency,
+              inflationAdjusted: true,
+              filter: {
+                reportingYear: { eq: year },
+                reportType: { eq: 'EXECUTION_DETAILED' },
+                accountCategory: { eq: 'EXPENSE' },
+                frequency: { eq: 'YEAR' },
+                entityCuis: { in: ['991'] },
+              },
+              sort: 'LINE_ORDER',
+              page: { first: 100 },
+            })
+          )._unsafeUnwrap();
+          let sum = new Exact(0);
+          for (const line of lines.items) {
+            expect(new Exact(line.normalizedAmounts!.ytdAmount).toFixed(15)).toBe(
+              new Exact(line.ytdAmount).mul(multiplier).toFixed(15)
+            );
+            sum = sum.add(line.normalizedAmounts!.ytdAmount);
+          }
+          expect(sum.toFixed(15)).toBe(new Exact(point.amount).toFixed(15));
+        }
+      }
+    }
+    const rankingGap = (
+      await repo.rankEntitiesPage({
+        year: 2018,
+        frequency: 'YEAR',
+        reportType: 'EXECUTION_DETAILED',
+        metric: 'EXPENSE',
+        normalization: 'TOTAL',
+        currency: 'USD',
+        inflationAdjusted: true,
+        limit: 5,
+        offset: 0,
+      })
+    )._unsafeUnwrap();
+    expect(rankingGap).toEqual({ items: [], total: 0 });
+    const gaps = (
+      await repo.listExecutionLineItems({
+        normalization: 'TOTAL',
+        inflationAdjusted: true,
+        filter: { reportingYear: { eq: 2018 }, entityCuis: { in: ['991'] } },
+        sort: 'LINE_ORDER',
+        page: { first: 100 },
+      })
+    )._unsafeUnwrap();
+    expect(gaps.items.length).toBeGreaterThan(0);
+    expect(gaps.items.every((line) => line.normalizedAmounts === null)).toBe(true);
+  });
   it('native sparse monetary series use exact yearly factors at every frequency', async () => {
     const db = database();
     let reads = 0;

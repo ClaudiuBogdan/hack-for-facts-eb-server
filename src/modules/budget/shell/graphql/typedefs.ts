@@ -425,6 +425,12 @@ const objectsAndQuery = /* GraphQL */ `
     refreshedAt: DateTime
   }
 
+  enum BudgetCurrency {
+    RON
+    EUR
+    USD
+  }
+
   extend type Query {
     "One execution line item (the pruning triple is required to fetch a partitioned row)."
     budgetExecutionLineItem(
@@ -435,6 +441,8 @@ const objectsAndQuery = /* GraphQL */ `
     ): BudgetExecutionLineItem
     "Execution facts (fact path). Needs the pruning triple — defaults to latest-complete year / EXECUTION_DETAILED / EXPENSE."
     budgetExecutionLineItems(
+      currency: BudgetCurrency
+      inflationAdjusted: Boolean
       normalization: BudgetNormalization = TOTAL
       filter: BudgetFactFilter
       sort: BudgetLineItemSortKey = LINE_ORDER
@@ -469,6 +477,8 @@ const objectsAndQuery = /* GraphQL */ `
     ): [BudgetCommitmentSummary!]!
     "Execution time series (MV path; \`metric\` selects income/expense/balance; normalization applied per-point)."
     budgetTimeseries(
+      currency: BudgetCurrency
+      inflationAdjusted: Boolean
       cui: CUI!
       mainCreditorCui: CUI
       reportType: BudgetReportType!
@@ -503,6 +513,8 @@ const objectsAndQuery = /* GraphQL */ `
       filter: BudgetRankingFilter
       metric: BudgetRankingMetric = EXPENSE
       normalization: BudgetNormalization = TOTAL
+      currency: BudgetCurrency
+      inflationAdjusted: Boolean
       ascending: Boolean = false
       sort: BudgetEntityRankingSort
       limit: Int = 50
@@ -512,6 +524,8 @@ const objectsAndQuery = /* GraphQL */ `
       filter: BudgetRankingFilter
       metric: BudgetRankingMetric = EXPENSE
       normalization: BudgetNormalization = TOTAL
+      currency: BudgetCurrency
+      inflationAdjusted: Boolean
       ascending: Boolean = false
       sort: BudgetEntityRankingSort
       limit: Int = 50

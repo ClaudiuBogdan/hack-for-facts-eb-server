@@ -58,6 +58,7 @@ import {
   uatHeatmap,
 } from '../../core/usecases.js';
 
+import type { BudgetMoneyOptions } from '../../core/money-options.js';
 import type { BudgetDiscoveryRepo, BudgetRepo } from '../../core/ports.js';
 import type {
   BudgetRankingMetric,
@@ -152,13 +153,15 @@ export const makeBudgetResolvers = (deps: BudgetResolverDeps): Record<string, un
 
       budgetExecutionLineItems: async (
         _r: unknown,
-        args: PageArgs & { normalization?: BudgetNormalization }
+        args: PageArgs & BudgetMoneyOptions & { normalization?: BudgetNormalization }
       ) => {
         const filter = args.filter ?? {};
         const sort = args.sort ?? 'LINE_ORDER';
         const page = unwrap(
           await listExecutionLineItems(repo, {
             normalization: args.normalization ?? 'TOTAL',
+            ...(args.currency != null && { currency: args.currency }),
+            ...(args.inflationAdjusted != null && { inflationAdjusted: args.inflationAdjusted }),
             filter,
             sort,
             page: { first: args.first ?? 20, ...(args.after != null && { after: args.after }) },
@@ -249,7 +252,7 @@ export const makeBudgetResolvers = (deps: BudgetResolverDeps): Record<string, un
 
       budgetTimeseries: async (
         _r: unknown,
-        args: {
+        args: BudgetMoneyOptions & {
           cui: string;
           mainCreditorCui?: string;
           reportType: ExecutionReportType;
@@ -268,6 +271,8 @@ export const makeBudgetResolvers = (deps: BudgetResolverDeps): Record<string, un
             metric: args.metric,
             frequency: args.frequency,
             normalization: args.normalization ?? 'TOTAL',
+            ...(args.currency != null && { currency: args.currency }),
+            ...(args.inflationAdjusted != null && { inflationAdjusted: args.inflationAdjusted }),
             ...(args.yearFrom !== undefined && { yearFrom: args.yearFrom }),
             ...(args.yearTo !== undefined && { yearTo: args.yearTo }),
           })
@@ -329,6 +334,8 @@ export const makeBudgetResolvers = (deps: BudgetResolverDeps): Record<string, un
           filter?: FilterInput;
           metric?: BudgetRankingMetric;
           normalization?: BudgetNormalization;
+          currency?: 'RON' | 'EUR' | 'USD' | null;
+          inflationAdjusted?: boolean | null;
           ascending?: boolean;
           sort?: EntityRankingSort;
           limit?: number;
@@ -340,6 +347,8 @@ export const makeBudgetResolvers = (deps: BudgetResolverDeps): Record<string, un
             ...ranking,
             metric: args.metric ?? 'EXPENSE',
             normalization: args.normalization ?? 'TOTAL',
+            ...(args.currency != null && { currency: args.currency }),
+            ...(args.inflationAdjusted != null && { inflationAdjusted: args.inflationAdjusted }),
             ascending: args.ascending ?? false,
             ...(args.sort !== undefined && { sort: args.sort }),
             limit: args.limit ?? 50,
@@ -353,6 +362,8 @@ export const makeBudgetResolvers = (deps: BudgetResolverDeps): Record<string, un
           filter?: FilterInput;
           metric?: BudgetRankingMetric;
           normalization?: BudgetNormalization;
+          currency?: 'RON' | 'EUR' | 'USD' | null;
+          inflationAdjusted?: boolean | null;
           ascending?: boolean;
           sort?: EntityRankingSort;
           limit?: number;
@@ -367,6 +378,8 @@ export const makeBudgetResolvers = (deps: BudgetResolverDeps): Record<string, un
             ...ranking,
             metric: args.metric ?? 'EXPENSE',
             normalization: args.normalization ?? 'TOTAL',
+            ...(args.currency != null && { currency: args.currency }),
+            ...(args.inflationAdjusted != null && { inflationAdjusted: args.inflationAdjusted }),
             ascending: args.ascending ?? false,
             ...(args.sort !== undefined && { sort: args.sort }),
             limit,
