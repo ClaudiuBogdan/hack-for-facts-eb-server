@@ -85,6 +85,7 @@ import { makeTerritoryQueryRepo } from '@/modules/reference/shell/repo/territory
 import { makeIdentityRepo } from '@/modules/shared/shell/repo/identity-repo.js';
 import { makeTerritoryRepo } from '@/modules/shared/shell/repo/territory-repo.js';
 
+import { registerBudgetAnnualTableCases } from './budget-annual-table-cases.js';
 import { registerBudgetEvolutionCases } from './budget-evolution-cases.js';
 import { registerBudgetMoneyCases } from './budget-money-cases.js';
 import { registerBudgetRankingPopulationCases } from './budget-ranking-population-cases.js';
@@ -2827,3 +2828,5 @@ registerBudgetEvolutionCases(it, rollbackTerritoryFixture);
 registerBudgetRankingPopulationCases(it, rollbackTerritoryFixture);
 
 registerBudgetMoneyCases(it, rollbackTerritoryFixture);
+
+registerBudgetAnnualTableCases(it, rollbackTerritoryFixture);

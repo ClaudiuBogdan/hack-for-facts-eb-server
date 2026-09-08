@@ -25,6 +25,7 @@ import { makeNativeBudgetFactors } from './native-budget-factors.js';
 import { makeNativeBudgetRepo } from './native-budget-repo.js';
 import { makeNativeExecutionSeries } from './native-execution-series.js';
 import { makeNativeGroupedClassifications } from './native-grouped-classifications.js';
+import { makeNativeGroupedEntities } from './native-grouped-entities.js';
 import {
   makeNativeMapPopulation,
   NATIVE_MAP_POPULATION_ADMISSION,
@@ -441,6 +442,18 @@ export const registerRedesignSurface = async (
               nativeBudgetFactors,
               (info) => {
                 app.log.warn(info, 'Execution series point cap reached');
+              }
+            ),
+            entityAnalytics: makeNativeGroupedEntities(
+              kernel.db,
+              NATIVE_MAP_POPULATION_ADMISSION,
+              NATIVE_SECTOR_POPULATION_ADMISSION,
+              nativeBudgetFactors,
+              (info) => {
+                app.log.warn(
+                  info,
+                  'Grouped analytics limit clamped; pageInfo reports remaining rows'
+                );
               }
             ),
             classificationAnalytics: makeNativeGroupedClassifications(

@@ -42,8 +42,10 @@ export const budgetGroupedTypeDefs = /* GraphQL */ `
     """
     Population for this entity.
     Canonical administrative-anchor population for territorial executives.
-    Other entities have no eligible population. Annual multiyear results may
-    have a per-capita value without one scalar population.
+    Native serving uses the latest selected year's verified population for this
+    column, population sorting and population bounds, independently of fact years.
+    Missing reference-year population and non-executive entities return null.
+    Per-capita amounts use each selected year's own population before summing.
     """
     population: Int
 

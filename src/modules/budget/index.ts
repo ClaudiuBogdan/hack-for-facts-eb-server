@@ -37,7 +37,10 @@ import { makeLegacyDimensionRepo } from './shell/repo/legacy-dimension-repo.js';
 import { makeLegacyPopulationRepo } from './shell/repo/legacy-population-repo.js';
 
 import type { GroupedInput } from './core/legacy-analytics/grouped-types.js';
-import type { groupedClassificationAnalytics } from './core/legacy-analytics/grouped-usecase.js';
+import type {
+  groupedClassificationAnalytics,
+  groupedEntityAnalytics,
+} from './core/legacy-analytics/grouped-usecase.js';
 import type { nativeExecutionSeries } from './core/legacy-analytics/native-usecase.js';
 import type { LegacyAnalyticsInput } from './core/legacy-analytics/types.js';
 import type { BudgetDiscoveryRepo, BudgetRepo } from './core/ports.js';
@@ -58,6 +61,7 @@ export interface BudgetModuleDeps {
   ) => ReturnType<typeof nativeExecutionSeries>;
   /** Composition may supply a snapshot-bound native serving adapter. */
   readonly repo?: BudgetRepo;
+  readonly entityAnalytics?: (input: GroupedInput) => ReturnType<typeof groupedEntityAnalytics>;
   readonly classificationAnalytics?: (
     input: GroupedInput
   ) => ReturnType<typeof groupedClassificationAnalytics>;
@@ -113,6 +117,7 @@ export const makeBudgetModule = (deps: BudgetModuleDeps): BudgetModule => {
   const legacyPopulation = makeLegacyPopulationRepo(deps.db);
   const legacyDimensions = makeLegacyDimensionRepo(deps.db);
   const groupedResolvers = makeBudgetGroupedResolvers({
+    ...(deps.entityAnalytics === undefined ? {} : { entityAnalytics: deps.entityAnalytics }),
     ...(deps.classificationAnalytics === undefined
       ? {}
       : { classificationAnalytics: deps.classificationAnalytics }),

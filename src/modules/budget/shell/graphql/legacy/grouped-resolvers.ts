@@ -22,6 +22,7 @@ const unwrap = <T>(result: Result<T, ApiError>): T => {
 /** Decimal-to-Float conversion is confined to this compatibility wire boundary. */
 export const makeBudgetGroupedResolvers = (
   deps: GroupedAnalyticsDeps & {
+    readonly entityAnalytics?: (input: GroupedInput) => ReturnType<typeof groupedEntityAnalytics>;
     readonly classificationAnalytics?: (
       input: GroupedInput
     ) => ReturnType<typeof groupedClassificationAnalytics>;
@@ -29,7 +30,9 @@ export const makeBudgetGroupedResolvers = (
 ): Record<string, unknown> => ({
   Query: {
     entityAnalytics: async (_: unknown, args: GroupedInput) => {
-      const page = unwrap(await groupedEntityAnalytics(deps, args));
+      const page = unwrap(
+        await (deps.entityAnalytics?.(args) ?? groupedEntityAnalytics(deps, args))
+      );
       return {
         ...page,
         nodes: page.nodes.map((row) => ({

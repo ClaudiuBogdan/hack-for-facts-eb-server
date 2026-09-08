@@ -62,6 +62,7 @@ import { registerInsMapPopulationCases } from './ins-native-map-population-cases
 import { registerInsMapSeriesCases } from './ins-native-map-series-cases.js';
 import { registerInsPublicationCases } from './ins-native-publication-cases.js';
 import { registerNativeBudgetCases, seedNativeBudget } from './native-budget-cases.js';
+import { registerNativeEntityTableCases } from './native-entity-table-cases.js';
 import { registerNativeExecutionSeriesCases } from './native-execution-series-cases.js';
 
 import type { InsRepo } from '@/modules/ins-native/core/ports.js';
@@ -993,3 +994,8 @@ registerNativeExecutionSeriesCases(
     return createProdDb({ connectionString: fixtureConnectionString, max: 1 }).db;
   }
 );
+
+registerNativeEntityTableCases(it, () => {
+  if (fixtureConnectionString === undefined) throw new Error('Fixture connection unavailable');
+  return createProdDb({ connectionString: fixtureConnectionString, max: 1 }).db;
+});

@@ -197,6 +197,38 @@ describe('grouped analytics request preparation', () => {
       [2024, '100'],
     ]);
   });
+  it('uses only the years surviving interval and sparse-date intersection', async () => {
+    const { deps, calls } = fixture();
+    const result = await groupedEntityAnalytics(deps, {
+      filter: filter({
+        report_period: {
+          type: 'MONTH',
+          selection: {
+            interval: { start: '2024-12', end: '2025-01' },
+            dates: ['2024-12', '2025-02'],
+          },
+        },
+      }),
+    });
+    expect(result.isOk()).toBe(true);
+    expect([...calls[0]!.moneyMultipliers.keys()]).toEqual([2024]);
+    expect(
+      groupedYears({
+        years: { from: 2024, to: 2024 },
+        tupleRange: { start: { year: 2024, sub: 12 }, end: { year: 2024, sub: 1 } },
+      })
+    ).toEqual([]);
+    expect(
+      groupedYears({
+        years: { from: 2024, to: 2025 },
+        tupleRange: { start: { year: 2024, sub: 12 }, end: { year: 2025, sub: 1 } },
+        tupleList: [
+          { year: 2024, sub: 11 },
+          { year: 2025, sub: 2 },
+        ],
+      })
+    ).toEqual([]);
+  });
   it('intersects sparse year selection without demanding unused factor years', () => {
     expect(
       groupedYears({

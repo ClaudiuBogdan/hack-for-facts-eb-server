@@ -21,7 +21,7 @@ import { resolveGroupedPopulationScope, type GroupedPopulationScope } from './po
 import { exactYearMoneyMultipliers } from './yearly-multipliers.js';
 
 import type { FactorSource, PopulationSource } from './ports.js';
-import type { PeriodPlan, YearlySeries } from './types.js';
+import type { PeriodPlan, SubPeriod, YearlySeries } from './types.js';
 
 export interface GroupedAnalyticsDeps {
   readonly grouped: GroupedAnalyticsRepo;
@@ -44,14 +44,27 @@ export const groupedYears = (period: PeriodPlan): readonly number[] => {
       : Array.from({ length: Math.max(0, period.years.to - period.years.from + 1) }, (_, i) =>
           'in' in period.years ? i : period.years.from + i
         );
+  const compare = (a: SubPeriod, b: SubPeriod) =>
+    a.year === b.year ? a.sub - b.sub : a.year - b.year;
+  const range = period.tupleRange;
+  if (range !== undefined && compare(range.start, range.end) > 0) return [];
   const allowedYears = period.yearList === undefined ? undefined : new Set(period.yearList);
   const tupleYears =
     period.tupleList === undefined
       ? undefined
-      : new Set(period.tupleList.map((tuple) => tuple.year));
+      : new Set(
+          period.tupleList
+            .filter(
+              (tuple) =>
+                range === undefined ||
+                (compare(tuple, range.start) >= 0 && compare(tuple, range.end) <= 0)
+            )
+            .map((tuple) => tuple.year)
+        );
   return [...new Set(years)]
     .filter(
       (year) =>
+        (range === undefined || (year >= range.start.year && year <= range.end.year)) &&
         (allowedYears === undefined || allowedYears.has(year)) &&
         (tupleYears === undefined || tupleYears.has(year))
     )

@@ -31,7 +31,7 @@ type Db = Kysely<ProdDatabase>;
 type Grouping = 'entity' | 'classification';
 
 /** A resolved population basis must produce at most one row per territory/year.
- * Only the explicit S1b snapshot adapter ships now. Annual custody/vintage is a later gate.
+ * Compatibility broadcasts its snapshot; native composition supplies admitted annual cells.
  */
 export type TerritoryPopulationRelation = (years: readonly number[]) => RawBuilder<unknown>;
 export const snapshotTerritoryPopulationSql: TerritoryPopulationRelation = (years) => sql`
@@ -77,15 +77,34 @@ const SORT_COLUMNS = {
 } as const;
 
 /** Exported for real-PostgreSQL EXPLAIN and independent numeric parity tests. */
-export const groupedAnalyticsSql = (
+interface PopulationAnchorRow {
+  readonly territory_id: string;
+}
+interface NativePopulationQuery {
+  readonly referenceYear: number;
+  readonly discovery?: 'all' | 'page';
+}
+const emptyPopulationSql: TerritoryPopulationRelation = () => sql`
+  select null::bigint as territory_id, null::int as year, null::numeric as population where false
+`;
+
+const buildGroupedAnalyticsSql = <T>(
   grouping: Grouping,
   query: GroupedQuery,
   toStoredFundingId: (id: number) => number | undefined,
-  populationRelation: TerritoryPopulationRelation = snapshotTerritoryPopulationSql
-): RawBuilder<DbRow> => {
+  populationRelation: TerritoryPopulationRelation = snapshotTerritoryPopulationSql,
+  native?: NativePopulationQuery
+): RawBuilder<T> => {
   const q = query.filter;
+  // Native population bounds select the latest-year metadata, never static fact anchors.
+  const withoutPopulationBounds = { ...q };
+  delete withoutPopulationBounds.minPopulation;
+  delete withoutPopulationBounds.maxPopulation;
   const entity = grouping === 'entity';
-  const conditions = legacyAggregateConditions(q, toStoredFundingId);
+  const conditions = legacyAggregateConditions(
+    native === undefined ? q : withoutPopulationBounds,
+    toStoredFundingId
+  );
   if (entity)
     conditions.push(
       organizationIdentifierIsServable('eli.entity_cui'),
@@ -113,6 +132,10 @@ export const groupedAnalyticsSql = (
   if (q.aggregateMaxAmount !== undefined)
     bounds.push(sql`amount <= ${q.aggregateMaxAmount}::numeric`);
   if (entity && query.mode === 'per_capita') bounds.push(sql`executive = true`);
+  if (native !== undefined) {
+    if (q.minPopulation !== undefined) bounds.push(sql`population >= ${q.minPopulation}`);
+    if (q.maxPopulation !== undefined) bounds.push(sql`population <= ${q.maxPopulation}`);
+  }
   const primary = query.mode === 'per_capita' ? sql`per_capita_amount` : sql`total_amount`;
   const sortColumn = entity ? SORT_COLUMNS[query.sort.by] : 'amount';
   const direction = entity && query.sort.order === 'ASC' ? sql`asc` : sql`desc`;
@@ -121,8 +144,12 @@ export const groupedAnalyticsSql = (
   const entityFields = sql`
     entity_cui, max(entity_name) as entity_name, max(entity_type) as entity_type,
     max(uat_id)::text as uat_id, max(county_code) as county_code, max(county_name) as county_name,
-    case when bool_and(population > 0) and count(population) = count(*)
-      and min(population) = max(population) then max(population) else null end as population,
+    ${
+      native === undefined
+        ? sql`case when bool_and(population > 0) and count(population) = count(*)
+          and min(population) = max(population) then max(population) else null end`
+        : sql`max(reference_population)::int`
+    } as population,
     bool_or(executive) as executive,
     null::text as functional_code, null::text as functional_name,
     null::text as economic_code, null::text as economic_name`;
@@ -133,9 +160,20 @@ export const groupedAnalyticsSql = (
     functional_code, max(functional_name) as functional_name,
     economic_code, max(economic_name) as economic_name`;
   const divisor = entity ? sql`population` : sql`scope_population`;
-  return sql<DbRow>`
+  return sql<T>`
     with factors(year, multiplier, scope_population) as (values ${sql.join(factorValues)}),
     populations as (${populationRelation(years)}),
+    ${
+      native === undefined
+        ? sql``
+        : sql`
+    population_status as (
+      select territory_id,
+        count(*) filter (where population > 0) = ${query.mode === 'percent_gdp' ? 1 : years.length} as complete,
+        max(population) filter (where year = ${native.referenceYear}) as reference_population
+      from populations group by territory_id
+    ),`
+    }
     year_groups as materialized (
       select ${entity ? sql`eli.entity_cui` : sql`null::text`} as entity_cui, eli.reporting_year, ${functional} as functional_code,
         ${economic} as economic_code,
@@ -151,6 +189,13 @@ export const groupedAnalyticsSql = (
             : sql`null::text as entity_name, null::text as entity_type, null::int as uat_id,
           null::text as county_code, null::text as county_name, null::int as population,`
         }
+        ${
+          native === undefined
+            ? sql``
+            : sql`
+          max(ps.reference_population) filter (where e.is_territorial_executive) as reference_population,
+          bool_and(coalesce(ps.complete, false)) as population_complete,`
+        }
         ${joinEntity ? sql`bool_and(e.cui is not null and e.is_territorial_executive is not null)` : sql`true`} as registry_known,
         ${joinEntity ? sql`bool_or(e.is_territorial_executive)` : sql`false`} as executive,
         sum(${sql.ref(`eli.${EXECUTION_AMOUNT_COLUMN[q.frequency]}`)}) as nominal_amount,
@@ -160,6 +205,7 @@ export const groupedAnalyticsSql = (
       ${joinOrganization ? sql`left join core.organizations o on o.cui = eli.entity_cui` : sql``}
       ${joinTerritory ? sql`left join core.territories t on t.id = e.territory_id` : sql``}
       ${entity ? sql`left join populations p on p.territory_id = e.territory_id and p.year = eli.reporting_year` : sql``}
+      ${native === undefined ? sql`` : sql`left join population_status ps on ps.territory_id = e.territory_id`}
       where ${andConditions(conditions)}
       group by eli.reporting_year${entity ? sql`, eli.entity_cui` : sql`, eli.functional_code, eli.economic_code`}
     ), valued as (
@@ -169,13 +215,14 @@ export const groupedAnalyticsSql = (
       select coalesce(bool_or(multiplier is null), false)
         or (${query.requirePopulation} and coalesce(bool_or(
           (${requireRegistry} and (not registry_known or executive is null))
-          ${entity ? sql`or (executive and (population is null or population <= 0))` : sql`or scope_population is null or scope_population <= 0`}
+          ${entity ? sql`or (executive and (population is null or population <= 0 ${native === undefined ? sql`` : sql`or not population_complete`}))` : sql`or scope_population is null or scope_population <= 0`}
         ), false)) as missing_coverage
       from valued
     ), grouped as (
       select ${entity ? entityFields : classificationFields},
         sum(nominal_amount * multiplier) as total_amount,
         case when ${query.mode !== 'percent_gdp'} and count(${divisor}) = count(*) and min(${divisor}) > 0
+          ${native === undefined ? sql`` : sql`and bool_and(population_complete)`}
           then sum(nominal_amount * multiplier / nullif(${divisor}, 0)) else null end as per_capita_amount,
         sum(count) as count
       from valued
@@ -189,17 +236,37 @@ export const groupedAnalyticsSql = (
     ), page as (
       select * from final f order by ${order('f')} limit ${query.limit} offset ${query.offset}
     )
-    select p.*, totals.total_count, coverage.missing_coverage
-    from totals cross join coverage left join page p on true
-    order by ${order('p')}
+    ${
+      native?.discovery === 'all'
+        ? sql`select distinct uat_id::bigint as territory_id from grouped where executive = true and uat_id is not null`
+        : native?.discovery === 'page'
+          ? sql`select distinct uat_id::bigint as territory_id from page where executive = true and uat_id is not null`
+          : sql`select p.*, totals.total_count, coverage.missing_coverage
+            from totals cross join coverage left join page p on true
+            order by ${order('p')}`
+    }
   `;
 };
+
+/** The public SQL seam retains its compatibility defaults for existing callers/tests. */
+export const groupedAnalyticsSql = (
+  grouping: Grouping,
+  query: GroupedQuery,
+  funding: (id: number) => number | undefined,
+  populationRelation?: TerritoryPopulationRelation
+): RawBuilder<DbRow> =>
+  buildGroupedAnalyticsSql<DbRow>(grouping, query, funding, populationRelation);
 
 export const makeGroupedAnalyticsRepo = (
   db: Db,
   options: {
     readonly fundingSourceMap?: FundingSourceMapLoader;
     readonly populationRelation?: TerritoryPopulationRelation;
+    /** Native entity-only adapter, called once inside the owning read snapshot. */
+    readonly annualPopulationRelation?: (selection: {
+      readonly territoryIds: readonly number[];
+      readonly years: readonly number[];
+    }) => Promise<Result<RawBuilder<unknown>, ApiError>>;
   } = {}
 ): GroupedAnalyticsRepo => {
   const fundingMap = options.fundingSourceMap ?? makeFundingSourceMap(db);
@@ -220,15 +287,52 @@ export const makeGroupedAnalyticsRepo = (
       const funding = needsMap
         ? (await fundingMap.load()).toStoredId
         : (): number | undefined => undefined;
-      const read = async (trx: Db) => {
+      const read = async (trx: Db): Promise<Result<readonly DbRow[], ApiError>> => {
         await sql`set local statement_timeout = 30000`.execute(trx);
-        return (
-          await groupedAnalyticsSql(grouping, query, funding, options.populationRelation).execute(
-            trx
-          )
-        ).rows;
+        let relation = options.populationRelation;
+        let native: NativePopulationQuery | undefined;
+        if (grouping === 'entity' && options.annualPopulationRelation !== undefined) {
+          const years = [...query.moneyMultipliers.keys()].sort((a, b) => a - b);
+          const referenceYear = years.at(-1);
+          if (referenceYear === undefined) return ok([]);
+          native = { referenceYear };
+          const all =
+            query.requirePopulation ||
+            query.sort.by === 'POPULATION' ||
+            query.filter.minPopulation !== undefined ||
+            query.filter.maxPopulation !== undefined;
+          const anchors = await buildGroupedAnalyticsSql<PopulationAnchorRow>(
+            grouping,
+            query,
+            funding,
+            emptyPopulationSql,
+            { ...native, discovery: all ? 'all' : 'page' }
+          ).execute(trx);
+          relation = emptyPopulationSql;
+          if (anchors.rows.length > 0) {
+            const result = await options.annualPopulationRelation({
+              territoryIds: anchors.rows.map((row) => Number(row.territory_id)),
+              years: query.mode === 'percent_gdp' ? [referenceYear] : years,
+            });
+            if (result.isErr()) return err(result.error);
+            relation = () => result.value;
+          }
+        }
+        return ok(
+          (
+            await buildGroupedAnalyticsSql<DbRow>(
+              grouping,
+              query,
+              funding,
+              relation,
+              native
+            ).execute(trx)
+          ).rows
+        );
       };
-      const rows = db.isTransaction ? await read(db) : await db.transaction().execute(read);
+      const result = db.isTransaction ? await read(db) : await db.transaction().execute(read);
+      if (result.isErr()) return err(result.error);
+      const rows = result.value;
       if (rows[0]?.missing_coverage === true)
         return err(
           serviceUnavailable(
