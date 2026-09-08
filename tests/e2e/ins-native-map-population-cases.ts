@@ -54,9 +54,13 @@ const seedAnchors = async (db: Kysely<ProdDatabase>): Promise<void> => {
   );
 };
 
+const sectorSource = (year: number) =>
+  `ins-bucharest-domicile-jan1:${String(year)}:${'f'.repeat(64)}`;
+
 export const seedSectors = async (
   trx: Kysely<ProdDatabase>,
-  repo: InsRepo
+  repo: InsRepo,
+  years: readonly number[] = [2024, 2025]
 ): Promise<SectorPopulationAdmission> => {
   await sql`insert into core.territories
     (id,territorial_siruta_code,siruta_code,name,county_code,level,kind,territory_key,parent_id)
@@ -75,9 +79,9 @@ export const seedSectors = async (
     await sql`insert into core.territory_identifiers(territory_id,scheme,value) values(${id},'siruta',${code})`.execute(
       trx
     );
-    for (const year of [2024, 2025]) {
+    for (const year of years) {
       const population = (index + 1) * 100 + (year - 2024) * 10,
-        source = 'fixture-sector-' + String(year),
+        source = sectorSource(year),
         url = 'https://fixture.test/' + String(year) + '?version=1';
       await sql`insert into core.territory_population(territory_id,year,population,source,source_url)
         values(${id},${year},${population},${source},${url})`.execute(trx);
@@ -92,7 +96,8 @@ export const seedSectors = async (
   });
   return {
     ins: await admit(repo),
-    sources: ['fixture-sector-2024', 'fixture-sector-2025'],
+    years,
+    sources: years.map(sectorSource),
     rowsSha256: createHash('sha256').update(JSON.stringify(tuples)).digest('hex'),
   };
 };
@@ -232,6 +237,82 @@ export function registerInsMapPopulationCases(
           ])
         )._unsafeUnwrap()[0]?.population
       ).toBeNull();
+    }));
+
+  it('map population: seven complete source years preserve gaps and original years', () =>
+    inInsFixture(database(), async (trx, repo) => {
+      const years = [2017, 2018, 2019, 2022, 2023, 2024, 2025];
+      const sectors = await seedSectors(trx, repo, years),
+        admission = await admit(repo);
+      const selected = [2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026];
+      const result = await readNativeMapPopulation(
+        { trx, repo },
+        admission,
+        selected.map((year) => row('sector', [8101], year)),
+        sectors
+      );
+      expect(result._unsafeUnwrap().map((cell) => cell.population)).toEqual([
+        null,
+        '30',
+        '40',
+        '50',
+        null,
+        null,
+        '80',
+        '90',
+        '100',
+        '110',
+        null,
+      ]);
+      await sql`delete from core.territory_population where territory_id=8106 and year=2017`.execute(
+        trx
+      );
+      expect(
+        (
+          await readNativeMapPopulation(
+            { trx, repo },
+            admission,
+            [row('unaffected-sector', [8101], 2025)],
+            sectors
+          )
+        ).isErr()
+      ).toBe(true);
+    }));
+  it('map population: rejects source reuse even when its altered row digest is pinned', () =>
+    inInsFixture(database(), async (trx, repo) => {
+      const sectors = await seedSectors(trx, repo),
+        admission = await admit(repo);
+      await sql`update core.territory_population set source=${sectorSource(2024)} where year=2025`.execute(
+        trx
+      );
+      const rows = await sql<{
+        siruta: string;
+        year: number;
+        population: number;
+        source: string;
+        source_url: string;
+      }>`
+        select t.territorial_siruta_code as siruta,p.year,p.population,p.source,p.source_url
+        from core.territory_population p join core.territories t on t.id=p.territory_id
+        where p.source=${sectorSource(2024)}`.execute(trx);
+      const tuples = rows.rows.map((r) => [r.siruta, r.year, r.population, r.source, r.source_url]);
+      tuples.sort((a, b) =>
+        JSON.stringify(a) < JSON.stringify(b) ? -1 : JSON.stringify(a) > JSON.stringify(b) ? 1 : 0
+      );
+      const changed = {
+        ...sectors,
+        rowsSha256: createHash('sha256').update(JSON.stringify(tuples)).digest('hex'),
+      };
+      expect(
+        (
+          await readNativeMapPopulation(
+            { trx, repo },
+            admission,
+            [row('sector', [8101], 2024)],
+            changed
+          )
+        ).isErr()
+      ).toBe(true);
     }));
 
   for (const [name, change] of [

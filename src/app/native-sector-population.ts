@@ -1,4 +1,4 @@
-/** The two reviewed municipal publications supplement gaps in native POP107D only. */
+/** Reviewed annual sector publications supplement native POP107D gaps only. */
 import { createHash } from 'node:crypto';
 
 import { err, ok, type Result } from 'neverthrow';
@@ -23,6 +23,8 @@ export interface SectorPopulationAdmission {
     AnnualPopulationAdmission,
     'datasetCode' | 'revisionId' | 'custodySha256' | 'transformContractSha256'
   >;
+  /** Omitted preserves the original 2024/2025 admission contract. */
+  readonly years?: readonly number[];
   readonly sources: readonly string[];
   readonly rowsSha256: string;
 }
@@ -32,16 +34,28 @@ const unavailable = (): ApiError => ({
   message: 'Sector population admission is missing or inconsistent',
 });
 
-/** Validate all twelve rows even for a one-sector request; no partial source admission. */
+/** Validate every admitted year even for one sector; never mix partial publications. */
 export async function readAdmittedSectorPopulation(
   trx: Kysely<ProdDatabase>,
   repo: InsRepo,
   annual: AnnualPopulationAdmission,
   admission: SectorPopulationAdmission
 ): Promise<Result<readonly TerritoryPopulationRow[], ApiError>> {
+  const years = admission.years ?? [2024, 2025];
+  const orderedYears = [...years].sort((a, b) => a - b);
+  const allowedYears = [
+    [2024, 2025],
+    [2017, 2018, 2019, 2022, 2023, 2024, 2025],
+  ];
+  const expectedRows = years.length * SECTORS.length;
   if (
-    admission.sources.length !== 2 ||
-    new Set(admission.sources).size !== 2 ||
+    !allowedYears.some(
+      (allowed) =>
+        allowed.length === orderedYears.length &&
+        allowed.every((year, index) => year === orderedYears[index])
+    ) ||
+    admission.sources.length !== years.length ||
+    new Set(admission.sources).size !== years.length ||
     !/^[a-f0-9]{64}$/u.test(admission.rowsSha256) ||
     annual.datasetCode !== admission.ins.datasetCode ||
     annual.revisionId !== admission.ins.revisionId ||
@@ -53,16 +67,24 @@ export async function readAdmittedSectorPopulation(
   if (result.isErr()) return err(result.error);
   const rows = result.value;
   if (
-    rows.length !== 12 ||
+    rows.length !== expectedRows ||
+    new Set(rows.map((row) => row.source)).size !== years.length ||
     rows.some(
       (row) =>
         !row.canonicalSector ||
         !SECTORS.some((siruta) => siruta === row.siruta) ||
-        ![2024, 2025].includes(row.year) ||
+        !years.includes(row.year) ||
+        !admission.sources.includes(row.source) ||
+        !new RegExp(`^ins-bucharest-domicile-jan1:${String(row.year)}:[a-f0-9]{64}$`, 'u').test(
+          row.source
+        ) ||
         !Number.isSafeInteger(row.population) ||
         row.population < 0
     ) ||
-    new Set(rows.map((row) => JSON.stringify([row.siruta, row.year]))).size !== 12
+    new Set(rows.map((row) => JSON.stringify([row.siruta, row.year]))).size !== expectedRows ||
+    years.some(
+      (year) => new Set(rows.filter((row) => row.year === year).map((row) => row.source)).size !== 1
+    )
   )
     return err(unavailable());
   // Byte-compatible with the loader's stable tuple digest; source URL includes object version.

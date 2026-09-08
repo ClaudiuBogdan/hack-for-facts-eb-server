@@ -35,17 +35,25 @@ export const NATIVE_MAP_POPULATION_ADMISSION: AnnualPopulationAdmission = {
   personsUnit: 9685,
 };
 
-/** Twelve definitive municipal cells independently compatible with the pinned POP107D.
- * Custody manifest SHA256 b3d2063f4b8bebe13e3638c13bfd97cc1feeccbf273be060babd9c20b0e5ea72.
- * No admission for unsupported years; no census or parent substitution.
+/** Forty-two definitive municipal cells, admitted from immutable INS originals.
+ * Historical manifest SHA256 a58dac6ccaa695b3caa6709aa1496437bef96ac1b496ef630af91e57a23449f0;
+ * prior 2024/2025 manifest SHA256 b3d2063f4b8bebe13e3638c13bfd97cc1feeccbf273be060babd9c20b0e5ea72.
+ * Historical sector totals may differ from the native city publication: both
+ * remain unchanged by explicit user decision. Unsupported years stay unavailable.
  */
 export const NATIVE_SECTOR_POPULATION_ADMISSION: SectorPopulationAdmission = {
   ins: NATIVE_MAP_POPULATION_ADMISSION,
+  years: [2017, 2018, 2019, 2022, 2023, 2024, 2025],
   sources: [
+    'ins-bucharest-domicile-jan1:2017:6144e8983c33c87c43aa6ec1af314be5c8e49150f44d16b5e545fdae83abf7f7',
+    'ins-bucharest-domicile-jan1:2018:348cfa49fc76c5ce22725975c4103b9501fe2dfcdc7ddc65b09224d57dd49165',
+    'ins-bucharest-domicile-jan1:2019:2ad9bca6b0594a72488dbc5be178833cca05f1b0758d00ab89db3a32fe8011e3',
+    'ins-bucharest-domicile-jan1:2022:3a1a9a88e9bad46abf70d3068186ca58509c48512abe818251f2cb0e93559cc5',
+    'ins-bucharest-domicile-jan1:2023:e33aecd82cfe69772e28c4c6c1217a4f90abcde428d6db77405e4885e6003b16',
     'ins-bucharest-domicile-jan1:2024:1c987ddd6c399f144aa4cbec60c1cb8c679c28a9096aca279dbc861c97438796',
     'ins-bucharest-domicile-jan1:2025:a630961aa07668b72e93bd71b4a0ea1f533c816547254aa758270534d38c5501',
   ],
-  rowsSha256: '42a94762bacc7698a7909e99cc6e17f9b5a6d43b87d8ff51e8709e7224daa805',
+  rowsSha256: '547b405f11c2030bd989a55c7da4b25d25d43f609c29a2ef221fd87d394ee64c',
 };
 
 /** Admission is explicit: constructing this adapter never certifies a publication. */
