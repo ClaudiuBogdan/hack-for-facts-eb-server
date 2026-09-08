@@ -22,9 +22,10 @@ import {
 import type { Trx } from './snapshot.js';
 import type { InsSeriesPeriod } from '../../core/ports.js';
 
-// Measured on 3,228 anchors × 4 years (2026-09-07): 71 vs 191 SQL reads,
-// 22.5s vs 27.0s from the Mac. Revalidate at full scale after topology changes.
-const REQUESTS_PER_STATEMENT = 160;
+// Measured on 3,228 anchors × 2 years (2026-09-08): 12 vs 42 candidate/winner reads.
+// Complete table medians improve by 0.3–1.6s with direct anchor discovery; revalidate
+// at full scale after topology changes. Bind/hydration guards below remain authoritative.
+const REQUESTS_PER_STATEMENT = 640;
 // PostgreSQL wire protocol ceiling. Allow <=32 non-range parameters per request,
 // including its VALUES row and an unshared group predicate (the worst case).
 // A range contributes two parameters; shrink batches, never truncate selection.

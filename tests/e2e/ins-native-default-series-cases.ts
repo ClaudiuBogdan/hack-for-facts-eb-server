@@ -269,10 +269,10 @@ export const registerInsDefaultSeriesCases = (
         (await repo.readDefaultSeries([request('cluj', 931)], 1))._unsafeUnwrap()[0]?.status
       ).toBe('NO_DATA');
     }));
-  it('default source selection preserves request and period ordering across multiple 160-request boundaries', () =>
+  it('default source selection preserves request and period ordering across multiple 640-request boundaries', () =>
     inInsFixture(database(), async (_trx, repo) => {
-      const requests = Array.from({ length: 323 }, (_, index) =>
-        request(`request-${String(323 - index)}`, index % 2 === 0 ? 931 : 1)
+      const requests = Array.from({ length: 1283 }, (_, index) =>
+        request(`request-${String(1283 - index)}`, index % 2 === 0 ? 931 : 1)
       );
       const result = (await repo.readDefaultSeries(requests, 3))._unsafeUnwrap();
       expect(result.map((row) => row.seriesKey)).toEqual(requests.map((row) => row.key));

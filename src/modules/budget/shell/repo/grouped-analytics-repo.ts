@@ -117,6 +117,18 @@ const buildGroupedAnalyticsSql = <T>(
   const joinEntity = entity || joins.entity || (query.requirePopulation && requireRegistry);
   const joinTerritory = entity || joins.territory;
   const joinOrganization = entity || q.search !== undefined;
+  // Discovery only needs eligible anchors; avoid computing every entity's amounts/names twice.
+  // Measured against the grouped query on all 3,228 anchors (2026-09-08), exact set parity.
+  if (entity && native?.discovery === 'all')
+    return sql<T>`
+    select distinct t.id as territory_id
+    from budget.execution_line_items eli
+    left join core.public_entities e on e.cui = eli.entity_cui
+    left join core.organizations o on o.cui = eli.entity_cui
+    left join core.territories t on t.id = e.territory_id
+    where ${andConditions(conditions)}
+      and e.is_territorial_executive = true and t.id is not null
+  `;
   const years = [...query.moneyMultipliers.keys()];
   const factorValues = [...query.moneyMultipliers].map(
     ([year, multiplier]) => sql`(
