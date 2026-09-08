@@ -5,6 +5,9 @@ import {
   commitmentsMapValues,
   type CommitmentsMapInput,
 } from '@/modules/budget/core/legacy-analytics/commitments-map.js';
+import { legacyDecimal } from '@/modules/budget/core/legacy-analytics/decimal.js';
+
+import type { BudgetMapDeps } from '@/modules/budget/core/legacy-analytics/map-usecase.js';
 
 const filter: CommitmentsMapInput['filter'] = {
   report_period: { type: 'YEAR', selection: { dates: ['2024'] } },
@@ -16,6 +19,61 @@ const deps = () => ({
 });
 
 describe('native commitments map input', () => {
+  it('shares native real-currency normalization and unit metadata', async () => {
+    const factors: BudgetMapDeps['factors'] = {
+      yearly: (kind) =>
+        Promise.resolve(
+          ok(
+            new Map(
+              kind === 'cpi_index'
+                ? [
+                    [2023, legacyDecimal(100)],
+                    [2024, legacyDecimal(110)],
+                  ]
+                : [
+                    [2023, legacyDecimal(4)],
+                    [2024, legacyDecimal(5)],
+                  ]
+            )
+          )
+        ),
+    };
+    const result = await commitmentsMapValues(
+      {
+        factors,
+        population: { annualUnions: () => Promise.resolve(ok([])) },
+        repo: {
+          yearlyAmounts: () =>
+            Promise.resolve(
+              ok(
+                [2023, 2024].map((year) => ({
+                  territoryCode: 'CJ',
+                  year,
+                  nominalAmount: '1000',
+                  observationCount: '1',
+                  territoryIds: [1],
+                  coverage: 'mapped' as const,
+                }))
+              )
+            ),
+        },
+      },
+      {
+        granularity: 'County',
+        metric: 'CREDITE_ANGAJAMENT',
+        filter: {
+          report_period: { type: 'YEAR', selection: { dates: ['2023', '2024'] } },
+          currency: 'EUR',
+          inflation_adjusted: true,
+        },
+      }
+    );
+    expect(result._unsafeUnwrap()).toMatchObject({
+      unit: 'EUR (real 2024) (FX 2024)',
+      values: [{ value: '420', status: 'available' }],
+    });
+  });
+
   it.each([
     [' PRINCIPAL_AGGREGATED ', 'Executie - Angajamente bugetare agregat principal'],
     ['SECONDARY_AGGREGATED', 'Executie - Angajamente bugetare agregat secundar'],

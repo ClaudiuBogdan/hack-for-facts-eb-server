@@ -90,6 +90,30 @@ suite('versioned factor reader — real migration DDL', () => {
     await db?.destroy();
   });
 
+  it('keeps candidates internal, retries after promotion and admits previously promoted sets', async () => {
+    const internal = makeFactorSetReader(db);
+    const admitted = makeFactorSetReader(db, { requirePromotion: true });
+    expect((await internal.load('1')).isOk()).toBe(true);
+    expect((await admitted.load('1')).isErr()).toBe(true);
+    const run = await sql<{
+      run_id: string;
+    }>`insert into etl.load_runs (source_id, target_table, status) values ('economics-factors', 'core.factor_sets', 'succeeded') returning run_id::text`.execute(
+      db
+    );
+    await sql`update core.factor_sets set promoted_at = now(), promoted_run_id = ${run.rows[0]!.run_id}::bigint, is_current = true where factor_set_id = 1`.execute(
+      db
+    );
+    expect((await admitted.load('1')).isOk()).toBe(true);
+    await sql`update core.factor_sets set demoted_at = now(), is_current = false where factor_set_id = 1`.execute(
+      db
+    );
+    expect((await makeFactorSetReader(db, { requirePromotion: true }).load('1')).isOk()).toBe(true);
+    // Restore the fixture's internal, never-promoted state for legacy parity.
+    await sql`update core.factor_sets set promoted_at = null, promoted_run_id = null, demoted_at = null where factor_set_id = 1`.execute(
+      db
+    );
+  });
+
   it('reads all 228 exact rows through the actual generated SQL with current absent', async () => {
     const reader = makeFactorSetReader(db);
     expect((await reader.current())._unsafeUnwrap()).toBeNull();

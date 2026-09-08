@@ -65,6 +65,41 @@ describe('strict yearly monetary multipliers', () => {
     expect(result.get(2023)?.toString()).toBe('0.275');
     expect(result.get(2024)?.toString()).toBe('0.2');
   });
+  it('opts into native base-year FX while the compatibility default remains period FX', () => {
+    const context = {
+      cpiIndex: series([
+        [2023, '100'],
+        [2024, '110'],
+      ]),
+      fxRate: series([
+        [2023, '4'],
+        [2024, '5'],
+      ]),
+    };
+    const realPlan = resolveNormalizationPlan(
+      filter({ currency: 'EUR', inflation_adjusted: true })
+    );
+    const native = exactYearMoneyMultipliers(
+      realPlan,
+      context,
+      [2023, 2024],
+      'cpi-base-year'
+    )._unsafeUnwrap();
+    const legacy = exactYearMoneyMultipliers(realPlan, context, [2023, 2024])._unsafeUnwrap();
+    const nominal = exactYearMoneyMultipliers(
+      resolveNormalizationPlan(filter({ currency: 'EUR' })),
+      context,
+      [2023, 2024],
+      'cpi-base-year'
+    )._unsafeUnwrap();
+    const total = (values: ReadonlyMap<number, ReturnType<typeof legacyDecimal>>) =>
+      [...values.values()]
+        .reduce((sum, value) => sum.plus(value.mul(1000)), legacyDecimal(0))
+        .toString();
+    expect(total(native)).toBe('420');
+    expect(total(legacy)).toBe('475');
+    expect(total(nominal)).toBe('450');
+  });
   it.each(['0', '-1', 'NaN', 'Infinity'])(
     'rejects invalid FX %s without nominal fallback',
     (value) => {

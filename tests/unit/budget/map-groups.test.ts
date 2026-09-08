@@ -1,9 +1,11 @@
 import { ok } from 'neverthrow';
 import { describe, expect, it, vi } from 'vitest';
 
+import { legacyDecimal } from '@/modules/budget/core/legacy-analytics/decimal.js';
 import { budgetMapGroupValues } from '@/modules/budget/core/legacy-analytics/map-groups.js';
 
 import type { BudgetMapResult } from '@/modules/budget/core/legacy-analytics/map-types.js';
+import type { BudgetMapDeps } from '@/modules/budget/core/legacy-analytics/map-usecase.js';
 
 const source = (): BudgetMapResult => ({
   unit: 'RON/capita',
@@ -31,6 +33,40 @@ const filter = {
   normalization: 'per_capita' as const,
 };
 describe('native financial groups', () => {
+  it('recomputes grouped real currency from yearly money using base-year FX', async () => {
+    const factors: BudgetMapDeps['factors'] = {
+      yearly: (kind) =>
+        Promise.resolve(
+          ok(
+            new Map(
+              kind === 'cpi_index'
+                ? [
+                    [2023, legacyDecimal(100)],
+                    [2024, legacyDecimal(110)],
+                  ]
+                : [
+                    [2023, legacyDecimal(4)],
+                    [2024, legacyDecimal(5)],
+                  ]
+            )
+          )
+        ),
+    };
+    const result = await budgetMapGroupValues(
+      { factors, population: { annualUnions: () => Promise.resolve(ok([])) } },
+      {
+        source: source(),
+        filter: { ...filter, normalization: 'total', currency: 'EUR', inflation_adjusted: true },
+        groups: [{ key: 'g', members: ['A', 'B'] }],
+      }
+    );
+    expect(result._unsafeUnwrap()[0]).toMatchObject({
+      value: '840',
+      unit: 'EUR (real 2024) (FX 2024)',
+      missingYears: [],
+    });
+  });
+
   it('normalizes each year against the union of selected anchors', async () => {
     const population = {
       annualUnions: vi.fn().mockResolvedValue(

@@ -70,7 +70,7 @@ describe('annual native map normalization', () => {
       missingYears: [2024],
     });
   });
-  it('uses each years exact CPI level and exchange rate before summation', async () => {
+  it('uses each years CPI and the base-year exchange rate before summation', async () => {
     const d = deps([row(2023, '1000'), row(2024, '1000')]);
     d.factors.yearly = (kind) =>
       Promise.resolve(
@@ -94,8 +94,64 @@ describe('annual native map normalization', () => {
         granularity: 'County',
       })
     )._unsafeUnwrap();
-    expect(r.values[0]?.value).toBe('475');
-    expect(r.unit).toBe('EUR (real 2024)');
+    expect(r.values[0]?.value).toBe('420');
+    expect(r.unit).toBe('EUR (real 2024) (FX 2024)');
+  });
+  it('uses base-year FX outside the interval and ignores absent period FX only for real conversion', async () => {
+    const d = deps([row(2023, '1000')]);
+    d.factors.yearly = (kind) =>
+      Promise.resolve(
+        ok(
+          new Map(
+            kind === 'cpi_index'
+              ? [
+                  [2023, legacyDecimal(100)],
+                  [2025, legacyDecimal(120)],
+                ]
+              : [[2025, legacyDecimal(6)]]
+          )
+        )
+      );
+    const real = (
+      await budgetMapValues(d, {
+        filter: filter({ currency: 'EUR', inflation_adjusted: true }),
+        granularity: 'County',
+      })
+    )._unsafeUnwrap();
+    expect(real.values[0]?.value).toBe('200');
+    expect(real.unit).toBe('EUR (real 2025) (FX 2025)');
+    const nominal = (
+      await budgetMapValues(d, { filter: filter({ currency: 'EUR' }), granularity: 'County' })
+    )._unsafeUnwrap();
+    expect(nominal.values[0]).toMatchObject({
+      value: null,
+      status: 'unavailable',
+      missingYears: [2023],
+    });
+    d.factors.yearly = (kind) =>
+      Promise.resolve(
+        ok(
+          new Map(
+            kind === 'cpi_index'
+              ? [
+                  [2023, legacyDecimal(100)],
+                  [2025, legacyDecimal(120)],
+                ]
+              : [[2023, legacyDecimal(4)]]
+          )
+        )
+      );
+    const missingBase = (
+      await budgetMapValues(d, {
+        filter: filter({ currency: 'EUR', inflation_adjusted: true }),
+        granularity: 'County',
+      })
+    )._unsafeUnwrap();
+    expect(missingBase.values[0]).toMatchObject({
+      value: null,
+      status: 'unavailable',
+      missingYears: [2023],
+    });
   });
   it('labels exact-year factor gaps and propagates corrupt factor-source failures', async () => {
     const d = deps([row(2023, '1000'), row(2024, '1000')]);

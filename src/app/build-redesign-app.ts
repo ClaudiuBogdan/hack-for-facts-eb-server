@@ -21,6 +21,7 @@ import fastifyLib, { type FastifyInstance, type FastifyReply } from 'fastify';
 import mercuriusPlugin from 'mercurius';
 
 import { makeInsGraphqlLifecycle } from './ins-graphql-session.js';
+import { makeNativeBudgetFactors } from './native-budget-factors.js';
 import { makeNativeBudgetRepo } from './native-budget-repo.js';
 import {
   makeNativeMapPopulation,
@@ -482,11 +483,7 @@ export const registerRedesignSurface = async (
       createInsReadSession: createInsSession,
       budget: {
         repo: makeBudgetMapRepo(kernel.db),
-        factors: makeFactorSetSource(
-          makeFactorSetReader(kernel.db),
-          LEGACY_FACTOR_SET_ID,
-          LEGACY_FACTOR_SET_DIGEST
-        ),
+        factors: makeNativeBudgetFactors(kernel.db),
         // Both source pins are rechecked per read; unsupported years remain unavailable.
         population:
           deps.mapPopulation ??

@@ -25,7 +25,8 @@ const positiveValue = (
 export const exactYearMoneyMultipliers = (
   plan: NormalizationPlan,
   context: NormalizationContext,
-  years: readonly number[]
+  years: readonly number[],
+  fxPolicy: 'period' | 'cpi-base-year' = 'period'
 ): Result<YearlySeries, ApiError> => {
   const multipliers = new Map<number, Decimal>();
   const cpiBaseYear =
@@ -48,7 +49,10 @@ export const exactYearMoneyMultipliers = (
         multiplier = base.value.div(level.value);
       }
       if (plan.currency !== 'RON') {
-        const rate = positiveValue(context.fxRate, year, `${plan.currency} exchange rate`);
+        const rateYear =
+          fxPolicy === 'cpi-base-year' && plan.inflationAdjusted ? cpiBaseYear : year;
+        if (rateYear === undefined) return err(serviceUnavailable('CPI base year is unavailable'));
+        const rate = positiveValue(context.fxRate, rateYear, `${plan.currency} exchange rate`);
         if (rate.isErr()) return err(rate.error);
         multiplier = multiplier.div(rate.value);
       }

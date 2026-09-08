@@ -30,7 +30,10 @@ const PERIOD_PATTERNS = {
 const validSetId = (id: string): boolean => /^[1-9]\d*$/u.test(id);
 
 /** Successful immutable snapshots only; the mutable current pointer is never cached. */
-export const makeFactorSetReader = (db: Kysely<ProdDatabase>): FactorSetReader => {
+export const makeFactorSetReader = (
+  db: Kysely<ProdDatabase>,
+  options: { readonly requirePromotion?: boolean } = {}
+): FactorSetReader => {
   const snapshots = new Map<string, Promise<Result<FactorTable, FactorReadError>>>();
 
   const read = async (setId: string): Promise<Result<FactorTable, FactorReadError>> => {
@@ -44,12 +47,13 @@ export const makeFactorSetReader = (db: Kysely<ProdDatabase>): FactorSetReader =
         from core.factor_sets s
         join core.normalization_factors f on f.factor_set_id = s.factor_set_id
         where s.factor_set_id = ${setId}::bigint
+          ${options.requirePromotion === true ? sql`and s.promoted_at is not null` : sql``}
         order by f.factor_kind, f.frequency, f.period_key
       `.execute(db);
       if (result.rows.length === 0) {
         return err({
           type: 'ServiceUnavailable',
-          message: `Factor set ${setId} is missing or empty`,
+          message: `Factor set ${setId} is missing, empty or not eligible`,
         });
       }
       const digest = result.rows[0]?.digest;

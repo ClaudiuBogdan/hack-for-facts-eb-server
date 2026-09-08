@@ -82,7 +82,7 @@ export const normalizeBudgetMapYears = async (
   // Missing exact-year factors are coverage gaps for that year. Adapter/manifest
   // failures above still fail the request; a corrupt factor set is not a data gap.
   for (const year of years) {
-    const multiplier = exactYearMoneyMultipliers(plan, context.value, [year]);
+    const multiplier = exactYearMoneyMultipliers(plan, context.value, [year], 'cpi-base-year');
     if (multiplier.isOk()) {
       const value = multiplier.value.get(year);
       if (value !== undefined) multipliers.set(year, value);
@@ -119,8 +119,14 @@ export const normalizeBudgetMapYears = async (
     context.value.cpiIndex === undefined
       ? null
       : (computeCpiFactors(context.value.cpiIndex)?.baseYear ?? null);
+  const unit = resultAxis(plan, cpiBaseYear).unit;
+  const baseYearFx =
+    plan.mode !== 'percent_gdp' &&
+    plan.inflationAdjusted &&
+    plan.currency !== 'RON' &&
+    cpiBaseYear !== null;
   return ok({
-    unit: resultAxis(plan, cpiBaseYear).unit,
+    unit: baseYearFx ? `${unit} (FX ${String(cpiBaseYear)})` : unit,
     values: [...totals].map(([territoryCode, total]) => {
       // User decision: limits apply to the final territory result, in its output
       // unit, after all selected institutions/years and normalization.
