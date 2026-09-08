@@ -18,7 +18,15 @@ import type { FilterInput, Money } from '@/modules/shared/index.js';
 
 // ── execution fact row ────────────────────────────────────────────────────────
 
+export interface ExecutionNormalizedAmounts {
+  readonly ytdAmount: Money;
+  readonly monthlyAmount: Money;
+  readonly quarterlyAmount: Money | null;
+}
+
 export interface ExecutionLineItem {
+  /** Additive display values; nominal selection, sorting and cursors stay unchanged. */
+  readonly normalizedAmounts?: ExecutionNormalizedAmounts | null;
   readonly executionLineItemId: string;
   readonly reportId: string;
   readonly reportingYear: number;
@@ -346,6 +354,7 @@ export interface CursorPageReq {
 
 /** The validated fact-list query: a kernel FilterInput + a page request. */
 export interface BudgetFactQuery {
+  readonly normalization?: BudgetNormalization;
   readonly filter: FilterInput;
   readonly sort: 'LINE_ORDER' | 'AMOUNT_DESC' | 'AMOUNT_ASC';
   readonly page: CursorPageReq;

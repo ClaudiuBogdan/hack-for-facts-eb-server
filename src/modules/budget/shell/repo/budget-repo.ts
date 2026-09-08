@@ -70,7 +70,7 @@ import {
   type ExecutionRow,
   type ReportRow,
 } from './mappers.js';
-import { singleYearMoneyFactor } from './money-factor.js';
+import { availableSingleYearMoneyFactor, singleYearMoneyFactor } from './money-factor.js';
 import {
   ACCOUNT_CATEGORY_LABELS,
   BUDGET_TRANSFER_EXCLUSIONS,
@@ -92,6 +92,8 @@ import {
   budgetFactKernelSpec,
   budgetReportFilterSpec,
 } from '../../core/filters.js';
+import { legacyDecimal } from '../../core/legacy-analytics/decimal.js';
+import { normalizeLineItemAmounts } from '../../core/line-item-amounts.js';
 
 import type { FactorSource } from '../../core/legacy-analytics/ports.js';
 import type { BudgetRepo } from '../../core/ports.js';
@@ -426,6 +428,24 @@ export const makeBudgetRepo = (db: Db, options: BudgetRepoOptions = {}): BudgetR
     if (gateR.isErr()) return err(gateR.error);
     const gate = gateR.value;
 
+    const normalization = q.normalization ?? 'TOTAL';
+    const entitySelection = fieldOf(q.filter, 'entityCuis')?.['in'];
+    const normalizedYear = fieldOf(q.filter, 'reportingYear')?.['eq'];
+    if (
+      normalization !== 'TOTAL' &&
+      (typeof normalizedYear !== 'number' ||
+        !Number.isInteger(normalizedYear) ||
+        !Array.isArray(entitySelection) ||
+        entitySelection.length !== 1 ||
+        typeof entitySelection[0] !== 'string')
+    ) {
+      return err(
+        invalidInput(
+          'line-item normalization requires an explicit reportingYear.eq and one entityCuis.in',
+          'normalization'
+        )
+      );
+    }
     const limit = clamp(q.page.first, 1, FACT_LIMIT_MAX);
     const fhash = fhashFor(budgetFactFilterSpec, q.filter);
     const dir: 'asc' | 'desc' = q.sort === 'AMOUNT_ASC' ? 'asc' : 'desc';
@@ -487,7 +507,69 @@ export const makeBudgetRepo = (db: Db, options: BudgetRepoOptions = {}): BudgetR
 
       const hasMore = rows.length > limit;
       const pageRows = hasMore ? rows.slice(0, limit) : rows;
-      const items = withPublicFunding(pageRows.map(mapExecutionLineItem), fm);
+      let items = withPublicFunding(pageRows.map(mapExecutionLineItem), fm);
+      if (normalization !== 'TOTAL' && items.length > 0) {
+        // The validated single-entity/year scope is independent of which creditors own the facts.
+        if (
+          options.moneyFactors === undefined ||
+          (isPerCapita(normalization) && options.populationRelation === undefined)
+        ) {
+          return err({
+            type: 'ServiceUnavailable',
+            message: 'Native line-item normalization is unavailable',
+          });
+        }
+        const year = Number(normalizedYear);
+        const factor = await availableSingleYearMoneyFactor(
+          options.moneyFactors,
+          normalization,
+          year
+        );
+        if (factor.isErr()) return err(factor.error);
+        let population: string | null = '1';
+        if (isPerCapita(normalization) && factor.value !== null) {
+          const entity = await db
+            .selectFrom('core.public_entities')
+            .select(['territory_id', 'is_territorial_executive'])
+            .where('cui', '=', items[0]?.entityCui ?? '')
+            .executeTakeFirst();
+          population = null;
+          if (
+            entity?.is_territorial_executive === true &&
+            entity.territory_id !== null &&
+            options.populationRelation !== undefined
+          ) {
+            const relation = await options.populationRelation({
+              territoryIds: [entity.territory_id],
+              years: [year],
+            });
+            if (relation.isErr()) return err(relation.error);
+            const result = await sql<{
+              population: string | null;
+            }>`select p.population::text as population
+              from (${relation.value}) p where p.territory_id=${entity.territory_id} and p.year=${year}`.execute(
+              db
+            );
+            if (result.rows.length > 1)
+              return err({ type: 'ServiceUnavailable', message: 'Duplicate annual population' });
+            population = result.rows[0]?.population ?? null;
+            if (
+              population !== null &&
+              (!legacyDecimal(population).isFinite() || legacyDecimal(population).lte(0))
+            ) {
+              return err({ type: 'ServiceUnavailable', message: 'Invalid annual population' });
+            }
+          }
+        }
+        const multiplier = factor.value;
+        items = items.map((item) => ({
+          ...item,
+          normalizedAmounts:
+            multiplier === null || population === null
+              ? null
+              : normalizeLineItemAmounts(item, multiplier, population),
+        }));
+      }
       let next: string | null = null;
       if (hasMore) {
         const last = pageRows[pageRows.length - 1];

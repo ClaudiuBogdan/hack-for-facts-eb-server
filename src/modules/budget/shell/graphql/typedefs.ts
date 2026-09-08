@@ -98,7 +98,15 @@ const objectsAndQuery = /* GraphQL */ `
   }
 
   "A single execution line item (the pruned fact grain; year+reportType+accountCategory required to fetch)."
+  type BudgetExecutionNormalizedAmounts {
+    ytdAmount: Money!
+    monthlyAmount: Money!
+    quarterlyAmount: Money
+  }
+
   type BudgetExecutionLineItem {
+    "Optional normalized display values; missing annual coverage is null. Nominal fields and cursors are unchanged."
+    normalizedAmounts: BudgetExecutionNormalizedAmounts
     executionLineItemId: ID!
     reportId: ID!
     reportingYear: Int!
@@ -427,6 +435,7 @@ const objectsAndQuery = /* GraphQL */ `
     ): BudgetExecutionLineItem
     "Execution facts (fact path). Needs the pruning triple — defaults to latest-complete year / EXECUTION_DETAILED / EXPENSE."
     budgetExecutionLineItems(
+      normalization: BudgetNormalization = TOTAL
       filter: BudgetFactFilter
       sort: BudgetLineItemSortKey = LINE_ORDER
       first: Int = 20

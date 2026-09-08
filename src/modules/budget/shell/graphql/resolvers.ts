@@ -150,11 +150,15 @@ export const makeBudgetResolvers = (deps: BudgetResolverDeps): Record<string, un
         }
       ) => unwrap(await getExecutionLineItem(repo, args)),
 
-      budgetExecutionLineItems: async (_r: unknown, args: PageArgs) => {
+      budgetExecutionLineItems: async (
+        _r: unknown,
+        args: PageArgs & { normalization?: BudgetNormalization }
+      ) => {
         const filter = args.filter ?? {};
         const sort = args.sort ?? 'LINE_ORDER';
         const page = unwrap(
           await listExecutionLineItems(repo, {
+            normalization: args.normalization ?? 'TOTAL',
             filter,
             sort,
             page: { first: args.first ?? 20, ...(args.after != null && { after: args.after }) },

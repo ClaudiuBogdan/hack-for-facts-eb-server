@@ -93,6 +93,8 @@ const MIGRATION_SHA256: Readonly<Record<string, string>> = {
     '05cefa428b161119b41723205ed877fd6d03b85ea3fd57c3c0913da3adde5406',
   '20260612T110400__budget_summary_mvs.ts':
     'cbfecd2b626597cc65c83a8bbcf0f1bdf233551cd4ab20f4fc5da511b6ad1373',
+  '20260709T170000__budget_funding_source_compat.ts':
+    '0a8f6c0c85543f4ac4651b18a8951615ffdaea02e960472fc3b1d6f717e7602d',
   '20260707T120000__etl_sync_policy.ts':
     '28a2f2f4c0e7d0365bd8a79cf7cbcc5f5f55702739d6f49fe20876f65e4be5e9',
   '20260902T100000__core_territory_hierarchy.ts':
