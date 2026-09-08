@@ -2477,6 +2477,48 @@ describe('native commitment map aggregation', () => {
       trx
     );
   };
+  it('preserves available-credit fact metrics across every period value', async () => {
+    await rollbackTerritoryFixture(async (trx) => {
+      await seed(trx, principal, '111', '100.01');
+      await sql`update budget.commitment_line_items set
+        ytd_credite_angajament_disponibile=123.45,
+        monthly_credite_angajament_disponibile=-10.01,
+        quarterly_credite_angajament_disponibile=0,
+        credite_angajament_disponibile=null,
+        ytd_credite_bugetare_disponibile=987.65,
+        monthly_credite_bugetare_disponibile=0,
+        quarterly_credite_bugetare_disponibile=-20.02,
+        credite_bugetare_disponibile=456.78
+        where reporting_year=2024 and report_type=${principal} and entity_cui='111'`.execute(trx);
+      const result = await makeBudgetRepo(trx).listCommitmentLineItems({
+        filter: {
+          reportingYear: { eq: 2024 },
+          reportType: { eq: 'COMMITMENT_AGG_PRINCIPAL' },
+          frequency: { eq: 'YEAR' },
+          entityCuis: { in: ['111'] },
+        },
+        metric: 'plati_trezor',
+        sort: 'LINE_ORDER',
+        page: { first: 20 },
+      });
+      expect(result.isOk()).toBe(true);
+      if (result.isErr()) throw new Error(result.error.message);
+      expect(result.value.items).toHaveLength(1);
+      expect(result.value.items[0]?.crediteAngajamentDisponibile).toEqual({
+        ytd: '123.45',
+        monthly: '-10.01',
+        quarterly: '0.00',
+        latest: null,
+      });
+      expect(result.value.items[0]?.crediteBugetareDisponibile).toEqual({
+        ytd: '987.65',
+        monthly: '0.00',
+        quarterly: '-20.02',
+        latest: '456.78',
+      });
+    });
+  });
+
   it('collapses creditor rows before commitment series and top-N ranking', async () => {
     await rollbackTerritoryFixture(async (trx) => {
       await seed(trx, principal, '111', '100.01', '10.01');

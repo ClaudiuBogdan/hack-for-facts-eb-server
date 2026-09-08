@@ -108,6 +108,14 @@ export interface BudgetCommitmentLineItemsTable {
   monthly_credite_bugetare_definitive: string | null;
   quarterly_credite_bugetare_definitive: string | null;
   credite_bugetare_definitive: string | null;
+  ytd_credite_angajament_disponibile: string | null;
+  monthly_credite_angajament_disponibile: string | null;
+  quarterly_credite_angajament_disponibile: string | null;
+  credite_angajament_disponibile: string | null;
+  ytd_credite_bugetare_disponibile: string | null;
+  monthly_credite_bugetare_disponibile: string | null;
+  quarterly_credite_bugetare_disponibile: string | null;
+  credite_bugetare_disponibile: string | null;
   ytd_receptii_totale: string | null;
   monthly_receptii_totale: string | null;
   quarterly_receptii_totale: string | null;
