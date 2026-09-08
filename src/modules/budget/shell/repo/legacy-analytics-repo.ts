@@ -351,10 +351,11 @@ export const makeLegacyAnalyticsRepo = (
         : (): number | undefined => undefined;
       const statement = legacyAggregateSql(q, toStoredId);
 
-      const rows = await db.transaction().execute(async (trx) => {
+      const read = async (trx: Db) => {
         await STATEMENT_TIMEOUT_SQL.execute(trx);
         return (await statement.execute(trx)).rows;
-      });
+      };
+      const rows = await (db.isTransaction ? read(db) : db.transaction().execute(read));
 
       const capped = rows.length > LEGACY_ANALYTICS_MAX_POINTS;
       const kept = capped ? rows.slice(0, LEGACY_ANALYTICS_MAX_POINTS) : rows;

@@ -23,6 +23,7 @@ import mercuriusPlugin from 'mercurius';
 import { makeInsGraphqlLifecycle } from './ins-graphql-session.js';
 import { makeNativeBudgetFactors } from './native-budget-factors.js';
 import { makeNativeBudgetRepo } from './native-budget-repo.js';
+import { makeNativeExecutionSeries } from './native-execution-series.js';
 import { makeNativeGroupedClassifications } from './native-grouped-classifications.js';
 import {
   makeNativeMapPopulation,
@@ -433,6 +434,15 @@ export const registerRedesignSurface = async (
       db: kernel.db,
       ...(enabledModules.includes('ins-native')
         ? {
+            executionSeries: makeNativeExecutionSeries(
+              kernel.db,
+              NATIVE_MAP_POPULATION_ADMISSION,
+              NATIVE_SECTOR_POPULATION_ADMISSION,
+              nativeBudgetFactors,
+              (info) => {
+                app.log.warn(info, 'Execution series point cap reached');
+              }
+            ),
             classificationAnalytics: makeNativeGroupedClassifications(
               kernel.db,
               NATIVE_MAP_POPULATION_ADMISSION,

@@ -235,6 +235,8 @@ export interface LegacySeriesPoint {
 }
 
 export interface LegacyAnalyticsSeries {
+  /** Native coverage gaps; absent on compatibility/static series. */
+  readonly missingPeriods?: readonly string[];
   readonly seriesId: string;
   readonly xAxis: LegacyAxis;
   readonly yAxis: LegacyAxis;

@@ -82,6 +82,7 @@ export const PeriodDateScalar = new GraphQLScalarType({
 });
 
 export interface GraphqlAnalyticsSeries {
+  readonly missingPeriods?: readonly string[];
   readonly seriesId: string;
   readonly xAxis: LegacyAnalyticsSeries['xAxis'];
   readonly yAxis: LegacyAnalyticsSeries['yAxis'];
@@ -90,6 +91,7 @@ export interface GraphqlAnalyticsSeries {
 
 /** Decimal → Float at the wire boundary (the legacy `AnalyticsDataPoint.y: Float!`). */
 export const toGraphqlSeries = (series: LegacyAnalyticsSeries): GraphqlAnalyticsSeries => ({
+  ...(series.missingPeriods === undefined ? {} : { missingPeriods: series.missingPeriods }),
   seriesId: series.seriesId,
   xAxis: series.xAxis,
   yAxis: series.yAxis,
@@ -97,6 +99,9 @@ export const toGraphqlSeries = (series: LegacyAnalyticsSeries): GraphqlAnalytics
 });
 
 export interface BudgetLegacyResolverDeps extends LegacyExecutionSeriesDeps {
+  readonly executionSeries?: (
+    inputs: readonly LegacyAnalyticsInput[]
+  ) => ReturnType<typeof legacyExecutionSeries>;
   /** The four dimension roots (design 13 §4 "dimension usecases"). */
   readonly dimensions: LegacyDimensionRepo;
   /** Fired when a classification list was clamped below the requested limit (never silent). */
@@ -171,7 +176,8 @@ export const makeBudgetLegacyResolvers = (
       _parent: unknown,
       args: { inputs: readonly LegacyAnalyticsInput[] }
     ): Promise<GraphqlAnalyticsSeries[]> => {
-      const result = await legacyExecutionSeries(deps, args.inputs);
+      const result = await (deps.executionSeries?.(args.inputs) ??
+        legacyExecutionSeries(deps, args.inputs));
       if (result.isErr()) throw toGraphqlError(result.error);
       return result.value.map(toGraphqlSeries);
     },

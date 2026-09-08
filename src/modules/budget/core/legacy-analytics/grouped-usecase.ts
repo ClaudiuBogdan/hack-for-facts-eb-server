@@ -44,11 +44,16 @@ export const groupedYears = (period: PeriodPlan): readonly number[] => {
       : Array.from({ length: Math.max(0, period.years.to - period.years.from + 1) }, (_, i) =>
           'in' in period.years ? i : period.years.from + i
         );
+  const allowedYears = period.yearList === undefined ? undefined : new Set(period.yearList);
+  const tupleYears =
+    period.tupleList === undefined
+      ? undefined
+      : new Set(period.tupleList.map((tuple) => tuple.year));
   return [...new Set(years)]
     .filter(
       (year) =>
-        (period.yearList === undefined || period.yearList.includes(year)) &&
-        (period.tupleList === undefined || period.tupleList.some((tuple) => tuple.year === year))
+        (allowedYears === undefined || allowedYears.has(year)) &&
+        (tupleYears === undefined || tupleYears.has(year))
     )
     .sort((a, b) => a - b);
 };

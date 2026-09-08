@@ -43,7 +43,9 @@ const query: TimeseriesQuery = {
   yearFrom: 2018,
   yearTo: 2020,
 };
-const admission = async (db: Kysely<ProdDatabase>): Promise<AnnualPopulationAdmission> => {
+export const nativeBudgetAdmission = async (
+  db: Kysely<ProdDatabase>
+): Promise<AnnualPopulationAdmission> => {
   const dataset = (await makeInsRepo(db).getDataset('POPTEST'))._unsafeUnwrap()!;
   return {
     datasetCode: 'POPTEST',
@@ -74,7 +76,7 @@ export function registerNativeBudgetCases(
   });
   it('native grouped classifications normalize annual populations before bounds and paging', async () => {
     const db = database();
-    const run = makeNativeGroupedClassifications(db, await admission(db), undefined, {
+    const run = makeNativeGroupedClassifications(db, await nativeBudgetAdmission(db), undefined, {
       yearly: async () => ok(null),
     });
     const result = (await run(groupedInput()))._unsafeUnwrap();
@@ -96,7 +98,7 @@ export function registerNativeBudgetCases(
   });
   it('native grouped classification county scope retains full denominator with entity search', async () => {
     const db = database();
-    const run = makeNativeGroupedClassifications(db, await admission(db), undefined, {
+    const run = makeNativeGroupedClassifications(db, await nativeBudgetAdmission(db), undefined, {
       yearly: async () => ok(null),
     });
     const result = (
@@ -122,7 +124,7 @@ export function registerNativeBudgetCases(
 
   it('native grouped classifications retain equal-valued siblings and reject incomplete unions', async () => {
     const db = database();
-    const run = makeNativeGroupedClassifications(db, await admission(db), undefined, {
+    const run = makeNativeGroupedClassifications(db, await nativeBudgetAdmission(db), undefined, {
       yearly: async () => ok(null),
     });
     const both = (
@@ -161,7 +163,7 @@ export function registerNativeBudgetCases(
       db
     );
     try {
-      const run = makeNativeGroupedClassifications(db, await admission(db), sector, {
+      const run = makeNativeGroupedClassifications(db, await nativeBudgetAdmission(db), sector, {
         yearly: async () => ok(null),
       });
       const input = groupedInput({
@@ -201,7 +203,7 @@ export function registerNativeBudgetCases(
   });
   it('native grouped classifications reject a missing year or admission before empty pagination', async () => {
     const db = database();
-    const admitted = await admission(db);
+    const admitted = await nativeBudgetAdmission(db);
     const run = makeNativeGroupedClassifications(db, admitted, undefined, {
       yearly: async () => ok(null),
     });
@@ -247,7 +249,12 @@ export function registerNativeBudgetCases(
           );
         },
       };
-      const run = makeNativeGroupedClassifications(db, await admission(db), undefined, factors);
+      const run = makeNativeGroupedClassifications(
+        db,
+        await nativeBudgetAdmission(db),
+        undefined,
+        factors
+      );
       const result = (
         await run(groupedInput({ currency: 'EUR', inflation_adjusted: true }))
       )._unsafeUnwrap();
@@ -278,7 +285,7 @@ export function registerNativeBudgetCases(
       db
     );
     try {
-      const run = makeNativeGroupedClassifications(db, await admission(db), undefined, {
+      const run = makeNativeGroupedClassifications(db, await nativeBudgetAdmission(db), undefined, {
         yearly: async () => {
           throw new Error('Resident population must not be read');
         },
@@ -335,7 +342,7 @@ export function registerNativeBudgetCases(
         );
       },
     };
-    const repo = makeNativeBudgetRepo(db, await admission(db), undefined, factors);
+    const repo = makeNativeBudgetRepo(db, await nativeBudgetAdmission(db), undefined, factors);
     try {
       await sql`update budget.execution_line_items set is_monthly=true,is_quarterly=true,quarter=4,
         monthly_amount=ytd_amount,quarterly_amount=ytd_amount where entity_cui='991' and line_key='fixture'`.execute(
@@ -389,7 +396,7 @@ export function registerNativeBudgetCases(
   });
   it('native monetary series propagate admission failures and reject invalid factors', async () => {
     const db = database();
-    const a = await admission(db);
+    const a = await nativeBudgetAdmission(db);
     for (const factors of [
       {
         yearly: async () =>
@@ -433,7 +440,12 @@ export function registerNativeBudgetCases(
           );
         },
       };
-      const repo = makeNativeBudgetRepo(db, await admission(database()), undefined, factors);
+      const repo = makeNativeBudgetRepo(
+        db,
+        await nativeBudgetAdmission(database()),
+        undefined,
+        factors
+      );
       const results = await Promise.all([
         repo.executionTimeseries({ ...query, normalization: 'PER_CAPITA_EURO' }),
         repo.aggregateTimeseries({
@@ -460,7 +472,12 @@ export function registerNativeBudgetCases(
           return ok(new Map([[2019, new Decimal('4.7452')]]));
         },
       };
-      const repo = makeNativeBudgetRepo(db, await admission(database()), undefined, factors);
+      const repo = makeNativeBudgetRepo(
+        db,
+        await nativeBudgetAdmission(database()),
+        undefined,
+        factors
+      );
       const q = {
         year: 2019,
         reportType: 'EXECUTION_DETAILED' as const,
@@ -486,7 +503,7 @@ export function registerNativeBudgetCases(
     const factors: FactorSource = {
       yearly: async () => ok(new Map([[2019, new Decimal('4.7452')]])),
     };
-    const repo = makeNativeBudgetRepo(db, await admission(db), undefined, factors);
+    const repo = makeNativeBudgetRepo(db, await nativeBudgetAdmission(db), undefined, factors);
     const filter = {
       reportingYear: { eq: 2019 },
       reportType: { eq: 'EXECUTION_DETAILED' },
@@ -540,7 +557,7 @@ export function registerNativeBudgetCases(
     }
     const bad = makeNativeBudgetRepo(
       db,
-      { ...(await admission(db)), custodySha256: 'f'.repeat(64) },
+      { ...(await nativeBudgetAdmission(db)), custodySha256: 'f'.repeat(64) },
       undefined,
       factors
     );
@@ -559,7 +576,7 @@ export function registerNativeBudgetCases(
   });
   it('direct normalized fact rows survive cancelling totals in both categories and every frequency', async () => {
     const db = database();
-    const repo = makeNativeBudgetRepo(db, await admission(db));
+    const repo = makeNativeBudgetRepo(db, await nativeBudgetAdmission(db));
     try {
       for (const category of ['ch', 'vn'])
         for (const [index, value] of [100, -100, 0].entries()) {
@@ -607,7 +624,7 @@ export function registerNativeBudgetCases(
   });
   it('rejects normalized line-item scopes without an explicit year and one entity', async () => {
     const db = database();
-    const repo = makeNativeBudgetRepo(db, await admission(db));
+    const repo = makeNativeBudgetRepo(db, await nativeBudgetAdmission(db));
     const filter = {
       reportingYear: { eq: 2019 },
       reportType: { eq: 'EXECUTION_DETAILED' },
@@ -640,7 +657,12 @@ export function registerNativeBudgetCases(
           return ok(new Map([[2019, new Decimal('4.7452')]]));
         },
       };
-      const repo = makeNativeBudgetRepo(db, await admission(database()), undefined, factors);
+      const repo = makeNativeBudgetRepo(
+        db,
+        await nativeBudgetAdmission(database()),
+        undefined,
+        factors
+      );
       const result = await repo.listExecutionLineItems({
         filter: {
           reportingYear: { eq: 2019 },
@@ -666,7 +688,7 @@ export function registerNativeBudgetCases(
     const factors: FactorSource = {
       yearly: async () => ok(new Map([[2019, new Decimal('4.7452')]])),
     };
-    const repo = makeNativeBudgetRepo(db, await admission(db), undefined, factors);
+    const repo = makeNativeBudgetRepo(db, await nativeBudgetAdmission(db), undefined, factors);
     const q = {
       year: 2019,
       reportType: 'EXECUTION_DETAILED' as const,
@@ -689,7 +711,7 @@ export function registerNativeBudgetCases(
       yearly: async () =>
         err({ type: 'ServiceUnavailable', message: 'Unadmitted native factor set' }),
     };
-    const denied = makeNativeBudgetRepo(db, await admission(db), undefined, failure);
+    const denied = makeNativeBudgetRepo(db, await nativeBudgetAdmission(db), undefined, failure);
     for (const result of [
       await denied.rankEntities(q),
       await denied.rankEntitiesPage({ ...q, offset: 999 }),
@@ -703,7 +725,7 @@ export function registerNativeBudgetCases(
   });
   it('native budget adapter uses independently seeded annual INS values and omits missing years', async () => {
     const db = database(),
-      repo = makeNativeBudgetRepo(db, await admission(db));
+      repo = makeNativeBudgetRepo(db, await nativeBudgetAdmission(db));
     for (const creditor of [undefined, '991', '992']) {
       const rows = (
         await repo.executionTimeseries({
@@ -728,7 +750,7 @@ export function registerNativeBudgetCases(
   });
   it('both native ranking entrypoints return annual metadata, including nominal requests and missing years', async () => {
     const db = database(),
-      repo = makeNativeBudgetRepo(db, await admission(db));
+      repo = makeNativeBudgetRepo(db, await nativeBudgetAdmission(db));
     for (const year of [2018, 2019, 2020]) {
       const q = {
         year,
@@ -756,7 +778,10 @@ export function registerNativeBudgetCases(
   });
   it('native budget adapter fails admission closed while nominal and empty series remain independent', async () => {
     const db = database(),
-      repo = makeNativeBudgetRepo(db, { ...(await admission(db)), custodySha256: 'f'.repeat(64) });
+      repo = makeNativeBudgetRepo(db, {
+        ...(await nativeBudgetAdmission(db)),
+        custodySha256: 'f'.repeat(64),
+      });
     expect(
       (
         await repo.rankEntities({

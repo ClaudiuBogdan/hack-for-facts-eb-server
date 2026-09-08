@@ -62,6 +62,7 @@ import { registerInsMapPopulationCases } from './ins-native-map-population-cases
 import { registerInsMapSeriesCases } from './ins-native-map-series-cases.js';
 import { registerInsPublicationCases } from './ins-native-publication-cases.js';
 import { registerNativeBudgetCases, seedNativeBudget } from './native-budget-cases.js';
+import { registerNativeExecutionSeriesCases } from './native-execution-series-cases.js';
 
 import type { InsRepo } from '@/modules/ins-native/core/ports.js';
 import type { ProdDatabase } from '@/modules/shared/index.js';
@@ -970,6 +971,18 @@ describe('ins-native repository over the real scrapper DDL (e2e)', () => {
 });
 
 registerNativeBudgetCases(
+  it,
+  () => {
+    if (db === undefined) throw new Error('DB not ready');
+    return db;
+  },
+  () => {
+    if (fixtureConnectionString === undefined) throw new Error('Fixture connection unavailable');
+    return createProdDb({ connectionString: fixtureConnectionString, max: 1 }).db;
+  }
+);
+
+registerNativeExecutionSeriesCases(
   it,
   () => {
     if (db === undefined) throw new Error('DB not ready');

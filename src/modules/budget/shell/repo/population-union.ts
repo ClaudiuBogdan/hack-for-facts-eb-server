@@ -9,9 +9,14 @@
  */
 import { sql, type RawBuilder } from 'kysely';
 
-import { andConditions, isCountyTerritory } from '@/modules/shared/index.js';
+import {
+  andConditions,
+  isCountyTerritory,
+  isUatPresentationTerritory,
+} from '@/modules/shared/index.js';
 
 import { legacyEntityConditions } from './legacy-entity-predicates.js';
+import { BUCHAREST_SIRUTA_CODE } from '../../core/constants.js';
 
 import type { LegacyAggregateQuery } from '../../core/legacy-analytics/types.js';
 
@@ -121,3 +126,30 @@ export const geographicPopulationUnionSql = (
   scope: Parameters<typeof geographicPopulationSelectionSql>[0]
 ): RawBuilder<{ total: string | null }> =>
   selectedPopulationUnionSql(geographicPopulationSelectionSql(scope));
+
+const uatLevelUniverse = sql`(
+  ${isUatPresentationTerritory('d')}
+  and not (
+    ${sql.ref('d.territorial_siruta_code')} = ${BUCHAREST_SIRUTA_CODE}
+    and exists (
+      select 1 from d as s
+      where s.level = 'locality' and s.kind = 'sector'
+        and s.parent_id = d.id
+    )
+  )
+)`;
+
+/** Retain the carried entity-type/all-UAT universe before native ancestor suppression. */
+export const legacyEntityTerritorySelectionSql = (
+  entityWhere: RawBuilder<unknown>,
+  universe: 'all' | 'uat-level'
+): RawBuilder<unknown> => sql`
+  with d as (
+    select distinct t.id, t.population, t.territorial_siruta_code, t.level, t.kind, t.parent_id
+    from core.public_entities e
+    left join core.territories t on t.id = e.territory_id
+    where ${entityWhere}
+  )
+  select id, population, territorial_siruta_code, level, parent_id from d
+  ${universe === 'uat-level' ? sql`where id is null or ${uatLevelUniverse}` : sql``}
+`;

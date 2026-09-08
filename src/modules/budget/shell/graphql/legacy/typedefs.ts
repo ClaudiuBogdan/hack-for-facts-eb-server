@@ -110,6 +110,7 @@ export const budgetLegacyTypeDefs = /* GraphQL */ `
   }
 
   type AnalyticsSeries {
+    missingPeriods: [String!]
     seriesId: String!
     xAxis: Axis!
     yAxis: Axis!

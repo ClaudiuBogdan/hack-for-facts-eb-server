@@ -38,6 +38,8 @@ import { makeLegacyPopulationRepo } from './shell/repo/legacy-population-repo.js
 
 import type { GroupedInput } from './core/legacy-analytics/grouped-types.js';
 import type { groupedClassificationAnalytics } from './core/legacy-analytics/grouped-usecase.js';
+import type { nativeExecutionSeries } from './core/legacy-analytics/native-usecase.js';
+import type { LegacyAnalyticsInput } from './core/legacy-analytics/types.js';
 import type { BudgetDiscoveryRepo, BudgetRepo } from './core/ports.js';
 import type {
   ContributorRegistry,
@@ -51,6 +53,9 @@ import type {
 import type { Kysely } from 'kysely';
 
 export interface BudgetModuleDeps {
+  readonly executionSeries?: (
+    inputs: readonly LegacyAnalyticsInput[]
+  ) => ReturnType<typeof nativeExecutionSeries>;
   /** Composition may supply a snapshot-bound native serving adapter. */
   readonly repo?: BudgetRepo;
   readonly classificationAnalytics?: (
@@ -121,6 +126,7 @@ export const makeBudgetModule = (deps: BudgetModuleDeps): BudgetModule => {
   const clientBaseUrl = deps.clientBaseUrl ?? 'https://transparenta.eu';
 
   const legacyResolvers = makeBudgetLegacyResolvers({
+    ...(deps.executionSeries === undefined ? {} : { executionSeries: deps.executionSeries }),
     aggregate: legacyAnalytics,
     factors: deps.legacyFactors,
     population: legacyPopulation,
@@ -229,3 +235,10 @@ export { loadMoneyContext } from './core/legacy-analytics/money-context.js';
 export { resolveNormalizationPlan } from './core/legacy-analytics/normalize.js';
 export { legacyDecimal } from './core/legacy-analytics/decimal.js';
 export type { YearlySeries } from './core/legacy-analytics/types.js';
+
+export {
+  nativeExecutionSeries,
+  type NativeExecutionSeriesDeps,
+} from './core/legacy-analytics/native-usecase.js';
+export { makeLegacyAnalyticsRepo } from './shell/repo/legacy-analytics-repo.js';
+export type { LegacyAnalyticsInput, PopulationScope } from './core/legacy-analytics/types.js';

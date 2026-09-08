@@ -96,6 +96,10 @@ describe('legacy executionAnalytics SDL — byte identity with the PINNED fixtur
             ''
           )
         ).toBe(expected);
+      } else if (key === 'type AnalyticsSeries') {
+        // Approved native coverage metadata; preserve every original fixture byte.
+        expect(actual).toContain('    missingPeriods: [String!]\n');
+        expect(actual?.replace('    missingPeriods: [String!]\n', '')).toBe(expected);
       } else {
         expect(actual).toBe(expected);
       }

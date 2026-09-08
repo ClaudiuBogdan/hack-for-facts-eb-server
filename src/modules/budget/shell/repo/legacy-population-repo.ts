@@ -21,14 +21,16 @@ import { err, ok, type Result } from 'neverthrow';
 
 import {
   isCountyTerritory,
-  isUatPresentationTerritory,
   databaseError,
   type ApiError,
   type ProdDatabase,
 } from '@/modules/shared/index.js';
 
-import { entityPopulationUnionSql, geographicPopulationUnionSql } from './population-union.js';
-import { BUCHAREST_SIRUTA_CODE } from '../../core/constants.js';
+import {
+  entityPopulationUnionSql,
+  geographicPopulationUnionSql,
+  legacyEntityTerritorySelectionSql,
+} from './population-union.js';
 import { legacyDecimal } from '../../core/legacy-analytics/decimal.js';
 
 import type { PopulationSource } from '../../core/legacy-analytics/ports.js';
@@ -56,17 +58,6 @@ const countyLevelRow = isCountyTerritory('t');
  * the old compatibility boundary; new executive-field requests use the maximal
  * ancestor union in population-union.ts instead (including all e/t predicates).
  */
-const uatLevelUniverse = sql`(
-  ${isUatPresentationTerritory('d')}
-  and not (
-    ${sql.ref('d.territorial_siruta_code')} = ${BUCHAREST_SIRUTA_CODE}
-    and exists (
-      select 1 from d as s
-      where s.level = 'locality' and s.kind = 'sector'
-        and s.parent_id = d.id
-    )
-  )
-)`;
 
 const toDecimal = (rows: readonly TotalRow[]): Decimal | null => {
   const total = rows[0]?.total;
@@ -98,20 +89,9 @@ export const makeLegacyPopulationRepo = (db: Db): PopulationSource => {
     entityWhere: ReturnType<typeof sql>,
     universe: 'all' | 'uat-level'
   ): Promise<Decimal | null> => {
-    const restriction = universe === 'uat-level' ? sql`where ${uatLevelUniverse}` : sql``;
     const res = await sql<TotalRow>`
-      with d as (
-        select distinct
-          ${sql.ref('t.id')} as id,
-          ${sql.ref('t.population')} as population,
-          t.territorial_siruta_code, t.level, t.kind, t.parent_id
-        from core.public_entities as e
-        join core.territories as t on t.id = e.territory_id
-        where ${entityWhere}
-      )
       select sum(d.population)::text as total
-      from d
-      ${restriction}
+      from (${legacyEntityTerritorySelectionSql(entityWhere, universe)}) d
     `.execute(db);
     return toDecimal(res.rows);
   };
