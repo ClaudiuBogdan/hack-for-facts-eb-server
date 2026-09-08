@@ -1143,9 +1143,11 @@ export const makeBudgetRepo = (db: Db, options: BudgetRepoOptions = {}): BudgetR
         .select([
           'mv.year',
           periodSelect.as('period'),
-          sql<string>`coalesce(mv.${sql.ref(q.metric)},0)::text`.as('amount'),
+          sql<string>`sum(coalesce(mv.${sql.ref(q.metric)},0))::text`.as('amount'),
         ])
         .where(composeAnd(conds))
+        .groupBy('mv.year')
+        .groupBy(periodSelect)
         .orderBy('mv.year', 'asc')
         .orderBy(periodSelect, 'asc')
         .execute();
@@ -1432,10 +1434,11 @@ export const makeBudgetRepo = (db: Db, options: BudgetRepoOptions = {}): BudgetR
           'mv.entity_cui',
           sql<string | null>`e.name`.as('entity_name'),
           'mv.year',
-          sql<string>`coalesce(mv.${sql.ref(q.metric)},0)::text`.as('amount'),
+          sql<string>`sum(coalesce(mv.${sql.ref(q.metric)},0))::text`.as('amount'),
         ])
         .where(sql<SqlBool>`mv.year = ${q.year} and mv.report_type = ${reportLabel}`)
-        .orderBy(sql`mv.${sql.ref(q.metric)} desc nulls last`)
+        .groupBy(['mv.entity_cui', 'e.name', 'mv.year'])
+        .orderBy(sql`sum(mv.${sql.ref(q.metric)}) desc nulls last`)
         .orderBy('mv.entity_cui', 'asc')
         .limit(limit)
         .execute();

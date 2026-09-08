@@ -2476,6 +2476,57 @@ describe('native commitment map aggregation', () => {
       trx
     );
   };
+  it('collapses creditor rows before commitment series and top-N ranking', async () => {
+    await rollbackTerritoryFixture(async (trx) => {
+      await seed(trx, principal, '111', '100.01', '10.01');
+      await seed(trx, principal, '111', '200.02', '20.01');
+      await seed(trx, principal, '444', '250.01', '30.01');
+      await sql`update budget.commitment_line_items set main_creditor_cui=case economic_code
+        when '10.01' then '991' when '20.01' then '992' else '993' end,
+        monthly_credite_angajament=ytd_credite_angajament,
+        quarterly_credite_angajament=ytd_credite_angajament,is_quarterly=true
+        where report_type=${principal} and entity_cui in ('111','444') and reporting_year=2024`.execute(
+        trx
+      );
+      await sql`refresh materialized view budget.mv_commitment_summary_annual`.execute(trx);
+      await sql`refresh materialized view budget.mv_commitment_summary_monthly`.execute(trx);
+      await sql`refresh materialized view budget.mv_commitment_summary_quarterly`.execute(trx);
+      const repo = makeBudgetRepo(trx);
+      for (const frequency of ['YEAR', 'MONTH', 'QUARTER'] as const) {
+        const rows = (
+          await repo.commitmentTimeseries({
+            entityCui: '111',
+            reportType: 'COMMITMENT_AGG_PRINCIPAL',
+            metric: 'credite_angajament',
+            frequency,
+            yearFrom: 2024,
+            yearTo: 2024,
+          })
+        )._unsafeUnwrap();
+        expect(rows).toHaveLength(1);
+        expect(new Decimal(rows[0]!.amount).toFixed(2)).toBe('300.03');
+      }
+      const top = (
+        await repo.rankCommitmentEntities({
+          reportType: 'COMMITMENT_AGG_PRINCIPAL',
+          metric: 'credite_angajament',
+          year: 2024,
+          limit: 1,
+        })
+      )._unsafeUnwrap();
+      expect(top.map((row) => row.entityCui)).toEqual(['111']);
+      expect(new Decimal(top[0]!.amount).toFixed(2)).toBe('300.03');
+      const full = (
+        await repo.rankCommitmentEntities({
+          reportType: 'COMMITMENT_AGG_PRINCIPAL',
+          metric: 'credite_angajament',
+          year: 2024,
+          limit: 10,
+        })
+      )._unsafeUnwrap();
+      expect(full.map((row) => row.entityCui)).toEqual(['111', '444']);
+    });
+  });
   it('preserves executive county commitment totals when council UAT flags change', async () => {
     await rollbackTerritoryFixture(async (trx) => {
       await seed(trx, principal, '111', '10.01');
