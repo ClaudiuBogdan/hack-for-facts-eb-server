@@ -46,6 +46,7 @@ export async function readAdmittedSectorPopulation(
   const allowedYears = [
     [2024, 2025],
     [2017, 2018, 2019, 2022, 2023, 2024, 2025],
+    [2017, 2018, 2019, 2020, 2022, 2023, 2024, 2025],
   ];
   const expectedRows = years.length * SECTORS.length;
   if (

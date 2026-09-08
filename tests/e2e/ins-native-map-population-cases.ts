@@ -203,6 +203,32 @@ export function registerInsMapPopulationCases(
       ).toBe('ServiceUnavailable');
     }));
 
+  it('map population: bounded eight-year admission preserves response shape and gaps', () =>
+    inInsFixture(database(), async (trx, repo) => {
+      const sectors = await seedSectors(
+        trx,
+        repo,
+        [2017, 2018, 2019, 2020, 2022, 2023, 2024, 2025]
+      );
+      const result = await readNativeMapPopulation(
+        { trx, repo },
+        await admit(repo),
+        [
+          row('sector2020', [8101], 2020),
+          row('definitive2019', [8101], 2019),
+          row('sixsectors', [8101, 8102, 8103, 8104, 8105, 8106], 2020),
+          row('missing2021', [8101], 2021),
+        ],
+        sectors
+      );
+      expect(result._unsafeUnwrap()).toEqual([
+        { territoryCode: 'sector2020', year: 2020, population: '60' },
+        { territoryCode: 'definitive2019', year: 2019, population: '50' },
+        { territoryCode: 'sixsectors', year: 2020, population: '1860' },
+        { territoryCode: 'missing2021', year: 2021, population: null },
+      ]);
+    }));
+
   it('map population: sector admission uses exact years, deduplicates unions and prunes children', () =>
     inInsFixture(database(), async (trx, repo) => {
       const sectors = await seedSectors(trx, repo),
