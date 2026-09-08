@@ -26,7 +26,9 @@ export interface GroupedQuery {
   readonly moneyMultipliers: YearlySeries;
   readonly mode: 'total' | 'per_capita' | 'percent_gdp';
   readonly requirePopulation: boolean;
-  /** Transitional S1b scalar broadcast. Annual provider replaces this map before final acceptance. */
+  /** False only for a complete native country/geographic classification denominator. */
+  readonly requireRegistryCoverage?: boolean;
+  /** Complete annual classification denominator; compatibility composition broadcasts its static union. */
   readonly scopePopulations?: YearlySeries;
   readonly limit: number;
   readonly offset: number;

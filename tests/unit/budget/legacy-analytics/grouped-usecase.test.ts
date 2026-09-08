@@ -1,4 +1,4 @@
-import { ok } from 'neverthrow';
+import { err, ok } from 'neverthrow';
 import { describe, expect, it } from 'vitest';
 
 import { legacyDecimal } from '@/modules/budget/core/legacy-analytics/decimal.js';
@@ -208,5 +208,85 @@ describe('grouped analytics request preparation', () => {
       })
     ).toEqual([2023, 2024]);
     expect(groupedYears({ years: { from: 2024, to: 2023 } })).toEqual([]);
+  });
+});
+
+describe('annual grouped classification coverage', () => {
+  it('batches all selected years without reading transitional population', async () => {
+    const { deps, calls } = fixture();
+    let reads = 0;
+    await groupedClassificationAnalytics(
+      {
+        ...deps,
+        population: {
+          scopedPopulation: async () => {
+            throw new Error('Unexpected static population read');
+          },
+        },
+        annualScopePopulation: async (scope, years) => {
+          reads++;
+          expect(scope.kind).toBe('country');
+          expect(years).toEqual([2023, 2024]);
+          return ok(
+            series([
+              [2023, '100'],
+              [2024, '120'],
+            ])
+          );
+        },
+      },
+      { filter: filter({ normalization: 'per_capita' }) }
+    );
+    expect(reads).toBe(1);
+    expect(calls[0]?.scopePopulations?.get(2023)?.toString()).toBe('100');
+    expect(calls[0]?.scopePopulations?.get(2024)?.toString()).toBe('120');
+  });
+  it.each([undefined, '0', '-1', 'NaN', 'Infinity'])(
+    'rejects missing or invalid annual coverage %s before an empty page',
+    async (value) => {
+      const { deps, calls } = fixture();
+      for (const page of [{ limit: 0 }, { offset: 999 }]) {
+        const result = await groupedClassificationAnalytics(
+          {
+            ...deps,
+            annualScopePopulation: async () =>
+              ok(
+                series(
+                  value === undefined
+                    ? [[2023, '100']]
+                    : [
+                        [2023, '100'],
+                        [2024, value],
+                      ]
+                )
+              ),
+          },
+          { filter: filter({ normalization: 'per_capita' }), ...page }
+        );
+        expect(result._unsafeUnwrapErr().type).toBe('ServiceUnavailable');
+      }
+      expect(calls).toHaveLength(0);
+    }
+  );
+  it('propagates annual admission errors and does not read population for nominal requests', async () => {
+    const { deps, calls } = fixture();
+    let reads = 0;
+    const native = {
+      ...deps,
+      annualScopePopulation: async () => {
+        reads++;
+        return err({ type: 'ServiceUnavailable' as const, message: 'Admission rejected' });
+      },
+    };
+    expect((await groupedClassificationAnalytics(native, { filter: filter() })).isOk()).toBe(true);
+    expect(reads).toBe(0);
+    expect(
+      (
+        await groupedClassificationAnalytics(native, {
+          filter: filter({ normalization: 'per_capita' }),
+        })
+      )._unsafeUnwrapErr().message
+    ).toBe('Admission rejected');
+    expect(calls).toHaveLength(1);
   });
 });

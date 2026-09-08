@@ -41,8 +41,13 @@ export const resolvePopulationScope = (q: LegacyAggregateQuery): PopulationScope
   return { kind: 'country' };
 };
 
+export type GroupedPopulationScope = Extract<
+  PopulationScope,
+  { kind: 'country' | 'entityUnion' | 'territoriesUnion' | 'countiesUnion' }
+>;
+
 /** Native grouped roots always use checked geographic unions, including old-field requests. */
-export const resolveGroupedPopulationScope = (q: LegacyAggregateQuery): PopulationScope => {
+export const resolveGroupedPopulationScope = (q: LegacyAggregateQuery): GroupedPopulationScope => {
   if (q.entityCuis === undefined) {
     if (q.uatIds !== undefined) return { kind: 'territoriesUnion', ids: q.uatIds };
     if (q.countyCodes !== undefined) return { kind: 'countiesUnion', codes: q.countyCodes };

@@ -36,6 +36,8 @@ import { makeLegacyAnalyticsRepo } from './shell/repo/legacy-analytics-repo.js';
 import { makeLegacyDimensionRepo } from './shell/repo/legacy-dimension-repo.js';
 import { makeLegacyPopulationRepo } from './shell/repo/legacy-population-repo.js';
 
+import type { GroupedInput } from './core/legacy-analytics/grouped-types.js';
+import type { groupedClassificationAnalytics } from './core/legacy-analytics/grouped-usecase.js';
 import type { BudgetDiscoveryRepo, BudgetRepo } from './core/ports.js';
 import type {
   ContributorRegistry,
@@ -51,6 +53,9 @@ import type { Kysely } from 'kysely';
 export interface BudgetModuleDeps {
   /** Composition may supply a snapshot-bound native serving adapter. */
   readonly repo?: BudgetRepo;
+  readonly classificationAnalytics?: (
+    input: GroupedInput
+  ) => ReturnType<typeof groupedClassificationAnalytics>;
   readonly db: Kysely<ProdDatabase>;
   readonly registry: ContributorRegistry;
   /** Client base URL for MCP deep links (defaults to the public site). */
@@ -103,6 +108,9 @@ export const makeBudgetModule = (deps: BudgetModuleDeps): BudgetModule => {
   const legacyPopulation = makeLegacyPopulationRepo(deps.db);
   const legacyDimensions = makeLegacyDimensionRepo(deps.db);
   const groupedResolvers = makeBudgetGroupedResolvers({
+    ...(deps.classificationAnalytics === undefined
+      ? {}
+      : { classificationAnalytics: deps.classificationAnalytics }),
     grouped: makeGroupedAnalyticsRepo(deps.db),
     factors: deps.legacyFactors,
     population: legacyPopulation,
@@ -213,3 +221,11 @@ export { makeCommitmentsMapRepo } from './shell/repo/commitments-map-repo.js';
 export { budgetMapGroupValues } from './core/legacy-analytics/map-groups.js';
 
 export { readMapPopulationAnchorSets } from './shell/repo/map-population-anchors.js';
+
+export { readGroupedPopulationAnchors } from './shell/repo/grouped-population-anchors.js';
+export { makeGroupedAnalyticsRepo } from './shell/repo/grouped-analytics-repo.js';
+export { makeLegacyPopulationRepo } from './shell/repo/legacy-population-repo.js';
+export { loadMoneyContext } from './core/legacy-analytics/money-context.js';
+export { resolveNormalizationPlan } from './core/legacy-analytics/normalize.js';
+export { legacyDecimal } from './core/legacy-analytics/decimal.js';
+export type { YearlySeries } from './core/legacy-analytics/types.js';

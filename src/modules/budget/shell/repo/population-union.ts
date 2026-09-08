@@ -81,24 +81,27 @@ export const selectedPopulationAnchorIdsSql = (
   from retained
 `;
 
-export const entityPopulationUnionSql = (
-  q: LegacyAggregateQuery
-): RawBuilder<{ total: string | null }> =>
-  selectedPopulationUnionSql(sql`
+export const entityPopulationSelectionSql = (q: LegacyAggregateQuery): RawBuilder<unknown> => sql`
     select t.id, t.parent_id, t.level, t.territorial_siruta_code, t.population
     from core.public_entities e
     ${q.search === undefined ? sql`` : sql`left join core.organizations o on o.cui = e.cui`}
     left join core.territories t on t.id = e.territory_id
     where ${andConditions(legacyEntityConditions(q, 'e.cui'))}
-`);
+`;
 
-export const geographicPopulationUnionSql = (
+export const entityPopulationUnionSql = (
+  q: LegacyAggregateQuery
+): RawBuilder<{ total: string | null }> =>
+  selectedPopulationUnionSql(entityPopulationSelectionSql(q));
+
+export const geographicPopulationSelectionSql = (
   scope:
     | { readonly kind: 'territoriesUnion'; readonly ids: readonly number[] }
     | { readonly kind: 'countiesUnion'; readonly codes: readonly string[] }
-): RawBuilder<{ total: string | null }> => {
+): RawBuilder<unknown> => {
   const values = scope.kind === 'territoriesUnion' ? scope.ids : scope.codes;
-  if (values.length === 0) return sql`select null::text as total`;
+  if (values.length === 0)
+    return sql`select null::int as id, null::int as parent_id, null::text as level, null::text as territorial_siruta_code, null::numeric as population`;
   const keys = values.map((value) =>
     scope.kind === 'territoriesUnion' ? sql`(${value}::int)` : sql`(${value}::text)`
   );
@@ -106,10 +109,15 @@ export const geographicPopulationUnionSql = (
     scope.kind === 'territoriesUnion'
       ? sql`t.id = requested.key`
       : sql`t.county_code = requested.key and ${isCountyTerritory('t')}`;
-  return selectedPopulationUnionSql(sql`
+  return sql`
     select case when count(*) over (partition by requested.key) = 1 then t.id else null end as id,
       t.parent_id, t.level, t.territorial_siruta_code, t.population
     from (select distinct key from (values ${sql.join(keys)}) input(key)) requested
     left join core.territories t on ${match}
-  `);
+  `;
 };
+
+export const geographicPopulationUnionSql = (
+  scope: Parameters<typeof geographicPopulationSelectionSql>[0]
+): RawBuilder<{ total: string | null }> =>
+  selectedPopulationUnionSql(geographicPopulationSelectionSql(scope));

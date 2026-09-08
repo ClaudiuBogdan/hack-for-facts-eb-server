@@ -5,10 +5,14 @@ import { err, ok } from 'neverthrow';
 import { expect } from 'vitest';
 
 import { makeNativeBudgetRepo } from '@/app/native-budget-repo.js';
+import { makeNativeGroupedClassifications } from '@/app/native-grouped-classifications.js';
 import { makeInsRepo } from '@/modules/ins-native/shell/repo/ins-repo.js';
+
+import { seedSectors } from './ins-native-map-population-cases.js';
 
 import type { FactorSource } from '@/modules/budget/core/legacy-analytics/ports.js';
 import type { TimeseriesQuery } from '@/modules/budget/core/types.js';
+import type { GroupedInput } from '@/modules/budget/index.js';
 import type { AnnualPopulationAdmission } from '@/modules/ins-native/index.js';
 import type { ProdDatabase } from '@/modules/shared/index.js';
 
@@ -29,6 +33,7 @@ export async function seedNativeBudget(db: Kysely<ProdDatabase>): Promise<void> 
   }
   await sql`refresh materialized view budget.mv_execution_summary_annual`.execute(db);
 }
+const Exact = Decimal.clone({ precision: 80 });
 const query: TimeseriesQuery = {
   entityCui: '991',
   reportType: 'EXECUTION_DETAILED',
@@ -57,6 +62,265 @@ export function registerNativeBudgetCases(
   database: () => Kysely<ProdDatabase>,
   singleConnectionDatabase: () => Kysely<ProdDatabase>
 ): void {
+  const groupedInput = (extra: Partial<GroupedInput['filter']> = {}): GroupedInput => ({
+    filter: {
+      account_category: 'ch',
+      report_type: 'Executie bugetara detaliata',
+      report_period: { type: 'YEAR', selection: { dates: ['2019', '2020'] } },
+      entity_cuis: ['991'],
+      normalization: 'per_capita',
+      ...extra,
+    },
+  });
+  it('native grouped classifications normalize annual populations before bounds and paging', async () => {
+    const db = database();
+    const run = makeNativeGroupedClassifications(db, await admission(db), undefined, {
+      yearly: async () => ok(null),
+    });
+    const result = (await run(groupedInput()))._unsafeUnwrap();
+    const expected = new Exact(300).div(281105).plus(new Exact(300).div(291105));
+    expect(result.nodes).toHaveLength(1);
+    expect(result.nodes[0]!.count).toBe(4);
+    expect(result.nodes[0]!.amount.minus(expected).abs().lt('1e-20')).toBe(true);
+    expect(result.pageInfo.totalCount).toBe(1);
+    const creditor = (await run(groupedInput({ main_creditor_cui: '992' })))._unsafeUnwrap();
+    expect(creditor.nodes[0]!.amount.minus(expected.mul(2).div(3)).abs().lt('1e-20')).toBe(true);
+    const empty = (await run({ ...groupedInput(), limit: 0 }))._unsafeUnwrap();
+    expect(empty.nodes).toEqual([]);
+    expect(empty.pageInfo.totalCount).toBe(1);
+    const beyond = (await run({ ...groupedInput(), offset: 1 }))._unsafeUnwrap();
+    expect(beyond.nodes).toEqual([]);
+    expect(beyond.pageInfo.totalCount).toBe(1);
+    const rejected = (await run(groupedInput({ aggregate_min_amount: 0.003 })))._unsafeUnwrap();
+    expect(rejected.pageInfo.totalCount).toBe(0);
+  });
+  it('native grouped classification county scope retains full denominator with entity search', async () => {
+    const db = database();
+    const run = makeNativeGroupedClassifications(db, await admission(db), undefined, {
+      yearly: async () => ok(null),
+    });
+    const result = (
+      await run(
+        groupedInput({ entity_cuis: undefined, county_codes: ['CJ'], search: 'Native county' })
+      )
+    )._unsafeUnwrap();
+    expect(result.nodes).toHaveLength(1);
+    expect(
+      result.nodes[0]!.amount.minus(new Exact(300).div(281105).plus(new Exact(300).div(291105)))
+        .abs()
+        .lt('1e-20')
+    ).toBe(true);
+    for (const extra of [
+      { county_codes: ['CJ', 'XX'], entity_cuis: undefined },
+      { uat_ids: ['7002', '999999'], entity_cuis: undefined },
+    ]) {
+      expect((await run({ ...groupedInput(extra), limit: 0 }))._unsafeUnwrapErr().type).toBe(
+        'ServiceUnavailable'
+      );
+    }
+  });
+
+  it('native grouped classifications retain equal-valued siblings and reject incomplete unions', async () => {
+    const db = database();
+    const run = makeNativeGroupedClassifications(db, await admission(db), undefined, {
+      yearly: async () => ok(null),
+    });
+    const both = (
+      await run(groupedInput({ entity_cuis: undefined, county_codes: ['CJ', 'AB'] }))
+    )._unsafeUnwrap();
+    const expected = new Exact(300).div(562210).plus(new Exact(300).div(582210));
+    expect(both.nodes[0]!.amount.minus(expected).abs().lt('1e-20')).toBe(true);
+    await sql`insert into core.territories(id,territorial_siruta_code,siruta_code,county_siruta_code,name,county_code,level,kind,territory_key,parent_id) overriding system value values(7004,'1213','1213','10','Aiud','AB','uat','municipality','siruta:1213',7003)`.execute(
+      db
+    );
+    try {
+      for (const page of [{ limit: 0 }, { offset: 999 }]) {
+        const result = await run({
+          ...groupedInput({
+            entity_cuis: undefined,
+            uat_ids: ['7002', '7004'],
+            main_creditor_cui: '991',
+            aggregate_min_amount: 10000,
+          }),
+          ...page,
+        });
+        expect(result._unsafeUnwrapErr().type).toBe('ServiceUnavailable');
+      }
+    } finally {
+      await sql`delete from core.territories where id=7004`.execute(db);
+    }
+  });
+  it('native grouped classifications use admitted sector unions and preserve PMB ancestry', async () => {
+    const db = database();
+    const sector = await seedSectors(db, makeInsRepo(db));
+    await sql`insert into core.public_entities(cui,name,is_territorial_executive,territory_id) values('993','Grouped sector fixture',true,8101)`.execute(
+      db
+    );
+    await sql`insert into budget.execution_line_items(report_id,line_key,line_order,reporting_year,reporting_month,entity_cui,report_type,main_creditor_cui,budget_sector_id,account_category,functional_code,economic_code,ytd_amount,monthly_amount,is_yearly,is_monthly,is_quarterly)
+      select 'grouped-sector-'||y.year,'fixture',1,y.year,12,'993','Executie bugetara detaliata','993',1,'ch','65.02.04','20.01.30',300,0,true,false,false from (values(2024),(2025)) y(year)`.execute(
+      db
+    );
+    try {
+      const run = makeNativeGroupedClassifications(db, await admission(db), sector, {
+        yearly: async () => ok(null),
+      });
+      const input = groupedInput({
+        entity_cuis: undefined,
+        uat_ids: ['8101', '8102', '8101'],
+        report_period: { type: 'YEAR', selection: { dates: ['2024', '2025'] } },
+      });
+      const siblings = (await run(input))._unsafeUnwrap();
+      expect(siblings.nodes[0]!.amount.toString()).toBe('1.9375'); // 300/300 + 300/320
+      const own = (
+        await run({ ...input, filter: { ...input.filter, uat_ids: ['8101'] } })
+      )._unsafeUnwrap();
+      expect(
+        // PostgreSQL numeric division retains 16 fractional digits for this quotient.
+        own.nodes[0]!.amount.minus(new Exact(3).plus(new Exact(300).div(110)))
+          .abs()
+          .lt('1e-15')
+      ).toBe(true);
+      const parent = await run({
+        ...input,
+        filter: { ...input.filter, uat_ids: ['8100', '8101', '8102'] },
+        limit: 0,
+      });
+      expect(parent._unsafeUnwrapErr().type).toBe('ServiceUnavailable');
+    } finally {
+      await sql`delete from budget.execution_line_items where entity_cui='993'`.execute(db);
+      await sql`delete from core.public_entities where cui='993'`.execute(db);
+      await sql`delete from core.territory_population where territory_id between 8101 and 8106`.execute(
+        db
+      );
+      await sql`delete from core.territory_identifiers where territory_id between 8101 and 8106`.execute(
+        db
+      );
+      await sql`delete from core.territories where id between 8101 and 8106`.execute(db);
+      await sql`delete from core.territories where id=8100`.execute(db);
+    }
+  });
+  it('native grouped classifications reject a missing year or admission before empty pagination', async () => {
+    const db = database();
+    const admitted = await admission(db);
+    const run = makeNativeGroupedClassifications(db, admitted, undefined, {
+      yearly: async () => ok(null),
+    });
+    for (const page of [{ limit: 0 }, { offset: 999 }]) {
+      expect(
+        (
+          await run({
+            ...groupedInput({
+              report_period: { type: 'YEAR', selection: { dates: ['2018', '2019'] } },
+            }),
+            ...page,
+          })
+        )._unsafeUnwrapErr().type
+      ).toBe('ServiceUnavailable');
+    }
+    const unavailable = makeNativeGroupedClassifications(
+      db,
+      { ...admitted, custodySha256: '0'.repeat(64) },
+      undefined,
+      { yearly: async () => ok(null) }
+    );
+    expect((await unavailable({ ...groupedInput(), limit: 0 }))._unsafeUnwrapErr().type).toBe(
+      'ServiceUnavailable'
+    );
+    // Nominal requests neither admit nor read INS population.
+    const nominal = (await unavailable(groupedInput({ normalization: 'total' })))._unsafeUnwrap();
+    expect(nominal.nodes[0]!.amount.toString()).toBe('600');
+  });
+  it('native grouped classifications preload cold CPI and base-year FX with one connection', async () => {
+    const db = singleConnectionDatabase();
+    try {
+      const reads: string[] = [];
+      const factors: FactorSource = {
+        yearly: async (kind) => {
+          reads.push(kind);
+          await sql`select 1`.execute(db);
+          return ok(
+            new Map([
+              [2019, new Exact(kind === 'cpi_index' ? 100 : 2)],
+              [2020, new Exact(kind === 'cpi_index' ? 110 : 3)],
+              [2021, new Exact(kind === 'cpi_index' ? 120 : 4)],
+            ])
+          );
+        },
+      };
+      const run = makeNativeGroupedClassifications(db, await admission(db), undefined, factors);
+      const result = (
+        await run(groupedInput({ currency: 'EUR', inflation_adjusted: true }))
+      )._unsafeUnwrap();
+      const expected = new Exact(300)
+        .mul(120)
+        .div(100)
+        .div(4)
+        .div(281105)
+        .plus(new Exact(300).mul(120).div(110).div(4).div(291105));
+      expect(result.nodes[0]!.amount.minus(expected).abs().lt('1e-20')).toBe(true);
+      expect(reads).toEqual(['cpi_index', 'ron_per_eur']);
+    } finally {
+      await db.destroy();
+    }
+  });
+  it('native grouped country uses distinct admitted NATIONAL observations, not resident factors', async () => {
+    const db = database();
+    // Scope this root: existing parent-null counties deliberately exercise old snapshots.
+    await sql`insert into core.territories(id,name,level,kind,territory_key,nuts_code) overriding system value values(7999,'Romania','country','country','nuts:RO','RO')`.execute(
+      db
+    );
+    await sql`update core.territories set parent_id=7999 where id in (7002,7003)`.execute(db);
+    await sql`update ins.observations set value=value+1000000 where dataset_code='POPTEST' and dim1_member_id=1 and dim2_member_id=105 and dim3_member_id=3064 and dim4_member_id=112`.execute(
+      db
+    );
+    await sql`insert into budget.execution_line_items(report_id,line_key,line_order,reporting_year,reporting_month,entity_cui,report_type,main_creditor_cui,budget_sector_id,account_category,functional_code,economic_code,ytd_amount,monthly_amount,is_yearly,is_monthly,is_quarterly)
+      values('country-unregistered','fixture',1,2020,12,'994','Executie bugetara detaliata','994',1,'ch','65.02.04','20.01.30',100,0,true,false,false)`.execute(
+      db
+    );
+    try {
+      const run = makeNativeGroupedClassifications(db, await admission(db), undefined, {
+        yearly: async () => {
+          throw new Error('Resident population must not be read');
+        },
+      });
+      const result = (await run(groupedInput({ entity_cuis: undefined })))._unsafeUnwrap();
+      const expected = new Exact(300).div(1281105).plus(new Exact(400).div(1291105));
+      expect(result.nodes[0]!.amount.minus(expected).abs().lt('1e-20')).toBe(true);
+      expect(result.nodes[0]!.count).toBe(5);
+      const county = (
+        await run(groupedInput({ entity_cuis: undefined, county_codes: ['CJ'] }))
+      )._unsafeUnwrap();
+      expect(county.nodes[0]!.count).toBe(4);
+      expect(
+        county.nodes[0]!.amount.minus(new Exact(300).div(281105).plus(new Exact(300).div(291105)))
+          .abs()
+          .lt('1e-20')
+      ).toBe(true);
+      for (const page of [{ limit: 0 }, { offset: 999 }]) {
+        expect(
+          (
+            await run({
+              ...groupedInput({ entity_cuis: ['991', '994'], aggregate_min_amount: 10000 }),
+              ...page,
+            })
+          )._unsafeUnwrapErr().type
+        ).toBe('ServiceUnavailable');
+      }
+      await sql`update core.territories set parent_id=7002 where id=7999`.execute(db);
+      expect(
+        (await run({ ...groupedInput({ entity_cuis: undefined }), limit: 0 }))._unsafeUnwrapErr()
+          .type
+      ).toBe('ServiceUnavailable');
+      await sql`update core.territories set parent_id=null where id=7999`.execute(db);
+    } finally {
+      await sql`delete from budget.execution_line_items where entity_cui='994'`.execute(db);
+      await sql`update ins.observations set value=value-1000000 where dataset_code='POPTEST' and dim1_member_id=1 and dim2_member_id=105 and dim3_member_id=3064 and dim4_member_id=112`.execute(
+        db
+      );
+      await sql`update core.territories set parent_id=null where id in (7002,7003)`.execute(db);
+      await sql`delete from core.territories where id=7999`.execute(db);
+    }
+  });
   it('native sparse monetary series use exact yearly factors at every frequency', async () => {
     const db = database();
     let reads = 0;

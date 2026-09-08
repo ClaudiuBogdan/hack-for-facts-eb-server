@@ -87,6 +87,10 @@ const resolveScrapperRoot = (): string | undefined => {
 
 /** Content pins of the INS prod migrations, including complete geography (669746b5). */
 const MIGRATION_SHA256: Readonly<Record<string, string>> = {
+  '20260611T220000__companies_domain.ts':
+    '0c84c277726d05d3ed8f0b959cd0c023e86f01b3d7bd3dbcf278223098022f97',
+  '20260630T140000__companies_v2_core_privacy.ts':
+    '150c579c9fd8cbd0cb4bafad4351c0383772710a36e1d2ef8b453ceacdfa2b40',
   '20260612T110000__core_reference.ts':
     'fe5b584b1f98d2eeb7e549b854b9b5268e7a90f16c914cb090cb8dab5976aef4',
   '20260612T110200__budget_facts.ts':
@@ -411,7 +415,7 @@ beforeAll(async () => {
   pgClient = new pg.Client({ connectionString });
   await pgClient.connect();
   // Release each schema's partition locks before dropping the next one.
-  for (const schema of ['budget', 'ins', 'core', 'etl']) {
+  for (const schema of ['budget', 'ins', 'companies', 'core', 'etl']) {
     await pgClient.query(`drop schema if exists ${schema} cascade`);
   }
   await pgClient.query('create extension if not exists unaccent');

@@ -23,6 +23,7 @@ import mercuriusPlugin from 'mercurius';
 import { makeInsGraphqlLifecycle } from './ins-graphql-session.js';
 import { makeNativeBudgetFactors } from './native-budget-factors.js';
 import { makeNativeBudgetRepo } from './native-budget-repo.js';
+import { makeNativeGroupedClassifications } from './native-grouped-classifications.js';
 import {
   makeNativeMapPopulation,
   NATIVE_MAP_POPULATION_ADMISSION,
@@ -432,6 +433,18 @@ export const registerRedesignSurface = async (
       db: kernel.db,
       ...(enabledModules.includes('ins-native')
         ? {
+            classificationAnalytics: makeNativeGroupedClassifications(
+              kernel.db,
+              NATIVE_MAP_POPULATION_ADMISSION,
+              NATIVE_SECTOR_POPULATION_ADMISSION,
+              nativeBudgetFactors,
+              (info) => {
+                app.log.warn(
+                  info,
+                  'Grouped analytics limit clamped; pageInfo reports remaining rows'
+                );
+              }
+            ),
             repo: makeNativeBudgetRepo(
               kernel.db,
               NATIVE_MAP_POPULATION_ADMISSION,

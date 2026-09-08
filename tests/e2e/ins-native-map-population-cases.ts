@@ -54,7 +54,7 @@ const seedAnchors = async (db: Kysely<ProdDatabase>): Promise<void> => {
   );
 };
 
-const seedSectors = async (
+export const seedSectors = async (
   trx: Kysely<ProdDatabase>,
   repo: InsRepo
 ): Promise<SectorPopulationAdmission> => {

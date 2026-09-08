@@ -92,7 +92,10 @@ export const groupedAnalyticsSql = (
       sql`(o.org_id is null or ${organizationRowIsPublic('o.privacy_class')})`
     );
   const joins = legacyJoinNeeds(q);
-  const joinEntity = entity || joins.entity || query.requirePopulation;
+  // Geographic denominators are admitted independently of institution metadata.
+  // Entity grouping always needs its own registry/anchor coverage.
+  const requireRegistry = entity || query.requireRegistryCoverage !== false;
+  const joinEntity = entity || joins.entity || (query.requirePopulation && requireRegistry);
   const joinTerritory = entity || joins.territory;
   const joinOrganization = entity || q.search !== undefined;
   const years = [...query.moneyMultipliers.keys()];
@@ -165,7 +168,7 @@ export const groupedAnalyticsSql = (
     ), coverage as (
       select coalesce(bool_or(multiplier is null), false)
         or (${query.requirePopulation} and coalesce(bool_or(
-          not registry_known or executive is null
+          (${requireRegistry} and (not registry_known or executive is null))
           ${entity ? sql`or (executive and (population is null or population <= 0))` : sql`or scope_population is null or scope_population <= 0`}
         ), false)) as missing_coverage
       from valued
@@ -217,14 +220,15 @@ export const makeGroupedAnalyticsRepo = (
       const funding = needsMap
         ? (await fundingMap.load()).toStoredId
         : (): number | undefined => undefined;
-      const rows = await db.transaction().execute(async (trx) => {
+      const read = async (trx: Db) => {
         await sql`set local statement_timeout = 30000`.execute(trx);
         return (
           await groupedAnalyticsSql(grouping, query, funding, options.populationRelation).execute(
             trx
           )
         ).rows;
-      });
+      };
+      const rows = db.isTransaction ? await read(db) : await db.transaction().execute(read);
       if (rows[0]?.missing_coverage === true)
         return err(
           serviceUnavailable(

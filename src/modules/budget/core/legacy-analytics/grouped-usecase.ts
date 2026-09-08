@@ -17,16 +17,22 @@ import {
 } from './grouped-types.js';
 import { loadMoneyContext } from './money-context.js';
 import { resolveNormalizationPlan } from './normalize.js';
-import { resolveGroupedPopulationScope } from './population.js';
+import { resolveGroupedPopulationScope, type GroupedPopulationScope } from './population.js';
 import { exactYearMoneyMultipliers } from './yearly-multipliers.js';
 
 import type { FactorSource, PopulationSource } from './ports.js';
-import type { PeriodPlan } from './types.js';
+import type { PeriodPlan, YearlySeries } from './types.js';
 
 export interface GroupedAnalyticsDeps {
   readonly grouped: GroupedAnalyticsRepo;
   readonly factors: FactorSource;
+  readonly fxPolicy?: 'period' | 'cpi-base-year';
   readonly population: PopulationSource;
+  /** Complete annual administrative union; no static or prior-year substitution. */
+  readonly annualScopePopulation?: (
+    scope: GroupedPopulationScope,
+    years: readonly number[]
+  ) => Promise<Result<YearlySeries, ApiError>>;
   readonly onClamped?: (info: { requested: number; clamp: number }) => void;
 }
 
@@ -82,7 +88,7 @@ const prepare = async (
   const years = groupedYears(cleaned.value.period);
   const context = await loadMoneyContext(deps.factors, plan);
   if (context.isErr()) return err(context.error);
-  const multipliers = exactYearMoneyMultipliers(plan, context.value, years);
+  const multipliers = exactYearMoneyMultipliers(plan, context.value, years, deps.fxPolicy);
   if (multipliers.isErr()) return err(multipliers.error);
   const query: GroupedQuery = {
     filter: cleaned.value,
@@ -96,9 +102,26 @@ const prepare = async (
   };
   if (grouping !== 'classification' || query.mode !== 'per_capita' || years.length === 0)
     return ok(query);
-  // Transitional population policy only: this port is replaced with annual union coverage
-  // before final migration acceptance. It is never a monetary-factor fallback.
   const scope = resolveGroupedPopulationScope(cleaned.value);
+  if (deps.annualScopePopulation !== undefined) {
+    const annual = await deps.annualScopePopulation(scope, years);
+    if (annual.isErr()) return err(annual.error);
+    if (
+      years.some((year) => {
+        const value = annual.value.get(year);
+        return value === undefined || !value.isFinite() || value.lte(0);
+      })
+    )
+      return err(
+        serviceUnavailable('Annual population is unavailable for the complete selected scope')
+      );
+    return ok({
+      ...query,
+      scopePopulations: annual.value,
+      requireRegistryCoverage: scope.kind === 'entityUnion',
+    });
+  }
+  // Compatibility composition retains its transitional static population policy.
   let population;
   if (scope.kind === 'country') {
     const national = await deps.factors.yearly('population_ro');
