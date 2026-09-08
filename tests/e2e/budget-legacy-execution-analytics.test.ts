@@ -86,6 +86,7 @@ import { makeIdentityRepo } from '@/modules/shared/shell/repo/identity-repo.js';
 import { makeTerritoryRepo } from '@/modules/shared/shell/repo/territory-repo.js';
 
 import { registerBudgetEvolutionCases } from './budget-evolution-cases.js';
+import { registerBudgetMoneyCases } from './budget-money-cases.js';
 import { registerBudgetRankingPopulationCases } from './budget-ranking-population-cases.js';
 
 import type { UserDatabase } from '@/infra/database/user/types.js';
@@ -2773,3 +2774,5 @@ describe('mounted native map routes', () => {
 registerBudgetEvolutionCases(it, rollbackTerritoryFixture);
 
 registerBudgetRankingPopulationCases(it, rollbackTerritoryFixture);
+
+registerBudgetMoneyCases(it, rollbackTerritoryFixture);

@@ -128,6 +128,7 @@ let pgClient: pg.Client | undefined;
 let db: Kysely<ProdDatabase> | undefined;
 let repo: InsRepo | undefined;
 let ready = false;
+let fixtureConnectionString: string | undefined;
 let unavailableReason: string | undefined;
 
 const unavailable = (reason: string): void => {
@@ -404,6 +405,7 @@ beforeAll(async () => {
     );
   }
 
+  fixtureConnectionString = connectionString;
   pgClient = new pg.Client({ connectionString });
   await pgClient.connect();
   // Release each schema's partition locks before dropping the next one.
@@ -961,7 +963,14 @@ describe('ins-native repository over the real scrapper DDL (e2e)', () => {
   });
 });
 
-registerNativeBudgetCases(it, () => {
-  if (db === undefined) throw new Error('DB not ready');
-  return db;
-});
+registerNativeBudgetCases(
+  it,
+  () => {
+    if (db === undefined) throw new Error('DB not ready');
+    return db;
+  },
+  () => {
+    if (fixtureConnectionString === undefined) throw new Error('Fixture connection unavailable');
+    return createProdDb({ connectionString: fixtureConnectionString, max: 1 }).db;
+  }
+);

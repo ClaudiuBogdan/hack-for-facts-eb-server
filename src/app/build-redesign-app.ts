@@ -417,6 +417,8 @@ export const registerRedesignSurface = async (
     moduleMcpTools.push(...primarii.mcpTools);
   }
 
+  const nativeBudgetFactors = makeNativeBudgetFactors(kernel.db);
+
   if (enabledModules.includes('budget')) {
     // Normalization Phase A: set 1 is the immutable snapshot of the legacy YAML.
     // Explicit internal pin: promotion/current-pointer changes cannot change
@@ -433,7 +435,8 @@ export const registerRedesignSurface = async (
             repo: makeNativeBudgetRepo(
               kernel.db,
               NATIVE_MAP_POPULATION_ADMISSION,
-              NATIVE_SECTOR_POPULATION_ADMISSION
+              NATIVE_SECTOR_POPULATION_ADMISSION,
+              nativeBudgetFactors
             ),
           }
         : {}),
@@ -483,7 +486,7 @@ export const registerRedesignSurface = async (
       createInsReadSession: createInsSession,
       budget: {
         repo: makeBudgetMapRepo(kernel.db),
-        factors: makeNativeBudgetFactors(kernel.db),
+        factors: nativeBudgetFactors,
         // Both source pins are rechecked per read; unsupported years remain unavailable.
         population:
           deps.mapPopulation ??

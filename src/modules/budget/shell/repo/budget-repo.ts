@@ -43,7 +43,7 @@ import {
   toConditionBuilders,
 } from '@/modules/shared/index.js';
 
-import { factorCaseExpr, isPerCapita, yearMultiplier } from './analytics.js';
+import { factorCaseExpr, isPerCapita } from './analytics.js';
 import { countyExecutiveCuiSql } from './county-executive.js';
 import {
   fieldOf,
@@ -70,6 +70,7 @@ import {
   type ExecutionRow,
   type ReportRow,
 } from './mappers.js';
+import { singleYearMoneyFactor } from './money-factor.js';
 import {
   ACCOUNT_CATEGORY_LABELS,
   BUDGET_TRANSFER_EXCLUSIONS,
@@ -92,6 +93,7 @@ import {
   budgetReportFilterSpec,
 } from '../../core/filters.js';
 
+import type { FactorSource } from '../../core/legacy-analytics/ports.js';
 import type { BudgetRepo } from '../../core/ports.js';
 import type {
   AggregatedBudgetRow,
@@ -200,6 +202,8 @@ const monthlyCommitmentGap = (camelMetric: string): boolean =>
   !MONTHLY_COMMITMENT_METRICS.has(camelMetric);
 
 export interface BudgetRepoOptions {
+  /** Present for native serving; exact-year failures never fall back to embedded factors. */
+  readonly moneyFactors?: FactorSource;
   /** At most one row per territory/year; caller owns the complete read snapshot. */
   readonly populationRelation?: (selection: {
     readonly territoryIds: readonly number[];
@@ -1109,9 +1113,18 @@ export const makeBudgetRepo = (db: Db, options: BudgetRepoOptions = {}): BudgetR
     if (!Number.isInteger(q.offset) || q.offset < 0 || q.offset > 100_000) {
       return err(invalidInput('ranking offset must be between 0 and 100000', 'offset'));
     }
+    if (
+      options.moneyFactors !== undefined &&
+      q.normalization === 'PERCENT_GDP' &&
+      q.sort === 'PER_CAPITA'
+    ) {
+      return err(invalidInput('GDP percentages have no per-capita ranking', 'sort'));
+    }
     const limit = q.limit;
     const perCapita = isPerCapita(q.normalization);
-    const multiplier = yearMultiplier(q.normalization, q.year);
+    const money = await singleYearMoneyFactor(options.moneyFactors, q.normalization, q.year);
+    if (money.isErr()) return err(money.error);
+    const multiplier = money.value;
     try {
       const conds: RawBuilder<unknown>[] = [
         sql`mv.year = ${q.year}`,
@@ -1263,7 +1276,7 @@ export const makeBudgetRepo = (db: Db, options: BudgetRepoOptions = {}): BudgetR
           from candidates r ${populationJoin}
         ),
         ranked as (
-          select r.*, case when r.population > 0 then r.amount / r.population else null end as per_capita
+          select r.*, case when ${options.moneyFactors === undefined || q.normalization !== 'PERCENT_GDP'} and r.population > 0 then r.amount / r.population else null end as per_capita
           from populated r where ${composeAnd(populationConds)}
         ),
         totals as (select count(*)::text as total_count from ranked),
@@ -1417,8 +1430,12 @@ export const makeBudgetRepo = (db: Db, options: BudgetRepoOptions = {}): BudgetR
     ) {
       return err(invalidInput('row maximum amount must be a decimal', 'filter.maxAmount'));
     }
-    const aggMult =
-      gate.years.eq !== undefined ? yearMultiplier(q.normalization, gate.years.eq) : 1;
+    const money =
+      gate.years.eq === undefined
+        ? ok('1') // Only TOTAL reaches this branch; normalized ranges are rejected above.
+        : await singleYearMoneyFactor(options.moneyFactors, q.normalization, gate.years.eq);
+    if (money.isErr()) return err(money.error);
+    const aggMult = money.value;
 
     const fm = await fundingMap.load();
     const translated = prepareFundingFactFilter(q.filter, fm.toStoredId);
@@ -1499,7 +1516,9 @@ export const makeBudgetRepo = (db: Db, options: BudgetRepoOptions = {}): BudgetR
   ): Promise<Result<readonly UatHeatmapPoint[], ApiError>> => {
     const reportLabel = EXECUTION_REPORT_TYPE_LABELS[q.reportType];
     const col = metricColumn(q.metric);
-    const multiplier = yearMultiplier(q.normalization, q.year);
+    const money = await singleYearMoneyFactor(options.moneyFactors, q.normalization, q.year);
+    if (money.isErr()) return err(money.error);
+    const multiplier = money.value;
     const amountExpr = sql`sum(coalesce(mv.${sql.ref(col)},0)) * ${multiplier}::numeric`;
     try {
       const result = await sql<{
@@ -1524,7 +1543,7 @@ export const makeBudgetRepo = (db: Db, options: BudgetRepoOptions = {}): BudgetR
           territory.region,
           (${amountExpr})::text as amount,
           case
-            when territory.population > 0
+            when ${options.moneyFactors === undefined || q.normalization !== 'PERCENT_GDP'} and territory.population > 0
               then ((${amountExpr}) / territory.population)::text
             else null
           end as per_capita,
@@ -1571,7 +1590,9 @@ export const makeBudgetRepo = (db: Db, options: BudgetRepoOptions = {}): BudgetR
   ): Promise<Result<readonly CountyHeatmapPoint[], ApiError>> => {
     const reportLabel = EXECUTION_REPORT_TYPE_LABELS[q.reportType];
     const col = metricColumn(q.metric);
-    const multiplier = yearMultiplier(q.normalization, q.year);
+    const money = await singleYearMoneyFactor(options.moneyFactors, q.normalization, q.year);
+    if (money.isErr()) return err(money.error);
+    const multiplier = money.value;
     try {
       // Map data is UAT-grain: join the entity CUI directly to the canonical
       // territory's uat_code. Joining every located public entity through
@@ -1612,7 +1633,7 @@ export const makeBudgetRepo = (db: Db, options: BudgetRepoOptions = {}): BudgetR
           county.county_entity_cui,
           (${amountExpr})::text as amount,
           case
-            when county.population > 0
+            when ${options.moneyFactors === undefined || q.normalization !== 'PERCENT_GDP'} and county.population > 0
               then ((${amountExpr}) / county.population)::text
             else null
           end as per_capita,

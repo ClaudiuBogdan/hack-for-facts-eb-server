@@ -1,11 +1,13 @@
 /** Real native adapter, public identity and INS source admission over actual DDL. */
 import { Decimal } from 'decimal.js';
 import { sql, type Kysely } from 'kysely';
+import { err, ok } from 'neverthrow';
 import { expect } from 'vitest';
 
 import { makeNativeBudgetRepo } from '@/app/native-budget-repo.js';
 import { makeInsRepo } from '@/modules/ins-native/shell/repo/ins-repo.js';
 
+import type { FactorSource } from '@/modules/budget/core/legacy-analytics/ports.js';
 import type { TimeseriesQuery } from '@/modules/budget/core/types.js';
 import type { AnnualPopulationAdmission } from '@/modules/ins-native/index.js';
 import type { ProdDatabase } from '@/modules/shared/index.js';
@@ -52,8 +54,81 @@ const admission = async (db: Kysely<ProdDatabase>): Promise<AnnualPopulationAdmi
 };
 export function registerNativeBudgetCases(
   it: (name: string, run: () => Promise<void>) => void,
-  database: () => Kysely<ProdDatabase>
+  database: () => Kysely<ProdDatabase>,
+  singleConnectionDatabase: () => Kysely<ProdDatabase>
 ): void {
+  it('concurrent cold native rankings complete with a single database connection', async () => {
+    const db = singleConnectionDatabase();
+    try {
+      let reads = 0;
+      const factors: FactorSource = {
+        yearly: async () => {
+          await sql`select 1`.execute(db);
+          reads++;
+          return ok(new Map([[2019, new Decimal('4.7452')]]));
+        },
+      };
+      const repo = makeNativeBudgetRepo(db, await admission(database()), undefined, factors);
+      const q = {
+        year: 2019,
+        reportType: 'EXECUTION_DETAILED' as const,
+        frequency: 'YEAR' as const,
+        metric: 'EXPENSE' as const,
+        normalization: 'TOTAL_EURO' as const,
+        entityCuis: ['991'],
+        limit: 1,
+      };
+      const [top, page] = await Promise.all([
+        repo.rankEntities(q),
+        repo.rankEntitiesPage({ ...q, offset: 0 }),
+      ]);
+      expect(top._unsafeUnwrap()).toHaveLength(1);
+      expect(page._unsafeUnwrap().items).toEqual(top._unsafeUnwrap());
+      expect(reads).toBe(2); // One pre-snapshot read per request, none while it holds the connection.
+    } finally {
+      await db.destroy();
+    }
+  });
+  it('native base and snapshot repositories share exact monetary admission', async () => {
+    const db = database();
+    const factors: FactorSource = {
+      yearly: async () => ok(new Map([[2019, new Decimal('4.7452')]])),
+    };
+    const repo = makeNativeBudgetRepo(db, await admission(db), undefined, factors);
+    const q = {
+      year: 2019,
+      reportType: 'EXECUTION_DETAILED' as const,
+      frequency: 'YEAR' as const,
+      metric: 'EXPENSE' as const,
+      normalization: 'TOTAL_EURO' as const,
+      entityCuis: ['991'],
+      limit: 1,
+    };
+    const expected = new Decimal(300).div('4.7452').toFixed(2);
+    expect(new Decimal((await repo.rankEntities(q))._unsafeUnwrap()[0]!.amount).toFixed(2)).toBe(
+      expected
+    );
+    expect(
+      new Decimal(
+        (await repo.rankEntitiesPage({ ...q, offset: 0 }))._unsafeUnwrap().items[0]!.amount
+      ).toFixed(2)
+    ).toBe(expected);
+    const failure: FactorSource = {
+      yearly: async () =>
+        err({ type: 'ServiceUnavailable', message: 'Unadmitted native factor set' }),
+    };
+    const denied = makeNativeBudgetRepo(db, await admission(db), undefined, failure);
+    for (const result of [
+      await denied.rankEntities(q),
+      await denied.rankEntitiesPage({ ...q, offset: 999 }),
+      await denied.uatHeatmap(q),
+      await denied.countyHeatmap(q),
+    ])
+      expect(result._unsafeUnwrapErr().message).toBe('Unadmitted native factor set');
+    expect(
+      (await denied.rankEntities({ ...q, normalization: 'TOTAL' }))._unsafeUnwrap()
+    ).toHaveLength(1);
+  });
   it('native budget adapter uses independently seeded annual INS values and omits missing years', async () => {
     const db = database(),
       repo = makeNativeBudgetRepo(db, await admission(db));
