@@ -46,7 +46,7 @@ export function makeNativeBudgetRepo(
         );
       },
     });
-  // Cold immutable reads must finish before a ranking reserves a snapshot
+  // Cold immutable reads must finish before a request reserves a snapshot
   // connection, including when the serving pool has only one connection.
   const prepareMoneyFactors = async (
     normalization: Parameters<BudgetRepo['rankEntities']>[0]['normalization']
@@ -81,10 +81,14 @@ export function makeNativeBudgetRepo(
         snapshotRepo(context, ready.value).listExecutionLineItems(query)
       );
     },
-    executionTimeseries: (query) => {
+    executionTimeseries: async (query) => {
       if (query.normalization !== 'PER_CAPITA' && query.normalization !== 'PER_CAPITA_EURO')
         return base.executionTimeseries(query);
-      return withInsReadSnapshot(db, (context) => snapshotRepo(context).executionTimeseries(query));
+      const ready = await prepareMoneyFactors(query.normalization);
+      if (ready.isErr()) return err(ready.error);
+      return withInsReadSnapshot(db, (context) =>
+        snapshotRepo(context, ready.value).executionTimeseries(query)
+      );
     },
     // Both entrypoints need the snapshot: the base top-N method closes over its
     // own page implementation. TOTAL also returns annual population metadata.

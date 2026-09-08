@@ -57,6 +57,134 @@ export function registerNativeBudgetCases(
   database: () => Kysely<ProdDatabase>,
   singleConnectionDatabase: () => Kysely<ProdDatabase>
 ): void {
+  it('native sparse monetary series use exact yearly factors at every frequency', async () => {
+    const db = database();
+    let reads = 0;
+    const factors: FactorSource = {
+      yearly: async (kind) => {
+        reads++;
+        return ok(
+          new Map([
+            [2019, new Decimal(kind === 'gdp_ron' ? 1000 : 2)],
+            [2020, new Decimal(kind === 'gdp_ron' ? 2000 : 3)],
+          ])
+        );
+      },
+    };
+    const repo = makeNativeBudgetRepo(db, await admission(db), undefined, factors);
+    try {
+      await sql`update budget.execution_line_items set is_monthly=true,is_quarterly=true,quarter=4,
+        monthly_amount=ytd_amount,quarterly_amount=ytd_amount where entity_cui='991' and line_key='fixture'`.execute(
+        db
+      );
+      await sql`refresh materialized view budget.mv_execution_summary_monthly`.execute(db);
+      await sql`refresh materialized view budget.mv_execution_summary_quarterly`.execute(db);
+      for (const frequency of ['YEAR', 'MONTH', 'QUARTER'] as const) {
+        for (const normalization of ['TOTAL_EURO', 'PERCENT_GDP'] as const) {
+          const q = { ...query, normalization, frequency };
+          const before = reads;
+          const rows = (await repo.executionTimeseries(q))._unsafeUnwrap();
+          expect(reads - before).toBe(1);
+          expect(rows.map((row) => row.period.year)).toEqual([2019, 2020]);
+          expect(rows.map((row) => new Decimal(row.amount).toNumber())).toEqual(
+            normalization === 'TOTAL_EURO' ? [150, 100] : [30, 15]
+          );
+          const aggregate = (
+            await repo.aggregateTimeseries({ ...q, yearFrom: 2018, yearTo: 2020 })
+          )._unsafeUnwrap();
+          expect(aggregate).toEqual(rows);
+          const scoped = (
+            await repo.executionTimeseries({ ...q, mainCreditorCui: '991' })
+          )._unsafeUnwrap();
+          scoped.forEach((row, index) => {
+            expect(new Decimal(row.amount).mul(3).toFixed(10)).toBe(
+              new Decimal(rows[index]!.amount).toFixed(10)
+            );
+          });
+          const zero = (await repo.executionTimeseries({ ...q, metric: 'INCOME' }))._unsafeUnwrap();
+          expect(zero).toHaveLength(2);
+          expect(zero.every((row) => new Decimal(row.amount).isZero())).toBe(true);
+        }
+      }
+      const perCapita = (
+        await repo.executionTimeseries({ ...query, normalization: 'PER_CAPITA_EURO' })
+      )._unsafeUnwrap();
+      perCapita.forEach((row, index) => {
+        expect(new Decimal(row.amount).toFixed(15)).toBe(
+          new Decimal(index === 0 ? 150 : 100).div(index === 0 ? 281105 : 291105).toFixed(15)
+        );
+      });
+    } finally {
+      await sql`update budget.execution_line_items set is_monthly=false,is_quarterly=false,quarter=null,
+        monthly_amount=0,quarterly_amount=0 where entity_cui='991' and line_key='fixture'`.execute(
+        db
+      );
+      await sql`refresh materialized view budget.mv_execution_summary_monthly`.execute(db);
+      await sql`refresh materialized view budget.mv_execution_summary_quarterly`.execute(db);
+    }
+  });
+  it('native monetary series propagate admission failures and reject invalid factors', async () => {
+    const db = database();
+    const a = await admission(db);
+    for (const factors of [
+      {
+        yearly: async () =>
+          err({ type: 'ServiceUnavailable' as const, message: 'factor admission failed' }),
+      },
+      { yearly: async () => ok(new Map([[2019, new Decimal(0)]])) },
+      { yearly: async () => ok(null) },
+    ]) {
+      const repo = makeNativeBudgetRepo(db, a, undefined, factors);
+      expect(
+        (await repo.executionTimeseries({ ...query, normalization: 'TOTAL_EURO' })).isErr()
+      ).toBe(true);
+      expect(
+        (
+          await repo.aggregateTimeseries({
+            ...query,
+            normalization: 'TOTAL_EURO',
+            yearFrom: 2018,
+            yearTo: 2020,
+          })
+        ).isErr()
+      ).toBe(true);
+      expect(
+        (await repo.executionTimeseries({ ...query, normalization: 'TOTAL' }))._unsafeUnwrap()
+      ).toHaveLength(3);
+    }
+  });
+  it('cold monetary series complete concurrently with a one-connection pool', async () => {
+    const db = singleConnectionDatabase();
+    try {
+      let reads = 0;
+      const factors: FactorSource = {
+        yearly: async () => {
+          await sql`select 1`.execute(db);
+          reads++;
+          return ok(
+            new Map([
+              [2019, new Decimal(2)],
+              [2020, new Decimal(3)],
+            ])
+          );
+        },
+      };
+      const repo = makeNativeBudgetRepo(db, await admission(database()), undefined, factors);
+      const results = await Promise.all([
+        repo.executionTimeseries({ ...query, normalization: 'PER_CAPITA_EURO' }),
+        repo.aggregateTimeseries({
+          ...query,
+          normalization: 'TOTAL_EURO',
+          yearFrom: 2018,
+          yearTo: 2020,
+        }),
+      ]);
+      expect(results.map((result) => result._unsafeUnwrap().length)).toEqual([2, 2]);
+      expect(reads).toBe(2);
+    } finally {
+      await db.destroy();
+    }
+  });
   it('concurrent cold native rankings complete with a single database connection', async () => {
     const db = singleConnectionDatabase();
     try {

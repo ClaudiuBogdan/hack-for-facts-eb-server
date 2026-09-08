@@ -315,8 +315,7 @@ describe('budget ranking repository filters', () => {
 
     expect(result.isOk()).toBe(true);
     const sql = flat(captured[0]!.sql);
-    expect(sql).toContain('having (');
-    expect(sql).toContain('> 0');
+    expect(sql).toMatch(/having .* > 0/u);
     expect(sql).not.toContain('else 0::numeric');
   });
 

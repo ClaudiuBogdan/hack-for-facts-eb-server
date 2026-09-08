@@ -43,7 +43,7 @@ import {
   toConditionBuilders,
 } from '@/modules/shared/index.js';
 
-import { factorCaseExpr, isPerCapita } from './analytics.js';
+import { isPerCapita } from './analytics.js';
 import { countyExecutiveCuiSql } from './county-executive.js';
 import {
   fieldOf,
@@ -70,7 +70,11 @@ import {
   type ExecutionRow,
   type ReportRow,
 } from './mappers.js';
-import { availableSingleYearMoneyFactor, singleYearMoneyFactor } from './money-factor.js';
+import {
+  availableSingleYearMoneyFactor,
+  singleYearMoneyFactor,
+  seriesMoneyFactor,
+} from './money-factor.js';
 import {
   ACCOUNT_CATEGORY_LABELS,
   BUDGET_TRANSFER_EXCLUSIONS,
@@ -970,10 +974,13 @@ export const makeBudgetRepo = (db: Db, options: BudgetRepoOptions = {}): BudgetR
         if (population.isErr()) return err(population.error);
         annualPopulation = population.value;
       }
-      const multCase = factorCaseExpr(
-        yearsPresent.map((y) => y.year),
-        q.normalization
+      const factor = await seriesMoneyFactor(
+        options.moneyFactors,
+        q.normalization,
+        yearsPresent.map((y) => y.year)
       );
+      if (factor.isErr()) return err(factor.error);
+      const multCase = factor.value;
       // Per-capita divides by entity population in SQL (entity-grain; §3.4).
       // Use the validated CUI parameter instead of mv.entity_cui so the
       // aggregate query never references an ungrouped MV column.
@@ -1014,7 +1021,8 @@ export const makeBudgetRepo = (db: Db, options: BudgetRepoOptions = {}): BudgetR
         ])
         .where(composeAnd(conds))
         .groupBy('mv.year')
-        .groupBy(periodSelect);
+        .groupBy(periodSelect)
+        .having(sql<SqlBool>`${multCase} is not null`);
       if (perCapita) {
         // Unknown denominators are no-data, never a fabricated zero amount.
         seriesQuery = seriesQuery.having(sql<SqlBool>`(${popExpr}) > 0`);
@@ -1075,10 +1083,13 @@ export const makeBudgetRepo = (db: Db, options: BudgetRepoOptions = {}): BudgetR
           .select(sql<number>`distinct mv.year`.as('year'))
           .where(composeAnd(conds))
           .execute();
-        multiplier = factorCaseExpr(
-          yearsPresent.map((row) => row.year),
-          q.normalization
+        const factor = await seriesMoneyFactor(
+          options.moneyFactors,
+          q.normalization,
+          yearsPresent.map((row) => row.year)
         );
+        if (factor.isErr()) return err(factor.error);
+        multiplier = factor.value;
       }
       const amountExpr = sql`sum(coalesce(mv.${sql.ref(col)},0)) * ${multiplier}`;
       let seriesBase = db.selectFrom(execMvName(q.frequency));
@@ -1094,6 +1105,7 @@ export const makeBudgetRepo = (db: Db, options: BudgetRepoOptions = {}): BudgetR
         .where(composeAnd(conds))
         .groupBy('mv.year')
         .groupBy(periodSelect)
+        .having(sql<SqlBool>`${multiplier} is not null`)
         .orderBy('mv.year', 'asc')
         .orderBy(periodSelect, 'asc')
         .execute();

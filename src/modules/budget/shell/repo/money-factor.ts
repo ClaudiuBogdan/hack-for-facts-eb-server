@@ -1,7 +1,8 @@
 /** Exact reporting-year factors for native single-year reads. */
+import { sql, type RawBuilder } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
-import { yearMultiplier } from './analytics.js';
+import { factorCaseExpr, yearMultiplier } from './analytics.js';
 import { loadMoneyContext } from '../../core/legacy-analytics/money-context.js';
 import { exactYearMoneyMultipliers } from '../../core/legacy-analytics/yearly-multipliers.js';
 
@@ -10,12 +11,16 @@ import type { FactorSource } from '../../core/legacy-analytics/ports.js';
 import type { NormalizationPlan } from '../../core/legacy-analytics/types.js';
 import type { ApiError } from '@/modules/shared/index.js';
 
-export const availableSingleYearMoneyFactor = async (
+/** Resolve distinct exact years from one admitted context; absent years remain sparse. */
+export const availableYearMoneyFactors = async (
   source: FactorSource,
   normalization: BudgetNormalization,
-  year: number
-): Promise<Result<string | null, ApiError>> => {
-  if (normalization === 'TOTAL' || normalization === 'PER_CAPITA') return ok('1');
+  years: readonly number[]
+): Promise<Result<ReadonlyMap<number, string>, ApiError>> => {
+  const distinctYears = [...new Set(years)];
+  if (distinctYears.length === 0) return ok(new Map());
+  if (normalization === 'TOTAL' || normalization === 'PER_CAPITA')
+    return ok(new Map(distinctYears.map((year) => [year, '1'])));
   const plan: NormalizationPlan = {
     mode: normalization === 'PERCENT_GDP' ? 'percent_gdp' : 'total',
     currency: normalization === 'PERCENT_GDP' ? 'RON' : 'EUR',
@@ -27,18 +32,38 @@ export const availableSingleYearMoneyFactor = async (
   const series = plan.mode === 'percent_gdp' ? context.value.gdp : context.value.fxRate;
   if (series === undefined)
     return err({ type: 'ServiceUnavailable', message: 'Missing monetary factor kind' });
-  if (!series.has(year)) return ok(null);
-  return exactYearMoneyMultipliers(plan, context.value, [year]).andThen(
-    (factors): Result<string, ApiError> => {
-      const factor = factors.get(year);
-      return factor === undefined
-        ? err({
-            type: 'ServiceUnavailable',
-            message: `Missing monetary factor for ${String(year)}`,
-          })
-        : ok(factor.toFixed());
-    }
+  return exactYearMoneyMultipliers(
+    plan,
+    context.value,
+    distinctYears.filter((year) => series.has(year))
+  ).map((factors) => new Map([...factors].map(([year, factor]) => [year, factor.toFixed()])));
+};
+
+export const availableSingleYearMoneyFactor = async (
+  source: FactorSource,
+  normalization: BudgetNormalization,
+  year: number
+): Promise<Result<string | null, ApiError>> =>
+  (await availableYearMoneyFactors(source, normalization, [year])).map(
+    (factors) => factors.get(year) ?? null
   );
+
+/** Native missing years produce no point; compatibility keeps its existing factors. */
+export const seriesMoneyFactor = async (
+  source: FactorSource | undefined,
+  normalization: BudgetNormalization,
+  years: readonly number[]
+): Promise<Result<RawBuilder<unknown>, ApiError>> => {
+  if (source === undefined) return ok(factorCaseExpr(years, normalization));
+  if (normalization === 'TOTAL' || normalization === 'PER_CAPITA') return ok(sql`1::numeric`);
+  return (await availableYearMoneyFactors(source, normalization, years)).map((factors) => {
+    const whens = [...factors].map(
+      ([year, factor]) => sql`when mv.year = ${year} then ${factor}::numeric`
+    );
+    return whens.length === 0
+      ? sql`null::numeric`
+      : sql`(case ${sql.join(whens, sql` `)} else null::numeric end)`;
+  });
 };
 
 /** Strict consumers reject gaps; availability consumers keep them distinct from admission failures. */
