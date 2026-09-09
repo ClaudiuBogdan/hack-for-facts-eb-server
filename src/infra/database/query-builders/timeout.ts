@@ -28,13 +28,21 @@ export const MIN_QUERY_TIMEOUT_MS = 1_000;
 // ============================================================================
 
 /**
- * Sets the statement timeout for the current transaction/session.
+ * Sets the statement timeout for the current transaction.
  *
  * This is a safe wrapper around `SET LOCAL statement_timeout` that:
  * 1. Validates the timeout is a positive integer within bounds
  * 2. Encapsulates the sql.raw() usage in a controlled location
  *
- * @param db - Kysely database instance
+ * `SET LOCAL` only has an effect inside a transaction block. Outside one,
+ * Postgres answers with a WARNING and the setting is discarded at the end of
+ * the (implicit) statement, so the call bounded nothing and cost a round
+ * trip. Passed a non-transaction `Kysely`, this helper therefore issues no
+ * statement at all; the bound then comes from the pool-level
+ * `statement_timeout` (`src/infra/database/client.ts`). Pass the `Transaction`
+ * from `db.transaction().execute(...)` to get a per-call bound.
+ *
+ * @param db - Kysely transaction (a plain instance is a documented no-op)
  * @param timeoutMs - Timeout in milliseconds (default: 30000)
  * @throws Error if timeout is invalid
  *
@@ -65,6 +73,10 @@ export async function setStatementTimeout<DB>(
       `Statement timeout must be at most ${String(MAX_QUERY_TIMEOUT_MS)}ms, got: ${String(timeoutMs)}`
     );
   }
+
+  // Outside a transaction SET LOCAL is discarded immediately (and Postgres
+  // logs a WARNING per call); the pool-level statement_timeout applies instead.
+  if (!db.isTransaction) return;
 
   // SECURITY: We use sql.raw() here because SET LOCAL doesn't support parameterized values.
   // The timeout value is validated above to be a safe integer, so this is secure.
