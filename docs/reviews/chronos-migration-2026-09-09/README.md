@@ -300,8 +300,11 @@ parity allowlist has no entries for any of them (T/T-08, I/INS-07 stand).
 ## 7. Fix status (branch `fix/chronos-review-2026-09-09`, 2026-09-09)
 
 Each row is one commit, reviewed by Codex (gpt-6-astra, high) before it was made;
-every commit passed typecheck, lint, the full unit+integration suite, and — where a
-repo was touched — the matching e2e suite on a throwaway Postgres.
+every commit passed typecheck, lint, `deps:check` and the full unit+integration suite.
+Two e2e suites ran on a throwaway Postgres (zeus Docker over an SSH tunnel): the budget
+legacy-analytics suite (92/92, covers the commitment ranking and the territory repo)
+and the search-repo suite (8/8). The legal, reference and companies changes are pinned
+by compiled-SQL tests only; no e2e suite exercises those repos.
 
 | Finding               | Commit                 | Note                                                                                                                                                                                                                                         |
 | --------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

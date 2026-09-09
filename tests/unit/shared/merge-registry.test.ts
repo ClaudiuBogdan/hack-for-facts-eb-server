@@ -80,6 +80,14 @@ describe('mergeGraphqlSlices conflict gate', () => {
     expect(result.typeDefs).toContain('extend type Owned');
   });
 
+  it('rejects a module re-adding its own field (a same-source duplicate is still a duplicate)', () => {
+    expect(() =>
+      mergeGraphqlSlices(baseTypeDefs, [
+        { source: 'a', typeDefs: 'type Owned { x: Int }\nextend type Owned { x: Int }' },
+      ])
+    ).toThrow(/field 'Owned\.x' added by both 'a' and 'a'/u);
+  });
+
   it('rejects invalid SDL with a clear error', () => {
     expect(() => mergeGraphqlSlices(baseTypeDefs, [{ source: 'bad', typeDefs: 'type {' }])).toThrow(
       /not valid SDL/u

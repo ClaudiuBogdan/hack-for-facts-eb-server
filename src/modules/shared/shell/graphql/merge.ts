@@ -143,7 +143,7 @@ export const mergeGraphqlSlices = (base: string, slices: readonly GraphqlSlice[]
         for (const field of fieldsOf(def)) {
           const key = `${name}.${field}`;
           const owner = fieldOwners.get(key);
-          if (owner !== undefined && owner !== slice.source) {
+          if (owner !== undefined) {
             throw new Error(
               `graphql conflict: field '${key}' added by both '${owner}' and '${slice.source}'`
             );
@@ -158,7 +158,7 @@ export const mergeGraphqlSlices = (base: string, slices: readonly GraphqlSlice[]
         for (const field of fieldsOf(def)) {
           const key = `${typeName}.${field}`;
           const owner = fieldOwners.get(key);
-          if (owner !== undefined && owner !== slice.source) {
+          if (owner !== undefined) {
             throw new Error(
               `graphql conflict: field '${key}' added by both '${owner}' and '${slice.source}'`
             );
