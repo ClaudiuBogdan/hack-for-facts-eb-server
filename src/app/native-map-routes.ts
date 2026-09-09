@@ -37,6 +37,27 @@ export interface NativeMapRoutesDeps {
   readonly createInsReadSession: () => InsReadSession;
 }
 
+const PUBLIC_MAP_READ_PREFIXES = [
+  '/api/v1/advanced-map-analytics/public/',
+  '/api/v1/advanced-map-datasets/public/',
+] as const;
+const PUBLIC_MAP_READ_PATHS = new Set(['/api/v1/advanced-map-datasets/public']);
+
+/**
+ * The three anonymous map reads (public dataset list, public dataset, public
+ * map): GET/HEAD only, exact path or public prefix, query string ignored.
+ * Mirrors the legacy global-auth bypass in build-app.ts for the same routes.
+ * Exported for the unit test.
+ */
+export function isPublicNativeMapRead(method: string, url: string): boolean {
+  if (method !== 'GET' && method !== 'HEAD') return false;
+  const path = url.split('?')[0] ?? url;
+  return (
+    PUBLIC_MAP_READ_PATHS.has(path) ||
+    PUBLIC_MAP_READ_PREFIXES.some((prefix) => path.startsWith(prefix))
+  );
+}
+
 export async function registerNativeMapRoutes(
   app: FastifyInstance,
   deps: NativeMapRoutesDeps
@@ -85,7 +106,14 @@ export async function registerNativeMapRoutes(
           .header('retry-after', String(Math.max(1, Math.ceil(limit.retryAfterMs / 1000))))
           .send({ ok: false, error: 'RateLimited', message: 'Too many map requests' });
     });
-    scope.addHook('preHandler', makeAuthMiddleware({ authProvider: deps.authProvider }));
+    // The public map reads are anonymous by contract (the legacy app exempts
+    // exactly these paths from provider verification), so an expired or foreign
+    // bearer on them must not turn a public GET into a 401.
+    const authenticate = makeAuthMiddleware({ authProvider: deps.authProvider });
+    scope.addHook('preHandler', async function (this: FastifyInstance, request, reply) {
+      if (isPublicNativeMapRead(request.method, request.url)) return;
+      await authenticate.call(this, request, reply);
+    });
     await scope.register(
       makeAdvancedMapDatasetRoutes({
         repo: datasetRepo,
