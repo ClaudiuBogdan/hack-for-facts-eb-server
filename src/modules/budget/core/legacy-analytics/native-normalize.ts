@@ -1,10 +1,9 @@
 /** Exact native period normalization with explicit, source-derived coverage gaps. */
 import { err, ok, type Result } from 'neverthrow';
 
-import { serviceUnavailable, type ApiError } from '@/modules/shared/index.js';
-
 import { HUNDRED, legacyDecimal } from './decimal.js';
 import { groupedYears } from './grouped-usecase.js';
+import { eligibleMoneyYears } from './money-eligibility.js';
 import { formatPeriodLabel, previousPeriodLabel } from './period.js';
 import { exactYearMoneyMultipliers } from './yearly-multipliers.js';
 
@@ -16,6 +15,7 @@ import type {
   PeriodPlan,
   YearlySeries,
 } from './types.js';
+import type { ApiError } from '@/modules/shared/index.js';
 
 /** The same intersection as the SQL period predicates; no sparse-date expansion. */
 export function selectedPeriodLabels(period: PeriodPlan, frequency: LegacyFrequency) {
@@ -58,32 +58,10 @@ export function normalizeNativePoints(
   },
   ApiError
 > {
-  const required =
-    plan.mode === 'percent_gdp'
-      ? [context.gdp]
-      : [
-          ...(plan.inflationAdjusted ? [context.cpiIndex] : []),
-          ...(plan.currency !== 'RON' ? [context.fxRate] : []),
-        ];
-  for (const series of required) {
-    if (series === undefined) return err(serviceUnavailable('Missing monetary factor kind'));
-    if ([...series.values()].some((value) => !value.isFinite() || value.lte(0)))
-      return err(serviceUnavailable('Invalid monetary factor value'));
-  }
-  const baseYear =
-    context.cpiIndex === undefined
-      ? undefined
-      : [...context.cpiIndex.keys()].sort((a, b) => b - a)[0];
-  if (plan.mode !== 'percent_gdp' && plan.inflationAdjusted && baseYear === undefined)
-    return err(serviceUnavailable('CPI base year is unavailable'));
   const years = [...new Set(selected.map((p) => p.year))];
-  const eligible = years.filter((year) => {
-    if (plan.mode === 'percent_gdp') return context.gdp?.has(year) === true;
-    if (plan.inflationAdjusted && context.cpiIndex?.has(year) !== true) return false;
-    if (plan.currency === 'RON') return true;
-    const rateYear = plan.inflationAdjusted ? baseYear : year;
-    return rateYear !== undefined && context.fxRate?.has(rateYear) === true;
-  });
+  const eligibility = eligibleMoneyYears(plan, context, years);
+  if (eligibility.isErr()) return err(eligibility.error);
+  const { eligible } = eligibility.value;
   const money = exactYearMoneyMultipliers(plan, context, eligible, 'cpi-base-year');
   if (money.isErr()) return err(money.error);
   const multipliers = new Map<number, ReturnType<typeof legacyDecimal>>();

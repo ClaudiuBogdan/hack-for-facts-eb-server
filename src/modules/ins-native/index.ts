@@ -28,7 +28,6 @@ import type { AnnualPopulationAdmission } from './core/annual-population.js';
 import type { SectorPopulationAdmission } from './core/population-admission.js';
 import type { InsRepo } from './core/ports.js';
 import type {
-  ContributorRegistry,
   GraphqlSlice,
   KernelMcpTool,
   AnnualPopulationPort,
@@ -39,7 +38,6 @@ import type { Kysely } from 'kysely';
 
 export interface InsNativeModuleDeps {
   readonly db: Kysely<ProdDatabase>;
-  readonly registry: ContributorRegistry;
   /** Client base URL for MCP deep links (defaults to the public site). */
   readonly clientBaseUrl?: string;
   /** Inject a repository (tests); defaults to the Chronos repository. */

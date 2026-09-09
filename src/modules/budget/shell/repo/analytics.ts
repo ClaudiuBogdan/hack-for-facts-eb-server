@@ -87,20 +87,6 @@ export const isPerCapita = (norm: BudgetNormalization): boolean =>
   norm === 'PER_CAPITA' || norm === 'PER_CAPITA_EURO';
 
 /**
- * Build a `factors(year, multiplier)` VALUES-CTE for the requested years and
- * normalization. Returned as a parameterized SQL fragment (the years/multipliers
- * are bound values, never concatenated). `TOTAL` returns a 1.0 multiplier table
- * (the join is then an identity, but kept uniform so the SQL shape never branches).
- */
-export const factorValuesCte = (
-  years: readonly number[],
-  norm: BudgetNormalization
-): RawBuilder<unknown> => {
-  const rows = years.map((y) => sql`(${y}::int, ${yearMultiplier(norm, y)}::numeric)`);
-  return sql`factors(year, multiplier) as (values ${sql.join(rows, sql`, `)})`;
-};
-
-/**
  * A `CASE mv.year WHEN $y THEN $mult … ELSE 1 END::numeric` expression that maps
  * each requested year to its normalization multiplier inline — so the per-year
  * factor multiplies the MV sum in SQL with `numeric` precision (no JS float). For

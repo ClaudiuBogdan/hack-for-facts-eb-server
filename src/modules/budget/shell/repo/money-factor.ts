@@ -4,6 +4,7 @@ import { err, ok, type Result } from 'neverthrow';
 
 import { factorCaseExpr, yearMultiplier } from './analytics.js';
 import { loadMoneyContext } from '../../core/legacy-analytics/money-context.js';
+import { eligibleMoneyYears } from '../../core/legacy-analytics/money-eligibility.js';
 import { exactYearMoneyMultipliers } from '../../core/legacy-analytics/yearly-multipliers.js';
 import {
   budgetMoneyPlan,
@@ -29,33 +30,14 @@ export const availableYearMoneyFactors = async (
   const plan = budgetMoneyPlan(normalization, options);
   const context = await loadMoneyContext(source, plan);
   if (context.isErr()) return err(context.error);
-  const required =
-    plan.mode === 'percent_gdp'
-      ? [context.value.gdp]
-      : [
-          ...(plan.inflationAdjusted ? [context.value.cpiIndex] : []),
-          ...(plan.currency !== 'RON' ? [context.value.fxRate] : []),
-        ];
-  for (const series of required) {
-    if (series === undefined)
-      return err({ type: 'ServiceUnavailable', message: 'Missing monetary factor kind' });
-    if ([...series.values()].some((value) => !value.isFinite() || value.lte(0)))
-      return err({ type: 'ServiceUnavailable', message: 'Invalid monetary factor value' });
-  }
-  if (plan.inflationAdjusted && context.value.cpiIndex?.size === 0)
-    return err({ type: 'ServiceUnavailable', message: 'CPI base year is unavailable' });
-  const baseYear =
-    context.value.cpiIndex === undefined ? undefined : Math.max(...context.value.cpiIndex.keys());
-  const eligible = distinctYears.filter((year) => {
-    if (plan.mode === 'percent_gdp') return context.value.gdp?.has(year) === true;
-    if (plan.inflationAdjusted && context.value.cpiIndex?.has(year) !== true) return false;
-    if (plan.currency === 'RON') return true;
-    const rateYear = plan.inflationAdjusted ? baseYear : year;
-    return rateYear !== undefined && context.value.fxRate?.has(rateYear) === true;
-  });
-  return exactYearMoneyMultipliers(plan, context.value, eligible, 'cpi-base-year').map(
-    (factors) => new Map([...factors].map(([year, factor]) => [year, factor.toFixed()]))
-  );
+  const eligibility = eligibleMoneyYears(plan, context.value, distinctYears);
+  if (eligibility.isErr()) return err(eligibility.error);
+  return exactYearMoneyMultipliers(
+    plan,
+    context.value,
+    eligibility.value.eligible,
+    'cpi-base-year'
+  ).map((factors) => new Map([...factors].map(([year, factor]) => [year, factor.toFixed()])));
 };
 
 export const availableSingleYearMoneyFactor = async (

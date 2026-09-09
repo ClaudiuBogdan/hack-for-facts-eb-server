@@ -227,9 +227,17 @@ export type {
   PopulationSource,
 } from './core/legacy-analytics/ports.js';
 export {
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- re-exported for the Phase A parity tests until the legacy entrypoint goes (N/P5)
   makeDatasetFactorSource,
   type DatasetReader,
 } from './shell/factors/dataset-factor-source.js';
+export type {
+  FactorSetKind,
+  FactorSetReadError,
+  FactorSetReaderPort,
+  FactorSetRow,
+  FactorSetTable,
+} from './core/legacy-analytics/factor-set-port.js';
 export {
   makeFactorSetSource,
   LEGACY_FACTOR_SET_ID,

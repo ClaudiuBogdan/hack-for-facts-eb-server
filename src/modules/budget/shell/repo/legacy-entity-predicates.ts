@@ -12,9 +12,11 @@ import {
 import type { LegacyAggregateQuery } from '../../core/legacy-analytics/types.js';
 
 type Cond = RawBuilder<unknown>;
-const inList = (col: Cond, values: readonly (string | number)[]): Cond =>
+/** `col IN (values)`; an empty list is `false` (never `in ()`, which is a SQL error). */
+export const inList = (col: Cond, values: readonly (string | number)[]): Cond =>
   values.length === 0 ? sql`false` : sql`${col} in (${sql.join(values)})`;
-const notInNullSafe = (col: Cond, values: readonly (string | number)[]): Cond =>
+/** `col IS NULL OR col NOT IN (values)`; an empty exclusion excludes nothing. */
+export const notInNullSafe = (col: Cond, values: readonly (string | number)[]): Cond =>
   values.length === 0 ? sql`true` : sql`(${col} is null or ${col} not in (${sql.join(values)}))`;
 const tagContains = (tag: string): Cond =>
   sql`${sql.ref('e.tags')} @> ${JSON.stringify([{ tag }])}::jsonb`;

@@ -2,8 +2,8 @@ import { err, ok } from 'neverthrow';
 
 import { legacyDecimal } from '../../core/legacy-analytics/decimal.js';
 
+import type { FactorSetReaderPort } from '../../core/legacy-analytics/factor-set-port.js';
 import type { FactorSource } from '../../core/legacy-analytics/ports.js';
-import type { FactorSetReader } from '@/modules/normalization/index.js';
 
 /** Phase A/S1-5: an INTERNAL pin, independent of the current release pointer. */
 export const LEGACY_FACTOR_SET_ID = '1';
@@ -11,7 +11,7 @@ export const LEGACY_FACTOR_SET_DIGEST =
   '69cc0473af19ffb406fe9f2ed3f82c7785a3aa4ea6df74dfd360220c92e41078';
 
 export const makeFactorSetSource = (
-  reader: Pick<FactorSetReader, 'load'>,
+  reader: Pick<FactorSetReaderPort, 'load'>,
   setId: string,
   expectedDigest: string
 ): FactorSource => ({

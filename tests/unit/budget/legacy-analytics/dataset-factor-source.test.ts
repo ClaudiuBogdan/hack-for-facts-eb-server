@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-deprecated -- the YAML factor source is the retained Phase A parity baseline (review N/P5) */
 /**
  * The YAML `FactorSource` adapter: dataset ids, the D2 representation of
  * `cpi_index` (chain-linked level, 12 dp, anchor 100), pass-through for the

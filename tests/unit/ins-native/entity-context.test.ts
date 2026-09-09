@@ -198,7 +198,6 @@ describe('native entity INS context', () => {
 async function executeContextQuery(repo: InsRepo, lookup = identity().territoryForCui) {
   const module = makeInsNativeModule({
     db: {} as never,
-    registry: { register: () => undefined, list: () => [], get: () => undefined },
     repo,
     territoryForCui: lookup,
   });

@@ -55,7 +55,7 @@ import {
 
 import { FUNDING_SOURCE_NO_MATCH } from './filter-helpers.js';
 import { makeFundingSourceMap, type FundingSourceMapLoader } from './funding-source-map.js';
-import { legacyEntityConditions } from './legacy-entity-predicates.js';
+import { inList, notInNullSafe, legacyEntityConditions } from './legacy-entity-predicates.js';
 import {
   EXECUTION_AMOUNT_COLUMN,
   EXECUTION_REPORT_TYPE_LABELS,
@@ -104,12 +104,6 @@ const amountColumn = (frequency: LegacyFrequency): RawBuilder<unknown> =>
 
 const flagColumn = (frequency: LegacyFrequency): RawBuilder<unknown> =>
   sql.ref(`eli.${FREQUENCY_FLAG_COLUMN[frequency]}`);
-
-const inList = (col: RawBuilder<unknown>, values: readonly (string | number)[]): Cond =>
-  sql`${col} in (${sql.join(values)})`;
-
-const notInNullSafe = (col: RawBuilder<unknown>, values: readonly (string | number)[]): Cond =>
-  sql`(${col} is null or ${col} not in (${sql.join(values)}))`;
 
 const anyPrefix = (col: RawBuilder<unknown>, prefixes: readonly string[]): Cond =>
   sql`(${sql.join(

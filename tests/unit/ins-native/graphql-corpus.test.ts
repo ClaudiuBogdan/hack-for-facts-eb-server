@@ -104,7 +104,6 @@ const buildTestSchema = (
 ): GraphQLSchema => {
   const module = makeInsNativeModule({
     db: {} as never,
-    registry: { register: () => undefined, list: () => [], get: () => undefined },
     repo: makeFakeRepo(),
   });
   const schema = buildSchema(

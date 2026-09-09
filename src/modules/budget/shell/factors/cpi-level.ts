@@ -22,6 +22,11 @@
  * on the wrong product. Legacy skipped such points (`cpi-adjustment-factors.ts:54-55`)
  * and carried on; here they are an error the adapter surfaces (documented delta).
  */
+/*
+ * Deprecated (prose, not tool-visible): the CPI chain-linker serves only the
+ * deprecated YAML factor source (`dataset-factor-source.ts`); the promoted factor
+ * set is already chain-linked. Deleted with the legacy entrypoint (review N/P5).
+ */
 
 import type { YearlySeries } from '../../core/legacy-analytics/types.js';
 import type { Decimal } from 'decimal.js';

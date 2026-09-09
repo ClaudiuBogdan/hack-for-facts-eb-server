@@ -66,6 +66,11 @@ export const FACTOR_DATASET_IDS: Readonly<Record<FactorKind, string>> = {
 
 const YEAR_LABEL = /^\d{4}$/u;
 
+/**
+ * @deprecated Not composed by any server since the promoted factor set
+ * (`factor-set-source.ts`) replaced the YAML path; kept only as the Phase A
+ * parity baseline in the tests. Deleted with the legacy entrypoint (review N/P5).
+ */
 export const makeDatasetFactorSource = (datasets: DatasetReader, logger?: Logger): FactorSource => {
   const warned = new Set<FactorKind>();
 

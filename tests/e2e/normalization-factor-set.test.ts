@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-deprecated -- the YAML factor source is the retained Phase A parity baseline (review N/P5) */
 /** Phase A real-SQL proof on a dedicated empty PostgreSQL database. */
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';

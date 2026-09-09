@@ -1,4 +1,10 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment -- Kysely dynamic query builder requires any typing */
+/*
+ * Deprecated (prose, not tool-visible): Phoenix-pool population denominators
+ * (`SUM(DISTINCT u.population)`, review D/DP-15), served only to the api.js
+ * notification data fetcher. The kernel budget module uses the admitted INS
+ * population unions instead. Deleted with the legacy entrypoint (review N/P5).
+ */
 import { Decimal } from 'decimal.js';
 import { sql } from 'kysely';
 import { ok, err, type Result } from 'neverthrow';

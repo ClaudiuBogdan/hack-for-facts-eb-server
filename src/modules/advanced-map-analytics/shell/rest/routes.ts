@@ -6,8 +6,7 @@ import { FormatRegistry } from '@sinclair/typebox';
 import { Value } from '@sinclair/typebox/value';
 
 import { type AdvancedMapDatasetRepository } from '@/modules/advanced-map-datasets/index.js';
-import { isAuthenticated } from '@/modules/auth/index.js';
-import { requireAuthHandler } from '@/modules/auth/shell/middleware/fastify-auth.js';
+import { isAuthenticated, requireAuthHandler } from '@/modules/auth/index.js';
 
 import {
   CreateMapBodySchema,

@@ -28,6 +28,7 @@ import {
   type InsRepo,
   type SectorPopulationAdmission,
 } from '@/modules/ins-native/index.js';
+import { makeFactorSetReader } from '@/modules/normalization/index.js';
 
 import type { AnnualPopulationPort, ProdDatabase } from '@/modules/shared/index.js';
 import type { Kysely } from 'kysely';
@@ -49,7 +50,9 @@ export function makeNativeBudgetRepo(
   db: Kysely<ProdDatabase>,
   admission: AnnualPopulationAdmission,
   sectorAdmission?: SectorPopulationAdmission,
-  moneyFactors: FactorSource = makeNativeBudgetFactors(db)
+  moneyFactors: FactorSource = makeNativeBudgetFactors(
+    makeFactorSetReader(db, { requirePromotion: true })
+  )
 ): BudgetRepo {
   return makeBudgetRepoAdapter({
     db,

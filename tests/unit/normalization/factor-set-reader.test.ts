@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-deprecated -- the YAML factor source is the retained Phase A parity baseline (review N/P5) */
 import {
   Kysely,
   PostgresAdapter,

@@ -455,7 +455,6 @@ export const registerRedesignSurface = async (
   if (enabledModules.includes('ins-native')) {
     const insNative = makeInsNativeModule({
       db: kernel.db,
-      registry: kernel.contributors,
       ...(deps.clientBaseUrl !== undefined && { clientBaseUrl: deps.clientBaseUrl }),
       territoryForCui: (cui) => kernel.identityRepo.territoryForCui(cui),
     });
@@ -466,7 +465,11 @@ export const registerRedesignSurface = async (
     moduleResolvers.push(insNative.graphqlResolvers);
     moduleMcpTools.push(...insNative.mcpTools);
   }
-  const nativeBudgetFactors = makeNativeBudgetFactors(kernel.db);
+  // Factor set 2, admitted only while its promotion is recorded (the legacy pin
+  // below deliberately reads without the promotion requirement).
+  const nativeBudgetFactors = makeNativeBudgetFactors(
+    makeFactorSetReader(kernel.db, { requirePromotion: true })
+  );
   if (enabledModules.includes('budget')) {
     // The kernel build serves budget ONLY with the native composition: exact-
     // year population through the INS port and the promoted factor set. A
