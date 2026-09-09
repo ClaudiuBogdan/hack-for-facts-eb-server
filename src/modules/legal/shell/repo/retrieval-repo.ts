@@ -171,7 +171,9 @@ export const makeLegalRetrievalRepo = (db: Db): LegalRetrievalRepo => {
             on n.document_id = se.document_id and n.path = se.node_path
            and n.run_id = gn.run_id
           where (ds.source_extraction_status is distinct from 'suspicious')
-          order by ca.in_degree desc, se.section_key asc
+          -- Same act_id tie-break as cand_acts: without it, sections of
+          -- equal-in_degree acts interleave in plan order under the LIMIT.
+          order by ca.in_degree desc, ca.act_id asc, se.section_key asc
           limit ${sql.lit(limit)}
         `.execute(trx);
         return r.rows;
