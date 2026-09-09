@@ -1,6 +1,10 @@
 name: CodeQL
 
 on:
+  push:
+    branches:
+      - main
+      - dev
   schedule:
     - cron: '0 4 * * *'
   workflow_dispatch:
@@ -14,7 +18,9 @@ jobs:
   analyze:
     name: Analyze (javascript-typescript)
     runs-on: ubuntu-latest
-    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    # Work lands on `dev` for weeks before it reaches the default branch; the
+    # scan must cover it. The push trigger already restricts branches, and
+    # schedule/dispatch run on the default branch.
     steps:
       - uses: actions/checkout@v4
 
