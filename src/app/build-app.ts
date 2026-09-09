@@ -357,6 +357,7 @@ const HEALTH_ROUTE_PATHS = new Set(['/health', '/health/live', '/health/ready'])
 const REDESIGN_SURFACE_ROUTE_PATHS = new Set([
   '/api/v1/graphql',
   '/api/v1/mcp',
+  '/api/v1/live',
   '/api/v1/health',
   '/api/v1/ready',
 ]);

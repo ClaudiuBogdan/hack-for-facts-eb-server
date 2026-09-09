@@ -863,16 +863,23 @@ export const registerRedesignSurface = async (
   };
 
   // ── Health / readiness ───────────────────────────────────────────────────────
+  // Liveness must not touch a dependency: the kernel probe bounds each check at
+  // 4 s and the user-DB checker at 3 s, longer than a kubelet probe timeout, so a
+  // hung Meili/OpenSearch or a saturated pool would restart a healthy process.
+  // Kubernetes startup/liveness probes point here; `/api/v1/health` stays as the
+  // dependency report and `/api/v1/ready` as the traffic gate.
+  app.get('/api/v1/live', { logLevel: 'silent' }, async (_request, reply) => {
+    return reply.code(200).send({ status: 'ok' });
+  });
+
   app.get('/api/v1/health', async (_request, reply) => {
-    const report = await kernel.health();
-    const userDatabase = await publicUserDataHealth();
-    // Liveness never hard-fails on aux down (§14.11); always 200.
+    const [report, userDatabase] = await Promise.all([kernel.health(), publicUserDataHealth()]);
+    // Dependency report never hard-fails on aux down (§14.11); always 200.
     return reply.code(200).send({ ...report, ...(userDatabase !== undefined && { userDatabase }) });
   });
 
-  app.get('/api/v1/ready', async (_request, reply) => {
-    const report = await kernel.health();
-    const userDatabase = await publicUserDataHealth();
+  app.get('/api/v1/ready', { logLevel: 'silent' }, async (_request, reply) => {
+    const [report, userDatabase] = await Promise.all([kernel.health(), publicUserDataHealth()]);
     const ready =
       report.postgres.status === 'ok' &&
       (userDatabase === undefined || userDatabase.status === 'healthy');

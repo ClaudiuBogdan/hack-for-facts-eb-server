@@ -56,4 +56,14 @@ describe('shouldBypassGlobalAuthValidation — redesign public GET prefixes', ()
     expect(shouldBypassGlobalAuthValidation(req('POST', '/api/v1/graphql'), true)).toBe(true);
     expect(shouldBypassGlobalAuthValidation(req('POST', '/api/v1/graphql'), false)).toBe(false);
   });
+
+  it.each(['/api/v1/live', '/api/v1/health', '/api/v1/ready'])(
+    'bypasses auth for the probe route %s only when the surface is mounted',
+    (url) => {
+      // kubelet probes send no Authorization header; a 401 would restart or
+      // de-register a healthy pod.
+      expect(shouldBypassGlobalAuthValidation(req('GET', url), true)).toBe(true);
+      expect(shouldBypassGlobalAuthValidation(req('GET', url), false)).toBe(false);
+    }
+  );
 });

@@ -399,7 +399,7 @@ spec (per collection)  ──derives──►  TypeBox schema (REST)  ─┐
 - Compilation reuses the kernel `composer` (`composeConditions(ctx, ...builders)`)
   and `col(alias, column)` safe column refs. **All user input is parameterized via
   `sql``** — zero string concatenation. (Mirror of the legacy
-  `query-filters/composer.ts` + `types.ts`, generalized off the budget aliases.)
+`query-filters/composer.ts`+`types.ts`, generalized off the budget aliases.)
 
 ### 7.2 Shared filter families (kernel)
 
@@ -743,9 +743,10 @@ since `_prod-schema/*.tsv` excludes partition children).
   wraps the latter.
 - Auth: prefer an explicit per-route `config: { public: true }` flag over
   URL-prefix bypass.
-- Health vs readiness: `/api/v1/health` (liveness) reports aux services down but
-  does **not** fail on meili/opensearch/synthetic being down; `/api/v1/ready`
-  gates deploys.
+- Health vs readiness: `/api/v1/live` is the dependency-free kubelet
+  startup/liveness target (a slow dependency must never restart a healthy
+  process); `/api/v1/health` reports aux services down but does **not** fail on
+  meili/opensearch/synthetic being down; `/api/v1/ready` gates traffic.
 
 ---
 
