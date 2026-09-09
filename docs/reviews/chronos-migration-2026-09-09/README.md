@@ -296,3 +296,38 @@ parity allowlist has no entries for any of them (T/T-08, I/INS-07 stand).
   Chronos dev pool logs in as was inferred from session patterns, not the secret.
 - GitHub API calls stopped after the rate limit was hit; the GM history numbers come
   from the tests agent's run before that.
+
+## 7. Fix status (branch `fix/chronos-review-2026-09-09`, 2026-09-09)
+
+Each row is one commit, reviewed by Codex (gpt-6-astra, high) before it was made;
+every commit passed typecheck, lint, the full unit+integration suite, and — where a
+repo was touched — the matching e2e suite on a throwaway Postgres.
+
+| Finding               | Commit                 | Note                                                                                                                                                                                                                                         |
+| --------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| X/F1                  | `1ae9c966`, `111d980f` | Dependency-free `/api/v1/live`; the overlay commit must land **after** the CI image pin for the route, or the startup probe 404s.                                                                                                            |
+| B/F3, B/F12           | `f63db112`             | `SERVICE_UNAVAILABLE` messages pass through; the one non-static emitter (`ask.ts`) made static.                                                                                                                                              |
+| (found on the way)    | `c60636da`             | Under vitest `graphql` loaded twice (ESM + CJS); every production-redaction assertion in the redesign security suite passed on a cross-realm crash, not on the formatter. Pinned to one instance; assertions rewritten to the real contract. |
+| N/R2                  | `bceb4cf3`             | Usecase refuses, repo fails closed; SQL-pinned.                                                                                                                                                                                              |
+| B/F15                 | `41112e81`             | Coalesced ORDER BY; year/limit validated like `rankEntities` (limit >100 now refuses instead of clamping — no client sends this root).                                                                                                       |
+| M/M15                 | `3d3ae44f`             | Outer `act_id` tie-break.                                                                                                                                                                                                                    |
+| M/M18, DP-07 (part)   | `ddf338b8`             | Territory reads gated; `core.territories` and `search.documents` `privacy_class` typed.                                                                                                                                                      |
+| M/M05                 | `2553d071`             | Fixture column + the measured P0A shape seeded; 8/8 on a throwaway Postgres.                                                                                                                                                                 |
+| M/M16                 | `a4339ce8`             | Both EXISTS branches.                                                                                                                                                                                                                        |
+| M/M01                 | `19f7812f`             | Gate in the shared outline select.                                                                                                                                                                                                           |
+| M/M07                 | `a4c9c9eb`             | Requested row carries its own class; usecase answers `render_restricted` (403 kept distinct from 404).                                                                                                                                       |
+| I/INS-03              | `bbf1379d`             | Enabled surface that cannot mount fails the boot; test seam `registerRedesignContributors`.                                                                                                                                                  |
+| N/M1                  | `1e1dc603`             | Public map GET/HEAD skip verification on the native mount, mirroring the legacy bypass.                                                                                                                                                      |
+| M/M13                 | `5a59729c`             | Module-owned fields recorded; both encounter orders.                                                                                                                                                                                         |
+| X/F8, X/F9            | `475efd39`             | Legacy pools: 45 s pool-level bound (the largest per-repo value), error listeners; `setStatementTimeout` skips the discarded `SET LOCAL` outside a transaction.                                                                              |
+| T/T-01..03 + Codex P2 | `b4fc0194`             | Hostname, blocking jobs, `dev` checkout, and a Chronos cutover-replay job (will be red until the parity allowlist records the known INS deltas).                                                                                             |
+| T/T-15                | `ff4903f7`             | CodeQL on `dev` pushes; branch condition dropped.                                                                                                                                                                                            |
+| X/F4                  | `7714155c`             | Rebase-with-retry before the pin push.                                                                                                                                                                                                       |
+| M/M08                 | `4578d506`             | Degraded search says no lookup ran; `engine: 'none'`; widget bundle regenerated.                                                                                                                                                             |
+| I/INS-11              | **closed, no change**  | Owner decision 2026-09-09: INS serves aggregated public statistics only; `privacy_class` on `ins.*` is a uniform loader column with no non-public producer, so gating it adds predicates to hot territory/context reads for no containment.  |
+
+Not changed, by design: N/R3 (no reachable NULL; coercion would hide a contract
+violation), N/M3 (module slated for deletion), the B/F3 fail-closed calculation
+(kept; only its message was unmasked). Everything in §2.5 and the architectural
+items (N/N3 DB pointer, X/F5/F6 consolidation, B/F1 porting, B/F6, X/F2 readiness
+semantics, X/F7, M/M04, M/M10/11, INS-01/M09) awaits an owner decision.
