@@ -420,6 +420,9 @@ export const getDocumentRenderChunk = async (
       detail: `row chunk_count ${String(row.chunkCount)} != ${String(info.chunkCount)}`,
     });
   }
+  // `info.privacyClass` is row 0's class. The requested row carries its own
+  // (the lane classifies per chunk), so gate the row that is actually served.
+  if (row.privacyClass !== 'public') return err({ reason: 'render_restricted', documentId });
 
   // Generation pin. renderInfo and renderRow are two non-transactional
   // reads and renderRow selects by (document_id, chunk_index) alone, so a

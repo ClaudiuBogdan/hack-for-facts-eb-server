@@ -3,7 +3,9 @@
  * (`legal.document_generations` + `legal.document_render`).
  *
  * No gating here: privacy/status decisions live in the usecase so 403/409
- * stay distinguishable from 404 at the surface. `chunk_count` comes off render
+ * stay distinguishable from 404 at the surface — which is why `renderRow`
+ * returns the requested row's own `privacy_class` instead of filtering on it
+ * (row 0's class describes row 0 only). `chunk_count` comes off render
  * row 0 (the generation row deliberately does not duplicate it); a served
  * generation with no render rows reads `chunkCount: null` and the usecase
  * reports it as an inconsistency rather than a missing document.
@@ -103,7 +105,7 @@ export const makeLegalRenderRepo = (db: Db): LegalRenderRepo => {
     try {
       const row = await db
         .selectFrom('legal.document_render')
-        .select(['chunk_index', 'chunk_count', 'block_id', 'tldf'])
+        .select(['chunk_index', 'chunk_count', 'block_id', 'tldf', 'privacy_class'])
         .where('document_id', '=', documentId)
         .where('run_id', '=', runId)
         .where('chunk_index', '=', chunkIndex)
@@ -113,6 +115,7 @@ export const makeLegalRenderRepo = (db: Db): LegalRenderRepo => {
         chunkIndex: row.chunk_index,
         chunkCount: row.chunk_count,
         blockId: row.block_id,
+        privacyClass: row.privacy_class,
         payload: row.tldf,
       });
     } catch (error) {

@@ -485,6 +485,8 @@ export interface LegalRenderRow {
   readonly chunkIndex: number;
   readonly chunkCount: number;
   readonly blockId: string | null;
+  /** The requested row's own class; the usecase refuses anything but 'public'. */
+  readonly privacyClass: string;
   /** The stored TLDF physical payload — envelope, manifest, or chunk group. */
   readonly payload: Record<string, unknown>;
 }

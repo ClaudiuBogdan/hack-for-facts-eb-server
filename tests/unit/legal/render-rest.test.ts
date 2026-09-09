@@ -50,6 +50,8 @@ const chunkedRows = loadRows('render-rows-100019.json');
 interface FakeDoc {
   readonly info: LegalRenderInfo;
   readonly rows: readonly FixtureRow[];
+  /** Chunks the lane classified as restricted (row 0 stays public). */
+  readonly restrictedChunks?: ReadonlySet<number>;
 }
 
 const infoFor = (
@@ -104,6 +106,8 @@ const makeFakeRenderRepo = (docs: ReadonlyMap<string, FakeDoc>): LegalRenderRepo
               chunkIndex: row.chunk_index,
               chunkCount: row.chunk_count,
               blockId: row.block_id,
+              privacyClass:
+                doc?.restrictedChunks?.has(row.chunk_index) === true ? 'restricted' : 'public',
               payload: row.tldf,
             } satisfies LegalRenderRow)
       )
@@ -129,6 +133,16 @@ const docs = new Map<string, FakeDoc>([
     },
   ],
   ['rowless-doc', { info: infoFor('rowless-doc', singleRows, { chunkCount: null }), rows: [] }],
+  // Row 0 (the manifest) is public, chunk 1 is not: the document-level class
+  // admits the read, the requested row must still be refused.
+  [
+    'chunk-restricted-doc',
+    {
+      info: infoFor('chunk-restricted-doc', chunkedRows),
+      rows: chunkedRows,
+      restrictedChunks: new Set([1]),
+    },
+  ],
 ]);
 
 let app: FastifyInstance | undefined;
@@ -242,6 +256,18 @@ describe('GET /api/v1/legal/documents/:documentId/render', () => {
     // eslint-disable-next-line no-restricted-syntax -- response produced by the app under test
     const body = JSON.parse(res.body) as ErrBody;
     expect(body.error).toBe('RENDER_RESTRICTED');
+  });
+
+  it('403s a restricted CHUNK even when row 0 (the manifest) is public', async () => {
+    const instance = await buildApp();
+    const manifest = await instance.inject({
+      url: '/api/v1/legal/documents/chunk-restricted-doc/render',
+    });
+    expect(manifest.statusCode).toBe(200);
+    const chunk = await instance.inject({
+      url: '/api/v1/legal/documents/chunk-restricted-doc/render/chunks/1',
+    });
+    expect(chunk.statusCode).toBe(403);
   });
 
   it('409s content_unavailable with the render status named', async () => {
