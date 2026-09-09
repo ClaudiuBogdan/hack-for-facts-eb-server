@@ -85,7 +85,24 @@ export default defineConfig(
         { type: 'shell', pattern: 'src/modules/*/shell/**/*', mode: 'file' },
         { type: 'infra', pattern: 'src/infra/**/*', mode: 'file' },
         { type: 'common', pattern: 'src/common/**/*', mode: 'file' },
-        { type: 'app', pattern: ['src/app.ts', 'src/api.ts'], mode: 'file' },
+        // Legacy-only composition files (die with api.js, review slice 1): they
+        // reach module internals by design and are classified apart so the app
+        // rule below can be enforced on everything else under src/app/.
+        {
+          type: 'legacy-app',
+          pattern: [
+            'src/app/build-app.ts',
+            'src/app/build-plan.ts',
+            'src/app/cache-wrappers.ts',
+            'src/app/public-debate-self-send-context-lookup.ts',
+          ],
+          mode: 'file',
+        },
+        {
+          type: 'app',
+          pattern: ['src/app/**/*', 'src/app.ts', 'src/api.ts', 'src/redesign-api.ts'],
+          mode: 'file',
+        },
       ],
     },
     rules: {
@@ -213,6 +230,16 @@ export default defineConfig(
               allow: { to: { type: 'common' } },
               disallow: { to: { type: ['core', 'shell'] } },
               message: 'Infra must be generic.',
+            },
+            // The composition layer wires modules through their public index
+            // only (review X/F5): module internals are `core`/`shell` elements;
+            // `src/modules/*/index.ts` is untyped and therefore allowed.
+            {
+              from: { type: 'app' },
+              allow: { to: { type: ['app', 'infra', 'common'] } },
+              disallow: { to: { type: ['core', 'shell'] } },
+              message:
+                'The app layer imports modules only through their index.ts (public API), never internals.',
             },
             // External dependency boundaries for core
             {

@@ -90,3 +90,6 @@ export { makeAgentConversationRepo } from './shell/repo/conversation-repo.js';
 export { makeInMemoryQuotaStore, makeRedisQuotaStore } from './shell/quota/quota-store.js';
 export { kernelToolsToAiTools } from './shell/tools/kernel-tools.js';
 export { makeModelRouter, type ModelRouter, type ModelTier } from './shell/llm/model-router.js';
+
+/** The quota store's Redis contract, for the composition layer (X/F5: app imports via the index only). */
+export type { QuotaRedis } from './shell/quota/quota-store.js';

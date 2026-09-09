@@ -60,8 +60,7 @@ import {
 } from '../modules/shared/index.js';
 
 import type { UserDatabase } from '../infra/database/user/types.js';
-import type { AgentModuleConfig } from '../modules/agent/index.js';
-import type { QuotaRedis } from '../modules/agent/shell/quota/quota-store.js';
+import type { AgentModuleConfig, QuotaRedis } from '../modules/agent/index.js';
 import type { Kysely } from 'kysely';
 import type { Logger } from 'pino';
 
