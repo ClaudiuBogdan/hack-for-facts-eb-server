@@ -30,6 +30,7 @@ import {
   invalidInput,
   normalizeCui,
   offsetFor,
+  organizationRowIsPublic,
   toConditionBuilders,
   type ApiError,
   type FilterInput,
@@ -163,6 +164,9 @@ const buildListConditions = (input: FilterInput): Result<RawBuilder<unknown>[], 
   const conds: RawBuilder<unknown>[] = [
     sql`o.kind = 'company'`,
     sql`(o.cui is null or length(o.cui) <= ${sql.lit(MAX_SERVED_CUI_DIGITS)})`,
+    // Same identity gate as the kernel identity repo: every row is public today,
+    // the platform gates on class, not distribution (review M/M02).
+    organizationRowIsPublic('o.privacy_class'),
     ...built.value,
   ];
 
@@ -387,6 +391,7 @@ export const makeCompaniesRepo = (
         .select(['org_id', 'cui', 'name'])
         .where('cui', '=', cui)
         .where('kind', '=', 'company')
+        .where(organizationRowIsPublic('privacy_class'))
         .limit(1)
         .executeTakeFirst();
       if (org === undefined) return ok(null);
@@ -758,6 +763,7 @@ export const makeCompaniesRepo = (
             .selectFrom('core.organizations')
             .select(['cui', 'name'])
             .where('kind', '=', 'company')
+            .where(organizationRowIsPublic('privacy_class'))
             .where(
               'cui',
               'in',
@@ -794,6 +800,7 @@ export const makeCompaniesRepo = (
         .selectFrom('core.organizations')
         .select(['cui', 'name', 'normalized_name', 'county_name'])
         .where('kind', '=', 'company')
+        .where(organizationRowIsPublic('privacy_class'))
         .where('cui', 'is not', null)
         // Same containment as the list path, in SQL rather than after the scan:
         // the callers already drop withheld hits from the OUTPUT, but a scan
@@ -846,6 +853,7 @@ export const makeCompaniesRepo = (
         .where('ri.value', '=', value)
         .where('ri.is_current', '=', true)
         .where('o.kind', '=', 'company')
+        .where(organizationRowIsPublic('o.privacy_class'))
         .limit(50)
         .execute();
       return ok(
@@ -1135,6 +1143,7 @@ export const makeCompaniesRepo = (
         .select(sliceSelect())
         .where('o.cui', '=', cui)
         .where('o.kind', '=', 'company')
+        .where(organizationRowIsPublic('o.privacy_class'))
         .limit(1)
         .executeTakeFirst();
       if (row === undefined) return ok(null);
@@ -1160,6 +1169,7 @@ export const makeCompaniesRepo = (
           .leftJoin('companies_v2.fiscal_status as f', 'f.cui', 'o.cui')
           .select(sliceSelect())
           .where('o.kind', '=', 'company')
+          .where(organizationRowIsPublic('o.privacy_class'))
           .where('o.cui', 'in', normalized)
           .execute(),
         latestFinancialsByCui(normalized),
@@ -1195,6 +1205,7 @@ export const makeCompaniesRepo = (
         ])
         .where('o.cui', '=', cui)
         .where('o.kind', '=', 'company')
+        .where(organizationRowIsPublic('o.privacy_class'))
         .limit(1)
         .executeTakeFirst();
       if (org === undefined) return ok(null);
