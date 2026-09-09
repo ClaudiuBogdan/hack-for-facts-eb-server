@@ -68,22 +68,22 @@ describe('redesign GraphQL security policy', () => {
     else process.env['NODE_ENV'] = previousNodeEnv;
   });
 
-  const query = async (source: string): Promise<GraphQLResponse> => {
+  const query = async (source: string, expectedStatus = 200): Promise<GraphQLResponse> => {
     const response = await app.inject({
       method: 'POST',
       url: '/api/v1/graphql',
       payload: { query: source },
     });
-    expect(response.statusCode).toBe(200);
+    expect(response.statusCode).toBe(expectedStatus);
     return response.json<GraphQLResponse>();
   };
 
   it('blocks introspection in production', async () => {
     const response = await query('{ __schema { queryType { name } } }');
     expect(response.data).toBeNull();
-    expect(response.errors?.[0]).toMatchObject({
-      message: 'Internal server error',
-    });
+    // Validation errors are written for the client and pass through unredacted.
+    expect(response.errors?.[0]?.message).toContain('introspection has been disabled');
+    expect(response.errors?.[0]?.extensions).toBeUndefined();
   });
 
   it('blocks shallow alias fan-out before resolvers execute', async () => {
@@ -91,11 +91,10 @@ describe('redesign GraphQL security policy', () => {
       { length: 51 },
       (_, index) => `health${String(index)}: health { overall }`
     ).join('\n');
-    const response = await query(`query AliasFanOut { ${aliases} }`);
+    // mercurius answers validation failures with 400.
+    const response = await query(`query AliasFanOut { ${aliases} }`, 400);
     expect(response.data).toBeNull();
-    expect(response.errors?.[0]).toMatchObject({
-      message: 'Internal server error',
-    });
+    expect(response.errors?.[0]?.message).toBe('Query exceeds maximum alias count of 50.');
   });
 
   it('allows two heavy budget fields', () => {
@@ -130,19 +129,27 @@ describe('redesign GraphQL security policy', () => {
 
   it('blocks mixed heavy budget fields before execution', async () => {
     factAggregateExecutions = 0;
-    const response = await query(`query FactFanOut {
+    const response = await query(
+      `query FactFanOut {
       first: budgetAggregateByClassification
       second: budgetAggregateTimeseries
       third: budgetUatHeatmap
-    }`);
+    }`,
+      400
+    );
     expect(response.data).toBeNull();
-    expect(response.errors?.[0]?.message).toBe('Internal server error');
+    expect(response.errors?.[0]?.message).toBe(
+      'Query exceeds maximum heavy budget field count of 2.'
+    );
     expect(factAggregateExecutions).toBe(0);
   });
 
   it('redacts internal resolver errors in production', async () => {
     const response = await query('{ securityTestFailure }');
-    expect(response.errors?.[0]?.message).toBe('Internal server error');
+    expect(response.errors?.[0]).toMatchObject({
+      message: 'Internal server error',
+      path: ['securityTestFailure'],
+    });
     expect(JSON.stringify(response.errors)).not.toContain('sensitive database detail');
   });
 });
