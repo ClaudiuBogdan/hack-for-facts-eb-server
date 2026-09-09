@@ -9,10 +9,11 @@
  * `attrs.cui` — that was the retired per-source shape).
  */
 
-import { ok } from 'neverthrow';
+import { err, ok } from 'neverthrow';
 import { describe, expect, it, vi } from 'vitest';
 
 import { makeCompaniesRepo } from '@/modules/companies/shell/repo/companies-repo.js';
+import { upstreamError } from '@/modules/shared/core/errors.js';
 
 import type { MeiliClient } from '@/modules/shared/index.js';
 
@@ -93,8 +94,11 @@ describe('resolveByName over the palette index', () => {
     );
     const meili = { searchEntities, healthCheck: vi.fn() } as unknown as MeiliClient;
     // The validation query returns no kind='company' row for this CUI, so the
-    // Meili branch yields nothing and the repo degrades to the pg fallback —
-    // whose own query also returns [] here.
+    // Meili branch yields nothing and the repo falls through to the pg path —
+    // whose own query also returns [] here. The engine answered, so this is
+    // NOT a degraded read (M42): `degraded` reports an engine outage, not an
+    // empty answer, and the usecase turns it into a "search service
+    // unavailable" caveat that would be false here.
     const db = makeDbStub([]);
 
     const repo = makeCompaniesRepo(db as never, { meiliEntitiesIndex: 'entities' });
@@ -102,6 +106,26 @@ describe('resolveByName over the palette index', () => {
 
     const { hits, degraded } = res._unsafeUnwrap();
     expect(hits).toEqual([]);
-    expect(degraded).toBe(true);
+    expect(degraded).toBe(false);
+  });
+
+  it('reports degraded only when the engine itself failed', async () => {
+    const searchEntities = vi.fn(async () =>
+      err(upstreamError('meili unreachable', 'meilisearch'))
+    );
+    const meili = { searchEntities, healthCheck: vi.fn() } as unknown as MeiliClient;
+    const db = makeDbStub([]);
+
+    const repo = makeCompaniesRepo(db as never, { meiliEntitiesIndex: 'entities' });
+    const res = await repo.resolveByName('cluj', 8, meili);
+
+    expect(res._unsafeUnwrap().degraded).toBe(true);
+    expect(searchEntities).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports degraded when no engine is configured at all', async () => {
+    const repo = makeCompaniesRepo(makeDbStub([]) as never, { meiliEntitiesIndex: 'entities' });
+    const res = await repo.resolveByName('cluj', 8, null);
+    expect(res._unsafeUnwrap().degraded).toBe(true);
   });
 });

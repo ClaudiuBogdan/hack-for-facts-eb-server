@@ -133,6 +133,32 @@ describe('LegalAct.incomingAnchors', () => {
     }
   });
 
+  it("keeps endCursor as the last edge's REAL cursor on the final page (M40)", async () => {
+    // `links` already promised this; incomingAnchors emitted the repo's `next`
+    // (null on the last page), so a non-empty final page had no cursor to
+    // resume from. Same contract on both connections.
+    const graph = makeGraphFake({
+      incomingAnchors: () =>
+        Promise.resolve(ok({ items: [anchor('101'), anchor('102')], next: null, totalCount: 2 })),
+    });
+    const resolvers = resolversWith(graph);
+    const connection = (await resolvers['incomingAnchors']?.(act, {
+      first: 10,
+    })) as AnchorConnection;
+    expect(connection.pageInfo.hasNextPage).toBe(false);
+    expect(connection.pageInfo.endCursor).toBe(connection.edges[1]?.cursor);
+    expect(connection.pageInfo.endCursor).not.toBeNull();
+  });
+
+  it('answers endCursor null only for an empty page', async () => {
+    const resolvers = resolversWith(makeGraphFake({}));
+    const connection = (await resolvers['incomingAnchors']?.(act, {
+      first: 10,
+    })) as AnchorConnection;
+    expect(connection.edges).toHaveLength(0);
+    expect(connection.pageInfo).toEqual({ hasNextPage: false, endCursor: null });
+  });
+
   it('hydrates sourceAct through the batched act loader', async () => {
     const r = makeLegalResolvers({
       acts: { findActsByIds: () => Promise.resolve(ok([act])) } as never,

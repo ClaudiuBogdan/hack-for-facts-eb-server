@@ -738,11 +738,17 @@ export const makeCompaniesRepo = (
     // presents as `organization` — the role filter still finds it, and the
     // kind='company' validation below keeps the §link-not-merge contract.
     // The filter builder always pins privacy_class = "public".
+    // `degraded` reports an ENGINE outage, not an empty answer (M42): a healthy
+    // engine with no company-role hit for the query falls through to the pg
+    // path as a plain fallback, and the caller must not be told the engine
+    // was down.
+    let engineUnavailable = meili === null;
     if (meili !== null) {
       const m = await meili.searchEntities(q, meiliEntitiesIndex, {
         filter: buildEntitiesFilter({ roles: ['company'] }),
         limit: capped,
       });
+      if (m.isErr()) engineUnavailable = true;
       if (m.isOk()) {
         // Collect candidate CUIs (ordered by Meili score), then VALIDATE them
         // against core.organizations(kind='company').
@@ -790,10 +796,11 @@ export const makeCompaniesRepo = (
         // Meili reachable but no company-role hit for this query → pg fallback.
       }
     }
-    // DEGRADED fallback: capped, kind='company'-scoped, TS diacritic fold. No unaccent,
+    // pg fallback (degraded only when the engine was unavailable): capped,
+    // kind='company'-scoped, TS diacritic fold. No unaccent,
     // no trigram-index reliance; the LIMIT bounds the parallel seq scan (§15.7).
     const folded = foldDiacritics(q);
-    if (folded === '') return ok({ hits: [], degraded: true });
+    if (folded === '') return ok({ hits: [], degraded: engineUnavailable });
     try {
       const needle = '%' + folded.replace(/[%_\\]/gu, '\\$&') + '%';
       const rows = await db
@@ -828,7 +835,7 @@ export const makeCompaniesRepo = (
           cui: r.cui,
           confidence: score,
         }));
-      return ok({ hits: ranked, degraded: true });
+      return ok({ hits: ranked, degraded: engineUnavailable });
     } catch (error) {
       return err(databaseError('resolveByName fallback failed', error));
     }

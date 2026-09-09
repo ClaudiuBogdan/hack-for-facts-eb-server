@@ -106,6 +106,36 @@ const SORT_EXPR: Record<string, { expr: RawBuilder<unknown>; cast: SortCast }> =
   display_citation: { expr: sql`a.display_citation`, cast: 'text' },
 };
 
+const INT_KEY_RE = /^-?\d+$/u;
+
+/**
+ * A list cursor carries `[sortKey, actId]`. `''` is the null-sort sentinel
+ * (the keyset null-section rule) and is valid for every cast; anything else
+ * must parse under the sort's cast, and the tie-break must be a plain id.
+ * Exported for the unit test.
+ */
+export const validateActsCursorKeys = (
+  keys: readonly string[],
+  cast: SortCast
+): Result<{ sortKey: string; actId: string }, ApiError> => {
+  const [sortKey, actId] = keys;
+  if (sortKey === undefined || actId === undefined || keys.length !== 2) {
+    return err(invalidInput('cursor does not carry a sort key and an act id', 'after'));
+  }
+  if (!ID_RE.test(actId)) {
+    return err(invalidInput('cursor carries a non-numeric act id', 'after'));
+  }
+  if (sortKey !== '') {
+    if (cast === 'int' && !INT_KEY_RE.test(sortKey)) {
+      return err(invalidInput('cursor carries a non-integer sort key', 'after'));
+    }
+    if (cast === 'date' && !DATE_KEY_RE.test(sortKey)) {
+      return err(invalidInput('cursor carries a malformed date sort key', 'after'));
+    }
+  }
+  return ok({ sortKey, actId });
+};
+
 /** Read a sort value off a mapped act for cursor encoding (NULL → '' sentinel). */
 const sortValueOf = (act: LegalAct, sort: string): string => {
   switch (sort) {
@@ -365,8 +395,13 @@ export const makeLegalActsRepo = (db: Db): LegalActsRepo => {
     if (o.page.after !== undefined) {
       const decoded = decodeCursor(o.page.after, { sort: o.sort, dir: o.dir, fhash });
       if (decoded.isErr()) return err(decoded.error);
-      cursorVal = decoded.value.keys[0];
-      cursorActId = decoded.value.keys[1];
+      // The keys are bound into typed casts (`::int`, `::date`, `::bigint`),
+      // so a forged cursor must be refused here (M41) — otherwise a bad key
+      // reaches Postgres and surfaces as a masked 500 instead of a 400.
+      const keys = validateActsCursorKeys(decoded.value.keys, sortInfo.cast);
+      if (keys.isErr()) return err(keys.error);
+      cursorVal = keys.value.sortKey;
+      cursorActId = keys.value.actId;
     }
 
     const kernel = kernelConditions(legalActsSpec, o.filter);

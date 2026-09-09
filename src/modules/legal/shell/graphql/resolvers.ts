@@ -225,10 +225,14 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
         );
         return toActConnection(page, filter, sort, dir, async () => {
           // Lazy: runs only when the query actually selects totalCount. A
-          // count failure degrades to null (unknown) — it never fails the
-          // list it annotates.
+          // count failure surfaces as a field error carrying the reason (same
+          // rule as legalRecentChanges.totalCount, M39): the list still
+          // resolves, `totalCount` is null with an errors entry, and the count
+          // being a full scan means a timeout is the likeliest failure exactly
+          // when the total matters most — swallowing it would hide that.
           const counted = await acts.countActs(filter);
-          return counted.isOk() ? counted.value : null;
+          if (counted.isErr()) throw toGraphqlError(counted.error);
+          return counted.value;
         });
       },
       legalActCounts: async (
@@ -494,9 +498,16 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
             lastKeys: [node.edgeId],
           }),
         }));
+        // CURSOR: same contract as `links` (M40) — endCursor is the last edge's
+        // REAL cursor on every page, never the repo's `next` (null on the last
+        // page, which contradicted a non-empty edge list).
+        const last = edges[edges.length - 1];
         return {
           edges,
-          pageInfo: { hasNextPage: page.next !== null, endCursor: page.next },
+          pageInfo: {
+            hasNextPage: page.next !== null,
+            endCursor: last === undefined ? null : last.cursor,
+          },
           totalCount: page.totalCount,
         };
       },
