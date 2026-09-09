@@ -43,7 +43,11 @@ concurrency:
 
 env:
   # Default API URLs (can be overridden via GitHub secrets)
-  DEV_API_URL: ${{ secrets.GM_DEV_API_URL || 'https://dev-api.transparenta.eu/graphql' }}
+  # Phoenix dev serves api-dev.transparenta.eu (k8s/overlays/dev); there is no
+  # dev-api. ingress, and the old default made every Dev run fail on DNS.
+  DEV_API_URL: ${{ secrets.GM_DEV_API_URL || 'https://api-dev.transparenta.eu/graphql' }}
+  # The deployment the Dev Branch Pipeline actually updates (k8s/overlays/chronos-dev).
+  CHRONOS_DEV_API_URL: ${{ secrets.GM_CHRONOS_DEV_API_URL || 'https://dev-chronos-api.transparenta.eu/api/v1/graphql' }}
   PROD_API_URL: ${{ secrets.GM_PROD_API_URL || 'https://api.transparenta.eu/graphql' }}
   # Time to wait for ArgoCD to deploy after workflow completes (in seconds)
   ARGOCD_DEPLOY_DELAY: 180
@@ -58,10 +62,16 @@ jobs:
       github.event_name == 'schedule' ||
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
       (github.event_name == 'workflow_dispatch' && (inputs.environment == 'dev' || inputs.environment == 'both'))
-    # Non-blocking: continue even if tests fail
-    continue-on-error: true
+    # Blocking: a failed contract check must show as a failed run. With
+    # continue-on-error the workflow badge stayed green for months while
+    # this job failed on every run.
     steps:
+      # Scheduled runs execute this workflow file from the default branch;
+      # the specs, snapshots and corpus must come from the branch the dev
+      # environment is built from.
       - uses: actions/checkout@v4
+        with:
+          ref: dev
 
       - name: Wait for ArgoCD deployment
         if: github.event_name == 'workflow_run'
@@ -97,6 +107,60 @@ jobs:
           path: test-output.txt
           retention-days: 7
 
+  cutover-replay-chronos-dev:
+    name: Cutover replay (Phoenix dev -> Chronos dev)
+    runs-on: ubuntu-latest
+    # The Dev Branch Pipeline pins and deploys the CHRONOS dev overlay, which
+    # serves no legacy /graphql for the snapshot suite; its post-deploy check is
+    # the client-corpus replay: every document the pinned client sends, Phoenix
+    # dev as baseline, Chronos dev as target, parity-allowlist as the contract.
+    if: >
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
+      (github.event_name == 'workflow_dispatch' && (inputs.environment == 'dev' || inputs.environment == 'both'))
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+
+      - name: Wait for ArgoCD deployment
+        if: github.event_name == 'workflow_run'
+        run: |
+          echo "Waiting $ARGOCD_DEPLOY_DELAY seconds for ArgoCD to deploy the new version..."
+          sleep $ARGOCD_DEPLOY_DELAY
+          echo "Delay complete, proceeding with the replay"
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Replay the client corpus (baseline Phoenix dev, target Chronos dev)
+        env:
+          TEST_GM_BASELINE_URL: ${{ env.DEV_API_URL }}
+          TEST_GM_API_URL: ${{ env.CHRONOS_DEV_API_URL }}
+          TEST_GM_REPORT_DIR: cutover-report
+        run: |
+          echo "Baseline: $TEST_GM_BASELINE_URL"
+          echo "Target:   $TEST_GM_API_URL"
+          pnpm test:gm:cutover 2>&1 | tee cutover-output.txt
+          exit ${PIPESTATUS[0]}
+
+      - name: Upload replay results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cutover-replay-chronos-dev-${{ github.run_id }}
+          path: |
+            cutover-output.txt
+            cutover-report
+          retention-days: 14
+
   golden-master-prod:
     name: Golden Master (Prod)
     runs-on: ubuntu-latest
@@ -105,8 +169,7 @@ jobs:
     if: >
       github.event_name == 'schedule' ||
       (github.event_name == 'workflow_dispatch' && (inputs.environment == 'prod' || inputs.environment == 'both'))
-    # Non-blocking: continue even if tests fail
-    continue-on-error: true
+    # Blocking for the same reason as the dev job.
     steps:
       - uses: actions/checkout@v4
 
