@@ -47,14 +47,21 @@ export const legacyPoolConfig = (
  * continue. Never log the error/client objects: they can carry the connection
  * config.
  */
-export const attachPoolErrorListeners = (pool: pg.Pool, name: string): pg.Pool => {
+export const attachPoolErrorListeners = (
+  pool: pg.Pool,
+  name: string,
+  // The message only, never the error object (it can carry the connection config).
+  log: (message: string) => void = (message) => {
+    console.error(message);
+  }
+): pg.Pool => {
   pool.on('connect', (client) => {
     client.on('error', () => {
-      console.error(`[${name} pool] connection lost; active queries will fail`);
+      log(`[${name} pool] connection lost; active queries will fail`);
     });
   });
   pool.on('error', (error) => {
-    console.error(`[${name} pool] idle client error (recovered): ${error.message}`);
+    log(`[${name} pool] idle client error (recovered): ${error.message}`);
   });
   return pool;
 };

@@ -126,13 +126,12 @@ describe('Campaign admin stats repo', () => {
     const userDb = createKyselyClient<UserDatabase>(database.connectionString);
     const learningProgressRepo = makeFakeLearningProgressRepo();
 
-    vi.spyOn(learningProgressRepo, 'getCampaignAdminUsersMetaCounts').mockResolvedValue(
+    learningProgressRepo.getCampaignAdminUsersMetaCounts = async () =>
       ok({
         totalUsers: 9,
         usersWithPendingReviews: 2,
-      })
-    );
-    vi.spyOn(learningProgressRepo, 'getCampaignAdminStats').mockResolvedValue(
+      });
+    learningProgressRepo.getCampaignAdminStats = async () =>
       ok({
         stats: {
           total: 11,
@@ -163,8 +162,7 @@ describe('Campaign admin stats repo', () => {
           },
         },
         riskFlagCandidates: [],
-      })
-    );
+      });
 
     try {
       await withPgClient(database.connectionString, async (client) => {

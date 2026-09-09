@@ -203,16 +203,20 @@ describe('independent INS bridge consistency', () => {
 describe('INS entity statistical context contributor', () => {
   it('uses one snapshot for source resolution, reverse links and exact certified coverage', async () => {
     const scoped = repoWithNodes([CLUJ_NAPOCA]);
-    const coverage = vi.spyOn(scoped, 'datasetsForTerritory');
+    const coverage = vi.fn(scoped.datasetsForTerritory);
+    scoped.datasetsForTerritory = coverage;
     const outer = repoWithNodes([]);
-    outer.withSnapshot = (fn) => fn(scoped);
-    const snapshot = vi.spyOn(outer, 'withSnapshot');
+    let snapshots = 0;
+    outer.withSnapshot = (fn) => {
+      snapshots += 1;
+      return fn(scoped);
+    };
     const identity = vi.fn(async () => ok(anchor()));
     const result = (
       await makeInsContributor(outer, { territoryForCui: identity }).presenceFor('123')
     )._unsafeUnwrap();
     expect(identity).toHaveBeenCalledExactlyOnceWith('123');
-    expect(snapshot).toHaveBeenCalledOnce();
+    expect(snapshots).toBe(1);
     expect(outer.territoriesByCodes).not.toHaveBeenCalled();
     expect(scoped.territoriesByCodes).toHaveBeenCalledOnce();
     expect(scoped.territoriesByCoreId).toHaveBeenCalledOnce();
@@ -233,14 +237,18 @@ describe('INS entity statistical context contributor', () => {
   });
   it('does not infer an area for missing or withheld kernel identities', async () => {
     const repo = repoWithNodes([]);
-    const snapshot = vi.spyOn(repo, 'withSnapshot');
+    let snapshots = 0;
+    repo.withSnapshot = (fn) => {
+      snapshots += 1;
+      return fn(repo);
+    };
     expect((await makeInsContributor(repo).presenceFor('123'))._unsafeUnwrap()).toBeNull();
     expect(
       (
         await makeInsContributor(repo, { territoryForCui: async () => ok(null) }).presenceFor('123')
       )._unsafeUnwrap()
     ).toBeNull();
-    expect(snapshot).not.toHaveBeenCalled();
+    expect(snapshots).toBe(0);
   });
   it('does not claim coverage from other territories', async () => {
     const repo = repoWithNodes([CLUJ_NAPOCA]);

@@ -14,16 +14,6 @@
  * pins that they stay compiled from it — the live-data proof (both partition all
  * 20,745 prod rows identically, zero off-diagonal) is in PARLIAMENT_NOTES.
  */
-import {
-  Kysely,
-  PostgresAdapter,
-  PostgresIntrospector,
-  PostgresQueryCompiler,
-  type CompiledQuery,
-  type DatabaseConnection,
-  type Driver,
-  type QueryResult,
-} from 'kysely';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -32,42 +22,12 @@ import {
 } from '../../../src/modules/parliament/shell/filters/specs.js';
 import { parliamentTypeDefs } from '../../../src/modules/parliament/shell/graphql/typedefs.js';
 import { makeParliamentRepo } from '../../../src/modules/parliament/shell/repo/parliament-repo.js';
-
-import type { ProdDatabase } from '../../../src/modules/shared/index.js';
+import { makeCapturingDb } from '../../fixtures/capturing-db.js';
 
 interface Captured {
   readonly sql: string;
   readonly parameters: readonly unknown[];
 }
-
-const makeCapturingDb = (captured: Captured[]): Kysely<ProdDatabase> => {
-  const connection: DatabaseConnection = {
-    executeQuery<R>(query: CompiledQuery): Promise<QueryResult<R>> {
-      captured.push({ sql: query.sql, parameters: query.parameters });
-      return Promise.resolve({ rows: [] as R[] });
-    },
-    streamQuery(): AsyncIterableIterator<QueryResult<never>> {
-      throw new Error('streamQuery not supported in the capturing db');
-    },
-  };
-  const driver: Driver = {
-    init: () => Promise.resolve(),
-    acquireConnection: () => Promise.resolve(connection),
-    beginTransaction: () => Promise.resolve(),
-    commitTransaction: () => Promise.resolve(),
-    rollbackTransaction: () => Promise.resolve(),
-    releaseConnection: () => Promise.resolve(),
-    destroy: () => Promise.resolve(),
-  };
-  return new Kysely<ProdDatabase>({
-    dialect: {
-      createAdapter: () => new PostgresAdapter(),
-      createDriver: () => driver,
-      createIntrospector: (db) => new PostgresIntrospector(db),
-      createQueryCompiler: () => new PostgresQueryCompiler(),
-    },
-  });
-};
 
 const flat = (s: string): string => s.replace(/\s+/gu, ' ').trim();
 
@@ -139,10 +99,7 @@ describe('ParliamentVote.voteLinks — the role, from the vote side', () => {
     // read (2026-08-04), while candidate/ambiguous edges stay surfaced with
     // their resolutionStatus intact.
     expect(flat(q?.sql ?? '')).toContain('"bvl"."resolution_status" != $2');
-    expect(q?.parameters).toEqual([
-      'senat:DE89A4FC-E2E8-467B-B730-3DA7A0EEA476',
-      'retracted',
-    ]);
+    expect(q?.parameters).toEqual(['senat:DE89A4FC-E2E8-467B-B730-3DA7A0EEA476', 'retracted']);
     // The role is the point of the field; selecting the edge without it would
     // leave the caller exactly where billKey already left them.
     expect(flat(q?.sql ?? '')).toContain('"bvl"."role"');

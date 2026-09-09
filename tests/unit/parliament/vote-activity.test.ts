@@ -13,20 +13,13 @@
  *     the bound, and it has deliberately been removed from the filter.
  */
 
-import {
-  Kysely,
-  PostgresAdapter,
-  PostgresIntrospector,
-  PostgresQueryCompiler,
-  type CompiledQuery,
-  type DatabaseConnection,
-  type Driver,
-  type QueryResult,
-} from 'kysely';
+import { Kysely } from 'kysely';
 import { describe, expect, it } from 'vitest';
 
 import { getParliamentVoteActivity } from '@/modules/parliament/core/usecases.js';
 import { makeParliamentRepo } from '@/modules/parliament/shell/repo/parliament-repo.js';
+
+import { makeCapturingDb as makeSharedCapturingDb } from '../../fixtures/capturing-db.js';
 
 import type { ParliamentRepo } from '@/modules/parliament/core/ports.js';
 import type { FilterInput, ProdDatabase } from '@/modules/shared/index.js';
@@ -44,74 +37,24 @@ const makeCapturingDb = (
   captured: Captured[],
   rows: readonly unknown[] = [],
   { derived = true }: { derived?: boolean } = {}
-): Kysely<ProdDatabase> => {
-  const connection: DatabaseConnection = {
-    executeQuery<R>(query: CompiledQuery): Promise<QueryResult<R>> {
-      captured.push({ sql: query.sql, parameters: query.parameters });
+): Kysely<ProdDatabase> =>
+  makeSharedCapturingDb(captured, {
+    respond: (sql) =>
       // A derived deployment has a coverage row; without one the repo correctly
       // declines to annotate, which would starve the assertions below.
-      if (derived && isCoverageProbe(query.sql)) {
-        return Promise.resolve({ rows: [{ ok: 1 }] as R[] });
-      }
-      return Promise.resolve({ rows: rows as R[] });
-    },
-    streamQuery(): AsyncIterableIterator<QueryResult<never>> {
-      throw new Error('streamQuery not supported in the capturing db');
-    },
-  };
-  const driver: Driver = {
-    init: () => Promise.resolve(),
-    acquireConnection: () => Promise.resolve(connection),
-    beginTransaction: () => Promise.resolve(),
-    commitTransaction: () => Promise.resolve(),
-    rollbackTransaction: () => Promise.resolve(),
-    releaseConnection: () => Promise.resolve(),
-    destroy: () => Promise.resolve(),
-  };
-  return new Kysely<ProdDatabase>({
-    dialect: {
-      createAdapter: () => new PostgresAdapter(),
-      createDriver: () => driver,
-      createIntrospector: (db) => new PostgresIntrospector(db),
-      createQueryCompiler: () => new PostgresQueryCompiler(),
-    },
+      derived && isCoverageProbe(sql) ? [{ ok: 1 }] : rows,
   });
-};
 
 /** Like the capturing db, but a query matching `failOn` throws — an un-migrated relation. */
-const makeCapturingDbFailing = (captured: Captured[], failOn: RegExp): Kysely<ProdDatabase> => {
-  const connection: DatabaseConnection = {
-    executeQuery<R>(query: CompiledQuery): Promise<QueryResult<R>> {
-      captured.push({ sql: query.sql, parameters: query.parameters });
-      if (failOn.test(query.sql)) {
-        return Promise.reject(
-          new Error('relation "parliament.vote_capture_coverage" does not exist')
-        );
+const makeCapturingDbFailing = (captured: Captured[], failOn: RegExp): Kysely<ProdDatabase> =>
+  makeSharedCapturingDb(captured, {
+    respond: (sql) => {
+      if (failOn.test(sql)) {
+        throw new Error('relation "parliament.vote_capture_coverage" does not exist');
       }
-      return Promise.resolve({ rows: [] as R[] });
-    },
-    streamQuery(): AsyncIterableIterator<QueryResult<never>> {
-      throw new Error('streamQuery not supported in the capturing db');
-    },
-  };
-  const driver: Driver = {
-    init: () => Promise.resolve(),
-    acquireConnection: () => Promise.resolve(connection),
-    beginTransaction: () => Promise.resolve(),
-    commitTransaction: () => Promise.resolve(),
-    rollbackTransaction: () => Promise.resolve(),
-    releaseConnection: () => Promise.resolve(),
-    destroy: () => Promise.resolve(),
-  };
-  return new Kysely<ProdDatabase>({
-    dialect: {
-      createAdapter: () => new PostgresAdapter(),
-      createDriver: () => driver,
-      createIntrospector: (db) => new PostgresIntrospector(db),
-      createQueryCompiler: () => new PostgresQueryCompiler(),
+      return [];
     },
   });
-};
 
 const flat = (s: string): string => s.replace(/\s+/gu, ' ').trim();
 const isCapabilityProbe = (q: Captured): boolean =>

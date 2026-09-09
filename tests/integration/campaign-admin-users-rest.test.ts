@@ -10,6 +10,7 @@ import {
   type LearningProgressRepository,
 } from '@/modules/learning-progress/index.js';
 
+import { recordCalls } from '../fixtures/call-recorder.js';
 import { createTestInteractiveRecord, makeFakeLearningProgressRepo } from '../fixtures/fakes.js';
 
 import type { LearningProgressRecordRow } from '@/modules/learning-progress/core/types.js';
@@ -401,7 +402,7 @@ describe('Campaign Admin Users REST API', () => {
 
   it('returns 403 when the authenticated user lacks campaign-admin permission', async () => {
     const learningProgressRepo = makeFakeLearningProgressRepo();
-    const listUsersSpy = vi.spyOn(learningProgressRepo, 'listCampaignAdminUsers');
+    const listUsersSpy = recordCalls(learningProgressRepo, 'listCampaignAdminUsers');
     const setup = await createTestApp({
       permissionAllowed: false,
       learningProgressRepo,
@@ -427,12 +428,12 @@ describe('Campaign Admin Users REST API', () => {
       userId: 'user_test_1',
       permissionName: 'campaign:funky_admin',
     });
-    expect(listUsersSpy).not.toHaveBeenCalled();
+    expect(listUsersSpy.calls).toHaveLength(0);
   });
 
   it('returns 401 for users meta when authentication is missing', async () => {
     const learningProgressRepo = makeFakeLearningProgressRepo();
-    const metaSpy = vi.spyOn(learningProgressRepo, 'getCampaignAdminUsersMetaCounts');
+    const metaSpy = recordCalls(learningProgressRepo, 'getCampaignAdminUsersMetaCounts');
     const setup = await createTestApp({
       learningProgressRepo,
     });
@@ -444,12 +445,12 @@ describe('Campaign Admin Users REST API', () => {
     });
 
     expect(response.statusCode).toBe(401);
-    expect(metaSpy).not.toHaveBeenCalled();
+    expect(metaSpy.calls).toHaveLength(0);
   });
 
   it('returns 403 for users meta when the authenticated user lacks campaign-admin permission', async () => {
     const learningProgressRepo = makeFakeLearningProgressRepo();
-    const metaSpy = vi.spyOn(learningProgressRepo, 'getCampaignAdminUsersMetaCounts');
+    const metaSpy = recordCalls(learningProgressRepo, 'getCampaignAdminUsersMetaCounts');
     const setup = await createTestApp({
       permissionAllowed: false,
       learningProgressRepo,
@@ -465,7 +466,7 @@ describe('Campaign Admin Users REST API', () => {
     });
 
     expect(response.statusCode).toBe(403);
-    expect(metaSpy).not.toHaveBeenCalled();
+    expect(metaSpy.calls).toHaveLength(0);
   });
 
   it('returns 404 for unknown campaigns', async () => {
@@ -485,7 +486,7 @@ describe('Campaign Admin Users REST API', () => {
 
   it('returns 404 for unknown campaigns on users meta', async () => {
     const learningProgressRepo = makeFakeLearningProgressRepo();
-    const metaSpy = vi.spyOn(learningProgressRepo, 'getCampaignAdminUsersMetaCounts');
+    const metaSpy = recordCalls(learningProgressRepo, 'getCampaignAdminUsersMetaCounts');
     const setup = await createTestApp({
       learningProgressRepo,
     });
@@ -500,7 +501,7 @@ describe('Campaign Admin Users REST API', () => {
     });
 
     expect(response.statusCode).toBe(404);
-    expect(metaSpy).not.toHaveBeenCalled();
+    expect(metaSpy.calls).toHaveLength(0);
   });
 
   it('returns an empty 200 response with default paging metadata', async () => {
@@ -558,7 +559,7 @@ describe('Campaign Admin Users REST API', () => {
 
   it('passes only campaign-derived interaction filters to the users meta repo', async () => {
     const learningProgressRepo = makeFakeLearningProgressRepo();
-    const metaSpy = vi.spyOn(learningProgressRepo, 'getCampaignAdminUsersMetaCounts');
+    const metaSpy = recordCalls(learningProgressRepo, 'getCampaignAdminUsersMetaCounts');
     const setup = await createTestApp({
       learningProgressRepo,
     });
@@ -573,22 +574,24 @@ describe('Campaign Admin Users REST API', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(metaSpy).toHaveBeenCalledWith({
-      campaignKey: 'funky',
-      interactions: expect.arrayContaining([
-        { interactionId: 'funky:interaction:public_debate_request' },
-        { interactionId: 'funky:interaction:city_hall_website' },
-        { interactionId: 'funky:interaction:funky_participation' },
-      ]),
-      reviewableInteractions: expect.arrayContaining([
-        {
-          interactionId: 'funky:interaction:public_debate_request',
-          submissionPath: 'request_platform',
-        },
-        { interactionId: 'funky:interaction:city_hall_website' },
-      ]),
-    });
-    expect(metaSpy).toHaveBeenCalledTimes(1);
+    expect(metaSpy.calls[0]).toEqual([
+      {
+        campaignKey: 'funky',
+        interactions: expect.arrayContaining([
+          { interactionId: 'funky:interaction:public_debate_request' },
+          { interactionId: 'funky:interaction:city_hall_website' },
+          { interactionId: 'funky:interaction:funky_participation' },
+        ]),
+        reviewableInteractions: expect.arrayContaining([
+          {
+            interactionId: 'funky:interaction:public_debate_request',
+            submissionPath: 'request_platform',
+          },
+          { interactionId: 'funky:interaction:city_hall_website' },
+        ]),
+      },
+    ]);
+    expect(metaSpy.calls).toHaveLength(1);
   });
 
   it('aggregates campaign users across multiple rows and keeps pendingReviewCount reviewable-only', async () => {
@@ -816,7 +819,7 @@ describe('Campaign Admin Users REST API', () => {
 
   it('passes entityCui through to the users repo and allows subscription-only rows', async () => {
     const learningProgressRepo = makeFakeLearningProgressRepo();
-    const listUsersSpy = vi.spyOn(learningProgressRepo, 'listCampaignAdminUsers').mockResolvedValue(
+    const listUsersSpy = recordCalls(learningProgressRepo, 'listCampaignAdminUsers', async () =>
       ok({
         items: [
           {
@@ -850,14 +853,14 @@ describe('Campaign Admin Users REST API', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(listUsersSpy).toHaveBeenCalledWith(
+    expect(listUsersSpy.calls[0]).toEqual([
       expect.objectContaining({
         campaignKey: 'funky',
         entityCui: '12345678',
         sortBy: 'latestUpdatedAt',
         sortOrder: 'desc',
-      })
-    );
+      }),
+    ]);
     expect(response.json()).toEqual({
       ok: true,
       data: {
@@ -1224,7 +1227,7 @@ describe('Campaign Admin Users REST API', () => {
 
   it('returns 400 for unsupported filters on the users list', async () => {
     const learningProgressRepo = makeFakeLearningProgressRepo();
-    const listUsersSpy = vi.spyOn(learningProgressRepo, 'listCampaignAdminUsers');
+    const listUsersSpy = recordCalls(learningProgressRepo, 'listCampaignAdminUsers');
     const setup = await createTestApp({
       learningProgressRepo,
     });
@@ -1243,12 +1246,12 @@ describe('Campaign Admin Users REST API', () => {
       ok: false,
       retryable: false,
     });
-    expect(listUsersSpy).not.toHaveBeenCalled();
+    expect(listUsersSpy.calls).toHaveLength(0);
   });
 
   it('returns 400 for unsupported user sorts', async () => {
     const learningProgressRepo = makeFakeLearningProgressRepo();
-    const listUsersSpy = vi.spyOn(learningProgressRepo, 'listCampaignAdminUsers');
+    const listUsersSpy = recordCalls(learningProgressRepo, 'listCampaignAdminUsers');
     const setup = await createTestApp({
       learningProgressRepo,
     });
@@ -1267,7 +1270,7 @@ describe('Campaign Admin Users REST API', () => {
       ok: false,
       retryable: false,
     });
-    expect(listUsersSpy).not.toHaveBeenCalled();
+    expect(listUsersSpy.calls).toHaveLength(0);
   });
 
   it('validates limit bounds', async () => {

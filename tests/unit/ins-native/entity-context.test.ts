@@ -35,6 +35,8 @@ const anchor = (fields: Partial<Territory> = {}): Territory => ({
 const identity = (value: Territory | null = anchor()) => ({
   territoryForCui: vi.fn(async () => ok(value)),
 });
+/** How many times each fake repository opened a snapshot (replaces a spy). */
+const snapshotCalls = new Map<InsRepo, number>();
 const repository = (node: InsTerritoryNode | null = CLUJ_NAPOCA) => {
   const repo: InsRepo = {
     ...makeFakeRepo(),
@@ -42,8 +44,10 @@ const repository = (node: InsTerritoryNode | null = CLUJ_NAPOCA) => {
     territoriesByCoreId: vi.fn(async () => ok([])),
     datasetsForTerritory: vi.fn(async () => ok(['POPTEST'])),
   };
-  repo.withSnapshot = (fn) => fn(repo);
-  vi.spyOn(repo, 'withSnapshot');
+  repo.withSnapshot = (fn) => {
+    snapshotCalls.set(repo, (snapshotCalls.get(repo) ?? 0) + 1);
+    return fn(repo);
+  };
   return repo;
 };
 const error: ApiError = { type: 'ServiceUnavailable', message: 'Unavailable' };
@@ -85,7 +89,7 @@ describe('native entity INS context', () => {
     expect((await contributor.profileSlice('123'))._unsafeUnwrapErr().type).toBe(
       'ServiceUnavailable'
     );
-    expect(repo.withSnapshot).not.toHaveBeenCalled();
+    expect(snapshotCalls.get(repo) ?? 0).toBe(0);
   });
   it.each(['12345678901', 'RO 1234567890123'])(
     'withholds direct profile reads before any dependency access: %s',
@@ -94,7 +98,7 @@ describe('native entity INS context', () => {
       const deps = identity();
       expect((await makeInsContributor(repo, deps).profileSlice(cui))._unsafeUnwrap()).toBeNull();
       expect(deps.territoryForCui).not.toHaveBeenCalled();
-      expect(repo.withSnapshot).not.toHaveBeenCalled();
+      expect(snapshotCalls.get(repo) ?? 0).toBe(0);
     }
   );
   it.each(['', 'RO', '12345678901234'])(

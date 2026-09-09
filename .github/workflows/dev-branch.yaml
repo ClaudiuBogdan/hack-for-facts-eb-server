@@ -124,9 +124,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build application
-        run: pnpm build
-
       - name: Get Secrets from Bitwarden
         uses: bitwarden/sm-action@v1
         with:

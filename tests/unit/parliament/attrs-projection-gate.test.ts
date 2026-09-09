@@ -21,20 +21,13 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-import {
-  Kysely,
-  PostgresAdapter,
-  PostgresIntrospector,
-  PostgresQueryCompiler,
-  type CompiledQuery,
-  type DatabaseConnection,
-  type Driver,
-  type QueryResult,
-} from 'kysely';
+import { Kysely } from 'kysely';
 import { describe, expect, it } from 'vitest';
 
 import { makeParliamentRepo } from '@/modules/parliament/shell/repo/parliament-repo.js';
 import { type ProdDatabase } from '@/modules/shared/index.js';
+
+import { makeCapturingDb as makeSharedCapturingDb } from '../../fixtures/capturing-db.js';
 
 /** Strip JS line + block comments so assertions match CODE, not doc prose. */
 const stripComments = (src: string): string =>
@@ -52,35 +45,15 @@ const repoSource = stripComments(
 /** Captures every compiled query; answers each with zero rows. */
 const makeCapturingDb = (
   captured: string[]
-): { db: Kysely<ProdDatabase>; sql: readonly string[] } => {
-  const connection: DatabaseConnection = {
-    executeQuery<R>(query: CompiledQuery): Promise<QueryResult<R>> {
-      captured.push(query.sql);
-      return Promise.resolve({ rows: [] as R[] });
+): { db: Kysely<ProdDatabase>; sql: readonly string[] } => ({
+  db: makeSharedCapturingDb([], {
+    respond: (sql) => {
+      captured.push(sql);
+      return [];
     },
-    streamQuery(): AsyncIterableIterator<QueryResult<never>> {
-      throw new Error('streamQuery not supported');
-    },
-  };
-  const driver: Driver = {
-    init: () => Promise.resolve(),
-    acquireConnection: () => Promise.resolve(connection),
-    beginTransaction: () => Promise.resolve(),
-    commitTransaction: () => Promise.resolve(),
-    rollbackTransaction: () => Promise.resolve(),
-    releaseConnection: () => Promise.resolve(),
-    destroy: () => Promise.resolve(),
-  };
-  const db = new Kysely<ProdDatabase>({
-    dialect: {
-      createAdapter: () => new PostgresAdapter(),
-      createDriver: () => driver,
-      createIntrospector: (d) => new PostgresIntrospector(d),
-      createQueryCompiler: () => new PostgresQueryCompiler(),
-    },
-  });
-  return { db, sql: captured };
-};
+  }),
+  sql: captured,
+});
 
 /**
  * Every `attrs` occurrence that is NOT immediately followed by a jsonb accessor

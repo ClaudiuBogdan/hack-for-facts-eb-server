@@ -4,68 +4,9 @@
 
 import { Writable } from 'node:stream';
 
+import { ok } from 'neverthrow';
 import { Webhook } from 'svix';
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
-
-const {
-  startUserEventRuntimeMock,
-  startCorrespondenceRecoveryRuntimeMock,
-  startAdminEventRuntimeMock,
-} = vi.hoisted(() => ({
-  startUserEventRuntimeMock: vi.fn(async () => ({
-    publisher: {
-      publish: vi.fn(async () => undefined),
-      publishMany: vi.fn(async () => undefined),
-    },
-    stop: vi.fn(async () => undefined),
-  })),
-  startCorrespondenceRecoveryRuntimeMock: vi.fn(async () => ({
-    stop: vi.fn(async () => undefined),
-  })),
-  startAdminEventRuntimeMock: vi.fn(async () => ({
-    queue: {
-      enqueue: vi.fn(async () => ({ isOk: () => true, isErr: () => false, value: undefined })),
-      enqueueMany: vi.fn(async () => ({ isOk: () => true, isErr: () => false, value: undefined })),
-      get: vi.fn(async () => ({ isOk: () => true, isErr: () => false, value: null })),
-      listPending: vi.fn(async () => ({ isOk: () => true, isErr: () => false, value: [] })),
-      remove: vi.fn(async () => ({ isOk: () => true, isErr: () => false, value: true })),
-    },
-    stop: vi.fn(async () => undefined),
-  })),
-}));
-
-vi.mock('@/modules/user-events/index.js', async () => {
-  const actual = await vi.importActual<typeof import('@/modules/user-events/index.js')>(
-    '@/modules/user-events/index.js'
-  );
-
-  return {
-    ...actual,
-    startUserEventRuntime: startUserEventRuntimeMock,
-  };
-});
-
-vi.mock('@/modules/institution-correspondence/index.js', async () => {
-  const actual = await vi.importActual<
-    typeof import('@/modules/institution-correspondence/index.js')
-  >('@/modules/institution-correspondence/index.js');
-
-  return {
-    ...actual,
-    startCorrespondenceRecoveryRuntime: startCorrespondenceRecoveryRuntimeMock,
-  };
-});
-
-vi.mock('@/modules/admin-events/index.js', async () => {
-  const actual = await vi.importActual<typeof import('@/modules/admin-events/index.js')>(
-    '@/modules/admin-events/index.js'
-  );
-
-  return {
-    ...actual,
-    startAdminEventRuntime: startAdminEventRuntimeMock,
-  };
-});
 
 import { buildApp, createApp } from '@/app/build-app.js';
 import { deserialize } from '@/infra/cache/serialization.js';
@@ -74,6 +15,42 @@ import { startNotificationDeliveryRuntime } from '@/modules/notification-deliver
 
 import { makeTestConfig } from '../fixtures/builders.js';
 import { makeFakeBudgetDb, makeFakeDatasetRepo, makeFakeKyselyDb } from '../fixtures/fakes.js';
+
+import type { AppDeps } from '@/app/build-plan.js';
+
+// The queue-backed runtimes (user events, admin events, correspondence
+// recovery) are injected through the factories `AppDeps` already exposes, so no
+// test here reaches BullMQ/Redis. Every composition in this file goes through
+// `buildAppWithFakeRuntimes` / `createAppWithFakeRuntimes`; a test that wants
+// its own factory passes it in `deps` and wins.
+let userEventRuntimeStarts = 0;
+const fakeRuntimeFactories = (): Pick<
+  AppDeps,
+  'userEventRuntimeFactory' | 'adminEventRuntimeFactory' | 'correspondenceRecoveryRuntimeFactory'
+> => ({
+  userEventRuntimeFactory: async () => {
+    userEventRuntimeStarts += 1;
+    return {
+      publisher: { publish: async () => undefined, publishMany: async () => undefined },
+      stop: async () => undefined,
+    };
+  },
+  adminEventRuntimeFactory: async () => ({
+    queue: {
+      enqueue: async () => ok(undefined),
+      enqueueMany: async () => ok(undefined),
+      get: async () => ok(null),
+      listPending: async () => ok([]),
+      remove: async () => ok(true),
+    },
+    stop: async () => undefined,
+  }),
+  correspondenceRecoveryRuntimeFactory: async () => ({ stop: async () => undefined }),
+});
+const buildAppWithFakeRuntimes: typeof buildApp = (options) =>
+  buildApp({ ...options, deps: { ...fakeRuntimeFactories(), ...options?.deps } });
+const createAppWithFakeRuntimes: typeof createApp = (options) =>
+  createApp({ ...options, deps: { ...fakeRuntimeFactories(), ...options?.deps } });
 
 interface LogEntry {
   msg?: string;
@@ -216,7 +193,7 @@ function signClerkWebhookPayload(payload: string, date: Date) {
 describe('App Factory', () => {
   describe('buildApp', () => {
     it('creates a Fastify instance', async () => {
-      const app = await buildApp({
+      const app = await buildAppWithFakeRuntimes({
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
@@ -232,7 +209,7 @@ describe('App Factory', () => {
     });
 
     it('accepts custom logger', async () => {
-      const app = await buildApp({
+      const app = await buildAppWithFakeRuntimes({
         fastifyOptions: { logger: { level: 'silent' } },
         deps: {
           budgetDb: makeFakeBudgetDb(),
@@ -255,7 +232,7 @@ describe('App Factory', () => {
       process.env['CACHE_BACKEND'] = 'redis';
 
       try {
-        const app = await buildApp({
+        const app = await buildAppWithFakeRuntimes({
           fastifyOptions: { logger: { level: 'info', stream: logs.stream } },
           deps: {
             budgetDb: makeFakeBudgetDb(),
@@ -298,7 +275,7 @@ describe('App Factory', () => {
     });
 
     it('sets a default router maxParamLength for unsubscribe tokens', async () => {
-      const app = await buildApp({
+      const app = await buildAppWithFakeRuntimes({
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
@@ -314,7 +291,7 @@ describe('App Factory', () => {
     });
 
     it('preserves caller-provided router maxParamLength overrides', async () => {
-      const app = await buildApp({
+      const app = await buildAppWithFakeRuntimes({
         fastifyOptions: {
           logger: false,
           routerOptions: {
@@ -335,7 +312,7 @@ describe('App Factory', () => {
     });
 
     it('registers health routes', async () => {
-      const app = await buildApp({
+      const app = await buildAppWithFakeRuntimes({
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
@@ -365,7 +342,7 @@ describe('App Factory', () => {
     };
 
     it('registers grouped-series advanced map analytics route when userDb is enabled', async () => {
-      const app = await buildApp({
+      const app = await buildAppWithFakeRuntimes({
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
@@ -390,7 +367,7 @@ describe('App Factory', () => {
     it('registers advanced map analytics routes when userDb is enabled', async () => {
       const { provider } = createTestAuthProvider();
 
-      const app = await buildApp({
+      const app = await buildAppWithFakeRuntimes({
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
@@ -414,7 +391,7 @@ describe('App Factory', () => {
     });
 
     it('registers resend webhook route when userDb and webhook secret are configured', async () => {
-      const app = await buildApp({
+      const app = await buildAppWithFakeRuntimes({
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
@@ -446,7 +423,7 @@ describe('App Factory', () => {
     });
 
     it('registers Clerk webhook route when the signing secret is configured without userDb', async () => {
-      const app = await buildApp({
+      const app = await buildAppWithFakeRuntimes({
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
@@ -474,7 +451,7 @@ describe('App Factory', () => {
 
     it('fails closed when BullMQ workers are enabled without CLERK_SECRET_KEY', async () => {
       await expect(
-        buildApp({
+        buildAppWithFakeRuntimes({
           fastifyOptions: { logger: false },
           deps: {
             budgetDb: makeFakeBudgetDb(),
@@ -524,7 +501,7 @@ describe('App Factory', () => {
 
     it('fails closed when email is enabled without EMAIL_FROM_ADDRESS', async () => {
       await expect(
-        buildApp({
+        buildAppWithFakeRuntimes({
           fastifyOptions: { logger: false },
           deps: {
             budgetDb: makeFakeBudgetDb(),
@@ -558,7 +535,7 @@ describe('App Factory', () => {
 
     it('fails closed when campaign email is enabled without FUNKY_EMAIL_FROM_ADDRESS', async () => {
       await expect(
-        buildApp({
+        buildAppWithFakeRuntimes({
           fastifyOptions: { logger: false },
           deps: {
             budgetDb: makeFakeBudgetDb(),
@@ -594,7 +571,7 @@ describe('App Factory', () => {
 
     it('fails closed when public debate correspondence is enabled without FUNKY_EMAIL_REPLY_TO_ADDRESS', async () => {
       await expect(
-        buildApp({
+        buildAppWithFakeRuntimes({
           fastifyOptions: { logger: false },
           deps: {
             budgetDb: makeFakeBudgetDb(),
@@ -644,7 +621,7 @@ describe('App Factory', () => {
         stop: userEventStop,
       }));
 
-      const app = await buildApp({
+      const app = await buildAppWithFakeRuntimes({
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
@@ -735,7 +712,7 @@ describe('App Factory', () => {
       }
 
       await expect(
-        buildApp({
+        buildAppWithFakeRuntimes({
           fastifyOptions: { logger: false },
           deps: {
             budgetDb: makeFakeBudgetDb(),
@@ -802,7 +779,7 @@ describe('App Factory', () => {
         stop: userEventStop,
       }));
 
-      const app = await buildApp({
+      const app = await buildAppWithFakeRuntimes({
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
@@ -872,7 +849,7 @@ describe('App Factory', () => {
         stop: userEventStop,
       }));
 
-      const app = await buildApp({
+      const app = await buildAppWithFakeRuntimes({
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
@@ -945,7 +922,7 @@ describe('App Factory', () => {
         stop: userEventStop,
       }));
 
-      const app = await buildApp({
+      const app = await buildAppWithFakeRuntimes({
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
@@ -1009,7 +986,7 @@ describe('App Factory', () => {
         stop: notificationStop,
       }));
 
-      const app = await buildApp({
+      const app = await buildAppWithFakeRuntimes({
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
@@ -1077,7 +1054,7 @@ describe('App Factory', () => {
 
     it('fails when BullMQ background processing is enabled without userDb', async () => {
       await expect(
-        buildApp({
+        buildAppWithFakeRuntimes({
           fastifyOptions: { logger: false },
           deps: {
             budgetDb: makeFakeBudgetDb(),
@@ -1114,9 +1091,9 @@ describe('App Factory', () => {
     });
 
     it('does not start the user event runtime when BULLMQ_REDIS_URL is unavailable', async () => {
-      startUserEventRuntimeMock.mockClear();
+      userEventRuntimeStarts = 0;
 
-      const app = await buildApp({
+      const app = await buildAppWithFakeRuntimes({
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
@@ -1149,7 +1126,7 @@ describe('App Factory', () => {
         },
       });
 
-      expect(startUserEventRuntimeMock).not.toHaveBeenCalled();
+      expect(userEventRuntimeStarts).toBe(0);
 
       await app.close();
     });
@@ -1162,7 +1139,7 @@ describe('App Factory', () => {
         stop,
       }));
 
-      const app = await buildApp({
+      const app = await buildAppWithFakeRuntimes({
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
@@ -1246,7 +1223,7 @@ describe('App Factory', () => {
 
     it('does not require UNSUBSCRIBE_HMAC_SECRET when notification routes are not mounted', async () => {
       await expect(
-        buildApp({
+        buildAppWithFakeRuntimes({
           fastifyOptions: { logger: false },
           deps: {
             budgetDb: makeFakeBudgetDb(),
@@ -1267,7 +1244,7 @@ describe('App Factory', () => {
 
     it('fails closed when notification routes are enabled without UNSUBSCRIBE_HMAC_SECRET', async () => {
       await expect(
-        buildApp({
+        buildAppWithFakeRuntimes({
           fastifyOptions: { logger: false },
           deps: {
             budgetDb: makeFakeBudgetDb(),
@@ -1289,7 +1266,7 @@ describe('App Factory', () => {
 
     it('fails closed when notification workers are enabled without UNSUBSCRIBE_HMAC_SECRET', async () => {
       await expect(
-        buildApp({
+        buildAppWithFakeRuntimes({
           fastifyOptions: { logger: false },
           deps: {
             budgetDb: makeFakeBudgetDb(),
@@ -1337,7 +1314,7 @@ describe('App Factory', () => {
 
     it('fails closed when the notification delivery runtime is enabled without userDb', async () => {
       await expect(
-        buildApp({
+        buildAppWithFakeRuntimes({
           fastifyOptions: { logger: false },
           deps: {
             budgetDb: makeFakeBudgetDb(),
@@ -1361,7 +1338,7 @@ describe('App Factory', () => {
 
     it('fails closed when notification admin routes are enabled without BULLMQ_REDIS_URL', async () => {
       await expect(
-        buildApp({
+        buildAppWithFakeRuntimes({
           fastifyOptions: { logger: false },
           deps: {
             budgetDb: makeFakeBudgetDb(),
@@ -1392,7 +1369,7 @@ describe('App Factory', () => {
     });
 
     it('does not register Clerk webhook route when the signing secret is absent', async () => {
-      const app = await buildApp({
+      const app = await buildAppWithFakeRuntimes({
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
@@ -1415,7 +1392,7 @@ describe('App Factory', () => {
 
     it('bypasses bearer auth validation for the public Clerk webhook route', async () => {
       const testAuth = createTestAuthProvider();
-      const app = await buildApp({
+      const app = await buildAppWithFakeRuntimes({
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
@@ -1459,7 +1436,7 @@ describe('App Factory', () => {
     // slice 1 commit 4 the map routes exist only on the mounted kernel surface.
 
     it('starts without clerk secret key so non-public advanced map writes remain available', async () => {
-      const app = await buildApp({
+      const app = await buildAppWithFakeRuntimes({
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
@@ -1486,7 +1463,7 @@ describe('App Factory', () => {
     });
 
     it('starts with a blank clerk secret key so non-public advanced map writes remain available', async () => {
-      const app = await buildApp({
+      const app = await buildAppWithFakeRuntimes({
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
@@ -1519,7 +1496,7 @@ describe('App Factory', () => {
         composeJobScheduler: {} as never,
         stop: vi.fn(async () => undefined),
       }));
-      const app = await buildApp({
+      const app = await buildAppWithFakeRuntimes({
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
@@ -1570,7 +1547,7 @@ describe('App Factory', () => {
 
     it('fails closed when public debate correspondence is enabled without BULLMQ_REDIS_URL', async () => {
       await expect(
-        buildApp({
+        buildAppWithFakeRuntimes({
           fastifyOptions: { logger: false },
           deps: {
             budgetDb: makeFakeBudgetDb(),
@@ -1597,7 +1574,7 @@ describe('App Factory', () => {
     });
 
     it('does not register campaign-admin routes when the API is disabled', async () => {
-      const app = await buildApp({
+      const app = await buildAppWithFakeRuntimes({
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
@@ -1640,7 +1617,7 @@ describe('App Factory', () => {
         composeJobScheduler: {} as never,
         stop: vi.fn(async () => undefined),
       }));
-      const app = await buildApp({
+      const app = await buildAppWithFakeRuntimes({
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
@@ -1698,7 +1675,7 @@ describe('App Factory', () => {
       const testAuth = createTestAuthProvider();
 
       await expect(
-        buildApp({
+        buildAppWithFakeRuntimes({
           fastifyOptions: { logger: false },
           deps: {
             budgetDb: makeFakeBudgetDb(),
@@ -1725,7 +1702,7 @@ describe('App Factory', () => {
 
     it('fails closed when campaign-admin routes are enabled without authProvider', async () => {
       await expect(
-        buildApp({
+        buildAppWithFakeRuntimes({
           fastifyOptions: { logger: false },
           deps: {
             budgetDb: makeFakeBudgetDb(),
@@ -1754,7 +1731,7 @@ describe('App Factory', () => {
       const testAuth = createTestAuthProvider();
 
       await expect(
-        buildApp({
+        buildAppWithFakeRuntimes({
           fastifyOptions: { logger: false },
           deps: {
             budgetDb: makeFakeBudgetDb(),
@@ -1784,7 +1761,7 @@ describe('App Factory', () => {
       const testAuth = createTestAuthProvider();
 
       await expect(
-        buildApp({
+        buildAppWithFakeRuntimes({
           fastifyOptions: { logger: false },
           deps: {
             budgetDb: makeFakeBudgetDb(),
@@ -1826,7 +1803,7 @@ describe('App Factory', () => {
       }));
 
       await expect(
-        buildApp({
+        buildAppWithFakeRuntimes({
           fastifyOptions: { logger: false },
           deps: {
             budgetDb: makeFakeBudgetDb(),
@@ -1880,7 +1857,7 @@ describe('App Factory', () => {
       const testAuth = createTestAuthProvider();
 
       await expect(
-        buildApp({
+        buildAppWithFakeRuntimes({
           fastifyOptions: { logger: false },
           deps: {
             budgetDb: makeFakeBudgetDb(),
@@ -1913,7 +1890,7 @@ describe('App Factory', () => {
         composeJobScheduler: {} as never,
         stop: vi.fn(async () => undefined),
       }));
-      const app = await buildApp({
+      const app = await buildAppWithFakeRuntimes({
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
@@ -2002,7 +1979,7 @@ describe('App Factory', () => {
     it('does not grant the elevated rate limit for an invalid special key', async () => {
       const specialKey = 'trusted-service-key';
 
-      const app = await buildApp({
+      const app = await buildAppWithFakeRuntimes({
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
@@ -2047,7 +2024,7 @@ describe('App Factory', () => {
     it('grants the elevated rate limit for a matching special key', async () => {
       const specialKey = 'trusted-service-key';
 
-      const app = await buildApp({
+      const app = await buildAppWithFakeRuntimes({
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
@@ -2096,7 +2073,7 @@ describe('App Factory', () => {
     it('logs incoming and completed once for non-health routes', async () => {
       const logs = createLogCollector();
 
-      const app = await buildApp({
+      const app = await buildAppWithFakeRuntimes({
         fastifyOptions: {
           logger: { level: 'info', stream: logs.stream },
           disableRequestLogging: true,
@@ -2134,7 +2111,7 @@ describe('App Factory', () => {
     it('does not emit custom request logs for health routes', async () => {
       const logs = createLogCollector();
 
-      const app = await buildApp({
+      const app = await buildAppWithFakeRuntimes({
         fastifyOptions: {
           logger: { level: 'info', stream: logs.stream },
           disableRequestLogging: true,
@@ -2165,7 +2142,7 @@ describe('App Factory', () => {
       const logs = createLogCollector();
       const testAuth = createTestAuthProvider();
 
-      const app = await buildApp({
+      const app = await buildAppWithFakeRuntimes({
         fastifyOptions: {
           logger: { level: 'info', stream: logs.stream },
           disableRequestLogging: true,
@@ -2204,7 +2181,7 @@ describe('App Factory', () => {
 
   describe('createApp', () => {
     it('returns a ready app instance', async () => {
-      const app = await createApp({
+      const app = await createAppWithFakeRuntimes({
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
@@ -2229,7 +2206,7 @@ describe('App Factory', () => {
     let app: Awaited<ReturnType<typeof createApp>>;
 
     beforeEach(async () => {
-      app = await createApp({
+      app = await createAppWithFakeRuntimes({
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
@@ -2267,7 +2244,7 @@ describe('App Factory', () => {
     });
 
     it('uses a client error code for unsupported media types', async () => {
-      const localApp = await createApp({
+      const localApp = await createAppWithFakeRuntimes({
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),

@@ -10,7 +10,7 @@
  */
 
 import pg from 'pg';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import {
   LEGACY_STATEMENT_TIMEOUT_MS,
@@ -34,23 +34,23 @@ describe('legacy pool configuration', () => {
   });
 
   it('survives an idle client error instead of crashing the process', async () => {
+    const logged: string[] = [];
     const pool = attachPoolErrorListeners(
       new PG_POOL(legacyPoolConfig('postgres://unused:unused@127.0.0.1:1/unused', false, true)),
-      'test-db'
+      'test-db',
+      (message) => logged.push(message)
     );
-    const stderr = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     try {
       // Without a listener this throws synchronously (unhandled 'error' event).
       expect(() =>
         pool.emit('error', new Error('connection terminated unexpectedly'))
       ).not.toThrow();
-      expect(stderr).toHaveBeenCalledWith(
-        '[test-db pool] idle client error (recovered): connection terminated unexpectedly'
-      );
-      // The message, never the error object (it can carry the connection config).
-      expect(stderr.mock.calls.flat().some((arg) => arg instanceof Error)).toBe(false);
+      // The sink receives the message text only, never the error object (it can
+      // carry the connection config).
+      expect(logged).toEqual([
+        '[test-db pool] idle client error (recovered): connection terminated unexpectedly',
+      ]);
     } finally {
-      stderr.mockRestore();
       await pool.end();
     }
   });

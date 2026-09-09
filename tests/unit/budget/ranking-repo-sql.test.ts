@@ -1,52 +1,13 @@
-import {
-  Kysely,
-  PostgresAdapter,
-  PostgresIntrospector,
-  PostgresQueryCompiler,
-  type CompiledQuery,
-  type DatabaseConnection,
-  type Driver,
-  type QueryResult,
-} from 'kysely';
 import { describe, expect, it } from 'vitest';
 
 import { makeBudgetRepo } from '@/modules/budget/shell/repo/budget-repo.js';
 
-import type { ProdDatabase } from '@/modules/shared/index.js';
+import { makeCapturingDb } from '../../fixtures/capturing-db.js';
 
 interface CapturedQuery {
   readonly sql: string;
   readonly parameters: readonly unknown[];
 }
-
-const makeCapturingDb = (captured: CapturedQuery[]): Kysely<ProdDatabase> => {
-  const connection: DatabaseConnection = {
-    executeQuery<R>(query: CompiledQuery): Promise<QueryResult<R>> {
-      captured.push({ sql: query.sql, parameters: query.parameters });
-      return Promise.resolve({ rows: [] });
-    },
-    streamQuery(): AsyncIterableIterator<QueryResult<never>> {
-      throw new Error('streamQuery not supported');
-    },
-  };
-  const driver: Driver = {
-    init: () => Promise.resolve(),
-    acquireConnection: () => Promise.resolve(connection),
-    beginTransaction: () => Promise.resolve(),
-    commitTransaction: () => Promise.resolve(),
-    rollbackTransaction: () => Promise.resolve(),
-    releaseConnection: () => Promise.resolve(),
-    destroy: () => Promise.resolve(),
-  };
-  return new Kysely<ProdDatabase>({
-    dialect: {
-      createAdapter: () => new PostgresAdapter(),
-      createDriver: () => driver,
-      createIntrospector: (db) => new PostgresIntrospector(db),
-      createQueryCompiler: () => new PostgresQueryCompiler(),
-    },
-  });
-};
 
 const flat = (value: string): string => value.replace(/\s+/gu, ' ').trim();
 

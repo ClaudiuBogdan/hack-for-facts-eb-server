@@ -39,5 +39,5 @@ describe('ESLint architecture boundaries', () => {
     } finally {
       await unlink(fixturePath);
     }
-  }, 15_000);
+  }, 60_000); // spawns a full ESLint run; 15 s tripped under host contention (T-12)
 });

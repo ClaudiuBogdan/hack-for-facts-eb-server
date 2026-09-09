@@ -33,6 +33,10 @@ export default defineConfig({
       },
     },
     setupFiles: ['./tests/setup.ts'],
+    // Explicit budgets (T-22): a hung fake or a load-slow app build fails loudly
+    // instead of hanging the run; the boundaries test carries its own 60 s cap.
+    testTimeout: 20_000,
+    hookTimeout: 30_000,
   },
   resolve: {
     alias: [

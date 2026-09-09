@@ -12,19 +12,12 @@
  *  - Strict `privacy_class = 'public'` — never fail-open `coalesce(…, 'public')`.
  */
 
-import {
-  Kysely,
-  PostgresAdapter,
-  PostgresIntrospector,
-  PostgresQueryCompiler,
-  type CompiledQuery,
-  type DatabaseConnection,
-  type Driver,
-  type QueryResult,
-} from 'kysely';
+import { Kysely } from 'kysely';
 import { describe, expect, it } from 'vitest';
 
 import { makeParliamentRepo } from '@/modules/parliament/shell/repo/parliament-repo.js';
+
+import { makeCapturingDb as makeSharedCapturingDb } from '../../fixtures/capturing-db.js';
 
 import type { ProdDatabase } from '@/modules/shared/index.js';
 
@@ -36,34 +29,7 @@ interface Captured {
 const makeCapturingDb = (
   captured: Captured[],
   rows: readonly unknown[] = []
-): Kysely<ProdDatabase> => {
-  const connection: DatabaseConnection = {
-    executeQuery<R>(query: CompiledQuery): Promise<QueryResult<R>> {
-      captured.push({ sql: query.sql, parameters: query.parameters });
-      return Promise.resolve({ rows: rows as R[] });
-    },
-    streamQuery(): AsyncIterableIterator<QueryResult<never>> {
-      throw new Error('streamQuery not supported in the capturing db');
-    },
-  };
-  const driver: Driver = {
-    init: () => Promise.resolve(),
-    acquireConnection: () => Promise.resolve(connection),
-    beginTransaction: () => Promise.resolve(),
-    commitTransaction: () => Promise.resolve(),
-    rollbackTransaction: () => Promise.resolve(),
-    releaseConnection: () => Promise.resolve(),
-    destroy: () => Promise.resolve(),
-  };
-  return new Kysely<ProdDatabase>({
-    dialect: {
-      createAdapter: () => new PostgresAdapter(),
-      createDriver: () => driver,
-      createIntrospector: (db) => new PostgresIntrospector(db),
-      createQueryCompiler: () => new PostgresQueryCompiler(),
-    },
-  });
-};
+): Kysely<ProdDatabase> => makeSharedCapturingDb(captured, { respond: () => rows });
 
 /** Collapse whitespace so multi-line raw SQL can be asserted on substrings. */
 const flat = (s: string): string => s.replace(/\s+/gu, ' ').trim();

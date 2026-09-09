@@ -430,10 +430,10 @@ FROM ${DISTROLLESS_BASE}
 
 WORKDIR /app
 
-COPY --from=prod-deps --chown=65532:65532 /app/node_modules ./node_modules
-COPY --from=builder --chown=65532:65532 /app/dist ./dist
-COPY --from=builder --chown=65532:65532 /app/package.json ./package.json
-COPY --chown=65532:65532 datasets ./datasets
+COPY --from=prod-deps --chown=1001:1001 /app/node_modules ./node_modules
+COPY --from=builder --chown=1001:1001 /app/dist ./dist
+COPY --from=builder --chown=1001:1001 /app/package.json ./package.json
+COPY --chown=1001:1001 datasets ./datasets
 
 # OpenTelemetry environment variables for SigNoz
 ENV OTEL_EXPORTER_OTLP_ENDPOINT="https://ingest.eu.signoz.cloud:443"

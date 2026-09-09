@@ -16,7 +16,6 @@ coverage/
 AGENTS.md
 CLAUDE.md
 GEMINI.md
-prompt.md
 TODO.md
 app.log
 
@@ -47,7 +46,6 @@ argocd/
 # Scripts not needed at runtime
 scripts/
 security-testing/
-security-tests/
 tmp/
 output/
 

@@ -32,6 +32,7 @@ import { compileListQuery } from '../../core/opensearch-query.js';
 
 import type { ProcurementSearchFilter, SearchGrain } from '../../core/search.js';
 import type { OffsetSearchRequest, SearchFacet, SearchHighlight } from '../../core/types.js';
+import type { ClientRequest, IncomingMessage } from 'node:http';
 
 export interface OpenSearchListConfig {
   readonly url: string;
@@ -46,7 +47,14 @@ export interface OpenSearchListConfig {
   readonly timeoutMs?: number;
   /** `true` = always-exact totals; a number caps the exact range (`gte` beyond). */
   readonly trackTotalHits?: boolean | number;
+  /** HTTPS transport; tests inject a fake instead of mocking `node:https`. */
+  readonly request?: OpenSearchTransport;
 }
+
+export type OpenSearchTransport = (
+  options: RequestOptions,
+  callback: (res: IncomingMessage) => void
+) => ClientRequest;
 
 export interface OpenSearchListPage {
   /** Primary keys in engine sort order — the page, already windowed. */
@@ -224,6 +232,7 @@ const parseFacets = (
 
 export const makeOpenSearchListEngine = (config: OpenSearchListConfig): OpenSearchListEngine => {
   const timeoutMs = config.timeoutMs ?? 10_000;
+  const transport: OpenSearchTransport = config.request ?? httpsRequest;
   const base = new URL(config.url);
   if ((config.username === undefined) !== (config.password === undefined)) {
     throw new Error('opensearch list engine: username and password must be set together');
@@ -256,7 +265,7 @@ export const makeOpenSearchListEngine = (config: OpenSearchListConfig): OpenSear
         ...(config.caCert !== undefined && { ca: config.caCert }),
         ...(config.tlsServername !== undefined && { servername: config.tlsServername }),
       };
-      const req = httpsRequest(options, (res) => {
+      const req = transport(options, (res) => {
         const chunks: Buffer[] = [];
         res.on('data', (c: Buffer) => chunks.push(c));
         res.on('end', () => {

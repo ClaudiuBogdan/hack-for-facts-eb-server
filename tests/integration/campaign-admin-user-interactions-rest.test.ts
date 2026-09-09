@@ -17,6 +17,7 @@ import {
 } from '@/modules/learning-progress/index.js';
 import { prepareApprovedPublicDebateReviewSideEffects } from '@/modules/user-events/index.js';
 
+import { recordCalls } from '../fixtures/call-recorder.js';
 import { createTestInteractiveRecord, makeFakeLearningProgressRepo } from '../fixtures/fakes.js';
 import {
   createSendingPlatformSendThread,
@@ -856,7 +857,7 @@ describe('Campaign Admin User Interactions REST API', () => {
 
   it('returns 403 when the authenticated user lacks campaign-admin permission', async () => {
     const learningProgressRepo = makeFakeLearningProgressRepo();
-    const listRowsSpy = vi.spyOn(learningProgressRepo, 'listCampaignAdminInteractionRows');
+    const listRowsSpy = recordCalls(learningProgressRepo, 'listCampaignAdminInteractionRows');
     const setup = await createTestApp({
       permissionAllowed: false,
       learningProgressRepo,
@@ -882,7 +883,7 @@ describe('Campaign Admin User Interactions REST API', () => {
       userId: 'user_test_1',
       permissionName: 'campaign:funky_admin',
     });
-    expect(listRowsSpy).not.toHaveBeenCalled();
+    expect(listRowsSpy.calls).toHaveLength(0);
   });
 
   it('returns 404 for unknown campaign queues', async () => {

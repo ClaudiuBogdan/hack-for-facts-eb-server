@@ -9,42 +9,44 @@
  * because an undated list silently reads as live.
  */
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
-import { makeOpenSearchListEngine } from '@/modules/procurement/shell/repo/opensearch-list-repo.js';
+import {
+  makeOpenSearchListEngine,
+  type OpenSearchTransport,
+} from '@/modules/procurement/shell/repo/opensearch-list-repo.js';
 
 import type { OffsetSearchRequest } from '@/modules/procurement/core/types.js';
-
-const { httpsRequestMock } = vi.hoisted(() => ({ httpsRequestMock: vi.fn() }));
-
-vi.mock('node:https', () => ({
-  request: (...args: unknown[]): unknown => httpsRequestMock(...args) as unknown,
-}));
+import type { ClientRequest, IncomingMessage } from 'node:http';
 
 type Handler = (chunk?: Buffer) => void;
 
 /** Queue one JSON body per HTTPS call the engine makes (search, then _mapping). */
+let bodies: unknown[] = [];
 const respondWith = (...payloads: readonly unknown[]): void => {
-  const bodies = [...payloads];
-  httpsRequestMock.mockImplementation(
-    (_options: unknown, callback: (res: unknown) => void) => {
-      const body = JSON.stringify(bodies.shift() ?? {});
-      const listeners: Record<string, Handler[]> = {};
-      const res = {
-        statusCode: 200,
-        on: (event: string, handler: Handler) => {
-          (listeners[event] ??= []).push(handler);
-          return res;
-        },
-      };
-      queueMicrotask(() => {
-        callback(res);
-        for (const handler of listeners['data'] ?? []) handler(Buffer.from(body));
-        for (const handler of listeners['end'] ?? []) handler();
-      });
-      return { on: () => undefined, end: () => undefined, destroy: () => undefined };
-    }
-  );
+  bodies = [...payloads];
+};
+/** A fake `node:https` transport: answers each call with the next queued body. */
+const fakeTransport: OpenSearchTransport = (_options, callback) => {
+  const body = JSON.stringify(bodies.shift() ?? {});
+  const listeners: Record<string, Handler[]> = {};
+  const res = {
+    statusCode: 200,
+    on: (event: string, handler: Handler) => {
+      (listeners[event] ??= []).push(handler);
+      return res;
+    },
+  };
+  queueMicrotask(() => {
+    callback(res as unknown as IncomingMessage);
+    for (const handler of listeners['data'] ?? []) handler(Buffer.from(body));
+    for (const handler of listeners['end'] ?? []) handler();
+  });
+  return {
+    on: () => undefined,
+    end: () => undefined,
+    destroy: () => undefined,
+  } as unknown as ClientRequest;
 };
 
 const page: OffsetSearchRequest = { page: 1, pageSize: 20, sort: 'date_desc' };
@@ -54,6 +56,7 @@ const newEngine = () =>
   makeOpenSearchListEngine({
     url: 'https://search.invalid:9200',
     indexes: { contracts: 'proto_contracts' },
+    request: fakeTransport,
   });
 const completeShards = { total: 1, successful: 1, skipped: 0, failed: 0 };
 const stamped = {
@@ -61,7 +64,7 @@ const stamped = {
 };
 
 afterEach(() => {
-  httpsRequestMock.mockReset();
+  bodies = [];
 });
 
 describe('opensearch list engine — fail closed', () => {

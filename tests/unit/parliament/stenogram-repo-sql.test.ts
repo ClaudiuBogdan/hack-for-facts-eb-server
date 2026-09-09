@@ -9,19 +9,12 @@
  * a live database.
  */
 
-import {
-  Kysely,
-  PostgresAdapter,
-  PostgresIntrospector,
-  PostgresQueryCompiler,
-  type CompiledQuery,
-  type DatabaseConnection,
-  type Driver,
-  type QueryResult,
-} from 'kysely';
+import { Kysely } from 'kysely';
 import { describe, expect, it } from 'vitest';
 
 import { makeParliamentStenogramRepo } from '@/modules/parliament/shell/repo/stenogram-repo.js';
+
+import { makeCapturingDb as makeSharedCapturingDb } from '../../fixtures/capturing-db.js';
 
 import type { ProdDatabase } from '@/modules/shared/index.js';
 
@@ -36,37 +29,15 @@ interface Captured {
  * which is exactly what a database WITHOUT the additive migration does (a missing
  * relation/column fails at PARSE time).
  */
-const makeCapturingDb = (captured: Captured[], probeOk = true): Kysely<ProdDatabase> => {
-  const connection: DatabaseConnection = {
-    async executeQuery<R>(query: CompiledQuery): Promise<QueryResult<R>> {
-      captured.push({ sql: query.sql, parameters: query.parameters });
-      if (!probeOk && /\blimit 0\b/u.test(query.sql)) {
+const makeCapturingDb = (captured: Captured[], probeOk = true): Kysely<ProdDatabase> =>
+  makeSharedCapturingDb(captured, {
+    respond: (sql) => {
+      if (!probeOk && /\blimit 0\b/u.test(sql)) {
         throw new Error('relation "parliament.stenogram_sessions" does not exist');
       }
-      return { rows: [] };
-    },
-    streamQuery(): AsyncIterableIterator<QueryResult<never>> {
-      throw new Error('streamQuery not supported in the capturing db');
-    },
-  };
-  const driver: Driver = {
-    init: () => Promise.resolve(),
-    acquireConnection: () => Promise.resolve(connection),
-    beginTransaction: () => Promise.resolve(),
-    commitTransaction: () => Promise.resolve(),
-    rollbackTransaction: () => Promise.resolve(),
-    releaseConnection: () => Promise.resolve(),
-    destroy: () => Promise.resolve(),
-  };
-  return new Kysely<ProdDatabase>({
-    dialect: {
-      createAdapter: () => new PostgresAdapter(),
-      createDriver: () => driver,
-      createIntrospector: (db) => new PostgresIntrospector(db),
-      createQueryCompiler: () => new PostgresQueryCompiler(),
+      return [];
     },
   });
-};
 
 /** Reads = everything except the `limit 0` capability probes. */
 const readsOf = (captured: readonly Captured[]): readonly Captured[] =>

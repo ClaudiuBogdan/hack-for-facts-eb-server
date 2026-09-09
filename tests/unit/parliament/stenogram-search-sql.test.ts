@@ -15,20 +15,13 @@
  *     degraded to a title-only query.
  */
 
-import {
-  Kysely,
-  PostgresAdapter,
-  PostgresIntrospector,
-  PostgresQueryCompiler,
-  type CompiledQuery,
-  type DatabaseConnection,
-  type Driver,
-  type QueryResult,
-} from 'kysely';
+import { Kysely } from 'kysely';
 import { describe, expect, it } from 'vitest';
 
 import { PARLIAMENT_TRANSCRIPT_SEARCH_DOC_TYPE } from '@/modules/parliament/core/types.js';
 import { makeParliamentTranscriptSearch } from '@/modules/parliament/shell/search/transcript-search.js';
+
+import { makeCapturingDb as makeSharedCapturingDb } from '../../fixtures/capturing-db.js';
 
 import type { ProdDatabase } from '@/modules/shared/index.js';
 
@@ -44,37 +37,15 @@ interface Captured {
 const makeCapturingDb = (
   captured: Captured[],
   opts: { rows?: readonly Record<string, unknown>[]; throwOn?: RegExp } = {}
-): Kysely<ProdDatabase> => {
-  const connection: DatabaseConnection = {
-    async executeQuery<R>(query: CompiledQuery): Promise<QueryResult<R>> {
-      captured.push({ sql: query.sql, parameters: query.parameters });
-      if (opts.throwOn?.test(query.sql) === true) {
+): Kysely<ProdDatabase> =>
+  makeSharedCapturingDb(captured, {
+    respond: (sql) => {
+      if (opts.throwOn?.test(sql) === true) {
         throw new Error('relation "search.documents" does not exist');
       }
-      return { rows: (opts.rows ?? []) as R[] };
-    },
-    streamQuery(): AsyncIterableIterator<QueryResult<never>> {
-      throw new Error('streamQuery not supported in the capturing db');
-    },
-  };
-  const driver: Driver = {
-    init: () => Promise.resolve(),
-    acquireConnection: () => Promise.resolve(connection),
-    beginTransaction: () => Promise.resolve(),
-    commitTransaction: () => Promise.resolve(),
-    rollbackTransaction: () => Promise.resolve(),
-    releaseConnection: () => Promise.resolve(),
-    destroy: () => Promise.resolve(),
-  };
-  return new Kysely<ProdDatabase>({
-    dialect: {
-      createAdapter: () => new PostgresAdapter(),
-      createDriver: () => driver,
-      createIntrospector: (db) => new PostgresIntrospector(db),
-      createQueryCompiler: () => new PostgresQueryCompiler(),
+      return opts.rows ?? [];
     },
   });
-};
 
 describe('transcript search — availability is honest about WHICH way it is missing', () => {
   it('reports doc_type_unbuilt when search.documents is readable but holds no such doc', async () => {

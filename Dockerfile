@@ -5,7 +5,7 @@
 #
 # SECURITY FEATURES:
 # - Distroless runtime image (no shell, npm, or pnpm in production)
-# - Non-root runtime user (distroless `nonroot`)
+# - Non-root runtime user: UID/GID 1001, the pod's securityContext user (k8s/base/deployment.yaml)
 # - Build tools excluded from the final image
 # - Production dependencies installed in a dedicated stage
 #
@@ -93,10 +93,16 @@ LABEL org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.source="https://github.com/ClaudiuBogdan/hack-for-facts-eb-server"
 
 # Copy the minimal runtime payload. package.json is kept for ESM module mode.
-COPY --from=prod-deps --chown=65532:65532 /app/node_modules ./node_modules
-COPY --from=builder --chown=65532:65532 /app/dist ./dist
-COPY --from=builder --chown=65532:65532 /app/package.json ./package.json
-COPY --chown=65532:65532 datasets ./datasets
+# Owned by the UID/GID the pod runs as (k8s/base/deployment.yaml runAsUser 1001),
+# not distroless `nonroot` (65532): a future non-world-readable file must not
+# break the running image (review X/F18).
+COPY --from=prod-deps --chown=1001:1001 /app/node_modules ./node_modules
+COPY --from=builder --chown=1001:1001 /app/dist ./dist
+COPY --from=builder --chown=1001:1001 /app/package.json ./package.json
+COPY --chown=1001:1001 datasets ./datasets
+
+# Run as the same user the pod runs as, so `docker run` and the cluster agree.
+USER 1001:1001
 
 # Run the application using the distroless image's Node.js entrypoint
 CMD ["dist/api.js"]

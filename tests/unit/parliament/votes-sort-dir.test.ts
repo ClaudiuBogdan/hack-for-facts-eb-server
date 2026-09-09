@@ -21,16 +21,6 @@
  */
 
 import { buildSchema } from 'graphql';
-import {
-  Kysely,
-  PostgresAdapter,
-  PostgresIntrospector,
-  PostgresQueryCompiler,
-  type CompiledQuery,
-  type DatabaseConnection,
-  type Driver,
-  type QueryResult,
-} from 'kysely';
 import { ok, type Result } from 'neverthrow';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -45,8 +35,9 @@ import {
   type ApiError,
   type CursorPage,
   type FilterInput,
-  type ProdDatabase,
 } from '@/modules/shared/index.js';
+
+import { makeCapturingDb } from '../../fixtures/capturing-db.js';
 
 import type { ParliamentRepo } from '@/modules/parliament/core/ports.js';
 import type { ParliamentVote } from '@/modules/parliament/core/types.js';
@@ -55,35 +46,6 @@ interface Captured {
   readonly sql: string;
   readonly parameters: readonly unknown[];
 }
-
-const makeCapturingDb = (captured: Captured[]): Kysely<ProdDatabase> => {
-  const connection: DatabaseConnection = {
-    executeQuery<R>(query: CompiledQuery): Promise<QueryResult<R>> {
-      captured.push({ sql: query.sql, parameters: query.parameters });
-      return Promise.resolve({ rows: [] as R[] });
-    },
-    streamQuery(): AsyncIterableIterator<QueryResult<never>> {
-      throw new Error('streamQuery not supported in the capturing db');
-    },
-  };
-  const driver: Driver = {
-    init: () => Promise.resolve(),
-    acquireConnection: () => Promise.resolve(connection),
-    beginTransaction: () => Promise.resolve(),
-    commitTransaction: () => Promise.resolve(),
-    rollbackTransaction: () => Promise.resolve(),
-    releaseConnection: () => Promise.resolve(),
-    destroy: () => Promise.resolve(),
-  };
-  return new Kysely<ProdDatabase>({
-    dialect: {
-      createAdapter: () => new PostgresAdapter(),
-      createDriver: () => driver,
-      createIntrospector: (db) => new PostgresIntrospector(db),
-      createQueryCompiler: () => new PostgresQueryCompiler(),
-    },
-  });
-};
 
 /** Collapse whitespace so the raw keyset predicate can be asserted on substrings. */
 const flat = (s: string): string => s.replace(/\s+/gu, ' ').trim();
