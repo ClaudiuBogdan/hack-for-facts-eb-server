@@ -82,6 +82,51 @@ describe('budget ranking repository filters', () => {
     expect(query!.parameters).toEqual(expect.arrayContaining([2025, 3, '111', '222', '999']));
   });
 
+  it('ranks commitments by the coalesced sum it selects', async () => {
+    const captured: CapturedQuery[] = [];
+    const repo = makeBudgetRepo(makeCapturingDb(captured));
+
+    const result = await repo.rankCommitmentEntities({
+      year: 2024,
+      reportType: 'COMMITMENT_AGG_PRINCIPAL',
+      metric: 'credite_angajament',
+      limit: 10,
+    });
+
+    expect(result.isOk()).toBe(true);
+    const query = captured[0];
+    expect(query).toBeDefined();
+    const sql = flat(query!.sql);
+    expect(sql).toContain('sum(coalesce(mv."credite_angajament",0))::text');
+    // The ORDER BY uses the same coalesced expression as the SELECT: an
+    // all-null scope is zero, not a "nulls last" row below negative amounts.
+    expect(sql).toContain(
+      'order by sum(coalesce(mv."credite_angajament",0)) desc, "mv"."entity_cui" asc'
+    );
+    expect(sql).not.toContain('nulls last');
+    expect(query!.parameters).toEqual(expect.arrayContaining([2024, 10]));
+  });
+
+  it.each([
+    { name: 'a non-positive year', q: { year: 0, limit: 10 }, field: 'year' },
+    { name: 'a fractional year', q: { year: 2024.5, limit: 10 }, field: 'year' },
+    { name: 'a zero limit', q: { year: 2024, limit: 0 }, field: 'limit' },
+    { name: 'a limit above the maximum', q: { year: 2024, limit: 101 }, field: 'limit' },
+  ])('rejects $name for commitment rankings before executing SQL', async ({ q, field }) => {
+    const captured: CapturedQuery[] = [];
+    const repo = makeBudgetRepo(makeCapturingDb(captured));
+
+    const result = await repo.rankCommitmentEntities({
+      reportType: 'COMMITMENT_AGG_PRINCIPAL',
+      metric: 'credite_angajament',
+      ...q,
+    });
+
+    expect(result.isErr()).toBe(true);
+    expect(result._unsafeUnwrapErr()).toMatchObject({ type: 'InvalidInput', field });
+    expect(captured).toHaveLength(0);
+  });
+
   it('rejects an incompatible period tuple before executing SQL', async () => {
     const captured: CapturedQuery[] = [];
     const repo = makeBudgetRepo(makeCapturingDb(captured));

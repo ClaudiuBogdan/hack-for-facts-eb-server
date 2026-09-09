@@ -1454,8 +1454,16 @@ export const makeBudgetRepo = (db: Db, options: BudgetRepoOptions = {}): BudgetR
   const rankCommitmentEntities = async (
     q: CommitmentRankingQuery
   ): Promise<Result<readonly RankedCommitmentEntity[], ApiError>> => {
+    if (!Number.isInteger(q.year) || q.year <= 0) {
+      return err(invalidInput('ranking year must be a positive integer', 'year'));
+    }
+    if (!Number.isInteger(q.limit) || q.limit < 1 || q.limit > RANK_LIMIT_MAX) {
+      return err(
+        invalidInput(`ranking limit must be between 1 and ${String(RANK_LIMIT_MAX)}`, 'limit')
+      );
+    }
     const reportLabel = COMMITMENT_REPORT_TYPE_LABELS[q.reportType];
-    const limit = clamp(q.limit, 1, RANK_LIMIT_MAX);
+    const limit = q.limit;
     try {
       const rows = await db
         .selectFrom(commitMvName('YEAR'))
@@ -1468,7 +1476,9 @@ export const makeBudgetRepo = (db: Db, options: BudgetRepoOptions = {}): BudgetR
         ])
         .where(sql<SqlBool>`mv.year = ${q.year} and mv.report_type = ${reportLabel}`)
         .groupBy(['mv.entity_cui', 'e.name', 'mv.year'])
-        .orderBy(sql`sum(mv.${sql.ref(q.metric)}) desc nulls last`)
+        // Order by the same coalesced sum that is selected: an all-null scope
+        // is a zero amount, not a "nulls last" row sorted below negatives.
+        .orderBy(sql`sum(coalesce(mv.${sql.ref(q.metric)},0)) desc`)
         .orderBy('mv.entity_cui', 'asc')
         .limit(limit)
         .execute();
