@@ -6,6 +6,11 @@
 
 import { ok, type Result } from 'neverthrow';
 
+import {
+  NO_GENERATION_CAPABILITIES,
+  type GenerationCapabilities,
+} from '@/modules/procurement/core/constants.js';
+
 import type { GenerationQuality, GrainQualityVerdict } from '@/modules/procurement/core/gate-v2.js';
 import type {
   ActiveGeneration,
@@ -40,11 +45,15 @@ export const LIVE_LIKE_QUALITY: GenerationQuality = {
 
 export const BUILD_ID = '42';
 
-export const generation = (quality: GenerationQuality = LIVE_LIKE_QUALITY): ActiveGeneration => ({
+export const generation = (
+  quality: GenerationQuality = LIVE_LIKE_QUALITY,
+  capabilities: GenerationCapabilities = NO_GENERATION_CAPABILITIES
+): ActiveGeneration => ({
   buildId: BUILD_ID,
   publishedAt: '2026-07-12T00:00:00Z',
   quality,
   matrixHash: 'matrix-hash-1', // informational passthrough — no longer gates serving
+  capabilities,
 });
 
 export const statsRead = (over: Partial<AnalysisStatsRead> = {}): AnalysisStatsRead => ({

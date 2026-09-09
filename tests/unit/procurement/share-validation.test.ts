@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { isSubsetScope, sameWindow } from '@/modules/procurement/core/analysis-scope.js';
 import { analysisShare } from '@/modules/procurement/core/analysis-usecases.js';
 
-import { fakeAnalysisRepo, statsRead, verdict } from './analysis-fakes.js';
+import { fakeAnalysisRepo, generation, statsRead, verdict } from './analysis-fakes.js';
 
 const ALL_ALLOW = {
   procedure: verdict(),
@@ -225,5 +225,99 @@ describe('analysisShare happy path', () => {
     )._unsafeUnwrap();
     expect(result.share).toBeNull();
     expect(result.caveats[0]).toContain('zero anchor-money value');
+  });
+});
+
+describe('frameworkRole compares as a POPULATION once the build publishes the column (M/M06)', () => {
+  // Absent = purchases-only default (standalone / unstamped), 'all' widens.
+  const withColumn = () =>
+    fakeAnalysisRepo({
+      generation: generation(ALL_ALLOW, { frameworkRole: true }),
+      stats: () => statsRead({ valueAwardedSum: '1000.00' }),
+    });
+
+  it("rejects a numerator widened by frameworkRole='all' over a default denominator", async () => {
+    const { repo } = withColumn();
+    const result = await analysisShare(
+      { analysisRepo: repo },
+      {
+        numerator: { grain: 'contract', authorityCui: 'a', frameworkRole: 'all' },
+        denominator: { grain: 'contract', authorityCui: 'a' },
+      }
+    );
+    expect(result._unsafeUnwrapErr().message).toContain('STRICT subset');
+  });
+
+  it("accepts the purchases-only default as a strict subset of frameworkRole='all'", async () => {
+    const { repo } = withColumn();
+    const result = await analysisShare(
+      { analysisRepo: repo },
+      {
+        numerator: { grain: 'contract', authorityCui: 'a' },
+        denominator: { grain: 'contract', authorityCui: 'a', frameworkRole: 'all' },
+      }
+    );
+    expect(result._unsafeUnwrap().share).toBe('1.0000');
+  });
+
+  it('accepts one named role inside all, rejects a role outside a different role', async () => {
+    const { repo } = withColumn();
+    const inside = await analysisShare(
+      { analysisRepo: repo },
+      {
+        numerator: { grain: 'contract', frameworkRole: 'call_off' },
+        denominator: { grain: 'contract', frameworkRole: 'all' },
+      }
+    );
+    expect(inside.isOk()).toBe(true);
+    const disjoint = await analysisShare(
+      { analysisRepo: repo },
+      {
+        numerator: { grain: 'contract', authorityCui: 'a', frameworkRole: 'call_off' },
+        denominator: { grain: 'contract', frameworkRole: 'framework_ceiling' },
+      }
+    );
+    expect(disjoint._unsafeUnwrapErr().message).toContain('STRICT subset');
+  });
+
+  it('models the default as standalone ∪ unstamped: standalone ⊂ default, never the reverse', async () => {
+    const { repo } = withColumn();
+    // Explicit standalone excludes unstamped rows → a strict subset of the default.
+    const narrower = await analysisShare(
+      { analysisRepo: repo },
+      {
+        numerator: { grain: 'contract', frameworkRole: 'standalone' },
+        denominator: { grain: 'contract' },
+      }
+    );
+    expect(narrower._unsafeUnwrap().share).toBe('1.0000');
+    // The default (with unstamped rows) is NOT inside explicit standalone, even
+    // when the numerator adds another constraint.
+    const wider = await analysisShare(
+      { analysisRepo: repo },
+      {
+        numerator: { grain: 'contract', authorityCui: 'a' },
+        denominator: { grain: 'contract', frameworkRole: 'standalone' },
+      }
+    );
+    expect(wider._unsafeUnwrapErr().message).toContain('STRICT subset');
+    // Identical default populations with nothing else narrower: a tautology.
+    const identical = await analysisShare(
+      { analysisRepo: repo },
+      { numerator: { grain: 'contract' }, denominator: { grain: 'contract' } }
+    );
+    expect(identical._unsafeUnwrapErr().message).toContain('STRICT subset');
+  });
+
+  it('without the column, a frameworkRole operand is refused at routing as before', async () => {
+    const { repo } = fakeAnalysisRepo({ quality: ALL_ALLOW });
+    const result = await analysisShare(
+      { analysisRepo: repo },
+      {
+        numerator: { grain: 'contract', authorityCui: 'a', frameworkRole: 'all' },
+        denominator: { grain: 'contract' },
+      }
+    );
+    expect(result._unsafeUnwrapErr().message).toContain('unavailable');
   });
 });

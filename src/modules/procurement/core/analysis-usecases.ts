@@ -49,7 +49,8 @@ import {
 } from './analysis-scope.js';
 import { routeAnalysis, type AnalysisRoute } from './combinations.js';
 import {
-  PROCUREMENT_DATA_AVAILABILITY,
+  type FrameworkRoleFilter,
+  type GenerationCapabilities,
   TOPN_SIRUTA_MAX,
   type AnalysisGrain,
   type BreakdownDimension,
@@ -253,10 +254,13 @@ const MODIFICATION_COUNTS_NOTE =
 const LEGACY_CONTRACT_POPULATION_NOTE =
   'temporary framework-role compatibility mode: contract analytics include standalone awards, framework ceilings and call-offs from the legacy build-8 population; these are legacy totals, not purchases-only spending, until the framework-role data build is published';
 
-const grainNotes = (grain: AnalysisGrain): readonly string[] =>
+const grainNotes = (
+  grain: AnalysisGrain,
+  capabilities: GenerationCapabilities
+): readonly string[] =>
   grain === 'procedure'
     ? [PROCEDURE_LIFECYCLE_NOTE]
-    : grain === 'contract' && !PROCUREMENT_DATA_AVAILABILITY.frameworkRole
+    : grain === 'contract' && !capabilities.frameworkRole
       ? [LEGACY_CONTRACT_POPULATION_NOTE]
       : grain === 'calloff'
         ? [CALLOFF_PARTIAL_NOTE]
@@ -285,11 +289,50 @@ const rowFilterCaveats = (scope: AnalysisScope): readonly string[] => [
   ...(scope.valueMin !== undefined || scope.valueMax !== undefined ? [VALUE_BOUNDS_CAVEAT] : []),
 ];
 
+/**
+ * The contract-grain populations a `frameworkRole` selects once the build
+ * publishes the column, as the repo compiles them:
+ *
+ *  - absent  → the purchases-only DEFAULT: `framework_role IS NULL OR
+ *              framework_role = 'standalone'` (standalone ∪ unstamped rows);
+ *  - `'all'` → every row;
+ *  - a role  → exactly that role (so `'standalone'` EXCLUDES unstamped rows).
+ *
+ * Containment therefore is: all ⊃ default ⊃ standalone; all ⊃ every other
+ * role; default and the other roles are disjoint (Codex P2 on the first cut,
+ * which had collapsed default and standalone into one population).
+ */
+type FrameworkRolePopulation = FrameworkRoleFilter | 'default';
+
+const frameworkRolePopulation = (role: FrameworkRoleFilter | undefined): FrameworkRolePopulation =>
+  role ?? 'default';
+
+/** `inner` ⊆ `outer` under the containment above. */
+const frameworkRolePopulationWithin = (
+  numerator: FrameworkRoleFilter | undefined,
+  denominator: FrameworkRoleFilter | undefined
+): boolean => {
+  const inner = frameworkRolePopulation(numerator);
+  const outer = frameworkRolePopulation(denominator);
+  if (outer === 'all') return true;
+  if (inner === outer) return true;
+  return outer === 'default' && inner === 'standalone';
+};
+
+/** `inner` ⊂ `outer` STRICTLY (a genuinely smaller population). */
+const frameworkRolePopulationNarrows = (
+  numerator: FrameworkRoleFilter | undefined,
+  denominator: FrameworkRoleFilter | undefined
+): boolean =>
+  frameworkRolePopulationWithin(numerator, denominator) &&
+  frameworkRolePopulation(numerator) !== frameworkRolePopulation(denominator);
+
 /** Scope-derived caveats appended to every envelope of a shape. */
-const scopeNotes = (grain: AnalysisGrain, scope: AnalysisScope): readonly string[] => [
-  ...rowFilterCaveats(scope),
-  ...grainNotes(grain),
-];
+const scopeNotes = (
+  grain: AnalysisGrain,
+  scope: AnalysisScope,
+  capabilities: GenerationCapabilities
+): readonly string[] => [...rowFilterCaveats(scope), ...grainNotes(grain, capabilities)];
 
 /** The stats read projected onto the envelope's fields. */
 const readsOf = (read: AnalysisStatsRead): EnvelopeReads => ({
@@ -569,12 +612,12 @@ const statsBlockFor = async (
         null,
         canonicalScope,
         moneyAllowed,
-        scopeNotes(grain, scope)
+        scopeNotes(grain, scope, gen.capabilities)
       ),
     });
   }
 
-  const readR = await deps.analysisRepo.statsFor(route, scope, gen.buildId);
+  const readR = await deps.analysisRepo.statsFor(route, scope, gen);
   if (readR.isErr()) return err(readR.error);
   const read = readR.value;
 
@@ -643,7 +686,12 @@ const statsBlockFor = async (
       readsOf(read),
       canonicalScope,
       moneyAllowed,
-      [...noValueCaveats, ...basisCaveats, ...withheldD.caveats, ...scopeNotes(grain, scope)]
+      [
+        ...noValueCaveats,
+        ...basisCaveats,
+        ...withheldD.caveats,
+        ...scopeNotes(grain, scope, gen.capabilities),
+      ]
     ),
   });
 };
@@ -655,7 +703,13 @@ const statsWithGen = async (
   cov: readonly BasisCoverageRow[] | undefined,
   scope: AnalysisScope
 ): Promise<Result<AnalysisStatsResult, ApiError>> => {
-  const routesR = (deps.routeAnalysis ?? routeAnalysis)(scope, 'stats');
+  const routesR = (deps.routeAnalysis ?? routeAnalysis)(
+    scope,
+    'stats',
+    undefined,
+    undefined,
+    gen.capabilities
+  );
   if (routesR.isErr()) return err(routesR.error);
   const canonicalScope = canonicalScopeEcho(scope);
 
@@ -708,11 +762,18 @@ export const analysisSeries = async (
     );
   }
 
-  const routesR = (deps.routeAnalysis ?? routeAnalysis)(scope, 'series', undefined, measure);
-  if (routesR.isErr()) return err(routesR.error);
+  // The generation first: routing needs its live capabilities.
   const gcR = await genWithCoverage(deps.analysisRepo);
   if (gcR.isErr()) return err(gcR.error);
   const { gen, cov } = gcR.value;
+  const routesR = (deps.routeAnalysis ?? routeAnalysis)(
+    scope,
+    'series',
+    undefined,
+    measure,
+    gen.capabilities
+  );
+  if (routesR.isErr()) return err(routesR.error);
   const canonicalScope = canonicalScopeEcho(scope);
 
   const blocks: AnalysisSeriesBlock[] = [];
@@ -749,7 +810,7 @@ export const analysisSeries = async (
         null,
         canonicalScope,
         spend.allow,
-        scopeNotes(grain, scope)
+        scopeNotes(grain, scope, gen.capabilities)
       ),
     });
 
@@ -778,13 +839,7 @@ export const analysisSeries = async (
 
     if (policy.law === 'distinct') {
       const key = measure === 'distinctSuppliers' ? 'supplier' : 'authority';
-      const rowsR = await deps.analysisRepo.distinctSeriesFor(
-        route,
-        scope,
-        gen.buildId,
-        key,
-        bucket
-      );
+      const rowsR = await deps.analysisRepo.distinctSeriesFor(route, scope, gen, key, bucket);
       if (rowsR.isErr()) return err(rowsR.error);
       const rows = rowsR.value;
       const undated = rows.find((r) => r.bucket === null);
@@ -803,14 +858,14 @@ export const analysisSeries = async (
         ),
         meta: buildEnvelope(policy, gated, gen.buildId, reads, canonicalScope, spend.allow, [
           'distinct counts are computed per bucket and must never be summed across buckets',
-          ...scopeNotes(grain, scope),
+          ...scopeNotes(grain, scope, gen.capabilities),
         ]),
       });
       continue;
     }
 
     // Additive law: monthly storage; quarter/year derived here, and ONLY here.
-    const rowsR = await deps.analysisRepo.seriesFor(route, scope, gen.buildId, measure);
+    const rowsR = await deps.analysisRepo.seriesFor(route, scope, gen, measure);
     if (rowsR.isErr()) return err(rowsR.error);
     const rows = rowsR.value;
     const undated = rows.find((r) => r.month === null);
@@ -857,7 +912,7 @@ export const analysisSeries = async (
       if (qualitative.caveats.length > 0) {
         seriesWithheldCaveats = qualitative.caveats;
       } else {
-        const statsR = await deps.analysisRepo.statsFor(route, scope, gen.buildId);
+        const statsR = await deps.analysisRepo.statsFor(route, scope, gen);
         if (statsR.isErr()) return err(statsR.error);
         seriesWithheldCaveats = withheldDisclosure(
           scope,
@@ -874,7 +929,7 @@ export const analysisSeries = async (
       points,
       meta: buildEnvelope(policy, gated, gen.buildId, reads, canonicalScope, spend.allow, [
         ...seriesWithheldCaveats,
-        ...scopeNotes(grain, scope),
+        ...scopeNotes(grain, scope, gen.capabilities),
       ]),
     });
   }
@@ -947,7 +1002,7 @@ const breakdownBlockFor = async (
         null,
         canonicalScope,
         moneyAllowed,
-        scopeNotes(grain, scope)
+        scopeNotes(grain, scope, gen.capabilities)
       ),
     });
   }
@@ -955,7 +1010,7 @@ const breakdownBlockFor = async (
   const readR = await deps.analysisRepo.breakdownFor(
     route,
     scope,
-    gen.buildId,
+    gen,
     dimension,
     topN,
     requestedRankedBy
@@ -1035,7 +1090,7 @@ const breakdownBlockFor = async (
     valueWithheldAssociationSum: withheldD.ron !== null ? d(withheldD.ron).toFixed(MONEY_DP) : null,
     meta: buildEnvelope(policy, gate, gen.buildId, readsOf(totals), canonicalScope, moneyAllowed, [
       ...withheldD.caveats,
-      ...scopeNotes(grain, scope),
+      ...scopeNotes(grain, scope, gen.capabilities),
     ]),
   });
 };
@@ -1052,10 +1107,17 @@ export const analysisBreakdown = async (
   const topNR = normalizeTopN(input.topN, topNMaxFor([input.dimension]));
   if (topNR.isErr()) return err(topNR.error);
   const topN = topNR.value;
-  const routesR = (deps.routeAnalysis ?? routeAnalysis)(input.scope, 'breakdown', input.dimension);
-  if (routesR.isErr()) return err(routesR.error);
+  // The generation first: routing needs its live capabilities.
   const gcR = await genWithCoverage(deps.analysisRepo);
   if (gcR.isErr()) return err(gcR.error);
+  const routesR = (deps.routeAnalysis ?? routeAnalysis)(
+    input.scope,
+    'breakdown',
+    input.dimension,
+    undefined,
+    gcR.value.gen.capabilities
+  );
+  if (routesR.isErr()) return err(routesR.error);
   const canonicalScope = canonicalScopeEcho(input.scope);
 
   const blocks: AnalysisBreakdownBlock[] = [];
@@ -1083,11 +1145,18 @@ export const analysisConcentration = async (
   deps: AnalysisDeps,
   input: { readonly scope: AnalysisScope; readonly basis?: 'value' | 'count' }
 ): Promise<Result<readonly AnalysisConcentrationBlock[], ApiError>> => {
-  const routesR = (deps.routeAnalysis ?? routeAnalysis)(input.scope, 'concentration');
-  if (routesR.isErr()) return err(routesR.error);
+  // The generation first: routing needs its live capabilities.
   const gcR = await genWithCoverage(deps.analysisRepo);
   if (gcR.isErr()) return err(gcR.error);
   const { gen, cov } = gcR.value;
+  const routesR = (deps.routeAnalysis ?? routeAnalysis)(
+    input.scope,
+    'concentration',
+    undefined,
+    undefined,
+    gen.capabilities
+  );
+  if (routesR.isErr()) return err(routesR.error);
   const canonicalScope = canonicalScopeEcho(input.scope);
 
   const blocks: AnalysisConcentrationBlock[] = [];
@@ -1116,13 +1185,13 @@ export const analysisConcentration = async (
           null,
           canonicalScope,
           basis === 'value' && spend.allow,
-          scopeNotes(grain, input.scope)
+          scopeNotes(grain, input.scope, gen.capabilities)
         ),
       });
       continue;
     }
 
-    const readR = await deps.analysisRepo.concentrationFor(route, input.scope, gen.buildId, basis);
+    const readR = await deps.analysisRepo.concentrationFor(route, input.scope, gen, basis);
     if (readR.isErr()) return err(readR.error);
     const {
       supplierCount,
@@ -1199,7 +1268,7 @@ export const analysisConcentration = async (
         readsOf(totals),
         canonicalScope,
         basis === 'value' && spend.allow,
-        [...semanticsCaveats, ...scopeNotes(grain, input.scope)]
+        [...semanticsCaveats, ...scopeNotes(grain, input.scope, gen.capabilities)]
       ),
     });
   }
@@ -1236,15 +1305,35 @@ export const analysisShare = async (
       invalidInput('share operands must cover an identical period (from/to/year)', 'numerator')
     );
   }
+  // ONE generation pins BOTH operands (S1) — a cutover between the two stats
+  // reads cannot produce a cross-build ratio — and its live capabilities
+  // decide how frameworkRole compares below.
+  const gcR = await genWithCoverage(deps.analysisRepo);
+  if (gcR.isErr()) return err(gcR.error);
+  const { gen, cov } = gcR.value;
   // STRICT subset: every denominator constraint set identically on the numerator,
   // AND at least one additional numerator constraint — identical scopes are a
   // tautology (share 1), not a derivation. Row filters (q/value bounds) count
   // as narrowing constraints exactly like dimensions.
+  //
+  // frameworkRole is the one field whose PRESENCE can widen rather than narrow
+  // (`'all'` lifts the purchases-only default), so once the build publishes
+  // the column it is compared as a population, not as a field (Codex P1):
+  // the numerator's effective role must sit inside the denominator's, and only
+  // a genuinely smaller role counts as narrowing.
+  const roleAware = gen.capabilities.frameworkRole && numerator.grain === 'contract';
+  const { frameworkRole: numRole, ...numerWithoutRole } = numerator;
+  const { frameworkRole: denRole, ...denomWithoutRole } = denominator;
+  const subsetNum = roleAware ? numerWithoutRole : numerator;
+  const subsetDen = roleAware ? denomWithoutRole : denominator;
+  const roleWithin = !roleAware || frameworkRolePopulationWithin(numRole, denRole);
+  const roleNarrows = roleAware && frameworkRolePopulationNarrows(numRole, denRole);
   const constraintCount = (scope: AnalysisScope): number =>
     scopeDims(scope).length + scopeRowFilters(scope).length;
   if (
-    !isSubsetScope(numerator, denominator) ||
-    constraintCount(numerator) <= constraintCount(denominator)
+    !roleWithin ||
+    !isSubsetScope(subsetNum, subsetDen) ||
+    constraintCount(subsetNum) + (roleNarrows ? 1 : 0) <= constraintCount(subsetDen)
   ) {
     return err(
       invalidInput(
@@ -1253,12 +1342,6 @@ export const analysisShare = async (
       )
     );
   }
-
-  // ONE generation pins BOTH operands (S1) — a cutover between the two stats
-  // reads cannot produce a cross-build ratio.
-  const gcR = await genWithCoverage(deps.analysisRepo);
-  if (gcR.isErr()) return err(gcR.error);
-  const { gen, cov } = gcR.value;
 
   // The grain's ANCHOR money drives the ratio (ceiling on frameworks).
   const spend = decideMoney(gen.quality, cov, numerator.grain, anchorBasis(numerator.grain));
@@ -1367,18 +1450,24 @@ export const analysisFacets = async (
   const topNR = normalizeTopN(input.topN, topNMaxFor(dimensions));
   if (topNR.isErr()) return err(topNR.error);
   const topN = topNR.value;
+  // ONE generation for every facet (S1) — resolved before routing, which
+  // needs its live capabilities.
+  const gcR = await genWithCoverage(deps.analysisRepo);
+  if (gcR.isErr()) return err(gcR.error);
   // Route every dimension up front — one bad dimension rejects the whole request
   // with the matrix's named capability, before any read runs.
   const routed: { dimension: BreakdownDimension; routes: readonly AnalysisRoute[] }[] = [];
   for (const dimension of dimensions) {
-    const routesR = (deps.routeAnalysis ?? routeAnalysis)(input.scope, 'breakdown', dimension);
+    const routesR = (deps.routeAnalysis ?? routeAnalysis)(
+      input.scope,
+      'breakdown',
+      dimension,
+      undefined,
+      gcR.value.gen.capabilities
+    );
     if (routesR.isErr()) return err(routesR.error);
     routed.push({ dimension, routes: routesR.value });
   }
-
-  // ONE generation for every facet (S1).
-  const gcR = await genWithCoverage(deps.analysisRepo);
-  if (gcR.isErr()) return err(gcR.error);
   const canonicalScope = canonicalScopeEcho(input.scope);
 
   const blocks: AnalysisBreakdownBlock[] = [];

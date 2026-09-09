@@ -10,7 +10,7 @@
 
 import type { AnalysisScope } from './analysis-scope.js';
 import type { AnalysisRoute } from './combinations.js';
-import type { MeasureId, SeriesBucket } from './constants.js';
+import type { GenerationCapabilities, MeasureId, SeriesBucket } from './constants.js';
 import type { BasisCoverageRow, GenerationQuality } from './gate-v2.js';
 import type { ProcurementSearchFilter } from './search.js';
 import type {
@@ -124,12 +124,25 @@ export interface ProcurementRepo {
 
 // ── analysis package (design §5–§6.2) ──────────────────────────────────────────
 
-/** The single active serving generation, resolved ONCE per request. */
-export interface ActiveGeneration {
+/**
+ * The ledger's view of the active generation (Postgres
+ * `procurement.analysis_generations`): identity + quality, no knowledge of
+ * what the ClickHouse build can answer.
+ */
+export interface PublishedGeneration {
   readonly buildId: string;
   readonly publishedAt: string | null;
   readonly quality: GenerationQuality;
   readonly matrixHash: string | null;
+}
+
+/**
+ * The single active serving generation, resolved ONCE per request: the ledger
+ * row plus what the live build can answer (probed from the fact tables and
+ * cached per build id by the analysis repo).
+ */
+export interface ActiveGeneration extends PublishedGeneration {
+  readonly capabilities: GenerationCapabilities;
 }
 
 /** One stats read — everything the stats block AND its envelope need. */
@@ -244,26 +257,26 @@ export interface AnalysisRepo {
   statsFor(
     route: AnalysisRoute,
     scope: AnalysisScope,
-    buildId: string
+    generation: ActiveGeneration
   ): Promise<Result<AnalysisStatsRead, ApiError>>;
   seriesFor(
     route: AnalysisRoute,
     scope: AnalysisScope,
-    buildId: string,
+    generation: ActiveGeneration,
     measure: MeasureId
   ): Promise<Result<readonly AnalysisSeriesRow[], ApiError>>;
   /** Per-bucket COUNT(DISTINCT key) — the repo buckets; core never re-buckets distincts. */
   distinctSeriesFor(
     route: AnalysisRoute,
     scope: AnalysisScope,
-    buildId: string,
+    generation: ActiveGeneration,
     key: 'supplier' | 'authority',
     bucket: SeriesBucket
   ): Promise<Result<readonly AnalysisDistinctRow[], ApiError>>;
   breakdownFor(
     route: AnalysisRoute,
     scope: AnalysisScope,
-    buildId: string,
+    generation: ActiveGeneration,
     dimension: string,
     topN: number,
     rankBy: 'value' | 'count'
@@ -271,7 +284,7 @@ export interface AnalysisRepo {
   concentrationFor(
     route: AnalysisRoute,
     scope: AnalysisScope,
-    buildId: string,
+    generation: ActiveGeneration,
     basis: 'value' | 'count'
   ): Promise<Result<ConcentrationRead, ApiError>>;
 }

@@ -20,7 +20,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { makeClickhouseAnalysisRepo } from '@/modules/procurement/shell/repo/clickhouse-analysis-repo.js';
 
-import { compactResponse } from './clickhouse-response.js';
+import { compactResponse, generationWithoutFrameworkRole as GEN } from './clickhouse-response.js';
 
 import type { AnalysisScope } from '@/modules/procurement/core/analysis-scope.js';
 import type { AnalysisRoute } from '@/modules/procurement/core/combinations.js';
@@ -103,7 +103,7 @@ describe('bounded-period dimension keys (breakdown)', () => {
     const result = await repo.breakdownFor(
       route('contract'),
       SCOPE_2025,
-      '1',
+      GEN,
       'supplier',
       10,
       'value'
@@ -125,7 +125,7 @@ describe('bounded-period dimension keys (breakdown)', () => {
       .mockResolvedValueOnce(compactResponse([{ cnt: '0', wv: '0', awarded_bani: '0' }]))
       .mockResolvedValueOnce(compactResponse([], ['key', 'cnt', 'wv', 'awarded_bani']));
     const repo = makeRepo(spy);
-    await repo.breakdownFor(route('contract'), SCOPE_2025, '1', 'supplier', 10, 'value');
+    await repo.breakdownFor(route('contract'), SCOPE_2025, GEN, 'supplier', 10, 'value');
 
     for (const body of bodies(spy)) {
       expect(body).toContain(`(${DATED_2025} OR is_undated)`);
@@ -144,7 +144,7 @@ describe('bounded-period dimension keys (breakdown)', () => {
     await repo.breakdownFor(
       route('contract'),
       { authorityCui: '36727850' },
-      '1',
+      GEN,
       'supplier',
       10,
       'value'
@@ -164,7 +164,7 @@ describe('bounded-period dimension keys (breakdown)', () => {
     const repo = makeRepo(spy);
 
     const read = (
-      await repo.breakdownFor(route('contract'), SCOPE_2025, '1', 'supplier', 10, 'value')
+      await repo.breakdownFor(route('contract'), SCOPE_2025, GEN, 'supplier', 10, 'value')
     )._unsafeUnwrap();
 
     const top = read.buckets.filter((bucket) => bucket.kind === 'top');
@@ -182,7 +182,7 @@ describe('bounded-period supplier keys (concentration)', () => {
       .mockResolvedValueOnce(concentrationResponse());
     const repo = makeRepo(spy);
 
-    const result = await repo.concentrationFor(route('contract'), SCOPE_2025, '1', 'value');
+    const result = await repo.concentrationFor(route('contract'), SCOPE_2025, GEN, 'value');
 
     expect(result.isOk()).toBe(true);
     const rowsBody = bodies(spy)[1] ?? '';
@@ -196,7 +196,7 @@ describe('bounded-period supplier keys (concentration)', () => {
       .mockResolvedValueOnce(statsResponse())
       .mockResolvedValueOnce(concentrationResponse());
     const repo = makeRepo(spy);
-    await repo.concentrationFor(route('contract'), { authorityCui: '36727850' }, '1', 'value');
+    await repo.concentrationFor(route('contract'), { authorityCui: '36727850' }, GEN, 'value');
 
     expect(bodies(spy)[1]).not.toContain('HAVING');
   });
@@ -211,7 +211,7 @@ describe('bounded-period supplier keys (concentration)', () => {
     const repo = makeRepo(spy);
 
     const read = (
-      await repo.concentrationFor(route('contract'), SCOPE_2025, '1', 'value')
+      await repo.concentrationFor(route('contract'), SCOPE_2025, GEN, 'value')
     )._unsafeUnwrap();
 
     expect(read.supplierCount).toBe(2);
@@ -237,7 +237,7 @@ describe('honest value-ranking fallback (breakdown)', () => {
     const repo = makeRepo(spy);
 
     const read = (
-      await repo.breakdownFor(route('contract'), SCOPE_2025, '1', 'supplier', 10, 'value')
+      await repo.breakdownFor(route('contract'), SCOPE_2025, GEN, 'supplier', 10, 'value')
     )._unsafeUnwrap();
 
     expect(read.rankedBy).toBe('count');
@@ -257,7 +257,7 @@ describe('honest value-ranking fallback (breakdown)', () => {
     const repo = makeRepo(spy);
 
     const read = (
-      await repo.breakdownFor(route('contract'), SCOPE_2025, '1', 'authority', 10, 'value')
+      await repo.breakdownFor(route('contract'), SCOPE_2025, GEN, 'authority', 10, 'value')
     )._unsafeUnwrap();
 
     expect(read.rankedBy).toBe('value');
@@ -277,7 +277,7 @@ describe('honest value-ranking fallback (breakdown)', () => {
     const repo = makeRepo(spy);
 
     const read = (
-      await repo.breakdownFor(route('contract'), SCOPE_2025, '1', 'cpvDivision', 10, 'value')
+      await repo.breakdownFor(route('contract'), SCOPE_2025, GEN, 'cpvDivision', 10, 'value')
     )._unsafeUnwrap();
 
     expect(read.rankedBy).toBe('count');
@@ -293,7 +293,7 @@ describe('honest value-ranking fallback (breakdown)', () => {
     const repo = makeRepo(spy);
 
     const read = (
-      await repo.breakdownFor(route('contract'), SCOPE_2025, '1', 'authority', 10, 'count')
+      await repo.breakdownFor(route('contract'), SCOPE_2025, GEN, 'authority', 10, 'count')
     )._unsafeUnwrap();
 
     expect(read.rankedBy).toBe('count');
@@ -308,7 +308,7 @@ describe('honest value-ranking fallback (breakdown)', () => {
     const repo = makeRepo(spy);
 
     const read = (
-      await repo.breakdownFor(route('modification'), SCOPE_2025, '1', 'authority', 10, 'value')
+      await repo.breakdownFor(route('modification'), SCOPE_2025, GEN, 'authority', 10, 'value')
     )._unsafeUnwrap();
 
     expect(read.rankedBy).toBe('count');

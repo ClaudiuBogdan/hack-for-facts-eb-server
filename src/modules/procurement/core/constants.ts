@@ -119,18 +119,20 @@ export const FRAMEWORK_ROLE_FILTERS = [...FRAMEWORK_ROLES, 'all'] as const;
 export type FrameworkRoleFilter = (typeof FRAMEWORK_ROLE_FILTERS)[number];
 
 /**
- * TEMPORARY build-8 compatibility switch.
- *
- * The currently active ClickHouse contract fact table does not publish the
- * `framework_role` column yet. Keep contract analytics on the legacy,
- * unfiltered population until the replacement data build is active. Remove
- * this constant and every guarded compatibility branch together after that
- * rollout; the purchases-only framework-role contract then becomes canonical
- * again.
+ * What the ACTIVE analysis generation can answer. Resolved at request time
+ * from the live build (the ClickHouse fact table is probed once per build
+ * id), never from a compile-time constant: build 8 lacks `framework_role`,
+ * so contract analytics stay on the legacy unfiltered population — and the
+ * moment a build that publishes the column goes active, the purchases-only
+ * framework-role contract applies with no server change (review M/M06).
  */
-export const PROCUREMENT_DATA_AVAILABILITY: Readonly<{ frameworkRole: boolean }> = {
-  frameworkRole: false,
-};
+export interface GenerationCapabilities {
+  /** The contract fact table carries `framework_role`. */
+  readonly frameworkRole: boolean;
+}
+
+/** The capabilities a generation is assumed to have when nothing was probed. */
+export const NO_GENERATION_CAPABILITIES: GenerationCapabilities = { frameworkRole: false };
 export type ValueComparableBasis = (typeof VALUE_COMPARABLE_BASES)[number];
 
 export const PROCEDURE_SOURCE_SYSTEMS = ['elicitatie', 'seap_notice'] as const;

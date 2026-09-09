@@ -31,7 +31,6 @@ import {
   Q_MAX_LENGTH,
   Q_MIN_LENGTH,
   RECORD_KINDS,
-  PROCUREMENT_DATA_AVAILABILITY,
   type AnalysisGrain,
   type FrameworkRoleFilter,
   type RecordKind,
@@ -265,14 +264,9 @@ export const parseAnalysisScope = (raw: RawAnalysisScope): Result<AnalysisScope,
   const frameworkRole = readString(raw['frameworkRole'], 'frameworkRole');
   if (frameworkRole.isErr()) return err(frameworkRole.error);
   if (frameworkRole.value !== undefined) {
-    if (!PROCUREMENT_DATA_AVAILABILITY.frameworkRole) {
-      return err(
-        invalidInput(
-          'frameworkRole is temporarily unavailable until the active ClickHouse data build publishes it',
-          'frameworkRole'
-        )
-      );
-    }
+    // Whether the ACTIVE build can answer a frameworkRole scope is decided at
+    // routing time from the live generation (`routeAnalysis`), not here: the
+    // parser only knows the vocabulary.
     if (!(FRAMEWORK_ROLE_FILTERS as readonly string[]).includes(frameworkRole.value)) {
       return err(
         invalidInput(

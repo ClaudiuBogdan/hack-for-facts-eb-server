@@ -228,15 +228,43 @@ describe('recordKind is contract-grain only', () => {
   });
 });
 
-describe('frameworkRole is temporarily disabled until its ClickHouse data lands', () => {
-  it('rejects every explicit frameworkRole scope before routing', () => {
+describe('frameworkRole follows the ACTIVE build (M/M06): refused without the column', () => {
+  const without = { frameworkRole: false } as const;
+  const withColumn = { frameworkRole: true } as const;
+
+  it('rejects every explicit frameworkRole scope when the build lacks the column', () => {
     for (const frameworkRole of ['standalone', 'framework_ceiling', 'call_off', 'all'] as const) {
-      expect(errorOf({ frameworkRole }, 'stats')).toContain('temporarily unavailable');
+      expect(errorOf({ frameworkRole }, 'stats')).toContain('unavailable');
+      expect(routeAnalysis({ frameworkRole }, 'stats', undefined, undefined, without).isErr()).toBe(
+        true
+      );
     }
   });
 
-  it('rejects the frameworkRole breakdown before routing', () => {
-    expect(errorOf({}, 'breakdown', 'frameworkRole')).toContain('temporarily unavailable');
+  it('rejects the frameworkRole breakdown when the build lacks the column', () => {
+    expect(errorOf({}, 'breakdown', 'frameworkRole')).toContain('unavailable');
+  });
+
+  it('routes frameworkRole scopes and breakdowns once the build publishes the column', () => {
+    expect(
+      routeAnalysis({ frameworkRole: 'standalone' }, 'stats', undefined, undefined, withColumn)
+        ._unsafeUnwrap()
+        .map((r) => r.grain)
+    ).toContain('contract');
+    // The role distribution needs the widened scope (single-bucket rule).
+    expect(
+      routeAnalysis(
+        { grain: 'contract', frameworkRole: 'all' },
+        'breakdown',
+        'frameworkRole',
+        undefined,
+        withColumn
+      ).isOk()
+    ).toBe(true);
+  });
+
+  it('defaults to "no column" when no generation was resolved (fails closed)', () => {
+    expect(routeAnalysis({ frameworkRole: 'all' }, 'stats').isErr()).toBe(true);
   });
 });
 

@@ -35,8 +35,8 @@ import { err, ok, type Result } from 'neverthrow';
 import { databaseError, type ApiError, type Logger } from '@/modules/shared/index.js';
 
 import {
-  PROCUREMENT_DATA_AVAILABILITY,
   TOPN_SIRUTA_MAX,
+  type GenerationCapabilities,
   type MeasureId,
   type SeriesBucket,
 } from '../../core/constants.js';
@@ -50,6 +50,7 @@ import type {
   AnalysisRepo,
   AnalysisStatsRead,
   ConcentrationRead,
+  PublishedGeneration,
 } from '../../core/ports.js';
 
 export interface ClickhouseAnalysisConfig {
@@ -283,7 +284,9 @@ const BREAKDOWN_DIM_COLUMNS: Record<string, string> = {
   status: 'status',
   procedureType: 'procedure_type',
   recordKind: 'record_kind',
-  ...(PROCUREMENT_DATA_AVAILABILITY.frameworkRole ? { frameworkRole: 'framework_role' } : {}),
+  // Served only when the active build publishes the column: routing refuses
+  // the dimension otherwise, and `breakdownFor` re-checks the capability.
+  frameworkRole: 'framework_role',
   buyerRegion: 'buyer_region',
   buyerCounty: 'buyer_county_code',
   buyerSiruta: 'toString(buyer_siruta_uat)',
@@ -346,7 +349,8 @@ interface CompiledScope {
 const compileScope = (
   route: AnalysisRoute,
   scope: AnalysisScope,
-  supplierMoney = false
+  supplierMoney: boolean,
+  capabilities: GenerationCapabilities
 ): CompiledScope => {
   const grain = route.grain;
   const table = TABLE_BY_GRAIN[grain] ?? 'facts_contracts_v2';
@@ -383,9 +387,9 @@ const compileScope = (
   // NULL passes the default: the data layer has not stamped that row yet, and
   // treating unstamped rows as frameworks would silently delete real
   // purchases from every total. Absence of evidence excludes nothing.
-  if (!PROCUREMENT_DATA_AVAILABILITY.frameworkRole && scope.frameworkRole !== undefined) {
+  if (!capabilities.frameworkRole && scope.frameworkRole !== undefined) {
     impossible = true;
-  } else if (PROCUREMENT_DATA_AVAILABILITY.frameworkRole && grain === 'contract') {
+  } else if (capabilities.frameworkRole && grain === 'contract') {
     const role = scope.frameworkRole;
     if (role === undefined) {
       conds.push("(framework_role IS NULL OR framework_role = 'standalone')");
@@ -629,9 +633,26 @@ const compactRows = <S extends TObject>(
   return ok(rows);
 };
 
+/** One `system.columns` probe row. */
+const ColumnProbeRowSchema = Type.Object({ name: Type.String() });
+/** The stamped/total row counts behind the framework-role capability. */
+const RoleCoverageRowSchema = Type.Object({ stamped: CountStringSchema, total: CountStringSchema });
+/**
+ * Minimum share (percent) of contract rows carrying a `framework_role` before
+ * the capability turns on. The scrapper adds the nullable column BEFORE the
+ * separate data load (`prod-db/ch-prototype/12-ddl-v2.sql`), so column
+ * existence alone would enable explicit role filters against a table that is
+ * still all-NULL (empty populations, legacy warning gone). Unstamped rows are
+ * legitimate after a load (the default population keeps them), so the bar is
+ * "the load has landed", not "every row is stamped". Integer math only.
+ */
+export const FRAMEWORK_ROLE_MIN_STAMPED_PERCENT = 95n;
+/** How long a capability probe answer is trusted before the table is asked again. */
+export const CAPABILITY_PROBE_TTL_MS = 60_000;
+
 export const makeClickhouseAnalysisRepo = (
   config: ClickhouseAnalysisConfig,
-  activeGeneration: AnalysisRepo['activeGeneration'],
+  publishedGeneration: () => Promise<Result<PublishedGeneration | null, ApiError>>,
   logger?: Logger
 ): AnalysisRepo => {
   const inFlightQueries = new Map<string, Promise<Result<readonly unknown[], ApiError>>>();
@@ -764,12 +785,73 @@ export const makeClickhouseAnalysisRepo = (
           valueWithheldAssociationSum: baniToRon(row.withheld_bani_out),
         };
 
+  // ── what the active build can answer (probed per build id, short TTL) ──────
+  //
+  // The ledger names the build; only the fact table knows its columns. The
+  // probe answer is held per build id for a short window and never cached on
+  // failure, so a republished build with the column flips the contract
+  // population to purchases-only with no server change (M/M06). The window
+  // exists because the Postgres pointer and the ClickHouse table swap are two
+  // publications: if the pointer lands first, the probe sees the OLD table
+  // under the NEW build id, and a permanent cache would pin legacy mode for
+  // the life of the process (Codex P2).
+  const capabilitiesByBuild = new Map<
+    string,
+    { readonly value: GenerationCapabilities; readonly expiresAt: number }
+  >();
+  const capabilitiesFor = async (
+    buildId: string
+  ): Promise<Result<GenerationCapabilities, ApiError>> => {
+    const cached = capabilitiesByBuild.get(buildId);
+    if (cached !== undefined && cached.expiresAt > Date.now()) return ok(cached.value);
+    const contractTable = TABLE_BY_GRAIN['contract'] ?? 'facts_contracts_v2';
+    const column = await query(
+      `SELECT name FROM system.columns WHERE database = currentDatabase() AND table = ${escapeString(contractTable)} AND name = 'framework_role'`,
+      ColumnProbeRowSchema
+    );
+    if (column.isErr()) return err(column.error);
+    let frameworkRole = false;
+    let stampedPercent: string | null = null;
+    if (column.value.length > 0) {
+      // The column exists; the capability needs the DATA (Codex P2).
+      const coverage = await query(
+        `SELECT toString(countIf(framework_role IS NOT NULL)) AS stamped, toString(count()) AS total FROM ${contractTable}`,
+        RoleCoverageRowSchema
+      );
+      if (coverage.isErr()) return err(coverage.error);
+      const row = coverage.value[0];
+      const stamped = BigInt(row?.stamped ?? '0');
+      const total = BigInt(row?.total ?? '0');
+      frameworkRole = total > 0n && stamped * 100n >= total * FRAMEWORK_ROLE_MIN_STAMPED_PERCENT;
+      stampedPercent = total > 0n ? ((stamped * 100n) / total).toString() : null;
+    }
+    const capabilities: GenerationCapabilities = { frameworkRole };
+    capabilitiesByBuild.set(buildId, {
+      value: capabilities,
+      expiresAt: Date.now() + CAPABILITY_PROBE_TTL_MS,
+    });
+    logger?.info(
+      { buildId, capabilities, stampedPercent },
+      'procurement analysis generation capabilities'
+    );
+    return ok(capabilities);
+  };
+  const activeGeneration: AnalysisRepo['activeGeneration'] = async () => {
+    const g = await publishedGeneration();
+    if (g.isErr()) return err(g.error);
+    if (g.value === null) return ok(null);
+    const capabilities = await capabilitiesFor(g.value.buildId);
+    if (capabilities.isErr()) return err(capabilities.error);
+    return ok({ ...g.value, capabilities: capabilities.value });
+  };
+
   const statsCore = async (
     route: AnalysisRoute,
     scope: AnalysisScope,
-    supplierMoney: boolean
+    supplierMoney: boolean,
+    capabilities: GenerationCapabilities
   ): Promise<Result<AnalysisStatsRead, ApiError>> => {
-    const c = compileScope(route, scope, supplierMoney);
+    const c = compileScope(route, scope, supplierMoney, capabilities);
     if (c.impossible) return ok(EMPTY_STATS);
     const r = await query(
       `SELECT ${statsSelect(profileFor(route.grain, supplierMoney), c.dated)} FROM ${c.table} WHERE ${c.where}`,
@@ -778,8 +860,8 @@ export const makeClickhouseAnalysisRepo = (
     return r.map((rows) => toStats(rows[0]));
   };
 
-  const statsFor: AnalysisRepo['statsFor'] = async (route, scope, _buildId) =>
-    statsCore(route, scope, supplierScoped(scope));
+  const statsFor: AnalysisRepo['statsFor'] = (route, scope, generation) =>
+    statsCore(route, scope, supplierScoped(scope), generation.capabilities);
 
   const measureExpr = (
     grain: string,
@@ -828,9 +910,9 @@ export const makeClickhouseAnalysisRepo = (
     'valueModAdjustedSum',
   ]);
 
-  const seriesFor: AnalysisRepo['seriesFor'] = async (route, scope, _buildId, measure) => {
+  const seriesFor: AnalysisRepo['seriesFor'] = async (route, scope, generation, measure) => {
     const sup = supplierScoped(scope);
-    const c = compileScope(route, scope, sup);
+    const c = compileScope(route, scope, sup, generation.capabilities);
     const p = profileFor(route.grain, sup);
     if (c.impossible) return ok([]);
     const expr = measureExpr(route.grain, measure, 'NOT is_undated', sup);
@@ -867,12 +949,12 @@ export const makeClickhouseAnalysisRepo = (
   const distinctSeriesFor: AnalysisRepo['distinctSeriesFor'] = async (
     route,
     scope,
-    _buildId,
+    generation,
     key,
     bucket
   ) => {
     const sup = supplierScoped(scope);
-    const c = compileScope(route, scope, sup);
+    const c = compileScope(route, scope, sup, generation.capabilities);
     const p = profileFor(route.grain, sup);
     if (c.impossible) return ok([]);
     if (
@@ -918,18 +1000,24 @@ export const makeClickhouseAnalysisRepo = (
   const breakdownFor: AnalysisRepo['breakdownFor'] = async (
     route,
     scope,
-    _buildId,
+    generation,
     dimension,
     topN,
     rankBy
   ) => {
+    const caps = generation.capabilities;
+    if (dimension === 'frameworkRole' && !caps.frameworkRole) {
+      return err(
+        databaseError('frameworkRole breakdown requested against a build without the column')
+      );
+    }
     // Supplier-keyed breakdowns aggregate supplier-attributable money, and
     // the TOTALS row must use the SAME money basis or the derived 'other'
     // bucket would silently absorb the withheld association mass (M1).
     const sup = supplierScoped(scope) || SUPPLIER_BREAKDOWN_DIMS.has(dimension);
-    const c = compileScope(route, scope, sup);
+    const c = compileScope(route, scope, sup, caps);
     const p = profileFor(route.grain, sup);
-    const totalsR = await statsCore(route, scope, sup);
+    const totalsR = await statsCore(route, scope, sup, caps);
     if (totalsR.isErr()) return err(totalsR.error);
     const totals = totalsR.value;
     if (c.impossible) return ok({ buckets: [], totals, rankedBy: 'count' });
@@ -1034,15 +1122,16 @@ export const makeClickhouseAnalysisRepo = (
   const concentrationFor: AnalysisRepo['concentrationFor'] = async (
     route,
     scope,
-    _buildId,
+    generation,
     basis
   ) => {
+    const caps = generation.capabilities;
     // Concentration is supplier-keyed by definition → supplier money always
     // (association money never enters HHI; the withheld share is disclosed
     // via the coverage/caveat layer).
-    const c = compileScope(route, scope, true);
+    const c = compileScope(route, scope, true, caps);
     const p = profileFor(route.grain, true);
-    const totalsR = await statsCore(route, scope, true);
+    const totalsR = await statsCore(route, scope, true, caps);
     if (totalsR.isErr()) return err(totalsR.error);
     const totals = totalsR.value;
     const empty: ConcentrationRead = {

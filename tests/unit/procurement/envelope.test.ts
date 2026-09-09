@@ -175,11 +175,12 @@ describe('canonical scope echo + fhash input', () => {
     expect(parseAnalysisScope({ recordKind: 'framework' }).isErr()).toBe(true);
   });
 
-  it('rejects frameworkRole while the active ClickHouse build lacks the column', () => {
-    const result = parseAnalysisScope({ frameworkRole: 'standalone' });
-    expect(result._unsafeUnwrapErr()).toMatchObject({
+  it('parses frameworkRole by vocabulary only; availability is decided at routing (M/M06)', () => {
+    expect(parseAnalysisScope({ frameworkRole: 'standalone' })._unsafeUnwrap().frameworkRole).toBe(
+      'standalone'
+    );
+    expect(parseAnalysisScope({ frameworkRole: 'ceiling' })._unsafeUnwrapErr()).toMatchObject({
       field: 'frameworkRole',
-      message: expect.stringContaining('temporarily unavailable'),
     });
   });
 

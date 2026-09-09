@@ -32,7 +32,7 @@ import {
 import { ANALYSIS_GRAINS } from '../../core/constants.js';
 
 import type { GenerationQuality, GrainQualityVerdict } from '../../core/gate-v2.js';
-import type { ActiveGeneration } from '../../core/ports.js';
+import type { PublishedGeneration } from '../../core/ports.js';
 
 type Db = Kysely<ProdDatabase>;
 
@@ -41,7 +41,7 @@ const GENERATION_TTL_MS = 5_000;
 /** The generation-reading slice of the analysis surface (delegated to by the CH repo). */
 export interface ProcurementGenerationRepo {
   /** null when no generation is active (package not yet published). */
-  activeGeneration(): Promise<Result<ActiveGeneration | null, ApiError>>;
+  activeGeneration(): Promise<Result<PublishedGeneration | null, ApiError>>;
 }
 
 // ── quality jsonb validation (safe parsing — never trusted raw) ────────────────
@@ -115,10 +115,10 @@ export const makeProcurementGenerationRepo = (
   // is authoritative even when it points back to an older build for rollback.
   // Errors are never cached.
 
-  let generationCache: { value: ActiveGeneration | null; expiresAt: number } | null = null;
-  let generationInFlight: Promise<Result<ActiveGeneration | null, ApiError>> | null = null;
+  let generationCache: { value: PublishedGeneration | null; expiresAt: number } | null = null;
+  let generationInFlight: Promise<Result<PublishedGeneration | null, ApiError>> | null = null;
 
-  const refreshGeneration = async (): Promise<Result<ActiveGeneration | null, ApiError>> => {
+  const refreshGeneration = async (): Promise<Result<PublishedGeneration | null, ApiError>> => {
     const startedAt = now();
     try {
       const row = await db
@@ -133,7 +133,7 @@ export const makeProcurementGenerationRepo = (
         .orderBy('g.build_id', 'desc')
         .limit(1)
         .executeTakeFirst();
-      const fresh: ActiveGeneration | null =
+      const fresh: PublishedGeneration | null =
         row === undefined
           ? null
           : {
@@ -153,7 +153,7 @@ export const makeProcurementGenerationRepo = (
     }
   };
 
-  const activeGeneration = async (): Promise<Result<ActiveGeneration | null, ApiError>> => {
+  const activeGeneration = async (): Promise<Result<PublishedGeneration | null, ApiError>> => {
     if (generationCache !== null && generationCache.expiresAt > now()) {
       return ok(generationCache.value);
     }

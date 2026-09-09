@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { makeClickhouseAnalysisRepo } from '@/modules/procurement/shell/repo/clickhouse-analysis-repo.js';
 
-import { compactResponse } from './clickhouse-response.js';
+import { compactResponse, generationWithoutFrameworkRole as GEN } from './clickhouse-response.js';
 
 import type { AnalysisRoute } from '@/modules/procurement/core/combinations.js';
 import type { AnalysisRepo } from '@/modules/procurement/core/ports.js';
@@ -44,7 +44,7 @@ describe('ClickHouse procurement SIRUTA scope compilation', () => {
       activeGeneration
     );
 
-    const result = await repo.statsFor(route('contract'), { supplierSiruta: '057706' }, '1');
+    const result = await repo.statsFor(route('contract'), { supplierSiruta: '057706' }, GEN);
 
     expect(result.isOk()).toBe(true);
     expect(fetchSpy).toHaveBeenCalledTimes(1);
@@ -60,7 +60,7 @@ describe('ClickHouse procurement SIRUTA scope compilation', () => {
       activeGeneration
     );
 
-    const result = await repo.statsFor(route('contract'), { supplierSiruta: 'CJ' }, '1');
+    const result = await repo.statsFor(route('contract'), { supplierSiruta: 'CJ' }, GEN);
 
     expect(result._unsafeUnwrap().rows).toBe('0');
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -74,7 +74,7 @@ describe('ClickHouse procurement SIRUTA scope compilation', () => {
       activeGeneration
     );
 
-    const result = await repo.statsFor(route('procedure'), { supplierSiruta: '57706' }, '1');
+    const result = await repo.statsFor(route('procedure'), { supplierSiruta: '57706' }, GEN);
 
     expect(result._unsafeUnwrap().rows).toBe('0');
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -89,7 +89,7 @@ describe('ClickHouse row-filter and dimension scope compilation', () => {
       { url: 'http://clickhouse.test', database: 'proto' },
       activeGeneration
     );
-    const result = await repo.statsFor(route('contract'), scope, '1');
+    const result = await repo.statsFor(route('contract'), scope, GEN);
     expect(result.isOk()).toBe(true);
     const request = fetchSpy.mock.calls[0]?.[1] as { body?: string } | undefined;
     return request?.body ?? '';
@@ -115,7 +115,7 @@ describe('ClickHouse row-filter and dimension scope compilation', () => {
     const result = await repo.statsFor(
       route('contract'),
       { frameworkRole: 'framework_ceiling' },
-      '1'
+      GEN
     );
     expect(result._unsafeUnwrap().rows).toBe('0');
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -130,7 +130,7 @@ describe('ClickHouse row-filter and dimension scope compilation', () => {
     );
     for (const grain of ['direct_acquisition', 'procedure'] as const) {
       fetchSpy.mockClear();
-      await repo.statsFor(route(grain), {}, '1');
+      await repo.statsFor(route(grain), {}, GEN);
       const request = fetchSpy.mock.calls[0]?.[1] as { body?: string } | undefined;
       expect(request?.body ?? '').not.toContain('framework_role');
     }
@@ -194,7 +194,7 @@ describe('ClickHouse row-filter and dimension scope compilation', () => {
       activeGeneration
     );
 
-    const result = await repo.breakdownFor(route('contract'), {}, '1', 'cpvGroup', 3300, 'count');
+    const result = await repo.breakdownFor(route('contract'), {}, GEN, 'cpvGroup', 3300, 'count');
 
     expect(result.isOk()).toBe(true);
     const topBody = (fetchSpy.mock.calls[2]?.[1] as { body?: string } | undefined)?.body ?? '';
@@ -222,7 +222,7 @@ describe('association-dedup money routing (design r3, user decisions D3=C/D8)', 
 
   it('unscoped contract stats aggregate ATTRIBUTED money (one copy per award)', async () => {
     const { repo, fetchSpy } = makeRepo();
-    await repo.statsFor(route('contract'), {}, '1');
+    await repo.statsFor(route('contract'), {}, GEN);
     const body = bodyOf(fetchSpy);
     expect(body).toContain('value_awarded_attributed_bani');
     expect(body).not.toContain('value_awarded_supplier_bani');
@@ -230,7 +230,7 @@ describe('association-dedup money routing (design r3, user decisions D3=C/D8)', 
 
   it('supplier-scoped contract stats aggregate SUPPLIER money (M1 invariant)', async () => {
     const { repo, fetchSpy } = makeRepo();
-    await repo.statsFor(route('contract'), { supplierCui: '123' }, '1');
+    await repo.statsFor(route('contract'), { supplierCui: '123' }, GEN);
     const body = bodyOf(fetchSpy);
     expect(body).toContain('value_awarded_supplier_bani');
     // The attributed column appears ONLY in the withheld disclosure output —
@@ -249,7 +249,7 @@ describe('association-dedup money routing (design r3, user decisions D3=C/D8)', 
 
   it('supplier-scoped stats DISCLOSE the withheld association mass (finding 2)', async () => {
     const { repo, fetchSpy } = makeRepo();
-    await repo.statsFor(route('contract'), { supplierCui: '123' }, '1');
+    await repo.statsFor(route('contract'), { supplierCui: '123' }, GEN);
     const body = bodyOf(fetchSpy);
     // Withheld = Σ attributed − Σ supplier over the SAME scope; NULL when the
     // scope holds no attributed money (never a fabricated zero).
@@ -263,14 +263,14 @@ describe('association-dedup money routing (design r3, user decisions D3=C/D8)', 
 
   it('attributed-basis stats carry NO withheld output (the field doubles as the supplier-read signal)', async () => {
     const { repo, fetchSpy } = makeRepo();
-    await repo.statsFor(route('contract'), {}, '1');
+    await repo.statsFor(route('contract'), {}, GEN);
     const body = bodyOf(fetchSpy);
     expect(body).toContain('NULL AS withheld_bani_out');
   });
 
   it('supplier breakdown totals AND buckets share the supplier-money basis', async () => {
     const { repo, fetchSpy } = makeRepo();
-    await repo.breakdownFor(route('contract'), {}, '1', 'supplier', 10, 'value');
+    await repo.breakdownFor(route('contract'), {}, GEN, 'supplier', 10, 'value');
     for (let i = 0; i < fetchSpy.mock.calls.length; i += 1) {
       const body = bodyOf(fetchSpy, i);
       expect(body).toContain('value_awarded_supplier_bani');
@@ -285,7 +285,7 @@ describe('association-dedup money routing (design r3, user decisions D3=C/D8)', 
 
   it('authority breakdown stays on attributed money', async () => {
     const { repo, fetchSpy } = makeRepo();
-    await repo.breakdownFor(route('contract'), {}, '1', 'authority', 10, 'value');
+    await repo.breakdownFor(route('contract'), {}, GEN, 'authority', 10, 'value');
     for (let i = 0; i < fetchSpy.mock.calls.length; i += 1) {
       expect(bodyOf(fetchSpy, i)).toContain('value_awarded_attributed_bani');
     }
@@ -293,7 +293,7 @@ describe('association-dedup money routing (design r3, user decisions D3=C/D8)', 
 
   it('concentration always uses supplier money (association money never enters HHI)', async () => {
     const { repo, fetchSpy } = makeRepo();
-    await repo.concentrationFor(route('contract'), {}, '1', 'value');
+    await repo.concentrationFor(route('contract'), {}, GEN, 'value');
     for (let i = 0; i < fetchSpy.mock.calls.length; i += 1) {
       const body = bodyOf(fetchSpy, i);
       if (body.includes('sumIf')) expect(body).toContain('value_awarded_supplier_bani');
@@ -302,7 +302,7 @@ describe('association-dedup money routing (design r3, user decisions D3=C/D8)', 
 
   it('DA grain is untouched by the association flip (raw awarded column)', async () => {
     const { repo, fetchSpy } = makeRepo();
-    await repo.statsFor(route('direct_acquisition'), { supplierCui: '123' }, '1');
+    await repo.statsFor(route('direct_acquisition'), { supplierCui: '123' }, GEN);
     expect(bodyOf(fetchSpy)).toContain('value_awarded_bani');
   });
 });

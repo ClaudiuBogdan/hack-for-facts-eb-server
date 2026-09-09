@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { makeClickhouseAnalysisRepo } from '@/modules/procurement/shell/repo/clickhouse-analysis-repo.js';
 
-import { compactResponse } from './clickhouse-response.js';
+import { compactResponse, generationWithoutFrameworkRole as GEN } from './clickhouse-response.js';
 
 import type { AnalysisRoute } from '@/modules/procurement/core/combinations.js';
 import type { AnalysisRepo } from '@/modules/procurement/core/ports.js';
@@ -43,7 +43,7 @@ describe('ClickHouse JSONCompact transport', () => {
     const fetchSpy = vi.fn().mockResolvedValue(compactResponse([statsRow]));
     vi.stubGlobal('fetch', fetchSpy);
 
-    const result = await makeRepo().statsFor(route, { year: 2025 }, '1');
+    const result = await makeRepo().statsFor(route, { year: 2025 }, GEN);
 
     expect(result._unsafeUnwrap()).toMatchObject({
       rows: '127644',
@@ -68,7 +68,7 @@ describe('ClickHouse JSONCompact transport', () => {
       )
     );
 
-    const result = await makeRepo().statsFor(route, {}, '1');
+    const result = await makeRepo().statsFor(route, {}, GEN);
 
     expect(result.isErr()).toBe(true);
     expect(result._unsafeUnwrapErr().message).toContain('malformed JSONCompact row');
@@ -87,7 +87,7 @@ describe('ClickHouse JSONCompact transport', () => {
       )
     );
 
-    const result = await makeRepo().statsFor(route, {}, '1');
+    const result = await makeRepo().statsFor(route, {}, GEN);
 
     expect(result.isErr()).toBe(true);
     expect(result._unsafeUnwrapErr().message).toContain('unexpected JSONCompact columns');
@@ -108,7 +108,7 @@ describe('ClickHouse JSONCompact transport', () => {
       )
     );
 
-    const result = await makeRepo().statsFor(route, {}, '1');
+    const result = await makeRepo().statsFor(route, {}, GEN);
 
     expect(result.isErr()).toBe(true);
     expect(result._unsafeUnwrapErr().message).toContain('duplicate JSONCompact column names');
@@ -120,7 +120,7 @@ describe('ClickHouse JSONCompact transport', () => {
       vi.fn().mockResolvedValue(compactResponse([{ ...statsRow, awarded_bani_out: 123 }]))
     );
 
-    const result = await makeRepo().statsFor(route, {}, '1');
+    const result = await makeRepo().statsFor(route, {}, GEN);
 
     expect(result.isErr()).toBe(true);
     expect(result._unsafeUnwrapErr().message).toContain('invalid JSONCompact row');
@@ -135,8 +135,8 @@ describe('ClickHouse JSONCompact transport', () => {
     vi.stubGlobal('fetch', fetchSpy);
     const repo = makeRepo();
 
-    const first = repo.statsFor(route, { year: 2025 }, '1');
-    const second = repo.statsFor(route, { year: 2025 }, '1');
+    const first = repo.statsFor(route, { year: 2025 }, GEN);
+    const second = repo.statsFor(route, { year: 2025 }, GEN);
     expect(fetchSpy).toHaveBeenCalledTimes(1);
 
     resolveResponse?.(compactResponse([statsRow]));
@@ -155,10 +155,10 @@ describe('ClickHouse JSONCompact transport', () => {
     const repo = makeRepo();
 
     const [first, second] = await Promise.all([
-      repo.statsFor(route, { year: 2025 }, '1'),
-      repo.statsFor(route, { year: 2025 }, '1'),
+      repo.statsFor(route, { year: 2025 }, GEN),
+      repo.statsFor(route, { year: 2025 }, GEN),
     ]);
-    const retry = await repo.statsFor(route, { year: 2025 }, '1');
+    const retry = await repo.statsFor(route, { year: 2025 }, GEN);
 
     expect(first.isErr()).toBe(true);
     expect(second.isErr()).toBe(true);
@@ -215,7 +215,7 @@ describe('ClickHouse JSONCompact transport', () => {
         )
     );
 
-    const result = await makeRepo().concentrationFor(route, { year: 2025 }, '1', 'value');
+    const result = await makeRepo().concentrationFor(route, { year: 2025 }, GEN, 'value');
 
     expect(result._unsafeUnwrap().unknownSupplierMeasure).toBe('-1.23');
   });
