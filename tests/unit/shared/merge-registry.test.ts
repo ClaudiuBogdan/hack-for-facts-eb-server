@@ -52,6 +52,34 @@ describe('mergeGraphqlSlices conflict gate', () => {
     ).toThrow(/added by both/u);
   });
 
+  it('rejects a cross-module extension of a module-owned field, definition first', () => {
+    // Used to pass the gate (only kernel base fields were recorded) and
+    // surface later from makeExecutableSchema — or merge silently when the
+    // duplicate field had an identical type.
+    expect(() =>
+      mergeGraphqlSlices(baseTypeDefs, [
+        { source: 'a', typeDefs: 'type Owned { x: Int }' },
+        { source: 'b', typeDefs: 'extend type Owned { x: Int }' },
+      ])
+    ).toThrow(/field 'Owned\.x' added by both 'a' and 'b'/u);
+  });
+
+  it('rejects a cross-module extension of a module-owned field, extension first', () => {
+    expect(() =>
+      mergeGraphqlSlices(baseTypeDefs, [
+        { source: 'b', typeDefs: 'extend type Owned { x: String }' },
+        { source: 'a', typeDefs: 'type Owned { x: Int }' },
+      ])
+    ).toThrow(/field 'Owned\.x' added by both 'b' and 'a'/u);
+  });
+
+  it('accepts a module extending its own type with new fields', () => {
+    const result = mergeGraphqlSlices(baseTypeDefs, [
+      { source: 'a', typeDefs: 'type Owned { x: Int }\nextend type Owned { y: Int }' },
+    ]);
+    expect(result.typeDefs).toContain('extend type Owned');
+  });
+
   it('rejects invalid SDL with a clear error', () => {
     expect(() => mergeGraphqlSlices(baseTypeDefs, [{ source: 'bad', typeDefs: 'type {' }])).toThrow(
       /not valid SDL/u

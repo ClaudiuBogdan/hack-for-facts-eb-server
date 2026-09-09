@@ -136,6 +136,20 @@ export const mergeGraphqlSlices = (base: string, slices: readonly GraphqlSlice[]
           );
         }
         definedTypes.set(name, slice.source);
+        // Record the defining module's fields too, so a cross-module
+        // `extend type` on a module-owned type collides here in EITHER
+        // encounter order (definition first or extension first), not later
+        // inside makeExecutableSchema.
+        for (const field of fieldsOf(def)) {
+          const key = `${name}.${field}`;
+          const owner = fieldOwners.get(key);
+          if (owner !== undefined && owner !== slice.source) {
+            throw new Error(
+              `graphql conflict: field '${key}' added by both '${owner}' and '${slice.source}'`
+            );
+          }
+          fieldOwners.set(key, slice.source);
+        }
       }
 
       if (isTypeExtension(def)) {
@@ -144,7 +158,7 @@ export const mergeGraphqlSlices = (base: string, slices: readonly GraphqlSlice[]
         for (const field of fieldsOf(def)) {
           const key = `${typeName}.${field}`;
           const owner = fieldOwners.get(key);
-          if (owner !== undefined) {
+          if (owner !== undefined && owner !== slice.source) {
             throw new Error(
               `graphql conflict: field '${key}' added by both '${owner}' and '${slice.source}'`
             );
