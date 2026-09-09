@@ -1229,15 +1229,20 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
           // Auth context for the redesign GraphQL: verified bearer → authenticated
           // resolver context; missing/invalid → anonymous. Never a 401 here.
           ...(deps.authProvider !== undefined && { authProvider: deps.authProvider }),
+          ...(deps.registerRedesignContributors !== undefined && {
+            registerContributors: deps.registerRedesignContributors,
+          }),
         });
         child.log.info(
           'Redesign surface mounted on this port at /api/v1/graphql (+ /api/v1/mcp, /api/v1/health, /api/v1/ready)'
         );
       } catch (error) {
-        child.log.error(
-          { err: error },
-          'Failed to mount redesign surface — continuing with the legacy API only'
-        );
+        // Fail closed: the surface is explicitly enabled here, so a boot that
+        // silently continues legacy-only would drop /api/v1/graphql and
+        // /api/v1/mcp while readiness reports healthy. A schema collision
+        // (e.g. ins-native beside the interim INS slice) is exactly this path.
+        child.log.error({ err: error }, 'Failed to mount the enabled redesign surface');
+        throw error;
       }
     });
   }

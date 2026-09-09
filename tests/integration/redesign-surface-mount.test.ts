@@ -175,6 +175,25 @@ describe('redesign surface mount — public GET prefixes vs legacy auth', () => 
     expect(invalidToken.json()).toEqual({ data: { __typename: 'Query' } });
   });
 
+  it('fails the boot when the enabled surface cannot mount (never legacy-only)', async () => {
+    // With the flag on, a mount error used to be logged and swallowed: the
+    // process came up, readiness passed, and /api/v1/graphql + /api/v1/mcp
+    // were silently absent. The boot must fail instead.
+    await expect(
+      createApp({
+        fastifyOptions: { logger: false },
+        deps: {
+          ...authedDeps(),
+          config: makeTestConfig({ redesignSurface: { enabled: true } }),
+          redesignKernelConfig: kernelConfig,
+          registerRedesignContributors: () => {
+            throw new Error('fixture mount failure');
+          },
+        },
+      })
+    ).rejects.toThrow('fixture mount failure');
+  });
+
   it('anonymous POST under the prefix is never bypassed', async () => {
     app = await createApp({
       fastifyOptions: { logger: false },

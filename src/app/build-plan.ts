@@ -23,7 +23,7 @@ import type {
   PlatformAdminRoutesFactory,
   SubjectAuthorizationPort,
 } from '../modules/notification-platform/index.js';
-import type { KernelConfig } from '../modules/shared/index.js';
+import type { Kernel, KernelConfig } from '../modules/shared/index.js';
 import type {
   CategoryDefinition,
   IdGenerator,
@@ -106,6 +106,12 @@ export interface AppDeps {
   redesignKernelConfig?: KernelConfig;
   /** Client base URL passed to the mounted redesign surface (MCP deep links). */
   redesignClientBaseUrl?: string;
+  /**
+   * Test seam forwarded to the mounted redesign surface's `registerContributors`:
+   * a throw here proves the mount fails the boot instead of continuing
+   * legacy-only.
+   */
+  registerRedesignContributors?: (kernel: Kernel) => void;
 }
 
 /**
