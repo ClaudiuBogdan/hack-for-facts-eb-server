@@ -1,7 +1,7 @@
 # Native INS map series
 
-The latest-map reader is an internal building block; it is not yet mounted on
-public map routes. Its caller supplies one resolved dataset, complete exact
+The latest-map reader is the INS leg of the native map provider, mounted on the
+public map routes since f905539d (and serving `api.js` since slice 1 commit 4). Its caller supplies one resolved dataset, complete exact
 non-geographic pins, one unit, one frequency and unique modern territory IDs.
 Preparation and reads must share the operation's `InsReadSession` repository.
 

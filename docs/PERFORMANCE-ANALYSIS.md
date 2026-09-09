@@ -1,5 +1,7 @@
 # Analytics Performance Analysis
 
+> **2026-09-09 status (slice 1 of the Chronos migration):** the legacy budget-viz modules this document describes (`execution-analytics`, `entity-analytics`, `execution-line-items`, `budget-sector`, `funding-sources`, `county-analytics`, `uat-analytics`, `commitments`, the legacy `/graphql` endpoint and `src/app/cache-wrappers.ts`) were deleted from the server. Their behaviour lives on in the kernel `budget` module (`src/modules/budget`, design `docs/server-redesign/02-budget.md` and `13-legacy-roots-on-kernel.md`) served on `/api/v1/graphql`. Keep this document as the design record of the first implementation; do not treat its file paths as current. The index review below concerns the Phoenix `budget` database, which the kernel no longer reads (it serves Chronos `transparenta_prod`).
+
 This document analyzes the query patterns used by the analytics modules and reviews index coverage for optimization opportunities.
 
 ---

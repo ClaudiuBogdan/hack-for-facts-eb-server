@@ -1,5 +1,7 @@
 # Functional Core / Imperative Shell — Implementation Guide
 
+> **2026-09-09 status (slice 1 of the Chronos migration):** the pattern and rules are current, and so are the kernel-module examples. The composition-root and test examples that import `@/modules/uat`, `@/modules/budget-sector`, `@/modules/entity/.../graphql`, `@/infra/graphql/schema.js` or post to `/graphql` describe the legacy app deleted in slice 1; the live composition is `src/app/build-redesign-app.ts` (kernel, `/api/v1/graphql`) and the source-module layout in `docs/server-redesign/00-foundation-shared-kernel.md`.
+
 ## Reference Document v1.0
 
 ---

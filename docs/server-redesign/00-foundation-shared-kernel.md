@@ -17,13 +17,13 @@
 
 ## 1. Decisions this document fixes (from user, 2026-06-16)
 
-| #   | Decision           | Choice                                                                                                                                                      |
-| --- | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| F1  | Topology           | **Module-per-source + a `shared/` kernel**. No monolithic `unified` module.                                                                                 |
-| F2  | API surface        | **Full REST + GraphQL + MCP** for every source module.                                                                                                      |
-| F3  | Scope              | One module/plan per data source (12), portal-legislativ + monitorul-oficial co-own the `legal` module but are planned separately and coordinated here (§9). |
-| F4  | Source of truth    | The live `transparenta_prod` schema (snapshot in `_prod-schema/*.tsv`) + scrapper prod-migrations + `prod-db/*_NOTES.md`.                                   |
-| F5  | Read/write posture | The server is **read-only** over the serving DB. No writes, no migrations from the server. Loaders/migrations stay in the scrapper.                         |
+| #   | Decision           | Choice                                                                                                                                                                                                                                                                        |
+| --- | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| F1  | Topology           | **Module-per-source + a `shared/` kernel**. No monolithic `unified` module.                                                                                                                                                                                                   |
+| F2  | API surface        | **GraphQL + MCP are the primary surfaces** for every source module; REST where a concrete need exists (downloads, maps, webhooks). _Amended 2026-09-09 (review M/M11): the original "full REST + GraphQL + MCP" and the per-module OpenAPI-fragment requirement are dropped._ |
+| F3  | Scope              | One module/plan per data source (12), portal-legislativ + monitorul-oficial co-own the `legal` module but are planned separately and coordinated here (§9).                                                                                                                   |
+| F4  | Source of truth    | The live `transparenta_prod` schema (snapshot in `_prod-schema/*.tsv`) + scrapper prod-migrations + `prod-db/*_NOTES.md`.                                                                                                                                                     |
+| F5  | Read/write posture | The server is **read-only** over the serving DB. No writes, no migrations from the server. Loaders/migrations stay in the scrapper.                                                                                                                                           |
 
 ---
 
@@ -330,8 +330,9 @@ filters (e.g. budget defaults to latest year). No implicit unbounded scans.
   (entity-360, compare), **`/api/v1/search`**, **`/api/v1/ask`**.
 - TypeBox schemas for **every** query/param/body; validation at the route boundary;
   `Static<typeof Schema>` is the handler input type.
-- Each module exports an **OpenAPI fragment**; the kernel merges them into one spec
-  at `/api/v1/openapi.json`.
+- ~~Each module exports an **OpenAPI fragment**; the kernel merges them into one spec
+  at `/api/v1/openapi.json`.~~ Dropped 2026-09-09 (M/M11): REST is per concrete need,
+  documented per route; there is no merged OpenAPI document.
 - Resource conventions: `GET /<domain>/<collection>` (list+filter+paginate),
   `GET /<domain>/<collection>/:id` (detail), `GET /<domain>/.../aggregate` or
   `/analytics` (grouped rollups). Mutations: none (read-only API).

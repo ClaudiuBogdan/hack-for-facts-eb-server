@@ -16,13 +16,6 @@ on:
   # Manual trigger with environment selection
   workflow_dispatch:
     inputs:
-      environment:
-        description: 'Environment to test (dev only since slice 1; kept for compatibility)'
-        required: true
-        default: 'dev'
-        type: choice
-        options:
-          - dev
       skip_delay:
         description: 'Skip ArgoCD deployment delay'
         required: false
@@ -41,8 +34,9 @@ concurrency:
 
 env:
   # Default API URLs (can be overridden via GitHub secrets)
-  # Phoenix dev (k8s/overlays/dev, pinned at `phoenix-last-full`) is the LAST
-  # deployment that serves the legacy /graphql: it is the cutover BASELINE only.
+  # Phoenix dev (k8s/overlays/dev) is the LAST deployment that serves the legacy
+  # /graphql — today the pre-slice-1 base image, to be pinned at `phoenix-last-full`
+  # (X/F3 handover) — and is the cutover BASELINE only.
   DEV_API_URL: ${{ secrets.GM_DEV_API_URL || 'https://api-dev.transparenta.eu/graphql' }}
   # The deployment the Dev Branch Pipeline actually updates (k8s/overlays/chronos-dev).
   CHRONOS_DEV_API_URL: ${{ secrets.GM_CHRONOS_DEV_API_URL || 'https://dev-chronos-api.transparenta.eu/api/v1/graphql' }}
@@ -234,4 +228,4 @@ jobs:
           fi
 
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Note: Golden Master tests and nightly security scans are report-only checks. Failures here don't block deployments." >> $GITHUB_STEP_SUMMARY
+          echo "Note: the cutover replay is a blocking contract check (a failed run is a failed workflow); the nightly security scans are report-only. Neither blocks a deployment that already happened." >> $GITHUB_STEP_SUMMARY

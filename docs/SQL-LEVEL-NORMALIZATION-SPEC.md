@@ -1,5 +1,7 @@
 # SQL-Level Normalization Specification
 
+> **2026-09-09 status (slice 1 of the Chronos migration):** the SQL-level normalization described here is implemented by the kernel `budget` module over Chronos (`src/modules/budget/core/legacy-analytics`, `shell/factors`); of the module paths named in §References, `entity-analytics` and `execution-analytics` were deleted from the server in slice 1 (`normalization` and `aggregated-line-items` survive on `api.js`). The design rationale stands.
+
 ## Overview
 
 This specification defines the approach for moving normalization from the application layer to the database layer for aggregated, paginated, and sorted results. The solution enables correct pagination ordering while maintaining the flexibility of application-level normalization logic.

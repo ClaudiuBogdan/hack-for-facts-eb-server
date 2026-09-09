@@ -70,7 +70,13 @@ export function teardown(): void {
     strictAllowlist,
   });
   if (written === null) {
-    console.log(`\n[Golden Master cutover] no case reports were written for run ${runId}\n`);
+    // A cutover run that executed no case is not a green gate: with
+    // TEST_GM_BASELINE_URL exported, every snapshot assertion short-circuits
+    // (setup.ts), so silence here would let `pnpm test:gm` pass vacuously.
+    console.error(
+      `\n[Golden Master cutover] no case reports were written for run ${runId} — nothing was compared\n`
+    );
+    process.exitCode = 1;
     return;
   }
 

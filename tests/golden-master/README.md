@@ -55,7 +55,8 @@ retired in slice 1 (2026-09-09). Exact requirements:
    mandatory since slice 1) next to the legacy `.env` (names in
    `.env.example`; never print it).
 2. **Baseline side** — `TEST_GM_BASELINE_URL` must name a preserved legacy
-   deployment (the Phoenix dev pod pinned at the `phoenix-last-full` tag); the
+   deployment (Phoenix dev — today the pre-slice-1 base image, to be pinned at the
+   `phoenix-last-full` tag, X/F3 handover); the
    script refuses to run without it.
 3. `PORT` defaults to `3000` (`env.ts`), which is what the target default
    (`http://localhost:3000/api/v1/graphql`) assumes; override `TEST_GM_API_URL`

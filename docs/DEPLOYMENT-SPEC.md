@@ -542,7 +542,9 @@ RUN yarn install --production --frozen-lockfile
 ENV NODE_ENV=production
 ENV PORT=3000
 EXPOSE 3000
-CMD ["node", "dist/src/index.js"]
+# Distroless node image: the entrypoint is node, the CMD is the script.
+# The Chronos dev overlay runs dist/redesign-api.js instead (workload patch).
+CMD ["dist/api.js"]
 ```
 
 **Optimization opportunities**:

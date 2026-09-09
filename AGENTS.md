@@ -64,23 +64,28 @@ Per-source plans are `docs/server-redesign/01..12-*.md`.
     cache/rate-limit middleware. Extend the kernel rather than forking its logic
     into a source module.
   - **Source modules** (the redesign): `budget`, `companies`, `parliament`, `legal`,
-    `judicial`, `pnrr`, `procurement`, `primarii-transparency`, `ins`, `entity`,
-    `reference`, `uat`, … — each `core/{ports,types,usecases}` +
+    `judicial`, `pnrr`, `procurement`, `primarii-transparency`, `ins-native`,
+    `reference`, … — each `core/{ports,types,usecases}` +
     `shell/{repo,rest,graphql,mcp}`, exporting `makeXModule(deps)` from `index.ts`.
-  - **Product/platform:** `auth`, `mcp`, `agent` (LLM), `notifications`,
+    (`entity` survives as a repo-only module for the platform features.)
+  - **Product/platform:** `auth`, `agent` (LLM), `notifications`,
     `notification-platform`, `notification-delivery`, `campaign-*`,
     `clerk-webhooks`, `resend-webhooks`, `email-templates`, `user-data`, `share`,
-    `report`, `health`.
+    `health`. (The legacy `mcp` module and GPT REST were deleted on 2026-09-09; MCP
+    is the kernel's `/api/v1/mcp`.)
   - **Legacy budget-viz** (pre-redesign, still served on `api.js`): `datasets`,
-    `aggregated-line-items` (core), `advanced-map-*` (now over the kernel's native
+    `aggregated-line-items` (core + repo), `advanced-map-*` (now over the kernel's native
     provider), `normalization`. The GraphQL-only budget-viz modules, `commitments`
     and `uat-analytics` were deleted in slice 1 (2026-09-09).
-- `src/api.ts` — **what ships** (`Dockerfile` → `dist/api.js`), composed by
-  `app/build-app.ts`. `src/redesign-api.ts` — kernel-only dev entrypoint composed by
-  `app/build-redesign-app.ts`; it loads no legacy modules and requires no legacy envs.
+- Two entrypoints, one image. `src/api.ts` (`dist/api.js`, the Dockerfile default,
+  what Phoenix dev/prod run) is composed by `app/build-app.ts`: the kernel surface
+  (`/api/v1/graphql`, `/api/v1/mcp`, health — mandatory since 2026-09-09) plus the
+  platform modules over the legacy user DB. `src/redesign-api.ts` (`dist/redesign-api.js`,
+  what **Chronos dev** runs) is composed by `app/build-redesign-app.ts`: kernel only, no
+  legacy envs. Slice 2 of the migration ports the platform modules and deletes `api.ts`.
 - `src/infra/` — TypeBox-validated config, Kysely database clients, GraphQL setup,
   logger.
-- `docs/` — 148 files. `docs/server-redesign/` is the current contract; most of the
+- `docs/` — ~160 files. `docs/server-redesign/` is the current contract; most of the
   rest is per-feature specs. `docs/ARCHITECTURE.md` and `docs/TECHNICAL-REFERENCE.md`
   are the deep architecture references.
 - Skills (`.claude/skills/`): `dev-bring-up` (run it locally), `verify-and-ship`

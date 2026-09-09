@@ -85,13 +85,14 @@ pnpm build
 pnpm start
 ```
 
-The GraphQL endpoint is available at `http://localhost:3000/graphql`
+The GraphQL endpoint is available at `http://localhost:3000/api/v1/graphql` (MCP at
+`/api/v1/mcp`, health at `/api/v1/health`).
 
 ## API
 
 ### GraphQL Endpoint
 
-**URL:** `http://localhost:3000/graphql`
+**URL:** `http://localhost:3000/api/v1/graphql` (the legacy `/graphql` endpoint was retired on 2026-09-09)
 
 The API is GraphQL-first. Use the GraphQL Playground or introspection to explore the schema:
 
@@ -105,15 +106,15 @@ query {
 }
 ```
 
-**Main Query Categories:**
+**Main Query Categories** (one GraphQL slice per source module, merged by the kernel):
 
-- `entities` / `entity` - Public institutions
-- `executionAnalytics` - Budget execution time series
-- `aggregatedLineItems` - Spending by classification
-- `countyHeatmap` / `uatHeatmap` - Geographic analytics
-- `datasets` - Macroeconomic indicators
-- `budgetSectors` / `fundingSources` - Reference data
-- `functionalClassifications` / `economicClassifications` - COFOG codes
+- `entity` / `searchEntities` - Public institutions (kernel identity hub)
+- `budget*` roots and the carried `executionAnalytics` / `entityAnalytics` /
+  `aggregatedLineItems` - Budget execution (`docs/server-redesign/02-budget.md`, `13-legacy-roots-on-kernel.md`)
+- `budgetCountyHeatmap` / `budgetUatHeatmap` and the REST map routes - Geographic analytics
+- `ins*` - INS statistics (`ins-native`)
+- `budgetSectors` / `fundingSources` / `functionalClassifications` / `economicClassifications` - Reference data
+- companies, parliament, legal, judicial, PNRR, procurement, primării transparency - the other source modules
 
 ### Health Endpoints
 

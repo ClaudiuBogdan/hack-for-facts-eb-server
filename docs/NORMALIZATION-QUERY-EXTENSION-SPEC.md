@@ -1,5 +1,7 @@
 # Normalization Extension for Entity + Line Item Queries
 
+> **2026-09-09 status (slice 1 of the Chronos migration):** the legacy budget-viz modules this document describes (`execution-analytics`, `entity-analytics`, `execution-line-items`, `budget-sector`, `funding-sources`, `county-analytics`, `uat-analytics`, `commitments`, the legacy `/graphql` endpoint and `src/app/cache-wrappers.ts`) were deleted from the server. Their behaviour lives on in the kernel `budget` module (`src/modules/budget`, design `docs/server-redesign/02-budget.md` and `13-legacy-roots-on-kernel.md`) served on `/api/v1/graphql`. Keep this document as the design record of the first implementation; do not treat its file paths as current.
+
 ## Goal
 
 Extend the existing normalization system (mode, currency conversion, inflation adjustment, percent GDP, per-capita, growth) to the **Entity page queries** beyond `entityAnalytics` / `executionAnalytics`, while keeping backwards compatibility with the existing `Normalization` enum (`total`, `total_euro`, `per_capita`, `per_capita_euro`, `percent_gdp`).
@@ -175,8 +177,8 @@ Add/update unit tests to cover:
 
 Suggested targets:
 
-- `tests/unit/entity/execution-line-items-normalization.test.ts`
-- `tests/golden-master/specs/execution-analytics.gm.test.ts` (only if necessary)
+- `tests/unit/entity/execution-line-items-normalization.test.ts` (deleted in slice 1)
+- `tests/golden-master/specs/execution-analytics.gm.test.ts` (deleted in slice 1 commit 6a; the kernel replay `legacy-execution-analytics-kernel.gm.test.ts` keeps its snapshots)
 
 ## Non-Goals / Out of Scope
 

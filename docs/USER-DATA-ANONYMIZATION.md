@@ -112,7 +112,7 @@ documented normal retention windows:
 - notification platform logical, delivery, digest, and audit rows
 - Resend webhook event rows
 - anonymization audit rows
-- INS dataset request rows
+- INS dataset request rows (`ins_dataset_requests`, written by `ins-native` since slice 1 commit 5)
 
 For the notification platform, normal retention then deletes delivery attempts and raw provider
 webhooks after 90 days and dependency-ordered digest members, deliveries, digest batches, logical
@@ -228,15 +228,7 @@ Required checklist:
 Do not add durable copies of Clerk-owned identity or contact data unless there is
 a documented product and retention requirement.
 
-## References
-
-- `docs/specs/specs-202604012011-personal-data-minimization-strategy.md`
-- `src/modules/clerk-webhooks/shell/anonymization/user-data-anonymizer.ts`
-- `src/modules/clerk-webhooks/shell/handlers/user-deleted-anonymization-handler.ts`
-- `src/infra/database/user/migrations/202604241200_add_user_data_anonymization_audit.sql`
-- `tests/e2e/user-data-anonymizer.test.ts`
-
-### Saved-map write fencing (2026-09-06)
+## Saved-map write fencing (2026-09-06)
 
 All eight owner mutations in the map and uploaded-dataset repositories acquire
 the existing owner advisory lock first, then check any matching
@@ -257,8 +249,10 @@ the actual schema in a unique disposable PostgreSQL namespace. This guarantee
 covers map/dataset writers; unrelated legacy product runtimes remain unmounted
 in the native dev app.
 
-## Native Chronos development receiver
+## Native Chronos development receiver (the Chronos dev user store)
 
+The Chronos dev deployment has its own user database (`k8s/overlays/chronos-dev/user-database/`,
+cluster `transparenta-eu-dev-user-db`), covered by the same anonymizer through this receiver.
 The optional native user-data configuration requires Clerk authentication, a
 dedicated user-database URL, trusted CA path and webhook signing secret together.
 `makeClerkUserDeletionRoutes` composes the existing verified handler and anonymizer
@@ -268,3 +262,11 @@ readiness fails when configured user storage is unavailable without returning DB
 error details. Native map writers are enabled only by their separate feature
 composition. See `k8s/overlays/chronos-dev/user-database/README.md` for custody,
 bootstrap evidence, live validation and rollback boundaries.
+
+## References
+
+- `docs/specs/specs-202604012011-personal-data-minimization-strategy.md`
+- `src/modules/clerk-webhooks/shell/anonymization/user-data-anonymizer.ts`
+- `src/modules/clerk-webhooks/shell/handlers/user-deleted-anonymization-handler.ts`
+- `src/infra/database/user/migrations/202604241200_add_user_data_anonymization_audit.sql`
+- `tests/e2e/user-data-anonymizer.test.ts`

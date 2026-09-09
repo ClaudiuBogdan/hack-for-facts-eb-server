@@ -690,7 +690,7 @@ export function renderSummaryMarkdown(summary: RunSummary, reports: readonly Cas
   lines.push('');
   lines.push(
     r.planned === null
-      ? `Reconciliation: no planned.json (unplanned run, e.g. the extended legacy specs) — ${String(r.executed)} case(s) executed`
+      ? `Reconciliation: no planned.json (unplanned run: a spec other than client-documents) — ${String(r.executed)} case(s) executed`
       : `Reconciliation: planned ${String(r.planned)}, executed ${String(r.executed)} — ${r.ok ? 'OK' : `MISMATCH (missing: ${listText(r.missing)}; unplanned: ${listText(r.unplanned)})`}`
   );
   lines.push('');

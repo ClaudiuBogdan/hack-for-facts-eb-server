@@ -1,5 +1,7 @@
 # Cache Specification
 
+> **2026-09-09 status (slice 1 of the Chronos migration):** the cache layer (`src/infra/cache`, the kernel `createCache`) is current; the worked example in §Implementation Details (`src/app/cache-wrappers.ts`, `execution-analytics`) refers to code deleted in slice 1 — the kernel equivalents are the module-level caches (e.g. the advanced-map whole-request memo, `cached-grouped-series-provider.ts`).
+
 A pluggable caching layer with silent degradation - cache failures never cause request failures.
 
 ## Quick Reference

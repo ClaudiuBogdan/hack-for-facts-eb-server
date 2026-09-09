@@ -1323,7 +1323,7 @@ The `jose` library provides pure JWT verification using Clerk's PEM public key, 
 
 ## 18. References
 
-- [AUTH-MODULE-LEGACY.md](./AUTH-MODULE-LEGACY.md) - Historical implementation reference
+- `AUTH-MODULE-LEGACY.md` - historical implementation reference, deleted 2026-09-09 (git history)
 - [ARCHITECTURE.md](./ARCHITECTURE.md) - Functional Core / Imperative Shell pattern
 - [CORE-SHELL-ARCHITECTURE.md](./CORE-SHELL-ARCHITECTURE.md) - Module implementation guide
 - [MODULE-DEPENDENCIES.md](./MODULE-DEPENDENCIES.md) - Import rules and boundaries

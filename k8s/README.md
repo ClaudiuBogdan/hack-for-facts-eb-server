@@ -199,9 +199,12 @@ kubectl top pods -n hack-for-facts-<env>
 ## Chronos migration deployment boundary (2026-09-05)
 
 User-approved migration work publishes server/client `dev` and updates only
-`overlays/chronos-dev`. The shared base image remains frozen so existing Phoenix
-rendered workloads do not change. Production promotion from this dev branch is
+`overlays/chronos-dev`. **Amendment 2026-09-09 (slice 1):** the base is no longer
+frozen — `base/configmap.yaml` lost `REDESIGN_SURFACE_ENABLED` and the base image built
+from `dev` now serves no legacy `/graphql`. Phoenix dev's Argo app must therefore be
+pinned to the `phoenix-last-full` tag (X/F3 handover) so it STOPS following `dev`; the
+pin is the freeze. The Chronos Argo applications live outside this repository. Production promotion from this dev branch is
 suspended for the migration: do not merge these delivery changes to `main` or
 trigger production promotion until a separate production plan is approved.
-The client's existing production job still reads the frozen shared-base image;
+The client's existing production job still reads the pre-slice-1 shared-base image;
 it must not be redirected to the Chronos development pin.

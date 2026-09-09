@@ -1,6 +1,8 @@
 # 13 — Legacy roots on the kernel endpoint (`/graphql` → `/api/v1/graphql`)
 
-> **Status:** DRAFT r1 (2026-09-02) — design for the user's fork decision C′:
+> **Status:** r2 (2026-09-02) with the 2026-09-05 grouped-root amendment and the
+> **2026-09-09 slice-1 amendment at the end of this document** (legacy endpoint
+> retired; unported roots replaced by native roots) — design for the user's fork decision C′:
 > _"the goal is not to change the GraphQL interfaces for key data types, like the
 > analytics filter, but the API endpoint can and should change to remove the
 > legacy code and keep only the new codebase."_ Program of record:
@@ -243,3 +245,36 @@ These semantic changes are covered by explicit SDL and actual-Postgres tests.
 They are not blanket permissions to suppress golden-master errors. Re-measure
 case-specific drift, including the now-loaded T103000 catalog, during full replay
 before legacy deletion or final enforcement.
+
+## 2026-09-09 slice-1 amendment — the legacy endpoint is gone; native roots replace the unported legacy roots
+
+Owner decisions of the Chronos migration review (`docs/reviews/chronos-migration-2026-09-09/README.md` §8):
+
+1. **§5 step 7 is executed for slice 1.** The legacy `/graphql` endpoint, the legacy
+   GraphQL modules (nine whole modules plus the GraphQL shells of `datasets`,
+   `aggregated-line-items` and `entity`, then `commitments` and `uat-analytics`), the
+   legacy INS module and database, the legacy MCP/GPT surface, the
+   `REDESIGN_SURFACE_ENABLED` bridge and the Phoenix INS port-forward are deleted
+   (commits `f3d318b5`, `d10d6e39`, `58e1a576`, `f3072073`, `f5887fa4`). `api.js` remains
+   only as a slim composer of the kernel surface plus the platform modules; slice 2 ports
+   those onto `build-redesign-app.ts` and deletes `api.ts`, the Phoenix pools and envs.
+2. **Unported roots are NOT ported; the native roots replace them.** The §2 rows for
+   `entities`, `uats`, `datasets`, `staticChartAnalytics`, `heatmapCountyData` /
+   `heatmapUATData` and the `commitments*` roots are superseded (review B/F1, T-09):
+   the client migrates to the kernel's own roots and routes — `searchEntities` / `entity`,
+   `budgetCountyHeatmap` / `budgetUatHeatmap`, `budgetCommitment*`, the native advanced-map
+   REST routes over the kernel provider (which also serve `api.js` since commit 4). The
+   carried roots (`executionAnalytics`, `entityAnalytics`, `aggregatedLineItems`, the
+   dimension roots, the eight `ins*` roots) keep §1's contract.
+3. **`entityAnalytics` reads the fact path**, not the summary MVs: `grouped-analytics-repo.ts`
+   aggregates `budget.execution_line_items` summed per (year, entity) in SQL — which is
+   the collapse, and which inherits the DP-01 creditor double count on the fact path
+   (`docs/reviews/chronos-migration-2026-09-09/dp-01-creditor-handover.md`) until the
+   scrapper fix lands (§3 rule 3 / §4 row 2 described an MV path that is no longer used).
+4. **The golden-master proof (§6)** is the client-document cutover replay (baseline =
+   Phoenix dev pinned at `phoenix-last-full`, target = Chronos dev); the 12 legacy
+   snapshot specs were deleted (slice 1 commit 6a). The `executionAnalytics` kernel
+   replay stays a local diagnostic until its per-capita snapshots are re-baselined for §7.
+5. **Contract amendments the client must absorb** are collected in
+   [`14-chronos-contract-amendments-2026-09-09.md`](./14-chronos-contract-amendments-2026-09-09.md)
+   (`isUat` strictness, the entity-type vocabulary, the population admission pins).

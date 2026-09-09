@@ -5,7 +5,10 @@ Status: S1a committed and deployed on Chronos dev (code 62afcb92, image pin
 (5,316 tests). S1b implemented locally and approved by Astra high, Fable high and GLM 5.3.
 Server type/lint/dependency/build gates passed; 5,320 tests and 29 PG18 tests passed.
 Client production-build dependency reconciliation is in progress.
-No territory L2 apply.
+No territory L2 apply at the time of S1b. **Update 2026-09-09:** L2 and the INS
+bridge were published afterwards (see the closing section); the "Remaining
+prerequisites before L2" section below is historical, and the image pin `77551935`
+is long superseded (Chronos dev now runs the slice-1 kernel build).
 User approval is recorded in the scrapper full-migration authorization of Sept 5.
 Only server/client dev branches and Chronos dev deployments are in scope.
 

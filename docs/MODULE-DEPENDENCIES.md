@@ -1,5 +1,7 @@
 # Module Dependency Strategy
 
+> **2026-09-09 status (slice 1 of the Chronos migration):** the rules are current. The diagram's `execution-analytics` consumer and the `execution-analytics → datasets` row below describe a module deleted in slice 1; today the `datasets` provider is imported by `normalization` only; the kernel `budget` module reads the factor YAML through a STRUCTURAL `DatasetReader` port (`src/modules/budget/shell/factors/dataset-factor-source.ts`) that the composition root wires in `src/app` — it never imports `datasets`. `shell/graphql` exports are now GraphQL _slices_ (typedefs + resolvers merged by the kernel), not a `Schema` string per module.
+
 This document defines the rules for imports and dependencies between layers and modules in the codebase.
 
 ## Architecture Overview
@@ -167,12 +169,11 @@ import { SomeType } from '@/modules/yyy/index.js'; // WRONG
 
 ### Current Cross-Module Dependencies
 
-| Consumer Module       | Provider Module | What's Imported                             |
-| --------------------- | --------------- | ------------------------------------------- |
-| `execution-analytics` | `datasets`      | `Dataset`, `DatasetRepo`, `DataPoint` types |
-| `normalization`       | `datasets`      | `DatasetRepo` type                          |
+| Consumer Module | Provider Module | What's Imported    |
+| --------------- | --------------- | ------------------ |
+| `normalization` | `datasets`      | `DatasetRepo` type |
 
-These are **intentional** - both modules need dataset access for normalization factors.
+This is **intentional** - the module needs dataset access for normalization factors.
 
 ## Circular Dependency Prevention
 

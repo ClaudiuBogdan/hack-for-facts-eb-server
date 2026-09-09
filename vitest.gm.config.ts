@@ -28,7 +28,7 @@ export default defineConfig({
     testTimeout: 30_000, // 30s per test
     hookTimeout: 60_000, // 60s for setup/teardown
 
-    // Sequential execution - tests share a single DB connection
+    // Sequential execution - the cutover reconciliation reads one planned.json per run
     sequence: {
       concurrent: false,
     },

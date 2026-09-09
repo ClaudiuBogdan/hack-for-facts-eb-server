@@ -1,5 +1,7 @@
 # Normalization Factors
 
+> **2026-09-09 status (slice 1 of the Chronos migration):** the factor datasets (`datasets/yaml`) and `src/modules/normalization` remain; the `entity-analytics` use case cited as an example was deleted in slice 1 (`aggregated-line-items` and `normalization` survive on `api.js`); the per-row population and per-period GDP behaviour is also carried by the kernel `budget` module (`docs/server-redesign/13-legacy-roots-on-kernel.md` §7, `xf6-population-consolidation-design.md`).
+
 This document explains the rationale and implementation of normalization factors for temporal data transformation.
 
 ## Overview

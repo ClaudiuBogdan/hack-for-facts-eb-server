@@ -27,7 +27,7 @@ export const budgetGroupedTypeDefs = /* GraphQL */ `
     "Entity display name"
     entity_name: String!
 
-    "Entity type (e.g., uat, admin_county_council, public_institution)"
+    "Entity type — the Chronos vocabulary (e.g., uat, public_entity, education; docs/server-redesign/14)"
     entity_type: String @deprecated(reason: "Legacy coarse taxonomy. Read tags instead.")
 
     "Associated UAT ID (if applicable)"
