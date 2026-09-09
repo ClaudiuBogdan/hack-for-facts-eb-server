@@ -45,21 +45,22 @@ Partitioned by `year`. Contains budget commitment line items.
 - `report_type` - One of 3 commitments report types
 
 **YTD Metrics (13):**
-| Metric | Description |
-|--------|-------------|
-| `credite_angajament` | Commitment credits |
-| `limita_credit_angajament` | Commitment credit limit |
-| `credite_bugetare` | Budget credits |
-| `credite_angajament_initiale` | Initial commitment credits |
-| `credite_bugetare_initiale` | Initial budget credits |
-| `credite_angajament_definitive` | Final commitment credits |
-| `credite_bugetare_definitive` | Final budget credits |
+
+| Metric                           | Description                  |
+| -------------------------------- | ---------------------------- |
+| `credite_angajament`             | Commitment credits           |
+| `limita_credit_angajament`       | Commitment credit limit      |
+| `credite_bugetare`               | Budget credits               |
+| `credite_angajament_initiale`    | Initial commitment credits   |
+| `credite_bugetare_initiale`      | Initial budget credits       |
+| `credite_angajament_definitive`  | Final commitment credits     |
+| `credite_bugetare_definitive`    | Final budget credits         |
 | `credite_angajament_disponibile` | Available commitment credits |
-| `credite_bugetare_disponibile` | Available budget credits |
-| `receptii_totale` | Total receipts |
-| `plati_trezor` | Treasury payments |
-| `plati_non_trezor` | Non-treasury payments |
-| `receptii_neplatite` | Unpaid receipts |
+| `credite_bugetare_disponibile`   | Available budget credits     |
+| `receptii_totale`                | Total receipts               |
+| `plati_trezor`                   | Treasury payments            |
+| `plati_non_trezor`               | Non-treasury payments        |
+| `receptii_neplatite`             | Unpaid receipts              |
 
 **Monthly Delta Metrics (5 only):**
 
@@ -382,11 +383,12 @@ For `commitmentsAggregated`, thresholds apply to the selected metric instead.
 **Join dimensions**: year, month, entity_cui, main_creditor_cui, report_type (mapped), functional_code, economic_code, budget_sector_id, funding_source_id
 
 **Report type mapping**:
-| Commitments | Execution |
-|-------------|-----------|
-| DETAILED | Executie bugetara detaliata |
+
+| Commitments          | Execution                                                  |
+| -------------------- | ---------------------------------------------------------- |
+| DETAILED             | Executie bugetara detaliata                                |
 | PRINCIPAL_AGGREGATED | Executie bugetara agregata la nivel de ordonator principal |
-| SECONDARY_AGGREGATED | Executie bugetara agregata la nivel de ordonator secundar |
+| SECONDARY_AGGREGATED | Executie bugetara agregata la nivel de ordonator secundar  |
 
 **Execution side filter**: `account_category = 'ch'` (expenses only)
 

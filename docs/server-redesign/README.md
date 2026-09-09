@@ -151,8 +151,8 @@ without inventing its own. These are the resolved cross-plan items (all folded i
 6. `legal.acts(status, in_degree desc, act_id)` index — **recommended pre-launch**
    (05 R1 default sort is guaranteed day-one, not earned-if-slow).
 7. `search.documents` projection population for deferred doc*types (`budget*\*`,
-`company`, `judicial_case`[must carry the publishable gate — cross-repo privacy
-invariant],`local_politics_council`).
+   `company`, `judicial_case`[must carry the publishable gate — cross-repo privacy
+   invariant],`local_politics_council`).
 8. budget `flows.money_flows` projection (none yet) — budget entity-360 is
    summary-only for v1 (acceptable).
 9. earned composite indexes (MO issue/publication, companies county+turnover,

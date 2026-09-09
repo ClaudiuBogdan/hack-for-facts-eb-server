@@ -188,10 +188,7 @@ export interface GlobalUnsubscribeConfig {
  * Union of all notification config types.
  */
 export type NotificationConfig =
-  | AnalyticsSeriesAlertConfig
-  | StaticSeriesAlertConfig
-  | GlobalUnsubscribeConfig
-  | null;
+  AnalyticsSeriesAlertConfig | StaticSeriesAlertConfig | GlobalUnsubscribeConfig | null;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Domain Entities

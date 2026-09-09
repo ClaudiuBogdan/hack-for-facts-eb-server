@@ -421,16 +421,16 @@ the literal. `statement_timeout` 5s; HNSW `ef_search` is a DB GUC (already 150).
 `legal/core/usecases/` — framework-free, over ports, `Result`-returning. REST,
 GraphQL, MCP all call these (tri-surface equivalence, §14.7).
 
-| Usecase               | Signature                                                     | Ports                                               | Catalog       |
+| Usecase | Signature | Ports | Catalog |
 | --------------------- | ------------------------------------------------------------- | --------------------------------------------------- | ------------- | --- |
-| `listActs`            | `(FilterInput, sort, page/cursor) → {rows, next}`             | LegalActsRepo                                       | LG-5          |
-| `getAct`              | `(LegalActRef) → LegalActCard`                                | LegalActsRepo (+Graph for badge)                    | LG-3          |
-| `getActVersions`      | `(actId) → LegalDocument[]`                                   | LegalActsRepo                                       | —             |
-| `getActLinks`         | `(actId, direction, relations?, since?) → edges (+sourceAct)` | LegalGraphRepo                                      | LG-1, LG-2    |
-| `getActTimeline`      | `(actId) → merged status events + keyDates + amendment edges` | Base + Graph                                        | LG-2          |
-| `getActTree`          | `(actId                                                       | documentId, path?, depth) → LegalNode[]`            | LegalTreeRepo | —   |
-| `searchLegal`         | `(LegalRetrievalQuery) → {acts, sections, caveats}`           | LegalRetrievalRepo (+kernel SearchClient/synthetic) | LG-4, LG-5    |
-| `resolveLegalFilters` | `(dim, q) → resolved values` (discovery)                      | Base + kernel                                       | LG-\*         |
+| `listActs` | `(FilterInput, sort, page/cursor) → {rows, next}` | LegalActsRepo | LG-5 |
+| `getAct` | `(LegalActRef) → LegalActCard` | LegalActsRepo (+Graph for badge) | LG-3 |
+| `getActVersions` | `(actId) → LegalDocument[]` | LegalActsRepo | — |
+| `getActLinks` | `(actId, direction, relations?, since?) → edges (+sourceAct)` | LegalGraphRepo | LG-1, LG-2 |
+| `getActTimeline` | `(actId) → merged status events + keyDates + amendment edges` | Base + Graph | LG-2 |
+| `getActTree` | `(actId                                                       | documentId, path?, depth) → LegalNode[]` | LegalTreeRepo | — |
+| `searchLegal` | `(LegalRetrievalQuery) → {acts, sections, caveats}` | LegalRetrievalRepo (+kernel SearchClient/synthetic) | LG-4, LG-5 |
+| `resolveLegalFilters` | `(dim, q) → resolved values` (discovery) | Base + kernel | LG-\* |
 
 **Cross-source contributor (§4.4 / §14.7):** **the acts/ surface registers NO
 contributor in v1.** A contributor whose `presenceFor` always returns `null`

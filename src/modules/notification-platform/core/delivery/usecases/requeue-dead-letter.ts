@@ -28,10 +28,7 @@ export interface RequeueDeadLetterResult {
 }
 
 export type RequeueDeadLetterError =
-  | PlatformDeliveryError
-  | AuditError
-  | ForbiddenError
-  | ValidationError;
+  PlatformDeliveryError | AuditError | ForbiddenError | ValidationError;
 
 export const requeueDeadLetter = async (
   deps: RequeueDeadLetterDeps,

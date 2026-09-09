@@ -335,12 +335,7 @@ export interface ProcurementProfileSlice {
 
 export type ProcurementGrain = 'direct_acquisition' | 'procurement_contract';
 export type ProcedureStatus =
-  | 'published'
-  | 'in_evaluation'
-  | 'awarded'
-  | 'cancelled'
-  | 'suspended'
-  | 'unknown';
+  'published' | 'in_evaluation' | 'awarded' | 'cancelled' | 'suspended' | 'unknown';
 export type ContractStatus = 'awarded' | 'in_progress' | 'closed' | 'cancelled' | 'unknown';
 export type DaStatus = 'offered' | 'awarded' | 'finalized' | 'cancelled' | 'unknown';
 ```
@@ -841,20 +836,20 @@ GraphQL `input`, and MCP fragment; compiles via the kernel composer to parameter
 
 ### 7.1 `ProcedureFilter`
 
-| Field                       | op(s)      | driving column / index                                                              | REST ↔ GraphQL ↔ MCP            |
+| Field | op(s) | driving column / index | REST ↔ GraphQL ↔ MCP |
 | --------------------------- | ---------- | ----------------------------------------------------------------------------------- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
-| `authorityCui[]`            | in         | `procedures.authority_cui` / `procedures_authority_cui_idx`                         | CSV param ↔ `[CUI]` ↔ `cui[]`   |
-| `cpvCode[]`                 | in         | `procedures.cpv_code` / `procedures_cpv_code_idx`                                   |                                 |
-| `cpvCodePrefix[]`           | prefix     | `cpv_code LIKE $p                                                                   |                                 | '%'` (left-anchored → uses idx)                                                                                         |                                     |
-| `cpvDivision[]`             | in         | **index-safe range, NOT `substring()`**: `cpv_code >= $d                            |                                 | '000000' AND cpv_code < successor($d)`(uses`\*\_cpv_code_idx`; no functional index exists on `substring(cpv_code,1,2)`) | derive 2-digit from `cpv_divisions` |
-| `procedureType`             | eq/in      | `procedures.procedure_type` (no idx; selective with authority)                      | closed enum from observed vocab |
-| `contractKind`              | eq         | `procedures.contract_kind` (works/services/supplies)                                |                                 |
-| `status`                    | eq/in      | `procedures.status` (enum)                                                          |                                 |
-| `noticeNo`                  | eq         | `procedures_notice_no_idx`                                                          |                                 |
-| `year` / `dateFrom/To`      | eq/between | `procedures.publication_date` / `procedures_publication_date_idx`                   |                                 |
-| `countyCode[]`/`region[]`   | in         | resolved buyer territory via `core` join                                            | buyer side only                 |
-| `minValueRon`/`maxValueRon` | gte/lte    | `estimated_value_ron` / `awarded_value_ron` (declare which)                         | overflow-guarded                |
-| `q`                         | contains   | **Meili** (autocomplete) / **OpenSearch** (full-text) on title; PG `ILIKE` fallback | engine declared per call        |
+| `authorityCui[]` | in | `procedures.authority_cui` / `procedures_authority_cui_idx` | CSV param ↔ `[CUI]` ↔ `cui[]` |
+| `cpvCode[]` | in | `procedures.cpv_code` / `procedures_cpv_code_idx` | |
+| `cpvCodePrefix[]` | prefix | `cpv_code LIKE $p                                                                   |                                 | '%'` (left-anchored → uses idx) | |
+| `cpvDivision[]` | in | **index-safe range, NOT `substring()`**: `cpv_code >= $d                            |                                 | '000000' AND cpv_code < successor($d)`(uses`\*\_cpv_code_idx`; no functional index exists on `substring(cpv_code,1,2)`) | derive 2-digit from `cpv_divisions` |
+| `procedureType` | eq/in | `procedures.procedure_type` (no idx; selective with authority) | closed enum from observed vocab |
+| `contractKind` | eq | `procedures.contract_kind` (works/services/supplies) | |
+| `status` | eq/in | `procedures.status` (enum) | |
+| `noticeNo` | eq | `procedures_notice_no_idx` | |
+| `year` / `dateFrom/To` | eq/between | `procedures.publication_date` / `procedures_publication_date_idx` | |
+| `countyCode[]`/`region[]` | in | resolved buyer territory via `core` join | buyer side only |
+| `minValueRon`/`maxValueRon` | gte/lte | `estimated_value_ron` / `awarded_value_ron` (declare which) | overflow-guarded |
+| `q` | contains | **Meili** (autocomplete) / **OpenSearch** (full-text) on title; PG `ILIKE` fallback | engine declared per call |
 
 - Sort: default `publication_date desc`; allowed `{publication_date, estimated_value_ron}`.
 

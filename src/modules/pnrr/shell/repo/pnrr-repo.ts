@@ -1948,15 +1948,13 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
             (row) =>
               !PNRR_CAPABILITY_IDS.includes(row.capability as (typeof PNRR_CAPABILITY_IDS)[number])
           )
-          .map(
-            (row): PnrrCapability => ({
-              id: row.capability,
-              releaseId: release.value.releaseId,
-              state: row.capability_state,
-              reasonCodes: row.reason_codes,
-              limitation: row.limitation,
-            })
-          );
+          .map((row): PnrrCapability => ({
+            id: row.capability,
+            releaseId: release.value.releaseId,
+            state: row.capability_state,
+            reasonCodes: row.reason_codes,
+            limitation: row.limitation,
+          }));
         return ok(
           [...declared, ...additional].sort((left, right) => left.id.localeCompare(right.id))
         );

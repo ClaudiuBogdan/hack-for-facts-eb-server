@@ -22,12 +22,7 @@ export type AutoReviewReuseNormalizedValue =
       readonly kind: 'budget_document';
       readonly documentUrl: string | null;
       readonly documentTypes: readonly (
-        | 'excel'
-        | 'graphics'
-        | 'other'
-        | 'pdf'
-        | 'webpage'
-        | 'word'
+        'excel' | 'graphics' | 'other' | 'pdf' | 'webpage' | 'word'
       )[];
     }
   | {

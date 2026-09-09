@@ -1,11 +1,7 @@
 export type CampaignNotificationAdminCampaignKey = 'funky';
 
 export type CampaignNotificationTriggerSource =
-  | 'campaign_admin_api'
-  | 'campaign_admin'
-  | 'user_event_worker'
-  | 'system'
-  | 'clerk_webhook';
+  'campaign_admin_api' | 'campaign_admin' | 'user_event_worker' | 'system' | 'clerk_webhook';
 
 export type CampaignNotificationSafeErrorCategory =
   | 'skipped_unsubscribed'
@@ -295,11 +291,7 @@ export interface CampaignNotificationRunnableTemplateDescriptor {
 }
 
 export type CampaignNotificationRunnablePlanRowStatus =
-  | 'will_send'
-  | 'already_sent'
-  | 'already_pending'
-  | 'ineligible'
-  | 'missing_data';
+  'will_send' | 'already_sent' | 'already_pending' | 'ineligible' | 'missing_data';
 
 export type CampaignNotificationRunnablePlanSendMode = 'create' | 'reuse_claimable';
 

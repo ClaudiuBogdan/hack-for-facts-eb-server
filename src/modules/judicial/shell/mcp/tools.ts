@@ -171,11 +171,7 @@ export const makeJudicialMcpTools = (deps: JudicialMcpDeps): readonly KernelMcpT
     inputShape: getCourtCaseloadInput,
     async handler(args): Promise<McpToolOutput> {
       const groupBy = str(args, 'groupBy') as
-        | 'court'
-        | 'category'
-        | 'year'
-        | 'courtLevel'
-        | undefined;
+        'court' | 'category' | 'year' | 'courtLevel' | undefined;
       if (groupBy === undefined)
         return errorOut(JUDICIAL_MCP_KINDS.caseload, 'groupBy is required');
       const res = await getCourtCaseload(repos, groupBy, aggregateFilter(args));

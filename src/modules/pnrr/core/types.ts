@@ -60,10 +60,7 @@ export const PNRR_RESOLVE_DIMS: readonly PnrrResolveDim[] = [
 export type PnrrContractorRankBy = 'value' | 'awards' | 'relationships';
 
 export type PnrrProcurementValueState =
-  | 'additive'
-  | 'reported_unresolved'
-  | 'non_additive'
-  | 'unavailable';
+  'additive' | 'reported_unresolved' | 'non_additive' | 'unavailable';
 
 export type PnrrAnswerState = 'served' | 'degraded' | 'abstained';
 export type PnrrGrain =

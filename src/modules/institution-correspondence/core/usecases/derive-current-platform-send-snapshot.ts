@@ -5,11 +5,7 @@ import type { ThreadRecord } from '../types.js';
 
 export interface DerivedCurrentPlatformSendSnapshotResult {
   status:
-    | 'no_thread'
-    | 'skipped_phase'
-    | 'skipped_missing_reply'
-    | 'skipped_missing_review'
-    | 'derived';
+    'no_thread' | 'skipped_phase' | 'skipped_missing_reply' | 'skipped_missing_review' | 'derived';
   eventType?: PublicDebateEntityUpdateNotification['eventType'];
   thread?: ThreadRecord;
   notification?: PublicDebateEntityUpdateNotification;

@@ -64,12 +64,7 @@ export interface AfterImage {
   schemaHash: string;
 }
 export type MutationOperation =
-  | 'create'
-  | 'replace'
-  | 'annotate'
-  | 'delete'
-  | 'restore'
-  | 'migrate';
+  'create' | 'replace' | 'annotate' | 'delete' | 'restore' | 'migrate';
 export type MutationScope = 'payload' | 'annotation';
 export interface ReceiptClaim {
   requesterId: string;
@@ -167,10 +162,7 @@ export interface ResolvedRedactors {
 }
 
 export type ReconciliationViolationKind =
-  | 'revisionMismatch'
-  | 'afterImageMismatch'
-  | 'missingEvent'
-  | 'expiredReceipts';
+  'revisionMismatch' | 'afterImageMismatch' | 'missingEvent' | 'expiredReceipts';
 
 export interface ReconciliationViolation {
   recordId: string;

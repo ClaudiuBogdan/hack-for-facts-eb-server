@@ -25,8 +25,7 @@ export interface NormalizationDatasetProvider {
  * Error types for normalization dataset provider operations.
  */
 export type DatasetProviderError =
-  | { type: 'NotFound'; message: string }
-  | { type: 'ParseError'; message: string };
+  { type: 'NotFound'; message: string } | { type: 'ParseError'; message: string };
 
 /**
  * Port for the normalization service.

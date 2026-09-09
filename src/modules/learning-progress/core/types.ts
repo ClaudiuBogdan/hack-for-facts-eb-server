@@ -11,8 +11,7 @@ export const SNAPSHOT_VERSION = 1;
 export type LessonId = string;
 
 export type InteractionScope =
-  | { readonly type: 'global' }
-  | { readonly type: 'entity'; readonly entityCui: string };
+  { readonly type: 'global' } | { readonly type: 'entity'; readonly entityCui: string };
 
 export type InteractionValue =
   | { readonly kind: 'choice'; readonly choice: { readonly selectedId: string | null } }
@@ -233,11 +232,7 @@ export interface CampaignEntityConfigRecordCursor {
 }
 
 export type CampaignEntityConfigCollectionSortBy =
-  | 'updatedAt'
-  | 'entityCui'
-  | 'budgetPublicationDate'
-  | 'officialBudgetUrl'
-  | 'usersCount';
+  'updatedAt' | 'entityCui' | 'budgetPublicationDate' | 'officialBudgetUrl' | 'usersCount';
 export type CampaignEntityConfigCollectionSortOrder = 'asc' | 'desc';
 
 export interface CampaignEntityConfigCollectionCursor {
@@ -279,10 +274,7 @@ export type CampaignAdminCampaignKey = 'funky';
 export type CampaignAdminSortOrder = 'asc' | 'desc';
 
 export type CampaignAdminSubmissionPath =
-  | 'request_platform'
-  | 'send_yourself'
-  | 'send_email'
-  | 'download_text';
+  'request_platform' | 'send_yourself' | 'send_email' | 'download_text';
 
 export type CampaignAdminInstitutionThreadPhase =
   | 'sending'
@@ -301,10 +293,7 @@ export interface CampaignAdminListCursor {
 }
 
 export type CampaignAdminUserSortBy =
-  | 'userId'
-  | 'latestUpdatedAt'
-  | 'interactionCount'
-  | 'pendingReviewCount';
+  'userId' | 'latestUpdatedAt' | 'interactionCount' | 'pendingReviewCount';
 
 export interface CampaignAdminUserListCursor {
   readonly sortBy: CampaignAdminUserSortBy;
@@ -447,8 +436,7 @@ export interface CampaignEntityConfigRowsPage {
 }
 
 export type ListCampaignEntityConfigRowsOutput =
-  | CampaignEntityConfigRowsPage
-  | readonly LearningProgressRecordRow[];
+  CampaignEntityConfigRowsPage | readonly LearningProgressRecordRow[];
 
 export interface GetCampaignAdminStatsInput {
   readonly campaignKey: CampaignAdminCampaignKey;

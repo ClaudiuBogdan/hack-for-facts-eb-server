@@ -8,11 +8,7 @@ import type { Currency, NormalizationMode } from '@/common/types/analytics.js';
  * currency shortcuts (total_euro/per_capita_euro).
  */
 export type GqlNormalization =
-  | 'total'
-  | 'total_euro'
-  | 'per_capita'
-  | 'per_capita_euro'
-  | 'percent_gdp';
+  'total' | 'total_euro' | 'per_capita' | 'per_capita_euro' | 'percent_gdp';
 
 export interface NormalizationRequestInput {
   normalization?: GqlNormalization | null;

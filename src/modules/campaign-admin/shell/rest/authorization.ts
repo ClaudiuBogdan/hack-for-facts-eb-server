@@ -10,8 +10,7 @@ export interface CampaignAdminAuthorizationFailure {
 }
 
 export type CampaignAdminAuthorizationResult<TAccessContext> =
-  | { ok: true; accessContext: TAccessContext }
-  | ({ ok: false } & CampaignAdminAuthorizationFailure);
+  { ok: true; accessContext: TAccessContext } | ({ ok: false } & CampaignAdminAuthorizationFailure);
 
 interface ResolveCampaignAdminPermissionAccessInput<TConfig, TAccessContext> {
   readonly campaignKey: string;

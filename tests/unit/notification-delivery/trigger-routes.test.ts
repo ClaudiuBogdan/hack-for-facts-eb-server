@@ -233,8 +233,7 @@ describe('makeTriggerRoutes', () => {
     );
 
     const lastCall = add.mock.calls.at(-1) as
-      | [string, CollectJobPayload, { jobId: string }]
-      | undefined;
+      [string, CollectJobPayload, { jobId: string }] | undefined;
     expect(lastCall).toBeDefined();
     const jobOptions = lastCall?.[2];
     const forceBody = forceResponse.json();

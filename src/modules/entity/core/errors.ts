@@ -66,11 +66,7 @@ export interface InvalidPeriodError {
  * All possible entity module errors.
  */
 export type EntityError =
-  | DatabaseError
-  | TimeoutError
-  | EntityNotFoundError
-  | InvalidFilterError
-  | InvalidPeriodError;
+  DatabaseError | TimeoutError | EntityNotFoundError | InvalidFilterError | InvalidPeriodError;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Error Constructors

@@ -11,14 +11,9 @@ export interface EnqueueCreatedOrReusedOutboxDeps {
 }
 
 export type ReusedOutboxComposeStrategy =
-  | 'always_enqueue_compose'
-  | 'skip_terminal_compose'
-  | 'enqueue_if_claimable';
+  'always_enqueue_compose' | 'skip_terminal_compose' | 'enqueue_if_claimable';
 export type DirectOutboxComposeStatus =
-  | 'compose_enqueued'
-  | 'compose_enqueue_failed'
-  | 'skipped_terminal'
-  | 'skipped_not_replayable';
+  'compose_enqueued' | 'compose_enqueue_failed' | 'skipped_terminal' | 'skipped_not_replayable';
 
 export interface EnqueueCreatedOrReusedOutboxInput {
   runId: string;

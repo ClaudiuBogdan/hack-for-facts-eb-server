@@ -261,13 +261,13 @@ export interface LocalPoliticsRepo {
 
 > **DEFERRED — pending serving promotion.**
 
-| Usecase                 | Signature                                             | Notes                                                               |
+| Usecase | Signature | Notes |
 | ----------------------- | ----------------------------------------------------- | ------------------------------------------------------------------- | ---------------------------------- |
-| `getCouncilComposition` | `(siruta) → Result<CouncilCompositionView, ApiError>` | seats grouped by party for one UAT; **labelled provisional**        |
-| `getMayor`              | `(siruta) → Result<MayorView                          | null, ApiError>`                                                    | one UAT's mayor claim; provisional |
-| `listCouncilSeats`      | `(filter, page) → Result<Paged<…>, ApiError>`         | filterable across UATs (by county/region/party)                     |
-| `getPartyPresence`      | `(filter) → Result<PartySummary[], ApiError>`         | BEC-2024 party presence/votes rollup; **NOT seat-allocation truth** |
-| `getUatPolitics`        | `(cui) → Result<UatPoliticsView, ApiError>`           | council + mayor for one UAT (module-local; cross-source via kernel) |
+| `getCouncilComposition` | `(siruta) → Result<CouncilCompositionView, ApiError>` | seats grouped by party for one UAT; **labelled provisional** |
+| `getMayor` | `(siruta) → Result<MayorView                          | null, ApiError>` | one UAT's mayor claim; provisional |
+| `listCouncilSeats` | `(filter, page) → Result<Paged<…>, ApiError>` | filterable across UATs (by county/region/party) |
+| `getPartyPresence` | `(filter) → Result<PartySummary[], ApiError>` | BEC-2024 party presence/votes rollup; **NOT seat-allocation truth** |
+| `getUatPolitics` | `(cui) → Result<UatPoliticsView, ApiError>` | council + mayor for one UAT (module-local; cross-source via kernel) |
 
 **Every view model embeds the `ProvenanceStamp`** and a top-level
 `caveats: string[]` defaulting to

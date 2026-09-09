@@ -11,11 +11,7 @@ export interface SubscriptionConflictError {
 }
 
 export type SubscriptionError =
-  | DatabaseError
-  | ValidationError
-  | NotFoundError
-  | ForbiddenError
-  | SubscriptionConflictError;
+  DatabaseError | ValidationError | NotFoundError | ForbiddenError | SubscriptionConflictError;
 
 export const createSubscriptionConflictError = (
   normalizedKey: string

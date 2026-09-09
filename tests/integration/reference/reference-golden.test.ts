@@ -358,8 +358,7 @@ d('Reference golden (live prod)', () => {
     const ge = (g.data as { referencePublicEntity: PeNode }).referencePublicEntity;
     const m = await mcpCall('get_reference_public_entity', { cui: CLUJ_CUI });
     const item = m.out['item'] as
-      | { cui: string; name: string; entityType: string | null; isUat: boolean }
-      | undefined;
+      { cui: string; name: string; entityType: string | null; isUat: boolean } | undefined;
     expect(item?.cui).toBe(ge.cui);
     expect(item?.name).toBe(ge.name);
     expect(item?.entityType).toBe(ge.entityType);

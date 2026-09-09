@@ -66,8 +66,7 @@ const buildEntitySubscriptionDeliveryKey = (userId: string, entityCui: string): 
 const isPendingDirectOutbox = (
   outbox: DeliveryRecord,
   notificationType:
-    | typeof PUBLIC_DEBATE_WELCOME_TYPE
-    | typeof PUBLIC_DEBATE_ENTITY_SUBSCRIPTION_TYPE
+    typeof PUBLIC_DEBATE_WELCOME_TYPE | typeof PUBLIC_DEBATE_ENTITY_SUBSCRIPTION_TYPE
 ): boolean => {
   return outbox.notificationType === notificationType && outbox.status === 'pending';
 };
@@ -77,8 +76,7 @@ const maybeRequeueExistingOutbox = async (
   input: PublicDebateTermsAcceptedEvent,
   outbox: DeliveryRecord,
   notificationType:
-    | typeof PUBLIC_DEBATE_WELCOME_TYPE
-    | typeof PUBLIC_DEBATE_ENTITY_SUBSCRIPTION_TYPE
+    typeof PUBLIC_DEBATE_WELCOME_TYPE | typeof PUBLIC_DEBATE_ENTITY_SUBSCRIPTION_TYPE
 ): Promise<Result<boolean, DeliveryError>> => {
   if (!isPendingDirectOutbox(outbox, notificationType)) {
     return ok(false);
@@ -172,8 +170,7 @@ const reuseExistingOutbox = async (
   input: PublicDebateTermsAcceptedEvent,
   outbox: DeliveryRecord,
   notificationType:
-    | typeof PUBLIC_DEBATE_WELCOME_TYPE
-    | typeof PUBLIC_DEBATE_ENTITY_SUBSCRIPTION_TYPE,
+    typeof PUBLIC_DEBATE_WELCOME_TYPE | typeof PUBLIC_DEBATE_ENTITY_SUBSCRIPTION_TYPE,
   status: 'welcome_reused' | 'entity_subscription_reused'
 ): Promise<Result<EnqueuePublicDebateTermsAcceptedNotificationsResult, DeliveryError>> => {
   const requeueResult = await maybeRequeueExistingOutbox(deps, input, outbox, notificationType);

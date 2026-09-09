@@ -105,8 +105,7 @@ export type CampaignEntityConfigStoredPayloadV2 = Static<
   typeof CampaignEntityConfigStoredPayloadV2Schema
 >;
 export type CampaignEntityConfigStoredPayload =
-  | CampaignEntityConfigStoredPayloadV1
-  | CampaignEntityConfigStoredPayloadV2;
+  CampaignEntityConfigStoredPayloadV1 | CampaignEntityConfigStoredPayloadV2;
 
 interface ParsedCampaignEntityConfigRecord {
   readonly payload: CampaignEntityConfigStoredPayload;

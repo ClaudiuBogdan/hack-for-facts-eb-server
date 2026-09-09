@@ -930,14 +930,12 @@ export const makePrimariiRepo = (
           .limit(capped)
           .execute();
         return ok(
-          rows.map(
-            (r): ResolveHit => ({
-              kind: 'entity',
-              value: r.value,
-              label: r.label,
-              ...(r.hint !== null && { hint: r.hint }),
-            })
-          )
+          rows.map((r): ResolveHit => ({
+            kind: 'entity',
+            value: r.value,
+            label: r.label,
+            ...(r.hint !== null && { hint: r.hint }),
+          }))
         );
       }
       if (dim === 'county') {
@@ -952,24 +950,26 @@ export const makePrimariiRepo = (
           .limit(capped)
           .execute();
         return ok(
-          rows.map(
-            (r): ResolveHit => ({
-              kind: 'county',
-              value: r.value ?? '',
-              label: r.value ?? '',
-              hint: `${r.cnt} UATs`,
-            })
-          )
+          rows.map((r): ResolveHit => ({
+            kind: 'county',
+            value: r.value ?? '',
+            label: r.value ?? '',
+            hint: `${r.cnt} UATs`,
+          }))
         );
       }
       // status: match a data-quality OR result-status enum by substring of its value.
       const lc = needle.toLowerCase();
-      const dq = PRIMARII_DATA_QUALITY.filter((s) => s.includes(lc)).map(
-        (s): ResolveHit => ({ kind: 'data_quality_status', value: s, label: s })
-      );
-      const rs = PRIMARII_RESULT_STATUS.filter((s) => s.includes(lc)).map(
-        (s): ResolveHit => ({ kind: 'result_status', value: s, label: s })
-      );
+      const dq = PRIMARII_DATA_QUALITY.filter((s) => s.includes(lc)).map((s): ResolveHit => ({
+        kind: 'data_quality_status',
+        value: s,
+        label: s,
+      }));
+      const rs = PRIMARII_RESULT_STATUS.filter((s) => s.includes(lc)).map((s): ResolveHit => ({
+        kind: 'result_status',
+        value: s,
+        label: s,
+      }));
       return ok([...dq, ...rs].slice(0, capped));
     } catch (error) {
       return err(databaseError('resolve failed', error));

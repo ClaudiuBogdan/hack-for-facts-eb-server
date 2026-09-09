@@ -40,8 +40,7 @@ export interface TraceEventDeps {
 }
 
 export type TraceEventInput =
-  | { eventId: string }
-  | { source: string; eventType: string; occurrenceKey: string };
+  { eventId: string } | { source: string; eventType: string; occurrenceKey: string };
 
 export type TraceEventResult = EventTrace;
 export type TraceEventError = EventError | InboxError | PlatformDeliveryError | AuditError;

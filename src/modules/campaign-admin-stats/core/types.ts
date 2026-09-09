@@ -3,9 +3,7 @@ import type { CampaignAdminCampaignKey } from '@/modules/learning-progress/index
 export type CampaignAdminStatsCampaignKey = CampaignAdminCampaignKey;
 
 export type CampaignAdminStatsTopEntitiesSortBy =
-  | 'interactionCount'
-  | 'userCount'
-  | 'pendingReviewCount';
+  'interactionCount' | 'userCount' | 'pendingReviewCount';
 
 export interface CampaignAdminStatsOverviewCoverage {
   readonly hasClientTelemetry: boolean;

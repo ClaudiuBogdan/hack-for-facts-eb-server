@@ -8,10 +8,7 @@ import type { CorrespondenceThreadRecord, ThreadRecord } from '../types.js';
 import type { ReconcilePlatformSendSuccessInput } from './reconcile-platform-send-success-input.js';
 
 export type PlatformSendSuccessConfirmationState =
-  | 'not_requested'
-  | 'already_confirmed'
-  | 'published_and_marked'
-  | 'pending_retry';
+  'not_requested' | 'already_confirmed' | 'published_and_marked' | 'pending_retry';
 
 export type PlatformSendSuccessMetadata = PlatformSendThreadMetadata;
 

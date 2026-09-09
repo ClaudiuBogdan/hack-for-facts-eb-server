@@ -478,8 +478,7 @@ export interface ChannelPlanEntry {
   cadence: Cadence;
 }
 export type EligibilityDecision =
-  | { eligible: true; channelPlan: ChannelPlanEntry[] }
-  | { eligible: false; reason: SkipReason };
+  { eligible: true; channelPlan: ChannelPlanEntry[] } | { eligible: false; reason: SkipReason };
 export function evaluateEligibility(input: {
   kind: KindDefinition;
   preferences: UserNotificationPreferences;

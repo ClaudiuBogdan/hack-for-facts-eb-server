@@ -630,14 +630,12 @@ export const makeMonitorulRepo = (db: Db): MonitorulRepo => {
         .limit(capped)
         .execute();
       return ok(
-        rows.map(
-          (r): MoResolveHit => ({
-            kind: 'mo_issuer',
-            value: r.issuer_slug ?? '',
-            label: (r.issuer_slug ?? '').replace(/-/gu, ' '),
-            count: Number(r.cnt),
-          })
-        )
+        rows.map((r): MoResolveHit => ({
+          kind: 'mo_issuer',
+          value: r.issuer_slug ?? '',
+          label: (r.issuer_slug ?? '').replace(/-/gu, ' '),
+          count: Number(r.cnt),
+        }))
       );
     } catch (error) {
       return err(databaseError('resolveIssuer failed', error));
@@ -661,14 +659,12 @@ export const makeMonitorulRepo = (db: Db): MonitorulRepo => {
       }
       const rows = await qb.execute();
       return ok(
-        rows.map(
-          (r): MoResolveHit => ({
-            kind: 'mo_act_type',
-            value: r.act_type ?? '',
-            label: r.act_type ?? '',
-            count: Number(r.cnt),
-          })
-        )
+        rows.map((r): MoResolveHit => ({
+          kind: 'mo_act_type',
+          value: r.act_type ?? '',
+          label: r.act_type ?? '',
+          count: Number(r.cnt),
+        }))
       );
     } catch (error) {
       return err(databaseError('resolveActType failed', error));

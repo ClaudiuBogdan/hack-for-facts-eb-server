@@ -28,5 +28,4 @@ export interface ChannelPlanEntry {
 }
 
 export type EligibilityDecision =
-  | { eligible: true; channelPlan: ChannelPlanEntry[] }
-  | { eligible: false; reason: SkipReason };
+  { eligible: true; channelPlan: ChannelPlanEntry[] } | { eligible: false; reason: SkipReason };

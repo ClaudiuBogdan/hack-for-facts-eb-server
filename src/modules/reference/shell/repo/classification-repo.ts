@@ -157,14 +157,12 @@ export const makeClassificationRepo = (db: Db): ClassificationRepo => {
       if (system !== null) query = query.where('c.system', '=', system);
       const rows = await query.orderBy('c.code', 'asc').limit(capped).execute();
       return ok(
-        rows.map(
-          (r): ResolveHit => ({
-            kind: 'classification',
-            value: r.code,
-            label: r.label ?? r.code,
-            hint: r.system,
-          })
-        )
+        rows.map((r): ResolveHit => ({
+          kind: 'classification',
+          value: r.code,
+          label: r.label ?? r.code,
+          hint: r.system,
+        }))
       );
     } catch (error) {
       return err(databaseError('resolve failed', error));

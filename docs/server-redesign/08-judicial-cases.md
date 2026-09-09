@@ -483,19 +483,19 @@ court/period-bounded result set — it never issues a blocking `COUNT(*)` over
 Framework-free, over ports, returning `Result`. Thin; REST/GraphQL/MCP all call
 these.
 
-| Usecase                      | Signature                                                          | Notes                                                                                           |
+| Usecase | Signature | Notes |
 | ---------------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `listCourts`                 | `(filter) → Result<JudicialCourt[]>`                               | offset+total (246 rows).                                                                        |
-| `getCourtTree`               | `(code) → Result<{court, children}>`                               | self-referential hierarchy.                                                                     |
-| `getCaseDetail`              | `(caseId                                                           | naturalKey) → Result<JudicialCaseDetail>`                                                       | composes case + hearings + appeals + **name-free** parties, then enriches parties via `getPublishableNames` (the ONE name join). Includes `asOf` (§10). |
-| `listCases`                  | `(filter, cursorPage) → Result<CursorResult<JudicialCase>>`        | requires a bounding filter; default sort `(modifiedAt, caseId) desc`.                           |
-| `getCourtCaseload`           | `(filter) → Result<CaseAggregateGroup[]>`                          | JD-2: cases/hearings by court×category×year; deterministic SQL; returns denominator + coverage. |
-| `getCaseParties`             | `(caseId) → Result<{parties: PartyView[]; personPartyCount; ...}>` | the privacy-critical merge (§3.2).                                                              |
-| `getCompanyLitigation`       | `(cui) → Result<CompanyLitigationSummary>`                         | JD-1: count-shaped, `published`-only, empty in v1.                                              |
-| `listCompanyLitigationCases` | `(cui, cursorPage) → Result<CursorResult<JudicialCaseLink>>`       | JD-1 detail; gated.                                                                             |
-| `getCaseLegalRefs`           | `(caseId) → Result<JudicialLegalRef[]>`                            | JD-3; empty until gate #11.                                                                     |
-| `listCasesCitingAct`         | `(targetActId, cursorPage) → ...`                                  | JD-3 reverse; cross-module read (legal).                                                        |
-| `getCaseLineage`             | `(caseId) → Result<JudicialLineageEdge[]>`                         | JD-4; candidate-only, empty until gate #10.                                                     |
+| `listCourts` | `(filter) → Result<JudicialCourt[]>` | offset+total (246 rows). |
+| `getCourtTree` | `(code) → Result<{court, children}>` | self-referential hierarchy. |
+| `getCaseDetail` | `(caseId                                                           | naturalKey) → Result<JudicialCaseDetail>` | composes case + hearings + appeals + **name-free** parties, then enriches parties via `getPublishableNames` (the ONE name join). Includes `asOf` (§10). |
+| `listCases` | `(filter, cursorPage) → Result<CursorResult<JudicialCase>>` | requires a bounding filter; default sort `(modifiedAt, caseId) desc`. |
+| `getCourtCaseload` | `(filter) → Result<CaseAggregateGroup[]>` | JD-2: cases/hearings by court×category×year; deterministic SQL; returns denominator + coverage. |
+| `getCaseParties` | `(caseId) → Result<{parties: PartyView[]; personPartyCount; ...}>` | the privacy-critical merge (§3.2). |
+| `getCompanyLitigation` | `(cui) → Result<CompanyLitigationSummary>` | JD-1: count-shaped, `published`-only, empty in v1. |
+| `listCompanyLitigationCases` | `(cui, cursorPage) → Result<CursorResult<JudicialCaseLink>>` | JD-1 detail; gated. |
+| `getCaseLegalRefs` | `(caseId) → Result<JudicialLegalRef[]>` | JD-3; empty until gate #11. |
+| `listCasesCitingAct` | `(targetActId, cursorPage) → ...` | JD-3 reverse; cross-module read (legal). |
+| `getCaseLineage` | `(caseId) → Result<JudicialLineageEdge[]>` | JD-4; candidate-only, empty until gate #10. |
 
 ### Cross-source contributor (foundation §4.4 / §14.7)
 
@@ -535,18 +535,18 @@ Prefix `/api/v1/judicial/`. Per-route `config: { public: true }` (foundation
 `additionalProperties: false` (drops any stray column). Both envelopes carry
 `requestId` + the domain `asOf` watermark.
 
-| Method | Path                                  | Query / params                                                                                                                              | Response                                                                                     | Pagination         | Cache TTL                                  | Timeout                                                   |
+| Method | Path | Query / params | Response | Pagination | Cache TTL | Timeout |
 | ------ | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- | ------------------ | ------------------------------------------ | --------------------------------------------------------- | ----------------- | --- | --- |
-| GET    | `/judicial/courts`                    | `level[]`, `countySiruta[]`, `specialization`, `q` (name trigram)                                                                           | `JudicialCourt[]`                                                                            | offset+total (246) | 1h                                         | 5s                                                        |
-| GET    | `/judicial/courts/:code`              | —                                                                                                                                           | `JudicialCourt` + `children[]`                                                               | —                  | 1h                                         | 5s                                                        |
-| GET    | `/judicial/cases`                     | filter spec §7 (`institutionCode`/`courtLevel`/`category`/`stage`/`yearFrom/To`/`q`/`hasObject`…); **a court-or-recency bound is required** | `JudicialCase[]`                                                                             | **cursor**         | 60s                                        | 5s                                                        |
-| GET    | `/judicial/cases/:caseId`             | `caseId`                                                                                                                                    | `JudicialCaseDetail` (case + hearings + appeals + parties[name-gated] + legalRefs + lineage) | —                  | 60s                                        | 5s                                                        |
-| GET    | `/judicial/cases/lookup`              | `institutionCode`, `caseNumber`                                                                                                             | `JudicialCase` (natural-key lookup)                                                          | —                  | 60s                                        | 5s                                                        |
-| GET    | `/judicial/cases/aggregate`           | `groupBy=court                                                                                                                              | category                                                                                     | year               | courtLevel`, period/court/category filters | `CaseAggregateGroup[]` + `{denominator, coverage}`        | offset+est. total | 5m  | 15s |
-| GET    | `/judicial/companies/:cui/litigation` | `cui`                                                                                                                                       | `CompanyLitigationSummary` (count + courtLevels + years; **published-only**)                 | —                  | 5m                                         | 5s                                                        |
-| GET    | `/judicial/companies/:cui/cases`      | `cui`, cursor                                                                                                                               | `JudicialCaseLink[]` (gated; empty v1)                                                       | cursor             | 5m                                         | 5s                                                        |
-| GET    | `/judicial/acts/:targetActId/cases`   | `targetActId`, cursor                                                                                                                       | cases citing the act (empty until gate #11)                                                  | cursor             | 5m                                         | 5s                                                        |
-| GET    | `/judicial/filters/resolve`           | `dim=court                                                                                                                                  | companyName                                                                                  | category           | courtLevel`, `q`                           | resolved values (court code, name_key_id+company name, …) | —                 | 5m  | 5s  |
+| GET | `/judicial/courts` | `level[]`, `countySiruta[]`, `specialization`, `q` (name trigram) | `JudicialCourt[]` | offset+total (246) | 1h | 5s |
+| GET | `/judicial/courts/:code` | — | `JudicialCourt` + `children[]` | — | 1h | 5s |
+| GET | `/judicial/cases` | filter spec §7 (`institutionCode`/`courtLevel`/`category`/`stage`/`yearFrom/To`/`q`/`hasObject`…); **a court-or-recency bound is required** | `JudicialCase[]` | **cursor** | 60s | 5s |
+| GET | `/judicial/cases/:caseId` | `caseId` | `JudicialCaseDetail` (case + hearings + appeals + parties[name-gated] + legalRefs + lineage) | — | 60s | 5s |
+| GET | `/judicial/cases/lookup` | `institutionCode`, `caseNumber` | `JudicialCase` (natural-key lookup) | — | 60s | 5s |
+| GET | `/judicial/cases/aggregate` | `groupBy=court                                                                                                                              | category                                                                                     | year               | courtLevel`, period/court/category filters | `CaseAggregateGroup[]` + `{denominator, coverage}` | offset+est. total | 5m | 15s |
+| GET | `/judicial/companies/:cui/litigation` | `cui` | `CompanyLitigationSummary` (count + courtLevels + years; **published-only**) | — | 5m | 5s |
+| GET | `/judicial/companies/:cui/cases` | `cui`, cursor | `JudicialCaseLink[]` (gated; empty v1) | cursor | 5m | 5s |
+| GET | `/judicial/acts/:targetActId/cases` | `targetActId`, cursor | cases citing the act (empty until gate #11) | cursor | 5m | 5s |
+| GET | `/judicial/filters/resolve` | `dim=court                                                                                                                                  | companyName                                                                                  | category           | courtLevel`, `q` | resolved values (court code, name_key_id+company name, …) | — | 5m | 5s |
 
 **OpenAPI notes:** the module exports an OpenAPI fragment merged at
 `/api/v1/openapi.json`. The fragment's component schemas for `JudicialParty` and

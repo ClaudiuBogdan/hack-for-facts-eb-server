@@ -40,11 +40,7 @@ export interface CampaignEntityConfigListItem extends CampaignEntityConfigDto {
 }
 
 export type CampaignEntityConfigSortBy =
-  | 'updatedAt'
-  | 'entityCui'
-  | 'budgetPublicationDate'
-  | 'officialBudgetUrl'
-  | 'usersCount';
+  'updatedAt' | 'entityCui' | 'budgetPublicationDate' | 'officialBudgetUrl' | 'usersCount';
 export type CampaignEntityConfigSortOrder = 'asc' | 'desc';
 
 export interface CampaignEntityConfigListCursor {

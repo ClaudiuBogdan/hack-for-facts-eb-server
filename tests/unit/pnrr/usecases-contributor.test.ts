@@ -53,8 +53,8 @@ const PROFILE: PnrrEntityProfile = {
 
 const repoStub = (overrides: Partial<PnrrRepository> = {}): PnrrRepository =>
   ({
-    getEntityProfile: vi.fn(
-      async (): Promise<Result<PnrrEntityProfile | null, ApiError>> => ok(PROFILE)
+    getEntityProfile: vi.fn(async (): Promise<Result<PnrrEntityProfile | null, ApiError>> =>
+      ok(PROFILE)
     ),
     listPayments: vi.fn(async () => ok({ items: [], next: null })),
     ...overrides,
@@ -110,8 +110,8 @@ describe('contributor', () => {
   });
 
   it('profileSlice goes through getEntityProfile (single source of truth)', async () => {
-    const getEntityProfile = vi.fn(
-      async (): Promise<Result<PnrrEntityProfile | null, ApiError>> => ok(PROFILE)
+    const getEntityProfile = vi.fn(async (): Promise<Result<PnrrEntityProfile | null, ApiError>> =>
+      ok(PROFILE)
     );
     const repo = repoStub({ getEntityProfile });
     const contributor = makePnrrContributor(repo);

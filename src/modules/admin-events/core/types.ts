@@ -61,10 +61,7 @@ export interface AdminEventExportManifest {
 }
 
 export type AdminEventStateClassification =
-  | 'actionable'
-  | 'already_applied'
-  | 'stale'
-  | 'not_actionable';
+  'actionable' | 'already_applied' | 'stale' | 'not_actionable';
 
 export interface AdminEventApplyResult {
   status: 'applied' | 'already_applied' | 'stale' | 'not_actionable';

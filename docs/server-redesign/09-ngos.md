@@ -201,12 +201,12 @@ export interface NgoRepository {
 
 > **DEFERRED — pending `ngo` domain.**
 
-| Usecase              | Signature                                          | Notes                                                                        |
+| Usecase | Signature | Notes |
 | -------------------- | -------------------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------- |
-| `getNgoProfile`      | `(cui) → Result<NgoProfileView                     | null>`                                                                       | profile + accreditations + cui-evidence assembled |
-| `listNgos`           | `(filter, page) → Result<Paged<NgoProfile>>`       | name/county/legal_form/sector filters                                        |
-| `listAccreditations` | `(filter, page) → Result<Paged<NgoAccreditation>>` | sector/authority/status/validity                                             |
-| `ngoCoverage`        | `(filter) → Result<NgoBucket[]>`                   | counts by county/legal_form/sector + **coverage caveat** (corpus is partial) |
+| `getNgoProfile` | `(cui) → Result<NgoProfileView                     | null>` | profile + accreditations + cui-evidence assembled |
+| `listNgos` | `(filter, page) → Result<Paged<NgoProfile>>` | name/county/legal_form/sector filters |
+| `listAccreditations` | `(filter, page) → Result<Paged<NgoAccreditation>>` | sector/authority/status/validity |
+| `ngoCoverage` | `(filter) → Result<NgoBucket[]>` | counts by county/legal_form/sector + **coverage caveat** (corpus is partial) |
 
 **Cross-source contributor (§4.4 / §14.7):**
 
@@ -434,12 +434,12 @@ via flows/procurement, never via NGO-native data, and labeled.
 > **DEFERRED — pending `ngo` domain.** Two families (§6.3): discovery + query.
 > Naming `<verb>_<domain>_<noun>`; rate-limited; bounded results; PII-excluded.
 
-| Tool                              | Input (TypeBox)             | Output                                                                 | Usecase         | `link`              | Summary template                                                         |
+| Tool | Input (TypeBox) | Output | Usecase | `link` | Summary template |
 | --------------------------------- | --------------------------- | ---------------------------------------------------------------------- | --------------- | ------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------- | -------------- | --------- | ---------------------------------- |
-| `resolve_ngo_filters` (discovery) | `{ dim: 'ngo_name'          | 'county'                                                               | 'sector'        | 'authority'         | 'legal_form', q }`                                                       | `{ ok, kind:'resolution', items:[{value,label,cui?}] }` | shared resolve | `/ngos?…` | "Resolved '{q}' → {n} candidates." |
-| `get_ngo_profile` (query)         | `{ cui: CUI }`              | `{ ok, kind:'ngo_profile', item: NgoProfileView, link, summary }`      | `getNgoProfile` | `/ngos/{cui}`       | "{name} ({legalForm}) in {county}; {n} accreditations across {sectors}." |
-| `list_ngos` (query)               | `NgoProfileFilter + page`   | `{ ok, kind:'ngo_list', items, summary }`                              | `listNgos`      | `/ngos?…`           | "{total} NGOs matching {filters} (coverage: partial)."                   |
-| `aggregate_ngos` (query)          | `{ dim, NgoProfileFilter }` | `{ ok, kind:'ngo_aggregate', items:[{key,count}], coverage, caveats }` | `ngoCoverage`   | `/ngos/aggregate?…` | "By {dim}: top {k}; coverage {pct}% — partial corpus."                   |
+| `resolve_ngo_filters` (discovery) | `{ dim: 'ngo_name'          | 'county'                                                               | 'sector'        | 'authority'         | 'legal_form', q }` | `{ ok, kind:'resolution', items:[{value,label,cui?}] }` | shared resolve | `/ngos?…` | "Resolved '{q}' → {n} candidates." |
+| `get_ngo_profile` (query) | `{ cui: CUI }` | `{ ok, kind:'ngo_profile', item: NgoProfileView, link, summary }` | `getNgoProfile` | `/ngos/{cui}` | "{name} ({legalForm}) in {county}; {n} accreditations across {sectors}." |
+| `list_ngos` (query) | `NgoProfileFilter + page` | `{ ok, kind:'ngo_list', items, summary }` | `listNgos` | `/ngos?…` | "{total} NGOs matching {filters} (coverage: partial)." |
+| `aggregate_ngos` (query) | `{ dim, NgoProfileFilter }` | `{ ok, kind:'ngo_aggregate', items:[{key,count}], coverage, caveats }` | `ngoCoverage` | `/ngos/aggregate?…` | "By {dim}: top {k}; coverage {pct}% — partial corpus." |
 
 - MCP filter inputs are **the same fields as REST** (§7.3); the discovery tool
   resolves names → CUI/codes first, then the query tool runs deterministic SQL

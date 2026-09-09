@@ -28,11 +28,7 @@ export interface ForbiddenError {
 }
 
 export type SharedError =
-  | DatabaseError
-  | ValidationError
-  | QueueError
-  | NotFoundError
-  | ForbiddenError;
+  DatabaseError | ValidationError | QueueError | NotFoundError | ForbiddenError;
 
 export const createDatabaseError = (message: string, retryable = true): DatabaseError => ({
   type: 'DatabaseError',

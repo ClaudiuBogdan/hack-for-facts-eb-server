@@ -355,11 +355,7 @@ export interface InsDatasetRequests {
 }
 
 export type NotificationEventStatus =
-  | 'pending'
-  | 'resolving'
-  | 'resolved'
-  | 'conflicted'
-  | 'failed';
+  'pending' | 'resolving' | 'resolved' | 'conflicted' | 'failed';
 
 export interface NotificationEvents {
   id: string;
@@ -526,10 +522,7 @@ export interface NotificationDeliveries {
 }
 
 export type NotificationAttemptResult =
-  | 'accepted'
-  | 'transient_failure'
-  | 'permanent_failure'
-  | 'ambiguous';
+  'accepted' | 'transient_failure' | 'permanent_failure' | 'ambiguous';
 
 export interface NotificationDeliveryAttempts {
   id: string;

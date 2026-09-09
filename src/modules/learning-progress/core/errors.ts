@@ -61,11 +61,7 @@ export interface ConflictError {
  * Union of all learning progress errors.
  */
 export type LearningProgressError =
-  | DatabaseError
-  | TooManyEventsError
-  | InvalidEventError
-  | NotFoundError
-  | ConflictError;
+  DatabaseError | TooManyEventsError | InvalidEventError | NotFoundError | ConflictError;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Error Constructors

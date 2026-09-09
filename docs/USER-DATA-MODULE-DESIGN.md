@@ -159,12 +159,7 @@ export interface AfterImage {
 }
 
 export type MutationOperation =
-  | 'create'
-  | 'replace'
-  | 'annotate'
-  | 'delete'
-  | 'restore'
-  | 'migrate';
+  'create' | 'replace' | 'annotate' | 'delete' | 'restore' | 'migrate';
 export type MutationScope = 'payload' | 'annotation';
 
 export interface ReceiptClaim {

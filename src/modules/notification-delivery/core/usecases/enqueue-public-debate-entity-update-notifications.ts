@@ -19,10 +19,7 @@ import type {
 } from '../ports.js';
 
 export type PublicDebateEntityUpdateEventType =
-  | 'thread_started'
-  | 'thread_failed'
-  | 'reply_received'
-  | 'reply_reviewed';
+  'thread_started' | 'thread_failed' | 'reply_received' | 'reply_reviewed';
 
 export type PublicDebateThreadStartedRecipientRole = 'requester' | 'subscriber';
 

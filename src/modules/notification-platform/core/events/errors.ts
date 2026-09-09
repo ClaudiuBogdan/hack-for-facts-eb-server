@@ -19,11 +19,7 @@ export interface EventSourceError {
 }
 
 export type EventError =
-  | DatabaseError
-  | ValidationError
-  | QueueError
-  | NotFoundError
-  | EventPayloadConflictError;
+  DatabaseError | ValidationError | QueueError | NotFoundError | EventPayloadConflictError;
 
 export const createEventPayloadConflictError = (
   eventId: string,

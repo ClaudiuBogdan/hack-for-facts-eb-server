@@ -60,11 +60,7 @@ export const MO_RELATIONS: readonly MoRelation[] = [
 
 /** MO-written `act_status_events.event_kind` (5 hyphenated values — §2.4). */
 export type MoStatusKind =
-  | 'promulgare'
-  | 'aprobare-oug'
-  | 'aprobare-og'
-  | 'rectificare'
-  | 'republicare';
+  'promulgare' | 'aprobare-oug' | 'aprobare-og' | 'rectificare' | 'republicare';
 export const MO_STATUS_KINDS: readonly MoStatusKind[] = [
   'promulgare',
   'aprobare-oug',

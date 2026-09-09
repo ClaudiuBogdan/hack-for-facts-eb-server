@@ -20,11 +20,7 @@
 
 /** `justice.courts.court_level` (DB CHECK). */
 export type JudicialCourtLevel =
-  | 'judecatorie'
-  | 'tribunal'
-  | 'tribunal_militar'
-  | 'curte_de_apel'
-  | 'curte_militara_apel';
+  'judecatorie' | 'tribunal' | 'tribunal_militar' | 'curte_de_apel' | 'curte_militara_apel';
 
 export const JUDICIAL_COURT_LEVELS: readonly JudicialCourtLevel[] = [
   'judecatorie',

@@ -560,13 +560,13 @@ what the family declares:
 
 **`classification_codes` spec** (driving table `core.classification_codes`, alias `c`):
 
-| Field        | type    | ops          | column / index              | exclude? |
+| Field | type | ops | column / index | exclude? |
 | ------------ | ------- | ------------ | --------------------------- | -------- | ---- | --- |
-| `system`     | enum(3) | eq,in        | `c.system` (PK leading col) | no       |
-| `code`       | string  | eq,in,prefix | `c.code` (PK)               | yes      |
-| `codePrefix` | string  | prefix       | `c.code LIKE q              |          | '%'` | no  |
-| `label`      | string  | contains     | `c.label`                   | no       |
-| `parentCode` | string  | eq,isNull    | `c.parent_code`             | yes      |
+| `system` | enum(3) | eq,in | `c.system` (PK leading col) | no |
+| `code` | string | eq,in,prefix | `c.code` (PK) | yes |
+| `codePrefix` | string | prefix | `c.code LIKE q              |          | '%'` | no |
+| `label` | string | contains | `c.label` | no |
+| `parentCode` | string | eq,isNull | `c.parent_code` | yes |
 
 `sort`: default `code asc`; allowed `code`, `label`.
 

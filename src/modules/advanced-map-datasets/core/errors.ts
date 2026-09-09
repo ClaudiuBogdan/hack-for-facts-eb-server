@@ -30,11 +30,7 @@ export interface ProviderError {
 }
 
 export type AdvancedMapDatasetError =
-  | InvalidInputError
-  | NotFoundError
-  | ForbiddenError
-  | DatasetInUseError
-  | ProviderError;
+  InvalidInputError | NotFoundError | ForbiddenError | DatasetInUseError | ProviderError;
 
 export const createInvalidInputError = (message: string): InvalidInputError => ({
   type: 'InvalidInputError',

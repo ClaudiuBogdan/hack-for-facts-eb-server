@@ -458,8 +458,7 @@ export interface AnafForexebugDigestAlertSection {
 }
 
 export type AnafForexebugDigestSection =
-  | AnafForexebugDigestNewsletterSection
-  | AnafForexebugDigestAlertSection;
+  AnafForexebugDigestNewsletterSection | AnafForexebugDigestAlertSection;
 
 export interface AnafForexebugDigestProps extends BaseTemplateProps {
   templateType: 'anaf_forexebug_digest';

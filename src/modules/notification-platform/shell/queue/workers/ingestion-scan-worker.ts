@@ -29,8 +29,7 @@ export interface IngestionScanWorkerDeps extends IngestionScanProcessorDeps {
 }
 
 export type IngestionScanWorkerResult =
-  | { recorded: number; duplicates: number; watermarkAdvanced: boolean }
-  | { unknownSource: true };
+  { recorded: number; duplicates: number; watermarkAdvanced: boolean } | { unknownSource: true };
 
 export const processIngestionScanJob = async (
   deps: IngestionScanProcessorDeps,

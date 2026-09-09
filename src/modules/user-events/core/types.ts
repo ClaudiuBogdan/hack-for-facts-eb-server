@@ -20,5 +20,4 @@ export interface LearningProgressResetUserEvent extends UserEventBase {
 }
 
 export type UserEventJobPayload =
-  | LearningProgressInteractiveUpdatedUserEvent
-  | LearningProgressResetUserEvent;
+  LearningProgressInteractiveUpdatedUserEvent | LearningProgressResetUserEvent;

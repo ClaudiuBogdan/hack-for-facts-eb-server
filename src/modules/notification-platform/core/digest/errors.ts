@@ -12,11 +12,7 @@ export interface DigestConflictError {
 }
 
 export type DigestError =
-  | DatabaseError
-  | ValidationError
-  | QueueError
-  | NotFoundError
-  | DigestConflictError;
+  DatabaseError | ValidationError | QueueError | NotFoundError | DigestConflictError;
 
 export const createDigestConflictError = (
   batchId: string,

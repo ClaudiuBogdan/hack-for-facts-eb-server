@@ -4,7 +4,7 @@
 
 get/users
 curl <https://api.clerk.com/v1/users> \
- --header 'Authorization: Bearer YOUR_SECRET_TOKEN'
+--header 'Authorization: Bearer YOUR_SECRET_TOKEN'
 
 ```
 [
@@ -448,7 +448,7 @@ Allows to return users in a particular order. At the moment, you can order the r
 get/users/{user_id}
 Shell Curl
 curl '<https://api.clerk.com/v1/users/{user_id}>' \
- --header 'Authorization: Bearer YOUR_SECRET_TOKEN'
+--header 'Authorization: Bearer YOUR_SECRET_TOKEN'
 
 Retrieve the details of a user
 
