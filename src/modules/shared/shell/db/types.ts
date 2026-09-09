@@ -94,6 +94,7 @@ export interface CoreTerritories {
   county_name: string | null;
   region: string | null;
   population: number | null;
+  privacy_class: string; // 'public' | 'restricted' — query-time gate on every read
   siruta_link_method: string | null;
   siruta_link_confidence: string | null;
   siruta_link_warnings: Jsonb;
@@ -147,6 +148,7 @@ export interface SearchDocuments {
   url: string | null;
   attrs: Jsonb;
   visibility: string; // 'public' | 'restricted' — query-time gate
+  privacy_class: string; // 'public' | 'restricted' — pinned together with visibility (servableDocumentRowSql)
   rank_boost: number | null; // precomputed importance (sort signal)
   deleted_at: Tstz | null; // tombstone — exclude from serving when set
   updated_at: Tstz;

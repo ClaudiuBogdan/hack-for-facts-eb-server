@@ -71,12 +71,19 @@ const mapTerritory = (row: {
   population: row.population,
 });
 
+/**
+ * Every read pins `privacy_class = 'public'`. All rows are public today (measured
+ * 2026-09-09: 0 non-public), but the platform gates on class, not on the current
+ * distribution — a restricted territory must never surface as a filter anchor,
+ * a county/region list entry or a search hit.
+ */
 export const makeTerritoryRepo = (db: Db): TerritoryRepo => ({
   async byTerritorialSiruta(code: Siruta): Promise<Result<Territory | null, ApiError>> {
     try {
       const row = await db
         .selectFrom('core.territories')
         .select([...TERRITORY_COLUMNS])
+        .where('privacy_class', '=', 'public')
         .where('territorial_siruta_code', '=', code)
         .limit(1)
         .executeTakeFirst();
@@ -91,6 +98,7 @@ export const makeTerritoryRepo = (db: Db): TerritoryRepo => ({
       const rows = await db
         .selectFrom('core.territories')
         .select([...TERRITORY_COLUMNS])
+        .where('privacy_class', '=', 'public')
         .where('county_code', '=', countyCode)
         .where(isUatPresentationTerritory('core.territories'))
         .orderBy('name', 'asc')
@@ -112,6 +120,7 @@ export const makeTerritoryRepo = (db: Db): TerritoryRepo => ({
       const rows = await db
         .selectFrom('core.territories')
         .select([...TERRITORY_COLUMNS])
+        .where('privacy_class', '=', 'public')
         .where(isUatPresentationTerritory('core.territories'))
         .where(sql<boolean>`name ilike ${'%' + escapedRaw + '%'} escape '\\'`)
         .limit(200)
@@ -133,6 +142,7 @@ export const makeTerritoryRepo = (db: Db): TerritoryRepo => ({
       const rows = await db
         .selectFrom('core.territories')
         .select(['county_code', 'county_name'])
+        .where('privacy_class', '=', 'public')
         .where('county_code', 'is not', null)
         .where('county_name', 'is not', null)
         .distinct()
@@ -156,6 +166,7 @@ export const makeTerritoryRepo = (db: Db): TerritoryRepo => ({
       const rows = await db
         .selectFrom('core.territories')
         .select(['region'])
+        .where('privacy_class', '=', 'public')
         .where('region', 'is not', null)
         .distinct()
         .orderBy('region', 'asc')
@@ -180,7 +191,7 @@ export async function readPublicTerritoriesByIds(
       .where(
         sql<boolean>`id in (select value::int from jsonb_array_elements_text(${JSON.stringify(ids)}::jsonb))`
       )
-      .where(sql<boolean>`privacy_class = 'public'`)
+      .where('privacy_class', '=', 'public')
       .execute();
     return ok(rows.map(mapTerritory));
   } catch (cause) {
