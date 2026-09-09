@@ -28,6 +28,7 @@ import {
   decodeCursor,
   fhashFor,
   invalidInput,
+  isWithheldOrganizationIdentifier,
   normalizeCui,
   toConditionBuilders,
 } from '@/modules/shared/index.js';
@@ -185,6 +186,9 @@ export const makePublicEntityRepo = (db: Db): PublicEntityRepo => {
   ): Promise<Result<ReferencePublicEntity | null, ApiError>> => {
     const cui = normalizeCui(rawCui);
     if (cui === null) return err(invalidInput('invalid CUI format', 'cui'));
+    // Fail closed like the kernel identity repo: a CNP-shaped identifier never
+    // reaches the table, so neither a row nor a timing difference can confirm it.
+    if (isWithheldOrganizationIdentifier(cui)) return ok(null);
     try {
       const row = await db
         .selectFrom('core.public_entities as pe')

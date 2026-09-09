@@ -18,7 +18,11 @@
 import { ok, type Result } from 'neverthrow';
 import { describe, expect, it, vi } from 'vitest';
 
-import { getOrganizationRef, type ReferenceDeps } from '@/modules/reference/core/usecases.js';
+import {
+  getOrganizationRef,
+  getPublicEntity,
+  type ReferenceDeps,
+} from '@/modules/reference/core/usecases.js';
 import {
   isWithheldOrganizationIdentifier,
   MAX_SERVED_CUI_DIGITS,
@@ -84,6 +88,26 @@ describe('identity spine — P0 containment', () => {
     // Load-bearing: refusing AFTER the query would still let a slow/fast timing
     // difference confirm existence.
     expect(findByCui).not.toHaveBeenCalled();
+  });
+
+  it('referencePublicEntity refuses a withheld identifier and never reaches the repo', async () => {
+    let findByCuiCalls = 0;
+    const deps = {
+      publicEntities: {
+        findByCui: async () => {
+          findByCuiCalls += 1;
+          return ok(null);
+        },
+      },
+    } as unknown as ReferenceDeps;
+
+    const res = await getPublicEntity(deps, WITHHELD_13, false);
+
+    expect(res.isErr()).toBe(true);
+    const error = (res as { error: ApiError }).error;
+    expect(error.type).toBe('InvalidInput');
+    expect(error.message).toContain('not served');
+    expect(findByCuiCalls).toBe(0);
   });
 
   it('entity(cui) refuses before the 360 fan-out (flows/documents/presence would disclose a footprint)', async () => {

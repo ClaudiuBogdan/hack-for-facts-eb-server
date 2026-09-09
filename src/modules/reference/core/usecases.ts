@@ -60,9 +60,22 @@ export interface ReferenceDeps {
 /** Detail by CUI, enriched with the canonical kernel Territory (single source of truth). */
 export const getPublicEntity = async (
   deps: ReferenceDeps,
-  cui: string,
+  rawCui: string,
   includeTrace: boolean
 ): Promise<Result<ReferencePublicEntity | null, ApiError>> => {
+  const cui = normalizeCui(rawCui);
+  if (cui === null) return err(invalidInput('invalid CUI format', 'cui'));
+  // Same categorical refusal as `getOrganizationRef`: `normalizeCui` accepts up
+  // to 13 digits, so a CNP-shaped identifier must be refused here, before any
+  // repo call, identically whether or not a row exists (P0 containment).
+  if (isWithheldOrganizationIdentifier(cui)) {
+    return err(
+      invalidInput(
+        `identifiers longer than ${String(MAX_SERVED_CUI_DIGITS)} digits are not served`,
+        'cui'
+      )
+    );
+  }
   const res = await deps.publicEntities.findByCui(cui, includeTrace);
   if (res.isErr()) return err(res.error);
   const entity = res.value;
