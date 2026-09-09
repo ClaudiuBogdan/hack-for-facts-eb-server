@@ -2,9 +2,12 @@
  * Golden Master — the legacy `executionAnalytics` root served by the KERNEL
  * endpoint (docs/server-redesign/13 §5 step 2, §6).
  *
- * Replays the exact documents + variables of `execution-analytics.gm.test.ts`
- * against `TEST_GM_API_URL`, which may now point at `/api/v1/graphql`, and
- * asserts against the SAME snapshot files the legacy endpoint recorded. Run:
+ * Replays the exact documents + variables the deleted legacy spec
+ * `execution-analytics.gm.test.ts` sent (slice 1 commit 6 removed the legacy
+ * specs; the 14 `execution-analytics` snapshots this spec references are kept,
+ * the budget-sector / funding-source ones went with their specs) against
+ * `TEST_GM_API_URL` (`/api/v1/graphql`) and asserts against the SAME snapshot
+ * files the legacy endpoint recorded. A LOCAL diagnostic, not a CI job. Run:
  *
  *   TEST_GM_API_URL=http://localhost:3001/api/v1/graphql \
  *     pnpm exec vitest run tests/golden-master/specs/legacy-execution-analytics-kernel.gm.test.ts \
@@ -13,16 +16,16 @@
  * Never point it at production. Every replay asserts the FULL envelope: the
  * endpoint must return NO `errors[]` (13 §6 "no new errors") and `data` must
  * match the legacy snapshot at 2 dp. The envelope is fetched by a LOCAL helper
- * (`executeEnvelope`) — `tests/golden-master/client.ts` is owned by the
- * `gm-cutover-harness` worktree and is not touched here; when that harness
- * lands, this spec is classified gating / extended by it. Expected, documented deltas (13 §7):
+ * (`executeEnvelope`), independent of `tests/golden-master/client.ts` (the
+ * cutover harness, which is the gate). Expected, documented deltas (13 §7):
  * `yearly-per-capita` / `quarterly-per-capita` move by ×1.0002 (country
  * population = the reference dataset's latest year, 19,050,000, instead of the
  * county-row sum 19,053,815) and by ≈×2 wherever an `is_uat` / `entity_types`
  * scope was the denominator; the `(real <year>)` label follows the latest CPI
  * year. Those cases fail here BY DESIGN until the snapshots are re-baselined
- * with the recorded before/after numbers — the dual-endpoint cutover harness
- * (worktree `gm-cutover-harness`) is the gate that classifies them.
+ * with the recorded before/after numbers (delete the two `.snap.json` files,
+ * then `pnpm test:gm:update` — the matcher only writes a MISSING file) — the
+ * cutover harness is the gate that classifies them.
  */
 
 import { beforeAll, describe, expect, it } from 'vitest';
@@ -386,7 +389,17 @@ describe('[Golden Master] Execution Analytics — legacy root on the kernel endp
 
   beforeAll(() => {
     const url = process.env['TEST_GM_API_URL'] ?? '';
-    if (url.includes('transparenta.eu')) {
+    // Refuse every production host (both public hostnames, k8s/base
+    // virtual-service.yaml); the dev hosts (api-dev., dev-chronos-api.) and
+    // localhost are the intended targets of this LOCAL diagnostic.
+    const host = url === '' ? '' : new URL(url).hostname.replace(/\.$/u, '').toLowerCase();
+    const PRODUCTION_HOSTS = [
+      'transparenta.eu',
+      'www.transparenta.eu',
+      'api.transparenta.eu',
+      'hack-for-facts.devostack.com',
+    ];
+    if (PRODUCTION_HOSTS.includes(host)) {
       throw new Error('refusing to replay the golden master against production');
     }
     if (url === '') {

@@ -348,8 +348,30 @@ function lineOf(fileText: string, index: number): number {
  * or when the literal interpolates (`${`) — such a document would not be
  * byte-identical to what the client sends.
  */
+/**
+ * A client document the generator can no longer locate is DRIFT, not a crash
+ * (T-08): every miss is recorded here and reported together at the end, so one
+ * client refactor does not hide the others behind an uncaught throw.
+ */
+const driftFailures: string[] = [];
+const MISSING: LocatedText = { text: '', source: 'MISSING' };
+
+/** Reads a client source file; a missing file is drift (the file moved or went). */
+function readClientFile(file: string): string | undefined {
+  try {
+    return readFileSync(path.join(CLIENT_SRC, file), 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      driftFailures.push(`${file}: file not found in the client tree`);
+      return undefined;
+    }
+    throw error;
+  }
+}
+
 function inlineDocument(file: string, operationName: string): LocatedText {
-  const fileText = readFileSync(path.join(CLIENT_SRC, file), 'utf8');
+  const fileText = readClientFile(file);
+  if (fileText === undefined) return MISSING;
   const anchor = new RegExp(`\\b(query|mutation)\\s+${operationName}\\b`);
   const matches: { text: string; start: number; end: number }[] = [];
   const literal = /`([^`]*)`/g;
@@ -360,14 +382,16 @@ function inlineDocument(file: string, operationName: string): LocatedText {
   }
   const found = matches[0];
   if (matches.length !== 1 || found === undefined) {
-    throw new Error(
+    driftFailures.push(
       `${file}: expected exactly one template literal containing "${operationName}", found ${String(matches.length)}`
     );
+    return MISSING;
   }
   if (found.text.includes('${')) {
-    throw new Error(
+    driftFailures.push(
       `${file}: the "${operationName}" document interpolates (\${) — not a literal document`
     );
+    return MISSING;
   }
   return {
     text: found.text,
@@ -377,15 +401,18 @@ function inlineDocument(file: string, operationName: string): LocatedText {
 
 /** Line range of `export const <name> = \`…\`` / `export function <name>(…) {…}` in `file` (source only). */
 function declarationRange(file: string, name: string): string {
-  const fileText = readFileSync(path.join(CLIENT_SRC, file), 'utf8');
+  const fileText = readClientFile(file);
+  if (fileText === undefined) return 'MISSING';
   const lines = fileText.split('\n');
   const startIndex = lines.findIndex(
     (line) =>
       line.startsWith(`export const ${name} =`) || line.startsWith(`export function ${name}(`)
   );
   const startLine = lines[startIndex];
-  if (startIndex < 0 || startLine === undefined)
-    throw new Error(`${file}: declaration "${name}" not found`);
+  if (startIndex < 0 || startLine === undefined) {
+    driftFailures.push(`${file}: declaration "${name}" not found`);
+    return 'MISSING';
+  }
   const isFunction = startLine.startsWith('export function');
   let endIndex = -1;
   for (let i = startIndex; i < lines.length; i += 1) {
@@ -404,7 +431,10 @@ function declarationRange(file: string, name: string): string {
       break;
     }
   }
-  if (endIndex < 0) throw new Error(`${file}: end of declaration "${name}" not found`);
+  if (endIndex < 0) {
+    driftFailures.push(`${file}: end of declaration "${name}" not found`);
+    return 'MISSING';
+  }
   return `src/${file}:${String(startIndex + 1)}-${String(endIndex + 1)}`;
 }
 
@@ -412,8 +442,10 @@ const INS_QUERIES_FILE = 'features/statistics/api/graphql/ins-queries.ts';
 
 function insDocument(constantName: string): LocatedText {
   const text = insQueries[constantName];
-  if (typeof text !== 'string')
-    throw new Error(`${INS_QUERIES_FILE}: "${constantName}" is not a string export`);
+  if (typeof text !== 'string') {
+    driftFailures.push(`${INS_QUERIES_FILE}: "${constantName}" is not a string export`);
+    return MISSING;
+  }
   return { text, source: declarationRange(INS_QUERIES_FILE, constantName) };
 }
 
@@ -1259,6 +1291,20 @@ add({
 // =============================================================================
 // Output / check
 // =============================================================================
+
+if (driftFailures.length > 0) {
+  if (options.check) {
+    console.error(
+      `DRIFT: ${String(driftFailures.length)} client document(s) can no longer be located at ${clientCommit}:`
+    );
+    for (const failure of driftFailures) console.error(`  - ${failure}`);
+    console.error(
+      'The committed corpus stays pinned to its client commit; regenerate with pnpm gm:corpus once the client is reconciled.'
+    );
+    process.exit(1);
+  }
+  throw new Error(`Cannot generate the corpus:\n  - ${driftFailures.join('\n  - ')}`);
+}
 
 const generated: CorpusFile = {
   meta: { generator: GENERATOR_ID, clientCommit, clientBranch },

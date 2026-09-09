@@ -1,14 +1,16 @@
 /**
  * Vitest Configuration for Golden Master E2E Tests
  *
- * This configuration is used exclusively for Golden Master tests that verify
- * GraphQL query outputs against known-good snapshots (snapshot mode) or
- * against a baseline endpoint (cutover mode, TEST_GM_BASELINE_URL).
+ * Golden Master tests against a running kernel endpoint (/api/v1/graphql):
+ * the client-document cutover replay (TEST_GM_BASELINE_URL = a preserved
+ * legacy /graphql) and the kernel replay of the legacy executionAnalytics
+ * snapshots. The 12 legacy-schema snapshot specs were deleted in slice 1
+ * commit 6 (2026-09-09) with the legacy endpoint.
  *
  * Usage:
- *   pnpm test:gm                    # Run Golden Master tests (snapshot mode)
+ *   pnpm test:gm                    # Kernel replay specs (snapshot mode)
  *   pnpm test:gm -- --update        # Update snapshots
- *   pnpm test:gm:cutover            # Baseline /graphql vs target /api/v1/graphql
+ *   pnpm test:gm:cutover            # Baseline legacy /graphql vs target /api/v1/graphql
  */
 
 import path from 'node:path';

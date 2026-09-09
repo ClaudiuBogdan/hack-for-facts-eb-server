@@ -18,19 +18,20 @@ same endpoint (host case, default port, trailing slash, fragment, userinfo —
 
 ## Scripts
 
-| Script                  | What it does                                                                                                                                                                                                                                                                           |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm test:gm`          | Snapshot mode, the 12 hand-written specs (the corpus spec is excluded: it has no stored snapshots). `TEST_GM_API_URL` is REQUIRED (no default) and must be a preserved legacy `/graphql`: these specs still send legacy-schema documents (`uat`, `reports`, …) until they are migrated |
-| `pnpm test:gm:update`   | Same, rewriting the stored snapshots                                                                                                                                                                                                                                                   |
-| `pnpm test:gm:cutover`  | **The cutover gate**: the client-document corpus only, baseline `TEST_GM_BASELINE_URL` (required, a preserved legacy `/graphql`) → target `http://localhost:3000/api/v1/graphql`                                                                                                       |
-| `pnpm test:gm:extended` | Non-gating diagnostic: the 12 hand-written specs in cutover mode (they exercise legacy roots the client never sends — `entity`, `uat`, `reports`, `insCompare`, …)                                                                                                                     |
-| `pnpm gm:corpus`        | Regenerate `corpus/client-documents.json` from the client repo (`scripts/gm/gen-client-corpus.mts`)                                                                                                                                                                                    |
-| `pnpm gm:corpus:check`  | Fail when the committed corpus drifts from the client tree (documents, variables, sources, or the pinned client commit)                                                                                                                                                                |
+| Script                 | What it does                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm test:gm`         | LOCAL diagnostic, not a gate: `legacy-execution-analytics-kernel` (the legacy `executionAnalytics` documents replayed on a KERNEL endpoint, default `TEST_GM_API_URL=http://localhost:3000/api/v1/graphql`, against the recorded snapshots — the two per-capita cases fail BY DESIGN until re-baselined for the 13 §7 deltas) and `factor-source-parity` (Phase A paired proof, `PHASE_A_*` env). Refuses production hosts. |
+| `pnpm test:gm:update`  | Same, rewriting the stored snapshots                                                                                                                                                                                                                                                                                                                                                                                        |
+| `pnpm test:gm:cutover` | **The cutover gate**: the client-document corpus only, baseline `TEST_GM_BASELINE_URL` (required: a preserved legacy `/graphql`, i.e. Phoenix dev pinned at `phoenix-last-full`) → target `http://localhost:3000/api/v1/graphql`                                                                                                                                                                                            |
+| `pnpm gm:corpus`       | Regenerate `corpus/client-documents.json` from the client repo (`scripts/gm/gen-client-corpus.mts`)                                                                                                                                                                                                                                                                                                                         |
+| `pnpm gm:corpus:check` | Fail when the committed corpus drifts from the client tree (documents, variables, sources, or the pinned client commit); a document the client no longer has is reported as drift, one per line                                                                                                                                                                                                                             |
 
-Only the cutover/extended TARGET has an environment fallback
-(`${TEST_GM_API_URL:-http://localhost:3000/api/v1/graphql}`); every legacy
-endpoint is required, so `TEST_GM_BASELINE_URL=… pnpm test:gm:cutover` and
-`TEST_GM_API_URL=… pnpm test:gm` are the working forms.
+The 12 hand-written legacy-schema specs (`entities`, `heatmap`, `ins`, …) and
+their snapshots were deleted in slice 1 commit 6 (owner decision 2026-09-09):
+nothing in this repo serves the legacy `/graphql` any more, and the roots they
+exercised beyond what the client sends are retired by design 13. What remains
+proves the kernel: the client corpus against a preserved legacy baseline, and
+the `executionAnalytics` snapshots replayed on the kernel.
 
 Optional environment:
 
@@ -46,27 +47,25 @@ Optional environment:
 ## Bringing up both endpoints for `pnpm test:gm:cutover`
 
 `pnpm dev` (`src/api.ts` → `app/build-app.ts`) mounts the kernel at
-`/api/v1/graphql` (the legacy `/graphql` endpoint was retired in slice 1, 2026-09-09) (`build-app.ts` `REDESIGN_SURFACE_ROUTE_PATHS`,
-the `registerRedesignSurface` child scope). Exact requirements:
+`/api/v1/graphql` (`build-app.ts` `REDESIGN_SURFACE_ROUTE_PATHS`, the
+`registerRedesignSurface` child scope); the legacy `/graphql` endpoint was
+retired in slice 1 (2026-09-09). Exact requirements:
 
-1. **Legacy side** — the Phoenix dev DB port-forwards (`pnpm dev:forward`) and
-   the legacy `.env` (names in `.env.example`; never print it).
-2. **Redesign side** — provide the kernel env (`PROD_DATABASE_URL`, Meili/OpenSearch; the surface is mandatory since slice 1, 2026-09-09).
-3. `PORT` defaults to `3000` (`env.ts`), which is what `test:gm:cutover` and
-   `test:gm:extended` target (`/api/v1/graphql`); override `TEST_GM_API_URL` to
-   match your local `PORT`. Nothing in this repo serves the legacy `/graphql`
-   any more (slice 1), so every legacy-schema endpoint is explicit: the cutover
-   BASELINE (`TEST_GM_BASELINE_URL`) and the snapshot suite's target
-   (`test:gm` / `test:gm:update`, whose 12 specs still send legacy documents)
-   must name a preserved legacy deployment (the Phoenix dev pod pinned at the
-   `phoenix-last-full` tag) or the script refuses to run.
+1. **Kernel side** — the kernel env (`PROD_DATABASE_URL`, Meili/OpenSearch;
+   mandatory since slice 1) next to the legacy `.env` (names in
+   `.env.example`; never print it).
+2. **Baseline side** — `TEST_GM_BASELINE_URL` must name a preserved legacy
+   deployment (the Phoenix dev pod pinned at the `phoenix-last-full` tag); the
+   script refuses to run without it.
+3. `PORT` defaults to `3000` (`env.ts`), which is what the target default
+   (`http://localhost:3000/api/v1/graphql`) assumes; override `TEST_GM_API_URL`
+   to match your local `PORT`.
 
 Then:
 
 ```bash
-pnpm dev                 # one process, two GraphQL endpoints on :3000
-pnpm test:gm:cutover     # in a second shell — the gate
-pnpm test:gm:extended    # optional: the 12 legacy specs, diagnostic only
+pnpm dev                 # the kernel endpoint on :3000 (target)
+pnpm test:gm:cutover     # in a second shell — the gate (baseline from TEST_GM_BASELINE_URL)
 ```
 
 Vitest flags are forwarded as-is (no `--`): `pnpm test:gm:cutover -t entity-search`
@@ -255,22 +254,9 @@ fails on any drift, the pin included.
 
 `corpus.ts` validates the file on load: TypeBox shape (`meta` included), unique
 ids and keys, `graphql.parse`, exactly one operation, every supplied variable
-declared, every non-null declared variable supplied. `tests/unit/golden-master`
-additionally validates every document against the legacy schema built offline
-from the same 18 SDL constants `build-app.ts` uses: exactly the four
-`invalid-today` documents fail, with the inventory's messages.
-
-## Existing specs in cutover mode (`pnpm test:gm:extended`)
-
-The 12 hand-written spec files need no edits: in cutover mode
-`client.query()` runs the document against both endpoints, compares, writes the
-case report (keyed by the vitest test name) and throws on a blocking
-difference before returning the target data; `toMatchNormalizedSnapshot` then
-short-circuits, because the stored snapshots were recorded against a different
-database and cannot be the oracle for the cutover. Their reports carry no
-`planned.json` (an "unplanned run" in the summary). Snapshot mode is stricter
-than before in two small ways: `query()` throws on `data: null` and on a
-non-envelope body.
+declared, every non-null declared variable supplied. (The offline validation
+against the legacy SDL left with the legacy endpoint in slice 1; the four
+`invalid-today` documents keep their status in the corpus file.)
 
 ## Unit tests
 
@@ -278,5 +264,5 @@ non-envelope body.
 canonicalization, the classifier (including the hidden-class escalation), the
 key-set diff with aliases, the allowlist (pinning, staleness), the verdict
 (two-404 pair, `data: null` pair, extra keys), the corpus loader (including the
-real corpus file and the offline SDL validation) and the report summary
+real corpus file) and the report summary
 (reconciliation, stale entries). They run with `pnpm test` and need no server.

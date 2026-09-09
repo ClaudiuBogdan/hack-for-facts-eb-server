@@ -83,6 +83,21 @@ expect.extend({
     // Normalize the received data
     const normalizedReceived = normalizeNumbers(received, decimalPlaces);
 
+    // `pnpm test:gm:update` (`vitest --update`): rewrite an EXISTING snapshot
+    // instead of comparing against it; a missing file falls through below.
+    // `_updateSnapshot` is vitest's internal flag ('all' under --update).
+    const snapshotState = (this as unknown as { snapshotState?: Record<string, unknown> })
+      .snapshotState;
+    const updateMode = snapshotState?.['_updateSnapshot'];
+    if (updateMode === 'all' && fs.existsSync(absoluteSnapshotPath)) {
+      fs.writeFileSync(
+        absoluteSnapshotPath,
+        `${JSON.stringify(normalizedReceived, null, 2)}\n`,
+        'utf8'
+      );
+      return { pass: true, message: () => 'Snapshot rewritten (update mode)' };
+    }
+
     // Read and parse the snapshot file
     let snapshotContent: unknown;
     try {

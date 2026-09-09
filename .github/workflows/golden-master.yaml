@@ -17,14 +17,12 @@ on:
   workflow_dispatch:
     inputs:
       environment:
-        description: 'Environment to test'
+        description: 'Environment to test (dev only since slice 1; kept for compatibility)'
         required: true
-        default: 'both'
+        default: 'dev'
         type: choice
         options:
           - dev
-          - prod
-          - both
       skip_delay:
         description: 'Skip ArgoCD deployment delay'
         required: false
@@ -43,70 +41,23 @@ concurrency:
 
 env:
   # Default API URLs (can be overridden via GitHub secrets)
-  # Phoenix dev serves api-dev.transparenta.eu (k8s/overlays/dev); there is no
-  # dev-api. ingress, and the old default made every Dev run fail on DNS.
+  # Phoenix dev (k8s/overlays/dev, pinned at `phoenix-last-full`) is the LAST
+  # deployment that serves the legacy /graphql: it is the cutover BASELINE only.
   DEV_API_URL: ${{ secrets.GM_DEV_API_URL || 'https://api-dev.transparenta.eu/graphql' }}
   # The deployment the Dev Branch Pipeline actually updates (k8s/overlays/chronos-dev).
   CHRONOS_DEV_API_URL: ${{ secrets.GM_CHRONOS_DEV_API_URL || 'https://dev-chronos-api.transparenta.eu/api/v1/graphql' }}
-  PROD_API_URL: ${{ secrets.GM_PROD_API_URL || 'https://api.transparenta.eu/graphql' }}
+  # No production job: nothing left in the suite may run against production
+  # (the kernel replay spec refuses it; the legacy snapshot specs were deleted
+  # in slice 1 commit 6, 2026-09-09).
   # Time to wait for ArgoCD to deploy after workflow completes (in seconds)
   ARGOCD_DEPLOY_DELAY: 180
 
 jobs:
-  golden-master-dev:
-    name: Golden Master (Dev)
-    runs-on: ubuntu-latest
-    # Run for: schedule, workflow_run (after dev deploy), or manual with dev/both
-    # Skip if the triggering workflow failed
-    if: >
-      github.event_name == 'schedule' ||
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
-      (github.event_name == 'workflow_dispatch' && (inputs.environment == 'dev' || inputs.environment == 'both'))
-    # Blocking: a failed contract check must show as a failed run. With
-    # continue-on-error the workflow badge stayed green for months while
-    # this job failed on every run.
-    steps:
-      # Scheduled runs execute this workflow file from the default branch;
-      # the specs, snapshots and corpus must come from the branch the dev
-      # environment is built from.
-      - uses: actions/checkout@v4
-        with:
-          ref: dev
-
-      - name: Wait for ArgoCD deployment
-        if: github.event_name == 'workflow_run'
-        run: |
-          echo "Waiting $ARGOCD_DEPLOY_DELAY seconds for ArgoCD to deploy the new version..."
-          sleep $ARGOCD_DEPLOY_DELAY
-          echo "Delay complete, proceeding with tests"
-
-      - uses: pnpm/action-setup@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Run Golden Master Tests (Dev)
-        id: gm-test-dev
-        env:
-          TEST_GM_API_URL: ${{ env.DEV_API_URL }}
-        run: |
-          echo "Testing against: $TEST_GM_API_URL"
-          pnpm test:gm 2>&1 | tee test-output.txt
-          exit ${PIPESTATUS[0]}
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: golden-master-dev-results-${{ github.run_id }}
-          path: test-output.txt
-          retention-days: 7
-
+  # No snapshot job: the legacy snapshot specs were deleted in slice 1 commit 6
+  # (2026-09-09) and the surviving kernel replay spec
+  # (legacy-execution-analytics-kernel) is a LOCAL diagnostic until its
+  # execution-analytics snapshots are re-baselined for the documented 13 §7
+  # deltas; the cutover replay below is the gate.
   cutover-replay-chronos-dev:
     name: Cutover replay (Phoenix dev -> Chronos dev)
     runs-on: ubuntu-latest
@@ -117,8 +68,11 @@ jobs:
     if: >
       github.event_name == 'schedule' ||
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
-      (github.event_name == 'workflow_dispatch' && (inputs.environment == 'dev' || inputs.environment == 'both'))
+      github.event_name == 'workflow_dispatch'
     steps:
+      # Scheduled and workflow_run runs execute this workflow file from the
+      # DEFAULT branch; the corpus, allowlist and harness must come from the
+      # branch the dev environment is built from.
       - uses: actions/checkout@v4
         with:
           ref: dev
@@ -160,45 +114,6 @@ jobs:
             cutover-output.txt
             cutover-report
           retention-days: 14
-
-  golden-master-prod:
-    name: Golden Master (Prod)
-    runs-on: ubuntu-latest
-    # Run for: schedule, or manual with prod/both
-    # Note: workflow_run events only test dev, not prod
-    if: >
-      github.event_name == 'schedule' ||
-      (github.event_name == 'workflow_dispatch' && (inputs.environment == 'prod' || inputs.environment == 'both'))
-    # Blocking for the same reason as the dev job.
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Run Golden Master Tests (Prod)
-        id: gm-test-prod
-        env:
-          TEST_GM_API_URL: ${{ env.PROD_API_URL }}
-        run: |
-          echo "Testing against: $TEST_GM_API_URL"
-          pnpm test:gm 2>&1 | tee test-output.txt
-          exit ${PIPESTATUS[0]}
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: golden-master-prod-results-${{ github.run_id }}
-          path: test-output.txt
-          retention-days: 7
 
   security-nightly:
     name: Nightly Security Checks
@@ -290,7 +205,7 @@ jobs:
   summary:
     name: Golden Master Summary
     runs-on: ubuntu-latest
-    needs: [golden-master-dev, golden-master-prod, security-nightly]
+    needs: [cutover-replay-chronos-dev, security-nightly]
     if: always()
     steps:
       - name: Check results
@@ -300,20 +215,12 @@ jobs:
           echo "**Trigger:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          if [ "${{ needs.golden-master-dev.result }}" == "success" ]; then
-            echo "- ✅ Dev environment: Passed" >> $GITHUB_STEP_SUMMARY
-          elif [ "${{ needs.golden-master-dev.result }}" == "failure" ]; then
-            echo "- ❌ Dev environment: Failed" >> $GITHUB_STEP_SUMMARY
-          elif [ "${{ needs.golden-master-dev.result }}" == "skipped" ]; then
-            echo "- ⏭️ Dev environment: Skipped" >> $GITHUB_STEP_SUMMARY
-          fi
-
-          if [ "${{ needs.golden-master-prod.result }}" == "success" ]; then
-            echo "- ✅ Prod environment: Passed" >> $GITHUB_STEP_SUMMARY
-          elif [ "${{ needs.golden-master-prod.result }}" == "failure" ]; then
-            echo "- ❌ Prod environment: Failed" >> $GITHUB_STEP_SUMMARY
-          elif [ "${{ needs.golden-master-prod.result }}" == "skipped" ]; then
-            echo "- ⏭️ Prod environment: Skipped" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ needs.cutover-replay-chronos-dev.result }}" == "success" ]; then
+            echo "- ✅ Cutover replay (Phoenix dev → Chronos dev): Passed" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ needs.cutover-replay-chronos-dev.result }}" == "failure" ]; then
+            echo "- ❌ Cutover replay (Phoenix dev → Chronos dev): Failed" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ needs.cutover-replay-chronos-dev.result }}" == "skipped" ]; then
+            echo "- ⏭️ Cutover replay (Phoenix dev → Chronos dev): Skipped" >> $GITHUB_STEP_SUMMARY
           fi
 
           if [ "${{ needs.security-nightly.result }}" == "skipped" ]; then
