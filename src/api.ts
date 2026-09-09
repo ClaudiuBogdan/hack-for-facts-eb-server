@@ -128,7 +128,7 @@ const main = async (): Promise<void> => {
     });
 
   // Initialize dependencies
-  const { budgetDb, insDb, userDb } = initDatabases(config);
+  const { budgetDb, userDb } = initDatabases(config);
   const datasetRepo = createDatasetRepo({
     rootDir: './datasets/yaml',
     logger,
@@ -166,7 +166,6 @@ const main = async (): Promise<void> => {
     deps: {
       healthCheckers: [shutdownReadinessChecker],
       budgetDb,
-      insDb,
       userDb,
       datasetRepo,
       config,
@@ -190,7 +189,7 @@ const main = async (): Promise<void> => {
 
     try {
       await app.close();
-      await Promise.all([budgetDb.destroy(), insDb.destroy(), userDb.destroy()]);
+      await Promise.all([budgetDb.destroy(), userDb.destroy()]);
       logger.info('Server closed gracefully');
       process.exit(0);
     } catch (error) {

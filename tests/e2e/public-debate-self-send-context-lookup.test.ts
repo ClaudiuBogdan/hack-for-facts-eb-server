@@ -74,7 +74,6 @@ async function startTestDatabase(): Promise<StartedTestDatabase> {
       NODE_ENV: 'test',
       LOG_LEVEL: 'silent',
       BUDGET_DATABASE_URL: connectionString,
-      INS_DATABASE_URL: connectionString,
       USER_DATABASE_URL: connectionString,
       API_BASE_URL: 'https://api.transparenta.test',
     })
@@ -86,7 +85,6 @@ async function startTestDatabase(): Promise<StartedTestDatabase> {
     userDb: clients.userDb,
     stop: async () => {
       await clients.budgetDb.destroy();
-      await clients.insDb.destroy();
       await clients.userDb.destroy();
       await container.stop();
     },

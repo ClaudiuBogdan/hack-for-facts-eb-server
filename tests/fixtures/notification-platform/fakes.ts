@@ -985,10 +985,7 @@ export const makeFakeDeliveryAttemptRepo = (
 };
 
 type DestinationMethod =
-  | 'getCurrent'
-  | 'ensureCurrent'
-  | 'suppressByFingerprint'
-  | 'listSuppressed';
+  'getCurrent' | 'ensureCurrent' | 'suppressByFingerprint' | 'listSuppressed';
 export interface FakeChannelDestinationRepo extends ChannelDestinationRepo {
   store: KeyedStore<string, ChannelDestination>;
   faults: FaultPlan<DestinationMethod, PlatformDeliveryError>;

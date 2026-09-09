@@ -2,7 +2,8 @@
  * The frozen legacy INS SDL, served by the native module (docs/server-redesign/13
  * §3 rule 1; plan INS_SERVING_CUTOVER_PLAN_2026-09-02 §3.1).
  *
- * Byte-for-byte the legacy `InsSchema` (`src/modules/ins/shell/graphql/schema.ts`)
+ * Byte-for-byte the legacy `InsSchema` (deleted with the legacy module in slice 1
+ * commit 5; frozen at `tests/unit/ins-native/fixtures/legacy-ins-schema.ts`)
  * for the 8 roots the client sends, minus:
  *  - `insUatIndicators` and `insCompare` (not ported — decision D5; no client
  *    document sends them);

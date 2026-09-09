@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '@/app/build-app.js';
 
 import { makeTestConfig } from '../fixtures/builders.js';
-import { makeFakeBudgetDb, makeFakeDatasetRepo, makeFakeInsDb } from '../fixtures/fakes.js';
+import { makeFakeBudgetDb, makeFakeDatasetRepo } from '../fixtures/fakes.js';
 
 import type { FastifyInstance } from 'fastify';
 
@@ -329,7 +329,6 @@ describe('legal client GraphQL documents validate against the mounted schema', (
       fastifyOptions: { logger: false },
       deps: {
         budgetDb: makeFakeBudgetDb(),
-        insDb: makeFakeInsDb(),
         datasetRepo: makeFakeDatasetRepo(),
         config: makeTestConfig(),
         // Fast-fail endpoints: resolver-time DB errors are expected and fine;

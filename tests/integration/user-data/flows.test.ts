@@ -6,12 +6,7 @@ import { createTestAuthProvider } from '@/modules/auth/index.js';
 import { ALL_USER_DATA_CATEGORIES, type CategoryDefinition } from '@/modules/user-data/index.js';
 
 import { makeTestConfig } from '../../fixtures/builders.js';
-import {
-  makeFakeBudgetDb,
-  makeFakeDatasetRepo,
-  makeFakeInsDb,
-  makeFakeKyselyDb,
-} from '../../fixtures/fakes.js';
+import { makeFakeBudgetDb, makeFakeDatasetRepo, makeFakeKyselyDb } from '../../fixtures/fakes.js';
 import {
   makeFakeMutationRateLimiter,
   makeFakeUserDataStore,
@@ -59,7 +54,6 @@ const makeHarness = async (
     fastifyOptions: { logger: false },
     deps: {
       budgetDb: makeFakeBudgetDb(),
-      insDb: makeFakeInsDb(),
       userDb: makeFakeKyselyDb(),
       datasetRepo: makeFakeDatasetRepo(),
       authProvider: auth.provider,

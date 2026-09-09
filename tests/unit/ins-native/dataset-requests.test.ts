@@ -1,17 +1,17 @@
 import { ok } from 'neverthrow';
 import { describe, expect, it } from 'vitest';
 
+import { createInsDatasetRequest } from '@/modules/ins-native/core/dataset-requests/create-ins-dataset-request.js';
 import {
   MAX_DATASET_REQUEST_NOTE_LENGTH,
   type InsDatasetRequest,
   type InsDatasetRequestInput,
-} from '@/modules/ins/core/dataset-requests.js';
-import { createInsDatasetRequest } from '@/modules/ins/core/usecases/create-ins-dataset-request.js';
+} from '@/modules/ins-native/core/dataset-requests/types.js';
 
 import type {
   InsDatasetCatalogReader,
   InsDatasetRequestRepository,
-} from '@/modules/ins/core/ports.js';
+} from '@/modules/ins-native/core/dataset-requests/ports.js';
 
 /** In-memory fake standing in for the user-database repository. */
 const makeFakeRepo = (): InsDatasetRequestRepository & { created: InsDatasetRequestInput[] } => {

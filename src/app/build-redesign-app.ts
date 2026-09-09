@@ -20,6 +20,7 @@ import { makeExecutableSchema } from '@graphql-tools/schema';
 import fastifyLib, { type FastifyInstance, type FastifyReply } from 'fastify';
 import mercuriusPlugin from 'mercurius';
 
+import { registerInsDatasetRequestRoutes } from './ins-dataset-request-routes.js';
 import { makeInsGraphqlLifecycle } from './ins-graphql-session.js';
 import { registerNativeMapRoutes } from './native-map-routes.js';
 import { publicHealthReport } from './public-health.js';
@@ -147,19 +148,25 @@ export interface BuildRedesignAppDeps {
     readonly clerkSecretKey?: string;
   };
   /**
-   * Map lifecycle storage (saved maps, uploaded datasets) when the EMBEDDING
-   * composer owns the user DB and its Clerk webhook receiver — the legacy
-   * `api.js`, slice 1 commit 4. `userData` implies it on the standalone server;
-   * this variant registers the native map routes only: no `user.deleted`
-   * receiver (the embedder's `/api/v1/webhooks/clerk` would collide) and no
-   * `destroy()` on close (the embedder owns the pool). When both are given,
-   * `nativeMaps` wins for the map store and `userData` keeps its receiver.
+   * The user store of an EMBEDDING composer that owns the user DB and its Clerk
+   * webhook receiver — the legacy `api.js` (slice 1 commits 4–5). The surface
+   * registers the user-facing features that read the kernel and write the user
+   * DB over it: the native map routes (saved maps, uploaded datasets) and the
+   * INS dataset requests. It registers no `user.deleted` receiver (the
+   * embedder's `/api/v1/webhooks/clerk` would collide) and no `destroy()` on
+   * close (the embedder owns the pool). `userData` implies the map store on the
+   * standalone server; when both are given, `embeddedUserStore` wins for the
+   * map store and `userData` keeps its receiver. INS dataset requests are
+   * registered for the embedder only (slice 2 brings them to the standalone
+   * server with its user DB).
    */
-  readonly nativeMaps?: {
+  readonly embeddedUserStore?: {
     readonly userDb: Kysely<UserDatabase>;
     readonly clerkSecretKey?: string;
     /** `false` when the embedder's own global limiter is the only owner limit. */
     readonly ownerRateLimiter?: RateLimiter | false;
+    /** Whether the embedder's Clerk `user.deleted` receiver is wired. */
+    readonly userDeletionHandlerConfigured: boolean;
   };
   readonly mapPopulation?: BudgetMapPopulationSource;
 }
@@ -493,7 +500,7 @@ export const registerRedesignSurface = async (
     moduleMcpResources.push(...budget.mcpResources);
   }
   const mapStore =
-    deps.nativeMaps ??
+    deps.embeddedUserStore ??
     (deps.userData === undefined
       ? undefined
       : {
@@ -513,9 +520,9 @@ export const registerRedesignSurface = async (
       db: kernel.db,
       // Map traffic gets its own buckets (native-map-routes.ts), not the kernel's
       // 30/min search bucket; an embedder may switch the owner bucket off.
-      ...(deps.nativeMaps?.ownerRateLimiter === undefined
+      ...(deps.embeddedUserStore?.ownerRateLimiter === undefined
         ? {}
-        : { rateLimiter: deps.nativeMaps.ownerRateLimiter }),
+        : { rateLimiter: deps.embeddedUserStore.ownerRateLimiter }),
       userDb: mapStore.userDb,
       ...(deps.authProvider === undefined ? {} : { authProvider: deps.authProvider }),
       ...(mapStore.clerkSecretKey === undefined ? {} : { clerkSecretKey: mapStore.clerkSecretKey }),
@@ -532,6 +539,18 @@ export const registerRedesignSurface = async (
                 throw new Error('native map routes require the ins-native population port');
               })()),
       },
+    });
+  }
+  if (deps.embeddedUserStore !== undefined && createInsSession === undefined)
+    app.log.warn(
+      'embeddedUserStore given without the ins-native module: INS dataset requests and native maps are NOT registered'
+    );
+  if (deps.embeddedUserStore !== undefined && createInsSession !== undefined) {
+    await registerInsDatasetRequestRoutes(app, {
+      userDb: deps.embeddedUserStore.userDb,
+      ...(deps.authProvider === undefined ? {} : { authProvider: deps.authProvider }),
+      userDeletionHandlerConfigured: deps.embeddedUserStore.userDeletionHandlerConfigured,
+      createInsReadSession: createInsSession,
     });
   }
 

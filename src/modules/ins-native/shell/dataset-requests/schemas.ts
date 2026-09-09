@@ -1,5 +1,5 @@
 /**
- * INS Module REST API - TypeBox Schemas
+ * INS dataset-request REST API - TypeBox Schemas (moved from the legacy `ins` module, slice 1 commit 5).
  */
 
 import { Type, type Static } from '@sinclair/typebox';
@@ -9,7 +9,7 @@ import {
   MAX_DATASET_CODE_LENGTH,
   MAX_DATASET_REQUEST_NOTE_LENGTH,
   MAX_SIRUTA_CODE_LENGTH,
-} from '../../core/dataset-requests.js';
+} from '../../core/dataset-requests/types.js';
 
 export const CreateDatasetRequestBodySchema = Type.Object(
   {

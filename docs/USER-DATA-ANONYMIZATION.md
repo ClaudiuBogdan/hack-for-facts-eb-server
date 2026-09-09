@@ -143,7 +143,8 @@ that the anonymizer can find.
 The same invariant is enforced against deployment topology. The Clerk webhook —
 and therefore the anonymization handler — only registers when
 `CLERK_WEBHOOK_SIGNING_SECRET` is configured, while the dataset-request route
-mounts as soon as a user database exists. `makeInsRoutes` therefore takes a
+mounts as soon as a user database exists. `makeInsDatasetRequestRoutes` (in
+`ins-native` since slice 1 commit 5) therefore takes a
 `userDeletionHandlerConfigured` flag: when the webhook is absent the route
 refuses to attach a Clerk user id at all, so a deploy without deletion wiring
 records only the aggregate signal and never personal data. Startup logs a

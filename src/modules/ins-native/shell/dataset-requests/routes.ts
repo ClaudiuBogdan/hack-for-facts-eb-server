@@ -1,5 +1,6 @@
 /**
- * INS Module REST Routes
+ * INS dataset-request REST route (moved verbatim from the legacy `ins` module in
+ * slice 1 commit 5, 2026-09-09; the path and contract are unchanged).
  *
  * POST /api/ins/dataset-requests: record a request for a dataset to be loaded.
  *
@@ -9,17 +10,21 @@
  * authenticated caller's Clerk user id is attached when present.
  */
 
+import { isAuthenticated, type AuthContext } from '@/modules/auth/index.js';
+
 import {
   CreateDatasetRequestBodySchema,
   CreateDatasetRequestResponseSchema,
   ErrorResponseSchema,
   type CreateDatasetRequestBody,
 } from './schemas.js';
-import { isAuthenticated, type AuthContext } from '../../../auth/core/types.js';
-import { getHttpStatusForError } from '../../core/errors.js';
-import { createInsDatasetRequest } from '../../core/usecases/create-ins-dataset-request.js';
+import { createInsDatasetRequest } from '../../core/dataset-requests/create-ins-dataset-request.js';
+import { getHttpStatusForError } from '../../core/dataset-requests/errors.js';
 
-import type { InsDatasetCatalogReader, InsDatasetRequestRepository } from '../../core/ports.js';
+import type {
+  InsDatasetCatalogReader,
+  InsDatasetRequestRepository,
+} from '../../core/dataset-requests/ports.js';
 import type { RateLimitOptions } from '@fastify/rate-limit';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 
@@ -34,7 +39,7 @@ const DEFAULT_RATE_LIMIT: RateLimitOptions = {
   }),
 };
 
-export interface MakeInsRoutesDeps {
+export interface MakeInsDatasetRequestRoutesDeps {
   datasetRequestRepo: InsDatasetRequestRepository;
   /** Used to reject requests for dataset codes that are not in the INS catalog. */
   datasetCatalog: InsDatasetCatalogReader;
@@ -73,7 +78,9 @@ const getClerkUserId = (
   return auth.userId;
 };
 
-export const makeInsRoutes = (deps: MakeInsRoutesDeps): FastifyPluginAsync => {
+export const makeInsDatasetRequestRoutes = (
+  deps: MakeInsDatasetRequestRoutesDeps
+): FastifyPluginAsync => {
   const {
     datasetRequestRepo,
     datasetCatalog,
@@ -81,7 +88,7 @@ export const makeInsRoutes = (deps: MakeInsRoutesDeps): FastifyPluginAsync => {
     rateLimit = DEFAULT_RATE_LIMIT,
   } = deps;
 
-  return async (fastify) => {
+  return (fastify) => {
     if (!userDeletionHandlerConfigured) {
       fastify.log.warn(
         'INS dataset requests mounted without the Clerk user.deleted webhook: submissions will be recorded without any personal data.'
@@ -141,5 +148,6 @@ export const makeInsRoutes = (deps: MakeInsRoutesDeps): FastifyPluginAsync => {
         });
       }
     );
+    return Promise.resolve();
   };
 };

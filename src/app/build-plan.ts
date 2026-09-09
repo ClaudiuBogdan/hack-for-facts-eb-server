@@ -6,7 +6,7 @@ import type {
   LegalSearchComposition,
   ProcurementComposition,
 } from '../infra/config/redesign-env.js';
-import type { BudgetDbClient, InsDbClient, UserDbClient } from '../infra/database/client.js';
+import type { BudgetDbClient, UserDbClient } from '../infra/database/client.js';
 import type { AdminEventRuntimeFactory } from '../modules/admin-events/index.js';
 import type { AuthProvider } from '../modules/auth/index.js';
 import type { CampaignAdminPermissionAuthorizer } from '../modules/campaign-admin/index.js';
@@ -42,7 +42,6 @@ import type { FastifyServerOptions } from 'fastify';
 export interface AppDeps {
   healthCheckers?: HealthChecker[];
   budgetDb: BudgetDbClient;
-  insDb: InsDbClient;
   /** User database for notifications and other user-related data */
   userDb?: UserDbClient;
   datasetRepo: DatasetRepo;
@@ -148,19 +147,13 @@ export interface BuildPlan {
 }
 
 function requireAppDeps(deps: Partial<AppDeps>): AppDeps {
-  if (
-    deps.budgetDb === undefined ||
-    deps.insDb === undefined ||
-    deps.datasetRepo === undefined ||
-    deps.config === undefined
-  ) {
-    throw new Error('Missing required dependencies: budgetDb, insDb, datasetRepo, config');
+  if (deps.budgetDb === undefined || deps.datasetRepo === undefined || deps.config === undefined) {
+    throw new Error('Missing required dependencies: budgetDb, datasetRepo, config');
   }
 
   return {
     ...deps,
     budgetDb: deps.budgetDb,
-    insDb: deps.insDb,
     datasetRepo: deps.datasetRepo,
     config: deps.config,
   };

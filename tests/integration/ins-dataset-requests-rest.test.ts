@@ -6,22 +6,22 @@
  * required.
  */
 
+import rateLimit from '@fastify/rate-limit';
 import fastifyLib, { type FastifyError, type FastifyInstance } from 'fastify';
 import { err, ok } from 'neverthrow';
 import { describe, expect, it, afterEach } from 'vitest';
 
+import { addEmbeddedScopeAuth } from '@/app/embedded-scope-auth.js';
 import { toUserId } from '@/modules/auth/core/types.js';
-import { createDatabaseError } from '@/modules/ins/core/errors.js';
-import { makeInsRoutes } from '@/modules/ins/shell/rest/routes.js';
-
-import type {
-  InsDatasetRequest,
-  InsDatasetRequestInput,
-} from '@/modules/ins/core/dataset-requests.js';
-import type {
-  InsDatasetCatalogReader,
-  InsDatasetRequestRepository,
-} from '@/modules/ins/core/ports.js';
+import { createTestAuthProvider, makeAuthMiddleware } from '@/modules/auth/index.js';
+import {
+  createDatasetRequestDatabaseError as createDatabaseError,
+  makeInsDatasetRequestRoutes as makeInsRoutes,
+  type InsDatasetCatalogReader,
+  type InsDatasetRequest,
+  type InsDatasetRequestInput,
+  type InsDatasetRequestRepository,
+} from '@/modules/ins-native/index.js';
 
 const makeFakeRepo = (): InsDatasetRequestRepository & { created: InsDatasetRequestInput[] } => {
   const created: InsDatasetRequestInput[] = [];
@@ -257,5 +257,106 @@ describe('POST /api/ins/dataset-requests', () => {
 
     expect(response.statusCode).toBe(500);
     expect(response.json()).toMatchObject({ ok: false, error: 'DatabaseError' });
+  });
+});
+
+describe('POST /api/ins/dataset-requests — rate limit', () => {
+  it('binds the route-level limit through a root @fastify/rate-limit from a child scope', async () => {
+    // api.js registers @fastify/rate-limit at the root and, since slice 1
+    // commit 5, this route inside the kernel surface's child scope; the
+    // plugin's onRoute hook must still honour `config.rateLimit` there.
+    const app = fastifyLib({ logger: false });
+    await app.register(rateLimit, { global: false });
+    await app.register(async (scope) => {
+      await scope.register(
+        makeInsRoutes({
+          datasetRequestRepo: makeFakeRepo(),
+          datasetCatalog: fakeCatalog,
+          userDeletionHandlerConfigured: true,
+          rateLimit: {
+            max: 2,
+            timeWindow: '1 minute',
+            errorResponseBuilder: (_request, context) => ({
+              statusCode: context.statusCode,
+              ok: false,
+              error: 'RateLimitExceededError',
+              message: 'Too many requests',
+            }),
+          },
+        })
+      );
+    });
+    await app.ready();
+    const send = () =>
+      app.inject({
+        method: 'POST',
+        url: '/api/ins/dataset-requests',
+        headers: { 'content-type': 'application/json' },
+        payload: { datasetCode: 'POP107D' },
+      });
+    expect((await send()).statusCode).toBe(201);
+    expect((await send()).statusCode).toBe(201);
+    const limited = await send();
+    expect(limited.statusCode).toBe(429);
+    // The route's 429 response schema serialises `ok`/`error`/`message` only —
+    // the builder's `statusCode` never reaches the wire (legacy behaviour).
+    expect(limited.json()).toEqual({
+      ok: false,
+      error: 'RateLimitExceededError',
+      message: 'Too many requests',
+    });
+    await app.close();
+  });
+});
+
+describe('POST /api/ins/dataset-requests — the api.js hook stack', () => {
+  // Mirrors the composition since slice 1 commit 5: the route lives in the
+  // kernel surface's child scope behind `addEmbeddedScopeAuth`, and the legacy
+  // ROOT auth preHandler is added AFTER that child (build-app order) and still
+  // reaches it. Real bearers through both hooks: anonymous stays anonymous and
+  // persists no user id, a valid bearer attaches the Clerk user id, a garbage
+  // bearer is refused exactly once with the auth body.
+  it('anonymous → 201 without user id; valid bearer → user id attached; garbage bearer → 401', async () => {
+    const testAuth = createTestAuthProvider();
+    const repo = makeFakeRepo();
+    const app = fastifyLib({ logger: false });
+    await app.register(async (scope) => {
+      addEmbeddedScopeAuth(scope, testAuth.provider, () => false);
+      await scope.register(
+        makeInsRoutes({
+          datasetRequestRepo: repo,
+          datasetCatalog: fakeCatalog,
+          userDeletionHandlerConfigured: true,
+        })
+      );
+    });
+    app.addHook('preHandler', makeAuthMiddleware({ authProvider: testAuth.provider }));
+    await app.ready();
+    const send = (authorization?: string) =>
+      app.inject({
+        method: 'POST',
+        url: '/api/ins/dataset-requests',
+        headers: {
+          'content-type': 'application/json',
+          ...(authorization === undefined ? {} : { authorization }),
+        },
+        payload: { datasetCode: 'POP107D', note: 'please' },
+      });
+
+    const anonymous = await send();
+    expect(anonymous.statusCode, anonymous.body).toBe(201);
+    expect(repo.created.at(-1)).not.toHaveProperty('clerk_user_id');
+    expect(repo.created.at(-1)).not.toHaveProperty('note');
+
+    const authenticated = await send(`Bearer ${testAuth.tokens.user1}`);
+    expect(authenticated.statusCode, authenticated.body).toBe(201);
+    expect(repo.created.at(-1)?.clerk_user_id).toBe(testAuth.userIds.user1);
+    expect(repo.created.at(-1)?.note).toBe('please');
+
+    const garbage = await send('Bearer not-a-real-token');
+    expect(garbage.statusCode, garbage.body).toBe(401);
+    expect(garbage.json()).toMatchObject({ ok: false });
+    expect(repo.created).toHaveLength(2);
+    await app.close();
   });
 });

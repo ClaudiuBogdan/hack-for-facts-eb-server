@@ -67,11 +67,7 @@ export const createAdminEventScriptContext = async (): Promise<AdminEventScriptC
     defaultExportDir,
     async close() {
       await adminEventRuntime.stop();
-      await Promise.all([
-        databases.budgetDb.destroy(),
-        databases.insDb.destroy(),
-        databases.userDb.destroy(),
-      ]);
+      await Promise.all([databases.budgetDb.destroy(), databases.userDb.destroy()]);
     },
   };
 };

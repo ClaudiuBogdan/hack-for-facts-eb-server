@@ -10,12 +10,7 @@ import {
   type NotificationPlatformIntegrationHarness,
 } from './harness.js';
 import { makeTestConfig } from '../../fixtures/builders.js';
-import {
-  makeFakeBudgetDb,
-  makeFakeDatasetRepo,
-  makeFakeInsDb,
-  makeFakeKyselyDb,
-} from '../../fixtures/fakes.js';
+import { makeFakeBudgetDb, makeFakeDatasetRepo, makeFakeKyselyDb } from '../../fixtures/fakes.js';
 
 describe('notification platform app wiring and end-to-end flow', () => {
   let harness: NotificationPlatformIntegrationHarness | undefined;
@@ -44,7 +39,6 @@ describe('notification platform app wiring and end-to-end flow', () => {
       fastifyOptions: { logger: false },
       deps: {
         budgetDb: makeFakeBudgetDb(),
-        insDb: makeFakeInsDb(),
         userDb: makeFakeKyselyDb(),
         datasetRepo: makeFakeDatasetRepo(),
         authProvider: auth.provider,
@@ -110,7 +104,6 @@ describe('notification platform app wiring and end-to-end flow', () => {
       fastifyOptions: { logger: false },
       deps: {
         budgetDb: makeFakeBudgetDb(),
-        insDb: makeFakeInsDb(),
         userDb: makeFakeKyselyDb(),
         datasetRepo: makeFakeDatasetRepo(),
         authProvider: auth.provider,
@@ -179,7 +172,6 @@ describe('notification platform app wiring and end-to-end flow', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
-          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           authProvider: auth.provider,
           config: makeTestConfig({

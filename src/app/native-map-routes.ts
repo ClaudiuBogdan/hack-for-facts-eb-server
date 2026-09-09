@@ -1,4 +1,5 @@
 /** Existing map lifecycle, isolated user storage and native-only source adapters. */
+import { addEmbeddedScopeAuth } from './embedded-scope-auth.js';
 import { createKeyBuilder } from '../infra/cache/index.js';
 import {
   defaultAdvancedMapAnalyticsIdGenerator,
@@ -15,7 +16,7 @@ import {
   makeAdvancedMapDatasetRoutes,
   makeClerkAdvancedMapDatasetWritePermissionChecker,
 } from '../modules/advanced-map-datasets/index.js';
-import { ANONYMOUS_SESSION, makeAuthMiddleware, type AuthProvider } from '../modules/auth/index.js';
+import { type AuthProvider } from '../modules/auth/index.js';
 import {
   commitmentsMapValues,
   makeCommitmentsMapRepo,
@@ -175,19 +176,7 @@ export async function registerNativeMapRoutes(
     // The public map reads are anonymous by contract (the legacy app exempts
     // exactly these paths from provider verification), so an expired or foreign
     // bearer on them must not turn a public GET into a 401.
-    const authProvider = deps.authProvider;
-    if (authProvider === undefined) {
-      scope.addHook('preHandler', (request, _reply, done) => {
-        request.auth = ANONYMOUS_SESSION;
-        done();
-      });
-    } else {
-      const authenticate = makeAuthMiddleware({ authProvider });
-      scope.addHook('preHandler', async function (this: FastifyInstance, request, reply) {
-        if (isPublicNativeMapRead(request.method, request.url)) return;
-        await authenticate.call(this, request, reply);
-      });
-    }
+    addEmbeddedScopeAuth(scope, deps.authProvider, isPublicNativeMapRead);
     await scope.register(
       makeAdvancedMapDatasetRoutes({
         repo: datasetRepo,

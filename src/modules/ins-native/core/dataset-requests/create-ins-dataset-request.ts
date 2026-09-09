@@ -4,16 +4,16 @@
 
 import { err, type Result } from 'neverthrow';
 
+import { createValidationError, type DatasetRequestError } from './errors.js';
 import {
   MAX_DATASET_REQUEST_NOTE_LENGTH,
   isValidContactEmail,
   isValidDatasetRequestInput,
   type InsDatasetRequest,
   type InsDatasetRequestInput,
-} from '../dataset-requests.js';
-import { createValidationError, type InsError } from '../errors.js';
+} from './types.js';
 
-import type { InsDatasetCatalogReader, InsDatasetRequestRepository } from '../ports.js';
+import type { InsDatasetCatalogReader, InsDatasetRequestRepository } from './ports.js';
 
 export interface CreateInsDatasetRequestDeps {
   datasetRequestRepo: InsDatasetRequestRepository;
@@ -40,7 +40,7 @@ const cleaned = (value: string | undefined): string | undefined => {
 export const createInsDatasetRequest = async (
   deps: CreateInsDatasetRequestDeps,
   input: CreateInsDatasetRequestInput
-): Promise<Result<InsDatasetRequest, InsError>> => {
+): Promise<Result<InsDatasetRequest, DatasetRequestError>> => {
   const datasetCode = cleaned(input.datasetCode);
   if (datasetCode === undefined) {
     return err(createValidationError('datasetCode', 'datasetCode is required'));

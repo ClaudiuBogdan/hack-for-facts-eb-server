@@ -16,12 +16,7 @@ import { processRenderJob } from '@/modules/notification-platform/shell/queue/wo
 import { processSendJob } from '@/modules/notification-platform/shell/queue/workers/send-worker.js';
 
 import { makeTestConfig } from '../../fixtures/builders.js';
-import {
-  makeFakeBudgetDb,
-  makeFakeDatasetRepo,
-  makeFakeInsDb,
-  makeFakeKyselyDb,
-} from '../../fixtures/fakes.js';
+import { makeFakeBudgetDb, makeFakeDatasetRepo, makeFakeKyselyDb } from '../../fixtures/fakes.js';
 import {
   makeFakeAnonymizationCheckPort,
   makeFakeAuditLedgerPort,
@@ -201,7 +196,6 @@ export const makeNotificationPlatformIntegrationHarness = async (
     fastifyOptions: { logger: false },
     deps: {
       budgetDb: makeFakeBudgetDb(),
-      insDb: makeFakeInsDb(),
       userDb: makeFakeKyselyDb(),
       datasetRepo: makeFakeDatasetRepo(),
       authProvider: auth.provider,

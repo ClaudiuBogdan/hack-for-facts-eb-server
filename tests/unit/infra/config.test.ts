@@ -9,7 +9,6 @@ import { parseEnv, createConfig } from '@/infra/config/index.js';
 describe('Configuration', () => {
   const requiredEnv = {
     BUDGET_DATABASE_URL: 'postgres://localhost/test',
-    INS_DATABASE_URL: 'postgres://localhost/test-ins',
     USER_DATABASE_URL: 'postgres://localhost/test',
     API_BASE_URL: 'https://api.transparenta.eu',
   };
@@ -65,11 +64,6 @@ describe('Configuration', () => {
     it('accepts BUDGET_DATABASE_URL', () => {
       const envWithDb = parseEnv({ ...requiredEnv });
       expect(envWithDb.BUDGET_DATABASE_URL).toBe('postgres://localhost/test');
-    });
-
-    it('accepts INS_DATABASE_URL', () => {
-      const envWithDb = parseEnv({ ...requiredEnv });
-      expect(envWithDb.INS_DATABASE_URL).toBe('postgres://localhost/test-ins');
     });
 
     it('accepts USER_DATABASE_URL', () => {
@@ -212,17 +206,6 @@ describe('Configuration', () => {
     it('throws when BUDGET_DATABASE_URL is missing', () => {
       expect(() =>
         parseEnv({
-          INS_DATABASE_URL: 'postgres://localhost/test-ins',
-          USER_DATABASE_URL: 'postgres://localhost/test',
-          API_BASE_URL: 'https://api.transparenta.eu',
-        })
-      ).toThrow('Invalid environment configuration');
-    });
-
-    it('throws when INS_DATABASE_URL is missing', () => {
-      expect(() =>
-        parseEnv({
-          BUDGET_DATABASE_URL: 'postgres://localhost/test',
           USER_DATABASE_URL: 'postgres://localhost/test',
           API_BASE_URL: 'https://api.transparenta.eu',
         })
@@ -233,7 +216,6 @@ describe('Configuration', () => {
       expect(() =>
         parseEnv({
           BUDGET_DATABASE_URL: 'postgres://localhost/test',
-          INS_DATABASE_URL: 'postgres://localhost/test-ins',
           API_BASE_URL: 'https://api.transparenta.eu',
         })
       ).toThrow('Invalid environment configuration');

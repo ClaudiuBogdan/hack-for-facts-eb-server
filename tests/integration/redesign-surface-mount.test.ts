@@ -5,12 +5,7 @@ import { createTestAuthProvider } from '@/modules/auth/index.js';
 import { INS_LEGACY_ROOTS, INS_LEGACY_ROOTS_DROPPED } from '@/modules/ins-native/index.js';
 
 import { makeTestConfig } from '../fixtures/builders.js';
-import {
-  makeFakeBudgetDb,
-  makeFakeDatasetRepo,
-  makeFakeInsDb,
-  makeFakeKyselyDb,
-} from '../fixtures/fakes.js';
+import { makeFakeBudgetDb, makeFakeDatasetRepo, makeFakeKyselyDb } from '../fixtures/fakes.js';
 
 import type { UserDatabase } from '@/infra/database/user/types.js';
 import type { FastifyInstance } from 'fastify';
@@ -42,7 +37,6 @@ describe(
 
     const baseDeps = () => ({
       budgetDb: makeFakeBudgetDb(),
-      insDb: makeFakeInsDb(),
       datasetRepo: makeFakeDatasetRepo(),
     });
 
@@ -95,13 +89,11 @@ describe(
 
     const baseDeps = () => ({
       budgetDb: makeFakeBudgetDb(),
-      insDb: makeFakeInsDb(),
       datasetRepo: makeFakeDatasetRepo(),
     });
 
     const authedDeps = () => ({
       budgetDb: makeFakeBudgetDb(),
-      insDb: makeFakeInsDb(),
       datasetRepo: makeFakeDatasetRepo(),
       userDb: makeFakeKyselyDb<UserDatabase>(),
       authProvider: createTestAuthProvider().provider,
@@ -290,6 +282,26 @@ describe(
       expect(write.statusCode, write.body).toBe(401);
     });
 
+    it('registers POST /api/ins/dataset-requests over the embedded user store', async () => {
+      // Slice 1 commit 5: the legacy INS module is gone; the kernel surface
+      // serves the dataset-request write over the legacy-owned user DB and
+      // checks the code against the native catalog (bogus DB here → 5xx, never
+      // a routing 404 and never a 401 for an anonymous submission).
+      app = await createApp({
+        fastifyOptions: { logger: false },
+        deps: { ...authedDeps(), config: makeTestConfig(), redesignKernelConfig: kernelConfig },
+      });
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/ins/dataset-requests',
+        headers: { 'content-type': 'application/json' },
+        payload: { datasetCode: 'POP107D' },
+      });
+      expect(response.statusCode, response.body).not.toBe(404);
+      expect(response.statusCode, response.body).not.toBe(401);
+      expect(response.statusCode, response.body).toBeGreaterThanOrEqual(500);
+    });
+
     it('anonymous POST under the prefix is never bypassed', async () => {
       app = await createApp({
         fastifyOptions: { logger: false },
@@ -335,7 +347,6 @@ describe('redesign surface mount — native INS roots', { timeout: APP_BUILD_TIM
       fastifyOptions: { logger: false },
       deps: {
         budgetDb: makeFakeBudgetDb(),
-        insDb: makeFakeInsDb(),
         datasetRepo: makeFakeDatasetRepo(),
         config: makeTestConfig(),
         redesignKernelConfig: {

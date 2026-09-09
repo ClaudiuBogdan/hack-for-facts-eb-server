@@ -156,3 +156,24 @@ export {
   type SectorPopulationAdmission,
   type SectorPopulationRowLike,
 } from './core/population-admission.js';
+
+// ── INS dataset requests (moved from the legacy `ins` module, slice 1 commit 5) ──
+// A user asks for a (usually not-yet-loaded) dataset. Writes go to the
+// server-owned user database; the catalog check reads the native repository.
+export {
+  makeInsDatasetRequestRoutes,
+  type MakeInsDatasetRequestRoutesDeps,
+} from './shell/dataset-requests/routes.js';
+export {
+  makeInsDatasetRequestRepo,
+  makeInsNativeDatasetCatalogReader,
+} from './shell/dataset-requests/repo.js';
+export type {
+  InsDatasetCatalogReader,
+  InsDatasetRequestRepository,
+} from './core/dataset-requests/ports.js';
+export type { DatasetRequestError } from './core/dataset-requests/errors.js';
+export { createDatabaseError as createDatasetRequestDatabaseError } from './core/dataset-requests/errors.js';
+export type { InsDatasetRequest, InsDatasetRequestInput } from './core/dataset-requests/types.js';
+export { MAX_DATASET_REQUEST_NOTE_LENGTH } from './core/dataset-requests/types.js';
+export { createInsDatasetRequest } from './core/dataset-requests/create-ins-dataset-request.js';

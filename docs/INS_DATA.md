@@ -1,5 +1,12 @@
 # Milestone: INS Data Integration
 
+> **2026-09-09 (slice 1 commit 5):** the legacy `src/modules/ins` module and the
+> Phoenix INS database (`INS_DATABASE_URL`) described below were deleted from the
+> server. INS is served by `src/modules/ins-native` over the Chronos serving DB
+> (`ins.*` tables); the dataset-request endpoint
+> (`POST /api/ins/dataset-requests`) moved into that module unchanged. This
+> document is the history of the first integration.
+
 **Goal:** Integrate Institutul Național de Statistică (INS) Tempo database into Transparenta.eu to enable cross-referencing statistical indicators with budget execution data, and provide a better interface for exploring INS datasets.
 
 **Outcome:** A fully automated pipeline that fetches, normalizes, and exposes INS statistical data linked to UATs via SIRUTA codes, accessible via a public API.

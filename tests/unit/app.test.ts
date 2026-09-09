@@ -73,12 +73,7 @@ import { createTestAuthProvider } from '@/modules/auth/index.js';
 import { startNotificationDeliveryRuntime } from '@/modules/notification-delivery/index.js';
 
 import { makeTestConfig } from '../fixtures/builders.js';
-import {
-  makeFakeBudgetDb,
-  makeFakeDatasetRepo,
-  makeFakeInsDb,
-  makeFakeKyselyDb,
-} from '../fixtures/fakes.js';
+import { makeFakeBudgetDb, makeFakeDatasetRepo, makeFakeKyselyDb } from '../fixtures/fakes.js';
 
 interface LogEntry {
   msg?: string;
@@ -225,7 +220,6 @@ describe('App Factory', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
-          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           config: makeTestConfig(),
         },
@@ -242,7 +236,6 @@ describe('App Factory', () => {
         fastifyOptions: { logger: { level: 'silent' } },
         deps: {
           budgetDb: makeFakeBudgetDb(),
-          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           config: makeTestConfig(),
         },
@@ -266,7 +259,6 @@ describe('App Factory', () => {
           fastifyOptions: { logger: { level: 'info', stream: logs.stream } },
           deps: {
             budgetDb: makeFakeBudgetDb(),
-            insDb: makeFakeInsDb(),
             datasetRepo: makeFakeDatasetRepo(),
             config: makeTestConfig({
               cache: {
@@ -310,7 +302,6 @@ describe('App Factory', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
-          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           config: makeTestConfig(),
         },
@@ -332,7 +323,6 @@ describe('App Factory', () => {
         },
         deps: {
           budgetDb: makeFakeBudgetDb(),
-          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           config: makeTestConfig(),
         },
@@ -349,7 +339,6 @@ describe('App Factory', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
-          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           config: makeTestConfig(),
         },
@@ -366,7 +355,7 @@ describe('App Factory', () => {
     });
 
     // Since slice 1 commit 4 the advanced-map routes are registered by the
-    // mounted kernel surface over the legacy-owned user DB (`nativeMaps`), so
+    // mounted kernel surface over the legacy-owned user DB (`embeddedUserStore`), so
     // they need the kernel config AND an auth provider to exist.
     const mapSurfaceKernelConfig = {
       prodDatabaseUrl: 'postgres://test:test@127.0.0.1:1/test',
@@ -380,7 +369,6 @@ describe('App Factory', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
-          insDb: makeFakeInsDb(),
           userDb: makeFakeKyselyDb(),
           authProvider: createTestAuthProvider().provider,
           datasetRepo: makeFakeDatasetRepo(),
@@ -406,7 +394,6 @@ describe('App Factory', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
-          insDb: makeFakeInsDb(),
           userDb: makeFakeKyselyDb(),
           authProvider: provider,
           datasetRepo: makeFakeDatasetRepo(),
@@ -431,7 +418,6 @@ describe('App Factory', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
-          insDb: makeFakeInsDb(),
           userDb: makeFakeKyselyDb(),
           datasetRepo: makeFakeDatasetRepo(),
           config: makeTestConfig({
@@ -464,7 +450,6 @@ describe('App Factory', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
-          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           config: makeTestConfig({
             auth: {
@@ -493,7 +478,6 @@ describe('App Factory', () => {
           fastifyOptions: { logger: false },
           deps: {
             budgetDb: makeFakeBudgetDb(),
-            insDb: makeFakeInsDb(),
             userDb: makeFakeKyselyDb(),
             datasetRepo: makeFakeDatasetRepo(),
             config: makeTestConfig({
@@ -544,7 +528,6 @@ describe('App Factory', () => {
           fastifyOptions: { logger: false },
           deps: {
             budgetDb: makeFakeBudgetDb(),
-            insDb: makeFakeInsDb(),
             userDb: makeFakeKyselyDb(),
             datasetRepo: makeFakeDatasetRepo(),
             config: makeTestConfig({
@@ -579,7 +562,6 @@ describe('App Factory', () => {
           fastifyOptions: { logger: false },
           deps: {
             budgetDb: makeFakeBudgetDb(),
-            insDb: makeFakeInsDb(),
             userDb: makeFakeKyselyDb(),
             datasetRepo: makeFakeDatasetRepo(),
             config: makeTestConfig({
@@ -616,7 +598,6 @@ describe('App Factory', () => {
           fastifyOptions: { logger: false },
           deps: {
             budgetDb: makeFakeBudgetDb(),
-            insDb: makeFakeInsDb(),
             userDb: makeFakeKyselyDb(),
             datasetRepo: makeFakeDatasetRepo(),
             config: makeTestConfig({
@@ -667,7 +648,6 @@ describe('App Factory', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
-          insDb: makeFakeInsDb(),
           userDb: makeFakeKyselyDb(),
           datasetRepo: makeFakeDatasetRepo(),
           notificationDeliveryRuntimeFactory,
@@ -759,7 +739,6 @@ describe('App Factory', () => {
           fastifyOptions: { logger: false },
           deps: {
             budgetDb: makeFakeBudgetDb(),
-            insDb: makeFakeInsDb(),
             userDb: makeFakeKyselyDb(),
             datasetRepo: makeFakeDatasetRepo(),
             notificationDeliveryRuntimeFactory: (config) =>
@@ -827,7 +806,6 @@ describe('App Factory', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
-          insDb: makeFakeInsDb(),
           userDb: makeFakeKyselyDb(),
           datasetRepo: makeFakeDatasetRepo(),
           notificationDeliveryRuntimeFactory,
@@ -898,7 +876,6 @@ describe('App Factory', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
-          insDb: makeFakeInsDb(),
           userDb: makeFakeKyselyDb(),
           datasetRepo: makeFakeDatasetRepo(),
           notificationDeliveryRuntimeFactory,
@@ -972,7 +949,6 @@ describe('App Factory', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
-          insDb: makeFakeInsDb(),
           userDb: makeFakeKyselyDb(),
           datasetRepo: makeFakeDatasetRepo(),
           notificationDeliveryRuntimeFactory,
@@ -1037,7 +1013,6 @@ describe('App Factory', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
-          insDb: makeFakeInsDb(),
           userDb: makeFakeKyselyDb(),
           datasetRepo: makeFakeDatasetRepo(),
           notificationDeliveryRuntimeFactory,
@@ -1106,7 +1081,6 @@ describe('App Factory', () => {
           fastifyOptions: { logger: false },
           deps: {
             budgetDb: makeFakeBudgetDb(),
-            insDb: makeFakeInsDb(),
             datasetRepo: makeFakeDatasetRepo(),
             config: makeTestConfig({
               jobs: {
@@ -1146,7 +1120,6 @@ describe('App Factory', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
-          insDb: makeFakeInsDb(),
           userDb: makeFakeKyselyDb(),
           datasetRepo: makeFakeDatasetRepo(),
           config: makeTestConfig({
@@ -1193,7 +1166,6 @@ describe('App Factory', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
-          insDb: makeFakeInsDb(),
           userDb: makeFakeKyselyDb(),
           datasetRepo: makeFakeDatasetRepo(),
           notificationDeliveryRuntimeFactory,
@@ -1278,7 +1250,6 @@ describe('App Factory', () => {
           fastifyOptions: { logger: false },
           deps: {
             budgetDb: makeFakeBudgetDb(),
-            insDb: makeFakeInsDb(),
             datasetRepo: makeFakeDatasetRepo(),
             config: makeTestConfig({
               notifications: {
@@ -1300,7 +1271,6 @@ describe('App Factory', () => {
           fastifyOptions: { logger: false },
           deps: {
             budgetDb: makeFakeBudgetDb(),
-            insDb: makeFakeInsDb(),
             userDb: makeFakeKyselyDb(),
             datasetRepo: makeFakeDatasetRepo(),
             config: makeTestConfig({
@@ -1323,7 +1293,6 @@ describe('App Factory', () => {
           fastifyOptions: { logger: false },
           deps: {
             budgetDb: makeFakeBudgetDb(),
-            insDb: makeFakeInsDb(),
             userDb: makeFakeKyselyDb(),
             datasetRepo: makeFakeDatasetRepo(),
             config: makeTestConfig({
@@ -1372,7 +1341,6 @@ describe('App Factory', () => {
           fastifyOptions: { logger: false },
           deps: {
             budgetDb: makeFakeBudgetDb(),
-            insDb: makeFakeInsDb(),
             datasetRepo: makeFakeDatasetRepo(),
             config: makeTestConfig({
               jobs: {
@@ -1397,7 +1365,6 @@ describe('App Factory', () => {
           fastifyOptions: { logger: false },
           deps: {
             budgetDb: makeFakeBudgetDb(),
-            insDb: makeFakeInsDb(),
             userDb: makeFakeKyselyDb(),
             datasetRepo: makeFakeDatasetRepo(),
             config: makeTestConfig({
@@ -1429,7 +1396,6 @@ describe('App Factory', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
-          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           config: makeTestConfig(),
         },
@@ -1453,7 +1419,6 @@ describe('App Factory', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
-          insDb: makeFakeInsDb(),
           userDb: makeFakeKyselyDb(),
           authProvider: testAuth.provider,
           datasetRepo: makeFakeDatasetRepo(),
@@ -1498,7 +1463,6 @@ describe('App Factory', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
-          insDb: makeFakeInsDb(),
           userDb: makeFakeKyselyDb(),
           authProvider: createTestAuthProvider().provider,
           datasetRepo: makeFakeDatasetRepo(),
@@ -1526,7 +1490,6 @@ describe('App Factory', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
-          insDb: makeFakeInsDb(),
           userDb: makeFakeKyselyDb(),
           authProvider: createTestAuthProvider().provider,
           datasetRepo: makeFakeDatasetRepo(),
@@ -1560,7 +1523,6 @@ describe('App Factory', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
-          insDb: makeFakeInsDb(),
           userDb: makeFakeKyselyDb(),
           authProvider: testAuth.provider,
           datasetRepo: makeFakeDatasetRepo(),
@@ -1612,7 +1574,6 @@ describe('App Factory', () => {
           fastifyOptions: { logger: false },
           deps: {
             budgetDb: makeFakeBudgetDb(),
-            insDb: makeFakeInsDb(),
             userDb: makeFakeKyselyDb(),
             datasetRepo: makeFakeDatasetRepo(),
             config: makeTestConfig({
@@ -1640,7 +1601,6 @@ describe('App Factory', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
-          insDb: makeFakeInsDb(),
           userDb: makeFakeKyselyDb(),
           datasetRepo: makeFakeDatasetRepo(),
           config: makeTestConfig(),
@@ -1684,7 +1644,6 @@ describe('App Factory', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
-          insDb: makeFakeInsDb(),
           userDb: makeFakeKyselyDb(),
           datasetRepo: makeFakeDatasetRepo(),
           authProvider: testAuth.provider,
@@ -1743,7 +1702,6 @@ describe('App Factory', () => {
           fastifyOptions: { logger: false },
           deps: {
             budgetDb: makeFakeBudgetDb(),
-            insDb: makeFakeInsDb(),
             datasetRepo: makeFakeDatasetRepo(),
             authProvider: testAuth.provider,
             config: makeTestConfig({
@@ -1771,7 +1729,6 @@ describe('App Factory', () => {
           fastifyOptions: { logger: false },
           deps: {
             budgetDb: makeFakeBudgetDb(),
-            insDb: makeFakeInsDb(),
             userDb: makeFakeKyselyDb(),
             datasetRepo: makeFakeDatasetRepo(),
             config: makeTestConfig({
@@ -1801,7 +1758,6 @@ describe('App Factory', () => {
           fastifyOptions: { logger: false },
           deps: {
             budgetDb: makeFakeBudgetDb(),
-            insDb: makeFakeInsDb(),
             userDb: makeFakeKyselyDb(),
             datasetRepo: makeFakeDatasetRepo(),
             authProvider: testAuth.provider,
@@ -1832,7 +1788,6 @@ describe('App Factory', () => {
           fastifyOptions: { logger: false },
           deps: {
             budgetDb: makeFakeBudgetDb(),
-            insDb: makeFakeInsDb(),
             userDb: makeFakeKyselyDb(),
             datasetRepo: makeFakeDatasetRepo(),
             authProvider: testAuth.provider,
@@ -1875,7 +1830,6 @@ describe('App Factory', () => {
           fastifyOptions: { logger: false },
           deps: {
             budgetDb: makeFakeBudgetDb(),
-            insDb: makeFakeInsDb(),
             userDb: makeFakeKyselyDb(),
             datasetRepo: makeFakeDatasetRepo(),
             authProvider: testAuth.provider,
@@ -1930,7 +1884,6 @@ describe('App Factory', () => {
           fastifyOptions: { logger: false },
           deps: {
             budgetDb: makeFakeBudgetDb(),
-            insDb: makeFakeInsDb(),
             userDb: makeFakeKyselyDb(),
             datasetRepo: makeFakeDatasetRepo(),
             authProvider: testAuth.provider,
@@ -1964,7 +1917,6 @@ describe('App Factory', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
-          insDb: makeFakeInsDb(),
           userDb: makeFakeKyselyDb(),
           datasetRepo: makeFakeDatasetRepo(),
           authProvider: testAuth.provider,
@@ -2054,7 +2006,6 @@ describe('App Factory', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
-          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           config: makeTestConfig({
             rateLimit: {
@@ -2100,7 +2051,6 @@ describe('App Factory', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
-          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           config: makeTestConfig({
             rateLimit: {
@@ -2153,7 +2103,6 @@ describe('App Factory', () => {
         },
         deps: {
           budgetDb: makeFakeBudgetDb(),
-          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           config: makeTestConfig(),
         },
@@ -2192,7 +2141,6 @@ describe('App Factory', () => {
         },
         deps: {
           budgetDb: makeFakeBudgetDb(),
-          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           config: makeTestConfig(),
         },
@@ -2224,7 +2172,6 @@ describe('App Factory', () => {
         },
         deps: {
           budgetDb: makeFakeBudgetDb(),
-          insDb: makeFakeInsDb(),
           userDb: makeFakeKyselyDb(),
           authProvider: testAuth.provider,
           datasetRepo: makeFakeDatasetRepo(),
@@ -2261,7 +2208,6 @@ describe('App Factory', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
-          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           config: makeTestConfig(),
         },
@@ -2287,7 +2233,6 @@ describe('App Factory', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
-          insDb: makeFakeInsDb(),
           datasetRepo: makeFakeDatasetRepo(),
           config: makeTestConfig(),
         },
@@ -2326,7 +2271,6 @@ describe('App Factory', () => {
         fastifyOptions: { logger: false },
         deps: {
           budgetDb: makeFakeBudgetDb(),
-          insDb: makeFakeInsDb(),
           userDb: makeFakeKyselyDb(),
           datasetRepo: makeFakeDatasetRepo(),
           config: makeTestConfig({

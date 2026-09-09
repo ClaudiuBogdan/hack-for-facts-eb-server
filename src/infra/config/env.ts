@@ -36,7 +36,6 @@ export const EnvSchema = Type.Object({
   ),
 
   BUDGET_DATABASE_URL: Type.String(),
-  INS_DATABASE_URL: Type.String(),
   USER_DATABASE_URL: Type.String(),
   DATABASE_SSL: Type.Optional(Type.Boolean({ default: false })),
   DATABASE_SSL_REJECT_UNAUTHORIZED: Type.Optional(Type.Boolean({ default: true })),
@@ -200,7 +199,6 @@ export const parseEnv = (env: NodeJS.ProcessEnv): Env => {
     HOST: env['HOST'] ?? '0.0.0.0',
     LOG_LEVEL: env['LOG_LEVEL'] ?? 'info',
     BUDGET_DATABASE_URL: env['BUDGET_DATABASE_URL'],
-    INS_DATABASE_URL: env['INS_DATABASE_URL'],
     USER_DATABASE_URL: env['USER_DATABASE_URL'],
     DATABASE_SSL: env['DATABASE_SSL'] === 'true',
     DATABASE_SSL_REJECT_UNAUTHORIZED: env['DATABASE_SSL_REJECT_UNAUTHORIZED'] !== 'false',
@@ -382,7 +380,6 @@ export const createConfig = (env: Env) => ({
   },
   database: {
     budgetUrl: env.BUDGET_DATABASE_URL,
-    insUrl: env.INS_DATABASE_URL,
     userUrl: env.USER_DATABASE_URL,
     ssl: env.DATABASE_SSL ?? false,
     sslRejectUnauthorized: env.DATABASE_SSL_REJECT_UNAUTHORIZED ?? true,

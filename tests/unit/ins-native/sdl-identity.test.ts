@@ -1,6 +1,7 @@
 /**
- * The native slice's SDL must be the legacy `InsSchema` minus the two dropped
- * roots (decision D5) plus exactly the declared additions (periodicities,
+ * The native slice's SDL must be the legacy `InsSchema` (frozen in
+ * `fixtures/legacy-ins-schema.ts` when the legacy module was deleted in slice 1
+ * commit 5) minus the two dropped roots (decision D5) plus exactly the declared additions (periodicities,
  * default-series evidence and paired source pins). PageInfo is extended by the
  * budget legacy slice. Anything else is a
  * contract break the golden master cannot allowlist (13 §3 rule 1).
@@ -9,12 +10,13 @@
 import { Kind, parse, print, visit, type DefinitionNode, type DocumentNode } from 'graphql';
 import { describe, expect, it } from 'vitest';
 
-import { InsSchema } from '@/modules/ins/index.js';
 import {
   INS_LEGACY_ROOTS,
   INS_LEGACY_ROOTS_DROPPED,
   insLegacyTypeDefs,
 } from '@/modules/ins-native/index.js';
+
+import { InsSchema } from './fixtures/legacy-ins-schema.js';
 
 const ADDED_PERIODICITIES = new Set(['SEMESTRIAL', 'RANGE', 'OTHER']);
 

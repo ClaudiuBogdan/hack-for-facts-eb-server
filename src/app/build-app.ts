@@ -88,12 +88,6 @@ import {
   type HealthChecker,
 } from '../modules/health/index.js';
 import {
-  makeInsDatasetCatalogReader,
-  makeInsDatasetRequestRepo,
-  makeInsRepo,
-  makeInsRoutes,
-} from '../modules/ins/index.js';
-import {
   createDatabaseError as createCorrespondenceDatabaseError,
   makeCampaignAdminThreadNotificationService,
   makeCampaignAdminInstitutionThreadRoutes,
@@ -527,7 +521,6 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
   const { deps, features } = resolveBuildPlan(inputDeps);
 
   const budgetDb = deps.budgetDb;
-  const insDb = deps.insDb;
   const datasetRepo = deps.datasetRepo;
   const config = deps.config;
   const {
@@ -734,9 +727,6 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
 
   // Budget database checker (always required)
   infrastructureCheckers.push(makeDbHealthChecker(budgetDb, { name: 'database' }));
-  // INS database checker (always required)
-  infrastructureCheckers.push(makeDbHealthChecker(insDb, { name: 'ins-database' }));
-
   // User database checker (when configured)
   if (deps.userDb !== undefined) {
     infrastructureCheckers.push(makeDbHealthChecker(deps.userDb, { name: 'user-database' }));
@@ -770,7 +760,6 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
   const entityRepo = makeEntityRepo(budgetDb);
   const entityProfileRepo = makeEntityProfileRepo(budgetDb);
   const entityAnalyticsSummaryRepo = makeEntityAnalyticsSummaryRepo(budgetDb);
-  const insRepo = makeInsRepo(insDb);
   // ─────────────────────────────────────────────────────────────────────────────
   // Optionally mount the redesign kernel surface on the SAME port (/api/v1/*)
   // ─────────────────────────────────────────────────────────────────────────────
@@ -859,7 +848,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     }
 
     const trimmedClerkSecretKey = config.auth.clerkSecretKey?.trim();
-    const nativeMapsClerkSecretKey =
+    const embeddedStoreClerkSecretKey =
       trimmedClerkSecretKey === undefined || trimmedClerkSecretKey === ''
         ? undefined
         : trimmedClerkSecretKey;
@@ -884,18 +873,21 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
           // Auth context for the redesign GraphQL: verified bearer → authenticated
           // resolver context; missing/invalid → anonymous. Never a 401 here.
           ...(deps.authProvider !== undefined && { authProvider: deps.authProvider }),
-          // Saved maps / uploaded datasets live in the legacy-owned user DB; the
-          // surface registers the native map routes over it (no second webhook
-          // receiver, no second pool owner).
+          // Saved maps / uploaded datasets and INS dataset requests live in the
+          // legacy-owned user DB; the surface registers those routes over it (no
+          // second webhook receiver, no second pool owner).
           ...(deps.userDb !== undefined && {
-            nativeMaps: {
+            embeddedUserStore: {
               userDb: deps.userDb,
+              // The Clerk user.deleted receiver only registers with its signing
+              // secret; the INS route refuses user-linked PII without it.
+              userDeletionHandlerConfigured: config.auth.clerkWebhookSigningSecret !== undefined,
               // The root @fastify/rate-limit (RATE_LIMIT_MAX + special key) already
               // covers owner/grouped-series traffic, as it did for the legacy routes.
               ownerRateLimiter: false,
-              ...(nativeMapsClerkSecretKey === undefined
+              ...(embeddedStoreClerkSecretKey === undefined
                 ? {}
-                : { clerkSecretKey: nativeMapsClerkSecretKey }),
+                : { clerkSecretKey: embeddedStoreClerkSecretKey }),
             },
           }),
           ...(deps.registerRedesignContributors !== undefined && {
@@ -1078,16 +1070,9 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       })
     );
 
-    // INS dataset requests write to the user database; the INS domain tables are read-only.
-    // The Clerk webhook that drives user.deleted anonymization only registers when its
-    // signing secret is configured, so tell the route whether deletion is actually wired.
-    await app.register(
-      makeInsRoutes({
-        datasetRequestRepo: makeInsDatasetRequestRepo(userDb),
-        datasetCatalog: makeInsDatasetCatalogReader(insRepo),
-        userDeletionHandlerConfigured: config.auth.clerkWebhookSigningSecret !== undefined,
-      })
-    );
+    // INS dataset requests (POST /api/ins/dataset-requests) are registered by
+    // the kernel surface over `embeddedUserStore` (slice 1 commit 5): the
+    // catalog check reads the native INS repository.
 
     const campaignSubscriptionStatsReader = makeCampaignSubscriptionStatsReader({
       userDb,
@@ -2192,7 +2177,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     );
 
     // The advanced-map routes (datasets, saved maps, grouped series) are served
-    // by the kernel surface's native provider (`nativeMaps` in the mount below;
+    // by the kernel surface's native provider (`embeddedUserStore` in the mount below;
     // slice 1 commit 4, 2026-09-09). Their legacy composition over the budget-viz
     // repos is gone.
   }

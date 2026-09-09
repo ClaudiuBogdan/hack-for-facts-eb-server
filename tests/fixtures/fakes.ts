@@ -29,7 +29,7 @@ import {
 import { sha256Hasher } from '@/modules/notifications/shell/crypto/hasher.js';
 
 import type { CachePort, CacheError, CacheSetOptions, CacheStats } from '@/infra/cache/index.js';
-import type { BudgetDbClient, InsDbClient } from '@/infra/database/client.js';
+import type { BudgetDbClient } from '@/infra/database/client.js';
 import type {
   DatasetRepo,
   Dataset,
@@ -237,13 +237,6 @@ export const makeFakeDatasetRepo = (options: FakeDatasetRepoOptions = {}): Datas
 export const makeFakeBudgetDb = (): BudgetDbClient => {
   // Use the Kysely fake that supports health check queries
   return makeFakeKyselyDb() as unknown as BudgetDbClient;
-};
-
-/**
- * Creates a fake INS database client for testing.
- */
-export const makeFakeInsDb = (): InsDbClient => {
-  return makeFakeKyselyDb() as unknown as InsDbClient;
 };
 
 // =============================================================================
