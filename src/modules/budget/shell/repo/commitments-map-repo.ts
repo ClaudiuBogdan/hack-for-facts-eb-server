@@ -11,6 +11,7 @@ import { Frequency } from '@/common/types/temporal.js';
 import {
   andConditions,
   databaseError,
+  timeoutError,
   invalidInput,
   type ProdDatabase,
 } from '@/modules/shared/index.js';
@@ -102,6 +103,8 @@ export const makeCommitmentsMapRepo = (db: Kysely<ProdDatabase>): CommitmentsMap
           });
         return decodeBudgetMapRows(rows);
       } catch (cause) {
+        if ((cause as { code?: unknown } | null)?.code === '57014')
+          return err(timeoutError('Commitments map query timed out'));
         return err(databaseError('Commitments map query failed', cause));
       }
     },

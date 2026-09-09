@@ -102,6 +102,22 @@ export interface CoreTerritories {
   updated_at: Tstz;
 }
 
+/** Admitted population cells per territory and year (INS publications). */
+export interface CoreTerritoryPopulation {
+  territory_id: number;
+  year: number;
+  population: number; // integer NOT NULL (scrapper 20260902T100000__core_territory_hierarchy)
+  source: string;
+  source_url: string;
+}
+
+/** Alternate identifiers of a territory (`siruta`, `nuts`, …). */
+export interface CoreTerritoryIdentifiers {
+  territory_id: number;
+  scheme: string;
+  value: string;
+}
+
 export interface CoreClassificationCodes {
   system: string;
   code: string;
@@ -168,6 +184,8 @@ export interface ProdDatabase {
   'core.organization_identifiers': CoreOrganizationIdentifiers;
   'core.public_entities': CorePublicEntities;
   'core.territories': CoreTerritories;
+  'core.territory_population': CoreTerritoryPopulation;
+  'core.territory_identifiers': CoreTerritoryIdentifiers;
   'core.classification_codes': CoreClassificationCodes;
   'flows.money_flows': FlowsMoneyFlows;
   'search.documents': SearchDocuments;

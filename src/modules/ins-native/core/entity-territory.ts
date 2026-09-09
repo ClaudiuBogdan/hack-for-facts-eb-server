@@ -1,12 +1,14 @@
 /** Canonical area context, independent of fiscal authority or entity kind. */
 import { err, ok, type Result } from 'neverthrow';
 
+import {
+  BUCHAREST_MUNICIPALITY_SIRUTA,
+  type ApiError,
+  type Territory,
+} from '@/modules/shared/index.js';
+
 import type { InsRepo } from './ports.js';
 import type { InsTerritoryLevel, InsTerritoryNode } from './types.js';
-import type { ApiError, Territory } from '@/modules/shared/index.js';
-
-// SIRUTA identity of Bucharest municipality, never a sector's own identity.
-const BUCHAREST_MUNICIPALITY_SIRUTA = '179132';
 
 export interface InsTerritoryIdentity {
   readonly code: string;

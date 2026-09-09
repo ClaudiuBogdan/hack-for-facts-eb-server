@@ -11,11 +11,18 @@ import {
 import type { GroupedInput } from '../../../core/legacy-analytics/grouped-types.js';
 import type { Result } from 'neverthrow';
 
+// Same envelope as the legacy resolvers (doc 13 §7 delta 13): code / type / field.
 const unwrap = <T>(result: Result<T, ApiError>): T => {
-  if (result.isErr())
-    throw new GraphQLError(result.error.message, {
-      extensions: { code: GRAPHQL_ERROR_CODE[result.error.type], type: result.error.type },
+  if (result.isErr()) {
+    const error = result.error;
+    throw new GraphQLError(error.message, {
+      extensions: {
+        code: GRAPHQL_ERROR_CODE[error.type],
+        type: error.type,
+        ...(error.type === 'InvalidInput' && error.field !== undefined && { field: error.field }),
+      },
     });
+  }
   return result.value;
 };
 

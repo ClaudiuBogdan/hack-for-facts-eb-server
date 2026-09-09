@@ -60,8 +60,16 @@ interface DbRow {
   missing_coverage: boolean;
 }
 
-const requiredText = (value: string | null): string => {
-  if (value === null) throw new Error('Incomplete grouped analytics row');
+/** A row the SQL contract promised complete came back with a NULL: a mapping defect, not a DB failure (review B/F19). */
+class IncompleteGroupedRow extends Error {
+  constructor(column: string) {
+    super(`${column} is null`);
+    this.name = 'IncompleteGroupedRow';
+  }
+}
+
+const requiredText = (value: string | null, column: string): string => {
+  if (value === null) throw new IncompleteGroupedRow(column);
   return value;
 };
 
@@ -342,7 +350,9 @@ export const makeGroupedAnalyticsRepo = (
           ).rows
         );
       };
-      const result = db.isTransaction ? await read(db) : await db.transaction().execute(read);
+      const result = db.isTransaction
+        ? await read(db)
+        : await db.transaction().setAccessMode('read only').execute(read);
       if (result.isErr()) return err(result.error);
       const rows = result.value;
       if (rows[0]?.missing_coverage === true)
@@ -366,6 +376,8 @@ export const makeGroupedAnalyticsRepo = (
         },
       });
     } catch (error) {
+      if (error instanceof IncompleteGroupedRow)
+        return err(serviceUnavailable(`Grouped analytics row is incomplete: ${error.message}`));
       if ((error as { code?: unknown } | null)?.code === '57014')
         return err(timeoutError('Grouped analytics query timed out'));
       return err(databaseError('Grouped analytics query failed', error));
@@ -374,25 +386,26 @@ export const makeGroupedAnalyticsRepo = (
   return {
     entities: (query) =>
       run<GroupedEntity>('entity', query, (row) => ({
-        entity_cui: requiredText(row.entity_cui),
-        entity_name: requiredText(row.entity_name),
+        entity_cui: requiredText(row.entity_cui, 'entity_cui'),
+        entity_name: requiredText(row.entity_name, 'entity_name'),
         entity_type: row.entity_type,
         uat_id: row.uat_id,
         county_code: row.county_code,
         county_name: row.county_name,
         population: row.population,
-        total_amount: legacyDecimal(requiredText(row.total_amount)),
-        amount: legacyDecimal(requiredText(row.amount)),
+        total_amount: legacyDecimal(requiredText(row.total_amount, 'total_amount')),
+        amount: legacyDecimal(requiredText(row.amount, 'amount')),
         per_capita_amount:
           row.per_capita_amount === null ? null : legacyDecimal(row.per_capita_amount),
       })),
     classifications: (query) =>
       run<GroupedClassification>('classification', query, (row) => ({
-        functional_code: requiredText(row.functional_code),
-        functional_name: row.functional_name ?? requiredText(row.functional_code),
+        functional_code: requiredText(row.functional_code, 'functional_code'),
+        functional_name:
+          row.functional_name ?? requiredText(row.functional_code, 'functional_code'),
         economic_code: row.economic_code,
         economic_name: row.economic_name,
-        amount: legacyDecimal(requiredText(row.amount)),
+        amount: legacyDecimal(requiredText(row.amount, 'amount')),
         count: Number(row.count),
       })),
   };

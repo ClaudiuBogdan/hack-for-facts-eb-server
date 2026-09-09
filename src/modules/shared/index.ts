@@ -422,3 +422,7 @@ export {
   readTerritoryPopulationSources,
   type TerritoryPopulationRow,
 } from './shell/repo/territory-population.js';
+export {
+  BUCHAREST_COUNTY_CODE,
+  BUCHAREST_MUNICIPALITY_SIRUTA,
+} from './core/territory-constants.js';

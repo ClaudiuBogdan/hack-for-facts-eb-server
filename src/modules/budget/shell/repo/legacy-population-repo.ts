@@ -148,12 +148,8 @@ export const makeLegacyPopulationRepo = (db: Db): PopulationSource => {
           return ok(await byEntityTerritories(sql`${sql.ref('e.is_uat')} = true`, 'uat-level'));
       }
     } catch (error) {
-      return err(
-        databaseError(
-          `Failed to fetch filtered population: ${error instanceof Error ? error.message : String(error)}`,
-          error
-        )
-      );
+      // Static message; the driver text stays in `cause` (review B/F13).
+      return err(databaseError('Failed to fetch filtered population', error));
     }
   };
 

@@ -317,9 +317,12 @@ export const legacyAggregateSql = (
 };
 
 const isStatementTimeout = (error: unknown): boolean => {
-  const code = (error as { code?: unknown } | null)?.code;
-  if (code === '57014') return true;
+  if ((error as { code?: unknown } | null)?.code === '57014') return true;
   const message = error instanceof Error ? error.message : '';
+  // The driver text when a `set local statement_timeout` fires is
+  // `canceling statement due to statement timeout`; matching the tail keeps a
+  // wrapped error without its code out of the generic branch, and keeps a
+  // user-request cancel (also "canceling statement …") in it.
   return message.includes('statement timeout');
 };
 
@@ -349,7 +352,9 @@ export const makeLegacyAnalyticsRepo = (
         await STATEMENT_TIMEOUT_SQL.execute(trx);
         return (await statement.execute(trx)).rows;
       };
-      const rows = await (db.isTransaction ? read(db) : db.transaction().execute(read));
+      const rows = await (db.isTransaction
+        ? read(db)
+        : db.transaction().setAccessMode('read only').execute(read));
 
       const capped = rows.length > LEGACY_ANALYTICS_MAX_POINTS;
       const kept = capped ? rows.slice(0, LEGACY_ANALYTICS_MAX_POINTS) : rows;
@@ -361,12 +366,9 @@ export const makeLegacyAnalyticsRepo = (
       if (isStatementTimeout(error)) {
         return err(timeoutError('Analytics query timed out'));
       }
-      return err(
-        databaseError(
-          `Analytics query failed: ${error instanceof Error ? error.message : String(error)}`,
-          error
-        )
-      );
+      // Static message: the driver text stays in `cause` for the log, never in
+      // the ApiError the resolver forwards to the client (review B/F13).
+      return err(databaseError('Analytics query failed', error));
     }
   };
 
