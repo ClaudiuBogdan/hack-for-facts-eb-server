@@ -9,6 +9,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  MAP_OWNER_RATE_LIMIT,
   PUBLIC_MAP_READ_RATE_LIMIT,
   isPublicNativeMapRead,
   mapRateLimitKey,
@@ -69,5 +70,14 @@ describe('mapRateLimitKey', () => {
   it('sizes the public bucket for viewers, not writers', () => {
     expect(PUBLIC_MAP_READ_RATE_LIMIT.maxTokens).toBeGreaterThan(30);
     expect(PUBLIC_MAP_READ_RATE_LIMIT.windowMs).toBe(60_000);
+  });
+});
+
+describe('map rate buckets', () => {
+  it('sizes the owner/grouped-series bucket like the legacy global limiter, not the kernel search bucket', () => {
+    // Fable review (slice 1 commit 4): the kernel bucket is 30/min; the legacy
+    // app allowed 300/min (RATE_LIMIT_MAX) for the same map routes.
+    expect(MAP_OWNER_RATE_LIMIT).toEqual({ maxTokens: 300, windowMs: 60_000 });
+    expect(PUBLIC_MAP_READ_RATE_LIMIT.maxTokens).toBeLessThan(MAP_OWNER_RATE_LIMIT.maxTokens);
   });
 });

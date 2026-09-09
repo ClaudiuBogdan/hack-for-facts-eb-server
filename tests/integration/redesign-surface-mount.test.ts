@@ -93,6 +93,12 @@ describe(
       }
     });
 
+    const baseDeps = () => ({
+      budgetDb: makeFakeBudgetDb(),
+      insDb: makeFakeInsDb(),
+      datasetRepo: makeFakeDatasetRepo(),
+    });
+
     const authedDeps = () => ({
       budgetDb: makeFakeBudgetDb(),
       insDb: makeFakeInsDb(),
@@ -185,6 +191,103 @@ describe(
           },
         })
       ).rejects.toThrow('fixture mount failure');
+    });
+
+    // The advanced-map routes moved from the legacy composer to the kernel
+    // surface (slice 1 commit 4): the legacy root auth hook must still let the
+    // anonymous public reads through, and the authenticated grouped-series POST
+    // must still refuse a missing or garbage bearer. The bogus kernel DB turns a
+    // public read into a 5xx, never a 401.
+    it('public advanced-map reads with a garbage bearer are never 401 on the mounted surface', async () => {
+      app = await createApp({
+        fastifyOptions: { logger: false },
+        deps: { ...authedDeps(), config: makeTestConfig(), redesignKernelConfig: kernelConfig },
+      });
+      for (const url of [
+        '/api/v1/advanced-map-datasets/public',
+        '/api/v1/advanced-map-analytics/public/public_1',
+      ]) {
+        const response = await app.inject({
+          method: 'GET',
+          url,
+          headers: { authorization: 'Bearer invalid-token' },
+        });
+        expect(response.statusCode, url).not.toBe(401);
+        expect(response.statusCode, url).not.toBe(404);
+      }
+    });
+
+    it('grouped-series POST on the mounted surface: anonymous allowed, garbage bearer refused', async () => {
+      // The grouped-series read is anonymous-capable by contract (the REST
+      // integration suite serves the CSV "without authentication"); what the
+      // legacy root hook still owns is refusing a PRESENTED bearer that does
+      // not verify. The bogus kernel DB makes the anonymous call a 5xx.
+      app = await createApp({
+        fastifyOptions: { logger: false },
+        deps: { ...authedDeps(), config: makeTestConfig(), redesignKernelConfig: kernelConfig },
+      });
+      const payload = {
+        granularity: 'UAT',
+        series: [
+          {
+            id: 's1',
+            type: 'line-items-aggregated-yearly',
+            filter: {
+              account_category: 'ch',
+              report_type: 'Executie bugetara agregata la nivel de ordonator principal',
+              report_period: {
+                type: 'YEAR',
+                selection: { interval: { start: '2025', end: '2025' } },
+              },
+            },
+          },
+        ],
+        payload: { format: 'csv_wide_matrix_v1', compression: 'none' },
+      };
+      const anonymous = await app.inject({
+        method: 'POST',
+        url: '/api/v1/advanced-map-analytics/grouped-series',
+        headers: { 'content-type': 'application/json' },
+        payload,
+      });
+      expect(anonymous.statusCode, anonymous.body).not.toBe(401);
+      expect(anonymous.statusCode, anonymous.body).not.toBe(404);
+      const garbage = await app.inject({
+        method: 'POST',
+        url: '/api/v1/advanced-map-analytics/grouped-series',
+        headers: { 'content-type': 'application/json', authorization: 'Bearer invalid-token' },
+        payload,
+      });
+      expect(garbage.statusCode, garbage.body).toBe(401);
+    });
+
+    it('with authentication disabled the public map reads stay served and writes fail closed', async () => {
+      // Codex review (commit 4): the legacy composer registered the map routes
+      // on userDb alone; an auth-disabled deployment kept its public reads.
+      app = await createApp({
+        fastifyOptions: { logger: false },
+        deps: {
+          ...baseDeps(),
+          userDb: makeFakeKyselyDb<UserDatabase>(),
+          config: makeTestConfig(),
+          redesignKernelConfig: kernelConfig,
+        },
+      });
+      for (const url of [
+        '/api/v1/advanced-map-datasets/public',
+        '/api/v1/advanced-map-analytics/public/public_1',
+      ]) {
+        const response = await app.inject({ method: 'GET', url });
+        expect(response.statusCode, url).not.toBe(404);
+        expect(response.statusCode, url).not.toBe(401);
+      }
+      const write = await app.inject({
+        method: 'POST',
+        url: '/api/v1/advanced-map-datasets',
+        headers: { 'content-type': 'application/json' },
+        payload: {},
+      });
+      expect(write.statusCode, write.body).toBe(401);
     });
 
     it('anonymous POST under the prefix is never bypassed', async () => {

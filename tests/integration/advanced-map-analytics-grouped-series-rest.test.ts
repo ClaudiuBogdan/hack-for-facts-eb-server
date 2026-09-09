@@ -4,15 +4,13 @@ import { describe, expect, it, afterAll, beforeEach } from 'vitest';
 
 import {
   makeAdvancedMapAnalyticsGroupedSeriesRoutes,
-  makeDbAdvancedMapAnalyticsGroupedSeriesProvider,
+  makeNativeMapSeriesProvider,
   type GroupedSeriesProvider,
 } from '@/modules/advanced-map-analytics/index.js';
 
+import { makeFakeRepo as makeFakeInsNativeRepo } from '../unit/ins-native/fake-repo.js';
+
 import type { AdvancedMapDatasetRepository } from '@/modules/advanced-map-datasets/index.js';
-import type { CommitmentsRepository } from '@/modules/commitments/index.js';
-import type { InsRepository } from '@/modules/ins/index.js';
-import type { NormalizationService } from '@/modules/normalization/index.js';
-import type { UATAnalyticsRepository } from '@/modules/uat-analytics/index.js';
 
 const requestBody = {
   granularity: 'UAT' as const,
@@ -77,6 +75,29 @@ function makeProvider(): GroupedSeriesProvider {
       }),
   };
 }
+
+/**
+ * The native provider (what api.js and the kernel server both compose since
+ * slice 1 commit 4) over a fake dataset repo; the budget / commitments / INS
+ * legs are stubs because these cases only read uploaded datasets.
+ */
+const nativeProviderOver = (
+  datasetRepo: Pick<AdvancedMapDatasetRepository, 'getAccessibleDataset'>
+): GroupedSeriesProvider =>
+  makeNativeMapSeriesProvider({
+    territoryLookup: () => async () => ['1001'],
+    datasetRepo,
+    budget: {
+      repo: { yearlyAmounts: async () => ok([]) },
+      factors: { yearly: async () => ok(null) },
+      population: { annualUnions: async () => ok([]) },
+    },
+    readCommitments: async () => ok({ unit: 'RON', values: [], years: [], populations: [] }),
+    createInsReadSession: () => ({
+      getRepo: async () => ok(makeFakeInsNativeRepo()),
+      close: async () => ok(undefined),
+    }),
+  });
 
 const createTestApp = async (provider: GroupedSeriesProvider) => {
   const app = fastifyLib({ logger: false });
@@ -210,7 +231,10 @@ describe('Advanced Map Analytics REST API', () => {
     });
   });
 
-  it('serializes non-projectable uploaded numeric values as null cells', async () => {
+  it('serializes an uploaded value beyond 2^53 losslessly (the legacy provider projected it to null)', async () => {
+    // The native provider carries uploaded numbers as decimal strings end to
+    // end (no float projection, per the no-floats rule), so the CSV cell is
+    // the exact digits; the legacy DB provider wrote `null` here.
     if (app !== undefined) {
       await app.close();
     }
@@ -267,16 +291,7 @@ describe('Advanced Map Analytics REST API', () => {
       listPublicReferencingMaps: async () => ok([]),
     };
 
-    app = await createTestApp(
-      makeDbAdvancedMapAnalyticsGroupedSeriesProvider({
-        territoryLookup: async () => ['1001'],
-        datasetRepo,
-        commitmentsRepo: {} as unknown as CommitmentsRepository,
-        insRepo: {} as unknown as InsRepository,
-        normalizationService: {} as unknown as NormalizationService,
-        uatAnalyticsRepo: {} as unknown as UATAnalyticsRepository,
-      })
-    );
+    app = await createTestApp(nativeProviderOver(datasetRepo));
 
     const response = await app.inject({
       method: 'POST',
@@ -309,7 +324,7 @@ describe('Advanced Map Analytics REST API', () => {
           };
         };
       }>().data.payload.data
-    ).toBe('siruta_code,uploaded_1\n1001,null');
+    ).toBe('siruta_code,uploaded_1\n1001,9007199254740993');
   });
 
   it('uses only valueNumber from uploaded datasets and ignores valueJson', async () => {
@@ -380,16 +395,7 @@ describe('Advanced Map Analytics REST API', () => {
       listPublicReferencingMaps: async () => ok([]),
     };
 
-    app = await createTestApp(
-      makeDbAdvancedMapAnalyticsGroupedSeriesProvider({
-        territoryLookup: async () => ['1001'],
-        datasetRepo,
-        commitmentsRepo: {} as unknown as CommitmentsRepository,
-        insRepo: {} as unknown as InsRepository,
-        normalizationService: {} as unknown as NormalizationService,
-        uatAnalyticsRepo: {} as unknown as UATAnalyticsRepository,
-      })
-    );
+    app = await createTestApp(nativeProviderOver(datasetRepo));
 
     const response = await app.inject({
       method: 'POST',

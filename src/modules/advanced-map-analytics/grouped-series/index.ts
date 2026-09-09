@@ -70,10 +70,6 @@ export {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export { makeMockAdvancedMapAnalyticsGroupedSeriesProvider } from './shell/providers/mock-map-series-provider.js';
-export {
-  makeDbAdvancedMapAnalyticsGroupedSeriesProvider,
-  type MakeDbAdvancedMapAnalyticsGroupedSeriesProviderDeps,
-} from './shell/providers/db-map-series-provider.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shell - REST

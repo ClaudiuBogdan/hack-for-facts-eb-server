@@ -71,9 +71,10 @@ Per-source plans are `docs/server-redesign/01..12-*.md`.
     `notification-platform`, `notification-delivery`, `campaign-*`,
     `clerk-webhooks`, `resend-webhooks`, `email-templates`, `user-data`, `share`,
     `report`, `health`.
-  - **Legacy budget-viz** (pre-redesign, still served): `datasets`,
-    `execution-analytics`, `execution-line-items`, `aggregated-line-items`,
-    `advanced-map-*`, `county-analytics`, `uat-analytics`, `normalization`.
+  - **Legacy budget-viz** (pre-redesign, still served on `api.js`): `datasets`,
+    `aggregated-line-items` (core), `advanced-map-*` (now over the kernel's native
+    provider), `normalization`. The GraphQL-only budget-viz modules, `commitments`
+    and `uat-analytics` were deleted in slice 1 (2026-09-09).
 - `src/api.ts` — **what ships** (`Dockerfile` → `dist/api.js`), composed by
   `app/build-app.ts`. `src/redesign-api.ts` — kernel-only dev entrypoint composed by
   `app/build-redesign-app.ts`; it loads no legacy modules and requires no legacy envs.

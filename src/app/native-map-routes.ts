@@ -15,7 +15,7 @@ import {
   makeAdvancedMapDatasetRoutes,
   makeClerkAdvancedMapDatasetWritePermissionChecker,
 } from '../modules/advanced-map-datasets/index.js';
-import { makeAuthMiddleware, type AuthProvider } from '../modules/auth/index.js';
+import { ANONYMOUS_SESSION, makeAuthMiddleware, type AuthProvider } from '../modules/auth/index.js';
 import {
   commitmentsMapValues,
   makeCommitmentsMapRepo,
@@ -37,11 +37,22 @@ import type { Logger } from 'pino';
 
 export interface NativeMapRoutesDeps {
   readonly db: Kysely<ProdDatabase>;
-  readonly rateLimiter: RateLimiter;
+  /**
+   * Bucket for owner reads/writes and grouped-series reads; defaults to
+   * `MAP_OWNER_RATE_LIMIT`. `false` = no bucket here: the embedder's global
+   * limiter (which honours `RATE_LIMIT_MAX` and the special-key allowance)
+   * is the only owner limit — what the legacy composition had.
+   */
+  readonly rateLimiter?: RateLimiter | false;
   /** Bucket for anonymous public map reads; defaults to `PUBLIC_MAP_READ_RATE_LIMIT`. */
   readonly publicReadRateLimiter?: RateLimiter;
   readonly userDb: UserDbClient;
-  readonly authProvider: AuthProvider;
+  /**
+   * Absent when the embedding server runs with authentication disabled: the
+   * public reads stay served and every request is the anonymous session, so
+   * the owner-only operations fail closed (401) at the route level.
+   */
+  readonly authProvider?: AuthProvider;
   readonly clerkSecretKey?: string;
   readonly budget: BudgetMapDeps;
   readonly createInsReadSession: () => InsReadSession;
@@ -68,6 +79,13 @@ export function isPublicNativeMapRead(method: string, url: string): boolean {
   );
 }
 
+/**
+ * Owner reads/writes and grouped-series reads: sized like the legacy global
+ * limiter (300/min per IP, `RATE_LIMIT_MAX`), NOT like the kernel's 30/min
+ * search bucket — an editor changing filters, or two editors behind one NAT,
+ * must not hit 429 where the legacy app allowed them (Fable review, commit 4).
+ */
+export const MAP_OWNER_RATE_LIMIT: RateLimiterConfig = { maxTokens: 300, windowMs: 60_000 };
 /** Public map reads get their own bucket: a viewer burst must not exhaust the write bucket, and vice versa. */
 export const PUBLIC_MAP_READ_RATE_LIMIT: RateLimiterConfig = { maxTokens: 120, windowMs: 60_000 };
 /** How long a public map view's grouped-series answer is served from memory. */
@@ -133,6 +151,10 @@ export async function registerNativeMapRoutes(
   });
   const publicReadRateLimiter =
     deps.publicReadRateLimiter ?? createRateLimiter(PUBLIC_MAP_READ_RATE_LIMIT);
+  const ownerRateLimiter =
+    deps.rateLimiter === false
+      ? undefined
+      : (deps.rateLimiter ?? createRateLimiter(MAP_OWNER_RATE_LIMIT));
   // Uploads can contain either supported keyspace; the selected view never rolls up arbitrary units.
   const uploadTerritories = async () => [
     ...(await territoryLookup('UAT')()),
@@ -141,9 +163,9 @@ export async function registerNativeMapRoutes(
   await app.register(async (scope) => {
     scope.addHook('onRequest', async (request, reply) => {
       const { bucket, key } = mapRateLimitKey(request.method, request.url, request.ip);
-      const limit = (bucket === 'public-read' ? publicReadRateLimiter : deps.rateLimiter).consume(
-        key
-      );
+      const limiter = bucket === 'public-read' ? publicReadRateLimiter : ownerRateLimiter;
+      if (limiter === undefined) return;
+      const limit = limiter.consume(key);
       if (!limit.allowed)
         await reply
           .code(429)
@@ -153,11 +175,19 @@ export async function registerNativeMapRoutes(
     // The public map reads are anonymous by contract (the legacy app exempts
     // exactly these paths from provider verification), so an expired or foreign
     // bearer on them must not turn a public GET into a 401.
-    const authenticate = makeAuthMiddleware({ authProvider: deps.authProvider });
-    scope.addHook('preHandler', async function (this: FastifyInstance, request, reply) {
-      if (isPublicNativeMapRead(request.method, request.url)) return;
-      await authenticate.call(this, request, reply);
-    });
+    const authProvider = deps.authProvider;
+    if (authProvider === undefined) {
+      scope.addHook('preHandler', (request, _reply, done) => {
+        request.auth = ANONYMOUS_SESSION;
+        done();
+      });
+    } else {
+      const authenticate = makeAuthMiddleware({ authProvider });
+      scope.addHook('preHandler', async function (this: FastifyInstance, request, reply) {
+        if (isPublicNativeMapRead(request.method, request.url)) return;
+        await authenticate.call(this, request, reply);
+      });
+    }
     await scope.register(
       makeAdvancedMapDatasetRoutes({
         repo: datasetRepo,

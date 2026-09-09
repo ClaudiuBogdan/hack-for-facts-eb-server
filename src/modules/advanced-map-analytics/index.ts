@@ -168,11 +168,7 @@ export {
   type GetGroupedSeriesDataInput,
 } from './grouped-series/core/usecases/get-grouped-series-data.js';
 
-export {
-  makeMockAdvancedMapAnalyticsGroupedSeriesProvider,
-  makeDbAdvancedMapAnalyticsGroupedSeriesProvider,
-  type MakeDbAdvancedMapAnalyticsGroupedSeriesProviderDeps,
-} from './grouped-series/index.js';
+export { makeMockAdvancedMapAnalyticsGroupedSeriesProvider } from './grouped-series/index.js';
 
 export {
   makeAdvancedMapAnalyticsGroupedSeriesRoutes,
@@ -186,7 +182,6 @@ export {
   serializeWideMatrixCsv,
 } from './grouped-series/index.js';
 
-export { makeLegacyMapTerritoryLookup } from './grouped-series/shell/providers/legacy-map-territory-lookup.js';
 export { makeNativeMapTerritoryLookup } from './grouped-series/shell/providers/native-map-territory-lookup.js';
 
 export { makeNativeMapSeriesProvider } from './grouped-series/shell/providers/native-map-series-provider.js';

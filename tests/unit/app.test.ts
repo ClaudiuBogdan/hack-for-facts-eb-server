@@ -365,6 +365,16 @@ describe('App Factory', () => {
       await app.close();
     });
 
+    // Since slice 1 commit 4 the advanced-map routes are registered by the
+    // mounted kernel surface over the legacy-owned user DB (`nativeMaps`), so
+    // they need the kernel config AND an auth provider to exist.
+    const mapSurfaceKernelConfig = {
+      prodDatabaseUrl: 'postgres://test:test@127.0.0.1:1/test',
+      meiliHost: '',
+      meiliApiKey: '',
+      opensearchUrl: '',
+    };
+
     it('registers grouped-series advanced map analytics route when userDb is enabled', async () => {
       const app = await buildApp({
         fastifyOptions: { logger: false },
@@ -372,8 +382,10 @@ describe('App Factory', () => {
           budgetDb: makeFakeBudgetDb(),
           insDb: makeFakeInsDb(),
           userDb: makeFakeKyselyDb(),
+          authProvider: createTestAuthProvider().provider,
           datasetRepo: makeFakeDatasetRepo(),
           config: makeTestConfig(),
+          redesignKernelConfig: mapSurfaceKernelConfig,
         },
       });
 
@@ -399,6 +411,7 @@ describe('App Factory', () => {
           authProvider: provider,
           datasetRepo: makeFakeDatasetRepo(),
           config: makeTestConfig(),
+          redesignKernelConfig: mapSurfaceKernelConfig,
         },
       });
 
@@ -1476,119 +1489,9 @@ describe('App Factory', () => {
       await app.close();
     });
 
-    it('bypasses bearer auth validation for public dataset routes', async () => {
-      const testAuth = createTestAuthProvider();
-      const app = await buildApp({
-        fastifyOptions: { logger: false },
-        deps: {
-          budgetDb: makeFakeBudgetDb(),
-          insDb: makeFakeInsDb(),
-          userDb: makeFakeKyselyDb(),
-          authProvider: testAuth.provider,
-          datasetRepo: makeFakeDatasetRepo(),
-          config: makeTestConfig(),
-        },
-      });
-
-      await app.ready();
-
-      const response = await app.inject({
-        method: 'GET',
-        url: '/api/v1/advanced-map-datasets/public',
-        headers: {
-          authorization: 'Bearer invalid-token',
-        },
-      });
-
-      expect(response.statusCode).not.toBe(401);
-
-      await app.close();
-    });
-
-    it('bypasses bearer auth validation for public advanced map routes', async () => {
-      const testAuth = createTestAuthProvider();
-      const app = await buildApp({
-        fastifyOptions: { logger: false },
-        deps: {
-          budgetDb: makeFakeBudgetDb(),
-          insDb: makeFakeInsDb(),
-          userDb: makeFakeKyselyDb(),
-          authProvider: testAuth.provider,
-          datasetRepo: makeFakeDatasetRepo(),
-          config: makeTestConfig(),
-        },
-      });
-
-      await app.ready();
-
-      const response = await app.inject({
-        method: 'GET',
-        url: '/api/v1/advanced-map-analytics/public/public_1',
-        headers: {
-          authorization: 'Bearer invalid-token',
-        },
-      });
-
-      expect(response.statusCode).not.toBe(401);
-
-      await app.close();
-    });
-
-    it('does not bypass bearer auth validation for grouped-series routes', async () => {
-      const testAuth = createTestAuthProvider();
-      const app = await buildApp({
-        fastifyOptions: { logger: false },
-        deps: {
-          budgetDb: makeFakeBudgetDb(),
-          insDb: makeFakeInsDb(),
-          userDb: makeFakeKyselyDb(),
-          authProvider: testAuth.provider,
-          datasetRepo: makeFakeDatasetRepo(),
-          config: makeTestConfig(),
-        },
-      });
-
-      await app.ready();
-
-      const response = await app.inject({
-        method: 'POST',
-        url: '/api/v1/advanced-map-analytics/grouped-series',
-        headers: {
-          authorization: 'Bearer invalid-token',
-          'content-type': 'application/json',
-        },
-        payload: {
-          granularity: 'UAT',
-          series: [
-            {
-              id: 's1',
-              type: 'line-items-aggregated-yearly',
-              filter: {
-                account_category: 'ch',
-                report_type: 'Executie bugetara agregata la nivel de ordonator principal',
-                report_period: {
-                  type: 'YEAR',
-                  selection: {
-                    interval: {
-                      start: '2025',
-                      end: '2025',
-                    },
-                  },
-                },
-              },
-            },
-          ],
-          payload: {
-            format: 'csv_wide_matrix_v1',
-            compression: 'none',
-          },
-        },
-      });
-
-      expect(response.statusCode).toBe(401);
-
-      await app.close();
-    });
+    // The advanced-map public-read bypass and the authenticated grouped-series
+    // POST are pinned in tests/integration/redesign-surface-mount.test.ts: since
+    // slice 1 commit 4 the map routes exist only on the mounted kernel surface.
 
     it('starts without clerk secret key so non-public advanced map writes remain available', async () => {
       const app = await buildApp({
@@ -1597,7 +1500,9 @@ describe('App Factory', () => {
           budgetDb: makeFakeBudgetDb(),
           insDb: makeFakeInsDb(),
           userDb: makeFakeKyselyDb(),
+          authProvider: createTestAuthProvider().provider,
           datasetRepo: makeFakeDatasetRepo(),
+          redesignKernelConfig: mapSurfaceKernelConfig,
           config: makeTestConfig({
             auth: {
               clerkSecretKey: undefined,
@@ -1610,6 +1515,9 @@ describe('App Factory', () => {
         },
       });
 
+      await app.ready();
+      // The write-permission checker degrades to deny-all, but the map routes exist.
+      expect(app.printRoutes()).toContain('datasets (POST, GET, HEAD)');
       await app.close();
     });
 
@@ -1620,7 +1528,9 @@ describe('App Factory', () => {
           budgetDb: makeFakeBudgetDb(),
           insDb: makeFakeInsDb(),
           userDb: makeFakeKyselyDb(),
+          authProvider: createTestAuthProvider().provider,
           datasetRepo: makeFakeDatasetRepo(),
+          redesignKernelConfig: mapSurfaceKernelConfig,
           config: makeTestConfig({
             auth: {
               clerkSecretKey: '   ',
@@ -1633,6 +1543,9 @@ describe('App Factory', () => {
         },
       });
 
+      await app.ready();
+      // The write-permission checker degrades to deny-all, but the map routes exist.
+      expect(app.printRoutes()).toContain('datasets (POST, GET, HEAD)');
       await app.close();
     });
 

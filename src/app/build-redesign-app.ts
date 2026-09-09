@@ -58,6 +58,7 @@ import {
   type KernelMcpResource,
   type KernelMcpTool,
   type AnnualPopulationPort,
+  type RateLimiter,
 } from '../modules/shared/index.js';
 
 import type {
@@ -105,9 +106,8 @@ export interface BuildRedesignAppDeps {
    */
   readonly corsAllowedOrigins?: readonly string[];
   /**
-   * Source modules to wire into the kernel. Standalone defaults include native INS;
-   * the embedded legacy surface retains its interim INS module.
-   * Pass `[]` to boot the bare kernel.
+   * Source modules to wire into the kernel. The shared defaults (standalone and
+   * embedded alike) include native INS. Pass `[]` to boot the bare kernel.
    */
   readonly modules?: readonly (
     | 'pnrr'
@@ -119,11 +119,7 @@ export interface BuildRedesignAppDeps {
     | 'judicial'
     | 'procurement'
     | 'primarii-transparency'
-    /**
-     * The Chronos-reading INS module (program slice 3.2). Enabled by default
-     * only in the standalone app. The embedded legacy surface supplies its
-     * interim INS roots, so its shared defaults exclude this module.
-     */
+    /** The Chronos-reading INS module (program slice 3.2), in the shared defaults. */
     | 'ins-native'
   )[];
   /** Disable procurement's fire-and-forget preload for isolated cold benchmarks. */
@@ -149,6 +145,21 @@ export interface BuildRedesignAppDeps {
     readonly db: Kysely<UserDatabase>;
     readonly signingSecret: string;
     readonly clerkSecretKey?: string;
+  };
+  /**
+   * Map lifecycle storage (saved maps, uploaded datasets) when the EMBEDDING
+   * composer owns the user DB and its Clerk webhook receiver — the legacy
+   * `api.js`, slice 1 commit 4. `userData` implies it on the standalone server;
+   * this variant registers the native map routes only: no `user.deleted`
+   * receiver (the embedder's `/api/v1/webhooks/clerk` would collide) and no
+   * `destroy()` on close (the embedder owns the pool). When both are given,
+   * `nativeMaps` wins for the map store and `userData` keeps its receiver.
+   */
+  readonly nativeMaps?: {
+    readonly userDb: Kysely<UserDatabase>;
+    readonly clerkSecretKey?: string;
+    /** `false` when the embedder's own global limiter is the only owner limit. */
+    readonly ownerRateLimiter?: RateLimiter | false;
   };
   readonly mapPopulation?: BudgetMapPopulationSource;
 }
@@ -481,20 +492,33 @@ export const registerRedesignSurface = async (
     moduleMcpTools.push(...budget.mcpTools);
     moduleMcpResources.push(...budget.mcpResources);
   }
+  const mapStore =
+    deps.nativeMaps ??
+    (deps.userData === undefined
+      ? undefined
+      : {
+          userDb: deps.userData.db,
+          ...(deps.userData.clerkSecretKey === undefined
+            ? {}
+            : { clerkSecretKey: deps.userData.clerkSecretKey }),
+        });
+  // Auth is optional here: an embedder with authentication disabled still
+  // serves the public map reads while the owner-only operations fail closed.
   if (
-    deps.userData !== undefined &&
-    deps.authProvider !== undefined &&
+    mapStore !== undefined &&
     enabledModules.includes('budget') &&
     createInsSession !== undefined
   ) {
     await registerNativeMapRoutes(app, {
       db: kernel.db,
-      rateLimiter: kernel.rateLimiter,
-      userDb: deps.userData.db,
-      authProvider: deps.authProvider,
-      ...(deps.userData.clerkSecretKey === undefined
+      // Map traffic gets its own buckets (native-map-routes.ts), not the kernel's
+      // 30/min search bucket; an embedder may switch the owner bucket off.
+      ...(deps.nativeMaps?.ownerRateLimiter === undefined
         ? {}
-        : { clerkSecretKey: deps.userData.clerkSecretKey }),
+        : { rateLimiter: deps.nativeMaps.ownerRateLimiter }),
+      userDb: mapStore.userDb,
+      ...(deps.authProvider === undefined ? {} : { authProvider: deps.authProvider }),
+      ...(mapStore.clerkSecretKey === undefined ? {} : { clerkSecretKey: mapStore.clerkSecretKey }),
       createInsReadSession: createInsSession,
       budget: {
         repo: makeBudgetMapRepo(kernel.db),

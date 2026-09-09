@@ -39,20 +39,6 @@ import {
   type AdminEventRuntime,
 } from '../modules/admin-events/index.js';
 import {
-  makeAdvancedMapAnalyticsRepo,
-  makeAdvancedMapAnalyticsRoutes,
-  makeAdvancedMapAnalyticsGroupedSeriesRoutes,
-  makeDbAdvancedMapAnalyticsGroupedSeriesProvider,
-  makeLegacyMapTerritoryLookup,
-  defaultAdvancedMapAnalyticsIdGenerator,
-} from '../modules/advanced-map-analytics/index.js';
-import {
-  defaultAdvancedMapDatasetIdGenerator,
-  makeAdvancedMapDatasetRoutes,
-  makeAdvancedMapDatasetsRepo,
-  makeClerkAdvancedMapDatasetWritePermissionChecker,
-} from '../modules/advanced-map-datasets/index.js';
-import {
   makeAggregatedLineItemsRepo,
   makePopulationRepo,
 } from '../modules/aggregated-line-items/index.js';
@@ -89,7 +75,6 @@ import {
 } from '../modules/clerk-webhooks/index.js';
 import { makeUserDataAnonymizationAdminEmailNotifier } from '../modules/clerk-webhooks/shell/anonymization/admin-email-notifier.js';
 import { makeUserDataAnonymizer } from '../modules/clerk-webhooks/shell/anonymization/user-data-anonymizer.js';
-import { makeCommitmentsRepo } from '../modules/commitments/index.js';
 import { makeEmailRenderer } from '../modules/email-templates/index.js';
 import {
   makeEntityRepo,
@@ -206,7 +191,6 @@ import {
   cryptoHasher,
   type ShareConfig,
 } from '../modules/share/index.js';
-import { makeUATAnalyticsRepo } from '../modules/uat-analytics/index.js';
 import {
   ALL_USER_DATA_CATEGORIES,
   makeCategoryRegistry,
@@ -783,11 +767,9 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
   const rawPopulationRepo = makePopulationRepo(budgetDb);
   const normalizationService = await NormalizationService.create(datasetRepo);
   const rawAggregatedLineItemsRepo = makeAggregatedLineItemsRepo(budgetDb);
-  const commitmentsRepo = makeCommitmentsRepo(budgetDb);
   const entityRepo = makeEntityRepo(budgetDb);
   const entityProfileRepo = makeEntityProfileRepo(budgetDb);
   const entityAnalyticsSummaryRepo = makeEntityAnalyticsSummaryRepo(budgetDb);
-  const uatAnalyticsRepo = makeUATAnalyticsRepo(budgetDb);
   const insRepo = makeInsRepo(insDb);
   // ─────────────────────────────────────────────────────────────────────────────
   // Optionally mount the redesign kernel surface on the SAME port (/api/v1/*)
@@ -876,6 +858,11 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       }
     }
 
+    const trimmedClerkSecretKey = config.auth.clerkSecretKey?.trim();
+    const nativeMapsClerkSecretKey =
+      trimmedClerkSecretKey === undefined || trimmedClerkSecretKey === ''
+        ? undefined
+        : trimmedClerkSecretKey;
     await app.register(async (child) => {
       try {
         await registerRedesignSurface(child, {
@@ -897,6 +884,20 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
           // Auth context for the redesign GraphQL: verified bearer → authenticated
           // resolver context; missing/invalid → anonymous. Never a 401 here.
           ...(deps.authProvider !== undefined && { authProvider: deps.authProvider }),
+          // Saved maps / uploaded datasets live in the legacy-owned user DB; the
+          // surface registers the native map routes over it (no second webhook
+          // receiver, no second pool owner).
+          ...(deps.userDb !== undefined && {
+            nativeMaps: {
+              userDb: deps.userDb,
+              // The root @fastify/rate-limit (RATE_LIMIT_MAX + special key) already
+              // covers owner/grouped-series traffic, as it did for the legacy routes.
+              ownerRateLimiter: false,
+              ...(nativeMapsClerkSecretKey === undefined
+                ? {}
+                : { clerkSecretKey: nativeMapsClerkSecretKey }),
+            },
+          }),
           ...(deps.registerRedesignContributors !== undefined && {
             registerContributors: deps.registerRedesignContributors,
           }),
@@ -2190,75 +2191,10 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       })
     );
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Setup Advanced Map Datasets Module (REST API)
-    // ─────────────────────────────────────────────────────────────────────────
-    const advancedMapDatasetClerkSecret = config.auth.clerkSecretKey?.trim();
-
-    const advancedMapDatasetRepo = makeAdvancedMapDatasetsRepo({
-      db: userDb,
-      logger: repoLogger,
-    });
-
-    const advancedMapDatasetWritePermissionChecker =
-      advancedMapDatasetClerkSecret !== undefined && advancedMapDatasetClerkSecret !== ''
-        ? makeClerkAdvancedMapDatasetWritePermissionChecker({
-            secretKey: advancedMapDatasetClerkSecret,
-            permissionName: 'advanced_map:public_write',
-            logger: repoLogger,
-          })
-        : {
-            canWrite: () => Promise.resolve(false),
-          };
-
-    const mapTerritoryLookup = makeLegacyMapTerritoryLookup(budgetDb);
-
-    await app.register(
-      makeAdvancedMapDatasetRoutes({
-        repo: advancedMapDatasetRepo,
-        territoryLookup: mapTerritoryLookup,
-        idGenerator: defaultAdvancedMapDatasetIdGenerator,
-        writePermissionChecker: advancedMapDatasetWritePermissionChecker,
-      })
-    );
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Setup Advanced Map Analytics Module (REST API)
-    // ─────────────────────────────────────────────────────────────────────────
-    const advancedMapAnalyticsRepo = makeAdvancedMapAnalyticsRepo({
-      db: userDb,
-      logger: repoLogger,
-    });
-
-    const groupedSeriesProvider = makeDbAdvancedMapAnalyticsGroupedSeriesProvider({
-      territoryLookup: mapTerritoryLookup,
-      datasetRepo: advancedMapDatasetRepo,
-      commitmentsRepo,
-      insRepo,
-      normalizationService,
-      uatAnalyticsRepo,
-      cache,
-      keyBuilder,
-    });
-
-    await app.register(
-      makeAdvancedMapAnalyticsRoutes({
-        repo: advancedMapAnalyticsRepo,
-        datasetRepo: advancedMapDatasetRepo,
-        groupedSeriesProvider,
-        idGenerator: defaultAdvancedMapAnalyticsIdGenerator,
-        publicWritePermissionChecker: advancedMapDatasetWritePermissionChecker,
-      })
-    );
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Setup Advanced Map Analytics Grouped-Series Module (REST API)
-    // ─────────────────────────────────────────────────────────────────────────
-    await app.register(
-      makeAdvancedMapAnalyticsGroupedSeriesRoutes({
-        groupedSeriesProvider,
-      })
-    );
+    // The advanced-map routes (datasets, saved maps, grouped series) are served
+    // by the kernel surface's native provider (`nativeMaps` in the mount below;
+    // slice 1 commit 4, 2026-09-09). Their legacy composition over the budget-viz
+    // repos is gone.
   }
 
   if (config.auth.clerkWebhookSigningSecret !== undefined) {
