@@ -372,6 +372,11 @@ export type {
 export { kernelToolInputSchema } from './shell/mcp/input-schema.js';
 export { createMcpHttpDispatcher, type McpHttpDispatcher } from './shell/mcp/http-dispatch.js';
 export { createCache, type CacheConfig, type KernelCache } from './shell/middleware/cache.js';
+export type {
+  AnnualPopulationCell,
+  AnnualPopulationPort,
+  AnnualPopulationSnapshot,
+} from './shell/population/annual-population-port.js';
 export {
   createRateLimiter,
   type RateLimiter,

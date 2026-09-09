@@ -16,14 +16,22 @@ import { makeInsContributor, type InsContributorDeps } from './shell/contributor
 import { makeInsLegacyResolvers } from './shell/graphql/legacy/resolvers.js';
 import { insLegacyTypeDefs } from './shell/graphql/legacy/typedefs.js';
 import { makeInsMcpTools } from './shell/mcp/tools.js';
+import {
+  NATIVE_MAP_POPULATION_ADMISSION,
+  NATIVE_SECTOR_POPULATION_ADMISSION,
+} from './shell/population/admissions.js';
+import { makeInsAnnualPopulationPort } from './shell/population/port.js';
 import { makeInsRepo } from './shell/repo/ins-repo.js';
 import { makeInsReadSession, type InsReadSession } from './shell/repo/read-session.js';
 
+import type { AnnualPopulationAdmission } from './core/annual-population.js';
+import type { SectorPopulationAdmission } from './core/population-admission.js';
 import type { InsRepo } from './core/ports.js';
 import type {
   ContributorRegistry,
   GraphqlSlice,
   KernelMcpTool,
+  AnnualPopulationPort,
   ProdDatabase,
   SourceContributor,
 } from '@/modules/shared/index.js';
@@ -38,11 +46,17 @@ export interface InsNativeModuleDeps {
   readonly repo?: InsRepo;
   /** CUI → canonical geographic anchor (kernel identity hub); absent = no presence. */
   readonly territoryForCui?: InsContributorDeps['territoryForCui'];
+  /** Override the admitted POP107D publication (tests, re-admission rehearsals). */
+  readonly populationAdmission?: AnnualPopulationAdmission;
+  /** Override the sector supplement; `null` serves no sector supplement at all. */
+  readonly sectorPopulationAdmission?: SectorPopulationAdmission | null;
 }
 
 export interface InsNativeModule {
   readonly repo: InsRepo;
   readonly createReadSession: () => InsReadSession;
+  /** Kernel population port bound to this module's admitted publications (X/F6). */
+  readonly population: AnnualPopulationPort;
   readonly graphqlSlice: GraphqlSlice;
   readonly graphqlResolvers: Record<string, unknown>;
   readonly mcpTools: readonly KernelMcpTool[];
@@ -57,6 +71,15 @@ export const makeInsNativeModule = (deps: InsNativeModuleDeps): InsNativeModule 
   return {
     repo,
     createReadSession: () => makeInsReadSession(deps.db),
+    population: makeInsAnnualPopulationPort({
+      db: deps.db,
+      admission: deps.populationAdmission ?? NATIVE_MAP_POPULATION_ADMISSION,
+      ...(deps.sectorPopulationAdmission === null
+        ? {}
+        : {
+            sectorAdmission: deps.sectorPopulationAdmission ?? NATIVE_SECTOR_POPULATION_ADMISSION,
+          }),
+    }),
     graphqlSlice: { source: INS_NATIVE_SOURCE, typeDefs: insLegacyTypeDefs },
     graphqlResolvers: makeInsLegacyResolvers({
       repo,
@@ -112,3 +135,24 @@ export {
 } from './core/annual-population.js';
 
 export { resolveInsTerritoryInputs } from './core/territory-inputs.js';
+
+// ── population (X/F6): the kernel port implementation and the admitted publications ──
+export {
+  NATIVE_MAP_POPULATION_ADMISSION,
+  NATIVE_SECTOR_POPULATION_ADMISSION,
+} from './shell/population/admissions.js';
+export {
+  makeInsAnnualPopulationPort,
+  type InsAnnualPopulationPortDeps,
+} from './shell/population/port.js';
+export { readNativePopulation, type NativePopulationCell } from './shell/population/cells.js';
+export { readAdmittedSectorPopulation } from './shell/population/sector.js';
+export {
+  ADMITTED_SECTOR_YEAR_SETS,
+  BUCHAREST_SECTOR_SIRUTAS,
+  sectorAdmissionIsWellFormed,
+  sectorRowsAreAdmissible,
+  sectorRowsDigestInput,
+  type SectorPopulationAdmission,
+  type SectorPopulationRowLike,
+} from './core/population-admission.js';
