@@ -186,5 +186,23 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git add k8s/overlays/chronos-dev/kustomization.yaml k8s/overlays/chronos-dev/workload-patch.yaml
-          git diff --staged --quiet || HUSKY=0 git commit -m "ci(image): Pin Chronos dev ${GITHUB_SHA:0:12}"
-          git push origin dev
+          if git diff --staged --quiet; then
+            echo "Image pin unchanged; nothing to commit"
+            exit 0
+          fi
+          HUSKY=0 git commit -m "ci(image): Pin Chronos dev ${GITHUB_SHA:0:12}"
+          # `dev` moves while this job runs (cancel-in-progress cancels the older
+          # build, not a push that already landed). A plain push then fails or,
+          # with a fetch+merge, lands merge commits nobody reviewed. Rebase the
+          # single pin commit onto the current tip and retry a few times.
+          for attempt in 1 2 3 4 5; do
+            git fetch origin dev
+            if git rebase origin/dev && git push origin HEAD:dev; then
+              echo "Pin pushed on attempt ${attempt}"
+              exit 0
+            fi
+            git rebase --abort || true
+            sleep $((attempt * 5))
+          done
+          echo "Failed to push the image pin after 5 attempts" >&2
+          exit 1
