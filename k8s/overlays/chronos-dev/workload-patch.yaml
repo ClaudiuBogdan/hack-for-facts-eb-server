@@ -71,17 +71,23 @@ spec:
             - name: chronos-dev-user-db-ca
               mountPath: /var/run/secrets/chronos-dev-user-db
               readOnly: true
+          # Startup/liveness use the dependency-free /api/v1/live: /api/v1/health
+          # bounds each dependency at 4 s and the user DB at 3 s, longer than the
+          # base 3 s probe timeout, so a hung aux dependency would restart a
+          # healthy pod. Readiness still runs the full dependency check, so its
+          # timeout covers that bound.
           readinessProbe:
             httpGet:
               path: /api/v1/ready
               port: 3000
+            timeoutSeconds: 5
           startupProbe:
             httpGet:
-              path: /api/v1/health
+              path: /api/v1/live
               port: 3000
           livenessProbe:
             httpGet:
-              path: /api/v1/health
+              path: /api/v1/live
               port: 3000
           lifecycle:
             $patch: delete
