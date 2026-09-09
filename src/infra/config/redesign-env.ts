@@ -157,91 +157,78 @@ const parseIntOr = (raw: string | undefined, fallback: number): number => {
   return Number.isFinite(n) ? n : fallback;
 };
 
-export const loadRedesignConfig = (env: NodeJS.ProcessEnv): RedesignConfig => {
-  const converted = Value.Convert(RedesignEnvSchema, { ...env });
-  const defaulted = Value.Default(RedesignEnvSchema, converted);
-  const cleaned = Value.Clean(RedesignEnvSchema, defaulted);
-  if (!Value.Check(RedesignEnvSchema, cleaned)) {
-    const errors = [...Value.Errors(RedesignEnvSchema, cleaned)].map(
-      (e) => `${e.path}: ${e.message}`
-    );
+/**
+ * Keys that only the standalone server (`redesign-api.ts`) consumes: its own
+ * Clerk auth, its user-data DB, listener and proxy settings. The embedded
+ * loader below never validates them, so e.g. an empty `CLERK_SECRET_KEY` that
+ * the platform's `env.ts` accepts cannot fail the platform boot.
+ */
+const STANDALONE_ONLY_KEYS = [
+  'PORT',
+  'HOST',
+  'LOG_LEVEL',
+  'TRUST_PROXY',
+  'PROD_ALLOWED_ORIGINS',
+  'USER_DATA_DATABASE_URL',
+  'USER_DATA_DB_CA_FILE',
+  'USER_DATA_DB_TLS_SERVERNAME',
+  'CLERK_WEBHOOK_SIGNING_SECRET',
+  'CLERK_SECRET_KEY',
+  'CLERK_JWT_KEY',
+  'CLERK_ISSUER',
+  'CLERK_AUTHORIZED_PARTIES',
+] as const;
+export const EmbeddedKernelEnvSchema = Type.Omit(RedesignEnvSchema, [...STANDALONE_ONLY_KEYS]);
+type EmbeddedKernelEnv = Static<typeof EmbeddedKernelEnvSchema>;
+
+const parseEnvAgainst = <T extends typeof RedesignEnvSchema | typeof EmbeddedKernelEnvSchema>(
+  schema: T,
+  env: NodeJS.ProcessEnv
+): Static<T> => {
+  // Only the schema's own keys are considered, so a foreign key with a shape the
+  // schema would reject (an empty standalone-only value, say) is invisible here.
+  const own = Object.fromEntries(
+    Object.keys(schema.properties).map((key) => [key, env[key]] as const)
+  );
+  const converted = Value.Convert(schema, own);
+  const defaulted = Value.Default(schema, converted);
+  const cleaned = Value.Clean(schema, defaulted);
+  if (!Value.Check(schema, cleaned)) {
+    const errors = [...Value.Errors(schema, cleaned)].map((e) => `${e.path}: ${e.message}`);
     throw new Error(`Invalid redesign env:\n${errors.join('\n')}`);
   }
-  const e = cleaned;
+  return cleaned;
+};
 
-  const splitCsv = (raw: string | undefined): readonly string[] =>
-    raw === undefined
-      ? []
-      : raw
-          .split(',')
-          .map((s) => s.trim())
-          .filter((s) => s !== '');
+const parseRedesignEnv = (env: NodeJS.ProcessEnv): RedesignEnv =>
+  parseEnvAgainst(RedesignEnvSchema, env);
+
+const splitCsv = (raw: string | undefined): readonly string[] =>
+  raw === undefined
+    ? []
+    : raw
+        .split(',')
+        .map((s) => s.trim())
+        .filter((s) => s !== '');
+
+const nonEmpty = (value: string | undefined): string | undefined =>
+  value === undefined || value === '' ? undefined : value;
+
+/**
+ * The part of the redesign env the legacy composer (`api.ts`) embeds: the kernel
+ * data sources plus the module compositions. Deliberately EXCLUDES the standalone
+ * server's own Clerk auth / user-data settings — the legacy process keeps its own
+ * auth provider and user DB (`env.ts`), so an incomplete standalone Clerk or
+ * user-data block must not stop the platform API from booting.
+ */
+export type EmbeddedKernelConfig = Pick<RedesignConfig, 'kernel' | 'procurement' | 'legalSearch'>;
+
+const composeEmbeddedKernel = (e: EmbeddedKernelEnv): EmbeddedKernelConfig => {
   const meiliIndexes = splitCsv(e.PROD_MEILI_INDEXES);
-  const authConfigured =
-    e.CLERK_JWT_KEY !== undefined ||
-    e.CLERK_ISSUER !== undefined ||
-    e.CLERK_AUTHORIZED_PARTIES !== undefined;
-  const authorizedParties = splitCsv(e.CLERK_AUTHORIZED_PARTIES);
-  const isOrigin = (value: string): boolean => {
-    try {
-      const url = new URL(value);
-      return (
-        url.origin === value &&
-        (url.protocol === 'https:' ||
-          (url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)))
-      );
-    } catch {
-      return false;
-    }
-  };
-  let auth: RedesignConfig['auth'];
-  if (authConfigured) {
-    const jwtKey = e.CLERK_JWT_KEY;
-    const issuer = e.CLERK_ISSUER;
-    if (jwtKey === undefined || issuer === undefined || authorizedParties.length === 0)
-      throw new Error('Clerk auth requires a JWT public key, issuer and authorized parties');
-    if (!isOrigin(issuer) || authorizedParties.some((origin) => !isOrigin(origin)))
-      throw new Error(
-        'Clerk issuer and authorized parties must be explicit HTTPS or loopback origins'
-      );
-    auth = { jwtKey, issuer, authorizedParties };
-  }
-
-  let userData: RedesignConfig['userData'];
-  if (
-    [
-      e.USER_DATA_DATABASE_URL,
-      e.USER_DATA_DB_CA_FILE,
-      e.USER_DATA_DB_TLS_SERVERNAME,
-      e.CLERK_WEBHOOK_SIGNING_SECRET,
-    ].some((value) => value !== undefined)
-  ) {
-    if (
-      auth === undefined ||
-      e.USER_DATA_DATABASE_URL === undefined ||
-      e.USER_DATA_DB_CA_FILE === undefined ||
-      e.CLERK_WEBHOOK_SIGNING_SECRET === undefined
-    )
-      throw new Error(
-        'User data requires Clerk auth, a dedicated database URL, CA and webhook secret'
-      );
-    userData = {
-      ...(e.CLERK_SECRET_KEY === undefined ? {} : { clerkSecretKey: e.CLERK_SECRET_KEY }),
-      url: e.USER_DATA_DATABASE_URL,
-      caFile: e.USER_DATA_DB_CA_FILE,
-      webhookSigningSecret: e.CLERK_WEBHOOK_SIGNING_SECRET,
-      ...(e.USER_DATA_DB_TLS_SERVERNAME !== undefined && {
-        tlsServername: e.USER_DATA_DB_TLS_SERVERNAME,
-      }),
-    };
-  }
-
   // Module search connections: a dedicated *_URL overrides the kernel-wide
   // PROD_OPENSEARCH_* connection; the path turns on only when its index map /
   // aliases are named explicitly. TLS: *_CA_FILE pins the private CA and
   // *_TLS_SERVERNAME must be a cert SAN.
-  const nonEmpty = (value: string | undefined): string | undefined =>
-    value === undefined || value === '' ? undefined : value;
   const searchConnection = (dedicated: {
     readonly url?: string;
     readonly caFile?: string;
@@ -329,20 +316,6 @@ export const loadRedesignConfig = (env: NodeJS.ProcessEnv): RedesignConfig => {
         }
       : undefined;
   return {
-    ...(auth !== undefined && { auth }),
-    ...(userData !== undefined && { userData }),
-    trustProxy: parseTrustProxy(e.TRUST_PROXY) ?? true,
-    procurement,
-    ...(legalSearch !== undefined && { legalSearch }),
-    port: parseIntOr(e.PORT, 3010),
-    host: e.HOST ?? '0.0.0.0',
-    logLevel: e.LOG_LEVEL ?? 'info',
-    corsAllowedOrigins:
-      e.PROD_ALLOWED_ORIGINS === undefined
-        ? []
-        : e.PROD_ALLOWED_ORIGINS.split(',')
-            .map((o) => o.trim())
-            .filter((o) => o !== ''),
     kernel: {
       prodDatabaseUrl: e.PROD_DATABASE_URL,
       meiliHost: e.PROD_MEILI_HOST,
@@ -374,5 +347,89 @@ export const loadRedesignConfig = (env: NodeJS.ProcessEnv): RedesignConfig => {
       ...(e.PROD_AI_MODEL !== undefined && { chatModel: e.PROD_AI_MODEL }),
       ...(e.PROD_CLIENT_BASE_URL !== undefined && { clientBaseUrl: e.PROD_CLIENT_BASE_URL }),
     },
+    procurement,
+    ...(legalSearch !== undefined && { legalSearch }),
+  };
+};
+
+export const loadEmbeddedKernelConfig = (env: NodeJS.ProcessEnv): EmbeddedKernelConfig =>
+  composeEmbeddedKernel(parseEnvAgainst(EmbeddedKernelEnvSchema, env));
+
+export const loadRedesignConfig = (env: NodeJS.ProcessEnv): RedesignConfig => {
+  const e = parseRedesignEnv(env);
+
+  const authConfigured =
+    e.CLERK_JWT_KEY !== undefined ||
+    e.CLERK_ISSUER !== undefined ||
+    e.CLERK_AUTHORIZED_PARTIES !== undefined;
+  const authorizedParties = splitCsv(e.CLERK_AUTHORIZED_PARTIES);
+  const isOrigin = (value: string): boolean => {
+    try {
+      const url = new URL(value);
+      return (
+        url.origin === value &&
+        (url.protocol === 'https:' ||
+          (url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)))
+      );
+    } catch {
+      return false;
+    }
+  };
+  let auth: RedesignConfig['auth'];
+  if (authConfigured) {
+    const jwtKey = e.CLERK_JWT_KEY;
+    const issuer = e.CLERK_ISSUER;
+    if (jwtKey === undefined || issuer === undefined || authorizedParties.length === 0)
+      throw new Error('Clerk auth requires a JWT public key, issuer and authorized parties');
+    if (!isOrigin(issuer) || authorizedParties.some((origin) => !isOrigin(origin)))
+      throw new Error(
+        'Clerk issuer and authorized parties must be explicit HTTPS or loopback origins'
+      );
+    auth = { jwtKey, issuer, authorizedParties };
+  }
+
+  let userData: RedesignConfig['userData'];
+  if (
+    [
+      e.USER_DATA_DATABASE_URL,
+      e.USER_DATA_DB_CA_FILE,
+      e.USER_DATA_DB_TLS_SERVERNAME,
+      e.CLERK_WEBHOOK_SIGNING_SECRET,
+    ].some((value) => value !== undefined)
+  ) {
+    if (
+      auth === undefined ||
+      e.USER_DATA_DATABASE_URL === undefined ||
+      e.USER_DATA_DB_CA_FILE === undefined ||
+      e.CLERK_WEBHOOK_SIGNING_SECRET === undefined
+    )
+      throw new Error(
+        'User data requires Clerk auth, a dedicated database URL, CA and webhook secret'
+      );
+    userData = {
+      ...(e.CLERK_SECRET_KEY === undefined ? {} : { clerkSecretKey: e.CLERK_SECRET_KEY }),
+      url: e.USER_DATA_DATABASE_URL,
+      caFile: e.USER_DATA_DB_CA_FILE,
+      webhookSigningSecret: e.CLERK_WEBHOOK_SIGNING_SECRET,
+      ...(e.USER_DATA_DB_TLS_SERVERNAME !== undefined && {
+        tlsServername: e.USER_DATA_DB_TLS_SERVERNAME,
+      }),
+    };
+  }
+
+  return {
+    ...composeEmbeddedKernel(e),
+    ...(auth !== undefined && { auth }),
+    ...(userData !== undefined && { userData }),
+    trustProxy: parseTrustProxy(e.TRUST_PROXY) ?? true,
+    port: parseIntOr(e.PORT, 3010),
+    host: e.HOST ?? '0.0.0.0',
+    logLevel: e.LOG_LEVEL ?? 'info',
+    corsAllowedOrigins:
+      e.PROD_ALLOWED_ORIGINS === undefined
+        ? []
+        : e.PROD_ALLOWED_ORIGINS.split(',')
+            .map((o) => o.trim())
+            .filter((o) => o !== ''),
   };
 };

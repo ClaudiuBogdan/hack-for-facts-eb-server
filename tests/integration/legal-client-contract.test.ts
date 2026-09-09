@@ -331,7 +331,7 @@ describe('legal client GraphQL documents validate against the mounted schema', (
         budgetDb: makeFakeBudgetDb(),
         insDb: makeFakeInsDb(),
         datasetRepo: makeFakeDatasetRepo(),
-        config: makeTestConfig({ redesignSurface: { enabled: true } }),
+        config: makeTestConfig(),
         // Fast-fail endpoints: resolver-time DB errors are expected and fine;
         // only schema VALIDATION failures matter here.
         redesignKernelConfig: {

@@ -12,24 +12,9 @@ import { err, ok, type Result } from 'neverthrow';
 import { resolveBuildPlan, type AppOptions } from './build-plan.js';
 // NOTE: `registerRedesignSurface` (and the whole redesign module graph it pulls in)
 // is loaded via a dynamic import() inside the feature-gated block below — NOT a
-// static import — so that with REDESIGN_SURFACE_ENABLED unset (deployed legacy
+// static import — so that when the kernel config is omitted (unit-test
 // servers) the redesign code is never even imported, and an import-time error in
 // that subtree can never affect legacy boot.
-import {
-  wrapCountyAnalyticsRepo,
-  wrapUATAnalyticsRepo,
-  wrapEntityAnalyticsRepo,
-  wrapExecutionAnalyticsRepo,
-  wrapAggregatedLineItemsRepo,
-  wrapBudgetSectorRepo,
-  wrapFundingSourceRepo,
-  wrapFundingSourceLineItemRepo,
-  wrapFunctionalClassificationRepo,
-  wrapEconomicClassificationRepo,
-  wrapPopulationRepo,
-  wrapExecutionLineItemsRepo,
-  wrapInsRepo,
-} from './cache-wrappers.js';
 import { makePublicDebateSelfSendContextLookup } from './public-debate-self-send-context-lookup.js';
 import {
   BUDGET_DOCUMENT_INTERACTION_ID,
@@ -42,12 +27,6 @@ import {
   makeReceivedEmailFetcher,
   makeWebhookVerifier,
 } from '../infra/email/client.js';
-import {
-  makeGraphQLPlugin,
-  CommonGraphQLSchema,
-  commonGraphQLResolvers,
-} from '../infra/graphql/index.js';
-import { BaseSchema } from '../infra/graphql/schema.js';
 import { uuidIds } from '../infra/ids/index.js';
 import { registerCors, registerSecurityHeaders } from '../infra/plugins/index.js';
 import { makeUnsubscribeTokenSigner } from '../infra/unsubscribe/token.js';
@@ -74,18 +53,11 @@ import {
   makeClerkAdvancedMapDatasetWritePermissionChecker,
 } from '../modules/advanced-map-datasets/index.js';
 import {
-  makeAggregatedLineItemsResolvers,
-  AggregatedLineItemsSchema,
   makeAggregatedLineItemsRepo,
   makePopulationRepo,
 } from '../modules/aggregated-line-items/index.js';
-import { makeGraphQLContext, ANONYMOUS_SESSION } from '../modules/auth/index.js';
+import { ANONYMOUS_SESSION } from '../modules/auth/index.js';
 import { makeAuthMiddleware } from '../modules/auth/shell/middleware/fastify-auth.js';
-import {
-  makeBudgetSectorResolvers,
-  BudgetSectorSchema,
-  makeBudgetSectorRepo,
-} from '../modules/budget-sector/index.js';
 import { makeClerkCampaignAdminPermissionAuthorizer } from '../modules/campaign-admin/index.js';
 import {
   makeCampaignAdminEntitiesRepo,
@@ -110,12 +82,6 @@ import {
   makeCampaignSubscriptionStatsRoutes,
 } from '../modules/campaign-subscription-stats/index.js';
 import {
-  makeClassificationResolvers,
-  ClassificationSchema,
-  makeFunctionalClassificationRepo,
-  makeEconomicClassificationRepo,
-} from '../modules/classification/index.js';
-import {
   type ClerkWebhookEventVerifiedHandler,
   makeClerkUserDeletedAnonymizationHandler,
   makeClerkWebhookRoutes,
@@ -123,62 +89,23 @@ import {
 } from '../modules/clerk-webhooks/index.js';
 import { makeUserDataAnonymizationAdminEmailNotifier } from '../modules/clerk-webhooks/shell/anonymization/admin-email-notifier.js';
 import { makeUserDataAnonymizer } from '../modules/clerk-webhooks/shell/anonymization/user-data-anonymizer.js';
-import {
-  CommitmentsSchema,
-  makeCommitmentsRepo,
-  makeCommitmentsResolvers,
-} from '../modules/commitments/index.js';
-import {
-  makeCountyAnalyticsResolvers,
-  CountyAnalyticsSchema,
-  makeCountyAnalyticsRepo,
-} from '../modules/county-analytics/index.js';
-import { DatasetsSchema, makeDatasetsResolvers } from '../modules/datasets/index.js';
+import { makeCommitmentsRepo } from '../modules/commitments/index.js';
 import { makeEmailRenderer } from '../modules/email-templates/index.js';
 import {
-  makeEntityResolvers,
-  EntitySchema,
   makeEntityRepo,
   makeEntityProfileRepo,
   makeEntityAnalyticsSummaryRepo,
-  createEntityLoaders,
 } from '../modules/entity/index.js';
 import {
-  makeEntityAnalyticsResolvers,
-  EntityAnalyticsSchema,
-  makeEntityAnalyticsRepo,
-} from '../modules/entity-analytics/index.js';
-import {
-  makeExecutionAnalyticsResolvers,
-  ExecutionAnalyticsSchema,
-  makeAnalyticsRepo,
-} from '../modules/execution-analytics/index.js';
-import {
-  makeExecutionLineItemResolvers,
-  ExecutionLineItemSchema,
-  makeExecutionLineItemRepo as makeExecutionLineItemsModuleRepo,
-  createExecutionLineItemLoaders,
-} from '../modules/execution-line-items/index.js';
-import {
-  makeFundingSourceResolvers,
-  FundingSourceSchema,
-  makeFundingSourceRepo,
-  makeExecutionLineItemRepo,
-} from '../modules/funding-sources/index.js';
-import {
   makeHealthRoutes,
-  makeHealthResolvers,
-  healthSchema,
   makeDbHealthChecker,
   makeCacheHealthChecker,
   type HealthChecker,
 } from '../modules/health/index.js';
 import {
-  InsSchema,
   makeInsDatasetCatalogReader,
   makeInsDatasetRequestRepo,
   makeInsRepo,
-  makeInsResolvers,
   makeInsRoutes,
 } from '../modules/ins/index.js';
 import {
@@ -268,12 +195,6 @@ import {
   sha256Hasher,
 } from '../modules/notifications/index.js';
 import {
-  makeReportResolvers,
-  ReportSchema,
-  makeReportRepo,
-  createReportLoaders,
-} from '../modules/report/index.js';
-import {
   makeResendWebhookEmailEventsRepo,
   makeResendWebhookRoutes,
   combineResendWebhookSideEffects,
@@ -285,17 +206,7 @@ import {
   cryptoHasher,
   type ShareConfig,
 } from '../modules/share/index.js';
-import {
-  makeUATResolvers,
-  UATSchema,
-  makeUATRepo,
-  createUATLoaders,
-} from '../modules/uat/index.js';
-import {
-  makeUATAnalyticsResolvers,
-  UATAnalyticsSchema,
-  makeUATAnalyticsRepo,
-} from '../modules/uat-analytics/index.js';
+import { makeUATAnalyticsRepo } from '../modules/uat-analytics/index.js';
 import {
   ALL_USER_DATA_CATEGORIES,
   makeCategoryRegistry,
@@ -328,7 +239,7 @@ import {
 export type { AppDeps, AppOptions } from './build-plan.js';
 
 const HEALTH_ROUTE_PATHS = new Set(['/health', '/health/live', '/health/ready']);
-// Redesign kernel surface (mounted on the same port when REDESIGN_SURFACE_ENABLED).
+// Redesign kernel surface (mounted on the same port when the kernel config is given).
 // Public read-only data — the standalone redesign server has no auth — so these are
 // exempt from the legacy global auth preHandler.
 const REDESIGN_SURFACE_ROUTE_PATHS = new Set([
@@ -472,11 +383,11 @@ function isCampaignSubscriptionStatsRoute(url: string): boolean {
   );
 }
 
-// Exported for unit tests only — the auth-bypass matrix (method × prefix ×
-// mounted flag) is pinned in tests/unit/app/global-auth-bypass.test.ts.
+// Exported for unit tests only — the auth-bypass matrix (method × prefix) is
+// pinned in tests/unit/app/global-auth-bypass.test.ts. The kernel surface is
+// always mounted since slice 1, so its public routes are always in the matrix.
 export function shouldBypassGlobalAuthValidation(
-  request: Pick<import('fastify').FastifyRequest, 'method' | 'url'>,
-  redesignSurfaceMounted: boolean
+  request: Pick<import('fastify').FastifyRequest, 'method' | 'url'>
 ): boolean {
   const path = getRequestPath(request.url);
 
@@ -496,12 +407,11 @@ export function shouldBypassGlobalAuthValidation(
   // flag off these paths are unregistered, and an unauthenticated request to
   // them must behave exactly as before the flag existed (401 from the auth
   // middleware, not a 404 short-circuit).
-  if (redesignSurfaceMounted && REDESIGN_SURFACE_ROUTE_PATHS.has(path)) {
+  if (REDESIGN_SURFACE_ROUTE_PATHS.has(path)) {
     return true;
   }
 
   if (
-    redesignSurfaceMounted &&
     (request.method === 'GET' || request.method === 'HEAD') &&
     REDESIGN_SURFACE_PUBLIC_GET_PREFIXES.some((prefix) => path.startsWith(prefix))
   ) {
@@ -865,255 +775,38 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
 
   // Setup GraphQL
   // SECURITY: SEC-009 - Only expose version in non-production environments
-  const healthResolvers = makeHealthResolvers({
-    ...(!config.server.isProduction && version !== undefined && { version }),
-    checkers: allHealthCheckers,
-  });
-
-  // Create shared population repo (used by both analytics and aggregated line items)
+  // Repositories the platform modules still read (notification delivery,
+  // campaign admin, institution correspondence, the map routes until slice 1
+  // commit 4, the INS dataset-request routes until commit 5). The legacy
+  // GraphQL surface that used to be assembled here was retired on 2026-09-09
+  // (review INS-01 / slice 1): the kernel serves /api/v1/graphql.
   const rawPopulationRepo = makePopulationRepo(budgetDb);
-  const populationRepo = wrapPopulationRepo(rawPopulationRepo, cache, keyBuilder);
-
-  // Setup Analytics Module
-  const rawAnalyticsRepo = makeAnalyticsRepo(budgetDb);
-  const analyticsRepo = wrapExecutionAnalyticsRepo(rawAnalyticsRepo, cache, keyBuilder);
-  const analyticsResolvers = makeExecutionAnalyticsResolvers({
-    analyticsRepo,
-    datasetRepo,
-    populationRepo,
-  });
-
-  // Setup Aggregated Line Items Module
   const normalizationService = await NormalizationService.create(datasetRepo);
   const rawAggregatedLineItemsRepo = makeAggregatedLineItemsRepo(budgetDb);
-  const aggregatedLineItemsRepo = wrapAggregatedLineItemsRepo(
-    rawAggregatedLineItemsRepo,
-    cache,
-    keyBuilder
-  );
-  const aggregatedLineItemsResolvers = makeAggregatedLineItemsResolvers({
-    repo: aggregatedLineItemsRepo,
-    normalization: normalizationService,
-    populationRepo,
-  });
-
-  // Setup Commitments Module
   const commitmentsRepo = makeCommitmentsRepo(budgetDb);
-  const commitmentsResolvers = makeCommitmentsResolvers({
-    repo: commitmentsRepo,
-    normalizationService,
-    populationRepo,
-  });
-
-  // Setup Entity Analytics Module
-  const rawEntityAnalyticsRepo = makeEntityAnalyticsRepo(budgetDb);
-  const entityAnalyticsRepo = wrapEntityAnalyticsRepo(rawEntityAnalyticsRepo, cache, keyBuilder);
-  const entityAnalyticsResolvers = makeEntityAnalyticsResolvers({
-    repo: entityAnalyticsRepo,
-    normalization: normalizationService,
-  });
-
-  // Setup Datasets Module (GraphQL interface for static datasets)
-  const datasetsResolvers = makeDatasetsResolvers({
-    datasetRepo,
-  });
-
-  // Setup Budget Sector Module
-  const rawBudgetSectorRepo = deps.budgetSectorRepo ?? makeBudgetSectorRepo(budgetDb);
-  const budgetSectorRepo = wrapBudgetSectorRepo(rawBudgetSectorRepo, cache, keyBuilder);
-  const budgetSectorResolvers = makeBudgetSectorResolvers({
-    budgetSectorRepo,
-  });
-
-  // Setup Funding Source Module
-  const rawFundingSourceRepo = deps.fundingSourceRepo ?? makeFundingSourceRepo(budgetDb);
-  const fundingSourceRepo = wrapFundingSourceRepo(rawFundingSourceRepo, cache, keyBuilder);
-  const rawFundingSourceLineItemRepo =
-    deps.executionLineItemRepo ?? makeExecutionLineItemRepo(budgetDb);
-  const executionLineItemRepo = wrapFundingSourceLineItemRepo(
-    rawFundingSourceLineItemRepo,
-    cache,
-    keyBuilder
-  );
-  const fundingSourceResolvers = makeFundingSourceResolvers({
-    fundingSourceRepo,
-    executionLineItemRepo,
-  });
-
-  // Setup Execution Line Items Module (standalone queries with DataLoaders)
-  const rawExecutionLineItemsModuleRepo =
-    deps.executionLineItemsModuleRepo ?? makeExecutionLineItemsModuleRepo(budgetDb);
-  const executionLineItemsModuleRepo = wrapExecutionLineItemsRepo(
-    rawExecutionLineItemsModuleRepo,
-    cache,
-    keyBuilder
-  );
-  const executionLineItemsResolvers = makeExecutionLineItemResolvers({
-    executionLineItemRepo: executionLineItemsModuleRepo,
-    normalizationService,
-  });
-
-  // Setup Entity Module
   const entityRepo = makeEntityRepo(budgetDb);
   const entityProfileRepo = makeEntityProfileRepo(budgetDb);
   const entityAnalyticsSummaryRepo = makeEntityAnalyticsSummaryRepo(budgetDb);
-  const uatRepo = makeUATRepo(budgetDb);
-  const reportRepo = makeReportRepo(budgetDb);
-  const entityResolvers = makeEntityResolvers({
-    entityRepo,
-    uatRepo,
-    reportRepo,
-    executionLineItemRepo: executionLineItemsModuleRepo,
-    entityAnalyticsSummaryRepo,
-    normalizationService,
-  });
-
-  // Setup UAT Module (Query resolvers for UAT queries)
-  const uatResolvers = makeUATResolvers({
-    uatRepo,
-  });
-
-  // Setup Report Module (Query resolvers for Report queries)
-  const reportResolvers = makeReportResolvers({
-    reportRepo,
-    executionLineItemRepo: executionLineItemsModuleRepo,
-  });
-
-  // Setup UAT Analytics Module
-  const rawUatAnalyticsRepo = makeUATAnalyticsRepo(budgetDb);
-  const uatAnalyticsRepo = wrapUATAnalyticsRepo(rawUatAnalyticsRepo, cache, keyBuilder);
-  const uatAnalyticsResolvers = makeUATAnalyticsResolvers({
-    repo: uatAnalyticsRepo,
-    normalizationService,
-  });
-
-  // Setup County Analytics Module
-  const rawCountyAnalyticsRepo = makeCountyAnalyticsRepo(budgetDb);
-  const countyAnalyticsRepo = wrapCountyAnalyticsRepo(rawCountyAnalyticsRepo, cache, keyBuilder);
-  const countyAnalyticsResolvers = makeCountyAnalyticsResolvers({
-    repo: countyAnalyticsRepo,
-    normalizationService,
-    entityRepo,
-  });
-
-  // Setup Classification Module
-  const rawFunctionalClassificationRepo = makeFunctionalClassificationRepo(budgetDb);
-  const functionalClassificationRepo = wrapFunctionalClassificationRepo(
-    rawFunctionalClassificationRepo,
-    cache,
-    keyBuilder
-  );
-  const rawEconomicClassificationRepo = makeEconomicClassificationRepo(budgetDb);
-  const economicClassificationRepo = wrapEconomicClassificationRepo(
-    rawEconomicClassificationRepo,
-    cache,
-    keyBuilder
-  );
-  const classificationResolvers = makeClassificationResolvers({
-    functionalClassificationRepo,
-    economicClassificationRepo,
-  });
-
-  // Setup INS Module
-  const rawInsRepo = makeInsRepo(insDb);
-  const insRepo = wrapInsRepo(rawInsRepo, cache, keyBuilder);
-  const insResolvers = makeInsResolvers({ insRepo });
-
-  // Combine schemas and resolvers
-  const schema = [
-    BaseSchema,
-    CommonGraphQLSchema,
-    healthSchema,
-    ExecutionAnalyticsSchema,
-    AggregatedLineItemsSchema,
-    CommitmentsSchema,
-    EntityAnalyticsSchema,
-    DatasetsSchema,
-    BudgetSectorSchema,
-    FundingSourceSchema,
-    ExecutionLineItemSchema,
-    EntitySchema,
-    UATSchema,
-    ReportSchema,
-    UATAnalyticsSchema,
-    CountyAnalyticsSchema,
-    ClassificationSchema,
-    InsSchema,
-  ];
-  const resolvers = [
-    commonGraphQLResolvers,
-    healthResolvers,
-    analyticsResolvers,
-    aggregatedLineItemsResolvers,
-    commitmentsResolvers,
-    entityAnalyticsResolvers,
-    datasetsResolvers,
-    budgetSectorResolvers,
-    fundingSourceResolvers,
-    executionLineItemsResolvers,
-    entityResolvers,
-    uatResolvers,
-    reportResolvers,
-    uatAnalyticsResolvers,
-    countyAnalyticsResolvers,
-    classificationResolvers,
-    insResolvers,
-  ];
-
-  // Create Mercurius loaders for N+1 prevention
-  // Combine loaders from all modules
-  const executionLineItemLoaders = createExecutionLineItemLoaders(budgetDb);
-  const entityLoaders = createEntityLoaders({ db: budgetDb, entityProfileRepo });
-  const uatLoaders = createUATLoaders(budgetDb);
-  const reportLoaders = createReportLoaders(budgetDb);
-
-  // Merge all loaders into a single object
-  const combinedLoaders = {
-    ...executionLineItemLoaders,
-    ...entityLoaders,
-    ...uatLoaders,
-    ...reportLoaders,
-  };
-
-  // ─────────────────────────────────────────────────────────────────────────────
-  // Setup Authentication Context (Optional)
-  // ─────────────────────────────────────────────────────────────────────────────
-  // When an authProvider is injected, GraphQL context includes auth information.
-  // Resolvers can use requireAuthOrThrow() or withAuth() to enforce authentication.
-  const graphQLContext =
-    deps.authProvider !== undefined
-      ? makeGraphQLContext({ authProvider: deps.authProvider })
-      : undefined;
-
-  await app.register(
-    makeGraphQLPlugin({
-      schema,
-      resolvers,
-      loaders: combinedLoaders,
-      isProduction: config.server.isProduction,
-      ...(graphQLContext !== undefined && { context: graphQLContext }),
-    })
-  );
-
+  const uatAnalyticsRepo = makeUATAnalyticsRepo(budgetDb);
+  const insRepo = makeInsRepo(insDb);
   // ─────────────────────────────────────────────────────────────────────────────
   // Optionally mount the redesign kernel surface on the SAME port (/api/v1/*)
   // ─────────────────────────────────────────────────────────────────────────────
-  // Feature-flagged + fail-safe. Only when REDESIGN_SURFACE_ENABLED=true AND the
-  // redesign kernel config (Chronos production) is provided — deployed legacy servers
-  // satisfy neither, so this is a no-op there and the app is unchanged.
+  // Mounted whenever the kernel config is provided (api.ts makes it mandatory;
+  // unit tests of the legacy composer may omit it and then serve no GraphQL).
   //
-  // Registered in an ENCAPSULATED child scope so its Mercurius instance lives in a
-  // sibling context and does not collide with the legacy Mercurius (`makeGraphQLPlugin`
-  // is a plain plugin, so neither decorates the root). The surface reuses the legacy
-  // global CORS (no second CORS) and is mounted with GraphiQL disabled to avoid a
-  // duplicate `GET /graphiql` route. The kernel pg pool is lazy and Meili/OpenSearch
-  // capability probing degrades rather than throwing, so unavailable Chronos services do not fail
-  // boot. The inner try/catch additionally guards any unexpected boot-time throw so
-  // the legacy API always comes up.
-  if (config.redesignSurface.enabled && deps.redesignKernelConfig !== undefined) {
+  // Registered in an ENCAPSULATED child scope so its Mercurius instance, hooks and
+  // decorators stay in a sibling context of the legacy REST routes (the legacy
+  // Mercurius endpoint this once had to avoid colliding with is gone since slice 1).
+  // The surface reuses the legacy global CORS (no second CORS) and is mounted with
+  // GraphiQL disabled. The kernel pg pool is lazy and Meili/OpenSearch capability
+  // probing degrades rather than throwing, so unavailable Chronos services do not
+  // fail boot; a mount error itself DOES fail the boot (there is no legacy-only
+  // fallback any more).
+  if (deps.redesignKernelConfig !== undefined) {
     const redesignKernelConfig = deps.redesignKernelConfig;
     const redesignClientBaseUrl = deps.redesignClientBaseUrl;
-    // Dynamic import: the redesign module graph is only loaded when the flag is on.
+    // Dynamic import: the redesign module graph is only loaded when the kernel config is given.
     const { registerRedesignSurface } = await import('./build-redesign-app.js');
 
     // Agent surface deps (docs/AGENT-MODULE-SPEC.md): needs the user DB, the
@@ -1234,12 +927,8 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
     if (deps.authProvider !== undefined) {
       // Full auth middleware with token verification
       const authMiddleware = makeAuthMiddleware({ authProvider: deps.authProvider });
-      // Same effective condition as the mount block above: both the flag AND the
-      // kernel config must be present for the redesign routes to exist.
-      const redesignSurfaceMounted =
-        config.redesignSurface.enabled && deps.redesignKernelConfig !== undefined;
       app.addHook('preHandler', async (request, reply) => {
-        if (shouldBypassGlobalAuthValidation(request, redesignSurfaceMounted)) {
+        if (shouldBypassGlobalAuthValidation(request)) {
           request.auth = ANONYMOUS_SESSION;
           return;
         }

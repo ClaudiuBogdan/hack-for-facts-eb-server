@@ -1,13 +1,11 @@
 /**
  * Golden Master GraphQL Client
  *
- * Dual-mode client that can operate in:
- * - API Mode: Direct HTTP requests to external GraphQL endpoint (for snapshot generation)
- * - Database Mode: In-process Fastify with real database connection (for CI/development)
- *
- * Mode is selected based on environment variables:
- * - TEST_GM_API_URL: Use API mode (external endpoint)
- * - TEST_GM_DATABASE_URL: Use Database mode (in-process Fastify)
+ * HTTP client against a running GraphQL endpoint (`TEST_GM_API_URL`). The
+ * former in-process "database mode" (`TEST_GM_DATABASE_URL`, an `app.inject`
+ * client over the legacy `/graphql` endpoint) was retired with that endpoint in
+ * slice 1 (2026-09-09): setting the variable now fails fast instead of posting
+ * to a route that no longer exists.
  *
  * Comparison mode (orthogonal, API mode only):
  * - TEST_GM_BASELINE_URL unset → SNAPSHOT mode: today's behaviour, specs compare
@@ -22,7 +20,7 @@
  *   (setup.ts) because the stored snapshots were recorded against a different
  *   database.
  *
- * Transport rules (both modes): the body is parsed LOSSLESSLY (numbers keep
+ * Transport rules: the body is parsed LOSSLESSLY (numbers keep
  * their wire text, envelope.ts) and validated as a GraphQL envelope — a
  * Fastify 404 body, non-JSON, a non-finite number, a redirect or a timeout
  * throw instead of producing an envelope. `query()` returns PLAIN data
@@ -30,8 +28,6 @@
  */
 
 import { expect } from 'vitest';
-
-import { createDatasetRepo } from '@/modules/datasets/index.js';
 
 import { loadAllowlist, type AllowlistFile } from './allowlist.js';
 import { computeCaseKey } from './corpus.js';
@@ -46,9 +42,6 @@ import { redactEndpoint, sameEndpoint } from './endpoint.js';
 import { EnvelopeError, parseEnvelope, toPlain, type GraphQLEnvelope } from './envelope.js';
 import { resolveRunId } from './report.js';
 
-import type { AppConfig } from '@/infra/config/index.js';
-import type { FastifyInstance } from 'fastify';
-
 export type { GraphQLEnvelope, GraphQLErrorShape } from './envelope.js';
 
 // =============================================================================
@@ -58,7 +51,7 @@ export type { GraphQLEnvelope, GraphQLErrorShape } from './envelope.js';
 export interface GoldenMasterClient {
   /**
    * The endpoint this client posts to (API mode, userinfo redacted) or
-   * `inject:/graphql` (DB mode). Safe to print and to write into reports.
+   * Safe to print and to write into reports.
    */
   readonly url: string;
 
@@ -171,43 +164,8 @@ function createApiClient(apiUrl: string): GoldenMasterClient {
 }
 
 // =============================================================================
-// Database Mode Client
+// Execution / comparison mode
 // =============================================================================
-
-/**
- * Creates a client that uses Fastify's inject method for in-process testing.
- * Used for CI/CD and local development.
- */
-function createDbClient(app: FastifyInstance): GoldenMasterClient {
-  const client: GoldenMasterClient = {
-    url: 'inject:/graphql',
-
-    async queryEnvelope<T = unknown>(
-      gql: string,
-      variables?: Record<string, unknown>
-    ): Promise<GraphQLEnvelope<T>> {
-      const response = await app.inject({
-        method: 'POST',
-        url: '/graphql',
-        payload: {
-          query: gql,
-          variables,
-        },
-      });
-
-      return parseEnvelope<T>(response.body, response.statusCode, client.url);
-    },
-
-    async query<T = unknown>(gql: string, variables?: Record<string, unknown>): Promise<T> {
-      return toPlain(dataFromEnvelope(await client.queryEnvelope<T>(gql, variables))) as T;
-    },
-
-    async close(): Promise<void> {
-      await app.close();
-    },
-  };
-  return client;
-}
 
 // =============================================================================
 // Cutover Mode Client (target + baseline, compared on every query())
@@ -293,27 +251,23 @@ function createCutoverClient(
 // Singleton instance
 let clientInstance: GoldenMasterClient | null = null;
 let baselineInstance: GoldenMasterClient | null = null;
-let fastifyApp: FastifyInstance | null = null;
-
 /**
  * Detect execution mode from environment variables.
  */
-export function getExecutionMode(): 'api' | 'database' {
-  if (process.env['TEST_GM_API_URL'] !== undefined) {
-    return 'api';
-  }
+export function getExecutionMode(): 'api' {
   if (process.env['TEST_GM_DATABASE_URL'] !== undefined) {
-    return 'database';
+    throw new Error(
+      'TEST_GM_DATABASE_URL (in-process database mode) was retired with the legacy /graphql endpoint (slice 1, 2026-09-09); point TEST_GM_API_URL at the endpoint the spec set targets (see tests/golden-master/README.md)'
+    );
   }
-  throw new Error(
-    'Golden Master tests require either TEST_GM_API_URL or TEST_GM_DATABASE_URL environment variable'
-  );
+  if (process.env['TEST_GM_API_URL'] === undefined) {
+    throw new Error('Golden Master tests require the TEST_GM_API_URL environment variable');
+  }
+  return 'api';
 }
 
 /**
- * Detect comparison mode. Cutover mode requires API mode: DB mode builds the
- * app with `redesignSurface.enabled: false`, so there is no second endpoint to
- * compare against. A half-configured environment throws rather than silently
+ * Detect comparison mode. A half-configured environment throws rather than silently
  * running in snapshot mode, and so does a pair of URLs that canonicalize to
  * the same endpoint (host case, default port, trailing slash, userinfo).
  */
@@ -329,11 +283,6 @@ export function getComparisonMode(env: NodeJS.ProcessEnv = process.env): 'snapsh
   if (target === undefined) {
     throw new Error(
       'TEST_GM_BASELINE_URL requires TEST_GM_API_URL (the target endpoint) — cutover mode compares two HTTP endpoints'
-    );
-  }
-  if (env['TEST_GM_DATABASE_URL'] !== undefined) {
-    throw new Error(
-      'TEST_GM_BASELINE_URL cannot be combined with TEST_GM_DATABASE_URL — cutover mode is API mode only'
     );
   }
   if (sameEndpoint(baseline, target)) {
@@ -364,167 +313,17 @@ export async function getClient(): Promise<GoldenMasterClient> {
     return clientInstance;
   }
 
-  const mode = getExecutionMode();
-
-  if (mode === 'api') {
-    const apiUrl = process.env['TEST_GM_API_URL']!;
-    const baseline = getBaselineClient();
-    const target = createApiClient(apiUrl);
-    if (baseline !== null) {
-      console.log(`[Golden Master] CUTOVER mode: baseline ${baseline.url} → target ${target.url}`);
-      clientInstance = createCutoverClient(target, baseline);
-    } else {
-      console.log(`[Golden Master] API Mode: ${target.url}`);
-      clientInstance = target;
-    }
+  getExecutionMode();
+  const apiUrl = process.env['TEST_GM_API_URL']!;
+  const baseline = getBaselineClient();
+  const target = createApiClient(apiUrl);
+  if (baseline !== null) {
+    console.log(`[Golden Master] CUTOVER mode: baseline ${baseline.url} → target ${target.url}`);
+    clientInstance = createCutoverClient(target, baseline);
   } else {
-    const dbUrl = process.env['TEST_GM_DATABASE_URL']!;
-    console.log(`[Golden Master] Database Mode: ${dbUrl.replace(/:[^:@]+@/, ':***@')}`);
-
-    // Dynamically import to avoid circular dependencies
-    const { createApp } = await import('@/app/build-app.js');
-    const { initDatabases } = await import('@/infra/database/client.js');
-
-    // Override database URL for the app
-    process.env['BUDGET_DATABASE_URL'] = dbUrl;
-    process.env['INS_DATABASE_URL'] = dbUrl;
-    process.env['USER_DATABASE_URL'] = dbUrl;
-    process.env['DATABASE_URL'] = dbUrl;
-
-    // Create minimal config for testing
-    const config: AppConfig = {
-      server: {
-        port: 0,
-        host: '127.0.0.1',
-        isDevelopment: false,
-        isProduction: false,
-        isTest: true,
-        trustProxy: undefined,
-      },
-      logger: { level: 'silent' as const, pretty: false },
-      database: {
-        budgetUrl: dbUrl,
-        insUrl: dbUrl,
-        userUrl: dbUrl,
-        ssl: false,
-        sslRejectUnauthorized: true,
-      },
-      redis: { url: undefined, password: undefined, prefix: undefined },
-      redesignSurface: { enabled: false },
-      cache: {
-        backend: 'memory',
-        defaultTtlMs: 60 * 24 * 60 * 60 * 1000,
-        memoryMaxEntries: 1000,
-        l1MaxEntries: 500,
-        redisUrl: undefined,
-        redisPassword: undefined,
-        keyPrefix: 'transparenta',
-      },
-      cors: {
-        allowedOrigins: undefined,
-        clientBaseUrl: undefined,
-        publicClientBaseUrl: undefined,
-      },
-      auth: {
-        clerkSecretKey: undefined,
-        clerkJwtKey: undefined,
-        clerkAuthorizedParties: undefined,
-        clerkWebhookSigningSecret: undefined,
-        enabled: false,
-      },
-      rateLimit: {
-        max: 300,
-        window: '1 minute',
-        specialHeader: undefined,
-        specialKey: undefined,
-        specialMax: 6000,
-      },
-      shortLinks: {
-        dailyLimit: 100,
-        cacheTtlSeconds: 86400,
-      },
-      agent: {
-        enabled: false,
-        anthropicApiKey: undefined,
-        openaiApiKey: undefined,
-        openrouterApiKey: undefined,
-        chatModel: undefined,
-        titleModel: undefined,
-        researchModel: undefined,
-        dailyTokenBudget: 250000,
-        unlimitedUserIds: [],
-      },
-      email: {
-        apiKey: undefined,
-        webhookSecret: undefined,
-        fromAddress: 'noreply@test.example.com',
-        funkyFromAddress: 'campaign@test.example.com',
-        funkyFromAddressCcRecipients: [],
-        funkyReplyToAddress: 'debate@transparenta.test',
-        previewEnabled: false,
-        maxRps: 2,
-        enabled: false,
-      },
-      jobs: {
-        redisUrl: undefined,
-        redisPassword: undefined,
-        concurrency: 5,
-        prefix: 'test:jobs',
-        notificationRecoverySweepIntervalMinutes: 15,
-        notificationStuckSendingThresholdMinutes: 15,
-      },
-      notifications: {
-        triggerApiKey: undefined,
-        platformBaseUrl: 'https://test.example.com',
-        apiBaseUrl: 'https://api.transparenta.eu',
-        unsubscribeHmacSecret: undefined,
-        enabled: false,
-      },
-      notificationPlatform: {
-        enabled: false,
-        ingestionScanSeconds: 60,
-        recoveryScanMinutes: 2,
-        digestSweepMinutes: 5,
-        recoveryThresholdMinutes: 10,
-        retentionBatchLimit: 500,
-        maxSendRps: 2,
-        destinationFingerprintSecret: undefined,
-      },
-      userDataStore: {
-        enabled: false,
-        reconcileMinutes: 60,
-        receiptCleanupCron: '0 4 * * *',
-      },
-      learningProgress: {
-        campaignAdminEnabledCampaigns: [],
-      },
-      telemetry: {
-        endpoint: undefined,
-        headers: undefined,
-        serviceName: 'transparenta-eu-server',
-        disabled: true,
-        sampleRate: undefined,
-        resourceAttributes: undefined,
-      },
-    };
-
-    const dbs = initDatabases(config);
-    const datasetRepo = createDatasetRepo({ rootDir: './datasets/yaml' });
-
-    fastifyApp = await createApp({
-      fastifyOptions: { logger: false },
-      deps: {
-        budgetDb: dbs.budgetDb,
-        insDb: dbs.insDb,
-        userDb: dbs.userDb,
-        datasetRepo,
-        config,
-      },
-    });
-
-    clientInstance = createDbClient(fastifyApp);
+    console.log(`[Golden Master] API Mode: ${target.url}`);
+    clientInstance = target;
   }
-
   return clientInstance;
 }
 
@@ -536,7 +335,6 @@ export async function closeClient(): Promise<void> {
   if (clientInstance !== null) {
     await clientInstance.close();
     clientInstance = null;
-    fastifyApp = null;
   }
   if (baselineInstance !== null) {
     await baselineInstance.close();

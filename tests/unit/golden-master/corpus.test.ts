@@ -1,7 +1,5 @@
-import { parse, validate } from 'graphql';
 import { describe, expect, it } from 'vitest';
 
-import { buildLegacySchema } from './legacy-schema.js';
 import {
   computeCaseKey,
   CorpusValidationError,
@@ -245,38 +243,8 @@ describe('golden-master corpus loader', () => {
       }[];
       expect(trendInputs[0]?.filter['show_period_growth']).toBe(false);
     });
-
-    describe('against the legacy schema built offline from the 18 SDL constants', () => {
-      const schema = buildLegacySchema();
-      const messages = new Map(
-        cases.map((c) => [c.id, validate(schema, parse(c.document)).map((e) => e.message)] as const)
-      );
-
-      it('validates every live and dead document', () => {
-        for (const c of cases) {
-          if (c.status === 'invalid-today') continue;
-          expect(messages.get(c.id), c.id).toEqual([]);
-        }
-      });
-
-      it('rejects exactly the four invalid-today documents with the inventory messages', () => {
-        const invalid = [...messages.entries()].filter(([, errors]) => errors.length > 0);
-        expect(Object.fromEntries(invalid)).toEqual({
-          'get-datasets-invalid': ['Cannot query field "data" on type "Dataset".'],
-          'uat-names-invalid': [
-            'Variable "$uatIds" of type "[String!]!" used in position expecting type "[ID!]".',
-          ],
-          'budget-sector-names-invalid': [
-            'Variable "$ids" of type "[String!]" used in position expecting type "[ID!]".',
-          ],
-          'funding-source-names-invalid': [
-            'Variable "$ids" of type "[String!]" used in position expecting type "[ID!]".',
-          ],
-        });
-        for (const [id] of invalid) {
-          expect(cases.find((c) => c.id === id)?.status, id).toBe('invalid-today');
-        }
-      });
-    });
+    // The legacy-schema validation block (offline SDL from the 18 legacy
+    // constants) left with the legacy /graphql endpoint in slice 1 (2026-09-09);
+    // the loader tests above are schema-independent and stay.
   });
 });

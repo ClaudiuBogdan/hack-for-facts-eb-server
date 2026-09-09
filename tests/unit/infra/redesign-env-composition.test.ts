@@ -9,7 +9,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { loadRedesignConfig } from '@/infra/config/redesign-env.js';
+import { loadEmbeddedKernelConfig, loadRedesignConfig } from '@/infra/config/redesign-env.js';
 
 const base = {
   PROD_DATABASE_URL: 'postgres://u:p@127.0.0.1:1/db',
@@ -132,5 +132,27 @@ describe('loadRedesignConfig — composition settings', () => {
       'loopback, 10.0.0.0/8'
     );
     expect(loadRedesignConfig({ ...base, TRUST_PROXY: '  ' }).trustProxy).toBe(true);
+  });
+});
+
+describe('loadEmbeddedKernelConfig — the legacy composer ignores standalone-only settings', () => {
+  // Codex review (slice 1): `api.ts` now loads the kernel config unconditionally,
+  // so a standalone-only value the platform's `env.ts` accepts (an empty
+  // CLERK_SECRET_KEY, a Clerk block without issuer, a webhook secret without the
+  // user-data DB) must never stop the platform API from booting.
+  it('accepts an env that the standalone loader rejects on auth / user-data grounds', () => {
+    const standaloneOnly = {
+      CLERK_SECRET_KEY: '',
+      CLERK_ISSUER: 'https://clerk.example.com',
+      CLERK_WEBHOOK_SIGNING_SECRET: 'whsec',
+    };
+    expect(() => loadRedesignConfig({ ...base, ...standaloneOnly })).toThrow();
+    const embedded = loadEmbeddedKernelConfig({ ...base, ...standaloneOnly });
+    expect(embedded.kernel.prodDatabaseUrl).toBe(base.PROD_DATABASE_URL);
+    expect(Object.keys(embedded).sort()).toEqual(['kernel', 'procurement']);
+  });
+
+  it('still fails on a missing or invalid kernel source', () => {
+    expect(() => loadEmbeddedKernelConfig({})).toThrow(/PROD_DATABASE_URL/u);
   });
 });

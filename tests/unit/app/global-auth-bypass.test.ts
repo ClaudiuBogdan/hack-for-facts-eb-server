@@ -20,41 +20,34 @@ describe('shouldBypassGlobalAuthValidation — redesign public GET prefixes', ()
     '/api/v1/parliament/some/route',
     '/api/v1/pnrr/some/route',
   ])('bypasses auth for GET %s when the surface is mounted', (url) => {
-    expect(shouldBypassGlobalAuthValidation(req('GET', url), true)).toBe(true);
-    expect(shouldBypassGlobalAuthValidation(req('HEAD', url), true)).toBe(true);
-  });
-
-  it('never bypasses the prefixes when the surface is not mounted', () => {
-    expect(
-      shouldBypassGlobalAuthValidation(req('GET', '/api/v1/legal/documents/1/render'), false)
-    ).toBe(false);
+    expect(shouldBypassGlobalAuthValidation(req('GET', url))).toBe(true);
+    expect(shouldBypassGlobalAuthValidation(req('HEAD', url))).toBe(true);
   });
 
   it('bypasses GET/HEAD only — writes under the prefixes stay authenticated', () => {
-    expect(
-      shouldBypassGlobalAuthValidation(req('POST', '/api/v1/legal/documents/1/render'), true)
-    ).toBe(false);
-    expect(shouldBypassGlobalAuthValidation(req('DELETE', '/api/v1/pnrr/x'), true)).toBe(false);
+    expect(shouldBypassGlobalAuthValidation(req('POST', '/api/v1/legal/documents/1/render'))).toBe(
+      false
+    );
+    expect(shouldBypassGlobalAuthValidation(req('DELETE', '/api/v1/pnrr/x'))).toBe(false);
   });
 
   it('does not bypass the agent surface (the one authenticated redesign REST prefix)', () => {
-    expect(shouldBypassGlobalAuthValidation(req('GET', '/api/v1/agent/chats'), true)).toBe(false);
-    expect(shouldBypassGlobalAuthValidation(req('POST', '/api/v1/agent/chat'), true)).toBe(false);
+    expect(shouldBypassGlobalAuthValidation(req('GET', '/api/v1/agent/chats'))).toBe(false);
+    expect(shouldBypassGlobalAuthValidation(req('POST', '/api/v1/agent/chat'))).toBe(false);
   });
 
   it('does not bypass prefix-lookalike paths', () => {
-    expect(shouldBypassGlobalAuthValidation(req('GET', '/api/v1/legalx/leak'), true)).toBe(false);
+    expect(shouldBypassGlobalAuthValidation(req('GET', '/api/v1/legalx/leak'))).toBe(false);
   });
 
   it('ignores query strings when matching', () => {
     expect(
-      shouldBypassGlobalAuthValidation(req('GET', '/api/v1/legal/documents/1/render?x=1'), true)
+      shouldBypassGlobalAuthValidation(req('GET', '/api/v1/legal/documents/1/render?x=1'))
     ).toBe(true);
   });
 
   it('keeps the exact-path redesign set working as before', () => {
-    expect(shouldBypassGlobalAuthValidation(req('POST', '/api/v1/graphql'), true)).toBe(true);
-    expect(shouldBypassGlobalAuthValidation(req('POST', '/api/v1/graphql'), false)).toBe(false);
+    expect(shouldBypassGlobalAuthValidation(req('POST', '/api/v1/graphql'))).toBe(true);
   });
 
   it.each(['/api/v1/live', '/api/v1/health', '/api/v1/ready'])(
@@ -62,8 +55,7 @@ describe('shouldBypassGlobalAuthValidation — redesign public GET prefixes', ()
     (url) => {
       // kubelet probes send no Authorization header; a 401 would restart or
       // de-register a healthy pod.
-      expect(shouldBypassGlobalAuthValidation(req('GET', url), true)).toBe(true);
-      expect(shouldBypassGlobalAuthValidation(req('GET', url), false)).toBe(false);
+      expect(shouldBypassGlobalAuthValidation(req('GET', url))).toBe(true);
     }
   );
 });

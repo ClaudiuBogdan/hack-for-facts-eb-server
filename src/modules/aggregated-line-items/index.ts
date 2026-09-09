@@ -32,11 +32,6 @@ export {
 } from './core/usecases/get-aggregated-line-items.js';
 
 // GraphQL
-export { AggregatedLineItemsSchema } from './shell/graphql/schema.js';
-export {
-  makeAggregatedLineItemsResolvers,
-  type MakeAggregatedLineItemsResolversDeps,
-} from './shell/graphql/resolvers.js';
 
 // Repository
 export { makeAggregatedLineItemsRepo } from './shell/repo/aggregated-line-items-repo.js';

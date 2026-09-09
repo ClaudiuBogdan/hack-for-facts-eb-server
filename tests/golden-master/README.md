@@ -1,34 +1,36 @@
 # Golden Master harness
 
-End-to-end replay of GraphQL documents against a running server. Two
-orthogonal switches:
+End-to-end replay of GraphQL documents against a running server (HTTP only:
+the in-process `TEST_GM_DATABASE_URL` mode went with the legacy `/graphql`
+endpoint in slice 1, 2026-09-09, and now fails fast). Two switches:
 
 | Switch              | Values                                                         | Meaning                                                                                                                                                                  |
 | ------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Execution mode**  | `TEST_GM_API_URL=<url>` or `TEST_GM_DATABASE_URL=<pg url>`     | HTTP POSTs to a running endpoint, or an in-process Fastify app over a database (`app.inject`)                                                                            |
+| **Execution mode**  | `TEST_GM_API_URL=<url>`                                        | HTTP POSTs to a running endpoint                                                                                                                                         |
 | **Comparison mode** | `TEST_GM_BASELINE_URL` unset → **snapshot**; set → **cutover** | Compare `data` against the stored `snapshots/**.snap.json`, or compare the full envelope of the target (`TEST_GM_API_URL`) against the baseline (`TEST_GM_BASELINE_URL`) |
 
-Cutover mode is API-mode only: DB mode builds the app with
-`redesignSurface.enabled: false`, so it has no second endpoint. A half-configured
-environment (`TEST_GM_BASELINE_URL` without `TEST_GM_API_URL`, or combined with
-`TEST_GM_DATABASE_URL`) throws at startup instead of silently running in
+A half-configured
+environment (`TEST_GM_BASELINE_URL` without `TEST_GM_API_URL`) throws at
+startup instead of silently running in
 snapshot mode, and so does a baseline/target pair that canonicalizes to the
 same endpoint (host case, default port, trailing slash, fragment, userinfo —
 `endpoint.ts`).
 
 ## Scripts
 
-| Script                  | What it does                                                                                                                                                       |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `pnpm test:gm`          | Snapshot mode, the 12 hand-written specs (the corpus spec is excluded: it has no stored snapshots). Default `TEST_GM_API_URL=http://localhost:3001/graphql`        |
-| `pnpm test:gm:update`   | Same, rewriting the stored snapshots                                                                                                                               |
-| `pnpm test:gm:cutover`  | **The cutover gate**: the client-document corpus only, baseline `http://localhost:3000/graphql` → target `http://localhost:3000/api/v1/graphql`                    |
-| `pnpm test:gm:extended` | Non-gating diagnostic: the 12 hand-written specs in cutover mode (they exercise legacy roots the client never sends — `entity`, `uat`, `reports`, `insCompare`, …) |
-| `pnpm gm:corpus`        | Regenerate `corpus/client-documents.json` from the client repo (`scripts/gm/gen-client-corpus.mts`)                                                                |
-| `pnpm gm:corpus:check`  | Fail when the committed corpus drifts from the client tree (documents, variables, sources, or the pinned client commit)                                            |
+| Script                  | What it does                                                                                                                                                                                                                                                                           |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm test:gm`          | Snapshot mode, the 12 hand-written specs (the corpus spec is excluded: it has no stored snapshots). `TEST_GM_API_URL` is REQUIRED (no default) and must be a preserved legacy `/graphql`: these specs still send legacy-schema documents (`uat`, `reports`, …) until they are migrated |
+| `pnpm test:gm:update`   | Same, rewriting the stored snapshots                                                                                                                                                                                                                                                   |
+| `pnpm test:gm:cutover`  | **The cutover gate**: the client-document corpus only, baseline `TEST_GM_BASELINE_URL` (required, a preserved legacy `/graphql`) → target `http://localhost:3000/api/v1/graphql`                                                                                                       |
+| `pnpm test:gm:extended` | Non-gating diagnostic: the 12 hand-written specs in cutover mode (they exercise legacy roots the client never sends — `entity`, `uat`, `reports`, `insCompare`, …)                                                                                                                     |
+| `pnpm gm:corpus`        | Regenerate `corpus/client-documents.json` from the client repo (`scripts/gm/gen-client-corpus.mts`)                                                                                                                                                                                    |
+| `pnpm gm:corpus:check`  | Fail when the committed corpus drifts from the client tree (documents, variables, sources, or the pinned client commit)                                                                                                                                                                |
 
-Every URL default is an environment fallback (`${TEST_GM_API_URL:-…}`), so
-`TEST_GM_BASELINE_URL=… TEST_GM_API_URL=… pnpm test:gm:cutover` overrides them.
+Only the cutover/extended TARGET has an environment fallback
+(`${TEST_GM_API_URL:-http://localhost:3000/api/v1/graphql}`); every legacy
+endpoint is required, so `TEST_GM_BASELINE_URL=… pnpm test:gm:cutover` and
+`TEST_GM_API_URL=… pnpm test:gm` are the working forms.
 
 Optional environment:
 
@@ -43,27 +45,21 @@ Optional environment:
 
 ## Bringing up both endpoints for `pnpm test:gm:cutover`
 
-`pnpm dev` (`src/api.ts` → `app/build-app.ts`) serves the legacy `/graphql` and,
-when the redesign surface flag is on, ALSO mounts the kernel at
-`/api/v1/graphql` on the same port (`build-app.ts` `REDESIGN_SURFACE_ROUTE_PATHS`,
+`pnpm dev` (`src/api.ts` → `app/build-app.ts`) mounts the kernel at
+`/api/v1/graphql` (the legacy `/graphql` endpoint was retired in slice 1, 2026-09-09) (`build-app.ts` `REDESIGN_SURFACE_ROUTE_PATHS`,
 the `registerRedesignSurface` child scope). Exact requirements:
 
 1. **Legacy side** — the Phoenix dev DB port-forwards (`pnpm dev:forward`) and
    the legacy `.env` (names in `.env.example`; never print it).
-2. **Redesign side** — set `REDESIGN_SURFACE_ENABLED=true` (a `Type.Boolean`
-   parsed from the literal string `true`, `src/infra/config/env.ts`) AND provide
-   the redesign kernel env, which `pnpm dev` loads from
-   `.claude/redesign-prod.env` if present (`--env-file-if-exists`). The only
-   hard requirement in `src/infra/config/redesign-env.ts` is `PROD_DATABASE_URL`
-   (Chronos `transparenta_prod`, read-only, over Tailscale); `PROD_MEILI_*`,
-   `PROD_OPENSEARCH_*`, `PROD_SYNTHETIC_*` degrade to "aux service down". If the
-   redesign env is missing or invalid, `src/api.ts` logs a warning and starts
-   the legacy API only — `/api/v1/graphql` then answers Fastify's JSON 404 body,
-   which the harness refuses as **not a GraphQL envelope**: every cutover case
-   fails with a `transport-error` defect (never "both sides agree").
-3. `PORT` defaults to `3000` (`env.ts`), which is what `test:gm:cutover` targets.
-   The older `test:gm` script points at `3001`; override `TEST_GM_API_URL` to
-   match your local `PORT`.
+2. **Redesign side** — provide the kernel env (`PROD_DATABASE_URL`, Meili/OpenSearch; the surface is mandatory since slice 1, 2026-09-09).
+3. `PORT` defaults to `3000` (`env.ts`), which is what `test:gm:cutover` and
+   `test:gm:extended` target (`/api/v1/graphql`); override `TEST_GM_API_URL` to
+   match your local `PORT`. Nothing in this repo serves the legacy `/graphql`
+   any more (slice 1), so every legacy-schema endpoint is explicit: the cutover
+   BASELINE (`TEST_GM_BASELINE_URL`) and the snapshot suite's target
+   (`test:gm` / `test:gm:update`, whose 12 specs still send legacy documents)
+   must name a preserved legacy deployment (the Phoenix dev pod pinned at the
+   `phoenix-last-full` tag) or the script refuses to run.
 
 Then:
 

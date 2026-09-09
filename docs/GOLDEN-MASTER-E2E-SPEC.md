@@ -3,6 +3,13 @@
 > **Version:** 2.0.0
 > **Status:** Draft
 > **Last Updated:** 2025-12-07
+>
+> **2026-09-09 amendment (slice 1):** the in-process **Database Mode** described
+> below (`TEST_GM_DATABASE_URL`, `createDbClient`, `app.inject` over the legacy
+> `/graphql`) was retired together with that endpoint. The harness is HTTP-only:
+> `TEST_GM_API_URL` must point at a running `/api/v1/graphql`, and setting
+> `TEST_GM_DATABASE_URL` fails fast. The current switches are in
+> `tests/golden-master/README.md`; the Database Mode sections here are history.
 
 ## Table of Contents
 

@@ -2,7 +2,7 @@
  * Golden Master Test Setup
  *
  * This setup file validates the environment configuration before tests run.
- * It ensures either TEST_GM_API_URL or TEST_GM_DATABASE_URL is set.
+ * It ensures TEST_GM_API_URL is set (the in-process database mode was retired in slice 1).
  *
  * Also provides utilities for normalizing floating-point precision in comparisons.
  */
@@ -180,10 +180,9 @@ beforeAll(() => {
   } catch (error) {
     console.error('\n[Golden Master] Configuration Error:');
     console.error((error as Error).message);
-    console.error('\nTo run Golden Master tests, set one of:');
-    console.error('  - TEST_GM_API_URL    (for snapshot generation from prod)');
-    console.error('  - TEST_GM_DATABASE_URL (for CI/local testing)');
-    console.error('Optionally, with TEST_GM_API_URL only:');
+    console.error('\nTo run Golden Master tests, set:');
+    console.error('  - TEST_GM_API_URL    (the endpoint the spec set targets, see README.md)');
+    console.error('Optionally:');
     console.error(
       '  - TEST_GM_BASELINE_URL (cutover mode: compare baseline vs target envelopes)\n'
     );

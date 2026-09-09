@@ -86,5 +86,13 @@ Server side (this repo), independent of the scrapper timing:
 - Until the scrapper lands, the annual/monthly roots keep serving the wrong number; the caveat
   path was rejected by the owner as a stopgap, so nothing is masked.
 
-Owner decision needed: implement steps 1–3 in the scrapper repository (a different repo with
-its own rules and rebuild cost), or hand this note to the scrapper owner.
+Owner decision 2026-09-09: implement in the scrapper repository. The requirement spec
+(`prod-db/DP01_CHAIN_LINEAGE_REQUIREMENTS_2026-09-09.md`, scrapper repo) went through seven
+Codex review rounds and is approved at revision 7; the panel evidence (four memos, tie-breaker,
+synthesis and the seven reviews) sits in
+`prod-db/evidence/dp-01-creditor-handover-2026-09-09/`. Headline rules: financial YTD chain per
+(entity, year, report type, family, sector) across creditors; source presence stays per creditor;
+persisted predecessor report ids; annual MVs keep `main_creditor_cui`; the July 2024
+declared-zero report stays pending, so the 26429279/2024 chain is REFUSED (not rewritten) until
+its admission is decided — the served total stays 2,918,835,389.02 until then and
+2,049,760,834.64 is the post-admission target.

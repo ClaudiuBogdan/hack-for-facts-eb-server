@@ -74,11 +74,3 @@ export {
 export { makeEntityRepo } from './shell/repo/entity-repo.js';
 export { makeEntityProfileRepo } from './shell/repo/entity-profile-repo.js';
 export { makeEntityAnalyticsSummaryRepo } from './shell/repo/entity-analytics-repo.js';
-
-// ─────────────────────────────────────────────────────────────────────────────
-// GraphQL
-// ─────────────────────────────────────────────────────────────────────────────
-
-export { EntitySchema } from './shell/graphql/schema.js';
-export { makeEntityResolvers, type MakeEntityResolversDeps } from './shell/graphql/resolvers.js';
-export { createEntityLoaders } from './shell/graphql/loaders.js';

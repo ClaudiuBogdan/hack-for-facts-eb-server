@@ -11,7 +11,7 @@ import { jwtVerify, importSPKI } from 'jose';
 
 import { buildApp } from './app/build-app.js';
 import { parseEnv, createConfig, type AppConfig } from './infra/config/index.js';
-import { loadRedesignConfig } from './infra/config/redesign-env.js';
+import { loadEmbeddedKernelConfig } from './infra/config/redesign-env.js';
 import { initDatabases } from './infra/database/client.js';
 import { createLogger } from './infra/logger/index.js';
 import { makeJWTAdapter, makeCachedAuthProvider, type AuthProvider } from './modules/auth/index.js';
@@ -86,6 +86,20 @@ const main = async (): Promise<void> => {
   const env = parseEnv(process.env);
   const config = createConfig(env);
 
+  // The kernel surface (/api/v1/graphql, /api/v1/mcp, health) is the only GraphQL
+  // this process serves since the legacy /graphql endpoint was retired (slice 1,
+  // 2026-09-09), so its configuration is mandatory: an invalid or missing kernel
+  // env fails the boot instead of starting a server with no GraphQL at all. Only
+  // the embedded part is validated — this process keeps its own Clerk auth and
+  // user DB (`config`), so the standalone server's auth/user-data env is ignored.
+  const redesign = loadEmbeddedKernelConfig(process.env);
+  const redesignKernelConfig = redesign.kernel;
+  const redesignComposition: AppDeps['redesignComposition'] = {
+    procurement: redesign.procurement,
+    ...(redesign.legalSearch !== undefined && { legalSearch: redesign.legalSearch }),
+  };
+  const redesignClientBaseUrl = redesign.kernel.clientBaseUrl;
+
   // Create logger
   const logger = createLogger({
     level: config.logger.level,
@@ -129,31 +143,6 @@ const main = async (): Promise<void> => {
   // Create auth provider if configured
   const authProvider = createAuthProvider(config, logger);
 
-  // Optionally resolve the redesign kernel config (Chronos production) so the redesign
-  // GraphQL/MCP surface can be mounted on this same port (/api/v1/*). The flag
-  // defaults off and is only set for local dev — deployed legacy servers skip this
-  // entirely. Wrapped so a missing/invalid redesign env can never crash the server.
-  let redesignKernelConfig: ReturnType<typeof loadRedesignConfig>['kernel'] | undefined;
-  let redesignComposition: AppDeps['redesignComposition'];
-  let redesignClientBaseUrl: string | undefined;
-  if (config.redesignSurface.enabled) {
-    try {
-      const redesign = loadRedesignConfig(process.env);
-      redesignKernelConfig = redesign.kernel;
-      redesignComposition = {
-        procurement: redesign.procurement,
-        ...(redesign.legalSearch !== undefined && { legalSearch: redesign.legalSearch }),
-      };
-      redesignClientBaseUrl = redesign.kernel.clientBaseUrl;
-      logger.info('Redesign surface enabled — mounting /api/v1/graphql on the legacy port');
-    } catch (error) {
-      logger.warn(
-        { err: error },
-        'REDESIGN_SURFACE_ENABLED is set but the redesign env is missing/invalid — starting the legacy API only'
-      );
-    }
-  }
-
   // Build application - let Fastify create its own logger based on config
   const app = await buildApp({
     fastifyOptions: {
@@ -182,8 +171,8 @@ const main = async (): Promise<void> => {
       datasetRepo,
       config,
       ...(authProvider !== undefined && { authProvider }),
-      ...(redesignKernelConfig !== undefined && { redesignKernelConfig }),
-      ...(redesignComposition !== undefined && { redesignComposition }),
+      redesignKernelConfig,
+      redesignComposition,
       ...(redesignClientBaseUrl !== undefined && { redesignClientBaseUrl }),
     },
     version: getVersion(),

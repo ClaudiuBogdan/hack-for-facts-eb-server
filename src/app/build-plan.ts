@@ -9,14 +9,8 @@ import type {
 import type { BudgetDbClient, InsDbClient, UserDbClient } from '../infra/database/client.js';
 import type { AdminEventRuntimeFactory } from '../modules/admin-events/index.js';
 import type { AuthProvider } from '../modules/auth/index.js';
-import type { BudgetSectorRepository } from '../modules/budget-sector/index.js';
 import type { CampaignAdminPermissionAuthorizer } from '../modules/campaign-admin/index.js';
 import type { DatasetRepo } from '../modules/datasets/index.js';
-import type { ExecutionLineItemRepository as ExecutionLineItemsModuleRepository } from '../modules/execution-line-items/index.js';
-import type {
-  ExecutionLineItemRepository,
-  FundingSourceRepository,
-} from '../modules/funding-sources/index.js';
 import type { HealthChecker } from '../modules/health/index.js';
 import type { CorrespondenceRecoveryRuntimeFactory } from '../modules/institution-correspondence/index.js';
 import type { NotificationDeliveryRuntimeFactory } from '../modules/notification-delivery/index.js';
@@ -52,12 +46,6 @@ export interface AppDeps {
   /** User database for notifications and other user-related data */
   userDb?: UserDbClient;
   datasetRepo: DatasetRepo;
-  budgetSectorRepo?: BudgetSectorRepository;
-  fundingSourceRepo?: FundingSourceRepository;
-  /** Repository for funding source nested resolver (funding-sources module) */
-  executionLineItemRepo?: ExecutionLineItemRepository;
-  /** Repository for execution line items module (standalone queries) */
-  executionLineItemsModuleRepo?: ExecutionLineItemsModuleRepository;
   config: AppConfig;
   /** Optional cache client for testing (auto-initialized if not provided) */
   cacheClient?: CacheClient;
@@ -102,10 +90,10 @@ export interface AppDeps {
   /** Optional correspondence recovery runtime factory for tests */
   correspondenceRecoveryRuntimeFactory?: CorrespondenceRecoveryRuntimeFactory;
   /**
-   * Redesign kernel config (Chronos production data source). When provided AND
-   * `config.redesignSurface.enabled` is true, `buildApp` mounts the redesign
-   * GraphQL (`/api/v1/graphql`) + MCP (`/api/v1/mcp`) + health surface on the
-   * same port. Omitted in deployed legacy servers, so the surface is never built.
+   * Redesign kernel config (Chronos production data source). When provided,
+   * `buildApp` mounts the kernel GraphQL (`/api/v1/graphql`) + MCP
+   * (`/api/v1/mcp`) + health surface on the same port; `api.ts` always
+   * provides it (the legacy /graphql endpoint is gone), unit tests may omit it.
    */
   redesignKernelConfig?: KernelConfig;
   /**

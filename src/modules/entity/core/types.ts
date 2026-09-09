@@ -10,12 +10,12 @@ import type {
   NormalizationMode,
   AnalyticsSeries,
 } from '@/common/types/analytics.js';
+import type { DbReportType } from '@/common/types/report-types.js';
 import type { DataSeries } from '@/common/types/temporal.js';
-import type { DbReportType } from '@/modules/report/index.js';
 
-// Re-export types from report module for backward compatibility
-export type { DbReportType, GqlReportType } from '@/modules/report/index.js';
-export { GQL_TO_DB_REPORT_TYPE, DB_TO_GQL_REPORT_TYPE } from '@/modules/report/index.js';
+// Report-type vocabulary lives in common; re-exported for the platform consumers of this module.
+export type { DbReportType, GqlReportType } from '@/common/types/report-types.js';
+export { GQL_TO_DB_REPORT_TYPE, DB_TO_GQL_REPORT_TYPE } from '@/common/types/report-types.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants

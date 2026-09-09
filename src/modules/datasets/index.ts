@@ -10,11 +10,6 @@ export { localizeDataset, toDatasetSummary } from './core/usecases/localize-data
 export { mapAxisType, mapFrequencyToGranularity } from './core/usecases/map-axis-type.js';
 
 // GraphQL
-export { DatasetsSchema } from './shell/graphql/schema.js';
-export {
-  makeDatasetsResolvers,
-  type MakeDatasetsResolversDeps,
-} from './shell/graphql/resolvers.js';
 
 // Types
 export type {

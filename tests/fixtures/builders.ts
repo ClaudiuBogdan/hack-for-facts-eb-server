@@ -81,9 +81,6 @@ export const makeTestConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
       password: undefined,
       prefix: undefined,
     },
-    redesignSurface: {
-      enabled: false,
-    },
     cache: {
       backend: 'memory',
       defaultTtlMs: 60 * 24 * 60 * 60 * 1000,

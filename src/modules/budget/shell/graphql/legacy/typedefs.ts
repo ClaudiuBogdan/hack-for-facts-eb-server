@@ -1,9 +1,11 @@
 /**
  * Legacy `executionAnalytics` SDL on the kernel endpoint (docs/server-redesign/13
- * §1, §3 rule 1). Every definition below is copied BYTE-IDENTICAL from the legacy
- * sources — the unit test `tests/unit/budget/legacy-analytics/sdl-identity.test.ts`
- * re-extracts each definition from both sides through the parser and fails on
- * any drift, so nothing the client sends can silently change:
+ * §1, §3 rule 1). FROZEN LEGACY REFERENCE: every definition below was copied
+ * BYTE-IDENTICAL from the legacy sources listed here, which were deleted with the
+ * legacy /graphql endpoint in slice 1 (2026-09-09) together with the
+ * `sdl-identity.test.ts` drift test; `BUDGET_LEGACY_SDL_PROVENANCE` records where
+ * each definition came from. This file is now the only copy the client contract
+ * rests on, so treat any edit as a client-visible schema change:
  *
  *  - `directive @oneOf`                      ← src/infra/graphql/common/directives.ts
  *  - `scalar PeriodDate`                     ← src/infra/graphql/common/scalars.ts

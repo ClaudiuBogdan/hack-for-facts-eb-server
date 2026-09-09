@@ -59,7 +59,6 @@ export const EnvSchema = Type.Object({
   // SECURITY/DEPLOY: defaults to false. Deployed legacy servers (no Chronos production
   // access) leave this unset, so the kernel is never built and `/api/v1/*` redesign
   // routes are never registered — identical behavior to before this flag existed.
-  REDESIGN_SURFACE_ENABLED: Type.Optional(Type.Boolean({ default: false })),
 
   // CORS
   ALLOWED_ORIGINS: Type.Optional(Type.String()),
@@ -214,7 +213,6 @@ export const parseEnv = (env: NodeJS.ProcessEnv): Env => {
     CACHE_L1_MAX_ENTRIES: cacheConfig.l1MaxEntries,
     BULLMQ_REDIS_URL: env['BULLMQ_REDIS_URL'],
     BULLMQ_REDIS_PASSWORD: env['BULLMQ_REDIS_PASSWORD'],
-    REDESIGN_SURFACE_ENABLED: env['REDESIGN_SURFACE_ENABLED'] === 'true',
     ALLOWED_ORIGINS: env['ALLOWED_ORIGINS'],
     CLIENT_BASE_URL: env['CLIENT_BASE_URL'],
     PUBLIC_CLIENT_BASE_URL: env['PUBLIC_CLIENT_BASE_URL'],
@@ -393,15 +391,6 @@ export const createConfig = (env: Env) => ({
     url: env.REDIS_URL,
     password: env.REDIS_PASSWORD,
     prefix: env.REDIS_PREFIX,
-  },
-  redesignSurface: {
-    /**
-     * When true, the legacy app additionally mounts the redesign kernel surface
-     * (GraphQL `/api/v1/graphql`, MCP `/api/v1/mcp`, health) on the same port.
-     * Requires the redesign env (PROD_DATABASE_URL etc.). Defaults to false so
-     * deployed legacy servers are unaffected.
-     */
-    enabled: env.REDESIGN_SURFACE_ENABLED ?? false,
   },
   cache: {
     backend: env.CACHE_BACKEND,

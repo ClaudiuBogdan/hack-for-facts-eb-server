@@ -32,7 +32,7 @@ providers behind a model router (Anthropic, OpenAI, OpenRouter).
 ## 1. Architecture overview
 
 ```
-client (TanStack Start)                     server (Fastify, legacy app w/ REDESIGN_SURFACE_ENABLED)
+client (TanStack Start)                     server (Fastify, kernel surface on /api/v1)
 ┌──────────────────────────┐               ┌────────────────────────────────────────────────────┐
 │ /agent route             │  POST (SSE)   │ /api/v1/agent/chat        ── agent REST routes     │
 │  useChat (@ai-sdk/react) ├──────────────►│   Clerk preHandler (strict)                        │
@@ -253,8 +253,8 @@ src/features/agent/
 ```
 
 - **Transport**: `DefaultChatTransport({ api: `${getApiBaseUrl()}/api/v1/agent/chat`, fetch: authFetch })`
-  where `authFetch` injects `Authorization: Bearer ${await getAuthToken()}` (same
-  pattern as `graphql-client.ts`).
+  where `authFetch` injects `Authorization: Bearer ${await getAuthToken()}`(same
+pattern as`graphql-client.ts`).
 - **Rendering**: iterate `message.parts` — `text` as markdown; `tool-*` parts as
   compact tool cards (name, running/done state, `summary`, `link` button); a
   `chart_spec` output renders inline via the existing chart-renderer and offers
@@ -274,9 +274,7 @@ the shared registry so MCP clients get it too) accepts a typed chart request
   "ok": true,
   "kind": "chart_spec",
   "link": "https://transparenta.eu/charts/<id>?...", // ChartUrlState deep link
-  "item": {
-    /* structured chart spec: type, series[], axes, title */
-  },
+  "item": {/* structured chart spec: type, series[], axes, title */},
   "summary": "Line chart of ...",
 }
 ```
@@ -308,7 +306,7 @@ AGENT_UNLIMITED_USER_IDS=user_abc,user_def
 ```
 
 Surfaced as `config.agent`. Requires `USER_DATABASE_URL`, `REDIS_URL`, Clerk vars
-(all already present in the legacy app), and `REDESIGN_SURFACE_ENABLED=true`.
+(all already present in the legacy app); the kernel surface is always mounted.
 `REDIS_URL` is mandatory in production; a missing value leaves the agent surface
 unmounted instead of silently using process-local counters.
 

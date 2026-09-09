@@ -16,13 +16,11 @@ import type { UserDatabase } from '@/infra/database/user/types.js';
 import type { FastifyInstance } from 'fastify';
 
 /**
- * Deploy-safety invariant for the optional redesign surface mount (build-app.ts).
+ * The kernel surface mount in build-app.ts (mandatory in api.ts since slice 1,
+ * 2026-09-09; `redesignKernelConfig` is only optional for unit-test compositions).
  *
- * The legacy app must serve ONLY its own surface unless BOTH the feature flag
- * (`config.redesignSurface.enabled`) AND a `redesignKernelConfig` are provided.
- * Deployed legacy servers satisfy neither, so `/api/v1/graphql` must not exist and
- * the legacy `/graphql` must behave exactly as before. These tests pin that so the
- * mount can never silently leak into a deployment.
+ * The legacy /graphql endpoint is gone, so a composition without the kernel
+ * config serves no GraphQL at all, and one with it serves /api/v1/graphql only.
  */
 // Every case builds the full legacy app and (for most) dynamically imports the
 // redesign module graph on top; under a parallel full-suite run that exceeds
@@ -48,10 +46,9 @@ describe(
       datasetRepo: makeFakeDatasetRepo(),
     });
 
-    it('does not register /api/v1/graphql when the flag is off (default)', async () => {
+    it('serves no GraphQL at all when the kernel config is omitted (unit-test composition only)', async () => {
       app = await createApp({
         fastifyOptions: { logger: false },
-        // makeTestConfig defaults redesignSurface.enabled to false.
         deps: { ...baseDeps(), config: makeTestConfig() },
       });
 
@@ -62,30 +59,14 @@ describe(
       });
       expect(redesign.statusCode).toBe(404);
 
-      // The legacy surface is unchanged.
+      // The legacy /graphql endpoint is gone too (slice 1, 2026-09-09): with
+      // the flag off this process serves no GraphQL at all.
       const legacy = await app.inject({
         method: 'POST',
         url: '/graphql',
         payload: { query: '{ health }' },
       });
-      expect(legacy.statusCode).toBe(200);
-      expect(legacy.json()).toEqual({ data: { health: 'ok' } });
-    });
-
-    it('does not mount when the flag is on but no redesignKernelConfig is provided', async () => {
-      app = await createApp({
-        fastifyOptions: { logger: false },
-        // Flag on, but the kernel config (griffin-prod) is absent → the AND-gate
-        // must keep the surface unmounted (and never build a kernel).
-        deps: { ...baseDeps(), config: makeTestConfig({ redesignSurface: { enabled: true } }) },
-      });
-
-      const redesign = await app.inject({
-        method: 'POST',
-        url: '/api/v1/graphql',
-        payload: { query: '{ __typename }' },
-      });
-      expect(redesign.statusCode).toBe(404);
+      expect(legacy.statusCode).toBe(404);
     });
   }
 );
@@ -97,8 +78,7 @@ describe(
  * tests/unit/app/global-auth-bypass.test.ts; these cases pin the wiring:
  * with the legacy auth preHandler active (userDb + authProvider present),
  * an anonymous GET under a public prefix must reach the mounted redesign
- * route (anything but 401), while with the flag off the pre-flag behavior
- * is unchanged.
+ * route (anything but 401).
  */
 describe(
   'redesign surface mount — public GET prefixes vs legacy auth',
@@ -135,7 +115,7 @@ describe(
         fastifyOptions: { logger: false },
         deps: {
           ...authedDeps(),
-          config: makeTestConfig({ redesignSurface: { enabled: true } }),
+          config: makeTestConfig(),
           redesignKernelConfig: kernelConfig,
         },
       });
@@ -165,7 +145,7 @@ describe(
         fastifyOptions: { logger: false },
         deps: {
           ...authedDeps(),
-          config: makeTestConfig({ redesignSurface: { enabled: true } }),
+          config: makeTestConfig(),
           redesignKernelConfig: kernelConfig,
         },
       });
@@ -197,7 +177,7 @@ describe(
           fastifyOptions: { logger: false },
           deps: {
             ...authedDeps(),
-            config: makeTestConfig({ redesignSurface: { enabled: true } }),
+            config: makeTestConfig(),
             redesignKernelConfig: kernelConfig,
             registerRedesignContributors: () => {
               throw new Error('fixture mount failure');
@@ -212,7 +192,7 @@ describe(
         fastifyOptions: { logger: false },
         deps: {
           ...authedDeps(),
-          config: makeTestConfig({ redesignSurface: { enabled: true } }),
+          config: makeTestConfig(),
           redesignKernelConfig: kernelConfig,
         },
       });
@@ -227,31 +207,14 @@ describe(
       // never a 2xx/5xx from a handler).
       expect([401, 404]).toContain(response.statusCode);
     });
-
-    it('flag off: requests under the prefix keep the pre-flag behavior', async () => {
-      app = await createApp({
-        fastifyOptions: { logger: false },
-        deps: { ...authedDeps(), config: makeTestConfig() },
-      });
-
-      const response = await app.inject({
-        method: 'GET',
-        url: '/api/v1/legal/documents/171282/render',
-      });
-      // Unregistered path on the legacy surface: the global auth preHandler
-      // fires only for matched routes, so this pins whatever the legacy app
-      // did before the flag existed — a non-2xx refusal.
-      expect(response.statusCode).toBeGreaterThanOrEqual(400);
-      expect([401, 404]).toContain(response.statusCode);
-    });
   }
 );
 
 /**
  * The INS kernel module (`ins-native`) is part of the default composition, so
  * the embedded surface serves the eight client-sent INS roots (and not the two
- * dropped ones) on /api/v1/graphql, while the legacy surface keeps its ten.
- * The S1-7 interim mount of the legacy INS module ended with review INS-01.
+ * dropped ones) on /api/v1/graphql. The legacy /graphql endpoint and the S1-7
+ * interim mount of the legacy INS module ended with review INS-01 (slice 1).
  */
 describe('redesign surface mount — native INS roots', { timeout: APP_BUILD_TIMEOUT_MS }, () => {
   let app: FastifyInstance | undefined;
@@ -264,14 +227,14 @@ describe('redesign surface mount — native INS roots', { timeout: APP_BUILD_TIM
   const QUERY_FIELDS = '{ __type(name: "Query") { fields { name } } }';
   const fieldNames = (body: { data: Record<string, { fields: { name: string }[] }> }) =>
     body.data['__type']?.fields.map((f) => f.name) ?? [];
-  it('serves the native INS roots on /api/v1/graphql and the legacy ten still on /graphql', async () => {
+  it('serves the eight native INS roots on /api/v1/graphql, not the two dropped legacy ones', async () => {
     app = await createApp({
       fastifyOptions: { logger: false },
       deps: {
         budgetDb: makeFakeBudgetDb(),
         insDb: makeFakeInsDb(),
         datasetRepo: makeFakeDatasetRepo(),
-        config: makeTestConfig({ redesignSurface: { enabled: true } }),
+        config: makeTestConfig(),
         redesignKernelConfig: {
           prodDatabaseUrl: 'postgres://test:test@127.0.0.1:1/test',
           meiliHost: '',
@@ -289,14 +252,12 @@ describe('redesign surface mount — native INS roots', { timeout: APP_BUILD_TIM
     const mountedFields = fieldNames(mounted.json());
     for (const root of INS_LEGACY_ROOTS) expect(mountedFields).toContain(root);
     for (const root of INS_LEGACY_ROOTS_DROPPED) expect(mountedFields).not.toContain(root);
+    // The legacy /graphql endpoint is gone (slice 1, 2026-09-09).
     const legacy = await app.inject({
       method: 'POST',
       url: '/graphql',
       payload: { query: QUERY_FIELDS },
     });
-    expect(legacy.statusCode).toBe(200);
-    const legacyFields = fieldNames(legacy.json());
-    for (const root of [...INS_LEGACY_ROOTS, ...INS_LEGACY_ROOTS_DROPPED])
-      expect(legacyFields).toContain(root);
+    expect(legacy.statusCode).toBe(404);
   });
 });
