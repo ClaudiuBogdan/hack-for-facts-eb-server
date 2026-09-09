@@ -190,3 +190,8 @@ export { makeLegacyMapTerritoryLookup } from './grouped-series/shell/providers/l
 export { makeNativeMapTerritoryLookup } from './grouped-series/shell/providers/native-map-territory-lookup.js';
 
 export { makeNativeMapSeriesProvider } from './grouped-series/shell/providers/native-map-series-provider.js';
+export {
+  makeCachedGroupedSeriesProvider,
+  isCacheableGroupedSeriesRequest,
+  type CachedGroupedSeriesProviderDeps,
+} from './grouped-series/shell/providers/cached-grouped-series-provider.js';

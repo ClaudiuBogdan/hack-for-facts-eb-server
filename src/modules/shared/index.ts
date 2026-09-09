@@ -371,8 +371,12 @@ export type {
 } from './shell/mcp/types.js';
 export { kernelToolInputSchema } from './shell/mcp/input-schema.js';
 export { createMcpHttpDispatcher, type McpHttpDispatcher } from './shell/mcp/http-dispatch.js';
-export { type KernelCache } from './shell/middleware/cache.js';
-export { type RateLimiter } from './shell/middleware/rate-limiter.js';
+export { createCache, type CacheConfig, type KernelCache } from './shell/middleware/cache.js';
+export {
+  createRateLimiter,
+  type RateLimiter,
+  type RateLimiterConfig,
+} from './shell/middleware/rate-limiter.js';
 // Diacritic folding (§15.7) — re-exported so modules don't reach into shell/repo.
 export { foldDiacritics } from './shell/repo/fold.js';
 /**

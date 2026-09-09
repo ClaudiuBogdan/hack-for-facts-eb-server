@@ -8,7 +8,11 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { isPublicNativeMapRead } from '@/app/native-map-routes.js';
+import {
+  PUBLIC_MAP_READ_RATE_LIMIT,
+  isPublicNativeMapRead,
+  mapRateLimitKey,
+} from '@/app/native-map-routes.js';
 
 describe('isPublicNativeMapRead', () => {
   it.each([
@@ -36,5 +40,34 @@ describe('isPublicNativeMapRead', () => {
     '/api/v1/advanced-map-analytics/public',
   ])('keeps auth on %s', (url) => {
     expect(isPublicNativeMapRead('GET', url)).toBe(false);
+  });
+});
+
+describe('mapRateLimitKey', () => {
+  it('sends anonymous public reads to their own per-IP bucket', () => {
+    expect(mapRateLimitKey('GET', '/api/v1/advanced-map-analytics/public/abc', '10.0.0.1')).toEqual(
+      {
+        bucket: 'public-read',
+        key: 'maps:public:10.0.0.1',
+      }
+    );
+    expect(mapRateLimitKey('HEAD', '/api/v1/advanced-map-datasets/public', '10.0.0.1').bucket).toBe(
+      'public-read'
+    );
+  });
+
+  it('keeps writes and owner reads on the kernel bucket', () => {
+    expect(mapRateLimitKey('POST', '/api/v1/advanced-map-analytics/maps', '10.0.0.1')).toEqual({
+      bucket: 'default',
+      key: 'maps:10.0.0.1',
+    });
+    expect(mapRateLimitKey('GET', '/api/v1/advanced-map-datasets/123', '10.0.0.1').bucket).toBe(
+      'default'
+    );
+  });
+
+  it('sizes the public bucket for viewers, not writers', () => {
+    expect(PUBLIC_MAP_READ_RATE_LIMIT.maxTokens).toBeGreaterThan(30);
+    expect(PUBLIC_MAP_READ_RATE_LIMIT.windowMs).toBe(60_000);
   });
 });

@@ -1,9 +1,11 @@
 /** Existing map lifecycle, isolated user storage and native-only source adapters. */
+import { createKeyBuilder } from '../infra/cache/index.js';
 import {
   defaultAdvancedMapAnalyticsIdGenerator,
   makeAdvancedMapAnalyticsRepo,
   makeAdvancedMapAnalyticsRoutes,
   makeAdvancedMapAnalyticsGroupedSeriesRoutes,
+  makeCachedGroupedSeriesProvider,
   makeNativeMapTerritoryLookup,
   makeNativeMapSeriesProvider,
 } from '../modules/advanced-map-analytics/index.js';
@@ -19,10 +21,16 @@ import {
   makeCommitmentsMapRepo,
   type BudgetMapDeps,
 } from '../modules/budget/index.js';
+import {
+  createCache,
+  createRateLimiter,
+  type ProdDatabase,
+  type RateLimiter,
+  type RateLimiterConfig,
+} from '../modules/shared/index.js';
 
 import type { UserDbClient } from '../infra/database/client.js';
 import type { InsReadSession } from '../modules/ins-native/index.js';
-import type { ProdDatabase, RateLimiter } from '../modules/shared/index.js';
 import type { FastifyInstance } from 'fastify';
 import type { Kysely } from 'kysely';
 import type { Logger } from 'pino';
@@ -30,6 +38,8 @@ import type { Logger } from 'pino';
 export interface NativeMapRoutesDeps {
   readonly db: Kysely<ProdDatabase>;
   readonly rateLimiter: RateLimiter;
+  /** Bucket for anonymous public map reads; defaults to `PUBLIC_MAP_READ_RATE_LIMIT`. */
+  readonly publicReadRateLimiter?: RateLimiter;
   readonly userDb: UserDbClient;
   readonly authProvider: AuthProvider;
   readonly clerkSecretKey?: string;
@@ -58,6 +68,26 @@ export function isPublicNativeMapRead(method: string, url: string): boolean {
   );
 }
 
+/** Public map reads get their own bucket: a viewer burst must not exhaust the write bucket, and vice versa. */
+export const PUBLIC_MAP_READ_RATE_LIMIT: RateLimiterConfig = { maxTokens: 120, windowMs: 60_000 };
+/** How long a public map view's grouped-series answer is served from memory. */
+export const PUBLIC_MAP_RESULT_TTL_MS = 5 * 60_000;
+const PUBLIC_MAP_RESULT_MAX_ENTRIES = 200;
+
+/**
+ * Which bucket a map request draws from: anonymous public reads share one
+ * per-IP bucket sized for viewers; everything else (writes, owner reads)
+ * keeps the kernel's per-IP bucket. Exported for the unit test.
+ */
+export const mapRateLimitKey = (
+  method: string,
+  url: string,
+  ip: string
+): { readonly bucket: 'public-read' | 'default'; readonly key: string } =>
+  isPublicNativeMapRead(method, url)
+    ? { bucket: 'public-read', key: `maps:public:${ip}` }
+    : { bucket: 'default', key: `maps:${ip}` };
+
 export async function registerNativeMapRoutes(
   app: FastifyInstance,
   deps: NativeMapRoutesDeps
@@ -77,21 +107,32 @@ export async function registerNativeMapRoutes(
   const territoryLookup = (granularity: 'UAT' | 'County') =>
     makeNativeMapTerritoryLookup(deps.db, granularity);
   const commitmentsRepo = makeCommitmentsMapRepo(deps.db);
-  const groupedSeriesProvider = makeNativeMapSeriesProvider({
-    territoryLookup,
-    datasetRepo,
-    budget: deps.budget,
-    readCommitments: (series, granularity) =>
-      commitmentsMapValues(
-        {
-          repo: commitmentsRepo,
-          factors: deps.budget.factors,
-          population: deps.budget.population,
-        },
-        { filter: series.filter, metric: series.metric, granularity }
-      ),
-    createInsReadSession: deps.createInsReadSession,
+  // Whole-request memo for the (identical-for-everyone) public map views;
+  // uploaded-dataset requests bypass it inside the decorator (N/M2).
+  const groupedSeriesProvider = makeCachedGroupedSeriesProvider({
+    inner: makeNativeMapSeriesProvider({
+      territoryLookup,
+      datasetRepo,
+      budget: deps.budget,
+      readCommitments: (series, granularity) =>
+        commitmentsMapValues(
+          {
+            repo: commitmentsRepo,
+            factors: deps.budget.factors,
+            population: deps.budget.population,
+          },
+          { filter: series.filter, metric: series.metric, granularity }
+        ),
+      createInsReadSession: deps.createInsReadSession,
+    }),
+    cache: createCache({
+      ttlMs: PUBLIC_MAP_RESULT_TTL_MS,
+      maxEntries: PUBLIC_MAP_RESULT_MAX_ENTRIES,
+    }),
+    keyBuilder: createKeyBuilder(),
   });
+  const publicReadRateLimiter =
+    deps.publicReadRateLimiter ?? createRateLimiter(PUBLIC_MAP_READ_RATE_LIMIT);
   // Uploads can contain either supported keyspace; the selected view never rolls up arbitrary units.
   const uploadTerritories = async () => [
     ...(await territoryLookup('UAT')()),
@@ -99,7 +140,10 @@ export async function registerNativeMapRoutes(
   ];
   await app.register(async (scope) => {
     scope.addHook('onRequest', async (request, reply) => {
-      const limit = deps.rateLimiter.consume(`maps:${request.ip}`);
+      const { bucket, key } = mapRateLimitKey(request.method, request.url, request.ip);
+      const limit = (bucket === 'public-read' ? publicReadRateLimiter : deps.rateLimiter).consume(
+        key
+      );
       if (!limit.allowed)
         await reply
           .code(429)
