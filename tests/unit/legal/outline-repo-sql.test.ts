@@ -86,6 +86,17 @@ describe('outline repo SQL', () => {
     expect(sql).not.toContain('"n"."node_kind" in');
   });
 
+  it('gates outline rows and deep links on privacy_class', async () => {
+    // The shared select carries the gate so entryByPath cannot resolve a
+    // restricted node the paged outline would have hidden.
+    const repo = makeLegalOutlineRepo(makeDb());
+    await repo.outline({ documentId: 'doc-1', maxDepth: 3, page: { first: 50 } });
+    expect(lastSql()).toMatch(/"n"\."privacy_class" = \$\d+/u);
+
+    await repo.entryByPath('doc-1', 'unmarked:7');
+    expect(lastSql()).toMatch(/"n"\."privacy_class" = \$\d+/u);
+  });
+
   it('keeps the role filter that stops an article appearing four times', async () => {
     const repo = makeLegalOutlineRepo(makeDb());
     await repo.outline({ documentId: 'doc-1', maxDepth: 3, page: { first: 50 } });

@@ -106,6 +106,10 @@ export const makeLegalOutlineRepo = (db: Db): LegalOutlineRepo => {
       .innerJoin('legal.document_generations as g', (join) =>
         join.onRef('g.document_id', '=', 'n.document_id').onRef('g.run_id', '=', 'n.run_id')
       )
+      // Node-level privacy gate, in the shared select so every outline read
+      // (paged outline, deep-link entryByPath) inherits it: a restricted node
+      // must not surface as a heading or resolve as an anchor.
+      .where('n.privacy_class', '=', 'public')
       .select([
         'n.document_id',
         'n.path',
