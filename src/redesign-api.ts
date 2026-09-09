@@ -32,6 +32,9 @@ const main = async (): Promise<void> => {
     ...(authProvider !== undefined && { authProvider }),
     logLevel: config.logLevel,
     corsAllowedOrigins: config.corsAllowedOrigins,
+    trustProxy: config.trustProxy,
+    procurement: config.procurement,
+    ...(config.legalSearch !== undefined && { legalSearch: config.legalSearch }),
     ...(config.kernel.clientBaseUrl !== undefined && {
       clientBaseUrl: config.kernel.clientBaseUrl,
     }),

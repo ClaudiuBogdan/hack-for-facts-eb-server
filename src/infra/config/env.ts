@@ -6,6 +6,7 @@
 import { Type, type Static } from '@sinclair/typebox';
 import { Value } from '@sinclair/typebox/value';
 
+import { parseTrustProxy } from './trust-proxy.js';
 import { createCacheConfig } from '../cache/client.js';
 
 /**
@@ -200,31 +201,6 @@ export const EnvSchema = Type.Object({
 });
 
 export type Env = Static<typeof EnvSchema>;
-
-const parseTrustProxy = (value: string | undefined): boolean | number | string | undefined => {
-  if (value === undefined) {
-    return undefined;
-  }
-
-  const trimmedValue = value.trim();
-  if (trimmedValue.length === 0) {
-    return undefined;
-  }
-
-  if (trimmedValue === 'true') {
-    return true;
-  }
-
-  if (trimmedValue === 'false') {
-    return false;
-  }
-
-  if (/^\d+$/.test(trimmedValue)) {
-    return Number.parseInt(trimmedValue, 10);
-  }
-
-  return trimmedValue;
-};
 
 /**
  * Parse and validate environment variables

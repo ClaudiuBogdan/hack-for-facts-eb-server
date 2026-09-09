@@ -16,3 +16,16 @@ data:
   PROD_OPENSEARCH_CA_FILE: /var/run/secrets/chronos-opensearch/ca.pem
   PROD_OPENSEARCH_TLS_SERVERNAME: transparenta-eu-etl-opensearch.transparenta-eu-etl-prod.svc.cluster.local
   PROD_CLICKHOUSE_URL: ''
+  # Keys the kernel entrypoint never reads (review X/F16): the shared base
+  # ConfigMap carries them for the legacy api.js; the redesign config schema
+  # strips them silently, so they are removed here to keep the pod env honest.
+  APP_NAME: null
+  APP_PORT: null
+  FLUSH_INTERVAL: null
+  K8S_CLUSTER_NAME: null
+  LOG_BATCH_SIZE: null
+  RATE_LIMIT_MAX: null
+  RATE_LIMIT_WINDOW: null
+  REDESIGN_SURFACE_ENABLED: null
+  SPECIAL_RATE_LIMIT_HEADER: null
+  SPECIAL_RATE_LIMIT_MAX: null

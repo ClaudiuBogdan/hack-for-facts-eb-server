@@ -1216,6 +1216,12 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       try {
         await registerRedesignSurface(child, {
           kernelConfig: redesignKernelConfig,
+          ...(deps.redesignComposition !== undefined && {
+            procurement: deps.redesignComposition.procurement,
+            ...(deps.redesignComposition.legalSearch !== undefined && {
+              legalSearch: deps.redesignComposition.legalSearch,
+            }),
+          }),
           // Disabled to avoid a duplicate `GET /graphiql` route (legacy owns it).
           enableGraphiQL: false,
           // The INS kernel module (`ins-native`, in the default composition)

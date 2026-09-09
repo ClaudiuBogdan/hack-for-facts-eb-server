@@ -2,6 +2,10 @@ import { CAMPAIGN_ADMIN_REVIEW_CAMPAIGN_KEYS } from '../modules/learning-progres
 
 import type { CacheClient } from '../infra/cache/index.js';
 import type { AppConfig } from '../infra/config/env.js';
+import type {
+  LegalSearchComposition,
+  ProcurementComposition,
+} from '../infra/config/redesign-env.js';
 import type { BudgetDbClient, InsDbClient, UserDbClient } from '../infra/database/client.js';
 import type { AdminEventRuntimeFactory } from '../modules/admin-events/index.js';
 import type { AuthProvider } from '../modules/auth/index.js';
@@ -104,6 +108,15 @@ export interface AppDeps {
    * same port. Omitted in deployed legacy servers, so the surface is never built.
    */
   redesignKernelConfig?: KernelConfig;
+  /**
+   * Composition settings for the mounted redesign surface (procurement
+   * analytics/search, legal search), validated by `loadRedesignConfig`; the
+   * surface reads nothing from process.env itself (review X/F13).
+   */
+  redesignComposition?: {
+    readonly procurement: ProcurementComposition;
+    readonly legalSearch?: LegalSearchComposition;
+  };
   /** Client base URL passed to the mounted redesign surface (MCP deep links). */
   redesignClientBaseUrl?: string;
   /**

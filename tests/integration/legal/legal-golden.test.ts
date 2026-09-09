@@ -114,8 +114,10 @@ const rawStatusToGraphql = (status: string): string => status.toUpperCase().repl
 
 d('Legal golden (live prod)', () => {
   beforeAll(async () => {
+    const config = loadRedesignConfig(process.env);
     const built = await buildRedesignApp({
-      kernelConfig: loadRedesignConfig(process.env).kernel,
+      kernelConfig: config.kernel,
+      ...(config.legalSearch !== undefined && { legalSearch: config.legalSearch }),
       logLevel: 'silent',
       modules: ['legal'],
     });

@@ -18,6 +18,7 @@ import { makeJWTAdapter, makeCachedAuthProvider, type AuthProvider } from './mod
 import { createDatasetRepo } from './modules/datasets/index.js';
 import { NormalizationService } from './modules/normalization/index.js';
 
+import type { AppDeps } from './app/build-plan.js';
 import type { HealthChecker } from './modules/health/index.js';
 import type { Logger } from 'pino';
 
@@ -133,11 +134,16 @@ const main = async (): Promise<void> => {
   // defaults off and is only set for local dev — deployed legacy servers skip this
   // entirely. Wrapped so a missing/invalid redesign env can never crash the server.
   let redesignKernelConfig: ReturnType<typeof loadRedesignConfig>['kernel'] | undefined;
+  let redesignComposition: AppDeps['redesignComposition'];
   let redesignClientBaseUrl: string | undefined;
   if (config.redesignSurface.enabled) {
     try {
       const redesign = loadRedesignConfig(process.env);
       redesignKernelConfig = redesign.kernel;
+      redesignComposition = {
+        procurement: redesign.procurement,
+        ...(redesign.legalSearch !== undefined && { legalSearch: redesign.legalSearch }),
+      };
       redesignClientBaseUrl = redesign.kernel.clientBaseUrl;
       logger.info('Redesign surface enabled — mounting /api/v1/graphql on the legacy port');
     } catch (error) {
@@ -177,6 +183,7 @@ const main = async (): Promise<void> => {
       config,
       ...(authProvider !== undefined && { authProvider }),
       ...(redesignKernelConfig !== undefined && { redesignKernelConfig }),
+      ...(redesignComposition !== undefined && { redesignComposition }),
       ...(redesignClientBaseUrl !== undefined && { redesignClientBaseUrl }),
     },
     version: getVersion(),

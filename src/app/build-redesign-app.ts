@@ -22,6 +22,7 @@ import mercuriusPlugin from 'mercurius';
 
 import { makeInsGraphqlLifecycle } from './ins-graphql-session.js';
 import { registerNativeMapRoutes } from './native-map-routes.js';
+import { publicHealthReport } from './public-health.js';
 import {
   makeGraphQLErrorFormatter,
   makeGraphQLValidationRules,
@@ -59,6 +60,11 @@ import {
   type AnnualPopulationPort,
 } from '../modules/shared/index.js';
 
+import type {
+  LegalSearchComposition,
+  ProcurementComposition,
+} from '../infra/config/redesign-env.js';
+import type { TrustProxySetting } from '../infra/config/trust-proxy.js';
 import type { UserDatabase } from '../infra/database/user/types.js';
 import type { AgentModuleConfig, QuotaRedis } from '../modules/agent/index.js';
 import type { Kysely } from 'kysely';
@@ -122,6 +128,12 @@ export interface BuildRedesignAppDeps {
   )[];
   /** Disable procurement's fire-and-forget preload for isolated cold benchmarks. */
   readonly procurementWarmCache?: boolean;
+  /** Procurement composition (ClickHouse, record-list search, DA window), validated by the entrypoint. */
+  readonly procurement?: ProcurementComposition;
+  /** Legal search engine connection, validated by the entrypoint. */
+  readonly legalSearch?: LegalSearchComposition;
+  /** Fastify `trustProxy` (default true: the process sits behind the gateway). */
+  readonly trustProxy?: TrustProxySetting;
   /** When set, mounts the authenticated agent surface at /api/v1/agent. */
   readonly agent?: RedesignAgentDeps;
   /**
@@ -207,7 +219,9 @@ export const buildRedesignApp = async (deps: BuildRedesignAppDeps): Promise<Rede
   const app = fastifyLib({
     logger: { level: deps.logLevel ?? 'info' },
     disableRequestLogging: true,
-    trustProxy: true,
+    // Rate limits and logs key on the client IP; behind the gateway that means
+    // trusting X-Forwarded-For (X/F15). Off only for a directly exposed process.
+    trustProxy: deps.trustProxy ?? true,
   });
 
   // ── CORS ─────────────────────────────────────────────────────────────────────
@@ -498,72 +512,36 @@ export const registerRedesignSurface = async (
   }
 
   if (enabledModules.includes('procurement')) {
-    const windowEnv = Number(process.env['PROCUREMENT_DA_LIST_MAX_WINDOW_DAYS']);
-    // DEV analytics backend switch: point analytics at the ClickHouse
-    // prototype fact tables (Chronos, normally via private Tailscale).
-    // Unset = rollups.
-    const clickhouseUrl = process.env['PROD_CLICKHOUSE_URL'];
-    // The procurement record-list search engine. The connection may come from
-    // the kernel-wide PROD_OPENSEARCH_* settings (the serving cluster), but the
-    // path is NEVER enabled implicitly: it turns on only when the per-grain
-    // index map is stated explicitly in PROCUREMENT_SEARCH_OPENSEARCH_INDEXES
-    // (`grain:index,...`), or when a dedicated URL overrides the connection.
-    // A grain left out of the map is served by SQL — and geography / CPV
-    // mid-level filters then fail explicitly rather than answering a wider
-    // question. TLS: *_CA_FILE pins the private CA and *_TLS_SERVERNAME must be
-    // a cert SAN (a port-forwarded localhost host is not one).
-    const env = (dedicated: string, shared: string): string | undefined =>
-      process.env[`PROCUREMENT_SEARCH_OPENSEARCH_${dedicated}`] ?? process.env[shared];
-    const searchOpensearchUrl = env('URL', 'PROD_OPENSEARCH_URL');
-    const searchOpensearchCaFile = env('CA_FILE', 'PROD_OPENSEARCH_CA_FILE');
-    const searchOpensearchUser = env('USERNAME', 'PROD_OPENSEARCH_USERNAME');
-    const searchOpensearchPassword = env('PASSWORD', 'PROD_OPENSEARCH_PASSWORD');
-    const searchOpensearchServername = env('TLS_SERVERNAME', 'PROD_OPENSEARCH_TLS_SERVERNAME');
-    const searchIndexMap = process.env['PROCUREMENT_SEARCH_OPENSEARCH_INDEXES'];
-    const searchOpensearchIndexes = Object.fromEntries(
-      (searchIndexMap ?? '')
-        .split(',')
-        .map((pair) => pair.split(':').map((s) => s.trim()))
-        .filter((kv): kv is [string, string] => kv.length === 2 && kv[0] !== '' && kv[1] !== '')
-    );
-    const searchEngineEnabled =
-      searchOpensearchUrl !== undefined &&
-      searchOpensearchUrl !== '' &&
-      Object.keys(searchOpensearchIndexes).length > 0;
+    // Composition settings come validated from the entrypoint (X/F13): the
+    // ClickHouse analytics backend, the per-grain OpenSearch index map for
+    // record lists, and the DA list window. Nothing here reads process.env.
+    const composition = deps.procurement ?? {};
     const procurement = makeProcurementModule({
       db: kernel.db,
       logger: app.log,
-      ...(searchEngineEnabled && {
+      ...(composition.search !== undefined && {
         opensearch: {
-          url: searchOpensearchUrl,
-          indexes: searchOpensearchIndexes,
-          ...(searchOpensearchUser !== undefined && { username: searchOpensearchUser }),
-          ...(searchOpensearchPassword !== undefined && { password: searchOpensearchPassword }),
-          ...(searchOpensearchCaFile !== undefined &&
-            searchOpensearchCaFile !== '' && {
-              caCert: readFileSync(searchOpensearchCaFile, 'utf8'),
-            }),
-          ...(searchOpensearchServername !== undefined && {
-            tlsServername: searchOpensearchServername,
+          url: composition.search.url,
+          indexes: composition.search.indexes,
+          ...(composition.search.username !== undefined && {
+            username: composition.search.username,
+          }),
+          ...(composition.search.password !== undefined && {
+            password: composition.search.password,
+          }),
+          ...(composition.search.caFile !== undefined && {
+            caCert: readFileSync(composition.search.caFile, 'utf8'),
+          }),
+          ...(composition.search.tlsServername !== undefined && {
+            tlsServername: composition.search.tlsServername,
           }),
         },
       }),
-      ...(clickhouseUrl !== undefined &&
-        clickhouseUrl !== '' && {
-          clickhouse: {
-            url: clickhouseUrl,
-            database: process.env['PROD_CLICKHOUSE_DATABASE'] ?? 'proto',
-            ...(process.env['PROD_CLICKHOUSE_USER'] !== undefined && {
-              user: process.env['PROD_CLICKHOUSE_USER'],
-            }),
-            ...(process.env['PROD_CLICKHOUSE_PASSWORD'] !== undefined && {
-              password: process.env['PROD_CLICKHOUSE_PASSWORD'],
-            }),
-          },
-        }),
+      ...(composition.clickhouse !== undefined && { clickhouse: composition.clickhouse }),
       ...(deps.procurementWarmCache !== undefined && { warmCache: deps.procurementWarmCache }),
-      ...(Number.isFinite(windowEnv) &&
-        windowEnv > 0 && { daListMaxWindowDays: Math.floor(windowEnv) }),
+      ...(composition.daListMaxWindowDays !== undefined && {
+        daListMaxWindowDays: composition.daListMaxWindowDays,
+      }),
       ...(deps.clientBaseUrl !== undefined && { clientBaseUrl: deps.clientBaseUrl }),
     });
     moduleSlices.push(procurement.graphqlSlice);
@@ -590,47 +568,28 @@ export const registerRedesignSurface = async (
   }
 
   if (enabledModules.includes('legal')) {
-    // The legal module embeds queries with the nomic model + `search_query:`
-    // prefix; discover the model id from the synthetic client (env override wins).
+    // The legal search engine connection comes validated from the entrypoint
+    // (X/F13); present only when an acts or sections alias is named.
+    const legalSearch = deps.legalSearch;
     const embedRes = await kernel.clients.syntheticClient.discoverEmbeddingModel();
     const embeddingModel = embedRes.isOk() ? embedRes.value : 'nomic-embed-text-v1.5';
-    // The legal search engine. Same discipline as procurement: the connection
-    // may come from the kernel-wide PROD_OPENSEARCH_* settings, but the path is
-    // NEVER enabled implicitly — it turns on only when the aliases are named in
-    // LEGAL_SEARCH_OPENSEARCH_ACTS_INDEX / _SECTIONS_INDEX. With no acts alias
-    // legalSearch answers from Postgres and reports engine: 'postgres'; with no
-    // sections alias the sections channel degrades with a stated caveat rather
-    // than disappearing. TLS: *_CA_FILE pins the private CA and *_TLS_SERVERNAME
-    // must be a cert SAN (a port-forwarded localhost host is not one).
-    const legalEnv = (dedicated: string, shared: string): string | undefined =>
-      process.env[`LEGAL_SEARCH_OPENSEARCH_${dedicated}`] ?? process.env[shared];
-    const legalSearchUrl = legalEnv('URL', 'PROD_OPENSEARCH_URL');
-    const legalActsIndex = process.env['LEGAL_SEARCH_OPENSEARCH_ACTS_INDEX'];
-    const legalSectionsIndex = process.env['LEGAL_SEARCH_OPENSEARCH_SECTIONS_INDEX'];
-    const legalSearchCaFile = legalEnv('CA_FILE', 'PROD_OPENSEARCH_CA_FILE');
-    const legalSearchUser = legalEnv('USERNAME', 'PROD_OPENSEARCH_USERNAME');
-    const legalSearchPassword = legalEnv('PASSWORD', 'PROD_OPENSEARCH_PASSWORD');
-    const legalSearchServername = legalEnv('TLS_SERVERNAME', 'PROD_OPENSEARCH_TLS_SERVERNAME');
-    const legalSearchEnabled =
-      legalSearchUrl !== undefined &&
-      legalSearchUrl !== '' &&
-      ((legalActsIndex !== undefined && legalActsIndex !== '') ||
-        (legalSectionsIndex !== undefined && legalSectionsIndex !== ''));
-
     const legal = await makeLegalModule({
       db: kernel.db,
-      ...(legalSearchEnabled && {
+      ...(legalSearch !== undefined && {
         searchEngine: {
-          url: legalSearchUrl,
-          ...(legalActsIndex !== undefined &&
-            legalActsIndex !== '' && { actsIndex: legalActsIndex }),
-          ...(legalSectionsIndex !== undefined &&
-            legalSectionsIndex !== '' && { sectionsIndex: legalSectionsIndex }),
-          ...(legalSearchUser !== undefined && { username: legalSearchUser }),
-          ...(legalSearchPassword !== undefined && { password: legalSearchPassword }),
-          ...(legalSearchCaFile !== undefined &&
-            legalSearchCaFile !== '' && { caCert: readFileSync(legalSearchCaFile, 'utf8') }),
-          ...(legalSearchServername !== undefined && { tlsServername: legalSearchServername }),
+          url: legalSearch.url,
+          ...(legalSearch.actsIndex !== undefined && { actsIndex: legalSearch.actsIndex }),
+          ...(legalSearch.sectionsIndex !== undefined && {
+            sectionsIndex: legalSearch.sectionsIndex,
+          }),
+          ...(legalSearch.username !== undefined && { username: legalSearch.username }),
+          ...(legalSearch.password !== undefined && { password: legalSearch.password }),
+          ...(legalSearch.caFile !== undefined && {
+            caCert: readFileSync(legalSearch.caFile, 'utf8'),
+          }),
+          ...(legalSearch.tlsServername !== undefined && {
+            tlsServername: legalSearch.tlsServername,
+          }),
         },
       }),
       meiliClient: kernel.clients.meiliClient,
@@ -835,17 +794,24 @@ export const registerRedesignSurface = async (
     return reply.code(200).send({ status: 'ok' });
   });
 
-  app.get('/api/v1/health', async (_request, reply) => {
+  // The public bodies carry status + latency + a coded reason; the raw
+  // dependency error (driver message, host names, TLS details) goes to the log
+  // only (X/F14).
+  const publicReport = async () => {
     const [report, userDatabase] = await Promise.all([kernel.health(), publicUserDataHealth()]);
+    const { publicReport: sanitized, detail } = publicHealthReport(report);
+    if (detail.length > 0) app.log.warn({ dependencies: detail }, 'dependency health errors');
+    return { report: sanitized, userDatabase, postgresOk: report.postgres.status === 'ok' };
+  };
+  app.get('/api/v1/health', async (_request, reply) => {
+    const { report, userDatabase } = await publicReport();
     // Dependency report never hard-fails on aux down (§14.11); always 200.
     return reply.code(200).send({ ...report, ...(userDatabase !== undefined && { userDatabase }) });
   });
 
   app.get('/api/v1/ready', { logLevel: 'silent' }, async (_request, reply) => {
-    const [report, userDatabase] = await Promise.all([kernel.health(), publicUserDataHealth()]);
-    const ready =
-      report.postgres.status === 'ok' &&
-      (userDatabase === undefined || userDatabase.status === 'healthy');
+    const { report, userDatabase, postgresOk } = await publicReport();
+    const ready = postgresOk && (userDatabase === undefined || userDatabase.status === 'healthy');
     return reply
       .code(ready ? 200 : 503)
       .send({ ready, ...report, ...(userDatabase !== undefined && { userDatabase }) });

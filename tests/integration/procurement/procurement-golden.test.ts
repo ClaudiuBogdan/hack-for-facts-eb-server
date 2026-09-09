@@ -109,6 +109,7 @@ d('Procurement golden (live prod)', () => {
     const config = loadRedesignConfig(process.env);
     const built = await buildRedesignApp({
       kernelConfig: config.kernel,
+      procurement: config.procurement,
       modules: ['procurement'],
       logLevel: 'silent',
     });
@@ -416,6 +417,7 @@ d('Procurement analysis golden (live prod, active generation required)', () => {
     const config = loadRedesignConfig(process.env);
     const built = await buildRedesignApp({
       kernelConfig: config.kernel,
+      procurement: config.procurement,
       modules: ['procurement'],
       logLevel: 'silent',
     });

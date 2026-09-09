@@ -57,15 +57,24 @@ describe('redesign health probes', () => {
   it('reports dependencies on /api/v1/health with 200 even when the serving DB is down', async () => {
     const res = await inject('/api/v1/health');
     expect(res.statusCode).toBe(200);
-    const body = res.json<{ postgres: { status: string } }>();
+    const body = res.json<{ postgres: { status: string; reason?: string; error?: string } }>();
     expect(body.postgres.status).toBe('error');
+    // The public body carries a coded reason, never the driver message (X/F14).
+    expect(body.postgres.reason).toMatch(/^(error|timeout)$/u);
+    expect(body.postgres.error).toBeUndefined();
   });
 
   it('gates /api/v1/ready on the serving DB', async () => {
     const res = await inject('/api/v1/ready');
     expect(res.statusCode).toBe(503);
-    const body = res.json<{ ready: boolean; postgres: { status: string } }>();
+    const body = res.json<{
+      ready: boolean;
+      postgres: { status: string; reason?: string; error?: string };
+    }>();
     expect(body.ready).toBe(false);
     expect(body.postgres.status).toBe('error');
+    // The public body carries a coded reason, never the driver message (X/F14).
+    expect(body.postgres.reason).toMatch(/^(error|timeout)$/u);
+    expect(body.postgres.error).toBeUndefined();
   });
 });

@@ -30,6 +30,7 @@ if (!concurrencyMode && testCase === undefined) {
 const config = loadRedesignConfig(process.env);
 const built = await buildRedesignApp({
   kernelConfig: config.kernel,
+  procurement: config.procurement,
   modules: ['procurement'],
   procurementWarmCache: false,
   logLevel: 'silent',
