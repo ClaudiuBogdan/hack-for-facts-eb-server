@@ -85,6 +85,7 @@ const DDL = `
     url text,
     attrs jsonb not null default '{}'::jsonb,
     visibility text not null default 'public',
+    privacy_class text not null default 'public',
     rank_boost double precision,
     deleted_at timestamptz,
     updated_at timestamptz not null default now(),
@@ -105,6 +106,7 @@ interface SeedRow {
   url?: string | null;
   attrs?: Record<string, unknown>;
   visibility?: string;
+  privacy_class?: string;
   /** When set, the row is tombstoned (`deleted_at = now()`) — must be excluded. */
   deleted?: boolean;
 }
@@ -141,6 +143,16 @@ const SEED: SeedRow[] = [
   { doc_id: 'company:5', doc_type: 'company', title: 'Gamma SRL', body: 'a special acme partner' },
   // Tombstoned (deleted_at set) but otherwise matches "acme" — must be excluded.
   { doc_id: 'company:6', doc_type: 'company', title: 'ACME Deleted SRL', deleted: true },
+  // The measured P0A shape: `visibility='public'` AND `privacy_class='restricted'`
+  // (117,688 live rows on 2026-08-25). Only the privacy_class pin excludes it.
+  {
+    doc_id: 'company:9',
+    doc_type: 'company',
+    title: 'ACME Restricted Class SRL',
+    cuis: ['333'],
+    visibility: 'public',
+    privacy_class: 'restricted',
+  },
   // WITHHELD-ONLY: keyed solely to a person-shaped identifier (>10 digits).
   // Public and not tombstoned, so ONLY the containment rule can exclude it —
   // which is what makes it a real test of that rule rather than of visibility.
@@ -206,8 +218,8 @@ beforeAll(async () => {
   for (const r of SEED) {
     await pgClient.query(
       `insert into search.documents
-         (doc_id, doc_type, title, body, cuis, doc_date, county_name, url, attrs, visibility, deleted_at)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10, case when $11 then now() else null end)`,
+         (doc_id, doc_type, title, body, cuis, doc_date, county_name, url, attrs, visibility, privacy_class, deleted_at)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11, case when $12 then now() else null end)`,
       [
         r.doc_id,
         r.doc_type,
@@ -219,6 +231,7 @@ beforeAll(async () => {
         r.url ?? null,
         JSON.stringify(r.attrs ?? {}),
         r.visibility ?? 'public',
+        r.privacy_class ?? 'public',
         r.deleted ?? false,
       ]
     );
@@ -246,6 +259,12 @@ describe('countByCui (e2e)', () => {
   it('returns 0 for a CUI present in no document', async () => {
     if (!dockerAvailable) return;
     const res = await repo!.countByCui('000');
+    expect(res._unsafeUnwrap()).toBe(0);
+  });
+
+  it('does not count a visible row whose privacy_class is restricted', async () => {
+    if (!dockerAvailable) return;
+    const res = await repo!.countByCui('333');
     expect(res._unsafeUnwrap()).toBe(0);
   });
 });
