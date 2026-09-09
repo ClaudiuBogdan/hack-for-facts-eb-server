@@ -635,3 +635,72 @@ describe('budget ranking repository filters', () => {
     expect(flat(captured[0]!.sql)).toContain(`order by ${expectedSql} asc nulls last`);
   });
 });
+
+describe('entity identity gate on rankings and report reads (review B/F5)', () => {
+  // The grouped entityAnalytics path requires a servable identifier and a
+  // public-or-absent organization. Rankings and report listings name entities
+  // too and used to emit core.public_entities names ungated; one rule now.
+  const ORG_JOIN = 'left join "core"."organizations" as "o" on "o"."cui" = ';
+  const GATE = /\(o\.org_id is null or "o"\."privacy_class" = \$\d+\)/u;
+  const SERVABLE = /length\("(mv|r)"\."entity_cui"\) <= 10/u;
+
+  const expectGated = (captured: CapturedQuery[], cuiColumn: string): void => {
+    expect(captured.length).toBeGreaterThanOrEqual(1);
+    for (const q of captured) {
+      const s = flat(q.sql);
+      expect(s).toContain(ORG_JOIN + cuiColumn);
+      expect(s).toMatch(GATE);
+      expect(s).toMatch(SERVABLE);
+      expect(q.parameters).toContain('public');
+    }
+  };
+
+  it('rankEntities joins the organization row and gates on it', async () => {
+    const captured: CapturedQuery[] = [];
+    const repo = makeBudgetRepo(makeCapturingDb(captured));
+    const result = await repo.rankEntities({
+      year: 2024,
+      reportType: 'EXECUTION_DETAILED',
+      frequency: 'YEAR',
+      metric: 'EXPENSE',
+      normalization: 'TOTAL',
+      limit: 10,
+    });
+    expect(result.isOk()).toBe(true);
+    expectGated(captured, '"mv"."entity_cui"');
+  });
+
+  it('rankCommitmentEntities joins the organization row and gates on it', async () => {
+    const captured: CapturedQuery[] = [];
+    const repo = makeBudgetRepo(makeCapturingDb(captured));
+    const result = await repo.rankCommitmentEntities({
+      year: 2024,
+      reportType: 'COMMITMENT_AGG_PRINCIPAL',
+      metric: 'credite_angajament',
+      limit: 10,
+    });
+    expect(result.isOk()).toBe(true);
+    expectGated(captured, '"mv"."entity_cui"');
+  });
+
+  it('listReports gates the page AND the total with the same predicate', async () => {
+    const captured: CapturedQuery[] = [];
+    const repo = makeBudgetRepo(makeCapturingDb(captured));
+    const result = await repo.listReports({
+      filter: { reportingYear: { eq: 2024 } },
+      page: 1,
+      pageSize: 10,
+    });
+    expect(result.isOk()).toBe(true);
+    expect(captured).toHaveLength(2);
+    expectGated(captured, '"r"."entity_cui"');
+  });
+
+  it('getReport is absent, not named, for a restricted organization', async () => {
+    const captured: CapturedQuery[] = [];
+    const repo = makeBudgetRepo(makeCapturingDb(captured));
+    const result = await repo.getReport('123');
+    expect(result.isOk()).toBe(true);
+    expectGated(captured, '"r"."entity_cui"');
+  });
+});

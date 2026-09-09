@@ -56,6 +56,7 @@ import {
   type ExecutionGate,
 } from './filter-helpers.js';
 import { makeFundingSourceMap, type FundingSourceMap } from './funding-source-map.js';
+import { publicEntityIdentitySql } from './legacy-entity-predicates.js';
 import {
   commitReportType,
   execReportType,
@@ -1306,11 +1307,15 @@ export const makeBudgetRepo = (db: Db, options: BudgetRepoOptions = {}): BudgetR
       if (q.isUat !== undefined) conds.push(sql`e.is_uat = ${q.isUat}`);
       if (q.isTerritorialExecutive !== undefined)
         conds.push(sql`e.is_territorial_executive = ${q.isTerritorialExecutive}`);
+      // Same identity rule as grouped entityAnalytics (B/F5): a ranked row
+      // names an entity, so a restricted organization never appears in one.
+      conds.push(publicEntityIdentitySql('mv.entity_cui'));
       // Collapse creditor rows before ranking. Keep population out of this
       // candidate set: native annual values may change eligibility and order.
       const candidates = db
         .selectFrom(execMvName(q.frequency))
         .leftJoin('core.public_entities as e', 'e.cui', 'mv.entity_cui')
+        .leftJoin('core.organizations as o', 'o.cui', 'mv.entity_cui')
         .leftJoin('core.territories as t', 't.id', 'e.territory_id')
         .select([
           'mv.entity_cui',
@@ -1468,6 +1473,7 @@ export const makeBudgetRepo = (db: Db, options: BudgetRepoOptions = {}): BudgetR
       const rows = await db
         .selectFrom(commitMvName('YEAR'))
         .leftJoin('core.public_entities as e', 'e.cui', 'mv.entity_cui')
+        .leftJoin('core.organizations as o', 'o.cui', 'mv.entity_cui')
         .select([
           'mv.entity_cui',
           sql<string | null>`e.name`.as('entity_name'),
@@ -1475,6 +1481,7 @@ export const makeBudgetRepo = (db: Db, options: BudgetRepoOptions = {}): BudgetR
           sql<string>`sum(coalesce(mv.${sql.ref(q.metric)},0))::text`.as('amount'),
         ])
         .where(sql<SqlBool>`mv.year = ${q.year} and mv.report_type = ${reportLabel}`)
+        .where(publicEntityIdentitySql('mv.entity_cui'))
         .groupBy(['mv.entity_cui', 'e.name', 'mv.year'])
         // Order by the same coalesced sum that is selected: an all-null scope
         // is a zero amount, not a "nulls last" row sorted below negatives.
@@ -1834,9 +1841,12 @@ export const makeBudgetRepo = (db: Db, options: BudgetRepoOptions = {}): BudgetR
     const pageSize = clamp(q.pageSize, 1, OFFICIAL_PAGE_MAX);
     const offset = (page - 1) * pageSize;
     try {
+      // A report row names its entity: same identity rule as rankings (B/F5),
+      // applied to the page and to the total so they agree.
       const rows = (await db
         .selectFrom('budget.reports as r')
         .leftJoin('core.public_entities as e', 'e.cui', 'r.entity_cui')
+        .leftJoin('core.organizations as o', 'o.cui', 'r.entity_cui')
         .select([
           'r.report_id',
           'r.entity_cui',
@@ -1851,6 +1861,7 @@ export const makeBudgetRepo = (db: Db, options: BudgetRepoOptions = {}): BudgetR
           'r.download_links',
         ])
         .where(composeAnd(built.value))
+        .where(publicEntityIdentitySql('r.entity_cui'))
         .orderBy(sql`r.report_date desc nulls last`)
         .orderBy('r.report_id', 'desc')
         .limit(pageSize)
@@ -1858,8 +1869,10 @@ export const makeBudgetRepo = (db: Db, options: BudgetRepoOptions = {}): BudgetR
         .execute()) as ReportRow[];
       const countRow = await db
         .selectFrom('budget.reports as r')
+        .leftJoin('core.organizations as o', 'o.cui', 'r.entity_cui')
         .select(sql<string>`count(*)`.as('cnt'))
         .where(composeAnd(built.value))
+        .where(publicEntityIdentitySql('r.entity_cui'))
         .executeTakeFirst();
       return ok({
         items: rows.map(mapReport),
@@ -1877,6 +1890,7 @@ export const makeBudgetRepo = (db: Db, options: BudgetRepoOptions = {}): BudgetR
       const row = (await db
         .selectFrom('budget.reports as r')
         .leftJoin('core.public_entities as e', 'e.cui', 'r.entity_cui')
+        .leftJoin('core.organizations as o', 'o.cui', 'r.entity_cui')
         .select([
           'r.report_id',
           'r.entity_cui',
@@ -1891,6 +1905,8 @@ export const makeBudgetRepo = (db: Db, options: BudgetRepoOptions = {}): BudgetR
           'r.download_links',
         ])
         .where('r.report_id', '=', reportId)
+        // Identity rule (B/F5): a restricted organization's report is absent, not named.
+        .where(publicEntityIdentitySql('r.entity_cui'))
         .limit(1)
         .executeTakeFirst()) as ReportRow | undefined;
       return ok(row !== undefined ? mapReport(row) : null);

@@ -1,7 +1,7 @@
 /** Shared entity/geography predicates for fact numerators and anchor-union population.
  * Fact-only period, report, creditor, classification and money filters stay outside.
  */
-import { sql, type RawBuilder } from 'kysely';
+import { sql, type RawBuilder, type SqlBool } from 'kysely';
 
 import {
   escapeLike,
@@ -19,6 +19,16 @@ const notInNullSafe = (col: Cond, values: readonly (string | number)[]): Cond =>
 const tagContains = (tag: string): Cond =>
   sql`${sql.ref('e.tags')} @> ${JSON.stringify([{ tag }])}::jsonb`;
 
+/**
+ * The ONE identity rule for entity-keyed budget reads (grouped `entityAnalytics`
+ * applies it; rankings and report listings share it since review B/F5): the
+ * identifier is servable and the organization row, when one exists, is public.
+ * The caller joins `core.organizations o` on the same CUI column.
+ */
+export const publicEntityIdentitySql = (cuiColumn: string): RawBuilder<SqlBool> =>
+  sql<SqlBool>`(${organizationIdentifierIsServable(cuiColumn)}
+    and (o.org_id is null or ${organizationRowIsPublic('o.privacy_class')}))`;
+
 /** Budget display policy; the caller joins organization evidence before using it. */
 export const budgetEntityNameSql = (cui: Cond): Cond =>
   sql`coalesce(e.name, case when ${organizationRowIsPublic('o.privacy_class')} then o.name end, ${cui})`;
@@ -26,8 +36,7 @@ export const budgetEntityNameSql = (cui: Cond): Cond =>
 export const budgetEntitySearchSql = (name: Cond, cuiColumn: string, search: string): Cond => {
   const pattern = '%' + escapeLike(search) + '%';
   // Search itself is an identity lookup, including the display-name CUI fallback.
-  return sql`(${organizationIdentifierIsServable(cuiColumn)}
-    and (o.org_id is null or ${organizationRowIsPublic('o.privacy_class')})
+  return sql`(${publicEntityIdentitySql(cuiColumn)}
     and (${name} ilike ${pattern} or ${sql.ref(cuiColumn)} ilike ${pattern}))`;
 };
 
