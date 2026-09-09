@@ -25,7 +25,11 @@ import { err, ok } from 'neverthrow';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { getDocumentRenderChunk } from '@/modules/legal/core/usecases.js';
-import { legalRenderEtag, makeLegalRoutes } from '@/modules/legal/shell/rest/routes.js';
+import {
+  LEGAL_RENDER_SHARED_CACHE_TTL_SECONDS,
+  legalRenderEtag,
+  makeLegalRoutes,
+} from '@/modules/legal/shell/rest/routes.js';
 import { databaseError } from '@/modules/shared/index.js';
 
 import type { LegalRenderRepo } from '@/modules/legal/core/ports.js';
@@ -220,7 +224,14 @@ describe('GET /api/v1/legal/documents/:documentId/render', () => {
     expect(legalRenderEtag(info)).toBe(expectedTag);
     expect(first.headers.etag).toBe(expectedTag);
     expect(first.headers['cache-control']).toContain('public');
-    expect(first.headers['cache-control']).toContain('s-maxage=86400');
+    // The shared-cache window is bounded (M/M04): a public → restricted flip
+    // on a URL with no generation component must stop being served within
+    // minutes, not the day the header used to allow (plus a day of SWR).
+    expect(first.headers['cache-control']).toContain(
+      `s-maxage=${String(LEGAL_RENDER_SHARED_CACHE_TTL_SECONDS)}`
+    );
+    expect(LEGAL_RENDER_SHARED_CACHE_TTL_SECONDS).toBeLessThanOrEqual(300);
+    expect(first.headers['cache-control']).toMatch(/stale-while-revalidate=(\d{1,2})(,|$)/u);
 
     const revalidated = await instance.inject({
       url: '/api/v1/legal/documents/100023/render',

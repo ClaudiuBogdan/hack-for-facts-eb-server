@@ -59,14 +59,18 @@ export interface MakeLegalRoutesDeps {
   /**
    * Browser TTL for a served artifact. A generation is immutable — recompiles
    * mint a NEW generation identity, which changes the ETag — so the browser
-   * TTL is a modest staleness window and the shared-cache TTL (`s-maxage`)
-   * can be a day; `stale-while-revalidate` keeps reads instant across it.
+   * TTL is a modest staleness window. The shared-cache TTL (`s-maxage`) is
+   * deliberately SHORT: the URL carries no generation component, and a
+   * document can flip public → restricted; a shared cache in front (there is
+   * one) must not keep serving the text past a few minutes (review M/M04).
    */
   readonly renderCacheTtlSeconds?: number;
 }
 
 const DEFAULT_RENDER_TTL_SECONDS = 600;
-const SHARED_CACHE_TTL_SECONDS = 86_400;
+/** Shared-cache window; bounds how long a restricted flip can still be served. */
+export const LEGAL_RENDER_SHARED_CACHE_TTL_SECONDS = 300;
+const SHARED_CACHE_STALE_WHILE_REVALIDATE_SECONDS = 60;
 
 /** `W/"<run_id>-<text_sha256[:16]>-<compiler_version>"` — generation identity. */
 export const legalRenderEtag = (info: LegalRenderInfo): string =>
@@ -107,7 +111,7 @@ const renderErrorMessage = (error: LegalRenderError): string => {
 
 export const makeLegalRoutes = (deps: MakeLegalRoutesDeps): FastifyPluginAsync => {
   const ttl = deps.renderCacheTtlSeconds ?? DEFAULT_RENDER_TTL_SECONDS;
-  const cacheControl = `public, max-age=${String(ttl)}, s-maxage=${String(SHARED_CACHE_TTL_SECONDS)}, stale-while-revalidate=${String(SHARED_CACHE_TTL_SECONDS)}`;
+  const cacheControl = `public, max-age=${String(ttl)}, s-maxage=${String(LEGAL_RENDER_SHARED_CACHE_TTL_SECONDS)}, stale-while-revalidate=${String(SHARED_CACHE_STALE_WHILE_REVALIDATE_SECONDS)}`;
 
   const setCacheHeaders = (reply: FastifyReply, etag: string): void => {
     void reply.header('etag', etag);
