@@ -116,13 +116,6 @@ export const makeTestConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
       dailyLimit: 100,
       cacheTtlSeconds: 86400,
     },
-    mcp: {
-      enabled: false,
-      authRequired: false,
-      apiKey: undefined,
-      sessionTtlSeconds: 3600,
-      clientBaseUrl: '',
-    },
     agent: {
       enabled: false,
       anthropicApiKey: undefined,
@@ -133,9 +126,6 @@ export const makeTestConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
       researchModel: undefined,
       dailyTokenBudget: 250000,
       unlimitedUserIds: [],
-    },
-    gpt: {
-      apiKey: undefined,
     },
     email: {
       apiKey: undefined,
@@ -202,9 +192,7 @@ export const makeTestConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
     cors: { ...defaults.cors, ...overrides.cors },
     auth: { ...defaults.auth, ...overrides.auth },
     rateLimit: { ...defaults.rateLimit, ...overrides.rateLimit },
-    mcp: { ...defaults.mcp, ...overrides.mcp },
     agent: { ...defaults.agent, ...overrides.agent },
-    gpt: { ...defaults.gpt, ...overrides.gpt },
     email: { ...defaults.email, ...overrides.email },
     jobs: { ...defaults.jobs, ...overrides.jobs },
     notifications: { ...defaults.notifications, ...overrides.notifications },

@@ -443,13 +443,6 @@ export async function getClient(): Promise<GoldenMasterClient> {
         dailyLimit: 100,
         cacheTtlSeconds: 86400,
       },
-      mcp: {
-        enabled: false,
-        authRequired: false,
-        apiKey: undefined,
-        sessionTtlSeconds: 3600,
-        clientBaseUrl: '',
-      },
       agent: {
         enabled: false,
         anthropicApiKey: undefined,
@@ -460,9 +453,6 @@ export async function getClient(): Promise<GoldenMasterClient> {
         researchModel: undefined,
         dailyTokenBudget: 250000,
         unlimitedUserIds: [],
-      },
-      gpt: {
-        apiKey: undefined,
       },
       email: {
         apiKey: undefined,

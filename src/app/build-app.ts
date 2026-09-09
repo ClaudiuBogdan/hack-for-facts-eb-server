@@ -6,7 +6,6 @@
 import { timingSafeEqual } from 'node:crypto';
 
 import rateLimit from '@fastify/rate-limit';
-import swagger from '@fastify/swagger';
 import fastifyLib, { type FastifyInstance, type FastifyError } from 'fastify';
 import { err, ok, type Result } from 'neverthrow';
 
@@ -215,27 +214,6 @@ import {
 } from '../modules/learning-progress/index.js';
 import { createLearningProgressAutoReviewReuseHook } from '../modules/learning-progress/shell/auto-review-reuse-hook.js';
 import { createLearningProgressPostSyncHookRunner } from '../modules/learning-progress/shell/post-sync-hooks.js';
-import {
-  createMcpServer,
-  makeMcpRoutes,
-  makeInMemorySessionStore,
-  makeInMemoryRateLimiter,
-  makeMcpExecutionRepo,
-  makeMcpAnalyticsService,
-  makeEntityAdapter,
-  makeUatAdapter,
-  makeFunctionalClassificationAdapter,
-  makeEconomicClassificationAdapter,
-  makeShareLinkAdapter,
-  makeEntityAnalyticsAdapter,
-  makeAggregatedLineItemsAdapter,
-  DEFAULT_MCP_CONFIG,
-  type McpConfig,
-  // GPT REST API
-  makeGptRoutes,
-  gptOpenApiConfig,
-  type GptRoutesOptions,
-} from '../modules/mcp/index.js';
 import { NormalizationService } from '../modules/normalization/index.js';
 import {
   enqueueTransactionalWelcomeNotification,
@@ -370,7 +348,6 @@ const REDESIGN_SURFACE_PUBLIC_GET_PREFIXES = [
   '/api/v1/pnrr/',
 ];
 const NOTIFICATION_ADMIN_ROUTE_PREFIX = '/api/v1/admin/notifications';
-const GPT_ROUTE_PREFIX = '/api/v1/gpt/';
 const WEBHOOK_CLERK_ROUTE_PATH = '/api/v1/webhooks/clerk';
 const WEBHOOK_RESEND_ROUTE_PATH = '/api/v1/webhooks/resend';
 const NOTIFICATIONS_UNSUBSCRIBE_ROUTE_PREFIX = '/api/v1/notifications/unsubscribe/';
@@ -532,12 +509,9 @@ export function shouldBypassGlobalAuthValidation(
   }
 
   if (
-    path === '/mcp' ||
-    path === '/openapi.json' ||
     path === WEBHOOK_CLERK_ROUTE_PATH ||
     path === WEBHOOK_RESEND_ROUTE_PATH ||
     isCampaignSubscriptionStatsRoute(path) ||
-    path.startsWith(GPT_ROUTE_PREFIX) ||
     path.startsWith(NOTIFICATIONS_UNSUBSCRIBE_ROUTE_PREFIX) ||
     path.startsWith(ADVANCED_MAP_PUBLIC_ROUTE_PREFIX) ||
     path === ADVANCED_MAP_DATASET_PUBLIC_ROUTE_PATH ||
@@ -1181,10 +1155,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
           authProvider: deps.authProvider,
           config: {
             clientBaseUrl:
-              redesignClientBaseUrl ??
-              (config.mcp.clientBaseUrl !== ''
-                ? config.mcp.clientBaseUrl
-                : 'https://transparenta.eu'),
+              redesignClientBaseUrl ?? config.cors.clientBaseUrl ?? 'https://transparenta.eu',
             dailyTokenBudget: config.agent.dailyTokenBudget,
             unlimitedUserIds: config.agent.unlimitedUserIds,
             ...(config.agent.anthropicApiKey !== undefined && {
@@ -2599,108 +2570,6 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         groupedSeriesProvider,
       })
     );
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Setup MCP/GPT Shared Adapters
-    // ─────────────────────────────────────────────────────────────────────────
-    // Create adapters shared between MCP and GPT REST API
-    const mcpEntityAdapter = makeEntityAdapter(entityRepo);
-    const mcpUatAdapter = makeUatAdapter(uatRepo);
-    const mcpFunctionalAdapter = makeFunctionalClassificationAdapter(functionalClassificationRepo);
-    const mcpEconomicAdapter = makeEconomicClassificationAdapter(economicClassificationRepo);
-    const mcpExecutionRepo = makeMcpExecutionRepo(budgetDb);
-    const mcpAnalyticsService = makeMcpAnalyticsService(analyticsRepo, normalizationService);
-
-    // Create share link adapter
-    const publicBaseUrl = config.cors.publicClientBaseUrl ?? config.cors.clientBaseUrl ?? '';
-    const mcpShareLink = makeShareLinkAdapter({
-      shortLinkRepo,
-      publicBaseUrl,
-    });
-
-    // Create MCP-adapted repositories
-    const mcpEntityAnalyticsAdapter = makeEntityAnalyticsAdapter(rawEntityAnalyticsRepo);
-    const mcpAggregatedLineItemsAdapter = makeAggregatedLineItemsAdapter(
-      rawAggregatedLineItemsRepo
-    );
-
-    // Build MCP config with all required fields
-    const mcpConfig: McpConfig = {
-      ...DEFAULT_MCP_CONFIG,
-      authRequired: config.mcp.authRequired,
-      ...(config.mcp.apiKey !== undefined && { apiKey: config.mcp.apiKey }),
-      sessionTtlSeconds: config.mcp.sessionTtlSeconds,
-      clientBaseUrl:
-        config.mcp.clientBaseUrl !== ''
-          ? config.mcp.clientBaseUrl
-          : (config.cors.clientBaseUrl ?? ''),
-    };
-
-    // Create rate limiter (shared between MCP and GPT - 100 requests per minute)
-    const rateLimiter = makeInMemoryRateLimiter({
-      maxRequests: 100,
-      windowMs: 60 * 1000, // 1 minute
-    });
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Setup MCP Module (Model Context Protocol for AI clients)
-    // ─────────────────────────────────────────────────────────────────────────
-    if (config.mcp.enabled) {
-      const createHttpMcpServer = () =>
-        createMcpServer({
-          entityRepo: mcpEntityAdapter,
-          executionRepo: mcpExecutionRepo,
-          uatRepo: mcpUatAdapter,
-          functionalClassificationRepo: mcpFunctionalAdapter,
-          economicClassificationRepo: mcpEconomicAdapter,
-          entityAnalyticsRepo: mcpEntityAnalyticsAdapter,
-          analyticsService: mcpAnalyticsService,
-          aggregatedLineItemsRepo: mcpAggregatedLineItemsAdapter,
-          shareLink: mcpShareLink,
-          config: mcpConfig,
-        });
-
-      // Create session store (use in-memory for now, can switch to Redis later)
-      const sessionStore = makeInMemorySessionStore(config.mcp.sessionTtlSeconds);
-
-      // Register MCP routes
-      await app.register(makeMcpRoutes, {
-        createMcpServer: createHttpMcpServer,
-        sessionStore,
-        rateLimiter,
-        config: mcpConfig,
-      });
-
-      app.log.info('MCP endpoints enabled at /mcp');
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Setup GPT REST API (always enabled)
-    // ─────────────────────────────────────────────────────────────────────────
-    // Register OpenAPI spec generator (offline only, no exposed route)
-    await app.register(swagger, gptOpenApiConfig);
-
-    // Create GPT routes with same deps as MCP
-    const gptRoutesOptions: GptRoutesOptions = {
-      deps: {
-        entityRepo: mcpEntityAdapter,
-        executionRepo: mcpExecutionRepo,
-        uatRepo: mcpUatAdapter,
-        functionalClassificationRepo: mcpFunctionalAdapter,
-        economicClassificationRepo: mcpEconomicAdapter,
-        entityAnalyticsRepo: mcpEntityAnalyticsAdapter,
-        analyticsService: mcpAnalyticsService,
-        aggregatedLineItemsRepo: mcpAggregatedLineItemsAdapter,
-        shareLink: mcpShareLink,
-        config: { clientBaseUrl: mcpConfig.clientBaseUrl },
-      },
-      auth: {
-        apiKey: config.gpt.apiKey,
-      },
-      rateLimiter,
-    };
-
-    await app.register(makeGptRoutes(gptRoutesOptions));
   }
 
   if (config.auth.clerkWebhookSigningSecret !== undefined) {

@@ -83,18 +83,6 @@ export const EnvSchema = Type.Object({
   SPECIAL_RATE_LIMIT_KEY: Type.Optional(Type.String({ minLength: 32 })),
   SPECIAL_RATE_LIMIT_MAX: Type.Optional(Type.Number({ minimum: 1, default: 6000 })),
 
-  // MCP (Model Context Protocol)
-  MCP_ENABLED: Type.Optional(Type.Boolean({ default: false })),
-  // SECURITY: SEC-004 - Default to true for fail-closed security
-  MCP_AUTH_REQUIRED: Type.Optional(Type.Boolean({ default: true })),
-  // SECURITY: Minimum 32 characters for sufficient entropy
-  MCP_API_KEY: Type.Optional(Type.String({ minLength: 32 })),
-  MCP_SESSION_TTL_SECONDS: Type.Optional(Type.Number({ minimum: 60, default: 3600 })),
-
-  // GPT REST API
-  // SECURITY: Minimum 32 characters for sufficient entropy
-  GPT_API_KEY: Type.Optional(Type.String({ minLength: 32 })),
-
   // Agent (in-app AI agent — docs/AGENT-MODULE-SPEC.md)
   AGENT_ENABLED: Type.Optional(Type.Boolean({ default: false })),
   ANTHROPIC_API_KEY: Type.Optional(Type.String({ minLength: 10 })),
@@ -254,16 +242,6 @@ export const parseEnv = (env: NodeJS.ProcessEnv): Env => {
       env['SPECIAL_RATE_LIMIT_MAX'] != null && env['SPECIAL_RATE_LIMIT_MAX'] !== ''
         ? Number.parseInt(env['SPECIAL_RATE_LIMIT_MAX'], 10)
         : 6000,
-    MCP_ENABLED: env['MCP_ENABLED'] === 'true',
-    // SECURITY: SEC-004 - Default to true, only disable if explicitly set to 'false'
-    MCP_AUTH_REQUIRED: env['MCP_AUTH_REQUIRED'] !== 'false',
-    MCP_API_KEY: env['MCP_API_KEY'],
-    MCP_SESSION_TTL_SECONDS:
-      env['MCP_SESSION_TTL_SECONDS'] != null && env['MCP_SESSION_TTL_SECONDS'] !== ''
-        ? Number.parseInt(env['MCP_SESSION_TTL_SECONDS'], 10)
-        : 3600,
-    // GPT REST API
-    GPT_API_KEY: env['GPT_API_KEY'],
     // Agent
     AGENT_ENABLED: env['AGENT_ENABLED'] === 'true',
     ANTHROPIC_API_KEY: env['ANTHROPIC_API_KEY'],
@@ -474,18 +452,6 @@ export const createConfig = (env: Env) => ({
     /** Cache TTL in seconds for resolved links (0 = no caching) */
     cacheTtlSeconds: env.SHORT_LINK_CACHE_TTL ?? 86400,
   },
-  mcp: {
-    /** Whether MCP endpoints are enabled */
-    enabled: env.MCP_ENABLED ?? false,
-    /** Whether API key authentication is required for MCP (default: true for security) */
-    authRequired: env.MCP_AUTH_REQUIRED ?? true,
-    /** API key for MCP authentication (if authRequired is true) */
-    apiKey: env.MCP_API_KEY,
-    /** Session TTL in seconds */
-    sessionTtlSeconds: env.MCP_SESSION_TTL_SECONDS ?? 3600,
-    /** Client base URL for building shareable links (uses cors.clientBaseUrl as fallback) */
-    clientBaseUrl: env.CLIENT_BASE_URL ?? '',
-  },
   agent: {
     /** Whether the in-app AI agent surface (/api/v1/agent) is enabled */
     enabled: env.AGENT_ENABLED ?? false,
@@ -500,10 +466,6 @@ export const createConfig = (env: Env) => ({
       .split(',')
       .map((id) => id.trim())
       .filter((id) => id !== ''),
-  },
-  gpt: {
-    /** API key for GPT REST API authentication */
-    apiKey: env.GPT_API_KEY,
   },
   email: {
     /** Resend API key for sending emails */
