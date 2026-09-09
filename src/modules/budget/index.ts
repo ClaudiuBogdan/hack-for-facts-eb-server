@@ -250,3 +250,6 @@ export type { LegacyAnalyticsInput, PopulationScope } from './core/legacy-analyt
 
 export { budgetMoneyPlan, needsMoneyFactor } from './core/money-options.js';
 export type { BudgetMoneyOptions } from './core/money-options.js';
+
+// ── native (kernel-build) adapters: population via the kernel port (X/F6) ──
+export * from './shell/native/index.js';
