@@ -202,10 +202,11 @@ export const makeKernelMcpTools = (deps: KernelMcpDeps): readonly KernelMcpTool[
         // outage it is false — the reduced path only resolves exact identifiers
         // (D5). An LLM caller relays this sentence to a user as fact, so a
         // degraded run has to describe its own limits instead of answering.
+        // The outage path runs NO lookup at all (the exact-CUI fallback was
+        // removed on 2026-08-26 because a second copy of the palette's collapse
+        // rule could not be kept correct), so the degraded text must not promise one.
         summary: degraded
-          ? items.length === 0
-            ? `Search is DEGRADED: the search engine is unavailable, so "${query}" could not be looked up. This is NOT evidence that no such entity exists. While degraded only an exact numeric identifier (CUI) resolves — retry later for a real answer.`
-            : `Search is DEGRADED: the search engine is unavailable. "${query}" resolved as an exact identifier only; ranked matches are unavailable and other entities may exist.`
+          ? `Search is DEGRADED: the search engine is unavailable, so "${query}" was not looked up at all. This is NOT evidence that no such entity exists. Retry later for a real answer, or resolve the entity by CUI through the entity tools.`
           : items.length === 0
             ? `No entities matched "${query}".`
             : `${String(items.length)} of ~${String(estimatedTotalHits)} matches for "${query}" (engine: ${engine}).`,

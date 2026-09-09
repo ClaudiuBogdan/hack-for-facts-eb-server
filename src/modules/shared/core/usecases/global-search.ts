@@ -84,7 +84,8 @@ export interface GlobalSearchResult {
   readonly query: string;
   readonly hits: readonly SearchHit[];
   readonly organizations: readonly OrgNameMatch[];
-  readonly engine: 'meili' | 'postgres';
+  /** `none`: no engine executed (the outage path serves nothing, see below). */
+  readonly engine: 'meili' | 'postgres' | 'none';
   /**
    * TRUE when the search engine could not answer and this result came from the
    * reduced outage path. Empty `hits` then means "we could not look", NOT "no
@@ -125,7 +126,7 @@ export const makeGlobalSearch = async (
   const offset = offsetClamped > 0 ? offsetClamped : undefined;
 
   const logSearch = (
-    engine: 'meili' | 'postgres',
+    engine: 'meili' | 'postgres' | 'none',
     hitCount: number,
     facetCount: number,
     meiliOk: boolean
@@ -254,12 +255,13 @@ export const makeGlobalSearch = async (
   // needs a palette-OWNED exact-CUI projection (or the index itself), not a
   // second implementation of the rule. Serving nothing is a smaller loss than
   // serving a confident wrong label.
-  logSearch('postgres', 0, 0, false);
+  logSearch('none', 0, 0, false);
   return ok({
     query: input.q,
     hits: [],
     organizations: [],
-    engine: 'postgres',
+    // No query ran: reporting 'postgres' described an execution that did not happen.
+    engine: 'none',
     degraded: true,
     facets: [],
     estimatedTotalHits: 0,

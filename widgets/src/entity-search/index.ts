@@ -108,7 +108,7 @@ const render = (output: ToolEnvelope, handle: WidgetHandle): void => {
     </div>`;
 
   const degradedNotice = degraded
-    ? '<div class="notice degraded">Motorul de căutare este momentan indisponibil — doar identificatorii exacți (CUI) se rezolvă. Absența unui rezultat nu înseamnă că entitatea nu există.</div>'
+    ? '<div class="notice degraded">Motorul de căutare este momentan indisponibil — căutarea nu a fost efectuată. Absența unui rezultat nu înseamnă că entitatea nu există; reîncercați mai târziu.</div>'
     : '';
 
   const body =

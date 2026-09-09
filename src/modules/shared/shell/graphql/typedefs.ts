@@ -217,10 +217,10 @@ export const baseTypeDefs = /* GraphQL */ `
     query: String!
     engine: String!
     """
-    True when the search engine was unreachable and this answer came from the
-    reduced outage path (exact-identifier lookup only). Empty hits then mean
-    "we could not look", NOT "no matches" — tell the user that instead of
-    rendering an empty state, and do not cache the answer.
+    True when the search engine was unreachable. No lookup runs on that path
+    (engine is then "none"), so empty hits mean "we could not look", NOT "no
+    matches" — tell the user that instead of rendering an empty state, and do
+    not cache the answer.
     """
     degraded: Boolean!
     hits: [SearchHit!]!

@@ -177,6 +177,8 @@ describe('global search — the DEGRADED path issues no statement at all', () =>
 
     expect(result.degraded).toBe(true);
     expect(result.hits).toEqual([]);
+    // No engine ran; reporting 'postgres' described an execution that never happened.
+    expect(result.engine).toBe('none');
     expect(sql).toHaveLength(0);
   });
 

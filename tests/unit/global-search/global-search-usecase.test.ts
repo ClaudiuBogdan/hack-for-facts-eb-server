@@ -218,7 +218,7 @@ describe('makeGlobalSearch — the honest degrade (D5)', () => {
     // The distinction the old shape could not express: "we could not look" is
     // not "no matches". Empty hits are only honest alongside degraded=true.
     expect(value.degraded).toBe(true);
-    expect(value.engine).toBe('postgres');
+    expect(value.engine).toBe('none');
     expect(value.hits).toEqual([]);
     expect(value.facets).toEqual([]);
     expect(value.organizations).toEqual([]);

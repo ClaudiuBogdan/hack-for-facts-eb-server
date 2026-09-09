@@ -151,6 +151,10 @@ describe('search_entities — structured envelope', () => {
     expect((res.meta as { degraded: boolean }).degraded).toBe(true);
     expect(res.summary).toContain('DEGRADED');
     expect(res.summary).not.toContain('No entities matched');
+    // The outage path runs no lookup at all; the text must not promise the
+    // exact-CUI fallback that was removed on 2026-08-26.
+    expect(res.summary).toContain('was not looked up at all');
+    expect(res.summary).not.toMatch(/only an exact|resolved as an exact/u);
   });
 });
 
