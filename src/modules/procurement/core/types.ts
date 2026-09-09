@@ -215,10 +215,7 @@ export interface ContractDetail {
  * resolver map in `shell/graphql/resolvers.ts` derives its keys from that.
  */
 export type DaDetailAvailability =
-  | 'available'
-  | 'not_available_for_source'
-  | 'not_captured'
-  | 'temporarily_unavailable';
+  'available' | 'not_available_for_source' | 'not_captured' | 'temporarily_unavailable';
 
 /** One catalog line item: what was actually bought, per line. */
 export interface DaItem {
@@ -408,3 +405,21 @@ export type {
   DaSourceSystem,
   SearchSort,
 };
+
+/**
+ * Bounded procurement presence for one CUI (entity-360, review M/M10): how
+ * many canonical records name it as contracting authority and as supplier.
+ * Every count is capped at the repo's presence cap; `capped` says when.
+ */
+export interface ProcurementPresence {
+  readonly asAuthority: {
+    readonly procedures: number;
+    readonly contracts: number;
+    readonly directAcquisitions: number;
+  };
+  readonly asSupplier: {
+    readonly contracts: number;
+    readonly directAcquisitions: number;
+  };
+  readonly capped: boolean;
+}

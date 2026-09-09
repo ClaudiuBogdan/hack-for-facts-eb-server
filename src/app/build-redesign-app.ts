@@ -607,6 +607,7 @@ export const registerRedesignSurface = async (
     moduleSlices.push(procurement.graphqlSlice);
     moduleResolvers.push(procurement.graphqlResolvers);
     moduleMcpTools.push(...procurement.mcpTools);
+    kernel.contributors.register(procurement.contributor);
   }
 
   if (enabledModules.includes('companies')) {

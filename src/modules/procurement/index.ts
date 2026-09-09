@@ -10,6 +10,7 @@ import './shell/db/schema.js';
 
 import { analysisBreakdown, analysisStats } from './core/analysis-usecases.js';
 import { DA_LIST_MAX_WINDOW_DAYS_DEFAULT } from './core/constants.js';
+import { makeProcurementContributor } from './shell/contributor.js';
 import { makeProcurementResolvers } from './shell/graphql/resolvers.js';
 import { procurementTypeDefs } from './shell/graphql/typedefs.js';
 import { makeProcurementMcpTools } from './shell/mcp/tools.js';
@@ -23,10 +24,17 @@ import {
   makeOpenSearchListEngine,
   type OpenSearchListConfig,
 } from './shell/repo/opensearch-list-repo.js';
+import { makeProcurementPresenceRepo } from './shell/repo/presence-repo.js';
 import { makeProcurementRepo } from './shell/repo/procurement-repo.js';
 
 import type { AnalysisRepo, ProcurementRepo } from './core/ports.js';
-import type { GraphqlSlice, KernelMcpTool, Logger, ProdDatabase } from '@/modules/shared/index.js';
+import type {
+  GraphqlSlice,
+  KernelMcpTool,
+  Logger,
+  ProdDatabase,
+  SourceContributor,
+} from '@/modules/shared/index.js';
 import type { Kysely } from 'kysely';
 
 export interface ProcurementModuleDeps {
@@ -64,6 +72,8 @@ export interface ProcurementModule {
   readonly graphqlSlice: GraphqlSlice;
   readonly graphqlResolvers: Record<string, unknown>;
   readonly mcpTools: readonly KernelMcpTool[];
+  /** The kernel-registry contributor (entity-360 presence + profile slice). */
+  readonly contributor: SourceContributor;
 }
 
 /**
@@ -117,6 +127,7 @@ export const makeProcurementModule = (deps: ProcurementModuleDeps): ProcurementM
     graphqlSlice: { source: 'procurement', typeDefs: procurementTypeDefs },
     graphqlResolvers: makeProcurementResolvers({ repo, analysis }),
     mcpTools: makeProcurementMcpTools({ repo, analysis, clientBaseUrl }),
+    contributor: makeProcurementContributor(makeProcurementPresenceRepo(deps.db)),
   };
 };
 
