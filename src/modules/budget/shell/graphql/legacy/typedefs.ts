@@ -661,7 +661,7 @@ export const BUDGET_LEGACY_SDL_PROVENANCE = {
  *    `PageInfo` (`totalCount`, `hasPreviousPage`, `startCursor`); the kernel base
  *    type has only `hasNextPage` / `endCursor`, so the slice EXTENDS it with the
  *    missing fields, nullable on the type (legacy resolvers populate them; kernel
- *    connections leave them null). The INS interim slice (`src/app/ins-interim-surface.ts`)
+ *    connections leave them null). The former INS interim slice (retired 2026-09-09, review INS-01)
  *    depends on this extension too; the merge gate rejects a second owner.
  *  - `Query.budgetSectors` / `type BudgetSector`: the legacy signature and type
  *    win (client-used); the kernel's own catalog root is `budgetSectorCatalog`

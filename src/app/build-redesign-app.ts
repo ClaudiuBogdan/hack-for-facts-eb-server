@@ -21,16 +21,6 @@ import fastifyLib, { type FastifyInstance, type FastifyReply } from 'fastify';
 import mercuriusPlugin from 'mercurius';
 
 import { makeInsGraphqlLifecycle } from './ins-graphql-session.js';
-import { makeNativeBudgetFactors } from './native-budget-factors.js';
-import { makeNativeBudgetRepo } from './native-budget-repo.js';
-import { makeNativeExecutionSeries } from './native-execution-series.js';
-import { makeNativeGroupedClassifications } from './native-grouped-classifications.js';
-import { makeNativeGroupedEntities } from './native-grouped-entities.js';
-import {
-  makeNativeMapPopulation,
-  NATIVE_MAP_POPULATION_ADMISSION,
-  NATIVE_SECTOR_POPULATION_ADMISSION,
-} from './native-map-population.js';
 import { registerNativeMapRoutes } from './native-map-routes.js';
 import {
   makeGraphQLErrorFormatter,
@@ -40,6 +30,8 @@ import { makeGraphQLContext, type AuthProvider } from '../modules/auth/index.js'
 import {
   makeBudgetModule,
   makeBudgetMapRepo,
+  makeNativeBudgetFactors,
+  makeNativeMapPopulation,
   type BudgetMapPopulationSource,
   makeFactorSetSource,
   LEGACY_FACTOR_SET_ID,
@@ -64,6 +56,7 @@ import {
   type GraphqlSlice,
   type KernelMcpResource,
   type KernelMcpTool,
+  type AnnualPopulationPort,
 } from '../modules/shared/index.js';
 
 import type { UserDatabase } from '../infra/database/user/types.js';
@@ -206,6 +199,9 @@ const SHARED_DEFAULT_MODULES = [
   'judicial',
   'procurement',
   'primarii-transparency',
+  // The INS kernel module is part of every composition since X/F6: `budget`
+  // reads population through its port, so a default without it cannot boot.
+  'ins-native',
 ] as const;
 
 export const buildRedesignApp = async (deps: BuildRedesignAppDeps): Promise<RedesignApp> => {
@@ -256,7 +252,7 @@ export const buildRedesignApp = async (deps: BuildRedesignAppDeps): Promise<Rede
   try {
     const kernel = await registerRedesignSurface(app, {
       ...deps,
-      modules: deps.modules ?? [...SHARED_DEFAULT_MODULES, 'ins-native'],
+      modules: deps.modules ?? SHARED_DEFAULT_MODULES,
     });
     return { app, kernel };
   } catch (error) {
@@ -420,9 +416,36 @@ export const registerRedesignSurface = async (
     moduleMcpTools.push(...primarii.mcpTools);
   }
 
+  // INS first: its population port is what the budget module's native
+  // adapters read through (X/F6). INS context uses the full canonical
+  // geographic anchor, including county/NUTS level.
+  let createInsSession: (() => InsReadSession) | undefined;
+  let insPopulation: AnnualPopulationPort | undefined;
+  if (enabledModules.includes('ins-native')) {
+    const insNative = makeInsNativeModule({
+      db: kernel.db,
+      registry: kernel.contributors,
+      ...(deps.clientBaseUrl !== undefined && { clientBaseUrl: deps.clientBaseUrl }),
+      territoryForCui: (cui) => kernel.identityRepo.territoryForCui(cui),
+    });
+    createInsSession = insNative.createReadSession;
+    insPopulation = insNative.population;
+    kernel.contributors.register(insNative.contributor);
+    moduleSlices.push(insNative.graphqlSlice);
+    moduleResolvers.push(insNative.graphqlResolvers);
+    moduleMcpTools.push(...insNative.mcpTools);
+  }
   const nativeBudgetFactors = makeNativeBudgetFactors(kernel.db);
-
   if (enabledModules.includes('budget')) {
+    // The kernel build serves budget ONLY with the native composition: exact-
+    // year population through the INS port and the promoted factor set. A
+    // budget without `ins-native` would silently fall back to the legacy set-1
+    // composition (review N/N6/N7), so it is a configuration error, not a mode.
+    if (insPopulation === undefined) {
+      throw new Error(
+        "module 'budget' requires 'ins-native' on the kernel build: its population port and native factors are mandatory"
+      );
+    }
     // Normalization Phase A: set 1 is the immutable snapshot of the legacy YAML.
     // Explicit internal pin: promotion/current-pointer changes cannot change
     // legacy calculations before the release policy and parity gates land.
@@ -433,49 +456,7 @@ export const registerRedesignSurface = async (
     );
     const budget = makeBudgetModule({
       db: kernel.db,
-      ...(enabledModules.includes('ins-native')
-        ? {
-            executionSeries: makeNativeExecutionSeries(
-              kernel.db,
-              NATIVE_MAP_POPULATION_ADMISSION,
-              NATIVE_SECTOR_POPULATION_ADMISSION,
-              nativeBudgetFactors,
-              (info) => {
-                app.log.warn(info, 'Execution series point cap reached');
-              }
-            ),
-            entityAnalytics: makeNativeGroupedEntities(
-              kernel.db,
-              NATIVE_MAP_POPULATION_ADMISSION,
-              NATIVE_SECTOR_POPULATION_ADMISSION,
-              nativeBudgetFactors,
-              (info) => {
-                app.log.warn(
-                  info,
-                  'Grouped analytics limit clamped; pageInfo reports remaining rows'
-                );
-              }
-            ),
-            classificationAnalytics: makeNativeGroupedClassifications(
-              kernel.db,
-              NATIVE_MAP_POPULATION_ADMISSION,
-              NATIVE_SECTOR_POPULATION_ADMISSION,
-              nativeBudgetFactors,
-              (info) => {
-                app.log.warn(
-                  info,
-                  'Grouped analytics limit clamped; pageInfo reports remaining rows'
-                );
-              }
-            ),
-            repo: makeNativeBudgetRepo(
-              kernel.db,
-              NATIVE_MAP_POPULATION_ADMISSION,
-              NATIVE_SECTOR_POPULATION_ADMISSION,
-              nativeBudgetFactors
-            ),
-          }
-        : {}),
+      native: { population: insPopulation, factors: nativeBudgetFactors },
       registry: kernel.contributors,
       legacyFactors,
       logger: app.log,
@@ -487,24 +468,6 @@ export const registerRedesignSurface = async (
     moduleMcpTools.push(...budget.mcpTools);
     moduleMcpResources.push(...budget.mcpResources);
   }
-
-  let createInsSession: (() => InsReadSession) | undefined;
-
-  if (enabledModules.includes('ins-native')) {
-    // INS context uses the full canonical geographic anchor, including county/NUTS level.
-    const insNative = makeInsNativeModule({
-      db: kernel.db,
-      registry: kernel.contributors,
-      ...(deps.clientBaseUrl !== undefined && { clientBaseUrl: deps.clientBaseUrl }),
-      territoryForCui: (cui) => kernel.identityRepo.territoryForCui(cui),
-    });
-    createInsSession = insNative.createReadSession;
-    kernel.contributors.register(insNative.contributor);
-    moduleSlices.push(insNative.graphqlSlice);
-    moduleResolvers.push(insNative.graphqlResolvers);
-    moduleMcpTools.push(...insNative.mcpTools);
-  }
-
   if (
     deps.userData !== undefined &&
     deps.authProvider !== undefined &&
@@ -526,11 +489,11 @@ export const registerRedesignSurface = async (
         // Both source pins are rechecked per read; unsupported years remain unavailable.
         population:
           deps.mapPopulation ??
-          makeNativeMapPopulation(
-            kernel.db,
-            NATIVE_MAP_POPULATION_ADMISSION,
-            NATIVE_SECTOR_POPULATION_ADMISSION
-          ),
+          (insPopulation !== undefined
+            ? makeNativeMapPopulation(insPopulation)
+            : (() => {
+                throw new Error('native map routes require the ins-native population port');
+              })()),
       },
     });
   }

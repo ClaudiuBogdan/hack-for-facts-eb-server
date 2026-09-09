@@ -4,11 +4,10 @@ import { sql, type Kysely } from 'kysely';
 import { err, ok } from 'neverthrow';
 import { expect } from 'vitest';
 
-import { makeNativeBudgetRepo } from '@/app/native-budget-repo.js';
-import { makeNativeGroupedClassifications } from '@/app/native-grouped-classifications.js';
 import { makeInsRepo } from '@/modules/ins-native/shell/repo/ins-repo.js';
 
 import { seedSectors } from './ins-native-map-population-cases.js';
+import { makeNativeBudgetRepo, makeNativeGroupedClassifications } from './native-adapters.js';
 
 import type { FactorSource } from '@/modules/budget/core/legacy-analytics/ports.js';
 import type { TimeseriesQuery } from '@/modules/budget/core/types.js';

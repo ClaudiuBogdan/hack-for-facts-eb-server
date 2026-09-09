@@ -4,8 +4,7 @@ import { sql, type Kysely } from 'kysely';
 import { ok } from 'neverthrow';
 import { expect } from 'vitest';
 
-import { makeNativeGroupedEntities } from '@/app/native-grouped-entities.js';
-
+import { makeNativeGroupedEntities } from './native-adapters.js';
 import { nativeBudgetAdmission } from './native-budget-cases.js';
 
 import type { GroupedInput } from '@/modules/budget/index.js';

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { createApp } from '@/app/build-app.js';
 import { createTestAuthProvider } from '@/modules/auth/index.js';
+import { INS_LEGACY_ROOTS, INS_LEGACY_ROOTS_DROPPED } from '@/modules/ins-native/index.js';
 
 import { makeTestConfig } from '../fixtures/builders.js';
 import {
@@ -247,75 +248,55 @@ describe(
 );
 
 /**
- * S1-7 interim (src/app/ins-interim-surface.ts): while the INS kernel module
- * does not exist, the legacy INS roots are served on BOTH endpoints from the
- * same resolvers. Pins that the mounted surface exposes them and that the
- * legacy surface is unchanged; the flag-off case above already pins that
- * nothing leaks when the surface is not mounted.
+ * The INS kernel module (`ins-native`) is part of the default composition, so
+ * the embedded surface serves the eight client-sent INS roots (and not the two
+ * dropped ones) on /api/v1/graphql, while the legacy surface keeps its ten.
+ * The S1-7 interim mount of the legacy INS module ended with review INS-01.
  */
-describe(
-  'redesign surface mount — S1-7 interim INS roots',
-  { timeout: APP_BUILD_TIMEOUT_MS },
-  () => {
-    let app: FastifyInstance | undefined;
-
-    afterEach(async () => {
-      if (app !== undefined) {
-        await app.close();
-        app = undefined;
-      }
-    });
-
-    const INS_ROOTS = [
-      'insDatasets',
-      'insDataset',
-      'insDatasetDimensionValues',
-      'insTerritories',
-      'insContexts',
-      'insObservations',
-      'insUatIndicators',
-      'insCompare',
-      'insUatDashboard',
-      'insLatestDatasetValues',
-    ];
-    const QUERY_FIELDS = '{ __type(name: "Query") { fields { name } } }';
-    const fieldNames = (body: { data: Record<string, { fields: { name: string }[] }> }) =>
-      body.data['__type']?.fields.map((f) => f.name) ?? [];
-
-    it('serves the ten legacy INS roots on /api/v1/graphql and still on /graphql', async () => {
-      app = await createApp({
-        fastifyOptions: { logger: false },
-        deps: {
-          budgetDb: makeFakeBudgetDb(),
-          insDb: makeFakeInsDb(),
-          datasetRepo: makeFakeDatasetRepo(),
-          config: makeTestConfig({ redesignSurface: { enabled: true } }),
-          redesignKernelConfig: {
-            prodDatabaseUrl: 'postgres://test:test@127.0.0.1:1/test',
-            meiliHost: '',
-            meiliApiKey: '',
-            opensearchUrl: '',
-          },
+describe('redesign surface mount — native INS roots', { timeout: APP_BUILD_TIMEOUT_MS }, () => {
+  let app: FastifyInstance | undefined;
+  afterEach(async () => {
+    if (app !== undefined) {
+      await app.close();
+      app = undefined;
+    }
+  });
+  const QUERY_FIELDS = '{ __type(name: "Query") { fields { name } } }';
+  const fieldNames = (body: { data: Record<string, { fields: { name: string }[] }> }) =>
+    body.data['__type']?.fields.map((f) => f.name) ?? [];
+  it('serves the native INS roots on /api/v1/graphql and the legacy ten still on /graphql', async () => {
+    app = await createApp({
+      fastifyOptions: { logger: false },
+      deps: {
+        budgetDb: makeFakeBudgetDb(),
+        insDb: makeFakeInsDb(),
+        datasetRepo: makeFakeDatasetRepo(),
+        config: makeTestConfig({ redesignSurface: { enabled: true } }),
+        redesignKernelConfig: {
+          prodDatabaseUrl: 'postgres://test:test@127.0.0.1:1/test',
+          meiliHost: '',
+          meiliApiKey: '',
+          opensearchUrl: '',
         },
-      });
-
-      const mounted = await app.inject({
-        method: 'POST',
-        url: '/api/v1/graphql',
-        payload: { query: QUERY_FIELDS },
-      });
-      expect(mounted.statusCode).toBe(200);
-      const mountedFields = fieldNames(mounted.json());
-      for (const root of INS_ROOTS) expect(mountedFields).toContain(root);
-
-      const legacy = await app.inject({
-        method: 'POST',
-        url: '/graphql',
-        payload: { query: QUERY_FIELDS },
-      });
-      expect(legacy.statusCode).toBe(200);
-      const legacyFields = fieldNames(legacy.json());
-      for (const root of INS_ROOTS) expect(legacyFields).toContain(root);
+      },
     });
-  }
-);
+    const mounted = await app.inject({
+      method: 'POST',
+      url: '/api/v1/graphql',
+      payload: { query: QUERY_FIELDS },
+    });
+    expect(mounted.statusCode).toBe(200);
+    const mountedFields = fieldNames(mounted.json());
+    for (const root of INS_LEGACY_ROOTS) expect(mountedFields).toContain(root);
+    for (const root of INS_LEGACY_ROOTS_DROPPED) expect(mountedFields).not.toContain(root);
+    const legacy = await app.inject({
+      method: 'POST',
+      url: '/graphql',
+      payload: { query: QUERY_FIELDS },
+    });
+    expect(legacy.statusCode).toBe(200);
+    const legacyFields = fieldNames(legacy.json());
+    for (const root of [...INS_LEGACY_ROOTS, ...INS_LEGACY_ROOTS_DROPPED])
+      expect(legacyFields).toContain(root);
+  });
+});

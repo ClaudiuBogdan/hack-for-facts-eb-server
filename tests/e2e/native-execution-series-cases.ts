@@ -3,11 +3,11 @@ import { sql, type Kysely, type KyselyPlugin } from 'kysely';
 import { ok } from 'neverthrow';
 import { expect } from 'vitest';
 
-import { makeNativeExecutionSeries } from '@/app/native-execution-series.js';
 import { readGroupedPopulationAnchors, type LegacyAnalyticsInput } from '@/modules/budget/index.js';
 import { makeInsRepo } from '@/modules/ins-native/shell/repo/ins-repo.js';
 
 import { seedSectors } from './ins-native-map-population-cases.js';
+import { makeNativeExecutionSeries } from './native-adapters.js';
 import { nativeBudgetAdmission } from './native-budget-cases.js';
 
 import type { ProdDatabase } from '@/modules/shared/index.js';

@@ -4,7 +4,6 @@ import { sql, type Kysely } from 'kysely';
 import { ok } from 'neverthrow';
 import { expect } from 'vitest';
 
-import { makeNativeMapPopulation, readNativeMapPopulation } from '@/app/native-map-population.js';
 import {
   withInsReadSnapshot,
   type AnnualPopulationAdmission,
@@ -12,8 +11,12 @@ import {
 } from '@/modules/ins-native/index.js';
 
 import { inInsFixture } from './ins-native-fixture.js';
+import {
+  makeNativeMapPopulation,
+  readNativeMapPopulation,
+  type SectorPopulationAdmission,
+} from './native-adapters.js';
 
-import type { SectorPopulationAdmission } from '@/app/native-sector-population.js';
 import type { BudgetMapYear } from '@/modules/budget/index.js';
 import type { ProdDatabase } from '@/modules/shared/index.js';
 

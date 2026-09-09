@@ -77,7 +77,7 @@ d('budget golden (live prod)', () => {
     const built = await buildRedesignApp({
       kernelConfig: config.kernel,
       logLevel: 'silent',
-      modules: ['budget'],
+      modules: ['budget', 'ins-native'],
     });
     app = built.app;
     close = built.app.close.bind(built.app);

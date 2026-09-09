@@ -31,7 +31,6 @@ import {
   wrapExecutionLineItemsRepo,
   wrapInsRepo,
 } from './cache-wrappers.js';
-import { makeInsInterimSurface } from './ins-interim-surface.js';
 import { makePublicDebateSelfSendContextLookup } from './public-debate-self-send-context-lookup.js';
 import {
   BUDGET_DOCUMENT_INTERACTION_ID,
@@ -1219,10 +1218,9 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
           kernelConfig: redesignKernelConfig,
           // Disabled to avoid a duplicate `GET /graphiql` route (legacy owns it).
           enableGraphiQL: false,
-          // S1-7 interim: the legacy INS roots (same resolvers, same INS_DATABASE_URL
-          // pool) are also served on /api/v1/graphql until the INS kernel module
-          // (program slice 3.2) replaces them — see ins-interim-surface.ts.
-          ...makeInsInterimSurface(insResolvers),
+          // The INS kernel module (`ins-native`, in the default composition)
+          // serves the INS roots on /api/v1/graphql; the S1-7 interim mount of
+          // the legacy INS module ended with review INS-01 (2026-09-09).
           logLevel: config.logger.level,
           ...(redesignClientBaseUrl !== undefined && { clientBaseUrl: redesignClientBaseUrl }),
           ...(agentDeps !== undefined && { agent: agentDeps }),

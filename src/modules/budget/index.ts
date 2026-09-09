@@ -29,6 +29,12 @@ import { makeBudgetResolvers } from './shell/graphql/resolvers.js';
 import { budgetTypeDefs } from './shell/graphql/typedefs.js';
 import { makeBudgetMcpTools } from './shell/mcp/tools.js';
 import { makeBudgetMcpResources } from './shell/mcp/widgets/resources.js';
+import {
+  makeNativeBudgetRepo,
+  makeNativeExecutionSeries,
+  makeNativeGroupedClassifications,
+  makeNativeGroupedEntities,
+} from './shell/native/index.js';
 import { makeBudgetRepo } from './shell/repo/budget-repo.js';
 import { makeBudgetDiscoveryRepo } from './shell/repo/discovery-repo.js';
 import { makeGroupedAnalyticsRepo } from './shell/repo/grouped-analytics-repo.js';
@@ -45,6 +51,7 @@ import type { nativeExecutionSeries } from './core/legacy-analytics/native-useca
 import type { LegacyAnalyticsInput } from './core/legacy-analytics/types.js';
 import type { BudgetDiscoveryRepo, BudgetRepo } from './core/ports.js';
 import type {
+  AnnualPopulationPort,
   ContributorRegistry,
   GraphqlSlice,
   KernelMcpResource,
@@ -55,7 +62,22 @@ import type {
 } from '@/modules/shared/index.js';
 import type { Kysely } from 'kysely';
 
+/**
+ * The kernel-build (native) composition: exact-year population through the
+ * kernel port and the promoted factor set. When present, the module builds its
+ * own snapshot-bound adapters (repo, execution series, grouped entity and
+ * classification analytics); the composition layer only passes the port
+ * (review X/F6). The kernel build REQUIRES it whenever `budget` is enabled
+ * (N/N6/N7: no silent fallback to the legacy set-1 composition).
+ */
+export interface BudgetNativeDeps {
+  readonly population: AnnualPopulationPort;
+  readonly factors: FactorSource;
+}
+
 export interface BudgetModuleDeps {
+  /** Native composition (kernel build). Tests may still inject the adapters below directly. */
+  readonly native?: BudgetNativeDeps;
   readonly executionSeries?: (
     inputs: readonly LegacyAnalyticsInput[]
   ) => ReturnType<typeof nativeExecutionSeries>;
@@ -110,7 +132,37 @@ const mergeResolvers = (
   };
 };
 
-export const makeBudgetModule = (deps: BudgetModuleDeps): BudgetModule => {
+/** The four native adapters, built once from the port and factors; explicit injections win. */
+const withNativeAdapters = (deps: BudgetModuleDeps, native: BudgetNativeDeps): BudgetModuleDeps => {
+  const warn = (message: string) => (info: Record<string, unknown>) =>
+    deps.logger?.warn(info, message);
+  const common = { db: deps.db, population: native.population, factors: native.factors };
+  return {
+    ...deps,
+    repo: deps.repo ?? makeNativeBudgetRepo(common),
+    executionSeries:
+      deps.executionSeries ??
+      makeNativeExecutionSeries({
+        ...common,
+        onCapped: warn('Execution series point cap reached'),
+      }),
+    entityAnalytics:
+      deps.entityAnalytics ??
+      makeNativeGroupedEntities({
+        ...common,
+        onClamped: warn('Grouped analytics limit clamped; pageInfo reports remaining rows'),
+      }),
+    classificationAnalytics:
+      deps.classificationAnalytics ??
+      makeNativeGroupedClassifications({
+        ...common,
+        onClamped: warn('Grouped analytics limit clamped; pageInfo reports remaining rows'),
+      }),
+  };
+};
+
+export const makeBudgetModule = (rawDeps: BudgetModuleDeps): BudgetModule => {
+  const deps = rawDeps.native === undefined ? rawDeps : withNativeAdapters(rawDeps, rawDeps.native);
   const repo = deps.repo ?? makeBudgetRepo(deps.db);
   const discovery = makeBudgetDiscoveryRepo(deps.db);
   const legacyAnalytics = makeLegacyAnalyticsRepo(deps.db);
