@@ -87,6 +87,13 @@ export const makeGraphQLValidationRules = (isProduction: boolean): ValidationRul
   ...(isProduction ? [NoSchemaIntrospectionCustomRule] : []),
 ];
 
+/**
+ * Error codes whose messages are user-facing and pass through unredacted in
+ * production. Every message emitted under one of these codes must be static
+ * text written for the client; never interpolate a driver, upstream or
+ * dependency error into it (`SERVICE_UNAVAILABLE` carries the fail-closed
+ * normalization/population explanations the client shows verbatim).
+ */
 const SAFE_ERROR_CODES = new Set([
   'UNAUTHENTICATED',
   'FORBIDDEN',
@@ -94,6 +101,7 @@ const SAFE_ERROR_CODES = new Set([
   'INVALID_INPUT',
   'NOT_FOUND',
   'RATE_LIMITED',
+  'SERVICE_UNAVAILABLE',
   'GRAPHQL_PARSE_FAILED',
   'GRAPHQL_VALIDATION_FAILED',
 ]);

@@ -1,4 +1,4 @@
-import { buildSchema, Kind, parse, validate } from 'graphql';
+import { buildSchema, GraphQLError, Kind, parse, validate } from 'graphql';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { buildRedesignApp } from '@/app/build-redesign-app.js';
@@ -35,13 +35,18 @@ describe('redesign GraphQL security policy', () => {
         {
           source: 'security-test',
           typeDefs:
-            'extend type Query { securityTestFailure: String!, budgetAggregateByClassification: String!, budgetAggregateTimeseries: String!, budgetUatHeatmap: String! }',
+            'extend type Query { securityTestFailure: String!, securityTestUnavailable: String!, budgetAggregateByClassification: String!, budgetAggregateTimeseries: String!, budgetUatHeatmap: String! }',
         },
       ],
       graphqlResolvers: {
         Query: {
           securityTestFailure: () => {
             throw new Error('sensitive database detail');
+          },
+          securityTestUnavailable: () => {
+            throw new GraphQLError('Per-capita population is unavailable for the selected scope', {
+              extensions: { code: 'SERVICE_UNAVAILABLE', exception: { stacktrace: ['secret'] } },
+            });
           },
           budgetAggregateByClassification: () => {
             factAggregateExecutions += 1;
@@ -151,5 +156,17 @@ describe('redesign GraphQL security policy', () => {
       path: ['securityTestFailure'],
     });
     expect(JSON.stringify(response.errors)).not.toContain('sensitive database detail');
+  });
+
+  it('keeps the SERVICE_UNAVAILABLE message but strips the exception in production', async () => {
+    // Fail-closed normalization/population errors are written for the client;
+    // redacting them to "Internal server error" hid why a ranking was refused.
+    const response = await query('{ securityTestUnavailable }');
+    expect(response.errors?.[0]).toMatchObject({
+      message: 'Per-capita population is unavailable for the selected scope',
+      extensions: { code: 'SERVICE_UNAVAILABLE' },
+    });
+    expect(response.errors?.[0]?.extensions?.['exception']).toBeUndefined();
+    expect(JSON.stringify(response.errors)).not.toContain('secret');
   });
 });

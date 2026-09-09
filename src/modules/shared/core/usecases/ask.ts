@@ -77,7 +77,10 @@ export const makeAsk = async (
     input.timeoutMs ?? 30_000
   );
   if (chat.isErr()) {
-    return err(serviceUnavailable(`ask unavailable: ${chat.error.message}`));
+    // SERVICE_UNAVAILABLE messages reach clients unredacted in production, so
+    // the upstream chat error (which may carry provider/network detail) stays
+    // out of the message.
+    return err(serviceUnavailable('ask unavailable: the chat model did not answer'));
   }
 
   return ok({
