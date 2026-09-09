@@ -178,10 +178,12 @@ const buildListConditions = (input: FilterInput): Result<RawBuilder<unknown>[], 
   if (hasFin !== undefined) {
     // hasFinancials isNull:false → "has at least one financial row" (NOT NULL presence).
     const wantPresent = !hasFin;
+    // Presence is a read too: a company whose only financial rows are
+    // non-public must answer "absent", the same allowlist the row reads apply.
     conds.push(
       wantPresent
-        ? sql`exists (select 1 from companies_v2.financials fz where fz.cui = o.cui)`
-        : sql`not exists (select 1 from companies_v2.financials fz where fz.cui = o.cui)`
+        ? sql`exists (select 1 from companies_v2.financials fz where fz.cui = o.cui and fz.privacy_class = 'public')`
+        : sql`not exists (select 1 from companies_v2.financials fz where fz.cui = o.cui and fz.privacy_class = 'public')`
     );
   }
 
