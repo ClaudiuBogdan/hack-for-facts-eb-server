@@ -9,7 +9,7 @@
  * `TEST_GM_API_URL` (`/api/v1/graphql`) and asserts against the SAME snapshot
  * files the legacy endpoint recorded. A LOCAL diagnostic, not a CI job. Run:
  *
- *   TEST_GM_API_URL=http://localhost:3001/api/v1/graphql \
+ *   TEST_GM_API_URL=http://localhost:3010/api/v1/graphql \
  *     pnpm exec vitest run tests/golden-master/specs/legacy-execution-analytics-kernel.gm.test.ts \
  *     --config vitest.gm.config.ts
  *
@@ -17,15 +17,37 @@
  * endpoint must return NO `errors[]` (13 §6 "no new errors") and `data` must
  * match the legacy snapshot at 2 dp. The envelope is fetched by a LOCAL helper
  * (`executeEnvelope`), independent of `tests/golden-master/client.ts` (the
- * cutover harness, which is the gate). Expected, documented deltas (13 §7):
- * `yearly-per-capita` / `quarterly-per-capita` move by ×1.0002 (country
- * population = the reference dataset's latest year, 19,050,000, instead of the
- * county-row sum 19,053,815) and by ≈×2 wherever an `is_uat` / `entity_types`
- * scope was the denominator; the `(real <year>)` label follows the latest CPI
- * year. Those cases fail here BY DESIGN until the snapshots are re-baselined
- * with the recorded before/after numbers (delete the two `.snap.json` files,
- * then `pnpm test:gm:update` — the matcher only writes a MISSING file) — the
- * cutover harness is the gate that classifies them.
+ * cutover harness, which is the gate).
+ *
+ * Five snapshots were re-baselined on 2026-09-10 against the local kernel over
+ * Chronos (`pnpm dev:redesign`, :3010; codebase-plan-2026-09-10.md WP1), each
+ * cause verified with one read-only query on Chronos (13 §7):
+ * - `yearly-per-capita` / `quarterly-per-capita`: the denominator is the
+ *   exact-year NATIONAL POP107D population (commit 4036d387, 2026-09-08, "Use
+ *   annual scope populations"; review README B/F2, N/N4, N/N5: `core.territories` country node `nuts:RO` → `ins.observations`
+ *   POP107D, dim1 1, dim2 105, unit 9685; 2016 = 22,273,309, 2024 = 21,849,217),
+ *   where legacy divided by the static county-row sum 19,053,815. 2016:
+ *   16001.43 → 13688.5; 2024: 46090.97 → 40194.07; 2022-Q1: 7578.66 → 6555.25;
+ *   2023-Q4: 11540.53 → 10016.17. (13 §7 row 2's ×1.0002 described the
+ *   pre-X/F6 design, the reference dataset's latest year.)
+ * - `monthly-totals` / `monthly-income-vs-expenses` (expenses only): 2023-02
+ *   20,412,829,431.43 → 57,824,061,267.78 and 2023-03 65,883,480,626.70 →
+ *   54,847,861,763.74. The legacy values are a Phoenix parser defect at the
+ *   Feb-2023 program-code split (scrapper prod-db/BUDGET_NOTES.md "Anomaly 2",
+ *   waived); the Chronos `budget.execution_line_items` sums equal the kernel
+ *   to the cent for 2023-01..04.
+ * - `filtered-by-entity-type` (`entity_types: ['uat']`): `[]` on Phoenix (its
+ *   vocabulary was `admin_*`) → four yearly points 2020–2023; on Chronos
+ *   `core.public_entities.entity_type = 'uat'` is 3,228 rows (3,187 `is_uat`
+ *   plus the 41 county councils, all `is_territorial_executive`; DP-02/DP-04).
+ *
+ * Re-baseline recipe: move the stale `.snap.json` files aside and run
+ * `pnpm test:gm` once (a MISSING file is created through vitest's file
+ * snapshot, JS-like with trailing commas; normalize it to strict JSON in the
+ * stored, sorted key order of the other snapshots). `pnpm test:gm:update` rewrites EVERY existing snapshot
+ * from the live response (key order as served), so restore the files whose
+ * only change is key order. The cutover harness is the gate that classifies
+ * these deltas; this spec is the local diagnostic.
  */
 
 import { beforeAll, describe, expect, it } from 'vitest';
