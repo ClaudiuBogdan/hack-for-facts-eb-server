@@ -9,14 +9,14 @@ spec:
     kustomize:
       commonAnnotationsEnvsubst: true
     repoURL: https://github.com/ClaudiuBogdan/hack-for-facts-eb-server
-    targetRevision: dev
+    # X/F3 (2026-09-10): Phoenix dev is the cutover baseline, frozen at the
+    # last full api.js commit for the migration window; it no longer follows
+    # `dev` (slice 1 removed the legacy /graphql from the image built there).
+    targetRevision: phoenix-last-full
     path: ./k8s/overlays/dev
   destination:
     server: https://kubernetes.default.svc
     namespace: hack-for-facts-dev
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
