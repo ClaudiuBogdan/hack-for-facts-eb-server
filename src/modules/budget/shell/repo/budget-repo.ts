@@ -1,9 +1,11 @@
 /**
  * Budget module — repository over the live `budget.*` schema (plan §3).
  *
- * The ONLY place that reads `budget.*`. Reads through the kernel's typed Kysely
- * instance (`Kysely<ProdDatabase>` augmented by `shell/db/schema.ts`). Two
- * load-bearing invariants:
+ * The home of `makeBudgetRepo` and of the two invariants every `budget.*`
+ * reader in this directory follows (the read families live in their own files
+ * since codebase plan §WP5 and receive this repo's context). Reads go through
+ * the kernel's typed Kysely instance (`Kysely<ProdDatabase>` augmented by
+ * `shell/db/schema.ts`). The invariants:
  *
  *  1. PARTITION PRUNING (§0.3): every FACT query supplies the literals
  *     `(reporting_year, report_type, account_category)` (commitments: the pair) as
@@ -24,51 +26,68 @@
  * Transfer exclusions are baked into the MVs — NEVER re-applied on MV reads.
  */
 
-import { sql, type Kysely, type RawBuilder, type SqlBool } from 'kysely';
+import { sql, type RawBuilder, type SqlBool } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
 import {
-  isCountyTerritory,
   type ApiError,
-  type CursorPage,
   type FilterInput,
-  type ProdDatabase,
   type SourcePresence,
-  buildNextCursor,
   databaseError,
-  decodeCursor,
-  fhashFor,
   invalidInput,
   normalizeCui,
   toConditionBuilders,
 } from '@/modules/shared/index.js';
 
 import { isPerCapita } from './analytics.js';
+import {
+  AGG_LIMIT_MAX,
+  COMPLETE_AGGREGATE_GUARD,
+  DECIMAL_MONEY_PATTERN,
+  DIM_LIMIT_MAX,
+  OFFICIAL_PAGE_MAX,
+  RANK_LIMIT_MAX,
+  RANK_PAGE_LIMIT_MAX,
+  canonicalCountyPopulationAggregate,
+  clamp,
+  commitMvName,
+  composeAnd,
+  dirSql,
+  execMvName,
+  mapCommitmentSummaryRow,
+  metricColumn,
+  monthlyCommitmentGap,
+  seriesPoint,
+  toCamel,
+  type BudgetRepoOptions,
+  type Db,
+} from './budget-repo-shared.js';
 import { countyExecutiveCuiSql } from './county-executive.js';
 import {
+  EXEC_CORE_FIELDS,
+  amountRange,
+  execGatePredicates,
+  needsCoreJoin,
+  periodTuple,
+  transferExclusion,
+  wantsExcludeTransfers,
+} from './fact-predicates.js';
+import {
   fieldOf,
-  intIn,
   omitFields,
   prepareFundingFactFilter,
-  resolveCommitmentGate,
   resolveExecutionGate,
-  type CommitmentGate,
-  type ExecutionGate,
 } from './filter-helpers.js';
-import { makeFundingSourceMap, type FundingSourceMap } from './funding-source-map.js';
+import { makeFundingSourceMap } from './funding-source-map.js';
 import { publicEntityIdentitySql } from './legacy-entity-predicates.js';
+import { makeLineItemReads } from './line-items.js';
 import {
-  commitReportType,
   execReportType,
   mapApprovedFact,
   mapClassification,
-  mapCommitmentLineItem,
-  mapExecutionLineItem,
   mapFundingSource,
   mapReport,
   mapSector,
-  type CommitmentRow,
-  type ExecutionRow,
   type ReportRow,
 } from './mappers.js';
 import {
@@ -77,31 +96,18 @@ import {
   seriesMoneyFactor,
 } from './money-factor.js';
 import {
-  ACCOUNT_CATEGORY_LABELS,
-  BUDGET_TRANSFER_EXCLUSIONS,
   COMMITMENT_REPORT_TYPE_LABELS,
   EXECUTION_AMOUNT_COLUMN,
   EXECUTION_REPORT_TYPE_LABELS,
-  FREQUENCY_FLAG_COLUMN,
-  type AccountCategory,
-  type BudgetFrequency,
-  type ExecutionReportType,
 } from '../../core/constants.js';
 import {
-  BUDGET_COMMITMENT_VIRTUAL_FIELDS,
   BUDGET_FACT_VIRTUAL_FIELDS,
   budgetApprovedFactFilterSpec,
-  budgetCommitmentFactFilterSpec,
-  budgetCommitmentFactKernelSpec,
-  budgetFactFilterSpec,
   budgetFactKernelSpec,
   budgetReportFilterSpec,
 } from '../../core/filters.js';
-import { legacyDecimal } from '../../core/legacy-analytics/decimal.js';
-import { normalizeLineItemAmounts } from '../../core/line-item-amounts.js';
 import { needsMoneyFactor } from '../../core/money-options.js';
 
-import type { FactorSource } from '../../core/legacy-analytics/ports.js';
 import type { BudgetRepo } from '../../core/ports.js';
 import type {
   AggregatedBudgetRow,
@@ -109,9 +115,7 @@ import type {
   ApprovedBudgetFact,
   BudgetAsOf,
   BudgetClassification,
-  BudgetCommitmentFactQuery,
   BudgetEntitySummary,
-  BudgetFactQuery,
   BudgetFundingSource,
   BudgetProfileSlice,
   BudgetReport,
@@ -120,14 +124,12 @@ import type {
   BudgetVsExecutionRow,
   ClassificationAggregateQuery,
   CommitmentEntitySummary,
-  CommitmentLineItem,
   CommitmentRankingQuery,
   CommitmentSummaryQuery,
   CommitmentTimeseriesQuery,
   CountyHeatmapPoint,
   EntityRankingQuery,
   EntityRankingPageQuery,
-  ExecutionLineItem,
   GatedOffsetPage,
   HeatmapQuery,
   RankedCommitmentEntity,
@@ -138,86 +140,7 @@ import type {
   UatHeatmapPoint,
 } from '../../core/types.js';
 
-type Db = Kysely<ProdDatabase>;
-
-const FACT_LIMIT_MAX = 100;
-const AGG_LIMIT_MAX = 100;
-const COMPLETE_AGGREGATE_GUARD = 10_000;
-const RANK_LIMIT_MAX = 100;
-const RANK_PAGE_LIMIT_MAX = 500;
-const DIM_LIMIT_MAX = 200;
-const OFFICIAL_PAGE_MAX = 100;
-const DECIMAL_MONEY_PATTERN = /^-?\d+(\.\d+)?$/u;
-
-const clamp = (n: number, lo: number, hi: number): number =>
-  Math.min(Math.max(Math.floor(n), lo), hi);
-
-const composeAnd = (conds: readonly RawBuilder<unknown>[]): RawBuilder<SqlBool> =>
-  conds.length === 0 ? sql<SqlBool>`true` : sql<SqlBool>`${sql.join(conds, sql` and `)}`;
-
-/** ASC/DESC as a SQL fragment (no `sql.raw`, which is banned in repos). */
-const dirSql = (dir: 'asc' | 'desc'): RawBuilder<unknown> => (dir === 'asc' ? sql`asc` : sql`desc`);
-
-/**
- * Resolve the execution MV table name (aliased `mv`) for a frequency. All reads
- * select from a SINGLE static type (the annual MV — its column set is the common
- * subset) and swap the runtime table via this name through `selectFrom(name)`;
- * month/quarter columns are read via dynamic `sql.ref('mv.month')` so the static
- * type never needs them. This keeps Kysely typing stable (a union of aliased
- * literals collapses the builder to `never` because the 3 MVs differ).
- */
-type ExecMvName = 'budget.mv_execution_summary_annual as mv';
-type CommitMvName = 'budget.mv_commitment_summary_annual as mv';
-
-const execMvName = (freq: BudgetFrequency): ExecMvName =>
-  (freq === 'MONTH'
-    ? 'budget.mv_execution_summary_monthly as mv'
-    : freq === 'QUARTER'
-      ? 'budget.mv_execution_summary_quarterly as mv'
-      : 'budget.mv_execution_summary_annual as mv') as ExecMvName;
-
-const commitMvName = (freq: BudgetFrequency): CommitMvName =>
-  (freq === 'MONTH'
-    ? 'budget.mv_commitment_summary_monthly as mv'
-    : freq === 'QUARTER'
-      ? 'budget.mv_commitment_summary_quarterly as mv'
-      : 'budget.mv_commitment_summary_annual as mv') as CommitMvName;
-
-/** The MV money column an execution ranking/series metric selects (§0.4). */
-const metricColumn = (
-  m: 'INCOME' | 'EXPENSE' | 'BALANCE'
-): 'total_income' | 'total_expense' | 'budget_balance' =>
-  m === 'INCOME' ? 'total_income' : m === 'EXPENSE' ? 'total_expense' : 'budget_balance';
-
-/** Canonical county population rule shared by rankings, series, and heatmaps. */
-const canonicalCountyPopulationAggregate = (alias: string): RawBuilder<unknown> =>
-  sql`max(${sql.ref(`${alias}.population`)}) filter (where ${isCountyTerritory(alias)})`;
-
-/**
- * The MONTHLY commitment MV carries ONLY these 4 cumulative metrics (+ a separate
- * `receptii_neplatite_change` delta this module does not surface). Every other
- * metric is a gap at MONTH grain and is returned as `null` — selecting it would
- * reference a non-existent column and crash (R1 review, found by both reviewers).
- */
-const MONTHLY_COMMITMENT_METRICS = new Set([
-  'crediteAngajament',
-  'platiTrezor',
-  'platiNonTrezor',
-  'receptiiTotale',
-]);
-/** A camelCase metric is unavailable at MONTH grain iff the monthly MV lacks it. */
-const monthlyCommitmentGap = (camelMetric: string): boolean =>
-  !MONTHLY_COMMITMENT_METRICS.has(camelMetric);
-
-export interface BudgetRepoOptions {
-  /** Present for native serving; exact-year failures never fall back to embedded factors. */
-  readonly moneyFactors?: FactorSource;
-  /** At most one row per territory/year; caller owns the complete read snapshot. */
-  readonly populationRelation?: (selection: {
-    readonly territoryIds: readonly number[];
-    readonly years: readonly number[];
-  }) => Promise<Result<RawBuilder<unknown>, ApiError>>;
-}
+export type { BudgetRepoOptions } from './budget-repo-shared.js';
 
 export const makeBudgetRepo = (db: Db, options: BudgetRepoOptions = {}): BudgetRepo => {
   // ───────────────────────────────────────────────────────────────────────────
@@ -225,12 +148,6 @@ export const makeBudgetRepo = (db: Db, options: BudgetRepoOptions = {}): BudgetR
   // ───────────────────────────────────────────────────────────────────────────
 
   const fundingMap = makeFundingSourceMap(db);
-
-  /** Re-expose fact-row `fundingSourceId` as the PUBLIC (conventional) id. */
-  const withPublicFunding = <T extends { readonly fundingSourceId: number }>(
-    items: readonly T[],
-    fm: FundingSourceMap
-  ): T[] => items.map((it) => ({ ...it, fundingSourceId: fm.toPublicId(it.fundingSourceId) }));
 
   // ───────────────────────────────────────────────────────────────────────────
   // freshness
@@ -266,493 +183,11 @@ export const makeBudgetRepo = (db: Db, options: BudgetRepoOptions = {}): BudgetR
   };
 
   // ───────────────────────────────────────────────────────────────────────────
-  // execution facts (FACT path)
+  // execution + commitment line items (FACT path) — line-items.ts
   // ───────────────────────────────────────────────────────────────────────────
 
-  /** The pruning-triple predicates (always FIRST; the planner prunes here). */
-  const execGatePredicates = (gate: ExecutionGate, alias: string): RawBuilder<unknown>[] => {
-    const yr = sql.ref(`${alias}.reporting_year`);
-    const conds: RawBuilder<unknown>[] = [];
-    if (gate.years.eq !== undefined) conds.push(sql`${yr} = ${gate.years.eq}`);
-    if (gate.years.in !== undefined && gate.years.in.length > 0) {
-      conds.push(
-        sql`${yr} in (${sql.join(
-          gate.years.in.map((y) => sql`${y}`),
-          sql`, `
-        )})`
-      );
-    }
-    if (gate.years.from !== undefined) conds.push(sql`${yr} >= ${gate.years.from}`);
-    if (gate.years.to !== undefined) conds.push(sql`${yr} <= ${gate.years.to}`);
-    conds.push(sql`${sql.ref(`${alias}.report_type`)} = ${gate.reportLabel}`);
-    conds.push(sql`${sql.ref(`${alias}.account_category`)} = ${gate.accountLabel}`);
-    conds.push(sql`${sql.ref(`${alias}.${FREQUENCY_FLAG_COLUMN[gate.frequency]}`)} = true`);
-    return conds;
-  };
-
-  const commitGatePredicates = (gate: CommitmentGate, alias: string): RawBuilder<unknown>[] => {
-    const yr = sql.ref(`${alias}.reporting_year`);
-    const conds: RawBuilder<unknown>[] = [];
-    if (gate.years.eq !== undefined) conds.push(sql`${yr} = ${gate.years.eq}`);
-    if (gate.years.in !== undefined && gate.years.in.length > 0) {
-      conds.push(
-        sql`${yr} in (${sql.join(
-          gate.years.in.map((y) => sql`${y}`),
-          sql`, `
-        )})`
-      );
-    }
-    if (gate.years.from !== undefined) conds.push(sql`${yr} >= ${gate.years.from}`);
-    if (gate.years.to !== undefined) conds.push(sql`${yr} <= ${gate.years.to}`);
-    conds.push(sql`${sql.ref(`${alias}.report_type`)} = ${gate.reportLabel}`);
-    conds.push(sql`${sql.ref(`${alias}.${FREQUENCY_FLAG_COLUMN[gate.frequency]}`)} = true`);
-    return conds;
-  };
-
-  /** Period tuple (months/quarters) predicate within the year, by frequency. */
-  const periodTuple = (
-    input: FilterInput,
-    freq: BudgetFrequency,
-    alias: string
-  ): RawBuilder<unknown> | undefined => {
-    if (freq === 'MONTH') {
-      const months = intIn(fieldOf(input, 'months'));
-      if (months !== undefined && months.length > 0) {
-        return sql`${sql.ref(`${alias}.reporting_month`)} in (${sql.join(
-          months.map((m) => sql`${m}`),
-          sql`, `
-        )})`;
-      }
-    } else if (freq === 'QUARTER') {
-      const quarters = intIn(fieldOf(input, 'quarters'));
-      if (quarters !== undefined && quarters.length > 0) {
-        return sql`${sql.ref(`${alias}.quarter`)} in (${sql.join(
-          quarters.map((q) => sql`${q}`),
-          sql`, `
-        )})`;
-      }
-    }
-    return undefined;
-  };
-
-  /** Row-level amount range on the frequency amount column (money → exact ::numeric). */
-  const amountRange = (
-    input: FilterInput,
-    freq: BudgetFrequency,
-    alias: string
-  ): RawBuilder<unknown>[] => {
-    const col = sql.ref(`${alias}.${EXECUTION_AMOUNT_COLUMN[freq]}`);
-    const conds: RawBuilder<unknown>[] = [];
-    const min = fieldOf(input, 'minAmount')?.['gte'];
-    const max = fieldOf(input, 'maxAmount')?.['lte'];
-    if (typeof min === 'string' && /^-?\d+(\.\d+)?$/u.test(min))
-      conds.push(sql`${col}::numeric >= ${min}::numeric`);
-    if (typeof max === 'string' && /^-?\d+(\.\d+)?$/u.test(max))
-      conds.push(sql`${col}::numeric <= ${max}::numeric`);
-    return conds;
-  };
-
-  /** Transfer exclusion (fact path opt-in; the EXACT set the MVs bake in, §3.4). */
-  const transferExclusion = (alias: string): RawBuilder<unknown> => {
-    const econ = BUDGET_TRANSFER_EXCLUSIONS.economicPrefixes.map(
-      (p) => sql`${sql.ref(`${alias}.economic_code`)} like ${`${p}%`}`
-    );
-    const func = BUDGET_TRANSFER_EXCLUSIONS.functionalPrefixes.map(
-      (p) => sql`${sql.ref(`${alias}.functional_code`)} like ${`${p}%`}`
-    );
-    // Keep rows that are NOT a transfer code (NULL-safe: a NULL code is kept).
-    return sql`not coalesce(${sql.join([...econ, ...func], sql` or `)}, false)`;
-  };
-
-  const wantsExcludeTransfers = (input: FilterInput): boolean => {
-    const v = fieldOf(input, 'excludeTransfers')?.['eq'];
-    return v === true || v === 'true';
-  };
-
-  /** Does the input touch a core (entity/territory) column requiring the join? */
-  const needsCoreJoin = (input: FilterInput, coreFields: readonly string[]): boolean => {
-    if (coreFields.some((f) => fieldOf(input, f) !== undefined)) return true;
-    const ex = input.exclude;
-    if (ex !== undefined && typeof ex === 'object') {
-      return ['countyCodes', 'regions'].some(
-        (f) => (ex as Record<string, unknown>)[f] !== undefined
-      );
-    }
-    return false;
-  };
-
-  const EXEC_CORE_FIELDS = [
-    'entityTypes',
-    'isUat',
-    'isTerritorialExecutive',
-    'countyCodes',
-    'regions',
-    'minPopulation',
-    'maxPopulation',
-    'q',
-  ];
-
-  const execSelect = [
-    'eli.execution_line_item_id',
-    'eli.report_id',
-    'eli.reporting_year',
-    'eli.reporting_month',
-    'eli.quarter',
-    'eli.entity_cui',
-    'eli.main_creditor_cui',
-    'eli.report_type',
-    'eli.account_category',
-    'eli.budget_sector_id',
-    'eli.expense_type',
-    'eli.functional_code',
-    'eli.functional_name',
-    'eli.economic_code',
-    'eli.economic_name',
-    'eli.funding_source',
-    'eli.funding_source_id',
-    'eli.program_code',
-  ] as const;
-
-  const execAmountSelect = [
-    sql<string>`eli.ytd_amount::text`.as('ytd_amount'),
-    sql<string>`eli.monthly_amount::text`.as('monthly_amount'),
-    sql<string | null>`eli.quarterly_amount::text`.as('quarterly_amount'),
-    'eli.is_monthly',
-    'eli.is_quarterly',
-    'eli.is_yearly',
-    'eli.anomaly',
-  ] as const;
-
-  const listExecutionLineItems = async (
-    q: BudgetFactQuery
-  ): Promise<Result<CursorPage<ExecutionLineItem>, ApiError>> => {
-    if (
-      options.moneyFactors === undefined &&
-      (q.currency !== undefined || q.inflationAdjusted !== undefined)
-    )
-      return err({
-        type: 'ServiceUnavailable',
-        message: 'Native monetary options are unavailable',
-      });
-    const gateR = resolveExecutionGate(q.filter, {
-      reportType: 'EXECUTION_DETAILED',
-      accountCategory: 'EXPENSE',
-      frequency: 'YEAR',
-    });
-    if (gateR.isErr()) return err(gateR.error);
-    const gate = gateR.value;
-
-    const normalization = q.normalization ?? 'TOTAL';
-    const normalized = normalization !== 'TOTAL' || needsMoneyFactor(normalization, q);
-    const entitySelection = fieldOf(q.filter, 'entityCuis')?.['in'];
-    const normalizedYear = fieldOf(q.filter, 'reportingYear')?.['eq'];
-    if (
-      normalized &&
-      (typeof normalizedYear !== 'number' ||
-        !Number.isInteger(normalizedYear) ||
-        !Array.isArray(entitySelection) ||
-        entitySelection.length !== 1 ||
-        typeof entitySelection[0] !== 'string')
-    ) {
-      return err(
-        invalidInput(
-          'line-item normalization requires an explicit reportingYear.eq and one entityCuis.in',
-          'normalization'
-        )
-      );
-    }
-    const limit = clamp(q.page.first, 1, FACT_LIMIT_MAX);
-    const fhash = fhashFor(budgetFactFilterSpec, q.filter);
-    const dir: 'asc' | 'desc' = q.sort === 'AMOUNT_ASC' ? 'asc' : 'desc';
-    let cursorKeys: readonly string[] | undefined;
-    if (q.page.after !== undefined) {
-      const decoded = decodeCursor(q.page.after, { sort: q.sort, dir, fhash });
-      if (decoded.isErr()) return err(decoded.error);
-      cursorKeys = decoded.value.keys;
-    }
-
-    const fm = await fundingMap.load();
-    const translated = prepareFundingFactFilter(q.filter, fm.toStoredId);
-    const physical = omitFields(translated, [...BUDGET_FACT_VIRTUAL_FIELDS]);
-    const built = toConditionBuilders(budgetFactKernelSpec, physical);
-    if (built.isErr()) return err(built.error);
-
-    const conds: RawBuilder<unknown>[] = [...execGatePredicates(gate, 'eli'), ...built.value];
-    const tuple = periodTuple(q.filter, gate.frequency, 'eli');
-    if (tuple !== undefined) conds.push(tuple);
-    conds.push(...amountRange(q.filter, gate.frequency, 'eli'));
-    if (wantsExcludeTransfers(q.filter)) conds.push(transferExclusion('eli'));
-
-    const amountCol = EXECUTION_AMOUNT_COLUMN[gate.frequency];
-    if (cursorKeys !== undefined) {
-      if (q.sort === 'LINE_ORDER') {
-        const id = cursorKeys[0] ?? '';
-        if (id !== '') conds.push(sql`eli.execution_line_item_id > ${id}::bigint`);
-      } else if (cursorKeys.length === 2) {
-        const amt = cursorKeys[0] ?? '';
-        const id = cursorKeys[1] ?? '';
-        const ac = sql.ref(`eli.${amountCol}`);
-        conds.push(
-          dir === 'desc'
-            ? sql`(${ac} < ${amt}::numeric or (${ac} = ${amt}::numeric and eli.execution_line_item_id < ${id}::bigint))`
-            : sql`(${ac} > ${amt}::numeric or (${ac} = ${amt}::numeric and eli.execution_line_item_id > ${id}::bigint))`
-        );
-      }
-    }
-
-    const needsJoin = needsCoreJoin(q.filter, EXEC_CORE_FIELDS);
-    try {
-      let base = db.selectFrom('budget.execution_line_items as eli');
-      if (needsJoin) {
-        base = base
-          .leftJoin('core.public_entities as e', 'e.cui', 'eli.entity_cui')
-          .leftJoin('core.territories as t', 't.id', 'e.territory_id');
-      }
-      let query = base.select([...execSelect, ...execAmountSelect]).where(composeAnd(conds));
-      if (q.sort === 'LINE_ORDER') {
-        query = query.orderBy('eli.execution_line_item_id', 'asc');
-      } else {
-        // `nulls last` is defensive (the is_* flag guarantees a non-null amount)
-        // and matches the keyset cursor's implicit ordering assumption.
-        query = query
-          .orderBy(sql`eli.${sql.ref(amountCol)} ${dirSql(dir)} nulls last`)
-          .orderBy('eli.execution_line_item_id', dir);
-      }
-      const rows = (await query.limit(limit + 1).execute()) as ExecutionRow[];
-
-      const hasMore = rows.length > limit;
-      const pageRows = hasMore ? rows.slice(0, limit) : rows;
-      let items = withPublicFunding(pageRows.map(mapExecutionLineItem), fm);
-      if (normalized && items.length > 0) {
-        // The validated single-entity/year scope is independent of which creditors own the facts.
-        if (
-          options.moneyFactors === undefined ||
-          (isPerCapita(normalization) && options.populationRelation === undefined)
-        ) {
-          return err({
-            type: 'ServiceUnavailable',
-            message: 'Native line-item normalization is unavailable',
-          });
-        }
-        const year = Number(normalizedYear);
-        const factor = await availableSingleYearMoneyFactor(
-          options.moneyFactors,
-          normalization,
-          year,
-          q
-        );
-        if (factor.isErr()) return err(factor.error);
-        let population: string | null = '1';
-        if (isPerCapita(normalization) && factor.value !== null) {
-          const entity = await db
-            .selectFrom('core.public_entities')
-            .select(['territory_id', 'is_territorial_executive'])
-            .where('cui', '=', items[0]?.entityCui ?? '')
-            .executeTakeFirst();
-          population = null;
-          if (
-            entity?.is_territorial_executive === true &&
-            entity.territory_id !== null &&
-            options.populationRelation !== undefined
-          ) {
-            const relation = await options.populationRelation({
-              territoryIds: [entity.territory_id],
-              years: [year],
-            });
-            if (relation.isErr()) return err(relation.error);
-            const result = await sql<{
-              population: string | null;
-            }>`select p.population::text as population
-              from (${relation.value}) p where p.territory_id=${entity.territory_id} and p.year=${year}`.execute(
-              db
-            );
-            if (result.rows.length > 1)
-              return err({ type: 'ServiceUnavailable', message: 'Duplicate annual population' });
-            population = result.rows[0]?.population ?? null;
-            if (
-              population !== null &&
-              (!legacyDecimal(population).isFinite() || legacyDecimal(population).lte(0))
-            ) {
-              return err({ type: 'ServiceUnavailable', message: 'Invalid annual population' });
-            }
-          }
-        }
-        const multiplier = factor.value;
-        items = items.map((item) => ({
-          ...item,
-          normalizedAmounts:
-            multiplier === null || population === null
-              ? null
-              : normalizeLineItemAmounts(item, multiplier, population),
-        }));
-      }
-      let next: string | null = null;
-      if (hasMore) {
-        const last = pageRows[pageRows.length - 1];
-        if (last !== undefined) {
-          const amt =
-            amountCol === 'monthly_amount'
-              ? last.monthly_amount
-              : amountCol === 'quarterly_amount'
-                ? last.quarterly_amount
-                : last.ytd_amount;
-          const keys =
-            q.sort === 'LINE_ORDER'
-              ? [last.execution_line_item_id]
-              : [amt ?? '', last.execution_line_item_id];
-          next = buildNextCursor({ sort: q.sort, dir, fhash, lastKeys: keys });
-        }
-      }
-      return ok({ items, next });
-    } catch (error) {
-      return err(databaseError('listExecutionLineItems failed', error));
-    }
-  };
-
-  const getExecutionLineItem = async (q: {
-    year: number;
-    reportType: ExecutionReportType;
-    accountCategory: AccountCategory;
-    id: string;
-  }): Promise<Result<ExecutionLineItem | null, ApiError>> => {
-    // q.reportType / q.accountCategory are closed enums (validated at the surface),
-    // so the label maps always resolve.
-    const reportLabel = EXECUTION_REPORT_TYPE_LABELS[q.reportType];
-    const accountLabel = ACCOUNT_CATEGORY_LABELS[q.accountCategory];
-    if (!/^\d+$/u.test(q.id)) return err(invalidInput('id must be a bigint', 'id'));
-    try {
-      const row = (await db
-        .selectFrom('budget.execution_line_items as eli')
-        .select([...execSelect, ...execAmountSelect])
-        .where('eli.reporting_year', '=', q.year)
-        .where('eli.report_type', '=', reportLabel)
-        .where('eli.account_category', '=', accountLabel)
-        .where('eli.execution_line_item_id', '=', q.id)
-        .limit(1)
-        .executeTakeFirst()) as ExecutionRow | undefined;
-      if (row === undefined) return ok(null);
-      const fm = await fundingMap.load();
-      return ok(withPublicFunding([mapExecutionLineItem(row)], fm)[0] ?? null);
-    } catch (error) {
-      return err(databaseError('getExecutionLineItem failed', error));
-    }
-  };
-
-  // ───────────────────────────────────────────────────────────────────────────
-  // commitment facts (FACT path; pruning PAIR)
-  // ───────────────────────────────────────────────────────────────────────────
-
-  const COMMIT_CORE_FIELDS = [
-    'entityTypes',
-    'isUat',
-    'isTerritorialExecutive',
-    'countyCodes',
-    'regions',
-    'q',
-  ];
-
-  const listCommitmentLineItems = async (
-    q: BudgetCommitmentFactQuery
-  ): Promise<Result<CursorPage<CommitmentLineItem>, ApiError>> => {
-    const gateR = resolveCommitmentGate(q.filter, {
-      reportType: 'COMMITMENT_AGG_PRINCIPAL',
-      frequency: 'YEAR',
-    });
-    if (gateR.isErr()) return err(gateR.error);
-    const gate = gateR.value;
-
-    const limit = clamp(q.page.first, 1, FACT_LIMIT_MAX);
-    const fhash = fhashFor(budgetCommitmentFactFilterSpec, q.filter);
-    const dir: 'asc' | 'desc' = q.sort === 'AMOUNT_ASC' ? 'asc' : 'desc';
-    let cursorKeys: readonly string[] | undefined;
-    if (q.page.after !== undefined) {
-      const decoded = decodeCursor(q.page.after, { sort: q.sort, dir, fhash });
-      if (decoded.isErr()) return err(decoded.error);
-      cursorKeys = decoded.value.keys;
-    }
-
-    const fm = await fundingMap.load();
-    const translated = prepareFundingFactFilter(q.filter, fm.toStoredId);
-    const physical = omitFields(translated, [...BUDGET_COMMITMENT_VIRTUAL_FIELDS]);
-    const built = toConditionBuilders(budgetCommitmentFactKernelSpec, physical);
-    if (built.isErr()) return err(built.error);
-
-    const conds: RawBuilder<unknown>[] = [...commitGatePredicates(gate, 'cli'), ...built.value];
-    const tuple = periodTuple(q.filter, gate.frequency, 'cli');
-    if (tuple !== undefined) conds.push(tuple);
-
-    // The sort metric column for the chosen frequency (e.g. ytd_plati_trezor).
-    const prefix =
-      gate.frequency === 'MONTH'
-        ? 'monthly_'
-        : gate.frequency === 'QUARTER'
-          ? 'quarterly_'
-          : 'ytd_';
-    const sortCol = `${prefix}${q.metric}`;
-    if (cursorKeys !== undefined) {
-      if (q.sort === 'LINE_ORDER') {
-        const id = cursorKeys[0] ?? '';
-        if (id !== '') conds.push(sql`cli.commitment_line_item_id > ${id}::bigint`);
-      } else if (cursorKeys.length === 2) {
-        const amt = cursorKeys[0] ?? '';
-        const id = cursorKeys[1] ?? '';
-        const ac = sql.ref(`cli.${sortCol}`);
-        // NULL amounts sort AFTER all real values (NULLS LAST). The cursor encodes
-        // a null amount as ''. Handle the null section symmetrically for asc/desc
-        // so null-amount rows are reachable AND not duplicated (R1 review).
-        const idCmp =
-          dir === 'desc'
-            ? sql`cli.commitment_line_item_id < ${id}::bigint`
-            : sql`cli.commitment_line_item_id > ${id}::bigint`;
-        if (amt === '') {
-          // Already inside the trailing null section: only further null rows by id.
-          conds.push(sql`(${ac} is null and ${idCmp})`);
-        } else {
-          const valCmp =
-            dir === 'desc' ? sql`${ac} < ${amt}::numeric` : sql`${ac} > ${amt}::numeric`;
-          conds.push(sql`(${valCmp} or ${ac} is null or (${ac} = ${amt}::numeric and ${idCmp}))`);
-        }
-      }
-    }
-
-    const needsJoin = needsCoreJoin(q.filter, COMMIT_CORE_FIELDS);
-    try {
-      let base = db.selectFrom('budget.commitment_line_items as cli');
-      if (needsJoin) {
-        base = base
-          .leftJoin('core.public_entities as e', 'e.cui', 'cli.entity_cui')
-          .leftJoin('core.territories as t', 't.id', 'e.territory_id');
-      }
-      let query = base.select(commitmentSelectList()).where(composeAnd(conds));
-      if (q.sort === 'LINE_ORDER') {
-        query = query.orderBy('cli.commitment_line_item_id', 'asc');
-      } else {
-        query = query
-          .orderBy(sql`cli.${sql.ref(sortCol)} ${dirSql(dir)} nulls last`)
-          .orderBy('cli.commitment_line_item_id', dir);
-      }
-      const rows = (await query.limit(limit + 1).execute()) as CommitmentRow[];
-
-      const hasMore = rows.length > limit;
-      const pageRows = hasMore ? rows.slice(0, limit) : rows;
-      const items = withPublicFunding(pageRows.map(mapCommitmentLineItem), fm);
-      let next: string | null = null;
-      if (hasMore) {
-        const last = pageRows[pageRows.length - 1];
-        if (last !== undefined) {
-          const amt = (last as unknown as Record<string, string | null>)[sortCol] ?? '';
-          const keys =
-            q.sort === 'LINE_ORDER'
-              ? [last.commitment_line_item_id]
-              : [amt, last.commitment_line_item_id];
-          next = buildNextCursor({ sort: q.sort, dir, fhash, lastKeys: keys });
-        }
-      }
-      return ok({ items, next });
-    } catch (error) {
-      return err(databaseError('listCommitmentLineItems failed', error));
-    }
-  };
+  const { listExecutionLineItems, getExecutionLineItem, listCommitmentLineItems } =
+    makeLineItemReads({ db, options, fundingMap });
 
   // ───────────────────────────────────────────────────────────────────────────
   // entity/period summaries (MV path)
@@ -2262,36 +1697,6 @@ export const makeBudgetRepo = (db: Db, options: BudgetRepoOptions = {}): BudgetR
     }
   };
 
-  // ── shared select-list builders (declared after the closure for readability) ──
-
-  function commitmentSelectList() {
-    const base = [
-      'cli.commitment_line_item_id',
-      'cli.report_id',
-      'cli.reporting_year',
-      'cli.reporting_month',
-      'cli.quarter',
-      'cli.entity_cui',
-      'cli.main_creditor_cui',
-      'cli.report_type',
-      'cli.budget_sector_id',
-      'cli.functional_code',
-      'cli.functional_name',
-      'cli.economic_code',
-      'cli.economic_name',
-      'cli.funding_source',
-      'cli.funding_source_id',
-      'cli.is_monthly',
-      'cli.is_quarterly',
-      'cli.is_yearly',
-      'cli.anomaly',
-    ] as const;
-    const metricCols = COMMIT_FACT_METRIC_COLUMNS.map((c) =>
-      sql<string | null>`cli.${sql.ref(c)}::text`.as(c)
-    );
-    return [...base, ...metricCols];
-  }
-
   return {
     asOf,
     listExecutionLineItems,
@@ -2318,119 +1723,5 @@ export const makeBudgetRepo = (db: Db, options: BudgetRepoOptions = {}): BudgetR
     budgetVsExecution,
     presenceFor,
     profileSlice,
-  };
-};
-
-// ── helpers shared outside the closure ────────────────────────────────────────
-
-/** snake_case → camelCase (for the monthly-MV gap check). */
-const toCamel = (s: string): string => s.replace(/_([a-z])/gu, (_m, c: string) => c.toUpperCase());
-
-/** All ytd/monthly/quarterly/latest commitment fact columns (in CommitmentRow order). */
-const COMMIT_FACT_METRIC_COLUMNS = [
-  'ytd_credite_angajament',
-  'monthly_credite_angajament',
-  'quarterly_credite_angajament',
-  'credite_angajament',
-  'ytd_limita_credit_angajament',
-  'monthly_limita_credit_angajament',
-  'quarterly_limita_credit_angajament',
-  'limita_credit_angajament',
-  'ytd_credite_bugetare',
-  'monthly_credite_bugetare',
-  'quarterly_credite_bugetare',
-  'credite_bugetare',
-  'ytd_credite_angajament_initiale',
-  'monthly_credite_angajament_initiale',
-  'quarterly_credite_angajament_initiale',
-  'credite_angajament_initiale',
-  'ytd_credite_bugetare_initiale',
-  'monthly_credite_bugetare_initiale',
-  'quarterly_credite_bugetare_initiale',
-  'credite_bugetare_initiale',
-  'ytd_credite_angajament_definitive',
-  'monthly_credite_angajament_definitive',
-  'quarterly_credite_angajament_definitive',
-  'credite_angajament_definitive',
-  'ytd_credite_bugetare_definitive',
-  'monthly_credite_bugetare_definitive',
-  'quarterly_credite_bugetare_definitive',
-  'credite_bugetare_definitive',
-  'ytd_credite_angajament_disponibile',
-  'monthly_credite_angajament_disponibile',
-  'quarterly_credite_angajament_disponibile',
-  'credite_angajament_disponibile',
-  'ytd_credite_bugetare_disponibile',
-  'monthly_credite_bugetare_disponibile',
-  'quarterly_credite_bugetare_disponibile',
-  'credite_bugetare_disponibile',
-  'ytd_receptii_totale',
-  'monthly_receptii_totale',
-  'quarterly_receptii_totale',
-  'receptii_totale',
-  'ytd_plati_trezor',
-  'monthly_plati_trezor',
-  'quarterly_plati_trezor',
-  'plati_trezor',
-  'ytd_plati_non_trezor',
-  'monthly_plati_non_trezor',
-  'quarterly_plati_non_trezor',
-  'plati_non_trezor',
-  'ytd_receptii_neplatite',
-  'monthly_receptii_neplatite',
-  'quarterly_receptii_neplatite',
-  'receptii_neplatite',
-] as const;
-
-/** Map a commitment MV summary row (camelCase metric fields) to the view model. */
-const mapCommitmentSummaryRow = (r: Record<string, unknown>): CommitmentEntitySummary => {
-  const m = (col: string): string | null => (r[col] as string | null) ?? null;
-  return {
-    entityCui: r['entity_cui'] as string,
-    mainCreditorCui: (r['main_creditor_cui'] as string | null) ?? null,
-    reportType: commitReportType(r['report_type'] as string),
-    period: {
-      year: r['year'] as number,
-      month: (r['month'] as number | null) ?? null,
-      quarter: (r['quarter'] as number | null) ?? null,
-    },
-    crediteAngajament: m('credite_angajament'),
-    limitaCreditAngajament: m('limita_credit_angajament'),
-    crediteBugetare: m('credite_bugetare'),
-    crediteAngajamentInitiale: m('credite_angajament_initiale'),
-    crediteBugetareInitiale: m('credite_bugetare_initiale'),
-    crediteAngajamentDefinitive: m('credite_angajament_definitive'),
-    crediteBugetareDefinitive: m('credite_bugetare_definitive'),
-    crediteAngajamentDisponibile: m('credite_angajament_disponibile'),
-    crediteBugetareDisponibile: m('credite_bugetare_disponibile'),
-    receptiiTotale: m('receptii_totale'),
-    platiTrezor: m('plati_trezor'),
-    platiNonTrezor: m('plati_non_trezor'),
-    receptiiNeplatite: m('receptii_neplatite'),
-  };
-};
-
-/** Build a series point with the right period label for the frequency. */
-const seriesPoint = (
-  year: number,
-  period: number | null,
-  freq: BudgetFrequency,
-  amount: string
-): BudgetSeriesPoint => {
-  const y = String(year);
-  const label =
-    freq === 'MONTH'
-      ? `${y}-${String(period ?? 0).padStart(2, '0')}`
-      : freq === 'QUARTER'
-        ? `${y}-Q${String(period ?? 0)}`
-        : y;
-  return {
-    period: {
-      year,
-      month: freq === 'MONTH' ? period : null,
-      quarter: freq === 'QUARTER' ? period : null,
-    },
-    periodLabel: label,
-    amount,
   };
 };
