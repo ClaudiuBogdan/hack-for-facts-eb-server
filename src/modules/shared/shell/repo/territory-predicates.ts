@@ -3,12 +3,14 @@ import { sql, type RawBuilder } from 'kysely';
 import {
   BUCHAREST_COUNTY_CODE,
   BUCHAREST_MUNICIPALITY_SIRUTA,
+  BUCHAREST_SECTOR_KIND,
+  BUCHAREST_SECTOR_LEVEL,
 } from '../../core/territory-constants.js';
 
 /** Geography suitable for the UAT presentation layer, including sector halls. */
 export const isUatPresentationTerritory = (alias: string): RawBuilder<boolean> =>
   sql<boolean>`(${sql.ref(`${alias}.level`)} = 'uat'
-    or (${sql.ref(`${alias}.level`)} = 'locality' and ${sql.ref(`${alias}.kind`)} = 'sector'))`;
+    or (${sql.ref(`${alias}.level`)} = ${sql.lit(BUCHAREST_SECTOR_LEVEL)} and ${sql.ref(`${alias}.kind`)} = ${sql.lit(BUCHAREST_SECTOR_KIND)}))`;
 
 /**
  * One geographic county row. Before L2, Bucharest has only its municipality;

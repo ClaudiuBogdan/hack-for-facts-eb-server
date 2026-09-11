@@ -124,6 +124,7 @@ export interface InsMemberTerritoryTable {
 
 /** `ins.territory_nodes` — the INS spine mirror (NATIONAL > NUTS1 > NUTS2 > NUTS3 > LAU). */
 export interface InsTerritoryNodesTable {
+  privacy_class: string; // 'public' | 'restricted' — county aliases read public rows only (DP-07)
   territory_id: string; // bigint
   code: string;
   siruta_code: string | null;
@@ -137,6 +138,7 @@ export interface InsTerritoryNodesTable {
 
 /** `ins.contexts` — the TEMPO theme tree. */
 export interface InsContextsTable {
+  privacy_class: string; // 'public' | 'restricted' (DP-07)
   context_code: string;
   parent_code: string | null;
   level: number;
@@ -149,6 +151,7 @@ export interface InsContextsTable {
 
 /** `ins.dataset_coverage` — observed coverage + published text per served dataset. */
 export interface InsDatasetCoverageTable {
+  privacy_class: string; // 'public' | 'restricted' (DP-07)
   dataset_code: string;
   custody_sha256: string;
   observation_count: string; // bigint

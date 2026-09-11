@@ -6,6 +6,8 @@ import { databaseError, type ApiError } from '../../core/errors.js';
 import {
   BUCHAREST_COUNTY_CODE,
   BUCHAREST_MUNICIPALITY_SIRUTA,
+  BUCHAREST_SECTOR_KIND,
+  BUCHAREST_SECTOR_LEVEL,
 } from '../../core/territory-constants.js';
 
 import type { ProdDatabase } from '../db/types.js';
@@ -30,7 +32,7 @@ export async function readTerritoryPopulationSources(
     const result = await sql<TerritoryPopulationRow>`select
       p.territory_id as "territoryId", t.territorial_siruta_code as siruta,
       p.year, p.population, p.source, p.source_url as "sourceUrl",
-      (t.level='locality' and t.kind='sector' and t.county_code=${sql.lit(BUCHAREST_COUNTY_CODE)}
+      (t.level=${sql.lit(BUCHAREST_SECTOR_LEVEL)} and t.kind=${sql.lit(BUCHAREST_SECTOR_KIND)} and t.county_code=${sql.lit(BUCHAREST_COUNTY_CODE)}
        and t.territory_key='siruta:'||t.territorial_siruta_code
        and (t.siruta_code is null or t.siruta_code=t.territorial_siruta_code)
        and t.privacy_class='public' and parent.privacy_class='public'

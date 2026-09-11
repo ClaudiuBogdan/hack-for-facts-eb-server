@@ -52,6 +52,7 @@ import {
 } from '@/modules/ins-native/shell/repo/read-session.js';
 import { createProdDb } from '@/modules/shared/shell/db/pool.js';
 
+import { teardownDisposablePostgres } from './disposable-postgres.js';
 import { registerInsBatchHydrationCases } from './ins-native-batch-hydration-cases.js';
 import { registerInsCountyAliasCases } from './ins-native-county-alias-cases.js';
 import { registerInsDefaultSeriesCases } from './ins-native-default-series-cases.js';
@@ -371,7 +372,12 @@ const decode = (value: string | null): string => {
 beforeAll(async () => {
   const url = process.env['E2E_INS_PG_URL'] ?? process.env['E2E_BUDGET_PG_URL'];
   let connectionString: string;
-  if (url !== undefined && url !== '') {
+  // An external URL must be a loopback, never the production database. A
+  // container the suite starts is disposable by construction (its URI carries
+  // the Docker host's name under TESTCONTAINERS_HOST_OVERRIDE), so only the
+  // production-name refusal applies to it.
+  const external = url !== undefined && url !== '';
+  if (external) {
     connectionString = url;
   } else if (dockerCliUp()) {
     container = await new PostgreSqlContainer('pgvector/pgvector:pg18').start();
@@ -405,7 +411,7 @@ beforeAll(async () => {
 
   const target = new URL(connectionString);
   if (
-    !new Set(['localhost', '127.0.0.1', '::1']).has(target.hostname) ||
+    (external && !new Set(['localhost', '127.0.0.1', '::1']).has(target.hostname)) ||
     target.pathname.includes('transparenta_prod')
   ) {
     throw new Error(
@@ -444,9 +450,11 @@ beforeAll(async () => {
 }, 240_000);
 
 afterAll(async () => {
-  if (db !== undefined) await db.destroy();
-  if (pgClient !== undefined) await pgClient.end();
-  if (container !== undefined) await container.stop();
+  await teardownDisposablePostgres(
+    container,
+    () => db?.destroy(),
+    () => pgClient?.end()
+  );
 });
 
 const r = (): InsRepo => {

@@ -108,8 +108,9 @@ export const BUDGET_TRANSFER_EXCLUSIONS = {
 
 // ── Bucharest special-case (plan §3.4 — centralized once, consumed here) ──────
 // Bucharest is county_code 'B'; its municipality-level SIRUTA/CUI is 179132.
-export const BUCHAREST_SIRUTA_CODE = '179132';
-export const BUCHAREST_COUNTY_CODE = 'B';
+// Both are the kernel's (review N/K1); the budget name for the municipality SIRUTA is kept.
+export { BUCHAREST_COUNTY_CODE } from '@/modules/shared/index.js';
+export { BUCHAREST_MUNICIPALITY_SIRUTA as BUCHAREST_SIRUTA_CODE } from '@/modules/shared/index.js';
 
 // ── grain note (Grain Gate §14.6) ─────────────────────────────────────────────
 export const BUDGET_GRAIN_NOTE =

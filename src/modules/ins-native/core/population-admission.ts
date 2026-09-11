@@ -7,6 +7,8 @@
  * Every admitted year is validated even for one sector; partial publications
  * are never mixed.
  */
+import { BUCHAREST_SECTOR_SIRUTAS } from '@/modules/shared/index.js';
+
 import type { AnnualPopulationAdmission } from './annual-population.js';
 
 export interface SectorPopulationAdmission {
@@ -21,14 +23,8 @@ export interface SectorPopulationAdmission {
 }
 
 /** The six Bucharest sectors (SIRUTA), the only territories a sector admission may name. */
-export const BUCHAREST_SECTOR_SIRUTAS = [
-  '179141',
-  '179150',
-  '179169',
-  '179178',
-  '179187',
-  '179196',
-] as const;
+// The six sector codes are the kernel's (review N/K1); re-exported for the module's callers.
+export { BUCHAREST_SECTOR_SIRUTAS } from '@/modules/shared/index.js';
 
 /** Exactly the year-set shapes ever admitted; anything else is a new publication to review. */
 export const ADMITTED_SECTOR_YEAR_SETS: readonly (readonly number[])[] = [

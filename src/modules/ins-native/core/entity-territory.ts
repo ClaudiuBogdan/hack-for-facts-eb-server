@@ -3,6 +3,8 @@ import { err, ok, type Result } from 'neverthrow';
 
 import {
   BUCHAREST_MUNICIPALITY_SIRUTA,
+  BUCHAREST_SECTOR_KIND,
+  BUCHAREST_SECTOR_LEVEL,
   type ApiError,
   type Territory,
 } from '@/modules/shared/index.js';
@@ -53,11 +55,11 @@ export const insIdentityForTerritory = (territory: Territory): InsTerritoryIdent
   }
   if (!(
     (level === 'uat' && ['municipality', 'town', 'commune'].includes(kind ?? '')) ||
-    (level === 'locality' && kind === 'sector')
+    (level === BUCHAREST_SECTOR_LEVEL && kind === BUCHAREST_SECTOR_KIND)
   ))
     return null;
   if (siruta === null || !/^[1-9][0-9]*$/u.test(siruta)) return null;
-  if (kind === 'sector' && siruta === BUCHAREST_MUNICIPALITY_SIRUTA) return null;
+  if (kind === BUCHAREST_SECTOR_KIND && siruta === BUCHAREST_MUNICIPALITY_SIRUTA) return null;
   if (
     (territory.sirutaCode !== null && territory.sirutaCode !== siruta) ||
     (territory.territoryKey !== null && territory.territoryKey !== `siruta:${siruta}`)

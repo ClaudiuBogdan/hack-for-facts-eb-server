@@ -11,12 +11,14 @@ import { sql, type RawBuilder } from 'kysely';
 
 import {
   andConditions,
+  BUCHAREST_SECTOR_KIND,
+  BUCHAREST_SECTOR_LEVEL,
   isCountyTerritory,
   isUatPresentationTerritory,
 } from '@/modules/shared/index.js';
 
 import { legacyEntityConditions } from './legacy-entity-predicates.js';
-import { BUCHAREST_SIRUTA_CODE } from '../../core/constants.js';
+import { BUCHAREST_COUNTY_CODE, BUCHAREST_SIRUTA_CODE } from '../../core/constants.js';
 
 import type { LegacyAggregateQuery } from '../../core/legacy-analytics/types.js';
 
@@ -50,13 +52,13 @@ const populationUnionCtes = (selection: RawBuilder<unknown>): RawBuilder<unknown
         or (w.level = 'county' and not exists (
           select 1 from core.territories root where root.level = 'country'
         ))
-        or (w.level = 'uat' and w.territorial_siruta_code = '179132'
+        or (w.level = 'uat' and w.territorial_siruta_code = ${sql.lit(BUCHAREST_SIRUTA_CODE)}
           and not exists (
             select 1 from core.territories root where root.level = 'country'
           )
           and not exists (
             select 1 from core.territories county
-            where county.level = 'county' and county.county_code = 'B'
+            where county.level = 'county' and county.county_code = ${sql.lit(BUCHAREST_COUNTY_CODE)}
           ))
       ), false))
   )
@@ -133,7 +135,7 @@ const uatLevelUniverse = sql`(
     ${sql.ref('d.territorial_siruta_code')} = ${BUCHAREST_SIRUTA_CODE}
     and exists (
       select 1 from d as s
-      where s.level = 'locality' and s.kind = 'sector'
+      where s.level = ${sql.lit(BUCHAREST_SECTOR_LEVEL)} and s.kind = ${sql.lit(BUCHAREST_SECTOR_KIND)}
         and s.parent_id = d.id
     )
   )

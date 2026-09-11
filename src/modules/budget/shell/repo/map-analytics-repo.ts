@@ -15,7 +15,11 @@ import {
 
 import { makeFundingSourceMap, type FundingSourceMapLoader } from './funding-source-map.js';
 import { legacyAggregateConditions } from './legacy-analytics-repo.js';
-import { EXECUTION_AMOUNT_COLUMN } from '../../core/constants.js';
+import {
+  BUCHAREST_COUNTY_CODE,
+  BUCHAREST_SIRUTA_CODE,
+  EXECUTION_AMOUNT_COLUMN,
+} from '../../core/constants.js';
 
 import type {
   BudgetMapGranularity,
@@ -40,7 +44,7 @@ export const mapTerritorySql = (granularity: BudgetMapGranularity) => {
   // presentation exclusion must never be reused to build county numerators.
   const county = granularity === 'County';
   const presentUat = sql`(t.privacy_class = 'public' and ${isUatPresentationTerritory('t')}
-    and not (t.county_code = 'B' and t.territorial_siruta_code = '179132'))`;
+    and not (t.county_code = ${sql.lit(BUCHAREST_COUNTY_CODE)} and t.territorial_siruta_code = ${sql.lit(BUCHAREST_SIRUTA_CODE)}))`;
   const key = county
     ? sql`case when c.matches = 1 and c.public_matches = 1 and t.privacy_class = 'public' then c.county_code end`
     : sql`case when ${presentUat} then t.territorial_siruta_code end`;
@@ -49,7 +53,7 @@ export const mapTerritorySql = (granularity: BudgetMapGranularity) => {
     : sql`case when t.id is null then 'unresolved'
         when ${presentUat} then 'mapped'
         when t.privacy_class = 'public' and (t.level in ('country','region','county')
-          or (t.level='uat' and t.county_code='B' and t.territorial_siruta_code='179132'))
+          or (t.level='uat' and t.county_code=${sql.lit(BUCHAREST_COUNTY_CODE)} and t.territorial_siruta_code=${sql.lit(BUCHAREST_SIRUTA_CODE)}))
           then 'outside_view' else 'unresolved' end`;
   const countyJoin = county
     ? sql`left join (select county_code, count(*) as matches, count(*) filter (where privacy_class='public') as public_matches from core.territories county_node where ${isCountyTerritory('county_node')} group by county_code) c on c.county_code = t.county_code`

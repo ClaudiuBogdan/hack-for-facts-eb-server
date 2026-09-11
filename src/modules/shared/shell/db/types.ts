@@ -41,7 +41,7 @@ export interface CoreOrganizations {
    * CUI, so the length guard excludes them today by coincidence of two
    * separately-maintained populations, not by asserting the thing it means.
    */
-  privacy_class: string | null;
+  privacy_class: string; // 'public' | 'restricted' — live column is `text not null default 'public'`
   attrs: Jsonb;
   created_at: Tstz;
   updated_at: Tstz;
@@ -52,6 +52,7 @@ export interface CoreOrganizationIdentifiers {
   value: string;
   org_id: string; // bigint → string
   source: string;
+  privacy_class: string; // 'public' | 'restricted' — the identifier gate (DP-07)
 }
 
 export interface CorePublicEntities {
