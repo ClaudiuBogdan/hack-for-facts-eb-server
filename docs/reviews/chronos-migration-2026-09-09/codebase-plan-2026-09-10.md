@@ -202,20 +202,50 @@ Griffin forwards.
   `common/*`, while the linter and 74 core files allow and use other modules'
   `index.ts` (types and constants); the sentence should say so.
 
-### WP5 — Split the oversized repos (large, pure moves, one commit per concern)
+### WP5 — Split the oversized repos (large, pure moves, one commit per concern) — done 2026-09-11
 
-- `src/modules/budget/shell/repo/budget-repo.ts` (2,436 lines) into
-  per-concern files behind the unchanged `makeBudgetRepo` (execution
-  analytics, entity analytics, aggregated line items, rankings, dimensions),
-  one reviewed commit per extracted concern so the Codex/Fable loop can read
-  the diff; `makeBudgetRepo` unchanged throughout.
-- `src/modules/ins-native/shell/repo/ins-repo.ts` (958) into publication,
-  series and geography files behind the unchanged factory.
-- No behaviour change is the contract: the capturing-driver SQL tests
-  (WP3 and the existing budget ones) must produce identical generated text;
-  the budget legacy-analytics e2e suite (92 cases) and the ins-native suite
-  (146) pass on zeus; `pnpm test:gm` and the cutover set are unchanged.
-- `src/app/build-app.ts` (2,246) is not split: it goes with slice 2.
+- `budget-repo.ts` 2,436 → 168 lines in five commits, one read family each,
+  behind the unchanged `makeBudgetRepo(db, options)` and its unchanged
+  25-member return object: `line-items.ts` (execution and commitment line
+  items, FACT path) with `fact-predicates.ts` (the pruning gates, period
+  tuple, amount range, transfer exclusion, core-join decision) and
+  `budget-repo-shared.ts` (limits, MV name resolution, the commitment metric
+  maps, `BudgetRepoOptions`, the `BudgetRepoContext` every family receives:
+  `db`, `options`, the funding map, `asOf`); `entity-analytics.ts` (MV
+  summaries and the three timeseries); `rankings.ts`; `aggregates.ts`
+  (classification aggregate and the heatmaps); `catalog.ts` (reports,
+  dimensions, official budget, contributor support). What remains is the
+  composition root: the two invariants, the funding map, the freshness read,
+  one context and the five family calls.
+- `ins-repo.ts` 958 → 62 lines in three commits behind the unchanged
+  `makeInsRepo` / `makeInsSnapshotRepo` / `withInsReadSnapshot`:
+  `ins-publication.ts` (the catalog reads and the row → view mappers),
+  `ins-territory.ts`, `ins-series.ts` (observations, default series,
+  hydration). The repository literal spreads the three families before its
+  one literal member, `withSnapshot`; the key sets are pairwise disjoint and
+  sum to the port's 23 members (the one thing typecheck could not catch, a
+  literal key overriding a spread key, was ruled out by hand).
+- The contract held on every commit: the reviewers' multiset comparison of
+  the old file against the new ones left zero body-line residue (only import
+  lines, `export` prefixes, Prettier reflows and the factory glue); every SQL
+  pin suite compiled the same text; the budget and INS unit and integration
+  suites, typecheck, lint, prettier and the cycle check were green; the local
+  snapshot suite stayed 14/14 and the cutover replay through the local kernel
+  at the same 46 cases (one replay that overlapped a `tsx watch` reload was
+  discarded and re-run). Full unit (456 files) and integration (40 files)
+  green on the final tree; on the zeus Docker host the budget legacy
+  execution-analytics suite (92) and the INS suite (174) ran together,
+  266/266, after the budget suite's loopback guard was scoped to an external
+  URL like the INS one.
+- Reviews: Codex working-tree per commit plus branch scope before the push;
+  Fable (high) per commit with the multiset method. Findings applied along
+  the way: two stale header claims, a Prettier drift (the process is now
+  eslint --fix → prettier --write → prettier --check on the final tree), a
+  misnamed population comment, orphaned banners. One incident: a
+  `prettier --write` that ran with no arguments after an extractor crash
+  reformatted 19 unrelated tracked files; confirmed formatting-only and
+  restored before any review or commit.
+- `src/app/build-app.ts` is not split; it goes with slice 2 as planned.
 
 ### WP6 — Dead code that does not wait for the legacy entrypoint (small)
 
