@@ -69,7 +69,7 @@ export const metricColumn = (
 ): 'total_income' | 'total_expense' | 'budget_balance' =>
   m === 'INCOME' ? 'total_income' : m === 'EXPENSE' ? 'total_expense' : 'budget_balance';
 
-/** Canonical county population rule shared by rankings, series, and heatmaps. */
+/** Canonical county population rule of the heatmaps (rankings and series read the admitted population relation). */
 export const canonicalCountyPopulationAggregate = (alias: string): RawBuilder<unknown> =>
   sql`max(${sql.ref(`${alias}.population`)}) filter (where ${isCountyTerritory(alias)})`;
 
