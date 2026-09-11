@@ -247,12 +247,49 @@ Griffin forwards.
   restored before any review or commit.
 - `src/app/build-app.ts` is not split; it goes with slice 2 as planned.
 
-### WP6 — Dead code that does not wait for the legacy entrypoint (small)
+### WP6 — Dead code that does not wait for the legacy entrypoint (small) — done 2026-09-11
 
 - The embedded float factor table becomes decimal strings aligned to factor
   set 2 (DP-15), with a pin test against the promoted set. The YAML
   `FactorSource`, the CPI chain-linker and the Phoenix `SUM(DISTINCT
 population)` denominators stay `@deprecated` until `api.ts` is deleted.
+
+Done (commit `f0d923fe`, pin `5c219350`, synced 11:57 UTC; row in
+`deploy-2026-09-10.md`):
+
+- `shell/repo/analytics.ts`: `FX_RON_PER_EUR` and `GDP_RON` are decimal
+  strings copied from set 2 (`ron_per_eur` 2005–2025, `gdp_ron` 1995–2025;
+  the 2026 estimates are gone, so a year past the set carries 2025 forward as
+  any year past the table always did). `yearMultiplier` returns decimal text
+  under the slice's decimal policy — the same `1.div(fx)` / `100.div(gdp)` the
+  native `exactYearMoneyMultipliers` runs — and `factorCaseExpr` binds it;
+  `money-factor.ts` drops its `String()`. Deprecation stays in prose, as in
+  `cpi-level.ts`: `@typescript-eslint/no-deprecated` is on and
+  `money-factor.ts` is a live caller (tags produced 36 lint errors).
+- Pin: `tests/unit/normalization/fixtures/factor-set-2.json` (set 2 read from
+  Chronos 2026-09-11, 261 rows, digest `5f2948ec…`, promoted 2026-09-08 run
+  23230, the set-1 fixture's shape) and
+  `tests/unit/budget/embedded-factor-table.test.ts`: fixture tied to
+  `NATIVE_FACTOR_SET_ID`/`_DIGEST` and a row hash; every table value and year
+  equals the fixture; the compatibility multiplier equals the native
+  derivation for every year and money normalization; bound parameter shapes.
+  Fixture README extended; doc 13 §4's "interim source until D2 lands" line
+  corrected.
+- Served numbers: unchanged on Chronos dev (the kernel build always composes
+  the native source; the table is reachable only on the Phoenix `api.js`
+  embedding through `makeBudgetRepo(db)` without `moneyFactors`). On that
+  path EUR and %GDP move to the set-2 values: 2025 EUR +0.17 % (5.05 →
+  5.0415), 2025 %GDP −1.90 % (1.88 T → 1.9164 T), 2026 +1.16 % EUR / +4.36 %
+  %GDP against the former estimates, pre-2016 years get real values instead
+  of the 2016 carry-back; the multiplier text is now 40 significant digits
+  instead of a ~17-digit float. Phoenix dev is frozen at `phoenix-last-full`,
+  so nothing deployed serves the new table until slice 2's plan says so.
+- Reviews: Codex working-tree and branch (no findings; independently checked
+  all 52 values, multipliers and SQL bindings), Fable high (no P1/P2; verified
+  the fixture against the live set 52/52 and the native-equality oracle; two
+  P3 wording items and the optional row-hash pin applied). Deployed
+  verification identical to WP5: cutover 46 / 25 kernel-rooted / 0 stale /
+  92,814 leaves, snapshot 14/14.
 
 ### WP7 — Documentation still stale after the slice-1 sweep (small)
 
