@@ -83,7 +83,7 @@ export const singleYearMoneyFactor = async (
   year: number
 ): Promise<Result<string, ApiError>> => {
   // Omitted dependency is the explicit compatibility path, never an error fallback.
-  if (source === undefined) return ok(String(yearMultiplier(normalization, year)));
+  if (source === undefined) return ok(yearMultiplier(normalization, year));
   const result = await availableSingleYearMoneyFactor(source, normalization, year);
   if (result.isErr()) return err(result.error);
   return result.value === null

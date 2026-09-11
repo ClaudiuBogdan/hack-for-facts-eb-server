@@ -2,6 +2,7 @@ import { Decimal } from 'decimal.js';
 import { err, ok } from 'neverthrow';
 import { describe, expect, it, vi } from 'vitest';
 
+import { legacyDecimal } from '@/modules/budget/core/legacy-analytics/decimal.js';
 import { singleYearMoneyFactor } from '@/modules/budget/shell/repo/money-factor.js';
 
 import type { FactorSource } from '@/modules/budget/core/legacy-analytics/ports.js';
@@ -53,8 +54,9 @@ describe('native single-year money factor', () => {
     expect(
       (await singleYearMoneyFactor(failed, 'TOTAL_EURO', 2025))._unsafeUnwrapErr().message
     ).toBe('Unadmitted snapshot');
+    // The compatibility table is the same promoted set, as decimal text.
     expect((await singleYearMoneyFactor(undefined, 'TOTAL_EURO', 2025))._unsafeUnwrap()).toBe(
-      String(1 / 5.05)
+      legacyDecimal(1).div('5.0415').toFixed()
     );
   });
 });

@@ -2,7 +2,8 @@
  * Budget analytics (normalization) + transfer-exclusion constants + contributor
  * profile-slice (no live DB). Pins:
  *  - the transfer-exclusion code set MUST match the set the MVs bake in (§3.4);
- *  - normalization multipliers are deterministic (TOTAL = identity, EURO < 1);
+ *  - normalization multipliers are deterministic decimal text (TOTAL = identity,
+ *    EURO < 1; the set-2 value pin is `embedded-factor-table.test.ts`);
  *  - per-capita is flagged (population divided per-entity, never in the factor);
  *  - the contributor wraps the rich profile into the kernel open slice shape +
  *    carries the grain note (§14.6) and never mixes flow grains.
@@ -12,6 +13,7 @@ import { ok } from 'neverthrow';
 import { describe, expect, it, vi } from 'vitest';
 
 import { BUDGET_TRANSFER_EXCLUSIONS } from '@/modules/budget/core/constants.js';
+import { legacyDecimal } from '@/modules/budget/core/legacy-analytics/decimal.js';
 import { makeBudgetContributor, toProfileSlice } from '@/modules/budget/shell/contributor.js';
 import { isPerCapita, yearMultiplier } from '@/modules/budget/shell/repo/analytics.js';
 
@@ -31,32 +33,33 @@ describe('transfer-exclusion set (must match the MV-baked set verbatim)', () => 
 });
 
 describe('normalization multipliers (the single consolidated mechanism)', () => {
+  // The set-2 value pin lives in `embedded-factor-table.test.ts`; this is the shape.
   it('TOTAL is the identity (multiplier = 1)', () => {
-    expect(yearMultiplier('TOTAL', 2025)).toBe(1);
+    expect(yearMultiplier('TOTAL', 2025)).toBe('1');
   });
 
-  it('TOTAL_EURO divides RON by the year FX rate (multiplier < 1)', () => {
-    const m = yearMultiplier('TOTAL_EURO', 2025);
-    expect(m).toBeGreaterThan(0);
-    expect(m).toBeLessThan(1);
+  it('TOTAL_EURO divides RON by the year FX rate (decimal text, 0 < m < 1)', () => {
+    const m = legacyDecimal(yearMultiplier('TOTAL_EURO', 2025));
+    expect(m.gt(0)).toBe(true);
+    expect(m.lt(1)).toBe(true);
   });
 
   it('PER_CAPITA keeps money in RON (population divided per-entity in SQL)', () => {
-    expect(yearMultiplier('PER_CAPITA', 2025)).toBe(1);
+    expect(yearMultiplier('PER_CAPITA', 2025)).toBe('1');
     expect(isPerCapita('PER_CAPITA')).toBe(true);
     expect(isPerCapita('PER_CAPITA_EURO')).toBe(true);
     expect(isPerCapita('TOTAL')).toBe(false);
   });
 
   it('PERCENT_GDP is a small positive factor (amount * 100 / nominal GDP)', () => {
-    const m = yearMultiplier('PERCENT_GDP', 2025);
-    expect(m).toBeGreaterThan(0);
-    expect(m).toBeLessThan(1e-6);
+    const m = legacyDecimal(yearMultiplier('PERCENT_GDP', 2025));
+    expect(m.gt(0)).toBe(true);
+    expect(m.lt('1e-6')).toBe(true);
   });
 
   it('years beyond the table carry the last factor forward (no crash)', () => {
     expect(() => yearMultiplier('TOTAL_EURO', 2099)).not.toThrow();
-    expect(yearMultiplier('TOTAL_EURO', 2099)).toBeGreaterThan(0);
+    expect(legacyDecimal(yearMultiplier('TOTAL_EURO', 2099)).gt(0)).toBe(true);
   });
 });
 
