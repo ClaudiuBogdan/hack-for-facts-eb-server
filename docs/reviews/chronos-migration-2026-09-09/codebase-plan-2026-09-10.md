@@ -166,17 +166,41 @@ Griffin forwards.
   (node-discriminating cell values, fail-loud statement routing, the
   calendar-dependent expiry pin, the teardown leak window).
 
-### WP4 — Kernel typing and constants (medium)
+### WP4 — Kernel typing and constants (medium) — done 2026-09-11
 
-- Kysely types for `core.territory_population`, `core.territory_identifiers`
-  and the remaining untyped `privacy_class` columns (N/K1, DP-07 remainder).
-  Types only: the raw SQL that reads those tables is NOT rewritten here, so the
-  generated SQL text WP5 relies on stays identical; query rewrites, if wanted,
-  get their own commit with updated capturing-driver expectations.
-- The hard-coded Bucharest county `'B'`, SIRUTA `179132` and sector-kind rules
-  move to one named kernel reference with a unit test.
-- Verification: typecheck, the ins-native and search e2e suites on zeus, live
-  queries through the local kernel for the affected roots, cutover set unchanged.
+- Types only; no query was rewritten, and the 21 SQL pin suites compile the
+  same text before and after (the WP3 pins are what makes this checkable).
+- DP-07: the last four of its six tables carry `privacy_class` on their
+  Kysely interface (`core.organization_identifiers`, `ins.territory_nodes`,
+  `ins.contexts`, `ins.dataset_coverage`; `core.territories` and
+  `search.documents` were typed in `401f51a9`, the INS geo tables through
+  `InsGeographyStamp`); `core.organizations`' column is non-null like the live
+  column. `core.territory_population` and `core.territory_identifiers` were
+  already typed by the hygiene commit. Nine other typed tables carry the
+  column live and stay untyped (parliament `vote_capture_coverage`,
+  `vote_capture_gaps`, `committee_meetings`; pnrr `announcements`,
+  `acquisitions`, `lots`, `contractors`, `payments`; procurement
+  `procedure_ted_links`): their gates are raw SQL, a follow-up if wanted.
+- N/K1: `shared/core/territory-constants.ts` names Bucharest once (county
+  code, municipality SIRUTA, the sector row shape `locality`/`sector`, the
+  six sector SIRUTAs). The budget module re-exports the county code and the
+  municipality SIRUTA, the INS module re-exports the sector list and reads
+  the sector shape in its territory bridge; the kernel predicates, the
+  admitted-source read, the budget population union and the map repo emit
+  the values through `sql.lit`. The legacy budget-viz modules
+  (`normalization`, `advanced-map-analytics`) keep their copies until slice
+  2 deletes them; `entity-repo.ts` compares a CUI to `179132`, a different
+  semantic, left as is. `tests/unit/shared/territory-constants.test.ts` pins
+  the values, the re-exports and that the kernel predicates compile the
+  values as literals with no parameters.
+- Verification: full unit and integration green; `ins-native-repo` 174/174
+  and `search-repo-entities` 8/8 on the zeus Docker host (the INS suite's
+  loopback guard now applies to an external URL only, its teardown goes
+  through the WP3 helper); local snapshot suite 14/14; cutover replay
+  through the local kernel at the same 46 cases, 25 kernel-rooted, 0 stale.
+- Surfaced to the owner, not changed: `AGENTS.md` says `core/` imports only
+  `common/*`, while the linter and 74 core files allow and use other modules'
+  `index.ts` (types and constants); the sentence should say so.
 
 ### WP5 — Split the oversized repos (large, pure moves, one commit per concern)
 
