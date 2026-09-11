@@ -14,7 +14,7 @@ import { commitReportType } from './mappers.js';
 import type { FundingSourceMap, FundingSourceMapLoader } from './funding-source-map.js';
 import type { BudgetFrequency } from '../../core/constants.js';
 import type { FactorSource } from '../../core/legacy-analytics/ports.js';
-import type { BudgetSeriesPoint, CommitmentEntitySummary } from '../../core/types.js';
+import type { BudgetAsOf, BudgetSeriesPoint, CommitmentEntitySummary } from '../../core/types.js';
 import type { Result } from 'neverthrow';
 
 export type Db = Kysely<ProdDatabase>;
@@ -225,4 +225,6 @@ export interface BudgetRepoContext {
   readonly db: Db;
   readonly options: BudgetRepoOptions;
   readonly fundingMap: FundingSourceMapLoader;
+  /** The freshness read; the MV families derive their default year from it. */
+  readonly asOf: () => Promise<Result<BudgetAsOf, ApiError>>;
 }
