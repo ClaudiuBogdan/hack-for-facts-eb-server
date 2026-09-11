@@ -35,8 +35,9 @@ Identity: set `2`, manifest digest
 55, CPI YoY 55, inflation 55, EUR 21, USD 21, GDP 31, population 23. All rows have
 YEAR frequency. Values are numeric text at 12 decimals.
 
-`tests/unit/budget/embedded-factor-table.test.ts` pins the embedded compatibility
-factor table of the Phoenix `api.js` embedding (`shell/repo/analytics.ts`) to
+`tests/unit/budget/embedded-factor-table.test.ts` pins the budget module's embedded
+compatibility factor table (`shell/repo/analytics.ts`, composed by no server at
+this revision — see its header) to
 the EUR and GDP rows of this fixture, value by value and year by year, and
 asserts the compatibility multipliers equal the native derivation. The test also
 pins a SHA-256 over the fixture rows, so an edit to this file after the read is

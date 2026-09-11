@@ -275,15 +275,20 @@ Done (commit `f0d923fe`, pin `5c219350`, synced 11:57 UTC; row in
   derivation for every year and money normalization; bound parameter shapes.
   Fixture README extended; doc 13 §4's "interim source until D2 lands" line
   corrected.
-- Served numbers: unchanged on Chronos dev (the kernel build always composes
-  the native source; the table is reachable only on the Phoenix `api.js`
-  embedding through `makeBudgetRepo(db)` without `moneyFactors`). On that
-  path EUR and %GDP move to the set-2 values: 2025 EUR +0.17 % (5.05 →
-  5.0415), 2025 %GDP −1.90 % (1.88 T → 1.9164 T), 2026 +1.16 % EUR / +4.36 %
-  %GDP against the former estimates, pre-2016 years get real values instead
-  of the 2016 carry-back; the multiplier text is now 40 significant digits
-  instead of a ~17-digit float. Phoenix dev is frozen at `phoenix-last-full`,
-  so nothing deployed serves the new table until slice 2's plan says so.
+- Served numbers: unchanged on every server built from this revision. The WP6
+  commit message and the first version of this section said the table was
+  live on the Phoenix `api.js` embedding; that was the `phoenix-last-full`
+  code (no `ins-native` in the default composition). At HEAD `ins-native` is
+  in the default composition (X/F6) and both entrypoints pass `native` to
+  `makeBudgetModule`, so `makeBudgetRepo(db)` without `moneyFactors` is
+  composed by no server — only by `tests/integration/kernel-legacy-roots.test.ts`.
+  Corrected in WP7. For whichever build ever composes budget without `native`,
+  EUR and %GDP move to the set-2 values: 2025 EUR +0.17 % (5.05 → 5.0415),
+  2025 %GDP −1.90 % (1.88 T → 1.9164 T), 2026 +1.16 % EUR / +4.36 % %GDP
+  against the former estimates, pre-2016 years get real values instead of the
+  2016 carry-back; the multiplier text is 40 significant digits instead of a
+  ~17-digit float. The frozen Phoenix dev keeps serving its own pre-X/F6 float
+  table until it is unpinned.
 - Reviews: Codex working-tree and branch (no findings; independently checked
   all 52 values, multipliers and SQL bindings), Fable high (no P1/P2; verified
   the fixture against the live set 52/52 and the native-equality oracle; two

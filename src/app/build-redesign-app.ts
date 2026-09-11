@@ -218,7 +218,7 @@ export const deepMergeResolvers = (
   return out;
 };
 
-// The legacy embedded surface supplies its interim INS roots separately.
+// One default composition for the standalone kernel and the `api.js` embedding.
 const SHARED_DEFAULT_MODULES = [
   'pnrr',
   'reference',

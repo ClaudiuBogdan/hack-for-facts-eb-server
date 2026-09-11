@@ -1,26 +1,31 @@
 # 13 — Legacy roots on the kernel endpoint (`/graphql` → `/api/v1/graphql`)
 
-> **Status:** r2 (2026-09-02) with the 2026-09-05 grouped-root amendment and the
-> **2026-09-09 slice-1 amendment at the end of this document** (legacy endpoint
-> retired; unported roots replaced by native roots) — design for the user's fork decision C′:
-> _"the goal is not to change the GraphQL interfaces for key data types, like the
-> analytics filter, but the API endpoint can and should change to remove the
-> legacy code and keep only the new codebase."_ Program of record:
-> scrapper `prod-db/BUDGET_SERVING_REDESIGN_PROGRAM_2026-09-01.md` §2, §4 S1, §7.1.
-> Evidence: scrapper `prod-db/evidence/budget-chronos-serving-2026-09-01/client-operation-inventory.md`
-> (every client document, root, type and page, with file:line).
+> **Status:** r3 (2026-09-11) — **the deployment matrix** the owner asked for
+> (review B/F1 decision, `docs/reviews/chronos-migration-2026-09-09/README.md`
+> §8; codebase plan WP7). §2 is the matrix; §0, §4 and §5 are the r2 plan
+> reduced to what was executed or superseded; §1, §3 (rules 1–2), §6, §7 and §9
+> keep their numbers because code and reviews cite them. Every cell of the
+> matrix is a `path:line` at `dev` HEAD `f0d923fe`. The design origin is the
+> user's fork decision C′: _"the goal is not to change the GraphQL interfaces
+> for key data types, like the analytics filter, but the API endpoint can and
+> should change to remove the legacy code and keep only the new codebase."_
+> Program of record: scrapper `prod-db/BUDGET_SERVING_REDESIGN_PROGRAM_2026-09-01.md`
+> §2, §4 S1, §7.1. Evidence: scrapper
+> `prod-db/evidence/budget-chronos-serving-2026-09-01/client-operation-inventory.md`.
 > Conforms to [`00-foundation-shared-kernel.md`](./00-foundation-shared-kernel.md).
 
 ## 0. Decision, in one paragraph
 
-The legacy root operations the client sends (26 of the 40 legacy roots; 51 documents)
-keep their **names, argument types and result shapes**, and are served from
-**`/api/v1/graphql`** by the kernel modules over Chronos `transparenta_prod`. The
-client migration is the URL plus the removal of the legacy transport
-(`src/lib/api/graphql.ts`). When the golden-master replay (§6) is green for every
-live document, the legacy `/graphql` endpoint, the ten legacy modules, `build-app.ts`,
-the `budgetDb` / `insDb` pools and the Phoenix port-forwards are deleted. **No
-Phoenix code survives; the key GraphQL types survive unchanged.**
+Executed for slice 1 (2026-09-09, amendment at the end of this document). The
+legacy roots the client sends keep their **names, argument types and result
+shapes** (§1) and are served from **`/api/v1/graphql`** by the kernel modules
+over Chronos `transparenta_prod`. The legacy `/graphql` endpoint and its modules
+are deleted; `api.js` survives only as a slim composer of the same kernel surface
+plus the platform modules until slice 2 ports those and deletes `api.ts`. The
+roots the kernel does not carry are **not** ported — the native roots replace
+them (B/F1) and the **client migration is the gate**: the URL switch, the four
+invalid documents, and the rewrite of the unported operations onto the native
+names in §2.
 
 ## 1. What "unchanged" means, precisely
 
@@ -34,7 +39,12 @@ Client-visible surface (inventory §5), frozen:
   `UATFilterInput`, `BudgetSectorFilterInput`, `FundingSourceFilterInput`, the two
   classification filters, every `Commitments*Input`, every `Ins*FilterInput`.
   **Only `@deprecated` markers may be added** (user constraint); additive fields
-  are discussed one by one (program Appendix B).
+  are discussed one by one (program Appendix B). Two additive fields were
+  accepted and recorded by the owner on 2026-09-09 (review B/F4):
+  `AnalyticsFilterInput.is_territorial_executive: Boolean`
+  (`budget/shell/graphql/legacy/typedefs.ts:187`) and
+  `AnalyticsSeries.missingPeriods: [String!]` (`:115`). They are the only
+  additions beyond `@deprecated` markers and the §3 collision renames.
 - **Root names and signatures** as in inventory §4.
 - **Result field names** (snake_case) and array order as the legacy resolvers emit
   them; `__typename` where the client reads it (`commitmentsSummary` union members).
@@ -54,15 +64,81 @@ documented delta); annual factor broadcast, composite normalizations, the
 `percent_gdp` exclusivity and the growth rule keep the `legacy` normalization
 policy (program D2); the 10,000-point cap stays and is logged.
 
-## 2. Where each root lives (module ownership)
+## 2. Deployment matrix — what serves each root, on which build
 
-| Legacy root(s)                                                                                                                                                                                                                                                          | Served by                                                         | Over                                                   | Notes                                                                                                                                                                                         |
-| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `executionAnalytics`, `entityAnalytics`, `aggregatedLineItems`, `heatmapCountyData`, `heatmapUATData`, `budgetSectors`, `fundingSources`, `functionalClassifications`, `economicClassifications`, `commitmentsSummary`, `commitmentsAggregated`, `commitmentsAnalytics` | **`budget` module**, new slice `shell/graphql/legacy/`            | `budget.*` + `core.*`                                  | the module's usecases are the only data access; the slice is input/output mapping only                                                                                                        |
-| `entities`, `uats`                                                                                                                                                                                                                                                      | **`reference` module**, new slice `shell/graphql/legacy/`         | `core.public_entities`, `core.territories` (D1)        | `Entity.uat{…}` and `entities(filter.search)` over the kernel identity/territory hubs                                                                                                         |
-| `datasets`, `staticChartAnalytics`                                                                                                                                                                                                                                      | **`datasets` module** registered on the kernel (fs-backed, no DB) | YAML on disk                                           | not Phoenix code; kept as is, mounted on the kernel                                                                                                                                           |
-| `insDatasets`, `insDataset`, `insDatasetDimensionValues`, `insTerritories`, `insContexts`, `insObservations`, `insUatDashboard`, `insLatestDatasetValues`                                                                                                               | **new `ins` kernel module** (program slice 3.2)                   | `ins.*` in Chronos + `ins.member_territory` → D1 spine | the legacy INS schema is TEMPO-star-shaped over the legacy INS DB; the Chronos `ins` schema is the panel-approved design, so this is a re-implementation, not a port — last in the order (§5) |
-| `health`, `ready`, `entity`, `uat`, `report(s)`, `executionLineItem(s)`, `budgetSector`, `fundingSource`, `functionalClassification`, `economicClassification`, `insUatIndicators`, `insCompare`, `commitmentsLineItems`, `commitmentVsExecution`                       | **not ported**                                                    | —                                                      | never sent by the client (inventory §4); the last two are dead fetchers. Their removal is deliberate and recorded in the golden-master corpus (`status: "dead"`).                             |
+### 2.1 The two entrypoints, one composition
+
+| Build                 | Entrypoint                                           | Composition                                                                                                                                     | Deployed today                                                                                                                                       |
+| --------------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **C** — kernel build  | `dist/redesign-api.js` (`src/redesign-api.ts`)       | `buildRedesignApp` → `registerRedesignSurface` with the default module set (`build-redesign-app.ts:222-235`, `:287`)                            | Chronos dev, image `f0d923fe` (`k8s/overlays/chronos-dev/workload-patch.yaml` `args: ["dist/redesign-api.js"]`, kustomization pin), manual Argo sync |
+| **P** — Phoenix build | `dist/api.js` (`src/api.ts`, `Dockerfile:108` `CMD`) | `build-app.ts:857-896` embeds the SAME surface, no `modules` override, so the same default set; plus the platform modules over the legacy pools | Phoenix dev **frozen at `phoenix-last-full` (36b4e998, pre-X/F6 code)** as the cutover baseline; Phoenix prod on `main`. Neither runs this revision. |
+
+The default set is `pnrr, reference, budget, companies, legal, parliament, judicial,
+procurement, primarii-transparency, ins-native` (`build-redesign-app.ts:222-235`).
+`ins-native` has been in it since X/F6 (commit `962f1c34`, 2026-09-09), and the
+surface refuses to boot `budget` without it (`:479-483`). Consequently the budget
+module is always built with `native` (`:492-499`) and the four native adapters
+win in `makeBudgetModule` (`budget/index.ts:142-172`): native repo, native
+execution series, native grouped entities and classifications, promoted factor
+set 2, exact-year INS population. Everything else the module still constructs —
+`legacyFactors` (set 1) and the `makeLegacyAnalyticsRepo` / `makeLegacyPopulationRepo` /
+`makeLegacyDimensionRepo` repos (`budget/index.ts:174-176`) — is **constructed and
+never reached** on either build at HEAD, and `makeBudgetRepo(db)` with its embedded
+factor table (`:172`, `deps.repo ?? …`) is not even constructed. All of it goes
+with `api.ts`.
+
+The frozen Phoenix dev is different code: its default set had no `ins-native`, so
+there `executionAnalytics` runs the legacy policy on set 1 (§7, §9) and the native
+budget roots use the pre-WP6 float table. That is what the cutover replay's
+baseline serves, by design.
+
+### 2.2 GraphQL roots on `/api/v1/graphql` (identical on C and P)
+
+| Root(s)                                                                                                                                                                                                              | Served by (HEAD)                                                                                                                                                                                                                        | Money factors                               | Population                                                                                      | Client status                                                                                                                                                                                       |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `executionAnalytics` (carried, `budget/shell/graphql/legacy/typedefs.ts:529`)                                                                                                                                        | native strict series `makeNativeExecutionSeries` (`budget/index.ts:151`, `shell/native/execution-series.ts`) via `deps.executionSeries?.() ?? legacyExecutionSeries` (`legacy/resolvers.ts:179-180`; the fallback is unreachable)       | set 2, exact year, missing periods reported | annual POP107D + sector admission per scope, ancestor-suppressed                                | carried; contract §1; one corpus document passes; no corpus document exercises a normalized request (review §5.1)                                                                                   |
+| `entityAnalytics`, `aggregatedLineItems` (carried, `legacy/grouped-typedefs.ts:132`, `:259`)                                                                                                                         | `makeNativeGroupedEntities` / `makeNativeGroupedClassifications` (`budget/index.ts:157`, `:163`) via `deps.X?.() ?? grouped*Analytics` (`legacy/grouped-resolvers.ts:39`, `:53`; fallbacks unreachable); fact path, not the summary MVs | set 2, strict                               | per-entity annual anchor cells / annual scope union                                             | carried; 3 + 2 cutover cases fail on declared native deltas ([`NATIVE_GROUPED_ANALYTICS_2026-09-05.md`](./NATIVE_GROUPED_ANALYTICS_2026-09-05.md)); DP-01 double count until the scrapper fix lands |
+| `budgetSectors`, `fundingSources`, `functionalClassifications`, `economicClassifications` (carried, `legacy/typedefs.ts:534-590`)                                                                                    | legacy resolvers over `makeLegacyDimensionRepo` (`budget/index.ts:176`)                                                                                                                                                                 | —                                           | —                                                                                               | carried; pass or allowlisted (`tests/golden-master/parity-allowlist.json`: two pinned `totalCount` entries, ten classification drifts)                                                              |
+| `budget*` native roots (24, `budget/shell/graphql/typedefs.ts:434-592`) incl. `budgetEntityRanking(Page)`, `budgetCountyHeatmap`, `budgetUatHeatmap`, `budgetCommitment*`, `budgetTimeseries`, `budgetSectorCatalog` | `makeNativeBudgetRepo` (`shell/native/budget-repo.ts:25-31`) = `makeBudgetRepo(db, { moneyFactors })` + population snapshot borrowing                                                                                                   | set 2 via `BudgetRepoOptions.moneyFactors`  | annual cells via the INS port, also for nominal ranking metadata (N/N3 blast radius, doc 14 §3) | native replacements for the unported roots (next table); `budgetSectorCatalog` is the renamed native `budgetSectors` (§3)                                                                           |
+| `ins*` roots (8, `ins-native/shell/graphql/legacy/typedefs.ts:405-477`)                                                                                                                                              | `makeInsNativeModule` (`build-redesign-app.ts:456-468`)                                                                                                                                                                                 | none (decimal text)                         | POP107D reader                                                                                  | carried byte-for-byte minus `insUatIndicators` / `insCompare`; 3 cases fail on the dimension-slug contract, 14 on undeclared value-level deltas (allowlist decision pending, review §5.1)           |
+| Kernel base roots `health`, `entity`, `organizationLabels`, `searchEntities` (`shared/shell/graphql/typedefs.ts:249-276`)                                                                                            | kernel                                                                                                                                                                                                                                  | —                                           | —                                                                                               | new surface; `entity` / `searchEntities` replace the legacy `entities` / `uats` pickers                                                                                                             |
+
+### 2.3 Legacy roots NOT on the kernel (B/F1: client migrates, nothing is ported)
+
+| Legacy root(s)                                                                                                         | Replacement on `/api/v1/graphql` or REST                                                                                                   | Cutover cases                |
+| ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------- |
+| `entities`, `uats` (pickers)                                                                                           | `searchEntities`, `entity`, `organizationLabels`                                                                                           | 10                           |
+| `datasets`, `staticChartAnalytics`                                                                                     | none on GraphQL; the datasets module stays a platform module on P only                                                                     | 5                            |
+| `heatmapCountyData`, `heatmapUATData`                                                                                  | `budgetCountyHeatmap`, `budgetUatHeatmap`                                                                                                  | 2                            |
+| `commitmentsSummary`, `commitmentsAggregated`, `commitmentsAnalytics`, `commitmentsLineItems`, `commitmentVsExecution` | `budgetCommitmentSummary`, `budgetCommitmentTimeseries`, `budgetCommitmentRanking`, `budgetCommitmentLineItems`; the REST commitments map  | 4 (+2 `dead` corpus entries) |
+| `insUatIndicators`, `insCompare`                                                                                       | dropped (decision D5; no client document sends them)                                                                                       | —                            |
+| `budgetSector(id)`, `fundingSource(id)`, `functionalClassification(code)`, `economicClassification(code)`              | not carried at all (`legacy/typedefs.ts:20-22`); never sent by the client                                                                  | —                            |
+| `FundingSource.executionLineItems` (field)                                                                             | carried for SDL identity only; selecting it answers `NOT_PORTED` (`legacy/typedefs.ts:301`, `legacy/resolvers.ts:167-172`, decision S1-11) | —                            |
+
+Corpus: `tests/golden-master/corpus/client-documents.json`, 68 entries — 59 `live`,
+4 `invalid-today`, 5 `dead` (excluded from the replay: two commitments documents,
+two INS documents the client no longer sends, one campaign directory). The current replay result
+is the deploy record (`docs/reviews/chronos-migration-2026-09-09/deploy-2026-09-10.md`,
+"Later syncs"): 46 failing, identical since WP1, of which 21 are this table and
+25 are kernel-mounted roots awaiting a parity decision.
+
+### 2.4 REST and MCP surfaces, per build
+
+| Surface                                                                                            | C (kernel build)                                                                                                             | P (`api.js`)                                                                                     | Evidence                                                                           |
+| -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
+| `/api/v1/mcp` (POST JSON-RPC incl. `tools/list`; GET/DELETE 405)                                   | yes; budget tools over the native repo                                                                                       | yes, same dispatcher and repo                                                                    | `build-redesign-app.ts:770-802`; `budget/index.ts:222`                             |
+| Native advanced-map routes (`/api/v1/advanced-map-analytics/*`, `/api/v1/advanced-map-datasets/*`) | yes when `config.userData` is complete (Clerk auth + `USER_DATA_DATABASE_URL` + CA + webhook secret, else config load fails) | yes over `embeddedUserStore` (the legacy-owned user DB), `ownerRateLimiter: false`               | `build-redesign-app.ts:506-546`; `redesign-env.ts:391-417`; `build-app.ts:879-892` |
+| `POST /api/ins/dataset-requests`                                                                   | **no** (embedder only until slice 2)                                                                                         | yes                                                                                              | `build-redesign-app.ts:150-161`, `:552-559`                                        |
+| `/api/v1/pnrr`, `/api/v1/parliament`, `/api/v1/legal` REST                                         | yes                                                                                                                          | yes                                                                                              | `build-redesign-app.ts:748-764`                                                    |
+| `/api/v1/agent`                                                                                    | no                                                                                                                           | yes when `AGENT_ENABLED` + user DB + Clerk (+ `REDIS_URL` in production, `build-app.ts:788-792`) | `build-redesign-app.ts:811-826`; `build-app.ts:872`                                |
+| Clerk `user.deleted` receiver                                                                      | surface's `makeClerkUserDeletionRoutes` over the Chronos dev user store                                                      | legacy `makeClerkWebhookRoutes`; the surface registers none                                      | `build-redesign-app.ts:369-385`; `docs/USER-DATA-ANONYMIZATION.md`                 |
+| Health                                                                                             | `/api/v1/live`, `/api/v1/health`, `/api/v1/ready` (probes use `/api/v1/live`)                                                | those plus legacy `/health/live`, `/health/ready` (`health/shell/rest/routes.ts`)                | `build-redesign-app.ts:840-865`; `build-app.ts:743-748`; `workload-patch.yaml`     |
+| Platform modules (notifications, campaigns, share, user-data, report, …)                           | no — slice 2                                                                                                                 | yes, over `budgetDb` / `userDb`                                                                  | `build-app.ts`; README §8 slice-2 decision                                         |
+| Mount failure                                                                                      | construction error closes the app and rethrows                                                                               | child scope logs and rethrows (fail-closed; INS-03 fixed)                                        | `build-redesign-app.ts:290-296`; `build-app.ts:900-907`                            |
+
+Known inconsistency, not fixed here: `Dockerfile:79` declares a `HEALTHCHECK` on
+`/health/live`, a path the kernel build does not serve. Kubernetes ignores Docker
+health checks, so it is inert in-cluster; it only matters for `docker run`.
 
 ## 3. Mounting on the kernel: collisions and the three rules
 
@@ -73,78 +149,97 @@ field two slices add to the same type. Three legacy names collide:
 | Collision                                                                                                                                                                                          | Resolution                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `Query.budgetSectors` — legacy `budgetSectors(filter, limit, offset): BudgetSectorConnection!` vs redesign `budgetSectors(search, ids): [BudgetSector!]!` (`budget/shell/graphql/typedefs.ts:552`) | **the legacy signature wins** (client-used). The redesign root is renamed `budgetSectorCatalog` — it is a new-API root, no client uses it (inventory §2), so this is not a compatibility change. Same treatment for any other redesign root that collides later.                                                                                                                                                                                                                                                                                                     |
-| `Query.health`, `Query.entity` — kernel base roots (`shared/typedefs.ts:246,248`)                                                                                                                  | legacy roots **not ported** (never sent).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `Query.health`, `Query.entity` — kernel base roots (`shared/shell/graphql/typedefs.ts:251,253`)                                                                                                    | legacy roots **not ported** (never sent).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `type Entity`, `type PageInfo` — kernel base types                                                                                                                                                 | legacy `entities` returns `LegacyEntity` (fields `cui name entity_type is_uat uat{…}` unchanged; no client reads `__typename` here). `PageInfo`: the legacy connections need `totalCount` and `hasPreviousPage`; the kernel `PageInfo` (`shared/typedefs.ts:16-19`) lacks them → **`extend type PageInfo { totalCount: Int, hasPreviousPage: Boolean }`** in the legacy slice (nullable on the type; the legacy resolvers always populate them; kernel connections leave them null). Per-module `PageInfo` clones (`EntityAnalyticsPageInfo` etc.) keep their names. |
 
 Rules for the legacy slices:
 
-1. **Byte-identical SDL for the frozen types.** The legacy SDL strings move from the
+1. **Byte-identical SDL for the frozen types.** The legacy SDL strings moved from the
    legacy modules into the owning kernel module's `shell/graphql/legacy/typedefs.ts`
    unchanged, minus the roots not ported and plus the three collision resolutions
-   above. A CI test prints the legacy SDL before (from git history of the deleted
-   module files, pinned as a fixture) and after, and asserts the only differences
-   are the removed roots, the two collision renames and `@deprecated` additions.
+   above. The r2 byte-identity test against the deleted modules' SDL went with
+   them in slice 1 (`d10d6e39`); what remains is the provenance map
+   `BUDGET_LEGACY_SDL_PROVENANCE` (`legacy/typedefs.ts:619-666`) naming the source
+   file of every carried definition, and the cutover replay's envelope comparison
+   (§6), which is where a shape change would surface.
 2. **Thin resolvers.** A legacy resolver only (a) maps legacy args → the module's
-   typed query (`AnalyticsFilterInput` → the budget filter spec + the `legacy`
-   normalization policy), (b) calls the same usecase the `budget*` roots call, (c)
-   maps the view model → the legacy result shape. **No SQL in the slice.** Where a
-   legacy root needs a query shape the module lacks (e.g. `executionAnalytics`'s
-   multi-year, multi-report-type, single-account-category aggregate with the
-   `legacy` normalization policy), the module gains a **usecase**, not the slice.
-3. **The two paths stay distinct.** `executionAnalytics` is a fact-path aggregate
-   (`budget.execution_line_items`, pruning triple per period year, an `IN` over
-   the three supported report-type literals when omitted); it may route to the summary MVs **only** when the request's
-   exclusion set equals the set baked into the MVs (program §1.11). The rankings
-   (`entityAnalytics`) and heatmaps read the MVs with the creditor collapse (BR-002)
-   applied before ordering.
+   typed query, (b) calls the same usecase the `budget*` roots call, (c) maps the
+   view model → the legacy result shape. **No SQL in the slice.** Where a legacy
+   root needs a query shape the module lacks, the module gains a **usecase**, not
+   the slice.
+3. **Fact path, not the summary MVs** (superseded r2 rule 3, which routed
+   `executionAnalytics` to the MVs when the exclusion set matched and read the
+   rankings and heatmaps from the MVs). Since the 2026-09-09 amendment point 3 the
+   carried roots aggregate `budget.execution_line_items` per (year, entity) in SQL
+   (`grouped-analytics-repo.ts`, the native execution series); the creditor
+   collapse is that summation, which inherits DP-01 until the scrapper fix lands.
 
 ## 4. Per-root implementation notes (budget module)
 
-| Root                                                                                      | Usecase (existing → needed)                                                                                                                                                                                                                                 | Mapping notes                                                                                                                                                                                                                                                                                                                                                                           |
-| ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `executionAnalytics(inputs)`                                                              | new `legacyExecutionSeries(inputs)` over the fact aggregate + SQL-level `legacy` normalization (the promoted factor set on the kernel build; the Phoenix `api.js` embedding's compatibility table is a decimal copy of the same set, deleted with `api.ts`) | one series per input in input order; first error aborts the batch; `seriesId ?? 'default'`; `xAxis` per `PeriodType`; `yAxis` precedence growth → % GDP → currency/per-capita/real; sparse labels `YYYY` / `YYYY-QN` / `YYYY-MM`; growth after normalization, `0` for first/missing/zero predecessor; per-capita by one filter-wide population (legacy policy); 10,000-point cap logged |
-| `entityAnalytics(filter, sort, limit, offset)`                                            | `rankEntities` + exact `totalCount` on the MV path (program S5, foundation §14.4 amendment)                                                                                                                                                                 | offset paging; `SortOrder{by, order}`; rows `entity_cui entity_name entity_type uat_id county_code county_name population amount total_amount per_capita_amount`; `uat_id` = `core.territories.id` (unchanged contract)                                                                                                                                                                 |
-| `aggregatedLineItems(filter, limit, offset)`                                              | `aggregateByClassification` + `count`                                                                                                                                                                                                                       | client aliases (`fn_c` …) are selection aliases — nothing to do server-side; `count` = line count                                                                                                                                                                                                                                                                                       |
-| `heatmapCountyData` / `heatmapUATData`                                                    | `countyHeatmap` / `uatHeatmap` → after D1: one `territoryAggregate(level)`                                                                                                                                                                                  | snake_case fields; `county_entity{cui name}` resolved from the county node (D1), not a loader                                                                                                                                                                                                                                                                                           |
-| `budgetSectors`, `fundingSources`, `functionalClassifications`, `economicClassifications` | dimension usecases                                                                                                                                                                                                                                          | connections with the legacy `PageInfo` clones; `sector_id`/`source_id` as `ID` strings; `fundingSources.source_id` keeps the phoenix-ordinal compat view (D5) until `funding_source_codes` is approved                                                                                                                                                                                  |
-| `commitmentsSummary` (union), `commitmentsAggregated`, `commitmentsAnalytics`             | commitment summary/timeseries usecases + a new aggregated usecase                                                                                                                                                                                           | the union member `__typename`s are read by the client and are frozen; `exclude_transfers: Boolean = true` keeps its default                                                                                                                                                                                                                                                             |
+Superseded by the §2 matrix and the 2026-09-09 amendment. The r2 rows for
+`heatmapCountyData` / `heatmapUATData` and the `commitments*` roots were never
+implemented on the kernel (review B/F1: native replacements instead); the row for
+`executionAnalytics` described `legacyExecutionSeries` over the interim YAML
+factor source, which at HEAD is the unreachable fallback behind the native series
+(§2.2 row 1); the `entityAnalytics` row described an MV path that is no longer
+used (§3 rule 3). What remains binding is the module boundary: the carried roots
+live in `src/modules/budget/shell/graphql/legacy/` and `src/modules/ins-native/shell/graphql/legacy/`,
+and resolve through the same usecases as the native roots (`budget/index.ts:142-200`).
 
 ## 5. Order and gates
 
-1. **Harness first** (being built): `tests/golden-master` gains a baseline/target
-   dual-endpoint mode, full-envelope capture (`errors[]` too), the classifier
-   (contract-break / data-parity / rounding), and the corpus of the 51 client
-   documents with realistic variables (inventory §7).
-2. **Budget roots** (this doc §4) → replay → fix until zero contract breaks and every
-   data-parity delta is explained per root (Phoenix vs Chronos data is the F0
-   successor; a delta on `aggregatedLineItems`, heatmaps or `entityAnalytics` is
-   structural until explained).
-3. **Reference roots** (`entities`, `uats`) after D1 lands.
-4. **`datasets`** mounted on the kernel (mechanical).
-5. **INS** module (program slice 3.2) — the largest re-implementation; the
-   statistici pages are the last to move.
-6. **Client**: switch the legacy transport's base path to `/api/v1/graphql`
-   (`src/lib/api/graphql.ts`), fix the four documents that are invalid today
-   (`UatNames`, `BudgetSectorNames`, `FundingSourceNames` — `[String!]` in an
-   `[ID!]` position; `GetDatasets` selects a non-existent `data` field), delete the
-   `VITE_API_MODE` gate and its four hidden sections.
-7. **Retire**: delete the legacy modules, `build-app.ts` → the composition root
-   (program S7), the Phoenix pools and envs, the `REDESIGN_SURFACE_ENABLED` bridge;
+Status of the r2 plan (kept for the citations):
+
+1. **Harness** — done: `tests/golden-master/specs/client-documents.gm.test.ts`
+   (baseline/target dual-endpoint replay, full-envelope capture, classifier) and the
+   corpus of §2.3.
+2. **Budget roots** — done for the carried roots (§2.2); the explained-per-root
+   deltas are the allowlist and the native amendment documents.
+3. **Reference roots** (`entities`, `uats`) — superseded: not ported, replaced by
+   the kernel entity roots (§2.3).
+4. **`datasets`** — superseded: not ported (§2.3).
+5. **INS** — done 2026-09-07 as `ins-native` (before step 4, not after).
+6. **Client** — **pending, the gate**: switch the transport base path to
+   `/api/v1/graphql`, fix the four `invalid-today` documents (`UatNames`,
+   `BudgetSectorNames`, `FundingSourceNames` — `[String!]` in an `[ID!]` position;
+   `GetDatasets` selects a non-existent `data` field), migrate the §2.3 operations
+   to the native names, delete the `VITE_API_MODE` gate.
+7. **Retire** — executed for slice 1 (legacy endpoint, modules, pools and envs of the
+   deleted modules; the `REDESIGN_SURFACE_ENABLED` bridge is gone). Slice 2 (the
+   platform modules onto the kernel app, then `api.ts`, `build-app.ts`, `budgetDb`)
+   waits on Redis/Resend on Chronos or the owner decision in the codebase plan.
    G0 (fix all known data defects) gates the prod release, not the code.
 
 ## 6. What the golden master must prove (acceptance)
 
+The proof is the cutover replay (amendment point 4): baseline Phoenix dev pinned at
+`phoenix-last-full`, target Chronos dev, `pnpm test:gm:cutover`.
+
 - Every `status: "live"` document: identical `data` key set (aliases included),
   identical array order, identical `__typename` where selected, identical
   `pageInfo`, numbers equal at 2 dp with every exact difference listed; **no new
-  `errors[]`**.
+  `errors[]`** — except where the parity allowlist records a decision.
 - Every `status: "invalid-today"` document: the same error envelope on both
   endpoints until the client fix ships, then valid on the new endpoint only.
-- Every intentional delta from the compatibility manifest (§1) appears in the
-  parity allowlist with a reason and before/after numbers.
+- Every intentional delta from the compatibility manifest (§1) and the native
+  amendments appears in `tests/golden-master/parity-allowlist.json` with a reason
+  and before/after numbers; stale entries fail the run.
+- The 14-case kernel snapshot suite (`legacy-execution-analytics-kernel.gm.test.ts`,
+  `pnpm test:gm`) is a local diagnostic against the deployed target, not a gate.
 - The replay runs against both the browser base URL and `INTERNAL_API_URL` (SSR).
 
-## 7. `executionAnalytics` on the kernel — the documented deltas (r2, 2026-09-02)
+## 7. `executionAnalytics` — the documented deltas of the legacy policy (r2, 2026-09-02)
+
+**Which entrypoint this section describes (r3):** the `legacy` normalization
+policy of `legacyExecutionSeries` — carry-forward, missing factor ⇒ unadjusted,
+one filter-wide population — which is what the frozen Phoenix dev baseline
+(`phoenix-last-full`) serves. At `dev` HEAD no server reaches it: both
+entrypoints dispatch `executionAnalytics` to the native strict series (§2
+matrix, `legacy/resolvers.ts:179-180`), whose own deltas are in
+[`NATIVE_GROUPED_ANALYTICS_2026-09-05.md`](./NATIVE_GROUPED_ANALYTICS_2026-09-05.md)
+and review rows B/F2, N/N4, N/N5. The table stays because it is the allowlist
+basis for the cutover replay (baseline = this policy, target = the native
+series) and because the code cites its delta numbers.
 
 The slice: `src/modules/budget/core/legacy-analytics/*`,
 `shell/factors/{dataset-factor-source,cpi-level}.ts`, `shell/graphql/legacy/*`,
@@ -186,6 +281,17 @@ facet, AND across); `search` as name ILIKE; MONTH / QUARTER / YEAR amount column
 the period flags (sum-equivalent on Chronos, measured).
 
 ## 9. Normalization Phase A — versioned factor reader (2026-09-04)
+
+**Which entrypoint this section describes (r3):** the set-1 pin
+(`LEGACY_FACTOR_SET_ID` / `LEGACY_FACTOR_SET_DIGEST`,
+`budget/shell/factors/factor-set-source.ts:9-11`) is still constructed on both
+entrypoints (`build-redesign-app.ts:487-491`) and handed to the legacy resolver
+factories as `legacyFactors`, but at HEAD no root reads it: every money path is
+the promoted set 2 through `NATIVE_FACTOR_SET_ID` / `NATIVE_FACTOR_SET_DIGEST`
+(`budget/shell/native/factors.ts`, reader built with `requirePromotion: true` at
+`build-redesign-app.ts:471-473`). Set 1 is what the
+frozen Phoenix baseline serves for `executionAnalytics`. The text below is the
+Phase A record as written.
 
 The kernel composition now supplies `executionAnalytics` with factors from
 `core.normalization_factors` through normalization's `FactorSetReader`. It pins

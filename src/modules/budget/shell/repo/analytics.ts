@@ -9,15 +9,19 @@
  * 126M fact rows). Population is DELIBERATELY excluded from the factor map and
  * divided per-entity in SQL (per-capita is an entity-grain operation, §3.4).
  *
- * COMPATIBILITY PATH ONLY. The kernel build (`redesign-api.js`, Chronos dev)
- * always composes the native `FactorSource` over the promoted factor set
- * (`shell/native/factors.ts`), and every read family takes that route when
- * `BudgetRepoOptions.moneyFactors` is set. The embedded table below is reached
- * only by `makeBudgetRepo(db)` WITHOUT `moneyFactors` — the Phoenix `api.js`
- * embedding (`budget/index.ts` without `native`). Deprecated in prose rather
- * than with `@deprecated` (`no-deprecated` would flag the live compatibility
- * caller, `money-factor.ts`; the same choice as `cpi-level.ts`). Deleted with
- * the legacy entrypoint (review N/N1, DP-11).
+ * COMPATIBILITY PATH ONLY — composed by no server at this revision. Both
+ * entrypoints (`redesign-api.js` and the `api.js` embedding) run the default
+ * composition, which has carried `ins-native` since X/F6, so `makeBudgetModule`
+ * always receives `native` and every read family takes the promoted-set route
+ * (`shell/native/factors.ts`, `BudgetRepoOptions.moneyFactors`). The embedded
+ * table below is reached only by `makeBudgetRepo(db)` WITHOUT `moneyFactors`,
+ * i.e. a `makeBudgetModule` call without `native` — today only
+ * `tests/integration/kernel-legacy-roots.test.ts`. The frozen Phoenix dev
+ * (`phoenix-last-full`, 36b4e998) still serves the pre-X/F6 float table from
+ * its own code. Deprecated in prose rather than with `@deprecated`
+ * (`no-deprecated` would flag the live caller, `money-factor.ts`; the same
+ * choice as `cpi-level.ts`). Deleted with the legacy entrypoint (review N/N1,
+ * DP-11).
  *
  * The table is a COPY of factor set 2 (`core.normalization_factors`, digest
  * `NATIVE_FACTOR_SET_DIGEST`, promoted 2026-09-08, run 23230), as decimal
