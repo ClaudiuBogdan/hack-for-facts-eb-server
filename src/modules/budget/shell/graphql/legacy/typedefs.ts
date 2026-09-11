@@ -606,6 +606,15 @@ export const budgetLegacyTypeDefs = /* GraphQL */ `
   }
 `;
 
+/** The legacy client roots this slice serves on the kernel endpoint (design 13 §4). */
+export const BUDGET_LEGACY_ROOTS = [
+  'executionAnalytics',
+  'budgetSectors',
+  'fundingSources',
+  'functionalClassifications',
+  'economicClassifications',
+] as const;
+
 /** The legacy definitions this slice carries and the legacy file each comes from. */
 export const BUDGET_LEGACY_SDL_PROVENANCE = {
   'src/infra/graphql/common/directives.ts': ['directive @oneOf'],

@@ -49,6 +49,7 @@ import type {
 } from './core/legacy-analytics/grouped-usecase.js';
 import type { nativeExecutionSeries } from './core/legacy-analytics/native-usecase.js';
 import type { LegacyAnalyticsInput } from './core/legacy-analytics/types.js';
+import type { LegacyDimensionRepo } from './core/legacy-dimensions/ports.js';
 import type { BudgetDiscoveryRepo, BudgetRepo } from './core/ports.js';
 import type {
   AnnualPopulationPort,
@@ -89,6 +90,11 @@ export interface BudgetModuleDeps {
   ) => ReturnType<typeof groupedClassificationAnalytics>;
   readonly db: Kysely<ProdDatabase>;
   readonly registry: ContributorRegistry;
+  /**
+   * The four legacy dimension roots' repository (tests inject a fake so the
+   * resolvers' coercion runs without SQL); defaults to the Chronos catalog repo.
+   */
+  readonly legacyDimensions?: LegacyDimensionRepo;
   /** Client base URL for MCP deep links (defaults to the public site). */
   readonly clientBaseUrl?: string;
   /**
@@ -167,7 +173,7 @@ export const makeBudgetModule = (rawDeps: BudgetModuleDeps): BudgetModule => {
   const discovery = makeBudgetDiscoveryRepo(deps.db);
   const legacyAnalytics = makeLegacyAnalyticsRepo(deps.db);
   const legacyPopulation = makeLegacyPopulationRepo(deps.db);
-  const legacyDimensions = makeLegacyDimensionRepo(deps.db);
+  const legacyDimensions = deps.legacyDimensions ?? makeLegacyDimensionRepo(deps.db);
   const groupedResolvers = makeBudgetGroupedResolvers({
     ...(deps.entityAnalytics === undefined ? {} : { entityAnalytics: deps.entityAnalytics }),
     ...(deps.classificationAnalytics === undefined

@@ -20,6 +20,8 @@ import {
   loadAllowlist,
   resolveAllowlistPath,
 } from './allowlist.js';
+import { loadCorpus } from './corpus.js';
+import { findUncoveredKernelCases } from './kernel-roots.js';
 import {
   createRunDir,
   newRunId,
@@ -61,6 +63,8 @@ export function teardown(): void {
   const used = new Set(reports.flatMap((report) => report.allowedEntryIds));
   const stale = findStaleEntries(allowlist, used);
   const strictAllowlist = isStrictAllowlist();
+  const documents = new Map(loadCorpus().map((entry) => [entry.key, entry.document]));
+  const uncovered = findUncoveredKernelCases(reports, documents);
 
   const written = writeSummary({
     reportDir,
@@ -68,6 +72,7 @@ export function teardown(): void {
     allowlist: allowlist.entries,
     staleAllowlistEntries: stale,
     strictAllowlist,
+    uncoveredKernelCases: uncovered,
   });
   if (written === null) {
     // A cutover run that executed no case is not a green gate: with
@@ -98,6 +103,11 @@ export function teardown(): void {
       `[Golden Master cutover] ${strictAllowlist ? 'FAIL' : 'WARNING'}: ${String(stale.length)} allowlist entr${stale.length === 1 ? 'y' : 'ies'} matched no difference in this run (stale)`
     );
   }
+  if (uncovered.length > 0) {
+    console.log(
+      `[Golden Master cutover] ${String(uncovered.length)} of the ${String(totals.fail)} failing case(s) are on kernel-mounted roots without a recorded parity decision (see summary.md)`
+    );
+  }
   console.log(`[Golden Master cutover] summary: ${written.markdownPath}\n`);
 
   if (!ok) {
@@ -107,7 +117,7 @@ export function teardown(): void {
     // so a summary that is NOT OK fails the process, not only the log.
     process.exitCode = 1;
     throw new Error(
-      `[Golden Master cutover] run ${runId} is NOT OK (fail ${String(totals.fail)}, reconciliation ${reconciliation.ok ? 'ok' : 'mismatch'}, stale allowlist entries ${String(stale.length)}${strictAllowlist ? ' [strict]' : ''}) — see ${written.markdownPath}`
+      `[Golden Master cutover] run ${runId} is NOT OK (fail ${String(totals.fail)}, reconciliation ${reconciliation.ok ? 'ok' : 'mismatch'}, stale allowlist entries ${String(stale.length)}${strictAllowlist ? ' [strict]' : ''}, on kernel-mounted roots without a decision ${String(uncovered.length)}) — see ${written.markdownPath}`
     );
   }
 }

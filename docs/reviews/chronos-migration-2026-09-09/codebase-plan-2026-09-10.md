@@ -80,21 +80,37 @@ Griffin forwards.
   order), so only the five files are kept; the header records the recipe.
 - Outcome: `pnpm test:gm` green locally, so the loop above has a green baseline.
 
-### WP2 — The corpus as a test asset (medium)
+### WP2 — The corpus as a test asset (medium) — done 2026-09-11
 
-- `tests/integration/kernel-legacy-roots.test.ts`: `buildRedesignApp` with
-  fakes, `app.inject` every live corpus document whose root is on the kernel
-  (`executionAnalytics`, `entityAnalytics`, `aggregatedLineItems`, the four
-  dimension roots, the INS roots); assert no `errors[]` and the documented
-  `InvalidInput` envelopes (design 13 §7 rows 11–13). Closes T-05.
-- Parity-allowlist coverage: a post-run assertion in the cutover harness's
-  report stage (not a unit test, which has no live input): every kernel-mounted
-  root in the corpus either passed or has an allowlist entry, else the run
-  fails. This is what the review meant by "fails when a new root is mounted
-  without a recorded parity decision" (item 7).
-- Composition coverage for `build-redesign-app.ts` (T-09) lives here too: the
-  enabled-module matrix boots with fakes and mounts exactly the declared roots.
-- Verification: the new suites, plus an unchanged cutover set.
+- `tests/integration/kernel-legacy-roots.test.ts`: the budget module runs its
+  real core usecases and resolvers over fake ports (aggregate, grouped,
+  factor, population and dimension repos; one optional `legacyDimensions`
+  injection added to the module deps for it), the INS module over the shared
+  fake repository, both mounted on `buildRedesignApp` with `modules: []`.
+  Every non-dead kernel-rooted corpus document is injected as the client
+  sends it: 40 live answer 200 without errors, the two `invalid-today` fail
+  validation on `$ids`, the capturing driver sees no SQL, and design 13 §7
+  rows 11–13 come back kernel-style (`INVALID_INPUT` / `InvalidInput` /
+  `field`, no stack). Closes T-05. The INS fake repository and the corpus
+  world mapping were promoted into `tests/fixtures/ins-native/` first.
+- `tests/integration/redesign-composition.test.ts` (T-09): each composition
+  unit boots over the bare kernel; units only add roots, no root has two
+  owners, the standalone defaults equal the union of the units, the budget +
+  INS unit carries every legacy root, and the three lone boots fail with
+  their documented reasons (`budget` needs `ins-native`; `ins-native` alone
+  lacks `PeriodDate`; `judicial` alone lacks `LegalAct`). The two SDL
+  dependencies were found by this test, not known before.
+- Parity-allowlist coverage (item 7): `tests/golden-master/kernel-roots.ts`
+  holds the literal kernel root list (pinned to the modules' constants by
+  `tests/unit/golden-master/kernel-roots.test.ts`); the cutover teardown
+  partitions the failing cases and lists every failing kernel-rooted case that
+  no allowlist entry fully covers under "Failing cases on kernel-mounted roots
+  without a recorded parity decision" in `summary.md` / `summary.json`. A
+  classification, not a second gate (Codex review: such a case already fails
+  the run, so a strict flag could never change the outcome). The replay
+  against the local kernel names 25 of the 46 failing cases this way
+  (entityAnalytics / aggregatedLineItems and the INS statistics documents,
+  the §5.1 decisions still parked); the other 21 fail on unported roots.
 
 ### WP3 — Test gaps that protect the later refactors (medium)
 

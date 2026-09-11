@@ -192,7 +192,8 @@ const isLocalhostOrigin = (origin: string): boolean => {
   }
 };
 
-const deepMergeResolvers = (
+/** Merge resolver maps type by type (exported for composition tests). */
+export const deepMergeResolvers = (
   base: Record<string, unknown>,
   override: Record<string, unknown>
 ): Record<string, unknown> => {

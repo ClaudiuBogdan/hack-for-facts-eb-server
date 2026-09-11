@@ -226,6 +226,14 @@ that matches no difference in a run is **stale** and fails the run
 allowlist can only shrink as parity improves. `TEST_GM_ALLOWLIST_PATH` points
 a run at another file (offline fixtures, dry runs).
 
+The run also partitions its failing cases: "Failing cases on kernel-mounted
+roots without a recorded parity decision" lists every failing case whose
+document is entirely served by the kernel (`kernel-roots.ts`, pinned to the
+modules' root constants by a unit test), marking the ones an allowlist entry
+partly covers, so a root mounted on the kernel without a parity decision is
+named rather than buried among the unported-root failures. It is a classification, not a
+separate gate: such a case already fails the run.
+
 ## The client-document corpus
 
 `corpus/client-documents.json` is **generated** by

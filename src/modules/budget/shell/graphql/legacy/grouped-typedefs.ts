@@ -3,6 +3,9 @@
  * aggregated-line-items/shell/graphql/schema.ts, infra/graphql/common/types.ts.
  * See NATIVE_GROUPED_ANALYTICS_2026-09-05.md; no imports from retired modules.
  */
+/** The grouped legacy roots this slice serves on the kernel endpoint (design 13 §4). */
+export const BUDGET_GROUPED_ROOTS = ['entityAnalytics', 'aggregatedLineItems'] as const;
+
 export const budgetGroupedTypeDefs = /* GraphQL */ `
   "Input for specifying sort order on a field"
   input SortOrder {

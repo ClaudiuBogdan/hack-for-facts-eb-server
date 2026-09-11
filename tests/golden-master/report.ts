@@ -50,6 +50,7 @@ import {
 } from './compare.js';
 
 import type { CorpusStatus } from './corpus.js';
+import type { UncoveredKernelCase } from './kernel-roots.js';
 
 // =============================================================================
 // Types
@@ -163,6 +164,12 @@ export interface RunSummary {
   /** Every allowlist entry that matched, with its magnitude. */
   deltas: DeltaSummary[];
   staleAllowlistEntries: AllowlistEntry[];
+  /**
+   * The failing cases whose roots are all kernel-mounted (kernel-roots.ts),
+   * partly allowlisted ones marked: a classification of `failing`, not a
+   * separate gate.
+   */
+  uncoveredKernelCases: UncoveredKernelCase[];
   /** False when any case failed, the reconciliation failed, or (strict) stale entries exist. */
   ok: boolean;
 }
@@ -564,6 +571,7 @@ export function buildSummary(params: {
   allowlist: readonly AllowlistEntry[];
   staleAllowlistEntries: readonly AllowlistEntry[];
   strictAllowlist: boolean;
+  uncoveredKernelCases?: readonly UncoveredKernelCase[];
   now?: Date;
 }): RunSummary {
   const { reports } = params;
@@ -614,6 +622,7 @@ export function buildSummary(params: {
   const reconciliation = reconcile(params.planned, reports);
   const first = reports[0];
   const staleBlocks = params.strictAllowlist && params.staleAllowlistEntries.length > 0;
+  const uncoveredKernelCases = [...(params.uncoveredKernelCases ?? [])];
   return {
     runId: params.runId,
     generatedAt: (params.now ?? new Date()).toISOString(),
@@ -638,6 +647,7 @@ export function buildSummary(params: {
     failing,
     deltas: summarizeDeltas(reports, params.allowlist),
     staleAllowlistEntries: [...params.staleAllowlistEntries],
+    uncoveredKernelCases,
     ok: fail === 0 && reconciliation.ok && !staleBlocks,
   };
 }
@@ -711,6 +721,23 @@ export function renderSummaryMarkdown(summary: RunSummary, reports: readonly Cas
       }
       lines.push('');
     }
+  }
+
+  if (summary.uncoveredKernelCases.length > 0) {
+    lines.push(
+      `## Failing cases on kernel-mounted roots without a recorded parity decision (${String(summary.uncoveredKernelCases.length)} of ${String(summary.failing.length)})`
+    );
+    lines.push('');
+    lines.push(
+      'Every root of these documents is served by the kernel and their blocking differences matched no allowlist entry: a mounted root without a recorded parity decision (kernel-roots.ts). The other failing cases are on roots the kernel does not serve.'
+    );
+    lines.push('');
+    for (const uncovered of summary.uncoveredKernelCases) {
+      lines.push(
+        `- ${uncovered.id} (${uncovered.roots.join(', ')})${uncovered.partiallyAllowlisted ? ' [partly allowlisted]' : ''}: ${listText(uncovered.reasons)}`
+      );
+    }
+    lines.push('');
   }
 
   if (summary.staleAllowlistEntries.length > 0) {
@@ -797,6 +824,7 @@ export function writeSummary(params: {
   allowlist: readonly AllowlistEntry[];
   staleAllowlistEntries: readonly AllowlistEntry[];
   strictAllowlist: boolean;
+  uncoveredKernelCases?: readonly UncoveredKernelCase[];
 }): { summary: RunSummary; jsonPath: string; markdownPath: string } | null {
   const reports = readCaseReports(params.reportDir, params.runId);
   const planned = readPlanned(params.reportDir, params.runId);
