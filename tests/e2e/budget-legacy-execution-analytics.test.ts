@@ -89,6 +89,7 @@ import { registerBudgetAnnualTableCases } from './budget-annual-table-cases.js';
 import { registerBudgetEvolutionCases } from './budget-evolution-cases.js';
 import { registerBudgetMoneyCases } from './budget-money-cases.js';
 import { registerBudgetRankingPopulationCases } from './budget-ranking-population-cases.js';
+import { teardownDisposablePostgres } from './disposable-postgres.js';
 
 import type { UserDatabase } from '@/infra/database/user/types.js';
 import type { GroupedQuery } from '@/modules/budget/core/legacy-analytics/grouped-types.js';
@@ -186,9 +187,16 @@ const it = (name: string, test: () => unknown): void => {
   });
 };
 
+// An external URL is guarded below (loopback only, never the production name);
+// a container the suite starts is disposable by construction, so only the
+// production-name refusal applies to it.
+let externalUrl = false;
 const resolveConnection = async (): Promise<string | undefined> => {
   const external = process.env['E2E_BUDGET_PG_URL'];
-  if (external !== undefined && external !== '') return external;
+  if (external !== undefined && external !== '') {
+    externalUrl = true;
+    return external;
+  }
   if (!dockerCliUp()) {
     unavailable('Docker CLI unavailable and no E2E_BUDGET_PG_URL');
     return undefined;
@@ -549,13 +557,13 @@ beforeAll(async () => {
   const connectionString = await resolveConnection();
   if (connectionString === undefined) return;
 
-  // DESTRUCTIVE-STATEMENT GUARD: this suite drops schemas. Only a loopback host
-  // (a local container or an SSH tunnel to one) and never the production
-  // database name are admitted — a typo'd E2E_BUDGET_PG_URL must not reach prod.
+  // DESTRUCTIVE-STATEMENT GUARD: this suite drops schemas. An external URL must
+  // name a loopback host, and neither path may name the production database —
+  // a typo'd E2E_BUDGET_PG_URL must not reach prod.
   const target = new URL(connectionString);
   const loopback = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
   if (
-    !loopback.has(target.hostname) ||
+    (externalUrl && !loopback.has(target.hostname)) ||
     target.pathname.replace(/^\//u, '') === 'transparenta_prod'
   ) {
     throw new Error(
@@ -601,9 +609,11 @@ beforeAll(async () => {
 }, 240_000);
 
 afterAll(async () => {
-  if (db !== undefined) await db.destroy();
-  if (pgClient !== undefined) await pgClient.end();
-  if (container !== undefined) await container.stop();
+  await teardownDisposablePostgres(
+    container,
+    () => db?.destroy(),
+    () => pgClient?.end()
+  );
 });
 
 // ── the gates ─────────────────────────────────────────────────────────────────
