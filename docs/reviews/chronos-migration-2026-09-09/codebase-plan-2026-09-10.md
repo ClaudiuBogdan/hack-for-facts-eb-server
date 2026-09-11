@@ -112,21 +112,59 @@ Griffin forwards.
   (entityAnalytics / aggregatedLineItems and the INS statistics documents,
   the §5.1 decisions still parked); the other 21 fail on unported roots.
 
-### WP3 — Test gaps that protect the later refactors (medium)
+### WP3 — Test gaps that protect the later refactors (medium) — done 2026-09-11
 
-- Capturing-driver SQL tests for `ins-native/shell/repo/ins-repo.ts` (period
-  narrowing, snapshot isolation, member-territory join), mirroring
-  `legacy-analytics/repo-sql.test.ts`. These pin the generated SQL before WP5
-  moves the code.
-- Unit tests for the four shell population readers and
-  `makeNativeBudgetFactors` over `fake-repo.ts` (T-13).
-- Owner-fence unit test for `assertUserDataOwnerCanWrite` over a fake user
-  database: tombstone → forbidden, none → ok, lock ordering scripted (T-06).
-- Request-level auth test: a Clerk-dev-signed JWT yields an authenticated
-  context on `/api/v1/graphql`, a wrong issuer yields anonymous.
-- Testcontainers fallback in `normalization-factor-set.test.ts` and
-  `map-owner-deletion.test.ts` (copy the `search-repo-entities` pattern) so
-  they no longer need a loopback database; verify on zeus Docker.
+- `tests/unit/ins-native/repo-sql.test.ts`: the native INS repo pinned over
+  the capturing driver before WP5 moves it: the repeatable-read snapshot
+  policy (`read only`, the 30 s statement timeout, `jit = off`, the 35 s
+  transaction timeout of a composed snapshot; one transaction per
+  `withSnapshot`, one per plain read), the per-read runner's driver-error
+  mapping (SQLSTATE 57014 or the timeout message → Timeout, a missing
+  relation → ServiceUnavailable, the publication signal → its message,
+  anything else → Database with the cause), the full `listObservations`
+  statement with every period selector and `limit + 1`, hydration's
+  member-territory join and its statement order, the default-series
+  candidate and winner statements (NO_DATA without a candidate,
+  AMBIGUOUS_GEOGRAPHY with two, a candidate without a winner row is a
+  publication failure), and the shared page/count predicate of
+  `listDatasets`. The capturing fixture records transaction settings, since
+  the isolation level is a driver argument and was invisible before; an
+  unrouted statement fails the test instead of answering no rows.
+- T-13: `tests/unit/shared/territory-population-sql.test.ts`,
+  `tests/unit/budget/native-population.test.ts`,
+  `tests/unit/ins-native/population-cells.test.ts`,
+  `tests/unit/budget/native-factors.test.ts`: the admitted-source read with
+  its canonical-sector proof in SQL, the map anchor sets over the union
+  kernel, the annual scope population (anchors from the transaction, cells
+  from the port, a year with any missing cell absent, never partial), the
+  snapshot-bound cells and the Bucharest sector supplement over the fake INS
+  repo (cell values encode the resolved node, so the tests prove which node
+  was read), and the native factors (set 2 under its recorded digest, a port
+  whose `current` throws).
+- T-06: `tests/unit/infra/database/user/owner-write-guard.test.ts` — the
+  owner fence over a `UserDatabase` transaction: refusal of an empty or
+  untrimmed id before any statement, the advisory lock before the audit
+  marker read, the marker looked up by the sha256 the anonymizer writes, a
+  marker refuses, none admits, a driver failure on either statement
+  propagates.
+- `tests/integration/redesign-auth-context.test.ts`: the real jose-signed
+  path through `makeConfiguredJWTProvider` on `buildRedesignApp`; a verified
+  token reaches resolvers as the session with its exact expiry, a missing or
+  malformed header and the provider's refusals reach them as anonymous with
+  HTTP 200, an app without a provider carries no session. The other redesign
+  suites use a fake provider.
+- `tests/e2e/disposable-postgres.ts` (Docker probe, container start,
+  exception-safe teardown with the container stopped in a `finally`) shared
+  by `search-repo-entities`, `map-owner-deletion` and
+  `normalization-factor-set`; the last two no longer need a hand-prepared
+  loopback database (an external URL stays guarded; the factor proof finds
+  the scrapper checkout beside the repo when its dependencies are installed,
+  digests still matching). Verified on the zeus Docker host: 14/14, no skip,
+  no container left behind. The e2e suites remain outside the dev-branch CI.
+- Reviews: Codex working-tree per commit plus branch scope, Fable (high)
+  per commit with delta re-checks; findings applied before each commit
+  (node-discriminating cell values, fail-loud statement routing, the
+  calendar-dependent expiry pin, the teardown leak window).
 
 ### WP4 — Kernel typing and constants (medium)
 
