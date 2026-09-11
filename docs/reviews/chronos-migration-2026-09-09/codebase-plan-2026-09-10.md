@@ -296,7 +296,7 @@ Done (commit `f0d923fe`, pin `5c219350`, synced 11:57 UTC; row in
   verification identical to WP5: cutover 46 / 25 kernel-rooted / 0 stale /
   92,814 leaves, snapshot 14/14.
 
-### WP7 — Documentation still stale after the slice-1 sweep (small)
+### WP7 — Documentation still stale after the slice-1 sweep (small) — done 2026-09-11
 
 - Doc 13 rewritten as the deployment matrix the owner asked for (B/F1
   decision), with the DRAFT header and the superseded MV path removed.
@@ -306,6 +306,44 @@ Done (commit `f0d923fe`, pin `5c219350`, synced 11:57 UTC; row in
   nominal-ranking blast radius; the two 2026-09-06 sections of
   `docs/USER-DATA-ANONYMIZATION.md` moved above "References" and the Chronos
   dev store named.
+
+Done (commit `cf7f0e2f`, pin `b243937f`, synced 12:34 UTC; row in
+`deploy-2026-09-10.md`):
+
+- Doc 13 is r3, the deployment matrix: §2.1 the two entrypoints and their one
+  shared composition, §2.2 every root on `/api/v1/graphql` with serving path,
+  factor source, population source and client status, §2.3 the legacy roots
+  not on the kernel with their native replacements and the cutover counts,
+  §2.4 REST/MCP per build; §0/§4/§5 reduced to executed-or-superseded notes;
+  §1 records the two accepted additive fields (B/F4); §3 rule 3 is the fact
+  path; §7/§9 keep their cited numbers with a lead naming the entrypoint they
+  describe. The "DRAFT" header had already gone in the slice-1 sweep.
+- Found while building the matrix and corrected in the same commit: since
+  X/F6 (`962f1c34`) `ins-native` is in the default composition and the
+  `api.js` embedding passes no module override, so BOTH entrypoints compose
+  budget with `native`. WP6's "live on the Phoenix `api.js` embedding" was the
+  `phoenix-last-full` code, not HEAD; the compatibility table, the set-1 pin
+  and the legacy usecases are reached by no server at this revision. Corrected
+  in `analytics.ts`'s header, the WP6 records, the fixture README and the
+  stale comment above `SHARED_DEFAULT_MODULES` (comment-only source changes).
+- The other rows were already satisfied by the slice-1 docs sweep
+  (`ad90376c`): `AGENTS.md` lists `ins-native` and no `ins`;
+  `docs/DEPLOYMENT-SPEC.md:547` carries the Dockerfile `CMD` with the Chronos
+  override note; the N/N3 republish procedure and blast radius are doc 14 §3
+  (paths re-verified); the two 2026-09-06 anonymization sections sit above
+  "References" and name `transparenta-eu-dev-user-db`. The `verify-and-ship`
+  skill's CI section was rewritten to the workflows as they are (six jobs, the
+  pin commit on every push, manual Argo sync, golden master on `workflow_run`
+  and nightly) — but `.claude/` is gitignored, so that edit is local to the
+  owner's machine and cannot land; `AGENTS.md` documents skills the repo does
+  not track (owner item).
+- Left as owner items: the `AGENTS.md` sentence "`core/` imports only
+  `common/*`" versus the linter and 74 core files that import other modules'
+  `index.ts`; `Dockerfile:79`'s `HEALTHCHECK` on `/health/live`, a path the
+  kernel build does not serve (inert in-cluster).
+- Reviews: Codex working-tree (no findings; non-comment tokens identical),
+  Fable high cell-by-cell against HEAD (no P1; two P2 and P3 wording items,
+  all applied; root, corpus and allowlist counts reproduced).
 
 ## What stays parked, and the decision that unparks it
 
