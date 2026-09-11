@@ -17,9 +17,6 @@
  * the outage path no longer reads this table.
  */
 
-import { execSync } from 'node:child_process';
-
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { Kysely, PostgresDialect } from 'kysely';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it as vitestIt } from 'vitest';
@@ -27,19 +24,12 @@ import { afterAll, beforeAll, describe, expect, it as vitestIt } from 'vitest';
 import { makeDocumentRepo } from '@/modules/shared/shell/repo/document-repo.js';
 import { makeSearchRepo } from '@/modules/shared/shell/repo/search-repo.js';
 
+import { startDisposablePostgres, teardownDisposablePostgres } from './disposable-postgres.js';
+
 import type { SearchRepo } from '@/modules/shared/core/ports.js';
 import type { ProdDatabase } from '@/modules/shared/shell/db/types.js';
 
-const dockerCliUp = (): boolean => {
-  try {
-    execSync('docker info', { stdio: 'ignore', timeout: 5000 });
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-let container: StartedPostgreSqlContainer | undefined;
+let container: Awaited<ReturnType<typeof startDisposablePostgres>>;
 let db: Kysely<ProdDatabase> | undefined;
 let repo: SearchRepo | undefined;
 /**
@@ -187,22 +177,9 @@ const resolveConnection = async (): Promise<string | undefined> => {
   const external = process.env['E2E_SEARCH_PG_URL'];
   if (external !== undefined && external !== '') return external;
 
-  if (!dockerCliUp()) {
-    console.warn('Docker CLI unavailable and no E2E_SEARCH_PG_URL — search-repo e2e SKIPPED.');
-    return undefined;
-  }
-  try {
-    container = await new PostgreSqlContainer('postgres:16-alpine').start();
-    return container.getConnectionUri();
-  } catch (error) {
-    // Daemon reported by the CLI but no working testcontainers runtime — skip.
-    console.warn(
-      `Testcontainers runtime unavailable — search-repo e2e SKIPPED: ${
-        error instanceof Error ? error.message : String(error)
-      }`
-    );
-    return undefined;
-  }
+  container = await startDisposablePostgres('search_e2e');
+  if (container === undefined) console.warn('No container runtime — search-repo e2e SKIPPED.');
+  return container?.getConnectionUri();
 };
 
 beforeAll(async () => {
@@ -245,8 +222,7 @@ beforeAll(async () => {
 }, 120_000);
 
 afterAll(async () => {
-  if (db !== undefined) await db.destroy();
-  if (container !== undefined) await container.stop();
+  await teardownDisposablePostgres(container, () => db?.destroy());
 });
 
 describe('countByCui (e2e)', () => {

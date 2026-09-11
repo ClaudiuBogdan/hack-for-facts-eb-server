@@ -1,3 +1,13 @@
+/**
+ * The saved-map deletion boundary against a real PostgreSQL. The database is
+ * either an external disposable one (`E2E_BUDGET_PG_URL`, loopback and named
+ * `server_*`, since the suite runs the full bootstrap DDL into a fresh schema)
+ * or, when a container runtime is reachable, a Testcontainers Postgres the
+ * suite starts and stops itself (`disposable-postgres.ts`, codebase plan
+ * §WP3). Without either the suite SKIPS, or fails when `TEST_E2E_REQUIRED=1`.
+ * The e2e suites are not part of the dev-branch CI; this makes the suite
+ * runnable on any Docker host without a hand-prepared database.
+ */
 import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
@@ -15,27 +25,46 @@ import { makeAdvancedMapDatasetsRepo } from '@/modules/advanced-map-datasets/ind
 import { makeClerkUserDeletionRoutes } from '@/modules/clerk-webhooks/index.js';
 import { makeUserDataAnonymizer } from '@/modules/clerk-webhooks/shell/anonymization/user-data-anonymizer.js';
 
+import { startDisposablePostgres, teardownDisposablePostgres } from './disposable-postgres.js';
+
 import type { UserDatabase } from '@/infra/database/user/types.js';
 
 const schema = `map_owner_${randomUUID().replaceAll('-', '')}`;
 const logger = pinoLogger({ level: 'silent' });
 let db: Kysely<UserDatabase>;
 let admin: pg.Client;
+let container: Awaited<ReturnType<typeof startDisposablePostgres>>;
 let ready = false;
 
+/**
+ * An external URL is guarded (loopback, `server_*`): the bootstrap DDL must
+ * never run against anything but a disposable database. A container the suite
+ * starts is disposable by construction, so only its database name is fixed.
+ */
+const resolveConnection = async (): Promise<string | undefined> => {
+  const external = process.env['E2E_BUDGET_PG_URL'];
+  if (external !== undefined && external !== '') {
+    const target = new URL(external);
+    if (
+      !['127.0.0.1', 'localhost', '[::1]'].includes(target.hostname) ||
+      !target.pathname.startsWith('/server_')
+    )
+      throw new Error('Map deletion tests require a loopback server_* disposable database');
+    return external;
+  }
+  container = await startDisposablePostgres('server_e2e');
+  return container?.getConnectionUri();
+};
+
 beforeAll(async () => {
-  const connectionString = process.env['E2E_BUDGET_PG_URL'];
+  const connectionString = await resolveConnection();
   if (connectionString === undefined) {
     if (process.env['TEST_E2E_REQUIRED'] === '1') throw new Error('Disposable PostgreSQL required');
-    console.warn('Map deletion race tests skipped: no disposable PostgreSQL URL');
+    console.warn(
+      'Map deletion race tests skipped: no disposable PostgreSQL URL or container runtime'
+    );
     return;
   }
-  const target = new URL(connectionString);
-  if (
-    !['127.0.0.1', 'localhost', '[::1]'].includes(target.hostname) ||
-    !target.pathname.startsWith('/server_')
-  )
-    throw new Error('Map deletion tests require a loopback server_* disposable database');
   admin = new pg.Client({ connectionString });
   await admin.connect();
   await admin.query(`CREATE SCHEMA ${schema}`);
@@ -54,14 +83,15 @@ beforeAll(async () => {
     }),
   });
   ready = true;
-});
+}, 120_000);
 
 afterAll(async () => {
-  await db?.destroy();
-  if (admin !== undefined) {
-    await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
-    await admin.end();
-  }
+  await teardownDisposablePostgres(
+    container,
+    () => db?.destroy(),
+    () => admin?.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`),
+    () => admin?.end()
+  );
 });
 
 const mapInput = (userId: string) => ({

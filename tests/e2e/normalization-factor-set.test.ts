@@ -1,14 +1,32 @@
 /* eslint-disable @typescript-eslint/no-deprecated -- the YAML factor source is the retained Phase A parity baseline (review N/P5) */
-/** Phase A real-SQL proof on a dedicated empty PostgreSQL database. */
+/**
+ * Phase A real-SQL proof on a dedicated empty PostgreSQL database: the
+ * scrapper's actual migration DDL (digest-pinned, read from the sibling
+ * checkout or `SCRAPPER_REPO_ROOT`) and the factor reader's generated SQL.
+ * The database is either an external disposable one (`E2E_FACTOR_PG_URL`,
+ * localhost and named `budget_phase_a`) or, when a container runtime is
+ * reachable, a Testcontainers Postgres the suite starts and stops itself
+ * (`disposable-postgres.ts`, codebase plan §WP3). Without either the suite
+ * SKIPS, or fails when `TEST_E2E_REQUIRED=1`. The e2e suites are not part of
+ * the dev-branch CI.
+ *
+ * The sibling checkout is used only when its dependencies are installed (the
+ * migrations resolve `kysely` from the scrapper's own node_modules, a second
+ * instance the raw `sql` tags accept by shape). A dirty scrapper working tree
+ * on one of the three pinned files fails this suite on purpose: the proof is
+ * over the reviewed DDL bytes, not whatever is on disk.
+ */
 import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { Kysely, PostgresDialect, sql } from 'kysely';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { startDisposablePostgres, teardownDisposablePostgres } from './disposable-postgres.js';
 import {
   makeDatasetFactorSource,
   FACTOR_DATASET_IDS,
@@ -21,23 +39,46 @@ import fixture from '../unit/normalization/fixtures/factor-set-1.json' with { ty
 import type { FactorKind } from '../../src/modules/budget/core/legacy-analytics/ports.js';
 import type { ProdDatabase } from '../../src/modules/shared/index.js';
 
-const url = process.env['E2E_FACTOR_PG_URL'];
-const scrapper = process.env['SCRAPPER_REPO_ROOT'];
+// Resolved from this file, not the cwd, so a run from a subdirectory finds the same checkout.
+const SIBLING_SCRAPPER = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../../../hack-for-facts-eb-scrapper'
+);
+const scrapper =
+  process.env['SCRAPPER_REPO_ROOT'] ??
+  (existsSync(path.join(SIBLING_SCRAPPER, 'node_modules/kysely')) ? SIBLING_SCRAPPER : undefined);
 // Opt-in uses a dedicated fixture, never the application/production connection.
 const required = process.env['TEST_E2E_REQUIRED'] === '1';
-const suite = required || (url !== undefined && scrapper !== undefined) ? describe : describe.skip;
 let db: Kysely<ProdDatabase>;
+let container: Awaited<ReturnType<typeof startDisposablePostgres>>;
+let ready = false;
 
-suite('versioned factor reader — real migration DDL', () => {
-  beforeAll(async () => {
-    if (url === undefined || scrapper === undefined)
-      throw new Error('Required: E2E_FACTOR_PG_URL and SCRAPPER_REPO_ROOT');
-    const endpoint = new URL(url);
+/** An external URL is guarded; a container the suite starts is disposable by construction. */
+const resolveConnection = async (): Promise<string | undefined> => {
+  const external = process.env['E2E_FACTOR_PG_URL'];
+  if (external !== undefined && external !== '') {
+    const endpoint = new URL(external);
     if (
-      !['127.0.0.1', 'localhost'].includes(endpoint.hostname) ||
+      !['127.0.0.1', 'localhost', '[::1]'].includes(endpoint.hostname) ||
       !endpoint.pathname.startsWith('/budget_phase_a')
     ) {
       throw new Error('E2E_FACTOR_PG_URL must name a localhost budget_phase_a disposable database');
+    }
+    return external;
+  }
+  container = await startDisposablePostgres('budget_phase_a');
+  return container?.getConnectionUri();
+};
+
+describe('versioned factor reader — real migration DDL', () => {
+  beforeAll(async () => {
+    const url = scrapper === undefined ? undefined : await resolveConnection();
+    if (url === undefined || scrapper === undefined) {
+      if (required) throw new Error('Required: a disposable PostgreSQL and SCRAPPER_REPO_ROOT');
+      console.warn(
+        'Factor SQL proof skipped: no disposable PostgreSQL, container runtime or scrapper checkout'
+      );
+      return;
     }
     db = new Kysely<ProdDatabase>({
       dialect: new PostgresDialect({ pool: new pg.Pool({ connectionString: url, max: 2 }) }),
@@ -86,12 +127,19 @@ suite('versioned factor reader — real migration DDL', () => {
     await sql`insert into core.normalization_factors (factor_set_id,factor_kind,frequency,period_key,value,unit,derivation,source,source_url,source_dataset) values ${sql.join(values)}`.execute(
       db
     );
-  }, 120_000);
+    ready = true;
+  }, 180_000);
   afterAll(async () => {
-    await db?.destroy();
+    await teardownDisposablePostgres(container, () => db?.destroy());
   });
 
-  it('keeps candidates internal, retries after promotion and admits previously promoted sets', async () => {
+  it('keeps candidates internal, retries after promotion and admits previously promoted sets', async ({
+    skip,
+  }) => {
+    if (!ready) {
+      skip();
+      return;
+    }
     const internal = makeFactorSetReader(db);
     const admitted = makeFactorSetReader(db, { requirePromotion: true });
     expect((await internal.load('1')).isOk()).toBe(true);
@@ -115,7 +163,13 @@ suite('versioned factor reader — real migration DDL', () => {
     );
   });
 
-  it('reads all 228 exact rows through the actual generated SQL with current absent', async () => {
+  it('reads all 228 exact rows through the actual generated SQL with current absent', async ({
+    skip,
+  }) => {
+    if (!ready) {
+      skip();
+      return;
+    }
     const reader = makeFactorSetReader(db);
     expect((await reader.current())._unsafeUnwrap()).toBeNull();
     const loaded = (await reader.load('1'))._unsafeUnwrap();
