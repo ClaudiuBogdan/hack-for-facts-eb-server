@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { makeInsGraphqlLifecycle } from '@/app/ins-graphql-session.js';
 
-import { makeFakeRepo } from './fake-repo.js';
+import { makeFakeRepo } from '../../fixtures/ins-native/fake-repo.js';
 
 import type { GraphQLContextBuilder } from '@/infra/graphql/index.js';
 import type { InsReadSession } from '@/modules/ins-native/index.js';

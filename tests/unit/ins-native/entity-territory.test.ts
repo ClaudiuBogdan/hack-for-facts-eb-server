@@ -8,7 +8,7 @@ import {
 } from '@/modules/ins-native/core/entity-territory.js';
 import { makeInsContributor } from '@/modules/ins-native/shell/contributor.js';
 
-import { CJ, CLUJ_NAPOCA, makeFakeRepo } from './fake-repo.js';
+import { CJ, CLUJ_NAPOCA, makeFakeRepo } from '../../fixtures/ins-native/fake-repo.js';
 
 import type { InsRepo } from '@/modules/ins-native/core/ports.js';
 import type { InsTerritoryNode } from '@/modules/ins-native/core/types.js';

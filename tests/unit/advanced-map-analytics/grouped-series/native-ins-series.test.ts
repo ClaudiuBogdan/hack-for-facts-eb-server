@@ -7,7 +7,7 @@ import {
   extractNativeInsSeries,
 } from '@/modules/advanced-map-analytics/grouped-series/shell/providers/native-ins-series.js';
 
-import { CJ, AB, makeFakeRepo } from '../../ins-native/fake-repo.js';
+import { CJ, AB, makeFakeRepo } from '../../../fixtures/ins-native/fake-repo.js';
 
 import type { InsMapSeries } from '@/modules/advanced-map-analytics/grouped-series/core/types.js';
 

@@ -5,7 +5,7 @@ import { resolveInsTerritoryInputs } from '@/modules/ins-native/core/territory-i
 import { listTerritories, resolveTerritoryNodes } from '@/modules/ins-native/core/usecases.js';
 import { toGqlTerritory } from '@/modules/ins-native/shell/graphql/legacy/resolvers.js';
 
-import { AB, CJ, CLUJ_NAPOCA, makeFakeRepo } from './fake-repo.js';
+import { AB, CJ, CLUJ_NAPOCA, makeFakeRepo } from '../../fixtures/ins-native/fake-repo.js';
 
 import type { InsRepo } from '@/modules/ins-native/core/ports.js';
 

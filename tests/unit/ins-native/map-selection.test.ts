@@ -3,7 +3,13 @@ import { describe, expect, it } from 'vitest';
 
 import { prepareInsMapSelection } from '@/modules/ins-native/core/map-selection.js';
 
-import { CJ, CLUJ_NAPOCA, DIMENSIONS, POPTEST, makeFakeRepo } from './fake-repo.js';
+import {
+  CJ,
+  CLUJ_NAPOCA,
+  DIMENSIONS,
+  POPTEST,
+  makeFakeRepo,
+} from '../../fixtures/ins-native/fake-repo.js';
 
 const input = {
   datasetCode: 'POPTEST',

@@ -8,7 +8,7 @@ import {
   type NativeMapSeriesProviderDeps,
 } from '@/modules/advanced-map-analytics/grouped-series/shell/providers/native-map-series-provider.js';
 
-import { makeFakeRepo } from '../../ins-native/fake-repo.js';
+import { makeFakeRepo } from '../../../fixtures/ins-native/fake-repo.js';
 
 import type { GroupedSeriesDataRequest } from '@/modules/advanced-map-analytics/grouped-series/core/types.js';
 

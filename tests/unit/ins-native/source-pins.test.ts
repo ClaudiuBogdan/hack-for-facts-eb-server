@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { observationGeoScope } from '@/modules/ins-native/core/geography.js';
 import { classificationPins, listObservations } from '@/modules/ins-native/core/usecases.js';
 
-import { DIMENSIONS, makeFakeRepo } from './fake-repo.js';
+import { DIMENSIONS, makeFakeRepo } from '../../fixtures/ins-native/fake-repo.js';
 
 const dimensions = DIMENSIONS['POPTEST'] ?? [];
 

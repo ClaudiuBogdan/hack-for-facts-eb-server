@@ -38,7 +38,8 @@ import { makeInsNativeModule } from '@/modules/ins-native/index.js';
 import { makeInsLegacyResolvers } from '@/modules/ins-native/shell/graphql/legacy/resolvers.js';
 import { baseTypeDefs, scalarResolvers } from '@/modules/shared/index.js';
 
-import { makeFakeRepo } from './fake-repo.js';
+import { toFakeInsVariables, toFakeInsWorld } from '../../fixtures/ins-native/corpus-world.js';
+import { makeFakeRepo } from '../../fixtures/ins-native/fake-repo.js';
 
 import type { InsRepo } from '@/modules/ins-native/core/ports.js';
 
@@ -128,34 +129,11 @@ const buildTestSchema = (
   ]);
 };
 
-/**
- * Map the corpus's real-world identifiers onto the fake world: dataset codes,
- * the legacy classification type slugs the landing document still embeds
- * (`SEX`/`AGE_GROUP` → `D1`/`D0`, the client change of plan §5), and the
- * measured decade years.
- */
-const toFakeWorld = (text: string): string =>
-  text
-    .replaceAll('POP107D', 'POPTEST')
-    .replaceAll('FOM104D', 'CNTTEST')
-    .replaceAll('SOM101F', 'EMPTYTEST')
-    .replaceAll('LOC101B', 'POPTEST')
-    .replaceAll('"SEX"', '"D1"')
-    .replaceAll('"AGE_GROUP"', '"D0"')
-    .replaceAll('"2016"', '"2019"')
-    .replaceAll('"2025"', '"2021"');
-
-const adapt = (vars: Record<string, unknown> | undefined): Record<string, unknown> => {
-  // eslint-disable-next-line no-restricted-syntax -- re-parsing a JSON.stringify of test variables
-  const parsed: unknown = JSON.parse(toFakeWorld(JSON.stringify(vars ?? {})));
-  return parsed as Record<string, unknown>;
-};
-
 const run = async (schema: GraphQLSchema, entry: CorpusEntry): Promise<ExecutionResult> =>
   graphql({
     schema,
-    source: toFakeWorld(entry.query ?? entry.document ?? ''),
-    variableValues: adapt(entry.variables),
+    source: toFakeInsWorld(entry.query ?? entry.document ?? ''),
+    variableValues: toFakeInsVariables(entry.variables),
   });
 
 describe('golden-master INS corpus over the native slice (fake repository)', () => {
@@ -243,8 +221,8 @@ describe('golden-master INS corpus over the native slice (fake repository)', () 
       accessor.mockClear();
       const result = await graphql({
         schema: scopedSchema,
-        source: toFakeWorld(entry.query ?? entry.document ?? ''),
-        variableValues: adapt(entry.variables),
+        source: toFakeInsWorld(entry.query ?? entry.document ?? ''),
+        variableValues: toFakeInsVariables(entry.variables),
         contextValue: context,
       });
       expect(result.errors ?? [], entry.id).toEqual([]);

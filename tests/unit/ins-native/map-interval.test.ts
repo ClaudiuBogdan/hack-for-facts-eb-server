@@ -10,7 +10,7 @@ import {
   type InsLatestMapRequest,
 } from '@/modules/ins-native/core/map-series.js';
 
-import { makeFakeRepo } from './fake-repo.js';
+import { makeFakeRepo } from '../../fixtures/ins-native/fake-repo.js';
 
 import type { InsObservationView, InsSeriesResult } from '@/modules/ins-native/core/types.js';
 

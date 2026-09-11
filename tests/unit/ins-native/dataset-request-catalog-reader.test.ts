@@ -14,7 +14,7 @@ import {
   type InsRepo,
 } from '@/modules/ins-native/index.js';
 
-import { makeFakeRepo } from './fake-repo.js';
+import { makeFakeRepo } from '../../fixtures/ins-native/fake-repo.js';
 
 const session = (
   repo: Awaited<ReturnType<InsReadSession['getRepo']>>,

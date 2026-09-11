@@ -175,7 +175,7 @@ const assertScrapperMigrations = (scrapperRoot: string): void => {
 
 const SHA = 'b'.repeat(64);
 
-// ── seed: the same world as tests/unit/ins-native/fake-repo.ts ───────────────
+// ── seed: the same world as tests/fixtures/ins-native/fake-repo.ts ───────────────
 
 const seed = async (client: pg.Client): Promise<void> => {
   await client.query(`

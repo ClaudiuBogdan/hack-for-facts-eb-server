@@ -11,7 +11,7 @@ import { INS_PERIODICITIES } from '@/modules/ins-native/core/types.js';
 import { periodPredicates } from '@/modules/ins-native/core/usecases.js';
 import { makeInsMcpTools } from '@/modules/ins-native/shell/mcp/tools.js';
 
-import { makeFakeRepo, POPTEST, DIMENSIONS } from './fake-repo.js';
+import { makeFakeRepo, POPTEST, DIMENSIONS } from '../../fixtures/ins-native/fake-repo.js';
 
 const pins = [
   { dimensionIndex: 0, memberCode: '1' },

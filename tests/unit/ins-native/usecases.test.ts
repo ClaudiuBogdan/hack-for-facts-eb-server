@@ -9,7 +9,7 @@ import {
   uatDashboard,
 } from '@/modules/ins-native/core/usecases.js';
 
-import { AB, DIMENSIONS, makeFakeRepo } from './fake-repo.js';
+import { AB, DIMENSIONS, makeFakeRepo } from '../../fixtures/ins-native/fake-repo.js';
 
 const values = (page: { nodes: readonly { value: string | null }[] }): string[] =>
   page.nodes.map((n) => n.value ?? '');

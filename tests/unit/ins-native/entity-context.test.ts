@@ -9,7 +9,7 @@ import { makeInsContributor } from '@/modules/ins-native/shell/contributor.js';
 import { makeInsLegacyResolvers } from '@/modules/ins-native/shell/graphql/legacy/resolvers.js';
 import { baseTypeDefs, type ApiError, type Territory } from '@/modules/shared/index.js';
 
-import { CLUJ_NAPOCA, makeFakeRepo } from './fake-repo.js';
+import { CLUJ_NAPOCA, makeFakeRepo } from '../../fixtures/ins-native/fake-repo.js';
 
 import type { InsRepo } from '@/modules/ins-native/core/ports.js';
 import type { InsTerritoryNode } from '@/modules/ins-native/core/types.js';

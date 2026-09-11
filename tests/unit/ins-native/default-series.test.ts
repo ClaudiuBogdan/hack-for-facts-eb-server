@@ -2,7 +2,14 @@ import { describe, expect, it } from 'vitest';
 
 import { buildDefaultSeries } from '@/modules/ins-native/core/default-series.js';
 
-import { CLUJ_NAPOCA, CNTTEST, DIMENSIONS, POPTEST, RO, makeFakeRepo } from './fake-repo.js';
+import {
+  CLUJ_NAPOCA,
+  CNTTEST,
+  DIMENSIONS,
+  POPTEST,
+  RO,
+  makeFakeRepo,
+} from '../../fixtures/ins-native/fake-repo.js';
 
 import type { InsDefaultPin } from '@/modules/ins-native/core/ports.js';
 

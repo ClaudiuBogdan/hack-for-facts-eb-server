@@ -6,7 +6,7 @@ import {
   type AnnualPopulationAdmission,
 } from '@/modules/ins-native/core/annual-population.js';
 
-import { makeFakeRepo } from './fake-repo.js';
+import { makeFakeRepo } from '../../fixtures/ins-native/fake-repo.js';
 
 import type { InsRepo } from '@/modules/ins-native/core/ports.js';
 import type { InsSeriesResult } from '@/modules/ins-native/core/types.js';
