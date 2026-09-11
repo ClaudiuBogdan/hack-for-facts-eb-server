@@ -14,6 +14,7 @@ import {
   type DatabaseConnection,
   type Driver,
   type QueryResult,
+  type TransactionSettings,
 } from 'kysely';
 
 import type { ProdDatabase } from '@/modules/shared/index.js';
@@ -26,6 +27,12 @@ export interface CapturedQuery {
 export interface CapturingDbOptions {
   /** Rows for a query, keyed on its SQL / parameters; throw to fail the query. */
   readonly respond?: (sql: string, parameters: readonly unknown[]) => readonly unknown[];
+  /**
+   * Called with the settings of every transaction the code under test opens
+   * (`db.transaction().setIsolationLevel(...)`): the isolation level is a driver
+   * argument, not a statement, so it is invisible to `respond`.
+   */
+  readonly onBeginTransaction?: (settings: TransactionSettings) => void;
 }
 
 export const makeCapturingDb = <DB = ProdDatabase>(
@@ -49,7 +56,10 @@ export const makeCapturingDb = <DB = ProdDatabase>(
   const driver: Driver = {
     init: () => Promise.resolve(),
     acquireConnection: () => Promise.resolve(connection),
-    beginTransaction: () => Promise.resolve(),
+    beginTransaction: (_connection, settings) => {
+      options.onBeginTransaction?.(settings);
+      return Promise.resolve();
+    },
     commitTransaction: () => Promise.resolve(),
     rollbackTransaction: () => Promise.resolve(),
     releaseConnection: () => Promise.resolve(),
