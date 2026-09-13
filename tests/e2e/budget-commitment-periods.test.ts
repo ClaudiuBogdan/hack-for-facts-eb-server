@@ -17,6 +17,7 @@ import {
   COMMITMENT_PERIOD_METRICS,
   type CommitmentPeriodQuery,
 } from '@/modules/budget/core/commitment-periods.js';
+import { commitmentDashboardSql } from '@/modules/budget/shell/repo/commitment-dashboard-repo.js';
 import { makeBudgetPeriodRepo } from '@/modules/budget/shell/repo/commitment-periods-repo.js';
 
 import type { ProdDatabase } from '@/modules/shared/index.js';
@@ -179,7 +180,65 @@ async function fact(
 const read = async (changes: Partial<CommitmentPeriodQuery> = {}) =>
   (await listCommitmentPeriods(makeBudgetPeriodRepo(db), { ...query, ...changes }))._unsafeUnwrap();
 
+const dashboard = (frequency: 'YEAR' | 'MONTH' | 'QUARTER' = 'YEAR', mainCreditorCui?: string) =>
+  commitmentDashboardSql({
+    cui: query.cui,
+    reportType: query.reportType,
+    yearFrom: 2025,
+    yearTo: 2025,
+    detailYear: 2025,
+    frequency,
+    normalization: 'TOTAL',
+    ...(mainCreditorCui === undefined ? {} : { mainCreditorCui }),
+  }).execute(db);
+
 describe('commitment period reader on real DDL', () => {
+  it('dashboard SQL preserves annual YTD, mixed endpoints, declared zero and exact cents', async () => {
+    const { rows } = await dashboard();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      year: 2025,
+      period: 1,
+      firstReportMonth: 8,
+      lastReportMonth: 12,
+      committed: '90071992547634.91',
+      budget: '90071992547646.91',
+      authority: '90071992547644.91',
+      paidTreasury: '90071992547654.91',
+      paidNonTreasury: '90071992547656.91',
+    });
+  });
+  it('dashboard never publishes surviving sectors as complete monthly/quarterly totals', async () => {
+    for (const frequency of ['MONTH', 'QUARTER'] as const) {
+      const { rows } = await dashboard(frequency);
+      expect(rows.length).toBe(frequency === 'MONTH' ? 12 : 4);
+      expect(rows.every((row) => row.committed === null && row.budget === null)).toBe(true);
+    }
+  });
+  it('dashboard hides an annual scope when a values report has no facts', async () => {
+    await db
+      .transaction()
+      .execute(async (tx) => {
+        await sql`delete from budget.commitment_line_items where reporting_year=2025 and report_type=${rt} and report_id='gap'`.execute(
+          tx
+        );
+        const { rows } = await commitmentDashboardSql({
+          cui: query.cui,
+          reportType: query.reportType,
+          yearFrom: 2025,
+          yearTo: 2025,
+          detailYear: 2025,
+          frequency: 'YEAR',
+          normalization: 'TOTAL',
+        }).execute(tx);
+        expect(rows.every((row) => row.committed === null)).toBe(true);
+        // transaction fixture is restored explicitly by rollback below
+        throw new Error('fixture-rollback');
+      })
+      .catch((error: unknown) => {
+        if (!(error instanceof Error) || error.message !== 'fixture-rollback') throw error;
+      });
+  });
   it('keeps regular quarters and irregular intervals, exact metrics and protected creditor identity', async () => {
     const result = await read();
     expect(result.metadataAvailable).toBe(true);
@@ -239,6 +298,7 @@ describe('commitment period reader on real DDL', () => {
       db
     );
     try {
+      expect((await dashboard()).rows).toEqual([]);
       expect(await read()).toEqual({
         metadataAvailable: false,
         total: 0,

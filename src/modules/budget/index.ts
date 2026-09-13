@@ -19,6 +19,10 @@ import {
 } from './core/legacy-analytics/ports.js';
 import { makeBudgetContributor } from './shell/contributor.js';
 import {
+  commitmentDashboardTypeDefs,
+  makeCommitmentDashboardResolvers,
+} from './shell/graphql/commitment-dashboard.js';
+import {
   makeCommitmentPeriodResolvers,
   commitmentPeriodTypeDefs,
 } from './shell/graphql/commitment-periods.js';
@@ -31,6 +35,7 @@ import {
 } from './shell/graphql/legacy/typedefs.js';
 import { makeBudgetResolvers } from './shell/graphql/resolvers.js';
 import { budgetTypeDefs } from './shell/graphql/typedefs.js';
+import { makeCommitmentDashboardTool } from './shell/mcp/commitment-dashboard.js';
 import { makeCommitmentPeriodTool } from './shell/mcp/commitment-periods.js';
 import { makeBudgetMcpTools } from './shell/mcp/tools.js';
 import { makeBudgetMcpResources } from './shell/mcp/widgets/resources.js';
@@ -41,6 +46,7 @@ import {
   makeNativeGroupedEntities,
 } from './shell/native/index.js';
 import { makeBudgetRepo } from './shell/repo/budget-repo.js';
+import { makeCommitmentDashboardRepo } from './shell/repo/commitment-dashboard-repo.js';
 import { makeBudgetPeriodRepo } from './shell/repo/commitment-periods-repo.js';
 import { makeBudgetDiscoveryRepo } from './shell/repo/discovery-repo.js';
 import { makeGroupedAnalyticsRepo } from './shell/repo/grouped-analytics-repo.js';
@@ -178,6 +184,11 @@ export const makeBudgetModule = (rawDeps: BudgetModuleDeps): BudgetModule => {
   const repo = deps.repo ?? makeBudgetRepo(deps.db);
   const discovery = makeBudgetDiscoveryRepo(deps.db);
   const periods = makeBudgetPeriodRepo(deps.db);
+  const dashboard = makeCommitmentDashboardRepo({
+    db: deps.db,
+    factors: deps.native?.factors ?? deps.legacyFactors,
+    ...(deps.native !== undefined ? { population: deps.native.population } : {}),
+  });
   const legacyAnalytics = makeLegacyAnalyticsRepo(deps.db);
   const legacyPopulation = makeLegacyPopulationRepo(deps.db);
   const legacyDimensions = deps.legacyDimensions ?? makeLegacyDimensionRepo(deps.db);
@@ -220,16 +231,23 @@ export const makeBudgetModule = (rawDeps: BudgetModuleDeps): BudgetModule => {
     legacyPopulation,
     graphqlSlice: {
       source: 'budget',
-      typeDefs: `${budgetTypeDefs}\n${budgetLegacyTypeDefs}\n${budgetLegacyCollisionTypeDefs}\n${budgetGroupedTypeDefs}\n${commitmentPeriodTypeDefs}`,
+      typeDefs: `${budgetTypeDefs}\n${budgetLegacyTypeDefs}\n${budgetLegacyCollisionTypeDefs}\n${budgetGroupedTypeDefs}\n${commitmentPeriodTypeDefs}\n${commitmentDashboardTypeDefs}`,
     },
     graphqlResolvers: mergeResolvers(
       makeBudgetResolvers({ repo, discovery, registry: deps.registry }),
       mergeResolvers(
         legacyResolvers,
-        mergeResolvers(groupedResolvers, makeCommitmentPeriodResolvers(periods))
+        mergeResolvers(
+          groupedResolvers,
+          mergeResolvers(
+            makeCommitmentPeriodResolvers(periods),
+            makeCommitmentDashboardResolvers(dashboard)
+          )
+        )
       )
     ),
     mcpTools: [
+      makeCommitmentDashboardTool(dashboard),
       ...makeBudgetMcpTools({ repo, discovery, clientBaseUrl }),
       makeCommitmentPeriodTool(periods),
     ],
