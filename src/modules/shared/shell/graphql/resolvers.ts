@@ -21,7 +21,7 @@ import { makeGlobalSearch, type GlobalSearchDeps } from '../../core/usecases/glo
 import { makeOrganizationLabels } from '../../core/usecases/organization-labels.js';
 
 import type { ContributorRegistry, FlowsRepo, IdentityRepo, SearchRepo } from '../../core/ports.js';
-import type { FlowSummary, SourcePresence, Territory } from '../../core/types.js';
+import type { FlowSummary, OrgIdentifier, SourcePresence, Territory } from '../../core/types.js';
 import type { KernelCache } from '../middleware/cache.js';
 import type { RateLimiter } from '../middleware/rate-limiter.js';
 import type { Result } from 'neverthrow';
@@ -150,6 +150,13 @@ export const makeKernelResolvers = (deps: KernelResolverDeps): Record<string, un
   // documentCount is a ~7s any(cuis) scan over 6.1M docs; territory + presence
   // are their own joins/fan-out. `entity(cui){ pnrr }` touches NONE of these.
   Entity: {
+    identifiers: async (parent: { cui: string }): Promise<readonly OrgIdentifier[]> => {
+      // Cross-source joins can provide only { cui }. Resolve through the same
+      // identity/privacy guards as the root, never trust a supplied org_id.
+      const core = unwrap(await makeEntityCore(deps.entity360Deps, parent.cui));
+      if (core.organization === null) return [];
+      return unwrap(await deps.identityRepo.getIdentifiers(core.organization.orgId));
+    },
     flowsIn: async (parent: { cui: string }): Promise<FlowSummary> =>
       unwrap(await deps.flowsRepo.getFlowSummary(parent.cui, 'in')),
     flowsOut: async (parent: { cui: string }): Promise<FlowSummary> =>

@@ -45,9 +45,10 @@ export interface Entity360 {
 }
 
 /**
- * The CHEAP entity core — only the indexed identity lookup (org + identifiers).
+ * The CHEAP entity core — only the indexed organization lookup.
  * The expensive parts each have their own measured cost and become GraphQL
  * field resolvers so a query pays only for what it selects:
+ *   - `identifiers`       → organization identifiers (only when selected)
  *   - `flowsIn`/`flowsOut` → flows.money_flows (the 19GB graph, §14.6)
  *   - `documentCount`      → `any(cuis)` over 6.1M search docs (~7s, no index)
  *   - `territory`          → public_entities → territories join
@@ -73,7 +74,6 @@ const withheldIdentifier = (): ApiError =>
 export interface EntityCore {
   readonly cui: Cui;
   readonly organization: Organization | null;
-  readonly identifiers: readonly OrgIdentifier[];
 }
 
 export const makeEntityCore = async (
@@ -87,14 +87,7 @@ export const makeEntityCore = async (
   const orgRes = await deps.identityRepo.findByCui(cui);
   if (orgRes.isErr()) return err(orgRes.error);
 
-  let identifiers: readonly OrgIdentifier[] = [];
-  if (orgRes.value !== null) {
-    const idRes = await deps.identityRepo.getIdentifiers(orgRes.value.orgId);
-    if (idRes.isErr()) return err(idRes.error);
-    identifiers = idRes.value;
-  }
-
-  return ok({ cui, organization: orgRes.value, identifiers });
+  return ok({ cui, organization: orgRes.value });
 };
 
 /** Resolve the present source contributors for a CUI (field-level). */
