@@ -2,9 +2,8 @@
  * Kernel port for selected annual population (applied budget year).
  *
  * The budget module needs population cells for per-capita money and for
- * nominal-page metadata; the INS module owns the admitted publication and how
- * a kernel territory maps onto an INS node. Neither may import the other, so
- * the contract lives here: a snapshot-bound reader of `(territoryId, year)`
+ * nominal-page metadata. The loader owns source admission and selected years;
+ * serving adapters share this contract: a snapshot-bound reader of `(territoryId, year)`
  * cells. `null` population = not admitted / not published for that cell,
  * never zero. The snapshot exposes its transaction so the consumer's own SQL
  * (identity, facts) and the population read see one consistent state.

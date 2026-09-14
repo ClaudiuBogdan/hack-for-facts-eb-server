@@ -451,8 +451,8 @@ export const registerRedesignSurface = async (
     moduleMcpTools.push(...primarii.mcpTools);
   }
 
-  // INS first: its population port is what the budget module's native
-  // adapters read through (X/F6). INS context uses the full canonical
+  // INS supplies statistical sessions; published annual population supplies
+  // budget denominators. INS context uses the full canonical
   // geographic anchor, including county/NUTS level.
   let createInsSession: (() => InsReadSession) | undefined;
   let insPopulation: AnnualPopulationPort | undefined;
@@ -478,7 +478,7 @@ export const registerRedesignSurface = async (
   );
   if (enabledModules.includes('budget')) {
     // The kernel build serves budget ONLY with the native composition: exact-
-    // year population through the INS port and the promoted factor set. A
+    // year population through the shared port and the promoted factor set. A
     // budget without `ins-native` would silently fall back to the legacy set-1
     // composition (review N/N6/N7), so it is a configuration error, not a mode.
     if (insPopulation === undefined) {
