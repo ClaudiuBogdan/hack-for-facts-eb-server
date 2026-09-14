@@ -125,6 +125,8 @@ const MIGRATION_SHA256: Readonly<Record<string, string>> = {
     '2e8038b5430817b06cdf99d925572556ae4b701747c950ad1bd3be857df60df4',
   '20260905T120000__ins_geographic_coordinates.ts':
     '74d4bb4c13cfc840146810b0f2b5858b20c8d5c7d3f667a350c6b6cec85c7966',
+  '20260914T090000__ins_geo_territory_lookup.ts':
+    '288d536437c40c2d90dc7b1ab5f8565f5bba81884e124b52420330f729887e5f',
 };
 const MIGRATIONS = Object.keys(MIGRATION_SHA256);
 

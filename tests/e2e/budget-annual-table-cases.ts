@@ -196,6 +196,45 @@ export function registerBudgetAnnualTableCases(
       )._unsafeUnwrap();
       expect(beyond.pageInfo.totalCount).toBe(1);
     }));
+  it('nominal page enrichment preserves global counts, ordering and empty-page sentinels', async () =>
+    fixture(async (db) => {
+      const { repo, selected } = await prepare(db);
+      for (const order of ['ASC', 'DESC'] as const) {
+        const q = query({ sort: { by: 'TOTAL_AMOUNT', order } });
+        const complete = (await repo.entities(q))._unsafeUnwrap();
+        for (let offset = 0; offset <= complete.nodes.length + 1; offset++) {
+          selected.length = 0;
+          const page = (await repo.entities({ ...q, offset, limit: 1 }))._unsafeUnwrap();
+          expect(page.pageInfo.totalCount).toBe(complete.pageInfo.totalCount);
+          expect(page.nodes).toEqual(complete.nodes.slice(offset, offset + 1));
+          if (page.nodes.length === 0) expect(selected).toEqual([]);
+          else expect(selected.every((s) => s.territoryIds.length <= 1)).toBe(true);
+        }
+        selected.length = 0;
+        const empty = (await repo.entities({ ...q, limit: 0 }))._unsafeUnwrap();
+        expect(empty.nodes).toEqual([]);
+        expect(empty.pageInfo.totalCount).toBe(complete.pageInfo.totalCount);
+        expect(selected).toEqual([]);
+      }
+    }));
+  it('nominal page enrichment never hides off-page money coverage failures', async () =>
+    fixture(async (db) => {
+      const { repo, selected } = await prepare(db);
+      const q = query({ moneyMultipliers: new Map([[2023, legacyDecimal(2)]]) });
+      for (const page of [
+        { limit: 1, offset: 0 },
+        { limit: 0, offset: 99 },
+      ]) {
+        const result = await repo.entities({
+          ...q,
+          ...page,
+          filter: { ...q.filter, aggregateMinAmount: '999999999999999' },
+        });
+        expect(result.isErr()).toBe(true);
+        if (result.isErr()) expect(result.error.type).toBe('ServiceUnavailable');
+      }
+      expect(selected).toEqual([]);
+    }));
   it('annual table ordinary institutions occupy nominal page slots without population reads', async () =>
     fixture(async (db) => {
       const { repo, selected } = await prepare(db);

@@ -48,6 +48,7 @@ interface DbRow {
   county_code: string | null;
   county_name: string | null;
   population: number | null;
+  executive: boolean | null;
   total_amount: string | null;
   per_capita_amount: string | null;
   amount: string | null;
@@ -90,7 +91,8 @@ interface PopulationAnchorRow {
 }
 interface NativePopulationQuery {
   readonly referenceYear: number;
-  readonly discovery?: 'all' | 'page';
+  readonly discovery?: 'all';
+  readonly pageEntityCuis?: readonly string[];
 }
 const emptyPopulationSql: TerritoryPopulationRelation = () => sql`
   select null::bigint as territory_id, null::int as year, null::numeric as population where false
@@ -113,6 +115,8 @@ const buildGroupedAnalyticsSql = <T>(
     native === undefined ? q : withoutPopulationBounds,
     toStoredFundingId
   );
+  if (native?.pageEntityCuis !== undefined)
+    conditions.push(sql`eli.entity_cui = any(${native.pageEntityCuis}::text[])`);
   if (entity)
     conditions.push(
       organizationIdentifierIsServable('eli.entity_cui'),
@@ -256,15 +260,9 @@ const buildGroupedAnalyticsSql = <T>(
     ), page as (
       select * from final f order by ${order('f')} limit ${query.limit} offset ${query.offset}
     )
-    ${
-      native?.discovery === 'all'
-        ? sql`select distinct uat_id::bigint as territory_id from grouped where executive = true and uat_id is not null`
-        : native?.discovery === 'page'
-          ? sql`select distinct uat_id::bigint as territory_id from page where executive = true and uat_id is not null`
-          : sql`select p.*, totals.total_count, coverage.missing_coverage
-            from totals cross join coverage left join page p on true
-            order by ${order('p')}`
-    }
+    select p.*, totals.total_count, coverage.missing_coverage
+    from totals cross join coverage left join page p on true
+    order by ${order('p')}
   `;
 };
 
@@ -321,12 +319,60 @@ export const makeGroupedAnalyticsRepo = (
             query.sort.by === 'POPULATION' ||
             query.filter.minPopulation !== undefined ||
             query.filter.maxPopulation !== undefined;
+          if (!all) {
+            // Keep the global page/count/coverage. Population is display-only here,
+            // so the second financial read needs only these CUIs, not the full scope.
+            const page = await buildGroupedAnalyticsSql<DbRow>(
+              grouping,
+              query,
+              funding,
+              emptyPopulationSql,
+              native
+            ).execute(trx);
+            const territoryIds = [
+              ...new Set(
+                page.rows
+                  .filter((row) => row.executive === true && row.uat_id !== null)
+                  .map((row) => Number(row.uat_id))
+              ),
+            ];
+            if (page.rows[0]?.missing_coverage === true || territoryIds.length === 0)
+              return ok(page.rows);
+            const population = await options.annualPopulationRelation({
+              territoryIds,
+              years: query.mode === 'percent_gdp' ? [referenceYear] : years,
+            });
+            if (population.isErr()) return err(population.error);
+            const pageEntityCuis = page.rows.map((row) =>
+              requiredText(row.entity_cui, 'entity_cui')
+            );
+            const enriched = await buildGroupedAnalyticsSql<DbRow>(
+              grouping,
+              { ...query, offset: 0, limit: pageEntityCuis.length },
+              funding,
+              () => population.value,
+              { ...native, pageEntityCuis }
+            ).execute(trx);
+            const byCui = new Map(enriched.rows.map((row) => [row.entity_cui, row]));
+            return ok(
+              page.rows.map((row) => {
+                const detail = byCui.get(row.entity_cui);
+                if (detail === undefined)
+                  throw new IncompleteGroupedRow('population enrichment row');
+                return {
+                  ...row,
+                  population: detail.population,
+                  per_capita_amount: detail.per_capita_amount,
+                };
+              })
+            );
+          }
           const anchors = await buildGroupedAnalyticsSql<PopulationAnchorRow>(
             grouping,
             query,
             funding,
             emptyPopulationSql,
-            { ...native, discovery: all ? 'all' : 'page' }
+            { ...native, discovery: 'all' }
           ).execute(trx);
           relation = emptyPopulationSql;
           if (anchors.rows.length > 0) {
