@@ -13,6 +13,7 @@ import {
   databaseError,
   invalidInput,
   toConditionBuilders,
+  publishedAnnualPopulation,
 } from '@/modules/shared/index.js';
 
 import { isPerCapita } from './analytics.js';
@@ -20,7 +21,6 @@ import {
   AGG_LIMIT_MAX,
   COMPLETE_AGGREGATE_GUARD,
   DECIMAL_MONEY_PATTERN,
-  canonicalCountyPopulationAggregate,
   composeAnd,
   metricColumn,
   type BudgetRepoContext,
@@ -240,17 +240,18 @@ export const makeAggregateReads = (ctx: BudgetRepoContext) => {
           territory.region,
           (${amountExpr})::text as amount,
           case
-            when ${options.moneyFactors === undefined || q.normalization !== 'PERCENT_GDP'} and territory.population > 0
-              then ((${amountExpr}) / territory.population)::text
+            when ${options.moneyFactors === undefined || q.normalization !== 'PERCENT_GDP'} and population.population > 0
+              then ((${amountExpr}) / population.population)::text
             else null
           end as per_capita,
-          territory.population
+          population.population
         from core.territories territory
+        left join ${publishedAnnualPopulation} population on population.territory_id=territory.id and population.applied_year=${q.year}
         inner join budget.mv_execution_summary_annual mv
           on mv.entity_cui = territory.uat_code
           and mv.year = ${q.year}
           and mv.report_type = ${reportLabel}
-        where territory.uat_code is not null
+        where territory.uat_code is not null and territory.privacy_class='public'
         group by
           territory.id,
           territory.uat_code,
@@ -259,7 +260,7 @@ export const makeAggregateReads = (ctx: BudgetRepoContext) => {
           territory.county_code,
           territory.county_name,
           territory.region,
-          territory.population
+          population.population
         order by territory.id asc
       `.execute(db);
       return ok(
@@ -313,12 +314,13 @@ export const makeAggregateReads = (ctx: BudgetRepoContext) => {
             territory.county_name,
             ${countyExecutiveCuiSql(sql`territory.county_code`)} as county_entity_cui,
             (
-              select ${canonicalCountyPopulationAggregate('candidate')}
+              select selected.population
               from core.territories candidate
-              where candidate.county_code = territory.county_code
+              join ${publishedAnnualPopulation} selected on selected.territory_id=candidate.id and selected.applied_year=${q.year}
+              where candidate.county_code = territory.county_code and candidate.level='county' and candidate.privacy_class='public'
             )::int as population
           from core.territories territory
-          where territory.county_code is not null
+          where territory.county_code is not null and territory.privacy_class='public'
           order by
             territory.county_code,
             territory.county_name nulls last,
@@ -338,7 +340,7 @@ export const makeAggregateReads = (ctx: BudgetRepoContext) => {
           count(distinct mv.entity_cui)::text as entity_count
         from county_info county
         left join core.territories territory
-          on territory.county_code = county.county_code
+          on territory.county_code = county.county_code and territory.privacy_class='public'
         left join budget.mv_execution_summary_annual mv
           on mv.entity_cui = territory.uat_code
           and mv.year = ${q.year}

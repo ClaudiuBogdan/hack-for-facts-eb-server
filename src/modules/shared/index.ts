@@ -374,9 +374,16 @@ export { createMcpHttpDispatcher, type McpHttpDispatcher } from './shell/mcp/htt
 export { createCache, type CacheConfig, type KernelCache } from './shell/middleware/cache.js';
 export type {
   AnnualPopulationCell,
+  AnnualPopulationMetadata,
   AnnualPopulationPort,
   AnnualPopulationSnapshot,
 } from './shell/population/annual-population-port.js';
+export { makeCuratedAnnualPopulationPort } from './shell/population/curated-annual-population.js';
+export { publishedAnnualPopulation } from './shell/population/published-population.js';
+export {
+  annualPopulationGraphql,
+  annualPopulationResolvers,
+} from './shell/population/population-graphql.js';
 export {
   createRateLimiter,
   type RateLimiter,

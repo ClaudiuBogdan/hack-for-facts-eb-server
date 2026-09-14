@@ -53,6 +53,9 @@ import { makeProcurementModule } from '../modules/procurement/index.js';
 import { makeReferenceModule } from '../modules/reference/index.js';
 import {
   makeKernel,
+  makeCuratedAnnualPopulationPort,
+  annualPopulationGraphql,
+  annualPopulationResolvers,
   type Kernel,
   type KernelConfig,
   type GraphqlSlice,
@@ -460,7 +463,9 @@ export const registerRedesignSurface = async (
       territoryForCui: (cui) => kernel.identityRepo.territoryForCui(cui),
     });
     createInsSession = insNative.createReadSession;
-    insPopulation = insNative.population;
+    insPopulation = makeCuratedAnnualPopulationPort(kernel.db);
+    moduleSlices.push(annualPopulationGraphql);
+    moduleResolvers.push(annualPopulationResolvers(insPopulation));
     kernel.contributors.register(insNative.contributor);
     moduleSlices.push(insNative.graphqlSlice);
     moduleResolvers.push(insNative.graphqlResolvers);

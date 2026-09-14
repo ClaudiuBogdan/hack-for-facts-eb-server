@@ -1,5 +1,5 @@
 /**
- * Kernel port for exact-year annual population (review X/F6).
+ * Kernel port for selected annual population (applied budget year).
  *
  * The budget module needs population cells for per-capita money and for
  * nominal-page metadata; the INS module owns the admitted publication and how
@@ -21,6 +21,25 @@ export interface AnnualPopulationCell {
   readonly year: number;
   /** Persons as a decimal string, or null when the cell is not served. */
   readonly population: string | null;
+  /** Optional for legacy comparison providers; the curated provider always supplies it. */
+  readonly metadata?: AnnualPopulationMetadata | null;
+}
+
+export interface AnnualPopulationMetadata {
+  readonly calculation: 'SOURCE' | 'TERRITORY_SUM';
+  readonly sourceYearMin: number;
+  readonly sourceYearMax: number;
+  readonly maxCarryAge: number;
+  readonly carriedCount: number;
+  readonly provisionalCount: number;
+  readonly constituentCount: number;
+  readonly sourceCode: string | null;
+  readonly sourceUrl: string | null;
+  readonly sourceSha256: string | null;
+  readonly publicationStatus: string | null;
+  readonly sourceLocator: Readonly<Record<string, unknown>> | null;
+  readonly loadRunId: string;
+  readonly inputSha256: string;
 }
 
 export interface AnnualPopulationSnapshot {

@@ -112,6 +112,27 @@ export interface CoreTerritoryPopulation {
   source_url: string;
 }
 
+/** Selected January-1 domicile denominator; ETL owns selection and carry-forward. */
+export interface CorePopulationAnnual {
+  territory_id: number;
+  applied_year: number;
+  population: number;
+  calculation: 'SOURCE' | 'TERRITORY_SUM';
+  reference_year: number | null;
+  source_code: string | null;
+  source_url: string | null;
+  source_sha256: string | null;
+  publication_status: string | null;
+  source_locator: Jsonb | null;
+  source_year_min: number;
+  source_year_max: number;
+  carried_count: number;
+  provisional_count: number;
+  constituent_count: number;
+  input_sha256: string;
+  load_run_id: string;
+}
+
 /** Alternate identifiers of a territory (`siruta`, `nuts`, …). */
 export interface CoreTerritoryIdentifiers {
   territory_id: number;
@@ -186,6 +207,7 @@ export interface ProdDatabase {
   'core.public_entities': CorePublicEntities;
   'core.territories': CoreTerritories;
   'core.territory_population': CoreTerritoryPopulation;
+  'core.population_annual': CorePopulationAnnual;
   'core.territory_identifiers': CoreTerritoryIdentifiers;
   'core.classification_codes': CoreClassificationCodes;
   'flows.money_flows': FlowsMoneyFlows;
