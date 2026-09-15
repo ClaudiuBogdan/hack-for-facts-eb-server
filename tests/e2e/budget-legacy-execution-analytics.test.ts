@@ -90,6 +90,7 @@ import { registerBudgetEvolutionCases } from './budget-evolution-cases.js';
 import { registerBudgetMoneyCases } from './budget-money-cases.js';
 import { registerBudgetRankingPopulationCases } from './budget-ranking-population-cases.js';
 import { teardownDisposablePostgres } from './disposable-postgres.js';
+import { registerMapAnnualPopulationCases } from './map-annual-population-cases.js';
 
 import type { UserDatabase } from '@/infra/database/user/types.js';
 import type { GroupedQuery } from '@/modules/budget/core/legacy-analytics/grouped-types.js';
@@ -129,6 +130,8 @@ const resolveScrapperRoot = (): string | undefined => {
  * assertion went red.
  */
 const MIGRATION_SHA256: Readonly<Record<string, string>> = {
+  '20260914T110000__core_population_annual.ts':
+    '022825d5b629df5bff3a417660b8454fa83ac095361738d9e4c462f4a3af05c4',
   '20260611T220000__companies_domain.ts':
     '0c84c277726d05d3ed8f0b959cd0c023e86f01b3d7bd3dbcf278223098022f97',
   '20260630T140000__companies_v2_core_privacy.ts':
@@ -150,7 +153,9 @@ const MIGRATION_SHA256: Readonly<Record<string, string>> = {
   '20260902T100100__core_territory_l2_shape.ts':
     'c7df922a6645a71b47dba955947e3d91a0919cb0a369cc7a4ee232e1a4311385',
 };
-const MIGRATIONS = Object.keys(MIGRATION_SHA256);
+const MIGRATIONS = Object.keys(MIGRATION_SHA256)
+  .filter((name) => !name.includes('core_population_annual'))
+  .concat('20260914T110000__core_population_annual.ts');
 
 /** Under CI / TEST_E2E_REQUIRED=1 a missing prerequisite FAILS instead of skipping. */
 const REQUIRED =
@@ -604,6 +609,15 @@ beforeAll(async () => {
     update core.public_entities e set territory_id=t.id,territorial_level=t.level,
       is_territorial_executive=e.is_uat
     from core.territories t where t.territorial_siruta_code=e.territorial_siruta_code;
+  `);
+  await pgClient.query(`
+    insert into etl.load_runs (source_id,target_table,status) values
+      ('core_reference_population_annual','core.population_annual','succeeded');
+    insert into core.population_annual (territory_id,applied_year,population,calculation,
+      source_year_min,source_year_max,carried_count,provisional_count,constituent_count,input_sha256,load_run_id)
+    select t.id,y.year,t.population,'TERRITORY_SUM',y.year,y.year,0,0,1,repeat('a',64),r.run_id
+    from core.territories t cross join (values (2023),(2024)) y(year) cross join etl.load_runs r
+    where t.population is not null and r.source_id='core_reference_population_annual';
   `);
   ready = true;
 }, 240_000);
@@ -2715,6 +2729,32 @@ describe('native commitment map aggregation', () => {
       ]);
     });
   });
+  it('uses annual population bounds for commitments maps', async () => {
+    await rollbackTerritoryFixture(async (trx) => {
+      await seed(trx, principal, '111', '10');
+      await sql`update core.territories set population=1 where id=(select territory_id from core.public_entities where cui='111')`.execute(
+        trx
+      );
+      await sql`update core.population_annual set population=300 where territory_id=(select territory_id from core.public_entities where cui='111') and applied_year=2024`.execute(
+        trx
+      );
+      const q = cleanFilter(baseFilter({ entity_cuis: ['111'] }))._unsafeUnwrap();
+      const read = async (minPopulation?: number) =>
+        (
+          await commitmentsMapSql(
+            { ...q, reportType: null, ...(minPopulation === undefined ? {} : { minPopulation }) },
+            'County',
+            'CREDITE_ANGAJAMENT',
+            false,
+            () => undefined
+          ).execute(trx)
+        ).rows;
+      const all = await read();
+      expect(all.map((row) => row.amount)).toEqual(['10.00']);
+      expect(await read(250)).toEqual(all);
+      expect(await read(350)).toEqual([]);
+    });
+  });
   it('rejects partial sums when a selected annual amount is missing', async () => {
     await rollbackTerritoryFixture(async (trx) => {
       await seed(trx, principal, '111', '10');
@@ -2882,3 +2922,5 @@ registerBudgetRankingPopulationCases(it, rollbackTerritoryFixture);
 registerBudgetMoneyCases(it, rollbackTerritoryFixture);
 
 registerBudgetAnnualTableCases(it, rollbackTerritoryFixture);
+
+registerMapAnnualPopulationCases(it, rollbackTerritoryFixture);

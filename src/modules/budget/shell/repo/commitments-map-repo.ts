@@ -19,6 +19,7 @@ import {
 import { makeFundingSourceMap } from './funding-source-map.js';
 import { legacyAggregateConditions } from './legacy-analytics-repo.js';
 import { mapTerritorySql, decodeBudgetMapRows } from './map-analytics-repo.js';
+import { mapPopulationFilter } from './map-population-filter.js';
 import { COMMITMENT_REPORT_TYPES, COMMITMENT_REPORT_TYPE_LABELS } from '../../core/constants.js';
 
 import type { CommitmentsMapRepo } from '../../core/legacy-analytics/commitments-map.js';
@@ -41,11 +42,13 @@ export const commitmentsMapSql = (
       : metricToFactColumn(metric, Frequency[q.frequency]);
   const amount = sql.ref(`eli.${column}`);
   const { key, coverage, countyJoin } = mapTerritorySql(granularity);
-  const conditions = legacyAggregateConditions(q, toStoredFundingId, {
+  const population = mapPopulationFilter(q);
+  const conditions = legacyAggregateConditions(population.filter, toStoredFundingId, {
     amount,
     reportTypes: REPORT_TYPES,
     hasAccountCategory: false,
   });
+  conditions.push(...population.conditions);
   if (excludeTransfers)
     conditions.push(
       sql`(eli.economic_code is null or (eli.economic_code not like '51.01%' and eli.economic_code not like '51.02%')) and eli.functional_code not like '36.02.05%' and eli.functional_code not like '37.02.03%' and eli.functional_code not like '37.02.04%' and eli.functional_code not like '47.02.04%'`

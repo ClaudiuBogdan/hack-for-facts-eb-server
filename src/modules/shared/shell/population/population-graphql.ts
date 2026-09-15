@@ -2,12 +2,13 @@ import { GraphQLError } from 'graphql';
 import { sql } from 'kysely';
 import { ok } from 'neverthrow';
 
+import { readMapAnnualPopulation } from './map-annual-population.js';
 import { isWithheldOrganizationIdentifier } from '../../core/types.js';
 
 import type { AnnualPopulationPort } from './annual-population-port.js';
 import type { GraphqlSlice } from '../graphql/merge.js';
 
-/** One-cell audit lookup; ordinary financial amount/period contracts stay intact. */
+/** Annual audit and map lookups; financial amount/period contracts stay intact. */
 export const annualPopulationGraphql: GraphqlSlice = {
   source: 'annual-population',
   typeDefs: `
@@ -33,11 +34,20 @@ export const annualPopulationGraphql: GraphqlSlice = {
       population: String
       metadata: AnnualPopulationProvenance
     }
+    enum AnnualPopulationMapLevel { UAT County }
+    type MapAnnualPopulationValue {
+      territoryCode: String!
+      territoryId: Int!
+      year: Int!
+      population: String
+      metadata: AnnualPopulationProvenance
+    }
     extend type Entity {
       "Population for the selected budget year, only for territorial executives."
       annualPopulation(year: Int!): AnnualPopulationValue
     }
     extend type Query {
+      mapAnnualPopulation(year: Int!, granularity: AnnualPopulationMapLevel!): [MapAnnualPopulationValue!]!
       annualPopulation(territoryId: Int!, year: Int!): AnnualPopulationValue
     }
   `,
@@ -67,6 +77,17 @@ export const annualPopulationResolvers = (population: AnnualPopulationPort) => (
     },
   },
   Query: {
+    mapAnnualPopulation: async (
+      _: unknown,
+      args: { year: number; granularity: 'UAT' | 'County' }
+    ) => {
+      const result = await readMapAnnualPopulation(population, args.year, args.granularity);
+      if (result.isErr())
+        throw new GraphQLError('Map annual population is unavailable', {
+          extensions: { code: result.error.type },
+        });
+      return result.value;
+    },
     annualPopulation: async (_: unknown, args: { territoryId: number; year: number }) => {
       const result = await population.withSnapshot((snapshot) =>
         snapshot.cells([args.territoryId], [args.year])

@@ -15,6 +15,7 @@ import {
 
 import { makeFundingSourceMap, type FundingSourceMapLoader } from './funding-source-map.js';
 import { legacyAggregateConditions } from './legacy-analytics-repo.js';
+import { mapPopulationFilter } from './map-population-filter.js';
 import {
   BUCHAREST_COUNTY_CODE,
   BUCHAREST_SIRUTA_CODE,
@@ -67,6 +68,7 @@ export const mapAnalyticsSql = (
   granularity: BudgetMapGranularity,
   toStoredFundingId: (publicId: number) => number | undefined
 ): RawBuilder<MapRow> => {
+  const population = mapPopulationFilter(q);
   const amount = sql.ref(`eli.${EXECUTION_AMOUNT_COLUMN[q.frequency]}`);
   const { key, coverage, countyJoin } = mapTerritorySql(granularity);
   return sql<MapRow>`
@@ -79,7 +81,7 @@ export const mapAnalyticsSql = (
       left join core.territories t on t.id = e.territory_id
       ${q.search === undefined ? sql`` : sql`left join core.organizations o on o.cui = eli.entity_cui`}
       ${countyJoin}
-      where ${andConditions(legacyAggregateConditions(q, toStoredFundingId))}
+      where ${andConditions([...legacyAggregateConditions(population.filter, toStoredFundingId), ...population.conditions])}
     )
     select territory_code, reporting_year as year, coverage,
       sum(amount)::text as amount,
