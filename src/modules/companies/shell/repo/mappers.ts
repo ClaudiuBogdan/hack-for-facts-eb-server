@@ -95,6 +95,7 @@ export const mapFiscal = (
         is_vat_payer: boolean | null;
         is_inactive: boolean | null;
         main_caen_code: string | null;
+        main_caen_rev: string | null;
         registered_name: string | null;
         snapshot_at: string | null;
       }
@@ -105,6 +106,7 @@ export const mapFiscal = (
     vatPayer: row.is_vat_payer,
     declaredFiscallyInactive: row.is_inactive,
     mainCaenCode: row.main_caen_code,
+    mainCaenRev: row.main_caen_rev === '' ? null : row.main_caen_rev,
     registeredName: row.registered_name,
     asOf: row.snapshot_at,
   };
@@ -130,7 +132,7 @@ export const mapCaen = (row: {
   label: string | null;
 }): CompanyCaenActivity => ({
   code: row.caen_code,
-  rev: row.caen_rev,
+  rev: row.caen_rev === '' ? null : row.caen_rev,
   source: row.source,
   label: row.label,
 });

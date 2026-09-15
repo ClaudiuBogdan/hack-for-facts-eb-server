@@ -66,16 +66,18 @@ const objectsAndQuery = /* GraphQL */ `
     "= is_inactive. The ONLY fiscal-inactivity boolean. NOT operating-active; is_active (its exact complement) is intentionally dropped (§13-R1)."
     declaredFiscallyInactive: Boolean
     mainCaenCode: String
+    "Source-reported CAEN revision; null when the source does not supply it."
+    mainCaenRev: String
     registeredName: String
     asOf: Date
   }
 
-  "One caen_profile row, re-derived 2026-08-25 against the current (July-dominant) authorizations input - the earlier May staleness is resolved. A ~370k May residue mirrors the input itself (rows absent from the July capture, legitimacy tracked upstream), not derive staleness."
+  "Source activity observation. Derived comparisons are excluded."
   type CompanyCaenActivity {
     code: String!
-    rev: String!
+    rev: String
     label: String
-    "'onrc' (authorized set, May capture) | 'anaf' (main activity, May snapshot) | 'derived' (cross-source comparison, computed against the May registry)."
+    "onrc: authorized activity; anaf: reported fiscal activity."
     source: String!
   }
   "Restricted in companies_v2; public profile returns an empty list until an authorized surface is added."
@@ -281,7 +283,7 @@ const objectsAndQuery = /* GraphQL */ `
   }
   type CompanyCaenHit {
     code: String!
-    rev: String!
+    rev: String
     label: String
   }
 

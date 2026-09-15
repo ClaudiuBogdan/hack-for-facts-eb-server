@@ -95,6 +95,7 @@ export interface CompanyFiscal {
    */
   readonly declaredFiscallyInactive: boolean | null;
   readonly mainCaenCode: string | null;
+  readonly mainCaenRev: string | null;
   readonly registeredName: string | null;
   readonly asOf: IsoDate | null;
 }
@@ -262,7 +263,7 @@ export interface CompanyRegistrationDiff {
 
 export interface CompanyCaenActivity {
   readonly code: string;
-  readonly rev: string;
+  readonly rev: string | null;
   readonly source: string;
   readonly label: string | null;
 }

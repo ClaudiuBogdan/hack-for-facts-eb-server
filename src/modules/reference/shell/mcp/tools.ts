@@ -241,10 +241,10 @@ export const makeReferenceMcpTools = (deps: ReferenceMcpDeps): readonly KernelMc
   const resolveClassification: KernelMcpTool = {
     name: 'resolve_reference_classification',
     description:
-      'Resolve a CAEN label or code fragment to classification codes (optionally scoped to a system: caen_rev1|caen_rev2|caen_rev3).',
+      'Resolve a CAEN label or code fragment to classification codes (optionally scoped to a system: caen_rev0|caen_rev1|caen_rev2|caen_rev3).',
     inputShape: {
       system: z
-        .enum(['caen_rev1', 'caen_rev2', 'caen_rev3'])
+        .enum(['caen_rev0', 'caen_rev1', 'caen_rev2', 'caen_rev3'])
         .optional()
         .describe('Restrict to one CAEN system.'),
       q: z.string().describe('A CAEN label or code fragment.'),

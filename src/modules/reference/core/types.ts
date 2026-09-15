@@ -82,7 +82,12 @@ export interface ReferencePublicEntity extends ReferencePublicEntityCard {
 }
 
 /** `core.classification_codes` → module-owned view-model (plan §2.3). CAEN-only. */
-export const REFERENCE_CLASSIFICATION_SYSTEMS = ['caen_rev1', 'caen_rev2', 'caen_rev3'] as const;
+export const REFERENCE_CLASSIFICATION_SYSTEMS = [
+  'caen_rev0',
+  'caen_rev1',
+  'caen_rev2',
+  'caen_rev3',
+] as const;
 export type ReferenceClassificationSystem = (typeof REFERENCE_CLASSIFICATION_SYSTEMS)[number];
 
 export interface ReferenceClassificationCode {

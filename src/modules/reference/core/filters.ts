@@ -59,6 +59,7 @@ export const REFERENCE_REGIONS = [
 
 /** 3 CAEN classification systems (the only systems live). */
 export const REFERENCE_CLASSIFICATION_SYSTEM_VALUES = [
+  'caen_rev0',
   'caen_rev1',
   'caen_rev2',
   'caen_rev3',

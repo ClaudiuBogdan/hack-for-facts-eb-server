@@ -423,6 +423,7 @@ export const makeCompaniesRepo = (
             'is_vat_payer',
             'is_inactive',
             'main_caen_code',
+            'main_caen_rev',
             'registered_name',
             sql<string | null>`coalesce(snapshot_at, retrieved_at, updated_at)::date::text`.as(
               'snapshot_at'
@@ -449,6 +450,7 @@ export const makeCompaniesRepo = (
           )
           .select(['ca.caen_code', 'ca.caen_rev', 'ca.source', 'cc.label'])
           .where('ca.cui', '=', cui)
+          .where('ca.source', 'in', ['onrc', 'anaf'])
           .orderBy('ca.caen_code', 'asc')
           .execute(),
         db

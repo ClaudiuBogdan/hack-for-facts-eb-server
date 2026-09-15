@@ -90,6 +90,7 @@ const profileData = (cui: string): CompanyProfileData => ({
     vatPayer: true,
     declaredFiscallyInactive: false,
     mainCaenCode: '4752',
+    mainCaenRev: null,
     registeredName: null,
     asOf: '2026-05-18',
   },
