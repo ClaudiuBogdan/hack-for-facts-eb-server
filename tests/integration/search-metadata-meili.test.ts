@@ -122,6 +122,18 @@ describe.skipIf(host === undefined || host === '')(
           entity_tags: [],
         },
       ]);
+      // Separate completed tasks reproduce the Meili 1.41–1.42 dictionary bug:
+      // modifying shared terms must not remove them from fuzzy matching.
+      await mutation(`/indexes/${index}/documents`, 'POST', [
+        {
+          ...base,
+          id: 'other-city',
+          title: 'MUNICIPIUL CLUJ',
+          name_prefixes: ['mun', 'muni', 'munic', 'munici', 'municip', 'municipi', 'municipiu'],
+          is_uat: true,
+          entity_tags: ['kind::uat', 'uat::municipality'],
+        },
+      ]);
     });
     afterAll(async () => {
       if (host !== undefined && host !== '') {
