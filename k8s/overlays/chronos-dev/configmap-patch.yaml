@@ -12,6 +12,8 @@ data:
   PROD_DB_POOL_MAX: '10'
   PROD_MEILI_HOST: http://transparenta-eu-etl-meilisearch.transparenta-eu-etl-prod.svc.cluster.local:7700
   PROD_MEILI_INDEXES: entities
+  # Activate only after the prefix generation and API compatibility checks pass.
+  PROD_SEARCH_POLICY: prefix-all
   PROD_OPENSEARCH_URL: https://transparenta-eu-etl-opensearch.transparenta-eu-etl-prod.svc.cluster.local:9200
   PROD_OPENSEARCH_CA_FILE: /var/run/secrets/chronos-opensearch/ca.pem
   PROD_OPENSEARCH_TLS_SERVERNAME: transparenta-eu-etl-opensearch.transparenta-eu-etl-prod.svc.cluster.local
