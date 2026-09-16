@@ -33,6 +33,7 @@
     "test:gm:cutover": "export TEST_GM_BASELINE_URL=\"${TEST_GM_BASELINE_URL:?set TEST_GM_BASELINE_URL to a preserved legacy /graphql (Phoenix dev pinned at phoenix-last-full); this process no longer serves it}\" TEST_GM_API_URL=\"${TEST_GM_API_URL:-http://localhost:3000/api/v1/graphql}\" && vitest run tests/golden-master/specs/client-documents.gm.test.ts --config vitest.gm.config.ts",
     "gm:corpus": "tsx scripts/gm/gen-client-corpus.mts",
     "gm:corpus:check": "tsx scripts/gm/gen-client-corpus.mts --check",
+    "gm:reference:record": "tsx scripts/gm/record-cutover-reference.mts",
     "test:watch": "vitest --exclude 'tests/e2e/**'",
     "test:coverage": "vitest run --coverage --exclude 'tests/e2e/**'",
     "validate-datasets": "tsx scripts/validate-datasets.ts",

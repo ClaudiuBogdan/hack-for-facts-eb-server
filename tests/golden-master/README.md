@@ -18,13 +18,14 @@ same endpoint (host case, default port, trailing slash, fragment, userinfo —
 
 ## Scripts
 
-| Script                 | What it does                                                                                                                                                                                                                                                                                                                                                                                                                |
-| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm test:gm`         | LOCAL diagnostic, not a gate: `legacy-execution-analytics-kernel` (the legacy `executionAnalytics` documents replayed on a KERNEL endpoint, default `TEST_GM_API_URL=http://localhost:3000/api/v1/graphql`, against the recorded snapshots — the two per-capita cases fail BY DESIGN until re-baselined for the 13 §7 deltas) and `factor-source-parity` (Phase A paired proof, `PHASE_A_*` env). Refuses production hosts. |
-| `pnpm test:gm:update`  | Same, rewriting the stored snapshots                                                                                                                                                                                                                                                                                                                                                                                        |
-| `pnpm test:gm:cutover` | **The cutover gate**: the client-document corpus only, baseline `TEST_GM_BASELINE_URL` (required: a preserved legacy `/graphql`, i.e. Phoenix dev pinned at `phoenix-last-full`) → target `http://localhost:3000/api/v1/graphql`                                                                                                                                                                                            |
-| `pnpm gm:corpus`       | Regenerate `corpus/client-documents.json` from the client repo (`scripts/gm/gen-client-corpus.mts`)                                                                                                                                                                                                                                                                                                                         |
-| `pnpm gm:corpus:check` | Fail when the committed corpus drifts from the client tree (documents, variables, sources, or the pinned client commit); a document the client no longer has is reported as drift, one per line                                                                                                                                                                                                                             |
+| Script                                                                           | What it does                                                                                                                                                                                                                                                                                                                                                                                                                |
+| -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm test:gm`                                                                   | LOCAL diagnostic, not a gate: `legacy-execution-analytics-kernel` (the legacy `executionAnalytics` documents replayed on a KERNEL endpoint, default `TEST_GM_API_URL=http://localhost:3000/api/v1/graphql`, against the recorded snapshots — the two per-capita cases fail BY DESIGN until re-baselined for the 13 §7 deltas) and `factor-source-parity` (Phase A paired proof, `PHASE_A_*` env). Refuses production hosts. |
+| `pnpm test:gm:update`                                                            | Same, rewriting the stored snapshots                                                                                                                                                                                                                                                                                                                                                                                        |
+| `pnpm test:gm:cutover`                                                           | **The cutover gate**: the client-document corpus only, baseline `TEST_GM_BASELINE_URL` (required: a preserved legacy `/graphql`, i.e. Phoenix dev pinned at `phoenix-last-full`) → target `http://localhost:3000/api/v1/graphql`                                                                                                                                                                                            |
+| `pnpm gm:corpus`                                                                 | Regenerate `corpus/client-documents.json` from the client repo (`scripts/gm/gen-client-corpus.mts`)                                                                                                                                                                                                                                                                                                                         |
+| `pnpm gm:corpus:check`                                                           | Fail when the committed corpus drifts from the client tree (documents, variables, sources, or the pinned client commit); a document the client no longer has is reported as drift, one per line                                                                                                                                                                                                                             |
+| `pnpm gm:reference:record <run>/summary.json --image <sha> --provenance "<why>"` | Record a cutover run's failing id set and totals as `cutover-reference.json` (`scripts/gm/record-cutover-reference.mts`); re-record after a scrapper load into Chronos                                                                                                                                                                                                                                                      |
 
 The 12 hand-written legacy-schema specs (`entities`, `heatmap`, `ins`, …) and
 their snapshots were deleted in slice 1 commit 6 (owner decision 2026-09-09):
@@ -42,6 +43,7 @@ Optional environment:
 | `TEST_GM_INCLUDE_DEAD`     | unset                                                        | `true` runs the corpus entries marked `dead` (otherwise `it.skip` with a visible reason)                   |
 | `TEST_GM_STRICT_ALLOWLIST` | `true`                                                       | `false` downgrades a stale allowlist entry from a run failure to a warning                                 |
 | `TEST_GM_ALLOWLIST_PATH`   | `tests/golden-master/parity-allowlist.json`                  | Another allowlist file (offline fixtures, dry runs)                                                        |
+| `TEST_GM_REFERENCE_PATH`   | `tests/golden-master/cutover-reference.json`                 | Another recorded reference (offline fixtures, dry runs); no file, no comparison                            |
 | `GM_CLIENT_REPO`           | `../hack-for-facts-eb-client` (sibling of the main checkout) | Client repo the corpus generator reads (`--client <path>` also works)                                      |
 
 ## Bringing up both endpoints for `pnpm test:gm:cutover`
@@ -233,6 +235,22 @@ modules' root constants by a unit test), marking the ones an allowlist entry
 partly covers, so a root mounted on the kernel without a parity decision is
 named rather than buried among the unported-root failures. It is a classification, not a
 separate gate: such a case already fails the run.
+
+The run also compares its failing id set with the **recorded reference**,
+`cutover-reference.json` (`cutover-reference.ts`): the failing-case ids and
+totals of the last accepted replay (baseline Phoenix dev at
+`phoenix-last-full`, target Chronos dev), with the image it was recorded
+against and why. The codebase plan's gate is set equality; the reviewer reads
+it from `summary.md` / `summary.json` ("Failing set versus the recorded
+reference": identical, only in this run, only in the reference, totals drift;
+also a `Reference set:` line at the top of `summary.md`) and from one teardown
+line, so the list no longer lives in `/tmp`. The run's `ok` and exit code do
+not encode it — a classification, not a second gate: every failing case
+already fails the run, and totals drift is a signal to explain. The reference
+holds only while Chronos data is static — after a scrapper load, re-record it
+before trusting a diff (`pnpm gm:reference:record`, table above; a broken
+reference file aborts the run in `setup`, before any case is replayed).
+`TEST_GM_REFERENCE_PATH` points a run at another file; no file, no comparison.
 
 ## The client-document corpus
 

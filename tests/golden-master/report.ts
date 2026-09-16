@@ -48,6 +48,12 @@ import {
   type DifferenceKind,
   type RootFieldShape,
 } from './compare.js';
+import {
+  compareToReference,
+  describeReferenceComparison,
+  type CutoverReference,
+  type ReferenceComparison,
+} from './cutover-reference.js';
 
 import type { CorpusStatus } from './corpus.js';
 import type { UncoveredKernelCase } from './kernel-roots.js';
@@ -170,6 +176,12 @@ export interface RunSummary {
    * separate gate.
    */
   uncoveredKernelCases: UncoveredKernelCase[];
+  /**
+   * This run's failing id set against the recorded reference
+   * (cutover-reference.ts); `null` when no reference file exists. A
+   * classification of the run, not a gate: `ok` ignores it.
+   */
+  referenceComparison: ReferenceComparison | null;
   /** False when any case failed, the reconciliation failed, or (strict) stale entries exist. */
   ok: boolean;
 }
@@ -572,6 +584,7 @@ export function buildSummary(params: {
   staleAllowlistEntries: readonly AllowlistEntry[];
   strictAllowlist: boolean;
   uncoveredKernelCases?: readonly UncoveredKernelCase[];
+  reference?: CutoverReference | null;
   now?: Date;
 }): RunSummary {
   const { reports } = params;
@@ -623,6 +636,17 @@ export function buildSummary(params: {
   const first = reports[0];
   const staleBlocks = params.strictAllowlist && params.staleAllowlistEntries.length > 0;
   const uncoveredKernelCases = [...(params.uncoveredKernelCases ?? [])];
+  const reference = params.reference ?? null;
+  const referenceComparison =
+    reference === null
+      ? null
+      : compareToReference(
+          {
+            failingCaseIds: failing.map((entry) => entry.id),
+            totals: { cases: reports.length, fail, leavesCompared, differences },
+          },
+          reference
+        );
   return {
     runId: params.runId,
     generatedAt: (params.now ?? new Date()).toISOString(),
@@ -648,12 +672,18 @@ export function buildSummary(params: {
     deltas: summarizeDeltas(reports, params.allowlist),
     staleAllowlistEntries: [...params.staleAllowlistEntries],
     uncoveredKernelCases,
+    referenceComparison,
     ok: fail === 0 && reconciliation.ok && !staleBlocks,
   };
 }
 
 function listText(items: readonly string[]): string {
   return items.length === 0 ? 'none' : items.join(', ');
+}
+
+function referenceHeadline(comparison: ReferenceComparison): string {
+  const set = comparison.identical ? 'identical' : 'DIFFERENT';
+  return comparison.totalsIdentical ? set : `${set}; totals drifted`;
 }
 
 function shapeText(shape: Record<string, RootFieldShape>): string {
@@ -677,6 +707,9 @@ export function renderSummaryMarkdown(summary: RunSummary, reports: readonly Cas
   lines.push(`# Golden Master cutover report — run ${summary.runId}`);
   lines.push('');
   lines.push(`- Result: **${summary.ok ? 'OK' : 'FAILED'}**`);
+  if (summary.referenceComparison !== null) {
+    lines.push(`- Reference set: **${referenceHeadline(summary.referenceComparison)}**`);
+  }
   lines.push(`- Generated: ${summary.generatedAt}`);
   lines.push(`- Baseline (expected): ${summary.baselineUrl ?? '(none)'}`);
   lines.push(`- Target (actual): ${summary.targetUrl ?? '(none)'}`);
@@ -737,6 +770,20 @@ export function renderSummaryMarkdown(summary: RunSummary, reports: readonly Cas
         `- ${uncovered.id} (${uncovered.roots.join(', ')})${uncovered.partiallyAllowlisted ? ' [partly allowlisted]' : ''}: ${listText(uncovered.reasons)}`
       );
     }
+    lines.push('');
+  }
+
+  if (summary.referenceComparison !== null) {
+    const comparison = summary.referenceComparison;
+    lines.push(
+      `## Failing set versus the recorded reference (${referenceHeadline(comparison)}; recorded ${comparison.recordedAt})`
+    );
+    lines.push('');
+    lines.push(
+      "The recorded reference (cutover-reference.json) is the failing-case id set of the last accepted replay. The codebase plan's gate is set equality, read by the reviewer from this section; the run's `ok` and exit code do not encode it (a classification, not a second gate: every failing case already fails the run). Totals drift is a signal to explain, not a gate."
+    );
+    lines.push('');
+    lines.push(`- ${describeReferenceComparison(comparison)}`);
     lines.push('');
   }
 
@@ -825,6 +872,7 @@ export function writeSummary(params: {
   staleAllowlistEntries: readonly AllowlistEntry[];
   strictAllowlist: boolean;
   uncoveredKernelCases?: readonly UncoveredKernelCase[];
+  reference?: CutoverReference | null;
 }): { summary: RunSummary; jsonPath: string; markdownPath: string } | null {
   const reports = readCaseReports(params.reportDir, params.runId);
   const planned = readPlanned(params.reportDir, params.runId);

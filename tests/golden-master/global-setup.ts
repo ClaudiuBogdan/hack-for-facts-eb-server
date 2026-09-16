@@ -7,9 +7,13 @@
  *   in setup.ts and export it as `TEST_GM_RUN_ID`).
  * - `teardown`: in cutover mode, assembles `summary.json` + `summary.md` from
  *   the per-case files, reconciles them against `planned.json`, computes the
- *   stale allowlist entries, and THROWS (failing the run) when the summary is
- *   not OK — a failed case, a planned/executed mismatch, or (strict) a stale
- *   allowlist entry.
+ *   stale allowlist entries, compares the failing id set with the recorded
+ *   reference (`cutover-reference.json`, one console line, never a gate), and
+ *   THROWS (failing the run) when the summary is not OK — a failed case, a
+ *   planned/executed mismatch, or (strict) a stale allowlist entry. The
+ *   reference file is validated in `setup` so a broken file aborts BEFORE the
+ *   replay instead of throwing in teardown after the cases ran (Vitest exits
+ *   0 on a teardown throw when every test passed; the summary would be lost).
  */
 
 import { existsSync } from 'node:fs';
@@ -21,6 +25,12 @@ import {
   resolveAllowlistPath,
 } from './allowlist.js';
 import { loadCorpus } from './corpus.js';
+import {
+  describeReferenceComparison,
+  loadReferenceIfPresent,
+  resolveReferencePath,
+  type CutoverReference,
+} from './cutover-reference.js';
 import { findUncoveredKernelCases } from './kernel-roots.js';
 import {
   createRunDir,
@@ -39,6 +49,7 @@ declare module 'vitest' {
 }
 
 let runId: string | null = null;
+let reference: CutoverReference | null = null;
 
 function isCutover(): boolean {
   return process.env['TEST_GM_BASELINE_URL'] !== undefined;
@@ -47,6 +58,14 @@ function isCutover(): boolean {
 export function setup(project: TestProject): void {
   runId = process.env['TEST_GM_RUN_ID'] ?? newRunId();
   if (isCutover()) {
+    try {
+      reference = loadReferenceIfPresent();
+    } catch (error) {
+      throw new Error(
+        `[Golden Master cutover] the recorded reference ${resolveReferencePath()} cannot be used (fix or re-record it with \`pnpm gm:reference:record\`): ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error }
+      );
+    }
     const dir = createRunDir(resolveReportDir(), runId);
     console.log(`\n[Golden Master cutover] run ${runId} → ${dir}`);
   }
@@ -73,6 +92,7 @@ export function teardown(): void {
     staleAllowlistEntries: stale,
     strictAllowlist,
     uncoveredKernelCases: uncovered,
+    reference,
   });
   if (written === null) {
     // A cutover run that executed no case is not a green gate: with
@@ -107,6 +127,10 @@ export function teardown(): void {
     console.log(
       `[Golden Master cutover] ${String(uncovered.length)} of the ${String(totals.fail)} failing case(s) are on kernel-mounted roots without a recorded parity decision (see summary.md)`
     );
+  }
+  const comparison = written.summary.referenceComparison;
+  if (comparison !== null) {
+    console.log(`[Golden Master cutover] ${describeReferenceComparison(comparison)}`);
   }
   console.log(`[Golden Master cutover] summary: ${written.markdownPath}\n`);
 
