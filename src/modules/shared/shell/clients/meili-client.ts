@@ -10,6 +10,7 @@
 import { ok, err, type Result } from 'neverthrow';
 
 import { upstreamError, type ApiError } from '../../core/errors.js';
+import { searchRequestPolicy, type SearchPolicy } from '../../core/filters/search-policy.js';
 
 import type { EntitiesSearchResult, MeiliClient } from '../../core/ports.js';
 import type { SearchHit } from '../../core/types.js';
@@ -17,6 +18,8 @@ import type { SearchHit } from '../../core/types.js';
 export interface MeiliClientConfig {
   readonly host: string;
   readonly apiKey: string;
+  readonly indexes?: readonly string[];
+  readonly policy?: SearchPolicy;
 }
 
 /** Palette budget for the single-index `entities` search (tighter than the 5s default). */
@@ -76,6 +79,10 @@ const mapHit = (h: Record<string, unknown>, indexUid: string): SearchHit => {
     ...(identifiers !== undefined && { identifiers }),
     ...(roles !== undefined && { roles }),
     ...(typeof isActive === 'boolean' && { isActive }),
+    isUat: typeof h['is_uat'] === 'boolean' ? h['is_uat'] : null,
+    entityTags: Array.isArray(h['entity_tags'])
+      ? h['entity_tags'].filter((tag): tag is string => typeof tag === 'string')
+      : [],
   };
 };
 
@@ -88,7 +95,13 @@ export const makeMeiliClient = (config: MeiliClientConfig): MeiliClient => {
     async searchEntities(
       q: string,
       index: string,
-      opts: { filter?: unknown; facets?: readonly string[]; limit: number; offset?: number }
+      opts: {
+        policy?: SearchPolicy;
+        filter?: unknown;
+        facets?: readonly string[];
+        limit: number;
+        offset?: number;
+      }
     ): Promise<Result<EntitiesSearchResult, ApiError>> {
       try {
         // `filter` is the Meili ARRAY form from `buildEntitiesFilter` (an array
@@ -105,6 +118,7 @@ export const makeMeiliClient = (config: MeiliClientConfig): MeiliClient => {
           },
           body: JSON.stringify({
             q,
+            ...searchRequestPolicy(q, opts.policy),
             limit: opts.limit,
             ...(opts.offset !== undefined && { offset: opts.offset }),
             ...(opts.filter !== undefined && { filter: opts.filter }),
@@ -147,6 +161,29 @@ export const makeMeiliClient = (config: MeiliClientConfig): MeiliClient => {
         const resp = await fetch(`${config.host}/health`, { signal: AbortSignal.timeout(3000) });
         if (!resp.ok)
           return err(upstreamError(`meili health ${String(resp.status)}`, 'meilisearch'));
+        for (const index of config.indexes ?? []) {
+          const probe = await fetch(`${config.host}/indexes/${index}/search`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${config.apiKey}`,
+            },
+            body: JSON.stringify({
+              q: 'municipiul',
+              ...searchRequestPolicy('municipiul', config.policy),
+              filter: ['privacy_class = "public"'],
+              limit: 0,
+            }),
+            signal: AbortSignal.timeout(3000),
+          });
+          if (!probe.ok)
+            return err(
+              upstreamError(
+                `meili policy compatibility ${config.policy ?? 'baseline'} ${String(probe.status)}`,
+                'meilisearch'
+              )
+            );
+        }
         return ok(undefined);
       } catch (error) {
         const msg = error instanceof Error ? error.message : 'unknown error';

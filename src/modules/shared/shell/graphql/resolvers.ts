@@ -60,6 +60,9 @@ interface SearchArgs {
   county?: string;
   roles?: readonly string[];
   isActive?: boolean;
+  isUat?: boolean | null;
+  entityTags?: readonly string[] | null;
+  excludeEntityTags?: readonly string[] | null;
   limit?: number;
   offset?: number;
 }
@@ -115,6 +118,9 @@ export const makeKernelResolvers = (deps: KernelResolverDeps): Record<string, un
         ...(args.county !== undefined && { county: args.county }),
         ...(args.roles !== undefined && { roles: args.roles }),
         ...(args.isActive !== undefined && { isActive: args.isActive }),
+        ...(args.isUat != null && { isUat: args.isUat }),
+        ...(args.entityTags != null && { entityTags: args.entityTags }),
+        ...(args.excludeEntityTags != null && { excludeEntityTags: args.excludeEntityTags }),
         ...(args.limit !== undefined && { limit: args.limit }),
         ...(args.offset !== undefined && { offset: args.offset }),
       };
@@ -123,11 +129,15 @@ export const makeKernelResolvers = (deps: KernelResolverDeps): Record<string, un
       // types must not collide with `q="a", docTypes=["b"]`). Degrade-not-error
       // behavior lives inside the usecase.
       const cacheKey = `entities-search:${JSON.stringify({
+        policy: deps.globalSearchDeps.searchPolicy ?? 'baseline',
         q: args.q,
         docTypes: (args.docTypes ?? []).slice().sort(),
         county: args.county ?? null,
         roles: (args.roles ?? []).slice().sort(),
         isActive: args.isActive ?? null,
+        isUat: args.isUat ?? null,
+        entityTags: [...(args.entityTags ?? [])].sort(),
+        excludeEntityTags: [...(args.excludeEntityTags ?? [])].sort(),
         limit: args.limit ?? null,
         offset: args.offset ?? null,
       })}`;

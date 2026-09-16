@@ -17,9 +17,8 @@
  * string value is additionally JSON.stringify-quoted, so there is no
  * operator/quote-injection surface.
  *
- * NOTE: Meili string equality is CASE-SENSITIVE — `county` must already be a
- * canonical county name (`'Cluj'` ≠ `'cluj'`); this builder does not normalize
- * case (callers map county codes → canonical names upstream).
+ * Meili string equality is case-insensitive. County input still uses a
+ * bounded name shape; callers map county codes to names upstream.
  */
 
 import { SEARCH_ENTITY_DOC_TYPES, type SearchEntityDocType } from '../types.js';
@@ -35,7 +34,16 @@ export interface BuildEntitiesFilterInput {
   /** Narrow to entities that are currently active (half of all companies are
    *  struck off, so this is the single strongest quality filter). */
   readonly isActive?: boolean;
+  readonly isUat?: boolean;
+  readonly entityTags?: readonly string[];
+  readonly excludeEntityTags?: readonly string[];
 }
+
+/** Same namespaced tag shape as the public-entity vocabulary; unknown values are valid. */
+export const ENTITY_TAG_PATTERN = /^[a-z][a-z0-9_]*(?:::[a-z][a-z0-9_]*)+$/u;
+export const validEntityTags = (tags: readonly string[] | undefined): boolean =>
+  tags === undefined ||
+  (tags.length <= 100 && tags.every((tag) => tag.length <= 200 && ENTITY_TAG_PATTERN.test(tag)));
 
 const ENTITY_DOC_TYPE_SET = new Set<string>(SEARCH_ENTITY_DOC_TYPES);
 
@@ -96,5 +104,21 @@ export const buildEntitiesFilter = (input: BuildEntitiesFilterInput): MeiliEntit
     clauses.push(`is_active = ${input.isActive ? 'true' : 'false'}`);
   }
 
+  if (input.isUat !== undefined) {
+    clauses.push(`is_uat = ${input.isUat ? 'true' : 'false'}`);
+  }
+  // Array membership is OR within a facet; separate clauses are ANDed.
+  const facets = new Map<string, string[]>();
+  for (const tag of [...new Set(input.entityTags ?? [])].sort()) {
+    const facet = tag.split('::')[0] ?? '';
+    const values = facets.get(facet) ?? [];
+    values.push(tag);
+    facets.set(facet, values);
+  }
+  for (const values of facets.values()) {
+    clauses.push(`entity_tags IN [${values.map(quote).join(', ')}]`);
+  }
+  const excluded = [...new Set(input.excludeEntityTags ?? [])].sort();
+  if (excluded.length > 0) clauses.push(`entity_tags NOT IN [${excluded.map(quote).join(', ')}]`);
   return clauses;
 };

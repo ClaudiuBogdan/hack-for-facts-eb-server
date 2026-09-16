@@ -8,6 +8,7 @@
  */
 
 import type { ApiError } from './errors.js';
+import type { SearchPolicy } from './filters/search-policy.js';
 import type { CursorPage } from './pagination.js';
 import type {
   CounterpartyNetwork,
@@ -193,6 +194,7 @@ export interface MeiliClient {
     q: string,
     index: string,
     opts: {
+      readonly policy?: SearchPolicy;
       readonly filter?: unknown;
       readonly facets?: readonly string[];
       readonly limit: number;

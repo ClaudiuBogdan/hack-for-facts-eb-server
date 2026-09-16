@@ -232,6 +232,7 @@ describe('search_entities — arg coercion', () => {
 
     // docTypes filters non-strings; the usecase receives ['company'] → meili filter.
     expect(searchEntities).toHaveBeenCalledWith('acme', 'entities', {
+      policy: 'baseline',
       filter: [
         'privacy_class = "public"',
         'doc_type IN ["company"]',

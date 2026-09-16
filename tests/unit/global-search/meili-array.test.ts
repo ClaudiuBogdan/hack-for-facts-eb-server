@@ -162,3 +162,25 @@ describe('normalizeCounty', () => {
     expect(normalizeCounty('x = y')).toBeUndefined();
   });
 });
+
+describe('public entity metadata filters', () => {
+  it('combines UAT, OR within a facet, AND between facets and flat exclusions', () => {
+    expect(
+      buildEntitiesFilter({
+        isUat: true,
+        entityTags: ['sector::education', 'kind::hospital', 'kind::school', 'kind::school'],
+        excludeEntityTags: ['ownership::private'],
+      })
+    ).toEqual([
+      'privacy_class = "public"',
+      'is_uat = true',
+      'entity_tags IN ["kind::hospital", "kind::school"]',
+      'entity_tags IN ["sector::education"]',
+      'entity_tags NOT IN ["ownership::private"]',
+    ]);
+  });
+  it('keeps false distinct from unspecified', () => {
+    expect(buildEntitiesFilter({ isUat: false })).toContain('is_uat = false');
+    expect(buildEntitiesFilter({})).toEqual(['privacy_class = "public"']);
+  });
+});

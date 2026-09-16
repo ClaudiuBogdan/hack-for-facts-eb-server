@@ -33,6 +33,7 @@ import { makeIdentityRepo } from './shell/repo/identity-repo.js';
 import { makeSearchRepo } from './shell/repo/search-repo.js';
 import { makeTerritoryRepo } from './shell/repo/territory-repo.js';
 
+import type { SearchPolicy } from './core/filters/search-policy.js';
 import type {
   CapabilityResolver,
   ContributorRegistry,
@@ -50,6 +51,7 @@ import type { HealthReport, ServiceStatus } from './core/types.js';
 import type { KernelMcpResource, KernelMcpTool } from './shell/mcp/types.js';
 
 export interface KernelConfig {
+  readonly searchPolicy?: SearchPolicy;
   readonly prodDatabaseUrl: string;
   readonly poolMax?: number;
   readonly dbSsl?: boolean;
@@ -156,6 +158,8 @@ export const makeKernel = async (config: KernelConfig): Promise<Kernel> => {
   const meiliClient = makeMeiliClient({
     host: config.meiliHost,
     apiKey: config.meiliSearchApiKey ?? config.meiliApiKey,
+    indexes: config.meiliIndexes ?? DEFAULT_MEILI_INDEXES,
+    policy: config.searchPolicy ?? 'baseline',
   });
   const openSearchClient = makeOpenSearchClient({
     url: config.opensearchUrl,
@@ -194,6 +198,7 @@ export const makeKernel = async (config: KernelConfig): Promise<Kernel> => {
     registry: contributors,
   };
   const globalSearchDeps: GlobalSearchDeps = {
+    searchPolicy: config.searchPolicy ?? 'baseline',
     meiliClient,
     meiliIndexes: config.meiliIndexes ?? [...DEFAULT_MEILI_INDEXES],
     ...(config.logger !== undefined && { logger: config.logger }),

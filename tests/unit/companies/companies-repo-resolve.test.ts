@@ -56,6 +56,7 @@ describe('resolveByName over the palette index', () => {
     const res = await repo.resolveByName('dedeman', 8, meili);
 
     expect(searchEntities).toHaveBeenCalledWith('dedeman', 'entities', {
+      policy: 'baseline',
       filter: ['privacy_class = "public"', 'roles IN ["company"]'],
       limit: 8,
     });

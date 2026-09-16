@@ -331,6 +331,8 @@ export interface SearchHit {
   readonly roles?: readonly string[];
   /** False for struck-off companies and repealed acts. */
   readonly isActive?: boolean;
+  readonly isUat?: boolean | null;
+  readonly entityTags?: readonly string[];
   /** Year (facet/sort). */
   readonly year?: number;
 }

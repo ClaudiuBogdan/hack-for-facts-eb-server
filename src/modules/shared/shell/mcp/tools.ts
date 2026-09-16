@@ -143,6 +143,20 @@ export const makeKernelMcpTools = (deps: KernelMcpDeps): readonly KernelMcpTool[
         .boolean()
         .optional()
         .describe('Only currently-active entities (half of all companies are struck off).'),
+      isUat: z
+        .boolean()
+        .optional()
+        .describe('Public local authorities only when true; county councils excluded.'),
+      entityTags: z
+        .array(z.string())
+        .max(100)
+        .optional()
+        .describe('OR within a tag facet, AND across facets (e.g. kind::school).'),
+      excludeEntityTags: z
+        .array(z.string())
+        .max(100)
+        .optional()
+        .describe('Exclude entities carrying any of these tags.'),
       limit: z.number().int().optional().describe('Max hits to return (default 20, max 50).'),
     },
     async handler(args): Promise<McpToolOutput> {
@@ -154,6 +168,13 @@ export const makeKernelMcpTools = (deps: KernelMcpDeps): readonly KernelMcpTool[
       const roles = Array.isArray(args['roles'])
         ? args['roles'].filter((r): r is string => typeof r === 'string')
         : undefined;
+      const isUat = typeof args['isUat'] === 'boolean' ? args['isUat'] : undefined;
+      const entityTags = Array.isArray(args['entityTags'])
+        ? args['entityTags'].filter((tag): tag is string => typeof tag === 'string')
+        : undefined;
+      const excludeEntityTags = Array.isArray(args['excludeEntityTags'])
+        ? args['excludeEntityTags'].filter((tag): tag is string => typeof tag === 'string')
+        : undefined;
       const isActive = typeof args['isActive'] === 'boolean' ? args['isActive'] : undefined;
       const limit = typeof args['limit'] === 'number' ? args['limit'] : undefined;
 
@@ -163,6 +184,9 @@ export const makeKernelMcpTools = (deps: KernelMcpDeps): readonly KernelMcpTool[
         ...(county !== undefined && { county }),
         ...(roles !== undefined && { roles }),
         ...(isActive !== undefined && { isActive }),
+        ...(isUat !== undefined && { isUat }),
+        ...(entityTags !== undefined && { entityTags }),
+        ...(excludeEntityTags !== undefined && { excludeEntityTags }),
         ...(limit !== undefined && { limit }),
       });
       if (res.isErr()) return { ok: false, kind: 'entity_search', error: res.error.message };
@@ -189,6 +213,8 @@ export const makeKernelMcpTools = (deps: KernelMcpDeps): readonly KernelMcpTool[
           ...(h.countyName !== undefined && { countyName: h.countyName }),
           ...(h.url !== undefined && { url: h.url }),
           ...(h.cuis !== undefined && { cuis: h.cuis }),
+          isUat: h.isUat ?? null,
+          entityTags: h.entityTags ?? [],
           ...(attrs !== undefined && Object.keys(attrs).length > 0 && { attrs }),
         };
       });

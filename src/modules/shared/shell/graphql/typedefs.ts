@@ -172,6 +172,8 @@ export const baseTypeDefs = /* GraphQL */ `
     roles: [String!]
     "False for struck-off companies and repealed acts."
     isActive: Boolean
+    isUat: Boolean
+    entityTags: [String!]
     "Deprecated compatibility field for pre-palette clients; always null."
     year: Int @deprecated(reason: "Ambiguous across entity types; use source-specific filters")
   }
@@ -270,7 +272,9 @@ export const baseTypeDefs = /* GraphQL */ `
     Global search over the entity palette (Meili-primary, pg fallback).
     One hit per IDENTITY: docTypes narrows what a thing IS, roles narrows what
     it PLAYS (a municipality that is also a PNRR beneficiary is one hit carrying
-    both). county is a canonical county name. isActive drops struck-off
+    both). isUat selects the explicit local-authority flag (county councils are false).
+    entityTags uses OR within a namespace and AND across namespaces;
+    excludeEntityTags excludes any matching tag. county is a canonical county name. isActive drops struck-off
     entities. NOTE: no backticks here - this SDL is a TS template literal.
     """
     searchEntities(
@@ -279,6 +283,9 @@ export const baseTypeDefs = /* GraphQL */ `
       roles: [String!]
       county: String
       isActive: Boolean
+      isUat: Boolean
+      entityTags: [String!]
+      excludeEntityTags: [String!]
       year: Int @deprecated(reason: "Ignored compatibility argument for pre-palette clients")
       limit: Int
       offset: Int

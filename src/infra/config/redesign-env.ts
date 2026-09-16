@@ -21,6 +21,9 @@ const RedesignEnvSchema = Type.Object({
   PROD_MEILI_SEARCH_API_KEY: Type.Optional(Type.String()),
   /** Comma-separated Meili index names the global search queries (default `entities`). */
   PROD_MEILI_INDEXES: Type.Optional(Type.String()),
+  PROD_SEARCH_POLICY: Type.Union([Type.Literal('baseline'), Type.Literal('prefix-all')], {
+    default: 'baseline',
+  }),
   PROD_OPENSEARCH_URL: Type.String({ default: '' }),
   PROD_OPENSEARCH_USERNAME: Type.Optional(Type.String()),
   PROD_OPENSEARCH_PASSWORD: Type.Optional(Type.String()),
@@ -136,6 +139,7 @@ export interface RedesignConfig {
     readonly meiliSearchApiKey?: string;
     /** Meili indexes the global search queries (from PROD_MEILI_INDEXES). */
     readonly meiliIndexes?: readonly string[];
+    readonly searchPolicy: 'baseline' | 'prefix-all';
     readonly opensearchUrl: string;
     readonly opensearchUsername?: string;
     readonly opensearchPassword?: string;
@@ -318,6 +322,7 @@ const composeEmbeddedKernel = (e: EmbeddedKernelEnv): EmbeddedKernelConfig => {
   return {
     kernel: {
       prodDatabaseUrl: e.PROD_DATABASE_URL,
+      searchPolicy: e.PROD_SEARCH_POLICY,
       meiliHost: e.PROD_MEILI_HOST,
       meiliApiKey: e.PROD_MEILI_API_KEY,
       ...(e.PROD_MEILI_SEARCH_API_KEY !== undefined && {

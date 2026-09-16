@@ -70,6 +70,17 @@ const makeDeps = (opts: {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('makeGlobalSearch — short-circuit guards', () => {
+  it('rejects an eleventh prefix-policy term before querying the engine', async () => {
+    const { deps, spies } = makeDeps({});
+    const res = await makeGlobalSearch(
+      { ...deps, searchPolicy: 'prefix-all' },
+      {
+        q: 'iPhone XMLParser unu doi trei patru cinci sase sapte',
+      }
+    );
+    expect(res.isErr()).toBe(true);
+    expect(spies.meiliSearch).not.toHaveBeenCalled();
+  });
   it('returns an empty meili result for an empty q WITHOUT calling any engine', async () => {
     const { deps, spies } = makeDeps({});
     const res = await makeGlobalSearch(deps, { q: '' });
@@ -178,6 +189,7 @@ describe('makeGlobalSearch — Meili ok path', () => {
     });
 
     expect(spies.meiliSearch).toHaveBeenCalledWith('acme', 'entities', {
+      policy: 'baseline',
       filter: [
         'privacy_class = "public"',
         'doc_type IN ["company"]',
@@ -363,5 +375,25 @@ describe('makeGlobalSearch — logger', () => {
     expect(payload['component']).toBe('kernel.globalSearch');
     expect(payload['queryLength']).toBe(4);
     expect(payload).not.toHaveProperty('q');
+  });
+});
+
+describe('metadata input validation', () => {
+  it.each(['kind::school" OR true', 'kind', 'kind::', 'Kind::school'])(
+    'rejects malformed tag %s without querying',
+    async (tag) => {
+      const { deps, spies } = makeDeps({});
+      const result = await makeGlobalSearch(deps, { q: 'sibiu', entityTags: [tag] });
+      expect(result.isErr()).toBe(true);
+      expect(spies.meiliSearch).not.toHaveBeenCalled();
+    }
+  );
+  it('passes unknown but well-formed tags to the engine without widening', async () => {
+    const { deps, spies } = makeDeps({});
+    await makeGlobalSearch(deps, { q: 'sibiu', isUat: true, entityTags: ['future::unknown'] });
+    expect(spies.meiliSearch.mock.calls[0]?.[2].filter).toContain(
+      'entity_tags IN ["future::unknown"]'
+    );
+    expect(spies.meiliSearch.mock.calls[0]?.[2].filter).toContain('is_uat = true');
   });
 });

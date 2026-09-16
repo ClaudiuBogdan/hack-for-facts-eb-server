@@ -40,7 +40,9 @@ import {
   buildEntitiesFilter,
   normalizeCounty,
   validEntityDocTypes,
+  validEntityTags,
 } from '../filters/meili-array.js';
+import { searchQueryProblem, type SearchPolicy } from '../filters/search-policy.js';
 import {
   SEARCH_ENTITY_DOC_TYPES,
   type OrgNameMatch,
@@ -60,6 +62,7 @@ export interface GlobalSearchLogger {
 }
 
 export interface GlobalSearchDeps {
+  readonly searchPolicy?: SearchPolicy;
   readonly meiliClient: MeiliClient;
   /** Meili indexes to query (resolved from per-domain config at wiring time). */
   readonly meiliIndexes: readonly string[];
@@ -76,6 +79,9 @@ export interface GlobalSearchInput {
   readonly roles?: readonly string[];
   /** Only currently-active entities. */
   readonly isActive?: boolean;
+  readonly isUat?: boolean;
+  readonly entityTags?: readonly string[];
+  readonly excludeEntityTags?: readonly string[];
   readonly limit?: number;
   readonly offset?: number;
 }
@@ -118,6 +124,8 @@ export const makeGlobalSearch = async (
 ): Promise<Result<GlobalSearchResult, ApiError>> => {
   const { meiliClient, meiliIndexes, logger } = deps;
   const startedAt = Date.now();
+  const problem = searchQueryProblem(input.q, deps.searchPolicy);
+  if (problem !== undefined) return err(invalidInput(problem, 'q'));
   // Bound the page window: clamp limit to [1,50] and offset to [0,1000] so a
   // hostile/garbage paginator can never push Meili past its scan cap or send a
   // negative limit (which Meili rejects and pg silently clamps to 1).
@@ -135,6 +143,7 @@ export const makeGlobalSearch = async (
       logger?.info(
         {
           component: 'kernel.globalSearch',
+          policy: deps.searchPolicy ?? 'baseline',
           queryLength: input.q.length,
           engine,
           hitCount,
@@ -148,6 +157,24 @@ export const makeGlobalSearch = async (
       // Logging must never break the request path.
     }
   };
+
+  for (const field of ['entityTags', 'excludeEntityTags'] as const) {
+    if (!validEntityTags(input[field])) {
+      return err(
+        invalidInput(
+          'Expected at most 100 namespaced entity tags, each at most 200 characters',
+          field
+        )
+      );
+    }
+  }
+  if (
+    input.roles?.some(
+      (role) => !SEARCH_ENTITY_DOC_TYPES.includes(role as (typeof SEARCH_ENTITY_DOC_TYPES)[number])
+    ) === true
+  ) {
+    return err(invalidInput('Unknown entity role', 'roles'));
+  }
 
   // Empty/whitespace q → never query either engine (don't leak Meili's
   // "return everything" default). Report as the meili engine (nothing degraded).
@@ -197,6 +224,9 @@ export const makeGlobalSearch = async (
     ...(county !== undefined && { county }),
     ...(roles.length > 0 && { roles }),
     ...(input.isActive !== undefined && { isActive: input.isActive }),
+    ...(input.isUat !== undefined && { isUat: input.isUat }),
+    ...(input.entityTags !== undefined && { entityTags: input.entityTags }),
+    ...(input.excludeEntityTags !== undefined && { excludeEntityTags: input.excludeEntityTags }),
   };
 
   const index = meiliIndexes[0] ?? 'entities';
@@ -204,6 +234,7 @@ export const makeGlobalSearch = async (
   const meiliRes =
     meiliIndexes.length > 0
       ? await meiliClient.searchEntities(input.q, index, {
+          policy: deps.searchPolicy ?? 'baseline',
           filter: buildEntitiesFilter(filterArgs),
           facets: ['doc_type'],
           limit,

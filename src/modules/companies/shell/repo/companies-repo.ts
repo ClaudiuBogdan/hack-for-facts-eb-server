@@ -747,6 +747,7 @@ export const makeCompaniesRepo = (
     let engineUnavailable = meili === null;
     if (meili !== null) {
       const m = await meili.searchEntities(q, meiliEntitiesIndex, {
+        policy: 'baseline',
         filter: buildEntitiesFilter({ roles: ['company'] }),
         limit: capped,
       });
