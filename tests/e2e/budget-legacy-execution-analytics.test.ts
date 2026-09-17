@@ -88,6 +88,7 @@ import { makeTerritoryRepo } from '@/modules/shared/shell/repo/territory-repo.js
 import { registerBudgetAnnualTableCases } from './budget-annual-table-cases.js';
 import { registerBudgetEvolutionCases } from './budget-evolution-cases.js';
 import { registerBudgetMoneyCases } from './budget-money-cases.js';
+import { registerBudgetObservedZeroCases } from './budget-observed-zero-cases.js';
 import { registerBudgetPeriodEligibilityCases } from './budget-period-eligibility-cases.js';
 import { registerBudgetRankingPopulationCases } from './budget-ranking-population-cases.js';
 import { teardownDisposablePostgres } from './disposable-postgres.js';
@@ -153,6 +154,10 @@ const MIGRATION_SHA256: Readonly<Record<string, string>> = {
     '504717852207bab89c352ce9326c900c25263eed8d823aafb53e3200d2c062a7',
   '20260902T100100__core_territory_l2_shape.ts':
     'c7df922a6645a71b47dba955947e3d91a0919cb0a369cc7a4ee232e1a4311385',
+  '20260908T180000__commitment_candidates.ts':
+    '3bf1dd2be4bb7da73a4f319a32c4b1bff6444c32d20910bb17eddadd423c6e2d',
+  '20260909T011000__budget_source_periods.ts':
+    'fb22c282eeea8e4e406176cb8e8a73d98c33f8f3cc7cbae26468d395a84c8038',
 };
 const MIGRATIONS = Object.keys(MIGRATION_SHA256)
   .filter((name) => !name.includes('core_population_annual'))
@@ -2926,3 +2931,5 @@ registerBudgetMoneyCases(it, rollbackTerritoryFixture);
 registerBudgetAnnualTableCases(it, rollbackTerritoryFixture);
 
 registerMapAnnualPopulationCases(it, rollbackTerritoryFixture);
+
+registerBudgetObservedZeroCases(it, rollbackTerritoryFixture);

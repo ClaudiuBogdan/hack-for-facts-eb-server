@@ -84,6 +84,14 @@ beforeAll(async () => {
     };
     await db.transaction().execute((tx) => migration.up(tx as unknown as Kysely<unknown>));
   }
+  const observed = (await import(
+    pathToFileURL(
+      path.join(root, 'src/db/prod-migrations/20260917T090000__budget_observed_period_roles.ts')
+    ).href
+  )) as {
+    upgradeScopePeriodChecks(db: Kysely<unknown>, table: string): Promise<void>;
+  };
+  await observed.upgradeScopePeriodChecks(db as unknown as Kysely<unknown>, 'budget.scope_periods');
   await sql`create table budget.scope_periods_angajamente_y2025
     partition of budget.scope_periods_angajamente for values from (2025) to (2026);
     insert into etl.load_runs(source_id,target_table) values ('fixture','budget.scope_periods');
@@ -140,12 +148,12 @@ async function period(
     calendar_version,candidate_id,source_url,xml_sha256,parser_version,configuration_version,membership_sha256,admission_sha256,build_run_id,
     report_status,observation,financially_admitted,continuity,is_latest_present,previous_present_month,expected_previous_month,
     previous_available_month,previous_base_candidate_id,previous_base_report_id,interval_start_month,months_covered,
-    is_monthly,is_interval,is_quarterly,is_latest_ytd,is_year_end,quarter_span_months)
+    is_monthly,is_interval,is_quarterly,is_latest_ytd,is_year_end,quarter_span_months,previous_boundary_month,previous_boundary_candidate_id,previous_boundary_report_id)
     values ('angajamente',2025,${id},${rt},'detailed','4505359','999',${sector},${month},
       ${hash},${candidate},${`https://example.com/${id}`},${hash},'fixture','fixture',${hash},${hash},1,
       'final',${observation},${admitted},'first',false,null,null,
       ${previous},${predecessor},${previous === null ? null : 'quarter'},${start},${start === null ? null : month - start + 1},
-      ${start === month},${start !== null && month - start + 1 > 1},${admitted && month === 3},${latest},${admitted && month === 12},${admitted && month % 3 === 0 ? month : null})`.execute(
+      ${admitted},${start !== null && month - start + 1 > 1},${admitted},${latest},${admitted && month === 12},${admitted ? month - (previous ?? 0) : null},${previous},${predecessor},${previous === null ? null : 'quarter'})`.execute(
     db
   );
 }
@@ -160,9 +168,9 @@ async function fact(
   economic = '10'
 ) {
   await sql`insert into budget.commitment_line_items(report_id,line_key,line_order,reporting_year,reporting_month,entity_cui,report_type,budget_sector_id,functional_code,economic_code,
-    ${sql.join(COMMITMENT_PERIOD_METRICS.flatMap((m) => [sql.id(`monthly_${m}`), sql.id(`ytd_${m}`)]))},is_monthly,is_quarterly,is_yearly)
+    ${sql.join(COMMITMENT_PERIOD_METRICS.flatMap((m) => [sql.id(`monthly_${m}`), sql.id(`ytd_${m}`), sql.id(`quarterly_${m}`)]))},is_monthly,is_quarterly,is_yearly)
     values (${id},${key},1,2025,${month},'4505359',${rt},${sector},'65',${economic},
-    ${sql.join(COMMITMENT_PERIOD_METRICS.flatMap((_, i) => [sql`${delta}::numeric+${i}`, sql`${ytd}::numeric+${i}`]))},true,false,false)`.execute(
+    ${sql.join(COMMITMENT_PERIOD_METRICS.flatMap((_, i) => [sql`${delta}::numeric+${i}`, sql`${ytd}::numeric+${i}`, sql`${delta}::numeric+${i}`]))},true,false,false)`.execute(
     db
   );
   await sql`update budget.commitment_line_items f set
@@ -171,7 +179,7 @@ async function fact(
     is_monthly=p.is_monthly,is_interval=p.is_interval,is_quarterly=p.is_quarterly,
     is_latest_ytd=p.is_latest_ytd,is_year_end=p.is_year_end,is_yearly=p.is_latest_ytd,
     previous_boundary_month=p.previous_boundary_month,quarter_span_months=p.quarter_span_months,
-    continuity=p.continuity,quarter=case when p.is_quarterly then p.reporting_month/3 end
+    continuity=p.continuity,quarter=case when p.is_quarterly then (p.reporting_month+2)/3 end
     from budget.scope_periods p where p.stream='angajamente' and p.reporting_year=2025
       and p.report_id=f.report_id and f.report_id=${id} and f.reporting_year=2025
       and f.report_type=${rt}`.execute(db);
@@ -208,11 +216,12 @@ describe('commitment period reader on real DDL', () => {
       paidNonTreasury: '90071992547656.91',
     });
   });
-  it('dashboard never publishes surviving sectors as complete monthly/quarterly totals', async () => {
+  it('dashboard sums observed sectors and leaves absent periods as gaps', async () => {
     for (const frequency of ['MONTH', 'QUARTER'] as const) {
       const { rows } = await dashboard(frequency);
-      expect(rows.length).toBe(frequency === 'MONTH' ? 12 : 4);
-      expect(rows.every((row) => row.committed === null && row.budget === null)).toBe(true);
+      expect(rows.length).toBeGreaterThan(0);
+      expect(rows.some((row) => row.committed !== null)).toBe(true);
+      expect(rows.some((row) => row.period === 2)).toBe(false);
     }
   });
   it('dashboard hides an annual scope when a values report has no facts', async () => {

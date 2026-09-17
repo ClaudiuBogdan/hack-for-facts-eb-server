@@ -40,15 +40,15 @@ export const commitmentDashboardSql = (q: CommitmentDashboardQuery) => {
     q.frequency === 'YEAR'
       ? sql`p.is_latest_ytd`
       : q.frequency === 'QUARTER'
-        ? sql`p.is_quarterly and p.reporting_month=k.period*3`
+        ? sql`p.is_quarterly and (p.reporting_month+2)/3=k.period`
         : sql`p.is_monthly and p.reporting_month=k.period`;
   const periodCount = q.frequency === 'YEAR' ? 1 : q.frequency === 'QUARTER' ? 4 : 12;
   const functional = sql`case when f.reporting_year = ${q.detailYear} then f.functional_code else '' end`;
   const economic = sql`case when f.reporting_year = ${q.detailYear} then f.economic_code else null end`;
   const creditor =
     q.mainCreditorCui === undefined ? sql`true` : sql`p.main_creditor_cui=${q.mainCreditorCui}`;
-  // Known sectors are conservative year-wide coverage, not inferred sector lifetimes.
-  // Presence is independent of facts: missing/empty/irregular sectors cannot disappear in a SUM.
+  // Aggregate observed endpoints. Absent sectors do not block differences from
+  // present reports; a period with no admitted observation remains a gap.
   return sql<CommitmentDashboardRow>`with periods as materialized (
     select p.* from budget.scope_periods p left join core.organizations o on o.cui=p.entity_cui
     where p.stream='angajamente' and p.reporting_year between ${q.yearFrom} and ${q.yearTo}
@@ -74,7 +74,7 @@ export const commitmentDashboardSql = (q: CommitmentDashboardQuery) => {
     select year,period,min(reporting_month)::int as "firstReportMonth",max(reporting_month)::int as "lastReportMonth",
       count(*)=count(distinct budget_sector_id) and bool_and(report_id is not null and financially_admitted
         and observation in ('values','declared-zero') and facts_valid and (observation='declared-zero' or fact_count>0)) as complete
-    from selected group by 1,2
+    from selected where report_id is not null group by 1,2
   ), amounts as (
     select f.reporting_year as year, s.period,
       ${functional} as "functionalCode", ${economic} as "economicCode",
