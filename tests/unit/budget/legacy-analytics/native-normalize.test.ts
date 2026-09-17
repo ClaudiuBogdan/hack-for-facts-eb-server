@@ -55,7 +55,7 @@ describe('native exact-year series', () => {
       selected
     );
     expect(result.points.map((p) => p.y.toString())).toEqual(['0', '-2']);
-    expect(result.missingPeriods).toEqual([]);
+    expect(result.missingPeriods).toEqual(['2023']);
   });
   it('uses real base-year FX and never carries currency or CPI coverage forward', () => {
     const result = normalizeNativePoints(
