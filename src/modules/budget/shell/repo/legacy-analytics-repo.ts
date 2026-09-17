@@ -151,12 +151,9 @@ export const legacyAggregateConditions = (
     readonly amount: RawBuilder<unknown>;
     readonly reportTypes: readonly string[];
     readonly hasAccountCategory: boolean;
-    /** Empty admitted reports have no line dimensions to filter. */
-    readonly hasFactDimensions?: boolean;
   }
 ): Cond[] => {
   const conds: Cond[] = [];
-  const facts = source?.hasFactDimensions !== false;
   const year = sql.ref('eli.reporting_year');
   const period = periodColumn(q.frequency);
   const amount = source?.amount ?? amountColumn(q.frequency);
@@ -195,7 +192,7 @@ export const legacyAggregateConditions = (
     conds.push(sql`${sql.ref('eli.main_creditor_cui')} = ${q.mainCreditorCui}`);
   }
   if (q.reportIds !== undefined) conds.push(inList(sql.ref('eli.report_id'), q.reportIds));
-  if (facts && q.fundingSourceIds !== undefined) {
+  if (q.fundingSourceIds !== undefined) {
     // PUBLIC (phoenix ordinal) → STORED id; an unknown public id selects nothing.
     const stored = q.fundingSourceIds.map((id) => toStoredFundingId(id) ?? FUNDING_SOURCE_NO_MATCH);
     conds.push(inList(sql.ref('eli.funding_source_id'), stored));
@@ -203,28 +200,22 @@ export const legacyAggregateConditions = (
   if (q.budgetSectorIds !== undefined) {
     conds.push(inList(sql.ref('eli.budget_sector_id'), q.budgetSectorIds));
   }
-  if (facts && q.expenseTypes !== undefined)
-    conds.push(inList(sql.ref('eli.expense_type'), q.expenseTypes));
+  if (q.expenseTypes !== undefined) conds.push(inList(sql.ref('eli.expense_type'), q.expenseTypes));
 
   // ── classification codes (legacy buildCodeConditions) ──
   const functional = sql.ref('eli.functional_code');
   const economic = sql.ref('eli.economic_code');
-  if (facts && q.functionalCodes !== undefined) conds.push(inList(functional, q.functionalCodes));
-  if (facts && q.functionalPrefixes !== undefined)
-    conds.push(anyPrefix(functional, q.functionalPrefixes));
-  if (facts && q.economicCodes !== undefined) conds.push(inList(economic, q.economicCodes));
-  if (facts && q.economicPrefixes !== undefined)
-    conds.push(anyPrefix(economic, q.economicPrefixes));
-  if (facts && q.programCodes !== undefined)
-    conds.push(inList(sql.ref('eli.program_code'), q.programCodes));
+  if (q.functionalCodes !== undefined) conds.push(inList(functional, q.functionalCodes));
+  if (q.functionalPrefixes !== undefined) conds.push(anyPrefix(functional, q.functionalPrefixes));
+  if (q.economicCodes !== undefined) conds.push(inList(economic, q.economicCodes));
+  if (q.economicPrefixes !== undefined) conds.push(anyPrefix(economic, q.economicPrefixes));
+  if (q.programCodes !== undefined) conds.push(inList(sql.ref('eli.program_code'), q.programCodes));
 
   conds.push(...legacyEntityConditions(q, 'eli.entity_cui'));
 
   // ── row-level amount thresholds (legacy buildAmountConditions) ──
-  if (facts && q.itemMinAmount !== undefined)
-    conds.push(sql`${amount} >= ${q.itemMinAmount}::numeric`);
-  if (facts && q.itemMaxAmount !== undefined)
-    conds.push(sql`${amount} <= ${q.itemMaxAmount}::numeric`);
+  if (q.itemMinAmount !== undefined) conds.push(sql`${amount} >= ${q.itemMinAmount}::numeric`);
+  if (q.itemMaxAmount !== undefined) conds.push(sql`${amount} <= ${q.itemMaxAmount}::numeric`);
 
   // ── exclusions (legacy buildExclusionConditions + the 5 previously ignored) ──
   const ex = q.exclude;
@@ -236,10 +227,10 @@ export const legacyAggregateConditions = (
       const col = sql.ref('eli.main_creditor_cui');
       conds.push(sql`(${col} is null or ${col} <> ${ex.mainCreditorCui})`);
     }
-    if (facts && ex.functionalCodes !== undefined) {
+    if (ex.functionalCodes !== undefined) {
       conds.push(sql`${functional} not in (${sql.join(ex.functionalCodes)})`);
     }
-    if (facts && ex.functionalPrefixes !== undefined) {
+    if (ex.functionalPrefixes !== undefined) {
       conds.push(
         sql`(${sql.join(
           ex.functionalPrefixes.map((p) => sql`${functional} not like ${escapeLike(p) + '%'}`),
@@ -249,13 +240,12 @@ export const legacyAggregateConditions = (
     }
     // Economic exclusions apply to the expense side only (legacy: `accountCategory !== 'vn'`).
     if (q.accountCategory !== 'vn') {
-      if (facts && ex.economicCodes !== undefined)
-        conds.push(notInNullSafe(economic, ex.economicCodes));
-      if (facts && ex.economicPrefixes !== undefined) {
+      if (ex.economicCodes !== undefined) conds.push(notInNullSafe(economic, ex.economicCodes));
+      if (ex.economicPrefixes !== undefined) {
         conds.push(noPrefixNullSafe(economic, ex.economicPrefixes));
       }
     }
-    if (facts && ex.fundingSourceIds !== undefined) {
+    if (ex.fundingSourceIds !== undefined) {
       // Unknown public ids exclude nothing (there is no stored row to exclude).
       const stored = ex.fundingSourceIds
         .map(toStoredFundingId)
@@ -267,10 +257,10 @@ export const legacyAggregateConditions = (
     if (ex.budgetSectorIds !== undefined) {
       conds.push(sql`${sql.ref('eli.budget_sector_id')} not in (${sql.join(ex.budgetSectorIds)})`);
     }
-    if (facts && ex.expenseTypes !== undefined) {
+    if (ex.expenseTypes !== undefined) {
       conds.push(notInNullSafe(sql.ref('eli.expense_type'), ex.expenseTypes));
     }
-    if (facts && ex.programCodes !== undefined) {
+    if (ex.programCodes !== undefined) {
       conds.push(notInNullSafe(sql.ref('eli.program_code'), ex.programCodes));
     }
   }
@@ -279,7 +269,8 @@ export const legacyAggregateConditions = (
 };
 
 /** HAVING on the period sum — `aggregate_min/max_amount` (legacy ignored; applied here). */
-const havingClause = (q: LegacyAggregateQuery, total: RawBuilder<unknown>): RawBuilder<unknown> => {
+const havingClause = (q: LegacyAggregateQuery): RawBuilder<unknown> => {
+  const total = sql`coalesce(sum(${amountColumn(q.frequency)}), 0)`;
   const parts: Cond[] = [];
   if (q.aggregateMinAmount !== undefined)
     parts.push(sql`${total} >= ${q.aggregateMinAmount}::numeric`);
@@ -305,38 +296,23 @@ export const legacyAggregateSql = (
     ? sql`left join core.territories as t on t.id = e.territory_id`
     : sql``;
   const where = andConditions(legacyAggregateConditions(q, toStoredFundingId));
-  const zeroWhere = andConditions(
-    legacyAggregateConditions(q, toStoredFundingId, {
-      amount: sql`0::numeric`,
-      reportTypes: ALL_EXECUTION_REPORT_TYPE_LITERALS,
-      hasAccountCategory: false,
-      hasFactDimensions: false,
-    })
-  );
-  const searchJoin =
-    q.search === undefined
-      ? sql``
-      : sql`left join core.organizations as o on o.cui = eli.entity_cui`;
-  // An admitted zero-row report is an observed zero for every line subset.
-  // Check for facts BEFORE line filters: a zero YTD after nonzero YTD contains
-  // signed compensation rows and must never be replaced by a synthetic zero.
+  // YEAR: the period column IS the year (legacy grouped by year alone).
+  const groupBy = q.frequency === 'YEAR' ? sql`${year}` : sql`${year}, ${period}`;
+  const orderBy = q.frequency === 'YEAR' ? sql`${year} asc` : sql`${year} asc, ${period} asc`;
   return sql<AggregatedRow>`
-    with amounts as (
-      select ${year} as year, ${period} as period_value, sum(${amount}) as amount
-      from budget.execution_line_items as eli ${entityJoin} ${searchJoin} ${territoryJoin}
-      where ${where} group by ${year}, ${period}
-      union all
-      select ${year} as year, ${period} as period_value, 0::numeric as amount
-      from (select p.*,p.is_latest_ytd is_yearly,(p.reporting_month+2)/3 quarter
-        from budget.scope_periods p
-        where p.stream='execution' and p.financially_admitted and p.observation='declared-zero'
-          and not exists(select from budget.execution_line_items f
-            where f.reporting_year=p.reporting_year and f.report_type=p.report_type and f.report_id=p.report_id)
-      ) eli ${entityJoin} ${searchJoin} ${territoryJoin}
-      where ${zeroWhere} group by ${year}, ${period}
-    ) select year,period_value,sum(amount)::text as amount from amounts
-    group by year,period_value ${havingClause(q, sql`sum(amount)`)}
-    order by year,period_value limit ${LEGACY_ANALYTICS_MAX_POINTS + 1}
+    select
+      ${year} as year,
+      ${period} as period_value,
+      coalesce(sum(${amount}), 0)::text as amount
+    from budget.execution_line_items as eli
+    ${entityJoin}
+    ${q.search === undefined ? sql`` : sql`left join core.organizations as o on o.cui = eli.entity_cui`}
+    ${territoryJoin}
+    where ${where}
+    group by ${groupBy}
+    ${havingClause(q)}
+    order by ${orderBy}
+    limit ${LEGACY_ANALYTICS_MAX_POINTS + 1}
   `;
 };
 

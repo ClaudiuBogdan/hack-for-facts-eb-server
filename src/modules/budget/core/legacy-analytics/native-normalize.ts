@@ -92,8 +92,6 @@ export function normalizeNativePoints(
         return [{ x: p.x, y: p.y.minus(value).div(value).mul(HUNDRED) }];
       })
     : normalized;
-  const present = new Set(points.map((p) => p.x));
-  for (const p of selected) if (!present.has(p.x)) missing.add(p.x);
   const cpiBaseYear =
     plan.mode !== 'percent_gdp' && plan.inflationAdjusted && context.cpiIndex !== undefined
       ? ([...context.cpiIndex.keys()].sort((a, b) => b - a)[0] ?? null)

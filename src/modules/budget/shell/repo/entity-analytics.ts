@@ -1,8 +1,8 @@
 /**
  * Budget repository — ENTITY ANALYTICS on the MV path (codebase plan §WP5):
  * the per-entity execution and commitment summaries and the three timeseries
- * (execution, aggregate, commitment), read from summary MVs with explicit
- * zero-report presence where no facts exist. Normalization applies per point (invariant 2 of
+ * (execution, aggregate, commitment), all read from the six summary MVs, never
+ * the fact table, with normalization applied per point (invariant 2 of
  * `budget-repo.ts`). Moved out of the `makeBudgetRepo` closure unchanged; the
  * closure state it used arrives as the shared context.
  */
@@ -20,6 +20,7 @@ import { isPerCapita } from './analytics.js';
 import {
   commitMvName,
   composeAnd,
+  execMvName,
   mapCommitmentSummaryRow,
   metricColumn,
   monthlyCommitmentGap,
@@ -27,7 +28,6 @@ import {
   toCamel,
   type BudgetRepoContext,
 } from './budget-repo-shared.js';
-import { executionObservedSummary } from './execution-observed-summary.js';
 import { execReportType } from './mappers.js';
 import { seriesMoneyFactor } from './money-factor.js';
 import {
@@ -111,7 +111,7 @@ export const makeEntityAnalyticsReads = (ctx: BudgetRepoContext) => {
                 sql<number | null>`null::int`.as('quarter'),
               ];
       const rows = await db
-        .selectFrom(executionObservedSummary(q.frequency, conds))
+        .selectFrom(execMvName(q.frequency))
         .select([
           'mv.entity_cui',
           'mv.main_creditor_cui',
@@ -262,7 +262,7 @@ export const makeEntityAnalyticsReads = (ctx: BudgetRepoContext) => {
       const yearsPresent =
         needsAnnualPopulation || needsFactorYears
           ? await db
-              .selectFrom(executionObservedSummary(q.frequency, conds))
+              .selectFrom(execMvName(q.frequency))
               .leftJoin('core.public_entities as pe', 'pe.cui', 'mv.entity_cui')
               .select(['mv.year', 'pe.territory_id', 'pe.is_territorial_executive'])
               .distinct()
@@ -330,7 +330,7 @@ export const makeEntityAnalyticsReads = (ctx: BudgetRepoContext) => {
         : amountExpr;
 
       let seriesQuery = db
-        .selectFrom(executionObservedSummary(q.frequency, conds))
+        .selectFrom(execMvName(q.frequency))
         .select([
           'mv.year',
           periodSelect.as('period'),
@@ -381,7 +381,6 @@ export const makeEntityAnalyticsReads = (ctx: BudgetRepoContext) => {
       const conds: RawBuilder<unknown>[] = [sql`mv.report_type = ${reportLabel}`];
       conds.push(sql`mv.year >= ${q.yearFrom}`);
       conds.push(sql`mv.year <= ${q.yearTo}`);
-      const sourceConds = [...conds];
       if (q.isUat !== undefined) conds.push(sql`e.is_uat = ${q.isUat}`);
       if (q.isTerritorialExecutive !== undefined)
         conds.push(sql`e.is_territorial_executive = ${q.isTerritorialExecutive}`);
@@ -393,7 +392,7 @@ export const makeEntityAnalyticsReads = (ctx: BudgetRepoContext) => {
             : sql<number | null>`null::int`;
       let multiplier: RawBuilder<unknown> = sql`1::numeric`;
       if (q.normalization !== 'TOTAL') {
-        let yearsBase = db.selectFrom(executionObservedSummary(q.frequency, sourceConds));
+        let yearsBase = db.selectFrom(execMvName(q.frequency));
         if (q.isUat !== undefined || q.isTerritorialExecutive !== undefined) {
           yearsBase = yearsBase.leftJoin('core.public_entities as e', 'e.cui', 'mv.entity_cui');
         }
@@ -410,7 +409,7 @@ export const makeEntityAnalyticsReads = (ctx: BudgetRepoContext) => {
         multiplier = factor.value;
       }
       const amountExpr = sql`sum(coalesce(mv.${sql.ref(col)},0)) * ${multiplier}`;
-      let seriesBase = db.selectFrom(executionObservedSummary(q.frequency, sourceConds));
+      let seriesBase = db.selectFrom(execMvName(q.frequency));
       if (q.isUat !== undefined || q.isTerritorialExecutive !== undefined) {
         seriesBase = seriesBase.leftJoin('core.public_entities as e', 'e.cui', 'mv.entity_cui');
       }

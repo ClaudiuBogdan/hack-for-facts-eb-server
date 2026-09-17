@@ -83,8 +83,8 @@ describe('legacy executionAnalytics aggregate SQL', () => {
       'Executie bugetara detaliata',
       'ch',
     ]);
-    expect(sql).toContain('sum("eli"."ytd_amount") as amount');
-    expect(sql).toContain('group by year,period_value order by year,period_value');
+    expect(sql).toContain('coalesce(sum("eli"."ytd_amount"), 0)::text as amount');
+    expect(sql).toContain('group by "eli"."reporting_year" order by "eli"."reporting_year" asc');
     expect(sql).toContain(`limit $${String(aggregate.parameters.length)}`);
     expect(aggregate.parameters.at(-1)).toBe(LEGACY_ANALYTICS_MAX_POINTS + 1);
     expect(sql).not.toContain('join');
@@ -121,7 +121,7 @@ describe('legacy executionAnalytics aggregate SQL', () => {
     expect(sql).toContain('("eli"."reporting_year", "eli"."reporting_month") >= ($7, $8)');
     expect(sql).toContain('("eli"."reporting_year", "eli"."reporting_month") <= ($9, $10)');
     expect(aggregate.parameters.slice(6, 10)).toEqual([2022, 11, 2023, 2]);
-    expect(sql).toContain('order by year,period_value');
+    expect(sql).toContain('order by "eli"."reporting_year" asc, "eli"."reporting_month" asc');
   });
 
   it('QUARTER dates: is_quarterly + quarterly_amount + an OR of (year, quarter) pairs; years IN', async () => {
@@ -264,8 +264,8 @@ describe('legacy executionAnalytics aggregate SQL', () => {
     const sql = flat(aggregate.sql);
     expect(sql).toContain('"eli"."ytd_amount" >= $');
     expect(sql).toContain('::numeric');
-    expect(sql).toContain('having sum(amount) >= $');
-    expect(sql).toContain('and sum(amount) <= $');
+    expect(sql).toContain('having coalesce(sum("eli"."ytd_amount"), 0) >= $');
+    expect(sql).toContain('and coalesce(sum("eli"."ytd_amount"), 0) <= $');
     expect(aggregate.parameters).toContain('10.5');
     expect(aggregate.parameters).toContain('1000000');
     expect(aggregate.parameters).toContain('100');
