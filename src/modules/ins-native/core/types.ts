@@ -115,6 +115,23 @@ export interface InsContext {
   readonly datasetCount: number;
 }
 
+/** One published data source of a matrix (TEMPO `surseDeDate`), Romanian list. */
+export interface InsDataSource {
+  /** Verbatim `nume`, which may end in the source's own `<<NNNN>>` link marker. */
+  readonly name: string;
+  readonly type: string | null;
+  readonly typeCode: number | null;
+  /** TEMPO's "Detalii" reference (0 = none); its URL pattern is unverified, never a link. */
+  readonly linkNumber: number | null;
+}
+
+/** A predecessor matrix this series continues (TEMPO `continuareSerie`). */
+export interface InsSeriesPredecessor {
+  readonly datasetCode: string;
+  readonly lastPeriodRo: string;
+  readonly lastPeriodEn: string | null;
+}
+
 export interface InsDatasetView {
   readonly code: string;
   readonly nameRo: string;
@@ -122,7 +139,19 @@ export interface InsDatasetView {
   readonly definitionRo: string | null;
   readonly definitionEn: string | null;
   readonly methodologyRo: string | null;
+  readonly methodologyEn: string | null;
   readonly dataSourcesRo: string | null;
+  readonly dataSourcesEn: string | null;
+  /** The structured Romanian source list; empty when the matrix publishes none. */
+  readonly dataSources: readonly InsDataSource[];
+  readonly observationsRo: string | null;
+  readonly observationsEn: string | null;
+  /** TEMPO's published series break ("Anul 2007"); null when the series is not discontinued. */
+  readonly discontinuedAfterRo: string | null;
+  readonly discontinuedAfterEn: string | null;
+  /** The matrix that continues this series; a code, never resolved here. */
+  readonly successorDatasetCode: string | null;
+  readonly continuesFrom: readonly InsSeriesPredecessor[];
   /** The periodicities OBSERVED in the served facts (catalog claim when nothing is loaded). */
   readonly periodicities: readonly InsPeriodicity[];
   /** Observed [first year, last year] of the served facts; null when nothing is loaded. */

@@ -15,6 +15,7 @@ import { toNode } from './territory.js';
 import { escapeLike, foldSearch } from '../../core/fold.js';
 import {
   type InsContext,
+  type InsDataSource,
   type InsDataStatus,
   type InsDatasetFilter,
   type InsDatasetView,
@@ -25,6 +26,7 @@ import {
   type InsPage,
   type InsPeriodView,
   type InsPeriodicity,
+  type InsSeriesPredecessor,
   type InsUnitKind,
   type InsUnitView,
 } from '../../core/types.js';
@@ -84,7 +86,16 @@ export interface DatasetRow {
   definition_ro: string | null;
   definition_en: string | null;
   methodology_ro: string | null;
+  methodology_en: string | null;
   data_sources_ro: string | null;
+  data_sources_en: string | null;
+  data_sources: unknown;
+  observations_ro: string | null;
+  observations_en: string | null;
+  discontinued_after_ro: string | null;
+  discontinued_after_en: string | null;
+  successor_dataset_code: string | null;
+  continues_from: unknown;
   source_year_start: number | null;
   source_year_end: number | null;
   source_last_update: string | null;
@@ -92,6 +103,45 @@ export interface DatasetRow {
   context_name_ro: string | null;
   context_name_en: string | null;
 }
+
+const text = (v: unknown): string | null => (typeof v === 'string' ? v : null);
+const integer = (v: unknown): number | null =>
+  typeof v === 'number' && Number.isInteger(v) ? v : null;
+const jsonArray = (v: unknown): readonly Record<string, unknown>[] =>
+  Array.isArray(v)
+    ? v.filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
+    : [];
+
+/** `dataset_coverage.data_sources` (jsonb, loader-owned shape) → the view; a malformed item is dropped, never invented. */
+export const toDataSources = (v: unknown): readonly InsDataSource[] =>
+  jsonArray(v).flatMap((item) => {
+    const name = text(item['name']);
+    return name === null
+      ? []
+      : [
+          {
+            name,
+            type: text(item['type']),
+            typeCode: integer(item['type_code']),
+            linkNumber: integer(item['link_number']),
+          },
+        ];
+  });
+
+/** `dataset_coverage.continues_from` (jsonb) → the view. */
+export const toPredecessors = (v: unknown): readonly InsSeriesPredecessor[] =>
+  jsonArray(v).flatMap((item) => {
+    const code = text(item['dataset_code']);
+    return code === null
+      ? []
+      : [
+          {
+            datasetCode: code,
+            lastPeriodRo: text(item['last_period_ro']) ?? '',
+            lastPeriodEn: text(item['last_period_en']),
+          },
+        ];
+  });
 
 export const toDataset = (r: DatasetRow): InsDatasetView => {
   const count = r.facts_ready && r.observation_count !== null ? Number(r.observation_count) : null;
@@ -105,7 +155,16 @@ export const toDataset = (r: DatasetRow): InsDatasetView => {
     definitionRo: r.definition_ro,
     definitionEn: r.definition_en,
     methodologyRo: r.methodology_ro,
+    methodologyEn: r.methodology_en,
     dataSourcesRo: r.data_sources_ro,
+    dataSourcesEn: r.data_sources_en,
+    dataSources: toDataSources(r.data_sources),
+    observationsRo: r.observations_ro,
+    observationsEn: r.observations_en,
+    discontinuedAfterRo: r.discontinued_after_ro,
+    discontinuedAfterEn: r.discontinued_after_en,
+    successorDatasetCode: r.successor_dataset_code,
+    continuesFrom: toPredecessors(r.continues_from),
     periodicities: (observed.length > 0 ? observed : r.periodicities) as InsPeriodicity[],
     yearRange:
       r.facts_ready && firstStart !== null && lastEnd !== null
@@ -147,7 +206,9 @@ export const datasetSelect = sql`
   publication.facts_ready, publication.not_loaded, r.revision_id, r.transform_contract_sha256, r.applied_at,
   c.observation_count, c.first_period_start, c.last_period_end, c.periodicities_observed,
   c.has_lau, c.has_county, c.has_region, c.has_national, c.definition_ro, c.definition_en,
-  c.methodology_ro, c.data_sources_ro, c.source_year_start, c.source_year_end,
+  c.methodology_ro, c.methodology_en, c.data_sources_ro, c.data_sources_en, c.data_sources,
+  c.observations_ro, c.observations_en, c.discontinued_after_ro, c.discontinued_after_en,
+  c.successor_dataset_code, c.continues_from, c.source_year_start, c.source_year_end,
   c.source_last_update, c.computed_at, ctx.name_ro as context_name_ro, ctx.name_en as context_name_en`;
 
 export const datasetFrom = datasetPublicationFrom();

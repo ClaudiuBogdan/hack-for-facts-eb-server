@@ -47,6 +47,15 @@ const ADDITIVE_TYPES = parse(`
   enum InsDefaultSeriesStatus { SERIES AMBIGUOUS_GEOGRAPHY }
   extend type InsLatestDatasetValue { geographicWitnesses: JSON! }
   extend type InsUatDatasetGroup { status: InsDefaultSeriesStatus! geographicWitnesses: JSON! truncated: Boolean! }
+  extend type InsDataset {
+    methodology_ro: String methodology_en: String
+    data_sources_ro: String data_sources_en: String data_sources: [InsDataSource!]!
+    observations_ro: String observations_en: String
+    discontinued_after_ro: String discontinued_after_en: String successor_dataset_code: String
+    continues_from: [InsSeriesPredecessor!]! source_last_update: String
+  }
+  type InsDataSource { name: String! type: String type_code: Int link_number: Int }
+  type InsSeriesPredecessor { dataset_code: String! last_period_ro: String! last_period_en: String }
 `);
 
 const legacyExpected = (): DocumentNode => {

@@ -117,6 +117,39 @@ export const insLegacyTypeDefs = /* GraphQL */ `
     context_path: String
     metadata: JSON
     dimensions: [InsDimension!]!
+    methodology_ro: String
+    methodology_en: String
+    data_sources_ro: String
+    data_sources_en: String
+    data_sources: [InsDataSource!]!
+    observations_ro: String
+    observations_en: String
+    discontinued_after_ro: String
+    discontinued_after_en: String
+    successor_dataset_code: String
+    continues_from: [InsSeriesPredecessor!]!
+    source_last_update: String
+  }
+
+  """
+  One published data source of an INS matrix (TEMPO "Surse de date", Romanian list).
+  name is verbatim and may end in the source's own <<NNNN>> marker; link_number is
+  TEMPO's "Detalii" reference (0 = none) whose target URL is not published.
+  """
+  type InsDataSource {
+    name: String!
+    type: String
+    type_code: Int
+    link_number: Int
+  }
+
+  """
+  A predecessor matrix this series continues (TEMPO "Continuare serie").
+  """
+  type InsSeriesPredecessor {
+    dataset_code: String!
+    last_period_ro: String!
+    last_period_en: String
   }
 
   """

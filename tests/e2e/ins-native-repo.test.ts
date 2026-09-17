@@ -1,6 +1,6 @@
 /**
  * E2E — the INS native repository over the REAL scrapper DDL (PostgreSQL 18):
- * the eight `ins` prod migrations (content-pinned) + the lane's identity index,
+ * the nine `ins` prod migrations (content-pinned) + the lane's identity index,
  * seeded with the same small world the unit-test fake models, then driven
  * through the usecases exactly as the resolvers do.
  *
@@ -17,7 +17,7 @@
  * on a loopback host (an SSH tunnel to the zeus docker host in practice), else a
  * local testcontainer. Skips locally without either; FAILS under `CI` /
  * `TEST_E2E_REQUIRED=1`. The scrapper checkout is `SCRAPPER_REPO_ROOT` or the
- * sibling checkout; the eight migrations must match `MIGRATION_SHA256`.
+ * sibling checkout; the nine migrations must match `MIGRATION_SHA256`.
  */
 
 import { execSync } from 'node:child_process';
@@ -127,6 +127,8 @@ const MIGRATION_SHA256: Readonly<Record<string, string>> = {
     '74d4bb4c13cfc840146810b0f2b5858b20c8d5c7d3f667a350c6b6cec85c7966',
   '20260914T090000__ins_geo_territory_lookup.ts':
     '288d536437c40c2d90dc7b1ab5f8565f5bba81884e124b52420330f729887e5f',
+  '20260917T100000__ins_published_metadata.ts':
+    '2124d492e7b0cdf7b64d276a47c84ba78bb2ff65acdf253947bb134ee0054ecc',
 };
 const MIGRATIONS = Object.keys(MIGRATION_SHA256);
 
