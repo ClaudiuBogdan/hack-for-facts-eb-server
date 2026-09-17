@@ -88,6 +88,7 @@ import { makeTerritoryRepo } from '@/modules/shared/shell/repo/territory-repo.js
 import { registerBudgetAnnualTableCases } from './budget-annual-table-cases.js';
 import { registerBudgetEvolutionCases } from './budget-evolution-cases.js';
 import { registerBudgetMoneyCases } from './budget-money-cases.js';
+import { registerBudgetPeriodEligibilityCases } from './budget-period-eligibility-cases.js';
 import { registerBudgetRankingPopulationCases } from './budget-ranking-population-cases.js';
 import { teardownDisposablePostgres } from './disposable-postgres.js';
 import { registerMapAnnualPopulationCases } from './map-annual-population-cases.js';
@@ -2916,6 +2917,7 @@ describe('mounted native map routes', () => {
 });
 
 registerBudgetEvolutionCases(it, rollbackTerritoryFixture);
+registerBudgetPeriodEligibilityCases(it, rollbackTerritoryFixture);
 
 registerBudgetRankingPopulationCases(it, rollbackTerritoryFixture);
 
