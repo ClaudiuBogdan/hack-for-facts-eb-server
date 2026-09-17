@@ -356,6 +356,31 @@ export interface GqlDataset {
   readonly context_name_en: string | null;
   readonly context_path: string | null;
   readonly metadata: Record<string, unknown>;
+  readonly methodology_ro: string | null;
+  readonly methodology_en: string | null;
+  readonly data_sources_ro: string | null;
+  readonly data_sources_en: string | null;
+  readonly data_sources: readonly GqlDataSource[];
+  readonly observations_ro: string | null;
+  readonly observations_en: string | null;
+  readonly discontinued_after_ro: string | null;
+  readonly discontinued_after_en: string | null;
+  readonly successor_dataset_code: string | null;
+  readonly continues_from: readonly GqlSeriesPredecessor[];
+  readonly source_last_update: string | null;
+}
+
+export interface GqlDataSource {
+  readonly name: string;
+  readonly type: string | null;
+  readonly type_code: number | null;
+  readonly link_number: number | null;
+}
+
+export interface GqlSeriesPredecessor {
+  readonly dataset_code: string;
+  readonly last_period_ro: string;
+  readonly last_period_en: string | null;
 }
 
 export const toGqlDataset = (d: InsDatasetView): GqlDataset => ({
@@ -392,6 +417,27 @@ export const toGqlDataset = (d: InsDatasetView): GqlDataset => ({
     published_at: d.publishedAt,
     source_url: d.sourceUrl,
   },
+  methodology_ro: d.methodologyRo,
+  methodology_en: d.methodologyEn,
+  data_sources_ro: d.dataSourcesRo,
+  data_sources_en: d.dataSourcesEn,
+  data_sources: d.dataSources.map((source) => ({
+    name: source.name,
+    type: source.type,
+    type_code: source.typeCode,
+    link_number: source.linkNumber,
+  })),
+  observations_ro: d.observationsRo,
+  observations_en: d.observationsEn,
+  discontinued_after_ro: d.discontinuedAfterRo,
+  discontinued_after_en: d.discontinuedAfterEn,
+  successor_dataset_code: d.successorDatasetCode,
+  continues_from: d.continuesFrom.map((link) => ({
+    dataset_code: link.datasetCode,
+    last_period_ro: link.lastPeriodRo,
+    last_period_en: link.lastPeriodEn,
+  })),
+  source_last_update: d.sourceLastUpdate,
 });
 
 export interface GqlObservation {

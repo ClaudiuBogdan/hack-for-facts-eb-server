@@ -167,6 +167,15 @@ export interface InsDatasetCoverageTable {
   methodology_ro: string | null;
   methodology_en: string | null;
   data_sources_ro: string | null;
+  // 20260917T100000__ins_published_metadata: the rest of the TEMPO text.
+  observations_ro: string | null;
+  observations_en: string | null;
+  data_sources_en: string | null;
+  data_sources: unknown; // jsonb [{name, type, type_code, link_number}] | null
+  discontinued_after_ro: string | null;
+  discontinued_after_en: string | null;
+  successor_dataset_code: string | null;
+  continues_from: unknown; // jsonb [{dataset_code, last_period_ro, last_period_en}] | null
   source_year_start: number | null;
   source_year_end: number | null;
   source_last_update: string | null; // date
