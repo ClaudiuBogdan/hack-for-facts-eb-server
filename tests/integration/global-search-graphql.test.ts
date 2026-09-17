@@ -465,3 +465,32 @@ describe('Entity field resolvers', () => {
     ]);
   });
 });
+
+it('passes the INS scope through GraphQL and isolates its cached result', async () => {
+  const matrix = makeHit({
+    docType: 'ins_dataset',
+    docKey: 'POP107D',
+    identifiers: ['POP107D'],
+    cuis: [],
+    roles: [],
+    url: '/statistici/seturi/POP107D',
+  });
+  const searchSpy = vi.fn(async () =>
+    ok({ hits: [matrix], facetDistribution: {}, estimatedTotalHits: 1 })
+  );
+  const { deps } = makeDeps({ searchSpy });
+  const search = resolver(deps);
+  const result = await search(null, { q: 'populatie', docTypes: ['ins_dataset'] }, ctx());
+  expect(result.hits).toEqual([matrix]);
+  expect(searchSpy).toHaveBeenLastCalledWith(
+    'populatie',
+    'entities',
+    expect.objectContaining({
+      filter: ['privacy_class = "public"', 'doc_type IN ["ins_dataset"]'],
+    })
+  );
+  await search(null, { q: 'populatie', docTypes: ['ins_dataset'] }, ctx());
+  expect(searchSpy).toHaveBeenCalledTimes(1);
+  await search(null, { q: 'populatie', docTypes: ['organization'] }, ctx());
+  expect(searchSpy).toHaveBeenCalledTimes(2);
+});

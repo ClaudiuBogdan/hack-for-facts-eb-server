@@ -397,3 +397,20 @@ describe('metadata input validation', () => {
     expect(spies.meiliSearch.mock.calls[0]?.[2].filter).toContain('is_uat = true');
   });
 });
+
+describe('INS catalog search', () => {
+  it('includes matrices in unscoped discovery', async () => {
+    const { deps, spies } = makeDeps({});
+    await makeGlobalSearch(deps, { q: 'populatie' });
+    const opts = spies.meiliSearch.mock.calls[0]?.[2] as { filter: string[] };
+    expect(opts.filter.find((clause) => clause.startsWith('doc_type IN'))).toContain(
+      '"ins_dataset"'
+    );
+  });
+  it('rejects a catalog type used as an entity role', async () => {
+    const { deps, spies } = makeDeps({});
+    const result = await makeGlobalSearch(deps, { q: 'populatie', roles: ['ins_dataset'] });
+    expect(result.isErr()).toBe(true);
+    expect(spies.meiliSearch).not.toHaveBeenCalled();
+  });
+});

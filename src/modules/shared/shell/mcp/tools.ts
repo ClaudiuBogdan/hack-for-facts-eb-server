@@ -124,13 +124,15 @@ export const makeKernelMcpTools = (deps: KernelMcpDeps): readonly KernelMcpTool[
     title: 'Căutare entități Transparenta.eu',
     ui: { resourceUri: ENTITY_SEARCH_WIDGET_URI },
     description:
-      'Free-text global search across every quick-searchable identity (companies, public institutions, NGOs, public enterprises, PNRR entities, MPs, bills, committees, legal acts, Monitorul Oficial acts). Returns the merged, relevance-ranked list with a type badge per hit, optionally narrowed by docTypes / roles / county / isActive. One document per identity: use docTypes for what a thing IS and roles for what it PLAYS (a municipality that is also a PNRR beneficiary is one hit carrying both). Use this to FIND entities when you only have a name or keyword; then use resolve_entity / get_entity_snapshot for a specific CUI.',
+      'Free-text global search across every quick-searchable identity (companies, public institutions, NGOs, public enterprises, PNRR entities, MPs, bills, committees, legal acts, Monitorul Oficial acts, INS TEMPO matrix catalogs). Returns the merged, relevance-ranked list with a type badge per hit, optionally narrowed by docTypes / roles / county / isActive. One document per identity: use docTypes for what a thing IS and roles for what it PLAYS (a municipality that is also a PNRR beneficiary is one hit carrying both). Use this to FIND entities when you only have a name or keyword; then use resolve_entity / get_entity_snapshot for a specific CUI.',
     inputShape: {
       query: z.string().describe('Free-text query (entity name, keyword, or CUI).'),
       docTypes: z
         .array(z.string())
         .optional()
-        .describe('Restrict to these entity doc types (e.g. ["company","legal_act"]).'),
+        .describe(
+          'Restrict to these document types (e.g. ["company","legal_act","ins_dataset"]). INS results describe catalog matrices, not observation availability.'
+        ),
       county: z
         .string()
         .optional()

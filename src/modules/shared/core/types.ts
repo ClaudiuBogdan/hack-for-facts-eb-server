@@ -381,12 +381,13 @@ export const SEARCH_ENTITY_DOC_TYPES = [
   'committee',
   'legal_act',
   'mo_act',
+  'ins_dataset',
 ] as const;
 export type SearchEntityDocType = (typeof SEARCH_ENTITY_DOC_TYPES)[number];
 
-/** Role values a palette identity can carry (superset shape of doc_type). */
-export const SEARCH_ENTITY_ROLES = SEARCH_ENTITY_DOC_TYPES;
-export type SearchEntityRole = SearchEntityDocType;
+/** Catalog matrices are searchable documents, but do not play entity roles. */
+export const SEARCH_ENTITY_ROLES = SEARCH_ENTITY_DOC_TYPES.filter((type) => type !== 'ins_dataset');
+export type SearchEntityRole = (typeof SEARCH_ENTITY_ROLES)[number];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Cross-source aggregation shapes (§4.4 — canonical open shapes)

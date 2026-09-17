@@ -244,3 +244,30 @@ describe('search_entities — arg coercion', () => {
     });
   });
 });
+
+it('serves INS matrix catalog results through the shared search tool', async () => {
+  const tool = getSearchTool(
+    buildTools({
+      hits: [
+        makeHit({
+          docType: 'ins_dataset',
+          docKey: 'POP107D',
+          cuis: [],
+          url: '/statistici/seturi/POP107D',
+          roles: [],
+        }),
+      ],
+    })
+  );
+  const result = await tool.handler({ query: 'populatie', docTypes: ['ins_dataset'] });
+  expect(result).toMatchObject({
+    ok: true,
+    items: [
+      {
+        docType: 'ins_dataset',
+        docKey: 'POP107D',
+        url: '/statistici/seturi/POP107D',
+      },
+    ],
+  });
+});

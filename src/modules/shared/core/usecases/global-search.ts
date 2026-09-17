@@ -40,11 +40,13 @@ import {
   buildEntitiesFilter,
   normalizeCounty,
   validEntityDocTypes,
+  validEntityRoles,
   validEntityTags,
 } from '../filters/meili-array.js';
 import { searchQueryProblem, type SearchPolicy } from '../filters/search-policy.js';
 import {
   SEARCH_ENTITY_DOC_TYPES,
+  SEARCH_ENTITY_ROLES,
   type OrgNameMatch,
   type SearchFacet,
   type SearchHit,
@@ -170,7 +172,7 @@ export const makeGlobalSearch = async (
   }
   if (
     input.roles?.some(
-      (role) => !SEARCH_ENTITY_DOC_TYPES.includes(role as (typeof SEARCH_ENTITY_DOC_TYPES)[number])
+      (role) => !SEARCH_ENTITY_ROLES.includes(role as (typeof SEARCH_ENTITY_ROLES)[number])
     ) === true
   ) {
     return err(invalidInput('Unknown entity role', 'roles'));
@@ -217,7 +219,7 @@ export const makeGlobalSearch = async (
     logSearch('meili', 0, 0, true);
     return err(invalidInput('county must be a canonical county name', 'county'));
   }
-  const roles = validEntityDocTypes(input.roles);
+  const roles = validEntityRoles(input.roles);
 
   const filterArgs = {
     ...(docTypes.length > 0 && { docTypes }),

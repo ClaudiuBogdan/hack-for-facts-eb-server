@@ -12,7 +12,7 @@
  * never be dropped.
  *
  * SECURITY: the only values interpolated into expression strings come from
- * allowlisted/typed sources — `docTypes`/`roles` ∈ `SEARCH_ENTITY_DOC_TYPES`,
+ * allowlisted/typed sources — `docTypes` ∈ `SEARCH_ENTITY_DOC_TYPES`, `roles` ∈ `SEARCH_ENTITY_ROLES`,
  * `isActive` is a boolean, and `county` must match a strict name shape. Every
  * string value is additionally JSON.stringify-quoted, so there is no
  * operator/quote-injection surface.
@@ -21,7 +21,12 @@
  * bounded name shape; callers map county codes to names upstream.
  */
 
-import { SEARCH_ENTITY_DOC_TYPES, type SearchEntityDocType } from '../types.js';
+import {
+  SEARCH_ENTITY_DOC_TYPES,
+  SEARCH_ENTITY_ROLES,
+  type SearchEntityDocType,
+  type SearchEntityRole,
+} from '../types.js';
 
 /** Meili array filter: filter-expression strings, AND-ed by Meili. */
 export type MeiliEntitiesFilter = readonly string[];
@@ -46,6 +51,15 @@ export const validEntityTags = (tags: readonly string[] | undefined): boolean =>
   (tags.length <= 100 && tags.every((tag) => tag.length <= 200 && ENTITY_TAG_PATTERN.test(tag)));
 
 const ENTITY_DOC_TYPE_SET = new Set<string>(SEARCH_ENTITY_DOC_TYPES);
+
+const ENTITY_ROLE_SET = new Set<string>(SEARCH_ENTITY_ROLES);
+
+export const validEntityRoles = (
+  roles: readonly string[] | undefined
+): readonly SearchEntityRole[] =>
+  roles === undefined
+    ? []
+    : [...new Set(roles.filter((role): role is SearchEntityRole => ENTITY_ROLE_SET.has(role)))];
 
 const isEntityDocType = (value: string): value is SearchEntityDocType =>
   ENTITY_DOC_TYPE_SET.has(value);
@@ -90,8 +104,8 @@ export const buildEntitiesFilter = (input: BuildEntitiesFilterInput): MeiliEntit
     clauses.push(`doc_type IN [${docTypes.map(quote).join(', ')}]`);
   }
 
-  // roles IN [...] — an identity plays one or more roles; same allowlist.
-  const roles = validEntityDocTypes(input.roles);
+  // roles IN [...] — catalog document types are not entity roles.
+  const roles = validEntityRoles(input.roles);
   if (roles.length > 0) {
     clauses.push(`roles IN [${roles.map(quote).join(', ')}]`);
   }

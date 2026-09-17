@@ -305,3 +305,36 @@ describe('healthCheck', () => {
     expect(res.isErr()).toBe(true);
   });
 });
+
+it('preserves INS matrix keys and identifiers without inventing a CUI', async () => {
+  fetchSpy.mockResolvedValue(
+    jsonResponse({
+      hits: [
+        {
+          id: 'ins_dataset_POP107D_digest',
+          doc_type: 'ins_dataset',
+          doc_key: 'POP107D',
+          title: 'Populatia dupa domiciliu',
+          subtitle: 'INS TEMPO · POP107D',
+          identifiers: ['POP107D'],
+          roles: [],
+          entity_tags: [],
+          is_uat: null,
+          is_active: true,
+          url: '/statistici/seturi/POP107D',
+        },
+      ],
+    })
+  );
+  const result = await client.searchEntities('POP107D', 'entities', { limit: 8 });
+  expect(result._unsafeUnwrap().hits[0]).toMatchObject({
+    docType: 'ins_dataset',
+    docKey: 'POP107D',
+    identifiers: ['POP107D'],
+    cuis: [],
+    roles: [],
+    entityTags: [],
+    isUat: null,
+    url: '/statistici/seturi/POP107D',
+  });
+});

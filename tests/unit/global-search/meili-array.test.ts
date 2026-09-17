@@ -184,3 +184,13 @@ describe('public entity metadata filters', () => {
     expect(buildEntitiesFilter({})).toEqual(['privacy_class = "public"']);
   });
 });
+
+it('keeps INS catalog documents separate from entity roles', () => {
+  expect(
+    buildEntitiesFilter({ docTypes: ['ins_dataset'], roles: ['ins_dataset', 'pnrr_entity'] })
+  ).toEqual([
+    'privacy_class = "public"',
+    'doc_type IN ["ins_dataset"]',
+    'roles IN ["pnrr_entity"]',
+  ]);
+});
