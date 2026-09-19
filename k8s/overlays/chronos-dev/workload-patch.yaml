@@ -43,6 +43,19 @@ spec:
           args:
             - dist/redesign-api.js
           env:
+            - name: PROD_CLICKHOUSE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: chronos-prod-clickhouse-reader-credentials
+                  key: username
+            - name: PROD_CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: chronos-prod-clickhouse-reader-credentials
+                  key: password
+            # Extend Node's trust store; certificate and hostname verification remain enabled.
+            - name: NODE_EXTRA_CA_CERTS
+              value: /var/run/secrets/chronos-clickhouse/ca.crt
             - name: USER_DATA_DATABASE_URL
               valueFrom:
                 secretKeyRef:
@@ -68,6 +81,9 @@ spec:
                   name: chronos-prod-opensearch-reader-credentials
                   key: password
           volumeMounts:
+            - name: chronos-clickhouse-ca
+              mountPath: /var/run/secrets/chronos-clickhouse
+              readOnly: true
             - name: chronos-dev-user-db-ca
               mountPath: /var/run/secrets/chronos-dev-user-db
               readOnly: true
@@ -92,6 +108,12 @@ spec:
           lifecycle:
             $patch: delete
       volumes:
+        - name: chronos-clickhouse-ca
+          secret:
+            secretName: chronos-prod-clickhouse-reader-credentials
+            items:
+              - key: ca.crt
+                path: ca.crt
         - name: chronos-dev-user-db-ca
           secret:
             secretName: transparenta-eu-dev-user-db-ca

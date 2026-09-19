@@ -17,7 +17,8 @@ data:
   PROD_OPENSEARCH_URL: https://transparenta-eu-etl-opensearch.transparenta-eu-etl-prod.svc.cluster.local:9200
   PROD_OPENSEARCH_CA_FILE: /var/run/secrets/chronos-opensearch/ca.pem
   PROD_OPENSEARCH_TLS_SERVERNAME: transparenta-eu-etl-opensearch.transparenta-eu-etl-prod.svc.cluster.local
-  PROD_CLICKHOUSE_URL: ''
+  PROD_CLICKHOUSE_URL: https://transparenta-eu-etl-clickhouse.transparenta-eu-etl-prod.svc.cluster.local:8443
+  PROD_CLICKHOUSE_DATABASE: proto
   # Keys the kernel entrypoint never reads (review X/F16): the shared base
   # ConfigMap carries them for the legacy api.js; the redesign config schema
   # strips them silently, so they are removed here to keep the pod env honest.
