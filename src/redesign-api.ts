@@ -34,6 +34,7 @@ const main = async (): Promise<void> => {
     corsAllowedOrigins: config.corsAllowedOrigins,
     trustProxy: config.trustProxy,
     procurement: config.procurement,
+    ngoRegistryEnabled: config.ngoRegistryEnabled ?? false,
     ...(config.legalSearch !== undefined && { legalSearch: config.legalSearch }),
     ...(config.kernel.clientBaseUrl !== undefined && {
       clientBaseUrl: config.kernel.clientBaseUrl,

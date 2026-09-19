@@ -96,6 +96,7 @@ const main = async (): Promise<void> => {
   const redesignKernelConfig = redesign.kernel;
   const redesignComposition: AppDeps['redesignComposition'] = {
     procurement: redesign.procurement,
+    ngoRegistryEnabled: redesign.ngoRegistryEnabled ?? false,
     ...(redesign.legalSearch !== undefined && { legalSearch: redesign.legalSearch }),
   };
   const redesignClientBaseUrl = redesign.kernel.clientBaseUrl;

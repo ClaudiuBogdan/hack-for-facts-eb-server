@@ -858,6 +858,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
           kernelConfig: redesignKernelConfig,
           ...(deps.redesignComposition !== undefined && {
             procurement: deps.redesignComposition.procurement,
+            ngoRegistryEnabled: deps.redesignComposition.ngoRegistryEnabled ?? false,
             ...(deps.redesignComposition.legalSearch !== undefined && {
               legalSearch: deps.redesignComposition.legalSearch,
             }),

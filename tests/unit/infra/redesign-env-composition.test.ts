@@ -149,7 +149,8 @@ describe('loadEmbeddedKernelConfig — the legacy composer ignores standalone-on
     expect(() => loadRedesignConfig({ ...base, ...standaloneOnly })).toThrow();
     const embedded = loadEmbeddedKernelConfig({ ...base, ...standaloneOnly });
     expect(embedded.kernel.prodDatabaseUrl).toBe(base.PROD_DATABASE_URL);
-    expect(Object.keys(embedded).sort()).toEqual(['kernel', 'procurement']);
+    expect(embedded.ngoRegistryEnabled).toBe(false);
+    expect(Object.keys(embedded).sort()).toEqual(['kernel', 'ngoRegistryEnabled', 'procurement']);
   });
 
   it('still fails on a missing or invalid kernel source', () => {

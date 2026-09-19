@@ -45,6 +45,7 @@ import { makeDbHealthChecker } from '../modules/health/index.js';
 import { makeInsNativeModule, type InsReadSession } from '../modules/ins-native/index.js';
 import { makeJudicialModule } from '../modules/judicial/index.js';
 import { makeLegalModule } from '../modules/legal/index.js';
+import { makeNgosModule } from '../modules/ngos/index.js';
 import { makeFactorSetReader } from '../modules/normalization/index.js';
 import { makeParliamentModule } from '../modules/parliament/index.js';
 import { makePnrrModule } from '../modules/pnrr/index.js';
@@ -114,6 +115,7 @@ export interface BuildRedesignAppDeps {
    * embedded alike) include native INS. Pass `[]` to boot the bare kernel.
    */
   readonly modules?: readonly (
+    | 'ngos'
     | 'pnrr'
     | 'reference'
     | 'budget'
@@ -128,6 +130,8 @@ export interface BuildRedesignAppDeps {
   )[];
   /** Disable procurement's fire-and-forget preload for isolated cold benchmarks. */
   readonly procurementWarmCache?: boolean;
+  /** Enabled only after RNONG privacy, role-isolation and data release gates. */
+  readonly ngoRegistryEnabled?: boolean;
   /** Procurement composition (ClickHouse, record-list search, DA window), validated by the entrypoint. */
   readonly procurement?: ProcurementComposition;
   /** Legal search engine connection, validated by the entrypoint. */
@@ -223,6 +227,7 @@ export const deepMergeResolvers = (
 
 // One default composition for the standalone kernel and the `api.js` embedding.
 const SHARED_DEFAULT_MODULES = [
+  'ngos',
   'pnrr',
   'reference',
   'budget',
@@ -403,6 +408,17 @@ export const registerRedesignSurface = async (
   let pnrrRestPlugin: import('fastify').FastifyPluginAsync | undefined;
   let parliamentRoutes: import('fastify').FastifyPluginAsync | undefined;
   let legalRoutes: import('fastify').FastifyPluginAsync | undefined;
+
+  if (enabledModules.includes('ngos')) {
+    const ngos = makeNgosModule({
+      db: kernel.db,
+      enabled: deps.ngoRegistryEnabled ?? false,
+      ...(deps.clientBaseUrl === undefined ? {} : { clientBaseUrl: deps.clientBaseUrl }),
+    });
+    moduleSlices.push(ngos.graphqlSlice);
+    moduleResolvers.push(ngos.graphqlResolvers);
+    moduleMcpTools.push(...ngos.mcpTools);
+  }
 
   if (enabledModules.includes('pnrr')) {
     const pnrr = makePnrrModule({

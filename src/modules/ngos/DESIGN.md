@@ -1,0 +1,9 @@
+# NGO registry v1
+
+RNONG registry observations are served through GraphQL and MCP, using only the explicit public views from scraper migrations `20260919T220000` / `220500`. Source records without CUI remain browseable. No fuzzy identities, financials, grants, purpose text, raw payloads or mock adapters are added.
+
+The base row's privacy class is the maximum sensitivity of its columns; separately audited column projections carry their own class. Base legal/snapshot rows stay restricted. The repository type and SQL allowlist omit private fields structurally. Publication requires the field audit, concrete live migration/load approval and serving-role base-table isolation; existing `pg_read_all_data` inheritance needs supervised resolution. `NGO_REGISTRY_ENABLED` defaults false on both entrypoints. Missing/disabled data returns an explicit capability error, never a successful empty registry.
+
+Lists use the shared filter DSL and cursor envelope. The indexed snapshot/row tuple drives reads; name/category/county/status filters scan within that snapshot. Snapshot id participates in cursor hash; refresh requires restarting pagination. No search index is introduced without measurements. History is append-only: archived detail is marked `isCurrent=false` and linked to a registry-number search, never guessed to be a unique current organization. Client details are noindex until durable identity is established.
+
+Counts mean source observations, including duplicates. Date/status/public-utility fields are source assertions. List and detail always carry import date, source link, supplied-artifact basis and unverified national completeness. Display-only source CUI is distinct from the accepted linked-organization CUI. Cross-domain entity enrichment and the old mock NGO feature are outside v1.

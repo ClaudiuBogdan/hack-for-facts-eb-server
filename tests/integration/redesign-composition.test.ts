@@ -41,6 +41,7 @@ const SINGLE_MODULES: readonly Modules[number][] = [
   'parliament',
   'procurement',
   'primarii-transparency',
+  'ngos',
 ];
 
 const apps: FastifyInstance[] = [];

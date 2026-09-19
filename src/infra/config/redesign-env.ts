@@ -43,6 +43,7 @@ const RedesignEnvSchema = Type.Object({
   PROD_ALLOWED_ORIGINS: Type.Optional(Type.String()),
   PROD_DB_POOL_MAX: Type.Optional(Type.String()),
   PROD_DB_SSL: Type.Optional(Type.String()),
+  NGO_REGISTRY_ENABLED: Type.Optional(Type.String()),
   LOG_LEVEL: Type.Optional(Type.String()),
   USER_DATA_DATABASE_URL: Type.Optional(Type.String({ minLength: 1 })),
   USER_DATA_DB_CA_FILE: Type.Optional(Type.String({ minLength: 1 })),
@@ -116,6 +117,7 @@ export interface RedesignConfig {
   /** Fastify `trustProxy` (boolean, hop count, or proxy list); default true behind the gateway. */
   readonly trustProxy: TrustProxySetting;
   readonly procurement: ProcurementComposition;
+  readonly ngoRegistryEnabled?: boolean;
   readonly legalSearch?: LegalSearchComposition;
   /** Extra browser origins allowed cross-origin in prod (from PROD_ALLOWED_ORIGINS). */
   readonly corsAllowedOrigins: readonly string[];
@@ -225,7 +227,10 @@ const nonEmpty = (value: string | undefined): string | undefined =>
  * auth provider and user DB (`env.ts`), so an incomplete standalone Clerk or
  * user-data block must not stop the platform API from booting.
  */
-export type EmbeddedKernelConfig = Pick<RedesignConfig, 'kernel' | 'procurement' | 'legalSearch'>;
+export type EmbeddedKernelConfig = Pick<
+  RedesignConfig,
+  'kernel' | 'procurement' | 'legalSearch' | 'ngoRegistryEnabled'
+>;
 
 const composeEmbeddedKernel = (e: EmbeddedKernelEnv): EmbeddedKernelConfig => {
   const meiliIndexes = splitCsv(e.PROD_MEILI_INDEXES);
@@ -353,6 +358,7 @@ const composeEmbeddedKernel = (e: EmbeddedKernelEnv): EmbeddedKernelConfig => {
       ...(e.PROD_CLIENT_BASE_URL !== undefined && { clientBaseUrl: e.PROD_CLIENT_BASE_URL }),
     },
     procurement,
+    ngoRegistryEnabled: e.NGO_REGISTRY_ENABLED === 'true',
     ...(legalSearch !== undefined && { legalSearch }),
   };
 };
