@@ -44,6 +44,7 @@ export const ngoRegistryTypeDefs =
     category: String!
     legalForm: String!
     name: String!
+    nameWithheld: Boolean!
     court: String!
     sourceRegistryStatus: String!
     county: String

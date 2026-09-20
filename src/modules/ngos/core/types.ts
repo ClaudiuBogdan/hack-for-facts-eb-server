@@ -24,6 +24,7 @@ export interface NgoRegistryRecord {
   readonly category: string;
   readonly legalForm: string;
   readonly name: string;
+  readonly nameWithheld: boolean;
   readonly court: string;
   readonly sourceRegistryStatus: string;
   readonly county: string | null;

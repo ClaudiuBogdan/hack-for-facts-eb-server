@@ -7,6 +7,8 @@ data:
   PORT: '3000'
   HOST: 0.0.0.0
   LOG_LEVEL: info
+  # Enable only with the reviewed RNONG production snapshot and public-field audit.
+  NGO_REGISTRY_ENABLED: 'true'
   PROD_ALLOWED_ORIGINS: https://dev-chronos.transparenta.eu
   PROD_CLIENT_BASE_URL: https://dev-chronos.transparenta.eu
   PROD_DB_POOL_MAX: '10'

@@ -23,7 +23,8 @@ export interface NgoPublicRecordRow {
   entity_kind: string;
   legal_form: string;
   organization_name: string;
-  normalized_name: string;
+  normalized_name: string | null;
+  name_withheld: boolean;
   court_name: string;
   source_registry_status: string;
   county: string | null;

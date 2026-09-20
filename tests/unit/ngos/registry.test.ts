@@ -23,6 +23,7 @@ const record: NgoRegistryRecord = {
   category: 'association',
   legalForm: 'Asociație',
   name: 'ASOCIAȚIA EXEMPLU',
+  nameWithheld: false,
   court: 'Judecatoria TEST',
   sourceRegistryStatus: 'Radiat',
   county: 'Cluj',
