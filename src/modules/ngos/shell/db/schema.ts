@@ -53,3 +53,23 @@ declare module '@/modules/shared/shell/db/types.js' {
     'ngo.rnong_public_records': NgoPublicRecordRow;
   }
 }
+
+export interface NgoPublicFiscalRow {
+  cui: string;
+  is_vat_payer: boolean | null;
+  is_inactive: boolean | null;
+  is_split_vat: boolean | null;
+  main_caen_code: string | null;
+  main_caen_rev: string | null;
+  status_date: string | null;
+  retrieved_at: string | null;
+  source_url: string;
+  source_snapshot_id: string;
+  privacy_class: string;
+}
+declare module '@/modules/shared/shell/db/types.js' {
+  interface ProdDatabase {
+    // eslint-disable-next-line @typescript-eslint/naming-convention -- Schema-qualified Kysely table key.
+    'ngo.public_fiscal_status': NgoPublicFiscalRow;
+  }
+}

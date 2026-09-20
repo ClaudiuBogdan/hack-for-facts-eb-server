@@ -4,7 +4,7 @@ import { invalidInput } from '@/modules/shared/index.js';
 
 import { normalizeNgoFilters } from './filters.js';
 
-import type { NgoRegistryRepository } from './ports.js';
+import type { NgoRegistryRepository, NgoProfileRepository } from './ports.js';
 import type { NgoRegistryRequest } from './types.js';
 
 export const listNgoRegistry = (repo: NgoRegistryRepository, request: NgoRegistryRequest) => {
@@ -18,3 +18,9 @@ export const getNgoRegistryRecord = (repo: NgoRegistryRepository, id: string) =>
   return repo.detail(id);
 };
 export const getNgoRegistryCoverage = (repo: NgoRegistryRepository) => repo.coverage();
+
+export const getNgoProfileOverview = (repo: NgoProfileRepository, cui: string) => {
+  if (!/^[1-9][0-9]{1,9}$/.test(cui))
+    return Promise.resolve(err(invalidInput('Expected a canonical organization CUI', 'cui')));
+  return repo.overview(cui);
+};

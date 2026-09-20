@@ -45,3 +45,27 @@ export interface NgoRegistryRequest {
   readonly first: number;
   readonly after?: string;
 }
+
+export interface NgoFiscalObservation {
+  readonly vatPayer: boolean | null;
+  readonly declaredFiscallyInactive: boolean | null;
+  readonly splitVat: boolean | null;
+  readonly mainCaenCode: string | null;
+  readonly mainCaenRev: string | null;
+  readonly queryDate: string | null;
+  readonly capturedAt: string | null;
+  readonly sourceUrl: string;
+  readonly sourceSnapshotId: string;
+}
+export interface NgoProfileOverview {
+  readonly cui: string;
+  readonly identityBasis: 'accepted_rnong_cui';
+  readonly registryRecords: readonly NgoRegistryRecord[];
+  readonly fiscal:
+    | { readonly availability: 'available'; readonly data: NgoFiscalObservation }
+    | { readonly availability: 'unavailable'; readonly data: null };
+  readonly sections: readonly {
+    readonly key: 'financials' | 'services' | 'accreditations' | 'funding';
+    readonly availability: 'not_released';
+  }[];
+}

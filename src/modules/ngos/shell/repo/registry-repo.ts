@@ -36,7 +36,7 @@ const snapshot = (row: NgoPublicSnapshotRow): NgoRegistrySnapshot => ({
   nationalCompleteness: row.national_completeness,
 });
 
-const record = (row: NgoPublicRecordRow): NgoRegistryRecord => ({
+export const mapPublicRegistryRecord = (row: NgoPublicRecordRow): NgoRegistryRecord => ({
   id: row.legal_record_id,
   sourceRowNumber: row.source_row_number,
   registryNumber: row.registry_number,
@@ -68,48 +68,47 @@ const readError = (error: unknown) => {
   return databaseError('NGO registry read failed', error);
 };
 
+export const publicRegistryRecords = (db: Kysely<ProdDatabase>) =>
+  db
+    .selectFrom('ngo.rnong_public_records as r')
+    .select([
+      'r.legal_record_id',
+      'r.source_snapshot_id',
+      'r.source_row_number',
+      'r.registry_number',
+      'r.special_registry_number',
+      'r.entity_kind',
+      'r.legal_form',
+      'r.organization_name',
+      'r.name_withheld',
+      'r.normalized_name',
+      'r.court_name',
+      'r.source_registry_status',
+      'r.county',
+      'r.locality',
+      'r.source_cui',
+      'r.linked_organization_cui',
+      'r.is_branch',
+      'r.source_reports_public_utility',
+      'r.snapshot_row_count',
+      'r.is_current',
+      'r.source_url',
+      'r.coverage_basis',
+      'r.national_completeness',
+      'r.privacy_class',
+      'r.refresh_overdue',
+      sql<string>`r.captured_at::text`.as('captured_at'),
+      sql<string | null>`r.source_registration_date::text`.as('source_registration_date'),
+      sql<string | null>`r.source_declared_snapshot_date::text`.as('source_declared_snapshot_date'),
+      sql<string>`r.loaded_at::text`.as('loaded_at'),
+      sql<string | null>`r.accepted_at::text`.as('accepted_at'),
+    ])
+    .where('r.privacy_class', '=', 'public');
+
 export const makeNgoRegistryRepo = (
   db: Kysely<ProdDatabase>,
   enabled: boolean
 ): NgoRegistryRepository => {
-  const records = () =>
-    db
-      .selectFrom('ngo.rnong_public_records as r')
-      .select([
-        'r.legal_record_id',
-        'r.source_snapshot_id',
-        'r.source_row_number',
-        'r.registry_number',
-        'r.special_registry_number',
-        'r.entity_kind',
-        'r.legal_form',
-        'r.organization_name',
-        'r.name_withheld',
-        'r.normalized_name',
-        'r.court_name',
-        'r.source_registry_status',
-        'r.county',
-        'r.locality',
-        'r.source_cui',
-        'r.linked_organization_cui',
-        'r.is_branch',
-        'r.source_reports_public_utility',
-        'r.snapshot_row_count',
-        'r.is_current',
-        'r.source_url',
-        'r.coverage_basis',
-        'r.national_completeness',
-        'r.privacy_class',
-        'r.refresh_overdue',
-        sql<string>`r.captured_at::text`.as('captured_at'),
-        sql<string | null>`r.source_registration_date::text`.as('source_registration_date'),
-        sql<string | null>`r.source_declared_snapshot_date::text`.as(
-          'source_declared_snapshot_date'
-        ),
-        sql<string>`r.loaded_at::text`.as('loaded_at'),
-        sql<string | null>`r.accepted_at::text`.as('accepted_at'),
-      ])
-      .where('r.privacy_class', '=', 'public');
   const coverage: NgoRegistryRepository['coverage'] = async () => {
     if (!enabled) return err(unavailable());
     try {
@@ -166,7 +165,7 @@ export const makeNgoRegistryRepo = (
           return err(invalidInput('invalid registry cursor; restart pagination', 'after'));
       }
       try {
-        let query = records()
+        let query = publicRegistryRecords(db)
           .where('r.source_snapshot_id', '=', current.value.id)
           .where('r.source_row_number', '>', afterRow);
         for (const condition of conditions.value)
@@ -175,7 +174,7 @@ export const makeNgoRegistryRepo = (
           .orderBy('r.source_row_number', 'asc')
           .limit(request.first + 1)
           .execute();
-        const items = rows.slice(0, request.first).map(record);
+        const items = rows.slice(0, request.first).map(mapPublicRegistryRecord);
         const last = items.at(-1);
         const next =
           rows.length > request.first && last !== undefined
@@ -194,8 +193,10 @@ export const makeNgoRegistryRepo = (
     async detail(id) {
       if (!enabled) return err(unavailable());
       try {
-        const row = await records().where('r.legal_record_id', '=', id).executeTakeFirst();
-        return ok(row === undefined ? null : record(row));
+        const row = await publicRegistryRecords(db)
+          .where('r.legal_record_id', '=', id)
+          .executeTakeFirst();
+        return ok(row === undefined ? null : mapPublicRegistryRecord(row));
       } catch (error) {
         return err(readError(error));
       }

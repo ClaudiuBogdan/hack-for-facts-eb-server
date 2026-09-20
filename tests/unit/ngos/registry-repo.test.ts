@@ -7,6 +7,7 @@ import {
 } from 'kysely';
 import { describe, expect, it, vi } from 'vitest';
 
+import { makeNgoProfileRepo } from '@/modules/ngos/shell/repo/profile-repo.js';
 import { makeNgoRegistryRepo } from '@/modules/ngos/shell/repo/registry-repo.js';
 
 import type { ProdDatabase } from '@/modules/shared/index.js';
@@ -38,6 +39,7 @@ describe('NGO publication capability', () => {
     const repo = makeNgoRegistryRepo(db, false);
     for (const result of await Promise.all([
       repo.coverage(),
+      makeNgoProfileRepo(db, false).overview('4305857'),
       repo.list({ filter: {}, first: 20 }),
       repo.detail('record'),
     ])) {
