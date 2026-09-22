@@ -2,7 +2,7 @@
 
 The API over the Romanian public-data platform: **REST + GraphQL + MCP**, read-only
 over the production database. `AGENTS.md` is the canonical instruction file;
-`CLAUDE.md`, `GEMINI.md`, and `.opencode/AGENTS.md` are symlinks to it.
+`GEMINI.md` is a symlink to it.
 
 Sibling repos — keep the data shape consistent across all three:
 
