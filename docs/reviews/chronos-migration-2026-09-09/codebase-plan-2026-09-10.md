@@ -23,7 +23,12 @@ Every work package is verified the same way before it is pushed:
    ids on deploy day, 46 since WP1 re-pinned the two picker cases; the difference counts depend on Chronos data and are a signal to
    explain, not a gate. The reference set holds only while Chronos data is
    static; if the scrapper loads anything, re-record the reference run before
-   trusting a diff).
+   trusting a diff. Since 2026-09-16 the reference is committed as
+   `tests/golden-master/cutover-reference.json` and every cutover run compares
+   against it — `Reference set:` at the top of `summary.md`, one teardown
+   line, `referenceComparison` in `summary.json`; `ok` and the exit code do
+   not encode it. Re-record with
+   `pnpm gm:reference:record <run>/summary.json --image <sha> --provenance "<why>"`).
 4. The e2e suites that touch the changed code, on the zeus Docker host
    (Testcontainers over the SSH socket tunnel; a skipped e2e is not a pass).
 5. Codex plus Fable-high review of the working tree, findings applied, then
