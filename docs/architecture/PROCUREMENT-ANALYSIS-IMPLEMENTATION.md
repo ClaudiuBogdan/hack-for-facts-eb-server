@@ -7,6 +7,45 @@ remains undeployed. See
 `docs/server-redesign/10-public-contracts-api-remediation-plan.md`.
 **Design:** `PROCUREMENT-ANALYSIS-DESIGN.md` (rev 2 + the rev-3 amendments below). Tool contract context: `MCP-AGENTIC-LAYER-ARCHITECTURE-REVIEW.md`; filtering substrate: `PARLIAMENT-PROCUREMENT-FILTERING-DESIGN.md`.
 
+## September 24, 2026 — ClickHouse generation binding
+
+The P19 reader correction is implemented locally; it has not been deployed.
+Build `8` uses the retained legacy fact-table names. Every other canonical,
+positive PostgreSQL bigint build ID selects the six corresponding tables named
+`<legacy_table>_b<ID>`. Missing tables fail instead of falling back to legacy
+facts. The publisher must finish and verify all six tables and the generation's
+coverage/quality before activating its PostgreSQL generation row.
+
+The selected table set is derived from the generation already pinned by each
+analysis executor. Stats, series, distinct series, breakdowns, concentration,
+subtotals and nested award searches use it consistently. The same shared
+executors serve GraphQL and MCP. Capability probes use the selected contract
+table and retain the existing 95% framework-role coverage requirement. Counts
+and dataset integrity are publisher gates; the reader's presence probe does not
+prove that a candidate is complete.
+
+Publication identity is the generation ID plus its table set. A correction
+revision can retain its parent's physical fact-row `build_id` as provenance;
+that column is not a query filter for the revision. Coverage remains in
+`meta_value_coverage_v2`, keyed by the publication ID. Empty or duplicate
+`(grain, basis, population)` results are rejected without caching, and valid
+results are ordered and cached per publication. Existing use-case behavior is
+preserved: unavailable basis coverage makes the dependent money bases abstain;
+counts and awarded money still use the generation's own quality verdict.
+
+The actual ClickHouse query cache holds only in-flight promises, keyed by SQL
+that now includes generation-specific table names. The warm-up calls the same
+executors; it introduces no independent stored response cache. Each analysis
+result carries its pinned build ID, including both operands of a share and all
+blocks of a facets result. Separate analysis executions remain separate reads.
+
+Tests cover generation switches during actual breakdown/share use cases,
+concurrent old/new queries with different money, all six grains, missing tables,
+invalid IDs, nested group-aware search and coverage-cache isolation. This reader
+slice does not create candidates, repair PostgreSQL facts, change thresholds,
+activate a build, or implement publication/rollback gates. Those remain in the
+scraper's P19 operation.
+
 ## 1. What shipped
 
 ### Scraper (`hack-for-facts-eb-scrapper`, commit `07bb6468` — DEPLOYED)

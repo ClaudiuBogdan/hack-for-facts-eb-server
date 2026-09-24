@@ -13,7 +13,7 @@ export const compactResponse = (
 
 /** The active generation the ClickHouse tests read against (build 8: no `framework_role`). */
 export const generationWithoutFrameworkRole: ActiveGeneration = {
-  buildId: '1',
+  buildId: '8',
   publishedAt: '2026-07-12T00:00:00Z',
   quality: {},
   matrixHash: null,

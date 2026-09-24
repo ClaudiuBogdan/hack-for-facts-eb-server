@@ -45,6 +45,7 @@ import type { AnalysisScope } from '../../core/analysis-scope.js';
 import type { AnalysisRoute } from '../../core/combinations.js';
 import type { BasisCoverageRow } from '../../core/gate-v2.js';
 import type {
+  ActiveGeneration,
   AnalysisBreakdownBucketRow,
   AnalysisBreakdownRead,
   AnalysisRepo,
@@ -65,13 +66,33 @@ export interface ClickhouseAnalysisConfig {
 /** Pinned accepted value_state set (semantic-artifact stand-in; measured 2026-07-22). */
 const ACCEPTED_STATES = ["'official_exact'", "'official_ron_equivalent'"].join(', ');
 
-const TABLE_BY_GRAIN: Record<string, string> = {
+const TABLE_BY_GRAIN: Readonly<Record<AnalysisRoute['grain'], string>> = {
   contract: 'facts_contracts_v2',
   direct_acquisition: 'facts_da_v2',
   procedure: 'facts_procedures_v2',
   framework: 'facts_frameworks_v2',
   calloff: 'facts_calloffs_v2',
   modification: 'facts_contract_mods_v2',
+};
+
+/**
+ * Build 8 is the retained legacy snapshot. Later publications own six named
+ * tables; physical row build_id may retain parent provenance. The publisher
+ * must prepare every table and its coverage before moving the PG pointer.
+ * An absent revision is an error, never permission to read the legacy tables.
+ */
+const tablesFor = (
+  buildId: string
+): Result<Readonly<Record<AnalysisRoute['grain'], string>>, ApiError> => {
+  if (!/^[1-9][0-9]{0,18}$/.test(buildId) || BigInt(buildId) > 9_223_372_036_854_775_807n) {
+    return err(databaseError('Invalid procurement publication build ID'));
+  }
+  const suffix = buildId === '8' ? '' : `_b${buildId}`;
+  return ok(
+    Object.fromEntries(
+      Object.entries(TABLE_BY_GRAIN).map(([grain, table]) => [grain, `${table}${suffix}`])
+    ) as Record<AnalysisRoute['grain'], string>
+  );
 };
 
 /**
@@ -350,10 +371,10 @@ const compileScope = (
   route: AnalysisRoute,
   scope: AnalysisScope,
   supplierMoney: boolean,
-  capabilities: GenerationCapabilities
+  capabilities: GenerationCapabilities,
+  table: string
 ): CompiledScope => {
   const grain = route.grain;
-  const table = TABLE_BY_GRAIN[grain] ?? 'facts_contracts_v2';
   const profile = profileFor(grain, supplierMoney);
   // Value-contract rule (frozen facts, 2026-07-22): cancelled records are
   // excluded from every transaction/spend measure on the CORE grains. The
@@ -426,7 +447,7 @@ const compileScope = (
     // (multi-title groups measured 481). A row also matches when any row of
     // its award group matches.
     conds.push(
-      table === 'facts_contracts_v2'
+      grain === 'contract'
         ? `(${rowMatch} OR award_key IN (SELECT award_key FROM ${table} WHERE award_key IS NOT NULL AND ${rowMatch}))`
         : rowMatch
     );
@@ -787,14 +808,8 @@ export const makeClickhouseAnalysisRepo = (
 
   // ── what the active build can answer (probed per build id, short TTL) ──────
   //
-  // The ledger names the build; only the fact table knows its columns. The
-  // probe answer is held per build id for a short window and never cached on
-  // failure, so a republished build with the column flips the contract
-  // population to purchases-only with no server change (M/M06). The window
-  // exists because the Postgres pointer and the ClickHouse table swap are two
-  // publications: if the pointer lands first, the probe sees the OLD table
-  // under the NEW build id, and a permanent cache would pin legacy mode for
-  // the life of the process (Codex P2).
+  // Capabilities belong to the same immutable tables selected for this build.
+  // Keep the existing bounded probe cache; never cache missing tables/errors.
   const capabilitiesByBuild = new Map<
     string,
     { readonly value: GenerationCapabilities; readonly expiresAt: number }
@@ -804,7 +819,19 @@ export const makeClickhouseAnalysisRepo = (
   ): Promise<Result<GenerationCapabilities, ApiError>> => {
     const cached = capabilitiesByBuild.get(buildId);
     if (cached !== undefined && cached.expiresAt > Date.now()) return ok(cached.value);
-    const contractTable = TABLE_BY_GRAIN['contract'] ?? 'facts_contracts_v2';
+    const tables = tablesFor(buildId);
+    if (tables.isErr()) return err(tables.error);
+    const required = [...Object.values(tables.value), 'meta_value_coverage_v2'];
+    const present = await query(
+      `SELECT name FROM system.tables WHERE database = currentDatabase() AND name IN (${required.map(escapeString).join(', ')})`,
+      ColumnProbeRowSchema
+    );
+    if (present.isErr()) return err(present.error);
+    const names = new Set(present.value.map((row) => row.name));
+    if (required.some((name) => !names.has(name))) {
+      return err(databaseError(`Procurement publication ${buildId} has missing analytics tables`));
+    }
+    const contractTable = tables.value.contract;
     const column = await query(
       `SELECT name FROM system.columns WHERE database = currentDatabase() AND table = ${escapeString(contractTable)} AND name = 'framework_role'`,
       ColumnProbeRowSchema
@@ -849,9 +876,17 @@ export const makeClickhouseAnalysisRepo = (
     route: AnalysisRoute,
     scope: AnalysisScope,
     supplierMoney: boolean,
-    capabilities: GenerationCapabilities
+    generation: ActiveGeneration
   ): Promise<Result<AnalysisStatsRead, ApiError>> => {
-    const c = compileScope(route, scope, supplierMoney, capabilities);
+    const tables = tablesFor(generation.buildId);
+    if (tables.isErr()) return err(tables.error);
+    const c = compileScope(
+      route,
+      scope,
+      supplierMoney,
+      generation.capabilities,
+      tables.value[route.grain]
+    );
     if (c.impossible) return ok(EMPTY_STATS);
     const r = await query(
       `SELECT ${statsSelect(profileFor(route.grain, supplierMoney), c.dated)} FROM ${c.table} WHERE ${c.where}`,
@@ -861,7 +896,7 @@ export const makeClickhouseAnalysisRepo = (
   };
 
   const statsFor: AnalysisRepo['statsFor'] = (route, scope, generation) =>
-    statsCore(route, scope, supplierScoped(scope), generation.capabilities);
+    statsCore(route, scope, supplierScoped(scope), generation);
 
   const measureExpr = (
     grain: string,
@@ -912,7 +947,9 @@ export const makeClickhouseAnalysisRepo = (
 
   const seriesFor: AnalysisRepo['seriesFor'] = async (route, scope, generation, measure) => {
     const sup = supplierScoped(scope);
-    const c = compileScope(route, scope, sup, generation.capabilities);
+    const tables = tablesFor(generation.buildId);
+    if (tables.isErr()) return err(tables.error);
+    const c = compileScope(route, scope, sup, generation.capabilities, tables.value[route.grain]);
     const p = profileFor(route.grain, sup);
     if (c.impossible) return ok([]);
     const expr = measureExpr(route.grain, measure, 'NOT is_undated', sup);
@@ -954,7 +991,9 @@ export const makeClickhouseAnalysisRepo = (
     bucket
   ) => {
     const sup = supplierScoped(scope);
-    const c = compileScope(route, scope, sup, generation.capabilities);
+    const tables = tablesFor(generation.buildId);
+    if (tables.isErr()) return err(tables.error);
+    const c = compileScope(route, scope, sup, generation.capabilities, tables.value[route.grain]);
     const p = profileFor(route.grain, sup);
     if (c.impossible) return ok([]);
     if (
@@ -1015,9 +1054,11 @@ export const makeClickhouseAnalysisRepo = (
     // the TOTALS row must use the SAME money basis or the derived 'other'
     // bucket would silently absorb the withheld association mass (M1).
     const sup = supplierScoped(scope) || SUPPLIER_BREAKDOWN_DIMS.has(dimension);
-    const c = compileScope(route, scope, sup, caps);
+    const tables = tablesFor(generation.buildId);
+    if (tables.isErr()) return err(tables.error);
+    const c = compileScope(route, scope, sup, caps, tables.value[route.grain]);
     const p = profileFor(route.grain, sup);
-    const totalsR = await statsCore(route, scope, sup, caps);
+    const totalsR = await statsCore(route, scope, sup, generation);
     if (totalsR.isErr()) return err(totalsR.error);
     const totals = totalsR.value;
     if (c.impossible) return ok({ buckets: [], totals, rankedBy: 'count' });
@@ -1129,9 +1170,11 @@ export const makeClickhouseAnalysisRepo = (
     // Concentration is supplier-keyed by definition → supplier money always
     // (association money never enters HHI; the withheld share is disclosed
     // via the coverage/caveat layer).
-    const c = compileScope(route, scope, true, caps);
+    const tables = tablesFor(generation.buildId);
+    if (tables.isErr()) return err(tables.error);
+    const c = compileScope(route, scope, true, caps, tables.value[route.grain]);
     const p = profileFor(route.grain, true);
-    const totalsR = await statsCore(route, scope, true, caps);
+    const totalsR = await statsCore(route, scope, true, generation);
     if (totalsR.isErr()) return err(totalsR.error);
     const totals = totalsR.value;
     const empty: ConcentrationRead = {
@@ -1219,13 +1262,28 @@ export const makeClickhouseAnalysisRepo = (
   // Per-build basis coverage (immutable rows — cached for the process life).
   const coverageCache = new Map<string, readonly BasisCoverageRow[]>();
   const basisCoverage: AnalysisRepo['basisCoverage'] = async (buildId) => {
+    const tables = tablesFor(buildId);
+    if (tables.isErr()) return err(tables.error);
     const cached = coverageCache.get(buildId);
     if (cached !== undefined) return ok(cached);
     const r = await query(
-      `SELECT grain, basis, population, coverage FROM meta_value_coverage_v2 WHERE build_id = ${escapeString(buildId)}`,
+      `SELECT grain, basis, population, coverage FROM meta_value_coverage_v2 WHERE build_id = ${escapeString(buildId)} ORDER BY grain, basis, population`,
       BasisCoverageRowSchema
     );
     if (r.isErr()) return err(r.error);
+    if (r.value.length === 0) {
+      return err(databaseError(`Procurement publication ${buildId} has no basis coverage`));
+    }
+    const keys = new Set<string>();
+    for (const row of r.value) {
+      const key = JSON.stringify([row.grain, row.basis, row.population]);
+      if (keys.has(key)) {
+        return err(
+          databaseError(`Procurement publication ${buildId} has duplicate basis coverage`)
+        );
+      }
+      keys.add(key);
+    }
     coverageCache.set(buildId, r.value);
     return ok(r.value);
   };

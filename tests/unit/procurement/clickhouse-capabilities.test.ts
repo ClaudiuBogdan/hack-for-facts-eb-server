@@ -48,6 +48,7 @@ const statsRow = {
 const fetchAnswering = (hasColumn: boolean, coverage = { stamped: '100', total: '100' }) =>
   vi.fn(async (_url: unknown, init?: { body?: string }) => {
     const body = init?.body ?? '';
+    if (body.includes('system.tables')) return tableInventory(body);
     if (body.includes('system.columns')) {
       return compactResponse(hasColumn ? [{ name: 'framework_role' }] : [], ['name']);
     }
@@ -57,8 +58,26 @@ const fetchAnswering = (hasColumn: boolean, coverage = { stamped: '100', total: 
     return compactResponse([statsRow]);
   });
 
+const tableInventory = (body: string): Response => {
+  const legacy = [
+    'facts_contracts_v2',
+    'facts_da_v2',
+    'facts_procedures_v2',
+    'facts_frameworks_v2',
+    'facts_calloffs_v2',
+    'facts_contract_mods_v2',
+  ];
+  const names = [...legacy, ...legacy.map((name) => `${name}_b9`), 'meta_value_coverage_v2'];
+  return compactResponse(
+    names.filter((name) => body.includes(`'${name}'`)).map((name) => ({ name })),
+    ['name']
+  );
+};
+
 const isProbe = (body: string): boolean =>
-  body.includes('system.columns') || body.includes('countIf(framework_role');
+  body.includes('system.tables') ||
+  body.includes('system.columns') ||
+  body.includes('countIf(framework_role');
 
 const bodiesOf = (fetchSpy: ReturnType<typeof fetchAnswering>): string[] =>
   fetchSpy.mock.calls.map((c) => (c[1] as { body?: string } | undefined)?.body ?? '');
@@ -137,15 +156,15 @@ describe('generation capabilities from the live ClickHouse build', () => {
     expect(stats[0]).toContain("(framework_role IS NULL OR framework_role = 'standalone')");
   });
 
-  it('re-asks the table after the probe window, so a late ClickHouse swap is picked up', async () => {
-    // The Postgres pointer can land before the ClickHouse table swap; the
-    // first probe under the new build id then sees the OLD table. A permanent
-    // cache would pin legacy mode for the life of the process.
+  it('revalidates the same selected table after the probe window', async () => {
+    // Probe expiry must keep selecting the same generation-owned table.
+    // A capability change in this fake must never switch to the legacy table.
     vi.useFakeTimers();
     try {
       let hasColumn = false;
       const fetchSpy = vi.fn(async (_url: unknown, init?: { body?: string }) => {
         const body = init?.body ?? '';
+        if (body.includes('system.tables')) return tableInventory(body);
         if (body.includes('system.columns')) {
           return compactResponse(hasColumn ? [{ name: 'framework_role' }] : [], ['name']);
         }
@@ -214,7 +233,12 @@ describe('generation capabilities from the live ClickHouse build', () => {
   it('never caches a failed probe', async () => {
     const fetchSpy = vi.fn(async (_url: unknown, init?: { body?: string }) => {
       const body = init?.body ?? '';
-      if (body.includes('system.columns') && fetchSpy.mock.calls.length === 1) {
+      if (body.includes('system.tables')) return tableInventory(body);
+      if (
+        body.includes('system.columns') &&
+        fetchSpy.mock.calls.filter((call) => call[1]?.body?.includes('system.columns') === true)
+          .length === 1
+      ) {
         return new Response('boom', { status: 500 });
       }
       if (body.includes('system.columns')) return compactResponse([{ name: 'framework_role' }]);
