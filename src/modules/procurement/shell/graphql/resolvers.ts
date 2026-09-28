@@ -61,6 +61,7 @@ import {
 import type { AnalysisRepo, ProcurementRepo } from '../../core/ports.js';
 import type {
   DaDetailAvailability,
+  DaItem,
   OffsetSearchResult,
   ProcurementContract,
   ProcurementDirectAcquisition,
@@ -395,6 +396,9 @@ export const makeProcurementResolvers = (
       id: (d: ProcurementDirectAcquisition) => d.daId,
       authority: (d: ProcurementDirectAcquisition) => party(d.authorityCui, d.authorityName),
       supplier: (d: ProcurementDirectAcquisition) => party(d.supplierCui, d.supplierName),
+    },
+    ProcurementDaItem: {
+      id: (item: DaItem) => item.daItemId,
     },
     ProcurementContractModification: {
       id: (m: ProcurementModification) => m.modificationId,

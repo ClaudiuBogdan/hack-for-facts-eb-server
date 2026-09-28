@@ -26,6 +26,8 @@ import { procurementTypeDefs } from '@/modules/procurement/shell/graphql/typedef
 import type { AnalysisRepo, ProcurementRepo } from '@/modules/procurement/core/ports.js';
 import type {
   DaDetailAvailability,
+  DaDetailBody,
+  DaItem,
   DirectAcquisitionDetail,
   ProcurementDirectAcquisition,
 } from '@/modules/procurement/core/types.js';
@@ -44,7 +46,7 @@ const KERNEL_STUB_SDL = /* GraphQL */ `
 
 const DA_ID = '71690399';
 
-/** A canonical seap_dan row: the family with no item-detail source in existence. */
+/** A canonical seap_dan row: served from a summary export. */
 const directAcquisition = {
   daId: DA_ID,
   sourceSystem: 'seap_dan',
@@ -108,9 +110,13 @@ const CASES: readonly (readonly [DaDetailAvailability, string])[] = [
 
 let app: FastifyInstance;
 
-const buildApp = async (detailAvailability: DaDetailAvailability): Promise<FastifyInstance> => {
+const buildApp = async (
+  detailAvailability: DaDetailAvailability,
+  detail: DaDetailBody | null = null
+): Promise<FastifyInstance> => {
   const repo = {
-    getDirectAcquisitionDetail: () => Promise.resolve(ok(bundle(detailAvailability))),
+    getDirectAcquisitionDetail: () =>
+      Promise.resolve(ok({ ...bundle(detailAvailability), detail })),
   } as unknown as ProcurementRepo;
 
   const instance = fastifyLib({ logger: false });
@@ -179,5 +185,133 @@ describe('ProcurementDetailAvailability serializes every internal value', () => 
       body.data?.['__type'] as { enumValues: readonly { name: string }[] } | undefined
     )?.enumValues.map((v) => v.name);
     expect([...(declared ?? [])].sort()).toEqual([...CASES.map(([, name]) => name)].sort());
+  });
+});
+
+const item = (daItemId: string, itemIndex: number): DaItem => ({
+  daItemId,
+  itemIndex,
+  catalogItemCode: 'PAPER-A4',
+  catalogItemName: 'Paper A4',
+  catalogItemDescription: null,
+  itemMeasureUnit: 'pack',
+  cpvCode: '30197630-1',
+  cpvText: 'Printing paper',
+  itemQuantity: '2.0000',
+  unitPrice: '10.2500',
+  unitEstimatedPrice: '11.0000',
+  catalogUnitPrice: '10.2500',
+  lineValue: '20.5000',
+  sourceUrl: 'https://e-licitatie.ro/pub/direct-acquisition/view/123',
+});
+
+const detailBody = (items: readonly DaItem[]): DaDetailBody => ({
+  description: 'Office supplies',
+  deliveryCondition: null,
+  paymentCondition: null,
+  contractTypeText: 'Supplies',
+  isEuFunded: false,
+  euFundText: null,
+  caDecisionDate: null,
+  caDecisionDeadline: null,
+  supplierDecisionDate: null,
+  supplierDecisionDeadline: null,
+  caRejectionReason: null,
+  supplierRejectionReason: null,
+  correctionReason: null,
+  documentCount: 0,
+  itemCount: items.length,
+  itemsTotal: null,
+  itemsValueDelta: null,
+  itemsReconciled: null,
+  textRedacted: false,
+  sourceUrl: 'https://e-licitatie.ro/pub/direct-acquisition/view/123',
+  items,
+});
+
+const ITEMS_QUERY = /* GraphQL */ `
+  query {
+    procurementDirectAcquisition(id: "${DA_ID}") {
+      detailAvailability
+      detail {
+        description
+        itemCount
+        items {
+          id
+          itemIndex
+          catalogItemName
+          itemQuantity
+          unitPrice
+          lineValue
+        }
+      }
+    }
+  }
+`;
+
+describe('DA items execute through the GraphQL schema', () => {
+  it.each([0, 1, 2])('serves a detail with %i items and stable string IDs', async (count) => {
+    const items = Array.from({ length: count }, (_, index) =>
+      item(index === 0 ? '9007199254740993' : '9007199254740995', index)
+    );
+    app = await buildApp('available', detailBody(items));
+    const body = await post(app, ITEMS_QUERY);
+
+    expect(body.errors).toBeUndefined();
+    expect(body.data?.['procurementDirectAcquisition']).toEqual({
+      detailAvailability: 'AVAILABLE',
+      detail: {
+        description: 'Office supplies',
+        itemCount: count,
+        items: items.map((line) => ({
+          id: line.daItemId,
+          itemIndex: line.itemIndex,
+          catalogItemName: line.catalogItemName,
+          itemQuantity: line.itemQuantity,
+          unitPrice: line.unitPrice,
+          lineValue: line.lineValue,
+        })),
+      },
+    });
+  });
+});
+
+const FULL_DETAIL_QUERY = /* GraphQL */ `
+  query {
+    procurementDirectAcquisition(id: "${DA_ID}") {
+      detailAvailability
+      detail {
+        description deliveryCondition paymentCondition contractTypeText isEuFunded euFundText
+        caDecisionDate caDecisionDeadline supplierDecisionDate supplierDecisionDeadline
+        caRejectionReason supplierRejectionReason correctionReason documentCount itemCount
+        itemsTotal itemsValueDelta itemsReconciled textRedacted sourceUrl
+        items {
+          id itemIndex catalogItemCode catalogItemName catalogItemDescription itemMeasureUnit
+          cpvCode cpvText itemQuantity unitPrice unitEstimatedPrice catalogUnitPrice lineValue sourceUrl
+        }
+      }
+    }
+  }
+`;
+
+describe('DA detail subtree field mappings', () => {
+  it.each([false, true])('preserves every field with textRedacted=%s', async (textRedacted) => {
+    const original = detailBody([item('9007199254740993', 0)]);
+    const detail = {
+      ...original,
+      textRedacted,
+      description: textRedacted ? null : original.description,
+    };
+    app = await buildApp('available', detail);
+    const body = await post(app, FULL_DETAIL_QUERY);
+
+    expect(body.errors).toBeUndefined();
+    expect(body.data?.['procurementDirectAcquisition']).toEqual({
+      detailAvailability: 'AVAILABLE',
+      detail: {
+        ...detail,
+        items: detail.items.map(({ daItemId, ...fields }) => ({ id: daItemId, ...fields })),
+      },
+    });
   });
 });

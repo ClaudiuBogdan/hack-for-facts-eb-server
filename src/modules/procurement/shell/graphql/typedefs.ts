@@ -473,14 +473,14 @@ export const procurementTypeDefs = /* GraphQL */ `
 
   """
   Why a detail body is or is not present. Absence of a detail is NOT absence of
-  a purchase: the detail surface covers ~41% of direct acquisitions by design.
+  a purchase. Coverage depends on captured and linked source records.
   """
   enum ProcurementDetailAvailability {
     "A detail body was captured and is served."
     AVAILABLE
-    "This family has a detail feed, but this record was never captured (the pre-2020 tail; a backfill is still closing it)."
+    "No linked detail body is available for this record; it may be uncaptured or awaiting linkage."
     NOT_CAPTURED
-    "This family has NO detail feed in existence - it came from bulk spreadsheet exports, so there is nothing to capture."
+    "Our current serving path provides summary data for this source family, without an item-detail body."
     NOT_AVAILABLE_FOR_SOURCE
     """
     The detail lookup FAILED for this request (timeout, a projection mid-rollout).

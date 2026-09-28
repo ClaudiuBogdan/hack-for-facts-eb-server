@@ -192,18 +192,15 @@ export interface ContractDetail {
 }
 
 /**
- * Why a detail body is or is not available for a given DA. The distinction is a
- * contract-level obligation, not presentation: `da_details` covers ~41% of the
- * DA grain, and the API must never let "no detail row" read as "nothing was
- * purchased".
+ * Why a detail body is or is not available for a given DA. An absent detail
+ * body does not mean that no purchase occurred. Coverage depends on capture
+ * and linkage, not only on the source family.
  *
  *  - `available`                — a detail body was captured and is served.
- *  - `not_captured`             — this DA's family HAS a detail feed, but this
- *                                 row was never captured (the e-licitatie
- *                                 pre-2020 tail; a backfill is still closing it).
- *  - `not_available_for_source` — the family has NO detail feed in existence.
- *                                 seap_da / seap_dan came from bulk spreadsheet
- *                                 exports; there is nothing to capture, ever.
+ *  - `not_captured`             — no linked detail body is available; the body
+ *                                 may be uncaptured or awaiting linkage.
+ *  - `not_available_for_source` — our serving path provides only the source
+ *                                 family's summary, without item detail.
  *  - `temporarily_unavailable`  — the detail lookup itself failed (timeout, a
  *                                 projection mid-rollout). Says nothing about
  *                                 the source: the base record above it is valid
