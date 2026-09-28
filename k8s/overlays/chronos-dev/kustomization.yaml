@@ -25,3 +25,4 @@ images:
 - name: harbor.devostack.com/hack-for-facts/hack-for-facts-eb-server
   newName: harbor.devostack.com/hack-for-facts/hack-for-facts-eb-server
   newTag: 23f955652dae4b91b68fb155c91629679d4a8ea6
+  digest: sha256:af41dcb20974d39580674dbb542cfd2f0b42817a502908f7f468fee3570d598c
