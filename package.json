@@ -55,7 +55,8 @@
     "admin-events:reconcile": "tsx scripts/admin-events-reconcile.ts",
     "ci": "pnpm typecheck && pnpm lint && pnpm deps:check && pnpm test && pnpm test:e2e && pnpm run deps:check && pnpm build",
     "prepare": "husky",
-    "clean": "rm -rf dist coverage deps-graph.svg"
+    "clean": "rm -rf dist coverage deps-graph.svg",
+    "test:ngo-contract": "vitest run --config vitest.ngo-contract.config.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.24",
