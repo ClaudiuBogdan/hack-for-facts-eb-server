@@ -35,6 +35,7 @@ import { err, ok, type Result } from 'neverthrow';
 import { databaseError, type ApiError, type Logger } from '@/modules/shared/index.js';
 
 import {
+  ACCEPTED_VALUE_STATES,
   TOPN_SIRUTA_MAX,
   type GenerationCapabilities,
   type MeasureId,
@@ -63,8 +64,8 @@ export interface ClickhouseAnalysisConfig {
   readonly password?: string;
 }
 
-/** Pinned accepted value_state set (semantic-artifact stand-in; measured 2026-07-22). */
-const ACCEPTED_STATES = ["'official_exact'", "'official_ron_equivalent'"].join(', ');
+/** Use the same accepted monetary states as the module's public contract. */
+const ACCEPTED_STATES = ACCEPTED_VALUE_STATES.map((state) => `'${state}'`).join(', ');
 
 const TABLE_BY_GRAIN: Readonly<Record<AnalysisRoute['grain'], string>> = {
   contract: 'facts_contracts_v2',

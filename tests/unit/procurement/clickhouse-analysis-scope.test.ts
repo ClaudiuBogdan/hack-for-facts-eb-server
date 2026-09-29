@@ -35,6 +35,30 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe('ClickHouse accepted monetary states', () => {
+  it.each(['direct_acquisition', 'procedure'] as const)(
+    'includes recovered and cross-source values for %s',
+    async (grain) => {
+      let query = '';
+      vi.stubGlobal('fetch', (_url: string, request: RequestInit) => {
+        query = typeof request.body === 'string' ? request.body : '';
+        return Promise.resolve(emptyStatsResponse());
+      });
+      const repo = makeClickhouseAnalysisRepo(
+        { url: 'http://clickhouse.test', database: 'proto' },
+        activeGeneration
+      );
+
+      const result = await repo.statsFor(route(grain), {}, GEN);
+
+      expect(result.isOk()).toBe(true);
+      expect(query).toContain(
+        "value_state IN ('official_exact', 'official_ron_equivalent', 'cross_source_exact', 'official_document_recovered')"
+      );
+    }
+  );
+});
+
 describe('ClickHouse procurement SIRUTA scope compilation', () => {
   it('filters contract analytics by supplier UAT SIRUTA', async () => {
     const fetchSpy = vi.fn().mockResolvedValue(emptyStatsResponse());
