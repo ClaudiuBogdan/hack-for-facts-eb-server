@@ -16,7 +16,25 @@
 # =============================================================================
 
 ARG NODE_BUILD_BASE=node:24-trixie-slim@sha256:c319bb4fac67c01ced508b67193a0397e02d37555d8f9b72958649efd302b7f8
-ARG DISTROLLESS_BASE=gcr.io/distroless/nodejs24-debian13:nonroot@sha256:ffab599740d4aaa66029d02b9e6d3de4f622fefb7410081c5ef69c86430f364d
+ARG DISTROLLESS_BASE=gcr.io/distroless/nodejs24-debian13:nonroot@sha256:bb6b03d81066993293a10feda7250e8e1cc034035fe9b61cfceededa7c8bf04d
+
+# -----------------------------------------------------------------------------
+# Temporary OpenSSL overlay
+# -----------------------------------------------------------------------------
+# Remove this stage and its COPY when the signed runtime ships deb13u3 or newer.
+# Payload and package records come from the same Debian security archives.
+FROM ${NODE_BUILD_BASE} AS openssl-overlay
+WORKDIR /tmp
+RUN set -eu; \
+    apt-get update; \
+    apt-get download libssl3t64=3.5.7-1~deb13u3 openssl-provider-legacy=3.5.7-1~deb13u3; \
+    mkdir -p /overlay/var/lib/dpkg/status.d; \
+    for runtime_package in libssl3t64 openssl-provider-legacy; do \
+        dpkg-deb --extract "${runtime_package}"_*.deb /overlay; \
+        dpkg-deb --control "${runtime_package}"_*.deb "control-${runtime_package}"; \
+        cp "control-${runtime_package}/control" "/overlay/var/lib/dpkg/status.d/${runtime_package}"; \
+        cp "control-${runtime_package}/md5sums" "/overlay/var/lib/dpkg/status.d/${runtime_package}.md5sums"; \
+    done
 
 # -----------------------------------------------------------------------------
 # Build Stage
@@ -62,6 +80,8 @@ RUN --mount=type=cache,id=pnpm-bookworm,target=/root/.local/share/pnpm/store \
 # Runtime Stage
 # -----------------------------------------------------------------------------
 FROM ${DISTROLLESS_BASE}
+
+COPY --from=openssl-overlay /overlay/ /
 
 WORKDIR /app
 
