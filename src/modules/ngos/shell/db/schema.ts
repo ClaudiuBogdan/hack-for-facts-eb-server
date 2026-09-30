@@ -54,6 +54,75 @@ declare module '@/modules/shared/shell/db/types.js' {
   }
 }
 
+/** Full RNONG purpose per non-withheld observation (scraper migration 20260930T110000); null is a blank cell. */
+export interface NgoPublicPurposeRow {
+  legal_record_id: string;
+  purpose: string | null;
+}
+declare module '@/modules/shared/shell/db/types.js' {
+  interface ProdDatabase {
+    // eslint-disable-next-line @typescript-eslint/naming-convention -- Schema-qualified Kysely table key.
+    'ngo.rnong_public_purposes': NgoPublicPurposeRow;
+  }
+}
+
+/** Profile-section allowlists (scraper migration 20260930T100000); current snapshot only. */
+export interface NgoPublicSectionSnapshotRow {
+  source_id: string;
+  source_snapshot_id: string;
+  source_url: string;
+  source_declared_snapshot_date: string | null;
+  loaded_at: string;
+}
+/** service_name and locality are null whenever county_only is true. */
+export interface NgoPublicSocialServiceRow {
+  cui: string;
+  service_type: string | null;
+  service_code: string | null;
+  service_name: string | null;
+  county: string | null;
+  locality: string | null;
+  capacity: number | null;
+  license_number: string | null;
+  licensed_on: string | null;
+  county_only: boolean;
+  source_record_key: string;
+}
+export interface NgoPublicSocialServiceProviderRow {
+  cui: string;
+  certificate_number: string | null;
+  accreditation_decision_number: string | null;
+  source_record_key: string;
+}
+export interface NgoPublicSocialEnterpriseCertificateRow {
+  cui: string;
+  certificate_number: string | null;
+  certificate_date: string | null;
+  valid_until: string | null;
+  certificate_status: string | null;
+  source_record_key: string;
+}
+export interface NgoPublicEmploymentAccreditationRow {
+  cui: string;
+  certificate_number: string | null;
+  issued_on: string | null;
+  source_record_key: string;
+}
+declare module '@/modules/shared/shell/db/types.js' {
+  interface ProdDatabase {
+    // eslint-disable-next-line @typescript-eslint/naming-convention -- Schema-qualified Kysely table key.
+    'ngo.public_section_snapshots': NgoPublicSectionSnapshotRow;
+    // eslint-disable-next-line @typescript-eslint/naming-convention -- Schema-qualified Kysely table key.
+    'ngo.public_social_services': NgoPublicSocialServiceRow;
+    // eslint-disable-next-line @typescript-eslint/naming-convention -- Schema-qualified Kysely table key.
+    'ngo.public_social_service_providers': NgoPublicSocialServiceProviderRow;
+    // eslint-disable-next-line @typescript-eslint/naming-convention -- Schema-qualified Kysely table key.
+    'ngo.public_social_enterprise_certificates': NgoPublicSocialEnterpriseCertificateRow;
+    // eslint-disable-next-line @typescript-eslint/naming-convention -- Schema-qualified Kysely table key.
+    'ngo.public_employment_accreditations': NgoPublicEmploymentAccreditationRow;
+  }
+}
+
 export interface NgoPublicFiscalRow {
   cui: string;
   is_vat_payer: boolean | null;

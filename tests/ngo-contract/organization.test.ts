@@ -32,6 +32,9 @@ describe('NGO repository with real DDL and a minimal reader', () => {
     await client.query(`create role ${reader} nologin;
       grant usage on schema ngo to ${reader};
       grant select on ngo.rnong_public_records, ngo.rnong_public_snapshots to ${reader};
+      grant select on ngo.public_section_snapshots, ngo.public_social_services,
+        ngo.public_social_service_providers, ngo.public_social_enterprise_certificates,
+        ngo.public_employment_accreditations, ngo.rnong_public_purposes to ${reader};
       grant execute on function ngo.public_organization_profile(text),
         ngo.public_financial_statements(text,integer[]) to ${reader}`);
     readerCreated = true;
@@ -62,7 +65,7 @@ describe('NGO repository with real DDL and a minimal reader', () => {
       cui,
       identity: { cui, method: 'registry_cui' },
       observationCount: 2,
-      purpose: { availability: 'not_released' },
+      purpose: { availability: 'available', text: 'Activități sportive.' },
       fiscal: { availability: 'available' },
       financials: { availability: 'not_loaded' },
     });
@@ -70,6 +73,86 @@ describe('NGO repository with real DDL and a minimal reader', () => {
     const missing = await repo.profile('9999999999');
     expect(missing.isOk()).toBe(true);
     expect(unwrap(missing)).toBeNull();
+  });
+  it('withholds a purpose the organization observations disagree on', async () => {
+    const second =
+      '(select legal_record_id from ngo.legal_registry_records where source_row_number=2)';
+    await client.query(
+      `update ngo.rnong_purposes set purpose='Alt scop.' where legal_record_id=${second}`
+    );
+    try {
+      const profile = unwrap(await repo.profile(cui));
+      expect(profile?.purpose).toMatchObject({ availability: 'not_released', text: null });
+      expect(profile?.conflicts).toContain('purpose');
+    } finally {
+      await client.query(
+        `update ngo.rnong_purposes set purpose='Activități sportive.' where legal_record_id=${second}`
+      );
+    }
+  });
+  it('reads current source lists by CUI, county-only for protective services, without places', async () => {
+    const profile = unwrap(await repo.profile(cui));
+    expect(profile?.socialServices).toMatchObject({
+      availability: 'available',
+      snapshot: { sourceUrl: 'https://mmuncii.ro/licente.xml', sourceDeclaredDate: null },
+    });
+    // Stale, other-scope and restricted rows are absent. Protective services keep their category
+    // and county only; unreviewed or missing labels are withheld with the place.
+    expect(
+      profile?.socialServices.data?.map(({ serviceType, serviceName, locality, countyOnly }) => ({
+        serviceType: serviceType?.slice(0, 20) ?? null,
+        serviceName,
+        locality,
+        countyOnly,
+      }))
+    ).toEqual([
+      { serviceType: '5.Centre rezidenţial', serviceName: null, locality: null, countyOnly: true },
+      {
+        serviceType: 'Centre de zi  pentru',
+        serviceName: 'Centrul de zi Floresti',
+        locality: 'FLORESTI',
+        countyOnly: false,
+      },
+      { serviceType: 'Centre rezidenţiale ', serviceName: null, locality: null, countyOnly: true },
+      { serviceType: null, serviceName: null, locality: null, countyOnly: true },
+      { serviceType: null, serviceName: null, locality: null, countyOnly: true },
+    ]);
+    expect(profile?.socialServiceAccreditations.data).toEqual([
+      { certificateNumber: 'AF/000044', decisionNumber: '486' },
+    ]);
+    expect(profile?.socialEnterpriseCertificates).toMatchObject({
+      snapshot: { sourceDeclaredDate: '2026-05-15' },
+      data: [
+        {
+          certificateNumber: 'CJ/0001',
+          certificateDate: '2021-05-04',
+          validUntil: '2026-05-04',
+          status: 'ACTIV',
+        },
+      ],
+    });
+    expect(profile?.employmentServiceAccreditations.data).toEqual([
+      { certificateNumber: 'Seria A nr. 0001', issuedOn: '2019-03-01' },
+    ]);
+    expect(JSON.stringify(profile)).not.toMatch(
+      /Exemplu 1|54975|Adapost|Casa de tip|Turda|Turzii|BISTRITA|alt scope|Art\. 29|Notificare|Privat/
+    );
+
+    await client.query(
+      "update ngo.source_snapshots set is_current=false where source_id='anofm_rueis'"
+    );
+    try {
+      const withoutRueis = unwrap(await repo.profile(cui));
+      expect(withoutRueis?.socialEnterpriseCertificates).toEqual({
+        availability: 'not_loaded',
+        snapshot: null,
+        data: null,
+      });
+    } finally {
+      await client.query(
+        "update ngo.source_snapshots set is_current=true where source_id='anofm_rueis'"
+      );
+    }
   });
   it('preserves exact values, dictionary labels, blank cells and year filters', async () => {
     const definitions = Array.from({ length: 46 }, (_, i) => ({
@@ -131,6 +214,12 @@ describe('NGO repository with real DDL and a minimal reader', () => {
         'select * from ngo.anaf_registered_offices',
         'select * from ngo.legal_registry_records',
         "select * from ngo.rnong_organizations_for_cui('30339344')",
+        'select * from ngo.social_services',
+        'select * from ngo.social_service_providers',
+        'select * from ngo.sector_memberships',
+        'select * from ngo.accreditations',
+        'select * from ngo.source_snapshots',
+        'select * from ngo.rnong_purposes',
       ])
         await expect(pool.query(statement)).rejects.toMatchObject({ code: '42501' });
     } finally {

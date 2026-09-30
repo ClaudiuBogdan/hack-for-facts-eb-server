@@ -20,15 +20,24 @@ import {
   type NgoLoadedSection,
   type NgoOrganizationFiscal,
   type NgoOrganizationProfile,
+  type NgoPurpose,
   type NgoRegistryConflictField,
+  type NgoSocialService,
+  type NgoSourceSection,
 } from '../../core/organization-types.js';
 
 import type { NgoOrganizationRepository } from '../../core/organization.js';
 import type { NgoRegistryRecord } from '../../core/types.js';
 import type {
   NgoOrganizationProfileRow,
+  NgoProfileSectionRows,
   NgoPublicFinancialStatementRow,
 } from '../db/organization-rows.js';
+import type {
+  NgoPublicPurposeRow,
+  NgoPublicSectionSnapshotRow,
+  NgoPublicSocialServiceRow,
+} from '../db/schema.js';
 
 /** Foundation §5.5 interactive read class; the 15 s pool default is only a backstop. */
 export const NGO_READ_TIMEOUT_MS = 5_000;
@@ -78,6 +87,48 @@ const loadedSection = <T>(
   return build().map((data) => ({ availability: 'available' as const, data }));
 };
 
+/** No current snapshot row: not loaded. A snapshot with no rows for the CUI: listed as empty. */
+const sourceSection = <R, T>(
+  snapshots: readonly NgoPublicSectionSnapshotRow[],
+  sourceId: string,
+  rows: readonly R[],
+  map: (row: R) => Result<T, ApiError>
+): Result<NgoSourceSection<T>, ApiError> => {
+  const [snapshot, extra] = snapshots.filter((candidate) => candidate.source_id === sourceId);
+  if (extra !== undefined)
+    return err(databaseError(`NGO ${sourceId} has more than one current snapshot.`));
+  if (snapshot === undefined)
+    return rows.length === 0
+      ? ok({ availability: 'not_loaded', snapshot: null, data: null })
+      : err(databaseError(`NGO ${sourceId} rows have no current snapshot.`));
+  return Result.combine(rows.map(map)).map((data) => ({
+    availability: 'available' as const,
+    snapshot: {
+      id: snapshot.source_snapshot_id,
+      sourceUrl: snapshot.source_url,
+      sourceDeclaredDate: snapshot.source_declared_snapshot_date,
+      importedAt: iso(snapshot.loaded_at),
+    },
+    data,
+  }));
+};
+
+// The view nulls the place of protective services; refuse a row that still carries one.
+const mapSocialService = (row: NgoPublicSocialServiceRow): Result<NgoSocialService, ApiError> =>
+  row.county_only && (row.service_name !== null || row.locality !== null)
+    ? err(databaseError('NGO county-only social service carries a service name or locality.'))
+    : ok({
+        serviceType: row.service_type,
+        serviceCode: row.service_code,
+        serviceName: row.service_name,
+        county: row.county,
+        locality: row.locality,
+        capacity: row.capacity,
+        licenseNumber: row.license_number,
+        licensedOn: row.licensed_on,
+        countyOnly: row.county_only,
+      });
+
 const CONFLICT_COLUMNS: readonly [keyof NgoOrganizationProfileRow, NgoRegistryConflictField][] = [
   ['court_differs', 'court'],
   ['name_differs', 'name'],
@@ -90,11 +141,27 @@ const CONFLICT_COLUMNS: readonly [keyof NgoOrganizationProfileRow, NgoRegistryCo
   ['cui_conflict', 'cui'],
 ];
 
-/** Maps one function row plus the organization's public registry observations; fails closed on contract drift. */
+/** Every observation must have a loaded purpose, and they must agree; like other registry consensus fields. */
+const mapPurpose = (
+  legalRecordIds: readonly string[],
+  rows: readonly NgoPublicPurposeRow[]
+): NgoPurpose => {
+  const loaded = new Map(rows.map((r) => [r.legal_record_id, r.purpose]));
+  if (!legalRecordIds.every((id) => loaded.has(id)))
+    return { availability: 'not_loaded', text: null };
+  const distinct = new Set(legalRecordIds.map((id) => loaded.get(id) ?? null));
+  const [text] = distinct;
+  return distinct.size === 1 && text !== undefined
+    ? { availability: 'available', text }
+    : { availability: 'not_released', text: null };
+};
+
+/** Maps one function row, the organization's public registry observations and its section rows; fails closed on contract drift. */
 export const mapOrganizationProfile = (
   cui: string,
   row: NgoOrganizationProfileRow,
-  registryRecords: readonly NgoRegistryRecord[]
+  registryRecords: readonly NgoRegistryRecord[],
+  sectionRows: NgoProfileSectionRows
 ): Result<NgoOrganizationProfile, ApiError> => {
   const method = row.identity_method;
   if (row.organization_cui !== cui || !isIdentityMethod(method))
@@ -103,8 +170,6 @@ export const mapOrganizationProfile = (
     );
   if (row.name_withheld)
     return err(databaseError('NGO organization profile exposes a withheld registry name.'));
-  if (row.purpose_availability !== 'not_released')
-    return err(databaseError(`Unexpected NGO purpose availability: ${row.purpose_availability}`));
   const first = registryRecords[0];
   if (
     first === undefined ||
@@ -159,7 +224,50 @@ export const mapOrganizationProfile = (
 
   if (anafRegistration.isErr()) return err(anafRegistration.error);
   if (fiscal.isErr()) return err(fiscal.error);
-  const conflicts = CONFLICT_COLUMNS.filter(([column]) => row[column] === true);
+  const { snapshots } = sectionRows;
+  const socialServices = sourceSection(
+    snapshots,
+    'social_service_licenses',
+    sectionRows.socialServices,
+    mapSocialService
+  );
+  const socialServiceAccreditations = sourceSection(
+    snapshots,
+    'social_service_providers',
+    sectionRows.socialServiceAccreditations,
+    (r) =>
+      ok({
+        certificateNumber: r.certificate_number,
+        decisionNumber: r.accreditation_decision_number,
+      })
+  );
+  const socialEnterpriseCertificates = sourceSection(
+    snapshots,
+    'anofm_rueis',
+    sectionRows.socialEnterpriseCertificates,
+    (r) =>
+      ok({
+        certificateNumber: r.certificate_number,
+        certificateDate: r.certificate_date,
+        validUntil: r.valid_until,
+        status: r.certificate_status,
+      })
+  );
+  const employmentServiceAccreditations = sourceSection(
+    snapshots,
+    'anofm_employment_accreditation',
+    sectionRows.employmentServiceAccreditations,
+    (r) => ok({ certificateNumber: r.certificate_number, issuedOn: r.issued_on })
+  );
+  if (socialServices.isErr()) return err(socialServices.error);
+  if (socialServiceAccreditations.isErr()) return err(socialServiceAccreditations.error);
+  if (socialEnterpriseCertificates.isErr()) return err(socialEnterpriseCertificates.error);
+  if (employmentServiceAccreditations.isErr()) return err(employmentServiceAccreditations.error);
+  const purpose = mapPurpose(row.legal_record_ids, sectionRows.purposes);
+  const conflicts: NgoRegistryConflictField[] = CONFLICT_COLUMNS.filter(
+    ([column]) => row[column] === true
+  ).map(([, field]) => field);
+  if (purpose.availability === 'not_released') conflicts.push('purpose');
   return ok({
     cui,
     identity: { cui, method },
@@ -179,18 +287,101 @@ export const mapOrganizationProfile = (
     sourceCui: row.source_cui,
     courts: row.court_names.filter((court): court is string => court !== null),
     observationCount: row.observation_count,
-    conflicts: conflicts.map(([, field]) => field),
+    conflicts,
     snapshot: first.snapshot,
     registryRecords,
-    purpose: { availability: 'not_released' as const },
+    purpose,
     anafRegistration: anafRegistration.value,
     fiscal: fiscal.value,
     financials: {
       availability: financialsAvailability,
       fiscalYears: [...row.financial_years].sort((a, b) => a - b),
     },
+    socialServices: socialServices.value,
+    socialServiceAccreditations: socialServiceAccreditations.value,
+    socialEnterpriseCertificates: socialEnterpriseCertificates.value,
+    employmentServiceAccreditations: employmentServiceAccreditations.value,
   });
 };
+
+/** Keyed by the CUI and observations the profile function has just admitted, in the same snapshot; no second admission. */
+const readProfileSections = async (
+  trx: Transaction<ProdDatabase>,
+  cui: string,
+  legalRecordIds: readonly string[]
+): Promise<NgoProfileSectionRows> => ({
+  purposes:
+    legalRecordIds.length === 0
+      ? []
+      : await trx
+          .selectFrom('ngo.rnong_public_purposes as p')
+          .select(['p.legal_record_id', 'p.purpose'])
+          .where('p.legal_record_id', 'in', legalRecordIds)
+          .execute(),
+  snapshots: await trx
+    .selectFrom('ngo.public_section_snapshots as s')
+    .select([
+      's.source_id',
+      's.source_snapshot_id',
+      's.source_url',
+      sql<string | null>`s.source_declared_snapshot_date::text`.as('source_declared_snapshot_date'),
+      sql<string>`s.loaded_at::text`.as('loaded_at'),
+    ])
+    .execute(),
+  socialServices: await trx
+    .selectFrom('ngo.public_social_services as s')
+    .select([
+      's.cui',
+      's.service_type',
+      's.service_code',
+      's.service_name',
+      's.county',
+      's.locality',
+      's.capacity',
+      's.license_number',
+      sql<string | null>`s.licensed_on::text`.as('licensed_on'),
+      's.county_only',
+      's.source_record_key',
+    ])
+    .where('s.cui', '=', cui)
+    .orderBy(sql`s.county, s.service_type, s.locality, s.service_name, s.source_record_key`)
+    .execute(),
+  socialServiceAccreditations: await trx
+    .selectFrom('ngo.public_social_service_providers as p')
+    .select([
+      'p.cui',
+      'p.certificate_number',
+      'p.accreditation_decision_number',
+      'p.source_record_key',
+    ])
+    .where('p.cui', '=', cui)
+    .orderBy(sql`p.certificate_number, p.source_record_key`)
+    .execute(),
+  socialEnterpriseCertificates: await trx
+    .selectFrom('ngo.public_social_enterprise_certificates as c')
+    .select([
+      'c.cui',
+      'c.certificate_number',
+      sql<string | null>`c.certificate_date::text`.as('certificate_date'),
+      sql<string | null>`c.valid_until::text`.as('valid_until'),
+      'c.certificate_status',
+      'c.source_record_key',
+    ])
+    .where('c.cui', '=', cui)
+    .orderBy(sql`c.certificate_date desc nulls last, c.source_record_key`)
+    .execute(),
+  employmentServiceAccreditations: await trx
+    .selectFrom('ngo.public_employment_accreditations as a')
+    .select([
+      'a.cui',
+      'a.certificate_number',
+      sql<string | null>`a.issued_on::text`.as('issued_on'),
+      'a.source_record_key',
+    ])
+    .where('a.cui', '=', cui)
+    .orderBy(sql`a.issued_on desc nulls last, a.source_record_key`)
+    .execute(),
+});
 
 export const mapFinancialStatement = (
   row: NgoPublicFinancialStatementRow
@@ -225,7 +416,7 @@ export const makeNgoOrganizationRepo = (
             p.source_reports_public_utility, p.source_cui, p.organization_cui, p.identity_method,
             p.court_differs, p.name_differs, p.category_differs, p.status_differs,
             p.county_differs, p.locality_differs, p.source_cui_differs, p.identity_differs,
-            p.cui_conflict, p.purpose_availability,
+            p.cui_conflict,
             p.anaf_registration_availability, p.anaf_reference,
             p.anaf_status_date::text as anaf_status_date,
             p.anaf_retrieved_at::text as anaf_retrieved_at,
@@ -253,7 +444,8 @@ export const makeNgoOrganizationRepo = (
                 .where('r.source_snapshot_id', '=', row.source_snapshot_id)
                 .orderBy('r.source_row_number', 'asc')
                 .execute();
-        return mapOrganizationProfile(cui, row, records.map(mapPublicRegistryRecord));
+        const sections = await readProfileSections(trx, cui, row.legal_record_ids);
+        return mapOrganizationProfile(cui, row, records.map(mapPublicRegistryRecord), sections);
       });
     } catch (error) {
       return err(readError(error, 'organization profile'));

@@ -1,7 +1,17 @@
+import type {
+  NgoPublicEmploymentAccreditationRow,
+  NgoPublicPurposeRow,
+  NgoPublicSectionSnapshotRow,
+  NgoPublicSocialEnterpriseCertificateRow,
+  NgoPublicSocialServiceProviderRow,
+  NgoPublicSocialServiceRow,
+} from './schema.js';
+
 /**
  * Allowlisted outputs of the SELECT-only data-layer functions `ngo.public_organization_profile(cui)`
- * and `ngo.public_financial_statements(cui, years)`. Office, purpose text, custody, hash and
- * storage-pointer columns are structurally absent; the repository selects exactly these names.
+ * and `ngo.public_financial_statements(cui, years)`. Office, custody, hash and storage-pointer
+ * columns are structurally absent; the repository selects exactly these names. The function's
+ * legacy `purpose_availability` is not read: purpose comes from `ngo.rnong_public_purposes`.
  * Dates/timestamps are read as `::text`.
  */
 export interface NgoOrganizationProfileRow {
@@ -35,7 +45,6 @@ export interface NgoOrganizationProfileRow {
   source_cui_differs: boolean;
   identity_differs: boolean;
   cui_conflict: boolean;
-  purpose_availability: string;
   anaf_registration_availability: string;
   anaf_reference: string | null;
   anaf_status_date: string | null;
@@ -60,6 +69,16 @@ export interface NgoOrganizationProfileRow {
   fiscal_source_snapshot_id: string | null;
   financials_availability: string;
   financial_years: number[];
+}
+
+/** Profile-section view rows for one admitted CUI, read in the profile's own snapshot. */
+export interface NgoProfileSectionRows {
+  readonly purposes: readonly NgoPublicPurposeRow[];
+  readonly snapshots: readonly NgoPublicSectionSnapshotRow[];
+  readonly socialServices: readonly NgoPublicSocialServiceRow[];
+  readonly socialServiceAccreditations: readonly NgoPublicSocialServiceProviderRow[];
+  readonly socialEnterpriseCertificates: readonly NgoPublicSocialEnterpriseCertificateRow[];
+  readonly employmentServiceAccreditations: readonly NgoPublicEmploymentAccreditationRow[];
 }
 
 export interface NgoPublicFinancialStatementRow {

@@ -33,8 +33,15 @@ import type {
   NgoFinancialStatement,
   NgoOrganizationProfile,
 } from '@/modules/ngos/core/organization-types.js';
-import type { NgoOrganizationProfileRow } from '@/modules/ngos/shell/db/organization-rows.js';
-import type { NgoPublicRecordRow } from '@/modules/ngos/shell/db/schema.js';
+import type {
+  NgoOrganizationProfileRow,
+  NgoProfileSectionRows,
+} from '@/modules/ngos/shell/db/organization-rows.js';
+import type {
+  NgoPublicRecordRow,
+  NgoPublicSectionSnapshotRow,
+  NgoPublicSocialServiceRow,
+} from '@/modules/ngos/shell/db/schema.js';
 import type { ProdDatabase } from '@/modules/shared/index.js';
 
 const CUI = '4305857';
@@ -108,7 +115,6 @@ const profileRow = (
   source_cui_differs: false,
   identity_differs: false,
   cui_conflict: false,
-  purpose_availability: 'not_released',
   anaf_registration_availability: 'available',
   anaf_reference: `anaf:tva:2026-09-25:${CUI}`,
   anaf_status_date: '2026-09-25',
@@ -136,8 +142,62 @@ const profileRow = (
   ...overrides,
 });
 
+const snapshotRow = (sourceId: string): NgoPublicSectionSnapshotRow => ({
+  source_id: sourceId,
+  source_snapshot_id: `ngos:${sourceId}:default:snapshot`,
+  source_url: `https://example.gov.ro/${sourceId}`,
+  source_declared_snapshot_date: sourceId === 'anofm_rueis' ? '2026-05-15' : null,
+  loaded_at: '2026-09-20 08:00:00+00',
+});
+const serviceRow = (
+  overrides: Partial<NgoPublicSocialServiceRow> = {}
+): NgoPublicSocialServiceRow => ({
+  cui: CUI,
+  service_type: 'Centre de zi  pentru persoane vârstnice',
+  service_code: '8810 CZ-V-I',
+  service_name: 'Centrul de zi Floresti',
+  county: 'CLUJ',
+  locality: 'FLORESTI',
+  capacity: 24,
+  license_number: 'LF 0001',
+  licensed_on: '2020-01-15',
+  county_only: false,
+  source_record_key: 'service:1',
+  ...overrides,
+});
+const shelterRow = serviceRow({
+  service_type:
+    'Centre rezidenţiale de îngrijire şi asistenţă pentru victimele violenţei în familie (domestice)',
+  service_name: null,
+  locality: null,
+  county_only: true,
+  source_record_key: 'service:2',
+});
+const PURPOSE = 'Sprijin pentru "copii",\nlinia a doua <PERSON>.';
+// Licences and ANOFM listed; RUEIS loaded without this CUI; providers not loaded.
+const sectionRows = (overrides: Partial<NgoProfileSectionRows> = {}): NgoProfileSectionRows => ({
+  purposes: [{ legal_record_id: RECORD_ID, purpose: PURPOSE }],
+  snapshots: [
+    snapshotRow('social_service_licenses'),
+    snapshotRow('anofm_rueis'),
+    snapshotRow('anofm_employment_accreditation'),
+  ],
+  socialServices: [serviceRow(), shelterRow],
+  socialServiceAccreditations: [],
+  socialEnterpriseCertificates: [],
+  employmentServiceAccreditations: [
+    {
+      cui: CUI,
+      certificate_number: 'Seria A nr. 1',
+      issued_on: '2019-03-01',
+      source_record_key: 'a',
+    },
+  ],
+  ...overrides,
+});
+
 const records = [mapPublicRegistryRecord(recordRow)];
-const profile = mapOrganizationProfile(CUI, profileRow(), records)._unsafeUnwrap();
+const profile = mapOrganizationProfile(CUI, profileRow(), records, sectionRows())._unsafeUnwrap();
 
 const statement: NgoFinancialStatement = {
   fiscalYear: 2025,
@@ -202,7 +262,10 @@ describe('NGO organization profile mapping', () => {
       },
     });
     expect(profile.fiscal).toEqual({ availability: 'not_loaded', data: null });
-    expect(profile.purpose).toEqual({ availability: 'not_released' });
+    expect(profile.purpose).toEqual({
+      availability: 'available',
+      text: PURPOSE,
+    });
     expect(profile.financials).toEqual({
       availability: 'available',
       fiscalYears: [2012, 2024, 2025],
@@ -211,7 +274,46 @@ describe('NGO organization profile mapping', () => {
     expect(profile.snapshot.id).toBe('snapshot');
   });
 
-  it('never carries office, purpose, custody or hash values even if a row contains them', () => {
+  it('publishes a blank purpose as null and reports missing or disagreeing purposes', () => {
+    const purposeOf = (purposes: NgoProfileSectionRows['purposes'], ids = [RECORD_ID]) => {
+      const pair = ids.map((id) => mapPublicRegistryRecord({ ...recordRow, legal_record_id: id }));
+      return mapOrganizationProfile(
+        CUI,
+        profileRow({ legal_record_ids: ids, observation_count: ids.length }),
+        pair,
+        sectionRows({ purposes })
+      )._unsafeUnwrap();
+    };
+    expect(purposeOf([{ legal_record_id: RECORD_ID, purpose: null }]).purpose).toMatchObject({
+      availability: 'available',
+      text: null,
+    });
+    expect(purposeOf([]).purpose).toMatchObject({ availability: 'not_loaded', text: null });
+    const second = 'mj_rnong:snapshot:row:11';
+    const same = purposeOf(
+      [
+        { legal_record_id: RECORD_ID, purpose: PURPOSE },
+        { legal_record_id: second, purpose: PURPOSE },
+      ],
+      [RECORD_ID, second]
+    );
+    expect(same.purpose).toMatchObject({ availability: 'available', text: PURPOSE });
+    const differing = purposeOf(
+      [
+        { legal_record_id: RECORD_ID, purpose: PURPOSE },
+        { legal_record_id: second, purpose: null },
+      ],
+      [RECORD_ID, second]
+    );
+    expect(differing.purpose).toMatchObject({ availability: 'not_released', text: null });
+    expect(differing.conflicts).toEqual(['status', 'purpose']);
+    // One observation without a loaded purpose makes the whole purpose not loaded.
+    expect(
+      purposeOf([{ legal_record_id: RECORD_ID, purpose: PURPOSE }], [RECORD_ID, second]).purpose
+    ).toMatchObject({ availability: 'not_loaded' });
+  });
+
+  it('never carries office, custody or hash values, or purpose text from the profile row', () => {
     const leakyRow = {
       ...profileRow(),
       office_street: 'Strada Privată',
@@ -223,7 +325,7 @@ describe('NGO organization profile mapping', () => {
       raw_line_sha256: 'a'.repeat(64),
       object_key: 'raw/ngos/secret.json',
     };
-    const mapped = mapOrganizationProfile(CUI, leakyRow, records)._unsafeUnwrap();
+    const mapped = mapOrganizationProfile(CUI, leakyRow, records, sectionRows())._unsafeUnwrap();
     const serialized = JSON.stringify(mapped);
     for (const secret of [
       'Strada Privată',
@@ -242,7 +344,6 @@ describe('NGO organization profile mapping', () => {
     ['a different organization CUI', { organization_cui: '999' }],
     ['no organization CUI', { organization_cui: null }],
     ['a withheld registry name', { name_withheld: true }],
-    ['released purpose (no public text contract)', { purpose_availability: 'available' }],
     ['an unknown section state', { anaf_registration_availability: 'not_linked' }],
     ['registration without provenance', { anaf_reference: null }],
     [
@@ -253,7 +354,123 @@ describe('NGO organization profile mapping', () => {
     ['missing financials with years', { financials_availability: 'not_loaded' }],
     ['an incomplete observation set', { legal_record_ids: [RECORD_ID, 'other-row'] }],
   ])('fails closed on %s', (_label, overrides) => {
-    const result = mapOrganizationProfile(CUI, profileRow(overrides), records);
+    const result = mapOrganizationProfile(CUI, profileRow(overrides), records, sectionRows());
+    expect(result.isErr() && result.error.type).toBe('Database');
+  });
+
+  it('maps loaded, empty and missing source lists with their provenance', () => {
+    expect(profile.socialServices).toEqual({
+      availability: 'available',
+      snapshot: {
+        id: 'ngos:social_service_licenses:default:snapshot',
+        sourceUrl: 'https://example.gov.ro/social_service_licenses',
+        sourceDeclaredDate: null,
+        importedAt: '2026-09-20T08:00:00.000Z',
+      },
+      data: [
+        {
+          serviceType: 'Centre de zi  pentru persoane vârstnice',
+          serviceCode: '8810 CZ-V-I',
+          serviceName: 'Centrul de zi Floresti',
+          county: 'CLUJ',
+          locality: 'FLORESTI',
+          capacity: 24,
+          licenseNumber: 'LF 0001',
+          licensedOn: '2020-01-15',
+          countyOnly: false,
+        },
+        {
+          serviceType: shelterRow.service_type,
+          serviceCode: '8810 CZ-V-I',
+          serviceName: null,
+          county: 'CLUJ',
+          locality: null,
+          capacity: 24,
+          licenseNumber: 'LF 0001',
+          licensedOn: '2020-01-15',
+          countyOnly: true,
+        },
+      ],
+    });
+    // Loaded source that does not list the CUI: an empty list, not missing coverage.
+    expect(profile.socialEnterpriseCertificates).toMatchObject({
+      availability: 'available',
+      snapshot: { sourceDeclaredDate: '2026-05-15' },
+      data: [],
+    });
+    expect(profile.socialServiceAccreditations).toEqual({
+      availability: 'not_loaded',
+      snapshot: null,
+      data: null,
+    });
+    expect(profile.employmentServiceAccreditations.data).toEqual([
+      { certificateNumber: 'Seria A nr. 1', issuedOn: '2019-03-01' },
+    ]);
+  });
+
+  it('never carries addresses, siruta codes, contacts or source names from section rows', () => {
+    const leaky = {
+      address: 'Str. Privată 7',
+      siruta_code: 54975,
+      provider_name: 'ASOCIAȚIA ASCUNSĂ',
+      provider_type: 'TIP-FURNIZOR-2',
+      sanction_status: 'Art. 29 lit. e)',
+      email: 'contact@example.ro',
+      phone: '0700000000',
+    };
+    const mapped = mapOrganizationProfile(
+      CUI,
+      profileRow(),
+      records,
+      sectionRows({
+        socialServices: [{ ...serviceRow(), ...leaky }],
+        socialServiceAccreditations: [
+          {
+            cui: CUI,
+            certificate_number: 'AF/000044',
+            accreditation_decision_number: '486',
+            source_record_key: 'p',
+            ...leaky,
+          },
+        ],
+        snapshots: [...sectionRows().snapshots, snapshotRow('social_service_providers')],
+      })
+    )._unsafeUnwrap();
+    const keys: string[] = [];
+    const collect = (value: unknown): void => {
+      if (Array.isArray(value)) value.forEach(collect);
+      else if (typeof value === 'object' && value !== null)
+        for (const [key, nested] of Object.entries(value)) {
+          keys.push(key);
+          collect(nested);
+        }
+    };
+    collect(mapped);
+    expect(
+      keys.filter((key) => /address|siruta|street|postal|email|phone|contact/i.test(key))
+    ).toEqual([]);
+    const serialized = JSON.stringify(mapped);
+    for (const secret of Object.values(leaky)) expect(serialized).not.toContain(String(secret));
+  });
+
+  it.each([
+    [
+      'a county-only service that still names its place',
+      { socialServices: [{ ...shelterRow, locality: 'CLUJ-NAPOCA' }] },
+    ],
+    [
+      'a county-only service that still carries its name',
+      { socialServices: [{ ...shelterRow, service_name: 'Adăpost' }] },
+    ],
+    ['rows without a current snapshot', { snapshots: [] }],
+    [
+      'two current snapshots for one source',
+      {
+        snapshots: [snapshotRow('social_service_licenses'), snapshotRow('social_service_licenses')],
+      },
+    ],
+  ])('fails closed on %s', (_label, overrides) => {
+    const result = mapOrganizationProfile(CUI, profileRow(), records, sectionRows(overrides));
     expect(result.isErr() && result.error.type).toBe('Database');
   });
 });
@@ -281,13 +498,29 @@ describe('NGO organization GraphQL and MCP', () => {
     ngoOrganizationProfile(cui: "${CUI}") {
       identity { cui method }
       sourceCui
-      purpose { availability }
+      purpose { availability text }
       fiscal { availability data { sourceSnapshotId } }
       anafRegistration { availability data { sourceSnapshotId documentationUrl } }
       financials { availability fiscalYears statements(fiscalYears: [2025]) { fiscalYear sourceUrl dictionaryUrl indicators { code label value } } }
       registryRecords { id linkedOrganizationCui }
+      socialServices { ...SocialServices }
+      socialServiceAccreditations { availability snapshot { ...Snapshot } data { certificateNumber decisionNumber } }
+      socialEnterpriseCertificates { availability snapshot { ...Snapshot } data { certificateNumber certificateDate validUntil status } }
+      employmentServiceAccreditations { availability snapshot { ...Snapshot } data { certificateNumber issuedOn } }
     }
+  }
+  fragment Snapshot on NgoSectionSnapshot { id sourceUrl sourceDeclaredDate importedAt }
+  fragment SocialServices on NgoSocialServicesSection {
+    availability
+    snapshot { ...Snapshot }
+    data { serviceType serviceCode serviceName county locality capacity licenseNumber licensedOn countyOnly }
   }`;
+  const SECTIONS = [
+    'socialServices',
+    'socialServiceAccreditations',
+    'socialEnterpriseCertificates',
+    'employmentServiceAccreditations',
+  ] as const;
 
   it('returns the same profile and statements through GraphQL and MCP', async () => {
     const gqlRepo = fakeRepo();
@@ -295,7 +528,7 @@ describe('NGO organization GraphQL and MCP', () => {
     expect(result.errors).toBeUndefined();
     const gql = result.data?.['ngoOrganizationProfile'] as Record<string, unknown>;
     expect(gql['identity']).toEqual({ cui: CUI, method: 'fiscal_exact_name_county' });
-    expect(gql['purpose']).toEqual({ availability: 'not_released' });
+    expect(gql['purpose']).toEqual(profile.purpose);
     expect(gql['financials']).toEqual({
       availability: 'available',
       fiscalYears: [2012, 2024, 2025],
@@ -309,6 +542,8 @@ describe('NGO organization GraphQL and MCP', () => {
       ],
     });
     expect(gqlRepo.statementCalls).toEqual([[2025]]);
+    // Every section field is selected, so GraphQL returns exactly the core value MCP returns.
+    for (const section of SECTIONS) expect(gql[section]).toEqual(profile[section]);
 
     const mcpRepo = fakeRepo();
     const mcp = await tool(mcpRepo.repo).handler({ cui: CUI, financialYears: [2025] });
@@ -333,7 +568,8 @@ describe('NGO organization GraphQL and MCP', () => {
     const notLoaded = mapOrganizationProfile(
       CUI,
       profileRow({ financials_availability: 'not_loaded', financial_years: [] }),
-      records
+      records,
+      sectionRows()
     )._unsafeUnwrap();
     const empty = fakeRepo(notLoaded);
     const gql = await graphql({ schema: schemaFor(empty.repo), source: query });
@@ -357,7 +593,8 @@ describe('NGO organization GraphQL and MCP', () => {
     const notLoaded = mapOrganizationProfile(
       CUI,
       profileRow({ financials_availability: 'not_loaded', financial_years: [] }),
-      records
+      records,
+      sectionRows()
     )._unsafeUnwrap();
     for (const years of ['[]', '[2024, 2024]', '[1800]']) {
       const gqlRepo = fakeRepo(notLoaded);
@@ -408,7 +645,6 @@ describe('NGO organization GraphQL and MCP', () => {
   it('exposes no private fields in the public schema', async () => {
     const schema = schemaFor(fakeRepo().repo);
     for (const selection of [
-      'purpose { text }',
       'anafRegistration { data { officeStreet } }',
       'anafRegistration { data { custodyKind } }',
       'financials { statements { rawLineSha256 } }',
@@ -416,6 +652,13 @@ describe('NGO organization GraphQL and MCP', () => {
       'financials { statements { indicators { normalizedName } } }',
       'purposeText',
       'officeCounty',
+      'socialServices { data { address } }',
+      'socialServices { data { sirutaCode } }',
+      'socialServices { data { providerName } }',
+      'socialServices { data { ownership } }',
+      'socialServiceAccreditations { data { providerType } }',
+      'socialEnterpriseCertificates { data { sanctionStatus } }',
+      'employmentServiceAccreditations { data { notes } }',
     ]) {
       const result = await graphql({
         schema,
@@ -478,15 +721,29 @@ describe('NGO organization repository', () => {
   });
 
   it('reads the eligible organization with its complete public observations', async () => {
-    const { db } = scripted((sql) =>
+    const rows = sectionRows();
+    const { db, executed } = scripted((sql) =>
       sql.includes('ngo.public_organization_profile')
         ? [profileRow()]
         : sql.includes('rnong_public_records')
           ? [recordRow]
-          : []
+          : sql.includes('"rnong_public_purposes"')
+            ? [...rows.purposes]
+            : sql.includes('"public_section_snapshots"')
+              ? [...rows.snapshots]
+              : sql.includes('"public_social_services"')
+                ? [...rows.socialServices]
+                : sql.includes('"public_employment_accreditations"')
+                  ? [...rows.employmentServiceAccreditations]
+                  : []
     );
     const result = await makeNgoOrganizationRepo(db, true).profile(CUI);
     expect(result._unsafeUnwrap()).toEqual(profile);
+    // Sections are keyed by the admitted CUI; none re-runs the admission helper.
+    const sectionSql = executed.filter((sql) => /"public_(social|employment)_/.test(sql));
+    expect(sectionSql).toHaveLength(4);
+    for (const sql of sectionSql) expect(sql).toMatch(/"cui" = \$1/);
+    expect(executed.join('\n')).not.toContain('rnong_organizations_for_cui');
 
     const none = scripted(() => []);
     expect((await makeNgoOrganizationRepo(none.db, true).profile(CUI))._unsafeUnwrap()).toBeNull();

@@ -29,7 +29,7 @@ export const ngoOrganizationTypeDefs = `
     fiscal_exact_name_county
     document_registration_bridge
   }
-  "not_loaded is missing coverage, never a negative fact."
+  "not_loaded is missing coverage, never a negative fact. not_released is emitted only by purpose, when the organization's observations disagree."
   enum NgoSectionAvailability {
     available
     not_loaded
@@ -39,8 +39,11 @@ export const ngoOrganizationTypeDefs = `
     cui: CUI!
     method: NgoIdentityMethod!
   }
+  "RNONG purpose (Scop) of the organization's registry observations; provenance is the profile's snapshot. available with null text: blank source cell. not_loaded: purposes are not loaded for every observation. not_released: the observations disagree (conflicts lists purpose)."
   type NgoPurposeSection {
     availability: NgoSectionAvailability!
+    "Full source text as published, trimmed at the ends; source masking tokens such as <PERSON> are kept."
+    text: String
   }
   "ANAF registration assertions of the admitted observation. Registration state, fiscal inactivity and inactive-register removal are not legal dissolution."
   type NgoAnafRegistration {
@@ -105,6 +108,72 @@ export const ngoOrganizationTypeDefs = `
     "Admitted statements, newest first; no totals are computed. fiscalYears: 1-20 distinct years (1990-2100), validated even when financials are not loaded. Read separately from the profile, in its own database snapshot."
     statements(fiscalYears: [Int!]): [NgoFinancialStatement!]!
   }
+  """
+  Current source snapshot of a list section (socialServices, socialServiceAccreditations,
+  socialEnterpriseCertificates, employmentServiceAccreditations); field names match NgoRegistrySnapshot.
+  Lists are joined by CUI only. available with an empty data list: the organization is not listed in
+  this snapshot. not_loaded: snapshot and data are null.
+  """
+  type NgoSectionSnapshot {
+    id: ID!
+    sourceUrl: String!
+    "Null when the source publishes no snapshot date; importedAt is when it was loaded."
+    sourceDeclaredDate: Date
+    importedAt: DateTime!
+  }
+  "Licensed social service as listed by the ministry. countyOnly: a protective or unclassified service type (e.g. shelters for victims of domestic violence or trafficking, residential child protection), published with county only: no service name, no locality."
+  type NgoSocialService {
+    serviceType: String
+    serviceCode: String
+    serviceName: String
+    county: String
+    locality: String
+    capacity: Int
+    licenseNumber: String
+    licensedOn: Date
+    countyOnly: Boolean!
+  }
+  "Ministry list of licensed social services; see NgoSectionSnapshot for list semantics."
+  type NgoSocialServicesSection {
+    availability: NgoSectionAvailability!
+    snapshot: NgoSectionSnapshot
+    data: [NgoSocialService!]
+  }
+  "Accreditation as a social-service provider: certificate in force and accreditation decision number, as listed."
+  type NgoSocialServiceAccreditation {
+    certificateNumber: String
+    decisionNumber: String
+  }
+  "Ministry list of accredited social-service providers; see NgoSectionSnapshot."
+  type NgoSocialServiceAccreditationsSection {
+    availability: NgoSectionAvailability!
+    snapshot: NgoSectionSnapshot
+    data: [NgoSocialServiceAccreditation!]
+  }
+  "RUEIS social-enterprise certificate. status is as published in that snapshot, not a live check."
+  type NgoSocialEnterpriseCertificate {
+    certificateNumber: String
+    certificateDate: Date
+    validUntil: Date
+    status: String
+  }
+  "ANOFM social-enterprise register (RUEIS); see NgoSectionSnapshot."
+  type NgoSocialEnterpriseCertificatesSection {
+    availability: NgoSectionAvailability!
+    snapshot: NgoSectionSnapshot
+    data: [NgoSocialEnterpriseCertificate!]
+  }
+  "ANOFM accreditation as an employment-service provider."
+  type NgoEmploymentServiceAccreditation {
+    certificateNumber: String
+    issuedOn: Date
+  }
+  "ANOFM register of accredited employment-service providers; see NgoSectionSnapshot."
+  type NgoEmploymentServiceAccreditationsSection {
+    availability: NgoSectionAvailability!
+    snapshot: NgoSectionSnapshot
+    data: [NgoEmploymentServiceAccreditation!]
+  }
   "Current RNONG organization whose CUI is an eligible admitted identity. Registry fields are source assertions; consensus fields are null where observations differ (see conflicts)."
   type NgoOrganizationProfile {
     cui: CUI!
@@ -133,6 +202,10 @@ export const ngoOrganizationTypeDefs = `
     anafRegistration: NgoAnafRegistrationSection!
     fiscal: NgoOrganizationFiscalSection!
     financials: NgoFinancialsSection!
+    socialServices: NgoSocialServicesSection!
+    socialServiceAccreditations: NgoSocialServiceAccreditationsSection!
+    socialEnterpriseCertificates: NgoSocialEnterpriseCertificatesSection!
+    employmentServiceAccreditations: NgoEmploymentServiceAccreditationsSection!
   }
   extend type Query {
     "Null when the CUI is not the eligible identity of a current public registry organization; not proof it is not an NGO."

@@ -1,6 +1,6 @@
 # NGO registry v1
 
-RNONG registry observations are served through GraphQL and MCP, using only the explicit public views from scraper migrations `20260919T220000` / `220500`. Source records without CUI remain browseable. No fuzzy identities, financials, grants, purpose text, raw payloads or mock adapters are added.
+RNONG registry observations are served through GraphQL and MCP, using only the explicit public views from scraper migrations `20260919T220000` / `220500`. Source records without CUI remain browseable. No fuzzy identities, financials, grants, purpose text, raw payloads or mock adapters are added to the registry lists; the organization profile below adds admitted financials, purpose text and source lists.
 
 The base row's privacy class is the maximum sensitivity of its columns; separately audited column projections carry their own class. Base legal/snapshot rows stay restricted. The repository type and SQL allowlist omit private fields structurally. The released RNONG decision keeps private originals in raw storage and projects only audited fields into production. Existing shared reader privileges remain unchanged; the repository still enforces an explicit field allowlist and public privacy filters. `NGO_REGISTRY_ENABLED` defaults false on both entrypoints. Missing/disabled data returns an explicit capability error, never a successful empty registry.
 
@@ -22,7 +22,8 @@ source service documentation, not a captured response. No ANAF names, addresses,
 raw payloads, object pointers or fingerprints are returned. Missing fiscal data
 is unavailable, not a confirmed negative; missing current registry admission
 returns no profile; database errors propagate as errors. Financials, services,
-accreditations and funding are explicitly not released, with no fabricated zeros.
+accreditations and funding are explicitly not released in this legacy overview,
+with no fabricated zeros; `ngoOrganizationProfile` below publishes them.
 
 Deploy only after scraper migration `20260920T180010` is present. The existing
 module enablement flag also gates profiles. The client uses a dedicated live
@@ -70,7 +71,8 @@ None is a legal verification. `sourceCui` stays the registry-declared value. An
 inferred identity's ANAF registration stays pinned to its frozen bridge
 observation even after the current fiscal observation changes. Fiscal and
 registration sections are therefore independent, and `not_loaded` never means a
-negative fact. Purpose is always `not_released`. Every ANAF registered-office
+negative fact. Purpose is published in full by the owner's 2026-09-30 decision (see
+below). Every ANAF registered-office
 field stays private, and offices, custody, hashes and storage pointers have no
 GraphQL/MCP field. `registryRecords` reuse the audited public-record mapping.
 
@@ -81,3 +83,84 @@ strings (`^-?[0-9]+$`, never parsed). A blank cell is `null` and `"0"` is a
 reported zero. A missing year is unknown. No totals or cross-year indicator series
 are computed. Unknown availability values, identity methods, dictionary shapes or
 missing provenance fail closed as `Database` errors.
+
+## Profile source lists — social services, accreditations, RUEIS
+
+`socialServices`, `socialServiceAccreditations`, `socialEnterpriseCertificates`
+(RUEIS) and `employmentServiceAccreditations` (ANOFM) come from five plain allowlist
+views in scraper migration `20260930T100000` (drafted, not applied). They are read inside the profile's own snapshot,
+after `ngo.public_organization_profile` has admitted the CUI, with indexed `cui =`
+lookups. There is no second admission and no organization gate of their own, so
+they add a few milliseconds, not another ~200 ms admission. Joins are by CUI only.
+
+Each section is `{ availability, snapshot, data }`. `snapshot` is the source's current
+snapshot, `{ id, sourceUrl, sourceDeclaredDate, importedAt }`. The field names are a subset of
+the registry `NgoRegistrySnapshot`, so one client component renders both. A current
+snapshot with no rows for the CUI is `available` with `[]` ("not listed in that
+snapshot"). No current snapshot is `not_loaded`. The views never project names,
+address, siruta code, contacts, `provider_type` (no published legend),
+`sanction_status`, the ANOFM free-text notes or the licences' Public/Privat column.
+Service types use a closed classification of the 30 labels in the source. Only the
+reviewed non-protective labels show service name and locality. Reviewed protective
+labels (violence or trafficking victims, residential child/youth protection,
+mother-and-child, street outreach) are `countyOnly` and keep their category. Any other
+label, including NULL, is `countyOnly` with `serviceType` null, because an unknown
+label can name a place. Each source is pinned to its production snapshot scope. The
+mapper refuses a county-only row that still
+carries a place, and it also refuses rows without a snapshot or a source with two
+current snapshots. A missing view returns the same capability error as a missing
+function. A view without the reader grant fails with 42501, a `Database` error for
+the whole profile.
+
+Deploy in this order:
+
+1. Run the scope check, read-only. It must return four rows, one per pinned pair;
+   a missing pair means that section will be `not_loaded`.
+
+   ```sql
+   select source_id, snapshot_scope, status from ngo.source_snapshots
+   where is_current and (source_id, snapshot_scope) in (
+     ('social_service_licenses', 'licensed_services'),
+     ('social_service_providers', 'providers'), ('anofm_rueis', 'current'),
+     ('anofm_employment_accreditation', 'current'));
+   ```
+
+2. Apply the scraper migrations `20260930T100000` and `20260930T110000`.
+3. Run `pnpm etl ngos rnong-purpose-load --snapshot <current RNONG snapshot> --dry-run`,
+   then the same command without `--dry-run`.
+4. Run the label check as the owner. It must return no rows; any row is a live label
+   outside the reviewed lists, shown as unclassified until it is reviewed.
+
+   ```sql
+   select ss.service_type, count(*) from ngo.social_services ss
+   join ngo.public_social_services v using (source_record_key)
+   where ss.service_type is not null and v.service_type is null group by 1;
+   ```
+
+5. Grant SELECT on the five section views and `ngo.rnong_public_purposes` to the reader.
+6. Deploy the server.
+
+Steps 1 and 4 exist because both redactions fail safe but silently. Purposes are keyed
+by registry observation, so re-run step 3 with the new snapshot after every RNONG
+promotion; until then every profile's purpose is `not_loaded`.
+
+## Purpose text
+
+By the owner's decision of 2026-09-30, `purpose.text` is the full RNONG "Scop" text,
+exactly as published and trimmed at the ends. Line breaks, quotes and the source's
+masking tokens (`<PERSON>`, `<LOCATION>`) are kept. The text is not screened, masked or
+rewritten. This supersedes the 2026-09-26 screen/audit gate.
+
+The scraper migration `20260930T110000` stores one row per non-withheld registry
+observation. The command `rnong-purpose-load` fills it from verified raw records, and
+the view `ngo.rnong_public_purposes` also excludes withheld names. The server reads
+that view for the admitted `legal_record_ids`, in the profile's snapshot, and applies
+the registry consensus rule:
+
+- `available` when every observation has a loaded purpose and they agree; a blank
+  cell gives null text.
+- `not_loaded` when any observation lacks a loaded purpose.
+- `not_released`, with `purpose` in `conflicts`, when observations disagree.
+
+Purpose has no provenance fields of its own: it is the profile's registry `snapshot`. The profile function's legacy
+`purpose_availability` column is no longer read.

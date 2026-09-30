@@ -22,12 +22,72 @@ export type NgoRegistryConflictField =
   | 'locality'
   | 'sourceCui'
   | 'identity'
-  | 'cui';
+  | 'cui'
+  | 'purpose';
+
+/**
+ * Full RNONG purpose ("Scop") as published, trimmed at the ends; source masking tokens are kept.
+ * `available` with null text is a blank source cell. `not_loaded`: purposes are not loaded for every
+ * observation. `not_released`: the organization's observations disagree (see conflicts).
+ * Provenance is the profile's registry `snapshot`.
+ */
+export type NgoPurpose =
+  | { readonly availability: 'available'; readonly text: string | null }
+  | { readonly availability: 'not_loaded' | 'not_released'; readonly text: null };
 
 /** `not_loaded` is missing coverage, never a negative fact. */
 export type NgoLoadedSection<T> =
   | { readonly availability: 'available'; readonly data: T }
   | { readonly availability: 'not_loaded'; readonly data: null };
+
+/** The current snapshot a source-list section was read from; field names match `NgoRegistrySnapshot`. */
+export interface NgoSectionSnapshot {
+  readonly id: string;
+  readonly sourceUrl: string;
+  /** Null when the source publishes no snapshot date. */
+  readonly sourceDeclaredDate: string | null;
+  readonly importedAt: string;
+}
+
+/** A current source list keyed by the organization's CUI; an empty list means "not listed in this snapshot". */
+export type NgoSourceSection<T> =
+  | {
+      readonly availability: 'available';
+      readonly snapshot: NgoSectionSnapshot;
+      readonly data: readonly T[];
+    }
+  | { readonly availability: 'not_loaded'; readonly snapshot: null; readonly data: null };
+
+/** Licensed social service. Protective or unclassified types are `countyOnly`: no service name, no locality. */
+export interface NgoSocialService {
+  readonly serviceType: string | null;
+  readonly serviceCode: string | null;
+  readonly serviceName: string | null;
+  readonly county: string | null;
+  readonly locality: string | null;
+  readonly capacity: number | null;
+  readonly licenseNumber: string | null;
+  readonly licensedOn: string | null;
+  readonly countyOnly: boolean;
+}
+
+export interface NgoSocialServiceAccreditation {
+  readonly certificateNumber: string | null;
+  readonly decisionNumber: string | null;
+}
+
+/** RUEIS certificate; `status` is as published in the snapshot, not a live check. */
+export interface NgoSocialEnterpriseCertificate {
+  readonly certificateNumber: string | null;
+  readonly certificateDate: string | null;
+  readonly validUntil: string | null;
+  readonly status: string | null;
+}
+
+export interface NgoEmploymentServiceAccreditation {
+  readonly certificateNumber: string | null;
+  readonly issuedOn: string | null;
+}
 
 /** ANAF registration assertions from the observation the identity admits; none is a legal-status verdict. */
 export interface NgoAnafRegistration {
@@ -97,7 +157,7 @@ export interface NgoOrganizationProfile {
   readonly conflicts: readonly NgoRegistryConflictField[];
   readonly snapshot: NgoRegistrySnapshot;
   readonly registryRecords: readonly NgoRegistryRecord[];
-  readonly purpose: { readonly availability: 'not_released' };
+  readonly purpose: NgoPurpose;
   readonly anafRegistration: NgoLoadedSection<NgoAnafRegistration>;
   readonly fiscal: NgoLoadedSection<NgoOrganizationFiscal>;
   /** Admitted statement years; a missing year is unknown, not zero and not proof of no filing. */
@@ -105,4 +165,8 @@ export interface NgoOrganizationProfile {
     readonly availability: 'available' | 'not_loaded';
     readonly fiscalYears: readonly number[];
   };
+  readonly socialServices: NgoSourceSection<NgoSocialService>;
+  readonly socialServiceAccreditations: NgoSourceSection<NgoSocialServiceAccreditation>;
+  readonly socialEnterpriseCertificates: NgoSourceSection<NgoSocialEnterpriseCertificate>;
+  readonly employmentServiceAccreditations: NgoSourceSection<NgoEmploymentServiceAccreditation>;
 }
