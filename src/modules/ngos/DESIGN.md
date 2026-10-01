@@ -182,7 +182,7 @@ Registry records add `organizationCui`/`organizationIdentityMethod` through one
 bounded current-group read per page. Source and legacy direct CUI fields are unchanged.
 
 Search hits add `ngoRegistryNumber`, `ngoRegistryStatus`, `ngoIdentityMethod` and
-`ngoSourceSnapshotId`. Filter `entityTags` by `rnong` for the NGO hub's single registry
+`ngoSourceSnapshotId`. Filter `entityTags` by `source::rnong` for the NGO hub's single registry
 population. Explicit CUI arrays are authoritative, including empty arrays. Registry
 status remains separate from generic activity. Broader site search keeps its other
 populations. Chronos dev uses an isolated full palette; production index and readers
