@@ -13,6 +13,7 @@
 import { fromThrowable } from 'neverthrow';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { validEntityTags, buildEntitiesFilter } from '@/modules/shared/core/filters/meili-array.js';
 import { makeMeiliClient } from '@/modules/shared/shell/clients/meili-client.js';
 
 /** Result-based JSON parse (the codebase bans bare `JSON.parse`). */
@@ -351,7 +352,7 @@ it('preserves an explicit empty CUI list and registry metadata', async () => {
           title: 'Registry only',
           identifiers: ['12345'],
           cuis: [],
-          entity_tags: ['rnong'],
+          entity_tags: ['source::rnong'],
           ngo_registry_number: '12345',
           ngo_registry_status: 'Radiat',
           ngo_source_snapshot_id: 'snapshot',
@@ -367,4 +368,12 @@ it('preserves an explicit empty CUI list and registry metadata', async () => {
     ngoRegistryStatus: 'Radiat',
     ngoSourceSnapshotId: 'snapshot',
   });
+});
+
+it('accepts the registry source scope through the actual search filter contract', () => {
+  expect(validEntityTags(['source::rnong'])).toBe(true);
+  expect(validEntityTags(['rnong'])).toBe(false);
+  expect(buildEntitiesFilter({ entityTags: ['source::rnong'] })).toContain(
+    'entity_tags IN ["source::rnong"]'
+  );
 });
