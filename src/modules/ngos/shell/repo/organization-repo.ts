@@ -588,7 +588,11 @@ export const makeNgoOrganizationRepo = (
                   .execute();
             const mapped = mapRegistryOnlyProfile(
               row,
-              records.map(mapPublicRegistryRecord),
+              records.map((r) => ({
+                ...mapPublicRegistryRecord(r),
+                organizationCui: null,
+                organizationIdentityMethod: null,
+              })),
               purposes
             );
             if (mapped.isErr()) return err(mapped.error);

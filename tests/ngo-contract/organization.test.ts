@@ -113,6 +113,12 @@ describe('NGO repository with real DDL and a minimal reader', () => {
     expect(admitted.data?.['ngoRegistryProfile']).toMatchObject({
       profiles: [{ cui, purpose: { availability: 'available', text: 'Activități sportive.' } }],
     });
+    const registryOnly = unwrap(await repo.registryProfile('2/A/2020'));
+    expect(
+      registryOnly?.profiles[0]?.registryRecords.every(
+        (r) => r.organizationCui === null && r.organizationIdentityMethod === null
+      )
+    ).toBe(true);
     const tool = module.mcpTools.find((t) => t.name === 'get_ngo_registry_profile')!;
     expect(await tool.handler({ registryNumber: '2/A/2020' })).toMatchObject({
       ok: true,
