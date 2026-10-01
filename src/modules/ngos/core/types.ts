@@ -1,5 +1,12 @@
-import type { NgoIdentityMethod } from './organization-types.js';
 import type { FilterInput } from '@/modules/shared/index.js';
+
+export const NGO_IDENTITY_METHODS = [
+  'registry_cui',
+  'registry_cui_fiscal_agreement',
+  'fiscal_exact_name_county',
+  'document_registration_bridge',
+] as const;
+export type NgoIdentityMethod = (typeof NGO_IDENTITY_METHODS)[number];
 
 export interface NgoRegistrySnapshot {
   readonly id: string;

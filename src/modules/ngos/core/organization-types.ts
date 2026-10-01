@@ -1,13 +1,8 @@
-import type { NgoRegistryRecord, NgoRegistrySnapshot } from './types.js';
+import type { NgoRegistryRecord, NgoRegistrySnapshot, NgoIdentityMethod } from './types.js';
 
 /** Identity methods admitted by the data layer (scraper migrations 20260926T120000, 20260928T210000). */
-export const NGO_IDENTITY_METHODS = [
-  'registry_cui',
-  'registry_cui_fiscal_agreement',
-  'fiscal_exact_name_county',
-  'document_registration_bridge',
-] as const;
-export type NgoIdentityMethod = (typeof NGO_IDENTITY_METHODS)[number];
+export { NGO_IDENTITY_METHODS } from './types.js';
+export type { NgoIdentityMethod } from './types.js';
 
 /** The ANAF link is web-service documentation, not a captured response (same URL the fiscal views publish). */
 export const ANAF_WEB_SERVICE_DOCUMENTATION_URL =

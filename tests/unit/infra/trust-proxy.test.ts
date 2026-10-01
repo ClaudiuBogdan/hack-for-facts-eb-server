@@ -1,11 +1,11 @@
-import fastify from 'fastify';
+import createFastify from 'fastify';
 import { describe, expect, it } from 'vitest';
 
 import { fastifyTrustProxy } from '@/infra/config/trust-proxy.js';
 
 describe('patched Fastify proxy compatibility', () => {
   it('rejects spoofed forwarded headers under numeric hop-only settings', async () => {
-    const app = fastify({ trustProxy: fastifyTrustProxy(1) });
+    const app = createFastify({ trustProxy: fastifyTrustProxy(1) });
     app.get('/probe', (request) => ({
       ip: request.ip,
       hostname: request.hostname,
