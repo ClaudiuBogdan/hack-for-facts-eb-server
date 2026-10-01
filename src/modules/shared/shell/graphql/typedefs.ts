@@ -166,6 +166,10 @@ export const baseTypeDefs = /* GraphQL */ `
     rankBoost: Float
     "Associated CUI identifiers (exact-match filter / CUI-spine deep-link)."
     cuis: [String!]
+    ngoRegistryNumber: String
+    ngoRegistryStatus: String
+    ngoIdentityMethod: String
+    ngoSourceSnapshotId: String
     "Every searchable identifier: CUIs, ONRC numbers, citations, PLx numbers."
     identifiers: [String!]
     "Every role this identity plays (a municipality may also be a PNRR entity)."

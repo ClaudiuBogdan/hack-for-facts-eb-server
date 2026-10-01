@@ -170,3 +170,14 @@ export interface NgoOrganizationProfile {
   readonly socialEnterpriseCertificates: NgoSourceSection<NgoSocialEnterpriseCertificate>;
   readonly employmentServiceAccreditations: NgoSourceSection<NgoEmploymentServiceAccreditation>;
 }
+
+/** Current registry group; CUI enrichment is absent unless identity is admitted. */
+export interface NgoRegistryProfile extends Omit<NgoOrganizationProfile, 'cui' | 'identity'> {
+  readonly cui: string | null;
+  readonly identity: NgoOrganizationProfile['identity'] | null;
+  readonly nameWithheld: boolean;
+}
+export interface NgoRegistryProfileResult {
+  readonly status: 'resolved' | 'ambiguous';
+  readonly profiles: readonly NgoRegistryProfile[];
+}

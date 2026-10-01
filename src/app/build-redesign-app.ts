@@ -24,6 +24,7 @@ import { registerInsDatasetRequestRoutes } from './ins-dataset-request-routes.js
 import { makeInsGraphqlLifecycle } from './ins-graphql-session.js';
 import { registerNativeMapRoutes } from './native-map-routes.js';
 import { publicHealthReport } from './public-health.js';
+import { fastifyTrustProxy, type TrustProxySetting } from '../infra/config/trust-proxy.js';
 import {
   makeGraphQLErrorFormatter,
   makeGraphQLValidationRules,
@@ -70,7 +71,6 @@ import type {
   LegalSearchComposition,
   ProcurementComposition,
 } from '../infra/config/redesign-env.js';
-import type { TrustProxySetting } from '../infra/config/trust-proxy.js';
 import type { UserDatabase } from '../infra/database/user/types.js';
 import type { AgentModuleConfig, QuotaRedis } from '../modules/agent/index.js';
 import type { Kysely } from 'kysely';
@@ -248,7 +248,7 @@ export const buildRedesignApp = async (deps: BuildRedesignAppDeps): Promise<Rede
     disableRequestLogging: true,
     // Rate limits and logs key on the client IP; behind the gateway that means
     // trusting X-Forwarded-For (X/F15). Off only for a directly exposed process.
-    trustProxy: deps.trustProxy ?? true,
+    trustProxy: fastifyTrustProxy(deps.trustProxy),
   });
 
   // ── CORS ─────────────────────────────────────────────────────────────────────

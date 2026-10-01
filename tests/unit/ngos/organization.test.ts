@@ -16,6 +16,7 @@ import {
   getNgoOrganizationProfile,
   type NgoOrganizationRepository,
 } from '@/modules/ngos/core/organization.js';
+import { makeNgosModule } from '@/modules/ngos/index.js';
 import {
   makeNgoOrganizationResolvers,
   ngoOrganizationTypeDefs,
@@ -216,6 +217,7 @@ const fakeRepo = (value: NgoOrganizationProfile | null = profile) => {
   const statementCalls: (readonly number[] | null)[] = [];
   let profileCalls = 0;
   const repo: NgoOrganizationRepository = {
+    registryProfile: () => Promise.resolve(ok(null)),
     profile: () => {
       profileCalls += 1;
       return Promise.resolve(ok(value));
@@ -631,6 +633,7 @@ describe('NGO organization GraphQL and MCP', () => {
     });
 
     const failing: NgoOrganizationRepository = {
+      registryProfile: () => Promise.resolve(ok(null)),
       profile: () => Promise.resolve(err({ type: 'Database', message: 'failed' })),
       financialStatements: () => Promise.resolve(ok([])),
     };
@@ -720,6 +723,35 @@ describe('NGO organization repository', () => {
       expect(result.isErr() && result.error.type).toBe(type);
   });
 
+  it('composes registry financial statements with the admitted parent CUI', async () => {
+    const rows = sectionRows();
+    const { db } = scripted((sql) =>
+      sql.includes('ngo.public_registry_profile') || sql.includes('ngo.public_organization_profile')
+        ? [profileRow()]
+        : sql.includes('rnong_public_records')
+          ? [recordRow]
+          : sql.includes('"rnong_public_purposes"')
+            ? [...rows.purposes]
+            : sql.includes('"public_section_snapshots"')
+              ? [...rows.snapshots]
+              : []
+    );
+    const module = makeNgosModule({ db, enabled: true });
+    const schema = makeExecutableSchema({
+      typeDefs:
+        'scalar Date\nscalar DateTime\nscalar CUI\ntype PageInfo {hasNextPage:Boolean! endCursor:String}\ntype Query {ping:String}\n' +
+        module.graphqlSlice.typeDefs,
+      resolvers: module.graphqlResolvers,
+    });
+    const result = await graphql({
+      schema,
+      source: `{ngoRegistryProfile(registryNumber:"1/A/2001"){profiles{cui financials{availability statements{fiscalYear}}}}}`,
+    });
+    expect(result.errors).toBeUndefined();
+    expect(result.data?.['ngoRegistryProfile']).toMatchObject({
+      profiles: [{ cui: CUI, financials: { availability: 'available', statements: [] } }],
+    });
+  });
   it('reads the eligible organization with its complete public observations', async () => {
     const rows = sectionRows();
     const { db, executed } = scripted((sql) =>
@@ -738,7 +770,14 @@ describe('NGO organization repository', () => {
                   : []
     );
     const result = await makeNgoOrganizationRepo(db, true).profile(CUI);
-    expect(result._unsafeUnwrap()).toEqual(profile);
+    expect(result._unsafeUnwrap()).toEqual({
+      ...profile,
+      registryRecords: profile.registryRecords.map((r) => ({
+        ...r,
+        organizationCui: CUI,
+        organizationIdentityMethod: 'fiscal_exact_name_county',
+      })),
+    });
     // Sections are keyed by the admitted CUI; none re-runs the admission helper.
     const sectionSql = executed.filter((sql) => /"public_(social|employment)_/.test(sql));
     expect(sectionSql).toHaveLength(4);

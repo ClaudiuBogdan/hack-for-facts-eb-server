@@ -2,9 +2,16 @@ import { err, ok, type Result } from 'neverthrow';
 
 import { invalidInput, type ApiError } from '@/modules/shared/index.js';
 
-import type { NgoFinancialStatement, NgoOrganizationProfile } from './organization-types.js';
+import type {
+  NgoFinancialStatement,
+  NgoOrganizationProfile,
+  NgoRegistryProfileResult,
+} from './organization-types.js';
 
 export interface NgoOrganizationRepository {
+  registryProfile(
+    registryNumber: string
+  ): Promise<Result<NgoRegistryProfileResult | null, ApiError>>;
   /** Null unless the CUI is the eligible identity of a current public registry organization. */
   profile(cui: string): Promise<Result<NgoOrganizationProfile | null, ApiError>>;
   /** Admitted MFP statements for the eligible CUI; `null` years means every admitted year. */
@@ -63,4 +70,13 @@ export const getNgoFinancialStatements = (
   const years = validateFiscalYears(fiscalYears);
   if (years.isErr()) return Promise.resolve(err(years.error));
   return repo.financialStatements(cui, years.value);
+};
+
+export const getNgoRegistryProfile = (repo: NgoOrganizationRepository, registryNumber: string) => {
+  const number = registryNumber.trim();
+  if (number.length === 0 || registryNumber.length > 128)
+    return Promise.resolve(
+      err(invalidInput('Expected a registry number of 1 to 128 characters', 'registryNumber'))
+    );
+  return repo.registryProfile(number);
 };

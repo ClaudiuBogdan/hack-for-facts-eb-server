@@ -12,6 +12,7 @@ import { jwtVerify, importSPKI } from 'jose';
 import { buildApp } from './app/build-app.js';
 import { parseEnv, createConfig, type AppConfig } from './infra/config/index.js';
 import { loadEmbeddedKernelConfig } from './infra/config/redesign-env.js';
+import { fastifyTrustProxy } from './infra/config/trust-proxy.js';
 import { initDatabases } from './infra/database/client.js';
 import { createLogger } from './infra/logger/index.js';
 import { makeJWTAdapter, makeCachedAuthProvider, type AuthProvider } from './modules/auth/index.js';
@@ -161,8 +162,8 @@ const main = async (): Promise<void> => {
         }),
       },
       disableRequestLogging: true,
-      // Configurable via TRUST_PROXY env var (true, false, hop count, named proxy, or CIDR).
-      trustProxy: config.server.trustProxy ?? true,
+      // Configurable via TRUST_PROXY env var (true, false, named proxy, or CIDR; numeric hop-only trust fails closed).
+      trustProxy: fastifyTrustProxy(config.server.trustProxy),
     },
     deps: {
       healthCheckers: [shutdownReadinessChecker],

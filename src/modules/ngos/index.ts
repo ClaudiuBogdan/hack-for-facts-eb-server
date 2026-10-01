@@ -39,6 +39,7 @@ export const makeNgosModule = (deps: {
         ...makeNgoProfileResolvers(profileRepo).Query,
         ...organizationResolvers.Query,
       },
+      NgoRegistryProfile: organizationResolvers.NgoRegistryProfile,
       NgoOrganizationProfile: organizationResolvers.NgoOrganizationProfile,
       NgoFinancialsSection: organizationResolvers.NgoFinancialsSection,
     },

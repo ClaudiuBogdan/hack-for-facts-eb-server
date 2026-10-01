@@ -215,6 +215,12 @@ export const makeKernelMcpTools = (deps: KernelMcpDeps): readonly KernelMcpTool[
           ...(h.countyName !== undefined && { countyName: h.countyName }),
           ...(h.url !== undefined && { url: h.url }),
           ...(h.cuis !== undefined && { cuis: h.cuis }),
+          ...(h.ngoRegistryNumber !== undefined && { ngoRegistryNumber: h.ngoRegistryNumber }),
+          ...(h.ngoRegistryStatus !== undefined && { ngoRegistryStatus: h.ngoRegistryStatus }),
+          ...(h.ngoIdentityMethod !== undefined && { ngoIdentityMethod: h.ngoIdentityMethod }),
+          ...(h.ngoSourceSnapshotId !== undefined && {
+            ngoSourceSnapshotId: h.ngoSourceSnapshotId,
+          }),
           isUat: h.isUat ?? null,
           entityTags: h.entityTags ?? [],
           ...(attrs !== undefined && Object.keys(attrs).length > 0 && { attrs }),

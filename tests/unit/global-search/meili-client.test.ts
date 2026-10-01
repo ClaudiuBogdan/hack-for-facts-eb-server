@@ -338,3 +338,33 @@ it('preserves INS matrix keys and identifiers without inventing a CUI', async ()
     url: '/statistici/seturi/POP107D',
   });
 });
+
+// Regression: registry numbers can be numeric, but an explicit no-CUI identity must win.
+it('preserves an explicit empty CUI list and registry metadata', async () => {
+  fetchSpy.mockResolvedValueOnce(
+    jsonResponse({
+      hits: [
+        {
+          id: 'registry',
+          doc_type: 'ngo',
+          doc_key: 'registry:12345',
+          title: 'Registry only',
+          identifiers: ['12345'],
+          cuis: [],
+          entity_tags: ['rnong'],
+          ngo_registry_number: '12345',
+          ngo_registry_status: 'Radiat',
+          ngo_source_snapshot_id: 'snapshot',
+        },
+      ],
+      estimatedTotalHits: 1,
+    })
+  );
+  const result = await client.searchEntities('12345', 'entities', { limit: 10 });
+  expect(result._unsafeUnwrap().hits[0]).toMatchObject({
+    cuis: [],
+    ngoRegistryNumber: '12345',
+    ngoRegistryStatus: 'Radiat',
+    ngoSourceSnapshotId: 'snapshot',
+  });
+});

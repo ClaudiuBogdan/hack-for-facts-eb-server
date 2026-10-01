@@ -6,5 +6,7 @@ declare module '@ngo-data/rnong-keyed-reads.fixture.js' {
     pool: Pool;
     stop(): Promise<void>;
   }
-  export function startNgoKeyedFixture(): Promise<{ fixture: PgFixture; client: PoolClient }>;
+  export function startNgoKeyedFixture(options?: {
+    registryReads?: boolean;
+  }): Promise<{ fixture: PgFixture; client: PoolClient }>;
 }

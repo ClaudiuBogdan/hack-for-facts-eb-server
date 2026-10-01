@@ -65,10 +65,12 @@ spec:
               value: /var/run/secrets/chronos-dev-user-db/ca.crt
             - name: BULLMQ_REDIS_PASSWORD
               $patch: delete
+            - name: PROD_MEILI_INDEXES
+              value: entities_ngo_dev_20261001
             - name: PROD_MEILI_SEARCH_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: chronos-prod-meilisearch-search-credentials
+                  name: chronos-ngo-dev-meilisearch-search-credentials
                   key: apiKey
             - name: PROD_OPENSEARCH_USERNAME
               valueFrom:

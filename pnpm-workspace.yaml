@@ -2,6 +2,7 @@ onlyBuiltDependencies:
   - esbuild
 
 overrides:
+  fastify: 5.12.2
   handlebars: '>=4.7.9'
   ip-address: 10.3.1
   qs: 6.15.2

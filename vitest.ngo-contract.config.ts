@@ -25,6 +25,7 @@ export default defineConfig({
   },
   resolve: {
     alias: [
+      { find: /^graphql$/u, replacement: path.resolve('node_modules/graphql/index.js') },
       { find: '@ngo-data', replacement: path.join(dataRoot, 'src/sources/ngos/prod') },
       { find: '@/db/prod-migrations', replacement: path.join(dataRoot, 'src/db/prod-migrations') },
       { find: '@/extraction-kit', replacement: path.join(dataRoot, 'src/extraction-kit') },

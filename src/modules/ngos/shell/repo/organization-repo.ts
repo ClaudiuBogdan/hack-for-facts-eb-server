@@ -20,6 +20,7 @@ import {
   type NgoLoadedSection,
   type NgoOrganizationFiscal,
   type NgoOrganizationProfile,
+  type NgoRegistryProfile,
   type NgoPurpose,
   type NgoRegistryConflictField,
   type NgoSocialService,
@@ -399,15 +400,11 @@ export const mapFinancialStatement = (
       indicators,
     }));
 
-export const makeNgoOrganizationRepo = (
-  db: Kysely<ProdDatabase>,
-  enabled: boolean
-): NgoOrganizationRepository => ({
-  async profile(cui) {
-    if (!enabled) return err(unpublished());
-    try {
-      return await readSnapshot(db, async (trx) => {
-        const { rows } = await sql<NgoOrganizationProfileRow>`
+const readCuiProfile = async (
+  trx: Transaction<ProdDatabase>,
+  cui: string
+): Promise<Result<NgoOrganizationProfile | null, ApiError>> => {
+  const { rows } = await sql<NgoOrganizationProfileRow>`
           select p.organization_key, p.source_snapshot_id, p.registry_number, p.registry_number_valid,
             p.observation_count, p.legal_record_ids, p.organization_name, p.name_withheld,
             p.entity_kind, p.legal_form, p.special_registry_number, p.court_names,
@@ -432,20 +429,186 @@ export const makeNgoOrganizationRepo = (
             p.fiscal_retrieved_at::text as fiscal_retrieved_at, p.fiscal_source_snapshot_id,
             p.financials_availability, p.financial_years
           from ngo.public_organization_profile(${cui}::text) p`.execute(trx);
-        const [row, extra] = rows;
-        if (row === undefined) return ok(null);
-        if (extra !== undefined)
-          return err(databaseError('NGO organization profile matched more than one organization.'));
-        const records =
-          row.legal_record_ids.length === 0
-            ? []
-            : await publicRegistryRecords(trx)
-                .where('r.legal_record_id', 'in', row.legal_record_ids)
-                .where('r.source_snapshot_id', '=', row.source_snapshot_id)
-                .orderBy('r.source_row_number', 'asc')
-                .execute();
-        const sections = await readProfileSections(trx, cui, row.legal_record_ids);
-        return mapOrganizationProfile(cui, row, records.map(mapPublicRegistryRecord), sections);
+  const [row, extra] = rows;
+  if (row === undefined) return ok(null);
+  if (extra !== undefined)
+    return err(databaseError('NGO organization profile matched more than one organization.'));
+  const records =
+    row.legal_record_ids.length === 0
+      ? []
+      : await publicRegistryRecords(trx)
+          .where('r.legal_record_id', 'in', row.legal_record_ids)
+          .where('r.source_snapshot_id', '=', row.source_snapshot_id)
+          .orderBy('r.source_row_number', 'asc')
+          .execute();
+  const sections = await readProfileSections(trx, cui, row.legal_record_ids);
+  return mapOrganizationProfile(
+    cui,
+    row,
+    records.map((r) => ({
+      ...mapPublicRegistryRecord(r),
+      organizationCui: cui,
+      organizationIdentityMethod: isIdentityMethod(row.identity_method)
+        ? row.identity_method
+        : null,
+    })),
+    sections
+  );
+};
+
+type RegistryRow = Pick<
+  NgoOrganizationProfileRow,
+  | 'organization_key'
+  | 'source_snapshot_id'
+  | 'registry_number'
+  | 'registry_number_valid'
+  | 'observation_count'
+  | 'legal_record_ids'
+  | 'organization_name'
+  | 'name_withheld'
+  | 'entity_kind'
+  | 'legal_form'
+  | 'special_registry_number'
+  | 'court_names'
+  | 'source_registration_date'
+  | 'source_registry_status'
+  | 'county'
+  | 'locality'
+  | 'is_branch'
+  | 'source_reports_public_utility'
+  | 'source_cui'
+  | 'organization_cui'
+  | 'identity_method'
+  | 'court_differs'
+  | 'name_differs'
+  | 'category_differs'
+  | 'status_differs'
+  | 'county_differs'
+  | 'locality_differs'
+  | 'source_cui_differs'
+  | 'identity_differs'
+  | 'cui_conflict'
+>;
+
+const mapRegistryOnlyProfile = (
+  row: RegistryRow,
+  records: readonly NgoRegistryRecord[],
+  purposes: readonly NgoPublicPurposeRow[]
+): Result<NgoRegistryProfile, ApiError> => {
+  const first = records[0];
+  if (
+    first === undefined ||
+    records.length !== row.legal_record_ids.length ||
+    records.some((r) => !row.legal_record_ids.includes(r.id))
+  )
+    return err(databaseError('NGO registry observations are incomplete.'));
+  const purpose = row.name_withheld
+    ? { availability: 'not_released' as const, text: null }
+    : mapPurpose(row.legal_record_ids, purposes);
+  const conflicts: NgoRegistryConflictField[] = CONFLICT_COLUMNS.filter(
+    ([column]) => row[column as keyof RegistryRow] === true
+  ).map(([, field]) => field);
+  if (!row.name_withheld && purpose.availability === 'not_released') conflicts.push('purpose');
+  return ok({
+    cui: null,
+    identity: null,
+    nameWithheld: row.name_withheld,
+    organizationKey: row.organization_key,
+    registryNumber: row.registry_number,
+    registryNumberValid: row.registry_number_valid,
+    name: row.name_withheld ? null : row.organization_name,
+    category: row.entity_kind,
+    legalForm: row.legal_form,
+    specialRegistryNumber: row.special_registry_number,
+    sourceRegistrationDate: row.source_registration_date,
+    sourceRegistryStatus: row.source_registry_status,
+    county: row.county,
+    locality: row.locality,
+    isBranch: row.is_branch,
+    sourceReportsPublicUtility: row.source_reports_public_utility,
+    sourceCui: row.source_cui,
+    courts: row.court_names.filter((c): c is string => c !== null),
+    observationCount: row.observation_count,
+    conflicts,
+    snapshot: first.snapshot,
+    registryRecords: records,
+    purpose,
+    anafRegistration: { availability: 'not_loaded', data: null },
+    fiscal: { availability: 'not_loaded', data: null },
+    financials: { availability: 'not_loaded', fiscalYears: [] },
+    socialServices: { availability: 'not_loaded', snapshot: null, data: null },
+    socialServiceAccreditations: { availability: 'not_loaded', snapshot: null, data: null },
+    socialEnterpriseCertificates: { availability: 'not_loaded', snapshot: null, data: null },
+    employmentServiceAccreditations: { availability: 'not_loaded', snapshot: null, data: null },
+  });
+};
+
+export const makeNgoOrganizationRepo = (
+  db: Kysely<ProdDatabase>,
+  enabled: boolean
+): NgoOrganizationRepository => ({
+  async registryProfile(registryNumber) {
+    if (!enabled) return err(unpublished());
+    try {
+      return await readSnapshot(db, async (trx) => {
+        const { rows } =
+          await sql<RegistryRow>`select p.organization_key,p.source_snapshot_id,p.registry_number,p.registry_number_valid,
+          p.observation_count,p.legal_record_ids,p.organization_name,p.name_withheld,p.entity_kind,p.legal_form,
+          p.special_registry_number,p.court_names,p.source_registration_date::text as source_registration_date,
+          p.source_registry_status,p.county,p.locality,p.is_branch,p.source_reports_public_utility,p.source_cui,
+          p.organization_cui,p.identity_method,p.court_differs,p.name_differs,p.category_differs,p.status_differs,
+          p.county_differs,p.locality_differs,p.source_cui_differs,p.identity_differs,p.cui_conflict
+          from ngo.public_registry_profile(${registryNumber}::text) p order by p.organization_key`.execute(
+            trx
+          );
+        if (rows.length === 0) return ok(null);
+        const profiles: NgoRegistryProfile[] = [];
+        for (const row of rows) {
+          if (row.organization_cui !== null) {
+            const admitted = await readCuiProfile(trx, row.organization_cui);
+            if (admitted.isErr()) return err(admitted.error);
+            if (
+              admitted.value?.organizationKey !== row.organization_key ||
+              admitted.value.snapshot.id !== row.source_snapshot_id
+            )
+              return err(databaseError('NGO registry and CUI profile identity disagree.'));
+            profiles.push({ ...admitted.value, nameWithheld: false });
+          } else {
+            const records = await publicRegistryRecords(trx)
+              .where('r.source_snapshot_id', '=', row.source_snapshot_id)
+              .where('r.legal_record_id', 'in', row.legal_record_ids)
+              .orderBy('r.source_row_number', 'asc')
+              .execute();
+            const purposes = row.name_withheld
+              ? []
+              : await trx
+                  .selectFrom('ngo.rnong_public_purposes as p')
+                  .select(['p.legal_record_id', 'p.purpose'])
+                  .where('p.legal_record_id', 'in', row.legal_record_ids)
+                  .execute();
+            const mapped = mapRegistryOnlyProfile(
+              row,
+              records.map(mapPublicRegistryRecord),
+              purposes
+            );
+            if (mapped.isErr()) return err(mapped.error);
+            profiles.push(mapped.value);
+          }
+        }
+        return ok({
+          status: profiles.length === 1 ? ('resolved' as const) : ('ambiguous' as const),
+          profiles,
+        });
+      });
+    } catch (error) {
+      return err(readError(error, 'registry profile'));
+    }
+  },
+  async profile(cui) {
+    if (!enabled) return err(unpublished());
+    try {
+      return await readSnapshot(db, async (trx) => {
+        return readCuiProfile(trx, cui);
       });
     } catch (error) {
       return err(readError(error, 'organization profile'));

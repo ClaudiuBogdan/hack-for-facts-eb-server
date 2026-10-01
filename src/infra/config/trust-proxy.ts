@@ -17,3 +17,7 @@ export const parseTrustProxy = (value: string | undefined): TrustProxySetting | 
   if (/^\d+$/u.test(trimmed)) return Number.parseInt(trimmed, 10);
   return trimmed;
 };
+
+/** Fastify 5.12 fails closed for numeric hop-only trust; preserve that behavior explicitly. */
+export const fastifyTrustProxy = (value: TrustProxySetting | undefined): boolean | string =>
+  typeof value === 'number' ? false : (value ?? true);

@@ -1,12 +1,16 @@
 import { randomUUID } from 'node:crypto';
 
-// eslint-disable-next-line import-x/no-unresolved -- The dedicated Vitest config resolves this to NGO_DATA_REPO.
+import { makeExecutableSchema } from '@graphql-tools/schema';
+// eslint-disable-next-line import-x/no-unresolved -- Runtime is supplied by the dedicated NGO_DATA_REPO alias.
 import { startNgoKeyedFixture, type PgFixture } from '@ngo-data/rnong-keyed-reads.fixture.js';
+import { graphql } from 'graphql';
 import { Kysely, PostgresDialect } from 'kysely';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { makeNgosModule } from '@/modules/ngos/index.js';
 import { makeNgoOrganizationRepo } from '@/modules/ngos/shell/repo/organization-repo.js';
+import { makeNgoRegistryRepo } from '@/modules/ngos/shell/repo/registry-repo.js';
 
 import type { NgoOrganizationRepository } from '@/modules/ngos/core/organization.js';
 import type { ProdDatabase } from '@/modules/shared/index.js';
@@ -28,7 +32,7 @@ describe('NGO repository with real DDL and a minimal reader', () => {
   const reader = 'ngo_contract_' + randomUUID().replaceAll('-', '');
   let readerCreated = false;
   beforeAll(async () => {
-    ({ fixture, client } = await startNgoKeyedFixture());
+    ({ fixture, client } = await startNgoKeyedFixture({ registryReads: true }));
     await client.query(`create role ${reader} nologin;
       grant usage on schema ngo to ${reader};
       grant select on ngo.rnong_public_records, ngo.rnong_public_snapshots to ${reader};
@@ -36,7 +40,7 @@ describe('NGO repository with real DDL and a minimal reader', () => {
         ngo.public_social_service_providers, ngo.public_social_enterprise_certificates,
         ngo.public_employment_accreditations, ngo.rnong_public_purposes to ${reader};
       grant execute on function ngo.public_organization_profile(text),
-        ngo.public_financial_statements(text,integer[]) to ${reader}`);
+        ngo.public_financial_statements(text,integer[]),ngo.public_registry_profile(text),ngo.public_registry_record_identities(text,text[]) to ${reader}`);
     readerCreated = true;
     const pool = new pg.Pool({
       connectionString: fixture.connectionString,
@@ -73,6 +77,64 @@ describe('NGO repository with real DDL and a minimal reader', () => {
     const missing = await repo.profile('9999999999');
     expect(missing.isOk()).toBe(true);
     expect(unwrap(missing)).toBeNull();
+  });
+  it('serves registry-only purpose and nullable enrichment through the composed GraphQL and MCP module', async () => {
+    const module = makeNgosModule({ db: db!, enabled: true });
+    const schema = makeExecutableSchema({
+      typeDefs:
+        'scalar Date\nscalar DateTime\nscalar CUI\ntype PageInfo { hasNextPage:Boolean! endCursor:String }\ntype Query {ping:String}\n' +
+        module.graphqlSlice.typeDefs,
+      resolvers: module.graphqlResolvers,
+    });
+    const result = await graphql({
+      schema,
+      source: `{ngoRegistryProfile(registryNumber:"2/A/2020"){status profiles{cui identity{cui method} registryNumber observationCount conflicts purpose{availability text} financials{availability fiscalYears statements{fiscalYear}} fiscal{availability data{vatPayer}} socialServices{availability snapshot{id} data{county}}}}}`,
+    });
+    expect(result.errors).toBeUndefined();
+    expect(result.data?.['ngoRegistryProfile']).toMatchObject({
+      status: 'resolved',
+      profiles: [
+        {
+          cui: null,
+          identity: null,
+          observationCount: 2,
+          conflicts: ['court'],
+          purpose: { availability: 'available', text: null },
+          financials: { availability: 'not_loaded', fiscalYears: [], statements: [] },
+          socialServices: { availability: 'not_loaded', snapshot: null, data: null },
+        },
+      ],
+    });
+    const admitted = await graphql({
+      schema,
+      source: `{ngoRegistryProfile(registryNumber:"1/A/2020"){profiles{cui purpose{availability text} financials{availability statements{fiscalYear}}}}}`,
+    });
+    expect(admitted.errors).toBeUndefined();
+    expect(admitted.data?.['ngoRegistryProfile']).toMatchObject({
+      profiles: [{ cui, purpose: { availability: 'available', text: 'Activități sportive.' } }],
+    });
+    const tool = module.mcpTools.find((t) => t.name === 'get_ngo_registry_profile')!;
+    expect(await tool.handler({ registryNumber: '2/A/2020' })).toMatchObject({
+      ok: true,
+      item: { status: 'resolved', profiles: [{ cui: null }] },
+    });
+    expect(await tool.handler({ registryNumber: 'unknown' })).toMatchObject({
+      ok: true,
+      item: null,
+    });
+  });
+  it('adds admitted identities to current registry records without replacing source/direct CUI fields', async () => {
+    const records = unwrap(await makeNgoRegistryRepo(db!, true).list({ filter: {}, first: 100 }));
+    expect(records.items[0]).toMatchObject({
+      sourceCui: cui,
+      linkedOrganizationCui: cui,
+      organizationCui: cui,
+      organizationIdentityMethod: 'registry_cui',
+    });
+    expect(records.items.find((r) => r.registryNumber === '2/A/2020')).toMatchObject({
+      organizationCui: null,
+      organizationIdentityMethod: null,
+    });
   });
   it('withholds a purpose the organization observations disagree on', async () => {
     const second =

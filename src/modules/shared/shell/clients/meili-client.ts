@@ -47,6 +47,10 @@ const mapHit = (h: Record<string, unknown>, indexUid: string): SearchHit => {
   const countyName = asString(h['county_name']);
   const url = asString(h['url']);
   const rankBoost = h['rank_boost'];
+  const ngoRegistryNumber = asString(h['ngo_registry_number']);
+  const ngoRegistryStatus = asString(h['ngo_registry_status']);
+  const ngoIdentityMethod = asString(h['ngo_identity_method']);
+  const ngoSourceSnapshotId = asString(h['ngo_source_snapshot_id']);
   // Palette docs carry `identifiers` (CUI + ONRC number + citations); legacy
   // docs carried `cuis`. Accept both, and derive `cuis` as the all-numeric
   // subset so the CUI-spine deep-link never receives a J-number or a citation.
@@ -54,7 +58,10 @@ const mapHit = (h: Record<string, unknown>, indexUid: string): SearchHit => {
   const identifiers = Array.isArray(identifiersRaw)
     ? identifiersRaw.filter((v): v is string => typeof v === 'string')
     : undefined;
-  const cuis = identifiers?.filter((v) => /^\d+$/u.test(v));
+  // An explicit empty array is authoritative: numeric registry IDs are never CUIs.
+  const cuis = Array.isArray(h['cuis'])
+    ? h['cuis'].filter((v): v is string => typeof v === 'string' && /^[1-9][0-9]{1,9}$/u.test(v))
+    : identifiers?.filter((v) => /^[1-9][0-9]{1,9}$/u.test(v));
   const roles = Array.isArray(h['roles'])
     ? h['roles'].filter((r): r is string => typeof r === 'string')
     : undefined;
@@ -76,6 +83,18 @@ const mapHit = (h: Record<string, unknown>, indexUid: string): SearchHit => {
     ...(url !== undefined && { url }),
     ...(typeof rankBoost === 'number' && { rankBoost }),
     ...(cuis !== undefined && { cuis }),
+    ...(ngoRegistryNumber !== undefined && {
+      ngoRegistryNumber,
+    }),
+    ...(ngoRegistryStatus !== undefined && {
+      ngoRegistryStatus,
+    }),
+    ...(ngoIdentityMethod !== undefined && {
+      ngoIdentityMethod,
+    }),
+    ...(ngoSourceSnapshotId !== undefined && {
+      ngoSourceSnapshotId,
+    }),
     ...(identifiers !== undefined && { identifiers }),
     ...(roles !== undefined && { roles }),
     ...(typeof isActive === 'boolean' && { isActive }),

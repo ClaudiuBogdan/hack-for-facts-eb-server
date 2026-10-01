@@ -325,6 +325,11 @@ export interface SearchHit {
   readonly rankBoost?: number;
   /** Associated CUI identifiers (exact-match filter). */
   readonly cuis?: readonly string[];
+  /** Present on the registry-based NGO search population. */
+  readonly ngoRegistryNumber?: string;
+  readonly ngoRegistryStatus?: string;
+  readonly ngoIdentityMethod?: string;
+  readonly ngoSourceSnapshotId?: string;
   /** Every searchable identifier: CUIs, ONRC numbers, citations, PLx numbers. */
   readonly identifiers?: readonly string[];
   /** Every role this identity plays (organization + pnrr_entity + …). */

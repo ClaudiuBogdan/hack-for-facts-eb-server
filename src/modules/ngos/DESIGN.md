@@ -164,3 +164,27 @@ the registry consensus rule:
 
 Purpose has no provenance fields of its own: it is the profile's registry `snapshot`. The profile function's legacy
 `purpose_availability` column is no longer read.
+
+## Registry profiles and registry-based search (2026-10-01)
+
+`ngoRegistryProfile(registryNumber: String!)` is additive; the required-CUI query
+keeps its contract. Unknown numbers return null. The result has `status` (`resolved`
+or `ambiguous`) and `profiles`; a resolved result has one profile. Irregular number
+literals can return several observation groups, which remain explicit candidates.
+Valid national numbers retain all observations/conflicts together.
+
+The registry profile mirrors the CUI profile with nullable `cui`/`identity` and
+`nameWithheld`. Registry-only profiles include purpose and snapshot; CUI sections
+are `not_loaded`, with empty financial years/statements. Admitted identities reuse
+the existing CUI enrichment in the same read-only snapshot. MCP adds
+`get_ngo_registry_profile`; an ambiguous result links to the registry landing page.
+Registry records add `organizationCui`/`organizationIdentityMethod` through one
+bounded current-group read per page. Source and legacy direct CUI fields are unchanged.
+
+Search hits add `ngoRegistryNumber`, `ngoRegistryStatus`, `ngoIdentityMethod` and
+`ngoSourceSnapshotId`. Filter `entityTags` by `rnong` for the NGO hub's single registry
+population. Explicit CUI arrays are authoritative, including empty arrays. Registry
+status remains separate from generic activity. Broader site search keeps its other
+populations. Chronos dev uses an isolated full palette; production index and readers
+are unchanged. Deploy database wrappers/grants and build that index before deploying
+the server and configuring only the dev Deployment to read it.

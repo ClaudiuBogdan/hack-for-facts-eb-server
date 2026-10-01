@@ -5,30 +5,15 @@ import { GRAPHQL_ERROR_CODE, type ApiError } from '@/modules/shared/index.js';
 import {
   getNgoFinancialStatements,
   getNgoOrganizationProfile,
+  getNgoRegistryProfile,
   validateFiscalYears,
   type NgoOrganizationRepository,
 } from '../../core/organization.js';
 
-import type { NgoOrganizationProfile } from '../../core/organization-types.js';
+import type { NgoOrganizationProfile, NgoRegistryProfile } from '../../core/organization-types.js';
 import type { Result } from 'neverthrow';
 
 export const ngoOrganizationTypeDefs = `
-  """
-  How the organization's CUI was admitted.
-  registry_cui: accepted direct link, the CUI declared in the RNONG row.
-  registry_cui_fiscal_agreement: corroborated declared link, the CUI declared in the RNONG row and
-  matched by the organization's own ANAF record.
-  fiscal_exact_name_county: name/county inference from an exact ANAF full-name and county match;
-  the registry does not declare this CUI.
-  document_registration_bridge: documentary bridge from published evidence to the registration.
-  None is a legal verification.
-  """
-  enum NgoIdentityMethod {
-    registry_cui
-    registry_cui_fiscal_agreement
-    fiscal_exact_name_county
-    document_registration_bridge
-  }
   "not_loaded is missing coverage, never a negative fact. not_released is emitted only by purpose, when the organization's observations disagree."
   enum NgoSectionAvailability {
     available
@@ -207,13 +192,50 @@ export const ngoOrganizationTypeDefs = `
     socialEnterpriseCertificates: NgoSocialEnterpriseCertificatesSection!
     employmentServiceAccreditations: NgoEmploymentServiceAccreditationsSection!
   }
+  type NgoRegistryProfile {
+    cui: CUI
+    identity: NgoOrganizationIdentity
+    organizationKey: String!
+    registryNumber: String!
+    registryNumberValid: Boolean!
+    nameWithheld: Boolean!
+    name: String
+    category: String
+    legalForm: String
+    specialRegistryNumber: String
+    sourceRegistrationDate: Date
+    sourceRegistryStatus: String
+    county: String
+    locality: String
+    isBranch: Boolean
+    sourceReportsPublicUtility: Boolean
+    "Registry-declared CUI (display only); see identity.method for how the organization CUI was admitted."
+    sourceCui: String
+    courts: [String!]!
+    observationCount: Int!
+    conflicts: [String!]!
+    snapshot: NgoRegistrySnapshot!
+    registryRecords: [NgoRegistryRecord!]!
+    purpose: NgoPurposeSection!
+    anafRegistration: NgoAnafRegistrationSection!
+    fiscal: NgoOrganizationFiscalSection!
+    financials: NgoFinancialsSection!
+    socialServices: NgoSocialServicesSection!
+    socialServiceAccreditations: NgoSocialServiceAccreditationsSection!
+    socialEnterpriseCertificates: NgoSocialEnterpriseCertificatesSection!
+    employmentServiceAccreditations: NgoEmploymentServiceAccreditationsSection!
+  }
+  enum NgoRegistryProfileStatus { resolved ambiguous }
+  "Current registry-number lookup. Malformed literals can identify several observation groups; ambiguous returns all candidates, never an arbitrary first one."
+  type NgoRegistryProfileResult { status: NgoRegistryProfileStatus! profiles: [NgoRegistryProfile!]! }
   extend type Query {
+    ngoRegistryProfile(registryNumber: String!): NgoRegistryProfileResult
     "Null when the CUI is not the eligible identity of a current public registry organization; not proof it is not an NGO."
     ngoOrganizationProfile(cui: CUI!): NgoOrganizationProfile
   }
 `;
 
-type FinancialsParent = NgoOrganizationProfile['financials'] & { readonly cui: string };
+type FinancialsParent = NgoOrganizationProfile['financials'] & { readonly cui: string | null };
 
 const unwrap = <T>(result: Result<T, ApiError>): T => {
   if (result.isErr())
@@ -225,11 +247,19 @@ const unwrap = <T>(result: Result<T, ApiError>): T => {
 
 export const makeNgoOrganizationResolvers = (repo: NgoOrganizationRepository) => ({
   Query: {
+    ngoRegistryProfile: async (_root: unknown, args: { registryNumber: string }) =>
+      unwrap(await getNgoRegistryProfile(repo, args.registryNumber)),
     ngoOrganizationProfile: async (_root: unknown, args: { cui: string }) =>
       unwrap(await getNgoOrganizationProfile(repo, args.cui)),
   },
   NgoOrganizationProfile: {
     financials: (profile: NgoOrganizationProfile): FinancialsParent => ({
+      ...profile.financials,
+      cui: profile.cui,
+    }),
+  },
+  NgoRegistryProfile: {
+    financials: (profile: NgoRegistryProfile): FinancialsParent => ({
       ...profile.financials,
       cui: profile.cui,
     }),
@@ -241,7 +271,7 @@ export const makeNgoOrganizationResolvers = (repo: NgoOrganizationRepository) =>
     ) => {
       // Validate before the availability shortcut: an invalid request is never "no coverage".
       const years = unwrap(validateFiscalYears(args.fiscalYears ?? null));
-      return section.availability === 'available'
+      return section.availability === 'available' && section.cui !== null
         ? unwrap(await getNgoFinancialStatements(repo, section.cui, years))
         : [];
     },

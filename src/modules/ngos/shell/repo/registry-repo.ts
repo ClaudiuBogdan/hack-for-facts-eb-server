@@ -14,6 +14,7 @@ import {
 } from '@/modules/shared/index.js';
 
 import { ngoRegistryFilterSpec } from '../../core/filters.js';
+import { NGO_IDENTITY_METHODS, type NgoIdentityMethod } from '../../core/organization-types.js';
 
 import type { NgoRegistryRepository } from '../../core/ports.js';
 import type { NgoRegistryRecord, NgoRegistrySnapshot } from '../../core/types.js';
@@ -105,14 +106,60 @@ export const publicRegistryRecords = (db: Kysely<ProdDatabase>) =>
     ])
     .where('r.privacy_class', '=', 'public');
 
+interface RegistryIdentityRow {
+  legal_record_id: string;
+  organization_cui: string | null;
+  identity_method: string | null;
+}
+const withRegistrySnapshot = <T>(
+  db: Kysely<ProdDatabase>,
+  read: (trx: Kysely<ProdDatabase>) => Promise<T>
+): Promise<T> =>
+  db
+    .transaction()
+    .setIsolationLevel('repeatable read')
+    .execute(async (trx) => {
+      await sql`set transaction read only`.execute(trx);
+      await sql`set local statement_timeout = 5000`.execute(trx);
+      return read(trx);
+    });
+const mapRecordsWithIdentities = async (
+  db: Kysely<ProdDatabase>,
+  rows: readonly NgoPublicRecordRow[]
+): Promise<NgoRegistryRecord[]> => {
+  const current = rows.filter((r) => r.is_current);
+  const first = current[0];
+  const identities =
+    first === undefined
+      ? []
+      : (
+          await sql<RegistryIdentityRow>`select i.legal_record_id,i.organization_cui,i.identity_method
+    from ngo.public_registry_record_identities(${first.source_snapshot_id}::text,${current.map((r) => r.legal_record_id)}::text[]) i`.execute(
+            db
+          )
+        ).rows;
+  const links = new Map(identities.map((i) => [i.legal_record_id, i]));
+  return rows.map((row) => {
+    const identity = links.get(row.legal_record_id);
+    const method = identity?.identity_method ?? null;
+    if (method !== null && !(NGO_IDENTITY_METHODS as readonly string[]).includes(method))
+      throw new Error('Unexpected NGO registry identity method');
+    return {
+      ...mapPublicRegistryRecord(row),
+      organizationCui: identity?.organization_cui ?? null,
+      organizationIdentityMethod: (identity?.identity_method ?? null) as NgoIdentityMethod | null,
+    };
+  });
+};
+
 export const makeNgoRegistryRepo = (
   db: Kysely<ProdDatabase>,
   enabled: boolean
 ): NgoRegistryRepository => {
-  const coverage: NgoRegistryRepository['coverage'] = async () => {
+  const readCoverage = async (connection: Kysely<ProdDatabase>) => {
     if (!enabled) return err(unavailable());
     try {
-      const row = await db
+      const row = await connection
         .selectFrom('ngo.rnong_public_snapshots as s')
         .select([
           's.source_snapshot_id',
@@ -134,7 +181,7 @@ export const makeNgoRegistryRepo = (
         .where('s.privacy_class', '=', 'public')
         .executeTakeFirst();
       if (row === undefined) return err(unavailable());
-      const nonempty = await db
+      const nonempty = await connection
         .selectFrom('ngo.rnong_public_records')
         .select('legal_record_id')
         .where('source_snapshot_id', '=', row.source_snapshot_id)
@@ -148,44 +195,63 @@ export const makeNgoRegistryRepo = (
       return err(readError(error));
     }
   };
+  const coverage: NgoRegistryRepository['coverage'] = async () => {
+    if (!enabled) return err(unavailable());
+    try {
+      return await withRegistrySnapshot(db, readCoverage);
+    } catch (error) {
+      return err(readError(error));
+    }
+  };
   return {
     coverage,
     async list(request) {
-      const current = await coverage();
-      if (current.isErr()) return err(current.error);
-      const conditions = toConditionBuilders(ngoRegistryFilterSpec, request.filter);
-      if (conditions.isErr()) return err(conditions.error);
-      const fhash = registryFilterHash(current.value.id, request.filter);
-      let afterRow = 0;
-      if (request.after !== undefined) {
-        const decoded = decodeCursor(request.after, { sort: 'sourceRowNumber', dir: 'asc', fhash });
-        if (decoded.isErr()) return err(decoded.error);
-        afterRow = Number(decoded.value.keys[0]);
-        if (decoded.value.keys.length !== 1 || !Number.isSafeInteger(afterRow) || afterRow < 1)
-          return err(invalidInput('invalid registry cursor; restart pagination', 'after'));
-      }
+      if (!enabled) return err(unavailable());
       try {
-        let query = publicRegistryRecords(db)
-          .where('r.source_snapshot_id', '=', current.value.id)
-          .where('r.source_row_number', '>', afterRow);
-        for (const condition of conditions.value)
-          query = query.where(condition as import('kysely').RawBuilder<SqlBool>);
-        const rows = await query
-          .orderBy('r.source_row_number', 'asc')
-          .limit(request.first + 1)
-          .execute();
-        const items = rows.slice(0, request.first).map(mapPublicRegistryRecord);
-        const last = items.at(-1);
-        const next =
-          rows.length > request.first && last !== undefined
-            ? buildNextCursor({
-                sort: 'sourceRowNumber',
-                dir: 'asc',
-                fhash,
-                lastKeys: [last.sourceRowNumber],
-              })
-            : null;
-        return ok({ items, next, snapshot: current.value });
+        return await withRegistrySnapshot(db, async (trx) => {
+          const current = await readCoverage(trx);
+          if (current.isErr()) return err(current.error);
+          const conditions = toConditionBuilders(ngoRegistryFilterSpec, request.filter);
+          if (conditions.isErr()) return err(conditions.error);
+          const fhash = registryFilterHash(current.value.id, request.filter);
+          let afterRow = 0;
+          if (request.after !== undefined) {
+            const decoded = decodeCursor(request.after, {
+              sort: 'sourceRowNumber',
+              dir: 'asc',
+              fhash,
+            });
+            if (decoded.isErr()) return err(decoded.error);
+            afterRow = Number(decoded.value.keys[0]);
+            if (decoded.value.keys.length !== 1 || !Number.isSafeInteger(afterRow) || afterRow < 1)
+              return err(invalidInput('invalid registry cursor; restart pagination', 'after'));
+          }
+          try {
+            let query = publicRegistryRecords(trx)
+              .where('r.source_snapshot_id', '=', current.value.id)
+              .where('r.source_row_number', '>', afterRow);
+            for (const condition of conditions.value)
+              query = query.where(condition as import('kysely').RawBuilder<SqlBool>);
+            const rows = await query
+              .orderBy('r.source_row_number', 'asc')
+              .limit(request.first + 1)
+              .execute();
+            const items = await mapRecordsWithIdentities(trx, rows.slice(0, request.first));
+            const last = items.at(-1);
+            const next =
+              rows.length > request.first && last !== undefined
+                ? buildNextCursor({
+                    sort: 'sourceRowNumber',
+                    dir: 'asc',
+                    fhash,
+                    lastKeys: [last.sourceRowNumber],
+                  })
+                : null;
+            return ok({ items, next, snapshot: current.value });
+          } catch (error) {
+            return err(readError(error));
+          }
+        });
       } catch (error) {
         return err(readError(error));
       }
@@ -193,10 +259,14 @@ export const makeNgoRegistryRepo = (
     async detail(id) {
       if (!enabled) return err(unavailable());
       try {
-        const row = await publicRegistryRecords(db)
-          .where('r.legal_record_id', '=', id)
-          .executeTakeFirst();
-        return ok(row === undefined ? null : mapPublicRegistryRecord(row));
+        return await withRegistrySnapshot(db, async (trx) => {
+          const row = await publicRegistryRecords(trx)
+            .where('r.legal_record_id', '=', id)
+            .executeTakeFirst();
+          return ok(
+            row === undefined ? null : ((await mapRecordsWithIdentities(trx, [row]))[0] ?? null)
+          );
+        });
       } catch (error) {
         return err(readError(error));
       }

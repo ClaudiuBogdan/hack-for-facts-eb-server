@@ -22,6 +22,17 @@ import type { Result } from 'neverthrow';
 export const ngoRegistryTypeDefs =
   toGraphQLInput(ngoRegistryFilterSpec) +
   `
+  """
+  How the organization's CUI was admitted.
+  registry_cui: accepted direct link, the CUI declared in the RNONG row.
+  registry_cui_fiscal_agreement: corroborated declared link, the CUI declared in the RNONG row and
+  matched by the organization's own ANAF record.
+  fiscal_exact_name_county: name/county inference from an exact ANAF full-name and county match;
+  the registry does not declare this CUI.
+  document_registration_bridge: documentary bridge from published evidence to the registration.
+  None is a legal verification.
+  """
+  enum NgoIdentityMethod { registry_cui registry_cui_fiscal_agreement fiscal_exact_name_county document_registration_bridge }
   type NgoRegistrySnapshot {
     id: ID!
     sourceDeclaredDate: Date
@@ -50,6 +61,9 @@ export const ngoRegistryTypeDefs =
     county: String
     locality: String
     sourceCui: String
+    "Eligible current group CUI, including reviewed inferred/documentary links. Null for historical rows or no admitted identity."
+    organizationCui: CUI
+    organizationIdentityMethod: NgoIdentityMethod
     linkedOrganizationCui: CUI
     isBranch: Boolean
     sourceReportsPublicUtility: Boolean

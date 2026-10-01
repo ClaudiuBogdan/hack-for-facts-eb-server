@@ -1,3 +1,4 @@
+import type { NgoIdentityMethod } from './organization-types.js';
 import type { FilterInput } from '@/modules/shared/index.js';
 
 export interface NgoRegistrySnapshot {
@@ -31,6 +32,9 @@ export interface NgoRegistryRecord {
   readonly locality: string | null;
   readonly sourceCui: string | null;
   readonly linkedOrganizationCui: string | null;
+  /** Current admitted group identity, including reviewed name/county and documentary bridges. */
+  readonly organizationCui?: string | null;
+  readonly organizationIdentityMethod?: NgoIdentityMethod | null;
   readonly isBranch: boolean | null;
   readonly sourceReportsPublicUtility: boolean | null;
   readonly snapshot: NgoRegistrySnapshot;

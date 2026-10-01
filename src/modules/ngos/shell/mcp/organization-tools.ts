@@ -11,6 +11,7 @@ import {
 import {
   getNgoFinancialStatements,
   getNgoOrganizationProfile,
+  getNgoRegistryProfile,
   MAX_FISCAL_YEAR,
   MIN_FISCAL_YEAR,
   validateFiscalYears,
@@ -33,6 +34,32 @@ export const makeNgoOrganizationMcpTools = (
   repo: NgoOrganizationRepository,
   clientBaseUrl: string
 ): readonly KernelMcpTool[] => [
+  {
+    name: 'get_ngo_registry_profile',
+    description:
+      'Current NGO profile by literal RNONG registry number. Returns status resolved or ambiguous and profiles, each with nullable admitted CUI/identity. Registry-only profiles include purpose and provenance; CUI-based sections are not_loaded. Existing reviewed name/county matches are labelled by identity.method, not asserted as registry-declared CUIs. Conflicts and withheld names remain explicit. Unknown number returns item null. No addresses or contacts.',
+    inputShape: { registryNumber: z.string().min(1).max(128) },
+    async handler(args) {
+      const result = await getNgoRegistryProfile(
+        repo,
+        typeof args['registryNumber'] === 'string' ? args['registryNumber'] : ''
+      );
+      if (result.isErr()) return { ...failure(result.error), kind: 'ngo_registry_profile' };
+      const first =
+        result.value?.status === 'resolved'
+          ? result.value.profiles[0]?.registryRecords[0]
+          : undefined;
+      return {
+        ok: true,
+        kind: 'ngo_registry_profile',
+        item: result.value,
+        link:
+          first !== undefined
+            ? `${clientBaseUrl}/ong-uri/registru/${encodeURIComponent(first.id)}`
+            : `${clientBaseUrl}/ong-uri/registru`,
+      };
+    },
+  },
   {
     name: 'get_ngo_organization_profile',
     description:
