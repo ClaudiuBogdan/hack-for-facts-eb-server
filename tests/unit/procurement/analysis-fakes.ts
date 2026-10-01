@@ -16,6 +16,7 @@ import type {
   ActiveGeneration,
   AnalysisBreakdownRead,
   AnalysisDistinctRow,
+  AnalysisRecordsRead,
   AnalysisRepo,
   AnalysisSeriesRow,
   AnalysisStatsRead,
@@ -45,9 +46,15 @@ export const LIVE_LIKE_QUALITY: GenerationQuality = {
 
 export const BUILD_ID = '42';
 
+/** A published build: no framework roles (build 8 shape), supplier geography served. */
+export const PUBLISHED_CAPABILITIES: GenerationCapabilities = {
+  ...NO_GENERATION_CAPABILITIES,
+  supplierGeography: true,
+};
+
 export const generation = (
   quality: GenerationQuality = LIVE_LIKE_QUALITY,
-  capabilities: GenerationCapabilities = NO_GENERATION_CAPABILITIES
+  capabilities: GenerationCapabilities = PUBLISHED_CAPABILITIES
 ): ActiveGeneration => ({
   buildId: BUILD_ID,
   publishedAt: '2026-07-12T00:00:00Z',
@@ -132,6 +139,7 @@ export interface FakeAnalysisRepoOptions {
   readonly distinct?: readonly AnalysisDistinctRow[];
   readonly breakdown?: FakeBreakdownRead;
   readonly concentration?: ConcentrationRead;
+  readonly records?: AnalysisRecordsRead;
   readonly basisCoverage?: readonly {
     grain: string;
     basis: string;
@@ -186,6 +194,10 @@ export const fakeAnalysisRepo = (options: FakeAnalysisRepoOptions = {}): FakeAna
           unknownSupplierMeasure: null,
         }
       );
+    },
+    recordsFor: (route, _scope, _generation, page) => {
+      record('recordsFor', route, [page.sort, page.offset, page.limit]);
+      return okp(options.records ?? { total: '0', rows: [] });
     },
   };
   return { repo, calls };

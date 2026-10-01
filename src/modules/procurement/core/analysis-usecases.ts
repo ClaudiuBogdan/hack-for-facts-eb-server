@@ -33,6 +33,7 @@ import { err, ok, type Result } from 'neverthrow';
 import {
   databaseError,
   invalidInput,
+  isWithheldOrganizationIdentifier,
   serviceUnavailable,
   type ApiError,
 } from '@/modules/shared/index.js';
@@ -51,6 +52,7 @@ import { routeAnalysis, type AnalysisRoute } from './combinations.js';
 import {
   type FrameworkRoleFilter,
   type GenerationCapabilities,
+  SEARCH_WINDOW_MAX,
   TOPN_SIRUTA_MAX,
   type AnalysisGrain,
   type BreakdownDimension,
@@ -72,8 +74,14 @@ import {
   type PolicyEntry,
   type ValueBasis,
 } from './policy.js';
-
-import type { ActiveGeneration, AnalysisRepo, AnalysisStatsRead } from './ports.js';
+import {
+  ANALYSIS_RECORDS_SORTS,
+  type ActiveGeneration,
+  type AnalysisRecordRow,
+  type AnalysisRecordsSort,
+  type AnalysisRepo,
+  type AnalysisStatsRead,
+} from './ports.js';
 
 export interface AnalysisDeps {
   readonly analysisRepo: AnalysisRepo;
@@ -358,13 +366,35 @@ const anchorBasis = (grain: AnalysisGrain): ValueBasis =>
 /** Generation + per-basis coverage rows, resolved ONCE per request. Coverage
  * failure degrades to undefined: awarded serving is unaffected; every
  * non-awarded basis and new-population verdict then abstains (fail-closed). */
+const BUILD_PIN_RE = /^[1-9][0-9]{0,18}$/u;
+
+/**
+ * Resolve the active generation and, when the caller pinned one, prove it is
+ * the same build. A page reads its figures, its rankings and its record list
+ * in separate requests; a publication between them would otherwise answer
+ * one page from two builds. Only the ACTIVE build is usable: a retired or
+ * unknown pin is refused (field `build`) so the caller re-reads the active
+ * build and starts over, never silently mixing generations.
+ */
 const genWithCoverage = async (
-  repo: AnalysisRepo
+  repo: AnalysisRepo,
+  build?: string
 ): Promise<
   Result<{ gen: ActiveGeneration; cov: readonly BasisCoverageRow[] | undefined }, ApiError>
 > => {
+  if (build !== undefined && !BUILD_PIN_RE.test(build)) {
+    return err(invalidInput('build must be an analysis build id (digits)', 'build'));
+  }
   const genR = await activeGen(repo);
   if (genR.isErr()) return err(genR.error);
+  if (build !== undefined && build !== genR.value.buildId) {
+    return err(
+      invalidInput(
+        `analysis build ${build} is not the active build (${genR.value.buildId}); re-read the active build and repeat the request`,
+        'build'
+      )
+    );
+  }
   const covR = await repo.basisCoverage(genR.value.buildId);
   return ok({ gen: genR.value, cov: covR.isOk() ? covR.value : undefined });
 };
@@ -725,9 +755,9 @@ const statsWithGen = async (
 /** `procurementStats` — labeled per-grain blocks; no cross-grain sum exists. */
 export const analysisStats = async (
   deps: AnalysisDeps,
-  input: { readonly scope: AnalysisScope }
+  input: { readonly scope: AnalysisScope; readonly build?: string }
 ): Promise<Result<AnalysisStatsResult, ApiError>> => {
-  const gcR = await genWithCoverage(deps.analysisRepo);
+  const gcR = await genWithCoverage(deps.analysisRepo, input.build);
   if (gcR.isErr()) return err(gcR.error);
   return statsWithGen(deps, gcR.value.gen, gcR.value.cov, input.scope);
 };
@@ -749,6 +779,7 @@ export const analysisSeries = async (
     readonly scope: AnalysisScope;
     readonly bucket: SeriesBucket;
     readonly measure: MeasureId;
+    readonly build?: string;
   }
 ): Promise<Result<readonly AnalysisSeriesBlock[], ApiError>> => {
   const { scope, bucket, measure } = input;
@@ -763,7 +794,7 @@ export const analysisSeries = async (
   }
 
   // The generation first: routing needs its live capabilities.
-  const gcR = await genWithCoverage(deps.analysisRepo);
+  const gcR = await genWithCoverage(deps.analysisRepo, input.build);
   if (gcR.isErr()) return err(gcR.error);
   const { gen, cov } = gcR.value;
   const routesR = (deps.routeAnalysis ?? routeAnalysis)(
@@ -1102,13 +1133,14 @@ export const analysisBreakdown = async (
     readonly dimension: BreakdownDimension;
     readonly topN?: number;
     readonly rankBy?: 'value' | 'count';
+    readonly build?: string;
   }
 ): Promise<Result<readonly AnalysisBreakdownBlock[], ApiError>> => {
   const topNR = normalizeTopN(input.topN, topNMaxFor([input.dimension]));
   if (topNR.isErr()) return err(topNR.error);
   const topN = topNR.value;
   // The generation first: routing needs its live capabilities.
-  const gcR = await genWithCoverage(deps.analysisRepo);
+  const gcR = await genWithCoverage(deps.analysisRepo, input.build);
   if (gcR.isErr()) return err(gcR.error);
   const routesR = (deps.routeAnalysis ?? routeAnalysis)(
     input.scope,
@@ -1143,10 +1175,14 @@ export const analysisBreakdown = async (
 
 export const analysisConcentration = async (
   deps: AnalysisDeps,
-  input: { readonly scope: AnalysisScope; readonly basis?: 'value' | 'count' }
+  input: {
+    readonly scope: AnalysisScope;
+    readonly basis?: 'value' | 'count';
+    readonly build?: string;
+  }
 ): Promise<Result<readonly AnalysisConcentrationBlock[], ApiError>> => {
   // The generation first: routing needs its live capabilities.
-  const gcR = await genWithCoverage(deps.analysisRepo);
+  const gcR = await genWithCoverage(deps.analysisRepo, input.build);
   if (gcR.isErr()) return err(gcR.error);
   const { gen, cov } = gcR.value;
   const routesR = (deps.routeAnalysis ?? routeAnalysis)(
@@ -1279,7 +1315,11 @@ export const analysisConcentration = async (
 
 export const analysisShare = async (
   deps: AnalysisDeps,
-  input: { readonly numerator: AnalysisScope; readonly denominator: AnalysisScope }
+  input: {
+    readonly numerator: AnalysisScope;
+    readonly denominator: AnalysisScope;
+    readonly build?: string;
+  }
 ): Promise<Result<AnalysisShareResult, ApiError>> => {
   const { numerator, denominator } = input;
 
@@ -1308,7 +1348,7 @@ export const analysisShare = async (
   // ONE generation pins BOTH operands (S1) — a cutover between the two stats
   // reads cannot produce a cross-build ratio — and its live capabilities
   // decide how frameworkRole compares below.
-  const gcR = await genWithCoverage(deps.analysisRepo);
+  const gcR = await genWithCoverage(deps.analysisRepo, input.build);
   if (gcR.isErr()) return err(gcR.error);
   const { gen, cov } = gcR.value;
   // STRICT subset: every denominator constraint set identically on the numerator,
@@ -1427,6 +1467,7 @@ export const analysisFacets = async (
     readonly dimensions: readonly BreakdownDimension[];
     readonly topN?: number;
     readonly rankBy?: 'value' | 'count';
+    readonly build?: string;
   }
 ): Promise<Result<AnalysisFacetsResult, ApiError>> => {
   if (input.scope.grain === undefined) {
@@ -1452,7 +1493,7 @@ export const analysisFacets = async (
   const topN = topNR.value;
   // ONE generation for every facet (S1) — resolved before routing, which
   // needs its live capabilities.
-  const gcR = await genWithCoverage(deps.analysisRepo);
+  const gcR = await genWithCoverage(deps.analysisRepo, input.build);
   if (gcR.isErr()) return err(gcR.error);
   // Route every dimension up front — one bad dimension rejects the whole request
   // with the matrix's named capability, before any read runs.
@@ -1493,4 +1534,178 @@ export const analysisFacets = async (
     }
   }
   return ok({ blocks });
+};
+
+// ── records ────────────────────────────────────────────────────────────────────
+
+/**
+ * The grains whose counted rows are purchase records a reader can open: one
+ * page per fact row, the same rows `procurementStats` counts. Procedures are
+ * lifecycles and the framework/call-off/modification populations have no
+ * record page of their own.
+ */
+export const RECORDS_GRAINS = ['direct_acquisition', 'contract'] as const;
+export type RecordsGrain = (typeof RECORDS_GRAINS)[number];
+export const RECORDS_PAGE_SIZE_DEFAULT = 25;
+export const RECORDS_PAGE_SIZE_MAX = 100;
+
+/**
+ * Contract rows are award OBSERVATIONS: a consortium award is published once
+ * per member, so it lists once per member — exactly as the count counts it.
+ * Its money is attributed once per award group, so only one member row
+ * carries it; the others show no value rather than the whole award again.
+ */
+const CONTRACT_MEMBER_ROWS_NOTE =
+  'contract records are award observations: a consortium award lists once per member, as it is counted; its value is attributed once per award, so the other members carry no value';
+
+export interface AnalysisRecordsMeta {
+  readonly answerability: 'served' | 'degraded' | 'abstained';
+  readonly reason: AnswerabilityReason | null;
+  readonly buildId: string;
+  readonly canonicalScope: string;
+  readonly caveats: readonly string[];
+}
+
+export interface AnalysisRecordsResult {
+  readonly grain: RecordsGrain;
+  /** Exactly the stats `recordCount` of the scope; null when the block abstains. */
+  readonly total: string | null;
+  readonly page: number;
+  readonly pageSize: number;
+  readonly sort: AnalysisRecordsSort;
+  readonly items: readonly AnalysisRecordRow[];
+  readonly meta: AnalysisRecordsMeta;
+}
+
+const isRecordsGrain = (grain: AnalysisGrain | undefined): grain is RecordsGrain =>
+  grain !== undefined && (RECORDS_GRAINS as readonly string[]).includes(grain);
+
+const isRecordsSort = (value: string): value is AnalysisRecordsSort =>
+  (ANALYSIS_RECORDS_SORTS as readonly string[]).includes(value);
+
+/** An identifier the platform withholds never leaves the API (kernel P0 containment). */
+const servedIdentifier = (cui: string | null): string | null =>
+  cui !== null && !isWithheldOrganizationIdentifier(cui) ? cui : null;
+
+/**
+ * `procurementRecords` — the rows behind one stats block: the same scope, the
+ * same routing, the same gates and the same pinned build, so the list's total
+ * IS the figure's `recordCount` and every row on every page belongs to it.
+ * Money is the grain's anchor money as the figures sum it, nulled when the
+ * spend gate abstains (and a value order is refused then: it would rank by
+ * money the answer withholds).
+ */
+export const analysisRecords = async (
+  deps: AnalysisDeps,
+  input: {
+    readonly scope: AnalysisScope;
+    readonly build?: string;
+    readonly sort?: string;
+    readonly page?: number;
+    readonly pageSize?: number;
+  }
+): Promise<Result<AnalysisRecordsResult, ApiError>> => {
+  const { scope } = input;
+  const grain = scope.grain;
+  if (!isRecordsGrain(grain)) {
+    return err(
+      invalidInput(
+        `records require scope.grain ${RECORDS_GRAINS.join(' or ')} — one grain, one population`,
+        'grain'
+      )
+    );
+  }
+  const sort = input.sort ?? 'date_desc';
+  if (!isRecordsSort(sort)) {
+    return err(invalidInput(`sort must be one of ${ANALYSIS_RECORDS_SORTS.join(', ')}`, 'sort'));
+  }
+  const page = input.page ?? 1;
+  const pageSize = input.pageSize ?? RECORDS_PAGE_SIZE_DEFAULT;
+  if (!Number.isInteger(page) || page < 1) {
+    return err(invalidInput('page must be a positive integer', 'page'));
+  }
+  if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > RECORDS_PAGE_SIZE_MAX) {
+    return err(
+      invalidInput(`pageSize must be an integer 1–${String(RECORDS_PAGE_SIZE_MAX)}`, 'pageSize')
+    );
+  }
+  const offset = (page - 1) * pageSize;
+  if (offset + pageSize > SEARCH_WINDOW_MAX) {
+    return err(
+      invalidInput(
+        `records pages end at row ${String(SEARCH_WINDOW_MAX)}; narrow the scope or reverse the order`,
+        'page'
+      )
+    );
+  }
+
+  const gcR = await genWithCoverage(deps.analysisRepo, input.build);
+  if (gcR.isErr()) return err(gcR.error);
+  const { gen, cov } = gcR.value;
+  const routesR = (deps.routeAnalysis ?? routeAnalysis)(
+    scope,
+    'stats',
+    undefined,
+    undefined,
+    gen.capabilities
+  );
+  if (routesR.isErr()) return err(routesR.error);
+  const route = routesR.value.find((candidate) => candidate.grain === grain);
+  if (route === undefined || routesR.value.length !== 1) {
+    return err(databaseError(`records routing did not resolve the single grain ${grain}`));
+  }
+
+  const blockGate = shapeGate(gen, cov, grain, scope, {});
+  const spend = anchorMoneyGate(gen, cov, grain);
+  const moneyAllowed = spend?.allow ?? false;
+  const gate = composeGates([blockGate, ...(spend !== null ? [spend] : [])]);
+  if ((sort === 'value_desc' || sort === 'value_asc') && !moneyAllowed) {
+    return err(
+      invalidInput(
+        'a value order is unavailable: the spend gate withholds this grain’s money',
+        'sort'
+      )
+    );
+  }
+  const canonicalScope = canonicalScopeEcho(scope);
+  const caveats = [
+    ...gate.caveats,
+    ...(grain === 'contract' ? [CONTRACT_MEMBER_ROWS_NOTE] : []),
+    ...scopeNotes(grain, scope, gen.capabilities),
+  ];
+  const meta = (answerability: AnalysisRecordsMeta['answerability']): AnalysisRecordsMeta => ({
+    answerability,
+    reason: gate.reason ?? null,
+    buildId: gen.buildId,
+    canonicalScope,
+    caveats,
+  });
+
+  // The same block gate as the stats block: an abstaining time/geo class
+  // lists nothing, exactly as the figures count nothing.
+  if (!blockGate.allow) {
+    return ok({ grain, total: null, page, pageSize, sort, items: [], meta: meta('abstained') });
+  }
+
+  const readR = await deps.analysisRepo.recordsFor(route, scope, gen, {
+    sort,
+    offset,
+    limit: pageSize,
+  });
+  if (readR.isErr()) return err(readR.error);
+  const items = readR.value.rows.map((row) => ({
+    ...row,
+    authorityCui: servedIdentifier(row.authorityCui),
+    supplierCui: servedIdentifier(row.supplierCui),
+    valueRon: moneyAllowed ? row.valueRon : null,
+  }));
+  return ok({
+    grain,
+    total: readR.value.total,
+    page,
+    pageSize,
+    sort,
+    items,
+    meta: meta(gate.allow && !gate.degraded ? 'served' : 'degraded'),
+  });
 };

@@ -74,6 +74,8 @@ describe('ClickHouse procurement SIRUTA scope compilation', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     const request = fetchSpy.mock.calls[0]?.[1] as RequestInit | undefined;
     expect(request?.body).toContain('supplier_siruta_uat = 57706');
+    // A supplier place never selects a withheld (natural-person) identity.
+    expect(request?.body).toContain('(supplier_cui IS NOT NULL AND length(supplier_cui) <= 10)');
   });
 
   it('rejects non-numeric supplier SIRUTA without querying ClickHouse', async () => {
@@ -328,5 +330,197 @@ describe('association-dedup money routing (design r3, user decisions D3=C/D8)', 
     const { repo, fetchSpy } = makeRepo();
     await repo.statsFor(route('direct_acquisition'), { supplierCui: '123' }, GEN);
     expect(bodyOf(fetchSpy)).toContain('value_awarded_bani');
+  });
+});
+
+describe('party place anchors and withheld identities', () => {
+  const makeRepo = (fetchSpy: ReturnType<typeof vi.fn>): AnalysisRepo => {
+    vi.stubGlobal('fetch', fetchSpy);
+    return makeClickhouseAnalysisRepo(
+      { url: 'http://clickhouse.test', database: 'proto' },
+      activeGeneration
+    );
+  };
+  const bodyOf = (fetchSpy: ReturnType<typeof vi.fn>, call = 0): string =>
+    (fetchSpy.mock.calls[call]?.[1] as { body?: string } | undefined)?.body ?? '';
+
+  it('matches a SIRUTA exactly: a UAT, a sector, or a county node (its own institutions)', async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(emptyStatsResponse());
+    const repo = makeRepo(fetchSpy);
+    await repo.statsFor(route('contract'), { buyerSiruta: '179132' }, GEN);
+    await repo.statsFor(route('contract'), { buyerSiruta: '179141' }, GEN);
+    await repo.statsFor(route('contract'), { buyerSiruta: '323' }, GEN);
+    expect(bodyOf(fetchSpy, 0)).toContain('buyer_siruta_uat = 179132');
+    expect(bodyOf(fetchSpy, 0)).not.toContain('179141');
+    expect(bodyOf(fetchSpy, 1)).toContain('buyer_siruta_uat = 179141');
+    expect(bodyOf(fetchSpy, 2)).toContain('buyer_siruta_uat = 323');
+  });
+
+  it('combines a buyer place and a supplier place as one conjunction', async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(emptyStatsResponse());
+    const repo = makeRepo(fetchSpy);
+    await repo.statsFor(
+      route('direct_acquisition'),
+      { buyerCounty: 'SB', supplierRegion: 'Bucuresti-Ilfov' },
+      GEN
+    );
+    const body = bodyOf(fetchSpy);
+    expect(body).toContain("buyer_county_code = 'SB'");
+    expect(body).toContain("supplier_region = 'Bucuresti-Ilfov'");
+    expect(body).toContain('(supplier_cui IS NOT NULL AND length(supplier_cui) <= 10)');
+  });
+
+  it('does not add the supplier identity guard to a buyer-only place filter', async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(emptyStatsResponse());
+    const repo = makeRepo(fetchSpy);
+    await repo.statsFor(route('direct_acquisition'), { buyerRegion: 'Centru' }, GEN);
+    expect(bodyOf(fetchSpy)).not.toContain('supplier_cui');
+  });
+
+  it.each(['supplier', 'supplierCounty', 'supplierRegion', 'supplierSiruta', 'authority'])(
+    'keys a %s breakdown so a withheld identity falls into the unknown bucket',
+    async (dimension) => {
+      const fetchSpy = vi
+        .fn()
+        .mockResolvedValueOnce(emptyStatsResponse())
+        .mockResolvedValueOnce(compactResponse([{ cnt: '0', wv: '0', awarded_bani: '0' }]))
+        .mockResolvedValueOnce(compactResponse([], ['key', 'cnt', 'wv', 'awarded_bani']));
+      const repo = makeRepo(fetchSpy);
+      const result = await repo.breakdownFor(route('contract'), {}, GEN, dimension, 10, 'count');
+      expect(result.isOk()).toBe(true);
+      const party = dimension === 'authority' ? 'authority_cui' : 'supplier_cui';
+      const guard = `if((${party} IS NOT NULL AND length(${party}) <= 10),`;
+      expect(bodyOf(fetchSpy, 1)).toContain(guard);
+      expect(bodyOf(fetchSpy, 2)).toContain(guard);
+    }
+  );
+});
+
+describe('analysis records read', () => {
+  const recordRow = {
+    id: '17',
+    date: '2025-11-03',
+    title: 'Furnituri de birou',
+    authority_cui: '4270740',
+    authority_name: 'Primaria Sibiu',
+    supplier_cui: '14399840',
+    supplier_name: 'Firma SRL',
+    value_bani: '123456',
+    status: 'finalized',
+    record_kind: null,
+    cpv_code: '30192700',
+  };
+  const makeRepo = (fetchSpy: ReturnType<typeof vi.fn>): AnalysisRepo => {
+    vi.stubGlobal('fetch', fetchSpy);
+    return makeClickhouseAnalysisRepo(
+      { url: 'http://clickhouse.test', database: 'proto' },
+      activeGeneration
+    );
+  };
+  const bodies = (fetchSpy: ReturnType<typeof vi.fn>): string[] =>
+    fetchSpy.mock.calls.map((call) => (call[1] as { body?: string } | undefined)?.body ?? '');
+
+  it('reads the page and the total over the stats WHERE plus its dated predicate', async () => {
+    const fetchSpy = vi.fn((_url: string, request: RequestInit) =>
+      Promise.resolve(
+        typeof request.body === 'string' && request.body.includes('AS total')
+          ? compactResponse([{ total: '3948' }])
+          : compactResponse([recordRow])
+      )
+    );
+    const repo = makeRepo(fetchSpy);
+    const scope = {
+      grain: 'direct_acquisition' as const,
+      buyerCounty: 'SB',
+      from: '2025-11',
+      to: '2025-11',
+    };
+    const result = await repo.recordsFor(route('direct_acquisition'), scope, GEN, {
+      sort: 'value_desc',
+      offset: 25,
+      limit: 25,
+    });
+    const read = result._unsafeUnwrap();
+    expect(read.total).toBe('3948');
+    expect(read.rows).toEqual([
+      {
+        id: '17',
+        date: '2025-11-03',
+        title: 'Furnituri de birou',
+        authorityCui: '4270740',
+        authorityName: 'Primaria Sibiu',
+        supplierCui: '14399840',
+        supplierName: 'Firma SRL',
+        valueRon: '1234.56',
+        status: 'finalized',
+        recordKind: null,
+        cpvCode: '30192700',
+      },
+    ]);
+    const [page, total] = bodies(fetchSpy);
+    const dated =
+      "(NOT is_undated AND date_basis >= toDate('2025-11-01') AND date_basis < addMonths(toDate('2025-11-01'), 1))";
+    for (const body of [page, total]) {
+      expect(body).toMatch(/FROM facts_da_v2\s+WHERE is_canonical/u);
+      expect(body).toContain("buyer_county_code = 'SB'");
+      expect(body).toContain(`AND ${dated}`);
+    }
+    // Money is the anchor money the figures sum, and orders the value sort.
+    const money = `if(value_state IN ('official_exact', 'official_ron_equivalent', 'cross_source_exact', 'official_document_recovered'), value_awarded_bani, NULL)`;
+    expect(page).toContain(`toString(${money}) AS value_bani`);
+    expect(page).toContain(`ORDER BY ${money} DESC NULLS LAST, da_id DESC`);
+    expect(page).toContain('LIMIT 25 OFFSET 25');
+    // Village-level supplier location is never read.
+    expect(page).not.toContain('supplier_siruta_locality');
+  });
+
+  it('orders contracts by date with the pk tiebreak and reads their record kind', async () => {
+    const fetchSpy = vi.fn((_url: string, request: RequestInit) =>
+      Promise.resolve(
+        typeof request.body === 'string' && request.body.includes('AS total')
+          ? compactResponse([{ total: '0' }])
+          : compactResponse([], Object.keys(recordRow))
+      )
+    );
+    const repo = makeRepo(fetchSpy);
+    await repo.recordsFor(route('contract'), { grain: 'contract' }, GEN, {
+      sort: 'date_desc',
+      offset: 0,
+      limit: 25,
+    });
+    const [page] = bodies(fetchSpy);
+    expect(page).toContain('record_kind AS record_kind');
+    expect(page).toContain('ORDER BY is_undated ASC, date_sort DESC, contract_id DESC');
+    expect(page).toContain('value_awarded_attributed_bani');
+  });
+
+  it('reads a blank title as no title, so the display title can stand in', async () => {
+    const fetchSpy = vi.fn((_url: string, request: RequestInit) =>
+      Promise.resolve(
+        typeof request.body === 'string' && request.body.includes('AS total')
+          ? compactResponse([{ total: '1' }])
+          : compactResponse([{ ...recordRow, title: '   ' }])
+      )
+    );
+    const repo = makeRepo(fetchSpy);
+    const result = await repo.recordsFor(route('contract'), { grain: 'contract' }, GEN, {
+      sort: 'date_desc',
+      offset: 0,
+      limit: 25,
+    });
+    expect(result._unsafeUnwrap().rows[0]?.title).toBeNull();
+  });
+
+  it('answers an impossible scope with an empty page without querying', async () => {
+    const fetchSpy = vi.fn();
+    const repo = makeRepo(fetchSpy);
+    const result = await repo.recordsFor(
+      route('contract'),
+      { grain: 'contract', supplierSiruta: 'CJ' },
+      GEN,
+      { sort: 'date_desc', offset: 0, limit: 25 }
+    );
+    expect(result._unsafeUnwrap()).toEqual({ total: '0', rows: [] });
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

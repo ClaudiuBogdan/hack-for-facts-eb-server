@@ -14,13 +14,16 @@ import { routeAnalysis } from '@/modules/procurement/core/combinations.js';
 
 import type { AnalysisScope } from '@/modules/procurement/core/analysis-scope.js';
 
+/** A published build whose registry invariant holds: supplier geography is served. */
+const SERVED = { frameworkRole: false, supplierGeography: true } as const;
+
 const grainsOf = (
   scope: AnalysisScope,
   shape: 'stats' | 'series' | 'breakdown' | 'concentration',
   dimension?: Parameters<typeof routeAnalysis>[2],
   measure?: Parameters<typeof routeAnalysis>[3]
 ): readonly string[] =>
-  routeAnalysis(scope, shape, dimension, measure)
+  routeAnalysis(scope, shape, dimension, measure, SERVED)
     ._unsafeUnwrap()
     .map((r) => r.grain);
 
@@ -130,6 +133,32 @@ describe('combinations the wave-1 rollups rejected now route (ClickHouse serves 
     ]);
   });
 
+  it('withholds supplier geography, filter or dimension, while the registry invariant fails', () => {
+    const withheld = { frameworkRole: false, supplierGeography: false } as const;
+    for (const [scope, field] of [
+      [{ supplierRegion: 'Nord-Vest' }, 'supplierRegion'],
+      [{ supplierCounty: 'CJ' }, 'supplierCounty'],
+      [{ supplierSiruta: '57706' }, 'supplierSiruta'],
+    ] as const) {
+      expect(
+        routeAnalysis(scope, 'stats', undefined, undefined, withheld)._unsafeUnwrapErr()
+      ).toMatchObject({
+        type: 'InvalidInput',
+        field,
+      });
+    }
+    expect(
+      routeAnalysis({}, 'breakdown', 'supplierCounty', undefined, withheld)._unsafeUnwrapErr()
+    ).toMatchObject({ type: 'InvalidInput', field: 'dimension' });
+    // The supplier identity and the buyer's place stay served.
+    expect(
+      routeAnalysis({ supplierCui: '11805367' }, 'stats', undefined, undefined, withheld).isOk()
+    ).toBe(true);
+    expect(
+      routeAnalysis({ buyerCounty: 'CJ' }, 'stats', undefined, undefined, withheld).isOk()
+    ).toBe(true);
+  });
+
   it('supplier geography breakdowns route on contract + DA only', () => {
     expect(grainsOf({}, 'breakdown', 'supplierRegion')).toEqual(['contract', 'direct_acquisition']);
     expect(grainsOf({}, 'breakdown', 'supplierCounty')).toEqual(['contract', 'direct_acquisition']);
@@ -229,8 +258,8 @@ describe('recordKind is contract-grain only', () => {
 });
 
 describe('frameworkRole follows the ACTIVE build (M/M06): refused without the column', () => {
-  const without = { frameworkRole: false } as const;
-  const withColumn = { frameworkRole: true } as const;
+  const without = { frameworkRole: false, supplierGeography: true } as const;
+  const withColumn = { frameworkRole: true, supplierGeography: true } as const;
 
   it('rejects every explicit frameworkRole scope when the build lacks the column', () => {
     for (const frameworkRole of ['standalone', 'framework_ceiling', 'call_off', 'all'] as const) {

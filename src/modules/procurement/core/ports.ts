@@ -241,6 +241,39 @@ export interface ConcentrationRead {
   readonly unknownSupplierMeasure: string | null;
 }
 
+/** The orders an analysis record page can take (the pk breaks every tie). */
+export const ANALYSIS_RECORDS_SORTS = ['date_desc', 'date_asc', 'value_desc', 'value_asc'] as const;
+export type AnalysisRecordsSort = (typeof ANALYSIS_RECORDS_SORTS)[number];
+
+/**
+ * One counted fact row of an analysis scope — the row the stats `recordCount`
+ * counts, as the pinned build holds it. `valueRon` is the grain's ANCHOR money
+ * exactly as the figures sum it (accepted rows only; null when the row adds no
+ * money), never a raw source value. Identifiers arrive unredacted; the core
+ * usecase withholds them.
+ */
+export interface AnalysisRecordRow {
+  readonly id: string;
+  /** `date_basis` (YYYY-MM-DD); null for an undated row (all-time scopes only). */
+  readonly date: string | null;
+  readonly title: string | null;
+  readonly authorityCui: string | null;
+  readonly authorityName: string | null;
+  readonly supplierCui: string | null;
+  readonly supplierName: string | null;
+  readonly valueRon: string | null;
+  readonly status: string | null;
+  /** Contract grain only. */
+  readonly recordKind: string | null;
+  readonly cpvCode: string | null;
+}
+
+/** A record page and the exact size of its population (the stats `recordCount`). */
+export interface AnalysisRecordsRead {
+  readonly total: string;
+  readonly rows: readonly AnalysisRecordRow[];
+}
+
 /**
  * The analysis rollup reader. Every statement pins `build_id` to the generation
  * resolved by `activeGeneration()` — a mid-request cutover can never mix builds.
@@ -287,4 +320,14 @@ export interface AnalysisRepo {
     generation: ActiveGeneration,
     basis: 'value' | 'count'
   ): Promise<Result<ConcentrationRead, ApiError>>;
+  /**
+   * A page of the rows `statsFor` counts — the SAME compiled scope and dated
+   * predicate on the SAME build table — and their exact total.
+   */
+  recordsFor(
+    route: AnalysisRoute,
+    scope: AnalysisScope,
+    generation: ActiveGeneration,
+    page: { readonly sort: AnalysisRecordsSort; readonly offset: number; readonly limit: number }
+  ): Promise<Result<AnalysisRecordsRead, ApiError>>;
 }

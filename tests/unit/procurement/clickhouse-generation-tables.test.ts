@@ -39,7 +39,7 @@ const published = (buildId: string): PublishedGeneration => ({
 });
 const generation = (buildId: string): ActiveGeneration => ({
   ...published(buildId),
-  capabilities: { frameworkRole: false },
+  capabilities: { frameworkRole: false, supplierGeography: true },
 });
 
 function harness(

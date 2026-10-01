@@ -232,7 +232,7 @@ describe('frameworkRole compares as a POPULATION once the build publishes the co
   // Absent = purchases-only default (standalone / unstamped), 'all' widens.
   const withColumn = () =>
     fakeAnalysisRepo({
-      generation: generation(ALL_ALLOW, { frameworkRole: true }),
+      generation: generation(ALL_ALLOW, { frameworkRole: true, supplierGeography: true }),
       stats: () => statsRead({ valueAwardedSum: '1000.00' }),
     });
 

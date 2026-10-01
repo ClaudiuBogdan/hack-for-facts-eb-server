@@ -32,7 +32,12 @@ import { Type, type Static, type TObject } from '@sinclair/typebox';
 import { Value } from '@sinclair/typebox/value';
 import { err, ok, type Result } from 'neverthrow';
 
-import { databaseError, type ApiError, type Logger } from '@/modules/shared/index.js';
+import {
+  databaseError,
+  MAX_SERVED_CUI_DIGITS,
+  type ApiError,
+  type Logger,
+} from '@/modules/shared/index.js';
 
 import {
   ACCEPTED_VALUE_STATES,
@@ -49,6 +54,8 @@ import type {
   ActiveGeneration,
   AnalysisBreakdownBucketRow,
   AnalysisBreakdownRead,
+  AnalysisRecordRow,
+  AnalysisRecordsSort,
   AnalysisRepo,
   AnalysisStatsRead,
   ConcentrationRead,
@@ -285,11 +292,23 @@ const SUPPLIER_BREAKDOWN_DIMS: ReadonlySet<string> = new Set([
   'supplierSiruta',
 ]);
 
+/**
+ * Over-10-digit identifiers are CNP-shaped natural-person identifiers the
+ * platform withholds (kernel `isWithheldOrganizationIdentifier`; the facts
+ * store normalized digit strings, so a length test IS that rule). A withheld
+ * party keys no bucket and contributes no place: its rows fall into the
+ * unknown bucket, and a supplier-place filter never selects them.
+ */
+const servedIdentity = (column: 'authority_cui' | 'supplier_cui'): string =>
+  `(${column} IS NOT NULL AND length(${column}) <= ${String(MAX_SERVED_CUI_DIGITS)})`;
+const SUPPLIER_IDENTITY_SERVED = servedIdentity('supplier_cui');
+const ifSupplierServed = (expr: string): string => `if(${SUPPLIER_IDENTITY_SERVED}, ${expr}, NULL)`;
+
 const BREAKDOWN_DIM_COLUMNS: Record<string, string> = {
-  authority: 'authority_cui',
+  authority: `if(${servedIdentity('authority_cui')}, authority_cui, NULL)`,
   // PG-parity: breakdown/concentration keys are bare supplier CUIs (client
   // supplier links resolve by CUI). Identity keys remain the DISTINCTS rule.
-  supplier: 'supplier_cui',
+  supplier: ifSupplierServed('supplier_cui'),
   cpvDivision: 'cpv_division',
   // CPV level buckets key on the CANONICAL 8-digit level code (prefix +
   // trailing zeros) so the exact-match cpv_codes label loader serves them.
@@ -312,9 +331,9 @@ const BREAKDOWN_DIM_COLUMNS: Record<string, string> = {
   buyerRegion: 'buyer_region',
   buyerCounty: 'buyer_county_code',
   buyerSiruta: 'toString(buyer_siruta_uat)',
-  supplierRegion: 'supplier_region',
-  supplierCounty: 'supplier_county_code',
-  supplierSiruta: 'toString(supplier_siruta_uat)',
+  supplierRegion: ifSupplierServed('supplier_region'),
+  supplierCounty: ifSupplierServed('supplier_county_code'),
+  supplierSiruta: ifSupplierServed('toString(supplier_siruta_uat)'),
 };
 
 /** PG label parity: 'YYYY-MM' / 'YYYY-Qn' / 'YYYY' (analysis-repo.ts). */
@@ -396,6 +415,13 @@ const compileScope = (
       conds.push(`${grainColumn(grain, column)} = ${escapeString(value)}`);
     }
   }
+  if (
+    scope.supplierCounty !== undefined ||
+    scope.supplierRegion !== undefined ||
+    scope.supplierSiruta !== undefined
+  ) {
+    conds.push(SUPPLIER_IDENTITY_SERVED);
+  }
 
   // Framework role — the ONE scope field whose ABSENCE adds a predicate.
   //
@@ -429,6 +455,9 @@ const compileScope = (
     const value = scope[field];
     if (typeof value !== 'string' || value === '') continue;
     if (/^\d{1,7}$/.test(value)) {
+      // Exact anchor: a UAT, a București sector, or a county node (the
+      // county's own institutions; București's own sit on 179132). A whole
+      // county — București with its sectors included — is the county filter.
       conds.push(`${column} = ${String(Number(value))}`);
     } else {
       impossible = true;
@@ -600,6 +629,36 @@ const RawConcentrationRowSchema = Type.Object(
   { additionalProperties: false }
 );
 
+const NullableStringSchema = Type.Union([Type.String(), Type.Null()]);
+
+const RawRecordRowSchema = Type.Object(
+  {
+    id: Type.String({ pattern: '^[0-9]+$' }),
+    date: Type.Union([Type.String({ pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' }), Type.Null()]),
+    title: NullableStringSchema,
+    authority_cui: NullableStringSchema,
+    authority_name: NullableStringSchema,
+    supplier_cui: NullableStringSchema,
+    supplier_name: NullableStringSchema,
+    value_bani: NullableIntegerStringSchema,
+    status: NullableStringSchema,
+    record_kind: NullableStringSchema,
+    cpv_code: NullableStringSchema,
+  },
+  { additionalProperties: false }
+);
+
+const RawRecordsTotalRowSchema = Type.Object(
+  { total: CountStringSchema },
+  { additionalProperties: false }
+);
+
+/** The fact-row primary key of each records grain. */
+const RECORD_PK: Readonly<Record<string, string>> = {
+  direct_acquisition: 'da_id',
+  contract: 'contract_id',
+};
+
 const BasisCoverageRowSchema = Type.Object(
   {
     grain: Type.String(),
@@ -675,7 +734,12 @@ export const CAPABILITY_PROBE_TTL_MS = 60_000;
 export const makeClickhouseAnalysisRepo = (
   config: ClickhouseAnalysisConfig,
   publishedGeneration: () => Promise<Result<PublishedGeneration | null, ApiError>>,
-  logger?: Logger
+  logger?: Logger,
+  /**
+   * The registry invariant behind supplier geography (see
+   * `supplier-geography-policy.ts`). Absent or failing → withheld.
+   */
+  supplierGeographyPublic?: () => Promise<Result<boolean, ApiError>>
 ): AnalysisRepo => {
   const inFlightQueries = new Map<string, Promise<Result<readonly unknown[], ApiError>>>();
 
@@ -853,7 +917,7 @@ export const makeClickhouseAnalysisRepo = (
       frameworkRole = total > 0n && stamped * 100n >= total * FRAMEWORK_ROLE_MIN_STAMPED_PERCENT;
       stampedPercent = total > 0n ? ((stamped * 100n) / total).toString() : null;
     }
-    const capabilities: GenerationCapabilities = { frameworkRole };
+    const capabilities: GenerationCapabilities = { frameworkRole, supplierGeography: false };
     capabilitiesByBuild.set(buildId, {
       value: capabilities,
       expiresAt: Date.now() + CAPABILITY_PROBE_TTL_MS,
@@ -870,7 +934,20 @@ export const makeClickhouseAnalysisRepo = (
     if (g.value === null) return ok(null);
     const capabilities = await capabilitiesFor(g.value.buildId);
     if (capabilities.isErr()) return err(capabilities.error);
-    return ok({ ...g.value, capabilities: capabilities.value });
+    // Withheld unless the registry invariant is read and holds — a failed
+    // policy read degrades supplier geography only, never the whole answer.
+    const policy =
+      supplierGeographyPublic === undefined ? ok(false) : await supplierGeographyPublic();
+    if (policy.isErr()) {
+      logger?.warn(
+        { buildId: g.value.buildId, error: policy.error.message },
+        'supplier geography withheld: policy read failed'
+      );
+    }
+    return ok({
+      ...g.value,
+      capabilities: { ...capabilities.value, supplierGeography: policy.isOk() && policy.value },
+    });
   };
 
   const statsCore = async (
@@ -1289,6 +1366,83 @@ export const makeClickhouseAnalysisRepo = (
     return ok(r.value);
   };
 
+  /**
+   * The rows `statsCore` counts: the same compiled scope, the same supplier
+   * money election, the same `dated` predicate, the same build table — so the
+   * page belongs to the figure and `total` equals its `recordCount`. The pk
+   * breaks every tie, so an offset page never shuffles; undated rows (all-time
+   * scopes only) list after dated ones.
+   */
+  const recordsFor: AnalysisRepo['recordsFor'] = async (route, scope, generation, page) => {
+    const pk = RECORD_PK[route.grain];
+    if (pk === undefined) {
+      return err(databaseError(`records are not served for grain '${route.grain}'`));
+    }
+    const supplierMoney = supplierScoped(scope);
+    const tables = tablesFor(generation.buildId);
+    if (tables.isErr()) return err(tables.error);
+    const c = compileScope(
+      route,
+      scope,
+      supplierMoney,
+      generation.capabilities,
+      tables.value[route.grain]
+    );
+    if (c.impossible) return ok({ total: '0', rows: [] });
+    const p = profileFor(route.grain, supplierMoney);
+    const money = p.anchorCol === null ? 'NULL' : `if(${p.accept}, ${p.anchorCol}, NULL)`;
+    const orders: Record<AnalysisRecordsSort, string> = {
+      date_desc: `is_undated ASC, date_sort DESC, ${pk} DESC`,
+      date_asc: `is_undated ASC, date_sort ASC, ${pk} ASC`,
+      value_desc: `${money} DESC NULLS LAST, ${pk} DESC`,
+      value_asc: `${money} ASC NULLS LAST, ${pk} ASC`,
+    };
+    const where = `${c.where} AND ${c.dated}`;
+    const [rowsR, totalR] = await Promise.all([
+      query(
+        `
+        SELECT
+          toString(${pk}) AS id,
+          if(is_undated, NULL, toString(date_basis)) AS date,
+          title,
+          authority_cui,
+          authority_name,
+          supplier_cui,
+          supplier_name,
+          toString(${money}) AS value_bani,
+          status,
+          ${route.grain === 'contract' ? 'record_kind' : 'NULL'} AS record_kind,
+          cpv_code
+        FROM ${c.table}
+        WHERE ${where}
+        ORDER BY ${orders[page.sort]}
+        LIMIT ${String(page.limit)} OFFSET ${String(page.offset)}`,
+        RawRecordRowSchema
+      ),
+      query(
+        `SELECT toString(count()) AS total FROM ${c.table} WHERE ${where}`,
+        RawRecordsTotalRowSchema
+      ),
+    ]);
+    if (rowsR.isErr()) return err(rowsR.error);
+    if (totalR.isErr()) return err(totalR.error);
+    const rows: AnalysisRecordRow[] = rowsR.value.map((row) => ({
+      id: row.id,
+      date: row.date,
+      // A blank title is no title: the display-title fallback must apply.
+      title: row.title !== null && row.title.trim() !== '' ? row.title : null,
+      authorityCui: row.authority_cui,
+      authorityName: row.authority_name,
+      supplierCui: row.supplier_cui,
+      supplierName: row.supplier_name,
+      valueRon: baniToRon(row.value_bani),
+      status: row.status,
+      recordKind: row.record_kind,
+      cpvCode: row.cpv_code,
+    }));
+    return ok({ total: totalR.value[0]?.total ?? '0', rows });
+  };
+
   return {
     activeGeneration,
     basisCoverage,
@@ -1297,6 +1451,7 @@ export const makeClickhouseAnalysisRepo = (
     distinctSeriesFor,
     breakdownFor,
     concentrationFor,
+    recordsFor,
   };
 };
 
@@ -1317,5 +1472,6 @@ export const makeUnconfiguredAnalysisRepo = (): AnalysisRepo => {
     distinctSeriesFor: () => Promise.resolve(unconfigured()),
     breakdownFor: () => Promise.resolve(unconfigured()),
     concentrationFor: () => Promise.resolve(unconfigured()),
+    recordsFor: () => Promise.resolve(unconfigured()),
   };
 };

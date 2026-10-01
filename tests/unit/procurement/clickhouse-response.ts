@@ -17,5 +17,5 @@ export const generationWithoutFrameworkRole: ActiveGeneration = {
   publishedAt: '2026-07-12T00:00:00Z',
   quality: {},
   matrixHash: null,
-  capabilities: { frameworkRole: false },
+  capabilities: { frameworkRole: false, supplierGeography: true },
 };

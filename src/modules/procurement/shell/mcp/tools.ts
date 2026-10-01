@@ -21,6 +21,7 @@ import { parseAnalysisScope, type AnalysisScope } from '../../core/analysis-scop
 import {
   analysisBreakdown,
   analysisConcentration,
+  analysisRecords,
   analysisSeries,
   analysisStats,
   type AnalysisBreakdownBlock,
@@ -42,6 +43,7 @@ import {
   VALUE_STATES,
 } from '../../core/constants.js';
 import { resolveCpv, searchContracts, searchDirectAcquisitions } from '../../core/usecases.js';
+import { withDisplayTitles } from '../records-display.js';
 
 import type { AnalysisRepo, ProcurementRepo } from '../../core/ports.js';
 
@@ -98,7 +100,7 @@ export const ANALYSIS_SCOPE_ZOD_SHAPE = {
     .enum(FRAMEWORK_ROLE_FILTERS)
     .optional()
     .describe(
-      'Temporarily unavailable until the active ClickHouse data build publishes framework roles.'
+      'Contract grain only. Absent = the purchases-only default (standalone or unstamped); a framework-agreement population names framework_ceiling explicitly; all = every role.'
     ),
   grain: z.enum(ANALYSIS_GRAINS).optional().describe('Absent = all grains the matrix supports.'),
   from: z.string().optional().describe('YYYY-MM, inclusive (XOR year).'),
@@ -274,11 +276,23 @@ export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly Kern
   const aggregateProcurement: KernelMcpTool = {
     name: 'aggregate_procurement',
     description:
-      'Aggregate procurement analytics over ONE scope: stats, series, breakdown, or supplier concentration. Money is AWARDED value, not payments; unsupported combinations are rejected by the pinned matrix. Every answer carries answerability, reason, buildId, and canonicalScope.',
+      'Aggregate procurement analytics over ONE scope: stats, series, breakdown, supplier concentration, or the records a stats block counts (shape=records, scope.grain direct_acquisition or contract). Money is AWARDED value, not payments; unsupported combinations are rejected by the pinned matrix. Every answer carries answerability, reason, buildId, and canonicalScope; pass build to pin follow-up calls to the same analysis build.',
     strictInput: true,
     inputShape: {
       scope: z.object(ANALYSIS_SCOPE_ZOD_SHAPE).strict().optional(),
-      shape: z.enum(['stats', 'series', 'breakdown', 'concentration']),
+      shape: z.enum(['stats', 'series', 'breakdown', 'concentration', 'records']),
+      build: z
+        .string()
+        .optional()
+        .describe(
+          'Pin to an analysis build (a buildId an earlier answer carried); refused when it is no longer the active build.'
+        ),
+      sort: z
+        .enum(['date_desc', 'date_asc', 'value_desc', 'value_asc'])
+        .optional()
+        .describe('For shape=records; default date_desc.'),
+      page: z.number().optional().describe('For shape=records; 1-based, default 1.'),
+      pageSize: z.number().optional().describe('For shape=records; default 25, max 100.'),
       dimension: z.enum(BREAKDOWN_DIMENSIONS).optional().describe('Required for shape=breakdown.'),
       bucket: z.enum(SERIES_BUCKETS).optional().describe('For shape=series; default month.'),
       measure: z.enum(MEASURE_IDS).optional().describe('Required for shape=series.'),
@@ -301,9 +315,11 @@ export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly Kern
       const topNValue = args['topN'];
       const topN = typeof topNValue === 'number' ? topNValue : undefined;
       const rankBy = optStr(args, 'rankBy') as 'count' | 'value' | undefined;
+      const build = optStr(args, 'build');
+      const pin = build === undefined ? {} : { build };
 
       if (shape === 'stats') {
-        const res = await analysisStats(analysisDeps, { scope });
+        const res = await analysisStats(analysisDeps, { scope, ...pin });
         if (res.isErr()) return errorFrom('analysis_stats', res.error);
         const blocks: readonly AnalysisStatsBlock[] = res.value.blocks;
         return analysisOutput(
@@ -321,7 +337,7 @@ export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly Kern
         if (measure === undefined)
           return invalidOut('analysis_series', "shape 'series' requires a measure", 'measure');
         const bucket = (optStr(args, 'bucket') ?? 'month') as SeriesBucket;
-        const res = await analysisSeries(analysisDeps, { scope, bucket, measure });
+        const res = await analysisSeries(analysisDeps, { scope, bucket, measure, ...pin });
         if (res.isErr()) return errorFrom('analysis_series', res.error);
         const blocks: readonly AnalysisSeriesBlock[] = res.value;
         return analysisOutput(
@@ -348,6 +364,7 @@ export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly Kern
           dimension,
           ...(topN !== undefined && { topN }),
           ...(rankBy !== undefined && { rankBy }),
+          ...pin,
         });
         if (res.isErr()) return errorFrom('analysis_breakdown', res.error);
         const blocks: readonly AnalysisBreakdownBlock[] = res.value;
@@ -366,6 +383,7 @@ export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly Kern
         const res = await analysisConcentration(analysisDeps, {
           scope,
           ...(basis === undefined ? {} : { basis }),
+          ...pin,
         });
         if (res.isErr()) return errorFrom('analysis_concentration', res.error);
         const blocks: readonly AnalysisConcentrationBlock[] = res.value;
@@ -376,6 +394,31 @@ export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly Kern
           blocks.map((b) => b.meta),
           blocks.some((b) => b.totalRon !== null),
           `${n(blocks.length)} per-grain concentration block(s). High concentration is a signal, not a finding.`
+        );
+      }
+
+      if (shape === 'records') {
+        const page = args['page'];
+        const pageSize = args['pageSize'];
+        const sort = optStr(args, 'sort');
+        const res = await analysisRecords(analysisDeps, {
+          scope,
+          ...pin,
+          ...(sort !== undefined && { sort }),
+          ...(typeof page === 'number' && { page }),
+          ...(typeof pageSize === 'number' && { pageSize }),
+        });
+        if (res.isErr()) return errorFrom('analysis_records', res.error);
+        const result = res.value;
+        // Display-only titles (the same labels GraphQL serves), after membership and money.
+        const items = await withDisplayTitles(repo, result);
+        return analysisOutput(
+          'records',
+          scope,
+          items,
+          [result.meta],
+          result.items.some((item) => item.valueRon !== null),
+          `${n(result.items.length)} ${result.grain} record(s), page ${n(result.page)} of a population of ${result.total ?? 'withheld (gate abstained)'} — exactly the stats recordCount of this scope.`
         );
       }
 

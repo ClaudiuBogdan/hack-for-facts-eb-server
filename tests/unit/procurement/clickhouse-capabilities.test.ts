@@ -5,7 +5,7 @@
  * capability riding on `activeGeneration()`, and the contract-grain SQL
  * switching to purchases-only exactly when the column exists.
  */
-import { ok } from 'neverthrow';
+import { err, ok, type Result } from 'neverthrow';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -13,6 +13,7 @@ import {
   FRAMEWORK_ROLE_MIN_STAMPED_PERCENT,
   makeClickhouseAnalysisRepo,
 } from '@/modules/procurement/shell/repo/clickhouse-analysis-repo.js';
+import { databaseError, type ApiError } from '@/modules/shared/index.js';
 
 import { compactResponse } from './clickhouse-response.js';
 
@@ -98,9 +99,12 @@ describe('generation capabilities from the live ClickHouse build', () => {
     const second = await repo.activeGeneration();
     expect(first._unsafeUnwrap()).toMatchObject({
       buildId: '8',
-      capabilities: { frameworkRole: false },
+      capabilities: { frameworkRole: false, supplierGeography: false },
     });
-    expect(second._unsafeUnwrap()?.capabilities).toEqual({ frameworkRole: false });
+    expect(second._unsafeUnwrap()?.capabilities).toEqual({
+      frameworkRole: false,
+      supplierGeography: false,
+    });
 
     const probes = bodiesOf(fetchSpy).filter((b) => b.includes('system.columns'));
     expect(probes).toHaveLength(1);
@@ -119,7 +123,10 @@ describe('generation capabilities from the live ClickHouse build', () => {
     await repo.activeGeneration();
     active = published('9');
     const gen = await repo.activeGeneration();
-    expect(gen._unsafeUnwrap()?.capabilities).toEqual({ frameworkRole: true });
+    expect(gen._unsafeUnwrap()?.capabilities).toEqual({
+      frameworkRole: true,
+      supplierGeography: false,
+    });
     expect(bodiesOf(fetchSpy).filter((b) => b.includes('system.columns'))).toHaveLength(2);
   });
 
@@ -207,6 +214,7 @@ describe('generation capabilities from the live ClickHouse build', () => {
     );
     expect((await repo.activeGeneration())._unsafeUnwrap()?.capabilities).toEqual({
       frameworkRole: false,
+      supplierGeography: false,
     });
   });
 
@@ -254,6 +262,36 @@ describe('generation capabilities from the live ClickHouse build', () => {
     expect((await repo.activeGeneration()).isErr()).toBe(true);
     expect((await repo.activeGeneration())._unsafeUnwrap()?.capabilities).toEqual({
       frameworkRole: true,
+      supplierGeography: false,
+    });
+  });
+});
+
+describe('supplier geography capability (registry invariant)', () => {
+  const repoWith = (policy?: () => Result<boolean, ApiError>) =>
+    makeClickhouseAnalysisRepo(
+      { url: 'http://ch.test', database: 'proto' },
+      () => Promise.resolve(ok(published('8'))),
+      undefined,
+      policy === undefined ? undefined : () => Promise.resolve(policy())
+    );
+
+  it('serves supplier geography only when the registry invariant is read and holds', async () => {
+    vi.stubGlobal('fetch', fetchAnswering(false));
+    const held = await repoWith(() => ok(true)).activeGeneration();
+    expect(held._unsafeUnwrap()?.capabilities.supplierGeography).toBe(true);
+    const broken = await repoWith(() => ok(false)).activeGeneration();
+    expect(broken._unsafeUnwrap()?.capabilities.supplierGeography).toBe(false);
+    const absent = await repoWith().activeGeneration();
+    expect(absent._unsafeUnwrap()?.capabilities.supplierGeography).toBe(false);
+  });
+
+  it('withholds supplier geography, and only it, when the policy read fails', async () => {
+    vi.stubGlobal('fetch', fetchAnswering(true));
+    const failed = await repoWith(() => err(databaseError('down'))).activeGeneration();
+    expect(failed._unsafeUnwrap()?.capabilities).toEqual({
+      frameworkRole: true,
+      supplierGeography: false,
     });
   });
 });

@@ -21,6 +21,7 @@ import {
   type ApiError,
 } from '@/modules/shared/index.js';
 
+import { withDisplayTitles } from '../records-display.js';
 import {
   translateAnalysisScope,
   translateSearchFilter,
@@ -31,6 +32,7 @@ import {
   analysisBreakdown,
   analysisConcentration,
   analysisFacets,
+  analysisRecords,
   analysisSeries,
   analysisShare,
   analysisStats,
@@ -77,10 +79,22 @@ export interface ProcurementResolverDeps {
   readonly routeAnalysis?: AnalysisDeps['routeAnalysis'];
 }
 
+/**
+ * `extensions.field` names the refused input: a client tells a stale analysis
+ * `build` pin (re-read the active build, then repeat) from any other refusal.
+ */
 const toGraphqlError = (error: ApiError): GraphQLError =>
   new GraphQLError(error.message, {
-    extensions: { code: GRAPHQL_ERROR_CODE[error.type], type: error.type },
+    extensions: {
+      code: GRAPHQL_ERROR_CODE[error.type],
+      type: error.type,
+      ...(error.type === 'InvalidInput' && error.field !== undefined && { field: error.field }),
+    },
   });
+
+/** The optional analysis build pin, as the usecases take it. */
+const pinOf = (build: string | null | undefined): { readonly build?: string } =>
+  build === undefined || build === null ? {} : { build };
 
 const unwrap = <T>(result: Result<T, ApiError>): T => {
   if (result.isErr()) throw toGraphqlError(result.error);
@@ -241,17 +255,28 @@ export const makeProcurementResolvers = (
       },
 
       // ── analysis surface (one scope, six shapes; design §5.3) ───────────────
-      procurementStats: async (_r: unknown, a: { scope?: RawAnalysisScopeInput | null }) =>
-        unwrap(await analysisStats(analysisDeps, { scope: analysisScope(a.scope) })),
+      procurementStats: async (
+        _r: unknown,
+        a: { scope?: RawAnalysisScopeInput | null; build?: string | null }
+      ) =>
+        unwrap(
+          await analysisStats(analysisDeps, { scope: analysisScope(a.scope), ...pinOf(a.build) })
+        ),
       procurementSeries: async (
         _r: unknown,
-        a: { scope?: RawAnalysisScopeInput | null; bucket: SeriesBucket; measure: MeasureId }
+        a: {
+          scope?: RawAnalysisScopeInput | null;
+          bucket: SeriesBucket;
+          measure: MeasureId;
+          build?: string | null;
+        }
       ) =>
         unwrap(
           await analysisSeries(analysisDeps, {
             scope: analysisScope(a.scope),
             bucket: a.bucket,
             measure: a.measure,
+            ...pinOf(a.build),
           })
         ),
       procurementBreakdown: async (
@@ -261,6 +286,7 @@ export const makeProcurementResolvers = (
           dimension: BreakdownDimension;
           topN?: number | null;
           rankBy?: 'value' | 'count' | null;
+          build?: string | null;
         }
       ) =>
         unwrap(
@@ -269,16 +295,22 @@ export const makeProcurementResolvers = (
             dimension: a.dimension,
             ...(a.topN !== undefined && a.topN !== null && { topN: a.topN }),
             ...(a.rankBy !== undefined && a.rankBy !== null && { rankBy: a.rankBy }),
+            ...pinOf(a.build),
           })
         ),
       procurementShare: async (
         _r: unknown,
-        a: { numerator: RawAnalysisScopeInput; denominator: RawAnalysisScopeInput }
+        a: {
+          numerator: RawAnalysisScopeInput;
+          denominator: RawAnalysisScopeInput;
+          build?: string | null;
+        }
       ) =>
         unwrap(
           await analysisShare(analysisDeps, {
             numerator: analysisScope(a.numerator),
             denominator: analysisScope(a.denominator),
+            ...pinOf(a.build),
           })
         ),
       procurementFacets: async (
@@ -288,6 +320,7 @@ export const makeProcurementResolvers = (
           dimensions: readonly BreakdownDimension[];
           topN?: number | null;
           rankBy?: 'value' | 'count' | null;
+          build?: string | null;
         }
       ) =>
         unwrap(
@@ -296,8 +329,48 @@ export const makeProcurementResolvers = (
             dimensions: a.dimensions,
             ...(a.topN !== undefined && a.topN !== null && { topN: a.topN }),
             ...(a.rankBy !== undefined && a.rankBy !== null && { rankBy: a.rankBy }),
+            ...pinOf(a.build),
           })
         ),
+
+      // ── analysis records (the rows one stats block counts) ──────────────────
+      procurementRecords: async (
+        _r: unknown,
+        a: {
+          scope: RawAnalysisScopeInput;
+          build?: string | null;
+          sort?: string | null;
+          page?: number | null;
+          pageSize?: number | null;
+        }
+      ) => {
+        const result = unwrap(
+          await analysisRecords(analysisDeps, {
+            scope: analysisScope(a.scope),
+            ...pinOf(a.build),
+            ...(a.sort !== undefined && a.sort !== null && { sort: a.sort }),
+            ...(a.page !== undefined && a.page !== null && { page: a.page }),
+            ...(a.pageSize !== undefined && a.pageSize !== null && { pageSize: a.pageSize }),
+          })
+        );
+        // Display-only labels, after membership and money are fixed.
+        const items = await withDisplayTitles(repo, result);
+        return {
+          ...result,
+          items: items.map((item) => ({
+            id: item.id,
+            date: item.date,
+            title: item.title,
+            displayTitle: item.displayTitle,
+            authority: party(item.authorityCui, item.authorityName),
+            supplier: party(item.supplierCui, item.supplierName),
+            valueRon: item.valueRon,
+            status: item.status,
+            recordKind: item.recordKind,
+            cpvCode: item.cpvCode,
+          })),
+        };
+      },
 
       // ── supplier records ────────────────────────────────────────────────────
       procurementSupplierRecords: async (
@@ -358,7 +431,7 @@ export const makeProcurementResolvers = (
       // ── concentration (generation-stamped analysis package) ────────────────
       procurementConcentration: async (
         _r: unknown,
-        a: { scope?: RawAnalysisScopeInput | null; basis?: string | null }
+        a: { scope?: RawAnalysisScopeInput | null; basis?: string | null; build?: string | null }
       ) => {
         const basis = a.basis ?? undefined;
         if (basis !== undefined && basis !== 'value' && basis !== 'count') {
@@ -372,6 +445,7 @@ export const makeProcurementResolvers = (
           await analysisConcentration(analysisDeps, {
             scope: analysisScope(a.scope),
             ...(basis !== undefined && { basis }),
+            ...pinOf(a.build),
           })
         );
       },

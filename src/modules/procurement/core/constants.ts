@@ -129,10 +129,22 @@ export type FrameworkRoleFilter = (typeof FRAMEWORK_ROLE_FILTERS)[number];
 export interface GenerationCapabilities {
   /** The contract fact table carries `framework_role`. */
   readonly frameworkRole: boolean;
+  /**
+   * Supplier registered-office geography may be served: the organization
+   * registry classified every servable identifier as public at the last check
+   * (kept ten minutes), so — with coverage proven for the published build
+   * (build 13 only; see `shell/repo/supplier-geography-policy.ts`) — the
+   * build's identifier guard selects public organizations. False (or an
+   * unavailable check) withholds every supplier place filter and dimension.
+   */
+  readonly supplierGeography: boolean;
 }
 
-/** The capabilities a generation is assumed to have when nothing was probed. */
-export const NO_GENERATION_CAPABILITIES: GenerationCapabilities = { frameworkRole: false };
+/** The capabilities a generation is assumed to have when nothing was probed (fail closed). */
+export const NO_GENERATION_CAPABILITIES: GenerationCapabilities = {
+  frameworkRole: false,
+  supplierGeography: false,
+};
 export type ValueComparableBasis = (typeof VALUE_COMPARABLE_BASES)[number];
 
 export const PROCEDURE_SOURCE_SYSTEMS = ['elicitatie', 'seap_notice'] as const;

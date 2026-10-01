@@ -644,7 +644,11 @@ export const procurementTypeDefs = /* GraphQL */ `
   \`cpvClass\`/\`cpvCategory\`/\`cpvCode\`). \`recordKind\` is contract-grain only.
   \`q\`/\`valueMin\`/\`valueMax\` are row filters that reshape every figure (see the
   envelope caveats). Unsupported combinations are rejected with the specific
-  missing capability named.
+  missing capability named. Supplier place fields (and supplier place
+  dimensions) answer only while the organization registry classifies every
+  servable supplier identifier as public (checked at most every ten minutes);
+  otherwise, or when that check is unavailable, they are refused
+  (INVALID_INPUT) rather than answered without it.
   """
   input ProcurementAnalysisScopeInput {
     authorityCui: String
@@ -659,19 +663,29 @@ export const procurementTypeDefs = /* GraphQL */ `
     cpvCode: String
     buyerCounty: String
     buyerRegion: String
-    "Buyer entity territorial SIRUTA (UAT natural key)."
+    """
+    Buyer place SIRUTA, matched exactly against the institution's anchor: a
+    UAT, a București sector, or a county node — the county's OWN institutions
+    (București's own sit on its UAT, 179132). A whole county, București with
+    its sectors included, is buyerCounty.
+    """
     buyerSiruta: SIRUTA
     supplierCounty: String
     supplierRegion: String
-    "Supplier registered-office territorial SIRUTA (UAT natural key)."
+    """
+    Supplier registered-office SIRUTA, matched exactly (a UAT or a București
+    sector; all of București is supplierCounty B). A withheld (natural-person)
+    identity never matches a place.
+    """
     supplierSiruta: SIRUTA
     status: String
     procedureType: String
     "Contract grain only: contract_award | framework_agreement."
     recordKind: String
     """
-    Temporarily unavailable until the active ClickHouse data build publishes
-    framework roles.
+    Contract grain only: standalone | framework_ceiling | call_off | all.
+    Absent = the purchases-only default (standalone or not yet stamped); a
+    framework-agreement population must name its role explicitly.
     """
     frameworkRole: String
     grain: ProcurementAnalysisGrain
@@ -847,6 +861,59 @@ export const procurementTypeDefs = /* GraphQL */ `
     blocks: [ProcurementBreakdownBlock!]!
   }
 
+  # ── analysis records (the rows one stats block counts) ──────────────────────
+
+  enum ProcurementRecordsSort {
+    date_desc
+    date_asc
+    value_desc
+    value_asc
+  }
+
+  """
+  One counted record of an analysis scope, as the pinned build holds it.
+  \`valueRon\` is the grain's anchor money exactly as the figures sum it (null
+  when the record adds none, or when the spend gate withholds money).
+  \`displayTitle\` is a display-only label read from the production database
+  (contracts); it never decides membership or money.
+  """
+  type ProcurementAnalysisRecord {
+    id: ID!
+    "date_basis (YYYY-MM-DD); null only for an undated record of an all-time scope."
+    date: String
+    title: String
+    displayTitle: ProcurementContractDisplayTitle
+    authority: ProcurementParty!
+    supplier: ProcurementParty!
+    valueRon: String
+    status: String
+    recordKind: String
+    cpvCode: String
+  }
+
+  type ProcurementRecordsMeta {
+    answerability: ProcurementAnswerability!
+    reason: ProcurementAnswerabilityReason
+    buildId: String!
+    canonicalScope: String!
+    caveats: [String!]!
+  }
+
+  """
+  A page of the records one \`procurementStats\` block counts: the same scope,
+  gates and build, so \`total\` equals that block's \`recordCount\` (null when it
+  abstains). Pages end at row 10 000.
+  """
+  type ProcurementRecordsPage {
+    grain: ProcurementAnalysisGrain!
+    total: String
+    page: Int!
+    pageSize: Int!
+    sort: ProcurementRecordsSort!
+    items: [ProcurementAnalysisRecord!]!
+    meta: ProcurementRecordsMeta!
+  }
+
   # ── supplier records (cursor over two tables, merged) ────────────────────────
 
   union ProcurementFlowRecord = ProcurementContract | ProcurementDirectAcquisition
@@ -949,29 +1016,44 @@ export const procurementTypeDefs = /* GraphQL */ `
     procurementDirectAcquisition(id: ID!): ProcurementDirectAcquisitionDetail
 
     # analysis surface — one scope, six shapes over the scraper-built rollup
-    # package (design §5.3). Every answer carries the §3.4 envelope.
-    procurementStats(scope: ProcurementAnalysisScopeInput): ProcurementStatsResult!
+    # package (design §5.3). Every answer carries the §3.4 envelope. \`build\`
+    # pins a request to the analysis build a page started from: a build that is
+    # no longer active is refused (INVALID_INPUT, extensions.field = build) so
+    # one page never mixes generations.
+    procurementStats(scope: ProcurementAnalysisScopeInput, build: String): ProcurementStatsResult!
     procurementSeries(
       scope: ProcurementAnalysisScopeInput
       bucket: ProcurementSeriesBucket!
       measure: ProcurementAnalysisMeasure!
+      build: String
     ): [ProcurementSeriesBlock!]!
     procurementBreakdown(
       scope: ProcurementAnalysisScopeInput
       dimension: ProcurementBreakdownDimension!
       topN: Int
       rankBy: ProcurementRankBy
+      build: String
     ): [ProcurementBreakdownBlock!]!
     procurementShare(
       numerator: ProcurementAnalysisScopeInput!
       denominator: ProcurementAnalysisScopeInput!
+      build: String
     ): ProcurementShareResult!
     procurementFacets(
       scope: ProcurementAnalysisScopeInput
       dimensions: [ProcurementBreakdownDimension!]!
       topN: Int
       rankBy: ProcurementRankBy
+      build: String
     ): ProcurementFacetsResult!
+    "The records one stats block counts (scope.grain direct_acquisition or contract)."
+    procurementRecords(
+      scope: ProcurementAnalysisScopeInput!
+      build: String
+      sort: ProcurementRecordsSort
+      page: Int
+      pageSize: Int
+    ): ProcurementRecordsPage!
 
     # supplier recent records (canonical flows only, date desc). Cancelled
     # direct acquisitions (refused/lapsed, no purchase) are hidden unless
@@ -997,6 +1079,7 @@ export const procurementTypeDefs = /* GraphQL */ `
     procurementConcentration(
       scope: ProcurementAnalysisScopeInput
       basis: ProcurementConcentrationBasis
+      build: String
     ): [ProcurementConcentrationBlock!]!
   }
 `;

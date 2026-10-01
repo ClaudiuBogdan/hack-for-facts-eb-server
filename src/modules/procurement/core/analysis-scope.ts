@@ -19,6 +19,7 @@ import { err, ok, type Result } from 'neverthrow';
 
 import {
   invalidInput,
+  isWithheldOrganizationIdentifier,
   normalizeCui,
   type ApiError,
   type CollectionFilterSpec,
@@ -194,6 +195,11 @@ export const parseAnalysisScope = (raw: RawAnalysisScope): Result<AnalysisScope,
     if (value.value !== undefined) {
       const norm = normalizeCui(value.value);
       if (norm === null) return err(invalidInput(`${field} is not a valid CUI`, field));
+      // A withheld (CNP-shaped) identifier is never a key a caller may use:
+      // selecting by it would publish the person's procurement record set.
+      if (isWithheldOrganizationIdentifier(norm)) {
+        return err(invalidInput('organization identifier is not publicly served', field));
+      }
       out[field] = norm;
     }
   }

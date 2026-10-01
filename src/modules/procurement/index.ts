@@ -26,6 +26,7 @@ import {
 } from './shell/repo/opensearch-list-repo.js';
 import { makeProcurementPresenceRepo } from './shell/repo/presence-repo.js';
 import { makeProcurementRepo } from './shell/repo/procurement-repo.js';
+import { makeSupplierGeographyPolicy } from './shell/repo/supplier-geography-policy.js';
 
 import type { AnalysisRepo, ProcurementRepo } from './core/ports.js';
 import type {
@@ -109,12 +110,14 @@ export const makeProcurementModule = (deps: ProcurementModuleDeps): ProcurementM
   // quality, matrix_hash) stays authoritative in Postgres and is delegated to.
   // With no ClickHouse configured, analysis reads fail closed with a clear error.
   const generationRepo = makeProcurementGenerationRepo(deps.db, Date.now, deps.logger);
+  const supplierGeography = makeSupplierGeographyPolicy(deps.db, Date.now, deps.logger);
   const analysis =
     deps.clickhouse !== undefined
       ? makeClickhouseAnalysisRepo(
           deps.clickhouse,
           () => generationRepo.activeGeneration(),
-          deps.logger
+          deps.logger,
+          () => supplierGeography.supplierGeographyPublic()
         )
       : makeUnconfiguredAnalysisRepo();
   const clientBaseUrl = deps.clientBaseUrl ?? 'https://transparenta.eu';

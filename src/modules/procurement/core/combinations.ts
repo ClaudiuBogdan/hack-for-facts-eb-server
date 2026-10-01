@@ -235,6 +235,28 @@ export const routeAnalysis = (
     );
   }
 
+  // Supplier places are public only while the registry's classification
+  // holds (see GenerationCapabilities.supplierGeography): withheld, never
+  // answered without the guard that keeps restricted identities out.
+  const supplierPlaceField = (['supplierRegion', 'supplierCounty', 'supplierSiruta'] as const).find(
+    (field) => scope[field] !== undefined
+  );
+  const supplierPlaceDimension =
+    dimension === 'supplierRegion' ||
+    dimension === 'supplierCounty' ||
+    dimension === 'supplierSiruta';
+  if (
+    !capabilities.supplierGeography &&
+    (supplierPlaceField !== undefined || supplierPlaceDimension)
+  ) {
+    return err(
+      invalidInput(
+        'supplier geography is withheld: the organization registry does not currently classify every servable supplier identifier as public',
+        supplierPlaceField ?? 'dimension'
+      )
+    );
+  }
+
   if (shape === 'concentration' && scope.supplierCui !== undefined) {
     return err(
       invalidInput(
