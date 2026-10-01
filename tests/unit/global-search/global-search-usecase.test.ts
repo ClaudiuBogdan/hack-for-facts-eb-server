@@ -135,6 +135,22 @@ describe('makeGlobalSearch — short-circuit guards', () => {
     expect(spies.meiliSearch).toHaveBeenCalledTimes(1);
   });
 
+  it('accepts neutral organization types and roles without widening the filter', async () => {
+    const { deps, spies } = makeDeps({});
+    await makeGlobalSearch(deps, {
+      q: '10860991',
+      docTypes: ['organization_unclassified'],
+      roles: ['organization_unclassified'],
+    });
+    expect(spies.meiliSearch).toHaveBeenCalledTimes(1);
+    expect(spies.meiliSearch.mock.calls[0]?.[2]).toMatchObject({
+      filter: expect.arrayContaining([
+        'doc_type IN ["organization_unclassified"]',
+        'roles IN ["organization_unclassified"]',
+      ]),
+    });
+  });
+
   it('rejects a malformed requested county instead of widening nationwide', async () => {
     const { deps, spies } = makeDeps({});
     const res = await makeGlobalSearch(deps, { q: 'acme', county: 'Cluj"] OR true' });

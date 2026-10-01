@@ -188,3 +188,17 @@ status remains separate from generic activity. Broader site search keeps its oth
 populations. Chronos dev uses an isolated full palette; production index and readers
 are unchanged. Deploy database wrappers/grants and build that index before deploying
 the server and configuring only the dev Deployment to read it.
+
+## R5 search and current client links (2026-10-01)
+
+The palette exposes `ngo` only for admitted registry membership
+(`source::rnong`). Legacy NGO-kind identities outside that population remain
+searchable as `organization_unclassified`, with their CUI/county and no profile
+link. Higher-priority public types and other roles remain. IDs stay unchanged.
+Registry-only search URLs are null; clients route using the registry number.
+
+MCP links now use `/ngos/{cui}` or `/ngos/registry/{number}`. Registry numbers
+escape tilde as `~~`, hyphen as `~-`, and slash as `-`, then URI-encode the
+segment. Missing/ambiguous profiles link to `/ngos/registry`. Historical
+observations link by registry number, never by export-bound row ID or old CUI.
+This supersedes the historical client-link notes above.

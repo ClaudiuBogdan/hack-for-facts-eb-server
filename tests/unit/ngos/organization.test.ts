@@ -549,10 +549,10 @@ describe('NGO organization GraphQL and MCP', () => {
 
     const mcpRepo = fakeRepo();
     const mcp = await tool(mcpRepo.repo).handler({ cui: CUI, financialYears: [2025] });
-    // The client CUI page still renders the legacy overview, so the link opens the observation.
+    // The CUI profile is the current client route.
     expect(mcp).toMatchObject({
       ok: true,
-      link: `https://transparenta.eu/ong-uri/registru/${encodeURIComponent(RECORD_ID)}`,
+      link: `https://transparenta.eu/ngos/${CUI}`,
     });
     expect(mcp.item).toEqual({
       ...profile,
@@ -621,6 +621,25 @@ describe('NGO organization GraphQL and MCP', () => {
     }
   });
 
+  it.each([
+    ['resolved', null, 'a~-b/122', 'https://transparenta.eu/ngos/registry/a~~~-b-122'],
+    ['resolved', CUI, '1/A/2001', `https://transparenta.eu/ngos/${CUI}`],
+    ['ambiguous', null, '1/A/2001', 'https://transparenta.eu/ngos/registry'],
+  ] as const)(
+    'links registry profiles by current identity',
+    async (status, cui, registryNumber, link) => {
+      const { repo } = fakeRepo();
+      repo.registryProfile = () =>
+        Promise.resolve(
+          ok({ status, profiles: [{ ...profile, cui, registryNumber, nameWithheld: false }] })
+        );
+      const registryTool = makeNgoOrganizationMcpTools(repo, 'https://transparenta.eu').find(
+        (t) => t.name === 'get_ngo_registry_profile'
+      );
+      expect(await registryTool?.handler({ registryNumber })).toMatchObject({ ok: true, link });
+    }
+  );
+
   it('distinguishes no eligible profile from read failures', async () => {
     const missing = fakeRepo(null);
     const gql = await graphql({ schema: schemaFor(missing.repo), source: query });
@@ -629,7 +648,7 @@ describe('NGO organization GraphQL and MCP', () => {
     expect(await tool(missing.repo).handler({ cui: CUI })).toMatchObject({
       ok: true,
       item: null,
-      link: 'https://transparenta.eu/ong-uri/registru',
+      link: 'https://transparenta.eu/ngos/registry',
     });
 
     const failing: NgoOrganizationRepository = {

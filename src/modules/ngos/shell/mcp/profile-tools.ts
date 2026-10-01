@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { GRAPHQL_ERROR_CODE, type KernelMcpTool } from '@/modules/shared/index.js';
 
+import { ngoProfileLink } from './profile-links.js';
 import { getNgoProfileOverview } from '../../core/usecases.js';
 
 import type { NgoProfileRepository } from '../../core/ports.js';
@@ -30,7 +31,7 @@ export const makeNgoProfileMcpTools = (
             ok: true,
             kind: 'ngo_profile_overview',
             item: result.value,
-            link: `${clientBaseUrl}/ong-uri/${encodeURIComponent(cui)}`,
+            link: ngoProfileLink(clientBaseUrl, result.value === null ? null : cui),
           };
     },
   },

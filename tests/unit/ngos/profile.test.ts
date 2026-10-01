@@ -80,7 +80,7 @@ describe('live NGO profile contract', () => {
     });
     expect(gql).toEqual(profile);
     expect(mcp?.item).toEqual(gql);
-    expect(mcp?.link).toBe('https://transparenta.eu/ong-uri/4305857');
+    expect(mcp?.link).toBe('https://transparenta.eu/ngos/4305857');
   });
   it('rejects malformed and personal-length identifiers before repository access', async () => {
     let calls = 0;

@@ -10,6 +10,7 @@ import {
   type McpToolOutput,
 } from '@/modules/shared/index.js';
 
+import { ngoProfileLink } from './profile-links.js';
 import { ngoRegistryFilterSpec } from '../../core/filters.js';
 import {
   getNgoRegistryCoverage,
@@ -44,7 +45,7 @@ export const makeNgoRegistryMcpTools = (
             ok: true,
             kind: 'ngo_registry_coverage',
             item: result.value,
-            link: `${clientBaseUrl}/ong-uri/registru`,
+            link: ngoProfileLink(clientBaseUrl, null),
           };
     },
   },
@@ -75,7 +76,7 @@ export const makeNgoRegistryMcpTools = (
             kind: 'ngo_registry_records',
             items: result.value.items,
             meta: { snapshot: result.value.snapshot, next: result.value.next },
-            link: `${clientBaseUrl}/ong-uri/registru`,
+            link: ngoProfileLink(clientBaseUrl, null),
           };
     },
   },
@@ -93,7 +94,11 @@ export const makeNgoRegistryMcpTools = (
             ok: true,
             kind: 'ngo_registry_record',
             item: result.value,
-            link: `${clientBaseUrl}/ong-uri/registru/${encodeURIComponent(id)}`,
+            link: ngoProfileLink(
+              clientBaseUrl,
+              result.value?.snapshot.isCurrent === true ? result.value.organizationCui : null,
+              result.value?.registryNumber
+            ),
           };
     },
   },

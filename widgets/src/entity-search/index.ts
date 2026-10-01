@@ -26,6 +26,7 @@ const DOC_TYPE_LABELS: Record<string, string> = {
   public_institution: 'Instituție publică',
   public_enterprise: 'Întrepr. publică',
   ngo: 'ONG',
+  organization_unclassified: 'Organizație',
   pnrr_entity: 'PNRR',
   mp: 'Parlamentar',
   bill: 'Proiect de lege',
@@ -36,7 +37,13 @@ const DOC_TYPE_LABELS: Record<string, string> = {
 };
 
 /** Doc types whose identity spine is the CUI (mirrors the client row logic). */
-const CUI_DOC_TYPES = new Set(['company', 'organization', 'public_enterprise', 'ngo']);
+const CUI_DOC_TYPES = new Set([
+  'company',
+  'organization',
+  'public_enterprise',
+  'ngo',
+  'organization_unclassified',
+]);
 
 const docTypeLabel = (docType: string | undefined): string => {
   if (docType === undefined || docType === '') return 'Entitate';

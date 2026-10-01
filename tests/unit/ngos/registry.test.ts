@@ -99,6 +99,27 @@ describe('NGO public registry contract', () => {
     for (const field of ['purpose', 'attrs', 'address', 'source', 'objectKey', 'privacy_class'])
       expect(mcp?.item).not.toHaveProperty(field);
   });
+  it.each([
+    [record, 'https://transparenta.eu/ngos/registry/1-A-2001'],
+    [{ ...record, organizationCui: '30339344' }, 'https://transparenta.eu/ngos/30339344'],
+    [{ ...record, registryNumber: 'a~-b/122' }, 'https://transparenta.eu/ngos/registry/a~~~-b-122'],
+    [
+      {
+        ...record,
+        organizationCui: '30339344',
+        snapshot: { ...record.snapshot, isCurrent: false },
+      },
+      'https://transparenta.eu/ngos/registry/1-A-2001',
+    ],
+    [null, 'https://transparenta.eu/ngos/registry'],
+  ])('links observations to current profiles without export row IDs', async (item, link) => {
+    const { repo } = fakeRepo();
+    repo.detail = () => Promise.resolve(ok(item));
+    const tool = makeNgoRegistryMcpTools(repo, 'https://transparenta.eu').find(
+      (t) => t.name === 'get_ngo_registry_record'
+    );
+    expect(await tool?.handler({ id: record.id })).toMatchObject({ item, link });
+  });
   it('binds cursors to both filters and the current snapshot', () => {
     const fhash = registryFilterHash('snapshot-one', { county: { eq: 'Cluj' } });
     const cursor = buildNextCursor({ sort: 'sourceRowNumber', dir: 'asc', fhash, lastKeys: [100] });

@@ -380,6 +380,7 @@ export const SEARCH_ENTITY_DOC_TYPES = [
   'company',
   'public_enterprise',
   'ngo',
+  'organization_unclassified',
   'pnrr_entity',
   'member',
   'bill',
