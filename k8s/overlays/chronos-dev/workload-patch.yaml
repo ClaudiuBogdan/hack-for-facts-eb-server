@@ -53,6 +53,17 @@ spec:
                 secretKeyRef:
                   name: chronos-prod-clickhouse-reader-credentials
                   key: password
+            # Companies analytics reader (companies_reader): separate from procurement's user.
+            - name: COMPANIES_ANALYTICS_CLICKHOUSE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: chronos-companies-clickhouse-reader-credentials
+                  key: username
+            - name: COMPANIES_ANALYTICS_CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: chronos-companies-clickhouse-reader-credentials
+                  key: password
             # Extend Node's trust store; certificate and hostname verification remain enabled.
             - name: NODE_EXTRA_CA_CERTS
               value: /var/run/secrets/chronos-clickhouse/ca.crt

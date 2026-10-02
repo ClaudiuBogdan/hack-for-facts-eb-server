@@ -120,6 +120,44 @@ const stringRecord = (value, label) => {
   );
 };
 
+const PROJECT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
+const RECORD_KEY_PATTERN = /^(?:\/[A-Za-z0-9._-]+)+$/u;
+
+/** Optional per-entry BWS project override: a project UUID, normalized to lower case. */
+const optionalProjectId = (value, label) => {
+  if (value === undefined) return undefined;
+  const normalized = string(value, label).toLowerCase();
+  if (!PROJECT_ID_PATTERN.test(normalized)) {
+    throw new Error(`${label} must be a Bitwarden project UUID`);
+  }
+  return normalized;
+};
+
+/** Optional per-entry BWS key override: an exact absolute key path, kept verbatim. */
+const optionalRecordKey = (value, label) => {
+  if (value === undefined) return undefined;
+  const key = string(value, label);
+  if (
+    !RECORD_KEY_PATTERN.test(key) ||
+    key.split('/').some((segment) => segment === '.' || segment === '..')
+  ) {
+    throw new Error(`${label} must be an absolute Bitwarden key path`);
+  }
+  return key;
+};
+
+/**
+ * Where a definition's BWS record must live. The registry-wide project and
+ * `<basePrefix>/<name>` key are the defaults; an entry may name its own
+ * project and/or exact key (a record owned elsewhere). This only steers the
+ * BWS lookup — the Kubernetes target and the strict sealing scope never
+ * change.
+ */
+export const bitwardenLocation = (registry, secret) => ({
+  recordKey: secret.bitwardenRecordKey ?? `${registry.bitwarden.basePrefix}/${secret.name}`,
+  projectId: secret.bitwardenProjectId ?? registry.bitwarden.projectId,
+});
+
 export const normalizeRegistry = (input) => {
   const document = object(input, 'registry');
   if (document.version !== 1) throw new Error('registry.version must be 1');
@@ -140,9 +178,19 @@ export const normalizeRegistry = (input) => {
     if (!['stringData', 'dockerconfigjson'].includes(render)) {
       throw new Error(`secrets[${index}].render is unsupported`);
     }
+    const bitwardenProjectId = optionalProjectId(
+      current.bitwardenProjectId,
+      `secrets[${index}].bitwardenProjectId`
+    );
+    const bitwardenRecordKey = optionalRecordKey(
+      current.bitwardenRecordKey,
+      `secrets[${index}].bitwardenRecordKey`
+    );
     return {
       name: string(current.name, `secrets[${index}].name`),
       bitwardenSecretId: string(current.bitwardenSecretId, `secrets[${index}].bitwardenSecretId`),
+      ...(bitwardenProjectId !== undefined && { bitwardenProjectId }),
+      ...(bitwardenRecordKey !== undefined && { bitwardenRecordKey }),
       type: string(current.type, `secrets[${index}].type`),
       render,
       requiredFields: stringArray(current.requiredFields, `secrets[${index}].requiredFields`),
@@ -355,7 +403,8 @@ export const selectSecrets = (registry, selectedNames) => {
 
 export const resolveSecrets = (registry, records, requested) =>
   requested.map((secret) => {
-    const recordKey = `${registry.bitwarden.basePrefix}/${secret.name}`;
+    // Identity, effective key and effective project all match before any value is parsed.
+    const { recordKey, projectId } = bitwardenLocation(registry, secret);
     const matches = records.filter(
       (record) => record?.id === secret.bitwardenSecretId && record?.key === recordKey
     );
@@ -363,7 +412,7 @@ export const resolveSecrets = (registry, records, requested) =>
       throw new Error(`${recordKey} must resolve to exactly one BWS record`);
     }
     const record = matches[0];
-    if (record.projectId !== registry.bitwarden.projectId) {
+    if (record.projectId !== projectId) {
       throw new Error(`${recordKey} is not in the approved BWS project`);
     }
     return {

@@ -70,6 +70,11 @@ const RedesignEnvSchema = Type.Object({
   PROCUREMENT_SEARCH_OPENSEARCH_USERNAME: Type.Optional(Type.String()),
   PROCUREMENT_SEARCH_OPENSEARCH_PASSWORD: Type.Optional(Type.String()),
   PROCUREMENT_SEARCH_OPENSEARCH_TLS_SERVERNAME: Type.Optional(Type.String()),
+  // ── companies analytics (own reader; never procurement's connection) ────
+  COMPANIES_ANALYTICS_CLICKHOUSE_URL: Type.Optional(Type.String()),
+  COMPANIES_ANALYTICS_CLICKHOUSE_DATABASE: Type.Optional(Type.String()),
+  COMPANIES_ANALYTICS_CLICKHOUSE_USER: Type.Optional(Type.String()),
+  COMPANIES_ANALYTICS_CLICKHOUSE_PASSWORD: Type.Optional(Type.String()),
   // ── legal search engine (review X/F13) ──────────────────────────────────
   LEGAL_SEARCH_OPENSEARCH_URL: Type.Optional(Type.String()),
   LEGAL_SEARCH_OPENSEARCH_ACTS_INDEX: Type.Optional(Type.String()),
@@ -104,6 +109,23 @@ export interface ProcurementComposition {
   readonly search?: ModuleSearchConnection & { readonly indexes: Readonly<Record<string, string>> };
 }
 
+/** The only ClickHouse database the companies analytics reader may name. */
+export const COMPANIES_ANALYTICS_DATABASE = 'companies_analytics';
+
+/**
+ * Companies analytics composition: the dedicated `companies_reader` connection.
+ * Present only when the whole tuple is configured; absent means the analytics
+ * surface answers a controlled "not configured" error.
+ */
+export interface CompaniesAnalyticsComposition {
+  readonly clickhouse: {
+    readonly url: string;
+    readonly database: typeof COMPANIES_ANALYTICS_DATABASE;
+    readonly user: string;
+    readonly password: string;
+  };
+}
+
 /** Legal search composition: present only when an acts or sections alias is named. */
 export interface LegalSearchComposition extends ModuleSearchConnection {
   readonly actsIndex?: string;
@@ -119,6 +141,8 @@ export interface RedesignConfig {
   readonly procurement: ProcurementComposition;
   readonly ngoRegistryEnabled?: boolean;
   readonly legalSearch?: LegalSearchComposition;
+  /** Standalone (Chronos) server only; the embedded loader never reads these keys. */
+  readonly companiesAnalytics?: CompaniesAnalyticsComposition;
   /** Extra browser origins allowed cross-origin in prod (from PROD_ALLOWED_ORIGINS). */
   readonly corsAllowedOrigins: readonly string[];
   readonly auth?: {
@@ -165,7 +189,8 @@ const parseIntOr = (raw: string | undefined, fallback: number): number => {
 
 /**
  * Keys that only the standalone server (`redesign-api.ts`) consumes: its own
- * Clerk auth, its user-data DB, listener and proxy settings. The embedded
+ * Clerk auth, its user-data DB, listener and proxy settings, and the
+ * Chronos-only companies analytics reader. The embedded
  * loader below never validates them, so e.g. an empty `CLERK_SECRET_KEY` that
  * the platform's `env.ts` accepts cannot fail the platform boot.
  */
@@ -183,6 +208,10 @@ const STANDALONE_ONLY_KEYS = [
   'CLERK_JWT_KEY',
   'CLERK_ISSUER',
   'CLERK_AUTHORIZED_PARTIES',
+  'COMPANIES_ANALYTICS_CLICKHOUSE_URL',
+  'COMPANIES_ANALYTICS_CLICKHOUSE_DATABASE',
+  'COMPANIES_ANALYTICS_CLICKHOUSE_USER',
+  'COMPANIES_ANALYTICS_CLICKHOUSE_PASSWORD',
 ] as const;
 export const EmbeddedKernelEnvSchema = Type.Omit(RedesignEnvSchema, [...STANDALONE_ONLY_KEYS]);
 type EmbeddedKernelEnv = Static<typeof EmbeddedKernelEnvSchema>;
@@ -366,6 +395,54 @@ const composeEmbeddedKernel = (e: EmbeddedKernelEnv): EmbeddedKernelConfig => {
 export const loadEmbeddedKernelConfig = (env: NodeJS.ProcessEnv): EmbeddedKernelConfig =>
   composeEmbeddedKernel(parseEnvAgainst(EmbeddedKernelEnvSchema, env));
 
+/**
+ * The companies analytics reader: all four keys or none. A partial tuple is a
+ * deployment error and fails the boot; the messages name keys, never values.
+ * The URL must be a bare http(s) origin (credentials travel only in headers),
+ * and the database is explicit and pinned to `companies_analytics`.
+ */
+const composeCompaniesAnalytics = (e: RedesignEnv): CompaniesAnalyticsComposition | undefined => {
+  const url = nonEmpty(e.COMPANIES_ANALYTICS_CLICKHOUSE_URL);
+  const database = nonEmpty(e.COMPANIES_ANALYTICS_CLICKHOUSE_DATABASE);
+  const user = nonEmpty(e.COMPANIES_ANALYTICS_CLICKHOUSE_USER);
+  const password = nonEmpty(e.COMPANIES_ANALYTICS_CLICKHOUSE_PASSWORD);
+  if (url === undefined) {
+    if (database !== undefined || user !== undefined || password !== undefined)
+      throw new Error(
+        'Companies analytics ClickHouse settings require COMPANIES_ANALYTICS_CLICKHOUSE_URL'
+      );
+    return undefined;
+  }
+  if (database === undefined || user === undefined || password === undefined)
+    throw new Error(
+      'COMPANIES_ANALYTICS_CLICKHOUSE_URL requires COMPANIES_ANALYTICS_CLICKHOUSE_DATABASE, _USER and _PASSWORD'
+    );
+  if (database !== COMPANIES_ANALYTICS_DATABASE)
+    throw new Error(
+      `COMPANIES_ANALYTICS_CLICKHOUSE_DATABASE must be ${COMPANIES_ANALYTICS_DATABASE}`
+    );
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error('COMPANIES_ANALYTICS_CLICKHOUSE_URL must be an absolute http(s) URL');
+  }
+  if (
+    (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') ||
+    parsed.username !== '' ||
+    parsed.password !== '' ||
+    parsed.search !== '' ||
+    parsed.hash !== '' ||
+    parsed.pathname !== '/'
+  )
+    throw new Error(
+      'COMPANIES_ANALYTICS_CLICKHOUSE_URL must be a bare http(s) origin without credentials, path or query'
+    );
+  return {
+    clickhouse: { url: parsed.origin, database: COMPANIES_ANALYTICS_DATABASE, user, password },
+  };
+};
+
 export const loadRedesignConfig = (env: NodeJS.ProcessEnv): RedesignConfig => {
   const e = parseRedesignEnv(env);
 
@@ -428,8 +505,11 @@ export const loadRedesignConfig = (env: NodeJS.ProcessEnv): RedesignConfig => {
     };
   }
 
+  const companiesAnalytics = composeCompaniesAnalytics(e);
+
   return {
     ...composeEmbeddedKernel(e),
+    ...(companiesAnalytics !== undefined && { companiesAnalytics }),
     ...(auth !== undefined && { auth }),
     ...(userData !== undefined && { userData }),
     trustProxy: parseTrustProxy(e.TRUST_PROXY) ?? true,

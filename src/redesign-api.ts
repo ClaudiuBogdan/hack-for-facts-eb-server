@@ -36,6 +36,9 @@ const main = async (): Promise<void> => {
     procurement: config.procurement,
     ngoRegistryEnabled: config.ngoRegistryEnabled ?? false,
     ...(config.legalSearch !== undefined && { legalSearch: config.legalSearch }),
+    ...(config.companiesAnalytics !== undefined && {
+      companiesAnalytics: config.companiesAnalytics,
+    }),
     ...(config.kernel.clientBaseUrl !== undefined && {
       clientBaseUrl: config.kernel.clientBaseUrl,
     }),

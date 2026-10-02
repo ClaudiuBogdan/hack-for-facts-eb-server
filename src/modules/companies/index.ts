@@ -12,24 +12,44 @@
 import './shell/db/schema.js';
 
 import { makeCompanyHubStats } from './core/usecases.js';
+import { makeClickhouseAnalyticsEngine } from './shell/analytics/clickhouse-engine.js';
+import {
+  makeClickhouseReader,
+  type CompaniesClickhouseConfig,
+} from './shell/analytics/clickhouse-reader.js';
+import {
+  makeAnalyticsLabelSource,
+  makeAnalyticsReleaseSource,
+} from './shell/analytics/postgres-sources.js';
 import { makeCompaniesContributor } from './shell/contributor.js';
+import { makeCompanyAnalysisResolvers } from './shell/graphql/analytics-resolvers.js';
+import { companyAnalysisTypeDefs } from './shell/graphql/analytics-typedefs.js';
 import { makeCompaniesResolvers } from './shell/graphql/resolvers.js';
 import { companiesTypeDefs } from './shell/graphql/typedefs.js';
 import { makeHubStatsProvider } from './shell/hub-stats-cache.js';
+import { makeCompanyAnalysisMcpTools } from './shell/mcp/analytics-tools.js';
 import { makeCompaniesMcpTools } from './shell/mcp/tools.js';
 import { makeCompaniesRepo } from './shell/repo/companies-repo.js';
 
+import type { CompanyAnalysisContext } from './core/analytics-usecases.js';
 import type { CompaniesRepository } from './core/ports.js';
 import type {
   ContributorRegistry,
   FlowsRepo,
   GraphqlSlice,
   KernelMcpTool,
+  Logger,
   MeiliClient,
   ProdDatabase,
   SourceContributor,
 } from '@/modules/shared/index.js';
 import type { Kysely } from 'kysely';
+
+/** The companies analytics reader (dedicated `companies_reader` ClickHouse user). */
+export interface CompaniesAnalyticsDeps {
+  readonly clickhouse: CompaniesClickhouseConfig;
+  readonly logger?: Logger;
+}
 
 export interface CompaniesModuleDeps {
   readonly db: Kysely<ProdDatabase>;
@@ -42,6 +62,11 @@ export interface CompaniesModuleDeps {
   readonly clientBaseUrl?: string;
   /** `companyHubStats` cache TTL. Defaults to 6h (`HUB_STATS_DEFAULT_TTL_MS`). */
   readonly hubStatsTtlMs?: number;
+  /**
+   * Absent → the analytics roots/tools stay registered and answer a typed
+   * SERVICE_UNAVAILABLE ("not configured"), never an empty success.
+   */
+  readonly analytics?: CompaniesAnalyticsDeps;
 }
 
 export interface CompaniesModule {
@@ -50,6 +75,8 @@ export interface CompaniesModule {
   readonly graphqlResolvers: Record<string, unknown>;
   readonly mcpTools: readonly KernelMcpTool[];
   readonly contributor: SourceContributor;
+  /** Abort in-flight analytics reads (owning app shutdown). */
+  close(): void;
 }
 
 export const makeCompaniesModule = (deps: CompaniesModuleDeps): CompaniesModule => {
@@ -70,16 +97,51 @@ export const makeCompaniesModule = (deps: CompaniesModuleDeps): CompaniesModule 
     deps.hubStatsTtlMs !== undefined ? { ttlMs: deps.hubStatsTtlMs } : {}
   );
 
+  // Analytics: PostgreSQL release custody + labels, ClickHouse keys/numbers.
+  const analyticsDeps = deps.analytics;
+  const reader =
+    analyticsDeps === undefined
+      ? null
+      : makeClickhouseReader(analyticsDeps.clickhouse, analyticsDeps.logger);
+  const analytics: CompanyAnalysisContext =
+    analyticsDeps === undefined || reader === null
+      ? null
+      : {
+          releases: makeAnalyticsReleaseSource(deps.db, analyticsDeps.logger),
+          labels: makeAnalyticsLabelSource(deps.db, analyticsDeps.logger),
+          engine: makeClickhouseAnalyticsEngine(reader, analyticsDeps.clickhouse.database),
+          database: analyticsDeps.clickhouse.database,
+        };
+
+  const resolvers = makeCompaniesResolvers({ ...usecaseDeps, registry: deps.registry, hubStats });
+  const analyticsResolvers = makeCompanyAnalysisResolvers(analytics);
+
   return {
     repo,
-    graphqlSlice: { source: 'companies', typeDefs: companiesTypeDefs },
-    graphqlResolvers: makeCompaniesResolvers({ ...usecaseDeps, registry: deps.registry, hubStats }),
-    mcpTools: makeCompaniesMcpTools({ ...usecaseDeps, clientBaseUrl, hubStats }),
+    graphqlSlice: {
+      source: 'companies',
+      typeDefs: `${companiesTypeDefs}\n\n${companyAnalysisTypeDefs}`,
+    },
+    graphqlResolvers: {
+      ...resolvers,
+      Query: {
+        ...(resolvers['Query'] as Record<string, unknown>),
+        ...analyticsResolvers.Query,
+      },
+    },
+    mcpTools: [
+      ...makeCompaniesMcpTools({ ...usecaseDeps, clientBaseUrl, hubStats }),
+      ...makeCompanyAnalysisMcpTools({ analytics, clientBaseUrl }),
+    ],
     contributor,
+    close: () => {
+      reader?.close();
+    },
   };
 };
 
 export type { CompaniesRepository } from './core/ports.js';
+export type { CompaniesClickhouseConfig } from './shell/analytics/clickhouse-reader.js';
 export * from './core/types.js';
 export { companiesFilterSpec, COMPANIES_FILTER_SPECS } from './core/filters.js';
 export { makeCompaniesContributor } from './shell/contributor.js';

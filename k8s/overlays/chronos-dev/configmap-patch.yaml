@@ -21,6 +21,10 @@ data:
   PROD_OPENSEARCH_TLS_SERVERNAME: transparenta-eu-etl-opensearch.transparenta-eu-etl-prod.svc.cluster.local
   PROD_CLICKHOUSE_URL: https://transparenta-eu-etl-clickhouse.transparenta-eu-etl-prod.svc.cluster.local:8443
   PROD_CLICKHOUSE_DATABASE: proto
+  # Companies analytics: same ClickHouse service, its own database and its own
+  # read-only companies_reader user (credentials from the workload patch).
+  COMPANIES_ANALYTICS_CLICKHOUSE_URL: https://transparenta-eu-etl-clickhouse.transparenta-eu-etl-prod.svc.cluster.local:8443
+  COMPANIES_ANALYTICS_CLICKHOUSE_DATABASE: companies_analytics
   # Keys the kernel entrypoint never reads (review X/F16): the shared base
   # ConfigMap carries them for the legacy api.js; the redesign config schema
   # strips them silently, so they are removed here to keep the pod env honest.

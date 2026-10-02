@@ -17,8 +17,9 @@ entrypoint reads native budget and INS from Chronos through read-only production
 and search identities. Optional development Clerk authentication and the verified
 user-deletion receiver use a separate restricted writable dev user database; see
 [user-database/README.md](user-database/README.md). It never initializes schema or
-mounts legacy email, notification, BullMQ, campaign or user-data writers. ClickHouse is explicitly disabled for the initial
-canary.
+mounts legacy email, notification, BullMQ, campaign or user-data writers. ClickHouse is
+read through two separate read-only users: procurement analytics (`PROD_CLICKHOUSE_*`) and
+companies analytics (`COMPANIES_ANALYTICS_CLICKHOUSE_*`, database `companies_analytics`).
 
 Secrets are generated independently from this repository by
 `scripts/seal-bitwarden-secrets.mjs` and the non-secret
@@ -47,5 +48,8 @@ Expected kinds are one ConfigMap, Deployment, PodDisruptionBudget, Service,
 and ServiceAccount. A render containing `VirtualService`, CNPG `Cluster`,
 Redis, BullMQ, PVC, `HTTPRoute`, or a Secret is a failure.
 
-The separate `secrets/` render must contain exactly six SealedSecrets and no
-raw Secret.
+The separate `secrets/` render must contain exactly one SealedSecret per
+`secrets.registry.json` entry (eight today) and no raw Secret. An entry whose BWS
+record is owned elsewhere names it with `bitwardenProjectId` and `bitwardenRecordKey`
+(the companies reader uses the ETL-owned record); that changes only the BWS lookup,
+never the Secret's target or strict sealing scope.

@@ -68,6 +68,7 @@ import {
 } from '../modules/shared/index.js';
 
 import type {
+  CompaniesAnalyticsComposition,
   LegalSearchComposition,
   ProcurementComposition,
 } from '../infra/config/redesign-env.js';
@@ -136,6 +137,12 @@ export interface BuildRedesignAppDeps {
   readonly procurement?: ProcurementComposition;
   /** Legal search engine connection, validated by the entrypoint. */
   readonly legalSearch?: LegalSearchComposition;
+  /**
+   * The companies analytics reader (dedicated ClickHouse user and database),
+   * validated by the standalone entrypoint. Absent → the analytics surface
+   * answers "not configured".
+   */
+  readonly companiesAnalytics?: CompaniesAnalyticsComposition;
   /** Fastify `trustProxy` (default true: the process sits behind the gateway). */
   readonly trustProxy?: TrustProxySetting;
   /** When set, mounts the authenticated agent surface at /api/v1/agent. */
@@ -628,6 +635,14 @@ export const registerRedesignSurface = async (
       // first configured index, `entities` by default.
       meiliEntitiesIndex: deps.kernelConfig.meiliIndexes?.[0] ?? 'entities',
       ...(deps.clientBaseUrl !== undefined && { clientBaseUrl: deps.clientBaseUrl }),
+      ...(deps.companiesAnalytics !== undefined && {
+        analytics: { clickhouse: deps.companiesAnalytics.clickhouse, logger: app.log },
+      }),
+    });
+    // In-flight analytics reads are aborted when the owning scope closes.
+    app.addHook('onClose', (_instance, done) => {
+      companies.close();
+      done();
     });
     kernel.contributors.register(companies.contributor);
     moduleSlices.push(companies.graphqlSlice);

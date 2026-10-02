@@ -1,13 +1,16 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import {
   assertSafeSealedYaml,
   assertSealedDocument,
+  bitwardenLocation,
   buildSecretDocument,
   createRedactor,
   normalizeRegistry,
   fetchBitwardenSecrets,
+  parseJson,
   selectSecrets,
   resolveSecrets,
   parseSecretFields,
@@ -170,6 +173,189 @@ test('wrong identity and sensitive Bitwarden failures fail closed', async () => 
       ),
     /approved BWS project/
   );
+});
+
+// ── per-entry BWS location overrides ─────────────────────────────────────────
+
+const GLOBAL_PROJECT = 'a0653772-00bb-4826-a75b-b4af014a8fee';
+const EXTERNAL_PROJECT = '37ddf263-de34-4e7e-aec5-b412015d98cc';
+const EXTERNAL_KEY =
+  '/secrets/transparenta-eu-etl/prod/transparenta-eu-etl-prod/transparenta-eu-etl-infra/transparenta-companies-clickhouse-reader';
+const READER_ID = '888f24cd-c8df-4fc4-88aa-b4d700e02103';
+
+const registryWith = (entries) =>
+  normalizeRegistry({
+    version: 1,
+    target: {
+      namespace: 'transparenta-eu-dev',
+      expectedContext: 'chronos',
+      expectedServer: 'https://chronos:6443',
+      requiredReadyNode: 'chronos',
+      forbiddenNodes: ['phoenix', 'griffin'],
+    },
+    bitwarden: { projectId: GLOBAL_PROJECT, basePrefix: '/secrets/chronos/dev/app/' },
+    sealedSecrets: {
+      controllerName: 'sealed-secrets-controller',
+      controllerNamespace: 'kube-system',
+      scope: 'strict',
+      syncWave: '-8',
+    },
+    output: { directory: 'secrets', kustomization: 'secrets/kustomization.yaml' },
+    secrets: entries,
+  });
+
+const readerEntry = (over = {}) => ({
+  name: 'chronos-companies-clickhouse-reader-credentials',
+  type: 'kubernetes.io/basic-auth',
+  render: 'stringData',
+  requiredFields: ['username', 'password'],
+  bitwardenSecretId: READER_ID,
+  bitwardenProjectId: EXTERNAL_PROJECT,
+  bitwardenRecordKey: EXTERNAL_KEY,
+  ...over,
+});
+
+const readerValue = JSON.stringify({ username: 'companies_reader', password: 'not-real' });
+
+test('entries without overrides keep the registry-wide project and <prefix>/<name> key', () => {
+  const registry = registryWith([{ ...definition, bitwardenSecretId: 'record-id' }]);
+  const [secret] = registry.secrets;
+  assert.equal(Object.hasOwn(secret, 'bitwardenProjectId'), false);
+  assert.equal(Object.hasOwn(secret, 'bitwardenRecordKey'), false);
+  assert.deepEqual(bitwardenLocation(registry, secret), {
+    recordKey: '/secrets/chronos/dev/app/app-runtime',
+    projectId: GLOBAL_PROJECT,
+  });
+  const [resolved] = resolveSecrets(
+    registry,
+    [
+      {
+        id: 'record-id',
+        key: '/secrets/chronos/dev/app/app-runtime',
+        projectId: GLOBAL_PROJECT,
+        value: JSON.stringify({ URL: 'u', MULTILINE: 'm', LEADING_DASH: 'l' }),
+      },
+    ],
+    registry.secrets
+  );
+  assert.equal(resolved.recordKey, '/secrets/chronos/dev/app/app-runtime');
+});
+
+test('an override resolves only the exact external record', () => {
+  const registry = registryWith([
+    readerEntry({ bitwardenProjectId: EXTERNAL_PROJECT.toUpperCase() }),
+  ]);
+  const [secret] = registry.secrets;
+  assert.equal(secret.bitwardenProjectId, EXTERNAL_PROJECT);
+  const [resolved] = resolveSecrets(
+    registry,
+    [{ id: READER_ID, key: EXTERNAL_KEY, projectId: EXTERNAL_PROJECT, value: readerValue }],
+    registry.secrets
+  );
+  assert.equal(resolved.recordKey, EXTERNAL_KEY);
+  assert.deepEqual(Object.keys(resolved.fields).sort(), ['password', 'username']);
+});
+
+test('a wrong id, key or project fails before any value is parsed', () => {
+  const registry = registryWith([readerEntry()]);
+  // Unparsable values prove the location checks run first.
+  const record = {
+    id: READER_ID,
+    key: EXTERNAL_KEY,
+    projectId: EXTERNAL_PROJECT,
+    value: '{not json',
+  };
+  const cases = [
+    [{ ...record, id: 'other-id' }, /must resolve to exactly one BWS record/u],
+    [
+      { ...record, key: `/secrets/chronos/dev/app/${readerEntry().name}` },
+      /must resolve to exactly one BWS record/u,
+    ],
+    [{ ...record, projectId: GLOBAL_PROJECT }, /not in the approved BWS project/u],
+  ];
+  for (const [candidate, expected] of cases) {
+    assert.throws(() => resolveSecrets(registry, [candidate], registry.secrets), expected);
+  }
+  // Two records claiming the same identity and key are ambiguous: refused.
+  assert.throws(
+    () =>
+      resolveSecrets(
+        registry,
+        [
+          { ...record, value: readerValue },
+          { ...record, value: readerValue },
+        ],
+        registry.secrets
+      ),
+    /exactly one BWS record/u
+  );
+});
+
+test('malformed overrides are refused when the registry is loaded', () => {
+  const malformed = [
+    { bitwardenProjectId: '' },
+    { bitwardenProjectId: 'project' },
+    { bitwardenProjectId: 37 },
+    { bitwardenProjectId: null },
+    { bitwardenRecordKey: '' },
+    { bitwardenRecordKey: 'secrets/relative' },
+    { bitwardenRecordKey: '/secrets/../other' },
+    { bitwardenRecordKey: '/secrets//double' },
+    { bitwardenRecordKey: '/secrets/trailing/' },
+    { bitwardenRecordKey: '/secrets/with space' },
+    { bitwardenRecordKey: ['/secrets/a'] },
+  ];
+  for (const over of malformed) {
+    assert.throws(() => registryWith([readerEntry(over)]), /bitwarden(ProjectId|RecordKey)/u);
+  }
+});
+
+test('overrides never reach the Kubernetes Secret or its strict scope', () => {
+  const registry = registryWith([readerEntry()]);
+  const document = buildSecretDocument(registry.secrets[0], registry.target.namespace, {
+    username: 'companies_reader',
+    password: 'not-real',
+  });
+  assert.equal(document.metadata.name, 'chronos-companies-clickhouse-reader-credentials');
+  assert.equal(document.metadata.namespace, 'transparenta-eu-dev');
+  assert.equal(document.type, 'kubernetes.io/basic-auth');
+  assert.equal(JSON.stringify(document).includes(EXTERNAL_KEY), false);
+  assert.equal(JSON.stringify(document).includes(EXTERNAL_PROJECT), false);
+  assert.equal(registry.sealedSecrets.scope, 'strict');
+});
+
+test('the committed Chronos registry names the companies reader at its external record', async () => {
+  const registry = normalizeRegistry(
+    parseJson(
+      await readFile(
+        new URL('../k8s/overlays/chronos-dev/secrets.registry.json', import.meta.url),
+        'utf8'
+      ),
+      'secret registry'
+    )
+  );
+  const reader = registry.secrets.find(
+    (entry) => entry.name === 'chronos-companies-clickhouse-reader-credentials'
+  );
+  assert.deepEqual(
+    {
+      id: reader?.bitwardenSecretId,
+      type: reader?.type,
+      requiredFields: reader?.requiredFields,
+      location: reader && bitwardenLocation(registry, reader),
+    },
+    {
+      id: READER_ID,
+      type: 'kubernetes.io/basic-auth',
+      requiredFields: ['username', 'password'],
+      location: { recordKey: EXTERNAL_KEY, projectId: EXTERNAL_PROJECT },
+    }
+  );
+  // Every other entry keeps the registry-wide defaults.
+  for (const entry of registry.secrets.filter((candidate) => candidate !== reader)) {
+    assert.equal(Object.hasOwn(entry, 'bitwardenProjectId'), false);
+    assert.equal(Object.hasOwn(entry, 'bitwardenRecordKey'), false);
+  }
 });
 
 const sealed = () => ({
