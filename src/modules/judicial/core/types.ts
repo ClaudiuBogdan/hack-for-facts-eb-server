@@ -18,17 +18,23 @@
 
 // ── enums ──────────────────────────────────────────────────────────────────────
 
-/** `justice.courts.court_level` (DB CHECK). */
-export type JudicialCourtLevel =
-  'judecatorie' | 'tribunal' | 'tribunal_militar' | 'curte_de_apel' | 'curte_militara_apel';
-
-export const JUDICIAL_COURT_LEVELS: readonly JudicialCourtLevel[] = [
+/**
+ * `justice.courts.court_level` (DB CHECK `courts_level_check`; scrapper prod
+ * migrations 20260614T120000__justice_domain + 20260629T131000__justice_iccj_court,
+ * which adds the ICCJ row at ordinal 0). The ONE server copy of this taxonomy: the
+ * SDL enum, the filter specs, the MCP inputs and discovery all derive from it.
+ * Append-only; keep it in step with the DB CHECK.
+ */
+export const JUDICIAL_COURT_LEVELS = [
   'judecatorie',
   'tribunal',
   'tribunal_militar',
   'curte_de_apel',
   'curte_militara_apel',
-];
+  'inalta_curte',
+] as const;
+
+export type JudicialCourtLevel = (typeof JUDICIAL_COURT_LEVELS)[number];
 
 /** `justice.case_parties.party_kind` (DB CHECK). */
 export type JudicialPartyKind = 'company' | 'public_entity' | 'person' | 'unknown';

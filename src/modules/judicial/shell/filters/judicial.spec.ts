@@ -106,7 +106,7 @@ export const judicialCasesSpec: CollectionFilterSpec = {
   },
 };
 
-/** The `judicial_courts` collection spec (246-row reference; cheap full scan). */
+/** The `judicial_courts` collection spec (small court reference; cheap full scan). */
 export const judicialCourtsSpec: CollectionFilterSpec = {
   collection: 'judicial_courts',
   fields: [

@@ -68,7 +68,7 @@ not live totals.
 
 | Table                     | Grain                         | Row count (cutover manifest)                                     | Notes                                                                                                                                                                  |
 | ------------------------- | ----------------------------- | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `justice.courts`          | one court                     | **246**                                                          | full hierarchy reference; 179 judecătorii / 46 tribunals / 15 curți de apel / 5 trib. militare / 1 curte mil. de apel. **ICCJ permanently absent** (different source). |
+| `justice.courts`          | one court                     | **246** + 1 ICCJ row = **247** (live, 2026-10-02)                | Portal Just reference: 179 judecătorii / 46 tribunals / 15 curți de apel / 5 trib. militare / 1 curte mil. de apel. **Plus the ICCJ row** (`inalta_curte`, ordinal 0). |
 | `justice.cases`           | one case (current projection) | **~6.16M** (6,156,549)                                           | `case_id` PK = reused raw bigint. Natural key `(source_slug, institution_code, case_number)`.                                                                          |
 | `justice.case_hearings`   | `(case_id, hearing_index)`    | **~18.06M** (18,063,526)                                         | `solution_summary` EXISTS in DB, **forbidden on all surfaces** (§2); `solution` also withheld in v1 (§2.1).                                                            |
 | `justice.case_appeals`    | `(case_id, appeal_index)`     | **~2.2M**                                                        | appeal declarations only; not target-case links.                                                                                                                       |
@@ -591,7 +591,7 @@ bound"). This is the §3 "no implicit unbounded scans" rule for a 6.16M-row tabl
 
 | Field            | Type     | Ops             | Driving column                               | Notes                                                                                   |
 | ---------------- | -------- | --------------- | -------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `level`          | enum[]   | `in`            | `courts.court_level`                         | enum: `judecatorie`,`tribunal`,`tribunal_militar`,`curte_de_apel`,`curte_militara_apel` |
+| `level`          | enum[]   | `in`            | `courts.court_level`                         | enum `JUDICIAL_COURT_LEVELS`: the five Portal Just levels, plus the ICCJ `inalta_curte` |
 | `countySiruta`   | string[] | `in`            | `courts.county_code` (→ territory hub)       |                                                                                         |
 | `specialization` | string   | `eq`/`contains` | `courts.specialization`                      |                                                                                         |
 | `q`              | string   | `contains`      | `courts.institution_code`/`locality` trigram | name autocomplete                                                                       |

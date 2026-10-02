@@ -12,7 +12,7 @@ spec:
   template:
     metadata:
       annotations:
-        image-sha: 0eb4030e3a53da62c5dd987b9108d03c4002495f
+        image-sha: 4a05cf9643b62568cdfecbb7d3f6979bfbdc7aa4
     spec:
       serviceAccountName: hack-for-facts-eb-server
       automountServiceAccountToken: false
