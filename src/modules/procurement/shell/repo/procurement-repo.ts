@@ -49,6 +49,7 @@ import {
   mapDaDetailBody,
 } from './mappers.js';
 import { makeOffsetSearchRepo } from './offset-search-repo.js';
+import { procedureIdPredicate, supportedProcedureIdSql } from './procedure-link-policy.js';
 import { DA_LIST_MAX_WINDOW_DAYS_DEFAULT } from '../../core/constants.js';
 import {
   assertNoYearDateConflict,
@@ -340,6 +341,7 @@ export const makeProcurementRepo = (
           .selectFrom('procurement.contracts as c')
           .select(contractSelect)
           .where('c.procedure_id', '=', id)
+          .where(sql<SqlBool>`${supportedProcedureIdSql('c')} is not null`)
           .where('c.is_canonical', '=', true)
           .orderBy(sql`c.contract_date desc nulls last`)
           .orderBy('c.contract_id', 'desc')
@@ -369,7 +371,7 @@ export const makeProcurementRepo = (
     'c.contract_key',
     'c.source_system',
     'c.source_url',
-    'c.procedure_id',
+    supportedProcedureIdSql('c').as('procedure_id'),
     'c.notice_no',
     'c.contract_no',
     sql<string | null>`c.contract_date::text`.as('contract_date'),
@@ -420,6 +422,9 @@ export const makeProcurementRepo = (
     );
     if (condsR.isErr()) return err(condsR.error);
     const conds = condsR.value;
+    const procedureLink = procedureIdPredicate(normalizeCuiFilters(filter), 'c');
+    if (procedureLink.isErr()) return err(procedureLink.error);
+    if (procedureLink.value !== undefined) conds.push(procedureLink.value);
     if (cursor.value !== undefined) {
       const k = keysetPredicate('c', 'contract_date', 'contract_id', cursor.value);
       if (k !== undefined) conds.push(k);

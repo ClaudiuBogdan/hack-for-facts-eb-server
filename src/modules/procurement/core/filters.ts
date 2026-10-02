@@ -208,8 +208,10 @@ export const contractFilterSpec: CollectionFilterSpec = {
       name: 'procedureId',
       type: 'string',
       ops: ['eq', 'isNull'],
+      // Repo-intercepted: only a source-supported link counts (procedure-link-policy).
+      virtual: true,
       column: { alias: 'c', column: 'procedure_id' },
-      description: 'isNull surfaces procedures-without-linkage (PC-10).',
+      description: 'isNull surfaces contracts without a source-supported procedure link (PC-10).',
     },
     {
       name: 'year',
@@ -471,7 +473,12 @@ export const modificationFilterSpec: CollectionFilterSpec = {
 // includeDuplicates → is_canonical predicate selection.
 
 export const PROCEDURE_VIRTUAL_FIELDS = ['cpvDivision', 'year'] as const;
-export const CONTRACT_VIRTUAL_FIELDS = ['cpvDivision', 'year', 'includeDuplicates'] as const;
+export const CONTRACT_VIRTUAL_FIELDS = [
+  'cpvDivision',
+  'year',
+  'includeDuplicates',
+  'procedureId',
+] as const;
 export const DA_VIRTUAL_FIELDS = ['cpvDivision', 'year', 'includeDuplicates'] as const;
 export const MODIFICATION_VIRTUAL_FIELDS = [] as const;
 

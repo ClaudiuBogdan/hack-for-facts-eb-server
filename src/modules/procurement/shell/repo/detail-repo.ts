@@ -26,6 +26,7 @@ import {
 
 import { contractDisplayTitleCandidatesSelect } from './contract-display-title-projection.js';
 import { mapContract, mapDirectAcquisition, mapModification, mapTedRef } from './mappers.js';
+import { supportedProcedureIdSql } from './procedure-link-policy.js';
 import {
   cursorOf,
   decodeRecordCursor,
@@ -60,7 +61,7 @@ const contractSelect = [
   'c.contract_key',
   'c.source_system',
   'c.source_url',
-  'c.procedure_id',
+  supportedProcedureIdSql('c').as('procedure_id'),
   'c.notice_no',
   'c.contract_no',
   sql<string | null>`c.contract_date::text`.as('contract_date'),
