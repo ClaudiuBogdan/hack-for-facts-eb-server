@@ -13,6 +13,7 @@ import type { AnalysisRoute } from './combinations.js';
 import type { GenerationCapabilities, MeasureId, SeriesBucket } from './constants.js';
 import type { BasisCoverageRow, GenerationQuality } from './gate-v2.js';
 import type { ProcurementSearchFilter } from './search.js';
+import type { SourceCaptureReceipts } from './source-capture.js';
 import type {
   ContractDetail,
   CpvCodeLabel,
@@ -134,6 +135,13 @@ export interface PublishedGeneration {
   readonly publishedAt: string | null;
   readonly quality: GenerationQuality;
   readonly matrixHash: string | null;
+  /**
+   * The source catalogue receipts of the loader stage runs before this build,
+   * keyed by loaded table (catalogue recency, not loaded coverage). `null`:
+   * none readable, stated as unknown; absent: this repository does not read
+   * receipts.
+   */
+  readonly sourceCapture?: SourceCaptureReceipts | null;
 }
 
 /**

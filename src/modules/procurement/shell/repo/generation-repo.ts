@@ -14,6 +14,11 @@
  *    points back to an older build for rollback;
  *  - the `quality` jsonb is validated grain by grain — a malformed or missing
  *    grain entry is DROPPED so `decideAnswer` abstains for it (the fail-safe);
+ *  - the source catalogue receipt of each procurement stage's last succeeded
+ *    run before the build started is read beside it, separately: a stage
+ *    whose last run carries no valid receipt has none (never an older one),
+ *    and a failed read leaves all unknown (null) without failing the
+ *    generation;
  *  - errors are never cached.
  */
 
@@ -33,6 +38,7 @@ import { ANALYSIS_GRAINS } from '../../core/constants.js';
 
 import type { GenerationQuality, GrainQualityVerdict } from '../../core/gate-v2.js';
 import type { PublishedGeneration } from '../../core/ports.js';
+import type { SourceCaptureReceipts, SourceCaptureSummary } from '../../core/source-capture.js';
 
 type Db = Kysely<ProdDatabase>;
 
@@ -85,6 +91,26 @@ const QualityVerdictSchema = Type.Object({
   }),
 });
 
+// ── source capture (loader receipts in etl.load_runs notes) ───────────────────
+
+const ListingRouteSchema = Type.Union([
+  Type.Object({ status: Type.Literal('unknown') }),
+  Type.Object({
+    status: Type.Literal('recency_only'),
+    latestSucceededWindowEnd: Type.String(),
+    latestCompletedAt: Type.Union([Type.String(), Type.Null()]),
+    unfinishedWindowsBefore: Type.Integer({ minimum: 0 }),
+  }),
+]);
+
+const SourceCaptureSchema = Type.Object({
+  seap: Type.Record(
+    Type.String(),
+    Type.Object({ latestYear: Type.Union([Type.Integer(), Type.Null()]) })
+  ),
+  elicitatie: Type.Record(Type.String(), ListingRouteSchema),
+});
+
 /**
  * Validate the generation's `quality` jsonb grain by grain. A malformed or
  * missing grain entry is DROPPED — `decideAnswer` then abstains for that grain
@@ -115,6 +141,44 @@ export const makeProcurementGenerationRepo = (
   // is authoritative even when it points back to an older build for rollback.
   // Errors are never cached.
 
+  // Per stage, the catalogue block of its LAST succeeded run that finished
+  // before the build started — that run's receipt or none, never an older
+  // one. Read-only, outside the generation statement: a missing grant or a
+  // non-JSON note read as unknown (null), never as an error.
+  const readSourceCapture = async (
+    buildId: string,
+    startedAt: string | null
+  ): Promise<SourceCaptureReceipts | null> => {
+    try {
+      const result = await sql<{ target_table: string; source_capture: unknown }>`
+        select r.target_table,
+               case when r.notes like '{%"sourceCapture"%'
+                    then (r.notes::jsonb) -> 'sourceCapture' end as source_capture
+        from (
+          select distinct on (target_table) target_table, notes
+          from etl.load_runs
+          where source_id = 'public-contracts' and status = 'succeeded'
+            and target_table in ('procurement.procedures', 'procurement.contracts',
+                                 'procurement.direct_acquisitions')
+            and finished_at <= coalesce(${startedAt}::timestamptz, now())
+          order by target_table, finished_at desc
+        ) r`.execute(db);
+      const receipts: Record<string, SourceCaptureSummary> = {};
+      for (const row of result.rows) {
+        if (Value.Check(SourceCaptureSchema, row.source_capture)) {
+          receipts[row.target_table] = row.source_capture;
+        }
+      }
+      return receipts;
+    } catch (error) {
+      logger?.warn(
+        { buildId, error: error instanceof Error ? error.message : String(error) },
+        'procurement source capture unknown: read failed'
+      );
+      return null;
+    }
+  };
+
   let generationCache: { value: PublishedGeneration | null; expiresAt: number } | null = null;
   let generationInFlight: Promise<Result<PublishedGeneration | null, ApiError>> | null = null;
 
@@ -126,6 +190,7 @@ export const makeProcurementGenerationRepo = (
         .select([
           sql<string>`g.build_id::text`.as('build_id'),
           sql<string | null>`g.published_at::text`.as('published_at'),
+          sql<string | null>`g.started_at::text`.as('started_at'),
           'g.quality',
           'g.matrix_hash',
         ])
@@ -141,6 +206,7 @@ export const makeProcurementGenerationRepo = (
               publishedAt: row.published_at,
               quality: parseQuality(row.quality),
               matrixHash: row.matrix_hash,
+              sourceCapture: await readSourceCapture(row.build_id, row.started_at ?? null),
             };
       generationCache = { value: fresh, expiresAt: now() + GENERATION_TTL_MS };
       return ok(fresh);

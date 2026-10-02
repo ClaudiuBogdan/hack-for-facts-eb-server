@@ -82,6 +82,7 @@ import {
   type AnalysisRepo,
   type AnalysisStatsRead,
 } from './ports.js';
+import { sourceNotes } from './source-capture.js';
 
 export interface AnalysisDeps {
   readonly analysisRepo: AnalysisRepo;
@@ -339,8 +340,12 @@ const frameworkRolePopulationNarrows = (
 const scopeNotes = (
   grain: AnalysisGrain,
   scope: AnalysisScope,
-  capabilities: GenerationCapabilities
-): readonly string[] => [...rowFilterCaveats(scope), ...grainNotes(grain, capabilities)];
+  gen: ActiveGeneration
+): readonly string[] => [
+  ...rowFilterCaveats(scope),
+  ...grainNotes(grain, gen.capabilities),
+  ...sourceNotes(grain, gen.sourceCapture),
+];
 
 /** The stats read projected onto the envelope's fields. */
 const readsOf = (read: AnalysisStatsRead): EnvelopeReads => ({
@@ -642,7 +647,7 @@ const statsBlockFor = async (
         null,
         canonicalScope,
         moneyAllowed,
-        scopeNotes(grain, scope, gen.capabilities)
+        scopeNotes(grain, scope, gen)
       ),
     });
   }
@@ -716,12 +721,7 @@ const statsBlockFor = async (
       readsOf(read),
       canonicalScope,
       moneyAllowed,
-      [
-        ...noValueCaveats,
-        ...basisCaveats,
-        ...withheldD.caveats,
-        ...scopeNotes(grain, scope, gen.capabilities),
-      ]
+      [...noValueCaveats, ...basisCaveats, ...withheldD.caveats, ...scopeNotes(grain, scope, gen)]
     ),
   });
 };
@@ -841,7 +841,7 @@ export const analysisSeries = async (
         null,
         canonicalScope,
         spend.allow,
-        scopeNotes(grain, scope, gen.capabilities)
+        scopeNotes(grain, scope, gen)
       ),
     });
 
@@ -889,7 +889,7 @@ export const analysisSeries = async (
         ),
         meta: buildEnvelope(policy, gated, gen.buildId, reads, canonicalScope, spend.allow, [
           'distinct counts are computed per bucket and must never be summed across buckets',
-          ...scopeNotes(grain, scope, gen.capabilities),
+          ...scopeNotes(grain, scope, gen),
         ]),
       });
       continue;
@@ -960,7 +960,7 @@ export const analysisSeries = async (
       points,
       meta: buildEnvelope(policy, gated, gen.buildId, reads, canonicalScope, spend.allow, [
         ...seriesWithheldCaveats,
-        ...scopeNotes(grain, scope, gen.capabilities),
+        ...scopeNotes(grain, scope, gen),
       ]),
     });
   }
@@ -1033,7 +1033,7 @@ const breakdownBlockFor = async (
         null,
         canonicalScope,
         moneyAllowed,
-        scopeNotes(grain, scope, gen.capabilities)
+        scopeNotes(grain, scope, gen)
       ),
     });
   }
@@ -1121,7 +1121,7 @@ const breakdownBlockFor = async (
     valueWithheldAssociationSum: withheldD.ron !== null ? d(withheldD.ron).toFixed(MONEY_DP) : null,
     meta: buildEnvelope(policy, gate, gen.buildId, readsOf(totals), canonicalScope, moneyAllowed, [
       ...withheldD.caveats,
-      ...scopeNotes(grain, scope, gen.capabilities),
+      ...scopeNotes(grain, scope, gen),
     ]),
   });
 };
@@ -1221,7 +1221,7 @@ export const analysisConcentration = async (
           null,
           canonicalScope,
           basis === 'value' && spend.allow,
-          scopeNotes(grain, input.scope, gen.capabilities)
+          scopeNotes(grain, input.scope, gen)
         ),
       });
       continue;
@@ -1304,7 +1304,7 @@ export const analysisConcentration = async (
         readsOf(totals),
         canonicalScope,
         basis === 'value' && spend.allow,
-        [...semanticsCaveats, ...scopeNotes(grain, input.scope, gen.capabilities)]
+        [...semanticsCaveats, ...scopeNotes(grain, input.scope, gen)]
       ),
     });
   }
@@ -1671,7 +1671,7 @@ export const analysisRecords = async (
   const caveats = [
     ...gate.caveats,
     ...(grain === 'contract' ? [CONTRACT_MEMBER_ROWS_NOTE] : []),
-    ...scopeNotes(grain, scope, gen.capabilities),
+    ...scopeNotes(grain, scope, gen),
   ];
   const meta = (answerability: AnalysisRecordsMeta['answerability']): AnalysisRecordsMeta => ({
     answerability,

@@ -171,3 +171,57 @@ describe('generation micro-cache', () => {
     expect(generationQueries(recorder)).toHaveLength(2);
   });
 });
+
+describe('source catalogue receipts (read beside the generation, never failing it)', () => {
+  const capture = {
+    note: 'capture recency, not completeness',
+    seap: { contract: { latestYear: 2026, latestPublishedAt: null, latestCapturedAt: null } },
+    elicitatie: { elicitatie_ca_notice_list: { status: 'unknown' } },
+  };
+  const repoWith = (captureRows: () => Record<string, unknown>[]): Recorder => ({
+    queries: [],
+    rowsFor: (sql) =>
+      sql.includes('etl.load_runs')
+        ? captureRows()
+        : [{ ...generationRow('7'), started_at: '2026-10-02 08:00:00+00' }],
+  });
+
+  it('keys each stage’s last run before the build by its loaded table', async () => {
+    const recorder = repoWith(() => [
+      { target_table: 'procurement.contracts', source_capture: capture },
+      // The stage's last run carries no receipt: none, not an older one.
+      { target_table: 'procurement.procedures', source_capture: null },
+    ]);
+    const repo = makeProcurementGenerationRepo(makeFakeDb(recorder), () => 0);
+    const gen = (await repo.activeGeneration())._unsafeUnwrap();
+    expect(gen?.sourceCapture).toEqual({ 'procurement.contracts': capture });
+    const read = recorder.queries.find((q) => q.sql.includes('etl.load_runs'));
+    expect(read?.parameters).toEqual(['2026-10-02 08:00:00+00']);
+    expect(read?.sql).toContain('distinct on (target_table)');
+  });
+
+  it('drops a malformed receipt', async () => {
+    const recorder = repoWith(() => [
+      {
+        target_table: 'procurement.contracts',
+        source_capture: { seap: {}, elicitatie: { r: { status: 'complete' } } },
+      },
+    ]);
+    const repo = makeProcurementGenerationRepo(makeFakeDb(recorder), () => 0);
+    expect((await repo.activeGeneration())._unsafeUnwrap()?.sourceCapture).toEqual({});
+  });
+
+  it('serves the generation with unknown receipts when the read fails', async () => {
+    const repo = makeProcurementGenerationRepo(
+      makeFakeDb(
+        repoWith(() => {
+          throw new Error('permission denied for schema etl');
+        })
+      ),
+      () => 0
+    );
+    const gen = (await repo.activeGeneration())._unsafeUnwrap();
+    expect(gen?.buildId).toBe('7');
+    expect(gen?.sourceCapture).toBeNull();
+  });
+});
