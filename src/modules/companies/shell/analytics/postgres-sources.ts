@@ -14,11 +14,12 @@
  * SELECT — no lock, no write.
  *
  * Labels are CURRENT presentation data, hydrated after aggregation in one
- * batch per source: company names under the same publication rule as the
- * profile pages (`core.organizations`, kind company, public, ≤10-digit CUI),
- * county/UAT names from `core.territories`, CAEN labels only for a KNOWN
- * revision (`caen_<revision>`), status labels from the registry rows by code
- * with the module nomenclature as fallback. Nothing here writes.
+ * batch per source and never cached (a cached label could outlive its row's
+ * publicity): company names under the same publication rule as the profile
+ * pages (`core.organizations`, kind company, public, ≤10-digit CUI), county/UAT
+ * names from public `core.territories` rows, CAEN labels only for a KNOWN
+ * revision (`caen_<revision>`), status labels from public registry rows by
+ * exact code with the module nomenclature as fallback. Nothing here writes.
  */
 
 import { Type } from '@sinclair/typebox';
@@ -50,7 +51,6 @@ type Db = Kysely<ProdDatabase>;
 
 const ACTIVE_TTL_MS = 5_000;
 const HISTORICAL_TTL_MS = 10 * 60_000;
-const LABEL_TTL_MS = 60 * 60_000;
 
 const NullableText = Type.Union([Type.String(), Type.Null()]);
 const ReleaseRowSchema = Type.Object({
@@ -246,59 +246,36 @@ const asMap = (rows: readonly { key: string; label: string | null }[]): Map<stri
   return out;
 };
 
-export const makeAnalyticsLabelSource = (
-  db: Db,
-  logger?: Logger,
-  now: () => number = Date.now
-): CompanyAnalysisLabelSource => {
+/**
+ * Labels are read fresh, one bounded batch per source per answer, and never
+ * cached: a cache would keep serving a territory or registry label after its
+ * row stopped being public (the epoch guard lets a NEW release answer at
+ * once), so every read carries its public predicate instead.
+ */
+export const makeAnalyticsLabelSource = (db: Db, logger?: Logger): CompanyAnalysisLabelSource => {
   const failed = (operation: string, cause: unknown): ApiError => {
     logger?.warn({ operation }, 'companies analytics label read failed');
     return databaseError('companies analytics labels are unavailable', cause);
   };
 
-  /** Code labels change rarely: cache per code (names are never cached). */
-  const cached = (operation: string) => {
-    const store = new Map<string, { label: string | null; expiresAt: number }>();
-    return async (
-      keys: readonly string[],
-      read: (
-        missing: readonly string[]
-      ) => Promise<readonly { key: string; label: string | null }[]>
-    ): Promise<Result<ReadonlyMap<string, string>, ApiError>> => {
-      const missing = keys.filter((key) => {
-        const hit = store.get(key);
-        return hit === undefined || hit.expiresAt <= now();
-      });
-      if (missing.length > 0) {
-        try {
-          const found = asMap(await read(missing));
-          const expiresAt = now() + LABEL_TTL_MS;
-          for (const key of missing) store.set(key, { label: found.get(key) ?? null, expiresAt });
-        } catch (cause) {
-          return err(failed(operation, cause));
-        }
-      }
-      const out = new Map<string, string>();
-      for (const key of keys) {
-        const label = store.get(key)?.label ?? null;
-        if (label !== null) out.set(key, label);
-      }
-      return ok(out);
-    };
+  const read = async (
+    operation: string,
+    query: () => Promise<readonly { key: string; label: string | null }[]>
+  ): Promise<Result<ReadonlyMap<string, string>, ApiError>> => {
+    try {
+      return ok(asMap(await query()));
+    } catch (cause) {
+      return err(failed(operation, cause));
+    }
   };
-
-  const countyCache = cached('countyLabels');
-  const uatCache = cached('uatLabels');
-  const statusCache = cached('statusLabels');
-  const caenCache = cached('caenLabels');
 
   const textArray = (values: readonly string[]) => sql`${JSON.stringify(values)}::jsonb`;
   const inList = (column: string, values: readonly string[]) =>
     sql<SqlBool>`${sql.ref(column)} in (select jsonb_array_elements_text(${textArray(values)}))`;
 
   return {
-    async companyNames(cuis) {
-      try {
+    companyNames: (cuis) =>
+      read('companyNames', async () => {
         const rows = await db
           .selectFrom('core.organizations as o')
           .select(['o.cui', 'o.name'])
@@ -307,29 +284,26 @@ export const makeAnalyticsLabelSource = (
           .where(organizationRowIsPublic('o.privacy_class'))
           .where(sql<boolean>`length(o.cui) <= ${sql.lit(MAX_SERVED_CUI_DIGITS)}`)
           .execute();
-        return ok(asMap(rows.map((row) => ({ key: row.cui ?? '', label: row.name }))));
-      } catch (cause) {
-        return err(failed('companyNames', cause));
-      }
-    },
+        return rows.map((row) => ({ key: row.cui ?? '', label: row.name }));
+      }),
 
     countyLabels: (codes) =>
-      countyCache(codes, async (missing) => {
+      read('countyLabels', async () => {
         const result = await sql<{ key: string; label: string | null }>`
           select distinct on (t.county_code) t.county_code as key, t.county_name as label
           from core.territories t
-          where ${inList('t.county_code', missing)}
+          where ${inList('t.county_code', codes)}
             and t.privacy_class = 'public' and ${isCountyTerritory('t')}
           order by t.county_code, t.id`.execute(db);
         return result.rows;
       }),
 
     uatLabels: (sirutas) =>
-      uatCache(sirutas, async (missing) => {
+      read('uatLabels', async () => {
         const result = await sql<{ key: string; label: string | null }>`
           select distinct on (t.siruta_code) t.siruta_code as key, t.name as label
           from core.territories t
-          where ${inList('t.siruta_code', missing)}
+          where ${inList('t.siruta_code', sirutas)}
             and t.privacy_class = 'public'
             and (${isUatPresentationTerritory('t')} or t.level = 'locality')
           order by t.siruta_code, (t.level = 'uat') desc, t.id`.execute(db);
@@ -337,33 +311,34 @@ export const makeAnalyticsLabelSource = (
       }),
 
     statusLabels: (codes) =>
-      statusCache(codes, async (missing) => {
-        // One index seek per code (registrations_status_idx), first non-empty label.
+      read('statusLabels', async () => {
+        // One index seek per code (registrations_status_idx): the first
+        // non-empty label of a PUBLIC registration with that exact code.
         const result = await sql<{ key: string; label: string | null }>`
           select c.code as key,
                  (select r.onrc_lifecycle_status_label
                   from companies_v2.registrations r
                   where r.onrc_lifecycle_status_code = c.code
+                    and r.privacy_class = 'public'
                     and nullif(btrim(r.onrc_lifecycle_status_label), '') is not null
                   limit 1) as label
-          from jsonb_array_elements_text(${textArray(missing)}) as c(code)`.execute(db);
+          from jsonb_array_elements_text(${textArray(codes)}) as c(code)`.execute(db);
+        // The nomenclature is a static public code list, not registry data.
         return result.rows.map((row) => ({
           key: row.key,
           label: row.label ?? COMPANY_STATUS_NOMENCLATURE[row.key] ?? null,
         }));
       }),
 
-    caenLabels: async (keys: readonly CaenLabelKey[]) => {
-      const composite = keys.map((k) => `${k.revision}:${k.code}`);
-      return caenCache(composite, async (missing) => {
-        const pairs = keys.filter((k) => missing.includes(`${k.revision}:${k.code}`));
+    // The CAEN catalog carries no privacy class; labels only for known revisions.
+    caenLabels: (keys: readonly CaenLabelKey[]) =>
+      read('caenLabels', async () => {
         const result = await sql<{ key: string; label: string | null }>`
           select k.revision || ':' || k.code as key, cc.label
-          from jsonb_to_recordset(${JSON.stringify(pairs)}::jsonb) as k(revision text, code text)
+          from jsonb_to_recordset(${JSON.stringify(keys)}::jsonb) as k(revision text, code text)
           join core.classification_codes cc
             on cc.system = 'caen_' || k.revision and cc.code = k.code`.execute(db);
         return result.rows;
-      });
-    },
+      }),
   };
 };
