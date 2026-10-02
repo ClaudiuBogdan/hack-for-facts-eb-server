@@ -9,6 +9,22 @@
 
 import { err, ok, type Result } from 'neverthrow';
 
+import {
+  JUDICIAL_COURT_LEVELS,
+  type JudicialCase,
+  type JudicialCaseAggregate,
+  type JudicialCaseCitation,
+  type JudicialCaseDetail,
+  type JudicialCaseLink,
+  type JudicialCompanyLitigation,
+  type JudicialCourt,
+  type JudicialCourtTree,
+  type JudicialLegalRef,
+  type JudicialLineageEdge,
+  type JudicialPartyView,
+  type JudicialResolveDim,
+} from './types.js';
+
 import type {
   CompanyLitigationFilter,
   JudicialAppealRepo,
@@ -21,20 +37,6 @@ import type {
   JudicialPartyRepo,
   PartyDictionaryRepo,
 } from './ports.js';
-import type {
-  JudicialCase,
-  JudicialCaseAggregate,
-  JudicialCaseCitation,
-  JudicialCaseDetail,
-  JudicialCaseLink,
-  JudicialCompanyLitigation,
-  JudicialCourt,
-  JudicialCourtTree,
-  JudicialLegalRef,
-  JudicialLineageEdge,
-  JudicialPartyView,
-  JudicialResolveDim,
-} from './types.js';
 import type {
   ApiError,
   CursorPage,
@@ -246,15 +248,7 @@ export const resolveJudicialFilters = async (
     case 'courtLevel': {
       // Static enum match — case-insensitive contains over the level codes.
       const needle = q.trim().toLowerCase();
-      const levels = [
-        'judecatorie',
-        'tribunal',
-        'tribunal_militar',
-        'curte_de_apel',
-        'curte_militara_apel',
-      ];
-      const hits = levels
-        .filter((l) => needle === '' || l.includes(needle))
+      const hits = JUDICIAL_COURT_LEVELS.filter((l) => needle === '' || l.includes(needle))
         .slice(0, limit)
         .map((l) => ({ kind: 'courtLevel', value: l, label: l }));
       return ok(hits);

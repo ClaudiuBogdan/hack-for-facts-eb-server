@@ -1,6 +1,6 @@
 /**
- * Judicial module — courts repo (plan 08 §4). Reads `justice.courts` (246-row
- * reference). Cheap; full scans acceptable. No PII in this table.
+ * Judicial module — courts repo (plan 08 §4). Reads `justice.courts` (the Portal
+ * Just reference + the ICCJ row). Cheap; full scans acceptable. No PII in this table.
  */
 
 import { sql, type Kysely } from 'kysely';

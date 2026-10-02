@@ -33,12 +33,12 @@ import type { ColumnType } from 'kysely';
 /** read-only timestamptz returned as an ISO string. */
 type Tstz = ColumnType<string, never, never>;
 
-// ── courts (246-row reference) ────────────────────────────────────────────────
+// ── courts (Portal Just reference + the ICCJ row) ─────────────────────────────
 
 export interface JusticeCourtsTable {
   institution_code: string; // PK
   ordinal: number; // integer
-  court_level: string; // CHECK: judecatorie|tribunal|tribunal_militar|curte_de_apel|curte_militara_apel
+  court_level: string; // CHECK: judecatorie|tribunal|tribunal_militar|curte_de_apel|curte_militara_apel|inalta_curte
   specialization: string | null;
   locality: string | null;
   county_code: string | null; // soft link → core.territories.county_code

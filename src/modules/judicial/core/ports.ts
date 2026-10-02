@@ -35,7 +35,7 @@ import type {
 } from '@/modules/shared/index.js';
 import type { Result } from 'neverthrow';
 
-// ── Courts (246-row reference) ─────────────────────────────────────────────────
+// ── Courts (small reference table) ─────────────────────────────────────────────
 
 export interface CourtListOptions {
   readonly filter: FilterInput;
