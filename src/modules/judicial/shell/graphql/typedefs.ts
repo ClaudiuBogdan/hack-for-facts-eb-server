@@ -16,18 +16,16 @@
 
 import { toGraphQLInput } from '@/modules/shared/index.js';
 
+import { JUDICIAL_COURT_LEVELS } from '../../core/types.js';
 import { judicialCasesSpec, judicialCourtsSpec } from '../filters/judicial.spec.js';
 
 const filterInputs = `${toGraphQLInput(judicialCasesSpec)}\n\n${toGraphQLInput(judicialCourtsSpec)}`;
 
+/** Rendered from the one court-level taxonomy so the SDL cannot drift from it. */
+const courtLevelEnum = `enum JudicialCourtLevel {\n${JUDICIAL_COURT_LEVELS.map((l) => `  ${l}`).join('\n')}\n}`;
+
 const objectsAndQuery = /* GraphQL */ `
-  enum JudicialCourtLevel {
-    judecatorie
-    tribunal
-    tribunal_militar
-    curte_de_apel
-    curte_militara_apel
-  }
+  ${courtLevelEnum}
   enum JudicialPartyKind {
     company
     public_entity
@@ -54,7 +52,7 @@ const objectsAndQuery = /* GraphQL */ `
     courtLevel
   }
 
-  "A court in the 246-row reference hierarchy. ICCJ is permanently absent (different source)."
+  "A court in the justice reference hierarchy: the Portal Just courts plus the ICCJ (inalta_curte)."
   type JudicialCourt {
     institutionCode: String!
     ordinal: Int!
@@ -249,7 +247,7 @@ const objectsAndQuery = /* GraphQL */ `
   }
 
   extend type Query {
-    "Courts in the 246-row hierarchy. Cheap reference list."
+    "All courts in the reference hierarchy. Cheap reference list."
     judicialCourts(filter: JudicialCourtsFilter): [JudicialCourt!]!
     "A court by institution code, with its direct children."
     judicialCourt(institutionCode: String!): JudicialCourt

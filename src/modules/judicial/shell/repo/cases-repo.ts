@@ -102,7 +102,7 @@ const sortValueOf = (c: JudicialCase, sort: 'modifiedAt' | 'openedAt'): string =
 
 /**
  * Compile the `courtLevel` virtual into an `institution_code IN (subquery)` over
- * justice.courts (bounded by the 246-row reference). Returns null when absent.
+ * justice.courts (bounded by the small court reference). Returns null when absent.
  */
 const courtLevelCond = (input: FilterInput): RawBuilder<unknown> | null => {
   const levels = inStrings(fieldOf(input, 'courtLevel'));

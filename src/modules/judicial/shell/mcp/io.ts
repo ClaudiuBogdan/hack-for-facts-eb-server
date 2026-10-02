@@ -18,6 +18,8 @@
 
 import { z } from 'zod';
 
+import { JUDICIAL_COURT_LEVELS } from '../../core/types.js';
+
 export const JUDICIAL_MCP_KINDS = {
   resolve: 'filter_resolution',
   caseDetail: 'judicial_case',
@@ -54,15 +56,7 @@ export const getCourtCaseloadInput = {
   groupBy: z.enum(['court', 'category', 'year', 'courtLevel']).describe('Aggregate dimension.'),
   institutionCode: z.array(z.string()).optional().describe('Bound to court institution code(s).'),
   courtLevel: z
-    .array(
-      z.enum([
-        'judecatorie',
-        'tribunal',
-        'tribunal_militar',
-        'curte_de_apel',
-        'curte_militara_apel',
-      ])
-    )
+    .array(z.enum(JUDICIAL_COURT_LEVELS))
     .optional()
     .describe('Bound to court level(s).'),
   category: z.array(z.string()).optional().describe('Bound to category code(s).'),
@@ -76,15 +70,7 @@ export const getCompanyLitigationInput = {
     .string()
     .describe('Company CUI (resolved via the identity hub). Published-only; empty in v1.'),
   courtLevel: z
-    .array(
-      z.enum([
-        'judecatorie',
-        'tribunal',
-        'tribunal_militar',
-        'curte_de_apel',
-        'curte_militara_apel',
-      ])
-    )
+    .array(z.enum(JUDICIAL_COURT_LEVELS))
     .optional()
     .describe('Optional court-level narrowing (§7.3).'),
   yearFrom: z.number().int().optional().describe('Optional opened-year lower bound.'),
