@@ -84,6 +84,31 @@ reported zero. A missing year is unknown. No totals or cross-year indicator seri
 are computed. Unknown availability values, identity methods, dictionary shapes or
 missing provenance fail closed as `Database` errors.
 
+## Statement financial review signals
+
+Every statement adds `quality { ruleVersion assessment suspected reasons { code detail } }`
+through the shared repository mapper, so GraphQL and MCP use the same assessment.
+`ngo-revenue-v1` compares exact integers in lei: I38 above 1,000,000,000 emits
+`IMPLAUSIBLE_REVENUE`; positive I38 equal to positive I1 emits
+`REVENUE_EQUALS_FIXED_ASSETS`. Both can apply. These are review signals, not confirmed
+filing errors. Values, labels, statement membership and public identity gates stay
+unchanged. A missing cell never becomes zero; `suspected: false` means no rule matched
+the available cells, not that the statement is proved correct.
+
+The reviewed FY2008–2025 dictionaries retain the I1/I38 meanings. Assessment requires
+their exact position labels and audited fiscal-year binding (2021–2023 reuse the
+2020 labels; 2025 reuses 2024 labels). Future years or changed labels return
+`assessment: unsupported`, `suspected: null` and no reasons. Requalify on refresh.
+The threshold was measured on the full retained FY2016–2025 originals on 2026-10-02.
+
+No NGO sector/year financial aggregate currently exists in this module. Flags do
+not automatically exclude any statement or metric. The client hub separately builds
+sums from all MFP non-profit filers, a broader population than admitted profiles;
+adding this field alone does not migrate that build or guarantee identical totals.
+Any future aggregate must document its population, source copies and exclusion policy,
+and show the published total as well as any filtered total. Equality alone is not
+an automatic exclusion policy.
+
 ## Profile source lists — social services, accreditations, RUEIS
 
 `socialServices`, `socialServiceAccreditations`, `socialEnterpriseCertificates`

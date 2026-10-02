@@ -27,6 +27,7 @@ import { makeNgoOrganizationMcpTools } from '@/modules/ngos/shell/mcp/organizati
 import {
   makeNgoOrganizationRepo,
   mapOrganizationProfile,
+  mapFinancialStatement,
 } from '@/modules/ngos/shell/repo/organization-repo.js';
 import { mapPublicRegistryRecord } from '@/modules/ngos/shell/repo/registry-repo.js';
 
@@ -206,6 +207,12 @@ const statement: NgoFinancialStatement = {
   dictionaryUrl: 'https://data.gov.ro/dictionar_2025.csv',
   sourceRowNumber: 17,
   capturedAt: '2026-09-28T04:26:52.000Z',
+  quality: {
+    ruleVersion: 'ngo-revenue-v1',
+    assessment: 'unsupported',
+    suspected: null,
+    reasons: [],
+  },
   indicators: [
     { code: 'I1', label: 'Venituri totale', value: '123456789012345678901' },
     { code: 'I2', label: 'Cheltuieli totale', value: '0' },
@@ -503,7 +510,7 @@ describe('NGO organization GraphQL and MCP', () => {
       purpose { availability text }
       fiscal { availability data { sourceSnapshotId } }
       anafRegistration { availability data { sourceSnapshotId documentationUrl } }
-      financials { availability fiscalYears statements(fiscalYears: [2025]) { fiscalYear sourceUrl dictionaryUrl indicators { code label value } } }
+      financials { availability fiscalYears statements(fiscalYears: [2025]) { fiscalYear sourceUrl dictionaryUrl quality { ruleVersion assessment suspected reasons { code detail } } indicators { code label value } } }
       registryRecords { id linkedOrganizationCui }
       socialServices { ...SocialServices }
       socialServiceAccreditations { availability snapshot { ...Snapshot } data { certificateNumber decisionNumber } }
@@ -539,6 +546,7 @@ describe('NGO organization GraphQL and MCP', () => {
           fiscalYear: 2025,
           sourceUrl: statement.sourceUrl,
           dictionaryUrl: statement.dictionaryUrl,
+          quality: statement.quality,
           indicators: statement.indicators,
         },
       ],
@@ -559,6 +567,47 @@ describe('NGO organization GraphQL and MCP', () => {
       financials: { ...profile.financials, statements: [statement] },
     });
     expect(mcpRepo.statementCalls).toEqual([[2025]]);
+  });
+
+  it('shares the suspect 2019 statement and exact values through GraphQL and MCP', async () => {
+    const definitions = Array.from({ length: 46 }, (_, index) => ({
+      code: `I${String(index + 1)}`,
+      name:
+        index === 0
+          ? 'A. Active imobilizate  -  total'
+          : index === 37
+            ? 'Venituri totale - la 31.12.2019'
+            : `Label ${String(index + 1)}`,
+    }));
+    const anomaly = mapFinancialStatement({
+      fiscal_year: 2019,
+      source_row_number: 48121,
+      source_url: 'https://data.gov.ro/web_ong_an2019.txt',
+      dictionary_url: 'https://data.gov.ro/web_ong_an2019.csv',
+      captured_at: '2026-09-28T00:00:00Z',
+      indicator_definitions: definitions,
+      indicators: { I1: '6226050000', I14: '6226050000', I38: '6226050000' },
+    })._unsafeUnwrap();
+    const repo: NgoOrganizationRepository = {
+      ...fakeRepo().repo,
+      financialStatements: () => Promise.resolve(ok([anomaly])),
+    };
+    const result = await graphql({
+      schema: schemaFor(repo),
+      source: query.replace('[2025]', '[2019]'),
+    });
+    expect(result.errors).toBeUndefined();
+    const gql = result.data?.['ngoOrganizationProfile'] as {
+      financials: { statements: { quality: unknown; indicators: unknown }[] };
+    };
+    const mcp = await tool(repo).handler({ cui: CUI, financialYears: [2019] });
+    expect(gql.financials.statements[0]?.quality).toEqual(anomaly.quality);
+    expect(gql.financials.statements[0]?.indicators).toEqual(anomaly.indicators);
+    expect(mcp.item).toMatchObject({ financials: { statements: [anomaly] } });
+    expect(anomaly.quality.reasons.map(({ code }) => code)).toEqual([
+      'IMPLAUSIBLE_REVENUE',
+      'REVENUE_EQUALS_FIXED_ASSETS',
+    ]);
   });
 
   it('does not fetch statements unless requested and available', async () => {

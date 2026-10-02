@@ -10,7 +10,7 @@ import {
 } from '@/modules/shared/index.js';
 
 import { mapPublicRegistryRecord, publicRegistryRecords } from './registry-repo.js';
-import { mapFinancialIndicators } from '../../core/financials.js';
+import { assessNgoFinancialQuality, mapFinancialIndicators } from '../../core/financials.js';
 import {
   ANAF_WEB_SERVICE_DOCUMENTATION_URL,
   NGO_IDENTITY_METHODS,
@@ -398,6 +398,7 @@ export const mapFinancialStatement = (
       sourceRowNumber: row.source_row_number,
       capturedAt: iso(row.captured_at),
       indicators,
+      quality: assessNgoFinancialQuality(row.fiscal_year, indicators),
     }));
 
 const readCuiProfile = async (

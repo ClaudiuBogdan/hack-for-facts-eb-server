@@ -120,6 +120,20 @@ export interface NgoFinancialIndicator {
   readonly value: string | null;
 }
 
+export type NgoFinancialQualityReasonCode = 'IMPLAUSIBLE_REVENUE' | 'REVENUE_EQUALS_FIXED_ASSETS';
+
+/** Review signals only: no correction, suppression, or automatic aggregate exclusion. */
+export interface NgoFinancialQuality {
+  readonly ruleVersion: 'ngo-revenue-v1';
+  readonly assessment: 'assessed' | 'unsupported';
+  /** Null means the statement's year/dictionary has not been qualified for these rules. */
+  readonly suspected: boolean | null;
+  readonly reasons: readonly {
+    readonly code: NgoFinancialQualityReasonCode;
+    readonly detail: string;
+  }[];
+}
+
 export interface NgoFinancialStatement {
   readonly fiscalYear: number;
   readonly sourceUrl: string;
@@ -127,6 +141,7 @@ export interface NgoFinancialStatement {
   readonly sourceRowNumber: number;
   readonly capturedAt: string;
   readonly indicators: readonly NgoFinancialIndicator[];
+  readonly quality: NgoFinancialQuality;
 }
 
 /** Current registry organization with an eligible admitted CUI. Consensus fields are null where observations differ. */

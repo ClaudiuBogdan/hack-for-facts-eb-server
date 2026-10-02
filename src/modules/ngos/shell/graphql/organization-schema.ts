@@ -76,6 +76,28 @@ export const ngoOrganizationTypeDefs = `
     "Exact integer string as published; null is a blank source cell, \\"0\\" a reported zero."
     value: String
   }
+  enum NgoFinancialQualityAssessment {
+    assessed
+    unsupported
+  }
+  enum NgoFinancialQualityReasonCode {
+    IMPLAUSIBLE_REVENUE
+    REVENUE_EQUALS_FIXED_ASSETS
+  }
+  type NgoFinancialQualityReason {
+    code: NgoFinancialQualityReasonCode!
+    "Exact comparison that matched the review rule, in lei."
+    detail: String!
+  }
+  "Warn-only review signals. Values stay as published; no aggregate exclusion is implied. Absence of a signal is not proof of correctness."
+  type NgoFinancialQuality {
+    ruleVersion: String!
+    "assessed: qualified year/dictionary; each rule uses available cells only. unsupported: year/dictionary not qualified."
+    assessment: NgoFinancialQualityAssessment!
+    "True when a review rule matches, false when none matches available cells; null for unsupported statements."
+    suspected: Boolean
+    reasons: [NgoFinancialQualityReason!]!
+  }
   type NgoFinancialStatement {
     fiscalYear: Int!
     "Official MF resource the statement was read from."
@@ -85,6 +107,7 @@ export const ngoOrganizationTypeDefs = `
     sourceRowNumber: Int!
     capturedAt: DateTime!
     indicators: [NgoFinancialIndicator!]!
+    quality: NgoFinancialQuality!
   }
   type NgoFinancialsSection {
     availability: NgoSectionAvailability!

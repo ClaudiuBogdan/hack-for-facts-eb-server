@@ -2,7 +2,11 @@ import { Type } from '@sinclair/typebox';
 import { Value } from '@sinclair/typebox/value';
 import { err, ok, type Result } from 'neverthrow';
 
-import type { NgoFinancialIndicator } from './organization-types.js';
+import type {
+  NgoFinancialIndicator,
+  NgoFinancialQuality,
+  NgoFinancialQualityReasonCode,
+} from './organization-types.js';
 
 /** Every MFP NGO resource dictionary publishes exactly I1..I46 (scraper MFP NGO loader). */
 export const NGO_FINANCIAL_INDICATOR_COUNT = 46;
@@ -41,4 +45,68 @@ export const mapFinancialIndicators = (
       value: values[definition.code] ?? null,
     }))
   );
+};
+
+/** Measured on the retained FY2016–2025 MFP NGO originals, 2026-10-02; review on refresh. */
+export const NGO_REVENUE_REVIEW_THRESHOLD_RON = '1000000000';
+export const NGO_FINANCIAL_QUALITY_RULE_VERSION = 'ngo-revenue-v1';
+
+/**
+ * Qualified FY2008–2025 dictionaries keep these positions' meanings. FY2021–2023
+ * reuse 2020 labels; FY2025 reuses 2024 labels. Future/changed dictionaries remain
+ * unsupported. A match is a review signal, not proof of an incorrect filing.
+ * Missing cells do not match a rule and are never converted to zero.
+ */
+export const assessNgoFinancialQuality = (
+  fiscalYear: number,
+  indicators: readonly NgoFinancialIndicator[]
+): NgoFinancialQuality => {
+  const assets = indicators.find(({ code }) => code === 'I1');
+  const revenue = indicators.find(({ code }) => code === 'I38');
+  const labelYear = fiscalYear >= 2024 ? 2024 : fiscalYear >= 2020 ? 2020 : fiscalYear;
+  const assetLabel =
+    fiscalYear >= 2024 ? 'Active imobilizate  -  total' : 'A. Active imobilizate  -  total';
+  if (
+    !Number.isInteger(fiscalYear) ||
+    fiscalYear < 2008 ||
+    fiscalYear > 2025 ||
+    assets?.label !== assetLabel ||
+    revenue?.label !== `Venituri totale - la 31.12.${String(labelYear)}`
+  )
+    return {
+      ruleVersion: NGO_FINANCIAL_QUALITY_RULE_VERSION,
+      assessment: 'unsupported',
+      suspected: null,
+      reasons: [],
+    };
+
+  // The mapper already validates these strings; this check also makes this pure
+  // function safe for direct callers without ever throwing from BigInt().
+  const integer = (value: string | null | undefined): bigint | null =>
+    value !== null && value !== undefined && /^-?[0-9]+$/u.test(value) ? BigInt(value) : null;
+  const revenueValue = integer(revenue.value);
+  const assetsValue = integer(assets.value);
+  const reasons: { code: NgoFinancialQualityReasonCode; detail: string }[] = [];
+  if (revenueValue !== null && revenueValue > BigInt(NGO_REVENUE_REVIEW_THRESHOLD_RON))
+    reasons.push({
+      code: 'IMPLAUSIBLE_REVENUE',
+      detail: `I38 = ${String(revenueValue)} lei > ${NGO_REVENUE_REVIEW_THRESHOLD_RON} lei`,
+    });
+  if (
+    revenueValue !== null &&
+    assetsValue !== null &&
+    revenueValue > 0n &&
+    assetsValue > 0n &&
+    revenueValue === assetsValue
+  )
+    reasons.push({
+      code: 'REVENUE_EQUALS_FIXED_ASSETS',
+      detail: `I38 = I1 = ${String(revenueValue)} lei`,
+    });
+  return {
+    ruleVersion: NGO_FINANCIAL_QUALITY_RULE_VERSION,
+    assessment: 'assessed',
+    suspected: reasons.length > 0,
+    reasons,
+  };
 };
