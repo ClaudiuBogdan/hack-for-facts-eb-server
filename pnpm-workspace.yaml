@@ -2,6 +2,7 @@ onlyBuiltDependencies:
   - esbuild
 
 overrides:
+  '@fastify/busboy@3': 3.2.2
   '@grpc/grpc-js': 1.14.5
   fastify: 5.12.2
   handlebars: '>=4.7.9'
