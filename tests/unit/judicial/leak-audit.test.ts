@@ -12,13 +12,16 @@
  * Forbidden in residue across the whole module:
  *   - `solution_summary` (permanent) and `solution` (withheld v1),
  *   - candidate jsonb/PII (`candidate_company_name`, `reviewed_by`, `evidence`,
- *     `candidates`), and the raw legal-ref span (`raw_text`, `span_start`,
- *     `span_end`).
+ *     `candidates`), and the legal-ref span offsets (`span_start`, `span_end`).
  * `display_name` may survive ONLY in the one gated repo (it selects it) and in
  * `schema.ts` (it DECLARES the table column the gated repo selects).
+ * `raw_text` (the stored extracted citation token, A1) may survive ONLY as its
+ * `JusticeCaseLegalReferencesTable` declaration and as the single
+ * `lr.raw_text as citation` selection in the legal-ref repo.
  *
- * Plus parsed-AST checks: the SDL declares no forbidden FIELD, and the
- * case_hearings table type omits solution/solution_summary.
+ * Plus parsed-AST checks: the SDL declares no forbidden FIELD (`sourceField` only
+ * on `JudicialLegalRef`), and the case_hearings table type omits
+ * solution/solution_summary.
  */
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';
@@ -59,6 +62,22 @@ const projectionResidue = (src: string): string =>
     .replace(/"(?:[^"\\]|\\.)*"/gu, '""'); // double-quoted string literals → empty
 
 const files = collectFiles(MODULE_DIR);
+
+const SCHEMA_FILE = join('shell', 'db', 'schema.ts');
+const LEGAL_REF_REPO_FILE = join('shell', 'repo', 'legal-ref-repo.ts');
+const CITATION_SELECTION = /\blr\.raw_text as citation\b/gu;
+const LEGAL_REF_TABLE = /interface JusticeCaseLegalReferencesTable\s*\{[\s\S]*?\n\}/u;
+
+/** Remove the ONE permitted `raw_text` form of each file (A1); the rest must be clean. */
+const withoutPermittedRawText = (file: string, residue: string): string => {
+  if (file.endsWith(SCHEMA_FILE)) {
+    return residue.replace(LEGAL_REF_TABLE, (table) =>
+      table.replace(/^\s*raw_text:\s*string;\s*$/mu, '')
+    );
+  }
+  if (file.endsWith(LEGAL_REF_REPO_FILE)) return residue.replace(CITATION_SELECTION, '');
+  return residue;
+};
 
 describe('judicial leak audit — projection-residue invariants', () => {
   const residues = new Map(files.map((f) => [f, projectionResidue(readFileSync(f, 'utf8'))]));
@@ -109,16 +128,24 @@ describe('judicial leak audit — projection-residue invariants', () => {
     );
   });
 
-  it('raw legal-ref span (raw_text/span_start/span_end) never survives in a projection (S2)', () => {
+  it('legal-ref span offsets never survive; raw_text only as the declared token and the one citation selection (S2, A1)', () => {
     const offenders: string[] = [];
     for (const [file, residue] of residues) {
-      for (const col of ['raw_text', 'span_start', 'span_end']) {
+      for (const col of ['span_start', 'span_end']) {
         if (new RegExp(`\\b${col}\\b`, 'u').test(residue)) offenders.push(`${label(file)}: ${col}`);
+      }
+      if (/\braw_text\b/u.test(withoutPermittedRawText(file, residue))) {
+        offenders.push(`${label(file)}: raw_text`);
       }
     }
     expect(offenders, `raw legal-ref span in projection residue: ${offenders.join(', ')}`).toEqual(
       []
     );
+  });
+
+  it('the legal-ref repo selects raw_text exactly once, aliased to citation (A1)', () => {
+    const residue = residues.get(join(MODULE_DIR, LEGAL_REF_REPO_FILE)) ?? '';
+    expect(residue.match(CITATION_SELECTION)).toHaveLength(1);
   });
 });
 
@@ -133,14 +160,9 @@ describe('judicial leak audit — structural type invariants', () => {
   });
 
   it('GraphQL SDL declares NO forbidden FIELD (parsed AST, comments excluded)', () => {
-    const forbidden = new Set([
-      'displayName',
-      'solutionSummary',
-      'solution',
-      'rawText',
-      'sourceField',
-    ]);
+    const forbidden = new Set(['displayName', 'solutionSummary', 'solution', 'rawText']);
     const offenders: string[] = [];
+    let legalRefHasSourceField = false;
     for (const def of parse(judicialTypeDefs).definitions) {
       if (
         (def.kind === Kind.OBJECT_TYPE_DEFINITION || def.kind === Kind.OBJECT_TYPE_EXTENSION) &&
@@ -149,15 +171,20 @@ describe('judicial leak audit — structural type invariants', () => {
         const typeName = 'name' in def ? def.name.value : '?';
         for (const field of def.fields) {
           if (forbidden.has(field.name.value)) offenders.push(`${typeName}.${field.name.value}`);
+          // A1: the citation's source field is served on the legal ref ONLY.
+          if (field.name.value === 'sourceField') {
+            if (typeName === 'JudicialLegalRef') legalRefHasSourceField = true;
+            else offenders.push(`${typeName}.sourceField`);
+          }
         }
       }
     }
     expect(offenders, `SDL declares forbidden field(s): ${offenders.join(', ')}`).toEqual([]);
+    expect(legalRefHasSourceField, 'JudicialLegalRef.sourceField').toBe(true);
   });
 
-  it('the legal-ref projection excludes the solution_summary source_field (S2)', () => {
+  it('BOTH legal-ref readers exclude the solution_summary source_field (S2)', () => {
     const code = readFileSync(join(MODULE_DIR, 'shell/repo/legal-ref-repo.ts'), 'utf8');
-    expect(code).toMatch(/source_field\s*<>/u);
-    expect(code).toContain('FORBIDDEN_REF_SOURCE_FIELD');
+    expect(code.match(/lr\.source_field <> \$\{FORBIDDEN_REF_SOURCE_FIELD\}/gu)).toHaveLength(2);
   });
 });

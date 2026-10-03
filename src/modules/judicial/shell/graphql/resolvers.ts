@@ -1,7 +1,10 @@
 /**
  * Judicial module — GraphQL resolvers (plan 08 §3.3). Thin: parse args → call the
  * SAME usecase MCP calls. `ApiError` → `GraphQLError`. Cursor pages → Relay
- * connections. The `JudicialLegalRef.targetAct` field resolves through the kernel
+ * connections: the case list and the reverse-citation list pass the REPO-built
+ * `{ node, cursor }` items through as edges unchanged (the repo holds the exact
+ * sort tuple; nothing here rebuilds a cursor from display fields). The
+ * `JudicialLegalRef.targetAct` field resolves through the kernel
  * `legalActLoader()` (the legal module 05 registers it; tolerates dangling → null).
  *
  * PRIVACY: no resolver reads a name column. The usecase intentionally withholds
@@ -13,7 +16,6 @@ import { GraphQLError } from 'graphql';
 import {
   GRAPHQL_ERROR_CODE,
   buildNextCursor,
-  fhashFor,
   normalizeCui,
   type ApiError,
   type CursorPage,
@@ -33,16 +35,10 @@ import {
   resolveJudicialFilters,
   type JudicialRepos,
 } from '../../core/usecases.js';
-import { judicialCasesSpec } from '../filters/judicial.spec.js';
 import { companyCasesFhash } from '../repo/company-link-repo.js';
 
 import type { CompanyLitigationFilter } from '../../core/ports.js';
-import type {
-  JudicialCase,
-  JudicialCaseCitation,
-  JudicialCaseLink,
-  JudicialResolveDim,
-} from '../../core/types.js';
+import type { JudicialCaseLink, JudicialCursorItem, JudicialResolveDim } from '../../core/types.js';
 import type { Result } from 'neverthrow';
 
 export interface JudicialResolverDeps {
@@ -60,9 +56,6 @@ const unwrap = <T>(result: Result<T, ApiError>): T => {
   if (result.isErr()) throw toGraphqlError(result.error);
   return result.value;
 };
-
-const sortValueOf = (c: JudicialCase, sort: 'modifiedAt' | 'openedAt'): string =>
-  (sort === 'modifiedAt' ? c.latestSourceModifiedAt : c.sourceOpenedAt) ?? '';
 
 /** Read the optional JD-1 narrowing filter off GraphQL args. */
 const litigationFilter = (args: {
@@ -112,16 +105,15 @@ export const makeJudicialResolvers = (deps: JudicialResolverDeps): Record<string
       ) => {
         const sort = args.sort === 'openedAt' ? 'openedAt' : 'modifiedAt';
         const dir = args.dir === 'ASC' ? 'asc' : 'desc';
-        const filter = args.filter ?? {};
         const page = unwrap(
           await listCases(repos, {
-            filter,
+            filter: args.filter ?? {},
             sort,
             dir,
             page: { first: args.first ?? 20, ...(args.after != null && { after: args.after }) },
           })
         );
-        return toCaseConnection(page, filter, sort, dir);
+        return toRepoEdgeConnection(page);
       },
 
       judicialCaseload: async (_r: unknown, args: { groupBy: string; filter?: FilterInput }) => {
@@ -174,7 +166,7 @@ export const makeJudicialResolvers = (deps: JudicialResolverDeps): Record<string
             ...(args.after != null && { after: args.after }),
           })
         );
-        return toCaseCitationConnection(page, args.targetActId);
+        return toRepoEdgeConnection(page);
       },
 
       judicialResolve: async (_r: unknown, args: { dim: string; q: string; limit?: number }) =>
@@ -210,28 +202,20 @@ export const makeJudicialResolvers = (deps: JudicialResolverDeps): Record<string
 
 // ── connection projections ──────────────────────────────────────────────────────
 
-const toCaseConnection = (
-  page: CursorPage<JudicialCase>,
-  filter: FilterInput,
-  sort: 'modifiedAt' | 'openedAt',
-  dir: 'asc' | 'desc'
-) => {
-  // Per-edge keyset cursor bound to the SAME fhash the repo used (filter identity),
-  // so each cursor round-trips through decodeCursor on the next page.
-  const fhash = fhashFor(judicialCasesSpec, filter);
-  const edges = page.items.map((node) => ({
-    node,
-    cursor: buildNextCursor({ sort, dir, fhash, lastKeys: [sortValueOf(node, sort), node.caseId] }),
-  }));
-  return {
-    edges,
-    pageInfo: {
-      hasNextPage: page.next !== null,
-      endCursor: edges.length > 0 ? (edges[edges.length - 1]?.cursor ?? null) : null,
-    },
-    totalCount: null,
-  };
-};
+/**
+ * A connection over repo-built edges (case list, reverse citations). `endCursor`
+ * is the last edge's cursor on EVERY nonempty page (final pages included) and
+ * null on an empty page; `hasNextPage` mirrors the repo's `next`, which, when
+ * present, is that same last-edge cursor.
+ */
+const toRepoEdgeConnection = <T>(page: CursorPage<JudicialCursorItem<T>>) => ({
+  edges: page.items,
+  pageInfo: {
+    hasNextPage: page.next !== null,
+    endCursor: page.items[page.items.length - 1]?.cursor ?? null,
+  },
+  totalCount: null,
+});
 
 const toCaseLinkConnection = (
   page: CursorPage<JudicialCaseLink>,
@@ -252,22 +236,6 @@ const toCaseLinkConnection = (
       hasNextPage: page.next !== null,
       endCursor: edges.length > 0 ? (edges[edges.length - 1]?.cursor ?? null) : null,
     },
-    totalCount: null,
-  };
-};
-
-const toCaseCitationConnection = (page: CursorPage<JudicialCaseCitation>, targetActId: string) => {
-  const fhash = `judicial_cases_citing:${targetActId}`;
-  // The citation cursor's keyset is the legal-reference id (the repo's sort key),
-  // which is not on JudicialCaseCitation; use page.next for the endCursor (the only
-  // cursor a client follows). Per-edge cursors mirror the case id for stability.
-  const edges = page.items.map((node) => ({
-    node,
-    cursor: buildNextCursor({ sort: 'caseId', dir: 'desc', fhash, lastKeys: [node.caseId] }),
-  }));
-  return {
-    edges,
-    pageInfo: { hasNextPage: page.next !== null, endCursor: page.next },
     totalCount: null,
   };
 };

@@ -79,7 +79,9 @@ const objectsAndQuery = /* GraphQL */ `
     stageName: String
     "Raw procedural object text — SAFE (the subject of the case, never party names)."
     object: String
+    "Opening date in the server session timezone (YYYY-MM-DD). Exceptional stored values are explicit: an era suffix outside AD 1-9999 (0001-12-31 BC, 10000-01-01 AD) or infinity/-infinity. Display only; pagination uses the exact timestamp."
     sourceOpenedAt: Date
+    "Latest source modification, UTC with millisecond display (YYYY-MM-DDTHH:mm:ss.SSSZ). Exceptional stored values are explicit: exact UTC text with era outside AD 1-9999 (10000-01-01T00:00:00.000000+00 AD) or infinity/-infinity. Display only; pagination uses the full-precision timestamp."
     latestSourceModifiedAt: DateTime
   }
 
@@ -87,10 +89,13 @@ const objectsAndQuery = /* GraphQL */ `
   type JudicialHearing {
     caseId: BigInt!
     hearingIndex: Int!
+    "UTC with millisecond display (YYYY-MM-DDTHH:mm:ss.SSSZ); exact UTC text with era outside AD 1-9999, or infinity/-infinity."
     hearingAt: DateTime
     panel: String
+    "YYYY-MM-DD; outside AD 1-9999 the full year with an era (0001-12-31 BC, 5874897-12-31 AD), or infinity/-infinity."
     pronouncementDate: Date
     documentNumber: String
+    "YYYY-MM-DD; outside AD 1-9999 the full year with an era, or infinity/-infinity."
     documentDate: Date
     # NO solutionSummary (forbidden permanently). NO solution (withheld in v1).
   }
@@ -98,6 +103,7 @@ const objectsAndQuery = /* GraphQL */ `
   type JudicialAppeal {
     caseId: BigInt!
     appealIndex: Int!
+    "YYYY-MM-DD; outside AD 1-9999 the full year with an era, or infinity/-infinity."
     appealDeclaredAt: Date
     appealType: String
   }
@@ -114,10 +120,14 @@ const objectsAndQuery = /* GraphQL */ `
     legalForm: String
   }
 
-  "A safe legal-act citation referenced by a case. citation is the normalized token (act_type/number/year), NEVER the source span."
+  "A legal-act citation extracted from a case. citation is the exact stored extracted token, not the surrounding source text; act fields are as resolved (null when unresolved)."
   type JudicialLegalRef {
     caseLegalReferenceId: BigInt!
     caseId: BigInt!
+    "Where the token was extracted: object (case grain) or a hearing field."
+    sourceField: String!
+    "The source hearing of a hearing-field citation; null for object citations."
+    hearingIndex: Int
     actType: String
     actNumber: String
     actYear: Int
@@ -126,8 +136,9 @@ const objectsAndQuery = /* GraphQL */ `
     targetActId: BigInt
     resolutionStatus: String
     confidenceScore: String
+    "The exact stored extracted citation token, unmodified."
     citation: String!
-    "Resolved domestic act (kernel legalActLoader by act_id; tolerates dangling → null). Empty in v1 (gate #11)."
+    "Resolved domestic act through the kernel legal-act loader; null when no target is stored, the loader is unavailable, or the target is dangling."
     targetAct: LegalAct
   }
 
@@ -144,6 +155,7 @@ const objectsAndQuery = /* GraphQL */ `
 
   "Domain freshness watermark (§10)."
   type JudicialAsOf {
+    "Interim estimate: the maximum latestSourceModifiedAt, rendered like that field (including explicit exceptional text)."
     asOf: DateTime
     estimated: Boolean!
   }
@@ -284,7 +296,7 @@ const objectsAndQuery = /* GraphQL */ `
       first: Int = 20
       after: String
     ): JudicialCaseLinkConnection!
-    "Cases citing a legal act (JD-3 reverse; empty until gate #11)."
+    "Stored citation rows linking cases to the requested act, ordered by reference ID (one edge per reference); solution_summary references are excluded."
     judicialCasesCitingAct(
       targetActId: BigInt!
       first: Int = 20

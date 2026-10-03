@@ -21,6 +21,7 @@ import type {
   JudicialCaseLink,
   JudicialCompanyLitigation,
   JudicialCourt,
+  JudicialCursorItem,
   JudicialHearing,
   JudicialLegalRef,
   JudicialLineageEdge,
@@ -77,10 +78,15 @@ export interface JudicialCaseRepo {
   ): Promise<Result<JudicialCase | null, ApiError>>;
   /**
    * CURSOR list. Driving index: cases_institution_idx (institution filter) OR
-   * cases_modified_idx (recency feed). Sort tuple = (sortExpr, case_id). The repo
-   * REJECTS an unbounded request (no court / period bound) → InvalidInput (§7.1).
+   * cases_modified_idx (recency feed). Sort tuple = (exact sort timestamp,
+   * numeric case_id), NULLS LAST both directions. The repo builds every item's
+   * cursor from that exact tuple (`next` = the last item's cursor when more rows
+   * exist). The repo REJECTS an unbounded request (no court / period bound) and
+   * any malformed or stale cursor → InvalidInput (§7.1).
    */
-  listCursor(opts: CaseListOptions): Promise<Result<CursorPage<JudicialCase>, ApiError>>;
+  listCursor(
+    opts: CaseListOptions
+  ): Promise<Result<CursorPage<JudicialCursorItem<JudicialCase>>, ApiError>>;
   /** JD-2: cases by institution × category × year × courtLevel. Bounded; aggregate timeout. */
   aggregate(opts: CaseAggregateOptions): Promise<Result<JudicialCaseAggregate, ApiError>>;
   /** Domain freshness watermark — interim `max(cases.last_seen_at)` (§10). */
@@ -157,13 +163,15 @@ export interface JudicialCompanyLinkRepo {
 
 export interface JudicialLegalRefRepo {
   // tables: justice.case_legal_references. EXCLUDES source_field='solution_summary'
-  // rows (S2); SELECTs act_type/number/year + a normalized citation token only,
-  // never the raw source span.
+  // rows (S2); SELECTs the exact stored citation token (raw_text), its source
+  // field + hearing anchor and the act/resolution columns — never the span
+  // offsets or the surrounding source text.
   listForCase(caseId: string): Promise<Result<readonly JudicialLegalRef[], ApiError>>; // JD-3
+  /** Reference rows (not distinct cases) by reference id DESC; one cursor per reference. */
   casesCitingAct(
     targetActId: string,
     page: CursorPageRequest
-  ): Promise<Result<CursorPage<JudicialCaseCitation>, ApiError>>;
+  ): Promise<Result<CursorPage<JudicialCursorItem<JudicialCaseCitation>>, ApiError>>;
 }
 
 // ── Lineage candidates (candidate-only; empty until gate #10) ──────────────────

@@ -382,7 +382,8 @@ export interface JudicialCaseRepo {
   // CURSOR list. Driving index: cases_institution_idx (institution_code) when an
   // institution/court filter is present (mandatory for the unbounded case space),
   // OR cases_modified_idx (latest_source_modified_at) for time-ordered feeds.
-  // Sort tuple = (latest_source_modified_at, case_id) desc by default.
+  // Sort tuple = (exact sort timestamp, numeric case_id), desc by default, NULLS
+  // LAST both ways; the repo builds every item's cursor from that tuple (§4.1).
   listCursor(
     filter: CaseFilterInput,
     page: CursorPage
@@ -428,11 +429,12 @@ export interface JudicialCompanyLinkRepo {
 // ── Legal references (safe; empty until gate #11) ────────────────────────────
 export interface JudicialLegalRefRepo {
   // tables: justice.case_legal_references (case_idx, target_idx). No PII *if* the
-  // served projection bounds rawText to the citation token and excludes rows whose
-  // source_field='solution_summary' (S2): raw_text is a substring of source_field,
-  // and source_field ∈ ('object','solution','solution_summary') by DB CHECK — the
-  // 'solution_summary' rows must NOT surface their span. SELECTs the act_type/
-  // number/year/issuer + a normalized citation token only, never the source span.
+  // served projection is the stored extracted citation token and excludes rows
+  // whose source_field='solution_summary' (S2): raw_text is a substring of
+  // source_field, and source_field ∈ ('object','solution','solution_summary') by
+  // DB CHECK — the 'solution_summary' rows must NOT surface. SELECTs the exact
+  // token (raw_text AS citation) + source_field + hearing_index + the act and
+  // resolution columns as stored, never the span offsets or surrounding text (§4.1).
   listForCase(caseId: string): Promise<Result<readonly JudicialLegalRef[], ApiError>>; // JD-3
   casesCitingAct(
     targetActId: string,
@@ -475,6 +477,61 @@ court/period-bounded result set — it never issues a blocking `COUNT(*)` over
 `justice.cases`. The aggregate must be entered through a bounding predicate
 (court/level/period); an unbounded `groupBy=category` over all 6.16M cases is
 `InvalidInput`, same rule as the case list.
+
+### 4.1 A1 — exact citations, repo-owned cursors, truthful temporal text (2026-10-03)
+
+**Citations.** `JudicialLegalRef.citation` is the exact stored extracted token
+(`raw_text`), unmodified — not the surrounding source sentence and not rebuilt
+from the act fields. Each reference also carries `sourceField` (`object` or a
+hearing field) and a nullable `hearingIndex` (null for `object`). Act identity,
+target, resolution status and confidence stay exactly as stored, including nulls
+for an unresolved token (e.g. `art.336 ncp`). Rows remain reference-grain; both
+readers keep the `solution_summary` exclusion. The MCP reference-list summary
+counts citations (`Case {caseId} has {n} legal citation(s) ({resolved} uniquely
+resolved).`).
+
+**Cursors.** For `judicialCases` and `judicialCasesCitingAct` the repo returns
+`{ node, cursor }` items built from each row's exact sort tuple, and GraphQL
+passes them through as edges. `endCursor` is the last edge's cursor on every
+nonempty page (final pages included) and null on an empty page; `hasNextPage`
+is true exactly when more rows exist. Nodes, case detail and MCP payloads carry
+no cursor metadata.
+
+- Case-list tuple: the native `source_opened_at` / `latest_source_modified_at`
+  plus the numeric `case_id`, NULLS LAST in both directions. The cursor key is the
+  exact UTC text with six fractional digits and an explicit era
+  (`2026-05-04T13:15:00.123456+00 AD`), `infinity`/`-infinity`, or `''` for NULL;
+  it casts back to the identical stored value. Display fields are never keys.
+- Case-list cursors carry a module-local `cursor-v2` filter identity (kernel
+  envelope still v1). **Every earlier case-list cursor returns `INVALID_INPUT`
+  "restart pagination" once after rollout** — their date/millisecond keys were
+  lossy and cannot be translated.
+- Reverse citations: unchanged `refId`/`desc`/`judicial_cases_citing:<actId>`
+  identity, one cursor per reference row (`ref_id` DESC). Earlier valid end
+  cursors keep working; earlier per-edge `caseId` cursors are rejected.
+- Before any SQL, a cursor must decode to exactly the expected number of JSON
+  string keys (no numbers, nulls or objects), pass the kernel envelope/identity
+  check, and carry canonical values: signed-bigint ids without `-0` or leading
+  zeros; timestamps in exactly the codec spelling, with a real proleptic-Gregorian
+  date (year 0 does not exist; 1 BC is a leap year), and inside PostgreSQL's
+  range `4714-11-24T00:00:00.000000+00 BC` … `294276-12-31T23:59:59.999999+00 AD`.
+  Anything else is `INVALID_INPUT` with restart guidance.
+
+**Temporal text.** Timestamps and dates are rendered in SQL; no JS Date
+conversion remains in the case, `asOf` or child paths.
+
+| Field                                                   | Ordinary (AD 1–9999)                                 | Exceptional stored value                                          |
+| ------------------------------------------------------- | ---------------------------------------------------- | ----------------------------------------------------------------- |
+| `sourceOpenedAt`                                        | `YYYY-MM-DD` in the session timezone (unchanged)     | era text in the same timezone (`0001-12-31 BC`, `10000-01-01 AD`) |
+| `latestSourceModifiedAt`, `asOf`, `hearingAt`           | UTC `YYYY-MM-DDTHH:mm:ss.SSSZ` (millisecond display) | exact UTC text with era (`10000-01-01T00:00:00.000000+00 AD`)     |
+| `pronouncementDate`, `documentDate`, `appealDeclaredAt` | `YYYY-MM-DD` from the native date                    | full native year with era (`0001-12-31 BC`, `5874897-12-31 AD`)   |
+
+All fields return `infinity`/`-infinity` and null as stored. Compatibility: modern
+AD values keep their exact display bytes; year 0001 now stays 0001 (it previously
+displayed as 2001); unusual values that previously failed the whole read, showed a
+wrong year or dropped their era are now explicit text, and expanded years use
+PostgreSQL's spelling instead of JS's signed six-digit form. `asOf` keeps its
+interim `max(latest_source_modified_at)` meaning and `estimated: true`.
 
 ---
 
@@ -653,7 +710,7 @@ candidate `evidence`/`candidates`/`reviewed_by` jsonb/PII** (leak audit covers M
 | `get_judicial_case`                    | `caseId` or `{institutionCode, caseNumber}` | `JudicialCaseDetail` (name-gated parties; **no solution_summary**)   | `getCaseDetail`        | `/judicial/cases/{caseId}`             | "Case {caseNumber} at {court}: {stage}, {hearingCount} hearings."                     |
 | `get_court_caseload`                   | `groupBy`, court/category/year filters      | aggregate rows + denominator + coverage                              | `getCourtCaseload`     | `/judicial/cases/aggregate?...`        | "{court/level} handled {cases} cases in {year}."                                      |
 | `get_company_litigation`               | `cui` (resolved)                            | count + courtLevels + years + coverage; **published-only, empty v1** | `getCompanyLitigation` | `/judicial/companies/{cui}/litigation` | "Company {cui}: {caseCount} published case links (coverage {x}%)." Caveat when empty. |
-| `get_case_legal_references`            | `caseId`                                    | resolved/ambiguous/unresolved citations                              | `getCaseLegalRefs`     | `/judicial/cases/{caseId}`             | "Case {caseNumber} cites {n} acts ({resolved} resolved)."                             |
+| `get_case_legal_references`            | `caseId`                                    | resolved/ambiguous/unresolved citations                              | `getCaseLegalRefs`     | `/judicial/cases/{caseId}`             | "Case {caseId} has {n} legal citation(s) ({resolved} uniquely resolved)."             |
 
 **No MCP tool returns party rows.** Person/unknown parties are exposed only as
 `personPartyCount` inside `get_judicial_case`. The aggregate accuracy gate (catalog)
@@ -803,9 +860,9 @@ justice.case_parties` and assert: every `name_key_id`-bearing row has
    person-name string**, and assert that string surfaces nowhere. This makes the
    "no code change when gate #9 flips on" design safe by construction, not by
    future diligence.
-7. **`case_legal_references.raw_text` bound (S2):** assert the served
-   `JudicialLegalRef.rawText` is the normalized citation token (act_type/number/year
-   span) only, never the surrounding `source_field` text — and rows with
+7. **`case_legal_references.raw_text` bound (S2, A1):** assert the served
+   `JudicialLegalRef.citation` is exactly the stored extracted token (`raw_text`),
+   never the surrounding `source_field` text — and rows with
    `source_field='solution_summary'` are excluded from the served projection (their
    `raw_text` is a substring of a forbidden column).
 

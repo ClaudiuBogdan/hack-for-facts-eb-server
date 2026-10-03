@@ -5,6 +5,11 @@
  *    such field — a select on either is a compile error, the structural guarantee).
  *  - parties have NO name column; the SELECT lists only the projected + privacy-
  *    predicate columns.
+ *
+ * Child timestamps/dates are rendered in SQL (temporal-sql.ts), never through a
+ * JS Date: ordinary values keep their display shapes, exceptional stored values
+ * (BC, expanded years, ±infinity, dates past the timestamp range) come back as
+ * explicit text instead of failing the whole case detail.
  */
 
 import { sql, type Kysely } from 'kysely';
@@ -13,6 +18,7 @@ import { err, ok, type Result } from 'neverthrow';
 import { databaseError, type ApiError, type ProdDatabase } from '@/modules/shared/index.js';
 
 import { CLASSIFIER_VERSION, PUBLISHABLE_PARTY_KINDS, PUBLISHABLE_RULES } from './constants.js';
+import { nativeDateDisplay, utcTimestampDisplay } from './temporal-sql.js';
 
 import type {
   JudicialAppealRepo,
@@ -46,11 +52,13 @@ export const makeJudicialHearingRepo = (db: Db): JudicialHearingRepo => ({
     if (!ID_RE.test(caseId)) return ok([]);
     try {
       // Note the explicit column list: solution / solution_summary are NOT selected
-      // (and are not on the table row type). hearing_at is timestamptz → ISO.
+      // (and are not on the table row type). hearing_at → UTC display text; the
+      // two native dates → native-date display text.
       const r = await sql<HearingRow>`
-        select h.case_id::text as case_id, h.hearing_index, h.hearing_at,
-               h.panel, to_char(h.pronouncement_date, 'YYYY-MM-DD') as pronouncement_date,
-               h.document_number, to_char(h.document_date, 'YYYY-MM-DD') as document_date
+        select h.case_id::text as case_id, h.hearing_index,
+               ${utcTimestampDisplay(sql`h.hearing_at`)} as hearing_at,
+               h.panel, ${nativeDateDisplay(sql`h.pronouncement_date`)} as pronouncement_date,
+               h.document_number, ${nativeDateDisplay(sql`h.document_date`)} as document_date
         from justice.case_hearings h
         where h.case_id = ${caseId}::bigint
         order by h.hearing_index asc
@@ -59,7 +67,7 @@ export const makeJudicialHearingRepo = (db: Db): JudicialHearingRepo => ({
         r.rows.map((row) => ({
           caseId: row.case_id,
           hearingIndex: row.hearing_index,
-          hearingAt: row.hearing_at === null ? null : new Date(row.hearing_at).toISOString(),
+          hearingAt: row.hearing_at,
           panel: row.panel,
           pronouncementDate: row.pronouncement_date,
           documentNumber: row.document_number,
@@ -87,7 +95,7 @@ export const makeJudicialAppealRepo = (db: Db): JudicialAppealRepo => ({
     try {
       const r = await sql<AppealRow>`
         select a.case_id::text as case_id, a.appeal_index,
-               to_char(a.appeal_declared_at, 'YYYY-MM-DD') as appeal_declared_at, a.appeal_type
+               ${nativeDateDisplay(sql`a.appeal_declared_at`)} as appeal_declared_at, a.appeal_type
         from justice.case_appeals a
         where a.case_id = ${caseId}::bigint
         order by a.appeal_index asc

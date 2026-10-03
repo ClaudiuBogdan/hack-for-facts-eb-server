@@ -13,7 +13,9 @@
  * layer, never by a party SELECT (plan §2.2, §3.2).
  *
  * Scalars (§14.1): `caseId`/`nameKeyId`/`candidateId` are bigint → string; dates
- * are `YYYY-MM-DD`; timestamps ISO strings.
+ * are `YYYY-MM-DD`; timestamps ISO strings. The case/as-of timestamps are rendered
+ * in SQL (never via a JS Date) and keep explicit text for exceptional stored
+ * values — see `JudicialCase`.
  */
 
 // ── enums ──────────────────────────────────────────────────────────────────────
@@ -76,8 +78,19 @@ export interface JudicialCase {
   readonly stage: string | null;
   readonly stageName: string | null;
   readonly object: string | null; // raw object text — safe (procedural subject, not parties)
-  readonly sourceOpenedAt: string | null; // date (YYYY-MM-DD)
-  readonly latestSourceModifiedAt: string | null; // ISO timestamp
+  /**
+   * Display date in the session timezone: `YYYY-MM-DD` for AD years 1–9999;
+   * otherwise explicit PostgreSQL text (`0001-12-31 BC`, `10000-01-01 AD`,
+   * `infinity`, `-infinity`). Never a pagination key.
+   */
+  readonly sourceOpenedAt: string | null;
+  /**
+   * UTC display timestamp: `YYYY-MM-DDTHH:mm:ss.SSSZ` (millisecond display) for AD
+   * years 1–9999; otherwise the exact UTC text with era
+   * (`10000-01-01T00:00:00.000000+00 AD`) or `infinity`/`-infinity`. Never a
+   * pagination key: cursors carry the full-precision value.
+   */
+  readonly latestSourceModifiedAt: string | null;
 }
 
 // ── Hearing — solution_summary AND solution STRUCTURALLY ABSENT in v1 ──────────
@@ -85,13 +98,16 @@ export interface JudicialCase {
 export interface JudicialHearing {
   readonly caseId: string;
   readonly hearingIndex: number;
-  readonly hearingAt: string | null; // ISO
+  /** UTC display, like `JudicialCase.latestSourceModifiedAt` (explicit text when exceptional). */
+  readonly hearingAt: string | null;
   readonly panel: string | null;
   // NO `solutionSummary` field (forbidden permanently). NO `solution` field in v1
   // (withheld until a person-shape audit passes — §2.1). The type carries neither.
-  readonly pronouncementDate: string | null; // date
+  /** Native-date display: `YYYY-MM-DD` for AD 1–9999, else explicit era text (`0001-12-31 BC`, `5874897-12-31 AD`) or ±infinity. */
+  readonly pronouncementDate: string | null;
   readonly documentNumber: string | null;
-  readonly documentDate: string | null; // date
+  /** Native-date display, as `pronouncementDate`. */
+  readonly documentDate: string | null;
 }
 
 // ── Appeal ──────────────────────────────────────────────────────────────────────
@@ -99,7 +115,8 @@ export interface JudicialHearing {
 export interface JudicialAppeal {
   readonly caseId: string;
   readonly appealIndex: number;
-  readonly appealDeclaredAt: string | null; // date
+  /** Native-date display, as `JudicialHearing.pronouncementDate`. */
+  readonly appealDeclaredAt: string | null;
   readonly appealType: string | null;
 }
 
@@ -173,6 +190,10 @@ export interface JudicialCaseDetail {
 export interface JudicialLegalRef {
   readonly caseLegalReferenceId: string;
   readonly caseId: string;
+  /** Where the token was extracted: `object` (case grain) or a hearing field. */
+  readonly sourceField: string;
+  /** The source hearing for a hearing-field citation; null for case-grain (`object`). */
+  readonly hearingIndex: number | null;
   readonly actType: string | null;
   readonly actNumber: string | null;
   readonly actYear: number | null;
@@ -182,9 +203,10 @@ export interface JudicialLegalRef {
   readonly resolutionStatus: string | null;
   readonly confidenceScore: string | null;
   /**
-   * The normalized citation token (rebuilt from act_type/number/year) — NEVER the
-   * raw source span (S2). Rows whose `source_field='solution_summary'` are excluded
-   * from the served projection entirely.
+   * The exact stored extracted citation token (`raw_text`), unmodified — not the
+   * surrounding source sentence and not rebuilt from the act fields (which stay
+   * null for an unresolved token). Rows whose `source_field='solution_summary'`
+   * are excluded from the served projection entirely (S2).
    */
   readonly citation: string;
 }
@@ -258,7 +280,8 @@ export type JudicialResolveDim = 'court' | 'courtLevel' | 'companyName' | 'categ
 // ── As-of metadata (§10) ───────────────────────────────────────────────────────
 
 export interface JudicialAsOf {
-  readonly asOf: string | null; // ISO timestamp; max(cases.last_seen_at) interim
+  /** `max(cases.latest_source_modified_at)`, rendered like `latestSourceModifiedAt`. */
+  readonly asOf: string | null;
   readonly estimated: boolean;
 }
 
@@ -266,3 +289,15 @@ export interface JudicialAsOf {
 
 /** `justice.cases` list sort keys. `modifiedAt` is the default (recency feed). */
 export type JudicialCaseSort = 'modifiedAt' | 'openedAt';
+
+// ── Cursor pages ───────────────────────────────────────────────────────────────
+
+/**
+ * One cursor-page item: the node plus the opaque cursor the REPO built from the
+ * row's exact database sort tuple. The wrapper exists only on the two cursor
+ * lists; nodes (and case detail / MCP payloads) never carry cursor metadata.
+ */
+export interface JudicialCursorItem<T> {
+  readonly node: T;
+  readonly cursor: string;
+}

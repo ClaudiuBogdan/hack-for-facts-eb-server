@@ -7,11 +7,20 @@
  * (institutionCode | courtLevel | year* | modified*). An unbounded request over
  * the 6.16M-row table is `InvalidInput`. The `courtLevel` and `year` filter fields
  * are VIRTUAL (no native column) — the repo compiles them here.
+ *
+ * TIMESTAMPS (A1): the stored `timestamptz` columns are unrestricted (BC, expanded
+ * years, ±infinity are all legal), so nothing here converts them through a JS
+ * Date. Display text is rendered in SQL; the cursor carries a separate EXACT
+ * value (full microseconds, explicit era, ±infinity) that casts back to the
+ * identical native timestamp, built by this repo from each returned row.
  */
 
+import { Type } from '@sinclair/typebox';
+import { Value } from '@sinclair/typebox/value';
 import { sql, type Kysely, type RawBuilder } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
+import { decodeOpaqueJson } from '@/common/canonical-json/index.js';
 import {
   buildNextCursor,
   databaseError,
@@ -34,6 +43,7 @@ import {
   keysetCursor,
   yearBounds,
 } from './filter-helpers.js';
+import { exactTimestampText, sessionDateDisplay, utcTimestampDisplay } from './temporal-sql.js';
 import { judicialCasesSpec } from '../filters/judicial.spec.js';
 
 import type { CaseAggregateOptions, CaseListOptions, JudicialCaseRepo } from '../../core/ports.js';
@@ -42,6 +52,7 @@ import type {
   JudicialAsOf,
   JudicialCase,
   JudicialCaseAggregate,
+  JudicialCursorItem,
 } from '../../core/types.js';
 
 type Db = Kysely<ProdDatabase>;
@@ -52,8 +63,8 @@ const AGG_GROUP_CAP = 500;
 const CASE_SELECT = sql`
   c.case_id::text as case_id, c.source_slug, c.institution_code, c.case_number,
   c.case_number_old, c.department, c.category, c.category_name, c.stage, c.stage_name,
-  c.object, to_char(c.source_opened_at, 'YYYY-MM-DD') as source_opened_at,
-  c.latest_source_modified_at
+  c.object, ${sessionDateDisplay(sql`c.source_opened_at`)} as source_opened_at,
+  ${utcTimestampDisplay(sql`c.latest_source_modified_at`)} as latest_source_modified_at
 `;
 
 interface CaseRow {
@@ -72,6 +83,11 @@ interface CaseRow {
   latest_source_modified_at: string | null;
 }
 
+/** A list row: the case plus its exact sort value (cursor only; never on the node). */
+interface CaseListRow extends CaseRow {
+  sort_key: string | null;
+}
+
 const mapCase = (r: CaseRow): JudicialCase => ({
   caseId: r.case_id,
   sourceSlug: r.source_slug,
@@ -85,20 +101,119 @@ const mapCase = (r: CaseRow): JudicialCase => ({
   stageName: r.stage_name,
   object: r.object,
   sourceOpenedAt: r.source_opened_at,
-  latestSourceModifiedAt:
-    r.latest_source_modified_at === null
-      ? null
-      : new Date(r.latest_source_modified_at).toISOString(),
+  latestSourceModifiedAt: r.latest_source_modified_at,
 });
 
-/** The sort column expression + cursor cast for each named case sort. */
-const SORT_EXPR: Record<'modifiedAt' | 'openedAt', { expr: RawBuilder<unknown>; cast: 'date' }> = {
-  modifiedAt: { expr: sql`c.latest_source_modified_at`, cast: 'date' },
-  openedAt: { expr: sql`c.source_opened_at`, cast: 'date' },
+/** The native timestamptz column behind each named case sort (ordering + keyset). */
+const SORT_EXPR: Record<'modifiedAt' | 'openedAt', RawBuilder<unknown>> = {
+  modifiedAt: sql`c.latest_source_modified_at`,
+  openedAt: sql`c.source_opened_at`,
 };
 
-const sortValueOf = (c: JudicialCase, sort: 'modifiedAt' | 'openedAt'): string =>
-  (sort === 'modifiedAt' ? c.latestSourceModifiedAt : c.sourceOpenedAt) ?? '';
+// ── cursor identity + validation ───────────────────────────────────────────────
+
+/**
+ * Module-local case-cursor format tag, folded into the filter identity. Earlier
+ * case cursors carried a lossy date/millisecond display value, so they all fail
+ * the identity check → typed InvalidInput "restart pagination" (a one-time
+ * restart). The kernel envelope version stays 1.
+ */
+const CASE_CURSOR_FORMAT = 'judicial_cases:cursor-v2';
+const caseCursorFhash = (filter: FilterInput): string =>
+  `${CASE_CURSOR_FORMAT}:${fhashFor(judicialCasesSpec, filter)}`;
+
+const malformedCursor = (): ApiError =>
+  invalidInput('malformed cursor; restart pagination', 'cursor');
+
+const ONE_STRING_KEY = Type.Object({ keys: Type.Tuple([Type.String()]) });
+const TWO_STRING_KEYS = Type.Object({ keys: Type.Tuple([Type.String(), Type.String()]) });
+
+type KeyCheck = (key: string) => boolean;
+
+/**
+ * Decode a judicial cursor, rejecting anything non-canonical BEFORE any SQL:
+ * (1) safe base64url-JSON decode; (2) the ORIGINAL keys are exactly one/two JSON
+ * strings (the kernel decoder coerces keys with String(), which would admit
+ * nulls, objects, or numbers already rounded past 2^53); (3) the unchanged kernel
+ * envelope + sort/dir/filter-identity check; (4) every key passes its canonical
+ * check. Every failure is InvalidInput with restart guidance.
+ */
+export const decodeJudicialCursor = (
+  raw: string,
+  expected: { sort: string; dir: 'asc' | 'desc'; fhash: string },
+  checks: readonly [KeyCheck] | readonly [KeyCheck, KeyCheck]
+): Result<readonly string[], ApiError> => {
+  const decoded = decodeOpaqueJson(raw);
+  if (decoded.isErr()) return err(malformedCursor());
+  const shape = checks.length === 1 ? ONE_STRING_KEY : TWO_STRING_KEYS;
+  if (!Value.Check(shape, decoded.value)) return err(malformedCursor());
+  const envelope = decodeCursor(raw, expected);
+  if (envelope.isErr()) return err(envelope.error);
+  const keys = envelope.value.keys;
+  if (keys.length !== checks.length) return err(malformedCursor());
+  for (const [index, check] of checks.entries()) {
+    if (!check(keys[index] ?? '')) return err(malformedCursor());
+  }
+  return ok(keys);
+};
+
+const BIGINT_TEXT_RE = /^(?:0|-?[1-9][0-9]{0,18})$/u;
+const BIGINT_MIN = -(2n ** 63n);
+const BIGINT_MAX = 2n ** 63n - 1n;
+
+/** Canonical signed-bigint text (no `-0`, no leading zeros), range-checked without Number. */
+export const isCanonicalBigintText = (text: string): boolean => {
+  if (!BIGINT_TEXT_RE.test(text)) return false;
+  const value = BigInt(text);
+  return value >= BIGINT_MIN && value <= BIGINT_MAX;
+};
+
+// PostgreSQL's finite timestamptz range, pinned on Zeus PG 18.4
+// (api-temporal-boundary-qualification.json): 4714-11-24 00:00:00 BC through
+// 294276-12-31 23:59:59.999999 AD; year 0 does not exist.
+const MIN_BC_YEAR = 4714;
+const MIN_BC_MONTH = 11;
+const MIN_BC_DAY = 24;
+const MAX_AD_YEAR = 294_276;
+const DAYS_IN_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31] as const;
+const EXACT_TIMESTAMP_RE =
+  /^(?<year>[0-9]{4,6})-(?<month>[0-9]{2})-(?<day>[0-9]{2})T(?<hour>[0-9]{2}):(?<minute>[0-9]{2}):(?<second>[0-9]{2})\.[0-9]{6}\+00 (?<era>AD|BC)$/u;
+
+/** Proleptic Gregorian leap rule on the astronomical year (1 BC = year 0). */
+const isLeapYear = (astronomicalYear: number): boolean =>
+  astronomicalYear % 4 === 0 && (astronomicalYear % 100 !== 0 || astronomicalYear % 400 === 0);
+
+/**
+ * A case cursor sort key: '' (NULL), `infinity`, `-infinity`, or EXACTLY the
+ * spelling `exactTimestampText` emits for a finite value — canonical year
+ * (4 digits, or 5–6 without a leading zero), a real calendar date and time,
+ * six fractional digits, `+00`, an explicit era, inside PostgreSQL's range.
+ */
+export const isCaseSortKey = (text: string): boolean => {
+  if (text === '' || text === 'infinity' || text === '-infinity') return true;
+  const groups = EXACT_TIMESTAMP_RE.exec(text)?.groups;
+  if (groups === undefined) return false;
+  const field = (name: string): number => Number.parseInt(groups[name] ?? '', 10);
+  const yearText = groups['year'] ?? '';
+  if (yearText.length > 4 && yearText.startsWith('0')) return false;
+  const year = field('year');
+  const bc = groups['era'] === 'BC';
+  if (year < 1 || year > (bc ? MIN_BC_YEAR : MAX_AD_YEAR)) return false;
+  const month = field('month');
+  const day = field('day');
+  const monthDays = DAYS_IN_MONTH[month - 1];
+  if (monthDays === undefined) return false;
+  const leapDay = month === 2 && isLeapYear(bc ? 1 - year : year) ? 1 : 0;
+  if (day < 1 || day > monthDays + leapDay) return false;
+  if (
+    bc &&
+    year === MIN_BC_YEAR &&
+    (month < MIN_BC_MONTH || (month === MIN_BC_MONTH && day < MIN_BC_DAY))
+  ) {
+    return false;
+  }
+  return field('hour') <= 23 && field('minute') <= 59 && field('second') <= 59;
+};
 
 /**
  * Compile the `courtLevel` virtual into an `institution_code IN (subquery)` over
@@ -187,57 +302,59 @@ export const makeJudicialCaseRepo = (db: Db): JudicialCaseRepo => {
 
   const listCursor = async (
     opts: CaseListOptions
-  ): Promise<Result<CursorPage<JudicialCase>, ApiError>> => {
+  ): Promise<Result<CursorPage<JudicialCursorItem<JudicialCase>>, ApiError>> => {
     if (!hasBound(opts.filter)) {
       return err(invalidInput('judicial case list requires a court or period bound', 'filter'));
     }
     const limit = clampLimit(opts.page.first, MAX_LIST);
-    const fhash = fhashFor(judicialCasesSpec, opts.filter);
-    const sortInfo = SORT_EXPR[opts.sort];
+    const fhash = caseCursorFhash(opts.filter);
+    const sortExpr = SORT_EXPR[opts.sort];
 
-    let cursorVal: string | undefined;
-    let cursorCaseId: string | undefined;
+    let after: readonly string[] | undefined;
     if (opts.page.after !== undefined) {
-      const decoded = decodeCursor(opts.page.after, { sort: opts.sort, dir: opts.dir, fhash });
+      const decoded = decodeJudicialCursor(
+        opts.page.after,
+        { sort: opts.sort, dir: opts.dir, fhash },
+        [isCaseSortKey, isCanonicalBigintText]
+      );
       if (decoded.isErr()) return err(decoded.error);
-      cursorVal = decoded.value.keys[0];
-      cursorCaseId = decoded.value.keys[1];
+      after = decoded.value;
     }
 
     const condsRes = buildCaseConditions(opts.filter);
     if (condsRes.isErr()) return err(condsRes.error);
     const conds = condsRes.value;
-    if (cursorVal !== undefined && cursorCaseId !== undefined) {
-      conds.push(keysetCursor(sortInfo.expr, sortInfo.cast, cursorVal, cursorCaseId, opts.dir));
+    if (after !== undefined) {
+      // The exact sort value casts back to the identical native timestamp; the
+      // id compares ::bigint. NULLS LAST in both directions (keysetCursor).
+      conds.push(keysetCursor(sortExpr, 'date', after[0] ?? '', after[1] ?? '', opts.dir));
     }
     const where = composeWhere(conds);
     const orderBy =
       opts.dir === 'desc'
-        ? sql`order by ${sortInfo.expr} desc nulls last, c.case_id desc`
-        : sql`order by ${sortInfo.expr} asc nulls last, c.case_id asc`;
+        ? sql`order by ${sortExpr} desc nulls last, c.case_id desc`
+        : sql`order by ${sortExpr} asc nulls last, c.case_id asc`;
 
     try {
-      const result = await sql<CaseRow>`
-        select ${CASE_SELECT} from justice.cases c
+      const result = await sql<CaseListRow>`
+        select ${CASE_SELECT}, ${exactTimestampText(sortExpr)} as sort_key
+        from justice.cases c
         where ${where}
         ${orderBy}
         limit ${limit + 1}
       `.execute(db);
-      const rows = result.rows;
-      const hasMore = rows.length > limit;
-      const items = (hasMore ? rows.slice(0, limit) : rows).map(mapCase);
-      let next: string | null = null;
-      if (hasMore) {
-        const last = items[items.length - 1];
-        if (last !== undefined) {
-          next = buildNextCursor({
-            sort: opts.sort,
-            dir: opts.dir,
-            fhash,
-            lastKeys: [sortValueOf(last, opts.sort), last.caseId],
-          });
-        }
-      }
+      // Every item's cursor comes from ITS row's exact (sort value, id) tuple;
+      // `next` is the last returned item's cursor when more rows exist.
+      const items: JudicialCursorItem<JudicialCase>[] = result.rows.slice(0, limit).map((row) => ({
+        node: mapCase(row),
+        cursor: buildNextCursor({
+          sort: opts.sort,
+          dir: opts.dir,
+          fhash,
+          lastKeys: [row.sort_key, row.case_id],
+        }),
+      }));
+      const next = result.rows.length > limit ? (items[items.length - 1]?.cursor ?? null) : null;
       return ok({ items, next });
     } catch (error) {
       return err(databaseError('cases.listCursor failed', error));
@@ -309,11 +426,13 @@ export const makeJudicialCaseRepo = (db: Db): JudicialCaseRepo => {
 
   const getAsOf = async (): Promise<Result<JudicialAsOf, ApiError>> => {
     try {
+      // Same MAX as before; rendered in SQL so an exceptional maximum (BC,
+      // expanded year, infinity) is reported as text instead of failing the read.
       const r = await sql<{ as_of: string | null }>`
-        select max(c.latest_source_modified_at) as as_of from justice.cases c
+        select ${utcTimestampDisplay(sql`m.max_modified`)} as as_of
+        from (select max(c.latest_source_modified_at) as max_modified from justice.cases c) m
       `.execute(db);
-      const asOf = r.rows[0]?.as_of ?? null;
-      return ok({ asOf: asOf === null ? null : new Date(asOf).toISOString(), estimated: true });
+      return ok({ asOf: r.rows[0]?.as_of ?? null, estimated: true });
     } catch (error) {
       return err(databaseError('cases.getAsOf failed', error));
     }

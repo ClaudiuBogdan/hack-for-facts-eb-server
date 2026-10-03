@@ -142,6 +142,8 @@ export interface JusticeCaseLegalReferencesTable {
   case_legal_reference_id: string; // bigint → string
   case_id: string; // bigint → string
   source_field: string; // CHECK: object|solution|solution_summary — rows with 'solution_summary' EXCLUDED from served projection (S2)
+  raw_text: string; // the stored extracted citation token (not the surrounding text); served as `citation`
+  hearing_index: number | null; // integer; NULL for object (case grain), the source hearing otherwise (grain CHECK)
   act_type: string | null;
   act_number: string | null;
   act_year: number | null; // smallint
@@ -150,9 +152,9 @@ export interface JusticeCaseLegalReferencesTable {
   target_act_id: string | null; // bigint → string; soft link → legal.acts (no FK)
   resolution_status: string | null; // CHECK: unique|ambiguous|unresolved|not_a_legal_citation
   confidence_score: string | null; // numeric → string
-  // raw_text, span_start/end: the SOURCE SPAN — NEVER projected (S2). The served
-  // citation token is rebuilt from act_type/number/year only. candidates (jsonb),
-  // resolver_version, created_at: internal — not declared.
+  // span_start/end (offsets into the source text): NEVER projected (S2). The
+  // surrounding source text itself lives on cases/case_hearings, not here.
+  // candidates (jsonb), resolver_version, created_at: internal — not declared.
 }
 
 // ── case_lineage_candidates — candidate-only (empty in v1) ────────────────────

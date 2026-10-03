@@ -215,7 +215,7 @@ export const makeJudicialMcpTools = (deps: JudicialMcpDeps): readonly KernelMcpT
   const getCaseLegalReferencesTool: KernelMcpTool = {
     name: 'get_case_legal_references',
     description:
-      'Legal-act citations referenced in a case (JD-3): act_type/number/year + resolution status. Safe (no PII; solution_summary spans excluded). Empty until gate #11.',
+      'Legal-act citations extracted from a case (JD-3): each citation is the exact stored token with its source field (object or a hearing field) and hearing anchor, plus act_type/number/year and resolution status as stored (null act fields when unresolved). Safe (no PII; solution_summary citations excluded).',
     inputShape: getCaseLegalReferencesInput,
     async handler(args): Promise<McpToolOutput> {
       const caseId = str(args, 'caseId');
@@ -230,7 +230,7 @@ export const makeJudicialMcpTools = (deps: JudicialMcpDeps): readonly KernelMcpT
         query: { caseId },
         link: caseLink(caseId),
         items: refs,
-        summary: `Case ${caseId} cites ${n(refs.length)} act(s) (${n(resolved)} uniquely resolved).`,
+        summary: `Case ${caseId} has ${n(refs.length)} legal citation(s) (${n(resolved)} uniquely resolved).`,
       };
     },
   };

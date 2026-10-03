@@ -19,6 +19,7 @@ import {
   type JudicialCompanyLitigation,
   type JudicialCourt,
   type JudicialCourtTree,
+  type JudicialCursorItem,
   type JudicialLegalRef,
   type JudicialLineageEdge,
   type JudicialPartyView,
@@ -179,7 +180,8 @@ export interface ListCasesInput {
 export const listCases = (
   repos: Pick<JudicialRepos, 'cases'>,
   input: ListCasesInput
-): Promise<Result<CursorPage<JudicialCase>, ApiError>> => repos.cases.listCursor(input);
+): Promise<Result<CursorPage<JudicialCursorItem<JudicialCase>>, ApiError>> =>
+  repos.cases.listCursor(input);
 
 export const getCourtCaseload = (
   repos: Pick<JudicialRepos, 'cases'>,
@@ -215,7 +217,7 @@ export const listCasesCitingAct = (
   repos: Pick<JudicialRepos, 'legalRefs'>,
   targetActId: string,
   page: CursorPageRequest
-): Promise<Result<CursorPage<JudicialCaseCitation>, ApiError>> =>
+): Promise<Result<CursorPage<JudicialCursorItem<JudicialCaseCitation>>, ApiError>> =>
   repos.legalRefs.casesCitingAct(targetActId, page);
 
 export const getCaseLineage = (

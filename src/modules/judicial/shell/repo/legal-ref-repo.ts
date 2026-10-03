@@ -1,12 +1,17 @@
 /**
- * Judicial module — case legal-references repo (plan 08 §4, JD-3). SAFE (no PII),
- * empty until gate #11. Two hard privacy rules (S2):
+ * Judicial module — case legal-references repo (plan 08 §4, JD-3). SAFE (no PII).
+ * The served projection rules (S2, A1):
  *
- *  1. Rows with `source_field = 'solution_summary'` are EXCLUDED from the served
- *     projection — their `raw_text` span is a substring of a forbidden column.
- *  2. The served `citation` is a NORMALIZED token rebuilt from act_type/number/year
- *     — the repo NEVER selects `raw_text`, `span_start`, or `span_end` (those are
- *     not even on the table row type).
+ *  1. Rows with `source_field = 'solution_summary'` are EXCLUDED from both
+ *     readers — that token is a substring of a forbidden column.
+ *  2. `citation` is the EXACT stored extracted token (`raw_text`), with its
+ *     `source_field` and nullable `hearing_index` anchor — unmodified, never the
+ *     surrounding source sentence, never rebuilt from the act fields (which stay
+ *     as stored, including NULL identity for an unresolved token). The span
+ *     offsets are not on the table row type.
+ *  3. The reverse list keeps reference-row grain (several references in one
+ *     case stay several rows), ordered by reference id DESC; every row's cursor
+ *     is built here from its own reference id.
  */
 
 import { sql, type Kysely } from 'kysely';
@@ -15,7 +20,6 @@ import { err, ok, type Result } from 'neverthrow';
 import {
   buildNextCursor,
   databaseError,
-  decodeCursor,
   invalidInput,
   type ApiError,
   type CursorPage,
@@ -23,11 +27,16 @@ import {
   type ProdDatabase,
 } from '@/modules/shared/index.js';
 
+import { decodeJudicialCursor, isCanonicalBigintText } from './cases-repo.js';
 import { FORBIDDEN_REF_SOURCE_FIELD } from './constants.js';
 import { clampLimit } from './filter-helpers.js';
 
 import type { JudicialLegalRefRepo } from '../../core/ports.js';
-import type { JudicialCaseCitation, JudicialLegalRef } from '../../core/types.js';
+import type {
+  JudicialCaseCitation,
+  JudicialCursorItem,
+  JudicialLegalRef,
+} from '../../core/types.js';
 
 type Db = Kysely<ProdDatabase>;
 const ID_RE = /^\d+$/u;
@@ -36,6 +45,9 @@ const MAX_LIST = 50;
 interface RefRow {
   case_legal_reference_id: string;
   case_id: string;
+  citation: string;
+  source_field: string;
+  hearing_index: number | null;
   act_type: string | null;
   act_number: string | null;
   act_year: number | null;
@@ -46,18 +58,11 @@ interface RefRow {
   confidence_score: string | null;
 }
 
-/** Rebuild a safe citation token from act fields (never the raw source span). */
-const citationToken = (r: RefRow): string => {
-  const parts: string[] = [];
-  if (r.act_type !== null) parts.push(r.act_type);
-  if (r.act_number !== null) parts.push(r.act_number);
-  if (r.act_year !== null) parts.push(`/${String(r.act_year)}`);
-  return parts.join(' ').replace(/\s+\//u, '/').trim();
-};
-
 const mapRef = (r: RefRow): JudicialLegalRef => ({
   caseLegalReferenceId: r.case_legal_reference_id,
   caseId: r.case_id,
+  sourceField: r.source_field,
+  hearingIndex: r.hearing_index,
   actType: r.act_type,
   actNumber: r.act_number,
   actYear: r.act_year,
@@ -66,7 +71,7 @@ const mapRef = (r: RefRow): JudicialLegalRef => ({
   targetActId: r.target_act_id,
   resolutionStatus: r.resolution_status,
   confidenceScore: r.confidence_score,
-  citation: citationToken(r),
+  citation: r.citation,
 });
 
 export const makeJudicialLegalRefRepo = (db: Db): JudicialLegalRefRepo => {
@@ -75,10 +80,12 @@ export const makeJudicialLegalRefRepo = (db: Db): JudicialLegalRefRepo => {
   ): Promise<Result<readonly JudicialLegalRef[], ApiError>> => {
     if (!ID_RE.test(caseId)) return ok([]);
     try {
-      // EXCLUDE source_field='solution_summary' (S2). raw_text/span_* never selected.
+      // EXCLUDE source_field='solution_summary' (S2). The stored token only; the
+      // span offsets and the surrounding source text are never selected.
       const r = await sql<RefRow>`
         select lr.case_legal_reference_id::text as case_legal_reference_id,
-               lr.case_id::text as case_id, lr.act_type, lr.act_number, lr.act_year,
+               lr.case_id::text as case_id, lr.raw_text as citation, lr.source_field,
+               lr.hearing_index, lr.act_type, lr.act_number, lr.act_year,
                lr.issuer_slug, lr.article_fragment, lr.target_act_id::text as target_act_id,
                lr.resolution_status, lr.confidence_score::text as confidence_score
         from justice.case_legal_references lr
@@ -95,15 +102,19 @@ export const makeJudicialLegalRefRepo = (db: Db): JudicialLegalRefRepo => {
   const casesCitingAct = async (
     targetActId: string,
     page: CursorPageRequest
-  ): Promise<Result<CursorPage<JudicialCaseCitation>, ApiError>> => {
+  ): Promise<Result<CursorPage<JudicialCursorItem<JudicialCaseCitation>>, ApiError>> => {
     if (!ID_RE.test(targetActId)) return err(invalidInput('invalid act id', 'targetActId'));
     const limit = clampLimit(page.first, MAX_LIST);
+    // Unchanged identity: earlier valid end cursors (built from the reference id)
+    // stay usable; earlier per-edge `caseId` cursors are a sort mismatch.
     const fhash = `judicial_cases_citing:${targetActId}`;
     let cursorRefId: string | undefined;
     if (page.after !== undefined) {
-      const decoded = decodeCursor(page.after, { sort: 'refId', dir: 'desc', fhash });
+      const decoded = decodeJudicialCursor(page.after, { sort: 'refId', dir: 'desc', fhash }, [
+        isCanonicalBigintText,
+      ]);
       if (decoded.isErr()) return err(decoded.error);
-      cursorRefId = decoded.value.keys[0];
+      cursorRefId = decoded.value[0];
     }
     const cursorSql =
       cursorRefId !== undefined
@@ -128,23 +139,20 @@ export const makeJudicialLegalRefRepo = (db: Db): JudicialLegalRefRepo => {
         order by lr.case_legal_reference_id desc
         limit ${limit + 1}
       `.execute(db);
-      const hasMore = r.rows.length > limit;
-      const rows = hasMore ? r.rows.slice(0, limit) : r.rows;
-      const items: JudicialCaseCitation[] = rows.map((row) => ({
-        caseId: row.case_id,
-        institutionCode: row.institution_code,
-        caseNumber: row.case_number,
-        actType: row.act_type,
-        actNumber: row.act_number,
-        actYear: row.act_year,
-      }));
-      let next: string | null = null;
-      if (hasMore) {
-        const lastRow = rows[rows.length - 1];
-        if (lastRow !== undefined) {
-          next = buildNextCursor({ sort: 'refId', dir: 'desc', fhash, lastKeys: [lastRow.ref_id] });
-        }
-      }
+      const items: JudicialCursorItem<JudicialCaseCitation>[] = r.rows
+        .slice(0, limit)
+        .map((row) => ({
+          node: {
+            caseId: row.case_id,
+            institutionCode: row.institution_code,
+            caseNumber: row.case_number,
+            actType: row.act_type,
+            actNumber: row.act_number,
+            actYear: row.act_year,
+          },
+          cursor: buildNextCursor({ sort: 'refId', dir: 'desc', fhash, lastKeys: [row.ref_id] }),
+        }));
+      const next = r.rows.length > limit ? (items[items.length - 1]?.cursor ?? null) : null;
       return ok({ items, next });
     } catch (error) {
       return err(databaseError('legalRef.casesCitingAct failed', error));
