@@ -1,0 +1,661 @@
+# National budget API — proposed compact SDL v3. DESIGN ONLY.
+# Work turn national-budget-api-design-20261003-03.
+# Test fixture: the reviewed v3 schema.graphql (sha256 55306d65…) plus the
+# primary-approved additive field of implementation/CONTRACT_DELTAS.md item 5
+# (BudgetApprovedTotalCell.authorityCode). The frozen design artifact is unchanged.
+# Reuse existing DataSeries/DataPoint, ReportPeriodInput, PeriodType, Date and PageInfo.
+# Domain SDL below references them. Budget's existing carried-common block registers
+# the canonical DataPoint/DataSeries beside PeriodType only when budget is enabled.
+# No unconditional kernel reference to a budget-owned type. shared-series-reference
+# is a composition-check fixture, not another definition owner.
+# Numeric values occur only in DataSeries.data. Dense periods contain status/evidence.
+# Roots accept one domain input. Cursors bind filters and lane snapshot automatically.
+# expectedSnapshot is optional for explicit consistency across separate root calls.
+# Normative validation, descriptor rules, native units and source semantics: DESIGN.md.
+
+enum BudgetValueUnit {
+  THOUSAND_LEI
+  RON
+  FRACTION
+}
+
+enum BudgetApprovedUnit {
+  THOUSAND_LEI
+  RON
+}
+
+type BudgetDateInterval {
+  start: Date
+  end: Date
+}
+
+type BudgetSourceDocument {
+  url: String
+  sha256: String!
+  bytes: Int
+}
+
+type BudgetCellEvidence {
+  sheet: String
+  cell: String
+  text: String!
+}
+
+type BudgetSourceLocator {
+  kind: String!
+  sheet: String
+  cell: String
+  page: Int
+  table: String
+  row: Int
+  column: Int
+}
+
+enum BudgetFund {
+  STATE_BUDGET
+  STATE_SOCIAL_INSURANCE
+  HEALTH_INSURANCE
+  UNEMPLOYMENT_INSURANCE
+}
+
+enum BudgetApprovedForm {
+  STATE_BUDGET_SYNTHESIS
+  STATE_BUDGET_AUTHORITY_DETAIL
+  STATE_SOCIAL_INSURANCE_SYNTHESIS
+  HEALTH_INSURANCE_SYNTHESIS
+  UNEMPLOYMENT_INSURANCE_SYNTHESIS
+}
+
+enum BudgetApprovedMeasure {
+  APPROVED
+  FORECAST
+}
+
+enum BudgetCreditType {
+  BUDGET_CREDITS
+  COMMITMENT_CREDITS
+}
+
+enum BudgetApprovedRowRole {
+  DESCRIPTOR
+  CREDIT
+}
+
+enum BudgetApprovedTotalKey {
+  REVENUE_TOTAL
+  EXPENDITURE_5000_TOTAL_GENERAL
+  EXPENDITURE_5001_STATE_BUDGET
+  EXPENDITURE_5005_CHELTUIELI_TOTAL
+  AUTHORITY_EXPENDITURE_5001
+}
+
+"Availability for a named law cell or annual period; axis-only states occur only on series."
+enum BudgetApprovedStatus {
+  AVAILABLE
+  SLOT_WITHOUT_VALUE
+  NO_MATCHING_RECORD
+  AMBIGUOUS
+  FORM_NOT_LOADED
+  NOT_IN_EDITION
+  EDITION_NOT_LOADED
+  MULTIPLE_EDITIONS
+}
+
+enum BudgetApprovedAxis {
+  TARGET_YEARS_OF_EDITION
+  EDITIONS_FOR_TARGET
+  OWN_YEAR_APPROVALS
+}
+
+type BudgetApprovedSlot {
+  field: String!
+  measure: BudgetApprovedMeasure!
+  "Target year of this law amount; not necessarily its edition or chart-axis year."
+  measureYear: Int!
+  lineCount: Int!
+}
+
+type BudgetApprovedSourceFile {
+  sourceFileId: ID!
+  document: BudgetSourceDocument!
+}
+
+type BudgetApprovedFormSummary {
+  form: BudgetApprovedForm!
+  fund: BudgetFund!
+  interpretationIds: [ID!]!
+  sources: [BudgetApprovedSourceFile!]!
+  recordCount: Int!
+  lineCount: Int!
+  creditTypes: [BudgetCreditType!]!
+  authorityCount: Int
+}
+
+type BudgetApprovedEdition {
+  id: ID!
+  budgetYear: Int!
+  publication: String!
+  slots: [BudgetApprovedSlot!]!
+  forms: [BudgetApprovedFormSummary!]!
+  lineCount: Int!
+  hasConflictingInterpretations: Boolean!
+}
+
+type BudgetApprovedEditionRef {
+  id: ID!
+  budgetYear: Int!
+  publication: String!
+}
+
+enum BudgetApprovedTotalScope {
+  FUND
+  AUTHORITY
+}
+
+type BudgetApprovedTotalDefinition {
+  key: BudgetApprovedTotalKey!
+  scope: BudgetApprovedTotalScope!
+  forms: [BudgetApprovedForm!]!
+  rowRole: BudgetApprovedRowRole!
+  capitol: String!
+  label: String!
+  requiresCreditType: Boolean!
+  description: String!
+}
+
+type BudgetApprovedUnrecognizedGroup {
+  budgetYear: Int!
+  publication: String!
+  fund: String!
+  form: String!
+  lineCount: Int!
+}
+
+type BudgetApprovedCatalog {
+  editions: [BudgetApprovedEdition!]!
+  totals: [BudgetApprovedTotalDefinition!]!
+  unrecognized: [BudgetApprovedUnrecognizedGroup!]!
+}
+
+type BudgetApprovedAuthority {
+  key: ID!
+  code: String!
+  name: String!
+}
+
+type BudgetApprovedCodes {
+  capitol: String!
+  subcapitol: String!
+  paragraf: String!
+  grupa: String
+  titlu: String
+  articol: String!
+  alineat: String!
+}
+
+type BudgetApprovedLineRef {
+  lineId: ID!
+  interpretationId: ID!
+  recordIndex: Int!
+  field: String!
+  annex: String!
+  token: String!
+  sourceFileId: ID!
+  document: BudgetSourceDocument!
+}
+
+type BudgetApprovedDescriptorMatch {
+  recordIndex: Int!
+  rowRole: BudgetApprovedRowRole!
+  codes: BudgetApprovedCodes!
+  label: String!
+  contextRecordIndex: Int
+  contextLabel: String
+}
+
+type BudgetApprovedTotalCell {
+  edition: BudgetApprovedEditionRef!
+  fund: BudgetFund!
+  total: BudgetApprovedTotalKey!
+  "Requested authority code; null for fund scope or an unfiltered missing-form summary."
+  authorityCode: String
+  authority: BudgetApprovedAuthority
+  measure: BudgetApprovedMeasure!
+  "Target year of this law amount; not necessarily its edition or chart-axis year."
+  measureYear: Int!
+  creditType: BudgetCreditType
+  status: BudgetApprovedStatus!
+  matchCount: Int!
+  value: String
+  unit: BudgetValueUnit!
+  descriptor: BudgetApprovedDescriptorMatch
+  line: BudgetApprovedLineRef
+  candidates: [BudgetApprovedLineRef!]!
+}
+
+type BudgetMissingAuthority {
+  editionId: ID!
+  code: String!
+}
+
+type BudgetApprovedTotalsResult {
+  snapshot: String!
+  cells: [BudgetApprovedTotalCell!]!
+  unloadedEditionIds: [ID!]!
+  missingAuthorities: [BudgetMissingAuthority!]!
+}
+
+input BudgetApprovedTotalsInput {
+  totals: [BudgetApprovedTotalKey!]!
+  creditTypes: [BudgetCreditType!]
+  editionIds: [ID!]
+  funds: [BudgetFund!]
+  measureYears: [Int!]
+  measures: [BudgetApprovedMeasure!]
+  authorityCodes: [String!]
+  unit: BudgetApprovedUnit = THOUSAND_LEI
+}
+
+type BudgetApprovedSeriesPeriod {
+  date: String!
+  status: BudgetApprovedStatus!
+  edition: BudgetApprovedEditionRef
+  candidateEditions: [BudgetApprovedEditionRef!]!
+  budgetYear: Int
+  "Resolved target year; use it for normalization, not the chart date."
+  measureYear: Int
+  measure: BudgetApprovedMeasure
+  matchCount: Int
+  descriptor: BudgetApprovedDescriptorMatch
+  line: BudgetApprovedLineRef
+}
+
+type BudgetApprovedSeries {
+  snapshot: String!
+  axis: BudgetApprovedAxis!
+  fund: BudgetFund!
+  total: BudgetApprovedTotalKey!
+  creditType: BudgetCreditType
+  authority: BudgetApprovedAuthority
+  edition: BudgetApprovedEditionRef
+  targetYear: Int
+  unit: BudgetValueUnit!
+  series: DataSeries!
+  periods: [BudgetApprovedSeriesPeriod!]!
+}
+
+"Native record slots: null value means no stored number; zero remains a number."
+type BudgetApprovedValue {
+  field: String!
+  measure: BudgetApprovedMeasure!
+  "Target year of this law amount; not necessarily its edition or chart-axis year."
+  measureYear: Int!
+  value: String
+  token: String
+  lineId: ID
+}
+
+type BudgetApprovedRecord {
+  id: ID!
+  recordIndex: Int!
+  interpretationId: ID!
+  edition: BudgetApprovedEditionRef!
+  form: BudgetApprovedForm!
+  annex: String!
+  reportTitle: String!
+  authority: BudgetApprovedAuthority!
+  codes: BudgetApprovedCodes!
+  label: String!
+  rowRole: BudgetApprovedRowRole!
+  creditType: BudgetCreditType
+  contextRecordIndex: Int
+  contextLabel: String
+  values: [BudgetApprovedValue!]!
+  sourceFileId: ID!
+  document: BudgetSourceDocument!
+}
+
+type BudgetApprovedRecordEdge {
+  node: BudgetApprovedRecord!
+  cursor: String!
+}
+
+type BudgetApprovedRecordConnection {
+  snapshot: String!
+  unit: BudgetValueUnit!
+  edges: [BudgetApprovedRecordEdge!]!
+  pageInfo: PageInfo!
+}
+
+enum BudgetExecutionInput {
+  BGC
+  SINTEZA
+}
+
+enum BudgetExecutionFamily {
+  BGC
+  SINTEZA
+  NOTA
+}
+
+enum BudgetExecutionFamilyPresence {
+  PRESENT
+  NOT_LISTED_IN_CAPTURED_PACKET
+  LISTED_ORIGINAL_UNAVAILABLE
+  FAMILY_UNRESOLVED
+}
+
+enum BudgetExecutionSection {
+  REVENUE
+  EXPENDITURE
+  BALANCE
+}
+
+enum BudgetExecutionPeriodRole {
+  CURRENT
+  COMPARISON
+  DIFFERENCE
+}
+
+enum BudgetExecutionMeasure {
+  AMOUNT
+  GDP_SHARE
+  PUBLISHED_TOTAL_SHARE
+  AMOUNT_DIFFERENCE
+  RELATIVE_CHANGE
+  GDP_DENOMINATOR
+}
+
+enum BudgetExecutionCoverageKind {
+  REPORT_PERIOD
+  COMPONENT_INTERVAL
+  NOT_APPLICABLE
+}
+
+enum BudgetExecutionStatus {
+  ACTUAL
+  ESTIMATE
+}
+
+enum BudgetExecutionFinality {
+  FINAL
+  OPERATIVE
+  UNKNOWN
+}
+
+enum BudgetObservationDisposition {
+  FACT
+  BLANK
+  UNRESOLVED
+  NONFINANCIAL
+}
+
+enum BudgetExecutionMonthStatus {
+  SELECTED
+  NO_SELECTED_RELEASE
+}
+
+type BudgetExecutionFamilyStatus {
+  family: BudgetExecutionFamily!
+  presence: BudgetExecutionFamilyPresence!
+  role: String
+  reason: String
+  sourceFormat: String
+  document: BudgetSourceDocument
+  reportCoverage: BudgetDateInterval
+}
+
+type BudgetExecutionRelease {
+  releaseId: ID!
+  month: String!
+  calendarPeriod: BudgetDateInterval!
+  policyVersion: String!
+  publicationScope: String
+  families: [BudgetExecutionFamilyStatus!]!
+  factCount: Int!
+}
+
+type BudgetExecutionSelection {
+  selectionId: ID!
+  previousSelectionId: ID
+  chainPosition: Int!
+  reason: String!
+  sealSha256: String!
+  release: BudgetExecutionRelease!
+}
+
+type BudgetExecutionMonth {
+  month: String!
+  status: BudgetExecutionMonthStatus!
+  gapReason: String
+  current: BudgetExecutionSelection
+  revisionCount: Int!
+  revisions: [BudgetExecutionSelection!]!
+  revisionsTruncated: Boolean!
+}
+
+type BudgetExecutionCoverage {
+  firstMonth: String!
+  lastMonth: String!
+  calendarMonthCount: Int!
+  selectedMonthCount: Int!
+  missingMonths: [String!]!
+  note: String!
+}
+
+type BudgetExecutionReleaseIndex {
+  snapshot: String!
+  coverage: BudgetExecutionCoverage!
+  months: [BudgetExecutionMonth!]!
+}
+
+type BudgetExecutionItem {
+  itemId: ID!
+  section: BudgetExecutionSection!
+  sourceLabel: String!
+  relatedScopeItemId: ID
+  mappingVersion: String!
+}
+
+type BudgetExecutionObservation {
+  id: ID!
+  releaseId: ID!
+  month: String!
+  input: BudgetExecutionInput!
+  observationKey: String!
+  disposition: BudgetObservationDisposition!
+  sourceState: String!
+  catalogItem: BudgetExecutionItem
+  section: BudgetExecutionSection
+  lineItem: String
+  component: String
+  periodRole: BudgetExecutionPeriodRole
+  measure: BudgetExecutionMeasure
+  coverageKind: BudgetExecutionCoverageKind
+  fiscalPeriod: BudgetDateInterval
+  comparisonPeriod: BudgetDateInterval
+  reportPeriod: BudgetDateInterval
+  referenceYear: Int
+  executionStatus: BudgetExecutionStatus
+  finality: BudgetExecutionFinality
+  value: String
+  unit: BudgetValueUnit
+  sourceToken: String
+  reason: String
+  locator: BudgetSourceLocator
+  labelEvidence: BudgetCellEvidence
+  document: BudgetSourceDocument!
+}
+
+type BudgetExecutionObservationEdge {
+  cursor: String!
+  occurrenceId: ID!
+  selectionId: ID!
+  node: BudgetExecutionObservation!
+}
+
+type BudgetExecutionObservationConnection {
+  snapshot: String!
+  edges: [BudgetExecutionObservationEdge!]!
+  pageInfo: PageInfo!
+}
+
+enum BudgetSeriesBasis {
+  YTD
+  PERIOD_DIFFERENCE
+  FULL_YEAR
+}
+
+"Availability of an audited execution grid point; unavailable periods have no DataPoint."
+enum BudgetSeriesPeriodStatus {
+  AVAILABLE
+  UNAVAILABLE
+  OUT_OF_COVERAGE
+}
+
+enum BudgetSeriesValueBasis {
+  REPORTED_CUMULATIVE
+  REPORTED_CUMULATIVE_FIRST_PERIOD
+  DERIVED_DIFFERENCE_BETWEEN_REPORTS
+}
+
+type BudgetSeriesOperand {
+  month: String!
+  selectionId: ID
+  releaseId: ID
+  observationKey: String
+  sourceState: String
+  document: BudgetSourceDocument
+  coverage: BudgetDateInterval
+  executionStatus: BudgetExecutionStatus
+  finality: BudgetExecutionFinality
+  label: BudgetCellEvidence
+  headers: [BudgetCellEvidence!]!
+}
+
+type BudgetSeriesPeriod {
+  "Requested YYYY-MM, YYYY-QN or YYYY label; values occur only in DataSeries.data."
+  date: String!
+  periodStart: Date!
+  periodEnd: Date!
+  status: BudgetSeriesPeriodStatus!
+  "Null when AVAILABLE; otherwise the exact lowercase view or coverage code, open vocabulary."
+  reason: String
+  valueBasis: BudgetSeriesValueBasis
+  endpoint: BudgetSeriesOperand
+  predecessor: BudgetSeriesOperand
+}
+
+type BudgetNationalSeries {
+  item: BudgetExecutionItem!
+  component: String!
+  basis: BudgetSeriesBasis!
+  unit: BudgetValueUnit!
+  series: DataSeries!
+  periods: [BudgetSeriesPeriod!]!
+}
+
+type BudgetNationalSeriesResult {
+  snapshot: String!
+  mappingVersion: String!
+  derivationVersion: String!
+  coverage: BudgetExecutionCoverage!
+  results: [BudgetNationalSeries!]!
+}
+
+type BudgetExecutionCatalog {
+  coverage: BudgetExecutionCoverage!
+  seriesItems: [BudgetExecutionItem!]!
+}
+
+type BudgetNationalSnapshots {
+  approved: String!
+  execution: String!
+}
+
+type BudgetNationalCatalog {
+  snapshots: BudgetNationalSnapshots!
+  approved: BudgetApprovedCatalog!
+  execution: BudgetExecutionCatalog!
+}
+
+input BudgetApprovedSeriesAxisInput @oneOf {
+  targetYearsOfEdition: ID
+  editionsForTarget: BudgetEditionsForTargetInput
+  ownYearApprovals: BudgetOwnYearApprovalsInput
+}
+
+input BudgetEditionsForTargetInput {
+  targetYear: Int!
+  editionIds: [ID!]
+}
+
+input BudgetOwnYearApprovalsInput {
+  editionIds: [ID!]
+}
+
+input BudgetApprovedSeriesInput {
+  axis: BudgetApprovedSeriesAxisInput!
+  fund: BudgetFund!
+  total: BudgetApprovedTotalKey!
+  creditType: BudgetCreditType
+  authorityCode: String
+  period: ReportPeriodInput!
+  unit: BudgetApprovedUnit = THOUSAND_LEI
+}
+
+input BudgetApprovedRecordSource @oneOf {
+  edition: BudgetApprovedEditionFormInput
+  interpretationId: ID
+}
+
+input BudgetApprovedEditionFormInput {
+  editionId: ID!
+  form: BudgetApprovedForm!
+}
+
+input BudgetApprovedRecordsInput {
+  source: BudgetApprovedRecordSource!
+  authorityCode: String
+  rowRoles: [BudgetApprovedRowRole!]
+  creditTypes: [BudgetCreditType!]
+  capitols: [String!]
+}
+
+input BudgetExecutionReleasesInput {
+  months: ReportPeriodInput!
+  revisionsPerMonth: Int = 1
+}
+
+input BudgetExecutionObservationSource @oneOf {
+  months: ReportPeriodInput
+  selectionIds: [ID!]
+}
+
+input BudgetExecutionObservationsInput {
+  source: BudgetExecutionObservationSource!
+  inputs: [BudgetExecutionInput!]
+  components: [String!]
+  sections: [BudgetExecutionSection!]
+  lineItems: [String!]
+  itemIds: [ID!]
+  measures: [BudgetExecutionMeasure!]
+  periodRoles: [BudgetExecutionPeriodRole!]
+  dispositions: [BudgetObservationDisposition!]
+}
+
+input BudgetNationalExecutionSeriesInput {
+  itemIds: [ID!]!
+  period: ReportPeriodInput!
+  basis: BudgetSeriesBasis!
+}
+
+extend type Query {
+  budgetNationalCatalog: BudgetNationalCatalog!
+  budgetApprovedTotals(input: BudgetApprovedTotalsInput!, expectedSnapshot: String): BudgetApprovedTotalsResult!
+  budgetApprovedSeries(input: BudgetApprovedSeriesInput!, expectedSnapshot: String): BudgetApprovedSeries!
+  budgetApprovedRecords(input: BudgetApprovedRecordsInput!, first: Int = 50, after: String, expectedSnapshot: String): BudgetApprovedRecordConnection!
+  budgetExecutionReleases(input: BudgetExecutionReleasesInput!, expectedSnapshot: String): BudgetExecutionReleaseIndex!
+  budgetExecutionObservations(input: BudgetExecutionObservationsInput!, first: Int = 50, after: String, expectedSnapshot: String): BudgetExecutionObservationConnection!
+  budgetNationalExecutionSeries(input: BudgetNationalExecutionSeriesInput!, expectedSnapshot: String): BudgetNationalSeriesResult!
+}

@@ -33,10 +33,13 @@ import {
   budgetLegacyCollisionTypeDefs,
   budgetLegacyTypeDefs,
 } from './shell/graphql/legacy/typedefs.js';
+import { makeNationalResolvers, nationalTypeDefs } from './shell/graphql/national.js';
 import { makeBudgetResolvers } from './shell/graphql/resolvers.js';
+import { budgetSeriesCommonTypeDefs } from './shell/graphql/series-common.js';
 import { budgetTypeDefs } from './shell/graphql/typedefs.js';
 import { makeCommitmentDashboardTool } from './shell/mcp/commitment-dashboard.js';
 import { makeCommitmentPeriodTool } from './shell/mcp/commitment-periods.js';
+import { makeNationalMcpTools } from './shell/mcp/national.js';
 import { makeBudgetMcpTools } from './shell/mcp/tools.js';
 import { makeBudgetMcpResources } from './shell/mcp/widgets/resources.js';
 import {
@@ -53,6 +56,12 @@ import { makeGroupedAnalyticsRepo } from './shell/repo/grouped-analytics-repo.js
 import { makeLegacyAnalyticsRepo } from './shell/repo/legacy-analytics-repo.js';
 import { makeLegacyDimensionRepo } from './shell/repo/legacy-dimension-repo.js';
 import { makeLegacyPopulationRepo } from './shell/repo/legacy-population-repo.js';
+import { makeNationalApprovedReader } from './shell/repo/national-approved-repo.js';
+import { makeNationalExecutionReader } from './shell/repo/national-execution-repo.js';
+import {
+  makeNationalReadPort,
+  makeNationalResponseCache,
+} from './shell/repo/national-read-port.js';
 
 import type { GroupedInput } from './core/legacy-analytics/grouped-types.js';
 import type {
@@ -62,6 +71,8 @@ import type {
 import type { nativeExecutionSeries } from './core/legacy-analytics/native-usecase.js';
 import type { LegacyAnalyticsInput } from './core/legacy-analytics/types.js';
 import type { LegacyDimensionRepo } from './core/legacy-dimensions/ports.js';
+import type { NationalReadPort, NationalResponseCache } from './core/national/ports.js';
+import type { NationalUsecaseDeps } from './core/national/usecases.js';
 import type { BudgetDiscoveryRepo, BudgetRepo } from './core/ports.js';
 import type {
   AnnualPopulationPort,
@@ -117,6 +128,13 @@ export interface BudgetModuleDeps {
   readonly legacyFactors: FactorSource;
   /** Structured logger for the observability hooks (the 10,000-point cap). */
   readonly logger?: Logger;
+  /**
+   * National budget read port (tests inject fakes); defaults to the one-transaction
+   * SQL port over `db`.
+   */
+  readonly nationalReadPort?: NationalReadPort;
+  /** National bounded-stale response cache; `null` disables it (tests). */
+  readonly nationalCache?: NationalResponseCache | null;
 }
 
 export interface BudgetModule {
@@ -205,6 +223,32 @@ export const makeBudgetModule = (rawDeps: BudgetModuleDeps): BudgetModule => {
   });
   const contributor = makeBudgetContributor(repo);
   const clientBaseUrl = deps.clientBaseUrl ?? 'https://transparenta.eu';
+  const nationalCache =
+    deps.nationalCache === undefined ? makeNationalResponseCache() : deps.nationalCache;
+  const national: NationalUsecaseDeps = {
+    port:
+      deps.nationalReadPort ??
+      makeNationalReadPort(
+        deps.db,
+        (run) => ({
+          approved: makeNationalApprovedReader(run),
+          execution: makeNationalExecutionReader(run),
+        }),
+        {
+          // Reported when the port stops waiting, then (separately) if the
+          // abandoned transaction ever settles.
+          onAbandoned: (read) => {
+            deps.logger?.warn(
+              { ...read },
+              read.stage === 'abandoned'
+                ? 'national budget read abandoned at its budget; its transaction has not settled'
+                : 'national budget abandoned read settled'
+            );
+          },
+        }
+      ),
+    ...(nationalCache === null ? {} : { cache: nationalCache }),
+  };
 
   const legacyResolvers = makeBudgetLegacyResolvers({
     ...(deps.executionSeries === undefined ? {} : { executionSeries: deps.executionSeries }),
@@ -231,7 +275,7 @@ export const makeBudgetModule = (rawDeps: BudgetModuleDeps): BudgetModule => {
     legacyPopulation,
     graphqlSlice: {
       source: 'budget',
-      typeDefs: `${budgetTypeDefs}\n${budgetLegacyTypeDefs}\n${budgetLegacyCollisionTypeDefs}\n${budgetGroupedTypeDefs}\n${commitmentPeriodTypeDefs}\n${commitmentDashboardTypeDefs}`,
+      typeDefs: `${budgetTypeDefs}\n${budgetLegacyTypeDefs}\n${budgetLegacyCollisionTypeDefs}\n${budgetGroupedTypeDefs}\n${commitmentPeriodTypeDefs}\n${commitmentDashboardTypeDefs}\n${budgetSeriesCommonTypeDefs}\n${nationalTypeDefs}`,
     },
     graphqlResolvers: mergeResolvers(
       makeBudgetResolvers({ repo, discovery, registry: deps.registry }),
@@ -241,7 +285,10 @@ export const makeBudgetModule = (rawDeps: BudgetModuleDeps): BudgetModule => {
           groupedResolvers,
           mergeResolvers(
             makeCommitmentPeriodResolvers(periods),
-            makeCommitmentDashboardResolvers(dashboard)
+            mergeResolvers(
+              makeCommitmentDashboardResolvers(dashboard),
+              makeNationalResolvers(national)
+            )
           )
         )
       )
@@ -250,6 +297,7 @@ export const makeBudgetModule = (rawDeps: BudgetModuleDeps): BudgetModule => {
       makeCommitmentDashboardTool(dashboard),
       ...makeBudgetMcpTools({ repo, discovery, clientBaseUrl }),
       makeCommitmentPeriodTool(periods),
+      ...makeNationalMcpTools(national),
     ],
     mcpResources: makeBudgetMcpResources(),
     contributor,
