@@ -25,7 +25,7 @@ const filterInputs = `${toGraphQLInput(judicialCasesSpec)}\n\n${toGraphQLInput(j
 const courtLevelEnum = `enum JudicialCourtLevel {\n${JUDICIAL_COURT_LEVELS.map((l) => `  ${l}`).join('\n')}\n}`;
 
 /** Rendered from the one date-basis list (A2) so the SDL cannot drift from it. */
-const openedAtBasisEnum = `"What JudicialCase.sourceOpenedAt means for the source of the case: portal_header_data (the Portal Just case header data field), iccj_earliest_captured_session (the earliest captured ICCJ session for that case number; not a proven registration or first appearance), unknown (another source; the value is kept without a meaning)."\nenum JudicialSourceOpenedAtBasis {\n${JUDICIAL_SOURCE_OPENED_AT_BASES.map((b) => `  ${b}`).join('\n')}\n}`;
+const openedAtBasisEnum = `"What JudicialCase.sourceOpenedAt means for the source of the case: portal_header_data (the Portal Just case header data field), iccj_archive_case_date (the stored date projected from the ICCJ archive case_date_text field; its exact event meaning and chronological selection are not established - it does not establish the earliest session, first appearance, filing/registration or capture freshness), unknown (another source; the value is kept without a meaning)."\nenum JudicialSourceOpenedAtBasis {\n${JUDICIAL_SOURCE_OPENED_AT_BASES.map((b) => `  ${b}`).join('\n')}\n}`;
 
 const objectsAndQuery = /* GraphQL */ `
   ${courtLevelEnum}
@@ -93,7 +93,7 @@ const objectsAndQuery = /* GraphQL */ `
     stageName: String
     "Raw procedural object text — SAFE (the subject of the case, never party names)."
     object: String
-    "Source-dependent case date (see sourceOpenedAtBasis: the Portal Just header data field, or the earliest captured ICCJ session) - not a verified filing, registration or first-ever date. Displayed in the server session timezone (YYYY-MM-DD). Exceptional stored values are explicit: an era suffix outside AD 1-9999 (0001-12-31 BC, 10000-01-01 AD) or infinity/-infinity. Display only; pagination uses the exact timestamp."
+    "Source-dependent case date (see sourceOpenedAtBasis: the Portal Just header data field, or the ICCJ archive case-date field) - not a verified filing, registration or first-ever date. Displayed in the server session timezone (YYYY-MM-DD). Exceptional stored values are explicit: an era suffix outside AD 1-9999 (0001-12-31 BC, 10000-01-01 AD) or infinity/-infinity. Display only; pagination uses the exact timestamp."
     sourceOpenedAt: Date
     "What sourceOpenedAt means for the source of this case (from its sourceSlug); present even when sourceOpenedAt is null."
     sourceOpenedAtBasis: JudicialSourceOpenedAtBasis!
@@ -246,7 +246,7 @@ const objectsAndQuery = /* GraphQL */ `
     institutionCode: String!
     caseNumber: String!
     category: String
-    "The source-dependent date of the linked case as stored (Portal Just header data or the earliest captured ICCJ session) - not a universal opening or filing date."
+    "The source-dependent date of the linked case as stored (Portal Just header data or the ICCJ archive case-date field) - not a universal opening or filing date."
     sourceOpenedAt: Date
   }
   type JudicialCaseLinkEdge {

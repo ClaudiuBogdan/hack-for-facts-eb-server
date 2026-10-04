@@ -82,7 +82,7 @@ export const judicialCasesSpec: CollectionFilterSpec = {
       column: { alias: 'c', column: 'source_opened_at' },
       virtual: true,
       description:
-        'Session calendar year of sourceOpenedAt, a SOURCE-DEPENDENT date (see JudicialCase.sourceOpenedAtBasis: Portal Just header data, ICCJ earliest captured session, otherwise unknown) - not a universal filing date. A range over several sources combines their different clocks. Operands are nonzero 32-bit integers (1 BC is -1); eq, gte, lte and between all apply together (their intersection: eq 2024 with gte 2020 means only 2024), and a contradictory range matches nothing. Null or infinite dates never match a year filter.',
+        'Session calendar year of sourceOpenedAt, a SOURCE-DEPENDENT date (see JudicialCase.sourceOpenedAtBasis: Portal Just header data, the ICCJ archive case-date field, otherwise unknown) - not a universal filing date. A range over several sources combines their different clocks. Operands are nonzero 32-bit integers (1 BC is -1); eq, gte, lte and between all apply together (their intersection: eq 2024 with gte 2020 means only 2024), and a contradictory range matches nothing. Null or infinite dates never match a year filter.',
     },
     {
       name: 'modified',

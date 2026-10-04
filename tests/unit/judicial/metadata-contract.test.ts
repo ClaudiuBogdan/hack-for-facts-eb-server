@@ -23,6 +23,7 @@ import {
   type CompiledQuery,
 } from 'kysely';
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 
 import { makeJudicialModule } from '@/modules/judicial/index.js';
 import {
@@ -309,7 +310,7 @@ const asOfFor = (slug: string) => ({
 describe('A2 case metadata — date basis by actual source_slug; as-of of the case source only', () => {
   it.each([
     ['3001', 'portal_just', '2025-02-03', 'portal_header_data'],
-    ['3002', 'iccj', null, 'iccj_earliest_captured_session'],
+    ['3002', 'iccj', null, 'iccj_archive_case_date'],
     ['3003', 'ecris_test', '2024-01-01', 'unknown'],
   ] as const)(
     'case %s (%s): GraphQL detail carries its basis and its own source maximum',
@@ -340,7 +341,7 @@ describe('A2 case metadata — date basis by actual source_slug; as-of of the ca
     const f = fixture(detailWorld);
     for (const [id, slug, basis] of [
       ['3001', 'portal_just', 'portal_header_data'],
-      ['3002', 'iccj', 'iccj_earliest_captured_session'],
+      ['3002', 'iccj', 'iccj_archive_case_date'],
       ['3003', 'ecris_test', 'unknown'],
     ] as const) {
       const out = await f.mcp('get_judicial_case', { caseId: id });
@@ -375,7 +376,7 @@ describe('A2 case metadata — date basis by actual source_slug; as-of of the ca
       basis: {
         enumValues: [
           { name: 'portal_header_data' },
-          { name: 'iccj_earliest_captured_session' },
+          { name: 'iccj_archive_case_date' },
           { name: 'unknown' },
         ],
       },
@@ -428,13 +429,13 @@ describe('A2 descriptions — source clocks, scoped as-of, stored legal-ref fiel
 
   it('case and case-link dates and year filters name the source-dependent clock', async () => {
     const c = await describeType('JudicialCase');
-    expect(c.fields.find((x) => x.name === 'sourceOpenedAt')?.description).toMatch(
+    const caseDate = c.fields.find((x) => x.name === 'sourceOpenedAt')?.description ?? '';
+    expect(caseDate).toMatch(
       /^Source-dependent case date .* not a verified filing, registration or first-ever date/u
     );
     const link = await describeType('JudicialCaseLink');
-    expect(link.fields.find((x) => x.name === 'sourceOpenedAt')?.description).toMatch(
-      /not a universal opening or filing date/u
-    );
+    const linkDate = link.fields.find((x) => x.name === 'sourceOpenedAt')?.description ?? '';
+    expect(linkDate).toMatch(/not a universal opening or filing date/u);
     const year = await describeType('JudicialCasesYearFilter');
     expect(year.description).toMatch(
       /Session calendar year of sourceOpenedAt, a SOURCE-DEPENDENT date/u
@@ -443,5 +444,30 @@ describe('A2 descriptions — source clocks, scoped as-of, stored legal-ref fiel
     expect(f.tool('get_court_caseload').description).toMatch(
       /session calendar year of the source-dependent sourceOpenedAt/u
     );
+    // The REGISTERED MCP input description (zod 4 keeps `.describe()` text in its registry).
+    const yearFromShape = f.tool('get_court_caseload').inputShape['yearFrom'];
+    expect(yearFromShape).toBeDefined();
+    const yearFrom =
+      yearFromShape === undefined ? '' : (z.globalRegistry.get(yearFromShape)?.description ?? '');
+    expect(yearFrom).toMatch(
+      /^Lower bound on the session calendar year of the source-dependent sourceOpenedAt/u
+    );
+    // Every ICCJ mention names the stored archive field, never the old
+    // earliest-captured-session claim.
+    for (const text of [caseDate, linkDate, year.description ?? '', yearFrom]) {
+      expect(text).toContain('the ICCJ archive case-date field');
+      expect(text).not.toContain('iccj_earliest_captured_session');
+      expect(text).not.toMatch(/earliest captured/u);
+    }
+  });
+
+  it('the basis enum names the ICCJ case_date_text field and leaves its event and order unqualified', async () => {
+    const t = await describeType('JudicialSourceOpenedAtBasis');
+    expect(t.description).toContain(
+      'iccj_archive_case_date (the stored date projected from the ICCJ archive case_date_text field; its exact event meaning and chronological selection are not established - it does not establish the earliest session, first appearance, filing/registration or capture freshness)'
+    );
+    expect(t.description).toContain('portal_header_data (the Portal Just case header data field)');
+    expect(t.description).not.toContain('iccj_earliest_captured_session');
+    expect(t.description).not.toMatch(/earliest captured/u);
   });
 });

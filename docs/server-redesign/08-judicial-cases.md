@@ -167,7 +167,7 @@ export interface JudicialCase {
   readonly stageName: string | null;
   readonly object: string | null; // raw object text — safe (procedural subject, not parties)
   readonly sourceOpenedAt: string | null; // source-dependent date (see sourceOpenedAtBasis)
-  readonly sourceOpenedAtBasis: 'portal_header_data' | 'iccj_earliest_captured_session' | 'unknown';
+  readonly sourceOpenedAtBasis: 'portal_header_data' | 'iccj_archive_case_date' | 'unknown';
   readonly latestSourceModifiedAt: string | null;
   // latest_snapshot_id, sync_run_id, *_seen_at: internal, not projected
 }
@@ -882,9 +882,11 @@ search disabled (privacy)"]`. Stated as a deliberate stricter-than-default
   `sourceOpenedAtBasis` (derived from the actual `source_slug`, never ids, court
   names or case numbers): `portal_just` ⇒ `portal_header_data` (the Portal case
   header `data` field, copied by the raw parser and writer; not a verified
-  filing/registration event); `iccj` ⇒ `iccj_earliest_captured_session` (the
-  earliest captured ICCJ session for that case number; not a proven registration
-  or first appearance); any other source ⇒ `unknown`. The basis is present even
+  filing/registration event); `iccj` ⇒ `iccj_archive_case_date` (the stored
+  date projected from the ICCJ archive case's `case_date_text` field; its exact
+  event meaning and chronological selection are not established, so it does not
+  establish the earliest session, first appearance, filing/registration or
+  capture freshness); any other source ⇒ `unknown`. The basis is present even
   when the date is null. Year filters and year aggregates use the session
   calendar year of this source-dependent date, so counts over several sources
   combine different clocks. Stored values and the A1 display/timezone rules are

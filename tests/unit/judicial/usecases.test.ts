@@ -236,7 +236,7 @@ describe('getCaseDetail — as-of is scoped to the RESOLVED case source (A2)', (
       institutionCode: 'InaltaCurtedeCasatiesiJustitie',
       caseNumber: '7/2020',
       sourceOpenedAt: null,
-      sourceOpenedAtBasis: 'iccj_earliest_captured_session',
+      sourceOpenedAtBasis: 'iccj_archive_case_date',
       latestSourceModifiedAt: null,
     };
     const iccjAsOf: JudicialAsOf = { ...asOf, asOf: null, sourceSlug: 'iccj' };

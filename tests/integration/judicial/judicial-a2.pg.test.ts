@@ -298,7 +298,7 @@ const AS_OF: Readonly<Record<string, string | null>> = {
 
 const BASIS: Readonly<Record<string, string>> = {
   portal_just: 'portal_header_data',
-  iccj: 'iccj_earliest_captured_session',
+  iccj: 'iccj_archive_case_date',
   ecris_test: 'unknown',
   a2_exceptional: 'unknown',
   a2_expanded: 'unknown',
@@ -724,7 +724,7 @@ describeA2('judicial A2 — actual DDL, explicit throwaway database', () => {
           caseId: '4101',
           sourceSlug: 'iccj',
           sourceOpenedAt: '2020-05-06',
-          sourceOpenedAtBasis: 'iccj_earliest_captured_session',
+          sourceOpenedAtBasis: 'iccj_archive_case_date',
         },
         {
           caseId: '4201',
@@ -736,7 +736,7 @@ describeA2('judicial A2 — actual DDL, explicit throwaway database', () => {
           caseId: '4102',
           sourceSlug: 'iccj',
           sourceOpenedAt: null,
-          sourceOpenedAtBasis: 'iccj_earliest_captured_session',
+          sourceOpenedAtBasis: 'iccj_archive_case_date',
         },
         {
           caseId: '4302',

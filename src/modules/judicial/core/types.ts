@@ -49,15 +49,17 @@ export type JudicialMappingConfidence = 'high' | 'medium' | 'low';
  * (A2). The value is a source clock, not a universal filing or first-ever date:
  *  - `portal_header_data`: the Portal Just case header's `data` field, copied by
  *    the raw parser and writer (`source_slug = 'portal_just'`);
- *  - `iccj_earliest_captured_session`: the earliest captured ICCJ session for
- *    that case number in the ICCJ archive lane (`source_slug = 'iccj'`) — not a
- *    proven registration or first appearance;
+ *  - `iccj_archive_case_date`: the stored date projected from the ICCJ archive
+ *    case's `case_date_text` field (`source_slug = 'iccj'`). Its exact event
+ *    meaning and chronological selection are not established; it does not
+ *    establish the earliest session, first appearance, filing/registration or
+ *    capture freshness;
  *  - `unknown`: any other source; the value is preserved without a meaning.
  * The basis describes the source lane even when the date itself is null.
  */
 export const JUDICIAL_SOURCE_OPENED_AT_BASES = [
   'portal_header_data',
-  'iccj_earliest_captured_session',
+  'iccj_archive_case_date',
   'unknown',
 ] as const;
 
@@ -66,7 +68,7 @@ export type JudicialSourceOpenedAtBasis = (typeof JUDICIAL_SOURCE_OPENED_AT_BASE
 /** The basis from the case's stored `source_slug` (never an id, court or number heuristic). */
 export const sourceOpenedAtBasisFor = (sourceSlug: string): JudicialSourceOpenedAtBasis => {
   if (sourceSlug === 'portal_just') return 'portal_header_data';
-  if (sourceSlug === 'iccj') return 'iccj_earliest_captured_session';
+  if (sourceSlug === 'iccj') return 'iccj_archive_case_date';
   return 'unknown';
 };
 

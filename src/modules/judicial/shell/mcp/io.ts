@@ -102,7 +102,7 @@ export const getCourtCaseloadInput = {
     .describe('Bound to court level(s).'),
   category: z.array(z.string()).nullable().optional().describe('Bound to category code(s).'),
   yearFrom: optionalYear().describe(
-    'Lower bound on the session calendar year of the source-dependent sourceOpenedAt (Portal Just header data / ICCJ earliest captured session); not a universal filing year. A nonzero 32-bit integer (1 BC is -1); null or infinite dates never match a year bound.'
+    'Lower bound on the session calendar year of the source-dependent sourceOpenedAt (Portal Just header data / the ICCJ archive case-date field); not a universal filing year. A nonzero 32-bit integer (1 BC is -1); null or infinite dates never match a year bound.'
   ),
   yearTo: optionalYear().describe(
     'Upper bound on the session calendar year of the source-dependent sourceOpenedAt; not a universal filing year. A nonzero 32-bit integer (1 BC is -1); yearFrom above yearTo matches nothing.'
