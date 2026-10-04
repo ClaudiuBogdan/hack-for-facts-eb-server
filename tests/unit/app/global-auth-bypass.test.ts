@@ -50,6 +50,31 @@ describe('shouldBypassGlobalAuthValidation — redesign public GET prefixes', ()
     expect(shouldBypassGlobalAuthValidation(req('POST', '/api/v1/graphql'))).toBe(true);
   });
 
+  // API-04: the judicial REST read surface is a GET/HEAD-only public prefix.
+  it.each([
+    '/api/v1/judicial/decisions?sourceSystem=x',
+    '/api/v1/judicial/decisions/9223372036854775807/subject-links',
+    '/api/v1/judicial/cases/lookup?institutionCode=A&caseNumber=1',
+    '/api/v1/judicial/issuing-bodies',
+  ])('bypasses auth for judicial GET/HEAD %s only', (url) => {
+    expect(shouldBypassGlobalAuthValidation(req('GET', url))).toBe(true);
+    expect(shouldBypassGlobalAuthValidation(req('HEAD', url))).toBe(true);
+    for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
+      expect(shouldBypassGlobalAuthValidation(req(method, url)), `${method} ${url}`).toBe(false);
+    }
+  });
+
+  it('does not bypass judicial lookalikes or the bare prefix', () => {
+    for (const url of [
+      '/api/v1/judicialx/decisions',
+      '/api/v1/judicial-admin/decisions',
+      '/api/v1/judicial',
+      '/api/v1/judicial?x=1',
+    ]) {
+      expect(shouldBypassGlobalAuthValidation(req('GET', url)), url).toBe(false);
+    }
+  });
+
   it.each(['/api/v1/live', '/api/v1/health', '/api/v1/ready'])(
     'bypasses auth for the probe route %s only when the surface is mounted',
     (url) => {

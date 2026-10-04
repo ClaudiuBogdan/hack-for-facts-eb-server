@@ -229,12 +229,14 @@ const REDESIGN_SURFACE_ROUTE_PATHS = new Set([
 ]);
 // GET/HEAD-only public data prefixes of the redesign REST surface. Every route
 // registered under these prefixes is a public read (legal render additionally
-// fails closed on privacy_class/render_status in its usecase). /api/v1/agent/
-// is deliberately NOT here — it is the one authenticated redesign REST prefix.
+// fails closed on privacy_class/render_status in its usecase; judicial is the
+// API-04 GET-only read surface). /api/v1/agent/ is deliberately NOT here — it
+// is the one authenticated redesign REST prefix.
 const REDESIGN_SURFACE_PUBLIC_GET_PREFIXES = [
   '/api/v1/legal/',
   '/api/v1/parliament/',
   '/api/v1/pnrr/',
+  '/api/v1/judicial/',
 ];
 const NOTIFICATION_ADMIN_ROUTE_PREFIX = '/api/v1/admin/notifications';
 const WEBHOOK_CLERK_ROUTE_PATH = '/api/v1/webhooks/clerk';

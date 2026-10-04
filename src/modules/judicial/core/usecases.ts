@@ -8,6 +8,11 @@
  *
  * A3: the discovery dimension/query/limit, the aggregate dimension and the
  * direct legal-reference case id are validated HERE, before any repo access.
+ *
+ * API-04: REST joins GraphQL and MCP on these SAME usecases. The stored
+ * decision reads validate their ORIGINAL direct IDs, source pair, page and
+ * discovery arguments here, before any repo access; the repo re-checks for
+ * direct callers. Decisions are served as stored (see core/types.ts).
  */
 
 import { err, ok, type Result } from 'neverthrow';
@@ -23,11 +28,17 @@ import {
 
 import {
   JUDICIAL_COURT_LEVELS,
+  JUDICIAL_DECISION_LINK_STATUSES,
+  JUDICIAL_DECISION_PAGE_DEFAULT,
+  JUDICIAL_DECISION_SUBJECT_KINDS,
   JUDICIAL_RESOLVE_LIMIT_DEFAULT,
   JUDICIAL_RESOLVE_LIMIT_MAX,
   isJudicialAggregateGroupBy,
+  isJudicialDecisionPageSize,
+  isJudicialDecisionResolveDim,
   isJudicialDirectId,
   isJudicialResolveDim,
+  isJudicialSignedId,
   type JudicialCase,
   type JudicialCaseAggregate,
   type JudicialCaseCitation,
@@ -37,6 +48,9 @@ import {
   type JudicialCourt,
   type JudicialCourtTree,
   type JudicialCursorItem,
+  type JudicialDecision,
+  type JudicialDecisionSubjectLink,
+  type JudicialIssuingBody,
   type JudicialLegalRef,
   type JudicialLineageEdge,
   type JudicialPartyView,
@@ -48,6 +62,7 @@ import type {
   JudicialCaseRepo,
   JudicialCompanyLinkRepo,
   JudicialCourtRepo,
+  JudicialDecisionRepo,
   JudicialHearingRepo,
   JudicialLegalRefRepo,
   JudicialLineageRepo,
@@ -65,6 +80,8 @@ export interface JudicialRepos {
   readonly companyLinks: JudicialCompanyLinkRepo;
   readonly legalRefs: JudicialLegalRefRepo;
   readonly lineage: JudicialLineageRepo;
+  /** API-04: the three stored decision tables (one repo; served as stored). */
+  readonly decisions: JudicialDecisionRepo;
 }
 
 // ── courts ─────────────────────────────────────────────────────────────────────
@@ -245,11 +262,19 @@ export const listCasesCitingAct = (
 ): Promise<Result<CursorPage<JudicialCursorItem<JudicialCaseCitation>>, ApiError>> =>
   repos.legalRefs.casesCitingAct(targetActId, page);
 
-export const getCaseLineage = (
+export const getCaseLineage = async (
   repos: Pick<JudicialRepos, 'lineage'>,
-  caseId: string
-): Promise<Result<readonly JudicialLineageEdge[], ApiError>> =>
-  repos.lineage.lineageForCase(caseId);
+  caseId: unknown
+): Promise<Result<readonly JudicialLineageEdge[], ApiError>> => {
+  // The DIRECT entry (API-04): the same range/type rule as every case id. The
+  // repo read is shared with the case-detail child read and keeps its own rule.
+  if (!isJudicialDirectId(caseId)) {
+    return err(
+      invalidInput('caseId must be a decimal digit string of at most 9223372036854775807', 'caseId')
+    );
+  }
+  return repos.lineage.lineageForCase(caseId);
+};
 
 // ── resolve / discovery (§7.4) ─────────────────────────────────────────────────
 
@@ -324,5 +349,150 @@ export const resolveJudicialFilters = async (
         }))
       );
     }
+  }
+};
+
+// ── stored decisions (API-04; served as stored) ────────────────────────────────
+
+const DECISION_ID_MESSAGE =
+  'decisionId must be a canonical signed int8 decimal string (no leading zeros, no -0)';
+
+/** The original page of a new decision/link list: `first` 1..50 (null/omitted = 20). */
+export interface DecisionPageInput {
+  readonly first?: unknown;
+  readonly after?: unknown;
+}
+
+const decisionPage = (input: DecisionPageInput): Result<CursorPageRequest, ApiError> => {
+  const first = input.first ?? JUDICIAL_DECISION_PAGE_DEFAULT;
+  if (!isJudicialDecisionPageSize(first)) {
+    return err(invalidInput('first must be an integer from 1 to 50', 'first'));
+  }
+  const after = input.after ?? undefined;
+  if (after !== undefined && typeof after !== 'string') {
+    return err(invalidInput('after must be a cursor string', 'after'));
+  }
+  return ok({ first, ...(after !== undefined && { after }) });
+};
+
+export const listDecisionIssuingBodies = (
+  repos: Pick<JudicialRepos, 'decisions'>
+): Promise<Result<readonly JudicialIssuingBody[], ApiError>> => repos.decisions.listIssuingBodies();
+
+/** A stored decision by native id; a valid absent id is null (not an error). */
+export const getDecision = async (
+  repos: Pick<JudicialRepos, 'decisions'>,
+  decisionId: unknown
+): Promise<Result<JudicialDecision | null, ApiError>> => {
+  if (!isJudicialSignedId(decisionId)) return err(invalidInput(DECISION_ID_MESSAGE, 'decisionId'));
+  return repos.decisions.getById(decisionId);
+};
+
+/** A stored decision by its exact unique source pair (BOTH strings required, as given). */
+export const getDecisionBySource = async (
+  repos: Pick<JudicialRepos, 'decisions'>,
+  sourceSystem: unknown,
+  sourceRef: unknown
+): Promise<Result<JudicialDecision | null, ApiError>> => {
+  if (typeof sourceSystem !== 'string') {
+    return err(invalidInput('sourceSystem is required (exact text)', 'sourceSystem'));
+  }
+  if (typeof sourceRef !== 'string') {
+    return err(invalidInput('sourceRef is required (exact text)', 'sourceRef'));
+  }
+  return repos.decisions.getBySource(sourceSystem, sourceRef);
+};
+
+export interface ListDecisionsInput extends DecisionPageInput {
+  readonly filter: unknown;
+}
+
+export const listDecisions = async (
+  repos: Pick<JudicialRepos, 'decisions'>,
+  input: ListDecisionsInput
+): Promise<Result<CursorPage<JudicialCursorItem<JudicialDecision>>, ApiError>> => {
+  const page = decisionPage(input);
+  if (page.isErr()) return err(page.error);
+  return repos.decisions.list({ filter: (input.filter ?? {}) as FilterInput, page: page.value });
+};
+
+/** Link rows (one item per link) under EXACTLY one anchor; the repo enforces it. */
+export const listDecisionSubjectLinks = async (
+  repos: Pick<JudicialRepos, 'decisions'>,
+  input: ListDecisionsInput
+): Promise<Result<CursorPage<JudicialCursorItem<JudicialDecisionSubjectLink>>, ApiError>> => {
+  const page = decisionPage(input);
+  if (page.isErr()) return err(page.error);
+  return repos.decisions.listSubjectLinks({
+    filter: (input.filter ?? {}) as FilterInput,
+    page: page.value,
+  });
+};
+
+/**
+ * Decision discovery (separate from the four case dimensions). The ORIGINAL
+ * `dim`, `q` and `limit` are validated before any repo access; errors never
+ * echo the query. Status hits are recorded labels, not approval facts.
+ */
+export const resolveDecisionFilters = async (
+  repos: Pick<JudicialRepos, 'decisions'>,
+  dim: unknown,
+  q: unknown,
+  limitInput?: unknown
+): Promise<Result<readonly ResolveHit[], ApiError>> => {
+  if (!isJudicialDecisionResolveDim(dim)) {
+    return err(
+      invalidInput(
+        'dim must be one of issuingBody, sourceSystem, subjectKind, validationStatus',
+        'dim'
+      )
+    );
+  }
+  if (typeof q !== 'string') return err(invalidInput('q must be a string', 'q'));
+  const limit = limitInput ?? JUDICIAL_RESOLVE_LIMIT_DEFAULT;
+  if (
+    typeof limit !== 'number' ||
+    !Number.isInteger(limit) ||
+    limit < 1 ||
+    limit > JUDICIAL_RESOLVE_LIMIT_MAX
+  ) {
+    return err(invalidInput('limit must be an integer from 1 to 50', 'limit'));
+  }
+  const needle = q.trim().toLowerCase();
+  switch (dim) {
+    case 'issuingBody': {
+      const res = await repos.decisions.resolveIssuingBodies(q, limit);
+      if (res.isErr()) return err(res.error);
+      return ok(
+        res.value.map((b) => ({
+          kind: 'issuingBody',
+          value: b.issuingBody,
+          label: b.label,
+          hint: b.kind,
+        }))
+      );
+    }
+    case 'sourceSystem': {
+      const res = await repos.decisions.resolveSourceSystems(q, limit);
+      if (res.isErr()) return err(res.error);
+      return ok(res.value.map((value) => ({ kind: 'sourceSystem', value, label: value })));
+    }
+    case 'subjectKind':
+      return ok(
+        JUDICIAL_DECISION_SUBJECT_KINDS.filter((k) => needle === '' || k.includes(needle))
+          .slice(0, limit)
+          .map((k) => ({ kind: 'subjectKind', value: k, label: k }))
+      );
+    case 'validationStatus':
+      return ok(
+        JUDICIAL_DECISION_LINK_STATUSES.filter((s) => needle === '' || s.includes(needle))
+          .slice(0, limit)
+          .map((s) => ({
+            kind: 'validationStatus',
+            value: s,
+            label: s,
+            hint: 'recorded status label (not a verification)',
+          }))
+      );
   }
 };

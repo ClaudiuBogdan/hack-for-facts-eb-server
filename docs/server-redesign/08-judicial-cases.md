@@ -5,8 +5,11 @@
 > (§14.9 + §8.2 of the foundation) is the centerpiece — see §2 and §3. Where this
 > plan deviates from a foundation default it says so with rationale.
 >
-> **Module:** `src/modules/judicial/` (REST + GraphQL + MCP over a shared kernel).
-> **Schema:** `justice` (9 tables, live in `transparenta_prod` since 2026-06-14).
+> **Module:** `src/modules/judicial/` (GraphQL + MCP + a public GET REST plugin
+> over the shared kernel; REST since API-04, §6).
+> **Schema:** `justice` — 12 served tables: the 9 case tables (live in
+> `transparenta_prod` since 2026-06-14) plus the 3 stored-decision tables of
+> scrapper migration `20260629T132000__justice_decisions.ts` (API-04, §4.3).
 > **GraphQL prefix:** `Judicial*`. **REST prefix:** `/api/v1/judicial/`.
 >
 > **Binding source docs (precedence, highest first):**
@@ -57,14 +60,16 @@ gate. The rest of this document is the design that upholds these three points.
 
 **Schema:** `justice` (one schema, `transparenta_prod`). 9 tables, applied
 2026-06-14 (scrapper migrations `20260614T120000__justice_domain.ts` +
-`20260614T120100__justice_links.ts`). The server is **read-only** over them.
+`20260614T120100__justice_links.ts`). API-04 adds reads of the existing `issuing_bodies`, `decisions`
+and `decision_subject_links` tables (`20260629T132000__justice_decisions.ts`, §4.3). The
+server is **read-only** over all twelve.
 
-**What is loaded / queryable (JC-B core lanes — populated):**
+**Historical JC-B core-lane measurements:**
 
-Row counts are **as of the JC-A cutover manifest (2026-06-12/13)**; the fork-1
-2012–2015 backfill is still adding rows (NOTES shows cases climbing past
-6.20M / hearings past 18.23M post-envelope) — treat them as illustrative scale,
-not live totals.
+Row counts are **as of the JC-A cutover manifest (2026-06-12/13)**. Dated
+NOTES also record the fork-1 2012–2015 backfill increasing cases past 6.20M and
+hearings past 18.23M. These are historical scale measurements, not a current
+backfill state or live totals.
 
 | Table                     | Grain                         | Row count (cutover manifest)                                     | Notes                                                                                                                                                                  |
 | ------------------------- | ----------------------------- | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -75,13 +80,14 @@ not live totals.
 | `justice.party_name_keys` | one distinct publishable name | multi-million dictionary (Chao1 LB ~587k; full corpus several M) | **company / public_entity ONLY** by CHECK. Holds ZERO person names. `display_name` is the gated column.                                                                |
 | `justice.case_parties`    | `(case_id, party_index)`      | **~16.82M** (16,815,928)                                         | NO name column. ~67% have `name_key_id IS NULL` (person/unknown/low-confidence).                                                                                       |
 
-**What is DDL-only (empty in v1 — derive lanes gated on precision audits):**
+**Derive-lane tables (gated on precision audits). The postures below are the
+plan; they are not row-count measurements — the reads serve whatever is stored:**
 
 | Table                              | Gated on                                                   | Server posture in v1                                                                                                                               |
 | ---------------------------------- | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `justice.party_company_candidates` | gate #9 (collision + person-FP audit)                      | **not exposed as fact**; only the resolved, audited subset surfaces, and only count-shaped (§4, §8). Empty ⇒ endpoints return empty/`coverage: 0`. |
-| `justice.case_legal_references`    | gate #11 (citation precision vs `legal.act_citation_keys`) | exposed read-only when populated; safe (no PII). Empty in v1.                                                                                      |
-| `justice.case_lineage_candidates`  | gate #10 (lineage precision)                               | candidate-only; not rendered as fact. Empty in v1.                                                                                                 |
+| `justice.case_legal_references`    | gate #11 (citation precision vs `legal.act_citation_keys`) | exposed read-only as stored; safe (no PII).                                                                                                        |
+| `justice.case_lineage_candidates`  | gate #10 (lineage precision)                               | candidate-only; not rendered as fact; a NULL `to_case_id` is served as `toCaseId: null`.                                                           |
 
 **Deferred / descoped (per decision-review verdict 8 — tables are earned, not
 built):** `case_object_taxonomy`, `solution_taxonomy`, `case_act_rollups`,
@@ -92,14 +98,15 @@ layer lives in **raw** `judicial_core.case_parties`; rejections fold into
 `validation_status='rejected' + rejection_reason`; runs fold into
 `etl.validation_results.details`). The server never sees raw.
 
-**Freshness:** loader is incremental on two watermarks (cases/hearings/appeals on
-`latest_source_modified_at`; parties on the raw party layer). Last raw fetch at
-JC-B time 2026-06-07; source is crawl-cadence, not daily-live (§10).
+**Freshness:** the JC-B notes describe historical incremental watermarks and a
+last raw fetch on 2026-06-07. They do not establish current acquisition or load
+freshness. The API reads the stored projection; capture completeness, full
+replay and absence reconciliation require separate data-layer evidence (§10).
 
-**Cross-source posture:** **no consumer is waiting on justice today** (the legacy
-timeline explicitly excludes it because cases are not CUI-linked). v1 product =
-**dossier lookup + court analytics + privacy-safe company-litigation counts**,
-NOT company due diligence and NOT person profiles.
+**Cross-source posture:** the judicial contributor is mounted with the shared
+redesign surface and serves the existing published-only company-litigation
+summary. API-04 adds stored decisions and REST reads; it does not add a client
+profile, search projection or new cross-source identity resolution.
 
 ---
 
@@ -225,7 +232,7 @@ party row type.
   gated, audited `party_company_candidates.candidate_cui` (text, no FK — "a
   candidate, not an identity"). The module **registers a contributor** keyed by
   CUI that answers presence/count of _resolved_ company-litigation links (§4) —
-  empty in v1 until gate #9 is green.
+  empty while no candidate is `published` (gate #9).
 - **Territory (county abbreviation, not SIRUTA):** `courts.county_code` stores the
   county ABBREVIATION (e.g. `B`, `TM`; the 2026-10-03 read-only profile shows 42
   non-null values and one null bucket over 247 courts). It is a soft link to
@@ -347,10 +354,12 @@ module source to assert that.
   **DataLoader over `getPublishableNames`** → `null` for non-publishable. `JudicialHearing`
   SDL has **no** `solutionSummary` field. The schema-merge conflict test (§14.8)
   plus the leak audit guarantee no extension re-adds them.
-- **MCP:** tool **output** TypeBox schemas omit both columns. The company-litigation
-  tools return **counts and case identifiers**, plus publishable company names via
-  the gate; they never return party rows for person/unknown kinds. Person/unknown
-  parties contribute only to anonymized counts (`personPartyCount`).
+- **MCP:** Zod input definitions are consumed by the kernel; handlers return typed
+  structured outputs from the shared usecases. Company-litigation tools keep
+  their published-only counts and case identifiers. `get_judicial_case` also
+  returns the existing party view rows and `personPartyCount`; person/unknown
+  names remain null and withheld fields remain withheld. Decision-link evidence
+  is served as stored under the scoped instruction in §4.3.
 
 ### 3.4 Search & embeddings (the most dangerous lane) — see §9
 
@@ -422,7 +431,7 @@ export interface PartyDictionaryRepo {
   /* getPublishableName, getPublishableNames, resolveCompanyName */
 }
 
-// ── Company-litigation links (GATED; empty until gate #9) ────────────────────
+// ── Company-litigation links (published-only; stored-row dependent) ────────────────────
 export interface JudicialCompanyLinkRepo {
   // tables: justice.party_company_candidates (idx on candidate_cui, name_key_id,
   // validation_status) + case_parties (name_key_idx) + cases. ONLY surfaces the
@@ -435,7 +444,7 @@ export interface JudicialCompanyLinkRepo {
   ): Promise<Result<CursorResult<JudicialCaseLink>, ApiError>>;
 }
 
-// ── Legal references (safe; empty until gate #11) ────────────────────────────
+// ── Legal references (stored citations; solution_summary excluded) ────────────────────────────
 export interface JudicialLegalRefRepo {
   // tables: justice.case_legal_references (case_idx, target_idx). No PII *if* the
   // served projection is the stored extracted citation token and excludes rows
@@ -451,21 +460,17 @@ export interface JudicialLegalRefRepo {
   ): Promise<Result<CursorResult<JudicialCaseCitation>, ApiError>>;
 }
 
-// ── Lineage candidates (candidate-only; empty until gate #10) ────────────────
+// ── Lineage candidates (stored candidates; nullable target) ────────────────
 export interface JudicialLineageRepo {
   lineageForCase(caseId: string): Promise<Result<readonly JudicialLineageEdge[], ApiError>>; // JD-4
 }
 ```
 
-\*\*Server-allowed candidate statuses (hard rule, mirrors decision-review verdict 4
-
-- catalog "Entity Resolution Gate"):** `JudicialCompanyLinkRepo` filters to
-  `validation_status = 'published'` ONLY. v1 sets no row to `published` (the loader
-  blocks `auto_accepted`/`published`), so v1 results are **empty by construction\*\* —
-  the endpoint exists, returns `{ caseCount: 0, coverage: 0, caveats:
-["company-litigation links not yet published"] }`, and never leaks a `candidate`
-  or `needs_review` row as a fact. This is the foundation's "candidate ≠ fact" rule
-  made an SQL predicate.
+**Server-allowed candidate status (existing rule):**
+`JudicialCompanyLinkRepo` filters to `validation_status = 'published'` only.
+Results depend on stored published rows. If no matching published row exists,
+the summary is empty with its existing caveat. Candidate and needs-review rows
+do not become facts. This states no live row count or loader completion.
 
 **Partition/index notes for heavy queries (none are partitioned, but all must be
 bounded):**
@@ -634,6 +639,121 @@ over the normalized filter the SQL uses. A pre-A3 case-list cursor gets
 because its compound years may have meant a different range. Reverse-reference
 and company cursors keep their identities.
 
+### 4.3 API-04 — stored decisions and the complete judicial API (2026-10-04)
+
+**Scoped override (user decision, relayed by the parent for API-04 only).** The
+three decision tables are served **as stored**: both `privacy_class` values
+(`public` and `restricted`) and the link `evidence` JSON value. Privacy work for
+these tables is deferred. Every existing case, party, hearing, candidate and
+lineage policy is unchanged. The leak audit admits `evidence` only at the exact
+decision-link boundaries (repo select, row type, mapper, SDL field, REST schema)
+and keeps every old negative control (`party_company_candidates.evidence` /
+`.candidates`, `case_lineage_candidates.evidence`, hearing solutions, party names).
+
+**Tables and native representations.**
+
+| Table                    | Served as                                                       | Representation                      |
+| ------------------------ | --------------------------------------------------------------- | ----------------------------------- |
+| `issuing_bodies`         | `JudicialIssuingBody` (complete reference list, ordered by key) | `createdAt` exact UTC text with era |
+| `decisions`              | `JudicialDecision`                                              | see below                           |
+| `decision_subject_links` | `JudicialDecisionSubjectLink` (one row per stored link)         | see below                           |
+
+- **IDs** (`decisionId`, `linkId`) are canonical signed int8 decimal text
+  (`0`, `-1`, `-9223372036854775808` … `9223372036854775807`; no `+`, `-0`,
+  leading zero or whitespace). Malformed IDs are `INVALID_INPUT` before SQL.
+- **`decisionYear`** is the stored `smallint`, independent of `decisionDate` (a
+  year may exist without a date and the reverse; year `0` and negative years are
+  values, not nulls). Filter operands are signed 32-bit integers, including `0`,
+  compared as integers in SQL (`::integer`). An out-of-smallint equality
+  matches no row; range bounds outside that domain still apply normally, so
+  `-40000..40000` includes every non-null stored year.
+- **`decisionDate`** uses the native date display (`YYYY-MM-DD`, ` BC` for BC
+  years, ` AD` above year 9999, `infinity`/`-infinity`). **`createdAt` /
+  `updatedAt`** use the exact UTC text with era (`YYYY-MM-DDTHH:MM:SS.ffffff+00 AD`, or ` BC`;
+  `infinity`/`-infinity`). Both are independent of the session TimeZone/DateStyle.
+- **`attrs` and `evidence`** are the stored JSON values (object, array, scalar or
+  JSON null), served unchanged through the GraphQL `JSON` scalar, MCP and REST
+  (`Type.Unknown()` slots) — no object-only schema and no `{}` fallback; decimal
+  strings keep their spelling. **`confidenceScore`** is the stored `numeric(4,3)`
+  as exact text, nullable.
+
+**Lists, bounds and cursors.**
+
+- **Decision list** requires `sourceSystem.eq` or `issuingBody.eq` (an empty
+  string counts as a bound). Order is `decision_id DESC`; the cursor carries one
+  strict key (the signed int8 text) and the identity
+  `judicial_decisions:cursor-v1:<fhash>`.
+- **Link list** is at link grain, ordered `link_id DESC`, and requires **exactly
+  one anchor**: `decisionId.eq`, or both `subjectKind.eq` and `subjectRef.eq`
+  (exact text; no CUI normalization; dangling refs are served). `validationStatus.in`
+  narrows only an anchored list. Cursor identity
+  `judicial_decision_subject_links:cursor-v1:<fhash>`; a cursor from another
+  anchor or filter is `INVALID_INPUT`.
+- **Page size** for the new lists and the case-family lists reached through REST
+  and MCP: `first` defaults to 20, maximum 50; a value outside 1–50 is rejected,
+  never clamped. GraphQL connections return `totalCount: null` and an
+  `endCursor` on every non-empty page.
+- **Detail** by `decisionId`, and by the exact `(sourceSystem, sourceRef)` pair
+  (both required, no trimming; ECLI and application numbers are filters, not
+  lookup keys). A valid absent id is `null` / REST 404.
+
+**Discovery.** Decisions have their own resolve root/tool/path with four
+dimensions — `issuingBody` (stored key or label substring), `sourceSystem`
+(distinct stored values), `subjectKind` and `validationStatus` (static labels; a
+status is a recorded label, not a verification). The case dimensions stay
+exactly `court`, `courtLevel`, `companyName`, `category`.
+
+**Collection specs and flat mappings** (`shell/filters/judicial.spec.ts`,
+`shell/filters/transport-input.ts`). GraphQL takes the spec's operator objects;
+REST and MCP take flat parameters that map onto the **same** operator object, so
+a cursor issued on one surface resumes on another.
+
+| Spec                              | Fields (operators)                                                                                                                                                                                                        | Flat parameters                                                                                                                  |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `judicial_decisions`              | `sourceSystem`, `issuingBody` (eq); `decisionNo`, `decisionKind`, `outcomeNormalized`, `ecli`, `applicationNo` (eq, isNull); `decisionYear` (eq, gte, lte, between, isNull); `decisionDate` (isNull); `privacyClass` (eq) | `<field>`, `<field>IsNull`, `decisionYearFrom/To` → `between`, `decisionYearGte/Lte`, `decisionYearIsNull`, `decisionDateIsNull` |
+| `judicial_decision_subject_links` | `decisionId` (eq), `subjectKind` (eq), `subjectRef` (eq), `validationStatus` (in)                                                                                                                                         | same names; a repeated `validationStatus` is a list                                                                              |
+| `judicial_cases` (existing)       | unchanged                                                                                                                                                                                                                 | `yearFrom/To` → `between`, `yearGte/Lte`, `modifiedFrom/To/Gte/Lte`, `objectIsNull` → `hasObject.isNull`, `q` → `q.contains`     |
+
+**Corrections to existing reads.**
+
+1. **Lineage target is nullable.** `case_lineage_candidates.to_case_id` is
+   nullable in DDL; `JudicialLineageEdge.toCaseId` is now `BigInt` (nullable) in
+   SDL, `string | null` in the row and domain types. A NULL target no longer
+   violates a non-null field.
+2. **Ambiguous natural key.** `cases` is unique on `(source_slug,
+institution_code, case_number)`, so the two-field lookup can match rows from
+   two sources. `getByNaturalKey` reads `LIMIT 2`; two rows return
+   `INVALID_INPUT('case lookup is ambiguous; use caseId', 'caseNumber')` and no
+   child read follows. `caseId` still takes precedence, and an absent `caseId`
+   never falls back to the pair.
+
+**Surface matrix (19 REST paths, 17 GraphQL roots, 17 MCP tools).**
+
+| REST `GET /api/v1/judicial…`           | GraphQL root                                     | MCP tool                                                              |
+| -------------------------------------- | ------------------------------------------------ | --------------------------------------------------------------------- |
+| `/courts`                              | `judicialCourts`                                 | `list_judicial_courts`                                                |
+| `/courts/:code`                        | `judicialCourt`                                  | `get_judicial_court`                                                  |
+| `/cases`                               | `judicialCases`                                  | `list_judicial_cases`                                                 |
+| `/cases/lookup`                        | `judicialCase(institutionCode, caseNumber)`      | `get_judicial_case`                                                   |
+| `/cases/:caseId`                       | `judicialCase(caseId)`                           | `get_judicial_case`                                                   |
+| `/cases/aggregate`                     | `judicialCaseload`                               | `get_court_caseload`                                                  |
+| `/cases/:caseId/legal-references`      | `judicialCaseLegalReferences`                    | `get_case_legal_references`                                           |
+| `/cases/:caseId/lineage`               | `judicialCaseLineage`                            | `get_case_lineage`                                                    |
+| `/companies/:cui/litigation`           | `judicialCompanyLitigation`                      | `get_company_litigation`                                              |
+| `/companies/:cui/cases`                | `judicialCompanyLitigationCases`                 | `list_company_litigation_cases`                                       |
+| `/acts/:targetActId/cases`             | `judicialCasesCitingAct`                         | `list_cases_citing_act`                                               |
+| `/filters/resolve`                     | `judicialResolve`                                | `resolve_judicial_filters`                                            |
+| `/issuing-bodies`                      | `judicialIssuingBodies`                          | `list_judicial_issuing_bodies`                                        |
+| `/decisions`                           | `judicialDecisions`                              | `list_judicial_decisions`                                             |
+| `/decisions/lookup`                    | `judicialDecisionBySource`                       | `get_judicial_decision_by_source`                                     |
+| `/decisions/:decisionId`               | `judicialDecision`                               | `get_judicial_decision`                                               |
+| `/decisions/:decisionId/subject-links` | `judicialDecisionSubjectLinks` (decision anchor) | `list_judicial_decision_subject_links` (`decisionId`)                 |
+| `/decision-subject-links`              | `judicialDecisionSubjectLinks` (subject anchor)  | `list_judicial_decision_subject_links` (`subjectKind` + `subjectRef`) |
+| `/decisions/filters/resolve`           | `judicialDecisionResolve`                        | `resolve_judicial_decision_filters`                                   |
+
+The 12 MCP tools added by API-04 are `strictInput: true` (an unknown key is
+refused by the transport); the five earlier tools keep their inputs.
+
 ---
 
 ## 5. Usecases — `judicial/core/usecases/`
@@ -649,18 +769,22 @@ these.
 | `listCases` | `(filter, cursorPage) → Result<CursorResult<JudicialCase>>` | requires a bounding filter; default sort `(modifiedAt, caseId) desc`. |
 | `getCourtCaseload` | `(filter) → Result<CaseAggregateGroup[]>` | JD-2: cases/hearings by court×category×year; deterministic SQL; returns denominator + coverage. |
 | `getCaseParties` | `(caseId) → Result<{parties: PartyView[]; personPartyCount; ...}>` | the privacy-critical merge (§3.2). |
-| `getCompanyLitigation` | `(cui) → Result<CompanyLitigationSummary>` | JD-1: count-shaped, `published`-only, empty in v1. |
+| `getCompanyLitigation` | `(cui) → Result<CompanyLitigationSummary>` | JD-1: count-shaped, `published`-only (empty while nothing is published). |
 | `listCompanyLitigationCases` | `(cui, cursorPage) → Result<CursorResult<JudicialCaseLink>>` | JD-1 detail; gated. |
-| `getCaseLegalRefs` | `(caseId) → Result<JudicialLegalRef[]>` | JD-3; empty until gate #11. |
+| `getCaseLegalRefs` | `(caseId) → Result<JudicialLegalRef[]>` | JD-3; stored-row grain; `solution_summary` rows excluded. |
 | `listCasesCitingAct` | `(targetActId, cursorPage) → ...` | JD-3 reverse; cross-module read (legal). |
-| `getCaseLineage` | `(caseId) → Result<JudicialLineageEdge[]>` | JD-4; candidate-only, empty until gate #10. |
+| `getCaseLineage` | `(caseId) → Result<JudicialLineageEdge[]>` | JD-4; candidate-only; validates the direct id; `toCaseId` nullable. |
+
+API-04 adds `listDecisionIssuingBodies`, `getDecision`, `getDecisionBySource`,
+`listDecisions`, `listDecisionSubjectLinks` and `resolveDecisionFilters` (§4.3).
+REST, GraphQL and MCP call the same usecases.
 
 ### Cross-source contributor (foundation §4.4 / §14.7)
 
 ```ts
 export const makeJudicialContributor = (deps): SourceContributor => ({
   source: 'judicial',
-  // presence = does this CUI have any PUBLISHED company-litigation link? (empty in v1)
+  // presence = does this CUI have any PUBLISHED company-litigation link? (none while nothing is published)
   presenceFor: (cui) =>
     deps.companyLinks
       .caseCountForCui(cui)
@@ -688,29 +812,37 @@ export const makeJudicialContributor = (deps): SourceContributor => ({
 
 ## 6. REST endpoints — `judicial/shell/rest/`
 
-Prefix `/api/v1/judicial/`. Per-route `config: { public: true }` (foundation
-§14.11). All query/param schemas are TypeBox; response schemas
-`additionalProperties: false` (drops any stray column). Both envelopes carry
-`requestId` + the domain `asOf` watermark.
+API-04 adds the module's REST plugin (`makeJudicialRestPlugin`, exported as
+`JudicialModule.restPlugin`). Foundation F2 makes REST optional in general; this
+module has it because the human asked for the complete judicial API. There is no
+OpenAPI fragment and no merged `/api/v1/openapi.json` for judicial: the TypeBox
+response schemas in `shell/rest/schemas.ts` are the contract.
 
-| Method | Path | Query / params | Response | Pagination | Cache TTL | Timeout |
-| ------ | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- | ------------------ | ------------------------------------------ | --------------------------------------------------------- | ----------------- | --- | --- |
-| GET | `/judicial/courts` | `level[]`, `countyCode[]` (deprecated alias `countySiruta[]`), `specialization`, `q` (name trigram) | `JudicialCourt[]` | offset+total (246) | 1h | 5s |
-| GET | `/judicial/courts/:code` | — | `JudicialCourt` + `children[]` | — | 1h | 5s |
-| GET | `/judicial/cases` | filter spec §7 (`institutionCode`/`courtLevel`/`category`/`stage`/`yearFrom/To`/`q`/`hasObject`…); **a court-or-recency bound is required** | `JudicialCase[]` | **cursor** | 60s | 5s |
-| GET | `/judicial/cases/:caseId` | `caseId` | `JudicialCaseDetail` (case + hearings + appeals + parties[name-gated] + legalRefs + lineage) | — | 60s | 5s |
-| GET | `/judicial/cases/lookup` | `institutionCode`, `caseNumber` | `JudicialCase` (natural-key lookup) | — | 60s | 5s |
-| GET | `/judicial/cases/aggregate` | `groupBy=court                                                                                                                              | category                                                                                     | year               | courtLevel`, period/court/category filters | `CaseAggregateGroup[]` + `{denominator, coverage}` | offset+est. total | 5m | 15s |
-| GET | `/judicial/companies/:cui/litigation` | `cui` | `CompanyLitigationSummary` (count + courtLevels + years; **published-only**) | — | 5m | 5s |
-| GET | `/judicial/companies/:cui/cases` | `cui`, cursor | `JudicialCaseLink[]` (gated; empty v1) | cursor | 5m | 5s |
-| GET | `/judicial/acts/:targetActId/cases` | `targetActId`, cursor | cases citing the act (empty until gate #11) | cursor | 5m | 5s |
-| GET | `/judicial/filters/resolve` | `dim=court                                                                                                                                  | companyName                                                                                  | category           | courtLevel`, `q` | resolved values (court code, name_key_id+company name, …) | — | 5m | 5s |
+- **Prefix and methods:** `/api/v1/judicial`, the 19 GET paths of the §4.3 matrix
+  (HEAD is answered automatically). There is no write method.
+- **Routing:** static paths win over parametric ones (`/cases/lookup`,
+  `/cases/aggregate`, `/decisions/lookup` are never read as an id;
+  `/decisions/filters` is an invalid `decisionId`, so 400).
+- **Query strings:** Fastify's validator is not used for queries (its AJV coerces
+  types and removes unknown keys). Each route has a parameter table; the ORIGINAL
+  parsed query is checked first — unknown keys, a repeated scalar, non-canonical
+  integers (`05`, `1.0`, ` 1`, unsafe integers) and booleans other than
+  `true`/`false` are 400 before any repo call. A repeated list parameter is a list,
+  a single occurrence is a one-member list, commas are never split. The decoded
+  object is re-checked against its TypeBox schema.
+- **Envelopes:** success `{ ok: true, data, requestId, meta? }` (`meta.cursor.next`
+  on cursor lists); failure `{ ok: false, error, message, field?, resource?,
+requestId }` where `error` is the kernel `ApiError` type. 400 for invalid
+  input (route params, query, schema errors), 404 for a valid but absent detail,
+  500 with a fixed message (no cause, SQL, driver or source text) for anything
+  else.
+- **Caching:** every reply is `Cache-Control: no-store`.
+- **Auth:** the redesign composer registers the plugin after the legal module. The
+  legacy composer adds `/api/v1/judicial/` to its public GET/HEAD prefixes; other
+  methods and lookalike prefixes (`/api/v1/judicialx`) stay behind global auth.
 
-**OpenAPI notes:** the module exports an OpenAPI fragment merged at
-`/api/v1/openapi.json`. The fragment's component schemas for `JudicialParty` and
-`JudicialHearing` **must not declare** `displayName`/`solutionSummary` — an OpenAPI
-lint step in the leak audit asserts this so the published contract can never even
-_document_ the forbidden fields.
+The detail and list payloads, their nullability and the native spellings are the
+ones in §4.1–§4.3; REST, GraphQL and MCP return the same values.
 
 **No `/judicial/parties` collection endpoint** (deliberate omission): there is no
 way to list parties across cases — parties are only reachable scoped to a single
@@ -728,19 +860,19 @@ cursor `fhash` + tri-surface equivalence. The module invents no DSL.
 
 ### 7.1 `judicial_cases` collection spec
 
-| Field                          | Type     | Ops                        | Driving column / index                                                                                                                                                         | REST param              | GraphQL input           | MCP                      |
-| ------------------------------ | -------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------- | ----------------------- | ------------------------ |
-| `institutionCode`              | string[] | `in`                       | `cases.institution_code` / `cases_institution_idx`                                                                                                                             | `institutionCode` (CSV) | `[String!]`             | resolved from court name |
-| `courtLevel`                   | enum[]   | `in`                       | join `courts.court_level` (bounded)                                                                                                                                            | `courtLevel`            | `[JudicialCourtLevel!]` | enum                     |
-| `category`                     | string[] | `in`                       | `cases.category`                                                                                                                                                               | `category`              | `[String!]`             | —                        |
-| `stage`                        | string[] | `in`                       | `cases.stage`                                                                                                                                                                  | `stage`                 | `[String!]`             | —                        |
-| `year` / `yearFrom` / `yearTo` | int      | `eq`/`gte`/`lte`/`between` | session calendar year of `cases.source_opened_at` — a source-dependent clock (see §10 date basis); mixed-source ranges combine clocks; operators intersect (§4.2)              | `yearFrom`/`yearTo`     | `{from,to}`             | year                     |
-| `modifiedFrom`/`modifiedTo`    | date     | `between`                  | `cases.latest_source_modified_at` / `cases_modified_idx`                                                                                                                       | `modifiedFrom`/`To`     | `{from,to}`             | —                        |
-| `q`                            | string   | `contains`                 | `cases.object`/`case_number` (Postgres trigram fallback; Meili for prefix) — **text engine: Postgres ILIKE/trigram by default; Meili for the autocomplete `q` on case_number** | `q`                     | `String`                | resolver step            |
-| `hasObject`                    | bool     | `isNull` (mandatory op)    | `cases.object IS [NOT] NULL`                                                                                                                                                   | `hasObject`             | `Boolean`               | coverage                 |
-| `sort`                         | enum     | —                          | `modifiedAt`(default,desc) / `openedAt`                                                                                                                                        | `sort`                  | `JudicialCaseSort`      | —                        |
+| Field                          | Type     | Ops                        | Driving column / index                                                                                                                                            | REST param                 | GraphQL input           | MCP                      |
+| ------------------------------ | -------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- | ----------------------- | ------------------------ |
+| `institutionCode`              | string[] | `in`                       | `cases.institution_code` / `cases_institution_idx`                                                                                                                | repeated `institutionCode` | `[String!]`             | resolved from court name |
+| `courtLevel`                   | enum[]   | `in`                       | join `courts.court_level` (bounded)                                                                                                                               | `courtLevel`               | `[JudicialCourtLevel!]` | enum                     |
+| `category`                     | string[] | `in`                       | `cases.category`                                                                                                                                                  | `category`                 | `[String!]`             | —                        |
+| `stage`                        | string[] | `in`                       | `cases.stage`                                                                                                                                                     | `stage`                    | `[String!]`             | —                        |
+| `year` / `yearFrom` / `yearTo` | int      | `eq`/`gte`/`lte`/`between` | session calendar year of `cases.source_opened_at` — a source-dependent clock (see §10 date basis); mixed-source ranges combine clocks; operators intersect (§4.2) | `yearFrom`/`yearTo`        | `{from,to}`             | year                     |
+| `modifiedFrom`/`modifiedTo`    | date     | `between`                  | `cases.latest_source_modified_at` / `cases_modified_idx`                                                                                                          | `modifiedFrom`/`To`        | `{from,to}`             | —                        |
+| `q`                            | string   | `contains`                 | `cases.object`, parameterized PostgreSQL ILIKE                                                                                                                    | `q`                        | `String`                | resolver step            |
+| `hasObject`                    | bool     | `isNull` (mandatory op)    | `cases.object IS [NOT] NULL`                                                                                                                                      | `objectIsNull`             | `Boolean`               | coverage                 |
+| `sort`                         | enum     | —                          | `modifiedAt`(default,desc) / `openedAt`                                                                                                                           | `sort`                     | `JudicialCaseSort`      | —                        |
 
-**Bounding rule (enforced in the spec's validator, not ad-hoc):** at least one of
+**Bounding rule (enforced by the repo after filter normalization):** at least one of
 `institutionCode`, `courtLevel`, or a `modified*`/`year*` range must be present, or
 the request is `InvalidInput` ("judicial case list requires a court or period
 bound"). This is the §3 "no implicit unbounded scans" rule for a 6.16M-row table.
@@ -776,6 +908,9 @@ Gate").
 | `companyName` | `name_key_id` + publishable name + candidate CUIs | `PartyDictionaryRepo.resolveCompanyName` (**company/public dictionary ONLY**) | **safe — the dictionary holds no person names; resolving a person's name returns zero rows** |
 | `category`    | distinct `cases.category`/`category_name`         | `justice.cases`                                                               | safe                                                                                         |
 
+Decision discovery is a separate path/root/tool with its own four dimensions
+(§4.3); these four case dimensions are unchanged.
+
 Inputs (§4.2): `dim` must be one of these four, `q` a string, `limit` omitted/null
 (10) or an integer 1–50; anything else is `INVALID_INPUT` before any repo access,
 and the error never echoes the query.
@@ -790,12 +925,12 @@ by construction), and the leak audit asserts this (§12 test 4).
 
 ### 7.5 Golden question → filter examples (from `AI_AGENT_FILTER_QUESTION_CATALOG.md`)
 
-| Catalog ID | Question                                | Filter                                                               | Authority                                           | v1 status                                                                   |
-| ---------- | --------------------------------------- | -------------------------------------------------------------------- | --------------------------------------------------- | --------------------------------------------------------------------------- |
-| JD-1       | How many cases is company Y a party to? | resolve `companyName`→`name_key_id`/CUI; `getCompanyLitigation(cui)` | `party_company_candidates` (published-only)         | **empty in v1** (no published rows); endpoint returns `coverage:0` + caveat |
-| JD-2       | Court load by institution/category/year | `cases.aggregate(groupBy, year, courtLevel)`                         | deterministic SQL over `justice.cases`(+courts)     | **live**                                                                    |
-| JD-3       | What laws are cited in case metadata?   | `getCaseLegalRefs(caseId)` / `listCasesCitingAct(actId)`             | `case_legal_references` → `legal.act_citation_keys` | **empty until gate #11**                                                    |
-| JD-4       | Case appeal/lineage chain               | `getCaseLineage(caseId)`                                             | `case_lineage_candidates` (candidate, not fact)     | **empty until gate #10**                                                    |
+| Catalog ID | Question                                | Filter                                                               | Authority                                           | v1 status                                                                 |
+| ---------- | --------------------------------------- | -------------------------------------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------- |
+| JD-1       | How many cases is company Y a party to? | resolve `companyName`→`name_key_id`/CUI; `getCompanyLitigation(cui)` | `party_company_candidates` (published-only)         | empty while no row is `published`; endpoint returns `coverage:0` + caveat |
+| JD-2       | Court load by institution/category/year | `cases.aggregate(groupBy, year, courtLevel)`                         | deterministic SQL over `justice.cases`(+courts)     | **live**                                                                  |
+| JD-3       | What laws are cited in case metadata?   | `getCaseLegalRefs(caseId)` / `listCasesCitingAct(actId)`             | `case_legal_references` → `legal.act_citation_keys` | stored eligible citation rows                                             |
+| JD-4       | Case appeal/lineage chain               | `getCaseLineage(caseId)`                                             | `case_lineage_candidates` (candidate, not fact)     | stored candidate rows; no fact promotion                                  |
 
 **Hard gates echoed as filter rules (catalog "Judicial Cases" + "LLM Safety
 Gate"):** no person-party names in serving/search/embeddings; no
@@ -808,22 +943,33 @@ confidence / caveats` (catalog "Core Rule").
 
 ## 8. MCP tools — `judicial/shell/mcp/`
 
-Two families (foundation §6.3): a discovery tool + query tools. TypeBox input +
-output; handler calls the same usecase as REST; output `{ ok, kind, query, link,
-item|items, summary?, coverage, denominator, caveats }`. Rate-limited, bounded.
-**Output schemas omit `display_name`, `solution_summary`, `solution` (v1), and the
-candidate `evidence`/`candidates`/`reviewed_by` jsonb/PII** (leak audit covers MCP).
+Two families (foundation §6.3): discovery tools and query tools. MCP inputs are
+`ZodRawShape` definitions consumed by the kernel; handlers return typed
+structured outputs from the shared usecases. The twelve new tools use strict
+input definitions; the five existing schemas retain their prior behavior.
+Cursor lists carry `meta.cursor.next`. Rate-limited and bounded.
+**Existing case outputs omit `display_name`, `solution_summary`, `solution`,
+and party/lineage candidate evidence, candidate arrays and reviewer fields.**
+Decision-link `evidence` is served as stored under the scoped instruction (§4.3);
+the leak audit keeps the existing case exclusions.
 
-| Tool                                   | Input                                       | Output                                                               | Usecase                | `link`                                 | Summary template                                                                      |
-| -------------------------------------- | ------------------------------------------- | -------------------------------------------------------------------- | ---------------------- | -------------------------------------- | ------------------------------------------------------------------------------------- |
-| `resolve_judicial_filters` (discovery) | `dim`, `q`                                  | resolved values (court codes, name_key_id+company name, categories)  | `resolve*`             | `/judicial/courts?...`                 | "Resolved '{q}' to {n} {dim}(s)."                                                     |
-| `get_judicial_case`                    | `caseId` or `{institutionCode, caseNumber}` | `JudicialCaseDetail` (name-gated parties; **no solution_summary**)   | `getCaseDetail`        | `/judicial/cases/{caseId}`             | "Case {caseNumber} at {court}: {stage}, {hearingCount} hearings."                     |
-| `get_court_caseload`                   | `groupBy`, court/category/year filters      | aggregate rows + denominator + coverage                              | `getCourtCaseload`     | `/judicial/cases/aggregate?...`        | "{court/level} handled {cases} cases in {year}."                                      |
-| `get_company_litigation`               | `cui` (resolved)                            | count + courtLevels + years + coverage; **published-only, empty v1** | `getCompanyLitigation` | `/judicial/companies/{cui}/litigation` | "Company {cui}: {caseCount} published case links (coverage {x}%)." Caveat when empty. |
-| `get_case_legal_references`            | `caseId`                                    | resolved/ambiguous/unresolved citations                              | `getCaseLegalRefs`     | `/judicial/cases/{caseId}`             | "Case {caseId} has {n} legal citation(s) ({resolved} uniquely resolved)."             |
+| Tool                                   | Input                                       | Output                                                              | Usecase                | `link`                                 | Summary template                                                                      |
+| -------------------------------------- | ------------------------------------------- | ------------------------------------------------------------------- | ---------------------- | -------------------------------------- | ------------------------------------------------------------------------------------- |
+| `resolve_judicial_filters` (discovery) | `dim`, `q`                                  | resolved values (court codes, name_key_id+company name, categories) | `resolve*`             | `/judicial/courts?...`                 | "Resolved to {n} {dim} value(s)."                                                     |
+| `get_judicial_case`                    | `caseId` or `{institutionCode, caseNumber}` | `JudicialCaseDetail` (name-gated parties; **no solution_summary**)  | `getCaseDetail`        | `/judicial/cases/{caseId}`             | "Case {caseNumber} at {court}: {stage}, {hearingCount} hearings."                     |
+| `get_court_caseload`                   | `groupBy`, court/category/year filters      | aggregate rows + denominator + coverage                             | `getCourtCaseload`     | `/judicial/cases/aggregate?...`        | "{court/level} handled {cases} cases in {year}."                                      |
+| `get_company_litigation`               | `cui` (resolved)                            | count + courtLevels + years + coverage; **published-only**          | `getCompanyLitigation` | `/judicial/companies/{cui}/litigation` | "Company {cui}: {caseCount} published case links (coverage {x}%)." Caveat when empty. |
+| `get_case_legal_references`            | `caseId`                                    | resolved/ambiguous/unresolved citations                             | `getCaseLegalRefs`     | `/judicial/cases/{caseId}`             | "Case {caseId} has {n} legal citation(s) ({resolved} uniquely resolved)."             |
 
-**No MCP tool returns party rows.** Person/unknown parties are exposed only as
-`personPartyCount` inside `get_judicial_case`. The aggregate accuracy gate (catalog)
+API-04 brings the module to **17 tools**: the five above plus `list_judicial_courts`,
+`get_judicial_court`, `list_judicial_cases`, `get_case_lineage`,
+`list_company_litigation_cases`, `list_cases_citing_act` and the six decision tools
+of §4.3. The new tools take flat parameters (§4.3) and return
+`meta.cursor.next` on cursor lists.
+
+`get_judicial_case` returns the existing party view rows and
+`personPartyCount`. Person/unknown names remain null, and the existing withheld
+fields remain withheld; party rows are not omitted. The aggregate accuracy gate (catalog)
 applies: `get_court_caseload` and `get_company_litigation` outputs must match an
 independent SQL recomputation on a frozen snapshot (fixture tests, §12).
 
@@ -839,7 +985,7 @@ independent SQL recomputation on a frozen snapshot (fixture tests, §12).
   `search.documents` rows for `judicial_case` carry `title` = `{caseNumber} —
 {court}`, `body` = **object + category only** (NEVER `solution_summary`, NEVER
   party names beyond gated company/public names), `cuis` = ONLY `published`
-  company-link CUIs (empty in v1), `county_name` from the court. **No person name,
+  company-link CUIs (none while nothing is published), `county_name` from the court. **No person name,
   no `solution_summary`, ever.** The server's integration test queries the live
   index and asserts no justice hit body/title contains a name beyond the gated
   dictionary (§12).
@@ -858,11 +1004,11 @@ search disabled (privacy)"]`. Stated as a deliberate stricter-than-default
 
 ## 10. Sync / freshness impact on serving
 
-- **Loader cadence:** incremental, two watermarks (cases/hearings/appeals on
-  `latest_source_modified_at`; parties on the raw party layer
-  `extracted_at`/latest `response_id`). Per-case REPLACE means a hearing/party that
-  disappears between snapshots leaves no stale orphan — the server always reads a
-  clean current projection.
+- **Loader cadence and convergence:** the two-watermark and per-case REPLACE
+  description comes from the historical JC-B design. The API reads the stored
+  projection and proves neither full replay, absence reconciliation nor source
+  freshness. Current load safety and independent output audits belong to the
+  data layer; an API read does not certify a clean or complete projection.
 - **As-of semantics (A2, source-scoped):** case detail carries `asOf =
 { asOf, estimated, sourceSlug, basis, captureFreshnessAt, loadFreshnessAt }`.
   `asOf` is the stored `max(cases.latest_source_modified_at)` over the cases of
@@ -875,9 +1021,11 @@ search disabled (privacy)"]`. Stated as a deliberate stricter-than-default
   is a stored source-modified maximum — not capture completeness, head
   observation, dataset freshness or load time; `captureFreshnessAt` and
   `loadFreshnessAt` are always `null` until independent evidence supports them.
-  **Cache is TTL-only** (stated explicitly per §14.11). The dataset is
-  crawl-cadence (not daily-live; ~5-day idle observed at JC-B), so TTLs are
-  generous (60s lists / 5m aggregates).
+  **No judicial response cache:** REST replies are `Cache-Control: no-store`
+  and GraphQL/MCP add no judicial cache. (The ~5-day crawl idle observed at JC-B
+  is dated evidence, not a freshness promise.) Stored decisions carry no as-of
+  watermark; their `createdAt`/`updatedAt` are stored row timestamps, not source
+  or capture freshness.
 - **Date basis (A2):** `sourceOpenedAt` is a source clock, explained per case by
   `sourceOpenedAtBasis` (derived from the actual `source_slug`, never ids, court
   names or case numbers): `portal_just` ⇒ `portal_header_data` (the Portal case
@@ -898,8 +1046,7 @@ search disabled (privacy)"]`. Stated as a deliberate stricter-than-default
 - **Gated tables flipping on:** when gate #9/#10/#11 go green and the derive lanes
   populate `party_company_candidates`(published) / `case_legal_references` /
   `case_lineage_candidates`, the corresponding endpoints begin returning data with
-  **no server code change** — they are already wired, just empty. Cache busts on
-  the loader version stamp.
+  **no server code change** — the reads serve whatever is stored.
 
 ---
 
@@ -907,30 +1054,27 @@ search disabled (privacy)"]`. Stated as a deliberate stricter-than-default
 
 ```ts
 export const makeJudicialModule = (deps: {
-  db: Kysely<ProdDatabase>; // kernel-typed; touches justice.* + core/search/legal (read)
-  cache: Cache;
-  rateLimiter: RateLimiter;
-  logger: Logger;
-  meili: MeiliClient;
-  opensearch: OpenSearchClient; // read-only
-  territory: TerritoryRepo; // kernel — court territory resolution
+  db: Kysely<ProdDatabase>; // kernel-typed; reads justice.* (+ legal through the loader)
+  registry: ContributorRegistry;
+  legalActLoader: () => LegalActByIdLoader | undefined; // kernel cross-module loader
+  clientBaseUrl?: string;
 }): JudicialModule => {
-  /* build repos → usecases → rest/graphql/mcp/contributor */
+  /* build repos → usecases → GraphQL slice + MCP tools + REST plugin + contributor */
 };
 ```
 
-Returns `{ restPlugin, graphql: { typeDefs, resolvers }, mcpTools, contributor,
-repos }`. `build-app.ts` registers the REST plugin under `/api/v1/judicial/`,
-merges the `Judicial*` GraphQL slice, registers MCP tools, registers the
-contributor into the kernel registry (data-independent order).
+Returns `{ graphqlSlice, graphqlResolvers, mcpTools, restPlugin, contributor,
+repos }`. `registerRedesignSurface` (used by both composers) merges the
+`Judicial*` GraphQL slice, registers the MCP tools, registers the contributor and
+mounts `restPlugin` under `/api/v1/judicial` after the legal module. The legacy
+`build-app.ts` adds only the `/api/v1/judicial/` GET/HEAD public prefix (§6).
 
-- **Env additions:** none beyond kernel (`PROD_DATABASE_URL`, `MEILI_*`,
-  `OPENSEARCH_*`). Optional `JUDICIAL_PUBLISHED_LINKS_ENABLED` feature flag (default
-  off) is **not needed** — the `published`-only predicate already makes links empty;
-  the flag is documented only as a kill-switch if a published row is ever found
-  unexpectedly.
-- **Legacy superseded:** none. There is no justice route/GraphQL/MCP today (the
-  legacy timeline explicitly excludes justice). This is greenfield.
+- **Env additions:** none beyond the existing kernel configuration. No new
+  feature flag is implemented. The published-only company predicate limits
+  admitted rows; it does not establish that the stored population is empty.
+- **Legacy superseded:** the judicial module is already mounted through the
+  shared redesign surface. API-04 adds nineteen REST paths, eight GraphQL roots
+  and twelve MCP tools. No other legacy route is replaced.
 - **Cross-module needs (consumed, never imported — through kernel/soft links):**
   1. `core.territories` via kernel `TerritoryRepo` (court county/SIRUTA/region).
   2. `legal.acts` / `legal.act_citation_keys` for `case_legal_references.target_act_id`
@@ -948,7 +1092,7 @@ contributor into the kernel registry (data-independent order).
 **Unit (`tests/unit/judicial/`):**
 
 - Usecase tests with mocked ports (`getCaseDetail` name-merge; `getCompanyLitigation`
-  empty-in-v1 returns `coverage:0`).
+  with no published rows returns `coverage:0`).
 - Filter spec → SQL compilation **snapshot tests** (the `judicial_cases` bounding
   rule rejects unbounded input; `canonicalizeFilters` stable key).
 - Cursor encode/decode incl. `fhash` mismatch → `InvalidInput`.
@@ -960,7 +1104,7 @@ seeded fixture schema; tri-surface equivalence (same filter → same data) via
 **The leak audit (dedicated privacy test — foundation §14.9, the gate):**
 
 1. **Static:** grep the entire `judicial/` module source + the generated GraphQL
-   SDL + every MCP output TypeBox schema + the OpenAPI fragment; assert
+   SDL + every MCP output schema + the REST response schemas; assert
    `display_name`/`displayName` appears ONLY inside `PartyDictionaryRepo.getPublishableName(s)`
    and `solution_summary`/`solutionSummary`/`solution` (the column) appears
    **nowhere** in any projection/SELECT in v1.
@@ -985,7 +1129,8 @@ justice.case_parties` and assert: every `name_key_id`-bearing row has
 6. **Gated-table jsonb/PII non-projection (covers the tables BEFORE they populate
    — reviewer B3):** assert that `party_company_candidates.evidence`, `.candidates`,
    `.reviewed_by` and `case_lineage_candidates.evidence` appear in **no** REST
-   response schema, GraphQL field, MCP output schema, or OpenAPI component. Run the
+   response schema, GraphQL field or MCP output schema (API-04: the decision-link
+   `evidence` is admitted only at its exact boundaries, §4.3). Run the
    company-litigation + lineage suites against a fixture **seeded with one
    `published` candidate row whose `candidates` jsonb contains a planted
    person-name string**, and assert that string surfaces nowhere. This makes the
@@ -998,7 +1143,31 @@ justice.case_parties` and assert: every `name_key_id`-bearing row has
    `raw_text` is a substring of a forbidden column).
 
 **Golden filters:** JD-1..JD-4 from the catalog as integration cases, including the
-explicit **refusal/empty-coverage** cases for JD-1/JD-3/JD-4 (gated, empty in v1).
+explicit **refusal/empty-coverage** cases for JD-1/JD-3/JD-4 (gated; empty while
+nothing is published or derived).
+
+**API-04 tests (author receipts, 2026-10-04; the PG proof is run by the parent):**
+
+| Suite                                                                                                                                             | What it proves                                                                                                                                                                      | Local result                        |
+| ------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
+| `tests/unit/judicial/decision-contract.test.ts`                                                                                                   | literal 17 roots / 17 tools, strict flags, 4+4 dims, ID/year/page/cursor/anchor rejection before SQL, SQL shape, natural-key `LIMIT 2`, nullable lineage, flat mappings             | 110 pass                            |
+| `tests/unit/judicial/leak-audit.test.ts`                                                                                                          | exact decision-link evidence forms; old negative controls                                                                                                                           | 13 pass                             |
+| `tests/unit/judicial/usecases.test.ts`                                                                                                            | lineage id guard; ambiguity stops child reads                                                                                                                                       | 10 pass                             |
+| `tests/integration/judicial/judicial-rest.test.ts`                                                                                                | Fastify.inject over all 19 paths: routing, query decoding, envelopes, 400/404/500, no-store, JSON values; the composed app under the production GraphQL formatter and `/api/v1/mcp` | 28 pass                             |
+| `tests/unit/app/global-auth-bypass.test.ts`, `tests/integration/redesign-surface-mount.test.ts`, `tests/integration/redesign-composition.test.ts` | GET/HEAD-only public prefix, mount on both composers, absent without the module                                                                                                     | 33 pass                             |
+| `tests/integration/judicial/judicial-api04.pg.test.ts`                                                                                            | the five hash-pinned migrations on a guarded disposable database; read-only UTC/ISO and Asia/Kathmandu SQL,DMY readers; REST, HTTP GraphQL and MCP over the real app                | guard: 12 pass; DB: not run locally |
+
+**Parent validation of the frozen API-04 implementation (2026-10-04):** all five
+canonical server gates passed (`typecheck`, `lint`, `deps:check`,
+`test --maxWorkers 2`, `build`). The ordinary suite passed 6,293 tests with 393
+declared environment skips. Separately, actual PostgreSQL qualification passed
+33 new API tests and all 178 unchanged adjacent API tests, with zero skips, on
+the pinned migration DDL and two read-only session configurations. The exact old
+code comparison reproduced two existing bugs (ambiguous lookup and nullable
+lineage); seventeen further first failures reflect absent new capabilities,
+not seventeen old value-mapping bugs. Secret-handling fixtures (31) and dataset
+validation (6) passed. This is local qualification, not publication, deployment,
+load or source-freshness evidence.
 
 **Aggregate accuracy fixtures (catalog gate):** `get_court_caseload` /
 `get_company_litigation` outputs match an independent SQL recomputation on a frozen
@@ -1022,7 +1191,8 @@ snapshot.
 2. **Publication fork (decision-review gate #14 — user decision).** Whether/when
    company profiles ever show cases, and the precision threshold (≥99% suggested)
    for promoting a candidate to `published`. v1 builds no publish path; the server
-   surfaces are wired but empty. No engineering blocker; needs the precision sample
+   surfaces are wired and read matching stored published rows, returning empty
+   when none match. No engineering blocker; needs the precision sample
    (gate #9) + a product/legal decision.
 3. **Person-name display fork (gate #15 — user decision).** Source parity
    (portal.just.ro shows persons) vs permanent redaction. This plan defaults to
@@ -1033,7 +1203,8 @@ snapshot.
    `bigserial`; a raw truncate+rebuild reshuffles ids and forces a prod full reload
    (loader tier-1 reconciliation blocks drift). The server assumes `case_id`
    stability between loads; if a reload changes ids, cached cursors/links go stale
-   — acceptable (TTL), but client deep links by `case_id` could 404 after a reload.
+   — acceptable (nothing is cached; stale cursors are refused), but client deep
+   links by `case_id` could 404 after a reload.
    **Mitigation:** prefer the natural-key lookup (`/cases/lookup`) for durable deep
    links; note in client contract.
 5. **Court territory coverage.** `courts.county_code` is a soft link; 16 top-level

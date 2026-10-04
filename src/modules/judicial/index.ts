@@ -1,10 +1,11 @@
 /**
- * Judicial module — public API (plan 08 §11). **PRIVACY-CRITICAL.** Surface =
- * GraphQL + MCP only (no REST). Owns the `justice.*` tables.
+ * Judicial module — public API (plan 08 §11). **PRIVACY-CRITICAL.** Surfaces =
+ * GraphQL + MCP + REST (API-04: the GET plugin under `/api/v1/judicial`), all
+ * over the SAME usecases. Owns the `justice.*` tables.
  *
  * `makeJudicialModule(deps)` wires repos → usecases → GraphQL slice + MCP tools +
- * the `judicial` contributor. `build-redesign-app.ts` merges the slice, registers
- * the tools + contributor.
+ * the REST plugin + the `judicial` contributor. `build-redesign-app.ts` merges
+ * the slice, registers the tools, the REST plugin and the contributor.
  *
  * Importing this barrel pulls in `shell/db/schema.ts`, whose `declare module`
  * augments `ProdDatabase` with the `justice.*` tables (with the structural
@@ -30,9 +31,11 @@ import {
 } from './shell/repo/children-repo.js';
 import { makeJudicialCompanyLinkRepo } from './shell/repo/company-link-repo.js';
 import { makeJudicialCourtRepo } from './shell/repo/courts-repo.js';
+import { makeJudicialDecisionRepo } from './shell/repo/decisions-repo.js';
 import { makeJudicialLegalRefRepo } from './shell/repo/legal-ref-repo.js';
 import { makeJudicialLineageRepo } from './shell/repo/lineage-repo.js';
 import { makeJudicialPartyDictionaryRepo } from './shell/repo/party-dictionary-repo.js';
+import { makeJudicialRestPlugin } from './shell/rest/routes.js';
 
 import type { JudicialRepos } from './core/usecases.js';
 import type {
@@ -43,6 +46,7 @@ import type {
   ProdDatabase,
   SourceContributor,
 } from '@/modules/shared/index.js';
+import type { FastifyPluginAsync } from 'fastify';
 import type { Kysely } from 'kysely';
 
 export interface JudicialModuleDeps {
@@ -61,6 +65,8 @@ export interface JudicialModule {
   readonly graphqlSlice: GraphqlSlice;
   readonly graphqlResolvers: Record<string, unknown>;
   readonly mcpTools: readonly KernelMcpTool[];
+  /** The public GET REST plugin (register at `/api/v1/judicial`). */
+  readonly restPlugin: FastifyPluginAsync;
   readonly contributor: SourceContributor;
   readonly repos: JudicialRepos;
 }
@@ -81,11 +87,14 @@ export const makeJudicialModule = (deps: JudicialModuleDeps): JudicialModule => 
     companyLinks: makeJudicialCompanyLinkRepo(deps.db, dictionary),
     legalRefs: makeJudicialLegalRefRepo(deps.db),
     lineage: makeJudicialLineageRepo(deps.db),
+    // API-04: the three stored decision tables (served as stored).
+    decisions: makeJudicialDecisionRepo(deps.db),
   };
 
-  // 2. GraphQL + MCP (call the SAME usecases — tri-surface equivalence).
+  // 2. GraphQL + MCP + REST (call the SAME usecases — surface equivalence).
   const graphqlResolvers = makeJudicialResolvers({ repos, legalActLoader: deps.legalActLoader });
   const mcpTools = makeJudicialMcpTools({ repos, clientBaseUrl });
+  const restPlugin = makeJudicialRestPlugin({ repos });
 
   // 3. the privacy-safe contributor (company-litigation only; empty v1).
   const contributor = makeJudicialContributor(repos);
@@ -94,6 +103,7 @@ export const makeJudicialModule = (deps: JudicialModuleDeps): JudicialModule => 
     graphqlSlice: { source: 'judicial', typeDefs: judicialTypeDefs },
     graphqlResolvers,
     mcpTools,
+    restPlugin,
     contributor,
     repos,
   };
@@ -104,5 +114,7 @@ export {
   JUDICIAL_FILTER_SPECS,
   judicialCasesSpec,
   judicialCourtsSpec,
+  judicialDecisionSubjectLinksSpec,
+  judicialDecisionsSpec,
 } from './shell/filters/judicial.spec.js';
 export { PUBLISHABLE_RULES, CLASSIFIER_VERSION } from './shell/repo/constants.js';

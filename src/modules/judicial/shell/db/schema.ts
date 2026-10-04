@@ -162,13 +162,61 @@ export interface JusticeCaseLegalReferencesTable {
 export interface JusticeCaseLineageCandidatesTable {
   lineage_candidate_id: string; // bigint → string
   from_case_id: string; // bigint → string
-  to_case_id: string; // bigint → string
+  to_case_id: string | null; // bigint → string; NULL for an unresolved candidate (nullable FK)
   lineage_type: string; // CHECK: appeal|old_number|same_dossier_cross_institution|manual
   method: string | null;
   confidence_score: string | null; // numeric → string
   validation_status: string; // CHECK: candidate|accepted|needs_review|rejected
   // evidence (jsonb): RESTRICTED-SURFACE — never declared, never projected (leak audit #6).
   // resolver_version, *_at: internal — not declared.
+}
+
+// ── issuing_bodies / decisions / decision_subject_links (API-04) ──────────────
+// SERVED AS STORED under the scoped human instruction (core/types.ts): both
+// stored privacy classes and the link evidence JSON. Exact columns of
+// 20260629T132000__justice_decisions.
+
+export interface JusticeIssuingBodiesTable {
+  issuing_body: string; // PK; extensible FK reference table (keys are table data)
+  label: string;
+  kind: string; // CHECK: court|administrative_tribunal|international_court
+  notes: string | null;
+  created_at: Tstz;
+}
+
+export interface JusticeDecisionsTable {
+  decision_id: string; // bigint identity → string (no positive-only CHECK)
+  issuing_body: string; // FK → issuing_bodies
+  source_system: string;
+  source_ref: string; // unique with source_system
+  decision_no: string | null;
+  decision_year: number | null; // smallint; independent of decision_date
+  decision_date: string | null; // date (native; rendered in SQL)
+  decision_kind: string | null;
+  outcome_normalized: string | null;
+  ecli: string | null;
+  application_no: string | null;
+  attrs: unknown; // jsonb NOT NULL: any JSON value (object/array/scalar/JSON null)
+  privacy_class: string; // CHECK: public|restricted
+  source_url: string | null;
+  source_object_key: string | null;
+  created_at: Tstz;
+  updated_at: Tstz;
+}
+
+export interface JusticeDecisionSubjectLinksTable {
+  link_id: string; // bigint identity → string
+  decision_id: string; // FK → decisions (ON DELETE CASCADE)
+  subject_kind: string; // CHECK: company|public_entity|contract|ecris_case|notice
+  subject_ref: string; // exact text; no cross-domain FK
+  role: string | null;
+  method: string | null;
+  confidence_score: string | null; // numeric(4,3) → exact text
+  validation_status: string; // CHECK: candidate|needs_review|accepted|rejected
+  evidence: unknown; // jsonb NOT NULL: any JSON value, served as stored (API-04)
+  resolver_version: string | null;
+  created_at: Tstz;
+  updated_at: Tstz;
 }
 
 /**
@@ -188,6 +236,9 @@ declare module '@/modules/shared/shell/db/types.js' {
     'justice.party_company_candidates': JusticePartyCompanyCandidatesTable;
     'justice.case_legal_references': JusticeCaseLegalReferencesTable;
     'justice.case_lineage_candidates': JusticeCaseLineageCandidatesTable;
+    'justice.issuing_bodies': JusticeIssuingBodiesTable;
+    'justice.decisions': JusticeDecisionsTable;
+    'justice.decision_subject_links': JusticeDecisionSubjectLinksTable;
     /* eslint-enable @typescript-eslint/naming-convention -- restore the rule after the schema-qualified table keys */
   }
 }

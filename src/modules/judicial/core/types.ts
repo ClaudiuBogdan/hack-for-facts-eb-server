@@ -1,7 +1,7 @@
 /**
  * Judicial module — domain view models (plan 08 §2.2). **PRIVACY-CRITICAL.**
  *
- * The row types here are the contract the three surfaces (GraphQL, MCP — no REST)
+ * The row types here are the contract the three surfaces (GraphQL, MCP, REST)
  * project. They are **structurally name-free**: there is no `displayName`,
  * `name`, `solution`, or `solutionSummary` field on `JudicialParty` /
  * `JudicialHearing`. A developer cannot return those columns because the type
@@ -263,7 +263,8 @@ export interface JudicialCaseCitation {
 export interface JudicialLineageEdge {
   readonly lineageCandidateId: string;
   readonly fromCaseId: string;
-  readonly toCaseId: string;
+  /** Null for an unresolved candidate (`to_case_id` is nullable in the DDL). */
+  readonly toCaseId: string | null;
   readonly lineageType: string;
   readonly method: string | null;
   readonly confidenceScore: string | null;
@@ -395,6 +396,174 @@ export interface JudicialAsOf {
   /** Not established in A2: always null. */
   readonly loadFreshnessAt: string | null;
 }
+
+// ── Stored decisions (API-04) ──────────────────────────────────────────────────
+//
+// SCOPED TASK OVERRIDE (human instruction, 2026-10-04): the three decision
+// tables (`justice.issuing_bodies`, `justice.decisions`,
+// `justice.decision_subject_links`) are served AS STORED — both stored decision
+// privacy classes and the link evidence included — while dedicated privacy
+// work is deferred. Statuses are recorded labels: nothing here verifies a
+// subject identity or promotes a link. The override does NOT change the case,
+// party, hearing, company, case-lineage, citation, search or contributor policy.
+
+/** `justice.decisions.privacy_class` (DB CHECK `decisions_privacy_class_check`). */
+export const JUDICIAL_DECISION_PRIVACY_CLASSES = ['public', 'restricted'] as const;
+
+export type JudicialDecisionPrivacyClass = (typeof JUDICIAL_DECISION_PRIVACY_CLASSES)[number];
+
+/** `justice.issuing_bodies.kind` (DB CHECK `issuing_bodies_kind_check`). */
+export const JUDICIAL_ISSUING_BODY_KINDS = [
+  'court',
+  'administrative_tribunal',
+  'international_court',
+] as const;
+
+export type JudicialIssuingBodyKind = (typeof JUDICIAL_ISSUING_BODY_KINDS)[number];
+
+/** `justice.decision_subject_links.subject_kind` (DB CHECK `decision_subject_links_kind_check`). */
+export const JUDICIAL_DECISION_SUBJECT_KINDS = [
+  'company',
+  'public_entity',
+  'contract',
+  'ecris_case',
+  'notice',
+] as const;
+
+export type JudicialDecisionSubjectKind = (typeof JUDICIAL_DECISION_SUBJECT_KINDS)[number];
+
+/**
+ * `justice.decision_subject_links.validation_status` (DB CHECK
+ * `decision_subject_links_status_check`): recorded status LABELS, never an
+ * API verification or a publication.
+ */
+export const JUDICIAL_DECISION_LINK_STATUSES = [
+  'candidate',
+  'needs_review',
+  'accepted',
+  'rejected',
+] as const;
+
+export type JudicialDecisionLinkStatus = (typeof JUDICIAL_DECISION_LINK_STATUSES)[number];
+
+/** One stored issuing body (the extensible FK reference table; keys are table data). */
+export interface JudicialIssuingBody {
+  readonly issuingBody: string;
+  readonly label: string;
+  readonly kind: JudicialIssuingBodyKind;
+  readonly notes: string | null;
+  /** Row-operation timestamp, exact UTC text with era (see `JudicialDecision.createdAt`). */
+  readonly createdAt: string;
+}
+
+/**
+ * One stored decision row, every value as stored. `decisionId` is the exact
+ * int8 text. `decisionYear` is the independent nullable smallint (it can be
+ * 0, negative, or differ from `decisionDate`'s year). `decisionDate` is the
+ * native date display (`YYYY-MM-DD` for AD 1–9999, else explicit era text or
+ * ±infinity). `attrs` is the stored JSON value (an object, array, scalar or
+ * JSON null). `createdAt`/`updatedAt` are row-operation timestamps in exact UTC
+ * text (`YYYY-MM-DDTHH:MM:SS.ffffff+00 AD`, or ±infinity) — not event time or
+ * capture freshness.
+ */
+export interface JudicialDecision {
+  readonly decisionId: string;
+  readonly issuingBody: string;
+  readonly sourceSystem: string;
+  readonly sourceRef: string;
+  readonly decisionNo: string | null;
+  readonly decisionYear: number | null;
+  readonly decisionDate: string | null;
+  readonly decisionKind: string | null;
+  readonly outcomeNormalized: string | null;
+  readonly ecli: string | null;
+  readonly applicationNo: string | null;
+  readonly attrs: unknown;
+  readonly privacyClass: JudicialDecisionPrivacyClass;
+  readonly sourceUrl: string | null;
+  readonly sourceObjectKey: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+/**
+ * One stored decision → subject link, at LINK grain (identity
+ * `(decision_id, subject_kind, subject_ref)`). `subjectRef` is exact stored
+ * text with no cross-domain join or normalization; `confidenceScore` is the
+ * exact numeric(4,3) text; `validationStatus` is a recorded label.
+ */
+export interface JudicialDecisionSubjectLink {
+  readonly linkId: string;
+  readonly decisionId: string;
+  readonly subjectKind: JudicialDecisionSubjectKind;
+  readonly subjectRef: string;
+  readonly role: string | null;
+  readonly method: string | null;
+  readonly confidenceScore: string | null;
+  readonly validationStatus: JudicialDecisionLinkStatus;
+  /** The stored JSON value, served as stored under the scoped override above. */
+  readonly evidence: unknown;
+  readonly resolverVersion: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+/**
+ * A NEW native int8 ID argument (decision and link IDs): the canonical signed
+ * decimal spelling (`0`, `-5`, `9223372036854775807`; no `+`, no leading
+ * zeros, no `-0`), inside the full PostgreSQL bigint range, checked with
+ * BigInt on the text — never Number. The ONE predicate for new decision/link
+ * direct IDs, filter operands and cursor keys. Existing case/act ID inputs keep
+ * `isJudicialDirectId`.
+ */
+const SIGNED_INT8_TEXT_RE = /^(?:0|-?[1-9][0-9]{0,18})$/u;
+const INT8_MIN = -(2n ** 63n);
+
+export const isJudicialSignedId = (value: unknown): value is string => {
+  if (typeof value !== 'string' || !SIGNED_INT8_TEXT_RE.test(value)) return false;
+  const n = BigInt(value);
+  return n >= INT8_MIN && n <= INT8_MAX;
+};
+
+/**
+ * A decision-year operand: an ORIGINAL integer number in GraphQL Int's signed
+ * 32-bit range, INCLUDING zero (the stored `decision_year` is an unconstrained
+ * smallint; the derived case-year rule does not apply). Operands outside the
+ * smallint range are valid and simply bound an empty or open native interval.
+ */
+export const isJudicialDecisionYearOperand = (value: unknown): value is number =>
+  typeof value === 'number' &&
+  Number.isInteger(value) &&
+  value >= JUDICIAL_YEAR_OPERAND_MIN &&
+  value <= JUDICIAL_YEAR_OPERAND_MAX;
+
+/** New decision/link pages: an original integer 1..50; omitted or null means 20. */
+export const JUDICIAL_DECISION_PAGE_DEFAULT = 20;
+export const JUDICIAL_DECISION_PAGE_MAX = 50;
+
+export const isJudicialDecisionPageSize = (value: unknown): value is number =>
+  typeof value === 'number' &&
+  Number.isInteger(value) &&
+  value >= 1 &&
+  value <= JUDICIAL_DECISION_PAGE_MAX;
+
+/**
+ * The decision discovery dimensions (separate from the four case dimensions,
+ * which stay exactly four): stored issuing bodies, distinct stored source
+ * systems, the five subject kinds and the four recorded status labels.
+ */
+export const JUDICIAL_DECISION_RESOLVE_DIMS = [
+  'issuingBody',
+  'sourceSystem',
+  'subjectKind',
+  'validationStatus',
+] as const;
+
+export type JudicialDecisionResolveDim = (typeof JUDICIAL_DECISION_RESOLVE_DIMS)[number];
+
+export const isJudicialDecisionResolveDim = (value: unknown): value is JudicialDecisionResolveDim =>
+  typeof value === 'string' &&
+  (JUDICIAL_DECISION_RESOLVE_DIMS as readonly string[]).includes(value);
 
 // ── Sort keys ──────────────────────────────────────────────────────────────────
 

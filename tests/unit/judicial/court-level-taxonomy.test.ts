@@ -72,7 +72,7 @@ const CUI = '12345678';
 
 /** Kernel types the judicial slice references; `LegalAct` is owned by the legal module. */
 const STUB_TYPEDEFS =
-  'scalar BigInt\nscalar Date\nscalar DateTime\n' +
+  'scalar BigInt\nscalar Date\nscalar DateTime\nscalar JSON\n' +
   'type PageInfo { hasNextPage: Boolean! endCursor: String }\n' +
   'type LegalAct { actId: BigInt }\n' +
   'type Query { ping: String }\n';

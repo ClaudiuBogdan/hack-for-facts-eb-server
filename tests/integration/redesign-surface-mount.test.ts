@@ -322,6 +322,43 @@ describe(
       // never a 2xx/5xx from a handler).
       expect([401, 404]).toContain(response.statusCode);
     });
+
+    // API-04: the judicial REST plugin is mounted through registerRedesignSurface
+    // and its GET/HEAD prefix is public on the legacy composer. The proof is the
+    // plugin's own pre-DB 400 envelope (the bound check runs before any SQL), so
+    // the bogus kernel DB is never reached.
+    it('judicial GET/HEAD reach the mounted plugin (anonymous and garbage bearer); writes and lookalikes stay protected', async () => {
+      app = await createApp({
+        fastifyOptions: { logger: false },
+        deps: {
+          ...authedDeps(),
+          config: makeTestConfig(),
+          redesignKernelConfig: kernelConfig,
+        },
+      });
+      const envelope = {
+        ok: false,
+        error: 'InvalidInput',
+        message: 'judicial decision list requires sourceSystem.eq or issuingBody.eq',
+        field: 'filter',
+      };
+      for (const headers of [{}, { authorization: 'Bearer invalid-token' }]) {
+        const res = await app.inject({ method: 'GET', url: '/api/v1/judicial/decisions', headers });
+        expect(res.statusCode, res.body).toBe(400);
+        expect(res.json()).toMatchObject(envelope);
+        expect(res.headers['cache-control']).toBe('no-store');
+      }
+      const head = await app.inject({ method: 'HEAD', url: '/api/v1/judicial/decisions' });
+      expect(head.statusCode).toBe(400);
+      const write = await app.inject({
+        method: 'POST',
+        url: '/api/v1/judicial/decisions',
+        payload: {},
+      });
+      expect([401, 404]).toContain(write.statusCode);
+      const lookalike = await app.inject({ method: 'GET', url: '/api/v1/judicialx/decisions' });
+      expect([401, 404]).toContain(lookalike.statusCode);
+    });
   }
 );
 

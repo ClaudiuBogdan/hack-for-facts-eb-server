@@ -415,6 +415,7 @@ export const registerRedesignSurface = async (
   let pnrrRestPlugin: import('fastify').FastifyPluginAsync | undefined;
   let parliamentRoutes: import('fastify').FastifyPluginAsync | undefined;
   let legalRoutes: import('fastify').FastifyPluginAsync | undefined;
+  let judicialRoutes: import('fastify').FastifyPluginAsync | undefined;
 
   if (enabledModules.includes('ngos')) {
     const ngos = makeNgosModule({
@@ -738,6 +739,9 @@ export const registerRedesignSurface = async (
     moduleSlices.push(judicial.graphqlSlice);
     moduleResolvers.push(judicial.graphqlResolvers);
     moduleMcpTools.push(...judicial.mcpTools);
+    // API-04: the public GET REST plugin over the SAME usecases (registered
+    // with the other module REST plugins after GraphQL).
+    judicialRoutes = judicial.restPlugin;
   }
 
   deps.registerContributors?.(kernel);
@@ -797,6 +801,11 @@ export const registerRedesignSurface = async (
   // pattern; the body never travels over GraphQL).
   if (legalRoutes !== undefined) {
     await app.register(legalRoutes, { prefix: '/api/v1/legal' });
+  }
+  // Judicial's REST read surface (API-04): GET-only, no-store, the module
+  // envelope; the legacy composer exempts only its GET/HEAD prefix from auth.
+  if (judicialRoutes !== undefined) {
+    await app.register(judicialRoutes, { prefix: '/api/v1/judicial' });
   }
 
   // ── MCP (JSON-RPC over HTTP) ─────────────────────────────────────────────────

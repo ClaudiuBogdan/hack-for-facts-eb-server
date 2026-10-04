@@ -22,7 +22,10 @@ import type {
   JudicialCompanyLitigation,
   JudicialCourt,
   JudicialCursorItem,
+  JudicialDecision,
+  JudicialDecisionSubjectLink,
   JudicialHearing,
+  JudicialIssuingBody,
   JudicialLegalRef,
   JudicialLineageEdge,
   JudicialParty,
@@ -183,4 +186,48 @@ export interface JudicialLegalRefRepo {
 
 export interface JudicialLineageRepo {
   lineageForCase(caseId: string): Promise<Result<readonly JudicialLineageEdge[], ApiError>>; // JD-4
+}
+
+// ── Stored decisions (API-04; served as stored — see core/types.ts) ────────────
+
+/** A decision or link page request: the normalized filter plus the ORIGINAL page. */
+export interface DecisionListOptions {
+  readonly filter: FilterInput;
+  readonly page: CursorPageRequest;
+}
+
+export interface JudicialDecisionRepo {
+  // tables: justice.issuing_bodies (small reference), justice.decisions,
+  // justice.decision_subject_links. Named stored columns only; parameterized.
+  /** The complete issuing-body reference list, ordered by key. */
+  listIssuingBodies(): Promise<Result<readonly JudicialIssuingBody[], ApiError>>;
+  /** By native decision_id (canonical signed int8 text, checked before SQL). */
+  getById(decisionId: string): Promise<Result<JudicialDecision | null, ApiError>>;
+  /** By the exact unique source identity pair (both exact text; no trimming). */
+  getBySource(
+    sourceSystem: string,
+    sourceRef: string
+  ): Promise<Result<JudicialDecision | null, ApiError>>;
+  /**
+   * CURSOR list, decision_id DESC only. REQUIRES sourceSystem.eq or
+   * issuingBody.eq (driving: decisions_source_ref_uq / decisions_issuing_body_idx;
+   * neither is a covering (filter, id) index). One native id cursor key.
+   */
+  list(
+    opts: DecisionListOptions
+  ): Promise<Result<CursorPage<JudicialCursorItem<JudicialDecision>>, ApiError>>;
+  /**
+   * CURSOR list of link rows, link_id DESC only. REQUIRES exactly one anchor:
+   * decisionId.eq, or the complete subjectKind.eq + subjectRef.eq pair.
+   */
+  listSubjectLinks(
+    opts: DecisionListOptions
+  ): Promise<Result<CursorPage<JudicialCursorItem<JudicialDecisionSubjectLink>>, ApiError>>;
+  /** Issuing-body discovery over the reference table (key/label contains). */
+  resolveIssuingBodies(
+    q: string,
+    limit: number
+  ): Promise<Result<readonly JudicialIssuingBody[], ApiError>>;
+  /** Distinct stored decision source_system values (contains); capped, no total. */
+  resolveSourceSystems(q: string, limit: number): Promise<Result<readonly string[], ApiError>>;
 }

@@ -6,15 +6,17 @@
  * resolve dims.
  */
 
-import { ok } from 'neverthrow';
+import { err, ok } from 'neverthrow';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
   getCaseDetail,
+  getCaseLineage,
   getCompanyLitigation,
   resolveJudicialFilters,
   type JudicialRepos,
 } from '@/modules/judicial/core/usecases.js';
+import { invalidInput } from '@/modules/shared/index.js';
 
 import type {
   JudicialAsOf,
@@ -76,6 +78,16 @@ const makeRepos = (over: Partial<Record<keyof JudicialRepos, unknown>> = {}): Ju
       casesCitingAct: vi.fn(async () => ok({ items: [], next: null })),
     },
     lineage: { lineageForCase: vi.fn(async () => ok([])) },
+    // API-04: the stored-decision repo (unused by the existing assertions).
+    decisions: {
+      listIssuingBodies: vi.fn(async () => ok([])),
+      getById: vi.fn(async () => ok(null)),
+      getBySource: vi.fn(async () => ok(null)),
+      list: vi.fn(async () => ok({ items: [], next: null })),
+      listSubjectLinks: vi.fn(async () => ok({ items: [], next: null })),
+      resolveIssuingBodies: vi.fn(async () => ok([])),
+      resolveSourceSystems: vi.fn(async () => ok([])),
+    },
   } as unknown as JudicialRepos;
   return { ...base, ...over } as JudicialRepos;
 };
@@ -315,5 +327,61 @@ describe('resolveJudicialFilters — companyName resolves the dictionary, never 
     expect(hits).toHaveLength(1);
     expect(hits[0]).toMatchObject({ kind: 'companyName', value: '7', label: 'ACME SRL' });
     expect(hits[0]?.label).not.toBe('acme'); // never echoes the query
+  });
+});
+
+describe('API-04 usecase guards (existing case semantics otherwise unchanged)', () => {
+  it('getCaseLineage validates the DIRECT case id before any repo access', async () => {
+    const lineageForCase = vi.fn(async () => ok([]));
+    const repos = makeRepos({ lineage: { lineageForCase } });
+    for (const bad of ['-1', '1.5', 'abc', '', '9223372036854775808', 7]) {
+      const res = await getCaseLineage(repos, bad);
+      expect(res.isErr() && res.error.type).toBe('InvalidInput');
+    }
+    expect(lineageForCase).not.toHaveBeenCalled();
+    const ok1 = await getCaseLineage(repos, '9223372036854775807');
+    expect(ok1.isOk()).toBe(true);
+    expect(lineageForCase).toHaveBeenCalledWith('9223372036854775807');
+  });
+
+  it('an ambiguous natural-key lookup stops at the lookup: no child, dictionary or as-of read', async () => {
+    const ambiguity = invalidInput('case lookup is ambiguous; use caseId', 'caseNumber');
+    const reads = {
+      hearings: vi.fn(async () => ok([])),
+      appeals: vi.fn(async () => ok([])),
+      parties: vi.fn(async () => ok([])),
+      legalRefs: vi.fn(async () => ok([])),
+      lineage: vi.fn(async () => ok([])),
+      names: vi.fn(async () => ok(new Map<string, PublishableName>())),
+      asOf: vi.fn(async () => ok(asOf)),
+    };
+    const getByNaturalKey = vi.fn(async () => err(ambiguity));
+    const repos = makeRepos({
+      cases: {
+        getById: vi.fn(async () => ok(null)),
+        getByNaturalKey,
+        listCursor: vi.fn(async () => ok({ items: [], next: null })),
+        aggregate: vi.fn(async () => ok({ groups: [], denominator: 0, coverage: 0 })),
+        getAsOf: reads.asOf,
+      },
+      hearings: { listForCase: reads.hearings },
+      appeals: { listForCase: reads.appeals },
+      parties: { listForCase: reads.parties },
+      legalRefs: { listForCase: reads.legalRefs, casesCitingAct: vi.fn() },
+      lineage: { lineageForCase: reads.lineage },
+      dictionary: {
+        getPublishableName: vi.fn(),
+        getPublishableNames: reads.names,
+        resolveCompanyName: vi.fn(),
+      },
+    });
+    const res = await getCaseDetail(repos, { institutionCode: 'JUDX', caseNumber: '1/2024' });
+    expect(res.isErr() && res.error).toEqual({
+      type: 'InvalidInput',
+      message: 'case lookup is ambiguous; use caseId',
+      field: 'caseNumber',
+    });
+    expect(getByNaturalKey).toHaveBeenCalledTimes(1);
+    for (const read of Object.values(reads)) expect(read).not.toHaveBeenCalled();
   });
 });

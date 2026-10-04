@@ -361,8 +361,13 @@ export const makeJudicialCaseRepo = (db: Db): JudicialCaseRepo => {
       const r = await sql<CaseRow>`
         select ${CASE_SELECT} from justice.cases c
         where c.institution_code = ${institutionCode} and c.case_number = ${caseNumber}
-        limit 1
+        limit 2
       `.execute(db);
+      // The pair is unique only together with source_slug: two rows are two
+      // stored source observations. Refuse rather than return an arbitrary one.
+      if (r.rows.length > 1) {
+        return err(invalidInput('case lookup is ambiguous; use caseId', 'caseNumber'));
+      }
       const row = r.rows[0];
       return ok(row === undefined ? null : mapCase(row));
     } catch (error) {

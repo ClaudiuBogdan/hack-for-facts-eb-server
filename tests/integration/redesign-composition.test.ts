@@ -123,6 +123,31 @@ describe('redesign app composition: modules and the roots they mount', () => {
     expect(contributed.get('judicial')?.size ?? 0).toBeGreaterThan(0);
   }, 120_000);
 
+  // API-04: the judicial REST plugin mounts with the module (and only with it).
+  // A pre-DB 400 from the real plugin proves the route + envelope without the
+  // closed-port pool.
+  it('mounts the judicial REST plugin with judicial, and not without it', async () => {
+    const decisions = async (modules: Modules | undefined) => {
+      const built = await boot(modules);
+      apps.push(built.app);
+      await built.app.ready();
+      return built.app.inject({ method: 'GET', url: '/api/v1/judicial/decisions' });
+    };
+    for (const modules of [['legal', 'judicial'] as Modules, undefined]) {
+      const res = await decisions(modules);
+      expect(res.statusCode, res.body).toBe(400);
+      expect(res.json()).toMatchObject({
+        ok: false,
+        error: 'InvalidInput',
+        field: 'filter',
+        requestId: expect.any(String) as unknown,
+      });
+      expect(res.headers['cache-control']).toBe('no-store');
+    }
+    const without = await decisions(['legal']);
+    expect(without.statusCode).toBe(404);
+  }, 120_000);
+
   it.each([
     {
       modules: ['budget'] as const,

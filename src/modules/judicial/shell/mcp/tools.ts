@@ -20,6 +20,7 @@ import {
   GRAPHQL_ERROR_CODE,
   invalidInput,
   type ApiError,
+  type CursorPageRequest,
   type FilterInput,
   type KernelMcpTool,
   type McpToolOutput,
@@ -28,20 +29,56 @@ import {
 import {
   JUDICIAL_MCP_KINDS,
   getCaseLegalReferencesInput,
+  getCaseLineageInput,
   getCompanyLitigationInput,
   getCourtCaseloadInput,
   getJudicialCaseInput,
+  getJudicialCourtInput,
+  getJudicialDecisionBySourceInput,
+  getJudicialDecisionInput,
+  listCasesCitingActInput,
+  listCompanyLitigationCasesInput,
+  listJudicialCasesInput,
+  listJudicialCourtsInput,
+  listJudicialDecisionSubjectLinksInput,
+  listJudicialDecisionsInput,
+  listJudicialIssuingBodiesInput,
+  resolveJudicialDecisionFiltersInput,
   resolveJudicialFiltersInput,
 } from './io.js';
-import { isJudicialAggregateGroupBy, isJudicialDirectId } from '../../core/types.js';
+import {
+  JUDICIAL_DECISION_PAGE_DEFAULT,
+  isJudicialAggregateGroupBy,
+  isJudicialDecisionPageSize,
+  isJudicialDirectId,
+} from '../../core/types.js';
 import {
   getCaseDetail,
   getCaseLegalRefs,
+  getCaseLineage,
   getCompanyLitigation,
   getCourtCaseload,
+  getCourtTree,
+  getDecision,
+  getDecisionBySource,
+  listCases,
+  listCasesCitingAct,
+  listCompanyLitigationCases,
+  listCourts,
+  listDecisionIssuingBodies,
+  listDecisionSubjectLinks,
+  listDecisions,
+  resolveDecisionFilters,
   resolveJudicialFilters,
   type JudicialRepos,
 } from '../../core/usecases.js';
+import {
+  CASE_FLAT_RULES,
+  COURT_FLAT_RULES,
+  DECISION_FLAT_RULES,
+  DECISION_LINK_FLAT_RULES,
+  flatToFilter,
+} from '../filters/transport-input.js';
 import { normalizeCompanyLitigationFilter } from '../repo/company-link-repo.js';
 
 export interface JudicialMcpDeps {
@@ -129,6 +166,32 @@ const aggregateFilter = (args: Record<string, unknown>): FilterInput => {
   }
   return filter as FilterInput;
 };
+
+/**
+ * The ORIGINAL page of a new case-family list tool (direct calls bypass Zod):
+ * `first` an integer 1..50 (omitted/null = 20), never clamped; `after` a string.
+ */
+const pageOf = (
+  args: Record<string, unknown>
+): { ok: true; page: CursorPageRequest } | { ok: false; error: ApiError } => {
+  const first = optionalArg(args, 'first') ?? JUDICIAL_DECISION_PAGE_DEFAULT;
+  if (!isJudicialDecisionPageSize(first)) {
+    return { ok: false, error: invalidInput('first must be an integer from 1 to 50', 'first') };
+  }
+  const after = optionalArg(args, 'after');
+  if (after !== undefined && typeof after !== 'string') {
+    return { ok: false, error: invalidInput('after must be a cursor string', 'after') };
+  }
+  return { ok: true, page: { first, ...(after !== undefined && { after }) } };
+};
+
+/** Echo the arguments without the free-text `q` (discovery/search text is never echoed). */
+const withoutQ = (args: Record<string, unknown>): Record<string, unknown> =>
+  Object.fromEntries(Object.entries(args).filter(([key]) => key !== 'q'));
+
+const cursorMeta = (next: string | null): Readonly<Record<string, unknown>> => ({
+  cursor: { next },
+});
 
 export const makeJudicialMcpTools = (deps: JudicialMcpDeps): readonly KernelMcpTool[] => {
   const { repos, clientBaseUrl } = deps;
@@ -238,7 +301,7 @@ export const makeJudicialMcpTools = (deps: JudicialMcpDeps): readonly KernelMcpT
   const getCompanyLitigationTool: KernelMcpTool = {
     name: 'get_company_litigation',
     description:
-      'Company litigation summary (JD-1) for a CUI: published-only case count + court-level + year breakdowns (session calendar years of the source-dependent case date) + coverage. EMPTY in v1 (no published links) — returns caseCount 0 + a caveat. Never returns person data.',
+      'Company litigation summary (JD-1) for a CUI: published-only case count + court-level + year breakdowns (session calendar years of the source-dependent case date) + coverage. Published-only company litigation; results depend on stored published links (no matching published link returns caseCount 0 + a caveat). Never returns person data.',
     inputShape: getCompanyLitigationInput,
     async handler(args): Promise<McpToolOutput> {
       const cuiArg = args['cui'];
@@ -294,11 +357,342 @@ export const makeJudicialMcpTools = (deps: JudicialMcpDeps): readonly KernelMcpT
     },
   };
 
+  // ── API-04: thin tools over the SAME usecases (no new client deep links) ─────
+
+  const listCourtsTool: KernelMcpTool = {
+    name: 'list_judicial_courts',
+    description:
+      'List the courts of the justice reference hierarchy (Portal Just courts plus the ICCJ), ordered by ordinal. Optional flat filters: level, countyCode (countySiruta is a deprecated alias of the same county abbreviation), specialization, specializationContains, q (locality contains). The complete filtered list.',
+    inputShape: listJudicialCourtsInput,
+    strictInput: true,
+    async handler(args): Promise<McpToolOutput> {
+      const res = await listCourts(repos, flatToFilter(COURT_FLAT_RULES, args));
+      if (res.isErr()) return failure(JUDICIAL_MCP_KINDS.courts, res.error);
+      return {
+        ok: true,
+        kind: JUDICIAL_MCP_KINDS.courts,
+        query: withoutQ(args),
+        items: res.value,
+        meta: { count: res.value.length },
+        summary: `${n(res.value.length)} court(s).`,
+      };
+    },
+  };
+
+  const getCourtTool: KernelMcpTool = {
+    name: 'get_judicial_court',
+    description:
+      'Get one court by exact institution code, with its direct child courts. Returns no item when the code matches no court.',
+    inputShape: getJudicialCourtInput,
+    strictInput: true,
+    async handler(args): Promise<McpToolOutput> {
+      const code = args['institutionCode'];
+      if (typeof code !== 'string' || code === '') {
+        return required(JUDICIAL_MCP_KINDS.court, 'institutionCode is required', 'institutionCode');
+      }
+      const res = await getCourtTree(repos, code);
+      if (res.isErr()) return failure(JUDICIAL_MCP_KINDS.court, res.error);
+      if (res.value === null) {
+        return {
+          ok: true,
+          kind: JUDICIAL_MCP_KINDS.court,
+          query: { institutionCode: code },
+          summary: 'No matching court.',
+        };
+      }
+      return {
+        ok: true,
+        kind: JUDICIAL_MCP_KINDS.court,
+        query: { institutionCode: code },
+        item: res.value,
+        summary: `Court ${code}: ${n(res.value.children.length)} direct child court(s).`,
+      };
+    },
+  };
+
+  const listCasesTool: KernelMcpTool = {
+    name: 'list_judicial_cases',
+    description:
+      'List cases (the current latest-known projection), cursor-paged. REQUIRES a court or period bound: institutionCode, courtLevel, a year bound (session calendar year of the source-dependent sourceOpenedAt; nonzero) or a modified bound. sort modifiedAt (default) or openedAt, dir DESC (default) or ASC; first 1 to 50 (default 20); after = meta.cursor.next.',
+    inputShape: listJudicialCasesInput,
+    strictInput: true,
+    async handler(args): Promise<McpToolOutput> {
+      const sortArg = optionalArg(args, 'sort') ?? 'modifiedAt';
+      if (sortArg !== 'modifiedAt' && sortArg !== 'openedAt') {
+        return required(JUDICIAL_MCP_KINDS.cases, 'sort must be modifiedAt or openedAt', 'sort');
+      }
+      const dirArg = optionalArg(args, 'dir') ?? 'DESC';
+      if (dirArg !== 'ASC' && dirArg !== 'DESC') {
+        return required(JUDICIAL_MCP_KINDS.cases, 'dir must be ASC or DESC', 'dir');
+      }
+      const page = pageOf(args);
+      if (!page.ok) return failure(JUDICIAL_MCP_KINDS.cases, page.error);
+      const res = await listCases(repos, {
+        filter: flatToFilter(CASE_FLAT_RULES, args),
+        sort: sortArg,
+        dir: dirArg === 'ASC' ? 'asc' : 'desc',
+        page: page.page,
+      });
+      if (res.isErr()) return failure(JUDICIAL_MCP_KINDS.cases, res.error);
+      const items = res.value.items.map((item) => item.node);
+      return {
+        ok: true,
+        kind: JUDICIAL_MCP_KINDS.cases,
+        query: withoutQ(args),
+        items,
+        meta: cursorMeta(res.value.next),
+        summary: `${n(items.length)} case(s)${res.value.next === null ? '' : '; more available (meta.cursor.next)'}.`,
+      };
+    },
+  };
+
+  const getCaseLineageTool: KernelMcpTool = {
+    name: 'get_case_lineage',
+    description:
+      'Candidate lineage edges of one case (either endpoint), as stored: candidates, never facts; toCaseId is null for an unresolved candidate.',
+    inputShape: getCaseLineageInput,
+    strictInput: true,
+    async handler(args): Promise<McpToolOutput> {
+      const caseId = args['caseId'];
+      if (typeof caseId !== 'string' || caseId === '') {
+        return required(JUDICIAL_MCP_KINDS.lineage, 'caseId is required', 'caseId');
+      }
+      const res = await getCaseLineage(repos, caseId);
+      if (res.isErr()) return failure(JUDICIAL_MCP_KINDS.lineage, res.error);
+      return {
+        ok: true,
+        kind: JUDICIAL_MCP_KINDS.lineage,
+        query: { caseId },
+        items: res.value,
+        meta: { count: res.value.length },
+        summary: `Case ${caseId}: ${n(res.value.length)} lineage candidate edge(s).`,
+      };
+    },
+  };
+
+  const listCompanyCasesTool: KernelMcpTool = {
+    name: 'list_company_litigation_cases',
+    description:
+      'Cases linked to a company CUI through PUBLISHED company-litigation links only (results depend on stored published links), cursor-paged by case id. Optional courtLevel/category/yearFrom/yearTo narrowing as get_company_litigation; first 1 to 50 (default 20); after = meta.cursor.next.',
+    inputShape: listCompanyLitigationCasesInput,
+    strictInput: true,
+    async handler(args): Promise<McpToolOutput> {
+      const cui = args['cui'];
+      if (typeof cui !== 'string' || cui === '') {
+        return required(JUDICIAL_MCP_KINDS.companyCases, 'cui is required', 'cui');
+      }
+      const filter = normalizeCompanyLitigationFilter({
+        courtLevel: args['courtLevel'],
+        category: args['category'],
+        yearFrom: args['yearFrom'],
+        yearTo: args['yearTo'],
+      });
+      if (filter.isErr()) return failure(JUDICIAL_MCP_KINDS.companyCases, filter.error);
+      const page = pageOf(args);
+      if (!page.ok) return failure(JUDICIAL_MCP_KINDS.companyCases, page.error);
+      const res = await listCompanyLitigationCases(repos, cui, page.page, filter.value);
+      if (res.isErr()) return failure(JUDICIAL_MCP_KINDS.companyCases, res.error);
+      return {
+        ok: true,
+        kind: JUDICIAL_MCP_KINDS.companyCases,
+        query: { cui },
+        items: res.value.items,
+        meta: cursorMeta(res.value.next),
+        summary: `Company ${cui}: ${n(res.value.items.length)} published case link(s) on this page.`,
+      };
+    },
+  };
+
+  const listCasesCitingActTool: KernelMcpTool = {
+    name: 'list_cases_citing_act',
+    description:
+      'Stored citation rows linking cases to one legal act, ordered by reference id: one item per stored citation (not deduplicated into cases); solution_summary citations excluded. first 1 to 50 (default 20); after = meta.cursor.next.',
+    inputShape: listCasesCitingActInput,
+    strictInput: true,
+    async handler(args): Promise<McpToolOutput> {
+      const targetActId = args['targetActId'];
+      if (typeof targetActId !== 'string' || targetActId === '') {
+        return required(JUDICIAL_MCP_KINDS.citingAct, 'targetActId is required', 'targetActId');
+      }
+      const page = pageOf(args);
+      if (!page.ok) return failure(JUDICIAL_MCP_KINDS.citingAct, page.error);
+      const res = await listCasesCitingAct(repos, targetActId, page.page);
+      if (res.isErr()) return failure(JUDICIAL_MCP_KINDS.citingAct, res.error);
+      const items = res.value.items.map((item) => item.node);
+      return {
+        ok: true,
+        kind: JUDICIAL_MCP_KINDS.citingAct,
+        query: { targetActId },
+        items,
+        meta: cursorMeta(res.value.next),
+        summary: `${n(items.length)} stored citation row(s) for act ${targetActId} on this page.`,
+      };
+    },
+  };
+
+  const listIssuingBodiesTool: KernelMcpTool = {
+    name: 'list_judicial_issuing_bodies',
+    description:
+      'The complete stored issuing-body reference list (the authorities behind stored decisions), ordered by key. Keys are table data, not a fixed enum.',
+    inputShape: listJudicialIssuingBodiesInput,
+    strictInput: true,
+    async handler(): Promise<McpToolOutput> {
+      const res = await listDecisionIssuingBodies(repos);
+      if (res.isErr()) return failure(JUDICIAL_MCP_KINDS.issuingBodies, res.error);
+      return {
+        ok: true,
+        kind: JUDICIAL_MCP_KINDS.issuingBodies,
+        items: res.value,
+        meta: { count: res.value.length },
+        summary: `${n(res.value.length)} issuing bod(ies).`,
+      };
+    },
+  };
+
+  const listDecisionsTool: KernelMcpTool = {
+    name: 'list_judicial_decisions',
+    description:
+      'List stored decisions as stored (both privacy classes; dedicated privacy work is deferred), decisionId DESC (a surrogate-key order, not recency), cursor-paged. REQUIRES sourceSystem or issuingBody (exact text). Optional exact-text/presence filters (decisionNo, decisionKind, outcomeNormalized, ecli, applicationNo, <field>IsNull), decisionYear (the stored smallint; 0 and negative allowed) with From/To/Gte/Lte/IsNull, decisionDateIsNull, privacyClass. first 1 to 50 (default 20); after = meta.cursor.next.',
+    inputShape: listJudicialDecisionsInput,
+    strictInput: true,
+    async handler(args): Promise<McpToolOutput> {
+      const res = await listDecisions(repos, {
+        filter: flatToFilter(DECISION_FLAT_RULES, args),
+        first: args['first'],
+        after: args['after'],
+      });
+      if (res.isErr()) return failure(JUDICIAL_MCP_KINDS.decisions, res.error);
+      const items = res.value.items.map((item) => item.node);
+      return {
+        ok: true,
+        kind: JUDICIAL_MCP_KINDS.decisions,
+        query: args,
+        items,
+        meta: cursorMeta(res.value.next),
+        summary: `${n(items.length)} stored decision(s)${res.value.next === null ? '' : '; more available (meta.cursor.next)'}.`,
+      };
+    },
+  };
+
+  const getDecisionTool: KernelMcpTool = {
+    name: 'get_judicial_decision',
+    description:
+      'Get one stored decision by native decisionId (a canonical signed int8 decimal string), every field as stored. Returns no item when no row has that id.',
+    inputShape: getJudicialDecisionInput,
+    strictInput: true,
+    async handler(args): Promise<McpToolOutput> {
+      const res = await getDecision(repos, args['decisionId']);
+      if (res.isErr()) return failure(JUDICIAL_MCP_KINDS.decision, res.error);
+      const query = { decisionId: args['decisionId'] };
+      if (res.value === null) {
+        return {
+          ok: true,
+          kind: JUDICIAL_MCP_KINDS.decision,
+          query,
+          summary: 'No matching decision.',
+        };
+      }
+      return {
+        ok: true,
+        kind: JUDICIAL_MCP_KINDS.decision,
+        query,
+        item: res.value,
+        summary: `Decision ${res.value.decisionId} (${res.value.sourceSystem}).`,
+      };
+    },
+  };
+
+  const getDecisionBySourceTool: KernelMcpTool = {
+    name: 'get_judicial_decision_by_source',
+    description:
+      'Get one stored decision by its exact unique source identity: sourceSystem AND sourceRef, both exact text (no trimming; ECLI/application numbers are not lookup keys). Returns no item when absent.',
+    inputShape: getJudicialDecisionBySourceInput,
+    strictInput: true,
+    async handler(args): Promise<McpToolOutput> {
+      const res = await getDecisionBySource(repos, args['sourceSystem'], args['sourceRef']);
+      if (res.isErr()) return failure(JUDICIAL_MCP_KINDS.decision, res.error);
+      const query = { sourceSystem: args['sourceSystem'], sourceRef: args['sourceRef'] };
+      if (res.value === null) {
+        return {
+          ok: true,
+          kind: JUDICIAL_MCP_KINDS.decision,
+          query,
+          summary: 'No matching decision.',
+        };
+      }
+      return {
+        ok: true,
+        kind: JUDICIAL_MCP_KINDS.decision,
+        query,
+        item: res.value,
+        summary: `Decision ${res.value.decisionId} (${res.value.sourceSystem}).`,
+      };
+    },
+  };
+
+  const listDecisionLinksTool: KernelMcpTool = {
+    name: 'list_judicial_decision_subject_links',
+    description:
+      'Stored decision-to-subject link rows as stored (one item per link; statuses are recorded labels, not verification; subject references are exact text with no identity resolution), linkId DESC, cursor-paged. REQUIRES exactly one anchor: decisionId, or subjectKind with subjectRef. Optional validationStatus list. first 1 to 50 (default 20); after = meta.cursor.next.',
+    inputShape: listJudicialDecisionSubjectLinksInput,
+    strictInput: true,
+    async handler(args): Promise<McpToolOutput> {
+      const res = await listDecisionSubjectLinks(repos, {
+        filter: flatToFilter(DECISION_LINK_FLAT_RULES, args),
+        first: args['first'],
+        after: args['after'],
+      });
+      if (res.isErr()) return failure(JUDICIAL_MCP_KINDS.decisionLinks, res.error);
+      const items = res.value.items.map((item) => item.node);
+      return {
+        ok: true,
+        kind: JUDICIAL_MCP_KINDS.decisionLinks,
+        query: args,
+        items,
+        meta: cursorMeta(res.value.next),
+        summary: `${n(items.length)} stored link row(s)${res.value.next === null ? '' : '; more available (meta.cursor.next)'}.`,
+      };
+    },
+  };
+
+  const resolveDecisionFiltersTool: KernelMcpTool = {
+    name: 'resolve_judicial_decision_filters',
+    description:
+      'Resolve a decision filter value: issuingBody (stored bodies by key/label), sourceSystem (distinct stored values), subjectKind (the five kinds), validationStatus (the four recorded status labels, not approvals). Use before list_judicial_decisions / list_judicial_decision_subject_links.',
+    inputShape: resolveJudicialDecisionFiltersInput,
+    strictInput: true,
+    async handler(args): Promise<McpToolOutput> {
+      const dim = args['dim'];
+      const res = await resolveDecisionFilters(repos, dim, args['q'], args['limit']);
+      if (res.isErr()) return failure(JUDICIAL_MCP_KINDS.resolve, res.error);
+      // The query text is never echoed (same rule as resolve_judicial_filters).
+      return {
+        ok: true,
+        kind: JUDICIAL_MCP_KINDS.resolve,
+        query: { dim },
+        items: res.value,
+        summary: `Resolved to ${n(res.value.length)} ${String(dim)} value(s).`,
+      };
+    },
+  };
+
   return [
     resolveFilters,
     getJudicialCase,
     getCourtCaseloadTool,
     getCompanyLitigationTool,
     getCaseLegalReferencesTool,
+    listCourtsTool,
+    getCourtTool,
+    listCasesTool,
+    getCaseLineageTool,
+    listCompanyCasesTool,
+    listCasesCitingActTool,
+    listIssuingBodiesTool,
+    listDecisionsTool,
+    getDecisionTool,
+    getDecisionBySourceTool,
+    listDecisionLinksTool,
+    resolveDecisionFiltersTool,
   ];
 };

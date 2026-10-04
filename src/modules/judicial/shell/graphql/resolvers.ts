@@ -30,13 +30,21 @@ import {
 
 import {
   getCaseDetail,
+  getCaseLegalRefs,
+  getCaseLineage,
   getCompanyLitigation,
   getCourtCaseload,
   getCourtTree,
+  getDecision,
+  getDecisionBySource,
   listCases,
   listCasesCitingAct,
   listCompanyLitigationCases,
   listCourts,
+  listDecisionIssuingBodies,
+  listDecisionSubjectLinks,
+  listDecisions,
+  resolveDecisionFilters,
   resolveJudicialFilters,
   type JudicialRepos,
 } from '../../core/usecases.js';
@@ -160,6 +168,58 @@ export const makeJudicialResolvers = (deps: JudicialResolverDeps): Record<string
 
       judicialResolve: async (_r: unknown, args: { dim: unknown; q: unknown; limit?: unknown }) =>
         unwrap(await resolveJudicialFilters(repos, args.dim, args.q, args.limit)),
+
+      // ── API-04: thin adapters over the SAME usecases REST and MCP call ──────
+      judicialCaseLegalReferences: async (_r: unknown, args: { caseId: unknown }) =>
+        unwrap(await getCaseLegalRefs(repos, args.caseId as string)),
+
+      judicialCaseLineage: async (_r: unknown, args: { caseId: unknown }) =>
+        unwrap(await getCaseLineage(repos, args.caseId)),
+
+      judicialIssuingBodies: async () => unwrap(await listDecisionIssuingBodies(repos)),
+
+      judicialDecision: async (_r: unknown, args: { decisionId: unknown }) =>
+        unwrap(await getDecision(repos, args.decisionId)),
+
+      judicialDecisionBySource: async (
+        _r: unknown,
+        args: { sourceSystem: unknown; sourceRef: unknown }
+      ) => unwrap(await getDecisionBySource(repos, args.sourceSystem, args.sourceRef)),
+
+      // The ORIGINAL first/after go to the usecase (explicit null is absent); the
+      // repo-built { node, cursor } items pass through as edges unchanged.
+      judicialDecisions: async (
+        _r: unknown,
+        args: { filter: unknown; first?: unknown; after?: unknown }
+      ) =>
+        toRepoEdgeConnection(
+          unwrap(
+            await listDecisions(repos, {
+              filter: args.filter,
+              first: args.first,
+              after: args.after,
+            })
+          )
+        ),
+
+      judicialDecisionSubjectLinks: async (
+        _r: unknown,
+        args: { filter: unknown; first?: unknown; after?: unknown }
+      ) =>
+        toRepoEdgeConnection(
+          unwrap(
+            await listDecisionSubjectLinks(repos, {
+              filter: args.filter,
+              first: args.first,
+              after: args.after,
+            })
+          )
+        ),
+
+      judicialDecisionResolve: async (
+        _r: unknown,
+        args: { dim: unknown; q: unknown; limit?: unknown }
+      ) => unwrap(await resolveDecisionFilters(repos, args.dim, args.q, args.limit)),
     },
 
     JudicialCourt: {

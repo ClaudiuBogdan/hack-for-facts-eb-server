@@ -17,7 +17,13 @@
  * operators intersect. Null at an optional field/operator/endpoint is absent.
  */
 
-import { JUDICIAL_COURT_LEVELS, type JudicialCourtLevel } from '../../core/types.js';
+import {
+  JUDICIAL_COURT_LEVELS,
+  JUDICIAL_DECISION_LINK_STATUSES,
+  JUDICIAL_DECISION_PRIVACY_CLASSES,
+  JUDICIAL_DECISION_SUBJECT_KINDS,
+  type JudicialCourtLevel,
+} from '../../core/types.js';
 
 import type { CollectionFilterSpec } from '@/modules/shared/index.js';
 
@@ -170,9 +176,157 @@ export const JUDICIAL_CASE_BOUNDING_FIELDS = [
   'modified',
 ] as const;
 
+// ── stored decisions (API-04) ────────────────────────────────────────────────
+//
+// Aliases (BINDING): `d` = justice.decisions, `l` = justice.decision_subject_links.
+// VIRTUAL: `decisionYear` (compiled by the repo with explicit integer operands,
+// so an out-of-smallint operand can never be inferred as a smallint parameter)
+// and the link `decisionId` (a canonical signed int8 compared ::bigint). All
+// other fields are exact-text or enum kernel predicates.
+
+/**
+ * The `judicial_decisions` collection. BOUNDING RULE (enforced in the repo):
+ * `sourceSystem.eq` or `issuingBody.eq` must be present (an explicitly supplied
+ * empty string is an equality predicate); year, presence or attribute filters
+ * alone never authorize a decision-table scan. Sort: decisionId DESC only.
+ */
+export const judicialDecisionsSpec: CollectionFilterSpec = {
+  collection: 'judicial_decisions',
+  fields: [
+    {
+      name: 'sourceSystem',
+      type: 'string',
+      ops: ['eq'],
+      column: { alias: 'd', column: 'source_system' },
+      description:
+        'Exact stored source system (an empty string is an exact value). Bounds the list (decisions_source_ref_uq leads with it).',
+    },
+    {
+      name: 'issuingBody',
+      type: 'string',
+      ops: ['eq'],
+      column: { alias: 'd', column: 'issuing_body' },
+      description:
+        'Exact stored issuing-body key (see judicialIssuingBodies). Bounds the list (decisions_issuing_body_idx).',
+    },
+    {
+      name: 'decisionNo',
+      type: 'string',
+      ops: ['eq', 'isNull'],
+      column: { alias: 'd', column: 'decision_no' },
+      description: 'Exact stored decision number text (not an identity on its own).',
+    },
+    {
+      name: 'decisionKind',
+      type: 'string',
+      ops: ['eq', 'isNull'],
+      column: { alias: 'd', column: 'decision_kind' },
+      description: 'Exact stored decision kind text.',
+    },
+    {
+      name: 'decisionYear',
+      type: 'int',
+      ops: ['eq', 'gte', 'lte', 'between', 'isNull'],
+      column: { alias: 'd', column: 'decision_year' },
+      virtual: true,
+      description:
+        'The stored decision_year: an independent nullable smallint (it can be 0, negative, or differ from the year of decisionDate). Operands are 32-bit integers including 0; eq, gte, lte and between all apply together (their intersection), and isNull applies alongside them.',
+    },
+    {
+      name: 'decisionDate',
+      type: 'date',
+      ops: ['isNull'],
+      column: { alias: 'd', column: 'decision_date' },
+      description: 'Presence of the stored decision date only (no date-range filter).',
+    },
+    {
+      name: 'outcomeNormalized',
+      type: 'string',
+      ops: ['eq', 'isNull'],
+      column: { alias: 'd', column: 'outcome_normalized' },
+      description: 'Exact stored outcome attribute text (an attribute, never an identity).',
+    },
+    {
+      name: 'ecli',
+      type: 'string',
+      ops: ['eq', 'isNull'],
+      column: { alias: 'd', column: 'ecli' },
+      description: 'Exact stored ECLI text (not a unique lookup key).',
+    },
+    {
+      name: 'applicationNo',
+      type: 'string',
+      ops: ['eq', 'isNull'],
+      column: { alias: 'd', column: 'application_no' },
+      description: 'Exact stored application number text (not a unique lookup key).',
+    },
+    {
+      name: 'privacyClass',
+      type: 'enum',
+      ops: ['eq'],
+      column: { alias: 'd', column: 'privacy_class' },
+      enumValues: JUDICIAL_DECISION_PRIVACY_CLASSES,
+      description:
+        'The stored privacy class label (public or restricted); both are served as stored.',
+    },
+  ],
+  sort: { default: 'decisionId', allowed: ['decisionId'] },
+};
+
+/**
+ * The `judicial_decision_subject_links` collection, at LINK grain. ANCHOR RULE
+ * (enforced in the repo): EXACTLY ONE of `decisionId.eq`, or the complete
+ * `subjectKind.eq` + `subjectRef.eq` pair. `validationStatus` only narrows an
+ * anchored read. Sort: linkId DESC only.
+ */
+export const judicialDecisionSubjectLinksSpec: CollectionFilterSpec = {
+  collection: 'judicial_decision_subject_links',
+  fields: [
+    {
+      name: 'decisionId',
+      type: 'string',
+      ops: ['eq'],
+      column: { alias: 'l', column: 'decision_id' },
+      virtual: true,
+      description:
+        'The decision anchor: a canonical signed int8 decimal string (decision_subject_links_decision_idx).',
+    },
+    {
+      name: 'subjectKind',
+      type: 'enum',
+      ops: ['eq'],
+      column: { alias: 'l', column: 'subject_kind' },
+      enumValues: JUDICIAL_DECISION_SUBJECT_KINDS,
+      description:
+        'With subjectRef, the subject anchor (decision_subject_links_subject_idx). Exact kind.',
+    },
+    {
+      name: 'subjectRef',
+      type: 'string',
+      ops: ['eq'],
+      column: { alias: 'l', column: 'subject_ref' },
+      description:
+        'With subjectKind, the subject anchor: exact stored text (no CUI normalization, no identity resolution).',
+    },
+    {
+      name: 'validationStatus',
+      type: 'enum',
+      ops: ['in'],
+      column: { alias: 'l', column: 'validation_status' },
+      array: true,
+      enumValues: JUDICIAL_DECISION_LINK_STATUSES,
+      description:
+        'Recorded status label(s) narrowing an anchored read; never an anchor and never a verification.',
+    },
+  ],
+  sort: { default: 'linkId', allowed: ['linkId'] },
+};
+
 export const JUDICIAL_FILTER_SPECS = {
   cases: judicialCasesSpec,
   courts: judicialCourtsSpec,
+  decisions: judicialDecisionsSpec,
+  decisionSubjectLinks: judicialDecisionSubjectLinksSpec,
 } as const;
 
 export type { JudicialCourtLevel };

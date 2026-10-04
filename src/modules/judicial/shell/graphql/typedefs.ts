@@ -16,10 +16,56 @@
 
 import { toGraphQLInput } from '@/modules/shared/index.js';
 
-import { JUDICIAL_COURT_LEVELS, JUDICIAL_SOURCE_OPENED_AT_BASES } from '../../core/types.js';
-import { judicialCasesSpec, judicialCourtsSpec } from '../filters/judicial.spec.js';
+import {
+  JUDICIAL_COURT_LEVELS,
+  JUDICIAL_DECISION_LINK_STATUSES,
+  JUDICIAL_DECISION_PRIVACY_CLASSES,
+  JUDICIAL_DECISION_SUBJECT_KINDS,
+  JUDICIAL_ISSUING_BODY_KINDS,
+  JUDICIAL_SOURCE_OPENED_AT_BASES,
+} from '../../core/types.js';
+import {
+  judicialCasesSpec,
+  judicialCourtsSpec,
+  judicialDecisionSubjectLinksSpec,
+  judicialDecisionsSpec,
+} from '../filters/judicial.spec.js';
 
-const filterInputs = `${toGraphQLInput(judicialCasesSpec)}\n\n${toGraphQLInput(judicialCourtsSpec)}`;
+const filterInputs = [
+  judicialCasesSpec,
+  judicialCourtsSpec,
+  judicialDecisionsSpec,
+  judicialDecisionSubjectLinksSpec,
+]
+  .map((spec) => toGraphQLInput(spec))
+  .join('\n\n');
+
+/** An SDL enum rendered from its ONE value list (the DB CHECK copy in core/types.ts). */
+const enumSdl = (name: string, description: string, values: readonly string[]): string =>
+  `"${description}"\nenum ${name} {\n${values.map((v) => `  ${v}`).join('\n')}\n}`;
+
+const decisionEnums = [
+  enumSdl(
+    'JudicialIssuingBodyKind',
+    'The stored kind of an issuing body (justice.issuing_bodies.kind).',
+    JUDICIAL_ISSUING_BODY_KINDS
+  ),
+  enumSdl(
+    'JudicialDecisionPrivacyClass',
+    'The stored privacy class label of a decision. Both are served as stored (scoped instruction; dedicated privacy work deferred).',
+    JUDICIAL_DECISION_PRIVACY_CLASSES
+  ),
+  enumSdl(
+    'JudicialDecisionSubjectKind',
+    'The stored kind of a decision subject reference (justice.decision_subject_links.subject_kind).',
+    JUDICIAL_DECISION_SUBJECT_KINDS
+  ),
+  enumSdl(
+    'JudicialDecisionLinkValidationStatus',
+    'A recorded link status label. accepted is a stored label, not an API verification or a publication.',
+    JUDICIAL_DECISION_LINK_STATUSES
+  ),
+].join('\n');
 
 /** Rendered from the one court-level taxonomy so the SDL cannot drift from it. */
 const courtLevelEnum = `enum JudicialCourtLevel {\n${JUDICIAL_COURT_LEVELS.map((l) => `  ${l}`).join('\n')}\n}`;
@@ -30,6 +76,7 @@ const openedAtBasisEnum = `"What JudicialCase.sourceOpenedAt means for the sourc
 const objectsAndQuery = /* GraphQL */ `
   ${courtLevelEnum}
   ${openedAtBasisEnum}
+  ${decisionEnums}
   "How JudicialAsOf.asOf is derived. max_stored_source_modified_at: the maximum stored latestSourceModifiedAt among the cases of one source."
   enum JudicialAsOfBasis {
     max_stored_source_modified_at
@@ -158,11 +205,12 @@ const objectsAndQuery = /* GraphQL */ `
     targetAct: LegalAct
   }
 
-  "A candidate case-lineage edge (candidate, not fact). Empty in v1 (gate #10)."
+  "A candidate case-lineage edge (candidate, not fact)."
   type JudicialLineageEdge {
     lineageCandidateId: BigInt!
     fromCaseId: BigInt!
-    toCaseId: BigInt!
+    "The target case; null for an unresolved candidate (the stored to_case_id is nullable)."
+    toCaseId: BigInt
     lineageType: String!
     method: String
     confidenceScore: String
@@ -286,6 +334,89 @@ const objectsAndQuery = /* GraphQL */ `
     hint: String
   }
 
+  "A stored issuing body (the extensible reference table behind decisions.issuing_body)."
+  type JudicialIssuingBody {
+    issuingBody: String!
+    label: String!
+    kind: JudicialIssuingBodyKind!
+    notes: String
+    "Row-operation timestamp, exact UTC text with microseconds and era (YYYY-MM-DDTHH:MM:SS.ffffff+00 AD), or infinity/-infinity."
+    createdAt: DateTime!
+  }
+
+  "A stored decision row, every value as stored (scoped instruction: both privacy classes are served; dedicated privacy work is deferred). Not merged by ECLI, application number or number/year."
+  type JudicialDecision {
+    "Native decision_id as an exact decimal string."
+    decisionId: BigInt!
+    issuingBody: String!
+    "Exact stored source system; with sourceRef the unique source identity."
+    sourceSystem: String!
+    "Exact stored source reference text."
+    sourceRef: String!
+    decisionNo: String
+    "The stored decision_year: an independent nullable smallint (it can be 0, negative, or differ from the year of decisionDate)."
+    decisionYear: Int
+    "Native stored date: YYYY-MM-DD for AD 1-9999; otherwise the full year with an era (0001-12-31 BC, 5874897-12-31 AD), or infinity/-infinity. Not an event-time or chronology claim."
+    decisionDate: Date
+    decisionKind: String
+    "A stored attribute, never an identity."
+    outcomeNormalized: String
+    "Stored ECLI text (not a unique lookup key)."
+    ecli: String
+    "Stored application number text (not a unique lookup key)."
+    applicationNo: String
+    "The stored JSON value (an object, array, scalar or null), unmodified; amount strings keep their spelling."
+    attrs: JSON
+    privacyClass: JudicialDecisionPrivacyClass!
+    "Stored source URL (no fetch)."
+    sourceUrl: String
+    "Stored object-store key (no fetch or presign)."
+    sourceObjectKey: String
+    "Row-operation timestamp, exact UTC text with microseconds and era; not event time or capture freshness."
+    createdAt: DateTime!
+    "Row-operation timestamp, exact UTC text with microseconds and era; not event time or capture freshness."
+    updatedAt: DateTime!
+  }
+
+  "A stored decision-to-subject link, one item per link row. subjectRef is exact stored text with no cross-domain join; validationStatus is a recorded label; evidence is the stored JSON value (served as stored under the scoped instruction)."
+  type JudicialDecisionSubjectLink {
+    linkId: BigInt!
+    decisionId: BigInt!
+    subjectKind: JudicialDecisionSubjectKind!
+    "Exact stored subject reference text (no CUI normalization, no identity resolution; it may be dangling)."
+    subjectRef: String!
+    role: String
+    method: String
+    "The stored numeric(4,3) as exact text; not a probability or percentage."
+    confidenceScore: String
+    validationStatus: JudicialDecisionLinkValidationStatus!
+    evidence: JSON
+    resolverVersion: String
+    "Row-operation timestamp, exact UTC text with microseconds and era."
+    createdAt: DateTime!
+    "Row-operation timestamp, exact UTC text with microseconds and era."
+    updatedAt: DateTime!
+  }
+
+  type JudicialDecisionEdge {
+    node: JudicialDecision!
+    cursor: String!
+  }
+  type JudicialDecisionConnection {
+    edges: [JudicialDecisionEdge!]!
+    pageInfo: PageInfo!
+    totalCount: Int
+  }
+  type JudicialDecisionSubjectLinkEdge {
+    node: JudicialDecisionSubjectLink!
+    cursor: String!
+  }
+  type JudicialDecisionSubjectLinkConnection {
+    edges: [JudicialDecisionSubjectLinkEdge!]!
+    pageInfo: PageInfo!
+    totalCount: Int
+  }
+
   extend type Query {
     "All courts in the reference hierarchy. Cheap reference list."
     judicialCourts(filter: JudicialCourtsFilter): [JudicialCourt!]!
@@ -332,6 +463,30 @@ const objectsAndQuery = /* GraphQL */ `
     ): JudicialCaseCitationConnection!
     "Resolve a free-text query to a filter value (court→code, company name→nameKeyId, ...). dim is one of court, courtLevel, companyName, category; limit is an integer 1 to 50 (null means 10). Invalid input is INVALID_INPUT and is never echoed."
     judicialResolve(dim: String!, q: String!, limit: Int = 10): [JudicialResolveHit!]!
+    "The legal-act citations of one case (the same projection as JudicialCaseDetail.legalReferences). caseId is decimal digits up to 9223372036854775807 (otherwise INVALID_INPUT)."
+    judicialCaseLegalReferences(caseId: BigInt!): [JudicialLegalRef!]!
+    "The candidate lineage edges of one case (either endpoint; toCaseId may be null). caseId is decimal digits up to 9223372036854775807 (otherwise INVALID_INPUT)."
+    judicialCaseLineage(caseId: BigInt!): [JudicialLineageEdge!]!
+    "The complete stored issuing-body reference list, ordered by key."
+    judicialIssuingBodies: [JudicialIssuingBody!]!
+    "A stored decision by native id (a canonical signed int8 decimal; otherwise INVALID_INPUT); null when no row has that id."
+    judicialDecision(decisionId: BigInt!): JudicialDecision
+    "A stored decision by its exact unique source identity (both values exact text); null when absent."
+    judicialDecisionBySource(sourceSystem: String!, sourceRef: String!): JudicialDecision
+    "Stored decisions, decisionId DESC (a surrogate-key order, not recency). REQUIRES sourceSystem.eq or issuingBody.eq. first is an integer 1 to 50 (null means 20); totalCount is not computed."
+    judicialDecisions(
+      filter: JudicialDecisionsFilter!
+      first: Int = 20
+      after: String
+    ): JudicialDecisionConnection!
+    "Stored decision-subject link rows, linkId DESC, one edge per link. REQUIRES exactly one anchor: decisionId.eq, or subjectKind.eq with subjectRef.eq. first is an integer 1 to 50 (null means 20)."
+    judicialDecisionSubjectLinks(
+      filter: JudicialDecisionSubjectLinksFilter!
+      first: Int = 20
+      after: String
+    ): JudicialDecisionSubjectLinkConnection!
+    "Resolve a decision filter value: dim is one of issuingBody, sourceSystem, subjectKind, validationStatus; limit is an integer 1 to 50 (null means 10). Invalid input is INVALID_INPUT and is never echoed."
+    judicialDecisionResolve(dim: String!, q: String!, limit: Int = 10): [JudicialResolveHit!]!
   }
 `;
 

@@ -24,7 +24,7 @@ export const makeJudicialLineageRepo = (db: Db): JudicialLineageRepo => ({
       const r = await sql<{
         lineage_candidate_id: string;
         from_case_id: string;
-        to_case_id: string;
+        to_case_id: string | null;
         lineage_type: string;
         method: string | null;
         confidence_score: string | null;
