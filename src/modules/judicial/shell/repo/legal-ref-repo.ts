@@ -12,6 +12,11 @@
  *  3. The reverse list keeps reference-row grain (several references in one
  *     case stay several rows), ordered by reference id DESC; every row's cursor
  *     is built here from its own reference id.
+ *  4. (A3) A digit-string id above int8 is rejected as InvalidInput BEFORE SQL
+ *     instead of reaching `::bigint` as a database error. The reverse target is
+ *     fully guarded here (it is only ever a direct argument). The by-case read is
+ *     also the detail child read, so non-digit ids keep their existing empty
+ *     result here; the DIRECT by-case entry is fully guarded in the usecase.
  */
 
 import { sql, type Kysely } from 'kysely';
@@ -30,13 +35,14 @@ import {
 import { decodeJudicialCursor, isCanonicalBigintText } from './cases-repo.js';
 import { FORBIDDEN_REF_SOURCE_FIELD } from './constants.js';
 import { clampLimit } from './filter-helpers.js';
+import {
+  isJudicialDirectId,
+  type JudicialCaseCitation,
+  type JudicialCursorItem,
+  type JudicialLegalRef,
+} from '../../core/types.js';
 
 import type { JudicialLegalRefRepo } from '../../core/ports.js';
-import type {
-  JudicialCaseCitation,
-  JudicialCursorItem,
-  JudicialLegalRef,
-} from '../../core/types.js';
 
 type Db = Kysely<ProdDatabase>;
 const ID_RE = /^\d+$/u;
@@ -79,6 +85,14 @@ export const makeJudicialLegalRefRepo = (db: Db): JudicialLegalRefRepo => {
     caseId: string
   ): Promise<Result<readonly JudicialLegalRef[], ApiError>> => {
     if (!ID_RE.test(caseId)) return ok([]);
+    if (!isJudicialDirectId(caseId)) {
+      return err(
+        invalidInput(
+          'caseId must be a decimal digit string of at most 9223372036854775807',
+          'caseId'
+        )
+      );
+    }
     try {
       // EXCLUDE source_field='solution_summary' (S2). The stored token only; the
       // span offsets and the surrounding source text are never selected.
@@ -104,6 +118,14 @@ export const makeJudicialLegalRefRepo = (db: Db): JudicialLegalRefRepo => {
     page: CursorPageRequest
   ): Promise<Result<CursorPage<JudicialCursorItem<JudicialCaseCitation>>, ApiError>> => {
     if (!ID_RE.test(targetActId)) return err(invalidInput('invalid act id', 'targetActId'));
+    if (!isJudicialDirectId(targetActId)) {
+      return err(
+        invalidInput(
+          'targetActId must be a decimal digit string of at most 9223372036854775807',
+          'targetActId'
+        )
+      );
+    }
     const limit = clampLimit(page.first, MAX_LIST);
     // Unchanged identity: earlier valid end cursors (built from the reference id)
     // stay usable; earlier per-edge `caseId` cursors are a sort mismatch.

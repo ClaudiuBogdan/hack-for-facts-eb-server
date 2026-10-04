@@ -16,7 +16,12 @@ import { describe, expect, it } from 'vitest';
 
 import { judicialCasesSpec } from '@/modules/judicial/shell/filters/judicial.spec.js';
 import { makeJudicialCaseRepo } from '@/modules/judicial/shell/repo/cases-repo.js';
-import { keysetCursor, yearBounds, fieldOf } from '@/modules/judicial/shell/repo/filter-helpers.js';
+import {
+  fieldOf,
+  keysetCursor,
+  normalizeJudicialFilter,
+  yearInterval,
+} from '@/modules/judicial/shell/repo/filter-helpers.js';
 import { fhashFor, type ProdDatabase } from '@/modules/shared/index.js';
 
 const db = new Kysely<Record<string, never>>({
@@ -46,18 +51,24 @@ describe('judicial keysetCursor — (sortExpr, case_id) tiebreak', () => {
   });
 });
 
-describe('yearBounds — empty values are NOT a bound (Codex P1)', () => {
+/** The year interval of a filter, through the SAME normalization the repo uses. */
+const intervalOf = (filter: unknown) =>
+  yearInterval(
+    fieldOf(normalizeJudicialFilter(judicialCasesSpec, filter)._unsafeUnwrap(), 'year')
+  )._unsafeUnwrap();
+
+describe('year interval — empty values are NOT a bound (Codex P1)', () => {
   it('between:{} → null (no bound)', () => {
-    expect(yearBounds(fieldOf({ year: { between: {} } }, 'year'))).toBeNull();
+    expect(intervalOf({ year: { between: {} } })).toBeNull();
   });
   it('eq → from=to', () => {
-    expect(yearBounds(fieldOf({ year: { eq: 2024 } }, 'year'))).toEqual({ from: 2024, to: 2024 });
+    expect(intervalOf({ year: { eq: 2024 } })).toEqual({ from: 2024, to: 2024 });
   });
   it('gte/lte → bounds', () => {
-    expect(yearBounds(fieldOf({ year: { gte: 2020, lte: 2024 } }, 'year'))).toEqual({
-      from: 2020,
-      to: 2024,
-    });
+    expect(intervalOf({ year: { gte: 2020, lte: 2024 } })).toEqual({ from: 2020, to: 2024 });
+  });
+  it('A3: compound operators intersect (eq 2024 + gte 2020 is only 2024, not 2020-2024)', () => {
+    expect(intervalOf({ year: { eq: 2024, gte: 2020 } })).toEqual({ from: 2024, to: 2024 });
   });
 });
 

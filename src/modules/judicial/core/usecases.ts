@@ -5,12 +5,29 @@
  * THE PRIVACY-CRITICAL MERGE lives in `getCaseDetail` (§3.2): the gated
  * `getPublishableNames` lookup enriches publishable company/public metadata in
  * ONE auditable place, while the client-view name remains withheld.
+ *
+ * A3: the discovery dimension/query/limit, the aggregate dimension and the
+ * direct legal-reference case id are validated HERE, before any repo access.
  */
 
 import { err, ok, type Result } from 'neverthrow';
 
 import {
+  invalidInput,
+  type ApiError,
+  type CursorPage,
+  type CursorPageRequest,
+  type FilterInput,
+  type ResolveHit,
+} from '@/modules/shared/index.js';
+
+import {
   JUDICIAL_COURT_LEVELS,
+  JUDICIAL_RESOLVE_LIMIT_DEFAULT,
+  JUDICIAL_RESOLVE_LIMIT_MAX,
+  isJudicialAggregateGroupBy,
+  isJudicialDirectId,
+  isJudicialResolveDim,
   type JudicialCase,
   type JudicialCaseAggregate,
   type JudicialCaseCitation,
@@ -23,7 +40,6 @@ import {
   type JudicialLegalRef,
   type JudicialLineageEdge,
   type JudicialPartyView,
-  type JudicialResolveDim,
 } from './types.js';
 
 import type {
@@ -38,13 +54,6 @@ import type {
   JudicialPartyRepo,
   PartyDictionaryRepo,
 } from './ports.js';
-import type {
-  ApiError,
-  CursorPage,
-  CursorPageRequest,
-  FilterInput,
-  ResolveHit,
-} from '@/modules/shared/index.js';
 
 export interface JudicialRepos {
   readonly courts: JudicialCourtRepo;
@@ -184,11 +193,17 @@ export const listCases = (
 ): Promise<Result<CursorPage<JudicialCursorItem<JudicialCase>>, ApiError>> =>
   repos.cases.listCursor(input);
 
-export const getCourtCaseload = (
+export const getCourtCaseload = async (
   repos: Pick<JudicialRepos, 'cases'>,
-  groupBy: 'court' | 'category' | 'year' | 'courtLevel',
+  groupBy: unknown,
   filter: FilterInput
-): Promise<Result<JudicialCaseAggregate, ApiError>> => repos.cases.aggregate({ groupBy, filter });
+): Promise<Result<JudicialCaseAggregate, ApiError>> => {
+  // An unknown dimension is an input error, never a silent year aggregate.
+  if (!isJudicialAggregateGroupBy(groupBy)) {
+    return err(invalidInput('groupBy must be one of court, category, year, courtLevel', 'groupBy'));
+  }
+  return repos.cases.aggregate({ groupBy, filter });
+};
 
 // ── company litigation (JD-1; published-only; empty in v1) ─────────────────────
 
@@ -209,10 +224,19 @@ export const listCompanyLitigationCases = (
 
 // ── legal refs (JD-3) + lineage (JD-4) ─────────────────────────────────────────
 
-export const getCaseLegalRefs = (
+export const getCaseLegalRefs = async (
   repos: Pick<JudicialRepos, 'legalRefs'>,
   caseId: string
-): Promise<Result<readonly JudicialLegalRef[], ApiError>> => repos.legalRefs.listForCase(caseId);
+): Promise<Result<readonly JudicialLegalRef[], ApiError>> => {
+  // The DIRECT entry: a negative, malformed or overflowing id is a caller
+  // mistake (the repo read is shared with the case-detail child read).
+  if (!isJudicialDirectId(caseId)) {
+    return err(
+      invalidInput('caseId must be a decimal digit string of at most 9223372036854775807', 'caseId')
+    );
+  }
+  return repos.legalRefs.listForCase(caseId);
+};
 
 export const listCasesCitingAct = (
   repos: Pick<JudicialRepos, 'legalRefs'>,
@@ -229,12 +253,31 @@ export const getCaseLineage = (
 
 // ── resolve / discovery (§7.4) ─────────────────────────────────────────────────
 
+/**
+ * Resolve a free-text query. The ORIGINAL inputs are validated before dispatch
+ * and before any repo access: `dim` one of the four dimensions, `q` a string,
+ * `limit` omitted/null (default 10) or an integer 1..50 (no coercion, no
+ * clamping). Errors never echo the query or name text.
+ */
 export const resolveJudicialFilters = async (
   repos: Pick<JudicialRepos, 'courts' | 'dictionary'>,
-  dim: JudicialResolveDim,
-  q: string,
-  limit: number
+  dim: unknown,
+  q: unknown,
+  limitInput?: unknown
 ): Promise<Result<readonly ResolveHit[], ApiError>> => {
+  if (!isJudicialResolveDim(dim)) {
+    return err(invalidInput('dim must be one of court, courtLevel, companyName, category', 'dim'));
+  }
+  if (typeof q !== 'string') return err(invalidInput('q must be a string', 'q'));
+  const limit = limitInput ?? JUDICIAL_RESOLVE_LIMIT_DEFAULT;
+  if (
+    typeof limit !== 'number' ||
+    !Number.isInteger(limit) ||
+    limit < 1 ||
+    limit > JUDICIAL_RESOLVE_LIMIT_MAX
+  ) {
+    return err(invalidInput('limit must be an integer from 1 to 50', 'limit'));
+  }
   switch (dim) {
     case 'court': {
       const res = await repos.courts.resolveCourt(q, limit);

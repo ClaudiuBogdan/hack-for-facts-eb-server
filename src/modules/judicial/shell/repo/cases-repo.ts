@@ -13,6 +13,11 @@
  * Date. Display text is rendered in SQL; the cursor carries a separate EXACT
  * value (full microseconds, explicit era, ±infinity) that casts back to the
  * identical native timestamp, built by this repo from each returned row.
+ *
+ * INPUTS (A3): the filter is normalized and validated ONCE (`prepareCaseFilter`)
+ * and that one object feeds the bounding rule, the cursor filter identity, the
+ * kernel composer and the virtual compilers. The year virtual is an intersected
+ * interval compiled once; the direct case id is range-checked before SQL.
  */
 
 import { Type } from '@sinclair/typebox';
@@ -35,17 +40,24 @@ import {
 } from '@/modules/shared/index.js';
 
 import {
+  checkVirtualFields,
   clampLimit,
   composeWhere,
   fieldOf,
   hasRangeBound,
   inStrings,
   keysetCursor,
-  yearBounds,
+  normalizeJudicialFilter,
+  yearInterval,
+  yearIntervalSql,
+  type YearInterval,
 } from './filter-helpers.js';
 import { exactTimestampText, sessionDateDisplay, utcTimestampDisplay } from './temporal-sql.js';
 import {
+  isJudicialAggregateGroupBy,
+  isJudicialDirectId,
   sourceOpenedAtBasisFor,
+  type JudicialAggregateGroupBy,
   type JudicialAggregateGroup,
   type JudicialAsOf,
   type JudicialCase,
@@ -121,8 +133,16 @@ const SORT_EXPR: Record<'modifiedAt' | 'openedAt', RawBuilder<unknown>> = {
  * restart). The kernel envelope version stays 1.
  */
 const CASE_CURSOR_FORMAT = 'judicial_cases:cursor-v2';
+/**
+ * Module-local case-FILTER semantics version (A3). Compound year filters now
+ * intersect (a pre-A3 `{eq:2024,gte:2020}` meant 2020-2024), so a pre-A3 token
+ * could resume at the wrong position: its identity no longer matches and it
+ * gets the same typed restart (a deliberate one-time case-list restart). The
+ * hash is taken over the SAME normalized filter the SQL uses.
+ */
+const CASE_FILTER_SEMANTICS = 'filters-a3';
 const caseCursorFhash = (filter: FilterInput): string =>
-  `${CASE_CURSOR_FORMAT}:${fhashFor(judicialCasesSpec, filter)}`;
+  `${CASE_CURSOR_FORMAT}:${CASE_FILTER_SEMANTICS}:${fhashFor(judicialCasesSpec, filter)}`;
 
 const malformedCursor = (): ApiError =>
   invalidInput('malformed cursor; restart pagination', 'cursor');
@@ -217,6 +237,27 @@ export const isCaseSortKey = (text: string): boolean => {
   return field('hour') <= 23 && field('minute') <= 59 && field('second') <= 59;
 };
 
+/** A normalized, validated case filter plus its ONE compiled year interval. */
+interface PreparedCaseFilter {
+  readonly filter: FilterInput;
+  readonly year: YearInterval | null;
+}
+
+/**
+ * Normalize + validate a case filter before bounding, hashing or SQL: null is
+ * absent at optional positions, shapes are checked, the virtual court level and
+ * year values are validated, and the year operands are intersected once.
+ */
+const prepareCaseFilter = (raw: unknown): Result<PreparedCaseFilter, ApiError> => {
+  const normalized = normalizeJudicialFilter(judicialCasesSpec, raw);
+  if (normalized.isErr()) return err(normalized.error);
+  const virtual = checkVirtualFields(judicialCasesSpec, normalized.value);
+  if (virtual.isErr()) return err(virtual.error);
+  const year = yearInterval(fieldOf(normalized.value, 'year'));
+  if (year.isErr()) return err(year.error);
+  return ok({ filter: normalized.value, year: year.value });
+};
+
 /**
  * Compile the `courtLevel` virtual into an `institution_code IN (subquery)` over
  * justice.courts (bounded by the small court reference). Returns null when absent.
@@ -231,48 +272,75 @@ const courtLevelCond = (input: FilterInput): RawBuilder<unknown> | null => {
   )}))`;
 };
 
-/** Compile the `year` virtual into a half-open source_opened_at range. */
-const yearCond = (input: FilterInput): RawBuilder<unknown> | null => {
-  const b = yearBounds(fieldOf(input, 'year'));
-  if (b === null) return null;
-  const parts: RawBuilder<unknown>[] = [];
-  if (b.from !== null) parts.push(sql`c.source_opened_at >= make_date(${b.from}, 1, 1)`);
-  if (b.to !== null) parts.push(sql`c.source_opened_at < make_date(${b.to + 1}, 1, 1)`);
-  if (parts.length === 0) return null;
-  return sql.join(parts, sql` and `);
-};
-
 /**
  * True if the filter carries a REAL court/period bound (the §7.1 rule). An empty
  * value (`courtLevel:{in:[]}`, `year:{between:{}}`, `modified:{between:{}}`) does
  * NOT count — it compiles to no predicate, so it must not masquerade as a bound
- * (codex P1).
+ * (codex P1). A present year interval counts even when it is contradictory (it
+ * then matches nothing).
  */
-const hasBound = (input: FilterInput): boolean => {
-  const inst = inStrings(fieldOf(input, 'institutionCode'));
+const hasBound = (prepared: PreparedCaseFilter): boolean => {
+  const inst = inStrings(fieldOf(prepared.filter, 'institutionCode'));
   if (inst !== undefined && inst.length > 0) return true;
-  const levels = inStrings(fieldOf(input, 'courtLevel'));
+  const levels = inStrings(fieldOf(prepared.filter, 'courtLevel'));
   if (levels !== undefined && levels.length > 0) return true;
-  if (yearBounds(fieldOf(input, 'year')) !== null) return true;
-  if (hasRangeBound(fieldOf(input, 'modified'))) return true;
+  if (prepared.year !== null) return true;
+  if (hasRangeBound(fieldOf(prepared.filter, 'modified'))) return true;
   return false;
 };
 
 /** Build the full WHERE: kernel-composed (non-virtual) + the two virtual conditions. */
-const buildCaseConditions = (input: FilterInput): Result<RawBuilder<unknown>[], ApiError> => {
-  const built = toConditionBuilders(judicialCasesSpec, input);
+const buildCaseConditions = (
+  prepared: PreparedCaseFilter
+): Result<RawBuilder<unknown>[], ApiError> => {
+  const built = toConditionBuilders(judicialCasesSpec, prepared.filter);
   if (built.isErr()) return err(built.error);
   const conds: RawBuilder<unknown>[] = [...built.value];
-  const lvl = courtLevelCond(input);
+  const lvl = courtLevelCond(prepared.filter);
   if (lvl !== null) conds.push(lvl);
-  const yr = yearCond(input);
-  if (yr !== null) conds.push(yr);
+  if (prepared.year !== null) conds.push(yearIntervalSql(sql`c.source_opened_at`, prepared.year));
   return ok(conds);
+};
+
+/**
+ * The ONE year group key, reused by the grouping AND the named-count filter: a
+ * null date is null (shown as `(none)`), a native infinity is its explicit text
+ * (`infinity` / `-infinity`), a finite date its session calendar year as text.
+ * No integer cast of an infinity, so an infinite row cannot fail the aggregate,
+ * and every row stays in the true denominator.
+ */
+const YEAR_GROUP_KEY = sql`(case
+  when c.source_opened_at is null then null
+  when not isfinite(c.source_opened_at) then c.source_opened_at::text
+  else extract(year from c.source_opened_at)::integer::text
+end)`;
+
+/** The group key expression per (validated) dimension. Exhaustive: no fallback. */
+const groupKeyExpr = (groupBy: JudicialAggregateGroupBy): RawBuilder<unknown> => {
+  switch (groupBy) {
+    case 'court':
+      return sql`c.institution_code`;
+    case 'courtLevel':
+      return sql`co.court_level`;
+    case 'category':
+      return sql`c.category`;
+    case 'year':
+      return YEAR_GROUP_KEY;
+  }
 };
 
 export const makeJudicialCaseRepo = (db: Db): JudicialCaseRepo => {
   const getById = async (caseId: string): Promise<Result<JudicialCase | null, ApiError>> => {
-    if (!/^\d+$/u.test(caseId)) return ok(null);
+    // A3: a direct id must be a decimal digit string within int8 BEFORE SQL; a
+    // valid id that matches no case is absence (null), not an error.
+    if (!isJudicialDirectId(caseId)) {
+      return err(
+        invalidInput(
+          'caseId must be a decimal digit string of at most 9223372036854775807',
+          'caseId'
+        )
+      );
+    }
     try {
       const r =
         await sql<CaseRow>`select ${CASE_SELECT} from justice.cases c where c.case_id = ${caseId}::bigint limit 1`.execute(
@@ -305,11 +373,14 @@ export const makeJudicialCaseRepo = (db: Db): JudicialCaseRepo => {
   const listCursor = async (
     opts: CaseListOptions
   ): Promise<Result<CursorPage<JudicialCursorItem<JudicialCase>>, ApiError>> => {
-    if (!hasBound(opts.filter)) {
+    const preparedRes = prepareCaseFilter(opts.filter);
+    if (preparedRes.isErr()) return err(preparedRes.error);
+    const prepared = preparedRes.value;
+    if (!hasBound(prepared)) {
       return err(invalidInput('judicial case list requires a court or period bound', 'filter'));
     }
     const limit = clampLimit(opts.page.first, MAX_LIST);
-    const fhash = caseCursorFhash(opts.filter);
+    const fhash = caseCursorFhash(prepared.filter);
     const sortExpr = SORT_EXPR[opts.sort];
 
     let after: readonly string[] | undefined;
@@ -323,7 +394,7 @@ export const makeJudicialCaseRepo = (db: Db): JudicialCaseRepo => {
       after = decoded.value;
     }
 
-    const condsRes = buildCaseConditions(opts.filter);
+    const condsRes = buildCaseConditions(prepared);
     if (condsRes.isErr()) return err(condsRes.error);
     const conds = condsRes.value;
     if (after !== undefined) {
@@ -366,27 +437,30 @@ export const makeJudicialCaseRepo = (db: Db): JudicialCaseRepo => {
   const aggregate = async (
     opts: CaseAggregateOptions
   ): Promise<Result<JudicialCaseAggregate, ApiError>> => {
-    if (!hasBound(opts.filter)) {
+    // A direct caller cannot turn an unknown dimension into a year aggregate.
+    const groupBy: unknown = opts.groupBy;
+    if (!isJudicialAggregateGroupBy(groupBy)) {
+      return err(
+        invalidInput('groupBy must be one of court, category, year, courtLevel', 'groupBy')
+      );
+    }
+    const preparedRes = prepareCaseFilter(opts.filter);
+    if (preparedRes.isErr()) return err(preparedRes.error);
+    const prepared = preparedRes.value;
+    if (!hasBound(prepared)) {
       return err(
         invalidInput('judicial caseload aggregate requires a court or period bound', 'filter')
       );
     }
-    const condsRes = buildCaseConditions(opts.filter);
+    const condsRes = buildCaseConditions(prepared);
     if (condsRes.isErr()) return err(condsRes.error);
     const where = composeWhere(condsRes.value);
 
     // The group key expression per dimension. courtLevel needs the courts join.
-    const needsCourtJoin = opts.groupBy === 'court' || opts.groupBy === 'courtLevel';
-    const keyExpr: RawBuilder<unknown> =
-      opts.groupBy === 'court'
-        ? sql`c.institution_code`
-        : opts.groupBy === 'courtLevel'
-          ? sql`co.court_level`
-          : opts.groupBy === 'category'
-            ? sql`c.category`
-            : sql`date_part('year', c.source_opened_at)::int::text`;
+    const needsCourtJoin = groupBy === 'court' || groupBy === 'courtLevel';
+    const keyExpr = groupKeyExpr(groupBy);
     const labelExpr: RawBuilder<unknown> =
-      opts.groupBy === 'category' ? sql`max(c.category_name)` : sql`null::text`;
+      groupBy === 'category' ? sql`max(c.category_name)` : sql`null::text`;
     const fromClause = needsCourtJoin
       ? sql`justice.cases c left join justice.courts co on co.institution_code = c.institution_code`
       : sql`justice.cases c`;

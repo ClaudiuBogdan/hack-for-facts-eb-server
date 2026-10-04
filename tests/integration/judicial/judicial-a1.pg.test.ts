@@ -927,8 +927,9 @@ describeA1('judicial A1 — actual DDL, explicit throwaway database', () => {
   let setup: pg.Client | undefined;
   let setupDb: ProdDb | undefined;
   const readers: Reader[] = [];
+  // The case-cursor identity: the A1 format tag plus the A3 filter-semantics version.
   const v2Fhash = (court: string): string =>
-    `judicial_cases:cursor-v2:${fhashFor(judicialCasesSpec, { institutionCode: { in: [court] } })}`;
+    `judicial_cases:cursor-v2:filters-a3:${fhashFor(judicialCasesSpec, { institutionCode: { in: [court] } })}`;
 
   const witness = async (text: string, params: readonly unknown[]): Promise<unknown> => {
     if (setup === undefined) throw new Error('setup not ready');
@@ -1241,6 +1242,22 @@ describeA1('judicial A1 — actual DDL, explicit throwaway database', () => {
       expect(res.errors?.[0]?.code).toBe('INVALID_INPUT');
       expect(res.errors?.[0]?.message).toMatch(/restart pagination/u);
     }
+    // A3: a well-formed token under the pre-A3 identity (format tag, no filter
+    // semantics version) gets the typed restart, never a resumed page.
+    const preA3 = buildNextCursor({
+      sort: 'modifiedAt',
+      dir: 'desc',
+      fhash: `judicial_cases:cursor-v2:${fhashFor(judicialCasesSpec, { institutionCode: { in: [ORD] } })}`,
+      lastKeys: ['2025-01-01T00:00:00.000000+00 AD', '9'],
+    });
+    const preA3Res = await gql(reader, LIST_QUERY, {
+      filter: { institutionCode: { in: [ORD] } },
+      first: 1,
+      after: preA3,
+    });
+    expect(preA3Res.errors).toEqual([
+      { message: 'cursor/filter mismatch; restart pagination', code: 'INVALID_INPUT' },
+    ]);
   });
 
   // ── children + detail temporal text (both sessions) ───────────────────────────

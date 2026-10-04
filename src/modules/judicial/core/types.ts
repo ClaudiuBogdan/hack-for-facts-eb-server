@@ -294,7 +294,13 @@ export interface JudicialCaseLink {
 
 // ── Court analytics (JD-2) ─────────────────────────────────────────────────────
 
-export type JudicialAggregateGroupBy = 'court' | 'category' | 'year' | 'courtLevel';
+/** The four caseload aggregate dimensions (A3: validated before any repo access). */
+export const JUDICIAL_AGGREGATE_GROUP_BYS = ['court', 'category', 'year', 'courtLevel'] as const;
+
+export type JudicialAggregateGroupBy = (typeof JUDICIAL_AGGREGATE_GROUP_BYS)[number];
+
+export const isJudicialAggregateGroupBy = (value: unknown): value is JudicialAggregateGroupBy =>
+  typeof value === 'string' && (JUDICIAL_AGGREGATE_GROUP_BYS as readonly string[]).includes(value);
 
 export interface JudicialAggregateGroup {
   readonly key: string;
@@ -311,7 +317,56 @@ export interface JudicialCaseAggregate {
 
 // ── Resolve / discovery (the §7.4 dimensions) ─────────────────────────────────
 
-export type JudicialResolveDim = 'court' | 'courtLevel' | 'companyName' | 'category';
+/**
+ * The ONE copy of the discovery dimensions (A3): the TypeScript union, the MCP
+ * Zod enum and the usecase validation all derive from it. GraphQL keeps
+ * `dim: String!` for compatibility; the usecase validates it before dispatch.
+ */
+export const JUDICIAL_RESOLVE_DIMS = ['court', 'courtLevel', 'companyName', 'category'] as const;
+
+export type JudicialResolveDim = (typeof JUDICIAL_RESOLVE_DIMS)[number];
+
+export const isJudicialResolveDim = (value: unknown): value is JudicialResolveDim =>
+  typeof value === 'string' && (JUDICIAL_RESOLVE_DIMS as readonly string[]).includes(value);
+
+/** Discovery limit: omitted or null means the default; otherwise an integer 1..50. */
+export const JUDICIAL_RESOLVE_LIMIT_DEFAULT = 10;
+export const JUDICIAL_RESOLVE_LIMIT_MAX = 50;
+
+// ── Input contracts shared by core and shell (A3) ──────────────────────────────
+
+/**
+ * A year operand: an ORIGINAL integer number in GraphQL Int's signed 32-bit
+ * range, never zero (there is no year 0; 1 BC is -1). Strings, booleans,
+ * fractions and non-finite numbers are not years. One rule for GraphQL, MCP and
+ * direct callers.
+ */
+export const JUDICIAL_YEAR_OPERAND_MIN = -2_147_483_648;
+export const JUDICIAL_YEAR_OPERAND_MAX = 2_147_483_647;
+
+export const isJudicialYearOperand = (value: unknown): value is number =>
+  typeof value === 'number' &&
+  Number.isInteger(value) &&
+  value >= JUDICIAL_YEAR_OPERAND_MIN &&
+  value <= JUDICIAL_YEAR_OPERAND_MAX &&
+  value !== 0;
+
+const INT8_MAX = 2n ** 63n - 1n;
+/** int8 max has 19 significant digits; longer spellings cannot be in range. */
+const INT8_MAX_DIGITS = 19;
+
+/**
+ * A DIRECT external ID argument (case lookup, legal references by case, reverse
+ * references by act): a decimal digit string, including zero and leading-zero
+ * spellings, whose value is at most 9223372036854775807. Checked with BigInt on
+ * the text, never Number. Negative, signed, whitespace, fractional or overflowing
+ * spellings are invalid (a caller mistake, not a database error).
+ */
+export const isJudicialDirectId = (value: unknown): value is string => {
+  if (typeof value !== 'string' || !/^[0-9]+$/u.test(value)) return false;
+  const significant = value.replace(/^0+(?=[0-9])/u, '');
+  return significant.length <= INT8_MAX_DIGITS && BigInt(significant) <= INT8_MAX;
+};
 
 // ── As-of metadata (§10) ───────────────────────────────────────────────────────
 

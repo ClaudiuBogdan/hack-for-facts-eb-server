@@ -208,6 +208,7 @@ const objectsAndQuery = /* GraphQL */ `
     totalCount: Int
   }
 
+  "One caseload group. For groupBy year the key is the session calendar year as text, (none) for a null date, or infinity / -infinity for an infinite stored date; every row counts in the denominator."
   type JudicialAggregateGroup {
     key: String!
     label: String
@@ -229,7 +230,7 @@ const objectsAndQuery = /* GraphQL */ `
     year: Int!
     count: Int!
   }
-  "Company-litigation summary (JD-1). published-only ⇒ empty in v1 (caseCount 0, coverage 0)."
+  "Company-litigation summary (JD-1). published-only ⇒ empty in v1 (caseCount 0, coverage 0). years lists finite session calendar years only; cases with a null or infinite date still count in caseCount and courtLevels, and a caveat discloses their omission from years."
   type JudicialCompanyLitigation {
     cui: String!
     companyName: String
@@ -290,7 +291,7 @@ const objectsAndQuery = /* GraphQL */ `
     judicialCourts(filter: JudicialCourtsFilter): [JudicialCourt!]!
     "A court by institution code, with its direct children."
     judicialCourt(institutionCode: String!): JudicialCourt
-    "A case by numeric caseId OR natural key (institutionCode + caseNumber). Composes name-gated detail."
+    "A case by numeric caseId OR natural key (institutionCode + caseNumber). Composes name-gated detail. caseId is decimal digits up to 9223372036854775807 (otherwise INVALID_INPUT); a valid id that matches no case returns null."
     judicialCase(caseId: BigInt, institutionCode: String, caseNumber: String): JudicialCaseDetail
     "Case directory. Cursor-only (6.16M cases); REQUIRES a court or period bound."
     judicialCases(
@@ -305,7 +306,7 @@ const objectsAndQuery = /* GraphQL */ `
       groupBy: JudicialAggregateGroupBy!
       filter: JudicialCasesFilter
     ): JudicialCaseAggregate!
-    "Company litigation (JD-1). published-only ⇒ empty in v1. Optional courtLevel/year/category narrowing (§7.3); years are session calendar years of the source-dependent sourceOpenedAt."
+    "Company litigation (JD-1). published-only ⇒ empty in v1. Optional courtLevel/year/category narrowing (§7.3); years are session calendar years of the source-dependent sourceOpenedAt. Null arguments are absent, an empty list does not narrow, yearFrom/yearTo are nonzero years (1 BC is -1)."
     judicialCompanyLitigation(
       cui: String!
       courtLevel: [JudicialCourtLevel!]
@@ -323,13 +324,13 @@ const objectsAndQuery = /* GraphQL */ `
       first: Int = 20
       after: String
     ): JudicialCaseLinkConnection!
-    "Stored citation rows linking cases to the requested act, ordered by reference ID (one edge per reference); solution_summary references are excluded."
+    "Stored citation rows linking cases to the requested act, ordered by reference ID (one edge per reference); solution_summary references are excluded. targetActId is decimal digits up to 9223372036854775807 (otherwise INVALID_INPUT)."
     judicialCasesCitingAct(
       targetActId: BigInt!
       first: Int = 20
       after: String
     ): JudicialCaseCitationConnection!
-    "Resolve a free-text query to a filter value (court→code, company name→nameKeyId, ...)."
+    "Resolve a free-text query to a filter value (court→code, company name→nameKeyId, ...). dim is one of court, courtLevel, companyName, category; limit is an integer 1 to 50 (null means 10). Invalid input is INVALID_INPUT and is never echoed."
     judicialResolve(dim: String!, q: String!, limit: Int = 10): [JudicialResolveHit!]!
   }
 `;

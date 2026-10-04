@@ -13,7 +13,7 @@ import {
   type ProdDatabase,
 } from '@/modules/shared/index.js';
 
-import { composeWhere } from './filter-helpers.js';
+import { composeWhere, normalizeJudicialFilter } from './filter-helpers.js';
 import { judicialCourtsSpec } from '../filters/judicial.spec.js';
 
 import type { CourtListOptions, JudicialCourtRepo } from '../../core/ports.js';
@@ -67,7 +67,11 @@ export const makeJudicialCourtRepo = (db: Db): JudicialCourtRepo => {
   const list = async (
     opts: CourtListOptions
   ): Promise<Result<readonly JudicialCourt[], ApiError>> => {
-    const built = toConditionBuilders(judicialCourtsSpec, opts.filter);
+    // A3: null-at-optional-position is absent and shapes are checked BEFORE the
+    // existing composer (which would dereference a null field filter).
+    const normalized = normalizeJudicialFilter(judicialCourtsSpec, opts.filter);
+    if (normalized.isErr()) return err(normalized.error);
+    const built = toConditionBuilders(judicialCourtsSpec, normalized.value);
     if (built.isErr()) return err(built.error);
     const where = composeWhere(built.value);
     try {

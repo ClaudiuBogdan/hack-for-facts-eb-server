@@ -542,6 +542,98 @@ wrong year or dropped their era are now explicit text, and expanded years use
 PostgreSQL's spelling instead of JS's signed six-digit form. `asOf` keeps its
 interim `max(latest_source_modified_at)` meaning and `estimated: true`.
 
+### 4.2 A3 — validated inputs and the company query (2026-10-04)
+
+A3 repairs how existing inputs are read. It adds no endpoint, tool, scalar,
+filter framework or status/privacy rule.
+
+**Nulls and shapes.** Every judicial filter is normalized once, before the
+bounding rule, the cursor identity, the kernel composer and the virtual
+compilers, so all of them see the same object:
+
+- Omitted and explicit `null` mean the same at optional positions only: the
+  whole filter, a field, an operator, a range endpoint, and the flat GraphQL/MCP
+  narrowing arguments. Required arguments (`dim`, `q`, `cui`, `targetActId`) stay
+  required.
+- `{}`, `between: {}` and all-null values never count as a bound. Beside a real
+  bound, a case-filter `in: []` still matches nothing; a flat company list `[]`
+  still means no narrowing.
+- These are `InvalidInput` (GraphQL `INVALID_INPUT`, MCP `errorType` /
+  `errorCode`) before any SQL: a scalar or list where a field or range object is
+  required, an unknown field or operator, a null or wrongly typed list member
+  (never dropped, never stringified), an unknown court level, and a wrongly typed
+  operand.
+- GraphQL itself already rejects a fractional or out-of-range `Int`, a string
+  for an `Int` and a null member of a `[T!]` list, as an ordinary GraphQL
+  validation error before any resolver.
+- An inline literal of an unsupported kind for a kernel string scalar (`BigInt`,
+  `Money`, `CUI`, `SIRUTA`, `Date`, `DateTime`) — Boolean, Float, Enum, Object or
+  List — is `INVALID_INPUT` at GraphQL validation, in every module. It used to
+  become `null`, so `judicialCase(caseId: true, …)` fell back to the natural key
+  and `modified: { gte: true }` dropped the bound. String and integer literals,
+  explicit `null`, runtime variables and serialization are unchanged.
+- On MCP, a supplied `caseId` (even `""`) must pass the direct-ID guard; only
+  an omitted or `null` `caseId` allows the natural-key lookup.
+
+**Years.** An operand is an original integer number in GraphQL `Int` range
+(signed 32-bit), never 0 (1 BC is -1); strings, booleans, fractions and
+non-finite numbers are input errors, the same on MCP.
+
+- All operators apply together, as one intersection: the lower bound is the
+  largest of `eq`/`gte`/`between.from`, the upper the smallest of
+  `eq`/`lte`/`between.to`. `{eq: 2024, gte: 2020}` now means 2024 only (it
+  previously meant 2020–2024).
+- A contradictory interval (`{eq: 2024, lte: 2023}`) is a valid, empty result,
+  checked after every other input and cursor.
+- The calendar is unchanged: the SESSION calendar year of `source_opened_at`.
+  Null and infinite dates never match a year filter (`isfinite`).
+- AD 1–9999 bounds keep index-friendly native January-boundary comparisons.
+  Other bounds (BC, expanded and timestamp-domain years, including the session
+  spillover year 294277) compare native `extract(year …)` instead, so no date
+  outside the timestamp range and no year 0 is ever constructed.
+
+**Aggregates.** The year group key is one expression used for grouping and for
+the named count: null → `(none)`, a native infinity → `infinity`/`-infinity`,
+otherwise the session year as text. Every row stays in the denominator, so an
+infinite date no longer fails the aggregate.
+
+The company summary's `years[].year` stays `Int!`. It lists finite years only.
+Null or infinite dates still count in `caseCount` and `courtLevels`, and a caveat
+names how many were omitted from `years`.
+
+**Discovery and groupBy.** `dim` is one of the four dimensions (one local
+constant), `q` must be a string, and `limit` is omitted/null (10) or an integer
+1–50, with no coercion or clamping. An unknown `groupBy` is an input error, not a
+year aggregate. All of these fail before any repo access, without echoing the
+query.
+
+**Direct IDs.** Case lookup, legal references by case, and reverse references by
+act accept decimal digit strings (zero and leading zeros included) up to
+`9223372036854775807`, checked with BigInt before SQL. Overflow, negative and
+malformed IDs are `INVALID_INPUT`; a valid ID that matches nothing is still
+absence. The reverse cursor identity keeps the caller's spelling. Child and
+lineage reads inside case detail keep their existing guards.
+
+**Company case list.** The old `SELECT DISTINCT c.case_id::text … ORDER BY
+c.case_id` failed with PostgreSQL 42P10 even on zero rows. It now also selects
+the native `c.case_id AS case_id_sort` (internal, never on a node), keeps the
+numeric `ORDER BY c.case_id DESC`, and deduplicates before the limit. Duplicate
+admitted joins therefore yield one case each.
+
+- The published-status, CUI and join predicates are unchanged; no status is
+  promoted.
+- Its cursor uses the A1 strict decoder, and its filter identity is unchanged
+  for valid inputs.
+- `sourceOpenedAt` uses the A1 session-date display, so BC, expanded and infinite
+  dates stay explicit.
+
+**One-time case-list restart.** The case-cursor identity now also carries a
+filter-semantics version (`judicial_cases:cursor-v2:filters-a3:<hash>`), hashed
+over the normalized filter the SQL uses. A pre-A3 case-list cursor gets
+`INVALID_INPUT` "cursor/filter mismatch; restart pagination" once after rollout,
+because its compound years may have meant a different range. Reverse-reference
+and company cursors keep their identities.
+
 ---
 
 ## 5. Usecases — `judicial/core/usecases/`
@@ -642,7 +734,7 @@ cursor `fhash` + tri-surface equivalence. The module invents no DSL.
 | `courtLevel`                   | enum[]   | `in`                       | join `courts.court_level` (bounded)                                                                                                                                            | `courtLevel`            | `[JudicialCourtLevel!]` | enum                     |
 | `category`                     | string[] | `in`                       | `cases.category`                                                                                                                                                               | `category`              | `[String!]`             | —                        |
 | `stage`                        | string[] | `in`                       | `cases.stage`                                                                                                                                                                  | `stage`                 | `[String!]`             | —                        |
-| `year` / `yearFrom` / `yearTo` | int      | `eq`/`gte`/`lte`/`between` | session calendar year of `cases.source_opened_at` — a source-dependent clock (see §10 date basis); mixed-source ranges combine clocks                                          | `yearFrom`/`yearTo`     | `{from,to}`             | year                     |
+| `year` / `yearFrom` / `yearTo` | int      | `eq`/`gte`/`lte`/`between` | session calendar year of `cases.source_opened_at` — a source-dependent clock (see §10 date basis); mixed-source ranges combine clocks; operators intersect (§4.2)              | `yearFrom`/`yearTo`     | `{from,to}`             | year                     |
 | `modifiedFrom`/`modifiedTo`    | date     | `between`                  | `cases.latest_source_modified_at` / `cases_modified_idx`                                                                                                                       | `modifiedFrom`/`To`     | `{from,to}`             | —                        |
 | `q`                            | string   | `contains`                 | `cases.object`/`case_number` (Postgres trigram fallback; Meili for prefix) — **text engine: Postgres ILIKE/trigram by default; Meili for the autocomplete `q` on case_number** | `q`                     | `String`                | resolver step            |
 | `hasObject`                    | bool     | `isNull` (mandatory op)    | `cases.object IS [NOT] NULL`                                                                                                                                                   | `hasObject`             | `Boolean`               | coverage                 |
@@ -652,6 +744,9 @@ cursor `fhash` + tri-surface equivalence. The module invents no DSL.
 `institutionCode`, `courtLevel`, or a `modified*`/`year*` range must be present, or
 the request is `InvalidInput` ("judicial case list requires a court or period
 bound"). This is the §3 "no implicit unbounded scans" rule for a 6.16M-row table.
+The rule is checked on the normalized filter (§4.2): null-only, `{}` and empty-list
+values are not a bound; a contradictory year interval is a bound (it matches
+nothing).
 
 ### 7.2 `judicial_courts` collection spec
 
@@ -666,7 +761,8 @@ bound"). This is the §3 "no implicit unbounded scans" rule for a 6.16M-row tabl
 ### 7.3 `judicial_company_litigation` filter (gated)
 
 `cui` (required, resolved via identity hub), optional `courtLevel[]`, `year`
-range, `category[]`. Backed by `party_company_candidates` (`published`-only) joined
+range, `category[]` (null means absent, an empty list does not narrow, years as in
+§4.2). Backed by `party_company_candidates` (`published`-only) joined
 to `case_parties`/`cases`. **Coverage** is mandatory in the response: company-name
 → CUI match rate is disclosed (catalog "Coverage Gate" / "Entity Resolution
 Gate").
@@ -679,6 +775,10 @@ Gate").
 | `courtLevel`  | enum value                                        | static                                                                        | safe                                                                                         |
 | `companyName` | `name_key_id` + publishable name + candidate CUIs | `PartyDictionaryRepo.resolveCompanyName` (**company/public dictionary ONLY**) | **safe — the dictionary holds no person names; resolving a person's name returns zero rows** |
 | `category`    | distinct `cases.category`/`category_name`         | `justice.cases`                                                               | safe                                                                                         |
+
+Inputs (§4.2): `dim` must be one of these four, `q` a string, `limit` omitted/null
+(10) or an integer 1–50; anything else is `INVALID_INPUT` before any repo access,
+and the error never echoes the query.
 
 The `companyName` resolver is the one place a name is _typed in_; because it
 queries only `party_name_keys` (company/public CHECK), a user searching a person's

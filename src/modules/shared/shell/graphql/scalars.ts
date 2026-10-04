@@ -7,7 +7,9 @@
  * already strings (int8 parser + numeric default + date/timestamptz text).
  */
 
-import { GraphQLError, GraphQLScalarType, Kind } from 'graphql';
+import { GraphQLError, GraphQLScalarType, Kind, type ValueNode } from 'graphql';
+
+import { GRAPHQL_ERROR_CODE } from '../../core/errors.js';
 
 /** Lenient string scalar: accepts string/int input (used for text-y scalars). */
 const asString = (value: unknown): string | null => {
@@ -17,13 +19,33 @@ const asString = (value: unknown): string | null => {
   throw new GraphQLError(`expected a string-coercible scalar, got ${typeof value}`);
 };
 
+/**
+ * The ONE inline-literal rule of the two string-scalar helpers below: a STRING
+ * or INT literal keeps its exact text (no Number conversion, so integers above
+ * 2^53 stay exact), explicit NULL stays null, and every other literal kind
+ * (Boolean, Float, Enum, Object, List) is a typed input error. It used to be
+ * silently null, which an optional argument then read as absent. The message
+ * names only the scalar, never the literal. Runtime variables never reach this
+ * function (GraphQL resolves them through parseValue).
+ */
+const stringOrIntLiteral =
+  (name: string) =>
+  (ast: ValueNode): string | null => {
+    if (ast.kind === Kind.STRING || ast.kind === Kind.INT) return ast.value;
+    if (ast.kind === Kind.NULL) return null;
+    throw new GraphQLError(`${name} literal must be a string or an integer`, {
+      nodes: ast,
+      extensions: { code: GRAPHQL_ERROR_CODE.InvalidInput, type: 'InvalidInput' },
+    });
+  };
+
 const passthroughString = (name: string, description: string): GraphQLScalarType =>
   new GraphQLScalarType({
     name,
     description,
     serialize: (value) => asString(value),
     parseValue: (value) => asString(value),
-    parseLiteral: (ast) => (ast.kind === Kind.STRING || ast.kind === Kind.INT ? ast.value : null),
+    parseLiteral: stringOrIntLiteral(name),
   });
 
 export const CUIScalar = passthroughString('CUI', 'Normalized Romanian fiscal code (digits only).');
@@ -51,7 +73,7 @@ const strictString = (name: string, description: string): GraphQLScalarType =>
       if (typeof value === 'string') return value;
       throw new GraphQLError(`${name} input must be a string`);
     },
-    parseLiteral: (ast) => (ast.kind === Kind.STRING || ast.kind === Kind.INT ? ast.value : null),
+    parseLiteral: stringOrIntLiteral(name),
   });
 
 export const BigIntScalar = strictString(

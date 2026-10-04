@@ -11,6 +11,14 @@
  *    company/public dictionary keys carry a publishable name.
  *
  * Empty result shape: `{ caseCount: 0, coverage: 0, caveats: [...] }`.
+ *
+ * A3: the case list selects the native `c.case_id AS case_id_sort` beside its
+ * text id, so `SELECT DISTINCT` + numeric `ORDER BY c.case_id` is valid SQL
+ * (the old text-only DISTINCT failed with 42P10 even on zero rows); duplicates
+ * from several admitted joins collapse BEFORE the limit; the internal key never
+ * reaches a node. Narrowing inputs are normalized once; years are validated and
+ * compiled with the shared interval; the publication/CUI/join predicates are
+ * unchanged.
  */
 
 import { sql, type Kysely } from 'kysely';
@@ -19,7 +27,6 @@ import { err, ok, type Result } from 'neverthrow';
 import {
   buildNextCursor,
   databaseError,
-  decodeCursor,
   invalidInput,
   normalizeCui,
   type ApiError,
@@ -28,23 +35,116 @@ import {
   type ProdDatabase,
 } from '@/modules/shared/index.js';
 
+import { decodeJudicialCursor, isCanonicalBigintText } from './cases-repo.js';
 import { PUBLISHED_STATUS } from './constants.js';
-import { clampLimit } from './filter-helpers.js';
+import {
+  clampLimit,
+  intersectYearOperands,
+  yearIntervalSql,
+  type YearInterval,
+} from './filter-helpers.js';
+import { sessionDateDisplay } from './temporal-sql.js';
+import {
+  JUDICIAL_COURT_LEVELS,
+  type JudicialCaseLink,
+  type JudicialCompanyLitigation,
+  type JudicialCourtLevel,
+} from '../../core/types.js';
 
 import type {
   CompanyLitigationFilter,
   JudicialCompanyLinkRepo,
   PartyDictionaryRepo,
 } from '../../core/ports.js';
-import type {
-  JudicialCaseLink,
-  JudicialCompanyLitigation,
-  JudicialCourtLevel,
-} from '../../core/types.js';
 
 type Db = Kysely<ProdDatabase>;
 const MAX_LIST = 50;
 const LINK_CAVEAT = 'company-litigation links not yet published';
+/** Disclosed when published cases without a finite session calendar year exist. */
+const YEARLESS_CAVEAT_SUFFIX =
+  'with a null or infinite sourceOpenedAt are counted in caseCount and courtLevels but omitted from years';
+
+/** The flat narrowing arguments as received from GraphQL or MCP (before normalization). */
+export interface CompanyLitigationArgs {
+  readonly courtLevel?: unknown;
+  readonly category?: unknown;
+  readonly yearFrom?: unknown;
+  readonly yearTo?: unknown;
+}
+
+const COURT_LEVELS: ReadonlySet<string> = new Set(JUDICIAL_COURT_LEVELS);
+
+const isAbsent = (value: unknown): boolean => value === undefined || value === null;
+
+/** A flat string list: null/omitted is absent; a null or non-string member is an error. */
+const stringList = (
+  value: unknown,
+  name: string,
+  allowed?: ReadonlySet<string>
+): Result<string[] | undefined, ApiError> => {
+  if (isAbsent(value)) return ok(undefined);
+  if (!Array.isArray(value)) return err(invalidInput(`${name} must be a list`, name));
+  for (const member of value as readonly unknown[]) {
+    if (typeof member !== 'string' || (allowed !== undefined && !allowed.has(member))) {
+      return err(
+        invalidInput(
+          allowed !== undefined
+            ? `${name} members must be one of ${[...allowed].join(', ')}`
+            : `${name} members must be strings`,
+          name
+        )
+      );
+    }
+  }
+  return ok([...(value as readonly string[])]);
+};
+
+/** Validate the optional company year bounds, each under its own name; null is absent. */
+const companyYears = (yearFrom: unknown, yearTo: unknown): Result<YearInterval, ApiError> => {
+  const lower = isAbsent(yearFrom) ? ok(null) : intersectYearOperands([yearFrom], [], 'yearFrom');
+  if (lower.isErr()) return err(lower.error);
+  const upper = isAbsent(yearTo) ? ok(null) : intersectYearOperands([], [yearTo], 'yearTo');
+  if (upper.isErr()) return err(upper.error);
+  return ok({ from: lower.value?.from ?? null, to: upper.value?.to ?? null });
+};
+
+/**
+ * Normalize the flat company narrowing arguments ONCE (both adapters call this):
+ * omitted and null mean absent; a non-list or a null/non-string member is
+ * InvalidInput; an EMPTY list keeps the existing no-narrowing meaning; a year is
+ * an original nonzero 32-bit integer number. Returns undefined when nothing
+ * narrows, so the cursor filter identity of every valid input is unchanged.
+ */
+export const normalizeCompanyLitigationFilter = (
+  args: CompanyLitigationArgs
+): Result<CompanyLitigationFilter | undefined, ApiError> => {
+  const levels = stringList(args.courtLevel, 'courtLevel', COURT_LEVELS);
+  if (levels.isErr()) return err(levels.error);
+  const categories = stringList(args.category, 'category');
+  if (categories.isErr()) return err(categories.error);
+  const years = companyYears(args.yearFrom, args.yearTo);
+  if (years.isErr()) return err(years.error);
+  const f: { courtLevels?: string[]; yearFrom?: number; yearTo?: number; categories?: string[] } =
+    {};
+  if (levels.value !== undefined) f.courtLevels = levels.value;
+  if (categories.value !== undefined) f.categories = categories.value;
+  if (years.value.from !== null) f.yearFrom = years.value.from;
+  if (years.value.to !== null) f.yearTo = years.value.to;
+  return ok(Object.keys(f).length > 0 ? f : undefined);
+};
+
+/** Re-validate a typed filter at the repo entry (direct callers bypass the adapters). */
+const checkedFilter = (
+  filter: CompanyLitigationFilter | undefined
+): Result<CompanyLitigationFilter | undefined, ApiError> =>
+  filter === undefined
+    ? ok(undefined)
+    : normalizeCompanyLitigationFilter({
+        courtLevel: filter.courtLevels,
+        category: filter.categories,
+        yearFrom: filter.yearFrom,
+        yearTo: filter.yearTo,
+      });
 
 /**
  * The cursor fhash for the company-litigation case list — bound to the CUI AND
@@ -81,12 +181,24 @@ const filterConds = (filter: CompanyLitigationFilter | undefined) => {
       )})`
     );
   }
-  if (filter.yearFrom !== undefined)
-    conds.push(sql`c.source_opened_at >= make_date(${filter.yearFrom}, 1, 1)`);
-  if (filter.yearTo !== undefined)
-    conds.push(sql`c.source_opened_at < make_date(${filter.yearTo + 1}, 1, 1)`);
+  if (filter.yearFrom !== undefined || filter.yearTo !== undefined) {
+    // The validated bounds, compiled by the SAME interval code as the case
+    // filter: finite dates only, no make_date outside the ordinary AD window.
+    conds.push(
+      yearIntervalSql(sql`c.source_opened_at`, {
+        from: filter.yearFrom ?? null,
+        to: filter.yearTo ?? null,
+      })
+    );
+  }
   return conds;
 };
+
+/** The summary year: finite native session calendar year, else NULL (one expression). */
+const SUMMARY_YEAR = sql`(case
+  when c.source_opened_at is not null and isfinite(c.source_opened_at)
+    then extract(year from c.source_opened_at)::integer
+end)`;
 
 export const makeJudicialCompanyLinkRepo = (
   db: Db,
@@ -104,10 +216,15 @@ export const makeJudicialCompanyLinkRepo = (
   ): Promise<Result<JudicialCompanyLitigation, ApiError>> => {
     const cui = normalizeCui(rawCui);
     if (cui === null) return err(invalidInput('invalid CUI format', 'cui'));
-    const filterSql = linkFilterSql(filter);
+    const checked = checkedFilter(filter);
+    if (checked.isErr()) return err(checked.error);
+    const filterSql = linkFilterSql(checked.value);
     try {
       // published-only join: candidates(published) → case_parties(name_key) → cases
       // (+ courts for level). count(distinct case) + per-level + per-year breakdowns.
+      // The year is the finite native session calendar year or NULL (null and
+      // infinite dates), identical in SELECT and GROUP BY: no integer cast of an
+      // infinity, and every case still counts in the total and the levels.
       const rows = await sql<{
         court_level: string | null;
         year: number | null;
@@ -115,7 +232,7 @@ export const makeJudicialCompanyLinkRepo = (
         name_key_id: string | null;
       }>`
         select co.court_level as court_level,
-               date_part('year', c.source_opened_at)::int as year,
+               ${SUMMARY_YEAR} as year,
                count(distinct c.case_id)::text as cnt,
                max(pcc.name_key_id)::text as name_key_id
         from justice.party_company_candidates pcc
@@ -124,12 +241,13 @@ export const makeJudicialCompanyLinkRepo = (
         left join justice.courts co on co.institution_code = c.institution_code
         where pcc.validation_status = ${PUBLISHED_STATUS}
           and pcc.candidate_cui = ${cui}${filterSql}
-        group by co.court_level, date_part('year', c.source_opened_at)
+        group by co.court_level, ${SUMMARY_YEAR}
       `.execute(db);
 
       const byLevel = new Map<string, number>();
       const byYear = new Map<number, number>();
       let total = 0;
+      let yearless = 0;
       let nameKeyId: string | null = null;
       for (const r of rows.rows) {
         const cnt = Number(r.cnt);
@@ -137,6 +255,7 @@ export const makeJudicialCompanyLinkRepo = (
         if (r.court_level !== null)
           byLevel.set(r.court_level, (byLevel.get(r.court_level) ?? 0) + cnt);
         if (r.year !== null) byYear.set(r.year, (byYear.get(r.year) ?? 0) + cnt);
+        else yearless += cnt;
         if (r.name_key_id !== null) nameKeyId = r.name_key_id;
       }
 
@@ -164,7 +283,12 @@ export const makeJudicialCompanyLinkRepo = (
         years,
         // coverage = match rate; with no published rows in v1 it is 0 (empty by construction).
         coverage: total > 0 ? 1 : 0,
-        caveats: total === 0 ? [LINK_CAVEAT] : [],
+        caveats:
+          total === 0
+            ? [LINK_CAVEAT]
+            : yearless > 0
+              ? [`${String(yearless)} published case(s) ${YEARLESS_CAVEAT_SUFFIX}`]
+              : [],
       });
     } catch (error) {
       return err(databaseError('companyLink.summaryForCui failed', error));
@@ -178,29 +302,39 @@ export const makeJudicialCompanyLinkRepo = (
   ): Promise<Result<CursorPage<JudicialCaseLink>, ApiError>> => {
     const cui = normalizeCui(rawCui);
     if (cui === null) return err(invalidInput('invalid CUI format', 'cui'));
+    const checked = checkedFilter(filter);
+    if (checked.isErr()) return err(checked.error);
     const limit = clampLimit(page.first, MAX_LIST);
     // The cursor fhash is the CUI + filter identity (stable across pages; rejects
     // a cursor minted under a different filter).
-    const fhash = companyCasesFhash(cui, filter);
+    const fhash = companyCasesFhash(cui, checked.value);
     let cursorCaseId: string | undefined;
     if (page.after !== undefined) {
-      const decoded = decodeCursor(page.after, { sort: 'caseId', dir: 'desc', fhash });
+      // The A1 strict decoder: exactly one ORIGINAL JSON string key, canonical
+      // signed int8 text, checked before any SQL (the kernel decoder alone would
+      // stringify a number already rounded past 2^53).
+      const decoded = decodeJudicialCursor(page.after, { sort: 'caseId', dir: 'desc', fhash }, [
+        isCanonicalBigintText,
+      ]);
       if (decoded.isErr()) return err(decoded.error);
-      cursorCaseId = decoded.value.keys[0];
+      cursorCaseId = decoded.value[0];
     }
-    const filterSql = linkFilterSql(filter);
+    const filterSql = linkFilterSql(checked.value);
     const cursorSql =
       cursorCaseId !== undefined ? sql` and c.case_id < ${cursorCaseId}::bigint` : sql``;
     try {
+      // case_id_sort: the native id in the DISTINCT select list (internal only).
       const rows = await sql<{
+        case_id_sort: string;
         case_id: string;
         institution_code: string;
         case_number: string;
         category: string | null;
         source_opened_at: string | null;
       }>`
-        select distinct c.case_id::text as case_id, c.institution_code, c.case_number,
-               c.category, to_char(c.source_opened_at, 'YYYY-MM-DD') as source_opened_at
+        select distinct c.case_id as case_id_sort, c.case_id::text as case_id,
+               c.institution_code, c.case_number, c.category,
+               ${sessionDateDisplay(sql`c.source_opened_at`)} as source_opened_at
         from justice.party_company_candidates pcc
         join justice.case_parties p on p.name_key_id = pcc.name_key_id
         join justice.cases c on c.case_id = p.case_id

@@ -10,7 +10,20 @@
  * company/public names. No tool returns party rows; person/unknown parties surface
  * ONLY as `personPartyCount` inside `get_judicial_case`. The leak audit (§12)
  * covers the MCP outputs.
+ *
+ * A3: handlers forward the ORIGINAL argument values (no Number/String coercion,
+ * no flooring or clamping); null at an optional argument means absent; every
+ * failure carries the typed `errorType` / `errorCode` beside its message.
  */
+
+import {
+  GRAPHQL_ERROR_CODE,
+  invalidInput,
+  type ApiError,
+  type FilterInput,
+  type KernelMcpTool,
+  type McpToolOutput,
+} from '@/modules/shared/index.js';
 
 import {
   JUDICIAL_MCP_KINDS,
@@ -20,6 +33,7 @@ import {
   getJudicialCaseInput,
   resolveJudicialFiltersInput,
 } from './io.js';
+import { isJudicialAggregateGroupBy, isJudicialDirectId } from '../../core/types.js';
 import {
   getCaseDetail,
   getCaseLegalRefs,
@@ -28,47 +42,83 @@ import {
   resolveJudicialFilters,
   type JudicialRepos,
 } from '../../core/usecases.js';
-
-import type { CompanyLitigationFilter } from '../../core/ports.js';
-import type { JudicialResolveDim } from '../../core/types.js';
-import type { FilterInput, KernelMcpTool, McpToolOutput } from '@/modules/shared/index.js';
+import { normalizeCompanyLitigationFilter } from '../repo/company-link-repo.js';
 
 export interface JudicialMcpDeps {
   readonly repos: JudicialRepos;
   readonly clientBaseUrl: string;
 }
 
-const str = (args: Record<string, unknown>, key: string): string | undefined => {
+/** An optional argument: null and omitted are both absent; anything else as received. */
+const optionalArg = (args: Record<string, unknown>, key: string): unknown => {
   const v = args[key];
-  return typeof v === 'string' && v !== '' ? v : undefined;
+  return v === null ? undefined : v;
 };
-const intArg = (args: Record<string, unknown>, key: string): number | undefined => {
-  const v = args[key];
-  const n = typeof v === 'number' ? v : Number(v);
-  return Number.isFinite(n) ? Math.floor(n) : undefined;
+
+/**
+ * An optional STRING argument: absent when omitted, null or empty (the existing
+ * empty-string meaning); a present non-string is a typed input error.
+ */
+const optionalString = (
+  args: Record<string, unknown>,
+  key: string
+): { ok: true; value: string | undefined } | { ok: false; error: ApiError } => {
+  const v = optionalArg(args, key);
+  if (v === undefined || v === '') return { ok: true, value: undefined };
+  if (typeof v !== 'string')
+    return { ok: false, error: invalidInput(`${key} must be a string`, key) };
+  return { ok: true, value: v };
 };
-const strArray = (args: Record<string, unknown>, key: string): string[] | undefined => {
-  const v = args[key];
-  return Array.isArray(v) ? v.map((x) => String(x)) : undefined;
+
+/**
+ * An optional DIRECT id argument: absent ONLY when omitted or null. A supplied
+ * value (including the empty string) is never dropped: it must pass the exact
+ * digit / int8 guard here, before any repo access, so a malformed id can never
+ * silently fall back to the natural key.
+ */
+const optionalDirectId = (
+  args: Record<string, unknown>,
+  key: string
+): { ok: true; value: string | undefined } | { ok: false; error: ApiError } => {
+  const v = optionalArg(args, key);
+  if (v === undefined) return { ok: true, value: undefined };
+  if (!isJudicialDirectId(v)) {
+    return {
+      ok: false,
+      error: invalidInput(
+        `${key} must be a decimal digit string of at most 9223372036854775807`,
+        key
+      ),
+    };
+  }
+  return { ok: true, value: v };
 };
-const errorOut = (kind: string, message: string): McpToolOutput => ({
+
+/** The typed failure envelope (message + errorType + aligned errorCode). */
+const failure = (kind: string, error: ApiError): McpToolOutput => ({
   ok: false,
   kind,
-  error: message,
+  error: error.message,
+  errorType: error.type,
+  errorCode: GRAPHQL_ERROR_CODE[error.type],
 });
+const required = (kind: string, message: string, field: string): McpToolOutput =>
+  failure(kind, invalidInput(message, field));
 const n = (x: number): string => String(x);
 
-/** Build a kernel FilterInput for the case-aggregate bound args (court/level/category/year). */
+/**
+ * Build a kernel FilterInput for the case-aggregate bound args. The ORIGINAL
+ * values are forwarded unchanged; the cases repo normalizes and validates them
+ * (list shapes and member types, court levels, nonzero 32-bit years) before SQL.
+ */
 const aggregateFilter = (args: Record<string, unknown>): FilterInput => {
   const filter: Record<string, unknown> = {};
-  const inst = strArray(args, 'institutionCode');
-  if (inst !== undefined) filter['institutionCode'] = { in: inst };
-  const lvl = strArray(args, 'courtLevel');
-  if (lvl !== undefined) filter['courtLevel'] = { in: lvl };
-  const cat = strArray(args, 'category');
-  if (cat !== undefined) filter['category'] = { in: cat };
-  const yearFrom = intArg(args, 'yearFrom');
-  const yearTo = intArg(args, 'yearTo');
+  for (const key of ['institutionCode', 'courtLevel', 'category'] as const) {
+    const v = optionalArg(args, key);
+    if (v !== undefined) filter[key] = { in: v };
+  }
+  const yearFrom = optionalArg(args, 'yearFrom');
+  const yearTo = optionalArg(args, 'yearTo');
   if (yearFrom !== undefined || yearTo !== undefined) {
     filter['year'] = {
       between: {
@@ -78,20 +128,6 @@ const aggregateFilter = (args: Record<string, unknown>): FilterInput => {
     };
   }
   return filter as FilterInput;
-};
-
-const litigationFilter = (args: Record<string, unknown>): CompanyLitigationFilter | undefined => {
-  const f: { courtLevels?: string[]; yearFrom?: number; yearTo?: number; categories?: string[] } =
-    {};
-  const lvl = strArray(args, 'courtLevel');
-  if (lvl !== undefined) f.courtLevels = lvl;
-  const cat = strArray(args, 'category');
-  if (cat !== undefined) f.categories = cat;
-  const yearFrom = intArg(args, 'yearFrom');
-  if (yearFrom !== undefined) f.yearFrom = yearFrom;
-  const yearTo = intArg(args, 'yearTo');
-  if (yearTo !== undefined) f.yearTo = yearTo;
-  return Object.keys(f).length > 0 ? f : undefined;
 };
 
 export const makeJudicialMcpTools = (deps: JudicialMcpDeps): readonly KernelMcpTool[] => {
@@ -104,11 +140,10 @@ export const makeJudicialMcpTools = (deps: JudicialMcpDeps): readonly KernelMcpT
       'Resolve a free-text judicial query to a filter value: court name → institution_code, level label → courtLevel, company name → name_key_id (company/public dictionary ONLY — a person name returns zero rows), category label → code. Use before querying other judicial tools.',
     inputShape: resolveJudicialFiltersInput,
     async handler(args): Promise<McpToolOutput> {
-      const dim = str(args, 'dim') as JudicialResolveDim | undefined;
-      if (dim === undefined) return errorOut(JUDICIAL_MCP_KINDS.resolve, 'dim is required');
-      const q = str(args, 'q') ?? '';
-      const res = await resolveJudicialFilters(repos, dim, q, intArg(args, 'limit') ?? 10);
-      if (res.isErr()) return errorOut(JUDICIAL_MCP_KINDS.resolve, res.error.message);
+      // The usecase validates dim / q / limit before any repo access.
+      const dim = args['dim'];
+      const res = await resolveJudicialFilters(repos, dim, args['q'], args['limit']);
+      if (res.isErr()) return failure(JUDICIAL_MCP_KINDS.resolve, res.error);
       // PRIVACY (S1, codex P0): NEVER echo the raw query `q` back on the output —
       // for dim='companyName' a person-name query reflected into the envelope would
       // itself be a leak. The output carries ONLY matched dictionary values (which
@@ -118,7 +153,7 @@ export const makeJudicialMcpTools = (deps: JudicialMcpDeps): readonly KernelMcpT
         kind: JUDICIAL_MCP_KINDS.resolve,
         query: { dim },
         items: res.value,
-        summary: `Resolved to ${n(res.value.length)} ${dim} value(s).`,
+        summary: `Resolved to ${n(res.value.length)} ${String(dim)} value(s).`,
       };
     },
   };
@@ -129,13 +164,20 @@ export const makeJudicialMcpTools = (deps: JudicialMcpDeps): readonly KernelMcpT
       'Get a case by numeric caseId OR natural key (institutionCode + caseNumber): the case (sourceOpenedAt is a source-dependent date, explained by sourceOpenedAtBasis), hearings (NO solution/solution_summary), appeals, name-gated parties (company/public names and keys only; withheld identities contribute only to personPartyCount), legal references, lineage candidates, and asOf: the stored source-modified maximum of the source of that case (null when that source stores none), not dataset freshness.',
     inputShape: getJudicialCaseInput,
     async handler(args): Promise<McpToolOutput> {
-      const caseId = str(args, 'caseId');
-      const institutionCode = str(args, 'institutionCode');
-      const caseNumber = str(args, 'caseNumber');
+      const caseIdArg = optionalDirectId(args, 'caseId');
+      if (!caseIdArg.ok) return failure(JUDICIAL_MCP_KINDS.caseDetail, caseIdArg.error);
+      const institutionArg = optionalString(args, 'institutionCode');
+      if (!institutionArg.ok) return failure(JUDICIAL_MCP_KINDS.caseDetail, institutionArg.error);
+      const numberArg = optionalString(args, 'caseNumber');
+      if (!numberArg.ok) return failure(JUDICIAL_MCP_KINDS.caseDetail, numberArg.error);
+      const caseId = caseIdArg.value;
+      const institutionCode = institutionArg.value;
+      const caseNumber = numberArg.value;
       if (caseId === undefined && (institutionCode === undefined || caseNumber === undefined)) {
-        return errorOut(
+        return required(
           JUDICIAL_MCP_KINDS.caseDetail,
-          'caseId or (institutionCode + caseNumber) is required'
+          'caseId or (institutionCode + caseNumber) is required',
+          'caseId'
         );
       }
       const res = await getCaseDetail(repos, {
@@ -143,7 +185,7 @@ export const makeJudicialMcpTools = (deps: JudicialMcpDeps): readonly KernelMcpT
         ...(institutionCode !== undefined && { institutionCode }),
         ...(caseNumber !== undefined && { caseNumber }),
       });
-      if (res.isErr()) return errorOut(JUDICIAL_MCP_KINDS.caseDetail, res.error.message);
+      if (res.isErr()) return failure(JUDICIAL_MCP_KINDS.caseDetail, res.error);
       const detail = res.value;
       if (detail === null) {
         return {
@@ -170,12 +212,16 @@ export const makeJudicialMcpTools = (deps: JudicialMcpDeps): readonly KernelMcpT
       'Court caseload analytics (JD-2): case counts grouped by court/category/year/courtLevel. Year is the session calendar year of the source-dependent sourceOpenedAt (counts over several sources combine different source clocks). Deterministic SQL; REQUIRES a court/level/period bound (else InvalidInput). Returns groups + denominator + coverage.',
     inputShape: getCourtCaseloadInput,
     async handler(args): Promise<McpToolOutput> {
-      const groupBy = str(args, 'groupBy') as
-        'court' | 'category' | 'year' | 'courtLevel' | undefined;
-      if (groupBy === undefined)
-        return errorOut(JUDICIAL_MCP_KINDS.caseload, 'groupBy is required');
+      const groupBy = args['groupBy'];
+      if (!isJudicialAggregateGroupBy(groupBy)) {
+        return required(
+          JUDICIAL_MCP_KINDS.caseload,
+          'groupBy must be one of court, category, year, courtLevel',
+          'groupBy'
+        );
+      }
       const res = await getCourtCaseload(repos, groupBy, aggregateFilter(args));
-      if (res.isErr()) return errorOut(JUDICIAL_MCP_KINDS.caseload, res.error.message);
+      if (res.isErr()) return failure(JUDICIAL_MCP_KINDS.caseload, res.error);
       const agg = res.value;
       return {
         ok: true,
@@ -195,11 +241,20 @@ export const makeJudicialMcpTools = (deps: JudicialMcpDeps): readonly KernelMcpT
       'Company litigation summary (JD-1) for a CUI: published-only case count + court-level + year breakdowns (session calendar years of the source-dependent case date) + coverage. EMPTY in v1 (no published links) — returns caseCount 0 + a caveat. Never returns person data.',
     inputShape: getCompanyLitigationInput,
     async handler(args): Promise<McpToolOutput> {
-      const cui = str(args, 'cui');
-      if (cui === undefined)
-        return errorOut(JUDICIAL_MCP_KINDS.companyLitigation, 'cui is required');
-      const res = await getCompanyLitigation(repos, cui, litigationFilter(args));
-      if (res.isErr()) return errorOut(JUDICIAL_MCP_KINDS.companyLitigation, res.error.message);
+      const cuiArg = args['cui'];
+      if (typeof cuiArg !== 'string' || cuiArg === '') {
+        return required(JUDICIAL_MCP_KINDS.companyLitigation, 'cui is required', 'cui');
+      }
+      const cui = cuiArg;
+      const filter = normalizeCompanyLitigationFilter({
+        courtLevel: args['courtLevel'],
+        category: args['category'],
+        yearFrom: args['yearFrom'],
+        yearTo: args['yearTo'],
+      });
+      if (filter.isErr()) return failure(JUDICIAL_MCP_KINDS.companyLitigation, filter.error);
+      const res = await getCompanyLitigation(repos, cui, filter.value);
+      if (res.isErr()) return failure(JUDICIAL_MCP_KINDS.companyLitigation, res.error);
       const s = res.value;
       return {
         ok: true,
@@ -218,10 +273,14 @@ export const makeJudicialMcpTools = (deps: JudicialMcpDeps): readonly KernelMcpT
       'Legal-act citations extracted from a case (JD-3): each citation is the exact stored token with its source field (object or a hearing field) and hearing anchor, plus act_type/number/year and resolution status; identity and resolution fields are returned as stored, including nulls. Safe (no PII; solution_summary citations excluded).',
     inputShape: getCaseLegalReferencesInput,
     async handler(args): Promise<McpToolOutput> {
-      const caseId = str(args, 'caseId');
-      if (caseId === undefined) return errorOut(JUDICIAL_MCP_KINDS.legalRefs, 'caseId is required');
+      const caseIdArg = args['caseId'];
+      if (typeof caseIdArg !== 'string' || caseIdArg === '') {
+        return required(JUDICIAL_MCP_KINDS.legalRefs, 'caseId is required', 'caseId');
+      }
+      const caseId = caseIdArg;
+      // The usecase rejects a negative, malformed or overflowing id before SQL.
       const res = await getCaseLegalRefs(repos, caseId);
-      if (res.isErr()) return errorOut(JUDICIAL_MCP_KINDS.legalRefs, res.error.message);
+      if (res.isErr()) return failure(JUDICIAL_MCP_KINDS.legalRefs, res.error);
       const refs = res.value;
       const resolved = refs.filter((r) => r.resolutionStatus === 'unique').length;
       return {

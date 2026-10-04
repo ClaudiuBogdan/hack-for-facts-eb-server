@@ -9,6 +9,11 @@
  *
  * PRIVACY: no resolver reads a name column. The usecase intentionally withholds
  * `JudicialPartyView.name`; the resolver just passes the view through.
+ *
+ * A3: explicit null at an optional argument means absent; the flat company
+ * narrowing arguments go through the ONE company normalizer; discovery and
+ * aggregate dimensions are passed through as received and validated by the
+ * usecase (typed INVALID_INPUT before any repo access).
  */
 
 import { GraphQLError } from 'graphql';
@@ -35,10 +40,14 @@ import {
   resolveJudicialFilters,
   type JudicialRepos,
 } from '../../core/usecases.js';
-import { companyCasesFhash } from '../repo/company-link-repo.js';
+import {
+  companyCasesFhash,
+  normalizeCompanyLitigationFilter,
+  type CompanyLitigationArgs,
+} from '../repo/company-link-repo.js';
 
 import type { CompanyLitigationFilter } from '../../core/ports.js';
-import type { JudicialCaseLink, JudicialCursorItem, JudicialResolveDim } from '../../core/types.js';
+import type { JudicialCaseLink, JudicialCursorItem } from '../../core/types.js';
 import type { Result } from 'neverthrow';
 
 export interface JudicialResolverDeps {
@@ -57,21 +66,13 @@ const unwrap = <T>(result: Result<T, ApiError>): T => {
   return result.value;
 };
 
-/** Read the optional JD-1 narrowing filter off GraphQL args. */
-const litigationFilter = (args: {
-  courtLevel?: string[];
-  yearFrom?: number;
-  yearTo?: number;
-  category?: string[];
-}): CompanyLitigationFilter | undefined => {
-  const f: { courtLevels?: string[]; yearFrom?: number; yearTo?: number; categories?: string[] } =
-    {};
-  if (args.courtLevel !== undefined) f.courtLevels = args.courtLevel;
-  if (args.category !== undefined) f.categories = args.category;
-  if (args.yearFrom !== undefined) f.yearFrom = args.yearFrom;
-  if (args.yearTo !== undefined) f.yearTo = args.yearTo;
-  return Object.keys(f).length > 0 ? f : undefined;
-};
+/** The optional JD-1 narrowing filter (null means absent), via the ONE normalizer. */
+const litigationFilter = (args: CompanyLitigationArgs): CompanyLitigationFilter | undefined =>
+  unwrap(normalizeCompanyLitigationFilter(args));
+
+/** An optional GraphQL argument: explicit null is the same as omitted. */
+const present = <T>(value: T | null | undefined): value is T =>
+  value !== undefined && value !== null;
 
 export const makeJudicialResolvers = (deps: JudicialResolverDeps): Record<string, unknown> => {
   const { repos } = deps;
@@ -89,13 +90,17 @@ export const makeJudicialResolvers = (deps: JudicialResolverDeps): Record<string
 
       judicialCase: async (
         _r: unknown,
-        args: { caseId?: string; institutionCode?: string; caseNumber?: string }
+        args: {
+          caseId?: string | null;
+          institutionCode?: string | null;
+          caseNumber?: string | null;
+        }
       ) =>
         unwrap(
           await getCaseDetail(repos, {
-            ...(args.caseId !== undefined && { caseId: args.caseId }),
-            ...(args.institutionCode !== undefined && { institutionCode: args.institutionCode }),
-            ...(args.caseNumber !== undefined && { caseNumber: args.caseNumber }),
+            ...(present(args.caseId) && { caseId: args.caseId }),
+            ...(present(args.institutionCode) && { institutionCode: args.institutionCode }),
+            ...(present(args.caseNumber) && { caseNumber: args.caseNumber }),
           })
         ),
 
@@ -116,33 +121,17 @@ export const makeJudicialResolvers = (deps: JudicialResolverDeps): Record<string
         return toRepoEdgeConnection(page);
       },
 
-      judicialCaseload: async (_r: unknown, args: { groupBy: string; filter?: FilterInput }) => {
-        const groupBy = args.groupBy as 'court' | 'category' | 'year' | 'courtLevel';
-        return unwrap(await getCourtCaseload(repos, groupBy, args.filter ?? {}));
-      },
+      judicialCaseload: async (_r: unknown, args: { groupBy: unknown; filter?: FilterInput }) =>
+        unwrap(await getCourtCaseload(repos, args.groupBy, args.filter ?? {})),
 
       judicialCompanyLitigation: async (
         _r: unknown,
-        args: {
-          cui: string;
-          courtLevel?: string[];
-          yearFrom?: number;
-          yearTo?: number;
-          category?: string[];
-        }
+        args: CompanyLitigationArgs & { cui: string }
       ) => unwrap(await getCompanyLitigation(repos, args.cui, litigationFilter(args))),
 
       judicialCompanyLitigationCases: async (
         _r: unknown,
-        args: {
-          cui: string;
-          courtLevel?: string[];
-          yearFrom?: number;
-          yearTo?: number;
-          category?: string[];
-          first?: number;
-          after?: string;
-        }
+        args: CompanyLitigationArgs & { cui: string; first?: number; after?: string }
       ) => {
         const filter = litigationFilter(args);
         const page = unwrap(
@@ -169,15 +158,8 @@ export const makeJudicialResolvers = (deps: JudicialResolverDeps): Record<string
         return toRepoEdgeConnection(page);
       },
 
-      judicialResolve: async (_r: unknown, args: { dim: string; q: string; limit?: number }) =>
-        unwrap(
-          await resolveJudicialFilters(
-            repos,
-            args.dim as JudicialResolveDim,
-            args.q,
-            args.limit ?? 10
-          )
-        ),
+      judicialResolve: async (_r: unknown, args: { dim: unknown; q: unknown; limit?: unknown }) =>
+        unwrap(await resolveJudicialFilters(repos, args.dim, args.q, args.limit)),
     },
 
     JudicialCourt: {

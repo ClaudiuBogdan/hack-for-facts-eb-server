@@ -44,8 +44,13 @@ import { scalarResolvers, scalarTypeDefs } from '@/modules/shared/shell/graphql/
 const COURT = 'TEST_A1_COURT';
 const FILTER = { institutionCode: { in: [COURT] } };
 const BASE_FHASH = fhashFor(judicialCasesSpec, FILTER);
-/** The A1 case-cursor identity, written out independently of the repo. */
-const V2_FHASH = `judicial_cases:cursor-v2:${BASE_FHASH}`;
+/**
+ * The case-cursor identity, written out independently of the repo: the A1
+ * format tag plus the A3 filter-semantics version (compound years intersect).
+ */
+const CASE_FHASH = `judicial_cases:cursor-v2:filters-a3:${BASE_FHASH}`;
+/** The pre-A3 identity (format tag only): its tokens must get the typed restart. */
+const PRE_A3_FHASH = `judicial_cases:cursor-v2:${BASE_FHASH}`;
 const CITING_FHASH = 'judicial_cases_citing:42';
 
 /** Kernel types the judicial slice references, with the REAL scalar resolvers. */
@@ -140,7 +145,7 @@ const caseToken = (
       sort: over.sort ?? 'modifiedAt',
       dir: over.dir ?? 'desc',
       keys,
-      fhash: over.fhash ?? V2_FHASH,
+      fhash: over.fhash ?? CASE_FHASH,
     })
   );
 
@@ -463,7 +468,7 @@ describe('A1 case-list cursors — every edge cursor is the row exact tuple', ()
     expect(res.errors).toBeUndefined();
     const conn = res.data?.['judicialCases'] as Conn;
     expect(conn.edges.map((e) => e.node.caseId)).toEqual(['9', '9007199254740993']);
-    const expected = { sort: 'modifiedAt', dir: 'desc', fhash: V2_FHASH } as const;
+    const expected = { sort: 'modifiedAt', dir: 'desc', fhash: CASE_FHASH } as const;
     expect(conn.edges.map((e) => decodeCursor(e.cursor, expected)._unsafeUnwrap().keys)).toEqual([
       ['2026-05-04T13:15:00.123456+00 AD', '9'],
       ['2026-05-04T13:15:00.123456+00 AD', '9007199254740993'],
@@ -479,7 +484,7 @@ describe('A1 case-list cursors — every edge cursor is the row exact tuple', ()
     const last = decodeCursor(conn.edges[2]?.cursor ?? '', {
       sort: 'modifiedAt',
       dir: 'desc',
-      fhash: V2_FHASH,
+      fhash: CASE_FHASH,
     })._unsafeUnwrap();
     expect(last.keys).toEqual(['', '100']);
   });
@@ -551,14 +556,14 @@ const REJECTED_CASE_CURSORS: readonly (readonly [string, string, ListRequest?])[
   ['not base64url', 'not a cursor!'],
   ['not JSON', b64('not json')],
   ['a JSON array', b64('[1,2]')],
-  ['no keys', b64(JSON.stringify({ v: 1, sort: 'modifiedAt', dir: 'desc', fhash: V2_FHASH }))],
+  ['no keys', b64(JSON.stringify({ v: 1, sort: 'modifiedAt', dir: 'desc', fhash: CASE_FHASH }))],
   ['zero keys', caseToken([])],
   ['one key', caseToken([OK_TS])],
   ['three keys', caseToken([OK_TS, '9', '9'])],
   [
     'a numeric id above 2^53 (would round)',
     rawToken(
-      `{"v":1,"sort":"modifiedAt","dir":"desc","keys":["${OK_TS}",9007199254740993],"fhash":"${V2_FHASH}"}`
+      `{"v":1,"sort":"modifiedAt","dir":"desc","keys":["${OK_TS}",9007199254740993],"fhash":"${CASE_FHASH}"}`
     ),
   ],
   ['a numeric small id', caseToken([OK_TS, 9])],
@@ -624,12 +629,32 @@ const REJECTED_CASE_CURSORS: readonly (readonly [string, string, ListRequest?])[
     { sort: 'openedAt' },
   ],
   ['a different filter', caseToken([OK_TS, '9'], { fhash: 'judicial_cases:cursor-v2:x' })],
+  [
+    'a pre-A3 token (identity without the A3 filter semantics)',
+    caseToken([OK_TS, '9'], { fhash: PRE_A3_FHASH }),
+  ],
   ['a different sort', caseToken([OK_TS, '9'], { sort: 'openedAt' })],
   ['a different direction', caseToken([OK_TS, '9'], { dir: 'asc' })],
   ['another envelope version', caseToken([OK_TS, '9'], { v: 2 })],
 ];
 
 describe('A1 case cursors — malformed, non-canonical and legacy tokens reject with zero DB calls', () => {
+  it('A3: a well-formed pre-A3 token gets the typed cursor/filter restart before any SQL', async () => {
+    const f = fixture(() => {
+      throw new Error('no SQL may run for a pre-A3 cursor');
+    });
+    const res = await f.run(LIST_QUERY, {
+      filter: FILTER,
+      first: 2,
+      after: caseToken([OK_TS, '9'], { fhash: PRE_A3_FHASH }),
+    });
+    expect(res.data).toBeNull();
+    expect(res.errors).toEqual([
+      { message: 'cursor/filter mismatch; restart pagination', code: 'INVALID_INPUT' },
+    ]);
+    expect(f.executed).toEqual([]);
+  });
+
   it.each(REJECTED_CASE_CURSORS.map(([label, after, request]) => ({ label, after, request })))(
     '$label',
     async ({ after, request }) => {

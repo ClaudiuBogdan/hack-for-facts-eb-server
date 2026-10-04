@@ -7,10 +7,14 @@
  *
  * VIRTUAL FIELDS (kernel §14.2): `courtLevel` and `year`/`yearFrom`/`yearTo` are
  * declared VIRTUAL — the repo intercepts them and compiles the physical predicate
- * itself (a bounded join to `justice.courts.court_level` for level; a
- * `date_part('year', source_opened_at)` predicate for the year range, since there
+ * itself (a bounded join to `justice.courts.court_level` for level; a finite
+ * session-calendar-year interval over `source_opened_at` for the year, since there
  * is no native year column). `toConditionBuilders` skips them so no broken SQL is
  * emitted (#60b). All other fields map directly to a `justice.cases` column.
+ *
+ * A3: the repo validates the virtual values itself (the kernel never does):
+ * court levels against the taxonomy, years as nonzero 32-bit integers whose
+ * operators intersect. Null at an optional field/operator/endpoint is absent.
  */
 
 import { JUDICIAL_COURT_LEVELS, type JudicialCourtLevel } from '../../core/types.js';
@@ -49,7 +53,7 @@ export const judicialCasesSpec: CollectionFilterSpec = {
       enumValues: COURT_LEVEL_VALUES,
       virtual: true,
       description:
-        'Court level (judecatorie/tribunal/curte_de_apel/...). Resolved via a bounded courts join.',
+        'Court level (judecatorie/tribunal/curte_de_apel/...). Resolved via a bounded courts join. An unknown level is an input error.',
     },
     {
       name: 'category',
@@ -69,14 +73,16 @@ export const judicialCasesSpec: CollectionFilterSpec = {
     },
     {
       // VIRTUAL: year derived from source_opened_at (no native year column). The
-      // repo compiles `source_opened_at >= make_date(from,1,1)` / `< make_date(to+1,...)`.
+      // repo intersects the operators and compiles ONE interval: isfinite(...)
+      // plus native January boundaries for ordinary AD years, otherwise native
+      // extract(year ...) comparisons (BC, expanded and domain-edge years).
       name: 'year',
       type: 'int',
       ops: ['eq', 'gte', 'lte', 'between'],
       column: { alias: 'c', column: 'source_opened_at' },
       virtual: true,
       description:
-        'Session calendar year of sourceOpenedAt, a SOURCE-DEPENDENT date (see JudicialCase.sourceOpenedAtBasis: Portal Just header data, ICCJ earliest captured session, otherwise unknown) - not a universal filing date. A range over several sources combines their different clocks.',
+        'Session calendar year of sourceOpenedAt, a SOURCE-DEPENDENT date (see JudicialCase.sourceOpenedAtBasis: Portal Just header data, ICCJ earliest captured session, otherwise unknown) - not a universal filing date. A range over several sources combines their different clocks. Operands are nonzero 32-bit integers (1 BC is -1); eq, gte, lte and between all apply together (their intersection: eq 2024 with gte 2020 means only 2024), and a contradictory range matches nothing. Null or infinite dates never match a year filter.',
     },
     {
       name: 'modified',
