@@ -2,11 +2,23 @@
  * Companies analytics — GraphQL resolvers. Thin: the raw arguments go to the
  * same usecase the MCP tool calls (which validates them), and `ApiError`
  * becomes a `GraphQLError` with `extensions.code` (+ `field` for invalid input).
+ *
+ * Each served answer (empty stats, series and records included: they still
+ * name a release) is registered with the request's EXISTING owning-result
+ * guard: when the whole operation settled (a sibling root may have been
+ * pending), its release is confirmed once more — still published, same
+ * privacy epoch, same ONRC source — or this root is withheld with the typed
+ * `release` error. No engine or label work is repeated.
  */
 
-import { GraphQLError } from 'graphql';
+import { GraphQLError, type GraphQLResolveInfo } from 'graphql';
 
-import { GRAPHQL_ERROR_CODE, type ApiError } from '@/modules/shared/index.js';
+import {
+  GRAPHQL_ERROR_CODE,
+  owningResultGuardOf,
+  responsePathOf,
+  type ApiError,
+} from '@/modules/shared/index.js';
 
 import {
   companyAnalysisBreakdown,
@@ -14,6 +26,7 @@ import {
   companyAnalysisRelease,
   companyAnalysisSeries,
   companyAnalysisStats,
+  confirmServedAnalysis,
   type CompanyAnalysisContext,
 } from '../../core/analytics-usecases.js';
 
@@ -28,26 +41,44 @@ export const toAnalysisGraphqlError = (error: ApiError): GraphQLError =>
     },
   });
 
-const unwrap = <T>(result: Result<T, ApiError>): T => {
-  if (result.isErr()) throw toAnalysisGraphqlError(result.error);
-  return result.value;
-};
-
 type Args = Readonly<Record<string, unknown>>;
+type Resolver = (
+  root: unknown,
+  args: Args,
+  context?: unknown,
+  info?: GraphQLResolveInfo
+) => Promise<unknown>;
 
 export const makeCompanyAnalysisResolvers = (
   analytics: CompanyAnalysisContext
-): { readonly Query: Record<string, (root: unknown, args: Args) => Promise<unknown>> } => ({
-  Query: {
-    companyAnalysisRelease: async (_root, args) =>
-      unwrap(await companyAnalysisRelease(analytics, args)),
-    companyAnalysisStats: async (_root, args) =>
-      unwrap(await companyAnalysisStats(analytics, args)),
-    companyAnalysisBreakdown: async (_root, args) =>
-      unwrap(await companyAnalysisBreakdown(analytics, args)),
-    companyAnalysisSeries: async (_root, args) =>
-      unwrap(await companyAnalysisSeries(analytics, args)),
-    companyAnalysisRecords: async (_root, args) =>
-      unwrap(await companyAnalysisRecords(analytics, args)),
-  },
-});
+): { readonly Query: Record<string, Resolver> } => {
+  /** Unwrap, then register the served answer's release for the operation's final decision. */
+  const owned = <T extends { readonly release: { readonly releaseId: string } }>(
+    result: Result<T, ApiError>,
+    context: unknown,
+    info: GraphQLResolveInfo | undefined
+  ): T => {
+    if (result.isErr()) throw toAnalysisGraphqlError(result.error);
+    const guard = owningResultGuardOf(context);
+    if (guard !== null && info !== undefined) {
+      const { releaseId } = result.value.release;
+      guard.confirm(responsePathOf(info.path), () => confirmServedAnalysis(analytics, releaseId));
+    }
+    return result.value;
+  };
+
+  return {
+    Query: {
+      companyAnalysisRelease: async (_root, args, context, info) =>
+        owned(await companyAnalysisRelease(analytics, args), context, info),
+      companyAnalysisStats: async (_root, args, context, info) =>
+        owned(await companyAnalysisStats(analytics, args), context, info),
+      companyAnalysisBreakdown: async (_root, args, context, info) =>
+        owned(await companyAnalysisBreakdown(analytics, args), context, info),
+      companyAnalysisSeries: async (_root, args, context, info) =>
+        owned(await companyAnalysisSeries(analytics, args), context, info),
+      companyAnalysisRecords: async (_root, args, context, info) =>
+        owned(await companyAnalysisRecords(analytics, args), context, info),
+    },
+  };
+};

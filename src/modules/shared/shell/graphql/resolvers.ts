@@ -7,21 +7,41 @@
  * `extensions.code`. The kernel scalars are merged in by the module index.
  */
 
-import { GraphQLError } from 'graphql';
+import { GraphQLError, type GraphQLResolveInfo } from 'graphql';
 
 import { scalarResolvers } from './scalars.js';
 import { GRAPHQL_ERROR_CODE, type ApiError } from '../../core/errors.js';
 import {
+  confirmServedFacts,
   makeEntityCore,
   resolveEntityPresence,
   type EntityCore,
   type Entity360Deps,
 } from '../../core/usecases/entity-360.js';
-import { makeGlobalSearch, type GlobalSearchDeps } from '../../core/usecases/global-search.js';
+import {
+  confirmGlobalSearchServed,
+  makeGlobalSearch,
+  type GlobalSearchDeps,
+  type GlobalSearchResult,
+} from '../../core/usecases/global-search.js';
 import { makeOrganizationLabels } from '../../core/usecases/organization-labels.js';
 
-import type { ContributorRegistry, FlowsRepo, IdentityRepo, SearchRepo } from '../../core/ports.js';
-import type { FlowSummary, OrgIdentifier, SourcePresence, Territory } from '../../core/types.js';
+import type {
+  ContributorRegistry,
+  FlowsRepo,
+  IdentityRepo,
+  OwningResultGuard,
+  ResponsePath,
+  SearchRepo,
+  ServedFactsCheck,
+} from '../../core/ports.js';
+import type {
+  FlowSummary,
+  OrgIdentifier,
+  SearchHitCompany,
+  SourcePresence,
+  Territory,
+} from '../../core/types.js';
 import type { KernelCache } from '../middleware/cache.js';
 import type { RateLimiter } from '../middleware/rate-limiter.js';
 import type { Result } from 'neverthrow';
@@ -36,6 +56,49 @@ const unwrap = <T>(result: Result<T, ApiError>): T => {
   return result.value;
 };
 
+/**
+ * The GraphQL context key under which the transport provides the operation's
+ * owning-result guard (one per request; see `OwningResultGuard`).
+ */
+export const OWNING_RESULT_GUARD: unique symbol = Symbol('owningResultGuard');
+
+/** The operation's owning-result guard, when the transport provides one. */
+export const owningResultGuardOf = (context: unknown): OwningResultGuard | null => {
+  if (typeof context !== 'object' || context === null) return null;
+  const guard = (context as { [OWNING_RESULT_GUARD]?: unknown })[OWNING_RESULT_GUARD];
+  return typeof guard === 'object' && guard !== null && 'refuse' in guard && 'confirm' in guard
+    ? (guard as OwningResultGuard)
+    : null;
+};
+
+/** A resolver path as response keys (aliases as written, list indexes as numbers). */
+export const responsePathOf = (path: GraphQLResolveInfo['path'] | undefined): ResponsePath => {
+  const keys: (string | number)[] = [];
+  for (let at = path; at !== undefined; at = at.prev) keys.unshift(at.key);
+  return keys;
+};
+
+/**
+ * Final decisions for facts a field served for the object that owns it (its
+ * parent field, `info.path.prev`): registered with the operation's guard,
+ * which runs them after every selected field settled. Without a transport
+ * guard (a bare executor) they are taken here, before the field returns.
+ */
+export const guardServedFacts = async (
+  context: unknown,
+  info: GraphQLResolveInfo | undefined,
+  checks: readonly ServedFactsCheck[]
+): Promise<void> => {
+  if (checks.length === 0) return;
+  const guard = owningResultGuardOf(context);
+  if (guard === null || info === undefined) {
+    unwrap(await confirmServedFacts(checks));
+    return;
+  }
+  const owner = responsePathOf(info.path.prev);
+  for (const check of checks) guard.confirm(owner, check);
+};
+
 /** Dependencies the kernel resolvers need (a slice of the kernel). */
 export interface KernelResolverDeps {
   readonly entity360Deps: Entity360Deps;
@@ -45,7 +108,7 @@ export interface KernelResolverDeps {
   readonly searchRepo: SearchRepo;
   readonly registry: ContributorRegistry;
   readonly health: () => Promise<unknown>;
-  /** Kernel response cache — the searchEntities resolver wraps hot queries (T3). */
+  /** Kernel cache — the searchEntities resolver caches CANDIDATE answers only (T3). */
   readonly cache: KernelCache;
   /** Kernel rate limiter — the searchEntities resolver guards the palette (T3). */
   readonly rateLimiter: RateLimiter;
@@ -101,7 +164,12 @@ export const makeKernelResolvers = (deps: KernelResolverDeps): Record<string, un
       return result.value;
     },
 
-    searchEntities: async (_root: unknown, args: SearchArgs, context: KernelGraphqlContext) => {
+    searchEntities: async (
+      _root: unknown,
+      args: SearchArgs,
+      context: KernelGraphqlContext,
+      info?: GraphQLResolveInfo
+    ): Promise<GlobalSearchResult> => {
       // Rate-limit the palette per caller IP (it has no other guard). On exhaustion,
       // surface a structured GraphQLError the client can detect (extensions.code).
       const ip = callerIp(context);
@@ -124,35 +192,34 @@ export const makeKernelResolvers = (deps: KernelResolverDeps): Record<string, un
         ...(args.limit !== undefined && { limit: args.limit }),
         ...(args.offset !== undefined && { offset: args.offset }),
       };
-      // Short TTL cache (index changes ≤ once/cron). Key = a structured JSON
-      // signature of the normalized args (NOT delimiter-joined — `q="a|b"` with no
-      // types must not collide with `q="a", docTypes=["b"]`). Degrade-not-error
-      // behavior lives inside the usecase.
-      const cacheKey = `entities-search:${JSON.stringify({
-        policy: deps.globalSearchDeps.searchPolicy ?? 'baseline',
-        q: args.q,
-        docTypes: (args.docTypes ?? []).slice().sort(),
-        county: args.county ?? null,
-        roles: (args.roles ?? []).slice().sort(),
-        isActive: args.isActive ?? null,
-        isUat: args.isUat ?? null,
-        entityTags: [...(args.entityTags ?? [])].sort(),
-        excludeEntityTags: [...(args.excludeEntityTags ?? [])].sort(),
-        limit: args.limit ?? null,
-        offset: args.offset ?? null,
-      })}`;
-      return unwrap(
-        await deps.cache.wrap(
-          cacheKey,
-          () => makeGlobalSearch(deps.globalSearchDeps, searchInput),
-          // Cache FACTS only. A degraded answer (engine unreachable, so the
-          // reduced outage path answered) and a failed Result are both
-          // transient: storing either pins it for the full TTL and keeps
-          // serving it to every caller after the engine has recovered.
-          (res) => res.isOk() && !res.value.degraded
+      // Only the engine's CANDIDATE answer is cached (short TTL), keyed by the
+      // witnessed index generation + registry scope and a structured JSON
+      // signature of the normalized query (never delimiter-joined). The final
+      // answer is never cached: the company scope, parent access and company
+      // values are read fresh for every request, cache hits included.
+      const result = unwrap(
+        await makeGlobalSearch(
+          { ...deps.globalSearchDeps, candidateCache: deps.cache },
+          searchInput
         )
       );
+      // The company scope and the served identities' access are decided again
+      // once the whole operation settled (empty answers included).
+      const check = () => confirmGlobalSearchServed(deps.globalSearchDeps, result);
+      const guard = owningResultGuardOf(context);
+      if (guard === null || info === undefined) unwrap(await check());
+      else guard.confirm(responsePathOf(info.path), check);
+      return result;
     },
+  },
+
+  // The core vocabulary is lowercase; the SDL enums are uppercase.
+  GlobalSearchResult: {
+    companyContribution: (result: GlobalSearchResult): string =>
+      result.companyContribution.toUpperCase(),
+  },
+  SearchHitCompany: {
+    registryState: (company: SearchHitCompany): string => company.registryState.toUpperCase(),
   },
 
   // Field-level resolvers — each computed lazily per-request, so a query pays
@@ -175,7 +242,17 @@ export const makeKernelResolvers = (deps: KernelResolverDeps): Record<string, un
       unwrap(await deps.identityRepo.territoryForCui(parent.cui)),
     documentCount: async (parent: { cui: string }): Promise<number> =>
       unwrap(await deps.searchRepo.countByCui(parent.cui)),
-    presence: async (parent: { cui: string }): Promise<readonly SourcePresence[]> =>
-      resolveEntityPresence(deps.registry, parent.cui),
+    presence: async (
+      parent: { cui: string },
+      _args: unknown,
+      context: unknown,
+      info?: GraphQLResolveInfo
+    ): Promise<readonly SourcePresence[]> => {
+      // A source's guard refusal throws here; `presence` is non-null, so it
+      // withholds the owning Entity rather than reading as a missing badge.
+      const fanOut = unwrap(await resolveEntityPresence(deps.registry, parent.cui));
+      await guardServedFacts(context, info, fanOut.checks);
+      return fanOut.presences;
+    },
   },
 });

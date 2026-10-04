@@ -1,9 +1,10 @@
 /**
  * Companies analytics PostgreSQL reads over a hand-rolled Kysely driver
- * (canned rows in, executed SQL out): the privacy epoch is one fresh statement
- * per call — never cached — that also reports recovery and isolation; the
- * release rows carry their captured epoch (active view column, historical
- * manifest key) and stay micro-cached; failures never forward driver text.
+ * (canned rows in, executed SQL out): the privacy epoch and the current ONRC
+ * publication are ONE fresh statement per call — never cached — that also
+ * reports recovery and isolation; the release rows carry their captured epoch
+ * (active view column, historical manifest key) and stay micro-cached;
+ * failures never forward driver text; no label reads `registrations`.
  */
 
 import {
@@ -30,7 +31,7 @@ import {
   fakeReleases,
   makeInMemoryEngine,
   releaseRow as analyticsReleaseRow,
-} from '../../../fixtures/companies-analytics.js';
+} from './analytics-fixtures.js';
 
 import type { Logger, ProdDatabase } from '@/modules/shared/index.js';
 
@@ -98,40 +99,77 @@ const silentLogger = (lines: string[]): Logger => {
   return { info: log, warn: log, error: log, debug: log };
 };
 
+/** One current-state row as the statement returns it (envelope of edition 42). */
+const stateRow = (over: Record<string, unknown> = {}) => ({
+  epoch: '4',
+  in_recovery: false,
+  isolation: 'read committed',
+  publication_state: 'published',
+  listed: true,
+  edition_id: '42',
+  publication_epoch: '3',
+  source_snapshot_id: 'onrc:2026-07-08',
+  source_published_at: '2026-07-08',
+  interpretation_version: 'onrc-edition-v1',
+  dimension_policy_version: 'onrc-dimensions-v1',
+  privacy_policy_version: 'onrc-privacy-v1',
+  ...over,
+});
+
 describe('companies analytics PostgreSQL sources', () => {
-  it('reads the privacy epoch with a fresh statement on every call', async () => {
+  it('reads the privacy epoch and the current ONRC publication in ONE fresh statement per call', async () => {
     let epoch = '4';
-    const recorder: Recorder = {
-      queries: [],
-      rowsFor: () => [{ epoch, in_recovery: false, isolation: 'read committed' }],
-    };
+    const recorder: Recorder = { queries: [], rowsFor: () => [stateRow({ epoch })] };
     const source = makeAnalyticsReleaseSource(makeFakeDb(recorder));
-    expect((await source.currentPrivacyEpoch())._unsafeUnwrap()).toEqual({
+    expect((await source.currentState())._unsafeUnwrap()).toEqual({
       epoch: '4',
       inRecovery: false,
       isolation: 'read committed',
+      onrc: {
+        publicationState: 'published',
+        listed: true,
+        editionId: '42',
+        publicationEpoch: '3',
+        sourceSnapshotId: 'onrc:2026-07-08',
+        sourcePublishedAt: '2026-07-08',
+        interpretationVersion: 'onrc-edition-v1',
+        dimensionPolicyVersion: 'onrc-dimensions-v1',
+        privacyPolicyVersion: 'onrc-privacy-v1',
+      },
     });
     epoch = '5';
-    expect((await source.currentPrivacyEpoch())._unsafeUnwrap().epoch).toBe('5');
+    expect((await source.currentState())._unsafeUnwrap().epoch).toBe('5');
     expect(recorder.queries).toHaveLength(2);
     const sql = recorder.queries[0] ?? '';
-    expect(sql).toContain('epoch::text as epoch');
+    expect(sql).toContain('s.epoch::text as epoch');
     expect(sql).toContain('pg_is_in_recovery() as in_recovery');
     expect(sql).toContain("current_setting('transaction_isolation') as isolation");
-    expect(sql).toContain('from companies_analytics.privacy_state');
-    expect(sql).toContain('where singleton');
-    // A plain read: no lock, no write.
+    expect(sql).toContain('from companies_analytics.privacy_state s');
+    expect(sql).toContain('cross join companies_v2.onrc_current_publication c');
+    expect(sql).toContain(
+      'left join companies_v2.onrc_published_editions e on e.edition_id = c.edition_id'
+    );
+    expect(sql).toContain('where s.singleton');
+    // The exporter's DateStyle-independent rendering, out-of-domain → a sentinel.
+    expect(sql).toContain("between date '0001-01-01' and date '9999-12-31'");
+    expect(sql).toContain('to_char("c"."source_published_at", \'YYYY-MM-DD\')');
+    expect(sql).toContain("else 'out-of-range' end");
+    // A plain read: no lock, no write, no legacy registry rows.
     expect(sql).not.toMatch(/for (update|share)|insert|update |delete/iu);
+    expect(sql).not.toContain('registrations');
   });
 
   it.each([
     ['no row', []],
-    ['two rows', [{}, {}]],
-    ['a malformed row', [{ epoch: 4, in_recovery: 'f', isolation: 'read committed' }]],
-  ])('reports the privacy state as unreadable on %s', async (_label, rows) => {
+    ['two rows', [stateRow(), stateRow()]],
+    ['a malformed epoch', [stateRow({ epoch: 4 })]],
+    ['a malformed recovery flag', [stateRow({ in_recovery: 'f' })]],
+    ['a missing envelope', [{ epoch: '4', in_recovery: false, isolation: 'read committed' }]],
+    ['a non-boolean listed flag', [stateRow({ listed: 'true' })]],
+  ])('reports the state as unreadable on %s', async (_label, rows) => {
     const recorder: Recorder = { queries: [], rowsFor: () => rows as Record<string, unknown>[] };
     const source = makeAnalyticsReleaseSource(makeFakeDb(recorder));
-    expect((await source.currentPrivacyEpoch())._unsafeUnwrapErr()).toMatchObject({
+    expect((await source.currentState())._unsafeUnwrapErr()).toMatchObject({
       type: 'Database',
       message: 'companies analytics privacy state is unreadable',
     });
@@ -142,31 +180,30 @@ describe('companies analytics PostgreSQL sources', () => {
     const recorder: Recorder = {
       queries: [],
       rowsFor: () => {
-        throw new Error('permission denied for table privacy_state; host primary:5432 pw=x');
+        throw new Error(
+          'permission denied for view onrc_current_publication; host primary:5432 pw=x'
+        );
       },
     };
     const source = makeAnalyticsReleaseSource(makeFakeDb(recorder), silentLogger(lines));
-    const error = (await source.currentPrivacyEpoch())._unsafeUnwrapErr();
+    const error = (await source.currentState())._unsafeUnwrapErr();
     expect(error.message).toBe('companies analytics privacy state is unreadable');
     expect(lines.join('\n')).not.toContain('permission denied');
-    expect(lines.join('\n')).toContain('currentPrivacyEpoch');
+    expect(lines.join('\n')).toContain('currentState');
   });
 
   it('carries the captured epoch on the active row, which stays micro-cached', async () => {
     const recorder: Recorder = {
       queries: [],
-      rowsFor: (sql) =>
-        sql.includes('privacy_state')
-          ? [{ epoch: '4', in_recovery: false, isolation: 'read committed' }]
-          : [releaseRow()],
+      rowsFor: (sql) => (sql.includes('privacy_state') ? [stateRow()] : [releaseRow()]),
     };
     const now = 1_000;
     const source = makeAnalyticsReleaseSource(makeFakeDb(recorder), undefined, () => now);
     const first = (await source.activeRelease())._unsafeUnwrap();
     expect(first).toMatchObject({ releaseId: '7', active: true, privacyEpoch: '4' });
     await source.activeRelease();
-    await source.currentPrivacyEpoch();
-    await source.currentPrivacyEpoch();
+    await source.currentState();
+    await source.currentState();
     const releaseQueries = recorder.queries.filter((q) => q.includes('active_release'));
     expect(releaseQueries).toHaveLength(1);
     expect(releaseQueries[0]).toContain('privacy_epoch');
@@ -193,10 +230,12 @@ describe('companies analytics PostgreSQL sources', () => {
 
 /**
  * A fake primary whose label rows honour publicity: a withdrawn row simply
- * stops matching, as the real public predicates make it.
+ * stops matching, as the real public predicates make it. Any query that
+ * touches `companies_v2.registrations` would answer a registry label — and
+ * the assertions below require that none is ever sent.
  */
 const labelWorld = () => {
-  const state = { territory: true, registration: true, organization: true };
+  const state = { territory: true, organization: true };
   const recorder: Recorder = {
     queries: [],
     parameters: [],
@@ -207,14 +246,12 @@ const labelWorld = () => {
         return state.territory ? [{ key: 'CJ', label: 'Cluj' }] : [];
       if (sql.includes('t.siruta_code as key'))
         return state.territory ? [{ key: '54975', label: 'Cluj-Napoca' }] : [];
-      if (sql.includes('onrc_lifecycle_status_label'))
-        return [{ key: '1048', label: state.registration ? 'REGISTRY FUNCTIONARE' : null }];
+      if (sql.includes('registrations')) return [{ key: '1048', label: 'REGISTRY FUNCTIONARE' }];
       return [];
     },
   };
   const withdraw = () => {
     state.territory = false;
-    state.registration = false;
     state.organization = false;
   };
   return { recorder, withdraw, labels: makeAnalyticsLabelSource(makeFakeDb(recorder)) };
@@ -227,34 +264,31 @@ describe('companies analytics labels', () => {
       names: (await labels.companyNames(['100']))._unsafeUnwrap(),
       counties: (await labels.countyLabels(['CJ']))._unsafeUnwrap(),
       uats: (await labels.uatLabels(['54975']))._unsafeUnwrap(),
-      statuses: (await labels.statusLabels(['1048']))._unsafeUnwrap(),
     });
     const before = await readAll();
     expect(before.names.get('100')).toBe('ALFA SRL');
     expect(before.counties.get('CJ')).toBe('Cluj');
     expect(before.uats.get('54975')).toBe('Cluj-Napoca');
-    expect(before.statuses.get('1048')).toBe('REGISTRY FUNCTIONARE');
 
     withdraw();
     const after = await readAll();
     expect(after.names.has('100')).toBe(false);
     expect(after.counties.has('CJ')).toBe(false);
     expect(after.uats.has('54975')).toBe(false);
-    // Only the static public nomenclature remains for a status code.
-    expect(after.statuses.get('1048')).toBe('funcțiune');
     // Every read went to the database: nothing was served from memory.
-    expect(recorder.queries).toHaveLength(8);
+    expect(recorder.queries).toHaveLength(6);
 
-    const [names, county, uat, status] = recorder.queries;
+    const [names, county, uat] = recorder.queries;
     expect(names).toContain('"o"."privacy_class" = $');
     expect(recorder.parameters?.[0]).toContain('public');
     expect(county).toContain("t.privacy_class = 'public'");
     expect(uat).toContain("t.privacy_class = 'public'");
-    expect(status).toContain("r.privacy_class = 'public'");
-    expect(status).toContain('r.onrc_lifecycle_status_code = c.code');
+    // The label source has no status read and never queries registrations.
+    expect(labels).not.toHaveProperty('statusLabels');
+    expect(recorder.queries.some((q) => q.includes('registrations'))).toBe(false);
   });
 
-  it('a new release after a withdrawal never shows the withdrawn territory, status or name labels', async () => {
+  it('a new release after a withdrawal never shows the withdrawn territory or name labels; status is the nomenclature', async () => {
     const { withdraw, labels } = labelWorld();
     const engine = makeInMemoryEngine(DATASET.companies, DATASET.statements, [7, 8]);
     const deps = (active: ReturnType<typeof analyticsReleaseRow>, epoch: string) => ({
@@ -273,9 +307,10 @@ describe('companies analytics labels', () => {
     );
     expect(first).toMatchObject({
       currentName: 'ALFA SRL',
-      county: { code: 'CJ', label: 'Cluj' },
-      uat: { code: '54975', label: 'Cluj-Napoca' },
-      observedStatus: { code: '1048', label: 'REGISTRY FUNCTIONARE' },
+      county: { code: 'CJ', label: 'Cluj', labelSource: 'territory_hub' },
+      uat: { code: '54975', label: 'Cluj-Napoca', labelSource: 'territory_hub' },
+      // The API nomenclature, attributed — never a source-observed registry label.
+      observedStatus: { code: '1048', label: 'funcțiune', labelSource: 'api_nomenclature' },
     });
 
     // The withdrawal commits (epoch 0 → 1) and a fresh release is published.
@@ -286,9 +321,9 @@ describe('companies analytics labels', () => {
     const second = await nodeOf(deps(refreshed, '1'));
     expect(second).toMatchObject({
       currentName: null,
-      county: { code: 'CJ', label: null },
-      uat: { code: '54975', label: null },
-      observedStatus: { code: '1048', label: 'funcțiune' },
+      county: { code: 'CJ', label: null, labelSource: null },
+      uat: { code: '54975', label: null, labelSource: null },
+      observedStatus: { code: '1048', label: 'funcțiune', labelSource: 'api_nomenclature' },
     });
   });
 });

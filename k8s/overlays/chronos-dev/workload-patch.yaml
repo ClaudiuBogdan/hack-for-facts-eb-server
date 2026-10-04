@@ -78,10 +78,12 @@ spec:
               $patch: delete
             - name: PROD_MEILI_INDEXES
               value: entities_ngo_dev_20261001
+            # Dev index reader: search plus documents.get (the search generation
+            # control read) on the index above only.
             - name: PROD_MEILI_SEARCH_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: chronos-ngo-dev-meilisearch-search-credentials
+                  name: chronos-companies-dev-meilisearch-reader
                   key: apiKey
             - name: PROD_OPENSEARCH_USERNAME
               valueFrom:

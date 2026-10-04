@@ -174,12 +174,62 @@ export const baseTypeDefs = /* GraphQL */ `
     identifiers: [String!]
     "Every role this identity plays (a municipality may also be a PNRR entity)."
     roles: [String!]
-    "False for struck-off companies and repealed acts."
+    "Generic identity activity (any source). Null is UNKNOWN (render it as unknown, never as active or inactive). Not the directory's same-identifier ONRC status criterion."
     isActive: Boolean
     isUat: Boolean
     entityTags: [String!]
     "Deprecated compatibility field for pre-palette clients; always null."
     year: Int @deprecated(reason: "Ambiguous across entity types; use source-specific filters")
+    "The identity's company contribution, read fresh from the database for this request; null when none is served (see GlobalSearchResult.companyContribution)."
+    company: SearchHitCompany
+  }
+
+  "A search hit's company contribution, hydrated under the request's company scope (never the index's copy)."
+  type SearchHitCompany {
+    "IN_EDITION: the pinned ONRC edition has a qualified profile; NOT_IN_EDITION: a public company without one (never 'not registered')."
+    registryState: SearchCompanyRegistryState!
+    name: String!
+    "onrc_edition (the edition's qualified name) or core_organization (the directory name)."
+    nameSource: String!
+    legalForm: String
+    countyCode: String
+    countyName: String
+    "True: a public original 1048 observation; false: none, with complete status coverage; null: unknown."
+    active: Boolean
+    "Public resolved identifier keys and EUIDs of the pinned edition."
+    identifiers: [String!]!
+  }
+
+  enum SearchCompanyRegistryState {
+    IN_EDITION
+    NOT_IN_EDITION
+  }
+
+  """
+  CURRENT: the candidates come from an index generation built for the request's
+  published company scope and every company value was read under it. PARTIAL:
+  company values are current, but the candidates come from a generation built
+  for another scope (recall, rank, facets and estimates are stale).
+  UNAVAILABLE: no company value is served (company-only hits are withheld).
+  """
+  enum SearchCompanyContribution {
+    CURRENT
+    PARTIAL
+    UNAVAILABLE
+  }
+
+  "The palette generation the candidates were witnessed from (one control read before and one after the fetch)."
+  type SearchGeneration {
+    generationId: String!
+    registryScopeKey: String!
+  }
+
+  "Candidate continuation. Visible hits can be fewer than candidates (even zero): page with nextOffset, never by hits length."
+  type SearchContinuation {
+    "Engine candidates on this page before hydration withheld any."
+    candidatesReturned: Int!
+    "The offset of the next candidate page; null when the engine returned a short page or the offset bound is reached."
+    nextOffset: Int
   }
 
   "One facet bucket (e.g. doc_type distribution → the type-filter chips)."
@@ -230,12 +280,20 @@ export const baseTypeDefs = /* GraphQL */ `
     """
     degraded: Boolean!
     hits: [SearchHit!]!
-    "Doc-type facet distribution → type-filter chips (empty on the degraded path)."
+    "Doc-type facet distribution of the generation's candidates (an estimate, not a count of the visible hits; empty on the degraded path)."
     facets: [SearchFacet!]!
-    "Meili's approximate total (capped by maxTotalHits, default 1000); on the pg path it is the hit count."
+    "Meili's approximate total of the generation (capped by maxTotalHits, default 1000); an estimate, not a count of the visible hits."
     estimatedTotalHits: Int!
     "Deprecated: always empty; consume the indexed and visibility-filtered \`hits\` instead."
     organizations: [OrgNameMatch!]!
+    "The witnessed index generation; null when none was witnessed."
+    generation: SearchGeneration
+    "The company scope this answer was read and checked under (the companies registry scopeKey); null when not captured."
+    companyScope: String
+    companyContribution: SearchCompanyContribution!
+    "Why the company contribution is not CURRENT (a code: no_search, engine_unavailable, control_missing, control_unreadable, control_unsupported, control_malformed, control_incoherent, company_check_unavailable, registry_not_published, generation_scope_stale); null when CURRENT."
+    companyContributionReason: String
+    continuation: SearchContinuation!
   }
 
   type ServiceStatus {
@@ -278,8 +336,11 @@ export const baseTypeDefs = /* GraphQL */ `
     it PLAYS (a municipality that is also a PNRR beneficiary is one hit carrying
     both). isUat selects the explicit local-authority flag (county councils are false).
     entityTags uses OR within a namespace and AND across namespaces;
-    excludeEntityTags excludes any matching tag. county is a canonical county name. isActive drops struck-off
-    entities. NOTE: no backticks here - this SDL is a TS template literal.
+    excludeEntityTags excludes any matching tag. county is a canonical county name. isActive keeps
+    generically active identities (not the directory's same-identifier ONRC criteria).
+    Nullable: when the company scope or a served identity's access changed before the
+    whole operation completed, the answer is withheld (null + one error at this field).
+    NOTE: no backticks here - this SDL is a TS template literal.
     """
     searchEntities(
       q: String!
@@ -293,6 +354,6 @@ export const baseTypeDefs = /* GraphQL */ `
       year: Int @deprecated(reason: "Ignored compatibility argument for pre-palette clients")
       limit: Int
       offset: Int
-    ): GlobalSearchResult!
+    ): GlobalSearchResult
   }
 `;

@@ -44,6 +44,10 @@ export interface CompaniesRegistrationsTable {
   selected_locality_name: string | null;
   territory_match_confidence: string | null; // 'safe' | 'unmatched' etc.
   cui_quality: string;
+  /** `text not null` — the capture the row was loaded from; resolves in `source_snapshots`. */
+  source_snapshot_id: string;
+  /** `text not null` CHECK ('public' | 'personal_moderate' | 'restricted'); every read allowlists 'public'. */
+  privacy_class: string;
   updated_at: Tstz;
 }
 
@@ -54,11 +58,15 @@ export interface CompaniesFiscalStatusTable {
   is_vat_payer: boolean | null;
   is_inactive: boolean | null; // → declaredFiscallyInactive
   is_split_vat: boolean | null;
+  /** `date`, nullable — ANAF's state date for the answer (the served as-of). NULL = unknown. */
   status_date: string | null;
   main_caen_rev: string | null;
   main_caen_code: string | null;
+  /** Retrieval/write times: operational, never served as a source date. */
   retrieved_at: Tstz | null;
   snapshot_at: Tstz | null;
+  /** `text not null` CHECK ('public' | 'personal_moderate' | 'restricted'); every read allowlists 'public'. */
+  privacy_class: string;
   updated_at: Tstz;
 }
 
@@ -90,6 +98,10 @@ export interface CompaniesFinancialsTable {
   patrimony_regie: string | null;
   /** 'anaf' (FY2019+) | 'mfp' (FY2008–2018); the publisher seam is CHECK-enforced at 2019. */
   source_system: string;
+  /** The capture the statement was read from; an MFP row resolves its URL through `financial_source_resources`. */
+  source_snapshot_id: string;
+  /** CHECK `(source_system = 'mfp') = (source_url IS NULL)`: the ANAF bilanț web-service URL, NULL for MFP. */
+  source_url: string | null;
   /** CHECK admits 'public' | 'personal_moderate' | 'restricted'; every read path allowlists 'public'. */
   privacy_class: string;
   source_indicator_count: number;
@@ -105,10 +117,14 @@ export interface CompaniesFinancialsTable {
 export interface CompaniesCaenActivitiesTable {
   cui: string;
   source: string;
+  /** `text not null`; '' = revision unknown (ANAF), never a guessed revision. */
   caen_rev: string;
   caen_code: string;
+  /** `text not null` CHECK: onrc_authorized | anaf_main | match | anaf_sentinel | … (migration 20260915T180000). */
   relation: string;
   authorization_type: string | null;
+  /** `text not null` CHECK ('public' | 'personal_moderate' | 'restricted'); every read allowlists 'public'. */
+  privacy_class: string;
 }
 
 /** Warn-only (cui, year) statement flags. All 224,657 rows privacy_class='public' (measured 2026-08-25). */
@@ -150,14 +166,81 @@ export interface CompaniesRegistrationHistoryTable {
  */
 export interface CompaniesSourceSnapshotsTable {
   source_snapshot_id: string;
-  source_published_at: string | null; // date
+  /** `text`, nullable — acquisition lane; ONRC captures are 'onrc-open-data'. */
+  source_kind: string | null;
+  source_published_at: string | null; // date, nullable: NULL = unknown publication date
+  /** `text not null` CHECK pinned to 'public' (migration 20260825T180000); reads still allowlist it. */
   privacy_class: string;
+}
+
+/**
+ * The MFP resource dimension (migration 20260812T162000, append-only): one row
+ * per data.gov.ro resource; `captured_source_url` is the exact file. CHECK:
+ * only `mfp` rows carry it (ANAF rows have no resource row). Read only behind
+ * the repo's capability probe (a runtime without the grant serves no MFP URL).
+ */
+export interface CompaniesFinancialSourceResourcesTable {
+  source_system: string;
+  source_snapshot_id: string;
+  captured_source_url: string | null;
+  /** `text not null` CHECK pinned to 'public'; reads still allowlist it. */
+  privacy_class: string;
+}
+
+/**
+ * `companies_v2.financial_qualification_active` (scraper migration
+ * 20261003T170000, evaluator sql-v1): every financial row qualified under the
+ * terminal analytics publication's write-once admission policy. Not a privacy
+ * gate (it evaluates every row); reads still allowlist `privacy_class`. When
+ * `assessment` is 'not_assessed' every status is NULL. Read only behind the
+ * repo's capability probe.
+ */
+export interface CompaniesFinancialQualificationTable {
+  /** bigint → string. */
+  release_id: string;
+  policy_sha256: string | null;
+  policy_version: string | null;
+  /** 'YYYY-MM-DD' text from the policy document: an approval date, never a source date. */
+  policy_approved_on: string | null;
+  evaluator_version: string;
+  cui: string;
+  year: number;
+  privacy_class: string;
+  assessment: string;
+  assessment_reason: string | null;
+  turnover_status: string | null;
+  net_profit_status: string | null;
+  net_loss_status: string | null;
+  employees_status: string | null;
+  total_revenue_status: string | null;
+  total_expenses_status: string | null;
+  gross_profit_status: string | null;
+  gross_loss_status: string | null;
+  receivables_status: string | null;
+  current_assets_status: string | null;
+  fixed_assets_status: string | null;
+  cash_and_bank_status: string | null;
+  prepaid_expenses_status: string | null;
+  deferred_income_status: string | null;
+  subscribed_capital_status: string | null;
+  inventories_status: string | null;
+  debts_status: string | null;
+  provisions_status: string | null;
+  total_equity_status: string | null;
+  patrimony_regie_status: string | null;
+  net_result_status: string | null;
+  /** numeric → string; the evaluator's net, set only when net_result_status = 'reported'. */
+  net_result_value: string | null;
+  hold_reason: string | null;
+  hold_drift: string[] | null;
 }
 
 export interface CompaniesStatusFlagsTable {
   cui: string;
   status_code: string;
   status_label: string | null;
+  /** `text not null` CHECK ('public' | 'personal_moderate' | 'restricted'); every read allowlists 'public'. */
+  privacy_class: string;
 }
 
 export interface CompaniesEuBranchesTable {
@@ -168,6 +251,8 @@ export interface CompaniesEuBranchesTable {
   euid: string | null;
   fiscal_code: string | null;
   updated_at: Tstz | null;
+  /** `text not null` CHECK ('public' | 'personal_moderate' | 'restricted'); every read allowlists 'public'. */
+  privacy_class: string;
 }
 
 /**
@@ -187,11 +272,15 @@ declare module '@/modules/shared/shell/db/types.js' {
     'companies_v2.registration_history': CompaniesRegistrationHistoryTable;
     'companies_v2.source_snapshots': CompaniesSourceSnapshotsTable;
     'companies_v2.eu_branches': CompaniesEuBranchesTable;
+    'companies_v2.financial_source_resources': CompaniesFinancialSourceResourcesTable;
+    'companies_v2.financial_qualification_active': CompaniesFinancialQualificationTable;
     'companies_v2.registration_identifiers': {
       scheme: string;
       value: string;
       cui: string;
       is_current: boolean;
+      /** `text not null` CHECK ('public' | 'personal_moderate' | 'restricted'); every read allowlists 'public'. */
+      privacy_class: string;
     };
     /* eslint-enable @typescript-eslint/naming-convention -- restore the rule after the schema-qualified table keys */
   }

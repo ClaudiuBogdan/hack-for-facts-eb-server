@@ -14,7 +14,11 @@ import { z } from 'zod';
 
 import { ENTITY_SEARCH_WIDGET_URI, ENTITY_SNAPSHOT_WIDGET_URI } from './widgets/resources.js';
 import { makeEntity360, type Entity360Deps } from '../../core/usecases/entity-360.js';
-import { makeGlobalSearch, type GlobalSearchDeps } from '../../core/usecases/global-search.js';
+import {
+  confirmGlobalSearchServed,
+  makeGlobalSearch,
+  type GlobalSearchDeps,
+} from '../../core/usecases/global-search.js';
 
 import type { KernelMcpTool, McpToolOutput } from './types.js';
 import type { IdentityRepo } from '../../core/ports.js';
@@ -144,7 +148,9 @@ export const makeKernelMcpTools = (deps: KernelMcpDeps): readonly KernelMcpTool[
       isActive: z
         .boolean()
         .optional()
-        .describe('Only currently-active entities (half of all companies are struck off).'),
+        .describe(
+          'Generic identity activity (any source); not the company directory same-identifier ONRC status criterion.'
+        ),
       isUat: z
         .boolean()
         .optional()
@@ -160,6 +166,15 @@ export const makeKernelMcpTools = (deps: KernelMcpDeps): readonly KernelMcpTool[
         .optional()
         .describe('Exclude entities carrying any of these tags.'),
       limit: z.number().int().optional().describe('Max hits to return (default 20, max 50).'),
+      offset: z
+        .number()
+        .int()
+        .min(0)
+        .max(1000)
+        .optional()
+        .describe(
+          'Candidate offset (0–1000). To read the next page pass meta.continuation.nextOffset; a page can show no hits and still have a next candidate page.'
+        ),
     },
     async handler(args): Promise<McpToolOutput> {
       const query = strArg(args, 'query');
@@ -179,6 +194,9 @@ export const makeKernelMcpTools = (deps: KernelMcpDeps): readonly KernelMcpTool[
         : undefined;
       const isActive = typeof args['isActive'] === 'boolean' ? args['isActive'] : undefined;
       const limit = typeof args['limit'] === 'number' ? args['limit'] : undefined;
+      // The continuation this tool advertises (`meta.continuation.nextOffset`);
+      // the usecase applies the same 0–1000 bound as GraphQL.
+      const offset = typeof args['offset'] === 'number' ? args['offset'] : undefined;
 
       const res = await makeGlobalSearch(deps.globalSearchDeps, {
         q: query,
@@ -190,14 +208,34 @@ export const makeKernelMcpTools = (deps: KernelMcpDeps): readonly KernelMcpTool[
         ...(entityTags !== undefined && { entityTags }),
         ...(excludeEntityTags !== undefined && { excludeEntityTags }),
         ...(limit !== undefined && { limit }),
+        ...(offset !== undefined && { offset }),
       });
       if (res.isErr()) return { ok: false, kind: 'entity_search', error: res.error.message };
+      // The same final decision GraphQL takes after its operation settled,
+      // taken eagerly here: a refused answer is never serialized.
+      const confirmed = await confirmGlobalSearchServed(deps.globalSearchDeps, res.value);
+      if (confirmed.isErr()) {
+        return { ok: false, kind: 'entity_search', error: confirmed.error.message };
+      }
 
-      const { engine, degraded, hits, facets, estimatedTotalHits } = res.value;
+      const {
+        engine,
+        degraded,
+        hits,
+        facets,
+        estimatedTotalHits,
+        generation,
+        companyScope,
+        companyContribution,
+        companyContributionReason,
+        continuation,
+      } = res.value;
       // The entities doc carries a small whitelisted `attrs` sub-object (kind,
       // status, group_name, chamber, issuer, …). `SearchHit.attrs` is the WHOLE
       // raw hit (it also holds `visibility`), so expose ONLY the nested
       // whitelisted object — never the raw hit — keeping `visibility` server-side.
+      // A company document's nested attrs are company-owned and were removed by
+      // the usecase; the hydrated `company` object replaces them.
       const displayAttrs = (h: SearchHit): Record<string, unknown> | undefined => {
         const nested = h.attrs['attrs'];
         return nested !== null && typeof nested === 'object' && !Array.isArray(nested)
@@ -224,14 +262,46 @@ export const makeKernelMcpTools = (deps: KernelMcpDeps): readonly KernelMcpTool[
           isUat: h.isUat ?? null,
           entityTags: h.entityTags ?? [],
           ...(attrs !== undefined && Object.keys(attrs).length > 0 && { attrs }),
+          ...(h.company !== undefined && h.company !== null && { company: h.company }),
         };
       });
+      const companyNote =
+        companyContribution === 'current'
+          ? ''
+          : ` The company part of this search is ${companyContribution.toUpperCase()} (${companyContributionReason ?? 'unknown'}): company results may be missing, so this is NOT evidence that no such company exists.`;
+      const moreNote =
+        continuation.nextOffset === null
+          ? ''
+          : ` More candidates may follow: call again with offset ${String(continuation.nextOffset)}.`;
+      // A later candidate page (nonzero offset) describes only itself. Without a
+      // next offset it states only that no further page is offered: a null
+      // continuation is a short candidate page OR the API's offset bound, so it
+      // never proves the candidates exhausted, nor that the query matched nothing.
+      const laterPage = offset !== undefined && offset > 0;
+      const emptySummary = !laterPage
+        ? companyNote === '' && moreNote === ''
+          ? `No entities matched "${query}".`
+          : `No entities are shown for "${query}" on this page.${companyNote}${moreNote}`
+        : moreNote === ''
+          ? `No entities are shown for "${query}" on this later page, and this tool offers no further page for this request. Earlier pages may have shown matches; this is not a claim that the query matched nothing.${companyNote}`
+          : `No entities are shown for "${query}" on this later page.${companyNote}${moreNote}`;
       return {
         ok: true,
         kind: 'entity_search',
         query,
         items,
-        meta: { engine, degraded, estimatedTotalHits, returned: items.length, facets },
+        meta: {
+          engine,
+          degraded,
+          estimatedTotalHits,
+          returned: items.length,
+          facets,
+          generation,
+          companyScope,
+          companyContribution,
+          companyContributionReason,
+          continuation,
+        },
         // "No entities matched" is a CLAIM ABOUT THE WORLD, and during an engine
         // outage it is false — the reduced path only resolves exact identifiers
         // (D5). An LLM caller relays this sentence to a user as fact, so a
@@ -239,11 +309,15 @@ export const makeKernelMcpTools = (deps: KernelMcpDeps): readonly KernelMcpTool[
         // The outage path runs NO lookup at all (the exact-CUI fallback was
         // removed on 2026-08-26 because a second copy of the palette's collapse
         // rule could not be kept correct), so the degraded text must not promise one.
+        // The same holds for a company part that is not current, for a page
+        // whose candidates were all withheld while more candidates may follow,
+        // and for an exhausted later page (only the initial page can establish
+        // that the query matched nothing).
         summary: degraded
           ? `Search is DEGRADED: the search engine is unavailable, so "${query}" was not looked up at all. This is NOT evidence that no such entity exists. Retry later for a real answer, or resolve the entity by CUI through the entity tools.`
           : items.length === 0
-            ? `No entities matched "${query}".`
-            : `${String(items.length)} of ~${String(estimatedTotalHits)} matches for "${query}" (engine: ${engine}).`,
+            ? emptySummary
+            : `${String(items.length)} of ~${String(estimatedTotalHits)} matches for "${query}" (engine: ${engine}).${companyNote}${moreNote}`,
       };
     },
   };

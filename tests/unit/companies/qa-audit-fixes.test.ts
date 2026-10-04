@@ -2,7 +2,8 @@
  * Companies unit tests — QA-audit fixes (server doc 03-private-companies-qa-audit).
  * Covers the confirmed-and-fixed findings that are unit-testable without a DB:
  *   H1  netResultDelta must net profit AGAINST loss (loss years store net_profit=0)
- *   M4  territory emits an explicit `unmatched` object (was null → UNMATCHED unreachable)
+ *   M4  territory emits an explicit `unmatched` object for a county consensus
+ *       without a UAT (now from the pinned edition's derived-geography consensus)
  *   M6  financials.lines is nullable in v2; non-null JSON preserves Money-as-string
  *   M10 companyResolve(limit:0) returns no hits (was floored to 1)
  *   M14 resolve hits share ONE shape across dims incl. county (was plain strings on MCP)
@@ -12,6 +13,7 @@ import { ok, type Result } from 'neverthrow';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  exactDecimalDiff,
   makeCompanyFinancials,
   makeCompanyResolve,
   toCompanyResolveHits,
@@ -20,19 +22,30 @@ import {
 import {
   mapCountyDisplayName,
   mapFinancialYear,
-  mapTerritory,
+  territoryOf,
   type FinancialRow,
 } from '@/modules/companies/shell/repo/mappers.js';
 
+import { assessedQualification, statementSource } from './qualification-fixtures.js';
+import { stubFlows, stubRepo } from './repo-fixtures.js';
+
 import type { CompaniesRepository } from '@/modules/companies/core/ports.js';
+import type {
+  CompanyRegistryBasis,
+  CompanyRegistryCuiProfile,
+} from '@/modules/companies/core/registry.js';
 import type { CompanyFinancialYear } from '@/modules/companies/core/types.js';
-import type { ApiError, FlowsRepo } from '@/modules/shared/index.js';
+import type { ApiError } from '@/modules/shared/index.js';
 
 const unwrap = <T>(r: Result<T, ApiError>): T => {
   if (r.isErr()) throw new Error(`expected ok, got ${r.error.type}: ${r.error.message}`);
   return r.value;
 };
 
+/**
+ * One statement whose evaluator net is profit − loss, as sql-v1 computes it
+ * for an admitted, non-held statement with both sides present.
+ */
 const yearRow = (year: number, netProfit: string, netLoss: string): CompanyFinancialYear => ({
   year,
   sourceSystem: year >= 2019 ? 'anaf' : 'mfp',
@@ -62,59 +75,8 @@ const yearRow = (year: number, netProfit: string, netLoss: string): CompanyFinan
     patrimonyRegie: null,
   },
   lines: null,
-});
-
-const stubRepo = (over: Partial<CompaniesRepository> = {}): CompaniesRepository => ({
-  getProfileData: vi.fn(async () => ok(null)),
-  getFinancials: vi.fn(async () => ok([])),
-  getFinancialQualityAssessment: vi.fn(async () =>
-    ok({ assessedYears: [], assessedAt: null, flags: [] })
-  ),
-  getRegistrationDiffData: vi.fn(async () =>
-    ok({
-      fromCaptureDate: null,
-      toCaptureDate: null,
-      captureCount: 0,
-      earlier: null,
-      later: null,
-      earlierMultiple: false,
-      laterMultiple: false,
-    })
-  ),
-  listCompanies: vi.fn(async () => ok({ rows: [], total: 0, estimated: false })),
-  resolveByName: vi.fn(async () => ok({ hits: [], degraded: false })),
-  findByRegistrationNumber: vi.fn(async () => ok([])),
-  resolveCaen: vi.fn(async () => ok([])),
-  resolveCounty: vi.fn(async () => ok([])),
-  countBy: vi.fn(async () =>
-    ok({
-      groups: [],
-      denominator: 0,
-      coverage: { territoryMatched: null, territoryUnmatched: null, note: '' },
-    })
-  ),
-  profileSlice: vi.fn(async () => ok(null)),
-  presenceCounts: vi.fn(async () => ok(null)),
-  profileSlicesForCuis: vi.fn(async () => ok(new Map())),
-  ...over,
-});
-
-const stubFlows = (): FlowsRepo => ({
-  getFlowSummary: vi.fn(async () =>
-    ok({
-      direction: 'in' as const,
-      count: 0,
-      totalAmountRon: '0',
-      minYear: null,
-      maxYear: null,
-      byFlowType: [],
-      byYear: [],
-    })
-  ),
-  getTopCounterparties: vi.fn(async () => ok([])),
-  listFlows: vi.fn(async () => ok({ items: [], next: null })),
-  getCounterpartyNetwork: vi.fn(async () => ok({ rootCui: '', depth: 0, nodes: [], edges: [] })),
-  aggregateFlows: vi.fn(async () => ok([])),
+  source: statementSource(year),
+  qualification: assessedQualification({}, exactDecimalDiff(netProfit, netLoss)),
 });
 
 const deps = (over: Partial<CompaniesRepository> = {}): CompanyUsecaseDeps => ({
@@ -124,7 +86,7 @@ const deps = (over: Partial<CompaniesRepository> = {}): CompanyUsecaseDeps => ({
 });
 
 describe('H1 — netResultDelta nets profit against loss', () => {
-  it('uses (profit - loss), not profit-only, across a loss→profit swing', async () => {
+  it('uses the evaluator net (profit - loss), not profit-only, across a loss→profit swing', async () => {
     // 2023: loss year — ANAF stores net_profit=0, net_loss>0 (the bug trigger).
     // 2024: profit year. getFinancials returns DESC (latest first).
     const getFinancials = vi.fn(async () =>
@@ -135,50 +97,72 @@ describe('H1 — netResultDelta nets profit against loss', () => {
     expect(res?.trajectory?.netResultDelta).toBe('10615089.00');
   });
 
-  it('is null only when both profit and loss are absent', async () => {
+  it('is null when both profit and loss are absent: the evaluator says missing, never 0', async () => {
     const both = (y: number): CompanyFinancialYear => ({
       ...yearRow(y, '0.00', '0.00'),
       netProfit: null,
       netLoss: null,
+      qualification: assessedQualification({
+        net_loss: 'missing',
+        net_profit: 'missing',
+        net_result: 'missing',
+      }),
     });
     const getFinancials = vi.fn(async () => ok([both(2024), both(2023)]));
     const res = unwrap(await makeCompanyFinancials(deps({ getFinancials }), '1'));
     expect(res?.trajectory?.netResultDelta).toBeNull();
+    expect(res?.trajectory?.netResultDeltaReason).toBe('latest_not_reported');
   });
 });
 
-describe('M4 — territory emits an explicit unmatched object', () => {
-  it('returns matchConfidence=unmatched when a registration exists but SIRUTA missed', () => {
-    const t = mapTerritory({
-      uat_siruta_code: null,
-      uat_name: null,
-      county_name: null,
-      match_confidence: 'unmatched',
-    });
+/** A profile whose geography consensus is set per test. */
+const geography = (
+  county: string | null,
+  countyBasis: CompanyRegistryBasis,
+  uat: string | null,
+  uatBasis: CompanyRegistryBasis
+): CompanyRegistryCuiProfile => ({
+  identityObservations: 1,
+  identifierCount: 1,
+  unresolvedIdentifierCount: 0,
+  unidentifiedObservations: 0,
+  name: { value: 'X SRL', basis: 'single_observation' },
+  legalForm: { value: 'SRL', basis: 'single_observation' },
+  recordedDate: { value: null, basis: 'missing' },
+  countyCode: { value: county, basis: countyBasis },
+  countyName: county === null ? null : 'JUDEŢUL BACĂU',
+  uatSirutaCode: { value: uat, basis: uatBasis },
+  uatName: uat === null ? null : 'BACĂU',
+  statusCode: { value: '1048', basis: 'single_observation' },
+  caenCoverage: 'complete',
+  statusCoverage: 'complete',
+  legalPersonEligibility: 'eligible',
+  eligibilityReason: null,
+  eligibilityPolicyVersion: 'public-legal-person-v1',
+});
+
+describe('M4 — territory emits an explicit unmatched object (edition consensus)', () => {
+  it('returns matchConfidence=unmatched for a county consensus without a UAT consensus', () => {
+    const t = territoryOf(geography('BC', 'single_observation', null, 'missing'));
     expect(t).not.toBeNull();
     expect(t?.matchConfidence).toBe('unmatched');
     expect(t?.sirutaCode).toBeNull();
+    expect(t?.countyName).toBe('Bacău');
   });
 
-  it('returns null only when there is no registration data at all', () => {
-    const t = mapTerritory({
-      uat_siruta_code: null,
-      uat_name: null,
-      county_name: null,
-      match_confidence: null,
-    });
-    expect(t).toBeNull();
+  it('returns null without a profile, and never coerces conflicting geography into a territory', () => {
+    expect(territoryOf(null)).toBeNull();
+    expect(territoryOf(geography(null, 'multiple_values', null, 'multiple_values'))).toBeNull();
+    expect(territoryOf(geography(null, 'unresolved', null, 'unresolved'))).toBeNull();
   });
 
-  it('returns safe with codes when SIRUTA matched', () => {
-    const t = mapTerritory({
-      uat_siruta_code: 22132,
-      uat_name: 'Bacău',
-      county_name: 'Bacău',
-      match_confidence: 'safe',
-    });
+  it('returns safe with codes when a UAT consensus exists', () => {
+    const t = territoryOf(
+      geography('BC', 'consistent_observations', '22132', 'single_observation')
+    );
     expect(t?.matchConfidence).toBe('safe');
     expect(t?.sirutaCode).toBe('22132');
+    expect(t?.uatName).toBe('Bacău');
   });
 });
 
@@ -195,7 +179,7 @@ describe('M6 — financials.lines nullable/string money contract', () => {
       ...(yearRow(2024, '0.00', '0.00') as unknown as FinancialRow),
       lines: { Creante: 69341056, Note: 'n/a', Zero: 0 },
     };
-    const mapped = mapFinancialYear(row);
+    const mapped = mapFinancialYear(row, false);
     expect(mapped.lines?.['Creante']).toBe('69341056');
     expect(mapped.lines?.['Zero']).toBe('0');
     expect(mapped.lines?.['Note']).toBe('n/a');
@@ -203,7 +187,7 @@ describe('M6 — financials.lines nullable/string money contract', () => {
 
   it('keeps null lines null', () => {
     const row = yearRow(2024, '0.00', '0.00') as unknown as FinancialRow;
-    expect(mapFinancialYear(row).lines).toBeNull();
+    expect(mapFinancialYear(row, false).lines).toBeNull();
   });
 });
 
@@ -215,7 +199,7 @@ describe('sourceSystem mapping (publisher seam)', () => {
       ...(yearRow(2018, '0.00', '0.00') as unknown as FinancialRow),
       source_system: 'anaf',
     };
-    expect(mapFinancialYear(row).sourceSystem).toBe('anaf');
+    expect(mapFinancialYear(row, false).sourceSystem).toBe('anaf');
   });
 });
 
@@ -223,7 +207,16 @@ describe('M10 — companyResolve honors limit:0', () => {
   it('returns no hits for limit 0 instead of flooring to 1', async () => {
     const resolveByName = vi.fn(async () =>
       ok({
-        hits: [{ dim: 'name' as const, value: '1', label: 'X', cui: '1', confidence: 1 }],
+        hits: [
+          {
+            dim: 'name' as const,
+            value: '1',
+            label: 'X',
+            cui: '1',
+            confidence: 1,
+            labelSource: 'core_organization' as const,
+          },
+        ],
         degraded: false,
       })
     );
@@ -243,28 +236,58 @@ describe('M14 — resolve hits share one shape across dims', () => {
       countyMatches: ['Bacău'],
       ambiguous: false,
       degraded: false,
+      registry: null,
     });
     expect(hits).toEqual([
-      { dim: 'COUNTY', value: 'Bacău', label: 'Bacău', cui: null, confidence: null },
+      {
+        dim: 'COUNTY',
+        value: 'Bacău',
+        label: 'Bacău',
+        cui: null,
+        confidence: null,
+        revision: null,
+        key: null,
+        labelSource: 'territory_hub',
+      },
     ]);
   });
 
-  it('maps caen matches by code with the same shape', () => {
+  it('maps caen matches with their revision and the exact onrcCaen key (value stays the bare code)', () => {
     const hits = toCompanyResolveHits({
       dim: 'caen',
       q: '6201',
       matches: [],
-      caenMatches: [{ code: '6201', rev: 'rev2', label: 'Software' }],
+      caenMatches: [
+        { code: '6201', rev: 'rev2', key: 'rev2:6201', label: 'Software' },
+        { code: '6201', rev: 'rev0', key: 'rev0:6201', label: null },
+      ],
       countyMatches: [],
-      ambiguous: false,
+      ambiguous: true,
       degraded: false,
+      registry: null,
     });
-    expect(hits[0]).toEqual({
-      dim: 'CAEN',
-      value: '6201',
-      label: 'Software',
-      cui: null,
-      confidence: null,
-    });
+    expect(hits).toEqual([
+      {
+        dim: 'CAEN',
+        value: '6201',
+        label: 'Software',
+        cui: null,
+        confidence: null,
+        revision: 'rev2',
+        key: 'rev2:6201',
+        labelSource: 'current_db_catalog',
+      },
+      // A catalog row without a label shows its key, never a bare code alone.
+      {
+        dim: 'CAEN',
+        value: '6201',
+        label: 'rev0:6201',
+        cui: null,
+        confidence: null,
+        revision: 'rev0',
+        key: 'rev0:6201',
+        labelSource: null,
+      },
+    ]);
   });
 });

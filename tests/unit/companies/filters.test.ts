@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   COMPANY_AGGREGATE_DRIVING_FIELDS,
+  COMPANY_REGISTRY_FILTER_FIELDS,
   COMPANY_VIRTUAL_FIELDS,
   companiesFilterSpec,
 } from '@/modules/companies/core/filters.js';
@@ -40,26 +41,47 @@ describe('companies filter spec', () => {
     expect(companiesFilterSpec.fields.some((f) => f.column.column === 'is_active')).toBe(false);
   });
 
-  it('county drives off v2 selected_county_name; mandatory isNull on registrationDatePresent', () => {
+  it('county reads the identifier county set of the pinned edition; mandatory isNull on registrationDatePresent', () => {
     const county = companiesFilterSpec.fields.find((f) => f.name === 'county');
-    expect(county?.column.column).toBe('selected_county_name');
+    expect(county?.column).toEqual({ alias: 'i', column: 'county_codes' });
     const present = companiesFilterSpec.fields.find((f) => f.name === 'registrationDatePresent');
     expect(present?.ops).toContain('isNull');
   });
 
-  it('caenCode supports a sargable prefix op (CAEN division)', () => {
+  it('caenCode supports a sargable prefix op; onrcCaen is an exact eq/in selector', () => {
     const caen = companiesFilterSpec.fields.find((f) => f.name === 'caenCode');
     expect(caen?.ops).toContain('prefix');
+    const exact = companiesFilterSpec.fields.find((f) => f.name === 'onrcCaen');
+    expect(exact?.ops).toEqual(['eq', 'in']);
+    expect(exact?.exclude).toBe(true);
   });
 
-  it('virtual fields are exactly caenCode/county/hasFinancials', () => {
-    expect([...COMPANY_VIRTUAL_FIELDS].sort()).toEqual(['caenCode', 'county', 'hasFinancials']);
+  it('the registry fields are exactly the edition-bound ones, all repo-intercepted', () => {
+    expect([...COMPANY_REGISTRY_FILTER_FIELDS].sort()).toEqual([
+      'caenCode',
+      'county',
+      'legalForm',
+      'onrcCaen',
+      'registrationDate',
+      'registrationDatePresent',
+      'status',
+    ]);
+    expect([...COMPANY_VIRTUAL_FIELDS].sort()).toEqual(
+      [...COMPANY_REGISTRY_FILTER_FIELDS, 'hasFinancials'].sort()
+    );
+  });
+
+  it('ANAF fields stay physical and independent of the registry', () => {
+    for (const name of ['vatPayer', 'declaredFiscallyInactive', 'mainCaenCode']) {
+      expect((COMPANY_VIRTUAL_FIELDS as readonly string[]).includes(name)).toBe(false);
+      expect(companiesFilterSpec.fields.find((f) => f.name === name)?.column.alias).toBe('f');
+    }
   });
 
   it('aggregate driving fields gate the county group', () => {
-    expect([...COMPANY_AGGREGATE_DRIVING_FIELDS]).toContain('county');
-    expect([...COMPANY_AGGREGATE_DRIVING_FIELDS]).toContain('status');
-    expect([...COMPANY_AGGREGATE_DRIVING_FIELDS]).toContain('caenCode');
+    for (const name of ['county', 'status', 'caenCode', 'onrcCaen']) {
+      expect([...COMPANY_AGGREGATE_DRIVING_FIELDS]).toContain(name);
+    }
   });
 });
 
@@ -82,21 +104,30 @@ describe('splitVirtual', () => {
   it('separates the repo-intercepted virtuals from the kernel-composable physicals', () => {
     const { physical, virtual } = splitVirtual({
       cui: { eq: '2816464' },
+      vatPayer: { eq: true },
       county: { in: ['Bacău'] },
       caenCode: { prefix: '47' },
+      onrcCaen: { eq: 'rev2:4711' },
+      status: { in: ['1048'] },
       hasFinancials: { isNull: false },
     });
-    expect(Object.keys(physical)).toEqual(['cui']);
-    expect(Object.keys(virtual).sort()).toEqual(['caenCode', 'county', 'hasFinancials']);
+    expect(Object.keys(physical).sort()).toEqual(['cui', 'vatPayer']);
+    expect(Object.keys(virtual).sort()).toEqual([
+      'caenCode',
+      'county',
+      'hasFinancials',
+      'onrcCaen',
+      'status',
+    ]);
   });
 
   it('strips virtual fields from the exclude sub-object too', () => {
     const { physical } = splitVirtual({
-      exclude: { county: { in: ['Cluj'] }, status: { in: ['1084'] } },
+      exclude: { county: { in: ['Cluj'] }, status: { in: ['1084'] }, vatPayer: { eq: true } },
     });
     const ex = physical.exclude as Record<string, unknown> | undefined;
     expect(ex).toBeDefined();
-    expect(Object.keys(ex ?? {})).toEqual(['status']);
+    expect(Object.keys(ex ?? {})).toEqual(['vatPayer']);
   });
 });
 
@@ -126,8 +157,11 @@ describe('canonicalization / fhash (tri-surface equivalence)', () => {
 });
 
 describe('kernel composer over the physical fields', () => {
-  it('compiles a status IN predicate without throwing', () => {
-    const built = toConditionBuilders(companiesFilterSpec, { status: { in: ['1048', '1084'] } });
+  it('compiles a physical ANAF predicate without throwing', () => {
+    const built = toConditionBuilders(companiesFilterSpec, {
+      declaredFiscallyInactive: { eq: false },
+      mainCaenCode: { in: ['4711', '6201'] },
+    });
     expect(built.isOk()).toBe(true);
     expect((built as { value: unknown[] }).value.length).toBeGreaterThan(0);
   });

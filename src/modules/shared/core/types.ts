@@ -334,12 +334,71 @@ export interface SearchHit {
   readonly identifiers?: readonly string[];
   /** Every role this identity plays (organization + pnrr_entity + …). */
   readonly roles?: readonly string[];
-  /** False for struck-off companies and repealed acts. */
-  readonly isActive?: boolean;
+  /**
+   * Generic identity activity (OR over the identity's sources); false for
+   * repealed acts. Null: unknown (an applicable company contribution whose
+   * activity is unknown, or one that could not be served), never inactive.
+   */
+  readonly isActive?: boolean | null;
   readonly isUat?: boolean | null;
   readonly entityTags?: readonly string[];
   /** Year (facet/sort). */
   readonly year?: number;
+  /**
+   * The identity's company contribution, hydrated fresh from the database for
+   * this request (never the index's copy); null when none is served.
+   */
+  readonly company?: SearchHitCompany | null;
+}
+
+/**
+ * The company contribution of a search hit (scrapper `palette-company-v1`
+ * fields), read fresh under the request's company scope. Index values are
+ * candidates only; these are the served values.
+ */
+export interface SearchHitCompany {
+  /** `in_edition` when the pinned edition has a qualified profile, else `not_in_edition`. */
+  readonly registryState: 'in_edition' | 'not_in_edition';
+  readonly name: string;
+  readonly nameSource: 'onrc_edition' | 'core_organization';
+  readonly legalForm: string | null;
+  readonly countyCode: string | null;
+  readonly countyName: string | null;
+  /**
+   * True: a public original 1048 on a resolved identifier; false: none, with
+   * complete status coverage; null: unknown (not in edition, complete_empty,
+   * partial or unresolved).
+   */
+  readonly active: boolean | null;
+  /** Public resolved identifier keys and EUIDs of the edition (personal-shaped values withheld). */
+  readonly identifiers: readonly string[];
+}
+
+/**
+ * Whether the company part of a search answer is current: `current` (the
+ * index generation was built for the request's published company scope and
+ * every company value was hydrated under it), `partial` (fresh values under a
+ * published scope, but candidates from a generation built for another scope:
+ * recall, rank, facets and estimates are stale) or `unavailable` (no company
+ * value is served).
+ */
+export type SearchCompanyContribution = 'current' | 'partial' | 'unavailable';
+
+/** The palette generation a search answer's candidates were witnessed from. */
+export interface SearchGenerationRef {
+  readonly generationId: string;
+  readonly registryScopeKey: string;
+}
+
+/**
+ * Candidate-page continuation. `candidatesReturned` counts the engine's
+ * candidates for this page BEFORE hydration dropped any (visible hits can be
+ * fewer, even zero). `nextOffset` is null only when the engine returned a
+ * short page or the offset bound is reached.
+ */
+export interface SearchContinuation {
+  readonly candidatesReturned: number;
+  readonly nextOffset: number | null;
 }
 
 /**

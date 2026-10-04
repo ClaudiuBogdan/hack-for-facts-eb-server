@@ -12,12 +12,13 @@ import {
 import {
   DATASET,
   HUGE_TURNOVER,
+  SOURCE_PIN,
   analyticsDeps,
   fakeLabels,
   fakeReleases,
   makeInMemoryEngine,
   releaseRow,
-} from '../../../fixtures/companies-analytics.js';
+} from './analytics-fixtures.js';
 
 import type {
   CompanyAnalysisBucket,
@@ -74,6 +75,7 @@ describe('release resolution and pinning', () => {
       releaseId: '6',
       publishedAt: '2026-10-02T18:00:00.000Z',
       active: false,
+      source: SOURCE_PIN,
     });
   });
 
@@ -279,14 +281,33 @@ describe('companyAnalysisBreakdown', () => {
       await companyAnalysisBreakdown(deps, { dimension: 'COUNTY', topN: 2 })
     )._unsafeUnwrap();
     expect(b.rankedBy).toBe('METRIC_SUM');
-    expect(b.groups.map((g) => [g.key, g.label, g.companies, g.filers, g.metric?.sum])).toEqual([
-      ['CJ', 'Cluj', '3', '2', '9007199254741993.57'],
-      ['B', 'București', '1', '1', '0.00'],
+    // 400's identifiers sit in AB and CJ: no CJ consensus, its own (multiple_values) group.
+    expect(
+      b.groups.map((g) => [g.key, g.label, g.labelSource, g.companies, g.filers, g.metric?.sum])
+    ).toEqual([
+      ['CJ', 'Cluj', 'territory_hub', '2', '1', '9007199254740993.07'],
+      ['(multiple_values)', null, null, '1', '1', '1000.50'],
     ]);
-    expect(b.other).toMatchObject({ kind: 'OTHER', groups: 1, companies: '1' });
+    // B (0.00), IS (-20.25) and the (missing) basis group (a held value: null) fold into other.
+    expect(b.other).toMatchObject({ kind: 'OTHER', groups: 3, companies: '3', filers: '3' });
     expect(b.other.metric?.sum).toBe('-20.25');
-    expect(b.unknown).toMatchObject({ kind: 'UNKNOWN', key: null, companies: '1', filers: '1' });
-    expect(b.unknown.metric).toMatchObject({ sum: null, contributors: '0' });
+    // v2: a county without consensus is its basis group, never `unknown` (counted once).
+    expect(b.unknown).toMatchObject({ kind: 'UNKNOWN', key: null, companies: '0', filers: '0' });
+    expect(b.groupCount).toBe(5);
+    // The corrections only moved companies between buckets: the totals are unchanged.
+    expect(b.totals).toMatchObject({ companies: '6', filers: '5' });
+    expect(b.totals.metric?.sum).toBe('9007199254741973.32');
+    const all = (
+      await companyAnalysisBreakdown(deps, { dimension: 'COUNTY', topN: 10 })
+    )._unsafeUnwrap();
+    expect(all.groups.find((g) => g.key === '(missing)')).toMatchObject({
+      basis: 'MISSING',
+      label: null,
+      labelSource: null,
+      companies: '1',
+      filers: '1',
+      metric: { sum: null, contributors: '0', coverage: { heldObservation: '1' } },
+    });
   });
 
   it('keeps an unknown CAEN revision unknown: own key, no catalog label', async () => {

@@ -8,18 +8,21 @@
  * once verified — for minutes. Each row carries the privacy epoch its facts
  * were captured under.
  *
- * The CURRENT privacy epoch is never cached: every call is one fresh
- * statement that also reports `pg_is_in_recovery()` and the transaction
- * isolation, so the guard can refuse a replica or a fixed snapshot. A plain
- * SELECT — no lock, no write.
+ * The CURRENT state is never cached: every call is ONE fresh statement
+ * reading the privacy epoch and the current ONRC publication envelope (with
+ * its published-edition privacy policy), and reporting `pg_is_in_recovery()`
+ * and the transaction isolation, so the guard can refuse a replica or a fixed
+ * snapshot. The source date is rendered exactly as the exporter writes the
+ * pin. A plain SELECT — no lock, no write.
  *
  * Labels are CURRENT presentation data, hydrated after aggregation in one
  * batch per source and never cached (a cached label could outlive its row's
  * publicity): company names under the same publication rule as the profile
  * pages (`core.organizations`, kind company, public, ≤10-digit CUI), county/UAT
  * names from public `core.territories` rows, CAEN labels only for a KNOWN
- * revision (`caen_<revision>`), status labels from public registry rows by
- * exact code with the module nomenclature as fallback. Nothing here writes.
+ * revision (`caen_<revision>`). Status labels are not read here (the API
+ * nomenclature, in core): `companies_v2.registrations` is never queried.
+ * Nothing here writes.
  */
 
 import { Type } from '@sinclair/typebox';
@@ -37,8 +40,6 @@ import {
   type Logger,
   type ProdDatabase,
 } from '@/modules/shared/index.js';
-
-import { COMPANY_STATUS_NOMENCLATURE } from '../../core/filters.js';
 
 import type {
   CaenLabelKey,
@@ -72,11 +73,30 @@ const ReleaseRowSchema = Type.Object({
   inputs: Type.Unknown(),
 });
 
-const PrivacyEpochRowSchema = Type.Object({
+const CurrentStateRowSchema = Type.Object({
   epoch: Type.String(),
   in_recovery: Type.Boolean(),
   isolation: Type.String(),
+  publication_state: Type.String(),
+  listed: Type.Boolean(),
+  edition_id: NullableText,
+  publication_epoch: NullableText,
+  source_snapshot_id: NullableText,
+  source_published_at: NullableText,
+  interpretation_version: NullableText,
+  dimension_policy_version: NullableText,
+  privacy_policy_version: NullableText,
 });
+
+/**
+ * The exporter's DateStyle-independent rendering of a civil date (source
+ * contract §1): an out-of-domain date becomes `out-of-range`, never a pin.
+ */
+const isoDate = (column: string) => sql<string | null>`case
+  when ${sql.ref(column)} is null then null
+  when ${sql.ref(column)} between date '0001-01-01' and date '9999-12-31'
+    then to_char(${sql.ref(column)}, 'YYYY-MM-DD')
+  else 'out-of-range' end`;
 
 const toRow = (raw: unknown, active: boolean): CompanyAnalysisReleaseRow | null => {
   if (!Value.Check(ReleaseRowSchema, raw)) return null;
@@ -216,26 +236,53 @@ export const makeAnalyticsReleaseSource = (
       }
     });
 
-  // Deliberately outside every loader: a cached epoch could hide a withdrawal.
-  const currentPrivacyEpoch: CompanyAnalysisReleaseSource['currentPrivacyEpoch'] = async () => {
+  // Deliberately outside every loader: a cached state could hide a withdrawal
+  // or a source event. One statement: epoch and envelope are read together.
+  const currentState: CompanyAnalysisReleaseSource['currentState'] = async () => {
     try {
       const result = await sql<Record<string, unknown>>`
-        select epoch::text as epoch,
+        select s.epoch::text as epoch,
                pg_is_in_recovery() as in_recovery,
-               current_setting('transaction_isolation') as isolation
-        from companies_analytics.privacy_state
-        where singleton`.execute(db);
+               current_setting('transaction_isolation') as isolation,
+               c.publication_state,
+               (e.edition_id is not null) as listed,
+               c.edition_id::text as edition_id,
+               c.publication_epoch::text as publication_epoch,
+               c.source_snapshot_id,
+               ${isoDate('c.source_published_at')} as source_published_at,
+               c.interpretation_version,
+               c.dimension_policy_version,
+               e.privacy_policy_version
+        from companies_analytics.privacy_state s
+        cross join companies_v2.onrc_current_publication c
+        left join companies_v2.onrc_published_editions e on e.edition_id = c.edition_id
+        where s.singleton`.execute(db);
       const first = result.rows[0];
-      if (result.rows.length !== 1 || !Value.Check(PrivacyEpochRowSchema, first))
+      if (result.rows.length !== 1 || !Value.Check(CurrentStateRowSchema, first))
         return err(databaseError('companies analytics privacy state is unreadable'));
-      return ok({ epoch: first.epoch, inRecovery: first.in_recovery, isolation: first.isolation });
+      return ok({
+        epoch: first.epoch,
+        inRecovery: first.in_recovery,
+        isolation: first.isolation,
+        onrc: {
+          publicationState: first.publication_state,
+          listed: first.listed,
+          editionId: first.edition_id,
+          publicationEpoch: first.publication_epoch,
+          sourceSnapshotId: first.source_snapshot_id,
+          sourcePublishedAt: first.source_published_at,
+          interpretationVersion: first.interpretation_version,
+          dimensionPolicyVersion: first.dimension_policy_version,
+          privacyPolicyVersion: first.privacy_policy_version,
+        },
+      });
     } catch (cause) {
-      logger?.warn({ operation: 'currentPrivacyEpoch' }, 'companies analytics privacy read failed');
+      logger?.warn({ operation: 'currentState' }, 'companies analytics privacy read failed');
       return err(databaseError('companies analytics privacy state is unreadable', cause));
     }
   };
 
-  return { activeRelease, publishedRelease, currentPrivacyEpoch };
+  return { activeRelease, publishedRelease, currentState };
 };
 
 const asMap = (rows: readonly { key: string; label: string | null }[]): Map<string, string> => {
@@ -308,26 +355,6 @@ export const makeAnalyticsLabelSource = (db: Db, logger?: Logger): CompanyAnalys
             and (${isUatPresentationTerritory('t')} or t.level = 'locality')
           order by t.siruta_code, (t.level = 'uat') desc, t.id`.execute(db);
         return result.rows;
-      }),
-
-    statusLabels: (codes) =>
-      read('statusLabels', async () => {
-        // One index seek per code (registrations_status_idx): the first
-        // non-empty label of a PUBLIC registration with that exact code.
-        const result = await sql<{ key: string; label: string | null }>`
-          select c.code as key,
-                 (select r.onrc_lifecycle_status_label
-                  from companies_v2.registrations r
-                  where r.onrc_lifecycle_status_code = c.code
-                    and r.privacy_class = 'public'
-                    and nullif(btrim(r.onrc_lifecycle_status_label), '') is not null
-                  limit 1) as label
-          from jsonb_array_elements_text(${textArray(codes)}) as c(code)`.execute(db);
-        // The nomenclature is a static public code list, not registry data.
-        return result.rows.map((row) => ({
-          key: row.key,
-          label: row.label ?? COMPANY_STATUS_NOMENCLATURE[row.key] ?? null,
-        }));
       }),
 
     // The CAEN catalog carries no privacy class; labels only for known revisions.

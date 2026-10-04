@@ -11,6 +11,7 @@
 
 import './shell/db/schema.js';
 
+import { makeCompanySearchContribution } from './core/search-contribution.js';
 import { makeCompanyHubStats } from './core/usecases.js';
 import { makeClickhouseAnalyticsEngine } from './shell/analytics/clickhouse-engine.js';
 import {
@@ -30,6 +31,7 @@ import { makeHubStatsProvider } from './shell/hub-stats-cache.js';
 import { makeCompanyAnalysisMcpTools } from './shell/mcp/analytics-tools.js';
 import { makeCompaniesMcpTools } from './shell/mcp/tools.js';
 import { makeCompaniesRepo } from './shell/repo/companies-repo.js';
+import { makeCompanySearchReader } from './shell/repo/search-contribution-sql.js';
 
 import type { CompanyAnalysisContext } from './core/analytics-usecases.js';
 import type { CompaniesRepository } from './core/ports.js';
@@ -41,6 +43,7 @@ import type {
   Logger,
   MeiliClient,
   ProdDatabase,
+  SearchCompanyContributionPort,
   SourceContributor,
 } from '@/modules/shared/index.js';
 import type { Kysely } from 'kysely';
@@ -75,6 +78,12 @@ export interface CompaniesModule {
   readonly graphqlResolvers: Record<string, unknown>;
   readonly mcpTools: readonly KernelMcpTool[];
   readonly contributor: SourceContributor;
+  /**
+   * The company contribution of the kernel global search (fresh scope, parent
+   * access and company values of a candidate page); registered with the
+   * kernel by the composition (`kernel.registerCompanySearch`).
+   */
+  readonly searchContribution: SearchCompanyContributionPort;
   /** Abort in-flight analytics reads (owning app shutdown). */
   close(): void;
 }
@@ -90,10 +99,15 @@ export const makeCompaniesModule = (deps: CompaniesModuleDeps): CompaniesModule 
   const usecaseDeps = { repo, flowsRepo: deps.flowsRepo, meili: deps.meili };
 
   // ONE provider for both surfaces: GraphQL `companyHubStats` and MCP
-  // `company_hub_stats` therefore always agree, and the ~30s compute happens at
-  // most once per TTL window per process (singleflight + stale-while-revalidate).
+  // `company_hub_stats` therefore always agree. Every read captures the
+  // registry scope fresh; the long compute happens at most once per scope and
+  // TTL window per process (singleflight + stale-while-revalidate within one
+  // scope; a scope change is never served stale).
   const hubStats = makeHubStatsProvider(
-    () => makeCompanyHubStats({ repo }),
+    {
+      captureScope: () => repo.captureRegistryScope(),
+      compute: (scope) => makeCompanyHubStats({ repo }, scope),
+    },
     deps.hubStatsTtlMs !== undefined ? { ttlMs: deps.hubStatsTtlMs } : {}
   );
 
@@ -134,6 +148,7 @@ export const makeCompaniesModule = (deps: CompaniesModuleDeps): CompaniesModule 
       ...makeCompanyAnalysisMcpTools({ analytics, clientBaseUrl }),
     ],
     contributor,
+    searchContribution: makeCompanySearchContribution(repo, makeCompanySearchReader(deps.db)),
     close: () => {
       reader?.close();
     },
@@ -144,10 +159,12 @@ export type { CompaniesRepository } from './core/ports.js';
 export type { CompaniesClickhouseConfig } from './shell/analytics/clickhouse-reader.js';
 export * from './core/types.js';
 export { companiesFilterSpec, COMPANIES_FILTER_SPECS } from './core/filters.js';
+export { registryScopeKey, onrcIdentifierKey, parseOnrcCaenSelector } from './core/registry.js';
 export { makeCompaniesContributor } from './shell/contributor.js';
 export { makeCompaniesRepo } from './shell/repo/companies-repo.js';
 export {
   makeHubStatsProvider,
   HUB_STATS_DEFAULT_TTL_MS,
   type HubStatsProvider,
+  type HubStatsSources,
 } from './shell/hub-stats-cache.js';

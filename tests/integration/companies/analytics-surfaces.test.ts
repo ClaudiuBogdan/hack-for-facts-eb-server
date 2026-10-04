@@ -30,7 +30,7 @@ import {
   fakeReleases,
   makeInMemoryEngine,
   releaseRow,
-} from '../../fixtures/companies-analytics.js';
+} from '../../unit/companies/analytics/analytics-fixtures.js';
 
 import type { CompanyAnalysisContext } from '@/modules/companies/core/analytics-usecases.js';
 
@@ -124,6 +124,8 @@ const BUCKET = /* GraphQL */ `
     kind
     key
     label
+    labelSource
+    basis
     caen {
       code
       revision
@@ -138,6 +140,15 @@ const BUCKET = /* GraphQL */ `
     }
   }
 `;
+
+/** The whole release ref (MCP returns the whole object, so parity selects all of it). */
+const RELEASE = `release {
+  releaseId publishedAt active
+  source {
+    editionId publicationEpoch sourceSnapshotId sourcePublishedAt interpretationVersion
+    privacyPolicyVersion dimensionPolicyVersion eligibilityPolicyVersion
+  }
+}`;
 
 let app: FastifyInstance;
 let tools: readonly KernelMcpTool[];
@@ -163,7 +174,7 @@ describe('companies analytics GraphQL and MCP surfaces', () => {
       `${AGGREGATE}
       query ($scope: CompanyAnalysisScopeInput) {
         companyAnalysisStats(release: "7", scope: $scope, metrics: [TURNOVER, EMPLOYEES]) {
-          release { releaseId publishedAt active }
+          ${RELEASE}
           scope scopeHash fiscalYear companies filers nonFilers caveats
           metrics { ...Agg }
         }
@@ -189,7 +200,7 @@ describe('companies analytics GraphQL and MCP surfaces', () => {
       `${AGGREGATE}${BUCKET}
       query {
         companyAnalysisBreakdown(dimension: MAIN_CAEN, topN: 1) {
-          release { releaseId publishedAt active }
+          ${RELEASE}
           scope scopeHash fiscalYear dimension metric groupCount rankBy rankedBy topN caveats
           groups { ...Bucket }
           other { ...Bucket }
@@ -213,7 +224,7 @@ describe('companies analytics GraphQL and MCP surfaces', () => {
       `${AGGREGATE}
       query {
         companyAnalysisSeries(metric: EMPLOYEES, cohortMode: EACH_YEAR) {
-          release { releaseId publishedAt active }
+          ${RELEASE}
           scope scopeHash fiscalYear metric unit kind cohortMode referenceYear cohortCompanies
           fromYear toYear caveats
           points { fiscalYear available gapReason companies filers metric { ...Agg } }
@@ -231,14 +242,17 @@ describe('companies analytics GraphQL and MCP surfaces', () => {
 
   it('pages records identically and accepts each surface’s cursor on the other', async () => {
     const selection = `
-      release { releaseId publishedAt active }
+      ${RELEASE}
       scope scopeHash fiscalYear sort sortMetric direction totalCount caveats
       pageInfo { hasNextPage endCursor }
       edges {
         cursor
         node {
-          cui currentName legalForm registrationYear filed employeeSizeBand vatPayer fiscallyInactive
-          county { code label } uat { code label } observedStatus { code label }
+          cui currentName legalForm legalFormBasis filed employeeSizeBand vatPayer fiscallyInactive
+          county { code label labelSource } countyBasis
+          uat { code label labelSource } uatBasis
+          observedStatus { code label labelSource } observedStatusBasis observedStatusCoverage
+          onrcCaenCoverage onrcRecordedDate onrcRecordedYear onrcRecordedDateBasis
           mainCaen { code revision basis label }
           values { metric value status }
         }

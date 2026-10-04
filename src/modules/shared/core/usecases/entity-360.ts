@@ -10,7 +10,7 @@
 
 import { err, ok, type Result } from 'neverthrow';
 
-import { invalidInput, type ApiError } from '../errors.js';
+import { invalidInput, isAccessRefusal, type ApiError } from '../errors.js';
 import {
   MAX_SERVED_CUI_DIGITS,
   isWithheldOrganizationIdentifier,
@@ -24,7 +24,13 @@ import {
   type Territory,
 } from '../types.js';
 
-import type { ContributorRegistry, FlowsRepo, IdentityRepo, SearchRepo } from '../ports.js';
+import type {
+  ContributorRegistry,
+  FlowsRepo,
+  IdentityRepo,
+  SearchRepo,
+  ServedFactsCheck,
+} from '../ports.js';
 
 export interface Entity360Deps {
   readonly identityRepo: IdentityRepo;
@@ -90,17 +96,49 @@ export const makeEntityCore = async (
   return ok({ cui, organization: orgRes.value });
 };
 
-/** Resolve the present source contributors for a CUI (field-level). */
+/** The contributor fan-out of one CUI: what the sources served, and how to confirm it. */
+export interface EntityPresenceFanOut {
+  readonly presences: readonly SourcePresence[];
+  /** Final access decisions for served presences (only sources that define one). */
+  readonly checks: readonly ServedFactsCheck[];
+}
+
+/**
+ * Resolve the present source contributors for a CUI. An advisory contributor
+ * error degrades its source to absent; a guard refusal (`accessRefused`) is
+ * returned, so it reaches the owning entity instead of becoming a missing badge.
+ */
 export const resolveEntityPresence = async (
   registry: ContributorRegistry,
   cui: Cui
-): Promise<readonly SourcePresence[]> => {
-  const results = await Promise.all(registry.list().map((c) => c.presenceFor(cui)));
-  const presences: SourcePresence[] = [];
+): Promise<Result<EntityPresenceFanOut, ApiError>> => {
+  const contributors = registry.list();
+  const results = await Promise.all(contributors.map((c) => c.presenceFor(cui)));
   for (const res of results) {
-    if (res.isOk() && res.value !== null) presences.push(res.value);
+    if (res.isErr() && isAccessRefusal(res.error)) return err(res.error);
   }
-  return presences;
+  const presences: SourcePresence[] = [];
+  const checks: ServedFactsCheck[] = [];
+  results.forEach((res, index) => {
+    if (res.isErr() || res.value === null) return;
+    const presence = res.value;
+    presences.push(presence);
+    const contributor = contributors[index];
+    if (contributor?.confirmServed !== undefined) {
+      const confirmServed = contributor.confirmServed.bind(contributor);
+      checks.push(() => confirmServed(cui, presence));
+    }
+  });
+  return ok({ presences, checks });
+};
+
+/** Run final decisions together; the first failure (a refusal or an untakeable decision) wins. */
+export const confirmServedFacts = async (
+  checks: readonly ServedFactsCheck[]
+): Promise<Result<void, ApiError>> => {
+  const results = await Promise.all(checks.map((check) => check()));
+  for (const res of results) if (res.isErr()) return err(res.error);
+  return ok(undefined);
 };
 
 export const makeEntity360 = async (
@@ -116,15 +154,19 @@ export const makeEntity360 = async (
 
   const { identityRepo, flowsRepo, searchRepo, registry } = deps;
 
-  const [orgRes, territoryRes, flowsInRes, flowsOutRes, docCountRes, presence] = await Promise.all([
-    identityRepo.findByCui(cui),
-    identityRepo.territoryForCui(cui),
-    flowsRepo.getFlowSummary(cui, 'in'),
-    flowsRepo.getFlowSummary(cui, 'out'),
-    searchRepo.countByCui(cui),
-    Promise.all(registry.list().map((c) => c.presenceFor(cui))),
-  ]);
+  const [orgRes, territoryRes, flowsInRes, flowsOutRes, docCountRes, presenceRes] =
+    await Promise.all([
+      identityRepo.findByCui(cui),
+      identityRepo.territoryForCui(cui),
+      flowsRepo.getFlowSummary(cui, 'in'),
+      flowsRepo.getFlowSummary(cui, 'out'),
+      searchRepo.countByCui(cui),
+      resolveEntityPresence(registry, cui),
+    ]);
 
+  // A source's guard refusal of this entity withholds the whole snapshot:
+  // never the earlier organization and facts next to a missing badge.
+  if (presenceRes.isErr()) return err(presenceRes.error);
   if (orgRes.isErr()) return err(orgRes.error);
   if (territoryRes.isErr()) return err(territoryRes.error);
   if (flowsInRes.isErr()) return err(flowsInRes.error);
@@ -142,11 +184,12 @@ export const makeEntity360 = async (
     identifiers = idRes.value;
   }
 
-  // Drop contributor errors but keep the rest (entity-360 degrades gracefully).
-  const presences: SourcePresence[] = [];
-  for (const res of presence) {
-    if (res.isOk() && res.value !== null) presences.push(res.value);
-  }
+  // Advisory contributor errors were dropped (entity-360 degrades gracefully).
+  // The final access decision of every guarded fact served comes AFTER the
+  // whole fan-out settled: a parent restricted or a source scope moved while
+  // any leg was pending withholds the snapshot.
+  const confirmed = await confirmServedFacts(presenceRes.value.checks);
+  if (confirmed.isErr()) return err(confirmed.error);
 
   return ok({
     cui,
@@ -156,7 +199,7 @@ export const makeEntity360 = async (
     flowsIn: flowsInRes.value,
     flowsOut: flowsOutRes.value,
     documentCount,
-    presence: presences,
+    presence: presenceRes.value.presences,
   });
 };
 
