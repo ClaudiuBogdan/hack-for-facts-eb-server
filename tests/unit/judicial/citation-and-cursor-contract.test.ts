@@ -415,6 +415,7 @@ describe('A1 temporal display — SQL text passes through repos, usecase, scalar
     expect(out.item).toMatchObject({
       case: {
         sourceOpenedAt: '0001-12-31 BC',
+        sourceOpenedAtBasis: 'portal_header_data',
         latestSourceModifiedAt: '10000-01-01T00:00:00.000000+00 AD',
       },
       hearings: [
@@ -422,7 +423,15 @@ describe('A1 temporal display — SQL text passes through repos, usecase, scalar
         { hearingAt: 'infinity', pronouncementDate: '0001-12-31 BC' },
       ],
       appeals: [{ appealDeclaredAt: '-infinity' }],
-      asOf: { asOf: 'infinity', estimated: true },
+      // A2: the additive source-scoped metadata (this case's source is portal_just).
+      asOf: {
+        asOf: 'infinity',
+        estimated: true,
+        sourceSlug: 'portal_just',
+        basis: 'max_stored_source_modified_at',
+        captureFreshnessAt: null,
+        loadFreshnessAt: null,
+      },
     });
   });
 });
@@ -516,6 +525,8 @@ describe('A1 case-list cursors — every edge cursor is the row exact tuple', ()
         stageName: 0,
         object: 0,
         sourceOpenedAt: 0,
+        // A2: the additive date basis (a domain field, not cursor metadata).
+        sourceOpenedAtBasis: 0,
         latestSourceModifiedAt: 0,
       }).sort()
     );

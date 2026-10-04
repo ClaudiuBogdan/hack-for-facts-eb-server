@@ -1311,7 +1311,15 @@ describeA1('judicial A1 — actual DDL, explicit throwaway database', () => {
           documentDate: h.documentDisplay,
         })),
         appeals: expectedAppeals,
-        asOf: { asOf: '2025-06-01T12:00:00.500Z', estimated: true },
+        // A2: the additive source-scoped metadata (every A1 case is portal_just).
+        asOf: {
+          asOf: '2025-06-01T12:00:00.500Z',
+          estimated: true,
+          sourceSlug: 'portal_just',
+          basis: 'max_stored_source_modified_at',
+          captureFreshnessAt: null,
+          loadFreshnessAt: null,
+        },
       });
     }
   );
@@ -1403,9 +1411,18 @@ describeA1('judicial A1 — actual DDL, explicit throwaway database', () => {
           case: {
             caseId: '1001',
             sourceOpenedAt: reader.session.opened['1001'],
+            sourceOpenedAtBasis: 'portal_header_data',
             latestSourceModifiedAt: '294276-12-31T23:59:59.999999+00 AD',
           },
-          asOf: { asOf: 'infinity', estimated: true },
+          // A2: the additive source-scoped metadata (every A1 case is portal_just).
+          asOf: {
+            asOf: 'infinity',
+            estimated: true,
+            sourceSlug: 'portal_just',
+            basis: 'max_stored_source_modified_at',
+            captureFreshnessAt: null,
+            loadFreshnessAt: null,
+          },
         });
       }
     );

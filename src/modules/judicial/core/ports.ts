@@ -89,8 +89,13 @@ export interface JudicialCaseRepo {
   ): Promise<Result<CursorPage<JudicialCursorItem<JudicialCase>>, ApiError>>;
   /** JD-2: cases by institution × category × year × courtLevel. Bounded; aggregate timeout. */
   aggregate(opts: CaseAggregateOptions): Promise<Result<JudicialCaseAggregate, ApiError>>;
-  /** Domain freshness watermark — interim `max(cases.last_seen_at)` (§10). */
-  getAsOf(): Promise<Result<JudicialAsOf, ApiError>>;
+  /**
+   * The stored `max(cases.latest_source_modified_at)` of ONE source (§10, A2):
+   * parameterized `where source_slug = sourceSlug`, never a global maximum
+   * borrowed across sources. Null `asOf` when that source stores no
+   * modification time; capture/load freshness are not established (null).
+   */
+  getAsOf(sourceSlug: string): Promise<Result<JudicialAsOf, ApiError>>;
 }
 
 // ── Hearings & appeals (children; always bounded by case_id) ───────────────────

@@ -16,7 +16,7 @@
 
 import { toGraphQLInput } from '@/modules/shared/index.js';
 
-import { JUDICIAL_COURT_LEVELS } from '../../core/types.js';
+import { JUDICIAL_COURT_LEVELS, JUDICIAL_SOURCE_OPENED_AT_BASES } from '../../core/types.js';
 import { judicialCasesSpec, judicialCourtsSpec } from '../filters/judicial.spec.js';
 
 const filterInputs = `${toGraphQLInput(judicialCasesSpec)}\n\n${toGraphQLInput(judicialCourtsSpec)}`;
@@ -24,8 +24,16 @@ const filterInputs = `${toGraphQLInput(judicialCasesSpec)}\n\n${toGraphQLInput(j
 /** Rendered from the one court-level taxonomy so the SDL cannot drift from it. */
 const courtLevelEnum = `enum JudicialCourtLevel {\n${JUDICIAL_COURT_LEVELS.map((l) => `  ${l}`).join('\n')}\n}`;
 
+/** Rendered from the one date-basis list (A2) so the SDL cannot drift from it. */
+const openedAtBasisEnum = `"What JudicialCase.sourceOpenedAt means for the source of the case: portal_header_data (the Portal Just case header data field), iccj_earliest_captured_session (the earliest captured ICCJ session for that case number; not a proven registration or first appearance), unknown (another source; the value is kept without a meaning)."\nenum JudicialSourceOpenedAtBasis {\n${JUDICIAL_SOURCE_OPENED_AT_BASES.map((b) => `  ${b}`).join('\n')}\n}`;
+
 const objectsAndQuery = /* GraphQL */ `
   ${courtLevelEnum}
+  ${openedAtBasisEnum}
+  "How JudicialAsOf.asOf is derived. max_stored_source_modified_at: the maximum stored latestSourceModifiedAt among the cases of one source."
+  enum JudicialAsOfBasis {
+    max_stored_source_modified_at
+  }
   enum JudicialPartyKind {
     company
     public_entity
@@ -59,7 +67,13 @@ const objectsAndQuery = /* GraphQL */ `
     courtLevel: JudicialCourtLevel!
     specialization: String
     locality: String
+    "County abbreviation exactly as stored on the court (courts.county_code, e.g. B, TM); not a SIRUTA code."
+    countyCode: String
+    "Misnamed compatibility alias: the same county abbreviation as countyCode, NOT a SIRUTA identifier."
     countySirutaCode: String
+      @deprecated(
+        reason: "Misnamed: carries the county abbreviation (same value as countyCode), not a SIRUTA code. Use countyCode."
+      )
     parentInstitutionCode: String
     mappingConfidence: JudicialMappingConfidence!
     children: [JudicialCourt!]!
@@ -79,8 +93,10 @@ const objectsAndQuery = /* GraphQL */ `
     stageName: String
     "Raw procedural object text — SAFE (the subject of the case, never party names)."
     object: String
-    "Opening date in the server session timezone (YYYY-MM-DD). Exceptional stored values are explicit: an era suffix outside AD 1-9999 (0001-12-31 BC, 10000-01-01 AD) or infinity/-infinity. Display only; pagination uses the exact timestamp."
+    "Source-dependent case date (see sourceOpenedAtBasis: the Portal Just header data field, or the earliest captured ICCJ session) - not a verified filing, registration or first-ever date. Displayed in the server session timezone (YYYY-MM-DD). Exceptional stored values are explicit: an era suffix outside AD 1-9999 (0001-12-31 BC, 10000-01-01 AD) or infinity/-infinity. Display only; pagination uses the exact timestamp."
     sourceOpenedAt: Date
+    "What sourceOpenedAt means for the source of this case (from its sourceSlug); present even when sourceOpenedAt is null."
+    sourceOpenedAtBasis: JudicialSourceOpenedAtBasis!
     "Latest source modification, UTC with millisecond display (YYYY-MM-DDTHH:mm:ss.SSSZ). Exceptional stored values are explicit: exact UTC text with era outside AD 1-9999 (10000-01-01T00:00:00.000000+00 AD) or infinity/-infinity. Display only; pagination uses the full-precision timestamp."
     latestSourceModifiedAt: DateTime
   }
@@ -120,7 +136,7 @@ const objectsAndQuery = /* GraphQL */ `
     legalForm: String
   }
 
-  "A legal-act citation extracted from a case. citation is the exact stored extracted token, not the surrounding source text; act fields are as resolved (null when unresolved)."
+  "A legal-act citation extracted from a case. citation is the exact stored extracted token, not the surrounding source text; identity and resolution fields are returned as stored, including nulls."
   type JudicialLegalRef {
     caseLegalReferenceId: BigInt!
     caseId: BigInt!
@@ -153,11 +169,19 @@ const objectsAndQuery = /* GraphQL */ `
     validationStatus: String!
   }
 
-  "Domain freshness watermark (§10)."
+  "Source-scoped as-of metadata of a case detail (§10). It reports a stored source-modified maximum for the source of the case only - not dataset freshness, capture completeness, head observation or load time."
   type JudicialAsOf {
-    "Interim estimate: the maximum latestSourceModifiedAt, rendered like that field (including explicit exceptional text)."
+    "The maximum stored latestSourceModifiedAt among the cases of sourceSlug only (never that of another source), rendered like that field (including explicit exceptional text); null when that source stores no modification time (e.g. ICCJ)."
     asOf: DateTime
+    "Always true: asOf is an estimate, not a freshness guarantee."
     estimated: Boolean!
+    "The source whose stored maximum asOf reports: the sourceSlug of the case."
+    sourceSlug: String!
+    basis: JudicialAsOfBasis!
+    "Not established: always null."
+    captureFreshnessAt: DateTime
+    "Not established: always null."
+    loadFreshnessAt: DateTime
   }
 
   "The case-detail composite. parties are name-gated; person/unknown contribute only to personPartyCount."
@@ -170,6 +194,7 @@ const objectsAndQuery = /* GraphQL */ `
     personPartyCount: Int!
     legalReferences: [JudicialLegalRef!]!
     lineage: [JudicialLineageEdge!]!
+    "Stored source-modified maximum of the source of this case (not dataset freshness)."
     asOf: JudicialAsOf!
   }
 
@@ -199,6 +224,7 @@ const objectsAndQuery = /* GraphQL */ `
     courtLevel: JudicialCourtLevel!
     count: Int!
   }
+  "A year bucket: the session calendar year of the source-dependent sourceOpenedAt (mixed sources combine different clocks)."
   type JudicialYearCount {
     year: Int!
     count: Int!
@@ -219,6 +245,7 @@ const objectsAndQuery = /* GraphQL */ `
     institutionCode: String!
     caseNumber: String!
     category: String
+    "The source-dependent date of the linked case as stored (Portal Just header data or the earliest captured ICCJ session) - not a universal opening or filing date."
     sourceOpenedAt: Date
   }
   type JudicialCaseLinkEdge {
@@ -273,12 +300,12 @@ const objectsAndQuery = /* GraphQL */ `
       first: Int = 20
       after: String
     ): JudicialCaseConnection!
-    "Court caseload analytics (JD-2). Deterministic SQL; requires a court/level/period bound."
+    "Court caseload analytics (JD-2). Deterministic SQL; requires a court/level/period bound. groupBy year uses the session calendar year of the source-dependent sourceOpenedAt; counts over several sources combine different source clocks."
     judicialCaseload(
       groupBy: JudicialAggregateGroupBy!
       filter: JudicialCasesFilter
     ): JudicialCaseAggregate!
-    "Company litigation (JD-1). published-only ⇒ empty in v1. Optional courtLevel/year/category narrowing (§7.3)."
+    "Company litigation (JD-1). published-only ⇒ empty in v1. Optional courtLevel/year/category narrowing (§7.3); years are session calendar years of the source-dependent sourceOpenedAt."
     judicialCompanyLitigation(
       cui: String!
       courtLevel: [JudicialCourtLevel!]

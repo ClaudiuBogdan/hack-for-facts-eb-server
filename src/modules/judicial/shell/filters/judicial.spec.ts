@@ -75,7 +75,8 @@ export const judicialCasesSpec: CollectionFilterSpec = {
       ops: ['eq', 'gte', 'lte', 'between'],
       column: { alias: 'c', column: 'source_opened_at' },
       virtual: true,
-      description: 'Case opened year (derived from source_opened_at).',
+      description:
+        'Session calendar year of sourceOpenedAt, a SOURCE-DEPENDENT date (see JudicialCase.sourceOpenedAtBasis: Portal Just header data, ICCJ earliest captured session, otherwise unknown) - not a universal filing date. A range over several sources combines their different clocks.',
     },
     {
       name: 'modified',
@@ -119,12 +120,24 @@ export const judicialCourtsSpec: CollectionFilterSpec = {
       enumValues: COURT_LEVEL_VALUES,
     },
     {
+      name: 'countyCode',
+      type: 'string',
+      ops: ['in'],
+      column: { alias: 'co', column: 'county_code' },
+      array: true,
+      description:
+        'County abbreviation(s) exactly as stored on the court (courts.county_code, e.g. B, TM). Not a SIRUTA code.',
+    },
+    {
+      // DEPRECATED, MISNAMED alias kept for compatibility: the same column and
+      // values as countyCode. Supplying both ANDs the two predicates.
       name: 'countySiruta',
       type: 'string',
       ops: ['in'],
       column: { alias: 'co', column: 'county_code' },
       array: true,
-      description: 'County code (soft link to the territory hub).',
+      description:
+        'DEPRECATED misnamed alias of countyCode: filters the same county abbreviation (courts.county_code, e.g. B, TM), NOT a SIRUTA code. When both countyCode and countySiruta are supplied, both predicates apply (AND).',
     },
     {
       name: 'specialization',

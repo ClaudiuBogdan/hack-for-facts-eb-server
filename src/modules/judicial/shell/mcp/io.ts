@@ -60,8 +60,20 @@ export const getCourtCaseloadInput = {
     .optional()
     .describe('Bound to court level(s).'),
   category: z.array(z.string()).optional().describe('Bound to category code(s).'),
-  yearFrom: z.number().int().optional().describe('Opened-year lower bound.'),
-  yearTo: z.number().int().optional().describe('Opened-year upper bound.'),
+  yearFrom: z
+    .number()
+    .int()
+    .optional()
+    .describe(
+      'Lower bound on the session calendar year of the source-dependent sourceOpenedAt (Portal Just header data / ICCJ earliest captured session); not a universal filing year.'
+    ),
+  yearTo: z
+    .number()
+    .int()
+    .optional()
+    .describe(
+      'Upper bound on the session calendar year of the source-dependent sourceOpenedAt; not a universal filing year.'
+    ),
   // A court/level/period bound is REQUIRED (else InvalidInput — no unbounded scan).
 };
 
@@ -73,8 +85,20 @@ export const getCompanyLitigationInput = {
     .array(z.enum(JUDICIAL_COURT_LEVELS))
     .optional()
     .describe('Optional court-level narrowing (§7.3).'),
-  yearFrom: z.number().int().optional().describe('Optional opened-year lower bound.'),
-  yearTo: z.number().int().optional().describe('Optional opened-year upper bound.'),
+  yearFrom: z
+    .number()
+    .int()
+    .optional()
+    .describe(
+      'Optional lower bound on the session calendar year of the source-dependent case date; not a universal filing year.'
+    ),
+  yearTo: z
+    .number()
+    .int()
+    .optional()
+    .describe(
+      'Optional upper bound on the session calendar year of the source-dependent case date; not a universal filing year.'
+    ),
   category: z.array(z.string()).optional().describe('Optional category narrowing.'),
 };
 

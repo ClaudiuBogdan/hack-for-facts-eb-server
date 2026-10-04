@@ -44,6 +44,32 @@ export type JudicialPartyKind = 'company' | 'public_entity' | 'person' | 'unknow
 /** `justice.courts.mapping_confidence` (DB CHECK). */
 export type JudicialMappingConfidence = 'high' | 'medium' | 'low';
 
+/**
+ * What `JudicialCase.sourceOpenedAt` means, by the case's actual `source_slug`
+ * (A2). The value is a source clock, not a universal filing or first-ever date:
+ *  - `portal_header_data`: the Portal Just case header's `data` field, copied by
+ *    the raw parser and writer (`source_slug = 'portal_just'`);
+ *  - `iccj_earliest_captured_session`: the earliest captured ICCJ session for
+ *    that case number in the ICCJ archive lane (`source_slug = 'iccj'`) — not a
+ *    proven registration or first appearance;
+ *  - `unknown`: any other source; the value is preserved without a meaning.
+ * The basis describes the source lane even when the date itself is null.
+ */
+export const JUDICIAL_SOURCE_OPENED_AT_BASES = [
+  'portal_header_data',
+  'iccj_earliest_captured_session',
+  'unknown',
+] as const;
+
+export type JudicialSourceOpenedAtBasis = (typeof JUDICIAL_SOURCE_OPENED_AT_BASES)[number];
+
+/** The basis from the case's stored `source_slug` (never an id, court or number heuristic). */
+export const sourceOpenedAtBasisFor = (sourceSlug: string): JudicialSourceOpenedAtBasis => {
+  if (sourceSlug === 'portal_just') return 'portal_header_data';
+  if (sourceSlug === 'iccj') return 'iccj_earliest_captured_session';
+  return 'unknown';
+};
+
 // ── Court ──────────────────────────────────────────────────────────────────────
 
 export interface JudicialCourt {
@@ -52,7 +78,14 @@ export interface JudicialCourt {
   readonly courtLevel: JudicialCourtLevel;
   readonly specialization: string | null;
   readonly locality: string | null;
-  readonly countySirutaCode: string | null; // courts.county_code → core.territories (soft)
+  /** The county ABBREVIATION exactly as stored (`courts.county_code`, e.g. `B`, `TM`); not a SIRUTA code. */
+  readonly countyCode: string | null;
+  /**
+   * @deprecated Misnamed compatibility alias: the SAME county abbreviation as
+   * `countyCode` (`courts.county_code`), NOT a SIRUTA identifier. No SIRUTA
+   * mapping is qualified; use `countyCode`.
+   */
+  readonly countySirutaCode: string | null;
   readonly parentInstitutionCode: string | null;
   readonly mappingConfidence: JudicialMappingConfidence;
   // courts.evidence (jsonb), mapping_notes: NOT projected.
@@ -79,11 +112,14 @@ export interface JudicialCase {
   readonly stageName: string | null;
   readonly object: string | null; // raw object text — safe (procedural subject, not parties)
   /**
-   * Display date in the session timezone: `YYYY-MM-DD` for AD years 1–9999;
-   * otherwise explicit PostgreSQL text (`0001-12-31 BC`, `10000-01-01 AD`,
-   * `infinity`, `-infinity`). Never a pagination key.
+   * The source-dependent case date (see `sourceOpenedAtBasis`), displayed in
+   * the session timezone: `YYYY-MM-DD` for AD years 1–9999; otherwise explicit
+   * PostgreSQL text (`0001-12-31 BC`, `10000-01-01 AD`, `infinity`,
+   * `-infinity`). Never a pagination key.
    */
   readonly sourceOpenedAt: string | null;
+  /** What `sourceOpenedAt` means for this case's source (from its `source_slug`). */
+  readonly sourceOpenedAtBasis: JudicialSourceOpenedAtBasis;
   /**
    * UTC display timestamp: `YYYY-MM-DDTHH:mm:ss.SSSZ` (millisecond display) for AD
    * years 1–9999; otherwise the exact UTC text with era
@@ -181,7 +217,7 @@ export interface JudicialCaseDetail {
   readonly personPartyCount: number;
   readonly legalReferences: readonly JudicialLegalRef[];
   readonly lineage: readonly JudicialLineageEdge[];
-  /** Domain freshness watermark (§10). */
+  /** The case source's stored source-modified maximum (§10); not dataset freshness. */
   readonly asOf: JudicialAsOf;
 }
 
@@ -279,10 +315,28 @@ export type JudicialResolveDim = 'court' | 'courtLevel' | 'companyName' | 'categ
 
 // ── As-of metadata (§10) ───────────────────────────────────────────────────────
 
+/**
+ * The as-of metadata of a case detail (A2): scoped to the case's SOURCE, never
+ * the global maximum across Justice sources, and never the individual case.
+ */
 export interface JudicialAsOf {
-  /** `max(cases.latest_source_modified_at)`, rendered like `latestSourceModifiedAt`. */
+  /**
+   * `max(cases.latest_source_modified_at)` over the cases of `sourceSlug` only,
+   * rendered like `latestSourceModifiedAt` (explicit text for an exceptional
+   * maximum). Null when that source stores no modification time (e.g. ICCJ).
+   * A stored source-modified maximum — not capture completeness, head
+   * observation or load time.
+   */
   readonly asOf: string | null;
+  /** Always true (compatibility): `asOf` is an estimate, not a freshness guarantee. */
   readonly estimated: boolean;
+  /** The source whose stored maximum `asOf` reports (the case's `source_slug`). */
+  readonly sourceSlug: string;
+  readonly basis: 'max_stored_source_modified_at';
+  /** Not established in A2: always null. */
+  readonly captureFreshnessAt: string | null;
+  /** Not established in A2: always null. */
+  readonly loadFreshnessAt: string | null;
 }
 
 // ── Sort keys ──────────────────────────────────────────────────────────────────

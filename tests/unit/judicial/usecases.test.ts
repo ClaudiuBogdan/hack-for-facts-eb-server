@@ -16,9 +16,21 @@ import {
   type JudicialRepos,
 } from '@/modules/judicial/core/usecases.js';
 
-import type { JudicialParty, PublishableName } from '@/modules/judicial/core/types.js';
+import type {
+  JudicialAsOf,
+  JudicialCase,
+  JudicialParty,
+  PublishableName,
+} from '@/modules/judicial/core/types.js';
 
-const asOf = { asOf: '2026-06-07T00:00:00.000Z', estimated: true };
+const asOf: JudicialAsOf = {
+  asOf: '2026-06-07T00:00:00.000Z',
+  estimated: true,
+  sourceSlug: 'portal_just',
+  basis: 'max_stored_source_modified_at',
+  captureFreshnessAt: null,
+  loadFreshnessAt: null,
+};
 
 /** A repos stub where each port is a vi.fn returning an ok() of a sensible default. */
 const makeRepos = (over: Partial<Record<keyof JudicialRepos, unknown>> = {}): JudicialRepos => {
@@ -68,7 +80,7 @@ const makeRepos = (over: Partial<Record<keyof JudicialRepos, unknown>> = {}): Ju
   return { ...base, ...over } as JudicialRepos;
 };
 
-const theCase = {
+const theCase: JudicialCase = {
   caseId: '100',
   sourceSlug: 'portal_just',
   institutionCode: 'JUDX',
@@ -81,6 +93,7 @@ const theCase = {
   stageName: 'Fond',
   object: 'pretenții',
   sourceOpenedAt: '2024-01-01',
+  sourceOpenedAtBasis: 'portal_header_data',
   latestSourceModifiedAt: '2024-02-01T00:00:00.000Z',
 };
 
@@ -208,6 +221,55 @@ describe('getCaseDetail — the privacy-critical name merge (§3.2)', () => {
     // shared key (500) and the declined company row's key (999) are NOT sent —
     // proving the merge cannot resolve a name for a non-publishable row.
     expect(dict.getPublishableNames).toHaveBeenCalledWith(['500']);
+  });
+});
+
+describe('getCaseDetail — as-of is scoped to the RESOLVED case source (A2)', () => {
+  it.each([
+    ['by id', { caseId: '200' }],
+    ['by natural key', { institutionCode: 'InaltaCurtedeCasatiesiJustitie', caseNumber: '7/2020' }],
+  ] as const)('passes the case source_slug to getAsOf (%s)', async (_label, ref) => {
+    const iccjCase: JudicialCase = {
+      ...theCase,
+      caseId: '200',
+      sourceSlug: 'iccj',
+      institutionCode: 'InaltaCurtedeCasatiesiJustitie',
+      caseNumber: '7/2020',
+      sourceOpenedAt: null,
+      sourceOpenedAtBasis: 'iccj_earliest_captured_session',
+      latestSourceModifiedAt: null,
+    };
+    const iccjAsOf: JudicialAsOf = { ...asOf, asOf: null, sourceSlug: 'iccj' };
+    const getAsOf = vi.fn(async (_sourceSlug: string) => ok(iccjAsOf));
+    const repos = makeRepos({
+      cases: {
+        getById: vi.fn(async () => ok(iccjCase)),
+        getByNaturalKey: vi.fn(async () => ok(iccjCase)),
+        listCursor: vi.fn(async () => ok({ items: [], next: null })),
+        aggregate: vi.fn(async () => ok({ groups: [], denominator: 0, coverage: 0 })),
+        getAsOf,
+      },
+    });
+
+    const detail = (await getCaseDetail(repos, ref))._unsafeUnwrap();
+
+    expect(getAsOf).toHaveBeenCalledTimes(1);
+    expect(getAsOf).toHaveBeenCalledWith('iccj');
+    expect(detail?.asOf).toEqual({
+      asOf: null,
+      estimated: true,
+      sourceSlug: 'iccj',
+      basis: 'max_stored_source_modified_at',
+      captureFreshnessAt: null,
+      loadFreshnessAt: null,
+    });
+  });
+
+  it('does not read as-of for a missing case', async () => {
+    const repos = makeRepos();
+    const res = await getCaseDetail(repos, { caseId: '404' });
+    expect(res._unsafeUnwrap()).toBeNull();
+    expect(repos.cases.getAsOf).not.toHaveBeenCalled();
   });
 });
 

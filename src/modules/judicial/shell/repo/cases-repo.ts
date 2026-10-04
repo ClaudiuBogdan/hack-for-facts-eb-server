@@ -44,16 +44,17 @@ import {
   yearBounds,
 } from './filter-helpers.js';
 import { exactTimestampText, sessionDateDisplay, utcTimestampDisplay } from './temporal-sql.js';
+import {
+  sourceOpenedAtBasisFor,
+  type JudicialAggregateGroup,
+  type JudicialAsOf,
+  type JudicialCase,
+  type JudicialCaseAggregate,
+  type JudicialCursorItem,
+} from '../../core/types.js';
 import { judicialCasesSpec } from '../filters/judicial.spec.js';
 
 import type { CaseAggregateOptions, CaseListOptions, JudicialCaseRepo } from '../../core/ports.js';
-import type {
-  JudicialAggregateGroup,
-  JudicialAsOf,
-  JudicialCase,
-  JudicialCaseAggregate,
-  JudicialCursorItem,
-} from '../../core/types.js';
 
 type Db = Kysely<ProdDatabase>;
 
@@ -101,6 +102,7 @@ const mapCase = (r: CaseRow): JudicialCase => ({
   stageName: r.stage_name,
   object: r.object,
   sourceOpenedAt: r.source_opened_at,
+  sourceOpenedAtBasis: sourceOpenedAtBasisFor(r.source_slug),
   latestSourceModifiedAt: r.latest_source_modified_at,
 });
 
@@ -424,15 +426,29 @@ export const makeJudicialCaseRepo = (db: Db): JudicialCaseRepo => {
     }
   };
 
-  const getAsOf = async (): Promise<Result<JudicialAsOf, ApiError>> => {
+  const getAsOf = async (sourceSlug: string): Promise<Result<JudicialAsOf, ApiError>> => {
     try {
-      // Same MAX as before; rendered in SQL so an exceptional maximum (BC,
-      // expanded year, infinity) is reported as text instead of failing the read.
+      // The stored MAX of ONE source (A2): a parameterized source filter, never
+      // a global maximum borrowed across sources. Rendered in SQL (A1) so an
+      // exceptional maximum (BC, expanded year, infinity) stays explicit text; a
+      // source with no stored modification time yields NULL.
       const r = await sql<{ as_of: string | null }>`
         select ${utcTimestampDisplay(sql`m.max_modified`)} as as_of
-        from (select max(c.latest_source_modified_at) as max_modified from justice.cases c) m
+        from (
+          select max(c.latest_source_modified_at) as max_modified
+          from justice.cases c
+          where c.source_slug = ${sourceSlug}
+        ) m
       `.execute(db);
-      return ok({ asOf: r.rows[0]?.as_of ?? null, estimated: true });
+      return ok({
+        asOf: r.rows[0]?.as_of ?? null,
+        estimated: true,
+        sourceSlug,
+        basis: 'max_stored_source_modified_at',
+        // Not established by any stored evidence yet (A2): honest unknowns.
+        captureFreshnessAt: null,
+        loadFreshnessAt: null,
+      });
     } catch (error) {
       return err(databaseError('cases.getAsOf failed', error));
     }

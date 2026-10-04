@@ -110,7 +110,8 @@ export const getCaseDetail = async (
     repos.parties.listForCase(caseId),
     repos.legalRefs.listForCase(caseId),
     repos.lineage.lineageForCase(caseId),
-    repos.cases.getAsOf(),
+    // As-of is scoped to the RESOLVED case's source (A2), never a global maximum.
+    repos.cases.getAsOf(theCase.sourceSlug),
   ]);
   if (hearingsRes.isErr()) return err(hearingsRes.error);
   if (appealsRes.isErr()) return err(appealsRes.error);

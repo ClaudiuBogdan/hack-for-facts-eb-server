@@ -53,6 +53,9 @@ const mapCourt = (r: CourtRow): JudicialCourt => ({
   courtLevel: r.court_level as JudicialCourtLevel,
   specialization: r.specialization,
   locality: r.locality,
+  // The county ABBREVIATION as stored. `countySirutaCode` is the deprecated,
+  // misnamed alias carrying the same value — never a guessed SIRUTA mapping.
+  countyCode: r.county_code,
   countySirutaCode: r.county_code,
   parentInstitutionCode: r.parent_institution_code,
   mappingConfidence: r.mapping_confidence as JudicialMappingConfidence,

@@ -126,7 +126,7 @@ export const makeJudicialMcpTools = (deps: JudicialMcpDeps): readonly KernelMcpT
   const getJudicialCase: KernelMcpTool = {
     name: 'get_judicial_case',
     description:
-      'Get a case by numeric caseId OR natural key (institutionCode + caseNumber): the case, hearings (NO solution/solution_summary), appeals, name-gated parties (company/public names and keys only; withheld identities contribute only to personPartyCount), legal references, and lineage candidates.',
+      'Get a case by numeric caseId OR natural key (institutionCode + caseNumber): the case (sourceOpenedAt is a source-dependent date, explained by sourceOpenedAtBasis), hearings (NO solution/solution_summary), appeals, name-gated parties (company/public names and keys only; withheld identities contribute only to personPartyCount), legal references, lineage candidates, and asOf: the stored source-modified maximum of the source of that case (null when that source stores none), not dataset freshness.',
     inputShape: getJudicialCaseInput,
     async handler(args): Promise<McpToolOutput> {
       const caseId = str(args, 'caseId');
@@ -167,7 +167,7 @@ export const makeJudicialMcpTools = (deps: JudicialMcpDeps): readonly KernelMcpT
   const getCourtCaseloadTool: KernelMcpTool = {
     name: 'get_court_caseload',
     description:
-      'Court caseload analytics (JD-2): case counts grouped by court/category/year/courtLevel. Deterministic SQL; REQUIRES a court/level/period bound (else InvalidInput). Returns groups + denominator + coverage.',
+      'Court caseload analytics (JD-2): case counts grouped by court/category/year/courtLevel. Year is the session calendar year of the source-dependent sourceOpenedAt (counts over several sources combine different source clocks). Deterministic SQL; REQUIRES a court/level/period bound (else InvalidInput). Returns groups + denominator + coverage.',
     inputShape: getCourtCaseloadInput,
     async handler(args): Promise<McpToolOutput> {
       const groupBy = str(args, 'groupBy') as
@@ -192,7 +192,7 @@ export const makeJudicialMcpTools = (deps: JudicialMcpDeps): readonly KernelMcpT
   const getCompanyLitigationTool: KernelMcpTool = {
     name: 'get_company_litigation',
     description:
-      'Company litigation summary (JD-1) for a CUI: published-only case count + court-level + year breakdowns + coverage. EMPTY in v1 (no published links) — returns caseCount 0 + a caveat. Never returns person data.',
+      'Company litigation summary (JD-1) for a CUI: published-only case count + court-level + year breakdowns (session calendar years of the source-dependent case date) + coverage. EMPTY in v1 (no published links) — returns caseCount 0 + a caveat. Never returns person data.',
     inputShape: getCompanyLitigationInput,
     async handler(args): Promise<McpToolOutput> {
       const cui = str(args, 'cui');
@@ -215,7 +215,7 @@ export const makeJudicialMcpTools = (deps: JudicialMcpDeps): readonly KernelMcpT
   const getCaseLegalReferencesTool: KernelMcpTool = {
     name: 'get_case_legal_references',
     description:
-      'Legal-act citations extracted from a case (JD-3): each citation is the exact stored token with its source field (object or a hearing field) and hearing anchor, plus act_type/number/year and resolution status as stored (null act fields when unresolved). Safe (no PII; solution_summary citations excluded).',
+      'Legal-act citations extracted from a case (JD-3): each citation is the exact stored token with its source field (object or a hearing field) and hearing anchor, plus act_type/number/year and resolution status; identity and resolution fields are returned as stored, including nulls. Safe (no PII; solution_summary citations excluded).',
     inputShape: getCaseLegalReferencesInput,
     async handler(args): Promise<McpToolOutput> {
       const caseId = str(args, 'caseId');

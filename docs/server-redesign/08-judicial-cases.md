@@ -145,7 +145,9 @@ export interface JudicialCourt {
   readonly courtLevel: JudicialCourtLevel; // enum (see §6)
   readonly specialization: string | null;
   readonly locality: string | null;
-  readonly countySirutaCode: string | null; // courts.county_code → core.territories (soft)
+  readonly countyCode: string | null; // courts.county_code: the county ABBREVIATION as stored (B, TM, …)
+  /** @deprecated misnamed alias: the same abbreviation as countyCode, NOT a SIRUTA code (A2). */
+  readonly countySirutaCode: string | null;
   readonly parentInstitutionCode: string | null;
   readonly mappingConfidence: 'high' | 'medium' | 'low';
   // courts.evidence (jsonb), mapping_notes: NOT projected
@@ -164,7 +166,8 @@ export interface JudicialCase {
   readonly stage: string | null;
   readonly stageName: string | null;
   readonly object: string | null; // raw object text — safe (procedural subject, not parties)
-  readonly sourceOpenedAt: string | null; // date
+  readonly sourceOpenedAt: string | null; // source-dependent date (see sourceOpenedAtBasis)
+  readonly sourceOpenedAtBasis: 'portal_header_data' | 'iccj_earliest_captured_session' | 'unknown';
   readonly latestSourceModifiedAt: string | null;
   // latest_snapshot_id, sync_run_id, *_seen_at: internal, not projected
 }
@@ -223,10 +226,16 @@ party row type.
   candidate, not an identity"). The module **registers a contributor** keyed by
   CUI that answers presence/count of _resolved_ company-litigation links (§4) —
   empty in v1 until gate #9 is green.
-- **Territory (SIRUTA):** `courts.county_code` is a soft link to
-  `core.territories.county_code` (no FK). Court territory filters resolve through
-  the kernel `TerritoryRepo` (foundation §4.2). Cases inherit territory **via
-  their court**, not a native column.
+- **Territory (county abbreviation, not SIRUTA):** `courts.county_code` stores the
+  county ABBREVIATION (e.g. `B`, `TM`; the 2026-10-03 read-only profile shows 42
+  non-null values and one null bucket over 247 courts). It is a soft link to
+  `core.territories.county_code` (no FK). A2 serves it as `JudicialCourt.countyCode`
+  with the `countyCode` filter. The older `countySirutaCode` output (GraphQL
+  `@deprecated`) and the `countySiruta` filter are **misnamed compatibility
+  aliases** carrying the same abbreviation; neither is a SIRUTA identifier, and no
+  SIRUTA mapping is qualified (none is guessed or joined). Supplying both filter
+  aliases ANDs them. Cases inherit territory **via their court**, not a native
+  column.
 - **Legal acts:** `case_legal_references.target_act_id` is a soft link to
   `legal.acts` via `legal.act_citation_keys` (no FK). Cross-module read, gated on
   population (§4, cross-module needs in §11).
@@ -594,7 +603,7 @@ Prefix `/api/v1/judicial/`. Per-route `config: { public: true }` (foundation
 
 | Method | Path | Query / params | Response | Pagination | Cache TTL | Timeout |
 | ------ | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- | ------------------ | ------------------------------------------ | --------------------------------------------------------- | ----------------- | --- | --- |
-| GET | `/judicial/courts` | `level[]`, `countySiruta[]`, `specialization`, `q` (name trigram) | `JudicialCourt[]` | offset+total (246) | 1h | 5s |
+| GET | `/judicial/courts` | `level[]`, `countyCode[]` (deprecated alias `countySiruta[]`), `specialization`, `q` (name trigram) | `JudicialCourt[]` | offset+total (246) | 1h | 5s |
 | GET | `/judicial/courts/:code` | — | `JudicialCourt` + `children[]` | — | 1h | 5s |
 | GET | `/judicial/cases` | filter spec §7 (`institutionCode`/`courtLevel`/`category`/`stage`/`yearFrom/To`/`q`/`hasObject`…); **a court-or-recency bound is required** | `JudicialCase[]` | **cursor** | 60s | 5s |
 | GET | `/judicial/cases/:caseId` | `caseId` | `JudicialCaseDetail` (case + hearings + appeals + parties[name-gated] + legalRefs + lineage) | — | 60s | 5s |
@@ -633,7 +642,7 @@ cursor `fhash` + tri-surface equivalence. The module invents no DSL.
 | `courtLevel`                   | enum[]   | `in`                       | join `courts.court_level` (bounded)                                                                                                                                            | `courtLevel`            | `[JudicialCourtLevel!]` | enum                     |
 | `category`                     | string[] | `in`                       | `cases.category`                                                                                                                                                               | `category`              | `[String!]`             | —                        |
 | `stage`                        | string[] | `in`                       | `cases.stage`                                                                                                                                                                  | `stage`                 | `[String!]`             | —                        |
-| `year` / `yearFrom` / `yearTo` | int      | `eq`/`gte`/`lte`/`between` | `cases.source_opened_at` (year)                                                                                                                                                | `yearFrom`/`yearTo`     | `{from,to}`             | year                     |
+| `year` / `yearFrom` / `yearTo` | int      | `eq`/`gte`/`lte`/`between` | session calendar year of `cases.source_opened_at` — a source-dependent clock (see §10 date basis); mixed-source ranges combine clocks                                          | `yearFrom`/`yearTo`     | `{from,to}`             | year                     |
 | `modifiedFrom`/`modifiedTo`    | date     | `between`                  | `cases.latest_source_modified_at` / `cases_modified_idx`                                                                                                                       | `modifiedFrom`/`To`     | `{from,to}`             | —                        |
 | `q`                            | string   | `contains`                 | `cases.object`/`case_number` (Postgres trigram fallback; Meili for prefix) — **text engine: Postgres ILIKE/trigram by default; Meili for the autocomplete `q` on case_number** | `q`                     | `String`                | resolver step            |
 | `hasObject`                    | bool     | `isNull` (mandatory op)    | `cases.object IS [NOT] NULL`                                                                                                                                                   | `hasObject`             | `Boolean`               | coverage                 |
@@ -649,7 +658,8 @@ bound"). This is the §3 "no implicit unbounded scans" rule for a 6.16M-row tabl
 | Field            | Type     | Ops             | Driving column                               | Notes                                                                                   |
 | ---------------- | -------- | --------------- | -------------------------------------------- | --------------------------------------------------------------------------------------- |
 | `level`          | enum[]   | `in`            | `courts.court_level`                         | enum `JUDICIAL_COURT_LEVELS`: the five Portal Just levels, plus the ICCJ `inalta_curte` |
-| `countySiruta`   | string[] | `in`            | `courts.county_code` (→ territory hub)       |                                                                                         |
+| `countyCode`     | string[] | `in`            | `courts.county_code`                         | the stored county abbreviation (`B`, `TM`, …); not a SIRUTA code                        |
+| `countySiruta`   | string[] | `in`            | `courts.county_code`                         | DEPRECATED misnamed alias of `countyCode` (same values); both supplied ⇒ AND            |
 | `specialization` | string   | `eq`/`contains` | `courts.specialization`                      |                                                                                         |
 | `q`              | string   | `contains`      | `courts.institution_code`/`locality` trigram | name autocomplete                                                                       |
 
@@ -753,17 +763,36 @@ search disabled (privacy)"]`. Stated as a deliberate stricter-than-default
   `extracted_at`/latest `response_id`). Per-case REPLACE means a hearing/party that
   disappears between snapshots leaves no stale orphan — the server always reads a
   clean current projection.
-- **As-of semantics:** the API surfaces a domain freshness watermark
-  (`asOf`) on every read, read from the loader-completion version stamp
-  (foundation §14.11). v1 interim: if no `etl`/`system_control` signal is wired
-  yet, `asOf` = `max(cases.last_seen_at)` exposed as `{ asOf, estimated: true }`,
-  and **cache is TTL-only** (stated explicitly per §14.11). The dataset is
+- **As-of semantics (A2, source-scoped):** case detail carries `asOf =
+{ asOf, estimated, sourceSlug, basis, captureFreshnessAt, loadFreshnessAt }`.
+  `asOf` is the stored `max(cases.latest_source_modified_at)` over the cases of
+  the RESOLVED case's own `source_slug` (a parameterized `where c.source_slug =
+…`), rendered with the A1 display rules (an exceptional maximum stays explicit
+  text such as `infinity` or `10000-01-01T00:00:00.000000+00 AD`). It is never a
+  global maximum borrowed across sources: ICCJ stores no modification time, so an
+  ICCJ case reports `asOf: null` rather than Portal's value. `basis` is
+  `max_stored_source_modified_at`; `estimated` stays `true` (compatibility). This
+  is a stored source-modified maximum — not capture completeness, head
+  observation, dataset freshness or load time; `captureFreshnessAt` and
+  `loadFreshnessAt` are always `null` until independent evidence supports them.
+  **Cache is TTL-only** (stated explicitly per §14.11). The dataset is
   crawl-cadence (not daily-live; ~5-day idle observed at JC-B), so TTLs are
   generous (60s lists / 5m aggregates).
+- **Date basis (A2):** `sourceOpenedAt` is a source clock, explained per case by
+  `sourceOpenedAtBasis` (derived from the actual `source_slug`, never ids, court
+  names or case numbers): `portal_just` ⇒ `portal_header_data` (the Portal case
+  header `data` field, copied by the raw parser and writer; not a verified
+  filing/registration event); `iccj` ⇒ `iccj_earliest_captured_session` (the
+  earliest captured ICCJ session for that case number; not a proven registration
+  or first appearance); any other source ⇒ `unknown`. The basis is present even
+  when the date is null. Year filters and year aggregates use the session
+  calendar year of this source-dependent date, so counts over several sources
+  combine different clocks. Stored values and the A1 display/timezone rules are
+  unchanged.
 - **Mutability:** cases mutate (gain hearings, change stage). The current
   projection is latest-wins; the server presents "current latest known state" and
   does NOT claim procedural history beyond it (change-event history is descoped —
-  verdict 8). The case-detail response is explicit: it is a snapshot as of `asOf`.
+  verdict 8). Case detail reports the source's stored modification maximum; `asOf` does not establish a database snapshot or capture/load freshness.
 - **Gated tables flipping on:** when gate #9/#10/#11 go green and the derive lanes
   populate `party_company_candidates`(published) / `case_legal_references` /
   `case_lineage_candidates`, the corresponding endpoints begin returning data with
