@@ -47,6 +47,24 @@ const keyFilter = z
   .object({ in: z.array(z.string()).optional(), includeUnknown: z.boolean().optional() })
   .strict();
 
+const onrcFilter = z
+  .object({
+    status: z.array(z.string()).optional(),
+    county: z.array(z.string()).optional(),
+    caenCode: z.array(z.string()).optional(),
+    onrcCaen: z.array(z.string()).optional(),
+    exclude: z
+      .object({
+        status: z.array(z.string()).optional(),
+        caenCode: z.array(z.string()).optional(),
+        county: z.array(z.string()).optional(),
+        legalForm: z.array(z.string()).optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
 /** Field names equal `CompanyAnalysisScopeInput` (parity test). */
 export const COMPANY_ANALYSIS_SCOPE_ZOD_SHAPE = {
   fiscalYear: z
@@ -57,12 +75,25 @@ export const COMPANY_ANALYSIS_SCOPE_ZOD_SHAPE = {
     .array(z.string())
     .optional()
     .describe('Selected CUIs (resolve names with resolve_company_filter first).'),
-  county: keyFilter.optional().describe('{ in: [county_code…], includeUnknown }'),
-  uat: keyFilter.optional().describe('{ in: [UAT SIRUTA…], includeUnknown }'),
+  county: keyFilter
+    .optional()
+    .describe(
+      'County CONSENSUS bucket of the pinned ONRC edition: { in: [county code… or "(multiple_values)", "(partial_observations)", "(missing)", "(unresolved)"], includeUnknown = every basis bucket }'
+    ),
+  uat: keyFilter
+    .optional()
+    .describe('UAT consensus bucket: { in: [SIRUTA… or "(<basis>)"], includeUnknown }'),
   legalForms: z.array(z.string()).optional(),
   observedStatus: keyFilter
     .optional()
-    .describe('ONRC observed status codes; not "currently active".'),
+    .describe(
+      'Complete status CONSENSUS bucket (status code or "(<basis>)"); not "currently active" and not an observation filter (use onrc.status).'
+    ),
+  onrc: onrcFilter
+    .optional()
+    .describe(
+      'ONRC observation filters on ONE public identifier: status, county, caenCode (any revision), onrcCaen ("rev2:6201", exact). exclude { status, caenCode, county, legalForm } needs complete evidence; exclude.onrcCaen is refused.'
+    ),
   vatPayer: z.array(z.enum(COMPANY_ANALYSIS_FLAG_VALUES)).optional(),
   fiscallyInactive: z.array(z.enum(COMPANY_ANALYSIS_FLAG_VALUES)).optional(),
   mainCaen: z
@@ -143,7 +174,7 @@ export const makeCompanyAnalysisMcpTools = (
   const releaseTool: KernelMcpTool = {
     name: 'get_company_analysis_release',
     description:
-      'Companies analytics capabilities: the active (or pinned) release id, fiscal years 2008–2025 with per-metric coverage (reported/missing/held counts), the metric-specific years on offer, dimensions, defaults (FY2024 when offered), limits and the input as-of line. Call first and pin release in every aggregate_companies call.',
+      'Companies analytics capabilities: the active (or pinned) release id, the ONRC edition its company dimensions were exported from (release.source: edition, publication epoch, snapshot, source date, versions), fiscal years 2008–2025 with per-metric coverage (reported/missing/held counts), the metric-specific years on offer, dimensions, defaults (FY2024 when offered), limits and the input as-of line. Only schema companies-analytics-ch-v2 is served. Call first and pin release in every aggregate_companies call.',
     strictInput: true,
     inputShape: { release },
     async handler(args): Promise<McpToolOutput> {
@@ -161,7 +192,7 @@ export const makeCompanyAnalysisMcpTools = (
   const aggregateTool: KernelMcpTool = {
     name: 'aggregate_companies',
     description:
-      'Exact companies analytics over ONE scope (OR within a field, AND across fields) on a pinned release: shape=stats (population, filers, metric sums/contributors/coverage), breakdown (top groups + other + unknown = stats), series (annual points, cohortMode EACH_YEAR or REFERENCE_YEAR, gaps named), records (matching companies ranked by a metric, NULLS LAST, cursor pages). Money is exact RON decimal strings; EMPLOYEES are summed reported average headcounts (not people); balances/headcounts are never added across years. Company keys are release-snapshot attributes, not fiscal-year history.',
+      'Exact companies analytics over ONE scope (OR within a field, AND across fields) on a pinned release: shape=stats (population, filers, metric sums/contributors/coverage), breakdown (top groups + other + unknown = stats; COUNTY/UAT/OBSERVED_STATUS groups are the edition consensus value or an explicit basis group such as "(multiple_values)", each company once), series (annual points, cohortMode EACH_YEAR or REFERENCE_YEAR, gaps named), records (matching companies ranked by a metric, NULLS LAST, cursor pages; onrcRecordedDate is the date ONRC recorded, never a founding date). Money is exact RON decimal strings; EMPLOYEES are summed reported average headcounts (not people); balances/headcounts are never added across years. Company keys are release-snapshot attributes of one pinned ONRC edition, not fiscal-year history; MAIN_CAEN/mainCaen is ANAF.',
     strictInput: true,
     inputShape: {
       shape: z.enum(['stats', 'breakdown', 'series', 'records']),

@@ -10,14 +10,26 @@
  *    NEVER used as a cross-source key or reassigned.
  *  - **`is_active` dropped** (§13-R1): v2 has no `fiscal_status.is_active`;
  *    no method recreates it.
- *  - **regnum lookup** (§2.1): `findByRegistrationNumber` seeks v2
- *    `registration_identifiers (scheme='onrc-cod-inmatriculare', value)` → CUI,
- *    validated against `organizations (kind='company')`. Returns a LIST.
+ *  - **ONRC registry edition** (scrapper 20261003T172000): every registry read
+ *    goes through the public `onrc_published_*` views bound to the pinned
+ *    scope's `edition_id` (`registry-sql.ts`). The legacy registry projection
+ *    (registrations, registration history/identifiers, status flags, CAEN
+ *    profile, EU branches, source snapshots) is not read: no fallback when
+ *    the registry is unpublished, withdrawn or unreadable.
+ *  - **directory population**: public `company` spines of `core.organizations`
+ *    (no rekey, rename, re-kind or privacy write; a spine without an edition
+ *    profile is `not_in_edition`, never legally unregistered).
  *  - **no-unaccent name search** (§15.7): the pg fallback folds diacritics in TS
  *    and is hard-capped; the default path is Meili. The repo never calls `unaccent()`.
  *  - **money/bigint as strings** (§14.1): cast `::text` at the SQL boundary;
  *    `employees` never coerced to a JS number.
  *  - **NOT flows** (§4.3): this repo never reads `flows.money_flows`.
+ *  - **privacy allowlist on every `companies_v2` table read**: each consumed
+ *    table carries `privacy_class`, and every read, join, filter, count and
+ *    existence probe pins it to `public`. On a LEFT JOIN the predicate sits
+ *    in the ON clause, so a public organization whose auxiliary row is
+ *    non-public reads exactly like one with no auxiliary row. The ONRC views
+ *    apply their own public, parent and row predicates.
  */
 
 import { sql, type Kysely, type RawBuilder, type SqlBool } from 'kysely';
@@ -28,10 +40,13 @@ import {
   MAX_SERVED_CUI_DIGITS,
   databaseError,
   invalidInput,
+  isCountyTerritory,
   normalizeCui,
   offsetFor,
   organizationRowIsPublic,
+  readGenerationControl,
   toConditionBuilders,
+  witnessGeneration,
   type ApiError,
   type FilterInput,
   type MeiliClient,
@@ -45,29 +60,59 @@ import {
   normalizeCountyNeedle,
   requireAggregateDriver,
   splitVirtual,
-  stringValues,
 } from './filter-helpers.js';
 import {
-  mapAddress,
-  mapCaen,
-  mapEuBranch,
+  caenActivitiesOf,
+  mapCountyDisplayName,
   mapFinancialYear,
   mapQualityFlag,
   mapFiscal,
-  mapHeadlineStatus,
-  mapCountyDisplayName,
-  mapStatusFlag,
-  mapTerritory,
+  statusFlagsOf,
+  territoryOf,
   type FinancialRow,
 } from './mappers.js';
+import {
+  FOLD_FROM,
+  FOLD_TO,
+  captureRegistryScope,
+  confirmRegistryScope,
+  countyNameOf,
+  editionParam,
+  inTextList,
+  noProfileColumns,
+  profileColumns,
+  profileFromRow,
+  profileJoin,
+  readActiveCuis,
+  readCaenObservations,
+  readDiffSides,
+  readPublishedEditions,
+  readQualifiedNames,
+  readRegistryEvidence,
+  registryConditions,
+  type ProfileColumnsRow,
+} from './registry-sql.js';
 import { COMPANY_AGGREGATE_DRIVING_FIELDS, companiesFilterSpec } from '../../core/filters.js';
 import {
+  compatStatus,
+  displayName,
+  isOnrcQualifiedCui,
+  isPublished,
+  onrcCaenKey,
+  onrcIdentifierKey,
+  registryCapabilityLost,
+  registryNotPublished,
+  registryScopeKey,
+  singleIdentifierKey,
+  usesRegistryFilters,
+  type CompanyRegistryEnvelope,
+} from '../../core/registry.js';
+import {
+  COMPANY_FINANCIAL_METRICS,
   COMPANY_TERRITORY_COVERAGE_NOTE,
   type CaenCodeHit,
-  type CompanyCoverage,
   type CompanyEntitySlice,
   type CompanyFinancialQualityAssessment,
-  type CompanyRegistrationCaptureRow,
   type CompanyRegistrationDiffData,
   type CompanyFinancialYear,
   type CompanyGroupBy,
@@ -79,6 +124,7 @@ import {
 
 import type {
   CompaniesRepository,
+  CompanyCountByResult,
   CompanyListResult,
   CompanyPresenceCounts,
   CompanyProfileData,
@@ -86,7 +132,6 @@ import type {
 
 type Db = Kysely<import('@/modules/shared/index.js').ProdDatabase>;
 
-const REGNUM_SCHEME = 'onrc-cod-inmatriculare';
 const LIST_TOTAL_CAP = 10_000;
 const NAME_FALLBACK_SCAN = 200;
 
@@ -99,55 +144,160 @@ const NAME_FALLBACK_SCAN = 200;
  */
 const CAEN_DIVISION_TIMEOUT_MS = 45_000;
 
-/**
- * Romanian diacritic fold for SQL `translate()` — MUST mirror the kernel TS
- * `foldDiacritics` map (§15.7) so a TS-folded needle matches a SQL-folded column.
- * Both strings are exactly 14 chars (cedilla Ş/Ţ + comma-below Ș/Ț, upper+lower):
- *   ă â î ș ş ț ţ Ă Â Î Ș Ş Ț Ţ  →  a a i s s t t a a i s s t t
- * `unaccent` is NOT installed; never call it. Wrap in `lower()` at the call site.
- */
-const FOLD_FROM = 'ăâîșşțţĂÂÎȘŞȚŢ';
-const FOLD_TO = 'aaissttaaisstt';
-
 const composeWhere = (conds: readonly RawBuilder<unknown>[]): RawBuilder<SqlBool> =>
   conds.length === 0 ? sql<SqlBool>`true` : sql<SqlBool>`${sql.join(conds, sql` and `)}`;
 
-/** The full financials column list (cast money/bigint → text). */
+/**
+ * The kernel's positive `privacy_class = 'public'` allowlist for the RAW-SQL
+ * legs (list, count and aggregate statements). Kysely-built queries pin the
+ * same class through checked column references.
+ */
+const publicRow = organizationRowIsPublic;
+
+/** The ANAF fiscal row every list/aggregate/slice reads beside the spine `o` (public in ON). */
+const FISCAL_JOIN = sql`left join companies_v2.fiscal_status f on f.cui = o.cui and ${publicRow('f.privacy_class')}`;
+
+/** The pinned profile join (published) or nothing (any other state: views untouched). */
+const registryJoin = (scope: CompanyRegistryEnvelope): RawBuilder<unknown> =>
+  isPublished(scope) ? profileJoin(scope.editionId) : sql``;
+
+/** The profile columns (published) or the same names as NULLs. */
+const registryColumns = (scope: CompanyRegistryEnvelope): RawBuilder<unknown> =>
+  isPublished(scope) ? profileColumns : noProfileColumns;
+
+/** ANAF's main-activity label by its OWN reported revision (none when unknown). */
+const fiscalMainLabel = sql<string | null>`(select cc.label from core.classification_codes cc
+  where cc.system = 'caen_' || nullif(f.main_caen_rev, '') and cc.code = f.main_caen_code limit 1)`;
+
+/**
+ * Standalone financial history by CUI (CD-08, user decision 2026-10-03) is a
+ * set of attributed SOURCE OBSERVATIONS, not company membership: a public
+ * statement stays readable when the CUI has no core organization (13,151 MFP
+ * statements for 2,449 CUIs) or a public non-company one (1,107 statements on
+ * 360 NGO/public/unknown CUIs). No kind or existence gate. It is denied only
+ * when a KNOWN core organization for the CUI is not public — a NULL class
+ * fails closed (`is distinct from`). Zero current rows are affected (census:
+ * 0 non-public parents); it keeps a later withdrawal of an organization from
+ * leaking through its statements. Used inside a correlated NOT EXISTS.
+ */
+const PARENT_PRIVACY_ALLOWED = 'public';
+
+/**
+ * Source as-of dates (CD-13), never write or fetch times:
+ *  - ONRC: the pinned edition's source publication date (the envelope's
+ *    `sourcePublishedAt`); null unless an edition is published.
+ *  - ANAF: `f.status_date`, the state date ANAF answered for (the dimension the
+ *    analytics release exports as `anaf_status_date`), never the retrieval or
+ *    write time. NULL stays unknown.
+ */
+const onrcAsOf = (scope: CompanyRegistryEnvelope): string | null =>
+  isPublished(scope) ? scope.sourcePublishedAt : null;
+
+/**
+ * The full financials column list of `companies_v2.financials as fin` (cast
+ * money/bigint → text): the exact ORIGINAL source values, never qualified or
+ * rewritten here.
+ */
 const financialColumns = () =>
   [
-    'year',
-    'source_system',
-    sql<string | null>`turnover::text`.as('turnover'),
-    sql<string | null>`net_profit::text`.as('net_profit'),
-    sql<string | null>`net_loss::text`.as('net_loss'),
-    sql<string | null>`employees::text`.as('employees'),
-    sql<string | null>`total_revenue::text`.as('total_revenue'),
-    sql<string | null>`total_expenses::text`.as('total_expenses'),
-    sql<string | null>`gross_profit::text`.as('gross_profit'),
-    sql<string | null>`gross_loss::text`.as('gross_loss'),
-    sql<string | null>`receivables::text`.as('receivables'),
-    sql<string | null>`current_assets::text`.as('current_assets'),
-    sql<string | null>`fixed_assets::text`.as('fixed_assets'),
-    sql<string | null>`cash_and_bank::text`.as('cash_and_bank'),
-    sql<string | null>`prepaid_expenses::text`.as('prepaid_expenses'),
-    sql<string | null>`deferred_income::text`.as('deferred_income'),
-    sql<string | null>`subscribed_capital::text`.as('subscribed_capital'),
-    sql<string | null>`inventories::text`.as('inventories'),
-    sql<string | null>`debts::text`.as('debts'),
-    sql<string | null>`provisions::text`.as('provisions'),
-    sql<string | null>`total_equity::text`.as('total_equity'),
-    sql<string | null>`patrimony_regie::text`.as('patrimony_regie'),
+    'fin.year',
+    'fin.source_system',
+    'fin.statement_profile_hash',
+    'fin.metric_rule_version',
+    'fin.source_url',
+    sql<string | null>`fin.turnover::text`.as('turnover'),
+    sql<string | null>`fin.net_profit::text`.as('net_profit'),
+    sql<string | null>`fin.net_loss::text`.as('net_loss'),
+    sql<string | null>`fin.employees::text`.as('employees'),
+    sql<string | null>`fin.total_revenue::text`.as('total_revenue'),
+    sql<string | null>`fin.total_expenses::text`.as('total_expenses'),
+    sql<string | null>`fin.gross_profit::text`.as('gross_profit'),
+    sql<string | null>`fin.gross_loss::text`.as('gross_loss'),
+    sql<string | null>`fin.receivables::text`.as('receivables'),
+    sql<string | null>`fin.current_assets::text`.as('current_assets'),
+    sql<string | null>`fin.fixed_assets::text`.as('fixed_assets'),
+    sql<string | null>`fin.cash_and_bank::text`.as('cash_and_bank'),
+    sql<string | null>`fin.prepaid_expenses::text`.as('prepaid_expenses'),
+    sql<string | null>`fin.deferred_income::text`.as('deferred_income'),
+    sql<string | null>`fin.subscribed_capital::text`.as('subscribed_capital'),
+    sql<string | null>`fin.inventories::text`.as('inventories'),
+    sql<string | null>`fin.debts::text`.as('debts'),
+    sql<string | null>`fin.provisions::text`.as('provisions'),
+    sql<string | null>`fin.total_equity::text`.as('total_equity'),
+    sql<string | null>`fin.patrimony_regie::text`.as('patrimony_regie'),
     // v2 keeps the canonical full statement in financial_indicators, not as the
     // old financials.lines jsonb. Keep the public nullable field stable.
     sql<Record<string, unknown> | null>`null::jsonb`.as('lines'),
   ] as const;
 
 /**
- * Compile the physical (kernel-composable) filter into SQL, then add the virtual
- * predicates (`caenCode` EXISTS, `county` diacritic-folded, `hasFinancials` EXISTS).
- * Aliases: o organizations, r registrations, f fiscal_status.
+ * The evaluator columns of `financial_qualification_active as q` (scraper
+ * migration 20261003T170000, sql-v1). The 21 statuses travel as ONE text[] in
+ * `COMPANY_FINANCIAL_METRICS` order; NULL when the LEFT JOIN found no row.
  */
-const buildListConditions = (input: FilterInput): Result<RawBuilder<unknown>[], ApiError> => {
+const qualificationColumns = () =>
+  [
+    sql<string | null>`q.release_id::text`.as('q_release_id'),
+    'q.policy_sha256 as q_policy_sha256',
+    'q.policy_version as q_policy_version',
+    'q.policy_approved_on as q_policy_approved_on',
+    'q.evaluator_version as q_evaluator_version',
+    'q.assessment as q_assessment',
+    'q.assessment_reason as q_assessment_reason',
+    sql<(string | null)[] | null>`case when q.cui is null then null else array[${sql.join(
+      COMPANY_FINANCIAL_METRICS.map((metric) => sql.ref(`q.${metric}_status`))
+    )}]::text[] end`.as('q_statuses'),
+    sql<string | null>`q.net_result_value::text`.as('q_net_result_value'),
+    'q.hold_reason as q_hold_reason',
+    'q.hold_drift as q_hold_drift',
+  ] as const;
+
+/**
+ * What this runtime's PostgreSQL lets the financial reads join: the sql-v1
+ * qualification view and the MFP resource dimension. Each is optional by
+ * design: a database without the migration or the grant still serves every
+ * source financial, with `not_assessed / qualification_unavailable` and no
+ * MFP URL — never an invented `reported`.
+ */
+interface ServingCapabilities {
+  readonly qualification: boolean;
+  readonly resources: boolean;
+}
+
+/** A missing or ungranted capability is re-probed this long after it was seen. */
+const CAPABILITY_RETRY_MS = 10 * 60 * 1000;
+
+/** A syntactically valid CUI no statement carries: the probe reads its plan, not data. */
+const PROBE_CUI = '0';
+
+/**
+ * SQLSTATEs that mean "this runtime cannot read the capability" (undefined
+ * table/column/function/schema/object, insufficient privilege). Anything else
+ * is a real error and is never masked by the fallback.
+ */
+const CAPABILITY_SQLSTATES = new Set(['42P01', '42703', '42883', '3F000', '42704', '42501']);
+
+const isCapabilityError = (error: unknown): boolean => {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === 'string' && CAPABILITY_SQLSTATES.has(code);
+};
+
+interface ListConditions {
+  readonly conds: RawBuilder<unknown>[];
+  /** The same-identifier predicate (alias `i`) for the CAEN facet; null without one. */
+  readonly identifierPredicate: RawBuilder<boolean> | null;
+}
+
+/**
+ * Compile the physical (kernel-composable) filter into SQL, then add the
+ * edition-bound registry predicates (`registry-sql.ts`) and `hasFinancials`.
+ * Aliases: o organizations, p the pinned edition profile, f fiscal_status.
+ * A registry field without a published edition is refused, never empty.
+ */
+const buildListConditions = (
+  input: FilterInput,
+  scope: CompanyRegistryEnvelope
+): Result<ListConditions, ApiError> => {
   const { physical, virtual } = splitVirtual(input);
   const built = toConditionBuilders(companiesFilterSpec, physical);
   if (built.isErr()) return err(built.error);
@@ -170,13 +320,14 @@ const buildListConditions = (input: FilterInput): Result<RawBuilder<unknown>[], 
     ...built.value,
   ];
 
-  const caen = caenExists(fieldOf(virtual, 'caenCode'), false);
-  if (caen.isErr()) return err(caen.error);
-  if (caen.value !== null) conds.push(caen.value);
-
-  const county = countyFolded(fieldOf(virtual, 'county'), false);
-  if (county.isErr()) return err(county.error);
-  if (county.value !== null) conds.push(county.value);
+  let identifierPredicate: RawBuilder<boolean> | null = null;
+  if (usesRegistryFilters(input)) {
+    if (!isPublished(scope)) return err(registryNotPublished(scope, 'registry filters'));
+    const registry = registryConditions(input, scope.editionId);
+    if (registry.isErr()) return err(registry.error);
+    conds.push(...registry.value.conds);
+    identifierPredicate = registry.value.identifierPredicate;
+  }
 
   const hasFin = isNullValue(fieldOf(virtual, 'hasFinancials'));
   if (hasFin !== undefined) {
@@ -191,133 +342,92 @@ const buildListConditions = (input: FilterInput): Result<RawBuilder<unknown>[], 
     );
   }
 
-  // exclude-side virtuals (caenCode/county) — negate.
-  const exclude = (input.exclude ?? {}) as Record<string, unknown>;
-  if (typeof exclude === 'object') {
-    const caenEx = caenExists(exclude['caenCode'] as never, true);
-    if (caenEx.isErr()) return err(caenEx.error);
-    if (caenEx.value !== null) conds.push(caenEx.value);
-    const countyEx = countyFolded(exclude['county'] as never, true);
-    if (countyEx.isErr()) return err(countyEx.error);
-    if (countyEx.value !== null) conds.push(countyEx.value);
-  }
-
-  return ok(conds);
+  return ok({ conds, identifierPredicate });
 };
 
 /**
- * `caenCode` eq/in/prefix → a semi-join on caen_profile (index caen_profile_code_idx).
- *
- * The POSITIVE case compiles to `o.cui IN (select cui from caen_profile where
- * <preds>)` rather than a correlated `EXISTS`: the subquery is non-correlated, so
- * the planner resolves the matching CUIs via the caen_code index ONCE and
- * semi-joins, instead of probing the EXISTS per organization row across the whole
- * table — the per-org probe was the real cost behind the slow caenCode filter
- * (audit M8) and the caenDivision aggregate timeouts (audit C1, mis-attributed to
- * an alias bug). caen_profile.cui is NOT NULL (PK), so the IN is null-safe.
- * The negate case keeps NOT EXISTS (it must include null-cui orgs, and exclude is rare).
+ * Sorts. `name` is the directory spine's name (the core organization label,
+ * not an edition observation); `registrationDate` is the pinned edition's
+ * qualified RECORDED date, NULL last, CUI tie-break (refused without one).
  */
-const caenExists = (
-  f: import('@/modules/shared/index.js').FieldFilter | undefined,
-  negate: boolean
-): Result<RawBuilder<unknown> | null, ApiError> => {
-  if (f === undefined) return ok(null);
-  const { eq, in: inV, prefix } = stringValues(f);
-  const preds: RawBuilder<unknown>[] = [];
-  if (eq !== undefined) preds.push(sql`ca.caen_code = ${eq}`);
-  if (inV !== undefined && inV.length > 0) {
-    preds.push(
-      sql`ca.caen_code in (${sql.join(
-        inV.map((v) => sql`${v}`),
-        sql`, `
-      )})`
-    );
-  }
-  if (prefix !== undefined) {
-    const esc = prefix.replace(/[\\%_]/gu, (m) => `\\${m}`);
-    preds.push(sql`ca.caen_code like ${esc + '%'} escape '\\'`); // sargable range scan
-  }
-  if (preds.length === 0) return ok(null);
-  const inner = sql.join(preds, sql` or `);
-  if (negate) {
-    return ok(
-      sql`not (exists (select 1 from companies_v2.caen_profile ca where ca.cui = o.cui and (${inner})))`
-    );
-  }
-  return ok(sql`o.cui in (select ca.cui from companies_v2.caen_profile ca where (${inner}))`);
-};
-
-/** `county` eq/in → diacritic-folded match on v2 selected county (NO unaccent; §15.7). */
-const countyFolded = (
-  f: import('@/modules/shared/index.js').FieldFilter | undefined,
-  negate: boolean
-): Result<RawBuilder<unknown> | null, ApiError> => {
-  if (f === undefined) return ok(null);
-  const { eq, in: inV } = stringValues(f);
-  const wanted = [...(eq !== undefined ? [eq] : []), ...(inV ?? [])].map((v) =>
-    normalizeCountyNeedle(v)
-  );
-  if (wanted.length === 0) return ok(null);
-  // Fold the column in SQL with translate() (no unaccent) + lower, matching the
-  // TS fold map exactly. v2 ONRC labels include prefixes such as "JUDEŢUL".
-  const foldedCol = sql`regexp_replace(lower(translate(r.selected_county_name, ${FOLD_FROM}, ${FOLD_TO})), '^(judetul|municipiul) ', '')`;
-  const cond = sql`${foldedCol} in (${sql.join(
-    wanted.map((w) => sql`${w}`),
-    sql`, `
-  )})`;
-  // Negate keeps NULL-county rows (NOT IN over NULL is UNKNOWN → would drop them).
-  return ok(negate ? sql`(r.selected_county_name is null or not (${cond}))` : cond);
-};
-
-const orderByFor = (sort: CompanySort): RawBuilder<unknown> => {
+const orderByFor = (
+  sort: CompanySort,
+  scope: CompanyRegistryEnvelope
+): Result<RawBuilder<unknown>, ApiError> => {
   switch (sort) {
     case 'registrationDate':
-      return sql`r.registration_date desc nulls last, o.cui asc`;
+      if (!isPublished(scope)) return err(registryNotPublished(scope, 'recorded-date sorting'));
+      return ok(sql`p.recorded_date desc nulls last, o.cui asc`);
     case 'cui':
-      return sql`o.cui asc`;
+      return ok(sql`o.cui asc`);
     case 'name':
     default:
-      return sql`o.name asc, o.cui asc`;
+      return ok(sql`o.name asc, o.cui asc`);
   }
 };
 
-const LIST_SELECT = () =>
-  [
-    'o.cui',
-    'o.org_id',
-    'o.name',
-    'r.legal_form',
-    sql<string | null>`r.onrc_lifecycle_status_code`.as('status_code'),
-    sql<string | null>`r.onrc_lifecycle_status_label`.as('status_label'),
-    sql<string | null>`r.selected_county_name`.as('raw_county'),
-    sql<string | null>`r.registration_date::text`.as('registration_date'),
-    'f.is_vat_payer',
-    'f.is_inactive',
-  ] as const;
-
-const mapListRow = (row: {
-  cui: string | null;
+/** One spine row with the pinned profile (or its NULL columns) and the ANAF flags. */
+interface SpineRow extends ProfileColumnsRow {
+  cui: string;
   org_id: string;
-  name: string;
-  legal_form: string | null;
-  status_code: string | null;
-  status_label: string | null;
-  raw_county: string | null;
-  registration_date: string | null;
+  core_name: string;
   is_vat_payer: boolean | null;
   is_inactive: boolean | null;
-}): CompanyListRow => ({
-  cui: row.cui ?? '',
-  orgId: row.org_id,
-  name: row.name,
-  legalForm: row.legal_form,
-  headlineStatus: mapHeadlineStatus(row.status_code, row.status_label),
-  county: mapCountyDisplayName(row.raw_county),
-  vatPayer: row.is_vat_payer,
-  declaredFiscallyInactive: row.is_inactive,
-  registrationDate: row.registration_date,
-  registrationDatePresent: row.registration_date !== null,
-});
+}
+
+const spineColumns = (scope: CompanyRegistryEnvelope) => sql`
+  o.cui, o.org_id::text as org_id, o.name as core_name, ${registryColumns(scope)},
+  f.is_vat_payer, f.is_inactive`;
+
+const cuiStateOf = (
+  scope: CompanyRegistryEnvelope,
+  inEdition: boolean
+): CompanyListRow['registryCuiState'] => {
+  if (isPublished(scope)) return inEdition ? 'in_edition' : 'not_in_edition';
+  // A published state always carries its edition id; this arm is unreachable.
+  return scope.state === 'published' ? 'not_in_edition' : scope.state;
+};
+
+const mapListRow = (
+  row: SpineRow,
+  scope: CompanyRegistryEnvelope,
+  active: ReadonlySet<string>
+): CompanyListRow => {
+  const profile = profileFromRow(row);
+  const { name, nameSource } = displayName(row.core_name, profile);
+  const status = profile?.statusCode.value ?? null;
+  return {
+    cui: row.cui,
+    orgId: row.org_id,
+    name,
+    nameSource,
+    legalForm: profile?.legalForm.value ?? null,
+    headlineStatus: status === null ? null : compatStatus(status),
+    county: profile === null ? null : mapCountyDisplayName(profile.countyName),
+    vatPayer: row.is_vat_payer,
+    declaredFiscallyInactive: row.is_inactive,
+    registrationDate: profile?.recordedDate.value ?? null,
+    registrationDatePresent: (profile?.recordedDate.value ?? null) !== null,
+    registryCuiState: cuiStateOf(scope, profile !== null),
+    hasActiveObservation: profile === null ? null : active.has(row.cui),
+    statusBasis: profile?.statusCode.basis ?? null,
+    countyBasis: profile?.countyCode.basis ?? null,
+    recordedDateBasis: profile?.recordedDate.basis ?? null,
+  };
+};
+
+/**
+ * Status / county facet key: the consensus value, else an explicit basis
+ * bucket; a spine without a profile is `(not_in_edition)`. Each CUI lands
+ * in exactly one bucket.
+ */
+const facetKey = (value: string, basis: string) => sql`case
+  when p.cui is null then '(not_in_edition)'
+  when ${sql.ref(value)} is not null then ${sql.ref(value)}
+  else '(' || ${sql.ref(basis)} || ')' end`;
+const facetBasis = (value: string, basis: string) => sql`case
+  when p.cui is null then 'not_in_edition'
+  when ${sql.ref(value)} is null then ${sql.ref(basis)} end`;
 
 interface FlagCoverage {
   readonly years: readonly number[];
@@ -357,17 +467,30 @@ export const makeCompaniesRepo = (
     }
     const promise = (async (): Promise<FlagCoverage> => {
       const row = await db
-        .selectFrom('companies_v2.financial_quality_flags')
+        .selectFrom('companies_v2.financial_quality_flags as qf')
         .select([
           // The SET of flagged years, not min/max: FY2020 has zero flags while
           // its neighbours have tens of thousands (measured 2026-08-25), and a
-          // range would certify that interior gap as checked-and-clean.
+          // range would invent coverage for that interior gap. Even inside the
+          // set, a missing flag is not an assessment of a statement.
           sql<number[] | null>`array_agg(distinct year order by year)`.as('years'),
           sql<string | null>`max(created_at)::date::text`.as('assessed_at'),
         ])
-        // Same positive allowlist as the per-CUI read: a non-public flag row must
-        // not be able to move the coverage set every public caller sees.
-        .where('privacy_class', '=', 'public')
+        // Same allowlists as the per-CUI read: neither a non-public flag row nor
+        // a flag under a non-public organization may move the coverage set
+        // every public caller sees.
+        .where('qf.privacy_class', '=', 'public')
+        .where((eb) =>
+          eb.not(
+            eb.exists(
+              eb
+                .selectFrom('core.organizations as parent')
+                .select('parent.org_id')
+                .whereRef('parent.cui', '=', 'qf.cui')
+                .where('parent.privacy_class', 'is distinct from', PARENT_PRIVACY_ALLOWED)
+            )
+          )
+        )
         .executeTakeFirst();
       return { years: row?.years ?? [], assessed_at: row?.assessed_at ?? null };
     })();
@@ -378,9 +501,156 @@ export const makeCompaniesRepo = (
     return promise;
   };
 
+  // ── financial statements: originals + source + sql-v1 qualification ─────────
+  //
+  // Probed lazily before the first financial read, then cached (singleflight):
+  // a complete answer is kept, a missing or ungranted capability is re-probed
+  // after CAPABILITY_RETRY_MS. The probes read the exact columns the reads
+  // select, so a stale view (a renamed column) degrades instead of failing.
+  // Only a capability SQLSTATE degrades: any other probe error (a timeout, a
+  // lost connection) fails the read, and the next read probes again.
+  const probeCapability = async (run: () => Promise<unknown>): Promise<boolean> => {
+    try {
+      await run();
+      return true;
+    } catch (error) {
+      if (isCapabilityError(error)) return false;
+      throw error;
+    }
+  };
+  const probeCapabilities = async (): Promise<ServingCapabilities> => {
+    const [qualification, resources] = await Promise.all([
+      probeCapability(() =>
+        db
+          .selectFrom('companies_v2.financial_qualification_active as q')
+          .select(qualificationColumns())
+          .where('q.cui', '=', PROBE_CUI)
+          .where('q.privacy_class', '=', 'public')
+          .limit(1)
+          .execute()
+      ),
+      probeCapability(() =>
+        db
+          .selectFrom('companies_v2.financial_source_resources as res')
+          .select('res.captured_source_url')
+          .where('res.privacy_class', '=', 'public')
+          .limit(1)
+          .execute()
+      ),
+    ]);
+    return { qualification, resources };
+  };
+  let capabilityCache: { at: number; promise: Promise<ServingCapabilities> } | null = null;
+  const servingCapabilities = async (): Promise<ServingCapabilities> => {
+    if (capabilityCache !== null) {
+      const cached = capabilityCache;
+      const known = await cached.promise;
+      if (
+        (known.qualification && known.resources) ||
+        Date.now() - cached.at < CAPABILITY_RETRY_MS
+      ) {
+        return known;
+      }
+    }
+    const promise = probeCapabilities();
+    capabilityCache = { at: Date.now(), promise };
+    promise.catch(() => {
+      if (capabilityCache?.promise === promise) capabilityCache = null;
+    });
+    return promise;
+  };
+
+  /**
+   * ONE statement per read (one snapshot): the public financials rows, the
+   * MFP resource URL and the active publication's qualification, both LEFT
+   * JOINed with their own public gate in ON, so a statement is never dropped
+   * or duplicated by them (resource and view are keyed one-to-one).
+   */
+  const financialStatements = (capabilities: ServingCapabilities) =>
+    db
+      .selectFrom('companies_v2.financials as fin')
+      .$if(capabilities.resources, (qb) =>
+        qb
+          .leftJoin('companies_v2.financial_source_resources as res', (join) =>
+            join
+              .onRef('res.source_system', '=', 'fin.source_system')
+              .onRef('res.source_snapshot_id', '=', 'fin.source_snapshot_id')
+              .on('res.privacy_class', '=', 'public')
+          )
+          .select('res.captured_source_url as resource_url')
+      )
+      .$if(capabilities.qualification, (qb) =>
+        qb
+          .leftJoin('companies_v2.financial_qualification_active as q', (join) =>
+            join
+              .onRef('q.cui', '=', 'fin.cui')
+              .onRef('q.year', '=', 'fin.year')
+              .on('q.privacy_class', '=', 'public')
+          )
+          .select(qualificationColumns())
+      )
+      .select(financialColumns());
+
+  /**
+   * Run a financial read with the capabilities this runtime has. If a
+   * capability disappears between the probe and the read (a revoked grant, a
+   * dropped view), the read is retried once WITHOUT the optional joins and the
+   * capability is re-probed later: source financials never fail because the
+   * qualification layer is unavailable.
+   */
+  const readStatements = async <T>(
+    run: (capabilities: ServingCapabilities) => Promise<T>
+  ): Promise<{ rows: T; qualificationReadable: boolean }> => {
+    const capabilities = await servingCapabilities();
+    try {
+      return { rows: await run(capabilities), qualificationReadable: capabilities.qualification };
+    } catch (error) {
+      if (!(capabilities.qualification || capabilities.resources) || !isCapabilityError(error)) {
+        throw error;
+      }
+      const degraded: ServingCapabilities = { qualification: false, resources: false };
+      capabilityCache = { at: Date.now(), promise: Promise.resolve(degraded) };
+      return { rows: await run(degraded), qualificationReadable: false };
+    }
+  };
+
+  /**
+   * ANAF fiscal row of one CUI (mandatory: its own public gate), with the main
+   * activity's catalog label by its own revision (optional). The catalog is
+   * presentation data: a catalog this runtime cannot read (a capability
+   * SQLSTATE) re-reads the row without it, so the label is null (never a
+   * label of another revision) and every fiscal fact stays. An unreadable
+   * fiscal row still fails: the re-read cannot reach it either.
+   */
+  const fiscalRow = (cui: string, withLabel: boolean) =>
+    db
+      .selectFrom('companies_v2.fiscal_status as f')
+      .select([
+        'f.is_vat_payer',
+        'f.is_inactive',
+        'f.main_caen_code',
+        'f.main_caen_rev',
+        'f.registered_name',
+        'f.status_date',
+        (withLabel ? fiscalMainLabel : sql<string | null>`null::text`).as('main_caen_label'),
+      ])
+      .where('f.cui', '=', cui)
+      .where('f.privacy_class', '=', 'public')
+      .limit(1)
+      .executeTakeFirst();
+  const readFiscal = async (cui: string) => {
+    try {
+      return await fiscalRow(cui, true);
+    } catch (error) {
+      if (!isCapabilityError(error)) throw error;
+      return fiscalRow(cui, false);
+    }
+  };
+
   // ── detail (per-CUI fan-out) ────────────────────────────────────────────────
   const getProfileData = async (
-    rawCui: string
+    rawCui: string,
+    scope: CompanyRegistryEnvelope
   ): Promise<Result<CompanyProfileData | null, ApiError>> => {
     const cui = normalizeCui(rawCui);
     if (cui === null) return err(invalidInput('invalid CUI format', 'cui'));
@@ -396,110 +666,66 @@ export const makeCompaniesRepo = (
         .executeTakeFirst();
       if (org === undefined) return ok(null);
 
-      const [reg, fiscal, fin, caen, flags, branches] = await Promise.all([
-        db
-          .selectFrom('companies_v2.registrations')
-          .select([
-            'cod_inmatriculare',
-            'legal_form',
-            sql<string | null>`registration_date::text`.as('registration_date'),
-            sql<string | null>`onrc_lifecycle_status_code`.as('status_code'),
-            sql<string | null>`onrc_lifecycle_status_label`.as('status_label'),
-            sql<string | null>`''::text`.as('raw_address'),
-            sql<string | null>`selected_county_name`.as('raw_county'),
-            sql<string | null>`selected_locality_name`.as('raw_locality'),
-            sql<string | null>`selected_uat_siruta_code`.as('uat_siruta_code'),
-            sql<string | null>`selected_locality_name`.as('uat_name'),
-            sql<string | null>`selected_county_name`.as('county_name'),
-            sql<string | null>`territory_match_confidence`.as('match_confidence'),
-            sql<string | null>`updated_at::date::text`.as('onrc_as_of'),
-          ])
-          .where('cui', '=', cui)
-          .limit(1)
-          .executeTakeFirst(),
-        db
-          .selectFrom('companies_v2.fiscal_status')
-          .select([
-            'is_vat_payer',
-            'is_inactive',
-            'main_caen_code',
-            'main_caen_rev',
-            'registered_name',
-            sql<string | null>`coalesce(snapshot_at, retrieved_at, updated_at)::date::text`.as(
-              'snapshot_at'
-            ),
-          ])
-          .where('cui', '=', cui)
-          .limit(1)
-          .executeTakeFirst(),
-        db
-          .selectFrom('companies_v2.financials')
-          .select(financialColumns())
-          .where('cui', '=', cui)
-          // The CHECK admits 'personal_moderate'/'restricted'; all rows are
-          // public today, but the platform gates on class, not distribution.
-          .where('privacy_class', '=', 'public')
-          .orderBy('year', 'desc')
-          .execute(),
-        db
-          .selectFrom('companies_v2.caen_profile as ca')
-          .leftJoin('core.classification_codes as cc', (join) =>
-            join
-              .onRef('cc.code', '=', 'ca.caen_code')
-              .on('cc.system', '=', sql`'caen_' || ca.caen_rev`)
-          )
-          .select(['ca.caen_code', 'ca.caen_rev', 'ca.source', 'cc.label'])
-          .where('ca.cui', '=', cui)
-          .where('ca.source', 'in', ['onrc', 'anaf'])
-          .orderBy('ca.caen_code', 'asc')
-          .execute(),
-        db
-          .selectFrom('companies_v2.status_flags')
-          .select(['status_code', 'status_label'])
-          .where('cui', '=', cui)
-          .execute(),
-        db
-          .selectFrom('companies_v2.eu_branches')
-          .select(['branch_name', 'country', 'euid', 'fiscal_code'])
-          .where('cui', '=', cui)
-          .execute(),
+      // ONRC evidence of the pinned edition (or the envelope state alone),
+      // ANAF fiscal and the financial statements: independent reads, so the
+      // safe fiscal/financial content stays available when ONRC is not (the
+      // capture pins `unavailable` when the registry footprint is unreadable).
+      // An evidence read that loses the registry capability AFTER the capture
+      // is not a database failure: the whole attempt, partial evidence
+      // included, is discarded as a moved scope and re-pinned.
+      const [fiscal, fin, registry] = await Promise.all([
+        readFiscal(cui),
+        readStatements((capabilities) =>
+          financialStatements(capabilities)
+            .where('fin.cui', '=', cui)
+            // The CHECK admits 'personal_moderate'/'restricted'; all rows are
+            // public today, but the platform gates on class, not distribution.
+            .where('fin.privacy_class', '=', 'public')
+            .orderBy('fin.year', 'desc')
+            .execute()
+        ),
+        readRegistryEvidence(db, scope, cui, isOnrcQualifiedCui(cui)).then(
+          (evidence) => ({ evidence, lost: false as const }),
+          (error: unknown) => {
+            if (isPublished(scope) && isCapabilityError(error)) {
+              return { evidence: null, lost: true as const };
+            }
+            throw error;
+          }
+        ),
       ]);
+      if (registry.lost) return err(registryCapabilityLost());
 
-      const anafAsOf = fiscal?.snapshot_at ?? null;
-      const onrcAsOf = reg?.onrc_as_of ?? null;
+      const evidence = registry.evidence;
+      const profile = evidence.profile;
+      const { name, nameSource } = displayName(org.name, profile);
+      const status = profile?.statusCode.value ?? null;
+      const territory = territoryOf(profile);
 
       const data: CompanyProfileData = {
         cui,
         orgId: org.org_id,
-        name: org.name,
-        legalForm: reg?.legal_form ?? null,
-        codInmatriculare: reg?.cod_inmatriculare ?? null,
-        registrationDate: reg?.registration_date ?? null,
-        registrationDatePresent: (reg?.registration_date ?? null) !== null,
-        headlineStatus: mapHeadlineStatus(reg?.status_code ?? null, reg?.status_label ?? null),
-        statusFlags: flags.map(mapStatusFlag),
-        territory:
-          reg !== undefined
-            ? mapTerritory({
-                uat_siruta_code: reg.uat_siruta_code,
-                uat_name: reg.uat_name,
-                county_name: reg.county_name,
-                match_confidence: reg.match_confidence,
-              })
-            : null,
-        address: mapAddress({
-          raw_address: reg?.raw_address ?? null,
-          raw_county: reg?.raw_county ?? null,
-          raw_locality: reg?.raw_locality ?? null,
-        }),
+        name,
+        nameSource,
+        legalForm: profile?.legalForm.value ?? null,
+        codInmatriculare: singleIdentifierKey(evidence),
+        registrationDate: profile?.recordedDate.value ?? null,
+        registrationDatePresent: (profile?.recordedDate.value ?? null) !== null,
+        headlineStatus: status === null ? null : compatStatus(status),
+        statusFlags: statusFlagsOf(evidence.statusObservations),
+        territory,
+        // Never an address: the edition exposes derived geography only.
+        address: { display: '', county: territory?.countyName ?? null, locality: null },
         fiscal: mapFiscal(fiscal),
-        caenActivities: caen.map(mapCaen),
+        caenActivities: caenActivitiesOf(evidence.caenObservations, fiscal),
         // v2 person/role tables are privacy_class='restricted'. Keep the public
         // field stable but do not leak representative names without an API gate.
         representatives: [],
-        financials: fin.map((r) => mapFinancialYear(r)),
-        euBranches: branches.map(mapEuBranch),
-        asOf: { onrc: onrcAsOf, anaf: anafAsOf },
+        financials: fin.rows.map((r) => mapFinancialYear(r, fin.qualificationReadable)),
+        // Not part of the ONRC edition contract; the legacy projection is not read.
+        euBranches: [],
+        registry: evidence,
+        asOf: { onrc: onrcAsOf(scope), anaf: fiscal?.status_date ?? null },
       };
       return ok(data);
     } catch (error) {
@@ -513,129 +739,63 @@ export const makeCompaniesRepo = (
     const cui = normalizeCui(rawCui);
     if (cui === null) return err(invalidInput('invalid CUI format', 'cui'));
     try {
-      const rows = await db
-        .selectFrom('companies_v2.financials')
-        .select(financialColumns())
-        .where('cui', '=', cui)
-        .where('privacy_class', '=', 'public')
-        .orderBy('year', 'desc')
-        .execute();
-      return ok(rows.map((r) => mapFinancialYear(r)));
+      // Source observations by CUI (CD-08): public rows, unless a KNOWN core
+      // organization for the CUI is non-public. No kind or existence gate.
+      // Each statement carries its sql-v1 qualification from the same read.
+      const { rows, qualificationReadable } = await readStatements((capabilities) =>
+        financialStatements(capabilities)
+          .where('fin.cui', '=', cui)
+          .where('fin.privacy_class', '=', 'public')
+          .where((eb) =>
+            eb.not(
+              eb.exists(
+                eb
+                  .selectFrom('core.organizations as parent')
+                  .select('parent.org_id')
+                  .whereRef('parent.cui', '=', 'fin.cui')
+                  .where('parent.privacy_class', 'is distinct from', PARENT_PRIVACY_ALLOWED)
+              )
+            )
+          )
+          .orderBy('fin.year', 'desc')
+          .execute()
+      );
+      return ok(rows.map((r) => mapFinancialYear(r, qualificationReadable)));
     } catch (error) {
       return err(databaseError('getFinancials failed', error));
     }
   };
 
-  // The two most recent LOADED captures — derived from the fact table via an
-  // EXISTS guard, never from the dimension alone: the dimension carries four
-  // captures but the facts only two, and ordering the dimension by publication
-  // would pick an EMPTY June capture and report every company as newly
-  // appeared (measured 2026-08-25). The EXISTS is an index seek on
-  // (source_snapshot_id, source_row_number), present and absent alike.
-  const CAPTURE_PAIR_TTL_MS = 10 * 60 * 1000;
-  let capturePairCache: {
-    at: number;
-    promise: Promise<readonly { id: string; published_at: string | null }[]>;
-  } | null = null;
-  const getLoadedCapturePair = (): Promise<
-    readonly { id: string; published_at: string | null }[]
-  > => {
-    if (capturePairCache !== null && Date.now() - capturePairCache.at < CAPTURE_PAIR_TTL_MS) {
-      return capturePairCache.promise;
-    }
-    const promise = (async () => {
-      const rows = await db
-        .selectFrom('companies_v2.source_snapshots as s')
-        .select([
-          's.source_snapshot_id as id',
-          sql<string | null>`s.source_published_at::text`.as('published_at'),
-        ])
-        .where('s.privacy_class', '=', 'public')
-        // Only DATED captures participate: a NULL publication date cannot be
-        // ordered honestly (and nulls-last would silently freeze the pair or,
-        // if both were null, arbitrarily invert appeared/disappeared).
-        .where('s.source_published_at', 'is not', null)
-        .where((eb) =>
-          eb.exists(
-            eb
-              .selectFrom('companies_v2.registration_history as rh')
-              .select('rh.source_snapshot_id')
-              .whereRef('rh.source_snapshot_id', '=', 's.source_snapshot_id')
-          )
-        )
-        .orderBy(sql`s.source_published_at desc nulls last`)
-        .limit(2)
-        .execute();
-      return rows;
-    })();
-    capturePairCache = { at: Date.now(), promise };
-    promise.catch(() => {
-      if (capturePairCache?.promise === promise) capturePairCache = null;
-    });
-    return promise;
-  };
-
+  /**
+   * The CUI's public identity values in the pinned edition and in the newest
+   * accessible published edition with an earlier source date. Not published,
+   * or a CUI outside the qualified namespace: no edition side is read.
+   */
   const getRegistrationDiffData = async (
-    rawCui: string
+    rawCui: string,
+    scope: CompanyRegistryEnvelope
   ): Promise<Result<CompanyRegistrationDiffData, ApiError>> => {
     const cui = normalizeCui(rawCui);
     if (cui === null) return err(invalidInput('invalid CUI format', 'cui'));
+    if (!isPublished(scope)) return ok({ registry: scope, later: null, earlier: null });
     try {
-      const captures = await getLoadedCapturePair();
-      // captures[0] = later, captures[1] = earlier (published desc)
-      const later = captures[0];
-      const earlier = captures[1];
-      // limit 2, not 1: the grain is (source_snapshot_id, source_row_number) —
-      // NOT cui — and ~95k CUIs carry 2–8 rows per snapshot by design (ONRC
-      // re-registration history; 190,304 (cui, capture) pairs, 47,996 with
-      // differing names). A limit-1 pick is nondeterministic and manufactured a
-      // false rename on the first live repro; a second row means the
-      // single-company diff is undefined → surfaced as 'ambiguous'.
-      const rowsFor = async (
-        capture: { id: string } | undefined
-      ): Promise<{ row: CompanyRegistrationCaptureRow | null; multiple: boolean }> => {
-        if (capture === undefined) return { row: null, multiple: false };
-        const rows = await db
-          .selectFrom('companies_v2.registration_history')
-          .select([
-            'legal_name',
-            'normalized_legal_name',
-            'legal_form',
-            'raw_county',
-            'raw_locality',
-          ])
-          .where('cui', '=', cui)
-          .where('source_snapshot_id', '=', capture.id)
-          // Restricted rows read as ABSENT — presence itself must not leak.
-          // Verified safe: privacy_class is capture-stable (0 CUIs differ), so
-          // this can never manufacture a phantom disappearance.
-          .where('privacy_class', '=', 'public')
-          .limit(2)
-          .execute();
-        const r = rows[0];
-        if (r === undefined) return { row: null, multiple: false };
-        return {
-          row: {
-            legalName: r.legal_name,
-            normalizedLegalName: r.normalized_legal_name,
-            legalForm: r.legal_form,
-            county: r.raw_county,
-            locality: r.raw_locality,
-          },
-          multiple: rows.length > 1,
+      if (!isOnrcQualifiedCui(cui)) {
+        // Outside the edition namespace: never linked to edition evidence.
+        const absent = {
+          editionId: scope.editionId,
+          sourcePublishedAt: scope.sourcePublishedAt,
+          inEdition: false,
+          values: { legalName: [], legalForm: [], county: [], locality: [] },
+          valuesComplete: true,
         };
-      };
-      const [laterRes, earlierRes] = await Promise.all([rowsFor(later), rowsFor(earlier)]);
-      return ok({
-        fromCaptureDate: earlier?.published_at ?? null,
-        toCaptureDate: later?.published_at ?? null,
-        captureCount: captures.length,
-        earlier: earlierRes.row,
-        later: laterRes.row,
-        earlierMultiple: earlierRes.multiple,
-        laterMultiple: laterRes.multiple,
-      });
+        return ok({ registry: scope, later: absent, earlier: null });
+      }
+      const sides = await readDiffSides(db, scope, cui);
+      return ok({ registry: scope, later: sides.later, earlier: sides.earlier });
     } catch (error) {
+      // Edition views and territory names only: a capability failure here is
+      // the registry footprint lost under the pin (a moved scope).
+      if (isCapabilityError(error)) return err(registryCapabilityLost());
       return err(databaseError('getRegistrationDiffData failed', error));
     }
   };
@@ -650,7 +810,7 @@ export const makeCompaniesRepo = (
       // rule gates on class, not on today's distribution — positive allowlist.
       const [rows, coverage] = await Promise.all([
         db
-          .selectFrom('companies_v2.financial_quality_flags')
+          .selectFrom('companies_v2.financial_quality_flags as qf')
           .select([
             'year',
             'flag_code',
@@ -659,16 +819,27 @@ export const makeCompaniesRepo = (
             sql<string | null>`numeric_value::text`.as('numeric_value'),
             sql<string | null>`threshold_value::text`.as('threshold_value'),
           ])
-          .where('cui', '=', cui)
-          .where('privacy_class', '=', 'public')
-          .orderBy('year', 'desc')
-          .orderBy('flag_code', 'asc')
+          .where('qf.cui', '=', cui)
+          .where('qf.privacy_class', '=', 'public')
+          // The same parent rule as the statements they qualify (CD-08).
+          .where((eb) =>
+            eb.not(
+              eb.exists(
+                eb
+                  .selectFrom('core.organizations as parent')
+                  .select('parent.org_id')
+                  .whereRef('parent.cui', '=', 'qf.cui')
+                  .where('parent.privacy_class', 'is distinct from', PARENT_PRIVACY_ALLOWED)
+              )
+            )
+          )
+          .orderBy('qf.year', 'desc')
+          .orderBy('qf.flag_code', 'asc')
           .execute(),
-        // Corpus-wide coverage, MEASURED not hardcoded, but a LOWER BOUND: the
-        // table stores anomalies only, so the range is the flagged-year envelope
-        // — a scanned-but-fully-clean year at either edge is indistinguishable
-        // from a never-scanned one and reads as "not assessed" (conservative:
-        // this direction never certifies unchecked data as clean).
+        // Corpus-wide context, MEASURED not hardcoded: the years holding at
+        // least one flag. The table stores dated anomalies only and is not
+        // tied to a statement revision (flags 25 Aug, facts rebuilt 27 Sep), so
+        // a CUI-year without a flag is UNASSESSED, never checked-and-clean.
         getFlagCoverage(),
       ]);
       return ok({
@@ -682,56 +853,116 @@ export const makeCompaniesRepo = (
   };
 
   // ── list / filter ───────────────────────────────────────────────────────────
+  /**
+   * Rows and the bounded total share ONE WHERE over the same spine population
+   * and the same pinned edition: every spine row joins at most one profile
+   * (primary key) and the registry criteria are semijoins, so a CUI is listed
+   * and counted once.
+   */
   const listCompanies = async (
     filter: FilterInput,
     sort: CompanySort,
-    page: OffsetParams
+    page: OffsetParams,
+    scope: CompanyRegistryEnvelope
   ): Promise<Result<CompanyListResult, ApiError>> => {
-    const condsRes = buildListConditions(filter);
+    const condsRes = buildListConditions(filter, scope);
     if (condsRes.isErr()) return err(condsRes.error);
-    const where = composeWhere(condsRes.value);
+    const order = orderByFor(sort, scope);
+    if (order.isErr()) return err(order.error);
+    const where = composeWhere(condsRes.value.conds);
     try {
-      const rows = await db
-        .selectFrom('core.organizations as o')
-        .leftJoin('companies_v2.registrations as r', 'r.cui', 'o.cui')
-        .leftJoin('companies_v2.fiscal_status as f', 'f.cui', 'o.cui')
-        .select(LIST_SELECT())
-        .where(where)
-        .orderBy(orderByFor(sort))
-        .limit(page.pageSize)
-        .offset(offsetFor(page))
-        .execute();
+      const rows = await sql<SpineRow>`
+        select ${spineColumns(scope)}
+        from core.organizations o
+        ${registryJoin(scope)}
+        ${FISCAL_JOIN}
+        where ${where}
+        order by ${order.value}
+        limit ${page.pageSize} offset ${offsetFor(page)}`.execute(db);
 
       // Bounded total (§14.4): count over a LIMIT cap+1 subquery so a large
       // unfiltered list never scans 3.99M rows — `estimated` flags the cap.
-      const countRow = await db
-        .selectFrom(
-          db
-            .selectFrom('core.organizations as o')
-            .leftJoin('companies_v2.registrations as r', 'r.cui', 'o.cui')
-            .leftJoin('companies_v2.fiscal_status as f', 'f.cui', 'o.cui')
-            .select(sql<number>`1`.as('one'))
-            .where(where)
-            .limit(LIST_TOTAL_CAP + 1)
-            .as('capped')
-        )
-        .select(sql<string>`count(*)`.as('cnt'))
-        .executeTakeFirst();
-      const rawCount = Number(countRow?.cnt ?? 0);
+      const countRow = await sql<{ cnt: string }>`
+        select count(*)::text as cnt from (
+          select 1 from core.organizations o
+          ${registryJoin(scope)}
+          ${FISCAL_JOIN}
+          where ${where}
+          limit ${LIST_TOTAL_CAP + 1}
+        ) capped`.execute(db);
+      const rawCount = Number(countRow.rows[0]?.cnt ?? 0);
       const estimated = rawCount > LIST_TOTAL_CAP;
       const total = estimated ? LIST_TOTAL_CAP : rawCount;
 
-      return ok({ rows: rows.map(mapListRow), total, estimated });
+      const active = isPublished(scope)
+        ? await readActiveCuis(
+            db,
+            scope.editionId,
+            rows.rows.filter((r) => r.p_cui !== null).map((r) => r.cui)
+          )
+        : new Set<string>();
+      return ok({ rows: rows.rows.map((r) => mapListRow(r, scope, active)), total, estimated });
     } catch (error) {
       return err(databaseError('listCompanies failed', error));
     }
   };
 
+  /** Exact population count (no cap) for the cached hub; same predicates as the list. */
+  const countCompanies = async (
+    filter: FilterInput,
+    scope: CompanyRegistryEnvelope
+  ): Promise<Result<number, ApiError>> => {
+    const condsRes = buildListConditions(filter, scope);
+    if (condsRes.isErr()) return err(condsRes.error);
+    const where = composeWhere(condsRes.value.conds);
+    try {
+      const result = await sql<{ cnt: string }>`
+        select count(*)::text as cnt
+        from core.organizations o
+        ${registryJoin(scope)}
+        ${FISCAL_JOIN}
+        where ${where}`.execute(db);
+      return ok(Number(result.rows[0]?.cnt ?? 0));
+    } catch (error) {
+      return err(databaseError('countCompanies failed', error));
+    }
+  };
+
   // ── resolution / discovery ──────────────────────────────────────────────────
+  /**
+   * Labels for spine-validated candidates: the pinned edition's qualified name
+   * when it has one, else the core organization name, attributed either way.
+   * Search-index text is never a label and never presence evidence.
+   */
+  const labelHits = async (
+    candidates: readonly { cui: string; coreName: string; score: number | null }[],
+    scope: CompanyRegistryEnvelope
+  ): Promise<CompanyNameHit[]> => {
+    const onrcNames = isPublished(scope)
+      ? await readQualifiedNames(
+          db,
+          scope.editionId,
+          candidates.map((c) => c.cui).filter(isOnrcQualifiedCui)
+        )
+      : new Map<string, string>();
+    return candidates.map((c): CompanyNameHit => {
+      const onrc = onrcNames.get(c.cui);
+      return {
+        dim: 'name',
+        value: c.cui,
+        label: onrc ?? c.coreName,
+        cui: c.cui,
+        confidence: c.score,
+        labelSource: onrc === undefined ? 'core_organization' : 'onrc_edition',
+      };
+    });
+  };
+
   const resolveByName = async (
     q: string,
     limit: number,
-    meili: MeiliClient | null
+    meili: MeiliClient | null,
+    scope: CompanyRegistryEnvelope
   ): Promise<Result<{ hits: readonly CompanyNameHit[]; degraded: boolean }, ApiError>> => {
     const capped = Math.min(Math.max(Math.floor(limit), 1), 50);
     // PRIMARY: the palette index, filtered to identities that play the
@@ -740,22 +971,36 @@ export const makeCompaniesRepo = (
     // presents as `organization` — the role filter still finds it, and the
     // kind='company' validation below keeps the §link-not-merge contract.
     // The filter builder always pins privacy_class = "public".
-    // `degraded` reports an ENGINE outage, not an empty answer (M42): a healthy
-    // engine with no company-role hit for the query falls through to the pg
-    // path as a plain fallback, and the caller must not be told the engine
-    // was down.
-    let engineUnavailable = meili === null;
+    // `degraded` reports that the engine's company contribution could not be
+    // used, not an empty answer (M42): the engine was unavailable, OR the
+    // palette generation was not witnessed current for THIS pinned scope (its
+    // control read before and after the fetch missing, unreadable, of another
+    // version, malformed, changed between the reads, or built for another
+    // scope). Then neither its candidates nor its zero are accepted and the
+    // existing bounded fallback answers. A witnessed engine with no
+    // company-role hit falls through to that fallback as a plain (healthy)
+    // fallback, never reported as degraded.
+    let engineNotCurrent = meili === null;
     if (meili !== null) {
+      const before = await readGenerationControl(meili, meiliEntitiesIndex);
       const m = await meili.searchEntities(q, meiliEntitiesIndex, {
         policy: 'baseline',
         filter: buildEntitiesFilter({ roles: ['company'] }),
         limit: capped,
       });
-      if (m.isErr()) engineUnavailable = true;
-      if (m.isOk()) {
+      const witness = m.isOk()
+        ? witnessGeneration(before, await readGenerationControl(meili, meiliEntitiesIndex))
+        : null;
+      const current =
+        witness?.witnessed === true &&
+        isPublished(scope) &&
+        witness.control.registryScopeKey === registryScopeKey(scope);
+      if (!current) engineNotCurrent = true;
+      if (m.isOk() && current) {
         // Collect candidate CUIs (ordered by Meili score), then VALIDATE them
         // against core.organizations(kind='company').
-        const ordered: { cui: string; label: string; score: number | null }[] = [];
+        // Search-index titles are never kept: labels come from the spine/edition.
+        const ordered: { cui: string; score: number | null }[] = [];
         const seen = new Set<string>();
         for (const hit of m.value.hits) {
           // Palette docs key CUI identities by doc_key (= the CUI); `cuis` is
@@ -765,45 +1010,44 @@ export const makeCompaniesRepo = (
           const cui = typeof raw === 'string' ? normalizeCui(raw) : null;
           if (cui === null || seen.has(cui)) continue;
           seen.add(cui);
-          ordered.push({ cui, label: hit.title, score: hit.score });
+          ordered.push({ cui, score: hit.score });
         }
         if (ordered.length > 0) {
-          const valid = await db
-            .selectFrom('core.organizations')
-            .select(['cui', 'name'])
-            .where('kind', '=', 'company')
-            .where(organizationRowIsPublic('privacy_class'))
-            .where(
-              'cui',
-              'in',
-              ordered.map((o) => o.cui)
-            )
-            .execute();
-          const nameByCui = new Map(
-            valid
-              .filter((v): v is { cui: string; name: string } => v.cui !== null)
-              .map((v) => [v.cui, v.name])
-          );
-          const hits = ordered
-            .filter((o) => nameByCui.has(o.cui))
-            .slice(0, capped)
-            .map((o): CompanyNameHit => ({
-              dim: 'name',
-              value: o.cui,
-              label: nameByCui.get(o.cui) ?? o.label,
-              cui: o.cui,
-              confidence: o.score,
-            }));
-          if (hits.length > 0) return ok({ hits, degraded: false });
+          try {
+            const valid = await db
+              .selectFrom('core.organizations')
+              .select(['cui', 'name'])
+              .where('kind', '=', 'company')
+              .where(organizationRowIsPublic('privacy_class'))
+              .where(
+                'cui',
+                'in',
+                ordered.map((o) => o.cui)
+              )
+              .execute();
+            const nameByCui = new Map(
+              valid
+                .filter((v): v is { cui: string; name: string } => v.cui !== null)
+                .map((v) => [v.cui, v.name])
+            );
+            const candidates = ordered.flatMap((o) => {
+              const coreName = nameByCui.get(o.cui);
+              return coreName === undefined ? [] : [{ cui: o.cui, coreName, score: o.score }];
+            });
+            const hits = await labelHits(candidates.slice(0, capped), scope);
+            if (hits.length > 0) return ok({ hits, degraded: false });
+          } catch (error) {
+            return err(databaseError('resolveByName validation failed', error));
+          }
         }
-        // Meili reachable but no company-role hit for this query → pg fallback.
+        // A witnessed engine with no company-role hit for this query → pg fallback.
       }
     }
-    // pg fallback (degraded only when the engine was unavailable): capped,
+    // pg fallback (degraded when the engine's contribution was not usable): capped,
     // kind='company'-scoped, TS diacritic fold. No unaccent,
     // no trigram-index reliance; the LIMIT bounds the parallel seq scan (§15.7).
     const folded = foldDiacritics(q);
-    if (folded === '') return ok({ hits: [], degraded: engineUnavailable });
+    if (folded === '') return ok({ hits: [], degraded: engineNotCurrent });
     try {
       const needle = '%' + folded.replace(/[%_\\]/gu, '\\$&') + '%';
       const rows = await db
@@ -821,62 +1065,65 @@ export const makeCompaniesRepo = (
         .limit(NAME_FALLBACK_SCAN)
         .execute();
       const ranked = rows
-        .map((r) => {
+        .flatMap((r) => (r.cui === null ? [] : [{ r, cui: r.cui }]))
+        .map(({ r, cui }) => {
           const hay = foldDiacritics(r.normalized_name ?? r.name);
           const idx = hay.indexOf(folded);
           // Clamp to ≤1.0: an exact prefix match on a short name would otherwise
           // exceed 1.0 (e.g. 1.125) and break the [0,1] confidence contract (M10).
           const score = idx < 0 ? 0 : Math.min(1, 1 / (1 + idx) + 1 / (1 + hay.length));
-          return { r, score };
+          return { cui, coreName: r.name, score };
         })
         .sort((a, b) => b.score - a.score)
-        .slice(0, capped)
-        .map(({ r, score }): CompanyNameHit => ({
-          dim: 'name',
-          value: r.cui ?? '',
-          label: r.name,
-          cui: r.cui,
-          confidence: score,
-        }));
-      return ok({ hits: ranked, degraded: engineUnavailable });
+        .slice(0, capped);
+      return ok({ hits: await labelHits(ranked, scope), degraded: engineNotCurrent });
     } catch (error) {
       return err(databaseError('resolveByName fallback failed', error));
     }
   };
 
+  /**
+   * The edition's identifier lookup: the input normalized exactly as the
+   * edition normalizes identifier tokens (`onrcIdentifierKey`), an exact key
+   * match in the pinned edition's PUBLIC RESOLVED identifier groups, then the
+   * public `company` spine. No old/new number inference, no ambiguous or held
+   * group (those are not in the public view), one hit per CUI. Refused while
+   * no edition is published (never answered from the legacy identifiers).
+   */
   const findByRegistrationNumber = async (
-    cod: string
+    cod: string,
+    scope: CompanyRegistryEnvelope
   ): Promise<Result<readonly CompanyNameHit[], ApiError>> => {
-    // cod_inmatriculare is stored upper-case (J40/…, F40/…); upper-case the input
-    // so `j40/…` resolves like `J40/…` (audit M9 — the lookup was case-sensitive).
-    const value = cod.trim().toUpperCase();
-    if (value === '') return ok([]);
+    const key = onrcIdentifierKey(cod);
+    if (key === null) return ok([]);
+    if (!isPublished(scope)) return err(registryNotPublished(scope, 'registration-number lookup'));
     try {
-      // v2 stores registration identifiers directly by CUI. Returns a LIST
-      // (one-to-many possible) while still validating against core company identity.
-      // Returns a LIST (one-to-many — research finding 3).
-      const rows = await db
-        .selectFrom('companies_v2.registration_identifiers as ri')
-        .innerJoin('core.organizations as o', 'o.cui', 'ri.cui')
-        .select(['o.cui', 'o.name'])
-        .where('ri.scheme', '=', REGNUM_SCHEME)
-        .where('ri.value', '=', value)
-        .where('ri.is_current', '=', true)
-        .where('o.kind', '=', 'company')
-        .where(organizationRowIsPublic('o.privacy_class'))
-        .limit(50)
-        .execute();
-      return ok(
-        rows
-          .filter((r): r is { cui: string; name: string } => r.cui !== null)
-          .map((r) => ({
-            dim: 'regnum',
-            value: r.cui,
-            label: r.name,
-            cui: r.cui,
-            confidence: null,
-          }))
-      );
+      const rows = await sql<{ cui: string; core_name: string; onrc_name: string | null }>`
+        select i.cui, o.name as core_name, p.name as onrc_name
+        from companies_v2.onrc_published_identifier_profiles i
+        join core.organizations o
+          on o.cui = i.cui and o.kind = 'company' and ${organizationRowIsPublic('o.privacy_class')}
+            and length(o.cui) <= ${sql.lit(MAX_SERVED_CUI_DIGITS)}
+        left join companies_v2.onrc_published_profiles p
+          on p.edition_id = i.edition_id and p.cui = i.cui
+        where i.edition_id = ${editionParam(scope.editionId)} and i.identifier_key = ${key}
+        order by i.cui
+        limit 50`.execute(db);
+      const seen = new Set<string>();
+      const hits: CompanyNameHit[] = [];
+      for (const r of rows.rows) {
+        if (seen.has(r.cui)) continue;
+        seen.add(r.cui);
+        hits.push({
+          dim: 'regnum',
+          value: r.cui,
+          label: r.onrc_name ?? r.core_name,
+          cui: r.cui,
+          confidence: null,
+          labelSource: r.onrc_name === null ? 'core_organization' : 'onrc_edition',
+        });
+      }
+      return ok(hits);
     } catch (error) {
       return err(databaseError('findByRegistrationNumber failed', error));
     }
@@ -915,7 +1162,10 @@ export const makeCompaniesRepo = (
         .limit(capped)
         .execute();
       return ok(
-        rows.map((r) => ({ code: r.code, rev: r.system.replace(/^caen_/u, ''), label: r.label }))
+        rows.map((r) => {
+          const rev = r.system.replace(/^caen_/u, '');
+          return { code: r.code, rev, key: onrcCaenKey(rev, r.code), label: r.label };
+        })
       );
     } catch (error) {
       return err(databaseError('resolveCaen failed', error));
@@ -925,20 +1175,19 @@ export const makeCompaniesRepo = (
   const resolveCounty = async (q: string): Promise<Result<readonly string[], ApiError>> => {
     const folded = normalizeCountyNeedle(q);
     try {
-      const rows = await db
-        .selectFrom('companies_v2.registrations')
-        .select(sql<string | null>`selected_county_name`.as('raw_county'))
-        .where('selected_county_name', 'is not', null)
-        .where(
-          sql<boolean>`regexp_replace(lower(translate(selected_county_name, ${FOLD_FROM}, ${FOLD_TO})), '^(judetul|municipiul) ', '') like ${'%' + folded.replace(/[%_\\]/gu, '\\$&') + '%'} escape '\\'`
-        )
-        .groupBy('selected_county_name')
-        .orderBy('selected_county_name', 'asc')
-        .limit(50)
-        .execute();
-      return ok(
-        rows.map((r) => mapCountyDisplayName(r.raw_county)).filter((c): c is string => c !== null)
-      );
+      // Canonical county names of PUBLIC county territories (the territory hub):
+      // a county name is a county, never a coerced multiple/unknown state.
+      const result = await sql<{ county_name: string | null }>`
+        select distinct t.county_name from core.territories t
+        where t.privacy_class = 'public' and t.county_name is not null and ${isCountyTerritory('t')}
+          and regexp_replace(lower(translate(t.county_name, ${FOLD_FROM}, ${FOLD_TO})), '^(judetul|municipiul) ', '')
+            like ${'%' + folded.replace(/[%_\\]/gu, '\\$&') + '%'} escape '\\'
+        order by t.county_name
+        limit 50`.execute(db);
+      const names = result.rows
+        .map((r) => mapCountyDisplayName(r.county_name))
+        .filter((c): c is string => c !== null);
+      return ok([...new Set(names)]);
     } catch (error) {
       return err(databaseError('resolveCounty failed', error));
     }
@@ -946,226 +1195,224 @@ export const makeCompaniesRepo = (
 
   // ── aggregates (count-ranked) ───────────────────────────────────────────────
   interface CountRow {
-    key: string | null;
+    key: string;
+    basis: string | null;
     label: string | null;
     cnt: string;
     matched: string;
     unmatched: string;
   }
+  /**
+   * Facets over EXACTLY the list's predicates (same compiler, same pinned
+   * edition). County/status: each CUI once, under its consensus value or an
+   * explicit basis bucket; denominator = the population. CAEN division:
+   * (revision, division) buckets of the public observations on identifiers
+   * that satisfy the filter's same-identifier criteria, distinct CUIs per
+   * bucket, overlapping; denominator = the population, counted separately.
+   * Every grouping needs a published edition (never an empty facet).
+   */
   const countBy = async (
     groupBy: CompanyGroupBy,
-    filter: FilterInput
-  ): Promise<
-    Result<
-      { groups: readonly CompanyGroupCount[]; denominator: number; coverage: CompanyCoverage },
-      ApiError
-    >
-  > => {
+    filter: FilterInput,
+    scope: CompanyRegistryEnvelope
+  ): Promise<Result<CompanyCountByResult, ApiError>> => {
     // groupBy=county still needs a selective predicate; avoid broad county scans.
     if (groupBy === 'county') {
       const gate = requireAggregateDriver(
         filter,
         COMPANY_AGGREGATE_DRIVING_FIELDS,
-        'county / status / caenCode'
+        'county / status / caenCode / onrcCaen'
       );
       if (gate.isErr()) return err(gate.error);
     }
-    const condsRes = buildListConditions(filter);
+    if (!isPublished(scope)) return err(registryNotPublished(scope, `the ${groupBy} grouping`));
+    const editionId = scope.editionId;
+    const condsRes = buildListConditions(filter, scope);
     if (condsRes.isErr()) return err(condsRes.error);
-    const where = composeWhere(condsRes.value);
+    const where = composeWhere(condsRes.value.conds);
+    const identifierPredicate = condsRes.value.identifierPredicate ?? sql<boolean>`true`;
 
     try {
-      let groups: CompanyGroupCount[];
-      let coverage: CompanyCoverage;
       if (groupBy === 'caenDivision') {
-        // Resolve the filtered companies FIRST in a materialized CTE, THEN fan out
-        // to their activities for the division grouping. This matters for latency:
-        // joining registrations/fiscal_status alongside the activities fan-out in one
-        // pass made the planner build the full o⋈r⋈f product before applying the
-        // filter (~27s, past the statement timeout — the real cause of audit C1, NOT
-        // the hypothesized alias bug). Materializing the filtered cui set (the IN
-        // caenCode filter resolves via the caen_code index, audit M8) keeps it the
-        // cheapest available plan. Count must be DISTINCT (a cui has many activities).
-        // Territory coverage is NOT computed at the division grain (would re-introduce
-        // distincts over the fan-out); it stays a county/status answer.
-        //
-        // Even on that plan this leg exceeds the 15s pool `statement_timeout`: measured
-        // 23.6s for `status.eq='1048'` (1.72M companies) on prod, 2026-07-09 — so it
-        // ALWAYS aborted with 57014 and this grouping was effectively dead. It runs in
-        // its own transaction with a `SET LOCAL` budget (precedent: legal
-        // retrieval-repo). The pool default is never raised — only this one statement.
+        // The filtered population first (materialized), then its identifiers
+        // that satisfy the same-identifier criteria, then their public CAEN
+        // observations. The leg keeps its own statement budget (precedent:
+        // the former caen_profile leg measured 23.6s); the pool default is
+        // never raised. Cost on the edition views is unmeasured.
         const rows = await db.transaction().execute(async (trx) => {
           await sql`set local statement_timeout = ${sql.lit(CAEN_DIVISION_TIMEOUT_MS)}`.execute(
             trx
           );
-          const r = await sql<{ key: string; cnt: string }>`
+          const r = await sql<{
+            key: string;
+            revision: string | null;
+            cnt: string;
+            population: string;
+          }>`
             with filtered as materialized (
               select o.cui as cui
               from core.organizations o
-              left join companies_v2.registrations r on r.cui = o.cui
-              left join companies_v2.fiscal_status f on f.cui = o.cui
+              ${registryJoin(scope)}
+              ${FISCAL_JOIN}
               where ${where}
-            )
-            select left(cad.caen_code, 2) as key, count(distinct fil.cui)::text as cnt
+            ),
+            population as (select count(*)::text as n from filtered)
+            select coalesce(c.caen_revision, 'unknown') || ':' || left(c.caen_code, 2) as key,
+                   c.caen_revision as revision,
+                   count(distinct fil.cui)::text as cnt,
+                   (select n from population) as population
             from filtered fil
-            inner join companies_v2.caen_profile cad on cad.cui = fil.cui
-            group by left(cad.caen_code, 2)
-            order by count(distinct fil.cui) desc
+            join companies_v2.onrc_published_identifier_profiles i
+              on i.edition_id = ${editionParam(editionId)} and i.cui = fil.cui
+             and ${identifierPredicate}
+            join companies_v2.onrc_published_caen_observations c
+              on c.edition_id = i.edition_id and c.identifier_key = i.identifier_key and c.cui = i.cui
+            where c.caen_code is not null
+            group by 1, 2
+            order by count(distinct fil.cui) desc, 1
             limit 500
           `.execute(trx);
-          return r.rows;
+          const population = await sql<{ n: string }>`
+            select count(*)::text as n from core.organizations o
+            ${registryJoin(scope)} ${FISCAL_JOIN} where ${where}`.execute(trx);
+          return { rows: r.rows, population: Number(population.rows[0]?.n ?? 0) };
         });
-        groups = rows.map((r) => ({ key: r.key, label: null, count: Number(r.cnt) }));
-        coverage = {
-          territoryMatched: null,
-          territoryUnmatched: null,
-          note: COMPANY_TERRITORY_COVERAGE_NOTE,
-        };
-      } else {
-        // status/county are 1:1 over (o ⋈ r ⋈ f) → count(*) == count(distinct cui),
-        // the cheaper form. Coverage (audit M11 — was hardcoded null) rides as two
-        // FILTER columns in the SAME grouped scan (no second scan — a concurrent
-        // coverage query doubled the cost on big sets like status=1048 ≈ 1.74M and
-        // blew the budget). Each cui lands in exactly one county/status group, so
-        // summing the per-group matched/unmatched is the exact total. `unmatched` =
-        // SIRUTA miss OR no registration row.
-        const keyExpr =
-          groupBy === 'status' ? sql`r.onrc_lifecycle_status_code` : sql`r.selected_county_name`;
-        const labelExpr =
-          groupBy === 'status' ? sql`max(r.onrc_lifecycle_status_label)` : sql`null::text`;
-        const result = await sql<CountRow>`
-          select ${keyExpr} as key, ${labelExpr} as label, count(*)::text as cnt,
-            count(*) filter (where r.territory_match_confidence = 'safe')::text as matched,
-            count(*) filter (where r.territory_match_confidence is distinct from 'safe')::text as unmatched
-          from core.organizations o
-          left join companies_v2.registrations r on r.cui = o.cui
-          left join companies_v2.fiscal_status f on f.cui = o.cui
-          where ${where}
-          group by ${keyExpr} order by count(*) desc limit 500
-        `.execute(db);
-        groups = result.rows.map((r) => ({
-          key:
-            groupBy === 'county' ? (mapCountyDisplayName(r.key) ?? '(none)') : (r.key ?? '(none)'),
-          label: r.label,
+        const groups: CompanyGroupCount[] = rows.rows.map((r) => ({
+          key: r.key,
+          label: null,
           count: Number(r.cnt),
+          basis: r.revision === null ? 'unknown_revision' : null,
         }));
-        // groupings stay well under the 500 cap (≤~90), so summing is the full total.
-        coverage = {
+        return ok({
+          groups,
+          denominator: rows.population,
+          coverage: {
+            territoryMatched: null,
+            territoryUnmatched: null,
+            note: COMPANY_TERRITORY_COVERAGE_NOTE,
+          },
+        });
+      }
+      const value = groupBy === 'status' ? 'p.status_code' : 'p.county_code';
+      const basis = groupBy === 'status' ? 'p.status_basis' : 'p.county_basis';
+      // Territory coverage rides as two FILTER columns in the same grouped
+      // scan; each CUI lands in exactly one bucket, so the sums are exact.
+      // County names are looked up once per bucket, after grouping.
+      const result = await sql<CountRow>`
+        select g.key, g.basis,
+          ${groupBy === 'county' ? sql`case when g.basis is null then ${countyNameOf(sql`g.key`)} end` : sql`null::text`} as label,
+          g.cnt, g.matched, g.unmatched
+        from (
+          select ${facetKey(value, basis)} as key, ${facetBasis(value, basis)} as basis,
+            count(*) as n,
+            count(*)::text as cnt,
+            count(*) filter (where p.uat_siruta_code is not null)::text as matched,
+            count(*) filter (where p.uat_siruta_code is null)::text as unmatched
+          from core.organizations o
+          ${registryJoin(scope)}
+          ${FISCAL_JOIN}
+          where ${where}
+          group by 1, 2
+        ) g
+        order by g.n desc, g.key limit 500
+      `.execute(db);
+      const groups: CompanyGroupCount[] = result.rows.map((r) => ({
+        key: r.key,
+        label:
+          groupBy === 'status'
+            ? r.basis === null
+              ? compatStatus(r.key).label
+              : null
+            : mapCountyDisplayName(r.label),
+        count: Number(r.cnt),
+        basis: r.basis,
+      }));
+      return ok({
+        groups,
+        // Every CUI is in exactly one bucket (≤ ~90 buckets, under the cap).
+        denominator: groups.reduce((s, g) => s + g.count, 0),
+        coverage: {
           territoryMatched: result.rows.reduce((s, r) => s + Number(r.matched), 0),
           territoryUnmatched: result.rows.reduce((s, r) => s + Number(r.unmatched), 0),
           note: COMPANY_TERRITORY_COVERAGE_NOTE,
-        };
-      }
-      const denominator = groups.reduce((s, g) => s + g.count, 0);
-      return ok({ groups, denominator, coverage });
+        },
+      });
     } catch (error) {
       return err(databaseError('countBy failed', error));
     }
   };
 
   // ── contributor support ─────────────────────────────────────────────────────
-  const sliceSelect = () =>
-    [
-      'o.cui',
-      'o.name',
-      'r.legal_form',
-      sql<string | null>`r.onrc_lifecycle_status_code`.as('status_code'),
-      sql<string | null>`r.onrc_lifecycle_status_label`.as('status_label'),
-      sql<string | null>`r.registration_date::text`.as('registration_date'),
-      sql<string | null>`r.selected_uat_siruta_code`.as('uat_siruta_code'),
-      sql<string | null>`r.selected_locality_name`.as('uat_name'),
-      sql<string | null>`r.selected_county_name`.as('county_name'),
-      sql<string | null>`r.territory_match_confidence`.as('match_confidence'),
-      sql<string | null>`r.updated_at::date::text`.as('onrc_as_of'),
-      'f.is_vat_payer',
-      'f.is_inactive',
-      sql<string | null>`coalesce(f.snapshot_at, f.retrieved_at, f.updated_at)::date::text`.as(
-        'anaf_as_of'
-      ),
-    ] as const;
-
-  interface SliceRow {
-    cui: string | null;
-    name: string;
-    legal_form: string | null;
-    status_code: string | null;
-    status_label: string | null;
-    registration_date: string | null;
-    uat_siruta_code: string | null;
-    uat_name: string | null;
-    county_name: string | null;
-    match_confidence: string | null;
-    onrc_as_of: string | null;
-    is_vat_payer: boolean | null;
-    is_inactive: boolean | null;
+  interface SliceRow extends SpineRow {
     anaf_as_of: string | null;
   }
 
-  /** Pure assembly: the latest financial is fetched separately and passed in. */
-  const sliceFromRow = (row: SliceRow, latestFin: FinancialRow | null): CompanyEntitySlice => ({
-    cui: row.cui ?? '',
-    name: row.name,
-    legalForm: row.legal_form,
-    headlineStatus: mapHeadlineStatus(row.status_code, row.status_label),
-    vatPayer: row.is_vat_payer,
-    declaredFiscallyInactive: row.is_inactive,
-    registrationDate: row.registration_date,
-    registrationDatePresent: row.registration_date !== null,
-    territory: mapTerritory({
-      uat_siruta_code: row.uat_siruta_code,
-      uat_name: row.uat_name,
-      county_name: row.county_name,
-      match_confidence: row.match_confidence,
-    }),
-    latestFinancial: latestFin !== null ? mapFinancialYear(latestFin) : null,
-    asOf: { onrc: row.onrc_as_of, anaf: row.anaf_as_of },
-  });
+  /** The public `company` spine rows of these CUIs with their pinned profile and ANAF flags. */
+  const readSpineRows = (cuis: readonly string[], scope: CompanyRegistryEnvelope) =>
+    sql<SliceRow>`
+      select ${spineColumns(scope)}, f.status_date::text as anaf_as_of
+      from core.organizations o
+      ${registryJoin(scope)}
+      ${FISCAL_JOIN}
+      where ${inTextList(sql`o.cui`, cuis)} and o.kind = 'company'
+        and ${organizationRowIsPublic('o.privacy_class')}
+        and length(o.cui) <= ${sql.lit(MAX_SERVED_CUI_DIGITS)}`.execute(db);
 
-  /** Latest financial year per CUI in ONE query (DISTINCT ON walks financials_pkey). */
-  const latestFinancialsByCui = async (
-    cuis: readonly string[]
-  ): Promise<Map<string, FinancialRow>> => {
-    if (cuis.length === 0) return new Map();
-    const rows = await db
-      .selectFrom('companies_v2.financials')
-      .select(['cui', ...financialColumns()])
-      .where('cui', 'in', [...cuis])
-      .where('privacy_class', '=', 'public')
-      .distinctOn('cui')
-      .orderBy('cui')
-      .orderBy('year', 'desc')
-      .execute();
-    const out = new Map<string, FinancialRow>();
-    for (const r of rows) out.set(r.cui, r);
-    return out;
+  /** Pure assembly: the latest financial is fetched separately and passed in. */
+  const sliceFromRow = (
+    row: SliceRow,
+    scope: CompanyRegistryEnvelope,
+    latestFin: FinancialRow | null,
+    qualificationReadable: boolean
+  ): CompanyEntitySlice => {
+    const profile = profileFromRow(row);
+    const { name, nameSource } = displayName(row.core_name, profile);
+    const status = profile?.statusCode.value ?? null;
+    return {
+      cui: row.cui,
+      name,
+      nameSource,
+      legalForm: profile?.legalForm.value ?? null,
+      headlineStatus: status === null ? null : compatStatus(status),
+      vatPayer: row.is_vat_payer,
+      declaredFiscallyInactive: row.is_inactive,
+      registrationDate: profile?.recordedDate.value ?? null,
+      registrationDatePresent: (profile?.recordedDate.value ?? null) !== null,
+      territory: territoryOf(profile),
+      latestFinancial:
+        latestFin !== null ? mapFinancialYear(latestFin, qualificationReadable) : null,
+      registryCuiState: cuiStateOf(scope, profile !== null),
+      registry: scope,
+      asOf: { onrc: onrcAsOf(scope), anaf: row.anaf_as_of },
+    };
   };
 
-  const profileSlice = async (
-    rawCui: string
-  ): Promise<Result<CompanyEntitySlice | null, ApiError>> => {
-    const cui = normalizeCui(rawCui);
-    if (cui === null) return err(invalidInput('invalid CUI format', 'cui'));
-    try {
-      const row = await db
-        .selectFrom('core.organizations as o')
-        .leftJoin('companies_v2.registrations as r', 'r.cui', 'o.cui')
-        .leftJoin('companies_v2.fiscal_status as f', 'f.cui', 'o.cui')
-        .select(sliceSelect())
-        .where('o.cui', '=', cui)
-        .where('o.kind', '=', 'company')
-        .where(organizationRowIsPublic('o.privacy_class'))
-        .limit(1)
-        .executeTakeFirst();
-      if (row === undefined) return ok(null);
-      const latest = await latestFinancialsByCui([cui]);
-      return ok(sliceFromRow(row, latest.get(cui) ?? null));
-    } catch (error) {
-      return err(databaseError('profileSlice failed', error));
-    }
+  /**
+   * Latest financial year per CUI in ONE query (DISTINCT ON walks
+   * financials_pkey), with the same source and qualification as the profile.
+   */
+  const latestFinancialsByCui = async (
+    cuis: readonly string[]
+  ): Promise<{ rows: Map<string, FinancialRow>; qualificationReadable: boolean }> => {
+    if (cuis.length === 0) return { qualificationReadable: false, rows: new Map() };
+    const { rows, qualificationReadable } = await readStatements((capabilities) =>
+      financialStatements(capabilities)
+        .select('fin.cui')
+        .where('fin.cui', 'in', [...cuis])
+        .where('fin.privacy_class', '=', 'public')
+        .distinctOn('fin.cui')
+        .orderBy('fin.cui')
+        .orderBy('fin.year', 'desc')
+        .execute()
+    );
+    const out = new Map<string, FinancialRow>();
+    for (const r of rows) out.set(r.cui, r);
+    return { qualificationReadable, rows: out };
   };
 
   const profileSlicesForCuis = async (
-    cuis: readonly string[]
+    cuis: readonly string[],
+    scope: CompanyRegistryEnvelope
   ): Promise<Result<ReadonlyMap<string, CompanyEntitySlice>, ApiError>> => {
     const normalized = [
       ...new Set(cuis.map((c) => normalizeCui(c)).filter((c): c is string => c !== null)),
@@ -1173,21 +1420,15 @@ export const makeCompaniesRepo = (
     if (normalized.length === 0) return ok(new Map());
     try {
       const [rows, latest] = await Promise.all([
-        db
-          .selectFrom('core.organizations as o')
-          .leftJoin('companies_v2.registrations as r', 'r.cui', 'o.cui')
-          .leftJoin('companies_v2.fiscal_status as f', 'f.cui', 'o.cui')
-          .select(sliceSelect())
-          .where('o.kind', '=', 'company')
-          .where(organizationRowIsPublic('o.privacy_class'))
-          .where('o.cui', 'in', normalized)
-          .execute(),
+        readSpineRows(normalized, scope),
         latestFinancialsByCui(normalized),
       ]);
       const out = new Map<string, CompanyEntitySlice>();
-      for (const row of rows) {
-        if (row.cui === null) continue;
-        out.set(row.cui, sliceFromRow(row, latest.get(row.cui) ?? null));
+      for (const row of rows.rows) {
+        out.set(
+          row.cui,
+          sliceFromRow(row, scope, latest.rows.get(row.cui) ?? null, latest.qualificationReadable)
+        );
       }
       return ok(out);
     } catch (error) {
@@ -1196,69 +1437,73 @@ export const makeCompaniesRepo = (
   };
 
   const presenceCounts = async (
-    rawCui: string
+    rawCui: string,
+    scope: CompanyRegistryEnvelope
   ): Promise<Result<CompanyPresenceCounts | null, ApiError>> => {
     const cui = normalizeCui(rawCui);
     if (cui === null) return err(invalidInput('invalid CUI format', 'cui'));
     try {
-      const org = await db
-        .selectFrom('core.organizations as o')
-        .leftJoin('companies_v2.registrations as r', 'r.cui', 'o.cui')
-        .leftJoin('companies_v2.fiscal_status as f', 'f.cui', 'o.cui')
-        .select([
-          'o.name',
-          sql<string | null>`r.onrc_lifecycle_status_label`.as('status_label'),
-          sql<string | null>`r.updated_at::date::text`.as('onrc_as_of'),
-          sql<string | null>`coalesce(f.snapshot_at, f.retrieved_at, f.updated_at)::date::text`.as(
-            'anaf_as_of'
-          ),
-        ])
-        .where('o.cui', '=', cui)
-        .where('o.kind', '=', 'company')
-        .where(organizationRowIsPublic('o.privacy_class'))
-        .limit(1)
-        .executeTakeFirst();
-      if (org === undefined) return ok(null);
-      const [fin, caen] = await Promise.all([
+      const spine = await readSpineRows([cui], scope);
+      const row = spine.rows[0];
+      if (row === undefined) return ok(null);
+      const profile = profileFromRow(row);
+      // The badge counts exactly what the profile lists: the same caen
+      // observations and the same ANAF main activity through the same builder.
+      const [fin, fiscal, caen] = await Promise.all([
         db
           .selectFrom('companies_v2.financials')
           .select(sql<string>`count(*)`.as('cnt'))
           .where('cui', '=', cui)
+          .where('privacy_class', '=', 'public')
           .executeTakeFirst(),
-        db
-          .selectFrom('companies_v2.caen_profile')
-          .select(sql<string>`count(*)`.as('cnt'))
-          .where('cui', '=', cui)
-          .executeTakeFirst(),
+        readFiscal(cui),
+        isPublished(scope) && profile !== null
+          ? readCaenObservations(db, scope.editionId, cui)
+          : Promise.resolve({ rows: [], truncated: false }),
       ]);
+      const { name, nameSource } = displayName(row.core_name, profile);
+      const status = profile?.statusCode.value ?? null;
       return ok({
         cui,
-        name: org.name,
-        headlineStatus: org.status_label,
+        name,
+        nameSource,
+        registryCuiState: cuiStateOf(scope, profile !== null),
+        headlineStatus: status === null ? null : compatStatus(status).label,
         financials: Number(fin?.cnt ?? 0),
-        caenActivities: Number(caen?.cnt ?? 0),
+        caenActivities: caenActivitiesOf(caen.rows, fiscal).length,
         representatives: 0,
-        onrcAsOf: org.onrc_as_of,
-        anafAsOf: org.anaf_as_of,
+        onrcAsOf: onrcAsOf(scope),
+        anafAsOf: row.anaf_as_of,
       });
     } catch (error) {
       return err(databaseError('presenceCounts failed', error));
     }
   };
 
+  const publishedEditions = async (scope: CompanyRegistryEnvelope) => {
+    try {
+      return ok(await readPublishedEditions(db, scope));
+    } catch (error) {
+      return err(databaseError('publishedEditions failed', error));
+    }
+  };
+
   return {
+    captureRegistryScope: () => captureRegistryScope(db),
+    confirmRegistryScope: (scope, cuis) => confirmRegistryScope(db, scope, cuis),
     getProfileData,
     getFinancials,
     getFinancialQualityAssessment,
     getRegistrationDiffData,
     listCompanies,
+    countCompanies,
     resolveByName,
     findByRegistrationNumber,
     resolveCaen,
     resolveCounty,
     countBy,
-    profileSlice,
     presenceCounts,
     profileSlicesForCuis,
+    publishedEditions,
   };
 };

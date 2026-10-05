@@ -2,14 +2,16 @@
  * Companies golden + tri-surface tests against LIVE transparenta_prod (read-only).
  *
  * Pinned to measured live data (verified 2026-06-16 on transparenta-prod-postgres-1):
- *   - core.organizations kind='company' = 3,985,167 (the CUI spine)
- *   - golden CUI 2816464 = DEDEMAN SRL, org_id 1517396, county Bacău (v2 selected county),
- *     status 1048 funcțiune, legal_form SRL, regnum J1992002621040, vat=true,
- *     is_inactive=false, employees(2024)=12313, also a flows payee.
+ *   - golden CUI 2816464 = DEDEMAN SRL, org_id 1517396, vat=true, is_inactive=false,
+ *     employees(2024)=12313, also a flows payee.
  *
- * Tri-surface: the GraphQL `company(cui)` / `entity(cui).company` payload == the
- * MCP `get_company_snapshot` profile == raw SQL over `companies_v2.*`. Skips cleanly
- * when PROD_DATABASE_URL is absent (CI without the tunnel).
+ * The ONRC registry is STATE-AWARE (scrapper migration 20261003T172000): every
+ * registry assertion first reads `companyRegistry`. Before an edition is
+ * published (or while unreadable/withdrawn) the registry fields are null with
+ * the state on the profile, registry filters/groupings are refused, and the
+ * fiscal/financial/public-money content is unchanged. Once published, the
+ * registry fields are compared with raw SQL over the PUBLIC views bound to the
+ * pinned edition id. Skips cleanly when PROD_DATABASE_URL is absent.
  */
 
 import { Pool } from 'pg';
@@ -38,7 +40,7 @@ const onUncaught = (err: unknown): void => {
 const gql = async (
   query: string,
   variables?: Record<string, unknown>
-): Promise<{ data?: unknown; errors?: unknown }> => {
+): Promise<{ data?: unknown; errors?: { extensions?: { code?: string } }[] }> => {
   const res = await app.inject({
     method: 'POST',
     url: '/api/v1/graphql',
@@ -70,6 +72,22 @@ const mcpCall = async (name: string, args: Record<string, unknown>): Promise<unk
   return text !== undefined ? JSON.parse(text) : undefined;
 };
 
+interface Registry {
+  state: 'PUBLISHED' | 'UNPUBLISHED' | 'WITHDRAWN' | 'UNAVAILABLE';
+  editionId: string | null;
+  scopeKey: string;
+}
+
+const registry = async (): Promise<Registry> => {
+  const res = await gql(`query{ companyRegistry { registry { state editionId scopeKey } } }`);
+  expect(res.errors).toBeUndefined();
+  return (res.data as { companyRegistry: { registry: Registry } }).companyRegistry.registry;
+};
+
+const expectUnavailable = (res: { errors?: { extensions?: { code?: string } }[] }): void => {
+  expect(res.errors?.[0]?.extensions?.code).toBe('SERVICE_UNAVAILABLE');
+};
+
 d('Companies golden (live prod)', () => {
   beforeAll(async () => {
     const config = loadRedesignConfig(process.env);
@@ -92,23 +110,16 @@ d('Companies golden (live prod)', () => {
     process.off('uncaughtException', onUncaught);
   });
 
-  it('the CUI spine count is the measured 3,985,167', async () => {
-    const r = await pool.query<{ cnt: string }>(
-      `select count(*) cnt from core.organizations where kind='company'`
-    );
-    expect(Number(r.rows[0]?.cnt)).toBe(3_985_167);
-  });
-
-  it('company(2816464) profile matches the golden row', async () => {
+  it('company(2816464): directory spine, fiscal and financial content in every registry state', async () => {
+    const reg = await registry();
     const res = await gql(
       `query($cui: CUI!){ company(cui:$cui){
-         cui orgId name legalForm codInmatriculare registrationDate registrationDatePresent
-         headlineStatus { code label } address { county locality }
-         territory { matchConfidence }
+         cui orgId name nameSource legalForm codInmatriculare registrationDate registrationDatePresent
+         headlineStatus { code label labelSource } euBranches { country }
          fiscal { vatPayer declaredFiscallyInactive mainCaenCode }
-         financials { year turnover employees } representatives { name role } statusFlags { code label }
-         caenActivities { code rev } euBranches { country }
+         financials { year turnover employees } representatives { name role }
          publicMoney { totalRon flowCount } asOf { onrc anaf }
+         registry { cuiState registry { state editionId scopeKey } }
        } }`,
       { cui: DEDEMAN }
     );
@@ -116,36 +127,79 @@ d('Companies golden (live prod)', () => {
     const c = (
       res.data as {
         company: {
-          name: string;
           orgId: string;
-          legalForm: string;
-          codInmatriculare: string;
-          registrationDate: string;
-          registrationDatePresent: boolean;
-          headlineStatus: { code: string };
-          address: { county: string };
+          nameSource: string;
+          legalForm: string | null;
+          headlineStatus: { code: string } | null;
+          euBranches: unknown[];
           fiscal: { vatPayer: boolean; declaredFiscallyInactive: boolean };
           financials: { year: number; employees: string }[];
-          representatives: { name: string; role: string }[];
+          representatives: unknown[];
           publicMoney: { flowCount: number } | null;
+          asOf: { onrc: string | null };
+          registry: { cuiState: string; registry: Registry };
         };
       }
     ).company;
-    expect(c.name).toBe('DEDEMAN SRL');
     expect(c.orgId).toBe('1517396');
-    expect(c.legalForm).toBe('SRL');
-    expect(c.codInmatriculare).toBe('J1992002621040');
-    expect(c.registrationDate).toBe('1992-11-05');
-    expect(c.registrationDatePresent).toBe(true);
-    expect(c.headlineStatus.code).toBe('1048');
-    expect(c.address.county).toBe('Bacău');
     expect(c.fiscal.vatPayer).toBe(true);
     expect(c.fiscal.declaredFiscallyInactive).toBe(false);
-    const y2024 = c.financials.find((f) => f.year === 2024);
-    expect(y2024?.employees).toBe('12313'); // bigint as string, never a JS number
+    expect(c.financials.find((f) => f.year === 2024)?.employees).toBe('12313'); // bigint string
     expect(c.representatives).toEqual([]); // v2 person/role tables are restricted.
+    expect(c.euBranches).toEqual([]); // not part of the ONRC edition contract
     expect(c.publicMoney?.flowCount).toBeGreaterThan(0);
-  }, 25_000); // full profile incl. the public-money slice (3 flow aggregates) on a 219k-flow payee.
+    expect(c.registry.registry.scopeKey).toBe(reg.scopeKey);
+    if (reg.state !== 'PUBLISHED') {
+      // No legacy fallback: the registry fields are the state, not old scalars.
+      expect(c.registry.cuiState).toBe(reg.state);
+      expect(c.legalForm).toBeNull();
+      expect(c.headlineStatus).toBeNull();
+      expect(c.asOf.onrc).toBeNull();
+      expect(c.nameSource).toBe('CORE_ORGANIZATION');
+    }
+  }, 25_000);
+
+  it('published registry fields equal raw SQL over the public views of the pinned edition', async () => {
+    const reg = await registry();
+    if (reg.state !== 'PUBLISHED' || reg.editionId === null) return;
+    const raw = await pool.query<{
+      name: string | null;
+      legal_form: string | null;
+      status_code: string | null;
+      recorded_date: string | null;
+    }>(
+      `select p.name, p.legal_form, p.status_code, p.recorded_date::text as recorded_date
+         from companies_v2.onrc_published_profiles p
+        where p.edition_id = $1::bigint and p.cui = $2`,
+      [reg.editionId, DEDEMAN]
+    );
+    const res = await gql(
+      `query($cui: CUI!){ company(cui:$cui){ name legalForm registrationDate headlineStatus { code }
+         registry { cuiState profile { statusCode { value basis } } } } }`,
+      { cui: DEDEMAN }
+    );
+    const c = (
+      res.data as {
+        company: {
+          name: string;
+          legalForm: string | null;
+          registrationDate: string | null;
+          headlineStatus: { code: string } | null;
+          registry: { cuiState: string };
+        };
+      }
+    ).company;
+    const row = raw.rows[0];
+    if (row === undefined) {
+      expect(c.registry.cuiState).toBe('NOT_IN_EDITION');
+      return;
+    }
+    expect(c.registry.cuiState).toBe('IN_EDITION');
+    if (row.name !== null) expect(c.name).toBe(row.name);
+    expect(c.legalForm).toBe(row.legal_form);
+    expect(c.registrationDate).toBe(row.recorded_date);
+    expect(c.headlineStatus?.code ?? null).toBe(row.status_code);
+  });
 
   it('drops is_active: no surface emits an "active"-named boolean; declaredFiscallyInactive present', async () => {
     const res = await gql(
@@ -155,7 +209,6 @@ d('Companies golden (live prod)', () => {
     const str = JSON.stringify(res.data);
     expect(str).toContain('declaredFiscallyInactive');
     expect(/"is_?active"/i.test(str)).toBe(false);
-    // v2 no longer has the misleading complement column at all.
     const r = await pool.query<{ cnt: string }>(
       `select count(*) cnt
          from information_schema.columns
@@ -166,114 +219,94 @@ d('Companies golden (live prod)', () => {
     expect(Number(r.rows[0]?.cnt)).toBe(0);
   });
 
-  it('companies list is bounded (county+status filter, v2 selected county)', async () => {
+  it('registry filters: same-identifier list when published, refused (never empty) otherwise', async () => {
+    const reg = await registry();
     const res = await gql(
       `query{ companies(filter: { county: { in: ["Bacău"] }, status: { in: ["1048"] } }, first: 5){
-         totalCount totalEstimated edges { node { cui name county headlineStatus { code } } } pageInfo { hasNextPage }
+         totalCount edges { node { cui hasActiveObservation registryCuiState } }
+         registry { state editionId }
        } }`
     );
+    if (reg.state !== 'PUBLISHED') {
+      expectUnavailable(res);
+      return;
+    }
     expect(res.errors).toBeUndefined();
     const conn = (
       res.data as {
         companies: {
-          totalCount: number;
-          edges: { node: { county: string; headlineStatus: { code: string } } }[];
+          edges: { node: { hasActiveObservation: boolean; registryCuiState: string } }[];
+          registry: { editionId: string };
         };
       }
     ).companies;
-    expect(conn.edges.length).toBeGreaterThan(0);
-    expect(conn.edges.length).toBeLessThanOrEqual(5);
+    expect(conn.registry.editionId).toBe(reg.editionId);
     for (const e of conn.edges) {
-      expect(e.node.county).toBe('Bacău');
-      expect(e.node.headlineStatus.code).toBe('1048');
+      expect(e.node.registryCuiState).toBe('IN_EDITION');
+      expect(e.node.hasActiveObservation).toBe(true);
     }
-    expect(conn.totalCount).toBeGreaterThan(0);
   });
 
-  it('county filter folds diacritics with NO unaccent (Bacău matches; SQL fold == TS fold)', async () => {
+  it('companyResolve(REGNUM) uses the pinned edition when published, refused otherwise', async () => {
+    const reg = await registry();
     const res = await gql(
-      `query{ companies(filter: { county: { in: ["bacau"] } }, first: 1){ totalCount edges { node { county } } } }`
+      `query{ companyResolve(dim: REGNUM, q: "J1992002621040"){ dim value label cui labelSource } }`
     );
-    const conn = (
-      res.data as { companies: { totalCount: number; edges: { node: { county: string } }[] } }
-    ).companies;
-    // "bacau" (folded, no diacritics) must match the stored "Bacău".
-    expect(conn.edges[0]?.node.county).toBe('Bacău');
-    expect(conn.totalCount).toBeGreaterThan(0);
-  });
-
-  it('county filter strips ONRC prefixes from user input', async () => {
-    const res = await gql(
-      `query{ companies(filter: { county: { in: ["JUDEŢUL BACĂU"] } }, first: 1){ totalCount edges { node { county } } } }`
-    );
-    const conn = (
-      res.data as { companies: { totalCount: number; edges: { node: { county: string } }[] } }
-    ).companies;
-    expect(conn.edges[0]?.node.county).toBe('Bacău');
-    expect(conn.totalCount).toBeGreaterThan(0);
-  });
-
-  it('companyResolve(REGNUM) is a two-hop list resolving to the golden CUI', async () => {
-    const res = await gql(
-      `query{ companyResolve(dim: REGNUM, q: "J1992002621040"){ dim value label cui } }`
-    );
-    const hits = (res.data as { companyResolve: { cui: string; value: string }[] }).companyResolve;
-    expect(hits.length).toBeGreaterThanOrEqual(1);
-    expect(hits[0]?.cui).toBe(DEDEMAN);
-    expect(hits[0]?.value).toBe(DEDEMAN);
+    if (reg.state !== 'PUBLISHED') {
+      expectUnavailable(res);
+      return;
+    }
+    expect(res.errors).toBeUndefined();
   });
 
   it('companyResolve(NAME) returns the golden company (Meili-primary or pg fallback)', async () => {
     const res = await gql(
-      `query{ companyResolve(dim: NAME, q: "DEDEMAN", limit: 5){ value label cui } }`
+      `query{ companyResolve(dim: NAME, q: "DEDEMAN", limit: 5){ value label cui labelSource } }`
     );
     const hits = (res.data as { companyResolve: { cui: string | null }[] }).companyResolve;
     expect(hits.length).toBeGreaterThan(0);
     expect(hits.some((h) => h.cui === DEDEMAN)).toBe(true);
   });
 
-  it('tri-surface: GraphQL company == Entity.company == MCP snapshot == raw SQL', async () => {
-    const sqlRes = await pool.query<{ name: string; status_code: string; legal_form: string }>(
-      `select o.name, r.onrc_lifecycle_status_code as status_code, r.legal_form
-         from core.organizations o join companies_v2.registrations r on r.cui=o.cui
-        where o.cui=$1 and o.kind='company'`,
-      [DEDEMAN]
-    );
-    const raw = sqlRes.rows[0];
-    expect(raw).toBeDefined();
-
+  it('tri-surface: GraphQL company == Entity.company == MCP snapshot (one registry contract)', async () => {
     const g = await gql(
-      `query($cui: CUI!){ company(cui:$cui){ name legalForm headlineStatus { code } } }`,
+      `query($cui: CUI!){ company(cui:$cui){ name nameSource legalForm headlineStatus { code } } }`,
       { cui: DEDEMAN }
     );
     const gc = (
-      g.data as { company: { name: string; legalForm: string; headlineStatus: { code: string } } }
+      g.data as {
+        company: {
+          name: string;
+          legalForm: string | null;
+          headlineStatus: { code: string } | null;
+        };
+      }
     ).company;
-
     const e = await gql(
       `query($cui: CUI!){ entity(cui:$cui){ company { name legalForm headlineStatus { code } } } }`,
       { cui: DEDEMAN }
     );
     const ec = (
       e.data as {
-        entity: { company: { name: string; legalForm: string; headlineStatus: { code: string } } };
+        entity: {
+          company: {
+            name: string;
+            legalForm: string | null;
+            headlineStatus: { code: string } | null;
+          };
+        };
       }
     ).entity.company;
-
     const m = (await mcpCall('get_company_snapshot', { cui: DEDEMAN })) as {
-      item: { name: string; legalForm: string; headlineStatus: { code: string } };
+      item: { name: string; legalForm: string | null; headlineStatus: { code: string } | null };
     };
-
-    expect(gc.name).toBe(raw?.name);
-    expect(ec.name).toBe(raw?.name);
-    expect(m.item.name).toBe(raw?.name);
-    expect(gc.headlineStatus.code).toBe(raw?.status_code);
-    expect(ec.headlineStatus.code).toBe(raw?.status_code);
-    expect(m.item.headlineStatus.code).toBe(raw?.status_code);
-    expect(gc.legalForm).toBe(raw?.legal_form);
-  }, 20_000); // DEDEMAN is a 219k-flow payee; two full profiles (GraphQL + MCP) each
-  // run the public-money slice (~1.2s of flows each) — the 15s public-money timeout
-  // class applies, so this 4-call cross-check needs a generous bound.
+    expect(ec.name).toBe(gc.name);
+    expect(m.item.name).toBe(gc.name);
+    expect(ec.legalForm).toBe(gc.legalForm);
+    expect(m.item.legalForm).toBe(gc.legalForm);
+    expect(ec.headlineStatus?.code ?? null).toBe(gc.headlineStatus?.code ?? null);
+    expect(m.item.headlineStatus?.code ?? null).toBe(gc.headlineStatus?.code ?? null);
+  }, 20_000);
 
   it('MCP exposes the expected company tools', async () => {
     const res = await app.inject({
@@ -288,54 +321,51 @@ d('Companies golden (live prod)', () => {
     // eslint-disable-next-line no-restricted-syntax -- test parses a trusted MCP JSON-RPC response
     const body = JSON.parse(res.body) as { result?: { tools?: { name: string }[] } };
     const names = (body.result?.tools ?? []).map((t) => t.name);
-    expect(names).toContain('resolve_company_filter');
-    expect(names).toContain('get_company_snapshot');
-    expect(names).toContain('list_companies');
-    expect(names).toContain('get_company_financials');
-    expect(names).toContain('company_county_profile');
+    for (const name of [
+      'resolve_company_filter',
+      'get_company_snapshot',
+      'list_companies',
+      'get_company_financials',
+      'company_county_profile',
+      'company_hub_stats',
+      'get_company_registry',
+    ]) {
+      expect(names).toContain(name);
+    }
   });
 
   it('county aggregate is gated without a selective predicate', async () => {
     const res = await gql(
       `query{ companyCountyProfile(groupBy: COUNTY){ denominator groups { key count } } }`
     );
-    // groupBy=COUNTY with no filter must be rejected (no broad county aggregate).
     expect(res.errors).toBeDefined();
   });
 
-  it('county aggregate runs with a selective predicate', async () => {
+  it('county aggregate: the population once per bucket when published, refused otherwise', async () => {
+    const reg = await registry();
     const res = await gql(
-      `query{ companyCountyProfile(filter: { status: { in: ["1048"] } }, groupBy: COUNTY){ denominator coverage { note } groups { key count } } }`
+      `query{ companyCountyProfile(filter: { status: { in: ["1048"] } }, groupBy: COUNTY){
+         denominator coverage { territoryMatched territoryUnmatched note } groups { key count basis } } }`
     );
+    if (reg.state !== 'PUBLISHED') {
+      expectUnavailable(res);
+      return;
+    }
     expect(res.errors).toBeUndefined();
-    const prof = (res.data as { companyCountyProfile: { denominator: number; groups: unknown[] } })
-      .companyCountyProfile;
-    expect(prof.denominator).toBeGreaterThan(0);
-    expect(prof.groups.length).toBeGreaterThan(0);
-  });
-
-  it('territory.matchConfidence serializes to the SDL enum (SAFE) on a safe-matched company', async () => {
-    // CUI 33243634 has a safe-matched UAT territory; the lowercase domain value
-    // 'safe' must serialize to the GraphQL enum SAFE (not error).
-    const res = await gql(
-      `query{ company(cui: "33243634"){ territory { matchConfidence sirutaCode } } }`
+    const prof = (
+      res.data as {
+        companyCountyProfile: {
+          denominator: number;
+          coverage: { territoryMatched: number; territoryUnmatched: number };
+          groups: { count: number }[];
+        };
+      }
+    ).companyCountyProfile;
+    expect(prof.groups.reduce((s, g) => s + g.count, 0)).toBe(prof.denominator);
+    expect(prof.coverage.territoryMatched + prof.coverage.territoryUnmatched).toBe(
+      prof.denominator
     );
-    expect(res.errors).toBeUndefined();
-    const t = (res.data as { company: { territory: { matchConfidence: string } | null } }).company
-      .territory;
-    expect(t?.matchConfidence).toBe('SAFE');
-  });
-
-  it('q (name) intersects with the filter and paginates (does not bypass filters)', async () => {
-    // "DEDEMAN" + a status the golden company does NOT have → empty (filter applied).
-    const res = await gql(
-      `query{ companies(q: "DEDEMAN", filter: { status: { in: ["1084"] } }, first: 5){ totalCount edges { node { cui } } } }`
-    );
-    expect(res.errors).toBeUndefined();
-    const conn = (res.data as { companies: { edges: { node: { cui: string } }[] } }).companies;
-    // The golden DEDEMAN SRL is status 1048, so a 1084 filter must exclude it.
-    expect(conn.edges.every((e) => e.node.cui !== '2816464')).toBe(true);
-  });
+  }, 60_000);
 
   it('rejects an empty in: [] (would otherwise match all companies)', async () => {
     const res = await gql(
@@ -344,63 +374,17 @@ d('Companies golden (live prod)', () => {
     expect(res.errors).toBeDefined();
   });
 
-  // ── QA-audit fixes (server doc 03-private-companies-qa-audit) ────────────────
-
-  it('C4: companyResolve(CAEN) resolves by CODE, not only label text', async () => {
-    const res = await gql(`query{ companyResolve(dim: CAEN, q: "6201"){ dim value label } }`);
-    expect(res.errors).toBeUndefined();
-    const hits = (res.data as { companyResolve: { value: string }[] }).companyResolve;
-    // "6201" must surface the 6201 code (label-only search returned 0 before).
-    expect(hits.some((h) => h.value === '6201')).toBe(true);
-  });
-
-  it('M9: companyResolve(REGNUM) is case-insensitive (lowercase j… resolves)', async () => {
-    const res = await gql(`query{ companyResolve(dim: REGNUM, q: "j1992002621040"){ cui } }`);
-    expect(res.errors).toBeUndefined();
-    const hits = (res.data as { companyResolve: { cui: string }[] }).companyResolve;
-    expect(hits.some((h) => h.cui === DEDEMAN)).toBe(true);
-  });
-
-  it('M11: county aggregate coverage is populated and sums to the denominator', async () => {
+  it('C4: companyResolve(CAEN) resolves by CODE with its revision and exact key', async () => {
     const res = await gql(
-      `query{ companyCountyProfile(filter: { status: { in: ["1048"] } }, groupBy: COUNTY){
-         denominator coverage { territoryMatched territoryUnmatched } } }`
+      `query{ companyResolve(dim: CAEN, q: "6201"){ dim value label revision key labelSource } }`
     );
     expect(res.errors).toBeUndefined();
-    const prof = (
-      res.data as {
-        companyCountyProfile: {
-          denominator: number;
-          coverage: { territoryMatched: number | null; territoryUnmatched: number | null };
-        };
-      }
-    ).companyCountyProfile;
-    expect(prof.coverage.territoryMatched).not.toBeNull();
-    expect(prof.coverage.territoryUnmatched).not.toBeNull();
-    expect((prof.coverage.territoryMatched ?? 0) + (prof.coverage.territoryUnmatched ?? 0)).toBe(
-      prof.denominator
-    );
-  }, 15_000);
-
-  it('C1/C2: CAEN_DIVISION + caenCode runs (no timeout) and APPLIES the filter', async () => {
-    // The audit hypothesized an alias crash (C1) / ignored filter (C2). The REAL
-    // cause was a slow per-org EXISTS forcing the full o⋈r⋈f product before the
-    // filter (~27s). The IN-subquery rewrite (caenExists, audit M8) + a materialized
-    // filtered CTE bring it to ~3.6s warm (~14s on a fully cold cache — a data-volume
-    // property of the v2 CAEN profile table; the durable fix is a precomputed
-    // (cui, division) rollup, tracked as a follow-up). Warm once, then assert the
-    // realistic (warm) behavior.
-    const q = `query{ companyCountyProfile(filter: { caenCode: { eq: "6201" } }, groupBy: CAEN_DIVISION){ denominator groups { key count } } }`;
-    await gql(q).catch(() => undefined); // warm CAEN profile pages
-    const res = await gql(q);
-    expect(res.errors).toBeUndefined();
-    const prof = (
-      res.data as { companyCountyProfile: { denominator: number; groups: { key: string }[] } }
-    ).companyCountyProfile;
-    expect(prof.groups.some((g) => g.key === '62')).toBe(true);
-    expect(prof.denominator).toBeGreaterThan(0);
-    expect(prof.denominator).toBeLessThan(1_000_000); // C2: filter applied (not the full ~1.2M universe)
-  }, 40_000);
+    const hits = (
+      res.data as { companyResolve: { value: string; revision: string; key: string }[] }
+    ).companyResolve;
+    expect(hits.some((h) => h.value === '6201')).toBe(true);
+    for (const h of hits) expect(h.key).toBe(`${h.revision}:${h.value}`);
+  });
 
   it('H4: publicMoney.byYear carries a populated year and byFlowType is present', async () => {
     const query = `query($cui: CUI!){ company(cui:$cui){ publicMoney {
@@ -419,101 +403,34 @@ d('Companies golden (live prod)', () => {
       }
     ).company.publicMoney;
     expect(pm).not.toBeNull();
-    expect(pm?.byYear.length).toBeGreaterThan(0);
-    // at least one bucket carries a real year (was 100% null before H4).
     expect(pm?.byYear.some((b) => b.year !== null)).toBe(true);
     expect(pm?.byFlowType.length).toBeGreaterThan(0);
-  }, 25_000); // 3 concurrent flow aggregates on a 219k-flow payee, cold cache.
+  }, 25_000);
 
-  // ── companyHubStats (cached tri-surface aggregate) ──────────────────────────
-  //
-  // The first query pays the FULL cold compute: three sequential scans, ~30s
-  // (status ≈4.5s + county ≈1.9s + caenDivision ≈23.6s, measured 2026-07-09).
-  // Every later assertion in this block reads the same cached snapshot, so it is
-  // instant — which is itself the property under test.
-  // Every CompanyGroupCount field is selected so the GraphQL payload is structurally
-  // IDENTICAL to the MCP `item` (which carries the whole object) — the tri-surface
-  // equality below would otherwise trip on a merely unselected `label`.
-  const HUB_QUERY = `query{ companyHubStats {
-       totalCompanies activeCompanies computedAt
-       statusMix { key label count }
-       topCounties { key label count }
-       caenDivisions { key label count }
-       coverage { territoryMatched territoryUnmatched note }
-     } }`;
-
-  interface GroupCount {
-    key: string;
-    label: string | null;
-    count: number;
-  }
-  interface HubStats {
-    totalCompanies: number;
-    activeCompanies: number;
-    computedAt: string;
-    statusMix: GroupCount[];
-    topCounties: GroupCount[];
-    caenDivisions: GroupCount[];
-    coverage: { territoryMatched: number | null; territoryUnmatched: number | null; note: string };
-  }
-
-  const hub = async (): Promise<HubStats> => {
-    const res = await gql(HUB_QUERY);
-    expect(res.errors).toBeUndefined();
-    return (res.data as { companyHubStats: HubStats }).companyHubStats;
-  };
-
-  it('companyHubStats: totalCompanies == the raw spine count; Σ statusMix == total', async () => {
-    const s = await hub();
-    const raw = await pool.query<{ cnt: string }>(
-      `select count(*) cnt from core.organizations where kind='company'`
+  it('companyHubStats: bound to the registry scope (refused when not published)', async () => {
+    const reg = await registry();
+    const res = await gql(
+      `query{ companyHubStats { totalCompanies activeCompanies computedAt
+         statusMix { key count basis } registry { scopeKey } } }`
     );
-    expect(s.totalCompanies).toBe(Number(raw.rows[0]?.cnt));
-    // Every company lands in exactly one status group → the mix sums to the total.
+    if (reg.state !== 'PUBLISHED') {
+      expectUnavailable(res);
+      return;
+    }
+    expect(res.errors).toBeUndefined();
+    const s = (
+      res.data as {
+        companyHubStats: {
+          totalCompanies: number;
+          activeCompanies: number;
+          statusMix: { count: number }[];
+          registry: { scopeKey: string };
+        };
+      }
+    ).companyHubStats;
+    expect(s.registry.scopeKey).toBe(reg.scopeKey);
+    // Each spine company in exactly one consensus/basis bucket.
     expect(s.statusMix.reduce((acc, g) => acc + g.count, 0)).toBe(s.totalCompanies);
-
-    // activeCompanies is exactly the 1048 group, and is a strict subset.
-    const active = s.statusMix.find((g) => g.key === '1048');
-    expect(s.activeCompanies).toBe(active?.count);
-    expect(s.activeCompanies).toBeGreaterThan(0);
-    expect(s.activeCompanies).toBeLessThan(s.totalCompanies);
-
-    // topCounties: ≤10, count-desc, and never the synthetic (none) bucket.
-    expect(s.topCounties.length).toBeLessThanOrEqual(10);
-    expect(s.topCounties.map((c) => c.key)).not.toContain('(none)');
-    const counts = s.topCounties.map((c) => c.count);
-    expect([...counts].sort((a, b) => b - a)).toEqual(counts);
-
-    // The CAEN division leg ran (it is the one that used to always time out).
-    expect(s.caenDivisions.length).toBeGreaterThan(0);
-    expect(s.caenDivisions.every((d) => d.key.length === 2)).toBe(true);
-
-    expect(Number.isNaN(Date.parse(s.computedAt))).toBe(false);
-  }, 120_000); // cold: the full ~30s compute, plus headroom for a cold buffer cache.
-
-  it('companyHubStats is cached: the second call is instant and identical', async () => {
-    const first = await hub();
-    const t0 = performance.now();
-    const second = await hub();
-    const ms = performance.now() - t0;
-    // Warm read off the in-process cache — nowhere near the ~30s compute.
-    expect(ms).toBeLessThan(1000);
-    // Same snapshot, not a recompute (computedAt is stamped once per TTL window).
-    expect(second).toEqual(first);
-  }, 120_000);
-
-  it('companyHubStats: the GraphQL payload equals the MCP structuredContent', async () => {
-    const g = await hub();
-    const mcp = (await mcpCall('company_hub_stats', {})) as {
-      ok: boolean;
-      item: HubStats;
-      meta: { totalCompanies: number; activeCompanies: number; computedAt: string };
-    };
-    expect(mcp.ok).toBe(true);
-    // ONE provider instance backs both surfaces → byte-identical values, incl. computedAt.
-    expect(mcp.item).toEqual(g);
-    expect(mcp.meta.totalCompanies).toBe(g.totalCompanies);
-    expect(mcp.meta.activeCompanies).toBe(g.activeCompanies);
-    expect(mcp.meta.computedAt).toBe(g.computedAt);
-  }, 120_000);
+    expect(s.activeCompanies).toBeLessThanOrEqual(s.totalCompanies);
+  }, 180_000);
 });

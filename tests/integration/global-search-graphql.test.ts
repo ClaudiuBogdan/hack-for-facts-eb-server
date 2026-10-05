@@ -15,16 +15,33 @@
  * SearchHit fields, and does NOT expose visibility/attrs on SearchHit).
  */
 
-import { GraphQLError } from 'graphql';
+import {
+  GraphQLError,
+  buildSchema,
+  type GraphQLObjectType,
+  type GraphQLResolveInfo,
+} from 'graphql';
 import { err, ok } from 'neverthrow';
 import { describe, expect, it, vi } from 'vitest';
 
-import { upstreamError } from '@/modules/shared/core/errors.js';
 import {
+  finalizeOwningResults,
+  makeRequestOwningResultGuard,
+} from '@/app/companies-graphql-access.js';
+import { serviceUnavailable, upstreamError } from '@/modules/shared/core/errors.js';
+import {
+  OWNING_RESULT_GUARD,
   makeKernelResolvers,
   type KernelResolverDeps,
 } from '@/modules/shared/shell/graphql/resolvers.js';
 import { baseTypeDefs } from '@/modules/shared/shell/graphql/typedefs.js';
+
+import {
+  CONTROL_A,
+  SCOPE_A,
+  ngoHit,
+  recordingCompanies,
+} from '../unit/global-search/search-fixtures.js';
 
 import type {
   FlowSummary,
@@ -44,10 +61,11 @@ import type {
 // Fakes
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** A non-identity document (no company contribution to hydrate). */
 const makeHit = (over: Partial<SearchHit> = {}): SearchHit => ({
-  id: 'company:1',
-  docType: 'company',
-  title: 'ACME SRL',
+  id: 'bill:1',
+  docType: 'bill',
+  title: 'Proiect de lege',
   snippet: null,
   score: 0.9,
   source: 'meili',
@@ -89,6 +107,7 @@ const makeDeps = (opts: {
   rateLimiter?: RateLimiter;
   cache?: KernelCache;
   searchSpy?: ReturnType<typeof vi.fn>;
+  companies?: ReturnType<typeof recordingCompanies>;
 }): { deps: KernelResolverDeps; cache: KernelCache } => {
   const searchEntities =
     opts.searchSpy ??
@@ -99,9 +118,11 @@ const makeDeps = (opts: {
         estimatedTotalHits: (opts.hits ?? [makeHit()]).length,
       })
     );
+  // Generation A is witnessed; the company port answers scope A.
   const globalSearchDeps: GlobalSearchDeps = {
-    meiliClient: { searchEntities } as never,
+    meiliClient: { searchEntities, readGenerationControl: async () => ok(CONTROL_A) } as never,
     meiliIndexes: ['entities'],
+    companySearch: (opts.companies ?? recordingCompanies({})).port,
   };
   const cache = opts.cache ?? makeRecordingCache();
   const rateLimiter = opts.rateLimiter ?? { consume: () => allow };
@@ -125,12 +146,14 @@ interface SearchResolvers {
     searchEntities: (
       root: unknown,
       args: Record<string, unknown>,
-      context: unknown
+      context: unknown,
+      info?: GraphQLResolveInfo
     ) => Promise<{
       engine: string;
       degraded: boolean;
       hits: readonly SearchHit[];
       estimatedTotalHits: number;
+      companyContribution: string;
     }>;
   };
 }
@@ -246,18 +269,21 @@ describe('searchEntities resolver — caching', () => {
     expect(searchSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('uses a structured JSON cache key (q="a|b" no-types ≠ q="a", docTypes=["b"])', async () => {
+  it('uses a structured JSON cache key (q="a|b" no-types ≠ q="a", docTypes=["bill"])', async () => {
     const cache = makeRecordingCache();
     const { deps } = makeDeps({ cache });
 
     await resolver(deps)(null, { q: 'a|b' }, ctx());
-    await resolver(deps)(null, { q: 'a', docTypes: ['b'] }, ctx());
+    await resolver(deps)(null, { q: 'a', docTypes: ['bill'] }, ctx());
 
     const keys = cache.wrapCalls;
     expect(keys).toHaveLength(2);
     expect(keys[0]).not.toBe(keys[1]);
     expect(keys[0]).toContain('"q":"a|b"');
     expect(keys[1]).toContain('"q":"a"');
+    // Candidates are keyed by the witnessed generation and its registry scope.
+    expect(keys[0]).toContain('"generationId":"entities_build_1759600000000_ab12cd"');
+    expect(keys[0]).toContain('"registryScopeKey":"onrc:published:42:3:17"');
   });
 
   it('produces the SAME cache key regardless of docTypes order (sorted)', async () => {
@@ -339,6 +365,113 @@ describe('kernel base SDL — search types', () => {
     const block = /type SearchHit \{([\s\S]*?)\}/u.exec(baseTypeDefs)?.[1] ?? '';
     expect(block).not.toMatch(/\battrs\b/u);
     expect(block).not.toMatch(/\bvisibility\b/u);
+  });
+
+  it('exposes the company contribution metadata and a nullable (withholdable) root', () => {
+    const schema = buildSchema(baseTypeDefs);
+    expect(String(schema.getQueryType()?.getFields()['searchEntities']?.type)).toBe(
+      'GlobalSearchResult'
+    );
+    const result = schema.getType('GlobalSearchResult') as GraphQLObjectType;
+    expect(
+      Object.fromEntries(
+        Object.entries(result.getFields())
+          .filter(([name]) =>
+            [
+              'generation',
+              'companyScope',
+              'companyContribution',
+              'companyContributionReason',
+              'continuation',
+            ].includes(name)
+          )
+          .map(([name, field]) => [name, String(field.type)])
+      )
+    ).toEqual({
+      generation: 'SearchGeneration',
+      companyScope: 'String',
+      companyContribution: 'SearchCompanyContribution!',
+      companyContributionReason: 'String',
+      continuation: 'SearchContinuation!',
+    });
+    expect(
+      String((schema.getType('SearchHit') as GraphQLObjectType).getFields()['company']?.type)
+    ).toBe('SearchHitCompany');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The owning-result final decision (company scope / served identity access)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const REFUSAL = serviceUnavailable(
+  'the ONRC registry publication or company access changed during the request; retry'
+);
+const rootInfo = { path: { key: 'searchEntities', prev: undefined } } as GraphQLResolveInfo;
+
+describe('searchEntities — final GraphQL composition', () => {
+  const guarded = () => {
+    const decision = { refuse: false };
+    const companies = recordingCompanies({
+      confirm: () => (decision.refuse ? err(REFUSAL) : ok(undefined)),
+    });
+    const context = { [OWNING_RESULT_GUARD]: makeRequestOwningResultGuard() };
+    return { companies, context, decision };
+  };
+
+  it('registers the decision with the operation guard and withholds a stale answer (empty hits too)', async () => {
+    const { companies, context, decision } = guarded();
+    const { deps } = makeDeps({ hits: [], companies });
+    const result = await resolver(deps)(null, { q: 'nimic' }, context, rootInfo);
+    expect(result).toMatchObject({ hits: [], companyContribution: 'current' });
+    // Not yet decided: a delayed sibling of the operation is still pending.
+    expect(companies.confirmations).toEqual([]);
+    decision.refuse = true;
+    const execution = {
+      data: { searchEntities: result, sibling: 'late' } as Record<string, unknown>,
+    };
+    await finalizeOwningResults(execution, context);
+    expect(companies.confirmations).toEqual([{ scopeKey: SCOPE_A, cuis: [] }]);
+    expect(execution.data).toEqual({ searchEntities: null, sibling: 'late' });
+    expect((execution as { errors?: unknown[] }).errors).toEqual([
+      {
+        message: REFUSAL.message,
+        path: ['searchEntities'],
+        extensions: { code: 'SERVICE_UNAVAILABLE', type: 'ServiceUnavailable' },
+      },
+    ]);
+  });
+
+  it('keeps a confirmed answer and rechecks its served identities', async () => {
+    const { companies, context } = guarded();
+    const { deps } = makeDeps({ hits: [ngoHit(), makeHit()], companies });
+    const result = await resolver(deps)(null, { q: 'prieteni' }, context, rootInfo);
+    const execution = { data: { searchEntities: result } as Record<string, unknown> };
+    await finalizeOwningResults(execution, context);
+    expect(execution.data['searchEntities']).toBe(result);
+    expect(companies.confirmations).toEqual([{ scopeKey: SCOPE_A, cuis: ['789'] }]);
+  });
+
+  it('decides at once on a bare executor (no transport guard)', async () => {
+    const companies = recordingCompanies({ confirm: () => err(REFUSAL) });
+    const { deps } = makeDeps({ hits: [], companies });
+    await expect(resolver(deps)(null, { q: 'x' }, ctx(), rootInfo)).rejects.toMatchObject({
+      message: REFUSAL.message,
+      extensions: { code: 'SERVICE_UNAVAILABLE' },
+    });
+  });
+
+  it('serializes the core vocabulary as the SDL enums', () => {
+    const map = makeKernelResolvers(makeDeps({}).deps) as unknown as {
+      GlobalSearchResult: { companyContribution: (r: { companyContribution: string }) => string };
+      SearchHitCompany: { registryState: (c: { registryState: string }) => string };
+    };
+    expect(map.GlobalSearchResult.companyContribution({ companyContribution: 'partial' })).toBe(
+      'PARTIAL'
+    );
+    expect(map.SearchHitCompany.registryState({ registryState: 'not_in_edition' })).toBe(
+      'NOT_IN_EDITION'
+    );
   });
 });
 

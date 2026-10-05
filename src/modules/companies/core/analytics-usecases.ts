@@ -4,12 +4,16 @@
  * Every answer runs the same pipeline:
  *  1. parse every argument's shape (no I/O): release pin, scope, enums, caps;
  *  2. resolve the release ONCE: the active publication, or the pinned one when
- *     it is published, schema-supported and its tables are still retained —
- *     an unavailable pin is a typed `release` error, never a silent switch —
- *     and confirm its privacy epoch is still current (before any engine work);
+ *     it is published, schema-supported (v2 with a well-formed ONRC source
+ *     pin) and its tables are still retained — an unavailable pin is a typed
+ *     `release` error, never a silent switch — and confirm, before any engine
+ *     work, that its privacy epoch is still current AND that its pinned ONRC
+ *     edition is still the published source;
  *  3. bind the scope to the release (fiscal year, offered metrics);
  *  4. read the engine (keys and numbers), then hydrate labels in batches;
- *  5. confirm the privacy epoch again; only then does the answer leave.
+ *  5. confirm epoch and source again; only then does the answer leave. A
+ *     GraphQL operation decides each served answer once more when it settled
+ *     (`confirmServedAnalysis`, the request's owning-result guard).
  *
  * Exactness: counts and sums arrive as decimal strings and are combined with
  * BigInt. An empty contributor set has a null sum; an explicit 0 stays "0.00".
@@ -37,12 +41,17 @@ import {
 } from './analytics-decimal.js';
 import {
   PRIVACY_EPOCH_RE,
+  isCivilDate,
   metricOffered,
   parseRelease,
   parseReleaseNumber,
+  type CompanyAnalysisReleaseRow,
 } from './analytics-release.js';
 import { bindScope, canonicalScope, parseScopeShape, scopeHash } from './analytics-scope.js';
 import {
+  BASIS_BY_VALUE,
+  COVERAGE_BY_VALUE,
+  basisBucketKey,
   CAEN_BASIS_VALUE,
   COMPANY_ANALYSIS_COHORT_MODES,
   COMPANY_ANALYSIS_DIMENSIONS,
@@ -72,6 +81,8 @@ import {
   type CompanyAnalysisGapReason,
   type CompanyAnalysisMetric,
   type CompanyAnalysisMetricAggregate,
+  type CompanyAnalysisOnrcBasis,
+  type CompanyAnalysisOnrcCoverage,
   type CompanyAnalysisRankBy,
   type CompanyAnalysisRecord,
   type CompanyAnalysisRecordSort,
@@ -86,8 +97,10 @@ import {
   type CompanyAnalysisStats,
   type CompanyAnalysisStatus,
 } from './analytics-types.js';
+import { COMPANY_STATUS_NOMENCLATURE } from './filters.js';
 
 import type {
+  AnalyticsCurrentState,
   CaenLabelKey,
   CompanyAnalysisEngine,
   CompanyAnalysisLabelSource,
@@ -113,7 +126,14 @@ const notConfigured = (): ApiError =>
   serviceUnavailable('companies analytics is not configured on this server');
 
 const SNAPSHOT_CAVEAT =
-  'Company keys (geography, observed status, ANAF fiscal attributes, main activity) describe the release snapshot, not the fiscal year.';
+  'Company keys (ONRC edition consensus with its basis, ANAF fiscal attributes, main activity) describe the release snapshot and its pinned ONRC edition, not the fiscal year.';
+
+/** Label attribution (the vocabulary of the companies resolve hits). */
+const LABEL_SOURCE = {
+  territory: 'territory_hub',
+  nomenclature: 'api_nomenclature',
+  catalog: 'current_db_catalog',
+} as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Argument parsing (shared by every shape)
@@ -197,8 +217,8 @@ const parseInteger = (
  * (none → ServiceUnavailable). With a pin: the same release or a typed
  * `release` error; never another release.
  *
- * The privacy guard runs here, before any engine call: the release's captured
- * privacy epoch must equal the CURRENT epoch (see `confirmPrivacy`).
+ * The guard runs here, before any engine call: the release's captured
+ * privacy epoch and ONRC pin must still be current (see `confirmCurrent`).
  */
 export const resolveRelease = async (
   deps: CompanyAnalysisDeps,
@@ -218,8 +238,8 @@ export const resolveRelease = async (
         )
       );
     const resolved = { release: parsed.value, pinned: false };
-    const privacy = await confirmPrivacy(deps, resolved);
-    if (privacy.isErr()) return err(privacy.error);
+    const current = await confirmCurrent(deps, resolved);
+    if (current.isErr()) return err(current.error);
     const tables = await deps.engine.tablesAvailable(parsed.value.releaseNumber);
     if (tables.isErr()) return err(tables.error);
     if (!tables.value)
@@ -229,31 +249,44 @@ export const resolveRelease = async (
     return ok(resolved);
   }
 
-  const pinText = String(pin);
-  const row =
-    active.value !== null && active.value.releaseId === pinText
-      ? ok(active.value)
-      : await deps.releases.publishedRelease(pin);
-  if (row.isErr()) return err(row.error);
-  const refused = (reason: string): ApiError =>
-    invalidInput(
-      `companies analytics release ${pinText} ${reason}; re-read companyAnalysisRelease and repeat the request`,
-      'release'
-    );
-  if (row.value === null) return err(refused('is not a published release'));
-  const parsed = parseRelease(row.value, deps.database);
-  if (parsed.isErr()) return err(refused(`cannot be served (${parsed.error})`));
-  const resolved = { release: parsed.value, pinned: true };
-  const privacy = await confirmPrivacy(deps, resolved);
-  if (privacy.isErr()) return err(privacy.error);
-  const tables = await deps.engine.tablesAvailable(parsed.value.releaseNumber);
+  const pinned = await pinnedRelease(deps, pin, active.value);
+  if (pinned.isErr()) return err(pinned.error);
+  const resolved = { release: pinned.value, pinned: true };
+  const current = await confirmCurrent(deps, resolved);
+  if (current.isErr()) return err(current.error);
+  const tables = await deps.engine.tablesAvailable(pinned.value.releaseNumber);
   if (tables.isErr()) return err(tables.error);
-  if (!tables.value) return err(refused('is no longer retained'));
+  if (!tables.value) return err(pinRefused(String(pin), 'is no longer retained'));
   return ok(resolved);
 };
 
+const pinRefused = (releaseId: string, reason: string): ApiError =>
+  invalidInput(
+    `companies analytics release ${releaseId} ${reason}; re-read companyAnalysisRelease and repeat the request`,
+    'release'
+  );
+
+/** A pinned release: published (active or historical) and parseable, else a `release` error. */
+const pinnedRelease = async (
+  deps: CompanyAnalysisDeps,
+  pin: number,
+  active: CompanyAnalysisReleaseRow | null
+): Promise<Result<CompanyAnalysisRelease, ApiError>> => {
+  const pinText = String(pin);
+  const row =
+    active !== null && active.releaseId === pinText
+      ? ok(active)
+      : await deps.releases.publishedRelease(pin);
+  if (row.isErr()) return err(row.error);
+  if (row.value === null) return err(pinRefused(pinText, 'is not a published release'));
+  const parsed = parseRelease(row.value, deps.database);
+  return parsed.isErr()
+    ? err(pinRefused(pinText, `cannot be served (${parsed.error})`))
+    : ok(parsed.value);
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
-// Privacy guard
+// Privacy and source guard
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** The release an answer reads, and whether the caller pinned it. */
@@ -265,48 +298,117 @@ export interface ResolvedRelease {
 const privacyUnconfirmed = (): ApiError =>
   serviceUnavailable('companies analytics cannot confirm the current privacy state; retry later');
 
+/** Why a release no longer answers; null while it still does. */
+type Staleness = 'privacy' | 'source' | null;
+
 /**
- * Fail closed unless the CURRENT privacy epoch — one fresh statement on the
- * primary, under READ COMMITTED — equals the epoch the release was captured
- * under. A privacy withdrawal bumps the epoch, so every release built before
- * it stops answering: the active one as SERVICE_UNAVAILABLE, a pin as an
+ * Is the release still current? Its captured privacy epoch must equal the
+ * current one, and its pinned ONRC edition must still be the published,
+ * listed source with the same epoch, snapshot, date and versions (the
+ * eligibility version is sealed per edition and bound through its id). Every
+ * ONRC publish, rollback or access withdrawal also moves the privacy epoch;
+ * the pin comparison names that case and does not trust it alone.
+ */
+const staleness = (release: CompanyAnalysisRelease, state: AnalyticsCurrentState): Staleness => {
+  if (state.epoch !== release.privacyEpoch) return 'privacy';
+  const pin = release.ref.source;
+  const onrc = state.onrc;
+  const sourceHolds =
+    onrc.publicationState === 'published' &&
+    onrc.listed &&
+    onrc.editionId === pin.editionId &&
+    onrc.publicationEpoch === pin.publicationEpoch &&
+    onrc.sourceSnapshotId === pin.sourceSnapshotId &&
+    onrc.sourcePublishedAt === pin.sourcePublishedAt &&
+    onrc.interpretationVersion === pin.interpretationVersion &&
+    onrc.dimensionPolicyVersion === pin.dimensionPolicyVersion &&
+    onrc.privacyPolicyVersion === pin.privacyPolicyVersion;
+  return sourceHolds ? null : 'source';
+};
+
+/** One fresh reading, trusted only from the primary under READ COMMITTED. */
+const readCurrent = async (
+  deps: CompanyAnalysisDeps
+): Promise<Result<AnalyticsCurrentState, ApiError>> => {
+  const reading = await deps.releases.currentState();
+  // A failed read never forwards driver text: the answer is simply unavailable.
+  if (reading.isErr()) return err(privacyUnconfirmed());
+  const { epoch, inRecovery, isolation } = reading.value;
+  if (inRecovery || isolation !== 'read committed' || !PRIVACY_EPOCH_RE.test(epoch))
+    return err(privacyUnconfirmed());
+  return ok(reading.value);
+};
+
+const staleMessage = (releaseId: string, why: Exclude<Staleness, null>): string =>
+  why === 'privacy'
+    ? `companies analytics release ${releaseId} was withdrawn after a privacy change`
+    : `companies analytics release ${releaseId} was exported from an ONRC edition that is no longer the published source`;
+
+/**
+ * Fail closed unless the CURRENT state — one fresh statement on the primary,
+ * under READ COMMITTED — still holds the release (`staleness`). A privacy
+ * withdrawal or an ONRC source event makes every release built before it
+ * stop answering: the active one as SERVICE_UNAVAILABLE, a pin as an
  * INVALID_INPUT `release` error. Rows are never filtered after the fact (that
  * would break totals), and no other release is substituted. Called before any
  * engine work and again just before an answer is returned, so cached release
  * metadata, engine results and labels can never bypass it; the last check is
  * the answer's linearization point.
  */
-export const confirmPrivacy = async (
+export const confirmCurrent = async (
   deps: CompanyAnalysisDeps,
   resolved: ResolvedRelease
 ): Promise<Result<void, ApiError>> => {
-  const reading = await deps.releases.currentPrivacyEpoch();
-  // A failed read never forwards driver text: the answer is simply unavailable.
-  if (reading.isErr()) return err(privacyUnconfirmed());
-  const { epoch, inRecovery, isolation } = reading.value;
-  if (inRecovery || isolation !== 'read committed' || !PRIVACY_EPOCH_RE.test(epoch))
-    return err(privacyUnconfirmed());
-  if (epoch === resolved.release.privacyEpoch) return ok(undefined);
+  const state = await readCurrent(deps);
+  if (state.isErr()) return err(state.error);
+  const why = staleness(resolved.release, state.value);
+  if (why === null) return ok(undefined);
+  if (resolved.pinned)
+    return err(
+      invalidInput(
+        `${staleMessage(resolved.release.ref.releaseId, why)}; re-read companyAnalysisRelease and repeat the request`,
+        'release'
+      )
+    );
   return err(
-    resolved.pinned
-      ? invalidInput(
-          `companies analytics release ${resolved.release.ref.releaseId} was withdrawn after a privacy change; re-read companyAnalysisRelease and repeat the request`,
-          'release'
-        )
-      : serviceUnavailable(
-          'the active companies analytics release was withdrawn after a privacy change; retry once a refreshed release is published'
-        )
+    serviceUnavailable(
+      why === 'privacy'
+        ? 'the active companies analytics release was withdrawn after a privacy change; retry once a refreshed release is published'
+        : 'the active companies analytics release was exported from an ONRC edition that is no longer the published source; retry once a refreshed release is published'
+    )
   );
 };
 
-/** The final guard: the answer leaves only if the epoch still matches. */
+/** The final guard: the answer leaves only if epoch and source still hold. */
 const finish = async <T>(
   deps: CompanyAnalysisDeps,
   resolved: ResolvedRelease,
   answer: T
 ): Promise<Result<T, ApiError>> => {
-  const privacy = await confirmPrivacy(deps, resolved);
-  return privacy.isErr() ? err(privacy.error) : ok(answer);
+  const current = await confirmCurrent(deps, resolved);
+  return current.isErr() ? err(current.error) : ok(answer);
+};
+
+/**
+ * The transport's final decision for an answer ALREADY computed on release
+ * `releaseId` (a GraphQL operation whose sibling roots settled later). No
+ * engine or label work: the release row (immutable, cached) and one fresh
+ * reading. Any staleness — privacy, source, a release no longer published —
+ * is an INVALID_INPUT `release` error, because the answer names a release the
+ * caller must re-read; an unconfirmable state stays SERVICE_UNAVAILABLE.
+ */
+export const confirmServedAnalysis = async (
+  ctx: CompanyAnalysisContext,
+  releaseId: string
+): Promise<Result<void, ApiError>> => {
+  if (ctx === null) return err(notConfigured());
+  const pin = parseReleaseNumber(releaseId);
+  if (pin === null) return err(pinRefused(releaseId, 'is not a release id'));
+  const active = await ctx.releases.activeRelease();
+  if (active.isErr()) return err(active.error);
+  const release = await pinnedRelease(ctx, pin, active.value);
+  if (release.isErr()) return err(release.error);
+  return confirmCurrent(ctx, { release: release.value, pinned: true });
 };
 
 const defaultMetricFor = (
@@ -531,7 +633,48 @@ interface GroupValue {
   /** null = the unknown group. */
   readonly key: string | null;
   readonly caen: Omit<CompanyAnalysisCaenValue, 'label'> | null;
+  /** A consensus dimension's basis bucket (no consensus value). */
+  readonly basis: CompanyAnalysisOnrcBasis | null;
 }
+
+/** The consensus dimensions: one value-or-basis bucket per CUI, never `unknown`. */
+const CONSENSUS_DIMENSIONS: ReadonlySet<CompanyAnalysisDimension> = new Set([
+  'COUNTY',
+  'UAT',
+  'OBSERVED_STATUS',
+]);
+
+const basisOf = (raw: string | null, what: string): Result<CompanyAnalysisOnrcBasis, ApiError> => {
+  const basis = raw === null ? undefined : BASIS_BY_VALUE.get(raw);
+  return basis === undefined
+    ? err(invariant(`${what} basis ${String(raw)} is not in the edition vocabulary`))
+    : ok(basis);
+};
+
+const coverageOf = (
+  raw: string | null,
+  what: string
+): Result<CompanyAnalysisOnrcCoverage, ApiError> => {
+  const coverage = raw === null ? undefined : COVERAGE_BY_VALUE.get(raw);
+  return coverage === undefined
+    ? err(invariant(`${what} coverage ${String(raw)} is not in the edition vocabulary`))
+    : ok(coverage);
+};
+
+/** The value's own bucket, or its basis bucket `(<basis>)` when there is no consensus value. */
+const consensusGroup = (
+  value: string | null,
+  rawBasis: string | null,
+  what: string
+): Result<GroupValue, ApiError> => {
+  const basis = basisOf(rawBasis, what);
+  if (basis.isErr()) return err(basis.error);
+  return ok(
+    value !== null
+      ? { key: value, caen: null, basis: null }
+      : { key: basisBucketKey(basis.value), caen: null, basis: basis.value }
+  );
+};
 
 const SIZE_BAND_BY_VALUE = new Map<string, CompanyAnalysisSizeBand>(
   COMPANY_ANALYSIS_SIZE_BANDS.map((band) => [SIZE_BAND_VALUE[band], band])
@@ -564,31 +707,41 @@ const groupValue = (
 ): Result<GroupValue, ApiError> => {
   const first = parts[0] ?? null;
   switch (dimension) {
+    case 'COUNTY':
+    case 'UAT':
+    case 'OBSERVED_STATUS':
+      return consensusGroup(first, parts[1] ?? null, dimension);
     case 'MAIN_CAEN': {
       const caen = caenValue(first, parts[1] ?? null, parts[2] ?? null);
       if (caen.isErr()) return err(caen.error);
       return ok(
         caen.value === null
-          ? { key: null, caen: null }
-          : { key: caenKey(caen.value.revision, caen.value.code), caen: caen.value }
+          ? { key: null, caen: null, basis: null }
+          : {
+              key: caenKey(caen.value.revision, caen.value.code),
+              caen: caen.value,
+              basis: null,
+            }
       );
     }
     case 'EMPLOYEE_SIZE': {
       // No statement, or a statement without a reported headcount, has no band.
       if (first === null || first === '' || first === SIZE_BAND_VALUE.UNAVAILABLE)
-        return ok({ key: null, caen: null });
+        return ok({ key: null, caen: null, basis: null });
       const band = SIZE_BAND_BY_VALUE.get(first);
       return band === undefined
         ? err(invariant(`unknown employee size band ${first}`))
-        : ok({ key: band, caen: null });
+        : ok({ key: band, caen: null, basis: null });
     }
     case 'VAT_PAYER':
     case 'FISCALLY_INACTIVE':
       if (first !== null && first !== 'YES' && first !== 'NO')
         return err(invariant(`flag value ${first} is not YES/NO`));
-      return ok({ key: first, caen: null });
+      return ok({ key: first, caen: null, basis: null });
     default:
-      return ok({ key: first, caen: null });
+      // LEGAL_FORM: an eligible profile always carries its legal form.
+      if (first === null) return err(invariant(`${dimension} value is missing`));
+      return ok({ key: first, caen: null, basis: null });
   }
 };
 
@@ -598,6 +751,8 @@ interface GroupAcc {
   filers: bigint;
   metric: MetricAcc;
 }
+
+const NO_GROUP: GroupValue = { key: null, caen: null, basis: null };
 
 const newGroup = (value: GroupValue): GroupAcc => ({
   value,
@@ -641,16 +796,25 @@ const compareGroups =
     return ka < kb ? -1 : ka > kb ? 1 : 0;
   };
 
+interface BucketLabel {
+  readonly label: string | null;
+  readonly labelSource: string | null;
+}
+
+const NO_LABEL: BucketLabel = { label: null, labelSource: null };
+
 const bucketOf = (
   kind: CompanyAnalysisBucketKind,
   group: GroupAcc,
   groups: number,
   metric: CompanyAnalysisMetric | null,
-  label: string | null
+  { label, labelSource }: BucketLabel
 ): CompanyAnalysisBucket => ({
   kind,
   key: kind === 'GROUP' ? group.value.key : null,
   label,
+  labelSource,
+  basis: kind === 'GROUP' ? group.value.basis : null,
   caen: kind === 'GROUP' && group.value.caen !== null ? { ...group.value.caen, label } : null,
   groups,
   companies: group.companies.toString(),
@@ -658,12 +822,25 @@ const bucketOf = (
   metric: metric === null ? null : toAggregate(metric, group.metric),
 });
 
+/** Status labels: the API's static nomenclature only (no source-observed label is read). */
+const nomenclatureLabels = (codes: readonly string[]): ReadonlyMap<string, string> =>
+  new Map(
+    codes.flatMap((code) => {
+      const label = COMPANY_STATUS_NOMENCLATURE[code];
+      return label === undefined ? [] : [[code, label] as const];
+    })
+  );
+
 const groupLabels = async (
   labels: CompanyAnalysisLabelSource,
   dimension: CompanyAnalysisDimension,
   groups: readonly GroupAcc[]
 ): Promise<Result<ReadonlyMap<string, string>, ApiError>> => {
-  const keys = groups.map((g) => g.value.key).filter((key): key is string => key !== null);
+  // Basis buckets carry no label.
+  const keys = groups
+    .filter((g) => g.value.basis === null)
+    .map((g) => g.value.key)
+    .filter((key): key is string => key !== null);
   if (keys.length === 0) return ok(new Map());
   switch (dimension) {
     case 'COUNTY':
@@ -671,7 +848,7 @@ const groupLabels = async (
     case 'UAT':
       return labels.uatLabels(keys);
     case 'OBSERVED_STATUS':
-      return labels.statusLabels(keys);
+      return ok(nomenclatureLabels(keys));
     case 'MAIN_CAEN': {
       const known: CaenLabelKey[] = [];
       for (const g of groups) {
@@ -735,7 +912,7 @@ export const companyAnalysisBreakdown = async (
   if (rows.isErr()) return err(rows.error);
 
   const groups = new Map<string, GroupAcc>();
-  const unknown = newGroup({ key: null, caen: null });
+  const unknown = newGroup(NO_GROUP);
   const groupFor = (value: GroupValue): GroupAcc => {
     if (value.key === null) return unknown;
     const existing = groups.get(value.key);
@@ -783,21 +960,34 @@ export const companyAnalysisBreakdown = async (
   const top = known.slice(0, limit);
   const rest = known.slice(limit);
 
-  const other = newGroup({ key: null, caen: null });
+  // A consensus dimension puts every CUI in a value or basis bucket: its
+  // `unknown` bucket stays an empty compatibility slot, never a second count.
+  if (CONSENSUS_DIMENSIONS.has(dimension.value) && (unknown.companies > 0n || unknown.filers > 0n))
+    return err(invariant(`${dimension.value} has rows without a value or a basis`));
+
+  const other = newGroup(NO_GROUP);
   for (const group of rest) addGroup(other, group);
-  const totals = newGroup({ key: null, caen: null });
+  const totals = newGroup(NO_GROUP);
   for (const group of [...known, unknown]) addGroup(totals, group);
 
   const labels = await groupLabels(ctx.labels, dimension.value, top);
   if (labels.isErr()) return err(labels.error);
-  const labelOf = (group: GroupAcc): string | null => {
+  const labelSource =
+    dimension.value === 'COUNTY' || dimension.value === 'UAT'
+      ? LABEL_SOURCE.territory
+      : dimension.value === 'OBSERVED_STATUS'
+        ? LABEL_SOURCE.nomenclature
+        : LABEL_SOURCE.catalog;
+  const labelOf = (group: GroupAcc): BucketLabel => {
     const value = group.value;
-    if (value.key === null) return null;
-    if (value.caen !== null)
-      return value.caen.revision === null
-        ? null
-        : (labels.value.get(caenKey(value.caen.revision, value.caen.code)) ?? null);
-    return labels.value.get(value.key) ?? null;
+    if (value.key === null || value.basis !== null) return NO_LABEL;
+    const label =
+      value.caen !== null
+        ? value.caen.revision === null
+          ? null
+          : (labels.value.get(caenKey(value.caen.revision, value.caen.code)) ?? null)
+        : (labels.value.get(value.key) ?? null);
+    return label === null ? NO_LABEL : { label, labelSource };
   };
 
   return finish(ctx, resolved.value, {
@@ -809,16 +999,21 @@ export const companyAnalysisBreakdown = async (
     topN: limit,
     groupCount: known.length,
     groups: top.map((group) => bucketOf('GROUP', group, 1, metric, labelOf(group))),
-    other: bucketOf('OTHER', other, rest.length, metric, null),
-    unknown: bucketOf('UNKNOWN', unknown, 1, metric, null),
-    totals: bucketOf('TOTAL', totals, known.length + 1, metric, null),
+    other: bucketOf('OTHER', other, rest.length, metric, NO_LABEL),
+    unknown: bucketOf('UNKNOWN', unknown, 1, metric, NO_LABEL),
+    totals: bucketOf('TOTAL', totals, known.length + 1, metric, NO_LABEL),
     caveats:
       dimension.value === 'EMPLOYEE_SIZE'
         ? [
             SNAPSHOT_CAVEAT,
             'The unknown size group holds companies without a statement for the year and statements without a reported headcount.',
           ]
-        : [SNAPSHOT_CAVEAT],
+        : CONSENSUS_DIMENSIONS.has(dimension.value)
+          ? [
+              SNAPSHOT_CAVEAT,
+              'Every company is in exactly one group: its edition consensus value, or the basis group (multiple_values), (partial_observations), (missing) or (unresolved) when it has none. The unknown bucket is always empty here.',
+            ]
+          : [SNAPSHOT_CAVEAT],
   });
 };
 
@@ -1048,6 +1243,23 @@ const decodeAfter = (
     : ok({ value: formatMetricValue(scaled, unit), cui });
 };
 
+/**
+ * `onrc_recorded_date` must be an exact civil date (years 0001–9999) and
+ * `onrc_recorded_year` exactly its year: both NULL or both present. Served as
+ * text — never a Date, a founding date or an age.
+ */
+const recordedDateOf = (
+  row: RecordRow
+): Result<{ readonly date: string | null; readonly year: number | null }, ApiError> => {
+  if (row.recordedDate === null && row.recordedYear === null) return ok({ date: null, year: null });
+  if (row.recordedDate === null || row.recordedYear === null || !isCivilDate(row.recordedDate))
+    return err(invariant(`recorded date of ${row.cui} is not an exact civil date with its year`));
+  const year = Number(row.recordedDate.slice(0, 4));
+  if (!/^[0-9]{1,4}$/u.test(row.recordedYear) || Number(row.recordedYear) !== year)
+    return err(invariant(`recorded year of ${row.cui} does not match its recorded date`));
+  return ok({ date: row.recordedDate, year });
+};
+
 const flagOf = (raw: string | null): Result<CompanyAnalysisFlagValue, ApiError> => {
   if (raw === null) return ok('UNKNOWN');
   if (raw === 'YES' || raw === 'NO') return ok(raw);
@@ -1098,19 +1310,44 @@ const mapRecord = (
     }
     values.push({ metric, value, status });
   }
-  const registrationYear =
-    row.registrationYear === null || !/^\d{4}$/u.test(row.registrationYear)
-      ? null
-      : Number(row.registrationYear);
-  const labelled = (code: string | null, map: ReadonlyMap<string, string>) =>
-    code === null ? null : { code, label: map.get(code) ?? null };
+  const legalFormBasis = basisOf(row.legalFormBasis, `legal form of ${row.cui}`);
+  if (legalFormBasis.isErr()) return err(legalFormBasis.error);
+  const countyBasis = basisOf(row.countyBasis, `county of ${row.cui}`);
+  if (countyBasis.isErr()) return err(countyBasis.error);
+  const uatBasis = basisOf(row.uatBasis, `UAT of ${row.cui}`);
+  if (uatBasis.isErr()) return err(uatBasis.error);
+  const statusBasis = basisOf(row.statusBasis, `status of ${row.cui}`);
+  if (statusBasis.isErr()) return err(statusBasis.error);
+  const recordedDateBasis = basisOf(row.recordedDateBasis, `recorded date of ${row.cui}`);
+  if (recordedDateBasis.isErr()) return err(recordedDateBasis.error);
+  const statusCoverage = coverageOf(row.statusCoverage, `status of ${row.cui}`);
+  if (statusCoverage.isErr()) return err(statusCoverage.error);
+  const caenCoverage = coverageOf(row.caenCoverage, `CAEN of ${row.cui}`);
+  if (caenCoverage.isErr()) return err(caenCoverage.error);
+  // The exact recorded civil date and the year derived from it alone.
+  const recorded = recordedDateOf(row);
+  if (recorded.isErr()) return err(recorded.error);
+  const labelled = (code: string | null, map: ReadonlyMap<string, string>, source: string) => {
+    if (code === null) return null;
+    const label = map.get(code) ?? null;
+    return { code, label, labelSource: label === null ? null : source };
+  };
   return ok({
     cui: row.cui,
     currentName: labels.names.get(row.cui) ?? null,
     legalForm: row.legalForm,
-    county: labelled(row.countyCode, labels.counties),
-    uat: labelled(row.uatSiruta, labels.uats),
-    observedStatus: labelled(row.statusCode, labels.statuses),
+    legalFormBasis: legalFormBasis.value,
+    county: labelled(row.countyCode, labels.counties, LABEL_SOURCE.territory),
+    countyBasis: countyBasis.value,
+    uat: labelled(row.uatSiruta, labels.uats, LABEL_SOURCE.territory),
+    uatBasis: uatBasis.value,
+    observedStatus: labelled(row.statusCode, labels.statuses, LABEL_SOURCE.nomenclature),
+    observedStatusBasis: statusBasis.value,
+    observedStatusCoverage: statusCoverage.value,
+    onrcCaenCoverage: caenCoverage.value,
+    onrcRecordedDate: recorded.value.date,
+    onrcRecordedYear: recorded.value.year,
+    onrcRecordedDateBasis: recordedDateBasis.value,
     vatPayer: vat.value,
     fiscallyInactive: inactive.value,
     mainCaen:
@@ -1123,7 +1360,6 @@ const mapRecord = (
                 ? null
                 : (labels.caen.get(caenKey(caen.value.revision, caen.value.code)) ?? null),
           },
-    registrationYear,
     filed: row.filed,
     employeeSizeBand: sizeBand,
     values,
@@ -1230,22 +1466,22 @@ export const companyAnalysisRecords = async (
     read: (keys: readonly string[]) => Promise<Result<ReadonlyMap<string, string>, ApiError>>
   ): Promise<Result<ReadonlyMap<string, string>, ApiError>> =>
     keys.length === 0 ? Promise.resolve(ok(empty)) : read(keys);
-  // One batch per label source per page; the names are CURRENT public names.
-  const [names, counties, uats, statuses, caen] = await Promise.all([
+  // One fresh batch per label source per page; the names are CURRENT public
+  // core-directory names. Status labels are the static nomenclature (no read).
+  const [names, counties, uats, caen] = await Promise.all([
     batch(unique(page.map((r) => r.cui)), (keys) => ctx.labels.companyNames(keys)),
     batch(unique(page.map((r) => r.countyCode)), (keys) => ctx.labels.countyLabels(keys)),
     batch(unique(page.map((r) => r.uatSiruta)), (keys) => ctx.labels.uatLabels(keys)),
-    batch(unique(page.map((r) => r.statusCode)), (keys) => ctx.labels.statusLabels(keys)),
     caenKeys.length === 0 ? Promise.resolve(ok(empty)) : ctx.labels.caenLabels(caenKeys),
   ]);
-  for (const result of [names, counties, uats, statuses, caen]) {
+  for (const result of [names, counties, uats, caen]) {
     if (result.isErr()) return err(result.error);
   }
   const labelMaps = {
     names: names.unwrapOr(empty),
     counties: counties.unwrapOr(empty),
     uats: uats.unwrapOr(empty),
-    statuses: statuses.unwrapOr(empty),
+    statuses: nomenclatureLabels(unique(page.map((r) => r.statusCode))),
     caen: caen.unwrapOr(empty),
   };
 
@@ -1283,7 +1519,8 @@ export const companyAnalysisRecords = async (
     },
     caveats: [
       SNAPSHOT_CAVEAT,
-      'currentName is the current public registry name, not pinned to the release.',
+      'currentName is the current public core-directory name: not a registry or edition name, and not pinned to the release.',
+      'onrcRecordedDate is the date ONRC recorded, never a founding date or an age.',
     ],
   });
 };

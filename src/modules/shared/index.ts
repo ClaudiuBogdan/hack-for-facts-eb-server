@@ -9,6 +9,9 @@
 
 import { readFileSync } from 'node:fs';
 
+import { err } from 'neverthrow';
+
+import { serviceUnavailable, type ApiError } from './core/errors.js';
 import { type Entity360Deps } from './core/usecases/entity-360.js';
 import { type GlobalSearchDeps } from './core/usecases/global-search.js';
 import { createContributorRegistry } from './core/usecases/registry.js';
@@ -43,6 +46,7 @@ import type {
   LegalActByIdLoader,
   MeiliClient,
   OpenSearchClient,
+  SearchCompanyContributionPort,
   SearchRepo,
   SyntheticClient,
   TerritoryRepo,
@@ -98,6 +102,12 @@ export interface Kernel {
   readonly searchCapabilities: CapabilityResolver;
   /** Register the legal module's act loader (kernel-owned port, §15.4). */
   registerLegalActLoader(loader: LegalActByIdLoader): void;
+  /**
+   * Register the companies module's search contribution (fresh scope, parent
+   * access and company values of search candidates). Until registered, the
+   * global search withholds CUI identities and serves no company contribution.
+   */
+  registerCompanySearch(port: SearchCompanyContributionPort): void;
   legalActLoader(): LegalActByIdLoader | undefined;
   /** Per-request GraphQL DataLoaders keyed by CUI. */
   makeLoaders(): KernelLoaders;
@@ -190,6 +200,17 @@ export const makeKernel = async (config: KernelConfig): Promise<Kernel> => {
   const searchCapabilities = await resolveCapabilities({ meiliClient, openSearchClient });
 
   let legalActLoader: LegalActByIdLoader | undefined;
+  let companySearch: SearchCompanyContributionPort | undefined;
+  // The search surfaces are built here, before any module: they read the
+  // registered contribution through this late-bound delegate.
+  const notConfigured = (): ApiError =>
+    serviceUnavailable('the company search contribution is not configured');
+  const companySearchDelegate: SearchCompanyContributionPort = {
+    hydrate: async (cuis, withValues) =>
+      companySearch === undefined ? err(notConfigured()) : companySearch.hydrate(cuis, withValues),
+    confirm: async (scopeKey, cuis) =>
+      companySearch === undefined ? err(notConfigured()) : companySearch.confirm(scopeKey, cuis),
+  };
 
   const entity360Deps: Entity360Deps = {
     identityRepo,
@@ -201,6 +222,7 @@ export const makeKernel = async (config: KernelConfig): Promise<Kernel> => {
     searchPolicy: config.searchPolicy ?? 'baseline',
     meiliClient,
     meiliIndexes: config.meiliIndexes ?? [...DEFAULT_MEILI_INDEXES],
+    companySearch: companySearchDelegate,
     ...(config.logger !== undefined && { logger: config.logger }),
   };
 
@@ -293,6 +315,9 @@ export const makeKernel = async (config: KernelConfig): Promise<Kernel> => {
     legalActLoader(): LegalActByIdLoader | undefined {
       return legalActLoader;
     },
+    registerCompanySearch(port: SearchCompanyContributionPort): void {
+      companySearch = port;
+    },
     makeLoaders(): KernelLoaders {
       return makeKernelLoaders(identityRepo);
     },
@@ -358,13 +383,31 @@ export {
   type Entity360Deps,
 } from './core/usecases/entity-360.js';
 export {
+  confirmGlobalSearchServed,
   makeGlobalSearch,
   type GlobalSearchDeps,
   type GlobalSearchResult,
+  type SearchCompanyContributionReason,
 } from './core/usecases/global-search.js';
+export {
+  PALETTE_GENERATION_CONTROL_ID,
+  parseGenerationControl,
+  readGenerationControl,
+  witnessGeneration,
+  type GenerationControlReading,
+  type GenerationWitness,
+  type GenerationWitnessFailure,
+  type PaletteGenerationControl,
+} from './core/search-generation.js';
 export { makeAsk, type AskDeps, type AskInput, type AskResult } from './core/usecases/ask.js';
 export type { ProdDatabase } from './shell/db/types.js';
 export { mergeGraphqlSlices, KERNEL_BASE_TYPES, type GraphqlSlice } from './shell/graphql/merge.js';
+export {
+  OWNING_RESULT_GUARD,
+  guardServedFacts,
+  owningResultGuardOf,
+  responsePathOf,
+} from './shell/graphql/resolvers.js';
 export { baseTypeDefs } from './shell/graphql/typedefs.js';
 export { scalarResolvers, scalarTypeDefs } from './shell/graphql/scalars.js';
 export { makeBatchLoader, type BatchLoader } from './shell/graphql/dataloaders.js';

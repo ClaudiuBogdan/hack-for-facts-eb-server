@@ -25,6 +25,7 @@ import type {
   OrgNameMatch,
   Organization,
   SearchHit,
+  SearchHitCompany,
   Siruta,
   SourcePresence,
   Territory,
@@ -201,7 +202,73 @@ export interface MeiliClient {
       readonly offset?: number;
     }
   ): Promise<Result<EntitiesSearchResult, ApiError>>;
+  /**
+   * Exact-ID read of the index's reserved generation-control document
+   * (`palette_generation_control`): the raw document, or null when the index
+   * has none. Never a search and never mapped to a hit. Optional: a client
+   * without it serves no witness (the company contribution is unavailable).
+   */
+  readGenerationControl?(index: string): Promise<Result<unknown, ApiError>>;
   healthCheck(): Promise<Result<void, ApiError>>;
+}
+
+/** The candidate-answer cache of the global search (the kernel cache satisfies it). */
+export interface SearchCandidateCache {
+  wrap<T>(key: string, compute: () => Promise<T>, shouldCache?: (value: T) => boolean): Promise<T>;
+}
+
+/**
+ * The fresh database classification of one search-candidate CUI:
+ *  - `private`: a known core organization of the CUI is not public; the whole
+ *    candidate is withheld, whatever role it plays;
+ *  - `none`: no company contribution: no core organization, a public
+ *    non-company one, or a public company outside the ONRC company shape
+ *    (2–10 digits) the contribution applies to;
+ *  - `company`: a public company parent; `values` are its current company
+ *    values, or null when they were not read (no published scope or not
+ *    asked). `independentCountyName` is the county of the identity's OWN
+ *    public institution role, read fresh with the values (its public territory
+ *    hub row); absent or null when there is none, or it is not public.
+ */
+export type SearchCuiParent =
+  | { readonly kind: 'private' }
+  | { readonly kind: 'none' }
+  | {
+      readonly kind: 'company';
+      readonly values: SearchHitCompany | null;
+      readonly independentCountyName?: string | null;
+    };
+
+export interface SearchCompanyHydration {
+  /** The request's company scope (the companies `registryScopeKey`), captured once. */
+  readonly scopeKey: string;
+  readonly published: boolean;
+  /** Exactly one entry per requested CUI. */
+  readonly parents: ReadonlyMap<string, SearchCuiParent>;
+}
+
+/**
+ * The company contribution of the global search, provided by the companies
+ * module at composition (the kernel never reads company tables). Every call is
+ * fresh: never cached, never shared across requests.
+ */
+export interface SearchCompanyContributionPort {
+  /**
+   * Capture the company scope once, classify the (at most 50) candidate CUIs
+   * (canonical positive CUIs of 1–10 digits: the privacy population) and,
+   * when `withValues`, read the current company values of the public company
+   * parents of the ONRC company shape under that scope; rechecked before
+   * returning. Called for empty pages too.
+   */
+  hydrate(
+    cuis: readonly string[],
+    withValues: boolean
+  ): Promise<Result<SearchCompanyHydration, ApiError>>;
+  /**
+   * The final decision for an answer already served under `scopeKey`: the
+   * scope still holds and none of `cuis` has a non-public organization now.
+   */
+  confirm(scopeKey: string, cuis: readonly string[]): Promise<Result<void, ApiError>>;
 }
 
 export interface OpenSearchAggBucket {
@@ -273,8 +340,44 @@ export interface SyntheticClient {
  */
 export interface SourceContributor {
   readonly source: string;
+  /**
+   * An `accessRefused` error is a guard refusal of this CUI's entity: the
+   * composing response withholds the owning entity. Any other error is an
+   * advisory outage of this source (its part degrades to absent).
+   */
   presenceFor(cui: Cui): Promise<Result<SourcePresence | null, ApiError>>;
   profileSlice?(cui: Cui): Promise<Result<EntityProfileSlice | null, ApiError>>;
+  /**
+   * Optional final access decision for facts this contributor served for
+   * `cui` (a presence or profile slice exactly as it returned it), taken by
+   * the composing response AFTER its fan-out settled. Only sources whose
+   * facts are guarded by a later-changing access decision define it; their
+   * presence/slice must carry what the check needs. Any error withholds the
+   * owning entity (a decision that cannot be taken is never a pass).
+   */
+  confirmServed?(
+    cui: Cui,
+    served: SourcePresence | EntityProfileSlice
+  ): Promise<Result<void, ApiError>>;
+}
+
+/** A GraphQL response path (field keys as aliased, list indexes as numbers). */
+export type ResponsePath = readonly (string | number)[];
+
+/** A final access decision, run after a response's selected work settled. */
+export type ServedFactsCheck = () => Promise<Result<void, ApiError>>;
+
+/**
+ * The owning-result decisions of ONE GraphQL operation (request-scoped, never
+ * shared across requests). A resolver that served guarded facts registers,
+ * for the result that owns them (`owner`, its response path): the fresh check
+ * that must still hold, or a guard refusal already known. The transport runs
+ * the checks once, after every selected field of the operation settled, and
+ * withholds each refused owning result (null + one error at its path).
+ */
+export interface OwningResultGuard {
+  refuse(owner: ResponsePath, error: ApiError): void;
+  confirm(owner: ResponsePath, check: ServedFactsCheck): void;
 }
 
 /** A mutable registry of contributors (register at wiring time; iterate later). */

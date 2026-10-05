@@ -6,6 +6,13 @@
  * strings; money/headcount sums and means are exact decimal `String`s whose
  * unit is named next to them. Every root is nullable so an error isolates to
  * its field (codes: INVALID_INPUT, SERVICE_UNAVAILABLE, GATEWAY_TIMEOUT, …).
+ *
+ * Only `companies-analytics-ch-v2` releases (population
+ * `public-onrc-edition-legal-person-v2`, one pinned ONRC edition) are served;
+ * a v1 release is SERVICE_UNAVAILABLE (active) or INVALID_INPUT `release`
+ * (pinned), never reinterpreted. Each root is decided again when the whole
+ * operation completed: a release that became stale meanwhile (privacy or ONRC
+ * source change) nulls the root with INVALID_INPUT, `extensions.field` release.
  */
 
 export const companyAnalysisTypeDefs = /* GraphQL */ `
@@ -133,11 +140,50 @@ export const companyAnalysisTypeDefs = /* GraphQL */ `
     UNKNOWN
     TOTAL
   }
+  "Why an ONRC edition consensus value is what it is, or why it is null. Only SINGLE_OBSERVATION and CONSISTENT_OBSERVATIONS are a known value."
+  enum CompanyAnalysisOnrcBasis {
+    SINGLE_OBSERVATION
+    CONSISTENT_OBSERVATIONS
+    PARTIAL_OBSERVATIONS
+    MULTIPLE_VALUES
+    MISSING
+    UNRESOLVED
+  }
+  "Whether a CUI's ONRC status / CAEN evidence is complete. Only COMPLETE and COMPLETE_EMPTY can prove an absence."
+  enum CompanyAnalysisOnrcCoverage {
+    COMPLETE
+    COMPLETE_EMPTY
+    PARTIAL
+    UNRESOLVED
+  }
 
-  "OR within the list; includeUnknown adds the NULL (unknown) group."
+  "A consensus bucket selector, OR within the list: a value key (county code, SIRUTA, status code) or a basis key '(multiple_values)', '(partial_observations)', '(missing)', '(unresolved)' (any basis in parentheses) — exactly the breakdown bucket of that key. includeUnknown selects every basis bucket (no consensus value), never an absence."
   input CompanyAnalysisKeyFilterInput {
     in: [String!]
     includeUnknown: Boolean
+  }
+  "Supported ONRC exclusions; each needs complete evidence (unknown, partial or unresolved never counts as absent). An exact onrcCaen exclusion is refused (an unknown-revision observation may carry the same code)."
+  input CompanyAnalysisOnrcExcludeInput {
+    "No identifier has these status codes; status coverage COMPLETE or COMPLETE_EMPTY."
+    status: [String!]
+    "No identifier has these CAEN codes in any revision; CAEN coverage COMPLETE or COMPLETE_EMPTY."
+    caenCode: [String!]
+    "A known (single/consistent) county consensus outside these codes."
+    county: [String!]
+    "A known (single/consistent) legal form outside these."
+    legalForm: [String!]
+  }
+  "ONRC observation filters over the public resolved identifiers of the pinned edition: OR within a field, AND across fields, all on the SAME identifier (a status from one identifier and a county from another never combine)."
+  input CompanyAnalysisOnrcInput {
+    "Public status codes (e.g. 1048; matches also next to a conflicting code)."
+    status: [String!]
+    "County codes of the identifier (CJ, B)."
+    county: [String!]
+    "Broad 4-digit CAEN code in any revision state, unknown revision included."
+    caenCode: [String!]
+    "Exact rev<N>:<code> (rev0..rev3); a code of unknown revision never matches."
+    onrcCaen: [String!]
+    exclude: CompanyAnalysisOnrcExcludeInput
   }
   "A main CAEN code. Omit revision to match codes whose revision ANAF did not publish (never guessed)."
   input CompanyAnalysisCaenInput {
@@ -152,23 +198,26 @@ export const companyAnalysisTypeDefs = /* GraphQL */ `
   }
   """
   The question. OR within a field, AND across fields. Company keys (cuis, county,
-  uat, legalForms, observedStatus, vatPayer, fiscallyInactive, mainCaen,
-  mainCaenBasis) describe the release snapshot; filing, financialRanges and
-  employeeSizeBands act on the fiscal year's statement (and imply FILED).
+  uat, legalForms, observedStatus, onrc, vatPayer, fiscallyInactive, mainCaen,
+  mainCaenBasis) describe the release snapshot and its pinned ONRC edition;
+  filing, financialRanges and employeeSizeBands act on the fiscal year's
+  statement (and imply FILED).
   """
   input CompanyAnalysisScopeInput {
     "Defaults to the release default (2024 when offered)."
     fiscalYear: Int
     "Selected CUIs (normalized; >10-digit identifiers are refused). At most 500."
     cuis: [String!]
-    "core.territories county_code of the registered office."
+    "County consensus bucket of the pinned edition (county code, or a basis key)."
     county: CompanyAnalysisKeyFilterInput
-    "Registered-office UAT SIRUTA (text, leading zeros kept)."
+    "UAT consensus bucket (SIRUTA text, leading zeros kept, or a basis key)."
     uat: CompanyAnalysisKeyFilterInput
-    "ONRC legal-form codes (SRL, SA, …)."
+    "ONRC legal-form codes (SRL, SA, …) of the edition profile."
     legalForms: [String!]
-    "ONRC observed headline status codes (most advanced state seen, not 'currently active')."
+    "Complete status consensus bucket of the pinned edition (status code, or a basis key). Not an observation filter: use onrc.status for 'has a public 1048'."
     observedStatus: CompanyAnalysisKeyFilterInput
+    "ONRC observation filters on one identifier (status, county, broad CAEN, exact rev<N>:<code>) and their supported exclusions."
+    onrc: CompanyAnalysisOnrcInput
     vatPayer: [CompanyAnalysisFlagValue!]
     fiscallyInactive: [CompanyAnalysisFlagValue!]
     mainCaen: [CompanyAnalysisCaenInput!]
@@ -179,11 +228,26 @@ export const companyAnalysisTypeDefs = /* GraphQL */ `
     employeeSizeBands: [CompanyAnalysisSizeBand!]
   }
 
+  "The ONRC edition a release's company dimensions were exported from (the release's source pin, exactly). The release answers only while this edition is still the published source."
+  type CompanyAnalysisSourceEdition {
+    editionId: BigInt!
+    "ONRC publication epoch of the pin."
+    publicationEpoch: BigInt!
+    sourceSnapshotId: String!
+    "ONRC's publication date of the edition's source files (civil date YYYY-MM-DD); null when unknown."
+    sourcePublishedAt: String
+    interpretationVersion: String!
+    privacyPolicyVersion: String!
+    dimensionPolicyVersion: String!
+    "The sealed source eligibility policy the population was selected under."
+    eligibilityPolicyVersion: String!
+  }
   "The release an answer was computed on. Pin releaseId in every follow-up request."
   type CompanyAnalysisReleaseRef {
     releaseId: BigInt!
     publishedAt: DateTime
     active: Boolean!
+    source: CompanyAnalysisSourceEdition!
   }
   "Statement counts per status of one metric; they add up to the statements."
   type CompanyAnalysisCoverage {
@@ -322,9 +386,13 @@ export const companyAnalysisTypeDefs = /* GraphQL */ `
   }
   type CompanyAnalysisBucket {
     kind: CompanyAnalysisBucketKind!
-    "GROUP only: the stable filter key (MAIN_CAEN: 'revision:code', '?:code' when the revision is unknown)."
+    "GROUP only: the stable filter key (MAIN_CAEN: 'revision:code', '?:code' when the revision is unknown; COUNTY/UAT/OBSERVED_STATUS: the consensus value, or '(<basis>)' for the companies without one)."
     key: String
     label: String
+    "territory_hub (COUNTY/UAT), api_nomenclature (OBSERVED_STATUS), current_db_catalog (MAIN_CAEN); null without a label."
+    labelSource: String
+    "COUNTY/UAT/OBSERVED_STATUS basis groups: the basis of the companies without a consensus value."
+    basis: CompanyAnalysisOnrcBasis
     caen: CompanyAnalysisCaen
     "OTHER: groups folded; TOTAL: all groups plus unknown."
     groups: Int!
@@ -333,7 +401,7 @@ export const companyAnalysisTypeDefs = /* GraphQL */ `
     "Null only when the fiscal year offers no metric."
     metric: CompanyAnalysisMetricAggregate
   }
-  "groups + other + unknown = totals = companyAnalysisStats for the same scope."
+  "groups + other + unknown = totals = companyAnalysisStats for the same scope. COUNTY/UAT/OBSERVED_STATUS: every company is in exactly one value or basis group, so unknown is always empty."
   type CompanyAnalysisBreakdown {
     release: CompanyAnalysisReleaseRef!
     scope: JSON!
@@ -385,6 +453,8 @@ export const companyAnalysisTypeDefs = /* GraphQL */ `
   type CompanyAnalysisLabelled {
     code: String!
     label: String
+    "Where the label came from (territory_hub, api_nomenclature); null without a label."
+    labelSource: String
   }
   type CompanyAnalysisRecordValue {
     metric: CompanyAnalysisMetric!
@@ -395,16 +465,28 @@ export const companyAnalysisTypeDefs = /* GraphQL */ `
   }
   type CompanyAnalysisRecord {
     cui: CUI!
-    "Current public registry name (not pinned to the release); null when not publicly named."
+    "Current public core-directory name (not an edition or registry name, not pinned to the release); null when not publicly named."
     currentName: String
     legalForm: String!
+    legalFormBasis: CompanyAnalysisOnrcBasis!
+    "The pinned edition's county consensus; null when there is none (countyBasis says why)."
     county: CompanyAnalysisLabelled
+    countyBasis: CompanyAnalysisOnrcBasis!
     uat: CompanyAnalysisLabelled
+    uatBasis: CompanyAnalysisOnrcBasis!
+    "The pinned edition's complete status consensus; null otherwise (observedStatusBasis says why)."
     observedStatus: CompanyAnalysisLabelled
+    observedStatusBasis: CompanyAnalysisOnrcBasis!
+    observedStatusCoverage: CompanyAnalysisOnrcCoverage!
+    onrcCaenCoverage: CompanyAnalysisOnrcCoverage!
+    "The civil date ONRC RECORDED (YYYY-MM-DD, years 0001-9999, exact text). Never a founding date, an age or a market tenure."
+    onrcRecordedDate: String
+    "The year of onrcRecordedDate only (no registration-number year hint)."
+    onrcRecordedYear: Int
+    onrcRecordedDateBasis: CompanyAnalysisOnrcBasis!
     vatPayer: CompanyAnalysisFlagValue!
     fiscallyInactive: CompanyAnalysisFlagValue!
     mainCaen: CompanyAnalysisCaen
-    registrationYear: Int
     "Has a selected statement for the fiscal year."
     filed: Boolean!
     employeeSizeBand: CompanyAnalysisSizeBand

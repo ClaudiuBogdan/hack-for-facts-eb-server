@@ -11,6 +11,7 @@ import { ok, err, type Result } from 'neverthrow';
 
 import { upstreamError, type ApiError } from '../../core/errors.js';
 import { searchRequestPolicy, type SearchPolicy } from '../../core/filters/search-policy.js';
+import { PALETTE_GENERATION_CONTROL_ID } from '../../core/search-generation.js';
 
 import type { EntitiesSearchResult, MeiliClient } from '../../core/ports.js';
 import type { SearchHit } from '../../core/types.js';
@@ -97,7 +98,8 @@ const mapHit = (h: Record<string, unknown>, indexUid: string): SearchHit => {
     }),
     ...(identifiers !== undefined && { identifiers }),
     ...(roles !== undefined && { roles }),
-    ...(typeof isActive === 'boolean' && { isActive }),
+    // A null activity is unknown (an applicable company term may be unknown), never inactive.
+    ...((typeof isActive === 'boolean' || isActive === null) && { isActive }),
     isUat: typeof h['is_uat'] === 'boolean' ? h['is_uat'] : null,
     entityTags: Array.isArray(h['entity_tags'])
       ? h['entity_tags'].filter((tag): tag is string => typeof tag === 'string')
@@ -171,6 +173,42 @@ export const makeMeiliClient = (config: MeiliClientConfig): MeiliClient => {
         const msg = error instanceof Error ? error.message : 'unknown error';
         return err(
           upstreamError(`meilisearch entities request failed: ${msg}`, 'meilisearch', error)
+        );
+      }
+    },
+
+    async readGenerationControl(index: string): Promise<Result<unknown, ApiError>> {
+      // Exact ID only: the reserved control is never searched for, and its
+      // raw content is parsed strictly by the kernel core. Errors are
+      // code-only (status), never the response body.
+      try {
+        const resp = await fetch(
+          `${config.host}/indexes/${encodeURIComponent(index)}/documents/${PALETTE_GENERATION_CONTROL_ID}`,
+          {
+            method: 'GET',
+            headers: { Authorization: `Bearer ${config.apiKey}` },
+            signal: AbortSignal.timeout(ENTITIES_SEARCH_TIMEOUT_MS),
+          }
+        );
+        if (resp.status === 404) {
+          const body: unknown = await resp.json().catch(() => null);
+          const code =
+            typeof body === 'object' && body !== null ? (body as { code?: unknown }).code : null;
+          // Only a missing DOCUMENT is "no control"; a missing index is an error.
+          return code === 'document_not_found'
+            ? ok(null)
+            : err(upstreamError('meilisearch generation control 404', 'meilisearch'));
+        }
+        if (!resp.ok) {
+          return err(
+            upstreamError(`meilisearch generation control ${String(resp.status)}`, 'meilisearch')
+          );
+        }
+        const body: unknown = await resp.json();
+        return ok(body);
+      } catch (error) {
+        return err(
+          upstreamError('meilisearch generation control request failed', 'meilisearch', error)
         );
       }
     },

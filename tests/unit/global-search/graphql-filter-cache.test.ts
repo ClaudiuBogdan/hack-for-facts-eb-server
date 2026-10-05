@@ -10,6 +10,8 @@ import { baseTypeDefs } from '@/modules/shared/shell/graphql/typedefs.js';
 import { createCache } from '@/modules/shared/shell/middleware/cache.js';
 import { createRateLimiter } from '@/modules/shared/shell/middleware/rate-limiter.js';
 
+import { CONTROL_A, recordingCompanies } from './search-fixtures.js';
+
 interface Args {
   q: string;
   isUat?: boolean | null;
@@ -20,8 +22,14 @@ function fixture() {
   const searchEntities = vi.fn(async () =>
     ok({ hits: [], estimatedTotalHits: 0, facetDistribution: {} })
   );
+  // A witnessed generation: only then are candidate answers cached.
+  const readGenerationControl = vi.fn(async () => ok(CONTROL_A));
   const deps = {
-    globalSearchDeps: { meiliClient: { searchEntities }, meiliIndexes: ['entities'] },
+    globalSearchDeps: {
+      meiliClient: { searchEntities, readGenerationControl },
+      meiliIndexes: ['entities'],
+      companySearch: recordingCompanies({}).port,
+    },
     cache: createCache({ ttlMs: 60_000, maxEntries: 20 }),
     rateLimiter: createRateLimiter({ maxTokens: 100, windowMs: 60_000 }),
   } as unknown as KernelResolverDeps;

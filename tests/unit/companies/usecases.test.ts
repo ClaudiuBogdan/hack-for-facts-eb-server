@@ -9,13 +9,15 @@
 import { err, ok, type Result } from 'neverthrow';
 import { describe, expect, it, vi } from 'vitest';
 
+import { noRegistryEvidence } from '@/modules/companies/core/registry.js';
 import {
+  exactDecimalDiff,
   isWithheldCompanyIdentifier,
   makeCompanyFinancials,
   makeCompanyList,
   makeCompanyProfile,
   makeCompanyProfileData,
-  diffRegistrationCaptures,
+  diffRegistryEditions,
   makeCompanyFinancialQualityAssessment,
   makeCompanyRegistrationDiff,
   makeCompanyPublicMoney,
@@ -24,11 +26,22 @@ import {
 } from '@/modules/companies/core/usecases.js';
 import { makeCompaniesContributor } from '@/modules/companies/shell/contributor.js';
 
+import {
+  POLICY_SHA,
+  assessedQualification,
+  notAssessedQualification,
+  statementSource,
+} from './qualification-fixtures.js';
+import { PUBLISHED_SCOPE, UNPUBLISHED_SCOPE } from './registry-fixtures.js';
+import { stubRepo as sharedStubRepo } from './repo-fixtures.js';
+
 import type { CompaniesRepository, CompanyProfileData } from '@/modules/companies/core/ports.js';
 import type {
   CompanyFinancialYear,
-  CompanyRegistrationCaptureRow,
   CompanyRegistrationDiffData,
+  CompanyRegistrationEditionSide,
+  CompanyRegistrationField,
+  CompanyStatementQualification,
 } from '@/modules/companies/core/types.js';
 import type { ApiError, FlowsRepo } from '@/modules/shared/index.js';
 
@@ -38,22 +51,50 @@ const unwrap = <T>(r: Result<T, ApiError>): T => {
   return r.value;
 };
 
+/**
+ * What sql-v1 states for an admitted, non-held statement: a present value is
+ * reported, an absent one missing, and the net is profit − loss with an
+ * absent side as 0 (missing when both are absent).
+ */
+const evaluated = (
+  turnover: string | null,
+  employees: string | null,
+  netProfit: string | null,
+  netLoss: string | null
+): CompanyStatementQualification => {
+  const status = (value: string | null) => (value === null ? 'missing' : 'reported');
+  const noNet = netProfit === null && netLoss === null;
+  return assessedQualification(
+    {
+      employees: status(employees),
+      net_loss: status(netLoss),
+      net_profit: status(netProfit),
+      net_result: noNet ? 'missing' : 'reported',
+      turnover: status(turnover),
+    },
+    noNet ? null : exactDecimalDiff(netProfit ?? '0', netLoss ?? '0')
+  );
+};
+
 const finYear = (
   year: number,
   turnover: string | null,
   employees: string | null,
-  netProfit: string | null = null
+  netProfit: string | null = null,
+  netLoss: string | null = null
 ): CompanyFinancialYear => ({
   year,
   sourceSystem: year >= 2019 ? 'anaf' : 'mfp',
   turnover,
   netProfit,
-  netLoss: null,
+  netLoss,
   employees,
+  source: statementSource(year),
+  qualification: evaluated(turnover, employees, netProfit, netLoss),
   summary: {
     turnover,
     netProfit,
-    netLoss: null,
+    netLoss,
     totalRevenue: null,
     totalExpenses: null,
     grossProfit: null,
@@ -78,14 +119,16 @@ const profileData = (cui: string): CompanyProfileData => ({
   cui,
   orgId: '1517396',
   name: 'DEDEMAN SRL',
+  nameSource: 'onrc_edition',
   legalForm: 'SRL',
   codInmatriculare: 'J1992002621040',
   registrationDate: '1992-11-05',
   registrationDatePresent: true,
-  headlineStatus: { code: '1048', label: 'funcțiune' },
+  headlineStatus: { code: '1048', label: 'funcțiune', labelSource: 'api_nomenclature' },
   statusFlags: [],
   territory: null,
   address: { display: '', county: 'Bacău', locality: null },
+  registry: noRegistryEvidence(PUBLISHED_SCOPE),
   fiscal: {
     vatPayer: true,
     declaredFiscallyInactive: false,
@@ -101,39 +144,26 @@ const profileData = (cui: string): CompanyProfileData => ({
   asOf: { onrc: '2026-05-18', anaf: '2026-05-18' },
 });
 
-const stubRepo = (over: Partial<CompaniesRepository> = {}): CompaniesRepository => ({
-  getProfileData: vi.fn(async () => ok(profileData('2816464'))),
-  getFinancials: vi.fn(async () => ok([])),
-  getFinancialQualityAssessment: vi.fn(async () =>
-    ok({ assessedYears: [], assessedAt: null, flags: [] })
-  ),
-  getRegistrationDiffData: vi.fn(async () =>
-    ok({
-      fromCaptureDate: null,
-      toCaptureDate: null,
-      captureCount: 0,
-      earlier: null,
-      later: null,
-      earlierMultiple: false,
-      laterMultiple: false,
-    })
-  ),
-  listCompanies: vi.fn(async () => ok({ rows: [], total: 0, estimated: false })),
-  resolveByName: vi.fn(async () => ok({ hits: [], degraded: false })),
-  findByRegistrationNumber: vi.fn(async () => ok([])),
-  resolveCaen: vi.fn(async () => ok([])),
-  resolveCounty: vi.fn(async () => ok([])),
-  countBy: vi.fn(async () =>
-    ok({
-      groups: [],
-      denominator: 0,
-      coverage: { territoryMatched: null, territoryUnmatched: null, note: '' },
-    })
-  ),
-  profileSlice: vi.fn(async () => ok(null)),
-  presenceCounts: vi.fn(async () => ok(null)),
-  profileSlicesForCuis: vi.fn(async () => ok(new Map())),
-  ...over,
+/** The shared port stub, whose profile seek answers DEDEMAN by default. */
+const stubRepo = (over: Partial<CompaniesRepository> = {}): CompaniesRepository =>
+  sharedStubRepo({ getProfileData: vi.fn(async () => ok(profileData('2816464'))), ...over });
+
+/** A name hit as the repo returns it (spine-validated, label attributed). */
+const nameHit = (cui: string, label: string) => ({
+  dim: 'name' as const,
+  value: cui,
+  label,
+  cui,
+  confidence: 1,
+  labelSource: 'core_organization' as const,
+});
+const regnumHit = (cui: string, label: string) => ({
+  dim: 'regnum' as const,
+  value: cui,
+  label,
+  cui,
+  confidence: null,
+  labelSource: 'onrc_edition' as const,
 });
 
 const stubFlows = (over: Partial<FlowsRepo> = {}): FlowsRepo => ({
@@ -169,7 +199,8 @@ describe('makeCompanyProfile', () => {
     const d = deps({ repo: { getProfileData } });
     const res = await makeCompanyProfile(d, 'RO 2816464');
     expect(res.isOk()).toBe(true);
-    expect(getProfileData).toHaveBeenCalledWith('2816464');
+    // One pinned registry scope rides along to the repo.
+    expect(getProfileData).toHaveBeenCalledWith('2816464', PUBLISHED_SCOPE);
   });
 
   it('rejects a non-normalizable CUI with InvalidInput (no repo round-trip)', async () => {
@@ -265,6 +296,168 @@ describe('makeCompanyFinancials trajectory (precision-safe)', () => {
     const res = await makeCompanyFinancials(d, '2816464');
     expect((res as { value: { trajectory: unknown } }).value.trajectory).toBeNull();
   });
+
+  const trajectoryOf = async (
+    latest: CompanyFinancialYear,
+    prior: CompanyFinancialYear
+  ): Promise<{ turnoverDelta: string | null; netResultDelta: string | null } | null> => {
+    const d = deps({ repo: { getFinancials: vi.fn(async () => ok([latest, prior])) } });
+    return unwrap(await makeCompanyFinancials(d, '2816464'))?.trajectory ?? null;
+  };
+  const withNet = (
+    year: number,
+    netProfit: string | null,
+    netLoss: string | null,
+    turnover: string | null = null
+  ): CompanyFinancialYear => finYear(year, turnover, null, netProfit, netLoss);
+
+  it('keeps reported precision beyond two places: never truncated or rounded (CD-16)', async () => {
+    // The old 2dp scaler dropped the third digit: 1.009 − 1.001 came out 0.00.
+    const t = await trajectoryOf(
+      withNet(2024, '10.005', '0.00', '1.009'),
+      withNet(2023, '0', '2.5', '1.001')
+    );
+    expect(t?.turnoverDelta).toBe('0.008');
+    // (10.005 − 0) − (0 − 2.5) at the larger scale.
+    expect(t?.netResultDelta).toBe('12.505');
+  });
+
+  it('subtracts exactly past 2^53 and keeps 2dp formatting for 2dp inputs', async () => {
+    const t = await trajectoryOf(
+      withNet(2024, null, null, '9007199254740993.01'),
+      withNet(2023, null, null, '1.00')
+    );
+    expect(t?.turnoverDelta).toBe('9007199254740992.01');
+    expect(exactDecimalDiff('5', '3')).toBe('2.00');
+    expect(exactDecimalDiff('0.5', '1')).toBe('-0.50');
+    expect(exactDecimalDiff('-0.00', '0')).toBe('0.00');
+    expect(exactDecimalDiff('300000000000000.123456', '0.1')).toBe('300000000000000.023456');
+  });
+
+  it('answers null, never a throw or a guess, for a value that is not a plain decimal', async () => {
+    expect(exactDecimalDiff('NaN', '1.00')).toBeNull();
+    expect(exactDecimalDiff('1.00', 'Infinity')).toBeNull();
+    expect(exactDecimalDiff('1e3', '1')).toBeNull();
+    const t = await trajectoryOf(
+      withNet(2024, null, null, 'NaN'),
+      withNet(2023, null, null, '1.00')
+    );
+    expect(t?.turnoverDelta).toBeNull();
+  });
+
+  it('a reported 0/0 is a zero net result, null/null is no result, 0/loss is the loss', async () => {
+    expect(
+      (await trajectoryOf(withNet(2024, '0.00', '0.00'), withNet(2023, '0.00', '500.00')))
+        ?.netResultDelta
+    ).toBe('500.00');
+    expect(
+      (await trajectoryOf(withNet(2024, '0.00', '0.00'), withNet(2023, null, null)))?.netResultDelta
+    ).toBeNull();
+    expect(
+      (await trajectoryOf(withNet(2024, '0.00', '120.50'), withNet(2023, '0.00', '0.00')))
+        ?.netResultDelta
+    ).toBe('-120.50');
+  });
+});
+
+describe('makeCompanyFinancials trajectory under sql-v1 qualification (CD-14)', () => {
+  const trajectory = async (
+    latest: CompanyFinancialYear,
+    prior: CompanyFinancialYear
+  ): Promise<Record<string, unknown> | null> => {
+    const d = deps({ repo: { getFinancials: vi.fn(async () => ok([latest, prior])) } });
+    const t = unwrap(await makeCompanyFinancials(d, '2816464'))?.trajectory ?? null;
+    return t === null ? null : { ...t };
+  };
+  const prior = finYear(2023, '1000.00', '10', '50.00', '0.00');
+
+  it('drops only the held metric: a held turnover keeps the employee and net deltas', async () => {
+    const latest = finYear(2024, '300000000000000', '12', '60.00', '0.00');
+    const held: CompanyFinancialYear = {
+      ...latest,
+      qualification: assessedQualification({ turnover: 'held_observation' }, '60.00', {
+        holdReason: 'reviewed: source keying error',
+      }),
+    };
+    expect(await trajectory(held, prior)).toMatchObject({
+      employeesDelta: '2',
+      employeesDeltaReason: null,
+      netResultDelta: '10.00',
+      netResultDeltaReason: null,
+      turnoverDelta: null,
+      turnoverDeltaReason: 'latest_not_reported',
+    });
+    // The original stays on the year, untouched.
+    expect(held.turnover).toBe('300000000000000');
+  });
+
+  it('uses the evaluator net, never a local profit − loss (464d: profit reported, net held)', async () => {
+    const latest: CompanyFinancialYear = {
+      ...finYear(2024, '1100.00', '10', '120.00', null),
+      qualification: assessedQualification(
+        { gross_loss: 'held_profile', net_loss: 'missing', net_result: 'held_profile' },
+        null
+      ),
+    };
+    expect(await trajectory(latest, prior)).toMatchObject({
+      netResultDelta: null,
+      netResultDeltaReason: 'latest_not_reported',
+      turnoverDelta: '100.00',
+    });
+    // And the net value is the evaluator's, whatever the raw components say.
+    const odd: CompanyFinancialYear = {
+      ...finYear(2024, '1100.00', '10', '999.00', '1.00'),
+      qualification: assessedQualification({}, '70.00'),
+    };
+    expect((await trajectory(odd, prior))?.['netResultDelta']).toBe('20.00');
+  });
+
+  it('never uses a statement that is not assessed or whose qualification is unavailable', async () => {
+    for (const reason of ['qualification_unavailable', 'no_active_policy', 'policy_unqualified']) {
+      const unassessed: CompanyFinancialYear = {
+        ...finYear(2024, '1100.00', '11', '60.00', '0.00'),
+        qualification: notAssessedQualification(reason),
+      };
+      expect(await trajectory(unassessed, prior)).toMatchObject({
+        employeesDelta: null,
+        employeesDeltaReason: 'not_assessed',
+        netResultDelta: null,
+        turnoverDelta: null,
+        turnoverDeltaReason: 'not_assessed',
+      });
+      expect(await trajectory(prior, unassessed)).toMatchObject({
+        turnoverDeltaReason: 'not_assessed',
+      });
+    }
+  });
+
+  it('refuses to compare years evaluated under different policies', async () => {
+    const latest: CompanyFinancialYear = {
+      ...finYear(2024, '1100.00', '11', '60.00', '0.00'),
+      qualification: assessedQualification({}, '60.00', { policySha256: 'c3'.repeat(32) }),
+    };
+    expect(POLICY_SHA).not.toBe('c3'.repeat(32));
+    expect(await trajectory(latest, prior)).toMatchObject({
+      employeesDeltaReason: 'policy_incompatible',
+      netResultDeltaReason: 'policy_incompatible',
+      turnoverDelta: null,
+      turnoverDeltaReason: 'policy_incompatible',
+    });
+  });
+
+  it('a held prior year names itself', async () => {
+    const heldPrior: CompanyFinancialYear = {
+      ...prior,
+      qualification: assessedQualification({ employees: 'held_observation' }, '50.00'),
+    };
+    expect(
+      await trajectory(finYear(2024, '1100.00', '11', '60.00', '0.00'), heldPrior)
+    ).toMatchObject({
+      employeesDelta: null,
+      employeesDeltaReason: 'prior_not_reported',
+      turnoverDelta: '100.00',
+    });
+  });
 });
 
 describe('makeCompanyFinancialQualityAssessment', () => {
@@ -316,126 +509,182 @@ describe('makeCompanyFinancialQualityAssessment', () => {
   });
 });
 
-describe('diffRegistrationCaptures (pure two-capture diff)', () => {
-  const row = (
-    over: Partial<CompanyRegistrationCaptureRow> = {}
-  ): CompanyRegistrationCaptureRow => ({
-    legalName: 'ACME S.R.L.',
-    normalizedLegalName: 'acme srl',
-    legalForm: 'SRL',
-    county: 'Iasi',
-    locality: 'Iasi',
-    ...over,
-  });
-  const data = (over: Partial<CompanyRegistrationDiffData> = {}): CompanyRegistrationDiffData => ({
-    fromCaptureDate: '2026-05-06',
-    toCaptureDate: '2026-07-08',
-    captureCount: 2,
-    earlier: row(),
-    later: row(),
-    earlierMultiple: false,
-    laterMultiple: false,
-    ...over,
+describe('diffRegistryEditions (pure two-edition observation-set diff)', () => {
+  type Values = Partial<Record<CompanyRegistrationField, readonly [string, string][]>>;
+  const side = (
+    editionId: string,
+    date: string,
+    inEdition: boolean,
+    values: Values = {}
+  ): CompanyRegistrationEditionSide => {
+    const of = (field: CompanyRegistrationField) =>
+      (values[field] ?? []).map(([key, display]) => ({ key, display }));
+    return {
+      editionId,
+      sourcePublishedAt: date,
+      inEdition,
+      values: {
+        legalName: of('legalName'),
+        legalForm: of('legalForm'),
+        county: of('county'),
+        locality: of('locality'),
+      },
+      valuesComplete: true,
+    };
+  };
+  const ACME: Values = {
+    legalName: [['ACME S.R.L.', 'ACME S.R.L.']],
+    legalForm: [['SRL', 'SRL']],
+    county: [['IS', 'Iași']],
+    locality: [['95060', 'Iași']],
+  };
+  const data = (
+    earlier: CompanyRegistrationEditionSide | null,
+    later: CompanyRegistrationEditionSide | null
+  ): CompanyRegistrationDiffData => ({ registry: PUBLISHED_SCOPE, later, earlier });
+
+  it('UNCHANGED when both editions show identical public value sets; carries both editions', () => {
+    const d = diffRegistryEditions(
+      data(side('6', '2026-05-06', true, ACME), side('7', '2026-07-08', true, ACME))
+    );
+    expect(d).toMatchObject({
+      status: 'unchanged',
+      reason: null,
+      changes: [],
+      fromEditionId: '6',
+      toEditionId: '7',
+      fromCaptureDate: '2026-05-06',
+      toCaptureDate: '2026-07-08',
+    });
   });
 
-  it('UNCHANGED when both captures carry identical values', () => {
-    const d = diffRegistrationCaptures(data());
-    expect(d.status).toBe('unchanged');
-    expect(d.changes).toEqual([]);
-    expect(d.fromCaptureDate).toBe('2026-05-06');
-    expect(d.toCaptureDate).toBe('2026-07-08');
-  });
-
-  it('CHANGED lists exactly the moved fields, reporting RAW values', () => {
-    const d = diffRegistrationCaptures(
-      data({
-        later: row({
-          legalName: 'ACME TRADING S.R.L.',
-          normalizedLegalName: 'acme trading srl',
-          county: 'Cluj',
-        }),
-      })
+  it('CHANGED lists exactly the moved fields, reporting the editions’ display values', () => {
+    const d = diffRegistryEditions(
+      data(
+        side('6', '2026-05-06', true, ACME),
+        side('7', '2026-07-08', true, {
+          ...ACME,
+          legalName: [['ACME TRADING S.R.L.', 'ACME TRADING S.R.L.']],
+          county: [['CJ', 'Cluj']],
+        })
+      )
     );
     expect(d.status).toBe('changed');
     expect(d.changes).toEqual([
       { field: 'legalName', from: 'ACME S.R.L.', to: 'ACME TRADING S.R.L.' },
-      { field: 'county', from: 'Iasi', to: 'Cluj' },
+      { field: 'county', from: 'Iași', to: 'Cluj' },
     ]);
   });
 
-  it('a pure re-spelling of the name (same normalized form) is NOT a change', () => {
-    const d = diffRegistrationCaptures(
-      data({ later: row({ legalName: 'Acme SRL', normalizedLegalName: 'acme srl' }) })
-    );
-    expect(d.status).toBe('unchanged');
-  });
-
-  it('null -> value transitions are changes (from: null)', () => {
-    const d = diffRegistrationCaptures(
-      data({ earlier: row({ legalForm: null }), later: row({ legalForm: 'SRL' }) })
+  it('compares exact public display text (no normalization damper invents sameness)', () => {
+    const d = diffRegistryEditions(
+      data(
+        side('6', '2026-05-06', true, ACME),
+        side('7', '2026-07-08', true, { ...ACME, legalName: [['Acme S.R.L.', 'Acme S.R.L.']] })
+      )
     );
     expect(d.status).toBe('changed');
+  });
+
+  it('absent -> value transitions are changes (from: null)', () => {
+    const noForm: Values = { ...ACME, legalForm: [] };
+    const d = diffRegistryEditions(
+      data(side('6', '2026-05-06', true, noForm), side('7', '2026-07-08', true, ACME))
+    );
     expect(d.changes).toEqual([{ field: 'legalForm', from: null, to: 'SRL' }]);
   });
 
-  it('APPEARED / DISAPPEARED when present in exactly one capture', () => {
-    expect(diffRegistrationCaptures(data({ earlier: null })).status).toBe('appeared');
-    expect(diffRegistrationCaptures(data({ later: null })).status).toBe('disappeared');
+  it('APPEARED / DISAPPEARED only between two editions, as profile presence (no legal inference)', () => {
+    expect(
+      diffRegistryEditions(
+        data(side('6', '2026-05-06', false), side('7', '2026-07-08', true, ACME))
+      ).status
+    ).toBe('appeared');
+    expect(
+      diffRegistryEditions(
+        data(side('6', '2026-05-06', true, ACME), side('7', '2026-07-08', false))
+      ).status
+    ).toBe('disappeared');
   });
 
-  it('NOT_COMPARABLE with fewer than two captures - even if a row exists', () => {
-    const d = diffRegistrationCaptures(data({ captureCount: 1, earlier: null }));
-    expect(d.status).toBe('not_comparable');
-    expect(d.changes).toEqual([]);
+  it('the FIRST edition is not comparable — never an appearance or a disappearance', () => {
+    const present = diffRegistryEditions(data(null, side('7', '2026-07-08', true, ACME)));
+    expect(present).toMatchObject({ status: 'not_comparable', reason: 'first_edition' });
+    const absent = diffRegistryEditions(data(null, side('7', '2026-07-08', false)));
+    expect(absent).toMatchObject({ status: 'not_comparable', reason: 'not_in_edition' });
   });
 
-  it('NOT_COMPARABLE when the company has no public row in either capture', () => {
-    expect(diffRegistrationCaptures(data({ earlier: null, later: null })).status).toBe(
-      'not_comparable'
-    );
+  it('NOT_COMPARABLE when the CUI has no profile in either edition, or no edition is published', () => {
+    expect(
+      diffRegistryEditions(data(side('6', '2026-05-06', false), side('7', '2026-07-08', false)))
+    ).toMatchObject({ status: 'not_comparable', reason: 'not_in_either_edition' });
+    expect(
+      diffRegistryEditions({ registry: UNPUBLISHED_SCOPE, later: null, earlier: null })
+    ).toMatchObject({ status: 'not_comparable', reason: 'registry_unpublished' });
   });
 
-  it('AMBIGUOUS when either capture holds multiple rows - beats every single-row verdict', () => {
-    // The live bug this pins: CUI 10009384 carries TWO companies in BOTH
-    // captures; an arbitrary limit-1 pick manufactured a false rename.
-    const d = diffRegistrationCaptures(
-      data({ laterMultiple: true, later: row({ legalName: 'CANIFORT PREST SRL' }) })
+  it('AMBIGUOUS when a field holds several public values on a side and the sets differ', () => {
+    const d = diffRegistryEditions(
+      data(
+        side('6', '2026-05-06', true, ACME),
+        side('7', '2026-07-08', true, {
+          ...ACME,
+          legalName: [
+            ['ACME S.R.L.', 'ACME S.R.L.'],
+            ['CANIFORT PREST SRL', 'CANIFORT PREST SRL'],
+          ],
+        })
+      )
     );
     expect(d.status).toBe('ambiguous');
     expect(d.changes).toEqual([]);
-    expect(diffRegistrationCaptures(data({ earlierMultiple: true })).status).toBe('ambiguous');
-    // but NOT_COMPARABLE still wins when there is nothing to compare at all
+    // Identical multi-value sets on both sides are simply unchanged.
+    const both = {
+      ...ACME,
+      legalName: [
+        ['A', 'A'],
+        ['B', 'B'],
+      ] as [string, string][],
+    };
     expect(
-      diffRegistrationCaptures(data({ captureCount: 1, earlierMultiple: true, earlier: null }))
-        .status
-    ).toBe('not_comparable');
+      diffRegistryEditions(
+        data(side('6', '2026-05-06', true, both), side('7', '2026-07-08', true, both))
+      ).status
+    ).toBe('unchanged');
   });
 });
 
 describe('makeCompanyRegistrationDiff', () => {
-  it('normalizes the CUI and returns the computed diff', async () => {
+  it('normalizes the CUI and returns the computed diff under the pinned scope', async () => {
     const getRegistrationDiffData = vi.fn(async () =>
       ok({
-        fromCaptureDate: '2026-05-06',
-        toCaptureDate: '2026-07-08',
-        captureCount: 2,
-        earlier: null,
-        later: {
-          legalName: 'NOVA S.R.L.',
-          normalizedLegalName: 'nova srl',
-          legalForm: 'SRL',
-          county: 'Cluj',
-          locality: 'Cluj-Napoca',
+        registry: PUBLISHED_SCOPE,
+        earlier: {
+          editionId: '6',
+          sourcePublishedAt: '2026-05-06',
+          inEdition: false,
+          values: { legalName: [], legalForm: [], county: [], locality: [] },
+          valuesComplete: true,
         },
-        earlierMultiple: false,
-        laterMultiple: false,
+        later: {
+          editionId: '7',
+          sourcePublishedAt: '2026-07-08',
+          inEdition: true,
+          values: {
+            legalName: [{ key: 'NOVA S.R.L.', display: 'NOVA S.R.L.' }],
+            legalForm: [],
+            county: [],
+            locality: [],
+          },
+          valuesComplete: true,
+        },
       })
     );
     const d = deps({ repo: { getRegistrationDiffData: getRegistrationDiffData } });
     const res = await makeCompanyRegistrationDiff(d, 'RO2816464');
     expect(res.isOk()).toBe(true);
     expect(res._unsafeUnwrap().status).toBe('appeared');
-    expect(getRegistrationDiffData).toHaveBeenCalledWith('2816464');
+    expect(getRegistrationDiffData).toHaveBeenCalledWith('2816464', PUBLISHED_SCOPE);
   });
 
   it('rejects an invalid CUI without touching the repo', async () => {
@@ -472,18 +721,7 @@ describe('makeCompanyList', () => {
 
   it('q ANDs the resolved CUIs into filter.cui.in and runs listCompanies (filters + pagination apply); carries the degraded caveat', async () => {
     const resolveByName = vi.fn(async () =>
-      ok({
-        hits: [
-          {
-            dim: 'name' as const,
-            value: '2816464',
-            label: 'DEDEMAN SRL',
-            cui: '2816464',
-            confidence: 1,
-          },
-        ],
-        degraded: true,
-      })
+      ok({ hits: [nameHit('2816464', 'DEDEMAN SRL')], degraded: true })
     );
     const listCompanies = vi.fn(async () =>
       ok({
@@ -492,6 +730,7 @@ describe('makeCompanyList', () => {
             cui: '2816464',
             orgId: '1',
             name: 'DEDEMAN SRL',
+            nameSource: 'onrc_edition' as const,
             legalForm: 'SRL',
             headlineStatus: null,
             county: 'Bacău',
@@ -499,6 +738,11 @@ describe('makeCompanyList', () => {
             declaredFiscallyInactive: false,
             registrationDate: null,
             registrationDatePresent: false,
+            registryCuiState: 'in_edition' as const,
+            hasActiveObservation: true,
+            statusBasis: 'multiple_values' as const,
+            countyBasis: 'single_observation' as const,
+            recordedDateBasis: 'missing' as const,
           },
         ],
         total: 1,
@@ -521,6 +765,11 @@ describe('makeCompanyList', () => {
     expect(passed?.cui.in).toEqual(['2816464']); // name-resolved CUIs ANDed in
     expect(passed?.status.in).toEqual(['1048']); // original filter preserved
     expect(unwrap(res).caveats[0]).toContain('degraded');
+    // Name resolution and the page read share ONE pinned scope, echoed back.
+    expect((resolveByName.mock.calls[0] as unknown[])[3]).toBe(PUBLISHED_SCOPE);
+    expect((listCompanies.mock.calls[0] as unknown[])[3]).toBe(PUBLISHED_SCOPE);
+    expect(unwrap(res).registry).toBe(PUBLISHED_SCOPE);
+    expect(unwrap(res).scopeKey).toBe('onrc:published:7:3:11');
   });
 
   it('q with no name matches returns an empty page (does not list everything)', async () => {
@@ -538,13 +787,9 @@ describe('makeCompanyList', () => {
   });
 
   it('discloses name-candidate truncation: a full-cap resolve marks the total estimated + caveat (D6)', async () => {
-    const cappedHits = Array.from({ length: 50 }, (_, i) => ({
-      dim: 'name' as const,
-      value: String(1000 + i),
-      label: `CO ${String(i)}`,
-      cui: String(1000 + i),
-      confidence: 1,
-    }));
+    const cappedHits = Array.from({ length: 50 }, (_, i) =>
+      nameHit(String(1000 + i), `CO ${String(i)}`)
+    );
     const resolveByName = vi.fn(async () => ok({ hits: cappedHits, degraded: false }));
     const listCompanies = vi.fn(async () => ok({ rows: [], total: 50, estimated: false }));
     const d = deps({ repo: { resolveByName, listCompanies } });
@@ -554,19 +799,14 @@ describe('makeCompanyList', () => {
       sort: 'name',
       page: { page: 1, pageSize: 20 },
     });
-    expect(resolveByName).toHaveBeenCalledWith('popular name', 50, null); // repo clamps at 50 — never ask for more
+    expect(resolveByName).toHaveBeenCalledWith('popular name', 50, null, PUBLISHED_SCOPE); // repo clamps at 50 — never ask for more
     expect(unwrap(res).totalEstimated).toBe(true);
     expect(unwrap(res).caveats.some((c) => c.includes('cap'))).toBe(true);
   });
 
   it('below-cap name resolution stays exact (no spurious estimate)', async () => {
     const resolveByName = vi.fn(async () =>
-      ok({
-        hits: [
-          { dim: 'name' as const, value: '2816464', label: 'A', cui: '2816464', confidence: 1 },
-        ],
-        degraded: false,
-      })
+      ok({ hits: [nameHit('2816464', 'A')], degraded: false })
     );
     const listCompanies = vi.fn(async () => ok({ rows: [], total: 1, estimated: false }));
     const d = deps({ repo: { resolveByName, listCompanies } });
@@ -594,15 +834,15 @@ describe('makeCompanyList', () => {
 describe('makeCompanyResolve', () => {
   it('regnum returns the two-hop list and flags ambiguity at >1', async () => {
     const findByRegistrationNumber = vi.fn(async () =>
-      ok([
-        { dim: 'regnum' as const, value: '1', label: 'A', cui: '1', confidence: null },
-        { dim: 'regnum' as const, value: '2', label: 'B', cui: '2', confidence: null },
-      ])
+      ok([regnumHit('11', 'A'), regnumHit('22', 'B')])
     );
     const d = deps({ repo: { findByRegistrationNumber } });
     const res = await makeCompanyResolve(d, 'regnum', 'J40/9216/2018', 10);
     expect(unwrap(res).matches).toHaveLength(2);
     expect(unwrap(res).ambiguous).toBe(true);
+    // Resolved under one pinned scope, reported with the answer.
+    expect(findByRegistrationNumber).toHaveBeenCalledWith('J40/9216/2018', PUBLISHED_SCOPE);
+    expect(unwrap(res).registry).toBe(PUBLISHED_SCOPE);
   });
 
   it('name surfaces the degraded flag from the repo', async () => {
@@ -702,12 +942,7 @@ describe('withheld identifiers (>10 digits, CNP-shaped — P0 containment 2026-0
 
   it('drops withheld CUIs from name-resolved hits on the list path (empty page, not a leak)', async () => {
     const resolveByName = vi.fn(async () =>
-      ok({
-        hits: [
-          { dim: 'name' as const, value: 'x', label: 'X PFA', cui: WITHHELD_13, confidence: 1 },
-        ],
-        degraded: false,
-      })
+      ok({ hits: [nameHit(WITHHELD_13, 'X PFA')], degraded: false })
     );
     const listCompanies = vi.fn(async () => ok({ rows: [], total: 0, estimated: false }));
     const d = deps({ repo: { resolveByName, listCompanies } });
@@ -723,19 +958,9 @@ describe('withheld identifiers (>10 digits, CNP-shaped — P0 containment 2026-0
 
   it('drops withheld hits from resolve (name + regnum) and recomputes ambiguity', async () => {
     const resolveByName = vi.fn(async () =>
-      ok({
-        hits: [
-          { dim: 'name' as const, value: '2816464', label: 'A', cui: '2816464', confidence: 1 },
-          { dim: 'name' as const, value: 'w', label: 'W PFA', cui: WITHHELD_13, confidence: 1 },
-        ],
-        degraded: false,
-      })
+      ok({ hits: [nameHit('2816464', 'A'), nameHit(WITHHELD_13, 'W PFA')], degraded: false })
     );
-    const findByRegistrationNumber = vi.fn(async () =>
-      ok([
-        { dim: 'regnum' as const, value: 'r', label: 'R PFA', cui: WITHHELD_11, confidence: null },
-      ])
-    );
+    const findByRegistrationNumber = vi.fn(async () => ok([regnumHit(WITHHELD_11, 'R PFA')]));
     const d = deps({ repo: { resolveByName, findByRegistrationNumber } });
     const nameRes = unwrap(await makeCompanyResolve(d, 'name', 'x', 10));
     expect(nameRes.matches).toHaveLength(1);
@@ -747,16 +972,23 @@ describe('withheld identifiers (>10 digits, CNP-shaped — P0 containment 2026-0
 
   it('contributor answers absence (null, not error) for withheld CUIs — no badge, nothing confirmed', async () => {
     const presenceCounts = vi.fn();
-    const profileSlice = vi.fn();
+    const profileSlicesForCuis = vi.fn();
+    const captureRegistryScope = vi.fn();
     const contributor = makeCompaniesContributor(
-      stubRepo({ presenceCounts: presenceCounts as never, profileSlice: profileSlice as never })
+      stubRepo({
+        presenceCounts: presenceCounts as never,
+        profileSlicesForCuis: profileSlicesForCuis as never,
+        captureRegistryScope: captureRegistryScope as never,
+      })
     );
     expect(unwrap(await contributor.presenceFor(WITHHELD_13))).toBeNull();
     const slice = contributor.profileSlice;
     expect(slice).toBeDefined();
     if (slice !== undefined) expect(unwrap(await slice(WITHHELD_13))).toBeNull();
     expect(presenceCounts).not.toHaveBeenCalled();
-    expect(profileSlice).not.toHaveBeenCalled();
+    expect(profileSlicesForCuis).not.toHaveBeenCalled();
+    // Not even a registry scope is captured for a withheld identifier.
+    expect(captureRegistryScope).not.toHaveBeenCalled();
   });
 });
 

@@ -3,6 +3,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { makeGlobalSearch } from '@/modules/shared/core/usecases/global-search.js';
 import { makeMeiliClient } from '@/modules/shared/shell/clients/meili-client.js';
 
+import { CONTROL_A, recordingCompanies } from '../unit/global-search/search-fixtures.js';
+
+import type { SearchHitCompany } from '@/modules/shared/core/types.js';
+
 // Explicit disposable-service URL only; no application credentials or live index.
 const host = process.env['TEST_MEILI_URL'];
 const index = `search_metadata_fixture_${String(process.pid)}`;
@@ -30,6 +34,40 @@ async function mutation(path: string, method: string, body?: unknown): Promise<v
   throw new Error('Fixture Meili task timed out');
 }
 
+/** The company contribution keys a `palette-company-v1` document carries. */
+const COMPANY_FIELDS = [
+  'company_registry_state',
+  'company_name',
+  'company_name_source',
+  'company_legal_form',
+  'company_county_code',
+  'company_active',
+  'company_identifiers',
+];
+
+/** The current (database) values of the qualified company 2816464; the index copy is stale. */
+const MUN_NOW: SearchHitCompany = {
+  registryState: 'in_edition',
+  name: 'MUN CONSULTING S.R.L.',
+  nameSource: 'onrc_edition',
+  legalForm: 'SRL',
+  countyCode: 'SB',
+  countyName: 'Sibiu',
+  active: true,
+  identifiers: ['J32/100/2010'],
+};
+
+/** A stale index copy of a company contribution (never served as such). */
+const staleCompany = (name: string) => ({
+  company_registry_state: 'in_edition',
+  company_name: name,
+  company_name_source: 'onrc_edition',
+  company_legal_form: 'SRL',
+  company_county_code: 'SB',
+  company_active: false,
+  company_identifiers: ['J32/1/1999'],
+});
+
 describe.skipIf(host === undefined || host === '')(
   'search metadata against a disposable Meilisearch',
   () => {
@@ -48,18 +86,24 @@ describe.skipIf(host === undefined || host === '')(
           'aliases',
           'name_prefixes',
         ],
+        // Palette contract §6.8: the company fields and the control keys are displayed
+        // (the generation control is read back by exact ID).
         displayedAttributes: [
           'id',
           'title',
           'doc_type',
+          'doc_key',
           'roles',
           'privacy_class',
           'is_uat',
           'entity_tags',
+          ...COMPANY_FIELDS,
+          ...Object.keys(CONTROL_A),
         ],
         synonyms: { cj: ['consiliul judetean'] },
         filterableAttributes: ['privacy_class', 'doc_type', 'roles', 'is_uat', 'entity_tags'],
       });
+      // Institutions are CUI identities: each carries its canonical CUI `doc_key`.
       const base = {
         title: 'Sibiu',
         doc_type: 'organization',
@@ -67,9 +111,12 @@ describe.skipIf(host === undefined || host === '')(
         privacy_class: 'public',
       };
       await mutation(`/indexes/${index}/documents`, 'POST', [
+        // The generation's reserved control (internal: never a hit or a facet).
+        CONTROL_A,
         {
           ...base,
           id: 'boundary',
+          doc_key: '1001',
           title: 'iPhone XMLParser unu doi trei patru cinci sase',
           is_uat: false,
           entity_tags: [],
@@ -77,6 +124,7 @@ describe.skipIf(host === undefined || host === '')(
         {
           ...base,
           id: 'city',
+          doc_key: '1002',
           title: 'MUNICIPIUL SIBIU',
           name_prefixes: [
             'mun',
@@ -95,6 +143,7 @@ describe.skipIf(host === undefined || host === '')(
         {
           ...base,
           id: 'county',
+          doc_key: '1003',
           title: 'CONSILIUL JUDETEAN SIBIU',
           is_uat: false,
           entity_tags: ['kind::uat', 'uat::county'],
@@ -102,24 +151,52 @@ describe.skipIf(host === undefined || host === '')(
         {
           ...base,
           id: 'school',
+          doc_key: '1004',
           is_uat: false,
           entity_tags: ['kind::school', 'sector::education'],
         },
         {
           ...base,
           id: 'hidden',
+          doc_key: '1005',
           privacy_class: 'restricted',
           is_uat: true,
           entity_tags: ['kind::uat'],
         },
+        // A qualified company (public company parent, ONRC shape): served with fresh values.
         {
           ...base,
           id: 'company',
+          doc_key: '2816464',
           title: 'MUN CONSULTING SRL SIBIU',
           doc_type: 'company',
           roles: ['company'],
           is_uat: null,
           entity_tags: [],
+          ...staleCompany('MUN CONSULTING SRL SIBIU'),
+        },
+        // The index says public, but the current core organization is private: withheld.
+        {
+          ...base,
+          id: 'company-private',
+          doc_key: '2816465',
+          title: 'SIBIU PRIVATE SRL',
+          doc_type: 'company',
+          roles: ['company'],
+          is_uat: null,
+          entity_tags: [],
+          ...staleCompany('SIBIU PRIVATE SRL'),
+        },
+        // A company document without a CUI identity cannot be hydrated: withheld.
+        {
+          ...base,
+          id: 'company-keyless',
+          title: 'SIBIU KEYLESS SRL',
+          doc_type: 'company',
+          roles: ['company'],
+          is_uat: null,
+          entity_tags: [],
+          ...staleCompany('SIBIU KEYLESS SRL'),
         },
       ]);
       // Separate completed tasks reproduce the Meili 1.41–1.42 dictionary bug:
@@ -128,6 +205,7 @@ describe.skipIf(host === undefined || host === '')(
         {
           ...base,
           id: 'other-city',
+          doc_key: '1006',
           title: 'MUNICIPIUL CLUJ',
           name_prefixes: ['mun', 'muni', 'munic', 'munici', 'municip', 'municipi', 'municipiu'],
           is_uat: true,
@@ -140,6 +218,13 @@ describe.skipIf(host === undefined || host === '')(
         await mutation(`/indexes/${index}`, 'DELETE');
         await mutation(`/indexes/${index}_legacy`, 'DELETE');
       }
+    });
+    /** The company port answers the fixture's scope A: 2816464 a company, 2816465 private. */
+    const companies = recordingCompanies({
+      parents: {
+        '2816464': { kind: 'company', values: MUN_NOW },
+        '2816465': { kind: 'private' },
+      },
     });
     const search = async (
       filters: Parameters<typeof makeGlobalSearch>[1],
@@ -154,6 +239,7 @@ describe.skipIf(host === undefined || host === '')(
             }),
             meiliIndexes: [index],
             searchPolicy: policy,
+            companySearch: companies.port,
           },
           filters
         )
@@ -220,7 +306,30 @@ describe.skipIf(host === undefined || host === '')(
     it('keeps untagged identities when excluding a tag', async () => {
       const result = await search({ q: 'sibiu', excludeEntityTags: ['uat::county'] });
       expect(result.degraded).toBe(false);
+      // The qualified company is served; the private-parent and keyless company documents
+      // the engine also returned are withheld.
       expect(result.hits.map((hit) => hit.id).sort()).toEqual(['city', 'company', 'school']);
+    });
+    it('serves the qualified company from the database, never the index copy, under a witnessed generation', async () => {
+      const result = await search({ q: 'sibiu', docTypes: ['company'] });
+      expect(result).toMatchObject({
+        companyContribution: 'current',
+        companyContributionReason: null,
+        generation: {
+          generationId: 'entities_build_1759600000000_ab12cd',
+          registryScopeKey: 'onrc:published:42:3:17',
+        },
+      });
+      // Positive: the qualified company, refreshed from its current values.
+      expect(result.hits.map((hit) => [hit.id, hit.title, hit.company])).toEqual([
+        ['company', 'MUN CONSULTING S.R.L.', MUN_NOW],
+      ]);
+      // Negatives: the private parent and the keyless company are withheld.
+      expect(JSON.stringify(result.hits)).not.toMatch(
+        /SIBIU PRIVATE SRL|SIBIU KEYLESS SRL|J32\/1\/1999/u
+      );
+      // The internal control is never a hit or a facet.
+      expect(result.facets.map((facet) => facet.value)).not.toContain('palette_generation_control');
     });
     it('distinguishes false from null, and never widens unknown tags', async () => {
       expect((await search({ q: 'sibiu', isUat: false })).hits.map((hit) => hit.id).sort()).toEqual(

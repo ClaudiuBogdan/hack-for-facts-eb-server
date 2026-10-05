@@ -4,31 +4,52 @@
  * module only DECLARES the spec.
  *
  * Aliases MUST match the repo FROM clause:
- *   `o`  core.organizations
- *   `r`  companies_v2.registrations
- *   `f`  companies_v2.fiscal_status
- *   `ca` companies_v2.caen_profile (EXISTS subquery — virtual, repo-intercepted)
+ *   `o`  core.organizations (the directory spine)
+ *   `f`  companies_v2.fiscal_status (ANAF)
+ *   `p`  companies_v2.onrc_published_profiles, bound to the pinned edition
+ *   `i`  companies_v2.onrc_published_identifier_profiles (repo semijoin)
+ *   `c`  companies_v2.onrc_published_caen_observations (repo semijoin)
  *
- * Two fields are VIRTUAL (no direct kernel-composable column) and are intercepted
- * by the repo (like the pnrr `year`/`role` precedent), so they surface in GraphQL
- * + the fhash but the kernel composer never compiles them:
- *   - `caenCode`  → `EXISTS (companies_v2.caen_profile WHERE cui=o.cui AND caen_code …)`
- *   - `county`    → a diacritic-folded match (NO `unaccent()` — not installed, §13-R4)
- *   - `hasFinancials` → `EXISTS (companies_v2.financials …)` (isNull-style presence)
- *
- * Index-bound note: `county`/`legalForm`/`vatPayer`/`declaredFiscallyInactive`/
- * `registrationDate*`/`mainCaenCode` have no index; the list `total` is bounded
- * (cap 10,000) so a residual filter scan stays cheap, but a `groupBy=county`
- * aggregate is gated to require a selective predicate.
+ * The ONRC fields are VIRTUAL (repo-intercepted): they compile against the
+ * pinned edition only, and a request carrying one while no edition is
+ * published is refused (`ServiceUnavailable`), never answered as empty.
+ *   - `status`, `county`, `caenCode`, `onrcCaen` are ONE positive semijoin over
+ *     the identifier profiles: every given criterion must hold on the SAME
+ *     resolved identifier (status/county/CAEN of separate registrations never
+ *     combine). Each CUI is listed once.
+ *   - `legalForm`, `registrationDate`, `registrationDatePresent` read the CUI's
+ *     qualified profile scalar (null when the evidence conflicts).
+ *   - every `exclude` / absence form needs complete evidence: unknown,
+ *     partial, unresolved or hidden evidence is never read as absence.
+ * `hasFinancials` stays a virtual EXISTS over public statements.
+ * ANAF fields (`vatPayer`, `declaredFiscallyInactive`, `mainCaenCode`) are
+ * physical and independent: `declaredFiscallyInactive=false` is only ANAF's
+ * declared-fiscal-list state, never an ONRC activity state.
  */
 
 import type { CollectionFilterSpec } from '@/modules/shared/index.js';
 
+/** Edition-bound filter fields (refused while no ONRC edition is published). */
+export const COMPANY_REGISTRY_FILTER_FIELDS = [
+  'status',
+  'county',
+  'caenCode',
+  'onrcCaen',
+  'legalForm',
+  'registrationDate',
+  'registrationDatePresent',
+] as const;
+
 /** Repo-intercepted virtual filter fields (kernel composer must skip these). */
-export const COMPANY_VIRTUAL_FIELDS = ['caenCode', 'county', 'hasFinancials'] as const;
+export const COMPANY_VIRTUAL_FIELDS = [...COMPANY_REGISTRY_FILTER_FIELDS, 'hasFinancials'] as const;
 
 /** Driving predicates that bound a `groupBy=county` aggregate. */
-export const COMPANY_AGGREGATE_DRIVING_FIELDS = ['county', 'status', 'caenCode'] as const;
+export const COMPANY_AGGREGATE_DRIVING_FIELDS = [
+  'county',
+  'status',
+  'caenCode',
+  'onrcCaen',
+] as const;
 
 export const companiesFilterSpec: CollectionFilterSpec = {
   collection: 'companies',
@@ -46,40 +67,51 @@ export const companiesFilterSpec: CollectionFilterSpec = {
       name: 'county',
       type: 'string',
       ops: ['eq', 'in'],
-      column: { alias: 'r', column: 'selected_county_name' },
+      column: { alias: 'i', column: 'county_codes' },
       array: true,
       exclude: true,
       description:
-        'Display county from v2 selected_county_name. Diacritic-folded in TS/SQL (no unaccent).',
+        'County code (e.g. CJ, B) or county name (diacritic-folded, no unaccent), resolved through public county territories. Positive: a resolved identifier of the pinned ONRC edition whose derived-geography county set holds it, on the same identifier as the other ONRC criteria. exclude: only companies whose complete county consensus is known and differs (multiple, partial, missing or unresolved geography never matches a negative). Refused while no edition is published.',
     },
     {
       name: 'status',
       type: 'string',
       ops: ['eq', 'in'],
-      column: { alias: 'r', column: 'onrc_lifecycle_status_code' },
+      column: { alias: 'i', column: 'status_codes' },
       array: true,
       exclude: true,
       description:
-        'ONRC lifecycle status code (e.g. 1084 radiată, 1048 funcțiune). registrations_status_idx.',
+        'ONRC status code (e.g. 1048 funcțiune, 1084 radiată). Positive: ANY public original status observation on a resolved identifier of the pinned edition carries the code, also next to a conflicting code on that identifier; on the same identifier as the other ONRC criteria. Not a priority pick and not the CUI headline. exclude: only companies with complete status evidence and no such code. Never merged with ANAF declaredFiscallyInactive. Refused while no edition is published.',
     },
     {
       name: 'caenCode',
       type: 'string',
       ops: ['eq', 'in', 'prefix'],
-      column: { alias: 'ca', column: 'caen_code' },
+      column: { alias: 'c', column: 'caen_code' },
       array: true,
       exclude: true,
       description:
-        'CAEN code (EXISTS over companies_v2.caen_profile/caen_profile_code_idx). prefix → CAEN division (sargable LIKE).',
+        'Broad CURRENT ONRC observation match: the 4-digit code (prefix: 1-3 digits) in ANY revision among the public CAEN observations of the pinned edition, on the same identifier as the other ONRC criteria. No older editions and no ANAF main activity (use mainCaenCode). The same digits can mean different activities in different revisions: use onrcCaen for one revision. exclude: only companies with complete CAEN coverage and no such observation. Refused while no edition is published.',
+    },
+    {
+      name: 'onrcCaen',
+      type: 'string',
+      ops: ['eq', 'in'],
+      column: { alias: 'c', column: 'caen_code' },
+      array: true,
+      exclude: true,
+      description:
+        "Exact ONRC CAEN selector '<revision>:<code>' (revision rev0, rev1, rev2 or rev3; e.g. rev2:6201, rev0:1111), as returned in companyResolve(dim: CAEN) key. Matches a public observation of exactly that revision and code in the pinned edition, on the same identifier as the other ONRC criteria. exclude needs complete CAEN coverage. Refused while no edition is published.",
     },
     {
       name: 'legalForm',
       type: 'string',
       ops: ['eq', 'in'],
-      column: { alias: 'r', column: 'legal_form' },
+      column: { alias: 'p', column: 'legal_form' },
       array: true,
       exclude: true,
-      description: 'SRL/SA/PFA/… (no index; residual).',
+      description:
+        "The pinned edition's qualified CUI legal form (no value when public observations conflict). exclude: only a known single or consistent value that differs. Refused while no edition is published.",
     },
     {
       name: 'vatPayer',
@@ -95,7 +127,8 @@ export const companiesFilterSpec: CollectionFilterSpec = {
       ops: ['eq'],
       column: { alias: 'f', column: 'is_inactive' },
       exclude: true,
-      description: 'ANAF declared-fiscally-inactive-list flag. NOT operating-inactive (§13-R1).',
+      description:
+        "ANAF declared-fiscally-inactive-list flag. false is only ANAF's list state: NOT an ONRC status and NOT operating-active (§13-R1).",
     },
     {
       name: 'mainCaenCode',
@@ -104,28 +137,30 @@ export const companiesFilterSpec: CollectionFilterSpec = {
       column: { alias: 'f', column: 'main_caen_code' },
       array: true,
       exclude: true,
-      description: 'ANAF main CAEN (fiscal_status; no index; residual).',
+      description:
+        'ANAF declared main CAEN (fiscal_status; revision as ANAF reports it, often unknown; no index; residual). Independent of the ONRC caenCode/onrcCaen observations.',
     },
     {
       name: 'registrationDate',
       type: 'date',
       ops: ['between'],
-      column: { alias: 'r', column: 'registration_date' },
-      description: 'ONRC registration date range (xFrom/xTo). 256,142 NULL after 2024-09-03.',
+      column: { alias: 'p', column: 'recorded_date' },
+      description:
+        "The pinned edition's qualified RECORDED date (the date ONRC recorded; civil date, day precision): NEVER a founding date or an age. Companies without a qualified value do not match. Refused while no edition is published.",
     },
     {
       name: 'registrationDatePresent',
       type: 'bool',
       ops: ['isNull'],
-      column: { alias: 'r', column: 'registration_date' },
+      column: { alias: 'p', column: 'recorded_date' },
       description:
-        'Mandatory isNull presence (§14.2) — isNull:true returns the 256,142 NULL-date rows.',
+        'Recorded-date presence (§14.2). isNull:false = a qualified recorded date; isNull:true = every public observation lacks a date (basis missing). Conflicting or unresolved dates match neither. Refused while no edition is published.',
     },
     {
       name: 'hasFinancials',
       type: 'bool',
       ops: ['isNull'],
-      column: { alias: 'r', column: 'cui' },
+      column: { alias: 'o', column: 'cui' },
       description:
         'EXISTS over companies_v2.financials (coverage probe; repo-intercepted virtual).',
     },
@@ -133,7 +168,12 @@ export const companiesFilterSpec: CollectionFilterSpec = {
   sort: { default: 'name', allowed: ['name', 'registrationDate', 'cui'] },
 };
 
-/** Lifecycle status nomenclature (validated; mojibake-repaired labels). */
+/**
+ * Status display text for COMPATIBILITY fields only (`CompanyStatus.label`,
+ * status facet labels): this API's static nomenclature, never an
+ * ONRC-observed label (observed labels stay NULL until a source bundle
+ * binding is proved).
+ */
 export const COMPANY_STATUS_NOMENCLATURE: Readonly<Record<string, string>> = {
   '1084': 'radiată',
   '1048': 'funcțiune',

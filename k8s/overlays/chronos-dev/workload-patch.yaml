@@ -12,7 +12,7 @@ spec:
   template:
     metadata:
       annotations:
-        image-sha: 4d8b409b902cd16ef4ae917e0b797a930f29ce03
+        image-sha: d133afc519abc69255c5f635b908f0f6f34da404
     spec:
       serviceAccountName: hack-for-facts-eb-server
       automountServiceAccountToken: false
@@ -78,10 +78,12 @@ spec:
               $patch: delete
             - name: PROD_MEILI_INDEXES
               value: entities_ngo_dev_20261001
+            # Dev index reader: search plus documents.get (the search generation
+            # control read) on the index above only.
             - name: PROD_MEILI_SEARCH_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: chronos-ngo-dev-meilisearch-search-credentials
+                  name: chronos-companies-dev-meilisearch-reader
                   key: apiKey
             - name: PROD_OPENSEARCH_USERNAME
               valueFrom:

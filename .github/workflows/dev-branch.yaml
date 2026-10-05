@@ -30,6 +30,11 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    # Whole-repo type-aware `eslint .` outgrew Node's default heap: run
+    # 37238102155 (job 111541170719) died at 4037-4108 MB with a heap OOM
+    # (exit 134) before printing diagnostics. 6 GiB gives it headroom.
+    env:
+      NODE_OPTIONS: '--max-old-space-size=6144'
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

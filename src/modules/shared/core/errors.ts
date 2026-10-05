@@ -37,6 +37,14 @@ export interface UpstreamError {
 export interface ServiceUnavailableError {
   readonly type: 'ServiceUnavailable';
   readonly message: string;
+  /**
+   * A guard refusal: the owner of the requested entity refused access to it
+   * (its parent became non-public, its access scope moved, its mandatory
+   * access check could not be read), as opposed to an advisory outage. A
+   * composing response withholds the owning entity instead of degrading the
+   * refusing part to "absent". Set only through `accessRefused`.
+   */
+  readonly accessRefusal?: true;
 }
 
 export interface TimeoutError {
@@ -110,6 +118,16 @@ export const serviceUnavailable = (message: string): ServiceUnavailableError => 
   type: 'ServiceUnavailable',
   message,
 });
+
+/** A guard refusal (see `ServiceUnavailableError.accessRefusal`); `message` is static client text. */
+export const accessRefused = (message: string): ServiceUnavailableError => ({
+  type: 'ServiceUnavailable',
+  message,
+  accessRefusal: true,
+});
+
+export const isAccessRefusal = (error: ApiError): boolean =>
+  error.type === 'ServiceUnavailable' && error.accessRefusal === true;
 
 export const timeoutError = (message: string): TimeoutError => ({
   type: 'Timeout',

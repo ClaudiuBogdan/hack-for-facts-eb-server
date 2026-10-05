@@ -10,6 +10,9 @@
  *    no hits, and both are marked `degraded: true`;
  *  - a spine `err` surfaces as `err` (not a silent empty);
  *  - limit/offset clamping is asserted via the values handed to the spies.
+ * The company contribution (control witness, fresh hydration, ownership) is
+ * covered by `company-contribution.test.ts`; these fixtures witness a current
+ * generation so the engine contract stays visible on its own.
  */
 
 import { err, ok, type Result } from 'neverthrow';
@@ -22,22 +25,33 @@ import {
   type GlobalSearchDeps,
 } from '@/modules/shared/core/usecases/global-search.js';
 
+import { CONTROL_A, recordingCompanies } from './search-fixtures.js';
+
 import type { EntitiesSearchResult, MeiliClient } from '@/modules/shared/core/ports.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Builders
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** A non-identity document (no CUI, no company contribution). */
 const makeHit = (over: Partial<SearchHit> = {}): SearchHit => ({
-  id: 'company:123',
-  docType: 'company',
-  title: 'ACME SRL',
+  id: 'legal_act:123',
+  docType: 'legal_act',
+  title: 'Legea 31/1990 privind societățile',
   snippet: null,
   score: 0.9,
   source: 'meili',
   attrs: {},
   ...over,
 });
+
+/** The no-search / degraded answers carry no company part (literal). */
+const NO_COMPANY = {
+  generation: null,
+  companyScope: null,
+  companyContribution: 'unavailable',
+  continuation: { candidatesReturned: 0, nextOffset: null },
+} as const;
 
 const meiliResult = (over: Partial<EntitiesSearchResult> = {}): EntitiesSearchResult => ({
   hits: [makeHit()],
@@ -55,12 +69,17 @@ const makeDeps = (opts: {
   meiliIndexes?: readonly string[];
 }): { deps: GlobalSearchDeps; spies: Spies } => {
   const meiliSearch = vi.fn(async () => opts.meili ?? ok(meiliResult()));
+  const readGenerationControl = vi.fn(async () => ok(CONTROL_A));
 
-  const meiliClient = { searchEntities: meiliSearch } as unknown as MeiliClient;
+  const meiliClient = {
+    searchEntities: meiliSearch,
+    readGenerationControl,
+  } as unknown as MeiliClient;
 
   const deps: GlobalSearchDeps = {
     meiliClient,
     meiliIndexes: opts.meiliIndexes ?? ['entities'],
+    companySearch: recordingCompanies({}).port,
   };
   return { deps, spies: { meiliSearch } };
 };
@@ -94,6 +113,9 @@ describe('makeGlobalSearch — short-circuit guards', () => {
       degraded: false,
       facets: [],
       estimatedTotalHits: 0,
+      ...NO_COMPANY,
+      // A syntactic no-search, never a proven zero.
+      companyContributionReason: 'no_search',
     });
     expect(spies.meiliSearch).not.toHaveBeenCalled();
   });
@@ -119,6 +141,8 @@ describe('makeGlobalSearch — short-circuit guards', () => {
       degraded: false,
       facets: [],
       estimatedTotalHits: 0,
+      ...NO_COMPANY,
+      companyContributionReason: 'no_search',
     });
     expect(spies.meiliSearch).not.toHaveBeenCalled();
   });
@@ -171,7 +195,7 @@ describe('makeGlobalSearch — short-circuit guards', () => {
 
 describe('makeGlobalSearch — Meili ok path', () => {
   it('returns engine "meili" with hits, flattened facets, and no legacy org scan', async () => {
-    const hits = [makeHit({ id: 'company:1' }), makeHit({ id: 'bill:2', docType: 'bill' })];
+    const hits = [makeHit({ id: 'legal_act:1' }), makeHit({ id: 'bill:2', docType: 'bill' })];
     const { deps } = makeDeps({
       meili: ok(
         meiliResult({
@@ -193,6 +217,7 @@ describe('makeGlobalSearch — Meili ok path', () => {
       { field: 'doc_type', value: 'bill', count: 2 },
     ]);
     expect(value.organizations).toEqual([]);
+    expect(value.companyContribution).toBe('current');
   });
 
   it('passes q + filter + facets + clamped limit to the meili client', async () => {
@@ -251,6 +276,7 @@ describe('makeGlobalSearch — the honest degrade (D5)', () => {
     expect(value.facets).toEqual([]);
     expect(value.organizations).toEqual([]);
     expect(value.estimatedTotalHits).toBe(0);
+    expect(value).toMatchObject({ ...NO_COMPANY, companyContributionReason: 'engine_unavailable' });
   });
 
   it('returns no hits for an ALL-DIGIT query either', async () => {
@@ -281,10 +307,11 @@ describe('makeGlobalSearch — the honest degrade (D5)', () => {
 
   it('never reads search.documents — the ILIKE scan cannot come back', async () => {
     // The degrade path has NO repo dependency at all now; `GlobalSearchDeps`
-    // carries only the Meili client and the index list. A future fallback would
-    // have to add a dep back, which this assertion makes visible.
+    // carries only the Meili client, the index list and the companies
+    // module's bounded company port (never a text fallback). A future fallback
+    // would have to add a dep back, which this assertion makes visible.
     const { deps } = makeDeps({ meili: meiliDown });
-    expect(Object.keys(deps).sort()).toEqual(['meiliClient', 'meiliIndexes']);
+    expect(Object.keys(deps).sort()).toEqual(['companySearch', 'meiliClient', 'meiliIndexes']);
   });
 });
 

@@ -34,10 +34,15 @@ and verifies their project/key identity. Raw Secret JSON stays in memory and fee
 kubeseal through stdin. Only validated ciphertext is written. Generation does not
 apply anything to Kubernetes. Never paste a token into a command or a chat.
 
-The NGO registry dev release uses `chronos-ngo-dev-meilisearch-search-credentials`,
-a strict SealedSecret applied separately from the Deployment-only sync. Its Meili
-key UID is `a918377b-ce16-4074-929d-f99ca11dd800`, with only `search` on
-`entities_ngo_dev_20261001`. The encrypted manifest is retained here for recovery;
-the key can be recovered by that UID through the operator's existing Meili master
-custody. It is a manually scoped dev release credential, outside the Bitwarden
-bulk-seal registry. Do not replace or broaden the canonical production search key.
+The dev Deployment reads its Meili key (`PROD_MEILI_SEARCH_API_KEY`) from
+`chronos-companies-dev-meilisearch-reader`, a registered strict SealedSecret whose
+BWS record lives at the exact external project and key named in the registry. Its
+Meili key UID is `799c052e-1d7e-5c39-8932-3a27e3affafe`, with only `search` and
+`documents.get` (the search generation control read) on `entities_ngo_dev_20261001`.
+It is a server-only credential, never exposed to a browser or other client. The
+previous search-only NGO key, `chronos-ngo-dev-meilisearch-search-credentials`
+(UID `a918377b-ce16-4074-929d-f99ca11dd800`), is no longer referenced by the
+Deployment; its encrypted manifest is retained here for recovery, outside the
+Bitwarden bulk-seal registry, and the key can be recovered by that UID through the
+operator's existing Meili master custody. Do not replace or broaden the canonical
+production search key.

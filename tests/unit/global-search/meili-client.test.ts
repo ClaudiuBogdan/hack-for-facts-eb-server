@@ -377,3 +377,50 @@ it('accepts the registry source scope through the actual search filter contract'
     'entity_tags IN ["source::rnong"]'
   );
 });
+
+it('maps a null activity to unknown (null), never to absent or inactive', async () => {
+  fetchSpy.mockResolvedValue(
+    jsonResponse({ hits: [{ id: 'company_1', doc_type: 'company', is_active: null }] })
+  );
+  const hit = (await client.searchEntities('x', 'entities', { limit: 1 }))._unsafeUnwrap().hits[0];
+  expect(hit?.isActive).toBeNull();
+});
+
+describe('readGenerationControl — the exact-ID control read', () => {
+  it('GETs the reserved document by its fixed id with the bearer key (never a search)', async () => {
+    fetchSpy.mockResolvedValue(jsonResponse({ id: 'palette_generation_control' }));
+    const res = await client.readGenerationControl?.('entities');
+    expect(res?._unsafeUnwrap()).toEqual({ id: 'palette_generation_control' });
+    const url = fetchSpy.mock.calls[0]?.[0] as string;
+    const init = fetchSpy.mock.calls[0]?.[1] as RequestInit;
+    expect(url).toBe(`${HOST}/indexes/entities/documents/palette_generation_control`);
+    expect(init.method).toBe('GET');
+    expect(init.body).toBeUndefined();
+    expect((init.headers as Record<string, string>)['Authorization']).toBe(`Bearer ${KEY}`);
+  });
+
+  it('reads a missing DOCUMENT as no control (ok null)', async () => {
+    fetchSpy.mockResolvedValue(
+      jsonResponse({ code: 'document_not_found', message: 'Document not found' }, false, 404)
+    );
+    expect((await client.readGenerationControl?.('entities'))?._unsafeUnwrap()).toBeNull();
+  });
+
+  it('a missing INDEX or any other failure is an error, with a code-only message', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      jsonResponse({ code: 'index_not_found', message: 'secret detail' }, false, 404)
+    );
+    fetchSpy.mockResolvedValueOnce(errorResponse(500, 'internal secret body'));
+    fetchSpy.mockRejectedValueOnce(new Error('ECONNREFUSED 10.0.0.1:7700'));
+    const notFound = (await client.readGenerationControl?.('entities'))?._unsafeUnwrapErr();
+    const failed = (await client.readGenerationControl?.('entities'))?._unsafeUnwrapErr();
+    const network = (await client.readGenerationControl?.('entities'))?._unsafeUnwrapErr();
+    expect(notFound?.message).toBe('meilisearch generation control 404');
+    expect(failed?.message).toBe('meilisearch generation control 500');
+    expect(network?.message).toBe('meilisearch generation control request failed');
+    for (const e of [notFound, failed, network]) {
+      expect(e?.type).toBe('Upstream');
+      expect(e?.message).not.toMatch(/secret|ECONNREFUSED|10\.0\.0\.1/u);
+    }
+  });
+});

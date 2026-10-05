@@ -1,0 +1,16 @@
+# Verification fixture only: existing common definitions, not budget-owned SDL.
+"A single data point in a time series"
+type DataPoint {
+  "Date string: YYYY, YYYY-MM, or YYYY-QN"
+  date: String!
+  "Decimal value as string"
+  value: String!
+}
+
+"Time series data with consistent frequency"
+type DataSeries {
+  "Period type of the data points"
+  frequency: PeriodType!
+  "Ordered array of data points"
+  data: [DataPoint!]!
+}

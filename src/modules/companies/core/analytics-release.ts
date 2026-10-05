@@ -3,10 +3,17 @@
  *
  * Pure. The repo hands over the PostgreSQL row (`active_release`, or a
  * published historical release); this module refuses anything the reader does
- * not support (schema version, database, table names, malformed coverage) and
- * derives what the release can answer: fiscal years, the metric-specific years
- * on offer, dimensions and defaults. A refusal is a reason string; the caller
- * decides whether it is "unavailable" (the active release) or "invalid pin".
+ * not support (schema or population version, the ONRC source pin, database,
+ * table names, malformed coverage) and derives what the release can answer:
+ * fiscal years, the metric-specific years on offer, dimensions and defaults.
+ * A refusal is a reason string; the caller decides whether it is
+ * "unavailable" (the active release) or "invalid pin".
+ *
+ * Only `companies-analytics-ch-v2` / `public-onrc-edition-legal-person-v2`
+ * is served: a v1 release (registration/territory derived dimensions) is
+ * refused outright, never reinterpreted under the v2 columns. Its ONRC pin
+ * (`inputs.onrc`) must have exactly the frozen eight-key shape and the
+ * supported versions; it is never filled from the live pointer.
  */
 
 import { Type, type Static } from '@sinclair/typebox';
@@ -17,8 +24,10 @@ import {
   COMPANY_ANALYSIS_DIMENSIONS,
   COMPANY_ANALYSIS_LIMITS,
   COMPANY_ANALYSIS_METRICS,
+  COMPANY_ANALYSIS_POPULATION_POLICY_VERSION,
   COMPANY_ANALYSIS_SCHEMA_VERSION,
   COMPANY_ANALYSIS_SIZE_BANDS,
+  COMPANY_ANALYSIS_SOURCE_VERSIONS,
   COMPANY_ANALYSIS_STATUSES,
   COVERAGE_FIELD,
   DEFAULT_METRIC,
@@ -35,6 +44,7 @@ import {
   type CompanyAnalysisMetric,
   type CompanyAnalysisRelease,
   type CompanyAnalysisSizeBandCount,
+  type CompanyAnalysisSource,
   type CompanyAnalysisYearCapability,
   type CompanyAnalysisYearMetric,
 } from './analytics-types.js';
@@ -105,6 +115,101 @@ const FrontierSchema = Type.Array(
 );
 const InputsSchema = Type.Object({ frontier: Type.Unknown() });
 
+// ── the ONRC source pin (`inputs.onrc`, frozen source contract §1) ───────────
+
+const SOURCE_PIN_KEYS = [
+  'dimensionPolicyVersion',
+  'editionId',
+  'eligibilityPolicyVersion',
+  'interpretationVersion',
+  'privacyPolicyVersion',
+  'publicationEpoch',
+  'sourcePublishedAt',
+  'sourceSnapshotId',
+] as const;
+
+/** Canonical positive bigint text: no sign, no leading zero, ≤ 19 digits. */
+const PIN_ID_RE = /^[1-9][0-9]{0,18}$/u;
+const PG_BIGINT_MAX = 9223372036854775807n;
+const ISO_DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/u;
+// eslint-disable-next-line no-control-regex -- control characters are exactly what this rejects
+const CONTROL_RE = /[\u0000-\u001f\u007f]/u;
+
+const isPinId = (value: unknown): value is string =>
+  typeof value === 'string' && PIN_ID_RE.test(value) && BigInt(value) <= PG_BIGINT_MAX;
+
+const isPinText = (value: unknown): value is string =>
+  typeof value === 'string' && value.length > 0 && !CONTROL_RE.test(value);
+
+/** An exact calendar date `YYYY-MM-DD` in years 0001–9999 (the source's civil-date domain). */
+export const isCivilDate = (value: string): boolean => {
+  const match = ISO_DATE_RE.exec(value);
+  if (match === null) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+  const days = month === 2 ? (leap ? 29 : 28) : [4, 6, 9, 11].includes(month) ? 30 : 31;
+  return year >= 1 && month >= 1 && month <= 12 && day >= 1 && day <= days;
+};
+
+/**
+ * The release's source pin: exactly the eight keys, canonical id and epoch,
+ * non-empty control-free text, a calendar date or null — else a reason. Then
+ * every version must be the supported one. Never completed from elsewhere.
+ */
+export const parseSourcePin = (raw: unknown): Result<CompanyAnalysisSource, string> => {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw))
+    return err('release source pin (inputs.onrc) is missing or not an object');
+  const record = raw as Readonly<Record<string, unknown>>;
+  const keys = Object.keys(record).sort();
+  if (keys.length !== SOURCE_PIN_KEYS.length || keys.some((key, i) => key !== SOURCE_PIN_KEYS[i]))
+    return err('release source pin (inputs.onrc) does not have exactly the eight pin keys');
+  const date = record['sourcePublishedAt'];
+  const text = (key: string): string | null => {
+    const value = record[key];
+    return isPinText(value) ? value : null;
+  };
+  const pin = {
+    editionId: isPinId(record['editionId']) ? record['editionId'] : null,
+    publicationEpoch: isPinId(record['publicationEpoch']) ? record['publicationEpoch'] : null,
+    sourceSnapshotId: text('sourceSnapshotId'),
+    interpretationVersion: text('interpretationVersion'),
+    privacyPolicyVersion: text('privacyPolicyVersion'),
+    dimensionPolicyVersion: text('dimensionPolicyVersion'),
+    eligibilityPolicyVersion: text('eligibilityPolicyVersion'),
+  };
+  if (
+    pin.editionId === null ||
+    pin.publicationEpoch === null ||
+    pin.sourceSnapshotId === null ||
+    pin.interpretationVersion === null ||
+    pin.privacyPolicyVersion === null ||
+    pin.dimensionPolicyVersion === null ||
+    pin.eligibilityPolicyVersion === null ||
+    !(date === null || (typeof date === 'string' && isCivilDate(date)))
+  )
+    return err('release source pin (inputs.onrc) is malformed');
+  const source: CompanyAnalysisSource = {
+    editionId: pin.editionId,
+    publicationEpoch: pin.publicationEpoch,
+    sourceSnapshotId: pin.sourceSnapshotId,
+    sourcePublishedAt: date,
+    interpretationVersion: pin.interpretationVersion,
+    privacyPolicyVersion: pin.privacyPolicyVersion,
+    dimensionPolicyVersion: pin.dimensionPolicyVersion,
+    eligibilityPolicyVersion: pin.eligibilityPolicyVersion,
+  };
+  const unsupported = (
+    Object.keys(
+      COMPANY_ANALYSIS_SOURCE_VERSIONS
+    ) as (keyof typeof COMPANY_ANALYSIS_SOURCE_VERSIONS)[]
+  ).filter((key) => source[key] !== COMPANY_ANALYSIS_SOURCE_VERSIONS[key]);
+  return unsupported.length === 0
+    ? ok(source)
+    : err(`release source pin has unsupported ${unsupported.join(', ')}`);
+};
+
 const countText = (value: Static<typeof CountSchema>): string | null => {
   if (typeof value === 'string') return value.replace(/^0+(?=\d)/u, '');
   return Number.isSafeInteger(value) ? String(value) : null;
@@ -114,20 +219,24 @@ const YEAR_RE = /^(19|20)\d{2}$/u;
 const COUNT_TEXT_RE = /^[0-9]+$/u;
 
 export const RELEASE_CAVEATS: readonly string[] = [
-  'Registered-office geography, observed ONRC status and ANAF fiscal attributes describe the release snapshot, not the fiscal year.',
-  'Observed status is the most advanced ONRC state seen across captures; it does not mean "currently active".',
+  'County, UAT, observed status and legal form are the consensus of ONE published ONRC edition (see release.source), with an explicit basis when there is none; ANAF fiscal attributes describe the release snapshot. None of them is fiscal-year history.',
+  'Observed status is the complete status consensus of that edition; a public 1048 observation does not by itself mean "currently active", and the observation filter (scope.onrc) is a different question from the consensus bucket.',
+  'onrcRecordedDate is the date ONRC recorded, never a founding date or an age.',
   'Coverage counts observed filings; a recent year with fewer statements is partial, never labelled complete.',
   'Employee figures are sums of reported average headcounts, not unique people; balances and headcounts are single-year values.',
-  'Company names are current public names from the registry, not pinned to the release.',
+  'Company names are current public core-directory names, not registry or edition names, and not pinned to the release.',
   'ANAF main activity codes keep their published revision; an unknown revision is shown as unknown, never mapped to a catalog.',
 ];
 
 const DIMENSION_LABEL_SOURCE: Readonly<Record<CompanyAnalysisDimension, string>> = {
-  COUNTY: 'core.territories.county_name by county_code',
-  UAT: 'core.territories.name by SIRUTA',
-  MAIN_CAEN: 'core.classification_codes (caen_<revision>, code) when the revision is known',
+  COUNTY:
+    'territory_hub: current public core.territories county name by county_code; basis buckets have no label',
+  UAT: 'territory_hub: current public core.territories name by SIRUTA; basis buckets have no label',
+  MAIN_CAEN:
+    'current_db_catalog: core.classification_codes (caen_<revision>, code) when the ANAF revision is known',
   LEGAL_FORM: 'none: the ONRC legal-form code is shown',
-  OBSERVED_STATUS: 'registry status label by code (nomenclature fallback)',
+  OBSERVED_STATUS:
+    'api_nomenclature: the API status nomenclature by code (never a source-observed label); basis buckets have no label',
   VAT_PAYER: 'none: YES / NO / UNKNOWN',
   FISCALLY_INACTIVE: 'none: YES / NO / UNKNOWN',
   EMPLOYEE_SIZE: 'none: EU headcount band',
@@ -216,7 +325,20 @@ export const parseRelease = (
   const releaseNumber = parseReleaseNumber(row.releaseId);
   if (releaseNumber === null) return err('release id is not a positive safe integer');
   if (row.schemaVersion !== COMPANY_ANALYSIS_SCHEMA_VERSION)
-    return err(`release schema ${row.schemaVersion} is not supported by this reader`);
+    return err(
+      `release schema ${row.schemaVersion} is not supported by this reader (it serves ${COMPANY_ANALYSIS_SCHEMA_VERSION} only)`
+    );
+  if (row.populationPolicyVersion !== COMPANY_ANALYSIS_POPULATION_POLICY_VERSION)
+    return err(
+      `release population ${row.populationPolicyVersion} is not supported by this reader (it serves ${COMPANY_ANALYSIS_POPULATION_POLICY_VERSION} only)`
+    );
+  const inputs = row.inputs;
+  const source = parseSourcePin(
+    typeof inputs === 'object' && inputs !== null && !Array.isArray(inputs)
+      ? (inputs as Readonly<Record<string, unknown>>)['onrc']
+      : undefined
+  );
+  if (source.isErr()) return err(source.error);
   if (row.clickhouseDatabase !== expectedDatabase)
     return err('release names a different analytics database');
   if (
@@ -271,7 +393,12 @@ export const parseRelease = (
       : RELEASE_CAVEATS;
 
   return ok({
-    ref: { releaseId: String(releaseNumber), publishedAt: row.publishedAt, active: row.active },
+    ref: {
+      releaseId: String(releaseNumber),
+      publishedAt: row.publishedAt,
+      active: row.active,
+      source: source.value,
+    },
     releaseNumber,
     privacyEpoch: row.privacyEpoch,
     publicationId: row.publicationId,

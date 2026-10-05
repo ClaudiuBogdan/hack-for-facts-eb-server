@@ -51,7 +51,7 @@ describe('companies analytics ClickHouse statements', () => {
     await engine.countPopulation(7, {
       fiscalYear: 2024,
       cuis: ['100'],
-      county: { values: [HOSTILE], includeUnknown: true },
+      county: { values: [HOSTILE], bases: [], includeUnknown: true },
       legalForms: ['SRL'],
       mainCaen: [
         { code: '6201', revision: null },
@@ -232,6 +232,138 @@ describe('companies analytics ClickHouse statements', () => {
     });
     expect(captured[0]?.sql).toMatch(/c\.cui < \{p\d+:String\}/u);
     expect(captured[0]?.sql).toContain('ORDER BY c.cui DESC LIMIT 11');
+  });
+
+  it('ONRC observations: ONE arrayExists conjunction per question, every value bound', async () => {
+    const { reader, captured } = capturingReader([['count()', [{ companies: '0' }]]]);
+    const engine = makeClickhouseAnalyticsEngine(reader, 'companies_analytics');
+    await engine.countPopulation(7, {
+      fiscalYear: 2024,
+      onrc: {
+        status: ['1048'],
+        county: [HOSTILE],
+        caenCode: ['6201'],
+        onrcCaen: ['rev0:0111'],
+      },
+    });
+    const { sql, params } = captured[0] ?? { sql: '', params: [] };
+    expect(sql).toBe(
+      'SELECT toString(count()) AS companies FROM companies_analytics.company_r7 WHERE arrayExists(i -> hasAny(i.status_codes, {p0:Array(String)}) AND hasAny(i.county_codes, {p1:Array(String)}) AND hasAny(i.caen_codes, {p2:Array(String)}) AND hasAny(i.caen_keys, {p3:Array(String)}), onrc_identifiers)'
+    );
+    expect(sql.match(/arrayExists/gu)).toHaveLength(1);
+    expect(sql).not.toContain(HOSTILE);
+    expect(params).toEqual([
+      ['p0', "['1048']"],
+      ['p1', "['CJ\\') OR 1=1 --']"],
+      ['p2', "['6201']"],
+      ['p3', "['rev0:0111']"],
+    ]);
+  });
+
+  it('ONRC exclusions need complete coverage or a known consensus value', async () => {
+    const { reader, captured } = capturingReader([['count()', [{ companies: '0' }]]]);
+    const engine = makeClickhouseAnalyticsEngine(reader, 'companies_analytics');
+    await engine.countPopulation(7, {
+      fiscalYear: 2024,
+      onrc: {
+        exclude: { status: ['1070'], caenCode: ['0111'], county: ['CJ'], legalForm: ['SRL'] },
+      },
+    });
+    const sql = captured[0]?.sql ?? '';
+    expect(sql).toContain(
+      "(onrc_status_coverage IN ('complete', 'complete_empty') AND NOT arrayExists(i -> hasAny(i.status_codes, {p0:Array(String)}), onrc_identifiers))"
+    );
+    expect(sql).toContain(
+      "(onrc_caen_coverage IN ('complete', 'complete_empty') AND NOT arrayExists(i -> hasAny(i.caen_codes, {p1:Array(String)}), onrc_identifiers))"
+    );
+    expect(sql).toContain(
+      "(county_basis IN ('single_observation', 'consistent_observations') AND county_code IS NOT NULL AND NOT has({p2:Array(String)}, assumeNotNull(county_code)))"
+    );
+    expect(sql).toContain(
+      "(legal_form_basis IN ('single_observation', 'consistent_observations') AND NOT has({p3:Array(String)}, legal_form))"
+    );
+  });
+
+  it('a basis bucket key selects a NULL consensus value on that basis; includeUnknown every NULL', async () => {
+    const { reader, captured } = capturingReader([['count()', [{ companies: '0' }]]]);
+    const engine = makeClickhouseAnalyticsEngine(reader, 'companies_analytics');
+    await engine.countPopulation(7, {
+      fiscalYear: 2024,
+      observedStatus: { values: ['1048'], bases: ['MULTIPLE_VALUES'], includeUnknown: false },
+      uat: { values: [], bases: [], includeUnknown: true },
+    });
+    const { sql, params } = captured[0] ?? { sql: '', params: [] };
+    expect(sql).toContain('(uat_siruta IS NULL)');
+    expect(sql).toContain(
+      '((onrc_status_code IS NOT NULL AND has({p0:Array(String)}, assumeNotNull(onrc_status_code))) OR (onrc_status_code IS NULL AND has({p1:Array(String)}, onrc_status_basis)))'
+    );
+    expect(params).toEqual([
+      ['p0', "['1048']"],
+      ['p1', "['multiple_values']"],
+    ]);
+  });
+
+  it('groups the consensus dimensions by value and basis, and never expands an array', async () => {
+    const { reader, captured } = capturingReader();
+    const engine = makeClickhouseAnalyticsEngine(reader, 'companies_analytics');
+    const onrc = { status: ['1048'], county: ['CJ'] };
+    await engine.breakdown(7, { fiscalYear: 2024, onrc }, 'COUNTY', 'TURNOVER');
+    await engine.breakdown(7, { fiscalYear: 2024 }, 'OBSERVED_STATUS', null);
+    await engine.records(
+      7,
+      { fiscalYear: 2024, onrc },
+      {
+        sort: 'CUI',
+        sortMetric: null,
+        direction: 'ASC',
+        after: null,
+        limit: 2,
+        metrics: [],
+      }
+    );
+    await engine.series(7, { fiscalYear: 2024, onrc }, 'TURNOVER', 2021, 2024, 'REFERENCE_YEAR');
+    const [population, filers, statusPopulation] = captured;
+    expect(population?.sql).toContain(
+      'SELECT county_code AS k0, county_basis AS k1, toString(count()) AS companies FROM companies_analytics.company_r7'
+    );
+    expect(population?.sql).toContain('GROUP BY k0, k1 LIMIT 20001');
+    expect(filers?.sql).toContain('county_code AS k0, county_basis AS k1');
+    expect(statusPopulation?.sql).toContain('onrc_status_code AS k0, onrc_status_basis AS k1');
+    for (const { sql } of captured) {
+      expect(sql).not.toMatch(/arrayJoin|ARRAY JOIN|unnest/iu);
+      for (const column of ['county_basis', 'onrc_identifiers', 'onrc_recorded_date']) {
+        expect(sql).not.toMatch(new RegExp(` AS ${column}[ ,]`, 'u'));
+      }
+    }
+  });
+
+  it('records read the v2 bases, coverage and the exact recorded date (no registration year)', async () => {
+    const { reader, captured } = capturingReader();
+    const engine = makeClickhouseAnalyticsEngine(reader, 'companies_analytics');
+    await engine.records(
+      7,
+      { fiscalYear: 2024, onrc: { status: ['1048'] } },
+      { sort: 'CUI', sortMetric: null, direction: 'ASC', after: null, limit: 2, metrics: [] }
+    );
+    const { sql, columns } = captured[0] ?? { sql: '', columns: [] };
+    for (const select of [
+      'toString(c.legal_form_basis) AS o_legal_form_basis',
+      'toString(c.onrc_status_basis) AS o_status_basis',
+      'toString(c.onrc_status_coverage) AS o_status_coverage',
+      'toString(c.onrc_caen_coverage) AS o_caen_coverage',
+      'toString(c.county_basis) AS o_county_basis',
+      'toString(c.uat_basis) AS o_uat_basis',
+      'toString(c.onrc_recorded_year) AS o_recorded_year',
+      'c.onrc_recorded_date AS o_recorded_date',
+      'toString(c.onrc_recorded_date_basis) AS o_recorded_date_basis',
+    ])
+      expect(sql).toContain(select);
+    expect(sql).not.toMatch(/registration_year|registration_date|territory_match/u);
+    // The company table is aliased: the observation filter reads c.onrc_identifiers.
+    expect(sql).toContain('arrayExists(i -> hasAny(i.status_codes, {p');
+    expect(sql).toContain(', c.onrc_identifiers)');
+    expect(columns).toContain('o_recorded_date');
+    expect(columns).not.toContain('o_registration_year');
   });
 
   it('checks both release tables and caches only a positive answer', async () => {

@@ -293,6 +293,118 @@ export interface BudgetBgcOfficialFactsTable {
   period_year: number | null;
 }
 
+// ── national budget (law lines + MFin execution releases; read-only) ────────
+// Only publishable columns are typed. Storage, gate, raw-origin/authority and
+// parse columns (`object_key`, `object_version_id`, `run_id`, `loaded_at`,
+// `storage`, `raw_origin`, `raw_authority`, `lexical_*`, `semantic_*`,
+// `expected_inventory*`, `gate_artifact`, `gate_sha256`, `load_run_id`,
+// `input_manifest`) are omitted so no query can select them by accident.
+
+export interface BudgetApprovedBudgetLinesTable {
+  interpretation_id: string;
+  record_index: number;
+  field: string;
+  budget_year: number;
+  publication: string;
+  fund: string;
+  form: string;
+  annex: string;
+  authority_code: string;
+  authority_name: string;
+  report_title: string;
+  capitol: string;
+  subcapitol: string;
+  paragraf: string;
+  grupa: string | null;
+  titlu: string | null;
+  articol: string;
+  alineat: string;
+  label: string;
+  row_role: string;
+  credit_type: string | null;
+  context_record_index: number | null;
+  context_label: string | null;
+  measure: string;
+  measure_year: number;
+  token: string;
+  amount: string; // numeric → string (always read as amount::text)
+  unit: string; // CHECK unit = 'thousand_lei'
+  source_file_id: string;
+  content_sha256: string;
+}
+
+export interface BudgetExecutionReleasesTable {
+  release_id: string; // uuid
+  period_start: string; // date
+  period_end: string; // date
+  policy_version: string;
+  family_contract: unknown; // jsonb — only projected paths are read
+}
+
+export interface BudgetExecutionReleaseInputsTable {
+  release_id: string;
+  input_id: string;
+  source_url: string;
+  original_sha256: string;
+  original_bytes: string; // bigint → string
+  observations: unknown; // jsonb — only projected paths are read
+}
+
+export interface BudgetExecutionReleaseFactsTable {
+  release_id: string;
+  input_id: string;
+  observation_key: string;
+  semantic_key: unknown; // jsonb (flat) — only named keys are read
+  source_token: string;
+  normalized_value: string; // numeric → string
+  normalized_unit: string;
+}
+
+export interface BudgetExecutionReleaseSelectionsTable {
+  selection_id: string; // uuid
+  period_end: string; // date
+  release_id: string;
+  seal_sha256: string;
+  previous_selection_id: string | null;
+  reason: string;
+}
+
+export interface BudgetExecutionBgcItemCatalogView {
+  mapping_version: string;
+  item_id: string;
+  section: string;
+  source_label: string;
+  related_scope_item_id: string | null;
+}
+
+export interface BudgetExecutionNationalBudgetSeriesView {
+  mapping_version: string;
+  derivation_version: string;
+  item_id: string;
+  section: string;
+  source_label: string;
+  component: string;
+  period_basis: string;
+  period_start: string;
+  period_end: string;
+  predecessor_end: string | null;
+  value_ron: string | null; // numeric → string
+  availability_reason: string;
+  value_basis: string;
+  endpoint_selection_id: string | null;
+  endpoint_release_id: string | null;
+  endpoint_observation_key: string | null;
+  endpoint_source_url: string | null;
+  endpoint_source_state: string | null;
+  endpoint_qualifiers: unknown;
+  predecessor_selection_id: string | null;
+  predecessor_release_id: string | null;
+  predecessor_observation_key: string | null;
+  predecessor_source_url: string | null;
+  predecessor_source_state: string | null;
+  predecessor_qualifiers: unknown;
+}
+
 /**
  * Declaration-merge the `budget.*` tables onto the kernel `ProdDatabase`. Importing
  * this module's barrel (which re-exports this file) pulls the augmentation in.
@@ -317,6 +429,13 @@ declare module '@/modules/shared/shell/db/types.js' {
     'budget.approved_budget_facts': BudgetApprovedBudgetFactsTable;
     'budget.execution_vs_budget': BudgetExecutionVsBudgetView;
     'budget.bgc_official_facts': BudgetBgcOfficialFactsTable;
+    'budget.approved_budget_lines': BudgetApprovedBudgetLinesTable;
+    'budget.execution_releases': BudgetExecutionReleasesTable;
+    'budget.execution_release_inputs': BudgetExecutionReleaseInputsTable;
+    'budget.execution_release_facts': BudgetExecutionReleaseFactsTable;
+    'budget.execution_release_selections': BudgetExecutionReleaseSelectionsTable;
+    'budget.execution_bgc_item_catalog_v1': BudgetExecutionBgcItemCatalogView;
+    'budget.execution_national_budget_series_v1': BudgetExecutionNationalBudgetSeriesView;
     /* eslint-enable @typescript-eslint/naming-convention -- restore the rule after the schema-qualified table keys */
   }
 }

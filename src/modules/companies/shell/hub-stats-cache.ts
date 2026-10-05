@@ -4,13 +4,21 @@
  *
  * Why a module-local provider and not the kernel `KernelCache`: that cache is a
  * single-TTL LRU with no singleflight and no stale-while-revalidate. The hub
- * aggregate costs ≈30s to compute (three sequential full-population scans, the
- * CAEN division leg alone is 23.6s), so:
+ * aggregate costs tens of seconds to compute (sequential full-population legs),
+ * so:
  *
- *  - **singleflight** — N concurrent misses must share ONE in-flight compute, or a
- *    cold start under load fires N × 30s of scans and saturates the read pool.
- *  - **stale-while-revalidate** — once warm, an expired entry is served immediately
- *    and refreshed in the background; a reader never pays the 30s.
+ *  - **singleflight per scope** — N concurrent misses of one registry scope
+ *    share ONE in-flight compute.
+ *  - **stale-while-revalidate within one scope** — once warm, an expired entry
+ *    of the CURRENT scope is served immediately and refreshed in the
+ *    background.
+ *  - **fresh scope on every read** — every `get()` captures the registry scope
+ *    first (one cheap statement). A cached entry is served only when its scope
+ *    key equals the current one: any publish, rollback, access withdrawal or
+ *    access-epoch move makes the old entry unservable (never shown stale), and
+ *    an unpublished/withdrawn/unavailable registry is an error, never a
+ *    previous edition's figures. The cached value is metadata-free data; the
+ *    capture, not the cache, is the access check.
  *  - **never cache an `err`** — a transient DB failure must not pin a hole in the
  *    cache for the whole TTL; the next caller retries.
  *
@@ -20,11 +28,18 @@
 
 import { err, ok, type Result } from 'neverthrow';
 
+import {
+  isPublished,
+  registryNotPublished,
+  registryScopeKey,
+  type CompanyRegistryEnvelope,
+} from '../core/registry.js';
+
 import type { CompanyHubStats } from '../core/types.js';
 import type { CompanyHubStatsData } from '../core/usecases.js';
 import type { ApiError } from '@/modules/shared/index.js';
 
-/** 6h: the underlying registry snapshots move on a daily-at-best cadence. */
+/** 6h: editions move on a weekly-at-best cadence; a scope change invalidates at once. */
 export const HUB_STATS_DEFAULT_TTL_MS = 6 * 60 * 60 * 1000;
 
 export interface HubStatsProviderOptions {
@@ -34,70 +49,85 @@ export interface HubStatsProviderOptions {
 }
 
 export interface HubStatsProvider {
-  /** Cached hub stats. Computes on a cold miss; serves stale + refreshes otherwise. */
+  /** Cached hub stats of the CURRENT registry scope. Computes on a miss; serves stale + refreshes within one scope. */
   get(): Promise<Result<CompanyHubStats, ApiError>>;
 }
 
-type Compute = () => Promise<Result<CompanyHubStatsData, ApiError>>;
+export interface HubStatsSources {
+  /** The fresh scope capture (every call). */
+  readonly captureScope: () => Promise<Result<CompanyRegistryEnvelope, ApiError>>;
+  /** The legs under one scope (rechecked inside; a moved scope is an error). */
+  readonly compute: (
+    scope: CompanyRegistryEnvelope
+  ) => Promise<Result<CompanyHubStatsData, ApiError>>;
+}
 
 interface Entry {
+  readonly key: string;
   readonly value: CompanyHubStats;
   readonly at: number;
 }
 
 export const makeHubStatsProvider = (
-  compute: Compute,
+  sources: HubStatsSources,
   options: HubStatsProviderOptions = {}
 ): HubStatsProvider => {
   const ttlMs = options.ttlMs ?? HUB_STATS_DEFAULT_TTL_MS;
   const now = options.now ?? Date.now;
 
   let entry: Entry | null = null;
-  let inFlight: Promise<Result<CompanyHubStats, ApiError>> | null = null;
+  const inFlight = new Map<string, Promise<Result<CompanyHubStats, ApiError>>>();
 
   /**
-   * One compute, shared by every concurrent caller. `computedAt` is stamped HERE —
-   * core stays clock-free. A failure is propagated to all sharers and leaves the
-   * previous (possibly stale) entry untouched.
-   *
-   * The clock is read on COMPLETION, not on entry: the compute takes ~30s, and
-   * anchoring the TTL at its start silently shortens every window by that much.
-   * (With a ttlMs at or below the compute time it would be worse than shortened —
-   * each fill would land already-stale and the next read would kick off another
-   * refresh forever.)
+   * One compute per scope key, shared by every concurrent caller of that
+   * scope. `computedAt` is stamped HERE — core stays clock-free. The clock is
+   * read on COMPLETION, not on entry: anchoring the TTL at the start of a long
+   * compute would shorten every window by that much.
    */
-  const runOnce = (): Promise<Result<CompanyHubStats, ApiError>> => {
-    if (inFlight !== null) return inFlight;
-    const promise = compute()
+  const runOnce = (scope: CompanyRegistryEnvelope): Promise<Result<CompanyHubStats, ApiError>> => {
+    const key = registryScopeKey(scope);
+    const pending = inFlight.get(key);
+    if (pending !== undefined) return pending;
+    const promise = sources
+      .compute(scope)
       .then((res): Result<CompanyHubStats, ApiError> => {
-        // NB: an `err` is propagated but NEVER stored — a transient DB failure must
-        // not pin a hole in the cache for the rest of the TTL window.
+        // NB: an `err` is propagated but NEVER stored.
         if (res.isErr()) return err(res.error);
         const at = now();
         const value: CompanyHubStats = { ...res.value, computedAt: new Date(at).toISOString() };
-        entry = { value, at };
+        // A late result of an older scope may land here; `get` compares keys
+        // against a fresh capture, so it is never served.
+        entry = { key, value, at };
         return ok(value);
       })
       .finally(() => {
-        inFlight = null;
+        inFlight.delete(key);
       });
-    inFlight = promise;
+    inFlight.set(key, promise);
     return promise;
   };
 
   return {
     async get(): Promise<Result<CompanyHubStats, ApiError>> {
+      const captured = await sources.captureScope();
+      if (captured.isErr()) return err(captured.error);
+      const scope = captured.value;
+      // Never a previous edition's figures for an unpublished, withdrawn or
+      // unreadable registry.
+      if (!isPublished(scope)) return err(registryNotPublished(scope, 'company hub statistics'));
+      const key = registryScopeKey(scope);
       const current = entry;
-      if (current === null) {
-        // Cold: the caller waits (and shares the in-flight compute with its peers).
-        return runOnce();
+      if (current?.key !== key) {
+        // Cold, or the scope moved: the old entry is never served.
+        return runOnce(scope);
       }
       if (now() - current.at < ttlMs) return ok(current.value);
 
-      // Stale: serve it NOW, refresh behind the request. A background failure is
-      // swallowed — the stale value stands and the next call retries. Nothing here
-      // may reject: an unhandled rejection would take the process down.
-      if (inFlight === null) void runOnce().catch(() => undefined);
+      // Stale within the same scope: serve it NOW, refresh behind the request.
+      // A background failure is swallowed — the stale value stands and the
+      // next call retries. Nothing here may reject (an unhandled rejection
+      // would take the process down).
+      if (!inFlight.has(key)) void runOnce(scope).catch(() => undefined);
       return ok(current.value);
     },
   };

@@ -20,6 +20,10 @@ import { makeExecutableSchema } from '@graphql-tools/schema';
 import fastifyLib, { type FastifyInstance, type FastifyReply } from 'fastify';
 import mercuriusPlugin from 'mercurius';
 
+import {
+  registerOwningResultFinalizer,
+  withOwningResultGuard,
+} from './companies-graphql-access.js';
 import { registerInsDatasetRequestRoutes } from './ins-dataset-request-routes.js';
 import { makeInsGraphqlLifecycle } from './ins-graphql-session.js';
 import { registerNativeMapRoutes } from './native-map-routes.js';
@@ -646,6 +650,9 @@ export const registerRedesignSurface = async (
       done();
     });
     kernel.contributors.register(companies.contributor);
+    // The global search's company contribution (fresh scope, parent access and
+    // company values of every candidate page; both search surfaces read it).
+    kernel.registerCompanySearch(companies.searchContribution);
     moduleSlices.push(companies.graphqlSlice);
     moduleResolvers.push(companies.graphqlResolvers);
     moduleMcpTools.push(...companies.mcpTools);
@@ -772,7 +779,9 @@ export const registerRedesignSurface = async (
     createInsSession === undefined
       ? undefined
       : makeInsGraphqlLifecycle(app, createInsSession, authContext);
-  const graphqlContext = insLifecycle?.context ?? authContext;
+  // Every request also carries its own owning-result guard: resolvers of
+  // guarded facts register final decisions that run once execution settled.
+  const graphqlContext = withOwningResultGuard(insLifecycle?.context ?? authContext);
 
   await app.register(mercuriusPlugin, {
     schema,
@@ -781,9 +790,10 @@ export const registerRedesignSurface = async (
     allowBatchedQueries: false,
     validationRules: makeGraphQLValidationRules(isProduction),
     errorFormatter: makeGraphQLErrorFormatter(isProduction),
-    ...(graphqlContext !== undefined && { context: graphqlContext }),
+    context: graphqlContext,
   });
   insLifecycle?.registerHooks();
+  registerOwningResultFinalizer(app);
 
   if (pnrrRestPlugin !== undefined) {
     await app.register(pnrrRestPlugin, { prefix: '/api/v1/pnrr' });

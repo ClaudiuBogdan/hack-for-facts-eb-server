@@ -9,13 +9,116 @@
  * name may reach SQL, and the coverage parser reads the manifest with them.
  *
  * Data contract: scraper `src/sources/private-companies/prod/analytics/contract.ts`
- * (schema `companies-analytics-ch-v1`) and the release migration
+ * (schema `companies-analytics-ch-v2`), its ONRC source contract (one pinned
+ * published edition, `inputs.onrc`), and the release migration
  * `20261002T180000__companies_analytics_releases.ts`.
  *
  * Every count, sum and mean is an exact decimal string; nothing is a float.
  */
 
-export const COMPANY_ANALYSIS_SCHEMA_VERSION = 'companies-analytics-ch-v1';
+/** The only ClickHouse schema this reader serves (v1 is refused, never reinterpreted). */
+export const COMPANY_ANALYSIS_SCHEMA_VERSION = 'companies-analytics-ch-v2';
+/** The only release population this reader serves. */
+export const COMPANY_ANALYSIS_POPULATION_POLICY_VERSION = 'public-onrc-edition-legal-person-v2';
+
+/**
+ * The source versions a v2 pin may carry (the frozen source contract §1): a
+ * release pinned to any other value is refused, never reinterpreted. These
+ * are version literals only; the eligibility policy itself is sealed in the
+ * source edition and consumed as the release's population, never re-run.
+ */
+export const COMPANY_ANALYSIS_SOURCE_VERSIONS = {
+  interpretationVersion: 'onrc-edition-v1',
+  privacyPolicyVersion: 'onrc-privacy-v1',
+  dimensionPolicyVersion: 'onrc-dimensions-v1',
+  eligibilityPolicyVersion: 'public-legal-person-v1',
+} as const;
+
+/**
+ * The ONRC edition a release was exported from: exactly the eight keys of
+ * the manifest's `inputs.onrc`. Ids and epochs are canonical bigint text;
+ * `sourcePublishedAt` is an exact civil date `YYYY-MM-DD` or null.
+ */
+export interface CompanyAnalysisSource {
+  readonly editionId: string;
+  readonly publicationEpoch: string;
+  readonly sourceSnapshotId: string;
+  readonly sourcePublishedAt: string | null;
+  readonly interpretationVersion: string;
+  readonly privacyPolicyVersion: string;
+  readonly dimensionPolicyVersion: string;
+  readonly eligibilityPolicyVersion: string;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ONRC edition bases and coverage (the source vocabulary, never re-derived)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Why a consensus value is what it is (or why it is NULL). */
+export const COMPANY_ANALYSIS_ONRC_BASES = [
+  'SINGLE_OBSERVATION',
+  'CONSISTENT_OBSERVATIONS',
+  'PARTIAL_OBSERVATIONS',
+  'MULTIPLE_VALUES',
+  'MISSING',
+  'UNRESOLVED',
+] as const;
+export type CompanyAnalysisOnrcBasis = (typeof COMPANY_ANALYSIS_ONRC_BASES)[number];
+
+export const ONRC_BASIS_VALUE: Readonly<Record<CompanyAnalysisOnrcBasis, string>> = {
+  SINGLE_OBSERVATION: 'single_observation',
+  CONSISTENT_OBSERVATIONS: 'consistent_observations',
+  PARTIAL_OBSERVATIONS: 'partial_observations',
+  MULTIPLE_VALUES: 'multiple_values',
+  MISSING: 'missing',
+  UNRESOLVED: 'unresolved',
+};
+
+/** A known value that is not contradicted: the only bases a negative filter trusts. */
+export const ONRC_KNOWN_VALUE_BASES: readonly CompanyAnalysisOnrcBasis[] = [
+  'SINGLE_OBSERVATION',
+  'CONSISTENT_OBSERVATIONS',
+];
+
+/** Whether a CUI's status / CAEN evidence is complete. */
+export const COMPANY_ANALYSIS_ONRC_COVERAGES = [
+  'COMPLETE',
+  'COMPLETE_EMPTY',
+  'PARTIAL',
+  'UNRESOLVED',
+] as const;
+export type CompanyAnalysisOnrcCoverage = (typeof COMPANY_ANALYSIS_ONRC_COVERAGES)[number];
+
+export const ONRC_COVERAGE_VALUE: Readonly<Record<CompanyAnalysisOnrcCoverage, string>> = {
+  COMPLETE: 'complete',
+  COMPLETE_EMPTY: 'complete_empty',
+  PARTIAL: 'partial',
+  UNRESOLVED: 'unresolved',
+};
+
+/** The only coverages under which an absence is known (negative filters need one). */
+export const ONRC_COMPLETE_COVERAGES: readonly CompanyAnalysisOnrcCoverage[] = [
+  'COMPLETE',
+  'COMPLETE_EMPTY',
+];
+
+/**
+ * The bucket key of a NULL consensus value: its basis in parentheses, e.g.
+ * `(multiple_values)`. A CUI with a value is in the value's bucket; one
+ * without is in exactly one basis bucket (never in `unknown`).
+ */
+export const basisBucketKey = (basis: CompanyAnalysisOnrcBasis): string =>
+  `(${ONRC_BASIS_VALUE[basis]})`;
+
+export const BASIS_BY_BUCKET_KEY: ReadonlyMap<string, CompanyAnalysisOnrcBasis> = new Map(
+  COMPANY_ANALYSIS_ONRC_BASES.map((basis) => [basisBucketKey(basis), basis])
+);
+export const BASIS_BY_VALUE: ReadonlyMap<string, CompanyAnalysisOnrcBasis> = new Map(
+  COMPANY_ANALYSIS_ONRC_BASES.map((basis) => [ONRC_BASIS_VALUE[basis], basis])
+);
+export const COVERAGE_BY_VALUE: ReadonlyMap<string, CompanyAnalysisOnrcCoverage> = new Map(
+  COMPANY_ANALYSIS_ONRC_COVERAGES.map((coverage) => [ONRC_COVERAGE_VALUE[coverage], coverage])
+);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Metrics
@@ -265,11 +368,46 @@ export const PREFERRED_DEFAULT_YEAR = 2024;
 // Validated scope (the question every shape answers)
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * A consensus bucket selector (county, UAT, observed status): the CUI's
+ * edition consensus value, or the basis bucket of a CUI without one. It
+ * selects exactly what a breakdown bucket of the same key counts.
+ */
 export interface CompanyAnalysisKeyFilter {
-  /** Sorted, de-duplicated stable keys. */
+  /** Sorted, de-duplicated consensus value keys. */
   readonly values: readonly string[];
-  /** Also match the unknown (NULL) group. */
+  /** Basis buckets selected by their key `(<basis>)`, in vocabulary order. */
+  readonly bases: readonly CompanyAnalysisOnrcBasis[];
+  /** Every basis bucket: a CUI without a consensus value (never evidence of absence). */
   readonly includeUnknown: boolean;
+}
+
+/**
+ * Observation filters over the CUI's public resolved identifiers
+ * (`onrc_identifiers`). Positive fields: OR within a field, AND across
+ * fields, all on ONE identifier. Exclusions need complete evidence.
+ */
+export interface CompanyAnalysisOnrcExclude {
+  /** No identifier has any of these status codes; status coverage COMPLETE/COMPLETE_EMPTY. */
+  readonly status?: readonly string[];
+  /** No identifier has any of these CAEN codes (any revision); CAEN coverage COMPLETE/COMPLETE_EMPTY. */
+  readonly caenCode?: readonly string[];
+  /** A known single/consistent county consensus outside these codes. */
+  readonly county?: readonly string[];
+  /** A known single/consistent legal form outside these. */
+  readonly legalForm?: readonly string[];
+}
+
+export interface CompanyAnalysisOnrcFilter {
+  /** Public status codes observed on the identifier. */
+  readonly status?: readonly string[];
+  /** County codes of the identifier. */
+  readonly county?: readonly string[];
+  /** Broad CAEN code in any revision state (unknown revision included). */
+  readonly caenCode?: readonly string[];
+  /** Exact `rev<N>:<code>` of a known revision (an unknown revision never matches). */
+  readonly onrcCaen?: readonly string[];
+  readonly exclude?: CompanyAnalysisOnrcExclude;
 }
 
 export interface CompanyAnalysisCaenSelector {
@@ -304,6 +442,8 @@ export interface CompanyAnalysisScope {
   readonly filing?: CompanyAnalysisFiling;
   readonly financialRanges?: readonly CompanyAnalysisRange[];
   readonly employeeSizeBands?: readonly CompanyAnalysisSizeBand[];
+  /** ONRC observation filters (a company key: one value per CUI, copied into both grains). */
+  readonly onrc?: CompanyAnalysisOnrcFilter;
 }
 
 /** True when the scope constrains the selected year's statement (population ⊆ filers). */
@@ -322,6 +462,8 @@ export interface CompanyAnalysisReleaseRef {
   readonly publishedAt: string | null;
   /** True when this is the currently active publication. */
   readonly active: boolean;
+  /** The ONRC edition the release's company dimensions were exported from. */
+  readonly source: CompanyAnalysisSource;
 }
 
 export interface CompanyAnalysisYearMetric {
@@ -461,6 +603,10 @@ export interface CompanyAnalysisBucket {
   /** Stable key (GROUP only); feed it back as a scope filter value. */
   readonly key: string | null;
   readonly label: string | null;
+  /** Where the label came from (`territory_hub`, `api_nomenclature`, `current_db_catalog`); null without a label. */
+  readonly labelSource: string | null;
+  /** COUNTY/UAT/OBSERVED_STATUS basis groups: the basis of the CUIs without a consensus value. */
+  readonly basis: CompanyAnalysisOnrcBasis | null;
   /** MAIN_CAEN groups only. */
   readonly caen: CompanyAnalysisCaenValue | null;
   /** OTHER: how many groups were folded; GROUP/UNKNOWN: 1; TOTAL: all groups + unknown. */
@@ -515,6 +661,8 @@ export interface CompanyAnalysisSeries extends CompanyAnalysisAnswerBase {
 export interface CompanyAnalysisLabelled {
   readonly code: string;
   readonly label: string | null;
+  /** Where the label came from; null without a label. */
+  readonly labelSource: string | null;
 }
 
 export interface CompanyAnalysisRecordValue {
@@ -527,16 +675,28 @@ export interface CompanyAnalysisRecordValue {
 
 export interface CompanyAnalysisRecord {
   readonly cui: string;
-  /** Current public name from PostgreSQL (not release-pinned); null when not publicly named. */
+  /** Current public core-directory name (not an edition name, not release-pinned); null when not publicly named. */
   readonly currentName: string | null;
   readonly legalForm: string;
+  readonly legalFormBasis: CompanyAnalysisOnrcBasis;
+  /** The edition's county consensus; null when there is none (see countyBasis). */
   readonly county: CompanyAnalysisLabelled | null;
+  readonly countyBasis: CompanyAnalysisOnrcBasis;
   readonly uat: CompanyAnalysisLabelled | null;
+  readonly uatBasis: CompanyAnalysisOnrcBasis;
+  /** The edition's complete status consensus; null otherwise (see observedStatusBasis). */
   readonly observedStatus: CompanyAnalysisLabelled | null;
+  readonly observedStatusBasis: CompanyAnalysisOnrcBasis;
+  readonly observedStatusCoverage: CompanyAnalysisOnrcCoverage;
+  readonly onrcCaenCoverage: CompanyAnalysisOnrcCoverage;
+  /** The civil date ONRC RECORDED (`YYYY-MM-DD`, years 0001–9999). Never a founding date or an age. */
+  readonly onrcRecordedDate: string | null;
+  /** The year of onrcRecordedDate only (no registration-number hint). */
+  readonly onrcRecordedYear: number | null;
+  readonly onrcRecordedDateBasis: CompanyAnalysisOnrcBasis;
   readonly vatPayer: CompanyAnalysisFlagValue;
   readonly fiscallyInactive: CompanyAnalysisFlagValue;
   readonly mainCaen: CompanyAnalysisCaenValue | null;
-  readonly registrationYear: number | null;
   readonly filed: boolean;
   readonly employeeSizeBand: CompanyAnalysisSizeBand | null;
   readonly values: readonly CompanyAnalysisRecordValue[];

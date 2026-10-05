@@ -18,6 +18,8 @@ import { describe, expect, it } from 'vitest';
 
 import { makeCompaniesRepo } from '@/modules/companies/shell/repo/companies-repo.js';
 
+import { UNAVAILABLE_SCOPE } from './registry-fixtures.js';
+
 import type { ProdDatabase } from '@/modules/shared/index.js';
 
 const recordingDb = (): { db: Kysely<ProdDatabase>; sql: string[] } => {
@@ -45,10 +47,12 @@ describe('companies list — hasFinancials presence applies the financials priva
     { name: 'absent', isNull: true, prefix: 'not ' },
   ])('$name branch', async ({ isNull, prefix }) => {
     const { db, sql } = recordingDb();
-    const res = await makeCompaniesRepo(db).listCompanies({ hasFinancials: { isNull } }, 'name', {
-      page: 1,
-      pageSize: 10,
-    });
+    const res = await makeCompaniesRepo(db).listCompanies(
+      { hasFinancials: { isNull } },
+      'name',
+      { page: 1, pageSize: 10 },
+      UNAVAILABLE_SCOPE
+    );
     expect(res.isOk()).toBe(true);
     // The rows query and the bounded-total subquery share the predicate.
     const statements = sql.filter((s) => s.includes('companies_v2.financials fz'));

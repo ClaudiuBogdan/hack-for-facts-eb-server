@@ -14,6 +14,7 @@ import {
   companyAnalysisRelease,
   companyAnalysisSeries,
   companyAnalysisStats,
+  confirmServedAnalysis,
   type CompanyAnalysisContext,
 } from '@/modules/companies/core/analytics-usecases.js';
 import { makeClickhouseAnalyticsEngine } from '@/modules/companies/shell/analytics/clickhouse-engine.js';
@@ -22,13 +23,14 @@ import { makeClickhouseReader } from '@/modules/companies/shell/analytics/clickh
 import {
   DATASET,
   analyticsDeps,
+  currentPublication,
   fakeLabels,
   fakePrivacy,
   fakeReleases,
   makeInMemoryEngine,
   releaseRow,
   type FakePrivacy,
-} from '../../../fixtures/companies-analytics.js';
+} from './analytics-fixtures.js';
 
 import type { ApiError } from '@/modules/shared/index.js';
 import type { Result } from 'neverthrow';
@@ -167,6 +169,106 @@ describe('privacy epoch guard on every answer', () => {
     expect(JSON.stringify(info)).not.toContain('privacyEpoch');
     const stats = (await companyAnalysisStats(s.deps, {}))._unsafeUnwrap();
     expect(JSON.stringify(stats)).not.toContain('privacyEpoch');
+  });
+});
+
+describe('the current ONRC source guard (same epoch, moved source)', () => {
+  it.each(ANSWERS)(
+    '%s: the active release whose pinned edition is no longer the published source is unavailable, with no engine work',
+    async (_name, answer) => {
+      const s = setup(fakePrivacy({ onrc: currentPublication({ editionId: '43' }) }));
+      expect((await answer(s.deps, {}))._unsafeUnwrapErr()).toEqual({
+        type: 'ServiceUnavailable',
+        message:
+          'the active companies analytics release was exported from an ONRC edition that is no longer the published source; retry once a refreshed release is published',
+      });
+      expect(s.engine.calls).toEqual([]);
+      expect(s.labels.calls).toEqual([]);
+    }
+  );
+
+  it.each(ANSWERS)('%s: a pinned release is a release error', async (_name, answer) => {
+    const s = setup(fakePrivacy({ onrc: currentPublication({ publicationEpoch: '4' }) }));
+    const error = (await answer(s.deps, { release: '7' }))._unsafeUnwrapErr();
+    expect(error).toMatchObject({ type: 'InvalidInput', field: 'release' });
+    expect(error.message).toBe(
+      'companies analytics release 7 was exported from an ONRC edition that is no longer the published source; re-read companyAnalysisRelease and repeat the request'
+    );
+    expect(s.engine.calls).toEqual([]);
+  });
+
+  it.each([
+    ['unpublished', { publicationState: 'unpublished', editionId: null, listed: false }],
+    ['access withdrawn', { publicationState: 'unavailable' }],
+    ['not listed', { listed: false }],
+    ['another publication epoch (a rollback and back)', { publicationEpoch: '5' }],
+    ['another snapshot', { sourceSnapshotId: 'onrc:2026-08-05' }],
+    ['another source date', { sourcePublishedAt: '2026-07-09' }],
+    ['an out-of-domain source date', { sourcePublishedAt: 'out-of-range' }],
+    ['another interpretation', { interpretationVersion: 'onrc-edition-v2' }],
+    ['another dimension policy', { dimensionPolicyVersion: 'onrc-dimensions-v2' }],
+    ['another privacy policy', { privacyPolicyVersion: 'onrc-privacy-v2' }],
+  ] as const)('refuses a current source that is %s', async (_label, over) => {
+    const s = setup(fakePrivacy({ onrc: currentPublication(over) }));
+    expect((await companyAnalysisStats(s.deps, {}))._unsafeUnwrapErr().message).toContain(
+      'no longer the published source'
+    );
+    expect(s.engine.calls).toEqual([]);
+  });
+
+  it.each(ANSWERS)(
+    '%s: a source event after the engine and labels returns no figures',
+    async (_name, answer) => {
+      const s = setup();
+      s.privacy.beforeRead = (index) => {
+        if (index === 1) s.privacy.onrc = currentPublication({ editionId: '43' });
+      };
+      const result = await answer(s.deps, {});
+      expect(result._unsafeUnwrapErr().message).toContain('no longer the published source');
+      expect(s.engine.calls.length).toBeGreaterThan(0);
+      expect(JSON.stringify(result)).not.toContain('9007199254741973.32');
+    }
+  );
+});
+
+describe('confirmServedAnalysis (the GraphQL operation’s final decision)', () => {
+  it('holds while the release is published and current; reads no engine or label', async () => {
+    const s = setup();
+    expect((await confirmServedAnalysis(s.deps, '7')).isOk()).toBe(true);
+    expect((await confirmServedAnalysis(s.deps, '6')).isOk()).toBe(true);
+    expect(s.engine.calls).toEqual([]);
+    expect(s.labels.calls).toEqual([]);
+    expect(s.privacy.reads).toBe(2);
+  });
+
+  it.each([
+    ['a privacy change', { epoch: '1' }, 'withdrawn after a privacy change'],
+    [
+      'a source event',
+      { onrc: currentPublication({ editionId: '43' }) },
+      'no longer the published source',
+    ],
+  ] as const)('types %s as a release error, for the active release too', async (_l, over, text) => {
+    const s = setup(fakePrivacy(over));
+    const error = (await confirmServedAnalysis(s.deps, '7'))._unsafeUnwrapErr();
+    expect(error).toMatchObject({ type: 'InvalidInput', field: 'release' });
+    expect(error.message).toContain(text);
+  });
+
+  it('types a release no longer published as a release error, and an unreadable state as unavailable', async () => {
+    const s = setup();
+    expect((await confirmServedAnalysis(s.deps, '99'))._unsafeUnwrapErr()).toMatchObject({
+      type: 'InvalidInput',
+      field: 'release',
+    });
+    const down = setup(fakePrivacy({ fail: true }));
+    expect((await confirmServedAnalysis(down.deps, '7'))._unsafeUnwrapErr()).toEqual({
+      type: 'ServiceUnavailable',
+      message: 'companies analytics cannot confirm the current privacy state; retry later',
+    });
+    expect((await confirmServedAnalysis(null, '7'))._unsafeUnwrapErr().type).toBe(
+      'ServiceUnavailable'
+    );
   });
 });
 

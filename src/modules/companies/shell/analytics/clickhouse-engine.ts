@@ -18,6 +18,16 @@
  *    number; every request value is a bound parameter;
  *  - no output alias reuses a column name: ClickHouse substitutes aliases
  *    into WHERE/GROUP BY, so `toString(x) AS x` would silently change a filter.
+ *
+ * Schema `companies-analytics-ch-v2` (one pinned ONRC edition):
+ *  - county / UAT / observed status are CONSENSUS buckets: the value column,
+ *    or its basis column when the value is NULL; each CUI is in exactly one;
+ *  - ONRC observation filters read the nested `onrc_identifiers` value with
+ *    ONE `arrayExists` per positive question, so every criterion holds on the
+ *    same identifier; nothing is ever expanded with `arrayJoin`, so no money
+ *    row is multiplied;
+ *  - exclusions need complete evidence (coverage `complete`/`complete_empty`,
+ *    or a single/consistent consensus value): unknown is never read as absent.
  */
 
 import { Type } from '@sinclair/typebox';
@@ -31,6 +41,10 @@ import {
   CAEN_BASIS_VALUE,
   COMPANY_ANALYSIS_STATUSES,
   METRIC_COLUMN,
+  ONRC_BASIS_VALUE,
+  ONRC_COMPLETE_COVERAGES,
+  ONRC_COVERAGE_VALUE,
+  ONRC_KNOWN_VALUE_BASES,
   SIZE_BAND_VALUE,
   STATUS_VALUE,
   metricUnit,
@@ -39,6 +53,7 @@ import {
   type CompanyAnalysisFlagValue,
   type CompanyAnalysisKeyFilter,
   type CompanyAnalysisMetric,
+  type CompanyAnalysisOnrcFilter,
   type CompanyAnalysisScope,
   type CompanyAnalysisStatus,
 } from '../../core/analytics-types.js';
@@ -69,14 +84,80 @@ const col = (alias: string, name: string): string => (alias === '' ? name : `${a
 
 // ── company-key conditions (identical on both grains: keys are copied) ──────
 
-const keyCondition = (p: QueryParams, column: string, filter: CompanyAnalysisKeyFilter): string => {
+/** Code constants (never request values): inlined as SQL string literals. */
+const literalList = (values: readonly string[]): string =>
+  values.map((value) => `'${value}'`).join(', ');
+const KNOWN_VALUE_BASES = literalList(ONRC_KNOWN_VALUE_BASES.map((b) => ONRC_BASIS_VALUE[b]));
+const COMPLETE_COVERAGES = literalList(ONRC_COMPLETE_COVERAGES.map((c) => ONRC_COVERAGE_VALUE[c]));
+
+/**
+ * A consensus bucket selector: a value key matches the CUI's consensus value;
+ * a basis key matches a CUI WITHOUT a value on that basis; includeUnknown
+ * matches every CUI without a value. Exactly the breakdown's buckets.
+ */
+const keyCondition = (
+  p: QueryParams,
+  column: string,
+  basisColumn: string,
+  filter: CompanyAnalysisKeyFilter
+): string => {
   const parts: string[] = [];
   if (filter.values.length > 0)
     parts.push(
       `(${column} IS NOT NULL AND has(${p.bind('Array(String)', filter.values)}, assumeNotNull(${column})))`
     );
+  if (filter.bases.length > 0)
+    parts.push(
+      `(${column} IS NULL AND has(${p.bind(
+        'Array(String)',
+        filter.bases.map((basis) => ONRC_BASIS_VALUE[basis])
+      )}, ${basisColumn}))`
+    );
   if (filter.includeUnknown) parts.push(`${column} IS NULL`);
   return `(${parts.join(' OR ')})`;
+};
+
+/**
+ * ONRC observation conditions over `onrc_identifiers`. Positive fields form
+ * ONE conjunction inside ONE `arrayExists`: a status from one identifier and
+ * a county from another never combine. Exclusions need complete evidence.
+ */
+export const onrcConditions = (
+  filter: CompanyAnalysisOnrcFilter,
+  p: QueryParams,
+  c: (name: string) => string
+): string[] => {
+  const conds: string[] = [];
+  const positive: string[] = [];
+  const anyOf = (field: string, values: readonly string[] | undefined): void => {
+    if (values !== undefined)
+      positive.push(`hasAny(i.${field}, ${p.bind('Array(String)', values)})`);
+  };
+  anyOf('status_codes', filter.status);
+  anyOf('county_codes', filter.county);
+  anyOf('caen_codes', filter.caenCode);
+  anyOf('caen_keys', filter.onrcCaen);
+  if (positive.length > 0)
+    conds.push(`arrayExists(i -> ${positive.join(' AND ')}, ${c('onrc_identifiers')})`);
+
+  const exclude = filter.exclude;
+  if (exclude?.status !== undefined)
+    conds.push(
+      `(${c('onrc_status_coverage')} IN (${COMPLETE_COVERAGES}) AND NOT arrayExists(i -> hasAny(i.status_codes, ${p.bind('Array(String)', exclude.status)}), ${c('onrc_identifiers')}))`
+    );
+  if (exclude?.caenCode !== undefined)
+    conds.push(
+      `(${c('onrc_caen_coverage')} IN (${COMPLETE_COVERAGES}) AND NOT arrayExists(i -> hasAny(i.caen_codes, ${p.bind('Array(String)', exclude.caenCode)}), ${c('onrc_identifiers')}))`
+    );
+  if (exclude?.county !== undefined)
+    conds.push(
+      `(${c('county_basis')} IN (${KNOWN_VALUE_BASES}) AND ${c('county_code')} IS NOT NULL AND NOT has(${p.bind('Array(String)', exclude.county)}, assumeNotNull(${c('county_code')})))`
+    );
+  if (exclude?.legalForm !== undefined)
+    conds.push(
+      `(${c('legal_form_basis')} IN (${KNOWN_VALUE_BASES}) AND NOT has(${p.bind('Array(String)', exclude.legalForm)}, ${c('legal_form')}))`
+    );
+  return conds;
 };
 
 /** An ANAF observation: NULL is UNKNOWN and never satisfies YES or NO. */
@@ -104,12 +185,17 @@ export const companyConditions = (
   const conds: string[] = [];
   if (scope.cuis !== undefined)
     conds.push(`has(${p.bind('Array(String)', scope.cuis)}, ${c('cui')})`);
-  if (scope.county !== undefined) conds.push(keyCondition(p, c('county_code'), scope.county));
-  if (scope.uat !== undefined) conds.push(keyCondition(p, c('uat_siruta'), scope.uat));
+  if (scope.county !== undefined)
+    conds.push(keyCondition(p, c('county_code'), c('county_basis'), scope.county));
+  if (scope.uat !== undefined)
+    conds.push(keyCondition(p, c('uat_siruta'), c('uat_basis'), scope.uat));
   if (scope.legalForms !== undefined)
     conds.push(`has(${p.bind('Array(String)', scope.legalForms)}, ${c('legal_form')})`);
   if (scope.observedStatus !== undefined)
-    conds.push(keyCondition(p, c('onrc_status_code'), scope.observedStatus));
+    conds.push(
+      keyCondition(p, c('onrc_status_code'), c('onrc_status_basis'), scope.observedStatus)
+    );
+  if (scope.onrc !== undefined) conds.push(...onrcConditions(scope.onrc, p, c));
   if (scope.vatPayer !== undefined) conds.push(flagCondition(c('anaf_vat_payer'), scope.vatPayer));
   if (scope.fiscallyInactive !== undefined)
     conds.push(flagCondition(c('anaf_inactive'), scope.fiscallyInactive));
@@ -253,11 +339,12 @@ const flagExpression = (column: string): string =>
   `multiIf(${column} IS NULL, NULL, ${column}, 'YES', 'NO')`;
 
 const DIMENSION_PARTS: Readonly<Record<CompanyAnalysisDimension, readonly string[]>> = {
-  COUNTY: ['county_code'],
-  UAT: ['uat_siruta'],
+  // Consensus value and its basis (the bucket of a CUI without a value).
+  COUNTY: ['county_code', 'county_basis'],
+  UAT: ['uat_siruta', 'uat_basis'],
   MAIN_CAEN: ['anaf_main_caen_basis', 'anaf_main_caen_rev', 'anaf_main_caen_code'],
   LEGAL_FORM: ['legal_form'],
-  OBSERVED_STATUS: ['onrc_status_code'],
+  OBSERVED_STATUS: ['onrc_status_code', 'onrc_status_basis'],
   VAT_PAYER: [flagExpression('anaf_vat_payer')],
   FISCALLY_INACTIVE: [flagExpression('anaf_inactive')],
   EMPLOYEE_SIZE: ['employee_size_band'],
@@ -541,15 +628,23 @@ export const makeClickhouseAnalyticsEngine = (
     const select = [
       'c.cui AS o_cui',
       'toString(c.legal_form) AS o_legal_form',
+      'toString(c.legal_form_basis) AS o_legal_form_basis',
       'c.onrc_status_code AS o_status_code',
+      'toString(c.onrc_status_basis) AS o_status_basis',
+      'toString(c.onrc_status_coverage) AS o_status_coverage',
+      'toString(c.onrc_caen_coverage) AS o_caen_coverage',
       'c.county_code AS o_county_code',
+      'toString(c.county_basis) AS o_county_basis',
       'c.uat_siruta AS o_uat_siruta',
+      'toString(c.uat_basis) AS o_uat_basis',
+      'toString(c.onrc_recorded_year) AS o_recorded_year',
+      'c.onrc_recorded_date AS o_recorded_date',
+      'toString(c.onrc_recorded_date_basis) AS o_recorded_date_basis',
       `${flagExpression('c.anaf_vat_payer')} AS o_vat_payer`,
       `${flagExpression('c.anaf_inactive')} AS o_fiscally_inactive`,
       'toString(c.anaf_main_caen_basis) AS o_caen_basis',
       'c.anaf_main_caen_rev AS o_caen_revision',
       'c.anaf_main_caen_code AS o_caen_code',
-      'toString(c.registration_year) AS o_registration_year',
       `toString(${filed}) AS o_filed`,
       `if(${filed} = 1, toString(f.employee_size_band), NULL) AS o_size_band`,
       ...request.metrics.flatMap((_, i) => [
@@ -560,15 +655,23 @@ export const makeClickhouseAnalyticsEngine = (
     const rowSchema = Type.Object({
       o_cui: Type.String({ pattern: '^[0-9]{1,10}$' }),
       o_legal_form: Type.String(),
+      o_legal_form_basis: Type.String(),
       o_status_code: NullableString,
+      o_status_basis: Type.String(),
+      o_status_coverage: Type.String(),
+      o_caen_coverage: Type.String(),
       o_county_code: NullableString,
+      o_county_basis: Type.String(),
       o_uat_siruta: NullableString,
+      o_uat_basis: Type.String(),
+      o_recorded_year: NullableString,
+      o_recorded_date: NullableString,
+      o_recorded_date_basis: Type.String(),
       o_vat_payer: NullableString,
       o_fiscally_inactive: NullableString,
       o_caen_basis: Type.String(),
       o_caen_revision: NullableString,
       o_caen_code: NullableString,
-      o_registration_year: NullableString,
       o_filed: Type.Union([Type.Literal('0'), Type.Literal('1')]),
       o_size_band: NullableString,
       ...Object.fromEntries(
@@ -599,15 +702,23 @@ export const makeClickhouseAnalyticsEngine = (
         return {
           cui: raw.o_cui,
           legalForm: raw.o_legal_form,
+          legalFormBasis: raw.o_legal_form_basis,
           statusCode: raw.o_status_code,
+          statusBasis: raw.o_status_basis,
+          statusCoverage: raw.o_status_coverage,
+          caenCoverage: raw.o_caen_coverage,
           countyCode: raw.o_county_code,
+          countyBasis: raw.o_county_basis,
           uatSiruta: raw.o_uat_siruta,
+          uatBasis: raw.o_uat_basis,
+          recordedYear: raw.o_recorded_year,
+          recordedDate: raw.o_recorded_date,
+          recordedDateBasis: raw.o_recorded_date_basis,
           vatPayer: raw.o_vat_payer,
           fiscallyInactive: raw.o_fiscally_inactive,
           caenBasis: raw.o_caen_basis,
           caenRevision: raw.o_caen_revision,
           caenCode: raw.o_caen_code,
-          registrationYear: raw.o_registration_year,
           filed: raw.o_filed === '1',
           sizeBand: raw.o_size_band,
           values,

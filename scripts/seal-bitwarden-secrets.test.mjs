@@ -324,7 +324,11 @@ test('overrides never reach the Kubernetes Secret or its strict scope', () => {
   assert.equal(registry.sealedSecrets.scope, 'strict');
 });
 
-test('the committed Chronos registry names the companies reader at its external record', async () => {
+const MEILI_READER_ID = '9ecc70be-90cf-4f66-8dd4-b4d901605f40';
+const MEILI_READER_KEY =
+  '/secrets/transparenta-eu-etl/prod/transparenta-eu-dev/hack-for-facts-eb-server/chronos-companies-dev-meilisearch-reader';
+
+test('the committed Chronos registry names the companies readers at their external records', async () => {
   const registry = normalizeRegistry(
     parseJson(
       await readFile(
@@ -336,6 +340,9 @@ test('the committed Chronos registry names the companies reader at its external 
   );
   const reader = registry.secrets.find(
     (entry) => entry.name === 'chronos-companies-clickhouse-reader-credentials'
+  );
+  const meiliReader = registry.secrets.find(
+    (entry) => entry.name === 'chronos-companies-dev-meilisearch-reader'
   );
   assert.deepEqual(
     {
@@ -351,8 +358,24 @@ test('the committed Chronos registry names the companies reader at its external 
       location: { recordKey: EXTERNAL_KEY, projectId: EXTERNAL_PROJECT },
     }
   );
+  assert.deepEqual(
+    {
+      id: meiliReader?.bitwardenSecretId,
+      type: meiliReader?.type,
+      requiredFields: meiliReader?.requiredFields,
+      location: meiliReader && bitwardenLocation(registry, meiliReader),
+    },
+    {
+      id: MEILI_READER_ID,
+      type: 'Opaque',
+      requiredFields: ['apiKey'],
+      location: { recordKey: MEILI_READER_KEY, projectId: EXTERNAL_PROJECT },
+    }
+  );
   // Every other entry keeps the registry-wide defaults.
-  for (const entry of registry.secrets.filter((candidate) => candidate !== reader)) {
+  for (const entry of registry.secrets.filter(
+    (candidate) => candidate !== reader && candidate !== meiliReader
+  )) {
     assert.equal(Object.hasOwn(entry, 'bitwardenProjectId'), false);
     assert.equal(Object.hasOwn(entry, 'bitwardenRecordKey'), false);
   }

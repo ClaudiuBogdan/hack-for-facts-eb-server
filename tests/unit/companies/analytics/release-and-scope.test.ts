@@ -10,11 +10,12 @@ import {
 
 import {
   DATASET,
+  SOURCE_PIN,
   company,
   releaseRow,
   reported,
   statement,
-} from '../../../fixtures/companies-analytics.js';
+} from './analytics-fixtures.js';
 
 const row = releaseRow(7, DATASET.companies, DATASET.statements);
 
@@ -32,6 +33,7 @@ describe('companies analytics release parsing', () => {
       releaseId: '7',
       publishedAt: '2026-10-02T18:00:00.000Z',
       active: true,
+      source: SOURCE_PIN,
     });
     expect(release.fiscalYears).toEqual([2021, 2023, 2024]);
     const offered = (metric: string) =>
@@ -71,7 +73,9 @@ describe('companies analytics release parsing', () => {
   });
 
   it.each([
-    ['an unsupported schema', { schemaVersion: 'companies-analytics-ch-v2' }],
+    ['the v1 schema', { schemaVersion: 'companies-analytics-ch-v1' }],
+    ['an unknown schema', { schemaVersion: 'companies-analytics-ch-v3' }],
+    ['the v1 population', { populationPolicyVersion: 'public-legal-person-v1' }],
     ['another database', { clickhouseDatabase: 'proto' }],
     ['table names that do not match the id', { companyTable: 'company_r9' }],
     ['a non-integer id', { releaseId: '7.5' }],
