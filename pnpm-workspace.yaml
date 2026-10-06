@@ -24,3 +24,8 @@ overrides:
   'undici@7': 7.29.1
   uuid: 14.0.0
   ws: 8.21.0
+  # Fix the GraphQL mergeDeep and proxy trust-subnet image scan findings.
+  '@graphql-tools/schema': 10.1.1
+  '@graphql-tools/merge': 9.2.4
+  '@graphql-tools/utils': 12.0.1
+  proxy-addr: 2.0.8
