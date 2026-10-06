@@ -14,6 +14,8 @@ export const INS_SUPPORTED_TRANSFORMS = [
   'bddc45cd6e97a8f93f0c0d6f33fe82d6dad5597cb5b29336c2069147d27a4d2d',
   // Normal transform with bounded coverage and grouped geography.
   '435cb383b7c1ccecb964486ecc8b20eca1bb748e7dd29c5ec97a57715f4c7585',
+  // Reviewed INS refresh with retained metadata provenance.
+  '29ad0ebc66c833f3afd6a01b74c6c5e56544ce09d8d23b40e1af007990e45b03',
 ] as const;
 export const INS_GEO_FLAG_KINDS: Readonly<Record<string, 'coverage' | 'label'>> = {
   includes_sai: 'coverage',
