@@ -35,6 +35,7 @@ const main = async (): Promise<void> => {
     trustProxy: config.trustProxy,
     procurement: config.procurement,
     ngoRegistryEnabled: config.ngoRegistryEnabled ?? false,
+    publicEnterprisesEnabled: config.publicEnterprisesEnabled ?? false,
     ...(config.legalSearch !== undefined && { legalSearch: config.legalSearch }),
     ...(config.companiesAnalytics !== undefined && {
       companiesAnalytics: config.companiesAnalytics,

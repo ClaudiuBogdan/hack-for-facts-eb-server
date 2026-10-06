@@ -98,6 +98,7 @@ const main = async (): Promise<void> => {
   const redesignComposition: AppDeps['redesignComposition'] = {
     procurement: redesign.procurement,
     ngoRegistryEnabled: redesign.ngoRegistryEnabled ?? false,
+    publicEnterprisesEnabled: redesign.publicEnterprisesEnabled ?? false,
     ...(redesign.legalSearch !== undefined && { legalSearch: redesign.legalSearch }),
   };
   const redesignClientBaseUrl = redesign.kernel.clientBaseUrl;

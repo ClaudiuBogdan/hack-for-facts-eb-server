@@ -12,7 +12,14 @@ export default defineConfig({
     // `test:e2e` and `build` never ran behind it. No `*.spec.ts` anywhere in the
     // repo declares a suite.
     include: ['src/**/*.test.ts', 'tests/**/*.test.ts'],
-    exclude: ['node_modules', 'dist', 'build', 'tests/e2e/**', 'tests/ngo-contract/**'],
+    exclude: [
+      'node_modules',
+      'dist',
+      'build',
+      'tests/e2e/**',
+      'tests/ngo-contract/**',
+      'tests/public-enterprises-contract/**',
+    ],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html', 'lcov'],

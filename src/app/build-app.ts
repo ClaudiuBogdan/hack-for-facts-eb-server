@@ -861,6 +861,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
           ...(deps.redesignComposition !== undefined && {
             procurement: deps.redesignComposition.procurement,
             ngoRegistryEnabled: deps.redesignComposition.ngoRegistryEnabled ?? false,
+            publicEnterprisesEnabled: deps.redesignComposition.publicEnterprisesEnabled ?? false,
             ...(deps.redesignComposition.legalSearch !== undefined && {
               legalSearch: deps.redesignComposition.legalSearch,
             }),

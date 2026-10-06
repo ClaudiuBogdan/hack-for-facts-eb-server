@@ -56,6 +56,7 @@ import { makeParliamentModule } from '../modules/parliament/index.js';
 import { makePnrrModule } from '../modules/pnrr/index.js';
 import { makePrimariiTransparencyModule } from '../modules/primarii-transparency/index.js';
 import { makeProcurementModule } from '../modules/procurement/index.js';
+import { makePublicEnterprisesModule } from '../modules/public-enterprises/index.js';
 import { makeReferenceModule } from '../modules/reference/index.js';
 import {
   makeKernel,
@@ -121,6 +122,7 @@ export interface BuildRedesignAppDeps {
    */
   readonly modules?: readonly (
     | 'ngos'
+    | 'public-enterprises'
     | 'pnrr'
     | 'reference'
     | 'budget'
@@ -137,6 +139,8 @@ export interface BuildRedesignAppDeps {
   readonly procurementWarmCache?: boolean;
   /** Enabled only after RNONG privacy, role-isolation and data release gates. */
   readonly ngoRegistryEnabled?: boolean;
+  /** Enabled only after the public-enterprise views are applied and the data qualified. */
+  readonly publicEnterprisesEnabled?: boolean;
   /** Procurement composition (ClickHouse, record-list search, DA window), validated by the entrypoint. */
   readonly procurement?: ProcurementComposition;
   /** Legal search engine connection, validated by the entrypoint. */
@@ -239,6 +243,7 @@ export const deepMergeResolvers = (
 // One default composition for the standalone kernel and the `api.js` embedding.
 const SHARED_DEFAULT_MODULES = [
   'ngos',
+  'public-enterprises',
   'pnrr',
   'reference',
   'budget',
@@ -430,6 +435,18 @@ export const registerRedesignSurface = async (
     moduleSlices.push(ngos.graphqlSlice);
     moduleResolvers.push(ngos.graphqlResolvers);
     moduleMcpTools.push(...ngos.mcpTools);
+  }
+
+  if (enabledModules.includes('public-enterprises')) {
+    // Reads only the five scraper R5 public views; names come from the kernel identity hub.
+    const publicEnterprises = makePublicEnterprisesModule({
+      db: kernel.db,
+      identityRepo: kernel.identityRepo,
+      enabled: deps.publicEnterprisesEnabled ?? false,
+    });
+    moduleSlices.push(publicEnterprises.graphqlSlice);
+    moduleResolvers.push(publicEnterprises.graphqlResolvers);
+    moduleMcpTools.push(...publicEnterprises.mcpTools);
   }
 
   if (enabledModules.includes('pnrr')) {

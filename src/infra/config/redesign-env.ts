@@ -44,6 +44,7 @@ const RedesignEnvSchema = Type.Object({
   PROD_DB_POOL_MAX: Type.Optional(Type.String()),
   PROD_DB_SSL: Type.Optional(Type.String()),
   NGO_REGISTRY_ENABLED: Type.Optional(Type.String()),
+  PUBLIC_ENTERPRISES_ENABLED: Type.Optional(Type.String()),
   LOG_LEVEL: Type.Optional(Type.String()),
   USER_DATA_DATABASE_URL: Type.Optional(Type.String({ minLength: 1 })),
   USER_DATA_DB_CA_FILE: Type.Optional(Type.String({ minLength: 1 })),
@@ -140,6 +141,7 @@ export interface RedesignConfig {
   readonly trustProxy: TrustProxySetting;
   readonly procurement: ProcurementComposition;
   readonly ngoRegistryEnabled?: boolean;
+  readonly publicEnterprisesEnabled?: boolean;
   readonly legalSearch?: LegalSearchComposition;
   /** Standalone (Chronos) server only; the embedded loader never reads these keys. */
   readonly companiesAnalytics?: CompaniesAnalyticsComposition;
@@ -258,7 +260,7 @@ const nonEmpty = (value: string | undefined): string | undefined =>
  */
 export type EmbeddedKernelConfig = Pick<
   RedesignConfig,
-  'kernel' | 'procurement' | 'legalSearch' | 'ngoRegistryEnabled'
+  'kernel' | 'procurement' | 'legalSearch' | 'ngoRegistryEnabled' | 'publicEnterprisesEnabled'
 >;
 
 const composeEmbeddedKernel = (e: EmbeddedKernelEnv): EmbeddedKernelConfig => {
@@ -388,6 +390,7 @@ const composeEmbeddedKernel = (e: EmbeddedKernelEnv): EmbeddedKernelConfig => {
     },
     procurement,
     ngoRegistryEnabled: e.NGO_REGISTRY_ENABLED === 'true',
+    publicEnterprisesEnabled: e.PUBLIC_ENTERPRISES_ENABLED === 'true',
     ...(legalSearch !== undefined && { legalSearch }),
   };
 };
