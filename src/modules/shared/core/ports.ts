@@ -252,7 +252,17 @@ export interface SearchCompanyHydration {
  * module at composition (the kernel never reads company tables). Every call is
  * fresh: never cached, never shared across requests.
  */
+/** Access policy captured by a background reader, never by a search request. */
+export interface SearchAccessSnapshot {
+  readonly scopeKey: string;
+  readonly published: boolean;
+  readonly privateCuis: ReadonlySet<string>;
+  readonly privateInstitutionCuis: ReadonlySet<string>;
+}
+
 export interface SearchCompanyContributionPort {
+  /** Synchronous, bounded-age access snapshot; null fails closed. No I/O. */
+  readAccessSnapshot?(): SearchAccessSnapshot | null;
   /**
    * Capture the company scope once, classify the (at most 50) candidate CUIs
    * (canonical positive CUIs of 1–10 digits: the privacy population) and,

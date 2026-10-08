@@ -36,12 +36,7 @@ import {
 } from '@/modules/shared/shell/graphql/resolvers.js';
 import { baseTypeDefs } from '@/modules/shared/shell/graphql/typedefs.js';
 
-import {
-  CONTROL_A,
-  SCOPE_A,
-  ngoHit,
-  recordingCompanies,
-} from '../unit/global-search/search-fixtures.js';
+import { CONTROL_A, ngoHit, recordingCompanies } from '../unit/global-search/search-fixtures.js';
 
 import type {
   FlowSummary,
@@ -405,7 +400,7 @@ describe('kernel base SDL — search types', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const REFUSAL = serviceUnavailable(
-  'the ONRC registry publication or company access changed during the request; retry'
+  'the access of the served identities could not be rechecked; retry'
 );
 const rootInfo = { path: { key: 'searchEntities', prev: undefined } } as GraphQLResolveInfo;
 
@@ -426,12 +421,14 @@ describe('searchEntities — final GraphQL composition', () => {
     expect(result).toMatchObject({ hits: [], companyContribution: 'current' });
     // Not yet decided: a delayed sibling of the operation is still pending.
     expect(companies.confirmations).toEqual([]);
+    expect(companies.accessReads).toBe(1);
     decision.refuse = true;
     const execution = {
       data: { searchEntities: result, sibling: 'late' } as Record<string, unknown>,
     };
     await finalizeOwningResults(execution, context);
-    expect(companies.confirmations).toEqual([{ scopeKey: SCOPE_A, cuis: [] }]);
+    expect(companies.confirmations).toEqual([]);
+    expect(companies.accessReads).toBeGreaterThan(1);
     expect(execution.data).toEqual({ searchEntities: null, sibling: 'late' });
     expect((execution as { errors?: unknown[] }).errors).toEqual([
       {
@@ -449,7 +446,8 @@ describe('searchEntities — final GraphQL composition', () => {
     const execution = { data: { searchEntities: result } as Record<string, unknown> };
     await finalizeOwningResults(execution, context);
     expect(execution.data['searchEntities']).toBe(result);
-    expect(companies.confirmations).toEqual([{ scopeKey: SCOPE_A, cuis: ['789'] }]);
+    expect(companies.confirmations).toEqual([]);
+    expect(companies.accessReads).toBeGreaterThan(1);
   });
 
   it('decides at once on a bare executor (no transport guard)', async () => {

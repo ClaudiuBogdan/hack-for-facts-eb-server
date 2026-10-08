@@ -547,7 +547,20 @@ const hitOf = (docType: string, docKey: string, title: string): SearchHit => ({
 const CHAIN_PAGE = [
   hitOf('organization', '1', 'PRIVATE PARENT NAME'),
   hitOf('ngo', 'registry:12345', 'Registry only'),
-  hitOf('company', '123', 'ACME STALE'),
+  {
+    ...hitOf('company', '123', 'ACME STALE'),
+    countyName: 'Cluj',
+    attrs: {
+      privacy_class: 'public',
+      company_registry_state: 'in_edition',
+      company_name: 'ACME  ROMANIA SRL',
+      company_name_source: 'onrc_edition',
+      company_legal_form: 'SRL',
+      company_county_code: 'CJ',
+      company_active: true,
+      company_identifiers: ['J12/345/2010'],
+    },
+  },
 ];
 
 const chain = (
@@ -569,10 +582,27 @@ const chain = (
       ok({ hits: CHAIN_PAGE, facetDistribution: {}, estimatedTotalHits: 3 }),
     readGenerationControl: async () => ok(CONTROL_7),
   } as unknown as MeiliClient;
+  let snapshotReads = 0;
   const deps: GlobalSearchDeps = {
     meiliClient: meili,
     meiliIndexes: ['entities'],
-    companySearch: makeCompanySearchContribution(repo, reader),
+    companySearch: {
+      ...makeCompanySearchContribution(repo, reader),
+      readAccessSnapshot: () => {
+        snapshotReads += 1;
+        if (opts.fail?.('from core.organizations o') === true) return null;
+        const rows = opts.classification?.() ?? CLASSIFICATION;
+        return {
+          scopeKey: 'onrc:published:7:3:11',
+          published: true,
+          privateCuis: new Set([
+            ...rows.filter((row) => row.is_public !== true).map((row) => row.cui),
+            ...(snapshotReads > 1 ? (opts.finalPrivate ?? []) : []),
+          ]),
+          privateInstitutionCuis: new Set<string>(),
+        };
+      },
+    },
   };
   return { deps, statements, confirmRegistryScope };
 };
@@ -582,7 +612,7 @@ const classificationWith = (one: ClassificationRow | null) => () => [
   ...(one === null ? [] : [one]),
 ];
 
-describe('the global search over the real contribution and a recording driver', () => {
+describe('the global search reads only the access mirror while its database driver remains idle', () => {
   it.each([
     ['a non-public parent', { cui: '1', kind: 'public_entity', is_public: false, core_name: 'X' }],
     ['a NULL-class parent', { cui: '1', kind: 'company', is_public: null, core_name: 'X' }],
@@ -592,7 +622,7 @@ describe('the global search over the real contribution and a recording driver', 
       const { deps, statements } = chain({ classification: classificationWith(row) });
       const result = (await makeGlobalSearch(deps, { q: 'x' }))._unsafeUnwrap();
       expect(result.hits.map((h) => h.docKey)).toEqual(['registry:12345', '123']);
-      expect(statements[0]?.parameters).toContain(JSON.stringify(['1', '123']));
+      expect(statements).toEqual([]);
     }
   );
 
@@ -632,12 +662,9 @@ describe('the global search over the real contribution and a recording driver', 
     const result = (await makeGlobalSearch(deps, { q: 'x' }))._unsafeUnwrap();
     expect((await confirmGlobalSearchServed(deps, result))._unsafeUnwrapErr()).toEqual({
       type: 'ServiceUnavailable',
-      message: REGISTRY_MOVED_MESSAGE,
+      message: 'the access of the served identities could not be rechecked; retry',
     });
-    expect(confirmRegistryScope).toHaveBeenLastCalledWith(
-      expect.objectContaining({ editionId: '7' }),
-      ['1', '123']
-    );
+    expect(confirmRegistryScope).not.toHaveBeenCalled();
   });
 });
 

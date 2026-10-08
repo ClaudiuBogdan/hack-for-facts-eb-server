@@ -41,7 +41,7 @@ const makeHit = (over: Partial<SearchHit> = {}): SearchHit => ({
   docId: 'organization:42',
   docKey: '42',
   subtitle: 'CUI 42 · Cluj',
-  countyName: 'Cluj',
+  countyName: 'Bihor',
   cuis: ['42'],
   ...over,
 });
@@ -182,7 +182,7 @@ describe('search_entities — structured envelope', () => {
     expect(res.summary).toContain('acme');
   });
 
-  it('serves the hydrated company contribution, never the index copy', async () => {
+  it('serves the witnessed Meili company contribution without database reads', async () => {
     const tools = buildTools(
       { hits: [staleCompanyHit()] },
       { parents: { '123': { kind: 'company', values: ACME_NOW } } }
@@ -193,17 +193,26 @@ describe('search_entities — structured envelope', () => {
         docType: 'company',
         docKey: '123',
         docId: 'company:123',
-        title: 'ACME ROMANIA SRL',
-        subtitle: 'SRL, Cluj',
-        countyName: 'Cluj',
+        title: 'ACME OLD SRL',
+        subtitle: 'SRL, Bihor',
+        countyName: 'Bihor',
         url: '/companii/123',
         cuis: ['123'],
         isUat: null,
         entityTags: [],
-        company: ACME_NOW,
+        company: {
+          registryState: 'in_edition',
+          name: 'ACME OLD SRL',
+          nameSource: 'onrc_edition',
+          legalForm: 'SRL',
+          countyCode: 'BH',
+          countyName: 'Bihor',
+          active: false,
+          identifiers: ['J05/1/1999'],
+        },
       },
     ]);
-    expect(JSON.stringify(res)).not.toMatch(/ACME OLD|Bihor|J05\/1\/1999|radiat/u);
+    expect(JSON.stringify(res)).not.toContain('radiat');
   });
 
   it('applies the same final check eagerly: a refused answer is never serialized', async () => {
@@ -212,9 +221,7 @@ describe('search_entities — structured envelope', () => {
       {
         confirm: () =>
           err(
-            serviceUnavailable(
-              'the ONRC registry publication or company access changed during the request; retry'
-            )
+            serviceUnavailable('the access of the served identities could not be rechecked; retry')
           ),
       }
     );
@@ -222,7 +229,7 @@ describe('search_entities — structured envelope', () => {
     expect(res).toEqual({
       ok: false,
       kind: 'entity_search',
-      error: 'the ONRC registry publication or company access changed during the request; retry',
+      error: 'the access of the served identities could not be rechecked; retry',
     });
   });
 
@@ -232,11 +239,11 @@ describe('search_entities — structured envelope', () => {
     expect(res.items).toEqual([]);
     expect(res.meta).toMatchObject({
       companyScope: SCOPE_B,
-      companyContribution: 'partial',
+      companyContribution: 'unavailable',
       companyContributionReason: 'generation_scope_stale',
     });
     expect(res.summary).not.toContain('No entities matched');
-    expect(res.summary).toContain('PARTIAL (generation_scope_stale)');
+    expect(res.summary).toContain('UNAVAILABLE (generation_scope_stale)');
     expect(res.summary).toContain('NOT evidence that no such company exists');
   });
 
@@ -303,11 +310,8 @@ describe('search_entities — structured envelope', () => {
     expect(third.summary).toBe(NO_FURTHER_LATER_PAGE('acme'));
     expect(third.summary).not.toContain('No entities matched');
     // Every page ran its final check.
-    expect(companies.confirmations).toEqual([
-      { scopeKey: SCOPE_A, cuis: [] },
-      { scopeKey: SCOPE_A, cuis: ['43'] },
-      { scopeKey: SCOPE_A, cuis: [] },
-    ]);
+    expect(companies.confirmations).toEqual([]);
+    expect(companies.accessReads).toBeGreaterThan(1);
   });
 
   it('summarizes a no-match search', async () => {
@@ -368,10 +372,8 @@ describe('search_entities — an empty page states only what that page shows', (
     });
     expect(second.summary).toBe(NO_FURTHER_LATER_PAGE('acme'));
     expect(second.summary).not.toContain('No entities matched');
-    expect(companies.confirmations).toEqual([
-      { scopeKey: SCOPE_A, cuis: ['42'] },
-      { scopeKey: SCOPE_A, cuis: [] },
-    ]);
+    expect(companies.confirmations).toEqual([]);
+    expect(companies.accessReads).toBeGreaterThan(1);
   });
 
   it('a full but withheld page at the offset bound never claims the candidates exhausted', async () => {
@@ -398,7 +400,8 @@ describe('search_entities — an empty page states only what that page shows', (
       continuation: { candidatesReturned: 50, nextOffset: null },
     });
     // The final check ran and passed (nothing served).
-    expect(companies.confirmations).toEqual([{ scopeKey: SCOPE_A, cuis: [] }]);
+    expect(companies.confirmations).toEqual([]);
+    expect(companies.accessReads).toBeGreaterThan(1);
     expect(res.summary).toBe(NO_FURTHER_LATER_PAGE('acme'));
     expect(res.summary).not.toMatch(/exhausted|No entities matched/u);
   });
@@ -433,11 +436,11 @@ describe('search_entities — an empty page states only what that page shows', (
     });
     const res = await tool.handler({ query: 'acme', limit: 1, offset: 1 });
     expect(res.meta).toMatchObject({
-      companyContribution: 'partial',
+      companyContribution: 'unavailable',
       companyContributionReason: 'generation_scope_stale',
     });
     expect(res.summary).toBe(
-      `${NO_FURTHER_LATER_PAGE('acme')} The company part of this search is PARTIAL (generation_scope_stale): company results may be missing, so this is NOT evidence that no such company exists.`
+      `${NO_FURTHER_LATER_PAGE('acme')} The company part of this search is UNAVAILABLE (generation_scope_stale): company results may be missing, so this is NOT evidence that no such company exists.`
     );
     expect(res.summary).not.toContain('No entities matched');
   });
@@ -483,7 +486,7 @@ describe('search_entities — privacy whitelist (no visibility / no raw attrs le
     expect(item['docId']).toBe('organization:42');
     expect(item['title']).toBe('PRIMARIA ACME');
     expect(item['subtitle']).toBe('CUI 42 · Cluj');
-    expect(item['countyName']).toBe('Cluj');
+    expect(item['countyName']).toBe('Bihor');
     expect(item['cuis']).toEqual(['42']);
   });
 

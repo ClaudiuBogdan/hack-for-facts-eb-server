@@ -122,7 +122,23 @@ export const recordingCompanies = (opts: {
   const confirmations: { scopeKey: string; cuis: readonly string[] }[] = [];
   const state = { parents: { ...(opts.parents ?? {}) } as Record<string, SearchCuiParent> };
   const scopes = opts.scopes ?? [{ scopeKey: SCOPE_A, published: true }];
+  let accessReads = 0;
   const port: SearchCompanyContributionPort = {
+    readAccessSnapshot: () => {
+      accessReads += 1;
+      if (opts.failHydrate === true || (accessReads > 1 && opts.confirm?.().isErr() === true))
+        return null;
+      const scope = scopes[Math.min(accessReads - 1, scopes.length - 1)] ?? scopes[0]!;
+      return {
+        ...scope,
+        privateCuis: new Set(
+          Object.entries(state.parents)
+            .filter(([, parent]) => parent.kind === 'private')
+            .map(([cui]) => cui)
+        ),
+        privateInstitutionCuis: new Set<string>(),
+      };
+    },
     hydrate: async (cuis, withValues) => {
       hydrations.push({ cuis: [...cuis], withValues });
       if (opts.failHydrate === true) return err(databaseError('company search hydration failed'));
@@ -138,7 +154,15 @@ export const recordingCompanies = (opts: {
       return opts.confirm?.() ?? ok(undefined);
     },
   };
-  return { port, hydrations, confirmations, state };
+  return {
+    port,
+    hydrations,
+    confirmations,
+    state,
+    get accessReads() {
+      return accessReads;
+    },
+  };
 };
 
 /** The current values of CUI 123 (hydrated: what the database says now). */

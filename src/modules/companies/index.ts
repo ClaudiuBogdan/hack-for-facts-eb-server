@@ -32,6 +32,7 @@ import { makeCompanyAnalysisMcpTools } from './shell/mcp/analytics-tools.js';
 import { makeCompaniesMcpTools } from './shell/mcp/tools.js';
 import { makeCompaniesRepo } from './shell/repo/companies-repo.js';
 import { makeCompanySearchReader } from './shell/repo/search-contribution-sql.js';
+import { makeDatabaseSearchAccessCache } from './shell/search-access-cache.js';
 
 import type { CompanyAnalysisContext } from './core/analytics-usecases.js';
 import type { CompaniesRepository } from './core/ports.js';
@@ -89,6 +90,7 @@ export interface CompaniesModule {
 }
 
 export const makeCompaniesModule = (deps: CompaniesModuleDeps): CompaniesModule => {
+  const searchAccess = makeDatabaseSearchAccessCache(deps.db);
   const repo = makeCompaniesRepo(deps.db, {
     ...(deps.meiliEntitiesIndex !== undefined && {
       meiliEntitiesIndex: deps.meiliEntitiesIndex,
@@ -148,8 +150,12 @@ export const makeCompaniesModule = (deps: CompaniesModuleDeps): CompaniesModule 
       ...makeCompanyAnalysisMcpTools({ analytics, clientBaseUrl }),
     ],
     contributor,
-    searchContribution: makeCompanySearchContribution(repo, makeCompanySearchReader(deps.db)),
+    searchContribution: {
+      ...makeCompanySearchContribution(repo, makeCompanySearchReader(deps.db)),
+      readAccessSnapshot: () => searchAccess.read(),
+    },
     close: () => {
+      searchAccess.close();
       reader?.close();
     },
   };

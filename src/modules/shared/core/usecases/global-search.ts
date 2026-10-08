@@ -15,40 +15,13 @@
  *    Meili's "return everything" default never leaks. It is a syntactic
  *    no-search, never a proven zero (`companyContribution: unavailable`).
  *
- * THE COMPANY CONTRIBUTION (scrapper `search-generation-control-contract.md` §6).
- * The index is candidate retrieval, never label or access authority:
- *  1. WITNESS. The index's reserved generation-control document is read by
- *     exact ID before AND after the candidate fetch (also for an empty page).
- *     Both valid and equal → the generation and the registry scope it was
- *     built for are witnessed. A swap between the reads is retried once, then
- *     the company contribution is unavailable. A missing, unreadable, other-
- *     version or malformed control is never a witness.
- *  2. CANDIDATE CACHE. Only the engine's candidate answer is cached, keyed by
- *     the witnessed generation + registry scope and the normalized query. No
- *     final answer is cached: hydration below runs for every request. A warm
- *     hit still takes BOTH control reads fresh (its stored after-read is
- *     history), so a swap during a cache return is seen and retried.
- *  3. FRESH HYDRATION (outside any cache). The companies module, injected at
- *     composition, captures the request's company scope once and, for the at
- *     most 50 CUI identities of the page (any canonical CUI key, short ones
- *     such as `1` included: the PRIVACY population), classifies the core
- *     parent (a known private one withholds the candidate, whatever role it
- *     plays) and reads the current company values (only for the ONRC company
- *     shape, 2–10 digits). An identity key that is neither a canonical CUI
- *     nor a namespaced key of another domain is withheld, never guessed.
- *     Index `doc_type`/`roles` never prove that a CUI has no company
- *     contribution.
- *  4. OWNERSHIP. Company-owned values are served only from that hydration: a
- *     `company` document's title/subtitle/snippet/display attrs, and for an
- *     identity with a company parent its county, identifiers, activity term
- *     and ranking boost. Other roles' titles, links, tags and order stay when
- *     they can be told apart (a witnessed `palette-company-v1` generation);
- *     otherwise only what is independent for certain stays.
- *  5. STATE. `current` when the witnessed scope equals the fresh published
- *     scope; `partial` when both are published but differ (fresh values, stale
- *     recall); `unavailable` otherwise. Never a healthy current zero.
- *  6. FINAL CHECK. `confirmGlobalSearchServed` is run by the surfaces at their
- *     serialization boundary (GraphQL owning-result guard, MCP eagerly).
+ * Search labels and company values come from a witnessed Meili generation.
+ * The companies module refreshes a read-only access snapshot in the background
+ * once per minute; it expires within the user-approved three-minute bound.
+ * Search and final serialization read memory only, never hydrate or query PG.
+ * Missing/expired access or an unwitnessed generation withholds CUI identities;
+ * a source-scope change withholds company-owned values until a new generation.
+ * Candidate caching, source-role separation, and honest outage behavior remain.
  *
  * THE DEGRADE PATH, AND WHY IT SHRANK (SEARCH_LAYER_REVIEW_2026-08-25.md D5).
  * The fallback used to be `title/body/doc_id ILIKE '%q%'` over the 13.8M-row
@@ -80,6 +53,7 @@ import {
   validEntityTags,
 } from '../filters/meili-array.js';
 import { searchQueryProblem, type SearchPolicy } from '../filters/search-policy.js';
+import { projectedCompanyValues } from '../projected-company-values.js';
 import {
   PALETTE_GENERATION_CONTROL_ID,
   readGenerationControl,
@@ -719,39 +693,59 @@ export const makeGlobalSearch = async (
   if (answer === undefined) return degradedAnswer();
 
   const candidates = answer.hits.filter(isPublicCandidate);
-  // The privacy batch: every canonical CUI identity of the page, any role.
-  const cuis = servedIdentityCuis(candidates);
-  // FRESH, for every request (empty pages and cache hits included).
-  const hydration =
-    deps.companySearch === undefined
-      ? null
-      : await deps.companySearch.hydrate(cuis, witness.witnessed);
-
-  let context: ServingContext;
-  let reason: SearchCompanyContributionReason | null;
-  let companyScope: string | null = null;
-  if (hydration === null || hydration.isErr()) {
-    context = { state: 'unavailable', parents: null, separable: false };
-    reason = 'company_check_unavailable';
-  } else {
-    const fresh = hydration.value;
-    companyScope = fresh.scopeKey;
-    let state: SearchCompanyContribution;
-    if (!witness.witnessed) {
-      state = 'unavailable';
-      reason = witness.reason;
-    } else if (!fresh.published) {
-      state = 'unavailable';
-      reason = 'registry_not_published';
-    } else if (witness.control.registryScopeKey === fresh.scopeKey) {
-      state = 'current';
-      reason = null;
-    } else {
-      state = 'partial';
-      reason = 'generation_scope_stale';
+  // Data is served from Meili; access policy is refreshed independently in the background.
+  const access = deps.companySearch?.readAccessSnapshot?.() ?? null;
+  const parents = new Map<string, SearchCuiParent>();
+  let malformed = false;
+  const current =
+    access !== null &&
+    access.published &&
+    witness.witnessed &&
+    witness.control.registryScopeKey === access.scopeKey;
+  for (const hit of candidates) {
+    const key = identityKeyOf(hit);
+    if (key.kind !== 'cui') continue;
+    if (access?.privateCuis.has(key.cui) === true) {
+      parents.set(key.cui, { kind: 'private' });
+      continue;
     }
-    context = { state, parents: fresh.parents, separable: witness.witnessed };
+    const projected = projectedCompanyValues(hit);
+    if (projected === undefined || (projected !== null && key.cui.length < 2)) {
+      malformed = true;
+      continue;
+    }
+    parents.set(
+      key.cui,
+      projected === null
+        ? { kind: 'none' }
+        : {
+            kind: 'company',
+            values: current ? projected : null,
+            independentCountyName:
+              current &&
+              projected.countyCode === null &&
+              !access.privateInstitutionCuis.has(key.cui)
+                ? (hit.countyName ?? null)
+                : null,
+          }
+    );
   }
+  const companyScope = access?.scopeKey ?? null;
+  const context: ServingContext = {
+    state: current && !malformed ? 'current' : 'unavailable',
+    parents: access !== null && witness.witnessed ? parents : null,
+    separable: witness.witnessed,
+  };
+  const reason: SearchCompanyContributionReason | null =
+    current && !malformed
+      ? null
+      : access === null || malformed
+        ? 'company_check_unavailable'
+        : !witness.witnessed
+          ? witness.reason
+          : !access.published
+            ? 'registry_not_published'
+            : 'generation_scope_stale';
 
   const hits = candidates.flatMap((hit) => serveCandidate(hit, context) ?? []);
   const facets = toFacets(answer.facetDistribution);
@@ -801,6 +795,7 @@ const COMPANY_CHECK_NOT_TAKEN_MESSAGE =
  * without a captured scope served no CUI identity, so there is nothing to
  * recheck; one that did would be refused (never a pass without a read).
  */
+
 export const confirmGlobalSearchServed = async (
   deps: Pick<GlobalSearchDeps, 'companySearch'>,
   result: GlobalSearchResult
@@ -811,8 +806,9 @@ export const confirmGlobalSearchServed = async (
       ? ok(undefined)
       : err(serviceUnavailable(COMPANY_CHECK_NOT_TAKEN_MESSAGE));
   }
-  if (deps.companySearch === undefined) {
+  const access = await Promise.resolve(deps.companySearch?.readAccessSnapshot?.() ?? null);
+  if (access?.scopeKey !== result.companyScope || cuis.some((cui) => access.privateCuis.has(cui))) {
     return err(serviceUnavailable(COMPANY_CHECK_NOT_TAKEN_MESSAGE));
   }
-  return deps.companySearch.confirm(result.companyScope, cuis);
+  return ok(undefined);
 };

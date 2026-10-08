@@ -206,6 +206,7 @@ export const makeKernel = async (config: KernelConfig): Promise<Kernel> => {
   const notConfigured = (): ApiError =>
     serviceUnavailable('the company search contribution is not configured');
   const companySearchDelegate: SearchCompanyContributionPort = {
+    readAccessSnapshot: () => companySearch?.readAccessSnapshot?.() ?? null,
     hydrate: async (cuis, withValues) =>
       companySearch === undefined ? err(notConfigured()) : companySearch.hydrate(cuis, withValues),
     confirm: async (scopeKey, cuis) =>
