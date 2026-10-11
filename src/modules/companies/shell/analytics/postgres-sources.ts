@@ -19,8 +19,9 @@
  * batch per source and never cached (a cached label could outlive its row's
  * publicity): company names under the same publication rule as the profile
  * pages (`core.organizations`, kind company, public, ≤10-digit CUI), county/UAT
- * names from public `core.territories` rows, CAEN labels only for a KNOWN
- * revision (`caen_<revision>`). Status labels are not read here (the API
+ * names from public `core.territories` rows, and CAEN catalog descriptions
+ * qualified by revision (unknown source revisions retain all candidates).
+ * Status labels are not read here (the API
  * nomenclature, in core): `companies_v2.registrations` is never queried.
  * Nothing here writes.
  */
@@ -357,7 +358,30 @@ export const makeAnalyticsLabelSource = (db: Db, logger?: Logger): CompanyAnalys
         return result.rows;
       }),
 
-    // The CAEN catalog carries no privacy class; labels only for known revisions.
+    caenDescriptions: async (codes) => {
+      try {
+        const result = await sql<{ code: string; revision: string; label: string | null }>`
+          select cc.code, substring(cc.system from 6) as revision, cc.label
+          from core.classification_codes cc
+          where ${inList('cc.code', [...new Set(codes)])}
+            and cc.system in ('caen_rev0', 'caen_rev1', 'caen_rev2', 'caen_rev3')
+          order by cc.code, cc.system`.execute(db);
+        const candidates = new Map<
+          string,
+          import('../../core/caen-descriptions.js').CaenCatalogDescription[]
+        >();
+        for (const row of result.rows) {
+          const values = candidates.get(row.code) ?? [];
+          values.push({ revision: row.revision, label: row.label });
+          candidates.set(row.code, values);
+        }
+        return ok(candidates);
+      } catch (cause) {
+        return err(failed('caenDescriptions', cause));
+      }
+    },
+
+    // Exact known-revision labels remain available to existing callers.
     caenLabels: (keys: readonly CaenLabelKey[]) =>
       read('caenLabels', async () => {
         const result = await sql<{ key: string; label: string | null }>`

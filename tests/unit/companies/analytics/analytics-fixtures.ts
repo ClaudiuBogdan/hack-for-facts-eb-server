@@ -696,6 +696,23 @@ export const fakeLabels = (
       calls.push(`uats:${sirutas.join(',')}`);
       return map(sirutas, { '54975': 'Cluj-Napoca' });
     },
+    caenDescriptions(codes) {
+      calls.push(`caenDescriptions:${codes.join(',')}`);
+      return Promise.resolve(
+        ok(
+          new Map(
+            codes.map((code) => [
+              code,
+              Object.entries(caen).flatMap(([key, label]) =>
+                key.endsWith(`:${code}`)
+                  ? [{ revision: key.slice(0, key.indexOf(':')), label }]
+                  : []
+              ),
+            ])
+          )
+        )
+      );
+    },
     caenLabels(keys) {
       calls.push(`caen:${keys.map((k) => `${k.revision}:${k.code}`).join(',')}`);
       return map(

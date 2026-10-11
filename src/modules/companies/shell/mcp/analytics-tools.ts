@@ -192,7 +192,7 @@ export const makeCompanyAnalysisMcpTools = (
   const aggregateTool: KernelMcpTool = {
     name: 'aggregate_companies',
     description:
-      'Exact companies analytics over ONE scope (OR within a field, AND across fields) on a pinned release: shape=stats (population, filers, metric sums/contributors/coverage), breakdown (top groups + other + unknown = stats; COUNTY/UAT/OBSERVED_STATUS groups are the edition consensus value or an explicit basis group such as "(multiple_values)", each company once), series (annual points, cohortMode EACH_YEAR or REFERENCE_YEAR, gaps named), records (matching companies ranked by a metric, NULLS LAST, cursor pages; onrcRecordedDate is the date ONRC recorded, never a founding date). Money is exact RON decimal strings; EMPLOYEES are summed reported average headcounts (not people); balances/headcounts are never added across years. Company keys are release-snapshot attributes of one pinned ONRC edition, not fiscal-year history; MAIN_CAEN/mainCaen is ANAF.',
+      'Exact companies analytics over ONE scope (OR within a field, AND across fields) on a pinned release: shape=stats (population, filers, metric sums/contributors/coverage), breakdown (top groups + other + unknown = stats; COUNTY/UAT/OBSERVED_STATUS groups are the edition consensus value or an explicit basis group such as "(multiple_values)", each company once), series (annual points, cohortMode EACH_YEAR or REFERENCE_YEAR, gaps named), records (matching companies ranked by a metric, NULLS LAST, cursor pages; onrcRecordedDate is the date ONRC recorded, never a founding date). Money is exact RON decimal strings; EMPLOYEES are summed reported average headcounts (not people); balances/headcounts are never added across years. Company keys are release-snapshot attributes of one pinned ONRC edition, not fiscal-year history; MAIN_CAEN/mainCaen is ANAF. CAEN descriptionStatus distinguishes EXACT, CONSENSUS, CONFLICT and MISSING; descriptions are catalog candidates, never inferred source revisions. CONFLICT retains a NULL scalar label and every revision-qualified alternative.',
     strictInput: true,
     inputShape: {
       shape: z.enum(['stats', 'breakdown', 'series', 'records']),
@@ -255,7 +255,7 @@ export const makeCompanyAnalysisMcpTools = (
                 `${String(b.groupCount)} ${b.dimension} group(s), ranked by ${b.rankedBy}` +
                 (top === undefined
                   ? ''
-                  : `; top ${top.label ?? top.key ?? ''} (${top.companies} companies)`) +
+                  : `; top ${top.key ?? ''}${top.label === null ? '' : ` · ${top.label}`}${top.caen?.descriptionStatus === 'CONFLICT' ? ' (descriptions differ by catalog revision)' : ''} (${top.companies} companies)`) +
                 `; unknown ${b.unknown.companies}, other ${b.other.companies}.`
               );
             },

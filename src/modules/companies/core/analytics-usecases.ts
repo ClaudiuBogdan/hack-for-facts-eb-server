@@ -97,11 +97,15 @@ import {
   type CompanyAnalysisStats,
   type CompanyAnalysisStatus,
 } from './analytics-types.js';
+import {
+  resolveCaenDescriptions,
+  type CaenCatalogDescription,
+  type CaenDescriptionResolution,
+} from './caen-descriptions.js';
 import { COMPANY_STATUS_NOMENCLATURE } from './filters.js';
 
 import type {
   AnalyticsCurrentState,
-  CaenLabelKey,
   CompanyAnalysisEngine,
   CompanyAnalysisLabelSource,
   CompanyAnalysisReleaseSource,
@@ -632,7 +636,7 @@ export const companyAnalysisStats = async (
 interface GroupValue {
   /** null = the unknown group. */
   readonly key: string | null;
-  readonly caen: Omit<CompanyAnalysisCaenValue, 'label'> | null;
+  readonly caen: Pick<CompanyAnalysisCaenValue, 'code' | 'revision' | 'basis'> | null;
   /** A consensus dimension's basis bucket (no consensus value). */
   readonly basis: CompanyAnalysisOnrcBasis | null;
 }
@@ -691,11 +695,11 @@ const caenValue = (
   basis: string | null,
   revision: string | null,
   code: string | null
-): Result<Omit<CompanyAnalysisCaenValue, 'label'> | null, ApiError> => {
+): Result<Pick<CompanyAnalysisCaenValue, 'code' | 'revision' | 'basis'> | null, ApiError> => {
   if (basis === CAEN_BASIS_VALUE.MISSING || code === null) return ok(null);
   if (basis === CAEN_BASIS_VALUE.REVISION_KNOWN && revision !== null)
     return ok({ code, revision, basis: 'REVISION_KNOWN' });
-  // Unknown revision stays unknown: never matched to a catalog revision.
+  // Unknown source revision stays unknown; catalog descriptions never assign it.
   if (basis === CAEN_BASIS_VALUE.REVISION_UNKNOWN)
     return ok({ code, revision: null, basis: 'REVISION_UNKNOWN' });
   return err(invariant(`main CAEN basis ${String(basis)} is inconsistent with its revision`));
@@ -799,6 +803,7 @@ const compareGroups =
 interface BucketLabel {
   readonly label: string | null;
   readonly labelSource: string | null;
+  readonly caenDescription?: CaenDescriptionResolution;
 }
 
 const NO_LABEL: BucketLabel = { label: null, labelSource: null };
@@ -808,14 +813,20 @@ const bucketOf = (
   group: GroupAcc,
   groups: number,
   metric: CompanyAnalysisMetric | null,
-  { label, labelSource }: BucketLabel
+  { label, labelSource, caenDescription }: BucketLabel
 ): CompanyAnalysisBucket => ({
   kind,
   key: kind === 'GROUP' ? group.value.key : null,
   label,
   labelSource,
   basis: kind === 'GROUP' ? group.value.basis : null,
-  caen: kind === 'GROUP' && group.value.caen !== null ? { ...group.value.caen, label } : null,
+  caen:
+    kind === 'GROUP' && group.value.caen !== null
+      ? {
+          ...group.value.caen,
+          ...(caenDescription ?? resolveCaenDescriptions(group.value.caen.revision, [])),
+        }
+      : null,
   groups,
   companies: group.companies.toString(),
   filers: group.filers.toString(),
@@ -849,15 +860,9 @@ const groupLabels = async (
       return labels.uatLabels(keys);
     case 'OBSERVED_STATUS':
       return ok(nomenclatureLabels(keys));
-    case 'MAIN_CAEN': {
-      const known: CaenLabelKey[] = [];
-      for (const g of groups) {
-        const caen = g.value.caen;
-        if (caen !== null && caen.revision !== null)
-          known.push({ revision: caen.revision, code: caen.code });
-      }
-      return known.length === 0 ? ok(new Map()) : labels.caenLabels(known);
-    }
+    case 'MAIN_CAEN':
+      // The separate candidate batch keeps scalar labels and revision conflicts together.
+      return ok(new Map());
     default:
       return ok(new Map());
   }
@@ -972,6 +977,16 @@ export const companyAnalysisBreakdown = async (
 
   const labels = await groupLabels(ctx.labels, dimension.value, top);
   if (labels.isErr()) return err(labels.error);
+  const emptyCaen: ReadonlyMap<string, readonly CaenCatalogDescription[]> = new Map();
+  const caenCatalog =
+    dimension.value === 'MAIN_CAEN' && top.length > 0
+      ? await ctx.labels.caenDescriptions([
+          ...new Set(
+            top.flatMap((group) => (group.value.caen === null ? [] : [group.value.caen.code]))
+          ),
+        ])
+      : ok(emptyCaen);
+  if (caenCatalog.isErr()) return err(caenCatalog.error);
   const labelSource =
     dimension.value === 'COUNTY' || dimension.value === 'UAT'
       ? LABEL_SOURCE.territory
@@ -981,12 +996,18 @@ export const companyAnalysisBreakdown = async (
   const labelOf = (group: GroupAcc): BucketLabel => {
     const value = group.value;
     if (value.key === null || value.basis !== null) return NO_LABEL;
-    const label =
-      value.caen !== null
-        ? value.caen.revision === null
-          ? null
-          : (labels.value.get(caenKey(value.caen.revision, value.caen.code)) ?? null)
-        : (labels.value.get(value.key) ?? null);
+    if (value.caen !== null) {
+      const caenDescription = resolveCaenDescriptions(
+        value.caen.revision,
+        caenCatalog.value.get(value.caen.code) ?? []
+      );
+      return {
+        label: caenDescription.label,
+        labelSource: caenDescription.label === null ? null : labelSource,
+        caenDescription,
+      };
+    }
+    const label = labels.value.get(value.key) ?? null;
     return label === null ? NO_LABEL : { label, labelSource };
   };
 
@@ -1274,7 +1295,7 @@ const mapRecord = (
     readonly counties: ReadonlyMap<string, string>;
     readonly uats: ReadonlyMap<string, string>;
     readonly statuses: ReadonlyMap<string, string>;
-    readonly caen: ReadonlyMap<string, string>;
+    readonly caen: ReadonlyMap<string, CaenDescriptionResolution>;
   }
 ): Result<CompanyAnalysisRecord, ApiError> => {
   const vat = flagOf(row.vatPayer);
@@ -1355,10 +1376,8 @@ const mapRecord = (
         ? null
         : {
             ...caen.value,
-            label:
-              caen.value.revision === null
-                ? null
-                : (labels.caen.get(caenKey(caen.value.revision, caen.value.code)) ?? null),
+            ...(labels.caen.get(caenKey(caen.value.revision, caen.value.code)) ??
+              resolveCaenDescriptions(caen.value.revision, [])),
           },
     filed: row.filed,
     employeeSizeBand: sizeBand,
@@ -1451,15 +1470,8 @@ export const companyAnalysisRecords = async (
   const page = rows.value.slice(0, pageSize);
   const unique = (values: readonly (string | null)[]): readonly string[] =>
     [...new Set(values)].filter((v): v is string => v !== null);
-  const caenKeys: CaenLabelKey[] = [];
-  for (const row of page) {
-    if (
-      row.caenBasis === CAEN_BASIS_VALUE.REVISION_KNOWN &&
-      row.caenRevision !== null &&
-      row.caenCode !== null
-    )
-      caenKeys.push({ revision: row.caenRevision, code: row.caenCode });
-  }
+  const caenCodes = unique(page.map((row) => row.caenCode));
+  const emptyCaen: ReadonlyMap<string, readonly CaenCatalogDescription[]> = new Map();
   const empty: ReadonlyMap<string, string> = new Map();
   const batch = (
     keys: readonly string[],
@@ -1472,7 +1484,9 @@ export const companyAnalysisRecords = async (
     batch(unique(page.map((r) => r.cui)), (keys) => ctx.labels.companyNames(keys)),
     batch(unique(page.map((r) => r.countyCode)), (keys) => ctx.labels.countyLabels(keys)),
     batch(unique(page.map((r) => r.uatSiruta)), (keys) => ctx.labels.uatLabels(keys)),
-    caenKeys.length === 0 ? Promise.resolve(ok(empty)) : ctx.labels.caenLabels(caenKeys),
+    caenCodes.length === 0
+      ? Promise.resolve(ok(emptyCaen))
+      : ctx.labels.caenDescriptions(caenCodes),
   ]);
   for (const result of [names, counties, uats, caen]) {
     if (result.isErr()) return err(result.error);
@@ -1482,7 +1496,21 @@ export const companyAnalysisRecords = async (
     counties: counties.unwrapOr(empty),
     uats: uats.unwrapOr(empty),
     statuses: nomenclatureLabels(unique(page.map((r) => r.statusCode))),
-    caen: caen.unwrapOr(empty),
+    caen: new Map(
+      page.flatMap((row) =>
+        row.caenCode === null
+          ? []
+          : [
+              [
+                caenKey(row.caenRevision, row.caenCode),
+                resolveCaenDescriptions(
+                  row.caenRevision,
+                  caen.unwrapOr(emptyCaen).get(row.caenCode) ?? []
+                ),
+              ] as const,
+            ]
+      )
+    ),
   };
 
   const edges: { cursor: string; node: CompanyAnalysisRecord }[] = [];

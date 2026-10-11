@@ -228,6 +228,15 @@ export interface CompanyAnalysisLabelSource {
   companyNames(cuis: readonly string[]): Promise<Result<ReadonlyMap<string, string>, ApiError>>;
   countyLabels(codes: readonly string[]): Promise<Result<ReadonlyMap<string, string>, ApiError>>;
   uatLabels(sirutas: readonly string[]): Promise<Result<ReadonlyMap<string, string>, ApiError>>;
-  /** Keyed `${revision}:${code}`; only revision-known codes are ever asked. */
+  /** All catalog candidates for each code; descriptive evidence never assigns a source revision. */
+  caenDescriptions(
+    codes: readonly string[]
+  ): Promise<
+    Result<
+      ReadonlyMap<string, readonly import('./caen-descriptions.js').CaenCatalogDescription[]>,
+      ApiError
+    >
+  >;
+  /** Exact known-revision lookup, keyed `${revision}:${code}`. */
   caenLabels(keys: readonly CaenLabelKey[]): Promise<Result<ReadonlyMap<string, string>, ApiError>>;
 }

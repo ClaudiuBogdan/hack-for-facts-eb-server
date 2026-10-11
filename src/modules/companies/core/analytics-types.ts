@@ -596,6 +596,8 @@ export interface CompanyAnalysisCaenValue {
   readonly revision: string | null;
   readonly basis: CompanyAnalysisCaenBasis;
   readonly label: string | null;
+  readonly descriptionStatus: import('./caen-descriptions.js').CaenDescriptionStatus;
+  readonly descriptions: readonly import('./caen-descriptions.js').CaenCatalogDescription[];
 }
 
 export interface CompanyAnalysisBucket {

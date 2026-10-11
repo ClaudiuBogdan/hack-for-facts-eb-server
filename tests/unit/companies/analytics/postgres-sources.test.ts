@@ -327,3 +327,28 @@ describe('companies analytics labels', () => {
     });
   });
 });
+
+describe('CAEN catalog candidates', () => {
+  it('retains every revision and blank row rather than dropping evidence needed for conflict resolution', async () => {
+    const recorder: Recorder = {
+      queries: [],
+      parameters: [],
+      rowsFor: () => [
+        { code: '4100', revision: 'rev0', label: null },
+        { code: '4100', revision: 'rev1', label: 'Captarea, tratarea și distribuția apei' },
+        { code: '4100', revision: 'rev3', label: 'Lucrări de construcții ale clădirilor' },
+      ],
+    };
+    const rows = (
+      await makeAnalyticsLabelSource(makeFakeDb(recorder)).caenDescriptions(['4100', '4100'])
+    )._unsafeUnwrap();
+    expect(rows.get('4100')).toEqual([
+      { revision: 'rev0', label: null },
+      { revision: 'rev1', label: 'Captarea, tratarea și distribuția apei' },
+      { revision: 'rev3', label: 'Lucrări de construcții ale clădirilor' },
+    ]);
+    expect(recorder.queries).toHaveLength(1);
+    expect(recorder.queries[0]).toContain("'caen_rev0', 'caen_rev1', 'caen_rev2', 'caen_rev3'");
+    expect(recorder.parameters?.[0]).toEqual(['["4100"]']);
+  });
+});

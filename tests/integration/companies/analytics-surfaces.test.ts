@@ -131,6 +131,11 @@ const BUCKET = /* GraphQL */ `
       revision
       basis
       label
+      descriptionStatus
+      descriptions {
+        revision
+        label
+      }
     }
     groups
     companies
@@ -253,7 +258,7 @@ describe('companies analytics GraphQL and MCP surfaces', () => {
           uat { code label labelSource } uatBasis
           observedStatus { code label labelSource } observedStatusBasis observedStatusCoverage
           onrcCaenCoverage onrcRecordedDate onrcRecordedYear onrcRecordedDateBasis
-          mainCaen { code revision basis label }
+          mainCaen { code revision basis label descriptionStatus descriptions { revision label } }
           values { metric value status }
         }
       }`;
@@ -400,5 +405,63 @@ describe('companies analytics GraphQL and MCP surfaces', () => {
     });
     await dispatcher.close();
     expect(JSON.stringify(response)).not.toContain('"ok":true');
+  });
+});
+
+describe('revision-safe CAEN GraphQL presentation', () => {
+  it('keeps an exact revision separate from an unknown-revision conflict on the actual GraphQL transport', async () => {
+    const analytics = analyticsDeps(
+      makeInMemoryEngine(DATASET.companies, DATASET.statements, [7]),
+      fakeReleases(ACTIVE),
+      fakeLabels({}, { 'rev2:6201': 'Denumirea Rev.2', 'rev3:6201': 'Denumirea Rev.3' })
+    );
+    const app = await buildGraphql(analytics);
+    try {
+      const response = await gql(
+        app,
+        `query { companyAnalysisBreakdown(dimension: MAIN_CAEN) { groups { key caen { code revision basis label descriptionStatus descriptions { revision label } } } } }`
+      );
+      expect(response.errors).toBeUndefined();
+      const breakdown = response.data?.['companyAnalysisBreakdown'] as {
+        groups: { key: string; caen: unknown }[];
+      };
+      expect(breakdown.groups.find((group) => group.key === 'rev2:6201')?.caen).toEqual({
+        code: '6201',
+        revision: 'rev2',
+        basis: 'REVISION_KNOWN',
+        label: 'Denumirea Rev.2',
+        descriptionStatus: 'EXACT',
+        descriptions: [{ revision: 'rev2', label: 'Denumirea Rev.2' }],
+      });
+      expect(breakdown.groups.find((group) => group.key === '?:6201')?.caen).toEqual({
+        code: '6201',
+        revision: null,
+        basis: 'REVISION_UNKNOWN',
+        label: null,
+        descriptionStatus: 'CONFLICT',
+        descriptions: [
+          { revision: 'rev2', label: 'Denumirea Rev.2' },
+          { revision: 'rev3', label: 'Denumirea Rev.3' },
+        ],
+      });
+      const recordsResponse = await gql(
+        app,
+        `query { companyAnalysisRecords(first: 100) { edges { node { mainCaen { code revision basis label descriptionStatus descriptions { revision label } } } } } }`
+      );
+      expect(recordsResponse.errors).toBeUndefined();
+      const records = recordsResponse.data?.['companyAnalysisRecords'] as {
+        edges: { node: { mainCaen: { code: string; revision: string | null } | null } }[];
+      };
+      for (const key of ['rev2:6201', '?:6201']) {
+        const revision = key.startsWith('?') ? null : 'rev2';
+        expect(
+          records.edges.find(
+            ({ node }) => node.mainCaen?.code === '6201' && node.mainCaen.revision === revision
+          )?.node.mainCaen
+        ).toEqual(breakdown.groups.find((group) => group.key === key)?.caen);
+      }
+    } finally {
+      await app.close();
+    }
   });
 });

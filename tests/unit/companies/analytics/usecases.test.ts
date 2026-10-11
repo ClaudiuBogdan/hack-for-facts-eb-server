@@ -310,7 +310,7 @@ describe('companyAnalysisBreakdown', () => {
     });
   });
 
-  it('keeps an unknown CAEN revision unknown: own key, no catalog label', async () => {
+  it('keeps revision-specific keys while adding unanimous descriptive evidence', async () => {
     const { deps, labels } = setup();
     const b = (await companyAnalysisBreakdown(deps, { dimension: 'MAIN_CAEN' }))._unsafeUnwrap();
     const unknownRevision = b.groups.find((g) => g.key === '?:6201');
@@ -319,11 +319,16 @@ describe('companyAnalysisBreakdown', () => {
       code: '6201',
       revision: null,
       basis: 'REVISION_UNKNOWN',
-      label: null,
+      label: 'Activități de realizare a soft-ului la comandă',
+      descriptionStatus: 'CONSENSUS',
+      descriptions: [{ revision: 'rev2', label: 'Activități de realizare a soft-ului la comandă' }],
     });
-    expect(unknownRevision?.label).toBeNull();
+    expect(unknownRevision?.label).toBe('Activități de realizare a soft-ului la comandă');
     expect(knownRevision?.caen?.label).toBe('Activități de realizare a soft-ului la comandă');
-    expect(labels.calls.filter((c) => c.startsWith('caen:'))).toEqual(['caen:rev2:6201']);
+    expect(labels.calls.filter((c) => c.startsWith('caenDescriptions:'))).toEqual([
+      'caenDescriptions:6201',
+    ]);
+    expect(knownRevision?.key).not.toBe(unknownRevision?.key);
     // basis 'missing' is the unknown group.
     expect(b.unknown.companies).toBe('1');
   });

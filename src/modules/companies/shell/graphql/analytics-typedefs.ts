@@ -376,13 +376,27 @@ export const companyAnalysisTypeDefs = /* GraphQL */ `
     caveats: [String!]!
   }
 
+  enum CompanyAnalysisCaenDescriptionStatus {
+    EXACT
+    CONSENSUS
+    CONFLICT
+    MISSING
+  }
+  type CompanyAnalysisCaenDescription {
+    "The catalog revision of this candidate, never an inferred source revision."
+    revision: String!
+    label: String
+  }
   type CompanyAnalysisCaen {
     code: String!
     "Null when ANAF published no revision."
     revision: String
     basis: CompanyAnalysisCaenBasis!
-    "Catalog label; only for a known revision."
+    "Exact known-revision label, or identical nonempty text across every candidate when revision is unknown. Null on conflict or absence."
     label: String
+    descriptionStatus: CompanyAnalysisCaenDescriptionStatus!
+    "Revision-qualified catalog descriptions; all candidates for an unknown source revision, the exact candidate for a known one."
+    descriptions: [CompanyAnalysisCaenDescription!]!
   }
   type CompanyAnalysisBucket {
     kind: CompanyAnalysisBucketKind!
