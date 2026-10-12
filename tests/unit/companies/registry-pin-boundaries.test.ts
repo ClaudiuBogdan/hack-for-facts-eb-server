@@ -1315,7 +1315,14 @@ describe('an unreadable CAEN catalog: UNAVAILABLE registry, fiscal and financial
       expect(profile?.financials.map((f) => [f.year, f.turnover])).toEqual([[2024, '100.00']]);
       // The ANAF activity keeps its own code and revision; its label is unavailable, never borrowed.
       expect(profile?.caenActivities).toEqual([
-        { code: '4752', rev: 'rev2', source: 'anaf', label: null, labelSource: null },
+        {
+          code: '4752',
+          rev: 'rev2',
+          source: 'anaf',
+          classState: null,
+          label: null,
+          labelSource: null,
+        },
       ]);
       expect(kinds.filter((k) => ONRC_DATA_KINDS.includes(k))).toEqual([]);
       expect(kinds).toContain('privacy');
@@ -1345,6 +1352,7 @@ describe('an unreadable CAEN catalog: UNAVAILABLE registry, fiscal and financial
       code: '4752',
       rev: 'rev2',
       source: 'anaf',
+      classState: null,
       label: 'Comerț cu amănuntul (rev2 4752)',
       labelSource: 'current_db_catalog',
     });

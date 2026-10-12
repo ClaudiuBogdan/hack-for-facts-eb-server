@@ -21,6 +21,10 @@
  *  - `onrc` selects by OBSERVATION on one public resolved identifier (status,
  *    county, broad CAEN, exact `rev<N>:<code>`); its exclusions need complete
  *    evidence (unknown is never read as absent).
+ *
+ * `activity` / `activityBasis` (v3 releases only) select the DERIVED activity
+ * selection: an ONRC selector needs its revision, an ANAF one has none (ANAF
+ * publishes no revision), and neither ever matches the other source.
  */
 
 import { err, ok, type Result } from 'neverthrow';
@@ -38,6 +42,8 @@ import { fitsColumn, formatMetricValue, parseMetricValue } from './analytics-dec
 import { metricOffered, yearCapability } from './analytics-release.js';
 import {
   BASIS_BY_BUCKET_KEY,
+  COMPANY_ANALYSIS_ACTIVITY_BASES,
+  COMPANY_ANALYSIS_ACTIVITY_SOURCES,
   COMPANY_ANALYSIS_CAEN_BASES,
   COMPANY_ANALYSIS_FILING,
   COMPANY_ANALYSIS_FLAG_VALUES,
@@ -48,6 +54,9 @@ import {
   basisBucketKey,
   isCompanyAnalysisMetric,
   metricUnit,
+  type CompanyAnalysisActivityBasis,
+  type CompanyAnalysisActivitySelector,
+  type CompanyAnalysisActivitySource,
   type CompanyAnalysisCaenBasis,
   type CompanyAnalysisCaenSelector,
   type CompanyAnalysisFiling,
@@ -82,6 +91,8 @@ const SCOPE_FIELDS = [
   'financialRanges',
   'employeeSizeBands',
   'onrc',
+  'activity',
+  'activityBasis',
 ] as const;
 
 const ONRC_FIELDS = ['status', 'county', 'caenCode', 'onrcCaen', 'exclude'] as const;
@@ -97,6 +108,7 @@ const CAEN_REVISION_RE = /^[A-Za-z0-9._-]{1,16}$/u;
 const ONRC_STATUS_RE = /^[0-9]{1,6}$/u;
 const ONRC_CAEN_RE = /^[0-9]{4}$/u;
 const ONRC_CAEN_KEY_RE = /^rev[0-3]:[0-9]{4}$/u;
+const ONRC_REVISION_RE = /^rev[0-3]$/u;
 
 const field = (name: string): string => `scope.${name}`;
 const isAbsent = (value: unknown): boolean => value === undefined || value === null;
@@ -336,6 +348,65 @@ const readCaen = (
   return ok([...byKey.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([, s]) => s));
 };
 
+/** `scope.activity`: exact {source, code, revision} selectors, de-duplicated and sorted by key. */
+const readActivity = (
+  raw: unknown
+): Result<readonly CompanyAnalysisActivitySelector[] | undefined, ApiError> => {
+  const name = 'activity';
+  const list = readList(raw, name, COMPANY_ANALYSIS_LIMITS.maxActivities);
+  if (list.isErr()) return err(list.error);
+  if (list.value === undefined) return ok(undefined);
+  const byKey = new Map<string, CompanyAnalysisActivitySelector>();
+  for (const value of list.value) {
+    if (!isRecord(value))
+      return err(
+        invalidInput(`${field(name)} items must be { source, code, revision }`, field(name))
+      );
+    const extra = Object.keys(value).filter(
+      (key) => key !== 'source' && key !== 'code' && key !== 'revision'
+    );
+    if (extra.length > 0)
+      return err(
+        invalidInput(`${field(name)} items have unknown keys: ${extra.join(', ')}`, field(name))
+      );
+    const source = value['source'];
+    const code = value['code'];
+    const revision = value['revision'];
+    if (
+      typeof source !== 'string' ||
+      !(COMPANY_ANALYSIS_ACTIVITY_SOURCES as readonly string[]).includes(source)
+    )
+      return err(
+        invalidInput(
+          `${field(name)} source must be one of ${COMPANY_ANALYSIS_ACTIVITY_SOURCES.join(', ')}`,
+          field(name)
+        )
+      );
+    if (typeof code !== 'string' || !ONRC_CAEN_RE.test(code))
+      return err(invalidInput(`${field(name)} code must be a 4-digit CAEN code`, field(name)));
+    if (source === 'ONRC') {
+      if (typeof revision !== 'string' || !ONRC_REVISION_RE.test(revision))
+        return err(
+          invalidInput(`${field(name)} ONRC selectors need revision rev0..rev3`, field(name))
+        );
+    } else if (!isAbsent(revision)) {
+      return err(
+        invalidInput(
+          `${field(name)} ANAF selectors take no revision (ANAF publishes none)`,
+          field(name)
+        )
+      );
+    }
+    const selector: CompanyAnalysisActivitySelector = {
+      source: source as CompanyAnalysisActivitySource,
+      code,
+      revision: source === 'ONRC' ? (revision as string) : null,
+    };
+    byKey.set(`${selector.source}:${selector.revision ?? ''}:${code}`, selector);
+  }
+  return ok([...byKey.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([, s]) => s));
+};
+
 const readRanges = (
   raw: unknown
 ): Result<readonly CompanyAnalysisRange[] | undefined, ApiError> => {
@@ -494,6 +565,18 @@ export const parseScopeShape = (raw: unknown): Result<CompanyAnalysisScopeShape,
   if (onrc.isErr()) return err(onrc.error);
   if (onrc.value !== undefined) out.onrc = onrc.value;
 
+  const activity = readActivity(raw['activity']);
+  if (activity.isErr()) return err(activity.error);
+  if (activity.value !== undefined) out.activity = activity.value;
+
+  const activityBasis = readEnums<CompanyAnalysisActivityBasis>(
+    raw['activityBasis'],
+    'activityBasis',
+    COMPANY_ANALYSIS_ACTIVITY_BASES
+  );
+  if (activityBasis.isErr()) return err(activityBasis.error);
+  if (activityBasis.value !== undefined) out.activityBasis = activityBasis.value;
+
   // A non-filer has no statement, so it can carry no reported value or band.
   if (
     out.filing === 'NOT_FILED' &&
@@ -582,6 +665,13 @@ export const canonicalScope = (scope: CompanyAnalysisScope): Readonly<Record<str
     }));
   if (scope.employeeSizeBands !== undefined) echo['employeeSizeBands'] = scope.employeeSizeBands;
   if (scope.onrc !== undefined) echo['onrc'] = onrcEcho(scope.onrc);
+  if (scope.activity !== undefined)
+    echo['activity'] = scope.activity.map((a) =>
+      a.revision === null
+        ? { source: a.source, code: a.code }
+        : { source: a.source, code: a.code, revision: a.revision }
+    );
+  if (scope.activityBasis !== undefined) echo['activityBasis'] = scope.activityBasis;
   return echo;
 };
 

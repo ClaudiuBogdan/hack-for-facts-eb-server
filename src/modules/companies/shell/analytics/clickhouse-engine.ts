@@ -28,6 +28,16 @@
  *    row is multiplied;
  *  - exclusions need complete evidence (coverage `complete`/`complete_empty`,
  *    or a single/consistent consensus value): unknown is never read as absent.
+ *
+ * Schema `companies-analytics-ch-v3` adds the derived activity selection, one
+ * value per company copied into both grains (`activity_basis`, `activity_rev`,
+ * `activity_code`, `onrc_class_key_count`, `onrc_unqualified_row_count`,
+ * `anaf_caen_form`, `anaf_onrc_agreement`, `anaf_status_date`). ACTIVITY
+ * groups by a source-normalised key (`onrc` for both ONRC bases, `anaf`, or
+ * the unclassified basis) plus revision and code, so ONRC and ANAF codes of
+ * the same digits never share a group and revisions never mix; money stays
+ * one row per company-year (no `arrayJoin`). The usecases call the activity
+ * columns only for a release that lists ACTIVITY.
  */
 
 import { Type } from '@sinclair/typebox';
@@ -38,8 +48,10 @@ import { databaseError } from '@/modules/shared/index.js';
 import { makeQueryParams, type ClickhouseReader, type QueryParams } from './clickhouse-reader.js';
 import { companyTableName, companyYearTableName } from '../../core/analytics-release.js';
 import {
+  ACTIVITY_BASIS_VALUE,
   CAEN_BASIS_VALUE,
   COMPANY_ANALYSIS_STATUSES,
+  ONRC_ACTIVITY_BASES,
   METRIC_COLUMN,
   ONRC_BASIS_VALUE,
   ONRC_COMPLETE_COVERAGES,
@@ -59,10 +71,12 @@ import {
 } from '../../core/analytics-types.js';
 
 import type {
+  ActivityQualityRow,
   BreakdownRows,
   CompanyAnalysisEngine,
   FilerAggregateRow,
   MetricAggregateRow,
+  RecordActivityRow,
   RecordRow,
   RecordValueRow,
   SeriesRows,
@@ -89,6 +103,42 @@ const literalList = (values: readonly string[]): string =>
   values.map((value) => `'${value}'`).join(', ');
 const KNOWN_VALUE_BASES = literalList(ONRC_KNOWN_VALUE_BASES.map((b) => ONRC_BASIS_VALUE[b]));
 const COMPLETE_COVERAGES = literalList(ONRC_COMPLETE_COVERAGES.map((c) => ONRC_COVERAGE_VALUE[c]));
+const INCOMPLETE_COVERAGES = literalList([
+  ONRC_COVERAGE_VALUE.PARTIAL,
+  ONRC_COVERAGE_VALUE.UNRESOLVED,
+]);
+/** Both ONRC bases select one class key: one bucket per (revision, code). */
+const ONRC_ACTIVITY = literalList(ONRC_ACTIVITY_BASES.map((b) => ACTIVITY_BASIS_VALUE[b]));
+const ANAF_ACTIVITY = `'${ACTIVITY_BASIS_VALUE.ANAF_FISCAL_CODE}'`;
+
+/**
+ * Exact activity selectors: an ONRC selector matches an ONRC-selected company
+ * with that revision and code; an ANAF one only an `anaf_fiscal_code`
+ * company with that code. Neither ever matches the other source.
+ */
+const activityConditions = (
+  scope: CompanyAnalysisScope,
+  p: QueryParams,
+  c: (name: string) => string
+): string[] => {
+  const conds: string[] = [];
+  if (scope.activity !== undefined) {
+    const selectors = scope.activity.map((selector) =>
+      selector.source === 'ONRC'
+        ? `(${c('activity_basis')} IN (${ONRC_ACTIVITY}) AND ${c('activity_rev')} = ${p.bind('String', selector.revision ?? '')} AND ${c('activity_code')} = ${p.bind('String', selector.code)})`
+        : `(${c('activity_basis')} = ${ANAF_ACTIVITY} AND ${c('activity_code')} = ${p.bind('String', selector.code)})`
+    );
+    conds.push(`(${selectors.join(' OR ')})`);
+  }
+  if (scope.activityBasis !== undefined)
+    conds.push(
+      `has(${p.bind(
+        'Array(String)',
+        scope.activityBasis.map((basis) => ACTIVITY_BASIS_VALUE[basis])
+      )}, ${c('activity_basis')})`
+    );
+  return conds;
+};
 
 /**
  * A consensus bucket selector: a value key matches the CUI's consensus value;
@@ -215,6 +265,7 @@ export const companyConditions = (
         scope.mainCaenBasis.map((basis) => CAEN_BASIS_VALUE[basis])
       )}, ${c('anaf_main_caen_basis')})`
     );
+  conds.push(...activityConditions(scope, p, c));
   return conds;
 };
 
@@ -348,13 +399,78 @@ const DIMENSION_PARTS: Readonly<Record<CompanyAnalysisDimension, readonly string
   VAT_PAYER: [flagExpression('anaf_vat_payer')],
   FISCALLY_INACTIVE: [flagExpression('anaf_inactive')],
   EMPLOYEE_SIZE: ['employee_size_band'],
+  // Source-normalised key, revision, code: both ONRC bases share one bucket
+  // per key; an unclassified basis is ONE bucket (its codes are not grouped).
+  ACTIVITY: [
+    `multiIf(activity_basis IN (${ONRC_ACTIVITY}), 'onrc', activity_basis = ${ANAF_ACTIVITY}, 'anaf', toString(activity_basis))`,
+    'activity_rev',
+    `if(activity_basis IN (${ONRC_ACTIVITY}, ${ANAF_ACTIVITY}), activity_code, NULL)`,
+  ],
 };
+
+/** ACTIVITY per-group evidence quality, counted on `company_r` (companies, not statements). */
+const ACTIVITY_QUALITY_SELECT = [
+  `toString(countIf(activity_basis = '${ACTIVITY_BASIS_VALUE.ONRC_SINGLE_CLASS}')) AS q_single`,
+  `toString(countIf(activity_basis = '${ACTIVITY_BASIS_VALUE.ONRC_CLASS_ANAF_NUMERIC_MATCH}')) AS q_match`,
+  `toString(countIf(onrc_caen_coverage IN (${INCOMPLETE_COVERAGES}))) AS q_incomplete`,
+  'toString(countIf(onrc_unqualified_row_count > 0)) AS q_unqualified',
+  'toString(min(anaf_status_date)) AS q_anaf_from',
+  'toString(max(anaf_status_date)) AS q_anaf_to',
+];
+const ACTIVITY_QUALITY_SCHEMA = {
+  q_single: CountString,
+  q_match: CountString,
+  q_incomplete: CountString,
+  q_unqualified: CountString,
+  q_anaf_from: NullableString,
+  q_anaf_to: NullableString,
+};
+const readQuality = (row: Readonly<Record<string, unknown>>): ActivityQualityRow => ({
+  singleClass: row['q_single'] as string,
+  numericMatch: row['q_match'] as string,
+  incompleteCoverage: row['q_incomplete'] as string,
+  withUnqualifiedRows: row['q_unqualified'] as string,
+  anafFrom: row['q_anaf_from'] as string | null,
+  anafTo: row['q_anaf_to'] as string | null,
+});
 
 const partsSchema = (count: number) =>
   Object.fromEntries(Array.from({ length: count }, (_, i) => [`k${String(i)}`, NullableString]));
 
 const readParts = (row: Readonly<Record<string, unknown>>, count: number): (string | null)[] =>
   Array.from({ length: count }, (_, i) => row[`k${String(i)}`] as string | null);
+
+/** v3 record columns (company grain); `o_` aliases never reuse a column name. */
+const RECORD_ACTIVITY_SELECT = [
+  'toString(c.activity_basis) AS o_activity_basis',
+  'c.activity_rev AS o_activity_rev',
+  'c.activity_code AS o_activity_code',
+  'toString(c.onrc_class_key_count) AS o_class_key_count',
+  'toString(c.onrc_unqualified_row_count) AS o_unqualified_row_count',
+  'toString(c.anaf_caen_form) AS o_anaf_caen_form',
+  'toString(c.anaf_onrc_agreement) AS o_anaf_onrc_agreement',
+  'toString(c.anaf_status_date) AS o_anaf_status_date',
+];
+const RECORD_ACTIVITY_SCHEMA = {
+  o_activity_basis: Type.String(),
+  o_activity_rev: NullableString,
+  o_activity_code: NullableString,
+  o_class_key_count: CountString,
+  o_unqualified_row_count: CountString,
+  o_anaf_caen_form: Type.String(),
+  o_anaf_onrc_agreement: Type.String(),
+  o_anaf_status_date: NullableString,
+};
+const readRecordActivity = (row: Readonly<Record<string, unknown>>): RecordActivityRow => ({
+  basis: row['o_activity_basis'] as string,
+  revision: row['o_activity_rev'] as string | null,
+  code: row['o_activity_code'] as string | null,
+  classKeyCount: row['o_class_key_count'] as string,
+  unqualifiedRowCount: row['o_unqualified_row_count'] as string,
+  anafCaenForm: row['o_anaf_caen_form'] as string,
+  anafOnrcAgreement: row['o_anaf_onrc_agreement'] as string,
+  anafStatusDate: row['o_anaf_status_date'] as string | null,
+});
 
 // ── the engine ───────────────────────────────────────────────────────────────
 
@@ -448,15 +564,25 @@ export const makeClickhouseAnalyticsEngine = (
     // Population per group, counted on company_r. The size band is a
     // statement attribute: it comes from the year's statement (none → '').
     const pp = makeQueryParams();
+    const activity = dimension === 'ACTIVITY';
+    const populationSelect = [
+      ...keySelect,
+      'toString(count()) AS companies',
+      ...(activity ? ACTIVITY_QUALITY_SELECT : []),
+    ];
     const populationSql =
       dimension === 'EMPLOYEE_SIZE'
         ? `SELECT nullIf(toString(f.employee_size_band), '') AS k0, toString(count()) AS companies FROM ${t.company} AS c ANY LEFT JOIN (SELECT cui, employee_size_band FROM ${t.companyYear} WHERE fiscal_year = ${pp.bind('UInt16', String(scope.fiscalYear))}) AS f ON f.cui = c.cui WHERE ${where(populationConditions(scope, pp, t, 'c'))} GROUP BY k0 LIMIT ${String(MAX_BREAKDOWN_GROUPS + 1)}`
-        : `SELECT ${keySelect.join(', ')}, toString(count()) AS companies FROM ${t.company} WHERE ${where(populationConditions(scope, pp, t))} GROUP BY ${keys.join(', ')} LIMIT ${String(MAX_BREAKDOWN_GROUPS + 1)}`;
+        : `SELECT ${populationSelect.join(', ')} FROM ${t.company} WHERE ${where(populationConditions(scope, pp, t))} GROUP BY ${keys.join(', ')} LIMIT ${String(MAX_BREAKDOWN_GROUPS + 1)}`;
 
     const population = reader.query(
       populationSql,
       pp,
-      Type.Object({ ...partsSchema(parts.length), companies: CountString })
+      Type.Object({
+        ...partsSchema(parts.length),
+        companies: CountString,
+        ...(activity ? ACTIVITY_QUALITY_SCHEMA : {}),
+      })
     );
 
     const filers =
@@ -489,10 +615,14 @@ export const makeClickhouseAnalyticsEngine = (
     )
       return err(databaseError('breakdown dimension has too many groups'));
     const result: BreakdownRows = {
-      population: populationRows.value.map((row) => ({
-        parts: readParts(row, parts.length),
-        companies: (row as Readonly<Record<string, unknown>>)['companies'] as string,
-      })),
+      population: populationRows.value.map((raw) => {
+        const row = raw as Readonly<Record<string, unknown>>;
+        return {
+          parts: readParts(row, parts.length),
+          companies: row['companies'] as string,
+          ...(activity && { quality: readQuality(row) }),
+        };
+      }),
       filers: filerRows.value.map((row) => {
         const record = row as Readonly<Record<string, unknown>>;
         return {
@@ -651,6 +781,7 @@ export const makeClickhouseAnalyticsEngine = (
         `if(${filed} = 1, toString(f.v${String(i)}), NULL) AS o_v${String(i)}`,
         `if(${filed} = 1, toString(f.s${String(i)}), NULL) AS o_s${String(i)}`,
       ]),
+      ...(request.activity ? RECORD_ACTIVITY_SELECT : []),
     ];
     const rowSchema = Type.Object({
       o_cui: Type.String({ pattern: '^[0-9]{1,10}$' }),
@@ -680,6 +811,7 @@ export const makeClickhouseAnalyticsEngine = (
           [`o_s${String(i)}`, NullableString],
         ])
       ),
+      ...(request.activity ? RECORD_ACTIVITY_SCHEMA : {}),
     });
     const rows = await reader.query(
       `SELECT ${select.join(', ')} FROM ${t.company} AS c ${join} (SELECT ${statementSelect.join(', ')} FROM ${t.companyYear} WHERE ${where(statementWhere)}) AS f ON f.cui = c.cui WHERE ${where(conds)} ORDER BY ${orderBy} LIMIT ${String(request.limit)}`,
@@ -722,6 +854,7 @@ export const makeClickhouseAnalyticsEngine = (
           filed: raw.o_filed === '1',
           sizeBand: raw.o_size_band,
           values,
+          activity: request.activity ? readRecordActivity(row) : null,
         };
       })
     );

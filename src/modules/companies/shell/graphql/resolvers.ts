@@ -162,6 +162,7 @@ export const makeCompaniesResolvers = (deps: CompaniesResolverDeps): Record<stri
             publicMoney: selected.has('publicMoney'),
             financialQualityAssessment: selected.has('financialQualityAssessment'),
             registrationDiff: selected.has('registrationDiff'),
+            activitySelection: selected.has('activitySelection'),
           })
         );
         if (composition === null) return null;
@@ -306,6 +307,9 @@ export const makeCompaniesResolvers = (deps: CompaniesResolverDeps): Record<stri
       // Read under the root's pin; a moved scope refused the whole Company.
       registrationDiff: (parent: object) =>
         unwrap(partsOf(parent)?.registrationDiff ?? notPrepared()),
+      // Same pin; an aggregate past its bound is this nullable field's typed refusal.
+      activitySelection: (parent: object) =>
+        unwrap(partsOf(parent)?.activitySelection ?? notPrepared()),
     },
 
     CompanyRegistryEnvelope: {
@@ -400,6 +404,40 @@ export const makeCompaniesResolvers = (deps: CompaniesResolverDeps): Record<stri
       UNRESOLVED: 'unresolved',
     },
     CompanyQualificationAssessment: { ASSESSED: 'assessed', NOT_ASSESSED: 'not_assessed' },
+    CompanyCaenClassState: {
+      CLASS: 'class',
+      SHORT_TOKEN: 'short_token',
+      UNKNOWN_REVISION: 'unknown_revision',
+      UNLABELED_KEY: 'unlabeled_key',
+      UNPARSED: 'unparsed',
+    },
+    CompanyActivityBasis: {
+      ONRC_SINGLE_CLASS: 'onrc_single_class',
+      ONRC_CLASS_ANAF_NUMERIC_MATCH: 'onrc_class_anaf_numeric_match',
+      ONRC_MULTIPLE_CLASSES: 'onrc_multiple_classes',
+      ANAF_FISCAL_CODE: 'anaf_fiscal_code',
+      ANAF_FISCAL_UNCATALOGUED: 'anaf_fiscal_uncatalogued',
+      NO_QUALIFIED_SELECTION: 'no_qualified_selection',
+    },
+    CompanyAnafCaenForm: {
+      FOUR_DIGIT: 'four_digit',
+      THREE_DIGIT: 'three_digit',
+      SHORT: 'short',
+      MISSING: 'missing',
+      INVALID: 'invalid',
+      UNBOUND: 'unbound',
+      UNQUALIFIED: 'unqualified',
+      ABSENT: 'absent',
+    },
+    CompanyAnafOnrcAgreement: {
+      MATCH_ONE_KEY: 'match_one_key',
+      MATCH_MULTIPLE_REVISIONS: 'match_multiple_revisions',
+      DIFFERS: 'differs',
+      NO_CLASS_KEY: 'no_class_key',
+      ANAF_MISSING: 'anaf_missing',
+      ANAF_PLACEHOLDER: 'anaf_placeholder',
+      ANAF_NOT_USABLE: 'anaf_not_usable',
+    },
     CompanyMetricStatus: {
       REPORTED: 'reported',
       MISSING: 'missing',

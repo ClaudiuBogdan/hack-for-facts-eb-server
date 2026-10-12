@@ -9,11 +9,14 @@
  * A refusal is a reason string; the caller decides whether it is
  * "unavailable" (the active release) or "invalid pin".
  *
- * Only `companies-analytics-ch-v2` / `public-onrc-edition-legal-person-v2`
- * is served: a v1 release (registration/territory derived dimensions) is
- * refused outright, never reinterpreted under the v2 columns. Its ONRC pin
- * (`inputs.onrc`) must have exactly the frozen eight-key shape and the
- * supported versions; it is never filled from the live pointer.
+ * Only `companies-analytics-ch-v2` and `-ch-v3` with population
+ * `public-onrc-edition-legal-person-v2` are served: a v1 release
+ * (registration/territory derived dimensions) is refused outright, never
+ * reinterpreted under the v2 columns. Its ONRC pin (`inputs.onrc`) must have
+ * exactly the frozen eight-key shape and the supported versions; it is never
+ * filled from the live pointer. The `ACTIVITY` capability (dimension and
+ * filters) is listed for a v3 release only; asking a v2 release for it is the
+ * typed `RELEASE_CAPABILITY_UNAVAILABLE` refusal (`requireCapabilities`).
  */
 
 import { Type, type Static } from '@sinclair/typebox';
@@ -25,8 +28,10 @@ import {
   COMPANY_ANALYSIS_LIMITS,
   COMPANY_ANALYSIS_METRICS,
   COMPANY_ANALYSIS_POPULATION_POLICY_VERSION,
-  COMPANY_ANALYSIS_SCHEMA_VERSION,
+  COMPANY_ANALYSIS_SCHEMA_VERSION_V3,
+  COMPANY_ANALYSIS_SCHEMA_VERSIONS,
   COMPANY_ANALYSIS_SIZE_BANDS,
+  COMPANY_ANALYSIS_V3_DIMENSIONS,
   COMPANY_ANALYSIS_SOURCE_VERSIONS,
   COMPANY_ANALYSIS_STATUSES,
   COVERAGE_FIELD,
@@ -37,12 +42,14 @@ import {
   STATUS_VALUE,
   metricKind,
   metricUnit,
+  type CompanyAnalysisCapabilityError,
   type CompanyAnalysisCoverage,
   type CompanyAnalysisDimension,
   type CompanyAnalysisDimensionCapability,
   type CompanyAnalysisFrontierEntry,
   type CompanyAnalysisMetric,
   type CompanyAnalysisRelease,
+  type CompanyAnalysisScope,
   type CompanyAnalysisSizeBandCount,
   type CompanyAnalysisSource,
   type CompanyAnalysisYearCapability,
@@ -225,7 +232,14 @@ export const RELEASE_CAVEATS: readonly string[] = [
   'Coverage counts observed filings; a recent year with fewer statements is partial, never labelled complete.',
   'Employee figures are sums of reported average headcounts, not unique people; balances and headcounts are single-year values.',
   'Company names are current public core-directory names, not registry or edition names, and not pinned to the release.',
-  'ANAF main activity codes keep their published revision; an unknown revision is shown as unknown, never mapped to a catalog.',
+  'MAIN_CAEN (legacy name) groups companies by the ANAF fiscal CAEN code, a source observation, never a published principal or main activity. ANAF TVA publishes no revision and none is inferred: a label is shown only when every catalog revision carries the same text for the code (CONSENSUS), otherwise the revision-qualified candidates are listed (CONFLICT) or there is none (MISSING).',
+];
+
+/** The v3 additions to the release caveats. */
+export const ACTIVITY_CAVEATS: readonly string[] = [
+  'ACTIVITY is a derived selection per company, never a published principal or main activity: the only classified ONRC observation of the edition (not an exclusive authorization), one of several classified ONRC observations selected because the usable ANAF fiscal code has the same digits, or the ANAF fiscal code when the edition has no classified observation (ANAF publishes no revision).',
+  'Multiple classified observations without a unique ANAF match, uncatalogued ANAF codes and companies without a qualified selection are unclassified buckets, never ranked as sectors; no qualified selection is not "no activity".',
+  'ONRC CAEN filters (onrc.caenCode, onrc.onrcCaen and their exclusion) match classified observations only in this release: short tokens, unknown revisions and unlabeled keys stay evidence.',
 ];
 
 const DIMENSION_LABEL_SOURCE: Readonly<Record<CompanyAnalysisDimension, string>> = {
@@ -233,7 +247,9 @@ const DIMENSION_LABEL_SOURCE: Readonly<Record<CompanyAnalysisDimension, string>>
     'territory_hub: current public core.territories county name by county_code; basis buckets have no label',
   UAT: 'territory_hub: current public core.territories name by SIRUTA; basis buckets have no label',
   MAIN_CAEN:
-    'current_db_catalog: core.classification_codes (caen_<revision>, code) when the ANAF revision is known',
+    'current_db_catalog: core.classification_codes candidates of the ANAF fiscal CAEN code; ANAF TVA publishes no revision, so a label only when every catalog revision has the same text (CONSENSUS) and an exact label only for a revision the source itself recorded; never an inferred revision',
+  ACTIVITY:
+    'current_db_catalog: an ONRC bucket carries the exact catalog label of its (revision, code); an ANAF bucket a CONSENSUS candidate label or none (ANAF publishes no revision); unclassified buckets have no label',
   LEGAL_FORM: 'none: the ONRC legal-form code is shown',
   OBSERVED_STATUS:
     'api_nomenclature: the API status nomenclature by code (never a source-observed label); basis buckets have no label',
@@ -242,13 +258,19 @@ const DIMENSION_LABEL_SOURCE: Readonly<Record<CompanyAnalysisDimension, string>>
   EMPLOYEE_SIZE: 'none: EU headcount band',
 };
 
-const DIMENSIONS: readonly CompanyAnalysisDimensionCapability[] = COMPANY_ANALYSIS_DIMENSIONS.map(
-  (dimension) => ({
-    dimension,
-    yearScoped: dimension === 'EMPLOYEE_SIZE',
-    labelSource: DIMENSION_LABEL_SOURCE[dimension],
-  })
-);
+const capabilityOf = (dimension: CompanyAnalysisDimension): CompanyAnalysisDimensionCapability => ({
+  dimension,
+  yearScoped: dimension === 'EMPLOYEE_SIZE',
+  labelSource: DIMENSION_LABEL_SOURCE[dimension],
+});
+/** v3: every dimension. */
+const V3_DIMENSIONS: readonly CompanyAnalysisDimensionCapability[] =
+  COMPANY_ANALYSIS_DIMENSIONS.map(capabilityOf);
+/** v2: exactly its own dimensions, as before v3 existed. */
+const V2_DIMENSIONS: readonly CompanyAnalysisDimensionCapability[] =
+  COMPANY_ANALYSIS_DIMENSIONS.filter(
+    (dimension) => !COMPANY_ANALYSIS_V3_DIMENSIONS.includes(dimension)
+  ).map(capabilityOf);
 
 const parseYear = (
   fiscalYear: number,
@@ -324,10 +346,11 @@ export const parseRelease = (
 ): Result<CompanyAnalysisRelease, string> => {
   const releaseNumber = parseReleaseNumber(row.releaseId);
   if (releaseNumber === null) return err('release id is not a positive safe integer');
-  if (row.schemaVersion !== COMPANY_ANALYSIS_SCHEMA_VERSION)
+  if (!COMPANY_ANALYSIS_SCHEMA_VERSIONS.includes(row.schemaVersion))
     return err(
-      `release schema ${row.schemaVersion} is not supported by this reader (it serves ${COMPANY_ANALYSIS_SCHEMA_VERSION} only)`
+      `release schema ${row.schemaVersion} is not supported by this reader (it serves ${COMPANY_ANALYSIS_SCHEMA_VERSIONS.join(', ')} only)`
     );
+  const v3 = row.schemaVersion === COMPANY_ANALYSIS_SCHEMA_VERSION_V3;
   if (row.populationPolicyVersion !== COMPANY_ANALYSIS_POPULATION_POLICY_VERSION)
     return err(
       `release population ${row.populationPolicyVersion} is not supported by this reader (it serves ${COMPANY_ANALYSIS_POPULATION_POLICY_VERSION} only)`
@@ -387,10 +410,11 @@ export const parseRelease = (
     : (metrics.find((m) => m.offeredYears.includes(fiscalYear))?.metric ?? DEFAULT_METRIC);
 
   const frontier = parseFrontier(row.inputs);
+  const releaseCaveats = v3 ? [...RELEASE_CAVEATS, ...ACTIVITY_CAVEATS] : RELEASE_CAVEATS;
   const caveats =
     frontier === null
-      ? [...RELEASE_CAVEATS, 'The input as-of frontier of this release could not be read.']
-      : RELEASE_CAVEATS;
+      ? [...releaseCaveats, 'The input as-of frontier of this release could not be read.']
+      : releaseCaveats;
 
   return ok({
     ref: {
@@ -412,7 +436,7 @@ export const parseRelease = (
     fiscalYears,
     years,
     metrics,
-    dimensions: DIMENSIONS,
+    dimensions: v3 ? V3_DIMENSIONS : V2_DIMENSIONS,
     defaults: {
       fiscalYear,
       metric,
@@ -443,3 +467,42 @@ export const metricOffered = (
   fiscalYear: number,
   metric: CompanyAnalysisMetric
 ): boolean => isOffered(release.years, fiscalYear, metric);
+
+/** True when the release lists the dimension among its capabilities. */
+export const offersDimension = (
+  release: CompanyAnalysisRelease,
+  dimension: CompanyAnalysisDimension
+): boolean => release.dimensions.some((d) => d.dimension === dimension);
+
+const capabilityRefused = (
+  release: CompanyAnalysisRelease,
+  field: string,
+  what: string
+): CompanyAnalysisCapabilityError => ({
+  type: 'ReleaseCapabilityUnavailable',
+  message: `companies analytics release ${release.ref.releaseId} (${release.schemaVersion}) does not carry the ACTIVITY capability: ${what} needs ${COMPANY_ANALYSIS_SCHEMA_VERSION_V3}; use MAIN_CAEN / onrc filters or pin a release that lists ACTIVITY`,
+  field,
+  capability: 'ACTIVITY',
+  releaseId: release.ref.releaseId,
+  schemaVersion: release.schemaVersion,
+});
+
+/**
+ * The typed refusal of a request this release cannot answer: the ACTIVITY
+ * dimension or the activity / activityBasis filters on a release that does
+ * not list ACTIVITY (a v2 release). Checked before any engine call.
+ */
+export const requireCapabilities = (
+  release: CompanyAnalysisRelease,
+  scope: CompanyAnalysisScope,
+  dimension?: CompanyAnalysisDimension
+): Result<void, CompanyAnalysisCapabilityError> => {
+  if (offersDimension(release, 'ACTIVITY')) return ok(undefined);
+  if (dimension === 'ACTIVITY')
+    return err(capabilityRefused(release, 'dimension', 'the ACTIVITY dimension'));
+  if (scope.activity !== undefined)
+    return err(capabilityRefused(release, 'scope.activity', 'the activity filter'));
+  if (scope.activityBasis !== undefined)
+    return err(capabilityRefused(release, 'scope.activityBasis', 'the activityBasis filter'));
+  return ok(undefined);
+};

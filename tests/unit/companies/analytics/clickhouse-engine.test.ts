@@ -191,6 +191,7 @@ describe('companies analytics ClickHouse statements', () => {
       direction: 'DESC',
       after: { value: '1000.50', cui: '400' },
       limit: 26,
+      activity: false,
       metrics: ['TURNOVER', 'EMPLOYEES'],
     });
     await engine.records(
@@ -202,6 +203,7 @@ describe('companies analytics ClickHouse statements', () => {
         direction: 'ASC',
         after: { value: null, cui: '300' },
         limit: 26,
+        activity: false,
         metrics: ['TURNOVER'],
       }
     );
@@ -228,6 +230,7 @@ describe('companies analytics ClickHouse statements', () => {
       direction: 'DESC',
       after: { value: null, cui: '500' },
       limit: 11,
+      activity: false,
       metrics: [],
     });
     expect(captured[0]?.sql).toMatch(/c\.cui < \{p\d+:String\}/u);
@@ -318,6 +321,7 @@ describe('companies analytics ClickHouse statements', () => {
         direction: 'ASC',
         after: null,
         limit: 2,
+        activity: false,
         metrics: [],
       }
     );
@@ -343,7 +347,15 @@ describe('companies analytics ClickHouse statements', () => {
     await engine.records(
       7,
       { fiscalYear: 2024, onrc: { status: ['1048'] } },
-      { sort: 'CUI', sortMetric: null, direction: 'ASC', after: null, limit: 2, metrics: [] }
+      {
+        sort: 'CUI',
+        sortMetric: null,
+        direction: 'ASC',
+        after: null,
+        limit: 2,
+        metrics: [],
+        activity: false,
+      }
     );
     const { sql, columns } = captured[0] ?? { sql: '', columns: [] };
     for (const select of [
@@ -387,5 +399,126 @@ describe('companies analytics ClickHouse statements', () => {
     now = 61_000;
     await engine.tablesAvailable(7);
     expect(captured).toHaveLength(3);
+  });
+
+  it('groups ACTIVITY by a source-normalised key, revision and code, one row per company', async () => {
+    const { reader, captured } = capturingReader([
+      [
+        'AS q_single',
+        [
+          {
+            k0: 'onrc',
+            k1: 'rev2',
+            k2: '6201',
+            companies: '2',
+            q_single: '1',
+            q_match: '1',
+            q_incomplete: '0',
+            q_unqualified: '1',
+            q_anaf_from: '2026-09-01',
+            q_anaf_to: '2026-09-28',
+          },
+        ],
+      ],
+    ]);
+    const engine = makeClickhouseAnalyticsEngine(reader, 'companies_analytics');
+    const rows = (await engine.breakdown(7, SCOPE, 'ACTIVITY', 'TURNOVER'))._unsafeUnwrap();
+    const [population, filers] = captured;
+    const key =
+      "multiIf(activity_basis IN ('onrc_single_class', 'onrc_class_anaf_numeric_match'), 'onrc', activity_basis = 'anaf_fiscal_code', 'anaf', toString(activity_basis)) AS k0, activity_rev AS k1, if(activity_basis IN ('onrc_single_class', 'onrc_class_anaf_numeric_match', 'anaf_fiscal_code'), activity_code, NULL) AS k2";
+    expect(population?.sql).toContain(`SELECT ${key}, toString(count()) AS companies`);
+    expect(population?.sql).toContain(
+      'FROM companies_analytics.company_r7 WHERE 1 GROUP BY k0, k1, k2'
+    );
+    for (const quality of [
+      "toString(countIf(activity_basis = 'onrc_single_class')) AS q_single",
+      "toString(countIf(activity_basis = 'onrc_class_anaf_numeric_match')) AS q_match",
+      "toString(countIf(onrc_caen_coverage IN ('partial', 'unresolved'))) AS q_incomplete",
+      'toString(countIf(onrc_unqualified_row_count > 0)) AS q_unqualified',
+      'toString(min(anaf_status_date)) AS q_anaf_from',
+      'toString(max(anaf_status_date)) AS q_anaf_to',
+    ])
+      expect(population?.sql).toContain(quality);
+    // Money from the year's statements, grouped by the SAME copied key.
+    expect(filers?.sql).toContain(`SELECT ${key}, toString(count()) AS filers`);
+    expect(filers?.sql).toContain('FROM companies_analytics.company_year_r7 WHERE fiscal_year');
+    expect(filers?.sql).not.toContain('q_single');
+    for (const statement of captured) expect(statement.sql).not.toContain('arrayJoin');
+    expect(rows.population[0]).toEqual({
+      parts: ['onrc', 'rev2', '6201'],
+      companies: '2',
+      quality: {
+        singleClass: '1',
+        numericMatch: '1',
+        incompleteCoverage: '0',
+        withUnqualifiedRows: '1',
+        anafFrom: '2026-09-01',
+        anafTo: '2026-09-28',
+      },
+    });
+  });
+
+  it('keeps every other dimension free of the activity columns', async () => {
+    const { reader, captured } = capturingReader();
+    const engine = makeClickhouseAnalyticsEngine(reader, 'companies_analytics');
+    await engine.breakdown(7, SCOPE, 'MAIN_CAEN', 'TURNOVER');
+    await engine.countPopulation(7, SCOPE);
+    for (const statement of captured) expect(statement.sql).not.toMatch(/activity_|q_single/u);
+  });
+
+  it('binds the activity selectors; an ANAF selector never reads a revision', async () => {
+    const { reader, captured } = capturingReader([['count()', [{ companies: '0' }]]]);
+    const engine = makeClickhouseAnalyticsEngine(reader, 'companies_analytics');
+    await engine.countPopulation(7, {
+      fiscalYear: 2024,
+      activity: [
+        { source: 'ANAF', code: '6201', revision: null },
+        { source: 'ONRC', code: '6201', revision: 'rev2' },
+      ],
+      activityBasis: ['ONRC_SINGLE_CLASS', 'ANAF_FISCAL_CODE'],
+    });
+    const { sql, params } = captured[0] ?? { sql: '', params: [] };
+    expect(sql).toContain(
+      "((activity_basis = 'anaf_fiscal_code' AND activity_code = {p0:String}) OR (activity_basis IN ('onrc_single_class', 'onrc_class_anaf_numeric_match') AND activity_rev = {p1:String} AND activity_code = {p2:String}))"
+    );
+    expect(sql).toContain('has({p3:Array(String)}, activity_basis)');
+    expect(sql).not.toContain('6201');
+    expect(sql).not.toContain('rev2');
+    expect(params).toEqual([
+      ['p0', '6201'],
+      ['p1', 'rev2'],
+      ['p2', '6201'],
+      ['p3', "['onrc_single_class','anaf_fiscal_code']"],
+    ]);
+  });
+
+  it('reads the v3 record columns only when the request asks for them', async () => {
+    const { reader, captured } = capturingReader();
+    const engine = makeClickhouseAnalyticsEngine(reader, 'companies_analytics');
+    const request = {
+      sort: 'CUI' as const,
+      sortMetric: null,
+      direction: 'ASC' as const,
+      after: null,
+      limit: 2,
+      metrics: [],
+    };
+    await engine.records(7, SCOPE, { ...request, activity: true });
+    await engine.records(7, SCOPE, { ...request, activity: false });
+    const [v3, v2] = captured;
+    for (const select of [
+      'toString(c.activity_basis) AS o_activity_basis',
+      'c.activity_rev AS o_activity_rev',
+      'c.activity_code AS o_activity_code',
+      'toString(c.onrc_class_key_count) AS o_class_key_count',
+      'toString(c.onrc_unqualified_row_count) AS o_unqualified_row_count',
+      'toString(c.anaf_caen_form) AS o_anaf_caen_form',
+      'toString(c.anaf_onrc_agreement) AS o_anaf_onrc_agreement',
+      'toString(c.anaf_status_date) AS o_anaf_status_date',
+    ])
+      expect(v3?.sql).toContain(select);
+    expect(v3?.columns).toContain('o_activity_basis');
+    expect(v2?.sql).not.toContain('activity_');
+    expect(v2?.columns).not.toContain('o_activity_basis');
   });
 });

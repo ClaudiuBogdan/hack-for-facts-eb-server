@@ -14,6 +14,7 @@ const observation = (
   code: '6210',
   revisionState: 'known',
   revision: 'rev0',
+  classState: 'class',
   catalogLabel: null,
   provenance: {
     resourceKey: 'OD_CAEN_AUTORIZAT',
@@ -48,6 +49,7 @@ describe('CAEN source revisions', () => {
       code: '6210',
       rev: null,
       source: 'anaf',
+      classState: null,
       label: null,
       labelSource: null,
     });
@@ -79,14 +81,59 @@ describe('CAEN source revisions', () => {
       [
         observation({}),
         observation({ id: '7:OD_CAEN_AUTORIZAT:2' }), // same (rev0, 6210): one activity
-        observation({ id: '7:OD_CAEN_AUTORIZAT:3', revision: null, revisionState: 'missing' }),
-        observation({ id: '7:OD_CAEN_AUTORIZAT:4', parseState: 'invalid', code: null }),
+        observation({
+          id: '7:OD_CAEN_AUTORIZAT:3',
+          revision: null,
+          revisionState: 'missing',
+          classState: 'unknown_revision',
+        }),
+        observation({
+          id: '7:OD_CAEN_AUTORIZAT:4',
+          parseState: 'invalid',
+          code: null,
+          classState: 'unparsed',
+        }),
       ],
       undefined
     );
-    expect(activities.map((a) => [a.rev, a.code])).toEqual([
-      [null, '6210'],
-      ['rev0', '6210'],
+    expect(activities.map((a) => [a.rev, a.code, a.classState])).toEqual([
+      [null, '6210', 'unknown_revision'],
+      ['rev0', '6210', 'class'],
+    ]);
+  });
+
+  it('labels only CLASS entries and keeps a short token apart from the class of the same digits', () => {
+    const label = {
+      label: 'Cultivarea cerealelor',
+      system: 'caen_rev2',
+      source: 'current_db_catalog',
+    } as const;
+    const activities = caenActivitiesOf(
+      [
+        observation({ code: '0111', revision: 'rev2', catalogLabel: label }),
+        // The padded value of a short token has the same digits; the join found a
+        // label, but a short token is class/group ambiguous: never labelled.
+        observation({
+          id: '7:OD_CAEN_AUTORIZAT:2',
+          code: '0111',
+          revision: 'rev2',
+          classState: 'short_token',
+          catalogLabel: label,
+        }),
+        observation({
+          id: '7:OD_CAEN_AUTORIZAT:3',
+          code: '2864',
+          revision: 'rev1',
+          classState: 'unlabeled_key',
+          catalogLabel: null,
+        }),
+      ],
+      undefined
+    );
+    expect(activities.map((a) => [a.rev, a.code, a.classState, a.label, a.labelSource])).toEqual([
+      ['rev2', '0111', 'class', 'Cultivarea cerealelor', 'current_db_catalog'],
+      ['rev2', '0111', 'short_token', null, null],
+      ['rev1', '2864', 'unlabeled_key', null, null],
     ]);
   });
 });

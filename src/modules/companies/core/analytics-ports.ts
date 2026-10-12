@@ -83,14 +83,32 @@ export interface FilerAggregateRow {
 /**
  * A dimension value as raw parts (see the engine's per-dimension columns):
  * COUNTY / UAT / OBSERVED_STATUS (consensus value, basis); MAIN_CAEN (basis,
- * revision, code); one part for every other dimension. EMPLOYEE_SIZE parts
- * are the stored band, or null without a statement.
+ * revision, code); ACTIVITY (source key `onrc` / `anaf` / the unclassified
+ * basis, revision, code); one part for every other dimension. EMPLOYEE_SIZE
+ * parts are the stored band, or null without a statement.
  */
 export type DimensionParts = readonly (string | null)[];
+
+/** ACTIVITY only: per-group evidence quality over the group's companies. */
+export interface ActivityQualityRow {
+  /** Companies selected as the only classified ONRC observation. */
+  readonly singleClass: string;
+  /** Companies selected through the ANAF numeric match. */
+  readonly numericMatch: string;
+  /** Companies whose ONRC CAEN coverage is partial or unresolved. */
+  readonly incompleteCoverage: string;
+  /** Companies with at least one unqualified ONRC observation row. */
+  readonly withUnqualifiedRows: string;
+  /** min / max `anaf_status_date` (YYYY-MM-DD) over the companies with one. */
+  readonly anafFrom: string | null;
+  readonly anafTo: string | null;
+}
 
 export interface BreakdownPopulationRow {
   readonly parts: DimensionParts;
   readonly companies: string;
+  /** ACTIVITY only. */
+  readonly quality?: ActivityQualityRow;
 }
 
 export interface BreakdownFilerRow {
@@ -138,11 +156,27 @@ export interface RecordsRequest {
   readonly limit: number;
   /** Metrics whose value/status each row carries (always includes sortMetric). */
   readonly metrics: readonly CompanyAnalysisMetric[];
+  /** Read the v3 activity columns (only for a release that lists ACTIVITY). */
+  readonly activity: boolean;
 }
 
 export interface RecordValueRow {
   readonly value: string | null;
   readonly status: string | null;
+}
+
+/** The v3 activity columns of one company (`company_r<N>`). */
+export interface RecordActivityRow {
+  readonly basis: string;
+  readonly revision: string | null;
+  readonly code: string | null;
+  /** UInt16 / UInt32 as text. */
+  readonly classKeyCount: string;
+  readonly unqualifiedRowCount: string;
+  readonly anafCaenForm: string;
+  readonly anafOnrcAgreement: string;
+  /** `YYYY-MM-DD`, or null. */
+  readonly anafStatusDate: string | null;
 }
 
 export interface RecordRow {
@@ -171,6 +205,8 @@ export interface RecordRow {
   readonly filed: boolean;
   readonly sizeBand: string | null;
   readonly values: ReadonlyMap<CompanyAnalysisMetric, RecordValueRow>;
+  /** Present iff the request asked for the activity columns. */
+  readonly activity: RecordActivityRow | null;
 }
 
 /**

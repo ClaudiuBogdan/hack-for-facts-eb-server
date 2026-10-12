@@ -208,17 +208,33 @@ const objectsAndQuery = /* GraphQL */ `
     source: String!
   }
 
+  "Class state of one ONRC CAEN observation, in evaluation order. Only CLASS rows are classified activity keys; the others stay evidence (listed and counted, never labelled)."
+  enum CompanyCaenClassState {
+    "A known revision and a 4-digit code with a nonblank catalog label of that exact (revision, code)."
+    CLASS
+    "Short source code — class/group ambiguous: the original token was not exactly 4 digits and was padded (code is the padded value)."
+    SHORT_TOKEN
+    UNKNOWN_REVISION
+    "No nonblank catalog label for the exact (revision, code)."
+    UNLABELED_KEY
+    "No parsed code."
+    UNPARSED
+  }
+
   "One original public OD_CAEN_AUTORIZAT row of the pinned edition."
   type CompanyRegistryCaenObservation {
     id: String!
     identifierKey: String!
     "code | missing | invalid."
     parseState: String!
+    "The parsed code; for SHORT_TOKEN the padded value (class/group ambiguous)."
     code: String
     "known | missing | invalid."
     revisionState: String!
     "rev0..rev3 when known; an unknown revision gets no label."
     revision: String
+    classState: CompanyCaenClassState!
+    "Set only for a CLASS row: the current catalog label of its exact (revision, code)."
     catalogLabel: CompanyCaenCatalogLabel
     provenance: CompanyRegistryProvenance!
   }
@@ -299,21 +315,24 @@ const objectsAndQuery = /* GraphQL */ `
     vatPayer: Boolean
     "= is_inactive. The ONLY fiscal-inactivity boolean. NOT operating-active; is_active (its exact complement) is intentionally dropped (§13-R1)."
     declaredFiscallyInactive: Boolean
+    "The ANAF fiscal CAEN code (TVA cod_CAEN as normalized; legacy field name): a source observation, not a published principal or main activity."
     mainCaenCode: String
-    "Source-reported CAEN revision; null when the source does not supply it."
+    "Source-reported CAEN revision; ANAF TVA publishes none, so it is null (never inferred)."
     mainCaenRev: String
     registeredName: String
     "ANAF's state date for this answer (status_date), never the retrieval time; null when unknown."
     asOf: Date
   }
 
-  "Activity: one per (revision, code) the pinned ONRC edition publicly observes (source onrc), then ANAF's declared main activity (source anaf, its own revision, often unknown). Never older editions, derived comparisons or ANAF's no-activity sentinel."
+  "Activity: one per (revision, code, class state) the pinned ONRC edition publicly observes (source onrc), then the ANAF fiscal CAEN code (source anaf: a source observation, never a principal or main activity; ANAF TVA publishes no revision). Never older editions, derived comparisons or ANAF's no-activity sentinel."
   type CompanyCaenActivity {
     code: String!
     rev: String
-    "Current database catalog label of the row's OWN known revision; null when the revision is unknown (never borrowed from another source or revision, never an edition-frozen label)."
+    "ONRC entries: the observation class state (only CLASS carries a label). Null for the anaf entry."
+    classState: CompanyCaenClassState
+    "Current database catalog label of the row's OWN known revision, for an ONRC entry only when CLASS; null when the revision is unknown (never borrowed from another source or revision, never an edition-frozen label)."
     label: String
-    "onrc: observed in the pinned edition; anaf: declared fiscal main activity."
+    "onrc: observed in the pinned edition; anaf: the ANAF fiscal CAEN code (a source observation, not a principal activity)."
     source: String!
     "current_db_catalog when label is set."
     labelSource: String
@@ -560,6 +579,93 @@ const objectsAndQuery = /* GraphQL */ `
     count: Int!
   }
 
+  "Basis of the derived activity selection. A derived selection, never a principal or main activity."
+  enum CompanyActivityBasis {
+    "The only classified ONRC observation in the edition (not an exclusive authorization: see coverage and unqualifiedObservationCount)."
+    ONRC_SINGLE_CLASS
+    "One of several classified ONRC observations, selected because the usable ANAF fiscal code has the same digits (ANAF publishes no revision)."
+    ONRC_CLASS_ANAF_NUMERIC_MATCH
+    "Several classified ONRC observations; none selected."
+    ONRC_MULTIPLE_CLASSES
+    "No classified ONRC observation; the usable ANAF fiscal code (revision unpublished; catalog candidates only)."
+    ANAF_FISCAL_CODE
+    "No classified ONRC observation; a usable ANAF fiscal code without any catalog label: a source observation, not a classified sector."
+    ANAF_FISCAL_UNCATALOGUED
+    "No qualified selection. NOT 'no activity': the evidence and coverage say what exists."
+    NO_QUALIFIED_SELECTION
+  }
+  "The original form of the ANAF fiscal CAEN code, as its qualification receipt proves it. Which forms are usable is decided by the database form policy (anafCodeUsable, anafCaenFormPolicy)."
+  enum CompanyAnafCaenForm {
+    FOUR_DIGIT
+    "Three-digit source token; the current normalizer pads it to four digits; its interpretation (class or group) is unqualified. Not usable under anaf-caen-form-policy-v1."
+    THREE_DIGIT
+    "Padded from 1-2 digits."
+    SHORT
+    MISSING
+    INVALID
+    "The raw observation could not be proven to be the serving one."
+    UNBOUND
+    "No valid receipt for the current fiscal observation."
+    UNQUALIFIED
+    "No public fiscal row."
+    ABSENT
+  }
+  "How the ANAF fiscal code relates to the classified ONRC keys (evaluated in this order: ANAF_MISSING, ANAF_NOT_USABLE, ANAF_PLACEHOLDER, NO_CLASS_KEY, then the digit match)."
+  enum CompanyAnafOnrcAgreement {
+    "The code equals the code of exactly one classified ONRC key."
+    MATCH_ONE_KEY
+    "The code equals the code of classified keys in several revisions (no selection)."
+    MATCH_MULTIPLE_REVISIONS
+    DIFFERS
+    NO_CLASS_KEY
+    ANAF_MISSING
+    "0000 / 9999: never usable."
+    ANAF_PLACEHOLDER
+    ANAF_NOT_USABLE
+  }
+  "One catalog candidate of a CAEN code: the catalog revision of the row, never an inferred source revision."
+  type CompanyCaenCatalogCandidate {
+    revision: String!
+    label: String
+  }
+  "The derived activity selection of one company in the pinned ONRC edition (a derived selection, never the published principal activity), with its evidence and both source dates."
+  type CompanyActivitySelection {
+    basis: CompanyActivityBasis!
+    "ONRC or ANAF; null for multiple/no selection."
+    source: String
+    code: String
+    "ONRC only; never set for ANAF (ANAF publishes no revision)."
+    revision: String
+    "ONRC: the exact catalog label of (revision, code). ANAF: identical nonempty text across every catalog revision (CONSENSUS), else null."
+    label: String
+    "EXACT (ONRC), CONSENSUS / CONFLICT / MISSING (ANAF); null without a code."
+    descriptionStatus: String
+    "Revision-qualified catalog candidates; never an inferred source revision."
+    descriptions: [CompanyCaenCatalogCandidate!]!
+    "True for every basis: a derived selection, never a published principal activity."
+    derived: Boolean!
+    "Distinct classified ONRC (revision, code) keys of the CUI in the edition."
+    classKeyCount: Int!
+    "ONRC observation rows that are not CLASS (short token, unknown revision, unlabeled key, unparsed)."
+    unqualifiedObservationCount: Int!
+    "Exact number of public ONRC observation rows of the CUI (aggregate, not the 500-row display list)."
+    observationCount: Int!
+    caenCoverage: CompanyRegistryCoverage!
+    editionId: BigInt!
+    "The edition's source publication date."
+    editionSourceDate: String
+    "The ANAF fiscal CAEN code as served (also when not usable)."
+    anafCode: String
+    anafCodeForm: CompanyAnafCaenForm!
+    "Whether the ANAF code is usable: its form is admitted under anafCaenFormPolicy (DB-decided) AND it is not a placeholder (0000/9999, agreement ANAF_PLACEHOLDER). A placeholder is never usable."
+    anafCodeUsable: Boolean!
+    "The database form policy that decided anafCodeUsable (e.g. anaf-caen-form-policy-v1)."
+    anafCaenFormPolicy: String
+    "ANAF's fiscal status date (YYYY-MM-DD)."
+    anafStatusDate: String
+    agreement: CompanyAnafOnrcAgreement!
+  }
+
   "A directory company (public company spine) by CUI. ONRC fields are the pinned edition's QUALIFIED consensus values (null on conflict, absence, unresolved evidence or a non-published registry), with all public observations under registry. Fiscal (ANAF) and financial sections are independent of the registry state."
   type Company {
     cui: CUI!
@@ -593,6 +699,8 @@ const objectsAndQuery = /* GraphQL */ `
     euBranches: [CompanyEuBranch!]!
     "ONRC registry evidence of this CUI in the pinned scope (envelope, CUI state, qualified profile, identifiers, observations with provenance)."
     registry: CompanyRegistryEvidence!
+    "The derived activity selection (never 'principal' or 'main activity'), read only when selected, under the SAME pin and final recheck as this Company. Null when the ONRC edition is not published or the CUI has no profile in it. A company with more than 2000 distinct observation groups is refused on this field (never a truncated selection)."
+    activitySelection: CompanyActivitySelection
     "Public money received (payee), via the kernel FlowsRepo. Null when none."
     publicMoney: CompanyPublicMoney
     asOf: CompanyAsOf!

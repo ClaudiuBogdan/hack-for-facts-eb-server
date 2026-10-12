@@ -23,6 +23,7 @@ import {
 import { createKernelMcpServer } from '@/modules/shared/shell/mcp/server.js';
 
 import {
+  ACTIVITY_DATASET,
   DATASET,
   analyticsDeps,
   fakeLabels,
@@ -30,6 +31,7 @@ import {
   fakeReleases,
   makeInMemoryEngine,
   releaseRow,
+  v3ReleaseRow,
 } from '../../unit/companies/analytics/analytics-fixtures.js';
 
 import type { CompanyAnalysisContext } from '@/modules/companies/core/analytics-usecases.js';
@@ -143,6 +145,26 @@ const BUCKET = /* GraphQL */ `
     metric {
       ...Agg
     }
+    activity {
+      basis
+      source
+      code
+      revision
+      label
+      descriptionStatus
+      descriptions {
+        revision
+        label
+      }
+      derived
+    }
+    activityQuality {
+      numericMatchSelected
+      incompleteCoverage
+      withUnqualifiedRows
+      anafObservedFrom
+      anafObservedTo
+    }
   }
 `;
 
@@ -210,6 +232,7 @@ describe('companies analytics GraphQL and MCP surfaces', () => {
           groups { ...Bucket }
           other { ...Bucket }
           unknown { ...Bucket }
+          unclassified { ...Bucket }
           totals { ...Bucket }
         }
       }`
@@ -260,6 +283,11 @@ describe('companies analytics GraphQL and MCP surfaces', () => {
           onrcCaenCoverage onrcRecordedDate onrcRecordedYear onrcRecordedDateBasis
           mainCaen { code revision basis label descriptionStatus descriptions { revision label } }
           values { metric value status }
+          activity {
+            basis source code revision label descriptionStatus
+            descriptions { revision label } derived
+          }
+          onrcClassKeyCount onrcUnqualifiedRowCount anafCaenForm anafOnrcAgreement anafStatusDate
         }
       }`;
     const first = await gql(app, `query { companyAnalysisRecords(first: 2) { ${selection} } }`);
@@ -462,6 +490,156 @@ describe('revision-safe CAEN GraphQL presentation', () => {
       }
     } finally {
       await app.close();
+    }
+  });
+});
+
+describe('the ACTIVITY capability on both surfaces', () => {
+  it('refuses ACTIVITY on a v2 release with the same typed RELEASE_CAPABILITY_UNAVAILABLE', async () => {
+    const body = await gql(
+      app,
+      `query { companyAnalysisBreakdown(dimension: ACTIVITY) { groupCount } }`
+    );
+    expect(body.data?.['companyAnalysisBreakdown']).toBeNull();
+    expect(body.errors?.[0]?.extensions).toEqual({
+      code: 'RELEASE_CAPABILITY_UNAVAILABLE',
+      type: 'ReleaseCapabilityUnavailable',
+      field: 'dimension',
+      capability: 'ACTIVITY',
+      releaseId: '7',
+      schemaVersion: 'companies-analytics-ch-v2',
+    });
+    const mcp = await callTool(tools, 'aggregate_companies', {
+      shape: 'breakdown',
+      dimension: 'ACTIVITY',
+    });
+    expect(mcp).toEqual({
+      ok: false,
+      kind: 'company_analysis_breakdown',
+      errorCode: 'RELEASE_CAPABILITY_UNAVAILABLE',
+      error: body.errors?.[0]?.message,
+      meta: {
+        field: 'dimension',
+        capability: 'ACTIVITY',
+        releaseId: '7',
+        schemaVersion: 'companies-analytics-ch-v2',
+      },
+    });
+    const filtered = await gql(
+      app,
+      `query { companyAnalysisStats(scope: { activityBasis: [ANAF_FISCAL_CODE] }) { companies } }`
+    );
+    expect(filtered.errors?.[0]?.extensions).toMatchObject({
+      code: 'RELEASE_CAPABILITY_UNAVAILABLE',
+      field: 'scope.activityBasis',
+    });
+  });
+
+  it('serves the v3 ACTIVITY breakdown and records identically, unclassified apart', async () => {
+    const analytics = analyticsDeps(
+      makeInMemoryEngine(ACTIVITY_DATASET.companies, ACTIVITY_DATASET.statements, [9]),
+      fakeReleases(v3ReleaseRow(9, ACTIVITY_DATASET.companies, ACTIVITY_DATASET.statements)),
+      fakeLabels({}, { 'rev2:6201': 'Software (rev2)' })
+    );
+    const v3 = await buildGraphql(analytics);
+    const v3Tools = makeCompanyAnalysisMcpTools({
+      analytics,
+      clientBaseUrl: 'https://transparenta.eu',
+    });
+    try {
+      const body = await gql(
+        v3,
+        `${AGGREGATE}${BUCKET}
+        query {
+          companyAnalysisBreakdown(dimension: ACTIVITY, topN: 2) {
+            ${RELEASE}
+            scope scopeHash fiscalYear dimension metric groupCount rankBy rankedBy topN caveats
+            groups { ...Bucket }
+            other { ...Bucket }
+            unknown { ...Bucket }
+            unclassified { ...Bucket }
+            totals { ...Bucket }
+          }
+        }`
+      );
+      expect(body.errors).toBeUndefined();
+      const breakdown = body.data?.['companyAnalysisBreakdown'] as {
+        groups: { key: string }[];
+        unclassified: { key: string; activity: { basis: string } }[];
+      };
+      expect(breakdown.groups.map((g) => g.key)).toEqual(['onrc:rev2:4711', 'anaf:6201']);
+      expect(breakdown.unclassified.map((g) => [g.key, g.activity.basis])).toEqual([
+        ['(onrc_multiple_classes)', 'ONRC_MULTIPLE_CLASSES'],
+        ['(anaf_fiscal_uncatalogued)', 'ANAF_FISCAL_UNCATALOGUED'],
+        ['(no_qualified_selection)', 'NO_QUALIFIED_SELECTION'],
+      ]);
+      const mcp = await callTool(v3Tools, 'aggregate_companies', {
+        shape: 'breakdown',
+        dimension: 'ACTIVITY',
+        topN: 2,
+      });
+      expect(mcp['item']).toEqual(body.data?.['companyAnalysisBreakdown']);
+      expect(String(mcp['summary'])).toContain('never ranked');
+
+      const records = await gql(
+        v3,
+        `query { companyAnalysisRecords(sort: CUI, first: 3, scope: { activity: [{ source: ONRC, code: "6201", revision: "rev2" }] }) {
+          totalCount
+          edges { node { cui activity { basis source code revision label descriptionStatus derived } onrcClassKeyCount anafCaenForm anafOnrcAgreement anafStatusDate } }
+        } }`
+      );
+      expect(records.errors).toBeUndefined();
+      expect(records.data?.['companyAnalysisRecords']).toEqual({
+        totalCount: '2',
+        edges: [
+          {
+            node: {
+              cui: '1001',
+              activity: {
+                basis: 'ONRC_SINGLE_CLASS',
+                source: 'ONRC',
+                code: '6201',
+                revision: 'rev2',
+                label: 'Software (rev2)',
+                descriptionStatus: 'EXACT',
+                derived: true,
+              },
+              onrcClassKeyCount: 1,
+              anafCaenForm: 'four_digit',
+              anafOnrcAgreement: 'match_one_key',
+              anafStatusDate: '2026-09-01',
+            },
+          },
+          {
+            node: {
+              cui: '1002',
+              activity: {
+                basis: 'ONRC_CLASS_ANAF_NUMERIC_MATCH',
+                source: 'ONRC',
+                code: '6201',
+                revision: 'rev2',
+                label: 'Software (rev2)',
+                descriptionStatus: 'EXACT',
+                derived: true,
+              },
+              onrcClassKeyCount: 2,
+              anafCaenForm: 'four_digit',
+              anafOnrcAgreement: 'match_one_key',
+              anafStatusDate: '2026-09-28',
+            },
+          },
+        ],
+      });
+      const anafWithRevision = await gql(
+        v3,
+        `query { companyAnalysisStats(scope: { activity: [{ source: ANAF, code: "6201", revision: "rev2" }] }) { companies } }`
+      );
+      expect(anafWithRevision.errors?.[0]?.extensions).toMatchObject({
+        code: 'INVALID_INPUT',
+        field: 'scope.activity',
+      });
+    } finally {
+      await v3.close();
     }
   });
 });

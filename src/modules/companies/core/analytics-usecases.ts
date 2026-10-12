@@ -19,6 +19,11 @@
  * BigInt. An empty contributor set has a null sum; an explicit 0 stays "0.00".
  * Release invariants (statuses add up to statements, filers ⊆ population) are
  * checked on every answer and fail fast as a `Database` error.
+ *
+ * Capabilities: a request for `ACTIVITY` (dimension or the activity filters)
+ * on a release that does not list it (v2) is the typed
+ * `ReleaseCapabilityUnavailable` refusal, decided after the release resolved
+ * and before any engine call.
  */
 
 import { err, ok, type Result } from 'neverthrow';
@@ -43,14 +48,22 @@ import {
   PRIVACY_EPOCH_RE,
   isCivilDate,
   metricOffered,
+  offersDimension,
   parseRelease,
   parseReleaseNumber,
+  requireCapabilities,
   type CompanyAnalysisReleaseRow,
 } from './analytics-release.js';
 import { bindScope, canonicalScope, parseScopeShape, scopeHash } from './analytics-scope.js';
 import {
+  ACTIVITY_BASIS_BY_VALUE,
   BASIS_BY_VALUE,
+  COMPANY_ANALYSIS_ANAF_CAEN_FORMS,
+  COMPANY_ANALYSIS_ANAF_ONRC_AGREEMENTS,
   COVERAGE_BY_VALUE,
+  ONRC_ACTIVITY_BASES,
+  UNCLASSIFIED_ACTIVITY_BASES,
+  activityBucketKey,
   basisBucketKey,
   CAEN_BASIS_VALUE,
   COMPANY_ANALYSIS_COHORT_MODES,
@@ -69,6 +82,9 @@ import {
   metricKind,
   metricUnit,
   requiresStatement,
+  type CompanyAnalysisActivity,
+  type CompanyAnalysisActivityBasis,
+  type CompanyAnalysisActivityQuality,
   type CompanyAnalysisBreakdown,
   type CompanyAnalysisBucket,
   type CompanyAnalysisBucketKind,
@@ -77,6 +93,7 @@ import {
   type CompanyAnalysisCoverage,
   type CompanyAnalysisDimension,
   type CompanyAnalysisDirection,
+  type CompanyAnalysisError,
   type CompanyAnalysisFlagValue,
   type CompanyAnalysisGapReason,
   type CompanyAnalysisMetric,
@@ -105,12 +122,14 @@ import {
 import { COMPANY_STATUS_NOMENCLATURE } from './filters.js';
 
 import type {
+  ActivityQualityRow,
   AnalyticsCurrentState,
   CompanyAnalysisEngine,
   CompanyAnalysisLabelSource,
   CompanyAnalysisReleaseSource,
   DimensionParts,
   MetricAggregateRow,
+  RecordActivityRow,
   RecordRow,
   RecordsAfter,
 } from './analytics-ports.js';
@@ -130,7 +149,7 @@ const notConfigured = (): ApiError =>
   serviceUnavailable('companies analytics is not configured on this server');
 
 const SNAPSHOT_CAVEAT =
-  'Company keys (ONRC edition consensus with its basis, ANAF fiscal attributes, main activity) describe the release snapshot and its pinned ONRC edition, not the fiscal year.';
+  'Company keys (ONRC edition consensus with its basis, ANAF fiscal attributes including the fiscal CAEN code) describe the release snapshot and its pinned ONRC edition, not the fiscal year.';
 
 /** Label attribution (the vocabulary of the companies resolve hits). */
 const LABEL_SOURCE = {
@@ -581,7 +600,7 @@ export const companyAnalysisRelease = async (
 export const companyAnalysisStats = async (
   ctx: CompanyAnalysisContext,
   input: { readonly release?: unknown; readonly scope?: unknown; readonly metrics?: unknown }
-): Promise<Result<CompanyAnalysisStats, ApiError>> => {
+): Promise<Result<CompanyAnalysisStats, CompanyAnalysisError>> => {
   if (ctx === null) return err(notConfigured());
   const pin = parsePin(input.release);
   if (pin.isErr()) return err(pin.error);
@@ -595,6 +614,8 @@ export const companyAnalysisStats = async (
   const release = resolved.value.release;
   const scope = bindScope(shape.value, release);
   if (scope.isErr()) return err(scope.error);
+  const capable = requireCapabilities(release, scope.value);
+  if (capable.isErr()) return err(capable.error);
   const fallback = defaultMetricFor(release, scope.value.fiscalYear);
   const metrics = requested.value ?? (fallback === null ? [] : [fallback]);
   const offered = requireOffered(release, scope.value.fiscalYear, metrics, 'metrics');
@@ -633,12 +654,25 @@ export const companyAnalysisStats = async (
 // companyAnalysisBreakdown
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** The derived activity of an ACTIVITY group (CAEN contract §D). */
+interface ActivityGroup {
+  /** ONRC groups: decided by the group's quality counts (null when both ONRC bases mix). */
+  readonly basis: CompanyAnalysisActivityBasis | null;
+  readonly source: CompanyAnalysisActivity['source'];
+  readonly revision: string | null;
+  readonly code: string | null;
+  /** Never a ranked sector: the multiple-classes, uncatalogued and no-selection buckets. */
+  readonly unclassified: boolean;
+}
+
 interface GroupValue {
   /** null = the unknown group. */
   readonly key: string | null;
   readonly caen: Pick<CompanyAnalysisCaenValue, 'code' | 'revision' | 'basis'> | null;
   /** A consensus dimension's basis bucket (no consensus value). */
   readonly basis: CompanyAnalysisOnrcBasis | null;
+  /** ACTIVITY groups only. */
+  readonly activity: ActivityGroup | null;
 }
 
 /** The consensus dimensions: one value-or-basis bucket per CUI, never `unknown`. */
@@ -675,8 +709,8 @@ const consensusGroup = (
   if (basis.isErr()) return err(basis.error);
   return ok(
     value !== null
-      ? { key: value, caen: null, basis: null }
-      : { key: basisBucketKey(basis.value), caen: null, basis: basis.value }
+      ? { key: value, caen: null, basis: null, activity: null }
+      : { key: basisBucketKey(basis.value), caen: null, basis: basis.value, activity: null }
   );
 };
 
@@ -705,6 +739,71 @@ const caenValue = (
   return err(invariant(`main CAEN basis ${String(basis)} is inconsistent with its revision`));
 };
 
+const ACTIVITY_REVISION_RE = /^rev[0-3]$/u;
+const ACTIVITY_CODE_RE = /^[0-9]{4}$/u;
+
+/**
+ * An ACTIVITY group from the engine's source-normalised key: `onrc` (one
+ * bucket per class key, revision in the key), `anaf` (a code, never a
+ * revision) or an unclassified basis (one bucket, no code). Anything else,
+ * an ONRC key without its exact revision or an ANAF key with one, is a
+ * release invariant.
+ */
+const activityGroup = (
+  source: string | null,
+  revision: string | null,
+  code: string | null
+): Result<GroupValue, ApiError> => {
+  if (source === 'onrc') {
+    if (revision === null || !ACTIVITY_REVISION_RE.test(revision))
+      return err(invariant('an ONRC activity group has no exact revision'));
+    if (code === null || !ACTIVITY_CODE_RE.test(code))
+      return err(invariant('an ONRC activity group has no 4-digit code'));
+    return ok({
+      key: activityBucketKey('ONRC_SINGLE_CLASS', revision, code),
+      caen: null,
+      basis: null,
+      activity: { basis: null, source: 'ONRC', revision, code, unclassified: false },
+    });
+  }
+  if (source === 'anaf') {
+    if (revision !== null) return err(invariant('an ANAF activity group carries a revision'));
+    if (code === null || !ACTIVITY_CODE_RE.test(code))
+      return err(invariant('an ANAF activity group has no 4-digit code'));
+    return ok({
+      key: activityBucketKey('ANAF_FISCAL_CODE', null, code),
+      caen: null,
+      basis: null,
+      activity: {
+        basis: 'ANAF_FISCAL_CODE',
+        source: 'ANAF',
+        revision: null,
+        code,
+        unclassified: false,
+      },
+    });
+  }
+  const basis = source === null ? undefined : ACTIVITY_BASIS_BY_VALUE.get(source);
+  if (basis === undefined || !UNCLASSIFIED_ACTIVITY_BASES.includes(basis))
+    return err(invariant(`activity basis ${String(source)} is not in the release vocabulary`));
+  if (revision !== null) return err(invariant(`${basis} carries a revision`));
+  return ok({
+    key: activityBucketKey(basis, null, null),
+    caen: null,
+    basis: null,
+    activity: {
+      basis,
+      // Uncatalogued codes are ANAF observations; the others select nothing.
+      source: basis === 'ANAF_FISCAL_UNCATALOGUED' ? 'ANAF' : null,
+      revision: null,
+      code: null,
+      unclassified: true,
+    },
+  });
+};
+
+const NO_ACTIVITY = { activity: null } as const;
+
 const groupValue = (
   dimension: CompanyAnalysisDimension,
   parts: DimensionParts
@@ -715,38 +814,89 @@ const groupValue = (
     case 'UAT':
     case 'OBSERVED_STATUS':
       return consensusGroup(first, parts[1] ?? null, dimension);
+    case 'ACTIVITY':
+      return activityGroup(first, parts[1] ?? null, parts[2] ?? null);
     case 'MAIN_CAEN': {
       const caen = caenValue(first, parts[1] ?? null, parts[2] ?? null);
       if (caen.isErr()) return err(caen.error);
       return ok(
         caen.value === null
-          ? { key: null, caen: null, basis: null }
+          ? { key: null, caen: null, basis: null, ...NO_ACTIVITY }
           : {
               key: caenKey(caen.value.revision, caen.value.code),
               caen: caen.value,
               basis: null,
+              ...NO_ACTIVITY,
             }
       );
     }
     case 'EMPLOYEE_SIZE': {
       // No statement, or a statement without a reported headcount, has no band.
       if (first === null || first === '' || first === SIZE_BAND_VALUE.UNAVAILABLE)
-        return ok({ key: null, caen: null, basis: null });
+        return ok({ key: null, caen: null, basis: null, ...NO_ACTIVITY });
       const band = SIZE_BAND_BY_VALUE.get(first);
       return band === undefined
         ? err(invariant(`unknown employee size band ${first}`))
-        : ok({ key: band, caen: null, basis: null });
+        : ok({ key: band, caen: null, basis: null, ...NO_ACTIVITY });
     }
     case 'VAT_PAYER':
     case 'FISCALLY_INACTIVE':
       if (first !== null && first !== 'YES' && first !== 'NO')
         return err(invariant(`flag value ${first} is not YES/NO`));
-      return ok({ key: first, caen: null, basis: null });
+      return ok({ key: first, caen: null, basis: null, ...NO_ACTIVITY });
     default:
       // LEGAL_FORM: an eligible profile always carries its legal form.
       if (first === null) return err(invariant(`${dimension} value is missing`));
-      return ok({ key: first, caen: null, basis: null });
+      return ok({ key: first, caen: null, basis: null, ...NO_ACTIVITY });
   }
+};
+
+/** ACTIVITY evidence quality, accumulated exactly over companies. */
+interface QualityAcc {
+  single: bigint;
+  match: bigint;
+  incomplete: bigint;
+  unqualified: bigint;
+  /** YYYY-MM-DD: lexical order is date order. */
+  from: string | null;
+  to: string | null;
+}
+
+const emptyQuality = (): QualityAcc => ({
+  single: 0n,
+  match: 0n,
+  incomplete: 0n,
+  unqualified: 0n,
+  from: null,
+  to: null,
+});
+
+const earlier = (a: string | null, b: string | null): string | null =>
+  a === null ? b : b === null || a <= b ? a : b;
+const later = (a: string | null, b: string | null): string | null =>
+  a === null ? b : b === null || a >= b ? a : b;
+
+const addQuality = (into: QualityAcc, add: QualityAcc): void => {
+  into.single += add.single;
+  into.match += add.match;
+  into.incomplete += add.incomplete;
+  into.unqualified += add.unqualified;
+  into.from = earlier(into.from, add.from);
+  into.to = later(into.to, add.to);
+};
+
+const readQuality = (row: ActivityQualityRow): Result<QualityAcc, ApiError> => {
+  const single = parseCount(row.singleClass);
+  const match = parseCount(row.numericMatch);
+  const incomplete = parseCount(row.incompleteCoverage);
+  const unqualified = parseCount(row.withUnqualifiedRows);
+  if (single === null || match === null || incomplete === null || unqualified === null)
+    return err(invariant('activity quality count is not exact'));
+  for (const date of [row.anafFrom, row.anafTo]) {
+    if (date !== null && !isCivilDate(date))
+      return err(invariant('activity ANAF status date is not a civil date'));
+  }
+  return ok({ single, match, incomplete, unqualified, from: row.anafFrom, to: row.anafTo });
 };
 
 interface GroupAcc {
@@ -754,22 +904,58 @@ interface GroupAcc {
   companies: bigint;
   filers: bigint;
   metric: MetricAcc;
+  quality: QualityAcc;
 }
 
-const NO_GROUP: GroupValue = { key: null, caen: null, basis: null };
+const NO_GROUP: GroupValue = { key: null, caen: null, basis: null, activity: null };
 
 const newGroup = (value: GroupValue): GroupAcc => ({
   value,
   companies: 0n,
   filers: 0n,
   metric: emptyMetricAcc(),
+  quality: emptyQuality(),
 });
 
 const addGroup = (into: GroupAcc, add: GroupAcc): void => {
   into.companies += add.companies;
   into.filers += add.filers;
   addMetricAcc(into.metric, add.metric);
+  addQuality(into.quality, add.quality);
 };
+
+/**
+ * An ACTIVITY group's quality must describe exactly its companies: an ONRC
+ * group holds only the two ONRC bases, any other group neither.
+ */
+const checkActivityQuality = (group: GroupAcc): Result<void, ApiError> => {
+  const activity = group.value.activity;
+  if (activity === null) return ok(undefined);
+  const { single, match, incomplete, unqualified } = group.quality;
+  if (incomplete > group.companies || unqualified > group.companies)
+    return err(invariant(`activity group ${group.value.key ?? ''} quality exceeds its companies`));
+  const onrc = activity.source === 'ONRC';
+  if (onrc ? single + match !== group.companies : single + match !== 0n)
+    return err(
+      invariant(`activity group ${group.value.key ?? ''} bases disagree with its companies`)
+    );
+  return ok(undefined);
+};
+
+/** The basis an ONRC bucket states: one basis, or null when single-class and numeric-match mix. */
+const onrcBucketBasis = (group: GroupAcc): CompanyAnalysisActivityBasis | null => {
+  const { single, match } = group.quality;
+  if (single > 0n && match > 0n) return null;
+  return match > 0n ? 'ONRC_CLASS_ANAF_NUMERIC_MATCH' : 'ONRC_SINGLE_CLASS';
+};
+
+const toQuality = (acc: QualityAcc): CompanyAnalysisActivityQuality => ({
+  numericMatchSelected: acc.match.toString(),
+  incompleteCoverage: acc.incomplete.toString(),
+  withUnqualifiedRows: acc.unqualified.toString(),
+  anafObservedFrom: acc.from,
+  anafObservedTo: acc.to,
+});
 
 const rankValue = (group: GroupAcc, rankedBy: CompanyAnalysisRankBy): bigint | null => {
   switch (rankedBy) {
@@ -808,12 +994,33 @@ interface BucketLabel {
 
 const NO_LABEL: BucketLabel = { label: null, labelSource: null };
 
+/** The activity a GROUP/unclassified bucket states (labels resolved by the caller). */
+const bucketActivity = (
+  group: GroupAcc,
+  description: CaenDescriptionResolution | undefined
+): CompanyAnalysisActivity | null => {
+  const activity = group.value.activity;
+  if (activity === null) return null;
+  const described = activity.code !== null && description !== undefined;
+  return {
+    basis: activity.source === 'ONRC' ? onrcBucketBasis(group) : activity.basis,
+    source: activity.source,
+    code: activity.code,
+    revision: activity.revision,
+    label: described ? description.label : null,
+    descriptionStatus: described ? description.descriptionStatus : null,
+    descriptions: described ? description.descriptions : [],
+    derived: true,
+  };
+};
+
 const bucketOf = (
   kind: CompanyAnalysisBucketKind,
   group: GroupAcc,
   groups: number,
   metric: CompanyAnalysisMetric | null,
-  { label, labelSource, caenDescription }: BucketLabel
+  { label, labelSource, caenDescription }: BucketLabel,
+  activityDimension: boolean
 ): CompanyAnalysisBucket => ({
   kind,
   key: kind === 'GROUP' ? group.value.key : null,
@@ -831,6 +1038,8 @@ const bucketOf = (
   companies: group.companies.toString(),
   filers: group.filers.toString(),
   metric: metric === null ? null : toAggregate(metric, group.metric),
+  activity: kind === 'GROUP' ? bucketActivity(group, caenDescription) : null,
+  activityQuality: activityDimension ? toQuality(group.quality) : null,
 });
 
 /** Status labels: the API's static nomenclature only (no source-observed label is read). */
@@ -861,12 +1070,41 @@ const groupLabels = async (
     case 'OBSERVED_STATUS':
       return ok(nomenclatureLabels(keys));
     case 'MAIN_CAEN':
+    case 'ACTIVITY':
       // The separate candidate batch keeps scalar labels and revision conflicts together.
       return ok(new Map());
     default:
       return ok(new Map());
   }
 };
+
+/** The catalog code a labelled bucket needs: MAIN_CAEN codes, ONRC/ANAF activity codes. */
+const catalogCodeOf = (group: GroupAcc): string | null => {
+  if (group.value.caen !== null) return group.value.caen.code;
+  const activity = group.value.activity;
+  return activity === null || activity.unclassified ? null : activity.code;
+};
+
+/**
+ * A labelled bucket's catalog description: the exact revision for MAIN_CAEN
+ * known revisions and ONRC activity keys, every candidate (CONSENSUS /
+ * CONFLICT / MISSING) for an unknown ANAF revision and an ANAF activity code.
+ */
+const descriptionOf = (
+  group: GroupAcc,
+  catalog: ReadonlyMap<string, readonly CaenCatalogDescription[]>
+): CaenDescriptionResolution | null => {
+  const code = catalogCodeOf(group);
+  if (code === null) return null;
+  const revision = group.value.caen?.revision ?? group.value.activity?.revision ?? null;
+  return resolveCaenDescriptions(revision, catalog.get(code) ?? []);
+};
+
+/** The ACTIVITY breakdown's own caveats (derived-selection wording). */
+const ACTIVITY_BREAKDOWN_CAVEATS: readonly string[] = [
+  'Each company is in exactly one activity bucket: an ONRC class key onrc:<revision>:<code> (the only classified ONRC observation of the edition, or one of several selected because the usable ANAF fiscal code has the same digits), an ANAF fiscal code anaf:<code> (ANAF publishes no revision), or an unclassified bucket. groups + other + unknown + unclassified = totals.',
+  'A derived selection, never a published principal or main activity. The unclassified buckets (multiple classified observations without a unique ANAF match, uncatalogued ANAF codes, no qualified selection) are never ranked as sectors; no qualified selection is not "no activity".',
+];
 
 export const companyAnalysisBreakdown = async (
   ctx: CompanyAnalysisContext,
@@ -878,7 +1116,7 @@ export const companyAnalysisBreakdown = async (
     readonly rankBy?: unknown;
     readonly topN?: unknown;
   }
-): Promise<Result<CompanyAnalysisBreakdown, ApiError>> => {
+): Promise<Result<CompanyAnalysisBreakdown, CompanyAnalysisError>> => {
   if (ctx === null) return err(notConfigured());
   const pin = parsePin(input.release);
   if (pin.isErr()) return err(pin.error);
@@ -902,11 +1140,14 @@ export const companyAnalysisBreakdown = async (
   const release = resolved.value.release;
   const scope = bindScope(shape.value, release);
   if (scope.isErr()) return err(scope.error);
+  const capable = requireCapabilities(release, scope.value, dimension.value);
+  if (capable.isErr()) return err(capable.error);
   const metric = requestedMetric.value ?? defaultMetricFor(release, scope.value.fiscalYear);
   if (metric !== null) {
     const offered = requireOffered(release, scope.value.fiscalYear, [metric], 'metric');
     if (offered.isErr()) return err(offered.error);
   }
+  const activityDimension = dimension.value === 'ACTIVITY';
 
   const rows = await ctx.engine.breakdown(
     release.releaseNumber,
@@ -931,7 +1172,14 @@ export const companyAnalysisBreakdown = async (
     if (value.isErr()) return err(value.error);
     const companies = readCount(row.companies, 'group companies');
     if (companies.isErr()) return err(companies.error);
-    groupFor(value.value).companies += companies.value;
+    const group = groupFor(value.value);
+    group.companies += companies.value;
+    if (activityDimension) {
+      if (row.quality === undefined) return err(invariant('activity group quality is missing'));
+      const quality = readQuality(row.quality);
+      if (quality.isErr()) return err(quality.error);
+      addQuality(group.quality, quality.value);
+    }
   }
   for (const row of rows.value.filers) {
     const value = groupValue(dimension.value, row.parts);
@@ -949,9 +1197,21 @@ export const companyAnalysisBreakdown = async (
   for (const group of [...groups.values(), unknown]) {
     if (group.filers > group.companies)
       return err(invariant(`group ${group.value.key ?? 'unknown'} has more filers than companies`));
+    const quality = checkActivityQuality(group);
+    if (quality.isErr()) return err(quality.error);
   }
 
-  const known = [...groups.values()];
+  // ACTIVITY: the unclassified buckets are never ranked as sectors; they
+  // stay in their fixed order beside the ranked groups.
+  const known = [...groups.values()].filter((g) => g.value.activity?.unclassified !== true);
+  const unclassified = UNCLASSIFIED_ACTIVITY_BASES.flatMap((basis) =>
+    [...groups.values()].filter(
+      (g) =>
+        g.value.activity !== null &&
+        g.value.activity.unclassified &&
+        g.value.activity.basis === basis
+    )
+  );
   const wantedRank = rankBy.value ?? release.defaults.rankBy;
   const metricRanked = wantedRank === 'METRIC_SUM' || wantedRank === 'CONTRIBUTORS';
   // A metric ranking with no contributing group would order a tie of nulls:
@@ -965,27 +1225,33 @@ export const companyAnalysisBreakdown = async (
   const top = known.slice(0, limit);
   const rest = known.slice(limit);
 
-  // A consensus dimension puts every CUI in a value or basis bucket: its
-  // `unknown` bucket stays an empty compatibility slot, never a second count.
-  if (CONSENSUS_DIMENSIONS.has(dimension.value) && (unknown.companies > 0n || unknown.filers > 0n))
+  // A consensus dimension puts every CUI in a value or basis bucket, and
+  // ACTIVITY every CUI in exactly one activity bucket: their `unknown` bucket
+  // stays an empty compatibility slot, never a second count.
+  if (
+    (CONSENSUS_DIMENSIONS.has(dimension.value) || activityDimension) &&
+    (unknown.companies > 0n || unknown.filers > 0n)
+  )
     return err(invariant(`${dimension.value} has rows without a value or a basis`));
 
   const other = newGroup(NO_GROUP);
   for (const group of rest) addGroup(other, group);
   const totals = newGroup(NO_GROUP);
-  for (const group of [...known, unknown]) addGroup(totals, group);
+  for (const group of [...known, ...unclassified, unknown]) addGroup(totals, group);
 
   const labels = await groupLabels(ctx.labels, dimension.value, top);
   if (labels.isErr()) return err(labels.error);
   const emptyCaen: ReadonlyMap<string, readonly CaenCatalogDescription[]> = new Map();
+  const catalogCodes = [
+    ...new Set(
+      top.flatMap((group) => {
+        const code = catalogCodeOf(group);
+        return code === null ? [] : [code];
+      })
+    ),
+  ];
   const caenCatalog =
-    dimension.value === 'MAIN_CAEN' && top.length > 0
-      ? await ctx.labels.caenDescriptions([
-          ...new Set(
-            top.flatMap((group) => (group.value.caen === null ? [] : [group.value.caen.code]))
-          ),
-        ])
-      : ok(emptyCaen);
+    catalogCodes.length > 0 ? await ctx.labels.caenDescriptions(catalogCodes) : ok(emptyCaen);
   if (caenCatalog.isErr()) return err(caenCatalog.error);
   const labelSource =
     dimension.value === 'COUNTY' || dimension.value === 'UAT'
@@ -996,20 +1262,24 @@ export const companyAnalysisBreakdown = async (
   const labelOf = (group: GroupAcc): BucketLabel => {
     const value = group.value;
     if (value.key === null || value.basis !== null) return NO_LABEL;
-    if (value.caen !== null) {
-      const caenDescription = resolveCaenDescriptions(
-        value.caen.revision,
-        caenCatalog.value.get(value.caen.code) ?? []
-      );
+    const caenDescription = descriptionOf(group, caenCatalog.value);
+    if (caenDescription !== null) {
       return {
         label: caenDescription.label,
         labelSource: caenDescription.label === null ? null : labelSource,
         caenDescription,
       };
     }
+    if (value.activity !== null) return NO_LABEL;
     const label = labels.value.get(value.key) ?? null;
     return label === null ? NO_LABEL : { label, labelSource };
   };
+  const bucket = (
+    kind: CompanyAnalysisBucketKind,
+    group: GroupAcc,
+    count: number,
+    label: BucketLabel
+  ): CompanyAnalysisBucket => bucketOf(kind, group, count, metric, label, activityDimension);
 
   return finish(ctx, resolved.value, {
     ...answerBase(release, scope.value),
@@ -1019,10 +1289,11 @@ export const companyAnalysisBreakdown = async (
     rankedBy,
     topN: limit,
     groupCount: known.length,
-    groups: top.map((group) => bucketOf('GROUP', group, 1, metric, labelOf(group))),
-    other: bucketOf('OTHER', other, rest.length, metric, NO_LABEL),
-    unknown: bucketOf('UNKNOWN', unknown, 1, metric, NO_LABEL),
-    totals: bucketOf('TOTAL', totals, known.length + 1, metric, NO_LABEL),
+    groups: top.map((group) => bucket('GROUP', group, 1, labelOf(group))),
+    other: bucket('OTHER', other, rest.length, NO_LABEL),
+    unknown: bucket('UNKNOWN', unknown, 1, NO_LABEL),
+    unclassified: unclassified.map((group) => bucket('GROUP', group, 1, NO_LABEL)),
+    totals: bucket('TOTAL', totals, known.length + unclassified.length + 1, NO_LABEL),
     caveats:
       dimension.value === 'EMPLOYEE_SIZE'
         ? [
@@ -1034,7 +1305,9 @@ export const companyAnalysisBreakdown = async (
               SNAPSHOT_CAVEAT,
               'Every company is in exactly one group: its edition consensus value, or the basis group (multiple_values), (partial_observations), (missing) or (unresolved) when it has none. The unknown bucket is always empty here.',
             ]
-          : [SNAPSHOT_CAVEAT],
+          : activityDimension
+            ? [SNAPSHOT_CAVEAT, ...ACTIVITY_BREAKDOWN_CAVEATS]
+            : [SNAPSHOT_CAVEAT],
   });
 };
 
@@ -1065,7 +1338,7 @@ export const companyAnalysisSeries = async (
     readonly fromYear?: unknown;
     readonly toYear?: unknown;
   }
-): Promise<Result<CompanyAnalysisSeries, ApiError>> => {
+): Promise<Result<CompanyAnalysisSeries, CompanyAnalysisError>> => {
   if (ctx === null) return err(notConfigured());
   const pin = parsePin(input.release);
   if (pin.isErr()) return err(pin.error);
@@ -1085,6 +1358,8 @@ export const companyAnalysisSeries = async (
   const release = resolved.value.release;
   const scope = bindScope(shape.value, release);
   if (scope.isErr()) return err(scope.error);
+  const capable = requireCapabilities(release, scope.value);
+  if (capable.isErr()) return err(capable.error);
   const metric = requestedMetric.value ?? release.defaults.metric;
   const offeredYears = release.metrics.find((m) => m.metric === metric)?.offeredYears ?? [];
   if (offeredYears.length === 0)
@@ -1281,6 +1556,97 @@ const recordedDateOf = (
   return ok({ date: row.recordedDate, year });
 };
 
+/** The v3 activity fields of a record; all null on a release without ACTIVITY. */
+interface RecordActivityFields {
+  readonly activity: CompanyAnalysisActivity | null;
+  readonly onrcClassKeyCount: number | null;
+  readonly onrcUnqualifiedRowCount: number | null;
+  readonly anafCaenForm: string | null;
+  readonly anafOnrcAgreement: string | null;
+  readonly anafStatusDate: string | null;
+}
+
+const NO_RECORD_ACTIVITY: RecordActivityFields = {
+  activity: null,
+  onrcClassKeyCount: null,
+  onrcUnqualifiedRowCount: null,
+  anafCaenForm: null,
+  anafOnrcAgreement: null,
+  anafStatusDate: null,
+};
+
+const GRAPHQL_INT_MAX = 2_147_483_647n;
+
+const recordInt = (raw: string, what: string): Result<number, ApiError> => {
+  const count = parseCount(raw);
+  return count === null || count > GRAPHQL_INT_MAX
+    ? err(invariant(`${what} is not an exact count`))
+    : ok(Number(count));
+};
+
+/** The record's code a catalog description is read for (ONRC key or ANAF code). */
+const recordActivityCode = (row: RecordActivityRow | null): string | null => {
+  if (row === null) return null;
+  const basis = ACTIVITY_BASIS_BY_VALUE.get(row.basis);
+  return basis === undefined || UNCLASSIFIED_ACTIVITY_BASES.includes(basis) ? null : row.code;
+};
+
+/**
+ * One company's derived activity, checked against its basis: an ONRC basis
+ * carries its exact revision and code, an ANAF basis a code and never a
+ * revision, the multiple-classes and no-selection bases neither. ONRC is
+ * labelled by its exact catalog row, an ANAF code by its candidates only; an
+ * uncatalogued code is never labelled.
+ */
+const recordActivityOf = (
+  row: RecordActivityRow | null,
+  catalog: ReadonlyMap<string, readonly CaenCatalogDescription[]>,
+  cui: string
+): Result<RecordActivityFields, ApiError> => {
+  if (row === null) return ok(NO_RECORD_ACTIVITY);
+  const basis = ACTIVITY_BASIS_BY_VALUE.get(row.basis);
+  if (basis === undefined)
+    return err(invariant(`activity basis ${row.basis} of ${cui} is not in the release vocabulary`));
+  const onrc = ONRC_ACTIVITY_BASES.includes(basis);
+  const anaf = basis === 'ANAF_FISCAL_CODE' || basis === 'ANAF_FISCAL_UNCATALOGUED';
+  const { revision, code } = row;
+  if (onrc ? revision === null || !ACTIVITY_REVISION_RE.test(revision) : revision !== null)
+    return err(invariant(`activity revision of ${cui} disagrees with its basis`));
+  if ((onrc || anaf) !== (code !== null) || (code !== null && !ACTIVITY_CODE_RE.test(code)))
+    return err(invariant(`activity code of ${cui} disagrees with its basis`));
+  if (!COMPANY_ANALYSIS_ANAF_CAEN_FORMS.includes(row.anafCaenForm))
+    return err(invariant(`ANAF CAEN form ${row.anafCaenForm} of ${cui} is not in the vocabulary`));
+  if (!COMPANY_ANALYSIS_ANAF_ONRC_AGREEMENTS.includes(row.anafOnrcAgreement))
+    return err(invariant(`ANAF/ONRC agreement of ${cui} is not in the vocabulary`));
+  if (row.anafStatusDate !== null && !isCivilDate(row.anafStatusDate))
+    return err(invariant(`ANAF status date of ${cui} is not a civil date`));
+  const keys = recordInt(row.classKeyCount, `class key count of ${cui}`);
+  if (keys.isErr()) return err(keys.error);
+  const unqualified = recordInt(row.unqualifiedRowCount, `unqualified row count of ${cui}`);
+  if (unqualified.isErr()) return err(unqualified.error);
+  const described =
+    code !== null && basis !== 'ANAF_FISCAL_UNCATALOGUED'
+      ? resolveCaenDescriptions(onrc ? revision : null, catalog.get(code) ?? [])
+      : null;
+  return ok({
+    activity: {
+      basis,
+      source: onrc ? 'ONRC' : anaf ? 'ANAF' : null,
+      code,
+      revision: onrc ? revision : null,
+      label: described?.label ?? null,
+      descriptionStatus: described?.descriptionStatus ?? null,
+      descriptions: described?.descriptions ?? [],
+      derived: true,
+    },
+    onrcClassKeyCount: keys.value,
+    onrcUnqualifiedRowCount: unqualified.value,
+    anafCaenForm: row.anafCaenForm,
+    anafOnrcAgreement: row.anafOnrcAgreement,
+    anafStatusDate: row.anafStatusDate,
+  });
+};
+
 const flagOf = (raw: string | null): Result<CompanyAnalysisFlagValue, ApiError> => {
   if (raw === null) return ok('UNKNOWN');
   if (raw === 'YES' || raw === 'NO') return ok(raw);
@@ -1296,6 +1662,7 @@ const mapRecord = (
     readonly uats: ReadonlyMap<string, string>;
     readonly statuses: ReadonlyMap<string, string>;
     readonly caen: ReadonlyMap<string, CaenDescriptionResolution>;
+    readonly catalog: ReadonlyMap<string, readonly CaenCatalogDescription[]>;
   }
 ): Result<CompanyAnalysisRecord, ApiError> => {
   const vat = flagOf(row.vatPayer);
@@ -1348,6 +1715,8 @@ const mapRecord = (
   // The exact recorded civil date and the year derived from it alone.
   const recorded = recordedDateOf(row);
   if (recorded.isErr()) return err(recorded.error);
+  const activity = recordActivityOf(row.activity, labels.catalog, row.cui);
+  if (activity.isErr()) return err(activity.error);
   const labelled = (code: string | null, map: ReadonlyMap<string, string>, source: string) => {
     if (code === null) return null;
     const label = map.get(code) ?? null;
@@ -1382,6 +1751,7 @@ const mapRecord = (
     filed: row.filed,
     employeeSizeBand: sizeBand,
     values,
+    ...activity.value,
   });
 };
 
@@ -1397,7 +1767,7 @@ export const companyAnalysisRecords = async (
     readonly first?: unknown;
     readonly after?: unknown;
   }
-): Promise<Result<CompanyAnalysisRecordsPage, ApiError>> => {
+): Promise<Result<CompanyAnalysisRecordsPage, CompanyAnalysisError>> => {
   if (ctx === null) return err(notConfigured());
   const pin = parsePin(input.release);
   if (pin.isErr()) return err(pin.error);
@@ -1421,7 +1791,10 @@ export const companyAnalysisRecords = async (
   const release = resolved.value.release;
   const scope = bindScope(shape.value, release);
   if (scope.isErr()) return err(scope.error);
+  const capable = requireCapabilities(release, scope.value);
+  if (capable.isErr()) return err(capable.error);
   const fiscalYear = scope.value.fiscalYear;
+  const withActivity = offersDimension(release, 'ACTIVITY');
 
   const fallbackMetric = defaultMetricFor(release, fiscalYear);
   const sort: CompanyAnalysisRecordSort =
@@ -1459,6 +1832,7 @@ export const companyAnalysisRecords = async (
       after: after.value,
       limit: pageSize + 1,
       metrics,
+      activity: withActivity,
     }),
     ctx.engine.countPopulation(release.releaseNumber, scope.value),
   ]);
@@ -1470,7 +1844,10 @@ export const companyAnalysisRecords = async (
   const page = rows.value.slice(0, pageSize);
   const unique = (values: readonly (string | null)[]): readonly string[] =>
     [...new Set(values)].filter((v): v is string => v !== null);
-  const caenCodes = unique(page.map((row) => row.caenCode));
+  const caenCodes = unique([
+    ...page.map((row) => row.caenCode),
+    ...page.map((row) => recordActivityCode(row.activity)),
+  ]);
   const emptyCaen: ReadonlyMap<string, readonly CaenCatalogDescription[]> = new Map();
   const empty: ReadonlyMap<string, string> = new Map();
   const batch = (
@@ -1492,6 +1869,7 @@ export const companyAnalysisRecords = async (
     if (result.isErr()) return err(result.error);
   }
   const labelMaps = {
+    catalog: caen.unwrapOr(emptyCaen),
     names: names.unwrapOr(empty),
     counties: counties.unwrapOr(empty),
     uats: uats.unwrapOr(empty),

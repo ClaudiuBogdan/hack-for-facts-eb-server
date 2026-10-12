@@ -74,7 +74,7 @@ describe('companies analytics release parsing', () => {
 
   it.each([
     ['the v1 schema', { schemaVersion: 'companies-analytics-ch-v1' }],
-    ['an unknown schema', { schemaVersion: 'companies-analytics-ch-v3' }],
+    ['an unknown schema', { schemaVersion: 'companies-analytics-ch-v4' }],
     ['the v1 population', { populationPolicyVersion: 'public-legal-person-v1' }],
     ['another database', { clickhouseDatabase: 'proto' }],
     ['table names that do not match the id', { companyTable: 'company_r9' }],

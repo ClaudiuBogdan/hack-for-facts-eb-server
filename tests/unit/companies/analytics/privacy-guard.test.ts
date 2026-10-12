@@ -32,7 +32,7 @@ import {
   type FakePrivacy,
 } from './analytics-fixtures.js';
 
-import type { ApiError } from '@/modules/shared/index.js';
+import type { CompanyAnalysisError } from '@/modules/companies/core/analytics-types.js';
 import type { Result } from 'neverthrow';
 
 const ACTIVE = releaseRow(7, DATASET.companies, DATASET.statements);
@@ -48,7 +48,7 @@ const setup = (privacy: FakePrivacy = fakePrivacy(), active = ACTIVE, retained =
 type Answer = (
   ctx: CompanyAnalysisContext,
   extra: Record<string, unknown>
-) => Promise<Result<unknown, ApiError>>;
+) => Promise<Result<unknown, CompanyAnalysisError>>;
 
 const ANSWERS: readonly (readonly [string, Answer])[] = [
   ['companyAnalysisRelease', (ctx, extra) => companyAnalysisRelease(ctx, extra)],

@@ -34,6 +34,7 @@ import {
   type OffsetParams,
 } from '@/modules/shared/index.js';
 
+import { selectActivity, type CompanyActivitySelection } from './activity-selection.js';
 import { COMPANY_REGISTRY_FILTER_FIELDS } from './filters.js';
 import {
   ONRC_CAEN_REVISIONS,
@@ -457,6 +458,7 @@ export interface CompanyCompositionParts {
   readonly publicMoney?: boolean;
   readonly financialQualityAssessment?: boolean;
   readonly registrationDiff?: boolean;
+  readonly activitySelection?: boolean;
 }
 
 /**
@@ -469,7 +471,35 @@ export interface CompanyComposition {
   readonly publicMoney?: Result<CompanyPublicMoney | null, ApiError>;
   readonly financialQualityAssessment?: Result<CompanyFinancialQualityAssessment, ApiError>;
   readonly registrationDiff?: Result<CompanyRegistrationDiff, ApiError>;
+  /** Null without a published edition or a profile of the CUI in it. */
+  readonly activitySelection?: Result<CompanyActivitySelection | null, ApiError>;
 }
+
+/**
+ * The derived activity selection of a profile read under `scope`: the
+ * repository's bounded exact evidence through the pure rule
+ * (`selectActivity`), with the profile's CAEN coverage and the edition's
+ * id and source date. Null without a published edition or a profile of the
+ * CUI in it (no coverage to state). An aggregate past its bound is a typed
+ * refusal of this part, never a truncated selection.
+ */
+const readActivitySelection = async (
+  repo: CompaniesRepository,
+  profile: CompanyProfileData,
+  scope: CompanyRegistryEnvelope
+): Promise<Result<CompanyActivitySelection | null, ApiError>> => {
+  const edition = profile.registry.profile;
+  if (!isPublished(scope) || edition === null) return ok(null);
+  const evidence = await repo.getActivityEvidence(profile.cui, scope);
+  if (evidence.isErr()) return err(evidence.error);
+  if (evidence.value === null) return ok(null);
+  return selectActivity({
+    ...evidence.value,
+    caenCoverage: edition.caenCoverage,
+    editionId: scope.editionId,
+    editionSourceDate: scope.sourcePublishedAt,
+  });
+};
 
 /**
  * One owning Company response. The profile and every SELECTED part (public
@@ -496,22 +526,28 @@ export const makeCompanyComposition = async (
     if (dataRes.isErr()) return err(dataRes.error);
     const profile = dataRes.value;
     if (profile === null) return ok(null);
-    const [publicMoney, financialQualityAssessment, diffData] = await Promise.all([
+    const [publicMoney, financialQualityAssessment, diffData, activity] = await Promise.all([
       parts.publicMoney === true ? buildPublicMoney(deps.flowsRepo, cui) : undefined,
       parts.financialQualityAssessment === true
         ? deps.repo.getFinancialQualityAssessment(cui)
         : undefined,
       parts.registrationDiff === true ? deps.repo.getRegistrationDiffData(cui, scope) : undefined,
+      parts.activitySelection === true
+        ? readActivitySelection(deps.repo, profile, scope)
+        : undefined,
     ]);
-    // A capability lost by the diff read moves the scope like any other read.
-    if (diffData !== undefined && diffData.isErr() && isRegistryCapabilityLost(diffData.error)) {
-      return err(diffData.error);
+    // A capability lost by the diff or activity read moves the scope like any other read.
+    for (const part of [diffData, activity]) {
+      if (part !== undefined && part.isErr() && isRegistryCapabilityLost(part.error)) {
+        return err(part.error);
+      }
     }
     return ok({
       profile,
       ...(publicMoney !== undefined && { publicMoney }),
       ...(financialQualityAssessment !== undefined && { financialQualityAssessment }),
       ...(diffData !== undefined && { registrationDiff: diffData.map(diffRegistryEditions) }),
+      ...(activity !== undefined && { activitySelection: activity }),
     });
   };
   const pinned = await runPinned(deps.repo, read, (composition) =>
@@ -534,16 +570,21 @@ export const makeCompanyProfile = async (
   const composed = await makeCompanyComposition(deps, rawCui, {
     publicMoney: true,
     registrationDiff: true,
+    activitySelection: true,
   });
   if (composed.isErr()) return err(composed.error);
   const composition = composed.value;
   if (composition === null) return ok(null);
   const money = composition.publicMoney ?? ok(null);
   if (money.isErr()) return err(money.error);
+  const activity = composition.activitySelection ?? ok(null);
   return ok({
     ...composition.profile,
     publicMoney: money.value,
     registrationDiff: composition.registrationDiff?.unwrapOr(null) ?? null,
+    // Advisory like the diff: a refused or failed selection is null with its reason.
+    activitySelection: activity.unwrapOr(null),
+    activitySelectionRefusal: activity.isErr() ? activity.error.message : null,
   });
 };
 

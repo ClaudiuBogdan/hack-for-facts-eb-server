@@ -15,8 +15,10 @@
  * (= is_inactive) is exposed.
  */
 
+import type { CompanyActivitySelection } from './activity-selection.js';
 import type {
   CompanyCaenCatalogLabel,
+  CompanyCaenClassState,
   CompanyNameSource,
   CompanyRegistryBasis,
   CompanyRegistryCuiState,
@@ -28,6 +30,7 @@ import type { BigIntString, Cui, IsoDate, Money, Siruta } from '@/modules/shared
 
 export type {
   CompanyCaenCatalogLabel,
+  CompanyCaenClassState,
   CompanyNameSource,
   CompanyRegistryBasis,
   CompanyRegistryCaenObservation,
@@ -462,16 +465,19 @@ export interface CompanyRegistrationDiff {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * One activity: an ONRC (revision, code) the pinned edition publicly
- * observes, or the ANAF declared main activity (its own revision, often
- * unknown). The label is the current database catalog's for the row's OWN
- * known revision (`labelSource`), never an edition-frozen label and never
- * borrowed across revisions or sources.
+ * One activity: an ONRC (revision, code, class state) the pinned edition
+ * publicly observes, or the ANAF fiscal CAEN code (a source observation;
+ * ANAF TVA publishes no revision). The label is the current database catalog's for the row's
+ * OWN known revision (`labelSource`), and for an ONRC entry only when it is a
+ * `class` entry; never an edition-frozen label and never borrowed across
+ * revisions or sources.
  */
 export interface CompanyCaenActivity {
   readonly code: string;
   readonly rev: string | null;
   readonly source: string;
+  /** The ONRC entry's class state; null for the ANAF entry. */
+  readonly classState: CompanyCaenClassState | null;
   readonly label: string | null;
   readonly labelSource: CompanyCaenCatalogLabel['source'] | null;
 }
@@ -591,6 +597,13 @@ export interface CompanyProfile {
  */
 export interface CompanySnapshot extends CompanyProfile {
   readonly registrationDiff: CompanyRegistrationDiff | null;
+  /**
+   * The derived activity selection, read inside the same pin. Null when the
+   * edition is not published or the CUI has no profile in it, and when the
+   * selection was refused (`activitySelectionRefusal` says why).
+   */
+  readonly activitySelection: CompanyActivitySelection | null;
+  readonly activitySelectionRefusal: string | null;
 }
 
 /** A row in the filterable company list (lean; no fan-out). */

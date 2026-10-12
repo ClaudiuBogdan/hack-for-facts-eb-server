@@ -1,7 +1,10 @@
 /**
  * Companies analytics — GraphQL resolvers. Thin: the raw arguments go to the
- * same usecase the MCP tool calls (which validates them), and `ApiError`
- * becomes a `GraphQLError` with `extensions.code` (+ `field` for invalid input).
+ * same usecase the MCP tool calls (which validates them), and the error
+ * becomes a `GraphQLError` with `extensions.code` (+ `field` for invalid
+ * input). A capability the release lacks (ACTIVITY on a v2 release) is
+ * `RELEASE_CAPABILITY_UNAVAILABLE` with `field`, `capability`, `releaseId`
+ * and `schemaVersion`, never a 500.
  *
  * Each served answer (empty stats, series and records included: they still
  * name a release) is registered with the request's EXISTING owning-result
@@ -13,13 +16,9 @@
 
 import { GraphQLError, type GraphQLResolveInfo } from 'graphql';
 
-import {
-  GRAPHQL_ERROR_CODE,
-  owningResultGuardOf,
-  responsePathOf,
-  type ApiError,
-} from '@/modules/shared/index.js';
+import { owningResultGuardOf, responsePathOf } from '@/modules/shared/index.js';
 
+import { companyAnalysisErrorCode, type CompanyAnalysisError } from '../../core/analytics-types.js';
 import {
   companyAnalysisBreakdown,
   companyAnalysisRecords,
@@ -32,12 +31,18 @@ import {
 
 import type { Result } from 'neverthrow';
 
-export const toAnalysisGraphqlError = (error: ApiError): GraphQLError =>
+export const toAnalysisGraphqlError = (error: CompanyAnalysisError): GraphQLError =>
   new GraphQLError(error.message, {
     extensions: {
-      code: GRAPHQL_ERROR_CODE[error.type],
+      code: companyAnalysisErrorCode(error),
       type: error.type,
       ...(error.type === 'InvalidInput' && error.field !== undefined && { field: error.field }),
+      ...(error.type === 'ReleaseCapabilityUnavailable' && {
+        field: error.field,
+        capability: error.capability,
+        releaseId: error.releaseId,
+        schemaVersion: error.schemaVersion,
+      }),
     },
   });
 
@@ -54,7 +59,7 @@ export const makeCompanyAnalysisResolvers = (
 ): { readonly Query: Record<string, Resolver> } => {
   /** Unwrap, then register the served answer's release for the operation's final decision. */
   const owned = <T extends { readonly release: { readonly releaseId: string } }>(
-    result: Result<T, ApiError>,
+    result: Result<T, CompanyAnalysisError>,
     context: unknown,
     info: GraphQLResolveInfo | undefined
   ): T => {

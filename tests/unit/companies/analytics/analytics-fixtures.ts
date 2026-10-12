@@ -1,5 +1,6 @@
 /**
- * Companies analytics v2 fakes (schema `companies-analytics-ch-v2`): an
+ * Companies analytics v2/v3 fakes (schemas `companies-analytics-ch-v2` and
+ * `-ch-v3`; a v3 company carries its derived activity selection): an
  * in-memory engine with the contract semantics (population on companies,
  * filers on statements, reported-only values, nulls-last keyset pages, edition
  * consensus buckets with their basis, and ONRC observation filters on ONE
@@ -13,6 +14,7 @@ import { err, ok, type Result } from 'neverthrow';
 
 import { parseMetricValue, formatMetricValue } from '@/modules/companies/core/analytics-decimal.js';
 import {
+  ACTIVITY_BASIS_VALUE,
   CAEN_BASIS_VALUE,
   COMPANY_ANALYSIS_METRICS,
   COMPANY_ANALYSIS_STATUSES,
@@ -83,7 +85,62 @@ export interface FakeCompany {
   readonly caenBasis: 'revision_known' | 'revision_unknown' | 'missing';
   readonly caenRev: string | null;
   readonly caenCode: string | null;
+  /** v3 only: the derived activity selection columns (absent on a v2 company). */
+  readonly activity?: FakeActivity;
 }
+
+/** The v3 activity columns of one company, exactly as the export writes them. */
+export interface FakeActivity {
+  readonly basis: string;
+  readonly rev: string | null;
+  readonly code: string | null;
+  readonly classKeys: number;
+  readonly unqualifiedRows: number;
+  readonly form: string;
+  readonly agreement: string;
+  readonly anafDate: string | null;
+}
+
+/** A v3 activity selection; defaults are a single-class ONRC selection. */
+export const activity = (over: Partial<FakeActivity> = {}): FakeActivity => ({
+  basis: 'onrc_single_class',
+  rev: 'rev2',
+  code: '6201',
+  classKeys: 1,
+  unqualifiedRows: 0,
+  form: 'four_digit',
+  agreement: 'match_one_key',
+  anafDate: '2026-09-28',
+  ...over,
+});
+
+const ONRC_SELECTED = ['onrc_single_class', 'onrc_class_anaf_numeric_match'];
+
+/** The engine's source-normalised ACTIVITY key parts (an independent oracle of the SQL). */
+const activityParts = (a: FakeActivity | undefined): DimensionParts => {
+  if (a === undefined) return [null, null, null];
+  if (ONRC_SELECTED.includes(a.basis)) return ['onrc', a.rev, a.code];
+  if (a.basis === 'anaf_fiscal_code') return ['anaf', a.rev, a.code];
+  return [a.basis, a.rev, null];
+};
+
+const activityMatches = (c: FakeCompany, scope: CompanyAnalysisScope): boolean => {
+  const a = c.activity;
+  if (scope.activity !== undefined) {
+    if (a === undefined) return false;
+    const hit = scope.activity.some((sel) =>
+      sel.source === 'ONRC'
+        ? ONRC_SELECTED.includes(a.basis) && a.rev === sel.revision && a.code === sel.code
+        : a.basis === 'anaf_fiscal_code' && a.code === sel.code
+    );
+    if (!hit) return false;
+  }
+  if (scope.activityBasis !== undefined) {
+    if (a === undefined) return false;
+    if (!scope.activityBasis.map((b) => ACTIVITY_BASIS_VALUE[b]).includes(a.basis)) return false;
+  }
+  return true;
+};
 
 /** A metric cell: value present iff status is reported. */
 export interface FakeCell {
@@ -321,7 +378,8 @@ export const companyMatches = (scope: CompanyAnalysisScope, c: FakeCompany): boo
         : c.caenBasis === 'revision_known' && c.caenRev === sel.revision && c.caenCode === sel.code
     )) &&
   (scope.mainCaenBasis === undefined ||
-    scope.mainCaenBasis.map((b) => CAEN_BASIS_VALUE[b]).includes(c.caenBasis));
+    scope.mainCaenBasis.map((b) => CAEN_BASIS_VALUE[b]).includes(c.caenBasis)) &&
+  activityMatches(c, scope);
 
 const statementMatches = (scope: CompanyAnalysisScope, s: FakeStatement): boolean =>
   (scope.financialRanges ?? []).every((range) => {
@@ -421,6 +479,8 @@ export const makeInMemoryEngine = (
         return [flagText(c.inactive)];
       case 'MAIN_CAEN':
         return [c.caenBasis, c.caenRev, c.caenCode];
+      case 'ACTIVITY':
+        return activityParts(c.activity);
       default:
         return [band];
     }
@@ -468,9 +528,36 @@ export const makeInMemoryEngine = (
         partsOf(dimension, c, statementOf(scope.fiscalYear, c.cui)?.band ?? '')
       );
       const fil = group(filersOf(scope), (s) => partsOf(dimension, companyOf(s), s.band));
+      const qualityOf = (items: readonly FakeCompany[]) => {
+        const dates = items.flatMap((c) =>
+          c.activity?.anafDate === null || c.activity === undefined ? [] : [c.activity.anafDate]
+        );
+        dates.sort();
+        return {
+          singleClass: String(
+            items.filter((c) => c.activity?.basis === 'onrc_single_class').length
+          ),
+          numericMatch: String(
+            items.filter((c) => c.activity?.basis === 'onrc_class_anaf_numeric_match').length
+          ),
+          incompleteCoverage: String(
+            items.filter((c) => c.caenCoverage === 'partial' || c.caenCoverage === 'unresolved')
+              .length
+          ),
+          withUnqualifiedRows: String(
+            items.filter((c) => (c.activity?.unqualifiedRows ?? 0) > 0).length
+          ),
+          anafFrom: dates[0] ?? null,
+          anafTo: dates.at(-1) ?? null,
+        };
+      };
       return Promise.resolve(
         ok({
-          population: pop.map((g) => ({ parts: g.parts, companies: String(g.items.length) })),
+          population: pop.map((g) => ({
+            parts: g.parts,
+            companies: String(g.items.length),
+            ...(dimension === 'ACTIVITY' && { quality: qualityOf(g.items) }),
+          })),
           filers: fil.map((g) => ({
             parts: g.parts,
             filers: String(g.items.length),
@@ -580,6 +667,19 @@ export const makeInMemoryEngine = (
                 return [m, { value: cell.value, status: cell.status }];
               })
             ),
+            activity:
+              request.activity && r.c.activity !== undefined
+                ? {
+                    basis: r.c.activity.basis,
+                    revision: r.c.activity.rev,
+                    code: r.c.activity.code,
+                    classKeyCount: String(r.c.activity.classKeys),
+                    unqualifiedRowCount: String(r.c.activity.unqualifiedRows),
+                    anafCaenForm: r.c.activity.form,
+                    anafOnrcAgreement: r.c.activity.agreement,
+                    anafStatusDate: r.c.activity.anafDate,
+                  }
+                : null,
           }))
         )
       );
@@ -953,3 +1053,122 @@ export const ONRC_CONTROLS = (() => {
   ];
   return { companies, statements };
 })();
+
+/**
+ * A v3 (`companies-analytics-ch-v3`) population: every company carries its
+ * derived activity selection exactly as the export writes it.
+ *  - 1001 single class rev2:6201 and 1002 numeric match rev2:6201: ONE ONRC
+ *    bucket mixing both bases (basis null, numericMatchSelected 1);
+ *  - 1003 single class rev3:6201: same digits, another revision, its own bucket;
+ *  - 1004 ANAF fiscal code 6201: same digits again, an ANAF bucket (no revision);
+ *  - 1005 multiple classes, 1006/1007 uncatalogued ANAF codes 1234/4321
+ *    (one bucket), 1008 no qualified selection: unclassified, never ranked;
+ *  - 1009 single class rev2:4711 with partial coverage, 1010 its numeric match.
+ * FY2024 statements for every company but 1008 (a non-filer); money beyond
+ * 2^53 on the uncatalogued bucket so a lost bucket would break the totals.
+ */
+export const ACTIVITY_DATASET = (() => {
+  const companies: FakeCompany[] = [
+    company('1001', { activity: activity({ anafDate: '2026-09-01' }) }),
+    company('1002', {
+      activity: activity({
+        basis: 'onrc_class_anaf_numeric_match',
+        classKeys: 2,
+        unqualifiedRows: 1,
+        anafDate: '2026-09-28',
+      }),
+    }),
+    company('1003', { activity: activity({ rev: 'rev3', agreement: 'differs' }) }),
+    company('1004', {
+      activity: activity({
+        basis: 'anaf_fiscal_code',
+        rev: null,
+        code: '6201',
+        classKeys: 0,
+        agreement: 'no_class_key',
+        anafDate: '2026-08-15',
+      }),
+    }),
+    company('1005', {
+      activity: activity({
+        basis: 'onrc_multiple_classes',
+        rev: null,
+        code: null,
+        classKeys: 3,
+        agreement: 'differs',
+      }),
+    }),
+    company('1006', {
+      activity: activity({
+        basis: 'anaf_fiscal_uncatalogued',
+        rev: null,
+        code: '1234',
+        classKeys: 0,
+        agreement: 'no_class_key',
+      }),
+    }),
+    company('1007', {
+      activity: activity({
+        basis: 'anaf_fiscal_uncatalogued',
+        rev: null,
+        code: '4321',
+        classKeys: 0,
+        agreement: 'no_class_key',
+        anafDate: '2026-07-01',
+      }),
+    }),
+    company('1008', {
+      caenCoverage: 'unresolved',
+      activity: activity({
+        basis: 'no_qualified_selection',
+        rev: null,
+        code: null,
+        classKeys: 0,
+        unqualifiedRows: 2,
+        form: 'short',
+        agreement: 'anaf_not_usable',
+        anafDate: null,
+      }),
+    }),
+    company('1009', {
+      caenCoverage: 'partial',
+      activity: activity({
+        code: '4711',
+        agreement: 'anaf_missing',
+        form: 'absent',
+        anafDate: null,
+      }),
+    }),
+    company('1010', {
+      activity: activity({
+        basis: 'onrc_class_anaf_numeric_match',
+        code: '4711',
+        classKeys: 2,
+      }),
+    }),
+  ];
+  const statements: FakeStatement[] = [
+    statement(2024, '1001', { TURNOVER: reported('100.10') }),
+    statement(2024, '1002', { TURNOVER: reported('200.20') }),
+    statement(2024, '1003', { TURNOVER: reported('300.30') }),
+    statement(2024, '1004', { TURNOVER: reported('400.40') }),
+    statement(2024, '1005', { TURNOVER: reported('500.50') }),
+    statement(2024, '1006', { TURNOVER: reported(HUGE_TURNOVER) }),
+    statement(2024, '1007', { TURNOVER: reported('0.00') }),
+    statement(2024, '1009', { TURNOVER: held('held_quality') }),
+    statement(2024, '1010', { TURNOVER: reported('1000.00') }),
+  ];
+  return { companies, statements };
+})();
+
+/** The v3 release row of a population (schema `companies-analytics-ch-v3`). */
+export const v3ReleaseRow = (
+  releaseId: number,
+  companies: readonly FakeCompany[],
+  statements: readonly FakeStatement[],
+  over: Partial<CompanyAnalysisReleaseRow> = {}
+): CompanyAnalysisReleaseRow =>
+  releaseRow(releaseId, companies, statements, {
+    schemaVersion: 'companies-analytics-ch-v3',
+    ...over,
+  });

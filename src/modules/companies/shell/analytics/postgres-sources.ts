@@ -42,6 +42,8 @@ import {
   type ProdDatabase,
 } from '@/modules/shared/index.js';
 
+import { readCaenCatalogCandidates } from '../repo/registry-sql.js';
+
 import type {
   CaenLabelKey,
   CompanyAnalysisLabelSource,
@@ -360,22 +362,7 @@ export const makeAnalyticsLabelSource = (db: Db, logger?: Logger): CompanyAnalys
 
     caenDescriptions: async (codes) => {
       try {
-        const result = await sql<{ code: string; revision: string; label: string | null }>`
-          select cc.code, substring(cc.system from 6) as revision, cc.label
-          from core.classification_codes cc
-          where ${inList('cc.code', [...new Set(codes)])}
-            and cc.system in ('caen_rev0', 'caen_rev1', 'caen_rev2', 'caen_rev3')
-          order by cc.code, cc.system`.execute(db);
-        const candidates = new Map<
-          string,
-          import('../../core/caen-descriptions.js').CaenCatalogDescription[]
-        >();
-        for (const row of result.rows) {
-          const values = candidates.get(row.code) ?? [];
-          values.push({ revision: row.revision, label: row.label });
-          candidates.set(row.code, values);
-        }
-        return ok(candidates);
+        return ok(await readCaenCatalogCandidates(db, codes));
       } catch (cause) {
         return err(failed('caenDescriptions', cause));
       }

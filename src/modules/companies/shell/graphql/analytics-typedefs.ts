@@ -7,10 +7,13 @@
  * unit is named next to them. Every root is nullable so an error isolates to
  * its field (codes: INVALID_INPUT, SERVICE_UNAVAILABLE, GATEWAY_TIMEOUT, …).
  *
- * Only `companies-analytics-ch-v2` releases (population
+ * Only `companies-analytics-ch-v2` and `-ch-v3` releases (population
  * `public-onrc-edition-legal-person-v2`, one pinned ONRC edition) are served;
  * a v1 release is SERVICE_UNAVAILABLE (active) or INVALID_INPUT `release`
- * (pinned), never reinterpreted. Each root is decided again when the whole
+ * (pinned), never reinterpreted. The ACTIVITY dimension and the activity /
+ * activityBasis filters exist only on a release whose dimensions list
+ * ACTIVITY (v3); elsewhere they are RELEASE_CAPABILITY_UNAVAILABLE with
+ * `extensions.field`, `capability`, `releaseId`, `schemaVersion`. Each root is decided again when the whole
  * operation completed: a release that became stale meanwhile (privacy or ONRC
  * source change) nulls the root with INVALID_INPUT, `extensions.field` release.
  */
@@ -77,7 +80,7 @@ export const companyAnalysisTypeDefs = /* GraphQL */ `
     FROM_50_TO_249
     FROM_250
   }
-  "ANAF main activity revision state. An unknown revision is never mapped to a catalog revision."
+  "Revision state of the ANAF fiscal CAEN code (MAIN_CAEN, legacy name). ANAF TVA publishes no revision; an unknown revision is never mapped to a catalog revision."
   enum CompanyAnalysisCaenBasis {
     REVISION_KNOWN
     REVISION_UNKNOWN
@@ -97,6 +100,7 @@ export const companyAnalysisTypeDefs = /* GraphQL */ `
   enum CompanyAnalysisDimension {
     COUNTY
     UAT
+    "The ANAF fiscal CAEN code (legacy name): a source observation, never a principal or main activity; ANAF publishes no revision."
     MAIN_CAEN
     LEGAL_FORM
     OBSERVED_STATUS
@@ -104,6 +108,8 @@ export const companyAnalysisTypeDefs = /* GraphQL */ `
     FISCALLY_INACTIVE
     "Selected-year statement attribute; the unknown group holds non-filers and statements without a reported headcount."
     EMPLOYEE_SIZE
+    "Releases listing it only (v3): the derived activity selection, never a principal activity. Groups onrc:<revision>:<code> and anaf:<code>; the multiple-classes, uncatalogued-ANAF and no-selection buckets are in breakdown.unclassified."
+    ACTIVITY
   }
   enum CompanyAnalysisRankBy {
     METRIC_SUM
@@ -185,7 +191,32 @@ export const companyAnalysisTypeDefs = /* GraphQL */ `
     onrcCaen: [String!]
     exclude: CompanyAnalysisOnrcExcludeInput
   }
-  "A main CAEN code. Omit revision to match codes whose revision ANAF did not publish (never guessed)."
+  "How a company's derived activity was selected. A derived selection, never a published principal or main activity."
+  enum CompanyAnalysisActivityBasis {
+    "The only classified ONRC observation in the edition (not an exclusive authorization)."
+    ONRC_SINGLE_CLASS
+    "One of several classified ONRC observations, selected because the usable ANAF fiscal code has the same digits."
+    ONRC_CLASS_ANAF_NUMERIC_MATCH
+    "Several classified ONRC observations; none selected (unclassified bucket)."
+    ONRC_MULTIPLE_CLASSES
+    "No classified ONRC observation; the usable ANAF fiscal code (ANAF publishes no revision)."
+    ANAF_FISCAL_CODE
+    "No classified ONRC observation; an ANAF fiscal code without any catalog label: a source observation, not a classified sector (unclassified bucket)."
+    ANAF_FISCAL_UNCATALOGUED
+    "No qualified selection, never 'no activity' (unclassified bucket)."
+    NO_QUALIFIED_SELECTION
+  }
+  enum CompanyAnalysisActivitySource {
+    ONRC
+    ANAF
+  }
+  "Exact activity selector: ONRC requires revision (rev0..rev3); ANAF forbids it (ANAF publishes none)."
+  input CompanyAnalysisActivityInput {
+    source: CompanyAnalysisActivitySource!
+    code: String!
+    revision: String
+  }
+  "An ANAF fiscal CAEN code (legacy name mainCaen; a source observation, not a principal activity). Omit revision to match codes whose revision ANAF did not publish (never guessed)."
   input CompanyAnalysisCaenInput {
     code: String!
     revision: String
@@ -199,9 +230,9 @@ export const companyAnalysisTypeDefs = /* GraphQL */ `
   """
   The question. OR within a field, AND across fields. Company keys (cuis, county,
   uat, legalForms, observedStatus, onrc, vatPayer, fiscallyInactive, mainCaen,
-  mainCaenBasis) describe the release snapshot and its pinned ONRC edition;
-  filing, financialRanges and employeeSizeBands act on the fiscal year's
-  statement (and imply FILED).
+  mainCaenBasis, activity, activityBasis) describe the release snapshot and its
+  pinned ONRC edition; filing, financialRanges and employeeSizeBands act on the
+  fiscal year's statement (and imply FILED).
   """
   input CompanyAnalysisScopeInput {
     "Defaults to the release default (2024 when offered)."
@@ -220,12 +251,17 @@ export const companyAnalysisTypeDefs = /* GraphQL */ `
     onrc: CompanyAnalysisOnrcInput
     vatPayer: [CompanyAnalysisFlagValue!]
     fiscallyInactive: [CompanyAnalysisFlagValue!]
+    "ANAF fiscal CAEN codes (legacy name; a source observation, not a principal activity)."
     mainCaen: [CompanyAnalysisCaenInput!]
     mainCaenBasis: [CompanyAnalysisCaenBasis!]
     filing: CompanyAnalysisFiling
     "At most one range per metric; AND across ranges."
     financialRanges: [CompanyAnalysisRangeInput!]
     employeeSizeBands: [CompanyAnalysisSizeBand!]
+    "Releases listing ACTIVITY only: exact derived-activity selectors (an ANAF selector never matches an ONRC selection and vice versa)."
+    activity: [CompanyAnalysisActivityInput!]
+    "Releases listing ACTIVITY only: activity selection bases."
+    activityBasis: [CompanyAnalysisActivityBasis!]
   }
 
   "The ONRC edition a release's company dimensions were exported from (the release's source pin, exactly). The release answers only while this edition is still the published source."
@@ -398,9 +434,34 @@ export const companyAnalysisTypeDefs = /* GraphQL */ `
     "Revision-qualified catalog descriptions; all candidates for an unknown source revision, the exact candidate for a known one."
     descriptions: [CompanyAnalysisCaenDescription!]!
   }
+  type CompanyAnalysisActivity {
+    "Null on an ONRC group bucket mixing single-class and numeric-match selections (see activityQuality.numericMatchSelected)."
+    basis: CompanyAnalysisActivityBasis
+    source: CompanyAnalysisActivitySource
+    code: String
+    "ONRC only; never set for ANAF."
+    revision: String
+    "ONRC: exact catalog label of (revision, code). ANAF: CONSENSUS label or null."
+    label: String
+    descriptionStatus: CompanyAnalysisCaenDescriptionStatus
+    descriptions: [CompanyAnalysisCaenDescription!]!
+    "True for every basis: this is a derived selection, never a published principal activity."
+    derived: Boolean!
+  }
+  type CompanyAnalysisActivityQuality {
+    "Companies selected through the ANAF numeric match (derived tie-break)."
+    numericMatchSelected: BigInt!
+    "Companies whose ONRC CAEN coverage is PARTIAL or UNRESOLVED."
+    incompleteCoverage: BigInt!
+    "Companies with at least one unqualified ONRC observation (short token, unlabeled key, unknown revision, unparsed)."
+    withUnqualifiedRows: BigInt!
+    "min/max ANAF fiscal status date over the bucket's companies with one (YYYY-MM-DD)."
+    anafObservedFrom: String
+    anafObservedTo: String
+  }
   type CompanyAnalysisBucket {
     kind: CompanyAnalysisBucketKind!
-    "GROUP only: the stable filter key (MAIN_CAEN: 'revision:code', '?:code' when the revision is unknown; COUNTY/UAT/OBSERVED_STATUS: the consensus value, or '(<basis>)' for the companies without one)."
+    "GROUP only: the stable filter key (MAIN_CAEN: 'revision:code', '?:code' when the revision is unknown; COUNTY/UAT/OBSERVED_STATUS: the consensus value, or '(<basis>)' for the companies without one; ACTIVITY: 'onrc:<revision>:<code>', 'anaf:<code>', or '(<basis>)' for an unclassified bucket)."
     key: String
     label: String
     "territory_hub (COUNTY/UAT), api_nomenclature (OBSERVED_STATUS), current_db_catalog (MAIN_CAEN); null without a label."
@@ -414,8 +475,12 @@ export const companyAnalysisTypeDefs = /* GraphQL */ `
     filers: BigInt!
     "Null only when the fiscal year offers no metric."
     metric: CompanyAnalysisMetricAggregate
+    "ACTIVITY group and unclassified buckets only."
+    activity: CompanyAnalysisActivity
+    "ACTIVITY only (every bucket, other and totals included)."
+    activityQuality: CompanyAnalysisActivityQuality
   }
-  "groups + other + unknown = totals = companyAnalysisStats for the same scope. COUNTY/UAT/OBSERVED_STATUS: every company is in exactly one value or basis group, so unknown is always empty."
+  "groups + other + unknown + unclassified = totals = companyAnalysisStats for the same scope. COUNTY/UAT/OBSERVED_STATUS: every company is in exactly one value or basis group, so unknown is always empty; ACTIVITY: every company is in exactly one group or unclassified bucket, so unknown is always empty."
   type CompanyAnalysisBreakdown {
     release: CompanyAnalysisReleaseRef!
     scope: JSON!
@@ -432,6 +497,8 @@ export const companyAnalysisTypeDefs = /* GraphQL */ `
     groups: [CompanyAnalysisBucket!]!
     other: CompanyAnalysisBucket!
     unknown: CompanyAnalysisBucket!
+    "ACTIVITY only: the multiple-classes, uncatalogued-ANAF and no-qualified-selection buckets. Never ranked as sectors. groups + other + unknown + unclassified = totals."
+    unclassified: [CompanyAnalysisBucket!]!
     totals: CompanyAnalysisBucket!
     caveats: [String!]!
   }
@@ -500,11 +567,24 @@ export const companyAnalysisTypeDefs = /* GraphQL */ `
     onrcRecordedDateBasis: CompanyAnalysisOnrcBasis!
     vatPayer: CompanyAnalysisFlagValue!
     fiscallyInactive: CompanyAnalysisFlagValue!
+    "The ANAF fiscal CAEN code (legacy name; a source observation, not a principal activity)."
     mainCaen: CompanyAnalysisCaen
     "Has a selected statement for the fiscal year."
     filed: Boolean!
     employeeSizeBand: CompanyAnalysisSizeBand
     values: [CompanyAnalysisRecordValue!]!
+    "Releases listing ACTIVITY only (null otherwise): the derived activity selection, never a principal activity."
+    activity: CompanyAnalysisActivity
+    "Distinct classified ONRC (revision, code) keys of the company in the edition."
+    onrcClassKeyCount: Int
+    "Public ONRC CAEN observation rows that are not classified."
+    onrcUnqualifiedRowCount: Int
+    "ANAF fiscal CAEN code form: four_digit, three_digit, short, missing, invalid, unbound, unqualified or absent (usability was decided by the database form policy; see anafOnrcAgreement)."
+    anafCaenForm: String
+    "match_one_key, match_multiple_revisions, differs, no_class_key, anaf_missing, anaf_placeholder or anaf_not_usable."
+    anafOnrcAgreement: String
+    "ANAF fiscal status date (YYYY-MM-DD)."
+    anafStatusDate: String
   }
   type CompanyAnalysisRecordEdge {
     cursor: String!

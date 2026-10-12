@@ -25,6 +25,7 @@
  * strings; `employees` never coerced to a JS number).
  */
 
+import type { CompanyActivityEvidence } from './activity-selection.js';
 import type { CompanyRegistryEnvelope, CompanyRegistryScopePort } from './registry.js';
 import type {
   CaenCodeHit,
@@ -85,6 +86,17 @@ export interface CompaniesRepository extends CompanyRegistryScopePort {
     cui: string,
     scope: CompanyRegistryEnvelope
   ): Promise<Result<CompanyRegistrationDiffData, ApiError>>;
+  /**
+   * The derived activity selection's evidence under the pinned edition: the
+   * bounded EXACT (revision, code, class state) aggregate of the CUI's public
+   * CAEN observations, the public fiscal row with its receipt-proven code
+   * form, and the catalog candidates of the codes involved. Null without a
+   * published edition or outside the edition's CUI namespace.
+   */
+  getActivityEvidence(
+    cui: string,
+    scope: CompanyRegistryEnvelope
+  ): Promise<Result<CompanyActivityEvidence | null, ApiError>>;
 
   // ── list / filter (the filterable collection §7) ──
   /**

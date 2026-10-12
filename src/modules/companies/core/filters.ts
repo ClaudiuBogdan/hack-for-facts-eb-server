@@ -91,7 +91,7 @@ export const companiesFilterSpec: CollectionFilterSpec = {
       array: true,
       exclude: true,
       description:
-        'Broad CURRENT ONRC observation match: the 4-digit code (prefix: 1-3 digits) in ANY revision among the public CAEN observations of the pinned edition, on the same identifier as the other ONRC criteria. No older editions and no ANAF main activity (use mainCaenCode). The same digits can mean different activities in different revisions: use onrcCaen for one revision. exclude: only companies with complete CAEN coverage and no such observation. Refused while no edition is published.',
+        'Broad CURRENT ONRC observation match: the 4-digit code (prefix: 1-3 digits) in ANY revision among the public CAEN observations of the pinned edition, on the same identifier as the other ONRC criteria. No older editions and not the ANAF fiscal CAEN code (use mainCaenCode). The same digits can mean different activities in different revisions: use onrcCaen for one revision. exclude: only companies with complete CAEN coverage and no such observation. Refused while no edition is published.',
     },
     {
       name: 'onrcCaen',
@@ -138,7 +138,7 @@ export const companiesFilterSpec: CollectionFilterSpec = {
       array: true,
       exclude: true,
       description:
-        'ANAF declared main CAEN (fiscal_status; revision as ANAF reports it, often unknown; no index; residual). Independent of the ONRC caenCode/onrcCaen observations.',
+        'ANAF fiscal CAEN code (fiscal_status.main_caen_code, legacy name; a source observation, not a principal activity; ANAF TVA publishes no revision; no index; residual). Independent of the ONRC caenCode/onrcCaen observations.',
     },
     {
       name: 'registrationDate',

@@ -70,7 +70,7 @@ export const territoryOf = (profile: CompanyRegistryCuiProfile | null): CompanyT
   };
 };
 
-/** The ANAF declared main activity as the fiscal read carries it (its own revision, label by it). */
+/** The ANAF fiscal CAEN code as the fiscal read carries it (a source observation; TVA publishes no revision). */
 export interface FiscalMainActivity {
   readonly main_caen_code: string | null;
   readonly main_caen_rev: string | null;
@@ -78,11 +78,12 @@ export interface FiscalMainActivity {
 }
 
 /**
- * The profile's activity list: one entry per (revision, code) the pinned
- * edition publicly observes (parsed codes only), then ANAF's declared main
- * activity. Labels are the current database catalog's for the entry's OWN
- * known revision; an unknown revision has none. The presence badge counts
- * this exact list.
+ * The profile's activity list: one entry per (revision, code, class state)
+ * the pinned edition publicly observes (parsed codes only), then the ANAF
+ * fiscal CAEN code. Labels are the current database catalog's for the
+ * entry's OWN known revision, and an ONRC entry carries one only when it is a
+ * `class` entry (never a short token, an unknown revision or an unlabeled
+ * key). The presence badge counts this exact list.
  */
 export const caenActivitiesOf = (
   observations: readonly CompanyRegistryCaenObservation[],
@@ -92,6 +93,7 @@ export const caenActivitiesOf = (
     code: a.code,
     rev: a.revision,
     source: 'onrc',
+    classState: a.classState,
     label: a.label,
     labelSource: a.label === null ? null : CAEN_CATALOG_SOURCE,
   }));
@@ -105,6 +107,7 @@ export const caenActivitiesOf = (
       code: mainCode,
       rev,
       source: 'anaf',
+      classState: null,
       label,
       labelSource: label === null ? null : CAEN_CATALOG_SOURCE,
     },

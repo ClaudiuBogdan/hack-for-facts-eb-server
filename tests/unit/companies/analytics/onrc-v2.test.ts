@@ -120,7 +120,7 @@ describe('the release source pin (inputs.onrc) and schema', () => {
     expect(active).toEqual({
       type: 'ServiceUnavailable',
       message:
-        'the active companies analytics release cannot be served: release schema companies-analytics-ch-v1 is not supported by this reader (it serves companies-analytics-ch-v2 only)',
+        'the active companies analytics release cannot be served: release schema companies-analytics-ch-v1 is not supported by this reader (it serves companies-analytics-ch-v2, companies-analytics-ch-v3 only)',
     });
     const pinned = (await companyAnalysisStats(deps, { release: '7' }))._unsafeUnwrapErr();
     expect(pinned).toMatchObject({ type: 'InvalidInput', field: 'release' });

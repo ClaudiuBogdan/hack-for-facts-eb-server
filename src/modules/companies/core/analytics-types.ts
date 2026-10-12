@@ -9,15 +9,26 @@
  * name may reach SQL, and the coverage parser reads the manifest with them.
  *
  * Data contract: scraper `src/sources/private-companies/prod/analytics/contract.ts`
- * (schema `companies-analytics-ch-v2`), its ONRC source contract (one pinned
- * published edition, `inputs.onrc`), and the release migration
- * `20261002T180000__companies_analytics_releases.ts`.
+ * (schemas `companies-analytics-ch-v2` and `-ch-v3`), its ONRC source contract
+ * (one pinned published edition, `inputs.onrc`), and the release migration
+ * `20261002T180000__companies_analytics_releases.ts`. v3 adds the derived
+ * activity selection columns (CAEN contract §C): `ACTIVITY`, the `activity` /
+ * `activityBasis` filters and the record activity fields exist only there.
  *
  * Every count, sum and mean is an exact decimal string; nothing is a float.
  */
 
-/** The only ClickHouse schema this reader serves (v1 is refused, never reinterpreted). */
+import { GRAPHQL_ERROR_CODE, type ApiError } from '@/modules/shared/index.js';
+
+/** The v2 ClickHouse schema (v1 is refused, never reinterpreted). */
 export const COMPANY_ANALYSIS_SCHEMA_VERSION = 'companies-analytics-ch-v2';
+/** The v3 schema: v2 plus the derived activity selection (class-only ONRC CAEN arrays). */
+export const COMPANY_ANALYSIS_SCHEMA_VERSION_V3 = 'companies-analytics-ch-v3';
+/** Every schema this reader serves; any other is refused. */
+export const COMPANY_ANALYSIS_SCHEMA_VERSIONS: readonly string[] = [
+  COMPANY_ANALYSIS_SCHEMA_VERSION,
+  COMPANY_ANALYSIS_SCHEMA_VERSION_V3,
+];
 /** The only release population this reader serves. */
 export const COMPANY_ANALYSIS_POPULATION_POLICY_VERSION = 'public-onrc-edition-legal-person-v2';
 
@@ -312,8 +323,97 @@ export const COMPANY_ANALYSIS_DIMENSIONS = [
   'VAT_PAYER',
   'FISCALLY_INACTIVE',
   'EMPLOYEE_SIZE',
+  'ACTIVITY',
 ] as const;
 export type CompanyAnalysisDimension = (typeof COMPANY_ANALYSIS_DIMENSIONS)[number];
+
+/** Dimensions only a v3 release can answer. */
+export const COMPANY_ANALYSIS_V3_DIMENSIONS: readonly CompanyAnalysisDimension[] = ['ACTIVITY'];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Derived activity selection (v3 only; CAEN contract §B/§C)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** One per company: a derived selection, never a published principal activity. */
+export const COMPANY_ANALYSIS_ACTIVITY_BASES = [
+  'ONRC_SINGLE_CLASS',
+  'ONRC_CLASS_ANAF_NUMERIC_MATCH',
+  'ONRC_MULTIPLE_CLASSES',
+  'ANAF_FISCAL_CODE',
+  'ANAF_FISCAL_UNCATALOGUED',
+  'NO_QUALIFIED_SELECTION',
+] as const;
+export type CompanyAnalysisActivityBasis = (typeof COMPANY_ANALYSIS_ACTIVITY_BASES)[number];
+
+export const ACTIVITY_BASIS_VALUE: Readonly<Record<CompanyAnalysisActivityBasis, string>> = {
+  ONRC_SINGLE_CLASS: 'onrc_single_class',
+  ONRC_CLASS_ANAF_NUMERIC_MATCH: 'onrc_class_anaf_numeric_match',
+  ONRC_MULTIPLE_CLASSES: 'onrc_multiple_classes',
+  ANAF_FISCAL_CODE: 'anaf_fiscal_code',
+  ANAF_FISCAL_UNCATALOGUED: 'anaf_fiscal_uncatalogued',
+  NO_QUALIFIED_SELECTION: 'no_qualified_selection',
+};
+
+export const ACTIVITY_BASIS_BY_VALUE: ReadonlyMap<string, CompanyAnalysisActivityBasis> = new Map(
+  COMPANY_ANALYSIS_ACTIVITY_BASES.map((basis) => [ACTIVITY_BASIS_VALUE[basis], basis])
+);
+
+/** The bases that select an ONRC class key (one bucket per key, revision in the key). */
+export const ONRC_ACTIVITY_BASES: readonly CompanyAnalysisActivityBasis[] = [
+  'ONRC_SINGLE_CLASS',
+  'ONRC_CLASS_ANAF_NUMERIC_MATCH',
+];
+
+/**
+ * The bases that are never a ranked sector: the `unclassified` buckets of an
+ * ACTIVITY breakdown, in this fixed order.
+ */
+export const UNCLASSIFIED_ACTIVITY_BASES: readonly CompanyAnalysisActivityBasis[] = [
+  'ONRC_MULTIPLE_CLASSES',
+  'ANAF_FISCAL_UNCATALOGUED',
+  'NO_QUALIFIED_SELECTION',
+];
+
+export const COMPANY_ANALYSIS_ACTIVITY_SOURCES = ['ONRC', 'ANAF'] as const;
+export type CompanyAnalysisActivitySource = (typeof COMPANY_ANALYSIS_ACTIVITY_SOURCES)[number];
+
+/**
+ * The ANAF CAEN code forms a v3 release may carry (`anaf_caen_form`), served
+ * as written. Usability was decided by the export through the database form
+ * policy; `anaf_onrc_agreement` carries its outcome.
+ */
+export const COMPANY_ANALYSIS_ANAF_CAEN_FORMS: readonly string[] = [
+  'four_digit',
+  'short',
+  'three_digit',
+  'missing',
+  'invalid',
+  'unbound',
+  'unqualified',
+  'absent',
+];
+
+/** `anaf_onrc_agreement` values (CAEN contract §B.1). */
+export const COMPANY_ANALYSIS_ANAF_ONRC_AGREEMENTS: readonly string[] = [
+  'match_one_key',
+  'match_multiple_revisions',
+  'differs',
+  'no_class_key',
+  'anaf_missing',
+  'anaf_placeholder',
+  'anaf_not_usable',
+];
+
+/** Bucket key of an activity selection: `onrc:<rev>:<code>`, `anaf:<code>` or `(<basis>)`. */
+export const activityBucketKey = (
+  basis: CompanyAnalysisActivityBasis,
+  revision: string | null,
+  code: string | null
+): string => {
+  if (ONRC_ACTIVITY_BASES.includes(basis)) return `onrc:${revision ?? ''}:${code ?? ''}`;
+  if (basis === 'ANAF_FISCAL_CODE') return `anaf:${code ?? ''}`;
+  return `(${ACTIVITY_BASIS_VALUE[basis]})`;
+};
 
 export const COMPANY_ANALYSIS_RANKINGS = [
   'METRIC_SUM',
@@ -346,6 +446,8 @@ export type CompanyAnalysisGapReason = 'NO_STATEMENTS' | 'NOT_ADMITTED' | 'NO_RE
 
 export const COMPANY_ANALYSIS_LIMITS = {
   maxSelectedCuis: 500,
+  /** Exact activity selectors (`scope.activity`). */
+  maxActivities: 200,
   maxCounties: 60,
   maxUats: 500,
   maxLegalForms: 30,
@@ -416,6 +518,17 @@ export interface CompanyAnalysisCaenSelector {
   readonly revision: string | null;
 }
 
+/**
+ * An exact activity selector: ONRC needs its revision (rev0..rev3) and
+ * matches only ONRC-selected companies; ANAF has none (ANAF publishes no
+ * revision) and matches only `ANAF_FISCAL_CODE` companies.
+ */
+export interface CompanyAnalysisActivitySelector {
+  readonly source: CompanyAnalysisActivitySource;
+  readonly code: string;
+  readonly revision: string | null;
+}
+
 export interface CompanyAnalysisRange {
   readonly metric: CompanyAnalysisMetric;
   /** Exact decimal (RON, 2 places) or integer (headcount) string, inclusive. */
@@ -444,6 +557,10 @@ export interface CompanyAnalysisScope {
   readonly employeeSizeBands?: readonly CompanyAnalysisSizeBand[];
   /** ONRC observation filters (a company key: one value per CUI, copied into both grains). */
   readonly onrc?: CompanyAnalysisOnrcFilter;
+  /** v3 only: exact derived-activity selectors (OR). */
+  readonly activity?: readonly CompanyAnalysisActivitySelector[];
+  /** v3 only: activity selection bases (OR). */
+  readonly activityBasis?: readonly CompanyAnalysisActivityBasis[];
 }
 
 /** True when the scope constrains the selected year's statement (population ⊆ filers). */
@@ -600,6 +717,33 @@ export interface CompanyAnalysisCaenValue {
   readonly descriptions: readonly import('./caen-descriptions.js').CaenCatalogDescription[];
 }
 
+/** The derived activity of an ACTIVITY bucket or a v3 record. */
+export interface CompanyAnalysisActivity {
+  /** null on an ONRC bucket mixing single-class and numeric-match selections. */
+  readonly basis: CompanyAnalysisActivityBasis | null;
+  /** null for the multiple-classes and no-selection buckets. */
+  readonly source: CompanyAnalysisActivitySource | null;
+  readonly code: string | null;
+  /** ONRC only; never set for ANAF. */
+  readonly revision: string | null;
+  /** ONRC: exact catalog label of (revision, code). ANAF: CONSENSUS label or null. */
+  readonly label: string | null;
+  readonly descriptionStatus: import('./caen-descriptions.js').CaenDescriptionStatus | null;
+  readonly descriptions: readonly import('./caen-descriptions.js').CaenCatalogDescription[];
+  /** Always true: a derived selection, never a published principal activity. */
+  readonly derived: true;
+}
+
+/** Per-bucket evidence quality of an ACTIVITY bucket (counts are companies). */
+export interface CompanyAnalysisActivityQuality {
+  readonly numericMatchSelected: string;
+  readonly incompleteCoverage: string;
+  readonly withUnqualifiedRows: string;
+  /** min / max ANAF fiscal status date over the bucket's companies with one. */
+  readonly anafObservedFrom: string | null;
+  readonly anafObservedTo: string | null;
+}
+
 export interface CompanyAnalysisBucket {
   readonly kind: CompanyAnalysisBucketKind;
   /** Stable key (GROUP only); feed it back as a scope filter value. */
@@ -617,6 +761,10 @@ export interface CompanyAnalysisBucket {
   readonly filers: string;
   /** null only when the fiscal year offers no metric at all. */
   readonly metric: CompanyAnalysisMetricAggregate | null;
+  /** ACTIVITY GROUP and unclassified buckets only. */
+  readonly activity: CompanyAnalysisActivity | null;
+  /** ACTIVITY only (every bucket, other/unknown/totals included). */
+  readonly activityQuality: CompanyAnalysisActivityQuality | null;
 }
 
 export interface CompanyAnalysisBreakdown extends CompanyAnalysisAnswerBase {
@@ -631,7 +779,12 @@ export interface CompanyAnalysisBreakdown extends CompanyAnalysisAnswerBase {
   readonly groups: readonly CompanyAnalysisBucket[];
   readonly other: CompanyAnalysisBucket;
   readonly unknown: CompanyAnalysisBucket;
-  /** groups + other + unknown, equal to companyAnalysisStats for the same scope. */
+  /**
+   * ACTIVITY only: the multiple-classes, uncatalogued-ANAF and
+   * no-qualified-selection buckets, never ranked as sectors. Empty otherwise.
+   */
+  readonly unclassified: readonly CompanyAnalysisBucket[];
+  /** groups + other + unknown + unclassified, equal to companyAnalysisStats for the same scope. */
   readonly totals: CompanyAnalysisBucket;
 }
 
@@ -702,6 +855,14 @@ export interface CompanyAnalysisRecord {
   readonly filed: boolean;
   readonly employeeSizeBand: CompanyAnalysisSizeBand | null;
   readonly values: readonly CompanyAnalysisRecordValue[];
+  /** v3 only (null on v2): the derived activity selection and its evidence. */
+  readonly activity: CompanyAnalysisActivity | null;
+  readonly onrcClassKeyCount: number | null;
+  readonly onrcUnqualifiedRowCount: number | null;
+  readonly anafCaenForm: string | null;
+  readonly anafOnrcAgreement: string | null;
+  /** ANAF fiscal status date (YYYY-MM-DD). */
+  readonly anafStatusDate: string | null;
 }
 
 export interface CompanyAnalysisRecordsPage extends CompanyAnalysisAnswerBase {
@@ -713,3 +874,35 @@ export interface CompanyAnalysisRecordsPage extends CompanyAnalysisAnswerBase {
   readonly edges: readonly { readonly cursor: string; readonly node: CompanyAnalysisRecord }[];
   readonly pageInfo: { readonly hasNextPage: boolean; readonly endCursor: string | null };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Errors: the kernel ApiError, widened by one module-owned typed refusal
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The wire code of a capability the pinned/active release does not carry. */
+export const RELEASE_CAPABILITY_UNAVAILABLE = 'RELEASE_CAPABILITY_UNAVAILABLE';
+
+/**
+ * The request needs a capability this release does not carry (a v2 release
+ * asked for `ACTIVITY` or the activity filters). A typed refusal, never a
+ * 500 and never an empty answer: the caller falls back (e.g. to MAIN_CAEN)
+ * or pins a release that lists the capability.
+ */
+export interface CompanyAnalysisCapabilityError {
+  readonly type: 'ReleaseCapabilityUnavailable';
+  readonly message: string;
+  /** The refused input: `dimension`, `scope.activity` or `scope.activityBasis`. */
+  readonly field: string;
+  readonly capability: 'ACTIVITY';
+  readonly releaseId: string;
+  readonly schemaVersion: string;
+}
+
+/** Every analytics answer fails with this union: it WIDENS the kernel `ApiError`. */
+export type CompanyAnalysisError = ApiError | CompanyAnalysisCapabilityError;
+
+/** Stable wire code, identical on GraphQL (`extensions.code`) and MCP (`errorCode`). */
+export const companyAnalysisErrorCode = (error: CompanyAnalysisError): string =>
+  error.type === 'ReleaseCapabilityUnavailable'
+    ? RELEASE_CAPABILITY_UNAVAILABLE
+    : GRAPHQL_ERROR_CODE[error.type];

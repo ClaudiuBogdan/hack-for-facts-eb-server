@@ -481,16 +481,40 @@ export interface CompanyCaenCatalogLabel {
 
 export const CAEN_CATALOG_SOURCE = 'current_db_catalog' as const;
 
+/**
+ * `caen_class_state` of the public CAEN views (scrapper 20261012T150000),
+ * evaluated in this order: `unparsed` (no parsed code), `short_token` (the
+ * original token is not exactly 4 ASCII digits after the ECMAScript trim: it
+ * was padded, so class versus group is ambiguous), `unknown_revision`,
+ * `unlabeled_key` (no nonblank catalog label for the exact revision and code)
+ * and `class`. A class key is a distinct (revision, code) of `class` rows.
+ */
+export const COMPANY_CAEN_CLASS_STATES = [
+  'class',
+  'short_token',
+  'unknown_revision',
+  'unlabeled_key',
+  'unparsed',
+] as const;
+export type CompanyCaenClassState = (typeof COMPANY_CAEN_CLASS_STATES)[number];
+
+export const isCompanyCaenClassState = (value: unknown): value is CompanyCaenClassState =>
+  typeof value === 'string' && (COMPANY_CAEN_CLASS_STATES as readonly string[]).includes(value);
+
 export interface CompanyRegistryCaenObservation {
   readonly id: string;
   readonly identifierKey: string;
   /** code | missing | invalid. */
   readonly parseState: string;
+  /** The parsed code; for a `short_token` row the PADDED value (class/group ambiguous). */
   readonly code: string | null;
   /** known | missing | invalid. */
   readonly revisionState: string;
   /** rev0..rev3 when known; an unknown revision gets no label. */
   readonly revision: string | null;
+  /** The view's `caen_class_state`: only `class` rows are classified activity keys. */
+  readonly classState: CompanyCaenClassState;
+  /** Set only for a `class` row: the exact catalog label of its own (revision, code). */
   readonly catalogLabel: CompanyCaenCatalogLabel | null;
   readonly provenance: CompanyRegistryProvenance;
 }
@@ -640,25 +664,45 @@ export const singleIdentifierKey = (evidence: CompanyRegistryEvidence): string |
   return evidence.identifiers[0]?.identifierKey ?? null;
 };
 
-/** One activity per (revision, code) the pinned edition publicly observes, parsed codes only. */
+/**
+ * One activity per (revision, code, class state) the pinned edition publicly
+ * observes, parsed codes only. The label is attached only to a `class` entry:
+ * a short token, an unknown revision or an unlabeled key carries none.
+ */
 export const onrcActivityKeys = (
   observations: readonly CompanyRegistryCaenObservation[]
 ): readonly {
   readonly code: string;
   readonly revision: string | null;
+  readonly classState: CompanyCaenClassState;
   readonly label: string | null;
 }[] => {
-  const seen = new Map<string, { code: string; revision: string | null; label: string | null }>();
+  const seen = new Map<
+    string,
+    {
+      code: string;
+      revision: string | null;
+      classState: CompanyCaenClassState;
+      label: string | null;
+    }
+  >();
   for (const o of observations) {
     if (o.code === null) continue;
-    const key = `${o.revision ?? ''}:${o.code}`;
+    const key = `${o.revision ?? ''}:${o.code}:${o.classState}`;
     if (!seen.has(key)) {
-      seen.set(key, { code: o.code, revision: o.revision, label: o.catalogLabel?.label ?? null });
+      seen.set(key, {
+        code: o.code,
+        revision: o.revision,
+        classState: o.classState,
+        label: o.classState === 'class' ? (o.catalogLabel?.label ?? null) : null,
+      });
     }
   }
   return [...seen.values()].sort((a, b) => {
     const byCode = a.code.localeCompare(b.code);
-    return byCode !== 0 ? byCode : (a.revision ?? '').localeCompare(b.revision ?? '');
+    if (byCode !== 0) return byCode;
+    const byRevision = (a.revision ?? '').localeCompare(b.revision ?? '');
+    return byRevision !== 0 ? byRevision : a.classState.localeCompare(b.classState);
   });
 };
 

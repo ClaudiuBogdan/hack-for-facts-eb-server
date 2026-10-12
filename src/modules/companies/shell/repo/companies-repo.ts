@@ -84,6 +84,9 @@ import {
   profileFromRow,
   profileJoin,
   readActiveCuis,
+  readActivityAggregate,
+  readActivityFiscal,
+  readCaenCatalogCandidates,
   readCaenObservations,
   readDiffSides,
   readPublishedEditions,
@@ -92,6 +95,11 @@ import {
   registryConditions,
   type ProfileColumnsRow,
 } from './registry-sql.js';
+import {
+  ACTIVITY_AGGREGATE_GROUP_BOUND,
+  activityCatalogCodes,
+  type CompanyActivityEvidence,
+} from '../../core/activity-selection.js';
 import { COMPANY_AGGREGATE_DRIVING_FIELDS, companiesFilterSpec } from '../../core/filters.js';
 import {
   compatStatus,
@@ -852,6 +860,42 @@ export const makeCompaniesRepo = (
     }
   };
 
+  // ── activity selection evidence (Company.activitySelection) ─────────────────
+
+  /**
+   * The bounded exact CAEN aggregate of the CUI in the pinned edition, its
+   * public fiscal row with the database-decided form, usability, policy and
+   * catalog membership, and the catalog candidates of every code the
+   * selection may name (display only). Null without a published edition or
+   * for a CUI outside the edition's qualified namespace. Every relation,
+   * column and function read here is in the registry footprint: a capability
+   * failure is the footprint lost under the pin (a moved scope), never an
+   * empty aggregate or a guessed form.
+   */
+  const getActivityEvidence = async (
+    rawCui: string,
+    scope: CompanyRegistryEnvelope
+  ): Promise<Result<CompanyActivityEvidence | null, ApiError>> => {
+    const cui = normalizeCui(rawCui);
+    if (cui === null) return err(invalidInput('invalid CUI format', 'cui'));
+    if (!isPublished(scope) || !isOnrcQualifiedCui(cui)) return ok(null);
+    try {
+      const [fiscal, groups] = await Promise.all([
+        readActivityFiscal(db, cui),
+        readActivityAggregate(db, scope.editionId, cui, ACTIVITY_AGGREGATE_GROUP_BOUND),
+      ]);
+      // An overflow is refused by the selection: no catalog read for it.
+      const catalog =
+        groups.length > ACTIVITY_AGGREGATE_GROUP_BOUND
+          ? new Map()
+          : await readCaenCatalogCandidates(db, activityCatalogCodes(groups, fiscal?.code ?? null));
+      return ok({ groups, fiscal, catalog });
+    } catch (error) {
+      if (isCapabilityError(error)) return err(registryCapabilityLost());
+      return err(databaseError('activity selection evidence read failed', error));
+    }
+  };
+
   // ── list / filter ───────────────────────────────────────────────────────────
   /**
    * Rows and the bounded total share ONE WHERE over the same spine population
@@ -1267,7 +1311,7 @@ export const makeCompaniesRepo = (
              and ${identifierPredicate}
             join companies_v2.onrc_published_caen_observations c
               on c.edition_id = i.edition_id and c.identifier_key = i.identifier_key and c.cui = i.cui
-            where c.caen_code is not null
+            where c.caen_code is not null and c.caen_class_state = 'class'
             group by 1, 2
             order by count(distinct fil.cui) desc, 1
             limit 500
@@ -1448,7 +1492,7 @@ export const makeCompaniesRepo = (
       if (row === undefined) return ok(null);
       const profile = profileFromRow(row);
       // The badge counts exactly what the profile lists: the same caen
-      // observations and the same ANAF main activity through the same builder.
+      // observations and the same ANAF fiscal CAEN code through the same builder.
       const [fin, fiscal, caen] = await Promise.all([
         db
           .selectFrom('companies_v2.financials')
@@ -1495,6 +1539,7 @@ export const makeCompaniesRepo = (
     getFinancials,
     getFinancialQualityAssessment,
     getRegistrationDiffData,
+    getActivityEvidence,
     listCompanies,
     countCompanies,
     resolveByName,

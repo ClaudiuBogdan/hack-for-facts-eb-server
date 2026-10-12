@@ -4,9 +4,11 @@
  *
  * Prerequisite: `COMPANIES_ONRC_TEST_DATABASE_URL` points at a FRESH,
  * DISPOSABLE PostgreSQL database on which the scrapper's prod migration chain
- * has been applied through `20261003T172000__companies_onrc_editions` (e.g.
- * `applyProdChainTo(db, '20261003T172000__companies_onrc_editions')` in the
- * scrapper test kit). The file refuses a database that already holds ONRC
+ * has been applied through
+ * `20261012T150010__companies_fiscal_caen_code_qualification` (e.g.
+ * `applyProdChainTo(db, '20261012T150010__companies_fiscal_caen_code_qualification')`
+ * in the scrapper test kit): the ONRC editions (172000), the CAEN class state
+ * of the public CAEN views (150000) and the fiscal CAEN form reader (150010). The file refuses a database that already holds ONRC
  * editions: every seeded row is append-only and stays behind. Never point it
  * at a shared or production database.
  *
@@ -46,6 +48,7 @@ import {
   type CompanyRegistryEnvelope,
 } from '@/modules/companies/core/registry.js';
 import {
+  makeCompanyComposition,
   makeCompanyList,
   makeCompanyProfileData,
   makeCompanyRegistrationDiff,
@@ -837,14 +840,14 @@ d('ONRC edition reader over the real 172000 views', () => {
     ]);
   });
 
-  it('caenCode is broad over revisions; onrcCaen is exact (rev0 included)', async () => {
+  it('caenCode is broad over revisions; onrcCaen is exact (rev0 included); CLASS rows only', async () => {
     expect(await listCuis({ caenCode: { eq: '1111' } })).toEqual([CUI.complete]);
     expect(await listCuis({ onrcCaen: { eq: 'rev0:1111' } })).toEqual([CUI.complete]);
     expect(await listCuis({ onrcCaen: { eq: 'rev2:1111' } })).toEqual([]);
-    // The unknown-revision 6201 row matches the broad code but no exact revision.
-    expect(await listCuis({ caenCode: { eq: '6201' } })).toEqual(
-      [CUI.complete, CUI.conflict, CUI.split].sort()
-    );
+    // The unknown-revision 6201 row of `complete` is evidence, not a class
+    // (caen_class_state unknown_revision): neither the broad code nor an
+    // exact revision matches it.
+    expect(await listCuis({ caenCode: { eq: '6201' } })).toEqual([CUI.conflict, CUI.split].sort());
     expect(await listCuis({ onrcCaen: { eq: 'rev2:6201' } })).toEqual(
       [CUI.conflict, CUI.split].sort()
     );
@@ -854,7 +857,11 @@ d('ONRC edition reader over the real 172000 views', () => {
     // Without status 1048: only `complete` (complete coverage, 1084 only).
     // partial (hidden 1048), notInEdition, oneDigit: no complete evidence → excluded.
     expect(await listCuis({ exclude: { status: { eq: '1048' } } })).toEqual([CUI.complete]);
-    expect(await listCuis({ exclude: { caenCode: { eq: '6201' } } })).toEqual([CUI.withdrawn]);
+    // Complete CAEN coverage and no CLASS 6201: `complete` holds 6201 only
+    // as an unknown-revision row (evidence, not a class), `withdrawn` none.
+    expect(await listCuis({ exclude: { caenCode: { eq: '6201' } } })).toEqual(
+      [CUI.complete, CUI.withdrawn].sort()
+    );
     // County negative needs a known consensus county that differs.
     expect(await listCuis({ exclude: { county: { eq: 'CJ' } } })).toEqual([CUI.complete]);
   });
@@ -944,6 +951,43 @@ d('ONRC edition reader over the real 172000 views', () => {
       (profile?.caenActivities ?? []).map((a) => [`${a.rev ?? 'unknown'}:${a.code}`, a.label])
     );
     expect(byKey).toEqual({ 'rev0:1111': 'Rev0 fixture label', 'unknown:6201': null });
+    expect(
+      profile?.registry.caenObservations.map((o) => [o.revision, o.code, o.classState])
+    ).toEqual([
+      ['rev0', '1111', 'class'],
+      [null, '6201', 'unknown_revision'],
+    ]);
+  });
+
+  it('derives the activity selection from the exact aggregate under the same pin', async () => {
+    const complete = (
+      await makeCompanyComposition({ repo, flowsRepo: stubFlows, meili: null }, CUI.complete, {
+        activitySelection: true,
+      })
+    )._unsafeUnwrap();
+    // One class key (rev0:1111) beside an unknown-revision row; no fiscal row.
+    expect(complete?.activitySelection?._unsafeUnwrap()).toMatchObject({
+      basis: 'onrc_single_class',
+      source: 'ONRC',
+      revision: 'rev0',
+      code: '1111',
+      label: 'Rev0 fixture label',
+      descriptionStatus: 'EXACT',
+      classKeyCount: 1,
+      unqualifiedObservationCount: 1,
+      observationCount: 2,
+      editionId: editions.e1,
+      editionSourceDate: '2026-07-08',
+      anafCodeForm: 'absent',
+      agreement: 'anaf_missing',
+    });
+    // A spine without a profile in the edition: no selection (no coverage to state).
+    const outside = (
+      await makeCompanyComposition({ repo, flowsRepo: stubFlows, meili: null }, CUI.notInEdition, {
+        activitySelection: true,
+      })
+    )._unsafeUnwrap();
+    expect(outside?.activitySelection?._unsafeUnwrap()).toBeNull();
   });
 
   it('a spine without a profile is NOT_IN_EDITION (never absent or unregistered); one-digit tokens never link', async () => {
@@ -1016,6 +1060,22 @@ d('ONRC edition reader over the real 172000 views', () => {
   });
 
   describe('reader roles of this run (fixture grants only)', () => {
+    it('reads the fiscal CAEN form, usability, policy and catalogue through the real functions as the reader', async () => {
+      const full = repoAs(PROBE_ROLES.full);
+      const scope = (await full.captureRegistryScope())._unsafeUnwrap();
+      const evidence = (await full.getActivityEvidence(FISCAL_CUI, scope))._unsafeUnwrap();
+      expect(evidence?.groups).toEqual([]);
+      // No receipt: unqualified, so unusable under policy v1; 6201 has a rev2 label.
+      expect(evidence?.fiscal).toEqual({
+        code: '6201',
+        form: 'unqualified',
+        usable: false,
+        policy: 'anaf-caen-form-policy-v1',
+        catalogued: true,
+        statusDate: '2026-06-15',
+      });
+    });
+
     // Runs here, in order: after edition 2 is published, before the withdrawal.
     beforeAll(async () => {
       await createProbeRole(PROBE_ROLES.full, null);
@@ -1084,6 +1144,7 @@ d('ONRC edition reader over the real 172000 views', () => {
           code: '6201',
           rev: 'rev2',
           source: 'anaf',
+          classState: null,
           label: 'Activitati de realizare a soft-ului la comanda',
           labelSource: 'current_db_catalog',
         },
@@ -1102,7 +1163,14 @@ d('ONRC edition reader over the real 172000 views', () => {
       });
       expect(noCatalog?.financials.map((f) => [f.year, f.turnover])).toEqual([[2024, '100.00']]);
       expect(noCatalog?.caenActivities).toEqual([
-        { code: '6201', rev: 'rev2', source: 'anaf', label: null, labelSource: null },
+        {
+          code: '6201',
+          rev: 'rev2',
+          source: 'anaf',
+          classState: null,
+          label: null,
+          labelSource: null,
+        },
       ]);
     });
   });

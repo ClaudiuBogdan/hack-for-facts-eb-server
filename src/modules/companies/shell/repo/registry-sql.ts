@@ -30,6 +30,7 @@ import {
   invalidInput,
   isCountyTerritory,
   isUatPresentationTerritory,
+  organizationRowIsPublic,
   serviceUnavailable,
   type ApiError,
   type FieldFilter,
@@ -44,9 +45,11 @@ import {
   COMPANY_REGISTRY_BASES,
   COMPANY_REGISTRY_COVERAGES,
   REGISTRY_STATE_REASON,
+  isCompanyCaenClassState,
   isPublished,
   parseOnrcCaenSelector,
   unavailableRegistry,
+  type CompanyCaenClassState,
   type CompanyRegistryBasis,
   type CompanyRegistryCaenObservation,
   type CompanyRegistryCoverage,
@@ -63,6 +66,11 @@ import {
   type OnrcCaenSelector,
 } from '../../core/registry.js';
 
+import type {
+  ActivityFiscalObservation,
+  CaenClassStateGroup,
+} from '../../core/activity-selection.js';
+import type { CaenCatalogDescription } from '../../core/caen-descriptions.js';
 import type {
   CompanyRegistrationEditionSide,
   CompanyRegistrationField,
@@ -313,6 +321,10 @@ const asCoverage = (value: string): CompanyRegistryCoverage =>
     ? (value as CompanyRegistryCoverage)
     : 'unresolved';
 
+/** An unknown class state is never `class` (fail closed: no label, no activity key). */
+const asClassState = (value: string): CompanyCaenClassState =>
+  isCompanyCaenClassState(value) ? value : 'unparsed';
+
 /** A value with its basis; a basis that admits no value never carries one. */
 export const basisValue = (value: string | null, basis: string): CompanyRegistryValue => {
   const b = asBasis(basis);
@@ -476,6 +488,7 @@ interface CaenRow extends ProvenanceRow {
   caen_code: string | null;
   caen_revision_state: string;
   caen_revision: string | null;
+  caen_class_state: string;
   catalog_label: string | null;
   catalog_system: string | null;
 }
@@ -499,10 +512,29 @@ const identityColumns = sql`
   o.recorded_date_state, o.county_code, o.uat_siruta_code, ${provenanceColumns('o')}`;
 const caenColumns = sql`
   c.identifier_key, c.caen_parse_state, c.caen_code, c.caen_revision_state, c.caen_revision,
-  ${provenanceColumns('c')}`;
+  c.caen_class_state, ${provenanceColumns('c')}`;
 const statusColumns = sql`
   s.identifier_key, s.status_parse_state, s.status_code, s.status_label,
   s.status_label_source, ${provenanceColumns('s')}`;
+
+/**
+ * The fiscal row's CAEN evidence for the activity selection (alias `f`):
+ * the code, the form its qualification receipt proves, its usability under
+ * the current form policy, the policy itself and the code's catalog
+ * membership. Every decision is the scrapper's ONE database definition
+ * (20261012T150000 / 150010), shared with the analytics export: the receipt
+ * JSON is never read here and no usable set or catalog test is hard-coded.
+ */
+const fiscalCaenForm = sql`companies_v2.anaf_fiscal_caen_form(
+  f.caen_code_qualification, f.source_snapshot_id, f.source_hash, f.raw_row_sha256,
+  f.main_caen_code)`;
+const fiscalActivityColumns = sql`
+  f.main_caen_code,
+  ${fiscalCaenForm} as main_caen_code_form,
+  companies_v2.anaf_fiscal_caen_usable(${fiscalCaenForm}) as main_caen_code_usable,
+  companies_v2.anaf_fiscal_caen_form_policy() as anaf_caen_form_policy,
+  companies_v2.caen_code_is_catalogued(f.main_caen_code) as main_caen_code_catalogued,
+  f.status_date::text as status_date`;
 
 /**
  * The registry read footprint as one predicate that reads no row: every
@@ -526,14 +558,18 @@ const registryFootprint = sql<boolean>`
     cross join core.classification_codes cc where false)
   and not exists (select ${statusColumns}
     from companies_v2.onrc_published_status_observations s where false)
+  and not exists (select ${fiscalActivityColumns}
+    from companies_v2.fiscal_status f where false)
   and not exists (select e.edition_id, e.source_snapshot_id, e.source_published_at,
       e.interpretation_version, e.dimension_policy_version
     from companies_v2.onrc_published_editions e where false)`;
 
 /**
- * The CAEN observations of one CUI in the pinned edition, each with the
- * current database catalog label of its OWN known revision (none for an
- * unknown revision; never a cross-revision fallback).
+ * The CAEN observations of one CUI in the pinned edition, each with its class
+ * state and, for a `class` row only, the current database catalog label of
+ * its OWN known revision (never for a short token, an unknown revision or an
+ * unlabeled key; never a cross-revision fallback). The join may find a row
+ * for a non-class observation: its label is dropped, never served.
  */
 export const readCaenObservations = async (
   db: Db,
@@ -555,20 +591,119 @@ export const readCaenObservations = async (
   const truncated = result.rows.length > OBSERVATION_LIST_BOUND;
   return {
     truncated,
-    rows: result.rows.slice(0, OBSERVATION_LIST_BOUND).map((row) => ({
-      id: observationId(editionId, row),
-      identifierKey: row.identifier_key,
-      parseState: row.caen_parse_state,
-      code: row.caen_code,
-      revisionState: row.caen_revision_state,
-      revision: row.caen_revision,
-      catalogLabel:
-        row.catalog_label !== null && row.catalog_system !== null && row.caen_revision !== null
-          ? { label: row.catalog_label, system: row.catalog_system, source: CAEN_CATALOG_SOURCE }
-          : null,
-      provenance: provenanceOf(row),
-    })),
+    rows: result.rows.slice(0, OBSERVATION_LIST_BOUND).map((row) => {
+      const classState = asClassState(row.caen_class_state);
+      return {
+        id: observationId(editionId, row),
+        identifierKey: row.identifier_key,
+        parseState: row.caen_parse_state,
+        code: row.caen_code,
+        revisionState: row.caen_revision_state,
+        revision: row.caen_revision,
+        classState,
+        catalogLabel:
+          classState === 'class' &&
+          row.catalog_label !== null &&
+          row.catalog_system !== null &&
+          row.caen_revision !== null
+            ? { label: row.catalog_label, system: row.catalog_system, source: CAEN_CATALOG_SOURCE }
+            : null,
+        provenance: provenanceOf(row),
+      };
+    }),
   };
+};
+
+/**
+ * The EXACT per-(revision, code, class state) row counts of one CUI's public
+ * CAEN observations in the pinned edition (served by the edition/CUI index),
+ * bounded at `ACTIVITY_AGGREGATE_GROUP_BOUND + 1` groups: the caller refuses
+ * an overflow, never derives a selection from a truncated aggregate. Unlike
+ * the 500-row display list, every observation row is counted.
+ */
+export const readActivityAggregate = async (
+  db: Db,
+  editionId: string,
+  cui: string,
+  bound: number
+): Promise<readonly CaenClassStateGroup[]> => {
+  const result = await sql<{
+    caen_revision: string | null;
+    caen_code: string | null;
+    caen_class_state: string;
+    rows: number;
+  }>`
+    select c.caen_revision, c.caen_code, c.caen_class_state, count(*)::int as rows
+    from companies_v2.onrc_published_caen_observations c
+    where c.edition_id = ${editionParam(editionId)} and c.cui = ${cui}
+    group by 1, 2, 3
+    order by 1, 2, 3
+    limit ${bound + 1}`.execute(db);
+  return result.rows.map((row) => ({
+    revision: row.caen_revision,
+    code: row.caen_code,
+    classState: row.caen_class_state,
+    rows: row.rows,
+  }));
+};
+
+/**
+ * The public fiscal row's CAEN evidence (`fiscalActivityColumns`), or null
+ * without one. Its columns and functions are in the registry footprint, so a
+ * missing migration pins `unavailable` instead of failing here.
+ */
+export const readActivityFiscal = async (
+  db: Db,
+  cui: string
+): Promise<ActivityFiscalObservation | null> => {
+  const result = await sql<{
+    main_caen_code: string | null;
+    main_caen_code_form: string | null;
+    main_caen_code_usable: boolean | null;
+    anaf_caen_form_policy: string | null;
+    main_caen_code_catalogued: boolean | null;
+    status_date: string | null;
+  }>`
+    select ${fiscalActivityColumns}
+    from companies_v2.fiscal_status f
+    where f.cui = ${cui} and ${organizationRowIsPublic('f.privacy_class')}
+    limit 1`.execute(db);
+  const row = result.rows[0];
+  return row === undefined
+    ? null
+    : {
+        code: row.main_caen_code,
+        form: row.main_caen_code_form,
+        usable: row.main_caen_code_usable,
+        policy: row.anaf_caen_form_policy,
+        catalogued: row.main_caen_code_catalogued,
+        statusDate: row.status_date,
+      };
+};
+
+/**
+ * Every catalog candidate (`caen_rev0..3`) of each code: presentation
+ * evidence, never an inferred source revision. One definition for the
+ * analytics labels and the profile's activity selection.
+ */
+export const readCaenCatalogCandidates = async (
+  db: Db,
+  codes: readonly string[]
+): Promise<ReadonlyMap<string, readonly CaenCatalogDescription[]>> => {
+  const candidates = new Map<string, CaenCatalogDescription[]>();
+  if (codes.length === 0) return candidates;
+  const result = await sql<{ code: string; revision: string; label: string | null }>`
+    select cc.code, substring(cc.system from 6) as revision, cc.label
+    from core.classification_codes cc
+    where ${inTextList(sql`cc.code`, [...new Set(codes)])}
+      and cc.system in ('caen_rev0', 'caen_rev1', 'caen_rev2', 'caen_rev3')
+    order by cc.code, cc.system`.execute(db);
+  for (const row of result.rows) {
+    const values = candidates.get(row.code) ?? [];
+    values.push({ revision: row.revision, label: row.label });
+    candidates.set(row.code, values);
+  }
+  return candidates;
 };
 
 /**
@@ -823,9 +958,11 @@ export const registryConditions = (
   const exact = onrcCaenPredicate('c', selectors.value);
   for (const pred of [caen, exact]) {
     if (pred === null) continue;
+    // Only classified rows match a CAEN criterion (a short token, unknown
+    // revision or unlabeled key is evidence, never an activity key).
     idPreds.push(sql`exists (select 1 from companies_v2.onrc_published_caen_observations c
       where c.edition_id = i.edition_id and c.identifier_key = i.identifier_key
-        and c.cui = i.cui and ${pred})`);
+        and c.cui = i.cui and c.caen_class_state = 'class' and ${pred})`);
   }
 
   const identifierPredicate =
@@ -881,9 +1018,11 @@ export const registryConditions = (
   const exExact = onrcCaenPredicate('cx', exSelectors.value);
   for (const pred of [exCaen, exExact]) {
     if (pred === null) continue;
+    // Complete coverage AND no CLASS row with these codes.
     conds.push(sql`p.caen_coverage in ${COMPLETE_COVERAGE} and not exists (
       select 1 from companies_v2.onrc_published_caen_observations cx
-      where cx.edition_id = ${edition} and cx.cui = o.cui and ${pred})`);
+      where cx.edition_id = ${edition} and cx.cui = o.cui and cx.caen_class_state = 'class'
+        and ${pred})`);
   }
   const exLegal = valuesOf(fieldOfRecord(exclude, 'legalForm'));
   if (exLegal.length > 0) {

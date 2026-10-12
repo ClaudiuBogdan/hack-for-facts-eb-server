@@ -27,6 +27,7 @@ export const stubRepo = (
   getRegistrationDiffData: vi.fn(async (_cui: string, s: CompanyRegistryEnvelope) =>
     ok({ registry: s, later: null, earlier: null })
   ),
+  getActivityEvidence: vi.fn(async () => ok(null)),
   listCompanies: vi.fn(async () => ok({ rows: [], total: 0, estimated: false })),
   countCompanies: vi.fn(async () => ok(0)),
   resolveByName: vi.fn(async () => ok({ hits: [], degraded: false })),
