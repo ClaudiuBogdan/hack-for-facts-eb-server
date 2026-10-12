@@ -58,7 +58,7 @@ import { makeCompaniesRepo } from '@/modules/companies/shell/repo/companies-repo
 import { makeProbeRoleLedger, newRunNonce, probeRoleName } from './probe-roles.js';
 
 import type { CompaniesRepository } from '@/modules/companies/core/ports.js';
-import type { FlowsRepo, ProdDatabase } from '@/modules/shared/index.js';
+import type { FilterInput, FlowsRepo, ProdDatabase } from '@/modules/shared/index.js';
 
 const URL = process.env['COMPANIES_ONRC_TEST_DATABASE_URL'] ?? '';
 const d = URL.length > 0 ? describe : describe.skip;
@@ -93,6 +93,14 @@ const DIFF_CUI = {
  * in SEEDED): its fiscal/financial content must survive a missing catalog grant.
  */
 const FISCAL_CUI = '9900021';
+
+/**
+ * A public company whose ONLY CAEN observation is a padded short token (`201`
+ * read as 0201, which the catalog does label in rev2): never a class, so its
+ * named CAEN-division facet has no bucket but still counts it in the
+ * denominator. Not in SEEDED; seeded by its own test.
+ */
+const SHORT_TOKEN_CUI = '9900031';
 
 /**
  * Reader roles of THIS run of the disposable fixture only (never a runtime
@@ -889,6 +897,131 @@ d('ONRC edition reader over the real 172000 views', () => {
     // Only the 6201 on the identifier carrying 1048 (conflict); split's 6201 is on its 1084 identifier.
     expect(caen.groups.map((g) => [g.key, g.count])).toEqual([['rev2:62', 1]]);
     expect(caen.denominator).toBe(3); // conflict, split, withdrawn: the population, not a bucket sum
+  });
+
+  it('a CAEN-division facet bounded to one company reads it per CUI: class buckets only, the same answer as the set join', async () => {
+    const scope = await capture();
+    const editionId = scope.editionId ?? '';
+    await withReplica(async () => {
+      await q(
+        `insert into core.organizations (cui, kind, name, first_seen_source, privacy_class)
+         values ($1, 'company', 'SHORT TOKEN SRL', 'fixture', 'public')`,
+        [SHORT_TOKEN_CUI]
+      );
+      await insertProfile(editionId, {
+        cui: SHORT_TOKEN_CUI,
+        identifiers: 1,
+        name: 'SHORT TOKEN SRL',
+        nameBasis: 'single_observation',
+      });
+      await insertIdentifier(
+        editionId,
+        'J1/31/2001',
+        SHORT_TOKEN_CUI,
+        [31],
+        ['1048'],
+        ['1048'],
+        [],
+        ['1048', 'single_code']
+      );
+      await q(
+        `insert into companies_v2.onrc_caen_observations
+           (edition_id, source_row_number, source_row_sha256, identifier_token, identifier_key,
+            profile_identifier_key, identity_resolution, cui, caen_code_token, caen_revision_token,
+            caen_parse_state, caen_code, caen_revision_state, caen_revision, privacy_class)
+         values ($1::bigint, 31, $2, 'J1/31/2001', 'J1/31/2001', 'J1/31/2001', 'resolved_cui', $3,
+                 '201', 'rev2', 'code', '0201', 'known', 'rev2', 'public')`,
+        [editionId, sha('b'), SHORT_TOKEN_CUI]
+      );
+      // The padded code IS catalogued in its revision: only the short token keeps it out.
+      await q(
+        `insert into core.classification_codes (system, code, label)
+         values ('caen_rev2', '0201', 'Silvicultura si alte activitati forestiere')
+         on conflict do nothing`
+      );
+    });
+    expect(
+      await q(
+        `select caen_class_state from companies_v2.onrc_published_caen_observations
+          where edition_id = $1::bigint and cui = $2`,
+        [editionId, SHORT_TOKEN_CUI]
+      )
+    ).toEqual([{ caen_class_state: 'short_token' }]);
+    const facet = async (filter: FilterInput) =>
+      (await repo.countBy('caenDivision', filter, scope))._unsafeUnwrap();
+    const pairs = (result: Awaited<ReturnType<typeof facet>>) =>
+      result.groups.map((g) => [g.key, g.count, g.basis]);
+
+    // A spine-shaped CUI no organization carries: the two-value list it
+    // completes holds exactly the same one company, but is not a singleton
+    // bound, so it is read by the set join.
+    const ABSENT_CUI = '9900099';
+    /** The facet of one company through BOTH forms: `eq` (per CUI) and a two-value `in` (set join). */
+    const bothForms = async (cui: string, extra: FilterInput = {}) => {
+      const perCui = await facet({ ...extra, cui: { eq: cui } });
+      const setJoin = await facet({ ...extra, cui: { in: [cui, ABSENT_CUI] } });
+      expect(pairs(perCui)).toEqual(pairs(setJoin));
+      expect(perCui.denominator).toBe(setJoin.denominator);
+      return perCui;
+    };
+
+    // The production shape: one CUI, one short-token row, no class.
+    const short = await bothForms(SHORT_TOKEN_CUI);
+    expect(short.groups).toEqual([]);
+    expect(short.denominator).toBe(1);
+    // A class on the CUI's identifier; an unknown-revision row is never a class.
+    expect(pairs(await bothForms(CUI.conflict))).toEqual([['rev2:62', 1, null]]);
+    const complete = await bothForms(CUI.complete);
+    expect(pairs(complete)).toEqual([['rev0:11', 1, null]]);
+    expect(complete.denominator).toBe(1);
+    // No CAEN rows at all: no bucket, still the population.
+    const partial = await bothForms(CUI.partial);
+    expect(partial.groups).toEqual([]);
+    expect(partial.denominator).toBe(1);
+    // The same-identifier scope holds per CUI in both forms: split's 6201 is on its 1084 identifier.
+    expect(pairs(await bothForms(CUI.split, { status: { eq: '1048' } }))).toEqual([]);
+    expect(pairs(await bothForms(CUI.split, { status: { eq: '1084' } }))).toEqual([
+      ['rev2:62', 1, null],
+    ]);
+    // A positive CUI bounds the scope even beside a longer list and an
+    // exclusion: every predicate is ANDed (per CUI), the same as the CUI alone.
+    const anded = await facet({
+      cui: { eq: CUI.conflict, in: [...SEEDED, SHORT_TOKEN_CUI] },
+      exclude: { cui: { eq: CUI.split } },
+    });
+    expect(pairs(anded)).toEqual([['rev2:62', 1, null]]);
+    expect(anded.denominator).toBe(1);
+    const excludedSelf = await facet({
+      cui: { eq: CUI.conflict },
+      exclude: { cui: { eq: CUI.conflict } },
+    });
+    expect(excludedSelf.groups).toEqual([]);
+    expect(excludedSelf.denominator).toBe(0);
+    // A one-value list is a singleton too; an empty list is no company.
+    expect(pairs(await facet({ cui: { in: [CUI.complete] } }))).toEqual([['rev0:11', 1, null]]);
+    const none = await facet({ cui: { in: [] } });
+    expect(none.groups).toEqual([]);
+    expect(none.denominator).toBe(0);
+    // The set join over many companies: distinct CUIs per (revision, division),
+    // overlapping; the denominator is the population, never a bucket sum (the
+    // short-token company adds no bucket).
+    const all = await facet({ cui: { in: [...SEEDED, SHORT_TOKEN_CUI] } });
+    expect(pairs(all)).toEqual([
+      ['rev2:62', 2, null], // conflict, split
+      ['rev0:11', 1, null], // complete
+    ]);
+    expect(all.denominator).toBe(SEEDED.length + 1);
+    // Its buckets are the per-company answers summed: the set join and the
+    // per-CUI form agree company by company.
+    const perCompany = await Promise.all(
+      [...SEEDED, SHORT_TOKEN_CUI].map(async (cui) => pairs(await facet({ cui: { eq: cui } })))
+    );
+    const summed = new Map<string, number>();
+    for (const groups of perCompany) {
+      for (const [key, count] of groups)
+        summed.set(String(key), (summed.get(String(key)) ?? 0) + Number(count));
+    }
+    expect(Object.fromEntries(summed)).toEqual({ 'rev2:62': 2, 'rev0:11': 1 });
   });
 
   it('registration-number lookup normalizes exactly like the edition (whitespace removed, upper-cased)', async () => {

@@ -152,6 +152,21 @@ const NAME_FALLBACK_SCAN = 200;
  */
 const CAEN_DIVISION_TIMEOUT_MS = 45_000;
 
+/**
+ * Whether a validated filter LOGICALLY bounds its population to at most one
+ * company: a top-level positive `cui.eq` (every other predicate, an `in` list
+ * or an `exclude` included, is ANDed with it), or a top-level `cui.in` of at
+ * most one value (an empty `in` compiles to false: no company). Not a size
+ * threshold: a multi-value `in` without `eq`, an `exclude` alone, an empty
+ * or malformed `cui` object or none at all is not a singleton bound.
+ */
+const boundsToOneCompany = (filter: FilterInput): boolean => {
+  // Optional access also answers false for a runtime null.
+  const ops = filter['cui'] as Readonly<Record<string, unknown>> | null | undefined;
+  const values = ops?.['in'];
+  return typeof ops?.['eq'] === 'string' || (Array.isArray(values) && values.length <= 1);
+};
+
 const composeWhere = (conds: readonly RawBuilder<unknown>[]): RawBuilder<SqlBool> =>
   conds.length === 0 ? sql<SqlBool>`true` : sql<SqlBool>`${sql.join(conds, sql` and `)}`;
 
@@ -1282,7 +1297,54 @@ export const makeCompaniesRepo = (
         // that satisfy the same-identifier criteria, then their public CAEN
         // observations. The leg keeps its own statement budget (precedent:
         // the former caen_profile leg measured 23.6s); the pool default is
-        // never raised. Cost on the edition views is unmeasured.
+        // never raised.
+        //
+        // A filter bounded to one company reads it per CUI: a LATERAL with
+        // its own GROUP BY (never flattened back into the set join), both
+        // views bound to that CUI, so the (edition, cui) indexes serve it.
+        // The set join gave the planner no CUI to bind and it read the whole
+        // edition's CAEN view: one CUI timed out at 45 s on edition 1, the
+        // per-CUI form ran in 1.9 ms. Both forms count each (revision,
+        // division) once per CUI; the denominator is the population either
+        // way. Every other scope (a CUI list, a status, a CAEN key) keeps the
+        // set join, which still reads the whole view.
+        const perCui = boundsToOneCompany(filter);
+        const classified = perCui
+          ? sql`
+            select cd.key, cd.revision,
+                   count(distinct fil.cui)::text as cnt,
+                   (select n from population) as population
+            from filtered fil
+            cross join lateral (
+              select coalesce(c.caen_revision, 'unknown') || ':' || left(c.caen_code, 2) as key,
+                     c.caen_revision as revision
+              from companies_v2.onrc_published_identifier_profiles i
+              join companies_v2.onrc_published_caen_observations c
+                on c.edition_id = i.edition_id and c.identifier_key = i.identifier_key and c.cui = i.cui
+              where i.edition_id = ${editionParam(editionId)} and i.cui = fil.cui
+                and ${identifierPredicate}
+                and c.cui = fil.cui
+                and c.caen_code is not null and c.caen_class_state = 'class'
+              group by 1, 2
+            ) cd
+            group by 1, 2
+            order by count(distinct fil.cui) desc, 1
+            limit 500`
+          : sql`
+            select coalesce(c.caen_revision, 'unknown') || ':' || left(c.caen_code, 2) as key,
+                   c.caen_revision as revision,
+                   count(distinct fil.cui)::text as cnt,
+                   (select n from population) as population
+            from filtered fil
+            join companies_v2.onrc_published_identifier_profiles i
+              on i.edition_id = ${editionParam(editionId)} and i.cui = fil.cui
+             and ${identifierPredicate}
+            join companies_v2.onrc_published_caen_observations c
+              on c.edition_id = i.edition_id and c.identifier_key = i.identifier_key and c.cui = i.cui
+            where c.caen_code is not null and c.caen_class_state = 'class'
+            group by 1, 2
+            order by count(distinct fil.cui) desc, 1
+            limit 500`;
         const rows = await db.transaction().execute(async (trx) => {
           await sql`set local statement_timeout = ${sql.lit(CAEN_DIVISION_TIMEOUT_MS)}`.execute(
             trx
@@ -1300,21 +1362,7 @@ export const makeCompaniesRepo = (
               ${FISCAL_JOIN}
               where ${where}
             ),
-            population as (select count(*)::text as n from filtered)
-            select coalesce(c.caen_revision, 'unknown') || ':' || left(c.caen_code, 2) as key,
-                   c.caen_revision as revision,
-                   count(distinct fil.cui)::text as cnt,
-                   (select n from population) as population
-            from filtered fil
-            join companies_v2.onrc_published_identifier_profiles i
-              on i.edition_id = ${editionParam(editionId)} and i.cui = fil.cui
-             and ${identifierPredicate}
-            join companies_v2.onrc_published_caen_observations c
-              on c.edition_id = i.edition_id and c.identifier_key = i.identifier_key and c.cui = i.cui
-            where c.caen_code is not null and c.caen_class_state = 'class'
-            group by 1, 2
-            order by count(distinct fil.cui) desc, 1
-            limit 500
+            population as (select count(*)::text as n from filtered)${classified}
           `.execute(trx);
           const population = await sql<{ n: string }>`
             select count(*)::text as n from core.organizations o
