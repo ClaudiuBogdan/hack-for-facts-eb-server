@@ -87,7 +87,7 @@ describe('legacy executionAnalytics aggregate SQL', () => {
     expect(sql).toContain('group by year,period_value order by year,period_value');
     expect(sql).toContain(`limit $${String(aggregate.parameters.length)}`);
     expect(aggregate.parameters.at(-1)).toBe(LEGACY_ANALYTICS_MAX_POINTS + 1);
-    expect(sql).not.toContain('join');
+    expect(sql).not.toContain('join core.');
   });
 
   it('omitted report_type → a parameterized IN over the three supported execution literals (never a bare scan)', async () => {
@@ -150,7 +150,7 @@ describe('legacy executionAnalytics aggregate SQL', () => {
     const sql = flat(aggregate.sql);
     expect(sql).not.toContain('in ()');
     expect(sql).not.toContain('false');
-    expect(sql).not.toContain('join');
+    expect(sql).not.toContain('join core.');
   });
 
   it('joins core.public_entities / core.territories only when a predicate needs them', () => {

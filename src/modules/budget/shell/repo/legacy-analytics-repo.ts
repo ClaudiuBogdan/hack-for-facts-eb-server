@@ -289,6 +289,63 @@ const havingClause = (q: LegacyAggregateQuery, total: RawBuilder<unknown>): RawB
   return sql`having ${sql.join(parts, sql` and `)}`;
 };
 
+/** Preserve an explicitly declared category zero only on its exact admitted
+ * source version. A missing category or a signed cancellation is not zero.
+ * Monthly/quarterly deltas also require a zero admitted predecessor/boundary.
+ */
+export const categoryZeroPredicate = (q: LegacyAggregateQuery): RawBuilder<unknown> => {
+  const category = q.accountCategory === 'vn' ? 'income' : 'expenses';
+  const basis =
+    q.frequency === 'MONTH'
+      ? sql.ref('p.previous_base_report_id')
+      : sql.ref('p.previous_boundary_report_id');
+  const basisMonth =
+    q.frequency === 'MONTH'
+      ? sql.ref('p.previous_available_month')
+      : sql.ref('p.previous_boundary_month');
+  const bound = (period: string, header: string, admission: string) => sql`
+    ${sql.ref(header + '.stream')} = ${sql.ref(period + '.stream')}
+    and ${sql.ref(header + '.report_type')} = ${sql.ref(period + '.report_type')}
+    and ${sql.ref(header + '.report_family')} = ${sql.ref(period + '.report_family')}
+    and ${sql.ref(header + '.entity_cui')} = ${sql.ref(period + '.entity_cui')}
+    and ${sql.ref(header + '.main_creditor_cui')} is not distinct from ${sql.ref(period + '.main_creditor_cui')}
+    and ${sql.ref(header + '.budget_sector_id')} is not distinct from ${sql.ref(period + '.budget_sector_id')}
+    and ${sql.ref(header + '.reporting_year')} = ${sql.ref(period + '.reporting_year')}
+    and ${sql.ref(header + '.reporting_month')} = ${sql.ref(period + '.reporting_month')}
+    and ${sql.ref(header + '.xml_hash')} = ${sql.ref(period + '.xml_sha256')}
+    and ${sql.ref(admission + '.stream')} = ${sql.ref(period + '.stream')}
+    and ${sql.ref(admission + '.xml_sha256')} = ${sql.ref(period + '.xml_sha256')}
+    and ${sql.ref(admission + '.admission_version')} = ${sql.ref(period + '.configuration_version')}
+    and ${sql.ref(admission + '.observation')} = ${sql.ref(period + '.observation')}
+    and ${sql.ref(admission + '.financially_admitted')}
+    and ${sql.ref(header + '.metadata')} -> 'declaredTotals' -> ${category} = '0'::jsonb
+    and ${sql.ref(header + '.metadata')} -> 'parsedTotals' -> ${category} = '0'::jsonb`;
+  const predecessor =
+    q.frequency === 'YEAR'
+      ? sql`true`
+      : sql`(
+    (${basis} is null and ${basisMonth} is null) or exists (
+      select from budget.scope_periods b
+      join budget_staging.reports bh on bh.report_id=b.report_id
+      join budget_staging.report_admissions ba on ba.report_id=b.report_id
+      where b.report_id=${basis} and b.stream=p.stream
+        and b.reporting_year=p.reporting_year and b.reporting_month<p.reporting_month
+        and b.report_type=p.report_type and b.report_family=p.report_family
+        and b.entity_cui=p.entity_cui
+        and b.budget_sector_id is not distinct from p.budget_sector_id
+        and b.configuration_version=p.configuration_version and b.financially_admitted
+        and ${bound('b', 'bh', 'ba')}
+    ))`;
+  return sql`p.observation in ('values','declared-zero')
+    and exists (select from budget_staging.reports h
+      join budget_staging.report_admissions a on a.report_id=h.report_id
+      where h.report_id=p.report_id and ${bound('p', 'h', 'a')})
+    and ${predecessor}
+    and not exists(select from budget.execution_line_items f
+      where f.reporting_year=p.reporting_year and f.report_type=p.report_type
+        and f.report_id=p.report_id and f.account_category=${q.accountCategory})`;
+};
+
 /** The full aggregate statement (exported so tests can EXPLAIN the real SQL). */
 export const legacyAggregateSql = (
   q: LegacyAggregateQuery,
@@ -329,9 +386,10 @@ export const legacyAggregateSql = (
       select ${year} as year, ${period} as period_value, 0::numeric as amount
       from (select p.*,p.is_latest_ytd is_yearly,(p.reporting_month+2)/3 quarter
         from budget.scope_periods p
-        where p.stream='execution' and p.financially_admitted and p.observation='declared-zero'
+        where p.stream='execution' and p.financially_admitted and (p.observation='declared-zero'
           and not exists(select from budget.execution_line_items f
             where f.reporting_year=p.reporting_year and f.report_type=p.report_type and f.report_id=p.report_id)
+          or ${categoryZeroPredicate(q)})
       ) eli ${entityJoin} ${searchJoin} ${territoryJoin}
       where ${zeroWhere} group by ${year}, ${period}
     ) select year,period_value,sum(amount)::text as amount from amounts
