@@ -35,6 +35,7 @@ import {
 import { contractDisplayTitleCandidatesSelect } from './contract-display-title-projection.js';
 import { assembleDirectAcquisitionDetail } from './da-detail-bundle.js';
 import { makeProcurementDetailRepo } from './detail-repo.js';
+import { makeElicitatiePageRepo } from './elicitatie-page-repo.js';
 import {
   assertDaSelective,
   canonicalPredicate,
@@ -161,6 +162,7 @@ export const makeProcurementRepo = (
   // them so callers still see one `ProcurementRepo` port.
   const offset = makeOffsetSearchRepo(db, daMaxWindowDays, searchEngine, logger);
   const detail = makeProcurementDetailRepo(db);
+  const portal = makeElicitatiePageRepo(db);
 
   // ───────────────────────────────────────────────────────────────────────────
   // shared list machinery
@@ -988,6 +990,11 @@ export const makeProcurementRepo = (
     // detail-bundle support
     modificationsForContracts: (ids) => detail.modificationsForContracts(ids),
     contractsByIds: (ids) => detail.contractsByIds(ids),
+    // P33 e-licitatie pages
+    elicitatiePagesForContracts: (ids) => portal.forContracts(ids),
+    elicitatiePagesForModifications: (ids) => portal.forModifications(ids),
+    elicitatiePagesForProcedures: (ids) => portal.forProcedures(ids),
+    elicitatiePagesForDirectAcquisitions: (ids) => portal.forDirectAcquisitions(ids),
     supplierRecords: (cui, first, after, includeCancelled) =>
       detail.supplierRecords(cui, first, after, includeCancelled),
   };

@@ -2,12 +2,14 @@
  * Procurement module — GraphQL resolvers. Thin: translate args → call the SAME
  * usecase the MCP tools call → unwrap `Result` into a `GraphQLError`.
  *
- * N+1 discipline. Three fan-out points are batched through `makeBatchLoader` (one
+ * N+1 discipline. These fan-out points are batched through `makeBatchLoader` (one
  * statement per microtask tick):
  *   - `ProcurementContract.modifications` — a procedure detail selects up to 50
  *     contracts, and the supplier connection up to 100, each asking for its trail.
  *   - `ProcurementContractModification.parentContract` — a modifications page of
  *     100 rows would otherwise be 100 contract reads.
+ *   - `elicitatiePage` on contracts, modifications, procedures and direct
+ *     purchases (P33) — one statement per page of rows.
  */
 
 import { GraphQLError } from 'graphql';
@@ -44,6 +46,7 @@ import {
   type MeasureId,
   type SeriesBucket,
 } from '../../core/constants.js';
+import { type ElicitatiePage } from '../../core/elicitatie-page.js';
 import {
   assertSortServeable,
   parseOffsetRequest,
@@ -191,6 +194,23 @@ export const makeProcurementResolvers = (
 
   const contractLoader = makeBatchLoader<ProcurementContract | null>(
     async (contractIds) => unwrap(await repo.contractsByIds(contractIds)),
+    null
+  );
+
+  const contractPageLoader = makeBatchLoader<ElicitatiePage | null>(
+    async (ids) => unwrap(await repo.elicitatiePagesForContracts(ids)),
+    null
+  );
+  const modificationPageLoader = makeBatchLoader<ElicitatiePage | null>(
+    async (ids) => unwrap(await repo.elicitatiePagesForModifications(ids)),
+    null
+  );
+  const procedurePageLoader = makeBatchLoader<ElicitatiePage | null>(
+    async (ids) => unwrap(await repo.elicitatiePagesForProcedures(ids)),
+    null
+  );
+  const directAcquisitionPageLoader = makeBatchLoader<ElicitatiePage | null>(
+    async (ids) => unwrap(await repo.elicitatiePagesForDirectAcquisitions(ids)),
     null
   );
 
@@ -459,17 +479,20 @@ export const makeProcurementResolvers = (
       // Structural, not fabricated: the table has no dedup columns (see schema.ts).
       isCanonical: () => true,
       dupGroupId: () => null,
+      elicitatiePage: (p: ProcurementProcedure) => procedurePageLoader.load(p.procedureId),
     },
     ProcurementContract: {
       id: (c: ProcurementContract) => c.contractId,
       authority: (c: ProcurementContract) => party(c.authorityCui, c.authorityName),
       supplier: (c: ProcurementContract) => party(c.supplierCui, c.supplierName),
       modifications: (c: ProcurementContract) => modificationsLoader.load(c.contractId),
+      elicitatiePage: (c: ProcurementContract) => contractPageLoader.load(c.contractId),
     },
     ProcurementDirectAcquisition: {
       id: (d: ProcurementDirectAcquisition) => d.daId,
       authority: (d: ProcurementDirectAcquisition) => party(d.authorityCui, d.authorityName),
       supplier: (d: ProcurementDirectAcquisition) => party(d.supplierCui, d.supplierName),
+      elicitatiePage: (d: ProcurementDirectAcquisition) => directAcquisitionPageLoader.load(d.daId),
     },
     ProcurementDaItem: {
       id: (item: DaItem) => item.daItemId,
@@ -480,6 +503,7 @@ export const makeProcurementResolvers = (
       supplier: (m: ProcurementModification) => party(m.supplierCui, m.supplierName),
       parentContract: (m: ProcurementModification) =>
         m.contractId === null ? null : contractLoader.load(m.contractId),
+      elicitatiePage: (m: ProcurementModification) => modificationPageLoader.load(m.modificationId),
     },
 
     ProcurementFlowRecord: {

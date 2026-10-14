@@ -11,6 +11,7 @@
 import type { AnalysisScope } from './analysis-scope.js';
 import type { AnalysisRoute } from './combinations.js';
 import type { GenerationCapabilities, MeasureId, SeriesBucket } from './constants.js';
+import type { ElicitatiePage } from './elicitatie-page.js';
 import type { BasisCoverageRow, GenerationQuality } from './gate-v2.js';
 import type { ProcurementSearchFilter } from './search.js';
 import type { SourceCaptureReceipts } from './source-capture.js';
@@ -115,6 +116,20 @@ export interface ProcurementRepo {
   contractsByIds(
     contractIds: readonly string[]
   ): Promise<Result<ReadonlyMap<string, ProcurementContract>, ApiError>>;
+
+  // ── P33: e-licitatie pages (batched; only linked ids are in the map) ──
+  elicitatiePagesForContracts(
+    contractIds: readonly string[]
+  ): Promise<Result<ReadonlyMap<string, ElicitatiePage>, ApiError>>;
+  elicitatiePagesForModifications(
+    modificationIds: readonly string[]
+  ): Promise<Result<ReadonlyMap<string, ElicitatiePage>, ApiError>>;
+  elicitatiePagesForProcedures(
+    procedureIds: readonly string[]
+  ): Promise<Result<ReadonlyMap<string, ElicitatiePage>, ApiError>>;
+  elicitatiePagesForDirectAcquisitions(
+    daIds: readonly string[]
+  ): Promise<Result<ReadonlyMap<string, ElicitatiePage>, ApiError>>;
   supplierRecords(
     supplierCui: string,
     first: number,

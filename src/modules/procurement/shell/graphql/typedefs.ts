@@ -113,6 +113,20 @@ export const procurementTypeDefs = /* GraphQL */ `
 
   # ── grain nodes ─────────────────────────────────────────────────────────────
 
+  """
+  A record's own page on e-licitatie.ro (P33). The portal addresses pages by
+  its internal id, so a data.gov.ro row links only when its public number and
+  buyer CUI equal exactly one captured e-licitatie award notice; otherwise the
+  field is null. sourceUrl stays the custody link.
+  """
+  type ProcurementElicitatiePage {
+    url: String!
+    "award_notice | direct_acquisition"
+    kind: String!
+    "own_record (captured from e-licitatie) | number_and_buyer (exact unique match)"
+    match: String!
+  }
+
   "A tender/notice lifecycle row (e-licitatie CA ∪ SEAP notices)."
   type ProcurementProcedure {
     id: ID!
@@ -134,6 +148,8 @@ export const procurementTypeDefs = /* GraphQL */ `
     value: ProcurementValueResolution!
     sourceSystem: String!
     sourceUrl: String
+    "The record's own e-licitatie.ro page, when known (P33); null otherwise."
+    elicitatiePage: ProcurementElicitatiePage
     "Always true: procurement.procedures carries no dedup columns."
     isCanonical: Boolean!
     "Always null: procurement.procedures carries no dup_group_id."
@@ -171,6 +187,8 @@ export const procurementTypeDefs = /* GraphQL */ `
     status: String!
     sourceSystem: String!
     sourceUrl: String
+    "The record's own e-licitatie.ro page, when known (P33); null otherwise."
+    elicitatiePage: ProcurementElicitatiePage
     isCanonical: Boolean!
     dupGroupId: String
     value: ProcurementValueResolution!
@@ -208,6 +226,8 @@ export const procurementTypeDefs = /* GraphQL */ `
     value: ProcurementValueResolution!
     sourceSystem: String!
     sourceUrl: String
+    "The record's own e-licitatie.ro page, when known (P33); null otherwise."
+    elicitatiePage: ProcurementElicitatiePage
     isCanonical: Boolean!
     dupGroupId: String
   }
@@ -228,6 +248,8 @@ export const procurementTypeDefs = /* GraphQL */ `
     contractNo: String
     noticeNo: String
     sourceUrl: String
+    "The record's own e-licitatie.ro page, when known (P33); null otherwise."
+    elicitatiePage: ProcurementElicitatiePage
     "Null when the modification could not be linked to a contract."
     parentContract: ProcurementContract
   }
