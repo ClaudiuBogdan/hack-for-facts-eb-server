@@ -5,10 +5,18 @@
  *
  * Prerequisite: `COMPANIES_MAIN_CAEN_TEST_DATABASE_URL` points at a FRESH,
  * DISPOSABLE PostgreSQL database on which the scrapper's prod migration chain
- * has been applied through `20261013T220000__companies_main_caen_assignment`
- * (the FINAL frozen DDL; this file was authored against the provisional
- * revision sha256 bb2a3740…, with `anaf_withdrawn`, `main_caen_public_token`
- * and `main_caen_integrity_holds`). The file refuses a database that already
+ * has been applied through `20261013T220030` (contract v2: policy
+ * `anaf-assumed-main-caen-v2`, the frozen legacy-time cohort, the trailing
+ * `fiscal_time_basis` / `fiscal_raw_retrieved_at` view columns). The full
+ * suite REFUSES a database without 220030 (no case is skipped on it): the
+ * reader selects the v2 columns unconditionally. A database migrated through
+ * `20261013T220000` only is the separate CAPABILITY case below
+ * (`COMPANIES_MAIN_CAEN_V1_SCHEMA_TEST_DATABASE_URL`): there the reader must
+ * answer UNAVAILABLE, never the old resolved rows. The legacy seeding is
+ * reconciled with root's actual-220030 interface receipt
+ * (evidence/root-legacy20-schema-interface.json: 220030 source sha256
+ * 0a7bbad5…, a disposable application, not a final source qualification);
+ * re-check it against the final frozen migration. The file refuses a database that already
  * holds ONRC editions or main CAEN refreshes: every seeded row is append-only
  * and stays behind. Never point it at a shared or production database.
  *
@@ -45,6 +53,9 @@ import type { FlowsRepo, ProdDatabase } from '@/modules/shared/index.js';
 
 const URL = process.env['COMPANIES_MAIN_CAEN_TEST_DATABASE_URL'] ?? '';
 const d = URL.length > 0 ? describe : describe.skip;
+/** A database migrated through 20261013T220000 ONLY (no 220030): the capability case. */
+const V1_SCHEMA_URL = process.env['COMPANIES_MAIN_CAEN_V1_SCHEMA_TEST_DATABASE_URL'] ?? '';
+const dV1 = V1_SCHEMA_URL.length > 0 ? describe : describe.skip;
 
 // ── fixture (hand-written) ────────────────────────────────────────────────────
 
@@ -57,7 +68,18 @@ const CUI = {
   withdraw: '9910006', // resolved rev2:6201; its fiscal row is withdrawn mid-test
   many: '9910007', // 2,001 authorized class keys: the flag list past its bound
   history: '9910008', // an outcome in the OLD edition e0, then one in e1
+  legacy: '9910009', // ANAF 0610 bound through the frozen legacy-time cohort (ms served, µs raw)
+  noSource: '9910010', // no fiscal row at all: SOURCE_MISSING with the exact no-source evidence
+  noSourceCorrected: '9910011', // a reviewed correction (rev2:6201) without any fiscal evidence
+  missingToken: '9910012', // a REAL public fiscal row whose CAEN token is absent: SOURCE_MISSING with a source
+  partial: '9910013', // no source snapshot but a source hash: a partial shape the reader refuses
 } as const;
+/** The legacy member's served (millisecond) and raw (microsecond) retrieval times. */
+const LEGACY_SERVED = '2026-06-15T08:00:12.642Z';
+const LEGACY_RAW = '2026-06-15T08:00:12.642832Z';
+/** True once the database carries 20261013T220030 (decided in `seed`; the full suite requires it). */
+let v2Ddl = false;
+const legacyIds = { cohort: '', accepted: '', support: '', resolution: '' };
 const ALL = Object.values(CUI);
 const CONTACT = 'private@example.com';
 
@@ -243,14 +265,14 @@ const fiscalOf = (cui: string, served: string | null): Fiscal => ({
   hash: sha(String(Number(cui.at(-1)) % 10)),
 });
 
-const insertFiscal = (f: Fiscal) =>
+const insertFiscal = (f: Fiscal, retrievedAt = '2026-06-15T08:00:00Z') =>
   q(
     `insert into companies_v2.fiscal_status
        (cui, is_vat_payer, is_inactive, status_date, main_caen_rev, main_caen_code, source_hash,
         retrieved_at, source_snapshot_id, source_url, raw_row_sha256, privacy_class)
-     values ($1, true, false, '2026-06-15', null, $2, $3, '2026-06-15T08:00:00Z', $4,
+     values ($1, true, false, '2026-06-15', null, $2, $3, $5::timestamptz, $4,
              'https://webservicesp.anaf.ro/fixture', $3, 'public')`,
-    [f.cui, f.served, f.hash, f.snapshot]
+    [f.cui, f.served, f.hash, f.snapshot, retrievedAt]
   );
 
 /** A main refresh with its own succeeded receipt and valid audit, pinned to the LIVE global pins. */
@@ -269,7 +291,7 @@ const insertRefresh = async (edition: string, previous: string | null): Promise<
      values ($1::bigint, 'private_companies_main_caen', 'main_caen.audit', 'valid')`,
     [run]
   );
-  return one(
+  const refresh = await one(
     `insert into companies_v2.main_caen_refreshes
        (previous_refresh_id, load_run_id, mode, focus_count, policy_version, form_policy,
         input_fingerprint, edition_id, onrc_publication_epoch, privacy_epoch, catalog_sha256,
@@ -283,6 +305,18 @@ const insertRefresh = async (edition: string, previous: string | null): Promise<
      returning refresh_id::text as v`,
     [previous, run, sha('f'), edition]
   );
+  // Contract v2: every refresh has exactly one legacy-pins row (the deferred
+  // commit trigger that demands it is off in replica mode, so the fixture writes it).
+  {
+    await q(
+      `insert into companies_v2.main_caen_refresh_legacy_pins
+         (refresh_id, cohort_id, accepted_event_id, guard_sha256, derive_snapshot)
+       values ($1::bigint, nullif($2, '')::bigint, nullif($3, '')::bigint,
+               companies_v2.main_caen_legacy_guard_sha256(), pg_current_snapshot())`,
+      [refresh, legacyIds.cohort, legacyIds.accepted]
+    );
+  }
+  return refresh;
 };
 
 interface Resolution {
@@ -303,7 +337,8 @@ const insertResolution = (
   refresh: string,
   edition: string,
   r: Resolution,
-  previous: string | null
+  previous: string | null,
+  basis = 'anaf_assumed_main'
 ) =>
   one(
     `insert into companies_v2.main_caen_resolutions
@@ -312,7 +347,7 @@ const insertResolution = (
         anaf_token_form, anaf_canonical_digits, anaf_assumed_code, edition_id, candidate_keys,
         resolved_revision, resolved_code, resolved_label, catalog_sha256)
      values ($1, $2::bigint, $3::bigint, '{first_assignment}', $4, companies_v2.main_caen_policy(),
-             'anaf_assumed_main', $5, $6, 'bound', $7, $8, $9, $10, $11, $12::bigint, $13::text[],
+             $17, $5, $6, 'bound', $7, $8, $9, $10, $11, $12::bigint, $13::text[],
              $14, $15, $16, companies_v2.main_caen_catalog_digest())
      returning resolution_id::text as v`,
     [
@@ -332,6 +367,7 @@ const insertResolution = (
       r.selected?.[0] ?? null,
       r.selected?.[1] ?? null,
       r.selected?.[2] ?? null,
+      basis,
     ]
   );
 
@@ -341,7 +377,8 @@ const insertSupport = (
   refresh: string,
   edition: string,
   r: Resolution,
-  previous: string | null
+  previous: string | null,
+  retrievedAt = '2026-06-15T08:00:00Z'
 ) =>
   one(
     `insert into companies_v2.main_caen_supports
@@ -351,7 +388,7 @@ const insertSupport = (
         anaf_original_token, anaf_v3_form, onrc_profile_present, onrc_caen_coverage,
         candidate_row_count, unqualified_match_rows)
      values ($1, $2::bigint, $3::bigint, $4::bigint, $5::bigint, $6, $7, $7, $8, '2026-06-15',
-             '2026-06-15T08:00:00Z', 'https://webservicesp.anaf.ro/fixture',
+             $11::timestamptz, 'https://webservicesp.anaf.ro/fixture',
              'pointer_bound_at_derivation', $9, $10, 'four_digit', true, 'complete', 1, 0)
      returning support_id::text as v`,
     [
@@ -365,7 +402,185 @@ const insertSupport = (
       f.served,
       r.jsonType,
       r.token,
+      retrievedAt,
     ]
+  );
+
+/**
+ * One ACCEPTED frozen legacy-time cohort holding the legacy company as its
+ * single member (pointer witness), and the singleton naming it. Column lists
+ * follow root's actual-220030 interface receipt (header: chunk_size,
+ * approved_dr_members, approved_dr_generations_sha256; events: load_run_id;
+ * legacy supports: refresh_id; staging receipt source
+ * private_companies_main_caen_legacy_cohort). Replica-mode seeding is
+ * READER-ONLY: it bypasses the lifecycle guards and qualifies nothing of the
+ * producer. The reader never reads members or events; it compares the active
+ * cohort, its guard digest and the refresh's legacy pins, and probes the
+ * legacy support and the per-CUI generation.
+ */
+const seedLegacyCohort = async (): Promise<void> => {
+  fakeRunId += 1;
+  const run = String(fakeRunId);
+  await q(
+    `insert into etl.load_runs (run_id, source_id, target_table, status, finished_at)
+     overriding system value
+     values ($1::bigint, 'private_companies_main_caen_legacy_cohort', 'companies_v2.main_caen_legacy_cohorts',
+             'succeeded', now())`,
+    [run]
+  );
+  legacyIds.cohort = await one(
+    `insert into companies_v2.main_caen_legacy_cohorts
+       (attestation_key, policy, prod_system_identifier, prod_database_oid, prod_fiscal_status_oid,
+        prod_generations_oid, guard_sha256, raw_system_identifier, raw_database_oid,
+        raw_snapshots_oid, raw_custody_oid, publisher_commit, image_digest, load_run_id,
+        chunk_size, approved_dr_members, approved_dr_members_sha256,
+        approved_dr_generations_sha256, approved_dr_census_sha256)
+     select gen_random_uuid(), 'anaf-fiscal-legacy-ms-cohort-v1', c.system_identifier::text, d.oid,
+            'companies_v2.fiscal_status'::regclass::oid,
+            'companies_v2.main_caen_fiscal_generations'::regclass::oid,
+            companies_v2.main_caen_legacy_guard_sha256(), c.system_identifier::text, d.oid,
+            'companies_v2.fiscal_status'::regclass::oid, 'companies_v2.fiscal_status'::regclass::oid,
+            $2, $3, $1::bigint, 1, 1, $4, $4, $4
+       from pg_control_system() c, pg_database d where d.datname = current_database()
+     returning cohort_id::text as v`,
+    [run, 'a'.repeat(40), `sha256:${sha('d')}`, sha('e')]
+  );
+  await q(
+    `insert into companies_v2.main_caen_legacy_cohort_gate (cohort_id, state, chunk_count, last_xact)
+     values ($1::bigint, 'accepted', 1, pg_current_xact_id())`,
+    [legacyIds.cohort]
+  );
+  legacyIds.accepted = await one(
+    `insert into companies_v2.main_caen_legacy_cohort_events (cohort_id, event, reason)
+     values ($1::bigint, 'accepted', 'fixture') returning event_id::text as v`,
+    [legacyIds.cohort]
+  );
+  await q(
+    `insert into companies_v2.main_caen_legacy_active (singleton, cohort_id, accepted_event_id, last_xact)
+     values (true, $1::bigint, $2::bigint, pg_current_xact_id())
+     on conflict (singleton) do update set cohort_id = excluded.cohort_id,
+       accepted_event_id = excluded.accepted_event_id, last_xact = excluded.last_xact`,
+    [legacyIds.cohort, legacyIds.accepted]
+  );
+};
+
+/** The legacy company's fiscal row, member, outcome (legacy basis), support and legacy support. */
+const seedLegacyCompany = async (refresh: string, edition: string): Promise<void> => {
+  const f = fiscalOf(CUI.legacy, '0610');
+  await insertFiscal(f, LEGACY_SERVED);
+  // The generation trigger is ENABLE ALWAYS (it fires in replica mode too):
+  // read the ACTUAL generation after the fiscal insert; a missing row reads 0,
+  // exactly as the view's COALESCE(fg.generation, 0).
+  const generation = await one(
+    `select coalesce((select generation from companies_v2.main_caen_fiscal_generations
+                       where cui = $1), 0)::text as v`,
+    [CUI.legacy]
+  );
+  await q(
+    `insert into companies_v2.main_caen_legacy_members
+       (cohort_id, cui, chunk_no, source_digest, frozen_generation, source_snapshot_id, source_hash,
+        status_date, served_retrieved_at, raw_retrieved_at, raw_echo_cui, raw_json_type, raw_token,
+        raw_request_key, witness_basis)
+     select $1::bigint, f.cui, 1, sha256(convert_to('reader fixture member', 'UTF8')), $2::bigint,
+            f.source_snapshot_id, f.source_hash, f.status_date, f.retrieved_at, $3::timestamptz,
+            f.cui, 'string', '0610', 'anaf:fixture:' || f.cui, 'current_pointer'
+       from companies_v2.fiscal_status f where f.cui = $4`,
+    [legacyIds.cohort, generation, LEGACY_RAW, CUI.legacy]
+  );
+  const r = RESOLVED('0610', 'rev2', '0610');
+  legacyIds.resolution = await insertResolution(
+    CUI.legacy,
+    refresh,
+    edition,
+    r,
+    null,
+    'anaf_assumed_main_legacy_time'
+  );
+  legacyIds.support = await insertSupport(
+    f,
+    legacyIds.resolution,
+    refresh,
+    edition,
+    r,
+    null,
+    LEGACY_SERVED
+  );
+  await q(
+    `insert into companies_v2.main_caen_legacy_supports
+       (support_id, cui, refresh_id, cohort_id, frozen_generation, served_retrieved_at,
+        raw_retrieved_at, witness_basis, raw_custody_occurrence_id)
+     values ($1::bigint, $2, $3::bigint, $4::bigint, $5::bigint, $6::timestamptz, $7::timestamptz,
+             'current_pointer', null)`,
+    [
+      legacyIds.support,
+      CUI.legacy,
+      refresh,
+      legacyIds.cohort,
+      generation,
+      LEGACY_SERVED,
+      LEGACY_RAW,
+    ]
+  );
+  await assign(CUI.legacy, legacyIds.resolution, legacyIds.support, refresh);
+};
+
+/**
+ * An outcome WITHOUT any fiscal evidence (no ANAF binding, no token, no form):
+ * `source_missing`, or a reviewed correction selecting / withholding a key.
+ */
+const insertNoSourceOutcome = (
+  cui: string,
+  refresh: string,
+  edition: string,
+  outcome:
+    | { readonly status: 'source_missing' }
+    | {
+        readonly status: 'corrected';
+        readonly correction: string;
+        readonly key: readonly [string, string];
+      }
+) =>
+  one(
+    `insert into companies_v2.main_caen_resolutions
+       (cui, previous_resolution_id, refresh_id, reasons, status, policy_version, main_role_basis,
+        revision_basis, match_basis, anaf_binding_state, edition_id, candidate_keys,
+        resolved_revision, resolved_code, resolved_label, correction_id, catalog_sha256)
+     values ($1, null, $2::bigint, '{first_assignment}', $3, companies_v2.main_caen_policy(),
+             'anaf_assumed_main', $4, null, null, $5::bigint, $6::text[], $7, $8, $9, $10::bigint,
+             companies_v2.main_caen_catalog_digest())
+     returning resolution_id::text as v`,
+    outcome.status === 'corrected'
+      ? [
+          cui,
+          refresh,
+          'corrected',
+          'reviewed_correction',
+          edition,
+          [`${outcome.key[0]}:${outcome.key[1]}`],
+          outcome.key[0],
+          outcome.key[1],
+          `Eticheta ${outcome.key[0]} ${outcome.key[1]}`,
+          outcome.correction,
+        ]
+      : [cui, refresh, 'source_missing', null, edition, [], null, null, null, null]
+  );
+
+/** Its support: every fiscal field null (`hash` set only to build the PARTIAL negative). */
+const insertNoSourceSupport = (
+  cui: string,
+  resolution: string,
+  refresh: string,
+  edition: string,
+  hash: string | null = null
+) =>
+  one(
+    `insert into companies_v2.main_caen_supports
+       (cui, resolution_id, previous_support_id, refresh_id, edition_id, fiscal_source_snapshot_id,
+        fiscal_source_hash, onrc_profile_present, onrc_caen_coverage, candidate_row_count,
+        unqualified_match_rows)
+     values ($1, $2::bigint, null, $3::bigint, $4::bigint, null, $5, true, 'complete', 0, 0)
+     returning support_id::text as v`,
+    [cui, resolution, refresh, edition, hash]
   );
 
 const assign = (cui: string, resolution: string, support: string, refresh: string) =>
@@ -401,6 +616,15 @@ const seed = async (): Promise<void> => {
   if (editions !== '0' || refreshes !== '0') {
     throw new Error('COMPANIES_MAIN_CAEN_TEST_DATABASE_URL must be a FRESH throwaway database');
   }
+  v2Ddl =
+    (await one(
+      `select (to_regclass('companies_v2.main_caen_legacy_supports') is not null)::text as v`
+    )) === 'true';
+  if (!v2Ddl) {
+    throw new Error(
+      'the full reader suite needs 20261013T220030; a database migrated through 220000 only is the capability case (COMPANIES_MAIN_CAEN_V1_SCHEMA_TEST_DATABASE_URL)'
+    );
+  }
   await withReplica(async () => {
     for (const cui of ALL) {
       await q(
@@ -432,6 +656,12 @@ const seed = async (): Promise<void> => {
           await insertCaen(e, cui, key, '0610', '0610', 'rev2');
           await insertCaen(e, cui, key, '610', '0610', 'rev2'); // a short token: never a class
           await insertCaen(e, cui, key, '4711', '4711', 'rev2');
+        }
+        if (cui === CUI.legacy) {
+          await insertCaen(e, cui, key, '0610', '0610', 'rev2');
+        }
+        if (cui === CUI.noSourceCorrected) {
+          await insertCaen(e, cui, key, '6201', '6201', 'rev2');
         }
         if (cui === CUI.lidl) {
           await insertCaen(e, cui, key, '4711', '4711', 'rev2');
@@ -481,7 +711,67 @@ const seed = async (): Promise<void> => {
     await assign(CUI.history, oldOutcome, oldSupport, ids.r0);
 
     await publish(ids.e1, ids.e0);
+    await seedLegacyCohort();
+    // A reviewed correction BEFORE the refresh that pins the corrections digest.
+    const correction = await one(
+      `insert into companies_v2.main_caen_corrections
+         (cui, action, onrc_revision, onrc_code, evidence_url, reason, reviewed_by, review_reference)
+       values ($1, 'select_onrc_key', 'rev2', '6201', 'https://example.invalid/review', 'fixture',
+               'fixture reviewer', 'fixture-1')
+       returning correction_id::text as v`,
+      [CUI.noSourceCorrected]
+    );
     ids.r1 = await insertRefresh(ids.e1, ids.r0);
+    await seedLegacyCompany(ids.r1, ids.e1);
+    // No fiscal row at all (the current view counts it current only without a public fiscal row).
+    for (const cui of [CUI.noSource, CUI.partial]) {
+      const outcome = await insertNoSourceOutcome(cui, ids.r1, ids.e1, {
+        status: 'source_missing',
+      });
+      const support = await insertNoSourceSupport(
+        cui,
+        outcome,
+        ids.r1,
+        ids.e1,
+        cui === CUI.partial ? sha('9') : null
+      );
+      await assign(cui, outcome, support, ids.r1);
+    }
+    const corrected = await insertNoSourceOutcome(CUI.noSourceCorrected, ids.r1, ids.e1, {
+      status: 'corrected',
+      correction,
+      key: ['rev2', '6201'],
+    });
+    await assign(
+      CUI.noSourceCorrected,
+      corrected,
+      await insertNoSourceSupport(CUI.noSourceCorrected, corrected, ids.r1, ids.e1),
+      ids.r1
+    );
+    // A REAL public fiscal row whose CAEN token is absent: SOURCE_MISSING WITH a source.
+    {
+      const f = fiscalOf(CUI.missingToken, null);
+      await insertFiscal(f);
+      const r: Resolution = {
+        status: 'source_missing',
+        token: null,
+        jsonType: 'absent',
+        form: 'absent',
+        canonical: null,
+        assumed: null,
+        candidates: [],
+        selected: null,
+        matchBasis: null,
+        revisionBasis: null,
+      };
+      const outcome = await insertResolution(CUI.missingToken, ids.r1, ids.e1, r, null);
+      await assign(
+        CUI.missingToken,
+        outcome,
+        await insertSupport(f, outcome, ids.r1, ids.e1, r, null),
+        ids.r1
+      );
+    }
     const rows: [string, string | null, Resolution][] = [
       [CUI.omv, '0610', RESOLVED('0610', 'rev2', '610')],
       [
@@ -600,6 +890,115 @@ const withdrawFiscal = (cui: string) =>
       cui,
     ]);
   });
+
+/**
+ * READER-FIXTURE-ONLY fresh global pins. Earlier cases legitimately move the
+ * GLOBAL pins (e.g. the old-edition withdrawal advances the ONRC publication
+ * AND privacy epochs while the active edition stays published), and nothing
+ * re-derives Main afterwards, so the seed refresh no longer pins them. Before
+ * a case that needs a CURRENT baseline, append — as the producer would — one
+ * new successful refresh following the state pointer: its own succeeded
+ * receipt and valid `main_caen.audit`, the LIVE active edition and publication
+ * epoch, privacy epoch, catalog / corrections digests and policies, zero
+ * change counters (it creates no resolution or support), a legacy-pins row
+ * naming the ACTIVE cohort, its accepted event and this transaction's
+ * snapshot, then advance `main_caen_state` to it (epoch + 1; the semantic
+ * content epoch unchanged). Nothing else is touched: no epoch is reset, no
+ * edition restored, no history row, hold, generation or earlier receipt
+ * changed. Replica seeding is reader-only and qualifies no lifecycle.
+ */
+const freshPins = async (): Promise<string> => {
+  let refresh = '';
+  await withReplica(async () => {
+    fakeRunId += 1;
+    const run = String(fakeRunId);
+    await q(
+      `insert into etl.load_runs (run_id, source_id, target_table, status, finished_at)
+       overriding system value
+       values ($1::bigint, 'private_companies_main_caen', 'companies_v2.main_caen_assignments',
+               'succeeded', now())`,
+      [run]
+    );
+    await q(
+      `insert into etl.validation_results (run_id, source_id, check_name, status)
+       values ($1::bigint, 'private_companies_main_caen', 'main_caen.audit', 'valid')`,
+      [run]
+    );
+    refresh = await one(
+      `insert into companies_v2.main_caen_refreshes
+         (previous_refresh_id, load_run_id, mode, focus_count, policy_version, form_policy,
+          input_fingerprint, edition_id, onrc_publication_epoch, privacy_epoch, catalog_sha256,
+          corrections_sha256, inputs, census, changed_assignments, new_resolutions, new_supports)
+       select s.refresh_id, $1::bigint, 'full', 0, companies_v2.main_caen_policy(),
+              companies_v2.anaf_fiscal_caen_form_policy(), $2, p.edition_id, p.publication_epoch,
+              ps.epoch, companies_v2.main_caen_catalog_digest(),
+              companies_v2.main_caen_corrections_digest(), '{}'::jsonb, '{}'::jsonb, 0, 0, 0
+         from companies_v2.main_caen_state s
+         cross join companies_v2.onrc_current_publication p
+         cross join companies_analytics.privacy_state ps
+        where s.singleton and ps.singleton and p.publication_state = 'published'
+       returning refresh_id::text as v`,
+      [run, sha('f')]
+    );
+    await q(
+      `insert into companies_v2.main_caen_refresh_legacy_pins
+         (refresh_id, cohort_id, accepted_event_id, guard_sha256, derive_snapshot)
+       select $1::bigint, la.cohort_id, la.accepted_event_id,
+              companies_v2.main_caen_legacy_guard_sha256(), pg_current_snapshot()
+         from companies_v2.main_caen_legacy_active la where la.singleton`,
+      [refresh]
+    );
+    await q(
+      `update companies_v2.main_caen_state
+          set refresh_id = $1::bigint, epoch = epoch + 1, changed_at = clock_timestamp()
+        where singleton`,
+      [refresh]
+    );
+  });
+  return refresh;
+};
+
+/** The reader's global pins, as the view states them. */
+const readerPins = async () =>
+  (
+    await q(
+      `select refresh_id::text as refresh_id, onrc_publication_epoch::text as publication_epoch,
+              privacy_epoch::text as privacy_epoch, receipt_ok, onrc_ok, privacy_ok, catalog_ok,
+              policy_ok, corrections_ok, edition_available, pins_current, legacy_ok
+         from companies_v2.main_caen_reader_pins`
+    )
+  )[0];
+
+/** Every global pin holds for exactly this refresh (and the legacy cohort is usable). */
+const expectPinsCurrent = async (refresh: string) => {
+  expect(await readerPins()).toMatchObject({
+    refresh_id: refresh,
+    receipt_ok: true,
+    onrc_ok: true,
+    privacy_ok: true,
+    catalog_ok: true,
+    policy_ok: true,
+    corrections_ok: true,
+    edition_available: true,
+    pins_current: true,
+    legacy_ok: true,
+  });
+};
+
+/** The LIVE per-CUI fiscal write generation (0 when no row, as the view's COALESCE). */
+const generationOf = async (cui: string) =>
+  one(
+    `select coalesce((select generation from companies_v2.main_caen_fiscal_generations
+                       where cui = $1), 0)::text as v`,
+    [cui]
+  );
+
+/** The legacy support's frozen generation. */
+const frozenGenerationOf = async (cui: string) =>
+  one(
+    `select frozen_generation::text as v from companies_v2.main_caen_legacy_supports where cui = $1`,
+    [cui]
+  );
 
 const main = async (cui: string, flags = true) =>
   (await repo.getMainActivity(cui, { flags }))._unsafeUnwrap();
@@ -937,6 +1336,223 @@ d('main activity reader over the REAL main CAEN DDL', () => {
     console.info(JSON.stringify({ mainActivityIndexDiagnosticPlans: diagnostic }).slice(0, 20_000));
   });
 
+  // ── contract v2 (20261013T220030): the frozen legacy-time cohort ──────────
+  // Cases needing a CURRENT baseline first take fresh global pins (`freshPins`).
+
+  it('v2 legacy: CURRENT, legacy basis and tag, the millisecond projection and the EXACT six-digit raw time; the class row is flagged', async () => {
+    // A current baseline needs pins the earlier cases have not moved since.
+    await expectPinsCurrent(await freshPins());
+    expect(await generationOf(CUI.legacy)).toBe(await frozenGenerationOf(CUI.legacy));
+    const { read, activity } = await activityOf(CUI.legacy);
+    expect(activity).toMatchObject({
+      policy: 'anaf-assumed-main-caen-v2',
+      basis: 'anaf_assumed_main_legacy_time',
+      currentness: 'current',
+      resolved: { revision: 'rev2', code: '0610' },
+      anaf: {
+        evidenceCustody: 'legacy_ms_pointer_bound',
+        timeBasis: 'legacy_ms_projection',
+        retrievedAt: '2026-06-15T08:00:12.642000Z',
+        rawRetrievedAt: '2026-06-15T08:00:12.642832Z',
+      },
+    });
+    expect(
+      read.flags.state === 'read' &&
+        read.flags.flags.map((f) => [f.revision, f.code, f.isMainCaen, f.matchesAssumedMainCode])
+    ).toEqual([['rev2', '0610', true, true]]);
+  });
+
+  it('v2 legacy history: the outcome keeps the legacy basis; the evidence entry carries the tag and the exact raw time', async () => {
+    const outcomes = (
+      await repo.getMainActivityHistory(CUI.legacy, { kind: 'outcomes', beforeId: null, limit: 5 })
+    )._unsafeUnwrap();
+    expect(outcomes).toMatchObject({
+      state: 'read',
+      outcomes: [{ policy: 'anaf-assumed-main-caen-v2', basis: 'anaf_assumed_main_legacy_time' }],
+    });
+    const evidence = (
+      await repo.getMainActivityHistory(CUI.legacy, { kind: 'evidence', beforeId: null, limit: 5 })
+    )._unsafeUnwrap();
+    expect(evidence).toMatchObject({
+      state: 'read',
+      evidence: [
+        {
+          supportId: legacyIds.support,
+          anaf: {
+            evidenceCustody: 'legacy_ms_pointer_bound',
+            timeBasis: 'legacy_ms_projection',
+            retrievedAt: '2026-06-15T08:00:12.642000Z',
+            rawRetrievedAt: '2026-06-15T08:00:12.642832Z',
+          },
+        },
+      ],
+    });
+  });
+
+  it('v2 legacy: an IDENTICAL guarded fiscal rewrite moves the generation: pending, no true flag, provenance still coherent, the witness moves', async () => {
+    // A VERIFIED current baseline: fresh pins, live generation = frozen, CURRENT with the true badge.
+    const refresh = await freshPins();
+    await expectPinsCurrent(refresh);
+    const pinsBefore = await readerPins();
+    const generation = await generationOf(CUI.legacy);
+    expect(generation).toBe(await frozenGenerationOf(CUI.legacy));
+    const before = await activityOf(CUI.legacy);
+    expect(before.activity.currentness).toBe('current');
+    expect(
+      before.read.flags.state === 'read' &&
+        before.read.flags.flags.some((f) => f.code === '0610' && f.isMainCaen === true)
+    ).toBe(true);
+    if (before.read.assignment.state !== 'row') throw new Error('no legacy assignment row');
+    const witnessBefore = before.read.assignment.witness;
+
+    // ONLY this between the two observations: an ordinary writer (not replica
+    // mode) writes the same value again. No repin, no refresh.
+    await pool.query(
+      `update companies_v2.fiscal_status set retrieved_at = retrieved_at where cui = $1`,
+      [CUI.legacy]
+    );
+
+    expect(await generationOf(CUI.legacy)).toBe(String(BigInt(generation) + 1n));
+    // The global pins and the refresh pointer did not move: only the generation did.
+    expect(await readerPins()).toEqual(pinsBefore);
+    const { read, activity } = await activityOf(CUI.legacy);
+    expect(activity).toMatchObject({
+      currentness: 'pending_refresh',
+      basis: 'anaf_assumed_main_legacy_time',
+      anaf: {
+        timeBasis: 'legacy_ms_projection',
+        retrievedAt: before.activity.anaf?.retrievedAt,
+        rawRetrievedAt: '2026-06-15T08:00:12.642832Z',
+      },
+    });
+    expect(read.flags.state === 'read' && read.flags.flags.some((f) => f.isMainCaen === true)).toBe(
+      false
+    );
+    expect(read.assignment.state).toBe('row');
+    if (read.assignment.state === 'row') expect(read.assignment.witness).not.toBe(witnessBefore);
+  });
+
+  it('v2 legacy: a fiscal withdrawal keeps the legacy basis and suppresses every ANAF field, time and tag (readable, never malformed)', async () => {
+    await withdrawFiscal(CUI.legacy);
+    const { activity } = await activityOf(CUI.legacy);
+    expect(activity).toMatchObject({
+      currentness: 'source_withdrawn',
+      basis: 'anaf_assumed_main_legacy_time',
+      anafWithdrawn: true,
+      anaf: null,
+    });
+    const outcomes = (
+      await repo.getMainActivityHistory(CUI.legacy, { kind: 'outcomes', beforeId: null, limit: 5 })
+    )._unsafeUnwrap();
+    expect(outcomes).toMatchObject({
+      outcomes: [{ basis: 'anaf_assumed_main_legacy_time', anaf: null, anafWithdrawn: true }],
+    });
+    const evidence = (
+      await repo.getMainActivityHistory(CUI.legacy, { kind: 'evidence', beforeId: null, limit: 5 })
+    )._unsafeUnwrap();
+    expect(evidence).toMatchObject({ evidence: [{ anaf: null, anafWithdrawn: true }] });
+    // The raw view columns themselves are suppressed (not only the API's object).
+    const raw = await q(
+      `select fiscal_time_basis, fiscal_raw_retrieved_at, evidence_custody
+         from companies_v2.main_caen_current_assignments where cui = $1`,
+      [CUI.legacy]
+    );
+    expect(raw).toEqual([
+      { fiscal_time_basis: null, fiscal_raw_retrieved_at: null, evidence_custody: null },
+    ]);
+  });
+
+  // ── turn 11: the exact no-source shape (null time basis), never judged from the status ──
+
+  it('no fiscal source: SOURCE_MISSING with an all-null ANAF object and a NULL time basis — not a withdrawal (needs the current view to emit NULL for absence, as the support view does)', async () => {
+    // Current global pins first (the earlier cases moved them); the already
+    // invalid legacy generation stays invalid whatever is repinned.
+    await expectPinsCurrent(await freshPins());
+    const { activity } = await activityOf(CUI.noSource);
+    expect(activity).toMatchObject({
+      status: 'source_missing',
+      anafWithdrawn: false,
+      currentness: 'current',
+    });
+    expect(activity.anaf).toEqual({
+      originalToken: null,
+      jsonType: null,
+      tokenForm: null,
+      canonicalDigits: null,
+      assumedCode: null,
+      v3Form: null,
+      statusDate: null,
+      retrievedAt: null,
+      timeBasis: null,
+      rawRetrievedAt: null,
+      sourceUrl: null,
+      sourceSnapshotId: null,
+      sourceHash: null,
+      rawCaptureId: null,
+      rawCustodyId: null,
+      evidenceCustody: null,
+    });
+    const evidence = (
+      await repo.getMainActivityHistory(CUI.noSource, {
+        kind: 'evidence',
+        beforeId: null,
+        limit: 5,
+      })
+    )._unsafeUnwrap();
+    expect(evidence).toMatchObject({
+      state: 'read',
+      evidence: [
+        {
+          anafWithdrawn: false,
+          anaf: {
+            sourceSnapshotId: null,
+            timeBasis: null,
+            rawRetrievedAt: null,
+            evidenceCustody: null,
+          },
+        },
+      ],
+    });
+  });
+
+  it('a reviewed correction without fiscal evidence stands: CORRECTED rev2:6201 with the no-source ANAF object', async () => {
+    const { activity } = await activityOf(CUI.noSourceCorrected);
+    expect(activity).toMatchObject({
+      currentness: 'current',
+      status: 'corrected',
+      revisionBasis: 'reviewed_correction',
+      resolved: { revision: 'rev2', code: '6201' },
+      anaf: { sourceSnapshotId: null, timeBasis: null, evidenceCustody: null },
+    });
+  });
+
+  it('a REAL fiscal row with an absent CAEN token is SOURCE_MISSING too, and keeps its source and the native time basis', async () => {
+    const { activity } = await activityOf(CUI.missingToken);
+    expect(activity).toMatchObject({
+      currentness: 'current',
+      status: 'source_missing',
+      anaf: {
+        sourceSnapshotId: `anaf:${CUI.missingToken}`,
+        jsonType: 'absent',
+        timeBasis: 'native',
+        rawRetrievedAt: null,
+      },
+    });
+  });
+
+  it('a PARTIAL no-source shape (a source hash without a snapshot) fails closed on the current read and the evidence history', async () => {
+    expect((await repo.getMainActivity(CUI.partial, { flags: false })).isErr()).toBe(true);
+    expect(
+      (
+        await repo.getMainActivityHistory(CUI.partial, {
+          kind: 'evidence',
+          beforeId: null,
+          limit: 5,
+        })
+      ).isErr()
+    ).toBe(true);
+  });
+
   it('a hold while the pinned edition is unavailable: ONRC_UNAVAILABLE first, integrityHeld true, token suppressed, source dates kept', async () => {
     // Withdrawing the ACTIVE edition makes every assignment of it ONRC_UNAVAILABLE.
     await withdrawEdition(ids.e1);
@@ -953,5 +1569,60 @@ d('main activity reader over the REAL main CAEN DDL', () => {
     expect(
       read.flags.state === 'read' && read.flags.flags.every((f) => f.isMainCaen === null)
     ).toBe(true);
+  });
+});
+
+// ── the CAPABILITY case: a database migrated through 20261013T220000 ONLY ─────
+// The reader selects the v2 columns unconditionally; without 220030 that is a
+// capability SQLSTATE (42703), so every Main surface is UNAVAILABLE — never an
+// error of the profile and never the old resolved rows. No seeding is needed.
+
+dV1('main activity reader on a database WITHOUT 20261013T220030 (capability)', () => {
+  let v1Pool: Pool;
+  let v1Db: Kysely<ProdDatabase>;
+  let v1Repo: CompaniesRepository;
+
+  beforeAll(async () => {
+    v1Pool = new Pool({ connectionString: V1_SCHEMA_URL, max: 2 });
+    v1Db = new Kysely<ProdDatabase>({ dialect: new PostgresDialect({ pool: v1Pool }) });
+    v1Repo = makeCompaniesRepo(v1Db);
+    const columns = await v1Pool.query(
+      `select count(*)::int as n from information_schema.columns
+        where table_schema = 'companies_v2' and table_name = 'main_caen_current_assignments'
+          and column_name in ('fiscal_time_basis', 'fiscal_raw_retrieved_at')`
+    );
+    const views = await v1Pool.query(
+      `select to_regclass('companies_v2.main_caen_current_assignments') is not null as ok`
+    );
+    if (views.rows[0]?.ok !== true || columns.rows[0]?.n !== 0) {
+      throw new Error(
+        'COMPANIES_MAIN_CAEN_V1_SCHEMA_TEST_DATABASE_URL must be migrated through 220000, without 220030'
+      );
+    }
+  });
+
+  afterAll(async () => {
+    await v1Db?.destroy();
+  });
+
+  it('the current read and its flags are UNAVAILABLE (capability), never an error', async () => {
+    for (const flags of [true, false]) {
+      expect((await v1Repo.getMainActivity('9910001', { flags }))._unsafeUnwrap()).toEqual({
+        assignment: { state: 'unavailable' },
+        flags: { state: flags ? 'unavailable' : 'not_requested' },
+      });
+    }
+  });
+
+  it('the evidence history is UNAVAILABLE (capability)', async () => {
+    expect(
+      (
+        await v1Repo.getMainActivityHistory('9910001', {
+          kind: 'evidence',
+          beforeId: null,
+          limit: 5,
+        })
+      )._unsafeUnwrap()
+    ).toEqual({ state: 'unavailable' });
   });
 });

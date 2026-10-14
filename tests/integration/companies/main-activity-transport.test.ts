@@ -1092,3 +1092,169 @@ describe('MCP parity', () => {
     });
   });
 });
+
+describe('contract v2 (20261013T220030): legacy time provenance through GraphQL and MCP', () => {
+  const RAW = '2026-06-15T08:00:12.642832Z';
+  const LEGACY_ANAF = {
+    ...OMV_ACTIVITY.anaf!,
+    retrievedAt: '2026-06-15T08:00:12.642000Z',
+    evidenceCustody: 'legacy_ms_pointer_bound' as const,
+    timeBasis: 'legacy_ms_projection' as const,
+    rawRetrievedAt: RAW,
+  };
+  const LEGACY_ACTIVITY = mainActivity({
+    policy: 'anaf-assumed-main-caen-v2',
+    basis: 'anaf_assumed_main_legacy_time',
+    anaf: LEGACY_ANAF,
+  });
+  const V2_MAIN = `mainActivity { availability activity { policy basis currentness anaf { retrievedAt timeBasis rawRetrievedAt evidenceCustody } } }`;
+
+  it('a current legacy assignment: uppercase enums, the exact six-digit raw text, badges from the same read', async () => {
+    const { world, repo } = makeWorld({ evidence: readOf(LEGACY_ACTIVITY, OMV_FLAGS) });
+    const app = await buildApp(world, repo);
+    const body = await gql(app, `{ company(cui: "${CUI}") { ${FLAGS} ${V2_MAIN} } }`);
+    expect(body.errors).toBeUndefined();
+    const company = body.data?.['company'] as Record<string, unknown>;
+    expect(company['mainActivity']).toEqual({
+      availability: 'ASSIGNED',
+      activity: {
+        policy: 'anaf-assumed-main-caen-v2',
+        basis: 'ANAF_ASSUMED_MAIN_LEGACY_TIME',
+        currentness: 'CURRENT',
+        anaf: {
+          retrievedAt: '2026-06-15T08:00:12.642000Z',
+          timeBasis: 'LEGACY_MS_PROJECTION',
+          rawRetrievedAt: '2026-06-15T08:00:12.642832Z',
+          evidenceCustody: 'LEGACY_MS_POINTER_BOUND',
+        },
+      },
+    });
+    expect(flagTriples(company)).toContainEqual(['0610', 'CLASS', true, true]);
+  });
+
+  it('a withdrawn legacy assignment keeps its basis; anaf is null and no row is badged', async () => {
+    const withdrawn = mainActivity({
+      policy: 'anaf-assumed-main-caen-v2',
+      basis: 'anaf_assumed_main_legacy_time',
+      currentness: 'source_withdrawn',
+      anafWithdrawn: true,
+      status: null,
+      matchBasis: null,
+      revisionBasis: null,
+      resolved: null,
+      candidates: null,
+      anaf: null,
+    });
+    const notCurrent = OMV_FLAGS.map((f) => ({
+      ...f,
+      isMainCaen: null,
+      matchesAssumedMainCode: null,
+      currentness: 'source_withdrawn' as const,
+    }));
+    const { world, repo } = makeWorld({ evidence: readOf(withdrawn, notCurrent) });
+    const app = await buildApp(world, repo);
+    const body = await gql(app, `{ company(cui: "${CUI}") { ${FLAGS} ${V2_MAIN} } }`);
+    expect(body.errors).toBeUndefined();
+    const company = body.data?.['company'] as Record<string, unknown>;
+    expect(company['mainActivity']).toMatchObject({
+      activity: {
+        basis: 'ANAF_ASSUMED_MAIN_LEGACY_TIME',
+        currentness: 'SOURCE_WITHDRAWN',
+        anaf: null,
+      },
+    });
+    for (const [, , isMain, same] of flagTriples(company)) {
+      expect(isMain).toBeNull();
+      expect(same).toBeNull();
+    }
+  });
+
+  it('history: a legacy outcome and a legacy evidence entry, raw text exact', async () => {
+    const legacyOutcome = outcome(9, {
+      policy: 'anaf-assumed-main-caen-v2',
+      basis: 'anaf_assumed_main_legacy_time',
+    });
+    const { world, repo } = makeWorld({
+      history: (request) =>
+        request.kind === 'outcomes'
+          ? { state: 'read', outcomes: [legacyOutcome], evidence: [] }
+          : {
+              state: 'read',
+              outcomes: [],
+              evidence: [
+                {
+                  supportId: '31',
+                  previousSupportId: null,
+                  resolutionId: '9',
+                  refreshId: '9',
+                  editionId: '7',
+                  anaf: {
+                    sourceSnapshotId: 'anaf:2026-06-15',
+                    sourceHash: 'b'.repeat(64),
+                    statusDate: '2026-06-15',
+                    retrievedAt: '2026-06-15T08:00:12.642000Z',
+                    timeBasis: 'legacy_ms_projection',
+                    rawRetrievedAt: RAW,
+                    sourceUrl: null,
+                    rawCaptureId: null,
+                    rawCustodyId: '77',
+                    evidenceCustody: 'legacy_ms_retained_custody',
+                    originalToken: '610',
+                    jsonType: 'string',
+                  },
+                  caenCoverage: 'complete',
+                  evidenceAt: '2026-10-14T18:00:00.000000Z',
+                  anafWithdrawn: false,
+                  onrcWithdrawn: false,
+                },
+              ],
+            },
+    });
+    const app = await buildApp(world, repo);
+    const outcomes = await gql(
+      app,
+      `{ companyMainActivityHistory(cui: "${CUI}") { outcomes { resolutionId policy basis } } }`
+    );
+    expect(outcomes.errors).toBeUndefined();
+    expect(outcomes.data?.['companyMainActivityHistory']).toEqual({
+      outcomes: [
+        {
+          resolutionId: '9',
+          policy: 'anaf-assumed-main-caen-v2',
+          basis: 'ANAF_ASSUMED_MAIN_LEGACY_TIME',
+        },
+      ],
+    });
+    const evidence = await gql(
+      app,
+      `{ companyMainActivityHistory(cui: "${CUI}", kind: EVIDENCE) { evidence { supportId anaf { retrievedAt timeBasis rawRetrievedAt evidenceCustody } } } }`
+    );
+    expect(evidence.errors).toBeUndefined();
+    expect(evidence.data?.['companyMainActivityHistory']).toEqual({
+      evidence: [
+        {
+          supportId: '31',
+          anaf: {
+            retrievedAt: '2026-06-15T08:00:12.642000Z',
+            timeBasis: 'LEGACY_MS_PROJECTION',
+            rawRetrievedAt: '2026-06-15T08:00:12.642832Z',
+            evidenceCustody: 'LEGACY_MS_RETAINED_CUSTODY',
+          },
+        },
+      ],
+    });
+  });
+
+  it('MCP get_company_snapshot carries the same v2 provenance', async () => {
+    const { repo } = makeWorld({ evidence: readOf(LEGACY_ACTIVITY, OMV_FLAGS) });
+    const tool = makeCompaniesMcpTools({ repo, flowsRepo: stubFlows() } as never).find(
+      (t) => t.name === 'get_company_snapshot'
+    )!;
+    const out = (await tool.handler({ cui: CUI })) as {
+      structuredContent?: unknown;
+      content?: unknown;
+    };
+    expect(JSON.stringify(out)).toContain('"rawRetrievedAt":"2026-06-15T08:00:12.642832Z"');
+    expect(JSON.stringify(out)).toContain('"basis":"anaf_assumed_main_legacy_time"');
+  });
+});

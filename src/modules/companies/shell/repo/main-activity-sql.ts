@@ -1,6 +1,8 @@
 /**
- * Companies repo — the ANAF-assumed main activity (scrapper migration
- * 20261013T220000). Shell-only SQL over the FOUR public views and nothing
+ * Companies repo — the ANAF-assumed main activity (scrapper migrations
+ * 20261013T220000 and 20261013T220030, contract v2: the trailing
+ * `fiscal_time_basis` / `fiscal_raw_retrieved_at` columns of the current and
+ * evidence views). Shell-only SQL over the FOUR public views and nothing
  * else: `main_caen_current_assignments`, `main_caen_class_flags`,
  * `main_caen_public_resolutions`, `main_caen_public_supports`. Never the base
  * history tables, the corrections, the refresh log, the unbound probes, the
@@ -31,10 +33,13 @@ import { isCapabilityError } from './registry-sql.js';
 import {
   MAIN_ACTIVITY_CURRENTNESS,
   MAIN_ACTIVITY_EVIDENCE_CUSTODIES,
+  MAIN_ACTIVITY_FISCAL_TIME_BASES,
   MAIN_ACTIVITY_JSON_TYPES,
   MAIN_ACTIVITY_LABEL_SOURCE,
+  MAIN_ACTIVITY_LEGACY_ROLE_BASIS,
   MAIN_ACTIVITY_MATCH_BASES,
-  MAIN_ACTIVITY_POLICY,
+  MAIN_ACTIVITY_POLICIES,
+  MAIN_ACTIVITY_POLICY_V1,
   MAIN_ACTIVITY_REVISION_BASES,
   MAIN_ACTIVITY_ROLE_BASES,
   MAIN_ACTIVITY_SELECTING_STATUSES,
@@ -43,12 +48,17 @@ import {
   MAIN_ACTIVITY_V3_FORMS,
   MAIN_CLASS_FLAG_BOUND,
   MAIN_FLAG_CURRENTNESS,
+  absentEvidenceProblem,
+  isLegacyCustody,
   isMainCode,
   isMainRevision,
   mainActivityCacheKey,
+  mainRoleBasisAllowed,
   oneOf,
   parseCandidateKeys,
   publicMainToken,
+  visibleEvidenceTimeProblem,
+  withdrawnEvidenceTimeProblem,
   type CompanyMainActivity,
   type CompanyMainActivityAnafEvidence,
   type CompanyMainActivityCandidateKey,
@@ -61,6 +71,7 @@ import {
   type CompanyMainAssignmentRead,
   type CompanyMainClassFlag,
   type CompanyMainFlagsRead,
+  type MainEvidenceTime,
 } from '../../core/main-activity.js';
 
 type Db = Kysely<ProdDatabase>;
@@ -110,6 +121,8 @@ const AssignmentSchema = Type.Object({
   fiscal_raw_capture_id: NullableText,
   fiscal_raw_custody_id: NullableText,
   evidence_custody: NullableText,
+  fiscal_time_basis: NullableText,
+  fiscal_raw_retrieved_at: NullableText,
   derived_at: Text,
   evidence_at: Text,
   refreshed_at: Text,
@@ -171,6 +184,39 @@ const v3FormOf = (value: string | null): string | null =>
   value !== null && MAIN_ACTIVITY_V3_FORMS.includes(value) ? value : null;
 
 /**
+ * The custody / time-basis / retrieval-time facts of a view row, vocabulary
+ * checked (null = an unknown value: the caller fails closed). Six-digit text
+ * is kept exactly as the view rendered it; never parsed into a Date.
+ */
+const evidenceTimeOf = (row: {
+  readonly evidence_custody: string | null;
+  readonly fiscal_time_basis: string | null;
+  readonly fiscal_retrieved_at: string | null;
+  readonly fiscal_raw_retrieved_at: string | null;
+}): MainEvidenceTime | null => {
+  const custody =
+    row.evidence_custody === null
+      ? null
+      : oneOf(MAIN_ACTIVITY_EVIDENCE_CUSTODIES, row.evidence_custody);
+  const timeBasis =
+    row.fiscal_time_basis === null
+      ? null
+      : oneOf(MAIN_ACTIVITY_FISCAL_TIME_BASES, row.fiscal_time_basis);
+  if (
+    (row.evidence_custody !== null && custody === null) ||
+    (row.fiscal_time_basis !== null && timeBasis === null)
+  ) {
+    return null;
+  }
+  return {
+    custody,
+    timeBasis,
+    retrievedAt: row.fiscal_retrieved_at,
+    rawRetrievedAt: row.fiscal_raw_retrieved_at,
+  };
+};
+
+/**
  * The view's assignment row → the served shape (before the scope gate).
  * `witness` is the whole-row digest (`rowWitness`), the cache identity base.
  */
@@ -180,11 +226,10 @@ export const mapAssignment = (
 ): Result<CompanyMainActivity, ApiError> => {
   const currentness = oneOf(MAIN_ACTIVITY_CURRENTNESS, row.currentness);
   if (currentness === null) return err(malformed('currentness'));
-  if (row.policy_version !== MAIN_ACTIVITY_POLICY) {
-    return err(malformed(`policy ${row.policy_version ?? '(none)'}`));
-  }
+  const policy = oneOf(MAIN_ACTIVITY_POLICIES, row.policy_version);
+  if (policy === null) return err(malformed(`policy ${row.policy_version ?? '(none)'}`));
   const basis = oneOf(MAIN_ACTIVITY_ROLE_BASES, row.main_role_basis);
-  if (basis === null) return err(malformed('role basis'));
+  if (basis === null || !mainRoleBasisAllowed(policy, basis)) return err(malformed('role basis'));
   // The view reports a fiscal withdrawal as currentness unless the edition's
   // withdrawal takes precedence: it is never source_withdrawn without it.
   if (currentness === 'source_withdrawn' && !row.anaf_withdrawn) {
@@ -247,21 +292,53 @@ export const mapAssignment = (
     return err(malformed('candidate keys'));
   }
 
+  const time = evidenceTimeOf(row);
+  if (time === null) return err(malformed('ANAF evidence'));
   let anaf: CompanyMainActivityAnafEvidence | null = null;
-  // A withdrawn source: the WHOLE ANAF object is null, whatever currentness says.
-  if (!row.anaf_withdrawn) {
+  // A withdrawn source: the WHOLE ANAF object is null, whatever currentness
+  // says; its custody and times must be suppressed too (the role basis stays).
+  if (row.anaf_withdrawn) {
+    if (withdrawnEvidenceTimeProblem(time) !== null)
+      return err(malformed('withdrawn ANAF evidence'));
+  } else {
+    // No source snapshot: exactly the no-source shape (never judged from the
+    // status); a source: a stated, coherent time provenance.
+    const problem =
+      row.fiscal_source_snapshot_id === null
+        ? absentEvidenceProblem({
+            fiscal_source_hash: row.fiscal_source_hash,
+            fiscal_status_date: row.fiscal_status_date,
+            fiscal_retrieved_at: row.fiscal_retrieved_at,
+            fiscal_source_url: row.fiscal_source_url,
+            fiscal_raw_capture_id: row.fiscal_raw_capture_id,
+            fiscal_raw_custody_id: row.fiscal_raw_custody_id,
+            evidence_custody: row.evidence_custody,
+            fiscal_time_basis: row.fiscal_time_basis,
+            fiscal_raw_retrieved_at: row.fiscal_raw_retrieved_at,
+            anaf_original_token: row.anaf_original_token,
+            anaf_json_type: row.anaf_json_type,
+            anaf_token_form: row.anaf_token_form,
+            anaf_canonical_digits: row.anaf_canonical_digits,
+            anaf_assumed_code: row.anaf_assumed_code,
+            anaf_v3_form: row.anaf_v3_form,
+          })
+        : visibleEvidenceTimeProblem(time);
+    if (problem !== null) return err(malformed(problem));
+    // The current outcome is legacy exactly when its evidence is (v2 only);
+    // absent evidence carries no legacy marker at all.
+    if ((basis === MAIN_ACTIVITY_LEGACY_ROLE_BASIS) !== isLegacyCustody(time.custody)) {
+      return err(malformed('legacy role basis / custody'));
+    }
+    if (policy === MAIN_ACTIVITY_POLICY_V1 && time.timeBasis === 'legacy_ms_projection') {
+      return err(malformed('legacy evidence under policy v1'));
+    }
     const jsonType =
       row.anaf_json_type === null ? null : oneOf(MAIN_ACTIVITY_JSON_TYPES, row.anaf_json_type);
     const tokenForm =
       row.anaf_token_form === null ? null : oneOf(MAIN_ACTIVITY_TOKEN_FORMS, row.anaf_token_form);
-    const custody =
-      row.evidence_custody === null
-        ? null
-        : oneOf(MAIN_ACTIVITY_EVIDENCE_CUSTODIES, row.evidence_custody);
     if (
       (row.anaf_json_type !== null && jsonType === null) ||
-      (row.anaf_token_form !== null && tokenForm === null) ||
-      (row.evidence_custody !== null && custody === null)
+      (row.anaf_token_form !== null && tokenForm === null)
     ) {
       return err(malformed('ANAF evidence'));
     }
@@ -279,12 +356,15 @@ export const mapAssignment = (
       v3Form: v3FormOf(row.anaf_v3_form),
       statusDate: row.fiscal_status_date,
       retrievedAt: row.fiscal_retrieved_at,
+      // Null exactly for the no-source shape (absentEvidenceProblem).
+      timeBasis: time.timeBasis,
+      rawRetrievedAt: time.rawRetrievedAt,
       sourceUrl: row.fiscal_source_url,
       sourceSnapshotId: row.fiscal_source_snapshot_id,
       sourceHash: row.fiscal_source_hash,
       rawCaptureId: row.fiscal_raw_capture_id,
       rawCustodyId: row.fiscal_raw_custody_id,
-      evidenceCustody: custody,
+      evidenceCustody: time.custody,
     };
   }
 
@@ -301,7 +381,7 @@ export const mapAssignment = (
   }
 
   return ok({
-    policy: row.policy_version,
+    policy,
     basis,
     currentness,
     anafWithdrawn: row.anaf_withdrawn,
@@ -372,6 +452,8 @@ const assignmentObject = (cui: string) => sql`(select jsonb_build_object(
     'fiscal_raw_capture_id', a.fiscal_raw_capture_id::text,
     'fiscal_raw_custody_id', a.fiscal_raw_custody_id::text,
     'evidence_custody', a.evidence_custody,
+    'fiscal_time_basis', a.fiscal_time_basis,
+    'fiscal_raw_retrieved_at', ${isoUtc('a.fiscal_raw_retrieved_at')},
     'derived_at', ${isoUtc('a.derived_at')},
     'evidence_at', ${isoUtc('a.evidence_at')},
     'refreshed_at', ${isoUtc('a.refreshed_at')},
@@ -556,6 +638,8 @@ const SupportSchema = Type.Object({
   fiscal_raw_capture_id: NullableText,
   fiscal_raw_custody_id: NullableText,
   evidence_custody: NullableText,
+  fiscal_time_basis: NullableText,
+  fiscal_raw_retrieved_at: NullableText,
   anaf_original_token: NullableText,
   anaf_json_type: NullableText,
   onrc_caen_coverage: NullableText,
@@ -567,9 +651,9 @@ const SupportSchema = Type.Object({
 export const mapOutcome = (
   row: Static<typeof OutcomeSchema>
 ): Result<CompanyMainActivityOutcome, ApiError> => {
-  if (row.policy_version !== MAIN_ACTIVITY_POLICY) {
-    return err(malformed(`policy ${row.policy_version}`));
-  }
+  const policy = oneOf(MAIN_ACTIVITY_POLICIES, row.policy_version);
+  if (policy === null) return err(malformed(`policy ${row.policy_version}`));
+  // The role basis is kept under withdrawal: a v2 legacy outcome stays legacy.
   const basis = oneOf(MAIN_ACTIVITY_ROLE_BASES, row.main_role_basis);
   const status = row.status === null ? null : oneOf(MAIN_ACTIVITY_STATUSES, row.status);
   const matchBasis =
@@ -582,6 +666,7 @@ export const mapOutcome = (
     row.anaf_token_form === null ? null : oneOf(MAIN_ACTIVITY_TOKEN_FORMS, row.anaf_token_form);
   if (
     basis === null ||
+    !mainRoleBasisAllowed(policy, basis) ||
     (row.status !== null && status === null) ||
     (row.match_basis !== null && matchBasis === null) ||
     (row.revision_basis !== null && revisionBasis === null) ||
@@ -608,7 +693,7 @@ export const mapOutcome = (
     previousResolutionId: row.previous_resolution_id,
     refreshId: row.refresh_id,
     reasons: row.reasons,
-    policy: row.policy_version,
+    policy,
     basis,
     status,
     revisionBasis,
@@ -635,18 +720,33 @@ export const mapOutcome = (
 export const mapEvidenceEntry = (
   row: Static<typeof SupportSchema>
 ): Result<CompanyMainActivityEvidenceEntry, ApiError> => {
-  const custody =
-    row.evidence_custody === null
-      ? null
-      : oneOf(MAIN_ACTIVITY_EVIDENCE_CUSTODIES, row.evidence_custody);
+  const time = evidenceTimeOf(row);
   const jsonType =
     row.anaf_json_type === null ? null : oneOf(MAIN_ACTIVITY_JSON_TYPES, row.anaf_json_type);
-  if (
-    (row.evidence_custody !== null && custody === null) ||
-    (row.anaf_json_type !== null && jsonType === null)
-  ) {
+  if (time === null || (row.anaf_json_type !== null && jsonType === null)) {
     return err(malformed('history evidence'));
   }
+  // Withdrawn evidence is suppressed, never rebuilt; visible evidence without
+  // a source snapshot is exactly the no-source shape (the history carries no
+  // status to guess from); with one, a stated, coherent time provenance.
+  const problem = row.anaf_withdrawn
+    ? withdrawnEvidenceTimeProblem(time)
+    : row.fiscal_source_snapshot_id === null
+      ? absentEvidenceProblem({
+          fiscal_source_hash: row.fiscal_source_hash,
+          fiscal_status_date: row.fiscal_status_date,
+          fiscal_retrieved_at: row.fiscal_retrieved_at,
+          fiscal_source_url: row.fiscal_source_url,
+          fiscal_raw_capture_id: row.fiscal_raw_capture_id,
+          fiscal_raw_custody_id: row.fiscal_raw_custody_id,
+          evidence_custody: row.evidence_custody,
+          fiscal_time_basis: row.fiscal_time_basis,
+          fiscal_raw_retrieved_at: row.fiscal_raw_retrieved_at,
+          anaf_original_token: row.anaf_original_token,
+          anaf_json_type: row.anaf_json_type,
+        })
+      : visibleEvidenceTimeProblem(time);
+  if (problem !== null) return err(malformed(`history evidence: ${problem}`));
   return ok({
     supportId: row.support_id,
     previousSupportId: row.previous_support_id,
@@ -660,10 +760,13 @@ export const mapEvidenceEntry = (
           sourceHash: row.fiscal_source_hash,
           statusDate: row.fiscal_status_date,
           retrievedAt: row.fiscal_retrieved_at,
+          // Null exactly for the no-source shape (absentEvidenceProblem).
+          timeBasis: time.timeBasis,
+          rawRetrievedAt: time.rawRetrievedAt,
           sourceUrl: row.fiscal_source_url,
           rawCaptureId: row.fiscal_raw_capture_id,
           rawCustodyId: row.fiscal_raw_custody_id,
-          evidenceCustody: custody,
+          evidenceCustody: time.custody,
           originalToken: publicMainToken(row.anaf_json_type, row.anaf_original_token),
           jsonType,
         },
@@ -744,7 +847,9 @@ export const readMainActivityHistory = async (
              s.fiscal_source_url,
              s.fiscal_raw_capture_id::text as fiscal_raw_capture_id,
              s.fiscal_raw_custody_id::text as fiscal_raw_custody_id,
-             s.evidence_custody, s.anaf_original_token, s.anaf_json_type,
+             s.evidence_custody, s.fiscal_time_basis,
+             ${isoUtc('s.fiscal_raw_retrieved_at')} as fiscal_raw_retrieved_at,
+             s.anaf_original_token, s.anaf_json_type,
              s.onrc_caen_coverage,
              ${isoUtc('s.evidence_at')} as evidence_at,
              s.anaf_withdrawn, s.onrc_withdrawn

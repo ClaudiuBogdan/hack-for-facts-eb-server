@@ -12,7 +12,7 @@ import { ok } from 'neverthrow';
 import { vi } from 'vitest';
 
 import {
-  MAIN_ACTIVITY_POLICY,
+  MAIN_ACTIVITY_POLICY_V1,
   mainActivityCacheKey,
   mainActivityWitness,
   type CompanyMainActivity,
@@ -30,7 +30,7 @@ export const witnessOf = (fields: ActivityFields): string =>
 
 export const mainActivity = (over: Partial<ActivityFields> = {}): CompanyMainActivity => {
   const fields: ActivityFields = {
-    policy: MAIN_ACTIVITY_POLICY,
+    policy: MAIN_ACTIVITY_POLICY_V1,
     basis: 'anaf_assumed_main',
     currentness: 'current',
     anafWithdrawn: false,
@@ -55,6 +55,8 @@ export const mainActivity = (over: Partial<ActivityFields> = {}): CompanyMainAct
       v3Form: 'three_digit',
       statusDate: '2026-06-15',
       retrievedAt: '2026-06-15T08:00:00.000000Z',
+      timeBasis: 'native',
+      rawRetrievedAt: null,
       sourceUrl: 'https://webservicesp.anaf.ro/api/PlatitorTvaRest/v9/tva',
       sourceSnapshotId: 'anaf:2026-06-15',
       sourceHash: 'b'.repeat(64),

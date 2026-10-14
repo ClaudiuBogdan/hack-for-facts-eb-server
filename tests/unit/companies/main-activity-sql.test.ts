@@ -124,6 +124,8 @@ const assignmentRow = (over: Record<string, unknown> = {}): Record<string, unkno
   fiscal_raw_capture_id: null,
   fiscal_raw_custody_id: null,
   evidence_custody: 'pointer_bound_at_derivation',
+  fiscal_time_basis: 'native',
+  fiscal_raw_retrieved_at: null,
   derived_at: '2026-10-13T22:30:00.000000Z',
   evidence_at: '2026-10-13T22:30:00.000000Z',
   refreshed_at: '2026-10-13T22:30:00.000000Z',
@@ -165,6 +167,7 @@ const SOURCE_WITHDRAWN = assignmentRow({
   fiscal_retrieved_at: null,
   fiscal_source_url: null,
   evidence_custody: null,
+  fiscal_time_basis: null,
   currentness: 'source_withdrawn',
   anaf_withdrawn: true,
 });
@@ -320,7 +323,7 @@ describe('mapAssignment: the vocabulary fails closed', () => {
   it.each([
     ['an unknown currentness', { currentness: 'stale' }],
     ['an unknown status', { status: 'resolved_somehow' }],
-    ['another policy', { policy_version: 'anaf-assumed-main-caen-v2' }],
+    ['another policy', { policy_version: 'anaf-assumed-main-caen-v3' }],
     ['an unknown role basis', { main_role_basis: 'onrc_principal' }],
     ['an unknown match basis', { match_basis: 'numeric' }],
     ['an unknown token form', { anaf_token_form: 'padded' }],
@@ -409,6 +412,8 @@ describe('mapAssignment: the vocabulary fails closed', () => {
       edition_id: null,
       edition_source_published_at: null,
       onrc_caen_coverage: null,
+      // the v2 provenance is suppressed with the source, as the view does
+      fiscal_time_basis: null,
       // a defensive check: a value the view should have nulled is never served
       fiscal_status_date: '2026-06-15',
     })._unsafeUnwrap();
@@ -740,6 +745,8 @@ describe('readMainActivityHistory', () => {
         fiscal_raw_capture_id: '901',
         fiscal_raw_custody_id: null,
         evidence_custody: 'archived_exchange',
+        fiscal_time_basis: 'native',
+        fiscal_raw_retrieved_at: null,
         anaf_original_token: '610',
         anaf_json_type: 'number',
         onrc_caen_coverage: 'complete',
@@ -812,6 +819,8 @@ describe('readMainActivityHistory', () => {
         fiscal_raw_capture_id: null,
         fiscal_raw_custody_id: null,
         evidence_custody: 'pointer_bound_at_derivation',
+        fiscal_time_basis: 'native',
+        fiscal_raw_retrieved_at: null,
         anaf_original_token: '0721234567',
         anaf_json_type: 'string',
         onrc_caen_coverage: null,
