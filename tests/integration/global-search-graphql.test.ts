@@ -228,13 +228,43 @@ describe('searchEntities resolver — nullable arguments', () => {
     });
   });
 
+  it('matches every Bucharest spelling the index holds for a client\u2019s București, through the real schema', async () => {
+    const searchSpy = vi.fn(async () =>
+      ok({ hits: [ngoHit()], facetDistribution: {}, estimatedTotalHits: 1 })
+    );
+    const { deps } = makeDeps({ searchSpy });
+    const schema = makeExecutableSchema({
+      typeDefs: baseTypeDefs,
+      resolvers: makeKernelResolvers(deps) as never,
+      resolverValidationOptions: { requireResolversToMatchSchema: 'ignore' },
+    });
+    const response = await graphql({
+      schema,
+      source:
+        'query($county:String){searchEntities(q:"salvati",docTypes:["ngo"],county:$county,limit:5){engine hits{id}}}',
+      variableValues: { county: 'București' },
+      contextValue: ctx(),
+    });
+    expect(response.errors).toBeUndefined();
+    const options = (searchSpy.mock.calls[0] as unknown[])[2] as { filter: string[] };
+    const clause = options.filter.find((c) => c.startsWith('county_name IN ')) ?? '';
+    // The quoted values themselves, compared without case as Meili does: the short forms the NGO rows hold
+    // are listed, not merely substrings of the MUNICIPIUL ones.
+    const values = [...clause.matchAll(/"([^"]*)"/gu)].map((m) =>
+      (m[1] ?? '').toLocaleUpperCase('ro-RO')
+    );
+    for (const spelling of ['MUNICIPIUL BUCUREȘTI', 'BUCUREȘTI', 'BUCURESTI'])
+      expect(values).toContain(spelling);
+  });
+
   it('still filters by a real county, and refuses an empty one as invalid input, not an internal error', async () => {
     const [, , options] = await engineCall({
       q: '3151288',
       docTypes: ['ngo'],
       county: 'București',
     });
-    expect(JSON.stringify(options)).toContain('București');
+    // Every Bucharest spelling of the index, the canonical one among them.
+    expect(JSON.stringify(options)).toContain('MUNICIPIUL BUCUREȘTI');
 
     const { deps } = makeDeps({});
     const failure = await resolver(deps)(null, { q: '3151288', county: '' }, ctx()).catch(

@@ -17,10 +17,13 @@
  * string value is additionally JSON.stringify-quoted, so there is no
  * operator/quote-injection surface.
  *
- * Meili string equality is case-insensitive. County input still uses a
- * bounded name shape; callers map county codes to names upstream.
+ * Meili string equality is case-insensitive, but not diacritic- or
+ * punctuation-insensitive: a county of the 42 is widened to every spelling the
+ * index holds for it (`county-aliases.ts`). County input still uses a bounded
+ * name shape; callers map county codes to names upstream.
  */
 
+import { countyFilterValues } from './county-aliases.js';
 import {
   SEARCH_ENTITY_DOC_TYPES,
   SEARCH_ENTITY_ROLES,
@@ -78,10 +81,14 @@ export const validEntityDocTypes = (
 ): readonly SearchEntityDocType[] =>
   docTypes === undefined ? [] : [...new Set(docTypes.filter(isEntityDocType))];
 
-/** A shape-valid, trimmed canonical county name, or `undefined` when invalid. */
+/**
+ * A shape-valid, trimmed county name, or `undefined` when invalid. Composed
+ * (NFC) first, so a decomposed spelling (`s` + combining comma) is the same
+ * name as its precomposed one rather than an invalid shape.
+ */
 export const normalizeCounty = (county: string | undefined): string | undefined => {
   if (county === undefined) return undefined;
-  const trimmed = county.trim();
+  const trimmed = county.normalize('NFC').trim();
   return COUNTY_NAME_RE.test(trimmed) ? trimmed : undefined;
 };
 
@@ -110,9 +117,17 @@ export const buildEntitiesFilter = (input: BuildEntitiesFilterInput): MeiliEntit
     clauses.push(`roles IN [${roles.map(quote).join(', ')}]`);
   }
 
-  // county_name = "<canonical name>" — only for a shape-valid county.
+  // county_name — only for a shape-valid county. A county of the 42 matches every
+  // spelling the index holds for it (county-aliases.ts); any other value, as given.
   const county = normalizeCounty(input.county);
-  if (county !== undefined) clauses.push(`county_name = ${quote(county)}`);
+  if (county !== undefined) {
+    const values = countyFilterValues(county);
+    clauses.push(
+      values.length === 1
+        ? `county_name = ${quote(values[0] ?? county)}`
+        : `county_name IN [${values.map(quote).join(', ')}]`
+    );
+  }
 
   if (input.isActive !== undefined) {
     clauses.push(`is_active = ${input.isActive ? 'true' : 'false'}`);

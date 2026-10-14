@@ -85,18 +85,25 @@ describe('buildEntitiesFilter — is_active', () => {
 });
 
 describe('buildEntitiesFilter — county', () => {
-  it('emits county_name = "<value>" for a shape-valid county', () => {
-    expect(buildEntitiesFilter({ county: 'Cluj' })).toContain('county_name = "Cluj"');
-  });
-
-  it('accepts hyphenated / diacritic county names', () => {
-    expect(buildEntitiesFilter({ county: 'Bistrița-Năsăud' })).toContain(
-      'county_name = "Bistrița-Năsăud"'
+  it('emits the county clause for a shape-valid county: every spelling of one of the 42', () => {
+    expect(buildEntitiesFilter({ county: 'Cluj' })).toContain(
+      'county_name IN ["CLUJ", "JUD. CLUJ", "JUDEȚ CLUJ"]'
     );
   });
 
+  it('accepts hyphenated / diacritic county names, matching every spelling of the county', () => {
+    const clause = buildEntitiesFilter({ county: 'Bistrița-Năsăud' }).find((c) =>
+      c.startsWith('county_name')
+    );
+    expect(clause).toMatch(/^county_name IN \[/u);
+    expect(clause).toContain('"BISTRIȚA-NĂSĂUD"');
+    expect(clause).toContain('"BISTRITA NASAUD"');
+  });
+
   it('trims surrounding whitespace', () => {
-    expect(buildEntitiesFilter({ county: '  Cluj  ' })).toContain('county_name = "Cluj"');
+    expect(buildEntitiesFilter({ county: '  Cluj  ' })).toContain(
+      'county_name IN ["CLUJ", "JUD. CLUJ", "JUDEȚ CLUJ"]'
+    );
   });
 
   it('omits the county clause for an empty / whitespace-only string', () => {
@@ -124,7 +131,7 @@ describe('buildEntitiesFilter — combined shape', () => {
       'privacy_class = "public"',
       'doc_type IN ["company"]',
       'roles IN ["pnrr_entity"]',
-      'county_name = "Cluj"',
+      'county_name IN ["CLUJ", "JUD. CLUJ", "JUDEȚ CLUJ"]',
       'is_active = true',
     ]);
   });

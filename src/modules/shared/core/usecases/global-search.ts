@@ -112,7 +112,7 @@ export interface GlobalSearchDeps {
 export interface GlobalSearchInput {
   readonly q: string;
   readonly docTypes?: readonly string[];
-  /** Canonical county name (Meili equality is case-sensitive — see the filter builder). */
+  /** County name; a county of the 42 matches every spelling the index holds for it (see the filter builder). */
   readonly county?: string;
   /** Identities playing this role (a CUI can be organization + pnrr_entity). */
   readonly roles?: readonly string[];

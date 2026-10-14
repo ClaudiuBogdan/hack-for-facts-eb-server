@@ -1,0 +1,489 @@
+{
+  "source": "Codex read-only facet census of the dev entities index (codex-county-facet-census.json in the NGO coordination folder)",
+  "at": "2026-10-14T21:10:11.996947+00:00",
+  "index": "entities_ngo_dev_20261001",
+  "note": "Public county_name facet values of ngo and organization_unclassified documents, as the index holds them. Counts are per type.",
+  "simple": {
+    "Alba": {
+      "ngo": 1202,
+      "organization_unclassified": 31
+    },
+    "Arad": {
+      "ngo": 2285,
+      "organization_unclassified": 49
+    },
+    "ARGES": {
+      "ngo": 1313
+    },
+    "Argeș": {
+      "ngo": 43
+    },
+    "ARGEȘ": {
+      "organization_unclassified": 27
+    },
+    "BACAU": {
+      "ngo": 2178
+    },
+    "Bacău": {
+      "ngo": 15,
+      "organization_unclassified": 52
+    },
+    "Bihor": {
+      "ngo": 2311,
+      "organization_unclassified": 46
+    },
+    "BISTRITA NASAUD": {
+      "ngo": 1660
+    },
+    "Bistrița Năsăud": {
+      "ngo": 12,
+      "organization_unclassified": 17
+    },
+    "BOTOSANI": {
+      "ngo": 981
+    },
+    "Botoșani": {
+      "ngo": 18,
+      "organization_unclassified": 26
+    },
+    "BRAILA": {
+      "ngo": 757
+    },
+    "BRASOV": {
+      "ngo": 1993
+    },
+    "Braşov": {
+      "ngo": 5,
+      "organization_unclassified": 11
+    },
+    "Brașov": {
+      "ngo": 41,
+      "organization_unclassified": 24
+    },
+    "Brăila": {
+      "ngo": 14,
+      "organization_unclassified": 14
+    },
+    "BUCURESTI": {
+      "ngo": 8430
+    },
+    "BUCUREŞTI": {
+      "ngo": 15,
+      "organization_unclassified": 14
+    },
+    "București": {
+      "ngo": 117,
+      "organization_unclassified": 57
+    },
+    "BUZAU": {
+      "ngo": 974
+    },
+    "Buzău": {
+      "ngo": 12,
+      "organization_unclassified": 12
+    },
+    "CALARASI": {
+      "ngo": 390
+    },
+    "CARAS SEVERIN": {
+      "ngo": 918
+    },
+    "Caraș Severin": {
+      "ngo": 11,
+      "organization_unclassified": 14
+    },
+    "Caraș- Severin": {
+      "ngo": 4
+    },
+    "Cluj": {
+      "ngo": 3266,
+      "organization_unclassified": 55
+    },
+    "CONSTANTA": {
+      "ngo": 2068
+    },
+    "Constanţa": {
+      "ngo": 1,
+      "organization_unclassified": 1
+    },
+    "Constanța": {
+      "ngo": 20,
+      "organization_unclassified": 18
+    },
+    "Covasna": {
+      "ngo": 527,
+      "organization_unclassified": 12
+    },
+    "Călărași": {
+      "ngo": 6,
+      "organization_unclassified": 6
+    },
+    "Dolj": {
+      "ngo": 1366,
+      "organization_unclassified": 6
+    },
+    "DÂMBOVITA": {
+      "ngo": 1227
+    },
+    "Dâmbovița": {
+      "ngo": 21,
+      "organization_unclassified": 11
+    },
+    "GALATI": {
+      "ngo": 1043
+    },
+    "Galați": {
+      "ngo": 20,
+      "organization_unclassified": 21
+    },
+    "Giurgiu": {
+      "ngo": 899,
+      "organization_unclassified": 7
+    },
+    "Gorj": {
+      "ngo": 708,
+      "organization_unclassified": 9
+    },
+    "Harghita": {
+      "ngo": 2105,
+      "organization_unclassified": 26
+    },
+    "Hunedoara": {
+      "ngo": 1009,
+      "organization_unclassified": 24
+    },
+    "IALOMITA": {
+      "ngo": 458
+    },
+    "Ialomița": {
+      "organization_unclassified": 18
+    },
+    "IASI": {
+      "ngo": 1974
+    },
+    "Iași": {
+      "ngo": 39,
+      "organization_unclassified": 33
+    },
+    "Ilfov": {
+      "ngo": 958
+    },
+    "ILFOV": {
+      "organization_unclassified": 18
+    },
+    "JUD. ALBA": {
+      "ngo": 5,
+      "organization_unclassified": 9
+    },
+    "JUD. ARAD": {
+      "ngo": 1,
+      "organization_unclassified": 5
+    },
+    "JUD. ARGEŞ": {
+      "ngo": 3,
+      "organization_unclassified": 5
+    },
+    "JUD. ARGEȘ": {
+      "organization_unclassified": 1
+    },
+    "JUD. BACĂU": {
+      "ngo": 1,
+      "organization_unclassified": 3
+    },
+    "JUD. BIHOR": {
+      "ngo": 1,
+      "organization_unclassified": 1
+    },
+    "JUD. BISTRIŢA-NĂSĂUD": {
+      "ngo": 2,
+      "organization_unclassified": 2
+    },
+    "JUD. BISTRIȚA-NĂSĂUD": {
+      "ngo": 1
+    },
+    "JUD. BOTOŞANI": {
+      "organization_unclassified": 2
+    },
+    "JUD. BOTOȘANI": {
+      "organization_unclassified": 1
+    },
+    "JUD. BRAŞOV": {
+      "ngo": 1,
+      "organization_unclassified": 2
+    },
+    "JUD. BRAȘOV": {
+      "ngo": 1,
+      "organization_unclassified": 1
+    },
+    "JUD. BRĂILA": {
+      "organization_unclassified": 2
+    },
+    "JUD. BUZĂU": {
+      "organization_unclassified": 5
+    },
+    "JUD. CARAŞ-SEVERIN": {
+      "organization_unclassified": 2
+    },
+    "JUD. CLUJ": {
+      "ngo": 14,
+      "organization_unclassified": 8
+    },
+    "JUD. CONSTANŢA": {
+      "ngo": 1,
+      "organization_unclassified": 7
+    },
+    "JUD. CONSTANȚA": {
+      "ngo": 1,
+      "organization_unclassified": 2
+    },
+    "JUD. COVASNA": {
+      "organization_unclassified": 4
+    },
+    "JUD. CĂLĂRAŞI": {
+      "organization_unclassified": 4
+    },
+    "JUD. DOLJ": {
+      "ngo": 10,
+      "organization_unclassified": 8
+    },
+    "JUD. DÂMBOVIŢA": {
+      "ngo": 2
+    },
+    "JUD. DÂMBOVIȚA": {
+      "organization_unclassified": 3
+    },
+    "JUD. GALAŢI": {
+      "organization_unclassified": 1
+    },
+    "JUD. GORJ": {
+      "ngo": 2,
+      "organization_unclassified": 1
+    },
+    "JUD. HARGHITA": {
+      "ngo": 3,
+      "organization_unclassified": 4
+    },
+    "JUD. HUNEDOARA": {
+      "ngo": 3,
+      "organization_unclassified": 3
+    },
+    "JUD. IALOMIŢA": {
+      "organization_unclassified": 1
+    },
+    "JUD. IALOMIȚA": {
+      "organization_unclassified": 1
+    },
+    "JUD. IAŞI": {
+      "ngo": 5,
+      "organization_unclassified": 3
+    },
+    "JUD. IAȘI": {
+      "ngo": 2,
+      "organization_unclassified": 2
+    },
+    "JUD. ILFOV": {
+      "ngo": 2,
+      "organization_unclassified": 5
+    },
+    "JUD. MARAMUREŞ": {
+      "ngo": 2,
+      "organization_unclassified": 7
+    },
+    "JUD. MARAMUREȘ": {
+      "ngo": 3,
+      "organization_unclassified": 3
+    },
+    "JUD. MEHEDINŢI": {
+      "ngo": 2,
+      "organization_unclassified": 3
+    },
+    "JUD. MUREŞ": {
+      "ngo": 1,
+      "organization_unclassified": 2
+    },
+    "JUD. MUREȘ": {
+      "organization_unclassified": 1
+    },
+    "JUD. NEAMT": {
+      "organization_unclassified": 1
+    },
+    "JUD. NEAMŢ": {
+      "ngo": 7,
+      "organization_unclassified": 6
+    },
+    "JUD. NEAMȚ": {
+      "organization_unclassified": 2
+    },
+    "JUD. OLT": {
+      "ngo": 3,
+      "organization_unclassified": 6
+    },
+    "JUD. PRAHOVA": {
+      "ngo": 1,
+      "organization_unclassified": 2
+    },
+    "JUD. SATU MARE": {
+      "ngo": 2,
+      "organization_unclassified": 3
+    },
+    "JUD. SATU-MARE": {
+      "ngo": 1
+    },
+    "JUD. SIBIU": {
+      "organization_unclassified": 5
+    },
+    "JUD. SUCEAVA": {
+      "ngo": 2,
+      "organization_unclassified": 4
+    },
+    "JUD. SĂLAJ": {
+      "organization_unclassified": 3
+    },
+    "JUD. TELEORMAN": {
+      "ngo": 1,
+      "organization_unclassified": 2
+    },
+    "JUD. TIMIŞ": {
+      "ngo": 5,
+      "organization_unclassified": 4
+    },
+    "JUD. TULCEA": {
+      "ngo": 2,
+      "organization_unclassified": 6
+    },
+    "JUD. VRANCEA": {
+      "ngo": 1,
+      "organization_unclassified": 1
+    },
+    "JUD. VÂLCEA": {
+      "ngo": 1,
+      "organization_unclassified": 7
+    },
+    "JUDEȚ CARAȘ-SEVERIN": {
+      "ngo": 1
+    },
+    "MARAMURES": {
+      "ngo": 2375
+    },
+    "Maramureș": {
+      "ngo": 28,
+      "organization_unclassified": 29
+    },
+    "MEHEDINTI": {
+      "ngo": 403
+    },
+    "Mehedinți": {
+      "ngo": 1,
+      "organization_unclassified": 3
+    },
+    "Municipiul Bucureşti": {
+      "ngo": 2
+    },
+    "MURES": {
+      "ngo": 1727
+    },
+    "Mureş": {
+      "organization_unclassified": 1
+    },
+    "Mureș": {
+      "ngo": 54,
+      "organization_unclassified": 29
+    },
+    "NEAMT": {
+      "ngo": 1185
+    },
+    "Neamț": {
+      "ngo": 26,
+      "organization_unclassified": 31
+    },
+    "Olt": {
+      "ngo": 536,
+      "organization_unclassified": 6
+    },
+    "Prahova": {
+      "ngo": 1960,
+      "organization_unclassified": 22
+    },
+    "SALAJ": {
+      "ngo": 729
+    },
+    "Satu - Mare": {
+      "ngo": 5,
+      "organization_unclassified": 3
+    },
+    "Satu Mare": {
+      "ngo": 1417,
+      "organization_unclassified": 20
+    },
+    "Sibiu": {
+      "ngo": 3243,
+      "organization_unclassified": 42
+    },
+    "Suceava": {
+      "ngo": 2891,
+      "organization_unclassified": 45
+    },
+    "Sălaj": {
+      "ngo": 19,
+      "organization_unclassified": 34
+    },
+    "Teleorman": {
+      "ngo": 698,
+      "organization_unclassified": 4
+    },
+    "TIMIS": {
+      "ngo": 2421
+    },
+    "Timiș": {
+      "ngo": 56,
+      "organization_unclassified": 41
+    },
+    "Tulcea": {
+      "ngo": 491,
+      "organization_unclassified": 11
+    },
+    "Vaslui": {
+      "ngo": 584,
+      "organization_unclassified": 13
+    },
+    "Vrancea": {
+      "ngo": 751,
+      "organization_unclassified": 6
+    },
+    "Vâlcea": {
+      "ngo": 1090,
+      "organization_unclassified": 19
+    }
+  },
+  "compound": {
+    "BUCUREŞTI PUNCT DE LUCRU: JUD. GALAȚI": {
+      "ngo": 1
+    },
+    "BUCUREŞTI PUNCT DE LUCRU: JUD. GIURGIU": {
+      "ngo": 1
+    },
+    "BUCUREŞTI PUNCT DE LUCRU: JUD. TELEORMAN": {
+      "organization_unclassified": 1
+    },
+    "CLUJ-NAPOCA JUD. CLUJ": {
+      "organization_unclassified": 1
+    },
+    "CONSTANȚA JUD. CONSTANȚA": {
+      "ngo": 1
+    },
+    "JUD. CĂLĂRAŞI PUNCT DE LUCRU: JUD. GIURGIU": {
+      "ngo": 1
+    },
+    "JUD. DOLJ PUNCT DE LUCRU: JUD. TELEORMAN": {
+      "organization_unclassified": 1
+    },
+    "JUD. PRAHOVA PUNCT DE LUCRU: JUD. GIURGIU": {
+      "organization_unclassified": 1
+    }
+  },
+  "unknown": {
+    "NEDETERMINAT": {
+      "ngo": 3519
+    }
+  }
+}

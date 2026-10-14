@@ -647,12 +647,33 @@ describe('search_entities — arg coercion', () => {
       filter: [
         'privacy_class = "public"',
         'doc_type IN ["company"]',
-        'county_name = "Cluj"',
+        'county_name IN ["CLUJ", "JUD. CLUJ", "JUDEȚ CLUJ"]',
         'is_active = true',
       ],
       facets: ['doc_type'],
       limit: 5,
     });
+  });
+
+  it('matches every spelling of a county a client writes in its own way (Caraș-Severin)', async () => {
+    const searchEntities = vi.fn(async () =>
+      ok({ hits: [], facetDistribution: {}, estimatedTotalHits: 0 })
+    );
+    const tool = getSearchTool(
+      makeKernelMcpTools({
+        identityRepo: { searchByName: vi.fn(async () => ok([])) } as never,
+        entity360Deps: {} as never,
+        globalSearchDeps: { meiliClient: { searchEntities } as never, meiliIndexes: ['entities'] },
+        clientBaseUrl: 'https://transparenta.eu',
+      })
+    );
+    await tool.handler({ query: 'asociatia', county: 'Caraș-Severin' });
+    const clause = (
+      (searchEntities.mock.calls[0] as unknown[])[2] as { filter: string[] }
+    ).filter.find((c) => c.startsWith('county_name'));
+    expect(clause).toMatch(/^county_name IN \[/u);
+    for (const spelling of ['CARAȘ-SEVERIN', 'CARAȘ SEVERIN', 'CARAS SEVERIN'])
+      expect(clause).toContain(JSON.stringify(spelling));
   });
 });
 
