@@ -188,6 +188,40 @@ export interface CompaniesFinancialSourceResourcesTable {
 }
 
 /**
+ * The selection ledger (scrapper migration 20260812T162000, one row per
+ * (cui, fiscal_year); soft-deleted via `deleted_at`). Only the columns the
+ * long-format-only disclosure reads are typed: the status, the anchor's
+ * publisher/snapshot/profile, the evidence holding the filer class, and the
+ * privacy class every read allowlists.
+ */
+export interface CompaniesFinancialSourceSelectionTable {
+  cui: string;
+  fiscal_year: number;
+  selection_status: string;
+  source_system: string | null;
+  source_snapshot_id: string | null;
+  statement_profile_hash: string | null;
+  /** `jsonb`; read only through a typed `->` with a `jsonb_typeof` guard. */
+  selection_evidence: unknown;
+  privacy_class: string;
+  deleted_at: Tstz | null;
+}
+
+/**
+ * The long-format statement lines (PK `(cui, year, indicator_code)`). Typed
+ * only for the same-identity public witness of a long-format-only statement:
+ * no value column is read by this module.
+ */
+export interface CompaniesFinancialIndicatorsTable {
+  cui: string;
+  year: number;
+  source_system: string;
+  source_snapshot_id: string;
+  statement_profile_hash: string;
+  privacy_class: string;
+}
+
+/**
  * `companies_v2.financial_qualification_active` (scraper migration
  * 20261003T170000, evaluator sql-v1): every financial row qualified under the
  * terminal analytics publication's write-once admission policy. Not a privacy
@@ -273,6 +307,8 @@ declare module '@/modules/shared/shell/db/types.js' {
     'companies_v2.source_snapshots': CompaniesSourceSnapshotsTable;
     'companies_v2.eu_branches': CompaniesEuBranchesTable;
     'companies_v2.financial_source_resources': CompaniesFinancialSourceResourcesTable;
+    'companies_v2.financial_source_selection': CompaniesFinancialSourceSelectionTable;
+    'companies_v2.financial_indicators': CompaniesFinancialIndicatorsTable;
     'companies_v2.financial_qualification_active': CompaniesFinancialQualificationTable;
     'companies_v2.registration_identifiers': {
       scheme: string;

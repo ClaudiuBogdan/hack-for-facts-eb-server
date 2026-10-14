@@ -38,6 +38,7 @@ import { stubRepo as sharedStubRepo } from './repo-fixtures.js';
 import type { CompaniesRepository, CompanyProfileData } from '@/modules/companies/core/ports.js';
 import type {
   CompanyFinancialYear,
+  CompanyLongFormStatement,
   CompanyRegistrationDiffData,
   CompanyRegistrationEditionSide,
   CompanyRegistrationField,
@@ -259,6 +260,67 @@ describe('makeCompanyProfile', () => {
     const d = deps({ repo: { getProfileData: vi.fn(async () => ok(null)) } });
     const res = await makeCompanyProfile(d, '999');
     expect((res as { value: unknown }).value).toBeNull();
+  });
+});
+
+describe('makeCompanyFinancials long-format-only statements (metadata beside the typed history)', () => {
+  const longForm = (year: number): CompanyLongFormStatement => ({
+    year,
+    sourceSystem: 'mfp',
+    filerClass: 'ir',
+    sourceSnapshotId: `mfp:situatii_financiare_${String(year)}:${String(year)}:r${String(year)}`,
+    resourceUrl: null,
+  });
+
+  it('a CUI with only long-format statements answers years [] with them (latest/trajectory null)', async () => {
+    const d = deps({
+      repo: { getLongFormOnlyStatements: vi.fn(async () => ok([longForm(2013), longForm(2012)])) },
+    });
+    expect(unwrap(await makeCompanyFinancials(d, '1590082'))).toEqual({
+      years: [],
+      latest: null,
+      trajectory: null,
+      longFormOnly: [longForm(2013), longForm(2012)],
+    });
+  });
+
+  it('typed years are served exactly as before, the long-format years beside them', async () => {
+    const typed = [
+      finYear(2024, '29692697896.00', '7207'),
+      finYear(2011, '16565465973.00', '22052'),
+    ];
+    const d = deps({
+      repo: {
+        getFinancials: vi.fn(async () => ok(typed)),
+        getLongFormOnlyStatements: vi.fn(async () => ok([longForm(2012)])),
+      },
+    });
+    const out = unwrap(await makeCompanyFinancials(d, '1590082'));
+    expect(out?.years).toBe(typed);
+    expect(out?.latest).toBe(typed[0]);
+    expect(out?.longFormOnly).toEqual([longForm(2012)]);
+  });
+
+  it('null only when both are known empty; an unreadable ledger stays visible as unknown', async () => {
+    expect(unwrap(await makeCompanyFinancials(deps(), '1590082'))).toBeNull();
+    const unknown = deps({ repo: { getLongFormOnlyStatements: vi.fn(async () => ok(null)) } });
+    expect(unwrap(await makeCompanyFinancials(unknown, '1590082'))).toEqual({
+      years: [],
+      latest: null,
+      trajectory: null,
+      longFormOnly: null,
+    });
+  });
+
+  it('a failed long-format read fails the answer (never a partial "none")', async () => {
+    const d = deps({
+      repo: {
+        getLongFormOnlyStatements: vi.fn(async () =>
+          err({ type: 'Database' as const, message: 'getLongFormOnlyStatements failed' })
+        ),
+      },
+    });
+    expect((await makeCompanyFinancials(d, '1590082')).isErr()).toBe(true);
   });
 });
 

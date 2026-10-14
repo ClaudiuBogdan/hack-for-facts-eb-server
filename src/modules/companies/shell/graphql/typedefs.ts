@@ -436,13 +436,14 @@ const objectsAndQuery = /* GraphQL */ `
     holdDrift: [String!]!
   }
 
-  "Where a statement was published. ANAF: the bilanț web-service URL stored with the statement. MFP: the exact data.gov.ro resource it was read from. url is null when not recorded: never guessed, never another publisher's URL."
+  "Where a statement was published. ANAF: the bilanț web-service query for THIS statement's own fiscal year and CUI (the request the ingester makes); it answers with ANAF's CURRENT data, which can differ from the retained capture, and is not a custody proof. MFP: the exact data.gov.ro resource it was read from. url is null when not recorded or not bindable to this statement: never guessed, never another publisher's or statement's URL."
   type CompanyStatementSource {
     "anaf | mfp"
     sourceSystem: String!
     url: String
-    "anaf_statement | mfp_resource; null with url."
+    "anaf_statement (the current ANAF query of this statement) | mfp_resource; null with url."
     urlKind: String
+    "Fingerprint of the statement's indicator code/name layout: not its values, not its bytes."
     statementProfileHash: String
     metricRuleVersion: String!
   }
@@ -494,9 +495,25 @@ const objectsAndQuery = /* GraphQL */ `
 
   "Financial statements recorded under a CUI, served as attributed source observations (sourceSystem per year). The namespace is the CUI, NOT company membership: the CUI may have no core organization (e.g. MFP-era filers) or be a public non-company organization (NGO, public body). A statement is withheld when a known core organization for the CUI is non-public."
   type CompanyFinancials {
+    "The standard typed history (what FILED counts); empty when the CUI has only long-format statements."
     years: [CompanyFinancialYear!]!
     latest: CompanyFinancialYear
     trajectory: CompanyFinancialTrajectory
+    "Statements kept outside the typed history by policy (long format only), newest first. [] = none known; null = this runtime cannot read the selection ledger (unknown, never 'none')."
+    longFormOnly: [CompanyLongFormStatement!]
+  }
+
+  "A statement the selection ledger promoted in LONG FORMAT ONLY (e.g. MFP IFRS filers, class ir), witnessed by a public indicator line of the same CUI, year, publisher, anchor capture and layout. File-level only: it names no physical row and claims neither that the selected line nor that every line is retained. Metadata only: no value, summary or qualification, and it certifies no economic figure. Not a year without a filing."
+  type CompanyLongFormStatement {
+    year: Int!
+    "Publisher (mfp)."
+    sourceSystem: String!
+    "The publisher's filer class from the selection evidence (e.g. ir), verbatim; null when not recorded."
+    filerClass: String
+    "The anchor capture, exactly as recorded."
+    sourceSnapshotId: String!
+    "The anchor file's data.gov.ro URL (a statement assembled from several copies has others); null when not recorded or not readable."
+    resourceUrl: String
   }
 
   "Closed set of diffable fields. COUNTY/LOCALITY compare the edition's derived geography (county code / UAT SIRUTA) and report canonical names. Status is not diffed: observed status sets are evidence on the profile, not a change."
@@ -555,7 +572,7 @@ const objectsAndQuery = /* GraphQL */ `
     anaf: Date
   }
 
-  "Public money RECEIVED (company = payee). Kernel FlowsRepo (grain-gated). Never mixes registry + flow grains."
+  "Incoming public flows naming the company as payee (kernel FlowsRepo, grain-gated; never mixes registry + flow grains): awards, direct acquisitions, PNRR payments, commitments and subcontracts, one flowType per instrument. totalRon adds the native amounts of these unlike instruments: not money received and not proof of payment; quote instrument totals from byFlowType."
   type CompanyPublicMoney {
     totalRon: Money!
     flowCount: Int!
@@ -966,7 +983,7 @@ const objectsAndQuery = /* GraphQL */ `
     registry: CompanyRegistryEvidence!
     "The derived activity selection (never 'principal' or 'main activity'), read only when selected, under the SAME pin and final recheck as this Company. Null when the ONRC edition is not published or the CUI has no profile in it. A company with more than 2000 distinct observation groups is refused on this field (never a truncated selection)."
     activitySelection: CompanyActivitySelection
-    "Public money received (payee), via the kernel FlowsRepo. Null when none."
+    "Incoming public flows naming the company as payee (awards, acquisitions, commitments), via the kernel FlowsRepo; not proof of payment. Null when no indexed flow names it."
     publicMoney: CompanyPublicMoney
     "The ANAF-ASSUMED main activity (never an ONRC principal flag), read only when selected (or when caenActivities selects isMainCaen / matchesAssumedMainCode), under the SAME pin, then rechecked fresh after every other part of this Company settled and once more when the whole operation settled. Unreadable surfaces are availability UNAVAILABLE, never an error of this Company. Nullable: a part refused (e.g. the main activity changed twice during the request) is this field's error."
     mainActivity: CompanyMainActivityRead
@@ -1112,7 +1129,7 @@ const objectsAndQuery = /* GraphQL */ `
       first: Int = 20
       after: String
     ): CompanyConnection
-    "Full financials series + computed latest + trajectory for a CUI. Source observations by CUI: a result does not assert that the CUI is a company or listed in the company directory (see CompanyFinancials)."
+    "Full financials series + computed latest + trajectory + long-format-only statements for a CUI. Source observations by CUI: a result does not assert that the CUI is a company or listed in the company directory (see CompanyFinancials). Null only when neither a typed nor a long-format statement is known."
     companyFinancials(cui: CUI!): CompanyFinancials
     "Resolve free text to a filter value: name→CUI (Meili candidates rehydrated from the public spine), regnum→CUI list (the pinned edition's normalized identifier), caen→code with revision and onrcCaen key, county→canonical. Nullable for per-field error isolation (audit H2)."
     companyResolve(dim: CompanyResolveDim!, q: String!, limit: Int = 10): [CompanyResolveHit!]

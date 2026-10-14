@@ -505,3 +505,116 @@ describe('the MCP snapshot', () => {
     ).toContain('more than 2000');
   });
 });
+
+/**
+ * B5 traceability over the same transports: long-format-only statements as
+ * metadata beside the typed history (GraphQL `companyFinancials`, MCP
+ * `get_company_financials`), and the public-flow wording of the MCP snapshot.
+ */
+describe('long-format-only statements and public-flow wording on the transports', () => {
+  const OMV = '1590082';
+  const LONG = {
+    year: 2013,
+    sourceSystem: 'mfp',
+    filerClass: 'ir',
+    sourceSnapshotId: 'mfp:situatii_financiare_2021:2013:13dec119-4013-4689-90e0-52da4c69d3ea',
+    resourceUrl: 'https://data.gov.ro/dataset/x/resource/13dec119/download/web_ir_an2013.txt',
+  };
+  const LONG_FIELDS = 'longFormOnly { year sourceSystem filerClass sourceSnapshotId resourceUrl }';
+  const longOnlyRepo = (longFormOnly: readonly (typeof LONG)[] | null) =>
+    stubRepo({ getLongFormOnlyStatements: vi.fn(async () => ok(longFormOnly)) });
+  const financialsTool = (repo: CompaniesRepository) => {
+    const tool = makeCompaniesMcpTools({ ...deps(repo), clientBaseUrl: 'x' }).find(
+      (t) => t.name === 'get_company_financials'
+    );
+    if (tool === undefined) throw new Error('no financials tool');
+    return tool;
+  };
+
+  it('GraphQL: a long-format-only CUI answers years [], latest/trajectory null, with its statements', async () => {
+    const body = await gql(
+      await buildGraphql(longOnlyRepo([LONG])),
+      `query { companyFinancials(cui: "${OMV}") { years { year } latest { year } trajectory { fromYear } ${LONG_FIELDS} } }`
+    );
+    expect(body.errors).toBeUndefined();
+    expect(body.data?.['companyFinancials']).toEqual({
+      years: [],
+      latest: null,
+      trajectory: null,
+      longFormOnly: [LONG],
+    });
+  });
+
+  it('GraphQL: an unreadable ledger is null (unknown), and nothing known is a null answer', async () => {
+    const unknown = await gql(
+      await buildGraphql(longOnlyRepo(null)),
+      `query { companyFinancials(cui: "${OMV}") { years { year } ${LONG_FIELDS} } }`
+    );
+    expect(unknown.data?.['companyFinancials']).toEqual({ years: [], longFormOnly: null });
+    const none = await gql(
+      await buildGraphql(longOnlyRepo([])),
+      `query { companyFinancials(cui: "${OMV}") { years { year } } }`
+    );
+    expect(none.errors).toBeUndefined();
+    expect(none.data?.['companyFinancials']).toBeNull();
+  });
+
+  it('GraphQL: file-level only, the contract names no physical row', async () => {
+    const body = await gql(
+      await buildGraphql(longOnlyRepo([LONG])),
+      `query { companyFinancials(cui: "${OMV}") { longFormOnly { year statementLocator } } }`
+    );
+    expect(body.data?.['companyFinancials'] ?? null).toBeNull();
+    expect(JSON.stringify(body.errors)).toContain('statementLocator');
+  });
+
+  it('MCP get_company_financials: the statements ride in the item, no figures, stated in the summary', async () => {
+    const out = (await financialsTool(longOnlyRepo([LONG])).handler({ cui: OMV })) as {
+      item?: { years: unknown[]; latest: unknown; longFormOnly: unknown };
+      summary?: string;
+    };
+    expect(out.item).toMatchObject({ years: [], latest: null, longFormOnly: [LONG] });
+    expect(out.summary).toBe(
+      `0 financial year(s) for CUI ${OMV}; 1 long-format-only statement(s) outside the series (no figures).`
+    );
+    expect(financialsTool(stubRepo()).description).toContain('longFormOnly');
+  });
+
+  it('MCP snapshot: incoming public flows, exact total, never "received", not proof of payment', async () => {
+    const repo = repoWith(async () => ok(EVIDENCE));
+    const flows = {
+      ...stubFlows(),
+      getFlowSummary: vi.fn(async () =>
+        ok({
+          direction: 'in' as const,
+          count: 5103,
+          totalAmountRon: '2551589338.63',
+          minYear: 2007,
+          maxYear: 2026,
+          byFlowType: [{ flowType: 'pnrr_commitment', count: 3, totalAmountRon: '822525171.83' }],
+          byYear: [],
+        })
+      ),
+    };
+    const tools = makeCompaniesMcpTools({ ...deps(repo), flowsRepo: flows, clientBaseUrl: 'x' });
+    const snapshot = tools.find((t) => t.name === 'get_company_snapshot');
+    if (snapshot === undefined) throw new Error('no snapshot tool');
+    const out = (await snapshot.handler({ cui: CUI })) as {
+      summary?: string;
+      item?: { publicMoney?: { totalRon: string } | null };
+    };
+    expect(out.summary).toContain(
+      'incoming public flows as payee: 2551589338.63 RON over 5103 record(s), not proof of payment'
+    );
+    expect(out.summary).not.toMatch(/received|paid/iu);
+    expect(out.item?.publicMoney?.totalRon).toBe('2551589338.63');
+    expect(snapshot.description).toContain('not proof of payment');
+    expect(snapshot.description).not.toContain('public money received');
+    // No indexed flow: said as such, never a verified zero.
+    const none = (await makeCompaniesMcpTools({ ...deps(repo), clientBaseUrl: 'x' })
+      .find((t) => t.name === 'get_company_snapshot')
+      ?.handler({ cui: CUI })) as { summary?: string };
+    expect(none.summary).toContain('no indexed incoming public flow');
+    expect(none.summary).not.toContain('0 RON');
+  });
+});

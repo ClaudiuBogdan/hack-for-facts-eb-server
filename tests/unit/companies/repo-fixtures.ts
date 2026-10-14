@@ -21,6 +21,8 @@ export const stubRepo = (
   confirmRegistryScope: vi.fn(async () => ok(recheckOf(scope))),
   getProfileData: vi.fn(async () => ok(null)),
   getFinancials: vi.fn(async () => ok([])),
+  // Known: no long-format-only statement (null would mean "unknown").
+  getLongFormOnlyStatements: vi.fn(async () => ok([])),
   getFinancialQualityAssessment: vi.fn(async () =>
     ok({ assessedYears: [], assessedAt: null, flags: [] })
   ),

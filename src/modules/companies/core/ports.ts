@@ -42,6 +42,7 @@ import type {
   CompanyGroupBy,
   CompanyGroupCount,
   CompanyListRow,
+  CompanyLongFormStatement,
   CompanyNameHit,
   CompanyProfile,
   CompanyRegistryEdition,
@@ -79,6 +80,15 @@ export interface CompaniesRepository extends CompanyRegistryScopePort {
     scope: CompanyRegistryEnvelope
   ): Promise<Result<CompanyProfileData | null, ApiError>>;
   getFinancials(cui: string): Promise<Result<readonly CompanyFinancialYear[], ApiError>>;
+  /**
+   * The CUI's long-format-only statements (selection ledger, witnessed by a
+   * public indicator line of the same anchor), newest first, under the same
+   * parent rule as `getFinancials`. `null` = this runtime cannot read the
+   * ledger or its witness (unknown, never "none").
+   */
+  getLongFormOnlyStatements(
+    cui: string
+  ): Promise<Result<readonly CompanyLongFormStatement[] | null, ApiError>>;
   /** Warn-only quality flags + measured corpus-wide assessment coverage (all public-class). */
   getFinancialQualityAssessment(
     cui: string

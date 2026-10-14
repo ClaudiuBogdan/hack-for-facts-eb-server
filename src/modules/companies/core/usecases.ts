@@ -1015,6 +1015,12 @@ const computeTrajectory = (
  * source observations, NOT company membership. The repo serves public rows
  * whether the CUI has no core organization or a public non-company one, and
  * withholds them only under a known non-public organization. No kind gate.
+ *
+ * The standard typed history (`years`, `latest`, `trajectory`) is unchanged;
+ * long-format-only statements ride alongside as metadata. The answer is null
+ * only when BOTH are known to be empty: a CUI with only long-format statements
+ * answers `years: []` with them, and an unreadable ledger stays visible as
+ * `longFormOnly: null` (unknown), never as "no statement".
  */
 export const makeCompanyFinancials = async (
   deps: CompanyUsecaseDeps,
@@ -1023,11 +1029,21 @@ export const makeCompanyFinancials = async (
   const cui = normalizeCui(rawCui);
   if (cui === null) return err(invalidCui());
   if (isWithheldCompanyIdentifier(cui)) return err(withheldIdentifier());
-  const res = await deps.repo.getFinancials(cui);
+  const [res, longForm] = await Promise.all([
+    deps.repo.getFinancials(cui),
+    deps.repo.getLongFormOnlyStatements(cui),
+  ]);
   if (res.isErr()) return err(res.error);
+  if (longForm.isErr()) return err(longForm.error);
   const years = res.value;
-  if (years.length === 0) return ok(null);
-  return ok({ years, latest: years[0] ?? null, trajectory: computeTrajectory(years) });
+  const longFormOnly = longForm.value;
+  if (years.length === 0 && longFormOnly !== null && longFormOnly.length === 0) return ok(null);
+  return ok({
+    years,
+    latest: years[0] ?? null,
+    trajectory: computeTrajectory(years),
+    longFormOnly,
+  });
 };
 
 // ── list (Meili-resolved name path; else filter list) ─────────────────────────

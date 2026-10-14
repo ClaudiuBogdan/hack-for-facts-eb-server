@@ -13,6 +13,7 @@ import {
   type CompanyFinancialQualityFlag,
   type CompanyFinancialYear,
   type CompanyFiscal,
+  type CompanyLongFormStatement,
   type CompanyMetricStatus,
   type CompanyRegistryCaenObservation,
   type CompanyRegistryCuiProfile,
@@ -175,8 +176,12 @@ export interface QualificationColumns {
 
 /** A financials row (money/employees as strings). `summary` carries the 20 typed metrics. */
 export interface FinancialRow extends QualificationColumns {
+  /** The statement's OWN CUI (a batch read maps rows of several CUIs). */
+  cui: string;
   year: number;
   source_system: string;
+  /** ANAF: 'anaf:bilant:<year>'; MFP: the resource capture. */
+  source_snapshot_id: string;
   statement_profile_hash: string | null;
   metric_rule_version: string;
   /** The ANAF bilanț web-service URL stored with the statement; NULL for MFP (CHECK). */
@@ -264,22 +269,86 @@ export const mapQualityFlag = (r: QualityFlagRow): CompanyFinancialQualityFlag =
 });
 
 /**
+ * The ANAF bilanț web service. The loader stores this bare endpoint on every
+ * ANAF statement (scrapper `financials-v2.ts` ANAF_BILANT_SOURCE_URL); the
+ * ingester asks it `?an=<fiscal year>&cui=<cui>` (`anaf-queue.ts`
+ * processBilantRow). The bare endpoint answers 400.
+ */
+const ANAF_BILANT_ENDPOINT = 'https://webservicesp.anaf.ro/bilant';
+const ANAF_QUERY_CUI = /^[1-9][0-9]{0,9}$/u;
+
+/**
+ * The ANAF query of THIS statement: its own CUI and fiscal year, only when
+ * that identity is well formed and the statement's snapshot names the same
+ * year. A stored URL that is already a query is accepted only when its
+ * endpoint, CUI and year are exactly this statement's, and the canonical query
+ * is returned in its place: no stored userinfo, fragment, port or encoding is
+ * passed on. Anything else is null, never another statement's link.
+ */
+const anafStatementQuery = (r: FinancialRow): string | null => {
+  if (r.source_url === null) return null;
+  const yearOk = Number.isInteger(r.year) && r.year >= 1990 && r.year <= 2100;
+  if (
+    !yearOk ||
+    !ANAF_QUERY_CUI.test(r.cui) ||
+    r.source_snapshot_id !== `anaf:bilant:${String(r.year)}`
+  )
+    return null;
+  const query = `${ANAF_BILANT_ENDPOINT}?an=${String(r.year)}&cui=${r.cui}`;
+  if (r.source_url === ANAF_BILANT_ENDPOINT) return query;
+  let stored: URL;
+  try {
+    stored = new URL(r.source_url);
+  } catch {
+    return null;
+  }
+  const params = [...stored.searchParams.keys()].sort().join(',');
+  return `${stored.origin}${stored.pathname}` === ANAF_BILANT_ENDPOINT &&
+    params === 'an,cui' &&
+    stored.searchParams.get('an') === String(r.year) &&
+    stored.searchParams.get('cui') === r.cui
+    ? query
+    : null;
+};
+
+/**
  * The canonical statement URL resolve (PRIVATE_COMPANIES_NOTES, 2026-08-18):
  * `coalesce(f.source_url, r.captured_source_url)`, the arm that fires naming
  * the kind. Each arm is accepted only for its own publisher, so an ANAF
- * endpoint is never labelled as an MFP file or the reverse.
+ * endpoint is never labelled as an MFP file or the reverse. An ANAF statement
+ * links to its own (year, CUI) query (`anafStatementQuery`): ANAF's current
+ * answer, not the retained capture.
  */
 export const mapStatementSource = (r: FinancialRow): CompanyStatementSource => {
-  const anaf = r.source_system === 'anaf' && r.source_url !== null;
-  const mfp = !anaf && r.source_system === 'mfp' && (r.resource_url ?? null) !== null;
+  const anafUrl = r.source_system === 'anaf' ? anafStatementQuery(r) : null;
+  const mfp = r.source_system === 'mfp' && (r.resource_url ?? null) !== null;
   return {
     sourceSystem: r.source_system,
-    url: anaf ? r.source_url : mfp ? (r.resource_url ?? null) : null,
-    urlKind: anaf ? 'anaf_statement' : mfp ? 'mfp_resource' : null,
+    url: anafUrl ?? (mfp ? (r.resource_url ?? null) : null),
+    urlKind: anafUrl !== null ? 'anaf_statement' : mfp ? 'mfp_resource' : null,
     statementProfileHash: r.statement_profile_hash,
     metricRuleVersion: r.metric_rule_version,
   };
 };
+
+/** A long-format-only selection row as the witnessed ledger read returns it. */
+export interface LongFormStatementRow {
+  year: number;
+  source_system: string;
+  /** Null unless the evidence's `filer_class` is a JSON string. */
+  filer_class: string | null;
+  source_snapshot_id: string;
+  /** Absent when the resource capability is not readable. */
+  resource_url?: string | null | undefined;
+}
+
+export const mapLongFormStatement = (r: LongFormStatementRow): CompanyLongFormStatement => ({
+  year: r.year,
+  sourceSystem: r.source_system,
+  filerClass: r.filer_class,
+  sourceSnapshotId: r.source_snapshot_id,
+  resourceUrl: r.resource_url ?? null,
+});
 
 const PLAIN_DECIMAL = /^-?\d+(?:\.\d+)?$/u;
 

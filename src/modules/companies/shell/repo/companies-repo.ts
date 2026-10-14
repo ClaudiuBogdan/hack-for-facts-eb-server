@@ -72,6 +72,7 @@ import {
   caenActivitiesOf,
   mapCountyDisplayName,
   mapFinancialYear,
+  mapLongFormStatement,
   mapQualityFlag,
   mapFiscal,
   statusFlagsOf,
@@ -133,6 +134,7 @@ import {
   type CompanyGroupBy,
   type CompanyGroupCount,
   type CompanyListRow,
+  type CompanyLongFormStatement,
   type CompanyNameHit,
   type CompanySort,
 } from '../../core/types.js';
@@ -231,8 +233,12 @@ const onrcAsOf = (scope: CompanyRegistryEnvelope): string | null =>
  */
 const financialColumns = () =>
   [
+    // The statement's own identity: the ANAF query is bound to it, and a batch
+    // read maps rows of several CUIs through one mapper.
+    'fin.cui',
     'fin.year',
     'fin.source_system',
+    'fin.source_snapshot_id',
     'fin.statement_profile_hash',
     'fin.metric_rule_version',
     'fin.source_url',
@@ -293,7 +299,16 @@ const qualificationColumns = () =>
 interface ServingCapabilities {
   readonly qualification: boolean;
   readonly resources: boolean;
+  /** The selection ledger + its public indicator witness (long-format-only statements). */
+  readonly selection: boolean;
 }
+
+/** No optional financial capability: the typed statements alone. */
+const NO_CAPABILITIES: ServingCapabilities = {
+  qualification: false,
+  resources: false,
+  selection: false,
+};
 
 /** A missing or ungranted capability is re-probed this long after it was seen. */
 const CAPABILITY_RETRY_MS = 10 * 60 * 1000;
@@ -550,7 +565,7 @@ export const makeCompaniesRepo = (
     }
   };
   const probeCapabilities = async (): Promise<ServingCapabilities> => {
-    const [qualification, resources] = await Promise.all([
+    const [qualification, resources, selection] = await Promise.all([
       probeCapability(() =>
         db
           .selectFrom('companies_v2.financial_qualification_active as q')
@@ -568,8 +583,15 @@ export const makeCompaniesRepo = (
           .limit(1)
           .execute()
       ),
+      // The exact long-format read (ledger, witness, parent), without the
+      // optional file URL that the `resources` probe covers.
+      probeCapability(() =>
+        longFormStatements({ ...NO_CAPABILITIES, selection: true }, PROBE_CUI)
+          .limit(1)
+          .execute()
+      ),
     ]);
-    return { qualification, resources };
+    return { qualification, resources, selection };
   };
   let capabilityCache: { at: number; promise: Promise<ServingCapabilities> } | null = null;
   const servingCapabilities = async (): Promise<ServingCapabilities> => {
@@ -577,7 +599,7 @@ export const makeCompaniesRepo = (
       const cached = capabilityCache;
       const known = await cached.promise;
       if (
-        (known.qualification && known.resources) ||
+        (known.qualification && known.resources && known.selection) ||
         Date.now() - cached.at < CAPABILITY_RETRY_MS
       ) {
         return known;
@@ -639,9 +661,114 @@ export const makeCompaniesRepo = (
       if (!(capabilities.qualification || capabilities.resources) || !isCapabilityError(error)) {
         throw error;
       }
-      const degraded: ServingCapabilities = { qualification: false, resources: false };
-      capabilityCache = { at: Date.now(), promise: Promise.resolve(degraded) };
-      return { rows: await run(degraded), qualificationReadable: false };
+      // Re-probed after CAPABILITY_RETRY_MS like every incomplete answer.
+      capabilityCache = { at: Date.now(), promise: Promise.resolve(NO_CAPABILITIES) };
+      return { rows: await run(NO_CAPABILITIES), qualificationReadable: false };
+    }
+  };
+
+  /**
+   * The CUI's long-format-only statements (`selected_long_only`, publisher
+   * mfp), newest first. The selection row alone is not proof a retained line
+   * is public: EXISTS a public indicator of the SAME CUI, year, publisher,
+   * anchor capture and layout. That proves the file, not the selected row, so
+   * no row locator is projected. The standalone parent rule of `getFinancials`
+   * applies. The anchor file URL is an optional LEFT JOIN on publisher + exact
+   * snapshot with its own public gate: an unreadable or missing URL never hides
+   * an observation.
+   */
+  const longFormStatements = (capabilities: ServingCapabilities, cui: string) =>
+    db
+      .selectFrom('companies_v2.financial_source_selection as s')
+      .$if(capabilities.resources, (qb) =>
+        qb
+          .leftJoin('companies_v2.financial_source_resources as res', (join) =>
+            join
+              .onRef('res.source_system', '=', 's.source_system')
+              .onRef('res.source_snapshot_id', '=', 's.source_snapshot_id')
+              .on('res.privacy_class', '=', 'public')
+          )
+          .select('res.captured_source_url as resource_url')
+      )
+      .select([
+        's.fiscal_year as year',
+        's.source_system',
+        // A non-string evidence value is never stringified into a class.
+        sql<
+          string | null
+        >`case when jsonb_typeof(s.selection_evidence -> 'filer_class') = 'string' then s.selection_evidence ->> 'filer_class' end`.as(
+          'filer_class'
+        ),
+        's.source_snapshot_id',
+      ])
+      .where('s.cui', '=', cui)
+      .where('s.privacy_class', '=', 'public')
+      .where('s.deleted_at', 'is', null)
+      .where('s.selection_status', '=', 'selected_long_only')
+      .where('s.source_system', '=', 'mfp')
+      .where((eb) =>
+        eb.exists(
+          eb
+            .selectFrom('companies_v2.financial_indicators as i')
+            .select('i.cui')
+            .whereRef('i.cui', '=', 's.cui')
+            .whereRef('i.year', '=', 's.fiscal_year')
+            .whereRef('i.source_system', '=', 's.source_system')
+            .whereRef('i.source_snapshot_id', '=', 's.source_snapshot_id')
+            .whereRef('i.statement_profile_hash', '=', 's.statement_profile_hash')
+            .where('i.privacy_class', '=', 'public')
+        )
+      )
+      .where((eb) =>
+        eb.not(
+          eb.exists(
+            eb
+              .selectFrom('core.organizations as parent')
+              .select('parent.org_id')
+              .whereRef('parent.cui', '=', 's.cui')
+              .where('parent.privacy_class', 'is distinct from', PARENT_PRIVACY_ALLOWED)
+          )
+        )
+      )
+      .orderBy('s.fiscal_year', 'desc')
+      .$narrowType<{ source_system: string; source_snapshot_id: string }>();
+
+  /**
+   * Long-format-only statements of one CUI. Unknown (null) when the ledger
+   * or its witness is not readable; a capability lost after the probe drops
+   * the optional file URL first, then reads as unknown, and is re-probed
+   * later. Any other database error stays an error.
+   */
+  const getLongFormOnlyStatements = async (
+    rawCui: string
+  ): Promise<Result<readonly CompanyLongFormStatement[] | null, ApiError>> => {
+    const cui = normalizeCui(rawCui);
+    if (cui === null) return err(invalidInput('invalid CUI format', 'cui'));
+    try {
+      const capabilities = await servingCapabilities();
+      if (!capabilities.selection) return ok(null);
+      try {
+        return ok(
+          (await longFormStatements(capabilities, cui).execute()).map(mapLongFormStatement)
+        );
+      } catch (error) {
+        if (!isCapabilityError(error)) throw error;
+      }
+      const withoutUrls: ServingCapabilities = { ...capabilities, resources: false };
+      try {
+        const rows = await longFormStatements(withoutUrls, cui).execute();
+        capabilityCache = { at: Date.now(), promise: Promise.resolve(withoutUrls) };
+        return ok(rows.map(mapLongFormStatement));
+      } catch (error) {
+        if (!isCapabilityError(error)) throw error;
+        capabilityCache = {
+          at: Date.now(),
+          promise: Promise.resolve({ ...withoutUrls, selection: false }),
+        };
+        return ok(null);
+      }
+    } catch (error) {
+      return err(databaseError('getLongFormOnlyStatements failed', error));
     }
   };
 
@@ -1523,7 +1650,6 @@ export const makeCompaniesRepo = (
     if (cuis.length === 0) return { qualificationReadable: false, rows: new Map() };
     const { rows, qualificationReadable } = await readStatements((capabilities) =>
       financialStatements(capabilities)
-        .select('fin.cui')
         .where('fin.cui', 'in', [...cuis])
         .where('fin.privacy_class', '=', 'public')
         .distinctOn('fin.cui')
@@ -1619,6 +1745,7 @@ export const makeCompaniesRepo = (
     confirmRegistryScope: (scope, cuis) => confirmRegistryScope(db, scope, cuis),
     getProfileData,
     getFinancials,
+    getLongFormOnlyStatements,
     getFinancialQualityAssessment,
     getRegistrationDiffData,
     getActivityEvidence,

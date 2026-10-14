@@ -278,10 +278,14 @@ export interface CompanyStatementQualification {
 }
 
 /**
- * Where the statement was published. ANAF: the bilanț web-service URL stored
- * with the statement. MFP: the exact data.gov.ro resource the statement was
- * read from (`financial_source_resources`). Null when not recorded: never
- * guessed, never another publisher's URL.
+ * Where the statement was published. ANAF: the bilanț web-service query for
+ * THIS statement's own fiscal year and CUI (the request the ingester makes);
+ * it answers with ANAF's CURRENT data, which can differ from the retained
+ * capture, and it is not a custody proof. MFP: the exact data.gov.ro resource
+ * the statement was read from (`financial_source_resources`). Null when not
+ * recorded or not bindable to this statement: never guessed, never another
+ * publisher's URL. `statementProfileHash` fingerprints the statement's
+ * indicator code/name layout, not its values or bytes.
  */
 export interface CompanyStatementSource {
   readonly sourceSystem: string;
@@ -335,15 +339,42 @@ export interface CompanyFinancialTrajectory {
 }
 
 /**
+ * A statement the selection ledger promoted in LONG FORMAT ONLY
+ * (`selected_long_only`, e.g. MFP IFRS filers, class `ir`), witnessed by at
+ * least one public indicator line of the same CUI, year, publisher, anchor
+ * capture and statement layout. File-level only: it names no physical row and
+ * claims neither that the selected line nor that every line is retained.
+ * Metadata only: no value, summary or qualification is carried, and it
+ * certifies no economic figure. The file link is the selection's ANCHOR file
+ * (a statement assembled from several copies has others).
+ */
+export interface CompanyLongFormStatement {
+  readonly year: number;
+  /** Publisher: 'mfp' (the only long-format-only publisher this read admits). */
+  readonly sourceSystem: string;
+  /** The publisher's filer class from the selection evidence (e.g. 'ir'), verbatim; null when not a recorded string. */
+  readonly filerClass: string | null;
+  /** The anchor capture (`mfp:<package>:<year>:<resource>`), exactly as recorded. */
+  readonly sourceSnapshotId: string;
+  /** The anchor file's data.gov.ro URL; null when not recorded or not readable. */
+  readonly resourceUrl: string | null;
+}
+
+/**
  * Statements recorded under a CUI, as attributed source observations (CD-08):
  * the namespace is the CUI, not company membership — it may have no core
  * organization or be a public non-company one. Withheld under a known
- * non-public organization.
+ * non-public organization. `years` is the standard typed history (FILED);
+ * `longFormOnly` lists the statements kept outside it by policy — `[]` when
+ * none is known, `null` when this runtime cannot read the selection ledger
+ * (unknown, never "none"). A CUI with only long-format statements answers
+ * with `years: []`, `latest: null`, `trajectory: null`.
  */
 export interface CompanyFinancials {
   readonly years: readonly CompanyFinancialYear[];
   readonly latest: CompanyFinancialYear | null;
   readonly trajectory: CompanyFinancialTrajectory | null;
+  readonly longFormOnly: readonly CompanyLongFormStatement[] | null;
 }
 
 /**
@@ -537,7 +568,13 @@ export interface CompanyPublicMoneyPayer {
   readonly count: number;
 }
 
-/** Public money RECEIVED (company = payee). The only flow answer companies gives. */
+/**
+ * Incoming public flows naming the company as payee (awards, direct
+ * acquisitions, PNRR payments, commitments, subcontracts — one flowType per
+ * instrument). `totalRon` adds the native amounts of these unlike instruments:
+ * it is not money received and not proof of payment. The only flow answer
+ * companies gives.
+ */
 export interface CompanyPublicMoney {
   readonly totalRon: Money;
   readonly flowCount: number;
