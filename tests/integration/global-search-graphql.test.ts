@@ -15,9 +15,11 @@
  * SearchHit fields, and does NOT expose visibility/attrs on SearchHit).
  */
 
+import { makeExecutableSchema } from '@graphql-tools/schema';
 import {
   GraphQLError,
   buildSchema,
+  graphql,
   type GraphQLObjectType,
   type GraphQLResolveInfo,
 } from 'graphql';
@@ -171,6 +173,75 @@ describe('searchEntities resolver — happy path', () => {
     expect(result.hits).toHaveLength(1);
     expect(result.hits[0]!.id).toBe('company:9');
     expect(result.estimatedTotalHits).toBe(1);
+  });
+});
+
+describe('searchEntities resolver — nullable arguments', () => {
+  /** What the Meili client was asked for: the query, the index and its options (filter, limit, offset). */
+  const engineCall = async (args: Record<string, unknown>): Promise<unknown[]> => {
+    const searchSpy = vi.fn(async () =>
+      ok({ hits: [makeHit()], facetDistribution: {}, estimatedTotalHits: 1 })
+    );
+    const { deps } = makeDeps({ searchSpy });
+    await resolver(deps)(null, args, ctx());
+    expect(searchSpy).toHaveBeenCalledTimes(1);
+    return searchSpy.mock.calls[0] as unknown[];
+  };
+
+  it('treats an explicit null like an omitted argument (an ordinary nullable variable)', async () => {
+    const omitted = await engineCall({ q: '3151288' });
+    const nulls = await engineCall({
+      q: '3151288',
+      docTypes: null,
+      county: null,
+      roles: null,
+      isActive: null,
+      isUat: null,
+      entityTags: null,
+      excludeEntityTags: null,
+      limit: null,
+      offset: null,
+    });
+    expect(nulls).toEqual(omitted);
+  });
+
+  it('answers the audited query with $county null through the real schema', async () => {
+    const searchSpy = vi.fn(async () =>
+      ok({ hits: [ngoHit()], facetDistribution: {}, estimatedTotalHits: 1 })
+    );
+    const { deps } = makeDeps({ searchSpy });
+    const schema = makeExecutableSchema({
+      typeDefs: baseTypeDefs,
+      resolvers: makeKernelResolvers(deps) as never,
+      resolverValidationOptions: { requireResolversToMatchSchema: 'ignore' },
+    });
+    const response = await graphql({
+      schema,
+      source:
+        'query($county:String){searchEntities(q:"3151288",docTypes:["ngo"],county:$county,limit:5){engine degraded hits{id title}}}',
+      variableValues: { county: null },
+      contextValue: ctx(),
+    });
+    expect(response.errors).toBeUndefined();
+    expect(response.data).toMatchObject({
+      searchEntities: { engine: 'meili', degraded: false, hits: [{ id: ngoHit().id }] },
+    });
+  });
+
+  it('still filters by a real county, and refuses an empty one as invalid input, not an internal error', async () => {
+    const [, , options] = await engineCall({
+      q: '3151288',
+      docTypes: ['ngo'],
+      county: 'București',
+    });
+    expect(JSON.stringify(options)).toContain('București');
+
+    const { deps } = makeDeps({});
+    const failure = await resolver(deps)(null, { q: '3151288', county: '' }, ctx()).catch(
+      (error: unknown) => error
+    );
+    expect(failure).toBeInstanceOf(GraphQLError);
+    expect((failure as GraphQLError).extensions['type']).toBe('InvalidInput');
   });
 });
 

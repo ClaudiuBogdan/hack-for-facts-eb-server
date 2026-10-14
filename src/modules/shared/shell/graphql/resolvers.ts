@@ -117,17 +117,22 @@ export interface KernelResolverDeps {
 interface EntityArgs {
   cui: string;
 }
+/**
+ * Every optional argument is nullable in the SDL: a client may send an explicit
+ * null (an ordinary nullable GraphQL variable), which means the same as leaving
+ * the argument out.
+ */
 interface SearchArgs {
   q: string;
-  docTypes?: string[];
-  county?: string;
-  roles?: readonly string[];
-  isActive?: boolean;
+  docTypes?: string[] | null;
+  county?: string | null;
+  roles?: readonly string[] | null;
+  isActive?: boolean | null;
   isUat?: boolean | null;
   entityTags?: readonly string[] | null;
   excludeEntityTags?: readonly string[] | null;
-  limit?: number;
-  offset?: number;
+  limit?: number | null;
+  offset?: number | null;
 }
 
 /**
@@ -180,17 +185,19 @@ export const makeKernelResolvers = (deps: KernelResolverDeps): Record<string, un
         });
       }
 
+      // An explicit null is an absent argument: it never reaches the usecase,
+      // whose filters read a present value as one to apply.
       const searchInput = {
         q: args.q,
-        ...(args.docTypes !== undefined && { docTypes: args.docTypes }),
-        ...(args.county !== undefined && { county: args.county }),
-        ...(args.roles !== undefined && { roles: args.roles }),
-        ...(args.isActive !== undefined && { isActive: args.isActive }),
+        ...(args.docTypes != null && { docTypes: args.docTypes }),
+        ...(args.county != null && { county: args.county }),
+        ...(args.roles != null && { roles: args.roles }),
+        ...(args.isActive != null && { isActive: args.isActive }),
         ...(args.isUat != null && { isUat: args.isUat }),
         ...(args.entityTags != null && { entityTags: args.entityTags }),
         ...(args.excludeEntityTags != null && { excludeEntityTags: args.excludeEntityTags }),
-        ...(args.limit !== undefined && { limit: args.limit }),
-        ...(args.offset !== undefined && { offset: args.offset }),
+        ...(args.limit != null && { limit: args.limit }),
+        ...(args.offset != null && { offset: args.offset }),
       };
       // Only the engine's CANDIDATE answer is cached (short TTL), keyed by the
       // witnessed index generation + registry scope and a structured JSON

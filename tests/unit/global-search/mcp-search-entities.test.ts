@@ -12,8 +12,13 @@
 import { ok, err } from 'neverthrow';
 import { describe, expect, it, vi } from 'vitest';
 
+import { ngoProfileLink } from '@/modules/ngos/shell/mcp/profile-links.js';
 import { serviceUnavailable, upstreamError } from '@/modules/shared/core/errors.js';
-import { makeKernelMcpTools, type KernelMcpDeps } from '@/modules/shared/shell/mcp/tools.js';
+import {
+  makeKernelMcpTools,
+  ngoSearchLink,
+  type KernelMcpDeps,
+} from '@/modules/shared/shell/mcp/tools.js';
 
 import {
   ACME_NOW,
@@ -504,6 +509,112 @@ describe('search_entities — privacy whitelist (no visibility / no raw attrs le
     const res = await getSearchTool(tools).handler({ query: 'acme' });
     const item = res.items![0] as Record<string, unknown>;
     expect(item).not.toHaveProperty('attrs');
+  });
+});
+
+describe('search_entities — NGO client links', () => {
+  const ngo = (over: Partial<SearchHit>): SearchHit =>
+    makeHit({
+      id: 'ngo:3151288',
+      docType: 'ngo',
+      docId: 'ngo:3151288',
+      docKey: '3151288',
+      title: 'Organizaţia Salvaţi Copiii',
+      cuis: ['3151288'],
+      ngoRegistryNumber: '4712/A/2002',
+      ngoRegistryStatus: 'Inregistrat',
+      attrs: { visibility: 'public' },
+      ...over,
+    });
+
+  it('links a registry NGO to its client page: the admitted CUI, else the registry number', async () => {
+    const tools = buildTools({
+      hits: [
+        ngo({}),
+        ngo({
+          id: 'ngo:registry:4321/A/2024',
+          docKey: 'registry:4321/A/2024',
+          cuis: [],
+          ngoRegistryNumber: '4321/A/2024',
+        }),
+        makeHit(),
+      ],
+    });
+    const res = await getSearchTool(tools).handler({ query: 'x' });
+    const [cui, registryOnly, institution] = res.items as Record<string, unknown>[];
+    expect(cui!['link']).toBe('https://transparenta.eu/ngos/3151288');
+    expect(registryOnly!['link']).toBe('https://transparenta.eu/ngos/registry/4321-A-2024');
+    expect(registryOnly!['ngoRegistryStatus']).toBe('Inregistrat');
+    // Only the registry's organisations get a link from the kernel.
+    expect(institution).not.toHaveProperty('link');
+  });
+
+  it('writes the same address as the NGO module, on the environment’s own base', () => {
+    const base = 'https://dev-chronos.transparenta.eu';
+    for (const [cui, registryNumber] of [
+      ['3151288', '4712/A/2002'],
+      [null, '4321/A/2024'],
+      [null, '1/A/122'],
+      [null, '7-B/A~1/2020'],
+    ] as const) {
+      expect(
+        ngoSearchLink(base, {
+          docType: 'ngo',
+          cuis: cui === null ? [] : [cui],
+          ngoRegistryNumber: registryNumber,
+        })
+      ).toBe(ngoProfileLink(base, cui, registryNumber));
+    }
+  });
+
+  it('reads a CUI as the client does, and gives no address with neither a CUI nor a number', () => {
+    const base = 'https://transparenta.eu';
+    expect(
+      ngoSearchLink(base, {
+        docType: 'ngo',
+        cuis: [' RO3151288 '],
+        ngoRegistryNumber: '4712/A/2002',
+      })
+    ).toBe(`${base}/ngos/3151288`);
+    // A CUI the client would refuse falls back to the registry number, as the client's own search does.
+    expect(
+      ngoSearchLink(base, { docType: 'ngo', cuis: ['000'], ngoRegistryNumber: '4712/A/2002' })
+    ).toBe(`${base}/ngos/registry/4712-A-2002`);
+    expect(
+      ngoSearchLink(base, { docType: 'ngo', cuis: [], ngoRegistryNumber: '  ' })
+    ).toBeUndefined();
+    // A registry organisation the index files under another type is still the registry's.
+    expect(
+      ngoSearchLink(base, { docType: 'company', cuis: ['42'], ngoRegistryNumber: '9/A/2001' })
+    ).toBe(`${base}/ngos/42`);
+    expect(ngoSearchLink(base, { docType: 'company', cuis: ['42'] })).toBeUndefined();
+    // As the client: the first non-empty CUI decides; an invalid one leaves the registry number, never a later CUI.
+    expect(
+      ngoSearchLink(base, {
+        docType: 'ngo',
+        cuis: [' ', '0', '123'],
+        ngoRegistryNumber: ' 1/A/122 ',
+      })
+    ).toBe(ngoProfileLink(base, null, '1/A/122'));
+    // An INS matrix and an organisation outside the registry have no NGO page, whatever they carry.
+    expect(
+      ngoSearchLink(base, {
+        docType: 'organization_unclassified',
+        cuis: ['42'],
+        ngoRegistryNumber: '9/A/2001',
+      })
+    ).toBeUndefined();
+    expect(
+      ngoSearchLink(base, { docType: 'ins_dataset', cuis: [], ngoRegistryNumber: '9/A/2001' })
+    ).toBeUndefined();
+  });
+
+  it('leaves a hit that carries its own url as it was: no link beside it', async () => {
+    const tools = buildTools({ hits: [ngo({ url: '/ong/3151288' })] });
+    const res = await getSearchTool(tools).handler({ query: 'x' });
+    const [item] = res.items as Record<string, unknown>[];
+    expect(item!['url']).toBe('/ong/3151288');
+    expect(item).not.toHaveProperty('link');
   });
 });
 

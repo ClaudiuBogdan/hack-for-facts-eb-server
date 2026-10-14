@@ -3,94 +3,10 @@
  * entity palette does: type badge, title, subtitle, CUI, county, inactive chip.
  */
 
+import { SITE_BASE, hitHref } from './hit-link.js';
+import { renderRow, type SearchHitView } from './row.js';
 import { bootstrapWidget, type ToolEnvelope, type WidgetHandle } from '../lib/bootstrap.js';
 import { esc, formatNumber } from '../lib/format.js';
-
-interface SearchHitView {
-  readonly docType?: string;
-  readonly docKey?: string;
-  readonly docId?: string;
-  readonly title?: string;
-  readonly subtitle?: string;
-  readonly countyName?: string;
-  readonly url?: string;
-  readonly cuis?: readonly string[];
-  readonly attrs?: Record<string, unknown>;
-}
-
-const SITE_BASE = 'https://transparenta.eu';
-
-const DOC_TYPE_LABELS: Record<string, string> = {
-  company: 'Companie',
-  organization: 'Instituție publică',
-  public_institution: 'Instituție publică',
-  public_enterprise: 'Întrepr. publică',
-  ngo: 'ONG',
-  organization_unclassified: 'Organizație',
-  pnrr_entity: 'PNRR',
-  mp: 'Parlamentar',
-  bill: 'Proiect de lege',
-  committee: 'Comisie',
-  legal_act: 'Act normativ',
-  mo_act: 'Monitorul Oficial',
-  uat: 'UAT',
-};
-
-/** Doc types whose identity spine is the CUI (mirrors the client row logic). */
-const CUI_DOC_TYPES = new Set([
-  'company',
-  'organization',
-  'public_enterprise',
-  'ngo',
-  'organization_unclassified',
-]);
-
-const docTypeLabel = (docType: string | undefined): string => {
-  if (docType === undefined || docType === '') return 'Entitate';
-  return DOC_TYPE_LABELS[docType] ?? docType.replace(/_/g, ' ');
-};
-
-const isInactive = (hit: SearchHitView): boolean => {
-  const status = hit.attrs?.['status'];
-  if (typeof status !== 'string') return false;
-  return /inactiv|radiat|dizolv|închis|inchis|repealed|struck/i.test(status);
-};
-
-/**
- * `url` originates in the search index over scraped data — treat it as
- * untrusted. Allow only absolute http(s) URLs (the field's purpose: external
- * source deep-links) or site-relative paths; anything else (other schemes,
- * protocol-relative `//`, host-suffix fragments) is dropped.
- */
-const hitUrl = (hit: SearchHitView): string | undefined => {
-  const url = hit.url;
-  if (url === undefined || url === '') return undefined;
-  if (/^https?:\/\//i.test(url)) return url;
-  if (url.startsWith('/') && !url.startsWith('//')) return `${SITE_BASE}${url}`;
-  return undefined;
-};
-
-const renderRow = (hit: SearchHitView, index: number): string => {
-  const cui =
-    hit.docType !== undefined && CUI_DOC_TYPES.has(hit.docType) ? hit.cuis?.[0] : undefined;
-  const metaParts: string[] = [];
-  if (hit.subtitle !== undefined && hit.subtitle !== '' && hit.subtitle !== hit.title) {
-    metaParts.push(esc(hit.subtitle));
-  }
-  if (cui !== undefined) metaParts.push(`CUI ${esc(cui)}`);
-  if (hit.countyName !== undefined && hit.countyName !== '') {
-    metaParts.push(`📍 ${esc(hit.countyName)}`);
-  }
-  return `
-    <li class="row" tabindex="0" role="option" data-index="${String(index)}" aria-label="${esc(hit.title)}">
-      <div class="row-top">
-        <span class="badge${hit.docType === 'company' || hit.docType === 'organization' ? ' accent' : ''}">${esc(docTypeLabel(hit.docType))}</span>
-        <span class="row-title">${esc(hit.title)}</span>
-        ${isInactive(hit) ? '<span class="chip-inactive">Inactiv</span>' : ''}
-      </div>
-      ${metaParts.length > 0 ? `<div class="row-meta">${metaParts.map((p) => `<span>${p}</span>`).join('')}</div>` : ''}
-    </li>`;
-};
 
 const render = (output: ToolEnvelope, handle: WidgetHandle): void => {
   const root = document.getElementById('root');
@@ -135,7 +51,7 @@ const render = (output: ToolEnvelope, handle: WidgetHandle): void => {
     const open = (): void => {
       const hit = hits[Number(rowEl.dataset['index'])];
       if (hit === undefined) return;
-      const url = hitUrl(hit);
+      const url = hitHref(hit);
       if (url !== undefined) handle.openLink(url);
     };
     rowEl.addEventListener('click', open);
