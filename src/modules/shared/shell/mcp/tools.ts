@@ -33,6 +33,37 @@ export interface KernelMcpDeps {
 
 const entityLink = (base: string, cui: string): string => `${base}/entitati/${cui}`;
 
+/**
+ * A registry NGO's one client address, by the client's own search rule
+ * (`entityHref` in the client's `entity-search-routing.ts`): the admitted CUI's
+ * profile, else the registry number's — its `/` written `-`, a literal `-` as
+ * `~-`, a `~` as `~~`, as the NGO module's `ngoProfileLink` writes it too
+ * (`modules/ngos/shell/mcp/profile-links.ts`; the kernel may not import a source
+ * module, so the rule is mirrored and a test pins it to that function). As the
+ * client does: an INS matrix or an organisation outside the registry has none;
+ * a registry organisation the index files under another type is still the
+ * registry's; the CUI is the first non-empty one, read with a leading RO
+ * dropped, digits only and not all zeros, and a CUI so read that is invalid
+ * leaves the registry number; the number is trimmed.
+ */
+export const ngoSearchLink = (
+  base: string,
+  hit: Pick<SearchHit, 'docType' | 'cuis' | 'ngoRegistryNumber'>
+): string | undefined => {
+  if (hit.docType === 'ins_dataset' || hit.docType === 'organization_unclassified')
+    return undefined;
+  const registryNumber = hit.ngoRegistryNumber?.trim() ?? '';
+  if (hit.docType !== 'ngo' && registryNumber === '') return undefined;
+  const first = (hit.cuis ?? []).map((value) => value.trim()).find((value) => value !== '');
+  const cui = first?.replace(/^ro/i, '');
+  if (cui !== undefined && /^\d+$/.test(cui) && !/^0+$/.test(cui)) {
+    return `${base}/ngos/${encodeURIComponent(cui)}`;
+  }
+  if (registryNumber === '') return undefined;
+  const slug = registryNumber.replaceAll('~', '~~').replaceAll('-', '~-').replaceAll('/', '-');
+  return `${base}/ngos/registry/${encodeURIComponent(slug)}`;
+};
+
 /** Read a string arg safely (MCP args are `unknown`). */
 const strArg = (args: Record<string, unknown>, key: string): string => {
   const v = args[key];
@@ -149,7 +180,7 @@ export const makeKernelMcpTools = (deps: KernelMcpDeps): readonly KernelMcpTool[
         .boolean()
         .optional()
         .describe(
-          'Generic identity activity (any source); not the company directory same-identifier ONRC status criterion.'
+          "Generic identity activity (any source); not the company directory same-identifier ONRC status criterion, and not an NGO's legal registry status: read ngoRegistryStatus on NGO hits for that (a struck-off NGO can still be generically active)."
         ),
       isUat: z
         .boolean()
@@ -244,6 +275,11 @@ export const makeKernelMcpTools = (deps: KernelMcpDeps): readonly KernelMcpTool[
       };
       const items = hits.map((h: SearchHit) => {
         const attrs = displayAttrs(h);
+        // The client page a registry NGO opens on, where the index gives the hit no
+        // url of its own (an index that still carries one keeps it, and the
+        // environment's client the route it names).
+        const link =
+          h.url === undefined || h.url === '' ? ngoSearchLink(deps.clientBaseUrl, h) : undefined;
         return {
           docType: h.docType,
           ...(h.docKey !== undefined && { docKey: h.docKey }),
@@ -252,6 +288,7 @@ export const makeKernelMcpTools = (deps: KernelMcpDeps): readonly KernelMcpTool[
           ...(h.subtitle !== undefined && { subtitle: h.subtitle }),
           ...(h.countyName !== undefined && { countyName: h.countyName }),
           ...(h.url !== undefined && { url: h.url }),
+          ...(link !== undefined && { link }),
           ...(h.cuis !== undefined && { cuis: h.cuis }),
           ...(h.ngoRegistryNumber !== undefined && { ngoRegistryNumber: h.ngoRegistryNumber }),
           ...(h.ngoRegistryStatus !== undefined && { ngoRegistryStatus: h.ngoRegistryStatus }),
