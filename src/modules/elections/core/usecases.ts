@@ -10,6 +10,15 @@ import {
 } from '@/modules/shared/index.js';
 
 import {
+  BUCHAREST_SCOPE_NOTE,
+  COUNT_CELL_PATTERN,
+  COUNTY_SOURCE,
+  COUNTY_SOURCE_CITATION,
+  COUNTY_SOURCE_NOTICE,
+  COUNTY_SOURCE_STATEMENT,
+  COUNTY_SOURCE_STATEMENT_CODES,
+} from './county-source.js';
+import {
   electionCatalogFilterSpec,
   electionContestsFilterSpec,
   isOpaqueText,
@@ -19,7 +28,11 @@ import {
 import {
   ELECTION_READINESS_ISSUES,
   ELECTION_SCOPE_TYPES,
+  type CountySourceCompetitorRecord,
+  type CountySourceReportRecord,
+  type CountySourceReportRequest,
   type ElectionContest,
+  type ElectionCountySourceReport,
   type ElectionContestPageRequest,
   type ElectionContestRecord,
   type ElectionEdition,
@@ -30,6 +43,8 @@ import {
   type ElectionReadinessIssue,
   type ElectionRecordPage,
   type ElectionScopeType,
+  type ElectionSourceCompetitor,
+  type ElectionSourceStatementCell,
 } from './types.js';
 
 import type { ElectionsRepository } from './ports.js';
@@ -165,7 +180,7 @@ const checkKey = (key: string, field: string): ApiError | null =>
 
 const toPage = <R, V>(
   records: ElectionRecordPage<R>,
-  request: ElectionPageRequest,
+  request: Pick<ElectionPageRequest, 'page' | 'pageSize'>,
   map: (record: R) => Result<V, ApiError>
 ): Result<ElectionPage<V>, ApiError> => {
   if (!Number.isSafeInteger(records.total) || records.total < 0)
@@ -235,4 +250,111 @@ export const getElectionContest = async (
   const record = await deps.repo.contestByKey(contestKey);
   if (record.isErr()) return err(record.error);
   return record.value === null ? ok(null) : toContest(record.value);
+};
+
+/** A served count cell: canonical integer text, served exactly as read. */
+const INTEGER_TEXT = new RegExp(COUNT_CELL_PATTERN, 'u');
+
+/** A stored number that is present but not canonical integer text is corrupt; null is only missing. */
+const isCorrupt = (value: string | null): boolean => value !== null && !INTEGER_TEXT.test(value);
+
+const nonInteger = (): ApiError =>
+  databaseError('Elections source cell is not a non-negative integer.');
+
+const duplicated = (): ApiError =>
+  databaseError('Elections source cell is duplicated; response refused.');
+
+/** After the completeness check both cells exist; a missing one contradicts the integrity counts. */
+const toSourceCompetitor = (
+  row: CountySourceCompetitorRecord
+): Result<ElectionSourceCompetitor, ApiError> =>
+  row.voturi === null || row.mandate === null
+    ? err(databaseError('Elections source report contradicts its integrity counts.'))
+    : ok({ sourceLabel: row.sourceLabel, voturi: row.voturi, mandate: row.mandate });
+
+/**
+ * Faults first, refused whole (500): a contest outside the qualified source, a
+ * non-public row, an unadmitted column, an inexact count, a duplicated or
+ * corrupt cell anywhere in the report (the integrity counts cover the labels
+ * off the requested page). Then the source is complete or unavailable: every
+ * admitted statement cell and every one of the file's competitor labels with
+ * both cells, or null. A withheld, unreviewed or missing cell holds the whole
+ * report; it is never filled, and a smaller set is never served as the source.
+ */
+export const toCountySourceReport = (
+  record: CountySourceReportRecord,
+  request: CountySourceReportRequest
+): Result<ElectionCountySourceReport | null, ApiError> => {
+  const { contest, integrity, competitors } = record;
+  if (contest.privacyClass !== 'public' || contest.electionPrivacyClass !== 'public')
+    return err(nonPublic());
+  if (
+    contest.electionKey !== COUNTY_SOURCE.electionKey ||
+    contest.office !== COUNTY_SOURCE.office ||
+    contest.scopeType !== COUNTY_SOURCE.scopeType
+  )
+    return err(databaseError('Elections reader returned a contest outside the qualified source.'));
+  const values = new Map<string, string | null>();
+  for (const cell of record.statement) {
+    if (!COUNTY_SOURCE_STATEMENT_CODES.includes(cell.metricCode))
+      return err(databaseError('Elections reader returned an unadmitted source column.'));
+    if (values.has(cell.metricCode)) return err(duplicated());
+    if (isCorrupt(cell.value)) return err(nonInteger());
+    values.set(cell.metricCode, cell.value);
+  }
+  if (!Number.isSafeInteger(competitors.total) || competitors.total < 0)
+    return err(databaseError('Elections count is not an exact integer.'));
+  if (integrity.duplicatedLabels > 0) return err(duplicated());
+  if (integrity.labelsWithNonIntegerCell > 0) return err(nonInteger());
+  for (const row of competitors.items) {
+    if (row.privacyClass !== 'public') return err(nonPublic());
+    if (row.voturiCells > 1 || row.mandateCells > 1) return err(duplicated());
+    if (isCorrupt(row.voturi) || isCorrupt(row.mandate)) return err(nonInteger());
+  }
+  const statement: ElectionSourceStatementCell[] = [];
+  for (const { code, label } of COUNTY_SOURCE_STATEMENT) {
+    const value = values.get(code);
+    if (value === undefined || value === null) return ok(null);
+    statement.push({ sourceCode: code, sourceLabel: label, value });
+  }
+  if (
+    competitors.total !== COUNTY_SOURCE.competitorLabels ||
+    integrity.completeLabels !== competitors.total ||
+    integrity.labelsWithNullCell > 0
+  )
+    return ok(null);
+  const page = toPage(competitors, request, toSourceCompetitor);
+  if (page.isErr()) return err(page.error);
+  return ok({
+    contestKey: contest.contestKey,
+    electionKey: contest.electionKey,
+    reportedOffice: contest.office,
+    scopeType: COUNTY_SOURCE.scopeType,
+    sourceScopeKey: contest.scopeKey,
+    scopeLabel: contest.scopeLabel,
+    notice: COUNTY_SOURCE_NOTICE,
+    scopeNote: contest.scopeKey === COUNTY_SOURCE.bucharestScopeKey ? BUCHAREST_SCOPE_NOTE : null,
+    source: { ...COUNTY_SOURCE_CITATION },
+    statement,
+    competitors: page.value,
+  });
+};
+
+/**
+ * The reported county cells of the one qualified source (see county-source.ts)
+ * for one contest, its competitor labels paged in source-label order. Null when
+ * the contest is absent, not public or outside that source, or when the
+ * source's cells cannot all be served: unavailable, not a statement about the
+ * publisher's file.
+ */
+export const getCountySourceReport = async (
+  deps: ElectionsDeps,
+  request: CountySourceReportRequest
+): Promise<Result<ElectionCountySourceReport | null, ApiError>> => {
+  const bad =
+    checkKey(request.contestKey, 'contestKey') ?? checkPage(request.page, request.pageSize);
+  if (bad !== null) return err(bad);
+  const record = await deps.repo.countySourceReport(request);
+  if (record.isErr()) return err(record.error);
+  return record.value === null ? ok(null) : toCountySourceReport(record.value, request);
 };

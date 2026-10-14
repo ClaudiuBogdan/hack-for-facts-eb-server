@@ -1,11 +1,18 @@
 /**
- * Elections REST: the GET metadata reads under `/api/v1/elections`, over the
- * SAME usecases GraphQL and MCP call (no SQL, projection or rule of its own).
+ * Elections REST: the GET reads under `/api/v1/elections`, over the SAME
+ * usecases GraphQL and MCP call (no SQL, projection or rule of its own).
  *
  *   GET /editions          reportedYears, reportedFamilies, eventKeys, page, pageSize
  *   GET /editions/lookup   electionKey
  *   GET /contests          electionKey (required), reportedOffices, scopeTypes, reportedRounds, page, pageSize
  *   GET /contests/lookup   contestKey
+ *   GET /county-source-reports/lookup   contestKey (required), page, pageSize (of competitor labels)
+ *
+ * The county source report is the one qualified source's reported cells
+ * (GraphQL `electionCountySourceReport`, same usecase; no MCP tool yet). A
+ * contest outside that source, or one whose cells cannot all be served,
+ * answers the same 404 as an absent one (unavailable, not a statement about
+ * the publisher's file); a duplicated or corrupt cell is the fixed 500.
  *
  * Keys travel as query parameters, never path segments: they are opaque source
  * keys of up to 512 characters and the standalone router caps a path parameter
@@ -36,6 +43,7 @@ import {
 
 import { electionCatalogFilterSpec, electionContestsFilterSpec } from '../../core/filters.js';
 import {
+  getCountySourceReport,
   getElectionContest,
   getElectionEdition,
   listElectionContests,
@@ -67,6 +75,7 @@ const PARAMS = {
   edition: { electionKey: 'string' },
   contests: { electionKey: 'string', ...filterParams(electionContestsFilterSpec), ...PAGE_PARAMS },
   contest: { contestKey: 'string' },
+  countySourceReport: { contestKey: 'string', ...PAGE_PARAMS },
 } satisfies Record<string, ParamTable>;
 
 const decodeInt = (key: string, text: string): Result<number, ApiError> => {
@@ -256,5 +265,17 @@ export const makeElectionsRestPlugin =
       );
       if (key.isErr()) return sendError(request, reply, key.error);
       return sendItem(request, reply, await getElectionContest(deps, key.value), 'contest');
+    });
+
+    fastify.get('/county-source-reports/lookup', async (request, reply) => {
+      const decoded = decodeQuery(request.query, PARAMS.countySourceReport);
+      if (decoded.isErr()) return sendError(request, reply, decoded.error);
+      const contestKey = requiredKey(decoded.value, 'contestKey');
+      if (contestKey.isErr()) return sendError(request, reply, contestKey.error);
+      const result = await getCountySourceReport(deps, {
+        contestKey: contestKey.value,
+        ...pageOf(decoded.value),
+      });
+      return sendItem(request, reply, result, 'report');
     });
   };

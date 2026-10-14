@@ -10,11 +10,20 @@
  * rows only, event links only to public events, `in` filters, key order, exact
  * totals and offset pages. `leak: true` breaks the privacy predicate on purpose
  * so tests can prove the usecases fail closed.
+ *
+ * The county source reports are a separate table of what the SQL carrier read
+ * returns (the qualified carrier's cells only, grouped by source label with
+ * the same integrity counts), kept apart from the catalog rows so the catalog
+ * totals stay those of the snapshot. Each positive report has the file's full
+ * shape (12 statement cells, 234 labels with both cells); the values are
+ * illustrative, chosen for the zero and precision cases.
  */
 import { ok } from 'neverthrow';
 
 import type { ElectionsRepository } from '@/modules/elections/core/ports.js';
 import type {
+  CountySourceCompetitorRecord,
+  CountySourceReportRecord,
   ElectionContestRecord,
   ElectionEditionRecord,
   ElectionRecordPage,
@@ -236,6 +245,135 @@ const pageOf = <T>(rows: readonly T[], page: number, pageSize: number): Election
   total: rows.length,
 });
 
+/**
+ * One competitor id's cells. A label may repeat across ids, as it can in the
+ * SQL; the fake groups by label exactly as the repository does. An omitted
+ * column is no cell; `null` is a cell stored without a number.
+ */
+export interface CountySourceCompetitorCells {
+  readonly sourceLabel: string;
+  readonly privacyClass: string;
+  readonly voturi?: string | null;
+  readonly mandate?: string | null;
+}
+
+/** One contest's qualified-carrier cells, competitors deliberately unordered. */
+export interface CountySourceFixture {
+  readonly contest: CountySourceReportRecord['contest'];
+  readonly statement: CountySourceReportRecord['statement'];
+  readonly competitors: readonly CountySourceCompetitorCells[];
+}
+
+export const competitor = (
+  sourceLabel: string,
+  voturi: string | null,
+  mandate: string | null,
+  privacyClass = 'public'
+): CountySourceCompetitorCells => ({ sourceLabel, privacyClass, voturi, mandate });
+
+/** The file's 234 labels: the named ones, then zero-valued synthetic labels. */
+export const completeCompetitors = (
+  named: readonly CountySourceCompetitorCells[]
+): CountySourceCompetitorCells[] => [
+  ...named,
+  ...Array.from({ length: 234 - named.length }, (_unused, index) =>
+    competitor(`SINTETIC ${String(index + 1).padStart(3, '0')}`, '0', '0')
+  ),
+];
+
+/** All 12 admitted statement cells: a above 2^53, zeros kept. */
+export const completeStatement = (
+  values: Readonly<Record<string, string>> = {}
+): CountySourceReportRecord['statement'] =>
+  ['a', 'a1', 'a2', 'a3', 'a4', 'b', 'b1', 'b2', 'b3', 'b4', 'c', 'd'].map((metricCode) => ({
+    metricCode,
+    value: values[metricCode] ?? '0',
+  }));
+
+export const countyContest = (
+  scopeKey: string,
+  scopeLabel: string,
+  privacyClass = 'public'
+): CountySourceReportRecord['contest'] => ({
+  contestKey: `contest:aep-local-2020:mayor:county:${scopeKey}`,
+  privacyClass,
+  electionKey: 'aep-local-2020',
+  electionPrivacyClass: 'public',
+  office: 'mayor',
+  scopeType: 'county',
+  scopeKey,
+  scopeLabel,
+});
+
+export const COUNTY_SOURCE_REPORTS: readonly CountySourceFixture[] = [
+  {
+    contest: countyContest('1', 'ALBA'),
+    // Unordered on purpose; a above 2^53 and zeros among the values.
+    statement: [
+      ...completeStatement({
+        a: '9007199254740993',
+        a3: '5',
+        a4: '7',
+        b: '100',
+        b1: '50',
+        b4: '3',
+        c: '60',
+      }),
+    ].reverse(),
+    competitors: [
+      ...completeCompetitors([
+        competitor('PARTIDUL NAȚIONAL LIBERAL', '40', '2'),
+        competitor('Candidat Independent', '20', '0'),
+        competitor('"ALIANȚA ELECTORALĂ X"', '0', '0'),
+      ]),
+      // A 235th label the SQL never returns (not public).
+      competitor(RESTRICTED_SENTINEL, '1', '1', 'restricted'),
+    ].reverse(),
+  },
+  {
+    contest: countyContest('42', 'MUNICIPIUL BUCUREŞTI'),
+    statement: completeStatement({ c: '657159' }),
+    competitors: completeCompetitors([competitor('PARTIDUL NAȚIONAL LIBERAL', '1', '1')]),
+  },
+  {
+    contest: countyContest(RESTRICTED_SENTINEL, RESTRICTED_SENTINEL, 'restricted'),
+    statement: completeStatement(),
+    competitors: completeCompetitors([competitor(RESTRICTED_SENTINEL, '1', '1')]),
+  },
+];
+
+const COUNT_CELL = /^(?:0|[1-9][0-9]*)$/u;
+
+/** The repository's label grouping: cells per column, the smallest text value, the greatest class. */
+const groupByLabel = (cells: readonly CountySourceCompetitorCells[]) => {
+  const groups = new Map<string, CountySourceCompetitorCells[]>();
+  for (const cell of cells)
+    groups.set(cell.sourceLabel, [...(groups.get(cell.sourceLabel) ?? []), cell]);
+  const least = (values: readonly (string | null | undefined)[]) =>
+    values.filter((v): v is string => typeof v === 'string').sort(byKey)[0] ?? null;
+  return [...groups.entries()]
+    .sort(([a], [b]) => byKey(a, b))
+    .map(([sourceLabel, rows]) => {
+      const numbers = rows.flatMap((r) => [r.voturi, r.mandate]).filter((v) => v !== undefined);
+      return {
+        record: {
+          sourceLabel,
+          privacyClass:
+            rows
+              .map((r) => r.privacyClass)
+              .sort(byKey)
+              .at(-1) ?? 'public',
+          voturiCells: rows.filter((r) => r.voturi !== undefined).length,
+          voturi: least(rows.map((r) => r.voturi)),
+          mandateCells: rows.filter((r) => r.mandate !== undefined).length,
+          mandate: least(rows.map((r) => r.mandate)),
+        } satisfies CountySourceCompetitorRecord,
+        nullCells: numbers.filter((v) => v === null).length,
+        nonIntegerCells: numbers.filter((v) => typeof v === 'string' && !COUNT_CELL.test(v)).length,
+      };
+    });
+};
+
 export interface FakeElectionsRepo extends ElectionsRepository {
   /** Every repository call, in order (method name only). */
   readonly calls: string[];
@@ -246,6 +384,7 @@ export const makeFakeElectionsRepo = (
     readonly leak?: boolean;
     readonly editions?: readonly EditionRow[];
     readonly contests?: readonly ContestRow[];
+    readonly reports?: readonly CountySourceFixture[];
   } = {}
 ): FakeElectionsRepo => {
   const calls: string[] = [];
@@ -295,6 +434,32 @@ export const makeFakeElectionsRepo = (
       const parent = row === undefined ? undefined : parentOf(row);
       return Promise.resolve(
         ok(row === undefined || parent === undefined ? null : contestRecord(row, parent))
+      );
+    },
+    countySourceReport(request) {
+      calls.push('countySourceReport');
+      const report = (options.reports ?? COUNTY_SOURCE_REPORTS).find(
+        (r) =>
+          r.contest.contestKey === request.contestKey &&
+          visible(r.contest.privacyClass) &&
+          visible(r.contest.electionPrivacyClass)
+      );
+      if (report === undefined) return Promise.resolve(ok(null));
+      const groups = groupByLabel(report.competitors.filter((c) => visible(c.privacyClass)));
+      const labels = groups.map((group) => group.record);
+      return Promise.resolve(
+        ok({
+          contest: report.contest,
+          statement: report.statement,
+          competitors: pageOf(labels, request.page, request.pageSize),
+          integrity: {
+            completeLabels: labels.filter((l) => l.voturiCells === 1 && l.mandateCells === 1)
+              .length,
+            duplicatedLabels: labels.filter((l) => l.voturiCells > 1 || l.mandateCells > 1).length,
+            labelsWithNullCell: groups.filter((g) => g.nullCells > 0).length,
+            labelsWithNonIntegerCell: groups.filter((g) => g.nonIntegerCells > 0).length,
+          },
+        })
       );
     },
   };

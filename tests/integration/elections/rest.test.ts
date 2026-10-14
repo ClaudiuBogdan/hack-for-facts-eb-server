@@ -254,6 +254,7 @@ describe('elections REST failures carry fixed messages', () => {
     editionByKey: () => Promise.resolve(err(failure)),
     listContests: () => Promise.resolve(err(failure)),
     contestByKey: () => Promise.resolve(err(failure)),
+    countySourceReport: () => Promise.resolve(err(failure)),
   });
 
   it('maps a read failure to 500 without its cause', async () => {

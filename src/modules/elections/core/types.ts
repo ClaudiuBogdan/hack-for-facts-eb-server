@@ -148,3 +148,111 @@ export interface ElectionPage<T> {
   readonly total: number;
   readonly hasMore: boolean;
 }
+
+// ── County source report (one qualified source; see county-source.ts) ──
+
+export interface CountySourceReportRequest {
+  readonly contestKey: string;
+  /** Page of the competitor rows. */
+  readonly page: number;
+  readonly pageSize: number;
+}
+
+/** The contest, read only inside the qualified edition/office/scope. */
+export interface CountySourceContestRecord {
+  readonly contestKey: string;
+  readonly privacyClass: string;
+  readonly electionKey: string;
+  readonly electionPrivacyClass: string;
+  readonly office: string;
+  readonly scopeType: string;
+  readonly scopeKey: string;
+  readonly scopeLabel: string | null;
+}
+
+/** One stored statement cell of the qualified carrier (duplicates are kept, to be refused). */
+export interface CountySourceStatementRecord {
+  readonly metricCode: string;
+  /** `numeric_value::text`; null when stored without a number. */
+  readonly value: string | null;
+}
+
+/**
+ * One source label's cells of the qualified carrier, grouped by the label (the
+ * source cell identity is label + column, whatever competitor id carries it),
+ * with how many cells each column had.
+ */
+export interface CountySourceCompetitorRecord {
+  readonly sourceLabel: string;
+  readonly privacyClass: string;
+  readonly voturiCells: number;
+  readonly voturi: string | null;
+  readonly mandateCells: number;
+  readonly mandate: string | null;
+}
+
+/** Whole-report counts over every source label of the contest, taken before paging. */
+export interface CountySourceIntegrityRecord {
+  /** Labels with exactly one `voturi` and one `mandate` cell. */
+  readonly completeLabels: number;
+  /** Labels with more than one cell in a column. */
+  readonly duplicatedLabels: number;
+  readonly labelsWithNullCell: number;
+  /** Labels with a stored number that is not canonical integer text. */
+  readonly labelsWithNonIntegerCell: number;
+}
+
+export interface CountySourceReportRecord {
+  readonly contest: CountySourceContestRecord;
+  readonly statement: readonly CountySourceStatementRecord[];
+  /** Source labels in `collate "C"` order; total counts distinct source labels. */
+  readonly competitors: ElectionRecordPage<CountySourceCompetitorRecord>;
+  readonly integrity: CountySourceIntegrityRecord;
+}
+
+export interface ElectionSourceCitation {
+  readonly title: string;
+  readonly url: string;
+  readonly reportedElectionDate: string;
+  readonly sourceFileVerifiedOn: string;
+  readonly valuesComparedOn: string;
+}
+
+/**
+ * A statement column of the file: its code, the legend's label and the
+ * reported value, an integer as a decimal string (0 is a value). Always set:
+ * a report missing a cell is withheld whole.
+ */
+export interface ElectionSourceStatementCell {
+  readonly sourceCode: string;
+  readonly sourceLabel: string;
+  readonly value: string;
+}
+
+/** One competitor label of the file with its two cells, as reported (always both). */
+export interface ElectionSourceCompetitor {
+  readonly sourceLabel: string;
+  readonly voturi: string;
+  readonly mandate: string;
+}
+
+/**
+ * The reported cells of one county contest of the qualified source: the file's
+ * statement values and its competitor rows, served only complete. Reported
+ * observations only: no finality, winner, seat, person, sector or derived
+ * value (turnout, totals).
+ */
+export interface ElectionCountySourceReport {
+  readonly contestKey: string;
+  readonly electionKey: string;
+  readonly reportedOffice: string;
+  readonly scopeType: 'county';
+  readonly sourceScopeKey: string;
+  readonly scopeLabel: string | null;
+  readonly notice: string;
+  /** Set for the Municipiul București circumscription only. */
+  readonly scopeNote: string | null;
+  readonly source: ElectionSourceCitation;
+  readonly statement: readonly ElectionSourceStatementCell[];
+  readonly competitors: ElectionPage<ElectionSourceCompetitor>;
+}

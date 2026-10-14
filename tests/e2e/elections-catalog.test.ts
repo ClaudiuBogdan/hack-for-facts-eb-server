@@ -9,6 +9,18 @@
  * the three surfaces answer alike, and no stored finality, correction or
  * `attrs` value reaches any of them.
  *
+ * The county source report is proven over the same DDL under its
+ * complete-source contract: each positive contest has the file's full shape
+ * (12 statement cells, 234 labels with both cells; 231 synthetic zero-valued
+ * labels plus three named ones). Next to it sit rows that each break exactly
+ * one predicate (resource, file, file hash, package, explicit source column,
+ * unit, privacy, competitor family), complete control contests whose only
+ * defect is one contest-level or carrier-wide predicate (office, scope,
+ * edition, restricted contest or unit, another resource), a contest missing
+ * one label's pair (held), a label carried by two competitor ids beyond the
+ * first page (refused), and map flips that withhold a4 or b4 (held). Only the
+ * carrier's complete cells may reach REST or GraphQL. Values are illustrative.
+ *
  * TARGET. Only an EXTERNAL fixture the primary created and owns; this suite
  * starts no container and never drops or stops anything. Run it with
  * `vitest.elections-e2e.config.ts` (no shared e2e setup). It needs
@@ -28,11 +40,12 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { Kysely, PostgresDialect, sql } from 'kysely';
+import { Kysely, PostgresDialect, sql, type RawBuilder } from 'kysely';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { buildRedesignApp } from '../../src/app/build-redesign-app.js';
+import { GRAPHQL_ERROR_CODE } from '../../src/modules/shared/index.js';
 
 import type { FastifyInstance } from 'fastify';
 
@@ -172,8 +185,320 @@ const SEED = sql`
   left join elections.electoral_events ev on ev.event_key = v.event_key;
 `;
 
+const CKAN_2020 = 'alegeri-pentru-autoritatile-administratiei-publice-locale-2020';
+const COUNTY = (scopeKey: string) => `contest:aep-local-2020:mayor:county:${scopeKey}`;
+const LOCAL_ELECTION = 'contest:aep-local-2020:local_election:county:1';
+const SIRUTA = 'contest:aep-local-2020:mayor:siruta:1017';
+const CKAN_CONTEST = 'contest:ckan-local-2020:mayor:county:1';
+/** The last label in C order, carried a second time by another competitor id in county 7. */
+const TWIN_LABEL = 'SINTETIC 231';
+
+/** The qualified carrier (core/county-source.ts); `column` is the row's explicit source column. */
+const CARRIER = {
+  resource: 'local:a1c73906c6c3425fa483cb7c',
+  file: '88',
+  sha: 'aa7fa46554bee238ad70ce3f401d959c7b243f4c9a37564a2161cd201658ffea',
+  pkg: 'aep-local-2020',
+  privacy: 'public',
+  column: null as string | null,
+};
+type Carrier = typeof CARRIER;
+
+/** Zero-valued synthetic labels: with the three named ones, the file's 234 per county. */
+const SYNTHETIC_LABELS = 231;
+const STATEMENT_CODES = ['a', 'a1', 'a2', 'a3', 'a4', 'b', 'b1', 'b2', 'b3', 'b4', 'c', 'd'];
+
+/** The dimensions and dictionary rows of the county source report proof (one multi-statement script: literals only). */
+const REPORT_SEED = sql`
+  insert into elections.elections
+    (election_key, election_family, election_name, election_date, election_year, election_round,
+     authority, publication_status, is_final, attrs, event_id, corrected_family, result_status, privacy_class)
+  values
+    ('aep-local-2020', 'local', 'Alegeri locale 2020', null, 2020, null,
+     'BEC/AEP/ROAEP', 'unknown', false, '{}', null, null, 'unknown', 'public'),
+    (${sql.lit(CKAN_2020)}, 'local', 'Alegeri locale 2020 (CKAN)', null, 2020, null,
+     'BEC/AEP/ROAEP', 'unknown', false, '{}', null, null, 'unknown', 'public');
+
+  insert into elections.contests
+    (contest_key, election_id, office, round_label, scope_type, scope_key, scope_label, attrs, privacy_class)
+  select v.contest_key, e.election_id, v.office, null, v.scope_type, v.scope_key, v.scope_label, '{}'::jsonb, v.privacy_class
+  from (values
+    ('aep-local-2020', ${sql.lit(COUNTY('1'))}, 'mayor', 'county', '1', 'ALBA', 'public'),
+    ('aep-local-2020', ${sql.lit(COUNTY('2'))}, 'mayor', 'county', '2', 'ARAD', 'public'),
+    ('aep-local-2020', ${sql.lit(COUNTY('3'))}, 'mayor', 'county', '3', 'SENTINEL scope', 'restricted'),
+    ('aep-local-2020', ${sql.lit(COUNTY('4'))}, 'mayor', 'county', '4', 'BACĂU', 'public'),
+    ('aep-local-2020', ${sql.lit(COUNTY('5'))}, 'mayor', 'county', '5', 'BIHOR', 'public'),
+    ('aep-local-2020', ${sql.lit(COUNTY('7'))}, 'mayor', 'county', '7', 'BRAŞOV', 'public'),
+    ('aep-local-2020', ${sql.lit(COUNTY('42'))}, 'mayor', 'county', '42', 'MUNICIPIUL BUCUREŞTI', 'public'),
+    ('aep-local-2020', ${sql.lit(LOCAL_ELECTION)}, 'local_election', 'county', '1', 'ALBA', 'public'),
+    ('aep-local-2020', ${sql.lit(SIRUTA)}, 'mayor', 'siruta', '1017', 'ALBA IULIA', 'public'),
+    (${sql.lit(CKAN_2020)}, ${sql.lit(CKAN_CONTEST)}, 'mayor', 'county', '1', 'ALBA', 'public')
+  ) as v (election_key, contest_key, office, scope_type, scope_key, scope_label, privacy_class)
+  join elections.elections e on e.election_key = v.election_key;
+
+  insert into elections.reporting_units
+    (reporting_unit_key, scope_type, scope_key, name, county_code, county_name, privacy_class)
+  values
+    ('county:1', 'county', '1', 'ALBA', '1', 'ALBA', 'public'),
+    ('county:2', 'county', '2', 'ARAD', '2', 'ARAD', 'public'),
+    ('county:3', 'county', '3', 'ARGEŞ', '3', 'ARGEŞ', 'public'),
+    ('county:4', 'county', '4', 'SENTINEL unit', '4', 'SENTINEL unit', 'restricted'),
+    ('county:5', 'county', '5', 'BIHOR', '5', 'BIHOR', 'public'),
+    ('county:7', 'county', '7', 'BRAŞOV', '7', 'BRAŞOV', 'public'),
+    ('county:42', 'county', '42', 'MUNICIPIUL BUCUREŞTI', '42', 'MUNICIPIUL BUCUREŞTI', 'public'),
+    ('siruta:1017', 'siruta', '1017', 'ALBA IULIA', null, null, 'public');
+
+  -- dup-twin is a second public competitor id of the package carrying an existing source label.
+  insert into elections.electoral_competitors
+    (competitor_key, source_family, source_label, competitor_type, privacy_class)
+  values
+    ('competitor:pnl', 'aep-local-2020', 'PARTIDUL NAȚIONAL LIBERAL', 'source_published', 'public'),
+    ('competitor:alliance', 'aep-local-2020', '"ALIANȚA ELECTORALĂ X"', 'source_published', 'public'),
+    ('competitor:independent', 'aep-local-2020', 'Candidat Independent', 'source_published', 'public'),
+    ('competitor:restricted', 'aep-local-2020', 'SENTINEL restricted competitor', 'source_published', 'restricted'),
+    ('competitor:other-carrier', 'aep-local-2020', 'SENTINEL other carrier', 'source_published', 'public'),
+    ('competitor:other-family', 'bec-local-2020', 'SENTINEL other family', 'source_published', 'public'),
+    ('competitor:dup-twin', 'aep-local-2020', ${sql.lit(TWIN_LABEL)}, 'source_published', 'public');
+  insert into elections.electoral_competitors
+    (competitor_key, source_family, source_label, competitor_type, privacy_class)
+  select 'competitor:synthetic-' || lpad(i::text, 3, '0'), 'aep-local-2020',
+         'SINTETIC ' || lpad(i::text, 3, '0'), 'source_published', 'public'
+  from generate_series(1, ${sql.lit(SYNTHETIC_LABELS)}) as i;
+
+  insert into elections.metric_definitions (metric_code, metric_label)
+  select code, code from unnest(array['a','a1','a2','a3','a4','b','b1','b2','b3','b4','c','d','e','f',
+                                      'voturi','mandate','county_nce']) as code;
+
+  -- Every admitted code is accepted and public (the a4/b4 holds flip these rows in a test);
+  -- f (accepted) and county_nce (accepted, and mis-mapped to voturi) prove the explicit list.
+  insert into elections.source_metric_map
+    (source_family, source_metric_code, metric_code, mapping_status, privacy_class)
+  select 'aep-local-2020', code, code, 'human_accepted', 'public'
+  from unnest(array['a','a1','a2','a3','a4','b','b1','b2','b3','b4','c','d','f',
+                    'voturi','mandate','county_nce']) as code
+  union all values
+    ('aep-local-2020', 'e', 'e', 'needs_review', 'public'),
+    ('aep-local-2020', 'county_nce', 'voturi', 'human_accepted', 'public');
+`;
+
+/**
+ * One contest's complete shape on one carrier: the 12 statement cells (zeros
+ * unless overridden) and the 231 synthetic labels' zero pairs. The named
+ * labels' pairs are added as REPORT_CELLS.
+ */
+interface Shape {
+  readonly contest: string;
+  readonly unit: string;
+  readonly carrier: Carrier;
+  readonly statement?: Readonly<Record<string, string>>;
+}
+
+const shape = (
+  contest: string,
+  unit: string,
+  breaks: Partial<Carrier> = {},
+  statement: Readonly<Record<string, string>> = {}
+): Shape => ({ contest, unit, carrier: { ...CARRIER, ...breaks }, statement });
+
+const insertShape = ({ contest, unit, carrier, statement = {} }: Shape) => {
+  const overrides = Object.entries(statement);
+  return sql`
+  insert into elections.result_rows
+    (contest_id, reporting_unit_id, metric_code, electoral_competitor_id, raw_value, numeric_value,
+     attrs, source_resource_id, source_file_id, source_row_number, source_row_hash, privacy_class)
+  select c.contest_id, ru.reporting_unit_id, x.metric, x.competitor_id, x.value, x.value::numeric,
+         jsonb_build_object('packageName', ${sql.lit(carrier.pkg)},
+                            'sourceFileSha256', ${sql.lit(carrier.sha)},
+                            'sourceMetricColumn', ${carrier.column === null ? sql`null::text` : sql.lit(carrier.column)},
+                            'note', 'SENTINEL attrs'),
+         ${sql.lit(carrier.resource)}, ${sql.lit(carrier.file)}::bigint, 2, repeat('0', 64), ${sql.lit(carrier.privacy)}
+  from elections.contests c
+  join elections.reporting_units ru on ru.reporting_unit_key = ${sql.lit(unit)}
+  cross join (
+    select m.metric, ec.electoral_competitor_id as competitor_id, '0'::text as value
+    from elections.electoral_competitors ec
+    cross join (values ('voturi'), ('mandate')) as m (metric)
+    where ec.competitor_key like 'competitor:synthetic-%'
+    union all
+    select s.code, null::bigint, coalesce(o.value, '0')
+    from unnest(array[${sql.join(STATEMENT_CODES.map((code) => sql.lit(code)))}]::text[]) as s (code)
+    left join (values ${
+      overrides.length === 0
+        ? sql`(null::text, null::text)`
+        : sql.join(overrides.map(([code, value]) => sql`(${sql.lit(code)}, ${sql.lit(value)})`))
+    }) as o (code, value) on o.code = s.code
+  ) as x
+  where c.contest_key = ${sql.lit(contest)}`;
+};
+
+const ALBA = COUNTY('1');
+const OTHER = 'competitor:other-carrier';
+const NAMED = ['competitor:pnl', 'competitor:alliance', 'competitor:independent'] as const;
+
+/**
+ * Positive contests (ALBA, Bucharest), the two holds/faults of the complete-source contract
+ * (5: one label's pair entirely missing; 7: a label carried twice), and one complete control
+ * contest per contest-level or carrier-wide predicate (each would be served if its predicate broke).
+ */
+const REPORT_SHAPES: readonly Shape[] = [
+  shape(
+    ALBA,
+    'county:1',
+    {},
+    { a: '9007199254740993', a3: '5', a4: '7', b: '100', b1: '50', b4: '3', c: '60' }
+  ),
+  shape(COUNTY('42'), 'county:42', {}, { c: '657159' }),
+  shape(COUNTY('5'), 'county:5'),
+  shape(COUNTY('7'), 'county:7'),
+  shape(COUNTY('2'), 'county:2', { resource: 'local:another-resource' }),
+  shape(COUNTY('3'), 'county:3'),
+  shape(COUNTY('4'), 'county:4'),
+  shape(LOCAL_ELECTION, 'county:1'),
+  shape(SIRUTA, 'siruta:1017'),
+  shape(CKAN_CONTEST, 'county:1'),
+];
+
+interface ReportCell {
+  readonly contest: string;
+  readonly unit: string;
+  readonly metric: string;
+  readonly competitor: string | null;
+  readonly value: string;
+  readonly row: number;
+  readonly carrier: Carrier;
+}
+
+const cell = (
+  contest: string,
+  unit: string,
+  metric: string,
+  competitor: string | null,
+  value: string,
+  row: number,
+  breaks: Partial<Carrier> = {}
+): ReportCell => ({
+  contest,
+  unit,
+  metric,
+  competitor,
+  value,
+  row,
+  carrier: { ...CARRIER, ...breaks },
+});
+
+/** The named labels' pairs of one shape, on the shape's own carrier. */
+const namedPairs = (
+  { contest, unit, carrier }: Shape,
+  values: Readonly<Record<string, readonly [string, string]>> = {},
+  labels: readonly string[] = NAMED
+): ReportCell[] =>
+  labels.flatMap((competitor) => {
+    const [voturi, mandate] = values[competitor] ?? ['0', '0'];
+    return [
+      cell(contest, unit, 'voturi', competitor, voturi, 2, carrier),
+      cell(contest, unit, 'mandate', competitor, mandate, 2, carrier),
+    ];
+  });
+
+const shapeOf = (contest: string): Shape => {
+  const found = REPORT_SHAPES.find((s) => s.contest === contest);
+  if (found === undefined) throw new Error(`no shape for ${contest}`);
+  return found;
+};
+
+const REPORT_CELLS: readonly ReportCell[] = [
+  // ALBA: the named pairs, then cells the source view must never serve.
+  ...namedPairs(shapeOf(ALBA), {
+    'competitor:pnl': ['40', '2'],
+    'competitor:independent': ['20', '0'],
+  }),
+  cell(ALBA, 'county:1', 'e', null, '999', 2),
+  cell(ALBA, 'county:1', 'f', null, '998', 2),
+  cell(ALBA, 'county:1', 'county_nce', null, '1', 2),
+  cell(ALBA, 'county:1', 'voturi', 'competitor:restricted', '5', 2),
+  cell(ALBA, 'county:1', 'voturi', 'competitor:other-family', '9', 2),
+  // One broken predicate each (a leak duplicates a cell, refusing the report, or shows a SENTINEL).
+  cell(ALBA, 'county:1', 'voturi', 'competitor:pnl', '41', 90, { privacy: 'restricted' }),
+  cell(ALBA, 'county:1', 'c', null, '61', 91, { privacy: 'restricted' }),
+  cell(ALBA, 'county:1', 'voturi', OTHER, '7', 92, { resource: 'local:another-resource' }),
+  cell(ALBA, 'county:1', 'voturi', OTHER, '7', 93, { file: '205' }),
+  cell(ALBA, 'county:1', 'voturi', OTHER, '7', 94, { sha: 'b'.repeat(64) }),
+  cell(ALBA, 'county:1', 'voturi', OTHER, '7', 95, { pkg: CKAN_2020 }),
+  cell(ALBA, 'county:1', 'c', null, '62', 96, { file: '205' }),
+  cell(ALBA, 'county:2', 'voturi', OTHER, '7', 97),
+  // Same carrier in every field, canonical metric voturi, but an explicit source column county_nce.
+  cell(ALBA, 'county:1', 'voturi', 'competitor:pnl', '41', 98, { column: 'county_nce' }),
+  ...namedPairs(shapeOf(COUNTY('42')), { 'competitor:pnl': ['1', '1'] }),
+  // County 5: the PNL pair is missing entirely (233 labels).
+  ...namedPairs(shapeOf(COUNTY('5')), {}, ['competitor:alliance', 'competitor:independent']),
+  // County 7: complete, plus a second competitor id carrying the last label's voturi cell.
+  ...namedPairs(shapeOf(COUNTY('7'))),
+  cell(COUNTY('7'), 'county:7', 'voturi', 'competitor:dup-twin', '0', 2),
+  // The complete control contests' named pairs, on each control's carrier.
+  ...[COUNTY('2'), COUNTY('3'), COUNTY('4'), LOCAL_ELECTION, SIRUTA, CKAN_CONTEST].flatMap((key) =>
+    namedPairs(shapeOf(key))
+  ),
+];
+
+const insertReportCells = (cells: readonly ReportCell[]) => sql`
+  insert into elections.result_rows
+    (contest_id, reporting_unit_id, metric_code, electoral_competitor_id, raw_value, numeric_value,
+     attrs, source_resource_id, source_file_id, source_row_number, source_row_hash, privacy_class)
+  select c.contest_id, ru.reporting_unit_id, v.v_metric, ec.electoral_competitor_id, v.v_value,
+         v.v_value::numeric,
+         jsonb_build_object('packageName', v.v_pkg, 'sourceFileSha256', v.v_sha,
+                            'sourceMetricColumn', v.v_column, 'note', 'SENTINEL attrs'),
+         v.v_resource, v.v_file::bigint, v.v_row::bigint, repeat('0', 64), v.v_privacy
+  from (values ${sql.join(
+    cells.map(
+      (c) =>
+        sql`(${c.contest}, ${c.unit}, ${c.metric}, ${c.competitor}, ${c.value}, ${c.carrier.resource},
+             ${c.carrier.file}, ${c.carrier.sha}, ${c.carrier.pkg}, ${String(c.row)}, ${c.carrier.privacy},
+             ${c.carrier.column})`
+    )
+  )})
+    as v (v_contest, v_unit, v_metric, v_competitor, v_value, v_resource, v_file, v_sha, v_pkg, v_row,
+          v_privacy, v_column)
+  join elections.contests c on c.contest_key = v.v_contest
+  join elections.reporting_units ru on ru.reporting_unit_key = v.v_unit
+  left join elections.electoral_competitors ec on ec.competitor_key = v.v_competitor`;
+
+const ALBA_STATEMENT = [
+  ['a', '9007199254740993'],
+  ['a1', '0'],
+  ['a2', '0'],
+  ['a3', '5'],
+  ['a4', '7'],
+  ['b', '100'],
+  ['b1', '50'],
+  ['b2', '0'],
+  ['b3', '0'],
+  ['b4', '3'],
+  ['c', '60'],
+  ['d', '0'],
+];
+const synthetic = (n: number) => `SINTETIC ${String(n).padStart(3, '0')}`;
+/** ALBA's first page of 20 labels in C order: the named three, then SINTETIC 001…017. */
+const ALBA_FIRST_PAGE = [
+  { sourceLabel: '"ALIANȚA ELECTORALĂ X"', voturi: '0', mandate: '0' },
+  { sourceLabel: 'Candidat Independent', voturi: '20', mandate: '0' },
+  { sourceLabel: 'PARTIDUL NAȚIONAL LIBERAL', voturi: '40', mandate: '2' },
+  ...Array.from({ length: 17 }, (_unused, i) => ({
+    sourceLabel: synthetic(i + 1),
+    voturi: '0',
+    mandate: '0',
+  })),
+];
+
+const REPORT_FIELDS = `contestKey electionKey reportedOffice scopeType sourceScopeKey scopeLabel notice
+  scopeNote source { title url reportedElectionDate sourceFileVerifiedOn valuesComparedOn }
+  statement { sourceCode sourceLabel value }
+  competitors { items { sourceLabel voturi mandate } page pageSize total hasMore }`;
+
 const EDITIONS = [
   'BEC-legacy-1992',
+  'aep-local-2020',
+  CKAN_2020,
   'bec-european-2009',
   'bec-local-2024',
   'bec-local-2024-hidden-event',
@@ -349,6 +674,9 @@ describe('elections catalog — real DDL, real app, external fixture', () => {
       await migration.up(setupDb);
     }
     await SEED.execute(setupDb);
+    await REPORT_SEED.execute(setupDb);
+    for (const reportShape of REPORT_SHAPES) await insertShape(reportShape).execute(setupDb);
+    await insertReportCells(REPORT_CELLS).execute(setupDb);
     const built = await buildRedesignApp({
       logLevel: 'silent',
       modules: ['elections'],
@@ -387,9 +715,11 @@ describe('elections catalog — real DDL, real app, external fixture', () => {
       return;
     }
     const seen: string[] = [];
-    for (const page of [1, 2, 3]) {
+    const total = EDITIONS.length;
+    const pages = Math.ceil(total / 2);
+    for (let page = 1; page <= pages; page += 1) {
       const res = await rest(`/editions?pageSize=2&page=${String(page)}`);
-      expect(res.body.meta).toMatchObject({ page: { total: 5 }, hasMore: page < 3 });
+      expect(res.body.meta).toMatchObject({ page: { total }, hasMore: page < pages });
       seen.push(...keysOf(res.body.data, 'electionKey'));
     }
     expect(seen).toEqual(EDITIONS);
@@ -404,7 +734,7 @@ describe('elections catalog — real DDL, real app, external fixture', () => {
       items: all.body.data,
       page: 1,
       pageSize: 100,
-      total: 5,
+      total,
       hasMore: false,
     });
     const tool = await mcp('list_election_editions', { pageSize: 100 });
@@ -412,7 +742,7 @@ describe('elections catalog — real DDL, real app, external fixture', () => {
     expect(tool.content).toMatchObject({
       ok: true,
       items: all.body.data,
-      meta: { page: 1, pageSize: 100, total: 5, hasMore: false, totalCounts: 'source_editions' },
+      meta: { page: 1, pageSize: 100, total, hasMore: false, totalCounts: 'source_editions' },
     });
   });
 
@@ -595,5 +925,299 @@ describe('elections catalog — real DDL, real app, external fixture', () => {
     expect(contest.status).toBe(200);
     expect(contest.raw).not.toContain(SENTINEL);
     expect(contest.body.data).toMatchObject({ verifiedOffice: null, reportedOffice: 'mayor' });
+  });
+
+  const reportUrl = (contestKey: string, page: number, pageSize: number) =>
+    `/county-source-reports/lookup?contestKey=${encodeURIComponent(contestKey)}&page=${String(page)}&pageSize=${String(pageSize)}`;
+
+  const REPORT_QUERY = `query($key: ID!, $page: Int, $pageSize: Int) {
+    electionCountySourceReport(contestKey: $key, page: $page, pageSize: $pageSize) { ${REPORT_FIELDS} }
+  }`;
+
+  /** One report on REST and GraphQL; asserts they agree and returns the REST answer. */
+  const sourceReport = async (contestKey: string, page = 1, pageSize = 20) => {
+    const res = await rest(reportUrl(contestKey, page, pageSize));
+    expect(res.raw).not.toContain(SENTINEL);
+    const graph = await gqlData('electionCountySourceReport', REPORT_QUERY, {
+      key: contestKey,
+      page,
+      pageSize,
+    });
+    expect(res.status === 200 ? res.body.data : null).toEqual(graph);
+    return res;
+  };
+
+  /** A report both surfaces refuse as the fixed fault, whatever the page. */
+  const refusedReport = async (contestKey: string, page: number, pageSize: number) => {
+    const res = await rest(reportUrl(contestKey, page, pageSize));
+    expect(res.status, `page ${String(page)}`).toBe(500);
+    expect(res.body).toMatchObject({ ok: false, error: 'Database' });
+    expect(res.raw).not.toContain(SENTINEL);
+    const graph = await gql(REPORT_QUERY, { key: contestKey, page, pageSize });
+    expect(graph.body.data?.['electionCountySourceReport'] ?? null).toBeNull();
+    expect(graph.body.errors?.[0]?.extensions?.['code']).toBe(GRAPHQL_ERROR_CODE.Database);
+    expect(graph.raw).not.toContain(SENTINEL);
+  };
+
+  /** The contests of the qualified source, resolved through the catalog (never parsed). */
+  const reportContestKeys = async () => {
+    const listed = await rest(
+      '/contests?electionKey=aep-local-2020&reportedOffices=mayor&scopeTypes=county&pageSize=100'
+    );
+    return keysOf(listed.body.data, 'contestKey');
+  };
+
+  const requireSetup = (): Kysely<unknown> => {
+    if (setupDb === undefined) throw new Error('elections e2e setup pool is not ready');
+    return setupDb;
+  };
+
+  /** One fixture count, to prove a control row was seeded as described. */
+  const seededCount = async (query: RawBuilder<{ n: string }>) =>
+    (await query.execute(requireSetup())).rows[0]?.n;
+
+  it('serves only the qualified carrier cells of the complete source, alike on REST and GraphQL', async ({
+    skip,
+  }) => {
+    if (app === undefined) {
+      skip();
+      return;
+    }
+    expect(await reportContestKeys()).toEqual([
+      COUNTY('1'),
+      COUNTY('2'),
+      COUNTY('4'),
+      COUNTY('42'),
+      COUNTY('5'),
+      COUNTY('7'),
+    ]);
+    const alba = await sourceReport(ALBA);
+    expect(alba.status).toBe(200);
+    const data = alba.body.data as {
+      statement: { sourceCode: string; value: string | null }[];
+      competitors: unknown;
+    };
+    expect(data).toMatchObject({
+      contestKey: ALBA,
+      electionKey: 'aep-local-2020',
+      reportedOffice: 'mayor',
+      scopeType: 'county',
+      sourceScopeKey: '1',
+      scopeLabel: 'ALBA',
+      scopeNote: null,
+      source: { reportedElectionDate: '2020-09-27', valuesComparedOn: '2026-10-14' },
+    });
+    // All 12 cells, zero and precision kept; no e, f or county_nce.
+    expect(data.statement.map((c) => [c.sourceCode, c.value])).toEqual(ALBA_STATEMENT);
+    // 234 source labels; no restricted, other-carrier, other-unit, other-family or
+    // explicit-source-column cell (any of them would show or duplicate a cell).
+    expect(data.competitors).toEqual({
+      items: ALBA_FIRST_PAGE,
+      page: 1,
+      pageSize: 20,
+      total: 234,
+      hasMore: true,
+    });
+    // Quoted: the citation URL itself contains the digits 999.
+    expect(alba.raw).not.toMatch(/"(?:e|f|county_nce|998|999|41|61|62)"/u);
+    // The explicit-source-column control is really there, with every other carrier field valid.
+    expect(
+      await seededCount(sql<{ n: string }>`
+        select count(*)::text as n from elections.result_rows rr
+        join elections.contests c on c.contest_id = rr.contest_id
+        where c.contest_key = ${ALBA} and rr.metric_code = 'voturi'
+          and rr.attrs ->> 'sourceMetricColumn' = 'county_nce'
+          and rr.source_resource_id = ${CARRIER.resource} and rr.source_file_id = 88
+          and rr.attrs ->> 'sourceFileSha256' = ${CARRIER.sha}
+          and rr.attrs ->> 'packageName' = ${CARRIER.pkg} and rr.privacy_class = 'public'`)
+    ).toBe('1');
+    const bucharest = await sourceReport(COUNTY('42'));
+    expect(bucharest.body.data).toMatchObject({
+      scopeLabel: 'MUNICIPIUL BUCUREŞTI',
+      scopeNote: expect.stringContaining(
+        'General-mayor results are published separately'
+      ) as unknown,
+      statement: expect.arrayContaining([
+        { sourceCode: 'c', sourceLabel: expect.any(String) as unknown, value: '657159' },
+      ]) as unknown,
+      competitors: { total: 234 },
+    });
+  });
+
+  it('pages source labels in C order with an exact total', async ({ skip }) => {
+    if (app === undefined) {
+      skip();
+      return;
+    }
+    const labelsOf = async (page: number) => {
+      const res = await sourceReport(ALBA, page, 2);
+      const competitors = (
+        res.body.data as {
+          competitors: { items: { sourceLabel: string }[]; total: number; hasMore: boolean };
+        }
+      ).competitors;
+      return {
+        labels: competitors.items.map((item) => item.sourceLabel),
+        total: competitors.total,
+        hasMore: competitors.hasMore,
+      };
+    };
+    expect(await labelsOf(1)).toEqual({
+      labels: ['"ALIANȚA ELECTORALĂ X"', 'Candidat Independent'],
+      total: 234,
+      hasMore: true,
+    });
+    expect(await labelsOf(2)).toEqual({
+      labels: ['PARTIDUL NAȚIONAL LIBERAL', synthetic(1)],
+      total: 234,
+      hasMore: true,
+    });
+    expect(await labelsOf(117)).toEqual({
+      labels: [synthetic(230), synthetic(231)],
+      total: 234,
+      hasMore: false,
+    });
+    expect(await labelsOf(118)).toEqual({ labels: [], total: 234, hasMore: false });
+  });
+
+  it('holds the whole report when a competitor pair or an admitted cell cannot be served', async ({
+    skip,
+  }) => {
+    if (app === undefined) {
+      skip();
+      return;
+    }
+    const absent = await sourceReport('contest:absent');
+    expect(absent.status).toBe(404);
+    const held = async (key: string) => {
+      const res = await sourceReport(key);
+      expect(res.status, key).toBe(404);
+      expect({ ...res.body, requestId: '' }).toEqual({ ...absent.body, requestId: '' });
+    };
+    // County 5: a label's pair entirely missing must not pass as a smaller source.
+    expect(
+      await seededCount(sql<{ n: string }>`
+        select count(distinct ec.source_label)::text as n from elections.result_rows rr
+        join elections.contests c on c.contest_id = rr.contest_id
+        join elections.electoral_competitors ec on ec.electoral_competitor_id = rr.electoral_competitor_id
+        where c.contest_key = ${COUNTY('5')}`)
+    ).toBe('233');
+    await held(COUNTY('5'));
+    // a4 unreviewed, then b4 private: the stored cells exist, yet the whole report is withheld.
+    const flips = [
+      [
+        sql`update elections.source_metric_map set mapping_status = 'needs_review'
+            where source_family = 'aep-local-2020' and source_metric_code = 'a4' and metric_code = 'a4'`,
+        sql`update elections.source_metric_map set mapping_status = 'human_accepted'
+            where source_family = 'aep-local-2020' and source_metric_code = 'a4' and metric_code = 'a4'`,
+      ],
+      [
+        sql`update elections.source_metric_map set privacy_class = 'restricted'
+            where source_family = 'aep-local-2020' and source_metric_code = 'b4' and metric_code = 'b4'`,
+        sql`update elections.source_metric_map set privacy_class = 'public'
+            where source_family = 'aep-local-2020' and source_metric_code = 'b4' and metric_code = 'b4'`,
+      ],
+    ] as const;
+    for (const [withhold, restore] of flips) {
+      await withhold.execute(requireSetup());
+      try {
+        await held(ALBA);
+        await held(COUNTY('42'));
+      } finally {
+        await restore.execute(requireSetup());
+      }
+      expect((await sourceReport(ALBA)).status).toBe(200);
+    }
+  });
+
+  it('refuses a source label carried by two competitor ids, on every page', async ({ skip }) => {
+    if (app === undefined) {
+      skip();
+      return;
+    }
+    expect(
+      await seededCount(sql<{ n: string }>`
+        select count(*)::text as n from elections.electoral_competitors
+        where source_family = 'aep-local-2020' and privacy_class = 'public'
+          and source_label = ${TWIN_LABEL}`)
+    ).toBe('2');
+    // The duplicated label sorts last: pages 1 of 2 and 1-2 of 100 never show it.
+    for (const [page, pageSize] of [
+      [1, 2],
+      [1, 100],
+      [2, 100],
+      [3, 100],
+      [118, 2],
+    ] as const)
+      await refusedReport(COUNTY('7'), page, pageSize);
+  });
+
+  it('keeps every other carrier, office, scope, edition and restricted row unavailable', async ({
+    skip,
+  }) => {
+    if (app === undefined) {
+      skip();
+      return;
+    }
+    const otherOffice = await rest(
+      '/contests?electionKey=aep-local-2020&reportedOffices=local_election&pageSize=100'
+    );
+    const otherScope = await rest(
+      '/contests?electionKey=aep-local-2020&reportedOffices=mayor&scopeTypes=siruta&pageSize=100'
+    );
+    const otherEdition = await rest(`/contests?electionKey=${CKAN_2020}&pageSize=100`);
+    // Each is a complete shape held by the predicate named (the siruta contest also by its unit scope).
+    const unavailable = [
+      COUNTY('2'), // another resource
+      COUNTY('4'), // a restricted unit
+      COUNTY('3'), // a restricted contest (not listed)
+      ...keysOf(otherOffice.body.data, 'contestKey'),
+      ...keysOf(otherScope.body.data, 'contestKey'),
+      ...keysOf(otherEdition.body.data, 'contestKey'),
+    ];
+    expect(unavailable).toEqual([
+      COUNTY('2'),
+      COUNTY('4'),
+      COUNTY('3'),
+      LOCAL_ELECTION,
+      SIRUTA,
+      CKAN_CONTEST,
+    ]);
+    const absent = await sourceReport('contest:absent');
+    expect(absent.status).toBe(404);
+    for (const key of unavailable) {
+      const res = await sourceReport(key);
+      expect(res.status, key).toBe(404);
+      expect({ ...res.body, requestId: '' }).toEqual({ ...absent.body, requestId: '' });
+    }
+  });
+
+  it('leaves the catalog readiness and the MCP tools as they were', async ({ skip }) => {
+    if (app === undefined) {
+      skip();
+      return;
+    }
+    const contest = await rest(`/contests/lookup?contestKey=${encodeURIComponent(ALBA)}`);
+    expect(contest.body.data).toMatchObject({
+      verifiedOffice: null,
+      readiness: { identity: 'HELD', results: 'UNAVAILABLE', mandates: 'UNAVAILABLE' },
+    });
+    expect(contest.raw).not.toContain('voturi');
+    const listed = await requireApp().inject({
+      method: 'POST',
+      url: '/api/v1/mcp',
+      remoteAddress: '10.0.1.1',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+      },
+      payload: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
+    });
+    expect(listed.statusCode).toBe(200);
+    const names = (
+      listed.json<{ result?: { tools?: { name: string }[] } }>().result?.tools ?? []
+    ).map((tool) => tool.name);
+    expect(names).toEqual(expect.arrayContaining(['get_election_contest']));
+    expect(names.filter((name) => /report|source/iu.test(name))).toEqual([]);
   });
 });

@@ -1,7 +1,11 @@
 /**
  * Elections catalog and contest metadata over the `elections` dimension tables
- * (source editions, contests, public event links). Results and mandates are
- * not served: no qualified projection exists. Source opening is held: stored
+ * (source editions, contests, public event links). Qualified results and
+ * mandates are not served: no qualified projection exists. The one exception
+ * is a reported view, the county source report: the cells of ONE qualified
+ * source file as it reports them (core/county-source.ts), served only
+ * complete, on GraphQL and REST only: its MCP tool is deferred, outside the
+ * initial REST/GraphQL/client scope. Source opening is held: stored
  * artifact custody (restricted by default) is not a client access contract.
  * Disabled (the default), every read refuses without a query and no
  * MCP tool is registered. GraphQL, MCP and the GET REST plugin
@@ -32,4 +36,9 @@ export const makeElectionsModule = (deps: { db: Kysely<ProdDatabase>; enabled?: 
 };
 
 export type { ElectionsRepository } from './core/ports.js';
-export type { ElectionContest, ElectionEdition, ElectionPage } from './core/types.js';
+export type {
+  ElectionContest,
+  ElectionCountySourceReport,
+  ElectionEdition,
+  ElectionPage,
+} from './core/types.js';
