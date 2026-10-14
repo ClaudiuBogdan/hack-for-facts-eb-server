@@ -26,6 +26,11 @@
  */
 
 import type { CompanyActivityEvidence } from './activity-selection.js';
+import type {
+  CompanyMainActivityEvidence,
+  CompanyMainActivityHistoryKind,
+  CompanyMainActivityHistoryRows,
+} from './main-activity.js';
 import type { CompanyRegistryEnvelope, CompanyRegistryScopePort } from './registry.js';
 import type {
   CaenCodeHit,
@@ -97,6 +102,40 @@ export interface CompaniesRepository extends CompanyRegistryScopePort {
     cui: string,
     scope: CompanyRegistryEnvelope
   ): Promise<Result<CompanyActivityEvidence | null, ApiError>>;
+
+  // ── ANAF-assumed main activity (optional feature: four public views) ──
+  /**
+   * The company's current main assignment and, only with `flags`, its class
+   * flags, read in ONE statement from `main_caen_current_assignments` +
+   * `main_caen_class_flags` (no scope gate: the usecase applies the pinned
+   * scope). Each part's unavailability is its own state (a flag view this
+   * runtime cannot read never makes the assignment unavailable), never an
+   * error of the profile and never a registry capability loss.
+   */
+  getMainActivity(
+    cui: string,
+    options: { readonly flags: boolean }
+  ): Promise<Result<CompanyMainActivityEvidence, ApiError>>;
+  /** The fresh witness (`mainActivityWitness`) the final recheck compares. */
+  readMainActivityWitness(cui: string): Promise<Result<string, ApiError>>;
+  /** One newest-first keyset page of the public outcome or evidence history. */
+  getMainActivityHistory(
+    cui: string,
+    request: {
+      readonly kind: CompanyMainActivityHistoryKind;
+      readonly beforeId: string | null;
+      readonly limit: number;
+    }
+  ): Promise<Result<CompanyMainActivityHistoryRows, ApiError>>;
+  /**
+   * The current visibility (`<anafWithdrawn>:<onrcWithdrawn>`) of exact served
+   * history rows by id; a row the view no longer serves is absent.
+   */
+  readMainActivityHistoryVisibility(
+    cui: string,
+    kind: CompanyMainActivityHistoryKind,
+    ids: readonly string[]
+  ): Promise<Result<ReadonlyMap<string, string> | 'unavailable', ApiError>>;
 
   // ── list / filter (the filterable collection §7) ──
   /**

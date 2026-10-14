@@ -13,7 +13,12 @@
  * (pinned), never reinterpreted. The ACTIVITY dimension and the activity /
  * activityBasis filters exist only on a release whose dimensions list
  * ACTIVITY (v3); elsewhere they are RELEASE_CAPABILITY_UNAVAILABLE with
- * `extensions.field`, `capability`, `releaseId`, `schemaVersion`. Each root is decided again when the whole
+ * `extensions.field`, `capability`, `releaseId`, `schemaVersion`. The
+ * MAIN_ACTIVITY dimension and the mainActivity / mainActivityStatus filters
+ * (the ANAF-assumed main activity) exist only on a release listing
+ * MAIN_ACTIVITY (`-ch-v4`, STAGED: no v4 release is served yet), and are
+ * RELEASE_CAPABILITY_UNAVAILABLE (capability MAIN_ACTIVITY) on v2/v3, never
+ * answered by ACTIVITY or MAIN_CAEN. Each root is decided again when the whole
  * operation completed: a release that became stale meanwhile (privacy or ONRC
  * source change) nulls the root with INVALID_INPUT, `extensions.field` release.
  */
@@ -110,6 +115,27 @@ export const companyAnalysisTypeDefs = /* GraphQL */ `
     EMPLOYEE_SIZE
     "Releases listing it only (v3): the derived activity selection, never a principal activity. Groups onrc:<revision>:<code> and anaf:<code>; the multiple-classes, uncatalogued-ANAF and no-selection buckets are in breakdown.unclassified."
     ACTIVITY
+    "Releases listing it only (v4, staged): the ANAF-ASSUMED main activity, one outcome per company. Groups main:<revision>:<code> (exact ONRC key, label frozen in the release); unresolved statuses are in breakdown.unclassified as (<status>), never ranked. Never answered by ACTIVITY or MAIN_CAEN."
+    MAIN_ACTIVITY
+  }
+  "The ANAF-assumed main-activity outcome of a company in a v4 release."
+  enum CompanyAnalysisMainActivityStatus {
+    RESOLVED
+    RESOLVED_LATEST_REVISION
+    CORRECTED
+    NO_ONRC_MATCH
+    UNRESOLVED_TOKEN_FORM
+    TOKEN_PLACEHOLDER
+    TOKEN_INVALID
+    SOURCE_MISSING
+    SOURCE_UNBOUND
+    CORRECTION_WITHHELD
+  }
+  "An exact ONRC class key of the ANAF-assumed main activity (never a bare code)."
+  input CompanyAnalysisMainActivityKeyInput {
+    "rev0..rev3: the ONRC key's revision."
+    revision: String!
+    code: String!
   }
   enum CompanyAnalysisRankBy {
     METRIC_SUM
@@ -262,6 +288,32 @@ export const companyAnalysisTypeDefs = /* GraphQL */ `
     activity: [CompanyAnalysisActivityInput!]
     "Releases listing ACTIVITY only: activity selection bases."
     activityBasis: [CompanyAnalysisActivityBasis!]
+    "Releases listing MAIN_ACTIVITY only (v4, staged): exact ANAF-assumed main-activity ONRC keys."
+    mainActivity: [CompanyAnalysisMainActivityKeyInput!]
+    "Releases listing MAIN_ACTIVITY only (v4, staged): main-activity outcome statuses."
+    mainActivityStatus: [CompanyAnalysisMainActivityStatus!]
+  }
+
+  "The main-state pin a v4 release was exported from (inputs.mainCaen)."
+  type CompanyAnalysisMainCaenPin {
+    "Semantic content epoch of the main state."
+    contentEpoch: BigInt!
+    refreshId: BigInt!
+    policy: String!
+    "Equal to release.source.editionId."
+    editionId: BigInt!
+  }
+  "The ANAF-assumed main activity of a v4 bucket or record (null on v2/v3 and on every answer while v4 is staged)."
+  type CompanyAnalysisMainActivity {
+    status: CompanyAnalysisMainActivityStatus!
+    "The selected ONRC key's revision; null for an unresolved status."
+    revision: String
+    code: String
+    "The exact revision-qualified label frozen in the release; null for an unresolved status."
+    label: String
+    "EXACT or LEADING_ZERO_MATCH; null when not resolved by match."
+    matchBasis: String
+    policy: String!
   }
 
   "The ONRC edition a release's company dimensions were exported from (the release's source pin, exactly). The release answers only while this edition is still the published source."
@@ -381,6 +433,8 @@ export const companyAnalysisTypeDefs = /* GraphQL */ `
     nameFilter: Boolean!
     limits: CompanyAnalysisLimits!
     caveats: [String!]!
+    "v4 only: the main state the release was exported from; null on v2/v3."
+    mainCaen: CompanyAnalysisMainCaenPin
   }
 
   "One metric over a set of statements."
@@ -479,6 +533,8 @@ export const companyAnalysisTypeDefs = /* GraphQL */ `
     activity: CompanyAnalysisActivity
     "ACTIVITY only (every bucket, other and totals included)."
     activityQuality: CompanyAnalysisActivityQuality
+    "MAIN_ACTIVITY group and unclassified buckets only (v4, staged: always null for now)."
+    mainActivity: CompanyAnalysisMainActivity
   }
   "groups + other + unknown + unclassified = totals = companyAnalysisStats for the same scope. COUNTY/UAT/OBSERVED_STATUS: every company is in exactly one value or basis group, so unknown is always empty; ACTIVITY: every company is in exactly one group or unclassified bucket, so unknown is always empty."
   type CompanyAnalysisBreakdown {
@@ -585,6 +641,8 @@ export const companyAnalysisTypeDefs = /* GraphQL */ `
     anafOnrcAgreement: String
     "ANAF fiscal status date (YYYY-MM-DD)."
     anafStatusDate: String
+    "Releases listing MAIN_ACTIVITY only (v4, staged; null otherwise): the ANAF-assumed main activity."
+    mainActivity: CompanyAnalysisMainActivity
   }
   type CompanyAnalysisRecordEdge {
     cursor: String!

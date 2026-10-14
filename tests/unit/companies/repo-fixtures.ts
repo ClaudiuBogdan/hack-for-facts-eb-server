@@ -28,6 +28,16 @@ export const stubRepo = (
     ok({ registry: s, later: null, earlier: null })
   ),
   getActivityEvidence: vi.fn(async () => ok(null)),
+  // The main-activity feature is optional: by default this runtime cannot read it.
+  getMainActivity: vi.fn(async () =>
+    ok({
+      assignment: { state: 'unavailable' as const },
+      flags: { state: 'not_requested' as const },
+    })
+  ),
+  readMainActivityWitness: vi.fn(async () => ok('unavailable')),
+  getMainActivityHistory: vi.fn(async () => ok({ state: 'unavailable' as const })),
+  readMainActivityHistoryVisibility: vi.fn(async () => ok(new Map<string, string>())),
   listCompanies: vi.fn(async () => ok({ rows: [], total: 0, estimated: false })),
   countCompanies: vi.fn(async () => ok(0)),
   resolveByName: vi.fn(async () => ok({ hits: [], degraded: false })),

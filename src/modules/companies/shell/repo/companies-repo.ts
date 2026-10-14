@@ -62,6 +62,13 @@ import {
   splitVirtual,
 } from './filter-helpers.js';
 import {
+  readMainActivity,
+  readMainActivityHistory,
+  readMainActivityHistoryVisibility,
+  readMainActivityWitness,
+  type MainHistoryPageRequest,
+} from './main-activity-sql.js';
+import {
   caenActivitiesOf,
   mapCountyDisplayName,
   mapFinancialYear,
@@ -130,6 +137,7 @@ import {
   type CompanySort,
 } from '../../core/types.js';
 
+import type { CompanyMainActivityHistoryKind } from '../../core/main-activity.js';
 import type {
   CompaniesRepository,
   CompanyCountByResult,
@@ -911,6 +919,32 @@ export const makeCompaniesRepo = (
     }
   };
 
+  // ── ANAF-assumed main activity (four public views; optional) ──────────────
+  const getMainActivity = (rawCui: string, options: { readonly flags: boolean }) => {
+    const cui = normalizeCui(rawCui);
+    if (cui === null) return Promise.resolve(err(invalidInput('invalid CUI format', 'cui')));
+    return readMainActivity(db, cui, options);
+  };
+  const getMainActivityHistoryVisibility = (
+    rawCui: string,
+    kind: CompanyMainActivityHistoryKind,
+    ids: readonly string[]
+  ) => {
+    const cui = normalizeCui(rawCui);
+    if (cui === null) return Promise.resolve(err(invalidInput('invalid CUI format', 'cui')));
+    return readMainActivityHistoryVisibility(db, cui, kind, ids);
+  };
+  const readMainWitness = (rawCui: string) => {
+    const cui = normalizeCui(rawCui);
+    if (cui === null) return Promise.resolve(err(invalidInput('invalid CUI format', 'cui')));
+    return readMainActivityWitness(db, cui);
+  };
+  const getMainActivityHistory = (rawCui: string, request: MainHistoryPageRequest) => {
+    const cui = normalizeCui(rawCui);
+    if (cui === null) return Promise.resolve(err(invalidInput('invalid CUI format', 'cui')));
+    return readMainActivityHistory(db, cui, request);
+  };
+
   // ── list / filter ───────────────────────────────────────────────────────────
   /**
    * Rows and the bounded total share ONE WHERE over the same spine population
@@ -1588,6 +1622,10 @@ export const makeCompaniesRepo = (
     getFinancialQualityAssessment,
     getRegistrationDiffData,
     getActivityEvidence,
+    getMainActivity,
+    readMainActivityWitness: readMainWitness,
+    getMainActivityHistory,
+    readMainActivityHistoryVisibility: getMainActivityHistoryVisibility,
     listCompanies,
     countCompanies,
     resolveByName,

@@ -19,6 +19,7 @@ import {
   invalidInput,
   isAccessRefusal,
   makeEntityProfileSlice,
+  normalizeCui,
   normalizeOffset,
   owningResultGuardOf,
   responsePathOf,
@@ -28,7 +29,7 @@ import {
   type FilterInput,
 } from '@/modules/shared/index.js';
 
-import { selectedFieldNames } from './selected-fields.js';
+import { selectedFieldNames, selectedSubfieldNames } from './selected-fields.js';
 import { companiesFilterSpec } from '../../core/filters.js';
 import {
   confirmServedScope,
@@ -36,7 +37,10 @@ import {
   type CompanyRegistryEnvelope,
 } from '../../core/registry.js';
 import {
+  confirmMainActivityHistoryServed,
+  confirmMainActivityServed,
   makeCompanyComposition,
+  makeCompanyMainActivityHistory,
   makeCompanyCountyProfile,
   makeCompanyFinancials,
   makeCompanyList,
@@ -50,6 +54,7 @@ import {
   type CompanyUsecaseDeps,
 } from '../../core/usecases.js';
 
+import type { CompanyMainActivityHistoryKind } from '../../core/main-activity.js';
 import type { CompaniesRepository } from '../../core/ports.js';
 import type {
   CompanyEntitySlice,
@@ -103,6 +108,8 @@ const GQL_GROUP_BY: Readonly<Record<string, CompanyGroupBy>> = {
   STATUS: 'status',
   CAEN_DIVISION: 'caenDivision',
 };
+/** The CompanyCaenActivity fields only the main part can answer. */
+const MAIN_FLAG_FIELDS = ['isMainCaen', 'matchesAssumedMainCode'] as const;
 const GQL_RESOLVE_DIM: Readonly<Record<string, CompanyResolveDim>> = {
   NAME: 'name',
   REGNUM: 'regnum',
@@ -157,12 +164,18 @@ export const makeCompaniesResolvers = (deps: CompaniesResolverDeps): Record<stri
         info?: GraphQLResolveInfo
       ) => {
         const selected = selectedFieldNames(info);
+        // The flags alone (through any alias, fragment or directive) need
+        // the main part too: they are never answered from another read.
+        const activityFields = selectedSubfieldNames(info, 'caenActivities');
         const composition = unwrap(
           await makeCompanyComposition(deps, args.cui, {
             publicMoney: selected.has('publicMoney'),
             financialQualityAssessment: selected.has('financialQualityAssessment'),
             registrationDiff: selected.has('registrationDiff'),
             activitySelection: selected.has('activitySelection'),
+            mainActivity: selected.has('mainActivity'),
+            // The bounded flag list only when a flag is selected.
+            mainFlags: MAIN_FLAG_FIELDS.some((field) => activityFields.has(field)),
           })
         );
         if (composition === null) return null;
@@ -176,8 +189,30 @@ export const makeCompaniesResolvers = (deps: CompaniesResolverDeps): Record<stri
           guard.confirm(responsePathOf(info.path), () =>
             confirmServedScope(deps.repo, registry.registry, [cui])
           );
+          // Served main facts (header and flags) must still hold when the
+          // whole operation settled: the fresh witness, never a re-read.
+          const main = composition.mainActivity;
+          if (main?.isOk() === true) {
+            const { witness } = main.value;
+            guard.confirm(responsePathOf(info.path), () =>
+              confirmMainActivityServed(deps.repo, cui, witness)
+            );
+          }
         }
-        return { ...composition.profile, [PREPARED]: composition };
+        const main = composition.mainActivity;
+        return {
+          ...composition.profile,
+          // Flags only from the settled main part (null = unknown otherwise).
+          caenActivities:
+            main?.isOk() === true
+              ? main.value.caenActivities
+              : composition.profile.caenActivities.map((a) => ({
+                  ...a,
+                  isMainCaen: null,
+                  matchesAssumedMainCode: null,
+                })),
+          [PREPARED]: composition,
+        };
       },
 
       companies: async (
@@ -294,6 +329,44 @@ export const makeCompaniesResolvers = (deps: CompaniesResolverDeps): Record<stri
 
       // Fresh, never cached: the client pins against it.
       companyRegistry: async () => unwrap(await makeCompanyRegistry(deps)),
+
+      // Own pin and settle; like a Company root, the served page (its CUI and
+      // scope) is decided once more when the whole operation settled.
+      companyMainActivityHistory: async (
+        _r: unknown,
+        args: {
+          cui: string;
+          kind?: CompanyMainActivityHistoryKind;
+          first?: number;
+          after?: string | null;
+        },
+        context?: unknown,
+        info?: GraphQLResolveInfo
+      ) => {
+        const page = unwrap(
+          await makeCompanyMainActivityHistory(deps, args.cui, {
+            // The enum map below delivers the internal value ('outcomes' | 'evidence').
+            kind: args.kind === 'evidence' ? 'evidence' : 'outcomes',
+            ...(args.first !== undefined && { first: args.first }),
+            ...(args.after !== undefined && { after: args.after }),
+          })
+        );
+        const guard = owningResultGuardOf(context);
+        const cui = normalizeCui(args.cui);
+        if (page !== null && cui !== null && guard !== null && info !== undefined) {
+          const scope = page.registry;
+          const owner = responsePathOf(info.path);
+          guard.confirm(owner, () => confirmServedScope(deps.repo, scope, [cui]));
+          // The EXACT served rows keep their visibility (an old edition or the
+          // fiscal row withdrawn while another root was pending), else this
+          // root (its own alias path) is withheld.
+          const served = page.served;
+          if (served !== null) {
+            guard.confirm(owner, () => confirmMainActivityHistoryServed(deps.repo, cui, served));
+          }
+        }
+        return page;
+      },
     },
 
     Company: {
@@ -310,6 +383,9 @@ export const makeCompaniesResolvers = (deps: CompaniesResolverDeps): Record<stri
       // Same pin; an aggregate past its bound is this nullable field's typed refusal.
       activitySelection: (parent: object) =>
         unwrap(partsOf(parent)?.activitySelection ?? notPrepared()),
+      // Same pin, settled by the fresh main recheck after every other part.
+      mainActivity: (parent: object) =>
+        unwrap((partsOf(parent)?.mainActivity ?? notPrepared()).map((part) => part.read)),
     },
 
     CompanyRegistryEnvelope: {
@@ -438,6 +514,61 @@ export const makeCompaniesResolvers = (deps: CompaniesResolverDeps): Record<stri
       ANAF_PLACEHOLDER: 'anaf_placeholder',
       ANAF_NOT_USABLE: 'anaf_not_usable',
     },
+    CompanyMainActivityAvailability: {
+      ASSIGNED: 'assigned',
+      NO_ASSIGNMENT: 'no_assignment',
+      UNAVAILABLE: 'unavailable',
+    },
+    CompanyMainActivityRoleBasis: { ANAF_ASSUMED_MAIN: 'anaf_assumed_main' },
+    CompanyMainActivityCurrentness: {
+      CURRENT: 'current',
+      PENDING_REFRESH: 'pending_refresh',
+      SOURCE_WITHDRAWN: 'source_withdrawn',
+      ONRC_UNAVAILABLE: 'onrc_unavailable',
+    },
+    CompanyMainActivityStatus: {
+      RESOLVED: 'resolved',
+      RESOLVED_LATEST_REVISION: 'resolved_latest_revision',
+      NO_ONRC_MATCH: 'no_onrc_match',
+      UNRESOLVED_TOKEN_FORM: 'unresolved_token_form',
+      TOKEN_PLACEHOLDER: 'token_placeholder',
+      TOKEN_INVALID: 'token_invalid',
+      SOURCE_MISSING: 'source_missing',
+      SOURCE_UNBOUND: 'source_unbound',
+      CORRECTED: 'corrected',
+      CORRECTION_WITHHELD: 'correction_withheld',
+    },
+    CompanyMainActivityMatchBasis: { EXACT: 'exact', LEADING_ZERO_MATCH: 'leading_zero_match' },
+    CompanyMainActivityRevisionBasis: {
+      UNIQUE_ONRC_MATCH: 'unique_onrc_match',
+      LATEST_MATCHING_ONRC_REVISION: 'latest_matching_onrc_revision',
+      REVIEWED_CORRECTION: 'reviewed_correction',
+    },
+    CompanyMainActivityTokenForm: {
+      FOUR_DIGIT: 'four_digit',
+      OTHER_DIGIT_FORM: 'other_digit_form',
+      ZERO_PLACEHOLDER: 'zero_placeholder',
+      PLACEHOLDER_9999: 'placeholder_9999',
+      INVALID: 'invalid',
+      ABSENT: 'absent',
+    },
+    CompanyMainActivityJsonType: {
+      STRING: 'string',
+      NUMBER: 'number',
+      NULL: 'null',
+      ABSENT: 'absent',
+      BOOLEAN: 'boolean',
+      OBJECT: 'object',
+      ARRAY: 'array',
+    },
+    CompanyMainActivityEvidenceCustody: {
+      ARCHIVED_EXCHANGE: 'archived_exchange',
+      RETAINED_CUSTODY: 'retained_custody',
+      POINTER_BOUND_AT_DERIVATION: 'pointer_bound_at_derivation',
+      UNBOUND_AT_DERIVATION: 'unbound_at_derivation',
+    },
+    CompanyMainActivityHistoryKind: { OUTCOMES: 'outcomes', EVIDENCE: 'evidence' },
+    CompanyMainActivityHistoryState: { AVAILABLE: 'available', UNAVAILABLE: 'unavailable' },
     CompanyMetricStatus: {
       REPORTED: 'reported',
       MISSING: 'missing',

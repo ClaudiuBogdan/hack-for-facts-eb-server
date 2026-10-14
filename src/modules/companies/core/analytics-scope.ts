@@ -25,6 +25,11 @@
  * `activity` / `activityBasis` (v3 releases only) select the DERIVED activity
  * selection: an ONRC selector needs its revision, an ANAF one has none (ANAF
  * publishes no revision), and neither ever matches the other source.
+ *
+ * `mainActivity` / `mainActivityStatus` (v4 releases only) select the
+ * ANAF-ASSUMED main activity: an exact revision-qualified ONRC key (never a
+ * bare code, never an ANAF selector) or an outcome status. A different
+ * question from ACTIVITY, MAIN_CAEN and the ONRC observation filters.
  */
 
 import { err, ok, type Result } from 'neverthrow';
@@ -48,6 +53,7 @@ import {
   COMPANY_ANALYSIS_FILING,
   COMPANY_ANALYSIS_FLAG_VALUES,
   COMPANY_ANALYSIS_LIMITS,
+  COMPANY_ANALYSIS_MAIN_ACTIVITY_STATUSES,
   COMPANY_ANALYSIS_METRICS,
   COMPANY_ANALYSIS_ONRC_BASES,
   COMPANY_ANALYSIS_SIZE_BANDS,
@@ -62,6 +68,8 @@ import {
   type CompanyAnalysisFiling,
   type CompanyAnalysisFlagValue,
   type CompanyAnalysisKeyFilter,
+  type CompanyAnalysisMainActivityKey,
+  type CompanyAnalysisMainActivityStatus,
   type CompanyAnalysisOnrcBasis,
   type CompanyAnalysisOnrcExclude,
   type CompanyAnalysisOnrcFilter,
@@ -93,6 +101,8 @@ const SCOPE_FIELDS = [
   'onrc',
   'activity',
   'activityBasis',
+  'mainActivity',
+  'mainActivityStatus',
 ] as const;
 
 const ONRC_FIELDS = ['status', 'county', 'caenCode', 'onrcCaen', 'exclude'] as const;
@@ -407,6 +417,39 @@ const readActivity = (
   return ok([...byKey.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([, s]) => s));
 };
 
+/** `scope.mainActivity`: exact {revision, code} ONRC keys, de-duplicated and sorted by key. */
+const readMainActivity = (
+  raw: unknown
+): Result<readonly CompanyAnalysisMainActivityKey[] | undefined, ApiError> => {
+  const name = 'mainActivity';
+  const list = readList(raw, name, COMPANY_ANALYSIS_LIMITS.maxMainActivities);
+  if (list.isErr()) return err(list.error);
+  if (list.value === undefined) return ok(undefined);
+  const byKey = new Map<string, CompanyAnalysisMainActivityKey>();
+  for (const value of list.value) {
+    if (!isRecord(value))
+      return err(invalidInput(`${field(name)} items must be { revision, code }`, field(name)));
+    const extra = Object.keys(value).filter((key) => key !== 'revision' && key !== 'code');
+    if (extra.length > 0)
+      return err(
+        invalidInput(`${field(name)} items have unknown keys: ${extra.join(', ')}`, field(name))
+      );
+    const revision = value['revision'];
+    const code = value['code'];
+    if (typeof revision !== 'string' || !ONRC_REVISION_RE.test(revision))
+      return err(
+        invalidInput(
+          `${field(name)} needs the ONRC key's revision rev0..rev3 (a main key is never a bare code)`,
+          field(name)
+        )
+      );
+    if (typeof code !== 'string' || !ONRC_CAEN_RE.test(code))
+      return err(invalidInput(`${field(name)} code must be a 4-digit CAEN code`, field(name)));
+    byKey.set(`${revision}:${code}`, { revision, code });
+  }
+  return ok([...byKey.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([, k]) => k));
+};
+
 const readRanges = (
   raw: unknown
 ): Result<readonly CompanyAnalysisRange[] | undefined, ApiError> => {
@@ -577,6 +620,18 @@ export const parseScopeShape = (raw: unknown): Result<CompanyAnalysisScopeShape,
   if (activityBasis.isErr()) return err(activityBasis.error);
   if (activityBasis.value !== undefined) out.activityBasis = activityBasis.value;
 
+  const mainActivity = readMainActivity(raw['mainActivity']);
+  if (mainActivity.isErr()) return err(mainActivity.error);
+  if (mainActivity.value !== undefined) out.mainActivity = mainActivity.value;
+
+  const mainActivityStatus = readEnums<CompanyAnalysisMainActivityStatus>(
+    raw['mainActivityStatus'],
+    'mainActivityStatus',
+    COMPANY_ANALYSIS_MAIN_ACTIVITY_STATUSES
+  );
+  if (mainActivityStatus.isErr()) return err(mainActivityStatus.error);
+  if (mainActivityStatus.value !== undefined) out.mainActivityStatus = mainActivityStatus.value;
+
   // A non-filer has no statement, so it can carry no reported value or band.
   if (
     out.filing === 'NOT_FILED' &&
@@ -672,6 +727,9 @@ export const canonicalScope = (scope: CompanyAnalysisScope): Readonly<Record<str
         : { source: a.source, code: a.code, revision: a.revision }
     );
   if (scope.activityBasis !== undefined) echo['activityBasis'] = scope.activityBasis;
+  if (scope.mainActivity !== undefined)
+    echo['mainActivity'] = scope.mainActivity.map((k) => ({ revision: k.revision, code: k.code }));
+  if (scope.mainActivityStatus !== undefined) echo['mainActivityStatus'] = scope.mainActivityStatus;
   return echo;
 };
 

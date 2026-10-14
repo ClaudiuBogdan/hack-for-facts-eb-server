@@ -28,10 +28,13 @@ import {
   COMPANY_ANALYSIS_LIMITS,
   COMPANY_ANALYSIS_METRICS,
   COMPANY_ANALYSIS_POPULATION_POLICY_VERSION,
+  COMPANY_ANALYSIS_DIMENSIONS_BY_SCHEMA,
+  COMPANY_ANALYSIS_MAIN_POLICY,
   COMPANY_ANALYSIS_SCHEMA_VERSION_V3,
+  COMPANY_ANALYSIS_SCHEMA_VERSION_V4,
   COMPANY_ANALYSIS_SCHEMA_VERSIONS,
   COMPANY_ANALYSIS_SIZE_BANDS,
-  COMPANY_ANALYSIS_V3_DIMENSIONS,
+  COMPANY_ANALYSIS_STAGED_SCHEMA_VERSIONS,
   COMPANY_ANALYSIS_SOURCE_VERSIONS,
   COMPANY_ANALYSIS_STATUSES,
   COVERAGE_FIELD,
@@ -42,11 +45,13 @@ import {
   STATUS_VALUE,
   metricKind,
   metricUnit,
+  type CompanyAnalysisCapability,
   type CompanyAnalysisCapabilityError,
   type CompanyAnalysisCoverage,
   type CompanyAnalysisDimension,
   type CompanyAnalysisDimensionCapability,
   type CompanyAnalysisFrontierEntry,
+  type CompanyAnalysisMainCaenPin,
   type CompanyAnalysisMetric,
   type CompanyAnalysisRelease,
   type CompanyAnalysisScope,
@@ -242,6 +247,11 @@ export const ACTIVITY_CAVEATS: readonly string[] = [
   'ONRC CAEN filters (onrc.caenCode, onrc.onrcCaen and their exclusion) match classified observations only in this release: short tokens, unknown revisions and unlabeled keys stay evidence.',
 ];
 
+/** The v4 additions to the release caveats. */
+export const MAIN_ACTIVITY_CAVEATS: readonly string[] = [
+  "MAIN_ACTIVITY is the ANAF-assumed main activity (policy anaf-assumed-main-caen-v1): the ANAF fiscal CAEN code assumed to be the main activity and matched as leading-zero-free digits to the company's qualified ONRC class keys of the pinned edition, latest known revision; never an ONRC principal flag and never the derived ACTIVITY selection. One outcome per company; unresolved statuses are explicit buckets, never ranked. The label is the exact revision-qualified label frozen in the release; release.mainCaen names the main state it was exported from.",
+];
+
 const DIMENSION_LABEL_SOURCE: Readonly<Record<CompanyAnalysisDimension, string>> = {
   COUNTY:
     'territory_hub: current public core.territories county name by county_code; basis buckets have no label',
@@ -250,6 +260,8 @@ const DIMENSION_LABEL_SOURCE: Readonly<Record<CompanyAnalysisDimension, string>>
     'current_db_catalog: core.classification_codes candidates of the ANAF fiscal CAEN code; ANAF TVA publishes no revision, so a label only when every catalog revision has the same text (CONSENSUS) and an exact label only for a revision the source itself recorded; never an inferred revision',
   ACTIVITY:
     'current_db_catalog: an ONRC bucket carries the exact catalog label of its (revision, code); an ANAF bucket a CONSENSUS candidate label or none (ANAF publishes no revision); unclassified buckets have no label',
+  MAIN_ACTIVITY:
+    'frozen_in_release: the exact revision-qualified label of the selected ONRC key, frozen in the release (never a current catalog lookup); unresolved buckets have no label',
   LEGAL_FORM: 'none: the ONRC legal-form code is shown',
   OBSERVED_STATUS:
     'api_nomenclature: the API status nomenclature by code (never a source-observed label); basis buckets have no label',
@@ -263,14 +275,52 @@ const capabilityOf = (dimension: CompanyAnalysisDimension): CompanyAnalysisDimen
   yearScoped: dimension === 'EMPLOYEE_SIZE',
   labelSource: DIMENSION_LABEL_SOURCE[dimension],
 });
-/** v3: every dimension. */
-const V3_DIMENSIONS: readonly CompanyAnalysisDimensionCapability[] =
-  COMPANY_ANALYSIS_DIMENSIONS.map(capabilityOf);
-/** v2: exactly its own dimensions, as before v3 existed. */
-const V2_DIMENSIONS: readonly CompanyAnalysisDimensionCapability[] =
-  COMPANY_ANALYSIS_DIMENSIONS.filter(
-    (dimension) => !COMPANY_ANALYSIS_V3_DIMENSIONS.includes(dimension)
-  ).map(capabilityOf);
+/**
+ * The schema's EXPLICIT dimension list (`COMPANY_ANALYSIS_DIMENSIONS_BY_SCHEMA`),
+ * in vocabulary order: a dimension added to the enum is never advertised by
+ * a release whose schema does not list it.
+ */
+const dimensionsOf = (schemaVersion: string): readonly CompanyAnalysisDimensionCapability[] => {
+  const listed = COMPANY_ANALYSIS_DIMENSIONS_BY_SCHEMA[schemaVersion] ?? [];
+  return COMPANY_ANALYSIS_DIMENSIONS.filter((dimension) => listed.includes(dimension)).map(
+    capabilityOf
+  );
+};
+
+const MAIN_PIN_KEYS = ['contentEpoch', 'editionId', 'policy', 'refreshId'] as const;
+const EPOCH_RE = /^(0|[1-9][0-9]{0,18})$/u;
+
+/**
+ * A v4 release's main-state pin (`inputs.mainCaen`): exactly the four keys,
+ * canonical ids, the supported policy, and the same edition as the ONRC
+ * source pin, else a reason. Never completed from the live main state.
+ */
+export const parseMainCaenPin = (
+  raw: unknown,
+  onrcEditionId: string
+): Result<CompanyAnalysisMainCaenPin, string> => {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw))
+    return err('release main pin (inputs.mainCaen) is missing or not an object');
+  const record = raw as Readonly<Record<string, unknown>>;
+  const keys = Object.keys(record).sort();
+  if (keys.length !== MAIN_PIN_KEYS.length || keys.some((key, i) => key !== MAIN_PIN_KEYS[i]))
+    return err('release main pin (inputs.mainCaen) does not have exactly the four pin keys');
+  const { contentEpoch, refreshId, policy, editionId } = record;
+  if (
+    typeof contentEpoch !== 'string' ||
+    !EPOCH_RE.test(contentEpoch) ||
+    BigInt(contentEpoch) > PG_BIGINT_MAX ||
+    !isPinId(refreshId) ||
+    !isPinId(editionId) ||
+    typeof policy !== 'string'
+  )
+    return err('release main pin (inputs.mainCaen) is malformed');
+  if (policy !== COMPANY_ANALYSIS_MAIN_POLICY)
+    return err(`release main pin has unsupported policy ${policy}`);
+  if (editionId !== onrcEditionId)
+    return err('release main pin names another ONRC edition than the source pin');
+  return ok({ contentEpoch, refreshId, policy, editionId });
+};
 
 const parseYear = (
   fiscalYear: number,
@@ -346,11 +396,16 @@ export const parseRelease = (
 ): Result<CompanyAnalysisRelease, string> => {
   const releaseNumber = parseReleaseNumber(row.releaseId);
   if (releaseNumber === null) return err('release id is not a positive safe integer');
+  if (COMPANY_ANALYSIS_STAGED_SCHEMA_VERSIONS.includes(row.schemaVersion))
+    return err(
+      `release schema ${row.schemaVersion} is staged in this reader: its MAIN_ACTIVITY export contract has not been validated yet (it serves ${COMPANY_ANALYSIS_SCHEMA_VERSIONS.join(', ')} only)`
+    );
   if (!COMPANY_ANALYSIS_SCHEMA_VERSIONS.includes(row.schemaVersion))
     return err(
       `release schema ${row.schemaVersion} is not supported by this reader (it serves ${COMPANY_ANALYSIS_SCHEMA_VERSIONS.join(', ')} only)`
     );
   const v3 = row.schemaVersion === COMPANY_ANALYSIS_SCHEMA_VERSION_V3;
+  const v4 = row.schemaVersion === COMPANY_ANALYSIS_SCHEMA_VERSION_V4;
   if (row.populationPolicyVersion !== COMPANY_ANALYSIS_POPULATION_POLICY_VERSION)
     return err(
       `release population ${row.populationPolicyVersion} is not supported by this reader (it serves ${COMPANY_ANALYSIS_POPULATION_POLICY_VERSION} only)`
@@ -362,6 +417,16 @@ export const parseRelease = (
       : undefined
   );
   if (source.isErr()) return err(source.error);
+  // Only a v4 release carries (and must carry) the main-state pin.
+  let mainCaen: CompanyAnalysisMainCaenPin | null = null;
+  if (v4) {
+    const pin = parseMainCaenPin(
+      (inputs as Readonly<Record<string, unknown>>)['mainCaen'],
+      source.value.editionId
+    );
+    if (pin.isErr()) return err(pin.error);
+    mainCaen = pin.value;
+  }
   if (row.clickhouseDatabase !== expectedDatabase)
     return err('release names a different analytics database');
   if (
@@ -410,7 +475,11 @@ export const parseRelease = (
     : (metrics.find((m) => m.offeredYears.includes(fiscalYear))?.metric ?? DEFAULT_METRIC);
 
   const frontier = parseFrontier(row.inputs);
-  const releaseCaveats = v3 ? [...RELEASE_CAVEATS, ...ACTIVITY_CAVEATS] : RELEASE_CAVEATS;
+  const releaseCaveats = v4
+    ? [...RELEASE_CAVEATS, ...ACTIVITY_CAVEATS, ...MAIN_ACTIVITY_CAVEATS]
+    : v3
+      ? [...RELEASE_CAVEATS, ...ACTIVITY_CAVEATS]
+      : RELEASE_CAVEATS;
   const caveats =
     frontier === null
       ? [...releaseCaveats, 'The input as-of frontier of this release could not be read.']
@@ -436,7 +505,7 @@ export const parseRelease = (
     fiscalYears,
     years,
     metrics,
-    dimensions: v3 ? V3_DIMENSIONS : V2_DIMENSIONS,
+    dimensions: dimensionsOf(row.schemaVersion),
     defaults: {
       fiscalYear,
       metric,
@@ -452,6 +521,7 @@ export const parseRelease = (
     nameFilter: false,
     limits: COMPANY_ANALYSIS_LIMITS,
     caveats,
+    mainCaen,
   });
 };
 
@@ -474,35 +544,67 @@ export const offersDimension = (
   dimension: CompanyAnalysisDimension
 ): boolean => release.dimensions.some((d) => d.dimension === dimension);
 
+const CAPABILITY_HINT: Readonly<Record<CompanyAnalysisCapability, string>> = {
+  ACTIVITY: `needs ${COMPANY_ANALYSIS_SCHEMA_VERSION_V3}; use MAIN_CAEN / onrc filters or pin a release that lists ACTIVITY`,
+  MAIN_ACTIVITY: `needs ${COMPANY_ANALYSIS_SCHEMA_VERSION_V4}; ACTIVITY, MAIN_CAEN and the onrc filters answer different questions (never the ANAF-assumed main activity): pin a release that lists MAIN_ACTIVITY`,
+};
+
 const capabilityRefused = (
   release: CompanyAnalysisRelease,
+  capability: CompanyAnalysisCapability,
   field: string,
   what: string
 ): CompanyAnalysisCapabilityError => ({
   type: 'ReleaseCapabilityUnavailable',
-  message: `companies analytics release ${release.ref.releaseId} (${release.schemaVersion}) does not carry the ACTIVITY capability: ${what} needs ${COMPANY_ANALYSIS_SCHEMA_VERSION_V3}; use MAIN_CAEN / onrc filters or pin a release that lists ACTIVITY`,
+  message: `companies analytics release ${release.ref.releaseId} (${release.schemaVersion}) does not carry the ${capability} capability: ${what} ${CAPABILITY_HINT[capability]}`,
   field,
-  capability: 'ACTIVITY',
+  capability,
   releaseId: release.ref.releaseId,
   schemaVersion: release.schemaVersion,
 });
 
 /**
- * The typed refusal of a request this release cannot answer: the ACTIVITY
- * dimension or the activity / activityBasis filters on a release that does
- * not list ACTIVITY (a v2 release). Checked before any engine call.
+ * The typed refusal of a request this release cannot answer, checked before
+ * any engine call and per capability (one capability offered never skips the
+ * check of another):
+ *  - MAIN_ACTIVITY: the dimension or the mainActivity / mainActivityStatus
+ *    filters on a release that does not list MAIN_ACTIVITY (v2, v3);
+ *  - ACTIVITY: the dimension or the activity / activityBasis filters on a
+ *    release that does not list ACTIVITY (v2).
  */
 export const requireCapabilities = (
   release: CompanyAnalysisRelease,
   scope: CompanyAnalysisScope,
   dimension?: CompanyAnalysisDimension
 ): Result<void, CompanyAnalysisCapabilityError> => {
-  if (offersDimension(release, 'ACTIVITY')) return ok(undefined);
-  if (dimension === 'ACTIVITY')
-    return err(capabilityRefused(release, 'dimension', 'the ACTIVITY dimension'));
-  if (scope.activity !== undefined)
-    return err(capabilityRefused(release, 'scope.activity', 'the activity filter'));
-  if (scope.activityBasis !== undefined)
-    return err(capabilityRefused(release, 'scope.activityBasis', 'the activityBasis filter'));
+  if (!offersDimension(release, 'MAIN_ACTIVITY')) {
+    if (dimension === 'MAIN_ACTIVITY')
+      return err(
+        capabilityRefused(release, 'MAIN_ACTIVITY', 'dimension', 'the MAIN_ACTIVITY dimension')
+      );
+    if (scope.mainActivity !== undefined)
+      return err(
+        capabilityRefused(release, 'MAIN_ACTIVITY', 'scope.mainActivity', 'the mainActivity filter')
+      );
+    if (scope.mainActivityStatus !== undefined)
+      return err(
+        capabilityRefused(
+          release,
+          'MAIN_ACTIVITY',
+          'scope.mainActivityStatus',
+          'the mainActivityStatus filter'
+        )
+      );
+  }
+  if (!offersDimension(release, 'ACTIVITY')) {
+    if (dimension === 'ACTIVITY')
+      return err(capabilityRefused(release, 'ACTIVITY', 'dimension', 'the ACTIVITY dimension'));
+    if (scope.activity !== undefined)
+      return err(capabilityRefused(release, 'ACTIVITY', 'scope.activity', 'the activity filter'));
+    if (scope.activityBasis !== undefined)
+      return err(
+        capabilityRefused(release, 'ACTIVITY', 'scope.activityBasis', 'the activityBasis filter')
+      );
+  }
   return ok(undefined);
 };

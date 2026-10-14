@@ -43,7 +43,7 @@
 import { Type } from '@sinclair/typebox';
 import { err, ok } from 'neverthrow';
 
-import { databaseError } from '@/modules/shared/index.js';
+import { databaseError, serviceUnavailable } from '@/modules/shared/index.js';
 
 import { makeQueryParams, type ClickhouseReader, type QueryParams } from './clickhouse-reader.js';
 import { companyTableName, companyYearTableName } from '../../core/analytics-release.js';
@@ -389,7 +389,23 @@ const readAggregate = (
 const flagExpression = (column: string): string =>
   `multiIf(${column} IS NULL, NULL, ${column}, 'YES', 'NO')`;
 
-const DIMENSION_PARTS: Readonly<Record<CompanyAnalysisDimension, readonly string[]>> = {
+/**
+ * MAIN_ACTIVITY (v4) is STAGED: no served release carries its columns (the
+ * reader refuses v4 releases and `requireCapabilities` refuses the dimension
+ * and the main filters first). Reached anyway, the engine fails closed: a
+ * main filter is never ignored and the dimension never guessed.
+ */
+export const MAIN_ACTIVITY_STAGED_MESSAGE =
+  'MAIN_ACTIVITY is staged in this reader: no validated v4 export contract (columns) exists yet';
+
+const usesMainActivity = (scope: CompanyAnalysisScope): boolean =>
+  scope.mainActivity !== undefined || scope.mainActivityStatus !== undefined;
+
+const mainActivityStaged = () => err(serviceUnavailable(MAIN_ACTIVITY_STAGED_MESSAGE));
+
+const DIMENSION_PARTS: Readonly<
+  Record<Exclude<CompanyAnalysisDimension, 'MAIN_ACTIVITY'>, readonly string[]>
+> = {
   // Consensus value and its basis (the bucket of a CUI without a value).
   COUNTY: ['county_code', 'county_basis'],
   UAT: ['uat_siruta', 'uat_basis'],
@@ -509,6 +525,7 @@ export const makeClickhouseAnalyticsEngine = (
     releaseNumber,
     scope
   ) => {
+    if (usesMainActivity(scope)) return mainActivityStaged();
     const t = tablesOf(releaseNumber);
     const p = makeQueryParams();
     const rows = await reader.query(
@@ -528,6 +545,7 @@ export const makeClickhouseAnalyticsEngine = (
     scope,
     metrics
   ) => {
+    if (usesMainActivity(scope)) return mainActivityStaged();
     if (scope.filing === 'NOT_FILED') return ok({ filers: '0', metrics: new Map() });
     const t = tablesOf(releaseNumber);
     const p = makeQueryParams();
@@ -556,6 +574,7 @@ export const makeClickhouseAnalyticsEngine = (
     dimension,
     metric
   ) => {
+    if (dimension === 'MAIN_ACTIVITY' || usesMainActivity(scope)) return mainActivityStaged();
     const t = tablesOf(releaseNumber);
     const parts = DIMENSION_PARTS[dimension];
     const keys = parts.map((_, i) => `k${String(i)}`);
@@ -643,6 +662,7 @@ export const makeClickhouseAnalyticsEngine = (
     toYear,
     mode
   ) => {
+    if (usesMainActivity(scope)) return mainActivityStaged();
     const t = tablesOf(releaseNumber);
     const yearsSchema = Type.Object({
       year_text: Type.String({ pattern: '^[0-9]{4}$' }),
@@ -700,6 +720,7 @@ export const makeClickhouseAnalyticsEngine = (
   };
 
   const records: CompanyAnalysisEngine['records'] = async (releaseNumber, scope, request) => {
+    if (usesMainActivity(scope)) return mainActivityStaged();
     const t = tablesOf(releaseNumber);
     const p = makeQueryParams();
     const sortMetric = request.sort === 'METRIC' ? request.sortMetric : null;

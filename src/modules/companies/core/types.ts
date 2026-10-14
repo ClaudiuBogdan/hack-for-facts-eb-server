@@ -16,6 +16,7 @@
  */
 
 import type { CompanyActivitySelection } from './activity-selection.js';
+import type { CompanyMainActivityFlags, CompanyMainActivityRead } from './main-activity.js';
 import type {
   CompanyCaenCatalogLabel,
   CompanyCaenClassState,
@@ -604,6 +605,15 @@ export interface CompanySnapshot extends CompanyProfile {
    */
   readonly activitySelection: CompanyActivitySelection | null;
   readonly activitySelectionRefusal: string | null;
+  /** The activity rows with the two main flags (null = unknown / not applicable). */
+  readonly caenActivities: readonly (CompanyCaenActivity & CompanyMainActivityFlags)[];
+  /**
+   * The ANAF-assumed main activity read inside the same pin and settled by
+   * the fresh main recheck after every other part. Null only when refused
+   * (`mainActivityRefusal` says why); no assignment / unavailable are states.
+   */
+  readonly mainActivity: CompanyMainActivityRead | null;
+  readonly mainActivityRefusal: string | null;
 }
 
 /** A row in the filterable company list (lean; no fan-out). */

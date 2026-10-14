@@ -336,6 +336,10 @@ const objectsAndQuery = /* GraphQL */ `
     source: String!
     "current_db_catalog when label is set."
     labelSource: String
+    "Read only when selected (with Company.mainActivity, the same statement and recheck). true only on the ONRC CLASS row whose exact (revision, code) is the selected key of the ANAF-ASSUMED main activity, false on the other ONRC CLASS rows, while that assignment is CURRENT in this pinned edition; null otherwise (the anaf row, a SHORT_TOKEN / UNKNOWN_REVISION / UNLABELED_KEY / UNPARSED row even with the same digits, an assignment that is pending, withdrawn, unavailable or absent, a CLASS row the flag view does not list, and every row when the bounded flag list of 2000 keys is unreadable or past its bound; mainActivity itself is still served). An assumption from ANAF, never an ONRC principal flag."
+    isMainCaen: Boolean
+    "Same gates as isMainCaen: the row's leading-zero-free digits equal the ANAF assumed token's (e.g. ONRC 0610 and ANAF '610'). Distinct from isMainCaen: true on every CLASS row with those digits (several revisions), also when another key was selected or none."
+    matchesAssumedMainCode: Boolean
   }
   "Restricted in companies_v2; public profile returns an empty list until an authorized surface is added."
   type CompanyRepresentative {
@@ -666,6 +670,267 @@ const objectsAndQuery = /* GraphQL */ `
     agreement: CompanyAnafOnrcAgreement!
   }
 
+  "Whether this runtime could read the ANAF-assumed main activity of the company."
+  enum CompanyMainActivityAvailability {
+    "An assignment exists (see activity.currentness)."
+    ASSIGNED
+    "Readable, but no assignment has been derived for the company yet. NOT 'no main activity'."
+    NO_ASSIGNMENT
+    "This runtime cannot read the main-activity surfaces (not deployed or not granted). Nothing is inferred."
+    UNAVAILABLE
+  }
+  "The role of the main activity: an assumption from ANAF, never an ONRC principal flag."
+  enum CompanyMainActivityRoleBasis {
+    "The ANAF fiscal cod_CAEN of the company's current public fiscal row, ASSUMED to be its main activity."
+    ANAF_ASSUMED_MAIN
+  }
+  "Decided at read time by the data layer."
+  enum CompanyMainActivityCurrentness {
+    "Every pin of the refresh (edition and publication epoch, privacy epoch, catalog, policies, corrections) and the company's full fiscal tuple still hold."
+    CURRENT
+    "The last assignment with its dates; inputs moved since. Never called current; no main flags."
+    PENDING_REFRESH
+    "The company's fiscal row is no longer public: every ANAF field and the interpretation are suppressed."
+    SOURCE_WITHDRAWN
+    "The pinned edition is withdrawn, or this response's registry scope is not published: ONRC fields and the interpretation are suppressed."
+    ONRC_UNAVAILABLE
+  }
+  enum CompanyMainActivityStatus {
+    "Exactly one qualified ONRC class key of the pinned edition has the token's digits."
+    RESOLVED
+    "Several revisions of the same code: the latest known revision was selected (all candidates listed)."
+    RESOLVED_LATEST_REVISION
+    "A four-digit ANAF token without a matching ONRC class key: the assumed code with an UNKNOWN revision and no label."
+    NO_ONRC_MATCH
+    "A non-four-digit token without a matching ONRC class key: no code is assumed from padding."
+    UNRESOLVED_TOKEN_FORM
+    "All zeros or 9999: never matched."
+    TOKEN_PLACEHOLDER
+    "Not a digit token (sign, decimal, exponent, letters, non-ASCII digits, boolean, object, array)."
+    TOKEN_INVALID
+    "No public fiscal row, or no cod_CAEN in it. Missing evidence, not 'no main activity'."
+    SOURCE_MISSING
+    "The original raw token could not be bound to the served fiscal observation."
+    SOURCE_UNBOUND
+    "A reviewed correction selected the key."
+    CORRECTED
+    "A reviewed correction withheld a resolution."
+    CORRECTION_WITHHELD
+  }
+  enum CompanyMainActivityMatchBasis {
+    "A four-digit original equal to the ONRC code."
+    EXACT
+    "Equal after stripping leading zeros on both sides (ANAF '610' / '000610' and ONRC 0610)."
+    LEADING_ZERO_MATCH
+  }
+  enum CompanyMainActivityRevisionBasis {
+    UNIQUE_ONRC_MATCH
+    LATEST_MATCHING_ONRC_REVISION
+    REVIEWED_CORRECTION
+  }
+  enum CompanyMainActivityTokenForm {
+    FOUR_DIGIT
+    OTHER_DIGIT_FORM
+    ZERO_PLACEHOLDER
+    PLACEHOLDER_9999
+    INVALID
+    ABSENT
+  }
+  "The JSON type of the original ANAF token."
+  enum CompanyMainActivityJsonType {
+    STRING
+    NUMBER
+    NULL
+    ABSENT
+    BOOLEAN
+    OBJECT
+    ARRAY
+  }
+  enum CompanyMainActivityEvidenceCustody {
+    "Attested from the immutable raw exchange."
+    ARCHIVED_EXCHANGE
+    "A retained raw observation (the mutable pointer had moved)."
+    RETAINED_CUSTODY
+    "Legacy: the original raw response may no longer be retained (the token and hashes are)."
+    POINTER_BOUND_AT_DERIVATION
+    "No raw evidence bound."
+    UNBOUND_AT_DERIVATION
+  }
+  enum CompanyMainActivityHistoryKind {
+    "Outcome changes (status, token, candidates, selected key and frozen label, correction, policy)."
+    OUTCOMES
+    "Evidence changes (fiscal observation, dates, custody, ONRC diagnostics) with an outcome unchanged or changed."
+    EVIDENCE
+  }
+  enum CompanyMainActivityHistoryState {
+    AVAILABLE
+    "This runtime cannot read the history surfaces. Nothing is inferred."
+    UNAVAILABLE
+  }
+  "The selected exact ONRC class key."
+  type CompanyMainActivityKey {
+    "rev0..rev3: the revision of the selected ONRC key (ANAF publishes none)."
+    revision: String!
+    code: String!
+    "The catalog label of exactly (revision, code), frozen when derived."
+    label: String!
+    "frozen_at_derivation."
+    labelSource: String!
+  }
+  "A matching qualified ONRC class key (no label is frozen for candidates)."
+  type CompanyMainActivityCandidateKey {
+    revision: String!
+    code: String!
+  }
+  type CompanyMainActivityEdition {
+    editionId: BigInt!
+    "ONRC source date of the edition (YYYY-MM-DD)."
+    sourcePublishedAt: String
+    "The company's ONRC CAEN coverage in that edition (diagnostic)."
+    caenCoverage: String
+  }
+  "ANAF evidence of the assignment. Null as a whole under SOURCE_WITHDRAWN."
+  type CompanyMainActivityAnafEvidence {
+    "The original ANAF cod_CAEN token, served ONLY when it is an economic-code digit form (string or number; ASCII digits after trim; at most four significant digits; at most 32 characters: e.g. '610', '0610', '000610', '9999', '0000'). Any other original (an object, contact-like text, a phone-like number) is null here while tokenForm / jsonType keep the diagnostic."
+    originalToken: String
+    jsonType: CompanyMainActivityJsonType
+    tokenForm: CompanyMainActivityTokenForm
+    "Leading-zero-free ASCII digits; null when not a digit token or all zeros."
+    canonicalDigits: String
+    "A bound four-digit original only; never a padded code."
+    assumedCode: String
+    "The v3 form diagnosis of the same observation (four_digit, three_digit, short, missing, invalid, unbound or unqualified); null otherwise."
+    v3Form: String
+    "ANAF requested fiscal-status date (YYYY-MM-DD). Not a legal effective date."
+    statusDate: String
+    "The fiscal loader's retrieval time (ISO-8601 UTC). Not a raw capture time."
+    retrievedAt: String
+    sourceUrl: String
+    sourceSnapshotId: String
+    sourceHash: String
+    rawCaptureId: BigInt
+    rawCustodyId: BigInt
+    evidenceCustody: CompanyMainActivityEvidenceCustody
+  }
+  "The ANAF-ASSUMED main activity (policy anaf-assumed-main-caen-v1): ANAF's fiscal CAEN code matched as leading-zero-free digit text to the company's qualified ONRC class keys of one pinned edition, latest known revision. An assumption, never an ONRC principal flag. All times are derivation, retrieval or source dates, never legal effective dates."
+  type CompanyMainActivity {
+    policy: String!
+    basis: CompanyMainActivityRoleBasis!
+    currentness: CompanyMainActivityCurrentness!
+    "The company's fiscal row is no longer public: anaf is null as a whole, also when currentness reports ONRC_UNAVAILABLE first. Say nothing about an ANAF code."
+    anafWithdrawn: Boolean!
+    "The served ANAF source is under an integrity hold (an authenticated contradiction proved it corrupt): never CURRENT (PENDING_REFRESH, or ONRC_UNAVAILABLE / SOURCE_WITHDRAWN which take precedence), interpretation and token-derived fields suppressed, no flag. False does not by itself explain another pending state."
+    integrityHeld: Boolean!
+    "Null under SOURCE_WITHDRAWN and ONRC_UNAVAILABLE, and under PENDING_REFRESH when the interpretation is withheld (e.g. the served source is under an integrity hold): then matchBasis, revisionBasis, resolved, candidates, correctionId and the token-derived ANAF fields are null too. Never a current key."
+    status: CompanyMainActivityStatus
+    matchBasis: CompanyMainActivityMatchBasis
+    revisionBasis: CompanyMainActivityRevisionBasis
+    "RESOLVED, RESOLVED_LATEST_REVISION and CORRECTED only."
+    resolved: CompanyMainActivityKey
+    "Every matching qualified class key, latest revision first; null when the interpretation is suppressed."
+    candidates: [CompanyMainActivityCandidateKey!]
+    correctionId: BigInt
+    anaf: CompanyMainActivityAnafEvidence
+    "Null under ONRC_UNAVAILABLE."
+    edition: CompanyMainActivityEdition
+    "Derivation time of the outcome (ISO-8601 UTC); never a legal effective date."
+    derivedAt: String!
+    "Derivation time of the current evidence (ISO-8601 UTC)."
+    evidenceAt: String!
+    refreshedAt: String!
+    resolutionId: BigInt!
+    supportId: BigInt!
+    refreshId: BigInt!
+    "Semantic content epoch of the main state (moves only when some outcome changed)."
+    contentEpoch: BigInt!
+    "Opaque client cache identity: a digest of the whole served row (content epoch, resolution, support, currentness, refresh, edition and every visibility masking, e.g. a source withdrawal under ONRC_UNAVAILABLE or a withheld interpretation) plus this response's scope gate. The content epoch alone is not enough."
+    cacheKey: String!
+  }
+  type CompanyMainActivityRead {
+    availability: CompanyMainActivityAvailability!
+    "Fixed text for NO_ASSIGNMENT and UNAVAILABLE."
+    reason: String
+    "Set only when ASSIGNED."
+    activity: CompanyMainActivity
+  }
+  type CompanyMainActivityOutcomeAnaf {
+    originalToken: String
+    jsonType: CompanyMainActivityJsonType
+    tokenForm: CompanyMainActivityTokenForm
+    canonicalDigits: String
+    assumedCode: String
+  }
+  "One outcome of the company's main-activity history (derivation history)."
+  type CompanyMainActivityOutcome {
+    resolutionId: BigInt!
+    previousResolutionId: BigInt
+    refreshId: BigInt!
+    reasons: [String!]!
+    policy: String!
+    basis: CompanyMainActivityRoleBasis!
+    "Null unless both the ANAF source and the ONRC edition are still visible."
+    status: CompanyMainActivityStatus
+    revisionBasis: CompanyMainActivityRevisionBasis
+    matchBasis: CompanyMainActivityMatchBasis
+    "Null when anafWithdrawn."
+    anaf: CompanyMainActivityOutcomeAnaf
+    editionId: BigInt
+    candidates: [CompanyMainActivityCandidateKey!]
+    resolved: CompanyMainActivityKey
+    correctionId: BigInt
+    "Derivation time (ISO-8601 UTC); never a legal effective date."
+    derivedAt: String!
+    "The company's fiscal row is no longer public: ANAF fields and the interpretation are suppressed."
+    anafWithdrawn: Boolean!
+    "The edition is no longer published, or this response's registry scope is not published: ONRC fields and the interpretation are suppressed."
+    onrcWithdrawn: Boolean!
+  }
+  type CompanyMainActivityEvidenceAnaf {
+    sourceSnapshotId: String
+    sourceHash: String
+    "ANAF requested fiscal-status date. Not a legal effective date."
+    statusDate: String
+    "Loader retrieval time (ISO-8601 UTC)."
+    retrievedAt: String
+    sourceUrl: String
+    rawCaptureId: BigInt
+    rawCustodyId: BigInt
+    evidenceCustody: CompanyMainActivityEvidenceCustody
+    originalToken: String
+    jsonType: CompanyMainActivityJsonType
+  }
+  "One evidence record of the company's main-activity history."
+  type CompanyMainActivityEvidenceEntry {
+    supportId: BigInt!
+    previousSupportId: BigInt
+    resolutionId: BigInt!
+    refreshId: BigInt!
+    editionId: BigInt
+    "Null when anafWithdrawn."
+    anaf: CompanyMainActivityEvidenceAnaf
+    caenCoverage: String
+    "Derivation time of this evidence record (ISO-8601 UTC)."
+    evidenceAt: String!
+    anafWithdrawn: Boolean!
+    onrcWithdrawn: Boolean!
+  }
+  "One bounded, newest-first page of the main-activity history. Derivation and source-observation history, never legal effective dates."
+  type CompanyMainActivityHistoryPage {
+    state: CompanyMainActivityHistoryState!
+    reason: String
+    kind: CompanyMainActivityHistoryKind!
+    "kind OUTCOMES."
+    outcomes: [CompanyMainActivityOutcome!]!
+    "kind EVIDENCE."
+    evidence: [CompanyMainActivityEvidenceEntry!]!
+    hasNextPage: Boolean!
+    "Pass as after for the next page (bound to this CUI and kind)."
+    endCursor: String
+    "The registry scope the page was read and rechecked under."
+    registry: CompanyRegistryEnvelope!
+    note: String!
+  }
+
   "A directory company (public company spine) by CUI. ONRC fields are the pinned edition's QUALIFIED consensus values (null on conflict, absence, unresolved evidence or a non-published registry), with all public observations under registry. Fiscal (ANAF) and financial sections are independent of the registry state."
   type Company {
     cui: CUI!
@@ -703,6 +968,8 @@ const objectsAndQuery = /* GraphQL */ `
     activitySelection: CompanyActivitySelection
     "Public money received (payee), via the kernel FlowsRepo. Null when none."
     publicMoney: CompanyPublicMoney
+    "The ANAF-ASSUMED main activity (never an ONRC principal flag), read only when selected (or when caenActivities selects isMainCaen / matchesAssumedMainCode), under the SAME pin, then rechecked fresh after every other part of this Company settled and once more when the whole operation settled. Unreadable surfaces are availability UNAVAILABLE, never an error of this Company. Nullable: a part refused (e.g. the main activity changed twice during the request) is this field's error."
+    mainActivity: CompanyMainActivityRead
     asOf: CompanyAsOf!
   }
 
@@ -865,6 +1132,13 @@ const objectsAndQuery = /* GraphQL */ `
     companyHubStats: CompanyHubStats
     "The current ONRC registry envelope, scope key and accessible published editions, read fresh (for client pinning)."
     companyRegistry: CompanyRegistryCapabilities
+    "Bounded newest-first page (first 1..50) of the ANAF-assumed main activity's OUTCOME or EVIDENCE history, read under one pinned registry scope and rechecked. Null when the CUI is not a public directory company. Derivation / source-observation history, never legal effective dates. Nullable for per-field error isolation."
+    companyMainActivityHistory(
+      cui: CUI!
+      kind: CompanyMainActivityHistoryKind = OUTCOMES
+      first: Int = 20
+      after: String
+    ): CompanyMainActivityHistoryPage
   }
 
   extend type Entity {

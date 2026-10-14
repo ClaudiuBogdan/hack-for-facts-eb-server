@@ -24,10 +24,22 @@ import { GRAPHQL_ERROR_CODE, type ApiError } from '@/modules/shared/index.js';
 export const COMPANY_ANALYSIS_SCHEMA_VERSION = 'companies-analytics-ch-v2';
 /** The v3 schema: v2 plus the derived activity selection (class-only ONRC CAEN arrays). */
 export const COMPANY_ANALYSIS_SCHEMA_VERSION_V3 = 'companies-analytics-ch-v3';
+/**
+ * The v4 schema: v3 plus the ANAF-assumed main activity (`MAIN_ACTIVITY`,
+ * scrapper main CAEN migration 20261013T220000). STAGED: the capability,
+ * dimension, filters and refusals exist, but no v4 export contract has been
+ * validated by this reader yet, so a v4 release is refused like any other
+ * unsupported schema (never served under guessed columns).
+ */
+export const COMPANY_ANALYSIS_SCHEMA_VERSION_V4 = 'companies-analytics-ch-v4';
 /** Every schema this reader serves; any other is refused. */
 export const COMPANY_ANALYSIS_SCHEMA_VERSIONS: readonly string[] = [
   COMPANY_ANALYSIS_SCHEMA_VERSION,
   COMPANY_ANALYSIS_SCHEMA_VERSION_V3,
+];
+/** Recognized but not yet served: refused with a staged reason, never reinterpreted. */
+export const COMPANY_ANALYSIS_STAGED_SCHEMA_VERSIONS: readonly string[] = [
+  COMPANY_ANALYSIS_SCHEMA_VERSION_V4,
 ];
 /** The only release population this reader serves. */
 export const COMPANY_ANALYSIS_POPULATION_POLICY_VERSION = 'public-onrc-edition-legal-person-v2';
@@ -324,11 +336,77 @@ export const COMPANY_ANALYSIS_DIMENSIONS = [
   'FISCALLY_INACTIVE',
   'EMPLOYEE_SIZE',
   'ACTIVITY',
+  'MAIN_ACTIVITY',
 ] as const;
 export type CompanyAnalysisDimension = (typeof COMPANY_ANALYSIS_DIMENSIONS)[number];
 
-/** Dimensions only a v3 release can answer. */
-export const COMPANY_ANALYSIS_V3_DIMENSIONS: readonly CompanyAnalysisDimension[] = ['ACTIVITY'];
+/**
+ * The dimensions each schema answers, listed EXPLICITLY (never derived from
+ * the enum, so a dimension added later is never advertised by an older
+ * release): v2 its own eight, v3 adds ACTIVITY, v4 adds MAIN_ACTIVITY.
+ */
+const V2_DIMENSION_LIST: readonly CompanyAnalysisDimension[] = [
+  'COUNTY',
+  'UAT',
+  'MAIN_CAEN',
+  'LEGAL_FORM',
+  'OBSERVED_STATUS',
+  'VAT_PAYER',
+  'FISCALLY_INACTIVE',
+  'EMPLOYEE_SIZE',
+];
+export const COMPANY_ANALYSIS_DIMENSIONS_BY_SCHEMA: Readonly<
+  Record<string, readonly CompanyAnalysisDimension[]>
+> = {
+  [COMPANY_ANALYSIS_SCHEMA_VERSION]: V2_DIMENSION_LIST,
+  [COMPANY_ANALYSIS_SCHEMA_VERSION_V3]: [...V2_DIMENSION_LIST, 'ACTIVITY'],
+  [COMPANY_ANALYSIS_SCHEMA_VERSION_V4]: [...V2_DIMENSION_LIST, 'ACTIVITY', 'MAIN_ACTIVITY'],
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ANAF-assumed main activity (v4 only; staged)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * One outcome per company (the selected assignment, never a candidate fan-out):
+ * the named statuses select an exact revision-qualified ONRC key; the others
+ * are explicit unresolved buckets, never ranked.
+ */
+export const COMPANY_ANALYSIS_MAIN_ACTIVITY_STATUSES = [
+  'RESOLVED',
+  'RESOLVED_LATEST_REVISION',
+  'CORRECTED',
+  'NO_ONRC_MATCH',
+  'UNRESOLVED_TOKEN_FORM',
+  'TOKEN_PLACEHOLDER',
+  'TOKEN_INVALID',
+  'SOURCE_MISSING',
+  'SOURCE_UNBOUND',
+  'CORRECTION_WITHHELD',
+] as const;
+export type CompanyAnalysisMainActivityStatus =
+  (typeof COMPANY_ANALYSIS_MAIN_ACTIVITY_STATUSES)[number];
+
+/** An exact ONRC class key of the main activity (`rev0..rev3`, four digits). */
+export interface CompanyAnalysisMainActivityKey {
+  readonly revision: string;
+  readonly code: string;
+}
+
+/**
+ * The main-state pin a v4 release must carry (`inputs.mainCaen`): the
+ * semantic content epoch, the refresh, the policy and the ONRC edition
+ * (equal to `inputs.onrc.editionId`). Canonical bigint text for ids.
+ */
+export interface CompanyAnalysisMainCaenPin {
+  readonly contentEpoch: string;
+  readonly refreshId: string;
+  readonly policy: string;
+  readonly editionId: string;
+}
+
+/** The only main policy a v4 release may pin. */
+export const COMPANY_ANALYSIS_MAIN_POLICY = 'anaf-assumed-main-caen-v1';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Derived activity selection (v3 only; CAEN contract §B/§C)
@@ -448,6 +526,8 @@ export const COMPANY_ANALYSIS_LIMITS = {
   maxSelectedCuis: 500,
   /** Exact activity selectors (`scope.activity`). */
   maxActivities: 200,
+  /** Exact main-activity keys (`scope.mainActivity`). */
+  maxMainActivities: 200,
   maxCounties: 60,
   maxUats: 500,
   maxLegalForms: 30,
@@ -561,6 +641,10 @@ export interface CompanyAnalysisScope {
   readonly activity?: readonly CompanyAnalysisActivitySelector[];
   /** v3 only: activity selection bases (OR). */
   readonly activityBasis?: readonly CompanyAnalysisActivityBasis[];
+  /** v4 only: exact ANAF-assumed main-activity ONRC keys (OR). */
+  readonly mainActivity?: readonly CompanyAnalysisMainActivityKey[];
+  /** v4 only: main-activity statuses (OR). */
+  readonly mainActivityStatus?: readonly CompanyAnalysisMainActivityStatus[];
 }
 
 /** True when the scope constrains the selected year's statement (population ⊆ filers). */
@@ -661,6 +745,8 @@ export interface CompanyAnalysisRelease {
   readonly nameFilter: false;
   readonly limits: typeof COMPANY_ANALYSIS_LIMITS;
   readonly caveats: readonly string[];
+  /** v4 only: the main-state pin of the export; null on v2/v3. */
+  readonly mainCaen: CompanyAnalysisMainCaenPin | null;
 }
 
 /** The capabilities answer (`companyAnalysisRelease`): the release minus internals. */
@@ -882,18 +968,23 @@ export interface CompanyAnalysisRecordsPage extends CompanyAnalysisAnswerBase {
 /** The wire code of a capability the pinned/active release does not carry. */
 export const RELEASE_CAPABILITY_UNAVAILABLE = 'RELEASE_CAPABILITY_UNAVAILABLE';
 
+/** The release capabilities a request may need beyond the v2 base. */
+export type CompanyAnalysisCapability = 'ACTIVITY' | 'MAIN_ACTIVITY';
+
 /**
  * The request needs a capability this release does not carry (a v2 release
- * asked for `ACTIVITY` or the activity filters). A typed refusal, never a
- * 500 and never an empty answer: the caller falls back (e.g. to MAIN_CAEN)
- * or pins a release that lists the capability.
+ * asked for `ACTIVITY` or the activity filters; a v2/v3 release asked for
+ * `MAIN_ACTIVITY` or the main filters). A typed refusal, never a 500, never
+ * an empty answer and never another question (MAIN_ACTIVITY is never
+ * answered by ACTIVITY, MAIN_CAEN or the ONRC filters): the caller pins a
+ * release that lists the capability.
  */
 export interface CompanyAnalysisCapabilityError {
   readonly type: 'ReleaseCapabilityUnavailable';
   readonly message: string;
-  /** The refused input: `dimension`, `scope.activity` or `scope.activityBasis`. */
+  /** The refused input: `dimension`, `scope.activity`, `scope.mainActivity`, ... */
   readonly field: string;
-  readonly capability: 'ACTIVITY';
+  readonly capability: CompanyAnalysisCapability;
   readonly releaseId: string;
   readonly schemaVersion: string;
 }

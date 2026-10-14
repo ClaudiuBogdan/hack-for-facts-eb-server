@@ -37,6 +37,26 @@ import {
 import { selectActivity, type CompanyActivitySelection } from './activity-selection.js';
 import { COMPANY_REGISTRY_FILTER_FIELDS } from './filters.js';
 import {
+  MAIN_HISTORY_DEFAULT_PAGE,
+  MAIN_HISTORY_MAX_PAGE,
+  MAIN_HISTORY_NOTE,
+  MAIN_ACTIVITY_UNAVAILABLE_REASON,
+  attachMainFlags,
+  decodeHistoryCursor,
+  encodeHistoryCursor,
+  gateEvidenceEntry,
+  gateMainActivity,
+  gateOutcome,
+  mainActivityMoved,
+  mainActivityWitness,
+  type CompanyMainActivityFlags,
+  type CompanyMainActivityEvidence,
+  type CompanyMainActivityHistoryKind,
+  type CompanyMainActivityHistoryPage,
+  type CompanyMainActivityHistoryRows,
+  type CompanyMainActivityRead,
+} from './main-activity.js';
+import {
   ONRC_CAEN_REVISIONS,
   isPublished,
   isRegistryCapabilityLost,
@@ -51,6 +71,7 @@ import {
 import {
   COMPANY_TERRITORY_COVERAGE_NOTE,
   type CaenCodeHit,
+  type CompanyCaenActivity,
   type CompanyCountyProfile,
   type CompanyEntitySlice,
   type CompanyHubStats,
@@ -459,6 +480,25 @@ export interface CompanyCompositionParts {
   readonly financialQualityAssessment?: boolean;
   readonly registrationDiff?: boolean;
   readonly activitySelection?: boolean;
+  /** The ANAF-assumed main activity (the singleton read). */
+  readonly mainActivity?: boolean;
+  /**
+   * The class flags of the activity rows: implies the main read, adds the
+   * bounded flag list to the same statement. Never read for a main-only
+   * selection.
+   */
+  readonly mainFlags?: boolean;
+}
+
+/**
+ * The main-activity part of one owning response: the gated read, the
+ * profile's activity rows with their two flags (from the same statement)
+ * and the witness the operation-level recheck compares.
+ */
+export interface CompanyMainActivityPart {
+  readonly read: CompanyMainActivityRead;
+  readonly caenActivities: readonly (CompanyCaenActivity & CompanyMainActivityFlags)[];
+  readonly witness: string;
 }
 
 /**
@@ -473,7 +513,58 @@ export interface CompanyComposition {
   readonly registrationDiff?: Result<CompanyRegistrationDiff, ApiError>;
   /** Null without a published edition or a profile of the CUI in it. */
   readonly activitySelection?: Result<CompanyActivitySelection | null, ApiError>;
+  readonly mainActivity?: Result<CompanyMainActivityPart, ApiError>;
 }
+
+/**
+ * Settle the main part AFTER every other part of the response: re-read the
+ * company's witness fresh and compare it with what was read. A move (a
+ * refresh, a correction, a source or edition withdrawal, a currentness
+ * change) re-reads the part once; a second move refuses THIS part
+ * (`mainActivityMoved`), never an older payload and never other parts.
+ */
+const settleMainActivity = async (
+  repo: CompaniesRepository,
+  profile: CompanyProfileData,
+  first: Result<CompanyMainActivityEvidence, ApiError>,
+  scope: CompanyRegistryEnvelope,
+  options: { readonly flags: boolean }
+): Promise<Result<CompanyMainActivityPart, ApiError>> => {
+  let evidence = first;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    if (evidence.isErr()) return err(evidence.error);
+    const witness = mainActivityWitness(evidence.value);
+    const fresh = await repo.readMainActivityWitness(profile.cui);
+    if (fresh.isErr()) return err(fresh.error);
+    if (fresh.value === witness) {
+      const read = gateMainActivity(evidence.value, scope);
+      // Unread, unavailable or past the bound: every flag stays null (unknown).
+      const flags = evidence.value.flags.state === 'read' ? evidence.value.flags.flags : [];
+      return ok({
+        read,
+        caenActivities: attachMainFlags(profile.caenActivities, read, flags, scope),
+        witness,
+      });
+    }
+    if (attempt === 0) evidence = await repo.getMainActivity(profile.cui, options);
+  }
+  return err(mainActivityMoved());
+};
+
+/**
+ * The operation-level decision for main facts ALREADY served with `witness`:
+ * ok while the company's main witness is unchanged, else the refusal. No
+ * re-read: what was served cannot be replaced.
+ */
+export const confirmMainActivityServed = async (
+  repo: CompaniesRepository,
+  cui: string,
+  witness: string
+): Promise<Result<void, ApiError>> => {
+  const fresh = await repo.readMainActivityWitness(cui);
+  if (fresh.isErr()) return err(fresh.error);
+  return fresh.value === witness ? ok(undefined) : err(mainActivityMoved());
+};
 
 /**
  * The derived activity selection of a profile read under `scope`: the
@@ -526,7 +617,7 @@ export const makeCompanyComposition = async (
     if (dataRes.isErr()) return err(dataRes.error);
     const profile = dataRes.value;
     if (profile === null) return ok(null);
-    const [publicMoney, financialQualityAssessment, diffData, activity] = await Promise.all([
+    const [publicMoney, financialQualityAssessment, diffData, activity, main] = await Promise.all([
       parts.publicMoney === true ? buildPublicMoney(deps.flowsRepo, cui) : undefined,
       parts.financialQualityAssessment === true
         ? deps.repo.getFinancialQualityAssessment(cui)
@@ -535,6 +626,9 @@ export const makeCompanyComposition = async (
       parts.activitySelection === true
         ? readActivitySelection(deps.repo, profile, scope)
         : undefined,
+      parts.mainActivity === true || parts.mainFlags === true
+        ? deps.repo.getMainActivity(cui, { flags: parts.mainFlags === true })
+        : undefined,
     ]);
     // A capability lost by the diff or activity read moves the scope like any other read.
     for (const part of [diffData, activity]) {
@@ -542,12 +636,20 @@ export const makeCompanyComposition = async (
         return err(part.error);
       }
     }
+    // Last, after every other part settled: the fresh main recheck.
+    const mainActivity =
+      main === undefined
+        ? undefined
+        : await settleMainActivity(deps.repo, profile, main, scope, {
+            flags: parts.mainFlags === true,
+          });
     return ok({
       profile,
       ...(publicMoney !== undefined && { publicMoney }),
       ...(financialQualityAssessment !== undefined && { financialQualityAssessment }),
       ...(diffData !== undefined && { registrationDiff: diffData.map(diffRegistryEditions) }),
       ...(activity !== undefined && { activitySelection: activity }),
+      ...(mainActivity !== undefined && { mainActivity }),
     });
   };
   const pinned = await runPinned(deps.repo, read, (composition) =>
@@ -571,6 +673,8 @@ export const makeCompanyProfile = async (
     publicMoney: true,
     registrationDiff: true,
     activitySelection: true,
+    mainActivity: true,
+    mainFlags: true,
   });
   if (composed.isErr()) return err(composed.error);
   const composition = composed.value;
@@ -578,14 +682,217 @@ export const makeCompanyProfile = async (
   const money = composition.publicMoney ?? ok(null);
   if (money.isErr()) return err(money.error);
   const activity = composition.activitySelection ?? ok(null);
+  const main = composition.mainActivity;
   return ok({
     ...composition.profile,
+    // Flags only from the settled main part; null (unknown) when it was refused.
+    caenActivities:
+      main?.isOk() === true
+        ? main.value.caenActivities
+        : composition.profile.caenActivities.map((a) => ({
+            ...a,
+            isMainCaen: null,
+            matchesAssumedMainCode: null,
+          })),
     publicMoney: money.value,
     registrationDiff: composition.registrationDiff?.unwrapOr(null) ?? null,
     // Advisory like the diff: a refused or failed selection is null with its reason.
     activitySelection: activity.unwrapOr(null),
     activitySelectionRefusal: activity.isErr() ? activity.error.message : null,
+    // Advisory like the selection: a refused main part is null with its reason.
+    mainActivity: main?.isOk() === true ? main.value.read : null,
+    mainActivityRefusal: main?.isErr() === true ? main.error.message : null,
   });
+};
+
+// ── ANAF-assumed main activity history ────────────────────────────────────────
+
+export interface CompanyMainActivityHistoryRequest {
+  readonly kind?: CompanyMainActivityHistoryKind;
+  readonly first?: number;
+  readonly after?: string | null;
+}
+
+/** A served page with its rows' visibility as served (`null` when nothing was served). */
+export type CompanyMainActivityHistoryAnswer = CompanyMainActivityHistoryPage & {
+  readonly served: CompanyMainActivityHistoryServed | null;
+};
+
+/** The ids and visibility (`<anafWithdrawn>:<onrcWithdrawn>`) of the rows a page serves. */
+export interface CompanyMainActivityHistoryServed {
+  readonly kind: CompanyMainActivityHistoryKind;
+  readonly rows: ReadonlyMap<string, string>;
+}
+
+const servedRowsOf = (
+  kind: CompanyMainActivityHistoryKind,
+  rows: CompanyMainActivityHistoryRows
+): CompanyMainActivityHistoryServed => ({
+  kind,
+  rows: new Map(
+    rows.state === 'unavailable'
+      ? []
+      : kind === 'outcomes'
+        ? rows.outcomes.map((o) => [
+            o.resolutionId,
+            `${String(o.anafWithdrawn)}:${String(o.onrcWithdrawn)}`,
+          ])
+        : rows.evidence.map((e) => [
+            e.supportId,
+            `${String(e.anafWithdrawn)}:${String(e.onrcWithdrawn)}`,
+          ])
+  ),
+});
+
+/**
+ * Whether the EXACT served rows are still visible as they were served: each
+ * row's current ANAF and ONRC withdrawal (an old edition withdrawn, the
+ * fiscal row no longer public, the company no longer public) read fresh by
+ * id. Rows are append-only, so this is all that can move; a newer row
+ * appended meanwhile is not a move of this page.
+ */
+const historyStillVisible = async (
+  repo: CompaniesRepository,
+  cui: string,
+  served: CompanyMainActivityHistoryServed
+): Promise<Result<boolean, ApiError>> => {
+  const ids = [...served.rows.keys()];
+  if (ids.length === 0) return ok(true);
+  const fresh = await repo.readMainActivityHistoryVisibility(cui, served.kind, ids);
+  if (fresh.isErr()) return err(fresh.error);
+  if (fresh.value === 'unavailable') return ok(false);
+  const now = fresh.value;
+  return ok(ids.every((id) => now.get(id) === served.rows.get(id)));
+};
+
+/**
+ * The operation-level decision for a history page ALREADY served: ok while
+ * every served row keeps its visibility, else the refusal. No re-read.
+ */
+export const confirmMainActivityHistoryServed = async (
+  repo: CompaniesRepository,
+  cui: string,
+  served: CompanyMainActivityHistoryServed
+): Promise<Result<void, ApiError>> => {
+  const still = await historyStillVisible(repo, cui, served);
+  if (still.isErr()) return err(still.error);
+  return still.value ? ok(undefined) : err(mainActivityMoved());
+};
+
+/**
+ * Read one history page and settle it: after the read, the exact rows'
+ * visibility is read fresh; a withdrawal that landed during the read
+ * re-reads the page once, a second move refuses (never a page from before
+ * a withdrawal).
+ */
+const readSettledHistory = async (
+  repo: CompaniesRepository,
+  cui: string,
+  request: { kind: CompanyMainActivityHistoryKind; beforeId: string | null; limit: number }
+): Promise<Result<CompanyMainActivityHistoryRows, ApiError>> => {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const rows = await repo.getMainActivityHistory(cui, request);
+    if (rows.isErr()) return err(rows.error);
+    if (rows.value.state === 'unavailable') return ok(rows.value);
+    const still = await historyStillVisible(repo, cui, servedRowsOf(request.kind, rows.value));
+    if (still.isErr()) return err(still.error);
+    if (still.value) return ok(rows.value);
+  }
+  return err(mainActivityMoved());
+};
+
+/**
+ * A bounded, newest-first page of the company's main-activity OUTCOME or
+ * EVIDENCE history from the public views, under one pinned registry scope
+ * (presence and parent privacy rechecked by `runPinned`). Null when the CUI
+ * is not a public directory company. Unreadable views are the typed
+ * `unavailable` state. Derivation / source-observation history, never
+ * legal effective dates.
+ */
+export const makeCompanyMainActivityHistory = async (
+  deps: Pick<CompanyUsecaseDeps, 'repo'>,
+  rawCui: string,
+  request: CompanyMainActivityHistoryRequest
+): Promise<Result<CompanyMainActivityHistoryAnswer | null, ApiError>> => {
+  const cui = normalizeCui(rawCui);
+  if (cui === null) return err(invalidCui());
+  if (isWithheldCompanyIdentifier(cui)) return err(withheldIdentifier());
+  const kind = request.kind ?? 'outcomes';
+  const first = request.first ?? MAIN_HISTORY_DEFAULT_PAGE;
+  if (!Number.isInteger(first) || first < 1 || first > MAIN_HISTORY_MAX_PAGE) {
+    return err({
+      type: 'InvalidInput',
+      message: `first must be between 1 and ${String(MAIN_HISTORY_MAX_PAGE)}`,
+      field: 'first',
+    });
+  }
+  let beforeId: string | null = null;
+  if (request.after !== undefined && request.after !== null) {
+    beforeId = decodeHistoryCursor(request.after, cui, kind);
+    if (beforeId === null) {
+      return err({
+        type: 'InvalidInput',
+        message: 'malformed main-activity history cursor (another company or kind?); restart',
+        field: 'after',
+      });
+    }
+  }
+
+  const read = async (
+    scope: CompanyRegistryEnvelope
+  ): Promise<Result<CompanyMainActivityHistoryAnswer | null, ApiError>> => {
+    // Presence by the profile's own public spine seek: never a history of a
+    // CUI the directory does not serve.
+    const present = await deps.repo.profileSlicesForCuis([cui], scope);
+    if (present.isErr()) return err(present.error);
+    if (!present.value.has(cui)) return ok(null);
+    const rows = await readSettledHistory(deps.repo, cui, {
+      kind,
+      beforeId,
+      limit: first + 1,
+    });
+    if (rows.isErr()) return err(rows.error);
+    const page = rows.value;
+    if (page.state === 'unavailable') {
+      return ok({
+        state: 'unavailable',
+        reason: MAIN_ACTIVITY_UNAVAILABLE_REASON,
+        kind,
+        outcomes: [],
+        evidence: [],
+        hasNextPage: false,
+        endCursor: null,
+        registry: scope,
+        note: MAIN_HISTORY_NOTE,
+        served: null,
+      });
+    }
+    const shown = {
+      state: 'read' as const,
+      outcomes: page.outcomes.slice(0, first),
+      evidence: page.evidence.slice(0, first),
+    };
+    const outcomes = shown.outcomes.map((o) => gateOutcome(o, scope));
+    const evidence = shown.evidence.map((e) => gateEvidenceEntry(e, scope));
+    const lastId = kind === 'outcomes' ? outcomes.at(-1)?.resolutionId : evidence.at(-1)?.supportId;
+    const hasNextPage = (kind === 'outcomes' ? page.outcomes : page.evidence).length > first;
+    return ok({
+      state: 'available',
+      reason: null,
+      kind,
+      outcomes,
+      evidence,
+      hasNextPage,
+      endCursor:
+        hasNextPage && lastId !== undefined ? encodeHistoryCursor(cui, kind, lastId) : null,
+      registry: scope,
+      note: MAIN_HISTORY_NOTE,
+      // The rows as the view served them: the operation's final decision.
+      served: servedRowsOf(kind, shown),
+    });
+  };
+  const pinned = await runPinned(deps.repo, read, (page) => (page === null ? [] : [cui]));
+  return pinned.map((p) => p.value);
 };
 
 // ── financials (series + latest + trajectory) ─────────────────────────────────

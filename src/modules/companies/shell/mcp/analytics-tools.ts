@@ -13,6 +13,7 @@ import { type KernelMcpTool, type McpToolOutput } from '@/modules/shared/index.j
 import {
   COMPANY_ANALYSIS_ACTIVITY_BASES,
   COMPANY_ANALYSIS_ACTIVITY_SOURCES,
+  COMPANY_ANALYSIS_MAIN_ACTIVITY_STATUSES,
   COMPANY_ANALYSIS_CAEN_BASES,
   COMPANY_ANALYSIS_COHORT_MODES,
   COMPANY_ANALYSIS_DIMENSIONS,
@@ -134,6 +135,16 @@ export const COMPANY_ANALYSIS_SCOPE_ZOD_SHAPE = {
     .array(z.enum(COMPANY_ANALYSIS_ACTIVITY_BASES))
     .optional()
     .describe('Releases listing ACTIVITY only: activity selection bases.'),
+  mainActivity: z
+    .array(z.object({ revision: z.string(), code: z.string() }).strict())
+    .optional()
+    .describe(
+      'Releases listing MAIN_ACTIVITY only (v4, staged: none is served yet): exact ONRC keys (revision rev0..rev3 + 4-digit code) of the ANAF-assumed main activity. Never a bare code; a different question from activity and mainCaen.'
+    ),
+  mainActivityStatus: z
+    .array(z.enum(COMPANY_ANALYSIS_MAIN_ACTIVITY_STATUSES))
+    .optional()
+    .describe('Releases listing MAIN_ACTIVITY only (v4, staged): main-activity outcome statuses.'),
 } as const;
 
 const release = z
@@ -204,7 +215,7 @@ export const makeCompanyAnalysisMcpTools = (
   const releaseTool: KernelMcpTool = {
     name: 'get_company_analysis_release',
     description:
-      'Companies analytics capabilities: the active (or pinned) release id, the ONRC edition its company dimensions were exported from (release.source: edition, publication epoch, snapshot, source date, versions), fiscal years 2008–2025 with per-metric coverage (reported/missing/held counts), the metric-specific years on offer, dimensions, defaults (FY2024 when offered), limits and the input as-of line. Schemas companies-analytics-ch-v2 and -ch-v3 are served; only a release whose dimensions list ACTIVITY (v3) answers the ACTIVITY dimension and the activity/activityBasis filters (otherwise errorCode RELEASE_CAPABILITY_UNAVAILABLE). Call first and pin release in every aggregate_companies call.',
+      'Companies analytics capabilities: the active (or pinned) release id, the ONRC edition its company dimensions were exported from (release.source: edition, publication epoch, snapshot, source date, versions), fiscal years 2008–2025 with per-metric coverage (reported/missing/held counts), the metric-specific years on offer, dimensions, defaults (FY2024 when offered), limits and the input as-of line. Schemas companies-analytics-ch-v2 and -ch-v3 are served; only a release whose dimensions list ACTIVITY (v3) answers the ACTIVITY dimension and the activity/activityBasis filters (otherwise errorCode RELEASE_CAPABILITY_UNAVAILABLE). The MAIN_ACTIVITY dimension and the mainActivity/mainActivityStatus filters (the ANAF-assumed main activity) need a release listing MAIN_ACTIVITY (-ch-v4, staged: none is served yet); elsewhere RELEASE_CAPABILITY_UNAVAILABLE with capability MAIN_ACTIVITY, and never substitute ACTIVITY or MAIN_CAEN for it. Call first and pin release in every aggregate_companies call.',
     strictInput: true,
     inputShape: { release },
     async handler(args): Promise<McpToolOutput> {

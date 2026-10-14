@@ -590,6 +590,7 @@ export const companyAnalysisRelease = async (
     nameFilter: r.nameFilter,
     limits: r.limits,
     caveats: r.caveats,
+    mainCaen: r.mainCaen,
   } satisfies CompanyAnalysisReleaseInfo);
 };
 
@@ -816,6 +817,9 @@ const groupValue = (
       return consensusGroup(first, parts[1] ?? null, dimension);
     case 'ACTIVITY':
       return activityGroup(first, parts[1] ?? null, parts[2] ?? null);
+    case 'MAIN_ACTIVITY':
+      // Staged: the capability check and the engine refuse it first.
+      return err(invariant('MAIN_ACTIVITY groups are not served by this reader yet'));
     case 'MAIN_CAEN': {
       const caen = caenValue(first, parts[1] ?? null, parts[2] ?? null);
       if (caen.isErr()) return err(caen.error);

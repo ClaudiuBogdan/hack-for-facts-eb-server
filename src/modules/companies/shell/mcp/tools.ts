@@ -35,6 +35,7 @@ import {
   makeCompanyFinancialQualityAssessment,
   makeCompanyFinancials,
   makeCompanyList,
+  makeCompanyMainActivityHistory,
   makeCompanyProfile,
   makeCompanyRegistry,
   makeCompanyResolve,
@@ -215,7 +216,7 @@ export const makeCompaniesMcpTools = (deps: CompaniesMcpDeps): readonly KernelMc
   const getSnapshot: KernelMcpTool = {
     name: 'get_company_snapshot',
     description:
-      "Compact profile for a directory company by CUI: the pinned ONRC edition's QUALIFIED values (name/legal form/recorded date/status/territory are null when public observations conflict, are absent or unresolved, or when no edition is published - registry.state says which), fiscal flags, latest financial year, and total public money received (as a payee). registry carries the envelope (state, edition, epochs), cuiState (NOT_IN_EDITION = no qualified public profile in that edition, never 'not legally registered'), the qualified profile with bases, and the identifier groups; the full observation lists are on the GraphQL company query. registrationDate is the date ONRC RECORDED, never a founding date or age. headlineStatus is a complete consensus only (label from the API nomenclature, never an ONRC-observed label); an ONRC 1048 observation and ANAF declaredFiscallyInactive=false are different facts, never merge them. asOf carries SOURCE dates: onrc = the pinned edition's source date, anaf = ANAF state date (null = unknown). The latest financial year keeps its exact ORIGINAL source values and carries `qualification` (assessment, policy version/digest/approval date, 21 metric statuses) and `source` (publisher URL): quote or compare a value only when its status is reported; a held or not-assessed value is a source observation, never a fact to repeat. For the full financial series use get_company_financials: FY2019+ is published by ANAF and FY2008-2018 by MFP (different publishers; each year carries sourceSystem), and its quality flags are dated advisories - a figure without a flag is unassessed, not verified. activitySelection is a DERIVED activity selection, never the 'principal' or 'main' activity: basis onrc_single_class = the only classified ONRC observation in the edition (not an exclusive authorization), onrc_class_anaf_numeric_match = one of several classified ONRC observations picked because the usable ANAF fiscal code has the same digits, anaf_fiscal_code = no classified ONRC observation and the ANAF code (ANAF publishes no revision: catalog candidates only), anaf_fiscal_uncatalogued = an ANAF code without any catalog label (a source observation, not a sector), onrc_multiple_classes / no_qualified_selection = none selected (never 'no activity'). The ANAF code is usable only when anafCodeUsable (its form admitted by the database form policy anafCaenFormPolicy AND not a placeholder 0000/9999, which is never usable; e.g. a three_digit code is a three-digit source token the normalizer pads, its interpretation unqualified, so it is not usable). Always state editionSourceDate and anafStatusDate with it, and caenCoverage / unqualifiedObservationCount; observationCount is exact while registry lists at most 500 rows.",
+      "Compact profile for a directory company by CUI: the pinned ONRC edition's QUALIFIED values (name/legal form/recorded date/status/territory are null when public observations conflict, are absent or unresolved, or when no edition is published - registry.state says which), fiscal flags, latest financial year, and total public money received (as a payee). registry carries the envelope (state, edition, epochs), cuiState (NOT_IN_EDITION = no qualified public profile in that edition, never 'not legally registered'), the qualified profile with bases, and the identifier groups; the full observation lists are on the GraphQL company query. registrationDate is the date ONRC RECORDED, never a founding date or age. headlineStatus is a complete consensus only (label from the API nomenclature, never an ONRC-observed label); an ONRC 1048 observation and ANAF declaredFiscallyInactive=false are different facts, never merge them. asOf carries SOURCE dates: onrc = the pinned edition's source date, anaf = ANAF state date (null = unknown). The latest financial year keeps its exact ORIGINAL source values and carries `qualification` (assessment, policy version/digest/approval date, 21 metric statuses) and `source` (publisher URL): quote or compare a value only when its status is reported; a held or not-assessed value is a source observation, never a fact to repeat. For the full financial series use get_company_financials: FY2019+ is published by ANAF and FY2008-2018 by MFP (different publishers; each year carries sourceSystem), and its quality flags are dated advisories - a figure without a flag is unassessed, not verified. activitySelection is a DERIVED activity selection, never the 'principal' or 'main' activity: basis onrc_single_class = the only classified ONRC observation in the edition (not an exclusive authorization), onrc_class_anaf_numeric_match = one of several classified ONRC observations picked because the usable ANAF fiscal code has the same digits, anaf_fiscal_code = no classified ONRC observation and the ANAF code (ANAF publishes no revision: catalog candidates only), anaf_fiscal_uncatalogued = an ANAF code without any catalog label (a source observation, not a sector), onrc_multiple_classes / no_qualified_selection = none selected (never 'no activity'). The ANAF code is usable only when anafCodeUsable (its form admitted by the database form policy anafCaenFormPolicy AND not a placeholder 0000/9999, which is never usable; e.g. a three_digit code is a three-digit source token the normalizer pads, its interpretation unqualified, so it is not usable). Always state editionSourceDate and anafStatusDate with it, and caenCoverage / unqualifiedObservationCount; observationCount is exact while registry lists at most 500 rows. mainActivity is a DIFFERENT, separately versioned fact: the ANAF-ASSUMED main activity (policy anaf-assumed-main-caen-v1; basis anaf_assumed_main = ANAF's fiscal code assumed to be the main activity, never an ONRC principal flag): availability assigned | no_assignment (none derived yet, never 'no main activity') | unavailable (this runtime cannot read it; infer nothing). activity.currentness: current, pending_refresh (last assignment, inputs moved: never state it as current), source_withdrawn (ANAF fields and the interpretation suppressed: say nothing about an ANAF code), onrc_unavailable (ONRC part suppressed). status resolved / resolved_latest_revision / corrected select activity.resolved {revision, code, label frozen at derivation}: the ONRC key's revision (ANAF publishes none); matchBasis leading_zero_match means ANAF '610' matched ONRC 0610 after stripping leading zeros; resolved_latest_revision lists every candidate key. no_onrc_match keeps anaf.assumedCode with an UNKNOWN revision and no label (never borrow a catalog label); unresolved_token_form has no code. Dates: anaf.statusDate is ANAF's requested status date, edition.sourcePublishedAt the ONRC edition date, derivedAt/evidenceAt/refreshedAt derivation times; none is a legal effective date. caenActivities lists the profile's activity rows (the pinned edition's ONRC (revision, code, classState) rows, then the ANAF fiscal row) with isMainCaen (true only on the ONRC CLASS row that is the selected key while the assignment is current; null otherwise, including the ANAF row and every non-CLASS row) and matchesAssumedMainCode (same gates; same leading-zero-free digits). History: get_company_main_activity_history.",
     inputShape: { cui: z.string().describe('The company CUI/CIF (digits only).') },
     async handler(args): Promise<McpToolOutput> {
       const cui = strArg(args, 'cui');
@@ -271,10 +272,19 @@ export const makeCompaniesMcpTools = (deps: CompaniesMcpDeps): readonly KernelMc
           },
           registrationDiff: diff === null ? null : mcpRegistrationDiff(diff),
           activitySelection: p.activitySelection,
+          mainActivity: p.mainActivity,
+          // The profile's activity rows with the two flags of the same
+          // settled main read (null = unknown / not applicable).
+          caenActivities: p.caenActivities,
           asOf: p.asOf,
         },
-        ...(p.activitySelectionRefusal !== null && {
-          meta: { activitySelectionRefusal: p.activitySelectionRefusal },
+        ...((p.activitySelectionRefusal !== null || p.mainActivityRefusal !== null) && {
+          meta: {
+            ...(p.activitySelectionRefusal !== null && {
+              activitySelectionRefusal: p.activitySelectionRefusal,
+            }),
+            ...(p.mainActivityRefusal !== null && { mainActivityRefusal: p.mainActivityRefusal }),
+          },
         }),
         summary,
       };
@@ -466,6 +476,58 @@ export const makeCompaniesMcpTools = (deps: CompaniesMcpDeps): readonly KernelMc
     },
   };
 
+  const mainActivityHistory: KernelMcpTool = {
+    name: 'get_company_main_activity_history',
+    description:
+      "Bounded newest-first page (first 1..50, default 20) of the ANAF-ASSUMED main activity's history for a directory company by CUI: kind outcomes (each change of status, ANAF token, candidates, selected exact ONRC key with its frozen label, correction or policy) or evidence (each change of the fiscal observation, its dates, raw custody or ONRC diagnostics). Derivation and source-observation history: derivedAt / evidenceAt are when this platform derived or recorded it, anaf.statusDate is ANAF's requested status date; NEVER present any of them as a legal effective date or as when the company changed activity. anafWithdrawn / onrcWithdrawn mean the source is no longer public or the edition no longer published: the suppressed fields are withheld, not empty. state unavailable = this runtime cannot read the history (infer nothing). Pass endCursor as after for the next page; the cursor is bound to the CUI and kind.",
+    inputShape: {
+      cui: z.string().describe('The company CUI/CIF (digits only).'),
+      kind: z.enum(['outcomes', 'evidence']).optional().describe('Default outcomes.'),
+      first: z.number().int().min(1).max(50).optional().describe('Page size, default 20.'),
+      after: z.string().optional().describe('endCursor of the previous page.'),
+    },
+    async handler(args): Promise<McpToolOutput> {
+      const cui = strArg(args, 'cui');
+      const kind = args['kind'] === 'evidence' ? 'evidence' : 'outcomes';
+      const after = args['after'];
+      const res = await makeCompanyMainActivityHistory(deps, cui, {
+        kind,
+        first: intArg(args, 'first', 20),
+        ...(typeof after === 'string' && { after }),
+      });
+      if (res.isErr()) return errorOut('main_activity_history', res.error.message);
+      const page = res.value;
+      if (page === null) {
+        return {
+          ok: true,
+          kind: 'main_activity_history',
+          query: { cui, kind },
+          summary: `No company for CUI ${cui}.`,
+        };
+      }
+      const rows = kind === 'outcomes' ? page.outcomes : page.evidence;
+      return {
+        ok: true,
+        kind: 'main_activity_history',
+        query: { cui, kind },
+        link: companyLink(cui),
+        items: rows,
+        meta: {
+          state: page.state,
+          reason: page.reason,
+          hasNextPage: page.hasNextPage,
+          endCursor: page.endCursor,
+          registry: mcpRegistry(page.registry),
+          note: page.note,
+        },
+        summary:
+          page.state === 'unavailable'
+            ? `Main-activity history is not readable by this runtime for CUI ${cui}; nothing is inferred.`
+            : `${n(rows.length)} ${kind} record(s) of the ANAF-assumed main activity for CUI ${cui}${page.hasNextPage ? ' (more available)' : ''}. ${page.note}`,
+      };
+    },
+  };
+
   const registry: KernelMcpTool = {
     name: 'get_company_registry',
     description:
@@ -492,5 +554,6 @@ export const makeCompaniesMcpTools = (deps: CompaniesMcpDeps): readonly KernelMc
     countyProfile,
     hubStats,
     registry,
+    mainActivityHistory,
   ];
 };
