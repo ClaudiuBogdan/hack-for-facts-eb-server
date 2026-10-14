@@ -12,6 +12,8 @@ data:
   # Set 'true' only after the public-enterprise read views are applied on Chronos
   # and the public-enterprise load is qualified (a root release operation).
   PUBLIC_ENTERPRISES_ENABLED: 'true'
+  # Source-edition and contest metadata only; results and winners stay unavailable.
+  ELECTIONS_ENABLED: 'true'
   PROD_ALLOWED_ORIGINS: https://dev-chronos.transparenta.eu
   PROD_CLIENT_BASE_URL: https://dev-chronos.transparenta.eu
   PROD_DB_POOL_MAX: '10'

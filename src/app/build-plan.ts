@@ -104,6 +104,7 @@ export interface AppDeps {
     readonly procurement: ProcurementComposition;
     readonly ngoRegistryEnabled?: boolean;
     readonly publicEnterprisesEnabled?: boolean;
+    readonly electionsEnabled?: boolean;
     readonly legalSearch?: LegalSearchComposition;
   };
   /** Client base URL passed to the mounted redesign surface (MCP deep links). */

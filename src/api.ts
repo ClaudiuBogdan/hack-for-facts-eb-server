@@ -99,6 +99,7 @@ const main = async (): Promise<void> => {
     procurement: redesign.procurement,
     ngoRegistryEnabled: redesign.ngoRegistryEnabled ?? false,
     publicEnterprisesEnabled: redesign.publicEnterprisesEnabled ?? false,
+    electionsEnabled: redesign.electionsEnabled ?? false,
     ...(redesign.legalSearch !== undefined && { legalSearch: redesign.legalSearch }),
   };
   const redesignClientBaseUrl = redesign.kernel.clientBaseUrl;

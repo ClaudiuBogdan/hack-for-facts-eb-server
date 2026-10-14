@@ -36,6 +36,7 @@ const main = async (): Promise<void> => {
     procurement: config.procurement,
     ngoRegistryEnabled: config.ngoRegistryEnabled ?? false,
     publicEnterprisesEnabled: config.publicEnterprisesEnabled ?? false,
+    electionsEnabled: config.electionsEnabled ?? false,
     ...(config.legalSearch !== undefined && { legalSearch: config.legalSearch }),
     ...(config.companiesAnalytics !== undefined && {
       companiesAnalytics: config.companiesAnalytics,

@@ -151,7 +151,9 @@ describe('loadEmbeddedKernelConfig — the legacy composer ignores standalone-on
     expect(embedded.kernel.prodDatabaseUrl).toBe(base.PROD_DATABASE_URL);
     expect(embedded.ngoRegistryEnabled).toBe(false);
     expect(embedded.publicEnterprisesEnabled).toBe(false);
+    expect(embedded.electionsEnabled).toBe(false);
     expect(Object.keys(embedded).sort()).toEqual([
+      'electionsEnabled',
       'kernel',
       'ngoRegistryEnabled',
       'procurement',

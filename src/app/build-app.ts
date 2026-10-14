@@ -237,6 +237,8 @@ const REDESIGN_SURFACE_PUBLIC_GET_PREFIXES = [
   '/api/v1/parliament/',
   '/api/v1/pnrr/',
   '/api/v1/judicial/',
+  // Elections metadata reads; the module serves public rows only.
+  '/api/v1/elections/',
 ];
 const NOTIFICATION_ADMIN_ROUTE_PREFIX = '/api/v1/admin/notifications';
 const WEBHOOK_CLERK_ROUTE_PATH = '/api/v1/webhooks/clerk';
@@ -862,6 +864,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
             procurement: deps.redesignComposition.procurement,
             ngoRegistryEnabled: deps.redesignComposition.ngoRegistryEnabled ?? false,
             publicEnterprisesEnabled: deps.redesignComposition.publicEnterprisesEnabled ?? false,
+            electionsEnabled: deps.redesignComposition.electionsEnabled ?? false,
             ...(deps.redesignComposition.legalSearch !== undefined && {
               legalSearch: deps.redesignComposition.legalSearch,
             }),

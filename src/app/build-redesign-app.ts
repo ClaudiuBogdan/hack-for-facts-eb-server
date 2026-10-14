@@ -46,6 +46,7 @@ import {
 } from '../modules/budget/index.js';
 import { makeClerkUserDeletionRoutes } from '../modules/clerk-webhooks/index.js';
 import { makeCompaniesModule } from '../modules/companies/index.js';
+import { makeElectionsModule } from '../modules/elections/index.js';
 import { makeDbHealthChecker } from '../modules/health/index.js';
 import { makeInsNativeModule, type InsReadSession } from '../modules/ins-native/index.js';
 import { makeJudicialModule } from '../modules/judicial/index.js';
@@ -123,6 +124,7 @@ export interface BuildRedesignAppDeps {
   readonly modules?: readonly (
     | 'ngos'
     | 'public-enterprises'
+    | 'elections'
     | 'pnrr'
     | 'reference'
     | 'budget'
@@ -141,6 +143,8 @@ export interface BuildRedesignAppDeps {
   readonly ngoRegistryEnabled?: boolean;
   /** Enabled only after the public-enterprise views are applied and the data qualified. */
   readonly publicEnterprisesEnabled?: boolean;
+  /** Enabled only after the Elections catalog reads are plan-qualified on the serving DB. */
+  readonly electionsEnabled?: boolean;
   /** Procurement composition (ClickHouse, record-list search, DA window), validated by the entrypoint. */
   readonly procurement?: ProcurementComposition;
   /** Legal search engine connection, validated by the entrypoint. */
@@ -244,6 +248,7 @@ export const deepMergeResolvers = (
 const SHARED_DEFAULT_MODULES = [
   'ngos',
   'public-enterprises',
+  'elections',
   'pnrr',
   'reference',
   'budget',
@@ -425,6 +430,7 @@ export const registerRedesignSurface = async (
   let parliamentRoutes: import('fastify').FastifyPluginAsync | undefined;
   let legalRoutes: import('fastify').FastifyPluginAsync | undefined;
   let judicialRoutes: import('fastify').FastifyPluginAsync | undefined;
+  let electionsRoutes: import('fastify').FastifyPluginAsync | undefined;
 
   if (enabledModules.includes('ngos')) {
     const ngos = makeNgosModule({
@@ -447,6 +453,18 @@ export const registerRedesignSurface = async (
     moduleSlices.push(publicEnterprises.graphqlSlice);
     moduleResolvers.push(publicEnterprises.graphqlResolvers);
     moduleMcpTools.push(...publicEnterprises.mcpTools);
+  }
+
+  if (enabledModules.includes('elections')) {
+    // Catalog + contest metadata over the elections dimension tables; results are not served.
+    const elections = makeElectionsModule({
+      db: kernel.db,
+      enabled: deps.electionsEnabled ?? false,
+    });
+    moduleSlices.push(elections.graphqlSlice);
+    moduleResolvers.push(elections.graphqlResolvers);
+    moduleMcpTools.push(...elections.mcpTools);
+    electionsRoutes = elections.restPlugin;
   }
 
   if (enabledModules.includes('pnrr')) {
@@ -833,6 +851,11 @@ export const registerRedesignSurface = async (
   // envelope; the legacy composer exempts only its GET/HEAD prefix from auth.
   if (judicialRoutes !== undefined) {
     await app.register(judicialRoutes, { prefix: '/api/v1/judicial' });
+  }
+  // Elections' GET metadata reads over the same usecases as its GraphQL/MCP
+  // (no-store, the module envelope; a GET/HEAD-only public prefix on api.js).
+  if (electionsRoutes !== undefined) {
+    await app.register(electionsRoutes, { prefix: '/api/v1/elections' });
   }
 
   // ── MCP (JSON-RPC over HTTP) ─────────────────────────────────────────────────

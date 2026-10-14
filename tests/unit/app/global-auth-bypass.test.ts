@@ -75,6 +75,20 @@ describe('shouldBypassGlobalAuthValidation — redesign public GET prefixes', ()
     }
   });
 
+  it.each([
+    '/api/v1/elections/editions?reportedYears=2024',
+    '/api/v1/elections/contests/lookup?contestKey=x',
+  ])('bypasses auth for elections GET/HEAD %s only', (url) => {
+    expect(shouldBypassGlobalAuthValidation(req('GET', url))).toBe(true);
+    expect(shouldBypassGlobalAuthValidation(req('HEAD', url))).toBe(true);
+    for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
+      expect(shouldBypassGlobalAuthValidation(req(method, url)), `${method} ${url}`).toBe(false);
+    }
+    for (const lookalike of ['/api/v1/electionsx/editions', '/api/v1/elections']) {
+      expect(shouldBypassGlobalAuthValidation(req('GET', lookalike)), lookalike).toBe(false);
+    }
+  });
+
   it.each(['/api/v1/live', '/api/v1/health', '/api/v1/ready'])(
     'bypasses auth for the probe route %s only when the surface is mounted',
     (url) => {
