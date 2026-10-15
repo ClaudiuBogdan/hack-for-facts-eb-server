@@ -39,6 +39,7 @@ import {
   type Logger,
 } from '@/modules/shared/index.js';
 
+import { wholeBani, type AnalysisScope } from '../../core/analysis-scope.js';
 import {
   ACCEPTED_VALUE_STATES,
   TOPN_SIRUTA_MAX,
@@ -47,7 +48,6 @@ import {
   type SeriesBucket,
 } from '../../core/constants.js';
 
-import type { AnalysisScope } from '../../core/analysis-scope.js';
 import type { AnalysisRoute } from '../../core/combinations.js';
 import type { BasisCoverageRow } from '../../core/gate-v2.js';
 import type {
@@ -73,6 +73,13 @@ export interface ClickhouseAnalysisConfig {
 
 /** Use the same accepted monetary states as the module's public contract. */
 const ACCEPTED_STATES = ACCEPTED_VALUE_STATES.map((state) => `'${state}'`).join(', ');
+
+/** A validated scope bound as whole bani; parseAnalysisScope admits no other. */
+const boundBani = (ron: number): number => {
+  const bani = wholeBani(ron);
+  if (bani === null) throw new Error('value bound is not a whole-bani RON amount');
+  return bani;
+};
 
 const TABLE_BY_GRAIN: Readonly<Record<AnalysisRoute['grain'], string>> = {
   contract: 'facts_contracts_v2',
@@ -485,17 +492,18 @@ const compileScope = (
 
   // Value bounds restrict the ROW population to the grain's ANCHOR money in
   // range ("contracts over X RON" / "frameworks with ceiling over X"); RON →
-  // bani is exact at 2 decimals. Counts-only grains reject bounds upstream.
+  // bani is exact (`wholeBani`, the same rule parseAnalysisScope validated).
+  // Counts-only grains reject bounds upstream.
   if (
     (scope.valueMin !== undefined || scope.valueMax !== undefined) &&
     profile.anchorCol !== null
   ) {
     conds.push(profile.accept);
     if (scope.valueMin !== undefined) {
-      conds.push(`${profile.anchorCol} >= ${String(Math.round(scope.valueMin * 100))}`);
+      conds.push(`${profile.anchorCol} >= ${String(boundBani(scope.valueMin))}`);
     }
     if (scope.valueMax !== undefined) {
-      conds.push(`${profile.anchorCol} <= ${String(Math.round(scope.valueMax * 100))}`);
+      conds.push(`${profile.anchorCol} <= ${String(boundBani(scope.valueMax))}`);
     }
   }
 
