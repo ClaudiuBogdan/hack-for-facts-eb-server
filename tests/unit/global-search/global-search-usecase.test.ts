@@ -234,7 +234,7 @@ describe('makeGlobalSearch — Meili ok path', () => {
       filter: [
         'privacy_class = "public"',
         'doc_type IN ["company"]',
-        'county_name = "Cluj"',
+        'county_name IN ["CLUJ", "JUD. CLUJ", "JUDEȚ CLUJ"]',
         'is_active = true',
       ],
       facets: ['doc_type'],

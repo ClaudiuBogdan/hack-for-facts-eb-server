@@ -11,3 +11,4 @@ export * from './types.js';
 export * from './derive.js';
 export * from './surfaces.js';
 export * from './meili-array.js';
+export * from './county-aliases.js';

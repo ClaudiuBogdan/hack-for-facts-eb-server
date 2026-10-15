@@ -171,7 +171,9 @@ export const makeKernelMcpTools = (deps: KernelMcpDeps): readonly KernelMcpTool[
       county: z
         .string()
         .optional()
-        .describe('Canonical county name (case-sensitive, e.g. "Cluj").'),
+        .describe(
+          'County name (e.g. "Cluj", "București", "Caraș-Severin"). A county is matched under its diacritic (comma-below, cedilla or plain), dash-or-space and MUNICIPIUL spellings; another value is matched as given.'
+        ),
       roles: z
         .array(z.string())
         .optional()
