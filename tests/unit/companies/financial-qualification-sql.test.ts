@@ -720,3 +720,186 @@ describe('the qualification contract fails closed', () => {
     ).toBe('qualification_malformed');
   });
 });
+
+describe('MFP statement provenance: every contributing file line (CQA-14)', () => {
+  const PROVENANCE = 'from companies_v2.financial_indicators i';
+  const LEDGER = 'from companies_v2.financial_source_selection s';
+  const named = (codes: readonly string[]) =>
+    codes.map((code) => ({ code, name: `name of ${code}` }));
+  /** The CUI21195169 FY2009 cross-copy union as the provenance read aggregates it. */
+  const UNION = [
+    {
+      sourceSnapshotId: 'mfp:situatii_financiare_2009:2009:99a5b745-f230-4b1d-b263-f7c86733e383',
+      rowNumber: '76930',
+      url: 'https://data.gov.ro/dataset/x/resource/99a5b745/download/webblbsslan2009.txt',
+      indicators: named([
+        'I1',
+        'I2',
+        'I4',
+        'I5',
+        'I7',
+        'I10',
+        'I11',
+        'I14',
+        'I15',
+        'I16',
+        'I17',
+        'I19',
+        'I21',
+      ]),
+    },
+    {
+      sourceSnapshotId: 'mfp:situatii_financiare_2009:2009:9a037f07-56f7-4620-89d3-f6f957edf706',
+      rowNumber: '609557',
+      url: 'https://data.gov.ro/dataset/x/resource/9a037f07/download/web2009.txt',
+      indicators: named(['I3', 'I6', 'I8', 'I9', 'I12', 'I13', 'I18', 'I20']),
+    },
+  ];
+  const mfpUnion = (contributions: unknown = UNION) =>
+    finRow({
+      cui: '21195169',
+      year: 2009,
+      source_system: 'mfp',
+      source_snapshot_id: UNION[0]?.sourceSnapshotId,
+      source_url: null,
+      resource_url: UNION[0]?.url,
+      selection_basis: 'cross_copy_union',
+      contributions,
+    });
+
+  it('the single-company reads select the ledger basis and the public contributing lines', async () => {
+    const { db, statements } = scriptedDb(serving([mfpUnion()]));
+    const years = (await makeCompaniesRepo(db).getFinancials('21195169'))._unsafeUnwrap();
+    const read = statementReads(statements)[0]?.sql ?? '';
+    expect(read).toContain(LEDGER);
+    expect(read).toContain(PROVENANCE);
+    // Each provenance relation keeps its own public gate and the statement's own identity.
+    for (const gate of [
+      "s.privacy_class = 'public'",
+      "i.privacy_class = 'public'",
+      "res.privacy_class = 'public'",
+    ]) {
+      expect(read).toContain(gate);
+    }
+    expect(read).toContain("s.selection_status = 'selected_typed'");
+    expect(read).toContain(
+      'i.statement_profile_hash is not distinct from fin.statement_profile_hash'
+    );
+    expect(read).toContain('order by g.anchor desc');
+    expect(years[0]?.source).toMatchObject({
+      url: UNION[0]?.url,
+      urlKind: 'mfp_resource',
+      selectionBasis: 'cross_copy_union',
+      contributingSources: UNION,
+    });
+  });
+
+  it('the list slices never pay for provenance', async () => {
+    const { db, statements } = scriptedDb(serving([]));
+    await makeCompaniesRepo(db).profileSlicesForCuis(['21195169'], UNAVAILABLE_SCOPE);
+    const reads = statementReads(statements);
+    expect(reads.length).toBeGreaterThan(0);
+    for (const read of reads) expect(read.sql).not.toContain(PROVENANCE);
+  });
+
+  it('a runtime that cannot read the ledger serves the statement without provenance', async () => {
+    const { db, statements } = scriptedDb((sql) =>
+      sql.includes(SELECTION) ? pgError('42501') : sql.includes(STATEMENT_READ) ? [finRow()] : []
+    );
+    const years = (await makeCompaniesRepo(db).getFinancials('42443305'))._unsafeUnwrap();
+    expect(statementReads(statements)[0]?.sql).not.toContain(PROVENANCE);
+    expect(years[0]?.source).toMatchObject({ selectionBasis: null, contributingSources: null });
+  });
+
+  it('a ledger lost after the probe, with no other capability: one retry without provenance', async () => {
+    // Qualification and resources are unreadable from the start; the ledger
+    // probe passes, then the provenance read loses its grant (a failed query
+    // is not in the statement log, so attempts are counted here).
+    for (const read of [
+      (repo: ReturnType<typeof makeCompaniesRepo>) =>
+        repo.getFinancials('21195169').then((r) => r._unsafeUnwrap()),
+      (repo: ReturnType<typeof makeCompaniesRepo>) =>
+        repo
+          .getProfileData('21195169', UNAVAILABLE_SCOPE)
+          .then((r) => r._unsafeUnwrap()?.financials ?? []),
+    ]) {
+      let provenanceAttempts = 0;
+      const answer = (sql: string): Answer => {
+        if (!sql.includes(STATEMENT_READ)) {
+          return sql.includes(VIEW) || (sql.includes(RESOURCES) && !sql.includes(SELECTION))
+            ? pgError('42501')
+            : sql.includes('"core"."organizations"') && !sql.includes('"parent"')
+              ? [{ org_id: '1', cui: '21195169', name: 'X SRL' }]
+              : [];
+        }
+        if (sql.includes(PROVENANCE)) {
+          provenanceAttempts += 1;
+          return pgError('42501');
+        }
+        // The retried read selects no provenance column, so its row carries none.
+        const plain: Record<string, unknown> = { ...mfpUnion() };
+        delete plain['selection_basis'];
+        delete plain['contributions'];
+        return [plain];
+      };
+      const { db, statements } = scriptedDb(answer);
+      const years = await read(makeCompaniesRepo(db));
+      expect(provenanceAttempts).toBe(1);
+      expect(years).toHaveLength(1);
+      expect(years[0]?.source).toMatchObject({ selectionBasis: null, contributingSources: null });
+      const reads = statementReads(statements);
+      expect(reads).toHaveLength(1);
+      expect(reads[0]?.sql).not.toContain(PROVENANCE);
+    }
+  });
+
+  it('a readable ledger without the resource capability keeps the contributors, URLs null', async () => {
+    const lines = UNION.map((line) => ({ ...line, url: null }));
+    const { db, statements } = scriptedDb((sql) =>
+      sql.includes(STATEMENT_READ)
+        ? [mfpUnion(lines)]
+        : sql.includes(RESOURCES) && !sql.includes(SELECTION)
+          ? pgError('42501')
+          : []
+    );
+    const years = (await makeCompaniesRepo(db).getFinancials('21195169'))._unsafeUnwrap();
+    const read = statementReads(statements)[0]?.sql ?? '';
+    expect(read).toContain(PROVENANCE);
+    expect(read).toContain('null::text as url');
+    expect(read).not.toContain('max(res.captured_source_url)');
+    expect(years[0]?.source.contributingSources).toEqual(lines);
+  });
+
+  it('maps MFP lines strictly; ANAF and unread provenance are null', () => {
+    const mapped = mapStatementSource(
+      finRow({
+        source_system: 'mfp',
+        source_url: null,
+        contributions: [
+          UNION[1],
+          { rowNumber: '1' },
+          'x',
+          { sourceSnapshotId: 'mfp:a', indicators: [{ code: 'I1' }, { name: 'no code' }, 7] },
+        ],
+      })
+    );
+    expect(mapped.contributingSources).toEqual([
+      UNION[1],
+      {
+        sourceSnapshotId: 'mfp:a',
+        rowNumber: null,
+        url: null,
+        indicators: [{ code: 'I1', name: null }],
+      },
+    ]);
+    expect(mapStatementSource(finRow({ contributions: UNION })).contributingSources).toBeNull();
+    expect(
+      mapStatementSource(finRow({ source_system: 'mfp', source_url: null })).contributingSources
+    ).toBeNull();
+    expect(
+      mapStatementSource(finRow({ source_system: 'mfp', source_url: null, contributions: [] }))
+        .contributingSources
+    ).toEqual([]);
+    expect(mapStatementSource(finRow({})).selectionBasis).toBeNull();
+  });
+});
