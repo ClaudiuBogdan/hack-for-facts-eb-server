@@ -405,6 +405,20 @@ export interface LegalSearchResult {
   readonly unhydratedHits: number;
 }
 
+/**
+ * Bounds of the timeline merge (I-20). Live maxima 2026-10-16: 3,200 incoming
+ * modifica/completeaza/abroga references and 3,199 status events on one act.
+ * Reaching a bound marks the timeline incomplete; it is never cut silently.
+ */
+export const LEGAL_TIMELINE_EDGE_BOUND = 10_000;
+export const LEGAL_STATUS_EVENTS_BOUND = 10_000;
+
+/** An act's merged timeline and whether every eligible row made it in. */
+export interface LegalActTimeline {
+  readonly entries: readonly LegalTimelineEntry[];
+  readonly complete: boolean;
+}
+
 /** A merged act timeline entry (status events + amendment edges, LG-2). */
 export interface LegalTimelineEntry {
   readonly kind: 'status_event' | 'amendment';

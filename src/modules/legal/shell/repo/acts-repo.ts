@@ -62,6 +62,7 @@ import {
 import { parseCitation } from '../../core/citation.js';
 import {
   AMENDMENT_RELATIONS,
+  LEGAL_STATUS_EVENTS_BOUND,
   type LegalAct,
   type LegalActCard,
   type LegalActSummary,
@@ -379,7 +380,7 @@ export const makeLegalActsRepo = (db: Db): LegalActsRepo => {
       if (eventSource !== undefined) q = q.where('e.event_source', '=', eventSource);
       const rows = await q
         .orderBy(sql`e.effective_date asc nulls last`)
-        .limit(500)
+        .limit(LEGAL_STATUS_EVENTS_BOUND)
         .execute();
       return ok(rows.map((r) => mapStatusEvent(r as unknown as StatusEventRow)));
     } catch (error) {

@@ -27,6 +27,36 @@ import { parseCitation } from './citation.js';
 import { LEGAL_LIVE_STATUSES, toEngineFilter } from './legal-engine-filter.js';
 import { searchWithEngine } from './legal-engine-search.js';
 import { LEGAL_ORIGINAL_TEXT_CAVEAT, amendmentCountPhrase } from './provenance.js';
+import {
+  LEGAL_STATUS_EVENTS_BOUND,
+  LEGAL_TIMELINE_EDGE_BOUND,
+  type LegalAct,
+  type LegalActCard,
+  type LegalActCountsResult,
+  type LegalActStatus,
+  type LegalCountDimension,
+  type LegalDocHit,
+  type LegalDocument,
+  type LegalEventSource,
+  type LegalExternalAct,
+  type LegalActTimeline,
+  type LegalIncomingEdge,
+  type LegalOutlineEntry,
+  type LegalRecentChange,
+  type LegalReferenceEdge,
+  type LegalRelation,
+  type LegalRenderError,
+  type LegalRenderInfo,
+  type LegalRenderPayload,
+  type LegalRenderPayloadKind,
+  type LegalSectionHit,
+  type LegalResolveDim,
+  type LegalSearchResult,
+  type LegalSortKey,
+  type LegalStatusEvent,
+  type LegalTimelineEntry,
+  type LegalVersionProvenance,
+} from './types.js';
 
 import type {
   CursorPageRequest,
@@ -42,33 +72,6 @@ import type {
   LegalSearchEngine,
 } from './ports.js';
 import type { LegalActRef, LegalRepoBase } from './repo-base.js';
-import type {
-  LegalAct,
-  LegalActCard,
-  LegalActCountsResult,
-  LegalActStatus,
-  LegalCountDimension,
-  LegalDocHit,
-  LegalDocument,
-  LegalEventSource,
-  LegalExternalAct,
-  LegalIncomingEdge,
-  LegalOutlineEntry,
-  LegalRecentChange,
-  LegalReferenceEdge,
-  LegalRelation,
-  LegalRenderError,
-  LegalRenderInfo,
-  LegalRenderPayload,
-  LegalRenderPayloadKind,
-  LegalSectionHit,
-  LegalResolveDim,
-  LegalSearchResult,
-  LegalSortKey,
-  LegalStatusEvent,
-  LegalTimelineEntry,
-  LegalVersionProvenance,
-} from './types.js';
 
 const SORT_DB: Record<
   LegalSortKey,
@@ -127,16 +130,32 @@ export const getActTimeline = async (
   base: LegalRepoBase,
   graph: LegalGraphRepo,
   actId: string
-): Promise<Result<readonly LegalTimelineEntry[], ApiError>> => {
-  const [eventsRes, amendRes] = await Promise.all([
-    base.getStatusEvents(actId),
-    // 199, not 200: the paged repo probes first+1 inside the 200-row physical
-    // hub guard, so the max single page narrows by one row. The timeline is a
-    // bounded merge either way; it deliberately reads one page, no cursor walk.
-    graph.incomingRefs(actId, ['modifica', 'completeaza', 'abroga'], { first: 199 }),
-  ]);
+): Promise<Result<LegalActTimeline, ApiError>> => {
+  const eventsRes = await base.getStatusEvents(actId);
   if (eventsRes.isErr()) return err(eventsRes.error);
-  if (amendRes.isErr()) return err(amendRes.error);
+
+  // Walk every page of incoming amendment edges (199 per page: the paged repo
+  // probes first+1 inside its 200-row hub guard). One page used to be the whole
+  // answer, so the Fiscal Code's 325 references became 199 with no flag (I-20).
+  const edges: LegalIncomingEdge[] = [];
+  let after: string | undefined;
+  let edgesComplete = true;
+  for (;;) {
+    // Ask only for what the bound still allows, so it is enforced exactly.
+    const remaining = LEGAL_TIMELINE_EDGE_BOUND - edges.length;
+    const pageRes = await graph.incomingRefs(actId, ['modifica', 'completeaza', 'abroga'], {
+      first: Math.min(199, remaining),
+      ...(after !== undefined && { after }),
+    });
+    if (pageRes.isErr()) return err(pageRes.error);
+    edges.push(...pageRes.value.items);
+    if (pageRes.value.next === null) break;
+    if (edges.length >= LEGAL_TIMELINE_EDGE_BOUND) {
+      edgesComplete = false;
+      break;
+    }
+    after = pageRes.value.next;
+  }
 
   const entries: LegalTimelineEntry[] = [];
   for (const e of eventsRes.value) {
@@ -149,7 +168,7 @@ export const getActTimeline = async (
       evidence: e.evidence,
     });
   }
-  for (const { edge, sourceAct } of amendRes.value.items) {
+  for (const { edge, sourceAct } of edges) {
     entries.push({
       kind: 'amendment',
       effectiveDate: sourceAct?.entryIntoForce ?? null,
@@ -165,7 +184,8 @@ export const getActTimeline = async (
     const dy = y.effectiveDate ?? '9999-12-31';
     return dx < dy ? -1 : dx > dy ? 1 : x.kind.localeCompare(y.kind);
   });
-  return ok(entries);
+  const complete = edgesComplete && eventsRes.value.length < LEGAL_STATUS_EVENTS_BOUND;
+  return ok({ entries, complete });
 };
 
 export const getStatusEvents = (

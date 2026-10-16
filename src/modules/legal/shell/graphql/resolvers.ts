@@ -61,6 +61,7 @@ import type {
 import type {
   LegalAct,
   LegalActCard,
+  LegalActTimeline,
   LegalActStatus,
   LegalCountDimension,
   LegalDocument,
@@ -168,6 +169,17 @@ const sortKeysOf = (act: LegalAct, sort: LegalSortKey): readonly (string | numbe
 
 export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unknown> => {
   const { acts, graph, outline, render, searchDeps, resolveDeps } = deps;
+  // One timeline read per parent object (one request): `timeline` and
+  // `timelineComplete` share it instead of walking the edge pages twice.
+  const timelines = new WeakMap<object, Promise<Result<LegalActTimeline, ApiError>>>();
+  const timelineOf = (parent: LegalAct): Promise<Result<LegalActTimeline, ApiError>> => {
+    let pending = timelines.get(parent);
+    if (pending === undefined) {
+      pending = getActTimeline(acts, graph, parent.actId);
+      timelines.set(parent, pending);
+    }
+    return pending;
+  };
 
   // Batched act loader for edge `targetAct`/`sourceAct` (tolerates dangling → null).
   // The batch fn returns a Map<id, V>; the loader fills missing keys with `null`.
@@ -522,7 +534,8 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
           totalCount: page.totalCount,
         };
       },
-      timeline: async (parent: LegalAct) => unwrap(await getActTimeline(acts, graph, parent.actId)),
+      timeline: async (parent: LegalAct) => unwrap(await timelineOf(parent)).entries,
+      timelineComplete: async (parent: LegalAct) => unwrap(await timelineOf(parent)).complete,
     },
 
     LegalActConnection: {

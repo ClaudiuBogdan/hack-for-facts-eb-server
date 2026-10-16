@@ -298,7 +298,7 @@ export const makeLegalMcpTools = (deps: LegalMcpDeps): readonly KernelMcpTool[] 
         };
       const res = await getActTimeline(acts, graph, act.actId);
       if (res.isErr()) return errorOut(LEGAL_MCP_KINDS.timeline, res.error.message);
-      const events = res.value;
+      const { entries: events, complete } = res.value;
       const first = events[0]?.effectiveDate ?? '—';
       const last = events[events.length - 1]?.effectiveDate ?? '—';
       return {
@@ -307,7 +307,10 @@ export const makeLegalMcpTools = (deps: LegalMcpDeps): readonly KernelMcpTool[] 
         query: ref,
         link: `${actLink(act.actId)}#act-timeline-heading`,
         items: events,
-        summary: `${act.displayCitation}: ${n(events.length)} events from ${first} to ${last}.`,
+        meta: { complete },
+        summary:
+          `${act.displayCitation}: ${n(events.length)} events from ${first} to ${last}.` +
+          (complete ? '' : ' The timeline reached its bound and is incomplete.'),
       };
     },
   };

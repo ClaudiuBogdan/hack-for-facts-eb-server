@@ -121,6 +121,8 @@ const objectsAndQuery = /* GraphQL */ `
     "Incoming ANCHORS — links the portal itself asserts in citing documents' text (document_link_edges). A DIFFERENT graph from links: anchors are source assertions at mark grain, links are LLM-inferred normative relations; they disagree by construction and both disagreements are informative. Real totalCount; keyset-paged."
     incomingAnchors(first: Int = 50, after: String): LegalIncomingAnchorConnection!
     timeline: [LegalTimelineEntry!]!
+    "False when the timeline reached its bound (10,000 amendment references or status events) and is incomplete; every act is complete today (largest 3,200)."
+    timelineComplete: Boolean!
   }
 
   "One incoming anchor occurrence. charStart/charEnd locate it in the CITING document's rendered text; linkText is the anchor's own words on the source page."
