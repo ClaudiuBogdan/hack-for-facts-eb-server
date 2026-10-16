@@ -92,7 +92,7 @@ export const COMPANY_ANALYSIS_SCOPE_ZOD_SHAPE = {
   onrc: onrcFilter
     .optional()
     .describe(
-      'ONRC observation filters on ONE public identifier: status, county, caenCode (any revision), onrcCaen ("rev2:6201", exact). exclude { status, caenCode, county, legalForm } needs complete evidence; exclude.onrcCaen is refused.'
+      'ONRC observation filters on ONE public identifier: status, county, caenCode (v3 releases: qualified class observations only, never short tokens, unknown revisions or unlabeled keys; v2: every observation, unknown revision included), onrcCaen ("rev2:6201", exact). exclude { status, caenCode, county, legalForm } needs complete evidence (unparsed or unknown-revision CAEN rows make coverage partial); in v3 exclude.caenCode means no qualified class match, not that no source row carries the code; exclude.onrcCaen is refused.'
     ),
   vatPayer: z.array(z.enum(COMPANY_ANALYSIS_FLAG_VALUES)).optional(),
   fiscallyInactive: z.array(z.enum(COMPANY_ANALYSIS_FLAG_VALUES)).optional(),

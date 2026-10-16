@@ -614,12 +614,68 @@ export const makeCompaniesRepo = (
   };
 
   /**
+   * An MFP statement's provenance (CQA-14), read only where one company's
+   * statements are shown: the ledger's `selection_basis` for its selected typed
+   * row, and every public indicator line that contributed cells, grouped by
+   * its own capture and row, with the indicators it supplied and (when readable)
+   * its captured file URL. A cross-copy union lists both files; ANAF
+   * statements (one answer) read null. Both are scalar subqueries over
+   * one-row keys (`financial_source_selection_pkey`,
+   * `financial_indicators_pkey`), so a statement is never dropped or
+   * duplicated by them.
+   */
+  const provenanceColumns = (capabilities: ServingCapabilities) => [
+    sql<string | null>`(
+      select s.selection_basis from companies_v2.financial_source_selection s
+      where s.cui = fin.cui and s.fiscal_year = fin.year
+        and s.source_system = fin.source_system
+        and s.source_snapshot_id = fin.source_snapshot_id
+        and s.selection_status = 'selected_typed'
+        and s.deleted_at is null and s.privacy_class = 'public'
+    )`.as('selection_basis'),
+    sql`case when fin.source_system = 'mfp' then (
+      select coalesce(jsonb_agg(jsonb_build_object(
+          'sourceSnapshotId', g.source_snapshot_id,
+          'rowNumber', g.source_row_number::text,
+          'url', g.url,
+          'indicators', g.indicators)
+        order by g.anchor desc, g.source_snapshot_id, g.source_row_number), '[]'::jsonb)
+      from (
+        select i.source_snapshot_id, i.source_row_number,
+          ${capabilities.resources ? sql`max(res.captured_source_url)` : sql`null::text`} as url,
+          jsonb_agg(jsonb_build_object('code', i.indicator_code, 'name', i.indicator_name)
+            order by length(i.indicator_code), i.indicator_code) as indicators,
+          bool_or(i.source_snapshot_id = fin.source_snapshot_id) as anchor
+        from companies_v2.financial_indicators i
+        ${
+          capabilities.resources
+            ? sql`left join companies_v2.financial_source_resources res
+                on res.source_system = i.source_system
+                and res.source_snapshot_id = i.source_snapshot_id
+                and res.privacy_class = 'public'`
+            : sql``
+        }
+        where i.cui = fin.cui and i.year = fin.year
+          and i.source_system = fin.source_system
+          and i.statement_profile_hash is not distinct from fin.statement_profile_hash
+          and i.privacy_class = 'public'
+        group by i.source_snapshot_id, i.source_row_number
+      ) g
+    ) end`.as('contributions'),
+  ];
+
+  /**
    * ONE statement per read (one snapshot): the public financials rows, the
    * MFP resource URL and the active publication's qualification, both LEFT
    * JOINed with their own public gate in ON, so a statement is never dropped
-   * or duplicated by them (resource and view are keyed one-to-one).
+   * or duplicated by them (resource and view are keyed one-to-one). With
+   * `provenance`, also the CQA-14 provenance columns (selection ledger
+   * capability only).
    */
-  const financialStatements = (capabilities: ServingCapabilities) =>
+  const financialStatements = (
+    capabilities: ServingCapabilities,
+    options: { readonly provenance?: boolean } = {}
+  ) =>
     db
       .selectFrom('companies_v2.financials as fin')
       .$if(capabilities.resources, (qb) =>
@@ -642,6 +698,9 @@ export const makeCompaniesRepo = (
           )
           .select(qualificationColumns())
       )
+      .$if(options.provenance === true && capabilities.selection, (qb) =>
+        qb.select(provenanceColumns(capabilities))
+      )
       .select(financialColumns());
 
   /**
@@ -658,7 +717,10 @@ export const makeCompaniesRepo = (
     try {
       return { rows: await run(capabilities), qualificationReadable: capabilities.qualification };
     } catch (error) {
-      if (!(capabilities.qualification || capabilities.resources) || !isCapabilityError(error)) {
+      if (
+        !(capabilities.qualification || capabilities.resources || capabilities.selection) ||
+        !isCapabilityError(error)
+      ) {
         throw error;
       }
       // Re-probed after CAPABILITY_RETRY_MS like every incomplete answer.
@@ -834,7 +896,7 @@ export const makeCompaniesRepo = (
       const [fiscal, fin, registry] = await Promise.all([
         readFiscal(cui),
         readStatements((capabilities) =>
-          financialStatements(capabilities)
+          financialStatements(capabilities, { provenance: true })
             .where('fin.cui', '=', cui)
             // The CHECK admits 'personal_moderate'/'restricted'; all rows are
             // public today, but the platform gates on class, not distribution.
@@ -901,7 +963,7 @@ export const makeCompaniesRepo = (
       // organization for the CUI is non-public. No kind or existence gate.
       // Each statement carries its sql-v1 qualification from the same read.
       const { rows, qualificationReadable } = await readStatements((capabilities) =>
-        financialStatements(capabilities)
+        financialStatements(capabilities, { provenance: true })
           .where('fin.cui', '=', cui)
           .where('fin.privacy_class', '=', 'public')
           .where((eb) =>
