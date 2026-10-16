@@ -92,6 +92,20 @@ const unwrap = <T>(result: Result<T, ApiError>): T => {
   return result.value;
 };
 
+/**
+ * `LegalAct.versionCount` — the exact count, never the (capped) document list's
+ * length: the Fiscal Code's 243 expressions read as 200 (I-19). The act card
+ * already carries the count, zero included.
+ */
+export const resolveVersionCount = async (
+  parent: LegalAct,
+  acts: Pick<LegalActsRepo, 'countDocuments'>
+): Promise<number> => {
+  const onCard = (parent as Partial<LegalActCard>).versionCount;
+  if (typeof onCard === 'number') return onCard;
+  return unwrap(await acts.countDocuments(parent.actId));
+};
+
 // ── enum value maps (DB ↔ GraphQL) ───────────────────────────────────────────
 
 const STATUS_TO_GQL: Record<LegalActStatus, string> = {
@@ -401,10 +415,7 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
         const card = unwrap(await acts.getActCard({ actId: parent.actId }));
         return card?.citationKeys ?? [];
       },
-      versionCount: async (parent: LegalAct) => {
-        const docs = unwrap(await getActVersions(acts, parent.actId));
-        return docs.length;
-      },
+      versionCount: (parent: LegalAct) => resolveVersionCount(parent, acts),
       // The act-card path already carries the count; every other path reads it
       // off the batched provenance loader rather than one count per act.
       amendedAfterPublication: async (parent: LegalAct) => {

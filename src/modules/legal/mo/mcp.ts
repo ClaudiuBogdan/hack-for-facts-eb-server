@@ -13,6 +13,7 @@
 
 import { z } from 'zod';
 
+import { MO_LIST_CAP } from './repo.js';
 import {
   actLifecycle,
   browseIssues,
@@ -57,6 +58,8 @@ const errorOut = (kind: string, message: string): McpToolOutput => ({
   error: message,
 });
 const num = (x: number): string => String(x);
+/** A list that reached its bound is a lower bound, never a count (I-19). */
+const atLeast = (x: number): string => (x >= MO_LIST_CAP ? `at least ${num(x)}` : num(x));
 
 export const makeMonitorulMcpTools = (deps: MonitorulMcpDeps): readonly KernelMcpTool[] => {
   const { repo, coverage, clientBaseUrl } = deps;
@@ -117,7 +120,7 @@ export const makeMonitorulMcpTools = (deps: MonitorulMcpDeps): readonly KernelMc
         items: publications,
         item: { publications, coverage: cov, confidence: 'deterministic' },
         summary:
-          `Act ${actId} published ${num(publications.length)}× in MO` +
+          `Act ${actId} published ${atLeast(publications.length)}× in MO` +
           (first?.actDate != null ? `; e.g. ${first.actDate}.` : '.'),
       };
     },
@@ -141,6 +144,7 @@ export const makeMonitorulMcpTools = (deps: MonitorulMcpDeps): readonly KernelMc
       const nApprove = statusEvents.filter((e) => e.eventKind.startsWith('aprobare')).length;
       const nReject = inEdges.filter((e) => e.relation === 'respinge').length;
       const nRect = inEdges.filter((e) => e.relation === 'rectifica').length;
+      const truncated = statusEvents.length >= MO_LIST_CAP || inEdges.length >= MO_LIST_CAP;
       return {
         ok: true,
         kind: MO_MCP_KINDS.timeline,
@@ -149,7 +153,10 @@ export const makeMonitorulMcpTools = (deps: MonitorulMcpDeps): readonly KernelMc
         item: { statusEvents, inEdges, coverage: cov, confidence: 'deterministic' },
         summary:
           `Act ${actId}: ${num(nPromulg)} promulgation + ${num(nApprove)} approval status event(s); ` +
-          `${num(nReject)} rejection + ${num(nRect)} rectification edge(s) grounded in MO.`,
+          `${num(nReject)} rejection + ${num(nRect)} rectification edge(s) grounded in MO` +
+          (truncated
+            ? ` (lists stop at ${num(MO_LIST_CAP)}; these counts are lower bounds).`
+            : '.'),
       };
     },
   };

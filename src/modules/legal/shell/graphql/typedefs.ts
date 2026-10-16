@@ -101,6 +101,7 @@ const objectsAndQuery = /* GraphQL */ `
     summary: LegalActSummary
     aliases: [String!]!
     citationKeys: [LegalCitationKey!]!
+    "Exact number of the act's document expressions (act_documents rows)."
     versionCount: Int!
     "Incoming modifica/completeaza edge count — the §5.2-C honesty badge."
     amendedAfterPublication: Int!
@@ -108,6 +109,7 @@ const objectsAndQuery = /* GraphQL */ `
     versionProvenance: LegalVersionProvenance!
     "The same fact rendered in Romanian, ready to show next to any text answer."
     textProvenance: String!
+    "The act's document expressions, canonical first, capped at 1000 (the largest act holds 243); fewer than versionCount means the list is truncated."
     documents: [LegalDocument!]!
     "The citation/amendment graph, keyset-paged on the act_references PK (sourceDocumentId, refIndex) — the cursor is bound to direction + relation set, page cap 199. endCursor is the last edge's REAL cursor on every page (resume with after); IN edges arrive in deterministic PK order, grouped by citing document. totalCount is deliberately null: a bounded read must not claim a hub's fan-out (act-detail.md 9.1)."
     links(

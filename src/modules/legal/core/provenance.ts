@@ -62,14 +62,24 @@ export const countWithNoun = (n: number, noun: string): string => {
 };
 
 /**
- * The status-badge clause. Zero is its own sentence — "modificat de 0 acte" is
- * nonsense — and 4,771 acts (nearly half the amended corpus) need the singular.
+ * The count is of incoming modifica/completeaza REFERENCES (edges), not of
+ * amending acts or amendment events: the Fiscal Code's 295 references come from
+ * 216 distinct acts, and duplicate/partial references to one change are not
+ * adjudicated (I-22). The unit says so.
  */
-export const amendmentCountPhrase = (n: number): string => {
-  if (n === 0) return 'nicio modificare înregistrată';
-  if (n === 1) return 'modificat de un act';
-  return `modificat de ${countWithNoun(n, 'acte')}`;
-};
+const referencesPhrase = (n: number): string =>
+  n === 1
+    ? 'o referință de modificare/completare'
+    : `${countWithNoun(n, 'referințe')} de modificare/completare`;
+
+const recorded = (n: number): string => (n === 1 ? 'înregistrată' : 'înregistrate');
+
+/**
+ * The status-badge clause. Zero is its own sentence, and 4,771 acts (nearly half
+ * the amended corpus) need the singular.
+ */
+export const amendmentCountPhrase = (n: number): string =>
+  n === 0 ? 'nicio modificare înregistrată' : referencesPhrase(n);
 
 /**
  * The amendment clause inside the provenance note. Against a published form the
@@ -79,14 +89,8 @@ export const amendmentCountPhrase = (n: number): string => {
  */
 const amendedClause = (n: number, versionKind: string): string => {
   if (n === 0) return 'nicio modificare înregistrată';
-  if (PUBLISHED_FORM_KINDS.has(versionKind)) {
-    return n === 1
-      ? 'modificat o dată de atunci'
-      : `modificat de ${countWithNoun(n, 'ori')} de atunci`;
-  }
-  return n === 1
-    ? 'o operațiune de modificare/completare înregistrată pentru act'
-    : `${countWithNoun(n, 'operațiuni')} de modificare/completare înregistrate pentru act`;
+  const scope = PUBLISHED_FORM_KINDS.has(versionKind) ? 'de atunci' : 'pentru act';
+  return `${referencesPhrase(n)} ${recorded(n)} ${scope}`;
 };
 
 /**

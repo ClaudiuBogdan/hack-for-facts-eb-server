@@ -42,6 +42,7 @@ import {
   kernelConditions,
   keysetCursor,
   recentChangesFhash,
+  statusEventIsPublic,
   type SortCast,
 } from './filter-helpers.js';
 import {
@@ -88,6 +89,11 @@ type Db = Kysely<ProdDatabase>;
 const MAX_LIST = 100;
 const MAX_CHANGES_PAGE = 100;
 const ID_RE = /^\d+$/u;
+/**
+ * Version-list bound. The largest act holds 243 expressions (Fiscal Code,
+ * 2026-10-15); a list shorter than `versionCount` is a truncated list (I-19).
+ */
+const DOCUMENTS_LIST_CAP = 1000;
 /** A cursor date key: the '' null-sentinel or a plain ISO date. */
 const DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/u;
 
@@ -368,7 +374,8 @@ export const makeLegalActsRepo = (db: Db): LegalActsRepo => {
           'e.evidence',
           'e.event_source',
         ])
-        .where('e.act_id', '=', actId);
+        .where('e.act_id', '=', actId)
+        .where(statusEventIsPublic('e'));
       if (eventSource !== undefined) q = q.where('e.event_source', '=', eventSource);
       const rows = await q
         .orderBy(sql`e.effective_date asc nulls last`)
@@ -552,7 +559,7 @@ export const makeLegalActsRepo = (db: Db): LegalActsRepo => {
    * (SQL comparison), so a date window honestly excludes undated events.
    */
   const recentChangesConds = (f: LegalRecentChangesFilter): RawBuilder<unknown>[] => {
-    const conds: RawBuilder<unknown>[] = [];
+    const conds: RawBuilder<unknown>[] = [statusEventIsPublic('e')];
     if (f.since !== undefined) conds.push(sql`e.effective_date >= ${f.since}::date`);
     if (f.until !== undefined) conds.push(sql`e.effective_date <= ${f.until}::date`);
     if (f.undatedOnly === true) conds.push(sql`e.effective_date is null`);
@@ -680,11 +687,25 @@ export const makeLegalActsRepo = (db: Db): LegalActsRepo => {
         .where('d.act_id', '=', actId)
         .orderBy(sql`d.is_canonical desc nulls last`)
         .orderBy(sql`d.version_date desc nulls last`)
-        .limit(200)
+        .limit(DOCUMENTS_LIST_CAP)
         .execute();
       return ok(rows.map((r) => mapDocument(r)));
     } catch (error) {
       return err(databaseError('listDocuments failed', error));
+    }
+  };
+
+  const countDocuments = async (actId: string): Promise<Result<number, ApiError>> => {
+    if (!ID_RE.test(actId)) return ok(0);
+    try {
+      const row = await db
+        .selectFrom('legal.act_documents as d')
+        .select(sql<string>`count(*)`.as('cnt'))
+        .where('d.act_id', '=', actId)
+        .executeTakeFirst();
+      return ok(Number(row?.cnt ?? 0));
+    } catch (error) {
+      return err(databaseError('countDocuments failed', error));
     }
   };
 
@@ -904,6 +925,7 @@ export const makeLegalActsRepo = (db: Db): LegalActsRepo => {
     getActCard,
     getCanonicalDocument,
     listDocuments,
+    countDocuments,
     getSummary,
     countAmendmentsAfter,
     versionProvenanceForActs,
