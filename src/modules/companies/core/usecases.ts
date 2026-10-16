@@ -143,6 +143,41 @@ const withheldIdentifier = (): ApiError => ({
 });
 
 /**
+ * The registry CAEN criteria test qualified class observations only (CQA-15):
+ * a short token, unknown revision or unlabeled key never matches. A CAEN
+ * exclusion also needs complete CAEN coverage, which an unparsed or
+ * unknown-revision observation denies. Disclosed on every list such a
+ * criterion shapes.
+ */
+export const CAEN_CLASS_LIST_CAVEAT =
+  'CAEN criteria (caenCode, onrcCaen) match qualified ONRC class observations only (four-digit original token, known revision, catalog label). A CAEN exclusion keeps a company only when its CAEN coverage is complete and no qualified class has the code: a short token or unlabeled key with the same digits neither matches nor blocks the exclusion, while an unparsed or unknown-revision observation makes coverage partial, so the company is not kept. No qualified match is not proof that no source observation or activity exists.';
+
+/** The operators each CAEN field compiles to a predicate (registry-sql.ts). */
+const CAEN_CRITERION_OPS = {
+  caenCode: ['eq', 'in', 'prefix'],
+  onrcCaen: ['eq', 'in'],
+} as const;
+
+/** The operand shapes `stringValues` (shell/repo/filter-helpers.ts) reads per operator. */
+const OPERAND_READ: Readonly<Record<string, (value: unknown) => boolean>> = {
+  eq: (value) => typeof value === 'string' || typeof value === 'number',
+  in: (value) => Array.isArray(value) && value.length > 0,
+  prefix: (value) => typeof value === 'string',
+};
+
+const hasOperand = (ff: unknown, ops: readonly string[]): boolean => {
+  if (typeof ff !== 'object' || ff === null) return false;
+  const record = ff as Readonly<Record<string, unknown>>;
+  return ops.some((op) => OPERAND_READ[op]?.(record[op]) === true);
+};
+
+/** A CAEN predicate actually applies: an empty `{}` field compiles to none. */
+const hasCaenCriterion = (filter: FilterInput): boolean =>
+  Object.entries(CAEN_CRITERION_OPS).some(
+    ([field, ops]) => hasOperand(filter[field], ops) || hasOperand(filter.exclude?.[field], ops)
+  );
+
+/**
  * Reject an empty `in: []` on any field (inclusion or exclude). The kernel
  * composer compiles an empty `in` to NO predicate, so `{ status: { in: [] } }`
  * would silently match ALL companies — a surprising broaden. We fail it as
@@ -1098,6 +1133,7 @@ export const makeCompanyList = async (
     withheld.dropped > 0
       ? [`${String(withheld.dropped)} requested identifier(s) are not served and were omitted`]
       : [];
+  if (hasCaenCriterion(args.filter)) baseCaveats.push(CAEN_CLASS_LIST_CAVEAT);
   // Validate BEFORE the emptied shortcut. Returning early on an emptied `in`
   // would skip `normalizeCuiFilter` entirely, so a filter that ALSO carries a
   // withheld `eq` or `exclude` — reachable through MCP, which does not

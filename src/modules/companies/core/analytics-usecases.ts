@@ -72,6 +72,7 @@ import {
   COMPANY_ANALYSIS_LIMITS,
   COMPANY_ANALYSIS_METRICS,
   COMPANY_ANALYSIS_RANKINGS,
+  COMPANY_ANALYSIS_SCHEMA_VERSION,
   COMPANY_ANALYSIS_RECORD_SORTS,
   COMPANY_ANALYSIS_SIZE_BANDS,
   COMPANY_ANALYSIS_STATUSES,
@@ -150,6 +151,38 @@ const notConfigured = (): ApiError =>
 
 const SNAPSHOT_CAVEAT =
   'Company keys (ONRC edition consensus with its basis, ANAF fiscal attributes including the fiscal CAEN code) describe the release snapshot and its pinned ONRC edition, not the fiscal year.';
+
+/**
+ * What an ONRC CAEN filter tested, per release schema (CQA-15). v3 exports
+ * class-only CAEN arrays: a short token, unknown revision or unlabeled key
+ * never matches. A v2 release exported every observed code. Either way an
+ * exclusion also needs complete CAEN coverage, which an unparsed or
+ * unknown-revision observation denies. Disclosed on every answer such a
+ * filter shaped, not only in the release caveats.
+ */
+export const CAEN_CLASS_FILTER_CAVEAT =
+  'In this release ONRC CAEN filters (onrc.caenCode, onrc.onrcCaen) match qualified class observations only (four-digit original token, known revision, catalog label). onrc.exclude.caenCode keeps a company only when its CAEN coverage is complete and no qualified class has the code: a short token or unlabeled key with the same digits neither matches nor blocks the exclusion, while an unparsed or unknown-revision observation makes coverage partial, so the company is not kept. No qualified match is not proof that no source observation or activity exists.';
+
+/** The v2 counterpart: every observed code, whatever its class state. */
+export const CAEN_OBSERVATION_FILTER_CAVEAT_V2 =
+  'In this release (schema v2) onrc.caenCode matches every ONRC observation of the code, unknown revision and unqualified tokens included, and onrc.onrcCaen an observation of that known revision. onrc.exclude.caenCode keeps a company only when its CAEN coverage is complete and no observation carries the code; an unparsed or unknown-revision observation makes coverage partial, so the company is not kept.';
+
+/** The caveats the scope's own filters owe every answer they shape. */
+const scopeCaveats = (
+  release: CompanyAnalysisRelease,
+  scope: CompanyAnalysisScope
+): readonly string[] => {
+  const onrc = scope.onrc;
+  const caenFiltered =
+    onrc !== undefined &&
+    ((onrc.caenCode?.length ?? 0) > 0 ||
+      (onrc.onrcCaen?.length ?? 0) > 0 ||
+      (onrc.exclude?.caenCode?.length ?? 0) > 0);
+  if (!caenFiltered) return [];
+  return release.schemaVersion === COMPANY_ANALYSIS_SCHEMA_VERSION
+    ? [CAEN_OBSERVATION_FILTER_CAVEAT_V2]
+    : [CAEN_CLASS_FILTER_CAVEAT];
+};
 
 /** Label attribution (the vocabulary of the companies resolve hits). */
 const LABEL_SOURCE = {
@@ -647,7 +680,7 @@ export const companyAnalysisStats = async (
     filers: filers.value.toString(),
     nonFilers: (companies.value - filers.value).toString(),
     metrics: aggregates,
-    caveats: [SNAPSHOT_CAVEAT],
+    caveats: [SNAPSHOT_CAVEAT, ...scopeCaveats(release, scope.value)],
   });
 };
 
@@ -1298,8 +1331,8 @@ export const companyAnalysisBreakdown = async (
     unknown: bucket('UNKNOWN', unknown, 1, NO_LABEL),
     unclassified: unclassified.map((group) => bucket('GROUP', group, 1, NO_LABEL)),
     totals: bucket('TOTAL', totals, known.length + unclassified.length + 1, NO_LABEL),
-    caveats:
-      dimension.value === 'EMPLOYEE_SIZE'
+    caveats: [
+      ...(dimension.value === 'EMPLOYEE_SIZE'
         ? [
             SNAPSHOT_CAVEAT,
             'The unknown size group holds companies without a statement for the year and statements without a reported headcount.',
@@ -1311,7 +1344,9 @@ export const companyAnalysisBreakdown = async (
             ]
           : activityDimension
             ? [SNAPSHOT_CAVEAT, ...ACTIVITY_BREAKDOWN_CAVEATS]
-            : [SNAPSHOT_CAVEAT],
+            : [SNAPSHOT_CAVEAT]),
+      ...scopeCaveats(release, scope.value),
+    ],
   });
 };
 
@@ -1465,6 +1500,7 @@ export const companyAnalysisSeries = async (
     mode === 'REFERENCE_YEAR'
       ? `Every point follows the fixed cohort of companies selected in fiscal year ${String(scope.value.fiscalYear)}.`
       : 'Every point re-applies the selected-year filters, so the reporting population differs between years.',
+    ...scopeCaveats(release, scope.value),
   ];
   return finish(ctx, resolved.value, {
     ...answerBase(release, scope.value),
@@ -1931,6 +1967,7 @@ export const companyAnalysisRecords = async (
       SNAPSHOT_CAVEAT,
       'currentName is the current public core-directory name: not a registry or edition name, and not pinned to the release.',
       'onrcRecordedDate is the date ONRC recorded, never a founding date or an age.',
+      ...scopeCaveats(release, scope.value),
     ],
   });
 };
