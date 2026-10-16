@@ -19,6 +19,7 @@ import {
   type CompanyRegistryCuiProfile,
   type CompanyRegistryStatusObservation,
   type CompanyStatementQualification,
+  type CompanyStatementContribution,
   type CompanyStatementSource,
   type CompanyStatusFlag,
   type CompanyTerritory,
@@ -188,6 +189,10 @@ export interface FinancialRow extends QualificationColumns {
   source_url: string | null;
   /** `financial_source_resources.captured_source_url` (MFP only); absent when not readable. */
   resource_url?: string | null;
+  /** The ledger's selection basis (provenance reads only); absent when not read. */
+  selection_basis?: string | null;
+  /** The contributing lines as jsonb (MFP provenance reads only); absent when not read. */
+  contributions?: unknown;
   turnover: string | null;
   net_profit: string | null;
   net_loss: string | null;
@@ -319,6 +324,38 @@ const anafStatementQuery = (r: FinancialRow): string | null => {
  * links to its own (year, CUI) query (`anafStatementQuery`): ANAF's current
  * answer, not the retained capture.
  */
+const nullableString = (value: unknown): string | null =>
+  typeof value === 'string' ? value : null;
+
+/**
+ * The contributing lines of an MFP statement, as the provenance read
+ * aggregates them. A malformed element is dropped, never coerced; anything
+ * that is not an array (not read, ANAF, unreadable) is null.
+ */
+const mapContributions = (value: unknown): readonly CompanyStatementContribution[] | null => {
+  if (!Array.isArray(value)) return null;
+  return value.flatMap((entry: unknown): CompanyStatementContribution[] => {
+    if (typeof entry !== 'object' || entry === null) return [];
+    const e = entry as Readonly<Record<string, unknown>>;
+    const indicators = e['indicators'];
+    if (typeof e['sourceSnapshotId'] !== 'string' || !Array.isArray(indicators)) return [];
+    return [
+      {
+        sourceSnapshotId: e['sourceSnapshotId'],
+        rowNumber: nullableString(e['rowNumber']),
+        url: nullableString(e['url']),
+        indicators: indicators.flatMap((indicator: unknown) => {
+          if (typeof indicator !== 'object' || indicator === null) return [];
+          const i = indicator as Readonly<Record<string, unknown>>;
+          return typeof i['code'] === 'string'
+            ? [{ code: i['code'], name: nullableString(i['name']) }]
+            : [];
+        }),
+      },
+    ];
+  });
+};
+
 export const mapStatementSource = (r: FinancialRow): CompanyStatementSource => {
   const anafUrl = r.source_system === 'anaf' ? anafStatementQuery(r) : null;
   const mfp = r.source_system === 'mfp' && (r.resource_url ?? null) !== null;
@@ -328,6 +365,8 @@ export const mapStatementSource = (r: FinancialRow): CompanyStatementSource => {
     urlKind: anafUrl !== null ? 'anaf_statement' : mfp ? 'mfp_resource' : null,
     statementProfileHash: r.statement_profile_hash,
     metricRuleVersion: r.metric_rule_version,
+    selectionBasis: r.selection_basis ?? null,
+    contributingSources: r.source_system === 'mfp' ? mapContributions(r.contributions) : null,
   };
 };
 

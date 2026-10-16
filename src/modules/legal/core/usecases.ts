@@ -27,6 +27,36 @@ import { parseCitation } from './citation.js';
 import { LEGAL_LIVE_STATUSES, toEngineFilter } from './legal-engine-filter.js';
 import { searchWithEngine } from './legal-engine-search.js';
 import { LEGAL_ORIGINAL_TEXT_CAVEAT, amendmentCountPhrase } from './provenance.js';
+import {
+  LEGAL_STATUS_EVENTS_BOUND,
+  LEGAL_TIMELINE_EDGE_BOUND,
+  type LegalAct,
+  type LegalActCard,
+  type LegalActCountsResult,
+  type LegalActStatus,
+  type LegalCountDimension,
+  type LegalDocHit,
+  type LegalDocument,
+  type LegalEventSource,
+  type LegalExternalAct,
+  type LegalActTimeline,
+  type LegalIncomingEdge,
+  type LegalOutlineEntry,
+  type LegalRecentChange,
+  type LegalReferenceEdge,
+  type LegalRelation,
+  type LegalRenderError,
+  type LegalRenderInfo,
+  type LegalRenderPayload,
+  type LegalRenderPayloadKind,
+  type LegalSectionHit,
+  type LegalResolveDim,
+  type LegalSearchResult,
+  type LegalSortKey,
+  type LegalStatusEvent,
+  type LegalTimelineEntry,
+  type LegalVersionProvenance,
+} from './types.js';
 
 import type {
   CursorPageRequest,
@@ -42,33 +72,6 @@ import type {
   LegalSearchEngine,
 } from './ports.js';
 import type { LegalActRef, LegalRepoBase } from './repo-base.js';
-import type {
-  LegalAct,
-  LegalActCard,
-  LegalActCountsResult,
-  LegalActStatus,
-  LegalCountDimension,
-  LegalDocHit,
-  LegalDocument,
-  LegalEventSource,
-  LegalExternalAct,
-  LegalIncomingEdge,
-  LegalOutlineEntry,
-  LegalRecentChange,
-  LegalReferenceEdge,
-  LegalRelation,
-  LegalRenderError,
-  LegalRenderInfo,
-  LegalRenderPayload,
-  LegalRenderPayloadKind,
-  LegalSectionHit,
-  LegalResolveDim,
-  LegalSearchResult,
-  LegalSortKey,
-  LegalStatusEvent,
-  LegalTimelineEntry,
-  LegalVersionProvenance,
-} from './types.js';
 
 const SORT_DB: Record<
   LegalSortKey,
@@ -127,16 +130,32 @@ export const getActTimeline = async (
   base: LegalRepoBase,
   graph: LegalGraphRepo,
   actId: string
-): Promise<Result<readonly LegalTimelineEntry[], ApiError>> => {
-  const [eventsRes, amendRes] = await Promise.all([
-    base.getStatusEvents(actId),
-    // 199, not 200: the paged repo probes first+1 inside the 200-row physical
-    // hub guard, so the max single page narrows by one row. The timeline is a
-    // bounded merge either way; it deliberately reads one page, no cursor walk.
-    graph.incomingRefs(actId, ['modifica', 'completeaza', 'abroga'], { first: 199 }),
-  ]);
+): Promise<Result<LegalActTimeline, ApiError>> => {
+  const eventsRes = await base.getStatusEvents(actId);
   if (eventsRes.isErr()) return err(eventsRes.error);
-  if (amendRes.isErr()) return err(amendRes.error);
+
+  // Walk every page of incoming amendment edges (199 per page: the paged repo
+  // probes first+1 inside its 200-row hub guard). One page used to be the whole
+  // answer, so the Fiscal Code's 325 references became 199 with no flag (I-20).
+  const edges: LegalIncomingEdge[] = [];
+  let after: string | undefined;
+  let edgesComplete = true;
+  for (;;) {
+    // Ask only for what the bound still allows, so it is enforced exactly.
+    const remaining = LEGAL_TIMELINE_EDGE_BOUND - edges.length;
+    const pageRes = await graph.incomingRefs(actId, ['modifica', 'completeaza', 'abroga'], {
+      first: Math.min(199, remaining),
+      ...(after !== undefined && { after }),
+    });
+    if (pageRes.isErr()) return err(pageRes.error);
+    edges.push(...pageRes.value.items);
+    if (pageRes.value.next === null) break;
+    if (edges.length >= LEGAL_TIMELINE_EDGE_BOUND) {
+      edgesComplete = false;
+      break;
+    }
+    after = pageRes.value.next;
+  }
 
   const entries: LegalTimelineEntry[] = [];
   for (const e of eventsRes.value) {
@@ -149,7 +168,7 @@ export const getActTimeline = async (
       evidence: e.evidence,
     });
   }
-  for (const { edge, sourceAct } of amendRes.value.items) {
+  for (const { edge, sourceAct } of edges) {
     entries.push({
       kind: 'amendment',
       effectiveDate: sourceAct?.entryIntoForce ?? null,
@@ -165,7 +184,8 @@ export const getActTimeline = async (
     const dy = y.effectiveDate ?? '9999-12-31';
     return dx < dy ? -1 : dx > dy ? 1 : x.kind.localeCompare(y.kind);
   });
-  return ok(entries);
+  const complete = edgesComplete && eventsRes.value.length < LEGAL_STATUS_EVENTS_BOUND;
+  return ok({ entries, complete });
 };
 
 export const getStatusEvents = (
@@ -519,13 +539,14 @@ export const effectiveSemantic = (deps: {
  * The citation shortcut answers with ONE act, from Postgres, before any filter
  * is compiled. That is only safe when the caller asked a question the shortcut
  * can actually answer: no filter to honour, and a channel that wants acts.
- * Anything else goes down the normal path.
+ * Anything else goes down the normal path. `filter.q` is a filter too — a second
+ * text constraint the normal path names as unsupported; exempting it let a
+ * citation plus a non-matching `filter.q` answer `actsTotal: 1`,
+ * `totalsExhaustive: true` (I-21).
  */
 const citationShortcutAllowed = (query: LegalRetrievalQuery): boolean => {
   if (query.channel === 'sections') return false;
-  return !Object.entries(query.filter).some(
-    ([field, value]) => field !== 'q' && value !== undefined
-  );
+  return !Object.values(query.filter).some((value) => value !== undefined);
 };
 
 export const searchLegal = async (
@@ -611,7 +632,7 @@ export const searchLegal = async (
     const engineCaveats = [...caveats, ...outcome.value.caveats];
     const sections = outcome.value.sections.map((s) => ({
       ...s,
-      portalDeepLink: portalLink(deps.clientBaseUrl, s.actId, s.sectionKey),
+      portalDeepLink: portalLink(deps.clientBaseUrl, s.actId),
     }));
     if (outcome.value.acts.length > 0 || sections.length > 0) {
       engineCaveats.push(LEGAL_ORIGINAL_TEXT_CAVEAT);
@@ -670,7 +691,7 @@ export const searchLegal = async (
 
   const sections = secRes.value.map((s) => ({
     ...s,
-    portalDeepLink: portalLink(deps.clientBaseUrl, s.actId, s.sectionKey),
+    portalDeepLink: portalLink(deps.clientBaseUrl, s.actId),
     provenance: provenanceOf(s.actId),
   }));
   const acts = docRes.value.map((d) => ({ ...d, provenance: provenanceOf(d.act.actId) }));
@@ -726,8 +747,9 @@ const historicalCaveats = (
 const honestyCaveat = (card: LegalActCard): string =>
   `${card.displayCitation}: status ${card.status}; ${amendmentCountPhrase(card.amendedAfterPublication)}.`;
 
-const portalLink = (base: string, actId: string, sectionKey: string): string =>
-  `${base}/legal/acts/${actId}?section=${encodeURIComponent(sectionKey)}`;
+// The client's act page (I-23: `/legal/...` is not a client route, and it has
+// no `section` parameter — its deep link is `nod`, a document-node path).
+const portalLink = (base: string, actId: string): string => `${base}/legislation/acts/${actId}`;
 
 /** Drop the card's extra fields back to a plain LegalAct (for the doc-hit shape). */
 const stripCard = (card: LegalActCard): LegalAct => ({

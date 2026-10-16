@@ -279,12 +279,18 @@ export const makeCompaniesResolvers = (deps: CompaniesResolverDeps): Record<stri
         return {
           edges,
           pageInfo: {
+            // Only a capped COUNT means rows continue past `total`. A capped
+            // name resolution leaves `total` exact over its candidates, so the
+            // candidate set ends where `total` says (CQA-17); reaching other
+            // matches needs a refined query, disclosed below.
             hasNextPage:
-              res.rows.length === page.pageSize && (res.totalEstimated || res.total > consumed),
+              res.rows.length === page.pageSize && (res.countCapped || res.total > consumed),
             endCursor: edges.length > 0 ? (edges[edges.length - 1]?.cursor ?? null) : null,
           },
           totalCount: res.total,
           totalEstimated: res.totalEstimated,
+          nameCandidateCapped: res.nameCandidateCapped,
+          caveats: res.caveats,
           registry: res.registry,
         };
       },

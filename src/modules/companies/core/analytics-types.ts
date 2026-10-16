@@ -572,7 +572,12 @@ export interface CompanyAnalysisKeyFilter {
 export interface CompanyAnalysisOnrcExclude {
   /** No identifier has any of these status codes; status coverage COMPLETE/COMPLETE_EMPTY. */
   readonly status?: readonly string[];
-  /** No identifier has any of these CAEN codes (any revision); CAEN coverage COMPLETE/COMPLETE_EMPTY. */
+  /**
+   * CAEN coverage COMPLETE/COMPLETE_EMPTY (unparsed or unknown-revision rows
+   * make it partial) and no matching observation of these codes: v3 tests
+   * qualified classes only (a short token or unlabeled key does not block
+   * it), v2 every observed code.
+   */
   readonly caenCode?: readonly string[];
   /** A known single/consistent county consensus outside these codes. */
   readonly county?: readonly string[];
@@ -585,7 +590,7 @@ export interface CompanyAnalysisOnrcFilter {
   readonly status?: readonly string[];
   /** County codes of the identifier. */
   readonly county?: readonly string[];
-  /** Broad CAEN code in any revision state (unknown revision included). */
+  /** Broad CAEN code in any revision: v3 qualified class observations only, v2 every observation (unknown revision included). */
   readonly caenCode?: readonly string[];
   /** Exact `rev<N>:<code>` of a known revision (an unknown revision never matches). */
   readonly onrcCaen?: readonly string[];

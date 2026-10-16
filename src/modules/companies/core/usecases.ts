@@ -143,6 +143,41 @@ const withheldIdentifier = (): ApiError => ({
 });
 
 /**
+ * The registry CAEN criteria test qualified class observations only (CQA-15):
+ * a short token, unknown revision or unlabeled key never matches. A CAEN
+ * exclusion also needs complete CAEN coverage, which an unparsed or
+ * unknown-revision observation denies. Disclosed on every list such a
+ * criterion shapes.
+ */
+export const CAEN_CLASS_LIST_CAVEAT =
+  'CAEN criteria (caenCode, onrcCaen) match qualified ONRC class observations only (four-digit original token, known revision, catalog label). A CAEN exclusion keeps a company only when its CAEN coverage is complete and no qualified class has the code: a short token or unlabeled key with the same digits neither matches nor blocks the exclusion, while an unparsed or unknown-revision observation makes coverage partial, so the company is not kept. No qualified match is not proof that no source observation or activity exists.';
+
+/** The operators each CAEN field compiles to a predicate (registry-sql.ts). */
+const CAEN_CRITERION_OPS = {
+  caenCode: ['eq', 'in', 'prefix'],
+  onrcCaen: ['eq', 'in'],
+} as const;
+
+/** The operand shapes `stringValues` (shell/repo/filter-helpers.ts) reads per operator. */
+const OPERAND_READ: Readonly<Record<string, (value: unknown) => boolean>> = {
+  eq: (value) => typeof value === 'string' || typeof value === 'number',
+  in: (value) => Array.isArray(value) && value.length > 0,
+  prefix: (value) => typeof value === 'string',
+};
+
+const hasOperand = (ff: unknown, ops: readonly string[]): boolean => {
+  if (typeof ff !== 'object' || ff === null) return false;
+  const record = ff as Readonly<Record<string, unknown>>;
+  return ops.some((op) => OPERAND_READ[op]?.(record[op]) === true);
+};
+
+/** A CAEN predicate actually applies: an empty `{}` field compiles to none. */
+const hasCaenCriterion = (filter: FilterInput): boolean =>
+  Object.entries(CAEN_CRITERION_OPS).some(
+    ([field, ops]) => hasOperand(filter[field], ops) || hasOperand(filter.exclude?.[field], ops)
+  );
+
+/**
  * Reject an empty `in: []` on any field (inclusion or exclude). The kernel
  * composer compiles an empty `in` to NO predicate, so `{ status: { in: [] } }`
  * would silently match ALL companies — a surprising broaden. We fail it as
@@ -1051,7 +1086,16 @@ export const makeCompanyFinancials = async (
 export interface CompanyListResponse {
   readonly rows: readonly CompanyListRow[];
   readonly total: number;
+  /** `countCapped || nameCandidateCapped`: `total` may not be the complete match count. */
   readonly totalEstimated: boolean;
+  /** The bounded count hit its cap: rows continue past `total`. */
+  readonly countCapped: boolean;
+  /**
+   * `q` reached the name-candidate cap: more companies may match, the list
+   * covers only those candidates, and paging cannot reach others — only a
+   * refined name can.
+   */
+  readonly nameCandidateCapped: boolean;
   readonly caveats: readonly string[];
   /** The scope every row and the total were read under (empty pages included). */
   readonly registry: CompanyRegistryEnvelope;
@@ -1063,6 +1107,8 @@ interface ListPage {
   readonly rows: readonly CompanyListRow[];
   readonly total: number;
   readonly totalEstimated: boolean;
+  readonly countCapped: boolean;
+  readonly nameCandidateCapped: boolean;
   readonly caveats: readonly string[];
 }
 
@@ -1087,6 +1133,7 @@ export const makeCompanyList = async (
     withheld.dropped > 0
       ? [`${String(withheld.dropped)} requested identifier(s) are not served and were omitted`]
       : [];
+  if (hasCaenCriterion(args.filter)) baseCaveats.push(CAEN_CLASS_LIST_CAVEAT);
   // Validate BEFORE the emptied shortcut. Returning early on an emptied `in`
   // would skip `normalizeCuiFilter` entirely, so a filter that ALSO carries a
   // withheld `eq` or `exclude` — reachable through MCP, which does not
@@ -1105,8 +1152,15 @@ export const makeCompanyList = async (
     const refusal = registryCriteriaRefusal(normFilter.value, args.sort, scope);
     if (refusal !== null) return err(refusal);
     const caveats = [...baseCaveats];
-    const empty = (estimated: boolean): Result<ListPage, ApiError> =>
-      ok({ rows: [], total: 0, totalEstimated: estimated, caveats });
+    const empty = (nameCapped: boolean): Result<ListPage, ApiError> =>
+      ok({
+        rows: [],
+        total: 0,
+        totalEstimated: nameCapped,
+        countCapped: false,
+        nameCandidateCapped: nameCapped,
+        caveats,
+      });
     if (withheld.emptied) return empty(false);
     let filter = normFilter.value;
 
@@ -1125,7 +1179,7 @@ export const makeCompanyList = async (
       nameTruncated = resolved.value.hits.length >= NAME_RESOLVE_CAP;
       if (nameTruncated) {
         caveats.push(
-          `name matched more companies than the ${String(NAME_RESOLVE_CAP)}-candidate cap; results and totals cover only the top candidates — refine the name or add filters`
+          `name search reached the ${String(NAME_RESOLVE_CAP)}-candidate cap: more companies may match; results and totals cover only these top candidates — refine the name to change them (filters apply after the cap)`
         );
       }
       const nameCuis = resolved.value.hits
@@ -1147,10 +1201,15 @@ export const makeCompanyList = async (
 
     const res = await deps.repo.listCompanies(filter, args.sort, args.page, scope);
     if (res.isErr()) return err(res.error);
+    // Two different estimates: a capped count means rows continue past
+    // `total`; a capped name resolution means `total` is exact for the
+    // resolved candidates but other companies may match the name (CQA-17).
     return ok({
       rows: res.value.rows,
       total: res.value.total,
       totalEstimated: res.value.estimated || nameTruncated,
+      countCapped: res.value.estimated,
+      nameCandidateCapped: nameTruncated,
       caveats,
     });
   };

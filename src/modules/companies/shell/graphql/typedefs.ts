@@ -436,16 +436,39 @@ const objectsAndQuery = /* GraphQL */ `
     holdDrift: [String!]!
   }
 
+  "One public MFP file line that supplied cells of a statement."
+  type CompanyStatementContribution {
+    "The capture the line belongs to (mfp:<collection>:<year>:<resource>)."
+    sourceSnapshotId: String!
+    "The line's row number in that file; null when not recorded."
+    rowNumber: String
+    "The captured file URL; null when not readable."
+    url: String
+    "The indicators this line supplied."
+    indicators: [CompanyStatementContributionIndicator!]!
+  }
+
+  "One indicator a contributing line supplied: its MFP code and the statement's own name for it (codes are named per statement layout)."
+  type CompanyStatementContributionIndicator {
+    code: String!
+    name: String
+  }
+
   "Where a statement was published. ANAF: the bilanț web-service query for THIS statement's own fiscal year and CUI (the request the ingester makes); it answers with ANAF's CURRENT data, which can differ from the retained capture, and is not a custody proof. MFP: the exact data.gov.ro resource it was read from. url is null when not recorded or not bindable to this statement: never guessed, never another publisher's or statement's URL."
   type CompanyStatementSource {
     "anaf | mfp"
     sourceSystem: String!
+    "The anchor: the current ANAF query of this statement, or the MFP file of its selected capture. A cross-copy statement has more files: see contributingSources."
     url: String
     "anaf_statement (the current ANAF query of this statement) | mfp_resource; null with url."
     urlKind: String
     "Fingerprint of the statement's indicator code/name layout: not its values, not its bytes."
     statementProfileHash: String
     metricRuleVersion: String!
+    "The selection ledger's basis for this typed statement (e.g. sole_candidate; cross_copy_union when MFP published its lines split across files). Null when not read, not readable, or no ledger row."
+    selectionBasis: String
+    "MFP statements: every public file line that contributed cells, anchor first, with the indicators each supplied, so each value traces to its own file. Null for ANAF statements (one answer: see url), on lists, and when the ledger is not readable."
+    contributingSources: [CompanyStatementContribution!]
   }
 
   "A dated, warn-only legacy anomaly flag on one (cui, year) statement. Advisory: qualifies a figure, never suppresses one."
@@ -1133,9 +1156,15 @@ const objectsAndQuery = /* GraphQL */ `
   "totalCount is bounded ≤10,000; totalEstimated flags the cap (§14.4). Cursors bind the filter, sort AND the registry scope: a later page under another scope is refused (INVALID_INPUT, restart pagination)."
   type CompanyConnection {
     edges: [CompanyEdge!]!
+    "hasNextPage: with an exact totalCount, true only while rows remain. With a capped database count (totalEstimated without nameCandidateCapped) it is optimistic: a full page near the cap may be followed by an empty one. The name-candidate cap alone never sets it."
     pageInfo: PageInfo!
     totalCount: Int
+    "True when totalCount may not be the complete match count: the bounded count hit its cap, or nameCandidateCapped."
     totalEstimated: Boolean!
+    "q reached the name-candidate cap (50): more companies may match the name. The list and totalCount cover only these top candidates, so paging cannot reach others; refine the name to change the candidate set (filters apply after the cap and cannot add candidates)."
+    nameCandidateCapped: Boolean!
+    "English disclosures for this list (name-candidate cap, degraded name search, omitted withheld identifiers); the same caveats list_companies returns over MCP."
+    caveats: [String!]!
     registry: CompanyRegistryEnvelope!
   }
 

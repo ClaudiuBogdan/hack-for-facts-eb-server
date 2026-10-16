@@ -69,7 +69,10 @@ class ScriptedDriver extends DummyDriver {
   override acquireConnection(): Promise<DatabaseConnection> {
     const rowsFor = this.rowsFor;
     return Promise.resolve({
-      executeQuery: (query) => Promise.resolve({ rows: [...rowsFor(query.sql)] as never[] }),
+      // Matched on whitespace-collapsed SQL, as the statement log records it:
+      // multi-line fragments must not change which rows a statement gets.
+      executeQuery: (query) =>
+        Promise.resolve({ rows: [...rowsFor(query.sql.replace(/\s+/gu, ' '))] as never[] }),
       streamQuery: async function* () {
         // never streamed by the companies repo
       },
