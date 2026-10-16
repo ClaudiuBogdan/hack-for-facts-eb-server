@@ -63,6 +63,12 @@ type Db = Kysely<ProdDatabase>;
 
 const ID_RE = /^\d+$/u;
 const MAX_LIST = 100;
+/**
+ * Bound on the per-act / per-publication lists (publications, edges, status
+ * events). Measured maxima 2026-10-16: 11 / 36 / 35. A list that reaches the
+ * bound may be truncated; callers say "at least" rather than counting it.
+ */
+export const MO_LIST_CAP = 200;
 const MAX_BATCH_ACTS = 500;
 
 const clampLimit = (first: number, max: number): number =>
@@ -220,22 +226,29 @@ export const makeMonitorulRepo = (db: Db): MonitorulRepo => {
         : sort === 'issue_year_desc'
           ? sql`order by i.issue_year desc, i.mo_issue_id desc`
           : sql`order by i.issue_date desc nulls last, i.mo_issue_id desc`;
+    const where = sql`${kernel.value} and i.privacy_class = 'public'`;
     try {
-      const rowsQ = sql<MoIssueRow & { total: string }>`
-        select
-          i.mo_issue_id, i.part_code, i.mo_part, i.issue_label, i.issue_number,
-          i.issue_suffix, i.issue_year, i.issue_date::text as issue_date, i.pdf_url,
-          i.has_archive_index, i.has_emonitor_link, i.pdf_bytes,
-          i.first_seen_at::text as first_seen_at, i.last_seen_at::text as last_seen_at,
-          count(*) over () as total
-        from legal.mo_issues i
-        where ${kernel.value} and i.privacy_class = 'public'
-        ${orderBy}
-        limit ${pageSize} offset ${offset}
-      `;
-      const result = await rowsQ.execute(db);
+      // The total is its own count over the same filter: a window count rides
+      // on the page's rows, so a page past the end reported total 0 for a
+      // population of 1,065 (I-21). Empty pages must not redefine the total.
+      const [result, totalRow] = await Promise.all([
+        sql<MoIssueRow>`
+          select
+            i.mo_issue_id, i.part_code, i.mo_part, i.issue_label, i.issue_number,
+            i.issue_suffix, i.issue_year, i.issue_date::text as issue_date, i.pdf_url,
+            i.has_archive_index, i.has_emonitor_link, i.pdf_bytes,
+            i.first_seen_at::text as first_seen_at, i.last_seen_at::text as last_seen_at
+          from legal.mo_issues i
+          where ${where}
+          ${orderBy}
+          limit ${pageSize} offset ${offset}
+        `.execute(db),
+        sql<{
+          total: string;
+        }>`select count(*) as total from legal.mo_issues i where ${where}`.execute(db),
+      ]);
       const items = result.rows.map((r) => mapIssue(r));
-      const total = result.rows.length > 0 ? Number(result.rows[0]?.total ?? 0) : 0;
+      const total = Number(totalRow.rows[0]?.total ?? 0);
       return ok({ items, total });
     } catch (error) {
       return err(databaseError('listIssues failed', error));
@@ -345,7 +358,7 @@ export const makeMonitorulRepo = (db: Db): MonitorulRepo => {
         .where('p.act_id', '=', actId)
         .orderBy('p.act_year', 'desc')
         .orderBy('p.mo_act_key', 'asc')
-        .limit(200)
+        .limit(MO_LIST_CAP)
         .execute();
       return ok(mapPubRows(rows));
     } catch (error) {
@@ -440,7 +453,7 @@ export const makeMonitorulRepo = (db: Db): MonitorulRepo => {
       const rows = await selectEdges()
         .where('e.source_mo_act_key', '=', moActKey)
         .orderBy('e.edge_id', 'asc')
-        .limit(200)
+        .limit(MO_LIST_CAP)
         .execute();
       return ok(mapEdgeRows(rows));
     } catch (error) {
@@ -454,7 +467,7 @@ export const makeMonitorulRepo = (db: Db): MonitorulRepo => {
       const rows = await selectEdges()
         .where('e.target_act_id', '=', actId)
         .orderBy('e.edge_id', 'asc')
-        .limit(200)
+        .limit(MO_LIST_CAP)
         .execute();
       return ok(mapEdgeRows(rows));
     } catch (error) {
@@ -528,7 +541,7 @@ export const makeMonitorulRepo = (db: Db): MonitorulRepo => {
         .where('s.act_id', '=', actId)
         .orderBy(sql`s.effective_date asc nulls last`)
         .orderBy('s.event_id', 'asc')
-        .limit(200)
+        .limit(MO_LIST_CAP)
         .execute();
       return ok(mapStatusRows(rows as unknown as MoStatusEventRow[]));
     } catch (error) {

@@ -125,7 +125,7 @@ describe('searchLegal — identifier router', () => {
     const out = res._unsafeUnwrap();
     expect(out.acts).toHaveLength(1);
     expect(out.acts[0]?.act.actId).toBe('66150');
-    expect(out.caveats[0]).toContain('modificat de 295 de acte');
+    expect(out.caveats[0]).toContain('295 de referințe de modificare/completare');
     expect(embed).not.toHaveBeenCalled();
   });
 });

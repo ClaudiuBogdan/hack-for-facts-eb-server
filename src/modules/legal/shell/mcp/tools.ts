@@ -136,7 +136,7 @@ export const makeLegalMcpTools = (deps: LegalMcpDeps): readonly KernelMcpTool[] 
   const getLegalAct: KernelMcpTool = {
     name: 'get_legal_act',
     description:
-      'Get a legal act by numeric actId or free-text citation (e.g. "legea 227/2015", "codul fiscal"): identity, status + evidence, canonical document, AI summary, aliases, and the "modificat de N acte" honesty badge.',
+      'Get a legal act by numeric actId or free-text citation (e.g. "legea 227/2015", "codul fiscal"): identity, status + evidence, canonical document, AI summary, aliases, and the "N referințe de modificare/completare" honesty badge (incoming reference edges, not distinct amending acts).',
     inputShape: getLegalActInput,
     async handler(args): Promise<McpToolOutput> {
       const ref = refOf(args);

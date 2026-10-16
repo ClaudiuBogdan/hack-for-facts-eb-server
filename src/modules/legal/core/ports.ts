@@ -124,6 +124,8 @@ export interface LegalActsRepo extends LegalRepoBase {
   getCanonicalDocument(actId: string): Promise<Result<LegalDocument | null, ApiError>>;
   /** The version cluster (all act_documents for one act). */
   listDocuments(actId: string): Promise<Result<readonly LegalDocument[], ApiError>>;
+  /** Exact count of the act's document expressions — never the list's length (I-19). */
+  countDocuments(actId: string): Promise<Result<number, ApiError>>;
   getSummary(documentId: string): Promise<Result<LegalActSummary | null, ApiError>>;
   /** Incoming modifica/completeaza count — the §5.2-C honesty badge. */
   countAmendmentsAfter(actId: string): Promise<Result<number, ApiError>>;
