@@ -612,7 +612,7 @@ export const searchLegal = async (
     const engineCaveats = [...caveats, ...outcome.value.caveats];
     const sections = outcome.value.sections.map((s) => ({
       ...s,
-      portalDeepLink: portalLink(deps.clientBaseUrl, s.actId, s.sectionKey),
+      portalDeepLink: portalLink(deps.clientBaseUrl, s.actId),
     }));
     if (outcome.value.acts.length > 0 || sections.length > 0) {
       engineCaveats.push(LEGAL_ORIGINAL_TEXT_CAVEAT);
@@ -671,7 +671,7 @@ export const searchLegal = async (
 
   const sections = secRes.value.map((s) => ({
     ...s,
-    portalDeepLink: portalLink(deps.clientBaseUrl, s.actId, s.sectionKey),
+    portalDeepLink: portalLink(deps.clientBaseUrl, s.actId),
     provenance: provenanceOf(s.actId),
   }));
   const acts = docRes.value.map((d) => ({ ...d, provenance: provenanceOf(d.act.actId) }));
@@ -727,8 +727,9 @@ const historicalCaveats = (
 const honestyCaveat = (card: LegalActCard): string =>
   `${card.displayCitation}: status ${card.status}; ${amendmentCountPhrase(card.amendedAfterPublication)}.`;
 
-const portalLink = (base: string, actId: string, sectionKey: string): string =>
-  `${base}/legal/acts/${actId}?section=${encodeURIComponent(sectionKey)}`;
+// The client's act page (I-23: `/legal/...` is not a client route, and it has
+// no `section` parameter — its deep link is `nod`, a document-node path).
+const portalLink = (base: string, actId: string): string => `${base}/legislation/acts/${actId}`;
 
 /** Drop the card's extra fields back to a plain LegalAct (for the doc-hit shape). */
 const stripCard = (card: LegalActCard): LegalAct => ({

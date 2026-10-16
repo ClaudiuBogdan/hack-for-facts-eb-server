@@ -695,6 +695,20 @@ export const makeLegalActsRepo = (db: Db): LegalActsRepo => {
     }
   };
 
+  const documentActId = async (documentId: string): Promise<Result<string | null, ApiError>> => {
+    if (documentId === '') return ok(null);
+    try {
+      const row = await db
+        .selectFrom('legal.act_documents as d')
+        .select('d.act_id')
+        .where('d.document_id', '=', documentId)
+        .executeTakeFirst();
+      return ok(row?.act_id ?? null);
+    } catch (error) {
+      return err(databaseError('documentActId failed', error));
+    }
+  };
+
   const countDocuments = async (actId: string): Promise<Result<number, ApiError>> => {
     if (!ID_RE.test(actId)) return ok(0);
     try {
@@ -926,6 +940,7 @@ export const makeLegalActsRepo = (db: Db): LegalActsRepo => {
     getCanonicalDocument,
     listDocuments,
     countDocuments,
+    documentActId,
     getSummary,
     countAmendmentsAfter,
     versionProvenanceForActs,

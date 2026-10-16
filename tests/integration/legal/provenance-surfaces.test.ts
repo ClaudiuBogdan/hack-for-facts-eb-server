@@ -78,6 +78,7 @@ const makeActsFake = (): { repo: LegalActsRepo; forActs: ReturnType<typeof vi.fn
     versionProvenanceForActs: forActs,
     versionProvenanceForDocument: async () =>
       ok(provenance({ versionKind: 'republicare', versionDate: '2009-04-29' })),
+    documentActId: async (documentId: string) => ok(documentId === '105215' ? '4131' : null),
     countAmendmentsAfter: async () => {
       throw new Error('countAmendmentsAfter must not be called — use the batched loader');
     },
@@ -279,6 +280,29 @@ describe('MCP provenance envelopes', () => {
     expect(note).toContain('referințe de modificare/completare înregistrate pentru act');
     expect(note).not.toContain('de atunci');
     expect(meta['caveats']).toHaveLength(2);
+    // A client route: the act page reading this expression at this node, with
+    // doc/nod JSON-quoted as the client router writes them (I-23).
+    expect(out.link).toBe(
+      'https://transparenta.eu/legislation/acts/4131?doc=%22105215%22&nod=%221%22'
+    );
+  });
+
+  it('get_legal_node falls back to the legislation home for an unknown document', async () => {
+    const { repo } = makeActsFake();
+    const out = await toolNamed(toolsFor(repo), 'get_legal_node').handler({
+      documentId: '999',
+      path: '1',
+    });
+    expect(out.link).toBe('https://transparenta.eu/legislation');
+  });
+
+  it('search_legal_acts links the bare search page for a query the client would drop', async () => {
+    const { repo } = makeActsFake();
+    const out = await toolNamed(toolsFor(repo), 'search_legal_acts').handler({
+      q: 'a'.repeat(401),
+      channel: 'docs',
+    });
+    expect(out.link).toBe('https://transparenta.eu/legislation/search');
   });
 
   it('search_legal_acts stamps every hit and exposes the set caveats', async () => {
@@ -295,5 +319,20 @@ describe('MCP provenance envelopes', () => {
       '295 de referințe de modificare/completare înregistrate de atunci'
     );
     expect(metaOf(out)['caveats']).toContain(LEGAL_ORIGINAL_TEXT_CAVEAT);
+    expect(out.link).toBe('https://transparenta.eu/legislation/search?q=%22cota%20de%20TVA%22');
+    // What answered and how complete it is travel with the result (I-23).
+    // The Postgres path answered: it cannot count, so no total is claimed; the
+    // fake has no semantic leg, so the answer is marked degraded.
+    const completeness = {
+      engine: 'postgres',
+      actsTotal: null,
+      sectionsTotal: null,
+      totalsExhaustive: false,
+      degraded: true,
+      asOf: null,
+      unhydratedHits: 0,
+    };
+    expect(metaOf(out)).toMatchObject(completeness);
+    expect(out.item).toMatchObject(completeness);
   });
 });

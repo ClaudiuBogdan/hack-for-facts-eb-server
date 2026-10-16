@@ -53,6 +53,9 @@ import type {
 } from '../../core/types.js';
 import type { FilterInput, KernelMcpTool, McpToolOutput } from '@/modules/shared/index.js';
 
+/** The client search page's `q` bound (`legalFinderSearchSchema`). */
+const CLIENT_SEARCH_Q_MAX = 400;
+
 export interface LegalMcpDeps {
   readonly acts: LegalActsRepo;
   readonly graph: LegalGraphRepo;
@@ -94,7 +97,16 @@ const refOf = (args: Record<string, unknown>): LegalActRef | null => {
 
 export const makeLegalMcpTools = (deps: LegalMcpDeps): readonly KernelMcpTool[] => {
   const { acts, graph, outline, searchDeps, resolveDeps, clientBaseUrl } = deps;
-  const actLink = (actId: string): string => `${clientBaseUrl}/legal/acts/${actId}`;
+  // Client routes (I-23: `/legal/...` is not one). `doc`/`nod` are JSON-quoted
+  // the way the client router writes them, so a numeric-looking value stays a
+  // string.
+  const actLink = (actId: string): string => `${clientBaseUrl}/legislation/acts/${actId}`;
+  const quoted = (value: string): string => encodeURIComponent(JSON.stringify(value));
+  // The client search drops a `q` longer than 400 characters; link the bare page.
+  const searchLink = (q: string): string =>
+    q.length > CLIENT_SEARCH_Q_MAX
+      ? `${clientBaseUrl}/legislation/search`
+      : `${clientBaseUrl}/legislation/search?q=${quoted(q)}`;
   const noteFor = (prov: LegalVersionProvenance | null): string | null =>
     prov === null ? null : versionProvenanceNote(prov);
 
@@ -182,6 +194,16 @@ export const makeLegalMcpTools = (deps: LegalMcpDeps): readonly KernelMcpTool[] 
       });
       if (res.isErr()) return errorOut(LEGAL_MCP_KINDS.search, res.error.message);
       const { acts: actHits, sections, caveats } = res.value;
+      // What answered and how complete it is (I-23: these were dropped here).
+      const completeness = {
+        engine: res.value.engine,
+        actsTotal: res.value.actsTotal,
+        sectionsTotal: res.value.sectionsTotal,
+        totalsExhaustive: res.value.totalsExhaustive,
+        degraded: res.value.degraded,
+        asOf: res.value.asOf,
+        unhydratedHits: res.value.unhydratedHits,
+      };
       // Stamp each hit with its own version note: an agent quoting one act must
       // not have to infer provenance from a set-level caveat.
       const stampedActs = actHits.map((h) => ({
@@ -196,10 +218,10 @@ export const makeLegalMcpTools = (deps: LegalMcpDeps): readonly KernelMcpTool[] 
         ok: true,
         kind: LEGAL_MCP_KINDS.search,
         query: { q, channel },
-        link: `${clientBaseUrl}/legal/search?q=${encodeURIComponent(q)}`,
+        link: searchLink(q),
         items: stampedActs,
-        item: { acts: stampedActs, sections: stampedSections, caveats },
-        meta: { caveats },
+        item: { acts: stampedActs, sections: stampedSections, caveats, ...completeness },
+        meta: { caveats, ...completeness },
         summary:
           `${n(actHits.length)} acte / ${n(sections.length)} secțiuni pentru „${q}".` +
           (caveats.length > 0 ? ` ${caveats.join(' ')}` : ''),
@@ -232,7 +254,7 @@ export const makeLegalMcpTools = (deps: LegalMcpDeps): readonly KernelMcpTool[] 
           ok: true,
           kind: LEGAL_MCP_KINDS.links,
           query: { ...ref, direction },
-          link: `${actLink(act.actId)}/links?direction=out`,
+          link: `${actLink(act.actId)}#act-references-out-heading`,
           items: out.value.items,
           meta: { next: out.value.next },
           summary:
@@ -246,7 +268,7 @@ export const makeLegalMcpTools = (deps: LegalMcpDeps): readonly KernelMcpTool[] 
         ok: true,
         kind: LEGAL_MCP_KINDS.links,
         query: { ...ref, direction },
-        link: `${actLink(act.actId)}/links?direction=in`,
+        link: `${actLink(act.actId)}#act-references-in-heading`,
         items: incoming.value.items,
         meta: { next: incoming.value.next },
         summary:
@@ -283,7 +305,7 @@ export const makeLegalMcpTools = (deps: LegalMcpDeps): readonly KernelMcpTool[] 
         ok: true,
         kind: LEGAL_MCP_KINDS.timeline,
         query: ref,
-        link: `${actLink(act.actId)}/timeline`,
+        link: `${actLink(act.actId)}#act-timeline-heading`,
         items: events,
         summary: `${act.displayCitation}: ${n(events.length)} events from ${first} to ${last}.`,
       };
@@ -307,7 +329,12 @@ export const makeLegalMcpTools = (deps: LegalMcpDeps): readonly KernelMcpTool[] 
       // own version rather than the act's canonical one.
       const provRes = await acts.versionProvenanceForDocument(documentId);
       if (provRes.isErr()) return errorOut(LEGAL_MCP_KINDS.node, provRes.error.message);
-      const docLink = `${clientBaseUrl}/legal/documents/${documentId}?nod=${encodeURIComponent(path)}`;
+      const actIdRes = await acts.documentActId(documentId);
+      if (actIdRes.isErr()) return errorOut(LEGAL_MCP_KINDS.node, actIdRes.error.message);
+      const docLink =
+        actIdRes.value === null
+          ? `${clientBaseUrl}/legislation`
+          : `${actLink(actIdRes.value)}?doc=${quoted(documentId)}&nod=${quoted(path)}`;
       const provenance = provRes.value;
       const note = noteFor(provenance);
       const items = res.value === null ? [] : [res.value];
@@ -346,7 +373,7 @@ export const makeLegalMcpTools = (deps: LegalMcpDeps): readonly KernelMcpTool[] 
         ok: true,
         kind: LEGAL_MCP_KINDS.counts,
         query: { groupBy: dim, filter, ...(topN !== undefined && { limit: topN }) },
-        link: `${clientBaseUrl}/legal`,
+        link: `${clientBaseUrl}/legislation/acts`,
         items: buckets,
         meta: { bucketsTruncated, otherCount },
         summary:
@@ -388,7 +415,7 @@ export const makeLegalMcpTools = (deps: LegalMcpDeps): readonly KernelMcpTool[] 
         ok: true,
         kind: LEGAL_MCP_KINDS.changes,
         query: { since, until, kinds, eventSource, undatedOnly },
-        link: `${clientBaseUrl}/legal`,
+        link: `${clientBaseUrl}/legislation/changes`,
         items,
         meta: { next },
         summary:
