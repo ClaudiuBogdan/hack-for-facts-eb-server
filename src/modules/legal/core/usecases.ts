@@ -519,13 +519,14 @@ export const effectiveSemantic = (deps: {
  * The citation shortcut answers with ONE act, from Postgres, before any filter
  * is compiled. That is only safe when the caller asked a question the shortcut
  * can actually answer: no filter to honour, and a channel that wants acts.
- * Anything else goes down the normal path.
+ * Anything else goes down the normal path. `filter.q` is a filter too — a second
+ * text constraint the normal path names as unsupported; exempting it let a
+ * citation plus a non-matching `filter.q` answer `actsTotal: 1`,
+ * `totalsExhaustive: true` (I-21).
  */
 const citationShortcutAllowed = (query: LegalRetrievalQuery): boolean => {
   if (query.channel === 'sections') return false;
-  return !Object.entries(query.filter).some(
-    ([field, value]) => field !== 'q' && value !== undefined
-  );
+  return !Object.values(query.filter).some((value) => value !== undefined);
 };
 
 export const searchLegal = async (

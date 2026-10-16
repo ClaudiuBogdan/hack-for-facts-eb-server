@@ -128,6 +128,22 @@ describe('searchLegal — identifier router', () => {
     expect(out.caveats[0]).toContain('295 de referințe de modificare/completare');
     expect(embed).not.toHaveBeenCalled();
   });
+
+  it('a filter.q never rides the shortcut — it is a second text constraint (I-21)', async () => {
+    const getActCard = vi.fn(async () => ok(card));
+    const deps = makeDeps({ getActCard });
+    const res = await searchLegal(deps, {
+      q: 'legea 227/2015',
+      filter: { q: { contains: 'ZZZ_NONMATCH_LEGAL_AUDIT_20261015' } },
+      channel: 'docs',
+      includeHistorical: false,
+      limit: 1,
+    });
+    expect(getActCard).not.toHaveBeenCalled();
+    if (res.isOk()) {
+      expect(res.value.acts.map((hit) => hit.act.actId)).not.toContain('66150');
+    }
+  });
 });
 
 describe('searchLegal — semantic gating', () => {
