@@ -27,6 +27,7 @@ import {
 } from '@/modules/shared/index.js';
 
 import { contractDisplayTitleCandidatesSelect } from './contract-display-title-projection.js';
+import { modificationDeltaPctSql } from './filter-helpers.js';
 import { mapContract, mapDirectAcquisition, mapModification, mapProcedure } from './mappers.js';
 import { supportedProcedureIdSql } from './procedure-link-policy.js';
 import { SEARCH_COUNT_CAP } from '../../core/constants.js';
@@ -309,9 +310,7 @@ export const buildSearchConditions = (
     conds.push(filter.linked ? sql`${col} is not null` : sql`${col} is null`);
   }
   if (filter.minDeltaPct !== undefined) {
-    conds.push(
-      sql`(${ref(alias, 'value_delta_ron')} / nullif(${ref(alias, 'value_before_ron')}, 0)) >= ${filter.minDeltaPct}`
-    );
+    conds.push(sql`${modificationDeltaPctSql(alias)} >= ${filter.minDeltaPct}`);
   }
   if (filter.q !== undefined) conds.push(qPredicate(grain, alias, filter.q));
   return conds;
@@ -428,6 +427,9 @@ const modificationSelect = [
   sql<string | null>`m.value_before_ron::text`.as('value_before_ron'),
   sql<string | null>`m.value_after_ron::text`.as('value_after_ron'),
   sql<string | null>`m.value_delta_ron::text`.as('value_delta_ron'),
+  'm.currency',
+  sql<string | null>`m.source_value_before::text`.as('source_value_before'),
+  sql<string | null>`m.source_value_after::text`.as('source_value_after'),
   'm.modification_type',
   'm.year',
 ] as const;

@@ -41,6 +41,7 @@ import {
   canonicalPredicate,
   cpvDivisionRange,
   yearDateRange,
+  modificationDeltaPctSql,
 } from './filter-helpers.js';
 import {
   mapContract,
@@ -490,6 +491,9 @@ export const makeProcurementRepo = (
     sql<string | null>`m.value_before_ron::text`.as('value_before_ron'),
     sql<string | null>`m.value_after_ron::text`.as('value_after_ron'),
     sql<string | null>`m.value_delta_ron::text`.as('value_delta_ron'),
+    'm.currency',
+    sql<string | null>`m.source_value_before::text`.as('source_value_before'),
+    sql<string | null>`m.source_value_after::text`.as('source_value_after'),
     'm.modification_type',
     'm.year',
   ] as const;
@@ -789,8 +793,8 @@ export const makeProcurementRepo = (
     if (built.isErr()) return err(built.error);
     const conds = [...built.value];
     if (minDeltaPct !== undefined) {
-      // delta_pct = value_delta_ron / nullif(value_before_ron, 0) ≥ pct (PC-8).
-      conds.push(sql`(m.value_delta_ron / nullif(m.value_before_ron, 0)) >= ${minDeltaPct}`);
+      // delta_pct (PC-8): source amounts with one stated currency, else lei.
+      conds.push(sql`${modificationDeltaPctSql('m')} >= ${minDeltaPct}`);
     }
     if (cursor.value !== undefined) {
       const k = keysetPredicate('m', 'modification_date', 'modification_id', cursor.value);

@@ -12,6 +12,8 @@
  * non-ISO-like pre-Phase-F residue token to null.
  */
 
+import { Decimal } from 'decimal.js';
+
 import {
   ACCEPTED_VALUE_STATE_SET,
   VALUE_COMPARABLE_BASES,
@@ -160,6 +162,9 @@ type ModificationRow = Pick<
   | 'value_before_ron'
   | 'value_after_ron'
   | 'value_delta_ron'
+  | 'currency'
+  | 'source_value_before'
+  | 'source_value_after'
   | 'modification_type'
   | 'year'
 >;
@@ -268,6 +273,25 @@ const deltaPct = (before: string | null, delta: string | null): number | null =>
   const d = Number(delta);
   if (!Number.isFinite(b) || b === 0 || !Number.isFinite(d)) return null;
   return d / b;
+};
+
+/**
+ * A ratio needs no FX: with one stated currency it comes from the source
+ * amounts (RON included); otherwise from the lei columns, as before. Same
+ * rule as the `minDeltaPct` SQL predicate (`modificationDeltaPctSql`).
+ */
+const modificationDeltaPct = (r: ModificationRow): number | null => {
+  if (r.currency !== null && r.source_value_before !== null && r.source_value_after !== null) {
+    // Exact decimal arithmetic on the numeric text; only the ratio is a float.
+    try {
+      const before = new Decimal(r.source_value_before);
+      if (before.isZero()) return null;
+      return new Decimal(r.source_value_after).minus(before).div(before).toNumber();
+    } catch {
+      return null;
+    }
+  }
+  return deltaPct(r.value_before_ron, r.value_delta_ron);
 };
 
 // ── mappers ──────────────────────────────────────────────────────────────────
@@ -381,7 +405,10 @@ export const mapModification = (r: ModificationRow): ProcurementModification => 
   valueBeforeRon: r.value_before_ron,
   valueAfterRon: r.value_after_ron,
   valueDeltaRon: r.value_delta_ron,
-  deltaPct: deltaPct(r.value_before_ron, r.value_delta_ron),
+  deltaPct: modificationDeltaPct(r),
+  currency: r.currency,
+  sourceValueBefore: r.source_value_before,
+  sourceValueAfter: r.source_value_after,
   modificationType: r.modification_type,
   year: r.year,
 });

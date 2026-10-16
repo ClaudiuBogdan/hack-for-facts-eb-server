@@ -154,6 +154,10 @@ export interface ProcurementContractModificationsTable {
   value_before_ron: string | null;
   value_after_ron: string | null;
   value_delta_ron: string | null;
+  /** ISO currency of the source amounts (RON/EUR/USD); null when not stated. */
+  currency: string | null;
+  source_value_before: string | null;
+  source_value_after: string | null;
   modification_type: string | null;
   year: number | null;
   quarter: string | null;

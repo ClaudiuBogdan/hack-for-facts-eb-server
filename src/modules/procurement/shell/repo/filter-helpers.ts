@@ -264,3 +264,20 @@ const yearSpan = (ff: FieldFilter): number | null => {
   }
   return null;
 };
+
+/**
+ * A modification's change as a share of its value before (PC-8). A ratio needs
+ * no FX: with one stated currency it comes from the source amounts (RON
+ * included); otherwise, e.g. rows loaded before the currency columns, from the
+ * lei columns. NULL when the base is zero or missing. Mirrors the mapper's
+ * `deltaPct`.
+ */
+export const modificationDeltaPctSql = (alias: string): RawBuilder<unknown> => {
+  const col = (name: string) => sql.ref(`${alias}.${name}`);
+  return sql`coalesce(
+    case when ${col('currency')} is not null
+      then (${col('source_value_after')} - ${col('source_value_before')})
+        / nullif(${col('source_value_before')}, 0)
+    end,
+    ${col('value_delta_ron')} / nullif(${col('value_before_ron')}, 0))`;
+};
