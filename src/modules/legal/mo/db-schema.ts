@@ -40,6 +40,7 @@ export interface LegalMoIssuesTable {
   source_document_id: string | null;
   has_archive_index: boolean;
   has_emonitor_link: boolean;
+  privacy_class: string; // 'public' | 'restricted' — served only when 'public'
   first_seen_at: Tstz;
   last_seen_at: Tstz;
 }
@@ -64,6 +65,7 @@ export interface LegalMoActPublicationsTable {
   resolution: string; // 'unique'|'ambiguous'|'unmatched'
   matched_via: string | null; // 'act-year'|'issue-year'|null
   resolver_version: string;
+  privacy_class: string; // 'public' | 'restricted' — served only when 'public'
   first_seen_at: Tstz;
   last_seen_at: Tstz;
 }
@@ -88,6 +90,7 @@ export interface LegalMoLifecycleEdgesTable {
   confidence: number | null; // real
   evidence: Jsonb; // detail-only
   resolver_version: string;
+  privacy_class: string; // 'public' | 'restricted' — served only when 'public'
 }
 
 /**

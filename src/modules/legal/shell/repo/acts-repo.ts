@@ -42,6 +42,7 @@ import {
   kernelConditions,
   keysetCursor,
   recentChangesFhash,
+  statusEventIsPublic,
   type SortCast,
 } from './filter-helpers.js';
 import {
@@ -368,7 +369,8 @@ export const makeLegalActsRepo = (db: Db): LegalActsRepo => {
           'e.evidence',
           'e.event_source',
         ])
-        .where('e.act_id', '=', actId);
+        .where('e.act_id', '=', actId)
+        .where(statusEventIsPublic('e'));
       if (eventSource !== undefined) q = q.where('e.event_source', '=', eventSource);
       const rows = await q
         .orderBy(sql`e.effective_date asc nulls last`)
@@ -552,7 +554,7 @@ export const makeLegalActsRepo = (db: Db): LegalActsRepo => {
    * (SQL comparison), so a date window honestly excludes undated events.
    */
   const recentChangesConds = (f: LegalRecentChangesFilter): RawBuilder<unknown>[] => {
-    const conds: RawBuilder<unknown>[] = [];
+    const conds: RawBuilder<unknown>[] = [statusEventIsPublic('e')];
     if (f.since !== undefined) conds.push(sql`e.effective_date >= ${f.since}::date`);
     if (f.until !== undefined) conds.push(sql`e.effective_date <= ${f.until}::date`);
     if (f.undatedOnly === true) conds.push(sql`e.effective_date is null`);
