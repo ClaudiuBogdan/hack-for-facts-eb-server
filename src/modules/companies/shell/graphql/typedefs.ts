@@ -1133,9 +1133,15 @@ const objectsAndQuery = /* GraphQL */ `
   "totalCount is bounded ≤10,000; totalEstimated flags the cap (§14.4). Cursors bind the filter, sort AND the registry scope: a later page under another scope is refused (INVALID_INPUT, restart pagination)."
   type CompanyConnection {
     edges: [CompanyEdge!]!
+    "hasNextPage: with an exact totalCount, true only while rows remain. With a capped database count (totalEstimated without nameCandidateCapped) it is optimistic: a full page near the cap may be followed by an empty one. The name-candidate cap alone never sets it."
     pageInfo: PageInfo!
     totalCount: Int
+    "True when totalCount may not be the complete match count: the bounded count hit its cap, or nameCandidateCapped."
     totalEstimated: Boolean!
+    "q reached the name-candidate cap (50): more companies may match the name. The list and totalCount cover only these top candidates, so paging cannot reach others; refine the name to change the candidate set (filters apply after the cap and cannot add candidates)."
+    nameCandidateCapped: Boolean!
+    "English disclosures for this list (name-candidate cap, degraded name search, omitted withheld identifiers); the same caveats list_companies returns over MCP."
+    caveats: [String!]!
     registry: CompanyRegistryEnvelope!
   }
 

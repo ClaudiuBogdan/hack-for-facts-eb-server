@@ -1051,7 +1051,16 @@ export const makeCompanyFinancials = async (
 export interface CompanyListResponse {
   readonly rows: readonly CompanyListRow[];
   readonly total: number;
+  /** `countCapped || nameCandidateCapped`: `total` may not be the complete match count. */
   readonly totalEstimated: boolean;
+  /** The bounded count hit its cap: rows continue past `total`. */
+  readonly countCapped: boolean;
+  /**
+   * `q` reached the name-candidate cap: more companies may match, the list
+   * covers only those candidates, and paging cannot reach others — only a
+   * refined name can.
+   */
+  readonly nameCandidateCapped: boolean;
   readonly caveats: readonly string[];
   /** The scope every row and the total were read under (empty pages included). */
   readonly registry: CompanyRegistryEnvelope;
@@ -1063,6 +1072,8 @@ interface ListPage {
   readonly rows: readonly CompanyListRow[];
   readonly total: number;
   readonly totalEstimated: boolean;
+  readonly countCapped: boolean;
+  readonly nameCandidateCapped: boolean;
   readonly caveats: readonly string[];
 }
 
@@ -1105,8 +1116,15 @@ export const makeCompanyList = async (
     const refusal = registryCriteriaRefusal(normFilter.value, args.sort, scope);
     if (refusal !== null) return err(refusal);
     const caveats = [...baseCaveats];
-    const empty = (estimated: boolean): Result<ListPage, ApiError> =>
-      ok({ rows: [], total: 0, totalEstimated: estimated, caveats });
+    const empty = (nameCapped: boolean): Result<ListPage, ApiError> =>
+      ok({
+        rows: [],
+        total: 0,
+        totalEstimated: nameCapped,
+        countCapped: false,
+        nameCandidateCapped: nameCapped,
+        caveats,
+      });
     if (withheld.emptied) return empty(false);
     let filter = normFilter.value;
 
@@ -1125,7 +1143,7 @@ export const makeCompanyList = async (
       nameTruncated = resolved.value.hits.length >= NAME_RESOLVE_CAP;
       if (nameTruncated) {
         caveats.push(
-          `name matched more companies than the ${String(NAME_RESOLVE_CAP)}-candidate cap; results and totals cover only the top candidates — refine the name or add filters`
+          `name search reached the ${String(NAME_RESOLVE_CAP)}-candidate cap: more companies may match; results and totals cover only these top candidates — refine the name to change them (filters apply after the cap)`
         );
       }
       const nameCuis = resolved.value.hits
@@ -1147,10 +1165,15 @@ export const makeCompanyList = async (
 
     const res = await deps.repo.listCompanies(filter, args.sort, args.page, scope);
     if (res.isErr()) return err(res.error);
+    // Two different estimates: a capped count means rows continue past
+    // `total`; a capped name resolution means `total` is exact for the
+    // resolved candidates but other companies may match the name (CQA-17).
     return ok({
       rows: res.value.rows,
       total: res.value.total,
       totalEstimated: res.value.estimated || nameTruncated,
+      countCapped: res.value.estimated,
+      nameCandidateCapped: nameTruncated,
       caveats,
     });
   };
