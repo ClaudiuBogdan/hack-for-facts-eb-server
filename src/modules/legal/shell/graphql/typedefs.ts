@@ -66,7 +66,7 @@ const objectsAndQuery = /* GraphQL */ `
     YEAR
   }
 
-  "One grouped count bucket. key is the RAW DB value; it round-trips into LegalActsFilter ONLY where the filter field accepts it — domain/status are closed vocabularies and always round-trip, while act_type is OPEN in the live DB (256 distinct values vs the 18 the filter accepts, measured 2026-08: 'anexa', 'protocol', 'ghid', … are real keys the filter rejects — the same caveat applies to legalResolve dim:'act_type'). label is a display form when one exists (issuer slugs de-hyphenated) and null otherwise — the enum/year keys are their own display value."
+  "One grouped count bucket. key is the RAW DB value and round-trips into LegalActsFilter: domain/status are closed vocabularies, and act_type (OPEN in the live DB, 256 distinct values measured 2026-08: 'anexa', 'protocol', 'ghid', …) is an open string filter, as for legalResolve dim:'act_type'. label is a display form when one exists (issuer slugs de-hyphenated) and null otherwise — the enum/year keys are their own display value."
   type LegalCountBucket {
     key: String!
     label: String

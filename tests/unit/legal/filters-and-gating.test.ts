@@ -44,6 +44,16 @@ describe('legalActsSpec — §7.1 vocabulary separation + aliases', () => {
     expect(CATEGORY_VALUES).toContain('ordonanta-de-urgenta'); // category form of oug
   });
 
+  it('act_type is an open filter: every live key round-trips (I-21)', () => {
+    // 238 of the 256 live act types (10,317 acts) used to fail as filter values.
+    for (const key of ['anexa', 'protocol', 'ghid', 'lege', 'decret-lege']) {
+      const built = toConditionBuilders(legalActsSpec, { actType: { in: [key] } });
+      expect(built.isOk(), key).toBe(true);
+      expect(built._unsafeUnwrap()).toHaveLength(1);
+    }
+    expect(legalActsSpec.fields.find((f) => f.name === 'actType')?.type).toBe('string');
+  });
+
   it('domain is the controlled 16-value vocab', () => {
     expect(DOMAIN_VALUES).toContain('fiscal-si-bugetar');
     expect(DOMAIN_VALUES.length).toBe(16);

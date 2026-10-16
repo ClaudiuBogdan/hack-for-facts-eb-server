@@ -869,9 +869,11 @@ export const legalActsSpec: CollectionFilterSpec = {
 };
 ```
 
-- **`ACT_TYPE_VALUES`** is resolved at boot from **`distinct legal.acts.act_type`**
-  (lege, oug, og, hotarare, ordin, decizie, decret, decret-lege, …) — **NOT** from
-  `document_summaries.document_category`. The two are _different vocabularies_
+- **`actType`** filters the open `legal.acts.act_type` vocabulary (lege, oug, og,
+  hotarare, ordin, decizie, decret, decret-lege, anexa, protocol, …; 256 live
+  values) as a string, so every key the counts facet returns round-trips
+  (2026-10-16, I-21); `ACT_TYPE_VALUES` lists the common ones for documentation.
+  It is **NOT** `document_summaries.document_category`. The two are _different vocabularies_
   (`act_type` is the legal instrument; `document_category` is the AI-assigned
   category like `hotarare-de-guvern`/`norma-metodologica`). `CATEGORY_VALUES`
   resolves from the 13-value `document_category`; `DOMAIN_VALUES` from the 16-value

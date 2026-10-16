@@ -111,7 +111,7 @@ export const countLegalActsInput = {
   groupBy: z
     .enum(['domain', 'act_type', 'status', 'issuer', 'year'])
     .describe(
-      'Grouping dimension. Bucket keys are RAW DB values; act_type is an open vocabulary (256 live values vs the 18 the filter accepts), so not every key is a valid filter value.'
+      'Grouping dimension. Bucket keys are RAW DB values and every key, act_type included (an open vocabulary of 256 live values), is a valid filter value.'
     ),
   filter: z
     .record(z.string(), z.unknown())

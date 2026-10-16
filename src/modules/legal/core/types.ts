@@ -100,12 +100,11 @@ export const LEGAL_COUNT_DIMENSIONS: readonly LegalCountDimension[] = [
 
 /**
  * One grouped count bucket. `key` is the RAW DB vocabulary value
- * ('fiscal-si-bugetar', 'in-vigoare', '2015'). Only keys that appear in the
- * corresponding filter field's `enumValues` are accepted back by
- * `LegalActsFilter` — `act_type` is an OPEN vocabulary in the live DB (256
- * distinct values vs the 18 the filter accepts, measured 2026-08; `anexa`,
- * `protocol`, `ghid`, … are real keys the filter refuses). `domain`/`status`
- * are closed vocabularies, so their keys always round-trip. `label` is a
+ * ('fiscal-si-bugetar', 'in-vigoare', '2015'). Every key is accepted back by
+ * `LegalActsFilter`: `domain`/`status` are closed vocabularies whose
+ * `enumValues` hold every live key, and `act_type` — an OPEN vocabulary in the
+ * live DB (256 distinct values, measured 2026-08; `anexa`, `protocol`, `ghid`,
+ * …) — is an open string filter (I-21). `label` is a
  * display form when one exists (issuer slugs de-hyphenated, the vocab-repo
  * precedent) and null otherwise — the enum/year keys ARE their own display
  * value.
