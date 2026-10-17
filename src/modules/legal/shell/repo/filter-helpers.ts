@@ -22,6 +22,18 @@ import {
 
 import type { LegalRecentChangesFilter } from '../../core/ports.js';
 
+/**
+ * LEGAL_CONTRACT §2 gate for `act_status_events` rows aliased `alias`: the event
+ * is public and, for a Monitorul event, its source publication is not restricted
+ * — the evidence carries that publication's key and gazette coordinates.
+ */
+export const statusEventIsPublic = (alias: 'e' | 's'): RawBuilder<SqlBool> =>
+  sql<SqlBool>`(${sql.ref(`${alias}.privacy_class`)} = 'public' and not exists (
+    select 1 from legal.mo_act_publications rp
+    where rp.mo_act_key = ${sql.ref(`${alias}.evidence`)} ->> 'mo_act_key'
+      and rp.privacy_class <> 'public'
+  ))`;
+
 /** Join a list of conditions with AND (TRUE if empty). */
 export const composeWhere = (conds: readonly RawBuilder<unknown>[]): RawBuilder<SqlBool> =>
   conds.length === 0 ? sql<SqlBool>`true` : sql<SqlBool>`${sql.join(conds, sql` and `)}`;

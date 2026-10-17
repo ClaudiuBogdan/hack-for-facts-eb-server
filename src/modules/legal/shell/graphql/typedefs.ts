@@ -66,7 +66,7 @@ const objectsAndQuery = /* GraphQL */ `
     YEAR
   }
 
-  "One grouped count bucket. key is the RAW DB value; it round-trips into LegalActsFilter ONLY where the filter field accepts it — domain/status are closed vocabularies and always round-trip, while act_type is OPEN in the live DB (256 distinct values vs the 18 the filter accepts, measured 2026-08: 'anexa', 'protocol', 'ghid', … are real keys the filter rejects — the same caveat applies to legalResolve dim:'act_type'). label is a display form when one exists (issuer slugs de-hyphenated) and null otherwise — the enum/year keys are their own display value."
+  "One grouped count bucket. key is the RAW DB value and round-trips into LegalActsFilter: domain/status are closed vocabularies, and act_type (OPEN in the live DB, 256 distinct values measured 2026-08: 'anexa', 'protocol', 'ghid', …) is an open string filter, as for legalResolve dim:'act_type'. label is a display form when one exists (issuer slugs de-hyphenated) and null otherwise — the enum/year keys are their own display value."
   type LegalCountBucket {
     key: String!
     label: String
@@ -101,6 +101,7 @@ const objectsAndQuery = /* GraphQL */ `
     summary: LegalActSummary
     aliases: [String!]!
     citationKeys: [LegalCitationKey!]!
+    "Exact number of the act's document expressions (act_documents rows)."
     versionCount: Int!
     "Incoming modifica/completeaza edge count — the §5.2-C honesty badge."
     amendedAfterPublication: Int!
@@ -108,6 +109,7 @@ const objectsAndQuery = /* GraphQL */ `
     versionProvenance: LegalVersionProvenance!
     "The same fact rendered in Romanian, ready to show next to any text answer."
     textProvenance: String!
+    "The act's document expressions, canonical first, capped at 1000 (the largest act holds 243); fewer than versionCount means the list is truncated."
     documents: [LegalDocument!]!
     "The citation/amendment graph, keyset-paged on the act_references PK (sourceDocumentId, refIndex) — the cursor is bound to direction + relation set, page cap 199. endCursor is the last edge's REAL cursor on every page (resume with after); IN edges arrive in deterministic PK order, grouped by citing document. totalCount is deliberately null: a bounded read must not claim a hub's fan-out (act-detail.md 9.1)."
     links(
@@ -119,6 +121,8 @@ const objectsAndQuery = /* GraphQL */ `
     "Incoming ANCHORS — links the portal itself asserts in citing documents' text (document_link_edges). A DIFFERENT graph from links: anchors are source assertions at mark grain, links are LLM-inferred normative relations; they disagree by construction and both disagreements are informative. Real totalCount; keyset-paged."
     incomingAnchors(first: Int = 50, after: String): LegalIncomingAnchorConnection!
     timeline: [LegalTimelineEntry!]!
+    "False when the timeline reached its bound (10,000 amendment references or status events) and is incomplete; every act is complete today (largest 3,200)."
+    timelineComplete: Boolean!
   }
 
   "One incoming anchor occurrence. charStart/charEnd locate it in the CITING document's rendered text; linkText is the anchor's own words on the source page."

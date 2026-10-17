@@ -864,6 +864,46 @@ describe('makeCompanyList', () => {
     expect(resolveByName).toHaveBeenCalledWith('popular name', 50, null, PUBLISHED_SCOPE); // repo clamps at 50 — never ask for more
     expect(unwrap(res).totalEstimated).toBe(true);
     expect(unwrap(res).caveats.some((c) => c.includes('cap'))).toBe(true);
+    // The two estimates stay apart: the candidate cap fired, the count did not (CQA-17).
+    expect(unwrap(res).nameCandidateCapped).toBe(true);
+    expect(unwrap(res).countCapped).toBe(false);
+  });
+
+  it('a capped name resolution with no surviving candidate still flags the cap, not the count', async () => {
+    const cappedHits = Array.from({ length: 50 }, (_, i) =>
+      nameHit(String(1000 + i), `CO ${String(i)}`)
+    );
+    const resolveByName = vi.fn(async () => ok({ hits: cappedHits, degraded: false }));
+    const listCompanies = vi.fn(async () => ok({ rows: [], total: 0, estimated: false }));
+    const d = deps({ repo: { resolveByName, listCompanies } });
+    const res = await makeCompanyList(d, {
+      filter: { cui: { in: ['7'] } },
+      q: 'popular name',
+      sort: 'name',
+      page: { page: 1, pageSize: 20 },
+    });
+    expect(listCompanies).not.toHaveBeenCalled();
+    expect(unwrap(res)).toMatchObject({
+      total: 0,
+      totalEstimated: true,
+      nameCandidateCapped: true,
+      countCapped: false,
+    });
+  });
+
+  it('a capped count without q flags the count, not the candidate cap', async () => {
+    const listCompanies = vi.fn(async () => ok({ rows: [], total: 10_000, estimated: true }));
+    const d = deps({ repo: { listCompanies } });
+    const res = await makeCompanyList(d, {
+      filter: {},
+      sort: 'name',
+      page: { page: 1, pageSize: 20 },
+    });
+    expect(unwrap(res)).toMatchObject({
+      totalEstimated: true,
+      countCapped: true,
+      nameCandidateCapped: false,
+    });
   });
 
   it('below-cap name resolution stays exact (no spurious estimate)', async () => {

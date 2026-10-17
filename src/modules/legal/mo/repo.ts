@@ -10,6 +10,13 @@
  *
  * Bigint ids are read as strings (int8→string pg parser, configured by the kernel).
  * Internal columns (s3/sha256, raw fields, evidence jsonb) are NEVER selected.
+ *
+ * Privacy (LEGAL_CONTRACT §2 binary gate): every read — rows, counts and
+ * discovery — serves only `privacy_class = 'public'` rows of its own table;
+ * restricted rows stay stored and are withheld here. A lifecycle edge, and a
+ * Monitorul status event, is served only when no publication it names (edge
+ * source/target, event `evidence.mo_act_key`) is restricted, because it carries
+ * that publication's identifiers.
  */
 
 import { sql, type Kysely, type RawBuilder } from 'kysely';
@@ -48,7 +55,7 @@ import {
   type MoResolveHit,
   type MoStatusEvent,
 } from './types.js';
-import { kernelConditions } from '../shell/repo/filter-helpers.js';
+import { kernelConditions, statusEventIsPublic } from '../shell/repo/filter-helpers.js';
 
 import type { MonitorulRepo } from './ports.js';
 
@@ -56,10 +63,23 @@ type Db = Kysely<ProdDatabase>;
 
 const ID_RE = /^\d+$/u;
 const MAX_LIST = 100;
+/**
+ * Bound on the per-act / per-publication lists (publications, edges, status
+ * events). Measured maxima 2026-10-16: 11 / 36 / 35. A list that reaches the
+ * bound may be truncated; callers say "at least" rather than counting it.
+ */
+export const MO_LIST_CAP = 200;
 const MAX_BATCH_ACTS = 500;
 
 const clampLimit = (first: number, max: number): number =>
   Math.min(Math.max(Math.floor(first), 1), max);
+
+/** No restricted publication is the edge's source or MO-local target. */
+const edgeEndpointsPublic = sql<boolean>`not exists (
+  select 1 from legal.mo_act_publications rp
+  where rp.mo_act_key in (e.source_mo_act_key, e.target_mo_act_key)
+    and rp.privacy_class <> 'public'
+)`;
 
 export const makeMonitorulRepo = (db: Db): MonitorulRepo => {
   // Dates are cast ::text so the int8 parser doesn't touch them and they arrive as
@@ -82,7 +102,8 @@ export const makeMonitorulRepo = (db: Db): MonitorulRepo => {
         'i.pdf_bytes',
         sql<string>`i.first_seen_at::text`.as('first_seen_at'),
         sql<string>`i.last_seen_at::text`.as('last_seen_at'),
-      ]);
+      ])
+      .where('i.privacy_class', '=', 'public');
 
   const selectPubs = () =>
     db
@@ -103,7 +124,8 @@ export const makeMonitorulRepo = (db: Db): MonitorulRepo => {
         'p.source_pdf_url',
         sql<string>`p.first_seen_at::text`.as('first_seen_at'),
         sql<string>`p.last_seen_at::text`.as('last_seen_at'),
-      ]);
+      ])
+      .where('p.privacy_class', '=', 'public');
 
   const selectEdges = () =>
     db
@@ -124,7 +146,9 @@ export const makeMonitorulRepo = (db: Db): MonitorulRepo => {
         'e.matched_via',
         'e.method',
         'e.confidence',
-      ]);
+      ])
+      .where('e.privacy_class', '=', 'public')
+      .where(edgeEndpointsPublic);
 
   const selectStatusEvents = () =>
     db
@@ -136,7 +160,8 @@ export const makeMonitorulRepo = (db: Db): MonitorulRepo => {
         sql<string | null>`s.effective_date::text`.as('effective_date'),
         's.source_act_id',
       ])
-      .where('s.event_source', '=', 'monitorul-oficial');
+      .where('s.event_source', '=', 'monitorul-oficial')
+      .where(statusEventIsPublic('s'));
 
   const mapPubRows = (rows: readonly unknown[]): MoActPublication[] =>
     rows.map((r) => mapPublication(r as MoActPublicationRow));
@@ -201,22 +226,29 @@ export const makeMonitorulRepo = (db: Db): MonitorulRepo => {
         : sort === 'issue_year_desc'
           ? sql`order by i.issue_year desc, i.mo_issue_id desc`
           : sql`order by i.issue_date desc nulls last, i.mo_issue_id desc`;
+    const where = sql`${kernel.value} and i.privacy_class = 'public'`;
     try {
-      const rowsQ = sql<MoIssueRow & { total: string }>`
-        select
-          i.mo_issue_id, i.part_code, i.mo_part, i.issue_label, i.issue_number,
-          i.issue_suffix, i.issue_year, i.issue_date::text as issue_date, i.pdf_url,
-          i.has_archive_index, i.has_emonitor_link, i.pdf_bytes,
-          i.first_seen_at::text as first_seen_at, i.last_seen_at::text as last_seen_at,
-          count(*) over () as total
-        from legal.mo_issues i
-        where ${kernel.value}
-        ${orderBy}
-        limit ${pageSize} offset ${offset}
-      `;
-      const result = await rowsQ.execute(db);
+      // The total is its own count over the same filter: a window count rides
+      // on the page's rows, so a page past the end reported total 0 for a
+      // population of 1,065 (I-21). Empty pages must not redefine the total.
+      const [result, totalRow] = await Promise.all([
+        sql<MoIssueRow>`
+          select
+            i.mo_issue_id, i.part_code, i.mo_part, i.issue_label, i.issue_number,
+            i.issue_suffix, i.issue_year, i.issue_date::text as issue_date, i.pdf_url,
+            i.has_archive_index, i.has_emonitor_link, i.pdf_bytes,
+            i.first_seen_at::text as first_seen_at, i.last_seen_at::text as last_seen_at
+          from legal.mo_issues i
+          where ${where}
+          ${orderBy}
+          limit ${pageSize} offset ${offset}
+        `.execute(db),
+        sql<{
+          total: string;
+        }>`select count(*) as total from legal.mo_issues i where ${where}`.execute(db),
+      ]);
       const items = result.rows.map((r) => mapIssue(r));
-      const total = result.rows.length > 0 ? Number(result.rows[0]?.total ?? 0) : 0;
+      const total = Number(totalRow.rows[0]?.total ?? 0);
       return ok({ items, total });
     } catch (error) {
       return err(databaseError('listIssues failed', error));
@@ -282,7 +314,7 @@ export const makeMonitorulRepo = (db: Db): MonitorulRepo => {
     const sortKey = dir === 'asc' ? 'act_year_asc' : 'act_year_desc';
     const fhash = fhashFor(moPublicationsSpec, filter);
 
-    const conds: RawBuilder<unknown>[] = [kernel.value];
+    const conds: RawBuilder<unknown>[] = [kernel.value, sql`p.privacy_class = 'public'`];
     if (page.after !== undefined) {
       const decoded = decodeCursor(page.after, { sort: sortKey, dir, fhash });
       if (decoded.isErr()) return err(decoded.error);
@@ -326,7 +358,7 @@ export const makeMonitorulRepo = (db: Db): MonitorulRepo => {
         .where('p.act_id', '=', actId)
         .orderBy('p.act_year', 'desc')
         .orderBy('p.mo_act_key', 'asc')
-        .limit(200)
+        .limit(MO_LIST_CAP)
         .execute();
       return ok(mapPubRows(rows));
     } catch (error) {
@@ -367,7 +399,10 @@ export const makeMonitorulRepo = (db: Db): MonitorulRepo => {
         : input.groupBy === 'year'
           ? sql`p.act_year`
           : sql`p.issuer_slug`;
-    const conds: RawBuilder<unknown>[] = [sql`p.issue_year = ${input.year}`];
+    const conds: RawBuilder<unknown>[] = [
+      sql`p.issue_year = ${input.year}`,
+      sql`p.privacy_class = 'public'`,
+    ];
     if (input.issuerSlug !== undefined && input.issuerSlug !== '') {
       conds.push(sql`p.issuer_slug = ${input.issuerSlug}`);
     }
@@ -418,7 +453,7 @@ export const makeMonitorulRepo = (db: Db): MonitorulRepo => {
       const rows = await selectEdges()
         .where('e.source_mo_act_key', '=', moActKey)
         .orderBy('e.edge_id', 'asc')
-        .limit(200)
+        .limit(MO_LIST_CAP)
         .execute();
       return ok(mapEdgeRows(rows));
     } catch (error) {
@@ -432,7 +467,7 @@ export const makeMonitorulRepo = (db: Db): MonitorulRepo => {
       const rows = await selectEdges()
         .where('e.target_act_id', '=', actId)
         .orderBy('e.edge_id', 'asc')
-        .limit(200)
+        .limit(MO_LIST_CAP)
         .execute();
       return ok(mapEdgeRows(rows));
     } catch (error) {
@@ -469,7 +504,11 @@ export const makeMonitorulRepo = (db: Db): MonitorulRepo => {
     const sortKey = 'edge_id';
     const dir = 'asc' as const;
     const fhash = fhashFor(moEdgesSpec, filter);
-    const conds: RawBuilder<unknown>[] = [kernel.value];
+    const conds: RawBuilder<unknown>[] = [
+      kernel.value,
+      sql`e.privacy_class = 'public'`,
+      edgeEndpointsPublic,
+    ];
     if (page.after !== undefined) {
       const decoded = decodeCursor(page.after, { sort: sortKey, dir, fhash });
       if (decoded.isErr()) return err(decoded.error);
@@ -502,7 +541,7 @@ export const makeMonitorulRepo = (db: Db): MonitorulRepo => {
         .where('s.act_id', '=', actId)
         .orderBy(sql`s.effective_date asc nulls last`)
         .orderBy('s.event_id', 'asc')
-        .limit(200)
+        .limit(MO_LIST_CAP)
         .execute();
       return ok(mapStatusRows(rows as unknown as MoStatusEventRow[]));
     } catch (error) {
@@ -539,6 +578,7 @@ export const makeMonitorulRepo = (db: Db): MonitorulRepo => {
     try {
       const row = await db
         .selectFrom('legal.mo_issues')
+        .where('privacy_class', '=', 'public')
         .select([
           sql<number | null>`min(issue_year)`.as('mn'),
           sql<number | null>`max(issue_year)`.as('mx'),
@@ -558,6 +598,7 @@ export const makeMonitorulRepo = (db: Db): MonitorulRepo => {
           .selectFrom('legal.mo_act_publications as p')
           .innerJoin('legal.mo_issues as i', 'i.mo_issue_id', 'p.mo_issue_id')
           .where('p.issuer_slug', '=', issuerSlug)
+          .where('p.privacy_class', '=', 'public')
           .select(['i.part_code', sql<string>`count(*)`.as('cnt')])
           .groupBy('i.part_code')
           .orderBy(sql`cnt desc`)
@@ -574,6 +615,7 @@ export const makeMonitorulRepo = (db: Db): MonitorulRepo => {
       const agg = await db
         .selectFrom('legal.mo_act_publications as p')
         .where('p.issuer_slug', '=', issuerSlug)
+        .where('p.privacy_class', '=', 'public')
         .select([
           sql<string>`count(*)`.as('cnt'),
           sql<string | null>`max(p.act_date)::text`.as('last_date'),
@@ -587,6 +629,7 @@ export const makeMonitorulRepo = (db: Db): MonitorulRepo => {
         db
           .selectFrom('legal.mo_act_publications as p')
           .where('p.issuer_slug', '=', issuerSlug)
+          .where('p.privacy_class', '=', 'public')
           .where('p.act_type', 'is not', null)
           .select(['p.act_type', sql<string>`count(*)`.as('cnt')])
           .groupBy('p.act_type')
@@ -621,6 +664,7 @@ export const makeMonitorulRepo = (db: Db): MonitorulRepo => {
       // already diacritics-folded hyphenated names; match the folded query).
       const rows = await db
         .selectFrom('legal.mo_act_publications as p')
+        .where('p.privacy_class', '=', 'public')
         .where('p.issuer_slug', 'is not', null)
         .where('p.issuer_slug', '<>', '')
         .where(sql<boolean>`replace(p.issuer_slug, '-', ' ') ilike ${pattern} escape '\\'`)
@@ -648,6 +692,7 @@ export const makeMonitorulRepo = (db: Db): MonitorulRepo => {
     try {
       let qb = db
         .selectFrom('legal.mo_act_publications as p')
+        .where('p.privacy_class', '=', 'public')
         .where('p.act_type', 'is not', null)
         .select(['p.act_type', sql<string>`count(*)`.as('cnt')])
         .groupBy('p.act_type')

@@ -436,16 +436,39 @@ const objectsAndQuery = /* GraphQL */ `
     holdDrift: [String!]!
   }
 
+  "One public MFP file line that supplied cells of a statement."
+  type CompanyStatementContribution {
+    "The capture the line belongs to (mfp:<collection>:<year>:<resource>)."
+    sourceSnapshotId: String!
+    "The line's row number in that file; null when not recorded."
+    rowNumber: String
+    "The captured file URL; null when not readable."
+    url: String
+    "The indicators this line supplied."
+    indicators: [CompanyStatementContributionIndicator!]!
+  }
+
+  "One indicator a contributing line supplied: its MFP code and the statement's own name for it (codes are named per statement layout)."
+  type CompanyStatementContributionIndicator {
+    code: String!
+    name: String
+  }
+
   "Where a statement was published. ANAF: the bilanț web-service query for THIS statement's own fiscal year and CUI (the request the ingester makes); it answers with ANAF's CURRENT data, which can differ from the retained capture, and is not a custody proof. MFP: the exact data.gov.ro resource it was read from. url is null when not recorded or not bindable to this statement: never guessed, never another publisher's or statement's URL."
   type CompanyStatementSource {
     "anaf | mfp"
     sourceSystem: String!
+    "The anchor: the current ANAF query of this statement, or the MFP file of its selected capture. A cross-copy statement has more files: see contributingSources."
     url: String
     "anaf_statement (the current ANAF query of this statement) | mfp_resource; null with url."
     urlKind: String
     "Fingerprint of the statement's indicator code/name layout: not its values, not its bytes."
     statementProfileHash: String
     metricRuleVersion: String!
+    "The selection ledger's basis for this typed statement (e.g. sole_candidate; cross_copy_union when MFP published its lines split across files). Null when not read, not readable, or no ledger row."
+    selectionBasis: String
+    "MFP statements: every public file line that contributed cells, anchor first, with the indicators each supplied, so each value traces to its own file. Null for ANAF statements (one answer: see url), on lists, and when the ledger is not readable."
+    contributingSources: [CompanyStatementContribution!]
   }
 
   "A dated, warn-only legacy anomaly flag on one (cui, year) statement. Advisory: qualifies a figure, never suppresses one."
@@ -700,8 +723,6 @@ const objectsAndQuery = /* GraphQL */ `
   enum CompanyMainActivityRoleBasis {
     "The ANAF fiscal cod_CAEN of the company's current public fiscal row, ASSUMED to be its main activity."
     ANAF_ASSUMED_MAIN
-    "Policy anaf-assumed-main-caen-v2 only. The same assumption, its ANAF evidence bound through the frozen legacy-time cohort: the served fiscal row keeps the millisecond projection of the raw retrieval time that a documented older import wrote. Consistent with that import, not proof of the row writer or of the original HTTP exchange. Kept on a withdrawn outcome (its evidence is what is withheld)."
-    ANAF_ASSUMED_MAIN_LEGACY_TIME
   }
   "Decided at read time by the data layer."
   enum CompanyMainActivityCurrentness {
@@ -774,17 +795,6 @@ const objectsAndQuery = /* GraphQL */ `
     POINTER_BOUND_AT_DERIVATION
     "No raw evidence bound."
     UNBOUND_AT_DERIVATION
-    "Legacy time (v2): bound through the frozen legacy-time cohort by the raw pointer current when derived. timeBasis is LEGACY_MS_PROJECTION and rawRetrievedAt is set."
-    LEGACY_MS_POINTER_BOUND
-    "Legacy time (v2): bound through the frozen legacy-time cohort by a retained raw custody occurrence. timeBasis is LEGACY_MS_PROJECTION and rawRetrievedAt is set."
-    LEGACY_MS_RETAINED_CUSTODY
-  }
-  "How the served fiscal retrieval time was stored (contract v2), for evidence with a fiscal source; null when the evidence has none."
-  enum CompanyMainActivityFiscalTimeBasis {
-    "The normal, non-legacy category: no legacy-millisecond compatibility attestation was applied; retrievedAt is the time the loader recorded. This category alone does NOT prove that time equals the raw retrieval time: evidenceCustody says whether raw was verified."
-    NATIVE
-    "retrievedAt is rawRetrievedAt at millisecond precision, its microsecond fraction removed (…12.642832Z → …12.642000Z), as a documented older import stored it; consistent with that import, not proof of the row writer or of the original HTTP exchange."
-    LEGACY_MS_PROJECTION
   }
   enum CompanyMainActivityHistoryKind {
     "Outcome changes (status, token, candidates, selected key and frozen label, correction, policy)."
@@ -835,18 +845,15 @@ const objectsAndQuery = /* GraphQL */ `
     statusDate: String
     "The fiscal loader's retrieval time (ISO-8601 UTC, six fractional digits). Not a raw capture time, never a legal effective date."
     retrievedAt: String
-    "NATIVE, or LEGACY_MS_PROJECTION exactly when evidenceCustody is a LEGACY_MS_* tag and rawRetrievedAt is set. Null exactly when the evidence has no fiscal source: then every fiscal locator, date, id, custody and token field here is null too (distinct from SOURCE_WITHDRAWN, where the whole object is null)."
-    timeBasis: CompanyMainActivityFiscalTimeBasis
-    "The raw retrieval time, exact six-digit UTC text (e.g. 2026-06-15T08:00:12.642832Z); LEGACY_MS_PROJECTION only, then retrievedAt is it with the microsecond fraction removed (…642000Z). Null otherwise. Never a legal effective date."
-    rawRetrievedAt: String
     sourceUrl: String
+    "Null exactly when the evidence has no fiscal source: then every fiscal locator, date, id, custody and token field here is null too (distinct from SOURCE_WITHDRAWN, where the whole object is null)."
     sourceSnapshotId: String
     sourceHash: String
     rawCaptureId: BigInt
     rawCustodyId: BigInt
     evidenceCustody: CompanyMainActivityEvidenceCustody
   }
-  "The ANAF-ASSUMED main activity (policy anaf-assumed-main-caen-v1, read with its original meaning, or anaf-assumed-main-caen-v2, the current producer, which adds the legacy-time role basis and custody tags): ANAF's fiscal CAEN code matched as leading-zero-free digit text to the company's qualified ONRC class keys of one pinned edition, latest known revision. An assumption, never an ONRC principal flag. All times are derivation, retrieval or source dates, never legal effective dates."
+  "The ANAF-ASSUMED main activity (policy anaf-assumed-main-caen-v1): ANAF's fiscal CAEN code matched as leading-zero-free digit text to the company's qualified ONRC class keys of one pinned edition, latest known revision. An assumption, never an ONRC principal flag. All times are derivation, retrieval or source dates, never legal effective dates."
   type CompanyMainActivity {
     policy: String!
     basis: CompanyMainActivityRoleBasis!
@@ -926,10 +933,6 @@ const objectsAndQuery = /* GraphQL */ `
     statusDate: String
     "Loader retrieval time (ISO-8601 UTC, six fractional digits). Never a legal effective date."
     retrievedAt: String
-    "As on the current read: NATIVE, LEGACY_MS_PROJECTION with a LEGACY_MS_* custody tag and rawRetrievedAt, or null exactly when the evidence has no fiscal source (every fiscal field here null too)."
-    timeBasis: CompanyMainActivityFiscalTimeBasis
-    "Exact six-digit UTC raw retrieval time of a LEGACY_MS_PROJECTION; null otherwise. Never a legal effective date."
-    rawRetrievedAt: String
     sourceUrl: String
     rawCaptureId: BigInt
     rawCustodyId: BigInt
@@ -1133,9 +1136,15 @@ const objectsAndQuery = /* GraphQL */ `
   "totalCount is bounded ≤10,000; totalEstimated flags the cap (§14.4). Cursors bind the filter, sort AND the registry scope: a later page under another scope is refused (INVALID_INPUT, restart pagination)."
   type CompanyConnection {
     edges: [CompanyEdge!]!
+    "hasNextPage: with an exact totalCount, true only while rows remain. With a capped database count (totalEstimated without nameCandidateCapped) it is optimistic: a full page near the cap may be followed by an empty one. The name-candidate cap alone never sets it."
     pageInfo: PageInfo!
     totalCount: Int
+    "True when totalCount may not be the complete match count: the bounded count hit its cap, or nameCandidateCapped."
     totalEstimated: Boolean!
+    "q reached the name-candidate cap (50): more companies may match the name. The list and totalCount cover only these top candidates, so paging cannot reach others; refine the name to change the candidate set (filters apply after the cap and cannot add candidates)."
+    nameCandidateCapped: Boolean!
+    "English disclosures for this list (name-candidate cap, degraded name search, omitted withheld identifiers); the same caveats list_companies returns over MCP."
+    caveats: [String!]!
     registry: CompanyRegistryEnvelope!
   }
 

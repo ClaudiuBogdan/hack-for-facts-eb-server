@@ -64,6 +64,8 @@ export const statementSource = (year: number, cui = '1'): CompanyStatementSource
         urlKind: 'anaf_statement',
         statementProfileHash: 'b2'.repeat(32),
         metricRuleVersion: 'anaf-bilant-metric-v1',
+        selectionBasis: null,
+        contributingSources: null,
       }
     : {
         sourceSystem: 'mfp',
@@ -71,4 +73,6 @@ export const statementSource = (year: number, cui = '1'): CompanyStatementSource
         urlKind: null,
         statementProfileHash: 'b2'.repeat(32),
         metricRuleVersion: 'anaf-bilant-metric-v1',
+        selectionBasis: null,
+        contributingSources: null,
       };

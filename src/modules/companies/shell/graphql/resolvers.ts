@@ -279,12 +279,18 @@ export const makeCompaniesResolvers = (deps: CompaniesResolverDeps): Record<stri
         return {
           edges,
           pageInfo: {
+            // Only a capped COUNT means rows continue past `total`. A capped
+            // name resolution leaves `total` exact over its candidates, so the
+            // candidate set ends where `total` says (CQA-17); reaching other
+            // matches needs a refined query, disclosed below.
             hasNextPage:
-              res.rows.length === page.pageSize && (res.totalEstimated || res.total > consumed),
+              res.rows.length === page.pageSize && (res.countCapped || res.total > consumed),
             endCursor: edges.length > 0 ? (edges[edges.length - 1]?.cursor ?? null) : null,
           },
           totalCount: res.total,
           totalEstimated: res.totalEstimated,
+          nameCandidateCapped: res.nameCandidateCapped,
+          caveats: res.caveats,
           registry: res.registry,
         };
       },
@@ -521,7 +527,6 @@ export const makeCompaniesResolvers = (deps: CompaniesResolverDeps): Record<stri
     },
     CompanyMainActivityRoleBasis: {
       ANAF_ASSUMED_MAIN: 'anaf_assumed_main',
-      ANAF_ASSUMED_MAIN_LEGACY_TIME: 'anaf_assumed_main_legacy_time',
     },
     CompanyMainActivityCurrentness: {
       CURRENT: 'current',
@@ -569,12 +574,6 @@ export const makeCompaniesResolvers = (deps: CompaniesResolverDeps): Record<stri
       RETAINED_CUSTODY: 'retained_custody',
       POINTER_BOUND_AT_DERIVATION: 'pointer_bound_at_derivation',
       UNBOUND_AT_DERIVATION: 'unbound_at_derivation',
-      LEGACY_MS_POINTER_BOUND: 'legacy_ms_pointer_bound',
-      LEGACY_MS_RETAINED_CUSTODY: 'legacy_ms_retained_custody',
-    },
-    CompanyMainActivityFiscalTimeBasis: {
-      NATIVE: 'native',
-      LEGACY_MS_PROJECTION: 'legacy_ms_projection',
     },
     CompanyMainActivityHistoryKind: { OUTCOMES: 'outcomes', EVIDENCE: 'evidence' },
     CompanyMainActivityHistoryState: { AVAILABLE: 'available', UNAVAILABLE: 'unavailable' },

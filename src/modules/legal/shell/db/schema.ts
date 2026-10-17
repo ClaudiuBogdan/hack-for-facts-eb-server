@@ -106,6 +106,7 @@ export interface LegalActStatusEventsTable {
   source_act_id: string | null; // bigint → string
   evidence: Jsonb;
   event_source: string; // 'portal' | 'monitorul-oficial'
+  privacy_class: string; // 'public' | 'restricted'
 }
 
 export interface LegalExternalActsTable {

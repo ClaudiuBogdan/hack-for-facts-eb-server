@@ -61,6 +61,7 @@ import type {
 import type {
   LegalAct,
   LegalActCard,
+  LegalActTimeline,
   LegalActStatus,
   LegalCountDimension,
   LegalDocument,
@@ -90,6 +91,20 @@ const toGraphqlError = (error: ApiError): GraphQLError =>
 const unwrap = <T>(result: Result<T, ApiError>): T => {
   if (result.isErr()) throw toGraphqlError(result.error);
   return result.value;
+};
+
+/**
+ * `LegalAct.versionCount` — the exact count, never the (capped) document list's
+ * length: the Fiscal Code's 243 expressions read as 200 (I-19). The act card
+ * already carries the count, zero included.
+ */
+export const resolveVersionCount = async (
+  parent: LegalAct,
+  acts: Pick<LegalActsRepo, 'countDocuments'>
+): Promise<number> => {
+  const onCard = (parent as Partial<LegalActCard>).versionCount;
+  if (typeof onCard === 'number') return onCard;
+  return unwrap(await acts.countDocuments(parent.actId));
 };
 
 // ── enum value maps (DB ↔ GraphQL) ───────────────────────────────────────────
@@ -154,6 +169,17 @@ const sortKeysOf = (act: LegalAct, sort: LegalSortKey): readonly (string | numbe
 
 export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unknown> => {
   const { acts, graph, outline, render, searchDeps, resolveDeps } = deps;
+  // One timeline read per parent object (one request): `timeline` and
+  // `timelineComplete` share it instead of walking the edge pages twice.
+  const timelines = new WeakMap<object, Promise<Result<LegalActTimeline, ApiError>>>();
+  const timelineOf = (parent: LegalAct): Promise<Result<LegalActTimeline, ApiError>> => {
+    let pending = timelines.get(parent);
+    if (pending === undefined) {
+      pending = getActTimeline(acts, graph, parent.actId);
+      timelines.set(parent, pending);
+    }
+    return pending;
+  };
 
   // Batched act loader for edge `targetAct`/`sourceAct` (tolerates dangling → null).
   // The batch fn returns a Map<id, V>; the loader fills missing keys with `null`.
@@ -401,10 +427,7 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
         const card = unwrap(await acts.getActCard({ actId: parent.actId }));
         return card?.citationKeys ?? [];
       },
-      versionCount: async (parent: LegalAct) => {
-        const docs = unwrap(await getActVersions(acts, parent.actId));
-        return docs.length;
-      },
+      versionCount: (parent: LegalAct) => resolveVersionCount(parent, acts),
       // The act-card path already carries the count; every other path reads it
       // off the batched provenance loader rather than one count per act.
       amendedAfterPublication: async (parent: LegalAct) => {
@@ -511,7 +534,8 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
           totalCount: page.totalCount,
         };
       },
-      timeline: async (parent: LegalAct) => unwrap(await getActTimeline(acts, graph, parent.actId)),
+      timeline: async (parent: LegalAct) => unwrap(await timelineOf(parent)).entries,
+      timelineComplete: async (parent: LegalAct) => unwrap(await timelineOf(parent)).complete,
     },
 
     LegalActConnection: {

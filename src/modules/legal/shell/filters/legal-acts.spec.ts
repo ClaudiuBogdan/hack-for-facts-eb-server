@@ -26,13 +26,14 @@ import type { CollectionFilterSpec } from '@/modules/shared/index.js';
 /**
  * Enum value sets — the ACCEPTED filter literals (the kernel's `coerceScalar`
  * rejects values outside them). `domain`/`status`/`category` are closed
- * vocabularies; `act_type` is OPEN in the live DB (256 distinct values vs the
- * 18 accepted here, measured 2026-08), so `legalActCounts`/`legalResolve` can
- * surface act_type keys this filter refuses. Declared here so the spec is
+ * vocabularies. `act_type` is OPEN in the live DB (256 distinct values,
+ * measured 2026-08), so its filter is an open string (I-21): every key that
+ * `legalActCounts`/`legalResolve` surface round-trips, and a value no act
+ * carries matches nothing rather than failing. Declared here so the spec is
  * self-contained for tests + the GraphQL `enumValues`.
  */
 
-/** `legal.acts.act_type` — the legal instrument (verified live: ~30 values). */
+/** The common `legal.acts.act_type` instruments — documentation, not a limit. */
 export const ACT_TYPE_VALUES: readonly string[] = [
   'lege',
   'oug',
@@ -112,13 +113,13 @@ export const legalActsSpec: CollectionFilterSpec = {
   fields: [
     {
       name: 'actType',
-      type: 'enum',
+      type: 'string',
       ops: ['in'],
       column: { alias: 'a', column: 'act_type' },
       array: true,
       exclude: true,
-      enumValues: ACT_TYPE_VALUES,
-      description: 'The legal instrument (lege/oug/hotarare/ordin/...). Distinct from category.',
+      description:
+        'The legal instrument, an open vocabulary (lege/oug/og/hotarare/ordin/decizie/decret/norma/regulament/anexa/protocol/ghid/...): any act_type key from the counts facet. Distinct from category.',
     },
     {
       name: 'issuerSlug',

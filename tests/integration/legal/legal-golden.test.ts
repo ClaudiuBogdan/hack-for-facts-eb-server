@@ -184,7 +184,12 @@ d('Legal golden (live prod)', () => {
     expect(act?.status).toBe('ABROGAT_PARTIAL');
     expect(act?.inDegree).toBe(2621);
     expect(act?.amendedAfterPublication).toBe(295);
-    expect(act?.versionCount).toBe(2);
+    // The exact act_documents count, never a capped list length (I-19).
+    const versions = await pool.query<{ c: string }>(
+      `select count(*)::text c from legal.act_documents where act_id = $1`,
+      [CODUL_FISCAL_ACT_ID]
+    );
+    expect(act?.versionCount).toBe(Number(versions.rows[0]?.c));
     expect(act?.canonical?.documentId).toBe('171282');
     expect(act?.canonical?.isCanonical).toBe(true);
     expect(act?.canonical?.versionKind).toBe('corp');

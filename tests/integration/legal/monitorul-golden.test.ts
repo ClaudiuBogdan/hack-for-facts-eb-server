@@ -257,7 +257,9 @@ d('Monitorul-Oficial golden (live prod)', () => {
     expect(mcp.ok).toBe(true);
     expect(mcp.item.confidence).toBe('deterministic');
     const raw = await pool.query<{ c: string }>(
-      `select count(*)::text c from legal.mo_act_publications where issue_year = 2006`
+      // The API serves public rows only (LEGAL_CONTRACT §2, I-18).
+      `select count(*)::text c from legal.mo_act_publications
+       where issue_year = 2006 and privacy_class = 'public'`
     );
     expect(mcp.item.denominator).toBe(Number(raw.rows[0]?.c));
   }, 30_000);
@@ -298,7 +300,7 @@ d('Monitorul-Oficial golden (live prod)', () => {
     );
     const raw = await pool.query<{ c: string; g: string }>(
       `select count(*)::text c, count(distinct issuer_slug)::text g
-       from legal.mo_act_publications where issue_year = 2020`
+       from legal.mo_act_publications where issue_year = 2020 and privacy_class = 'public'`
     );
     expect(mcp.item.denominator).toBe(Number(raw.rows[0]?.c));
     // sanity: the grouped rows are capped at 100 while distinct issuers may exceed it.

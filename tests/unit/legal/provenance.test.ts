@@ -34,7 +34,7 @@ const prov = (over: Partial<LegalVersionProvenance> = {}): LegalVersionProvenanc
 describe('versionProvenanceNote', () => {
   it('an amended act names the date, the count, and where to verify', () => {
     expect(versionProvenanceNote(prov({ amendedAfterPublication: 295 }))).toBe(
-      'text original din 2015-09-10; modificat de 295 de ori de atunci — verifică forma consolidată pe portal: https://legislatie.just.ro/Public/DetaliiDocument/171282'
+      'text original din 2015-09-10; 295 de referințe de modificare/completare înregistrate de atunci — verifică forma consolidată pe portal: https://legislatie.just.ro/Public/DetaliiDocument/171282'
     );
   });
 
@@ -50,7 +50,7 @@ describe('versionProvenanceNote', () => {
         prov({ amendedAfterPublication: 295, latestConsolidationDate: '2026-01-15' })
       )
     ).toBe(
-      'text original din 2015-09-10; modificat de 295 de ori de atunci; ultima consolidare 2026-01-15 (neîncărcată încă) — verifică forma consolidată pe portal: https://legislatie.just.ro/Public/DetaliiDocument/171282'
+      'text original din 2015-09-10; 295 de referințe de modificare/completare înregistrate de atunci; ultima consolidare 2026-01-15 (neîncărcată încă) — verifică forma consolidată pe portal: https://legislatie.just.ro/Public/DetaliiDocument/171282'
     );
   });
 
@@ -64,7 +64,7 @@ describe('versionProvenanceNote', () => {
         })
       )
     ).toBe(
-      'text original din 2015-09-10; modificat de 295 de ori de atunci; ultima consolidare 2026-01-15 — verifică forma consolidată pe portal: https://legislatie.just.ro/Public/DetaliiDocument/171282'
+      'text original din 2015-09-10; 295 de referințe de modificare/completare înregistrate de atunci; ultima consolidare 2026-01-15 — verifică forma consolidată pe portal: https://legislatie.just.ro/Public/DetaliiDocument/171282'
     );
   });
 
@@ -99,7 +99,7 @@ describe('versionProvenanceNote', () => {
 
   it('omits the verify clause when there is no source_url to offer', () => {
     expect(versionProvenanceNote(prov({ amendedAfterPublication: 3, sourceUrl: null }))).toBe(
-      'text original din 2015-09-10; modificat de 3 ori de atunci'
+      'text original din 2015-09-10; 3 referințe de modificare/completare înregistrate de atunci'
     );
   });
 
@@ -117,41 +117,41 @@ describe('versionProvenanceNote', () => {
 describe('versionProvenanceNote — Romanian numeral agreement', () => {
   const timesPhrase = (n: number): string => {
     const note = versionProvenanceNote(prov({ amendedAfterPublication: n }));
-    return note.slice(note.indexOf('modificat de '), note.indexOf(' de atunci'));
+    return note.slice(note.indexOf('; ') + 2, note.indexOf(' de modificare'));
   };
 
-  it('exactly one amendment reads "o dată" — the corpus\'s most common case (4,771 acts)', () => {
+  it("exactly one reference takes the singular — the corpus's most common case (4,771 acts)", () => {
     expect(versionProvenanceNote(prov({ amendedAfterPublication: 1 }))).toContain(
-      'modificat o dată de atunci'
+      'o referință de modificare/completare înregistrată de atunci'
     );
   });
 
   it('2–19 bind the noun directly', () => {
-    expect(timesPhrase(2)).toBe('modificat de 2 ori');
-    expect(timesPhrase(12)).toBe('modificat de 12 ori');
-    expect(timesPhrase(19)).toBe('modificat de 19 ori');
+    expect(timesPhrase(2)).toBe('2 referințe');
+    expect(timesPhrase(12)).toBe('12 referințe');
+    expect(timesPhrase(19)).toBe('19 referințe');
   });
 
   it('20 and up take "de"', () => {
-    expect(timesPhrase(20)).toBe('modificat de 20 de ori');
-    expect(timesPhrase(95)).toBe('modificat de 95 de ori');
-    expect(timesPhrase(100)).toBe('modificat de 100 de ori');
-    expect(timesPhrase(295)).toBe('modificat de 295 de ori');
-    expect(timesPhrase(3183)).toBe('modificat de 3183 de ori');
+    expect(timesPhrase(20)).toBe('20 de referințe');
+    expect(timesPhrase(95)).toBe('95 de referințe');
+    expect(timesPhrase(100)).toBe('100 de referințe');
+    expect(timesPhrase(295)).toBe('295 de referințe');
+    expect(timesPhrase(3183)).toBe('3183 de referințe');
   });
 
   it('the five real corpus counts whose last two digits fall in 1–19 drop "de"', () => {
     for (const n of [104, 107, 108, 109, 204]) {
-      expect(timesPhrase(n)).toBe(`modificat de ${String(n)} ori`);
+      expect(timesPhrase(n)).toBe(`${String(n)} referințe`);
     }
   });
 
   it('the status badge phrase agrees too — it renders beside the note', () => {
     expect(amendmentCountPhrase(0)).toBe('nicio modificare înregistrată');
-    expect(amendmentCountPhrase(1)).toBe('modificat de un act');
-    expect(amendmentCountPhrase(12)).toBe('modificat de 12 acte');
-    expect(amendmentCountPhrase(104)).toBe('modificat de 104 acte');
-    expect(amendmentCountPhrase(295)).toBe('modificat de 295 de acte');
+    expect(amendmentCountPhrase(1)).toBe('o referință de modificare/completare');
+    expect(amendmentCountPhrase(12)).toBe('12 referințe de modificare/completare');
+    expect(amendmentCountPhrase(104)).toBe('104 referințe de modificare/completare');
+    expect(amendmentCountPhrase(295)).toBe('295 de referințe de modificare/completare');
   });
 });
 
@@ -166,14 +166,14 @@ describe('versionProvenanceNote — only a published form may say "de atunci"', 
     it(`${kind} is the act as first published, so "de atunci" is fair`, () => {
       expect(
         versionProvenanceNote(prov({ versionKind: kind, amendedAfterPublication: 295 }))
-      ).toContain('modificat de 295 de ori de atunci');
+      ).toContain('295 de referințe de modificare/completare înregistrate de atunci');
     });
   }
 
   for (const kind of ['republicare', 'consolidare', '']) {
     it(`${kind === '' ? 'unknown kind' : kind} reports operations on the act instead`, () => {
       const note = versionProvenanceNote(prov({ versionKind: kind, amendedAfterPublication: 295 }));
-      expect(note).toContain('295 de operațiuni de modificare/completare înregistrate pentru act');
+      expect(note).toContain('295 de referințe de modificare/completare înregistrate pentru act');
       expect(note).not.toContain('de atunci');
     });
   }
@@ -189,14 +189,14 @@ describe('versionProvenanceNote — only a published form may say "de atunci"', 
         })
       )
     ).toBe(
-      'text republicat din 2009-04-29; 27 de operațiuni de modificare/completare înregistrate pentru act — verifică forma consolidată pe portal: https://legislatie.just.ro/Public/DetaliiDocument/105215'
+      'text republicat din 2009-04-29; 27 de referințe de modificare/completare înregistrate pentru act — verifică forma consolidată pe portal: https://legislatie.just.ro/Public/DetaliiDocument/105215'
     );
   });
 
   it('the neutral wording keeps its singular', () => {
     expect(
       versionProvenanceNote(prov({ versionKind: 'republicare', amendedAfterPublication: 1 }))
-    ).toContain('o operațiune de modificare/completare înregistrată pentru act');
+    ).toContain('o referință de modificare/completare înregistrată pentru act');
   });
 
   it('zero reads the same either way', () => {

@@ -55,8 +55,6 @@ export const mainActivity = (over: Partial<ActivityFields> = {}): CompanyMainAct
       v3Form: 'three_digit',
       statusDate: '2026-06-15',
       retrievedAt: '2026-06-15T08:00:00.000000Z',
-      timeBasis: 'native',
-      rawRetrievedAt: null,
       sourceUrl: 'https://webservicesp.anaf.ro/api/PlatitorTvaRest/v9/tva',
       sourceSnapshotId: 'anaf:2026-06-15',
       sourceHash: 'b'.repeat(64),

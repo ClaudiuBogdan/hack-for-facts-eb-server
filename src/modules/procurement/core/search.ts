@@ -101,7 +101,11 @@ export interface ProcurementSearchFilter {
   readonly recordKind?: readonly string[];
   /** Modifications only: `contract_id IS (NOT) NULL`. */
   readonly linked?: boolean;
-  /** Modifications only: `value_delta_ron / nullif(value_before_ron,0) >= pct`. */
+  /**
+   * Modifications only: the change as a share of the value before, >= pct.
+   * From the source amounts when one currency is stated (no FX needed),
+   * otherwise `value_delta_ron / nullif(value_before_ron, 0)`.
+   */
   readonly minDeltaPct?: number;
 }
 

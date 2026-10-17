@@ -151,6 +151,15 @@ export interface ProcurementModification {
   readonly valueDeltaRon: string | null;
   /** Derived = delta / nullif(before, 0) (PC-8). Null when before is 0/null. */
   readonly deltaPct: number | null;
+  /**
+   * ISO currency of the source amounts (RON, EUR or USD); null when the source
+   * states none or states different codes. The `*Ron` values are filled only
+   * for lei (or no stated currency); foreign amounts are never converted.
+   */
+  readonly currency: string | null;
+  /** The amounts as the source reports them, in `currency`. */
+  readonly sourceValueBefore: string | null;
+  readonly sourceValueAfter: string | null;
   readonly modificationType: string | null;
   readonly year: number | null;
 }

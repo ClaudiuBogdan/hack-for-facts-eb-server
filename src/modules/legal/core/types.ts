@@ -100,12 +100,11 @@ export const LEGAL_COUNT_DIMENSIONS: readonly LegalCountDimension[] = [
 
 /**
  * One grouped count bucket. `key` is the RAW DB vocabulary value
- * ('fiscal-si-bugetar', 'in-vigoare', '2015'). Only keys that appear in the
- * corresponding filter field's `enumValues` are accepted back by
- * `LegalActsFilter` — `act_type` is an OPEN vocabulary in the live DB (256
- * distinct values vs the 18 the filter accepts, measured 2026-08; `anexa`,
- * `protocol`, `ghid`, … are real keys the filter refuses). `domain`/`status`
- * are closed vocabularies, so their keys always round-trip. `label` is a
+ * ('fiscal-si-bugetar', 'in-vigoare', '2015'). Every key is accepted back by
+ * `LegalActsFilter`: `domain`/`status` are closed vocabularies whose
+ * `enumValues` hold every live key, and `act_type` — an OPEN vocabulary in the
+ * live DB (256 distinct values, measured 2026-08; `anexa`, `protocol`, `ghid`,
+ * …) — is an open string filter (I-21). `label` is a
  * display form when one exists (issuer slugs de-hyphenated, the vocab-repo
  * precedent) and null otherwise — the enum/year keys ARE their own display
  * value.
@@ -403,6 +402,20 @@ export interface LegalSearchResult {
    * genuinely small result set.
    */
   readonly unhydratedHits: number;
+}
+
+/**
+ * Bounds of the timeline merge (I-20). Live maxima 2026-10-16: 3,200 incoming
+ * modifica/completeaza/abroga references and 3,199 status events on one act.
+ * Reaching a bound marks the timeline incomplete; it is never cut silently.
+ */
+export const LEGAL_TIMELINE_EDGE_BOUND = 10_000;
+export const LEGAL_STATUS_EVENTS_BOUND = 10_000;
+
+/** An act's merged timeline and whether every eligible row made it in. */
+export interface LegalActTimeline {
+  readonly entries: readonly LegalTimelineEntry[];
+  readonly complete: boolean;
 }
 
 /** A merged act timeline entry (status events + amendment edges, LG-2). */

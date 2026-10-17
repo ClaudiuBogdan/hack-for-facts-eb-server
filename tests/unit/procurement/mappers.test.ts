@@ -234,9 +234,56 @@ describe('modification deltaPct (PC-8)', () => {
     value_before_ron: '100.00',
     value_after_ron: '150.00',
     value_delta_ron: '50.00',
+    // Loaded before the currency columns: the lei rule applies.
+    currency: null,
+    source_value_before: null,
+    source_value_after: null,
     modification_type: null,
     year: 2024,
   };
+  it('takes the change share from the source amounts when one currency is stated', () => {
+    const eur = {
+      ...base,
+      currency: 'EUR',
+      value_before_ron: null,
+      value_after_ron: null,
+      value_delta_ron: null,
+      source_value_before: '100.00',
+      source_value_after: '150.00',
+    };
+    expect(mapModification(eur).deltaPct).toBeCloseTo(0.5, 5);
+    expect(mapModification({ ...eur, source_value_before: '0.00' }).deltaPct).toBeNull();
+    // Exact on the numeric text, beyond a double's integer precision.
+    expect(
+      mapModification({
+        ...eur,
+        source_value_before: '9999999999999998.00',
+        source_value_after: '9999999999999998.01',
+      }).deltaPct
+    ).toBeGreaterThan(0);
+    // Rows loaded before the currency columns keep the lei rule.
+    const legacy = { ...base, currency: null, source_value_before: null, source_value_after: null };
+    expect(mapModification(legacy).deltaPct).toBeCloseTo(0.5, 5);
+  });
+  it('keeps the source amounts and their currency', () => {
+    const eur = mapModification({
+      ...base,
+      currency: 'EUR',
+      value_before_ron: null,
+      value_after_ron: null,
+      value_delta_ron: null,
+      source_value_before: '159076.00',
+      source_value_after: '159076.00',
+    });
+    expect(eur).toMatchObject({
+      currency: 'EUR',
+      sourceValueBefore: '159076.00',
+      sourceValueAfter: '159076.00',
+      valueBeforeRon: null,
+      // 159,076 EUR before and after: no change, no FX needed.
+      deltaPct: 0,
+    });
+  });
   it('computes delta / before', () => {
     expect(mapModification(base).deltaPct).toBeCloseTo(0.5, 5);
   });

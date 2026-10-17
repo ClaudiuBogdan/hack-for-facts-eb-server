@@ -232,16 +232,28 @@ export const procurementTypeDefs = /* GraphQL */ `
     dupGroupId: String
   }
 
-  "A SEAP contract modification. valueDeltaRon may be negative."
+  """
+  A SEAP contract modification. valueDeltaRon may be negative. The *Ron
+  values are filled only for amounts in lei (or with no stated currency);
+  foreign amounts stay in sourceValueBefore/sourceValueAfter with their
+  currency, never converted.
+  """
   type ProcurementContractModification {
     id: ID!
     contractId: ID
     linkMethod: String
     linkConfidence: Float
+    "Publication date of the modification notice; the source gives no signing date."
     modificationDate: Date
     valueBeforeRon: String
     valueAfterRon: String
     valueDeltaRon: String
+    "ISO currency of the source amounts (RON, EUR, USD); null when not stated or conflicting."
+    currency: String
+    "The value before the modification, as reported, in currency."
+    sourceValueBefore: String
+    "The value after the modification, as reported, in currency."
+    sourceValueAfter: String
     modificationType: String
     authority: ProcurementParty!
     supplier: ProcurementParty!
@@ -365,7 +377,7 @@ export const procurementTypeDefs = /* GraphQL */ `
     modificationDate: DateRangeInput
     "contractId IS (NOT) NULL."
     linked: Boolean
-    "value_delta_ron / nullif(value_before_ron, 0) >= pct."
+    "Change as a share of the value before, >= pct: from the source amounts when one currency is stated (no FX), else value_delta_ron / nullif(value_before_ron, 0)."
     minDeltaPct: Float
   }
 

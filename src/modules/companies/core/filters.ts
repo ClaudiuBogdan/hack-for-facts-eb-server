@@ -91,7 +91,7 @@ export const companiesFilterSpec: CollectionFilterSpec = {
       array: true,
       exclude: true,
       description:
-        'Broad CURRENT ONRC observation match: the 4-digit code (prefix: 1-3 digits) in ANY revision among the public CAEN observations of the pinned edition, on the same identifier as the other ONRC criteria. No older editions and not the ANAF fiscal CAEN code (use mainCaenCode). The same digits can mean different activities in different revisions: use onrcCaen for one revision. exclude: only companies with complete CAEN coverage and no such observation. Refused while no edition is published.',
+        'Broad CURRENT ONRC class match: the 4-digit code (prefix: 1-3 digits) in ANY known revision among the qualified CAEN class observations (four-digit original token, known revision, catalog label) of the pinned edition, on the same identifier as the other ONRC criteria. Short tokens, unknown revisions and unlabeled keys never match. No older editions and not the ANAF fiscal CAEN code (use mainCaenCode). The same digits can mean different activities in different revisions: use onrcCaen for one revision. exclude: only companies with complete CAEN coverage and no qualified class observation of the code. An unparsed or unknown-revision observation makes coverage partial, so that company is not kept; a short token or unlabeled key with the same digits does not block the exclusion. No qualified match is not proof that no source observation or activity exists. Refused while no edition is published.',
     },
     {
       name: 'onrcCaen',
@@ -101,7 +101,7 @@ export const companiesFilterSpec: CollectionFilterSpec = {
       array: true,
       exclude: true,
       description:
-        "Exact ONRC CAEN selector '<revision>:<code>' (revision rev0, rev1, rev2 or rev3; e.g. rev2:6201, rev0:1111), as returned in companyResolve(dim: CAEN) key. Matches a public observation of exactly that revision and code in the pinned edition, on the same identifier as the other ONRC criteria. exclude needs complete CAEN coverage. Refused while no edition is published.",
+        "Exact ONRC CAEN selector '<revision>:<code>' (revision rev0, rev1, rev2 or rev3; e.g. rev2:6201, rev0:1111), as returned in companyResolve(dim: CAEN) key. Matches a qualified public class observation (four-digit original token, known revision, catalog label) of exactly that revision and code in the pinned edition, on the same identifier as the other ONRC criteria. exclude needs complete CAEN coverage (an unparsed or unknown-revision observation makes it partial) and means no qualified class match. Refused while no edition is published.",
     },
     {
       name: 'legalForm',

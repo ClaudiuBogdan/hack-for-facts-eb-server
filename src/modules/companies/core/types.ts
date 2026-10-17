@@ -287,12 +287,44 @@ export interface CompanyStatementQualification {
  * publisher's URL. `statementProfileHash` fingerprints the statement's
  * indicator code/name layout, not its values or bytes.
  */
+/** One public file line that supplied cells of an MFP statement (CQA-14). */
+export interface CompanyStatementContribution {
+  /** The capture the line belongs to (`mfp:<collection>:<year>:<resource>`). */
+  readonly sourceSnapshotId: string;
+  /** The line's row number in that file; null when not recorded. */
+  readonly rowNumber: string | null;
+  /** The captured file URL; null when not readable. */
+  readonly url: string | null;
+  /** The indicators this line supplied: their code and the statement's own name for it. */
+  readonly indicators: readonly CompanyStatementContributionIndicator[];
+}
+
+/** One indicator a contributing line supplied (MFP codes are named per statement layout). */
+export interface CompanyStatementContributionIndicator {
+  readonly code: string;
+  readonly name: string | null;
+}
+
 export interface CompanyStatementSource {
   readonly sourceSystem: string;
+  /** The anchor: the ANAF query, or the MFP file of the selected capture. */
   readonly url: string | null;
   readonly urlKind: 'anaf_statement' | 'mfp_resource' | null;
   readonly statementProfileHash: string | null;
   readonly metricRuleVersion: string;
+  /**
+   * The selection ledger's basis for this typed statement (e.g.
+   * `sole_candidate`; `cross_copy_union` when MFP published its lines split
+   * across files). Null when not read, not readable, or no ledger row.
+   */
+  readonly selectionBasis: string | null;
+  /**
+   * MFP: every public file line that contributed cells, anchor first, so each
+   * value can be traced to its own file. Null for ANAF statements (one
+   * answer: see `url`), on surfaces that do not read provenance, and when the
+   * ledger is not readable.
+   */
+  readonly contributingSources: readonly CompanyStatementContribution[] | null;
 }
 
 export interface CompanyFinancialYear {

@@ -135,6 +135,9 @@ const modificationSelect = [
   sql<string | null>`m.value_before_ron::text`.as('value_before_ron'),
   sql<string | null>`m.value_after_ron::text`.as('value_after_ron'),
   sql<string | null>`m.value_delta_ron::text`.as('value_delta_ron'),
+  'm.currency',
+  sql<string | null>`m.source_value_before::text`.as('source_value_before'),
+  sql<string | null>`m.source_value_after::text`.as('source_value_after'),
   'm.modification_type',
   'm.year',
 ] as const;

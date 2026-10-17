@@ -198,7 +198,7 @@ export const companyAnalysisTypeDefs = /* GraphQL */ `
   input CompanyAnalysisOnrcExcludeInput {
     "No identifier has these status codes; status coverage COMPLETE or COMPLETE_EMPTY."
     status: [String!]
-    "No identifier has these CAEN codes in any revision; CAEN coverage COMPLETE or COMPLETE_EMPTY."
+    "CAEN coverage COMPLETE or COMPLETE_EMPTY (an unparsed or unknown-revision observation makes it partial, and that company is not kept) and no identifier has a matching observation of these codes. v3 releases test qualified class observations only (four-digit original token, known revision, catalog label), so a short token or unlabeled key with the same digits does not block the exclusion; v2 releases test every observed code. No match is not proof that no source observation or activity exists."
     caenCode: [String!]
     "A known (single/consistent) county consensus outside these codes."
     county: [String!]
@@ -211,7 +211,7 @@ export const companyAnalysisTypeDefs = /* GraphQL */ `
     status: [String!]
     "County codes of the identifier (CJ, B)."
     county: [String!]
-    "Broad 4-digit CAEN code in any revision state, unknown revision included."
+    "Broad 4-digit CAEN code in any revision. v3 releases match qualified class observations only (four-digit original token, known revision, catalog label): short tokens, unknown revisions and unlabeled keys never match. v2 releases match every observation of the code, unknown revision included."
     caenCode: [String!]
     "Exact rev<N>:<code> (rev0..rev3); a code of unknown revision never matches."
     onrcCaen: [String!]
