@@ -20,6 +20,7 @@ import {
   canonicalScopeEcho,
   parseAnalysisScope,
   scopeToFilterInput,
+  wholeBani,
 } from '@/modules/procurement/core/analysis-scope.js';
 import { MEASURE_IDS } from '@/modules/procurement/core/constants.js';
 import { buildEnvelope } from '@/modules/procurement/core/envelope.js';
@@ -197,6 +198,39 @@ describe('canonical scope echo + fhash input', () => {
     // Whole bani only: sub-bani decimals reject; binary-float 2-decimals pass.
     expect(parseAnalysisScope({ valueMin: 1.005 }).isErr()).toBe(true);
     expect(parseAnalysisScope({ valueMin: 1.05 })._unsafeUnwrap().valueMin).toBe(1.05);
+  });
+
+  // P37 (2026-10-15): a fixed float epsilon rejected valid large two-decimal
+  // bounds — 150000000.02 * 100 is 15000000002.000002.
+  it('accepts every two-decimal bound up to the cap and rejects sub-bani ones', () => {
+    for (const valid of [0.01, 150000000.02, 270000000.03, 1300000000.09, 999999999999.99, 1e12]) {
+      const scope = parseAnalysisScope({ valueMin: valid, valueMax: valid })._unsafeUnwrap();
+      expect(scope.valueMin).toBe(valid);
+      expect(scope.valueMax).toBe(valid);
+    }
+    // 1e-9 and 1.000000001 passed the old fixed epsilon although sub-bani.
+    for (const subBani of [
+      1.005, 0.001, 150000000.025, 999999999999.995, 1e-7, 1e-9, 1.000000001,
+    ]) {
+      expect(parseAnalysisScope({ valueMin: subBani }).isErr()).toBe(true);
+      expect(parseAnalysisScope({ valueMax: subBani }).isErr()).toBe(true);
+    }
+    expect(parseAnalysisScope({ valueMin: 1e12 + 0.01 }).isErr()).toBe(true);
+    expect(parseAnalysisScope({ valueMin: -0 }).isOk()).toBe(true);
+  });
+
+  it('converts a RON amount to exact whole bani from its decimal', () => {
+    expect(wholeBani(0)).toBe(0);
+    expect(wholeBani(-0)).toBe(0);
+    expect(wholeBani(0.01)).toBe(1);
+    expect(wholeBani(1.05)).toBe(105);
+    expect(wholeBani(1000.5)).toBe(100050);
+    expect(wholeBani(150000000.02)).toBe(15000000002);
+    expect(wholeBani(999999999999.99)).toBe(99999999999999);
+    expect(wholeBani(1e12)).toBe(100000000000000);
+    expect(wholeBani(1.005)).toBeNull();
+    expect(wholeBani(1e-7)).toBeNull();
+    expect(wholeBani(0.1 + 0.2)).toBeNull();
   });
 });
 

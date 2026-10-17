@@ -205,6 +205,12 @@ describe('ClickHouse row-filter and dimension scope compilation', () => {
     expect(body).toContain('value_awarded_attributed_bani >= 105');
   });
 
+  it('compiles large two-decimal bounds to their exact bani (P37)', async () => {
+    const body = await statsBody({ valueMin: 150000000.02, valueMax: 999999999999.99 });
+    expect(body).toContain('value_awarded_attributed_bani >= 15000000002');
+    expect(body).toContain('value_awarded_attributed_bani <= 99999999999999');
+  });
+
   it('keys CPV level breakdowns on canonical 8-digit codes and honors SIRUTA topN', async () => {
     // Statement order: totals → unknown (NULL-key) → top-N. The unknown read
     // runs before the top-N because it decides the ranking basis (§ honest

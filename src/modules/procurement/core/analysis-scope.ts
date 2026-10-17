@@ -161,6 +161,23 @@ const CPV_CATEGORY_RE = /^\d{4}[1-9]0{3}$/u;
 /** RON bound cap — far above any observed award; guards bani exactness. */
 const VALUE_BOUND_MAX_RON = 1_000_000_000_000;
 
+const WHOLE_BANI_RE = /^(\d+)(?:\.(\d{1,2}))?$/u;
+
+/**
+ * A non-negative RON amount as whole bani, or null when it is not one.
+ * Decided on the number's shortest round-trip decimal — the amount the caller
+ * sent — never on float arithmetic: `150000000.02 * 100` is
+ * 15000000002.000002, beyond any fixed epsilon, although the amount has two
+ * decimals (P37). Exponent forms (`1e-7`) are sub-bani. Within
+ * VALUE_BOUND_MAX_RON the bani stay safe integers.
+ */
+export const wholeBani = (ron: number): number | null => {
+  const match = WHOLE_BANI_RE.exec(String(ron));
+  if (match === null) return null;
+  const [, whole = '0', fraction = ''] = match;
+  return Number(whole) * 100 + Number(fraction.padEnd(2, '0'));
+};
+
 const readString = (value: unknown, field: string): Result<string | undefined, ApiError> => {
   if (value === undefined || value === null) return ok(undefined);
   if (typeof value !== 'string' || value.trim() === '') {
@@ -301,9 +318,9 @@ export const parseAnalysisScope = (raw: RawAnalysisScope): Result<AnalysisScope,
     ) {
       return err(invalidInput(`${field} must be a RON amount between 0 and 10^12`, field));
     }
-    // Bani exactness: at most 2 decimals (the epsilon absorbs binary float
-    // representation of e.g. 1.05, but rejects genuine sub-bani inputs).
-    if (Math.abs(value * 100 - Math.round(value * 100)) > 1e-6) {
+    // Bani exactness: at most 2 decimals, read from the decimal the caller
+    // sent (accepts 150000000.02 and 1.05, rejects sub-bani 1.005).
+    if (wholeBani(value) === null) {
       return err(invalidInput(`${field} must have at most 2 decimals (whole bani)`, field));
     }
     out[field] = value;
