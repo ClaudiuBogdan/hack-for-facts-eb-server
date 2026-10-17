@@ -184,7 +184,9 @@ describe('elections repository SQL', () => {
       expect(query?.sql).toContain(
         'left join "elections"."electoral_events" as "ev" on "ev"."event_id" = "c"."event_id" and "ev"."privacy_class" = $1'
       );
-      expect(query?.sql).toContain('"c"."privacy_class" = $2 and "e"."privacy_class" = $3');
+      expect(query?.sql).toContain(
+        '"c"."privacy_class" = $2 and "e"."privacy_class" = $3 and "c"."identity_status" is null'
+      );
       expect(query?.sql).toContain('"c"."election_id" = $4');
       expect(query?.parameters.slice(0, 4)).toEqual(['public', 'public', 'public', '9031']);
     }
@@ -197,7 +199,9 @@ describe('elections repository SQL', () => {
     const result = await repo.contestByKey(CONTEST_ROW.contest_key);
     expect(result._unsafeUnwrap()).toEqual(mapContestRow(CONTEST_ROW));
     const [query] = dataQueries(captured);
-    expect(query?.sql).toContain('"c"."privacy_class" = $2 and "e"."privacy_class" = $3');
+    expect(query?.sql).toContain(
+      '"c"."privacy_class" = $2 and "e"."privacy_class" = $3 and "c"."identity_status" is null'
+    );
     expect(query?.sql).toContain('"c"."contest_key" = $4');
   });
 
@@ -366,7 +370,7 @@ describe('elections county source report SQL', () => {
       'inner join "elections"."elections" as "e" on "e"."election_id" = "c"."election_id"'
     );
     expect(contest?.sql).toContain(
-      '"c"."contest_key" = $1 and "c"."privacy_class" = $2 and "e"."privacy_class" = $3 and "e"."election_key" = $4 and "c"."office" = $5 and "c"."scope_type" = $6'
+      '"c"."contest_key" = $1 and "c"."privacy_class" = $2 and "e"."privacy_class" = $3 and "e"."election_key" = $4 and "c"."office" = $5 and "c"."scope_type" = $6 and "c"."identity_status" is null'
     );
     expect(contest?.parameters).toEqual([
       'contest:absent',

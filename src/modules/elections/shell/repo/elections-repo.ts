@@ -162,7 +162,13 @@ const EDITION_COLUMNS = [
   'ev.privacy_class as event_privacy_class',
 ] as const;
 
-/** Public contests of public editions, each with its own event link only when public. */
+/**
+ * Public, active contests of public editions, each with its own event link
+ * only when public. A contest the scrapper holds (`identity_status =
+ * 'held_legacy'`: a legacy contest whose rows moved to qualified contests, kept
+ * with its ID and key) is never served: counts, pages and lookup all read this
+ * one source, so a held key answers exactly like an absent one.
+ */
 const contests = (trx: Kysely<ProdDatabase>) =>
   trx
     .selectFrom('elections.contests as c')
@@ -171,7 +177,8 @@ const contests = (trx: Kysely<ProdDatabase>) =>
       join.onRef('ev.event_id', '=', 'c.event_id').on('ev.privacy_class', '=', 'public')
     )
     .where('c.privacy_class', '=', 'public')
-    .where('e.privacy_class', '=', 'public');
+    .where('e.privacy_class', '=', 'public')
+    .where('c.identity_status', 'is', null);
 
 const CONTEST_COLUMNS = [
   'c.contest_key',
@@ -483,6 +490,7 @@ export const makeElectionsRepo = (
         .where('e.election_key', '=', COUNTY_SOURCE.electionKey)
         .where('c.office', '=', COUNTY_SOURCE.office)
         .where('c.scope_type', '=', COUNTY_SOURCE.scopeType)
+        .where('c.identity_status', 'is', null)
         .executeTakeFirst();
       if (contest === undefined) return ok(null);
       const statement = await carrierCells(trx, contest)

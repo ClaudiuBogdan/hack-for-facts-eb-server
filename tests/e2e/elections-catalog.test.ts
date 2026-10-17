@@ -1,13 +1,17 @@
 /**
  * Elections catalog reads against a REAL PostgreSQL: the scrapper's actual
- * elections DDL (three digest-pinned prod migrations, read from the sibling
- * checkout or `SCRAPPER_REPO_ROOT`) under the real redesign app, driven over
+ * elections DDL (four digest-pinned prod migrations, read from the sibling
+ * checkout or `SCRAPPER_REPO_ROOT`; the fourth, the held contest status, is on
+ * scrapper main from 8e144361) under the real redesign app, driven over
  * REST, GraphQL and the `/api/v1/mcp` JSON-RPC path. It proves what the SQL-text
  * tests cannot: the privacy predicates filter (every stored row was public in
  * the 2026-10-02 snapshot, so live data cannot discriminate), counts agree
  * with the pages, keys sort in `collate "C"` order, dates read as YYYY-MM-DD,
  * the three surfaces answer alike, and no stored finality, correction or
- * `attrs` value reaches any of them.
+ * `attrs` value reaches any of them. Held legacy contests (`identity_status =
+ * 'held_legacy'`), seeded beside active contests of the same scope as the real
+ * DDL allows, reach no count, page, filter, lookup or source report: a held
+ * key answers exactly like an absent one.
  *
  * The county source report is proven over the same DDL under its
  * complete-source contract: each positive contest has the file's full shape
@@ -129,6 +133,10 @@ const MIGRATIONS = [
     '20260627T141000__elections_privacy_class',
     '366db29339cfea2ed53f2db3f4a060d84b54956bc4e9f560f54bab3f92c18fb6',
   ],
+  [
+    '20261017T180030__elections_contest_identity_status',
+    'd7da30819264bf69f7103e80ac35f1a498a25cd0243cb11dd44598ccf5929952',
+  ],
 ] as const;
 
 /** Appears only in restricted rows and never-served columns; no response may contain it. */
@@ -203,6 +211,29 @@ const CARRIER = {
   column: null as string | null,
 };
 type Carrier = typeof CARRIER;
+
+/** A held legacy contest with ALBA's scope; given a complete shape on the qualified carrier. */
+const HELD_COUNTY = `${COUNTY('1')}:held-legacy`;
+
+/**
+ * Held legacy contests (the scrapper's `identity_status = 'held_legacy'`), each
+ * sharing the edition, office, round and scope of an active contest. The real
+ * DDL admits them only because active-scope uniqueness excludes held rows.
+ */
+const HELD_SEED = sql`
+  insert into elections.contests
+    (contest_key, election_id, office, round_label, scope_type, scope_key, scope_label,
+     attrs, event_id, privacy_class, identity_status)
+  select v.contest_key, e.election_id, v.office, v.round_label, v.scope_type, v.scope_key,
+         v.scope_label, '{}'::jsonb, ev.event_id, 'public', 'held_legacy'
+  from (values
+    ('bec-local-2024', 'k:mayor:1017:held-legacy', 'mayor', 'tur1', 'siruta', '1017', 'SENTINEL held', 'ro:local:2024'),
+    ('bec-local-2024', 'k:local_council:1017:held-legacy', 'local_council', 'tur1', 'siruta', '1017', 'SENTINEL held', null),
+    ('aep-local-2020', ${sql.lit(HELD_COUNTY)}, 'mayor', null, 'county', '1', 'SENTINEL held', null)
+  ) as v (election_key, contest_key, office, round_label, scope_type, scope_key, scope_label, event_key)
+  join elections.elections e on e.election_key = v.election_key
+  left join elections.electoral_events ev on ev.event_key = v.event_key;
+`;
 
 /** Zero-valued synthetic labels: with the three named ones, the file's 234 per county. */
 const SYNTHETIC_LABELS = 231;
@@ -356,6 +387,7 @@ const REPORT_SHAPES: readonly Shape[] = [
   shape(LOCAL_ELECTION, 'county:1'),
   shape(SIRUTA, 'siruta:1017'),
   shape(CKAN_CONTEST, 'county:1'),
+  shape(HELD_COUNTY, 'county:1'),
 ];
 
 interface ReportCell {
@@ -435,9 +467,15 @@ const REPORT_CELLS: readonly ReportCell[] = [
   ...namedPairs(shapeOf(COUNTY('7'))),
   cell(COUNTY('7'), 'county:7', 'voturi', 'competitor:dup-twin', '0', 2),
   // The complete control contests' named pairs, on each control's carrier.
-  ...[COUNTY('2'), COUNTY('3'), COUNTY('4'), LOCAL_ELECTION, SIRUTA, CKAN_CONTEST].flatMap((key) =>
-    namedPairs(shapeOf(key))
-  ),
+  ...[
+    COUNTY('2'),
+    COUNTY('3'),
+    COUNTY('4'),
+    LOCAL_ELECTION,
+    SIRUTA,
+    CKAN_CONTEST,
+    HELD_COUNTY,
+  ].flatMap((key) => namedPairs(shapeOf(key))),
 ];
 
 const insertReportCells = (cells: readonly ReportCell[]) => sql`
@@ -675,6 +713,7 @@ describe('elections catalog — real DDL, real app, external fixture', () => {
     }
     await SEED.execute(setupDb);
     await REPORT_SEED.execute(setupDb);
+    await HELD_SEED.execute(setupDb);
     for (const reportShape of REPORT_SHAPES) await insertShape(reportShape).execute(setupDb);
     await insertReportCells(REPORT_CELLS).execute(setupDb);
     const built = await buildRedesignApp({
@@ -1190,6 +1229,105 @@ describe('elections catalog — real DDL, real app, external fixture', () => {
       expect(res.status, key).toBe(404);
       expect({ ...res.body, requestId: '' }).toEqual({ ...absent.body, requestId: '' });
     }
+  });
+
+  it('never serves a held legacy contest: no count, page, filter, lookup or source report', async ({
+    skip,
+  }) => {
+    if (app === undefined) {
+      skip();
+      return;
+    }
+    const db = requireSetup();
+    // Seeded as described: three public held contests, each sharing an active contest's scope.
+    const shared = await sql<{ n: string }>`
+      select count(*)::text as n from elections.contests h
+      join elections.contests a
+        on a.election_id = h.election_id and a.office = h.office
+       and a.round_label is not distinct from h.round_label
+       and a.scope_type = h.scope_type and a.scope_key = h.scope_key
+       and a.identity_status is null and a.privacy_class = 'public'
+      where h.identity_status = 'held_legacy' and h.privacy_class = 'public'`.execute(db);
+    expect(shared.rows[0]?.n).toBe('3');
+    // The held 2020 contest is as complete on the qualified carrier as a served control.
+    const carrierRows = async (key: string) =>
+      (
+        await sql<{ n: string }>`
+          select count(*)::text as n from elections.result_rows rr
+          join elections.contests c on c.contest_id = rr.contest_id
+          where c.contest_key = ${key} and rr.source_resource_id = ${CARRIER.resource}
+            and rr.source_file_id = 88 and rr.privacy_class = 'public'`.execute(db)
+      ).rows[0]?.n;
+    const heldRows = await carrierRows(HELD_COUNTY);
+    expect(Number(heldRows)).toBeGreaterThan(0);
+    expect(heldRows).toBe(await carrierRows(LOCAL_ELECTION));
+    // REST: counts, pages and filters list active contests only.
+    const all = await rest('/contests?electionKey=bec-local-2024&pageSize=100');
+    expect(keysOf(all.body.data, 'contestKey')).toEqual(CONTESTS);
+    expect(all.body.meta).toMatchObject({ page: { total: 5 } });
+    expect(all.raw).not.toContain(SENTINEL);
+    const councils = await rest(
+      '/contests?electionKey=bec-local-2024&reportedOffices=local_council'
+    );
+    expect(keysOf(councils.body.data, 'contestKey')).toEqual(['k:local_council:1017']);
+    expect(councils.body.meta).toMatchObject({ page: { total: 1 } });
+    const firstRound = await rest(
+      '/contests?electionKey=bec-local-2024&reportedOffices=mayor&reportedRounds=tur1&scopeTypes=siruta'
+    );
+    expect(keysOf(firstRound.body.data, 'contestKey')).toEqual(['k:mayor:1017', 'k:mayor:179132']);
+    expect(await reportContestKeys()).not.toContain(HELD_COUNTY);
+    // REST lookups: a held key answers exactly like an absent one.
+    const absent = await rest('/contests/lookup?contestKey=absent');
+    for (const key of [
+      'k:mayor:1017:held-legacy',
+      'k:local_council:1017:held-legacy',
+      HELD_COUNTY,
+    ]) {
+      const held = await rest(`/contests/lookup?contestKey=${encodeURIComponent(key)}`);
+      expect(held.status, key).toBe(404);
+      expect({ ...held.body, requestId: '' }).toEqual({ ...absent.body, requestId: '' });
+      expect(held.raw).not.toContain(SENTINEL);
+    }
+    const absentReport = await sourceReport('contest:absent');
+    const heldReport = await sourceReport(HELD_COUNTY);
+    expect(heldReport.status).toBe(404);
+    expect({ ...heldReport.body, requestId: '' }).toEqual({ ...absentReport.body, requestId: '' });
+    // GraphQL: a null detail without errors, and the same list and total.
+    const graph = await gql(
+      `query($h: ID!, $a: ID!, $e: ID!) {
+        held: electionContest(contestKey: $h) { contestKey }
+        absent: electionContest(contestKey: $a) { contestKey }
+        list: electionContests(electionKey: $e, pageSize: 100) { items { contestKey } total }
+      }`,
+      { h: 'k:mayor:1017:held-legacy', a: 'absent', e: 'bec-local-2024' }
+    );
+    expect(graph.body.errors).toBeUndefined();
+    expect(graph.raw).not.toContain(SENTINEL);
+    expect(graph.body.data).toEqual({
+      held: null,
+      absent: null,
+      list: { items: CONTESTS.map((contestKey) => ({ contestKey })), total: 5 },
+    });
+    // MCP: a null item for the held key, and the same list and total.
+    const heldTool = await mcp('get_election_contest', { contestKey: 'k:mayor:1017:held-legacy' });
+    const absentTool = await mcp('get_election_contest', { contestKey: 'absent' });
+    expect(heldTool.content).toMatchObject({ ok: true, item: null });
+    // Identical to the absent answer except for the echoed key.
+    expect(heldTool.content).toEqual({
+      ...absentTool.content,
+      query: { contestKey: 'k:mayor:1017:held-legacy' },
+      summary: 'No public source contest k:mayor:1017:held-legacy.',
+    });
+    expect(absentTool.content).toMatchObject({
+      query: { contestKey: 'absent' },
+      summary: 'No public source contest absent.',
+    });
+    const listTool = await mcp('list_election_contests', {
+      electionKey: 'bec-local-2024',
+      pageSize: 100,
+    });
+    expect(listTool.raw).not.toContain(SENTINEL);
+    expect(listTool.content).toMatchObject({ ok: true, items: all.body.data, meta: { total: 5 } });
   });
 
   it('leaves the catalog readiness and the MCP tools as they were', async ({ skip }) => {
