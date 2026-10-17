@@ -527,7 +527,6 @@ export const makeCompaniesResolvers = (deps: CompaniesResolverDeps): Record<stri
     },
     CompanyMainActivityRoleBasis: {
       ANAF_ASSUMED_MAIN: 'anaf_assumed_main',
-      ANAF_ASSUMED_MAIN_LEGACY_TIME: 'anaf_assumed_main_legacy_time',
     },
     CompanyMainActivityCurrentness: {
       CURRENT: 'current',
@@ -575,12 +574,6 @@ export const makeCompaniesResolvers = (deps: CompaniesResolverDeps): Record<stri
       RETAINED_CUSTODY: 'retained_custody',
       POINTER_BOUND_AT_DERIVATION: 'pointer_bound_at_derivation',
       UNBOUND_AT_DERIVATION: 'unbound_at_derivation',
-      LEGACY_MS_POINTER_BOUND: 'legacy_ms_pointer_bound',
-      LEGACY_MS_RETAINED_CUSTODY: 'legacy_ms_retained_custody',
-    },
-    CompanyMainActivityFiscalTimeBasis: {
-      NATIVE: 'native',
-      LEGACY_MS_PROJECTION: 'legacy_ms_projection',
     },
     CompanyMainActivityHistoryKind: { OUTCOMES: 'outcomes', EVIDENCE: 'evidence' },
     CompanyMainActivityHistoryState: { AVAILABLE: 'available', UNAVAILABLE: 'unavailable' },

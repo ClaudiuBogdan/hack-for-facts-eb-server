@@ -723,8 +723,6 @@ const objectsAndQuery = /* GraphQL */ `
   enum CompanyMainActivityRoleBasis {
     "The ANAF fiscal cod_CAEN of the company's current public fiscal row, ASSUMED to be its main activity."
     ANAF_ASSUMED_MAIN
-    "Policy anaf-assumed-main-caen-v2 only. The same assumption, its ANAF evidence bound through the frozen legacy-time cohort: the served fiscal row keeps the millisecond projection of the raw retrieval time that a documented older import wrote. Consistent with that import, not proof of the row writer or of the original HTTP exchange. Kept on a withdrawn outcome (its evidence is what is withheld)."
-    ANAF_ASSUMED_MAIN_LEGACY_TIME
   }
   "Decided at read time by the data layer."
   enum CompanyMainActivityCurrentness {
@@ -797,17 +795,6 @@ const objectsAndQuery = /* GraphQL */ `
     POINTER_BOUND_AT_DERIVATION
     "No raw evidence bound."
     UNBOUND_AT_DERIVATION
-    "Legacy time (v2): bound through the frozen legacy-time cohort by the raw pointer current when derived. timeBasis is LEGACY_MS_PROJECTION and rawRetrievedAt is set."
-    LEGACY_MS_POINTER_BOUND
-    "Legacy time (v2): bound through the frozen legacy-time cohort by a retained raw custody occurrence. timeBasis is LEGACY_MS_PROJECTION and rawRetrievedAt is set."
-    LEGACY_MS_RETAINED_CUSTODY
-  }
-  "How the served fiscal retrieval time was stored (contract v2), for evidence with a fiscal source; null when the evidence has none."
-  enum CompanyMainActivityFiscalTimeBasis {
-    "The normal, non-legacy category: no legacy-millisecond compatibility attestation was applied; retrievedAt is the time the loader recorded. This category alone does NOT prove that time equals the raw retrieval time: evidenceCustody says whether raw was verified."
-    NATIVE
-    "retrievedAt is rawRetrievedAt at millisecond precision, its microsecond fraction removed (…12.642832Z → …12.642000Z), as a documented older import stored it; consistent with that import, not proof of the row writer or of the original HTTP exchange."
-    LEGACY_MS_PROJECTION
   }
   enum CompanyMainActivityHistoryKind {
     "Outcome changes (status, token, candidates, selected key and frozen label, correction, policy)."
@@ -858,18 +845,15 @@ const objectsAndQuery = /* GraphQL */ `
     statusDate: String
     "The fiscal loader's retrieval time (ISO-8601 UTC, six fractional digits). Not a raw capture time, never a legal effective date."
     retrievedAt: String
-    "NATIVE, or LEGACY_MS_PROJECTION exactly when evidenceCustody is a LEGACY_MS_* tag and rawRetrievedAt is set. Null exactly when the evidence has no fiscal source: then every fiscal locator, date, id, custody and token field here is null too (distinct from SOURCE_WITHDRAWN, where the whole object is null)."
-    timeBasis: CompanyMainActivityFiscalTimeBasis
-    "The raw retrieval time, exact six-digit UTC text (e.g. 2026-06-15T08:00:12.642832Z); LEGACY_MS_PROJECTION only, then retrievedAt is it with the microsecond fraction removed (…642000Z). Null otherwise. Never a legal effective date."
-    rawRetrievedAt: String
     sourceUrl: String
+    "Null exactly when the evidence has no fiscal source: then every fiscal locator, date, id, custody and token field here is null too (distinct from SOURCE_WITHDRAWN, where the whole object is null)."
     sourceSnapshotId: String
     sourceHash: String
     rawCaptureId: BigInt
     rawCustodyId: BigInt
     evidenceCustody: CompanyMainActivityEvidenceCustody
   }
-  "The ANAF-ASSUMED main activity (policy anaf-assumed-main-caen-v1, read with its original meaning, or anaf-assumed-main-caen-v2, the current producer, which adds the legacy-time role basis and custody tags): ANAF's fiscal CAEN code matched as leading-zero-free digit text to the company's qualified ONRC class keys of one pinned edition, latest known revision. An assumption, never an ONRC principal flag. All times are derivation, retrieval or source dates, never legal effective dates."
+  "The ANAF-ASSUMED main activity (policy anaf-assumed-main-caen-v1): ANAF's fiscal CAEN code matched as leading-zero-free digit text to the company's qualified ONRC class keys of one pinned edition, latest known revision. An assumption, never an ONRC principal flag. All times are derivation, retrieval or source dates, never legal effective dates."
   type CompanyMainActivity {
     policy: String!
     basis: CompanyMainActivityRoleBasis!
@@ -949,10 +933,6 @@ const objectsAndQuery = /* GraphQL */ `
     statusDate: String
     "Loader retrieval time (ISO-8601 UTC, six fractional digits). Never a legal effective date."
     retrievedAt: String
-    "As on the current read: NATIVE, LEGACY_MS_PROJECTION with a LEGACY_MS_* custody tag and rawRetrievedAt, or null exactly when the evidence has no fiscal source (every fiscal field here null too)."
-    timeBasis: CompanyMainActivityFiscalTimeBasis
-    "Exact six-digit UTC raw retrieval time of a LEGACY_MS_PROJECTION; null otherwise. Never a legal effective date."
-    rawRetrievedAt: String
     sourceUrl: String
     rawCaptureId: BigInt
     rawCustodyId: BigInt

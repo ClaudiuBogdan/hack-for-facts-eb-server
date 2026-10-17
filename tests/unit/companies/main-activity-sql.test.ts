@@ -4,7 +4,8 @@
  * flags from the two public views; history reads only the public history
  * views with a keyset bound; no base table, correction, refresh log, probe,
  * admission or raw custody relation is ever named; a capability SQLSTATE is
- * the part's `unavailable` state; every vocabulary value fails closed.
+ * the part's `unavailable` state; every vocabulary value fails closed; every
+ * read runs in its own transaction with JIT off.
  */
 
 import {
@@ -57,13 +58,19 @@ class ScriptedDriver extends DummyDriver {
   }
 }
 
+const JIT_OFF = 'set local jit = off';
+
+/** `statements`: the reads only; `log`: every statement in order, each read's `set local jit = off` included. */
 const scriptedDb = (answer: (statement: Statement) => readonly unknown[] = () => []) => {
   const statements: Statement[] = [];
+  const log: string[] = [];
   const db = new Kysely<ProdDatabase>({
     dialect: {
       createAdapter: () => new PostgresAdapter(),
       createDriver: () =>
         new ScriptedDriver((statement) => {
+          log.push(statement.sql);
+          if (statement.sql === JIT_OFF) return [];
           statements.push(statement);
           return answer(statement);
         }),
@@ -71,7 +78,7 @@ const scriptedDb = (answer: (statement: Statement) => readonly unknown[] = () =>
       createQueryCompiler: () => new PostgresQueryCompiler(),
     },
   });
-  return { db, statements };
+  return { db, statements, log };
 };
 
 const sqlState = (code: string): Error => Object.assign(new Error(`sqlstate ${code}`), { code });
@@ -124,8 +131,6 @@ const assignmentRow = (over: Record<string, unknown> = {}): Record<string, unkno
   fiscal_raw_capture_id: null,
   fiscal_raw_custody_id: null,
   evidence_custody: 'pointer_bound_at_derivation',
-  fiscal_time_basis: 'native',
-  fiscal_raw_retrieved_at: null,
   derived_at: '2026-10-13T22:30:00.000000Z',
   evidence_at: '2026-10-13T22:30:00.000000Z',
   refreshed_at: '2026-10-13T22:30:00.000000Z',
@@ -167,7 +172,6 @@ const SOURCE_WITHDRAWN = assignmentRow({
   fiscal_retrieved_at: null,
   fiscal_source_url: null,
   evidence_custody: null,
-  fiscal_time_basis: null,
   currentness: 'source_withdrawn',
   anaf_withdrawn: true,
 });
@@ -225,6 +229,29 @@ describe('readMainActivity (repo.getMainActivity)', () => {
     expect(statements).toHaveLength(1);
     expect(statements[0]!.sql).not.toContain('main_caen_class_flags');
     expect(res).toMatchObject({ assignment: { state: 'row' }, flags: { state: 'not_requested' } });
+  });
+
+  it('every read runs in its own transaction with JIT off first', async () => {
+    const { db, log } = scriptedDb((statement) =>
+      statement.sql.includes('main_caen_public_')
+        ? []
+        : [{ assignment: assignmentRow(), flags: [] }]
+    );
+    const repo = makeCompaniesRepo(db);
+    (await repo.getMainActivity(CUI, { flags: true }))._unsafeUnwrap();
+    (await repo.readMainActivityWitness(CUI))._unsafeUnwrap();
+    (
+      await repo.getMainActivityHistory(CUI, { kind: 'outcomes', beforeId: null, limit: 21 })
+    )._unsafeUnwrap();
+    (
+      await repo.getMainActivityHistory(CUI, { kind: 'evidence', beforeId: null, limit: 21 })
+    )._unsafeUnwrap();
+    (await repo.readMainActivityHistoryVisibility(CUI, 'outcomes', ['11']))._unsafeUnwrap();
+    expect(log).toHaveLength(10);
+    log.forEach((text, index) => {
+      if (index % 2 === 0) expect(text).toBe(JIT_OFF);
+      else expect(text).not.toBe(JIT_OFF);
+    });
   });
 
   it('no assignment row is none (flags still listed)', async () => {
@@ -412,8 +439,6 @@ describe('mapAssignment: the vocabulary fails closed', () => {
       edition_id: null,
       edition_source_published_at: null,
       onrc_caen_coverage: null,
-      // the v2 provenance is suppressed with the source, as the view does
-      fiscal_time_basis: null,
       // a defensive check: a value the view should have nulled is never served
       fiscal_status_date: '2026-06-15',
     })._unsafeUnwrap();
@@ -745,8 +770,6 @@ describe('readMainActivityHistory', () => {
         fiscal_raw_capture_id: '901',
         fiscal_raw_custody_id: null,
         evidence_custody: 'archived_exchange',
-        fiscal_time_basis: 'native',
-        fiscal_raw_retrieved_at: null,
         anaf_original_token: '610',
         anaf_json_type: 'number',
         onrc_caen_coverage: 'complete',
@@ -819,8 +842,6 @@ describe('readMainActivityHistory', () => {
         fiscal_raw_capture_id: null,
         fiscal_raw_custody_id: null,
         evidence_custody: 'pointer_bound_at_derivation',
-        fiscal_time_basis: 'native',
-        fiscal_raw_retrieved_at: null,
         anaf_original_token: '0721234567',
         anaf_json_type: 'string',
         onrc_caen_coverage: null,
