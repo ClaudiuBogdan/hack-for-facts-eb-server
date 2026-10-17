@@ -1327,7 +1327,20 @@ export const makeCompaniesRepo = (
     }
     // pg fallback (degraded when the engine's contribution was not usable): capped,
     // kind='company'-scoped, TS diacritic fold. No unaccent,
-    // no trigram-index reliance; the LIMIT bounds the parallel seq scan (§15.7).
+    // no trigram-index reliance (§15.7). The LIMIT caps the matches returned,
+    // not the rows visited: a scan can still cover the whole table, within the
+    // pool's 15 s statement timeout.
+    // Deterministic (CQA-28): an unordered LIMIT returned whichever matches a
+    // parallel or synchronized seq scan reached first, so identical calls drew
+    // different candidates (5 sets in 5 calls for 'dacia', 1,361 matches) and
+    // a bound directory cursor was refused. The capped set is now the first
+    // NAME_FALLBACK_SCAN matches in unique-CUI order. The plan is the planner's
+    // choice: an organizations_cui_uq walk that stops at the cap ('dacia', 388 ms)
+    // or walks the whole index for a few matches ('qx', 1,296 ms), or a full
+    // parallel seq scan with a top-N sort ('construct', 538 ms). Chronos
+    // 2026-10-17: 0.1-1,300 ms ordered against 0.7-1,200 ms unordered; a forced
+    // full index walk without a match took 647 ms. Measured, re-validate at full
+    // scale.
     const folded = foldDiacritics(q);
     if (folded === '') return ok({ hits: [], degraded: engineNotCurrent });
     try {
@@ -1344,6 +1357,7 @@ export const makeCompaniesRepo = (
         // and silently starve real company matches for a common surname.
         .where(sql<boolean>`length(cui) <= ${sql.lit(MAX_SERVED_CUI_DIGITS)}`)
         .where(sql<boolean>`coalesce(normalized_name, name) ilike ${needle} escape '\\'`)
+        .orderBy('cui')
         .limit(NAME_FALLBACK_SCAN)
         .execute();
       const ranked = rows
@@ -1356,7 +1370,10 @@ export const makeCompaniesRepo = (
           const score = idx < 0 ? 0 : Math.min(1, 1 / (1 + idx) + 1 / (1 + hay.length));
           return { cui, coreName: r.name, score };
         })
-        .sort((a, b) => b.score - a.score)
+        // Equal scores keep CUI order, independent of the order rows arrive in.
+        .sort((a, b) =>
+          b.score !== a.score ? b.score - a.score : a.cui < b.cui ? -1 : a.cui > b.cui ? 1 : 0
+        )
         .slice(0, capped);
       return ok({ hits: await labelHits(ranked, scope), degraded: engineNotCurrent });
     } catch (error) {

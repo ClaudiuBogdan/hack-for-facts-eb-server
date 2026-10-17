@@ -81,6 +81,7 @@ const FALLBACK_ROW = {
 /** Spine validation, qualified edition names and the capped fallback, by statement. */
 const scriptedDb = (opts: { fallback?: readonly unknown[] } = {}) => {
   const statements: string[] = [];
+  const parameters: (readonly unknown[])[] = [];
   const db = new Kysely<ProdDatabase>({
     dialect: {
       createAdapter: () => new PostgresAdapter(),
@@ -97,10 +98,13 @@ const scriptedDb = (opts: { fallback?: readonly unknown[] } = {}) => {
       createQueryCompiler: () => new PostgresQueryCompiler(),
     },
     log: (event) => {
-      if (event.level === 'query') statements.push(event.query.sql.replace(/\s+/gu, ' '));
+      if (event.level === 'query') {
+        statements.push(event.query.sql.replace(/\s+/gu, ' '));
+        parameters.push(event.query.parameters);
+      }
     },
   });
-  return { db, statements };
+  return { db, statements, parameters };
 };
 
 const indexHit = (over: Partial<SearchHit> = {}): SearchHit => ({
@@ -265,5 +269,54 @@ describe('resolveByName when the generation is not witnessed current', () => {
     expect(
       (await repo.resolveByName('cluj', 8, null, PUBLISHED_SCOPE))._unsafeUnwrap().degraded
     ).toBe(true);
+  });
+});
+
+describe('the bounded pg fallback is deterministic (CQA-28)', () => {
+  const row = (cui: string, name: string) => ({
+    cui,
+    name: name.toUpperCase(),
+    normalized_name: name,
+    county_name: null,
+  });
+  // Three prefix matches (each scores the clamped 1) and one interior match.
+  const ROWS = [
+    row('9000006', 'dacia gama srl'),
+    row('31000002', 'auto dacia srl'),
+    row('14000001', 'dacia alfa srl'),
+    row('2000003', 'dacia beta srl'),
+  ];
+  const resolve = async (rows: readonly unknown[], limit = 8) => {
+    const { db, statements, parameters } = scriptedDb({ fallback: rows });
+    const repo = makeCompaniesRepo(db, { meiliEntitiesIndex: 'entities' });
+    const res = await repo.resolveByName('dacia', limit, null, UNAVAILABLE_SCOPE);
+    return { hits: res._unsafeUnwrap().hits, statements, parameters };
+  };
+
+  it('caps the scan at the first 200 matches in unique-CUI order', async () => {
+    const { statements, parameters } = await resolve(ROWS);
+    const at = statements.flatMap((s, i) => (s.includes(' ilike ') ? [i] : []));
+    expect(at).toHaveLength(1);
+    const i = at[0] ?? -1;
+    const limit = / order by "cui" limit \$(\d+)$/u.exec(statements[i] ?? '');
+    expect(limit).not.toBeNull();
+    expect(parameters[i]?.[Number(limit?.[1]) - 1]).toBe(200);
+  });
+
+  it('breaks equal scores by CUI whatever order the rows arrive in', async () => {
+    const forward = await resolve(ROWS);
+    const reversed = await resolve([...ROWS].reverse());
+    expect(forward.hits.map((h) => [h.cui, h.confidence])).toEqual([
+      ['14000001', 1],
+      ['2000003', 1],
+      ['9000006', 1],
+      ['31000002', 1 / 6 + 1 / 15],
+    ]);
+    expect(reversed.hits).toEqual(forward.hits);
+  });
+
+  it('the result cap keeps the same leading candidates', async () => {
+    const { hits } = await resolve([...ROWS].reverse(), 2);
+    expect(hits.map((h) => h.cui)).toEqual(['14000001', '2000003']);
   });
 });
