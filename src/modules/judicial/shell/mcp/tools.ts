@@ -26,6 +26,7 @@ import {
   type McpToolOutput,
 } from '@/modules/shared/index.js';
 
+import { companyLitigationLink, judicialCaseLink, judicialCaseloadLink } from './client-links.js';
 import {
   JUDICIAL_MCP_KINDS,
   getCaseLegalReferencesInput,
@@ -185,6 +186,9 @@ const pageOf = (
   return { ok: true, page: { first, ...(after !== undefined && { after }) } };
 };
 
+/** The optional `link`: present only when the client page shows exactly the result (see client-links.ts). */
+const withLink = (link: string | null): { link?: string } => (link === null ? {} : { link });
+
 /** Echo the arguments without the free-text `q` (discovery/search text is never echoed). */
 const withoutQ = (args: Record<string, unknown>): Record<string, unknown> =>
   Object.fromEntries(Object.entries(args).filter(([key]) => key !== 'q'));
@@ -195,7 +199,6 @@ const cursorMeta = (next: string | null): Readonly<Record<string, unknown>> => (
 
 export const makeJudicialMcpTools = (deps: JudicialMcpDeps): readonly KernelMcpTool[] => {
   const { repos, clientBaseUrl } = deps;
-  const caseLink = (caseId: string): string => `${clientBaseUrl}/judicial/cases/${caseId}`;
 
   const resolveFilters: KernelMcpTool = {
     name: 'resolve_judicial_filters',
@@ -262,7 +265,9 @@ export const makeJudicialMcpTools = (deps: JudicialMcpDeps): readonly KernelMcpT
         ok: true,
         kind: JUDICIAL_MCP_KINDS.caseDetail,
         query: { caseId, institutionCode, caseNumber },
-        link: caseLink(detail.case.caseId),
+        ...withLink(
+          judicialCaseLink(clientBaseUrl, detail.case.institutionCode, detail.case.caseNumber)
+        ),
         item: detail,
         summary: `Case ${detail.case.caseNumber} at ${detail.case.institutionCode}: ${detail.case.stageName ?? detail.case.stage ?? 'n/a'}, ${n(detail.hearings.length)} hearings, ${n(detail.personPartyCount)} private-person parties (names withheld).`,
       };
@@ -290,7 +295,19 @@ export const makeJudicialMcpTools = (deps: JudicialMcpDeps): readonly KernelMcpT
         ok: true,
         kind: JUDICIAL_MCP_KINDS.caseload,
         query: { groupBy },
-        link: `${clientBaseUrl}/judicial/cases/aggregate`,
+        ...withLink(
+          judicialCaseloadLink(
+            clientBaseUrl,
+            {
+              institutionCode: optionalArg(args, 'institutionCode'),
+              courtLevel: optionalArg(args, 'courtLevel'),
+              category: optionalArg(args, 'category'),
+              yearFrom: optionalArg(args, 'yearFrom'),
+              yearTo: optionalArg(args, 'yearTo'),
+            },
+            agg.denominator
+          )
+        ),
         items: agg.groups,
         item: agg,
         summary: `${n(agg.groups.length)} ${groupBy} group(s); ${n(agg.denominator)} cases (coverage ${(agg.coverage * 100).toFixed(0)}%).`,
@@ -323,7 +340,15 @@ export const makeJudicialMcpTools = (deps: JudicialMcpDeps): readonly KernelMcpT
         ok: true,
         kind: JUDICIAL_MCP_KINDS.companyLitigation,
         query: { cui },
-        link: `${clientBaseUrl}/judicial/companies/${cui}/litigation`,
+        // The usecase's normalized CUI (`RO 14399840` reads as `14399840`), the one the client's profile route accepts;
+        // a filtered summary is not what the profile's litigation band shows, so it gets no link.
+        ...withLink(
+          ['courtLevel', 'category', 'yearFrom', 'yearTo'].some(
+            (key) => optionalArg(args, key) !== undefined
+          )
+            ? null
+            : companyLitigationLink(clientBaseUrl, s.cui)
+        ),
         item: s,
         summary: `Company ${cui}: ${n(s.caseCount)} published case links (coverage ${(s.coverage * 100).toFixed(0)}%).${s.caveats.length > 0 ? ` ${s.caveats.join(' ')}` : ''}`,
       };
@@ -350,7 +375,8 @@ export const makeJudicialMcpTools = (deps: JudicialMcpDeps): readonly KernelMcpT
         ok: true,
         kind: JUDICIAL_MCP_KINDS.legalRefs,
         query: { caseId },
-        link: caseLink(caseId),
+        // No link: the client addresses a case by its court and number, which
+        // this result does not carry; a numeric-id path would be a 404.
         items: refs,
         summary: `Case ${caseId} has ${n(refs.length)} legal citation(s) (${n(resolved)} uniquely resolved).`,
       };
