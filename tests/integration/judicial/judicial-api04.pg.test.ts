@@ -1685,6 +1685,68 @@ describeApi04('judicial API-04 — actual DDL, explicit throwaway database', () 
     );
 
     it(
+      'decisionDate ranges: ISO operands against the stored date, finite dates only, under both DateStyles (JC26-API-04)',
+      each(async (reader) => {
+        const list = async (query: string): Promise<string[]> => {
+          const r = await rest(reader, `/decisions?sourceSystem=${SRC}&${query}`);
+          expect(r.status, query).toBe(200);
+          return ids(r.body['data'] as unknown[], 'decisionId');
+        };
+        // Stored dates: max 2020-02-29, p53plus1 44 BC, p53 5874897 AD, nine 2024-06-30, eight 4713 BC,
+        // seven none, zero infinity, min -infinity. A range is a range of AD dates: an infinite or BC date is in none.
+        expect(await list('decisionDateGte=2020-01-01')).toEqual([D.max, D.p53, D.nine]);
+        expect(await list('decisionDateLte=2024-06-30')).toEqual([D.max, D.nine]);
+        expect(await list('decisionDateLte=0001-12-31')).toEqual([]);
+        // Presence alone keeps every stored date, BC and infinite ones included.
+        expect(await list('decisionDateIsNull=false')).toEqual([
+          D.max,
+          D.p53plus1,
+          D.p53,
+          D.nine,
+          D.eight,
+          D.zero,
+          D.min,
+        ]);
+        expect(await list('decisionDateFrom=2020-02-29&decisionDateTo=2020-02-29')).toEqual([
+          D.max,
+        ]);
+        expect(await list('decisionDateGte=2025-01-01&decisionDateLte=9999-12-31')).toEqual([]);
+        expect(await list('decisionDateGte=2024-06-30&decisionDateIsNull=false')).toEqual([
+          D.p53,
+          D.nine,
+        ]);
+        expect(await list('decisionDateGte=2024-01-02&decisionDateLte=2024-01-01')).toEqual([]);
+        // The intersection of every bound.
+        expect(
+          await list(
+            'decisionDateGte=2010-01-01&decisionDateFrom=2020-01-01&decisionDateTo=2030-01-01&decisionDateLte=2024-12-31'
+          )
+        ).toEqual([D.max, D.nine]);
+        const g = await gqlHttp(
+          reader,
+          '{ judicialDecisions(filter: { sourceSystem: { eq: "api04_src" }, decisionDate: { between: { from: "2020-01-01", to: "2024-12-31" } } }) { edges { node { decisionId } } } }'
+        );
+        expect(g).toEqual({
+          data: {
+            judicialDecisions: {
+              edges: [{ node: { decisionId: D.max } }, { node: { decisionId: D.nine } }],
+            },
+          },
+        });
+        for (const bad of [
+          'decisionDateGte=2020-1-1',
+          'decisionDateLte=2021-02-29',
+          'decisionDateGte=infinity',
+          'decisionDateGte=0044-03-15%20BC',
+          'decisionDateIsNull=yes',
+        ]) {
+          const r = await rest(reader, `/decisions?sourceSystem=${SRC}&${bad}`);
+          expect(r.status, bad).toBe(400);
+        }
+      })
+    );
+
+    it(
       'the list bound and attribute filters: exact text, shared ECLI/appno stay distinct rows',
       each(async (reader) => {
         const unbounded = await rest(reader, '/decisions?decisionYear=0');

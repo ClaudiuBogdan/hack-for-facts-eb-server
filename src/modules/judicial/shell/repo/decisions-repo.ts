@@ -284,9 +284,93 @@ const decisionYearSql = (p: DecisionYearPredicate): RawBuilder<unknown> => {
   return sql`(${sql.join(parts, sql` and `)})`;
 };
 
+/** A validated, intersected decision-date predicate (the stored date; ISO bounds). */
+interface DecisionDatePredicate {
+  readonly from: string | null;
+  readonly to: string | null;
+  readonly isNull: boolean | null;
+}
+
+const DATE_MESSAGE = 'decisionDate operands must be ISO calendar dates YYYY-MM-DD (year 0001-9999)';
+const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/u;
+
+/** A real calendar date written YYYY-MM-DD with a year 0001-9999 (a BC or infinite date is not an operand). */
+const isIsoDateOperand = (value: unknown): value is string => {
+  if (typeof value !== 'string') return false;
+  const match = ISO_DATE.exec(value);
+  if (match === null) return false;
+  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  if (year < 1 || month < 1 || month > 12 || day < 1) return false;
+  const date = new Date(Date.UTC(2000, month - 1, day));
+  date.setUTCFullYear(year);
+  return (
+    date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+  );
+};
+
+/**
+ * Intersect the decisionDate bounds ONCE; every operand must be an ISO
+ * calendar date. Equal-width ISO strings order as dates, so the intersection
+ * is the greatest lower and the least upper bound. Returns null when the
+ * field is absent. A contradictory interval is valid and matches nothing.
+ */
+const decisionDatePredicate = (
+  ff: FieldFilter | undefined
+): Result<DecisionDatePredicate | null, ApiError> => {
+  if (ff === undefined) return ok(null);
+  const lower: unknown[] = [];
+  const upper: unknown[] = [];
+  if (ff['gte'] !== undefined) lower.push(ff['gte']);
+  if (ff['lte'] !== undefined) upper.push(ff['lte']);
+  const between = ff['between'];
+  if (between !== undefined) {
+    if (!isPlainObject(between)) return err(invalidInput(DATE_MESSAGE, 'decisionDate'));
+    if (between.from !== undefined) lower.push(between.from);
+    if (between.to !== undefined) upper.push(between.to);
+  }
+  if (![...lower, ...upper].every(isIsoDateOperand)) {
+    return err(invalidInput(DATE_MESSAGE, 'decisionDate'));
+  }
+  const lowers = lower as string[];
+  const uppers = upper as string[];
+  const from = lowers.length === 0 ? null : lowers.reduce((a, b) => (b > a ? b : a));
+  const to = uppers.length === 0 ? null : uppers.reduce((a, b) => (b < a ? b : a));
+  const isNullOperand = ff['isNull'];
+  if (isNullOperand !== undefined && typeof isNullOperand !== 'boolean') {
+    return err(invalidInput('decisionDate isNull must be a boolean', 'decisionDate'));
+  }
+  const isNull = isNullOperand ?? null;
+  if (from === null && to === null && isNull === null) return ok(null);
+  return ok({ from, to, isNull });
+};
+
+/**
+ * Compile the date predicate: operands bound as explicit `::date` against the
+ * date column. Operands are AD dates (0001-9999), so a range is a range of AD
+ * dates: a bound also requires a finite date (a stored `infinity` /
+ * `-infinity` is in no range, as for the case year filter) on or after
+ * 0001-01-01 (a stored BC date is in no range either). Presence alone
+ * (`isNull: false`) still keeps every stored date.
+ */
+const decisionDateSql = (p: DecisionDatePredicate): RawBuilder<unknown> => {
+  const col = sql`d.decision_date`;
+  if (p.from !== null && p.to !== null && p.from > p.to) return sql`false`;
+  const parts: RawBuilder<unknown>[] = [];
+  if (p.isNull === true) parts.push(sql`${col} is null`);
+  if (p.isNull === false) parts.push(sql`${col} is not null`);
+  if (p.from !== null || p.to !== null) {
+    parts.push(sql`isfinite(${col})`);
+    parts.push(sql`${col} >= '0001-01-01'::date`);
+  }
+  if (p.from !== null) parts.push(sql`${col} >= ${p.from}::date`);
+  if (p.to !== null) parts.push(sql`${col} <= ${p.to}::date`);
+  return sql`(${sql.join(parts, sql` and `)})`;
+};
+
 interface PreparedDecisionFilter {
   readonly filter: FilterInput;
   readonly year: DecisionYearPredicate | null;
+  readonly date: DecisionDatePredicate | null;
 }
 
 const prepareDecisionFilter = (raw: unknown): Result<PreparedDecisionFilter, ApiError> => {
@@ -294,7 +378,9 @@ const prepareDecisionFilter = (raw: unknown): Result<PreparedDecisionFilter, Api
   if (normalized.isErr()) return err(normalized.error);
   const year = decisionYearPredicate(fieldOf(normalized.value, 'decisionYear'));
   if (year.isErr()) return err(year.error);
-  return ok({ filter: normalized.value, year: year.value });
+  const date = decisionDatePredicate(fieldOf(normalized.value, 'decisionDate'));
+  if (date.isErr()) return err(date.error);
+  return ok({ filter: normalized.value, year: year.value, date: date.value });
 };
 
 /** An explicit text equality (an empty string included) on a bounding field. */
@@ -421,7 +507,7 @@ export const makeJudicialDecisionRepo = (db: Db): JudicialDecisionRepo => {
   ): Promise<Result<CursorPage<JudicialCursorItem<JudicialDecision>>, ApiError>> => {
     const prepared = prepareDecisionFilter(opts.filter);
     if (prepared.isErr()) return err(prepared.error);
-    const { filter, year } = prepared.value;
+    const { filter, year, date } = prepared.value;
     if (!hasTextEq(filter, 'sourceSystem') && !hasTextEq(filter, 'issuingBody')) {
       return err(
         invalidInput('judicial decision list requires sourceSystem.eq or issuingBody.eq', 'filter')
@@ -436,6 +522,7 @@ export const makeJudicialDecisionRepo = (db: Db): JudicialDecisionRepo => {
     if (built.isErr()) return err(built.error);
     const conds: RawBuilder<unknown>[] = [...built.value];
     if (year !== null) conds.push(decisionYearSql(year));
+    if (date !== null) conds.push(decisionDateSql(date));
     if (after.value !== undefined) conds.push(sql`d.decision_id < ${after.value}::bigint`);
     const limit = first.value;
     try {

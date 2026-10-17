@@ -235,9 +235,11 @@ export const judicialDecisionsSpec: CollectionFilterSpec = {
     {
       name: 'decisionDate',
       type: 'date',
-      ops: ['isNull'],
+      ops: ['gte', 'lte', 'between', 'isNull'],
       column: { alias: 'd', column: 'decision_date' },
-      description: 'Presence of the stored decision date only (no date-range filter).',
+      virtual: true,
+      description:
+        "The stored decision_date: the source's own date for the record, independent of decisionYear (HUDOC records carry a date and no stored year). Operands are ISO calendar dates YYYY-MM-DD with a year 0001-9999; gte, lte and between apply together (their intersection, and a contradictory range matches nothing); isNull applies alongside them. A record with no stored date, an infinite one or a BC one never matches a range (a range is a range of AD dates): ask isNull for a missing one.",
     },
     {
       name: 'outcomeNormalized',
