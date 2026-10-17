@@ -140,11 +140,39 @@ export const DECISION_FLAT_RULES: readonly FlatRule[] = [
     'true: decision_year is null; false: present.'
   ),
   rule(
+    'decisionDateFrom',
+    'decisionDate',
+    'from',
+    'string',
+    'decision_date range lower bound (YYYY-MM-DD).'
+  ),
+  rule(
+    'decisionDateTo',
+    'decisionDate',
+    'to',
+    'string',
+    'decision_date range upper bound (YYYY-MM-DD).'
+  ),
+  rule(
+    'decisionDateGte',
+    'decisionDate',
+    'gte',
+    'string',
+    'decision_date lower bound (gte, YYYY-MM-DD).'
+  ),
+  rule(
+    'decisionDateLte',
+    'decisionDate',
+    'lte',
+    'string',
+    'decision_date upper bound (lte, YYYY-MM-DD).'
+  ),
+  rule(
     'decisionDateIsNull',
     'decisionDate',
     'isNull',
     'bool',
-    'true: decision_date is null; false: present (presence only).'
+    'true: decision_date is null; false: present.'
   ),
   ...decisionText('outcomeNormalized', 'outcome_normalized'),
   ...decisionText('ecli', 'ecli'),

@@ -412,6 +412,71 @@ describe('decisions repo — list bound, ORIGINAL page, native year and strict c
     expect(executed).toEqual([]);
   });
 
+  // JC26-API-04: HUDOC records have a stored date and no stored year, so a year filter can never reach them.
+  it('compiles every decisionDate bound against the date column with explicit date operands', async () => {
+    const { repo, executed } = decisionsRepo();
+    await repo.list({
+      filter: {
+        sourceSystem: { eq: 'hudoc_decision' },
+        decisionDate: {
+          gte: '2009-01-01',
+          lte: '2024-12-31',
+          between: { from: '2010-01-01', to: '2030-06-30' },
+        },
+      },
+      page: PAGE,
+    });
+    const q = executed[0];
+    // A bound also requires a finite AD date: a stored infinity or BC date is in no range.
+    expect(q?.sql).toContain('isfinite(d.decision_date)');
+    expect(q?.sql).toContain("d.decision_date >= '0001-01-01'::date");
+    expect(q?.sql).toContain('d.decision_date >= $2::date');
+    expect(q?.sql).toContain('d.decision_date <= $3::date');
+    // The intersection: the greatest lower and the least upper bound.
+    expect(q?.parameters).toEqual(['hudoc_decision', '2010-01-01', '2024-12-31', 21]);
+  });
+
+  it('a contradictory date interval compiles to FALSE; decisionDate isNull composes with the bounds', async () => {
+    const { repo, executed } = decisionsRepo();
+    await repo.list({
+      filter: { sourceSystem: { eq: 'x' }, decisionDate: { gte: '2024-01-02', lte: '2024-01-01' } },
+      page: PAGE,
+    });
+    expect(executed[0]?.sql).toMatch(/where "d"\."source_system" = \$1 and false/u);
+    await repo.list({
+      filter: { sourceSystem: { eq: 'x' }, decisionDate: { isNull: true } },
+      page: PAGE,
+    });
+    expect(executed[1]?.sql).toContain('(d.decision_date is null)');
+    await repo.list({
+      filter: { sourceSystem: { eq: 'x' }, decisionDate: { isNull: false, gte: '2020-02-29' } },
+      page: PAGE,
+    });
+    expect(executed[2]?.sql).toContain(
+      "(d.decision_date is not null and isfinite(d.decision_date) and d.decision_date >= '0001-01-01'::date and d.decision_date >= $2::date)"
+    );
+  });
+
+  it.each<[string, unknown]>([
+    ['an unpadded date', { gte: '2020-1-1' }],
+    ['an impossible day', { lte: '2021-02-29' }],
+    ['year zero', { gte: '0000-01-01' }],
+    ['a timestamp', { gte: '2020-01-01T00:00:00Z' }],
+    ['a word', { lte: 'yesterday' }],
+    ['a number', { gte: 2020 }],
+    ['a BC date', { gte: '0044-03-15 BC' }],
+    ['a non-object between', { between: '2020-01-01' }],
+    ['a bad isNull', { isNull: 'true' }],
+  ])('rejects decisionDate with %s before SQL', async (_label, decisionDate) => {
+    const { repo, executed } = decisionsRepo();
+    const res = await repo.list({
+      filter: { sourceSystem: { eq: 'x' }, decisionDate } as FilterInput,
+      page: PAGE,
+    });
+    expect(res.isErr() && res.error.type).toBe('InvalidInput');
+    expect(executed).toEqual([]);
+  });
+
   it('selects named stored columns only, IDs as text, native date/timestamp renderers', async () => {
     const { repo, executed } = decisionsRepo();
     await repo.list({ filter: { sourceSystem: { eq: 'x' } }, page: PAGE });
@@ -919,6 +984,10 @@ describe('MCP tools and the shared flat mapping', () => {
       decisionYearFrom: -5,
       decisionYearTo: 5,
       decisionYearGte: -1,
+      decisionDateFrom: '2009-01-01',
+      decisionDateTo: '2024-12-31',
+      decisionDateGte: '2010-01-01',
+      decisionDateLte: '2030-06-30',
       decisionDateIsNull: false,
       ecliIsNull: true,
       privacyClass: 'restricted',
@@ -928,7 +997,12 @@ describe('MCP tools and the shared flat mapping', () => {
     expect(filter).toEqual({
       sourceSystem: { eq: 'ccr_decision' },
       decisionYear: { eq: 0, between: { from: -5, to: 5 }, gte: -1 },
-      decisionDate: { isNull: false },
+      decisionDate: {
+        between: { from: '2009-01-01', to: '2024-12-31' },
+        gte: '2010-01-01',
+        lte: '2030-06-30',
+        isNull: false,
+      },
       ecli: { isNull: true },
       privacyClass: { eq: 'restricted' },
     });
@@ -936,7 +1010,12 @@ describe('MCP tools and the shared flat mapping', () => {
       decisionCursorFhash({
         privacyClass: { eq: 'restricted' },
         ecli: { isNull: true },
-        decisionDate: { isNull: false },
+        decisionDate: {
+          isNull: false,
+          lte: '2030-06-30',
+          gte: '2010-01-01',
+          between: { to: '2024-12-31', from: '2009-01-01' },
+        },
         decisionYear: { gte: -1, between: { from: -5, to: 5 }, eq: 0 },
         sourceSystem: { eq: 'ccr_decision' },
       })
