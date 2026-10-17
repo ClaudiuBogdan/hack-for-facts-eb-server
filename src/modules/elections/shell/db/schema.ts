@@ -35,6 +35,8 @@ export interface ElectionsContestRow {
   constituency_name: string | null;
   event_id: string | null;
   privacy_class: string;
+  /** NULL for an active contest; 'held_legacy' for a held legacy contest (never served). */
+  identity_status: string | null;
 }
 
 export interface ElectionsElectoralEventRow {

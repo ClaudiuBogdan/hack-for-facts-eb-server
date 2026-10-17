@@ -25,18 +25,21 @@ export interface ElectionsRepository {
   ): Promise<Result<ElectionRecordPage<ElectionEditionRecord>, ApiError>>;
   /** Null when absent or not public. */
   editionByKey(electionKey: string): Promise<Result<ElectionEditionRecord | null, ApiError>>;
-  /** Contests of one edition in `contest_key` order; null when the edition is absent or not public. */
+  /**
+   * Active contests of one edition in `contest_key` order (held legacy
+   * contests are never listed); null when the edition is absent or not public.
+   */
   listContests(
     request: ElectionContestPageRequest
   ): Promise<Result<ElectionRecordPage<ElectionContestRecord> | null, ApiError>>;
-  /** Null when absent, or when the contest or its edition is not public. */
+  /** Null when absent or held, or when the contest or its edition is not public. */
   contestByKey(contestKey: string): Promise<Result<ElectionContestRecord | null, ApiError>>;
   /**
    * The qualified carrier's public cells of one public contest of the
    * qualified edition, office and scope, from one snapshot: every statement
    * cell, one page of competitor cells grouped by source label, and integrity
    * counts over all of the contest's labels taken before paging. Null when the
-   * contest is absent, not public or outside that source.
+   * contest is absent, held, not public or outside that source.
    */
   countySourceReport(
     request: CountySourceReportRequest
