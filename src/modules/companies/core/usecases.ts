@@ -23,6 +23,8 @@ import { err, ok, type Result } from 'neverthrow';
 
 import {
   MAX_SERVED_CUI_DIGITS,
+  filterHash,
+  invalidInput,
   isWithheldOrganizationIdentifier,
   normalizeCui,
   type ApiError,
@@ -1101,6 +1103,13 @@ export interface CompanyListResponse {
   readonly registry: CompanyRegistryEnvelope;
   /** Binds the next page: a different scope refuses it ("restart pagination"). */
   readonly scopeKey: string;
+  /**
+   * Binds the next page to the candidate set a name query paged ('' without
+   * one): candidates are resolved again on every page, by the search index or
+   * its fallback, so a changed set refuses the next page instead of skipping
+   * or repeating companies.
+   */
+  readonly candidateKey: string;
 }
 
 interface ListPage {
@@ -1110,6 +1119,7 @@ interface ListPage {
   readonly countCapped: boolean;
   readonly nameCandidateCapped: boolean;
   readonly caveats: readonly string[];
+  readonly candidateKey: string;
 }
 
 export const makeCompanyList = async (
@@ -1121,6 +1131,8 @@ export const makeCompanyList = async (
     page: OffsetParams;
     /** The scope key of the page this one continues (cursor / MCP binding). */
     expectedScopeKey?: string;
+    /** The candidate key of the page this one continues (cursor binding). */
+    expectedCandidateKey?: string;
   }
 ): Promise<Result<CompanyListResponse, ApiError>> => {
   const emptyIn = rejectEmptyIn(args.filter);
@@ -1152,6 +1164,7 @@ export const makeCompanyList = async (
     const refusal = registryCriteriaRefusal(normFilter.value, args.sort, scope);
     if (refusal !== null) return err(refusal);
     const caveats = [...baseCaveats];
+    let candidateKey = '';
     const empty = (nameCapped: boolean): Result<ListPage, ApiError> =>
       ok({
         rows: [],
@@ -1160,6 +1173,7 @@ export const makeCompanyList = async (
         countCapped: false,
         nameCandidateCapped: nameCapped,
         caveats,
+        candidateKey,
       });
     if (withheld.emptied) return empty(false);
     let filter = normFilter.value;
@@ -1170,6 +1184,7 @@ export const makeCompanyList = async (
     // other filters (county/status/…) AND pagination both apply. It never does an
     // in-DB name LIKE on the list path.
     let nameTruncated = false;
+    let noCandidates = false;
     if (args.q !== undefined && args.q.trim() !== '') {
       const resolved = await deps.repo.resolveByName(args.q, NAME_RESOLVE_CAP, deps.meili, scope);
       if (resolved.isErr()) return err(resolved.error);
@@ -1189,15 +1204,25 @@ export const makeCompanyList = async (
         caveats.push(
           'name search degraded (search index unavailable or not current for this registry scope; a bounded fallback answered)'
         );
-      if (nameCuis.length === 0) return empty(nameTruncated);
       const existing =
         (filter['cui'] as { in?: readonly string[]; eq?: string } | undefined) ?? undefined;
       const prior = existing?.in ?? (existing?.eq !== undefined ? [existing.eq] : undefined);
       const intersected =
         prior !== undefined ? nameCuis.filter((c) => prior.includes(c)) : nameCuis;
-      if (intersected.length === 0) return empty(nameTruncated);
+      // The set this traversal pages, order-free (the list orders it itself).
+      candidateKey = `c${filterHash([...new Set(intersected)].sort().join(','))}`;
+      noCandidates = intersected.length === 0;
       filter = { ...filter, cui: { in: intersected } };
     }
+    // Checked before any empty answer, so a continuation never meets a changed set silently.
+    if (args.expectedCandidateKey !== undefined && args.expectedCandidateKey !== candidateKey)
+      return err(
+        invalidInput(
+          'the companies matching this name changed since the cursor was issued; restart pagination',
+          'after'
+        )
+      );
+    if (noCandidates) return empty(nameTruncated);
 
     const res = await deps.repo.listCompanies(filter, args.sort, args.page, scope);
     if (res.isErr()) return err(res.error);
@@ -1211,6 +1236,7 @@ export const makeCompanyList = async (
       countCapped: res.value.estimated,
       nameCandidateCapped: nameTruncated,
       caveats,
+      candidateKey,
     });
   };
 

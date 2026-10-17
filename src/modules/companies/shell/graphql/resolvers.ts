@@ -15,6 +15,7 @@ import {
   buildNextCursor,
   decodeCursor,
   fhashFor,
+  filterHash,
   guardServedFacts,
   invalidInput,
   isAccessRefusal,
@@ -233,7 +234,13 @@ export const makeCompaniesResolvers = (deps: CompaniesResolverDeps): Record<stri
         // empty page rather than trip `rejectEmptyIn`.
         const normForHash = normalizeCuiFilter(dropWithheldCuiInclusion(filter).filter);
         if (normForHash.isErr()) throw toGraphqlError(normForHash.error);
-        const fhash = fhashFor(companiesFilterSpec, normForHash.value);
+        // The name query selects the candidate population on its own, so it is
+        // part of the cursor identity too (CQA-26): exactly the string the
+        // candidate resolution receives, a blank `q` being no query.
+        const nameQuery = args.q !== undefined && args.q.trim() !== '' ? args.q : undefined;
+        const fhash =
+          fhashFor(companiesFilterSpec, normForHash.value) +
+          (nameQuery === undefined ? '' : `.q${filterHash(nameQuery)}`);
 
         // The connection is offset-backed but the cursor is the kernel envelope:
         // `keys[0]` is the 1-based page index, validated against fhash/sort/dir so a
@@ -241,18 +248,54 @@ export const makeCompaniesResolvers = (deps: CompaniesResolverDeps): Record<stri
         // `keys[1]` is the registry scope key of the page that issued it: a
         // later page under another edition, publication or access epoch is
         // refused (restart pagination), never silently switched.
+        // `keys[2]` is the page size that issued it: the next page starts at
+        // page index × size, so a different `first` would skip or repeat rows
+        // (CQA-25); it is refused instead. `keys[3]` is the name query's
+        // candidate key ('' without one), refused by the usecase when the
+        // candidates changed. `keys[4]` is the edge's position in its page:
+        // only the last edge of a full page continues (every position after it
+        // is the next page); an interior edge would skip the rest of its page.
         let pageFromCursor: number | undefined;
         let expectedScopeKey: string | undefined;
+        let expectedCandidateKey: string | undefined;
         if (args.after != null) {
           const decoded = decodeCursor(args.after, { sort, dir: 'asc', fhash });
           if (decoded.isErr()) throw toGraphqlError(decoded.error);
           const prev = Number(decoded.value.keys[0]);
           const scopeKey = decoded.value.keys[1];
-          if (!Number.isInteger(prev) || prev < 1 || scopeKey === undefined || scopeKey === '') {
+          const issuedSize = decoded.value.keys[2];
+          const candidateKey = decoded.value.keys[3];
+          const position = decoded.value.keys[4];
+          if (
+            !Number.isInteger(prev) ||
+            prev < 1 ||
+            scopeKey === undefined ||
+            scopeKey === '' ||
+            issuedSize === undefined ||
+            candidateKey === undefined ||
+            position === undefined
+          ) {
             throw toGraphqlError(invalidInput('malformed cursor; restart pagination', 'after'));
+          }
+          if (issuedSize !== String(pageSize)) {
+            throw toGraphqlError(
+              invalidInput(
+                `this cursor pages ${issuedSize} companies at a time; request first: ${issuedSize} or restart pagination`,
+                'first'
+              )
+            );
+          }
+          if (position !== String(pageSize - 1)) {
+            throw toGraphqlError(
+              invalidInput(
+                'only the last edge of a full page continues this list; pass pageInfo.endCursor',
+                'after'
+              )
+            );
           }
           pageFromCursor = prev + 1;
           expectedScopeKey = scopeKey;
+          expectedCandidateKey = candidateKey;
         }
 
         const page = normalizeOffset(pageFromCursor, pageSize);
@@ -263,16 +306,23 @@ export const makeCompaniesResolvers = (deps: CompaniesResolverDeps): Record<stri
             sort,
             page,
             ...(expectedScopeKey !== undefined && { expectedScopeKey }),
+            ...(expectedCandidateKey !== undefined && { expectedCandidateKey }),
           })
         );
-        const edges = res.rows.map((node) => ({
+        const edges = res.rows.map((node, position) => ({
           node,
           // offset-backed: the cursor encodes the page index so `after` advances one page.
           cursor: buildNextCursor({
             sort,
             dir: 'asc',
             fhash,
-            lastKeys: [String(page.page), res.scopeKey],
+            lastKeys: [
+              String(page.page),
+              res.scopeKey,
+              String(page.pageSize),
+              res.candidateKey,
+              String(position),
+            ],
           }),
         }));
         const consumed = page.page * page.pageSize;

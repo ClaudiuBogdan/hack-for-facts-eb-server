@@ -338,7 +338,7 @@ export const makeCompaniesMcpTools = (deps: CompaniesMcpDeps): readonly KernelMc
   const listCompanies: KernelMcpTool = {
     name: 'list_companies',
     description:
-      "Filterable directory company list (bounded), pinned to ONE ONRC edition (meta.registry). Registry criteria status/county/caenCode/onrcCaen must all hold on the SAME resolved identifier: status = ANY public original observation with that code (1048 matches even next to a conflicting code), county = the identifier's derived-geography county (code like CJ or name), caenCode = a qualified CURRENT ONRC class observation of that code in ANY known revision (short tokens, unknown revisions and unlabeled keys never match; no older editions, not the ANAF fiscal CAEN code), onrcCaen = exact '<revision>:<code>' (rev0..rev3). legalForm and registrationDate (the date ONRC RECORDED, never founding) use the CUI's qualified values. exclude/absence forms need complete evidence: unknown, partial or unresolved never counts as absence; a CAEN exclusion needs complete CAEN coverage (unparsed or unknown-revision rows make it partial) and means no qualified class match, not that no source row carries the code. ANAF fields (vatPayer, declaredFiscallyInactive, mainCaenCode) are independent; declaredFiscallyInactive=false is only ANAF's list state, not an ONRC status. Registry criteria and the registrationDate sort are refused while no edition is published (an error, not an empty list). Sort by name (directory name)/registrationDate/cui. Returns rows + bounded total (≤10,000; totalEstimated flags the cap) + meta.registryScope: pass it back as registryScope for the next page; a changed scope refuses the page (restart at page 1). Resolve names→CUIs with resolve_company_filter first (Entity Resolution Gate).",
+      "Filterable directory company list (bounded), pinned to ONE ONRC edition (meta.registry). Registry criteria status/county/caenCode/onrcCaen must all hold on the SAME resolved identifier: status = ANY public original observation with that code (1048 matches even next to a conflicting code), county = the identifier's derived-geography county (code like CJ or name), caenCode = a qualified CURRENT ONRC class observation of that code in ANY known revision (short tokens, unknown revisions and unlabeled keys never match; no older editions, not the ANAF fiscal CAEN code), onrcCaen = exact '<revision>:<code>' (rev0..rev3). legalForm and registrationDate (the date ONRC RECORDED, never founding) use the CUI's qualified values. exclude/absence forms need complete evidence: unknown, partial or unresolved never counts as absence; a CAEN exclusion needs complete CAEN coverage (unparsed or unknown-revision rows make it partial) and means no qualified class match, not that no source row carries the code. ANAF fields (vatPayer, declaredFiscallyInactive, mainCaenCode) are independent; declaredFiscallyInactive=false is only ANAF's list state, not an ONRC status. Registry criteria and the registrationDate sort are refused while no edition is published (an error, not an empty list). Sort by name (directory name)/registrationDate/cui. Returns rows + bounded total (≤10,000; totalEstimated flags the cap) + meta.registryScope: pass it back as registryScope for the next page; a changed scope refuses the page (restart at page 1). With q, also pass meta.nameCandidates back as nameCandidates: a changed name-candidate set refuses the page (restart at page 1). Resolve names→CUIs with resolve_company_filter first (Entity Resolution Gate).",
     inputShape: {
       filter: z
         .record(z.string(), z.unknown())
@@ -356,6 +356,12 @@ export const makeCompaniesMcpTools = (deps: CompaniesMcpDeps): readonly KernelMc
         .string()
         .optional()
         .describe('Company-name search (Meili-primary; degrades to a capped pg scan).'),
+      nameCandidates: z
+        .string()
+        .optional()
+        .describe(
+          'meta.nameCandidates of the previous page of the same q; binds this page to the same candidate companies or refuses it.'
+        ),
       sort: z
         .enum(['name', 'registrationDate', 'cui'])
         .optional()
@@ -377,15 +383,17 @@ export const makeCompaniesMcpTools = (deps: CompaniesMcpDeps): readonly KernelMc
       const page = normalizeOffset(intArg(args, 'page', 1), intArg(args, 'pageSize', 20));
       const q = strArg(args, 'q');
       const registryScope = strArg(args, 'registryScope');
+      const nameCandidates = strArg(args, 'nameCandidates');
       const res = await makeCompanyList(deps, {
         filter: filterArg(args),
         ...(q !== '' && { q }),
         sort,
         page,
         ...(registryScope !== '' && { expectedScopeKey: registryScope }),
+        ...(nameCandidates !== '' && { expectedCandidateKey: nameCandidates }),
       });
       if (res.isErr()) return errorOut('list', res.error.message);
-      const { rows, total, totalEstimated, caveats, registry, scopeKey } = res.value;
+      const { rows, total, totalEstimated, caveats, registry, scopeKey, candidateKey } = res.value;
       return {
         ok: true,
         kind: 'list',
@@ -400,6 +408,7 @@ export const makeCompaniesMcpTools = (deps: CompaniesMcpDeps): readonly KernelMc
           pageCount: rows.length,
           registry: mcpRegistry(registry),
           registryScope: scopeKey,
+          ...(candidateKey !== '' && { nameCandidates: candidateKey }),
           ...(caveats.length > 0 && { caveats }),
         },
         summary:
