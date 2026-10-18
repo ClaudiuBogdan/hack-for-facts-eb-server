@@ -59,7 +59,10 @@ export const LEGAL_RELATIONS: readonly LegalRelation[] = [
   'respinge',
 ];
 
-/** Relations that count as "amended after publication" for the §5.2-C badge. */
+/**
+ * Relations counted as amendment references for the §5.2-C badge. The count
+ * (`amendedAfterPublication`, a historical field name) is of the act, of any date (I-22).
+ */
 export const AMENDMENT_RELATIONS: readonly LegalRelation[] = ['modifica', 'completeaza'];
 
 /** List sort keys (R1). Every sort tuple ends in `act_id` as the tiebreaker. */

@@ -103,7 +103,7 @@ const objectsAndQuery = /* GraphQL */ `
     citationKeys: [LegalCitationKey!]!
     "Exact number of the act's document expressions (act_documents rows)."
     versionCount: Int!
-    "Incoming modifica/completeaza edge count — the §5.2-C honesty badge."
+    "Incoming modifica/completeaza references on the act, of any date — the §5.2-C honesty badge. References, not distinct amending acts or legal changes, and not dated against any one expression."
     amendedAfterPublication: Int!
     "Which version the served text/summary actually is (§5.2-C). Batched per request."
     versionProvenance: LegalVersionProvenance!
@@ -196,7 +196,7 @@ const objectsAndQuery = /* GraphQL */ `
     versionDate: Date
     "The legislatie.just.ro deep link — where the consolidated form can be checked. Never our own act page, which serves this same published text."
     sourceUrl: String
-    "Incoming modifica/completeaza edges — how many times the act changed after this text."
+    "Incoming modifica/completeaza references on the act, of any date: not distinct amending acts or legal changes, and not dated against this text (Legea 95/2006, republished 2015-08-28: 106 of its 292 come from earlier-dated sources)."
     amendedAfterPublication: Int!
     latestConsolidationDate: Date
     "False while a consolidation is only a timeline anchor we have not fetched."

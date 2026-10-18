@@ -33,16 +33,6 @@ const KIND_LABEL: Record<string, string> = {
 const UNKNOWN_KIND_LABEL = 'versiune necunoscută';
 
 /**
- * The kinds that ARE the act as first published. Only for these can we say the
- * amendments came "de atunci": the count is every incoming modifica/completeaza
- * edge on the act, unscoped by date, so against a LATER expression (a
- * republication, or a non-canonical document addressed directly) some of those
- * edges may predate the text being shown. An unknown kind falls here too — the
- * neutral wording is the safe default.
- */
-const PUBLISHED_FORM_KINDS = new Set(['original', 'corp', 'stub-header']);
-
-/**
  * The result-set caveat for `legalSearch` / `search_legal_acts`: one line saying
  * the whole answer set is published-form text. Per-hit counts ride on each hit's
  * own provenance note.
@@ -82,16 +72,16 @@ export const amendmentCountPhrase = (n: number): string =>
   n === 0 ? 'nicio modificare înregistrată' : referencesPhrase(n);
 
 /**
- * The amendment clause inside the provenance note. Against a published form the
- * edges genuinely post-date the text, so "de atunci" is fair; against any later
- * or unknown expression we report operations recorded ON THE ACT without
- * claiming they came after the date being shown.
+ * The amendment clause inside the provenance note. The count is every incoming
+ * modifica/completeaza reference on the ACT, of any date, so it is reported for
+ * the act and never as "de atunci" (I-22). Against a republication some
+ * references predate the text: Legea 95/2006, republished 2015-08-28, has 106
+ * of 292 from earlier-dated sources. Even published forms have them: 64
+ * references in 45 acts (1990 decisions published in 1992 or 1999, "corp"
+ * bodies of later republications), measured 2026-10-18.
  */
-const amendedClause = (n: number, versionKind: string): string => {
-  if (n === 0) return 'nicio modificare înregistrată';
-  const scope = PUBLISHED_FORM_KINDS.has(versionKind) ? 'de atunci' : 'pentru act';
-  return `${referencesPhrase(n)} ${recorded(n)} ${scope}`;
-};
+const amendedClause = (n: number): string =>
+  n === 0 ? 'nicio modificare înregistrată' : `${referencesPhrase(n)} ${recorded(n)} pentru act`;
 
 /**
  * Render the honesty note for one act's served text. The verify clause points at
@@ -102,7 +92,7 @@ export const versionProvenanceNote = (p: LegalVersionProvenance): string => {
   const label = KIND_LABEL[p.versionKind] ?? UNKNOWN_KIND_LABEL;
   const dated =
     p.versionDate === null ? `${label} (dată necunoscută)` : `${label} din ${p.versionDate}`;
-  const amended = amendedClause(p.amendedAfterPublication, p.versionKind);
+  const amended = amendedClause(p.amendedAfterPublication);
   const consolidation =
     p.latestConsolidationDate === null
       ? ''

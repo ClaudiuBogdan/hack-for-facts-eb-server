@@ -229,7 +229,7 @@ describe('LegalAct provenance resolvers', () => {
   it('textProvenance renders the note and links only to the portal', async () => {
     const { repo } = makeActsFake();
     const note = (await resolversFor(repo)['textProvenance']?.(act('66150'))) as string;
-    expect(note).toContain('295 de referințe de modificare/completare înregistrate de atunci');
+    expect(note).toContain('295 de referințe de modificare/completare înregistrate pentru act');
     expect(note).toContain(SOURCE_URL);
     expect(note).not.toContain('transparenta.eu');
   });
@@ -260,7 +260,7 @@ describe('MCP provenance envelopes', () => {
     const out = await toolNamed(toolsFor(repo), 'get_legal_act').handler({ actId: '66150' });
     const meta = metaOf(out);
     expect(meta['caveats']).toEqual([
-      expect.stringContaining('295 de referințe de modificare/completare înregistrate de atunci'),
+      expect.stringContaining('295 de referințe de modificare/completare înregistrate pentru act'),
       LEGAL_ORIGINAL_TEXT_CAVEAT,
     ]);
     expect(meta['textProvenance']).toContain(SOURCE_URL);
@@ -275,7 +275,7 @@ describe('MCP provenance envelopes', () => {
     });
     const meta = metaOf(out);
     const note = meta['textProvenance'] as string;
-    // a republication is a LATER expression: no "de atunci" over-claim
+    // the count is of the act, of any date: no "de atunci" over-claim
     expect(note).toContain('text republicat din 2009-04-29');
     expect(note).toContain('referințe de modificare/completare înregistrate pentru act');
     expect(note).not.toContain('de atunci');
@@ -316,7 +316,7 @@ describe('MCP provenance envelopes', () => {
     });
     const item = out.item as { acts: { textProvenance: string | null }[] };
     expect(item.acts[0]?.textProvenance).toContain(
-      '295 de referințe de modificare/completare înregistrate de atunci'
+      '295 de referințe de modificare/completare înregistrate pentru act'
     );
     expect(metaOf(out)['caveats']).toContain(LEGAL_ORIGINAL_TEXT_CAVEAT);
     expect(out.link).toBe('https://transparenta.eu/legislation/search?q=%22cota%20de%20TVA%22');

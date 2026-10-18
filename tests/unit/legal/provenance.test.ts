@@ -34,7 +34,7 @@ const prov = (over: Partial<LegalVersionProvenance> = {}): LegalVersionProvenanc
 describe('versionProvenanceNote', () => {
   it('an amended act names the date, the count, and where to verify', () => {
     expect(versionProvenanceNote(prov({ amendedAfterPublication: 295 }))).toBe(
-      'text original din 2015-09-10; 295 de referințe de modificare/completare înregistrate de atunci — verifică forma consolidată pe portal: https://legislatie.just.ro/Public/DetaliiDocument/171282'
+      'text original din 2015-09-10; 295 de referințe de modificare/completare înregistrate pentru act — verifică forma consolidată pe portal: https://legislatie.just.ro/Public/DetaliiDocument/171282'
     );
   });
 
@@ -50,7 +50,7 @@ describe('versionProvenanceNote', () => {
         prov({ amendedAfterPublication: 295, latestConsolidationDate: '2026-01-15' })
       )
     ).toBe(
-      'text original din 2015-09-10; 295 de referințe de modificare/completare înregistrate de atunci; ultima consolidare 2026-01-15 (neîncărcată încă) — verifică forma consolidată pe portal: https://legislatie.just.ro/Public/DetaliiDocument/171282'
+      'text original din 2015-09-10; 295 de referințe de modificare/completare înregistrate pentru act; ultima consolidare 2026-01-15 (neîncărcată încă) — verifică forma consolidată pe portal: https://legislatie.just.ro/Public/DetaliiDocument/171282'
     );
   });
 
@@ -64,7 +64,7 @@ describe('versionProvenanceNote', () => {
         })
       )
     ).toBe(
-      'text original din 2015-09-10; 295 de referințe de modificare/completare înregistrate de atunci; ultima consolidare 2026-01-15 — verifică forma consolidată pe portal: https://legislatie.just.ro/Public/DetaliiDocument/171282'
+      'text original din 2015-09-10; 295 de referințe de modificare/completare înregistrate pentru act; ultima consolidare 2026-01-15 — verifică forma consolidată pe portal: https://legislatie.just.ro/Public/DetaliiDocument/171282'
     );
   });
 
@@ -99,7 +99,7 @@ describe('versionProvenanceNote', () => {
 
   it('omits the verify clause when there is no source_url to offer', () => {
     expect(versionProvenanceNote(prov({ amendedAfterPublication: 3, sourceUrl: null }))).toBe(
-      'text original din 2015-09-10; 3 referințe de modificare/completare înregistrate de atunci'
+      'text original din 2015-09-10; 3 referințe de modificare/completare înregistrate pentru act'
     );
   });
 
@@ -122,7 +122,7 @@ describe('versionProvenanceNote — Romanian numeral agreement', () => {
 
   it("exactly one reference takes the singular — the corpus's most common case (4,771 acts)", () => {
     expect(versionProvenanceNote(prov({ amendedAfterPublication: 1 }))).toContain(
-      'o referință de modificare/completare înregistrată de atunci'
+      'o referință de modificare/completare înregistrată pentru act'
     );
   });
 
@@ -156,22 +156,14 @@ describe('versionProvenanceNote — Romanian numeral agreement', () => {
 });
 
 /**
- * A later expression cannot claim the amendments came after it. The count is
- * every incoming modifica/completeaza edge on the ACT, unscoped by date, so
- * against a republication (763 canonical docs) or a directly-addressed
- * non-canonical document some edges may predate the text on screen.
+ * No expression may claim the references came after it. The count is every
+ * incoming modifica/completeaza reference on the ACT, of any date: against a
+ * republication some predate the text on screen (Legea 95/2006: 106 of 292),
+ * and even 45 published-form texts have earlier-dated ones (I-22).
  */
-describe('versionProvenanceNote — only a published form may say "de atunci"', () => {
-  for (const kind of ['original', 'corp', 'stub-header']) {
-    it(`${kind} is the act as first published, so "de atunci" is fair`, () => {
-      expect(
-        versionProvenanceNote(prov({ versionKind: kind, amendedAfterPublication: 295 }))
-      ).toContain('295 de referințe de modificare/completare înregistrate de atunci');
-    });
-  }
-
-  for (const kind of ['republicare', 'consolidare', '']) {
-    it(`${kind === '' ? 'unknown kind' : kind} reports operations on the act instead`, () => {
+describe('versionProvenanceNote — no kind says "de atunci"', () => {
+  for (const kind of ['original', 'corp', 'stub-header', 'republicare', 'consolidare', '']) {
+    it(`${kind === '' ? 'unknown kind' : kind} reports the references for the act`, () => {
       const note = versionProvenanceNote(prov({ versionKind: kind, amendedAfterPublication: 295 }));
       expect(note).toContain('295 de referințe de modificare/completare înregistrate pentru act');
       expect(note).not.toContain('de atunci');
