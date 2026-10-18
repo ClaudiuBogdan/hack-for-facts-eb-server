@@ -17,14 +17,18 @@
 import type { LegalVersionProvenance } from './types.js';
 
 /**
- * `version_kind` → how to name that text to a reader. `corp` is the body document
- * linked to a stub-header and `stub-header` is a header-only expression: both are
- * the act as first published, so both read as "original". `republicare` is a
- * republished form — calling it "original" would misdate it by years.
+ * `version_kind` → how to name that text to a reader. `stub-header` is a
+ * header-only expression of the act as first published, so it reads as
+ * "original". `corp` is the body document linked to a stub-header, and a body
+ * can be a later republished text: 2 of the 374 corp canonicals are titled
+ * "(*republicat*)" (Codul aerian, MO 45/2001; Codul de procedură civilă,
+ * MO 247/2015; measured 2026-10-18). So it reads as "publicat", which is true
+ * of every body. `republicare` is a republished form — calling it "original"
+ * would misdate it by years.
  */
 const KIND_LABEL: Record<string, string> = {
   original: 'text original',
-  corp: 'text original',
+  corp: 'text publicat',
   'stub-header': 'text original',
   republicare: 'text republicat',
   consolidare: 'text consolidat',

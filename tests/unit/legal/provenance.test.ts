@@ -86,9 +86,11 @@ describe('versionProvenanceNote', () => {
     ).toContain('text republicat din 2011-06-15');
   });
 
-  it('corp and stub-header are published forms, so they read as original', () => {
-    expect(versionProvenanceNote(prov({ versionKind: 'corp' }))).toContain('text original');
+  it('a stub-header reads as original; a corp body only as published, since a body can be a republication', () => {
     expect(versionProvenanceNote(prov({ versionKind: 'stub-header' }))).toContain('text original');
+    const corp = versionProvenanceNote(prov({ versionKind: 'corp' }));
+    expect(corp).toContain('text publicat din 2015-09-10');
+    expect(corp).not.toContain('text original');
   });
 
   it('an act with no canonical document says so instead of inventing a version', () => {
