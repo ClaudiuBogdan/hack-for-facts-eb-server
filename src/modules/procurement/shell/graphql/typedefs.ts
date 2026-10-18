@@ -151,12 +151,14 @@ export const procurementTypeDefs = /* GraphQL */ `
     "The record's own e-licitatie.ro page, when known (P33); null otherwise."
     elicitatiePage: ProcurementElicitatiePage
     """
-    Whether the active published analysis generation counts this procedure
-    itself (P36). False marks a source observation counted through its group's
-    canonical procedure (dupGroupId), for example a SEAP award notice linked to
-    its e-licitatie notice. Null when no generation is active or this procedure
-    is not part of the active one; null with an error when the analytics
-    backend cannot be read.
+    Whether this procedure represents itself in the active published analysis
+    generation's dedup groups (P36): true when it is ungrouped or its group's
+    canonical procedure; false for a source observation represented by its
+    group's canonical procedure (dupGroupId), for example a SEAP award notice
+    linked to its e-licitatie notice. Being canonical does not by itself put a
+    procedure in default totals: its status and value state still apply. Null
+    when no generation is active or this procedure is not part of the active
+    one; null with an error when the analytics backend cannot be read.
     """
     isCanonical: Boolean
     "The id of the group's canonical procedure in the active generation (its own id for a group's head); null when ungrouped, when that procedure is not public, or when isCanonical is null. One response reads one generation."
