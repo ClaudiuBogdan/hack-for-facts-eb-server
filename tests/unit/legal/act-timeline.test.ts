@@ -155,6 +155,8 @@ describe('timeline surfaces — one read, completeness exposed', () => {
     const acts = {
       ...baseWith(0),
       resolveActRef: async () => ok({ actId: '1', displayCitation: 'Act 1' }),
+      findActById: async () => ok({ actId: '1', displayCitation: 'Act 1' }),
+      resolveActCandidates: async () => ok([{ actId: '1', displayCitation: 'Act 1' }]),
     };
     const tool = makeLegalMcpTools({
       acts: acts as never,

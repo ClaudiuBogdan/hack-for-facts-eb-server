@@ -36,6 +36,27 @@ const TYPE_ALIASES: Record<string, string> = {
 const fold = (s: string): string => s.normalize('NFD').replace(/[̀-ͯ]/gu, '').toLowerCase();
 
 /**
+ * One spelling per citation: folded, "nr." dropped with or without a space
+ * before its dot, and a dotted type abbreviation ("O.U.G.", "H.G.", "L.") joined
+ * into its word. Read letter by letter, "O.U.G. 57/2019" was an ordin (`o`). An
+ * abbreviation that is no known type word ("H.G.R.") stays as written, so the
+ * permissive reading keeps its first letter, as before.
+ */
+const normalize = (raw: string): string => {
+  const text = fold(raw).trim();
+  const dotted = /^(?:[a-z] ?\. ?)+/u.exec(text)?.[0];
+  const joined = dotted?.replace(/[ .]/gu, '');
+  const head =
+    dotted !== undefined && joined !== undefined && TYPE_ALIASES[joined] !== undefined
+      ? `${joined} ${text.slice(dotted.length)}`
+      : text;
+  return head
+    .replace(/\bnr *\.?/gu, ' ')
+    .replace(/\s+/gu, ' ')
+    .trim();
+};
+
+/**
  * Parse a citation into a `{ actType, actNumber, actYear }` key with an empty
  * `issuerSlug` (the citation key lookup matches on the first three; the repo
  * picks the highest-in_degree act when several issuers share the number/year).
@@ -43,9 +64,28 @@ const fold = (s: string): string => s.normalize('NFD').replace(/[̀-ͯ]/gu, '').
  * Returns null when no numbered citation shape is present.
  */
 export const parseCitation = (raw: string): (LegalCitationKey & { issuerSlug: string }) | null => {
-  const text = fold(raw).replace(/nr\.?/gu, ' ').replace(/\s+/gu, ' ').trim();
+  const text = normalize(raw);
   // <typeword> ... <number>/<year>  e.g. "legea 227/2015", "oug 57 / 2019"
   const m = /^([a-z]+)\b.*?(\d{1,5})\s*\/\s*(\d{4})\b/u.exec(text);
+  if (m === null) return null;
+  const [, typeWord, num, year] = m;
+  const actType = TYPE_ALIASES[typeWord ?? ''];
+  if (actType === undefined || num === undefined || year === undefined) return null;
+  const y = Number(year);
+  if (y < 1850 || y > 2100) return null;
+  return { actType, actNumber: num, actYear: y, issuerSlug: '' };
+};
+
+/**
+ * The query IS one citation: a type word, an optional "nr.", the number and the
+ * year, and nothing else. Issuer words ("ordinul ministrului finanțelor nr.
+ * 1/2020"), a second citation ("legea 227/2015 și legea 95/2006") or trailing text
+ * are constraints this key cannot express, so they return null: the caller must
+ * not answer such a query with the key's acts as if it were exact (I-21).
+ */
+export const parseExactCitation = (raw: string): LegalCitationKey | null => {
+  const text = normalize(raw).replace(/ ?[,;.:?!]+$/u, '');
+  const m = /^([a-z]+) ?(\d{1,5}) ?\/ ?(\d{4})$/u.exec(text);
   if (m === null) return null;
   const [, typeWord, num, year] = m;
   const actType = TYPE_ALIASES[typeWord ?? ''];

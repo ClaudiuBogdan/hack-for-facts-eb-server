@@ -128,12 +128,14 @@ describe('legalSearch — the answer names the path that produced it', () => {
           Promise.resolve(
             ok({ ...act, summary: null, aliases: [], citationKeys: [], amendedAfterPublication: 0 })
           ),
+        // The one act holding the citation number (I-21: the set is read first).
+        findActsByCitationNumber: () => Promise.resolve(ok([act])),
       },
     } as unknown as LegalSearchDeps;
     const res = await searchLegal(withCard, { ...query, q: 'legea 1/2001' });
     expect(res.isOk()).toBe(true);
     if (!res.isOk()) return;
-    // A citation resolves to exactly one act by name; retrieval never runs.
+    // A citation held by exactly one act answers with it; retrieval never runs.
     expect(called).toBe(false);
     expect(res.value.engine).toBe('postgres');
     expect(res.value.actsTotal).toBe(1);

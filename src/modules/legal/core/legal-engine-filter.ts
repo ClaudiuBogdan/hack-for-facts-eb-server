@@ -40,7 +40,9 @@ const FIELD_OPS: Readonly<Record<string, readonly string[]>> = {
   actType: ['eq', 'in'],
   issuerSlug: ['eq', 'in'],
   status: ['eq', 'in'],
-  domain: ['eq', 'in'],
+  // Multi-valued (an act holds several domains): two operators would be two
+  // membership conditions, not one value list, and SQL accepts only `in`.
+  domain: ['in'],
   category: ['eq', 'in'],
   penaltiesMentioned: ['eq'],
   year: ['eq'],
@@ -65,6 +67,15 @@ const asStrings = (value: unknown): string[] | null => {
   }
   return null;
 };
+
+/**
+ * A single-valued field's operators are ANDed: `eq` and `in` on one field are
+ * their intersection, and a contradiction is the empty set. Each used to
+ * overwrite the other, so `status: { eq: 'abrogat', in: ['in-vigoare'] }` was
+ * answered as `in-vigoare` alone, or `abrogat` alone with the keys reversed.
+ */
+const intersect = (prior: readonly string[] | undefined, next: readonly string[]): string[] =>
+  prior === undefined ? [...next] : prior.filter((value) => next.includes(value));
 
 const asInt = (value: unknown): number | null =>
   typeof value === 'number' && Number.isInteger(value) ? value : null;
@@ -110,19 +121,19 @@ export const toEngineFilter = (
         case 'actType': {
           const v = asStrings(value);
           if (v === null) unsupported.push(`${field}.${op}`);
-          else out.actType = v;
+          else out.actType = intersect(out.actType, v);
           break;
         }
         case 'issuerSlug': {
           const v = asStrings(value);
           if (v === null) unsupported.push(`${field}.${op}`);
-          else out.issuerSlug = v;
+          else out.issuerSlug = intersect(out.issuerSlug, v);
           break;
         }
         case 'status': {
           const v = asStrings(value);
           if (v === null) unsupported.push(`${field}.${op}`);
-          else out.status = v;
+          else out.status = intersect(out.status, v);
           break;
         }
         case 'domain': {
@@ -134,7 +145,7 @@ export const toEngineFilter = (
         case 'category': {
           const v = asStrings(value);
           if (v === null) unsupported.push(`${field}.${op}`);
-          else out.category = v;
+          else out.category = intersect(out.category, v);
           break;
         }
         case 'penaltiesMentioned': {

@@ -356,7 +356,7 @@ const objectsAndQuery = /* GraphQL */ `
     acts: [LegalDocHit!]!
     sections: [LegalSectionHit!]!
     caveats: [String!]!
-    "WHICH path answered: 'opensearch' | 'postgres'. The two have different guarantees — the engine knows real totals, the Postgres path only ever returns a bounded slice — so the client is told rather than left to assume."
+    "WHICH path answered: 'opensearch' | 'postgres'. The two have different guarantees — the engine knows real totals, the Postgres path returns a bounded slice (except an identifier answer, which counts the citation's holders; see actsTotal) — so the client is told rather than left to assume."
     engine: String!
     "Real match count for the acts channel; NULL when the answering path cannot count (never the page size)."
     actsTotal: Int
@@ -368,7 +368,7 @@ const objectsAndQuery = /* GraphQL */ `
     degraded: Boolean!
     "Index build stamp (_meta.built_at) behind the answer; null on the Postgres path."
     asOf: String
-    "Engine hits the database REFUSED to hydrate — non-canonical, absent, or failing a privacy gate — and so MISSING from this page. Non-zero means the list is shorter than the engine's ranking; a silently shortened page is indistinguishable from a genuinely small result set. Always 0 on the Postgres path, which selects and hydrates in one query."
+    "Engine hits the database REFUSED to hydrate — non-canonical, absent, or failing a privacy gate — and so MISSING from this page. Non-zero means the list is shorter than the engine's ranking; a silently shortened page is indistinguishable from a genuinely small result set. On the Postgres path 0, except an identifier answer whose act card could not be read."
     unhydratedHits: Int!
   }
 
@@ -392,7 +392,7 @@ const objectsAndQuery = /* GraphQL */ `
   }
 
   extend type Query {
-    "An act by numeric act_id or free-text citation ('legea 227/2015' | 'codul fiscal')."
+    "An act by numeric act_id, or by a citation exactly one act holds: one bare citation (type, number/year: 'legea 227/2015') or one known name ('codul fiscal'). A citation several acts hold (ordinul 1/2020: seven issuers), or input with further words (issuer, a second citation, a title fragment), is an error that lists the candidates; pass actId (legalResolve(dim: act) lists them too)."
     legalAct(actId: BigInt, citation: String): LegalAct
     "Acts directory. Cursor-only (223k acts); default sort in_degree desc."
     legalActs(
@@ -418,7 +418,7 @@ const objectsAndQuery = /* GraphQL */ `
       first: Int = 20
       after: String
     ): LegalRecentChangeConnection!
-    "Retrieval: identifier router (citation→act) first; then the OpenSearch engine when this deployment has an index — BM25 over legal-acts/legal-sections fused with the section kNN leg by app-layer RRF, keys-only, hydrated from Postgres. Without an index the bounded Postgres path answers and says so via the engine field. An engine that FAILS errors; it is never silently replaced by a lexical scan. A filter the engine cannot express is refused, not widened."
+    "Retrieval: identifier router first — a q that is exactly one citation (type, number/year, nothing else) answers with every act holding that citation number that passes the historical gate, up to limit, ambiguity named in caveats; actsTotal counts those holders exactly (null and totalsExhaustive false when more than 25 hold the number); then the OpenSearch engine when this deployment has an index — BM25 over legal-acts/legal-sections fused with the section kNN leg by app-layer RRF, keys-only, hydrated from Postgres. Without an index the bounded Postgres path answers and says so via the engine field. An engine that FAILS errors; it is never silently replaced by a lexical scan. A filter the engine cannot express is refused, not widened."
     legalSearch(
       q: String!
       filter: LegalActsFilter

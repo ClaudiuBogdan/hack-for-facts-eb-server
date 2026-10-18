@@ -40,14 +40,18 @@ export interface LegalRepoBase {
    * when unresolved. Ambiguous aliases (e.g. "codul fiscal" → 2 acts) resolve to
    * the highest-`in_degree` act DETERMINISTICALLY — this is the right behavior for
    * the loader and ranked discovery. The user-facing `legalAct(citation:)` path
-   * uses `resolveActCandidates` instead so it can SURFACE ambiguity (Codex finding).
+   * uses `resolveCitedAct` (usecases) instead, which never picks among candidates
+   * (I-21).
    */
   resolveActRef(ref: LegalActRef): Promise<Result<LegalAct | null, ApiError>>;
 
   /**
-   * Like `resolveActRef` but returns ALL candidate acts (in_degree desc) for a
-   * citation, so the caller can detect/surface ambiguity ("codul fiscal" → 2).
-   * A numeric `actId` ref returns at most one. Bounded.
+   * Like `resolveActRef` but returns the candidate acts (in_degree desc, one row
+   * per act) for a citation, so the caller can detect/surface ambiguity ("codul
+   * fiscal" → 2). The input is read PERMISSIVELY: the first number/year it
+   * contains, else the whole input as an alias, else a name fragment. These are
+   * candidates, not an identity. A numeric `actId` ref returns at most one.
+   * Bounded: 25 key or alias candidates, 5 by name.
    */
   resolveActCandidates(ref: LegalActRef): Promise<Result<readonly LegalAct[], ApiError>>;
 
@@ -59,6 +63,23 @@ export interface LegalRepoBase {
 
   /** All acts sharing a citation key (joint-ministry orders → many acts). */
   findActsByCitationKey(k: LegalCitationKey): Promise<Result<readonly LegalAct[], ApiError>>;
+
+  /**
+   * Every act holding citation number (type, number, year), WHATEVER its issuer:
+   * "ordinul 1/2020" is seven orders of seven issuers. In_degree desc, act_id asc;
+   * at most `limit + 1` rows, so the caller knows when the set is incomplete (I-21).
+   */
+  findActsByCitationNumber(
+    k: Omit<LegalCitationKey, 'issuerSlug'>,
+    limit: number
+  ): Promise<Result<readonly LegalAct[], ApiError>>;
+
+  /**
+   * Every act holding this alias, the whole input lower-cased ("codul fiscal").
+   * In_degree desc, act_id asc; at most `limit + 1` rows, so the caller knows when
+   * the set is incomplete (I-21).
+   */
+  findActsByAlias(alias: string, limit: number): Promise<Result<readonly LegalAct[], ApiError>>;
 
   /**
    * pg_trgm/ILIKE fallback on `display_citation` (the always-available identity

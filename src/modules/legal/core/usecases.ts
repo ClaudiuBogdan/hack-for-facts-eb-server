@@ -23,7 +23,7 @@ import {
   type SyntheticClient,
 } from '@/modules/shared/index.js';
 
-import { parseCitation } from './citation.js';
+import { parseExactCitation } from './citation.js';
 import { LEGAL_LIVE_STATUSES, toEngineFilter } from './legal-engine-filter.js';
 import { searchWithEngine } from './legal-engine-search.js';
 import { LEGAL_ORIGINAL_TEXT_CAVEAT, amendmentCountPhrase } from './provenance.js';
@@ -91,10 +91,84 @@ export const listActs = (
 ): Promise<Result<CursorPage<LegalAct>, ApiError>> =>
   repo.listActs({ filter: args.filter, sort: SORT_DB[args.sort], dir: args.dir, page: args.page });
 
-export const getAct = (
+/**
+ * The ONE act a user-facing reference names (GraphQL `legalAct`, the MCP act,
+ * links and timeline getters). An `actId` is that act. A citation names an act
+ * only when the WHOLE input is an identity one act holds: exactly one citation
+ * (type, number/year, nothing else) or exactly one alias. Several holders are an
+ * ambiguity the caller settles with an `actId`, never the most-cited holder
+ * (I-21: "ordinul 1/2020" is seven orders of seven issuers). Any other input
+ * carries constraints no key checks — issuer words ("ordinul ministrului
+ * finanțelor nr. 1/2020" answered with the Health ministry's), a second citation
+ * ("legea 227/2015 și legea 95/2006"), a name fragment — so its candidates are
+ * listed, never chosen, even when only one is returned. The loader and ranked
+ * discovery keep `resolveActRef`'s deterministic best match.
+ */
+export const resolveCitedAct = async (
+  repo: LegalRepoBase,
+  ref: LegalActRef
+): Promise<Result<LegalAct | null, ApiError>> => {
+  if (ref.actId !== undefined && ref.actId !== '') return repo.findActById(ref.actId);
+  const citation = (ref.citation ?? '').trim();
+  if (citation === '') return ok(null);
+
+  const exact = parseExactCitation(citation);
+  if (exact !== null) {
+    const held = await repo.findActsByCitationNumber(exact, CITED_ACT_READ);
+    if (held.isErr()) return err(held.error);
+    if (held.value.length > 0) return soleHolder(citation, held.value);
+  }
+  const named = await repo.findActsByAlias(citation, CITED_ACT_READ);
+  if (named.isErr()) return err(named.error);
+  if (named.value.length > 0) return soleHolder(citation, named.value);
+
+  const candidates = await repo.resolveActCandidates({ citation });
+  if (candidates.isErr()) return err(candidates.error);
+  if (candidates.value.length === 0) return ok(null);
+  return err(
+    invalidInput(
+      `citation «${citation}» is not exactly one citation (type, number/year) or name — pass actId; ${String(candidates.value.length)} candidate(s) returned (a bounded list): ${listCandidates(candidates.value)}`,
+      'citation'
+    )
+  );
+};
+
+/** Holders read for a singular lookup; one more is read to tell a capped set. */
+const CITED_ACT_READ = 25;
+/** Candidates named in an ambiguity error. */
+const AMBIGUITY_LISTED = 10;
+
+const listCandidates = (acts: readonly LegalAct[]): string =>
+  acts
+    .slice(0, AMBIGUITY_LISTED)
+    .map((act) => `${act.actId} ${act.displayCitation} (${act.issuerSlug ?? '—'}, ${act.status})`)
+    .join('; ') + (acts.length > AMBIGUITY_LISTED ? '; …' : '');
+
+/** The act when one holds the identity; an ambiguity error naming them otherwise. */
+const soleHolder = (
+  citation: string,
+  held: readonly LegalAct[]
+): Result<LegalAct | null, ApiError> => {
+  if (held.length === 1) return ok(held[0] ?? null);
+  const count =
+    held.length > CITED_ACT_READ ? `at least ${String(CITED_ACT_READ)}` : String(held.length);
+  return err(
+    invalidInput(
+      `citation «${citation}» matches ${count} acts — pass actId: ${listCandidates(held)}`,
+      'citation'
+    )
+  );
+};
+
+export const getAct = async (
   repo: LegalActsRepo,
   ref: LegalActRef
-): Promise<Result<LegalActCard | null, ApiError>> => repo.getActCard(ref);
+): Promise<Result<LegalActCard | null, ApiError>> => {
+  if (ref.actId !== undefined && ref.actId !== '') return repo.getActCard(ref);
+  const resolved = await resolveCitedAct(repo, ref);
+  if (resolved.isErr()) return err(resolved.error);
+  return resolved.value === null ? ok(null) : repo.getActCard({ actId: resolved.value.actId });
+};
 
 export const getActVersions = (
   repo: LegalActsRepo,
@@ -527,6 +601,8 @@ export interface LegalSearchDeps {
 }
 
 const SEMANTIC_CAVEAT = 'semantic search unavailable';
+/** Citation-number holders read by the identifier shortcut (I-21). */
+const CITATION_CANDIDATE_LIMIT = 25;
 const QUERY_PREFIX = 'search_query: ';
 
 /** True only when the kernel slot AND the module probe both allow semantic. */
@@ -562,36 +638,58 @@ export const searchLegal = async (
   //    the caller may have excluded, on a channel they did not ask for, and
   //    labels it `totalsExhaustive: true`. When the shortcut is not allowed the
   //    query falls through to ordinary retrieval, which applies everything.
-  const parsed = parseCitation(query.q);
-  if (parsed !== null && citationShortcutAllowed(query)) {
-    const ref: LegalActRef = { citation: query.q };
-    const cardRes = await deps.acts.getActCard(ref);
-    if (cardRes.isErr()) return err(cardRes.error);
-    // The historical gate still applies to the resolved act: an identifier is
-    // not a request for law that is no longer in force.
-    const card =
-      cardRes.value !== null &&
-      (query.includeHistorical || LEGAL_LIVE_STATUSES.includes(cardRes.value.status))
-        ? cardRes.value
-        : null;
-    if (card !== null) {
-      caveats.push(honestyCaveat(card));
+  const exact = parseExactCitation(query.q);
+  if (exact !== null && citationShortcutAllowed(query)) {
+    // A citation number is a CANDIDATE SET, not an act: "ordinul 1/2020" is seven
+    // orders of seven issuers. Answering with the most-cited one and calling it
+    // exhaustive equated popularity with identity (I-21). Every holder is
+    // returned; the total is exact only when the set was read completely.
+    const found = await deps.acts.findActsByCitationNumber(exact, CITATION_CANDIDATE_LIMIT);
+    if (found.isErr()) return err(found.error);
+    const complete = found.value.length <= CITATION_CANDIDATE_LIMIT;
+    // The historical gate still applies: an identifier is not a request for law
+    // that is no longer in force.
+    const eligible = found.value
+      .slice(0, CITATION_CANDIDATE_LIMIT)
+      .filter((act) => query.includeHistorical || LEGAL_LIVE_STATUSES.includes(act.status));
+    if (eligible.length > 0) {
+      const shown = eligible.slice(0, Math.max(1, query.limit));
+      const cardResults = await Promise.all(
+        shown.map((act) => deps.acts.getActCard({ actId: act.actId }))
+      );
+      const cards: LegalActCard[] = [];
+      for (const cardRes of cardResults) {
+        if (cardRes.isErr()) return err(cardRes.error);
+        if (cardRes.value !== null) cards.push(cardRes.value);
+      }
+      if (eligible.length > 1) {
+        caveats.push(
+          complete
+            ? `Numărul ${exact.actNumber}/${String(exact.actYear)} desemnează ${String(eligible.length)} acte diferite; precizați emitentul.`
+            : `Numărul ${exact.actNumber}/${String(exact.actYear)} desemnează cel puțin ${String(eligible.length)} acte diferite (lista este limitată); precizați emitentul.`
+        );
+      }
+      for (const card of cards) caveats.push(honestyCaveat(card));
       caveats.push(LEGAL_ORIGINAL_TEXT_CAVEAT);
-      const provRes = await deps.acts.versionProvenanceForActs([card.actId]);
+      const provRes = await deps.acts.versionProvenanceForActs(cards.map((card) => card.actId));
       if (provRes.isErr()) return err(provRes.error);
-      const provenance = provRes.value.get(card.actId) ?? null;
       return ok({
-        acts: [{ act: stripCard(card), summary: card.summary, score: 1, provenance }],
+        acts: cards.map((card) => ({
+          act: stripCard(card),
+          summary: card.summary,
+          score: 1,
+          provenance: provRes.value.get(card.actId) ?? null,
+        })),
         sections: [],
         caveats,
-        // An identifier lookup: exactly one act, found by name, no retrieval.
+        // An identifier lookup in Postgres: every act holding the number, no retrieval.
         engine: 'postgres',
-        actsTotal: 1,
+        actsTotal: complete ? eligible.length : null,
         sectionsTotal: null,
-        totalsExhaustive: true,
+        totalsExhaustive: complete,
         degraded: false,
         asOf: null,
-        unhydratedHits: 0,
+        unhydratedHits: shown.length - cards.length,
       });
     }
   }

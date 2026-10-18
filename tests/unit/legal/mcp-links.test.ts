@@ -20,6 +20,8 @@ const page = ok({ items: [], next: null });
 
 const acts = {
   resolveActRef: async () => ok(ACT),
+  findActById: async () => ok(ACT),
+  resolveActCandidates: async () => ok([ACT]),
   getStatusEvents: async () => ok([]),
   countActsBy: async () => ok([]),
   listRecentChanges: async () => page,

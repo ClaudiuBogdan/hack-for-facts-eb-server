@@ -41,6 +41,32 @@ describe('toEngineFilter', () => {
     expect(filter.status).toEqual(['abrogat']);
   });
 
+  it('ANDs eq and in on a single-valued field, in either order', () => {
+    // Each used to overwrite the other: eq abrogat + in [in-vigoare] was
+    // answered as in-vigoare alone, or abrogat alone with the keys reversed.
+    expect(
+      toEngineFilter({ status: { eq: 'abrogat', in: ['in-vigoare'] } }, true).filter.status
+    ).toEqual([]);
+    expect(
+      toEngineFilter({ status: { in: ['in-vigoare'], eq: 'abrogat' } }, true).filter.status
+    ).toEqual([]);
+    expect(
+      toEngineFilter({ issuerSlug: { in: ['anre', 'ancpi'], eq: 'ancpi' } }, true).filter.issuerSlug
+    ).toEqual(['ancpi']);
+    expect(
+      toEngineFilter({ actType: { eq: 'ordin', in: ['ordin', 'lege'] } }, false).filter.actType
+    ).toEqual(['ordin']);
+  });
+
+  it('NAMES domain.eq: an act holds several domains, and SQL accepts only in', () => {
+    const { filter, unsupported } = toEngineFilter(
+      { domain: { eq: 'energie', in: ['mediu'] } },
+      true
+    );
+    expect(unsupported).toEqual(['domain.eq']);
+    expect(filter.domain).toEqual(['mediu']);
+  });
+
   it('translates every supported family', () => {
     const { filter, unsupported } = toEngineFilter(
       {

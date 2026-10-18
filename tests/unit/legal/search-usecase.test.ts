@@ -20,6 +20,7 @@ import {
 
 import type { LegalActsRepo, LegalRetrievalRepo } from '@/modules/legal/core/ports.js';
 import type {
+  LegalAct,
   LegalActCard,
   LegalDocHit,
   LegalSectionHit,
@@ -47,6 +48,39 @@ const card: LegalActCard = {
   amendedAfterPublication: 295,
 };
 
+/** The card's plain act, as `findActsByCitationNumber` returns it. */
+const asAct = (c: LegalActCard): LegalAct => ({
+  actId: c.actId,
+  actNaturalKey: c.actNaturalKey,
+  actType: c.actType,
+  actNumber: c.actNumber,
+  actYear: c.actYear,
+  issuerSlug: c.issuerSlug,
+  canonicalDocumentId: c.canonicalDocumentId,
+  displayCitation: c.displayCitation,
+  status: c.status,
+  statusEvidence: c.statusEvidence,
+  entryIntoForce: c.entryIntoForce,
+  inDegree: c.inDegree,
+});
+
+/** Seven "Ordinul nr. 1/2020" of seven issuers (production acts, in_degree desc). */
+const ordin1of2020 = ['103577', '103638', '103694', '103756', '103982', '103990', '105085'].map(
+  (actId, i): LegalActCard => ({
+    ...card,
+    actId,
+    actNaturalKey: `ordin:1:2020:issuer-${String(i)}`,
+    actType: 'ordin',
+    actNumber: '1',
+    actYear: 2020,
+    issuerSlug: `issuer-${String(i)}`,
+    displayCitation: 'Ordinul nr. 1/2020',
+    status: 'in-vigoare',
+    inDegree: 10 - i,
+    aliases: [],
+  })
+);
+
 const capabilities = (semantic: boolean): CapabilityResolver => ({
   engines: { meili: true, opensearch: true },
   forDomain: () => ({ semantic }),
@@ -64,6 +98,7 @@ const provenance: LegalVersionProvenance = {
 const makeDeps = (over: {
   semanticReady?: boolean;
   getActCard?: LegalActsRepo['getActCard'];
+  findActsByCitationNumber?: LegalActsRepo['findActsByCitationNumber'];
   versionProvenanceForActs?: LegalActsRepo['versionProvenanceForActs'];
   searchSections?: LegalRetrievalRepo['searchSections'];
   searchDocs?: LegalRetrievalRepo['searchDocs'];
@@ -88,6 +123,9 @@ const makeDeps = (over: {
     acts: {
       getActCard:
         over.getActCard ?? (async (): Promise<Result<LegalActCard | null, ApiError>> => ok(null)),
+      findActsByCitationNumber:
+        over.findActsByCitationNumber ??
+        (async (): Promise<Result<readonly LegalAct[], ApiError>> => ok([])),
       versionProvenanceForActs:
         over.versionProvenanceForActs ??
         (async (
@@ -112,6 +150,7 @@ describe('searchLegal — identifier router', () => {
     const embed = vi.fn();
     const deps = makeDeps({
       getActCard: async () => ok(card),
+      findActsByCitationNumber: async () => ok([asAct(card)]),
       embed: embed,
     });
     const res = await searchLegal(deps, {
@@ -143,6 +182,85 @@ describe('searchLegal — identifier router', () => {
     if (res.isOk()) {
       expect(res.value.acts.map((hit) => hit.act.actId)).not.toContain('66150');
     }
+  });
+});
+
+describe('searchLegal — a citation number is a candidate set (I-21)', () => {
+  const byId = new Map(ordin1of2020.map((c) => [c.actId, c]));
+  const ordinDeps = (
+    rows: readonly LegalActCard[],
+    searchDocs?: LegalRetrievalRepo['searchDocs']
+  ) =>
+    makeDeps({
+      getActCard: async (ref) => ok(byId.get(ref.actId ?? '') ?? null),
+      findActsByCitationNumber: async () => ok(rows.map(asAct)),
+      ...(searchDocs === undefined ? {} : { searchDocs }),
+    });
+  const ask = (q: string, limit = 10, includeHistorical = false) => ({
+    q,
+    filter: {},
+    channel: 'auto' as const,
+    includeHistorical,
+    limit,
+  });
+
+  it('returns every holder of the number, with an exact total and an ambiguity caveat', async () => {
+    const out = (await searchLegal(ordinDeps(ordin1of2020), ask('ordinul 1/2020')))._unsafeUnwrap();
+    expect(out.acts.map((hit) => hit.act.actId)).toEqual(ordin1of2020.map((c) => c.actId));
+    expect(out.actsTotal).toBe(7);
+    expect(out.totalsExhaustive).toBe(true);
+    expect(out.caveats[0]).toBe('Numărul 1/2020 desemnează 7 acte diferite; precizați emitentul.');
+  });
+
+  it('a page smaller than the set keeps the exact total', async () => {
+    const out = (
+      await searchLegal(ordinDeps(ordin1of2020), ask('Ordinul nr. 1/2020', 2))
+    )._unsafeUnwrap();
+    expect(out.acts).toHaveLength(2);
+    expect(out.actsTotal).toBe(7);
+    expect(out.totalsExhaustive).toBe(true);
+  });
+
+  it('a set larger than the read is not exhaustive and has no total', async () => {
+    const many = Array.from({ length: 26 }, (_, i): LegalActCard => ({
+      ...ordin1of2020[0]!,
+      actId: String(200000 + i),
+    }));
+    many.forEach((c) => byId.set(c.actId, c));
+    const out = (await searchLegal(ordinDeps(many), ask('ordinul 1/2020', 5)))._unsafeUnwrap();
+    expect(out.acts).toHaveLength(5);
+    expect(out.actsTotal).toBeNull();
+    expect(out.totalsExhaustive).toBe(false);
+    // The caveat must not state an exact count the read did not establish.
+    expect(out.caveats[0]).toBe(
+      'Numărul 1/2020 desemnează cel puțin 25 acte diferite (lista este limitată); precizați emitentul.'
+    );
+  });
+
+  it('the historical gate drops acts no longer in force from the set', async () => {
+    const rows: LegalActCard[] = [{ ...ordin1of2020[0]!, status: 'abrogat' }, ordin1of2020[1]!];
+    byId.set(rows[0]!.actId, rows[0]!);
+    const out = (await searchLegal(ordinDeps(rows), ask('ordinul 1/2020')))._unsafeUnwrap();
+    expect(out.acts.map((hit) => hit.act.actId)).toEqual(['103638']);
+    expect(out.actsTotal).toBe(1);
+    byId.set(ordin1of2020[0]!.actId, ordin1of2020[0]!);
+  });
+
+  it.each([
+    'ordinul ministrului finanțelor nr. 1/2020',
+    'legea 227/2015 și legea 95/2006',
+    'legea 227/2015 art. 5',
+  ])('"%s" is not one citation: no shortcut, the search path answers', async (q) => {
+    const findActsByCitationNumber = vi.fn(async () => ok(ordin1of2020.map(asAct)));
+    // Were the shortcut taken, the popular card would answer as exhaustive.
+    const getActCard = vi.fn(async () => ok(ordin1of2020[0]!));
+    const searchDocs = vi.fn(async () => ok([] as LegalDocHit[]));
+    const deps = makeDeps({ findActsByCitationNumber, getActCard, searchDocs });
+    const out = (await searchLegal(deps, ask(q)))._unsafeUnwrap();
+    expect(findActsByCitationNumber).not.toHaveBeenCalled();
+    expect(getActCard).not.toHaveBeenCalled();
+    expect(searchDocs).toHaveBeenCalled();
+    expect(out.totalsExhaustive).toBe(false);
   });
 });
 
@@ -271,7 +389,10 @@ describe('searchLegal — version provenance (§5.2-C honesty)', () => {
   });
 
   it('the citation short-circuit stamps the act card hit too', async () => {
-    const deps = makeDeps({ getActCard: async () => ok(card) });
+    const deps = makeDeps({
+      getActCard: async () => ok(card),
+      findActsByCitationNumber: async () => ok([asAct(card)]),
+    });
     const res = await searchLegal(deps, {
       q: 'legea 227/2015',
       filter: {},

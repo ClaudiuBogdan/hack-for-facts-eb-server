@@ -90,6 +90,8 @@ type Db = Kysely<ProdDatabase>;
 const MAX_LIST = 100;
 const MAX_CHANGES_PAGE = 100;
 const ID_RE = /^\d+$/u;
+/** Key or alias candidates `resolveActCandidates` returns. */
+const CANDIDATE_LIMIT = 25;
 /**
  * Version-list bound. The largest act holds 243 expressions (Fiscal Code,
  * 2026-10-15); a list shorter than `versionCount` is a truncated list (I-19).
@@ -266,6 +268,33 @@ export const makeLegalActsRepo = (db: Db): LegalActsRepo => {
     }
   };
 
+  const findActsByCitationNumber = async (
+    k: Omit<LegalCitationKey, 'issuerSlug'>,
+    limit: number
+  ): Promise<Result<readonly LegalAct[], ApiError>> => {
+    try {
+      const rows = await selectActs()
+        .where((eb) =>
+          eb.exists(
+            eb
+              .selectFrom('legal.act_citation_keys as ck')
+              .select('ck.act_id')
+              .whereRef('ck.act_id', '=', 'a.act_id')
+              .where('ck.act_type', '=', k.actType)
+              .where('ck.act_number', '=', k.actNumber)
+              .where('ck.act_year', '=', k.actYear)
+          )
+        )
+        .orderBy('a.in_degree', 'desc')
+        .orderBy('a.act_id', 'asc')
+        .limit(limit + 1)
+        .execute();
+      return ok(rows.map((r) => mapAct(r as unknown as ActRow)));
+    } catch (error) {
+      return err(databaseError('findActsByCitationNumber failed', error));
+    }
+  };
+
   const searchActsByName = async (
     q: string,
     limit: number
@@ -299,6 +328,29 @@ export const makeLegalActsRepo = (db: Db): LegalActsRepo => {
    * candidates first (joint orders, multi-issuer numbers), then exact alias
    * candidates, then a trigram fallback. A numeric `actId` ref → at most one.
    */
+  const findActsByAlias = async (
+    alias: string,
+    limit: number
+  ): Promise<Result<readonly LegalAct[], ApiError>> => {
+    try {
+      const rows = await selectActs()
+        .innerJoin('legal.act_aliases as al', 'al.act_id', 'a.act_id')
+        .where('al.alias', '=', alias.trim().toLowerCase())
+        // The alias path ties HARDEST. Measured: 15 aliases resolve to several
+        // acts at an identical in_degree, including codul civil (6774 vs 33630),
+        // codul penal, and codul muncii (three acts, all at 0). Without a
+        // tiebreak, legalAct(citation:"codul muncii") can answer with a
+        // different act between two identical calls.
+        .orderBy('a.in_degree', 'desc')
+        .orderBy('a.act_id', 'asc')
+        .limit(limit + 1)
+        .execute();
+      return ok(rows.map((r) => mapAct(r as unknown as ActRow)));
+    } catch (error) {
+      return err(databaseError('findActsByAlias failed', error));
+    }
+  };
+
   const resolveActCandidates = async (
     ref: LegalActRef
   ): Promise<Result<readonly LegalAct[], ApiError>> => {
@@ -310,44 +362,18 @@ export const makeLegalActsRepo = (db: Db): LegalActsRepo => {
     const citation = (ref.citation ?? '').trim();
     if (citation === '') return ok([]);
 
+    // citation key match ignores issuer_slug ('' here) → match on type/number/year,
+    // one row per act however many issuer keys it holds.
     const parsed = parseCitation(citation);
     if (parsed !== null) {
-      // citation key match ignores issuer_slug ('' here) → match on type/number/year.
-      try {
-        const rows = await selectActs()
-          .innerJoin('legal.act_citation_keys as ck', 'ck.act_id', 'a.act_id')
-          .where('ck.act_type', '=', parsed.actType)
-          .where('ck.act_number', '=', parsed.actNumber)
-          .where('ck.act_year', '=', parsed.actYear)
-          // Same tie as `searchActsByName`: citation-key candidates for one
-          // (type, number, year) routinely share in_degree 0.
-          .orderBy('a.in_degree', 'desc')
-          .orderBy('a.act_id', 'asc')
-          .limit(25)
-          .execute();
-        if (rows.length > 0) return ok(rows.map((r) => mapAct(r as unknown as ActRow)));
-      } catch (error) {
-        return err(databaseError('resolveActCandidates key failed', error));
-      }
+      const held = await findActsByCitationNumber(parsed, CANDIDATE_LIMIT);
+      if (held.isErr()) return err(held.error);
+      if (held.value.length > 0) return ok(held.value.slice(0, CANDIDATE_LIMIT));
     }
 
-    try {
-      const aliasRows = await selectActs()
-        .innerJoin('legal.act_aliases as al', 'al.act_id', 'a.act_id')
-        .where('al.alias', '=', citation.toLowerCase())
-        // The alias path ties HARDEST. Measured: 15 aliases resolve to several
-        // acts at an identical in_degree, including codul civil (6774 vs 33630),
-        // codul penal, and codul muncii (three acts, all at 0). Without a
-        // tiebreak, legalAct(citation:"codul muncii") can answer with a
-        // different act between two identical calls.
-        .orderBy('a.in_degree', 'desc')
-        .orderBy('a.act_id', 'asc')
-        .limit(25)
-        .execute();
-      if (aliasRows.length > 0) return ok(aliasRows.map((r) => mapAct(r as unknown as ActRow)));
-    } catch (error) {
-      return err(databaseError('resolveActCandidates alias failed', error));
-    }
+    const named = await findActsByAlias(citation, CANDIDATE_LIMIT);
+    if (named.isErr()) return err(named.error);
+    if (named.value.length > 0) return ok(named.value.slice(0, CANDIDATE_LIMIT));
 
     return searchActsByName(citation, 5);
   };
@@ -929,6 +955,8 @@ export const makeLegalActsRepo = (db: Db): LegalActsRepo => {
     findActById,
     findActsByIds,
     findActsByCitationKey,
+    findActsByCitationNumber,
+    findActsByAlias,
     searchActsByName,
     getStatusEvents,
     // LegalActsRepo

@@ -31,6 +31,7 @@ import {
 import {
   countLegalActs,
   getAct,
+  resolveCitedAct,
   getActLinksIn,
   getActLinksOut,
   getActTimeline,
@@ -148,7 +149,7 @@ export const makeLegalMcpTools = (deps: LegalMcpDeps): readonly KernelMcpTool[] 
   const getLegalAct: KernelMcpTool = {
     name: 'get_legal_act',
     description:
-      'Get a legal act by numeric actId or free-text citation (e.g. "legea 227/2015", "codul fiscal"): identity, status + evidence, canonical document, AI summary, aliases, and the "N referințe de modificare/completare" honesty badge (incoming reference edges, not distinct amending acts).',
+      'Get a legal act by numeric actId or by a citation exactly one act holds (a bare "legea 227/2015", a name like "codul fiscal"; several holders or extra words → an error listing candidate actIds): identity, status + evidence, canonical document, AI summary, aliases, and the "N referințe de modificare/completare" honesty badge (incoming reference edges, not distinct amending acts).',
     inputShape: getLegalActInput,
     async handler(args): Promise<McpToolOutput> {
       const ref = refOf(args);
@@ -237,7 +238,7 @@ export const makeLegalMcpTools = (deps: LegalMcpDeps): readonly KernelMcpTool[] 
     async handler(args): Promise<McpToolOutput> {
       const ref = refOf(args);
       if (ref === null) return errorOut(LEGAL_MCP_KINDS.links, 'actId or citation is required');
-      const actRes = await acts.resolveActRef(ref);
+      const actRes = await resolveCitedAct(acts, ref);
       if (actRes.isErr()) return errorOut(LEGAL_MCP_KINDS.links, actRes.error.message);
       const act = actRes.value;
       if (act === null)
@@ -286,7 +287,7 @@ export const makeLegalMcpTools = (deps: LegalMcpDeps): readonly KernelMcpTool[] 
     async handler(args): Promise<McpToolOutput> {
       const ref = refOf(args);
       if (ref === null) return errorOut(LEGAL_MCP_KINDS.timeline, 'actId or citation is required');
-      const actRes = await acts.resolveActRef(ref);
+      const actRes = await resolveCitedAct(acts, ref);
       if (actRes.isErr()) return errorOut(LEGAL_MCP_KINDS.timeline, actRes.error.message);
       const act = actRes.value;
       if (act === null)
