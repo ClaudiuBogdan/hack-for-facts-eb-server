@@ -11,7 +11,8 @@
  *   - `elicitatiePage` on contracts, modifications, procedures and direct
  *     purchases (P33) — one statement per page of rows.
  *   - `isCanonical`/`dupGroupId` on procedures (P36) — one ClickHouse statement
- *     per page, on the active generation's procedure table.
+ *     per tick of a request, on the procedure table of the build the request
+ *     pinned.
  */
 
 import { GraphQLError } from 'graphql';
@@ -23,6 +24,7 @@ import {
   isWithheldOrganizationIdentifier,
   makeBatchLoader,
   type ApiError,
+  type BatchLoader,
 } from '@/modules/shared/index.js';
 
 import { withDisplayTitles } from '../records-display.js';
@@ -77,6 +79,12 @@ import type {
   ProcurementProcedure,
   SupplierRecord,
 } from '../../core/types.js';
+
+/** One request's pinned build and its batched canonicality reads (P36). */
+interface ProcedureCanonicalityRequest {
+  readonly build: Promise<string | null>;
+  readonly loader: BatchLoader<string, ProcedureCanonicality | null>;
+}
 
 export interface ProcurementResolverDeps {
   readonly repo: ProcurementRepo;
@@ -218,13 +226,29 @@ export const makeProcurementResolvers = (
   );
 
   // A procedure's canonicality exists only in the ACTIVE analysis generation
-  // (P36 rule A); PostgreSQL's procedures table carries none. A procedure that
-  // generation does not hold reads null; a backend failure rejects the batch,
-  // so the field is null WITH an error, never a guessed `true`.
-  const procedureCanonicalityLoader = makeBatchLoader<ProcedureCanonicality | null>(
-    async (ids) => unwrap(await analysis.procedureCanonicality(ids)) ?? new Map(),
-    null
-  );
+  // (P36 rule A); PostgreSQL's procedures table carries none. The active build
+  // is resolved ONCE per request (keyed by the request's GraphQL context), so
+  // every procedure node and group of one response comes from the same build,
+  // even across an activation. A procedure that build does not hold reads
+  // null; a backend failure rejects, so the field is null WITH an error, never
+  // a guessed `true`.
+  const canonicalityByRequest = new WeakMap<object, ProcedureCanonicalityRequest>();
+  const canonicalityFor = (context: unknown): ProcedureCanonicalityRequest => {
+    // Mercurius gives every request its own context object; without one there
+    // is nothing to pin to, so the read is resolved for this call alone.
+    const key = typeof context === 'object' && context !== null ? context : {};
+    const known = canonicalityByRequest.get(key);
+    if (known !== undefined) return known;
+    const build = analysis.procedureCanonicalityBuild().then(unwrap);
+    const loader = makeBatchLoader<ProcedureCanonicality | null>(async (ids) => {
+      const buildId = await build;
+      if (buildId === null) return new Map();
+      return unwrap(await analysis.procedureCanonicality(buildId, ids));
+    }, null);
+    const fresh = { build, loader };
+    canonicalityByRequest.set(key, fresh);
+    return fresh;
+  };
 
   /** Parse `filter`/`sort`/`page`/`pageSize` once, the same way for every grain. */
   const searchArgs = (
@@ -488,17 +512,20 @@ export const makeProcurementResolvers = (
     ProcurementProcedure: {
       id: (p: ProcurementProcedure) => p.procedureId,
       authority: (p: ProcurementProcedure) => party(p.authorityCui, p.authorityName),
-      isCanonical: async (p: ProcurementProcedure) =>
-        (await procedureCanonicalityLoader.load(p.procedureId))?.isCanonical ?? null,
-      dupGroupId: async (p: ProcurementProcedure) =>
-        (await procedureCanonicalityLoader.load(p.procedureId))?.dupGroupId ?? null,
+      isCanonical: async (p: ProcurementProcedure, _a: unknown, context: unknown) =>
+        (await canonicalityFor(context).loader.load(p.procedureId))?.isCanonical ?? null,
+      dupGroupId: async (p: ProcurementProcedure, _a: unknown, context: unknown) =>
+        (await canonicalityFor(context).loader.load(p.procedureId))?.dupGroupId ?? null,
       elicitatiePage: (p: ProcurementProcedure) => procedurePageLoader.load(p.procedureId),
     },
     ProcurementProcedureDetail: {
-      // The group as the active generation publishes it (P36), not the
+      // The group as the request's active build publishes it (P36), not the
       // repository's structurally empty list.
-      duplicates: async (d: ProcedureDetail) =>
-        unwrap(await analysis.procedureDuplicates(d.procedure.procedureId)),
+      duplicates: async (d: ProcedureDetail, _a: unknown, context: unknown) => {
+        const buildId = await canonicalityFor(context).build;
+        if (buildId === null) return null;
+        return unwrap(await analysis.procedureDuplicates(buildId, d.procedure.procedureId));
+      },
     },
     ProcurementContract: {
       id: (c: ProcurementContract) => c.contractId,

@@ -199,7 +199,8 @@ export const fakeAnalysisRepo = (options: FakeAnalysisRepoOptions = {}): FakeAna
       record('recordsFor', route, [page.sort, page.offset, page.limit]);
       return okp(options.records ?? { total: '0', rows: [] });
     },
-    procedureCanonicality: () => okp(gen === null ? null : new Map()),
+    procedureCanonicalityBuild: () => okp(gen === null ? null : gen.buildId),
+    procedureCanonicality: () => okp(new Map()),
     procedureDuplicates: () => okp(null),
   };
   return { repo, calls };

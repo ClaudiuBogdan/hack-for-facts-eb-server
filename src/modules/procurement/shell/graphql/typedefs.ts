@@ -159,7 +159,7 @@ export const procurementTypeDefs = /* GraphQL */ `
     backend cannot be read.
     """
     isCanonical: Boolean
-    "The id of the group's canonical procedure in the active generation (its own id for a group's head); null when ungrouped or when isCanonical is null."
+    "The id of the group's canonical procedure in the active generation (its own id for a group's head); null when ungrouped, when that procedure is not public, or when isCanonical is null. One response reads one generation."
     dupGroupId: String
   }
 
@@ -499,7 +499,7 @@ export const procurementTypeDefs = /* GraphQL */ `
     contracts: [ProcurementContract!]!
     "Always null in v1: procedure_lots carries no winner identity and no awarded value."
     perLotWinners: [ProcurementLotWinner!]
-    "The other procedures of this procedure's group in the active generation (P36), at most 20; null when isCanonical is null."
+    "The other public procedures of this procedure's group in the active generation (P36), at most 20; null when isCanonical is null."
     duplicates: [ProcurementDuplicateRef!]
     ted: ProcurementTedRef
   }

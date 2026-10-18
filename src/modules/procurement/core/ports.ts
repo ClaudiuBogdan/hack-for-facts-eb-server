@@ -366,21 +366,29 @@ export interface AnalysisRepo {
     page: { readonly sort: AnalysisRecordsSort; readonly offset: number; readonly limit: number }
   ): Promise<Result<AnalysisRecordsRead, ApiError>>;
   /**
-   * Procedure canonicality as the ACTIVE generation publishes it, read from that
+   * The ACTIVE build whose procedure table answers procedure canonicality, or
+   * null when nothing is published. Resolve it ONCE per request and pass it to
+   * both reads below, so one response never mixes builds across an activation.
+   */
+  procedureCanonicalityBuild(): Promise<Result<string | null, ApiError>>;
+  /**
+   * Procedure canonicality as build `buildId` publishes it, read from that
    * build's own procedure table (never the unversioned facts a prepared,
-   * not-yet-active generation rewrites). null when no generation is active; an
-   * id absent from the map is not part of the active generation.
+   * not-yet-active generation rewrites). Only public procedures answer: an id
+   * absent from the map is not a public procedure of that build. A group whose
+   * canonical procedure is not public reports no `dupGroupId`.
    */
   procedureCanonicality(
+    buildId: string,
     procedureIds: readonly string[]
-  ): Promise<Result<ReadonlyMap<string, ProcedureCanonicality> | null, ApiError>>;
+  ): Promise<Result<ReadonlyMap<string, ProcedureCanonicality>, ApiError>>;
   /**
-   * The other members of a procedure's group in the ACTIVE generation, read
-   * with the procedure itself in one statement on one build table (capped).
-   * null when no generation is active or the procedure is not part of it; []
-   * when it is ungrouped.
+   * The other public members of a procedure's group in build `buildId`, read
+   * with the procedure itself in one statement on one table (capped). null when
+   * the procedure is not a public procedure of that build; [] when ungrouped.
    */
   procedureDuplicates(
+    buildId: string,
     procedureId: string
   ): Promise<Result<readonly DuplicateRef[] | null, ApiError>>;
 }

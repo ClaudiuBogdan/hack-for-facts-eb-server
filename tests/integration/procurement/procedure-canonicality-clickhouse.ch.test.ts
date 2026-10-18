@@ -14,7 +14,7 @@
  *  - `PROCUREMENT_CH_TEST_DDL`: a published build's procedure table DDL, as
  *    `SHOW CREATE TABLE proto.facts_procedures_v2_b<N> FORMAT TSVRaw` prints it.
  *
- * The suite creates the active build's table and a prepared one beside it from
+ * The suite creates an active build's table and a prepared one beside it from
  * that DDL, loads hand-declared rows and runs the REAL repository against them.
  * afterAll drops only the database this run created.
  */
@@ -22,7 +22,7 @@
 import { readFile } from 'node:fs/promises';
 
 import { ok } from 'neverthrow';
-import { afterAll, beforeAll, expect, it, describe } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import {
   makeClickhouseAnalysisRepo,
@@ -49,23 +49,36 @@ const run = async (sql: string): Promise<string> => {
   return text;
 };
 
-type Row = readonly [id: number, source: string, canonical: boolean, group: number | null];
+interface Row {
+  readonly id: number;
+  readonly source: string;
+  readonly canonical: boolean;
+  readonly group: number | null;
+  readonly privacy?: 'public' | 'restricted';
+  readonly status?: string;
+}
+
+const r = (
+  id: number,
+  source: string,
+  canonical: boolean,
+  group: number | null,
+  extra: Partial<Row> = {}
+): Row => ({ id, source, canonical, group, ...extra });
 
 const insert = (table: string, rows: readonly Row[]): Promise<string> =>
   run(
-    `INSERT INTO ${DATABASE}.${table} (procedure_id, build_id, is_canonical, dup_group_id, source_system) VALUES ${rows
+    `INSERT INTO ${DATABASE}.${table} (procedure_id, build_id, is_canonical, dup_group_id, source_system, privacy_class, status) VALUES ${rows
       .map(
-        ([id, source, canonical, group]) =>
-          `(${String(id)}, '16', ${String(canonical)}, ${group === null ? 'NULL' : String(group)}, '${source}')`
+        (x) =>
+          `(${String(x.id)}, '16', ${String(x.canonical)}, ${x.group === null ? 'NULL' : String(x.group)}, '${x.source}', '${x.privacy ?? 'public'}', ${x.status === undefined ? 'NULL' : `'${x.status}'`})`
       )
       .join(', ')}`
   );
 
-const repoFor = (buildId: string | null) =>
+const repo = () =>
   makeClickhouseAnalysisRepo({ url: URL_ENV, database: DATABASE, user, password }, () =>
-    Promise.resolve(
-      ok(buildId === null ? null : { buildId, publishedAt: 'now', quality: {}, matrixHash: null })
-    )
+    Promise.resolve(ok({ buildId: '16', publishedAt: 'now', quality: {}, matrixHash: null }))
   );
 
 d('procedure canonicality on a real ClickHouse', () => {
@@ -81,23 +94,31 @@ d('procedure canonicality on a real ClickHouse', () => {
     for (const build of ['16', '17']) {
       await run(ddl.replace(head, `CREATE TABLE ${DATABASE}.facts_procedures_v2_b${build}`));
     }
-    const big: Row[] = [[1000, 'elicitatie', true, 1000]];
+    const big: Row[] = [r(1000, 'elicitatie', true, 1000)];
     for (let i = 0; i < PROCEDURE_DUPLICATES_CAP + 5; i++) {
-      big.push([2000 + i, 'seap_notice', false, 1000]);
+      big.push(r(2000 + i, 'seap_notice', false, 1000));
     }
     await insert('facts_procedures_v2_b16', [
-      [347436, 'elicitatie', true, 347436],
-      [573731, 'seap_notice', false, 347436],
-      [573732, 'seap_notice', false, 347436],
-      [900001, 'elicitatie', true, null],
-      [900002, 'seap_notice', true, null],
-      [800001, 'seap_notice', true, 800001],
-      [800002, 'seap_notice', false, 800001],
+      // A rule-A group: the native head and two linked SEAP awards.
+      r(347436, 'elicitatie', true, 347436),
+      r(573731, 'seap_notice', false, 347436),
+      r(573732, 'seap_notice', false, 347436, { status: 'cancelled' }),
+      // Ungrouped native; ambiguous SEAP (two natives share its number).
+      r(900001, 'elicitatie', true, null),
+      r(900002, 'seap_notice', true, null),
+      // An older SEAP sibling group.
+      r(800001, 'seap_notice', true, 800001),
+      r(800002, 'seap_notice', false, 800001),
+      // A group whose canonical head is restricted, with one restricted member.
+      r(700001, 'elicitatie', true, 700001, { privacy: 'restricted' }),
+      r(700002, 'seap_notice', false, 700001),
+      r(700003, 'seap_notice', false, 700001),
+      r(700004, 'seap_notice', false, 700001, { privacy: 'restricted' }),
       ...big,
     ]);
     await insert('facts_procedures_v2_b17', [
-      [347436, 'elicitatie', true, null],
-      [573731, 'seap_notice', true, null],
+      r(347436, 'elicitatie', true, null),
+      r(573731, 'seap_notice', true, null),
     ]);
   });
 
@@ -105,9 +126,10 @@ d('procedure canonicality on a real ClickHouse', () => {
     await run(`DROP DATABASE IF EXISTS ${DATABASE}`);
   });
 
-  it('reads the active build table and leaves unknowns out', async () => {
-    const read = await repoFor('16').procedureCanonicality([
+  it('reads the pinned build table and leaves unknowns out', async () => {
+    const read = await repo().procedureCanonicality('16', [
       '573731',
+      '573732',
       '347436',
       '900001',
       '900002',
@@ -115,24 +137,38 @@ d('procedure canonicality on a real ClickHouse', () => {
       '999999',
       '1) OR (1',
     ]);
-    expect(Object.fromEntries(read._unsafeUnwrap() ?? [])).toEqual({
+    expect(Object.fromEntries(read._unsafeUnwrap())).toEqual({
       '347436': { isCanonical: true, dupGroupId: '347436' },
       '573731': { isCanonical: false, dupGroupId: '347436' },
+      // Cancelled procedures still carry their group: canonicality is metadata.
+      '573732': { isCanonical: false, dupGroupId: '347436' },
       '900001': { isCanonical: true, dupGroupId: null },
       '900002': { isCanonical: true, dupGroupId: null },
       '800002': { isCanonical: false, dupGroupId: '800001' },
     });
-    const prepared = await repoFor('17').procedureCanonicality(['573731']);
-    expect(Object.fromEntries(prepared._unsafeUnwrap() ?? [])).toEqual({
+    const prepared = await repo().procedureCanonicality('17', ['573731']);
+    expect(Object.fromEntries(prepared._unsafeUnwrap())).toEqual({
       '573731': { isCanonical: true, dupGroupId: null },
     });
-    expect((await repoFor(null).procedureCanonicality(['573731']))._unsafeUnwrap()).toBeNull();
-    expect((await repoFor('18').procedureCanonicality(['573731'])).isErr()).toBe(true);
+    expect((await repo().procedureCanonicality('18', ['573731'])).isErr()).toBe(true);
+  });
+
+  it('never answers or references a procedure that is not public', async () => {
+    const read = await repo().procedureCanonicality('16', ['700001', '700002', '700004']);
+    // The restricted head is not answered, and its id is not reported as the
+    // group of the public member.
+    expect(Object.fromEntries(read._unsafeUnwrap())).toEqual({
+      '700002': { isCanonical: false, dupGroupId: null },
+    });
+    expect((await repo().procedureDuplicates('16', '700002'))._unsafeUnwrap()).toEqual([
+      { sourceSystem: 'seap_notice', id: '700003' },
+    ]);
+    expect((await repo().procedureDuplicates('16', '700001'))._unsafeUnwrap()).toBeNull();
   });
 
   it('lists a group from one build, capped, the procedure excluded', async () => {
     const dups = async (id: string, build = '16') =>
-      (await repoFor(build).procedureDuplicates(id))._unsafeUnwrap();
+      (await repo().procedureDuplicates(build, id))._unsafeUnwrap();
     expect(await dups('573731')).toEqual([
       { sourceSystem: 'elicitatie', id: '347436' },
       { sourceSystem: 'seap_notice', id: '573732' },

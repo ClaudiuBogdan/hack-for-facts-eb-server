@@ -1488,39 +1488,43 @@ export const makeClickhouseAnalysisRepo = (
   // ── procedure canonicality (P36) ───────────────────────────────────────────
   //
   // PostgreSQL's procedures table has no dedup columns: rule A's links exist
-  // only in the analysis generation. They are read from the ACTIVE build's own
-  // procedure table, selected by the Postgres pointer, never from the newest
-  // facts (a prepared, unpublished generation has already rewritten those).
-  // Capabilities are not needed: only this one table is read, and a missing
-  // table is an error, never a fallback to another build's.
+  // only in the analysis generation. They are read from one published build's
+  // own procedure table, the build the Postgres pointer names, never from the
+  // newest facts (a prepared, unpublished generation has already rewritten
+  // those). The caller resolves that build once per request. Capabilities are
+  // not needed: only this one table is read, and a missing table is an error,
+  // never a fallback to another build's. Only public procedures are answered
+  // or referenced.
 
-  /** The active build's procedure table, or null when nothing is published. */
-  const activeProcedureTable = async (): Promise<Result<string | null, ApiError>> => {
+  const procedureCanonicalityBuild: AnalysisRepo['procedureCanonicalityBuild'] = async () => {
     const g = await publishedGeneration();
     if (g.isErr()) return err(g.error);
-    if (g.value === null) return ok(null);
-    const tables = tablesFor(g.value.buildId);
-    if (tables.isErr()) return err(tables.error);
-    return ok(tables.value.procedure);
+    return ok(g.value === null ? null : g.value.buildId);
   };
 
-  const procedureCanonicality: AnalysisRepo['procedureCanonicality'] = async (procedureIds) => {
-    const table = await activeProcedureTable();
-    if (table.isErr()) return err(table.error);
-    if (table.value === null) return ok(null);
-    const t = table.value;
+  const procedureCanonicality: AnalysisRepo['procedureCanonicality'] = async (
+    buildId,
+    procedureIds
+  ) => {
+    const tables = tablesFor(buildId);
+    if (tables.isErr()) return err(tables.error);
+    const t = tables.value.procedure;
     const ids = [...new Set(procedureIds)].filter(isProcedureId);
     const batches: string[][] = [];
     for (let at = 0; at < ids.length; at += PROCEDURE_CANONICALITY_BATCH) {
       batches.push(ids.slice(at, at + PROCEDURE_CANONICALITY_BATCH));
     }
+    // A group id names the group's canonical procedure: it is reported only
+    // when that procedure is public too (NULL IN … is not true, so an
+    // ungrouped row stays NULL).
     const reads = await Promise.all(
-      batches.map((batch) =>
-        query(
-          `SELECT toString(procedure_id) AS id, is_canonical AS canonical, toString(dup_group_id) AS group_id FROM ${t} WHERE procedure_id IN (${batch.join(', ')})`,
+      batches.map((batch) => {
+        const list = batch.join(', ');
+        return query(
+          `SELECT toString(procedure_id) AS id, is_canonical AS canonical, if(dup_group_id IN (SELECT procedure_id FROM ${t} WHERE privacy_class = 'public' AND procedure_id IN (SELECT dup_group_id FROM ${t} WHERE procedure_id IN (${list}) AND dup_group_id IS NOT NULL)), toString(dup_group_id), NULL) AS group_id FROM ${t} WHERE procedure_id IN (${list}) AND privacy_class = 'public'`,
           RawProcedureCanonicalityRowSchema
-        )
-      )
+        );
+      })
     );
     const byId = new Map<string, ProcedureCanonicality>();
     for (const read of reads) {
@@ -1535,16 +1539,16 @@ export const makeClickhouseAnalysisRepo = (
     return ok(byId);
   };
 
-  const procedureDuplicates: AnalysisRepo['procedureDuplicates'] = async (procedureId) => {
-    const table = await activeProcedureTable();
-    if (table.isErr()) return err(table.error);
-    if (table.value === null || !isProcedureId(procedureId)) return ok(null);
-    const t = table.value;
+  const procedureDuplicates: AnalysisRepo['procedureDuplicates'] = async (buildId, procedureId) => {
+    const tables = tablesFor(buildId);
+    if (tables.isErr()) return err(tables.error);
+    if (!isProcedureId(procedureId)) return ok(null);
+    const t = tables.value.procedure;
     // The procedure and its group in ONE statement on ONE table: the members
     // can never come from another build than the procedure's own row. The
     // procedure sorts first; a second row of it would sort right after.
     const rows = await query(
-      `SELECT toString(procedure_id) AS id, source_system AS source, toString(dup_group_id) AS group_id FROM ${t} WHERE procedure_id = ${procedureId} OR dup_group_id IN (SELECT dup_group_id FROM ${t} WHERE procedure_id = ${procedureId} AND dup_group_id IS NOT NULL) ORDER BY procedure_id = ${procedureId} DESC, procedure_id ASC LIMIT ${String(PROCEDURE_DUPLICATES_CAP + 1)}`,
+      `SELECT toString(procedure_id) AS id, source_system AS source, toString(dup_group_id) AS group_id FROM ${t} WHERE privacy_class = 'public' AND (procedure_id = ${procedureId} OR dup_group_id IN (SELECT dup_group_id FROM ${t} WHERE procedure_id = ${procedureId} AND privacy_class = 'public' AND dup_group_id IS NOT NULL)) ORDER BY procedure_id = ${procedureId} DESC, procedure_id ASC LIMIT ${String(PROCEDURE_DUPLICATES_CAP + 1)}`,
       RawProcedureGroupRowSchema
     );
     if (rows.isErr()) return err(rows.error);
@@ -1573,6 +1577,7 @@ export const makeClickhouseAnalysisRepo = (
     breakdownFor,
     concentrationFor,
     recordsFor,
+    procedureCanonicalityBuild,
     procedureCanonicality,
     procedureDuplicates,
   };
@@ -1596,6 +1601,7 @@ export const makeUnconfiguredAnalysisRepo = (): AnalysisRepo => {
     breakdownFor: () => Promise.resolve(unconfigured()),
     concentrationFor: () => Promise.resolve(unconfigured()),
     recordsFor: () => Promise.resolve(unconfigured()),
+    procedureCanonicalityBuild: () => Promise.resolve(unconfigured()),
     procedureCanonicality: () => Promise.resolve(unconfigured()),
     procedureDuplicates: () => Promise.resolve(unconfigured()),
   };

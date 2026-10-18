@@ -101,33 +101,71 @@ const repo = {
     Promise.resolve(
       ok([NATIVE, LINKED, UNLINKED].map(detail).find((d) => d.procedure.procedureId === id) ?? null)
     ),
-  getContractDetail: () => Promise.resolve(ok({ procedure: LINKED } as unknown as ContractDetail)),
+  getContractDetail: () =>
+    Promise.resolve(
+      ok({
+        procedure: LINKED,
+        // The contract's own dedup group (PostgreSQL), independent of P36.
+        duplicates: [{ sourceSystem: 'elicitatie_ca_award', id: '24395057' }],
+      } as unknown as ContractDetail)
+    ),
 } as unknown as ProcurementRepo;
 
 interface AnalysisFake {
   readonly analysis: AnalysisRepo;
-  readonly canonicalityCalls: (readonly string[])[];
+  readonly canonicalityCalls: { readonly build: string; readonly ids: readonly string[] }[];
+  readonly duplicateCalls: { readonly build: string; readonly id: string }[];
+  readonly pointerReads: () => number;
 }
 
-const analysisFake = (mode: 'active' | 'down' | 'unpublished'): AnalysisFake => {
-  const canonicalityCalls: (readonly string[])[] = [];
+/** Prepared build 17: every procedure canonical and ungrouped. */
+const answerOf = (build: string, id: string): ProcedureCanonicality | undefined =>
+  build === '16'
+    ? ACTIVE.get(id)
+    : ACTIVE.has(id)
+      ? { isCanonical: true, dupGroupId: null }
+      : undefined;
+
+/**
+ * `pointer` lists what successive pointer reads answer, so an activation
+ * between (or inside) requests is observable. 'down' fails ClickHouse only.
+ */
+const analysisFake = (
+  mode: 'active' | 'down' | 'unpublished',
+  pointer: readonly string[] = ['16']
+): AnalysisFake => {
+  const canonicalityCalls: { build: string; ids: readonly string[] }[] = [];
+  const duplicateCalls: { build: string; id: string }[] = [];
+  let reads = 0;
   const down = databaseError('clickhouse unreachable: connect ECONNREFUSED');
   const analysis = {
-    procedureCanonicality: (ids: readonly string[]) => {
-      canonicalityCalls.push(ids);
-      if (mode === 'down') return Promise.resolve(err(down));
+    procedureCanonicalityBuild: () => {
+      reads += 1;
       if (mode === 'unpublished') return Promise.resolve(ok(null));
+      return Promise.resolve(ok(pointer[Math.min(reads, pointer.length) - 1]));
+    },
+    procedureCanonicality: (build: string, ids: readonly string[]) => {
+      canonicalityCalls.push({ build, ids });
+      if (mode === 'down') return Promise.resolve(err(down));
       return Promise.resolve(
-        ok(new Map(ids.flatMap((id) => (ACTIVE.has(id) ? [[id, ACTIVE.get(id)]] : []))))
+        ok(
+          new Map(
+            ids.flatMap((id) => {
+              const answer = answerOf(build, id);
+              return answer === undefined ? [] : [[id, answer] as const];
+            })
+          )
+        )
       );
     },
-    procedureDuplicates: (id: string) => {
+    procedureDuplicates: (build: string, id: string) => {
+      duplicateCalls.push({ build, id });
       if (mode === 'down') return Promise.resolve(err(down));
-      if (mode === 'unpublished') return Promise.resolve(ok(null));
-      return Promise.resolve(ok(GROUPS.get(id) ?? null));
+      if (!ACTIVE.has(id)) return Promise.resolve(ok(null));
+      return Promise.resolve(ok(build === '16' ? (GROUPS.get(id) ?? []) : []));
     },
   } as unknown as AnalysisRepo;
-  return { analysis, canonicalityCalls };
+  return { analysis, canonicalityCalls, duplicateCalls, pointerReads: () => reads };
 };
 
 let app: FastifyInstance | undefined;
@@ -199,6 +237,10 @@ const CONTRACT = /* GraphQL */ `
         isCanonical
         dupGroupId
       }
+      duplicates {
+        sourceSystem
+        id
+      }
     }
   }
 `;
@@ -222,7 +264,8 @@ describe('procedure canonicality follows the active generation', () => {
       ],
     });
     // Both fields of all three nodes: ONE read with the three ids.
-    expect(fake.canonicalityCalls).toEqual([['347436', '573731', '900001']]);
+    expect(fake.canonicalityCalls).toEqual([{ build: '16', ids: ['347436', '573731', '900001'] }]);
+    expect(fake.pointerReads()).toBe(1);
   });
 
   it('serves the linked observation and its group on the detail', async () => {
@@ -251,7 +294,21 @@ describe('procedure canonicality follows the active generation', () => {
     expect(body.errors).toBeUndefined();
     expect(body.data?.['procurementContract']).toEqual({
       procedure: { id: '573731', isCanonical: false, dupGroupId: '347436' },
+      duplicates: [{ sourceSystem: 'elicitatie_ca_award', id: '24395057' }],
     });
+  });
+
+  it("keeps a contract's own duplicates when procedure canonicality fails", async () => {
+    app = await buildApp(analysisFake('down').analysis);
+    const body = await post(CONTRACT);
+    expect(body.data?.['procurementContract']).toEqual({
+      procedure: { id: '573731', isCanonical: null, dupGroupId: null },
+      duplicates: [{ sourceSystem: 'elicitatie_ca_award', id: '24395057' }],
+    });
+    expect((body.errors ?? []).map((e) => (e.path ?? []).join('.')).sort()).toEqual([
+      'procurementContract.procedure.dupGroupId',
+      'procurementContract.procedure.isCanonical',
+    ]);
   });
 
   it('answers null, not true, for a procedure the generation does not hold', async () => {
@@ -292,6 +349,63 @@ describe('procedure canonicality follows the active generation', () => {
       procedure: { id: '573731', noticeNo: 'CAN1160189', isCanonical: null, dupGroupId: null },
       duplicates: null,
     });
+  });
+
+  it('pins one build per request, across root fields and an activation', async () => {
+    // The pointer moves from 16 to 17 after the first read.
+    const fake = analysisFake('active', ['16', '17']);
+    app = await buildApp(fake.analysis);
+    const query = /* GraphQL */ `
+      {
+        procurementProcedures {
+          items {
+            id
+            isCanonical
+            dupGroupId
+          }
+        }
+        procurementProcedure(id: "573731") {
+          procedure {
+            id
+            isCanonical
+            dupGroupId
+          }
+          duplicates {
+            id
+          }
+        }
+      }
+    `;
+    const first = await post(query);
+    expect(first.errors).toBeUndefined();
+    expect(first.data).toEqual({
+      procurementProcedures: {
+        items: [
+          { id: '347436', isCanonical: true, dupGroupId: '347436' },
+          { id: '573731', isCanonical: false, dupGroupId: '347436' },
+          { id: '900001', isCanonical: true, dupGroupId: null },
+        ],
+      },
+      procurementProcedure: {
+        procedure: { id: '573731', isCanonical: false, dupGroupId: '347436' },
+        duplicates: [{ id: '347436' }],
+      },
+    });
+    expect(fake.pointerReads()).toBe(1);
+    expect(
+      new Set([...fake.canonicalityCalls, ...fake.duplicateCalls].map((c) => c.build))
+    ).toEqual(new Set(['16']));
+
+    // The next request sees the new pointer, and only it.
+    const second = await post(query);
+    expect(second.errors).toBeUndefined();
+    expect(second.data?.['procurementProcedure']).toEqual({
+      procedure: { id: '573731', isCanonical: true, dupGroupId: null },
+      duplicates: [],
+    });
+    expect(fake.pointerReads()).toBe(2);
+    expect(fake.canonicalityCalls.at(-1)?.build).toBe('17');
+    expect(fake.duplicateCalls.at(-1)?.build).toBe('17');
   });
 
   it('reports a backend failure as an error on the field, keeping the node', async () => {
