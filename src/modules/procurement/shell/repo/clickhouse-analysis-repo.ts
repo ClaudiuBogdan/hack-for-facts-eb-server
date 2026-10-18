@@ -56,6 +56,7 @@ import type {
   AnalysisBreakdownRead,
   AnalysisRecordRow,
   AnalysisRecordsSort,
+  ProcedureCanonicality,
   AnalysisRepo,
   AnalysisStatsRead,
   ConcentrationRead,
@@ -666,6 +667,39 @@ const RECORD_PK: Readonly<Record<string, string>> = {
   direct_acquisition: 'da_id',
   contract: 'contract_id',
 };
+
+/** A procedure surrogate key; anything else is never interpolated. */
+const PROCEDURE_ID = /^[1-9][0-9]{0,18}$/;
+const isProcedureId = (id: string): boolean =>
+  PROCEDURE_ID.test(id) && BigInt(id) <= 9_223_372_036_854_775_807n;
+/** Ids per canonicality statement (a GraphQL page asks for far fewer). */
+export const PROCEDURE_CANONICALITY_BATCH = 1000;
+/** Group members listed per procedure, as for contracts and direct purchases. */
+export const PROCEDURE_DUPLICATES_CAP = 20;
+
+const ProcedureIdSchema = Type.String({ pattern: '^[0-9]+$' });
+const NullableProcedureIdSchema = Type.Union([ProcedureIdSchema, Type.Null()]);
+
+// Output aliases never reuse a column name: ClickHouse resolves an alias in
+// WHERE and ORDER BY, so `toString(procedure_id) AS procedure_id` would turn
+// the id predicate into a string comparison.
+const RawProcedureCanonicalityRowSchema = Type.Object(
+  {
+    id: ProcedureIdSchema,
+    canonical: Type.Boolean(),
+    group_id: NullableProcedureIdSchema,
+  },
+  { additionalProperties: false }
+);
+
+const RawProcedureGroupRowSchema = Type.Object(
+  {
+    id: ProcedureIdSchema,
+    source: Type.String(),
+    group_id: NullableProcedureIdSchema,
+  },
+  { additionalProperties: false }
+);
 
 const BasisCoverageRowSchema = Type.Object(
   {
@@ -1451,6 +1485,85 @@ export const makeClickhouseAnalysisRepo = (
     return ok({ total: totalR.value[0]?.total ?? '0', rows });
   };
 
+  // ── procedure canonicality (P36) ───────────────────────────────────────────
+  //
+  // PostgreSQL's procedures table has no dedup columns: rule A's links exist
+  // only in the analysis generation. They are read from the ACTIVE build's own
+  // procedure table, selected by the Postgres pointer, never from the newest
+  // facts (a prepared, unpublished generation has already rewritten those).
+  // Capabilities are not needed: only this one table is read, and a missing
+  // table is an error, never a fallback to another build's.
+
+  /** The active build's procedure table, or null when nothing is published. */
+  const activeProcedureTable = async (): Promise<Result<string | null, ApiError>> => {
+    const g = await publishedGeneration();
+    if (g.isErr()) return err(g.error);
+    if (g.value === null) return ok(null);
+    const tables = tablesFor(g.value.buildId);
+    if (tables.isErr()) return err(tables.error);
+    return ok(tables.value.procedure);
+  };
+
+  const procedureCanonicality: AnalysisRepo['procedureCanonicality'] = async (procedureIds) => {
+    const table = await activeProcedureTable();
+    if (table.isErr()) return err(table.error);
+    if (table.value === null) return ok(null);
+    const t = table.value;
+    const ids = [...new Set(procedureIds)].filter(isProcedureId);
+    const batches: string[][] = [];
+    for (let at = 0; at < ids.length; at += PROCEDURE_CANONICALITY_BATCH) {
+      batches.push(ids.slice(at, at + PROCEDURE_CANONICALITY_BATCH));
+    }
+    const reads = await Promise.all(
+      batches.map((batch) =>
+        query(
+          `SELECT toString(procedure_id) AS id, is_canonical AS canonical, toString(dup_group_id) AS group_id FROM ${t} WHERE procedure_id IN (${batch.join(', ')})`,
+          RawProcedureCanonicalityRowSchema
+        )
+      )
+    );
+    const byId = new Map<string, ProcedureCanonicality>();
+    for (const read of reads) {
+      if (read.isErr()) return err(read.error);
+      for (const row of read.value) {
+        if (byId.has(row.id)) {
+          return err(databaseError(`procedure ${row.id} is not unique in ${t}`));
+        }
+        byId.set(row.id, { isCanonical: row.canonical, dupGroupId: row.group_id });
+      }
+    }
+    return ok(byId);
+  };
+
+  const procedureDuplicates: AnalysisRepo['procedureDuplicates'] = async (procedureId) => {
+    const table = await activeProcedureTable();
+    if (table.isErr()) return err(table.error);
+    if (table.value === null || !isProcedureId(procedureId)) return ok(null);
+    const t = table.value;
+    // The procedure and its group in ONE statement on ONE table: the members
+    // can never come from another build than the procedure's own row. The
+    // procedure sorts first; a second row of it would sort right after.
+    const rows = await query(
+      `SELECT toString(procedure_id) AS id, source_system AS source, toString(dup_group_id) AS group_id FROM ${t} WHERE procedure_id = ${procedureId} OR dup_group_id IN (SELECT dup_group_id FROM ${t} WHERE procedure_id = ${procedureId} AND dup_group_id IS NOT NULL) ORDER BY procedure_id = ${procedureId} DESC, procedure_id ASC LIMIT ${String(PROCEDURE_DUPLICATES_CAP + 1)}`,
+      RawProcedureGroupRowSchema
+    );
+    if (rows.isErr()) return err(rows.error);
+    const [self, ...others] = rows.value;
+    if (self?.id !== procedureId) return ok(null);
+    if (others.some((row) => row.id === procedureId)) {
+      return err(databaseError(`procedure ${procedureId} is not unique in ${t}`));
+    }
+    if (self.group_id === null) return ok([]);
+    if (others.some((row) => row.group_id !== self.group_id)) {
+      return err(databaseError(`procedure ${procedureId} group read returned another group`));
+    }
+    return ok(
+      others
+        .slice(0, PROCEDURE_DUPLICATES_CAP)
+        .map((row) => ({ sourceSystem: row.source, id: row.id }))
+    );
+  };
+
   return {
     activeGeneration,
     basisCoverage,
@@ -1460,6 +1573,8 @@ export const makeClickhouseAnalysisRepo = (
     breakdownFor,
     concentrationFor,
     recordsFor,
+    procedureCanonicality,
+    procedureDuplicates,
   };
 };
 
@@ -1481,5 +1596,7 @@ export const makeUnconfiguredAnalysisRepo = (): AnalysisRepo => {
     breakdownFor: () => Promise.resolve(unconfigured()),
     concentrationFor: () => Promise.resolve(unconfigured()),
     recordsFor: () => Promise.resolve(unconfigured()),
+    procedureCanonicality: () => Promise.resolve(unconfigured()),
+    procedureDuplicates: () => Promise.resolve(unconfigured()),
   };
 };

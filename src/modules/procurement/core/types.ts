@@ -186,7 +186,10 @@ export interface ProcedureDetail {
    * value (only estimated), so a per-lot winner cannot be derived without fabrication.
    */
   readonly perLotWinners: null;
-  /** Always empty for procedures — the table has no `dup_group_id` (see schema.ts). */
+  /**
+   * Always empty from the repository — the table has no `dup_group_id` (see
+   * schema.ts). GraphQL resolves the group from the active analysis generation.
+   */
   readonly duplicates: readonly DuplicateRef[];
   readonly ted: TedRef | null;
 }

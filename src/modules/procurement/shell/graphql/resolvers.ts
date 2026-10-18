@@ -10,6 +10,8 @@
  *     100 rows would otherwise be 100 contract reads.
  *   - `elicitatiePage` on contracts, modifications, procedures and direct
  *     purchases (P33) — one statement per page of rows.
+ *   - `isCanonical`/`dupGroupId` on procedures (P36) — one ClickHouse statement
+ *     per page, on the active generation's procedure table.
  */
 
 import { GraphQLError } from 'graphql';
@@ -63,11 +65,12 @@ import {
   resolveCpv,
 } from '../../core/usecases.js';
 
-import type { AnalysisRepo, ProcurementRepo } from '../../core/ports.js';
+import type { AnalysisRepo, ProcedureCanonicality, ProcurementRepo } from '../../core/ports.js';
 import type {
   DaDetailAvailability,
   DaItem,
   OffsetSearchResult,
+  ProcedureDetail,
   ProcurementContract,
   ProcurementDirectAcquisition,
   ProcurementModification,
@@ -211,6 +214,15 @@ export const makeProcurementResolvers = (
   );
   const directAcquisitionPageLoader = makeBatchLoader<ElicitatiePage | null>(
     async (ids) => unwrap(await repo.elicitatiePagesForDirectAcquisitions(ids)),
+    null
+  );
+
+  // A procedure's canonicality exists only in the ACTIVE analysis generation
+  // (P36 rule A); PostgreSQL's procedures table carries none. A procedure that
+  // generation does not hold reads null; a backend failure rejects the batch,
+  // so the field is null WITH an error, never a guessed `true`.
+  const procedureCanonicalityLoader = makeBatchLoader<ProcedureCanonicality | null>(
+    async (ids) => unwrap(await analysis.procedureCanonicality(ids)) ?? new Map(),
     null
   );
 
@@ -476,10 +488,17 @@ export const makeProcurementResolvers = (
     ProcurementProcedure: {
       id: (p: ProcurementProcedure) => p.procedureId,
       authority: (p: ProcurementProcedure) => party(p.authorityCui, p.authorityName),
-      // Structural, not fabricated: the table has no dedup columns (see schema.ts).
-      isCanonical: () => true,
-      dupGroupId: () => null,
+      isCanonical: async (p: ProcurementProcedure) =>
+        (await procedureCanonicalityLoader.load(p.procedureId))?.isCanonical ?? null,
+      dupGroupId: async (p: ProcurementProcedure) =>
+        (await procedureCanonicalityLoader.load(p.procedureId))?.dupGroupId ?? null,
       elicitatiePage: (p: ProcurementProcedure) => procedurePageLoader.load(p.procedureId),
+    },
+    ProcurementProcedureDetail: {
+      // The group as the active generation publishes it (P36), not the
+      // repository's structurally empty list.
+      duplicates: async (d: ProcedureDetail) =>
+        unwrap(await analysis.procedureDuplicates(d.procedure.procedureId)),
     },
     ProcurementContract: {
       id: (c: ProcurementContract) => c.contractId,

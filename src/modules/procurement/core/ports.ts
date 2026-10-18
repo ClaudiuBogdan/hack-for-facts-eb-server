@@ -21,6 +21,7 @@ import type {
   CpvDivision,
   CpvMatch,
   DirectAcquisitionDetail,
+  DuplicateRef,
   OffsetSearchRequest,
   OffsetSearchResult,
   ProcedureDetail,
@@ -298,6 +299,17 @@ export interface AnalysisRecordsRead {
 }
 
 /**
+ * A procedure's place in the ACTIVE published generation (P36). `isCanonical`
+ * false marks a source observation counted through its group's canonical
+ * member: `dupGroupId` is that member's procedure id (a canonical head carries
+ * its own id; an ungrouped procedure null).
+ */
+export interface ProcedureCanonicality {
+  readonly isCanonical: boolean;
+  readonly dupGroupId: string | null;
+}
+
+/**
  * The analysis rollup reader. Every statement pins `build_id` to the generation
  * resolved by `activeGeneration()` — a mid-request cutover can never mix builds.
  */
@@ -353,4 +365,22 @@ export interface AnalysisRepo {
     generation: ActiveGeneration,
     page: { readonly sort: AnalysisRecordsSort; readonly offset: number; readonly limit: number }
   ): Promise<Result<AnalysisRecordsRead, ApiError>>;
+  /**
+   * Procedure canonicality as the ACTIVE generation publishes it, read from that
+   * build's own procedure table (never the unversioned facts a prepared,
+   * not-yet-active generation rewrites). null when no generation is active; an
+   * id absent from the map is not part of the active generation.
+   */
+  procedureCanonicality(
+    procedureIds: readonly string[]
+  ): Promise<Result<ReadonlyMap<string, ProcedureCanonicality> | null, ApiError>>;
+  /**
+   * The other members of a procedure's group in the ACTIVE generation, read
+   * with the procedure itself in one statement on one build table (capped).
+   * null when no generation is active or the procedure is not part of it; []
+   * when it is ungrouped.
+   */
+  procedureDuplicates(
+    procedureId: string
+  ): Promise<Result<readonly DuplicateRef[] | null, ApiError>>;
 }

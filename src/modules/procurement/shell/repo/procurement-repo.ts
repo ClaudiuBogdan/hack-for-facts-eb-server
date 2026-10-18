@@ -330,7 +330,8 @@ export const makeProcurementRepo = (
    * The bundle loads in a fixed, small number of statements: the procedure, then
    * its contracts + its TED notice CONCURRENTLY. `perLotWinners` is structurally
    * null (procedure_lots has neither a winner nor an awarded value) and
-   * `duplicates` structurally empty (procedures carry no dup_group_id).
+   * `duplicates` structurally empty here (procedures carry no dup_group_id;
+   * GraphQL reads the group from the active analysis generation).
    */
   const getProcedureDetail = async (
     id: string

@@ -150,9 +150,16 @@ export const procurementTypeDefs = /* GraphQL */ `
     sourceUrl: String
     "The record's own e-licitatie.ro page, when known (P33); null otherwise."
     elicitatiePage: ProcurementElicitatiePage
-    "Always true: procurement.procedures carries no dedup columns."
-    isCanonical: Boolean!
-    "Always null: procurement.procedures carries no dup_group_id."
+    """
+    Whether the active published analysis generation counts this procedure
+    itself (P36). False marks a source observation counted through its group's
+    canonical procedure (dupGroupId), for example a SEAP award notice linked to
+    its e-licitatie notice. Null when no generation is active or this procedure
+    is not part of the active one; null with an error when the analytics
+    backend cannot be read.
+    """
+    isCanonical: Boolean
+    "The id of the group's canonical procedure in the active generation (its own id for a group's head); null when ungrouped or when isCanonical is null."
     dupGroupId: String
   }
 
@@ -492,8 +499,8 @@ export const procurementTypeDefs = /* GraphQL */ `
     contracts: [ProcurementContract!]!
     "Always null in v1: procedure_lots carries no winner identity and no awarded value."
     perLotWinners: [ProcurementLotWinner!]
-    "Always empty: procedures carry no dup_group_id."
-    duplicates: [ProcurementDuplicateRef!]!
+    "The other procedures of this procedure's group in the active generation (P36), at most 20; null when isCanonical is null."
+    duplicates: [ProcurementDuplicateRef!]
     ted: ProcurementTedRef
   }
 

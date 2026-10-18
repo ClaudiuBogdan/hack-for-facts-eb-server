@@ -17,8 +17,9 @@
 
 /**
  * NOTE (verified live 2026-07-09): `procedures` has NO `is_canonical` / `dup_group_id`
- * columns — the dedup pass runs on contracts + DAs only. The procedure surface
- * therefore reports `isCanonical: true` / `dupGroupId: null` structurally.
+ * columns. Procedure groups (P36 rule A) exist only in the analysis generation,
+ * so the GraphQL surface reads `isCanonical` / `dupGroupId` / `duplicates` from
+ * the ACTIVE generation's ClickHouse procedure table (see `resolvers.ts`).
  */
 export interface ProcurementProceduresTable {
   procedure_id: string; // bigint → string
