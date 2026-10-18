@@ -59,7 +59,7 @@ import {
   type StatusEventRow,
   type SummaryRow,
 } from './mappers.js';
-import { parseCitation } from '../../core/citation.js';
+import { normalizeAlias, parseCitation } from '../../core/citation.js';
 import {
   AMENDMENT_RELATIONS,
   LEGAL_STATUS_EVENTS_BOUND,
@@ -335,7 +335,7 @@ export const makeLegalActsRepo = (db: Db): LegalActsRepo => {
     try {
       const rows = await selectActs()
         .innerJoin('legal.act_aliases as al', 'al.act_id', 'a.act_id')
-        .where('al.alias', '=', alias.trim().toLowerCase())
+        .where('al.alias', '=', normalizeAlias(alias))
         // The alias path ties HARDEST. Measured: 15 aliases resolve to several
         // acts at an identical in_degree, including codul civil (6774 vs 33630),
         // codul penal, and codul muncii (three acts, all at 0). Without a

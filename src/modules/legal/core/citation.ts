@@ -36,6 +36,13 @@ const TYPE_ALIASES: Record<string, string> = {
 const fold = (s: string): string => s.normalize('NFD').replace(/[̀-ͯ]/gu, '').toLowerCase();
 
 /**
+ * An alias as stored: folded and single-spaced. All 90 stored aliases are ASCII
+ * lower case ("codul de procedura penala", measured 2026-10-18), so an input
+ * with diacritics ("Codul de procedură penală") matched none of them.
+ */
+export const normalizeAlias = (raw: string): string => fold(raw).replace(/\s+/gu, ' ').trim();
+
+/**
  * One spelling per citation: folded, "nr." dropped with or without a space
  * before its dot, and a dotted type abbreviation ("O.U.G.", "H.G.", "L.") joined
  * into its word. Read letter by letter, "O.U.G. 57/2019" was an ordin (`o`). An

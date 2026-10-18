@@ -78,13 +78,14 @@ const SEED = `
     (10, 'ordin:867:2011:ms', 'ordin', '867', 2011, 'ms', 'Ordinul nr. 867/2011', 4),
     (20, 'ordin:1:2020:ms',   'ordin', '1',   2020, 'ms',  'Ordinul nr. 1/2020', 9),
     (21, 'ordin:1:2020:mfp',  'ordin', '1',   2020, 'mfp', 'Ordinul nr. 1/2020', 0),
-    (30, 'lege:227:2015:',    'lege',  '227', 2015, '',    'Legea nr. 227/2015 privind Codul fiscal', 50);
+    (30, 'lege:227:2015:',    'lege',  '227', 2015, '',    'Legea nr. 227/2015 privind Codul fiscal', 50),
+    (40, 'lege:135:2010:',    'lege',  '135', 2010, '',    'Legea nr. 135/2010', 70);
   -- One joint order, two co-signers' keys for the same number.
   insert into legal.act_citation_keys values
     ('ordin', '867', 2011, 'ms', 10), ('ordin', '867', 2011, 'cnas', 10),
     ('ordin', '1', 2020, 'ms', 20), ('ordin', '1', 2020, 'mfp', 21),
     ('lege', '227', 2015, '', 30);
-  insert into legal.act_aliases values ('codul fiscal', 30);
+  insert into legal.act_aliases values ('codul fiscal', 30), ('codul de procedura penala', 40);
 `;
 
 beforeAll(async () => {
@@ -158,6 +159,11 @@ describe('the act a citation names, on real rows (I-21)', () => {
       (await resolveCitedAct(repo(), { citation: ' Codul Fiscal ' }))._unsafeUnwrap()?.actId
     ).toBe('30');
     expect((await repo().findActsByAlias('codul', 25))._unsafeUnwrap()).toEqual([]);
+    // Aliases are stored folded; an input with diacritics and spacing still names its act.
+    expect(
+      (await resolveCitedAct(repo(), { citation: 'Codul  de procedură  penală' }))._unsafeUnwrap()
+        ?.actId
+    ).toBe('40');
   });
 
   it('further words are refused with their candidates, even a single one', async () => {

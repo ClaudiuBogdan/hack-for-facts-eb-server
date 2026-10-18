@@ -392,7 +392,7 @@ const objectsAndQuery = /* GraphQL */ `
   }
 
   extend type Query {
-    "An act by numeric act_id, or by a citation exactly one act holds: one bare citation (type, number/year: 'legea 227/2015') or one known name ('codul fiscal'). A citation several acts hold (ordinul 1/2020: seven issuers), or input with further words (issuer, a second citation, a title fragment), is an error that lists the candidates; pass actId (legalResolve(dim: act) lists them too)."
+    "An act by numeric act_id, or by a citation exactly one act holds: one bare citation (type, number/year: 'legea 227/2015') or one known name ('codul de procedură penală'). A citation or name several acts hold (ordinul 1/2020: seven issuers; codul fiscal: the 2015 and the 2003 codes), or input with further words (issuer, a second citation, a title fragment), is an error that lists the candidates; pass actId (legalResolve(dim: act) lists them too)."
     legalAct(actId: BigInt, citation: String): LegalAct
     "Acts directory. Cursor-only (223k acts); default sort in_degree desc."
     legalActs(

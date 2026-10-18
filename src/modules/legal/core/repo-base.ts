@@ -75,7 +75,8 @@ export interface LegalRepoBase {
   ): Promise<Result<readonly LegalAct[], ApiError>>;
 
   /**
-   * Every act holding this alias, the whole input lower-cased ("codul fiscal").
+   * Every act holding this alias, the whole input folded as aliases are stored
+   * ("Codul de procedură penală" → "codul de procedura penala").
    * In_degree desc, act_id asc; at most `limit + 1` rows, so the caller knows when
    * the set is incomplete (I-21).
    */

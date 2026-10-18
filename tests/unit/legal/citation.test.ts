@@ -6,7 +6,11 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { parseCitation, parseExactCitation } from '@/modules/legal/core/citation.js';
+import {
+  normalizeAlias,
+  parseCitation,
+  parseExactCitation,
+} from '@/modules/legal/core/citation.js';
 
 describe('parseCitation — identifier router', () => {
   it('parses "legea 227/2015" → lege 227/2015', () => {
@@ -94,5 +98,14 @@ describe('parseExactCitation (I-21)', () => {
     'cota de tva 19/2020',
   ])('"%s" is not one citation', (q) => {
     expect(parseExactCitation(q)).toBeNull();
+  });
+});
+
+describe('normalizeAlias (I-21)', () => {
+  it('folds an alias as the stored ones are: ASCII lower case, single-spaced', () => {
+    expect(normalizeAlias(' Codul  de procedură penală ')).toBe('codul de procedura penala');
+    expect(normalizeAlias('Codul Fiscal')).toBe('codul fiscal');
+    // Comma-below and cedilla forms of ș/ț fold alike.
+    expect(normalizeAlias('Ordonanța ş ţ ș ț')).toBe('ordonanta s t s t');
   });
 });
