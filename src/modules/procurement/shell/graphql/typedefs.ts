@@ -155,10 +155,11 @@ export const procurementTypeDefs = /* GraphQL */ `
     generation's dedup groups (P36): true when it is ungrouped or its group's
     canonical procedure; false for a source observation represented by its
     group's canonical procedure (dupGroupId), for example a SEAP award notice
-    linked to its e-licitatie notice. Being canonical does not by itself put a
-    procedure in default totals: its status and value state still apply. Null
-    when no generation is active or this procedure is not part of the active
-    one; null with an error when the analytics backend cannot be read.
+    linked to its e-licitatie notice. Being canonical does not by itself count
+    it: cancelled procedures are excluded from default totals, and awarded-value
+    totals also require an accepted value state. Null when no generation is
+    active or this procedure is not part of the active one; null with an error
+    when the analytics backend cannot be read.
     """
     isCanonical: Boolean
     "The id of the group's canonical procedure in the active generation (its own id for a group's head); null when ungrouped, when that procedure is not public, or when isCanonical is null. One response reads one generation."
