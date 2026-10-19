@@ -282,7 +282,7 @@ export const makeLegalMcpTools = (deps: LegalMcpDeps): readonly KernelMcpTool[] 
   const getLegalActTimeline: KernelMcpTool = {
     name: 'get_legal_act_timeline',
     description:
-      'The merged lifecycle of an act: status events (portal + monitorul-oficial) + amendment edges, in chronological order.',
+      'The merged lifecycle of an act: status events (portal + monitorul-oficial) + amendment edges, in chronological order. A modifica/completeaza reference from a judicial court decision to an act that is not itself a court decision is left out: the decision cites a change, it does not make one (I-28). Administrative-court, court-on-court and repeal references stay, and every reference stays in the citation graph.',
     inputShape: getLegalActTimelineInput,
     async handler(args): Promise<McpToolOutput> {
       const ref = refOf(args);

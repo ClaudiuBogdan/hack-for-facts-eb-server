@@ -24,6 +24,7 @@ import {
 } from '@/modules/shared/index.js';
 
 import { parseExactCitation } from './citation.js';
+import { isCourtReport } from './court-reports.js';
 import { LEGAL_LIVE_STATUSES, toEngineFilter } from './legal-engine-filter.js';
 import { searchWithEngine } from './legal-engine-search.js';
 import { LEGAL_ORIGINAL_TEXT_CAVEAT, amendmentCountPhrase } from './provenance.js';
@@ -207,6 +208,13 @@ export const getActTimeline = async (
 ): Promise<Result<LegalActTimeline, ApiError>> => {
   const eventsRes = await base.getStatusEvents(actId);
   if (eventsRes.isErr()) return err(eventsRes.error);
+  // The act's own issuer and type decide whether a court reference is a report
+  // (I-28). Read here, not taken from the caller's object: a partial parent
+  // would class a court decision as a non-court act. Not found: nothing is
+  // filtered.
+  const actRes = await base.findActById(actId);
+  if (actRes.isErr()) return err(actRes.error);
+  const act = actRes.value;
 
   // Walk every page of incoming amendment edges (199 per page: the paged repo
   // probes first+1 inside its 200-row hub guard). One page used to be the whole
@@ -243,6 +251,11 @@ export const getActTimeline = async (
     });
   }
   for (const { edge, sourceAct } of edges) {
+    // A judicial court decision's modifica/completeaza reference to a non-court
+    // act cites a change, it does not make one (I-28): the stored status events
+    // omit it, and so does this view. Its repeal references stay, as the stored
+    // judicial repeal events do. Every reference stays in `links`.
+    if (act !== null && isCourtReport(edge.relation, sourceAct, act)) continue;
     entries.push({
       kind: 'amendment',
       effectiveDate: sourceAct?.entryIntoForce ?? null,

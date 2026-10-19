@@ -103,7 +103,7 @@ const objectsAndQuery = /* GraphQL */ `
     citationKeys: [LegalCitationKey!]!
     "Exact number of the act's document expressions (act_documents rows)."
     versionCount: Int!
-    "Incoming modifica/completeaza references on the act, of any date — the §5.2-C honesty badge. References, not distinct amending acts or legal changes, and not dated against any one expression."
+    "Incoming modifica/completeaza references on the act, of any date — the §5.2-C honesty badge. References, not distinct amending acts or legal changes, and not dated against any one expression. It also counts the judicial court references the timeline omits (I-28)."
     amendedAfterPublication: Int!
     "Which version the served text/summary actually is (§5.2-C). Batched per request."
     versionProvenance: LegalVersionProvenance!
@@ -120,6 +120,7 @@ const objectsAndQuery = /* GraphQL */ `
     ): LegalReferenceConnection!
     "Incoming ANCHORS — links the portal itself asserts in citing documents' text (document_link_edges). A DIFFERENT graph from links: anchors are source assertions at mark grain, links are LLM-inferred normative relations; they disagree by construction and both disagreements are informative. Real totalCount; keyset-paged."
     incomingAnchors(first: Int = 50, after: String): LegalIncomingAnchorConnection!
+    "The act's stored status events merged with its incoming modifica/completeaza/abroga references. A judicial court decision's modifica/completeaza reference to an act that is not itself a court decision is omitted: the decision cites a change, it does not make one (I-28). Administrative-court, court-on-court and repeal references stay; every reference stays in links(direction: IN)."
     timeline: [LegalTimelineEntry!]!
     "False when the timeline reached its bound (10,000 amendment references or status events) and is incomplete; every act is complete today (largest 3,200)."
     timelineComplete: Boolean!
@@ -196,7 +197,7 @@ const objectsAndQuery = /* GraphQL */ `
     versionDate: Date
     "The legislatie.just.ro deep link — where the consolidated form can be checked. Never our own act page, which serves this same published text."
     sourceUrl: String
-    "Incoming modifica/completeaza references on the act, of any date: not distinct amending acts or legal changes, and not dated against this text (Legea 95/2006, republished 2015-08-28: 106 of its 292 come from earlier-dated sources)."
+    "Incoming modifica/completeaza references on the act, of any date: not distinct amending acts or legal changes, and not dated against this text (Legea 95/2006, republished 2015-08-28: 106 of its 292 come from earlier-dated sources). It also counts the judicial court references the timeline omits (I-28)."
     amendedAfterPublication: Int!
     latestConsolidationDate: Date
     "False while a consolidation is only a timeline anchor we have not fetched."
@@ -247,7 +248,7 @@ const objectsAndQuery = /* GraphQL */ `
     totalCount: Int
   }
 
-  "A merged act timeline entry (status events + amendment edges, LG-2)."
+  "A merged act timeline entry (status events + amendment edges, LG-2; a judicial court decision's modifica/completeaza reference to a non-court act is not an amendment edge, its repeal references stay, I-28)."
   type LegalTimelineEntry {
     kind: String!
     effectiveDate: Date
