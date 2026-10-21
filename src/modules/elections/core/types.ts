@@ -21,7 +21,10 @@ export type ElectionRound = (typeof ELECTION_ROUNDS)[number];
 export const ELECTION_OCCURRENCE_KINDS = ['general', 'runoff', 'repeat', 'partial'] as const;
 export type ElectionOccurrenceKind = (typeof ELECTION_OCCURRENCE_KINDS)[number];
 
-/** An occurrence or contest that was held, or annulled (its figures are absent). */
+/**
+ * An occurrence or contest that was held, or annulled. An annulled contest may have no
+ * figures; an occurrence annulled after its count keeps the counted figures it annulled.
+ */
 export const ELECTION_STATUSES = ['held', 'annulled'] as const;
 export type ElectionStatus = (typeof ELECTION_STATUSES)[number];
 
@@ -385,7 +388,10 @@ export interface ElectionContest {
   readonly jurisdiction: ElectionPlace;
   readonly status: ElectionStatus;
   readonly replacedBy: string | null;
-  /** Null when the contest has no votes at its jurisdiction (annulled, mandates only). */
+  /**
+   * Null when the contest has no votes at its jurisdiction (mandates only, or annulled
+   * without figures). An annulled count keeps its race; a race never names a winner.
+   */
   readonly race: ElectionRace | null;
 }
 

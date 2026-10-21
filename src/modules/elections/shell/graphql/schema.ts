@@ -49,7 +49,7 @@ export const electionsTypeDefs =
   ${enumOf('ElectionFamily', ELECTION_FAMILIES)}
   ${enumOf('ElectionRound', ELECTION_ROUNDS)}
   ${enumOf('ElectionOccurrenceKind', ELECTION_OCCURRENCE_KINDS)}
-  "held, or annulled: an annulled contest or occurrence has no figures."
+  "held, or annulled: an annulled contest may have no figures; one annulled after its count keeps the counted figures."
   ${enumOf('ElectionStatus', ELECTION_STATUSES)}
   ${enumOf('ElectionPlaceType', ELECTION_PLACE_TYPES)}
   ${enumOf('ElectionCompetitorKind', ELECTION_COMPETITOR_KINDS)}
@@ -207,7 +207,7 @@ export const electionsTypeDefs =
     jurisdiction: ElectionPlace!
     status: ElectionStatus!
     replacedBy: ID
-    "Null without votes at the jurisdiction (annulled, or mandates only)."
+    "Null without votes at the jurisdiction (mandates only, or annulled without figures). An annulled count keeps its race; a race never names a winner."
     race: ElectionRace
   }
 
