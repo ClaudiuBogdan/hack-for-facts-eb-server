@@ -5,7 +5,7 @@ metadata:
   labels:
     app.kubernetes.io/environment: development
 spec:
-  imageName: ghcr.io/cloudnative-pg/postgresql:18@sha256:c4d03ff9119154edbdae8879313cdf0aa5143a26e7ae400ca3ebe22dfc680a73
+  imageName: ghcr.io/cloudnative-pg/postgresql:18@sha256:899d3ed526b659d77935dde0e6bf2d69dbbf17d3d8c6486ca8cfd04bd3c18533
   instances: 1
   enableSuperuserAccess: false
   inheritedMetadata:
