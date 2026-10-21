@@ -7,78 +7,79 @@ import {
   type FilterInput,
 } from '@/modules/shared/index.js';
 
-import { ELECTION_SCOPE_TYPES } from './types.js';
+import { ELECTION_COMPETITOR_KINDS, ELECTION_PLACE_TYPES, ELECTION_STATUSES } from './types.js';
 
-/** Source editions (`elections.elections e` + public `electoral_events ev`), `election_key` order. */
-export const electionCatalogFilterSpec: CollectionFilterSpec = {
-  collection: 'election_catalog',
-  sort: { default: 'electionKey', allowed: ['electionKey'] },
-  fields: [
-    {
-      name: 'reportedYears',
-      type: 'int',
-      ops: ['in'],
-      array: true,
-      column: { alias: 'e', column: 'election_year' },
-      description: 'Reported (unverified) source-edition year.',
-    },
-    {
-      name: 'reportedFamilies',
-      type: 'string',
-      ops: ['in'],
-      array: true,
-      column: { alias: 'e', column: 'election_family' },
-      description:
-        'Reported (unverified) stored family label, e.g. local, parliamentary, presidential, referendum. Matched exactly, never corrected: some labels are wrong (European Parliament editions are stored as parliamentary).',
-    },
-    {
-      name: 'eventKeys',
-      type: 'string',
-      ops: ['in'],
-      array: true,
-      column: { alias: 'ev', column: 'event_key' },
-      description: 'Platform event grouping, e.g. ro:local:2024. Editions of one event overlap.',
-    },
-  ],
-};
+/**
+ * The filter specs give the three surfaces one validated input. The repository
+ * builds its own predicates from the validated values: jurisdiction type and
+ * county are computed from the jurisdiction key and the territory reference,
+ * not stored columns.
+ */
 
-/** Contests of one edition (`elections.contests c`), `contest_key` order. */
+/** Contests of one occurrence, `contest_key` order. */
 export const electionContestsFilterSpec: CollectionFilterSpec = {
   collection: 'election_contests',
   sort: { default: 'contestKey', allowed: ['contestKey'] },
   fields: [
     {
-      name: 'reportedOffices',
+      name: 'offices',
       type: 'string',
       ops: ['in'],
       array: true,
       column: { alias: 'c', column: 'office' },
       description:
-        'Reported (unverified) stored office label, e.g. mayor, local_council, county_council, county_president, chamber_deputies, senate. Vocabularies differ per source edition.',
+        'Office, e.g. mayor, local_council, county_council, county_council_president, general_mayor, general_council, chamber, senate.',
     },
     {
-      name: 'scopeTypes',
+      name: 'statuses',
       type: 'enum',
-      enumValues: ELECTION_SCOPE_TYPES,
+      enumValues: ELECTION_STATUSES,
       ops: ['in'],
       array: true,
-      column: { alias: 'c', column: 'scope_type' },
-      description: 'Source scope type; not a verified jurisdiction.',
+      column: { alias: 'c', column: 'status' },
+      description: 'held, or annulled (an annulled contest has no figures).',
     },
     {
-      name: 'reportedRounds',
+      name: 'jurisdictionTypes',
+      type: 'enum',
+      enumValues: ELECTION_PLACE_TYPES,
+      ops: ['in'],
+      array: true,
+      column: { alias: 'c', column: 'jurisdiction_type' },
+      description: 'The type of place the office covers: uat, county, diaspora or national.',
+    },
+    {
+      name: 'countyCodes',
       type: 'string',
       ops: ['in'],
       array: true,
-      column: { alias: 'c', column: 'round_label' },
-      description: 'Reported round label exactly as stored (open source vocabulary). Not finality.',
+      column: { alias: 'c', column: 'county_code' },
+      description:
+        'County code of the jurisdiction (e.g. CJ, B): a county contest, or a UAT contest in that county.',
+    },
+  ],
+};
+
+/** Competitors of one event's generation, `competitor_key` order. */
+export const electionCompetitorsFilterSpec: CollectionFilterSpec = {
+  collection: 'election_competitors',
+  sort: { default: 'competitorKey', allowed: ['competitorKey'] },
+  fields: [
+    {
+      name: 'kinds',
+      type: 'enum',
+      enumValues: ELECTION_COMPETITOR_KINDS,
+      ops: ['in'],
+      array: true,
+      column: { alias: 'k', column: 'competitor_kind' },
+      description: 'party, minority_org, list, independent or independents_bucket.',
     },
   ],
 };
 
 /**
  * Drop GraphQL `null`s (an omitted field and `field: null` mean the same) so
- * only real `{ op: value }` entries reach validation, SQL and paging.
+ * only real `{ op: value }` entries reach validation and SQL.
  */
 export const withoutNulls = (input: unknown): FilterInput => {
   if (typeof input !== 'object' || input === null) return {};
@@ -94,10 +95,9 @@ export const withoutNulls = (input: unknown): FilterInput => {
 };
 
 export const MAX_FILTER_VALUES = 100;
-const MAX_LABEL_LENGTH = 128;
 export const MAX_KEY_LENGTH = 512;
-export const MIN_REPORTED_YEAR = 1800;
-export const MAX_REPORTED_YEAR = 2100;
+const OFFICE = /^[a-z][a-z0-9_]*(?::[a-z0-9_]+)?$/u;
+const COUNTY_CODE = /^[A-Z]{1,2}$/u;
 
 /** A non-empty opaque value without control characters, passed through unchanged. */
 export const isOpaqueText = (value: string, maxLength: number): boolean =>
@@ -106,24 +106,21 @@ export const isOpaqueText = (value: string, maxLength: number): boolean =>
   // eslint-disable-next-line no-control-regex -- Rejecting control characters is the point.
   !/[\u0000-\u001f\u007f]/u.test(value);
 
-const acceptsValue = (field: string, value: unknown): boolean => {
-  switch (field) {
-    case 'reportedYears':
-      return (
-        typeof value === 'number' &&
-        Number.isSafeInteger(value) &&
-        value >= MIN_REPORTED_YEAR &&
-        value <= MAX_REPORTED_YEAR
-      );
-    case 'scopeTypes':
-      return (
-        typeof value === 'string' && (ELECTION_SCOPE_TYPES as readonly string[]).includes(value)
-      );
-    case 'eventKeys':
-      return typeof value === 'string' && isOpaqueText(value, MAX_KEY_LENGTH);
-    default:
-      return typeof value === 'string' && isOpaqueText(value, MAX_LABEL_LENGTH);
-  }
+export const isOffice = (value: string): boolean => value.length <= 64 && OFFICE.test(value);
+
+const acceptsValue = (spec: CollectionFilterSpec, field: string, value: unknown): boolean => {
+  if (typeof value !== 'string') return false;
+  const declared = spec.fields.find((candidate) => candidate.name === field);
+  if (declared?.type === 'enum') return (declared.enumValues ?? []).includes(value);
+  if (field === 'offices') return isOffice(value);
+  if (field === 'countyCodes') return COUNTY_CODE.test(value);
+  return false;
+};
+
+/** The validated `in` values of one field, or undefined when the field is absent. */
+export const inValues = (filter: FilterInput, field: string): readonly string[] | undefined => {
+  const values = filter[field]?.['in'];
+  return Array.isArray(values) ? (values as string[]) : undefined;
 };
 
 /**
@@ -144,7 +141,7 @@ export const validateFilter = (
         return err(
           invalidInput(`${name}.in must be an array of at most ${String(MAX_FILTER_VALUES)}.`, name)
         );
-      if (!values.every((value: unknown) => acceptsValue(name, value)))
+      if (!values.every((value: unknown) => acceptsValue(spec, name, value)))
         return err(invalidInput(`Invalid ${name} value.`, name));
     }
   }

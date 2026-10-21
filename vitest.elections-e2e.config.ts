@@ -12,7 +12,7 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    include: ['tests/e2e/elections-catalog.test.ts'],
+    include: ['tests/e2e/elections-results.test.ts'],
     exclude: [],
     setupFiles: [],
     testTimeout: 20_000,

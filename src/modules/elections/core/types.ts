@@ -1,145 +1,245 @@
 import type { FilterInput } from '@/modules/shared/index.js';
 
 /**
- * The contest scope types the production CHECK admits (`elections.contests`). A
- * scope is the source's reporting scope, not a verified jurisdiction: a polling
- * location's SIRUTA is not proof of the contest's territory.
+ * Elections results over the scrapper's serving model (scrapper prod migration
+ * 20261020T140000): one active, audited generation per event, read only through
+ * the `elections.active_*` views. Vocabularies mirror that migration's CHECKs.
  */
-export const ELECTION_SCOPE_TYPES = [
-  'siruta',
-  'county',
-  'diaspora',
-  'national',
-  'chamber',
-  'source_constituency',
+
+export const ELECTION_FAMILIES = [
+  'local',
+  'parliamentary',
+  'presidential',
+  'european',
+  'referendum',
 ] as const;
-export type ElectionScopeType = (typeof ELECTION_SCOPE_TYPES)[number];
+export type ElectionFamily = (typeof ELECTION_FAMILIES)[number];
+
+export const ELECTION_ROUNDS = ['r1', 'r2', 'r3', 'unknown'] as const;
+export type ElectionRound = (typeof ELECTION_ROUNDS)[number];
+
+export const ELECTION_OCCURRENCE_KINDS = ['general', 'runoff', 'repeat', 'partial'] as const;
+export type ElectionOccurrenceKind = (typeof ELECTION_OCCURRENCE_KINDS)[number];
+
+/** An occurrence or contest that was held, or annulled (its figures are absent). */
+export const ELECTION_STATUSES = ['held', 'annulled'] as const;
+export type ElectionStatus = (typeof ELECTION_STATUSES)[number];
+
+export const ELECTION_PLACE_TYPES = ['uat', 'county', 'national', 'diaspora'] as const;
+export type ElectionPlaceType = (typeof ELECTION_PLACE_TYPES)[number];
+
+export const ELECTION_COMPETITOR_KINDS = [
+  'party',
+  'minority_org',
+  'list',
+  'independent',
+  'independents_bucket',
+] as const;
+export type ElectionCompetitorKind = (typeof ELECTION_COMPETITOR_KINDS)[number];
+
+export const ELECTION_TALLY_MEASURES = ['votes', 'mandates'] as const;
+export type ElectionTallyMeasure = (typeof ELECTION_TALLY_MEASURES)[number];
+
+/** `none` for votes; mandate phases stay separate (never summed). */
+export const ELECTION_ALLOCATION_PHASES = ['none', 'man_1', 'man_2', 'final'] as const;
+export type ElectionAllocationPhase = (typeof ELECTION_ALLOCATION_PHASES)[number];
+
+export const ELECTION_TURNOUT_MEASURES = [
+  'registered',
+  'voted',
+  'valid',
+  'invalid',
+  'blank',
+] as const;
+export type ElectionTurnoutMeasure = (typeof ELECTION_TURNOUT_MEASURES)[number];
+
+export const ELECTION_CONSTRUCTIONS = ['published', 'summed_leaves'] as const;
+export const ELECTION_SOURCE_LEVELS = ['pv_lines', 'published_total'] as const;
+export const ELECTION_FINALITIES = ['final', 'provisional', 'unknown'] as const;
+export const ELECTION_COUNTED_POPULATIONS = ['all', 'linked_only'] as const;
+export const ELECTION_COMPLETENESS = ['complete', 'partial'] as const;
+/** VERIFIED: equals a separately published figure. UNCHECKED: no counterpart. SUSPECT: known defect. */
+export const ELECTION_FIGURE_STATUSES = ['VERIFIED', 'UNCHECKED', 'SUSPECT'] as const;
+export const ELECTION_COVERAGE_STATES = [
+  'usable',
+  'absent',
+  'links_missing',
+  'links_wrong',
+] as const;
+
+export type ElectionConstruction = (typeof ELECTION_CONSTRUCTIONS)[number];
+export type ElectionSourceLevel = (typeof ELECTION_SOURCE_LEVELS)[number];
+export type ElectionFinality = (typeof ELECTION_FINALITIES)[number];
+export type ElectionCountedPopulation = (typeof ELECTION_COUNTED_POPULATIONS)[number];
+export type ElectionCompleteness = (typeof ELECTION_COMPLETENESS)[number];
+export type ElectionFigureStatus = (typeof ELECTION_FIGURE_STATUSES)[number];
+export type ElectionCoverageState = (typeof ELECTION_COVERAGE_STATES)[number];
 
 /**
- * VERIFIED: a recorded review qualifies it. HELD: data may exist but its meaning
- * or access is not qualified, so it is not served. UNAVAILABLE: no qualified
- * projection exists. UNKNOWN: not determined.
+ * The public issue codes. A stored issue is `CODE` or `CODE:<detail>`; only
+ * MISSING_SCOPE keeps its detail (a place key). Any other detail can name an
+ * internal decision and is dropped; an unknown code fails the response.
  */
-export type ElectionEvidenceStatus = 'VERIFIED' | 'HELD' | 'UNAVAILABLE' | 'UNKNOWN';
-
-/** Why a source edition or contest is not a qualified result. Declaration order is output order. */
-export const ELECTION_READINESS_ISSUES = [
-  'EDITION_IDENTITY_UNVERIFIED',
-  'CONTEST_IDENTITY_UNVERIFIED',
-  'CONTEST_SCOPE_UNVERIFIED',
-  'SOURCE_SELECTION_UNVERIFIED',
-  'SOURCE_ARTIFACT_ACCESS_HELD',
-  'RESULT_STATUS_UNQUALIFIED',
-  'RESULTS_UNAVAILABLE',
-  'MANDATES_UNAVAILABLE',
-  'REPORTED_YEAR_MISSING',
-  'REPORTED_DATE_MISSING',
-  'EVENT_LINK_UNVERIFIED',
-  'EVENT_LINK_UNAVAILABLE',
+export const ELECTION_ISSUE_CODES = [
+  'MISSING_SCOPE',
+  'MEASURE_NOT_IN_INPUT',
+  'UAT_UNMAPPED',
+  'OFFICIAL_TOTAL_DIFFERS',
+  'REFERENCE_SECONDARY_SOURCE',
+  'CONTAINS_ANNULLED_CONTEST',
+  'PROTOCOL_HEADER_INCONSISTENT',
+  'POSTAL_REGISTRATIONS_NOT_IN_SOURCE',
+  'POSTAL_VOTED_ENVELOPES',
+  'SUPERSEDED_IN_EXPORT',
+  'CAPITAL_UNPUBLISHED',
+  'NOT_IN_SOURCE',
+  'NO_ALLOCATION_EVIDENCE',
 ] as const;
-export type ElectionReadinessIssue = (typeof ELECTION_READINESS_ISSUES)[number];
 
-export interface ElectionReadiness {
-  /** Reported year/family/office/scope against a recorded review. */
-  readonly identity: ElectionEvidenceStatus;
-  /** Which overlapping source edition represents an event. */
-  readonly sourceSelection: ElectionEvidenceStatus;
-  /** A client-openable original artifact. */
-  readonly sourceOpening: ElectionEvidenceStatus;
-  readonly results: ElectionEvidenceStatus;
-  readonly mandates: ElectionEvidenceStatus;
-  readonly issues: readonly ElectionReadinessIssue[];
+// ── Repository records: stored values as read, validated in core ──
+
+export interface ElectionOfficeCountRecord {
+  readonly office: string;
+  readonly contests: number;
 }
 
-// ── Repository records (named, governed columns only; privacy kept for the gate) ──
+export interface ElectionOccurrenceRecord {
+  readonly occurrenceKey: string;
+  readonly eventKey: string;
+  readonly ballotDate: string;
+  readonly round: string;
+  readonly kind: string;
+  readonly status: string;
+  readonly offices: readonly ElectionOfficeCountRecord[];
+}
 
-export interface ElectionEditionRecord {
-  readonly electionKey: string;
-  readonly privacyClass: string;
-  readonly name: string;
-  readonly family: string;
-  readonly year: number | null;
-  readonly round: string | null;
-  readonly date: string | null;
-  readonly authority: string;
-  /** Null when the edition has no event link or the event is not public. */
-  readonly eventKey: string | null;
-  readonly eventPrivacyClass: string | null;
+export interface ElectionEventRecord {
+  readonly eventKey: string;
+  readonly publicationId: string;
+  readonly activatedAt: string;
+  readonly occurrences: readonly ElectionOccurrenceRecord[];
+}
+
+/** A place key with the territory names that match it (none for diaspora/national or an unmapped code). */
+export interface ElectionPlaceRecord {
+  readonly placeKey: string;
+  readonly name: string | null;
+  readonly countyCode: string | null;
+  readonly countyName: string | null;
+}
+
+export interface ElectionCompetitorRecord {
+  readonly competitorKey: string;
+  readonly kind: string;
+  readonly actorKey: string | null;
+  readonly label: string;
+  readonly reportedLabels: readonly string[];
+}
+
+/** Shared provenance and quality columns of a stored figure. */
+export interface ElectionFigureQualityRecord {
+  readonly value: string;
+  readonly construction: string;
+  readonly sourceLevel: string;
+  readonly finality: string;
+  readonly geographicCompleteness: string;
+  readonly includesDiaspora: boolean | null;
+  readonly status: string;
+  readonly issues: readonly string[];
+}
+
+export interface ElectionTallyRecord extends ElectionFigureQualityRecord {
+  readonly competitor: ElectionCompetitorRecord;
+  readonly reportedLabel: string;
+  readonly measure: string;
+  readonly allocationPhase: string;
+  readonly countedPopulation: string;
+}
+
+export interface ElectionTurnoutRecord extends ElectionFigureQualityRecord {
+  readonly measure: string;
+}
+
+export interface ElectionCoverageRecord {
+  readonly measure: string;
+  readonly allocationPhase: string;
+  /** Null for the scope-type default cell. */
+  readonly scopeKey: string | null;
+  readonly state: string;
+  readonly issues: readonly string[];
 }
 
 export interface ElectionContestRecord {
   readonly contestKey: string;
-  readonly privacyClass: string;
-  readonly electionKey: string;
-  readonly electionPrivacyClass: string;
+  readonly occurrenceKey: string;
+  readonly eventKey: string;
   readonly office: string;
-  readonly chamber: string | null;
-  readonly roundLabel: string | null;
-  readonly scopeType: string;
-  readonly scopeKey: string;
-  readonly scopeLabel: string | null;
-  readonly constituencyCode: string | null;
-  readonly constituencyName: string | null;
-  readonly eventKey: string | null;
-  readonly eventPrivacyClass: string | null;
+  readonly status: string;
+  readonly replacedBy: string | null;
+  readonly jurisdiction: ElectionPlaceRecord;
+}
+
+/** A contest with its votes and valid votes at its own jurisdiction (the race inputs). */
+export interface ElectionContestRaceRecord extends ElectionContestRecord {
+  readonly votes: readonly ElectionTallyRecord[];
+  readonly valid: ElectionTurnoutRecord | null;
+}
+
+/** Every figure at one scope of an office (in a contest, or the office aggregate). */
+export interface ElectionScopeFiguresRecord {
+  readonly place: ElectionPlaceRecord;
+  readonly tallies: readonly ElectionTallyRecord[];
+  readonly turnout: readonly ElectionTurnoutRecord[];
+}
+
+export interface ElectionResultRecord extends ElectionScopeFiguresRecord {
+  readonly occurrenceKey: string;
+  readonly eventKey: string;
+  readonly office: string;
+  readonly contest: ElectionContestRecord | null;
+  readonly coverage: readonly ElectionCoverageRecord[];
 }
 
 export interface ElectionRecordPage<T> {
   readonly items: readonly T[];
-  /** Exact filtered count of source rows (editions or contests), from the same snapshot. */
+  /** Exact filtered count from the same snapshot. */
   readonly total: number;
 }
 
+// ── Requests ──
+
 export interface ElectionPageRequest {
-  readonly filter: FilterInput;
   readonly page: number;
   readonly pageSize: number;
 }
 
 export interface ElectionContestPageRequest extends ElectionPageRequest {
-  readonly electionKey: string;
+  readonly occurrenceKey: string;
+  readonly filter: FilterInput;
+}
+
+export interface ElectionCompetitorPageRequest extends ElectionPageRequest {
+  readonly eventKey: string;
+  readonly filter: FilterInput;
+}
+
+/** One scope's figures: in a contest (contestKey) or the office aggregate (contestKey null). */
+export interface ElectionResultRequest {
+  readonly occurrenceKey: string;
+  readonly office: string;
+  readonly contestKey: string | null;
+  readonly scopeKey: string;
+}
+
+/** The child scopes of one type: a contest's breakdown, or the office aggregate's places. */
+export interface ElectionResultScopesRequest extends ElectionPageRequest {
+  readonly occurrenceKey: string;
+  readonly office: string;
+  readonly contestKey: string | null;
+  readonly scopeType: ElectionPlaceType;
 }
 
 // ── Served views ──
-
-/**
- * One SOURCE EDITION (`elections.elections` row), not a distinct real election:
- * two editions of one event are not two elections and not twice the votes.
- * `reported*` fields are stored source/loader labels; `verified*` stay null
- * until a recorded review establishes them. The stored `result_status` /
- * `is_final` labels are deliberately not read: finality is held, not served.
- */
-export interface ElectionEdition {
-  readonly electionKey: string;
-  /** Platform event grouping (public events only); not a verified identity. */
-  readonly eventKey: string | null;
-  readonly reportedName: string;
-  readonly reportedYear: number | null;
-  readonly verifiedYear: null;
-  readonly reportedFamily: string;
-  readonly verifiedFamily: null;
-  readonly reportedRound: string | null;
-  readonly reportedDate: string | null;
-  readonly reportedAuthority: string;
-  readonly readiness: ElectionReadiness;
-}
-
-/** One source contest. `sourceScopeKey` is the source's scope, not a verified territory. */
-export interface ElectionContest {
-  readonly contestKey: string;
-  readonly electionKey: string;
-  readonly eventKey: string | null;
-  readonly reportedOffice: string;
-  readonly verifiedOffice: null;
-  readonly chamber: string | null;
-  readonly reportedRound: string | null;
-  readonly scopeType: ElectionScopeType;
-  readonly sourceScopeKey: string;
-  readonly scopeLabel: string | null;
-  readonly constituencyCode: string | null;
-  readonly constituencyName: string | null;
-  readonly readiness: ElectionReadiness;
-}
 
 export interface ElectionPage<T> {
   readonly items: readonly T[];
@@ -149,110 +249,160 @@ export interface ElectionPage<T> {
   readonly hasMore: boolean;
 }
 
-// ── County source report (one qualified source; see county-source.ts) ──
-
-export interface CountySourceReportRequest {
-  readonly contestKey: string;
-  /** Page of the competitor rows. */
-  readonly page: number;
-  readonly pageSize: number;
-}
-
-/** The contest, read only inside the qualified edition/office/scope. */
-export interface CountySourceContestRecord {
-  readonly contestKey: string;
-  readonly privacyClass: string;
-  readonly electionKey: string;
-  readonly electionPrivacyClass: string;
+export interface ElectionOfficeCount {
   readonly office: string;
-  readonly scopeType: string;
-  readonly scopeKey: string;
-  readonly scopeLabel: string | null;
+  readonly contests: number;
 }
 
-/** One stored statement cell of the qualified carrier (duplicates are kept, to be refused). */
-export interface CountySourceStatementRecord {
-  readonly metricCode: string;
-  /** `numeric_value::text`; null when stored without a number. */
-  readonly value: string | null;
+/** One ballot day of an event. The round is an attribute; the date is the identity. */
+export interface ElectionOccurrence {
+  readonly occurrenceKey: string;
+  readonly eventKey: string;
+  readonly ballotDate: string;
+  readonly round: ElectionRound;
+  readonly kind: ElectionOccurrenceKind;
+  readonly status: ElectionStatus;
+  readonly offices: readonly ElectionOfficeCount[];
 }
 
-/**
- * One source label's cells of the qualified carrier, grouped by the label (the
- * source cell identity is label + column, whatever competitor id carries it),
- * with how many cells each column had.
- */
-export interface CountySourceCompetitorRecord {
-  readonly sourceLabel: string;
-  readonly privacyClass: string;
-  readonly voturiCells: number;
-  readonly voturi: string | null;
-  readonly mandateCells: number;
-  readonly mandate: string | null;
+export interface ElectionPublication {
+  readonly publicationId: string;
+  readonly activatedAt: string;
 }
 
-/** Whole-report counts over every source label of the contest, taken before paging. */
-export interface CountySourceIntegrityRecord {
-  /** Labels with exactly one `voturi` and one `mandate` cell. */
-  readonly completeLabels: number;
-  /** Labels with more than one cell in a column. */
-  readonly duplicatedLabels: number;
-  readonly labelsWithNullCell: number;
-  /** Labels with a stored number that is not canonical integer text. */
-  readonly labelsWithNonIntegerCell: number;
-}
-
-export interface CountySourceReportRecord {
-  readonly contest: CountySourceContestRecord;
-  readonly statement: readonly CountySourceStatementRecord[];
-  /** Source labels in `collate "C"` order; total counts distinct source labels. */
-  readonly competitors: ElectionRecordPage<CountySourceCompetitorRecord>;
-  readonly integrity: CountySourceIntegrityRecord;
-}
-
-export interface ElectionSourceCitation {
-  readonly title: string;
-  readonly url: string;
-  readonly reportedElectionDate: string;
-  readonly sourceFileVerifiedOn: string;
-  readonly valuesComparedOn: string;
+/** An event with a published, audited generation. `family` and `year` are parts of its key. */
+export interface ElectionEvent {
+  readonly eventKey: string;
+  readonly family: ElectionFamily;
+  readonly year: number;
+  readonly publication: ElectionPublication;
+  readonly occurrences: readonly ElectionOccurrence[];
 }
 
 /**
- * A statement column of the file: its code, the legend's label and the
- * reported value, an integer as a decimal string (0 is a value). Always set:
- * a report missing a cell is withheld whole.
+ * A place: `uat:<SIRUTA>`, `county:<code>`, `diaspora` or `national`. Names come
+ * from the territory reference; null for diaspora and national (the client
+ * names them) and for a code the reference does not hold (a retired SIRUTA).
  */
-export interface ElectionSourceStatementCell {
-  readonly sourceCode: string;
-  readonly sourceLabel: string;
+export interface ElectionPlace {
+  readonly placeKey: string;
+  readonly placeType: ElectionPlaceType;
+  readonly sirutaCode: string | null;
+  readonly countyCode: string | null;
+  readonly name: string | null;
+  readonly countyName: string | null;
+}
+
+export interface ElectionCompetitor {
+  readonly competitorKey: string;
+  readonly kind: ElectionCompetitorKind;
+  /** The party spine key, for a party or minority organisation. */
+  readonly actorKey: string | null;
+  readonly label: string;
+  readonly reportedLabels: readonly string[];
+}
+
+/** numerator / denominator as a percentage, rounded half-up to two decimals. */
+export interface ElectionShare {
+  readonly percent: string;
+  readonly numerator: string;
+  readonly denominator: string;
+  readonly basis: 'valid_votes_same_scope' | 'registered_same_scope';
+}
+
+interface ElectionFigureQuality {
+  /** A non-negative integer as a decimal string; 0 means the source printed 0. */
   readonly value: string;
+  readonly construction: ElectionConstruction;
+  readonly sourceLevel: ElectionSourceLevel;
+  readonly finality: ElectionFinality;
+  readonly geographicCompleteness: ElectionCompleteness;
+  /** Set on national figures; null elsewhere. */
+  readonly includesDiaspora: boolean | null;
+  readonly status: ElectionFigureStatus;
+  readonly issues: readonly string[];
 }
 
-/** One competitor label of the file with its two cells, as reported (always both). */
-export interface ElectionSourceCompetitor {
-  readonly sourceLabel: string;
-  readonly voturi: string;
-  readonly mandate: string;
+export interface ElectionTally extends ElectionFigureQuality {
+  readonly competitor: ElectionCompetitor;
+  /** The label as the source printed it for this figure. */
+  readonly reportedLabel: string;
+  readonly measure: ElectionTallyMeasure;
+  readonly allocationPhase: ElectionAllocationPhase;
+  readonly countedPopulation: ElectionCountedPopulation;
+  /** Votes only: of the valid votes of the same scope, when they are comparable. */
+  readonly share: ElectionShare | null;
+}
+
+export interface ElectionTurnoutFigure extends ElectionFigureQuality {
+  readonly measure: ElectionTurnoutMeasure;
+}
+
+export interface ElectionCoverageCell {
+  readonly measure: string;
+  readonly allocationPhase: ElectionAllocationPhase;
+  /** The scope-type default when false; this place's own cell when true. */
+  readonly placeSpecific: boolean;
+  readonly state: ElectionCoverageState;
+  readonly issues: readonly string[];
+}
+
+export interface ElectionRaceEntry {
+  readonly competitor: ElectionCompetitor;
+  readonly votes: string;
+  readonly share: ElectionShare | null;
 }
 
 /**
- * The reported cells of one county contest of the qualified source: the file's
- * statement values and its competitor rows, served only complete. Reported
- * observations only: no finality, winner, seat, person, sector or derived
- * value (turnout, totals).
+ * Computed at read time from the vote tallies of one scope: never a mandate or a
+ * winner (mandates come only from allocation evidence). Only when every vote
+ * tally there counts the same voters (completeness, missing places, diaspora
+ * inclusion, all voters) and none is SUSPECT; it carries their quality.
  */
-export interface ElectionCountySourceReport {
+export interface ElectionRace {
+  readonly competitorCount: number;
+  /** VERIFIED when every vote tally is; UNCHECKED otherwise. */
+  readonly status: 'VERIFIED' | 'UNCHECKED';
+  readonly geographicCompleteness: ElectionCompleteness;
+  /** The tallies' finality when they agree; unknown otherwise. */
+  readonly finality: ElectionFinality;
+  /** The union of the vote tallies' issues. */
+  readonly issues: readonly string[];
+  readonly leader: ElectionRaceEntry;
+  readonly runnerUp: ElectionRaceEntry | null;
+  /** Leader minus runner-up votes; null without a runner-up. */
+  readonly marginVotes: string | null;
+  /** Leader share minus runner-up share, in percentage points; null when either share is. */
+  readonly marginPoints: string | null;
+  readonly tied: boolean;
+}
+
+export interface ElectionContest {
   readonly contestKey: string;
-  readonly electionKey: string;
-  readonly reportedOffice: string;
-  readonly scopeType: 'county';
-  readonly sourceScopeKey: string;
-  readonly scopeLabel: string | null;
-  readonly notice: string;
-  /** Set for the Municipiul București circumscription only. */
-  readonly scopeNote: string | null;
-  readonly source: ElectionSourceCitation;
-  readonly statement: readonly ElectionSourceStatementCell[];
-  readonly competitors: ElectionPage<ElectionSourceCompetitor>;
+  readonly occurrenceKey: string;
+  readonly eventKey: string;
+  readonly office: string;
+  readonly jurisdiction: ElectionPlace;
+  readonly status: ElectionStatus;
+  readonly replacedBy: string | null;
+  /** Null when the contest has no votes at its jurisdiction (annulled, mandates only). */
+  readonly race: ElectionRace | null;
+}
+
+export interface ElectionScopeFigures {
+  readonly place: ElectionPlace;
+  /** Votes by value (descending), then mandates by phase. */
+  readonly tallies: readonly ElectionTally[];
+  readonly turnout: readonly ElectionTurnoutFigure[];
+  /** voted / registered of this scope, when both are comparable. */
+  readonly participation: ElectionShare | null;
+  readonly race: ElectionRace | null;
+}
+
+export interface ElectionResult extends ElectionScopeFigures {
+  readonly occurrenceKey: string;
+  readonly eventKey: string;
+  readonly office: string;
+  readonly contest: ElectionContest | null;
+  readonly coverage: readonly ElectionCoverageCell[];
 }

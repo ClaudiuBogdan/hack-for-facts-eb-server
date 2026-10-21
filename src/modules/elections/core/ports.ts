@@ -1,47 +1,60 @@
 import type {
-  CountySourceReportRecord,
-  CountySourceReportRequest,
+  ElectionCompetitorPageRequest,
+  ElectionCompetitorRecord,
   ElectionContestPageRequest,
-  ElectionContestRecord,
-  ElectionEditionRecord,
+  ElectionContestRaceRecord,
+  ElectionEventRecord,
   ElectionPageRequest,
   ElectionRecordPage,
+  ElectionResultRecord,
+  ElectionResultRequest,
+  ElectionResultScopesRequest,
+  ElectionScopeFiguresRecord,
 } from './types.js';
 import type { ApiError } from '@/modules/shared/index.js';
 import type { Result } from 'neverthrow';
 
 /**
- * The catalog reads only the `elections.elections`, `elections.contests` and
- * `elections.electoral_events` dimensions. Only `countySourceReport` reads
- * fact rows, and only the one qualified carrier's (`COUNTY_SOURCE`). Every
- * read takes `privacy_class = 'public'` rows only, and none selects `attrs`,
- * evidence or an artifact row. A disabled repository refuses every call
- * without querying.
+ * Reads only the active generation of each event: `elections.serving_active`
+ * and the `elections.active_*` views of the scrapper's serving model, plus
+ * territory names from `core.territories`. Nothing reads an inactive or
+ * unsealed generation, attrs, raw rows or candidate names. A disabled
+ * repository refuses every call without querying.
  */
 export interface ElectionsRepository {
-  /** Editions in `election_key` order. */
-  listEditions(
+  /** Events with an active generation, in `event_key` order, with their occurrences. */
+  listEvents(
     request: ElectionPageRequest
-  ): Promise<Result<ElectionRecordPage<ElectionEditionRecord>, ApiError>>;
-  /** Null when absent or not public. */
-  editionByKey(electionKey: string): Promise<Result<ElectionEditionRecord | null, ApiError>>;
+  ): Promise<Result<ElectionRecordPage<ElectionEventRecord>, ApiError>>;
+  /** Null when the event has no active generation. */
+  eventByKey(eventKey: string): Promise<Result<ElectionEventRecord | null, ApiError>>;
   /**
-   * Active contests of one edition in `contest_key` order (held legacy
-   * contests are never listed); null when the edition is absent or not public.
+   * Contests of one active occurrence in `contest_key` order, each with its
+   * votes and valid votes at its own jurisdiction; null when the occurrence is
+   * not active.
    */
   listContests(
     request: ElectionContestPageRequest
-  ): Promise<Result<ElectionRecordPage<ElectionContestRecord> | null, ApiError>>;
-  /** Null when absent or held, or when the contest or its edition is not public. */
-  contestByKey(contestKey: string): Promise<Result<ElectionContestRecord | null, ApiError>>;
+  ): Promise<Result<ElectionRecordPage<ElectionContestRaceRecord> | null, ApiError>>;
+  /** Null when the contest is not in an active generation. */
+  contestByKey(contestKey: string): Promise<Result<ElectionContestRaceRecord | null, ApiError>>;
   /**
-   * The qualified carrier's public cells of one public contest of the
-   * qualified edition, office and scope, from one snapshot: every statement
-   * cell, one page of competitor cells grouped by source label, and integrity
-   * counts over all of the contest's labels taken before paging. Null when the
-   * contest is absent, held, not public or outside that source.
+   * Every figure of one scope and its coverage. Null when the occurrence is not
+   * active, the contest is not one of its contests for that office, or the
+   * scope has neither figures nor coverage (nor is the contest's jurisdiction).
    */
-  countySourceReport(
-    request: CountySourceReportRequest
-  ): Promise<Result<CountySourceReportRecord | null, ApiError>>;
+  result(request: ElectionResultRequest): Promise<Result<ElectionResultRecord | null, ApiError>>;
+  /**
+   * The scopes of one type that have figures, in `scope_key` order, each with
+   * its figures. Inside a contest its own jurisdiction is not a child. Null
+   * when the occurrence is not active or the contest is not one of its
+   * contests for that office.
+   */
+  listResultScopes(
+    request: ElectionResultScopesRequest
+  ): Promise<Result<ElectionRecordPage<ElectionScopeFiguresRecord> | null, ApiError>>;
+  /** Null when the event has no active generation. */
+  listCompetitors(
+    request: ElectionCompetitorPageRequest
+  ): Promise<Result<ElectionRecordPage<ElectionCompetitorRecord> | null, ApiError>>;
 }

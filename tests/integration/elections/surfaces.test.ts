@@ -1,8 +1,9 @@
 /**
- * Elections catalog over the REAL GraphQL slice (Mercurius, inject) and the
+ * Elections results over the REAL GraphQL slice (Mercurius, inject) and the
  * REAL MCP dispatcher, both over one in-memory repository: identical answers
  * for identical inputs, typed errors on both, the merged slice builds next to
- * the kernel base, and no surface serves a restricted value or a results field.
+ * the kernel base, and no surface exposes candidate rows, attrs, decision ids
+ * or source pointers.
  */
 import fastifyLib, { type FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -18,14 +19,19 @@ import {
   createMcpHttpDispatcher,
   mergeGraphqlSlices,
   scalarResolvers,
-  type KernelMcpTool,
 } from '@/modules/shared/index.js';
 import { createKernelMcpServer } from '@/modules/shared/shell/mcp/server.js';
 
-import { makeFakeElectionsRepo, RESTRICTED_SENTINEL } from '../../fixtures/elections/catalog.js';
+import {
+  COUNCIL,
+  EVENT,
+  MAYOR,
+  OCCURRENCE,
+  makeFakeElectionsRepo,
+} from '../../fixtures/elections/results.js';
 
-const deps = { repo: makeFakeElectionsRepo() };
-const tools = makeElectionsMcpTools(deps);
+const repo = makeFakeElectionsRepo();
+const tools = makeElectionsMcpTools({ repo });
 let app: FastifyInstance;
 
 beforeAll(async () => {
@@ -36,7 +42,7 @@ beforeAll(async () => {
   await app.register(
     makeGraphQLPlugin({
       schema: [typeDefs],
-      resolvers: [{ ...scalarResolvers, ...makeElectionsResolvers(deps) }],
+      resolvers: [{ ...scalarResolvers, ...makeElectionsResolvers({ repo }) }],
       isProduction: false,
       enableGraphiQL: false,
     })
@@ -66,12 +72,8 @@ const gql = async (query: string, variables: Record<string, unknown> = {}) => {
   return { status: res.statusCode, raw: res.body, body: res.json<GqlResponse>() };
 };
 
-const callTool = async (
-  available: readonly KernelMcpTool[],
-  name: string,
-  args: Record<string, unknown>
-) => {
-  const dispatcher = createMcpHttpDispatcher(() => createKernelMcpServer(available));
+const callTool = async (name: string, args: Record<string, unknown>) => {
+  const dispatcher = createMcpHttpDispatcher(() => createKernelMcpServer(tools));
   const response = (await dispatcher.dispatch({
     jsonrpc: '2.0',
     id: 1,
@@ -79,243 +81,160 @@ const callTool = async (
     params: { name, arguments: args },
   })) as { result?: { structuredContent?: Record<string, unknown>; isError?: boolean } };
   await dispatcher.close();
-  return response;
-};
-
-const structured = async (name: string, args: Record<string, unknown>) => {
-  const content = (await callTool(tools, name, args)).result?.structuredContent;
+  const content = response.result?.structuredContent;
   if (content === undefined) throw new Error(`no structured content from ${name}`);
   return content;
 };
 
-const READINESS = 'readiness { identity sourceSelection sourceOpening results mandates issues }';
-const EDITION = `electionKey eventKey reportedName reportedYear verifiedYear reportedFamily verifiedFamily
-  reportedRound reportedDate reportedAuthority ${READINESS}`;
-const CONTEST = `contestKey electionKey eventKey reportedOffice verifiedOffice chamber reportedRound
-  scopeType sourceScopeKey scopeLabel constituencyCode constituencyName ${READINESS}`;
+const SHARE = 'percent numerator denominator basis';
+const COMPETITOR = 'competitorKey kind actorKey label reportedLabels';
+const PLACE = 'placeKey placeType sirutaCode countyCode name countyName';
+const QUALITY =
+  'value construction sourceLevel finality geographicCompleteness includesDiaspora status issues';
+const TALLY = `competitor { ${COMPETITOR} } reportedLabel measure allocationPhase countedPopulation share { ${SHARE} } ${QUALITY}`;
+const RACE_ENTRY = `competitor { ${COMPETITOR} } votes share { ${SHARE} }`;
+const RACE = `competitorCount status geographicCompleteness finality issues leader { ${RACE_ENTRY} } runnerUp { ${RACE_ENTRY} } marginVotes marginPoints tied`;
+const CONTEST = `contestKey occurrenceKey eventKey office jurisdiction { ${PLACE} } status replacedBy race { ${RACE} }`;
+const FIGURES = `place { ${PLACE} } tallies { ${TALLY} } turnout { measure ${QUALITY} } participation { ${SHARE} } race { ${RACE} }`;
+const RESULT = `occurrenceKey eventKey office contest { ${CONTEST} } ${FIGURES} coverage { measure allocationPhase placeSpecific state issues }`;
+const EVENT_FIELDS = `eventKey family year publication { publicationId activatedAt } occurrences { occurrenceKey eventKey ballotDate round kind status offices { office contests } }`;
 
 describe('elections GraphQL and MCP parity', () => {
-  it('returns the same catalog page, total and paging flags on both surfaces', async () => {
-    const filter = { reportedYears: { in: [2024] } };
-    const { body } = await gql(
-      `query($filter: ElectionCatalogFilter) {
-        electionCatalog(filter: $filter, page: 1, pageSize: 2) {
-          items { ${EDITION} } page pageSize total hasMore
-        }
-      }`,
-      { filter }
-    );
-    expect(body.errors).toBeUndefined();
-    const page = body.data?.['electionCatalog'] as Record<string, unknown>;
-    expect(page).toMatchObject({ page: 1, pageSize: 2, total: 3, hasMore: true });
-    const mcp = await structured('list_election_editions', { filter, page: 1, pageSize: 2 });
-    expect(mcp['ok']).toBe(true);
-    expect(mcp['items']).toEqual(page['items']);
-    expect(mcp['meta']).toEqual({
-      page: 1,
-      pageSize: 2,
-      total: 3,
-      hasMore: true,
-      totalCounts: 'source_editions',
+  it('returns the same events and event detail on both surfaces', async () => {
+    const page = await gql(`{ electionEvents { items { ${EVENT_FIELDS} } total hasMore } }`);
+    expect(page.body.errors, page.raw).toBeUndefined();
+    const tool = await callTool('list_election_events', {});
+    expect((page.body.data?.['electionEvents'] as { items: unknown }).items).toEqual(tool['items']);
+    const detail = await gql(`query($k: ID!) { electionEvent(eventKey: $k) { ${EVENT_FIELDS} } }`, {
+      k: EVENT,
     });
+    expect(detail.body.data?.['electionEvent']).toEqual(
+      (await callTool('get_election_event', { eventKey: EVENT }))['item']
+    );
   });
 
-  it('returns the same contest list and contest detail on both surfaces', async () => {
-    const filter = { reportedOffices: { in: ['mayor'] } };
-    const { body } = await gql(
-      `query($key: ID!, $filter: ElectionContestsFilter) {
-        electionContests(electionKey: $key, filter: $filter) { items { ${CONTEST} } total hasMore }
-      }`,
-      { key: 'bec-local-2024', filter }
+  it('returns the same contests, result and breakdown on both surfaces', async () => {
+    const contests = await gql(
+      `query($o: ID!) { electionContests(occurrenceKey: $o, filter: { offices: { in: ["mayor"] } }) { items { ${CONTEST} } total } }`,
+      { o: OCCURRENCE }
     );
-    const contests = body.data?.['electionContests'] as Record<string, unknown>;
-    expect(contests['total']).toBe(3);
-    const mcp = await structured('list_election_contests', {
-      electionKey: 'bec-local-2024',
-      filter,
-    });
-    expect(mcp['items']).toEqual(contests['items']);
-
-    const key = 'contest:aep-local-2014-t1:mayor:siruta:179141';
-    const detail = await gql(
-      `query($key: ID!) { electionContest(contestKey: $key) { ${CONTEST} } }`,
-      {
-        key,
-      }
+    expect(contests.body.errors, contests.raw).toBeUndefined();
+    expect((contests.body.data?.['electionContests'] as { items: unknown }).items).toEqual(
+      (
+        await callTool('list_election_contests', {
+          occurrenceKey: OCCURRENCE,
+          filter: { offices: { in: ['mayor'] } },
+        })
+      )['items']
     );
-    const mcpDetail = await structured('get_election_contest', { contestKey: key });
-    expect(mcpDetail['item']).toEqual(detail.body.data?.['electionContest']);
-    expect(mcpDetail['item']).toMatchObject({
-      sourceScopeKey: '179141',
-      verifiedOffice: null,
-      readiness: { results: 'UNAVAILABLE' },
-    });
+    const result = await gql(
+      `query($o: ID!, $c: ID) { electionResult(occurrenceKey: $o, office: "mayor", scopeKey: "uat:1017", contestKey: $c) { ${RESULT} } }`,
+      { o: OCCURRENCE, c: MAYOR }
+    );
+    expect(result.body.errors, result.raw).toBeUndefined();
+    expect(result.body.data?.['electionResult']).toEqual(
+      (
+        await callTool('get_election_result', {
+          occurrenceKey: OCCURRENCE,
+          office: 'mayor',
+          scopeKey: 'uat:1017',
+          contestKey: MAYOR,
+        })
+      )['item']
+    );
+    const scopes = await gql(
+      `query($o: ID!, $c: ID) { electionResultScopes(occurrenceKey: $o, office: "county_council", scopeType: uat, contestKey: $c) { items { ${FIGURES} } total } }`,
+      { o: OCCURRENCE, c: COUNCIL }
+    );
+    expect(scopes.body.errors, scopes.raw).toBeUndefined();
+    expect((scopes.body.data?.['electionResultScopes'] as { items: unknown }).items).toEqual(
+      (
+        await callTool('list_election_result_scopes', {
+          occurrenceKey: OCCURRENCE,
+          office: 'county_council',
+          scopeType: 'uat',
+          contestKey: COUNCIL,
+        })
+      )['items']
+    );
   });
 
-  it('answers a restricted edition as NOT_FOUND / null on both surfaces without echoing data', async () => {
-    const key = `restricted-${RESTRICTED_SENTINEL}`;
-    const { body, raw } = await gql(
-      `query($key: ID!) {
-        electionEdition(electionKey: $key) { electionKey }
-        electionContests(electionKey: $key) { total }
-      }`,
-      { key }
+  it('answers an unpublished occurrence as NOT_FOUND on GraphQL and as a failure on MCP', async () => {
+    const res = await gql(
+      `{ electionContests(occurrenceKey: "ro:local:2016:2016-06-05") { total } }`
     );
-    expect(body.data).toBeNull();
-    expect(body.errors?.[0]?.extensions?.['code']).toBe('NOT_FOUND');
-    expect(raw.split(RESTRICTED_SENTINEL)).toHaveLength(1);
-    const mcp = await structured('list_election_contests', { electionKey: key });
-    expect(mcp).toMatchObject({ ok: false, errorType: 'NotFound', errorCode: 'NOT_FOUND' });
-    const edition = await structured('get_election_edition', { electionKey: key });
-    expect(edition['item']).toBeNull();
-  });
-
-  it('serves no restricted value anywhere in full listings', async () => {
-    const graph = await gql(
-      `{ electionCatalog(pageSize: 100) { items { ${EDITION} } }
-         electionContests(electionKey: "bec-local-2024", pageSize: 100) { items { ${CONTEST} } } }`
-    );
-    expect(graph.raw).not.toContain(RESTRICTED_SENTINEL);
-    const mcp = JSON.stringify([
-      await structured('list_election_editions', { pageSize: 100 }),
-      await structured('list_election_contests', { electionKey: 'bec-local-2024', pageSize: 100 }),
-    ]);
-    expect(mcp).not.toContain(RESTRICTED_SENTINEL);
+    expect(res.body.errors?.[0]?.extensions?.['code']).toBe('NOT_FOUND');
+    const tool = await callTool('list_election_contests', {
+      occurrenceKey: 'ro:local:2016:2016-06-05',
+    });
+    expect(tool).toMatchObject({ ok: false, errorType: 'NotFound', errorCode: 'NOT_FOUND' });
   });
 
   it('maps validation errors to INVALID_INPUT on both surfaces', async () => {
-    const { body } = await gql(`{ electionCatalog(pageSize: 101) { total } }`);
-    expect(body.errors?.[0]?.extensions?.['code']).toBe('INVALID_INPUT');
-    const mcp = await structured('list_election_editions', {
-      filter: { reportedYears: { in: [24] } },
-    });
-    expect(mcp).toMatchObject({ ok: false, errorType: 'InvalidInput' });
-    const unknownField = await structured('list_election_editions', {
-      filter: { verifiedYears: { in: [2024] } },
-    });
-    expect(unknownField).toMatchObject({ ok: false, errorType: 'InvalidInput' });
-    const strict = await callTool(tools, 'list_election_editions', { year: 2024 });
-    expect(JSON.stringify(strict)).not.toContain('"ok":true');
-  });
-});
-
-describe('elections page offset guard across surfaces', () => {
-  const LAST_GRAPHQL_INT = 2_147_483_647;
-
-  it('rejects an unsafe page offset on both MCP list tools without a repository read', async () => {
-    const repo = makeFakeElectionsRepo();
-    const guarded = makeElectionsMcpTools({ repo });
-    const page = Number.MAX_SAFE_INTEGER;
-    for (const [name, args] of [
-      ['list_election_editions', { page, pageSize: 100 }],
-      ['list_election_contests', { electionKey: 'bec-local-2024', page, pageSize: 100 }],
-    ] as const) {
-      const response = await callTool(guarded, name, args);
-      expect(response.result?.structuredContent).toMatchObject({
-        ok: false,
-        errorType: 'InvalidInput',
-        errorCode: 'INVALID_INPUT',
-      });
-    }
-    expect(repo.calls).toEqual([]);
-  });
-
-  it('cannot express that page on GraphQL, whose Int is 32-bit', async () => {
-    const { body } = await gql(`query($page: Int) { electionCatalog(page: $page) { total } }`, {
-      page: Number.MAX_SAFE_INTEGER,
-    });
-    expect(body.data ?? null).toBeNull();
-    expect(body.errors?.[0]?.message).toContain('Int cannot represent non 32-bit signed integer');
-  });
-
-  it('answers the largest GraphQL page identically on both surfaces', async () => {
-    const { body } = await gql(
-      `query($page: Int) {
-        electionCatalog(page: $page, pageSize: 100) { items { electionKey } page pageSize total hasMore }
-      }`,
-      { page: LAST_GRAPHQL_INT }
+    const res = await gql(
+      `{ electionResult(occurrenceKey: "x", office: "mayor", scopeKey: "sector:1") { office } }`
     );
-    expect(body.data?.['electionCatalog']).toEqual({
-      items: [],
-      page: LAST_GRAPHQL_INT,
-      pageSize: 100,
-      total: 6,
-      hasMore: false,
+    expect(res.body.errors?.[0]?.extensions?.['code']).toBe('INVALID_INPUT');
+    const tool = await callTool('get_election_result', {
+      occurrenceKey: 'x',
+      office: 'mayor',
+      scopeKey: 'sector:1',
     });
-    const mcp = await structured('list_election_editions', {
-      page: LAST_GRAPHQL_INT,
-      pageSize: 100,
-    });
-    expect(mcp).toMatchObject({
-      ok: true,
-      items: [],
-      meta: { page: LAST_GRAPHQL_INT, pageSize: 100, total: 6, hasMore: false },
-    });
+    expect(tool).toMatchObject({ ok: false, errorType: 'InvalidInput' });
   });
 });
 
 describe('elections GraphQL contract', () => {
-  const fieldsOf = async (type: string) => {
-    const { body } = await gql(`query($t: String!) { __type(name: $t) { fields { name } } }`, {
-      t: type,
-    });
-    const described = body.data?.['__type'] as { fields: { name: string }[] } | null;
-    return described?.fields.map((field) => field.name).sort();
+  interface TypeRef {
+    readonly kind: string;
+    readonly name: string | null;
+    readonly ofType: TypeRef | null;
+  }
+  const typeOf = async (name: string) => {
+    const { body } = await gql(
+      `query($n: String!) { __type(name: $n) { kind fields { name type { kind name ofType { kind name ofType { kind name ofType { kind name } } } } } } }`,
+      { n: name }
+    );
+    return body.data?.['__type'] as {
+      kind: string;
+      fields: { name: string; type: TypeRef }[] | null;
+    } | null;
   };
+  const named = (type: TypeRef | null): string | null =>
+    type === null ? null : (type.name ?? named(type.ofType));
 
-  it('exposes only governed metadata fields: no results, winners, attrs or artifact URLs', async () => {
-    expect(await fieldsOf('ElectionContest')).toEqual(
-      [
-        'chamber',
-        'constituencyCode',
-        'constituencyName',
-        'contestKey',
-        'electionKey',
-        'eventKey',
-        'readiness',
-        'reportedOffice',
-        'reportedRound',
-        'scopeLabel',
-        'scopeType',
-        'sourceScopeKey',
-        'verifiedOffice',
-      ].sort()
-    );
-    expect(await fieldsOf('ElectionEdition')).toEqual(
-      [
-        'electionKey',
-        'eventKey',
-        'readiness',
-        'reportedAuthority',
-        'reportedDate',
-        'reportedFamily',
-        'reportedName',
-        'reportedRound',
-        'reportedYear',
-        'verifiedFamily',
-        'verifiedYear',
-      ].sort()
-    );
-    expect(await fieldsOf('ElectionReadiness')).toEqual(
-      ['identity', 'issues', 'mandates', 'results', 'sourceOpening', 'sourceSelection'].sort()
-    );
-  });
-
-  it('keeps every row explicit about held identity and unavailable results', async () => {
-    const { body } = await gql(`{ electionCatalog(pageSize: 100) { items { ${EDITION} } } }`);
-    const items = (body.data?.['electionCatalog'] as { items: Record<string, unknown>[] }).items;
-    expect(items).toHaveLength(6);
-    for (const item of items) {
-      expect(item).toMatchObject({
-        verifiedYear: null,
-        verifiedFamily: null,
-        readiness: {
-          identity: 'HELD',
-          sourceOpening: 'HELD',
-          results: 'UNAVAILABLE',
-          mandates: 'UNAVAILABLE',
-        },
-      });
+  it('exposes no candidate, attrs, decision, source pointer or source file field at any depth', async () => {
+    const forbidden =
+      /candida|attrs|decision|pointer|printed|person|source(?!Level)|sha256|manifest|path/iu;
+    const seen = new Set<string>();
+    const queue = ['Query'];
+    const offending: string[] = [];
+    while (queue.length > 0) {
+      const name = queue.shift() ?? '';
+      if (seen.has(name)) continue;
+      seen.add(name);
+      const type = await typeOf(name);
+      for (const field of type?.fields ?? []) {
+        if (name === 'Query' && !field.name.startsWith('election')) continue;
+        if (forbidden.test(field.name)) offending.push(`${name}.${field.name}`);
+        const target = named(field.type);
+        if (target?.startsWith('Election') === true) queue.push(target);
+      }
     }
+    expect(offending).toEqual([]);
+    expect(seen.size).toBeGreaterThan(10);
+    const query = (await typeOf('Query'))?.fields
+      ?.map((field) => field.name)
+      .filter((field) => field.startsWith('election'))
+      .sort();
+    expect(query).toEqual([
+      'electionCompetitors',
+      'electionContest',
+      'electionContests',
+      'electionEvent',
+      'electionEvents',
+      'electionResult',
+      'electionResultScopes',
+    ]);
   });
 });

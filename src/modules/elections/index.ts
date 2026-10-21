@@ -1,18 +1,23 @@
 /**
- * Elections catalog and contest metadata over the `elections` dimension tables
- * (source editions, contests, public event links). Qualified results and
- * mandates are not served: no qualified projection exists. The one exception
- * is a reported view, the county source report: the cells of ONE qualified
- * source file as it reports them (core/county-source.ts), served only
- * complete, on GraphQL and REST only: its MCP tool is deferred, outside the
- * initial REST/GraphQL/client scope. Source opening is held: stored
- * artifact custody (restricted by default) is not a client access contract.
- * Disabled (the default), every read refuses without a query and no
- * MCP tool is registered. GraphQL, MCP and the GET REST plugin
- * (`/api/v1/elections`) call the same usecases.
+ * Elections results over the scrapper's serving model: per event, one active,
+ * audited generation of aggregate figures (votes and mandates per competitor,
+ * turnout, coverage) at UAT, county, diaspora and national scope, read only
+ * through `elections.serving_active` and the generation tables it activates.
+ * Results are party-level: candidate tallies and names are not served
+ * (independents appear as competitors under their ballot label). Race figures
+ * (leader, runner-up, margin) and shares are computed here from one scope's
+ * figures and never sum across scopes, measures or mandate phases.
+ * Issues are served as public codes (a missing place keeps its key; any other
+ * detail, which can name an internal decision, is dropped); the generation's
+ * source inputs are not served until a public provenance contract exists.
+ *
+ * Pagination: offset pages on all three surfaces (page ≥ 1, pageSize 1-100,
+ * exact total), the module's one stated deviation from the foundation's Relay
+ * connections; see docs/server-redesign/16-elections.md §6.
+ * Disabled (the default), every read refuses without a query and no MCP tool
+ * is registered. GraphQL, MCP and the GET REST plugin (`/api/v1/elections`)
+ * call the same usecases.
  */
-import './shell/db/schema.js';
-
 import { electionsTypeDefs, makeElectionsResolvers } from './shell/graphql/schema.js';
 import { makeElectionsMcpTools } from './shell/mcp/tools.js';
 import { makeElectionsRepo } from './shell/repo/elections-repo.js';
@@ -36,9 +41,4 @@ export const makeElectionsModule = (deps: { db: Kysely<ProdDatabase>; enabled?: 
 };
 
 export type { ElectionsRepository } from './core/ports.js';
-export type {
-  ElectionContest,
-  ElectionCountySourceReport,
-  ElectionEdition,
-  ElectionPage,
-} from './core/types.js';
+export type { ElectionContest, ElectionEvent, ElectionPage, ElectionResult } from './core/types.js';
