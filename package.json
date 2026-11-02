@@ -107,7 +107,7 @@
     "resend": "^6.12.2",
     "svix": "^1.92.2",
     "yaml": "^2.8.3",
-    "zod": "^4.3.6"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@commitlint/cli": "^20.5.2",
