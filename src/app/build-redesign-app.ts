@@ -99,7 +99,6 @@ export interface RedesignAgentDeps {
 
 export interface BuildRedesignAppDeps {
   readonly reportedExecutionSummaries?: boolean;
-  readonly verifiedConsolidation?: boolean;
   readonly kernelConfig: KernelConfig;
   readonly logLevel?: string;
   /** GraphQL SDL slices contributed by source modules (extend Query/Entity). */
@@ -561,8 +560,6 @@ export const registerRedesignSurface = async (
     );
     const budget = makeBudgetModule({
       db: kernel.db,
-      verifiedConsolidation:
-        deps.verifiedConsolidation === true && deps.reportedExecutionSummaries === true,
       native: {
         population: insPopulation,
         factors: nativeBudgetFactors,

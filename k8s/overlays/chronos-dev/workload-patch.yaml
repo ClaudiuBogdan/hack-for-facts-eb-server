@@ -44,8 +44,6 @@ spec:
           args:
             - dist/redesign-api.js
           env:
-            - name: BUDGET_VERIFIED_CONSOLIDATION
-              value: "true"
             - name: BUDGET_REPORTED_EXECUTION_SUMMARIES
               value: "true"
             - name: PROD_CLICKHOUSE_USER
