@@ -26,6 +26,10 @@ import {
   makeCommitmentPeriodResolvers,
   commitmentPeriodTypeDefs,
 } from './shell/graphql/commitment-periods.js';
+import {
+  consolidationTypeDefs,
+  makeConsolidationResolvers,
+} from './shell/graphql/consolidation.js';
 import { makeBudgetGroupedResolvers } from './shell/graphql/legacy/grouped-resolvers.js';
 import { budgetGroupedTypeDefs } from './shell/graphql/legacy/grouped-typedefs.js';
 import { makeBudgetLegacyResolvers } from './shell/graphql/legacy/resolvers.js';
@@ -101,6 +105,7 @@ export interface BudgetNativeDeps {
 }
 
 export interface BudgetModuleDeps {
+  readonly verifiedConsolidation?: boolean;
   /** Native composition (kernel build). Tests may still inject the adapters below directly. */
   readonly native?: BudgetNativeDeps;
   readonly executionSeries?: (
@@ -281,10 +286,13 @@ export const makeBudgetModule = (rawDeps: BudgetModuleDeps): BudgetModule => {
     legacyPopulation,
     graphqlSlice: {
       source: 'budget',
-      typeDefs: `${budgetTypeDefs}\n${budgetLegacyTypeDefs}\n${budgetLegacyCollisionTypeDefs}\n${budgetGroupedTypeDefs}\n${commitmentPeriodTypeDefs}\n${commitmentDashboardTypeDefs}\n${budgetSeriesCommonTypeDefs}\n${nationalTypeDefs}`,
+      typeDefs: `${budgetTypeDefs}\n${budgetLegacyTypeDefs}\n${budgetLegacyCollisionTypeDefs}\n${budgetGroupedTypeDefs}\n${commitmentPeriodTypeDefs}\n${commitmentDashboardTypeDefs}\n${budgetSeriesCommonTypeDefs}\n${nationalTypeDefs}\n${consolidationTypeDefs}`,
     },
     graphqlResolvers: mergeResolvers(
-      makeBudgetResolvers({ repo, discovery, registry: deps.registry }),
+      mergeResolvers(
+        makeBudgetResolvers({ repo, discovery, registry: deps.registry }),
+        makeConsolidationResolvers(deps.db, deps.verifiedConsolidation === true)
+      ),
       mergeResolvers(
         legacyResolvers,
         mergeResolvers(

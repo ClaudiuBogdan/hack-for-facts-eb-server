@@ -15,6 +15,9 @@ const RedesignEnvSchema = Type.Object({
   // Postgres is the only hard requirement — the server must boot and /health
   // must be able to report aux services down rather than crashing at boot.
   PROD_DATABASE_URL: Type.String({ minLength: 1 }),
+  BUDGET_VERIFIED_CONSOLIDATION: Type.Optional(
+    Type.Union([Type.Literal('true'), Type.Literal('false')])
+  ),
   BUDGET_REPORTED_EXECUTION_SUMMARIES: Type.Optional(
     Type.Union([Type.Literal('true'), Type.Literal('false')])
   ),
@@ -139,6 +142,7 @@ export interface LegalSearchComposition extends ModuleSearchConnection {
 
 export interface RedesignConfig {
   readonly reportedExecutionSummaries: boolean;
+  readonly verifiedConsolidation: boolean;
   readonly port: number;
   readonly host: string;
   readonly logLevel: string;
@@ -525,6 +529,7 @@ export const loadRedesignConfig = (env: NodeJS.ProcessEnv): RedesignConfig => {
   return {
     ...composeEmbeddedKernel(e),
     reportedExecutionSummaries: e.BUDGET_REPORTED_EXECUTION_SUMMARIES === 'true',
+    verifiedConsolidation: e.BUDGET_VERIFIED_CONSOLIDATION === 'true',
     ...(companiesAnalytics !== undefined && { companiesAnalytics }),
     ...(auth !== undefined && { auth }),
     ...(userData !== undefined && { userData }),

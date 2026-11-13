@@ -20,6 +20,7 @@ const main = async (): Promise<void> => {
   const { app, kernel } = await buildRedesignApp({
     kernelConfig: config.kernel,
     reportedExecutionSummaries: config.reportedExecutionSummaries,
+    verifiedConsolidation: config.verifiedConsolidation,
     ...(userDb !== undefined &&
       config.userData !== undefined && {
         userData: {
