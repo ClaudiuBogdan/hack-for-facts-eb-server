@@ -111,7 +111,9 @@ export const makeEntityAnalyticsReads = (ctx: BudgetRepoContext) => {
                 sql<number | null>`null::int`.as('quarter'),
               ];
       const rows = await db
-        .selectFrom(executionObservedSummary(q.frequency, conds))
+        .selectFrom(
+          executionObservedSummary(q.frequency, conds, options.reportedExecutionSummaries)
+        )
         .select([
           'mv.entity_cui',
           'mv.main_creditor_cui',
@@ -262,7 +264,9 @@ export const makeEntityAnalyticsReads = (ctx: BudgetRepoContext) => {
       const yearsPresent =
         needsAnnualPopulation || needsFactorYears
           ? await db
-              .selectFrom(executionObservedSummary(q.frequency, conds))
+              .selectFrom(
+                executionObservedSummary(q.frequency, conds, options.reportedExecutionSummaries)
+              )
               .leftJoin('core.public_entities as pe', 'pe.cui', 'mv.entity_cui')
               .select(['mv.year', 'pe.territory_id', 'pe.is_territorial_executive'])
               .distinct()
@@ -330,7 +334,9 @@ export const makeEntityAnalyticsReads = (ctx: BudgetRepoContext) => {
         : amountExpr;
 
       let seriesQuery = db
-        .selectFrom(executionObservedSummary(q.frequency, conds))
+        .selectFrom(
+          executionObservedSummary(q.frequency, conds, options.reportedExecutionSummaries)
+        )
         .select([
           'mv.year',
           periodSelect.as('period'),
@@ -393,7 +399,9 @@ export const makeEntityAnalyticsReads = (ctx: BudgetRepoContext) => {
             : sql<number | null>`null::int`;
       let multiplier: RawBuilder<unknown> = sql`1::numeric`;
       if (q.normalization !== 'TOTAL') {
-        let yearsBase = db.selectFrom(executionObservedSummary(q.frequency, sourceConds));
+        let yearsBase = db.selectFrom(
+          executionObservedSummary(q.frequency, sourceConds, options.reportedExecutionSummaries)
+        );
         if (q.isUat !== undefined || q.isTerritorialExecutive !== undefined) {
           yearsBase = yearsBase.leftJoin('core.public_entities as e', 'e.cui', 'mv.entity_cui');
         }
@@ -410,7 +418,9 @@ export const makeEntityAnalyticsReads = (ctx: BudgetRepoContext) => {
         multiplier = factor.value;
       }
       const amountExpr = sql`sum(coalesce(mv.${sql.ref(col)},0)) * ${multiplier}`;
-      let seriesBase = db.selectFrom(executionObservedSummary(q.frequency, sourceConds));
+      let seriesBase = db.selectFrom(
+        executionObservedSummary(q.frequency, sourceConds, options.reportedExecutionSummaries)
+      );
       if (q.isUat !== undefined || q.isTerritorialExecutive !== undefined) {
         seriesBase = seriesBase.leftJoin('core.public_entities as e', 'e.cui', 'mv.entity_cui');
       }

@@ -22,6 +22,7 @@ import {
   COMPLETE_AGGREGATE_GUARD,
   DECIMAL_MONEY_PATTERN,
   composeAnd,
+  execMvTable,
   metricColumn,
   type BudgetRepoContext,
 } from './budget-repo-shared.js';
@@ -247,7 +248,7 @@ export const makeAggregateReads = (ctx: BudgetRepoContext) => {
           population.population
         from core.territories territory
         left join ${publishedAnnualPopulation} population on population.territory_id=territory.id and population.applied_year=${q.year}
-        inner join budget.mv_execution_summary_annual mv
+        inner join ${sql.table(execMvTable('YEAR', options.reportedExecutionSummaries))} mv
           on mv.entity_cui = territory.uat_code
           and mv.year = ${q.year}
           and mv.report_type = ${reportLabel}
@@ -341,7 +342,7 @@ export const makeAggregateReads = (ctx: BudgetRepoContext) => {
         from county_info county
         left join core.territories territory
           on territory.county_code = county.county_code and territory.privacy_class='public'
-        left join budget.mv_execution_summary_annual mv
+        left join ${sql.table(execMvTable('YEAR', options.reportedExecutionSummaries))} mv
           on mv.entity_cui = territory.uat_code
           and mv.year = ${q.year}
           and mv.report_type = ${reportLabel}

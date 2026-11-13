@@ -1,6 +1,6 @@
 import { sql, type RawBuilder } from 'kysely';
 
-import { execMvName } from './budget-repo-shared.js';
+import { execMvTable } from './budget-repo-shared.js';
 
 import type { BudgetFrequency } from '../../core/constants.js';
 
@@ -22,13 +22,14 @@ interface ObservedSummary {
  */
 export function executionObservedSummary(
   frequency: BudgetFrequency,
-  conditions: readonly RawBuilder<unknown>[]
+  conditions: readonly RawBuilder<unknown>[],
+  reported = false
 ) {
   const monthly = frequency === 'MONTH';
   const quarterly = frequency === 'QUARTER';
   const role = monthly ? sql`p.is_monthly` : quarterly ? sql`p.is_quarterly` : sql`p.is_latest_ytd`;
   const predicate = sql.join(conditions, sql` and `);
-  const table = execMvName(frequency).replace(' as mv', '');
+  const table = execMvTable(frequency, reported);
   return sql<ObservedSummary>`(with summaries as materialized (
     select mv.entity_cui,mv.main_creditor_cui,mv.report_type,mv.year,
       ${monthly ? sql`mv.month` : sql`null::int`} as month,

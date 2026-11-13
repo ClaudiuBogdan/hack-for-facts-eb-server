@@ -95,6 +95,7 @@ import type { Kysely } from 'kysely';
  * (N/N6/N7: no silent fallback to the legacy set-1 composition).
  */
 export interface BudgetNativeDeps {
+  readonly reportedExecutionSummaries?: boolean;
   readonly population: AnnualPopulationPort;
   readonly factors: FactorSource;
 }
@@ -175,7 +176,12 @@ const withNativeAdapters = (deps: BudgetModuleDeps, native: BudgetNativeDeps): B
   const common = { db: deps.db, population: native.population, factors: native.factors };
   return {
     ...deps,
-    repo: deps.repo ?? makeNativeBudgetRepo(common),
+    repo:
+      deps.repo ??
+      makeNativeBudgetRepo({
+        ...common,
+        reportedExecutionSummaries: native.reportedExecutionSummaries ?? false,
+      }),
     executionSeries:
       deps.executionSeries ??
       makeNativeExecutionSeries({

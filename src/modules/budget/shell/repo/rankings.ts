@@ -173,7 +173,7 @@ export const makeRankingReads = (ctx: BudgetRepoContext) => {
       // Collapse creditor rows before ranking. Keep population out of this
       // candidate set: native annual values may change eligibility and order.
       const candidates = db
-        .selectFrom(execMvName(q.frequency))
+        .selectFrom(execMvName(q.frequency, options.reportedExecutionSummaries))
         .leftJoin('core.public_entities as e', 'e.cui', 'mv.entity_cui')
         .leftJoin('core.organizations as o', 'o.cui', 'mv.entity_cui')
         .leftJoin('core.territories as t', 't.id', 'e.territory_id')

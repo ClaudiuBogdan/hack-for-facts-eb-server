@@ -24,6 +24,7 @@ import {
   OFFICIAL_PAGE_MAX,
   clamp,
   composeAnd,
+  execMvName,
   type BudgetRepoContext,
 } from './budget-repo-shared.js';
 import { fieldOf } from './filter-helpers.js';
@@ -52,7 +53,7 @@ import type {
 } from '../../core/types.js';
 
 export const makeCatalogReads = (ctx: BudgetRepoContext) => {
-  const { db, asOf } = ctx;
+  const { db, asOf, options } = ctx;
 
   // ───────────────────────────────────────────────────────────────────────────
   // reports (metadata; ≥1 of entity/year/report_type required)
@@ -417,7 +418,7 @@ export const makeCatalogReads = (ctx: BudgetRepoContext) => {
       const defaultReportType = ent?.default_report_type ?? null;
       // Pick the latest year with an MV row for this entity (≤ latestComplete).
       let mvQuery = db
-        .selectFrom('budget.mv_execution_summary_annual as mv')
+        .selectFrom(execMvName('YEAR', options.reportedExecutionSummaries))
         .select([
           'mv.year',
           'mv.report_type',
@@ -481,7 +482,7 @@ export const makeCatalogReads = (ctx: BudgetRepoContext) => {
     try {
       // One index probe on the annual MV (idx_..._entity_year).
       const row = await db
-        .selectFrom('budget.mv_execution_summary_annual as mv')
+        .selectFrom(execMvName('YEAR', options.reportedExecutionSummaries))
         .select([sql<number>`max(mv.year)`.as('latest_year'), sql<string>`count(*)`.as('cnt')])
         .where('mv.entity_cui', '=', cui)
         .executeTakeFirst();

@@ -20,12 +20,15 @@ export interface NativeBudgetRepoDeps {
   readonly db: Kysely<ProdDatabase>;
   readonly population: AnnualPopulationPort;
   readonly factors: FactorSource;
+  readonly reportedExecutionSummaries?: boolean;
 }
 
 export function makeNativeBudgetRepo(deps: NativeBudgetRepoDeps): BudgetRepo {
-  const base = makeBudgetRepo(deps.db, { moneyFactors: deps.factors });
+  const executionOptions = { reportedExecutionSummaries: deps.reportedExecutionSummaries ?? false };
+  const base = makeBudgetRepo(deps.db, { ...executionOptions, moneyFactors: deps.factors });
   const snapshotRepo = (snapshot: AnnualPopulationSnapshot, factors: FactorSource) =>
     makeBudgetRepo(snapshot.trx, {
+      ...executionOptions,
       moneyFactors: factors,
       populationRelation: (selection) => populationRelation(snapshot, selection),
     });

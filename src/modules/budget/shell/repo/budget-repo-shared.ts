@@ -49,12 +49,13 @@ export const dirSql = (dir: 'asc' | 'desc'): RawBuilder<unknown> =>
 export type ExecMvName = 'budget.mv_execution_summary_annual as mv';
 export type CommitMvName = 'budget.mv_commitment_summary_annual as mv';
 
-export const execMvName = (freq: BudgetFrequency): ExecMvName =>
-  (freq === 'MONTH'
-    ? 'budget.mv_execution_summary_monthly as mv'
-    : freq === 'QUARTER'
-      ? 'budget.mv_execution_summary_quarterly as mv'
-      : 'budget.mv_execution_summary_annual as mv') as ExecMvName;
+export const execMvTable = (freq: BudgetFrequency, reported = false): string => {
+  const period = freq === 'MONTH' ? 'monthly' : freq === 'QUARTER' ? 'quarterly' : 'annual';
+  return `budget.mv_execution_${reported ? 'reported' : 'summary'}_${period}`;
+};
+
+export const execMvName = (freq: BudgetFrequency, reported = false): ExecMvName =>
+  `${execMvTable(freq, reported)} as mv` as ExecMvName;
 
 export const commitMvName = (freq: BudgetFrequency): CommitMvName =>
   (freq === 'MONTH'
@@ -90,6 +91,7 @@ export const monthlyCommitmentGap = (camelMetric: string): boolean =>
   !MONTHLY_COMMITMENT_METRICS.has(camelMetric);
 
 export interface BudgetRepoOptions {
+  readonly reportedExecutionSummaries?: boolean;
   /** Present for native serving; exact-year failures never fall back to embedded factors. */
   readonly moneyFactors?: FactorSource;
   /** At most one row per territory/year; caller owns the complete read snapshot. */

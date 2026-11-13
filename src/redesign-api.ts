@@ -19,6 +19,7 @@ const main = async (): Promise<void> => {
   const userDb = config.userData === undefined ? undefined : makeUserDataClient(config.userData);
   const { app, kernel } = await buildRedesignApp({
     kernelConfig: config.kernel,
+    reportedExecutionSummaries: config.reportedExecutionSummaries,
     ...(userDb !== undefined &&
       config.userData !== undefined && {
         userData: {

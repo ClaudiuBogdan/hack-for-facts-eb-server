@@ -23,7 +23,7 @@
  * Money is `::text` at the SQL boundary (precision-safe strings, never floats);
  * bigint ids stay strings. Cursor lists use the kernel envelope; the `fhash` binds
  * the cursor to the active filter set (§14.3). No COUNT(*) on the fact tables.
- * Transfer exclusions are baked into the MVs — NEVER re-applied on MV reads.
+ * The configured execution MV family determines whether transfers are included.
  */
 
 import { sql } from 'kysely';
@@ -32,13 +32,19 @@ import { err, ok, type Result } from 'neverthrow';
 import { type ApiError, databaseError } from '@/modules/shared/index.js';
 
 import { makeAggregateReads } from './aggregates.js';
+import {
+  execMvName,
+  execMvTable,
+  type BudgetRepoContext,
+  type BudgetRepoOptions,
+  type Db,
+} from './budget-repo-shared.js';
 import { makeCatalogReads } from './catalog.js';
 import { makeEntityAnalyticsReads } from './entity-analytics.js';
 import { makeFundingSourceMap } from './funding-source-map.js';
 import { makeLineItemReads } from './line-items.js';
 import { makeRankingReads } from './rankings.js';
 
-import type { BudgetRepoContext, BudgetRepoOptions, Db } from './budget-repo-shared.js';
 import type { BudgetRepo } from '../../core/ports.js';
 import type { BudgetAsOf } from '../../core/types.js';
 
@@ -61,13 +67,13 @@ export const makeBudgetRepo = (db: Db, options: BudgetRepoOptions = {}): BudgetR
       // annual MV gives the latest loaded year; the MONTHLY MV gives the latest
       // year with 12 distinct months (the latest COMPLETE year for safe defaults).
       const row = await db
-        .selectFrom('budget.mv_execution_summary_annual as mv')
+        .selectFrom(execMvName('YEAR', options.reportedExecutionSummaries))
         .select([sql<number | null>`max(mv.year)`.as('latest_year')])
         .executeTakeFirst();
       const completeResult = await sql<{ latest_complete: number | null }>`
         select max(year) as latest_complete from (
           select year, count(distinct month) as mc
-          from budget.mv_execution_summary_monthly group by year
+          from ${sql.table(execMvTable('MONTH', options.reportedExecutionSummaries))} group by year
         ) y where y.mc >= 12
       `
         .execute(db)

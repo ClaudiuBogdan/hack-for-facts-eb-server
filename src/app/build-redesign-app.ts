@@ -98,6 +98,7 @@ export interface RedesignAgentDeps {
 }
 
 export interface BuildRedesignAppDeps {
+  readonly reportedExecutionSummaries?: boolean;
   readonly kernelConfig: KernelConfig;
   readonly logLevel?: string;
   /** GraphQL SDL slices contributed by source modules (extend Query/Entity). */
@@ -559,7 +560,11 @@ export const registerRedesignSurface = async (
     );
     const budget = makeBudgetModule({
       db: kernel.db,
-      native: { population: insPopulation, factors: nativeBudgetFactors },
+      native: {
+        population: insPopulation,
+        factors: nativeBudgetFactors,
+        reportedExecutionSummaries: deps.reportedExecutionSummaries ?? false,
+      },
       registry: kernel.contributors,
       legacyFactors,
       logger: app.log,
