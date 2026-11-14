@@ -58,6 +58,7 @@ const RedesignEnvSchema = Type.Object({
   CLERK_JWT_KEY: Type.Optional(Type.String({ minLength: 1 })),
   CLERK_ISSUER: Type.Optional(Type.String({ minLength: 1 })),
   CLERK_AUTHORIZED_PARTIES: Type.Optional(Type.String({ minLength: 1 })),
+  UNSUBSCRIBE_HMAC_SECRET: Type.Optional(Type.String({ minLength: 32 })),
   // ── behind-proxy client identity (review X/F15) ─────────────────────────
   // Rate limits key on the client IP; trusting X-Forwarded-For is only correct
   // behind a gateway that sets it. Same contract as the legacy server
@@ -164,6 +165,7 @@ export interface RedesignConfig {
     readonly tlsServername?: string;
     readonly webhookSigningSecret: string;
     readonly clerkSecretKey?: string;
+    readonly unsubscribeHmacSecret?: string;
   };
   readonly kernel: {
     readonly prodDatabaseUrl: string;
@@ -216,6 +218,7 @@ const STANDALONE_ONLY_KEYS = [
   'CLERK_JWT_KEY',
   'CLERK_ISSUER',
   'CLERK_AUTHORIZED_PARTIES',
+  'UNSUBSCRIBE_HMAC_SECRET',
   'COMPANIES_ANALYTICS_CLICKHOUSE_URL',
   'COMPANIES_ANALYTICS_CLICKHOUSE_DATABASE',
   'COMPANIES_ANALYTICS_CLICKHOUSE_USER',
@@ -498,6 +501,7 @@ export const loadRedesignConfig = (env: NodeJS.ProcessEnv): RedesignConfig => {
       e.USER_DATA_DB_CA_FILE,
       e.USER_DATA_DB_TLS_SERVERNAME,
       e.CLERK_WEBHOOK_SIGNING_SECRET,
+      e.UNSUBSCRIBE_HMAC_SECRET,
     ].some((value) => value !== undefined)
   ) {
     if (
@@ -514,6 +518,9 @@ export const loadRedesignConfig = (env: NodeJS.ProcessEnv): RedesignConfig => {
       url: e.USER_DATA_DATABASE_URL,
       caFile: e.USER_DATA_DB_CA_FILE,
       webhookSigningSecret: e.CLERK_WEBHOOK_SIGNING_SECRET,
+      ...(e.UNSUBSCRIBE_HMAC_SECRET === undefined
+        ? {}
+        : { unsubscribeHmacSecret: e.UNSUBSCRIBE_HMAC_SECRET }),
       ...(e.USER_DATA_DB_TLS_SERVERNAME !== undefined && {
         tlsServername: e.USER_DATA_DB_TLS_SERVERNAME,
       }),

@@ -292,6 +292,29 @@ describe('recoverStuckSending use case', () => {
       }
     });
 
+    it('holds old sending rows even if their last attempt was recent', async () => {
+      const deliveryRepo = makeFakeDeliveryRepo({
+        deliveries: [
+          createTestDeliveryRecord({
+            id: 'ambiguous-send',
+            status: 'sending',
+            createdAt: new Date('2025-01-14T11:59:59Z'),
+            lastAttemptAt: new Date('2025-01-15T11:30:00Z'),
+          }),
+        ],
+      });
+
+      const result = await recoverStuckSending({ deliveryRepo, logger: testLogger }, {});
+
+      expect(result._unsafeUnwrap()).toMatchObject({
+        timedOutIds: ['ambiguous-send'],
+        sendRetryIds: [],
+      });
+      expect((await deliveryRepo.findById('ambiguous-send'))._unsafeUnwrap()?.status).toBe(
+        'webhook_timeout'
+      );
+    });
+
     it('re-enqueues pending compose orphans without changing their status', async () => {
       const deliveryRepo = makeFakeDeliveryRepo({
         deliveries: [
@@ -422,6 +445,7 @@ describe('recoverStuckSending use case', () => {
           createTestDeliveryRecord({
             id: 'delivery-webhook-timeout',
             status: 'sent',
+            createdAt: new Date('2025-01-14T09:00:00Z'),
             renderedSubject: 'Subject',
             renderedHtml: '<p>Hello</p>',
             renderedText: 'Hello',

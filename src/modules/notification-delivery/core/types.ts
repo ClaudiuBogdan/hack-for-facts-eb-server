@@ -13,6 +13,11 @@ import type { NotificationType } from '@/modules/notifications/core/types.js';
 
 export type { DeliveryStatus } from '@/common/types/index.js';
 
+/** Resend keeps send idempotency keys for 24 hours. */
+export const RESEND_IDEMPOTENCY_WINDOW_MS = 24 * 60 * 60 * 1000;
+export const EXPIRED_SEND_RETRY_MESSAGE =
+  'Delivery is outside the provider idempotency window; reconcile before retrying';
+
 /**
  * Statuses that indicate the delivery is complete.
  */

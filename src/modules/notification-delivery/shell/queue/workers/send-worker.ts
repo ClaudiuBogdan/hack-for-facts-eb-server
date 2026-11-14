@@ -26,7 +26,9 @@ import {
 } from '../../../core/public-debate-announcement.js';
 import { parseAdminReviewedInteractionOutboxMetadata } from '../../../core/reviewed-interaction.js';
 import {
+  EXPIRED_SEND_RETRY_MESSAGE,
   MAX_RETRY_ATTEMPTS,
+  RESEND_IDEMPOTENCY_WINDOW_MS,
   parseAnafForexebugDigestScopeKey,
   type NotificationOutboxRecord,
   type SendJobPayload,
@@ -992,6 +994,20 @@ export const processSendJob = async (
   };
 
   let sendResult: Awaited<ReturnType<EmailSenderPort['send']>>;
+
+  // The claim increments the counter. A first send can be old, but a retry
+  // cannot use an idempotency key whose first use may have expired in Resend.
+  if (
+    delivery.attemptCount > 1 &&
+    Date.now() - delivery.createdAt.getTime() >= RESEND_IDEMPOTENCY_WINDOW_MS
+  ) {
+    const held = await deliveryRepo.updateStatusIfStillSending(outboxId, 'webhook_timeout', {
+      lastError: EXPIRED_SEND_RETRY_MESSAGE,
+    });
+    if (held.isErr()) throw new Error(getErrorMessage(held.error));
+    log.warn({ outboxId }, EXPIRED_SEND_RETRY_MESSAGE);
+    return { outboxId, status: 'webhook_timeout' };
+  }
 
   try {
     sendResult = await emailSender.send(sendParams);

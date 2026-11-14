@@ -8,6 +8,11 @@ import { sql } from 'kysely';
 import { ok, err, type Result } from 'neverthrow';
 
 import {
+  assertUserDataOwnerCanWrite,
+  UserDataOwnerDeletedError,
+} from '@/infra/database/user/owner-write-guard.js';
+
+import {
   createDatabaseError,
   createHashCollisionError,
   type ShareError,
@@ -60,11 +65,11 @@ class KyselyShortLinkRepo implements ShortLinkRepository {
     this.log = options.logger.child({ repo: 'ShortLinkRepo' });
   }
 
-  async getByCode(code: string): Promise<Result<ShortLink | null, ShareError>> {
+  async getByCode(code: string, db = this.db): Promise<Result<ShortLink | null, ShareError>> {
     this.log.debug({ code }, 'Finding short link by code');
 
     try {
-      const row = await this.db
+      const row = await db
         .selectFrom('shortlinks')
         .select([
           'id',
@@ -91,11 +96,11 @@ class KyselyShortLinkRepo implements ShortLinkRepository {
     }
   }
 
-  async getByOriginalUrl(url: string): Promise<Result<ShortLink | null, ShareError>> {
+  async getByOriginalUrl(url: string, db = this.db): Promise<Result<ShortLink | null, ShareError>> {
     this.log.debug({ url }, 'Finding short link by original URL');
 
     try {
-      const row = await this.db
+      const row = await db
         .selectFrom('shortlinks')
         .select([
           'id',
@@ -128,86 +133,93 @@ class KyselyShortLinkRepo implements ShortLinkRepository {
     this.log.debug({ code, userId }, 'Creating or associating short link');
 
     try {
-      // Check if a link for this URL already exists
-      const existingByUrl = await this.getByOriginalUrl(originalUrl);
-      if (existingByUrl.isErr()) {
-        return err(existingByUrl.error);
-      }
-
-      if (existingByUrl.value !== null) {
-        const existing = existingByUrl.value;
-
-        // If user not already associated, add them
-        if (!existing.userIds.includes(userId)) {
-          const updatedRow = await this.db
-            .updateTable('shortlinks')
-            .set({
-              user_ids: sql`array_append(user_ids, ${userId})`,
-            } as never)
-            .where('id', '=', existing.id)
-            .returning([
-              'id',
-              'code',
-              'user_ids',
-              'original_url',
-              'created_at',
-              'access_count',
-              'last_access_at',
-              'metadata',
-            ])
-            .executeTakeFirstOrThrow();
-
-          this.log.debug({ code: existing.code, userId }, 'User associated with existing link');
-          return ok(this.mapRowToShortLink(updatedRow as unknown as QueryRow));
+      const transaction = this.db.transaction().setIsolationLevel('read committed');
+      return await transaction.execute(async (trx) => {
+        await assertUserDataOwnerCanWrite(trx, userId);
+        // Check if a link for this URL already exists
+        const existingByUrl = await this.getByOriginalUrl(originalUrl, trx);
+        if (existingByUrl.isErr()) {
+          return err(existingByUrl.error);
         }
 
-        // User already associated
-        this.log.debug({ code: existing.code, userId }, 'User already associated with link');
-        return ok(existing);
-      }
+        if (existingByUrl.value !== null) {
+          const existing = existingByUrl.value;
 
-      // Check for code collision (same code, different URL)
-      const existingByCode = await this.getByCode(code);
-      if (existingByCode.isErr()) {
-        return err(existingByCode.error);
-      }
+          // If user not already associated, add them
+          if (!existing.userIds.includes(userId)) {
+            const updatedRow = await trx
+              .updateTable('shortlinks')
+              .set({
+                user_ids: sql`array_append(user_ids, ${userId})`,
+              } as never)
+              .where('id', '=', existing.id)
+              .returning([
+                'id',
+                'code',
+                'user_ids',
+                'original_url',
+                'created_at',
+                'access_count',
+                'last_access_at',
+                'metadata',
+              ])
+              .executeTakeFirstOrThrow();
 
-      if (existingByCode.value !== null) {
-        // Code exists but different URL - hash collision
-        this.log.warn({ code }, 'Hash collision detected');
-        return err(createHashCollisionError(code));
-      }
+            this.log.debug({ code: existing.code, userId }, 'User associated with existing link');
+            return ok(this.mapRowToShortLink(updatedRow as unknown as QueryRow));
+          }
 
-      // No conflicts - insert new short link
-      const now = new Date();
-      const insertValues = {
-        code,
-        user_ids: [userId],
-        original_url: originalUrl,
-        created_at: now,
-        access_count: 0,
-        last_access_at: null,
-        metadata: sql`${JSON.stringify(metadata)}::jsonb`,
-      };
+          // User already associated
+          this.log.debug({ code: existing.code, userId }, 'User already associated with link');
+          return ok(existing);
+        }
 
-      const row = await this.db
-        .insertInto('shortlinks')
-        .values(insertValues as never)
-        .returning([
-          'id',
-          'code',
-          'user_ids',
-          'original_url',
-          'created_at',
-          'access_count',
-          'last_access_at',
-          'metadata',
-        ])
-        .executeTakeFirstOrThrow();
+        // Check for code collision (same code, different URL)
+        const existingByCode = await this.getByCode(code, trx);
+        if (existingByCode.isErr()) {
+          return err(existingByCode.error);
+        }
 
-      this.log.debug({ code }, 'Short link created successfully');
-      return ok(this.mapRowToShortLink(row as unknown as QueryRow));
+        if (existingByCode.value !== null) {
+          // Code exists but different URL - hash collision
+          this.log.warn({ code }, 'Hash collision detected');
+          return err(createHashCollisionError(code));
+        }
+
+        // No conflicts - insert new short link
+        const now = new Date();
+        const insertValues = {
+          code,
+          user_ids: [userId],
+          original_url: originalUrl,
+          created_at: now,
+          access_count: 0,
+          last_access_at: null,
+          metadata: sql`${JSON.stringify(metadata)}::jsonb`,
+        };
+
+        const row = await trx
+          .insertInto('shortlinks')
+          .values(insertValues as never)
+          .returning([
+            'id',
+            'code',
+            'user_ids',
+            'original_url',
+            'created_at',
+            'access_count',
+            'last_access_at',
+            'metadata',
+          ])
+          .executeTakeFirstOrThrow();
+
+        this.log.debug({ code }, 'Short link created successfully');
+        return ok(this.mapRowToShortLink(row as unknown as QueryRow));
+      });
     } catch (error) {
+      if (error instanceof UserDataOwnerDeletedError) {
+        return err({ type: 'Forbidden', message: error.message });
+      }
       this.log.error({ err: error, code, userId }, 'Failed to create or associate short link');
       return err(createDatabaseError('Failed to create or associate short link', error));
     }

@@ -28,6 +28,7 @@ import { registerInsDatasetRequestRoutes } from './ins-dataset-request-routes.js
 import { makeInsGraphqlLifecycle } from './ins-graphql-session.js';
 import { registerNativeMapRoutes } from './native-map-routes.js';
 import { publicHealthReport } from './public-health.js';
+import { registerUserStoreRoutes } from './user-store-routes.js';
 import { fastifyTrustProxy, type TrustProxySetting } from '../infra/config/trust-proxy.js';
 import {
   makeGraphQLErrorFormatter,
@@ -173,6 +174,7 @@ export interface BuildRedesignAppDeps {
     readonly db: Kysely<UserDatabase>;
     readonly signingSecret: string;
     readonly clerkSecretKey?: string;
+    readonly unsubscribeHmacSecret?: string;
   };
   /**
    * The user store of an EMBEDDING composer that owns the user DB and its Clerk
@@ -268,6 +270,7 @@ export const buildRedesignApp = async (deps: BuildRedesignAppDeps): Promise<Rede
   const app = fastifyLib({
     logger: { level: deps.logLevel ?? 'info' },
     disableRequestLogging: true,
+    routerOptions: { maxParamLength: 512 },
     // Rate limits and logs key on the client IP; behind the gateway that means
     // trusting X-Forwarded-For (X/F15). Off only for a directly exposed process.
     trustProxy: fastifyTrustProxy(deps.trustProxy),
@@ -316,6 +319,17 @@ export const buildRedesignApp = async (deps: BuildRedesignAppDeps): Promise<Rede
       ...deps,
       modules: deps.modules ?? SHARED_DEFAULT_MODULES,
     });
+    if (deps.userData !== undefined) {
+      await registerUserStoreRoutes(app, {
+        db: deps.userData.db,
+        authProvider: deps.authProvider,
+        ...(deps.clientBaseUrl === undefined ? {} : { publicClientUrl: deps.clientBaseUrl }),
+        allowedOrigins: [...allowedOrigins],
+        ...(deps.userData.unsubscribeHmacSecret === undefined
+          ? {}
+          : { unsubscribeHmacSecret: deps.userData.unsubscribeHmacSecret }),
+      });
+    }
     return { app, kernel };
   } catch (error) {
     // The caller cannot close an app that construction never returned.
@@ -582,6 +596,7 @@ export const registerRedesignSurface = async (
       ? undefined
       : {
           userDb: deps.userData.db,
+          userDeletionHandlerConfigured: true,
           ...(deps.userData.clerkSecretKey === undefined
             ? {}
             : { clerkSecretKey: deps.userData.clerkSecretKey }),
@@ -618,16 +633,13 @@ export const registerRedesignSurface = async (
       },
     });
   }
-  if (deps.embeddedUserStore !== undefined && createInsSession === undefined)
-    app.log.warn(
-      'embeddedUserStore given without the ins-native module: INS dataset requests and native maps are NOT registered'
-    );
-  if (deps.embeddedUserStore !== undefined && createInsSession !== undefined) {
+  if (mapStore !== undefined && createInsSession !== undefined) {
     await registerInsDatasetRequestRoutes(app, {
-      userDb: deps.embeddedUserStore.userDb,
+      userDb: mapStore.userDb,
       ...(deps.authProvider === undefined ? {} : { authProvider: deps.authProvider }),
-      userDeletionHandlerConfigured: deps.embeddedUserStore.userDeletionHandlerConfigured,
+      userDeletionHandlerConfigured: mapStore.userDeletionHandlerConfigured,
       createInsReadSession: createInsSession,
+      installRateLimit: deps.embeddedUserStore === undefined,
     });
   }
 

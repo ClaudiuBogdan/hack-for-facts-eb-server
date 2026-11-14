@@ -10,6 +10,7 @@ import { err } from 'neverthrow';
 import { describe, expect, it } from 'vitest';
 
 import { buildRedesignApp } from '@/app/build-redesign-app.js';
+import { makeUnsubscribeTokenSigner } from '@/infra/unsubscribe/token.js';
 
 import type { UserDatabase } from '@/infra/database/user/types.js';
 import type { Kernel } from '@/modules/shared/index.js';
@@ -106,6 +107,72 @@ describe('native user-data lifecycle', () => {
         expect(response.body).not.toMatch(/private-host|fixture-password|role-name/);
         expect(response.json().userDatabase).not.toHaveProperty('message');
       }
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('mounts authenticated user routes and exactly one signed Clerk receiver', async () => {
+    const { db } = userDatabase();
+    const unsubscribeHmacSecret = 'fixture'.repeat(6);
+    const { app } = await buildRedesignApp({
+      kernelConfig,
+      logLevel: 'silent',
+      modules: [],
+      authProvider,
+      clientBaseUrl: 'https://dev.example.com',
+      userData: { db, signingSecret, unsubscribeHmacSecret },
+    });
+    try {
+      const notifications = await app.inject({ method: 'GET', url: '/api/v1/notifications' });
+      expect(notifications.statusCode).toBe(401);
+      const share = await app.inject({
+        method: 'POST',
+        url: '/api/v1/short-links',
+        payload: { url: 'https://dev.example.com/' },
+      });
+      expect(share.statusCode).toBe(401);
+      const token = makeUnsubscribeTokenSigner(unsubscribeHmacSecret).sign(
+        'user_0123456789abcdefghijklmnopq'
+      );
+      expect(token.length).toBeGreaterThan(100);
+      for (const method of ['GET', 'POST'] as const) {
+        const response = await app.inject({
+          method,
+          url: `/api/v1/notifications/unsubscribe/${token}`,
+          headers: { accept: 'application/json' },
+        });
+        expect(response.statusCode).toBe(200);
+      }
+      const webhook = await app.inject({
+        method: 'POST',
+        url: '/api/v1/webhooks/clerk',
+        payload: { type: 'user.deleted' },
+      });
+      expect(webhook.statusCode).toBe(400);
+      expect(webhook.json()).toMatchObject({ error: 'Missing svix headers' });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('rate limits anonymous INS requests in the standalone API', async () => {
+    const { db } = userDatabase();
+    const { app } = await buildRedesignApp({
+      kernelConfig,
+      logLevel: 'silent',
+      modules: ['budget', 'ins-native'],
+      authProvider,
+      userData: { db, signingSecret },
+    });
+    try {
+      // The invalid body fails before either database is contacted.
+      const request = { method: 'POST' as const, url: '/api/ins/dataset-requests', payload: {} };
+      for (let i = 0; i < 10; i++) {
+        const response = await app.inject(request);
+        expect(response.statusCode, response.body).toBe(400);
+      }
+      expect((await app.inject(request)).statusCode).toBe(429);
     } finally {
       await app.close();
     }

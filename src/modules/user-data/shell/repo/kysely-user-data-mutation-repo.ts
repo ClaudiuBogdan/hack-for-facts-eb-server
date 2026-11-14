@@ -3,10 +3,13 @@ import { err, ok, type Result } from 'neverthrow';
 
 import { type Clock } from '@/common/ports/clock.js';
 import { type UserDbClient } from '@/infra/database/client.js';
-import { acquireUserDataOwnerLock } from '@/infra/database/user/advisory-locks.js';
+import {
+  assertUserDataOwnerCanWrite,
+  UserDataOwnerDeletedError,
+} from '@/infra/database/user/owner-write-guard.js';
 import { type UserDatabase } from '@/infra/database/user/types.js';
 
-import { type UserDataError } from '../../core/errors.js';
+import { createForbidden, type UserDataError } from '../../core/errors.js';
 import {
   type MutationOutcome,
   type MutationResultData,
@@ -338,8 +341,9 @@ export const makeUserDataMutationRepo = (deps: {
 
     commit: async (plan): Promise<Result<MutationOutcome, UserDataError>> => {
       try {
-        const outcome = await db.transaction().execute(async (trx) => {
-          await acquireUserDataOwnerLock(trx, plan.identity.ownerId);
+        const transaction = db.transaction().setIsolationLevel('read committed');
+        const outcome = await transaction.execute(async (trx) => {
+          await assertUserDataOwnerCanWrite(trx, plan.identity.ownerId);
 
           await before(testHooks, 'receiptCheck');
           const now = clock.now();
@@ -505,6 +509,7 @@ export const makeUserDataMutationRepo = (deps: {
           }
         }
         if (error instanceof UserDataErrorSignal) return err(error.userDataError);
+        if (error instanceof UserDataOwnerDeletedError) return err(createForbidden(error.message));
         return err(databaseError('Failed to commit user-data mutation'));
       }
     },

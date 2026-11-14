@@ -6,7 +6,7 @@
 
 import { randomUUID } from 'crypto';
 
-import { sql } from 'kysely';
+import { sql, type Transaction } from 'kysely';
 import { ok, err, type Result } from 'neverthrow';
 
 import {
@@ -14,8 +14,19 @@ import {
   FUNKY_NOTIFICATION_GLOBAL_TYPE,
 } from '@/common/campaign-keys.js';
 import { parseDbTimestamp } from '@/common/utils/parse-db-timestamp.js';
+import {
+  assertUserDataOwnerCanWrite,
+  UserDataOwnerDeletedError,
+} from '@/infra/database/user/owner-write-guard.js';
 
-import { createDatabaseError, type NotificationError } from '../../core/errors.js';
+import {
+  createDatabaseError,
+  createNotificationForbiddenError,
+  createNotificationNotFoundError,
+  type NotificationForbiddenError,
+  type NotificationNotFoundError,
+  type NotificationError,
+} from '../../core/errors.js';
 import {
   generateNotificationHash,
   type Notification,
@@ -32,6 +43,7 @@ import type {
   UpdateNotificationRepoInput,
 } from '../../core/ports.js';
 import type { UserDbClient } from '@/infra/database/client.js';
+import type { UserDatabase } from '@/infra/database/user/types.js';
 import type { Logger } from 'pino';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -118,8 +130,31 @@ class KyselyNotificationsRepo implements NotificationsRepository {
   }
 
   /** Borrowed connections keep rollback and cache flushing with their outer owner. */
-  private inTransaction<T>(readWrite: (db: UserDbClient) => Promise<T>): Promise<T> {
-    return this.db.isTransaction ? readWrite(this.db) : this.db.transaction().execute(readWrite);
+  private inTransaction<T>(readWrite: (db: Transaction<UserDatabase>) => Promise<T>): Promise<T> {
+    return this.db.isTransaction
+      ? readWrite(this.db as Transaction<UserDatabase>)
+      : this.db.transaction().setIsolationLevel('read committed').execute(readWrite);
+  }
+
+  private async updateAsOwner<T>(
+    id: string,
+    write: (trx: Transaction<UserDatabase>, owner: string) => Promise<T>
+  ): Promise<Result<T, NotificationForbiddenError | NotificationNotFoundError>> {
+    return this.inTransaction(async (trx) => {
+      const row = await trx
+        .selectFrom('notifications')
+        .select('user_id')
+        .where('id', '=', id)
+        .executeTakeFirst();
+      if (row === undefined) return err(createNotificationNotFoundError(id));
+      try {
+        await assertUserDataOwnerCanWrite(trx, row.user_id);
+      } catch (error) {
+        if (!(error instanceof UserDataOwnerDeletedError)) throw error;
+        return err(createNotificationForbiddenError(row.user_id, id));
+      }
+      return ok(await write(trx, row.user_id));
+    });
   }
 
   async create(input: CreateNotificationInput): Promise<Result<Notification, NotificationError>> {
@@ -143,26 +178,31 @@ class KyselyNotificationsRepo implements NotificationsRepository {
         updated_at: now,
       };
 
-      const row = await this.db
-        .insertInto('notifications')
-        .values(insertValues as never)
-        .returning([
-          'id',
-          'user_id',
-          'entity_cui',
-          'notification_type',
-          'is_active',
-          'config',
-          'hash',
-          'created_at',
-          'updated_at',
-        ])
-        .executeTakeFirstOrThrow();
+      const row = await this.inTransaction(async (trx) => {
+        await assertUserDataOwnerCanWrite(trx, userId);
+        return trx
+          .insertInto('notifications')
+          .values(insertValues as never)
+          .returning([
+            'id',
+            'user_id',
+            'entity_cui',
+            'notification_type',
+            'is_active',
+            'config',
+            'hash',
+            'created_at',
+            'updated_at',
+          ])
+          .executeTakeFirstOrThrow();
+      });
 
       await this.invalidateCampaignSubscriptionStatsCache(notificationType);
       this.log.debug({ notificationId: id }, 'Notification created successfully');
       return ok(this.mapRowToNotification(row as unknown as QueryRow));
     } catch (error) {
+      if (error instanceof UserDataOwnerDeletedError)
+        return err(createNotificationForbiddenError(userId, ''));
       this.log.error(
         { err: error, userId, notificationType, entityCui },
         'Failed to create notification'
@@ -186,6 +226,7 @@ class KyselyNotificationsRepo implements NotificationsRepository {
       const now = new Date();
 
       const row = await this.inTransaction(async (trx) => {
+        await assertUserDataOwnerCanWrite(trx, userId);
         const insertValues = {
           id,
           user_id: input.userId,
@@ -229,6 +270,8 @@ class KyselyNotificationsRepo implements NotificationsRepository {
       this.log.debug({ notificationId: id }, 'Notification created with manual opt-in');
       return ok(this.mapRowToNotification(row as unknown as QueryRow));
     } catch (error) {
+      if (error instanceof UserDataOwnerDeletedError)
+        return err(createNotificationForbiddenError(userId, ''));
       this.log.error(
         { err: error, userId, notificationType, entityCui },
         'Failed to create notification with manual opt-in'
@@ -456,22 +499,18 @@ class KyselyNotificationsRepo implements NotificationsRepository {
     try {
       const updateValues = buildUpdateValues(input, new Date());
 
-      const row = await this.db
-        .updateTable('notifications')
-        .set(updateValues)
-        .where('id', '=', id)
-        .returning([
-          'id',
-          'user_id',
-          'entity_cui',
-          'notification_type',
-          'is_active',
-          'config',
-          'hash',
-          'created_at',
-          'updated_at',
-        ])
-        .executeTakeFirstOrThrow();
+      const result = await this.updateAsOwner(id, (trx, owner) =>
+        trx
+          .updateTable('notifications')
+          .set(updateValues)
+          .where('id', '=', id)
+          .where('user_id', '=', owner)
+          .returningAll()
+          .executeTakeFirst()
+      );
+      if (result.isErr()) return err(result.error);
+      const row = result.value;
+      if (row === undefined) return err(createNotificationNotFoundError(id));
 
       await this.invalidateCampaignSubscriptionStatsCache(
         row.notification_type as NotificationType
@@ -492,13 +531,14 @@ class KyselyNotificationsRepo implements NotificationsRepository {
 
     try {
       const updatedAt = new Date();
-      const row = await this.inTransaction(async (trx) => {
+      const result = await this.updateAsOwner(id, async (trx, owner) => {
         const updateValues = buildUpdateValues(input, updatedAt);
 
         const updated = await trx
           .updateTable('notifications')
           .set(updateValues)
           .where('id', '=', id)
+          .where('user_id', '=', owner)
           .returning([
             'id',
             'user_id',
@@ -510,7 +550,8 @@ class KyselyNotificationsRepo implements NotificationsRepository {
             'created_at',
             'updated_at',
           ])
-          .executeTakeFirstOrThrow();
+          .executeTakeFirst();
+        if (updated === undefined) return undefined;
 
         await this.applyManualNotificationOptInInTransaction(
           trx,
@@ -521,6 +562,9 @@ class KyselyNotificationsRepo implements NotificationsRepository {
 
         return updated;
       });
+      if (result.isErr()) return err(result.error);
+      const row = result.value;
+      if (row === undefined) return err(createNotificationNotFoundError(id));
 
       await this.invalidateCampaignSubscriptionStatsCache(
         row.notification_type as NotificationType
@@ -542,13 +586,14 @@ class KyselyNotificationsRepo implements NotificationsRepository {
 
     try {
       const updatedAt = new Date();
-      const row = await this.inTransaction(async (trx) => {
+      const result = await this.updateAsOwner(id, async (trx, owner) => {
         const updateValues = buildUpdateValues(input, updatedAt);
 
         const updatedGlobal = await trx
           .updateTable('notifications')
           .set(updateValues)
           .where('id', '=', id)
+          .where('user_id', '=', owner)
           .returning([
             'id',
             'user_id',
@@ -560,7 +605,8 @@ class KyselyNotificationsRepo implements NotificationsRepository {
             'created_at',
             'updated_at',
           ])
-          .executeTakeFirstOrThrow();
+          .executeTakeFirst();
+        if (updatedGlobal === undefined) return undefined;
 
         if (!input.isActive) {
           await trx
@@ -578,6 +624,9 @@ class KyselyNotificationsRepo implements NotificationsRepository {
 
         return updatedGlobal;
       });
+      if (result.isErr()) return err(result.error);
+      const row = result.value;
+      if (row === undefined) return err(createNotificationNotFoundError(id));
 
       await this.invalidateCampaignSubscriptionStatsCache(
         row.notification_type as NotificationType
@@ -605,6 +654,7 @@ class KyselyNotificationsRepo implements NotificationsRepository {
     try {
       const updatedAt = new Date();
       await this.inTransaction(async (trx) => {
+        await assertUserDataOwnerCanWrite(trx, input.userId);
         await this.applyManualNotificationOptInInTransaction(
           trx,
           input.userId,
@@ -618,6 +668,8 @@ class KyselyNotificationsRepo implements NotificationsRepository {
       this.log.debug(input, 'Manual notification opt-in applied');
       return ok(undefined);
     } catch (error) {
+      if (error instanceof UserDataOwnerDeletedError)
+        return err(createNotificationForbiddenError(input.userId, ''));
       this.log.error({ err: error, ...input }, 'Failed to apply manual notification opt-in');
       return err(createDatabaseError('Failed to apply manual notification opt-in', error));
     }
@@ -669,6 +721,7 @@ class KyselyNotificationsRepo implements NotificationsRepository {
       );
 
       await this.inTransaction(async (trx) => {
+        await assertUserDataOwnerCanWrite(trx, userId);
         await sql`
           INSERT INTO notifications (
             id,
@@ -717,6 +770,7 @@ class KyselyNotificationsRepo implements NotificationsRepository {
       this.log.info({ userId }, 'Global unsubscribe deactivated');
       return ok(undefined);
     } catch (error) {
+      if (error instanceof UserDataOwnerDeletedError) return ok(undefined);
       this.log.error({ err: error, userId }, 'Failed to deactivate global unsubscribe');
       return err(createDatabaseError('Failed to deactivate global unsubscribe', error));
     }

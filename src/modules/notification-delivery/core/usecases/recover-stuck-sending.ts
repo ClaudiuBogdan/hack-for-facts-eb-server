@@ -8,7 +8,11 @@
 import { ok, err, type Result } from 'neverthrow';
 
 import { type DeliveryError } from '../errors.js';
-import { STUCK_SENDING_THRESHOLD_MINUTES } from '../types.js';
+import {
+  EXPIRED_SEND_RETRY_MESSAGE,
+  RESEND_IDEMPOTENCY_WINDOW_MS,
+  STUCK_SENDING_THRESHOLD_MINUTES,
+} from '../types.js';
 
 import type { DeliveryRepository, LoggerPort } from '../ports.js';
 
@@ -49,7 +53,7 @@ export interface RecoverStuckSendingResult {
   composeRetryIds: string[];
   /** Outbox rows that should be re-enqueued for send */
   sendRetryIds: string[];
-  /** Sent rows that timed out waiting for webhook confirmation */
+  /** Rows requiring provider reconciliation outside the idempotency window */
   timedOutIds: string[];
   /** Errors encountered during recovery (delivery ID -> error message) */
   errors: Record<string, string>;
@@ -64,8 +68,8 @@ export interface RecoverStuckSendingResult {
  *
  * This sweeper function:
  * 1. Finds deliveries that have been in 'sending' status for longer than the threshold
- * 2. Moves them back to 'failed_transient' so they can be retried
- * 3. Resend idempotency keys are valid for 24h, so retry is safe
+ * 2. Retries only when the first provider submission is necessarily within
+ *    Resend's 24-hour idempotency window.
  *
  * Use cases:
  * - Recover after worker crashes
@@ -78,7 +82,7 @@ export const recoverStuckSending = async (
 ): Promise<Result<RecoverStuckSendingResult, DeliveryError>> => {
   const { deliveryRepo, logger } = deps;
   const thresholdMinutes = input.thresholdMinutes ?? STUCK_SENDING_THRESHOLD_MINUTES;
-  const resendIdempotencyWindowMs = 24 * 60 * 60 * 1000;
+  const now = Date.now();
 
   const log = logger.child({ usecase: 'recoverStuckSending' });
 
@@ -148,11 +152,16 @@ export const recoverStuckSending = async (
   const errors: Record<string, string> = {};
 
   for (const delivery of stuckDeliveries) {
+    // The last attempt may have retried an earlier accepted send. The outbox
+    // creation time bounds the age of that first submission.
+    const canRetry = now - delivery.createdAt.getTime() < RESEND_IDEMPOTENCY_WINDOW_MS;
     const updateResult = await deliveryRepo.updateStatusIfStillSending(
       delivery.id,
-      'failed_transient',
+      canRetry ? 'failed_transient' : 'webhook_timeout',
       {
-        lastError: `Recovered from stuck sending state (threshold: ${String(thresholdMinutes)} minutes)`,
+        lastError: canRetry
+          ? `Recovered from stuck sending state (threshold: ${String(thresholdMinutes)} minutes)`
+          : EXPIRED_SEND_RETRY_MESSAGE,
       }
     );
 
@@ -168,9 +177,13 @@ export const recoverStuckSending = async (
         'Skipped stuck delivery recovery because state changed concurrently'
       );
     } else {
-      log.info({ deliveryId: delivery.id }, 'Recovered stuck delivery');
       recoveredIds.push(delivery.id);
-      sendRetryIds.push(delivery.id);
+      if (canRetry) {
+        sendRetryIds.push(delivery.id);
+      } else {
+        timedOutIds.push(delivery.id);
+        log.warn({ deliveryId: delivery.id }, 'Stuck delivery requires provider reconciliation');
+      }
     }
   }
 
@@ -209,6 +222,23 @@ export const recoverStuckSending = async (
   }
 
   for (const delivery of readyToSendOrphans) {
+    if (
+      delivery.attemptCount > 0 &&
+      now - delivery.createdAt.getTime() >= RESEND_IDEMPOTENCY_WINDOW_MS
+    ) {
+      const held = await deliveryRepo.updateStatusIfCurrentIn(
+        delivery.id,
+        [delivery.status],
+        'webhook_timeout',
+        { lastError: EXPIRED_SEND_RETRY_MESSAGE }
+      );
+      if (held.isErr()) errors[delivery.id] = held.error.type;
+      else if (held.value) {
+        timedOutIds.push(delivery.id);
+        recoveredIds.push(delivery.id);
+      }
+      continue;
+    }
     log.info({ deliveryId: delivery.id }, 'Found ready-to-send orphan');
     recoveredIds.push(delivery.id);
     sendRetryIds.push(delivery.id);
@@ -220,8 +250,9 @@ export const recoverStuckSending = async (
       continue;
     }
 
-    const ageMs = Date.now() - delivery.sentAt.getTime();
-    const nextStatus = ageMs < resendIdempotencyWindowMs ? 'failed_transient' : 'webhook_timeout';
+    const ageMs = now - delivery.createdAt.getTime();
+    const nextStatus =
+      ageMs < RESEND_IDEMPOTENCY_WINDOW_MS ? 'failed_transient' : 'webhook_timeout';
     const lastError =
       nextStatus === 'failed_transient'
         ? `Recovered stale sent delivery awaiting webhook (threshold: ${String(thresholdMinutes)} minutes)`

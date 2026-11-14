@@ -24,7 +24,11 @@ export interface ValidationError {
   readonly field: string;
 }
 
-export type DatasetRequestError = DatabaseError | TimeoutError | ValidationError;
+export type DatasetRequestError =
+  | DatabaseError
+  | TimeoutError
+  | ValidationError
+  | { readonly type: 'Forbidden'; readonly message: string };
 
 export const createDatabaseError = (message: string, cause?: unknown): DatabaseError => ({
   type: 'DatabaseError',
@@ -47,10 +51,12 @@ export const createValidationError = (field: string, message: string): Validatio
 });
 
 /** HTTP status for the REST surface. */
-export const getHttpStatusForError = (error: DatasetRequestError): 400 | 500 | 504 => {
+export const getHttpStatusForError = (error: DatasetRequestError): 400 | 403 | 500 | 504 => {
   switch (error.type) {
     case 'ValidationError':
       return 400;
+    case 'Forbidden':
+      return 403;
     case 'TimeoutError':
       return 504;
     case 'DatabaseError':

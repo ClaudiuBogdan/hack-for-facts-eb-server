@@ -83,6 +83,7 @@ export const makeShareRoutes = (deps: MakeShareRoutesDeps): FastifyPluginAsync =
             200: CreateShortLinkResponseSchema,
             400: ErrorResponseSchema,
             401: ErrorResponseSchema,
+            403: ErrorResponseSchema,
             429: ErrorResponseSchema,
             500: ErrorResponseSchema,
           },
@@ -134,7 +135,7 @@ export const makeShareRoutes = (deps: MakeShareRoutesDeps): FastifyPluginAsync =
 
         if (result.isErr()) {
           const status = getHttpStatusForError(result.error);
-          return reply.status(status as 400 | 500).send({
+          return reply.status(status).send({
             ok: false,
             error: result.error.type,
             message: result.error.message,

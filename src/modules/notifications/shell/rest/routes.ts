@@ -145,6 +145,7 @@ export const makeNotificationRoutes = (deps: MakeNotificationRoutesDeps): Fastif
             201: NotificationResponseSchema,
             400: ErrorResponseSchema,
             401: ErrorResponseSchema,
+            403: ErrorResponseSchema,
             500: ErrorResponseSchema,
           },
         },
@@ -170,7 +171,7 @@ export const makeNotificationRoutes = (deps: MakeNotificationRoutesDeps): Fastif
 
         if (result.isErr()) {
           const status = getHttpStatusForError(result.error);
-          if (status === 400 || status === 500) {
+          if (status === 400 || status === 403 || status === 500) {
             return reply.status(status).send({
               ok: false,
               error: result.error.type,

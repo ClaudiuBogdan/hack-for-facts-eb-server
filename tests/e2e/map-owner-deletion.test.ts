@@ -23,9 +23,16 @@ import { assertUserDataOwnerCanWrite } from '@/infra/database/user/owner-write-g
 import { makeAdvancedMapAnalyticsRepo } from '@/modules/advanced-map-analytics/index.js';
 import { makeAdvancedMapDatasetsRepo } from '@/modules/advanced-map-datasets/index.js';
 import { makeClerkUserDeletionRoutes } from '@/modules/clerk-webhooks/index.js';
-import { makeUserDataAnonymizer } from '@/modules/clerk-webhooks/shell/anonymization/user-data-anonymizer.js';
+import {
+  buildAnonymizedUserId,
+  makeUserDataAnonymizer,
+} from '@/modules/clerk-webhooks/shell/anonymization/user-data-anonymizer.js';
+import { makeNotificationsRepo } from '@/modules/notifications/index.js';
+import { makeUserDataMutationRepo } from '@/modules/user-data/index.js';
 
 import { startDisposablePostgres, teardownDisposablePostgres } from './disposable-postgres.js';
+import { makePlannedMutation, makeReceiptClaim } from '../fixtures/user-data/index.js';
+import { makeTestClock } from '../support/index.js';
 
 import type { UserDatabase } from '@/infra/database/user/types.js';
 
@@ -306,6 +313,25 @@ it('the native receiver deletes only after a valid Svix signature', async ({ ski
   const maps = makeAdvancedMapAnalyticsRepo({ db, logger });
   const input = mapInput(owner);
   expect((await maps.createMap(input)).isOk()).toBe(true);
+  const notifications = makeNotificationsRepo({ db, logger });
+  const subscription = (
+    await notifications.create({
+      userId: owner,
+      notificationType: 'newsletter_entity_monthly',
+      entityCui: '123',
+      config: null,
+      hash: `fixture-${owner}`,
+    })
+  )._unsafeUnwrap();
+  const userData = makeUserDataMutationRepo({ db, clock: makeTestClock(new Date()) });
+  const plan = makePlannedMutation({
+    operation: 'create',
+    identity: { ownerId: owner, category: 'funky.interaction', logicalKey: 'fixture' },
+    recordId: randomUUID(),
+    eventId: randomUUID(),
+    receipt: makeReceiptClaim({ requesterId: owner, idempotencyKeyHash: owner }),
+  });
+  expect((await userData.commit(plan)).isOk()).toBe(true);
   const signingSecret = `whsec_${Buffer.from('disposable-test-signing-key-only').toString('base64')}`;
   const signer = new Webhook(signingSecret);
   const app = fastifyLib();
@@ -343,6 +369,20 @@ it('the native receiver deletes only after a valid Svix signature', async ({ ski
     ).toBe(200);
     const recreated = await maps.createMap(mapInput(owner));
     expect(recreated.isErr() && recreated.error.type).toBe('ForbiddenError');
+    expect(
+      await db
+        .selectFrom('user_data_records')
+        .select(['owner_id', 'payload'])
+        .where('record_id', '=', plan.recordId)
+        .executeTakeFirstOrThrow()
+    ).toMatchObject({ owner_id: buildAnonymizedUserId(owner), payload: {} });
+    expect((await userData.commit(plan))._unsafeUnwrapErr()).toMatchObject({ type: 'Forbidden' });
+    expect(
+      (
+        await notifications.updateWithManualOptIn(subscription.id, { isActive: true })
+      )._unsafeUnwrapErr()
+    ).toMatchObject({ type: 'NotificationForbiddenError' });
+    expect((await notifications.findById(subscription.id))._unsafeUnwrap()?.isActive).toBe(false);
   } finally {
     await app.close();
   }

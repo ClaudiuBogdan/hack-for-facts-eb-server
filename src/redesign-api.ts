@@ -25,6 +25,9 @@ const main = async (): Promise<void> => {
         userData: {
           db: userDb,
           signingSecret: config.userData.webhookSigningSecret,
+          ...(config.userData.unsubscribeHmacSecret === undefined
+            ? {}
+            : { unsubscribeHmacSecret: config.userData.unsubscribeHmacSecret }),
           ...(config.userData.clerkSecretKey === undefined
             ? {}
             : { clerkSecretKey: config.userData.clerkSecretKey }),

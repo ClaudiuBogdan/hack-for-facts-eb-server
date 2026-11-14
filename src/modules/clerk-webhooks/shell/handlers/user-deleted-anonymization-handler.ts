@@ -1,4 +1,11 @@
 import {
+  ALL_USER_DATA_CATEGORIES,
+  makeCategoryRegistry,
+  makeUserDataErasureRepo,
+  makeUserDataStoreEraser,
+} from '@/modules/user-data/index.js';
+
+import {
   makeUserDataAnonymizer,
   type UserDataAnonymizer,
 } from '../anonymization/user-data-anonymizer.js';
@@ -65,20 +72,29 @@ export const makeClerkUserDeletedAnonymizationHandler = (
   };
 };
 
-/** Native product scope: only maps/datasets write this isolated user database. */
 export const makeClerkUserDeletionRoutes = (deps: {
   readonly db: UserDbClient;
   readonly signingSecret: string;
   readonly logger: Logger;
-}): FastifyPluginAsync =>
-  makeClerkWebhookRoutes({
+}): FastifyPluginAsync => {
+  const registry = makeCategoryRegistry(ALL_USER_DATA_CATEGORIES);
+  if (registry.isErr()) throw new Error('Invalid user-data category registry');
+  return makeClerkWebhookRoutes({
     webhookVerifier: makeClerkWebhookVerifier({
       signingSecret: deps.signingSecret,
       logger: deps.logger,
     }),
     logger: deps.logger,
     onEventVerified: makeClerkUserDeletedAnonymizationHandler({
-      userDataAnonymizer: makeUserDataAnonymizer({ db: deps.db, logger: deps.logger }),
+      userDataAnonymizer: makeUserDataAnonymizer({
+        db: deps.db,
+        logger: deps.logger,
+        userDataStoreEraser: makeUserDataStoreEraser({
+          registry: registry.value,
+          erasurePort: makeUserDataErasureRepo({ db: deps.db }),
+        }),
+      }),
       logger: deps.logger,
     }),
   });
+};

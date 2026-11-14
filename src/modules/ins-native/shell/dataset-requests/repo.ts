@@ -7,6 +7,11 @@
 import { err, ok, type Result } from 'neverthrow';
 
 import {
+  assertUserDataOwnerCanWrite,
+  UserDataOwnerDeletedError,
+} from '@/infra/database/user/owner-write-guard.js';
+
+import {
   createDatabaseError,
   createTimeoutError,
   type DatasetRequestError,
@@ -37,17 +42,29 @@ class KyselyInsDatasetRequestRepo implements InsDatasetRequestRepository {
     input: InsDatasetRequestInput
   ): Promise<Result<InsDatasetRequest, DatasetRequestError>> {
     try {
-      const row = await this.db
-        .insertInto('ins_dataset_requests')
-        .values({
-          dataset_code: input.dataset_code,
-          siruta: input.siruta ?? null,
-          contact_email: input.contact_email ?? null,
-          note: input.note ?? null,
-          clerk_user_id: input.clerk_user_id ?? null,
-        })
-        .returning(['id', 'dataset_code', 'siruta', 'created_at'])
-        .executeTakeFirstOrThrow();
+      const insert = (db: UserDbClient) =>
+        db
+          .insertInto('ins_dataset_requests')
+          .values({
+            dataset_code: input.dataset_code,
+            siruta: input.siruta ?? null,
+            contact_email: input.contact_email ?? null,
+            note: input.note ?? null,
+            clerk_user_id: input.clerk_user_id ?? null,
+          })
+          .returning(['id', 'dataset_code', 'siruta', 'created_at'])
+          .executeTakeFirstOrThrow();
+      const ownerId = input.clerk_user_id;
+      const row =
+        ownerId == null
+          ? await insert(this.db)
+          : await this.db
+              .transaction()
+              .setIsolationLevel('read committed')
+              .execute(async (trx) => {
+                await assertUserDataOwnerCanWrite(trx, ownerId);
+                return insert(trx);
+              });
 
       return ok({
         id: row.id,
@@ -56,6 +73,8 @@ class KyselyInsDatasetRequestRepo implements InsDatasetRequestRepository {
         created_at: toDate(row.created_at),
       });
     } catch (error) {
+      if (error instanceof UserDataOwnerDeletedError)
+        return err({ type: 'Forbidden', message: error.message });
       return err(createDatabaseError('INS createDatasetRequest failed', error));
     }
   }

@@ -1,5 +1,7 @@
-/** INS dataset requests on behalf of an embedding server (slice 1 commit 5). */
+import rateLimit from '@fastify/rate-limit';
+
 import { addEmbeddedScopeAuth } from './embedded-scope-auth.js';
+import { registerUserRouteErrorHandler } from './user-route-error-handler.js';
 import {
   makeInsDatasetRequestRepo,
   makeInsDatasetRequestRoutes,
@@ -17,6 +19,7 @@ export interface InsDatasetRequestRoutesDeps {
   /** Whether the embedder's Clerk `user.deleted` receiver is wired (see the route). */
   readonly userDeletionHandlerConfigured: boolean;
   readonly createInsReadSession: () => InsReadSession;
+  readonly installRateLimit?: boolean;
 }
 
 export async function registerInsDatasetRequestRoutes(
@@ -24,6 +27,10 @@ export async function registerInsDatasetRequestRoutes(
   deps: InsDatasetRequestRoutesDeps
 ): Promise<void> {
   await app.register(async (scope) => {
+    if (deps.installRateLimit === true) {
+      await scope.register(rateLimit, { global: false });
+      registerUserRouteErrorHandler(scope);
+    }
     // The endpoint is public by contract; this hook attaches a verified caller
     // (or refuses a garbage bearer) so an authenticated submission can carry its
     // Clerk user id. On api.js the legacy root auth hook runs after it too and

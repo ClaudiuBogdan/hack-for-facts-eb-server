@@ -106,6 +106,7 @@ export const makeInsDatasetRequestRoutes = (
           response: {
             201: CreateDatasetRequestResponseSchema,
             400: ErrorResponseSchema,
+            403: ErrorResponseSchema,
             429: ErrorResponseSchema,
             500: ErrorResponseSchema,
             504: ErrorResponseSchema,

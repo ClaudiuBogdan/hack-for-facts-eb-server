@@ -18,7 +18,8 @@ export async function assertUserDataOwnerCanWrite(
   ownerId: string
 ): Promise<void> {
   // Do not admit an identity that deletion would canonicalize differently.
-  if (ownerId === '' || ownerId !== ownerId.trim()) throw new UserDataOwnerDeletedError();
+  if (ownerId === '' || ownerId !== ownerId.trim() || ownerId.startsWith('deleted-user:'))
+    throw new UserDataOwnerDeletedError();
   await acquireUserDataOwnerLock(trx, ownerId);
   const marker = await trx
     .selectFrom('userdataanonymizationaudit')

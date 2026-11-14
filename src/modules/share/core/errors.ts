@@ -77,6 +77,7 @@ export interface ShortLinkNotFoundError {
  */
 export type ShareError =
   | DatabaseError
+  | { readonly type: 'Forbidden'; readonly message: string }
   | UrlNotAllowedError
   | InvalidInputError
   | RateLimitExceededError
@@ -155,6 +156,7 @@ export const createShortLinkNotFoundError = (code: string): ShortLinkNotFoundErr
  */
 export const SHARE_ERROR_HTTP_STATUS: Record<ShareError['type'], number> = {
   DatabaseError: 500,
+  Forbidden: 403,
   UrlNotAllowedError: 400,
   InvalidInputError: 400,
   RateLimitExceededError: 429,

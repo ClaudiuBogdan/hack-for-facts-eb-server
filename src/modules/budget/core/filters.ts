@@ -193,13 +193,13 @@ export const budgetFactFilterSpec: CollectionFilterSpec = {
       column: { alias: 'eli', column: 'amount_virtual' },
       description: 'Upper bound on the frequency amount column.',
     },
-    // ── transfer exclusion (virtual; opt-in; fact path only — MVs pre-exclude)
+    // ── transfer exclusion (virtual; opt-in; applied to fact reads)
     {
       name: 'excludeTransfers',
       type: 'bool',
       ops: ['eq'],
       column: { alias: 'eli', column: 'exclude_transfers_virtual' },
-      description: 'Exclude transfer codes (the exact set the MVs bake in).',
+      description: 'Exclude the configured transfer codes from the selected execution facts.',
     },
     // ── core-join filters (entity / territory; need the LEFT JOINs)
     {

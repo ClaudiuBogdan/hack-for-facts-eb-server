@@ -12,6 +12,25 @@ interface CapturedQuery {
 const flat = (value: string): string => value.replace(/\s+/gu, ' ').trim();
 
 describe('budget ranking repository filters', () => {
+  it.each([
+    ['YEAR', {}, 'annual'],
+    ['MONTH', { month: 8 }, 'monthly'],
+    ['QUARTER', { quarter: 3 }, 'quarterly'],
+  ] as const)('uses reported summaries for %s when enabled', async (frequency, period, suffix) => {
+    const captured: CapturedQuery[] = [];
+    const repo = makeBudgetRepo(makeCapturingDb(captured), { reportedExecutionSummaries: true });
+    const result = await repo.rankEntities({
+      year: 2025,
+      reportType: 'EXECUTION_DETAILED',
+      frequency,
+      ...period,
+      metric: 'EXPENSE',
+      normalization: 'TOTAL',
+      limit: 5,
+    });
+    expect(result.isOk()).toBe(true);
+    expect(captured[0]?.sql).toContain(`"budget"."mv_execution_reported_${suffix}"`);
+  });
   it('uses the requested MV and parameterizes entity scope filters', async () => {
     const captured: CapturedQuery[] = [];
     const repo = makeBudgetRepo(makeCapturingDb(captured));

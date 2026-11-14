@@ -17,6 +17,43 @@ import {
 const testLogger = pinoLogger({ level: 'silent' });
 
 describe('processSendJob', () => {
+  it('holds an old delivery retry before calling Resend', async () => {
+    const deliveryRepo = makeFakeDeliveryRepo({
+      deliveries: [
+        createTestDeliveryRecord({
+          id: 'old-retry',
+          status: 'failed_transient',
+          attemptCount: 1,
+          createdAt: new Date(Date.now() - 25 * 60 * 60 * 1000),
+          notificationType: 'transactional_welcome',
+          toEmail: 'user@example.com',
+          renderedSubject: 'Welcome',
+          renderedHtml: '<p>Hello</p>',
+          renderedText: 'Hello',
+        }),
+      ],
+    });
+    const send = vi.fn(async () => ok({ emailId: 'mock-1' }));
+    const result = await processSendJob(
+      {
+        deliveryRepo,
+        notificationsRepo: makeFakeExtendedNotificationsRepo(),
+        userEmailFetcher: {
+          getEmail: async () => ok(null),
+          getEmailsByUserIds: async () => ok(new Map()),
+        },
+        emailSender: { send },
+        tokenSigner: makeFakeTokenSigner(),
+        apiBaseUrl: 'https://api.transparenta.eu',
+        environment: 'test',
+        log: testLogger,
+      },
+      { outboxId: 'old-retry' }
+    );
+    expect(result.status).toBe('webhook_timeout');
+    expect(send).not.toHaveBeenCalled();
+  });
+
   it('skips a claimed delivery when deletion anonymization has started for the user', async () => {
     const deliveryRepo = makeFakeDeliveryRepo({
       anonymizationStartedUserIds: ['user-1'],
