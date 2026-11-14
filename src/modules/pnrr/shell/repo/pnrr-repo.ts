@@ -982,7 +982,8 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
     'p.commitment_business_id',
     'p.contract_number',
     sql<string | null>`to_jsonb(p) ->> 'contract_title'`.as('contract_title'),
-    'p.beneficiary_cui',
+    sql<string | null>`case when p.beneficiary_cui collate "C" ~ '^[0-9]{1,10}$'
+      then p.beneficiary_cui end`.as('beneficiary_cui'),
     'p.beneficiary_name',
     sql<string | null>`to_jsonb(p) ->> 'beneficiary_type'`.as('beneficiary_type'),
     'p.component_code',
@@ -1036,7 +1037,6 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
   ] as const;
 
   const mapProject = (row: ProjectRow): PnrrProject => {
-    const beneficiary = publicOrganizationIdentity(row.beneficiary_cui, row.beneficiary_name);
     return {
       projectKey: row.project_key_v1 ?? row.observation_id,
       projectKeyVersion:
@@ -1049,8 +1049,8 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
       commitmentBusinessId: row.commitment_business_id,
       contractNumber: row.contract_number,
       contractTitle: row.contract_title,
-      beneficiaryCui: beneficiary.cui,
-      beneficiaryName: beneficiary.name,
+      beneficiaryCui: publicOrganizationIdentity(row.beneficiary_cui, null).cui,
+      beneficiaryName: row.beneficiary_name,
       beneficiaryType: row.beneficiary_type,
       componentCode: row.component_code,
       measureCode: row.measure_raw,
@@ -1283,8 +1283,7 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
         .select([
           'p.endpoint_name',
           'p.item_key',
-          'p.beneficiary_cui',
-          'p.commitment_business_id',
+          'p.observation_id',
           sql<string | null>`to_jsonb(p) ->> 'project_key_v1'`.as('project_key_v1'),
           sql<string | null>`to_jsonb(p) ->> 'project_key_version'`.as('project_key_version'),
         ])
@@ -1311,6 +1310,11 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
       }
       const rows = (await db
         .selectFrom('pnrr.progress_observations as p')
+        // Match history before masking the returned CUI. Matching on two
+        // masked NULLs would combine different beneficiaries' histories.
+        .innerJoin('pnrr.progress_observations as anchor', (join) =>
+          join.on('anchor.observation_id', '=', current.observation_id)
+        )
         .leftJoin(
           'pnrr.api_commitments as c',
           'c.envelope_candidate_key_v1',
@@ -1321,10 +1325,11 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
         .where('p.record_kind', '=', 'project_progress')
         .where('p.endpoint_name', '=', current.endpoint_name)
         .where('p.item_key', '=', current.item_key)
-        .where(sql<boolean>`p.beneficiary_cui is not distinct from ${current.beneficiary_cui}`)
+        .where(sql<boolean>`p.beneficiary_cui is not distinct from anchor.beneficiary_cui`)
         .where(
-          sql<boolean>`p.commitment_business_id is not distinct from ${current.commitment_business_id}`
+          sql<boolean>`p.commitment_business_id is not distinct from anchor.commitment_business_id`
         )
+        .whereRef('p.snapshot_date', '<=', 'anchor.snapshot_date')
         .orderBy('p.snapshot_date', 'asc')
         .orderBy('p.observation_id', 'asc')
         .limit(2000)
