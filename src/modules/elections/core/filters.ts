@@ -28,7 +28,7 @@ export const electionContestsFilterSpec: CollectionFilterSpec = {
       array: true,
       column: { alias: 'c', column: 'office' },
       description:
-        'Office, e.g. mayor, local_council, county_council, county_council_president, general_mayor, general_council, chamber, senate.',
+        'Office, e.g. mayor, local_council, county_council, county_council_president, general_mayor, general_council, chamber, senate, president, european_parliament.',
     },
     {
       name: 'statuses',
@@ -37,7 +37,8 @@ export const electionContestsFilterSpec: CollectionFilterSpec = {
       ops: ['in'],
       array: true,
       column: { alias: 'c', column: 'status' },
-      description: 'held, or annulled (an annulled contest has no figures).',
+      description:
+        'held, or annulled (an annulled contest may have no figures; one annulled after its count keeps them).',
     },
     {
       name: 'jurisdictionTypes',
