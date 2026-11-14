@@ -34,6 +34,7 @@ import {
   makeGraphQLErrorFormatter,
   makeGraphQLValidationRules,
 } from '../infra/graphql/security.js';
+import { makeQueueRedisHealth, type QueueRedisHealthConfig } from '../infra/queue/redis-health.js';
 import { makeGraphQLContext, type AuthProvider } from '../modules/auth/index.js';
 import {
   makeBudgetModule,
@@ -100,6 +101,7 @@ export interface RedesignAgentDeps {
 
 export interface BuildRedesignAppDeps {
   readonly reportedExecutionSummaries?: boolean;
+  readonly queueRedis?: QueueRedisHealthConfig;
   readonly kernelConfig: KernelConfig;
   readonly logLevel?: string;
   /** GraphQL SDL slices contributed by source modules (extend Query/Entity). */
@@ -426,6 +428,14 @@ export const registerRedesignSurface = async (
         logger: app.log as Logger,
       })
     );
+  }
+  const queueRedisHealth =
+    deps.queueRedis === undefined ? undefined : makeQueueRedisHealth(deps.queueRedis);
+  if (queueRedisHealth !== undefined) {
+    app.addHook('onClose', (_instance, done) => {
+      queueRedisHealth.close();
+      done();
+    });
   }
 
   // ── Source modules (built on the kernel) ─────────────────────────────────────
@@ -960,12 +970,23 @@ export const registerRedesignSurface = async (
     const [report, userDatabase] = await Promise.all([kernel.health(), publicUserDataHealth()]);
     const { publicReport: sanitized, detail } = publicHealthReport(report);
     if (detail.length > 0) app.log.warn({ dependencies: detail }, 'dependency health errors');
-    return { report: sanitized, userDatabase, postgresOk: report.postgres.status === 'ok' };
+    return {
+      report: sanitized,
+      userDatabase,
+      postgresOk: report.postgres.status === 'ok',
+    };
   };
   app.get('/api/v1/health', async (_request, reply) => {
-    const { report, userDatabase } = await publicReport();
+    const [{ report, userDatabase }, queueRedis] = await Promise.all([
+      publicReport(),
+      queueRedisHealth?.check(),
+    ]);
     // Dependency report never hard-fails on aux down (§14.11); always 200.
-    return reply.code(200).send({ ...report, ...(userDatabase !== undefined && { userDatabase }) });
+    return reply.code(200).send({
+      ...report,
+      ...(userDatabase !== undefined && { userDatabase }),
+      ...(queueRedis !== undefined && { queueRedis }),
+    });
   });
 
   app.get('/api/v1/ready', { logLevel: 'silent' }, async (_request, reply) => {

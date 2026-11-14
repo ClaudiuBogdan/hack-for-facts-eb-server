@@ -78,7 +78,14 @@ spec:
             - name: USER_DATA_DB_CA_FILE
               value: /var/run/secrets/chronos-dev-user-db/ca.crt
             - name: BULLMQ_REDIS_PASSWORD
-              $patch: delete
+              valueFrom:
+                secretKeyRef:
+                  name: transparenta-eu-dev-redis-bullmq-auth
+                  key: REDIS_PASSWORD
+            - name: BULLMQ_REDIS_URL
+              value: rediss://transparenta-eu-dev-redis-bullmq.transparenta-eu-dev.svc.cluster.local:6379/0
+            - name: BULLMQ_REDIS_CA_FILE
+              value: /var/run/secrets/chronos-dev-bullmq-ca/ca.crt
             - name: PROD_MEILI_INDEXES
               value: entities_ngo_dev_20261001
             # Dev index reader: search plus documents.get (the search generation
@@ -104,6 +111,9 @@ spec:
               readOnly: true
             - name: chronos-dev-user-db-ca
               mountPath: /var/run/secrets/chronos-dev-user-db
+              readOnly: true
+            - name: chronos-dev-bullmq-ca
+              mountPath: /var/run/secrets/chronos-dev-bullmq-ca
               readOnly: true
           # Startup/liveness use the dependency-free /api/v1/live: /api/v1/health
           # bounds each dependency at 4 s and the user DB at 3 s, longer than the
@@ -135,6 +145,12 @@ spec:
         - name: chronos-dev-user-db-ca
           secret:
             secretName: transparenta-eu-dev-user-db-ca
+            items:
+              - key: ca.crt
+                path: ca.crt
+        - name: chronos-dev-bullmq-ca
+          secret:
+            secretName: transparenta-eu-dev-redis-bullmq-tls
             items:
               - key: ca.crt
                 path: ca.crt

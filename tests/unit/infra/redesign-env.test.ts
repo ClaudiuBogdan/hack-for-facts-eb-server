@@ -60,6 +60,36 @@ describe('native Clerk configuration', () => {
   });
 });
 
+describe('BullMQ Redis health configuration', () => {
+  const base = { PROD_DATABASE_URL: 'postgres://reader@example.invalid/transparenta_prod' };
+  const redisConfig = {
+    BULLMQ_REDIS_URL: 'rediss://queue.example.invalid:6379/0',
+    BULLMQ_REDIS_PASSWORD: 'fixture password',
+    BULLMQ_REDIS_CA_FILE: '/public/ca.crt',
+  };
+
+  it('is optional and requires a complete TLS tuple when set', () => {
+    expect(loadRedesignConfig(base).queueRedis).toBeUndefined();
+    expect(loadRedesignConfig({ ...base, ...redisConfig }).queueRedis?.url).toBe(
+      redisConfig.BULLMQ_REDIS_URL
+    );
+    expect(() =>
+      loadRedesignConfig({ ...base, BULLMQ_REDIS_URL: redisConfig.BULLMQ_REDIS_URL })
+    ).toThrow(/requires a TLS URL, password and CA file/);
+  });
+
+  it.each([
+    'redis://queue.example.invalid:6379/0',
+    'rediss://name:fixture@queue.example.invalid:6379/0',
+    'rediss://queue.example.invalid:6379/1',
+    'rediss://queue.example.invalid:6379/0?tls=false',
+  ])('rejects unsupported connection targets', (url) => {
+    expect(() => loadRedesignConfig({ ...base, ...redisConfig, BULLMQ_REDIS_URL: url })).toThrow(
+      /requires a rediss URL/
+    );
+  });
+});
+
 describe('native user-data configuration', () => {
   const base = {
     PROD_DATABASE_URL: 'postgres://reader@example.invalid/transparenta_prod',

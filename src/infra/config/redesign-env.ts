@@ -11,6 +11,8 @@ import { Value } from '@sinclair/typebox/value';
 
 import { parseTrustProxy, type TrustProxySetting } from './trust-proxy.js';
 
+import type { QueueRedisHealthConfig } from '../queue/redis-health.js';
+
 const RedesignEnvSchema = Type.Object({
   // Postgres is the only hard requirement — the server must boot and /health
   // must be able to report aux services down rather than crashing at boot.
@@ -59,6 +61,9 @@ const RedesignEnvSchema = Type.Object({
   CLERK_ISSUER: Type.Optional(Type.String({ minLength: 1 })),
   CLERK_AUTHORIZED_PARTIES: Type.Optional(Type.String({ minLength: 1 })),
   UNSUBSCRIBE_HMAC_SECRET: Type.Optional(Type.String({ minLength: 32 })),
+  BULLMQ_REDIS_URL: Type.Optional(Type.String({ minLength: 1 })),
+  BULLMQ_REDIS_PASSWORD: Type.Optional(Type.String({ minLength: 1 })),
+  BULLMQ_REDIS_CA_FILE: Type.Optional(Type.String({ minLength: 1 })),
   // ── behind-proxy client identity (review X/F15) ─────────────────────────
   // Rate limits key on the client IP; trusting X-Forwarded-For is only correct
   // behind a gateway that sets it. Same contract as the legacy server
@@ -154,6 +159,7 @@ export interface RedesignConfig {
   readonly companiesAnalytics?: CompaniesAnalyticsComposition;
   /** Extra browser origins allowed cross-origin in prod (from PROD_ALLOWED_ORIGINS). */
   readonly corsAllowedOrigins: readonly string[];
+  readonly queueRedis?: QueueRedisHealthConfig;
   readonly auth?: {
     readonly jwtKey: string;
     readonly issuer: string;
@@ -219,6 +225,9 @@ const STANDALONE_ONLY_KEYS = [
   'CLERK_ISSUER',
   'CLERK_AUTHORIZED_PARTIES',
   'UNSUBSCRIBE_HMAC_SECRET',
+  'BULLMQ_REDIS_URL',
+  'BULLMQ_REDIS_PASSWORD',
+  'BULLMQ_REDIS_CA_FILE',
   'COMPANIES_ANALYTICS_CLICKHOUSE_URL',
   'COMPANIES_ANALYTICS_CLICKHOUSE_DATABASE',
   'COMPANIES_ANALYTICS_CLICKHOUSE_USER',
@@ -248,6 +257,36 @@ const parseEnvAgainst = <T extends typeof RedesignEnvSchema | typeof EmbeddedKer
 
 const parseRedesignEnv = (env: NodeJS.ProcessEnv): RedesignEnv =>
   parseEnvAgainst(RedesignEnvSchema, env);
+
+function composeQueueRedis(env: RedesignEnv): QueueRedisHealthConfig | undefined {
+  const {
+    BULLMQ_REDIS_URL: url,
+    BULLMQ_REDIS_PASSWORD: password,
+    BULLMQ_REDIS_CA_FILE: caFile,
+  } = env;
+  if (url === undefined && password === undefined && caFile === undefined) return undefined;
+  if (url === undefined || password === undefined || caFile === undefined) {
+    throw new Error('BullMQ Redis requires a TLS URL, password and CA file');
+  }
+  let endpoint: URL;
+  try {
+    endpoint = new URL(url);
+  } catch {
+    throw new Error('Invalid BullMQ Redis TLS URL');
+  }
+  if (
+    endpoint.protocol !== 'rediss:' ||
+    endpoint.hostname === '' ||
+    endpoint.username !== '' ||
+    endpoint.password !== '' ||
+    endpoint.search !== '' ||
+    endpoint.hash !== '' ||
+    !['', '/', '/0'].includes(endpoint.pathname)
+  ) {
+    throw new Error('BullMQ Redis requires a rediss URL targeting database 0 without overrides');
+  }
+  return { url, password, caFile };
+}
 
 const splitCsv = (raw: string | undefined): readonly string[] =>
   raw === undefined
@@ -528,11 +567,13 @@ export const loadRedesignConfig = (env: NodeJS.ProcessEnv): RedesignConfig => {
   }
 
   const companiesAnalytics = composeCompaniesAnalytics(e);
+  const queueRedis = composeQueueRedis(e);
 
   return {
     ...composeEmbeddedKernel(e),
     reportedExecutionSummaries: e.BUDGET_REPORTED_EXECUTION_SUMMARIES === 'true',
     ...(companiesAnalytics !== undefined && { companiesAnalytics }),
+    ...(queueRedis !== undefined && { queueRedis }),
     ...(auth !== undefined && { auth }),
     ...(userData !== undefined && { userData }),
     trustProxy: parseTrustProxy(e.TRUST_PROXY) ?? true,
