@@ -183,6 +183,68 @@ export interface PnrrOverview {
   };
 }
 
+/**
+ * The `PnrrProject` fields the dashboard server consumes, in wire order (the
+ * order of each observation's keys). Agreed with the client; change both together.
+ */
+export const PNRR_DASHBOARD_OBSERVATION_FIELDS = [
+  'projectKey',
+  'sourceObservationId',
+  'snapshotId',
+  'snapshotDate',
+  'commitmentBusinessId',
+  'contractTitle',
+  'beneficiaryName',
+  'beneficiaryCui',
+  'countyName',
+  'localityName',
+  'financingSource',
+  'euContributionRon',
+  'totalValueRon',
+  'nationalPublicValueRon',
+  'vatRon',
+  'ineligibleValueRon',
+  'contractNumber',
+  'commitmentDate',
+  'startDate',
+  'endDate',
+  'beneficiaryType',
+  'impact',
+  'responsibleInstitutionName',
+  'physicalProgressRatio',
+  'financialProgressRatio',
+  'status',
+  'componentCode',
+  'measureCode',
+  'responsibleInstitutionCode',
+  'sourceUrl',
+] as const;
+
+export type PnrrDashboardObservationField = (typeof PNRR_DASHBOARD_OBSERVATION_FIELDS)[number];
+
+/** One compact dashboard observation: the same values and formats as in `PnrrProject`. */
+export type PnrrDashboardObservation = Pick<PnrrProject, PnrrDashboardObservationField>;
+
+/**
+ * The dashboard server's fixed input for one active scoped MIPE release: the
+ * release, its publisher-reported national figures and every public
+ * observation of the release's own MIPE projects snapshot, canonical or not.
+ */
+export interface PnrrDashboardSnapshot {
+  readonly release: PnrrRelease;
+  readonly program: PnrrOverview['program'];
+  readonly observations: readonly PnrrDashboardObservation[];
+}
+
+/** The snapshot, or the active release when it is not the asserted one (nothing read). */
+export type PnrrDashboardSnapshotRead =
+  | { readonly kind: 'snapshot'; readonly snapshot: PnrrDashboardSnapshot }
+  | {
+      readonly kind: 'release_mismatch';
+      readonly expectedReleaseId: string;
+      readonly currentReleaseId: string;
+    };
+
 /** Payment and commitment counts are null where the release withholds ORDS facts. */
 export interface PnrrPlaceProfile {
   readonly meta: PnrrAnswerMeta;

@@ -101,7 +101,11 @@ import {
   type PnrrAnalysisScope,
   type PnrrAnswerState,
   type PnrrAnswerMeta,
+  PNRR_DASHBOARD_OBSERVATION_FIELDS,
   type PnrrCapability,
+  type PnrrDashboardObservation,
+  type PnrrDashboardObservationField,
+  type PnrrDashboardSnapshotRead,
   type PnrrLaneFreshness,
   type PnrrMoneyFact,
   type PnrrOverview,
@@ -187,6 +191,115 @@ const composeWhere = (conds: readonly RawBuilder<unknown>[]): RawBuilder<SqlBool
 const projectSource = (relation: string) =>
   sql<PnrrProgressObservationsTable>`${sql.table(relation)}`.as('p');
 
+/** The served beneficiary CUI of an observation aliased `p`: 1–10 digits, else null. */
+const servedBeneficiaryCui = sql<
+  string | null
+>`case when p.beneficiary_cui collate "C" ~ '^[0-9]{1,10}$'
+      then p.beneficiary_cui end`;
+
+/**
+ * SQL per compact dashboard field over the history view aliased `p`, as text,
+ * with the `PnrrProject` select's formats: `::text` where that select casts
+ * (money, progress, snapshot date), and the column's own JSON rendering where
+ * it reads `to_jsonb(p) ->> column` (title, type, dates, impact), which is
+ * the same text. Plain columns are cast to text, as the driver returns them.
+ */
+const DASHBOARD_OBSERVATION_SQL: Record<PnrrDashboardObservationField, RawBuilder<unknown>> = {
+  projectKey: sql`coalesce(p.project_key_v1, p.observation_id)`,
+  sourceObservationId: sql`p.observation_id::text`,
+  snapshotId: sql`p.snapshot_id::text`,
+  snapshotDate: sql`p.snapshot_date::text`,
+  commitmentBusinessId: sql`p.commitment_business_id::text`,
+  contractTitle: sql`p.contract_title`,
+  beneficiaryName: sql`p.beneficiary_name::text`,
+  beneficiaryCui: servedBeneficiaryCui,
+  countyName: sql`p.county_name::text`,
+  localityName: sql`p.locality_name::text`,
+  financingSource: sql`p.financing_source::text`,
+  euContributionRon: sql`p.eu_value::text`,
+  totalValueRon: sql`p.total_value::text`,
+  nationalPublicValueRon: sql`p.national_public_value::text`,
+  vatRon: sql`p.vat_value::text`,
+  ineligibleValueRon: sql`p.ineligible_value::text`,
+  contractNumber: sql`p.contract_number::text`,
+  commitmentDate: sql`p.commitment_date`,
+  startDate: sql`p.start_date`,
+  endDate: sql`p.end_date`,
+  beneficiaryType: sql`p.beneficiary_type`,
+  impact: sql`p.impact_raw`,
+  responsibleInstitutionName: sql`p.responsible_institution_name::text`,
+  physicalProgressRatio: sql`p.physical_progress::text`,
+  financialProgressRatio: sql`p.financial_progress::text`,
+  status: sql`p.status_raw::text`,
+  componentCode: sql`p.component_code::text`,
+  measureCode: sql`p.measure_raw::text`,
+  responsibleInstitutionCode: sql`p.responsible_institution_code::text`,
+  sourceUrl: sql`p.source_url::text`,
+};
+
+const DASHBOARD_FIELD_INDEX = Object.fromEntries(
+  PNRR_DASHBOARD_OBSERVATION_FIELDS.map((field, index) => [field, index])
+) as Record<PnrrDashboardObservationField, number>;
+
+/**
+ * One aggregated cell array in field order, mapped like `mapProject` (CUI
+ * mask, numeric progress ratios). Null for any other shape: the read fails
+ * closed rather than serving a partial or shifted row.
+ */
+const decodeDashboardObservation = (item: unknown): PnrrDashboardObservation | null => {
+  if (!Array.isArray(item) || item.length !== PNRR_DASHBOARD_OBSERVATION_FIELDS.length) return null;
+  const cells: readonly unknown[] = item;
+  if (!cells.every((cell) => cell === null || typeof cell === 'string')) return null;
+  const text = (field: PnrrDashboardObservationField): string | null =>
+    cells[DASHBOARD_FIELD_INDEX[field]] as string | null;
+  const projectKey = text('projectKey');
+  const sourceObservationId = text('sourceObservationId');
+  const snapshotId = text('snapshotId');
+  const snapshotDate = text('snapshotDate');
+  const sourceUrl = text('sourceUrl');
+  if (
+    projectKey === null ||
+    sourceObservationId === null ||
+    snapshotId === null ||
+    snapshotDate === null ||
+    sourceUrl === null
+  ) {
+    return null;
+  }
+  return {
+    projectKey,
+    sourceObservationId,
+    snapshotId,
+    snapshotDate,
+    commitmentBusinessId: text('commitmentBusinessId'),
+    contractTitle: text('contractTitle'),
+    beneficiaryName: text('beneficiaryName'),
+    beneficiaryCui: publicOrganizationIdentity(text('beneficiaryCui'), null).cui,
+    countyName: text('countyName'),
+    localityName: text('localityName'),
+    financingSource: text('financingSource'),
+    euContributionRon: text('euContributionRon'),
+    totalValueRon: text('totalValueRon'),
+    nationalPublicValueRon: text('nationalPublicValueRon'),
+    vatRon: text('vatRon'),
+    ineligibleValueRon: text('ineligibleValueRon'),
+    contractNumber: text('contractNumber'),
+    commitmentDate: text('commitmentDate'),
+    startDate: text('startDate'),
+    endDate: text('endDate'),
+    beneficiaryType: text('beneficiaryType'),
+    impact: text('impact'),
+    responsibleInstitutionName: text('responsibleInstitutionName'),
+    physicalProgressRatio: num(text('physicalProgressRatio')),
+    financialProgressRatio: num(text('financialProgressRatio')),
+    status: text('status'),
+    componentCode: text('componentCode'),
+    measureCode: text('measureCode'),
+    responsibleInstitutionCode: text('responsibleInstitutionCode'),
+    sourceUrl,
+  };
+};
+
 const MIPE_ENGAGEMENT_LOOKUP_PREFIX = 'mipe-engagement:';
 
 const engagementIdFromProjectLookup = (key: string): string | null => {
@@ -266,6 +379,63 @@ const withheldMoneyFact = (
 /** A count the release withholds stays null; a reported zero stays zero. */
 const countOrNull = (value: string | null): number | null =>
   value === null ? null : Number(value);
+
+/**
+ * The scoped release's publisher-reported national indicator row: its values
+ * only when exactly one row exists, never summed, with the row count.
+ */
+const scopedIndicatorRow = (releaseId: string): RawBuilder<unknown> =>
+  sql`select
+    case when count(*) = 1 then max(p.snapshot_date) end as snapshot_date,
+    case when count(*) = 1 then max(p.project_count)::integer end as nr_projects,
+    case when count(*) = 1 then max(p.allocated_eur) end as allocated_eur,
+    case when count(*) = 1 then max(p.received_eur) end as received_eur,
+    case when count(*) = 1 then max(p.paid_eur) end as paid_eur,
+    count(*) as indicator_rows
+  from pnrr.api_release_progress_v1 p
+  where p.release_id = ${releaseId}
+    and p.release_lane = ${MIPE_INDICATORS_LANE}
+    and p.record_kind = 'aggregate_indicator'`;
+
+interface IndicatorColumns {
+  /** Null for legacy readers, which have no indicator row count. */
+  readonly indicator_row_count: string | null;
+  readonly indicator_snapshot_date: string | null;
+  readonly indicator_project_count: number | null;
+  readonly allocation_eur: string | null;
+  readonly received_eur: string | null;
+  readonly paid_eur: string | null;
+}
+
+/** A scoped release needs exactly one indicator row; legacy (no count) has no reason. */
+const indicatorReasonsOf = (row: IndicatorColumns): readonly string[] => {
+  const rows = countOrNull(row.indicator_row_count);
+  if (rows === null || rows === 1) return [];
+  return [rows === 0 ? 'mipe_indicator_row_missing' : 'mipe_indicator_rows_ambiguous'];
+};
+
+/** `PnrrOverview.program`: the indicator row's own values, unavailable when not exactly one. */
+const programOf = (row: IndicatorColumns): PnrrOverview['program'] => {
+  const single = indicatorReasonsOf(row).length === 0;
+  const fact = (factType: PnrrMoneyFact['factType'], amount: string | null): PnrrMoneyFact =>
+    single
+      ? {
+          factType,
+          amount,
+          currency: 'EUR',
+          aggregationState: 'additive',
+          coveredCount: 1,
+          totalCount: 1,
+        }
+      : withheldMoneyFact(factType, 'EUR');
+  return {
+    snapshotDate: row.indicator_snapshot_date,
+    projectCount: num(row.indicator_project_count),
+    allocationEur: fact('plan_allocation', row.allocation_eur),
+    receivedEur: fact('eu_receipt', row.received_eur),
+    paidEur: fact('national_reported_payment', row.paid_eur),
+  };
+};
 
 /**
  * Keyset cursor predicate for `ORDER BY <dateCol> DESC NULLS LAST, <keyCol> DESC`.
@@ -1222,8 +1392,7 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
     'p.commitment_business_id',
     'p.contract_number',
     sql<string | null>`to_jsonb(p) ->> 'contract_title'`.as('contract_title'),
-    sql<string | null>`case when p.beneficiary_cui collate "C" ~ '^[0-9]{1,10}$'
-      then p.beneficiary_cui end`.as('beneficiary_cui'),
+    servedBeneficiaryCui.as('beneficiary_cui'),
     'p.beneficiary_name',
     sql<string | null>`to_jsonb(p) ->> 'beneficiary_type'`.as('beneficiary_type'),
     'p.component_code',
@@ -2389,42 +2558,28 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
           where record_kind = 'aggregate_indicator'
           order by snapshot_date desc
           limit 1`
-        : sql`select
-            case when count(*) = 1 then max(p.snapshot_date) end as snapshot_date,
-            case when count(*) = 1 then max(p.project_count)::integer end as nr_projects,
-            case when count(*) = 1 then max(p.allocated_eur) end as allocated_eur,
-            case when count(*) = 1 then max(p.received_eur) end as received_eur,
-            case when count(*) = 1 then max(p.paid_eur) end as paid_eur,
-            count(*) as indicator_rows
-          from pnrr.api_release_progress_v1 p
-          where p.release_id = ${scopedReleaseId}
-            and p.release_lane = ${MIPE_INDICATORS_LANE}
-            and p.record_kind = 'aggregate_indicator'`;
+        : scopedIndicatorRow(scopedReleaseId);
     try {
-      const result = await sql<{
-        indicator_row_count: string | null;
-        indicator_snapshot_date: string | null;
-        indicator_project_count: number | null;
-        allocation_eur: string | null;
-        received_eur: string | null;
-        paid_eur: string | null;
-        payment_count: string | null;
-        payment_net_ron: string | null;
-        payment_gross_ron: string | null;
-        payment_reversal_ron: string | null;
-        payment_first_date: string | null;
-        payment_last_date: string | null;
-        commitment_count: string | null;
-        additive_commitment_count: string | null;
-        unresolved_commitment_count: string | null;
-        additive_commitment_ron: string | null;
-        progress_total_count: string;
-        progress_observed_count: string;
-        progress_completed_count: string;
-        progress_over_hundred_count: string;
-        missing_financial_progress_count: string;
-        missing_physical_progress_count: string;
-      }>`
+      const result = await sql<
+        IndicatorColumns & {
+          payment_count: string | null;
+          payment_net_ron: string | null;
+          payment_gross_ron: string | null;
+          payment_reversal_ron: string | null;
+          payment_first_date: string | null;
+          payment_last_date: string | null;
+          commitment_count: string | null;
+          additive_commitment_count: string | null;
+          unresolved_commitment_count: string | null;
+          additive_commitment_ron: string | null;
+          progress_total_count: string;
+          progress_observed_count: string;
+          progress_completed_count: string;
+          progress_over_hundred_count: string;
+          missing_financial_progress_count: string;
+          missing_physical_progress_count: string;
+        }
+      >`
         with latest_indicator as (${indicator}), payment_stats as (
           ${
             scopedReleaseId !== null
@@ -2498,13 +2653,6 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
       const additiveCount = countOrNull(row.additive_commitment_count);
       const progressTotal = Number(row.progress_total_count);
       const progressObserved = Number(row.progress_observed_count);
-      // Legacy has no indicator row count (null); a scoped release needs exactly one row.
-      const indicatorRows = countOrNull(row.indicator_row_count);
-      const indicatorReasons =
-        indicatorRows === null || indicatorRows === 1
-          ? []
-          : [indicatorRows === 0 ? 'mipe_indicator_row_missing' : 'mipe_indicator_rows_ambiguous'];
-      const indicatorOne = indicatorReasons.length === 0 ? 1 : null;
       const coverage = [
         ...(commitmentCount === null || additiveCount === null
           ? []
@@ -2553,16 +2701,12 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
           scope,
           release.value,
           coverage,
-          scopedReleaseId === null ? ['payment_duplicate_review_pending'] : indicatorReasons,
+          scopedReleaseId === null
+            ? ['payment_duplicate_review_pending']
+            : [...indicatorReasonsOf(row)],
           scopedReleaseId !== null
         ),
-        program: {
-          snapshotDate: row.indicator_snapshot_date,
-          projectCount: num(row.indicator_project_count),
-          allocationEur: money('plan_allocation', row.allocation_eur, 'EUR', indicatorOne, 1),
-          receivedEur: money('eu_receipt', row.received_eur, 'EUR', indicatorOne, 1),
-          paidEur: money('national_reported_payment', row.paid_eur, 'EUR', indicatorOne, 1),
-        },
+        program: programOf(row),
         beneficiaryPayments: {
           count: paymentCount,
           netRon: money(
@@ -2611,6 +2755,90 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
       });
     } catch (error) {
       return err(databaseError('getOverview failed', error));
+    }
+  };
+
+  /**
+   * The dashboard server's fixed input (PNRR-RESTORE-API-02), for an active
+   * scoped MIPE release only. Observations come solely from the privacy-fenced
+   * history view as compact dashboard fields (PNRR-RESTORE-API-03), with the
+   * project select's CUI mask and formats: every public row of the release's
+   * own projects snapshot, canonical or not. Prior-date rows are
+   * excluded twice, by the generation's current flag and by the projects
+   * lane's source date. Nothing is read when the asserted release is not the
+   * bound one.
+   */
+  const getDashboardSnapshot = async (
+    binding: ReadBinding,
+    assertReleaseId: string | undefined
+  ): Promise<Result<PnrrDashboardSnapshotRead, ApiError>> => {
+    if (binding.kind !== 'mipe') {
+      return err(
+        serviceUnavailable(
+          'PNRR dashboard snapshot is served only for an active scoped MIPE release.'
+        )
+      );
+    }
+    if (assertReleaseId !== undefined && assertReleaseId !== binding.releaseId) {
+      return ok({
+        kind: 'release_mismatch',
+        expectedReleaseId: assertReleaseId,
+        currentReleaseId: binding.releaseId,
+      });
+    }
+    const sourceDate =
+      binding.release.lanes.find((lane) => lane.lane === MIPE_PROJECTS_LANE)?.asOf ?? null;
+    if (sourceDate === null) return err(servingReleaseUnavailable());
+    try {
+      const indicator = await sql<IndicatorColumns>`
+        select li.indicator_rows::text as indicator_row_count,
+          li.snapshot_date::text as indicator_snapshot_date,
+          li.nr_projects as indicator_project_count,
+          li.allocated_eur::text as allocation_eur,
+          li.received_eur::text as received_eur,
+          li.paid_eur::text as paid_eur
+        from (${scopedIndicatorRow(binding.releaseId)}) li
+      `.execute(db);
+      const program = indicator.rows[0];
+      if (program === undefined) {
+        return err(databaseError('getDashboardSnapshot returned no indicator row'));
+      }
+      // One row, one JSON value: PostgreSQL aggregates fixed-order cell
+      // arrays instead of sending one wire row per observation.
+      const aggregated = await sql<{ observations: unknown }>`
+        select coalesce(
+          json_agg(
+            json_build_array(${sql.join(
+              PNRR_DASHBOARD_OBSERVATION_FIELDS.map((field) => DASHBOARD_OBSERVATION_SQL[field])
+            )})
+            order by p.observation_id
+          ),
+          '[]'::json
+        ) as observations
+        from pnrr.api_release_project_history_v1 p
+        where p.release_id = ${binding.releaseId}
+          and p.record_kind = 'project_progress'
+          and p.is_current_observation
+          and p.snapshot_date = (${sourceDate}::timestamptz at time zone 'UTC')::date
+      `.execute(db);
+      const cells = aggregated.rows[0]?.observations;
+      if (!Array.isArray(cells)) {
+        return err(databaseError('getDashboardSnapshot returned no observation aggregate'));
+      }
+      const observations: PnrrDashboardObservation[] = [];
+      for (const item of cells as readonly unknown[]) {
+        const observation = decodeDashboardObservation(item);
+        if (observation === null) {
+          return err(databaseError('getDashboardSnapshot returned a malformed observation'));
+        }
+        observations.push(observation);
+      }
+      return ok({
+        kind: 'snapshot',
+        snapshot: { release: binding.release, program: programOf(program), observations },
+      });
+    } catch (error) {
+      return err(databaseError('getDashboardSnapshot failed', error));
     }
   };
 
@@ -3393,6 +3621,9 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
     getCurrentRelease,
     getCapabilities,
     getOverview: (scope) => readBound(undefined, (b) => getOverview(b, scope)),
+    // The assertion is checked inside, so a mismatch is reported, not read.
+    getDashboardSnapshot: (assertReleaseId) =>
+      readBound(undefined, (b) => getDashboardSnapshot(b, assertReleaseId)),
     getPlaceProfile: (countySiruta, scope) =>
       readBound(undefined, (b) => getPlaceProfile(b, countySiruta, scope)),
     listPlaces: (scope) => readBound(undefined, (b) => listPlaces(b, scope)),

@@ -27,6 +27,7 @@ import type {
   PnrrMeasure,
   PnrrAnalysisScope,
   PnrrCapability,
+  PnrrDashboardSnapshotRead,
   PnrrOverview,
   PnrrPlaceProfile,
   PnrrPlaceSummary,
@@ -114,6 +115,10 @@ export interface PnrrRepository {
   getCurrentRelease(): Promise<Result<PnrrRelease, ApiError>>;
   getCapabilities(): Promise<Result<readonly PnrrCapability[], ApiError>>;
   getOverview(scope: PnrrAnalysisScope): Promise<Result<PnrrOverview, ApiError>>;
+  /** Active scoped MIPE releases only; one release binding and one post-read check. */
+  getDashboardSnapshot(
+    assertReleaseId?: string
+  ): Promise<Result<PnrrDashboardSnapshotRead, ApiError>>;
   getPlaceProfile(
     countySiruta: string,
     scope: PnrrAnalysisScope

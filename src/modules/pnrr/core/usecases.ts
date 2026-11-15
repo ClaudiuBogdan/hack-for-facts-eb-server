@@ -25,6 +25,7 @@ import type {
   PnrrMeasure,
   PnrrAnalysisScope,
   PnrrCapability,
+  PnrrDashboardSnapshotRead,
   PnrrOverview,
   PnrrPlaceProfile,
   PnrrPlaceSummary,
@@ -160,6 +161,12 @@ export const getPnrrOverview = (
   repo: PnrrRepository,
   scope: PnrrAnalysisScope
 ): Promise<Result<PnrrOverview, ApiError>> => repo.getOverview(scope);
+
+export const getPnrrDashboardSnapshot = (
+  repo: PnrrRepository,
+  assertReleaseId?: string
+): Promise<Result<PnrrDashboardSnapshotRead, ApiError>> =>
+  repo.getDashboardSnapshot(assertReleaseId);
 
 export const getPnrrPlaceProfile = (
   repo: PnrrRepository,

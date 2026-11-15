@@ -30,6 +30,7 @@ import {
 import {
   getPnrrCapabilities,
   getPnrrCurrentRelease,
+  getPnrrDashboardSnapshot,
   getPnrrEntity,
   getPnrrEntityProfile,
   getPnrrOverview,
@@ -263,6 +264,30 @@ export const makePnrrRestRoutes =
         return result.isErr()
           ? sendError(reply, result.error)
           : reply.send({ ok: true, data: result.value });
+      }
+    );
+
+    // The dashboard server's fixed input for the active scoped MIPE release.
+    // The repository binds and re-checks the release once, so this route runs
+    // no separate release check. Never stored by shared caches: the rows are
+    // privacy-labelled and the active release can change at any time.
+    fastify.get<{ Querystring: PnrrReleaseQuery }>(
+      '/dashboard-snapshot',
+      { schema: { ...schemas, querystring: PnrrReleaseQuerySchema } },
+      async (request, reply) => {
+        void reply.header('cache-control', 'no-store');
+        const result = await getPnrrDashboardSnapshot(repo, request.query.assertReleaseId);
+        if (result.isErr()) return sendError(reply, result.error);
+        if (result.value.kind === 'release_mismatch') {
+          return reply.code(409).send({
+            ok: false,
+            error: 'RELEASE_MISMATCH',
+            message: 'PNRR release changed; restart the query.',
+            expectedReleaseId: result.value.expectedReleaseId,
+            currentReleaseId: result.value.currentReleaseId,
+          });
+        }
+        return reply.send({ ok: true, data: result.value.snapshot });
       }
     );
 

@@ -19,6 +19,12 @@ import {
 } from 'kysely';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import {
+  PNRR_DASHBOARD_OBSERVATION_FIELDS,
+  type PnrrAnalysisScope,
+  type PnrrDashboardObservationField,
+  type PnrrOverview,
+} from '@/modules/pnrr/core/types.js';
 import { makePnrrContributor } from '@/modules/pnrr/shell/contributor.js';
 import { makePnrrResolvers } from '@/modules/pnrr/shell/graphql/resolvers.js';
 import { pnrrTypeDefs } from '@/modules/pnrr/shell/graphql/typedefs.js';
@@ -34,7 +40,6 @@ import { makePnrrRestRoutes } from '@/modules/pnrr/shell/rest/routes.js';
 import { createContributorRegistry } from '@/modules/shared/core/usecases/registry.js';
 
 import type { PnrrRepository } from '@/modules/pnrr/core/ports.js';
-import type { PnrrAnalysisScope, PnrrOverview } from '@/modules/pnrr/core/types.js';
 import type { ApiError, ProdDatabase } from '@/modules/shared/index.js';
 import type { Result } from 'neverthrow';
 
@@ -234,6 +239,8 @@ interface Script extends LedgerState {
   readonly promoted?: Record<string, unknown>;
   readonly projects?: readonly Record<string, unknown>[];
   readonly history?: readonly Record<string, unknown>[];
+  /** The dashboard snapshot's aggregated cell arrays, as the driver parses the JSON value. */
+  readonly snapshot?: readonly unknown[];
   readonly releaseProgress?: readonly Record<string, unknown>[];
   readonly entities?: readonly Record<string, unknown>[];
   readonly capabilities?: readonly Record<string, unknown>[];
@@ -298,6 +305,7 @@ const scriptedRepo = (script: Script) => {
   };
   const factRows = (s: string, params: readonly unknown[]): readonly unknown[] => {
     if (s.includes('missing_progress_link_count')) return [VERIFICATION_ROW];
+    if (s.includes('is_current_observation')) return [{ observations: script.snapshot ?? [] }];
     if (s.includes('api_release_project_history_v1')) {
       return (script.history ?? []).filter((row) => params.includes(row['project_key_v1']));
     }
@@ -1080,5 +1088,438 @@ describe('scoped MIPE release through GraphQL, REST and MCP', () => {
     expect(pnrrTypeDefs).not.toContain('paymentCount: Int!');
     expect(pnrrTypeDefs).not.toContain('commitmentCount: Int!');
     expect(pnrrTypeDefs).toContain('unresolvedCount: Int\n');
+  });
+});
+
+// ── dashboard snapshot (PNRR-RESTORE-API-02) ──────────────────────────────────
+
+describe('dashboard snapshot of the active scoped MIPE release', () => {
+  const SNAPSHOT_URL = '/api/v1/pnrr/dashboard-snapshot';
+  /** The field list agreed with the client, in wire order. */
+  const AGREED_FIELDS = [
+    'projectKey',
+    'sourceObservationId',
+    'snapshotId',
+    'snapshotDate',
+    'commitmentBusinessId',
+    'contractTitle',
+    'beneficiaryName',
+    'beneficiaryCui',
+    'countyName',
+    'localityName',
+    'financingSource',
+    'euContributionRon',
+    'totalValueRon',
+    'nationalPublicValueRon',
+    'vatRon',
+    'ineligibleValueRon',
+    'contractNumber',
+    'commitmentDate',
+    'startDate',
+    'endDate',
+    'beneficiaryType',
+    'impact',
+    'responsibleInstitutionName',
+    'physicalProgressRatio',
+    'financialProgressRatio',
+    'status',
+    'componentCode',
+    'measureCode',
+    'responsibleInstitutionCode',
+    'sourceUrl',
+  ];
+  /** The exact observation statement: fenced view, bound release, current rows at the lane date. */
+  const observationStatement = (releaseParam: string, dateParam: string): string =>
+    [
+      'select coalesce( json_agg( json_build_array(',
+      [
+        'coalesce(p.project_key_v1, p.observation_id)',
+        'p.observation_id::text',
+        'p.snapshot_id::text',
+        'p.snapshot_date::text',
+        'p.commitment_business_id::text',
+        'p.contract_title',
+        'p.beneficiary_name::text',
+        'case when p.beneficiary_cui collate "C" ~ \'^[0-9]{1,10}$\' then p.beneficiary_cui end',
+        'p.county_name::text',
+        'p.locality_name::text',
+        'p.financing_source::text',
+        'p.eu_value::text',
+        'p.total_value::text',
+        'p.national_public_value::text',
+        'p.vat_value::text',
+        'p.ineligible_value::text',
+        'p.contract_number::text',
+        'p.commitment_date',
+        'p.start_date',
+        'p.end_date',
+        'p.beneficiary_type',
+        'p.impact_raw',
+        'p.responsible_institution_name::text',
+        'p.physical_progress::text',
+        'p.financial_progress::text',
+        'p.status_raw::text',
+        'p.component_code::text',
+        'p.measure_raw::text',
+        'p.responsible_institution_code::text',
+        'p.source_url::text',
+      ].join(', '),
+      ") order by p.observation_id ), '[]'::json ) as observations",
+      ' from pnrr.api_release_project_history_v1 p',
+      ` where p.release_id = ${releaseParam}`,
+      " and p.record_kind = 'project_progress'",
+      ' and p.is_current_observation',
+      ` and p.snapshot_date = (${dateParam}::timestamptz at time zone 'UTC')::date`,
+    ].join('');
+
+  type Cells = Partial<Record<PnrrDashboardObservationField, string | null>>;
+  const BASE_CELLS: Cells = {
+    projectKey: OPAQUE_KEY,
+    sourceObservationId: 'mipe-obs-2026-10-15-0001',
+    snapshotId: 'mipe-progres-tehnic-2026-10-15',
+    snapshotDate: '2026-10-15',
+    commitmentBusinessId: null,
+    contractTitle: 'Reabilitare scoala',
+    beneficiaryName: 'Beneficiar retinut',
+    beneficiaryCui: null,
+    countyName: 'BUZAU',
+    localityName: 'Buzau',
+    financingSource: 'PNRR',
+    euContributionRon: '1250.50',
+    totalValueRon: '0.00',
+    nationalPublicValueRon: null,
+    vatRon: null,
+    ineligibleValueRon: null,
+    contractNumber: 'C-0001',
+    commitmentDate: '2024-03-01',
+    startDate: '2024-03-15',
+    endDate: '2026-06-30',
+    beneficiaryType: 'UAT',
+    impact: null,
+    responsibleInstitutionName: 'MIPE',
+    physicalProgressRatio: '0.4',
+    financialProgressRatio: '0',
+    status: 'in_implementare',
+    componentCode: 'C5',
+    measureCode: 'I1',
+    responsibleInstitutionCode: null,
+    sourceUrl: 'https://mfe.gov.ro/pnrr/',
+  };
+  /** One aggregated cell array, as `json_build_array` emits it in field order. */
+  const cells = (over: Cells = {}): readonly (string | null)[] =>
+    PNRR_DASHBOARD_OBSERVATION_FIELDS.map((field) => ({ ...BASE_CELLS, ...over })[field] ?? null);
+  const PERSONAL_NUMBER = '1960101123456';
+  /** What the fenced view aggregates for the current-observation predicate. */
+  const current = [
+    // Canonical observation of an opaque-key project; the view masked its CUI.
+    cells(),
+    // A noncanonical observation of the same project: same served key.
+    cells({ sourceObservationId: 'mipe-obs-2026-10-15-0002', contractNumber: 'C-0001-bis' }),
+    // A public-key project with a servable CUI and no reported physical progress.
+    cells({
+      projectKey: PUBLIC_KEY,
+      sourceObservationId: 'mipe-obs-2026-10-15-0003',
+      beneficiaryCui: CUI,
+      beneficiaryName: 'PRIMARIA EXEMPLU',
+      physicalProgressRatio: null,
+    }),
+    // A personal-number-shaped identifier is still withheld by the mapper's mask.
+    cells({ sourceObservationId: 'mipe-obs-2026-10-15-0004', beneficiaryCui: PERSONAL_NUMBER }),
+  ];
+  const ready: Script = { ...READY_MIPE, releaseProgress: [OVERVIEW_ROW], snapshot: current };
+  const snapshotReads = (statements: readonly string[]): string[] =>
+    factReads(statements, 'api_release_project_history_v1');
+  const bindings = (statements: readonly string[]): number =>
+    statements.filter((s) => s.includes('serving_views_present')).length;
+  const rechecks = (statements: readonly string[]): number =>
+    statements.filter((s) => s.startsWith('select release_id from etl.pnrr_releases where')).length;
+  const restApp = async (repo: PnrrRepository): Promise<FastifyInstance> => {
+    const app = createFastify({ logger: false });
+    apps.push(app);
+    await app.register(makePnrrRestRoutes({ repo }), { prefix: '/api/v1/pnrr' });
+    return app;
+  };
+
+  it('serves the bound release, national program and every current observation', async () => {
+    const { repo, statements, parameters } = scriptedRepo(ready);
+    const read = (await repo.getDashboardSnapshot(MIPE_RELEASE_ID))._unsafeUnwrap();
+    if (read.kind !== 'snapshot') throw new Error(`expected a snapshot, got ${read.kind}`);
+    const { release, program, observations } = read.snapshot;
+
+    expect(release).toEqual((await repo.getCurrentRelease())._unsafeUnwrap());
+    expect(release).toMatchObject({
+      releaseId: MIPE_RELEASE_ID,
+      state: 'degraded',
+      sourceSnapshotAt: MIPE_SOURCE_AS_OF,
+      completedAt: '2026-11-15 10:00:00+00',
+    });
+    // MIPE source date and ORDS capture time stay separate; ORDS stays withheld.
+    expect(release.lanes.map((lane) => [lane.lane, lane.state, lane.asOf])).toEqual([
+      ['mipe_indicators', 'served', MIPE_SOURCE_AS_OF],
+      ['mipe_projects', 'served', MIPE_SOURCE_AS_OF],
+      ['ords_payments_capture', 'abstained', ORDS_CAPTURE_AS_OF],
+    ]);
+
+    const reported = (factType: string, amount: string) => ({
+      factType,
+      amount,
+      currency: 'EUR',
+      aggregationState: 'additive',
+      coveredCount: 1,
+      totalCount: 1,
+    });
+    expect(program).toEqual({
+      snapshotDate: '2026-10-15',
+      projectCount: 21710,
+      allocationEur: reported('plan_allocation', '21410000000.00'),
+      receivedEur: reported('eu_receipt', '10500000000.00'),
+      paidEur: reported('national_reported_payment', '0.00'),
+    });
+
+    // Every current observation, canonical or not, in the agreed fields only.
+    expect(PNRR_DASHBOARD_OBSERVATION_FIELDS).toEqual(AGREED_FIELDS);
+    for (const observation of observations) {
+      expect(Object.keys(observation)).toEqual(AGREED_FIELDS);
+    }
+    expect(observations[0]).toEqual({
+      projectKey: OPAQUE_KEY,
+      sourceObservationId: 'mipe-obs-2026-10-15-0001',
+      snapshotId: 'mipe-progres-tehnic-2026-10-15',
+      snapshotDate: '2026-10-15',
+      commitmentBusinessId: null,
+      contractTitle: 'Reabilitare scoala',
+      beneficiaryName: 'Beneficiar retinut',
+      beneficiaryCui: null,
+      countyName: 'BUZAU',
+      localityName: 'Buzau',
+      financingSource: 'PNRR',
+      euContributionRon: '1250.50',
+      totalValueRon: '0.00',
+      nationalPublicValueRon: null,
+      vatRon: null,
+      ineligibleValueRon: null,
+      contractNumber: 'C-0001',
+      commitmentDate: '2024-03-01',
+      startDate: '2024-03-15',
+      endDate: '2026-06-30',
+      beneficiaryType: 'UAT',
+      impact: null,
+      responsibleInstitutionName: 'MIPE',
+      physicalProgressRatio: 0.4,
+      financialProgressRatio: 0,
+      status: 'in_implementare',
+      componentCode: 'C5',
+      measureCode: 'I1',
+      responsibleInstitutionCode: null,
+      sourceUrl: 'https://mfe.gov.ro/pnrr/',
+    });
+    expect(
+      observations.map((o) => [
+        o.sourceObservationId,
+        o.projectKey,
+        o.snapshotDate,
+        o.beneficiaryCui,
+        o.physicalProgressRatio,
+      ])
+    ).toEqual([
+      ['mipe-obs-2026-10-15-0001', OPAQUE_KEY, '2026-10-15', null, 0.4],
+      ['mipe-obs-2026-10-15-0002', OPAQUE_KEY, '2026-10-15', null, 0.4],
+      ['mipe-obs-2026-10-15-0003', PUBLIC_KEY, '2026-10-15', CUI, null],
+      ['mipe-obs-2026-10-15-0004', OPAQUE_KEY, '2026-10-15', null, 0.4],
+    ]);
+
+    // One aggregate statement over the fenced history view: the bound release,
+    // current observations at the projects lane's source date (no prior
+    // dates), canonical or not, unbounded, no whole-row JSON, the CUI mask.
+    const reads = snapshotReads(statements);
+    expect(reads).toEqual([observationStatement('$1', '$2')]);
+    expect(parameters[statements.indexOf(reads[0] ?? '')]).toEqual([
+      MIPE_RELEASE_ID,
+      MIPE_SOURCE_AS_OF,
+    ]);
+
+    // Program: the release's own indicator row, never legacy facts.
+    const indicatorReads = factReads(statements, 'api_release_progress_v1');
+    expect(indicatorReads).toHaveLength(1);
+    expect(parameters[statements.indexOf(indicatorReads[0] ?? '')]).toEqual([
+      MIPE_RELEASE_ID,
+      'mipe_indicators',
+    ]);
+    expect(legacyOrPrivateReads(statements)).toEqual([]);
+  });
+
+  it('answers over REST with one release check, no-store and the existing envelope', async () => {
+    const { repo, statements } = scriptedRepo(ready);
+    const direct = (await repo.getDashboardSnapshot())._unsafeUnwrap();
+    if (direct.kind !== 'snapshot') throw new Error(`expected a snapshot, got ${direct.kind}`);
+    const app = await restApp(repo);
+    const before = statements.length;
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `${SNAPSHOT_URL}?assertReleaseId=${encodeURIComponent(MIPE_RELEASE_ID)}`,
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['cache-control']).toBe('no-store');
+    const body = response.json();
+    // The snapshot holds only JSON values, so the decoded body equals it as is.
+    expect(body).toEqual({ ok: true, data: direct.snapshot });
+    expect(Object.keys(body.data)).toEqual(['release', 'program', 'observations']);
+    // No ORDS payment or commitment section, nested or top level, and no
+    // withheld identifier anywhere in the payload.
+    expect(response.body).not.toMatch(/beneficiaryPayments|"commitments"|netRon/u);
+    expect(response.body).not.toContain(PERSONAL_NUMBER);
+
+    const during = statements.slice(before);
+    expect(bindings(during)).toBe(1);
+    expect(rechecks(during)).toBe(1);
+  });
+
+  it('excludes private identifiers and unprojected fields', async () => {
+    const { repo, statements } = scriptedRepo(ready);
+    const read = (await repo.getDashboardSnapshot())._unsafeUnwrap();
+    if (read.kind !== 'snapshot') throw new Error(`expected a snapshot, got ${read.kind}`);
+    expect(read.snapshot.observations.map((o) => o.beneficiaryCui)).toEqual([
+      null,
+      null,
+      CUI,
+      null,
+    ]);
+    const [statement = ''] = snapshotReads(statements);
+    // No whole-row JSON, internal key, identity basis, subject or tax
+    // identifier, uuid, endpoint or item key, and no legacy or private relation.
+    for (const needle of [
+      'to_jsonb',
+      'project_key_version',
+      'identity_basis',
+      'subject_unique_identifier',
+      'tax_identification_number',
+      'public_key_uuid',
+      'item_key',
+      'endpoint_name',
+      'retrieved_at',
+    ]) {
+      expect(statement).not.toContain(needle);
+    }
+    expect(legacyOrPrivateReads(statements)).toEqual([]);
+  });
+
+  it('pins observations to the bound projects lane date, not the release or a later date', async () => {
+    const laneDate = '2026-11-15 00:00:00+00';
+    const { repo, statements, parameters } = scriptedRepo({
+      active: MIPE_ACTIVE,
+      lanes: MIPE_LANES.map((lane) =>
+        lane.lane === 'ords_payments_capture' ? lane : { ...lane, as_of: laneDate }
+      ),
+      releaseProgress: [OVERVIEW_ROW],
+      snapshot: current,
+    });
+    expect((await repo.getDashboardSnapshot())._unsafeUnwrap().kind).toBe('snapshot');
+    const [statement = ''] = snapshotReads(statements);
+    expect(parameters[statements.indexOf(statement)]).toEqual([MIPE_RELEASE_ID, laneDate]);
+  });
+
+  it.each([
+    ['a shifted cell array', [cells().slice(1)]],
+    ['a non-text cell', [[...cells().slice(0, -1), 7]]],
+    ['a missing project key', [cells({ projectKey: null })]],
+    ['a non-array aggregate element', [{ projectKey: OPAQUE_KEY }]],
+  ] as const)('fails closed on %s instead of serving it', async (_name, snapshot) => {
+    const { repo } = scriptedRepo({ ...ready, snapshot });
+    const result = await repo.getDashboardSnapshot();
+    expect(result._unsafeUnwrapErr()).toMatchObject({
+      type: 'Database',
+      message: 'getDashboardSnapshot returned a malformed observation',
+    });
+    const app = await restApp(scriptedRepo({ ...ready, snapshot }).repo);
+    const response = await app.inject({ method: 'GET', url: SNAPSHOT_URL });
+    expect(response.statusCode).toBe(500);
+    expect(response.headers['cache-control']).toBe('no-store');
+  });
+
+  it('reports a different asserted release as a mismatch and reads no facts', async () => {
+    const { repo, statements } = scriptedRepo(ready);
+    const app = await restApp(repo);
+    const response = await app.inject({
+      method: 'GET',
+      url: `${SNAPSHOT_URL}?assertReleaseId=${encodeURIComponent(NEXT_RELEASE_ID)}`,
+    });
+    expect(response.statusCode).toBe(409);
+    expect(response.headers['cache-control']).toBe('no-store');
+    expect(response.json()).toEqual({
+      ok: false,
+      error: 'RELEASE_MISMATCH',
+      message: 'PNRR release changed; restart the query.',
+      expectedReleaseId: NEXT_RELEASE_ID,
+      currentReleaseId: MIPE_RELEASE_ID,
+    });
+    expect(snapshotReads(statements)).toEqual([]);
+    expect(factReads(statements, 'api_release_progress_v1')).toEqual([]);
+  });
+
+  const refusals: readonly (readonly [string, Script, string])[] = [
+    [
+      'an active legacy release',
+      { ...LEGACY_SCRIPT, projects: [projectRow()], snapshot: current },
+      'served only for an active scoped MIPE release',
+    ],
+    [
+      'no active release',
+      { promoted: LEGACY_PROMOTED, projects: [projectRow()], snapshot: current },
+      'served only for an active scoped MIPE release',
+    ],
+    [
+      'an incomplete scoped manifest',
+      {
+        active: MIPE_ACTIVE,
+        lanes: MIPE_LANES.filter((lane) => lane.lane !== 'ords_payments_capture'),
+        snapshot: current,
+      },
+      'PNRR serving release is unavailable.',
+    ],
+    [
+      'an invalid ORDS receipt',
+      {
+        active: MIPE_ACTIVE,
+        lanes: withLane('ords_payments_capture', { row_count: '12' }),
+        snapshot: current,
+      },
+      'PNRR serving release is unavailable.',
+    ],
+  ];
+
+  it.each(refusals)(
+    'returns 503 with no legacy fallback under %s',
+    async (_name, script, message) => {
+      const { repo, statements } = scriptedRepo(script);
+      const app = await restApp(repo);
+      const response = await app.inject({ method: 'GET', url: SNAPSHOT_URL });
+      expect(response.statusCode).toBe(503);
+      expect(response.headers['cache-control']).toBe('no-store');
+      expect(response.json()).toMatchObject({ ok: false, error: 'ServiceUnavailable' });
+      expect(response.json().message).toContain(message);
+      expect(snapshotReads(statements)).toEqual([]);
+      expect(factReads(statements, 'api_release_progress_v1')).toEqual([]);
+      expect(factReads(statements, 'api_projects_v1')).toEqual([]);
+      expect(factReads(statements, 'api_progress_current')).toEqual([]);
+    }
+  );
+
+  it('fails closed when the next release activates during the read', async () => {
+    const { repo } = scriptedRepo({
+      ...ready,
+      flip: { on: 'is_current_observation', to: { active: NEXT_ACTIVE, lanes: MIPE_LANES } },
+    });
+    const app = await restApp(repo);
+    const response = await app.inject({
+      method: 'GET',
+      url: `${SNAPSHOT_URL}?assertReleaseId=${encodeURIComponent(MIPE_RELEASE_ID)}`,
+    });
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toEqual({
+      ok: false,
+      error: 'ServiceUnavailable',
+      message: 'PNRR release changed during the read; restart the query.',
+    });
   });
 });
