@@ -30,6 +30,7 @@ import {
   invalidInput,
   isWithheldOrganizationIdentifier,
   normalizeCui,
+  serviceUnavailable,
   toConditionBuilders,
 } from '@/modules/shared/index.js';
 
@@ -62,6 +63,15 @@ import {
   type SnapshotRow,
 } from './mappers.js';
 import {
+  MIPE_INDICATORS_LANE,
+  MIPE_PROJECTS_LANE,
+  bindScopedMipeRelease,
+  hasScopedLane,
+  type ActiveReleaseRow,
+  type LedgerLaneRow,
+  type ScopedReleaseBinding,
+} from './mipe-release-binding.js';
+import {
   pnrrAcquisitionsFilterSpec,
   pnrrCommitmentsFilterSpec,
   pnrrContractorsFilterSpec,
@@ -93,6 +103,7 @@ import {
   type PnrrAnswerMeta,
   type PnrrCapability,
   type PnrrLaneFreshness,
+  type PnrrMoneyFact,
   type PnrrOverview,
   type PnrrPlaceProfile,
   type PnrrPlaceSummary,
@@ -173,10 +184,8 @@ const stringArray = (value: unknown): readonly string[] =>
 const composeWhere = (conds: readonly RawBuilder<unknown>[]): RawBuilder<SqlBool> =>
   conds.length === 0 ? sql<SqlBool>`true` : sql<SqlBool>`${sql.join(conds, sql` and `)}`;
 
-const projectSource = (useProjectV1: boolean) =>
-  sql<PnrrProgressObservationsTable>`${sql.table(
-    useProjectV1 ? 'pnrr.api_projects_v1' : 'pnrr.api_progress_current'
-  )}`.as('p');
+const projectSource = (relation: string) =>
+  sql<PnrrProgressObservationsTable>`${sql.table(relation)}`.as('p');
 
 const MIPE_ENGAGEMENT_LOOKUP_PREFIX = 'mipe-engagement:';
 
@@ -185,6 +194,78 @@ const engagementIdFromProjectLookup = (key: string): string | null => {
   const engagementId = key.slice(MIPE_ENGAGEMENT_LOOKUP_PREFIX.length).trim();
   return engagementId.length > 0 && engagementId.length <= 128 ? engagementId : null;
 };
+
+// ── release binding (PNRR-V4Y1 scoped MIPE releases) ──────────────────────────
+
+/** Legacy readers; carries the ledger rows already read so status needs no second lane read. */
+interface LegacyBinding {
+  readonly kind: 'legacy';
+  readonly activeReleaseId: string | null;
+  /** Null when the release ledger does not exist. */
+  readonly ledger: {
+    readonly active: ActiveReleaseRow | null;
+    readonly lanes: readonly LedgerLaneRow[];
+  } | null;
+}
+type MipeBinding = Extract<ScopedReleaseBinding, { kind: 'mipe' }>;
+type ServingBinding = LegacyBinding | ScopedReleaseBinding;
+/** A binding a fact read is served under (a withheld release serves none). */
+type ReadBinding = LegacyBinding | MipeBinding;
+
+const activeIdOf = (binding: ServingBinding): string | null =>
+  binding.kind === 'legacy' ? binding.activeReleaseId : binding.releaseId;
+
+/** The pinned scoped release id, or null for legacy readers. */
+const scopedIdOf = (binding: ReadBinding): string | null =>
+  binding.kind === 'mipe' ? binding.releaseId : null;
+
+const servingReleaseUnavailable = (): ApiError =>
+  serviceUnavailable('PNRR serving release is unavailable.');
+
+const releaseChangedDuringRead = (): ApiError =>
+  serviceUnavailable('PNRR release changed during the read; restart the query.');
+
+const withheldForMipeRelease = (surface: string): ApiError =>
+  serviceUnavailable(
+    `PNRR ${surface} is withheld for the active MIPE-only release; it is not part of that release.`
+  );
+
+/**
+ * MIPE project-progress observations aliased `p` for overview and place
+ * counts: the legacy current view, or the pinned release's projects lane.
+ */
+const progressRows = (releaseId: string | null): RawBuilder<unknown> =>
+  releaseId === null
+    ? sql`pnrr.api_progress_current p where p.record_kind = 'project_progress'`
+    : sql`pnrr.api_release_progress_v1 p
+        where p.release_id = ${releaseId}
+          and p.release_lane = ${MIPE_PROJECTS_LANE}
+          and p.record_kind = 'project_progress'`;
+
+/** Scope filters over observation rows aliased `p` (snapshot-date time role). */
+const progressScope = (scope: PnrrAnalysisScope, county: string | null): RawBuilder<unknown> =>
+  sql`(${scope.componentCode}::text is null or p.component_code = ${scope.componentCode})
+    and (${scope.beneficiaryCui}::text is null or p.beneficiary_cui = ${scope.beneficiaryCui})
+    and (${county}::text is null or p.county_siruta = ${county})
+    and (${scope.from}::date is null or p.snapshot_date >= ${scope.from}::date)
+    and (${scope.to}::date is null or p.snapshot_date <= ${scope.to}::date)`;
+
+/** A money fact the active release does not serve: no amount and no coverage claim. */
+const withheldMoneyFact = (
+  factType: PnrrMoneyFact['factType'],
+  currency: 'RON' | 'EUR'
+): PnrrMoneyFact => ({
+  factType,
+  amount: null,
+  currency,
+  aggregationState: 'unavailable',
+  coveredCount: 0,
+  totalCount: 0,
+});
+
+/** A count the release withholds stays null; a reported zero stays zero. */
+const countOrNull = (value: string | null): number | null =>
+  value === null ? null : Number(value);
 
 /**
  * Keyset cursor predicate for `ORDER BY <dateCol> DESC NULLS LAST, <keyCol> DESC`.
@@ -232,6 +313,165 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
       .catch(() => false);
     return projectV1Availability;
   };
+
+  // Only a positive probe is cached: the ledger is never dropped once present.
+  let releaseLedgerPresent = false;
+
+  // A project generation of a published release is closed (180100), so a
+  // positive check holds for the life of that release id.
+  const generationPresent = new Set<string>();
+
+  /**
+   * Bind the active release to its readers in one ledger statement (release
+   * row joined to its lanes). Any scoped lane makes it a scoped release,
+   * served from its own views or withheld; every other state, including no
+   * ledger and no active release, keeps the legacy readers.
+   */
+  const resolveBinding = async (): Promise<Result<ServingBinding, ApiError>> => {
+    try {
+      if (!releaseLedgerPresent) {
+        const probe = await sql<{ available: boolean }>`
+          select to_regclass('etl.pnrr_releases') is not null as available
+        `.execute(db);
+        if (probe.rows[0]?.available !== true) {
+          return ok({ kind: 'legacy', activeReleaseId: null, ledger: null });
+        }
+        releaseLedgerPresent = true;
+      }
+      const result = await sql<
+        ActiveReleaseRow & {
+          serving_views_present: boolean;
+          lane: string | null;
+          capability_state: LedgerLaneRow['capability_state'] | null;
+          as_of: string | null;
+          suspended: boolean | null;
+          lane_warnings: unknown;
+          lane_epoch: string | null;
+          row_count: string | null;
+        }
+      >`
+        select r.release_id, r.source_run_id, r.release_kind,
+          r.source_snapshot_at::text as source_snapshot_at,
+          r.activated_at::text as activated_at, r.warnings,
+          (to_regclass('pnrr.api_release_progress_v1') is not null
+            and to_regclass('pnrr.api_release_project_history_v1') is not null
+            and to_regclass('pnrr.api_projects_v1') is not null) as serving_views_present,
+          l.lane, l.capability_state, l.as_of::text as as_of, l.suspended,
+          l.warnings as lane_warnings, l.lane_epoch, l.row_count::text as row_count
+        from etl.pnrr_releases r
+        left join etl.pnrr_release_lanes l on l.release_id = r.release_id
+        where r.release_state = 'active'
+        order by l.lane
+      `.execute(db);
+      const first = result.rows[0];
+      if (first === undefined) {
+        return ok({ kind: 'legacy', activeReleaseId: null, ledger: { active: null, lanes: [] } });
+      }
+      const active: ActiveReleaseRow = {
+        release_id: first.release_id,
+        source_run_id: first.source_run_id,
+        release_kind: first.release_kind,
+        source_snapshot_at: first.source_snapshot_at,
+        activated_at: first.activated_at,
+        warnings: first.warnings,
+      };
+      const lanes = result.rows.flatMap((row): LedgerLaneRow[] =>
+        row.lane === null || row.capability_state === null
+          ? []
+          : [
+              {
+                lane: row.lane,
+                capability_state: row.capability_state,
+                as_of: row.as_of,
+                suspended: row.suspended === true,
+                warnings: row.lane_warnings,
+                lane_epoch: row.lane_epoch,
+                row_count: row.row_count,
+              },
+            ]
+      );
+      if (!hasScopedLane(lanes)) {
+        return ok({
+          kind: 'legacy',
+          activeReleaseId: active.release_id,
+          ledger: { active, lanes },
+        });
+      }
+      if (first.serving_views_present && !generationPresent.has(active.source_run_id)) {
+        const generation = await sql<{ present: boolean }>`
+          select exists (
+            select 1 from pnrr.project_membership_generations_v1 g
+            where g.generation_id = ${active.source_run_id}
+          ) as present
+        `.execute(db);
+        if (generation.rows[0]?.present === true) generationPresent.add(active.source_run_id);
+      }
+      return ok(
+        bindScopedMipeRelease(active, lanes, {
+          servingViewsPresent: first.serving_views_present,
+          projectGenerationPresent: generationPresent.has(active.source_run_id),
+        })
+      );
+    } catch (error) {
+      return err(databaseError('PNRR release binding failed', error));
+    }
+  };
+
+  /** The active release id now: one row of the one-active unique index. */
+  const readActiveReleaseId = async (): Promise<string | null> => {
+    if (!releaseLedgerPresent) return null;
+    const result = await sql<{ release_id: string }>`
+      select release_id from etl.pnrr_releases where release_state = 'active'
+    `.execute(db);
+    return result.rows[0]?.release_id ?? null;
+  };
+
+  /**
+   * The one release guard of every fact read, legacy or scoped, whatever
+   * surface calls it (GraphQL, REST, MCP or the entity contributor) and
+   * whether or not it asserted a release. The read runs under the binding
+   * observed before it, and the active release must be unchanged after it.
+   * A release id is never re-activated, so an unchanged id means every
+   * statement in between saw the same release: a legacy answer cannot
+   * outlive an activation, and an empty scoped answer cannot stand for a
+   * replaced release.
+   */
+  const readBound = async <T>(
+    expectedReleaseId: string | undefined,
+    read: (binding: ReadBinding) => Promise<Result<T, ApiError>>
+  ): Promise<Result<T, ApiError>> => {
+    const resolved = await resolveBinding();
+    if (resolved.isErr()) return err(resolved.error);
+    const binding = resolved.value;
+    if (binding.kind === 'withheld') return err(servingReleaseUnavailable());
+    if (binding.kind === 'mipe' && expectedReleaseId !== undefined) {
+      if (expectedReleaseId !== binding.releaseId) return err(releaseChangedDuringRead());
+    }
+    const result = await read(binding);
+    if (result.isErr()) return result;
+    try {
+      if ((await readActiveReleaseId()) !== activeIdOf(binding)) {
+        return err(releaseChangedDuringRead());
+      }
+    } catch (error) {
+      return err(databaseError('PNRR release re-check failed', error));
+    }
+    return result;
+  };
+
+  /** A legacy-projection surface: served by legacy readers, withheld for a scoped release. */
+  const legacyOnly =
+    <A extends unknown[], T>(
+      surface: string,
+      read: (...args: A) => Promise<Result<T, ApiError>>,
+      expectedOf: (...args: A) => string | undefined = () => undefined
+    ) =>
+    (...args: A): Promise<Result<T, ApiError>> =>
+      readBound<T>(expectedOf(...args), (binding) =>
+        binding.kind === 'mipe'
+          ? Promise.resolve(err(withheldForMipeRelease(surface)))
+          : read(...args)
+      );
 
   // ── identity spine ──────────────────────────────────────────────────────────
 
@@ -1100,7 +1340,48 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
     };
   };
 
+  /**
+   * Project rows aliased `p` with the one shared select (money as text, CUI
+   * masked). Legacy readers keep the ORDS commitment link. A scoped release
+   * pins its id and joins no link (`on false`: no commitment row is read).
+   */
+  const projectRows = (relation: string, scopedReleaseId: string | null) => {
+    const query = db
+      .selectFrom(projectSource(relation))
+      .leftJoin('pnrr.api_commitments as c', (join) =>
+        scopedReleaseId === null
+          ? join.onRef('c.envelope_candidate_key_v1', '=', 'p.commitment_envelope_key_v1')
+          : join.on(sql<SqlBool>`false`)
+      )
+      .select(projectSelect)
+      .where('p.record_kind', '=', 'project_progress');
+    return scopedReleaseId === null
+      ? query
+      : query.where(sql<boolean>`p.release_id = ${scopedReleaseId}`);
+  };
+
+  /** Current projects: the v1 view for a scoped release, else the legacy relation available. */
+  const currentProjectRelation = async (binding: ReadBinding): Promise<string> =>
+    binding.kind === 'mipe' || (await hasProjectV1())
+      ? 'pnrr.api_projects_v1'
+      : 'pnrr.api_progress_current';
+
+  /**
+   * Route-key match for a current project. A scoped release matches served
+   * keys only: its views never emit an internal key derived from a withheld
+   * identifier, and observation ids are not project keys there.
+   */
+  const projectKeyMatch = (key: string, relation: string, binding: ReadBinding) => {
+    const engagementId = engagementIdFromProjectLookup(key);
+    if (engagementId !== null) return sql<boolean>`p.commitment_business_id = ${engagementId}`;
+    if (binding.kind === 'mipe') return sql<boolean>`p.project_key_v1 = ${key}`;
+    return relation === 'pnrr.api_projects_v1'
+      ? sql<boolean>`(p.project_key_v1 = ${key} or p.observation_id = ${key})`
+      : sql<boolean>`p.observation_id = ${key}`;
+  };
+
   const listProjects = async (
+    binding: ReadBinding,
     rawFilter: FilterInput,
     page: CursorPageRequest,
     releaseId?: string
@@ -1111,7 +1392,7 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
     const limit = clampFirst(page.first);
     const fhash = releaseBoundFhash(
       fhashFor(pnrrProjectsFilterSpec, f),
-      page.releaseId ?? releaseId
+      scopedIdOf(binding) ?? page.releaseId ?? releaseId
     );
     let cursorKeys: readonly string[] | undefined;
     if (page.after !== undefined) {
@@ -1121,7 +1402,7 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
     }
     const kernel = kernelConditions(pnrrProjectsFilterSpec, f);
     if (kernel.isErr()) return err(kernel.error);
-    const conds: RawBuilder<unknown>[] = [kernel.value, sql`p.record_kind = 'project_progress'`];
+    const conds: RawBuilder<unknown>[] = [kernel.value];
     if (cursorKeys?.length === 2) {
       conds.push(
         descNullsLastCursor(
@@ -1133,15 +1414,7 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
       );
     }
     try {
-      const source = projectSource(await hasProjectV1());
-      const rows = (await db
-        .selectFrom(source)
-        .leftJoin(
-          'pnrr.api_commitments as c',
-          'c.envelope_candidate_key_v1',
-          'p.commitment_envelope_key_v1'
-        )
-        .select(projectSelect)
+      const rows = (await projectRows(await currentProjectRelation(binding), scopedIdOf(binding))
         .where(composeWhere(conds))
         .orderBy('p.snapshot_date', 'desc')
         .orderBy('p.observation_id', 'desc')
@@ -1167,27 +1440,14 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
     }
   };
 
-  const getProject = async (key: string): Promise<Result<PnrrProject | null, ApiError>> => {
+  const getProject = async (
+    binding: ReadBinding,
+    key: string
+  ): Promise<Result<PnrrProject | null, ApiError>> => {
     try {
-      const useProjectV1 = await hasProjectV1();
-      const source = projectSource(useProjectV1);
-      const engagementId = engagementIdFromProjectLookup(key);
-      let query = db
-        .selectFrom(source)
-        .leftJoin(
-          'pnrr.api_commitments as c',
-          'c.envelope_candidate_key_v1',
-          'p.commitment_envelope_key_v1'
-        )
-        .select(projectSelect)
-        .where('p.record_kind', '=', 'project_progress');
-      query =
-        engagementId !== null
-          ? query.where('p.commitment_business_id', '=', engagementId)
-          : useProjectV1
-            ? query.where(sql<boolean>`(p.project_key_v1 = ${key} or p.observation_id = ${key})`)
-            : query.where('p.observation_id', '=', key);
-      const row = (await query
+      const relation = await currentProjectRelation(binding);
+      const row = (await projectRows(relation, scopedIdOf(binding))
+        .where(projectKeyMatch(key, relation, binding))
         .orderBy('p.snapshot_date', 'desc')
         .orderBy('p.observation_id', 'asc')
         .limit(1)
@@ -1199,14 +1459,20 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
   };
 
   const getProjectFacets = async (
+    binding: ReadBinding,
     rawFilter: FilterInput
   ): Promise<Result<PnrrProjectFacets, ApiError>> => {
     const normalized = normalizePnrrFilter(rawFilter);
     if (normalized.isErr()) return err(normalized.error);
     const kernel = kernelConditions(pnrrProjectsFilterSpec, normalized.value);
     if (kernel.isErr()) return err(kernel.error);
-    const relation = (await hasProjectV1()) ? 'pnrr.api_projects_v1' : 'pnrr.api_progress_current';
-    const where = sql`${kernel.value} and p.record_kind = 'project_progress'`;
+    const relation = await currentProjectRelation(binding);
+    const scopedReleaseId = scopedIdOf(binding);
+    const where = composeWhere([
+      kernel.value,
+      sql`p.record_kind = 'project_progress'`,
+      ...(scopedReleaseId === null ? [] : [sql`p.release_id = ${scopedReleaseId}`]),
+    ]);
     interface FacetRow {
       value: string;
       label: string | null;
@@ -1272,14 +1538,31 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
   };
 
   const getProjectHistory = async (
+    binding: ReadBinding,
     key: string
   ): Promise<Result<readonly PnrrProject[], ApiError>> => {
     try {
-      const useProjectV1 = await hasProjectV1();
-      const source = projectSource(useProjectV1);
-      const engagementId = engagementIdFromProjectLookup(key);
-      let currentQuery = db
-        .selectFrom(source)
+      if (binding.kind === 'mipe') {
+        // Scoped history reads only the privacy-fenced, release-pinned view,
+        // by served key; an engagement lookup resolves to that key first.
+        let servedKey = key;
+        if (engagementIdFromProjectLookup(key) !== null) {
+          const current = await getProject(binding, key);
+          if (current.isErr()) return err(current.error);
+          if (current.value === null) return ok([]);
+          servedKey = current.value.projectKey;
+        }
+        const rows = (await projectRows('pnrr.api_release_project_history_v1', binding.releaseId)
+          .where(sql<boolean>`p.project_key_v1 = ${servedKey}`)
+          .orderBy('p.snapshot_date', 'asc')
+          .orderBy('p.observation_id', 'asc')
+          .limit(2000)
+          .execute()) as readonly ProjectRow[];
+        return ok(rows.map(mapProject));
+      }
+      const relation = await currentProjectRelation(binding);
+      const current = await db
+        .selectFrom(projectSource(relation))
         .select([
           'p.endpoint_name',
           'p.item_key',
@@ -1287,23 +1570,15 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
           sql<string | null>`to_jsonb(p) ->> 'project_key_v1'`.as('project_key_v1'),
           sql<string | null>`to_jsonb(p) ->> 'project_key_version'`.as('project_key_version'),
         ])
-        .where('p.record_kind', '=', 'project_progress');
-      currentQuery =
-        engagementId !== null
-          ? currentQuery.where('p.commitment_business_id', '=', engagementId)
-          : useProjectV1
-            ? currentQuery.where(
-                sql<boolean>`(p.project_key_v1 = ${key} or p.observation_id = ${key})`
-              )
-            : currentQuery.where('p.observation_id', '=', key);
-      const current = await currentQuery
+        .where('p.record_kind', '=', 'project_progress')
+        .where(projectKeyMatch(key, relation, binding))
         .orderBy('p.snapshot_date', 'desc')
         .orderBy('p.observation_id', 'asc')
         .limit(1)
         .executeTakeFirst();
       if (current === undefined) return ok([]);
       if (current.item_key === null) {
-        const project = await getProject(key);
+        const project = await getProject(binding, key);
         return project.isErr()
           ? err(project.error)
           : ok(project.value === null ? [] : [project.value]);
@@ -1322,6 +1597,10 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
         )
         .select(projectSelect)
         .where('p.privacy_class', '=', 'public')
+        // Release-scoped rows (20261114T180000) are staged here before
+        // activation and belong only to their release's views. Through the
+        // row's JSON the predicate holds before and after that migration.
+        .where(sql<boolean>`(to_jsonb(p) ->> 'release_scope') is null`)
         .where('p.record_kind', '=', 'project_progress')
         .where('p.endpoint_name', '=', current.endpoint_name)
         .where('p.item_key', '=', current.item_key)
@@ -1348,10 +1627,25 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
     }
   };
 
-  const listProgramIndicators = async (): Promise<
-    Result<readonly PnrrProgramIndicator[], ApiError>
-  > => {
+  const listProgramIndicators = async (
+    binding: ReadBinding
+  ): Promise<Result<readonly PnrrProgramIndicator[], ApiError>> => {
     try {
+      if (binding.kind === 'mipe') {
+        const scoped = await sql<Parameters<typeof mapProgramIndicator>[0]>`
+          select p.snapshot_id, p.snapshot_date::text as snapshot_date,
+            p.project_count::integer as nr_projects,
+            p.allocated_eur::text as allocated_eur,
+            p.received_eur::text as received_eur,
+            p.paid_eur::text as paid_eur
+          from pnrr.api_release_progress_v1 p
+          where p.release_id = ${binding.releaseId}
+            and p.release_lane = ${MIPE_INDICATORS_LANE}
+            and p.record_kind = 'aggregate_indicator'
+          order by p.snapshot_date, p.observation_id
+        `.execute(db);
+        return ok(scoped.rows.map(mapProgramIndicator));
+      }
       const rows = await db
         .selectFrom('pnrr.program_indicators as pi')
         .select([
@@ -1668,28 +1962,16 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
     }
   };
 
-  const getCurrentRelease = async (): Promise<Result<PnrrRelease, ApiError>> => {
+  /**
+   * The release a binding serves. A scoped release is recognized by its own
+   * lanes and never takes the promoted-projection path, which would refuse
+   * it. Legacy status reuses the ledger rows the binding already read.
+   */
+  const releaseOf = async (binding: ServingBinding): Promise<Result<PnrrRelease, ApiError>> => {
+    if (binding.kind !== 'legacy') return ok(binding.release);
     try {
-      const manifestRelation = await sql<{ available: boolean }>`
-        select to_regclass('etl.pnrr_releases') is not null as available
-      `.execute(db);
-      if (manifestRelation.rows[0]?.available === true) {
-        const manifest = await sql<{
-          release_id: string;
-          source_run_id: string;
-          release_kind: 'operational_snapshot' | 'backfill' | 'corrective';
-          source_snapshot_at: string;
-          activated_at: string | null;
-          warnings: unknown;
-        }>`
-          select release_id, source_run_id, release_kind, source_snapshot_at::text,
-            activated_at::text, warnings
-          from etl.pnrr_releases
-          where release_state = 'active'
-          order by activated_at desc nulls last, release_id desc
-          limit 1
-        `.execute(db);
-        const active = manifest.rows[0];
+      if (binding.ledger !== null) {
+        const active = binding.ledger.active ?? undefined;
         const latestPromotion = await sql<{
           run_id: string;
           source_snapshot_at: string;
@@ -1762,19 +2044,7 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
               'Served PNRR tables were promoted after the active release; facts are withheld until that generation is validated and activated.',
           });
         }
-        const laneResult = await sql<{
-          lane: string;
-          capability_state: 'served' | 'degraded' | 'abstained';
-          as_of: string | null;
-          suspended: boolean;
-          warnings: unknown;
-        }>`
-            select lane, capability_state, as_of::text, suspended, warnings
-            from etl.pnrr_release_lanes
-            where release_id = ${active.release_id}
-            order by lane
-          `.execute(db);
-        const lanes: readonly PnrrLaneFreshness[] = laneResult.rows.map((lane) => ({
+        const lanes: readonly PnrrLaneFreshness[] = binding.ledger.lanes.map((lane) => ({
           lane: lane.lane,
           state:
             lane.suspended && lane.capability_state === 'served'
@@ -1899,8 +2169,22 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
     }
   };
 
+  const getCurrentRelease = async (): Promise<Result<PnrrRelease, ApiError>> => {
+    const binding = await resolveBinding();
+    return binding.isErr() ? err(binding.error) : releaseOf(binding.value);
+  };
+
+  /** Scoped dashboard capabilities follow the declared lane capability they read. */
+  const SCOPED_DERIVED_CAPABILITIES: Readonly<Record<string, string>> = {
+    overview: 'indicators',
+    places: 'projects',
+  };
+
   const getCapabilities = async (): Promise<Result<readonly PnrrCapability[], ApiError>> => {
-    const release = await getCurrentRelease();
+    const binding = await resolveBinding();
+    if (binding.isErr()) return err(binding.error);
+    const scoped = binding.value.kind === 'mipe';
+    const release = await releaseOf(binding.value);
     if (release.isErr()) return err(release.error);
     if (release.value.state === 'abstained') {
       const reasonCodes = release.value.lanes.flatMap((lane) => lane.reasonCodes);
@@ -1930,6 +2214,16 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
         const byId = new Map(result.rows.map((row) => [row.capability, row]));
         const declared = PNRR_CAPABILITY_IDS.map((id): PnrrCapability => {
           const row = byId.get(id);
+          const basis = scoped ? byId.get(SCOPED_DERIVED_CAPABILITIES[id] ?? '') : undefined;
+          if (row === undefined && basis !== undefined && basis.capability_state !== 'abstained') {
+            return {
+              id,
+              releaseId: release.value.releaseId,
+              state: 'degraded',
+              reasonCodes: [`derived_from_${basis.capability}`, 'ords_payment_amounts_withheld'],
+              limitation: `Served from the release's ${basis.capability} capability; ORDS payment and commitment facts are withheld.`,
+            };
+          }
           if (row === undefined) {
             return {
               id,
@@ -2035,52 +2329,94 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
     ]);
   };
 
+  /** Answer metadata; a scoped release states its withheld ORDS facts and its own provenance. */
   const answerMeta = (
     scope: PnrrAnalysisScope,
     release: PnrrRelease,
     coverage: PnrrAnswerMeta['coverage'],
-    reasonCodes: readonly string[] = []
+    reasonCodes: readonly string[] = [],
+    scoped = false
   ): PnrrAnswerMeta => ({
     scope,
     state: release.state,
-    reasonCodes:
-      release.releaseId === 'pnrr-no-successful-release'
+    reasonCodes: scoped
+      ? ['ords_payment_amounts_withheld', 'ords_commitments_not_loaded', ...reasonCodes]
+      : release.releaseId === 'pnrr-no-successful-release'
         ? ['no_successful_projection_release', ...reasonCodes]
         : release.releaseId.startsWith('pnrr-release-v1:')
           ? reasonCodes
           : ['release_manifest_incomplete', ...reasonCodes],
     coverage,
     release,
-    caveats: [
-      'Payments, commitments and program indicators are different grains and are never summed.',
-      'RON and EUR values remain source-native and are never converted by the API.',
-      'The operational release does not yet provide historical release querying.',
-    ],
-    provenance: ['pnrr.api_payments', 'pnrr.api_commitments', 'pnrr.api_progress_current'],
+    caveats: scoped
+      ? [
+          'Program figures are the publisher-reported MIPE national indicators of this release; the API does not recompute them.',
+          'Project observations are rows of the MIPE projects snapshot, a different measure from the publisher-reported project count.',
+          'The MIPE source date and the ORDS capture date are independent. ORDS payment amounts, payment counts and commitments are withheld.',
+          'RON and EUR values remain source-native and are never converted by the API.',
+        ]
+      : [
+          'Payments, commitments and program indicators are different grains and are never summed.',
+          'RON and EUR values remain source-native and are never converted by the API.',
+          'The operational release does not yet provide historical release querying.',
+        ],
+    provenance: scoped
+      ? ['pnrr.api_release_progress_v1', 'etl.pnrr_release_lanes']
+      : ['pnrr.api_payments', 'pnrr.api_commitments', 'pnrr.api_progress_current'],
   });
 
   const percent = (covered: number, total: number): number | null =>
     total === 0 ? null : Math.round((covered / total) * 10_000) / 100;
 
-  const getOverview = async (scope: PnrrAnalysisScope): Promise<Result<PnrrOverview, ApiError>> => {
-    const release = await getCurrentRelease();
+  /**
+   * One overview statement for both bindings. A scoped release reads its
+   * single publisher-reported indicator row (taken only when exactly one
+   * exists, never summed) and its projects lane; its ORDS sections select
+   * nulls instead of reading legacy payments or commitments.
+   */
+  const getOverview = async (
+    binding: ReadBinding,
+    scope: PnrrAnalysisScope
+  ): Promise<Result<PnrrOverview, ApiError>> => {
+    const release = await releaseOf(binding);
     if (release.isErr()) return err(release.error);
+    const scopedReleaseId = scopedIdOf(binding);
+    const indicator =
+      scopedReleaseId === null
+        ? sql`select snapshot_date, project_count::integer as nr_projects,
+            allocated_eur, received_eur, paid_eur, null::bigint as indicator_rows
+          from pnrr.api_progress_current
+          where record_kind = 'aggregate_indicator'
+          order by snapshot_date desc
+          limit 1`
+        : sql`select
+            case when count(*) = 1 then max(p.snapshot_date) end as snapshot_date,
+            case when count(*) = 1 then max(p.project_count)::integer end as nr_projects,
+            case when count(*) = 1 then max(p.allocated_eur) end as allocated_eur,
+            case when count(*) = 1 then max(p.received_eur) end as received_eur,
+            case when count(*) = 1 then max(p.paid_eur) end as paid_eur,
+            count(*) as indicator_rows
+          from pnrr.api_release_progress_v1 p
+          where p.release_id = ${scopedReleaseId}
+            and p.release_lane = ${MIPE_INDICATORS_LANE}
+            and p.record_kind = 'aggregate_indicator'`;
     try {
       const result = await sql<{
+        indicator_row_count: string | null;
         indicator_snapshot_date: string | null;
         indicator_project_count: number | null;
         allocation_eur: string | null;
         received_eur: string | null;
         paid_eur: string | null;
-        payment_count: string;
+        payment_count: string | null;
         payment_net_ron: string | null;
         payment_gross_ron: string | null;
         payment_reversal_ron: string | null;
         payment_first_date: string | null;
         payment_last_date: string | null;
-        commitment_count: string;
-        additive_commitment_count: string;
-        unresolved_commitment_count: string;
+        commitment_count: string | null;
+        additive_commitment_count: string | null;
+        unresolved_commitment_count: string | null;
         additive_commitment_ron: string | null;
         progress_total_count: string;
         progress_observed_count: string;
@@ -2089,15 +2425,13 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
         missing_financial_progress_count: string;
         missing_physical_progress_count: string;
       }>`
-        with latest_indicator as (
-          select snapshot_date, project_count::integer as nr_projects,
-            allocated_eur, received_eur, paid_eur
-          from pnrr.api_progress_current
-          where record_kind = 'aggregate_indicator'
-          order by snapshot_date desc
-          limit 1
-        ), payment_stats as (
-          select count(*) as payment_count,
+        with latest_indicator as (${indicator}), payment_stats as (
+          ${
+            scopedReleaseId !== null
+              ? sql`select null::bigint as payment_count, null::text as payment_net_ron,
+                  null::text as payment_gross_ron, null::text as payment_reversal_ron,
+                  null::text as payment_first_date, null::text as payment_last_date`
+              : sql`select count(*) as payment_count,
             sum(amount_lei)::text as payment_net_ron,
             sum(amount_lei) filter (where payment_direction = 'disbursement')::text
               as payment_gross_ron,
@@ -2110,9 +2444,16 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
             and (${scope.beneficiaryCui}::text is null or p.beneficiary_cui = ${scope.beneficiaryCui})
             and (${scope.countySiruta}::text is null or p.county_siruta = ${scope.countySiruta})
             and (${scope.from}::date is null or p.payment_date >= ${scope.from}::date)
-            and (${scope.to}::date is null or p.payment_date <= ${scope.to}::date)
+            and (${scope.to}::date is null or p.payment_date <= ${scope.to}::date)`
+          }
         ), commitment_stats as (
-          select count(*) as commitment_count,
+          ${
+            scopedReleaseId !== null
+              ? sql`select null::bigint as commitment_count,
+                  null::bigint as additive_commitment_count,
+                  null::bigint as unresolved_commitment_count,
+                  null::text as additive_commitment_ron`
+              : sql`select count(*) as commitment_count,
             count(*) filter (where total_value is not null) as additive_commitment_count,
             count(*) filter (where total_value is null) as unresolved_commitment_count,
             sum(total_value)::text as additive_commitment_ron
@@ -2121,29 +2462,25 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
             and (${scope.beneficiaryCui}::text is null or c.beneficiary_cui = ${scope.beneficiaryCui})
             and (${scope.countySiruta}::text is null or c.county_siruta = ${scope.countySiruta})
             and (${scope.from}::date is null or c.commitment_date >= ${scope.from}::date)
-            and (${scope.to}::date is null or c.commitment_date <= ${scope.to}::date)
+            and (${scope.to}::date is null or c.commitment_date <= ${scope.to}::date)`
+          }
         ), progress_stats as (
           select count(*) as progress_total_count,
             count(*) filter (
-              where physical_progress is not null or financial_progress is not null
+              where p.physical_progress is not null or p.financial_progress is not null
             ) as progress_observed_count,
-            count(*) filter (where physical_progress >= 1) as progress_completed_count,
+            count(*) filter (where p.physical_progress >= 1) as progress_completed_count,
             count(*) filter (
-              where physical_progress > 1 or financial_progress > 1
+              where p.physical_progress > 1 or p.financial_progress > 1
             ) as progress_over_hundred_count,
-            count(*) filter (where financial_progress is null)
+            count(*) filter (where p.financial_progress is null)
               as missing_financial_progress_count,
-            count(*) filter (where physical_progress is null)
+            count(*) filter (where p.physical_progress is null)
               as missing_physical_progress_count
-          from pnrr.api_progress_current p
-          where p.record_kind = 'project_progress'
-            and (${scope.componentCode}::text is null or p.component_code = ${scope.componentCode})
-            and (${scope.beneficiaryCui}::text is null or p.beneficiary_cui = ${scope.beneficiaryCui})
-            and (${scope.countySiruta}::text is null or p.county_siruta = ${scope.countySiruta})
-            and (${scope.from}::date is null or p.snapshot_date >= ${scope.from}::date)
-            and (${scope.to}::date is null or p.snapshot_date <= ${scope.to}::date)
+          from ${progressRows(scopedReleaseId)} and ${progressScope(scope, scope.countySiruta)}
         )
-        select li.snapshot_date::text as indicator_snapshot_date,
+        select li.indicator_rows::text as indicator_row_count,
+          li.snapshot_date::text as indicator_snapshot_date,
           li.nr_projects as indicator_project_count,
           li.allocated_eur::text as allocation_eur,
           li.received_eur::text as received_eur,
@@ -2156,18 +2493,29 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
       `.execute(db);
       const row = result.rows[0];
       if (row === undefined) return err(databaseError('getOverview returned no aggregate row'));
-      const paymentCount = Number(row.payment_count);
-      const commitmentCount = Number(row.commitment_count);
-      const additiveCount = Number(row.additive_commitment_count);
+      const paymentCount = countOrNull(row.payment_count);
+      const commitmentCount = countOrNull(row.commitment_count);
+      const additiveCount = countOrNull(row.additive_commitment_count);
       const progressTotal = Number(row.progress_total_count);
       const progressObserved = Number(row.progress_observed_count);
+      // Legacy has no indicator row count (null); a scoped release needs exactly one row.
+      const indicatorRows = countOrNull(row.indicator_row_count);
+      const indicatorReasons =
+        indicatorRows === null || indicatorRows === 1
+          ? []
+          : [indicatorRows === 0 ? 'mipe_indicator_row_missing' : 'mipe_indicator_rows_ambiguous'];
+      const indicatorOne = indicatorReasons.length === 0 ? 1 : null;
       const coverage = [
-        {
-          field: 'commitment.additiveValue',
-          covered: additiveCount,
-          total: commitmentCount,
-          percent: percent(additiveCount, commitmentCount),
-        },
+        ...(commitmentCount === null || additiveCount === null
+          ? []
+          : [
+              {
+                field: 'commitment.additiveValue',
+                covered: additiveCount,
+                total: commitmentCount,
+                percent: percent(additiveCount, commitmentCount),
+              },
+            ]),
         {
           field: 'progress.physical',
           covered: progressTotal - Number(row.missing_physical_progress_count),
@@ -2187,18 +2535,33 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
           | 'commitment',
         amount: string | null,
         currency: 'RON' | 'EUR',
-        coveredCount: number,
-        totalCount: number,
-        aggregationState: 'additive' | 'reported_unresolved' = 'additive'
-      ) => ({ factType, amount, currency, aggregationState, coveredCount, totalCount });
+        coveredCount: number | null,
+        totalCount: number | null
+      ): PnrrMoneyFact =>
+        coveredCount === null || totalCount === null
+          ? withheldMoneyFact(factType, currency)
+          : {
+              factType,
+              amount,
+              currency,
+              aggregationState: 'additive',
+              coveredCount,
+              totalCount,
+            };
       return ok({
-        meta: answerMeta(scope, release.value, coverage, ['payment_duplicate_review_pending']),
+        meta: answerMeta(
+          scope,
+          release.value,
+          coverage,
+          scopedReleaseId === null ? ['payment_duplicate_review_pending'] : indicatorReasons,
+          scopedReleaseId !== null
+        ),
         program: {
           snapshotDate: row.indicator_snapshot_date,
-          projectCount: row.indicator_project_count,
-          allocationEur: money('plan_allocation', row.allocation_eur, 'EUR', 1, 1),
-          receivedEur: money('eu_receipt', row.received_eur, 'EUR', 1, 1),
-          paidEur: money('national_reported_payment', row.paid_eur, 'EUR', 1, 1),
+          projectCount: num(row.indicator_project_count),
+          allocationEur: money('plan_allocation', row.allocation_eur, 'EUR', indicatorOne, 1),
+          receivedEur: money('eu_receipt', row.received_eur, 'EUR', indicatorOne, 1),
+          paidEur: money('national_reported_payment', row.paid_eur, 'EUR', indicatorOne, 1),
         },
         beneficiaryPayments: {
           count: paymentCount,
@@ -2229,7 +2592,7 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
         commitments: {
           count: commitmentCount,
           additiveCount,
-          unresolvedCount: Number(row.unresolved_commitment_count),
+          unresolvedCount: countOrNull(row.unresolved_commitment_count),
           additiveRon: money(
             'commitment',
             row.additive_commitment_ron,
@@ -2252,19 +2615,30 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
   };
 
   const getPlaceProfile = async (
+    binding: ReadBinding,
     countySiruta: string,
     scope: PnrrAnalysisScope
   ): Promise<Result<PnrrPlaceProfile | null, ApiError>> => {
-    const release = await getCurrentRelease();
+    const release = await releaseOf(binding);
     if (release.isErr()) return err(release.error);
+    const scopedReleaseId = scopedIdOf(binding);
+    // A scoped release selects null for every ORDS fact; legacy reads them.
+    const ords = (fact: RawBuilder<unknown>): RawBuilder<unknown> =>
+      scopedReleaseId === null ? fact : sql`null`;
+    const countyFallback =
+      scopedReleaseId === null
+        ? sql`(select max(county_name) from pnrr.api_payments where county_siruta = ${countySiruta}),
+            (select max(county_name) from pnrr.api_commitments where county_siruta = ${countySiruta})`
+        : sql`(select max(p.county_name) from ${progressRows(scopedReleaseId)}
+            and p.county_siruta = ${countySiruta})`;
     try {
       const result = await sql<{
         county_name: string | null;
-        payment_count: string;
+        payment_count: string | null;
         payment_net_ron: string | null;
-        commitment_count: string;
-        additive_commitment_count: string;
-        unresolved_commitment_count: string;
+        commitment_count: string | null;
+        additive_commitment_count: string | null;
+        unresolved_commitment_count: string | null;
         additive_commitment_ron: string | null;
         project_observation_count: string;
         source_locality_label_count: string;
@@ -2276,97 +2650,86 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
           group by county_siruta_code
         )
         select
-          coalesce(
-            cc.county_name,
-            (select max(county_name) from pnrr.api_payments where county_siruta = ${countySiruta}),
-            (select max(county_name) from pnrr.api_commitments where county_siruta = ${countySiruta})
-          ) as county_name,
-          (select count(*) from pnrr.api_payments p
+          coalesce(cc.county_name, ${countyFallback}) as county_name,
+          ${ords(sql`(select count(*) from pnrr.api_payments p
             where p.county_siruta = ${countySiruta}
               and (${scope.componentCode}::text is null or p.component_code = ${scope.componentCode})
               and (${scope.beneficiaryCui}::text is null or p.beneficiary_cui = ${scope.beneficiaryCui})
               and (${scope.from}::date is null or p.payment_date >= ${scope.from}::date)
-              and (${scope.to}::date is null or p.payment_date <= ${scope.to}::date))
+              and (${scope.to}::date is null or p.payment_date <= ${scope.to}::date))`)}
             as payment_count,
-          (select sum(amount_lei)::text from pnrr.api_payments p
+          ${ords(sql`(select sum(amount_lei)::text from pnrr.api_payments p
             where p.county_siruta = ${countySiruta}
               and (${scope.componentCode}::text is null or p.component_code = ${scope.componentCode})
               and (${scope.beneficiaryCui}::text is null or p.beneficiary_cui = ${scope.beneficiaryCui})
               and (${scope.from}::date is null or p.payment_date >= ${scope.from}::date)
-              and (${scope.to}::date is null or p.payment_date <= ${scope.to}::date))
+              and (${scope.to}::date is null or p.payment_date <= ${scope.to}::date))`)}
             as payment_net_ron,
-          (select count(*) from pnrr.api_commitments c
+          ${ords(sql`(select count(*) from pnrr.api_commitments c
             where c.county_siruta = ${countySiruta}
               and (${scope.componentCode}::text is null or c.component_code = ${scope.componentCode})
               and (${scope.beneficiaryCui}::text is null or c.beneficiary_cui = ${scope.beneficiaryCui})
               and (${scope.from}::date is null or c.commitment_date >= ${scope.from}::date)
-              and (${scope.to}::date is null or c.commitment_date <= ${scope.to}::date))
+              and (${scope.to}::date is null or c.commitment_date <= ${scope.to}::date))`)}
             as commitment_count,
-          (select count(*) from pnrr.api_commitments c
+          ${ords(sql`(select count(*) from pnrr.api_commitments c
             where c.county_siruta = ${countySiruta} and c.total_value is not null
               and (${scope.componentCode}::text is null or c.component_code = ${scope.componentCode})
               and (${scope.beneficiaryCui}::text is null or c.beneficiary_cui = ${scope.beneficiaryCui})
               and (${scope.from}::date is null or c.commitment_date >= ${scope.from}::date)
-              and (${scope.to}::date is null or c.commitment_date <= ${scope.to}::date))
+              and (${scope.to}::date is null or c.commitment_date <= ${scope.to}::date))`)}
             as additive_commitment_count,
-          (select count(*) from pnrr.api_commitments c
+          ${ords(sql`(select count(*) from pnrr.api_commitments c
             where c.county_siruta = ${countySiruta} and c.total_value is null
               and (${scope.componentCode}::text is null or c.component_code = ${scope.componentCode})
               and (${scope.beneficiaryCui}::text is null or c.beneficiary_cui = ${scope.beneficiaryCui})
               and (${scope.from}::date is null or c.commitment_date >= ${scope.from}::date)
-              and (${scope.to}::date is null or c.commitment_date <= ${scope.to}::date))
+              and (${scope.to}::date is null or c.commitment_date <= ${scope.to}::date))`)}
             as unresolved_commitment_count,
-          (select sum(total_value)::text from pnrr.api_commitments c
+          ${ords(sql`(select sum(total_value)::text from pnrr.api_commitments c
             where c.county_siruta = ${countySiruta}
               and (${scope.componentCode}::text is null or c.component_code = ${scope.componentCode})
               and (${scope.beneficiaryCui}::text is null or c.beneficiary_cui = ${scope.beneficiaryCui})
               and (${scope.from}::date is null or c.commitment_date >= ${scope.from}::date)
-              and (${scope.to}::date is null or c.commitment_date <= ${scope.to}::date))
+              and (${scope.to}::date is null or c.commitment_date <= ${scope.to}::date))`)}
             as additive_commitment_ron,
-          (select count(*) from pnrr.api_progress_current p
-            where p.record_kind = 'project_progress'
-              and p.county_siruta = ${countySiruta}
-              and (${scope.componentCode}::text is null or p.component_code = ${scope.componentCode})
-              and (${scope.beneficiaryCui}::text is null or p.beneficiary_cui = ${scope.beneficiaryCui})
-              and (${scope.from}::date is null or p.snapshot_date >= ${scope.from}::date)
-              and (${scope.to}::date is null or p.snapshot_date <= ${scope.to}::date))
+          (select count(*) from ${progressRows(scopedReleaseId)}
+            and p.county_siruta = ${countySiruta} and ${progressScope(scope, null)})
             as project_observation_count,
-          (select count(*) from pnrr.api_progress_current p
-            where p.record_kind = 'project_progress'
-              and p.county_siruta = ${countySiruta}
-              and p.locality_name is not null
-              and (${scope.componentCode}::text is null or p.component_code = ${scope.componentCode})
-              and (${scope.beneficiaryCui}::text is null or p.beneficiary_cui = ${scope.beneficiaryCui})
-              and (${scope.from}::date is null or p.snapshot_date >= ${scope.from}::date)
-              and (${scope.to}::date is null or p.snapshot_date <= ${scope.to}::date))
+          (select count(*) from ${progressRows(scopedReleaseId)}
+            and p.county_siruta = ${countySiruta} and p.locality_name is not null
+            and ${progressScope(scope, null)})
             as source_locality_label_count
         from canonical_county cc
       `.execute(db);
       const row = result.rows[0];
       if (row === undefined) return ok(null);
-      const commitmentCount = Number(row.commitment_count);
-      const additiveCount = Number(row.additive_commitment_count);
+      const commitmentCount = countOrNull(row.commitment_count);
+      const additiveCount = countOrNull(row.additive_commitment_count);
       return ok({
         meta: answerMeta(
           { ...scope, countySiruta },
           release.value,
-          [
-            {
-              field: 'commitment.additiveValue',
-              covered: additiveCount,
-              total: commitmentCount,
-              percent: percent(additiveCount, commitmentCount),
-            },
-          ],
-          ['uat_inferred_count_only']
+          commitmentCount === null || additiveCount === null
+            ? []
+            : [
+                {
+                  field: 'commitment.additiveValue',
+                  covered: additiveCount,
+                  total: commitmentCount,
+                  percent: percent(additiveCount, commitmentCount),
+                },
+              ],
+          ['uat_inferred_count_only'],
+          scopedReleaseId !== null
         ),
         countySiruta,
         countyName: row.county_name,
-        paymentCount: Number(row.payment_count),
+        paymentCount: countOrNull(row.payment_count),
         paymentNetRon: row.payment_net_ron,
         commitmentCount,
         additiveCommitmentCount: additiveCount,
-        unresolvedCommitmentCount: Number(row.unresolved_commitment_count),
+        unresolvedCommitmentCount: countOrNull(row.unresolved_commitment_count),
         additiveCommitmentRon: row.additive_commitment_ron,
         projectObservationCount: Number(row.project_observation_count),
         sourceLocalityLabelCount: Number(row.source_locality_label_count),
@@ -2377,18 +2740,22 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
     }
   };
 
+  /** Map inputs: canonical counties; a scoped release keeps ORDS facts null, never zero. */
   const listPlaces = async (
+    binding: ReadBinding,
     scope: PnrrAnalysisScope
   ): Promise<Result<readonly PnrrPlaceSummary[], ApiError>> => {
+    const scopedReleaseId = scopedIdOf(binding);
+    const ordsZero = scopedReleaseId === null ? sql`0` : sql`null::bigint`;
     try {
       const result = await sql<{
         county_siruta: string;
         county_name: string;
-        payment_count: string;
+        payment_count: string | null;
         payment_net_ron: string | null;
-        commitment_count: string;
-        additive_commitment_count: string;
-        unresolved_commitment_count: string;
+        commitment_count: string | null;
+        additive_commitment_count: string | null;
+        unresolved_commitment_count: string | null;
         additive_commitment_ron: string | null;
         project_observation_count: string;
         source_locality_label_count: string;
@@ -2400,8 +2767,11 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
           where county_siruta_code is not null
             and county_name is not null
           group by county_siruta_code
-        ), payment_stats as (
-          select p.county_siruta, count(*) as payment_count,
+        ), payment_stats as (${
+          scopedReleaseId !== null
+            ? sql`select co.county_siruta, null::bigint as payment_count,
+                null::text as payment_net_ron from counties co where false`
+            : sql`select p.county_siruta, count(*) as payment_count,
             sum(p.amount_lei)::text as payment_net_ron
           from pnrr.api_payments p
           where p.county_siruta is not null
@@ -2409,9 +2779,14 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
             and (${scope.beneficiaryCui}::text is null or p.beneficiary_cui = ${scope.beneficiaryCui})
             and (${scope.from}::date is null or p.payment_date >= ${scope.from}::date)
             and (${scope.to}::date is null or p.payment_date <= ${scope.to}::date)
-          group by p.county_siruta
-        ), commitment_stats as (
-          select c.county_siruta, count(*) as commitment_count,
+          group by p.county_siruta`
+        }), commitment_stats as (${
+          scopedReleaseId !== null
+            ? sql`select co.county_siruta, null::bigint as commitment_count,
+                null::bigint as additive_commitment_count,
+                null::bigint as unresolved_commitment_count,
+                null::text as additive_commitment_ron from counties co where false`
+            : sql`select c.county_siruta, count(*) as commitment_count,
             count(*) filter (where c.total_value is not null)
               as additive_commitment_count,
             count(*) filter (where c.total_value is null)
@@ -2423,26 +2798,22 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
             and (${scope.beneficiaryCui}::text is null or c.beneficiary_cui = ${scope.beneficiaryCui})
             and (${scope.from}::date is null or c.commitment_date >= ${scope.from}::date)
             and (${scope.to}::date is null or c.commitment_date <= ${scope.to}::date)
-          group by c.county_siruta
-        ), progress_stats as (
+          group by c.county_siruta`
+        }), progress_stats as (
           select p.county_siruta, count(*) as project_observation_count,
             count(*) filter (where p.locality_name is not null)
               as source_locality_label_count
-          from pnrr.api_progress_current p
-          where p.record_kind = 'project_progress'
+          from ${progressRows(scopedReleaseId)}
             and p.county_siruta is not null
-            and (${scope.componentCode}::text is null or p.component_code = ${scope.componentCode})
-            and (${scope.beneficiaryCui}::text is null or p.beneficiary_cui = ${scope.beneficiaryCui})
-            and (${scope.from}::date is null or p.snapshot_date >= ${scope.from}::date)
-            and (${scope.to}::date is null or p.snapshot_date <= ${scope.to}::date)
+            and ${progressScope(scope, null)}
           group by p.county_siruta
         )
         select co.county_siruta, co.county_name,
-          coalesce(ps.payment_count, 0) as payment_count,
+          coalesce(ps.payment_count, ${ordsZero}) as payment_count,
           ps.payment_net_ron,
-          coalesce(cs.commitment_count, 0) as commitment_count,
-          coalesce(cs.additive_commitment_count, 0) as additive_commitment_count,
-          coalesce(cs.unresolved_commitment_count, 0) as unresolved_commitment_count,
+          coalesce(cs.commitment_count, ${ordsZero}) as commitment_count,
+          coalesce(cs.additive_commitment_count, ${ordsZero}) as additive_commitment_count,
+          coalesce(cs.unresolved_commitment_count, ${ordsZero}) as unresolved_commitment_count,
           cs.additive_commitment_ron,
           coalesce(prs.project_observation_count, 0) as project_observation_count,
           coalesce(prs.source_locality_label_count, 0)
@@ -2457,11 +2828,11 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
         result.rows.map((row) => ({
           countySiruta: row.county_siruta,
           countyName: row.county_name,
-          paymentCount: Number(row.payment_count),
+          paymentCount: countOrNull(row.payment_count),
           paymentNetRon: row.payment_net_ron,
-          commitmentCount: Number(row.commitment_count),
-          additiveCommitmentCount: Number(row.additive_commitment_count),
-          unresolvedCommitmentCount: Number(row.unresolved_commitment_count),
+          commitmentCount: countOrNull(row.commitment_count),
+          additiveCommitmentCount: countOrNull(row.additive_commitment_count),
+          unresolvedCommitmentCount: countOrNull(row.unresolved_commitment_count),
           additiveCommitmentRon: row.additive_commitment_ron,
           projectObservationCount: Number(row.project_observation_count),
           sourceLocalityLabelCount: Number(row.source_locality_label_count),
@@ -2474,9 +2845,10 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
   };
 
   const getVerification = async (
+    binding: LegacyBinding,
     scope: PnrrAnalysisScope
   ): Promise<Result<PnrrVerificationSummary, ApiError>> => {
-    const release = await getCurrentRelease();
+    const release = await releaseOf(binding);
     if (release.isErr()) return err(release.error);
     try {
       const result = await sql<{
@@ -2502,10 +2874,12 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
             where record_kind = 'project_progress'
               and (physical_progress > 1 or financial_progress > 1))
             as over_hundred_progress_count,
-          (select count(*) from pnrr.progress_observations
-            where privacy_class = 'public'
-              and commitment_business_id is not null
-              and commitment_envelope_key_v1 is null)
+          (select count(*) from pnrr.progress_observations po
+            where po.privacy_class = 'public'
+              and po.commitment_business_id is not null
+              and po.commitment_envelope_key_v1 is null
+              -- Staged release-scoped rows are never legacy facts.
+              and (to_jsonb(po) ->> 'release_scope') is null)
             as missing_progress_link_count
       `.execute(db);
       const row = result.rows[0];
@@ -2875,14 +3249,34 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
     }
   };
 
+  /** Taxonomy dimensions are shared; a scoped release resolves counties from its own rows and withholds organizations. */
   const resolveDimension = async (
+    binding: ReadBinding,
     dim: PnrrResolveDim,
     q: string,
     limit: number
   ): Promise<Result<readonly PnrrResolveHit[], ApiError>> => {
     const capped = Math.min(Math.max(Math.floor(limit), 1), 50);
     const pattern = `%${q.replace(/[\\%_]/gu, (m) => `\\${m}`)}%`;
+    const scopedReleaseId = scopedIdOf(binding);
+    if (scopedReleaseId !== null && (dim === 'entity' || dim === 'contractor')) {
+      return err(withheldForMipeRelease(`${dim} resolution`));
+    }
     try {
+      if (scopedReleaseId !== null && dim === 'county') {
+        const scoped = await sql<{ value: string; label: string | null }>`
+          select p.county_siruta as value, max(p.county_name) as label
+          from ${progressRows(scopedReleaseId)}
+            and p.county_siruta is not null
+            and p.county_name ilike ${pattern} escape '\\'
+          group by p.county_siruta
+          order by p.county_siruta
+          limit ${capped}
+        `.execute(db);
+        return ok(
+          scoped.rows.map((r) => ({ dim, value: r.value, label: r.label ?? r.value, score: null }))
+        );
+      }
       switch (dim) {
         case 'entity':
         case 'contractor': {
@@ -2965,39 +3359,58 @@ export const makePnrrRepo = (db: Db): PnrrRepository => {
     }
   };
 
+  // Every fact read goes through `readBound`. Surfaces a MIPE-only release
+  // does not contain are legacy-only: explicitly withheld for it, not mixed in.
+  const pageRelease = (_f: FilterInput, page: CursorPageRequest): string | undefined =>
+    page.releaseId;
+  const sourceRelease = (page: CursorPageRequest, releaseId?: string): string | undefined =>
+    page.releaseId ?? releaseId;
+
   return {
-    listEntities,
-    getEntity,
-    getEntityProfile,
-    listPayments,
-    aggregatePayments,
-    listCommitments,
-    getCommitment,
-    getCommitmentProgress,
-    listProjects,
-    getProject,
-    getProjectHistory,
-    getProjectFacets,
-    listProgramIndicators,
-    listFundingCalls,
-    listFundingApplicationListings,
-    listProgramRevisions,
-    listCatalogResources,
-    listDocumentReferences,
+    listEntities: legacyOnly('organization data', listEntities, pageRelease),
+    getEntity: legacyOnly('organization data', getEntity),
+    getEntityProfile: legacyOnly('organization data', getEntityProfile),
+    listPayments: legacyOnly('ORDS payment data', listPayments, pageRelease),
+    aggregatePayments: legacyOnly('ORDS payment data', aggregatePayments),
+    listCommitments: legacyOnly('ORDS commitment data', listCommitments, pageRelease),
+    getCommitment: legacyOnly('ORDS commitment data', getCommitment),
+    getCommitmentProgress: legacyOnly('ORDS commitment data', getCommitmentProgress),
+    listProjects: (f, page, releaseId) =>
+      readBound(page.releaseId ?? releaseId, (b) => listProjects(b, f, page, releaseId)),
+    getProject: (key) => readBound(undefined, (b) => getProject(b, key)),
+    getProjectHistory: (key) => readBound(undefined, (b) => getProjectHistory(b, key)),
+    getProjectFacets: (f) => readBound(undefined, (b) => getProjectFacets(b, f)),
+    listProgramIndicators: () => readBound(undefined, listProgramIndicators),
+    listFundingCalls: legacyOnly('source records', listFundingCalls, sourceRelease),
+    listFundingApplicationListings: legacyOnly(
+      'source records',
+      listFundingApplicationListings,
+      sourceRelease
+    ),
+    listProgramRevisions: legacyOnly('source records', listProgramRevisions, sourceRelease),
+    listCatalogResources: legacyOnly('source records', listCatalogResources, sourceRelease),
+    listDocumentReferences: legacyOnly('source records', listDocumentReferences, sourceRelease),
     getCurrentRelease,
     getCapabilities,
-    getOverview,
-    getPlaceProfile,
-    listPlaces,
-    getVerification,
-    listAcquisitions,
-    getAcquisition,
-    listContractors,
-    rankContractors,
-    contractorsForAcquisitions,
+    getOverview: (scope) => readBound(undefined, (b) => getOverview(b, scope)),
+    getPlaceProfile: (countySiruta, scope) =>
+      readBound(undefined, (b) => getPlaceProfile(b, countySiruta, scope)),
+    listPlaces: (scope) => readBound(undefined, (b) => listPlaces(b, scope)),
+    getVerification: (scope) =>
+      readBound<PnrrVerificationSummary>(undefined, (b) =>
+        b.kind === 'mipe'
+          ? Promise.resolve(err(withheldForMipeRelease('verification signal set')))
+          : getVerification(b, scope)
+      ),
+    listAcquisitions: legacyOnly('procurement data', listAcquisitions, pageRelease),
+    getAcquisition: legacyOnly('procurement data', getAcquisition),
+    listContractors: legacyOnly('procurement data', listContractors, pageRelease),
+    rankContractors: legacyOnly('procurement data', rankContractors),
+    contractorsForAcquisitions: legacyOnly('procurement data', contractorsForAcquisitions),
     listComponents,
     listMeasures,
-    resolveDimension,
+    resolveDimension: (dim, q, limit) =>
+      readBound(undefined, (b) => resolveDimension(b, dim, q, limit)),
   };
 };
 

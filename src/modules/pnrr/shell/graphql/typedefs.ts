@@ -173,17 +173,19 @@ const objectsAndQuery = /* GraphQL */ `
     paidEur: PnrrMoneyFact!
   }
   type PnrrPaymentOverview {
-    count: Int!
+    "Null when the active release withholds ORDS payment facts."
+    count: Int
     netRon: PnrrMoneyFact!
     grossRon: PnrrMoneyFact!
     reversalRon: PnrrMoneyFact!
     firstDate: Date
     lastDate: Date
   }
+  "Counts are null when the active release withholds ORDS commitments."
   type PnrrCommitmentOverview {
-    count: Int!
-    additiveCount: Int!
-    unresolvedCount: Int!
+    count: Int
+    additiveCount: Int
+    unresolvedCount: Int
     additiveRon: PnrrMoneyFact!
   }
   type PnrrDeliveryOverview {
@@ -204,11 +206,12 @@ const objectsAndQuery = /* GraphQL */ `
     meta: PnrrAnswerMeta!
     countySiruta: SIRUTA!
     countyName: String
-    paymentCount: Int!
+    "Payment and commitment counts are null when the active release withholds ORDS facts."
+    paymentCount: Int
     paymentNetRon: Money
-    commitmentCount: Int!
-    additiveCommitmentCount: Int!
-    unresolvedCommitmentCount: Int!
+    commitmentCount: Int
+    additiveCommitmentCount: Int
+    unresolvedCommitmentCount: Int
     additiveCommitmentRon: Money
     projectObservationCount: Int!
     sourceLocalityLabelCount: Int!
@@ -218,11 +221,12 @@ const objectsAndQuery = /* GraphQL */ `
   type PnrrPlaceSummary {
     countySiruta: SIRUTA!
     countyName: String!
-    paymentCount: Int!
+    "Payment and commitment counts are null when the active release withholds ORDS facts."
+    paymentCount: Int
     paymentNetRon: Money
-    commitmentCount: Int!
-    additiveCommitmentCount: Int!
-    unresolvedCommitmentCount: Int!
+    commitmentCount: Int
+    additiveCommitmentCount: Int
+    unresolvedCommitmentCount: Int
     additiveCommitmentRon: Money
     projectObservationCount: Int!
     sourceLocalityLabelCount: Int!

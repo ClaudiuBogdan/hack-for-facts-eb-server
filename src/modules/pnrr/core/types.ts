@@ -159,8 +159,9 @@ export interface PnrrOverview {
     readonly receivedEur: PnrrMoneyFact;
     readonly paidEur: PnrrMoneyFact;
   };
+  /** ORDS facts. Counts are null, and amounts `unavailable`, where the release withholds them. */
   readonly beneficiaryPayments: {
-    readonly count: number;
+    readonly count: number | null;
     readonly netRon: PnrrMoneyFact;
     readonly grossRon: PnrrMoneyFact;
     readonly reversalRon: PnrrMoneyFact;
@@ -168,9 +169,9 @@ export interface PnrrOverview {
     readonly lastDate: IsoDate | null;
   };
   readonly commitments: {
-    readonly count: number;
-    readonly additiveCount: number;
-    readonly unresolvedCount: number;
+    readonly count: number | null;
+    readonly additiveCount: number | null;
+    readonly unresolvedCount: number | null;
     readonly additiveRon: PnrrMoneyFact;
   };
   readonly delivery: {
@@ -182,15 +183,16 @@ export interface PnrrOverview {
   };
 }
 
+/** Payment and commitment counts are null where the release withholds ORDS facts. */
 export interface PnrrPlaceProfile {
   readonly meta: PnrrAnswerMeta;
   readonly countySiruta: Siruta;
   readonly countyName: string | null;
-  readonly paymentCount: number;
+  readonly paymentCount: number | null;
   readonly paymentNetRon: Money | null;
-  readonly commitmentCount: number;
-  readonly additiveCommitmentCount: number;
-  readonly unresolvedCommitmentCount: number;
+  readonly commitmentCount: number | null;
+  readonly additiveCommitmentCount: number | null;
+  readonly unresolvedCommitmentCount: number | null;
   readonly additiveCommitmentRon: Money | null;
   readonly projectObservationCount: number;
   readonly sourceLocalityLabelCount: number;
@@ -200,11 +202,11 @@ export interface PnrrPlaceProfile {
 export interface PnrrPlaceSummary {
   readonly countySiruta: Siruta;
   readonly countyName: string;
-  readonly paymentCount: number;
+  readonly paymentCount: number | null;
   readonly paymentNetRon: Money | null;
-  readonly commitmentCount: number;
-  readonly additiveCommitmentCount: number;
-  readonly unresolvedCommitmentCount: number;
+  readonly commitmentCount: number | null;
+  readonly additiveCommitmentCount: number | null;
+  readonly unresolvedCommitmentCount: number | null;
   readonly additiveCommitmentRon: Money | null;
   readonly projectObservationCount: number;
   readonly sourceLocalityLabelCount: number;
