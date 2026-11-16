@@ -7,7 +7,7 @@ data:
   PORT: '3000'
   HOST: 0.0.0.0
   LOG_LEVEL: info
-  NOTIFICATION_DELIVERY_ENABLED: 'false'
+  NOTIFICATION_DELIVERY_ENABLED: 'true'
   API_BASE_URL: https://dev-chronos-api.transparenta.eu
   # Enable only with the reviewed RNONG production snapshot and public-field audit.
   NGO_REGISTRY_ENABLED: 'true'
