@@ -21,6 +21,10 @@ import fastifyLib, { type FastifyInstance, type FastifyReply } from 'fastify';
 import mercuriusPlugin from 'mercurius';
 
 import {
+  registerChronosDevNotificationDelivery,
+  type ChronosDevEmailConfig,
+} from './chronos-dev-notification-delivery.js';
+import {
   registerOwningResultFinalizer,
   withOwningResultGuard,
 } from './companies-graphql-access.js';
@@ -60,7 +64,7 @@ import { makePnrrModule } from '../modules/pnrr/index.js';
 import { makePrimariiTransparencyModule } from '../modules/primarii-transparency/index.js';
 import { makeProcurementModule } from '../modules/procurement/index.js';
 import { makePublicEnterprisesModule } from '../modules/public-enterprises/index.js';
-import { makeReferenceModule } from '../modules/reference/index.js';
+import { makePublicEntityRepo, makeReferenceModule } from '../modules/reference/index.js';
 import {
   makeKernel,
   makeCuratedAnnualPopulationPort,
@@ -177,6 +181,7 @@ export interface BuildRedesignAppDeps {
     readonly signingSecret: string;
     readonly clerkSecretKey?: string;
     readonly unsubscribeHmacSecret?: string;
+    readonly email?: ChronosDevEmailConfig;
   };
   /**
    * The user store of an EMBEDDING composer that owns the user DB and its Clerk
@@ -322,11 +327,27 @@ export const buildRedesignApp = async (deps: BuildRedesignAppDeps): Promise<Rede
       modules: deps.modules ?? SHARED_DEFAULT_MODULES,
     });
     if (deps.userData !== undefined) {
+      const campaignEntityRepo =
+        deps.userData.email?.send?.campaign === undefined
+          ? undefined
+          : makePublicEntityRepo(kernel.db);
+      const campaignWelcome =
+        deps.userData.email === undefined
+          ? undefined
+          : await registerChronosDevNotificationDelivery(
+              app,
+              deps.userData.db,
+              deps.userData.email,
+              campaignEntityRepo === undefined
+                ? undefined
+                : { getById: (cui) => campaignEntityRepo.findByCui(cui, false) }
+            );
       await registerUserStoreRoutes(app, {
         db: deps.userData.db,
         authProvider: deps.authProvider,
         ...(deps.clientBaseUrl === undefined ? {} : { publicClientUrl: deps.clientBaseUrl }),
         allowedOrigins: [...allowedOrigins],
+        ...(campaignWelcome !== undefined && { campaignWelcome }),
         ...(deps.userData.unsubscribeHmacSecret === undefined
           ? {}
           : { unsubscribeHmacSecret: deps.userData.unsubscribeHmacSecret }),

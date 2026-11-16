@@ -19,11 +19,14 @@ import pinoLogger from 'pino';
 import { Webhook } from 'svix';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { makeChronosDevCampaignWelcomeCapture } from '@/app/chronos-dev-campaign-welcome.js';
 import {
   makeChronosDevTestSender,
   registerChronosDevNotificationDelivery,
 } from '@/app/chronos-dev-notification-delivery.js';
 import { registerUserStoreRoutes } from '@/app/user-store-routes.js';
+import { FUNKY_OUTBOX_WELCOME_TYPE } from '@/common/campaign-keys.js';
+import { sanitizeResendTagValue } from '@/common/resend-tag-encoding.js';
 import { acquireUserDataOwnerLock } from '@/infra/database/user/advisory-locks.js';
 import { assertUserDataOwnerCanWrite } from '@/infra/database/user/owner-write-guard.js';
 import { makeAdvancedMapAnalyticsRepo } from '@/modules/advanced-map-analytics/index.js';
@@ -196,7 +199,7 @@ it('accepts only the signed Chronos test receipt, without recreating deleted dat
     const sender = makeChronosDevTestSender(
       db,
       outbox.id,
-      { apiKey: 'fixture', from: 'dev@example.test' },
+      { apiKey: 'fixture', from: 'dev@example.test', logger },
       async (_url, request) => {
         providerCalls++;
         const headers = new Headers(request?.headers);
@@ -285,6 +288,260 @@ const deleteUser = (userId: string) =>
     eventType: 'user.deleted',
     eventTimestamp: Date.now(),
   });
+
+it('commits and replays an audited Funky welcome once and reconciles the signed receipt', async ({
+  skip,
+}) => {
+  if (!ready) {
+    skip();
+    return;
+  }
+  const owner = `user_Funky${randomUUID().replaceAll('-', '')}`;
+  const entityCui = '3814810';
+  const at = new Date();
+  const occurredAt = at.toISOString();
+  const eventId = randomUUID();
+  const key = `funky:progress:terms_accepted::entity:${entityCui}`;
+  const value = { kind: 'json', json: { value: { entityCui, acceptedTermsAt: occurredAt } } };
+  const record = {
+    key,
+    interactionId: key,
+    lessonId: 'funky:progress:state',
+    kind: 'custom',
+    scope: { type: 'global' },
+    completionRule: { type: 'resolved' },
+    phase: 'resolved',
+    value,
+    result: null,
+    updatedAt: occurredAt,
+    submittedAt: null,
+  };
+  const payload = {
+    clientUpdatedAt: occurredAt,
+    events: [
+      {
+        type: 'interactive.updated',
+        eventId,
+        clientId: 'fixture',
+        occurredAt,
+        payload: {
+          record,
+          auditEvents: [
+            {
+              id: randomUUID(),
+              recordKey: key,
+              lessonId: record.lessonId,
+              interactionId: key,
+              type: 'submitted',
+              at: occurredAt,
+              actor: 'user',
+              value,
+            },
+          ],
+        },
+      },
+    ],
+  };
+  const capture = makeChronosDevCampaignWelcomeCapture({
+    ownerId: owner,
+    entityRepo: { getById: () => Promise.resolve(ok({ name: 'Galați' })) },
+    logger,
+  });
+  const deliveries = makeDeliveryRepo({ db, logger });
+  const deliveryKey = `${FUNKY_OUTBOX_WELCOME_TYPE}:${owner}`;
+  const find = async () => (await deliveries.findByDeliveryKey(deliveryKey))._unsafeUnwrap();
+  let failBeforeCommit = true;
+  const dispatched: string[] = [];
+  const app = fastifyLib();
+  const signingSecret = `whsec_${Buffer.from('funky-fixture-webhook').toString('base64')}`;
+  const signer = new Webhook(signingSecret);
+  await registerChronosDevNotificationDelivery(app, db, { signingSecret });
+  await registerUserStoreRoutes(app, {
+    db,
+    authProvider: {
+      verifyToken: async (token) =>
+        ok({ userId: toUserId(token), expiresAt: new Date(Date.now() + 60_000) }),
+    },
+    allowedOrigins: [],
+    campaignWelcome: {
+      async capture(...args) {
+        const job = await capture.capture(...args);
+        if (failBeforeCommit && job !== undefined) throw new Error('Rollback fixture');
+        return job;
+      },
+      async dispatch(job) {
+        expect((await find())?.id).toBe(job.outboxId);
+        expect(
+          await db
+            .selectFrom('userinteractions')
+            .select('record_key')
+            .where('user_id', '=', owner)
+            .where('record_key', '=', key)
+            .executeTakeFirst()
+        ).toBeDefined();
+        dispatched.push(job.outboxId);
+      },
+    },
+  });
+  try {
+    const request = {
+      method: 'PUT' as const,
+      url: '/api/v1/learning/progress',
+      headers: { authorization: `Bearer ${owner}` },
+      payload,
+    };
+    expect((await app.inject(request)).statusCode).toBe(500);
+    expect(await find()).toBeNull();
+    expect(
+      await db
+        .selectFrom('userinteractions')
+        .select('record_key')
+        .where('user_id', '=', owner)
+        .execute()
+    ).toEqual([]);
+    expect(
+      await db.selectFrom('notifications').select('id').where('user_id', '=', owner).execute()
+    ).toEqual([]);
+    expect(dispatched).toEqual([]);
+    failBeforeCommit = false;
+    const otherOwner = `user_Funky${randomUUID().replaceAll('-', '')}`;
+    expect(
+      (await app.inject({ ...request, headers: { authorization: `Bearer ${otherOwner}` } }))
+        .statusCode
+    ).toBe(200);
+    expect(
+      await db
+        .selectFrom('notificationsoutbox')
+        .select('id')
+        .where('user_id', '=', otherOwner)
+        .execute()
+    ).toEqual([]);
+    const saved = await app.inject(request);
+    expect(saved.statusCode, saved.body).toBe(200);
+    const outbox = await find();
+    expect(outbox).toMatchObject({
+      metadata: {
+        sourceEventId: eventId,
+        entityCui,
+        acceptedTermsAt: occurredAt,
+        source: 'funky:source:terms_accepted',
+        chronosDevCampaignWelcome: true,
+      },
+      toEmail: 'delivered+test1@resend.dev',
+    });
+    if (outbox === null) throw new Error('Missing campaign outbox');
+    expect(dispatched).toEqual([outbox.id]);
+    expect((await app.inject(request)).json().data.newEventsCount).toBe(0);
+    expect(dispatched).toEqual([outbox.id]);
+    expect(await capture.replay(db, { eventId: randomUUID(), entityCui })).toBeUndefined();
+    expect((await capture.replay(db, { eventId, entityCui }))?.outboxId).toBe(outbox.id);
+    const newerTerms = {
+      ...record,
+      value: {
+        kind: 'json',
+        json: {
+          value: { entityCui, acceptedTermsAt: new Date(at.getTime() + 1000).toISOString() },
+        },
+      },
+    };
+    await db
+      .updateTable('userinteractions')
+      .set({ record: sql`${JSON.stringify(newerTerms)}::jsonb` })
+      .where('user_id', '=', owner)
+      .where('record_key', '=', key)
+      .execute();
+    expect(await capture.replay(db, { eventId, entityCui })).toBeUndefined();
+    await db
+      .updateTable('userinteractions')
+      .set({ record: sql`${JSON.stringify(record)}::jsonb` })
+      .where('user_id', '=', owner)
+      .where('record_key', '=', key)
+      .execute();
+    await db
+      .updateTable('notificationsoutbox')
+      .set({ status: 'sending', attempt_count: 1 })
+      .where('id', '=', outbox.id)
+      .execute();
+    const emailId = randomUUID();
+    let sendCalls = 0;
+    const sender = makeChronosDevTestSender(
+      db,
+      outbox.id,
+      { apiKey: 'fixture', from: 'dev@example.test', logger },
+      () => {
+        sendCalls++;
+        return Promise.resolve(Response.json({ id: emailId }));
+      },
+      { ownerId: owner, type: FUNKY_OUTBOX_WELCOME_TYPE, key: deliveryKey }
+    );
+    const params = {
+      to: 'delivered+test1@resend.dev',
+      userId: owner,
+      notificationType: FUNKY_OUTBOX_WELCOME_TYPE,
+      referenceId: outbox.referenceId,
+      subject: 'Fixture',
+      html: '<p>Fixture</p>',
+      text: 'Fixture',
+      tags: [],
+      idempotencyKey: outbox.id,
+      unsubscribeUrl: 'https://example.test/',
+      templateName: null,
+      templateVersion: null,
+      metadata: {},
+    };
+    await db
+      .updateTable('notifications')
+      .set({ is_active: false })
+      .where('id', '=', outbox.referenceId ?? '')
+      .execute();
+    expect((await sender.send(params)).isErr()).toBe(true);
+    expect(sendCalls).toBe(0);
+    await db
+      .updateTable('notifications')
+      .set({ is_active: true })
+      .where('id', '=', outbox.referenceId ?? '')
+      .execute();
+    const acceptedSends = await Promise.all([sender.send(params), sender.send(params)]);
+    expect(acceptedSends.map((result) => result._unsafeUnwrap())).toEqual([
+      { emailId },
+      { emailId },
+    ]);
+    expect(sendCalls).toBe(1);
+    const messageId = randomUUID();
+    const body = JSON.stringify({
+      type: 'email.delivered',
+      created_at: occurredAt,
+      data: {
+        email_id: emailId,
+        from: 'dev@example.test',
+        to: ['delivered+test1@resend.dev'],
+        subject: 'Fixture',
+        created_at: occurredAt,
+        tags: {
+          delivery_id: outbox.id,
+          env: 'chronos_dev',
+          notification_type: sanitizeResendTagValue(FUNKY_OUTBOX_WELCOME_TYPE),
+        },
+      },
+    });
+    const receipt = await app.inject({
+      method: 'POST',
+      url: '/api/v1/webhooks/resend',
+      payload: body,
+      headers: {
+        'content-type': 'application/json',
+        'svix-id': messageId,
+        'svix-timestamp': String(Math.floor(at.getTime() / 1000)),
+        'svix-signature': signer.sign(messageId, at, body),
+      },
+    });
+    expect(receipt.json()).toEqual({ status: 'processed' });
+    expect(await find()).toMatchObject({ status: 'delivered', resendEmailId: emailId });
+    expect(await capture.replay(db, { eventId, entityCui })).toBeUndefined();
+  } finally {
+    await app.close();
+  }
+});
 
 // These call real repositories directly: stale auth caches or bypassed HTTP hooks cannot admit writes.
 describe('saved map deletion transaction boundary', () => {

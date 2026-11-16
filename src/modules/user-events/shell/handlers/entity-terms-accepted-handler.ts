@@ -18,9 +18,9 @@ import {
 
 import type { UserEventHandler } from '../../core/ports.js';
 import type { UserEventJobPayload } from '../../core/types.js';
-import type { EntityRepository } from '@/modules/entity/index.js';
 import type { LearningProgressRepository } from '@/modules/learning-progress/index.js';
 import type { NotificationsRepository } from '@/modules/notifications/index.js';
+import type { Result } from 'neverthrow';
 import type { Logger } from 'pino';
 
 const ENTITY_TERMS_KEY_PREFIX = 'funky:progress:terms_accepted::entity:';
@@ -91,7 +91,9 @@ export interface EntityTermsAcceptedUserEventHandlerDeps {
   extendedNotificationsRepo: Pick<ExtendedNotificationsRepository, 'isUserGloballyUnsubscribed'>;
   deliveryRepo: DeliveryRepository;
   composeJobScheduler: ComposeJobScheduler;
-  entityRepo: EntityRepository;
+  entityRepo: {
+    getById(cui: string): Promise<Result<{ name: string } | null, unknown>>;
+  };
   logger: Logger;
 }
 

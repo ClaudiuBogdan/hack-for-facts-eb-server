@@ -7,10 +7,7 @@
  */
 
 import { buildRedesignApp } from './app/build-redesign-app.js';
-import {
-  loadChronosDevEmailConfig,
-  registerChronosDevNotificationDelivery,
-} from './app/chronos-dev-notification-delivery.js';
+import { loadChronosDevEmailConfig } from './app/chronos-dev-notification-delivery.js';
 import { loadRedesignConfig } from './infra/config/redesign-env.js';
 import { makeUserDataClient } from './infra/database/user-client.js';
 import { makeConfiguredJWTProvider } from './modules/auth/index.js';
@@ -22,6 +19,8 @@ const main = async (): Promise<void> => {
     config.kernel.clientBaseUrl,
     config.queueRedis
   );
+  if (email !== undefined && config.userData === undefined)
+    throw new Error('Chronos dev notification delivery requires the user database');
   const authProvider =
     config.auth === undefined ? undefined : await makeConfiguredJWTProvider(config.auth);
 
@@ -35,6 +34,7 @@ const main = async (): Promise<void> => {
         userData: {
           db: userDb,
           signingSecret: config.userData.webhookSigningSecret,
+          ...(email !== undefined && { email }),
           ...(config.userData.unsubscribeHmacSecret === undefined
             ? {}
             : { unsubscribeHmacSecret: config.userData.unsubscribeHmacSecret }),
@@ -77,11 +77,6 @@ const main = async (): Promise<void> => {
   process.on('SIGINT', () => void shutdown('SIGINT'));
 
   try {
-    if (email !== undefined) {
-      if (userDb === undefined)
-        throw new Error('Chronos dev notification delivery requires the user database');
-      await registerChronosDevNotificationDelivery(app, userDb, email);
-    }
     const address = await app.listen({ port: config.port, host: config.host });
     const cap = kernel.searchCapabilities.engines;
     app.log.info(

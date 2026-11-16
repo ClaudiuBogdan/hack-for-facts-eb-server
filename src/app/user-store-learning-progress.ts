@@ -20,6 +20,7 @@ import {
   processLearningProgressAppliedEvents,
 } from '../modules/user-events/index.js';
 
+import type { ChronosDevCampaignWelcome } from './chronos-dev-campaign-welcome.js';
 import type { UserDbClient } from '../infra/database/client.js';
 import type { Logger } from 'pino';
 
@@ -29,7 +30,11 @@ class LearningProgressSyncRollbackError extends Error {
   }
 }
 
-export function makeUserStoreLearningProgressRoutes(db: UserDbClient, logger: Logger) {
+export function makeUserStoreLearningProgressRoutes(
+  db: UserDbClient,
+  logger: Logger,
+  campaignWelcome?: ChronosDevCampaignWelcome
+) {
   const learningProgressRepo = makeLearningProgressRepo({ db, logger });
 
   return makeLearningProgressRoutes({
@@ -56,7 +61,7 @@ export function makeUserStoreLearningProgressRoutes(db: UserDbClient, logger: Lo
     },
     async syncEventsWithSideEffects(input) {
       try {
-        return await db
+        const { result, job } = await db
           .transaction()
           .setIsolationLevel('read committed')
           .execute(async (transaction) => {
@@ -80,8 +85,24 @@ export function makeUserStoreLearningProgressRoutes(db: UserDbClient, logger: Lo
                 { userId: input.userId, events: result.value.appliedEvents }
               );
             }
-            return result;
+            const job = await campaignWelcome?.capture(
+              transaction,
+              input.userId,
+              result.value.appliedEvents
+            );
+            return { result, job };
           });
+        if (job !== undefined && campaignWelcome !== undefined) {
+          try {
+            await campaignWelcome.dispatch(job);
+          } catch {
+            logger.error(
+              { outboxId: job.outboxId },
+              'Campaign welcome committed but queue dispatch failed'
+            );
+          }
+        }
+        return result;
       } catch (error) {
         if (error instanceof LearningProgressSyncRollbackError) return err(error.failure);
         if (error instanceof UserDataOwnerDeletedError)

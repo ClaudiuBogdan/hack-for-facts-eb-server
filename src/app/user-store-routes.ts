@@ -19,6 +19,7 @@ import {
   noopCache,
 } from '../modules/share/index.js';
 
+import type { ChronosDevCampaignWelcome } from './chronos-dev-campaign-welcome.js';
 import type { UserDbClient } from '../infra/database/client.js';
 import type { AuthProvider } from '../modules/auth/index.js';
 import type { FastifyInstance } from 'fastify';
@@ -30,6 +31,7 @@ interface UserStoreRoutesDeps {
   readonly publicClientUrl?: string;
   readonly allowedOrigins: readonly string[];
   readonly unsubscribeHmacSecret?: string;
+  readonly campaignWelcome?: ChronosDevCampaignWelcome;
 }
 
 export async function registerUserStoreRoutes(
@@ -48,7 +50,7 @@ export async function registerUserStoreRoutes(
       );
     });
     await scope.register(rateLimit, { max: 300, timeWindow: '1 minute' });
-    await scope.register(makeUserStoreLearningProgressRoutes(db, logger));
+    await scope.register(makeUserStoreLearningProgressRoutes(db, logger, deps.campaignWelcome));
 
     if (publicClientUrl !== undefined) {
       await scope.register(

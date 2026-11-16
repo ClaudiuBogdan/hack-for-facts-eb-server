@@ -52,6 +52,16 @@ Resend egress. Confirm the same provider message ID at send and receipt.
 Return delivery to `false` after the check. Keep the receiver available for
 receipts and retain the outbox row so a future rollout cannot repeat the test.
 
+The Funky welcome uses the same delivery switch. In the scoped dev test mode,
+`CHRONOS_DEV_CAMPAIGN_WELCOME_OWNER` accepts only the approved Tester 1 Clerk
+account. An eligible acceptance saves the welcome outbox in the registration
+transaction; composition queues after commit. To replay a pending acceptance,
+start one temporary process with the switch enabled and supply its original
+`CHRONOS_DEV_CAMPAIGN_REPLAY_EVENT_ID` and
+`CHRONOS_DEV_CAMPAIGN_REPLAY_ENTITY_CUI`. The saved audit event and current
+terms must agree. Retain the outbox and keep the receiver available to process
+the signed delivery receipt while sends are off.
+
 The dev Deployment reads its Meili key (`PROD_MEILI_SEARCH_API_KEY`) from
 `chronos-companies-dev-meilisearch-reader`, a registered strict SealedSecret whose
 BWS record lives at the exact external project and key named in the registry. Its
