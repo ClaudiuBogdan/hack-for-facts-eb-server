@@ -13,7 +13,10 @@ import {
   type ChronosDevCampaignConfig,
   type ChronosDevCampaignWelcome,
 } from './chronos-dev-campaign-welcome.js';
-import { FUNKY_OUTBOX_WELCOME_TYPE } from '../common/campaign-keys.js';
+import {
+  FUNKY_OUTBOX_WELCOME_TYPE,
+  NATIVE_CAMPAIGN_WELCOME_MARKER,
+} from '../common/campaign-keys.js';
 import { sanitizeResendTagValue } from '../common/resend-tag-encoding.js';
 import {
   assertUserDataOwnerCanWrite,
@@ -25,6 +28,7 @@ import { makeEmailRenderer } from '../modules/email-templates/index.js';
 import {
   createEmailSendError,
   createValidationError,
+  makeClerkUserEmailFetcher,
   makeDeliveryRepo,
   makeExtendedNotificationsRepo,
   startNotificationDeliveryRuntime,
@@ -38,16 +42,18 @@ import {
 } from '../modules/resend-webhooks/index.js';
 
 import type { UserDbClient } from '../infra/database/client.js';
+import type { UserDatabase } from '../infra/database/user/types.js';
 import type { QueueRedisHealthConfig } from '../infra/queue/redis-health.js';
 import type { FastifyInstance } from 'fastify';
+import type { Transaction } from 'kysely';
 import type { Logger } from 'pino';
 
-const clientBaseUrl = 'https://dev-chronos.transparenta.eu';
-const apiBaseUrl = 'https://dev-chronos-api.transparenta.eu';
+const devClientBaseUrl = 'https://dev-chronos.transparenta.eu';
+const devApiBaseUrl = 'https://dev-chronos-api.transparenta.eu';
 const testOwner = 'chronos-dev-notification-delivery-test';
 const notificationType = 'transactional_welcome';
 const deliveryKey = `${notificationType}:${testOwner}`;
-const environment = 'chronos_dev';
+const devEnvironment = 'chronos_dev';
 const providerId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SendResponseSchema = Type.Object({ id: Type.String({ pattern: providerId.source }) });
 
@@ -74,11 +80,27 @@ interface SendConfig {
   readonly unsubscribeSecret: string;
   readonly redis: QueueRedisHealthConfig;
   readonly campaign?: ChronosDevCampaignConfig;
+  readonly clerkSecretKey?: string;
+  readonly clientBaseUrl: string;
+  readonly apiBaseUrl: string;
 }
 
 export interface ChronosDevEmailConfig {
   readonly signingSecret: string;
+  readonly environment?: string;
   readonly send?: SendConfig;
+}
+
+function httpsOrigin(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  try {
+    const url = new URL(value);
+    if (url.protocol === 'https:' && (value === url.origin || value === `${url.origin}/`))
+      return url.origin;
+  } catch {
+    return undefined;
+  }
+  return undefined;
 }
 
 export function loadChronosDevEmailConfig(
@@ -92,18 +114,33 @@ export function loadChronosDevEmailConfig(
   }
   const signingSecret = env['RESEND_WEBHOOK_SECRET'];
   if (signingSecret === undefined && enabled !== 'true') return undefined;
+  const clientBaseUrl = httpsOrigin(configuredClientBaseUrl);
+  const rawApiBaseUrl = env['API_BASE_URL'];
+  const apiBaseUrl = httpsOrigin(
+    rawApiBaseUrl ?? (clientBaseUrl === devClientBaseUrl ? devApiBaseUrl : undefined)
+  );
   if (
-    configuredClientBaseUrl !== clientBaseUrl ||
+    clientBaseUrl === undefined ||
+    apiBaseUrl === undefined ||
     !/^whsec_[A-Za-z0-9+/=_-]+$/.test(signingSecret ?? '')
   ) {
     throw new Error(
-      'Chronos dev delivery requires its development client and Resend signing secret'
+      'Campaign welcome requires HTTPS client and API origins and a Resend signing secret'
     );
   }
   if (signingSecret === undefined) throw new Error('Missing Chronos dev Resend signing secret');
-  if (enabled !== 'true') return { signingSecret };
+  const environment =
+    apiBaseUrl === devApiBaseUrl
+      ? devEnvironment
+      : sanitizeResendTagValue(new URL(apiBaseUrl).hostname);
+  const webhook = { signingSecret, ...(environment !== devEnvironment && { environment }) };
+  if (enabled !== 'true') return webhook;
   const apiKey = env['RESEND_API_KEY'];
-  const from = env['EMAIL_FROM_ADDRESS']?.trim();
+  const campaignFrom = env['FUNKY_EMAIL_FROM_ADDRESS']?.trim();
+  const from =
+    campaignFrom !== undefined && campaignFrom !== ''
+      ? campaignFrom
+      : env['EMAIL_FROM_ADDRESS']?.trim();
   const unsubscribeSecret = env['UNSUBSCRIBE_HMAC_SECRET'];
   if (
     apiKey === undefined ||
@@ -119,9 +156,27 @@ export function loadChronosDevEmailConfig(
     );
   }
   const campaign = loadChronosDevCampaignConfig(env);
+  if (campaign !== undefined && apiBaseUrl !== devApiBaseUrl)
+    throw new Error('Campaign replay is limited to Chronos dev');
+  const clerkSecretKey = env['CLERK_SECRET_KEY']?.trim();
+  if (
+    campaign === undefined &&
+    (clerkSecretKey === undefined || !/^sk_(test|live)_[A-Za-z0-9_-]+$/.test(clerkSecretKey))
+  ) {
+    throw new Error('Campaign welcome requires the matching Clerk backend key');
+  }
   return {
-    signingSecret,
-    send: { apiKey, from, unsubscribeSecret, redis, ...(campaign !== undefined && { campaign }) },
+    ...webhook,
+    send: {
+      apiKey,
+      from,
+      unsubscribeSecret,
+      redis,
+      clientBaseUrl,
+      apiBaseUrl,
+      ...(campaign !== undefined && { campaign }),
+      ...(clerkSecretKey !== undefined && { clerkSecretKey }),
+    },
   };
 }
 
@@ -130,11 +185,16 @@ function getTag(event: ResendEmailWebhookEvent, name: string): string | undefine
   return Array.isArray(tags) ? tags.find((tag) => tag.name === name)?.value : tags?.[name];
 }
 
-export function makeChronosDevDeliveryReceiptHandler(db: UserDbClient, logger: Logger) {
+export function makeChronosDevDeliveryReceiptHandler(
+  db: UserDbClient,
+  logger: Logger,
+  environment = devEnvironment
+) {
   return async (event: ResendEmailWebhookEvent, svixId: string) => {
     const outboxId = getTag(event, 'delivery_id');
     const tag = getTag(event, 'notification_type');
     const campaign = tag === sanitizeResendTagValue(FUNKY_OUTBOX_WELCOME_TYPE);
+    const eventRecipient = event.data.to[0];
     if (
       event.type !== 'email.delivered' ||
       getTag(event, 'env') !== environment ||
@@ -143,7 +203,9 @@ export function makeChronosDevDeliveryReceiptHandler(db: UserDbClient, logger: L
       !providerId.test(outboxId) ||
       !providerId.test(event.data.email_id) ||
       event.data.to.length !== 1 ||
-      event.data.to[0]?.toLowerCase() !== recipient ||
+      eventRecipient === undefined ||
+      (!campaign &&
+        (environment !== devEnvironment || eventRecipient.toLowerCase() !== recipient)) ||
       (event.data.cc?.length ?? 0) !== 0 ||
       (event.data.bcc?.length ?? 0) !== 0
     )
@@ -154,15 +216,24 @@ export function makeChronosDevDeliveryReceiptHandler(db: UserDbClient, logger: L
 
     try {
       let target = transactionalTarget;
+      let marker: string | undefined;
       if (campaign) {
         const candidate = await db
           .selectFrom('notificationsoutbox')
           .select(['user_id', 'metadata'])
           .where('id', '=', outboxId)
           .where('notification_type', '=', FUNKY_OUTBOX_WELCOME_TYPE)
-          .where('to_email', '=', recipient)
           .executeTakeFirst();
-        if (candidate?.metadata[chronosDevCampaignMarker] !== true) return 'ignored' as const;
+        if (candidate === undefined) return 'ignored' as const;
+        if (candidate.metadata[NATIVE_CAMPAIGN_WELCOME_MARKER] === true)
+          marker = NATIVE_CAMPAIGN_WELCOME_MARKER;
+        else if (
+          environment === devEnvironment &&
+          candidate.metadata[chronosDevCampaignMarker] === true &&
+          eventRecipient.toLowerCase() === recipient
+        )
+          marker = chronosDevCampaignMarker;
+        else return 'ignored' as const;
         target = campaignTarget(candidate.user_id);
       }
       return await db
@@ -172,18 +243,18 @@ export function makeChronosDevDeliveryReceiptHandler(db: UserDbClient, logger: L
           await assertUserDataOwnerCanWrite(transaction, target.ownerId);
           const row = await transaction
             .selectFrom('notificationsoutbox')
-            .select(['status', 'resend_email_id', 'sent_at', 'metadata'])
+            .select(['status', 'resend_email_id', 'sent_at', 'metadata', 'to_email'])
             .where('id', '=', outboxId)
             .where('delivery_key', '=', target.key)
             .where('user_id', '=', target.ownerId)
-            .where('to_email', '=', recipient)
             .where('notification_type', '=', target.type)
             .where('attempt_count', '>', 0)
             .forUpdate()
             .executeTakeFirst();
           if (
             row === undefined ||
-            (campaign && row.metadata[chronosDevCampaignMarker] !== true) ||
+            row.to_email?.toLowerCase() !== eventRecipient.toLowerCase() ||
+            (marker !== undefined && row.metadata[marker] !== true) ||
             (row.resend_email_id !== null && row.resend_email_id !== event.data.email_id)
           ) {
             return 'ignored' as const;
@@ -216,47 +287,82 @@ export function makeChronosDevDeliveryReceiptHandler(db: UserDbClient, logger: L
 
 export function makeChronosDevTestSender(
   db: UserDbClient,
-  outboxId: string,
+  pinnedOutboxId: string | undefined,
   config: Pick<SendConfig, 'apiKey' | 'from'> & { logger: Logger },
   sendRequest = fetch,
-  target = transactionalTarget
+  pinnedTarget = transactionalTarget
 ): EmailSenderPort {
   return {
     async send(params) {
+      const native = pinnedOutboxId === undefined;
+      if (params.userId === undefined || (native && !/^user_[A-Za-z0-9]+$/.test(params.userId))) {
+        return err(createValidationError('Missing valid notification owner'));
+      }
+      const target = native ? campaignTarget(params.userId) : pinnedTarget;
+      const outboxId = pinnedOutboxId ?? params.idempotencyKey;
+      const to = params.to;
       if (
-        params.to !== recipient ||
+        !providerId.test(outboxId) ||
+        !/^[^\s@]+@[^\s@]+$/.test(to) ||
+        (!native && to !== recipient) ||
         params.userId !== target.ownerId ||
         params.notificationType !== target.type ||
         params.idempotencyKey !== outboxId
       )
-        return err(createValidationError('Email is outside the Chronos dev delivery test'));
+        return err(createValidationError('Email is outside the active notification scope'));
 
+      const lockDelivery = async (transaction: Transaction<UserDatabase>) => {
+        await assertUserDataOwnerCanWrite(transaction, target.ownerId);
+        return transaction
+          .selectFrom('notificationsoutbox')
+          .select(['resend_email_id', 'status', 'metadata', 'reference_id', 'to_email'])
+          .where('id', '=', outboxId)
+          .where('user_id', '=', target.ownerId)
+          .where('delivery_key', '=', target.key)
+          .where('notification_type', '=', target.type)
+          .forUpdate()
+          .executeTakeFirst();
+      };
       try {
+        if (native) {
+          const pinned = await db
+            .transaction()
+            .setIsolationLevel('read committed')
+            .execute(async (transaction) => {
+              const row = await lockDelivery(transaction);
+              if (row?.metadata[NATIVE_CAMPAIGN_WELCOME_MARKER] !== true) return false;
+              if (row.to_email !== null) return row.to_email === to;
+              if (row.status !== 'sending' || row.resend_email_id !== null) return false;
+              // Commit the address before any provider request, including across process death.
+              await transaction
+                .updateTable('notificationsoutbox')
+                .set({ to_email: to })
+                .where('id', '=', outboxId)
+                .execute();
+              return true;
+            });
+          if (!pinned)
+            return err(createValidationError('Email does not match the delivery recipient'));
+        }
         return await db
           .transaction()
           .setIsolationLevel('read committed')
           .execute(async (transaction) => {
-            await assertUserDataOwnerCanWrite(transaction, target.ownerId);
-            const row = await transaction
-              .selectFrom('notificationsoutbox')
-              .select(['resend_email_id', 'status', 'metadata', 'reference_id'])
-              .where('id', '=', outboxId)
-              .where('user_id', '=', target.ownerId)
-              .where('delivery_key', '=', target.key)
-              .where('notification_type', '=', target.type)
-              .where('to_email', '=', recipient)
-              .forUpdate()
-              .executeTakeFirst();
+            const row = await lockDelivery(transaction);
             if (
               target.type === FUNKY_OUTBOX_WELCOME_TYPE &&
-              row?.metadata[chronosDevCampaignMarker] !== true
+              row?.metadata[native ? NATIVE_CAMPAIGN_WELCOME_MARKER : chronosDevCampaignMarker] !==
+                true
             ) {
               return err(
-                createValidationError('Campaign delivery is outside the Chronos dev test')
+                createValidationError('Campaign delivery is outside the active notification scope')
               );
             }
-            if (row?.resend_email_id != null) return ok({ emailId: row.resend_email_id });
-            if (row?.status !== 'sending')
+            if (row?.to_email !== to) {
+              return err(createValidationError('Email does not match the delivery recipient'));
+            }
+            if (row.resend_email_id !== null) return ok({ emailId: row.resend_email_id });
+            if (row.status !== 'sending')
               return err(createValidationError('Test delivery is no longer sendable'));
 
             if (target.type === FUNKY_OUTBOX_WELCOME_TYPE) {
@@ -314,7 +420,7 @@ export function makeChronosDevTestSender(
               },
               body: JSON.stringify({
                 from: config.from,
-                to: [recipient],
+                to: [to],
                 subject: params.subject,
                 html: params.html,
                 text: params.text,
@@ -324,7 +430,10 @@ export function makeChronosDevTestSender(
                   'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
                 },
               }),
-            });
+            }).catch(() => undefined);
+            if (response === undefined) {
+              return err(createEmailSendError('Resend send outcome could not be confirmed', true));
+            }
             if (!response.ok) {
               return err(
                 createEmailSendError(
@@ -333,7 +442,7 @@ export function makeChronosDevTestSender(
                 )
               );
             }
-            const body: unknown = await response.json();
+            const body: unknown = await response.json().catch(() => undefined);
             if (!Value.Check(SendResponseSchema, body)) {
               return err(
                 createEmailSendError('Resend response did not identify the message', true)
@@ -341,7 +450,10 @@ export function makeChronosDevTestSender(
             }
             await transaction
               .updateTable('notificationsoutbox')
-              .set({ resend_email_id: body.id })
+              .set({
+                resend_email_id: body.id,
+                ...(native && { status: 'sent', sent_at: new Date() }),
+              })
               .where('id', '=', outboxId)
               .executeTakeFirst();
             return ok({ emailId: body.id });
@@ -368,26 +480,47 @@ export async function registerChronosDevNotificationDelivery(
     await scope.register(
       makeResendWebhookRoutes({
         webhookVerifier: makeWebhookVerifier({ webhookSecret: config.signingSecret, logger }),
-        onVerifiedEvent: makeChronosDevDeliveryReceiptHandler(db, logger),
+        onVerifiedEvent: makeChronosDevDeliveryReceiptHandler(db, logger, config.environment),
         logger,
       })
     );
     const send = config.send;
     if (send === undefined) return;
+    if (entityRepo === undefined)
+      throw new Error('Campaign welcome requires a native entity reader');
+    const environment = config.environment ?? devEnvironment;
+    const rehearsal = send.campaign;
+    if (rehearsal === undefined) {
+      const runtime = await startScopedDelivery(db, logger, send, environment);
+      scope.addHook('onClose', () => runtime.stop());
+      campaign = {
+        capture: (transaction, userId, events) =>
+          makeChronosDevCampaignWelcomeCapture({
+            ownerId: userId,
+            entityRepo,
+            logger,
+            sendToVerifiedPrimary: true,
+          }).capture(transaction, userId, events),
+        async dispatch(job) {
+          const queued = await runtime.composeJobScheduler.enqueue(job);
+          if (queued.isErr()) throw new Error('Unable to enqueue campaign welcome');
+        },
+      };
+      return;
+    }
 
     let running: { outboxId: string; runtime: Promise<NotificationDeliveryRuntime> } | undefined;
     scope.addHook('onClose', async () => {
       if (running !== undefined) await (await running.runtime).stop();
     });
-    const target =
-      send.campaign === undefined ? transactionalTarget : campaignTarget(send.campaign.ownerId);
+    const target = campaignTarget(rehearsal.ownerId);
     const dispatch: ChronosDevCampaignWelcome['dispatch'] = async (job) => {
       if (running !== undefined && running.outboxId !== job.outboxId) {
         throw new Error('Chronos dev mail runtime is already scoped to a different outbox');
       }
       running ??= {
         outboxId: job.outboxId,
-        runtime: startScopedDelivery(db, logger, send, target, job.outboxId).catch(
+        runtime: startScopedDelivery(db, logger, send, environment, target, job.outboxId).catch(
           (error: unknown) => {
             running = undefined;
             throw error;
@@ -399,59 +532,17 @@ export async function registerChronosDevNotificationDelivery(
       if (queued.isErr()) throw new Error('Unable to enqueue Chronos dev test delivery');
     };
 
-    if (send.campaign !== undefined) {
-      if (entityRepo === undefined)
-        throw new Error('Chronos dev campaign welcome requires a native entity reader');
-      const capture = makeChronosDevCampaignWelcomeCapture({
-        ownerId: send.campaign.ownerId,
-        entityRepo,
-        logger,
-      });
-      campaign = { capture: (...args) => capture.capture(...args), dispatch };
-      if (send.campaign.replay !== undefined) {
-        const job = await capture.replay(db, send.campaign.replay);
-        if (job === undefined) logger.info('Saved campaign event has no eligible pending welcome');
-        else await dispatch(job);
-      }
-      return;
-    }
-
-    const outbox = await db
-      .transaction()
-      .setIsolationLevel('read committed')
-      .execute(async (transaction) => {
-        await assertUserDataOwnerCanWrite(transaction, testOwner);
-        const repo = makeDeliveryRepo({ db: transaction, logger });
-        const existing = await repo.findByDeliveryKey(deliveryKey);
-        if (existing.isErr()) throw new Error('Unable to find Chronos dev test outbox');
-        if (existing.value !== null) return existing.value;
-        const created = await repo.create({
-          userId: testOwner,
-          notificationType,
-          scopeKey: 'welcome',
-          deliveryKey,
-          referenceId: null,
-          toEmail: recipient,
-          metadata: { registeredAt: new Date().toISOString(), source: 'chronos_dev_delivery_test' },
-        });
-        if (created.isErr()) throw new Error('Unable to create Chronos dev test outbox');
-        return created.value;
-      });
-    if (
-      outbox.userId !== testOwner ||
-      outbox.notificationType !== notificationType ||
-      outbox.toEmail !== recipient
-    ) {
-      throw new Error('Chronos dev test outbox has unexpected identity');
-    }
-    // Resume only the existing outbox. Terminal or ambiguous sends require reconciliation.
-    if (outbox.status !== 'pending') return;
-
-    await dispatch({
-      runId: 'chronos-dev-delivery-test',
-      kind: 'outbox',
-      outboxId: outbox.id,
+    const capture = makeChronosDevCampaignWelcomeCapture({
+      ownerId: rehearsal.ownerId,
+      entityRepo,
+      logger,
     });
+    campaign = { capture: (...args) => capture.capture(...args), dispatch };
+    if (rehearsal.replay !== undefined) {
+      const job = await capture.replay(db, rehearsal.replay);
+      if (job === undefined) logger.info('Saved campaign event has no eligible pending welcome');
+      else await dispatch(job);
+    }
   });
   return campaign;
 }
@@ -460,9 +551,37 @@ async function startScopedDelivery(
   db: UserDbClient,
   logger: Logger,
   send: SendConfig,
-  target: DeliveryTarget,
-  outboxId: string
+  environment: string,
+  target?: DeliveryTarget,
+  outboxId?: string
 ) {
+  const rehearsal = outboxId !== undefined;
+  const deliveryRepo = makeDeliveryRepo({
+    db,
+    logger,
+    ...(!rehearsal && { recoverNativeCampaignWelcomesOnly: true }),
+  });
+  const allowOutbox = async (id: string): Promise<boolean> => {
+    const result = await deliveryRepo.findById(id);
+    if (result.isErr()) throw new Error('Unable to check campaign delivery scope');
+    const delivery = result.value;
+    return (
+      delivery !== null &&
+      delivery.notificationType === FUNKY_OUTBOX_WELCOME_TYPE &&
+      delivery.metadata[NATIVE_CAMPAIGN_WELCOME_MARKER] === true &&
+      delivery.deliveryKey === campaignWelcomeKey(delivery.userId)
+    );
+  };
+  const userEmailFetcher = rehearsal
+    ? {
+        getEmail: () => Promise.resolve(ok(null)),
+        getEmailsByUserIds: () => Promise.resolve(ok(new Map())),
+      }
+    : makeClerkUserEmailFetcher({
+        secretKey: send.clerkSecretKey ?? '',
+        logger,
+        fetch: (url, options) => fetch(url, { ...options, redirect: 'error' }),
+      });
   return startNotificationDeliveryRuntime({
     redisUrl: send.redis.url,
     redisPassword: send.redis.password,
@@ -471,33 +590,29 @@ async function startScopedDelivery(
       rejectUnauthorized: true,
       servername: new URL(send.redis.url).hostname,
     },
-    bullmqPrefix:
-      target.type === FUNKY_OUTBOX_WELCOME_TYPE
-        ? 'chronos-dev-campaign-welcome'
-        : 'chronos-dev-delivery-test',
-    onlyOutboxId: outboxId,
+    bullmqPrefix: rehearsal
+      ? 'chronos-dev-campaign-welcome'
+      : `native-campaign-welcome:${environment}`,
+    ...(outboxId === undefined ? { allowOutbox } : { onlyOutboxId: outboxId }),
     logger,
     concurrency: 1,
     intervalMinutes: 5,
     thresholdMinutes: 10,
     workerDeps: {
-      deliveryRepo: makeDeliveryRepo({ db, logger }),
+      deliveryRepo,
       notificationsRepo: makeExtendedNotificationsRepo({ db, logger }),
       emailSender: makeChronosDevTestSender(db, outboxId, { ...send, logger }, fetch, target),
       emailRenderer: makeEmailRenderer({ logger }),
       tokenSigner: makeUnsubscribeTokenSigner(send.unsubscribeSecret),
-      userEmailFetcher: {
-        getEmail: () => Promise.resolve(ok(null)),
-        getEmailsByUserIds: () => Promise.resolve(ok(new Map())),
-      },
+      userEmailFetcher,
       dataFetcher: {
         fetchNewsletterData: () =>
           Promise.resolve(err(createValidationError('Newsletter delivery is unavailable'))),
         fetchAlertData: () =>
           Promise.resolve(err(createValidationError('Alert delivery is unavailable'))),
       },
-      apiBaseUrl,
-      platformBaseUrl: clientBaseUrl,
+      apiBaseUrl: send.apiBaseUrl,
+      platformBaseUrl: send.clientBaseUrl,
       environment,
       maxSendRps: 1,
     },

@@ -57,6 +57,7 @@ export interface NotificationDeliveryRuntimeConfig {
   workerDeps?: NotificationDeliveryWorkerDeps;
   redisTls?: RedisOptions['tls'];
   onlyOutboxId?: string;
+  allowOutbox?: (outboxId: string) => Promise<boolean>;
   redisFactory?: QueueRedisFactory;
 }
 
@@ -84,6 +85,7 @@ export const startNotificationDeliveryRuntime: NotificationDeliveryRuntimeFactor
     workerDeps,
     redisTls,
     onlyOutboxId,
+    allowOutbox,
     redisFactory,
   } = config;
   const log = logger.child({ runtime: 'notification-delivery' });
@@ -131,16 +133,17 @@ export const startNotificationDeliveryRuntime: NotificationDeliveryRuntimeFactor
           thresholdMinutes,
         });
 
-        workerManager.register(
-          QUEUE_NAMES.COLLECT,
-          createCollectWorker({
-            redis,
-            composeQueue,
-            logger,
-            bullmqPrefix,
-            concurrency,
-          })
-        );
+        if (allowOutbox === undefined)
+          workerManager.register(
+            QUEUE_NAMES.COLLECT,
+            createCollectWorker({
+              redis,
+              composeQueue,
+              logger,
+              bullmqPrefix,
+              concurrency,
+            })
+          );
       }
       workerManager.register(
         QUEUE_NAMES.COMPOSE,
@@ -158,6 +161,7 @@ export const startNotificationDeliveryRuntime: NotificationDeliveryRuntimeFactor
           bullmqPrefix,
           concurrency,
           ...(onlyOutboxId !== undefined ? { onlyOutboxId } : {}),
+          ...(allowOutbox !== undefined ? { allowOutbox } : {}),
         })
       );
       workerManager.register(
@@ -182,6 +186,7 @@ export const startNotificationDeliveryRuntime: NotificationDeliveryRuntimeFactor
           bullmqPrefix,
           concurrency,
           ...(onlyOutboxId !== undefined ? { onlyOutboxId } : {}),
+          ...(allowOutbox !== undefined ? { allowOutbox } : {}),
           ...(workerDeps.maxSendRps !== undefined ? { maxRps: workerDeps.maxSendRps } : {}),
         })
       );

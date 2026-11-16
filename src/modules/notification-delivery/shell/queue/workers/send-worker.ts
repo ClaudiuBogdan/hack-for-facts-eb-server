@@ -75,6 +75,7 @@ export interface SendWorkerDeps {
   maxRps?: number;
   concurrency?: number;
   onlyOutboxId?: string;
+  allowOutbox?: (outboxId: string) => Promise<boolean>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1128,6 +1129,7 @@ export const createSendWorker = (deps: SendWorkerDeps): Worker<SendJobPayload> =
     QUEUE_NAMES.SEND,
     async (job) => {
       if (deps.onlyOutboxId !== undefined && job.data.outboxId !== deps.onlyOutboxId) return;
+      if (deps.allowOutbox !== undefined && !(await deps.allowOutbox(job.data.outboxId))) return;
       return processSendJob(
         {
           deliveryRepo,

@@ -2,7 +2,10 @@ import { createHash } from 'node:crypto';
 
 import { err, ok } from 'neverthrow';
 
-import { FUNKY_OUTBOX_WELCOME_TYPE } from '../common/campaign-keys.js';
+import {
+  FUNKY_OUTBOX_WELCOME_TYPE,
+  NATIVE_CAMPAIGN_WELCOME_MARKER,
+} from '../common/campaign-keys.js';
 import { assertUserDataOwnerCanWrite } from '../infra/database/user/owner-write-guard.js';
 import {
   isInteractiveUpdatedEvent,
@@ -35,6 +38,10 @@ const eventIdPattern = /^[A-Za-z0-9_-]{1,100}$/;
 const testerOneOwnerHash = 'bde5162df331539a3c9611ff20f134b06b2ab92e0285d10c6ef30637e6f868b2';
 
 type OutboxJob = Extract<ComposeJobPayload, { kind: 'outbox' }>;
+type AppliedValue = Extract<
+  LearningProgressEvent,
+  { type: 'interactive.updated' }
+>['payload']['record']['value'];
 
 export interface ChronosDevCampaignConfig {
   readonly ownerId: string;
@@ -79,16 +86,22 @@ export const campaignWelcomeKey = (userId: string) => `${FUNKY_OUTBOX_WELCOME_TY
 
 export function makeChronosDevCampaignWelcomeCapture(input: {
   ownerId: string;
+  sendToVerifiedPrimary?: true;
   entityRepo: EntityTermsAcceptedUserEventHandlerDeps['entityRepo'];
   logger: Logger;
 }) {
   const { ownerId, entityRepo, logger } = input;
   const deliveryKey = campaignWelcomeKey(ownerId);
+  const marker =
+    input.sendToVerifiedPrimary === true
+      ? NATIVE_CAMPAIGN_WELCOME_MARKER
+      : chronosDevCampaignMarker;
 
   async function captureSavedTerms(
     db: Transaction<UserDatabase>,
     recordKey: string,
-    eventId: string
+    eventId: string,
+    appliedValue?: AppliedValue
   ): Promise<OutboxJob | undefined> {
     if (!recordKey.startsWith(termsPrefix)) return undefined;
     const entityCui = recordKey.slice(termsPrefix.length);
@@ -101,15 +114,23 @@ export function makeChronosDevCampaignWelcomeCapture(input: {
       (item) => item.type === 'submitted' && item.sourceClientEventId === eventId
     );
     const recordedValue = saved?.record.value;
-    const eventValue = audit?.type === 'submitted' ? audit.value : undefined;
-    if (recordedValue?.kind !== 'json' || eventValue?.kind !== 'json') return undefined;
+    const eventValue =
+      appliedValue === undefined
+        ? audit?.type === 'submitted'
+          ? audit.value
+          : undefined
+        : appliedValue;
+    if (recordedValue?.kind !== 'json') return undefined;
     const recordedTerms = recordedValue.json.value;
-    const eventTerms = eventValue.json.value;
     if (
       recordedTerms['entityCui'] !== entityCui ||
-      eventTerms['entityCui'] !== entityCui ||
-      typeof recordedTerms['acceptedTermsAt'] !== 'string' ||
-      recordedTerms['acceptedTermsAt'] !== eventTerms['acceptedTermsAt']
+      typeof recordedTerms['acceptedTermsAt'] !== 'string'
+    )
+      return undefined;
+    if (
+      eventValue?.kind !== 'json' ||
+      eventValue.json.value['entityCui'] !== entityCui ||
+      eventValue.json.value['acceptedTermsAt'] !== recordedTerms['acceptedTermsAt']
     )
       return undefined;
 
@@ -119,7 +140,7 @@ export function makeChronosDevCampaignWelcomeCapture(input: {
     // This port sends the first welcome only, preserving the existing welcome key.
     if (
       existing.value !== null &&
-      (existing.value.metadata[chronosDevCampaignMarker] !== true ||
+      (existing.value.metadata[marker] !== true ||
         existing.value.metadata['sourceEventId'] !== eventId ||
         existing.value.status !== 'pending')
     )
@@ -144,8 +165,8 @@ export function makeChronosDevCampaignWelcomeCapture(input: {
           }
           return outbox.create({
             ...delivery,
-            toEmail: chronosDevTestRecipient,
-            metadata: { ...delivery.metadata, [chronosDevCampaignMarker]: true },
+            ...(input.sendToVerifiedPrimary === true ? {} : { toEmail: chronosDevTestRecipient }),
+            metadata: { ...delivery.metadata, [marker]: true },
           });
         },
       },
@@ -180,7 +201,12 @@ export function makeChronosDevCampaignWelcomeCapture(input: {
       if (userId !== ownerId) return undefined;
       for (const event of events) {
         if (!isInteractiveUpdatedEvent(event)) continue;
-        const job = await captureSavedTerms(transaction, event.payload.record.key, event.eventId);
+        const job = await captureSavedTerms(
+          transaction,
+          event.payload.record.key,
+          event.eventId,
+          input.sendToVerifiedPrimary === true ? event.payload.record.value : undefined
+        );
         if (job !== undefined) return job;
       }
       return undefined;

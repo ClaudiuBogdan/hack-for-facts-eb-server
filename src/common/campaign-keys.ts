@@ -6,6 +6,7 @@ export const FUNKY_NOTIFICATION_GLOBAL_TYPE = 'funky:notification:global' as con
 export const FUNKY_NOTIFICATION_ENTITY_UPDATES_TYPE = 'funky:notification:entity_updates' as const;
 
 export const FUNKY_OUTBOX_WELCOME_TYPE = 'funky:outbox:welcome' as const;
+export const NATIVE_CAMPAIGN_WELCOME_MARKER = 'nativeCampaignWelcome' as const;
 export const FUNKY_OUTBOX_ENTITY_SUBSCRIPTION_TYPE = 'funky:outbox:entity_subscription' as const;
 export const FUNKY_OUTBOX_ENTITY_UPDATE_TYPE = 'funky:outbox:entity_update' as const;
 export const FUNKY_OUTBOX_ADMIN_RESPONSE_TYPE = 'funky:outbox:admin_response' as const;

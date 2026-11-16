@@ -344,6 +344,7 @@ it('commits and replays an audited Funky welcome once and reconciles the signed 
   };
   const capture = makeChronosDevCampaignWelcomeCapture({
     ownerId: owner,
+    sendToVerifiedPrimary: true,
     entityRepo: { getById: () => Promise.resolve(ok({ name: 'Galați' })) },
     logger,
   });
@@ -416,7 +417,22 @@ it('commits and replays an audited Funky welcome once and reconciles the signed 
         .where('user_id', '=', otherOwner)
         .execute()
     ).toEqual([]);
-    const saved = await app.inject(request);
+    const olderAt = new Date(at.getTime() - 1000).toISOString();
+    const older = {
+      type: 'interactive.updated',
+      eventId: randomUUID(),
+      clientId: 'fixture',
+      occurredAt: olderAt,
+      payload: {
+        record: {
+          ...record,
+          updatedAt: olderAt,
+          value: { kind: 'json', json: { value: { entityCui, acceptedTermsAt: olderAt } } },
+        },
+      },
+    };
+    const batch = { ...request, payload: { ...payload, events: [older, ...payload.events] } };
+    const saved = await app.inject(batch);
     expect(saved.statusCode, saved.body).toBe(200);
     const outbox = await find();
     expect(outbox).toMatchObject({
@@ -425,13 +441,13 @@ it('commits and replays an audited Funky welcome once and reconciles the signed 
         entityCui,
         acceptedTermsAt: occurredAt,
         source: 'funky:source:terms_accepted',
-        chronosDevCampaignWelcome: true,
+        nativeCampaignWelcome: true,
       },
-      toEmail: 'delivered+test1@resend.dev',
+      toEmail: null,
     });
     if (outbox === null) throw new Error('Missing campaign outbox');
     expect(dispatched).toEqual([outbox.id]);
-    expect((await app.inject(request)).json().data.newEventsCount).toBe(0);
+    expect((await app.inject(batch)).json().data.newEventsCount).toBe(0);
     expect(dispatched).toEqual([outbox.id]);
     expect(await capture.replay(db, { eventId: randomUUID(), entityCui })).toBeUndefined();
     expect((await capture.replay(db, { eventId, entityCui }))?.outboxId).toBe(outbox.id);
@@ -462,20 +478,37 @@ it('commits and replays an audited Funky welcome once and reconciles the signed 
       .set({ status: 'sending', attempt_count: 1 })
       .where('id', '=', outbox.id)
       .execute();
+    const unrelated = (
+      await deliveries.create({
+        userId: otherOwner,
+        notificationType: 'transactional_welcome',
+        referenceId: null,
+        scopeKey: 'fixture',
+        deliveryKey: `transactional_welcome:${otherOwner}`,
+      })
+    )._unsafeUnwrap();
+    await db
+      .updateTable('notificationsoutbox')
+      .set({ status: 'sending' })
+      .where('id', '=', unrelated.id)
+      .execute();
+    const recovery = makeDeliveryRepo({ db, logger, recoverNativeCampaignWelcomesOnly: true });
+    expect((await recovery.findStuckSending(10))._unsafeUnwrap().map((row) => row.id)).toEqual([
+      outbox.id,
+    ]);
     const emailId = randomUUID();
     let sendCalls = 0;
     const sender = makeChronosDevTestSender(
       db,
-      outbox.id,
+      undefined,
       { apiKey: 'fixture', from: 'dev@example.test', logger },
       () => {
         sendCalls++;
         return Promise.resolve(Response.json({ id: emailId }));
-      },
-      { ownerId: owner, type: FUNKY_OUTBOX_WELCOME_TYPE, key: deliveryKey }
+      }
     );
     const params = {
-      to: 'delivered+test1@resend.dev',
+      to: 'verified-campaign-owner@example.test',
       userId: owner,
       notificationType: FUNKY_OUTBOX_WELCOME_TYPE,
       referenceId: outbox.referenceId,
@@ -501,12 +534,38 @@ it('commits and replays an audited Funky welcome once and reconciles the signed 
       .set({ is_active: true })
       .where('id', '=', outbox.referenceId ?? '')
       .execute();
+    await db
+      .updateTable('notificationsoutbox')
+      .set({ to_email: null })
+      .where('id', '=', outbox.id)
+      .execute();
+    let recipientVisibleDuringRequest = false;
+    const timeout = makeChronosDevTestSender(
+      db,
+      undefined,
+      { apiKey: 'fixture', from: 'dev@example.test', logger },
+      async () => {
+        recipientVisibleDuringRequest = (await find())?.toEmail === params.to;
+        throw new Error('Provider response lost');
+      }
+    );
+    expect((await timeout.send(params)).isErr()).toBe(true);
+    expect(recipientVisibleDuringRequest).toBe(true);
+    expect(await find()).toMatchObject({ toEmail: params.to, resendEmailId: null });
+    expect((await sender.send({ ...params, to: 'changed-owner@example.test' })).isErr()).toBe(true);
     const acceptedSends = await Promise.all([sender.send(params), sender.send(params)]);
     expect(acceptedSends.map((result) => result._unsafeUnwrap())).toEqual([
       { emailId },
       { emailId },
     ]);
     expect(sendCalls).toBe(1);
+    expect(await find()).toMatchObject({ status: 'sent', resendEmailId: emailId });
+    await db
+      .updateTable('notificationsoutbox')
+      .set({ sent_at: new Date(at.getTime() - 3_600_000) })
+      .where('id', '=', outbox.id)
+      .execute();
+    expect((await recovery.findSentAwaitingWebhook(10))._unsafeUnwrap()).toEqual([]);
     const messageId = randomUUID();
     const body = JSON.stringify({
       type: 'email.delivered',
@@ -514,7 +573,7 @@ it('commits and replays an audited Funky welcome once and reconciles the signed 
       data: {
         email_id: emailId,
         from: 'dev@example.test',
-        to: ['delivered+test1@resend.dev'],
+        to: [params.to],
         subject: 'Fixture',
         created_at: occurredAt,
         tags: {

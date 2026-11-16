@@ -16,6 +16,7 @@ describe('Chronos dev mail configuration', () => {
       RESEND_WEBHOOK_SECRET: signingSecret,
       RESEND_API_KEY: 're_fixture',
       EMAIL_FROM_ADDRESS: 'example@example.test',
+      CLERK_SECRET_KEY: 'sk_test_fixture',
       UNSUBSCRIBE_HMAC_SECRET: 'x'.repeat(32),
     };
     expect(loadChronosDevEmailConfig(env, clientUrl, redis)).toEqual({ signingSecret });
@@ -53,14 +54,14 @@ describe('Chronos dev mail configuration', () => {
     ).toThrow(/approved Clerk test owner/);
   });
 
-  it('fails closed outside the dev client or without the independent receiver', () => {
+  it('fails closed without valid origins and the independent receiver', () => {
     expect(() =>
       loadChronosDevEmailConfig(
         { RESEND_WEBHOOK_SECRET: signingSecret },
         'https://transparenta.eu',
         redis
       )
-    ).toThrow(/development client/);
+    ).toThrow(/HTTPS client and API origins/);
     expect(() =>
       loadChronosDevEmailConfig({ NOTIFICATION_DELIVERY_ENABLED: 'true' }, clientUrl, redis)
     ).toThrow(/signing secret/);
@@ -71,5 +72,29 @@ describe('Chronos dev mail configuration', () => {
         redis
       )
     ).toThrow(/sender credentials/);
+  });
+
+  it('can enable the same welcome runtime with production origins and credentials', () => {
+    const env = {
+      NOTIFICATION_DELIVERY_ENABLED: 'true',
+      API_BASE_URL: 'https://api.transparenta.eu',
+      RESEND_WEBHOOK_SECRET: signingSecret,
+      RESEND_API_KEY: 're_fixture',
+      EMAIL_FROM_ADDRESS: 'hello@example.test',
+      FUNKY_EMAIL_FROM_ADDRESS: 'campaign@example.test',
+      CLERK_SECRET_KEY: 'sk_live_fixture',
+      UNSUBSCRIBE_HMAC_SECRET: 'x'.repeat(32),
+    };
+    expect(loadChronosDevEmailConfig(env, 'https://transparenta.eu', redis)).toMatchObject({
+      environment: 'api-transparenta-eu',
+      send: { apiBaseUrl: env.API_BASE_URL, from: env.FUNKY_EMAIL_FROM_ADDRESS },
+    });
+    expect(() =>
+      loadChronosDevEmailConfig(
+        { ...env, CLERK_SECRET_KEY: undefined },
+        'https://transparenta.eu',
+        redis
+      )
+    ).toThrow(/Clerk backend key/);
   });
 });

@@ -9,6 +9,10 @@ import { createHash, randomUUID } from 'node:crypto';
 import { sql } from 'kysely';
 import { ok, err, type Result } from 'neverthrow';
 
+import {
+  FUNKY_OUTBOX_WELCOME_TYPE,
+  NATIVE_CAMPAIGN_WELCOME_MARKER,
+} from '@/common/campaign-keys.js';
 import { parseDbTimestamp } from '@/common/utils/parse-db-timestamp.js';
 
 import {
@@ -42,6 +46,7 @@ import type { Logger } from 'pino';
 export interface DeliveryRepoConfig {
   db: UserDbClient;
   logger: Logger;
+  recoverNativeCampaignWelcomesOnly?: true;
 }
 
 const COMPOSE_CLAIM_METADATA_KEY = '__composeClaimId';
@@ -93,6 +98,17 @@ const hashUserId = (userId: string): string => createHash('sha256').update(userI
 export const makeDeliveryRepo = (config: DeliveryRepoConfig): DeliveryRepository => {
   const { db, logger } = config;
   const log = logger.child({ repo: 'DeliveryRepo' });
+  const recoveryRows = () =>
+    db
+      .selectFrom('notificationsoutbox')
+      .selectAll()
+      .$if(config.recoverNativeCampaignWelcomesOnly === true, (query) =>
+        query
+          .where('notification_type', '=', FUNKY_OUTBOX_WELCOME_TYPE)
+          .where(sql<boolean>`metadata ->> ${NATIVE_CAMPAIGN_WELCOME_MARKER} = 'true'`)
+          // Accepted native messages await their signed receipt without another send attempt.
+          .where('resend_email_id', 'is', null)
+      );
 
   return {
     async create(
@@ -552,9 +568,7 @@ export const makeDeliveryRepo = (config: DeliveryRepoConfig): DeliveryRepository
         // Compute threshold timestamp (parameterized, not sql.raw())
         const threshold = new Date(Date.now() - olderThanMinutes * 60 * 1000).toISOString();
 
-        const result = await db
-          .selectFrom('notificationsoutbox')
-          .selectAll()
+        const result = await recoveryRows()
           .where('status', '=', 'sending')
           .where(
             sql<boolean>`last_attempt_at IS NULL OR last_attempt_at < ${threshold}::timestamptz`
@@ -578,9 +592,7 @@ export const makeDeliveryRepo = (config: DeliveryRepoConfig): DeliveryRepository
       try {
         const threshold = new Date(Date.now() - olderThanMinutes * 60 * 1000).toISOString();
 
-        const result = await db
-          .selectFrom('notificationsoutbox')
-          .selectAll()
+        const result = await recoveryRows()
           .where('status', 'in', ['pending', 'composing'])
           .where(
             sql<boolean>`(
@@ -608,9 +620,7 @@ export const makeDeliveryRepo = (config: DeliveryRepoConfig): DeliveryRepository
       try {
         const threshold = new Date(Date.now() - olderThanMinutes * 60 * 1000).toISOString();
 
-        const result = await db
-          .selectFrom('notificationsoutbox')
-          .selectAll()
+        const result = await recoveryRows()
           .where('status', 'in', ['pending', 'failed_transient'])
           .where(
             sql<boolean>`(
@@ -638,9 +648,7 @@ export const makeDeliveryRepo = (config: DeliveryRepoConfig): DeliveryRepository
       try {
         const threshold = new Date(Date.now() - olderThanMinutes * 60 * 1000).toISOString();
 
-        const result = await db
-          .selectFrom('notificationsoutbox')
-          .selectAll()
+        const result = await recoveryRows()
           .where('status', '=', 'sent')
           .where('sent_at', 'is not', null)
           .where(sql<boolean>`sent_at < ${threshold}::timestamptz`)

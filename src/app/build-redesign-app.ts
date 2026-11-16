@@ -328,9 +328,7 @@ export const buildRedesignApp = async (deps: BuildRedesignAppDeps): Promise<Rede
     });
     if (deps.userData !== undefined) {
       const campaignEntityRepo =
-        deps.userData.email?.send?.campaign === undefined
-          ? undefined
-          : makePublicEntityRepo(kernel.db);
+        deps.userData.email?.send === undefined ? undefined : makePublicEntityRepo(kernel.db);
       const campaignWelcome =
         deps.userData.email === undefined
           ? undefined

@@ -40,19 +40,25 @@ credentials for Chronos development. The separate
 `RESEND_WEBHOOK_SECRET` and the dev `UNSUBSCRIBE_HMAC_SECRET`.
 The webhook listens for `email.delivered` at
 `https://dev-chronos-api.transparenta.eu/api/v1/webhooks/resend`. The verified
-receiver correlates only the Chronos test outbox and persists the delivery
+receiver correlates Chronos welcome outboxes and persists the delivery
 status and message ID. It acknowledges unrelated account events without
 storing their payloads.
 
-`NOTIFICATION_DELIVERY_ENABLED` defaults to `false`. The current native workers
-only compose and send one stable test delivery to `delivered+test1@resend.dev`
-with a dedicated Redis prefix. To verify, deploy the signing Secret and
-receiver first, then enable the single test with the approved sender and
-Resend egress. Confirm the same provider message ID at send and receipt.
-Return delivery to `false` after the check. Keep the receiver available for
-receipts and retain the outbox row so a future rollout cannot repeat the test.
+`NOTIFICATION_DELIVERY_ENABLED` defaults to `false`. Set it to `true` in
+an environment to send one Funky welcome for each eligible new registration.
+The worker looks up the registrant's verified primary email in Clerk, uses the
+campaign sender when configured, and keeps a per-user outbox key. The queue and
+recovery worker use a dedicated prefix and process only native welcome rows.
+The receiver continues to process delivery receipts while sends are off.
 
-The Funky welcome uses the same delivery switch. In the scoped dev test mode,
+Set `API_BASE_URL` and `PROD_CLIENT_BASE_URL` for the environment. Provide its
+Clerk backend key, user DB, BullMQ TLS configuration, and Resend API key, sender,
+and endpoint signing secret. Use `FUNKY_EMAIL_FROM_ADDRESS` when it has a
+dedicated campaign sender. Allow verified HTTPS to `api.clerk.com` and
+`api.resend.com`. At production cutover, use the existing production unsubscribe
+signing key so earlier unsubscribe links continue to work.
+
+For a scoped dev replay,
 `CHRONOS_DEV_CAMPAIGN_WELCOME_OWNER` accepts only the approved Tester 1 Clerk
 account. An eligible acceptance saves the welcome outbox in the registration
 transaction; composition queues after commit. To replay a pending acceptance,

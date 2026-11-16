@@ -36,6 +36,7 @@ export interface ComposeWorkerDeps {
   bullmqPrefix: string;
   concurrency?: number;
   onlyOutboxId?: string;
+  allowOutbox?: (outboxId: string) => Promise<boolean>;
 }
 
 /**
@@ -65,6 +66,11 @@ export const createComposeWorker = (deps: ComposeWorkerDeps): Worker<ComposeJobP
       if (
         deps.onlyOutboxId !== undefined &&
         (job.data.kind !== 'outbox' || job.data.outboxId !== deps.onlyOutboxId)
+      )
+        return;
+      if (
+        deps.allowOutbox !== undefined &&
+        (job.data.kind !== 'outbox' || !(await deps.allowOutbox(job.data.outboxId)))
       )
         return;
       log.debug({ jobId: job.id, payload: job.data }, 'Processing compose job');
