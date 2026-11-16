@@ -35,9 +35,22 @@ kubeseal through stdin. Only validated ciphertext is written. Generation does no
 apply anything to Kubernetes. Never paste a token into a command or a chat.
 
 The `transparenta-eu-dev-resend` record holds the Phoenix development Resend API
-key for Chronos development. Its ciphertext contains only `RESEND_API_KEY`.
-The API deployment does not consume it yet. The Chronos Resend webhook will
-need its own endpoint signing secret when the handler is enabled.
+credentials for Chronos development. The separate
+`transparenta-eu-dev-mail-signing` record holds the Chronos-specific
+`RESEND_WEBHOOK_SECRET` and the dev `UNSUBSCRIBE_HMAC_SECRET`.
+The webhook listens for `email.delivered` at
+`https://dev-chronos-api.transparenta.eu/api/v1/webhooks/resend`. The verified
+receiver correlates only the Chronos test outbox and persists the delivery
+status and message ID. It acknowledges unrelated account events without
+storing their payloads.
+
+`NOTIFICATION_DELIVERY_ENABLED` defaults to `false`. The current native workers
+only compose and send one stable test delivery to `delivered+test1@resend.dev`
+with a dedicated Redis prefix. To verify, deploy the signing Secret and
+receiver first, then enable the single test with the approved sender and
+Resend egress. Confirm the same provider message ID at send and receipt.
+Return delivery to `false` after the check. Keep the receiver available for
+receipts and retain the outbox row so a future rollout cannot repeat the test.
 
 The dev Deployment reads its Meili key (`PROD_MEILI_SEARCH_API_KEY`) from
 `chronos-companies-dev-meilisearch-reader`, a registered strict SealedSecret whose

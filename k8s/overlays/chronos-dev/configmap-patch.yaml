@@ -7,6 +7,7 @@ data:
   PORT: '3000'
   HOST: 0.0.0.0
   LOG_LEVEL: info
+  NOTIFICATION_DELIVERY_ENABLED: 'false'
   # Enable only with the reviewed RNONG production snapshot and public-field audit.
   NGO_REGISTRY_ENABLED: 'true'
   # Set 'true' only after the public-enterprise read views are applied on Chronos

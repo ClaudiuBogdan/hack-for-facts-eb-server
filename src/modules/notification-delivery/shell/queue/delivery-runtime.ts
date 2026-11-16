@@ -28,6 +28,7 @@ import type {
 import type { UnsubscribeTokenSigner } from '@/infra/unsubscribe/token.js';
 import type { EmailRenderer } from '@/modules/email-templates/index.js';
 import type { Queue } from 'bullmq';
+import type { RedisOptions } from 'ioredis';
 import type { Logger } from 'pino';
 
 export interface NotificationDeliveryWorkerDeps {
@@ -54,6 +55,8 @@ export interface NotificationDeliveryRuntimeConfig {
   intervalMinutes: number;
   thresholdMinutes: number;
   workerDeps?: NotificationDeliveryWorkerDeps;
+  redisTls?: RedisOptions['tls'];
+  onlyOutboxId?: string;
   redisFactory?: QueueRedisFactory;
 }
 
@@ -79,6 +82,8 @@ export const startNotificationDeliveryRuntime: NotificationDeliveryRuntimeFactor
     intervalMinutes,
     thresholdMinutes,
     workerDeps,
+    redisTls,
+    onlyOutboxId,
     redisFactory,
   } = config;
   const log = logger.child({ runtime: 'notification-delivery' });
@@ -86,6 +91,7 @@ export const startNotificationDeliveryRuntime: NotificationDeliveryRuntimeFactor
     redisUrl,
     logger: log,
     ...(redisPassword !== undefined ? { redisPassword } : {}),
+    ...(redisTls !== undefined ? { redisTls } : {}),
     ...(redisFactory !== undefined ? { redisFactory } : {}),
   });
   const queueClient = makeQueueClient({
@@ -111,28 +117,31 @@ export const startNotificationDeliveryRuntime: NotificationDeliveryRuntimeFactor
     log.info('Stopping notification delivery runtime');
     await workerManager.stopAll();
     await queueClient.close();
-    await closeRedis(redis, log);
+    if (redisTls === undefined) await closeRedis(redis, log);
+    else redis.disconnect();
     log.info('Notification delivery runtime stopped');
   };
 
   try {
     if (workerDeps !== undefined) {
-      await registerRecoveryJobScheduler({
-        recoveryQueue,
-        intervalMinutes,
-        thresholdMinutes,
-      });
+      if (onlyOutboxId === undefined) {
+        await registerRecoveryJobScheduler({
+          recoveryQueue,
+          intervalMinutes,
+          thresholdMinutes,
+        });
 
-      workerManager.register(
-        QUEUE_NAMES.COLLECT,
-        createCollectWorker({
-          redis,
-          composeQueue,
-          logger,
-          bullmqPrefix,
-          concurrency,
-        })
-      );
+        workerManager.register(
+          QUEUE_NAMES.COLLECT,
+          createCollectWorker({
+            redis,
+            composeQueue,
+            logger,
+            bullmqPrefix,
+            concurrency,
+          })
+        );
+      }
       workerManager.register(
         QUEUE_NAMES.COMPOSE,
         createComposeWorker({
@@ -148,6 +157,7 @@ export const startNotificationDeliveryRuntime: NotificationDeliveryRuntimeFactor
           apiBaseUrl: workerDeps.apiBaseUrl,
           bullmqPrefix,
           concurrency,
+          ...(onlyOutboxId !== undefined ? { onlyOutboxId } : {}),
         })
       );
       workerManager.register(
@@ -171,20 +181,22 @@ export const startNotificationDeliveryRuntime: NotificationDeliveryRuntimeFactor
           composeJobScheduler,
           bullmqPrefix,
           concurrency,
+          ...(onlyOutboxId !== undefined ? { onlyOutboxId } : {}),
           ...(workerDeps.maxSendRps !== undefined ? { maxRps: workerDeps.maxSendRps } : {}),
         })
       );
-      workerManager.register(
-        QUEUE_NAMES.RECOVERY,
-        createRecoveryWorker({
-          redis,
-          deliveryRepo: workerDeps.deliveryRepo,
-          composeQueue,
-          sendQueue,
-          logger,
-          bullmqPrefix,
-        })
-      );
+      if (onlyOutboxId === undefined)
+        workerManager.register(
+          QUEUE_NAMES.RECOVERY,
+          createRecoveryWorker({
+            redis,
+            deliveryRepo: workerDeps.deliveryRepo,
+            composeQueue,
+            sendQueue,
+            logger,
+            bullmqPrefix,
+          })
+        );
     }
 
     return {

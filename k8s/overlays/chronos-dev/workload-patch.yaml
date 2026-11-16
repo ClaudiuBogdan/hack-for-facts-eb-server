@@ -45,7 +45,7 @@ spec:
             - dist/redesign-api.js
           env:
             - name: BUDGET_REPORTED_EXECUTION_SUMMARIES
-              value: "true"
+              value: 'true'
             - name: PROD_CLICKHOUSE_USER
               valueFrom:
                 secretKeyRef:
@@ -77,6 +77,30 @@ spec:
                   key: uri
             - name: USER_DATA_DB_CA_FILE
               value: /var/run/secrets/chronos-dev-user-db/ca.crt
+            - name: RESEND_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: transparenta-eu-dev-resend
+                  key: RESEND_API_KEY
+                  optional: true
+            - name: EMAIL_FROM_ADDRESS
+              valueFrom:
+                secretKeyRef:
+                  name: transparenta-eu-dev-resend
+                  key: EMAIL_FROM_ADDRESS
+                  optional: true
+            - name: RESEND_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: transparenta-eu-dev-mail-signing
+                  key: RESEND_WEBHOOK_SECRET
+                  optional: true
+            - name: UNSUBSCRIBE_HMAC_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: transparenta-eu-dev-mail-signing
+                  key: UNSUBSCRIBE_HMAC_SECRET
+                  optional: true
             - name: BULLMQ_REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:

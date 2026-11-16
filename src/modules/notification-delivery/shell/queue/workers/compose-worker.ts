@@ -35,6 +35,7 @@ export interface ComposeWorkerDeps {
   apiBaseUrl: string;
   bullmqPrefix: string;
   concurrency?: number;
+  onlyOutboxId?: string;
 }
 
 /**
@@ -61,6 +62,11 @@ export const createComposeWorker = (deps: ComposeWorkerDeps): Worker<ComposeJobP
   return new Worker<ComposeJobPayload>(
     QUEUE_NAMES.COMPOSE,
     async (job) => {
+      if (
+        deps.onlyOutboxId !== undefined &&
+        (job.data.kind !== 'outbox' || job.data.outboxId !== deps.onlyOutboxId)
+      )
+        return;
       log.debug({ jobId: job.id, payload: job.data }, 'Processing compose job');
 
       if (job.data.kind === 'subscription') {

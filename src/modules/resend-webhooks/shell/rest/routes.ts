@@ -33,15 +33,27 @@ const getPayloadType = (payload: unknown): string | null => {
 const isSupportedPayloadType = (payloadType: string | null): boolean =>
   payloadType !== null && Value.Check(ResendEmailEventTypeSchema, payloadType);
 
-export interface ResendWebhookRoutesDeps {
+export type ResendWebhookRoutesDeps = {
   webhookVerifier: WebhookVerifier;
-  emailEventsRepo: ResendWebhookEmailEventsRepository;
   logger: Logger;
-  sideEffect?: ResendWebhookSideEffect;
-}
+} & (
+  | {
+      emailEventsRepo: ResendWebhookEmailEventsRepository;
+      sideEffect?: ResendWebhookSideEffect;
+      onVerifiedEvent?: never;
+    }
+  | {
+      emailEventsRepo?: never;
+      sideEffect?: never;
+      onVerifiedEvent: (
+        event: ResendEmailWebhookEvent,
+        svixId: string
+      ) => Promise<'processed' | 'ignored'>;
+    }
+);
 
 export const makeResendWebhookRoutes = (deps: ResendWebhookRoutesDeps): FastifyPluginAsync => {
-  const { webhookVerifier, emailEventsRepo, logger, sideEffect } = deps;
+  const { webhookVerifier, emailEventsRepo, logger, sideEffect, onVerifiedEvent } = deps;
   const log = logger.child({ routes: 'resend-webhooks' });
 
   const runSideEffect = async (
@@ -141,6 +153,16 @@ export const makeResendWebhookRoutes = (deps: ResendWebhookRoutesDeps): FastifyP
         }
 
         const event: ResendEmailWebhookEvent = parsedEvent.value;
+        if (onVerifiedEvent !== undefined) {
+          try {
+            const status = await onVerifiedEvent(event, svixId);
+            return await reply.status(200).send({ status });
+          } catch {
+            log.error({ svixId }, 'Failed to reconcile verified Resend event');
+            return reply.status(500).send({ error: 'Internal server error' });
+          }
+        }
+
         const insertResult = await emailEventsRepo.insert({ svixId, event });
 
         if (insertResult.isErr()) {

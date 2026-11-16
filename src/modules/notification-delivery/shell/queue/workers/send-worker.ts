@@ -74,6 +74,7 @@ export interface SendWorkerDeps {
   /** Rate limit: max requests per second (default: 2 for Resend) */
   maxRps?: number;
   concurrency?: number;
+  onlyOutboxId?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1125,8 +1126,9 @@ export const createSendWorker = (deps: SendWorkerDeps): Worker<SendJobPayload> =
 
   return new Worker<SendJobPayload>(
     QUEUE_NAMES.SEND,
-    async (job) =>
-      processSendJob(
+    async (job) => {
+      if (deps.onlyOutboxId !== undefined && job.data.outboxId !== deps.onlyOutboxId) return;
+      return processSendJob(
         {
           deliveryRepo,
           notificationsRepo,
@@ -1142,7 +1144,8 @@ export const createSendWorker = (deps: SendWorkerDeps): Worker<SendJobPayload> =
           log,
         },
         job.data
-      ),
+      );
+    },
     {
       connection: redis,
       prefix: bullmqPrefix,

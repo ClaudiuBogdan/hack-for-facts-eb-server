@@ -52,7 +52,7 @@ const createStoredEvent = (): StoredResendEmailEvent => ({
 });
 
 const createTestApp = async (
-  overrides: Partial<ResendWebhookRoutesDeps> = {}
+  overrides: Partial<Omit<ResendWebhookRoutesDeps, 'onVerifiedEvent'>> = {}
 ): Promise<FastifyInstance> => {
   const insert = vi.fn().mockResolvedValue(ok(createStoredEvent()));
   const findBySvixId = vi.fn().mockResolvedValue(ok(createStoredEvent()));

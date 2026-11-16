@@ -20,6 +20,7 @@ export type QueueRedisFactory = (url: string, options: RedisOptions) => QueueRed
 export interface ConnectQueueRedisConfig {
   redisUrl: string;
   redisPassword?: string;
+  redisTls?: RedisOptions['tls'];
   logger: Logger;
   redisFactory?: QueueRedisFactory;
 }
@@ -36,11 +37,13 @@ export const connectQueueRedis = async (config: ConnectQueueRedisConfig): Promis
   const {
     redisUrl,
     redisPassword,
+    redisTls,
     logger,
     redisFactory = (url, options) => new Redis(url, options),
   } = config;
   const redis = redisFactory(redisUrl, {
     ...(redisPassword !== undefined && redisPassword !== '' ? { password: redisPassword } : {}),
+    ...(redisTls !== undefined ? { tls: redisTls, connectTimeout: 3000 } : {}),
     maxRetriesPerRequest: null,
     lazyConnect: true,
   });
@@ -54,10 +57,11 @@ export const connectQueueRedis = async (config: ConnectQueueRedisConfig): Promis
 
   try {
     await redis.connect();
-    await redis.ping();
+    if (redisTls === undefined) await redis.ping();
     return redis;
   } catch (error) {
-    await closeRedis(redis, logger);
+    if (redisTls === undefined) await closeRedis(redis, logger);
+    else redis.disconnect();
     throw latestStartupError ?? normalizeRedisError(error);
   } finally {
     redis.off('error', onStartupError);

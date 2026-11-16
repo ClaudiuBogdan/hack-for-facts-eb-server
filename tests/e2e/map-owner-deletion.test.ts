@@ -19,6 +19,10 @@ import pinoLogger from 'pino';
 import { Webhook } from 'svix';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import {
+  makeChronosDevTestSender,
+  registerChronosDevNotificationDelivery,
+} from '@/app/chronos-dev-notification-delivery.js';
 import { registerUserStoreRoutes } from '@/app/user-store-routes.js';
 import { acquireUserDataOwnerLock } from '@/infra/database/user/advisory-locks.js';
 import { assertUserDataOwnerCanWrite } from '@/infra/database/user/owner-write-guard.js';
@@ -30,6 +34,7 @@ import {
   buildAnonymizedUserId,
   makeUserDataAnonymizer,
 } from '@/modules/clerk-webhooks/shell/anonymization/user-data-anonymizer.js';
+import { makeDeliveryRepo } from '@/modules/notification-delivery/index.js';
 import { makeNotificationsRepo } from '@/modules/notifications/index.js';
 import { makeUserDataMutationRepo } from '@/modules/user-data/index.js';
 
@@ -102,6 +107,149 @@ afterAll(async () => {
     () => admin?.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`),
     () => admin?.end()
   );
+});
+
+it('accepts only the signed Chronos test receipt, without recreating deleted data', async ({
+  skip,
+}) => {
+  if (!ready) {
+    skip();
+    return;
+  }
+  const owner = 'chronos-dev-notification-delivery-test';
+  const repo = makeDeliveryRepo({ db, logger });
+  const outbox = (
+    await repo.create({
+      userId: owner,
+      notificationType: 'transactional_welcome',
+      referenceId: null,
+      scopeKey: 'welcome',
+      toEmail: 'delivered+test1@resend.dev',
+      deliveryKey: `transactional_welcome:${owner}`,
+    })
+  )._unsafeUnwrap();
+  await db
+    .updateTable('notificationsoutbox')
+    .set({ status: 'sending', attempt_count: 1 })
+    .where('id', '=', outbox.id)
+    .execute();
+  const app = fastifyLib();
+  const signingSecret = `whsec_${Buffer.from('chronos-fixture-webhook').toString('base64')}`;
+  const signer = new Webhook(signingSecret);
+  await registerChronosDevNotificationDelivery(app, db, { signingSecret });
+  try {
+    const now = new Date();
+    const emailId = randomUUID();
+    const receipt = (env: string, id = emailId, valid = true, messageId = randomUUID()) => {
+      const payload = JSON.stringify({
+        type: 'email.delivered',
+        created_at: now.toISOString(),
+        data: {
+          email_id: id,
+          from: 'dev@example.test',
+          to: ['delivered+test1@resend.dev'],
+          subject: 'Fixture',
+          created_at: now.toISOString(),
+          tags: { delivery_id: outbox.id, env, notification_type: 'transactional_welcome' },
+        },
+      });
+      return app.inject({
+        method: 'POST',
+        url: '/api/v1/webhooks/resend',
+        payload,
+        headers: {
+          'content-type': 'application/json',
+          'svix-id': messageId,
+          'svix-timestamp': String(Math.floor(now.getTime() / 1000)),
+          'svix-signature': valid ? signer.sign(messageId, now, payload) : 'v1,invalid',
+        },
+      });
+    };
+    expect((await receipt('chronos_dev', emailId, false)).statusCode).toBe(401);
+    expect((await receipt('development')).json()).toEqual({ status: 'ignored' });
+    expect((await repo.findById(outbox.id))._unsafeUnwrap()?.status).toBe('sending');
+    const messageId = randomUUID();
+    const params = {
+      to: 'delivered+test1@resend.dev',
+      userId: owner,
+      notificationType: 'transactional_welcome' as const,
+      referenceId: null,
+      subject: 'Fixture',
+      html: '<p>Fixture</p>',
+      text: 'Fixture',
+      tags: [],
+      idempotencyKey: outbox.id,
+      unsubscribeUrl: 'https://example.test/',
+      templateName: null,
+      templateVersion: null,
+      metadata: {},
+    };
+    let resolveProvider: (response: Response) => void = () => undefined;
+    const pendingResponse = new Promise<Response>((resolve) => {
+      resolveProvider = resolve;
+    });
+    let notifyRequestStarted: () => void = () => undefined;
+    const startedRequest = new Promise<void>((resolve) => {
+      notifyRequestStarted = resolve;
+    });
+    let providerCalls = 0;
+    const sender = makeChronosDevTestSender(
+      db,
+      outbox.id,
+      { apiKey: 'fixture', from: 'dev@example.test' },
+      async (_url, request) => {
+        providerCalls++;
+        const headers = new Headers(request?.headers);
+        expect(headers.get('idempotency-key')).toBe(outbox.id);
+        notifyRequestStarted();
+        return pendingResponse;
+      }
+    );
+    expect((await sender.send({ ...params, to: 'elsewhere@example.test' })).isErr()).toBe(true);
+    expect(providerCalls).toBe(0);
+    const sending = sender.send(params);
+    await startedRequest;
+    const delivered = receipt('chronos_dev', emailId, true, messageId);
+    expect((await repo.findById(outbox.id))._unsafeUnwrap()?.resendEmailId).toBeNull();
+    resolveProvider(Response.json({ id: emailId }));
+    expect((await sending)._unsafeUnwrap()).toEqual({ emailId });
+    expect((await delivered).json()).toEqual({
+      status: 'processed',
+    });
+    expect((await repo.findById(outbox.id))._unsafeUnwrap()).toMatchObject({
+      status: 'delivered',
+      resendEmailId: emailId,
+    });
+    expect((await receipt('chronos_dev', randomUUID())).json()).toEqual({ status: 'ignored' });
+    expect((await sender.send(params))._unsafeUnwrap()).toEqual({ emailId });
+    expect(providerCalls).toBe(1);
+    expect((await receipt('chronos_dev', emailId, true, messageId)).json()).toEqual({
+      status: 'processed',
+    });
+    await db
+      .updateTable('notificationsoutbox')
+      .set({ status: 'failed_transient', resend_email_id: null })
+      .where('id', '=', outbox.id)
+      .execute();
+    expect((await receipt('chronos_dev')).json()).toEqual({ status: 'processed' });
+    expect((await repo.findById(outbox.id))._unsafeUnwrap()).toMatchObject({
+      status: 'delivered',
+      resendEmailId: emailId,
+    });
+    await markStarted(owner);
+    expect((await receipt('chronos_dev')).json()).toEqual({ status: 'ignored' });
+    expect((await sender.send(params)).isErr()).toBe(true);
+    expect(providerCalls).toBe(1);
+    expect(
+      await db
+        .selectFrom('resend_wh_emails')
+        .select('email_id')
+        .where('email_id', '=', emailId)
+        .execute()
+    ).toEqual([]);
+  } finally {
+    await app.close();
+  }
 });
 
 const mapInput = (userId: string) => ({
