@@ -245,9 +245,9 @@ The public-view counter is exempt because it cannot recreate user content.
 
 `tests/e2e/map-owner-deletion.test.ts` exercises all eight direct mutation paths,
 both race orderings, started markers, replay, and an unrelated owner against
-the actual schema in a unique disposable PostgreSQL namespace. This guarantee
-covers map/dataset writers; unrelated legacy product runtimes remain unmounted
-in the native dev app.
+the actual schema in a unique disposable PostgreSQL namespace. The same test
+suite verifies signed deletion of Funky registration and its notification
+preferences, including rejection of a stale learning-progress write.
 
 ## Native Chronos development receiver (the Chronos dev user store)
 
@@ -259,8 +259,11 @@ dedicated user-database URL, trusted CA path and webhook signing secret together
 inside the Clerk module; the native app never imports the anonymizer directly.
 Startup probes the audit relation and does not run schema initialization. Public
 readiness fails when configured user storage is unavailable without returning DB
-error details. Native map writers are enabled only by their separate feature
-composition. See `k8s/overlays/chronos-dev/user-database/README.md` for custody,
+error details. Native learning-progress sync holds the owner lock through the
+interaction write and the Funky notification preference updates. Its post-sync
+auto-review also checks the deletion marker before writing. Native map writers
+are enabled only by their separate feature composition. See
+`k8s/overlays/chronos-dev/user-database/README.md` for custody,
 bootstrap evidence, live validation and rollback boundaries.
 
 ## References

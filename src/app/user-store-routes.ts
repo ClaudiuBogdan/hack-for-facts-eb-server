@@ -2,6 +2,7 @@ import rateLimit from '@fastify/rate-limit';
 
 import { addEmbeddedScopeAuth } from './embedded-scope-auth.js';
 import { registerUserRouteErrorHandler } from './user-route-error-handler.js';
+import { makeUserStoreLearningProgressRoutes } from './user-store-learning-progress.js';
 import { makeUnsubscribeTokenSigner } from '../infra/unsubscribe/token.js';
 import {
   makeDeliveriesRepo,
@@ -47,6 +48,7 @@ export async function registerUserStoreRoutes(
       );
     });
     await scope.register(rateLimit, { max: 300, timeWindow: '1 minute' });
+    await scope.register(makeUserStoreLearningProgressRoutes(db, logger));
 
     if (publicClientUrl !== undefined) {
       await scope.register(

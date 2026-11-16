@@ -13,15 +13,18 @@ import { readFileSync } from 'node:fs';
 
 import fastifyLib from 'fastify';
 import { Kysely, PostgresDialect, sql } from 'kysely';
+import { ok } from 'neverthrow';
 import pg from 'pg';
 import pinoLogger from 'pino';
 import { Webhook } from 'svix';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { registerUserStoreRoutes } from '@/app/user-store-routes.js';
 import { acquireUserDataOwnerLock } from '@/infra/database/user/advisory-locks.js';
 import { assertUserDataOwnerCanWrite } from '@/infra/database/user/owner-write-guard.js';
 import { makeAdvancedMapAnalyticsRepo } from '@/modules/advanced-map-analytics/index.js';
 import { makeAdvancedMapDatasetsRepo } from '@/modules/advanced-map-datasets/index.js';
+import { toUserId } from '@/modules/auth/index.js';
 import { makeClerkUserDeletionRoutes } from '@/modules/clerk-webhooks/index.js';
 import {
   buildAnonymizedUserId,
@@ -304,7 +307,9 @@ describe('saved map deletion transaction boundary', () => {
   });
 });
 
-it('the native receiver deletes only after a valid Svix signature', async ({ skip }) => {
+it('the native receiver erases saved data and Funky registration after a signed event', async ({
+  skip,
+}) => {
   if (!ready) {
     skip();
     return;
@@ -336,8 +341,100 @@ it('the native receiver deletes only after a valid Svix signature', async ({ ski
   const signer = new Webhook(signingSecret);
   const app = fastifyLib();
   await app.register(makeClerkUserDeletionRoutes({ db, signingSecret, logger }));
+  await registerUserStoreRoutes(app, {
+    db,
+    authProvider: {
+      verifyToken: async (token) =>
+        ok({ userId: toUserId(token), expiresAt: new Date(Date.now() + 60_000) }),
+    },
+    allowedOrigins: [],
+  });
   try {
     const timestamp = new Date();
+    const clientUpdatedAt = timestamp.toISOString();
+    const progressUrl = '/api/v1/learning/progress';
+    const authHeaders = { authorization: `Bearer ${owner}` };
+    const registration = (entityCui: string) => {
+      const key = `funky:progress:terms_accepted::entity:${entityCui}`;
+      return {
+        clientUpdatedAt,
+        events: [
+          {
+            type: 'interactive.updated',
+            eventId: randomUUID(),
+            clientId: 'fixture',
+            occurredAt: clientUpdatedAt,
+            payload: {
+              record: {
+                key,
+                interactionId: key,
+                lessonId: 'funky:progress:state',
+                kind: 'custom',
+                completionRule: { type: 'resolved' },
+                scope: { type: 'global' },
+                phase: 'resolved',
+                value: {
+                  kind: 'json',
+                  json: { value: { entityCui, acceptedTermsAt: clientUpdatedAt } },
+                },
+                result: null,
+                updatedAt: clientUpdatedAt,
+                submittedAt: null,
+              },
+            },
+          },
+        ],
+      };
+    };
+    const sync = (payload: ReturnType<typeof registration>) =>
+      app.inject({ method: 'PUT', url: progressUrl, headers: authHeaders, payload });
+    const invalidCui = '1'.repeat(21);
+    const failed = await sync(registration(invalidCui));
+    expect(failed.statusCode, failed.body).toBe(500);
+    expect(
+      (
+        await notifications.findByUserTypeAndEntity(owner, 'funky:notification:global', null)
+      )._unsafeUnwrap()
+    ).toBeNull();
+    const progress = await app.inject({ method: 'GET', url: progressUrl, headers: authHeaders });
+    expect(progress.json().data.snapshot.recordsByKey).toEqual({});
+
+    const terms = registration('3814810');
+    const recordKey = `funky:progress:terms_accepted::entity:3814810`;
+    const saved = await sync(terms);
+    expect(saved.statusCode, saved.body).toBe(200);
+    expect(saved.json().data).toMatchObject({ newEventsCount: 1, failedEvents: [] });
+    const duplicate = await sync(terms);
+    expect(duplicate.json().data).toMatchObject({ newEventsCount: 0 });
+    expect(
+      (await app.inject({ method: 'GET', url: progressUrl, headers: authHeaders })).json().data
+        .snapshot.recordsByKey[recordKey]
+    ).toMatchObject({ value: { json: { value: { entityCui: '3814810' } } } });
+    expect(
+      (
+        await app.inject({
+          method: 'GET',
+          url: progressUrl,
+          headers: { authorization: 'Bearer other-fixture' },
+        })
+      ).json().data.snapshot.recordsByKey
+    ).toEqual({});
+    const campaignSubscriptions = await db
+      .selectFrom('notifications')
+      .select(['entity_cui', 'is_active', 'notification_type'])
+      .where('user_id', '=', owner)
+      .where('notification_type', 'like', 'funky:notification:%')
+      .orderBy('notification_type', 'asc')
+      .execute();
+    expect(campaignSubscriptions).toEqual([
+      {
+        entity_cui: '3814810',
+        is_active: true,
+        notification_type: 'funky:notification:entity_updates',
+      },
+      { entity_cui: null, is_active: true, notification_type: 'funky:notification:global' },
+    ]);
+
     const id = `msg_${randomUUID()}`;
     const payload = JSON.stringify({
       data: { id: owner, deleted: true },
@@ -357,6 +454,9 @@ it('the native receiver deletes only after a valid Svix signature', async ({ ski
         .statusCode
     ).toBe(401);
     expect((await maps.getMapForUser(input.mapId, owner)).unwrapOr(null)).not.toBeNull();
+    await markStarted(owner);
+    const pendingDeletion = await sync(registration('1280'));
+    expect(pendingDeletion.statusCode, pendingDeletion.body).toBe(403);
     headers['svix-signature'] = signer.sign(id, timestamp, payload);
     expect(
       (await app.inject({ method: 'POST', url: '/api/v1/webhooks/clerk', payload, headers }))
@@ -383,6 +483,28 @@ it('the native receiver deletes only after a valid Svix signature', async ({ ski
       )._unsafeUnwrapErr()
     ).toMatchObject({ type: 'NotificationForbiddenError' });
     expect((await notifications.findById(subscription.id))._unsafeUnwrap()?.isActive).toBe(false);
+    const staleTerm = await sync(registration('1280'));
+    expect(staleTerm.statusCode, staleTerm.body).toBe(403);
+    expect(staleTerm.json()).toMatchObject({ error: 'ForbiddenError', retryable: false });
+    const rows = await db
+      .selectFrom('userinteractions')
+      .select(['user_id', 'record', 'audit_events'])
+      .where('user_id', 'in', [owner, buildAnonymizedUserId(owner)])
+      .execute();
+    expect(rows).toMatchObject([
+      { user_id: buildAnonymizedUserId(owner), record: { value: null }, audit_events: [] },
+    ]);
+    expect(
+      await db
+        .selectFrom('notifications')
+        .select(['is_active', 'user_id'])
+        .where('user_id', 'in', [owner, buildAnonymizedUserId(owner)])
+        .where('notification_type', 'like', 'funky:notification:%')
+        .execute()
+    ).toEqual([
+      { user_id: buildAnonymizedUserId(owner), is_active: false },
+      { user_id: buildAnonymizedUserId(owner), is_active: false },
+    ]);
   } finally {
     await app.close();
   }

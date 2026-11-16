@@ -9,6 +9,7 @@ export function registerUserRouteErrorHandler(scope: FastifyInstance): void {
         ok: false,
         error: 'ValidationError',
         message: 'Request validation failed',
+        retryable: false,
       });
     }
     if (error.statusCode === 429) {
@@ -16,6 +17,7 @@ export function registerUserRouteErrorHandler(scope: FastifyInstance): void {
         ok: false,
         error: 'RateLimitExceededError',
         message: 'Too many requests',
+        retryable: true,
       });
     }
     throw error;

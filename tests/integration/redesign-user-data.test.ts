@@ -126,6 +126,18 @@ describe('native user-data lifecycle', () => {
     try {
       const notifications = await app.inject({ method: 'GET', url: '/api/v1/notifications' });
       expect(notifications.statusCode).toBe(401);
+      const learningProgress = await app.inject({
+        method: 'GET',
+        url: '/api/v1/learning/progress',
+      });
+      expect(learningProgress.statusCode).toBe(401);
+      const invalidProgress = await app.inject({
+        method: 'PUT',
+        url: '/api/v1/learning/progress',
+        payload: {},
+      });
+      expect(invalidProgress.statusCode).toBe(400);
+      expect(invalidProgress.json()).toMatchObject({ ok: false, retryable: false });
       const share = await app.inject({
         method: 'POST',
         url: '/api/v1/short-links',

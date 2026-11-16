@@ -53,6 +53,11 @@ export interface ConflictError {
   readonly message: string;
 }
 
+export interface ForbiddenError {
+  readonly type: 'ForbiddenError';
+  readonly message: string;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Error Union
 // ─────────────────────────────────────────────────────────────────────────────
@@ -61,7 +66,12 @@ export interface ConflictError {
  * Union of all learning progress errors.
  */
 export type LearningProgressError =
-  DatabaseError | TooManyEventsError | InvalidEventError | NotFoundError | ConflictError;
+  | DatabaseError
+  | TooManyEventsError
+  | InvalidEventError
+  | NotFoundError
+  | ConflictError
+  | ForbiddenError;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Error Constructors
@@ -112,6 +122,11 @@ export const createConflictError = (message: string): ConflictError => ({
   message,
 });
 
+export const createForbiddenError = (message: string): ForbiddenError => ({
+  type: 'ForbiddenError',
+  message,
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // HTTP Status Mapping
 // ─────────────────────────────────────────────────────────────────────────────
@@ -125,6 +140,7 @@ export const LEARNING_PROGRESS_ERROR_HTTP_STATUS: Record<LearningProgressError['
   InvalidEventError: 400,
   NotFoundError: 404,
   ConflictError: 409,
+  ForbiddenError: 403,
 };
 
 /**

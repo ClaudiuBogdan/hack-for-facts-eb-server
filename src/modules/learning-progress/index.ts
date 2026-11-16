@@ -76,6 +76,7 @@ export type {
   InvalidEventError,
   NotFoundError,
   ConflictError,
+  ForbiddenError,
 } from './core/errors.js';
 
 export {
@@ -84,6 +85,7 @@ export {
   createInvalidEventError,
   createNotFoundError,
   createConflictError,
+  createForbiddenError,
   getHttpStatusForError,
   LEARNING_PROGRESS_ERROR_HTTP_STATUS,
 } from './core/errors.js';
@@ -178,6 +180,7 @@ export {
   makeLearningProgressRoutes,
   type MakeLearningProgressRoutesDeps,
 } from './shell/rest/routes.js';
+export { createLearningProgressAutoReviewReuseHook } from './shell/auto-review-reuse-hook.js';
 
 export {
   makeCampaignAdminUserInteractionRoutes,

@@ -160,6 +160,7 @@ export const makeLearningProgressRoutes = (
             200: SyncEventsResponseSchema,
             400: ErrorResponseSchema,
             401: ErrorResponseSchema,
+            403: ErrorResponseSchema,
             500: ErrorResponseSchema,
           },
         },
@@ -184,7 +185,7 @@ export const makeLearningProgressRoutes = (
 
         if (result.isErr()) {
           const status = getHttpStatusForError(result.error);
-          return reply.status(status as 400 | 500).send(buildErrorResponse(result.error));
+          return reply.status(status as 400 | 403 | 500).send(buildErrorResponse(result.error));
         }
 
         if (onSyncEventsApplied !== undefined && result.value.appliedEvents.length > 0) {
