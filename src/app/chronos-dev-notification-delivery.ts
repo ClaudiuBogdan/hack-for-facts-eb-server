@@ -28,12 +28,14 @@ import { makeEmailRenderer } from '../modules/email-templates/index.js';
 import {
   createEmailSendError,
   createValidationError,
+  isRetryableError,
   makeClerkUserEmailFetcher,
   makeDeliveryRepo,
   makeExtendedNotificationsRepo,
   startNotificationDeliveryRuntime,
   type EmailSenderPort,
   type NotificationDeliveryRuntime,
+  type UserEmailFetcher,
 } from '../modules/notification-delivery/index.js';
 import { makeNotificationsRepo } from '../modules/notifications/index.js';
 import {
@@ -260,7 +262,13 @@ export function makeChronosDevDeliveryReceiptHandler(
             return 'ignored' as const;
           }
           if (row.status === 'delivered') return 'processed' as const;
-          if (!['sending', 'sent', 'failed_transient', 'webhook_timeout'].includes(row.status)) {
+          // A native retry can exhaust its budget after Resend accepted an earlier attempt.
+          const failedNativeWelcome =
+            marker === NATIVE_CAMPAIGN_WELCOME_MARKER && row.status === 'failed_permanent';
+          if (
+            !failedNativeWelcome &&
+            !['sending', 'sent', 'failed_transient', 'webhook_timeout'].includes(row.status)
+          ) {
             return 'ignored' as const;
           }
           await transaction
@@ -288,10 +296,17 @@ export function makeChronosDevDeliveryReceiptHandler(
 export function makeChronosDevTestSender(
   db: UserDbClient,
   pinnedOutboxId: string | undefined,
-  config: Pick<SendConfig, 'apiKey' | 'from'> & { logger: Logger },
+  config: Pick<SendConfig, 'apiKey' | 'from'> & {
+    logger: Logger;
+    verifiedEmail?: Pick<UserEmailFetcher, 'getEmail'>;
+  },
   sendRequest = fetch,
   pinnedTarget = transactionalTarget
 ): EmailSenderPort {
+  const verifiedEmail = config.verifiedEmail;
+  if (pinnedOutboxId === undefined && verifiedEmail === undefined) {
+    throw new Error('Native campaign sender requires a verified primary email lookup');
+  }
   return {
     async send(params) {
       const native = pinnedOutboxId === undefined;
@@ -325,24 +340,57 @@ export function makeChronosDevTestSender(
       };
       try {
         if (native) {
-          const pinned = await db
+          const result = await db
             .transaction()
             .setIsolationLevel('read committed')
             .execute(async (transaction) => {
               const row = await lockDelivery(transaction);
-              if (row?.metadata[NATIVE_CAMPAIGN_WELCOME_MARKER] !== true) return false;
-              if (row.to_email !== null) return row.to_email === to;
-              if (row.status !== 'sending' || row.resend_email_id !== null) return false;
+              if (row?.metadata[NATIVE_CAMPAIGN_WELCOME_MARKER] !== true) return 'rejected';
+              if (row.to_email !== null) {
+                if (row.to_email !== to) return 'rejected';
+                if (row.resend_email_id !== null) return 'accepted';
+                return row.status === 'sending' ? 'recheck' : 'rejected';
+              }
+              if (row.status !== 'sending' || row.resend_email_id !== null) return 'rejected';
               // Commit the address before any provider request, including across process death.
               await transaction
                 .updateTable('notificationsoutbox')
                 .set({ to_email: to })
                 .where('id', '=', outboxId)
                 .execute();
-              return true;
+              return 'pinned';
             });
-          if (!pinned)
+          if (result === 'rejected')
             return err(createValidationError('Email does not match the delivery recipient'));
+          if (result === 'recheck' && verifiedEmail !== undefined) {
+            const current = await verifiedEmail.getEmail(target.ownerId);
+            if (current.isErr() && isRetryableError(current.error)) return err(current.error);
+            if (current.isErr() || current.value !== to) {
+              // Keep the original recipient and accept a late signed receipt for an earlier attempt.
+              await db
+                .transaction()
+                .setIsolationLevel('read committed')
+                .execute(async (transaction) => {
+                  const row = await lockDelivery(transaction);
+                  if (row?.status !== 'sending' || row.resend_email_id !== null) return;
+                  await transaction
+                    .updateTable('notificationsoutbox')
+                    .set({
+                      status: 'webhook_timeout',
+                      last_error: 'Verified primary email could not be confirmed for retry',
+                    })
+                    .where('id', '=', outboxId)
+                    .executeTakeFirst();
+                });
+              return current.isErr()
+                ? err(current.error)
+                : err(
+                    createValidationError(
+                      'Verified primary email changed; delivery held for reconciliation'
+                    )
+                  );
+            }
+          }
         }
         return await db
           .transaction()
@@ -580,7 +628,8 @@ async function startScopedDelivery(
     : makeClerkUserEmailFetcher({
         secretKey: send.clerkSecretKey ?? '',
         logger,
-        fetch: (url, options) => fetch(url, { ...options, redirect: 'error' }),
+        positiveCacheTtlMs: 0,
+        negativeCacheTtlMs: 0,
       });
   return startNotificationDeliveryRuntime({
     redisUrl: send.redis.url,
@@ -601,7 +650,13 @@ async function startScopedDelivery(
     workerDeps: {
       deliveryRepo,
       notificationsRepo: makeExtendedNotificationsRepo({ db, logger }),
-      emailSender: makeChronosDevTestSender(db, outboxId, { ...send, logger }, fetch, target),
+      emailSender: makeChronosDevTestSender(
+        db,
+        outboxId,
+        { ...send, logger, ...(!rehearsal && { verifiedEmail: userEmailFetcher }) },
+        fetch,
+        target
+      ),
       emailRenderer: makeEmailRenderer({ logger }),
       tokenSigner: makeUnsubscribeTokenSigner(send.unsubscribeSecret),
       userEmailFetcher,

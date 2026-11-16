@@ -17,6 +17,8 @@ const DEFAULT_BATCH_SIZE = 100;
 const DEFAULT_POSITIVE_CACHE_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_NEGATIVE_CACHE_TTL_MS = 60 * 1000;
 const DEFAULT_MAX_CACHE_ENTRIES = 1000;
+const CLERK_USER_NOT_FOUND = Symbol('clerkUserNotFound');
+const SAFE_USER_PATH_SEGMENT = /^[A-Za-z0-9_-]{1,128}$/;
 
 const ClerkVerificationSchema = Type.Object(
   {
@@ -185,6 +187,7 @@ export const makeClerkUserEmailFetcher = (
   const log = config.logger.child({ component: 'ClerkUserEmailFetcher' });
   const cache = new Map<string, CacheEntry>();
   const inFlightLookups = new Map<string, Promise<Result<string | null, DeliveryError>>>();
+  let retryAfterUntil = 0;
 
   if (batchSize < 1 || batchSize > DEFAULT_BATCH_SIZE) {
     throw new Error(`batchSize must be between 1 and ${String(DEFAULT_BATCH_SIZE)}`);
@@ -194,6 +197,9 @@ export const makeClerkUserEmailFetcher = (
     url: string,
     context: { operation: 'getEmail' | 'getEmailsByUserIds'; userId?: string; batchSize?: number }
   ): Promise<Result<unknown, DeliveryError>> => {
+    if (Date.now() < retryAfterUntil) {
+      return buildLookupError('Clerk user lookup rate limited', true);
+    }
     const controller = new AbortController();
     const timeout = setTimeout(() => {
       controller.abort();
@@ -202,6 +208,7 @@ export const makeClerkUserEmailFetcher = (
     try {
       const response = await fetchImpl(url, {
         method: 'GET',
+        redirect: 'error',
         headers: {
           Authorization: `Bearer ${secretKey}`,
           Accept: 'application/json',
@@ -210,7 +217,7 @@ export const makeClerkUserEmailFetcher = (
       });
 
       if (response.status === 404 && context.operation === 'getEmail') {
-        return ok(null);
+        return ok(CLERK_USER_NOT_FOUND);
       }
 
       if (response.status === 401 || response.status === 403) {
@@ -230,6 +237,11 @@ export const makeClerkUserEmailFetcher = (
       }
 
       if (response.status === 429) {
+        const retryAfter = response.headers.get('retry-after');
+        if (retryAfter !== null && /^[0-9]+$/.test(retryAfter)) {
+          const until = Date.now() + Number(retryAfter) * 1000;
+          if (Number.isSafeInteger(until)) retryAfterUntil = Math.max(retryAfterUntil, until);
+        }
         log.warn(
           {
             operation: context.operation,
@@ -277,6 +289,7 @@ export const makeClerkUserEmailFetcher = (
       try {
         return ok(await response.json());
       } catch (error) {
+        if (controller.signal.aborted) throw error;
         log.error(
           {
             operation: context.operation,
@@ -289,7 +302,7 @@ export const makeClerkUserEmailFetcher = (
         return buildLookupError('Clerk user lookup returned invalid JSON', false);
       }
     } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') {
+      if (controller.signal.aborted) {
         log.warn(
           {
             operation: context.operation,
@@ -324,7 +337,7 @@ export const makeClerkUserEmailFetcher = (
     payload: unknown,
     context: { operation: 'getEmail'; userId: string }
   ): Result<ClerkUser | null, DeliveryError> => {
-    if (payload === null) {
+    if (payload === CLERK_USER_NOT_FOUND) {
       return ok(null);
     }
 
@@ -345,6 +358,13 @@ export const makeClerkUserEmailFetcher = (
       );
     }
 
+    if (payload.id !== context.userId) {
+      log.error(
+        { operation: context.operation },
+        'Clerk user payload returned a different user ID'
+      );
+      return buildLookupError('Clerk user lookup returned a different user ID', false);
+    }
     return ok(payload);
   };
 
@@ -373,6 +393,7 @@ export const makeClerkUserEmailFetcher = (
   };
 
   const hydrateCache = (userId: string, value: string | null): void => {
+    if ((value === null ? negativeCacheTtlMs : positiveCacheTtlMs) === 0) return;
     const now = Date.now();
     evictExpiredEntries(cache, now);
     setCacheEntry(
@@ -389,8 +410,8 @@ export const makeClerkUserEmailFetcher = (
   const getEmail = async (userId: string): Promise<Result<string | null, DeliveryError>> => {
     const normalizedUserId = trimUserId(userId);
 
-    if (normalizedUserId.length === 0) {
-      return err(createValidationError('userId is required'));
+    if (!SAFE_USER_PATH_SEGMENT.test(normalizedUserId)) {
+      return err(createValidationError('Valid Clerk user ID is required'));
     }
 
     const now = Date.now();

@@ -76,9 +76,44 @@ describe('makeClerkUserEmailFetcher', () => {
     }
     const [firstCall] = fetchMock.mock.calls;
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(firstCall?.[0] !== undefined ? toRequestUrl(firstCall[0]) : '').toContain(
-      '/users/user-1'
+    expect(firstCall?.[0] !== undefined ? toRequestUrl(firstCall[0]) : '').toBe(
+      'https://api.clerk.com/v1/users/user-1'
     );
+    expect(firstCall?.[1]).toMatchObject({ method: 'GET', redirect: 'error' });
+  });
+
+  it('rejects unsafe path segments and does not cache an email returned for another user', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        createJsonResponse(
+          createUserPayload({
+            userId: 'user-other',
+            primaryEmailAddressId: 'email-primary',
+            emailAddresses: [
+              {
+                id: 'email-primary',
+                emailAddress: 'other@example.com',
+                verificationStatus: 'verified',
+              },
+            ],
+          })
+        )
+      )
+      .mockResolvedValueOnce(createJsonResponse({}, 404));
+    const fetcher = makeClerkUserEmailFetcher({
+      secretKey: 'sk_test_123',
+      logger: testLogger,
+      fetch: fetchMock as ClerkFetch,
+    });
+
+    expect((await fetcher.getEmail('..')).isErr()).toBe(true);
+    expect(fetchMock).not.toHaveBeenCalled();
+    await expect(fetcher.getEmail('user-1')).resolves.toMatchObject({
+      error: { type: 'UserEmailLookupError', retryable: false },
+    });
+    await expect(fetcher.getEmail('user-1')).resolves.toMatchObject({ value: null });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('returns null for missing, missing-primary, and unverified-primary users', async () => {
@@ -306,7 +341,7 @@ describe('makeClerkUserEmailFetcher', () => {
     const retryableFetchMock = vi.fn(async () =>
       createJsonResponse({ error: 'rate limited' }, 429)
     );
-    const malformedFetchMock = vi.fn(async () => createJsonResponse({ id: 123 }));
+    const malformedFetchMock = vi.fn(async () => createJsonResponse(null));
 
     const retryableFetcher = makeClerkUserEmailFetcher({
       secretKey: 'sk_test_123',
@@ -336,6 +371,74 @@ describe('makeClerkUserEmailFetcher', () => {
       if (malformedResult.error.type === 'UserEmailLookupError') {
         expect(malformedResult.error.retryable).toBe(false);
       }
+    }
+  });
+
+  it('keeps Clerk requests in cooldown for Retry-After seconds', async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(null, { status: 429, headers: { 'Retry-After': '10' } })
+        )
+        .mockImplementation(async () => createJsonResponse({}, 404));
+      const fetcher = makeClerkUserEmailFetcher({
+        secretKey: 'sk_test_123',
+        logger: testLogger,
+        fetch: fetchMock as ClerkFetch,
+        negativeCacheTtlMs: 0,
+      });
+
+      const retryable = { error: { type: 'UserEmailLookupError', retryable: true } };
+      await expect(fetcher.getEmail('user-1')).resolves.toMatchObject(retryable);
+      await vi.advanceTimersByTimeAsync(9999);
+      await expect(fetcher.getEmail('user-2')).resolves.toMatchObject(retryable);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(fetcher.getEmail('user-2')).resolves.toMatchObject({ value: null });
+      await expect(fetcher.getEmail('user-2')).resolves.toMatchObject({ value: null });
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('treats a timeout while reading the response body as retryable', async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock: ClerkFetch = async (_url, init) => {
+        const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+            init?.signal?.addEventListener(
+              'abort',
+              () => {
+                controller.error(new Error('aborted'));
+              },
+              { once: true }
+            );
+          },
+        });
+        return new Response(stream);
+      };
+      const fetcher = makeClerkUserEmailFetcher({
+        secretKey: 'sk_test_123',
+        logger: testLogger,
+        fetch: fetchMock,
+        requestTimeoutMs: 10,
+      });
+
+      const lookup = fetcher.getEmail('user-1');
+      await vi.advanceTimersByTimeAsync(10);
+      await expect(lookup).resolves.toMatchObject({
+        error: {
+          type: 'UserEmailLookupError',
+          retryable: true,
+          message: expect.stringContaining('timed out'),
+        },
+      });
+    } finally {
+      vi.useRealTimers();
     }
   });
 

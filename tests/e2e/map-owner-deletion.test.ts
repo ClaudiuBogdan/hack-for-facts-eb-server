@@ -498,15 +498,22 @@ it('commits and replays an audited Funky welcome once and reconciles the signed 
     ]);
     const emailId = randomUUID();
     let sendCalls = 0;
-    const sender = makeChronosDevTestSender(
-      db,
-      undefined,
-      { apiKey: 'fixture', from: 'dev@example.test', logger },
-      () => {
-        sendCalls++;
-        return Promise.resolve(Response.json({ id: emailId }));
-      }
-    );
+    let verifiedPrimary = 'verified-campaign-owner@example.test';
+    const sendConfig = {
+      apiKey: 'fixture',
+      from: 'dev@example.test',
+      logger,
+      verifiedEmail: {
+        getEmail: async (userId: string) => {
+          expect(userId).toBe(owner);
+          return ok(verifiedPrimary);
+        },
+      },
+    };
+    const sender = makeChronosDevTestSender(db, undefined, sendConfig, () => {
+      sendCalls++;
+      return Promise.resolve(Response.json({ id: emailId }));
+    });
     const params = {
       to: 'verified-campaign-owner@example.test',
       userId: owner,
@@ -540,15 +547,10 @@ it('commits and replays an audited Funky welcome once and reconciles the signed 
       .where('id', '=', outbox.id)
       .execute();
     let recipientVisibleDuringRequest = false;
-    const timeout = makeChronosDevTestSender(
-      db,
-      undefined,
-      { apiKey: 'fixture', from: 'dev@example.test', logger },
-      async () => {
-        recipientVisibleDuringRequest = (await find())?.toEmail === params.to;
-        throw new Error('Provider response lost');
-      }
-    );
+    const timeout = makeChronosDevTestSender(db, undefined, sendConfig, async () => {
+      recipientVisibleDuringRequest = (await find())?.toEmail === params.to;
+      throw new Error('Provider response lost');
+    });
     expect((await timeout.send(params)).isErr()).toBe(true);
     expect(recipientVisibleDuringRequest).toBe(true);
     expect(await find()).toMatchObject({ toEmail: params.to, resendEmailId: null });
@@ -566,8 +568,23 @@ it('commits and replays an audited Funky welcome once and reconciles the signed 
       .where('id', '=', outbox.id)
       .execute();
     expect((await recovery.findSentAwaitingWebhook(10))._unsafeUnwrap()).toEqual([]);
-    const messageId = randomUUID();
-    const body = JSON.stringify({
+
+    // Simulate a lost provider response and a primary email change before the retry.
+    await db
+      .updateTable('notificationsoutbox')
+      .set({ status: 'sending', resend_email_id: null, sent_at: null })
+      .where('id', '=', outbox.id)
+      .execute();
+    verifiedPrimary = 'changed-owner@example.test';
+    expect((await sender.send(params)).isErr()).toBe(true);
+    expect(sendCalls).toBe(1);
+    expect(await find()).toMatchObject({
+      status: 'webhook_timeout',
+      toEmail: params.to,
+      resendEmailId: null,
+    });
+
+    const deliveryEvent = {
       type: 'email.delivered',
       created_at: occurredAt,
       data: {
@@ -582,19 +599,34 @@ it('commits and replays an audited Funky welcome once and reconciles the signed 
           notification_type: sanitizeResendTagValue(FUNKY_OUTBOX_WELCOME_TYPE),
         },
       },
-    });
-    const receipt = await app.inject({
-      method: 'POST',
-      url: '/api/v1/webhooks/resend',
-      payload: body,
-      headers: {
-        'content-type': 'application/json',
-        'svix-id': messageId,
-        'svix-timestamp': String(Math.floor(at.getTime() / 1000)),
-        'svix-signature': signer.sign(messageId, at, body),
-      },
-    });
-    expect(receipt.json()).toEqual({ status: 'processed' });
+    };
+    const postReceipt = (to: string) => {
+      const messageId = randomUUID();
+      const body = JSON.stringify({ ...deliveryEvent, data: { ...deliveryEvent.data, to: [to] } });
+      return app.inject({
+        method: 'POST',
+        url: '/api/v1/webhooks/resend',
+        payload: body,
+        headers: {
+          'content-type': 'application/json',
+          'svix-id': messageId,
+          'svix-timestamp': String(Math.floor(at.getTime() / 1000)),
+          'svix-signature': signer.sign(messageId, at, body),
+        },
+      });
+    };
+    expect((await postReceipt(params.to)).json()).toEqual({ status: 'processed' });
+    expect(await find()).toMatchObject({ status: 'delivered', resendEmailId: emailId });
+
+    // If Clerk stayed unavailable through the retry budget, recovery would leave a permanent failure.
+    await db
+      .updateTable('notificationsoutbox')
+      .set({ status: 'failed_permanent', resend_email_id: null, attempt_count: 4 })
+      .where('id', '=', outbox.id)
+      .execute();
+    expect((await postReceipt(verifiedPrimary)).json()).toEqual({ status: 'ignored' });
+    expect(await find()).toMatchObject({ status: 'failed_permanent', resendEmailId: null });
+    expect((await postReceipt(params.to)).json()).toEqual({ status: 'processed' });
     expect(await find()).toMatchObject({ status: 'delivered', resendEmailId: emailId });
     expect(await capture.replay(db, { eventId, entityCui })).toBeUndefined();
   } finally {
