@@ -29,7 +29,7 @@ const failure = (kind: string, error: ApiError): McpToolOutput => ({
 });
 
 const VALUE_NOTE =
-  'Money is decimal text in lei excluding VAT. reportedValue is what the portal reported and is never summed; only countedValue is summable (null when not counted, with notCountedReason). When valueCorrected, countedValue is an approved correction and reviewRule gives the rule and its public sentence. Suppliers that are not companies with a valid fiscal code are served as natural_person with no name or code; never try to recover one.';
+  'Money is decimal text. countedValue (and a correction) is in lei excluding VAT; reportedValue and line values are as the portal published them, with a currency and VAT basis confirmed only for counted purchases, and are never summed. Only countedValue is summable (null when not counted, with notCountedReason). When valueCorrected, countedValue is an approved correction and reviewRule gives the rule and its public sentence. Suppliers that are not companies with a valid fiscal code are served as natural_person with no name or code; never try to recover one. Title, description and line names are null with a "privacy" marker until reviewed; use categoryLabel as the name.';
 
 const filterShape = {
   buyerFiscalCode: z
