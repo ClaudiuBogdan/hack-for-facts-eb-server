@@ -23,6 +23,8 @@ import {
   type ClickhouseAnalysisConfig,
 } from './shell/repo/clickhouse-analysis-repo.js';
 import { makeDaReleaseRepo } from './shell/repo/da-release-repo.js';
+import { makeDaRoutingAnalysisRepo } from './shell/repo/da-routing-analysis-repo.js';
+import { makeDaV3AnalysisSource } from './shell/repo/da-v3-analysis-source.js';
 import { makeProcurementGenerationRepo } from './shell/repo/generation-repo.js';
 import {
   makeOpenSearchListEngine,
@@ -126,7 +128,7 @@ export const makeProcurementModule = (deps: ProcurementModuleDeps): ProcurementM
   // With no ClickHouse configured, analysis reads fail closed with a clear error.
   const generationRepo = makeProcurementGenerationRepo(deps.db, Date.now, deps.logger);
   const supplierGeography = makeSupplierGeographyPolicy(deps.db, Date.now, deps.logger);
-  const analysis =
+  const baseAnalysis =
     deps.clickhouse !== undefined
       ? makeClickhouseAnalysisRepo(
           deps.clickhouse,
@@ -135,6 +137,17 @@ export const makeProcurementModule = (deps: ProcurementModuleDeps): ProcurementM
           () => supplierGeography.supplierGeographyPublic()
         )
       : makeUnconfiguredAnalysisRepo();
+  // ── DA release 1 (W2): with PROCUREMENT_DA_V3_ENABLED the analysis API's
+  // direct_acquisition grain is answered from procurement_v3; every other
+  // grain stays on ClickHouse. Off, the analysis repo is unchanged.
+  const analysis =
+    deps.daV3Enabled === true
+      ? makeDaRoutingAnalysisRepo(
+          baseAnalysis,
+          makeDaV3AnalysisSource(deps.db, deps.logger),
+          deps.logger
+        )
+      : baseAnalysis;
   const clientBaseUrl = deps.clientBaseUrl ?? 'https://transparenta.eu';
 
   if (deps.warmCache !== false) warmEmptyScope(analysis);

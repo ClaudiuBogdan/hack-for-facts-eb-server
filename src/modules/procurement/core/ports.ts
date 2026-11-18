@@ -10,7 +10,12 @@
 
 import type { AnalysisScope } from './analysis-scope.js';
 import type { AnalysisRoute } from './combinations.js';
-import type { GenerationCapabilities, MeasureId, SeriesBucket } from './constants.js';
+import type {
+  AnalysisGrain,
+  GenerationCapabilities,
+  MeasureId,
+  SeriesBucket,
+} from './constants.js';
 import type { ElicitatiePage } from './elicitatie-page.js';
 import type { BasisCoverageRow, GenerationQuality } from './gate-v2.js';
 import type { ProcurementSearchFilter } from './search.js';
@@ -158,6 +163,22 @@ export interface PublishedGeneration {
    * receipts.
    */
   readonly sourceCapture?: SourceCaptureReceipts | null;
+  /**
+   * Notes the source attaches to every envelope it answers (e.g. the money
+   * basis of direct acquisitions served from procurement_v3).
+   */
+  readonly notes?: readonly string[];
+}
+
+/**
+ * A grain answered by another source than the request's generation (direct
+ * acquisitions on procurement_v3): its own generation (buildId, quality,
+ * capabilities) and basis coverage, used for that grain's gates, envelope and
+ * reads.
+ */
+export interface GrainSource {
+  readonly generation: ActiveGeneration;
+  readonly coverage: readonly BasisCoverageRow[];
 }
 
 /**
@@ -167,6 +188,8 @@ export interface PublishedGeneration {
  */
 export interface ActiveGeneration extends PublishedGeneration {
   readonly capabilities: GenerationCapabilities;
+  /** Grains this request answers from another source; absent grains use this generation. */
+  readonly grainSources?: Partial<Record<AnalysisGrain, GrainSource>>;
 }
 
 /** One stats read — everything the stats block AND its envelope need. */
@@ -290,6 +313,17 @@ export interface AnalysisRecordRow {
   /** Contract grain only. */
   readonly recordKind: string | null;
   readonly cpvCode: string | null;
+  /**
+   * Direct acquisitions on procurement_v3 only: how the supplier is served
+   * under D6 — `company` (code and name served) or `natural_person` (both
+   * null); null when the purchase names no supplier. Absent on other sources.
+   */
+  readonly supplierDisplayKind?: 'company' | 'natural_person' | null;
+  /**
+   * Direct acquisitions on procurement_v3 only: the CPV label as written,
+   * shown in the title's place while free text is withheld (`title` is null).
+   */
+  readonly cpvLabel?: string | null;
 }
 
 /** A record page and the exact size of its population (the stats `recordCount`). */
