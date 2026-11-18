@@ -86,6 +86,8 @@ export interface TerritoryRepo {
 export interface FlowListOptions {
   readonly direction: FlowDirection;
   readonly flowType?: string;
+  /** Flow types left out of the page (site-wide D6 withholds direct acquisitions here). */
+  readonly excludeFlowTypes?: readonly string[];
   readonly yearFrom?: number;
   readonly yearTo?: number;
   readonly limit: number;
@@ -140,7 +142,8 @@ export interface FlowsRepo {
   getCounterpartyNetwork(
     rootCui: Cui,
     depth: number,
-    nodeLimit: number
+    nodeLimit: number,
+    options?: FlowReadOptions
   ): Promise<Result<CounterpartyNetwork, ApiError>>;
   aggregateFlows(
     groupBy: 'year' | 'flow_type' | 'county' | 'cpv',

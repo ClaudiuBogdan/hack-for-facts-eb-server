@@ -30,14 +30,9 @@ import { makeKernelMcpTools } from './shell/mcp/tools.js';
 import { makeKernelMcpResources } from './shell/mcp/widgets/resources.js';
 import { createCache, type KernelCache } from './shell/middleware/cache.js';
 import { createRateLimiter, type RateLimiter } from './shell/middleware/rate-limiter.js';
-import { makeDocumentRepo } from './shell/repo/document-repo.js';
-import { makeFlowsRepo } from './shell/repo/flows-repo.js';
 import { makeIdentityRepo } from './shell/repo/identity-repo.js';
 import { makeSearchRepo } from './shell/repo/search-repo.js';
-import {
-  makeSupplierDisclosureRepo,
-  withSupplierDisclosure,
-} from './shell/repo/supplier-disclosure-repo.js';
+import { makeDisclosedReadRepos } from './shell/repo/supplier-disclosure-repo.js';
 import { makeTerritoryRepo } from './shell/repo/territory-repo.js';
 
 import type { SearchPolicy } from './core/filters/search-policy.js';
@@ -165,13 +160,13 @@ export const makeKernel = async (config: KernelConfig): Promise<Kernel> => {
 
   const identityRepo = makeIdentityRepo(db);
   const territoryRepo = makeTerritoryRepo(db);
-  const supplierDisclosure = makeSupplierDisclosureRepo(
+  // Flows and documents can carry a direct-acquisition supplier: built only
+  // through the D6-gated composition.
+  const { supplierDisclosure, flowsRepo, documentRepo } = makeDisclosedReadRepos(
     db,
     config.supplierDisclosureEnforced === true
   );
-  const flowsRepo = withSupplierDisclosure(makeFlowsRepo(db), supplierDisclosure);
   const searchRepo = makeSearchRepo(db);
-  const documentRepo = makeDocumentRepo(db);
 
   // Prefer the search-only key (read paths shouldn't carry the master key);
   // fall back to the general Meili key when no dedicated search key is set.

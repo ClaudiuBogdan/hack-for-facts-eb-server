@@ -45,6 +45,7 @@ const flowFhash = (cui: string, o: FlowListOptions): string =>
       cui,
       dir: o.direction,
       ft: o.flowType ?? null,
+      ex: o.excludeFlowTypes ?? [],
       yf: o.yearFrom ?? null,
       yt: o.yearTo ?? null,
     })
@@ -217,6 +218,8 @@ export const makeFlowsRepo = (db: Db): FlowsRepo => ({
     try {
       let query = db.selectFrom('flows.money_flows').where(col, '=', cui);
       if (options.flowType !== undefined) query = query.where('flow_type', '=', options.flowType);
+      const excluded = [...(options.excludeFlowTypes ?? [])];
+      if (excluded.length > 0) query = query.where('flow_type', 'not in', excluded);
       if (options.yearFrom !== undefined) query = query.where('flow_year', '>=', options.yearFrom);
       if (options.yearTo !== undefined) query = query.where('flow_year', '<=', options.yearTo);
 
@@ -310,8 +313,10 @@ export const makeFlowsRepo = (db: Db): FlowsRepo => ({
   async getCounterpartyNetwork(
     rootCui: string,
     depth: number,
-    nodeLimit: number
+    nodeLimit: number,
+    options: FlowReadOptions = {}
   ): Promise<Result<CounterpartyNetwork, ApiError>> {
+    const excluded = [...(options.excludeFlowTypes ?? [])];
     const effectiveDepth = Math.min(Math.max(depth, 1), 2);
     const effectiveNodeLimit = Math.min(Math.max(nodeLimit, 1), 50);
 
@@ -327,6 +332,7 @@ export const makeFlowsRepo = (db: Db): FlowsRepo => ({
         ])
         .where('payer_cui', '=', cui)
         .where('payee_cui', 'is not', null)
+        .$if(excluded.length > 0, (q) => q.where('flow_type', 'not in', excluded))
         .groupBy('payee_cui')
         .orderBy(sql`sum(amount_ron) desc nulls last`)
         .limit(perSide)
@@ -342,6 +348,7 @@ export const makeFlowsRepo = (db: Db): FlowsRepo => ({
             ])
             .where('payee_cui', '=', cui)
             .where('payer_cui', 'is not', null)
+            .$if(excluded.length > 0, (q) => q.where('flow_type', 'not in', excluded))
             .groupBy('payer_cui')
             .orderBy(sql`sum(amount_ron) desc nulls last`)
             .limit(perSide)

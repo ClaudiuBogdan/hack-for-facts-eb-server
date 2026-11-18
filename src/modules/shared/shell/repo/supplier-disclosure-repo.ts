@@ -21,8 +21,16 @@
 import { sql, type Kysely } from 'kysely';
 import { ok, type Result } from 'neverthrow';
 
+import { makeDocumentRepo } from './document-repo.js';
+import { makeFlowsRepo } from './flows-repo.js';
+
 import type { ApiError } from '../../core/errors.js';
-import type { FlowReadOptions, FlowsRepo, SupplierDisclosurePort } from '../../core/ports.js';
+import type {
+  DocumentRepo,
+  FlowReadOptions,
+  FlowsRepo,
+  SupplierDisclosurePort,
+} from '../../core/ports.js';
 import type { ProdDatabase } from '../db/types.js';
 
 const SCHEMA = 'procurement_v3';
@@ -131,5 +139,73 @@ export const withSupplierDisclosure = (
       ),
     getTopCounterparties: async (cui, direction, limit, options) =>
       flows.getTopCounterparties(cui, direction, limit, await optionsFor(cui, direction, options)),
+    // Per-flow lists and the network name every counterparty: while D6 is enforced
+    // they carry no direct-acquisition flow at all (no caller today; gated so a
+    // future caller cannot bypass D6).
+    listFlows: async (cui, options) => {
+      if (!disclosure.enforced) return flows.listFlows(cui, options);
+      if (options.flowType === DIRECT_ACQUISITION_FLOW) return ok({ items: [], next: null });
+      return flows.listFlows(cui, {
+        ...options,
+        excludeFlowTypes: [...(options.excludeFlowTypes ?? []), DIRECT_ACQUISITION_FLOW],
+      });
+    },
+    getCounterpartyNetwork: async (rootCui, depth, nodeLimit, options) =>
+      flows.getCounterpartyNetwork(
+        rootCui,
+        depth,
+        nodeLimit,
+        disclosure.enforced
+          ? {
+              ...options,
+              excludeFlowTypes: [...(options?.excludeFlowTypes ?? []), DIRECT_ACQUISITION_FLOW],
+            }
+          : options
+      ),
+  };
+};
+
+const DIRECT_ACQUISITION_DOC = 'procurement_direct_acquisition';
+
+/**
+ * While D6 is enforced the shared document view serves no direct-acquisition
+ * document: its title and text can name a withheld supplier, and legacy free
+ * text is withheld (no caller today; gated so a future caller cannot bypass it).
+ */
+export const withDocumentDisclosure = (
+  documents: DocumentRepo,
+  disclosure: SupplierDisclosurePort
+): DocumentRepo =>
+  !disclosure.enforced
+    ? documents
+    : {
+        findById: async (docId) => {
+          const found = await documents.findById(docId);
+          return found.map((doc) => (doc?.docType === DIRECT_ACQUISITION_DOC ? null : doc));
+        },
+        listByCui: async (cui, limit) => {
+          const found = await documents.listByCui(cui, limit);
+          return found.map((docs) => docs.filter((doc) => doc.docType !== DIRECT_ACQUISITION_DOC));
+        },
+      };
+
+/**
+ * The kernel's flows and document repos, built ONLY through here so every read
+ * that can carry a direct-acquisition supplier passes the D6 gate (the guard
+ * test drives this function with a capturing database).
+ */
+export const makeDisclosedReadRepos = (
+  db: Kysely<ProdDatabase>,
+  enforced: boolean
+): {
+  readonly supplierDisclosure: SupplierDisclosurePort;
+  readonly flowsRepo: FlowsRepo;
+  readonly documentRepo: DocumentRepo;
+} => {
+  const supplierDisclosure = makeSupplierDisclosureRepo(db, enforced);
+  return {
+    supplierDisclosure,
+    flowsRepo: withSupplierDisclosure(makeFlowsRepo(db), supplierDisclosure),
+    documentRepo: withDocumentDisclosure(makeDocumentRepo(db), supplierDisclosure),
   };
 };
