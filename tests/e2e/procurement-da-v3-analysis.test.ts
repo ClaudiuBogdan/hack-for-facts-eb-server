@@ -367,6 +367,7 @@ describe('rollups answer exactly as the live rows', () => {
       ['rb2', '1000002', 'valid'],
       ['rb3', '1000003', 'valid'],
       ['rb4', '1000004', 'invalid'],
+      ['rb5', '1000005', 'valid'],
     ] as const)
       await sql`insert into procurement_v3.da_parties values (${SOURCE}, 'buyer', ${id}, ${code}, ${status}, 'B')`.execute(
         trx
@@ -381,6 +382,10 @@ describe('rollups answer exactly as the live rows', () => {
     await sql`insert into companies_v2.registrations values ('1000002', '777')`.execute(trx);
     await sql`insert into core.territories (territorial_siruta_code, county_code, region)
       values ('777', 'AB', 'Centru')`.execute(trx);
+    // A public territory with no county: geography resolves, the county bucket is unknown.
+    await sql`insert into core.public_entities values ('1000005', '888')`.execute(trx);
+    await sql`insert into core.territories (territorial_siruta_code, county_code, region)
+      values ('888', null, null)`.execute(trx);
     await sql`
       insert into procurement_v3.da_purchases
         (purchase_id, source_name, outcome, finalization_day, counted, counted_value, symbolic_price,
@@ -389,7 +394,7 @@ describe('rollups answer exactly as the live rows', () => {
              case when g % 13 = 0 then null else date '2023-01-01' + ((g * 11) % 1095) end,
              g % 5 <> 0, case when g % 5 <> 0 then ((g * 37) % 1000)::numeric + 0.25 end, g % 17 = 0,
              (array['44110000-4', '44111000-1', '45200000-9', '03100000-2', '4', 'X1234', null])[1 + g % 7],
-             (array['rb1', 'rb2', 'rb3', 'rb4', ${BUYER.portalPartyId}])[1 + g % 5],
+             (array['rb1', 'rb2', 'rb3', 'rb4', 'rb5', ${BUYER.portalPartyId}])[1 + g % 6],
              (array[${COMPANY.portalPartyId}, 'rc2', ${SOLE_TRADER.portalPartyId}, null])[1 + g % 4]
       from generate_series(1, 400) g`.execute(trx);
   };
@@ -583,10 +588,10 @@ describe('rollups answer exactly as the live rows', () => {
                count(*) filter (where p.counted) as counted,
                count(*) filter (where p.outcome = 'accepted') as accepted,
                count(*) filter (where p.category_code ~ '^[0-9]{2}') as with_cpv,
-               count(*) filter (where f.county_code is not null) as with_geo,
+               count(*) filter (where f.territorial_siruta_code is not null) as with_geo,
                coalesce(sum(p.counted_value) filter (where p.counted), 0) as money,
                coalesce(sum(p.counted_value) filter (where p.counted and p.finalization_day is not null), 0) as money_dated,
-               coalesce(sum(p.counted_value) filter (where p.counted and f.county_code is not null), 0) as money_geo
+               coalesce(sum(p.counted_value) filter (where p.counted and f.territorial_siruta_code is not null), 0) as money_geo
         from procurement_v3.da_purchases p
         left join procurement_v3.da_parties b
           on b.source_name = p.source_name and b.party_kind = 'buyer' and b.portal_party_id = p.buyer_party_id
@@ -615,6 +620,12 @@ describe('rollups answer exactly as the live rows', () => {
       expect(published?.buildId).toBe(liveGen?.buildId);
       // The published columns answered: the whole-table scan never ran.
       expect(statements.some((text) => text.includes('with per_buyer'))).toBe(false);
+      // A partial payload is not a measurement: the reader measures live and agrees.
+      await sql`update procurement_v3.da_release set dated = null`.execute(db);
+      statements.length = 0;
+      const partial = (await makeDaV3AnalysisSource(logged).generation())._unsafeUnwrap();
+      expect(partial?.quality).toEqual(liveGen?.quality);
+      expect(statements.some((text) => text.includes('with per_buyer'))).toBe(true);
     } finally {
       await logged.destroy();
     }

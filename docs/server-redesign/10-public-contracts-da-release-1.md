@@ -216,7 +216,17 @@ money_geo.
   month or a count.
 - **D6 again on read.** supplier_key is joined to supplier_privacy and must still be public, otherwise it is
   served as natural_person.
-- **Quality** comes from the da_release columns when all nine are readable, and is measured live otherwise.
+- **Quality** comes from the da_release columns when all nine are readable and non-null, and is measured live
+  otherwise. with_geo and money_geo count purchases whose buyer resolves to a public territory (SIRUTA), with or
+  without a county, as live does.
+- **Buyer geography** in the rollups is the buyer's place as of the DA publish, while the live join reads today's
+  geography tables. A records page with a geography scope therefore counts its total live, as it lists its rows,
+  so a page always agrees with itself; its stats may lag a geography change until the next DA publish. Pinning
+  buyer geography to the publication on both paths is a follow-up (a per-buyer geography table published with
+  the facts).
+- **Distinct suppliers** (window-only) trust da_rollup_distinct, which cannot be re-checked per key on read. It is
+  built in the same transaction as supplier_privacy, and the build stops on a restricted key in a non-zero row,
+  so a valid publication cannot over-count. An invalid one could add one to a count, but never serves a code.
 - **Tests.** The e2e suite builds the rollups from a varied seed with the agreed rules, then requires every
   stats, series, distinct, breakdown, concentration and records answer to equal the live answer. That includes
   zeroed rows under new keys and months, and a restricted code. Mutating either guard fails the suite.

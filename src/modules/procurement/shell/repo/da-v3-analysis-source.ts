@@ -642,7 +642,10 @@ const readPublishedQuality = async (ctx: Ctx): Promise<{ rows: QualityRow[] } | 
            r.money::text as money, r.money_dated::text as money_dated, r.money_geo::text as money_geo
     from ${RELEASE} r
     where r.data_as_of = (select max(data_as_of) from ${RELEASE})`.execute(ctx.trx);
-  return result.rows.length === 1 ? { rows: result.rows } : null;
+  const row = result.rows[0];
+  // A partial payload (any figure NULL) is not a measurement: measure live instead.
+  if (result.rows.length !== 1 || row === undefined) return null;
+  return Object.values(row).every((value) => value !== null) ? { rows: result.rows } : null;
 };
 
 // ── the source ───────────────────────────────────────────────────────────────
@@ -976,7 +979,8 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
         return ok(
           result.rows.map((row) => ({
             bucket: row.bucket,
-            value: row.value,
+            // The undated bucket's distinct count is never served; one placeholder on both paths.
+            value: row.bucket === null ? '0' : row.value,
             recordCount: row.record_count,
             withValue: row.with_value,
             valueAwardedSum: row.awarded,
@@ -1121,7 +1125,13 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
       // The page lists purchases (live rows); its total is a count (a rollup when one covers it).
       const c = compile(ctx, scope, undefined, true);
       if (c.isErr()) return err(c.error);
-      const counting = compile(ctx, scope);
+      // A geography scope's total stays live like its rows: rollups hold the buyer's place
+      // as of the DA publish, the live join reads today's, and a page must agree with itself.
+      const geoScoped =
+        scope.buyerRegion !== undefined ||
+        scope.buyerCounty !== undefined ||
+        scope.buyerSiruta !== undefined;
+      const counting = geoScoped ? c : compile(ctx, scope);
       if (counting.isErr()) return err(counting.error);
       const money = sql`case when p.counted then p.counted_value end`;
       const order: Record<typeof page.sort, Sql> = {
