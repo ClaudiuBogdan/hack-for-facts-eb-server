@@ -97,6 +97,26 @@ export interface FlowListOptions {
   readonly cursor?: string;
 }
 
+/** Read options shared by the flow summaries. */
+export interface FlowReadOptions {
+  /** Flow types left out of every count, sum and breakdown (e.g. a withheld supplier's direct acquisitions). */
+  readonly excludeFlowTypes?: readonly string[];
+}
+
+/**
+ * Site-wide D6 (owner, 2026-11-18): which supplier fiscal codes the API may name
+ * as a direct-acquisition supplier. One source for every module: the data
+ * platform's `procurement_v3.supplier_privacy` (`public = true`), rewritten in
+ * the nightly publish with `da_release.data_as_of`. Fails closed: when the
+ * source is absent or unreadable the set is empty. When `enforced` is false
+ * (PROCUREMENT_DA_V3_ENABLED off) callers keep their pre-release behaviour.
+ */
+export interface SupplierDisclosurePort {
+  readonly enforced: boolean;
+  /** The public codes (digits only, no RO prefix). Callers check `enforced` first. */
+  publicSupplierCodes(): Promise<Result<ReadonlySet<string>, ApiError>>;
+}
+
 export interface FlowsRepo {
   /**
    * Aggregated flow summary. `byYear` (per-(year, flow_type)) is computed ONLY when
@@ -107,12 +127,14 @@ export interface FlowsRepo {
   getFlowSummary(
     cui: Cui,
     direction: FlowDirection,
-    includeYearBreakdown?: boolean
+    includeYearBreakdown?: boolean,
+    options?: FlowReadOptions
   ): Promise<Result<FlowSummary, ApiError>>;
   getTopCounterparties(
     cui: Cui,
     direction: FlowDirection,
-    limit: number
+    limit: number,
+    options?: FlowReadOptions
   ): Promise<Result<readonly Counterparty[], ApiError>>;
   listFlows(cui: Cui, options: FlowListOptions): Promise<Result<CursorPage<MoneyFlow>, ApiError>>;
   getCounterpartyNetwork(

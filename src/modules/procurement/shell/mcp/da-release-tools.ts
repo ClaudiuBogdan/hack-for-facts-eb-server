@@ -18,7 +18,7 @@ import {
   listDaPurchases,
   type DaReleaseDeps,
 } from '../../core/da-release-usecases.js';
-import { DA_OUTCOMES, DA_TOTALS_GROUPS } from '../../core/da-release.js';
+import { DA_LIST_SORTS, DA_OUTCOMES, DA_TOTALS_GROUPS } from '../../core/da-release.js';
 
 const failure = (kind: string, error: ApiError): McpToolOutput => ({
   ok: false,
@@ -83,12 +83,13 @@ export const makeDaReleaseMcpTools = (deps: DaReleaseDeps): readonly KernelMcpTo
     name: 'list_procurement_da_purchases',
     description: `Romanian direct acquisitions (achiziții directe, release 1), newest finalization first, filtered by buyer or supplier fiscal code, CPV division (2 digits), finalization-day range, outcome, counted, or the portal code (e.g. DA37709621). ${VALUE_NOTE} Pages reach row 10000 at most; pageSize up to 100.`,
     strictInput: true,
-    inputShape: { ...filterShape, ...pageShape },
+    inputShape: { ...filterShape, sort: z.enum(DA_LIST_SORTS).optional(), ...pageShape },
     async handler(args) {
       const kind = 'procurement_da_purchases';
       const filter = filterOf(args);
       const query = { filter: echoOf(filter), ...pageOf(args) };
-      const result = await listDaPurchases(deps, { filter, ...pageOf(args) });
+      const sort = typeof args['sort'] === 'string' ? args['sort'] : null;
+      const result = await listDaPurchases(deps, { filter, sort, ...pageOf(args) });
       if (result.isErr()) return failure(kind, result.error);
       const { items, total, totalCapped, hasMore, dataAsOf, countedValueBasis } = result.value;
       return {

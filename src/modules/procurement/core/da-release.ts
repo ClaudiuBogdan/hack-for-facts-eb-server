@@ -85,6 +85,10 @@ export const DA_FISCAL_CODE_STATUSES = [
   'personal_code',
 ] as const;
 
+/** List orders; purchaseId breaks every tie. countedValueDesc puts uncounted purchases last. */
+export const DA_LIST_SORTS = ['finalizationDesc', 'finalizationAsc', 'countedValueDesc'] as const;
+export type DaListSort = (typeof DA_LIST_SORTS)[number];
+
 /** Totals dimensions for release 1; `year` is a roll-up of the contract's month. */
 export const DA_TOTALS_GROUPS = ['buyer', 'supplier', 'cpvDivision', 'month', 'year'] as const;
 export type DaTotalsDimension = (typeof DA_TOTALS_GROUPS)[number];

@@ -69,6 +69,7 @@ const READS: [string, (reader: DaReleaseReader) => Promise<unknown>][] = [
     'listPurchases',
     (r) =>
       r.listPurchases({
+        sort: 'finalizationDesc',
         filter: {
           supplierFiscalCode: '14399840',
           buyerFiscalCode: '4305857',
@@ -154,7 +155,11 @@ describe('joins and D6', () => {
 
   it('a supplier filter only matches suppliers public in supplier_privacy', async () => {
     const { sql } = await run((r) =>
-      r.listPurchases({ filter: { supplierFiscalCode: '14399840' }, ...PAGE })
+      r.listPurchases({
+        sort: 'finalizationDesc',
+        filter: { supplierFiscalCode: '14399840' },
+        ...PAGE,
+      })
     );
     expect(sql).toContain(
       'left join "procurement_v3"."supplier_privacy" sv on sv.fiscal_code_clean = s.fiscal_code_clean'
@@ -167,7 +172,11 @@ describe('joins and D6', () => {
   it('withholds every supplier, and names no pending column, before supplier_privacy and the columns exist', async () => {
     const { captured } = await run(
       async (r) => {
-        await r.listPurchases({ filter: { supplierFiscalCode: '14399840' }, ...PAGE });
+        await r.listPurchases({
+          sort: 'finalizationDesc',
+          filter: { supplierFiscalCode: '14399840' },
+          ...PAGE,
+        });
         await r.totals({ filter: {}, groupBy: 'supplier', ...PAGE });
       },
       { supplier_privacy: false, listed_now: false }
@@ -195,7 +204,7 @@ describe('joins and D6', () => {
 
   it('a buyer filter matches valid codes only', async () => {
     const { sql } = await run((r) =>
-      r.listPurchases({ filter: { buyerFiscalCode: '4305857' }, ...PAGE })
+      r.listPurchases({ sort: 'finalizationDesc', filter: { buyerFiscalCode: '4305857' }, ...PAGE })
     );
     expect(sql).toMatch(/b\.fiscal_code_clean = \$\d+ and b\.fiscal_code_status = 'valid'/u);
   });
@@ -237,10 +246,21 @@ describe('review fixes', () => {
   });
 
   it('clamps the last page of a list to row 10000', async () => {
-    const { captured } = await run((r) => r.listPurchases({ filter: {}, page: 334, pageSize: 30 }));
+    const { captured } = await run((r) =>
+      r.listPurchases({ sort: 'finalizationDesc', filter: {}, page: 334, pageSize: 30 })
+    );
     const list = captured.find((query) => query.sql.includes('order by p.finalization_day'));
     // offset 9990, so at most 10 rows.
     expect(list?.parameters).toEqual(expect.arrayContaining([10, 9990]));
+  });
+
+  it.each([
+    ['finalizationDesc', 'order by p.finalization_day desc nulls last, p.purchase_id desc'],
+    ['finalizationAsc', 'order by p.finalization_day asc nulls last, p.purchase_id asc'],
+    ['countedValueDesc', 'order by p.counted_value desc nulls last, p.purchase_id desc'],
+  ] as const)('orders a list %s with purchase_id breaking ties', async (sort, order) => {
+    const { sql } = await run((r) => r.listPurchases({ sort, filter: {}, ...PAGE }));
+    expect(sql).toContain(order);
   });
 
   it('orders tied supplier buckets by their bucket label', async () => {

@@ -3,7 +3,7 @@
  * the SAME usecases GraphQL and MCP call (no SQL or rule of its own).
  *
  *   GET /status             { enabled, dataAsOf }
- *   GET /purchases          filter params, page, pageSize
+ *   GET /purchases          filter params, sort, page, pageSize
  *   GET /purchases/lookup   purchaseId
  *   GET /totals             filter params, groupBy, page, pageSize
  *
@@ -50,7 +50,7 @@ const PAGE_PARAMS: Readonly<Record<string, ParamKind>> = { page: 'int', pageSize
 
 const PARAMS = {
   status: {},
-  purchases: { ...FILTER_PARAMS, ...PAGE_PARAMS },
+  purchases: { ...FILTER_PARAMS, sort: 'string', ...PAGE_PARAMS },
   purchase: { purchaseId: 'string' },
   totals: { ...FILTER_PARAMS, groupBy: 'string', ...PAGE_PARAMS },
 } satisfies Record<string, Readonly<Record<string, ParamKind>>>;
@@ -164,6 +164,7 @@ export const makeDaReleaseRestPlugin =
       const decoded = decode(request.query, PARAMS.purchases);
       if (decoded.isErr()) return sendError(request, reply, decoded.error);
       const result = await listDaPurchases(deps, {
+        sort: typeof decoded.value['sort'] === 'string' ? decoded.value['sort'] : null,
         filter: filterOf(decoded.value),
         ...pageOf(decoded.value),
       });

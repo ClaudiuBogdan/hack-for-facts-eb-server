@@ -123,6 +123,18 @@ describe('input', () => {
     ).toBe('InvalidInput');
   });
 
+  it('sorts by finalization either way or by counted value, and refuses another sort', async () => {
+    const asc = (await listDaPurchases(deps, { sort: 'finalizationAsc', ...PAGE }))._unsafeUnwrap();
+    expect(asc.items[0]?.finalizationDay).toBe('2021-11-30');
+    const byValue = (
+      await listDaPurchases(deps, { sort: 'countedValueDesc', ...PAGE })
+    )._unsafeUnwrap();
+    expect(byValue.items[0]?.countedValue).toBe('188800000.00');
+    expect(
+      (await listDaPurchases(deps, { sort: 'reportedValueDesc', ...PAGE }))._unsafeUnwrapErr().type
+    ).toBe('InvalidInput');
+  });
+
   it('resolves a legacy code to its purchaseId', async () => {
     const target = PURCHASES[4];
     const page = (

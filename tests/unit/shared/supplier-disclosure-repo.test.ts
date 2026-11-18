@@ -1,0 +1,161 @@
+/**
+ * Site-wide D6 — the supplier disclosure port and the flows decorator: off
+ * means no query and no change; on, the public set comes from
+ * supplier_privacy, is cached per data_as_of, and fails closed (absent table,
+ * absent release, read error → empty). A non-public code's incoming
+ * direct-acquisition flows are excluded; outgoing flows and public codes are
+ * untouched.
+ */
+import { ok } from 'neverthrow';
+import { describe, expect, it } from 'vitest';
+
+import {
+  makeSupplierDisclosureRepo,
+  withSupplierDisclosure,
+} from '@/modules/shared/shell/repo/supplier-disclosure-repo.js';
+
+import { makeCapturingDb, type CapturedQuery } from '../../fixtures/capturing-db.js';
+
+import type { FlowReadOptions, FlowsRepo, SupplierDisclosurePort } from '@/modules/shared/index.js';
+
+interface World {
+  tables: boolean;
+  asOf: string | null;
+  codes: string[];
+  fail: boolean;
+}
+
+const build = (world: World, clock = { t: 0 }) => {
+  const captured: CapturedQuery[] = [];
+  const db = makeCapturingDb(captured, {
+    respond: (text) => {
+      if (world.fail && text.includes('supplier_privacy')) throw new Error('boom');
+      if (text.includes('to_regclass')) return [{ release: world.tables, privacy: world.tables }];
+      if (text.includes('max(data_as_of)')) return [{ as_of: world.asOf }];
+      if (text.includes('where public is true')) return world.codes.map((code) => ({ code }));
+      return [];
+    },
+  });
+  return {
+    captured,
+    port: (enforced: boolean) => makeSupplierDisclosureRepo(db, enforced, () => clock.t),
+  };
+};
+
+const codeLoads = (captured: CapturedQuery[]) =>
+  captured.filter((query) => query.sql.includes('where public is true')).length;
+
+describe('supplier disclosure port', () => {
+  it('runs no query when not enforced', async () => {
+    const { captured, port } = build({ tables: true, asOf: 'a', codes: ['1'], fail: false });
+    expect((await port(false).publicSupplierCodes())._unsafeUnwrap().size).toBe(0);
+    expect(captured).toHaveLength(0);
+  });
+
+  it('loads the public codes and caches them per data_as_of', async () => {
+    const world = {
+      tables: true,
+      asOf: '2026-11-18 03:10:00+00',
+      codes: ['14399840'],
+      fail: false,
+    };
+    const { captured, port } = build(world);
+    const disclosure = port(true);
+    expect([...(await disclosure.publicSupplierCodes())._unsafeUnwrap()]).toEqual(['14399840']);
+    await disclosure.publicSupplierCodes();
+    expect(codeLoads(captured)).toBe(1);
+    world.asOf = '2026-11-19 03:10:00+00';
+    world.codes = ['14399840', '4305857'];
+    expect((await disclosure.publicSupplierCodes())._unsafeUnwrap().size).toBe(2);
+    expect(codeLoads(captured)).toBe(2);
+  });
+
+  it.each([
+    ['tables absent', { tables: false, asOf: 'a', codes: ['1'], fail: false }],
+    ['no release row', { tables: true, asOf: null, codes: ['1'], fail: false }],
+    ['a read error', { tables: true, asOf: 'a', codes: ['1'], fail: true }],
+  ] as const)('fails closed with %s', async (_label, world) => {
+    const { port } = build({ ...world, codes: [...world.codes] });
+    expect((await port(true).publicSupplierCodes())._unsafeUnwrap().size).toBe(0);
+  });
+
+  it('re-probes an absent source only after its TTL', async () => {
+    const world = { tables: false, asOf: 'a', codes: ['9'], fail: false };
+    const clock = { t: 0 };
+    const { port } = build(world, clock);
+    const disclosure = port(true);
+    await disclosure.publicSupplierCodes();
+    world.tables = true;
+    clock.t = 30_000;
+    expect((await disclosure.publicSupplierCodes())._unsafeUnwrap().size).toBe(0);
+    clock.t = 61_000;
+    expect((await disclosure.publicSupplierCodes())._unsafeUnwrap().has('9')).toBe(true);
+  });
+});
+
+describe('flows decorator', () => {
+  const recordingFlows = () => {
+    const calls: { method: string; options: FlowReadOptions | undefined }[] = [];
+    const flows = {
+      getFlowSummary: (
+        _c: string,
+        direction: 'in' | 'out',
+        _y?: boolean,
+        options?: FlowReadOptions
+      ) => {
+        calls.push({ method: `summary:${direction}`, options });
+        return Promise.resolve(
+          ok({
+            direction,
+            count: 0,
+            totalAmountRon: '0',
+            minYear: null,
+            maxYear: null,
+            byFlowType: [],
+            byYear: [],
+          })
+        );
+      },
+      getTopCounterparties: (
+        _c: string,
+        direction: 'in' | 'out',
+        _l: number,
+        options?: FlowReadOptions
+      ) => {
+        calls.push({ method: `top:${direction}`, options });
+        return Promise.resolve(ok([]));
+      },
+    } as unknown as FlowsRepo;
+    return { calls, flows };
+  };
+  const disclosure = (enforced: boolean, codes: string[]): SupplierDisclosurePort => ({
+    enforced,
+    publicSupplierCodes: () => Promise.resolve(ok(new Set(codes))),
+  });
+
+  it("withholds a non-public code's incoming direct-acquisition flows", async () => {
+    const { calls, flows } = recordingFlows();
+    const gated = withSupplierDisclosure(flows, disclosure(true, ['14399840']));
+    await gated.getFlowSummary('30254716', 'in', true);
+    await gated.getTopCounterparties('30254716', 'in', 10);
+    expect(calls.map((c) => c.options?.excludeFlowTypes)).toEqual([
+      ['direct_acquisition'],
+      ['direct_acquisition'],
+    ]);
+  });
+
+  it('leaves public codes, outgoing flows and the disabled rule unchanged', async () => {
+    const { calls, flows } = recordingFlows();
+    await withSupplierDisclosure(flows, disclosure(true, ['14399840'])).getFlowSummary(
+      '14399840',
+      'in'
+    );
+    await withSupplierDisclosure(flows, disclosure(true, [])).getFlowSummary('4305857', 'out');
+    await withSupplierDisclosure(flows, disclosure(false, [])).getFlowSummary('30254716', 'in');
+    expect(calls.map((c) => c.options?.excludeFlowTypes)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+    ]);
+  });
+});

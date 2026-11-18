@@ -324,8 +324,14 @@ export const makeFakeDaRepo = (options: FakeDaRepoOptions = {}): DaReleaseRepo =
           const rows = purchases
             .filter((row) => matches(row, query.filter, privacyTable))
             .sort((a, b) => {
+              if (query.sort === 'countedValueDesc') {
+                const av = a.countedValue === null ? -1 : Number(a.countedValue);
+                const bv = b.countedValue === null ? -1 : Number(b.countedValue);
+                return av !== bv ? bv - av : b.purchaseId.localeCompare(a.purchaseId);
+              }
+              const sign = query.sort === 'finalizationAsc' ? -1 : 1;
               const byDay = (b.finalizationDay ?? '').localeCompare(a.finalizationDay ?? '');
-              return byDay !== 0 ? byDay : b.purchaseId.localeCompare(a.purchaseId);
+              return byDay !== 0 ? sign * byDay : sign * b.purchaseId.localeCompare(a.purchaseId);
             });
           const offset = (query.page - 1) * query.pageSize;
           return Promise.resolve(

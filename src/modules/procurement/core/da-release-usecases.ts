@@ -21,6 +21,7 @@ import {
 } from '@/modules/shared/index.js';
 
 import {
+  DA_LIST_SORTS,
   DA_OUTCOMES,
   DA_TOTALS_GROUPS,
   DA_COUNTED_VALUE_BASIS,
@@ -29,6 +30,7 @@ import {
   toTotals,
   toTotalsGroup,
   type DaItem,
+  type DaListSort,
   type DaPurchase,
   type DaTotals,
   type DaTotalsGroup,
@@ -214,15 +216,19 @@ export const daReleaseStatus = async (deps: DaReleaseDeps): Promise<DaReleaseSta
 
 export const listDaPurchases = async (
   deps: DaReleaseDeps,
-  request: { filter?: unknown; page: number; pageSize: number }
+  request: { filter?: unknown; sort?: string | null; page: number; pageSize: number }
 ): Promise<Result<DaPurchasePage, ApiError>> => {
   const filter = validateDaFilter(request.filter);
   if (filter.isErr()) return err(filter.error);
+  const sort = request.sort ?? 'finalizationDesc';
+  if (!(DA_LIST_SORTS as readonly string[]).includes(sort))
+    return err(invalidInput('Invalid sort.', 'sort'));
   const fault = checkPage(request.page, request.pageSize, DA_LIST_MAX_DEPTH);
   if (fault !== null) return err(fault);
   return inSnapshot(deps, async (reader, envelope) => {
     const records = await reader.listPurchases({
       filter: filter.value,
+      sort: sort as DaListSort,
       page: request.page,
       pageSize: request.pageSize,
     });

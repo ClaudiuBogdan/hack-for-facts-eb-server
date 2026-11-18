@@ -417,7 +417,11 @@ export const registerRedesignSurface = async (
   // hooks are inherited by routes registered after the plugin, not before).
   await registerCompression(app);
 
-  const kernel = await makeKernel(deps.kernelConfig);
+  const kernel = await makeKernel({
+    ...deps.kernelConfig,
+    // Site-wide D6 switches with the DA release flag.
+    supplierDisclosureEnforced: deps.procurement?.daV3Enabled === true,
+  });
 
   // Release the kernel (pg pool + clients) when the owning scope closes.
   // Registered right after creation — BEFORE the wiring below — so that if any

@@ -188,6 +188,13 @@ export const daReleaseTypeDefs = /* GraphQL */ `
     purchaseCount: String!
   }
 
+  "List order; purchaseId breaks ties. countedValueDesc puts uncounted purchases last."
+  enum ProcurementDaListSort {
+    finalizationDesc
+    finalizationAsc
+    countedValueDesc
+  }
+
   enum ProcurementDaTotalsGroupBy {
     buyer
     supplier
@@ -233,6 +240,7 @@ export const daReleaseTypeDefs = /* GraphQL */ `
     "Release-1 purchases, newest finalization first. Pages reach at most row 10000."
     procurementDaPurchases(
       filter: ProcurementDaPurchaseFilter
+      sort: ProcurementDaListSort = finalizationDesc
       page: Int = 1
       pageSize: Int = 20
     ): ProcurementDaPurchasePage!
@@ -275,8 +283,17 @@ const pageOf = (args: PageArgs) => ({ page: args.page ?? 1, pageSize: args.pageS
 export const makeDaReleaseResolvers = (deps: DaReleaseDeps) => ({
   Query: {
     procurementDaRelease: () => daReleaseStatus(deps),
-    procurementDaPurchases: async (_root: unknown, args: PageArgs & { filter?: unknown }) =>
-      unwrap(await listDaPurchases(deps, { filter: withoutNulls(args.filter), ...pageOf(args) })),
+    procurementDaPurchases: async (
+      _root: unknown,
+      args: PageArgs & { filter?: unknown; sort?: string | null }
+    ) =>
+      unwrap(
+        await listDaPurchases(deps, {
+          filter: withoutNulls(args.filter),
+          sort: args.sort ?? null,
+          ...pageOf(args),
+        })
+      ),
     procurementDaPurchase: async (_root: unknown, args: { purchaseId: string }) =>
       unwrap(await getDaPurchase(deps, args.purchaseId)),
     procurementDaTotals: async (

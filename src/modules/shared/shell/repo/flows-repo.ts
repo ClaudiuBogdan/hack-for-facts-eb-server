@@ -18,7 +18,7 @@ import { filterHash } from '../../core/filters/derive.js';
 import { buildNextCursor, decodeCursor, type CursorPage } from '../../core/pagination.js';
 import { isPlaceholderName } from '../../core/usecases/organization-labels.js';
 
-import type { FlowListOptions, FlowsRepo } from '../../core/ports.js';
+import type { FlowListOptions, FlowReadOptions, FlowsRepo } from '../../core/ports.js';
 import type {
   Counterparty,
   CounterpartyNetwork,
@@ -54,9 +54,11 @@ export const makeFlowsRepo = (db: Db): FlowsRepo => ({
   async getFlowSummary(
     cui: string,
     direction: FlowDirection,
-    includeYearBreakdown = false
+    includeYearBreakdown = false,
+    options: FlowReadOptions = {}
   ): Promise<Result<FlowSummary, ApiError>> {
     const col = cuiColumnFor(direction);
+    const excluded = [...(options.excludeFlowTypes ?? [])];
     try {
       // The per-(year, flow_type) breakdown is an EXTRA aggregate over money_flows;
       // only run it when a caller needs it (Company.publicMoney). The entity-360 hot
@@ -71,6 +73,7 @@ export const makeFlowsRepo = (db: Db): FlowsRepo => ({
               sql<string>`coalesce(sum(amount_ron), 0)`.as('total'),
             ])
             .where(col, '=', cui)
+            .$if(excluded.length > 0, (q) => q.where('flow_type', 'not in', excluded))
             .groupBy(['flow_year', 'flow_type'])
             .orderBy(sql`flow_year desc nulls last`)
             .orderBy(sql`sum(amount_ron) desc nulls last`)
@@ -87,6 +90,7 @@ export const makeFlowsRepo = (db: Db): FlowsRepo => ({
             sql<number | null>`max(flow_year)`.as('max_year'),
           ])
           .where(col, '=', cui)
+          .$if(excluded.length > 0, (q) => q.where('flow_type', 'not in', excluded))
           .executeTakeFirst(),
         db
           .selectFrom('flows.money_flows')
@@ -96,6 +100,7 @@ export const makeFlowsRepo = (db: Db): FlowsRepo => ({
             sql<string>`coalesce(sum(amount_ron), 0)`.as('total'),
           ])
           .where(col, '=', cui)
+          .$if(excluded.length > 0, (q) => q.where('flow_type', 'not in', excluded))
           .groupBy('flow_type')
           .execute(),
         yearBreakdownQuery,
@@ -131,8 +136,10 @@ export const makeFlowsRepo = (db: Db): FlowsRepo => ({
   async getTopCounterparties(
     cui: string,
     direction: FlowDirection,
-    limit: number
+    limit: number,
+    options: FlowReadOptions = {}
   ): Promise<Result<readonly Counterparty[], ApiError>> {
+    const excluded = [...(options.excludeFlowTypes ?? [])];
     const self = cuiColumnFor(direction);
     const cp = self === 'payee_cui' ? 'payer_cui' : 'payee_cui';
     const cpName = cp === 'payer_cui' ? 'payer_name' : 'payee_name';
@@ -148,6 +155,7 @@ export const makeFlowsRepo = (db: Db): FlowsRepo => ({
         ])
         .where(self, '=', cui)
         .where(cp, 'is not', null)
+        .$if(excluded.length > 0, (q) => q.where('flow_type', 'not in', excluded))
         .groupBy(cp)
         .orderBy(sql`sum(amount_ron) desc nulls last`)
         .limit(cappedLimit)

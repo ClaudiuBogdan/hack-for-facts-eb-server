@@ -260,6 +260,13 @@ const purchaseSelect = (columns: Columns) => sql`
   ${privacyJoin(columns)}
   left join ${RULES} r on r.rule = p.value_review_rule`;
 
+/** The list orders; purchase_id breaks every tie, so pages never overlap. */
+const LIST_ORDER = {
+  finalizationDesc: sql`p.finalization_day desc nulls last, p.purchase_id desc`,
+  finalizationAsc: sql`p.finalization_day asc nulls last, p.purchase_id asc`,
+  countedValueDesc: sql`p.counted_value desc nulls last, p.purchase_id desc`,
+} as const;
+
 /** D6 in SQL, over supplier alias `s` and its `supplier_privacy` row `sv`: see `isNamedSupplier` in core. */
 const namedSupplier = (columns: Columns) =>
   columns.supplierPrivacy
@@ -451,7 +458,7 @@ const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
           await sql<PurchaseRow>`
             ${purchaseSelect(columns)}
             where ${where}
-            order by p.finalization_day desc nulls last, p.purchase_id desc
+            order by ${LIST_ORDER[query.sort]}
             limit ${Math.max(0, Math.min(query.pageSize, DA_LIST_MAX_DEPTH - offsetFor(query)))}
             offset ${offsetFor(query)}`.execute(trx)
         ).rows

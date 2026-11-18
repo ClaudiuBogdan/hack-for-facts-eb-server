@@ -34,6 +34,10 @@ import { makeDocumentRepo } from './shell/repo/document-repo.js';
 import { makeFlowsRepo } from './shell/repo/flows-repo.js';
 import { makeIdentityRepo } from './shell/repo/identity-repo.js';
 import { makeSearchRepo } from './shell/repo/search-repo.js';
+import {
+  makeSupplierDisclosureRepo,
+  withSupplierDisclosure,
+} from './shell/repo/supplier-disclosure-repo.js';
 import { makeTerritoryRepo } from './shell/repo/territory-repo.js';
 
 import type { SearchPolicy } from './core/filters/search-policy.js';
@@ -42,6 +46,7 @@ import type {
   ContributorRegistry,
   DocumentRepo,
   FlowsRepo,
+  SupplierDisclosurePort,
   IdentityRepo,
   LegalActByIdLoader,
   MeiliClient,
@@ -79,6 +84,12 @@ export interface KernelConfig {
   readonly meiliIndexes?: readonly string[];
   /** Optional structured logger for boot-time warnings (e.g. Meili host unset). */
   readonly logger?: Logger;
+  /**
+   * Site-wide D6 for direct-acquisition suppliers (PROCUREMENT_DA_V3_ENABLED):
+   * when true, every module names a DA supplier only when `supplier_privacy`
+   * says public, and withholds a non-public code's DA flows. Default false.
+   */
+  readonly supplierDisclosureEnforced?: boolean;
 }
 
 export interface KernelClients {
@@ -93,6 +104,8 @@ export interface Kernel {
   readonly identityRepo: IdentityRepo;
   readonly territoryRepo: TerritoryRepo;
   readonly flowsRepo: FlowsRepo;
+  /** Site-wide D6: the public DA supplier codes (see `SupplierDisclosurePort`). */
+  readonly supplierDisclosure: SupplierDisclosurePort;
   readonly searchRepo: SearchRepo;
   readonly documentRepo: DocumentRepo;
   readonly clients: KernelClients;
@@ -152,7 +165,11 @@ export const makeKernel = async (config: KernelConfig): Promise<Kernel> => {
 
   const identityRepo = makeIdentityRepo(db);
   const territoryRepo = makeTerritoryRepo(db);
-  const flowsRepo = makeFlowsRepo(db);
+  const supplierDisclosure = makeSupplierDisclosureRepo(
+    db,
+    config.supplierDisclosureEnforced === true
+  );
+  const flowsRepo = withSupplierDisclosure(makeFlowsRepo(db), supplierDisclosure);
   const searchRepo = makeSearchRepo(db);
   const documentRepo = makeDocumentRepo(db);
 
@@ -303,6 +320,7 @@ export const makeKernel = async (config: KernelConfig): Promise<Kernel> => {
     identityRepo,
     territoryRepo,
     flowsRepo,
+    supplierDisclosure,
     searchRepo,
     documentRepo,
     clients,

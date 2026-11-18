@@ -10,6 +10,7 @@
 
 import type {
   DaItemRecord,
+  DaListSort,
   DaOutcome,
   DaPurchaseRecord,
   DaTotalsDimension,
@@ -39,6 +40,7 @@ export interface DaPurchaseFilter {
 
 export interface DaPurchaseListQuery {
   readonly filter: DaPurchaseFilter;
+  readonly sort: DaListSort;
   readonly page: number;
   readonly pageSize: number;
 }
