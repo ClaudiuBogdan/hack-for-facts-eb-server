@@ -146,6 +146,17 @@ While the D6 switch is off, legacy DA parties carry `displayKind: null`. A fail-
 therefore shows no DA supplier name at all, companies included (acceptable for a short window on dev only).
 Production follows the same order.
 
+## Accepted residuals (root, 18 Nov)
+
+- **Echo across a publish.** A nightly publish that lands between echoing the caller's own scope (`canonicalScope`,
+  MCP `query.scope`) and the data read can echo that caller's own supplier code once. Root accepts this: the caller
+  supplied the code, so the echo tells them nothing new. The data itself is re-checked after the read.
+- **DA fact read failure.** If a procurement_v3 fact read fails after the release pointer has resolved, the whole
+  request fails instead of abstaining only the DA block. Root accepts this: it fails closed, as an error rather than
+  a leak. (A v3 publication that cannot be read at all abstains the DA grain only.)
+- **DA supplier rankings during a v3 rollback** are refused, not approximated (see above). The client shows them as
+  "unavailable", never as a blank or an error.
+
 ## Pending (data platform)
 
 - **Schema name:** `procurement_v3` is pending the owner's migration. It is named once, in `DA_RELEASE_SCHEMA`.
