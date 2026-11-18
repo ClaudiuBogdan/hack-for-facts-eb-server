@@ -48,6 +48,7 @@ import {
 } from '@/modules/shared/index.js';
 
 import {
+  DA_RELEASE_SCHEMA,
   daV3Table,
   namedSupplierSql,
   probeSupplierPrivacy,
@@ -80,6 +81,7 @@ type Sql = RawBuilder<unknown>;
 const PURCHASES = daV3Table('da_purchases');
 const PARTIES = daV3Table('da_parties');
 const RELEASE = daV3Table('da_release');
+const PRIVACY_TABLE = daV3Table('supplier_privacy');
 
 const STATEMENT_TIMEOUT_MS = 15_000;
 /** The once-per-publication quality measurement scans the whole table. */
@@ -131,7 +133,20 @@ interface Ctx {
   readonly trx: Db;
   /** supplier_privacy exists in this snapshot (else every supplier is withheld). */
   readonly privacy: boolean;
+  /** The rollup tables this login can read in this snapshot (absent: read live). */
+  readonly rollups: ReadonlySet<string>;
 }
+
+/** Which rollups exist and are readable: absent ones are read live, so nothing depends on them. */
+const probeRollups = async (trx: Db): Promise<ReadonlySet<string>> => {
+  const names = [...DA_V3_ROLLUPS.map((r) => r.table), 'da_rollup_distinct'];
+  const result = await sql<{ name: string }>`
+    select n as name from unnest(${names}::text[]) n
+    where coalesce(has_table_privilege(to_regclass(${`${DA_RELEASE_SCHEMA}.`} || n), 'SELECT'), false)`.execute(
+    trx
+  );
+  return new Set(result.rows.map((row) => row.name));
+};
 
 /** `data_as_of` in epoch microseconds: digits, so a client can pin it as a build. */
 const BUILD_ID_SQL = sql`(extract(epoch from max(data_as_of)) * 1000000)::bigint::text`;
@@ -156,16 +171,15 @@ const snapshot = async <T>(
           if (current.rows[0]?.build_id !== expectBuild) return err(REPUBLISHED());
         }
         const privacy = await probeSupplierPrivacy(trx);
-        return read({ trx, privacy });
+        const rollups = await probeRollups(trx);
+        return read({ trx, privacy, rollups });
       });
   } catch (error) {
     return err(readError(error));
   }
 };
 
-// ── scope compilation ────────────────────────────────────────────────────────
-
-const named = (ctx: Ctx): Sql => namedSupplierSql(ctx.privacy);
+// ── facts: live rows or a publish-time rollup ───────────────────────────────
 
 /** The buyer's attributed SIRUTA: administrative tier first, ONRC registered office second. */
 const BUYER_SIRUTA = sql`coalesce(pe.territorial_siruta_code, areg.selected_uat_siruta_code)`;
@@ -179,7 +193,69 @@ const GEO_JOIN = sql`
   left join core.territories t
     on t.territorial_siruta_code = ${BUYER_SIRUTA} and t.privacy_class = 'public'`;
 
-const fromSql = (ctx: Ctx, geo: boolean): Sql => sql`
+/** The key columns a rollup carries (beyond month). */
+type RollupKey = 'authority' | 'supplier' | 'cpv' | 'county';
+
+/**
+ * The publish-time rollups (procurement_v3, built by the data platform in the
+ * data_as_of transaction, so one snapshot sees facts and rollups of one
+ * publication). Each row holds purchases, counted_purchases, counted_value and
+ * symbolic_purchases for its keys and month (NULL month = undated); every
+ * purchase lands in exactly one row of each table, so every table sums to the
+ * whole release. Smallest first: a read uses the first that covers it.
+ */
+export const DA_V3_ROLLUPS: readonly {
+  readonly table: string;
+  readonly keys: readonly RollupKey[];
+}[] = [
+  { table: 'da_rollup_county_month', keys: ['county'] },
+  { table: 'da_rollup_cpv_month', keys: ['cpv'] },
+  { table: 'da_rollup_authority_month', keys: ['authority'] },
+  { table: 'da_rollup_county_cpv_month', keys: ['county', 'cpv'] },
+  { table: 'da_rollup_supplier_month', keys: ['supplier'] },
+  { table: 'da_rollup_supplier_cpv_month', keys: ['supplier', 'cpv'] },
+  { table: 'da_rollup_authority_supplier_month', keys: ['authority', 'supplier', 'county'] },
+];
+const DISTINCT_ROLLUP = 'da_rollup_distinct';
+/** supplier_key of every withheld supplier in the rollups (served as natural_person). */
+const ROLLUP_WITHHELD = 'withheld';
+
+/**
+ * One way of reading the facts. The live form counts purchase rows; a rollup
+ * form sums the measures of pre-aggregated rows. Every aggregate a read emits
+ * goes through these, so one compiler serves both and they cannot drift.
+ */
+interface Facts {
+  /** The rollup table, or null for the live purchase rows. */
+  readonly rollup: string | null;
+  readonly from: Sql;
+  /** The date column windows and buckets read (finalization_day, or the rollup month). */
+  readonly day: Sql;
+  /** Rows of the facts that exist (a rollup's zeroed rows never count). */
+  readonly base: Sql | null;
+  /** Purchases matching `pred`. */
+  rows(pred: Sql): Sql;
+  /** Counted purchases matching `pred`. */
+  counted(pred: Sql): Sql;
+  /** Σ counted value of counted purchases matching `pred` (NULL when none summed). */
+  money(pred: Sql): Sql;
+  readonly authority: Sql;
+  /** The supplier's key: public code, natural_person, or NULL (no supplier). */
+  readonly supplierKey: Sql;
+  /** True when the supplier is named under D6 (public in supplier_privacy). */
+  readonly supplierNamed: Sql;
+  readonly supplierCode: Sql;
+  /** The category code the CPV levels are cut from. */
+  readonly cpv: Sql;
+  readonly county: Sql;
+  readonly region: Sql;
+}
+
+const liveFacts = (ctx: Ctx, geo: boolean): Facts => {
+  const named = namedSupplierSql(ctx.privacy);
+  return {
+    rollup: null,
+    from: sql`
   from ${PURCHASES} p
   left join ${PARTIES} b
     on b.source_name = p.source_name and b.party_kind = 'buyer'
@@ -188,40 +264,81 @@ const fromSql = (ctx: Ctx, geo: boolean): Sql => sql`
     on s.source_name = p.source_name and s.party_kind = 'supplier'
    and s.portal_party_id = p.supplier_party_id
   ${supplierPrivacyJoin(ctx.privacy)}
-  ${geo ? GEO_JOIN : sql``}`;
+  ${geo ? GEO_JOIN : sql``}`,
+    day: sql`p.finalization_day`,
+    base: null,
+    rows: (pred) => sql`count(*) filter (where ${pred})`,
+    counted: (pred) => sql`count(*) filter (where ${pred} and p.counted)`,
+    money: (pred) => sql`sum(p.counted_value) filter (where ${pred} and p.counted)`,
+    authority: sql`case when b.fiscal_code_status = 'valid' then b.fiscal_code_clean end`,
+    supplierKey: sql`case when s.portal_party_id is null then null
+        when ${named} then s.fiscal_code_clean
+        else ${DA_V3_WITHHELD_SUPPLIER_KEY} end`,
+    supplierNamed: named,
+    supplierCode: sql`s.fiscal_code_clean`,
+    cpv: sql`p.category_code`,
+    county: sql`t.county_code`,
+    region: sql`t.region`,
+  };
+};
+
+const rollupFacts = (ctx: Ctx, table: string, keys: readonly RollupKey[]): Facts => {
+  const withSupplier = keys.includes('supplier');
+  // D6 again on read: the key was public at build; it must still be public here.
+  const named =
+    withSupplier && ctx.privacy
+      ? sql`(sv.public is true and r.supplier_key is not null and r.supplier_key <> ${ROLLUP_WITHHELD})`
+      : sql`false`;
+  return {
+    rollup: table,
+    from: sql`
+  from ${daV3Table(table)} r
+  ${withSupplier && ctx.privacy ? sql`left join ${PRIVACY_TABLE} sv on sv.fiscal_code_clean = r.supplier_key` : sql``}`,
+    day: sql`r.month`,
+    base: sql`r.purchases > 0`,
+    rows: (pred) => sql`coalesce(sum(r.purchases) filter (where ${pred}), 0)`,
+    counted: (pred) => sql`coalesce(sum(r.counted_purchases) filter (where ${pred}), 0)`,
+    money: (pred) => sql`sum(r.counted_value) filter (where ${pred} and r.counted_purchases > 0)`,
+    authority: sql`r.authority_cui`,
+    supplierKey: sql`case when r.supplier_key is null then null
+        when ${named} then r.supplier_key
+        else ${DA_V3_WITHHELD_SUPPLIER_KEY} end`,
+    supplierNamed: named,
+    supplierCode: sql`r.supplier_key`,
+    cpv: sql`r.cpv8`,
+    county: sql`r.county_code`,
+    region: sql`r.region`,
+  };
+};
 
 /** Breakdown/facet key per dimension; null = the unknown bucket. */
-const dimensionKey = (ctx: Ctx, dimension: string): Result<Sql, ApiError> => {
-  const cpv8 = sql`p.category_code ~ '^[0-9]{8}'`;
+const dimensionKey = (f: Facts, dimension: string): Result<Sql, ApiError> => {
+  const cpv8 = sql`${f.cpv} ~ '^[0-9]{8}'`;
+  const level = (digit: number, keep: number) =>
+    sql`case when ${cpv8} and substr(${f.cpv}, ${sql.lit(digit)}, 1) <> '0' then left(${f.cpv}, ${sql.lit(keep)}) || ${'0'.repeat(8 - keep)} end`;
   switch (dimension) {
     case 'authority':
-      return ok(sql`case when b.fiscal_code_status = 'valid' then b.fiscal_code_clean end`);
+      return ok(f.authority);
     case 'supplier':
-      return ok(sql`case when s.portal_party_id is null then null
-        when ${named(ctx)} then s.fiscal_code_clean
-        else ${DA_V3_WITHHELD_SUPPLIER_KEY} end`);
+      return ok(f.supplierKey);
     case 'cpvDivision':
-      return ok(sql`case when p.category_code ~ '^[0-9]{2}' then left(p.category_code, 2) end`);
+      return ok(sql`case when ${f.cpv} ~ '^[0-9]{2}' then left(${f.cpv}, 2) end`);
     case 'cpvGroup':
-      return ok(
-        sql`case when ${cpv8} and substr(p.category_code, 3, 1) <> '0' then left(p.category_code, 3) || '00000' end`
-      );
+      return ok(level(3, 3));
     case 'cpvClass':
-      return ok(
-        sql`case when ${cpv8} and substr(p.category_code, 4, 1) <> '0' then left(p.category_code, 4) || '0000' end`
-      );
+      return ok(level(4, 4));
     case 'cpvCategory':
-      return ok(
-        sql`case when ${cpv8} and substr(p.category_code, 5, 1) <> '0' then left(p.category_code, 5) || '000' end`
-      );
+      return ok(level(5, 5));
     case 'cpvCode':
-      return ok(sql`case when ${cpv8} then left(p.category_code, 8) end`);
+      return ok(sql`case when ${cpv8} then left(${f.cpv}, 8) end`);
     case 'buyerRegion':
-      return ok(sql`t.region`);
+      return ok(f.region);
     case 'buyerCounty':
-      return ok(sql`t.county_code`);
+      return ok(f.county);
     case 'buyerSiruta':
-      return ok(sql`t.territorial_siruta_code`);
+      return f.rollup === null
+        ? ok(sql`t.territorial_siruta_code`)
+        : err(databaseError('buyerSiruta has no rollup'));
     default:
       return err(
         invalidInput(
@@ -234,13 +351,67 @@ const dimensionKey = (ctx: Ctx, dimension: string): Result<Sql, ApiError> => {
 
 const GEO_DIMENSIONS = new Set(['buyerRegion', 'buyerCounty', 'buyerSiruta']);
 
+/** The rollup key a breakdown or distinct dimension needs (undefined: none can answer it). */
+const DIMENSION_KEY: Readonly<Record<string, RollupKey | null>> = {
+  authority: 'authority',
+  supplier: 'supplier',
+  cpvDivision: 'cpv',
+  cpvGroup: 'cpv',
+  cpvClass: 'cpv',
+  cpvCategory: 'cpv',
+  cpvCode: 'cpv',
+  buyerRegion: 'county',
+  buyerCounty: 'county',
+  buyerSiruta: null,
+};
+
+/**
+ * The smallest rollup in this snapshot that covers the scope and the dimension,
+ * or null (read live): SIRUTA scopes and value bounds have no rollup.
+ */
+const chooseRollup = (
+  ctx: Ctx,
+  scope: AnalysisScope,
+  dimension: string | undefined
+): { readonly table: string; readonly keys: readonly RollupKey[] } | null => {
+  if (
+    scope.buyerSiruta !== undefined ||
+    scope.valueMin !== undefined ||
+    scope.valueMax !== undefined
+  )
+    return null;
+  const needs = new Set<RollupKey>();
+  if (scope.authorityCui !== undefined) needs.add('authority');
+  if (scope.supplierCui !== undefined) needs.add('supplier');
+  if (
+    scope.cpvDivision !== undefined ||
+    scope.cpvGroup !== undefined ||
+    scope.cpvClass !== undefined ||
+    scope.cpvCategory !== undefined ||
+    scope.cpvCode !== undefined
+  )
+    needs.add('cpv');
+  if (scope.buyerRegion !== undefined || scope.buyerCounty !== undefined) needs.add('county');
+  if (dimension !== undefined) {
+    const key = DIMENSION_KEY[dimension];
+    if (key === undefined || key === null) return null;
+    needs.add(key);
+  }
+  return (
+    DA_V3_ROLLUPS.find(
+      (rollup) =>
+        ctx.rollups.has(rollup.table) && [...needs].every((key) => rollup.keys.includes(key))
+    ) ?? null
+  );
+};
+
 interface Compiled {
+  readonly facts: Facts;
   /** Rows of the scope: dims AND (dated window OR undated). */
   readonly where: Sql;
   /** Rows that feed the dated (period) aggregates. */
   readonly dated: Sql;
   readonly bounded: boolean;
-  readonly geo: boolean;
 }
 
 /** Scope fields this source refuses outright (routing refuses them first). */
@@ -261,37 +432,54 @@ const CPV_PREFIXES = [
   ['cpvCategory', 5],
 ] as const;
 
+/** The scope's window over a date column (both bounds month-aligned). */
+const windowOn = (day: Sql, scope: AnalysisScope): { dated: Sql; bounded: boolean } => {
+  const bounds: Sql[] = [];
+  if (scope.year !== undefined) {
+    bounds.push(sql`${day} >= ${`${String(scope.year)}-01-01`}::date`);
+    bounds.push(sql`${day} < ${`${String(scope.year + 1)}-01-01`}::date`);
+  } else {
+    if (scope.from !== undefined) bounds.push(sql`${day} >= ${`${scope.from}-01`}::date`);
+    if (scope.to !== undefined)
+      bounds.push(sql`${day} < (${`${scope.to}-01`}::date + interval '1 month')`);
+  }
+  return bounds.length > 0
+    ? { dated: sql`(${day} is not null and ${sql.join(bounds, sql` and `)})`, bounded: true }
+    : { dated: sql`true`, bounded: false };
+};
+
+/**
+ * Compile a scope over the facts that answer it: the smallest covering rollup,
+ * or the live rows (`live` forces them: records list purchases).
+ */
 const compile = (
   ctx: Ctx,
   scope: AnalysisScope,
-  dimension?: string
+  dimension?: string,
+  live = false
 ): Result<Compiled, ApiError> => {
   for (const [field, message] of REFUSED_SCOPE)
     if (scope[field] !== undefined) return err(invalidInput(message, field));
-  const conds: Sql[] = [];
-  if (scope.authorityCui !== undefined)
-    conds.push(sql`b.fiscal_code_clean = ${scope.authorityCui} and b.fiscal_code_status = 'valid'`);
+  const rollup = live ? null : chooseRollup(ctx, scope, dimension);
+  const geo =
+    (dimension !== undefined && GEO_DIMENSIONS.has(dimension)) ||
+    scope.buyerRegion !== undefined ||
+    scope.buyerCounty !== undefined ||
+    scope.buyerSiruta !== undefined;
+  const f = rollup === null ? liveFacts(ctx, geo) : rollupFacts(ctx, rollup.table, rollup.keys);
+  const conds: Sql[] = f.base === null ? [] : [f.base];
+  if (scope.authorityCui !== undefined) conds.push(sql`${f.authority} = ${scope.authorityCui}`);
   if (scope.supplierCui !== undefined)
-    conds.push(sql`s.fiscal_code_clean = ${scope.supplierCui} and ${named(ctx)}`);
-  if (scope.cpvDivision !== undefined)
-    conds.push(sql`left(p.category_code, 2) = ${scope.cpvDivision}`);
+    conds.push(sql`${f.supplierCode} = ${scope.supplierCui} and ${f.supplierNamed}`);
+  if (scope.cpvDivision !== undefined) conds.push(sql`left(${f.cpv}, 2) = ${scope.cpvDivision}`);
   for (const [field, length] of CPV_PREFIXES) {
     const value = scope[field];
-    if (value !== undefined)
-      conds.push(sql`left(p.category_code, ${length}) = ${value.slice(0, length)}`);
+    if (value !== undefined) conds.push(sql`left(${f.cpv}, ${length}) = ${value.slice(0, length)}`);
   }
-  if (scope.cpvCode !== undefined) conds.push(sql`left(p.category_code, 8) = ${scope.cpvCode}`);
-  let geo = dimension !== undefined && GEO_DIMENSIONS.has(dimension);
-  if (scope.buyerRegion !== undefined) {
-    geo = true;
-    conds.push(sql`t.region = ${scope.buyerRegion}`);
-  }
-  if (scope.buyerCounty !== undefined) {
-    geo = true;
-    conds.push(sql`t.county_code = ${scope.buyerCounty}`);
-  }
+  if (scope.cpvCode !== undefined) conds.push(sql`left(${f.cpv}, 8) = ${scope.cpvCode}`);
+  if (scope.buyerRegion !== undefined) conds.push(sql`${f.region} = ${scope.buyerRegion}`);
+  if (scope.buyerCounty !== undefined) conds.push(sql`${f.county} = ${scope.buyerCounty}`);
   if (scope.buyerSiruta !== undefined) {
-    geo = true;
     // SIRUTA codes are digits; anything else can never match.
     conds.push(
       /^\d{1,7}$/u.test(scope.buyerSiruta)
@@ -299,7 +487,7 @@ const compile = (
         : sql`false`
     );
   }
-  // Value bounds restrict the rows to counted purchases whose counted value is in range.
+  // Value bounds restrict the rows to counted purchases whose counted value is in range (live only).
   if (scope.valueMin !== undefined || scope.valueMax !== undefined) {
     conds.push(sql`p.counted`);
     if (scope.valueMin !== undefined)
@@ -307,34 +495,19 @@ const compile = (
     if (scope.valueMax !== undefined)
       conds.push(sql`p.counted_value <= ${String(scope.valueMax)}::numeric`);
   }
-  const bounds: Sql[] = [];
-  if (scope.year !== undefined) {
-    bounds.push(sql`p.finalization_day >= ${`${String(scope.year)}-01-01`}::date`);
-    bounds.push(sql`p.finalization_day < ${`${String(scope.year + 1)}-01-01`}::date`);
-  } else {
-    if (scope.from !== undefined)
-      bounds.push(sql`p.finalization_day >= ${`${scope.from}-01`}::date`);
-    if (scope.to !== undefined)
-      bounds.push(sql`p.finalization_day < (${`${scope.to}-01`}::date + interval '1 month')`);
-  }
-  const bounded = bounds.length > 0;
-  const dated = bounded
-    ? sql`(p.finalization_day is not null and ${sql.join(bounds, sql` and `)})`
-    : sql`true`;
-  conds.push(sql`(${dated} or p.finalization_day is null)`);
-  return ok({ where: sql.join(conds, sql` and `), dated, bounded, geo });
+  const { dated, bounded } = windowOn(f.day, scope);
+  conds.push(sql`(${dated} or ${f.day} is null)`);
+  return ok({ facts: f, where: sql.join(conds, sql` and `), dated, bounded });
 };
 
 // ── shared aggregates ────────────────────────────────────────────────────────
 
 /**
  * Σ counted value over `pred`, NULL when no counted row matches (the null law).
- * Exact: counted_value is unconstrained numeric, so nothing is rounded before it is
- * summed or compared (rounding per bucket made series, stats and remainders disagree).
+ * Exact: no rounding before anything is summed or compared.
  */
-const countedSum = (pred: Sql): Sql =>
-  sql`case when count(*) filter (where ${pred} and p.counted) = 0 then null
-    else (sum(p.counted_value) filter (where ${pred} and p.counted))::text end`;
+const countedSum = (f: Facts, pred: Sql): Sql =>
+  sql`case when ${f.counted(pred)} = 0 then null else (${f.money(pred)})::text end`;
 
 interface StatsRow {
   rows: string;
@@ -346,14 +519,19 @@ interface StatsRow {
   undated_value: string | null;
 }
 
-const statsSelect = (c: Compiled): Sql => sql`
-  count(*) filter (where ${c.dated})::text as rows,
-  count(*) filter (where ${c.dated} and p.counted)::text as with_value,
-  ${countedSum(c.dated)} as awarded,
-  to_char(min(p.finalization_day) filter (where ${c.dated} and p.finalization_day is not null), 'YYYY-MM') as min_month,
-  to_char(max(p.finalization_day) filter (where ${c.dated} and p.finalization_day is not null), 'YYYY-MM') as max_month,
-  count(*) filter (where p.finalization_day is null)::text as undated_count,
-  ${countedSum(sql`p.finalization_day is null`)} as undated_value`;
+const statsSelect = (c: Compiled): Sql => {
+  const f = c.facts;
+  const dayKnown = sql`${c.dated} and ${f.day} is not null`;
+  const undated = sql`${f.day} is null`;
+  return sql`
+  (${f.rows(c.dated)})::text as rows,
+  (${f.counted(c.dated)})::text as with_value,
+  ${countedSum(f, c.dated)} as awarded,
+  to_char(min(${f.day}) filter (where ${dayKnown}), 'YYYY-MM') as min_month,
+  to_char(max(${f.day}) filter (where ${dayKnown}), 'YYYY-MM') as max_month,
+  (${f.rows(undated)})::text as undated_count,
+  ${countedSum(f, undated)} as undated_value`;
+};
 
 const toStats = (row: StatsRow | undefined): AnalysisStatsRead => ({
   rows: row?.rows ?? '0',
@@ -373,22 +551,22 @@ const toStats = (row: StatsRow | undefined): AnalysisStatsRead => ({
 
 const readStats = async (ctx: Ctx, c: Compiled): Promise<AnalysisStatsRead> => {
   const result = await sql<StatsRow>`
-    select ${statsSelect(c)} ${fromSql(ctx, c.geo)} where ${c.where}`.execute(ctx.trx);
+    select ${statsSelect(c)} ${c.facts.from} where ${c.where}`.execute(ctx.trx);
   return toStats(result.rows[0]);
 };
 
-const BUCKET_SQL: Record<SeriesBucket, Sql> = {
-  month: sql`to_char(p.finalization_day, 'YYYY-MM')`,
-  quarter: sql`to_char(p.finalization_day, 'YYYY') || '-Q' || extract(quarter from p.finalization_day)::int::text`,
-  year: sql`to_char(p.finalization_day, 'YYYY')`,
-};
+const bucketOf = (day: Sql, bucket: SeriesBucket): Sql =>
+  ({
+    month: sql`to_char(${day}, 'YYYY-MM')`,
+    quarter: sql`to_char(${day}, 'YYYY') || '-Q' || extract(quarter from ${day})::int::text`,
+    year: sql`to_char(${day}, 'YYYY')`,
+  })[bucket];
 
 const datedHaving = (c: Compiled): Sql =>
-  c.bounded ? sql`having count(*) filter (where ${c.dated}) > 0` : sql``;
+  c.bounded ? sql`having ${c.facts.rows(c.dated)} > 0` : sql``;
 
 /** A bucket's counted money, exact; '0.00' when none (the ClickHouse bucket convention). */
-const bucketSum = (pred: Sql): Sql =>
-  sql`coalesce((sum(p.counted_value) filter (where ${pred} and p.counted))::text, '0.00')`;
+const bucketSum = (f: Facts, pred: Sql): Sql => sql`coalesce((${f.money(pred)})::text, '0.00')`;
 
 /** Exact decimal text for the breakdown's `other` remainder: totals − top − unknown. */
 const minus = (total: string | null, parts: readonly string[]): string =>
@@ -396,6 +574,76 @@ const minus = (total: string | null, parts: readonly string[]): string =>
 
 const UNFILTERED = (scope: AnalysisScope): boolean =>
   scope.authorityCui === undefined && scope.supplierCui === undefined;
+
+/** The scope selects nothing but a window: the whole release. */
+const windowOnly = (scope: AnalysisScope): boolean =>
+  scope.authorityCui === undefined &&
+  scope.supplierCui === undefined &&
+  scope.cpvDivision === undefined &&
+  scope.cpvGroup === undefined &&
+  scope.cpvClass === undefined &&
+  scope.cpvCategory === undefined &&
+  scope.cpvCode === undefined &&
+  scope.buyerRegion === undefined &&
+  scope.buyerCounty === undefined &&
+  scope.buyerSiruta === undefined &&
+  scope.valueMin === undefined &&
+  scope.valueMax === undefined;
+
+/** The window lines up with whole buckets (a month window cannot use a year's distinct count). */
+const windowAligned = (scope: AnalysisScope, bucket: SeriesBucket): boolean => {
+  if (bucket === 'month' || scope.year !== undefined) return true;
+  if (bucket !== 'year') return false;
+  return (
+    (scope.from === undefined || scope.from.endsWith('-01')) &&
+    (scope.to === undefined || scope.to.endsWith('-12'))
+  );
+};
+
+/** The quality columns the data platform computes into da_release at publish. */
+interface QualityRow {
+  total: string;
+  dated: string;
+  counted: string;
+  accepted: string;
+  with_cpv: string;
+  with_geo: string;
+  money: string | null;
+  money_dated: string | null;
+  money_geo: string | null;
+}
+
+const QUALITY_COLUMNS = [
+  'rows',
+  'dated',
+  'counted',
+  'accepted',
+  'with_cpv',
+  'with_geo',
+  'money',
+  'money_dated',
+  'money_geo',
+] as const;
+
+/**
+ * The publication's quality figures from da_release when the platform computes
+ * them at publish (all nine columns readable); null: measure them live.
+ */
+const readPublishedQuality = async (ctx: Ctx): Promise<{ rows: QualityRow[] } | null> => {
+  const present = await sql<{ n: string }>`
+    select count(*)::text as n from pg_attribute
+    where attrelid = to_regclass(${`${DA_RELEASE_SCHEMA}.da_release`})
+      and attname = any(${[...QUALITY_COLUMNS]}::text[]) and not attisdropped
+      and has_column_privilege(attrelid, attname, 'SELECT')`.execute(ctx.trx);
+  if (Number(present.rows[0]?.n ?? '0') !== QUALITY_COLUMNS.length) return null;
+  const result = await sql<QualityRow>`
+    select r.rows::text as total, r.dated::text as dated, r.counted::text as counted,
+           r.accepted::text as accepted, r.with_cpv::text as with_cpv, r.with_geo::text as with_geo,
+           r.money::text as money, r.money_dated::text as money_dated, r.money_geo::text as money_geo
+    from ${RELEASE} r
+    where r.data_as_of = (select max(data_as_of) from ${RELEASE})`.execute(ctx.trx);
+  return result.rows.length === 1 ? { rows: result.rows } : null;
+};
 
 // ── the source ───────────────────────────────────────────────────────────────
 
@@ -469,17 +717,20 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
     const known = qualityByBuild.get(build);
     if (known !== undefined) return known;
     const promise = snapshot(db, QUALITY_TIMEOUT_MS, build, async (ctx) => {
-      const result = await sql<{
-        total: string;
-        dated: string;
-        counted: string;
-        accepted: string;
-        with_cpv: string;
-        with_geo: string;
-        money: string | null;
-        money_dated: string | null;
-        money_geo: string | null;
-      }>`
+      const precomputed = await readPublishedQuality(ctx);
+      const result =
+        precomputed ??
+        (await sql<{
+          total: string;
+          dated: string;
+          counted: string;
+          accepted: string;
+          with_cpv: string;
+          with_geo: string;
+          money: string | null;
+          money_dated: string | null;
+          money_geo: string | null;
+        }>`
         with per_buyer as (
           select p.source_name, p.buyer_party_id,
                  count(*) as n,
@@ -502,7 +753,7 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
         left join ${PARTIES} b
           on b.source_name = pb.source_name and b.party_kind = 'buyer'
          and b.portal_party_id = pb.buyer_party_id
-        ${GEO_JOIN}`.execute(ctx.trx);
+        ${GEO_JOIN}`.execute(ctx.trx));
       const row = result.rows[0];
       const total = new Decimal(row?.total ?? '0');
       const ratio = (part: string | null | undefined, whole: Decimal): number =>
@@ -584,11 +835,12 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
       snapshot(db, STATEMENT_TIMEOUT_MS, gen.buildId, async (ctx) => {
         const c = compile(ctx, scope);
         if (c.isErr()) return err(c.error);
-        const dated = sql`p.finalization_day is not null`;
+        const f = c.value.facts;
+        const dated = sql`${f.day} is not null`;
         const valueOf: Partial<Record<MeasureId, Sql>> = {
-          recordCount: sql`count(*) filter (where ${dated})::text`,
-          withValueCount: sql`count(*) filter (where ${dated} and p.counted)::text`,
-          valueAwardedSum: countedSum(dated),
+          recordCount: sql`(${f.rows(dated)})::text`,
+          withValueCount: sql`(${f.counted(dated)})::text`,
+          valueAwardedSum: countedSum(f, dated),
         };
         const value = valueOf[measure];
         if (value === undefined)
@@ -605,12 +857,12 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
           with_value: string;
           awarded: string | null;
         }>`
-          select to_char(p.finalization_day, 'YYYY-MM') as month,
+          select ${bucketOf(f.day, 'month')} as month,
                  ${value} as value,
-                 count(*)::text as record_count,
-                 count(*) filter (where p.counted)::text as with_value,
-                 ${countedSum(sql`true`)} as awarded
-          ${fromSql(ctx, c.value.geo)}
+                 (${f.rows(sql`true`)})::text as record_count,
+                 (${f.counted(sql`true`)})::text as with_value,
+                 ${countedSum(f, sql`true`)} as awarded
+          ${f.from}
           where ${c.value.where}
           group by 1
           order by 1 asc nulls last`.execute(ctx.trx);
@@ -626,6 +878,59 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
       })
     );
 
+  /**
+   * The whole release's distinct counts per month or year, from the publish-time
+   * distinct rollup: every withheld supplier is one supplier (as live), so the
+   * supplier count is the public suppliers plus one when any is withheld. The
+   * per-bucket counts and money come from the smallest rollup.
+   */
+  const distinctFromRollup = async (
+    ctx: Ctx,
+    c: Compiled,
+    scope: AnalysisScope,
+    key: 'authority' | 'supplier',
+    bucket: 'month' | 'year'
+  ) => {
+    const day = sql`d.bucket`;
+    const value =
+      key === 'authority'
+        ? sql`d.distinct_authorities`
+        : ctx.privacy
+          ? sql`d.distinct_public_suppliers + case when d.has_withheld then 1 else 0 end`
+          : // Unreadable privacy: every supplier is withheld, so at most one.
+            sql`case when d.distinct_public_suppliers > 0 or d.has_withheld then 1 else 0 end`;
+    const counts = await sql<{
+      bucket: string | null;
+      record_count: string;
+      with_value: string;
+      awarded: string | null;
+    }>`
+      select ${bucketOf(c.facts.day, bucket)} as bucket,
+             (${c.facts.rows(sql`true`)})::text as record_count,
+             (${c.facts.counted(sql`true`)})::text as with_value,
+             ${countedSum(c.facts, sql`true`)} as awarded
+      ${c.facts.from}
+      where ${c.where}
+      group by 1`.execute(ctx.trx);
+    const distinct = await sql<{ bucket: string; value: string }>`
+      select ${bucketOf(day, bucket)} as bucket, (${value})::text as value
+      from ${daV3Table(DISTINCT_ROLLUP)} d
+      where d.bucket_kind = ${bucket} and ${windowOn(day, scope).dated}`.execute(ctx.trx);
+    const byBucket = new Map(distinct.rows.map((row) => [row.bucket, row.value]));
+    return counts.rows
+      .map((row) => ({
+        bucket: row.bucket,
+        // The undated bucket's distinct count is never served (only its counts are).
+        value: row.bucket === null ? '0' : (byBucket.get(row.bucket) ?? '0'),
+        recordCount: row.record_count,
+        withValue: row.with_value,
+        valueAwardedSum: row.awarded,
+      }))
+      .sort((a, b) =>
+        a.bucket === null ? 1 : b.bucket === null ? -1 : a.bucket.localeCompare(b.bucket)
+      );
+  };
+
   const distinctSeriesFor: DaV3AnalysisSource['distinctSeriesFor'] = (
     _route,
     scope,
@@ -635,9 +940,22 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
   ) =>
     cached(gen.buildId, scope, ['distinct', key, bucket], () =>
       snapshot(db, STATEMENT_TIMEOUT_MS, gen.buildId, async (ctx) => {
-        const c = compile(ctx, scope);
+        const dimension = key === 'supplier' ? 'supplier' : 'authority';
+        if (
+          bucket !== 'quarter' &&
+          windowOnly(scope) &&
+          windowAligned(scope, bucket) &&
+          ctx.rollups.has(DISTINCT_ROLLUP)
+        ) {
+          const whole = compile(ctx, scope);
+          if (whole.isErr()) return err(whole.error);
+          if (whole.value.facts.rollup !== null)
+            return ok(await distinctFromRollup(ctx, whole.value, scope, dimension, bucket));
+        }
+        const c = compile(ctx, scope, dimension);
         if (c.isErr()) return err(c.error);
-        const keyExpr = dimensionKey(ctx, key === 'supplier' ? 'supplier' : 'authority');
+        const f = c.value.facts;
+        const keyExpr = dimensionKey(f, dimension);
         if (keyExpr.isErr()) return err(keyExpr.error);
         const result = await sql<{
           bucket: string | null;
@@ -646,12 +964,12 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
           with_value: string;
           awarded: string | null;
         }>`
-          select ${BUCKET_SQL[bucket]} as bucket,
+          select ${bucketOf(f.day, bucket)} as bucket,
                  count(distinct ${keyExpr.value})::text as value,
-                 count(*)::text as record_count,
-                 count(*) filter (where p.counted)::text as with_value,
-                 ${countedSum(sql`true`)} as awarded
-          ${fromSql(ctx, c.value.geo)}
+                 (${f.rows(sql`true`)})::text as record_count,
+                 (${f.counted(sql`true`)})::text as with_value,
+                 ${countedSum(f, sql`true`)} as awarded
+          ${f.from}
           where ${c.value.where}
           group by 1
           order by 1 asc nulls last`.execute(ctx.trx);
@@ -679,32 +997,29 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
       snapshot(db, STATEMENT_TIMEOUT_MS, gen.buildId, async (ctx) => {
         const c = compile(ctx, scope, dimension);
         if (c.isErr()) return err(c.error);
-        const keyR = dimensionKey(ctx, dimension);
+        const f = c.value.facts;
+        const keyR = dimensionKey(f, dimension);
         if (keyR.isErr()) return err(keyR.error);
         const key = keyR.value;
         const totals = await readStats(ctx, c.value);
-        const from = fromSql(ctx, c.value.geo);
         const { dated, where } = c.value;
         const unknownR = await sql<{ cnt: string; wv: string; awarded: string }>`
-          select count(*) filter (where ${dated})::text as cnt,
-                 count(*) filter (where ${dated} and p.counted)::text as wv,
-                 ${bucketSum(dated)} as awarded
-          ${from}
+          select (${f.rows(dated)})::text as cnt,
+                 (${f.counted(dated)})::text as wv,
+                 ${bucketSum(f, dated)} as awarded
+          ${f.from}
           where ${where} and (${key}) is null`.execute(ctx.trx);
         const unknown = unknownR.rows[0] ?? { cnt: '0', wv: '0', awarded: '0.00' };
         const valueBearing = BigInt(totals.withValue) - BigInt(unknown.wv);
         const rankedBy: 'value' | 'count' =
           rankBy === 'value' && valueBearing > 0n ? 'value' : 'count';
-        const rank =
-          rankedBy === 'value'
-            ? sql`coalesce(sum(p.counted_value) filter (where ${dated} and p.counted), 0)`
-            : sql`count(*) filter (where ${dated})`;
+        const rank = rankedBy === 'value' ? sql`coalesce(${f.money(dated)}, 0)` : f.rows(dated);
         const top = await sql<{ key: string; cnt: string; wv: string; awarded: string }>`
           select ${key} as key,
-                 count(*) filter (where ${dated})::text as cnt,
-                 count(*) filter (where ${dated} and p.counted)::text as wv,
-                 ${bucketSum(dated)} as awarded
-          ${from}
+                 (${f.rows(dated)})::text as cnt,
+                 (${f.counted(dated)})::text as wv,
+                 ${bucketSum(f, dated)} as awarded
+          ${f.from}
           where ${where} and (${key}) is not null
           group by 1
           ${datedHaving(c.value)}
@@ -750,14 +1065,12 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
       snapshot(db, STATEMENT_TIMEOUT_MS, gen.buildId, async (ctx) => {
         const c = compile(ctx, scope, 'supplier');
         if (c.isErr()) return err(c.error);
-        const keyR = dimensionKey(ctx, 'supplier');
+        const f = c.value.facts;
+        const keyR = dimensionKey(f, 'supplier');
         if (keyR.isErr()) return err(keyR.error);
         const totals = await readStats(ctx, c.value);
         const { dated, where } = c.value;
-        const measure =
-          basis === 'value'
-            ? sql`coalesce(sum(p.counted_value) filter (where ${dated} and p.counted), 0)`
-            : sql`count(*) filter (where ${dated})`;
+        const measure = basis === 'value' ? sql`coalesce(${f.money(dated)}, 0)` : f.rows(dated);
         // Exact: no rounding before core computes shares and HHI.
         const fmt = (x: Sql) => sql`coalesce(${x}, 0)::text`;
         const result = await sql<{
@@ -771,7 +1084,7 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
         }>`
           with g as (
             select ${keyR.value} as key, ${measure} as m
-            ${fromSql(ctx, c.value.geo)}
+            ${f.from}
             where ${where}
             group by 1
             ${datedHaving(c.value)}
@@ -805,8 +1118,11 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
 
   const recordsFor: DaV3AnalysisSource['recordsFor'] = (_route, scope, gen, page) =>
     snapshot(db, STATEMENT_TIMEOUT_MS, gen.buildId, async (ctx) => {
-      const c = compile(ctx, scope);
+      // The page lists purchases (live rows); its total is a count (a rollup when one covers it).
+      const c = compile(ctx, scope, undefined, true);
       if (c.isErr()) return err(c.error);
+      const counting = compile(ctx, scope);
+      if (counting.isErr()) return err(counting.error);
       const money = sql`case when p.counted then p.counted_value end`;
       const order: Record<typeof page.sort, Sql> = {
         date_desc: sql`p.finalization_day is null asc, p.finalization_day desc, p.purchase_id desc`,
@@ -815,8 +1131,8 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
         value_asc: sql`${money} asc nulls last, p.purchase_id asc`,
       };
       const where = sql`${c.value.where} and ${c.value.dated}`;
-      const from = fromSql(ctx, c.value.geo);
-      const isNamed = named(ctx);
+      const from = c.value.facts.from;
+      const isNamed = c.value.facts.supplierNamed;
       const rows = await sql<{
         id: string;
         date: string | null;
@@ -846,8 +1162,11 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
         where ${where}
         order by ${order[page.sort]}
         limit ${page.limit} offset ${page.offset}`.execute(ctx.trx);
+      const t = counting.value;
       const total = await sql<{ total: string }>`
-        select count(*)::text as total ${from} where ${where}`.execute(ctx.trx);
+        select (${t.facts.rows(t.dated)})::text as total ${t.facts.from} where ${t.where}`.execute(
+        ctx.trx
+      );
       return ok({
         total: total.rows[0]?.total ?? '0',
         rows: rows.rows.map((row): AnalysisRecordRow => ({

@@ -315,3 +315,308 @@ describe('with supplier_privacy', () => {
     expect(moved._unsafeUnwrapErr().type).toBe('ServiceUnavailable');
   });
 });
+
+/**
+ * The publish-time rollups answer exactly as the live rows do. A reference
+ * build (the data platform's rules, agreed 18 Nov) runs over a varied seed; a
+ * battery of reads runs live first, then over the rollups through a fresh
+ * source, and every answer must be identical.
+ */
+describe('rollups answer exactly as the live rows', () => {
+  const ROLLUP_BASE = `
+    create table procurement_v3.f_rollup_base as
+    select case when b.fiscal_code_status = 'valid' then b.fiscal_code_clean end as authority_cui,
+           case when s.portal_party_id is null then null
+                when sv.public is true and s.fiscal_code_status = 'valid' and s.fiscal_code_clean is not null
+                  then s.fiscal_code_clean
+                else 'withheld' end as supplier_key,
+           case when p.category_code ~ '^[0-9]{2}' then left(p.category_code, 8) end as cpv8,
+           t.county_code, t.region,
+           date_trunc('month', p.finalization_day)::date as month,
+           p.counted, p.counted_value, p.symbolic_price
+    from procurement_v3.da_purchases p
+    left join procurement_v3.da_parties b
+      on b.source_name = p.source_name and b.party_kind = 'buyer' and b.portal_party_id = p.buyer_party_id
+    left join procurement_v3.da_parties s
+      on s.source_name = p.source_name and s.party_kind = 'supplier' and s.portal_party_id = p.supplier_party_id
+    left join procurement_v3.supplier_privacy sv on sv.fiscal_code_clean = s.fiscal_code_clean
+    left join core.public_entities pe
+      on pe.cui = b.fiscal_code_clean and b.fiscal_code_status = 'valid'
+    left join companies_v2.registrations areg
+      on areg.cui = b.fiscal_code_clean and b.fiscal_code_status = 'valid'
+     and pe.territorial_siruta_code is null
+    left join core.territories t
+      on t.territorial_siruta_code = coalesce(pe.territorial_siruta_code, areg.selected_uat_siruta_code)
+     and t.privacy_class = 'public'`;
+  const MEASURES = `count(*) as purchases, count(*) filter (where counted) as counted_purchases,
+    coalesce(sum(counted_value) filter (where counted), 0)::numeric(20,2) as counted_value,
+    count(*) filter (where symbolic_price) as symbolic_purchases`;
+  const TABLES: readonly (readonly [string, string])[] = [
+    ['da_rollup_authority_month', 'authority_cui'],
+    ['da_rollup_supplier_month', 'supplier_key'],
+    ['da_rollup_cpv_month', 'cpv8'],
+    ['da_rollup_county_month', 'county_code, region'],
+    ['da_rollup_authority_supplier_month', 'authority_cui, supplier_key, county_code, region'],
+    ['da_rollup_supplier_cpv_month', 'supplier_key, cpv8'],
+    ['da_rollup_county_cpv_month', 'county_code, region, cpv8'],
+  ];
+
+  const seed = async (trx: Kysely<ProdDatabase>): Promise<void> => {
+    for (const [id, code, status] of [
+      ['rb1', '1000001', 'valid'],
+      ['rb2', '1000002', 'valid'],
+      ['rb3', '1000003', 'valid'],
+      ['rb4', '1000004', 'invalid'],
+    ] as const)
+      await sql`insert into procurement_v3.da_parties values (${SOURCE}, 'buyer', ${id}, ${code}, ${status}, 'B')`.execute(
+        trx
+      );
+    await sql`insert into procurement_v3.da_parties values (${SOURCE}, 'supplier', 'rc2', '2000002', 'valid', 'C2')`.execute(
+      trx
+    );
+    await sql`insert into procurement_v3.supplier_privacy (fiscal_code_clean, public) values ('2000002', true)`.execute(
+      trx
+    );
+    await sql`insert into core.public_entities values ('1000001', '777')`.execute(trx);
+    await sql`insert into companies_v2.registrations values ('1000002', '777')`.execute(trx);
+    await sql`insert into core.territories (territorial_siruta_code, county_code, region)
+      values ('777', 'AB', 'Centru')`.execute(trx);
+    await sql`
+      insert into procurement_v3.da_purchases
+        (purchase_id, source_name, outcome, finalization_day, counted, counted_value, symbolic_price,
+         category_code, buyer_party_id, supplier_party_id)
+      select 'x' || g, ${SOURCE}, case when g % 7 = 0 then 'refused' else 'accepted' end,
+             case when g % 13 = 0 then null else date '2023-01-01' + ((g * 11) % 1095) end,
+             g % 5 <> 0, case when g % 5 <> 0 then ((g * 37) % 1000)::numeric + 0.25 end, g % 17 = 0,
+             (array['44110000-4', '44111000-1', '45200000-9', '03100000-2', '4', 'X1234', null])[1 + g % 7],
+             (array['rb1', 'rb2', 'rb3', 'rb4', ${BUYER.portalPartyId}])[1 + g % 5],
+             (array[${COMPANY.portalPartyId}, 'rc2', ${SOLE_TRADER.portalPartyId}, null])[1 + g % 4]
+      from generate_series(1, 400) g`.execute(trx);
+  };
+
+  const buildRollups = async (trx: Kysely<ProdDatabase>): Promise<void> => {
+    await sql.raw(ROLLUP_BASE).execute(trx);
+    for (const [table, keys] of TABLES)
+      await sql
+        .raw(
+          `create table procurement_v3.${table} as select ${keys}, month, ${MEASURES}
+           from procurement_v3.f_rollup_base group by ${keys}, month`
+        )
+        .execute(trx);
+    await sql
+      .raw(
+        `create table procurement_v3.da_rollup_distinct as
+         select kind as bucket_kind, bucket,
+                count(distinct authority_cui) as distinct_authorities,
+                count(distinct supplier_key) filter (where supplier_key <> 'withheld') as distinct_public_suppliers,
+                coalesce(bool_or(supplier_key = 'withheld'), false) as has_withheld
+         from (select 'month' as kind, month as bucket, authority_cui, supplier_key
+                 from procurement_v3.f_rollup_base where month is not null
+               union all
+               select 'year', date_trunc('year', month)::date, authority_cui, supplier_key
+                 from procurement_v3.f_rollup_base where month is not null) x
+         group by 1, 2`
+      )
+      .execute(trx);
+  };
+
+  const COUNTED_SCOPES: readonly Record<string, unknown>[] = [
+    {},
+    { year: 2025 },
+    { from: '2023-01' },
+    { from: '2024-03', to: '2025-06' },
+    { authorityCui: '1000001', year: 2024 },
+    { supplierCui: COMPANY.fiscalCode, from: '2023-01' },
+    { supplierCui: '2000002', year: 2025 },
+    { supplierCui: SOLE_TRADER.fiscalCode },
+    { buyerCounty: 'AB' },
+    { buyerRegion: 'Centru', cpvDivision: '44' },
+    { cpvGroup: '441' },
+    { authorityCui: '1000002', supplierCui: '2000002' },
+    { supplierCui: '2000002', cpvClass: '4411' },
+  ];
+
+  const battery = async (d: AnalysisDeps): Promise<unknown[]> => {
+    const out: unknown[] = [];
+    for (const extra of COUNTED_SCOPES) {
+      const scope = { ...DA, ...extra };
+      out.push(await analysisStats(d, { scope }));
+      out.push(await analysisSeries(d, { scope, measure: 'valueAwardedSum', bucket: 'month' }));
+      out.push(await analysisSeries(d, { scope, measure: 'recordCount', bucket: 'year' }));
+      for (const measure of ['distinctAuthorities', 'distinctSuppliers'] as const)
+        for (const bucket of ['month', 'quarter', 'year'] as const)
+          out.push(await analysisSeries(d, { scope, measure, bucket }));
+      for (const dimension of [
+        'authority',
+        'supplier',
+        'cpvDivision',
+        'cpvGroup',
+        'cpvClass',
+        'cpvCategory',
+        'buyerCounty',
+        'buyerRegion',
+      ] as const)
+        for (const rankBy of ['value', 'count'] as const)
+          out.push(await analysisBreakdown(d, { scope, dimension, topN: 3, rankBy }));
+      for (const basis of ['value', 'count'] as const)
+        out.push(await analysisConcentration(d, { scope, basis }));
+      out.push(await analysisRecords(d, { scope, sort: 'value_desc', pageSize: 5 }));
+    }
+    return out;
+  };
+
+  it('every stats, series, distinct, breakdown, concentration and records answer is identical', async () => {
+    if (db === undefined || container === undefined) throw new Error('no database');
+    await sql`update procurement_v3.da_release set data_as_of = ${AS_OF_2}`.execute(db);
+    await seed(db);
+    const live = await battery({
+      analysisRepo: makeDaRoutingAnalysisRepo(
+        makeUnconfiguredAnalysisRepo(),
+        makeDaV3AnalysisSource(db)
+      ),
+    });
+    await buildRollups(db);
+    const statements: string[] = [];
+    const logged = new Kysely<ProdDatabase>({
+      dialect: new PostgresDialect({
+        pool: new pg.Pool({ connectionString: container.getConnectionUri(), max: 2 }),
+      }),
+      log: (event) => {
+        if (event.level === 'query') statements.push(event.query.sql);
+      },
+    });
+    try {
+      const rolled = await battery({
+        analysisRepo: makeDaRoutingAnalysisRepo(
+          makeUnconfiguredAnalysisRepo(),
+          makeDaV3AnalysisSource(logged)
+        ),
+      });
+      expect(rolled.length).toBe(live.length);
+      for (let index = 0; index < live.length; index += 1)
+        expect({ index, answer: rolled[index] }).toEqual({ index, answer: live[index] });
+      // The rollups were read, not just present.
+      expect(statements.some((text) => text.includes('da_rollup_supplier_month'))).toBe(true);
+      expect(statements.some((text) => text.includes('da_rollup_distinct'))).toBe(true);
+      expect(statements.some((text) => text.includes('da_rollup_authority_supplier_month'))).toBe(
+        true
+      );
+      // A code that flipped to restricted keeps its old rows, zeroed (never deleted): they
+      // must never contribute a key, a count or a name, in buckets, distincts or key lists.
+      const flipped = SOLE_TRADER.fiscalCode ?? '';
+      for (const table of [
+        'da_rollup_supplier_month',
+        'da_rollup_supplier_cpv_month',
+        'da_rollup_authority_supplier_month',
+      ])
+        await sql`insert into ${sql.table(`procurement_v3.${table}`)}
+          (supplier_key, month, purchases, counted_purchases, counted_value, symbolic_purchases)
+          values (${flipped}, '2025-01-01', 0, 0, 0, 0)`.execute(logged);
+      // Zeroed rows in a month and under keys nothing else carries must not add a bucket,
+      // a month (series points, min/max month) or a key either.
+      for (const [table, keys, values] of [
+        ['da_rollup_county_month', 'county_code, region', `'ZZ', 'Gone'`],
+        ['da_rollup_cpv_month', 'cpv8', `'99999999'`],
+        ['da_rollup_authority_month', 'authority_cui', `'9999999'`],
+        ['da_rollup_county_cpv_month', 'county_code, region, cpv8', `'ZZ', 'Gone', '99999999'`],
+        ['da_rollup_supplier_month', 'supplier_key', `'2000002'`],
+        ['da_rollup_supplier_cpv_month', 'supplier_key, cpv8', `'2000002', '99999999'`],
+        [
+          'da_rollup_authority_supplier_month',
+          'authority_cui, supplier_key, county_code, region',
+          `'9999999', '2000002', 'ZZ', 'Gone'`,
+        ],
+      ] as const)
+        await sql
+          .raw(
+            `insert into procurement_v3.${table} (${keys}, month, purchases, counted_purchases, counted_value, symbolic_purchases)
+             values (${values}, '2030-01-01', 0, 0, 0, 0)`
+          )
+          .execute(logged);
+      const zeroed = await battery({
+        analysisRepo: makeDaRoutingAnalysisRepo(
+          makeUnconfiguredAnalysisRepo(),
+          makeDaV3AnalysisSource(logged)
+        ),
+      });
+      for (let index = 0; index < live.length; index += 1)
+        expect({ index, answer: zeroed[index] }).toEqual({ index, answer: live[index] });
+      // Even a non-zero row under a restricted code (the build STOPs on it) is withheld on read.
+      await sql`insert into procurement_v3.da_rollup_supplier_month
+        (supplier_key, month, purchases, counted_purchases, counted_value, symbolic_purchases)
+        values (${flipped}, '2025-02-01', 3, 3, 30, 0)`.execute(logged);
+      const guarded = await analysisBreakdown(
+        {
+          analysisRepo: makeDaRoutingAnalysisRepo(
+            makeUnconfiguredAnalysisRepo(),
+            makeDaV3AnalysisSource(logged)
+          ),
+        },
+        { scope: { ...DA, year: 2025 }, dimension: 'supplier', topN: 10 }
+      );
+      noLeak(guarded);
+      expect(
+        guarded._unsafeUnwrap()[0]?.buckets.some((bucket) => bucket.key === 'natural_person')
+      ).toBe(true);
+    } finally {
+      await logged.destroy();
+    }
+  });
+
+  it('reads the quality verdict from da_release when the platform publishes it, equal to live', async () => {
+    if (db === undefined) throw new Error('no database');
+    const liveGen = (await makeDaV3AnalysisSource(db).generation())._unsafeUnwrap();
+    await sql
+      .raw(
+        `
+      alter table procurement_v3.da_release
+        add column rows bigint, add column dated bigint, add column counted bigint,
+        add column accepted bigint, add column with_cpv bigint, add column with_geo bigint,
+        add column money numeric(20,2), add column money_dated numeric(20,2), add column money_geo numeric(20,2);
+      update procurement_v3.da_release r set
+        rows = q.rows, dated = q.dated, counted = q.counted, accepted = q.accepted,
+        with_cpv = q.with_cpv, with_geo = q.with_geo, money = q.money,
+        money_dated = q.money_dated, money_geo = q.money_geo
+      from (
+        select count(*) as rows,
+               count(*) filter (where p.finalization_day is not null) as dated,
+               count(*) filter (where p.counted) as counted,
+               count(*) filter (where p.outcome = 'accepted') as accepted,
+               count(*) filter (where p.category_code ~ '^[0-9]{2}') as with_cpv,
+               count(*) filter (where f.county_code is not null) as with_geo,
+               coalesce(sum(p.counted_value) filter (where p.counted), 0) as money,
+               coalesce(sum(p.counted_value) filter (where p.counted and p.finalization_day is not null), 0) as money_dated,
+               coalesce(sum(p.counted_value) filter (where p.counted and f.county_code is not null), 0) as money_geo
+        from procurement_v3.da_purchases p
+        left join procurement_v3.da_parties b
+          on b.source_name = p.source_name and b.party_kind = 'buyer' and b.portal_party_id = p.buyer_party_id
+        left join core.public_entities pe on pe.cui = b.fiscal_code_clean and b.fiscal_code_status = 'valid'
+        left join companies_v2.registrations areg
+          on areg.cui = b.fiscal_code_clean and b.fiscal_code_status = 'valid' and pe.territorial_siruta_code is null
+        left join core.territories f
+          on f.territorial_siruta_code = coalesce(pe.territorial_siruta_code, areg.selected_uat_siruta_code)
+         and f.privacy_class = 'public'
+      ) q`
+      )
+      .execute(db);
+    if (container === undefined) throw new Error('no container');
+    const statements: string[] = [];
+    const logged = new Kysely<ProdDatabase>({
+      dialect: new PostgresDialect({
+        pool: new pg.Pool({ connectionString: container.getConnectionUri(), max: 1 }),
+      }),
+      log: (event) => {
+        if (event.level === 'query') statements.push(event.query.sql);
+      },
+    });
+    try {
+      const published = (await makeDaV3AnalysisSource(logged).generation())._unsafeUnwrap();
+      expect(published?.quality).toEqual(liveGen?.quality);
+      expect(published?.buildId).toBe(liveGen?.buildId);
+      // The published columns answered: the whole-table scan never ran.
+      expect(statements.some((text) => text.includes('with per_buyer'))).toBe(false);
+    } finally {
+      await logged.destroy();
+    }
+  });
+});

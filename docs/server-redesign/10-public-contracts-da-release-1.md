@@ -174,6 +174,55 @@ Production follows the same order.
 - **DA supplier rankings during a v3 rollback** are refused, not approximated (see above). The client shows them as
   "unavailable", never as a blank or an error.
 
+## Analysis over publish-time rollups (root, 18 Nov)
+
+Live Postgres is fine for buyer pages but not for supplier or home analytics: 19 of 82 statements took over 5 s, and
+two timed out. procurement-prod therefore builds rollups in procurement_v3, in the data_as_of transaction. They are
+upserted per key and never deleted (an emptied bucket goes to zero), and supplier_key is built from the
+supplier_privacy rows of the same publication.
+
+**The tables.** Every row carries `purchases`, `counted_purchases`, `counted_value` and `symbolic_purchases` by month
+(NULL month = undated):
+
+| Table                                | Keys                                                                               |
+| ------------------------------------ | ---------------------------------------------------------------------------------- |
+| `da_rollup_county_month`             | county_code, region                                                                |
+| `da_rollup_cpv_month`                | cpv8                                                                               |
+| `da_rollup_authority_month`          | authority_cui                                                                      |
+| `da_rollup_county_cpv_month`         | county_code, region, cpv8                                                          |
+| `da_rollup_supplier_month`           | supplier_key                                                                       |
+| `da_rollup_supplier_cpv_month`       | supplier_key, cpv8                                                                 |
+| `da_rollup_authority_supplier_month` | authority_cui, supplier_key, plus the authority's county_code and region           |
+| `da_rollup_distinct`                 | bucket_kind, bucket: distinct_authorities, distinct_public_suppliers, has_withheld |
+
+`da_release` adds the quality columns rows, dated, counted, accepted, with_cpv, with_geo, money, money_dated and
+money_geo.
+
+**How the reader uses them** (`da-v3-analysis-source.ts`):
+
+- **One compiler, two forms.** The compiler emits either row-level SQL over `da_purchases` (live) or sum-of-measures
+  SQL over the smallest rollup whose keys cover the scope and the dimension. Absent tables are read live, so nothing
+  depends on them.
+- **No rollup covers:**
+  - SIRUTA scopes or breakdowns;
+  - counted-value bounds;
+  - record pages (the page rows; their total uses a rollup);
+  - combinations no table holds (e.g. authority × CPV).
+- **Distinct counts:**
+  - for a window-only scope with a month or year bucket aligned to the window, they come from `da_rollup_distinct`,
+    where the supplier count is public suppliers plus one if any supplier is withheld (as live);
+  - other distinct counts use `count(distinct)` over the covering rollup.
+- **Zero rows never count.** Every rollup read filters `purchases > 0`, so a zeroed row never contributes a key, a
+  month or a count.
+- **D6 again on read.** supplier_key is joined to supplier_privacy and must still be public, otherwise it is
+  served as natural_person.
+- **Quality** comes from the da_release columns when all nine are readable, and is measured live otherwise.
+- **Tests.** The e2e suite builds the rollups from a varied seed with the agreed rules, then requires every
+  stats, series, distinct, breakdown, concentration and records answer to equal the live answer. That includes
+  zeroed rows under new keys and months, and a restricted code. Mutating either guard fails the suite.
+- **Gate for the flag.** Before `PROCUREMENT_DA_V3_ENABLED` goes on, the generated statements are re-timed at
+  workshop scale, with a target p95 of at most 2 s per page statement.
+
 ## Follow-up (after the dev push; none is a leak)
 
 From the narrow check of c0603d3c (gpt-6.2-sol xhigh, rollout 01a1eea5). Root ruled (18 Nov) that errors, latency
