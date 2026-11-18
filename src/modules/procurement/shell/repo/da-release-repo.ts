@@ -27,6 +27,13 @@ import {
   type ProdDatabase,
 } from '@/modules/shared/index.js';
 
+import {
+  daV3Table,
+  DA_RELEASE_SCHEMA,
+  namedSupplierSql,
+  probeSupplierPrivacy,
+  supplierPrivacyJoin,
+} from './da-v3-sql.js';
 import { DA_LIST_MAX_DEPTH } from '../../core/da-release-usecases.js';
 
 import type {
@@ -45,16 +52,14 @@ import type {
 
 type Db = Kysely<ProdDatabase>;
 
-/** The serving schema. Pending the owner's migration; the only name that may still change. */
-export const DA_RELEASE_SCHEMA = 'procurement_v3';
+export { DA_RELEASE_SCHEMA } from './da-v3-sql.js';
 
-const table = (name: string) => sql.table(`${DA_RELEASE_SCHEMA}.${name}`);
+const table = daV3Table;
 const PURCHASES = table('da_purchases');
 const PARTIES = table('da_parties');
 const RULES = table('da_value_rules');
 const ITEMS = table('da_items');
 const RELEASE = table('da_release');
-const PRIVACY = table('supplier_privacy');
 
 const STATEMENT_TIMEOUT_MS = 10_000;
 
@@ -223,10 +228,7 @@ const gatedText = (present: boolean, flag: string, column: string, alias: string
     : sql`null::text as ${sql.id(alias)}, false as ${sql.id(`${alias}_public`)}`;
 
 /** The supplier's classification row; joined only when the table exists. */
-const privacyJoin = (columns: Columns) =>
-  columns.supplierPrivacy
-    ? sql`left join ${PRIVACY} sv on sv.fiscal_code_clean = s.fiscal_code_clean`
-    : sql``;
+const privacyJoin = (columns: Columns) => supplierPrivacyJoin(columns.supplierPrivacy);
 
 /** Dates and timestamps as text, so the driver never builds a JS Date. Money stays numeric text. */
 const purchaseSelect = (columns: Columns) => sql`
@@ -261,10 +263,7 @@ const purchaseSelect = (columns: Columns) => sql`
   left join ${RULES} r on r.rule = p.value_review_rule`;
 
 /** D6 in SQL, over supplier alias `s` and its `supplier_privacy` row `sv`: see `isNamedSupplier` in core. */
-const namedSupplier = (columns: Columns) =>
-  columns.supplierPrivacy
-    ? sql`(sv.public is true and s.fiscal_code_status = 'valid' and s.fiscal_code_clean is not null)`
-    : sql`false`;
+const namedSupplier = (columns: Columns) => namedSupplierSql(columns.supplierPrivacy);
 
 /** The filter's conditions over `p`, with `b` and `s` joined. */
 const whereOf = (filter: DaPurchaseFilter, columns: Columns): RawBuilder<unknown> => {
@@ -610,12 +609,9 @@ const probeColumns = async (trx: Db): Promise<Columns> => {
   const present = new Set(result.rows.map((row) => `${row.table_name}.${row.column_name}`));
   const has = (key: keyof Columns): boolean =>
     PENDING_COLUMNS.some(([table, column, k]) => k === key && present.has(`${table}.${column}`));
-  const privacy = await sql<{ present: boolean }>`
-    select to_regclass(${`${DA_RELEASE_SCHEMA}.supplier_privacy`}) is not null as present`.execute(
-    trx
-  );
+  const supplierPrivacy = await probeSupplierPrivacy(trx);
   return {
-    supplierPrivacy: privacy.rows[0]?.present === true,
+    supplierPrivacy,
     listedNow: has('listedNow'),
     itemSupersededAt: has('itemSupersededAt'),
     titlePublic: has('titlePublic'),
