@@ -421,6 +421,9 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
     }
   };
 
+  /** Fills in flight, keyed like the cache: identical concurrent misses share one read. */
+  const filling = new Map<string, Promise<Result<unknown, ApiError>>>();
+
   const cached = async <T>(
     build: string,
     scope: AnalysisScope,
@@ -431,20 +434,34 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
     if (!(await cacheable(build))) return load();
     if (cacheBuild !== build) {
       cache.clear();
+      filling.clear();
       cacheBuild = build;
     }
-    const cacheKey = JSON.stringify([key, scope]);
+    // The build is part of the key: an entry can only answer its own publication.
+    const cacheKey = JSON.stringify([build, key, scope]);
     const hit = cache.get(cacheKey);
     if (hit !== undefined) return hit as Result<T, ApiError>;
-    const result = await load();
-    if (result.isOk() && (await cacheable(build))) {
-      if (cache.size >= CACHE_MAX_ENTRIES) {
-        const oldest = cache.keys().next();
-        if (oldest.done !== true) cache.delete(oldest.value);
+    const joined = filling.get(cacheKey);
+    if (joined !== undefined) return (await joined) as Result<T, ApiError>;
+    const fill = (async (): Promise<Result<unknown, ApiError>> => {
+      const result = await load();
+      // Stored only if this build is still the cache's and still current and readable:
+      // an old fill finishing after a publish is never kept.
+      if (result.isOk() && cacheBuild === build && (await cacheable(build))) {
+        if (cache.size >= CACHE_MAX_ENTRIES) {
+          const oldest = cache.keys().next();
+          if (oldest.done !== true) cache.delete(oldest.value);
+        }
+        cache.set(cacheKey, result);
       }
-      cache.set(cacheKey, result);
+      return result;
+    })();
+    filling.set(cacheKey, fill);
+    try {
+      return (await fill) as Result<T, ApiError>;
+    } finally {
+      if (filling.get(cacheKey) === fill) filling.delete(cacheKey);
     }
-    return result;
   };
 
   /** Coverage measured from procurement_v3 once per publication (row share and counted-money share). */
@@ -533,7 +550,8 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
     const release = await snapshot(db, STATEMENT_TIMEOUT_MS, null, async (ctx) => {
       const result = await sql<{ build_id: string | null; as_of: string | null }>`
         select ${BUILD_ID_SQL} as build_id, ${AS_OF_SQL} as as_of from ${RELEASE}`.execute(ctx.trx);
-      return ok(result.rows[0] ?? null);
+      const row = result.rows[0];
+      return ok(row === undefined ? null : { ...row, privacy: ctx.privacy });
     });
     if (release.isErr()) return err(release.error);
     const build = release.value?.build_id ?? null;
@@ -546,6 +564,8 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
       // No verdict when coverage could not be measured: time/geo/money then abstain (fail closed).
       quality: quality.isOk() ? { direct_acquisition: quality.value } : {},
       capabilities: DA_V3_CAPABILITIES,
+      // supplier_privacy publishes in the same transaction as the facts (one data_as_of).
+      disclosureKey: release.value.privacy ? release.value.as_of : 'unavailable',
       notes: [DA_V3_VALUE_NOTE],
     });
   };

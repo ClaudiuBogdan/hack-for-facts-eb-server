@@ -88,7 +88,7 @@ export const makeProcurementPresenceRepo = (
       if (row === undefined) return ok(null);
       // Re-check after the count: a publish that withheld the code mid-request withholds the leg.
       if (supplierDaLeg && disclosure?.enforced === true) {
-        const after = await disclosure.publicSupplierCodes();
+        const after = await disclosure.publicSupplierCodes({ fresh: true });
         if (!(after.isOk() && after.value.has(cui))) row.supplier_direct_acquisitions = '0';
       }
       const legs = {

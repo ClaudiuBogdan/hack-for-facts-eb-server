@@ -89,9 +89,19 @@ export const makeSupplierDisclosureRepo = (
     }
   };
 
-  /** The current set: reuse it while data_as_of is unchanged; an absent source for ABSENT_TTL_MS. */
-  const current = async (): Promise<Loaded> => {
+  /**
+   * The current set: reuse it while data_as_of is unchanged; an absent source for
+   * ABSENT_TTL_MS (that answer withholds everyone, so reusing it is fail-closed).
+   * A `fresh` call starts its own load instead of joining one already in flight,
+   * which may have read the publication before the caller's facts.
+   */
+  const current = async (fresh: boolean): Promise<Loaded> => {
     if (cached?.asOf === null && now() - cached.loadedAt < ABSENT_TTL_MS) return cached;
+    if (fresh) {
+      const own = await load();
+      cached = own;
+      return own;
+    }
     inflight ??= load().finally(() => {
       inflight = null;
     });
@@ -101,13 +111,13 @@ export const makeSupplierDisclosureRepo = (
 
   return {
     enforced,
-    publicSupplierCodes: async (): Promise<Result<ReadonlySet<string>, ApiError>> => {
+    publicSupplierCodes: async (options): Promise<Result<ReadonlySet<string>, ApiError>> => {
       if (!enforced) return ok(EMPTY);
-      return ok((await current()).codes);
+      return ok((await current(options?.fresh === true)).codes);
     },
     privacyAsOf: async (): Promise<Result<string | null, ApiError>> => {
       if (!enforced) return ok(null);
-      return ok((await current()).asOf);
+      return ok((await current(false)).asOf);
     },
   };
 };
@@ -125,8 +135,8 @@ export const withSupplierDisclosure = (
     ...options,
     excludeFlowTypes: [...(options?.excludeFlowTypes ?? []), DIRECT_ACQUISITION_FLOW],
   });
-  const isPublic = async (cui: string): Promise<boolean> => {
-    const codes = await disclosure.publicSupplierCodes();
+  const isPublic = async (cui: string, fresh = false): Promise<boolean> => {
+    const codes = await disclosure.publicSupplierCodes({ fresh });
     return codes.isOk() && codes.value.has(cui);
   };
   /**
@@ -140,7 +150,7 @@ export const withSupplierDisclosure = (
   ): Promise<T> => {
     if (!(await isPublic(cui))) return read(withDa(options));
     const result = await read(options);
-    return (await isPublic(cui)) ? result : read(withDa(options));
+    return (await isPublic(cui, true)) ? result : read(withDa(options));
   };
   return {
     ...flows,

@@ -190,6 +190,12 @@ export interface GrainSource {
  */
 export interface ActiveGeneration extends PublishedGeneration {
   readonly capabilities: GenerationCapabilities;
+  /**
+   * The D6 state the DA grain is served under: the supplier_privacy publication
+   * (ISO UTC), or `unavailable` (enforced but unreadable: everyone withheld).
+   * Absent while D6 is off. Envelopes carry it as `disclosureKey`.
+   */
+  readonly disclosureKey?: string;
   /** Grains this request answers from another source; absent grains use this generation. */
   readonly grainSources?: Partial<Record<AnalysisGrain, GrainSource>>;
 }

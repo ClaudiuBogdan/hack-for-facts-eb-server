@@ -114,6 +114,16 @@ With the flag off:
   - The ClickHouse analysis caches are keyed by build, and D6 is applied on read after them.
   - A publish moves the key; flipping a switch is an environment change, so the pods restart and the in-process
     caches start empty.
+- **Fresh final checks:** every check that authorises facts already read asks the disclosure port for a fresh load
+  and never joins one that started before the read. When that final check withholds a supplier the request was
+  scoped to, the whole scoped page is discarded or re-read (items, totals, facets and cursors), never scrubbed in
+  place.
+- **Analysis D6 key:** every DA block and records page carries `meta.disclosureKey`: `off`, `unavailable` (everyone
+  withheld) or the supplier_privacy publication. Key cached DA analysis by (`buildId`, `disclosureKey`), since the
+  analytics build does not move when a nightly publish withholds a supplier.
+- **v3 analysis cache:** entries are keyed by build. A fill whose build stopped being current while it ran is not
+  kept, and identical concurrent misses share one read.
+- **Legacy detail:** the item's catalogue code is withheld too (typed by the source, outside the loader's scan).
 - **Status:** `procurementDaRelease` serves `privacyEnforced` and `privacyAsOf` (the supplier_privacy publication).
   Clients key their caches by (`privacyEnforced`, `privacyAsOf`, `dataAsOf`). `privacyAsOf` is null both when D6 is
   off and when it is on but the table is unreadable, so `privacyEnforced` is part of the key.
@@ -154,6 +164,10 @@ Production follows the same order.
 - **DA fact read failure.** If a procurement_v3 fact read fails after the release pointer has resolved, the whole
   request fails instead of abstaining only the DA block. Root accepts this: it fails closed, as an error rather than
   a leak. (A v3 publication that cannot be read at all abstains the DA grain only.)
+- **ClickHouse read failure on a warm generation.** If ClickHouse fails a read after its generation resolved from
+  cache, a mixed-grain request fails instead of keeping the healthy v3 DA block. This is the same class as the item
+  above: an error, never a leak (this was already the behaviour before release 1). An unreadable generation at the
+  start abstains the other grains only.
 - **DA supplier rankings during a v3 rollback** are refused, not approximated (see above). The client shows them as
   "unavailable", never as a blank or an error.
 

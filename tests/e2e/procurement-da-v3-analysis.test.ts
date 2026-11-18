@@ -194,6 +194,9 @@ describe('before supplier_privacy exists (fails closed)', () => {
     });
     expect(stats?.meta.buildId).toBe(micros(AS_OF));
     expect(stats?.meta.caveats).toContain(DA_V3_VALUE_NOTE);
+    expect(stats?.meta.valueBasis).toBe('counted');
+    // No supplier_privacy yet: everyone is withheld, and the D6 key says so.
+    expect(stats?.meta.disclosureKey).toBe('unavailable');
 
     const bySupplier = (
       await analysisBreakdown(deps, { scope: DA, dimension: 'supplier', topN: 10 })

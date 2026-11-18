@@ -135,6 +135,31 @@ describe('ClickHouse DA grain under D6', () => {
     ]);
   });
 
+  it('a supplier-scoped records page withheld by the final check carries nothing of that supplier', async () => {
+    const scopes: (string | undefined)[] = [];
+    const repo = {
+      recordsFor: (_r: unknown, scope: AnalysisScope) => {
+        scopes.push(scope.supplierCui);
+        return Promise.resolve(
+          scope.supplierCui === '~withheld'
+            ? ok({ total: '0', rows: [] })
+            : ok({
+                total: '9',
+                rows: [record({ supplierCui: SOLE_TRADER, supplierName: 'SECRET PFA' })],
+              })
+        );
+      },
+    } as unknown as AnalysisRepo;
+    const read = await withDaAnalysisDisclosure(repo, port([[SOLE_TRADER], []])).recordsFor(
+      DA_ROUTE,
+      { supplierCui: SOLE_TRADER },
+      {} as never,
+      { sort: 'date_desc', offset: 0, limit: 10 }
+    );
+    expect(scopes).toEqual([SOLE_TRADER, '~withheld']);
+    expect(read._unsafeUnwrap()).toEqual({ total: '0', rows: [] });
+  });
+
   it('serves records with no withheld code, name or title', async () => {
     const { repo } = innerAnalysis();
     const read = await withDaAnalysisDisclosure(repo, port([[COMPANY]])).recordsFor(
@@ -172,6 +197,10 @@ describe('legacy DA reads across a publish', () => {
     const calls: unknown[] = [];
     const repo = {
       listCpvCodeLabels: () => Promise.resolve(ok([])),
+      searchDirectAcquisitionsOffset: () =>
+        Promise.resolve(
+          ok({ items: [da(SOLE_TRADER)], total: 7, estimated: false, facets: { status: [] } })
+        ),
       listDirectAcquisitions: (filter: unknown) => {
         calls.push(filter);
         return Promise.resolve(ok({ items: [da(SOLE_TRADER)], next: null }));
@@ -181,8 +210,8 @@ describe('legacy DA reads across a publish', () => {
         return Promise.resolve(
           ok({
             total: null,
-            hasNextPage: false,
-            endCursor: null,
+            hasNextPage: includeDas !== false,
+            endCursor: includeDas === false ? null : 'DA-CURSOR',
             edges:
               includeDas === false
                 ? []
@@ -209,8 +238,24 @@ describe('legacy DA reads across a publish', () => {
       undefined,
       false
     );
-    expect(records._unsafeUnwrap().edges).toEqual([]);
+    // The whole page is rebuilt from the contract leg: no DA edge, and no DA cursor.
+    expect(records._unsafeUnwrap()).toMatchObject({
+      edges: [],
+      endCursor: null,
+      hasNextPage: false,
+    });
     expect(calls.slice(-2)).toEqual([true, false]);
+
+    const search = await withDaDisclosure(
+      repo,
+      port([[SOLE_TRADER], []])
+    ).searchDirectAcquisitionsOffset({ supplierCui: SOLE_TRADER }, {
+      page: 1,
+      pageSize: 10,
+      sort: 'relevance',
+    } as never);
+    // Withheld by the final check: no ids, total or facets tied to the supplier.
+    expect(search._unsafeUnwrap()).toEqual({ items: [], total: 0, estimated: false });
   });
 });
 
@@ -351,6 +396,8 @@ describe('ClickHouse DA routing under D6 (v3 off or rolled back)', () => {
     } as unknown as AnalysisRepo;
     const gen = await withDaAnalysisDisclosure(inner, port([[COMPANY]])).activeGeneration();
     expect(gen._unsafeUnwrap()?.capabilities.daSupplierPrivacy).toBe(true);
+    // The D6 state rides on the generation into every DA envelope (client cache key).
+    expect(gen._unsafeUnwrap()?.disclosureKey).toBe('2026-11-18T03:10:00.000000Z');
   });
 });
 
@@ -384,5 +431,18 @@ describe('legacy detail reads the public set last', () => {
     const da = await withDaDisclosure(repo, disclosure).getDirectAcquisition('1');
     expect(order).toEqual(['labels', 'codes']);
     expect(JSON.stringify(da)).not.toContain('SECRET');
+  });
+});
+
+describe('legacy detail body', () => {
+  it('withholds the catalogue-item code (source-typed, outside the loader scan)', async () => {
+    const { discloseDaDetailBody } = await import('@/modules/procurement/core/da-disclosure.js');
+    const body = discloseDaDetailBody({
+      items: [
+        { daItemId: '1', itemIndex: 0, catalogItemCode: 'PFA 0722000000', cpvCode: '44110000-4' },
+      ],
+    } as never);
+    expect(JSON.stringify(body)).not.toContain('0722000000');
+    expect(body.items[0]?.cpvCode).toBe('44110000-4');
   });
 });

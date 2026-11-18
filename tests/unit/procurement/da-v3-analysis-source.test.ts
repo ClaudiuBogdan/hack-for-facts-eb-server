@@ -186,6 +186,51 @@ describe('the publication-keyed cache', () => {
   const unfiltered = (source: ReturnType<typeof makeDaV3AnalysisSource>) =>
     source.statsFor(ROUTE, {}, GEN);
 
+  const world = () => {
+    const state = { build: BUILD, rowsReads: 0, publishAfterRows: false };
+    const captured: CapturedQuery[] = [];
+    const db = makeCapturingDb(captured, {
+      respond: (text) => {
+        if (text.includes('as build_id')) return [{ build_id: state.build, as_of: null }];
+        if (text.includes('has_table_privilege')) return [{ present: true }];
+        if (text.includes('as rows')) {
+          state.rowsReads += 1;
+          // A nightly publish lands while this fill is in flight.
+          if (state.publishAfterRows) state.build = '1763435499999999';
+          return [
+            {
+              rows: '0',
+              with_value: '0',
+              awarded: null,
+              min_month: null,
+              max_month: null,
+              undated_count: '0',
+              undated_value: null,
+            },
+          ];
+        }
+        return [];
+      },
+    });
+    return { state, source: makeDaV3AnalysisSource(db) };
+  };
+
+  it('shares one read between identical concurrent misses', async () => {
+    const { state, source } = world();
+    await Promise.all([unfiltered(source), unfiltered(source), unfiltered(source)]);
+    expect(state.rowsReads).toBe(1);
+  });
+
+  it('never keeps a fill whose build stopped being current while it ran', async () => {
+    const { state, source } = world();
+    state.publishAfterRows = true;
+    await unfiltered(source);
+    state.publishAfterRows = false;
+    state.build = BUILD;
+    await unfiltered(source);
+    expect(state.rowsReads).toBe(2);
+  });
+
   it('reuses an unfiltered answer only while the build is current and supplier_privacy is readable', async () => {
     const reads = async (options: { privacy?: boolean; build?: string }) => {
       const { captured } = await run(async (source) => {

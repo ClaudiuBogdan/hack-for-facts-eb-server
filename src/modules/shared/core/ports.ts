@@ -115,8 +115,14 @@ export interface FlowReadOptions {
  */
 export interface SupplierDisclosurePort {
   readonly enforced: boolean;
-  /** The public codes (digits only, no RO prefix). Callers check `enforced` first. */
-  publicSupplierCodes(): Promise<Result<ReadonlySet<string>, ApiError>>;
+  /**
+   * The public codes (digits only, no RO prefix). Callers check `enforced` first.
+   * `fresh`: a check that authorises facts ALREADY read must see a publication at
+   * least as new as that read, so it never joins a load started before the call.
+   */
+  publicSupplierCodes(options?: {
+    readonly fresh?: boolean;
+  }): Promise<Result<ReadonlySet<string>, ApiError>>;
   /**
    * The publication the current set comes from (`da_release.data_as_of`, ISO UTC),
    * or null when the source is absent or unreadable (everyone withheld). Clients key

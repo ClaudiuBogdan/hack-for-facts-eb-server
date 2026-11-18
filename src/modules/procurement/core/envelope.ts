@@ -33,6 +33,13 @@ export interface AnswerEnvelope {
   readonly caveats: readonly string[];
   /** Stable scope serialization; deliberately not presented as a URL. */
   readonly canonicalScope: string;
+  /**
+   * DA blocks only: the D6 state they were served under (`off`, `unavailable`,
+   * or the supplier_privacy publication). Null on other grains. Clients key
+   * cached DA answers by (buildId, disclosureKey): it moves when a nightly
+   * publish withholds a supplier even if the analytics build does not.
+   */
+  readonly disclosureKey?: string | null;
 }
 
 export interface EnvelopeReads {

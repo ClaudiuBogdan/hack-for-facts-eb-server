@@ -35,7 +35,8 @@ export const daReleaseTypeDefs = /* GraphQL */ `
     privacyEnforced: Boolean!
     """
     The supplier_privacy publication in force; null when D6 is off or its source is absent (every
-    DA supplier is then withheld). Key caches by (dataAsOf, privacyAsOf).
+    DA supplier is then withheld). Key caches by (privacyEnforced, privacyAsOf, dataAsOf):
+    privacyAsOf is null both while D6 is off and while it is on but unreadable.
     """
     privacyAsOf: DateTime
   }

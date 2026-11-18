@@ -94,6 +94,25 @@ describe('supplier disclosure port', () => {
     expect((await disclosure.publicSupplierCodes())._unsafeUnwrap().size).toBe(0);
   });
 
+  it("a fresh read never joins a load already in flight (it may predate the caller's facts)", async () => {
+    const world = {
+      tables: true,
+      asOf: '2026-11-18 03:10:00+00',
+      codes: ['14399840'],
+      fail: false,
+    };
+    const releaseReads = (captured: CapturedQuery[]) =>
+      captured.filter((query) => query.sql.includes('max(data_as_of)')).length;
+    const joined = build(world);
+    const shared = joined.port(true);
+    await Promise.all([shared.publicSupplierCodes(), shared.publicSupplierCodes()]);
+    expect(releaseReads(joined.captured)).toBe(1);
+    const fresh = build(world);
+    const own = fresh.port(true);
+    await Promise.all([own.publicSupplierCodes(), own.publicSupplierCodes({ fresh: true })]);
+    expect(releaseReads(fresh.captured)).toBe(2);
+  });
+
   it('re-probes an absent source only after its TTL', async () => {
     const world = { tables: false, asOf: 'a', codes: ['9'], fail: false };
     const clock = { t: 0 };

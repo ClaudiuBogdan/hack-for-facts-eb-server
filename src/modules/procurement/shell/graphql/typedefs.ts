@@ -786,6 +786,8 @@ export const procurementTypeDefs = /* GraphQL */ `
     provisional: Boolean!
     caveats: [String!]!
     canonicalScope: String!
+    "DA blocks: the D6 state served under (off, unavailable, or the supplier_privacy publication); key DA caches by (buildId, disclosureKey). Null on other grains."
+    disclosureKey: String
   }
 
   "Per-measure money verdict: one stats block can carry different answerabilities per money basis (e.g. awarded disclosed + estimated abstained)."
@@ -964,6 +966,8 @@ export const procurementTypeDefs = /* GraphQL */ `
     buildId: String!
     canonicalScope: String!
     caveats: [String!]!
+    "DA pages: the D6 state served under; key DA caches by (buildId, disclosureKey). Null on other grains."
+    disclosureKey: String
   }
 
   """

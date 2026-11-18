@@ -54,68 +54,70 @@ export const withDaDisclosure = (
   };
 
   /**
-   * Scrub a page: every enrichment first, then the LAST read of the public set
-   * (intersected with `authorised`), so nothing runs between the decision and
-   * the response.
+   * The LAST decision: a fresh read of the public set (never a load that began
+   * before the caller's facts), intersected with what authorised the read.
    */
+  const settle = async (
+    authorised: ReadonlySet<string> | null
+  ): Promise<Result<ReadonlySet<string>, ApiError>> => {
+    const now = await disclosure.publicSupplierCodes({ fresh: true });
+    if (now.isErr()) return err(now.error);
+    if (authorised === null) return ok(now.value);
+    return ok(new Set([...authorised].filter((code) => now.value.has(code))));
+  };
+
+  /** Enrich a page first, then settle: the codes returned are the decision the page was scrubbed with. */
   const discloseAll = async (
     das: readonly ProcurementDirectAcquisition[],
     authorised: ReadonlySet<string> | null
-  ): Promise<Result<ProcurementDirectAcquisition[], ApiError>> => {
+  ): Promise<
+    Result<{ items: ProcurementDirectAcquisition[]; codes: ReadonlySet<string> }, ApiError>
+  > => {
     const labels = await labelsFor(das);
-    const codes = authorised === null ? await publicCodes() : await settle(authorised);
+    const codes = await settle(authorised);
     if (codes.isErr()) return err(codes.error);
-    return ok(das.map((da) => discloseDirectAcquisition(da, codes.value, labels)));
+    return ok({
+      items: das.map((da) => discloseDirectAcquisition(da, codes.value, labels)),
+      codes: codes.value,
+    });
   };
 
-  /**
-   * The public set AFTER a data read, intersected with the one the read was
-   * authorised by: a code a nightly publish withheld mid-request stays withheld.
-   */
-  const settle = async (
-    before: ReadonlySet<string>
-  ): Promise<Result<ReadonlySet<string>, ApiError>> => {
-    const now = await publicCodes();
-    if (now.isErr()) return err(now.error);
-    if (now.value === before) return ok(before);
-    return ok(new Set([...before].filter((code) => now.value.has(code))));
-  };
+  /** A supplier filter that the final decision narrowed: the page (cursor, totals) is discarded. */
+  const narrowed = (allowed: readonly string[] | null, codes: ReadonlySet<string>): boolean =>
+    allowed?.some((code) => !codes.has(code)) === true;
 
   return {
     ...repo,
 
     listDirectAcquisitions: async (filter, page) => {
-      const run = async (codes: ReadonlySet<string>) => {
-        const allowed = publicSupplierFilter(requestedSuppliers(filter), codes);
+      const attempt = async (authorised: ReadonlySet<string>) => {
+        const allowed = publicSupplierFilter(requestedSuppliers(filter), authorised);
         if (allowed !== null && allowed.length === 0)
-          return { allowed, result: ok({ items: [], next: null }) };
+          return ok({ page: { items: [], next: null }, allowed, codes: authorised });
         const scoped: FilterInput =
           allowed === null ? filter : { ...filter, supplierCui: { in: [...allowed] } };
-        return { allowed, result: await repo.listDirectAcquisitions(scoped, page) };
+        const read = await repo.listDirectAcquisitions(scoped, page);
+        if (read.isErr()) return err(read.error);
+        const disclosed = await discloseAll(read.value.items, authorised);
+        if (disclosed.isErr()) return err(disclosed.error);
+        return ok({
+          page: { ...read.value, items: disclosed.value.items },
+          allowed,
+          codes: disclosed.value.codes,
+        });
       };
       const before = await publicCodes();
       if (before.isErr()) return err(before.error);
-      let read = await run(before.value);
-      if (read.result.isErr()) return read.result;
-      const after = await settle(before.value);
-      if (after.isErr()) return err(after.error);
-      // A filter code withheld mid-request: read again under the settled set.
-      if (
-        read.allowed !== null &&
-        publicSupplierFilter(read.allowed, after.value)?.length !== read.allowed.length
-      ) {
-        read = await run(after.value);
-        if (read.result.isErr()) return read.result;
-        // Moved twice within one request: fail closed rather than chase it.
-        const again = await settle(after.value);
-        if (again.isErr()) return err(again.error);
-        if (publicSupplierFilter(read.allowed, again.value)?.length !== read.allowed?.length)
-          return ok({ items: [], next: null });
-      }
-      const value = read.result.value;
-      const items = await discloseAll(value.items, after.value);
-      if (items.isErr()) return err(items.error);
-      return ok({ ...value, items: items.value });
+      const first = await attempt(before.value);
+      if (first.isErr()) return err(first.error);
+      if (!narrowed(first.value.allowed, first.value.codes)) return ok(first.value.page);
+      // A filter code withheld mid-request: read once more under the settled set;
+      // if it moves again, fail closed rather than chase it.
+      const second = await attempt(first.value.codes);
+      if (second.isErr()) return err(second.error);
+      return narrowed(second.value.allowed, second.value.codes)
+        ? ok({ items: [], next: null })
+        : ok(second.value.page);
     },
 
     searchDirectAcquisitionsOffset: async (filter, page, facets) => {
@@ -124,20 +126,20 @@ export const withDaDisclosure = (
       const geoFacet = facets?.find((facet) => SUPPLIER_GEO_FACETS.has(facet));
       if (geoFacet !== undefined) return err(daSupplierGeographyRefused('facets'));
       const empty = ok({ items: [], total: 0, estimated: false });
+      const code = filter.supplierCui;
       const before = await publicCodes();
       if (before.isErr()) return err(before.error);
-      if (filter.supplierCui !== undefined && !before.value.has(filter.supplierCui)) return empty;
+      if (code !== undefined && !before.value.has(code)) return empty;
       const result = await repo.searchDirectAcquisitionsOffset(filter, page, facets);
       if (result.isErr()) return result;
-      const after = await settle(before.value);
-      if (after.isErr()) return err(after.error);
-      if (filter.supplierCui !== undefined && !after.value.has(filter.supplierCui)) return empty;
+      const disclosed = await discloseAll(result.value.items, before.value);
+      if (disclosed.isErr()) return err(disclosed.error);
+      // Withheld by the final decision: no ids, total or facets tied to that supplier.
+      if (code !== undefined && !disclosed.value.codes.has(code)) return empty;
       // No highlights: q is refused, and a highlight could quote withheld text.
       const { total, estimated, facets: facetCounts, provenance } = result.value;
-      const items = await discloseAll(result.value.items, after.value);
-      if (items.isErr()) return err(items.error);
       return ok({
-        items: items.value,
+        items: disclosed.value.items,
         total,
         estimated,
         ...(facetCounts !== undefined && { facets: facetCounts }),
@@ -145,78 +147,55 @@ export const withDaDisclosure = (
       });
     },
 
-    // Detail reads authorise nothing up front: the set is read after the row.
+    // Detail reads authorise nothing up front: the set is read fresh after the row.
     getDirectAcquisition: async (id) => {
       const result = await repo.getDirectAcquisition(id);
       if (result.isErr() || result.value === null) return result;
       const disclosed = await discloseAll([result.value], null);
       if (disclosed.isErr()) return err(disclosed.error);
-      return ok(disclosed.value[0] ?? null);
+      return ok(disclosed.value.items[0] ?? null);
     },
 
     getDirectAcquisitionDetail: async (id) => {
       const result = await repo.getDirectAcquisitionDetail(id);
       if (result.isErr() || result.value === null) return result;
       const detail = result.value;
-      const disclosedR = await discloseAll([detail.directAcquisition], null);
-      if (disclosedR.isErr()) return err(disclosedR.error);
-      const disclosed = disclosedR.value[0];
-      if (disclosed === undefined) return ok(null);
+      const disclosed = await discloseAll([detail.directAcquisition], null);
+      if (disclosed.isErr()) return err(disclosed.error);
+      const da = disclosed.value.items[0];
+      if (da === undefined) return ok(null);
       return ok({
         ...detail,
-        directAcquisition: disclosed,
+        directAcquisition: da,
         detail: detail.detail === null ? null : discloseDaDetailBody(detail.detail),
       });
     },
 
     supplierRecords: async (supplierCui, first, after, includeCancelled, includeDas) => {
+      const contractsOnly = () =>
+        repo.supplierRecords(supplierCui, first, after, includeCancelled, false);
       const before = await publicCodes();
       if (before.isErr()) return err(before.error);
-      const wanted = includeDas ?? true;
-      let result = await repo.supplierRecords(
-        supplierCui,
-        first,
-        after,
-        includeCancelled,
-        wanted && before.value.has(supplierCui)
-      );
+      if (!(includeDas ?? true) || !before.value.has(supplierCui)) return contractsOnly();
+      const result = await repo.supplierRecords(supplierCui, first, after, includeCancelled, true);
       if (result.isErr()) return result;
-      const check = await settle(before.value);
-      if (check.isErr()) return err(check.error);
-      if (wanted && before.value.has(supplierCui) && !check.value.has(supplierCui)) {
-        result = await repo.supplierRecords(supplierCui, first, after, includeCancelled, false);
-        if (result.isErr()) return result;
-      }
       const connection = result.value;
       const das = connection.edges.flatMap((edge) =>
         edge.node.grain === 'direct_acquisition' ? [edge.node.directAcquisition] : []
       );
-      const labels = await labelsFor(das);
-      // The last read of the set, after every enrichment.
-      const settled = await settle(check.value);
-      if (settled.isErr()) return err(settled.error);
-      if (!settled.value.has(supplierCui) && das.length > 0)
-        return ok({
-          ...connection,
-          edges: connection.edges.filter((e) => e.node.grain !== 'direct_acquisition'),
-        });
+      const disclosed = await discloseAll(das, before.value);
+      if (disclosed.isErr()) return err(disclosed.error);
+      // Withheld by the final decision: the whole page, cursors included, is
+      // rebuilt from the contract leg (a DA cursor names the supplier and purchase).
+      if (!disclosed.value.codes.has(supplierCui)) return contractsOnly();
+      const scrubbed = [...disclosed.value.items];
       return ok({
         ...connection,
-        edges: connection.edges.map((edge) =>
-          edge.node.grain === 'direct_acquisition'
-            ? {
-                ...edge,
-                node: {
-                  grain: 'direct_acquisition',
-                  directAcquisition: discloseDirectAcquisition(
-                    edge.node.directAcquisition,
-                    settled.value,
-                    labels
-                  ),
-                },
-              }
-            : edge
-        ),
+        edges: connection.edges.map((edge) => {
+          if (edge.node.grain !== 'direct_acquisition') return edge;
+          const da = scrubbed.shift() ?? edge.node.directAcquisition;
+          return { ...edge, node: { grain: 'direct_acquisition', directAcquisition: da } };
+        }),
       });
     },
   };

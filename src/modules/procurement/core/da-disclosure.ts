@@ -58,7 +58,8 @@ export const discloseDaDetailBody = (body: DaDetailBody): DaDetailBody => ({
   items: body.items.map((item) => ({
     daItemId: item.daItemId,
     itemIndex: item.itemIndex,
-    catalogItemCode: item.catalogItemCode,
+    // Typed by the source and outside the loader's privacy scan: withheld.
+    catalogItemCode: null,
     catalogItemName: null,
     catalogItemDescription: null,
     itemMeasureUnit: null,

@@ -476,10 +476,11 @@ const envelopeOn = (
     v3 ? { ...policy, dateBasis: 'finalization_day (direct acquisitions release 1)' } : policy,
     ...rest
   );
+  const disclosureKey = policy.grain === 'direct_acquisition' ? (gen.disclosureKey ?? 'off') : null;
   // The amount fields keep their names; the structured basis says what they sum.
   return v3 && envelope.valueBasis === 'awarded'
-    ? { ...envelope, valueBasis: 'counted' }
-    : envelope;
+    ? { ...envelope, valueBasis: 'counted', disclosureKey }
+    : { ...envelope, disclosureKey };
 };
 
 /** AND-compose gate decisions: any abstain blocks; degradations and caveats merge. */
@@ -1693,6 +1694,8 @@ export interface AnalysisRecordsMeta {
   readonly buildId: string;
   readonly canonicalScope: string;
   readonly caveats: readonly string[];
+  /** As on AnswerEnvelope: the D6 state of a DA page; null on other grains. */
+  readonly disclosureKey: string | null;
 }
 
 export interface AnalysisRecordsResult {
@@ -1808,6 +1811,7 @@ export const analysisRecords = async (
     buildId: gen.buildId,
     canonicalScope,
     caveats,
+    disclosureKey: grain === 'direct_acquisition' ? (gen.disclosureKey ?? 'off') : null,
   });
 
   // The same block gate as the stats block: an abstaining time/geo class
