@@ -2,7 +2,7 @@
  * E2E — direct acquisitions release 1 against a REAL Postgres: the repository's
  * SQL runs (types, casts, grouping, window counts, timestamp text), the D6
  * filter and supplier buckets hold in SQL, and the reader works both before
- * and after the pending `supplier_kind` / `listed_now` columns exist.
+ * and after `supplier_privacy` and the pending columns exist.
  *
  * The schema is a MINIMAL SHAPE built from the serving contract
  * (DIRECT_ACQUISITION_SERVING_CONTRACT.md: column names and types), not the
@@ -185,7 +185,19 @@ const addPendingColumns = async (trx: Kysely<ProdDatabase>): Promise<void> => {
     values (${PURCHASES[1]?.purchaseId ?? ''}, 3, ${`${SECRET} superseded line`}, 1, 1, now())`.execute(
     trx
   );
-  await sql`alter table procurement_v3.da_parties add column supplier_kind text`.execute(trx);
+  // The site-wide D6 source: the company is public, the sole trader and the bad code are not,
+  // and UNVERIFIED's code is absent (absent means withheld).
+  await sql`create table procurement_v3.supplier_privacy (
+    fiscal_code_clean text primary key, supplier_kind text, public boolean not null,
+    method text, classified_at timestamptz)`.execute(trx);
+  for (const [party, isPublic] of [
+    [COMPANY, true],
+    [SOLE_TRADER, false],
+    [NATURAL_PERSON, false],
+    [BAD_CODE_SUPPLIER, false],
+  ] as const)
+    await sql`insert into procurement_v3.supplier_privacy (fiscal_code_clean, public)
+      values (${party.fiscalCode}, ${isPublic})`.execute(trx);
   // Free-text gates: only purchase 1's title and line 0's name are marked public.
   await sql`alter table procurement_v3.da_purchases add column title_public boolean`.execute(trx);
   await sql`alter table procurement_v3.da_purchases add column description_public boolean`.execute(
@@ -202,12 +214,6 @@ const addPendingColumns = async (trx: Kysely<ProdDatabase>): Promise<void> => {
     trx
   );
   await sql`alter table procurement_v3.da_purchases add column listed_now boolean`.execute(trx);
-  for (const { kind, party } of parties().values())
-    if (kind === 'supplier')
-      await sql`update procurement_v3.da_parties set supplier_kind = ${party.supplierKind}
-        where source_name = ${SOURCE} and party_kind = 'supplier' and portal_party_id = ${party.portalPartyId}`.execute(
-        trx
-      );
   for (const row of PURCHASES)
     await sql`update procurement_v3.da_purchases set listed_now = ${row.listedNow} where purchase_id = ${row.purchaseId}`.execute(
       trx
@@ -347,11 +353,9 @@ const checkCommon = async (forbidden: readonly string[]) => {
   expect(refused.total).toBe(1);
 };
 
-describe('before supplier_kind and listed_now exist', () => {
-  it('serves every case, withholds suppliers without a valid code, and names no pending column', async () => {
-    // Before supplier_kind, a valid code is named (the contract's interim rule), so only
-    // the suppliers without a valid code must stay hidden.
-    await checkCommon([NATURAL_PERSON.name ?? '~', BAD_CODE_SUPPLIER.name ?? '~']);
+describe('before supplier_privacy and the pending columns exist', () => {
+  it('serves every case and withholds every supplier, companies included (fails closed)', async () => {
+    await checkCommon([SECRET, COMPANY.name ?? '~']);
     const list = (await listDaPurchases(deps(), ALL))._unsafeUnwrap();
     expect(list.items.every((item) => item.listedNow === null)).toBe(true);
     // No public flag column yet: every free-text field is withheld.
@@ -359,39 +363,32 @@ describe('before supplier_kind and listed_now exist', () => {
       list.items.every((item) => item.title === null && item.titleWithheld === 'privacy')
     ).toBe(true);
     expect(list.items.every((item) => item.description === null)).toBe(true);
-    const natural = list.items.find((item) => item.purchaseId === PURCHASES[9]?.purchaseId);
-    expect(natural?.supplier).toEqual({
-      displayKind: 'natural_person',
-      partyId: null,
-      name: null,
-      fiscalCode: null,
-    });
-    // Fallback: a valid code is named until supplier_kind exists (the contract's interim rule).
-    const pfa = (
-      await listDaPurchases(deps(), {
-        filter: { supplierFiscalCode: SOLE_TRADER.fiscalCode ?? '' },
-        ...ALL,
-      })
-    )._unsafeUnwrap();
-    expect(pfa.total).toBe(2);
+    for (const item of list.items.filter((i) => i.supplier !== null))
+      expect(item.supplier).toEqual({
+        displayKind: 'natural_person',
+        partyId: null,
+        name: null,
+        fiscalCode: null,
+      });
+    for (const code of [COMPANY.fiscalCode, SOLE_TRADER.fiscalCode]) {
+      const probe = (
+        await listDaPurchases(deps(), { filter: { supplierFiscalCode: code ?? '' }, ...ALL })
+      )._unsafeUnwrap();
+      expect(probe.total).toBe(0);
+    }
     const bySupplier = (
       await daPurchaseTotals(deps(), { groupBy: 'supplier', ...ALL })
     )._unsafeUnwrap();
-    const withheld = bySupplier.groups.filter(
-      (group) => group.party?.displayKind === 'natural_person'
-    );
-    expect(withheld).toHaveLength(1);
-    expect(withheld[0]).toMatchObject({
-      key: null,
-      countedValue: '1200.00',
-      countedCount: '2',
-      purchaseCount: '2',
-    });
-    expect(JSON.stringify(bySupplier)).not.toContain(NATURAL_PERSON.name ?? '~');
+    expect(
+      bySupplier.groups.map((g) => [g.party?.displayKind ?? null, g.noSupplier, g.purchaseCount])
+    ).toEqual([
+      ['natural_person', false, String(PURCHASES.length - 1)],
+      [null, true, '1'],
+    ]);
   });
 });
 
-describe('after supplier_kind and listed_now exist', () => {
+describe('after supplier_privacy and the pending columns exist', () => {
   it('names only companies and serves listed_now', async () => {
     if (db === undefined) throw new Error('no database');
     await addPendingColumns(db);

@@ -227,7 +227,7 @@ export const listDaPurchases = async (
       pageSize: request.pageSize,
     });
     if (records.isErr()) return err(records.error);
-    const items = mapAll(records.value.rows, (row) => toPurchase(row, reader.supplierKindColumn()));
+    const items = mapAll(records.value.rows, (row) => toPurchase(row));
     if (items.isErr()) return err(items.error);
     const reached = offsetFor(request) + items.value.length;
     return ok({
@@ -253,7 +253,7 @@ export const getDaPurchase = async (
     const record = await reader.purchaseById(purchaseId);
     if (record.isErr()) return err(record.error);
     if (record.value === null) return err(notFound('Direct acquisition not found.', 'purchase'));
-    const purchase = toPurchase(record.value, reader.supplierKindColumn());
+    const purchase = toPurchase(record.value);
     if (purchase.isErr()) return err(purchase.error);
     const itemRecords = await reader.itemsOf(purchaseId);
     if (itemRecords.isErr()) return err(itemRecords.error);
@@ -269,16 +269,13 @@ const isGroup = (value: string): value is (typeof DA_TOTALS_GROUPS)[number] =>
 const toAnswer = (
   records: DaTotalsRecords,
   request: { groupBy: (typeof DA_TOTALS_GROUPS)[number] | null; page: number; pageSize: number },
-  envelope: DaEnvelope,
-  supplierKindColumn: boolean
+  envelope: DaEnvelope
 ): Result<DaTotalsAnswer, ApiError> => {
   const overall = toTotals(records.overall);
   if (overall.isErr()) return err(overall.error);
   const groupBy = request.groupBy;
   const groups =
-    groupBy === null
-      ? ok([])
-      : mapAll(records.groups, (group) => toTotalsGroup(group, groupBy, supplierKindColumn));
+    groupBy === null ? ok([]) : mapAll(records.groups, (group) => toTotalsGroup(group, groupBy));
   if (groups.isErr()) return err(groups.error);
   return ok({
     ...envelope,
@@ -308,12 +305,12 @@ export const daPurchaseTotals = async (
   const cache = isEmptyFilter(filter.value) ? deps.totalsCache : undefined;
 
   return inSnapshot(deps, async (reader, envelope) => {
-    const key = `${envelope.dataAsOf}|${String(reader.supplierKindColumn())}|${groupBy ?? ''}|${String(shape.page)}|${String(shape.pageSize)}`;
+    const key = `${envelope.dataAsOf}|${String(reader.supplierPrivacyTable())}|${groupBy ?? ''}|${String(shape.page)}|${String(shape.pageSize)}`;
     const hit = cache?.get(key);
     if (hit !== undefined) return ok(hit);
     const records = await reader.totals({ filter: filter.value, ...shape });
     if (records.isErr()) return err(records.error);
-    const answer = toAnswer(records.value, shape, envelope, reader.supplierKindColumn());
+    const answer = toAnswer(records.value, shape, envelope);
     if (answer.isOk()) cache?.set(key, answer.value);
     return answer;
   });

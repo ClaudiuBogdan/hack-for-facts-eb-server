@@ -30,20 +30,22 @@ only what the API adds or decides.
 - In release 1 all three fields are withheld until the flags exist. `categoryLabel` (the CPV label) is the
   purchase's visible name.
 
-## D6: supplier names
+## D6: supplier names (site-wide)
 
-- A supplier is named (`displayKind: company`, with name, fiscal code and party id) only when `supplier_kind =
-'company'` and its fiscal code is valid. Until the loader adds `supplier_kind`, a valid fiscal code is the
-  contract's fallback.
-- Every other supplier is `natural_person`, with `name`, `fiscalCode` and `partyId` all null. No party id is served
-  either, so one person's purchases cannot be linked across rows.
-- A supplier filter matches only named suppliers, so a sole trader's code cannot be used to list their purchases.
+- One source for v3 and the legacy surfaces: `procurement_v3.supplier_privacy` (`fiscal_code_clean`, `public`), built
+  by the data platform's classifier over every supplier code the platform serves and rewritten in the nightly
+  publish with `data_as_of`. A supplier's name, fiscal code and party id are served only when its code is there with
+  `public = true` (and, defensively, valid). Absent code or absent table: withheld, so the rule fails closed.
+- A withheld supplier is `natural_person`, with `name`, `fiscalCode` and `partyId` all null; one person's purchases
+  cannot be linked across rows.
+- A supplier filter matches only public suppliers, so a sole trader's code cannot be used to list their purchases.
 - In totals grouped by supplier, every withheld supplier falls into one `natural_person` group. Purchases that name
   no supplier have their own group (`noSupplier: true`).
 - Buyers are `authority`: the name is always served, the fiscal code only when it is valid.
-- The rule lives in `core/da-release.ts` (`isNamedSupplier`). The SQL mirror (`namedSupplier` in the repo) only
-  filters and buckets rows, and the core re-checks every party before it is served.
-  `tests/integration/procurement/da-release-surfaces.test.ts` fails if any surface serves a withheld name.
+- The rule lives in `core/da-release.ts` (`isNamedSupplier`). The SQL mirror (`namedSupplier`, joining
+  `supplier_privacy` as `sv`) only filters and buckets rows, and the core re-checks every party before it is served.
+  `tests/integration/procurement/da-release-surfaces.test.ts` fails if any surface serves a withheld name, and it
+  covers the absent-table case too.
 
 ## Consistency
 
@@ -91,7 +93,8 @@ With the flag off:
 ## Pending (data platform)
 
 - **Schema name:** `procurement_v3` is pending the owner's migration. It is named once, in `DA_RELEASE_SCHEMA`.
-- **Pending columns:** `supplier_kind`, `listed_now`, `da_items.superseded_at` and the three free-text flags are
-  probed per request, so the reader works before and after they land.
-- **Open (root/owner):** the legacy DA surface still serves supplier names. A v3 `code` looked up there can name a
-  supplier that v3 withholds. This must be settled before the flag goes on.
+- **Pending columns:** `listed_now`, `da_items.superseded_at`, the three free-text flags and the `supplier_privacy`
+  table are probed per request, so the reader works before and after they land.
+- **Decided (owner, 18 Nov):** D6 holds site-wide. The legacy DA surfaces apply the same `supplier_privacy` rule
+  behind the same flag (work in progress). The analysis API's DA grain moves to v3: live Postgres first, a
+  ClickHouse projection later. Supplier geography is dropped for DA.

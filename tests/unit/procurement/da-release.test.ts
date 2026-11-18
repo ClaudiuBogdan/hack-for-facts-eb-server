@@ -33,27 +33,18 @@ const row = (n: number): DaPurchaseRecord => {
   return found;
 };
 
-const served = (record: DaPurchaseRecord, kindColumn = true) =>
-  toPurchase(record, kindColumn)._unsafeUnwrap();
+const served = (record: DaPurchaseRecord) => toPurchase(record)._unsafeUnwrap();
 
 describe('D6 supplier rule', () => {
-  it('names only a company with a valid code once supplier_kind exists', () => {
-    expect(isNamedSupplier(COMPANY, true)).toBe(true);
+  it('names a supplier only when its code is public in supplier_privacy', () => {
+    expect(isNamedSupplier(COMPANY)).toBe(true);
     for (const party of [SOLE_TRADER, NATURAL_PERSON, UNVERIFIED, BAD_CODE_SUPPLIER])
-      expect(isNamedSupplier(party, true)).toBe(false);
-    // A null kind with the column present is withheld, even with a valid code.
-    expect(isNamedSupplier({ ...COMPANY, supplierKind: null }, true)).toBe(false);
-    // "company" with a code that is not valid is withheld.
-    expect(isNamedSupplier({ ...COMPANY, fiscalCodeStatus: 'checksum_failed' }, true)).toBe(false);
-    expect(isNamedSupplier({ ...COMPANY, fiscalCode: null }, true)).toBe(false);
-  });
-
-  it('falls back to a valid fiscal code before supplier_kind exists', () => {
-    const noKind = { supplierKind: null };
-    expect(isNamedSupplier({ ...COMPANY, ...noKind }, false)).toBe(true);
-    expect(isNamedSupplier({ ...SOLE_TRADER, ...noKind }, false)).toBe(true);
-    expect(isNamedSupplier({ ...NATURAL_PERSON, ...noKind }, false)).toBe(false);
-    expect(isNamedSupplier({ ...BAD_CODE_SUPPLIER, ...noKind }, false)).toBe(false);
+      expect(isNamedSupplier(party)).toBe(false);
+    // Not public (absent from supplier_privacy, or the table is absent): withheld.
+    expect(isNamedSupplier({ ...COMPANY, supplierPublic: false })).toBe(false);
+    // Defensive: a public code that is missing or not valid is still withheld.
+    expect(isNamedSupplier({ ...COMPANY, fiscalCodeStatus: 'checksum_failed' })).toBe(false);
+    expect(isNamedSupplier({ ...COMPANY, fiscalCode: null })).toBe(false);
   });
 
   it('serves a withheld supplier as natural_person with no name, code or id', () => {
@@ -163,13 +154,13 @@ describe('row invariants refuse the row', () => {
     ['a float-looking value', { reportedValue: '1e5' }],
   ];
   it.each(broken)('%s', (_label, change) => {
-    const result = toPurchase({ ...row(1), ...change }, true);
+    const result = toPurchase({ ...row(1), ...change });
     expect(result.isErr()).toBe(true);
     expect(result._unsafeUnwrapErr().type).toBe('Database');
   });
 
   it('refuses a corrected value on a purchase that is not counted', () => {
-    const result = toPurchase({ ...row(3), valueCorrected: true }, true);
+    const result = toPurchase({ ...row(3), valueCorrected: true });
     expect(result.isErr()).toBe(true);
   });
 });
@@ -229,8 +220,7 @@ describe('items and totals', () => {
     };
     const group = toTotalsGroup(
       { ...measures, key: null, supplierBucket: 'named', party: SOLE_TRADER },
-      'supplier',
-      true
+      'supplier'
     )._unsafeUnwrap();
     expect(group.party).toEqual({
       displayKind: 'natural_person',
@@ -241,8 +231,7 @@ describe('items and totals', () => {
     expect(group.key).toBeNull();
     const none = toTotalsGroup(
       { ...measures, key: null, supplierBucket: 'none', party: null },
-      'supplier',
-      true
+      'supplier'
     )._unsafeUnwrap();
     expect(none).toMatchObject({ noSupplier: true, party: null });
   });

@@ -41,7 +41,7 @@ export const BUYER: DaPartyRecord = {
   name: 'COMUNA EXEMPLU',
   fiscalCode: '4305857',
   fiscalCodeStatus: 'valid',
-  supplierKind: null,
+  supplierPublic: false,
 };
 /** A buyer whose code fails the checksum: the name is served, the code is not. */
 export const BUYER_BAD_CODE: DaPartyRecord = {
@@ -49,43 +49,43 @@ export const BUYER_BAD_CODE: DaPartyRecord = {
   name: 'SCOALA GIMNAZIALA EXEMPLU',
   fiscalCode: '1234567',
   fiscalCodeStatus: 'checksum_failed',
-  supplierKind: null,
+  supplierPublic: false,
 };
 export const COMPANY: DaPartyRecord = {
   portalPartyId: '900',
   name: 'FIRMA EXEMPLU SRL',
   fiscalCode: '14399840',
   fiscalCodeStatus: 'valid',
-  supplierKind: 'company',
+  supplierPublic: true,
 };
-/** Valid code, but a sole trader (PFA): withheld once supplier_kind exists. */
+/** Valid code, but a sole trader (PFA): not public in supplier_privacy. */
 export const SOLE_TRADER: DaPartyRecord = {
   portalPartyId: '901',
   name: `${SECRET} POPESCU ION PFA`,
   fiscalCode: '30254716',
   fiscalCodeStatus: 'valid',
-  supplierKind: 'sole_trader',
+  supplierPublic: false,
 };
 export const NATURAL_PERSON: DaPartyRecord = {
   portalPartyId: '902',
   name: `${SECRET} IONESCU MARIA`,
   fiscalCode: '2850101123456',
   fiscalCodeStatus: 'personal_code',
-  supplierKind: 'natural_person',
+  supplierPublic: false,
 };
 export const UNVERIFIED: DaPartyRecord = {
   portalPartyId: '903',
   name: `${SECRET} UNVERIFIED NAME`,
   fiscalCode: '30254717',
   fiscalCodeStatus: 'valid',
-  supplierKind: 'unverified',
+  supplierPublic: false,
 };
 export const BAD_CODE_SUPPLIER: DaPartyRecord = {
   portalPartyId: '904',
   name: `${SECRET} CHECKSUM FAILED`,
   fiscalCode: '1111111',
   fiscalCodeStatus: 'checksum_failed',
-  supplierKind: 'unverified',
+  supplierPublic: false,
 };
 
 // ── Rules (the value review page's sentences) ────────────────────────────────
@@ -250,12 +250,10 @@ export interface SnapshotLog {
 }
 
 /** The fake's version of the SQL D6 predicate, used ONLY for filtering (as the SQL is). */
-const namedForFilter = (party: DaPartyRecord | null, kindColumn: boolean): boolean =>
-  party !== null &&
-  party.fiscalCodeStatus === 'valid' &&
-  (!kindColumn || party.supplierKind === 'company');
+const namedForFilter = (party: DaPartyRecord | null, privacyTable: boolean): boolean =>
+  party !== null && party.fiscalCodeStatus === 'valid' && privacyTable && party.supplierPublic;
 
-const matches = (row: DaPurchaseRecord, filter: DaPurchaseFilter, kindColumn: boolean) =>
+const matches = (row: DaPurchaseRecord, filter: DaPurchaseFilter, privacyTable: boolean) =>
   (filter.code === undefined || row.code === filter.code) &&
   (filter.nativeId === undefined || row.nativeId === filter.nativeId) &&
   (filter.counted === undefined || row.counted === filter.counted) &&
@@ -269,7 +267,7 @@ const matches = (row: DaPurchaseRecord, filter: DaPurchaseFilter, kindColumn: bo
     (row.buyer?.fiscalCode === filter.buyerFiscalCode && row.buyer.fiscalCodeStatus === 'valid')) &&
   (filter.supplierFiscalCode === undefined ||
     (row.supplier?.fiscalCode === filter.supplierFiscalCode &&
-      namedForFilter(row.supplier, kindColumn)));
+      namedForFilter(row.supplier, privacyTable)));
 
 const measure = (rows: readonly DaPurchaseRecord[]): DaTotalsRecord => {
   const countedRows = rows.filter((row) => row.counted);
@@ -288,20 +286,21 @@ const measure = (rows: readonly DaPurchaseRecord[]): DaTotalsRecord => {
 
 export interface FakeDaRepoOptions {
   readonly enabled?: boolean;
-  readonly supplierKindColumn?: boolean;
+  /** False: `supplier_privacy` is absent, so every supplier is withheld. */
+  readonly supplierPrivacyTable?: boolean;
   readonly purchases?: readonly DaPurchaseRecord[];
   readonly dataAsOf?: string | null;
   readonly log?: SnapshotLog;
 }
 
 export const makeFakeDaRepo = (options: FakeDaRepoOptions = {}): DaReleaseRepo => {
-  const kindColumn = options.supplierKindColumn ?? true;
+  const privacyTable = options.supplierPrivacyTable ?? true;
   const purchases = (options.purchases ?? PURCHASES).map((row) =>
-    kindColumn
+    privacyTable
       ? row
       : {
           ...row,
-          supplier: row.supplier === null ? null : { ...row.supplier, supplierKind: null },
+          supplier: row.supplier === null ? null : { ...row.supplier, supplierPublic: false },
         }
   );
   const log = options.log ?? { opened: 0, reads: [] };
@@ -319,11 +318,11 @@ export const makeFakeDaRepo = (options: FakeDaRepoOptions = {}): DaReleaseRepo =
             ok(options.dataAsOf === undefined ? DATA_AS_OF : options.dataAsOf)
           );
         },
-        supplierKindColumn: () => kindColumn,
+        supplierPrivacyTable: () => privacyTable,
         listPurchases: (query) => {
           note('listPurchases');
           const rows = purchases
-            .filter((row) => matches(row, query.filter, kindColumn))
+            .filter((row) => matches(row, query.filter, privacyTable))
             .sort((a, b) => {
               const byDay = (b.finalizationDay ?? '').localeCompare(a.finalizationDay ?? '');
               return byDay !== 0 ? byDay : b.purchaseId.localeCompare(a.purchaseId);
@@ -349,7 +348,7 @@ export const makeFakeDaRepo = (options: FakeDaRepoOptions = {}): DaReleaseRepo =
         },
         totals: (query) => {
           note('totals');
-          const rows = purchases.filter((row) => matches(row, query.filter, kindColumn));
+          const rows = purchases.filter((row) => matches(row, query.filter, privacyTable));
           const groups = new Map<
             string,
             { rows: DaPurchaseRecord[]; record: Omit<DaTotalsGroupRecord, keyof DaTotalsRecord> }

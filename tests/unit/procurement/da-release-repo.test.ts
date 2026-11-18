@@ -20,8 +20,8 @@ const PAGE = { page: 1, pageSize: 20 };
 
 const run = async (
   read: (reader: DaReleaseReader) => Promise<unknown>,
-  probe: { supplier_kind: boolean; listed_now: boolean; superseded_at?: boolean } = {
-    supplier_kind: true,
+  probe: { supplier_privacy: boolean; listed_now: boolean; superseded_at?: boolean } = {
+    supplier_privacy: true,
     listed_now: true,
     superseded_at: true,
   },
@@ -31,9 +31,9 @@ const run = async (
   const transactions: unknown[] = [];
   const db = makeCapturingDb(captured, {
     respond: (text) => {
+      if (text.includes('is not null as present')) return [{ present: probe.supplier_privacy }];
       if (text.includes('from pg_attribute')) {
         const present: [string, string, boolean | undefined][] = [
-          ['da_parties', 'supplier_kind', probe.supplier_kind],
           ['da_purchases', 'listed_now', probe.listed_now],
           ['da_items', 'superseded_at', probe.superseded_at],
         ];
@@ -152,48 +152,44 @@ describe('joins and D6', () => {
     expect(sql).toContain('s.portal_party_id = p.supplier_party_id');
   });
 
-  it('a supplier filter only matches companies D6 names', async () => {
+  it('a supplier filter only matches suppliers public in supplier_privacy', async () => {
     const { sql } = await run((r) =>
       r.listPurchases({ filter: { supplierFiscalCode: '14399840' }, ...PAGE })
     );
+    expect(sql).toContain(
+      'left join "procurement_v3"."supplier_privacy" sv on sv.fiscal_code_clean = s.fiscal_code_clean'
+    );
     expect(sql).toMatch(
-      /s\.fiscal_code_clean = \$\d+ and \(s\.fiscal_code_status = 'valid' and s\.fiscal_code_clean is not null and s\.supplier_kind = 'company'\)/u
+      /s\.fiscal_code_clean = \$\d+ and \(sv\.public is true and s\.fiscal_code_status = 'valid' and s\.fiscal_code_clean is not null\)/u
     );
   });
 
-  it('falls back to a valid code, and names no pending column, before the columns exist', async () => {
+  it('withholds every supplier, and names no pending column, before supplier_privacy and the columns exist', async () => {
     const { captured } = await run(
       async (r) => {
         await r.listPurchases({ filter: { supplierFiscalCode: '14399840' }, ...PAGE });
         await r.totals({ filter: {}, groupBy: 'supplier', ...PAGE });
       },
-      { supplier_kind: false, listed_now: false }
+      { supplier_privacy: false, listed_now: false }
     );
-    // The catalog probe names the columns; no data statement may.
+    // The catalog probes name the objects; no data statement may.
     const sql = captured
       .map((query) => query.sql)
-      .filter((text) => !text.includes('from pg_attribute'))
+      .filter((text) => !text.includes('from pg_attribute') && !text.includes('to_regclass'))
       .join('\n');
-    // Output aliases (s_supplier_kind) may appear; a column reference may not.
-    expect(sql).not.toMatch(/"?[sbx]"?\."?supplier_kind/u);
+    expect(sql).not.toContain('supplier_privacy');
     expect(sql).not.toMatch(/"?p"?\."?listed_now/u);
-    expect(sql).toContain(`(s.fiscal_code_status = 'valid' and s.fiscal_code_clean is not null)`);
+    // The supplier filter and every named bucket are constant false.
+    expect(sql).toMatch(/s\.fiscal_code_clean = \$\d+ and false/u);
+    expect(sql).toContain(`case when false then`);
   });
 
   it('buckets withheld suppliers together and selects their columns only when named', async () => {
     const { sql } = await run((r) => r.totals({ filter: {}, groupBy: 'supplier', ...PAGE }));
     expect(sql).toContain(`else 'withheld' end as g_bucket`);
-    for (const column of [
-      'portal_party_id',
-      'name_as_written',
-      'fiscal_code_clean',
-      'supplier_kind',
-    ])
+    for (const column of ['portal_party_id', 'name_as_written', 'fiscal_code_clean'])
       expect(sql).toMatch(
-        new RegExp(
-          `case when \\(s\\.fiscal_code_status = 'valid'[^)]*\\) then "s"\\."${column}" end`,
-          'u'
-        )
+        new RegExp(`case when \\(sv\\.public is true[^)]*\\) then "s"\\."${column}" end`, 'u')
       );
   });
 
@@ -217,7 +213,7 @@ describe('review fixes', () => {
     expect(present.sql).toContain('and i.superseded_at is null');
     expect(present.sql).toContain('(i.quantity * i.unit_price)::text as reported_line_value');
     const absent = await run((r) => r.itemsOf(ID), {
-      supplier_kind: true,
+      supplier_privacy: true,
       listed_now: true,
       superseded_at: false,
     });
@@ -272,7 +268,7 @@ describe('results and faults', () => {
                 g_name_as_written: null,
                 g_fiscal_code_clean: null,
                 g_fiscal_code_status: null,
-                g_supplier_kind: null,
+                g_supplier_public: false,
                 counted_value: '10.00',
                 counted_count: '1',
                 symbolic_price_count: '0',
@@ -286,7 +282,7 @@ describe('results and faults', () => {
                 g_name_as_written: 'FIRMA SRL',
                 g_fiscal_code_clean: '14399840',
                 g_fiscal_code_status: 'valid',
-                g_supplier_kind: 'company',
+                g_supplier_public: true,
                 counted_value: '5.00',
                 counted_count: '1',
                 symbolic_price_count: '0',

@@ -9,10 +9,11 @@
  * corrected value with the correction rule's public sentence. Only
  * `counted_value` is ever summed; reported values and item lines never are.
  *
- * D6: a supplier's name and fiscal code are served only for a company
- * (`supplier_kind = 'company'` with a valid fiscal code; until the loader adds
- * `supplier_kind`, a valid fiscal code). Every other supplier is served as a
- * natural person with no name, no fiscal code and no party id. Buyers are
+ * D6 (site-wide): a supplier's name and fiscal code are served only when its
+ * code is in `supplier_privacy` with `public = true` (the data platform's one
+ * classification, shared with the legacy surfaces). Every other supplier,
+ * including any supplier when that table is absent, is served as a natural
+ * person with no name, no fiscal code and no party id. Buyers are
  * public authorities: the name is served, the code only when it is valid.
  *
  * Pure: no I/O. A row that breaks the contract's invariants is refused, never
@@ -84,13 +85,6 @@ export const DA_FISCAL_CODE_STATUSES = [
   'personal_code',
 ] as const;
 
-export const DA_SUPPLIER_KINDS = [
-  'company',
-  'sole_trader',
-  'natural_person',
-  'unverified',
-] as const;
-
 /** Totals dimensions for release 1; `year` is a roll-up of the contract's month. */
 export const DA_TOTALS_GROUPS = ['buyer', 'supplier', 'cpvDivision', 'month', 'year'] as const;
 export type DaTotalsDimension = (typeof DA_TOTALS_GROUPS)[number];
@@ -113,8 +107,8 @@ export interface DaPartyRecord {
   readonly name: string | null;
   readonly fiscalCode: string | null;
   readonly fiscalCodeStatus: string | null;
-  /** Null when the row has no kind or the column does not exist yet (see `supplierKindColumn`). */
-  readonly supplierKind: string | null;
+  /** The code is in `supplier_privacy` with `public = true`. False when absent, or when the table is. */
+  readonly supplierPublic: boolean;
 }
 
 export interface DaRuleRecord {
@@ -306,14 +300,11 @@ export interface DaTotalsGroup extends DaTotals {
 // ── D6 ───────────────────────────────────────────────────────────────────────
 
 /**
- * Whether D6 lets a supplier be named. With the `supplier_kind` column present
- * only a `company` with a valid code is named (a null kind is withheld); before
- * the column exists, a valid code is the contract's fallback.
+ * Whether D6 lets a supplier be named: its code is public in `supplier_privacy`
+ * (and, defensively, present and valid; public implies both).
  */
-export const isNamedSupplier = (party: DaPartyRecord, supplierKindColumn: boolean): boolean =>
-  party.fiscalCodeStatus === 'valid' &&
-  party.fiscalCode !== null &&
-  (!supplierKindColumn || party.supplierKind === 'company');
+export const isNamedSupplier = (party: DaPartyRecord): boolean =>
+  party.supplierPublic && party.fiscalCode !== null && party.fiscalCodeStatus === 'valid';
 
 const WITHHELD: DaParty = {
   displayKind: 'natural_person',
@@ -322,8 +313,8 @@ const WITHHELD: DaParty = {
   fiscalCode: null,
 };
 
-export const toSupplier = (party: DaPartyRecord, supplierKindColumn: boolean): DaParty =>
-  isNamedSupplier(party, supplierKindColumn)
+export const toSupplier = (party: DaPartyRecord): DaParty =>
+  isNamedSupplier(party)
     ? {
         displayKind: 'company',
         partyId: party.portalPartyId,
@@ -366,10 +357,7 @@ const toRule = (record: DaPurchaseRecord): Result<DaValueRule | null, ApiError> 
   });
 };
 
-export const toPurchase = (
-  record: DaPurchaseRecord,
-  supplierKindColumn: boolean
-): Result<DaPurchase, ApiError> => {
+export const toPurchase = (record: DaPurchaseRecord): Result<DaPurchase, ApiError> => {
   if (!member(DA_OUTCOMES, record.outcome)) return err(refused('outcome'));
   if (!isDecimalText(record.reportedValue) || !isDecimalText(record.countedValue))
     return err(refused('value'));
@@ -423,7 +411,7 @@ export const toPurchase = (
     cpvDivision: cpvDivisionOf(record.categoryCode),
     acquisitionTypeLabel: record.acquisitionTypeLabel,
     buyer: record.buyer === null ? null : toBuyer(record.buyer),
-    supplier: record.supplier === null ? null : toSupplier(record.supplier, supplierKindColumn),
+    supplier: record.supplier === null ? null : toSupplier(record.supplier),
   });
 };
 
@@ -474,8 +462,7 @@ export const toTotals = (record: DaTotalsRecord): Result<DaTotals, ApiError> => 
 
 export const toTotalsGroup = (
   record: DaTotalsGroupRecord,
-  groupBy: DaTotalsDimension,
-  supplierKindColumn: boolean
+  groupBy: DaTotalsDimension
 ): Result<DaTotalsGroup, ApiError> => {
   const totals = toTotals(record);
   if (totals.isErr()) return err(totals.error);
@@ -492,7 +479,7 @@ export const toTotalsGroup = (
     // A named bucket is re-checked here: the SQL bucket and this rule must agree.
     const party =
       record.supplierBucket === 'named' && record.party !== null
-        ? toSupplier(record.party, supplierKindColumn)
+        ? toSupplier(record.party)
         : WITHHELD;
     return ok({ ...totals.value, key: party.partyId, party, noSupplier: false });
   }

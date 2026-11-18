@@ -202,7 +202,7 @@ const everyResponse = async (s: Surfaces): Promise<readonly [string, string][]> 
 describe('D6 on every surface', () => {
   let surfaces: Surfaces;
   beforeAll(async () => {
-    surfaces = await build({ supplierKindColumn: true });
+    surfaces = await build({ supplierPrivacyTable: true });
   });
   afterAll(async () => {
     await surfaces.app.close();
@@ -286,22 +286,21 @@ describe('free-text privacy gate', () => {
   });
 });
 
-describe('D6 before supplier_kind exists', () => {
+describe('D6 without supplier_privacy (fails closed)', () => {
   let surfaces: Surfaces;
   beforeAll(async () => {
-    surfaces = await build({ supplierKindColumn: false });
+    surfaces = await build({ supplierPrivacyTable: false });
   });
   afterAll(async () => {
     await surfaces.app.close();
   });
 
-  it('withholds every supplier without a valid code on every surface', async () => {
+  it('withholds every supplier, companies included, on every surface', async () => {
     const responses = await everyResponse(surfaces);
     for (const [label, raw] of responses) {
-      for (const party of [NATURAL_PERSON, BAD_CODE_SUPPLIER]) {
-        expect(raw, label).not.toContain(party.name ?? '~');
-        expect(raw, label).not.toContain(`"${party.portalPartyId}"`);
-      }
+      expect(raw, label).not.toContain(SECRET);
+      expect(raw, label).not.toContain(COMPANY.name ?? '~');
+      expect(raw, label).not.toContain(`"${COMPANY.fiscalCode ?? ''}"`);
     }
   });
 });

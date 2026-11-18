@@ -5,7 +5,7 @@
  *
  * One read-only, repeatable-read transaction per request (`snapshot`). The
  * snapshot also probes the columns the contract still lists as pending
- * (`da_parties.supplier_kind`, `da_purchases.listed_now`) so the reader works
+ * (`da_purchases.listed_now`, line and free-text flags) so the reader works
  * before and after they land. Parties join on (source_name, party_kind,
  * portal_party_id). Columns are named: the contract's unserved columns
  * (estimates, amount/currency/VAT basis, rule conditions, keys, internal review
@@ -54,6 +54,7 @@ const PARTIES = table('da_parties');
 const RULES = table('da_value_rules');
 const ITEMS = table('da_items');
 const RELEASE = table('da_release');
+const PRIVACY = table('supplier_privacy');
 
 const STATEMENT_TIMEOUT_MS = 10_000;
 
@@ -82,7 +83,7 @@ interface PartyColumns {
   name_as_written: string | null;
   fiscal_code_clean: string | null;
   fiscal_code_status: string | null;
-  supplier_kind: string | null;
+  supplier_public: boolean;
 }
 
 /** The selected columns of one party alias, prefixed. Contacts and addresses are never read. */
@@ -92,12 +93,13 @@ const PARTY_COLUMNS = [
   'fiscal_code_clean',
   'fiscal_code_status',
 ];
-const partyColumns = (alias: 'b' | 's', supplierKind: boolean) =>
+/** `supplier_public` for `s` comes from `supplier_privacy` (alias `sv`); a buyer is never classified. */
+const partyColumns = (alias: 'b' | 's', supplierPrivacy: boolean) =>
   sql.join([
     ...PARTY_COLUMNS.map(
       (column) => sql`${sql.ref(`${alias}.${column}`)} as ${sql.id(`${alias}_${column}`)}`
     ),
-    sql`${supplierKind ? sql.ref(`${alias}.supplier_kind`) : sql`null::text`} as ${sql.id(`${alias}_supplier_kind`)}`,
+    sql`${alias === 's' && supplierPrivacy ? sql`coalesce(sv.public, false)` : sql`false`} as ${sql.id(`${alias}_supplier_public`)}`,
   ]);
 
 const partyOf = (row: Record<string, unknown>, prefix: string): DaPartyRecord | null => {
@@ -112,7 +114,7 @@ const partyOf = (row: Record<string, unknown>, prefix: string): DaPartyRecord | 
     name: text('name_as_written'),
     fiscalCode: text('fiscal_code_clean'),
     fiscalCodeStatus: text('fiscal_code_status'),
-    supplierKind: text('supplier_kind'),
+    supplierPublic: row[`${prefix}_supplier_public`] === true,
   };
 };
 
@@ -124,7 +126,7 @@ const toPartyRecord = (row: PartyColumns): DaPartyRecord | null =>
         name: row.name_as_written,
         fiscalCode: row.fiscal_code_clean,
         fiscalCodeStatus: row.fiscal_code_status,
-        supplierKind: row.supplier_kind,
+        supplierPublic: row.supplier_public,
       };
 
 interface PurchaseRow extends Record<string, unknown> {
@@ -199,7 +201,8 @@ const toPurchaseRecord = (row: PurchaseRow): DaPurchaseRecord => ({
 });
 
 interface Columns {
-  readonly supplierKind: boolean;
+  /** `supplier_privacy` exists. Absent: every supplier is withheld (D6 fails closed). */
+  readonly supplierPrivacy: boolean;
   readonly listedNow: boolean;
   /** `da_items.superseded_at`: lines the sync no longer sees; only current lines are served. */
   readonly itemSupersededAt: boolean;
@@ -218,6 +221,12 @@ const gatedText = (present: boolean, flag: string, column: string, alias: string
   present
     ? sql`case when ${sql.ref(flag)} is true then ${sql.ref(column)} end as ${sql.id(alias)}, coalesce(${sql.ref(flag)}, false) as ${sql.id(`${alias}_public`)}`
     : sql`null::text as ${sql.id(alias)}, false as ${sql.id(`${alias}_public`)}`;
+
+/** The supplier's classification row; joined only when the table exists. */
+const privacyJoin = (columns: Columns) =>
+  columns.supplierPrivacy
+    ? sql`left join ${PRIVACY} sv on sv.fiscal_code_clean = s.fiscal_code_clean`
+    : sql``;
 
 /** Dates and timestamps as text, so the driver never builds a JS Date. Money stays numeric text. */
 const purchaseSelect = (columns: Columns) => sql`
@@ -240,7 +249,7 @@ const purchaseSelect = (columns: Columns) => sql`
     ${gatedText(columns.descriptionPublic, 'p.description_public', 'p.description', 'description')},
     p.category_code, p.category_as_written, p.acquisition_type_label,
     ${partyColumns('b', false)},
-    ${partyColumns('s', columns.supplierKind)}
+    ${partyColumns('s', columns.supplierPrivacy)}
   from ${PURCHASES} p
   left join ${PARTIES} b
     on b.source_name = p.source_name and b.party_kind = 'buyer'
@@ -248,13 +257,14 @@ const purchaseSelect = (columns: Columns) => sql`
   left join ${PARTIES} s
     on s.source_name = p.source_name and s.party_kind = 'supplier'
    and s.portal_party_id = p.supplier_party_id
+  ${privacyJoin(columns)}
   left join ${RULES} r on r.rule = p.value_review_rule`;
 
-/** D6 in SQL, over supplier alias `s`: see `isNamedSupplier` in core. */
+/** D6 in SQL, over supplier alias `s` and its `supplier_privacy` row `sv`: see `isNamedSupplier` in core. */
 const namedSupplier = (columns: Columns) =>
-  columns.supplierKind
-    ? sql`(s.fiscal_code_status = 'valid' and s.fiscal_code_clean is not null and s.supplier_kind = 'company')`
-    : sql`(s.fiscal_code_status = 'valid' and s.fiscal_code_clean is not null)`;
+  columns.supplierPrivacy
+    ? sql`(sv.public is true and s.fiscal_code_status = 'valid' and s.fiscal_code_clean is not null)`
+    : sql`false`;
 
 /** The filter's conditions over `p`, with `b` and `s` joined. */
 const whereOf = (filter: DaPurchaseFilter, columns: Columns): RawBuilder<unknown> => {
@@ -281,14 +291,15 @@ const whereOf = (filter: DaPurchaseFilter, columns: Columns): RawBuilder<unknown
   return sql.join(conditions, sql` and `);
 };
 
-const scopeFrom = sql`
+const scopeFrom = (columns: Columns) => sql`
   from ${PURCHASES} p
   left join ${PARTIES} b
     on b.source_name = p.source_name and b.party_kind = 'buyer'
    and b.portal_party_id = p.buyer_party_id
   left join ${PARTIES} s
     on s.source_name = p.source_name and s.party_kind = 'supplier'
-   and s.portal_party_id = p.supplier_party_id`;
+   and s.portal_party_id = p.supplier_party_id
+  ${privacyJoin(columns)}`;
 
 const MEASURES = sql`
   sum(p.counted_value) filter (where p.counted)::text as counted_value,
@@ -328,14 +339,14 @@ const exactCount = (text: string | undefined): Result<number, ApiError> => {
  */
 const groupSelect = (groupBy: NonNullable<DaTotalsQuery['groupBy']>, columns: Columns) => {
   const noParty = sql`null::text as g_portal_party_id, null::text as g_name_as_written,
-    null::text as g_fiscal_code_clean, null::text as g_fiscal_code_status, null::text as g_supplier_kind`;
+    null::text as g_fiscal_code_clean, null::text as g_fiscal_code_status, false as g_supplier_public`;
   switch (groupBy) {
     case 'buyer':
       return {
         select: sql`b.source_name || ':' || b.portal_party_id as group_key, null::text as g_bucket,
           b.portal_party_id as g_portal_party_id, b.name_as_written as g_name_as_written,
           b.fiscal_code_clean as g_fiscal_code_clean, b.fiscal_code_status as g_fiscal_code_status,
-          null::text as g_supplier_kind`,
+          false as g_supplier_public`,
         width: 7,
         byValue: true,
       };
@@ -349,7 +360,7 @@ const groupSelect = (groupBy: NonNullable<DaTotalsQuery['groupBy']>, columns: Co
           ${when('name_as_written')} as g_name_as_written,
           ${when('fiscal_code_clean')} as g_fiscal_code_clean,
           ${when('fiscal_code_status')} as g_fiscal_code_status,
-          ${columns.supplierKind ? when('supplier_kind') : sql`null::text`} as g_supplier_kind`,
+          ${named} as g_supplier_public`,
         width: 7,
         byValue: true,
       };
@@ -386,7 +397,7 @@ interface GroupRow extends MeasureRow {
   g_name_as_written: string | null;
   g_fiscal_code_clean: string | null;
   g_fiscal_code_status: string | null;
-  g_supplier_kind: string | null;
+  g_supplier_public: boolean | null;
   group_count: string;
 }
 
@@ -401,7 +412,7 @@ const toGroupRecord = (
           name_as_written: row.g_name_as_written,
           fiscal_code_clean: row.g_fiscal_code_clean,
           fiscal_code_status: row.g_fiscal_code_status,
-          supplier_kind: row.g_supplier_kind,
+          supplier_public: row.g_supplier_public === true,
         })
       : null;
   return {
@@ -430,7 +441,7 @@ const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
       return result.rows[0]?.data_as_of ?? null;
     }),
 
-  supplierKindColumn: () => columns.supplierKind,
+  supplierPrivacyTable: () => columns.supplierPrivacy,
 
   listPurchases: async (query) => {
     const where = whereOf(query.filter, columns);
@@ -451,7 +462,7 @@ const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
         (
           await sql<{ total: string }>`
             select count(*)::text as total from (
-              select 1 ${scopeFrom} where ${where} limit ${DA_LIST_MAX_DEPTH + 1}
+              select 1 ${scopeFrom(columns)} where ${where} limit ${DA_LIST_MAX_DEPTH + 1}
             ) as capped`.execute(trx)
         ).rows[0]?.total
     );
@@ -523,7 +534,11 @@ const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
     const where = whereOf(query.filter, columns);
     const overall = await attempt(
       async () =>
-        (await sql<MeasureRow>`select ${MEASURES} ${scopeFrom} where ${where}`.execute(trx)).rows[0]
+        (
+          await sql<MeasureRow>`select ${MEASURES} ${scopeFrom(columns)} where ${where}`.execute(
+            trx
+          )
+        ).rows[0]
     );
     if (overall.isErr()) return err(overall.error);
     if (overall.value === undefined)
@@ -541,7 +556,7 @@ const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
         (
           await sql<GroupRow>`
             select ${select}, ${MEASURES}, count(*) over ()::text as group_count
-            ${scopeFrom}
+            ${scopeFrom(columns)}
             where ${where}
             group by ${groupByPositions(width)}
             order by ${order}
@@ -557,7 +572,7 @@ const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
           (
             await sql<{ total: string }>`
               select count(*)::text as total from (
-                select ${select} ${scopeFrom} where ${where} group by ${groupByPositions(width)}
+                select ${select} ${scopeFrom(columns)} where ${where} group by ${groupByPositions(width)}
               ) as g`.execute(trx)
           ).rows[0]?.total
       );
@@ -573,7 +588,6 @@ const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
 
 /** The pending contract columns, each probed per snapshot: (table, column) → Columns key. */
 const PENDING_COLUMNS = [
-  ['da_parties', 'supplier_kind', 'supplierKind'],
   ['da_purchases', 'listed_now', 'listedNow'],
   ['da_items', 'superseded_at', 'itemSupersededAt'],
   ['da_purchases', 'title_public', 'titlePublic'],
@@ -596,8 +610,12 @@ const probeColumns = async (trx: Db): Promise<Columns> => {
   const present = new Set(result.rows.map((row) => `${row.table_name}.${row.column_name}`));
   const has = (key: keyof Columns): boolean =>
     PENDING_COLUMNS.some(([table, column, k]) => k === key && present.has(`${table}.${column}`));
+  const privacy = await sql<{ present: boolean }>`
+    select to_regclass(${`${DA_RELEASE_SCHEMA}.supplier_privacy`}) is not null as present`.execute(
+    trx
+  );
   return {
-    supplierKind: has('supplierKind'),
+    supplierPrivacy: privacy.rows[0]?.present === true,
     listedNow: has('listedNow'),
     itemSupersededAt: has('itemSupersededAt'),
     titlePublic: has('titlePublic'),
