@@ -178,8 +178,9 @@ Production follows the same order.
 
 Live Postgres is fine for buyer pages but not for supplier or home analytics: 19 of 82 statements took over 5 s, and
 two timed out. procurement-prod therefore builds rollups in procurement_v3, in the data_as_of transaction. They are
-upserted per key and never deleted (an emptied bucket goes to zero), and supplier_key is built from the
-supplier_privacy rows of the same publication.
+upserted per key and never deleted (an emptied bucket goes to zero). No rollup holds a fiscal code (root, 18 Nov): a
+supplier is `supplier_ref`, the stable, never-reused `supplier_privacy.supplier_id` of a public code. 0 means
+withheld and NULL means no supplier. A flip to restricted leaves the old rows zeroed under an unlinkable number.
 
 **The tables.** Every row carries `purchases`, `counted_purchases`, `counted_value` and `symbolic_purchases` by month
 (NULL month = undated):
@@ -190,9 +191,9 @@ supplier_privacy rows of the same publication.
 | `da_rollup_cpv_month`                | cpv8                                                                               |
 | `da_rollup_authority_month`          | authority_cui                                                                      |
 | `da_rollup_county_cpv_month`         | county_code, region, cpv8                                                          |
-| `da_rollup_supplier_month`           | supplier_key                                                                       |
-| `da_rollup_supplier_cpv_month`       | supplier_key, cpv8                                                                 |
-| `da_rollup_authority_supplier_month` | authority_cui, supplier_key, plus the authority's county_code and region           |
+| `da_rollup_supplier_month`           | supplier_ref                                                                       |
+| `da_rollup_supplier_cpv_month`       | supplier_ref, cpv8                                                                 |
+| `da_rollup_authority_supplier_month` | authority_cui, supplier_ref, plus the authority's county_code and region           |
 | `da_rollup_distinct`                 | bucket_kind, bucket: distinct_authorities, distinct_public_suppliers, has_withheld |
 
 `da_release` adds the quality columns rows, dated, counted, accepted, with_cpv, with_geo, money, money_dated and
@@ -214,16 +215,17 @@ money_geo.
   - other distinct counts use `count(distinct)` over the covering rollup.
 - **Zero rows never count.** Every rollup read filters `purchases > 0`, so a zeroed row never contributes a key, a
   month or a count.
-- **D6 again on read.** supplier_key is joined to supplier_privacy and must still be public, otherwise it is
-  served as natural_person.
+- **D6 again on read.** supplier_ref is joined to supplier_privacy on supplier_id. The code comes from there, only
+  while that row is public; otherwise the supplier is served as natural_person. A supplier scope looks up the
+  public code's id once, so the read uses the rollup's supplier_ref index.
 - **Quality** comes from the da_release columns when all nine are readable and non-null, and is measured live
   otherwise. with_geo and money_geo count purchases whose buyer resolves to a public territory (SIRUTA), with or
   without a county, as live does.
-- **Buyer geography** in the rollups is the buyer's place as of the DA publish, while the live join reads today's
-  geography tables. A records page with a geography scope therefore counts its total live, as it lists its rows,
-  so a page always agrees with itself; its stats may lag a geography change until the next DA publish. Pinning
-  buyer geography to the publication on both paths is a follow-up (a per-buyer geography table published with
-  the facts).
+- **Buyer geography** is pinned to the publication: `da_buyer_geography` (authority_cui, territorial_siruta_code,
+  county_code, region, copied_at) is built from the kernel join in the publish transaction. When it is readable,
+  the live reads join it too, so stats and records place a buyer the same way. Without it, live reads join
+  today's kernel tables, and a geography-scoped records page counts its total live so the page agrees with
+  itself.
 - **Distinct suppliers** (window-only) trust da_rollup_distinct, which cannot be re-checked per key on read. It is
   built in the same transaction as supplier_privacy, and the build stops on a restricted key in a non-zero row,
   so a valid publication cannot over-count. An invalid one could add one to a count, but never serves a code.
