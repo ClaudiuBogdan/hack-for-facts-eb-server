@@ -24,10 +24,12 @@ export const daReleaseTypeDefs = /* GraphQL */ `
   """
   Direct acquisitions release 1: whether this server serves it, and the data's as-of time.
   Choose the release-1 path from enabled; the legacy direct-acquisition fields stay until the switch.
+  Each release-1 query field reads in its own database snapshot and reports its dataAsOf: when one
+  operation combines several, compare their dataAsOf and refetch if they differ.
   """
   type ProcurementDaRelease {
     enabled: Boolean!
-    "When the served data was published (ISO 8601, UTC). Null when not enabled."
+    "When the served data was published (ISO 8601, UTC, microseconds). Null when not enabled."
     dataAsOf: DateTime
   }
 
@@ -62,7 +64,10 @@ export const daReleaseTypeDefs = /* GraphQL */ `
     descriptionRo: String
   }
 
-  "One direct acquisition (release 1). Money is decimal text in lei excluding VAT."
+  """
+  One direct acquisition (release 1). Money is decimal text. countedValue is in lei excluding VAT;
+  reportedValue is as published.
+  """
   type ProcurementDaPurchase {
     "Stable public id (64 hex); use it in URLs."
     purchaseId: ID!
@@ -78,7 +83,10 @@ export const daReleaseTypeDefs = /* GraphQL */ `
     finalizationDay: Date
     buyerDecisionAt: DateTime
     supplierDecisionAt: DateTime
-    "The closing value as the portal reports it. Shown on every row, never summed."
+    """
+    The closing value as the portal published it. Shown on every row, never summed. Its currency
+    and VAT basis are confirmed only when the purchase is counted (see countedValueBasis).
+    """
     reportedValue: String
     "Included in totals."
     counted: Boolean!
@@ -96,10 +104,18 @@ export const daReleaseTypeDefs = /* GraphQL */ `
     symbolicPrice: Boolean!
     "False when the portal no longer lists the purchase; null when not known."
     listedNow: Boolean
+    """
+    Free text is restricted until it passes the privacy review: title and description are null
+    with titleWithheld / descriptionWithheld = "privacy" unless the field is marked public. Show
+    categoryLabel as the purchase's name while the title is withheld.
+    """
     title: String
+    titleWithheld: String
     description: String
+    descriptionWithheld: String
     "CPV code as written."
     categoryCode: String
+    "The CPV label as written; the purchase's visible name while its title is withheld."
     categoryLabel: String
     "First two digits of categoryCode."
     cpvDivision: String
@@ -113,7 +129,9 @@ export const daReleaseTypeDefs = /* GraphQL */ `
   "One line of a purchase, as reported. Line values are never summed."
   type ProcurementDaPurchaseItem {
     itemIndex: Int!
+    "Null, with nameWithheld set to privacy, unless the line's name is marked public."
     name: String
+    nameWithheld: String
     unit: String
     quantity: String
     requestedQuantity: String
@@ -131,12 +149,12 @@ export const daReleaseTypeDefs = /* GraphQL */ `
     items: [ProcurementDaPurchase!]!
     page: Int!
     pageSize: Int!
-    "Exact unless totalCapped; then a lower bound (10000)."
+    "Exact unless totalCapped; then 10000, the last row a page can reach (a page may start below it)."
     total: Int!
     totalCapped: Boolean!
     hasMore: Boolean!
     dataAsOf: DateTime!
-    valueBasis: String!
+    countedValueBasis: String!
   }
 
   type ProcurementDaPurchaseDetail {
@@ -144,7 +162,7 @@ export const daReleaseTypeDefs = /* GraphQL */ `
     "In itemIndex order."
     items: [ProcurementDaPurchaseItem!]!
     dataAsOf: DateTime!
-    valueBasis: String!
+    countedValueBasis: String!
   }
 
   "Totals of a scope: only countedValue is a sum; counts are integers as text."
@@ -188,7 +206,7 @@ export const daReleaseTypeDefs = /* GraphQL */ `
     groupCount: Int!
     hasMore: Boolean!
     dataAsOf: DateTime!
-    valueBasis: String!
+    countedValueBasis: String!
   }
 
   """

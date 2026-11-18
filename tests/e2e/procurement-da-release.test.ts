@@ -128,7 +128,9 @@ const parties = (): Map<string, { kind: 'buyer' | 'supplier'; party: DaPartyReco
 
 const load = async (trx: Kysely<ProdDatabase>): Promise<void> => {
   await sql.raw(DDL).execute(trx);
-  await sql`insert into procurement_v3.da_release values ('2026-11-18T03:10:00Z')`.execute(trx);
+  await sql`insert into procurement_v3.da_release values ('2026-11-18T03:10:00.123456Z')`.execute(
+    trx
+  );
   for (const { kind, party } of parties().values()) {
     await sql`insert into procurement_v3.da_parties
       (source_name, party_kind, portal_party_id, fiscal_code_clean, fiscal_code_status, name_as_written, phone)
@@ -169,11 +171,36 @@ const load = async (trx: Kysely<ProdDatabase>): Promise<void> => {
       await sql`insert into procurement_v3.da_items values (${purchaseId}, ${item.itemIndex}, ${item.name},
         ${item.unit}, ${item.quantity}, ${item.requestedQuantity}, ${item.unitPrice}, 99, ${item.cataloguePrice},
         ${item.supplierRejected}, ${item.quantityCorrection})`.execute(trx);
+  await sql`insert into procurement_v3.da_items (purchase_id, item_index, name, quantity, unit_price)
+    values (${PURCHASES[1]?.purchaseId ?? ''}, 2, 'Wide', 9999999999.99, 9999999999.99)`.execute(
+    trx
+  );
 };
 
 /** Add the pending columns, as the loader change will. */
 const addPendingColumns = async (trx: Kysely<ProdDatabase>): Promise<void> => {
+  await sql`alter table procurement_v3.da_items add column superseded_at timestamptz`.execute(trx);
+  // A line the sync no longer sees: kept, never served.
+  await sql`insert into procurement_v3.da_items (purchase_id, item_index, name, quantity, unit_price, superseded_at)
+    values (${PURCHASES[1]?.purchaseId ?? ''}, 3, ${`${SECRET} superseded line`}, 1, 1, now())`.execute(
+    trx
+  );
   await sql`alter table procurement_v3.da_parties add column supplier_kind text`.execute(trx);
+  // Free-text gates: only purchase 1's title and line 0's name are marked public.
+  await sql`alter table procurement_v3.da_purchases add column title_public boolean`.execute(trx);
+  await sql`alter table procurement_v3.da_purchases add column description_public boolean`.execute(
+    trx
+  );
+  await sql`alter table procurement_v3.da_items add column item_name_public boolean`.execute(trx);
+  await sql`update procurement_v3.da_purchases set title_public = true where purchase_id = ${PURCHASES[0]?.purchaseId ?? ''}`.execute(
+    trx
+  );
+  await sql`update procurement_v3.da_purchases set description_public = false where purchase_id = ${PURCHASES[0]?.purchaseId ?? ''}`.execute(
+    trx
+  );
+  await sql`update procurement_v3.da_items set item_name_public = true where item_index = 0`.execute(
+    trx
+  );
   await sql`alter table procurement_v3.da_purchases add column listed_now boolean`.execute(trx);
   for (const { kind, party } of parties().values())
     if (kind === 'supplier')
@@ -223,7 +250,7 @@ const ALL = { page: 1, pageSize: 100 };
 /** `forbidden`: text no response may contain in this phase. */
 const checkCommon = async (forbidden: readonly string[]) => {
   const list = (await listDaPurchases(deps(), ALL))._unsafeUnwrap();
-  expect(list.dataAsOf).toBe('2026-11-18T03:10:00Z');
+  expect(list.dataAsOf).toBe('2026-11-18T03:10:00.123456Z');
   expect(list.total).toBe(PURCHASES.length);
   expect(list.items.map((item) => item.finalizationDay)).toEqual(
     [...PURCHASES]
@@ -232,7 +259,14 @@ const checkCommon = async (forbidden: readonly string[]) => {
       .reverse()
   );
   const raw = JSON.stringify(list);
-  for (const text of [...forbidden, 'OTHER SOURCE', 'internal note', '0700000000'])
+  for (const text of [
+    ...forbidden,
+    'OTHER SOURCE',
+    'internal note',
+    '0700000000',
+    'Popescu Ion',
+    'Servicii prestate',
+  ])
     expect(raw).not.toContain(text);
 
   const corrected = PURCHASES[1];
@@ -243,7 +277,7 @@ const checkCommon = async (forbidden: readonly string[]) => {
     correctedValue: '3150.00',
     reviewRule: { rule: 'quantity_unit_mix', effect: 'correct' },
     finalizationDay: '2025-03-04',
-    buyerDecisionAt: '2025-06-01T08:00:00Z',
+    buyerDecisionAt: '2025-06-01T08:00:00.000000Z',
   });
   expect(
     detail.items.map((item) => [
@@ -253,8 +287,10 @@ const checkCommon = async (forbidden: readonly string[]) => {
       item.reportedLineValue,
     ])
   ).toEqual([
-    [0, '375', '8400.00', '3150000'],
-    [1, '15.2', '180.00', '2736'],
+    [0, '375', '8400.00', '3150000.00'],
+    [1, '15.2', '180.00', '2736.000'],
+    // Past 20 significant digits: exact in SQL numeric.
+    [2, '9999999999.99', '9999999999.99', '99999999999800000000.0001'],
   ]);
 
   const totals = (await daPurchaseTotals(deps(), ALL))._unsafeUnwrap();
@@ -318,6 +354,11 @@ describe('before supplier_kind and listed_now exist', () => {
     await checkCommon([NATURAL_PERSON.name ?? '~', BAD_CODE_SUPPLIER.name ?? '~']);
     const list = (await listDaPurchases(deps(), ALL))._unsafeUnwrap();
     expect(list.items.every((item) => item.listedNow === null)).toBe(true);
+    // No public flag column yet: every free-text field is withheld.
+    expect(
+      list.items.every((item) => item.title === null && item.titleWithheld === 'privacy')
+    ).toBe(true);
+    expect(list.items.every((item) => item.description === null)).toBe(true);
     const natural = list.items.find((item) => item.purchaseId === PURCHASES[9]?.purchaseId);
     expect(natural?.supplier).toEqual({
       displayKind: 'natural_person',
@@ -359,6 +400,20 @@ describe('after supplier_kind and listed_now exist', () => {
     expect(list.items.find((item) => item.purchaseId === PURCHASES[7]?.purchaseId)?.listedNow).toBe(
       false
     );
+    const first = list.items.find((item) => item.purchaseId === PURCHASES[0]?.purchaseId);
+    expect(first).toMatchObject({
+      title: 'Public title 1',
+      titleWithheld: null,
+      description: null,
+      descriptionWithheld: 'privacy',
+    });
+    const lines = (await getDaPurchase(deps(), PURCHASES[1]?.purchaseId ?? ''))._unsafeUnwrap()
+      .items;
+    expect(lines.map((line) => [line.itemIndex, line.name, line.nameWithheld])).toEqual([
+      [0, 'Beton refractar', null],
+      [1, null, 'privacy'],
+      [2, null, 'privacy'],
+    ]);
     const named = new Set(
       list.items.flatMap((item) =>
         item.supplier?.name === null || item.supplier === null ? [] : [item.supplier.name]

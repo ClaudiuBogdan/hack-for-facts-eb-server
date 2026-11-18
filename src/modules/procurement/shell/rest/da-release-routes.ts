@@ -168,12 +168,18 @@ export const makeDaReleaseRestPlugin =
         ...pageOf(decoded.value),
       });
       if (result.isErr()) return sendError(request, reply, result.error);
-      const { items, page, pageSize, total, totalCapped, hasMore, dataAsOf, valueBasis } =
+      const { items, page, pageSize, total, totalCapped, hasMore, dataAsOf, countedValueBasis } =
         result.value;
       return reply.status(200).send({
         ok: true as const,
         data: items,
-        meta: { page: { page, pageSize, total }, totalCapped, hasMore, dataAsOf, valueBasis },
+        meta: {
+          page: { page, pageSize, total },
+          totalCapped,
+          hasMore,
+          dataAsOf,
+          countedValueBasis,
+        },
         requestId: request.id,
       });
     });
@@ -186,10 +192,13 @@ export const makeDaReleaseRestPlugin =
         return sendError(request, reply, invalidInput('purchaseId is required', 'purchaseId'));
       const result = await getDaPurchase(deps, purchaseId);
       if (result.isErr()) return sendError(request, reply, result.error);
-      const { dataAsOf, valueBasis, ...data } = result.value;
-      return reply
-        .status(200)
-        .send({ ok: true as const, data, meta: { dataAsOf, valueBasis }, requestId: request.id });
+      const { dataAsOf, countedValueBasis, ...data } = result.value;
+      return reply.status(200).send({
+        ok: true as const,
+        data,
+        meta: { dataAsOf, countedValueBasis },
+        requestId: request.id,
+      });
     });
 
     fastify.get('/totals', async (request, reply) => {
@@ -202,11 +211,12 @@ export const makeDaReleaseRestPlugin =
         ...pageOf(decoded.value),
       });
       if (result.isErr()) return sendError(request, reply, result.error);
-      const { dataAsOf, valueBasis, page, pageSize, groupCount, hasMore, ...data } = result.value;
+      const { dataAsOf, countedValueBasis, page, pageSize, groupCount, hasMore, ...data } =
+        result.value;
       return reply.status(200).send({
         ok: true as const,
         data,
-        meta: { page: { page, pageSize, total: groupCount }, hasMore, dataAsOf, valueBasis },
+        meta: { page: { page, pageSize, total: groupCount }, hasMore, dataAsOf, countedValueBasis },
         requestId: request.id,
       });
     });

@@ -136,8 +136,11 @@ const base = (n: number, over: Partial<DaPurchaseRecord>): DaPurchaseRecord => (
   rule: null,
   symbolicPrice: false,
   listedNow: true,
-  title: `Purchase ${String(n)}`,
-  description: null,
+  // Free text the loader has not marked public: the core must never serve it.
+  title: `${SECRET} title ${String(n)} Popescu Ion PFA`,
+  titlePublic: false,
+  description: `${SECRET} Servicii prestate de Popescu Ion PFA (${String(n)})`,
+  descriptionPublic: false,
   categoryCode: '44110000-4',
   categoryAsWritten: 'Materiale de constructii',
   acquisitionTypeLabel: 'Furnizare',
@@ -149,7 +152,12 @@ const base = (n: number, over: Partial<DaPurchaseRecord>): DaPurchaseRecord => (
 const counted = (value: string) => ({ counted: true, countedValue: value, reportedValue: value });
 
 export const PURCHASES: readonly DaPurchaseRecord[] = [
-  base(1, { finalizationDay: '2025-06-02', ...counted('12500.00') }),
+  base(1, {
+    finalizationDay: '2025-06-02',
+    ...counted('12500.00'),
+    title: 'Public title 1',
+    titlePublic: true,
+  }),
   base(2, {
     finalizationDay: '2025-03-04',
     reportedValue: '3150000.00',
@@ -206,22 +214,26 @@ export const ITEMS: Readonly<Record<string, readonly DaItemRecord[]>> = {
     {
       itemIndex: 0,
       name: 'Beton refractar',
+      namePublic: true,
       unit: 'tona',
       quantity: '375',
       requestedQuantity: '375',
       unitPrice: '8400.00',
       cataloguePrice: '210.00',
+      reportedLineValue: '3150000.00',
       supplierRejected: false,
       quantityCorrection: false,
     },
     {
       itemIndex: 1,
-      name: 'Transport',
+      name: `${SECRET} Transport Popescu Ion`,
+      namePublic: false,
       unit: 'buc',
       quantity: '15.2',
       requestedQuantity: null,
       unitPrice: '180.00',
       cataloguePrice: null,
+      reportedLineValue: '2736.000',
       supplierRejected: null,
       quantityCorrection: null,
     },

@@ -20,9 +20,10 @@ const PAGE = { page: 1, pageSize: 20 };
 
 const run = async (
   read: (reader: DaReleaseReader) => Promise<unknown>,
-  probe: { supplier_kind: boolean; listed_now: boolean } = {
+  probe: { supplier_kind: boolean; listed_now: boolean; superseded_at?: boolean } = {
     supplier_kind: true,
     listed_now: true,
+    superseded_at: true,
   },
   respond?: (text: string) => readonly unknown[]
 ) => {
@@ -30,7 +31,16 @@ const run = async (
   const transactions: unknown[] = [];
   const db = makeCapturingDb(captured, {
     respond: (text) => {
-      if (text.includes('from pg_attribute')) return [probe];
+      if (text.includes('from pg_attribute')) {
+        const present: [string, string, boolean | undefined][] = [
+          ['da_parties', 'supplier_kind', probe.supplier_kind],
+          ['da_purchases', 'listed_now', probe.listed_now],
+          ['da_items', 'superseded_at', probe.superseded_at],
+        ];
+        return present
+          .filter(([, , on]) => on === true)
+          .map(([table, column]) => ({ table_name: table, column_name: column }));
+      }
       if (respond !== undefined) return respond(text);
       if (text.includes('as total')) return [{ total: '0' }];
       if (text.includes('as counted_count'))
@@ -198,6 +208,48 @@ describe('joins and D6', () => {
     const { sql } = await run((r) => r.totals({ filter: {}, groupBy: null, ...PAGE }));
     expect(sql).toContain('sum(p.counted_value) filter (where p.counted)');
     expect(sql).not.toContain('sum(p.reported_value');
+  });
+});
+
+describe('review fixes', () => {
+  it('serves only current item lines once superseded_at exists, and computes line values in SQL', async () => {
+    const present = await run((r) => r.itemsOf(ID));
+    expect(present.sql).toContain('and i.superseded_at is null');
+    expect(present.sql).toContain('(i.quantity * i.unit_price)::text as reported_line_value');
+    const absent = await run((r) => r.itemsOf(ID), {
+      supplier_kind: true,
+      listed_now: true,
+      superseded_at: false,
+    });
+    expect(absent.sql).not.toContain('superseded_at is null');
+  });
+
+  it('never selects free text before its public flag exists, and gates it per row after', async () => {
+    const before = await run((r) => r.purchaseById(ID).then(() => r.itemsOf(ID)));
+    expect(before.sql).toContain('null::text as "title"');
+    expect(before.sql).toContain('null::text as "description"');
+    expect(before.sql).toContain('null::text as "name"');
+    expect(before.sql).not.toMatch(/"?p"?\."?title"?[ ,]/u);
+    expect(before.sql).not.toMatch(/"?p"?\."?description"?[ ,]/u);
+    expect(before.sql).not.toMatch(/"?i"?\."?name"?[ ,]/u);
+  });
+
+  it('formats timestamps with microseconds', async () => {
+    const { sql } = await run((r) => r.purchaseById(ID));
+    expect(sql).toContain(`'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'`);
+    expect(sql).not.toContain(`HH24:MI:SS"Z"`);
+  });
+
+  it('clamps the last page of a list to row 10000', async () => {
+    const { captured } = await run((r) => r.listPurchases({ filter: {}, page: 334, pageSize: 30 }));
+    const list = captured.find((query) => query.sql.includes('order by p.finalization_day'));
+    // offset 9990, so at most 10 rows.
+    expect(list?.parameters).toEqual(expect.arrayContaining([10, 9990]));
+  });
+
+  it('orders tied supplier buckets by their bucket label', async () => {
+    const { sql } = await run((r) => r.totals({ filter: {}, groupBy: 'supplier', ...PAGE }));
+    expect(sql).toContain('group_key asc nulls last, g_bucket asc nulls last');
   });
 });
 

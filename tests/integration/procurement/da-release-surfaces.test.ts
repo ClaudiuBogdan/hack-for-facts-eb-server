@@ -50,10 +50,10 @@ const PARTY = 'displayKind partyId name fiscalCode';
 const PURCHASE = `purchaseId nativeId code sourceUrl outcome stateLabel publicationDay finalizationDay
   buyerDecisionAt supplierDecisionAt reportedValue counted countedValue
   notCountedReason { code labelEn labelRo } valueCorrected correctedValue
-  reviewRule { rule effect descriptionEn descriptionRo } symbolicPrice listedNow title description
+  reviewRule { rule effect descriptionEn descriptionRo } symbolicPrice listedNow title titleWithheld description descriptionWithheld
   categoryCode categoryLabel cpvDivision acquisitionTypeLabel buyer { ${PARTY} } supplier { ${PARTY} }`;
 const ITEM =
-  'itemIndex name unit quantity requestedQuantity unitPrice cataloguePrice reportedLineValue supplierRejected quantityCorrection';
+  'itemIndex name nameWithheld unit quantity requestedQuantity unitPrice cataloguePrice reportedLineValue supplierRejected quantityCorrection';
 const TOTALS = 'countedValue countedCount symbolicPriceCount purchaseCount';
 
 interface Surfaces {
@@ -215,9 +215,8 @@ describe('D6 on every surface', () => {
     for (const [label, raw] of responses) {
       expect(raw, label).not.toContain(SECRET);
       for (const party of withheld) {
-        // A probe's own input is echoed back in MCP's `query`; only its results must hold no code.
-        if (!label.includes('probe'))
-          expect(raw, label).not.toContain(`"${party.fiscalCode ?? ''}"`);
+        // Probes included: no surface echoes a supplier code back.
+        expect(raw, label).not.toContain(`"${party.fiscalCode ?? ''}"`);
         expect(raw, label).not.toContain(`"${party.portalPartyId}"`);
       }
     }
@@ -244,6 +243,46 @@ describe('D6 on every surface', () => {
         name: null,
         fiscalCode: null,
       });
+  });
+});
+
+describe('free-text privacy gate', () => {
+  let surfaces: Surfaces;
+  beforeAll(async () => {
+    surfaces = await build({});
+  });
+  afterAll(async () => {
+    await surfaces.app.close();
+  });
+
+  it('serves title, description and line names only when marked public, else null with a marker', async () => {
+    const { body, raw } = await gql(
+      surfaces,
+      `query($id: ID!) { procurementDaPurchase(purchaseId: $id) { purchase { title titleWithheld description descriptionWithheld categoryLabel } items { name nameWithheld } } }`,
+      { id: PURCHASES[1]?.purchaseId ?? '' }
+    );
+    expect(raw).not.toContain(SECRET);
+    expect(body.data?.['procurementDaPurchase']).toEqual({
+      purchase: {
+        title: null,
+        titleWithheld: 'privacy',
+        description: null,
+        descriptionWithheld: 'privacy',
+        categoryLabel: 'Materiale de constructii',
+      },
+      items: [
+        { name: 'Beton refractar', nameWithheld: null },
+        { name: null, nameWithheld: 'privacy' },
+      ],
+    });
+    const open = await gql(
+      surfaces,
+      `query($id: ID!) { procurementDaPurchase(purchaseId: $id) { purchase { title titleWithheld } } }`,
+      { id: PURCHASES[0]?.purchaseId ?? '' }
+    );
+    expect(open.body.data?.['procurementDaPurchase']).toEqual({
+      purchase: { title: 'Public title 1', titleWithheld: null },
+    });
   });
 });
 
@@ -280,7 +319,7 @@ describe('parity and envelope', () => {
     const id = PURCHASES[1]?.purchaseId ?? '';
     const g = await gql(
       surfaces,
-      `query($id: ID!) { procurementDaPurchase(purchaseId: $id) { purchase { ${PURCHASE} } items { ${ITEM} } dataAsOf valueBasis } }`,
+      `query($id: ID!) { procurementDaPurchase(purchaseId: $id) { purchase { ${PURCHASE} } items { ${ITEM} } dataAsOf countedValueBasis } }`,
       { id }
     );
     expect(g.body.errors, g.raw).toBeUndefined();

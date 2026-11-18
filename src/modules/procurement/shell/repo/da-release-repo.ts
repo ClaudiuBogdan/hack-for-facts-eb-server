@@ -151,7 +151,9 @@ interface PurchaseRow extends Record<string, unknown> {
   symbolic_price: boolean;
   listed_now: boolean | null;
   title: string | null;
+  title_public: boolean;
   description: string | null;
+  description_public: boolean;
   category_code: string | null;
   category_as_written: string | null;
   acquisition_type_label: string | null;
@@ -186,7 +188,9 @@ const toPurchaseRecord = (row: PurchaseRow): DaPurchaseRecord => ({
   symbolicPrice: row.symbolic_price,
   listedNow: row.listed_now,
   title: row.title,
+  titlePublic: row.title_public,
   description: row.description,
+  descriptionPublic: row.description_public,
   categoryCode: row.category_code,
   categoryAsWritten: row.category_as_written,
   acquisitionTypeLabel: row.acquisition_type_label,
@@ -197,7 +201,23 @@ const toPurchaseRecord = (row: PurchaseRow): DaPurchaseRecord => ({
 interface Columns {
   readonly supplierKind: boolean;
   readonly listedNow: boolean;
+  /** `da_items.superseded_at`: lines the sync no longer sees; only current lines are served. */
+  readonly itemSupersededAt: boolean;
+  /**
+   * Free-text gates (decision 2026-11-10: free text is restricted until the
+   * loader marks a field public). Absent column, or a false/null flag: the
+   * text is never selected and the field is served withheld.
+   */
+  readonly titlePublic: boolean;
+  readonly descriptionPublic: boolean;
+  readonly itemNamePublic: boolean;
 }
+
+/** A gated free-text column: the text leaves the database only when its row's flag is true. */
+const gatedText = (present: boolean, flag: string, column: string, alias: string) =>
+  present
+    ? sql`case when ${sql.ref(flag)} is true then ${sql.ref(column)} end as ${sql.id(alias)}, coalesce(${sql.ref(flag)}, false) as ${sql.id(`${alias}_public`)}`
+    : sql`null::text as ${sql.id(alias)}, false as ${sql.id(`${alias}_public`)}`;
 
 /** Dates and timestamps as text, so the driver never builds a JS Date. Money stays numeric text. */
 const purchaseSelect = (columns: Columns) => sql`
@@ -205,8 +225,8 @@ const purchaseSelect = (columns: Columns) => sql`
     p.purchase_id, p.native_id, p.code, p.source_url, p.outcome, p.state_label,
     p.publication_day::text as publication_day,
     p.finalization_day::text as finalization_day,
-    to_char(p.ca_decision_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as ca_decision_at,
-    to_char(p.supplier_decision_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as supplier_decision_at,
+    to_char(p.ca_decision_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as ca_decision_at,
+    to_char(p.supplier_decision_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as supplier_decision_at,
     p.reported_value::text as reported_value,
     p.counted,
     p.counted_value::text as counted_value,
@@ -216,7 +236,9 @@ const purchaseSelect = (columns: Columns) => sql`
     r.public_description_ro as rule_description_ro,
     p.symbolic_price,
     ${columns.listedNow ? sql`p.listed_now` : sql`null::boolean`} as listed_now,
-    p.title, p.description, p.category_code, p.category_as_written, p.acquisition_type_label,
+    ${gatedText(columns.titlePublic, 'p.title_public', 'p.title', 'title')},
+    ${gatedText(columns.descriptionPublic, 'p.description_public', 'p.description', 'description')},
+    p.category_code, p.category_as_written, p.acquisition_type_label,
     ${partyColumns('b', false)},
     ${partyColumns('s', columns.supplierKind)}
   from ${PURCHASES} p
@@ -403,7 +425,7 @@ const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
   dataAsOf: () =>
     attempt(async () => {
       const result = await sql<{ data_as_of: string | null }>`
-        select to_char(max(data_as_of) at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as data_as_of
+        select to_char(max(data_as_of) at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as data_as_of
         from ${RELEASE}`.execute(trx);
       return result.rows[0]?.data_as_of ?? null;
     }),
@@ -419,7 +441,8 @@ const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
             ${purchaseSelect(columns)}
             where ${where}
             order by p.finalization_day desc nulls last, p.purchase_id desc
-            limit ${query.pageSize} offset ${offsetFor(query)}`.execute(trx)
+            limit ${Math.max(0, Math.min(query.pageSize, DA_LIST_MAX_DEPTH - offsetFor(query)))}
+            offset ${offsetFor(query)}`.execute(trx)
         ).rows
     );
     if (rows.isErr()) return err(rows.error);
@@ -458,31 +481,39 @@ const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
       const result = await sql<{
         item_index: number;
         name: string | null;
+        name_public: boolean;
         unit: string | null;
         quantity: string | null;
         requested_quantity: string | null;
         unit_price: string | null;
         catalogue_price: string | null;
+        reported_line_value: string | null;
         supplier_rejected: boolean | null;
         quantity_correction: boolean | null;
       }>`
-        select i.item_index, i.name, i.unit,
+        select i.item_index,
+               ${gatedText(columns.itemNamePublic, 'i.item_name_public', 'i.name', 'name')},
+               i.unit,
                i.quantity::text as quantity,
                i.requested_quantity::text as requested_quantity,
                i.unit_price::text as unit_price,
                i.catalogue_price::text as catalogue_price,
+               (i.quantity * i.unit_price)::text as reported_line_value,
                i.supplier_rejected, i.quantity_correction
         from ${ITEMS} i
         where i.purchase_id = ${purchaseId}
+          ${columns.itemSupersededAt ? sql`and i.superseded_at is null` : sql``}
         order by i.item_index`.execute(trx);
       return result.rows.map((row): DaItemRecord => ({
         itemIndex: row.item_index,
         name: row.name,
+        namePublic: row.name_public,
         unit: row.unit,
         quantity: row.quantity,
         requestedQuantity: row.requested_quantity,
         unitPrice: row.unit_price,
         cataloguePrice: row.catalogue_price,
+        reportedLineValue: row.reported_line_value,
         supplierRejected: row.supplier_rejected,
         quantityCorrection: row.quantity_correction,
       }));
@@ -503,7 +534,7 @@ const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
     const groupBy = query.groupBy;
     const { select, width, byValue } = groupSelect(groupBy, columns);
     const order = byValue
-      ? sql`sum(p.counted_value) filter (where p.counted) desc nulls last, count(*) desc, group_key asc nulls last`
+      ? sql`sum(p.counted_value) filter (where p.counted) desc nulls last, count(*) desc, group_key asc nulls last, g_bucket asc nulls last`
       : sql`group_key asc nulls last`;
     const grouped = await attempt(
       async () =>
@@ -540,18 +571,39 @@ const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
   },
 });
 
+/** The pending contract columns, each probed per snapshot: (table, column) → Columns key. */
+const PENDING_COLUMNS = [
+  ['da_parties', 'supplier_kind', 'supplierKind'],
+  ['da_purchases', 'listed_now', 'listedNow'],
+  ['da_items', 'superseded_at', 'itemSupersededAt'],
+  ['da_purchases', 'title_public', 'titlePublic'],
+  ['da_purchases', 'description_public', 'descriptionPublic'],
+  ['da_items', 'item_name_public', 'itemNamePublic'],
+] as const satisfies readonly (readonly [string, string, keyof Columns])[];
+
 /** Which pending contract columns exist yet. Catalog reads only. */
 const probeColumns = async (trx: Db): Promise<Columns> => {
-  const result = await sql<{ supplier_kind: boolean; listed_now: boolean }>`
-    select
-      exists (select 1 from pg_attribute
-              where attrelid = to_regclass(${`${DA_RELEASE_SCHEMA}.da_parties`})
-                and attname = 'supplier_kind' and not attisdropped) as supplier_kind,
-      exists (select 1 from pg_attribute
-              where attrelid = to_regclass(${`${DA_RELEASE_SCHEMA}.da_purchases`})
-                and attname = 'listed_now' and not attisdropped) as listed_now`.execute(trx);
-  const row = result.rows[0];
-  return { supplierKind: row?.supplier_kind === true, listedNow: row?.listed_now === true };
+  const result = await sql<{ table_name: string; column_name: string }>`
+    select c.relname as table_name, a.attname as column_name
+    from pg_attribute a
+    join pg_class c on c.oid = a.attrelid
+    join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = ${DA_RELEASE_SCHEMA} and not a.attisdropped and a.attnum > 0
+      and c.relname = any(${[...new Set(PENDING_COLUMNS.map(([table]) => table))]}::text[])
+      and a.attname = any(${[...new Set(PENDING_COLUMNS.map(([, column]) => column))]}::text[])`.execute(
+    trx
+  );
+  const present = new Set(result.rows.map((row) => `${row.table_name}.${row.column_name}`));
+  const has = (key: keyof Columns): boolean =>
+    PENDING_COLUMNS.some(([table, column, k]) => k === key && present.has(`${table}.${column}`));
+  return {
+    supplierKind: has('supplierKind'),
+    listedNow: has('listedNow'),
+    itemSupersededAt: has('itemSupersededAt'),
+    titlePublic: has('titlePublic'),
+    descriptionPublic: has('descriptionPublic'),
+    itemNamePublic: has('itemNamePublic'),
+  };
 };
 
 const disabled = (): ApiError =>

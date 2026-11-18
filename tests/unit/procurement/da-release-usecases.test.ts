@@ -104,7 +104,12 @@ describe('input', () => {
     );
   });
 
-  it('refuses pages beyond row 10000, bad page sizes, bad ids and unknown groupings', async () => {
+  it('refuses pages starting at row 10000 or beyond, bad page sizes, bad ids and unknown groupings', async () => {
+    // A page may start below row 10000 and end past it (the repo clamps it).
+    expect((await listDaPurchases(deps, { page: 334, pageSize: 30 })).isOk()).toBe(true);
+    expect((await listDaPurchases(deps, { page: 335, pageSize: 30 }))._unsafeUnwrapErr().type).toBe(
+      'InvalidInput'
+    );
     expect(
       (await listDaPurchases(deps, { page: 101, pageSize: 100 }))._unsafeUnwrapErr().type
     ).toBe('InvalidInput');

@@ -175,20 +175,22 @@ describe('row invariants refuse the row', () => {
 });
 
 describe('items and totals', () => {
-  it('computes the reported line value exactly and never rounds it', () => {
-    const items = (ITEMS[row(2).purchaseId] ?? []).map((item) => toItem(item)._unsafeUnwrap());
-    expect(items.map((item) => item.reportedLineValue)).toEqual(['3150000', '2736']);
+  it('passes the SQL line value through unrounded and refuses one that is not decimal text', () => {
+    const lines = ITEMS[row(2).purchaseId] ?? [];
+    expect(lines.map((item) => toItem(item)._unsafeUnwrap().reportedLineValue)).toEqual([
+      '3150000.00',
+      '2736.000',
+    ]);
+    const line = lines[0];
+    if (line === undefined) throw new Error('no line');
+    const wide = '99999999999999999999.9999';
+    expect(toItem({ ...line, reportedLineValue: wide })._unsafeUnwrap().reportedLineValue).toBe(
+      wide
+    );
     expect(
-      toItem({
-        ...(ITEMS[row(2).purchaseId] ?? [])[0]!,
-        quantity: '0.1',
-        unitPrice: '0.2',
-      })._unsafeUnwrap().reportedLineValue
-    ).toBe('0.02');
-    expect(
-      toItem({ ...(ITEMS[row(2).purchaseId] ?? [])[0]!, quantity: null })._unsafeUnwrap()
-        .reportedLineValue
+      toItem({ ...line, reportedLineValue: null })._unsafeUnwrap().reportedLineValue
     ).toBeNull();
+    expect(toItem({ ...line, reportedLineValue: '1e21' }).isErr()).toBe(true);
   });
 
   it('keeps a null counted value only when nothing is counted', () => {

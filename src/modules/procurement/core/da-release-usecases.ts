@@ -23,7 +23,7 @@ import {
 import {
   DA_OUTCOMES,
   DA_TOTALS_GROUPS,
-  DA_VALUE_BASIS,
+  DA_COUNTED_VALUE_BASIS,
   toItem,
   toPurchase,
   toTotals,
@@ -41,7 +41,7 @@ import type {
   DaTotalsRecords,
 } from './da-release-ports.js';
 
-/** The deepest row a list page may reach (offset + pageSize); lists also count up to this. */
+/** The deepest row a list page may reach; a page may start below it and is clamped to it. Lists count up to it. */
 export const DA_LIST_MAX_DEPTH = 10_000;
 
 export interface DaTotalsCache {
@@ -57,7 +57,7 @@ export interface DaReleaseDeps {
 
 export interface DaEnvelope {
   readonly dataAsOf: string;
-  readonly valueBasis: typeof DA_VALUE_BASIS;
+  readonly countedValueBasis: typeof DA_COUNTED_VALUE_BASIS;
 }
 
 export interface DaReleaseStatus {
@@ -156,8 +156,9 @@ const checkPage = (page: number, pageSize: number, maxDepth: number | null): Api
       `pageSize must be an integer from 1 to ${String(MAX_PAGE_SIZE)}`,
       'pageSize'
     );
-  const depth = offsetFor({ page, pageSize }) + pageSize;
-  if (!Number.isSafeInteger(depth) || (maxDepth !== null && depth > maxDepth))
+  // A page may START at any row below maxDepth; the repo clamps its last rows to maxDepth.
+  const offset = offsetFor({ page, pageSize });
+  if (!Number.isSafeInteger(offset + pageSize) || (maxDepth !== null && offset >= maxDepth))
     return invalidInput(
       maxDepth !== null
         ? `page reaches beyond row ${String(maxDepth)}; narrow the filter`
@@ -186,7 +187,7 @@ const inSnapshot = async <T>(
     if (asOf.isErr()) return err(asOf.error);
     if (asOf.value === null)
       return err(serviceUnavailable('Direct acquisitions release 1 holds no data yet.'));
-    return read(reader, { dataAsOf: asOf.value, valueBasis: DA_VALUE_BASIS });
+    return read(reader, { dataAsOf: asOf.value, countedValueBasis: DA_COUNTED_VALUE_BASIS });
   });
 };
 
@@ -236,7 +237,8 @@ export const listDaPurchases = async (
       pageSize: request.pageSize,
       total: records.value.total,
       totalCapped: records.value.capped,
-      hasMore: records.value.capped ? reached < DA_LIST_MAX_DEPTH : reached < records.value.total,
+      // A capped total is DA_LIST_MAX_DEPTH, the last row a page may reach.
+      hasMore: reached < records.value.total,
     });
   });
 };

@@ -19,7 +19,6 @@
  * served half-right.
  */
 
-import { Decimal } from 'decimal.js';
 import { err, ok, type Result } from 'neverthrow';
 
 import { databaseError, type ApiError } from '@/modules/shared/index.js';
@@ -96,8 +95,12 @@ export const DA_SUPPLIER_KINDS = [
 export const DA_TOTALS_GROUPS = ['buyer', 'supplier', 'cpvDivision', 'month', 'year'] as const;
 export type DaTotalsDimension = (typeof DA_TOTALS_GROUPS)[number];
 
-/** The basis of every served money value. */
-export const DA_VALUE_BASIS = 'RON excluding VAT';
+/**
+ * The basis of counted (and corrected) values only. A reported value is as the
+ * portal published it: its currency and VAT basis are confirmed only where the
+ * purchase is counted (before 2025 they are not, see `value_not_qualified`).
+ */
+export const DA_COUNTED_VALUE_BASIS = 'RON excluding VAT';
 
 /** The fixed text a withheld supplier is shown as (D6). */
 export const DA_NATURAL_PERSON_LABEL = { en: 'natural person', ro: 'persoană fizică' } as const;
@@ -142,8 +145,11 @@ export interface DaPurchaseRecord {
   readonly rule: DaRuleRecord | null;
   readonly symbolicPrice: boolean;
   readonly listedNow: boolean | null;
+  /** Null unless `titlePublic` (the reader selects the text only when the loader marks it public). */
   readonly title: string | null;
+  readonly titlePublic: boolean;
   readonly description: string | null;
+  readonly descriptionPublic: boolean;
   readonly categoryCode: string | null;
   readonly categoryAsWritten: string | null;
   readonly acquisitionTypeLabel: string | null;
@@ -155,11 +161,14 @@ export interface DaPurchaseRecord {
 export interface DaItemRecord {
   readonly itemIndex: number;
   readonly name: string | null;
+  readonly namePublic: boolean;
   readonly unit: string | null;
   readonly quantity: string | null;
   readonly requestedQuantity: string | null;
   readonly unitPrice: string | null;
   readonly cataloguePrice: string | null;
+  /** quantity × unit_price computed in SQL numeric (exact); never summed. */
+  readonly reportedLineValue: string | null;
   readonly supplierRejected: boolean | null;
   readonly quantityCorrection: boolean | null;
 }
@@ -184,6 +193,16 @@ export interface DaTotalsGroupRecord extends DaTotalsRecord {
 }
 
 // ── Public shape ─────────────────────────────────────────────────────────────
+
+/** Why a served field is null: free text that has not passed the privacy review. */
+export type DaWithheld = 'privacy';
+
+/** A free-text field: served only when its row is marked public; otherwise null with a marker. */
+const gated = (
+  text: string | null,
+  isPublic: boolean
+): { readonly value: string | null; readonly withheld: DaWithheld | null } =>
+  isPublic ? { value: text, withheld: null } : { value: null, withheld: 'privacy' };
 
 export interface DaParty {
   /** `authority` for buyers; `company` for a named supplier; `natural_person` when D6 withholds it. */
@@ -220,7 +239,7 @@ export interface DaPurchase {
   readonly finalizationDay: string | null;
   readonly buyerDecisionAt: string | null;
   readonly supplierDecisionAt: string | null;
-  /** The closing value as the portal reports it. Never summed. */
+  /** The closing value as the portal published it. Never summed; basis confirmed only when counted. */
   readonly reportedValue: string | null;
   /** Included in totals. */
   readonly counted: boolean;
@@ -237,9 +256,13 @@ export interface DaPurchase {
   readonly symbolicPrice: boolean;
   /** False when the portal no longer lists the purchase. */
   readonly listedNow: boolean | null;
+  /** Free text, withheld (null) unless reviewed public; then `titleWithheld` is null. */
   readonly title: string | null;
+  readonly titleWithheld: DaWithheld | null;
   readonly description: string | null;
+  readonly descriptionWithheld: DaWithheld | null;
   readonly categoryCode: string | null;
+  /** The CPV label as written: the purchase's visible name while the title is withheld. */
   readonly categoryLabel: string | null;
   readonly cpvDivision: string | null;
   readonly acquisitionTypeLabel: string | null;
@@ -250,6 +273,7 @@ export interface DaPurchase {
 export interface DaItem {
   readonly itemIndex: number;
   readonly name: string | null;
+  readonly nameWithheld: DaWithheld | null;
   readonly unit: string | null;
   readonly quantity: string | null;
   readonly requestedQuantity: string | null;
@@ -361,6 +385,8 @@ export const toPurchase = (
   if (rule.isErr()) return err(rule.error);
 
   const reason = record.notCountedReason;
+  const title = gated(record.title, record.titlePublic);
+  const description = gated(record.description, record.descriptionPublic);
   return ok({
     purchaseId: record.purchaseId,
     nativeId: record.nativeId,
@@ -388,8 +414,10 @@ export const toPurchase = (
     reviewRule: rule.value,
     symbolicPrice: record.symbolicPrice,
     listedNow: record.listedNow,
-    title: record.title,
-    description: record.description,
+    title: title.value,
+    titleWithheld: title.withheld,
+    description: description.value,
+    descriptionWithheld: description.withheld,
     categoryCode: record.categoryCode,
     categoryLabel: record.categoryAsWritten,
     cpvDivision: cpvDivisionOf(record.categoryCode),
@@ -404,21 +432,21 @@ export const toItem = (record: DaItemRecord): Result<DaItem, ApiError> => {
     !isDecimalText(record.quantity) ||
     !isDecimalText(record.requestedQuantity) ||
     !isDecimalText(record.unitPrice) ||
-    !isDecimalText(record.cataloguePrice)
+    !isDecimalText(record.cataloguePrice) ||
+    !isDecimalText(record.reportedLineValue)
   )
     return err(refused('item value'));
+  const name = gated(record.name, record.namePublic);
   return ok({
     itemIndex: record.itemIndex,
-    name: record.name,
+    name: name.value,
+    nameWithheld: name.withheld,
     unit: record.unit,
     quantity: record.quantity,
     requestedQuantity: record.requestedQuantity,
     unitPrice: record.unitPrice,
     cataloguePrice: record.cataloguePrice,
-    reportedLineValue:
-      record.quantity !== null && record.unitPrice !== null
-        ? new Decimal(record.quantity).times(record.unitPrice).toFixed()
-        : null,
+    reportedLineValue: record.reportedLineValue,
     supplierRejected: record.supplierRejected,
     quantityCorrection: record.quantityCorrection,
   });

@@ -64,6 +64,10 @@ const pageShape = {
   pageSize: z.number().int().min(1).max(100).optional(),
 };
 
+/** The filter echoed back in `query`: a supplier fiscal code is never repeated in a response. */
+const echoOf = (filter: Record<string, unknown>): Record<string, unknown> =>
+  Object.fromEntries(Object.entries(filter).filter(([key]) => key !== 'supplierFiscalCode'));
+
 const filterOf = (args: Record<string, unknown>): Record<string, unknown> =>
   Object.fromEntries(
     FILTER_KEYS.filter((key) => args[key] !== undefined).map((key) => [key, args[key]])
@@ -82,16 +86,17 @@ export const makeDaReleaseMcpTools = (deps: DaReleaseDeps): readonly KernelMcpTo
     inputShape: { ...filterShape, ...pageShape },
     async handler(args) {
       const kind = 'procurement_da_purchases';
-      const query = { filter: filterOf(args), ...pageOf(args) };
-      const result = await listDaPurchases(deps, query);
+      const filter = filterOf(args);
+      const query = { filter: echoOf(filter), ...pageOf(args) };
+      const result = await listDaPurchases(deps, { filter, ...pageOf(args) });
       if (result.isErr()) return failure(kind, result.error);
-      const { items, total, totalCapped, hasMore, dataAsOf, valueBasis } = result.value;
+      const { items, total, totalCapped, hasMore, dataAsOf, countedValueBasis } = result.value;
       return {
         ok: true,
         kind,
         query,
         items,
-        meta: { ...pageOf(args), total, totalCapped, hasMore, dataAsOf, valueBasis },
+        meta: { ...pageOf(args), total, totalCapped, hasMore, dataAsOf, countedValueBasis },
         summary: `${totalCapped ? 'More than ' : ''}${String(total)} direct acquisition(s); page ${String(query.page)} shows ${String(items.length)}. Data as of ${dataAsOf}.`,
       };
     },
@@ -123,8 +128,9 @@ export const makeDaReleaseMcpTools = (deps: DaReleaseDeps): readonly KernelMcpTo
     async handler(args) {
       const kind = 'procurement_da_totals';
       const groupBy = typeof args['groupBy'] === 'string' ? args['groupBy'] : null;
-      const query = { filter: filterOf(args), groupBy, ...pageOf(args) };
-      const result = await daPurchaseTotals(deps, query);
+      const filter = filterOf(args);
+      const query = { filter: echoOf(filter), groupBy, ...pageOf(args) };
+      const result = await daPurchaseTotals(deps, { filter, groupBy, ...pageOf(args) });
       if (result.isErr()) return failure(kind, result.error);
       const answer = result.value;
       return {
@@ -132,7 +138,7 @@ export const makeDaReleaseMcpTools = (deps: DaReleaseDeps): readonly KernelMcpTo
         kind,
         query,
         item: answer,
-        summary: `Counted ${answer.overall.countedValue ?? '0'} ${answer.valueBasis} over ${answer.overall.countedCount} of ${answer.overall.purchaseCount} purchase(s)${groupBy === null ? '' : `; ${String(answer.groupCount)} ${groupBy} group(s)`}. Data as of ${answer.dataAsOf}.`,
+        summary: `Counted ${answer.overall.countedValue ?? '0'} ${answer.countedValueBasis} over ${answer.overall.countedCount} of ${answer.overall.purchaseCount} purchase(s)${groupBy === null ? '' : `; ${String(answer.groupCount)} ${groupBy} group(s)`}. Data as of ${answer.dataAsOf}.`,
       };
     },
   },
