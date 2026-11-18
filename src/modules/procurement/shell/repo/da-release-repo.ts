@@ -219,6 +219,8 @@ interface Columns {
   readonly titlePublic: boolean;
   readonly descriptionPublic: boolean;
   readonly itemNamePublic: boolean;
+  /** `da_items.item_unit_public`: the unit is free text too (procurement-prod, 18 Nov). */
+  readonly itemUnitPublic: boolean;
 }
 
 /** A gated free-text column: the text leaves the database only when its row's flag is true. */
@@ -500,6 +502,7 @@ const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
         name: string | null;
         name_public: boolean;
         unit: string | null;
+        unit_public: boolean;
         quantity: string | null;
         requested_quantity: string | null;
         unit_price: string | null;
@@ -510,7 +513,7 @@ const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
       }>`
         select i.item_index,
                ${gatedText(columns.itemNamePublic, 'i.item_name_public', 'i.name', 'name')},
-               i.unit,
+               ${gatedText(columns.itemUnitPublic, 'i.item_unit_public', 'i.unit', 'unit')},
                i.quantity::text as quantity,
                i.requested_quantity::text as requested_quantity,
                i.unit_price::text as unit_price,
@@ -526,6 +529,7 @@ const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
         name: row.name,
         namePublic: row.name_public,
         unit: row.unit,
+        unitPublic: row.unit_public,
         quantity: row.quantity,
         requestedQuantity: row.requested_quantity,
         unitPrice: row.unit_price,
@@ -599,6 +603,7 @@ const PENDING_COLUMNS = [
   ['da_purchases', 'title_public', 'titlePublic'],
   ['da_purchases', 'description_public', 'descriptionPublic'],
   ['da_items', 'item_name_public', 'itemNamePublic'],
+  ['da_items', 'item_unit_public', 'itemUnitPublic'],
 ] as const satisfies readonly (readonly [string, string, keyof Columns])[];
 
 /** Which pending contract columns exist yet. Catalog reads only. */
@@ -624,6 +629,7 @@ const probeColumns = async (trx: Db): Promise<Columns> => {
     titlePublic: has('titlePublic'),
     descriptionPublic: has('descriptionPublic'),
     itemNamePublic: has('itemNamePublic'),
+    itemUnitPublic: has('itemUnitPublic'),
   };
 };
 

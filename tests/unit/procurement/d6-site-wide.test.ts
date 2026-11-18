@@ -9,6 +9,7 @@ import { ok } from 'neverthrow';
 import { describe, expect, it } from 'vitest';
 
 import { analysisBreakdown, analysisStats } from '@/modules/procurement/core/analysis-usecases.js';
+import { routeAnalysis } from '@/modules/procurement/core/combinations.js';
 import { withDaAnalysisDisclosure } from '@/modules/procurement/shell/repo/da-analysis-disclosure.js';
 import { withDaDisclosure } from '@/modules/procurement/shell/repo/da-disclosure-repo.js';
 import { withSupplierDisclosure } from '@/modules/shared/shell/repo/supplier-disclosure-repo.js';
@@ -294,5 +295,94 @@ describe('analysis echo and bucket kinds', () => {
       ['natural_person', 'natural_person'],
       [COMPANY, 'company'],
     ]);
+  });
+});
+
+describe('ClickHouse DA routing under D6 (v3 off or rolled back)', () => {
+  const caps = { frameworkRole: true, supplierGeography: true, daSupplierPrivacy: true };
+  const DA_SCOPE = { grain: 'direct_acquisition' } as const;
+
+  it('refuses title search, supplier geography and supplier-keyed analytics at an explicit DA grain', () => {
+    expect(
+      routeAnalysis({ ...DA_SCOPE, q: 'popescu' }, 'stats', undefined, undefined, caps).isErr()
+    ).toBe(true);
+    expect(routeAnalysis(DA_SCOPE, 'breakdown', 'supplier', undefined, caps).isErr()).toBe(true);
+    expect(routeAnalysis(DA_SCOPE, 'breakdown', 'supplierCounty', undefined, caps).isErr()).toBe(
+      true
+    );
+    expect(
+      routeAnalysis(
+        { ...DA_SCOPE, supplierSiruta: '179132' },
+        'stats',
+        undefined,
+        undefined,
+        caps
+      ).isErr()
+    ).toBe(true);
+    expect(routeAnalysis(DA_SCOPE, 'concentration', undefined, undefined, caps).isErr()).toBe(true);
+    expect(routeAnalysis(DA_SCOPE, 'series', undefined, 'distinctSuppliers', caps).isErr()).toBe(
+      true
+    );
+    expect(routeAnalysis(DA_SCOPE, 'breakdown', 'authority', undefined, caps).isOk()).toBe(true);
+  });
+
+  it('leaves DA out of an unscoped fan-out with q, and keeps it when D6 is off', () => {
+    const routes = routeAnalysis(
+      { q: 'popescu' },
+      'stats',
+      undefined,
+      undefined,
+      caps
+    )._unsafeUnwrap();
+    expect(routes.map((r) => r.grain)).not.toContain('direct_acquisition');
+    const off = routeAnalysis({ ...DA_SCOPE, q: 'popescu' }, 'stats', undefined, undefined, {
+      frameworkRole: true,
+      supplierGeography: true,
+    });
+    expect(off.isOk()).toBe(true);
+  });
+
+  it('the decorator marks the generation so routing knows', async () => {
+    const inner = {
+      activeGeneration: () =>
+        Promise.resolve(
+          ok({ buildId: '42', capabilities: { frameworkRole: true, supplierGeography: true } })
+        ),
+    } as unknown as AnalysisRepo;
+    const gen = await withDaAnalysisDisclosure(inner, port([[COMPANY]])).activeGeneration();
+    expect(gen._unsafeUnwrap()?.capabilities.daSupplierPrivacy).toBe(true);
+  });
+});
+
+describe('legacy detail reads the public set last', () => {
+  it('reads the set after the CPV label lookup', async () => {
+    const order: string[] = [];
+    const disclosure: SupplierDisclosurePort = {
+      enforced: true,
+      privacyAsOf: () => Promise.resolve(ok(null)),
+      publicSupplierCodes: () => {
+        order.push('codes');
+        return Promise.resolve(ok(new Set<string>()));
+      },
+    };
+    const repo = {
+      getDirectAcquisition: () =>
+        Promise.resolve(
+          ok({
+            daId: '1',
+            title: 'SECRET',
+            supplierCui: SOLE_TRADER,
+            supplierName: 'SECRET',
+            cpvCode: '44110000-4',
+          })
+        ),
+      listCpvCodeLabels: () => {
+        order.push('labels');
+        return Promise.resolve(ok([]));
+      },
+    } as unknown as ProcurementRepo;
+    const da = await withDaDisclosure(repo, disclosure).getDirectAcquisition('1');
+    expect(order).toEqual(['labels', 'codes']);
+    expect(JSON.stringify(da)).not.toContain('SECRET');
   });
 });

@@ -125,6 +125,31 @@ const daV3Exclusion = (
   return undefined;
 };
 
+const DA_LEGACY_D6_NO_TITLE_SEARCH =
+  'title search is unavailable on direct acquisitions: their titles are withheld until reviewed (site-wide D6)';
+const DA_LEGACY_D6_NO_SUPPLIER_ANALYTICS =
+  'supplier geography, supplier breakdowns, supplier concentration and distinct suppliers are unavailable on direct acquisitions while the legacy facts serve them: withheld suppliers cannot be grouped there (site-wide D6)';
+
+/** What site-wide D6 refuses at the DA grain while the legacy ClickHouse facts serve it. */
+const daLegacyD6Exclusion = (
+  scope: AnalysisScope,
+  dims: readonly ScopeDimField[],
+  dimension: BreakdownDimension | undefined,
+  shape: AnalysisShape,
+  measure: MeasureId | undefined
+): string | undefined => {
+  if (scope.q !== undefined) return DA_LEGACY_D6_NO_TITLE_SEARCH;
+  const supplierPlaces: readonly string[] = ['supplierRegion', 'supplierCounty', 'supplierSiruta'];
+  if (
+    supplierPlaces.some((field) => (dims as readonly string[]).includes(field)) ||
+    (dimension !== undefined && (supplierPlaces.includes(dimension) || dimension === 'supplier')) ||
+    shape === 'concentration' ||
+    measure === 'distinctSuppliers'
+  )
+    return DA_LEGACY_D6_NO_SUPPLIER_ANALYTICS;
+  return undefined;
+};
+
 const PROCEDURE_NO_SUPPLIER =
   'procedure grain has no supplier dimension (a procedure predates its award; suppliers exist on contracts and direct acquisitions)';
 
@@ -277,6 +302,12 @@ export const routeAnalysis = (
     const daExcluded = daV3Exclusion(scope, scopeDims(scope), dimension);
     if (daExcluded !== undefined) return err(invalidInput(daExcluded, 'scope'));
   }
+  const legacyD6 =
+    capabilities.daSupplierPrivacy === true && capabilities.directAcquisitionV3 !== true;
+  if (scope.grain === 'direct_acquisition' && legacyD6) {
+    const daExcluded = daLegacyD6Exclusion(scope, scopeDims(scope), dimension, shape, measure);
+    if (daExcluded !== undefined) return err(invalidInput(daExcluded, 'scope'));
+  }
 
   // Supplier places are public only while the registry's classification
   // holds (see GenerationCapabilities.supplierGeography): withheld, never
@@ -392,6 +423,12 @@ export const routeAnalysis = (
       daV3Exclusion(scope, dims, dimension) !== undefined
     ) {
       excluded = daV3Exclusion(scope, dims, dimension);
+    } else if (
+      grain === 'direct_acquisition' &&
+      legacyD6 &&
+      daLegacyD6Exclusion(scope, dims, dimension, shape, measure) !== undefined
+    ) {
+      excluded = daLegacyD6Exclusion(scope, dims, dimension, shape, measure);
     } else if (
       grain === 'procedure' &&
       (shape === 'concentration' ||

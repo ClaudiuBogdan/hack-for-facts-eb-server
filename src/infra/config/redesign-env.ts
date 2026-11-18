@@ -378,6 +378,16 @@ const composeEmbeddedKernel = (e: EmbeddedKernelEnv): EmbeddedKernelConfig => {
   });
   const daWindow = parseIntOr(e.PROCUREMENT_DA_LIST_MAX_WINDOW_DAYS, 0);
   const clickhouseUrl = nonEmpty(e.PROD_CLICKHOUSE_URL);
+  // Rollout order (root, 18 Nov): D6 on before v3. v3 without D6 would echo and
+  // serve legacy surfaces unguarded beside a guarded v3, so it is refused at boot.
+  if (
+    e.PROCUREMENT_DA_V3_ENABLED === 'true' &&
+    e.PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED !== 'true'
+  ) {
+    throw new Error(
+      'Invalid redesign env: PROCUREMENT_DA_V3_ENABLED=true requires PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED=true (site-wide D6 goes on first)'
+    );
+  }
   const procurement: ProcurementComposition = {
     ...(daWindow > 0 && { daListMaxWindowDays: daWindow }),
     ...(e.PROCUREMENT_DA_V3_ENABLED === 'true' && { daV3Enabled: true }),

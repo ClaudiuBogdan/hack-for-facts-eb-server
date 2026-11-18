@@ -470,13 +470,17 @@ const sourceFor = (
 const envelopeOn = (
   gen: ActiveGeneration,
   ...[policy, ...rest]: Parameters<typeof buildEnvelope>
-): AnswerEnvelope =>
-  buildEnvelope(
-    policy.grain === 'direct_acquisition' && gen.capabilities.directAcquisitionV3 === true
-      ? { ...policy, dateBasis: 'finalization_day (direct acquisitions release 1)' }
-      : policy,
+): AnswerEnvelope => {
+  const v3 = policy.grain === 'direct_acquisition' && gen.capabilities.directAcquisitionV3 === true;
+  const envelope = buildEnvelope(
+    v3 ? { ...policy, dateBasis: 'finalization_day (direct acquisitions release 1)' } : policy,
     ...rest
   );
+  // The amount fields keep their names; the structured basis says what they sum.
+  return v3 && envelope.valueBasis === 'awarded'
+    ? { ...envelope, valueBasis: 'counted' }
+    : envelope;
+};
 
 /** AND-compose gate decisions: any abstain blocks; degradations and caveats merge. */
 const composeGates = (decisions: readonly GateDecision[]): GateDecision => {
@@ -506,6 +510,14 @@ const shapeGate = (
   options: { readonly isSeries?: boolean; readonly dimension?: BreakdownDimension }
 ): GateDecision => {
   const decisions: GateDecision[] = [];
+  if (grain !== 'direct_acquisition' && gen.capabilities.analysisBaseUnavailable === true) {
+    decisions.push({
+      allow: false,
+      degraded: false,
+      caveats: ['this grain is unavailable: the analytics build could not be read'],
+      reason: 'MISSING_QUALITY_VERDICT',
+    });
+  }
   if (grain === 'direct_acquisition' && gen.capabilities.directAcquisitionV3Unavailable === true) {
     decisions.push({
       allow: false,

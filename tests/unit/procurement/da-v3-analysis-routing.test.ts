@@ -135,6 +135,16 @@ const setup = (
 };
 
 describe('the routing repo', () => {
+  it('abstains the ClickHouse grains, and still serves DA, when the base build cannot be read', async () => {
+    const { deps } = setup({ base: null });
+    const blocks = (await analysisStats(deps, { scope: {} }))._unsafeUnwrap().blocks;
+    expect(blocks.find((b) => b.grain === 'direct_acquisition')?.meta.answerability).not.toBe(
+      'abstained'
+    );
+    for (const block of blocks.filter((b) => b.grain !== 'direct_acquisition'))
+      expect(block.meta.answerability).toBe('abstained');
+  });
+
   it('answers an explicit DA scope from the v3 source with its own generation and note', async () => {
     const { base, da, deps } = setup();
     const result = (
@@ -146,6 +156,8 @@ describe('the routing repo', () => {
     expect(block?.meta.buildId).toBe(DA_BUILD);
     expect(block?.valueAwardedSum).toBe('777.00');
     expect(block?.meta.caveats).toContain(DA_V3_VALUE_NOTE);
+    expect(block?.meta.valueBasis).toBe('counted');
+    expect(block?.meta.dateBasis).toMatch(/^finalization_day/u);
     // No estimate is served from v3: its basis has no coverage row, so it abstains.
     expect(block?.valueEstimatedSum).toBeNull();
     expect(da.calls).toEqual([`statsFor:${DA_BUILD}`]);

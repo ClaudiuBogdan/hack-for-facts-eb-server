@@ -204,10 +204,14 @@ const addPendingColumns = async (trx: Kysely<ProdDatabase>): Promise<void> => {
     trx
   );
   await sql`alter table procurement_v3.da_items add column item_name_public boolean`.execute(trx);
+  await sql`alter table procurement_v3.da_items add column item_unit_public boolean`.execute(trx);
   await sql`update procurement_v3.da_purchases set title_public = true where purchase_id = ${PURCHASES[0]?.purchaseId ?? ''}`.execute(
     trx
   );
   await sql`update procurement_v3.da_purchases set description_public = false where purchase_id = ${PURCHASES[0]?.purchaseId ?? ''}`.execute(
+    trx
+  );
+  await sql`update procurement_v3.da_items set item_unit_public = true where item_index = 0`.execute(
     trx
   );
   await sql`update procurement_v3.da_items set item_name_public = true where item_index = 0`.execute(
@@ -406,6 +410,11 @@ describe('after supplier_privacy and the pending columns exist', () => {
     });
     const lines = (await getDaPurchase(deps(), PURCHASES[1]?.purchaseId ?? ''))._unsafeUnwrap()
       .items;
+    expect(lines.map((line) => [line.unit, line.unitWithheld])).toEqual([
+      ['tona', null],
+      [null, 'privacy'],
+      [null, 'privacy'],
+    ]);
     expect(lines.map((line) => [line.itemIndex, line.name, line.nameWithheld])).toEqual([
       [0, 'Beton refractar', null],
       [1, null, 'privacy'],

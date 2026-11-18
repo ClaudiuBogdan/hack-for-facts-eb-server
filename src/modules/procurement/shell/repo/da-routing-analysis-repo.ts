@@ -43,7 +43,11 @@ export const makeDaRoutingAnalysisRepo = (
     if (baseGen === null) {
       // Without a base generation only the DA grain can answer.
       if (daGen === null) return baseR.isErr() ? err(baseR.error) : ok(null);
-      return ok({ ...daGen, grainSources: { [DA]: { generation: daGen, coverage: [] } } });
+      return ok({
+        ...daGen,
+        capabilities: { ...daGen.capabilities, analysisBaseUnavailable: true },
+        grainSources: { [DA]: { generation: daGen, coverage: [] } },
+      });
     }
     const daSource: GrainSource =
       daGen !== null

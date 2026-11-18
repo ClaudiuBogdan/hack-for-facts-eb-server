@@ -139,7 +139,9 @@ export const daReleaseTypeDefs = /* GraphQL */ `
     "Null, with nameWithheld set to privacy, unless the line's name is marked public."
     name: String
     nameWithheld: String
+    "Free text: null, with unitWithheld set to privacy, unless the line's unit is marked public."
     unit: String
+    unitWithheld: String
     quantity: String
     requestedQuantity: String
     "Closing unit price."

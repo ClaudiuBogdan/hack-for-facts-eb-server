@@ -117,6 +117,15 @@ export const withDaAnalysisDisclosure = (
 
   return {
     ...repo,
+    // Tell routing the legacy DA facts are under D6 (see GenerationCapabilities.daSupplierPrivacy).
+    activeGeneration: async () => {
+      const gen = await repo.activeGeneration();
+      if (gen.isErr() || gen.value === null) return gen;
+      return ok({
+        ...gen.value,
+        capabilities: { ...gen.value.capabilities, daSupplierPrivacy: true },
+      });
+    },
     statsFor: (route, scope, gen) =>
       guarded(route.grain, scope, (s) => repo.statsFor(route, s, gen)),
     seriesFor: (route, scope, gen, measure) =>

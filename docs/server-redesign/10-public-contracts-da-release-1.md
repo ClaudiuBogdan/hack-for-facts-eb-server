@@ -23,8 +23,10 @@ only what the API adds or decides.
 
 ## Free text (decision 2026-11-10)
 
-- `title`, `description` and line `name` are restricted until the loader marks them public. The per-field flags are
-  `title_public`, `description_public` and `item_name_public`; the owner decides field by field.
+- `title`, `description` and the line's `name` and `unit` are restricted until the loader marks them public. The
+  per-field flags are `title_public`, `description_public`, `item_name_public` and `item_unit_public`; the owner
+  decides field by field. The unit is free text (43,729 distinct values), so it is gated like the names.
+- Money columns carry at most 2 decimals; the data platform enforces this with a build STOP.
 - A field that is not marked public is served as null, with `titleWithheld` / `descriptionWithheld` /
   `nameWithheld` set to `"privacy"`. The SQL never selects the text in that case.
 - In release 1 all three fields are withheld until the flags exist. `categoryLabel` (the CPV label) is the
@@ -113,8 +115,17 @@ With the flag off:
   - A publish moves the key; flipping a switch is an environment change, so the pods restart and the in-process
     caches start empty.
 - **Status:** `procurementDaRelease` serves `privacyEnforced` and `privacyAsOf` (the supplier_privacy publication).
-  Clients key their caches by (`dataAsOf`, `privacyAsOf`).
+  Clients key their caches by (`privacyEnforced`, `privacyAsOf`, `dataAsOf`). `privacyAsOf` is null both when D6 is
+  off and when it is on but the table is unreadable, so `privacyEnforced` is part of the key.
+- **ClickHouse DA grain under D6 (v3 off or rolled back):** the legacy facts can't group by the supplier rule, so at
+  the DA grain routing refuses title search (`q`), supplier geography, supplier breakdowns, supplier concentration and
+  distinct suppliers. An unscoped fan-out leaves DA out instead.
+- **Boot:** the server refuses `PROCUREMENT_DA_V3_ENABLED=true` without `PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED=true`.
 - **Analysis:**
+  - v3 DA blocks report `meta.valueBasis: "counted"` and a `finalization_day` date basis;
+  - the v3 analysis cache reuses or stores an answer only while the build is current and supplier_privacy is
+    readable, checked before the lookup and after the fill;
+  - if ClickHouse cannot be read, only the non-DA grains abstain;
   - DA supplier buckets carry `displayKind` (`company` | `natural_person`);
   - a withheld supplier code is echoed as `withheld` in `canonicalScope` and in MCP `query.scope`;
   - a build pin needs an explicit grain while DA publishes separately;

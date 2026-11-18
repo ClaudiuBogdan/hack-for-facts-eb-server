@@ -776,6 +776,7 @@ export const procurementTypeDefs = /* GraphQL */ `
     reason: ProcurementAnswerabilityReason
     policyKey: String!
     grain: ProcurementAnalysisGrain!
+    "estimated | awarded | ceiling | modAdjusted | counted (direct acquisitions release 1: counted value, lei excluding VAT)"
     valueBasis: String
     dateBasis: String!
     population: String!

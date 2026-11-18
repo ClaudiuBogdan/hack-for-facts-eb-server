@@ -163,6 +163,7 @@ export interface DaItemRecord {
   readonly name: string | null;
   readonly namePublic: boolean;
   readonly unit: string | null;
+  readonly unitPublic: boolean;
   readonly quantity: string | null;
   readonly requestedQuantity: string | null;
   readonly unitPrice: string | null;
@@ -274,7 +275,9 @@ export interface DaItem {
   readonly itemIndex: number;
   readonly name: string | null;
   readonly nameWithheld: DaWithheld | null;
+  /** Free text: null with `unitWithheld` "privacy" unless the loader marks it public. */
   readonly unit: string | null;
+  readonly unitWithheld: DaWithheld | null;
   readonly quantity: string | null;
   readonly requestedQuantity: string | null;
   readonly unitPrice: string | null;
@@ -431,11 +434,13 @@ export const toItem = (record: DaItemRecord): Result<DaItem, ApiError> => {
   )
     return err(refused('item value'));
   const name = gated(record.name, record.namePublic);
+  const unit = gated(record.unit, record.unitPublic);
   return ok({
     itemIndex: record.itemIndex,
     name: name.value,
     nameWithheld: name.withheld,
-    unit: record.unit,
+    unit: unit.value,
+    unitWithheld: unit.withheld,
     quantity: record.quantity,
     requestedQuantity: record.requestedQuantity,
     unitPrice: record.unitPrice,

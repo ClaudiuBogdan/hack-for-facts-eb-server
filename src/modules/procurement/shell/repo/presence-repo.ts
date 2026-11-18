@@ -33,7 +33,7 @@ interface PresenceRow {
   readonly authority_contracts: string;
   readonly authority_direct_acquisitions: string;
   readonly supplier_contracts: string;
-  readonly supplier_direct_acquisitions: string;
+  supplier_direct_acquisitions: string;
 }
 
 const boundedCount = (leg: ReturnType<typeof sql>) =>
@@ -86,6 +86,11 @@ export const makeProcurementPresenceRepo = (
         ])
         .executeTakeFirst()) as PresenceRow | undefined;
       if (row === undefined) return ok(null);
+      // Re-check after the count: a publish that withheld the code mid-request withholds the leg.
+      if (supplierDaLeg && disclosure?.enforced === true) {
+        const after = await disclosure.publicSupplierCodes();
+        if (!(after.isOk() && after.value.has(cui))) row.supplier_direct_acquisitions = '0';
+      }
       const legs = {
         authorityProcedures: toCount(row.authority_procedures),
         authorityContracts: toCount(row.authority_contracts),

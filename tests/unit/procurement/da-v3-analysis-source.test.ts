@@ -181,3 +181,23 @@ describe('scope', () => {
     expect(sql).toContain('or p.finalization_day is null)');
   });
 });
+
+describe('the publication-keyed cache', () => {
+  const unfiltered = (source: ReturnType<typeof makeDaV3AnalysisSource>) =>
+    source.statsFor(ROUTE, {}, GEN);
+
+  it('reuses an unfiltered answer only while the build is current and supplier_privacy is readable', async () => {
+    const reads = async (options: { privacy?: boolean; build?: string }) => {
+      const { captured } = await run(async (source) => {
+        await unfiltered(source);
+        await unfiltered(source);
+      }, options);
+      return captured.filter((q) => q.sql.includes('as rows')).length;
+    };
+    expect(await reads({})).toBe(1);
+    // Unreadable (revoked grant): never served from or stored in the cache.
+    expect(await reads({ privacy: false })).toBe(2);
+    // A newer publication than the request's build: no cache.
+    expect(await reads({ build: '1763435499999999' })).toBe(0);
+  });
+});

@@ -117,3 +117,26 @@ describe('native user-data configuration', () => {
     );
   });
 });
+
+describe('direct-acquisition switches', () => {
+  const base = { PROD_DATABASE_URL: 'postgres://reader@example.invalid/transparenta_prod' };
+
+  it('refuses v3 without site-wide D6 (the rollout order: D6 first)', () => {
+    expect(() => loadRedesignConfig({ ...base, PROCUREMENT_DA_V3_ENABLED: 'true' })).toThrow(
+      /requires PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED=true/u
+    );
+  });
+
+  it('accepts D6 alone and D6 with v3', () => {
+    expect(
+      loadRedesignConfig({ ...base, PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED: 'true' }).procurement
+    ).toMatchObject({ supplierDisclosureEnforced: true });
+    expect(
+      loadRedesignConfig({
+        ...base,
+        PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED: 'true',
+        PROCUREMENT_DA_V3_ENABLED: 'true',
+      }).procurement
+    ).toMatchObject({ supplierDisclosureEnforced: true, daV3Enabled: true });
+  });
+});

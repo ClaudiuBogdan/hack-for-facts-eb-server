@@ -53,7 +53,7 @@ const PURCHASE = `purchaseId nativeId code sourceUrl outcome stateLabel publicat
   reviewRule { rule effect descriptionEn descriptionRo } symbolicPrice listedNow title titleWithheld description descriptionWithheld
   categoryCode categoryLabel cpvDivision acquisitionTypeLabel buyer { ${PARTY} } supplier { ${PARTY} }`;
 const ITEM =
-  'itemIndex name nameWithheld unit quantity requestedQuantity unitPrice cataloguePrice reportedLineValue supplierRejected quantityCorrection';
+  'itemIndex name nameWithheld unit unitWithheld quantity requestedQuantity unitPrice cataloguePrice reportedLineValue supplierRejected quantityCorrection';
 const TOTALS = 'countedValue countedCount symbolicPriceCount purchaseCount';
 
 interface Surfaces {
@@ -258,7 +258,7 @@ describe('free-text privacy gate', () => {
   it('serves title, description and line names only when marked public, else null with a marker', async () => {
     const { body, raw } = await gql(
       surfaces,
-      `query($id: ID!) { procurementDaPurchase(purchaseId: $id) { purchase { title titleWithheld description descriptionWithheld categoryLabel } items { name nameWithheld } } }`,
+      `query($id: ID!) { procurementDaPurchase(purchaseId: $id) { purchase { title titleWithheld description descriptionWithheld categoryLabel } items { name nameWithheld unit unitWithheld } } }`,
       { id: PURCHASES[1]?.purchaseId ?? '' }
     );
     expect(raw).not.toContain(SECRET);
@@ -271,8 +271,8 @@ describe('free-text privacy gate', () => {
         categoryLabel: 'Materiale de constructii',
       },
       items: [
-        { name: 'Beton refractar', nameWithheld: null },
-        { name: null, nameWithheld: 'privacy' },
+        { name: 'Beton refractar', nameWithheld: null, unit: 'tona', unitWithheld: null },
+        { name: null, nameWithheld: 'privacy', unit: null, unitWithheld: 'privacy' },
       ],
     });
     const open = await gql(

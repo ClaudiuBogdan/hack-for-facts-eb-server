@@ -151,6 +151,21 @@ export interface GenerationCapabilities {
    * mixed-grain request.
    */
   readonly directAcquisitionV3Unavailable?: boolean;
+  /**
+   * Site-wide D6 is enforced while the DA grain is served from the LEGACY
+   * ClickHouse facts (v3 off or rolled back). Those facts cannot apply the
+   * supplier rule before grouping, so routing refuses at the DA grain what
+   * could reveal a withheld supplier or withheld text: title search, supplier
+   * geography and supplier-keyed analytics (supplier breakdowns, supplier
+   * concentration, distinct suppliers). Records and supplier scopes are
+   * filtered on read instead.
+   */
+  readonly daSupplierPrivacy?: boolean;
+  /**
+   * The ClickHouse generation could not be read while the v3 DA grain answers:
+   * every other grain abstains BEFORE any read instead of failing the request.
+   */
+  readonly analysisBaseUnavailable?: boolean;
 }
 
 /** The capabilities a generation is assumed to have when nothing was probed (fail closed). */

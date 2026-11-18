@@ -402,9 +402,25 @@ const UNFILTERED = (scope: AnalysisScope): boolean =>
 export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSource => {
   const qualityByBuild = new Map<string, Promise<Result<GrainQualityVerdict, ApiError>>>();
   let cacheBuild: string | null = null;
-  const cache = new Map<string, Promise<Result<unknown, ApiError>>>();
+  const cache = new Map<string, Result<unknown, ApiError>>();
 
   /** Unfiltered (no authority/supplier) answers are cached per publication; others run live. */
+  /**
+   * The publication and privacy state RIGHT NOW (one statement): an entry is
+   * reused, and stored, only while the build is current and supplier_privacy is
+   * readable, checked before the lookup AND after the fill. A race can only make
+   * an answer more withheld than needed, never leak a name.
+   */
+  const cacheable = async (build: string): Promise<boolean> => {
+    try {
+      const probe = await sql<{ build_id: string | null }>`
+        select ${BUILD_ID_SQL} as build_id from ${RELEASE}`.execute(db);
+      return probe.rows[0]?.build_id === build && (await probeSupplierPrivacy(db));
+    } catch {
+      return false;
+    }
+  };
+
   const cached = async <T>(
     build: string,
     scope: AnalysisScope,
@@ -412,32 +428,23 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
     load: () => Promise<Result<T, ApiError>>
   ): Promise<Result<T, ApiError>> => {
     if (!UNFILTERED(scope)) return load();
-    // An answer can carry supplier identities, so it is reused only under the same
-    // privacy state: a dropped table or a revoked grant never hits a warm entry.
-    let privacy: boolean;
-    try {
-      privacy = await probeSupplierPrivacy(db);
-    } catch {
-      return load();
-    }
+    if (!(await cacheable(build))) return load();
     if (cacheBuild !== build) {
       cache.clear();
       cacheBuild = build;
     }
-    const cacheKey = JSON.stringify([key, scope, privacy]);
+    const cacheKey = JSON.stringify([key, scope]);
     const hit = cache.get(cacheKey);
-    if (hit !== undefined) return hit as Promise<Result<T, ApiError>>;
-    if (cache.size >= CACHE_MAX_ENTRIES) {
-      const oldest = cache.keys().next();
-      if (oldest.done !== true) cache.delete(oldest.value);
+    if (hit !== undefined) return hit as Result<T, ApiError>;
+    const result = await load();
+    if (result.isOk() && (await cacheable(build))) {
+      if (cache.size >= CACHE_MAX_ENTRIES) {
+        const oldest = cache.keys().next();
+        if (oldest.done !== true) cache.delete(oldest.value);
+      }
+      cache.set(cacheKey, result);
     }
-    const promise = load().then((result) => {
-      // A failed read is never cached.
-      if (result.isErr()) cache.delete(cacheKey);
-      return result;
-    });
-    cache.set(cacheKey, promise);
-    return promise;
+    return result;
   };
 
   /** Coverage measured from procurement_v3 once per publication (row share and counted-money share). */
