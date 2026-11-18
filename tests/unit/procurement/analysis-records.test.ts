@@ -204,6 +204,59 @@ describe('procurementRecords transport', () => {
     });
   });
 
+  it('serves a D6-withheld DA record supplier with nothing that names it, and the CPV label', async () => {
+    // Adversarial row: the reader marked the supplier withheld but left its name and code in.
+    const analysis = fakeAnalysisRepo({
+      records: {
+        total: '2',
+        rows: [
+          row({
+            id: 'a'.repeat(64),
+            title: null,
+            supplierCui: '30254716',
+            supplierName: 'SECRET POPESCU ION PFA',
+            supplierDisplayKind: 'natural_person',
+            cpvLabel: 'Materiale de constructii',
+          }),
+          row({ id: 'b'.repeat(64), title: null, supplierDisplayKind: 'company' }),
+        ],
+      },
+    }).repo;
+    const repo = {
+      contractsByIds: () => Promise.resolve(ok(new Map())),
+    } as unknown as ProcurementRepo;
+    const { query } = surfaces(analysis, repo);
+    const page = await query.procurementRecords(undefined, { scope: DA });
+    expect(JSON.stringify(page)).not.toContain('SECRET');
+    expect(JSON.stringify(page)).not.toContain('30254716');
+    expect(page.items[0]?.['supplier']).toEqual({
+      cui: null,
+      name: null,
+      displayName: null,
+      displayKind: 'natural_person',
+    });
+    expect(page.items[0]?.['cpvLabel']).toBe('Materiale de constructii');
+    expect(page.items[1]?.['supplier']).toMatchObject({ cui: '14399840', displayKind: 'company' });
+  });
+
+  it('the records usecase itself drops a natural_person supplier code and name (MCP sees the same)', async () => {
+    const { repo } = fakeAnalysisRepo({
+      records: {
+        total: '1',
+        rows: [
+          row({
+            supplierCui: '30254716',
+            supplierName: 'SECRET POPESCU ION PFA',
+            supplierDisplayKind: 'natural_person',
+          }),
+        ],
+      },
+    });
+    const page = (await analysisRecords({ analysisRepo: repo }, { scope: DA }))._unsafeUnwrap();
+    expect(JSON.stringify(page)).not.toContain('SECRET');
+    expect(page.items[0]).toMatchObject({ supplierCui: null, supplierName: null });
+  });
+
   it('marks a stale pin with extensions.field = build', async () => {
     const analysis = fakeAnalysisRepo({ generation: generation() }).repo;
     const { query } = surfaces(analysis, {} as ProcurementRepo);

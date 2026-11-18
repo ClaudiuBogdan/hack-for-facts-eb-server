@@ -1726,12 +1726,17 @@ export const analysisRecords = async (
     limit: pageSize,
   });
   if (readR.isErr()) return err(readR.error);
-  const items = readR.value.rows.map((row) => ({
-    ...row,
-    authorityCui: servedIdentifier(row.authorityCui),
-    supplierCui: servedIdentifier(row.supplierCui),
-    valueRon: moneyAllowed ? row.valueRon : null,
-  }));
+  const items = readR.value.rows.map((row) => {
+    // D6 backstop: a supplier the reader classed natural_person never carries a code or name.
+    const withheld = row.supplierDisplayKind === 'natural_person';
+    return {
+      ...row,
+      authorityCui: servedIdentifier(row.authorityCui),
+      supplierCui: withheld ? null : servedIdentifier(row.supplierCui),
+      supplierName: withheld ? null : row.supplierName,
+      valueRon: moneyAllowed ? row.valueRon : null,
+    };
+  });
   return ok({
     grain,
     total: readR.value.total,

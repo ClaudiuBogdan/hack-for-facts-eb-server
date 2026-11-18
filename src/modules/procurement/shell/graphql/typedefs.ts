@@ -944,6 +944,11 @@ export const procurementTypeDefs = /* GraphQL */ `
     status: String
     recordKind: String
     cpvCode: String
+    """
+    The CPV label; on the direct_acquisition grain served from release 1 the title is withheld
+    (null) and this names the purchase.
+    """
+    cpvLabel: String
   }
 
   type ProcurementRecordsMeta {

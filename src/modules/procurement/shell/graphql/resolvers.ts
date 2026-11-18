@@ -434,11 +434,13 @@ export const makeProcurementResolvers = (
             title: item.title,
             displayTitle: item.displayTitle,
             authority: party(item.authorityCui, item.authorityName, 'authority'),
-            supplier: party(item.supplierCui, item.supplierName),
+            // D6 on the v3 DA grain: natural_person serves no cui or name.
+            supplier: party(item.supplierCui, item.supplierName, item.supplierDisplayKind ?? null),
             valueRon: item.valueRon,
             status: item.status,
             recordKind: item.recordKind,
             cpvCode: item.cpvCode,
+            cpvLabel: item.cpvLabel ?? null,
           })),
         };
       },
