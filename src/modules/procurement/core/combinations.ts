@@ -89,6 +89,42 @@ const SUPPLIER_SCOPE_DIMS: readonly ScopeDimField[] = [
 const DA_NO_PROCEDURE_TYPE =
   'direct_acquisition grain has no procedure_type dimension (only contracts via linkage and procedures natively)';
 
+/**
+ * Direct acquisitions on procurement_v3 (release 1): free text is withheld
+ * until reviewed (decision 2026-11-10), so no figure may be filtered by title.
+ */
+const DA_V3_NO_TITLE_SEARCH =
+  'direct_acquisition grain does not filter by title: free text is withheld until its privacy review (release 1)';
+
+/** No supplier address in release 1, and a place count of natural persons can re-identify them. */
+const DA_V3_NO_SUPPLIER_GEOGRAPHY =
+  'direct_acquisition grain has no supplier geography in release 1 (no supplier address is served; owner decision 2026-11-18)';
+
+/** procurement_v3 carries an outcome and a counted flag, not the legacy status vocabulary. */
+const DA_V3_NO_STATUS =
+  'direct_acquisition grain has no status dimension in release 1: its records carry an outcome and are counted or not by the data platform';
+
+/** What the procurement_v3 direct-acquisition source cannot answer; undefined when it can. */
+const daV3Exclusion = (
+  scope: AnalysisScope,
+  dims: readonly ScopeDimField[],
+  dimension: BreakdownDimension | undefined
+): string | undefined => {
+  if (scope.q !== undefined) return DA_V3_NO_TITLE_SEARCH;
+  const supplierPlaces: readonly ScopeDimField[] = [
+    'supplierRegion',
+    'supplierCounty',
+    'supplierSiruta',
+  ];
+  if (
+    supplierPlaces.some((field) => dims.includes(field)) ||
+    (dimension !== undefined && (supplierPlaces as readonly string[]).includes(dimension))
+  )
+    return DA_V3_NO_SUPPLIER_GEOGRAPHY;
+  if (dims.includes('status') || dimension === 'status') return DA_V3_NO_STATUS;
+  return undefined;
+};
+
 const PROCEDURE_NO_SUPPLIER =
   'procedure grain has no supplier dimension (a procedure predates its award; suppliers exist on contracts and direct acquisitions)';
 
@@ -235,6 +271,13 @@ export const routeAnalysis = (
     );
   }
 
+  // An explicit direct-acquisition request on procurement_v3 gets the DA
+  // source's own reason before any generic capability message.
+  if (scope.grain === 'direct_acquisition' && capabilities.directAcquisitionV3 === true) {
+    const daExcluded = daV3Exclusion(scope, scopeDims(scope), dimension);
+    if (daExcluded !== undefined) return err(invalidInput(daExcluded, 'scope'));
+  }
+
   // Supplier places are public only while the registry's classification
   // holds (see GenerationCapabilities.supplierGeography): withheld, never
   // answered without the guard that keeps restricted identities out.
@@ -343,6 +386,12 @@ export const routeAnalysis = (
       (dims.includes('procedureType') || dimension === 'procedureType')
     ) {
       excluded = DA_NO_PROCEDURE_TYPE;
+    } else if (
+      grain === 'direct_acquisition' &&
+      capabilities.directAcquisitionV3 === true &&
+      daV3Exclusion(scope, dims, dimension) !== undefined
+    ) {
+      excluded = daV3Exclusion(scope, dims, dimension);
     } else if (
       grain === 'procedure' &&
       (shape === 'concentration' ||

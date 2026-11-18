@@ -345,6 +345,7 @@ const scopeNotes = (
   ...rowFilterCaveats(scope),
   ...grainNotes(grain, gen.capabilities),
   ...sourceNotes(grain, gen.sourceCapture),
+  ...(gen.notes ?? []),
 ];
 
 /** The stats read projected onto the envelope's fields. */
@@ -383,7 +384,9 @@ const BUILD_PIN_RE = /^[1-9][0-9]{0,18}$/u;
  */
 const genWithCoverage = async (
   repo: AnalysisRepo,
-  build?: string
+  build?: string,
+  /** The request's single grain, when it names one: a pin is checked against THAT grain's source. */
+  grain?: AnalysisGrain
 ): Promise<
   Result<{ gen: ActiveGeneration; cov: readonly BasisCoverageRow[] | undefined }, ApiError>
 > => {
@@ -392,16 +395,34 @@ const genWithCoverage = async (
   }
   const genR = await activeGen(repo);
   if (genR.isErr()) return err(genR.error);
-  if (build !== undefined && build !== genR.value.buildId) {
+  const activeBuild =
+    (grain === undefined ? undefined : genR.value.grainSources?.[grain]?.generation.buildId) ??
+    genR.value.buildId;
+  if (build !== undefined && build !== activeBuild) {
     return err(
       invalidInput(
-        `analysis build ${build} is not the active build (${genR.value.buildId}); re-read the active build and repeat the request`,
+        `analysis build ${build} is not the active build (${activeBuild}); re-read the active build and repeat the request`,
         'build'
       )
     );
   }
   const covR = await repo.basisCoverage(genR.value.buildId);
   return ok({ gen: genR.value, cov: covR.isOk() ? covR.value : undefined });
+};
+
+/**
+ * The generation and coverage that answer `grain` in this request. A grain
+ * served by another source (direct acquisitions on procurement_v3) carries its
+ * own: its gates, envelope buildId, notes and reads all use it, so a block
+ * never wears another source's verdict.
+ */
+const sourceFor = (
+  gen: ActiveGeneration,
+  cov: readonly BasisCoverageRow[] | undefined,
+  grain: AnalysisGrain
+): { gen: ActiveGeneration; cov: readonly BasisCoverageRow[] | undefined } => {
+  const source = gen.grainSources?.[grain];
+  return source === undefined ? { gen, cov } : { gen: source.generation, cov: source.coverage };
 };
 
 /** AND-compose gate decisions: any abstain blocks; degradations and caveats merge. */
@@ -569,13 +590,14 @@ const SUPPLIER_SCOPE_NO_MOD_ADJUSTED: GateDecision = {
 
 const statsBlockFor = async (
   deps: AnalysisDeps,
-  gen: ActiveGeneration,
-  cov: readonly BasisCoverageRow[] | undefined,
+  requestGen: ActiveGeneration,
+  requestCov: readonly BasisCoverageRow[] | undefined,
   route: AnalysisRoute,
   scope: AnalysisScope,
   canonicalScope: string
 ): Promise<Result<AnalysisStatsBlock, ApiError>> => {
   const { grain } = route;
+  const { gen, cov } = sourceFor(requestGen, requestCov, grain);
   // Per-basis money gates (design v1.1): each money field follows ITS OWN
   // basis verdict — bases never substitute for one another. The grain's
   // ANCHOR basis (awarded; ceiling on frameworks) also gates undated money;
@@ -757,7 +779,7 @@ export const analysisStats = async (
   deps: AnalysisDeps,
   input: { readonly scope: AnalysisScope; readonly build?: string }
 ): Promise<Result<AnalysisStatsResult, ApiError>> => {
-  const gcR = await genWithCoverage(deps.analysisRepo, input.build);
+  const gcR = await genWithCoverage(deps.analysisRepo, input.build, input.scope.grain);
   if (gcR.isErr()) return err(gcR.error);
   return statsWithGen(deps, gcR.value.gen, gcR.value.cov, input.scope);
 };
@@ -794,15 +816,16 @@ export const analysisSeries = async (
   }
 
   // The generation first: routing needs its live capabilities.
-  const gcR = await genWithCoverage(deps.analysisRepo, input.build);
+  const gcR = await genWithCoverage(deps.analysisRepo, input.build, scope.grain);
   if (gcR.isErr()) return err(gcR.error);
-  const { gen, cov } = gcR.value;
+  const requestGen = gcR.value.gen;
+  const requestCov = gcR.value.cov;
   const routesR = (deps.routeAnalysis ?? routeAnalysis)(
     scope,
     'series',
     undefined,
     measure,
-    gen.capabilities
+    requestGen.capabilities
   );
   if (routesR.isErr()) return err(routesR.error);
   const canonicalScope = canonicalScopeEcho(scope);
@@ -810,6 +833,7 @@ export const analysisSeries = async (
   const blocks: AnalysisSeriesBlock[] = [];
   for (const route of routesR.value) {
     const { grain } = route;
+    const { gen, cov } = sourceFor(requestGen, requestCov, grain);
     const policy = policyFor(grain, measure);
     if (policy === undefined) continue; // implicit grain without the measure
     if (!policy.legalShapes.includes('series')) {
@@ -988,8 +1012,8 @@ const normalizeTopN = (
 
 const breakdownBlockFor = async (
   deps: AnalysisDeps,
-  gen: ActiveGeneration,
-  cov: readonly BasisCoverageRow[] | undefined,
+  requestGen: ActiveGeneration,
+  requestCov: readonly BasisCoverageRow[] | undefined,
   route: AnalysisRoute,
   scope: AnalysisScope,
   dimension: BreakdownDimension,
@@ -998,6 +1022,7 @@ const breakdownBlockFor = async (
   rankByReq?: 'value' | 'count'
 ): Promise<Result<AnalysisBreakdownBlock, ApiError>> => {
   const { grain } = route;
+  const { gen, cov } = sourceFor(requestGen, requestCov, grain);
   // The ranking money is the grain's ANCHOR basis (ceiling on frameworks);
   // the counts-only modification grain has NO money gate (spend = null).
   const spend = anchorMoneyGate(gen, cov, grain);
@@ -1140,7 +1165,7 @@ export const analysisBreakdown = async (
   if (topNR.isErr()) return err(topNR.error);
   const topN = topNR.value;
   // The generation first: routing needs its live capabilities.
-  const gcR = await genWithCoverage(deps.analysisRepo, input.build);
+  const gcR = await genWithCoverage(deps.analysisRepo, input.build, input.scope.grain);
   if (gcR.isErr()) return err(gcR.error);
   const routesR = (deps.routeAnalysis ?? routeAnalysis)(
     input.scope,
@@ -1182,15 +1207,16 @@ export const analysisConcentration = async (
   }
 ): Promise<Result<readonly AnalysisConcentrationBlock[], ApiError>> => {
   // The generation first: routing needs its live capabilities.
-  const gcR = await genWithCoverage(deps.analysisRepo, input.build);
+  const gcR = await genWithCoverage(deps.analysisRepo, input.build, input.scope.grain);
   if (gcR.isErr()) return err(gcR.error);
-  const { gen, cov } = gcR.value;
+  const requestGen = gcR.value.gen;
+  const requestCov = gcR.value.cov;
   const routesR = (deps.routeAnalysis ?? routeAnalysis)(
     input.scope,
     'concentration',
     undefined,
     undefined,
-    gen.capabilities
+    requestGen.capabilities
   );
   if (routesR.isErr()) return err(routesR.error);
   const canonicalScope = canonicalScopeEcho(input.scope);
@@ -1198,6 +1224,7 @@ export const analysisConcentration = async (
   const blocks: AnalysisConcentrationBlock[] = [];
   for (const route of routesR.value) {
     const { grain } = route;
+    const { gen, cov } = sourceFor(requestGen, requestCov, grain);
     const spend = decideMoney(gen.quality, cov, grain, anchorBasis(grain));
     const basis: 'value' | 'count' = input.basis ?? 'count';
     const policy = anchorPolicy(grain, basis === 'value' ? 'valueAwardedSum' : 'recordCount');
@@ -1348,7 +1375,7 @@ export const analysisShare = async (
   // ONE generation pins BOTH operands (S1) — a cutover between the two stats
   // reads cannot produce a cross-build ratio — and its live capabilities
   // decide how frameworkRole compares below.
-  const gcR = await genWithCoverage(deps.analysisRepo, input.build);
+  const gcR = await genWithCoverage(deps.analysisRepo, input.build, numerator.grain);
   if (gcR.isErr()) return err(gcR.error);
   const { gen, cov } = gcR.value;
   // STRICT subset: every denominator constraint set identically on the numerator,
@@ -1384,7 +1411,13 @@ export const analysisShare = async (
   }
 
   // The grain's ANCHOR money drives the ratio (ceiling on frameworks).
-  const spend = decideMoney(gen.quality, cov, numerator.grain, anchorBasis(numerator.grain));
+  const numeratorSource = sourceFor(gen, cov, numerator.grain);
+  const spend = decideMoney(
+    numeratorSource.gen.quality,
+    numeratorSource.cov,
+    numerator.grain,
+    anchorBasis(numerator.grain)
+  );
   const anchorMoneyOf = (block: AnalysisStatsBlock): string | null =>
     numerator.grain === 'framework' ? block.valueCeilingSum : block.valueAwardedSum;
   const [numR, denR] = await Promise.all([
@@ -1493,7 +1526,7 @@ export const analysisFacets = async (
   const topN = topNR.value;
   // ONE generation for every facet (S1) — resolved before routing, which
   // needs its live capabilities.
-  const gcR = await genWithCoverage(deps.analysisRepo, input.build);
+  const gcR = await genWithCoverage(deps.analysisRepo, input.build, input.scope.grain);
   if (gcR.isErr()) return err(gcR.error);
   // Route every dimension up front — one bad dimension rejects the whole request
   // with the matrix's named capability, before any read runs.
@@ -1639,16 +1672,16 @@ export const analysisRecords = async (
     );
   }
 
-  const gcR = await genWithCoverage(deps.analysisRepo, input.build);
+  const gcR = await genWithCoverage(deps.analysisRepo, input.build, grain);
   if (gcR.isErr()) return err(gcR.error);
-  const { gen, cov } = gcR.value;
   const routesR = (deps.routeAnalysis ?? routeAnalysis)(
     scope,
     'stats',
     undefined,
     undefined,
-    gen.capabilities
+    gcR.value.gen.capabilities
   );
+  const { gen, cov } = sourceFor(gcR.value.gen, gcR.value.cov, grain);
   if (routesR.isErr()) return err(routesR.error);
   const route = routesR.value.find((candidate) => candidate.grain === grain);
   if (route === undefined || routesR.value.length !== 1) {

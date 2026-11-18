@@ -138,6 +138,13 @@ export interface GenerationCapabilities {
    * unavailable check) withholds every supplier place filter and dimension.
    */
   readonly supplierGeography: boolean;
+  /**
+   * Direct acquisitions are answered from procurement_v3 (release 1, flag
+   * PROCUREMENT_DA_V3_ENABLED): routing refuses at that grain what the source
+   * cannot answer honestly (title search, supplier geography, status).
+   * Absent means false.
+   */
+  readonly directAcquisitionV3?: boolean;
 }
 
 /** The capabilities a generation is assumed to have when nothing was probed (fail closed). */
