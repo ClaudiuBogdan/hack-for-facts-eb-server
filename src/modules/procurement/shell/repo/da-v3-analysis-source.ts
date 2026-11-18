@@ -139,7 +139,7 @@ interface Ctx {
 
 /** Which rollups exist and are readable: absent ones are read live, so nothing depends on them. */
 const probeRollups = async (trx: Db): Promise<ReadonlySet<string>> => {
-  const names = [...DA_V3_ROLLUPS.map((r) => r.table), 'da_rollup_distinct'];
+  const names = [...DA_V3_ROLLUPS.map((r) => r.table), 'da_rollup_distinct', BUYER_GEOGRAPHY];
   const result = await sql<{ name: string }>`
     select n as name from unnest(${names}::text[]) n
     where coalesce(has_table_privilege(to_regclass(${`${DA_RELEASE_SCHEMA}.`} || n), 'SELECT'), false)`.execute(
@@ -184,6 +184,18 @@ const snapshot = async <T>(
 /** The buyer's attributed SIRUTA: administrative tier first, ONRC registered office second. */
 const BUYER_SIRUTA = sql`coalesce(pe.territorial_siruta_code, areg.selected_uat_siruta_code)`;
 
+/**
+ * The buyer's place pinned to the DA publication (procurement_v3.da_buyer_geography,
+ * built from GEO_JOIN in the publish transaction, like the rollups). When it is
+ * readable the live reads join it, so live and rollup answers place a buyer the
+ * same way; otherwise they join today's kernel geography.
+ */
+const BUYER_GEOGRAPHY = 'da_buyer_geography';
+const PINNED_GEO_JOIN = sql`
+  left join ${daV3Table(BUYER_GEOGRAPHY)} t
+    on t.authority_cui = b.fiscal_code_clean and b.fiscal_code_status = 'valid'`;
+const geoJoin = (ctx: Ctx): Sql => (ctx.rollups.has(BUYER_GEOGRAPHY) ? PINNED_GEO_JOIN : GEO_JOIN);
+
 const GEO_JOIN = sql`
   left join core.public_entities pe
     on pe.cui = b.fiscal_code_clean and b.fiscal_code_status = 'valid'
@@ -200,7 +212,8 @@ type RollupKey = 'authority' | 'supplier' | 'cpv' | 'county';
  * The publish-time rollups (procurement_v3, built by the data platform in the
  * data_as_of transaction, so one snapshot sees facts and rollups of one
  * publication). Each row holds purchases, counted_purchases, counted_value and
- * symbolic_purchases for its keys and month (NULL month = undated); every
+ * symbolic_purchases for its keys and month; a supplier is an opaque
+ * supplier_ref (supplier_privacy.supplier_id, 0 = withheld), never a code (NULL month = undated); every
  * purchase lands in exactly one row of each table, so every table sums to the
  * whole release. Smallest first: a read uses the first that covers it.
  */
@@ -217,8 +230,6 @@ export const DA_V3_ROLLUPS: readonly {
   { table: 'da_rollup_authority_supplier_month', keys: ['authority', 'supplier', 'county'] },
 ];
 const DISTINCT_ROLLUP = 'da_rollup_distinct';
-/** supplier_key of every withheld supplier in the rollups (served as natural_person). */
-const ROLLUP_WITHHELD = 'withheld';
 
 /**
  * One way of reading the facts. The live form counts purchase rows; a rollup
@@ -244,7 +255,8 @@ interface Facts {
   readonly supplierKey: Sql;
   /** True when the supplier is named under D6 (public in supplier_privacy). */
   readonly supplierNamed: Sql;
-  readonly supplierCode: Sql;
+  /** Rows of one supplier code, only while it is public. */
+  supplierScope(code: string): Sql;
   /** The category code the CPV levels are cut from. */
   readonly cpv: Sql;
   readonly county: Sql;
@@ -264,7 +276,7 @@ const liveFacts = (ctx: Ctx, geo: boolean): Facts => {
     on s.source_name = p.source_name and s.party_kind = 'supplier'
    and s.portal_party_id = p.supplier_party_id
   ${supplierPrivacyJoin(ctx.privacy)}
-  ${geo ? GEO_JOIN : sql``}`,
+  ${geo ? geoJoin(ctx) : sql``}`,
     day: sql`p.finalization_day`,
     base: null,
     rows: (pred) => sql`count(*) filter (where ${pred})`,
@@ -275,7 +287,7 @@ const liveFacts = (ctx: Ctx, geo: boolean): Facts => {
         when ${named} then s.fiscal_code_clean
         else ${DA_V3_WITHHELD_SUPPLIER_KEY} end`,
     supplierNamed: named,
-    supplierCode: sql`s.fiscal_code_clean`,
+    supplierScope: (code) => sql`s.fiscal_code_clean = ${code} and ${named}`,
     cpv: sql`p.category_code`,
     county: sql`t.county_code`,
     region: sql`t.region`,
@@ -283,28 +295,34 @@ const liveFacts = (ctx: Ctx, geo: boolean): Facts => {
 };
 
 const rollupFacts = (ctx: Ctx, table: string, keys: readonly RollupKey[]): Facts => {
-  const withSupplier = keys.includes('supplier');
-  // D6 again on read: the key was public at build; it must still be public here.
-  const named =
-    withSupplier && ctx.privacy
-      ? sql`(sv.public is true and r.supplier_key is not null and r.supplier_key <> ${ROLLUP_WITHHELD})`
-      : sql`false`;
+  const withSupplier = keys.includes('supplier') && ctx.privacy;
+  // The rollups hold no fiscal code: supplier_ref is supplier_privacy.supplier_id (0 =
+  // withheld, NULL = no supplier). The code comes from supplier_privacy in this
+  // snapshot, and only while the row is public there (D6 again on read).
+  const named = withSupplier
+    ? sql`(r.supplier_ref > 0 and sv.public is true and sv.fiscal_code_clean is not null)`
+    : sql`false`;
   return {
     rollup: table,
     from: sql`
   from ${daV3Table(table)} r
-  ${withSupplier && ctx.privacy ? sql`left join ${PRIVACY_TABLE} sv on sv.fiscal_code_clean = r.supplier_key` : sql``}`,
+  ${withSupplier ? sql`left join ${PRIVACY_TABLE} sv on sv.supplier_id = r.supplier_ref` : sql``}`,
     day: sql`r.month`,
     base: sql`r.purchases > 0`,
     rows: (pred) => sql`coalesce(sum(r.purchases) filter (where ${pred}), 0)`,
     counted: (pred) => sql`coalesce(sum(r.counted_purchases) filter (where ${pred}), 0)`,
     money: (pred) => sql`sum(r.counted_value) filter (where ${pred} and r.counted_purchases > 0)`,
     authority: sql`r.authority_cui`,
-    supplierKey: sql`case when r.supplier_key is null then null
-        when ${named} then r.supplier_key
+    supplierKey: sql`case when r.supplier_ref is null then null
+        when ${named} then sv.fiscal_code_clean
         else ${DA_V3_WITHHELD_SUPPLIER_KEY} end`,
     supplierNamed: named,
-    supplierCode: sql`r.supplier_key`,
+    // A public code's id, looked up once, so the scope uses the rollup's supplier_ref index.
+    supplierScope: (code) =>
+      withSupplier
+        ? sql`r.supplier_ref = (select sp.supplier_id from ${PRIVACY_TABLE} sp
+            where sp.fiscal_code_clean = ${code} and sp.public is true) and ${named}`
+        : sql`false`,
     cpv: sql`r.cpv8`,
     county: sql`r.county_code`,
     region: sql`r.region`,
@@ -469,8 +487,7 @@ const compile = (
   const f = rollup === null ? liveFacts(ctx, geo) : rollupFacts(ctx, rollup.table, rollup.keys);
   const conds: Sql[] = f.base === null ? [] : [f.base];
   if (scope.authorityCui !== undefined) conds.push(sql`${f.authority} = ${scope.authorityCui}`);
-  if (scope.supplierCui !== undefined)
-    conds.push(sql`${f.supplierCode} = ${scope.supplierCui} and ${f.supplierNamed}`);
+  if (scope.supplierCui !== undefined) conds.push(f.supplierScope(scope.supplierCui));
   if (scope.cpvDivision !== undefined) conds.push(sql`left(${f.cpv}, 2) = ${scope.cpvDivision}`);
   for (const [field, length] of CPV_PREFIXES) {
     const value = scope[field];
@@ -756,7 +773,7 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
         left join ${PARTIES} b
           on b.source_name = pb.source_name and b.party_kind = 'buyer'
          and b.portal_party_id = pb.buyer_party_id
-        ${GEO_JOIN}`.execute(ctx.trx));
+        ${geoJoin(ctx)}`.execute(ctx.trx));
       const row = result.rows[0];
       const total = new Decimal(row?.total ?? '0');
       const ratio = (part: string | null | undefined, whole: Decimal): number =>
@@ -1125,13 +1142,14 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
       // The page lists purchases (live rows); its total is a count (a rollup when one covers it).
       const c = compile(ctx, scope, undefined, true);
       if (c.isErr()) return err(c.error);
-      // A geography scope's total stays live like its rows: rollups hold the buyer's place
-      // as of the DA publish, the live join reads today's, and a page must agree with itself.
+      // Without pinned geography a geography scope's total stays live like its rows: the
+      // rollups place the buyer as of the DA publish, the kernel join as of today, and a page
+      // must agree with itself. With it, both place the buyer the same way.
       const geoScoped =
         scope.buyerRegion !== undefined ||
         scope.buyerCounty !== undefined ||
         scope.buyerSiruta !== undefined;
-      const counting = geoScoped ? c : compile(ctx, scope);
+      const counting = geoScoped && !ctx.rollups.has(BUYER_GEOGRAPHY) ? c : compile(ctx, scope);
       if (counting.isErr()) return err(counting.error);
       const money = sql`case when p.counted then p.counted_value end`;
       const order: Record<typeof page.sort, Sql> = {

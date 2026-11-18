@@ -328,8 +328,8 @@ describe('rollups answer exactly as the live rows', () => {
     select case when b.fiscal_code_status = 'valid' then b.fiscal_code_clean end as authority_cui,
            case when s.portal_party_id is null then null
                 when sv.public is true and s.fiscal_code_status = 'valid' and s.fiscal_code_clean is not null
-                  then s.fiscal_code_clean
-                else 'withheld' end as supplier_key,
+                  then sv.supplier_id
+                else 0 end as supplier_ref,
            case when p.category_code ~ '^[0-9]{2}' then left(p.category_code, 8) end as cpv8,
            t.county_code, t.region,
            date_trunc('month', p.finalization_day)::date as month,
@@ -353,11 +353,11 @@ describe('rollups answer exactly as the live rows', () => {
     count(*) filter (where symbolic_price) as symbolic_purchases`;
   const TABLES: readonly (readonly [string, string])[] = [
     ['da_rollup_authority_month', 'authority_cui'],
-    ['da_rollup_supplier_month', 'supplier_key'],
+    ['da_rollup_supplier_month', 'supplier_ref'],
     ['da_rollup_cpv_month', 'cpv8'],
     ['da_rollup_county_month', 'county_code, region'],
-    ['da_rollup_authority_supplier_month', 'authority_cui, supplier_key, county_code, region'],
-    ['da_rollup_supplier_cpv_month', 'supplier_key, cpv8'],
+    ['da_rollup_authority_supplier_month', 'authority_cui, supplier_ref, county_code, region'],
+    ['da_rollup_supplier_cpv_month', 'supplier_ref, cpv8'],
     ['da_rollup_county_cpv_month', 'county_code, region, cpv8'],
   ];
 
@@ -375,6 +375,9 @@ describe('rollups answer exactly as the live rows', () => {
     await sql`insert into procurement_v3.da_parties values (${SOURCE}, 'supplier', 'rc2', '2000002', 'valid', 'C2')`.execute(
       trx
     );
+    // The opaque id the rollups carry instead of a code (stable, never reused).
+    await sql`alter table procurement_v3.supplier_privacy
+      add column supplier_id bigint generated always as identity`.execute(trx);
     await sql`insert into procurement_v3.supplier_privacy (fiscal_code_clean, public) values ('2000002', true)`.execute(
       trx
     );
@@ -401,6 +404,23 @@ describe('rollups answer exactly as the live rows', () => {
 
   const buildRollups = async (trx: Kysely<ProdDatabase>): Promise<void> => {
     await sql.raw(ROLLUP_BASE).execute(trx);
+    // The buyer's place, pinned to the publication (GEO_JOIN, one row per valid buyer code).
+    await sql
+      .raw(
+        `create table procurement_v3.da_buyer_geography as
+         select distinct on (b.fiscal_code_clean) b.fiscal_code_clean as authority_cui,
+                t.territorial_siruta_code, t.county_code, t.region, now() as copied_at
+         from procurement_v3.da_parties b
+         left join core.public_entities pe on pe.cui = b.fiscal_code_clean
+         left join companies_v2.registrations areg
+           on areg.cui = b.fiscal_code_clean and pe.territorial_siruta_code is null
+         left join core.territories t
+           on t.territorial_siruta_code = coalesce(pe.territorial_siruta_code, areg.selected_uat_siruta_code)
+          and t.privacy_class = 'public'
+         where b.party_kind = 'buyer' and b.fiscal_code_status = 'valid'
+         order by b.fiscal_code_clean`
+      )
+      .execute(trx);
     for (const [table, keys] of TABLES)
       await sql
         .raw(
@@ -413,12 +433,12 @@ describe('rollups answer exactly as the live rows', () => {
         `create table procurement_v3.da_rollup_distinct as
          select kind as bucket_kind, bucket,
                 count(distinct authority_cui) as distinct_authorities,
-                count(distinct supplier_key) filter (where supplier_key <> 'withheld') as distinct_public_suppliers,
-                coalesce(bool_or(supplier_key = 'withheld'), false) as has_withheld
-         from (select 'month' as kind, month as bucket, authority_cui, supplier_key
+                count(distinct supplier_ref) filter (where supplier_ref > 0) as distinct_public_suppliers,
+                coalesce(bool_or(supplier_ref = 0), false) as has_withheld
+         from (select 'month' as kind, month as bucket, authority_cui, supplier_ref
                  from procurement_v3.f_rollup_base where month is not null
                union all
-               select 'year', date_trunc('year', month)::date, authority_cui, supplier_key
+               select 'year', date_trunc('year', month)::date, authority_cui, supplier_ref
                  from procurement_v3.f_rollup_base where month is not null) x
          group by 1, 2`
       )
@@ -506,17 +526,42 @@ describe('rollups answer exactly as the live rows', () => {
       expect(statements.some((text) => text.includes('da_rollup_authority_supplier_month'))).toBe(
         true
       );
+      expect(statements.some((text) => text.includes('da_buyer_geography'))).toBe(true);
+      // The kernel's geography moves after the publish: every answer keeps the published
+      // place (rollups and live rows both read the pinned table), so nothing changes.
+      await sql`update core.territories set county_code = 'QQ' where territorial_siruta_code = '777'`.execute(
+        logged
+      );
+      const moved = await battery({
+        analysisRepo: makeDaRoutingAnalysisRepo(
+          makeUnconfiguredAnalysisRepo(),
+          makeDaV3AnalysisSource(logged)
+        ),
+      });
+      for (let index = 0; index < live.length; index += 1)
+        expect({ index, answer: moved[index] }).toEqual({ index, answer: live[index] });
+      await sql`update core.territories set county_code = 'AB' where territorial_siruta_code = '777'`.execute(
+        logged
+      );
       // A code that flipped to restricted keeps its old rows, zeroed (never deleted): they
       // must never contribute a key, a count or a name, in buckets, distincts or key lists.
-      const flipped = SOLE_TRADER.fiscalCode ?? '';
+      const idOf = async (code: string): Promise<string> =>
+        (
+          await sql<{
+            id: string;
+          }>`select supplier_id::text as id from procurement_v3.supplier_privacy
+            where fiscal_code_clean = ${code}`.execute(logged)
+        ).rows[0]?.id ?? '-1';
+      const flipped = await idOf(SOLE_TRADER.fiscalCode ?? '');
+      const publicRef = await idOf('2000002');
       for (const table of [
         'da_rollup_supplier_month',
         'da_rollup_supplier_cpv_month',
         'da_rollup_authority_supplier_month',
       ])
         await sql`insert into ${sql.table(`procurement_v3.${table}`)}
-          (supplier_key, month, purchases, counted_purchases, counted_value, symbolic_purchases)
-          values (${flipped}, '2025-01-01', 0, 0, 0, 0)`.execute(logged);
+          (supplier_ref, month, purchases, counted_purchases, counted_value, symbolic_purchases)
+          values (${flipped}::bigint, '2025-01-01', 0, 0, 0, 0)`.execute(logged);
       // Zeroed rows in a month and under keys nothing else carries must not add a bucket,
       // a month (series points, min/max month) or a key either.
       for (const [table, keys, values] of [
@@ -524,12 +569,12 @@ describe('rollups answer exactly as the live rows', () => {
         ['da_rollup_cpv_month', 'cpv8', `'99999999'`],
         ['da_rollup_authority_month', 'authority_cui', `'9999999'`],
         ['da_rollup_county_cpv_month', 'county_code, region, cpv8', `'ZZ', 'Gone', '99999999'`],
-        ['da_rollup_supplier_month', 'supplier_key', `'2000002'`],
-        ['da_rollup_supplier_cpv_month', 'supplier_key, cpv8', `'2000002', '99999999'`],
+        ['da_rollup_supplier_month', 'supplier_ref', publicRef],
+        ['da_rollup_supplier_cpv_month', 'supplier_ref, cpv8', `${publicRef}, '99999999'`],
         [
           'da_rollup_authority_supplier_month',
-          'authority_cui, supplier_key, county_code, region',
-          `'9999999', '2000002', 'ZZ', 'Gone'`,
+          'authority_cui, supplier_ref, county_code, region',
+          `'9999999', ${publicRef}, 'ZZ', 'Gone'`,
         ],
       ] as const)
         await sql
@@ -548,8 +593,8 @@ describe('rollups answer exactly as the live rows', () => {
         expect({ index, answer: zeroed[index] }).toEqual({ index, answer: live[index] });
       // Even a non-zero row under a restricted code (the build STOPs on it) is withheld on read.
       await sql`insert into procurement_v3.da_rollup_supplier_month
-        (supplier_key, month, purchases, counted_purchases, counted_value, symbolic_purchases)
-        values (${flipped}, '2025-02-01', 3, 3, 30, 0)`.execute(logged);
+        (supplier_ref, month, purchases, counted_purchases, counted_value, symbolic_purchases)
+        values (${flipped}::bigint, '2025-02-01', 3, 3, 30, 0)`.execute(logged);
       const guarded = await analysisBreakdown(
         {
           analysisRepo: makeDaRoutingAnalysisRepo(
