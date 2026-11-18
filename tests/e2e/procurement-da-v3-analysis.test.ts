@@ -303,6 +303,11 @@ describe('with supplier_privacy', () => {
       await analysisStats(deps, { scope: { ...DA, supplierCui: COMPANY.fiscalCode ?? '' } })
     )._unsafeUnwrap();
     expect(company.blocks[0]?.recordCount).toBe('7');
+    // A legacy or client code keeping leading zeros matches the platform's code.
+    const zeros = (
+      await analysisStats(deps, { scope: { ...DA, supplierCui: `00${COMPANY.fiscalCode ?? ''}` } })
+    )._unsafeUnwrap();
+    expect(zeros.blocks[0]?.recordCount).toBe('7');
   });
 
   it('refuses a read against a moved publication', async () => {

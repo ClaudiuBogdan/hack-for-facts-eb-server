@@ -232,6 +232,10 @@ money_geo.
 - **Tests.** The e2e suite builds the rollups from a varied seed with the agreed rules, then requires every
   stats, series, distinct, breakdown, concentration and records answer to equal the live answer. That includes
   zeroed rows under new keys and months, and a restricted code. Mutating either guard fails the suite.
+- **Fiscal-code form.** procurement_v3 codes have no leading zeros, while legacy rows and clients may keep them
+  (procurement-prod measured this on June 2025). Every code a client sends to a v3 surface is compared without
+  leading zeros, and the public-supplier set accepts either form, so a legacy key still matches its public company.
+  Served keys are the platform's form.
 - **Gate for the flag.** Before `PROCUREMENT_DA_V3_ENABLED` goes on, the generated statements are re-timed at
   workshop scale, with a target p95 of at most 2 s per page statement.
 

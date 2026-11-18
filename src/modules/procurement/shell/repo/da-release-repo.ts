@@ -23,6 +23,7 @@ import {
   offsetFor,
   serviceUnavailable,
   timeoutError,
+  withoutLeadingZeros,
   type ApiError,
   type ProdDatabase,
 } from '@/modules/shared/index.js';
@@ -279,11 +280,11 @@ const whereOf = (filter: DaPurchaseFilter, columns: Columns): RawBuilder<unknown
   const conditions: RawBuilder<unknown>[] = [sql`true`];
   if (filter.buyerFiscalCode !== undefined)
     conditions.push(
-      sql`b.fiscal_code_clean = ${filter.buyerFiscalCode} and b.fiscal_code_status = 'valid'`
+      sql`b.fiscal_code_clean = ${withoutLeadingZeros(filter.buyerFiscalCode)} and b.fiscal_code_status = 'valid'`
     );
   if (filter.supplierFiscalCode !== undefined)
     conditions.push(
-      sql`s.fiscal_code_clean = ${filter.supplierFiscalCode} and ${namedSupplier(columns)}`
+      sql`s.fiscal_code_clean = ${withoutLeadingZeros(filter.supplierFiscalCode)} and ${namedSupplier(columns)}`
     );
   if (filter.cpvDivision !== undefined)
     conditions.push(sql`left(p.category_code, 2) = ${filter.cpvDivision}`);

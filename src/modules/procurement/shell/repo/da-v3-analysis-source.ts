@@ -42,6 +42,7 @@ import {
   invalidInput,
   serviceUnavailable,
   timeoutError,
+  withoutLeadingZeros,
   type ApiError,
   type Logger,
   type ProdDatabase,
@@ -486,8 +487,11 @@ const compile = (
     scope.buyerSiruta !== undefined;
   const f = rollup === null ? liveFacts(ctx, geo) : rollupFacts(ctx, rollup.table, rollup.keys);
   const conds: Sql[] = f.base === null ? [] : [f.base];
-  if (scope.authorityCui !== undefined) conds.push(sql`${f.authority} = ${scope.authorityCui}`);
-  if (scope.supplierCui !== undefined) conds.push(f.supplierScope(scope.supplierCui));
+  // Codes compare in the platform's form (no leading zeros); a legacy code still matches.
+  if (scope.authorityCui !== undefined)
+    conds.push(sql`${f.authority} = ${withoutLeadingZeros(scope.authorityCui)}`);
+  if (scope.supplierCui !== undefined)
+    conds.push(f.supplierScope(withoutLeadingZeros(scope.supplierCui)));
   if (scope.cpvDivision !== undefined) conds.push(sql`left(${f.cpv}, 2) = ${scope.cpvDivision}`);
   for (const [field, length] of CPV_PREFIXES) {
     const value = scope[field];

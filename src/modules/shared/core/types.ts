@@ -41,6 +41,13 @@ export type IsoDateTime = string;
  * entry point (entity, company, filters, …) so the two surfaces can't disagree on
  * whether an input is acceptable (audit M12).
  */
+/**
+ * The data platform's fiscal-code form (procurement_v3, supplier_privacy): a
+ * normalized code without leading zeros. Legacy rows and clients may keep
+ * them; codes are compared in this form (procurement-prod measured, 18 Nov).
+ */
+export const withoutLeadingZeros = (code: string): string => code.replace(/^0+(?=\d)/u, '');
+
 export const normalizeCui = (raw: string): Cui | null => {
   const result = raw
     .toUpperCase()
