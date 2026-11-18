@@ -124,6 +124,17 @@ With the flag off:
   - the document count and the document list exclude DA documents in SQL;
   - outgoing top counterparties carry no DA money.
 
+## Rollout order (root, 18 Nov), on every environment
+
+1. procurement_v3 (with `supplier_privacy`) is migrated and loaded.
+2. `PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED=true` on the API.
+3. The client build that fails closed on `displayKind` is deployed.
+4. Later, after root's production-output audit: `PROCUREMENT_DA_V3_ENABLED=true`.
+
+While the D6 switch is off, legacy DA parties carry `displayKind: null`. A fail-closed client deployed before step 2
+therefore shows no DA supplier name at all, companies included (acceptable for a short window on dev only).
+Production follows the same order.
+
 ## Pending (data platform)
 
 - **Schema name:** `procurement_v3` is pending the owner's migration. It is named once, in `DA_RELEASE_SCHEMA`.
