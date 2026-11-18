@@ -61,19 +61,47 @@ export const withDaDisclosure = (
     return das.map((da) => discloseDirectAcquisition(da, codes, labels));
   };
 
+  /**
+   * The public set AFTER a data read, intersected with the one the read was
+   * authorised by: a code a nightly publish withheld mid-request stays withheld.
+   */
+  const settle = async (
+    before: ReadonlySet<string>
+  ): Promise<Result<ReadonlySet<string>, ApiError>> => {
+    const now = await publicCodes();
+    if (now.isErr()) return err(now.error);
+    if (now.value === before) return ok(before);
+    return ok(new Set([...before].filter((code) => now.value.has(code))));
+  };
+
   return {
     ...repo,
 
     listDirectAcquisitions: async (filter, page) => {
-      const codes = await publicCodes();
-      if (codes.isErr()) return err(codes.error);
-      const allowed = publicSupplierFilter(requestedSuppliers(filter), codes.value);
-      if (allowed !== null && allowed.length === 0) return ok({ items: [], next: null });
-      const scoped: FilterInput =
-        allowed === null ? filter : { ...filter, supplierCui: { in: [...allowed] } };
-      const result = await repo.listDirectAcquisitions(scoped, page);
-      if (result.isErr()) return result;
-      return ok({ ...result.value, items: await discloseAll(result.value.items, codes.value) });
+      const run = async (codes: ReadonlySet<string>) => {
+        const allowed = publicSupplierFilter(requestedSuppliers(filter), codes);
+        if (allowed !== null && allowed.length === 0)
+          return { allowed, result: ok({ items: [], next: null }) };
+        const scoped: FilterInput =
+          allowed === null ? filter : { ...filter, supplierCui: { in: [...allowed] } };
+        return { allowed, result: await repo.listDirectAcquisitions(scoped, page) };
+      };
+      const before = await publicCodes();
+      if (before.isErr()) return err(before.error);
+      let read = await run(before.value);
+      if (read.result.isErr()) return read.result;
+      const after = await settle(before.value);
+      if (after.isErr()) return err(after.error);
+      // A filter code withheld mid-request: read again under the settled set.
+      if (
+        read.allowed !== null &&
+        publicSupplierFilter(read.allowed, after.value)?.length !== read.allowed.length
+      ) {
+        read = await run(after.value);
+        if (read.result.isErr()) return read.result;
+      }
+      const value = read.result.value;
+      return ok({ ...value, items: await discloseAll(value.items, after.value) });
     },
 
     searchDirectAcquisitionsOffset: async (filter, page, facets) => {
@@ -81,16 +109,19 @@ export const withDaDisclosure = (
       if (filter.supplierGeo !== undefined) return err(daSupplierGeographyRefused('supplierGeo'));
       const geoFacet = facets?.find((facet) => SUPPLIER_GEO_FACETS.has(facet));
       if (geoFacet !== undefined) return err(daSupplierGeographyRefused('facets'));
-      const codes = await publicCodes();
-      if (codes.isErr()) return err(codes.error);
-      if (filter.supplierCui !== undefined && !codes.value.has(filter.supplierCui))
-        return ok({ items: [], total: 0, estimated: false });
+      const empty = ok({ items: [], total: 0, estimated: false });
+      const before = await publicCodes();
+      if (before.isErr()) return err(before.error);
+      if (filter.supplierCui !== undefined && !before.value.has(filter.supplierCui)) return empty;
       const result = await repo.searchDirectAcquisitionsOffset(filter, page, facets);
       if (result.isErr()) return result;
+      const after = await settle(before.value);
+      if (after.isErr()) return err(after.error);
+      if (filter.supplierCui !== undefined && !after.value.has(filter.supplierCui)) return empty;
       // No highlights: q is refused, and a highlight could quote withheld text.
       const { total, estimated, facets: facetCounts, provenance } = result.value;
       return ok({
-        items: await discloseAll(result.value.items, codes.value),
+        items: await discloseAll(result.value.items, after.value),
         total,
         estimated,
         ...(facetCounts !== undefined && { facets: facetCounts }),
@@ -98,20 +129,21 @@ export const withDaDisclosure = (
       });
     },
 
+    // Detail reads authorise nothing up front: the set is read after the row.
     getDirectAcquisition: async (id) => {
-      const codes = await publicCodes();
-      if (codes.isErr()) return err(codes.error);
       const result = await repo.getDirectAcquisition(id);
       if (result.isErr() || result.value === null) return result;
+      const codes = await publicCodes();
+      if (codes.isErr()) return err(codes.error);
       const [disclosed] = await discloseAll([result.value], codes.value);
       return ok(disclosed ?? null);
     },
 
     getDirectAcquisitionDetail: async (id) => {
-      const codes = await publicCodes();
-      if (codes.isErr()) return err(codes.error);
       const result = await repo.getDirectAcquisitionDetail(id);
       if (result.isErr() || result.value === null) return result;
+      const codes = await publicCodes();
+      if (codes.isErr()) return err(codes.error);
       const detail = result.value;
       const [disclosed] = await discloseAll([detail.directAcquisition], codes.value);
       if (disclosed === undefined) return ok(null);
@@ -123,23 +155,31 @@ export const withDaDisclosure = (
     },
 
     supplierRecords: async (supplierCui, first, after, includeCancelled, includeDas) => {
-      const codes = await publicCodes();
-      if (codes.isErr()) return err(codes.error);
-      const result = await repo.supplierRecords(
+      const before = await publicCodes();
+      if (before.isErr()) return err(before.error);
+      const wanted = includeDas ?? true;
+      let result = await repo.supplierRecords(
         supplierCui,
         first,
         after,
         includeCancelled,
-        (includeDas ?? true) && codes.value.has(supplierCui)
+        wanted && before.value.has(supplierCui)
       );
       if (result.isErr()) return result;
-      const das = result.value.edges.flatMap((edge) =>
+      const settled = await settle(before.value);
+      if (settled.isErr()) return err(settled.error);
+      if (wanted && before.value.has(supplierCui) && !settled.value.has(supplierCui)) {
+        result = await repo.supplierRecords(supplierCui, first, after, includeCancelled, false);
+        if (result.isErr()) return result;
+      }
+      const connection = result.value;
+      const das = connection.edges.flatMap((edge) =>
         edge.node.grain === 'direct_acquisition' ? [edge.node.directAcquisition] : []
       );
       const labels = await labelsFor(das);
       return ok({
-        ...result.value,
-        edges: result.value.edges.map((edge) =>
+        ...connection,
+        edges: connection.edges.map((edge) =>
           edge.node.grain === 'direct_acquisition'
             ? {
                 ...edge,
@@ -147,7 +187,7 @@ export const withDaDisclosure = (
                   grain: 'direct_acquisition',
                   directAcquisition: discloseDirectAcquisition(
                     edge.node.directAcquisition,
-                    codes.value,
+                    settled.value,
                     labels
                   ),
                 },

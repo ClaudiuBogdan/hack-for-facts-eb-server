@@ -16,7 +16,12 @@
 import { sql, type Kysely } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
-import { databaseError, type ApiError, type ProdDatabase } from '@/modules/shared/index.js';
+import {
+  databaseError,
+  type ApiError,
+  type ProdDatabase,
+  type SupplierDisclosurePort,
+} from '@/modules/shared/index.js';
 
 import type { ProcurementPresence } from '../../core/types.js';
 
@@ -46,8 +51,18 @@ export interface ProcurementPresenceRepo {
   presenceCounts(cui: string): Promise<Result<ProcurementPresence | null, ApiError>>;
 }
 
-export const makeProcurementPresenceRepo = (db: Kysely<ProdDatabase>): ProcurementPresenceRepo => ({
+export const makeProcurementPresenceRepo = (
+  db: Kysely<ProdDatabase>,
+  disclosure?: SupplierDisclosurePort
+): ProcurementPresenceRepo => ({
   async presenceCounts(cui) {
+    // Site-wide D6: a code that is not public has no direct-acquisition supplier
+    // leg (a count alone confirms a person's purchases). Buyer legs are unchanged.
+    let supplierDaLeg = true;
+    if (disclosure?.enforced === true) {
+      const codes = await disclosure.publicSupplierCodes();
+      supplierDaLeg = codes.isOk() && codes.value.has(cui);
+    }
     try {
       const row = (await db
         .selectNoFrom([
@@ -64,7 +79,9 @@ export const makeProcurementPresenceRepo = (db: Kysely<ProdDatabase>): Procureme
             sql`select 1 from procurement.contracts c where c.supplier_cui = ${cui} and c.is_canonical = true and c.privacy_class = 'public'`
           ).as('supplier_contracts'),
           boundedCount(
-            sql`select 1 from procurement.direct_acquisitions d where d.supplier_cui = ${cui} and d.is_canonical = true and d.status <> 'cancelled' and d.privacy_class = 'public'`
+            supplierDaLeg
+              ? sql`select 1 from procurement.direct_acquisitions d where d.supplier_cui = ${cui} and d.is_canonical = true and d.status <> 'cancelled' and d.privacy_class = 'public'`
+              : sql`select 1 where false`
           ).as('supplier_direct_acquisitions'),
         ])
         .executeTakeFirst()) as PresenceRow | undefined;

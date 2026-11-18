@@ -31,6 +31,13 @@ export const daReleaseTypeDefs = /* GraphQL */ `
     enabled: Boolean!
     "When the served data was published (ISO 8601, UTC, microseconds). Null when not enabled."
     dataAsOf: DateTime
+    "Site-wide D6 is enforced (its own switch, independent of enabled)."
+    privacyEnforced: Boolean!
+    """
+    The supplier_privacy publication in force; null when D6 is off or its source is absent (every
+    DA supplier is then withheld). Key caches by (dataAsOf, privacyAsOf).
+    """
+    privacyAsOf: DateTime
   }
 
   """
@@ -176,7 +183,7 @@ export const daReleaseTypeDefs = /* GraphQL */ `
   }
 
   type ProcurementDaTotalsGroup {
-    "Party id (null for the withheld and no-supplier buckets), CPV division, YYYY-MM or YYYY."
+    "Party id; natural_person for the one withheld-supplier bucket; null for no supplier. Else CPV division, YYYY-MM or YYYY."
     key: String
     "Buyer and supplier groups. Every withheld supplier is one natural_person group with no name."
     party: ProcurementDaParty

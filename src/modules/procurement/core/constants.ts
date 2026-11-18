@@ -145,6 +145,12 @@ export interface GenerationCapabilities {
    * Absent means false.
    */
   readonly directAcquisitionV3?: boolean;
+  /**
+   * The v3 DA source is routed but its publication could not be read: the DA
+   * grain abstains BEFORE any read, so it never takes down healthy grains of a
+   * mixed-grain request.
+   */
+  readonly directAcquisitionV3Unavailable?: boolean;
 }
 
 /** The capabilities a generation is assumed to have when nothing was probed (fail closed). */
@@ -347,3 +353,9 @@ export type SeriesBucket = (typeof SERIES_BUCKETS)[number];
  * gate classes against it; `core/gate-v2.ts` interprets them.
  */
 export const COUNT_TIME_DEGRADE_FLOOR = 0.5;
+
+/**
+ * Site-wide D6: the one breakdown key for every withheld (natural-person)
+ * direct-acquisition supplier, on every source. Never a fiscal code.
+ */
+export const DA_NATURAL_PERSON_BUCKET = 'natural_person';

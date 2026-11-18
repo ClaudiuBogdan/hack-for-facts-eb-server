@@ -24,6 +24,8 @@ import { err, ok, type Result } from 'neverthrow';
 
 import { databaseError, type ApiError } from '@/modules/shared/index.js';
 
+import { DA_NATURAL_PERSON_BUCKET } from './constants.js';
+
 // ── Contract enums ───────────────────────────────────────────────────────────
 
 export const DA_OUTCOMES = ['accepted', 'refused', 'expired', 'unknown'] as const;
@@ -485,7 +487,14 @@ export const toTotalsGroup = (
       record.supplierBucket === 'named' && record.party !== null
         ? toSupplier(record.party)
         : WITHHELD;
-    return ok({ ...totals.value, key: party.partyId, party, noSupplier: false });
+    // One key for every withheld supplier (as in the analysis API); null is reserved
+    // for the bucket of purchases that name no supplier.
+    return ok({
+      ...totals.value,
+      key: party.displayKind === 'natural_person' ? DA_NATURAL_PERSON_BUCKET : party.partyId,
+      party,
+      noSupplier: false,
+    });
   }
   return ok({ ...totals.value, key: record.key, party: null, noSupplier: false });
 };

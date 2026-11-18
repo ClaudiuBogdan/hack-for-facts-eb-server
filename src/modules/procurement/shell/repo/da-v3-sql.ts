@@ -30,11 +30,15 @@ export const namedSupplierSql = (present: boolean): RawBuilder<unknown> =>
     ? sql`(sv.public is true and s.fiscal_code_status = 'valid' and s.fiscal_code_clean is not null)`
     : sql`false`;
 
-/** Whether `supplier_privacy` exists in this snapshot. Catalog read only. */
+/**
+ * Whether `supplier_privacy` exists AND this login may read it (a revoked grant
+ * leaves the catalog entry in place). Not readable: every supplier is withheld.
+ */
 export const probeSupplierPrivacy = async (trx: Kysely<ProdDatabase>): Promise<boolean> => {
   const result = await sql<{ present: boolean }>`
-    select to_regclass(${`${DA_RELEASE_SCHEMA}.supplier_privacy`}) is not null as present`.execute(
-    trx
-  );
+    select coalesce(
+      has_table_privilege(to_regclass(${`${DA_RELEASE_SCHEMA}.supplier_privacy`}), 'SELECT'),
+      false
+    ) as present`.execute(trx);
   return result.rows[0]?.present === true;
 };

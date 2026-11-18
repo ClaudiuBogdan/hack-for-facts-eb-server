@@ -85,9 +85,13 @@ const fakeRepo = () => {
               {
                 catalogItemName: 'SECRET item',
                 catalogItemDescription: 'SECRET desc',
-                cpvText: 'Beton',
+                itemMeasureUnit: 'SECRET 0722 000 000',
+                cpvText: 'SECRET cpv text',
+                cpvCode: '44110000-4',
               },
             ],
+            contractTypeText: 'SECRET type',
+            euFundText: 'SECRET fund',
           },
         } as unknown as DirectAcquisitionDetail)
       ),
@@ -110,6 +114,7 @@ const fakeRepo = () => {
 
 const enforced: SupplierDisclosurePort = {
   enforced: true,
+  privacyAsOf: () => Promise.resolve(ok(null)),
   publicSupplierCodes: () => Promise.resolve(ok(new Set([COMPANY]))),
 };
 
@@ -181,7 +186,7 @@ describe('legacy DA disclosure, enforced', () => {
     )._unsafeUnwrap();
     expect(JSON.stringify(detail)).not.toContain('SECRET');
     expect(detail?.detail?.textRedacted).toBe(true);
-    expect(detail?.detail?.items[0]?.cpvText).toBe('Beton');
+    expect(detail?.detail?.items[0]?.cpvCode).toBe('44110000-4');
   });
 
   it("leaves a withheld supplier's records without direct acquisitions", async () => {
@@ -201,7 +206,11 @@ describe('legacy DA disclosure, not enforced', () => {
   it('returns the repository unchanged', () => {
     const { repo } = fakeRepo();
     expect(
-      withDaDisclosure(repo, { enforced: false, publicSupplierCodes: enforced.publicSupplierCodes })
+      withDaDisclosure(repo, {
+        enforced: false,
+        privacyAsOf: () => Promise.resolve(ok(null)),
+        publicSupplierCodes: enforced.publicSupplierCodes,
+      })
     ).toBe(repo);
     expect(withDaDisclosure(repo, undefined)).toBe(repo);
   });

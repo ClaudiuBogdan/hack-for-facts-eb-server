@@ -388,6 +388,8 @@ describe('disabled', () => {
     expect((await rest(surfaces, '/status')).body['data']).toEqual({
       enabled: false,
       dataAsOf: null,
+      privacyEnforced: false,
+      privacyAsOf: null,
     });
   });
 });

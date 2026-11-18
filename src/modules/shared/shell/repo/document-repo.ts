@@ -26,7 +26,7 @@ import {
 } from './document-privacy.js';
 import { databaseError, type ApiError } from '../../core/errors.js';
 
-import type { DocumentRepo } from '../../core/ports.js';
+import type { DocumentReadOptions, DocumentRepo } from '../../core/ports.js';
 import type { Cui, Document } from '../../core/types.js';
 import type { ProdDatabase } from '../db/types.js';
 
@@ -90,7 +90,12 @@ export const makeDocumentRepo = (db: Db): DocumentRepo => ({
     }
   },
 
-  async listByCui(cui: Cui, limit: number): Promise<Result<readonly Document[], ApiError>> {
+  async listByCui(
+    cui: Cui,
+    limit: number,
+    options: DocumentReadOptions = {}
+  ): Promise<Result<readonly Document[], ApiError>> {
+    const excluded = [...(options.excludeDocTypes ?? [])];
     const capped = Math.min(Math.max(limit, 1), 100);
     // See `isWithheldLookupKey`: the row filter alone still let a dual-keyed
     // public act be retrieved BY the person's identifier.
@@ -102,6 +107,7 @@ export const makeDocumentRepo = (db: Db): DocumentRepo => ({
         .where(sql<boolean>`${cui} = any(cuis)`)
         .where(servableDocumentRowSql)
         .where(servableIdentifierSetSql)
+        .$if(excluded.length > 0, (q) => q.where('doc_type', 'not in', excluded))
         .orderBy(sql`doc_date desc nulls last`)
         .limit(capped)
         .execute();

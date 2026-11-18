@@ -31,7 +31,7 @@ const run = async (
   const transactions: unknown[] = [];
   const db = makeCapturingDb(captured, {
     respond: (text) => {
-      if (text.includes('is not null as present')) return [{ present: probe.supplier_privacy }];
+      if (text.includes('has_table_privilege')) return [{ present: probe.supplier_privacy }];
       if (text.includes('from pg_attribute')) {
         const present: [string, string, boolean | undefined][] = [
           ['da_purchases', 'listed_now', probe.listed_now],

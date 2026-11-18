@@ -45,7 +45,9 @@ const flowFhash = (cui: string, o: FlowListOptions): string =>
       cui,
       dir: o.direction,
       ft: o.flowType ?? null,
-      ex: o.excludeFlowTypes ?? [],
+      // Only when set: a cursor issued before exclusions existed keeps its hash.
+      ...(o.excludeFlowTypes !== undefined &&
+        o.excludeFlowTypes.length > 0 && { ex: o.excludeFlowTypes }),
       yf: o.yearFrom ?? null,
       yt: o.yearTo ?? null,
     })

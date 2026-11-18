@@ -23,12 +23,14 @@ import { ok, type Result } from 'neverthrow';
 
 import { makeDocumentRepo } from './document-repo.js';
 import { makeFlowsRepo } from './flows-repo.js';
+import { makeSearchRepo } from './search-repo.js';
 
 import type { ApiError } from '../../core/errors.js';
 import type {
   DocumentRepo,
   FlowReadOptions,
   FlowsRepo,
+  SearchRepo,
   SupplierDisclosurePort,
 } from '../../core/ports.js';
 import type { ProdDatabase } from '../db/types.js';
@@ -63,16 +65,16 @@ export const makeSupplierDisclosureRepo = (
           await sql`set transaction read only`.execute(trx);
           const present = await sql<{ release: boolean; privacy: boolean }>`
             select to_regclass(${`${SCHEMA}.da_release`}) is not null as release,
-                   to_regclass(${`${SCHEMA}.supplier_privacy`}) is not null as privacy`.execute(
-            trx
-          );
+                   coalesce(
+                     has_table_privilege(to_regclass(${`${SCHEMA}.supplier_privacy`}), 'SELECT'),
+                     false
+                   ) as privacy`.execute(trx);
           const tables = present.rows[0];
           if (tables?.release !== true || !tables.privacy)
             return { asOf: null, codes: EMPTY, loadedAt: now() };
           const release = await sql<{ as_of: string | null }>`
-            select max(data_as_of)::text as as_of from ${sql.table(`${SCHEMA}.da_release`)}`.execute(
-            trx
-          );
+            select to_char(max(data_as_of) at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as as_of
+            from ${sql.table(`${SCHEMA}.da_release`)}`.execute(trx);
           const asOf = release.rows[0]?.as_of ?? null;
           if (asOf === null) return { asOf: null, codes: EMPTY, loadedAt: now() };
           if (cached?.asOf === asOf) return { ...cached, loadedAt: now() };
@@ -103,6 +105,10 @@ export const makeSupplierDisclosureRepo = (
       if (!enforced) return ok(EMPTY);
       return ok((await current()).codes);
     },
+    privacyAsOf: async (): Promise<Result<string | null, ApiError>> => {
+      if (!enforced) return ok(null);
+      return ok((await current()).asOf);
+    },
   };
 };
 
@@ -115,30 +121,43 @@ export const withSupplierDisclosure = (
   flows: FlowsRepo,
   disclosure: SupplierDisclosurePort
 ): FlowsRepo => {
-  const optionsFor = async (
-    cui: string,
-    direction: 'in' | 'out',
-    options: FlowReadOptions | undefined
-  ): Promise<FlowReadOptions | undefined> => {
-    if (!disclosure.enforced || direction !== 'in') return options;
+  const withDa = (options: FlowReadOptions | undefined): FlowReadOptions => ({
+    ...options,
+    excludeFlowTypes: [...(options?.excludeFlowTypes ?? []), DIRECT_ACQUISITION_FLOW],
+  });
+  const isPublic = async (cui: string): Promise<boolean> => {
     const codes = await disclosure.publicSupplierCodes();
-    if (codes.isOk() && codes.value.has(cui)) return options;
-    return {
-      ...options,
-      excludeFlowTypes: [...(options?.excludeFlowTypes ?? []), DIRECT_ACQUISITION_FLOW],
-    };
+    return codes.isOk() && codes.value.has(cui);
+  };
+  /**
+   * A code's incoming flows carry its DA money only while it is public, checked
+   * before AND after the read (a nightly publish can withhold it mid-request).
+   */
+  const incoming = async <T>(
+    cui: string,
+    options: FlowReadOptions | undefined,
+    read: (options: FlowReadOptions | undefined) => Promise<T>
+  ): Promise<T> => {
+    if (!(await isPublic(cui))) return read(withDa(options));
+    const result = await read(options);
+    return (await isPublic(cui)) ? result : read(withDa(options));
   };
   return {
     ...flows,
-    getFlowSummary: async (cui, direction, includeYearBreakdown, options) =>
-      flows.getFlowSummary(
-        cui,
-        direction,
-        includeYearBreakdown,
-        await optionsFor(cui, direction, options)
-      ),
-    getTopCounterparties: async (cui, direction, limit, options) =>
-      flows.getTopCounterparties(cui, direction, limit, await optionsFor(cui, direction, options)),
+    getFlowSummary: (cui, direction, includeYearBreakdown, options) =>
+      !disclosure.enforced || direction !== 'in'
+        ? flows.getFlowSummary(cui, direction, includeYearBreakdown, options)
+        : incoming(cui, options, (o) =>
+            flows.getFlowSummary(cui, direction, includeYearBreakdown, o)
+          ),
+    // Outgoing counterparties are payees, named and ranked: while D6 is enforced
+    // they carry no DA money at all (a payee may be a withheld supplier).
+    getTopCounterparties: (cui, direction, limit, options) =>
+      !disclosure.enforced
+        ? flows.getTopCounterparties(cui, direction, limit, options)
+        : direction === 'out'
+          ? flows.getTopCounterparties(cui, direction, limit, withDa(options))
+          : incoming(cui, options, (o) => flows.getTopCounterparties(cui, direction, limit, o)),
     // Per-flow lists and the network name every counterparty: while D6 is enforced
     // they carry no direct-acquisition flow at all (no caller today; gated so a
     // future caller cannot bypass D6).
@@ -150,17 +169,12 @@ export const withSupplierDisclosure = (
         excludeFlowTypes: [...(options.excludeFlowTypes ?? []), DIRECT_ACQUISITION_FLOW],
       });
     },
-    getCounterpartyNetwork: async (rootCui, depth, nodeLimit, options) =>
+    getCounterpartyNetwork: (rootCui, depth, nodeLimit, options) =>
       flows.getCounterpartyNetwork(
         rootCui,
         depth,
         nodeLimit,
-        disclosure.enforced
-          ? {
-              ...options,
-              excludeFlowTypes: [...(options?.excludeFlowTypes ?? []), DIRECT_ACQUISITION_FLOW],
-            }
-          : options
+        disclosure.enforced ? withDa(options) : options
       ),
   };
 };
@@ -183,14 +197,32 @@ export const withDocumentDisclosure = (
           const found = await documents.findById(docId);
           return found.map((doc) => (doc?.docType === DIRECT_ACQUISITION_DOC ? null : doc));
         },
-        listByCui: async (cui, limit) => {
-          const found = await documents.listByCui(cui, limit);
-          return found.map((docs) => docs.filter((doc) => doc.docType !== DIRECT_ACQUISITION_DOC));
-        },
+        // Excluded in SQL, before the limit, so hidden rows never shorten a page.
+        listByCui: (cui, limit, options) =>
+          documents.listByCui(cui, limit, {
+            ...options,
+            excludeDocTypes: [...(options?.excludeDocTypes ?? []), DIRECT_ACQUISITION_DOC],
+          }),
+      };
+
+/** The document count by code never counts a DA document while D6 is enforced. */
+export const withSearchDisclosure = (
+  search: SearchRepo,
+  disclosure: SupplierDisclosurePort
+): SearchRepo =>
+  !disclosure.enforced
+    ? search
+    : {
+        ...search,
+        countByCui: (cui, options) =>
+          search.countByCui(cui, {
+            ...options,
+            excludeDocTypes: [...(options?.excludeDocTypes ?? []), DIRECT_ACQUISITION_DOC],
+          }),
       };
 
 /**
- * The kernel's flows and document repos, built ONLY through here so every read
+ * The kernel's flows, document and document-count repos, built ONLY through here so every read
  * that can carry a direct-acquisition supplier passes the D6 gate (the guard
  * test drives this function with a capturing database).
  */
@@ -201,11 +233,13 @@ export const makeDisclosedReadRepos = (
   readonly supplierDisclosure: SupplierDisclosurePort;
   readonly flowsRepo: FlowsRepo;
   readonly documentRepo: DocumentRepo;
+  readonly searchRepo: SearchRepo;
 } => {
   const supplierDisclosure = makeSupplierDisclosureRepo(db, enforced);
   return {
     supplierDisclosure,
     flowsRepo: withSupplierDisclosure(makeFlowsRepo(db), supplierDisclosure),
     documentRepo: withDocumentDisclosure(makeDocumentRepo(db), supplierDisclosure),
+    searchRepo: withSearchDisclosure(makeSearchRepo(db), supplierDisclosure),
   };
 };

@@ -53,7 +53,7 @@ export const makeDaRoutingAnalysisRepo = (
             generation: {
               ...baseGen,
               quality: {},
-              capabilities: DA_V3_CAPABILITIES,
+              capabilities: { ...DA_V3_CAPABILITIES, directAcquisitionV3Unavailable: true },
               notes: [
                 'direct acquisitions (release 1) are unavailable: their publication could not be read',
               ],

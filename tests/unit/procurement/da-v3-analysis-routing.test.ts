@@ -178,7 +178,28 @@ describe('the routing repo', () => {
     expect(unavailable.base.calls.filter((call) => call.grain === 'direct_acquisition')).toEqual(
       []
     );
-    expect(unavailable.da.calls).toEqual([`statsFor:${BUILD_ID}`]);
+    // An unreadable DA publication abstains before any read (review M4).
+    expect(unavailable.da.calls).toEqual([]);
+    expect(fallback?.meta.answerability).toBe('abstained');
+  });
+
+  it('a DA outage never takes down the healthy grains of an unscoped request', async () => {
+    const unavailable = setup({ daGen: err(serviceUnavailable('tables missing')) });
+    const result = await analysisStats(unavailable.deps, { scope: {} });
+    const blocks = result._unsafeUnwrap().blocks;
+    expect(blocks.find((b) => b.grain === 'direct_acquisition')?.meta.answerability).toBe(
+      'abstained'
+    );
+    expect(blocks.some((b) => b.grain !== 'direct_acquisition' && b.recordCount !== null)).toBe(
+      true
+    );
+    expect(unavailable.da.calls).toEqual([]);
+  });
+
+  it('refuses an unscoped build pin while the DA grain publishes separately', async () => {
+    const both = setup({});
+    const pinned = await analysisStats(both.deps, { scope: {}, build: BUILD_ID });
+    expect(pinned._unsafeUnwrapErr()).toMatchObject({ type: 'InvalidInput', field: 'build' });
   });
 
   it('answers the DA grain alone when no base generation is published', async () => {

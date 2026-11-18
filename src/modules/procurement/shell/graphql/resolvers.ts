@@ -25,6 +25,7 @@ import {
   makeBatchLoader,
   type ApiError,
   type BatchLoader,
+  type SupplierDisclosurePort,
 } from '@/modules/shared/index.js';
 
 import { withDisplayTitles } from '../records-display.js';
@@ -89,6 +90,8 @@ interface ProcedureCanonicalityRequest {
 export interface ProcurementResolverDeps {
   readonly repo: ProcurementRepo;
   readonly analysis: AnalysisRepo;
+  /** Site-wide D6 (bucket kinds, scope echo); absent means not enforced. */
+  readonly supplierDisclosure?: SupplierDisclosurePort;
   /** Route override for alternate analytics backends (ClickHouse dev path). */
   readonly routeAnalysis?: AnalysisDeps['routeAnalysis'];
 }
@@ -148,9 +151,12 @@ const party = (
   return { cui: served, name, displayName: name ?? served, displayKind };
 };
 
-/** A direct acquisition's supplier: the D6 kind when set, otherwise a named supplier is a company. */
+/**
+ * A direct acquisition's supplier kind: set only while D6 is enforced. Null while it
+ * is off (root, 2026-11-18): the client then shows no legacy DA supplier name.
+ */
 const daSupplierKind = (d: ProcurementDirectAcquisition): DisplayKind | null =>
-  d.supplierDisplayKind ?? (d.supplierCui !== null || d.supplierName !== null ? 'company' : null);
+  d.supplierDisplayKind ?? null;
 
 /**
  * Validate requested facet dimensions against the grain's allow-list. An
@@ -211,6 +217,7 @@ export const makeProcurementResolvers = (
   const analysisDeps = {
     analysisRepo: analysis,
     ...(deps.routeAnalysis !== undefined && { routeAnalysis: deps.routeAnalysis }),
+    ...(deps.supplierDisclosure !== undefined && { supplierDisclosure: deps.supplierDisclosure }),
   };
 
   const modificationsLoader = makeBatchLoader<readonly ProcurementModification[]>(

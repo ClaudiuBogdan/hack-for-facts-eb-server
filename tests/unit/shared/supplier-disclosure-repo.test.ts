@@ -79,6 +79,21 @@ describe('supplier disclosure port', () => {
     expect((await port(true).publicSupplierCodes())._unsafeUnwrap().size).toBe(0);
   });
 
+  it('withholds everyone once the grant is revoked, even with a warm set and the same data_as_of', async () => {
+    const world = {
+      tables: true,
+      asOf: '2026-11-18 03:10:00+00',
+      codes: ['14399840'],
+      fail: false,
+    };
+    const { port } = build(world);
+    const disclosure = port(true);
+    expect((await disclosure.publicSupplierCodes())._unsafeUnwrap().size).toBe(1);
+    // A revoked SELECT leaves the catalog entry and data_as_of in place; the probe reports it.
+    world.tables = false;
+    expect((await disclosure.publicSupplierCodes())._unsafeUnwrap().size).toBe(0);
+  });
+
   it('re-probes an absent source only after its TTL', async () => {
     const world = { tables: false, asOf: 'a', codes: ['9'], fail: false };
     const clock = { t: 0 };
@@ -130,6 +145,7 @@ describe('flows decorator', () => {
   };
   const disclosure = (enforced: boolean, codes: string[]): SupplierDisclosurePort => ({
     enforced,
+    privacyAsOf: () => Promise.resolve(ok(null)),
     publicSupplierCodes: () => Promise.resolve(ok(new Set(codes))),
   });
 

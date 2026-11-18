@@ -15,6 +15,7 @@ import {
   type FilterInput,
   type KernelMcpTool,
   type McpToolOutput,
+  type SupplierDisclosurePort,
 } from '@/modules/shared/index.js';
 
 import { parseAnalysisScope, type AnalysisScope } from '../../core/analysis-scope.js';
@@ -51,6 +52,8 @@ export interface ProcurementMcpDeps {
   readonly repo: ProcurementRepo;
   readonly analysis: AnalysisRepo;
   readonly clientBaseUrl: string;
+  /** Site-wide D6 (bucket kinds, no withheld code echoed); absent means not enforced. */
+  readonly supplierDisclosure?: SupplierDisclosurePort;
 }
 
 /**
@@ -121,6 +124,13 @@ export const ANALYSIS_SCOPE_ZOD_SHAPE = {
 } as const;
 
 const AWARDED_NOTE = 'Amounts are awarded value, not payments.';
+/** Direct acquisitions on release 1 sum the counted value, not the awarded value. */
+const COUNTED_NOTE =
+  'Direct-acquisition amounts are the counted value, lei excluding VAT (release 1), not payments.';
+const moneyNote = (envelopes: readonly { caveats: readonly string[] }[]): string =>
+  envelopes.some((e) => e.caveats.some((c) => c.includes('counted value')))
+    ? `${AWARDED_NOTE.replace('Amounts are', 'Other amounts are')} ${COUNTED_NOTE}`
+    : AWARDED_NOTE;
 
 const strArg = (args: Record<string, unknown>, key: string): string => {
   const v = args[key];
@@ -149,7 +159,19 @@ const n = (x: number): string => String(x);
 
 export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly KernelMcpTool[] => {
   const { repo, analysis, clientBaseUrl } = deps;
-  const analysisDeps = { analysisRepo: analysis };
+  const disclosure = deps.supplierDisclosure;
+  const analysisDeps = {
+    analysisRepo: analysis,
+    ...(disclosure !== undefined && { supplierDisclosure: disclosure }),
+  };
+  /** A query echo that never repeats a supplier code D6 withholds. */
+  const echoed = async <T extends { supplierCui?: string }>(value: T): Promise<T> => {
+    if (disclosure?.enforced !== true || value.supplierCui === undefined) return value;
+    const codes = await disclosure.publicSupplierCodes();
+    return codes.isOk() && codes.value.has(value.supplierCui)
+      ? value
+      : { ...value, supplierCui: 'withheld' };
+  };
 
   // ── (1) discovery ──────────────────────────────────────────────────────────
   const resolveFilter: KernelMcpTool = {
@@ -237,8 +259,11 @@ export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly Kern
       return {
         ok: true,
         kind: 'da_list',
-        // A supplier code is never echoed back: under D6 it may name a person.
-        query: Object.fromEntries(Object.entries(filter).filter(([key]) => key !== 'supplierCui')),
+        // Under D6 a supplier code is never echoed back: it may name a person.
+        query:
+          disclosure?.enforced === true
+            ? Object.fromEntries(Object.entries(filter).filter(([key]) => key !== 'supplierCui'))
+            : filter,
         link: `${clientBaseUrl}/procurement/direct-acquisitions`,
         items: res.value.items,
         summary: `${n(res.value.items.length)} direct acquisition(s)${res.value.next !== null ? ' (more available)' : ''}.`,
@@ -254,22 +279,22 @@ export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly Kern
     return caveats.length > 0 ? ` (${caveats.join('; ')})` : '';
   };
 
-  const analysisOutput = (
+  const analysisOutput = async (
     shape: string,
     scope: AnalysisScope,
     items: readonly unknown[],
     envelopes: readonly { caveats: readonly string[] }[],
     moneyShown: boolean,
     headline: string
-  ): McpToolOutput => ({
+  ): Promise<McpToolOutput> => ({
     ok: true,
     kind: `analysis_${shape}`,
-    query: { scope, shape },
+    query: { scope: await echoed(scope), shape },
     items,
     meta: { envelopes },
     summary:
       headline +
-      (moneyShown ? ` ${AWARDED_NOTE}` : '') +
+      (moneyShown ? ` ${moneyNote(envelopes)}` : '') +
       ` ${PROCUREMENT_GRAIN_NOTE}` +
       caveatTail(envelopes),
   });

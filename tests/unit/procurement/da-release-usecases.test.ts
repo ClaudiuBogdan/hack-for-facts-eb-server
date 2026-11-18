@@ -71,7 +71,12 @@ describe('one snapshot per request', () => {
   it('refuses when the release holds no data yet', async () => {
     const deps = { repo: makeFakeDaRepo({ dataAsOf: null }) };
     expect((await listDaPurchases(deps, PAGE))._unsafeUnwrapErr().type).toBe('ServiceUnavailable');
-    expect(await daReleaseStatus(deps)).toEqual({ enabled: false, dataAsOf: null });
+    expect(await daReleaseStatus(deps)).toEqual({
+      enabled: false,
+      dataAsOf: null,
+      privacyEnforced: false,
+      privacyAsOf: null,
+    });
   });
 });
 
@@ -82,7 +87,12 @@ describe('disabled', () => {
     expect((await listDaPurchases(deps, PAGE))._unsafeUnwrapErr().type).toBe('ServiceUnavailable');
     expect((await getDaPurchase(deps, firstId))._unsafeUnwrapErr().type).toBe('ServiceUnavailable');
     expect((await daPurchaseTotals(deps, PAGE))._unsafeUnwrapErr().type).toBe('ServiceUnavailable');
-    expect(await daReleaseStatus(deps)).toEqual({ enabled: false, dataAsOf: null });
+    expect(await daReleaseStatus(deps)).toEqual({
+      enabled: false,
+      dataAsOf: null,
+      privacyEnforced: false,
+      privacyAsOf: null,
+    });
     expect(log.opened).toBe(0);
   });
 });
@@ -183,7 +193,7 @@ describe('totals', () => {
         name: null,
         fiscalCode: null,
       });
-      expect(group.key).toBeNull();
+      expect(group.key).toBe('natural_person');
     }
     expect(answer.groups.filter((group) => group.noSupplier)).toHaveLength(1);
   });
@@ -199,6 +209,26 @@ describe('totals', () => {
     expect(log.reads.filter((read) => read.method === 'totals')).toHaveLength(3);
     // Each request still opened its own snapshot and read dataAsOf.
     expect(log.opened).toBe(4);
+  });
+
+  it('never serves a cached named answer once supplier_privacy is unreadable', async () => {
+    const cache = makeDaTotalsCache();
+    const log: SnapshotLog = { opened: 0, reads: [] };
+    const named = (
+      await daPurchaseTotals(
+        { repo: makeFakeDaRepo({ log }), totalsCache: cache },
+        { groupBy: 'supplier', ...PAGE }
+      )
+    )._unsafeUnwrap();
+    expect(JSON.stringify(named)).toContain(COMPANY.name ?? '~');
+    const revoked = (
+      await daPurchaseTotals(
+        { repo: makeFakeDaRepo({ log, supplierPrivacyTable: false }), totalsCache: cache },
+        { groupBy: 'supplier', ...PAGE }
+      )
+    )._unsafeUnwrap();
+    expect(JSON.stringify(revoked)).not.toContain(COMPANY.name ?? '~');
+    expect(log.reads.filter((read) => read.method === 'totals')).toHaveLength(2);
   });
 
   it('drops cached answers when dataAsOf moves', async () => {

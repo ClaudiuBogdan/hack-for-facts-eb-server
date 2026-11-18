@@ -95,6 +95,7 @@ const build = async (enforced: boolean): Promise<FastifyInstance> => {
   } as unknown as ProcurementRepo;
   const disclosure: SupplierDisclosurePort = {
     enforced,
+    privacyAsOf: () => Promise.resolve(ok(null)),
     publicSupplierCodes: () => Promise.resolve(ok(new Set(['14399840']))),
   };
   const repo = withDaDisclosure(base, disclosure);
@@ -164,13 +165,13 @@ describe('legacy DA GraphQL with D6 enforced', () => {
 });
 
 describe('legacy DA GraphQL with D6 off', () => {
-  it('answers as before, with displayKind filled', async () => {
+  it('answers as before; displayKind stays null until D6 is on (root, 18 Nov)', async () => {
     app = await build(false);
     const { body } = await post(app, QUERY('2'));
     expect(directAcquisitionOf(body)).toMatchObject({
       title: 'SECRET title 2',
       titleWithheld: null,
-      supplier: { cui: '30254716', name: 'SECRET POPESCU ION PFA', displayKind: 'company' },
+      supplier: { cui: '30254716', name: 'SECRET POPESCU ION PFA', displayKind: null },
     });
   });
 });

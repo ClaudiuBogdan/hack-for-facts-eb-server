@@ -54,6 +54,7 @@ import {
   supplierPrivacyJoin,
 } from './da-v3-sql.js';
 import {
+  DA_NATURAL_PERSON_BUCKET,
   BASIS_ALLOW_FLOOR,
   COUNT_TIME_DEGRADE_FLOOR,
   TOPN_SIRUTA_MAX,
@@ -86,7 +87,7 @@ const QUALITY_TIMEOUT_MS = 120_000;
 const CACHE_MAX_ENTRIES = 1000;
 
 /** The key every withheld supplier shares (never a fiscal code: codes are digits). */
-export const DA_V3_WITHHELD_SUPPLIER_KEY = 'natural_person';
+export const DA_V3_WITHHELD_SUPPLIER_KEY = DA_NATURAL_PERSON_BUCKET;
 
 /** Attached to every direct-acquisition envelope this source answers. */
 export const DA_V3_VALUE_NOTE =
@@ -326,10 +327,14 @@ const compile = (
 
 // ── shared aggregates ────────────────────────────────────────────────────────
 
-/** Σ counted value over `pred`, NULL when no counted row matches (the null law), 2 dp. */
+/**
+ * Σ counted value over `pred`, NULL when no counted row matches (the null law).
+ * Exact: counted_value is unconstrained numeric, so nothing is rounded before it is
+ * summed or compared (rounding per bucket made series, stats and remainders disagree).
+ */
 const countedSum = (pred: Sql): Sql =>
   sql`case when count(*) filter (where ${pred} and p.counted) = 0 then null
-    else round(sum(p.counted_value) filter (where ${pred} and p.counted), 2)::text end`;
+    else (sum(p.counted_value) filter (where ${pred} and p.counted))::text end`;
 
 interface StatsRow {
   rows: string;
@@ -381,13 +386,13 @@ const BUCKET_SQL: Record<SeriesBucket, Sql> = {
 const datedHaving = (c: Compiled): Sql =>
   c.bounded ? sql`having count(*) filter (where ${c.dated}) > 0` : sql``;
 
-/** A bucket's counted money, '0.00' when none (the ClickHouse bucket convention). */
+/** A bucket's counted money, exact; '0.00' when none (the ClickHouse bucket convention). */
 const bucketSum = (pred: Sql): Sql =>
-  sql`round(coalesce(sum(p.counted_value) filter (where ${pred} and p.counted), 0), 2)::text`;
+  sql`coalesce((sum(p.counted_value) filter (where ${pred} and p.counted))::text, '0.00')`;
 
 /** Exact decimal text for the breakdown's `other` remainder: totals − top − unknown. */
 const minus = (total: string | null, parts: readonly string[]): string =>
-  parts.reduce((acc, part) => acc.minus(part), new Decimal(total ?? '0')).toFixed(2);
+  parts.reduce((acc, part) => acc.minus(part), new Decimal(total ?? '0')).toFixed();
 
 const UNFILTERED = (scope: AnalysisScope): boolean =>
   scope.authorityCui === undefined && scope.supplierCui === undefined;
@@ -400,18 +405,26 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
   const cache = new Map<string, Promise<Result<unknown, ApiError>>>();
 
   /** Unfiltered (no authority/supplier) answers are cached per publication; others run live. */
-  const cached = <T>(
+  const cached = async <T>(
     build: string,
     scope: AnalysisScope,
     key: unknown,
     load: () => Promise<Result<T, ApiError>>
   ): Promise<Result<T, ApiError>> => {
     if (!UNFILTERED(scope)) return load();
+    // An answer can carry supplier identities, so it is reused only under the same
+    // privacy state: a dropped table or a revoked grant never hits a warm entry.
+    let privacy: boolean;
+    try {
+      privacy = await probeSupplierPrivacy(db);
+    } catch {
+      return load();
+    }
     if (cacheBuild !== build) {
       cache.clear();
       cacheBuild = build;
     }
-    const cacheKey = JSON.stringify([key, scope]);
+    const cacheKey = JSON.stringify([key, scope, privacy]);
     const hit = cache.get(cacheKey);
     if (hit !== undefined) return hit as Promise<Result<T, ApiError>>;
     if (cache.size >= CACHE_MAX_ENTRIES) {
@@ -718,8 +731,8 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
           basis === 'value'
             ? sql`coalesce(sum(p.counted_value) filter (where ${dated} and p.counted), 0)`
             : sql`count(*) filter (where ${dated})`;
-        const places = basis === 'value' ? 2 : 0;
-        const fmt = (x: Sql, dp: number) => sql`round(coalesce(${x}, 0), ${sql.lit(dp)})::text`;
+        // Exact: no rounding before core computes shares and HHI.
+        const fmt = (x: Sql) => sql`coalesce(${x}, 0)::text`;
         const result = await sql<{
           supplier_count: string;
           positive: string;
@@ -738,13 +751,11 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
           ), pos as (select m from g where key is not null and m > 0)
           select (select count(*) from g where key is not null)::text as supplier_count,
                  (select count(*) from pos)::text as positive,
-                 ${fmt(sql`(select sum(m) from pos)`, places)} as total,
-                 ${fmt(sql`(select max(m) from pos)`, places)} as top1,
-                 ${fmt(sql`(select sum(m) from (select m from pos order by m desc limit 5) x)`, places)} as top5,
-                 ${fmt(sql`(select sum(m * m) from pos)`, places * 2)} as squares,
-                 (select round(sum(m), ${sql.lit(places)})::text from g where key is null) as unknown`.execute(
-          ctx.trx
-        );
+                 ${fmt(sql`(select sum(m) from pos)`)} as total,
+                 ${fmt(sql`(select max(m) from pos)`)} as top1,
+                 ${fmt(sql`(select sum(m) from (select m from pos order by m desc limit 5) x)`)} as top5,
+                 ${fmt(sql`(select sum(m * m) from pos)`)} as squares,
+                 (select sum(m)::text from g where key is null) as unknown`.execute(ctx.trx);
         const row = result.rows[0];
         if (row === undefined) return err(databaseError('concentration returned no row'));
         const count = Number(row.supplier_count);
@@ -800,7 +811,7 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
                case when ${isNamed} then s.name_as_written end as supplier_name,
                case when s.portal_party_id is null then null
                     when ${isNamed} then 'company' else 'natural_person' end as supplier_display_kind,
-               round(${money}, 2)::text as value_ron,
+               (${money})::text as value_ron,
                p.outcome as status,
                case when p.category_code ~ '^[0-9]{8}' then left(p.category_code, 8) end as cpv_code,
                p.category_as_written as cpv_label

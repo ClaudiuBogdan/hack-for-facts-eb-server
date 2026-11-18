@@ -13,8 +13,7 @@ import type {
 } from '../../core/types.js';
 
 type PublicDebateAdminResponseProps =
-  | PublicDebateAdminResponseRequesterProps
-  | PublicDebateAdminResponseSubscriberProps;
+  PublicDebateAdminResponseRequesterProps | PublicDebateAdminResponseSubscriberProps;
 
 const styles = {
   intro: {

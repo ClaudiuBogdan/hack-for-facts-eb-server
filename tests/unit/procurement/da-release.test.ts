@@ -228,7 +228,7 @@ describe('items and totals', () => {
       name: null,
       fiscalCode: null,
     });
-    expect(group.key).toBeNull();
+    expect(group.key).toBe('natural_person');
     const none = toTotalsGroup(
       { ...measures, key: null, supplierBucket: 'none', party: null },
       'supplier'

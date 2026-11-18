@@ -419,8 +419,8 @@ export const registerRedesignSurface = async (
 
   const kernel = await makeKernel({
     ...deps.kernelConfig,
-    // Site-wide D6 switches with the DA release flag.
-    supplierDisclosureEnforced: deps.procurement?.daV3Enabled === true,
+    // Site-wide D6 has its own switch, independent of the DA release flag.
+    supplierDisclosureEnforced: deps.procurement?.supplierDisclosureEnforced === true,
   });
 
   // Release the kernel (pg pool + clients) when the owning scope closes.

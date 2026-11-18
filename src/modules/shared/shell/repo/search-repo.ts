@@ -18,13 +18,14 @@ import {
 import { databaseError, type ApiError } from '../../core/errors.js';
 import { type Cui } from '../../core/types.js';
 
-import type { SearchRepo } from '../../core/ports.js';
+import type { DocumentReadOptions, SearchRepo } from '../../core/ports.js';
 import type { ProdDatabase } from '../db/types.js';
 
 type Db = Kysely<ProdDatabase>;
 
 export const makeSearchRepo = (db: Db): SearchRepo => ({
-  async countByCui(cui: Cui): Promise<Result<number, ApiError>> {
+  async countByCui(cui: Cui, options: DocumentReadOptions = {}): Promise<Result<number, ApiError>> {
+    const excluded = [...(options.excludeDocTypes ?? [])];
     // A withheld identifier is not a key. Answered before the query runs, so
     // the number never exists in this process at all.
     if (isWithheldLookupKey(cui)) return ok(0);
@@ -41,6 +42,7 @@ export const makeSearchRepo = (db: Db): SearchRepo => ({
         // was wrong as a served figure quite apart from privacy.
         .where(servableDocumentRowSql)
         .where(servableIdentifierSetSql)
+        .$if(excluded.length > 0, (q) => q.where('doc_type', 'not in', excluded))
         .executeTakeFirst();
       return ok(Number(row?.total ?? 0));
     } catch (error) {

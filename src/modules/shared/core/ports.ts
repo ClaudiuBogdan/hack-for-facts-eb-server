@@ -111,12 +111,18 @@ export interface FlowReadOptions {
  * platform's `procurement_v3.supplier_privacy` (`public = true`), rewritten in
  * the nightly publish with `da_release.data_as_of`. Fails closed: when the
  * source is absent or unreadable the set is empty. When `enforced` is false
- * (PROCUREMENT_DA_V3_ENABLED off) callers keep their pre-release behaviour.
+ * (PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED off) callers keep their pre-release behaviour.
  */
 export interface SupplierDisclosurePort {
   readonly enforced: boolean;
   /** The public codes (digits only, no RO prefix). Callers check `enforced` first. */
   publicSupplierCodes(): Promise<Result<ReadonlySet<string>, ApiError>>;
+  /**
+   * The publication the current set comes from (`da_release.data_as_of`, ISO UTC),
+   * or null when the source is absent or unreadable (everyone withheld). Clients key
+   * caches by it so a withheld name disappears within one publish.
+   */
+  privacyAsOf(): Promise<Result<string | null, ApiError>>;
 }
 
 export interface FlowsRepo {
@@ -166,7 +172,7 @@ export interface SearchRepo {
    * considered and explicitly deferred — do not "fix" the count here; the fix is
    * to re-point the surface at domain tables or at SourcePresence.
    */
-  countByCui(cui: Cui): Promise<Result<number, ApiError>>;
+  countByCui(cui: Cui, options?: DocumentReadOptions): Promise<Result<number, ApiError>>;
   // `fallbackTextSearch` was removed 2026-08-25: it had NO production caller
   // (tests only) and did not pin visibility — dead code with weaker privacy
   // than its live sibling (SEARCH_LAYER_REVIEW_2026-08-25.md D9).
@@ -185,7 +191,17 @@ export interface SearchRepo {
 
 export interface DocumentRepo {
   findById(docId: string): Promise<Result<Document | null, ApiError>>;
-  listByCui(cui: Cui, limit: number): Promise<Result<readonly Document[], ApiError>>;
+  listByCui(
+    cui: Cui,
+    limit: number,
+    options?: DocumentReadOptions
+  ): Promise<Result<readonly Document[], ApiError>>;
+}
+
+/** Read options for the shared document view. */
+export interface DocumentReadOptions {
+  /** Document types left out IN SQL, before any limit (site-wide D6 withholds DA documents). */
+  readonly excludeDocTypes?: readonly string[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

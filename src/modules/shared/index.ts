@@ -31,7 +31,6 @@ import { makeKernelMcpResources } from './shell/mcp/widgets/resources.js';
 import { createCache, type KernelCache } from './shell/middleware/cache.js';
 import { createRateLimiter, type RateLimiter } from './shell/middleware/rate-limiter.js';
 import { makeIdentityRepo } from './shell/repo/identity-repo.js';
-import { makeSearchRepo } from './shell/repo/search-repo.js';
 import { makeDisclosedReadRepos } from './shell/repo/supplier-disclosure-repo.js';
 import { makeTerritoryRepo } from './shell/repo/territory-repo.js';
 
@@ -80,7 +79,7 @@ export interface KernelConfig {
   /** Optional structured logger for boot-time warnings (e.g. Meili host unset). */
   readonly logger?: Logger;
   /**
-   * Site-wide D6 for direct-acquisition suppliers (PROCUREMENT_DA_V3_ENABLED):
+   * Site-wide D6 for direct-acquisition suppliers (PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED):
    * when true, every module names a DA supplier only when `supplier_privacy`
    * says public, and withholds a non-public code's DA flows. Default false.
    */
@@ -162,11 +161,10 @@ export const makeKernel = async (config: KernelConfig): Promise<Kernel> => {
   const territoryRepo = makeTerritoryRepo(db);
   // Flows and documents can carry a direct-acquisition supplier: built only
   // through the D6-gated composition.
-  const { supplierDisclosure, flowsRepo, documentRepo } = makeDisclosedReadRepos(
+  const { supplierDisclosure, flowsRepo, documentRepo, searchRepo } = makeDisclosedReadRepos(
     db,
     config.supplierDisclosureEnforced === true
   );
-  const searchRepo = makeSearchRepo(db);
 
   // Prefer the search-only key (read paths shouldn't carry the master key);
   // fall back to the general Meili key when no dedicated search key is set.

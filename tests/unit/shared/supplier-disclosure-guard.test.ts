@@ -51,8 +51,12 @@ const build = (enforced: boolean) => {
         // Answer only reads that do NOT exclude the DA flow type, as Postgres would.
         return /"?flow_type"? not in/u.test(text) ? [] : [flowRow];
       }
-      if (text.includes('search.documents') || text.includes('"search"."documents"'))
-        return [docRow];
+      if (text.includes('search.documents') || text.includes('"search"."documents"')) {
+        // As Postgres would: a statement that excludes the DA doc type returns no DA row.
+        if (/"?doc_type"? not in/u.test(text))
+          return text.includes('count(*)') ? [{ total: '0' }] : [];
+        return text.includes('count(*)') ? [{ total: '1' }] : [docRow];
+      }
       return [];
     },
   });
@@ -89,6 +93,15 @@ describe('D6 guard on the latent kernel paths, enforced', () => {
     expect(JSON.stringify(await repos.documentRepo.listByCui('4305857', 10))).not.toContain(
       'SECRET'
     );
+  });
+});
+
+describe('D6 guard on the document count', () => {
+  it('never counts a direct-acquisition document while enforced', async () => {
+    const on = build(true);
+    expect((await on.repos.searchRepo.countByCui('30254716'))._unsafeUnwrap()).toBe(0);
+    const off = build(false);
+    expect((await off.repos.searchRepo.countByCui('30254716'))._unsafeUnwrap()).toBe(1);
   });
 });
 

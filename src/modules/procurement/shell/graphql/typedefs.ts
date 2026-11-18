@@ -861,6 +861,12 @@ export const procurementTypeDefs = /* GraphQL */ `
     valueSum: String
     "Share of the scope total on the ranking basis (decimal string)."
     shareOfScope: String
+    """
+    Direct-acquisition supplier buckets under D6: company (a named supplier) or natural_person
+    (the one bucket of every withheld supplier, key natural_person). Null elsewhere and while D6
+    is off; name and link a supplier bucket only when this is company.
+    """
+    displayKind: String
   }
   type ProcurementBreakdownBlock {
     grain: ProcurementAnalysisGrain!

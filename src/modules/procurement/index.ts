@@ -22,6 +22,7 @@ import {
   makeUnconfiguredAnalysisRepo,
   type ClickhouseAnalysisConfig,
 } from './shell/repo/clickhouse-analysis-repo.js';
+import { withDaAnalysisDisclosure } from './shell/repo/da-analysis-disclosure.js';
 import { withDaDisclosure } from './shell/repo/da-disclosure-repo.js';
 import { makeDaReleaseRepo } from './shell/repo/da-release-repo.js';
 import { makeDaRoutingAnalysisRepo } from './shell/repo/da-routing-analysis-repo.js';
@@ -137,14 +138,19 @@ export const makeProcurementModule = (deps: ProcurementModuleDeps): ProcurementM
   const generationRepo = makeProcurementGenerationRepo(deps.db, Date.now, deps.logger);
   const supplierGeography = makeSupplierGeographyPolicy(deps.db, Date.now, deps.logger);
   const baseAnalysis =
-    deps.clickhouse !== undefined
-      ? makeClickhouseAnalysisRepo(
-          deps.clickhouse,
-          () => generationRepo.activeGeneration(),
-          deps.logger,
-          () => supplierGeography.supplierGeographyPublic()
-        )
-      : makeUnconfiguredAnalysisRepo();
+    // Site-wide D6 on the ClickHouse DA grain (its own switch; a v3 rollback never
+    // re-exposes a name). A no-op when not enforced.
+    withDaAnalysisDisclosure(
+      deps.clickhouse !== undefined
+        ? makeClickhouseAnalysisRepo(
+            deps.clickhouse,
+            () => generationRepo.activeGeneration(),
+            deps.logger,
+            () => supplierGeography.supplierGeographyPublic()
+          )
+        : makeUnconfiguredAnalysisRepo(),
+      deps.supplierDisclosure
+    );
   // ── DA release 1 (W2): with PROCUREMENT_DA_V3_ENABLED the analysis API's
   // direct_acquisition grain is answered from procurement_v3; every other
   // grain stays on ClickHouse. Off, the analysis repo is unchanged.
@@ -164,8 +170,13 @@ export const makeProcurementModule = (deps: ProcurementModuleDeps): ProcurementM
   const daRelease: DaReleaseDeps = {
     repo: makeDaReleaseRepo(deps.db, daV3Enabled),
     totalsCache: makeDaTotalsCache(),
+    ...(deps.supplierDisclosure !== undefined && { supplierDisclosure: deps.supplierDisclosure }),
   };
-  const legacyResolvers = makeProcurementResolvers({ repo, analysis });
+  const legacyResolvers = makeProcurementResolvers({
+    repo,
+    analysis,
+    ...(deps.supplierDisclosure !== undefined && { supplierDisclosure: deps.supplierDisclosure }),
+  });
   const daResolvers = makeDaReleaseResolvers(daRelease);
 
   return {
@@ -180,10 +191,19 @@ export const makeProcurementModule = (deps: ProcurementModuleDeps): ProcurementM
       Query: { ...(legacyResolvers['Query'] as Record<string, unknown>), ...daResolvers.Query },
     },
     mcpTools: [
-      ...makeProcurementMcpTools({ repo, analysis, clientBaseUrl }),
+      ...makeProcurementMcpTools({
+        repo,
+        analysis,
+        clientBaseUrl,
+        ...(deps.supplierDisclosure !== undefined && {
+          supplierDisclosure: deps.supplierDisclosure,
+        }),
+      }),
       ...(daV3Enabled ? makeDaReleaseMcpTools(daRelease) : []),
     ],
-    contributor: makeProcurementContributor(makeProcurementPresenceRepo(deps.db)),
+    contributor: makeProcurementContributor(
+      makeProcurementPresenceRepo(deps.db, deps.supplierDisclosure)
+    ),
     daRestPlugin: makeDaReleaseRestPlugin(daRelease),
   };
 };

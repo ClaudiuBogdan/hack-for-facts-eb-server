@@ -28,7 +28,7 @@ const run = async (
   const db = makeCapturingDb(captured, {
     respond: (text) => {
       if (text.includes('as build_id')) return [{ build_id: options.build ?? BUILD, as_of: null }];
-      if (text.includes('is not null as present')) return [{ present: options.privacy ?? true }];
+      if (text.includes('has_table_privilege')) return [{ present: options.privacy ?? true }];
       if (text.includes('as total')) return [{ total: '0' }];
       if (text.includes('as rows'))
         return [

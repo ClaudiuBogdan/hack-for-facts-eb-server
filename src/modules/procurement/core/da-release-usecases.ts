@@ -18,6 +18,7 @@ import {
   offsetFor,
   serviceUnavailable,
   type ApiError,
+  type SupplierDisclosurePort,
 } from '@/modules/shared/index.js';
 
 import {
@@ -53,6 +54,8 @@ export interface DaTotalsCache {
 
 export interface DaReleaseDeps {
   readonly repo: DaReleaseRepo;
+  /** Site-wide D6: reported in the status so clients key caches by the privacy publication. */
+  readonly supplierDisclosure?: SupplierDisclosurePort;
   /** Cache for unfiltered totals, keyed by dataAsOf and the request shape. */
   readonly totalsCache?: DaTotalsCache;
 }
@@ -66,6 +69,13 @@ export interface DaReleaseStatus {
   /** True when the server reads the release and it holds data; choose the v3 path from this. */
   readonly enabled: boolean;
   readonly dataAsOf: string | null;
+  /** Site-wide D6 is enforced (its own switch, independent of `enabled`). */
+  readonly privacyEnforced: boolean;
+  /**
+   * The supplier_privacy publication in force; null when D6 is off or its source is
+   * absent (then every DA supplier is withheld). Key caches by (dataAsOf, privacyAsOf).
+   */
+  readonly privacyAsOf: string | null;
 }
 
 export interface DaPurchasePage extends DaEnvelope {
@@ -207,11 +217,16 @@ const mapAll = <R, V>(
 };
 
 export const daReleaseStatus = async (deps: DaReleaseDeps): Promise<DaReleaseStatus> => {
-  if (!deps.repo.enabled) return { enabled: false, dataAsOf: null };
+  const disclosure = deps.supplierDisclosure;
+  const privacyEnforced = disclosure?.enforced === true;
+  const privacy =
+    disclosure !== undefined && privacyEnforced ? await disclosure.privacyAsOf() : undefined;
+  const privacyAsOf = privacy?.isOk() === true ? privacy.value : null;
+  if (!deps.repo.enabled) return { enabled: false, dataAsOf: null, privacyEnforced, privacyAsOf };
   const result = await inSnapshot(deps, (_reader, envelope) => Promise.resolve(ok(envelope)));
   return result.isOk()
-    ? { enabled: true, dataAsOf: result.value.dataAsOf }
-    : { enabled: false, dataAsOf: null };
+    ? { enabled: true, dataAsOf: result.value.dataAsOf, privacyEnforced, privacyAsOf }
+    : { enabled: false, dataAsOf: null, privacyEnforced, privacyAsOf };
 };
 
 export const listDaPurchases = async (

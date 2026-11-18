@@ -90,11 +90,45 @@ With the flag off:
 - data reads answer `SERVICE_UNAVAILABLE` (GraphQL) or 503 `ServiceUnavailable` (REST);
 - no MCP tool is registered.
 
+## Switches, caches and the privacy publication
+
+- **Two independent switches:**
+  - `PROCUREMENT_DA_V3_ENABLED` serves the v3 data and the analysis DA grain from procurement_v3;
+  - `PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED` (D6 site-wide, plus the DA free-text gate) covers every DA surface,
+    legacy and ClickHouse included.
+    Turn D6 on once supplier_privacy is loaded and keep it on through any v3 rollback, so a rollback never re-exposes a
+    name (root, 18 Nov). With D6 off, legacy DA supplier parties carry `displayKind: null`.
+- **ClickHouse DA grain while D6 is on:**
+  - a supplier scope on a withheld code matches nothing;
+  - top supplier buckets with a withheld code merge into one `natural_person` bucket;
+  - records serve no withheld code or name, and no title.
+- **The privacy check:** `supplier_privacy` counts as present only when the API's login can read it, so a revoked
+  grant withholds everyone. Every legacy read checks the public set again after the data read. If a nightly publish
+  withheld a code mid-request, the answer withholds it too (lists and scopes are re-read). The v3 reads join
+  supplier_privacy in the same snapshot as the data.
+- **Server caches:** keyed by publication, with no purge endpoint.
+  - The disclosure set, release totals and v3 analysis answers are keyed by `data_as_of`, and also by the privacy
+    state (present and readable).
+  - The ClickHouse analysis caches are keyed by build, and D6 is applied on read after them.
+  - A publish moves the key; flipping a switch is an environment change, so the pods restart and the in-process
+    caches start empty.
+- **Status:** `procurementDaRelease` serves `privacyEnforced` and `privacyAsOf` (the supplier_privacy publication).
+  Clients key their caches by (`dataAsOf`, `privacyAsOf`).
+- **Analysis:**
+  - DA supplier buckets carry `displayKind` (`company` | `natural_person`);
+  - a withheld supplier code is echoed as `withheld` in `canonicalScope` and in MCP `query.scope`;
+  - a build pin needs an explicit grain while DA publishes separately;
+  - an unreadable v3 publication makes only the DA grain abstain.
+- **Kernel:**
+  - entity-360's procurement presence has no DA supplier leg for a withheld code;
+  - the document count and the document list exclude DA documents in SQL;
+  - outgoing top counterparties carry no DA money.
+
 ## Pending (data platform)
 
 - **Schema name:** `procurement_v3` is pending the owner's migration. It is named once, in `DA_RELEASE_SCHEMA`.
 - **Pending columns:** `listed_now`, `da_items.superseded_at`, the three free-text flags and the `supplier_privacy`
   table are probed per request, so the reader works before and after they land.
 - **Decided (owner, 18 Nov):** D6 holds site-wide. The legacy DA surfaces apply the same `supplier_privacy` rule
-  behind the same flag (work in progress). The analysis API's DA grain moves to v3: live Postgres first, a
+  behind its own switch (done). The analysis API's DA grain moves to v3: live Postgres first, a
   ClickHouse projection later. Supplier geography is dropped for DA.

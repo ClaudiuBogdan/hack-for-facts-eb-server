@@ -1,6 +1,7 @@
 /**
  * Site-wide D6 and the free-text gate on the LEGACY direct-acquisition reads
- * (owner via root, 2026-11-18), applied while PROCUREMENT_DA_V3_ENABLED is on.
+ * (owner via root, 2026-11-18), applied while PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED is on
+ * (its own switch, independent of the DA release flag: a v3 rollback never re-exposes).
  *
  * - A supplier is named (code and name) only when its code is in the public
  *   set from `supplier_privacy`; otherwise it is `natural_person` with no code
@@ -37,20 +38,38 @@ export const discloseDirectAcquisition = (
   };
 };
 
-/** The detail body with every free-text field and the item lines' text withheld. */
+/**
+ * The detail body as an allowlist: dates, flags, counts, codes and amounts are
+ * kept; every text the source typed is withheld, including the contract-type and
+ * EU-fund labels and the item lines' unit and CPV text (the loader screens those
+ * for contact data too). The CPV label comes from the catalogue, never the row.
+ */
 export const discloseDaDetailBody = (body: DaDetailBody): DaDetailBody => ({
   ...body,
   description: null,
   deliveryCondition: null,
   paymentCondition: null,
+  contractTypeText: null,
+  euFundText: null,
   caRejectionReason: null,
   supplierRejectionReason: null,
   correctionReason: null,
   textRedacted: true,
   items: body.items.map((item) => ({
-    ...item,
+    daItemId: item.daItemId,
+    itemIndex: item.itemIndex,
+    catalogItemCode: item.catalogItemCode,
     catalogItemName: null,
     catalogItemDescription: null,
+    itemMeasureUnit: null,
+    cpvCode: item.cpvCode,
+    cpvText: null,
+    itemQuantity: item.itemQuantity,
+    unitPrice: item.unitPrice,
+    unitEstimatedPrice: item.unitEstimatedPrice,
+    catalogUnitPrice: item.catalogUnitPrice,
+    lineValue: item.lineValue,
+    sourceUrl: item.sourceUrl,
   })),
 });
 

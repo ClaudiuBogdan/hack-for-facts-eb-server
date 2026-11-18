@@ -36,6 +36,7 @@ import {
   isWithheldOrganizationIdentifier,
   serviceUnavailable,
   type ApiError,
+  type SupplierDisclosurePort,
 } from '@/modules/shared/index.js';
 
 import {
@@ -50,6 +51,7 @@ import {
 } from './analysis-scope.js';
 import { routeAnalysis, type AnalysisRoute } from './combinations.js';
 import {
+  DA_NATURAL_PERSON_BUCKET,
   type FrameworkRoleFilter,
   type GenerationCapabilities,
   SEARCH_WINDOW_MAX,
@@ -92,7 +94,23 @@ export interface AnalysisDeps {
    * the rollup-matrix `routeAnalysis`.
    */
   readonly routeAnalysis?: typeof routeAnalysis;
+  /**
+   * Site-wide D6 (PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED): supplier buckets of
+   * the DA grain carry a displayKind, and a withheld supplier code is never
+   * echoed back in `canonicalScope`.
+   */
+  readonly supplierDisclosure?: SupplierDisclosurePort;
 }
+
+/** The echoed scope: a supplier code D6 withholds is never repeated in a response. */
+const echoScope = async (deps: AnalysisDeps, scope: AnalysisScope): Promise<string> => {
+  if (deps.supplierDisclosure?.enforced !== true || scope.supplierCui === undefined)
+    return canonicalScopeEcho(scope);
+  const codes = await deps.supplierDisclosure.publicSupplierCodes();
+  return codes.isOk() && codes.value.has(scope.supplierCui)
+    ? canonicalScopeEcho(scope)
+    : canonicalScopeEcho({ ...scope, supplierCui: 'withheld' });
+};
 
 // ── result shapes ──────────────────────────────────────────────────────────────
 
@@ -161,6 +179,11 @@ export interface AnalysisBreakdownBucket {
   readonly valueSum: string | null;
   /** Share of the scope total on the ranking basis, as a decimal string. */
   readonly shareOfScope: string | null;
+  /**
+   * DA supplier buckets under D6: `company` for a named supplier, `natural_person`
+   * for the one withheld bucket. Absent elsewhere (and while D6 is off on legacy).
+   */
+  readonly displayKind?: 'company' | 'natural_person';
 }
 
 export interface AnalysisBreakdownBlock {
@@ -395,6 +418,21 @@ const genWithCoverage = async (
   }
   const genR = await activeGen(repo);
   if (genR.isErr()) return err(genR.error);
+  // Two sources publish independently (ClickHouse and procurement_v3): one pin
+  // cannot hold both, so a pinned request must name its grain.
+  if (
+    build !== undefined &&
+    grain === undefined &&
+    genR.value.grainSources !== undefined &&
+    Object.keys(genR.value.grainSources).length > 0
+  ) {
+    return err(
+      invalidInput(
+        'a build pin needs scope.grain while direct acquisitions publish separately; pin one grain per request',
+        'build'
+      )
+    );
+  }
   const activeBuild =
     (grain === undefined ? undefined : genR.value.grainSources?.[grain]?.generation.buildId) ??
     genR.value.buildId;
@@ -425,6 +463,21 @@ const sourceFor = (
   return source === undefined ? { gen, cov } : { gen: source.generation, cov: source.coverage };
 };
 
+/**
+ * The envelope of a block, stating the basis of the source that answered it:
+ * the v3 DA grain is dated by finalization_day only (no publication fallback).
+ */
+const envelopeOn = (
+  gen: ActiveGeneration,
+  ...[policy, ...rest]: Parameters<typeof buildEnvelope>
+): AnswerEnvelope =>
+  buildEnvelope(
+    policy.grain === 'direct_acquisition' && gen.capabilities.directAcquisitionV3 === true
+      ? { ...policy, dateBasis: 'finalization_day (direct acquisitions release 1)' }
+      : policy,
+    ...rest
+  );
+
 /** AND-compose gate decisions: any abstain blocks; degradations and caveats merge. */
 const composeGates = (decisions: readonly GateDecision[]): GateDecision => {
   const reason =
@@ -453,6 +506,16 @@ const shapeGate = (
   options: { readonly isSeries?: boolean; readonly dimension?: BreakdownDimension }
 ): GateDecision => {
   const decisions: GateDecision[] = [];
+  if (grain === 'direct_acquisition' && gen.capabilities.directAcquisitionV3Unavailable === true) {
+    decisions.push({
+      allow: false,
+      degraded: false,
+      caveats: [
+        'direct acquisitions (release 1) are unavailable: their publication could not be read',
+      ],
+      reason: 'MISSING_QUALITY_VERDICT',
+    });
+  }
   if (options.isSeries === true || scopeWindow(scope) !== undefined) {
     decisions.push(decideAnswer(gen.quality, grain, 'time', cov));
   }
@@ -662,7 +725,8 @@ const statsBlockFor = async (
       minMonth: null,
       maxMonth: null,
       moneyVerdicts,
-      meta: buildEnvelope(
+      meta: envelopeOn(
+        gen,
         statsPolicy(grain),
         composeGates([blockGate, ...spendGates]),
         gen.buildId,
@@ -736,7 +800,8 @@ const statsBlockFor = async (
     minMonth: read.minMonth,
     maxMonth: read.maxMonth,
     moneyVerdicts,
-    meta: buildEnvelope(
+    meta: envelopeOn(
+      gen,
       statsPolicy(grain),
       composeGates([blockGate, ...spendGates]),
       gen.buildId,
@@ -763,7 +828,7 @@ const statsWithGen = async (
     gen.capabilities
   );
   if (routesR.isErr()) return err(routesR.error);
-  const canonicalScope = canonicalScopeEcho(scope);
+  const canonicalScope = await echoScope(deps, scope);
 
   const blocks: AnalysisStatsBlock[] = [];
   for (const route of routesR.value) {
@@ -828,7 +893,7 @@ export const analysisSeries = async (
     requestGen.capabilities
   );
   if (routesR.isErr()) return err(routesR.error);
-  const canonicalScope = canonicalScopeEcho(scope);
+  const canonicalScope = await echoScope(deps, scope);
 
   const blocks: AnalysisSeriesBlock[] = [];
   for (const route of routesR.value) {
@@ -858,7 +923,8 @@ export const analysisSeries = async (
       measure,
       bucket,
       points: [],
-      meta: buildEnvelope(
+      meta: envelopeOn(
+        gen,
         policy,
         gated,
         gen.buildId,
@@ -911,7 +977,7 @@ export const analysisSeries = async (
         points: rows.flatMap((r) =>
           r.bucket === null ? [] : [{ bucket: r.bucket, value: r.value }]
         ),
-        meta: buildEnvelope(policy, gated, gen.buildId, reads, canonicalScope, spend.allow, [
+        meta: envelopeOn(gen, policy, gated, gen.buildId, reads, canonicalScope, spend.allow, [
           'distinct counts are computed per bucket and must never be summed across buckets',
           ...scopeNotes(grain, scope, gen),
         ]),
@@ -982,7 +1048,7 @@ export const analysisSeries = async (
       measure,
       bucket,
       points,
-      meta: buildEnvelope(policy, gated, gen.buildId, reads, canonicalScope, spend.allow, [
+      meta: envelopeOn(gen, policy, gated, gen.buildId, reads, canonicalScope, spend.allow, [
         ...seriesWithheldCaveats,
         ...scopeNotes(grain, scope, gen),
       ]),
@@ -1051,7 +1117,8 @@ const breakdownBlockFor = async (
       rankedBy: requestedRankedBy,
       buckets: [],
       valueWithheldAssociationSum: null,
-      meta: buildEnvelope(
+      meta: envelopeOn(
+        gen,
         rankPolicy(requestedRankedBy),
         composeGates([blockGate, ...spendGates]),
         gen.buildId,
@@ -1103,6 +1170,11 @@ const breakdownBlockFor = async (
   }
 
   const basisTotal = rankedBy === 'value' ? d(anchorTotal) : d(totals.rows);
+  // D6 kinds on DA supplier buckets: the v3 source always applies D6; ClickHouse when enforced.
+  const supplierKinds =
+    route.grain === 'direct_acquisition' &&
+    dimension === 'supplier' &&
+    (deps.supplierDisclosure?.enforced === true || gen.capabilities.directAcquisitionV3 === true);
   const outBuckets: AnalysisBreakdownBucket[] = buckets.map((b) => {
     const basisValue = rankedBy === 'value' ? d(b.valueAwardedSum) : d(b.recordCount);
     // Null-law (review F7): a bucket with NO valued rows emits null money —
@@ -1121,6 +1193,10 @@ const breakdownBlockFor = async (
       valueAwardedSum: anchorBasis(grain) === 'awarded' ? money : null,
       valueSum: money,
       shareOfScope: basisTotal.greaterThan(0) ? basisValue.div(basisTotal).toFixed(RATIO_DP) : null,
+      ...(supplierKinds &&
+        b.kind === 'top' && {
+          displayKind: b.key === DA_NATURAL_PERSON_BUCKET ? 'natural_person' : 'company',
+        }),
     };
   });
 
@@ -1144,10 +1220,16 @@ const breakdownBlockFor = async (
     rankedBy,
     buckets: outBuckets,
     valueWithheldAssociationSum: withheldD.ron !== null ? d(withheldD.ron).toFixed(MONEY_DP) : null,
-    meta: buildEnvelope(policy, gate, gen.buildId, readsOf(totals), canonicalScope, moneyAllowed, [
-      ...withheldD.caveats,
-      ...scopeNotes(grain, scope, gen),
-    ]),
+    meta: envelopeOn(
+      gen,
+      policy,
+      gate,
+      gen.buildId,
+      readsOf(totals),
+      canonicalScope,
+      moneyAllowed,
+      [...withheldD.caveats, ...scopeNotes(grain, scope, gen)]
+    ),
   });
 };
 
@@ -1175,7 +1257,7 @@ export const analysisBreakdown = async (
     gcR.value.gen.capabilities
   );
   if (routesR.isErr()) return err(routesR.error);
-  const canonicalScope = canonicalScopeEcho(input.scope);
+  const canonicalScope = await echoScope(deps, input.scope);
 
   const blocks: AnalysisBreakdownBlock[] = [];
   for (const route of routesR.value) {
@@ -1219,7 +1301,7 @@ export const analysisConcentration = async (
     requestGen.capabilities
   );
   if (routesR.isErr()) return err(routesR.error);
-  const canonicalScope = canonicalScopeEcho(input.scope);
+  const canonicalScope = await echoScope(deps, input.scope);
 
   const blocks: AnalysisConcentrationBlock[] = [];
   for (const route of routesR.value) {
@@ -1241,7 +1323,8 @@ export const analysisConcentration = async (
         hhi: null,
         totalRon: null,
         valueWithheldAssociationSum: null,
-        meta: buildEnvelope(
+        meta: envelopeOn(
+          gen,
           policy,
           requestedGate,
           gen.buildId,
@@ -1319,7 +1402,8 @@ export const analysisConcentration = async (
       totalRon: basis === 'value' && positiveSupplierCount > 0 ? total.toFixed(MONEY_DP) : null,
       valueWithheldAssociationSum:
         withheldD.ron !== null ? d(withheldD.ron).toFixed(MONEY_DP) : null,
-      meta: buildEnvelope(
+      meta: envelopeOn(
+        gen,
         policy,
         {
           allow: true,
@@ -1542,7 +1626,7 @@ export const analysisFacets = async (
     if (routesR.isErr()) return err(routesR.error);
     routed.push({ dimension, routes: routesR.value });
   }
-  const canonicalScope = canonicalScopeEcho(input.scope);
+  const canonicalScope = await echoScope(deps, input.scope);
 
   const blocks: AnalysisBreakdownBlock[] = [];
   for (const { dimension, routes } of routed) {
@@ -1700,7 +1784,7 @@ export const analysisRecords = async (
       )
     );
   }
-  const canonicalScope = canonicalScopeEcho(scope);
+  const canonicalScope = await echoScope(deps, scope);
   const caveats = [
     ...gate.caveats,
     ...(grain === 'contract' ? [CONTRACT_MEMBER_ROWS_NOTE] : []),
