@@ -120,7 +120,10 @@ With the flag off:
   place.
 - **Analysis D6 key:** every DA block and records page carries `meta.disclosureKey`: `off`, `unavailable` (everyone
   withheld) or the supplier_privacy publication. Key cached DA analysis by (`buildId`, `disclosureKey`), since the
-  analytics build does not move when a nightly publish withholds a supplier.
+  analytics build does not move when a nightly publish withholds a supplier. Never cache a DA answer whose key is
+  `unavailable`, or a release answer with `privacyEnforced` true and `privacyAsOf` null. That is the only state
+  that can recur after a named answer (a grant revoked, restored and revoked again), and a page read while access
+  was restored can carry it.
 - **v3 analysis cache:** entries are keyed by build. A fill whose build stopped being current while it ran is not
   kept, and identical concurrent misses share one read.
 - **Legacy detail:** the item's catalogue code is withheld too (typed by the source, outside the loader's scan).
@@ -170,6 +173,31 @@ Production follows the same order.
   start abstains the other grains only.
 - **DA supplier rankings during a v3 rollback** are refused, not approximated (see above). The client shows them as
   "unavailable", never as a blank or an error.
+
+## Follow-up (after the dev push; none is a leak)
+
+From the narrow check of c0603d3c (gpt-6.2-sol xhigh, rollout 01a1eea5). Root ruled (18 Nov) that errors, latency
+and over-withholding go here rather than into another round:
+
+- **Over-withholding after recovery:** an absent-source load that finishes after a successful fresh load replaces it,
+  and the empty set is reused for the 60 s absent TTL. Keep the newest observation, and let final checks bypass the
+  negative TTL.
+- **Load amplification:** concurrent fresh checks each read the full public set for a cold publication. Share the
+  full-set read once the publication and readability are verified, and restore the same-set fast path in the legacy
+  intersection.
+- **v3 cache ownership:**
+  - a retired build's lookup can clear the current build's pending fill, which duplicates work;
+  - a retired fill can evict a current entry.
+
+  Read the build and the privilege in one statement, and recheck ownership after the last await.
+
+- **v3 fill across privacy states:** a fill read while supplier_privacy was unreadable can be joined or kept after
+  access returns, which over-withholds until the next publish. Carry the snapshot's privacy state and require it on
+  join and store.
+- **disclosureKey precision:** the key comes from the generation lookup, not from the fact snapshot or the final
+  check. Clients never cache `unavailable` (above), and published keys only move forward, so this is not a leak.
+  Carrying the decided state into the response would make the key exact.
+- **Warm ClickHouse failure** fails a mixed request (residual above). Make source-read failures abstain per grain.
 
 ## Pending (data platform)
 

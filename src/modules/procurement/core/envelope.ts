@@ -38,6 +38,9 @@ export interface AnswerEnvelope {
    * or the supplier_privacy publication). Null on other grains. Clients key
    * cached DA answers by (buildId, disclosureKey): it moves when a nightly
    * publish withholds a supplier even if the analytics build does not.
+   * `unavailable` is never a cache key: it is the one state that can recur
+   * after a named answer (a grant revoked, restored, revoked again), so an
+   * answer carrying it must not be cached.
    */
   readonly disclosureKey?: string | null;
 }

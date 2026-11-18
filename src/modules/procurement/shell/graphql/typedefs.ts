@@ -786,7 +786,7 @@ export const procurementTypeDefs = /* GraphQL */ `
     provisional: Boolean!
     caveats: [String!]!
     canonicalScope: String!
-    "DA blocks: the D6 state served under (off, unavailable, or the supplier_privacy publication); key DA caches by (buildId, disclosureKey). Null on other grains."
+    "DA blocks: the D6 state served under (off, unavailable, or the supplier_privacy publication); key DA caches by (buildId, disclosureKey). Never cache a DA answer whose key is unavailable. Null on other grains."
     disclosureKey: String
   }
 
@@ -966,7 +966,7 @@ export const procurementTypeDefs = /* GraphQL */ `
     buildId: String!
     canonicalScope: String!
     caveats: [String!]!
-    "DA pages: the D6 state served under; key DA caches by (buildId, disclosureKey). Null on other grains."
+    "DA pages: the D6 state served under; key DA caches by (buildId, disclosureKey). Never cache a DA page whose key is unavailable. Null on other grains."
     disclosureKey: String
   }
 
