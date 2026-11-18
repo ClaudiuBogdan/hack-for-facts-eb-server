@@ -685,6 +685,7 @@ export const registerRedesignSurface = async (
     const procurement = makeProcurementModule({
       db: kernel.db,
       logger: app.log,
+      supplierDisclosure: kernel.supplierDisclosure,
       ...(composition.search !== undefined && {
         opensearch: {
           url: composition.search.url,

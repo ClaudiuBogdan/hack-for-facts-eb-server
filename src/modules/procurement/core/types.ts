@@ -130,6 +130,15 @@ export interface ProcurementDirectAcquisition {
   readonly isCanonical: boolean;
   readonly dupGroupId: string | null;
   readonly value: ValueResolution;
+  /**
+   * Site-wide D6 (set only while it is enforced): `natural_person` when the
+   * supplier's code is not public, with `supplierCui` and `supplierName` null.
+   */
+  readonly supplierDisplayKind?: 'company' | 'natural_person';
+  /** Set while free text is withheld: `title` is null and `cpvLabel` names the purchase. */
+  readonly titleWithheld?: 'privacy';
+  /** The CPV catalogue label of `cpvCode` (Romanian), when known. */
+  readonly cpvLabel?: string | null;
 }
 
 export interface ProcurementModification {

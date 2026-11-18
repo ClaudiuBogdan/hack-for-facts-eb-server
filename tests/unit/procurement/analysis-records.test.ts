@@ -198,6 +198,8 @@ describe('procurementRecords transport', () => {
     expect(page.items[0]?.['supplier']).toEqual({
       cui: '14399840',
       name: 'Firma SRL',
+      // A contract supplier is not classified by D6.
+      displayKind: null,
       displayName: 'Firma SRL',
     });
   });

@@ -135,7 +135,9 @@ export interface ProcurementRepo {
     supplierCui: string,
     first: number,
     after: string | undefined,
-    includeCancelled: boolean
+    includeCancelled: boolean,
+    /** False leaves direct acquisitions out (D6: the code is not public). Default true. */
+    includeDirectAcquisitions?: boolean
   ): Promise<Result<SupplierRecordConnection, ApiError>>;
 }
 

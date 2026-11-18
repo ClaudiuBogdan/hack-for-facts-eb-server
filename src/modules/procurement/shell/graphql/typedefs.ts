@@ -61,6 +61,13 @@ export const procurementTypeDefs = /* GraphQL */ `
     cui: String
     name: String
     displayName: String
+    """
+    authority (a buyer) | company (a named supplier) | natural_person (a direct-acquisition
+    supplier withheld under D6: cui, name and displayName are null). Null where no rule
+    classifies the party (contract and modification suppliers). Show a name only for authority
+    or company.
+    """
+    displayKind: String
   }
 
   input StringEqInput {
@@ -240,6 +247,10 @@ export const procurementTypeDefs = /* GraphQL */ `
     elicitatiePage: ProcurementElicitatiePage
     isCanonical: Boolean!
     dupGroupId: String
+    "privacy when the title is withheld (free text not yet reviewed); title is then null."
+    titleWithheld: String
+    "The CPV catalogue label of cpvCode; the purchase's name while the title is withheld."
+    cpvLabel: String
   }
 
   """

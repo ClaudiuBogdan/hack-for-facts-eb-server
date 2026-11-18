@@ -129,13 +129,28 @@ const unwrap = <T>(result: Result<T, ApiError>): T => {
  * the personal identifier is withheld, and with it the ability to use that
  * number as a key.
  */
+type DisplayKind = 'authority' | 'company' | 'natural_person';
+
 const party = (
   cui: string | null,
-  name: string | null
-): { cui: string | null; name: string | null; displayName: string | null } => {
+  name: string | null,
+  displayKind: DisplayKind | null = null
+): {
+  cui: string | null;
+  name: string | null;
+  displayName: string | null;
+  displayKind: DisplayKind | null;
+} => {
+  // D6: a withheld supplier carries nothing that names it, whatever the row holds.
+  if (displayKind === 'natural_person')
+    return { cui: null, name: null, displayName: null, displayKind };
   const served = cui !== null && !isWithheldOrganizationIdentifier(cui) ? cui : null;
-  return { cui: served, name, displayName: name ?? served };
+  return { cui: served, name, displayName: name ?? served, displayKind };
 };
+
+/** A direct acquisition's supplier: the D6 kind when set, otherwise a named supplier is a company. */
+const daSupplierKind = (d: ProcurementDirectAcquisition): DisplayKind | null =>
+  d.supplierDisplayKind ?? (d.supplierCui !== null || d.supplierName !== null ? 'company' : null);
 
 /**
  * Validate requested facet dimensions against the grain's allow-list. An
@@ -418,7 +433,7 @@ export const makeProcurementResolvers = (
             date: item.date,
             title: item.title,
             displayTitle: item.displayTitle,
-            authority: party(item.authorityCui, item.authorityName),
+            authority: party(item.authorityCui, item.authorityName, 'authority'),
             supplier: party(item.supplierCui, item.supplierName),
             valueRon: item.valueRon,
             status: item.status,
@@ -511,7 +526,7 @@ export const makeProcurementResolvers = (
 
     ProcurementProcedure: {
       id: (p: ProcurementProcedure) => p.procedureId,
-      authority: (p: ProcurementProcedure) => party(p.authorityCui, p.authorityName),
+      authority: (p: ProcurementProcedure) => party(p.authorityCui, p.authorityName, 'authority'),
       isCanonical: async (p: ProcurementProcedure, _a: unknown, context: unknown) =>
         (await canonicalityFor(context).loader.load(p.procedureId))?.isCanonical ?? null,
       dupGroupId: async (p: ProcurementProcedure, _a: unknown, context: unknown) =>
@@ -529,15 +544,17 @@ export const makeProcurementResolvers = (
     },
     ProcurementContract: {
       id: (c: ProcurementContract) => c.contractId,
-      authority: (c: ProcurementContract) => party(c.authorityCui, c.authorityName),
+      authority: (c: ProcurementContract) => party(c.authorityCui, c.authorityName, 'authority'),
       supplier: (c: ProcurementContract) => party(c.supplierCui, c.supplierName),
       modifications: (c: ProcurementContract) => modificationsLoader.load(c.contractId),
       elicitatiePage: (c: ProcurementContract) => contractPageLoader.load(c.contractId),
     },
     ProcurementDirectAcquisition: {
       id: (d: ProcurementDirectAcquisition) => d.daId,
-      authority: (d: ProcurementDirectAcquisition) => party(d.authorityCui, d.authorityName),
-      supplier: (d: ProcurementDirectAcquisition) => party(d.supplierCui, d.supplierName),
+      authority: (d: ProcurementDirectAcquisition) =>
+        party(d.authorityCui, d.authorityName, 'authority'),
+      supplier: (d: ProcurementDirectAcquisition) =>
+        party(d.supplierCui, d.supplierName, daSupplierKind(d)),
       elicitatiePage: (d: ProcurementDirectAcquisition) => directAcquisitionPageLoader.load(d.daId),
     },
     ProcurementDaItem: {
@@ -545,7 +562,8 @@ export const makeProcurementResolvers = (
     },
     ProcurementContractModification: {
       id: (m: ProcurementModification) => m.modificationId,
-      authority: (m: ProcurementModification) => party(m.authorityCui, m.authorityName),
+      authority: (m: ProcurementModification) =>
+        party(m.authorityCui, m.authorityName, 'authority'),
       supplier: (m: ProcurementModification) => party(m.supplierCui, m.supplierName),
       parentContract: (m: ProcurementModification) =>
         m.contractId === null ? null : contractLoader.load(m.contractId),

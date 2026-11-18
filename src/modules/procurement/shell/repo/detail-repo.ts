@@ -169,7 +169,8 @@ export interface ProcurementDetailRepo {
     supplierCui: string,
     first: number,
     after: string | undefined,
-    includeCancelled: boolean
+    includeCancelled: boolean,
+    includeDirectAcquisitions?: boolean
   ): Promise<Result<SupplierRecordConnection, ApiError>>;
 }
 
@@ -338,7 +339,8 @@ export const makeProcurementDetailRepo = (db: Db): ProcurementDetailRepo => {
     supplierCui: string,
     first: number,
     after: string | undefined,
-    includeCancelled: boolean
+    includeCancelled: boolean,
+    includeDirectAcquisitions = true
   ): Promise<Result<SupplierRecordConnection, ApiError>> => {
     const limit = Math.min(Math.max(Math.floor(first), 1), SUPPLIER_RECORDS_FIRST_MAX);
     let cursor: RecordCursor | undefined;
@@ -382,11 +384,14 @@ export const makeProcurementDetailRepo = (db: Db): ProcurementDetailRepo => {
           .orderBy('c.contract_id', 'desc')
           .limit(limit + 1)
           .execute(),
-        daQuery
-          .orderBy(sql`d.finalization_date desc nulls last`)
-          .orderBy('d.da_id', 'desc')
-          .limit(limit + 1)
-          .execute(),
+        // D6: a supplier not named as public has no direct-acquisition leg at all.
+        includeDirectAcquisitions
+          ? daQuery
+              .orderBy(sql`d.finalization_date desc nulls last`)
+              .orderBy('d.da_id', 'desc')
+              .limit(limit + 1)
+              .execute()
+          : Promise.resolve([]),
       ]);
 
       const contracts: SupplierRecord[] = contractRows.map((r) => ({

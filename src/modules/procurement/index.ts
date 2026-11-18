@@ -22,6 +22,7 @@ import {
   makeUnconfiguredAnalysisRepo,
   type ClickhouseAnalysisConfig,
 } from './shell/repo/clickhouse-analysis-repo.js';
+import { withDaDisclosure } from './shell/repo/da-disclosure-repo.js';
 import { makeDaReleaseRepo } from './shell/repo/da-release-repo.js';
 import { makeProcurementGenerationRepo } from './shell/repo/generation-repo.js';
 import {
@@ -40,6 +41,7 @@ import type {
   Logger,
   ProdDatabase,
   SourceContributor,
+  SupplierDisclosurePort,
 } from '@/modules/shared/index.js';
 import type { FastifyPluginAsync } from 'fastify';
 import type { Kysely } from 'kysely';
@@ -78,6 +80,8 @@ export interface ProcurementModuleDeps {
    * registered. Env: PROCUREMENT_DA_V3_ENABLED.
    */
   readonly daV3Enabled?: boolean;
+  /** The kernel's site-wide D6 port (`Kernel.supplierDisclosure`); absent means not enforced. */
+  readonly supplierDisclosure?: SupplierDisclosurePort;
 }
 
 export interface ProcurementModule {
@@ -115,11 +119,15 @@ const warmEmptyScope = (analysis: AnalysisRepo): void => {
 };
 
 export const makeProcurementModule = (deps: ProcurementModuleDeps): ProcurementModule => {
-  const repo = makeProcurementRepo(
-    deps.db,
-    deps.daListMaxWindowDays ?? DA_LIST_MAX_WINDOW_DAYS_DEFAULT,
-    deps.opensearch !== undefined ? makeOpenSearchListEngine(deps.opensearch) : undefined,
-    deps.logger
+  // Site-wide D6 and the free-text gate on the legacy DA reads (a no-op until enforced).
+  const repo = withDaDisclosure(
+    makeProcurementRepo(
+      deps.db,
+      deps.daListMaxWindowDays ?? DA_LIST_MAX_WINDOW_DAYS_DEFAULT,
+      deps.opensearch !== undefined ? makeOpenSearchListEngine(deps.opensearch) : undefined,
+      deps.logger
+    ),
+    deps.supplierDisclosure
   );
   // ClickHouse is the analytics backend; the generation ledger (buildId,
   // quality, matrix_hash) stays authoritative in Postgres and is delegated to.

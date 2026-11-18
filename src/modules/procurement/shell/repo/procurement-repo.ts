@@ -1000,7 +1000,7 @@ export const makeProcurementRepo = (
     elicitatiePagesForModifications: (ids) => portal.forModifications(ids),
     elicitatiePagesForProcedures: (ids) => portal.forProcedures(ids),
     elicitatiePagesForDirectAcquisitions: (ids) => portal.forDirectAcquisitions(ids),
-    supplierRecords: (cui, first, after, includeCancelled) =>
-      detail.supplierRecords(cui, first, after, includeCancelled),
+    supplierRecords: (cui, first, after, includeCancelled, includeDirectAcquisitions) =>
+      detail.supplierRecords(cui, first, after, includeCancelled, includeDirectAcquisitions),
   };
 };

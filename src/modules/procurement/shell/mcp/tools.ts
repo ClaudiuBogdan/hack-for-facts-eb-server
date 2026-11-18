@@ -237,7 +237,8 @@ export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly Kern
       return {
         ok: true,
         kind: 'da_list',
-        query: filter,
+        // A supplier code is never echoed back: under D6 it may name a person.
+        query: Object.fromEntries(Object.entries(filter).filter(([key]) => key !== 'supplierCui')),
         link: `${clientBaseUrl}/procurement/direct-acquisitions`,
         items: res.value.items,
         summary: `${n(res.value.items.length)} direct acquisition(s)${res.value.next !== null ? ' (more available)' : ''}.`,
