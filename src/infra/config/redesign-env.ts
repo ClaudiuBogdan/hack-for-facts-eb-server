@@ -75,6 +75,7 @@ const RedesignEnvSchema = Type.Object({
   PROD_CLICKHOUSE_USER: Type.Optional(Type.String({ minLength: 1 })),
   PROD_CLICKHOUSE_PASSWORD: Type.Optional(Type.String()),
   PROCUREMENT_DA_LIST_MAX_WINDOW_DAYS: Type.Optional(Type.String()),
+  PROCUREMENT_DA_V3_ENABLED: Type.Optional(Type.String()),
   PROCUREMENT_SEARCH_OPENSEARCH_URL: Type.Optional(Type.String()),
   PROCUREMENT_SEARCH_OPENSEARCH_INDEXES: Type.Optional(Type.String()),
   PROCUREMENT_SEARCH_OPENSEARCH_CA_FILE: Type.Optional(Type.String()),
@@ -110,6 +111,8 @@ export interface ModuleSearchConnection {
 /** Procurement composition settings (validated here, threaded through the app deps). */
 export interface ProcurementComposition {
   readonly daListMaxWindowDays?: number;
+  /** Direct acquisitions release 1 (`procurement_v3`) reader; off unless PROCUREMENT_DA_V3_ENABLED=true. */
+  readonly daV3Enabled?: boolean;
   readonly clickhouse?: {
     readonly url: string;
     readonly database: string;
@@ -369,6 +372,7 @@ const composeEmbeddedKernel = (e: EmbeddedKernelEnv): EmbeddedKernelConfig => {
   const clickhouseUrl = nonEmpty(e.PROD_CLICKHOUSE_URL);
   const procurement: ProcurementComposition = {
     ...(daWindow > 0 && { daListMaxWindowDays: daWindow }),
+    ...(e.PROCUREMENT_DA_V3_ENABLED === 'true' && { daV3Enabled: true }),
     ...(clickhouseUrl !== undefined && {
       clickhouse: {
         url: clickhouseUrl,

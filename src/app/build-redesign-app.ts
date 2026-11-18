@@ -475,6 +475,7 @@ export const registerRedesignSurface = async (
   let legalRoutes: import('fastify').FastifyPluginAsync | undefined;
   let judicialRoutes: import('fastify').FastifyPluginAsync | undefined;
   let electionsRoutes: import('fastify').FastifyPluginAsync | undefined;
+  let procurementDaRoutes: import('fastify').FastifyPluginAsync | undefined;
 
   if (enabledModules.includes('ngos')) {
     const ngos = makeNgosModule({
@@ -703,12 +704,14 @@ export const registerRedesignSurface = async (
       ...(composition.daListMaxWindowDays !== undefined && {
         daListMaxWindowDays: composition.daListMaxWindowDays,
       }),
+      ...(composition.daV3Enabled !== undefined && { daV3Enabled: composition.daV3Enabled }),
       ...(deps.clientBaseUrl !== undefined && { clientBaseUrl: deps.clientBaseUrl }),
     });
     moduleSlices.push(procurement.graphqlSlice);
     moduleResolvers.push(procurement.graphqlResolvers);
     moduleMcpTools.push(...procurement.mcpTools);
     kernel.contributors.register(procurement.contributor);
+    procurementDaRoutes = procurement.daRestPlugin;
   }
 
   if (enabledModules.includes('companies')) {
@@ -900,6 +903,9 @@ export const registerRedesignSurface = async (
   }
   // Elections' GET metadata reads over the same usecases as its GraphQL/MCP
   // (no-store, the module envelope; a GET/HEAD-only public prefix on api.js).
+  if (procurementDaRoutes !== undefined) {
+    await app.register(procurementDaRoutes, { prefix: '/api/v1/procurement/da' });
+  }
   if (electionsRoutes !== undefined) {
     await app.register(electionsRoutes, { prefix: '/api/v1/elections' });
   }

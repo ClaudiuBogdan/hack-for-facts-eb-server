@@ -10,15 +10,19 @@ import './shell/db/schema.js';
 
 import { analysisBreakdown, analysisStats } from './core/analysis-usecases.js';
 import { DA_LIST_MAX_WINDOW_DAYS_DEFAULT } from './core/constants.js';
+import { makeDaTotalsCache, type DaReleaseDeps } from './core/da-release-usecases.js';
 import { makeProcurementContributor } from './shell/contributor.js';
+import { daReleaseTypeDefs, makeDaReleaseResolvers } from './shell/graphql/da-release-schema.js';
 import { makeProcurementResolvers } from './shell/graphql/resolvers.js';
 import { procurementTypeDefs } from './shell/graphql/typedefs.js';
+import { makeDaReleaseMcpTools } from './shell/mcp/da-release-tools.js';
 import { makeProcurementMcpTools } from './shell/mcp/tools.js';
 import {
   makeClickhouseAnalysisRepo,
   makeUnconfiguredAnalysisRepo,
   type ClickhouseAnalysisConfig,
 } from './shell/repo/clickhouse-analysis-repo.js';
+import { makeDaReleaseRepo } from './shell/repo/da-release-repo.js';
 import { makeProcurementGenerationRepo } from './shell/repo/generation-repo.js';
 import {
   makeOpenSearchListEngine,
@@ -27,6 +31,7 @@ import {
 import { makeProcurementPresenceRepo } from './shell/repo/presence-repo.js';
 import { makeProcurementRepo } from './shell/repo/procurement-repo.js';
 import { makeSupplierGeographyPolicy } from './shell/repo/supplier-geography-policy.js';
+import { makeDaReleaseRestPlugin } from './shell/rest/da-release-routes.js';
 
 import type { AnalysisRepo, ProcurementRepo } from './core/ports.js';
 import type {
@@ -36,6 +41,7 @@ import type {
   ProdDatabase,
   SourceContributor,
 } from '@/modules/shared/index.js';
+import type { FastifyPluginAsync } from 'fastify';
 import type { Kysely } from 'kysely';
 
 export interface ProcurementModuleDeps {
@@ -65,6 +71,13 @@ export interface ProcurementModuleDeps {
    * explicitly. See shell/repo/opensearch-list-repo.ts.
    */
   readonly opensearch?: OpenSearchListConfig;
+  /**
+   * Direct acquisitions release 1 (`procurement_v3`), beside the legacy DA
+   * surface. Off (the default): the SDL and REST routes are served, every data
+   * read answers ServiceUnavailable without a query, and no MCP tool is
+   * registered. Env: PROCUREMENT_DA_V3_ENABLED.
+   */
+  readonly daV3Enabled?: boolean;
 }
 
 export interface ProcurementModule {
@@ -75,6 +88,8 @@ export interface ProcurementModule {
   readonly mcpTools: readonly KernelMcpTool[];
   /** The kernel-registry contributor (entity-360 presence + profile slice). */
   readonly contributor: SourceContributor;
+  /** Direct acquisitions release 1 REST, mounted at `/api/v1/procurement/da`. */
+  readonly daRestPlugin: FastifyPluginAsync;
 }
 
 /**
@@ -124,13 +139,31 @@ export const makeProcurementModule = (deps: ProcurementModuleDeps): ProcurementM
 
   if (deps.warmCache !== false) warmEmptyScope(analysis);
 
+  const daV3Enabled = deps.daV3Enabled ?? false;
+  const daRelease: DaReleaseDeps = {
+    repo: makeDaReleaseRepo(deps.db, daV3Enabled),
+    totalsCache: makeDaTotalsCache(),
+  };
+  const legacyResolvers = makeProcurementResolvers({ repo, analysis });
+  const daResolvers = makeDaReleaseResolvers(daRelease);
+
   return {
     repo,
     analysis,
-    graphqlSlice: { source: 'procurement', typeDefs: procurementTypeDefs },
-    graphqlResolvers: makeProcurementResolvers({ repo, analysis }),
-    mcpTools: makeProcurementMcpTools({ repo, analysis, clientBaseUrl }),
+    graphqlSlice: {
+      source: 'procurement',
+      typeDefs: `${procurementTypeDefs}\n${daReleaseTypeDefs}`,
+    },
+    graphqlResolvers: {
+      ...legacyResolvers,
+      Query: { ...(legacyResolvers['Query'] as Record<string, unknown>), ...daResolvers.Query },
+    },
+    mcpTools: [
+      ...makeProcurementMcpTools({ repo, analysis, clientBaseUrl }),
+      ...(daV3Enabled ? makeDaReleaseMcpTools(daRelease) : []),
+    ],
     contributor: makeProcurementContributor(makeProcurementPresenceRepo(deps.db)),
+    daRestPlugin: makeDaReleaseRestPlugin(daRelease),
   };
 };
 
