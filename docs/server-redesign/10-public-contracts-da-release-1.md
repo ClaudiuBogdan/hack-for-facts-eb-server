@@ -274,6 +274,19 @@ and over-withholding go here rather than into another round:
   Carrying the decided state into the response would make the key exact.
 - **Warm ClickHouse failure** fails a mixed request (residual above). Make source-read failures abstain per grain.
 
+From the rollup timings (procurement-prod, 5 runs of the b4037b6e page set on the workshop build, 19 Nov). Root ruled
+neither blocks the dev push:
+
+- **Cold cache after publish:** the first run after a cold buffer cache takes 6.5 s for SUPPLIER buyerCounty [1/3]
+  and 4.0 s for cpvDivision [1/3]. Warm, they take 0.27 s and 0.08 s. Every nightly publish leaves the cache cold.
+  Add a warm-up pass after publish: run the page set once, or `pg_prewarm` the rollup tables and their indexes.
+  Measure it with 5 runs that start cold.
+- **Uncounted-rows fallback on value sorts:** the second phase reads the scope's uncounted rows by `purchase_id`.
+  That scan takes up to 3.9 s for the year's 124k rows. Both surfaces stop at row 10,000, so the second phase runs
+  only for scopes with fewer than 10,000 valued rows. It cannot run on the home, buyer or large-supplier pages. If a
+  small scope with many uncounted rows needs it, add a partial index on `(purchase_id desc) where not counted`
+  (procurement-prod).
+
 ## Pending (data platform)
 
 - **Schema name:** `procurement_v3` is pending the owner's migration. It is named once, in `DA_RELEASE_SCHEMA`.
