@@ -41,12 +41,32 @@ export type IsoDateTime = string;
  * entry point (entity, company, filters, …) so the two surfaces can't disagree on
  * whether an input is acceptable (audit M12).
  */
+/** A Romanian company code (CUI) has at most 10 digits, the check digit included. */
+const PADDED_CUI = /^\d{1,10}$/u;
+
 /**
  * The data platform's fiscal-code form (procurement_v3, supplier_privacy): a
  * normalized code without leading zeros. Legacy rows and clients may keep
  * them; codes are compared in this form (procurement-prod measured, 18 Nov).
+ *
+ * Zeros are dropped only while the code is still a CUI's length: '0014399840'
+ * compares as '14399840', but a longer padded string such as '0000014399840'
+ * is no company code and is kept as written, so it matches no platform code.
  */
-export const withoutLeadingZeros = (code: string): string => code.replace(/^0+(?=\d)/u, '');
+export const withoutLeadingZeros = (code: string): string =>
+  PADDED_CUI.test(code) ? code.replace(/^0+(?=\d)/u, '') : code;
+
+/**
+ * Fiscal codes held in the platform's form, whose membership test accepts a
+ * padded company code (see withoutLeadingZeros). Every set of public supplier
+ * codes, including one narrowed by a later check, is one of these, so each
+ * decision compares codes the same way.
+ */
+export class FiscalCodeSet extends Set<string> {
+  override has(code: string): boolean {
+    return super.has(withoutLeadingZeros(code));
+  }
+}
 
 export const normalizeCui = (raw: string): Cui | null => {
   const result = raw

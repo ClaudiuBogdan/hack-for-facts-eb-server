@@ -24,7 +24,7 @@ import { ok, type Result } from 'neverthrow';
 import { makeDocumentRepo } from './document-repo.js';
 import { makeFlowsRepo } from './flows-repo.js';
 import { makeSearchRepo } from './search-repo.js';
-import { withoutLeadingZeros } from '../../core/types.js';
+import { FiscalCodeSet } from '../../core/types.js';
 
 import type { ApiError } from '../../core/errors.js';
 import type {
@@ -41,18 +41,8 @@ const SCHEMA = 'procurement_v3';
 const ABSENT_TTL_MS = 60_000;
 const DIRECT_ACQUISITION_FLOW = 'direct_acquisition';
 
-/**
- * The public codes, in the platform's form (no leading zeros). Membership
- * accepts a legacy or client code with leading zeros, so a public company keyed
- * '0123' on a legacy row matches its '123' row in supplier_privacy.
- */
-class PublicCodes extends Set<string> {
-  override has(code: string): boolean {
-    return super.has(withoutLeadingZeros(code));
-  }
-}
-
-const EMPTY: ReadonlySet<string> = new PublicCodes();
+/** The public codes, in the platform's form (no leading zeros). */
+const EMPTY: ReadonlySet<string> = new FiscalCodeSet();
 
 interface Loaded {
   readonly asOf: string | null;
@@ -95,7 +85,7 @@ export const makeSupplierDisclosureRepo = (
             where public is true and fiscal_code_clean is not null`.execute(trx);
           return {
             asOf,
-            codes: new PublicCodes(rows.rows.map((row) => row.code)),
+            codes: new FiscalCodeSet(rows.rows.map((row) => row.code)),
             loadedAt: now(),
           };
         });

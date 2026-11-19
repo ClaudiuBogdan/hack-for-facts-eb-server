@@ -16,6 +16,11 @@ describe('withoutLeadingZeros', () => {
     expect(withoutLeadingZeros('14399840')).toBe('14399840');
     expect(withoutLeadingZeros('0')).toBe('0');
   });
+
+  it('keeps a padded string longer than a CUI as written', () => {
+    expect(withoutLeadingZeros('0000014399840')).toBe('0000014399840');
+    expect(withoutLeadingZeros('RO0014399840')).toBe('RO0014399840');
+  });
 });
 
 describe('the public-supplier set', () => {
@@ -35,5 +40,6 @@ describe('the public-supplier set', () => {
     expect(codes.has('0014399840')).toBe(true);
     expect(codes.has('14399840')).toBe(true);
     expect(codes.has('30254716')).toBe(false);
+    expect(codes.has('0000014399840')).toBe(false);
   });
 });

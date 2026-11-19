@@ -8,6 +8,11 @@ import { ok } from 'neverthrow';
 import { describe, expect, it } from 'vitest';
 
 import { withDaDisclosure } from '@/modules/procurement/shell/repo/da-disclosure-repo.js';
+import {
+  FiscalCodeSet,
+  type FilterInput,
+  type SupplierDisclosurePort,
+} from '@/modules/shared/index.js';
 
 import type { ProcurementRepo } from '@/modules/procurement/core/ports.js';
 import type {
@@ -15,7 +20,6 @@ import type {
   ProcurementDirectAcquisition,
   SupplierRecordConnection,
 } from '@/modules/procurement/core/types.js';
-import type { FilterInput, SupplierDisclosurePort } from '@/modules/shared/index.js';
 
 const COMPANY = '14399840';
 const SOLE_TRADER = '30254716';
@@ -199,6 +203,64 @@ describe('legacy DA disclosure, enforced', () => {
       [SOLE_TRADER, false],
       [COMPANY, true],
     ]);
+  });
+});
+
+describe('legacy DA disclosure, padded codes', () => {
+  // The kernel's public set, as the supplier-disclosure repo returns it.
+  const padded: SupplierDisclosurePort = {
+    enforced: true,
+    privacyAsOf: () => Promise.resolve(ok(null)),
+    publicSupplierCodes: () => Promise.resolve(ok(new FiscalCodeSet([COMPANY]))),
+  };
+  const PADDED = `00${COMPANY}`; // 10 digits: still a CUI, the public company
+  const OVERLONG = `00000${COMPANY}`; // 13 digits: no company code, never the company
+  const rows = [da('1', PADDED, 'FIRMA EXEMPLU SRL'), da('2', OVERLONG, 'SECRET OVERLONG')];
+  const repoOf = () => {
+    const filters: FilterInput[] = [];
+    const repo = {
+      listCpvCodeLabels: () => Promise.resolve(ok([])),
+      listDirectAcquisitions: (f: FilterInput) => {
+        filters.push(f);
+        const wanted = (f['supplierCui'] as { in?: readonly string[] } | undefined)?.in;
+        return Promise.resolve(
+          ok({
+            items: rows.filter((r) => wanted === undefined || wanted.includes(r.supplierCui ?? '')),
+            next: null,
+          })
+        );
+      },
+      getDirectAcquisition: (id: string) =>
+        Promise.resolve(ok(rows.find((r) => r.daId === id) ?? null)),
+    } as unknown as ProcurementRepo;
+    return { filters, repo };
+  };
+
+  it('names a padded public company after the final check and never an overlong padded code', async () => {
+    const { repo } = repoOf();
+    const gated = withDaDisclosure(repo, padded);
+    const page = (await gated.listDirectAcquisitions({}, { first: 10 }))._unsafeUnwrap();
+    expect(JSON.stringify(page)).not.toContain('SECRET');
+    expect(page.items.map((d) => [d.supplierCui, d.supplierDisplayKind])).toEqual([
+      [PADDED, 'company'],
+      [null, 'natural_person'],
+    ]);
+    const detail = (await gated.getDirectAcquisition('2'))._unsafeUnwrap();
+    expect([detail?.supplierCui, detail?.supplierName]).toEqual([null, null]);
+  });
+
+  it('keeps a padded public filter code and matches nothing for an overlong one', async () => {
+    const { filters, repo } = repoOf();
+    const gated = withDaDisclosure(repo, padded);
+    const scoped = (
+      await gated.listDirectAcquisitions({ supplierCui: { in: [PADDED] } }, { first: 10 })
+    )._unsafeUnwrap();
+    expect(scoped.items.map((d) => d.supplierCui)).toEqual([PADDED]);
+    const none = (
+      await gated.listDirectAcquisitions({ supplierCui: { in: [OVERLONG] } }, { first: 10 })
+    )._unsafeUnwrap();
+    expect(none.items).toEqual([]);
+    expect(filters).toEqual([{ supplierCui: { in: [PADDED] } }]);
   });
 });
 

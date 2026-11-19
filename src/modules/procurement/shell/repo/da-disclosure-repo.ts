@@ -10,6 +10,13 @@
 import { err, ok, type Result } from 'neverthrow';
 
 import {
+  FiscalCodeSet,
+  type ApiError,
+  type FilterInput,
+  type SupplierDisclosurePort,
+} from '@/modules/shared/index.js';
+
+import {
   daFreeTextSearchRefused,
   daSupplierGeographyRefused,
   discloseDaDetailBody,
@@ -19,7 +26,6 @@ import {
 
 import type { ProcurementRepo } from '../../core/ports.js';
 import type { ProcurementDirectAcquisition } from '../../core/types.js';
-import type { ApiError, FilterInput, SupplierDisclosurePort } from '@/modules/shared/index.js';
 
 const SUPPLIER_GEO_FACETS = new Set(['supplierRegion', 'supplierCounty', 'supplierSiruta']);
 
@@ -63,7 +69,8 @@ export const withDaDisclosure = (
     const now = await disclosure.publicSupplierCodes({ fresh: true });
     if (now.isErr()) return err(now.error);
     if (authorised === null) return ok(now.value);
-    return ok(new Set([...authorised].filter((code) => now.value.has(code))));
+    // Still a FiscalCodeSet: a padded legacy code matches the narrowed set as it did the first.
+    return ok(new FiscalCodeSet([...authorised].filter((code) => now.value.has(code))));
   };
 
   /** Enrich a page first, then settle: the codes returned are the decision the page was scrubbed with. */

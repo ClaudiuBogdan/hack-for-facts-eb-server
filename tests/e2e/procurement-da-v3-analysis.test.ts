@@ -641,6 +641,43 @@ describe('rollups answer exactly as the live rows', () => {
     }
   });
 
+  it('skips a supplier rollup still on the earlier shape and answers the same', async () => {
+    if (db === undefined || container === undefined) throw new Error('no database');
+    const scope = { ...DA, supplierCui: COMPANY.fiscalCode ?? '', from: '2023-01' };
+    const ask = async (source: ReturnType<typeof makeDaV3AnalysisSource>) => {
+      const d = {
+        analysisRepo: makeDaRoutingAnalysisRepo(makeUnconfiguredAnalysisRepo(), source),
+      };
+      return [
+        await analysisStats(d, { scope }),
+        await analysisSeries(d, { scope, measure: 'valueAwardedSum', bucket: 'month' }),
+        await analysisBreakdown(d, { scope, dimension: 'cpvDivision', topN: 3, rankBy: 'value' }),
+      ];
+    };
+    const current = await ask(makeDaV3AnalysisSource(db));
+    const statements: string[] = [];
+    const logged = new Kysely<ProdDatabase>({
+      dialect: new PostgresDialect({
+        pool: new pg.Pool({ connectionString: container.getConnectionUri(), max: 2 }),
+      }),
+      log: (event) => {
+        if (event.level === 'query') statements.push(event.query.sql);
+      },
+    });
+    await sql`alter table procurement_v3.da_rollup_supplier_month
+      rename column supplier_ref to supplier_key`.execute(db);
+    try {
+      const earlier = await ask(makeDaV3AnalysisSource(logged));
+      expect(earlier.every((answer) => answer.isOk())).toBe(true);
+      expect(earlier).toEqual(current);
+      expect(statements.some((text) => text.includes('da_rollup_supplier_month'))).toBe(false);
+    } finally {
+      await sql`alter table procurement_v3.da_rollup_supplier_month
+        rename column supplier_key to supplier_ref`.execute(db);
+      await logged.destroy();
+    }
+  });
+
   it('reads the quality verdict from da_release when the platform publishes it, equal to live', async () => {
     if (db === undefined) throw new Error('no database');
     const liveGen = (await makeDaV3AnalysisSource(db).generation())._unsafeUnwrap();

@@ -139,11 +139,26 @@ interface Ctx {
 }
 
 /** Which rollups exist and are readable: absent ones are read live, so nothing depends on them. */
+/**
+ * The readable rollups. A supplier-keyed rollup counts only on the supplier_ref
+ * schema: it must carry `supplier_ref` and supplier_privacy its `supplier_id`.
+ * A table still on an earlier shape is skipped, so those reads stay live.
+ */
 const probeRollups = async (trx: Db): Promise<ReadonlySet<string>> => {
   const names = [...DA_V3_ROLLUPS.map((r) => r.table), 'da_rollup_distinct', BUYER_GEOGRAPHY];
+  const supplierKeyed = DA_V3_ROLLUPS.filter((r) => r.keys.includes('supplier')).map(
+    (r) => r.table
+  );
+  const schema = `${DA_RELEASE_SCHEMA}.`;
+  const hasColumn = (table: Sql, column: string) => sql`exists (
+      select 1 from pg_attribute a
+      where a.attrelid = ${table} and a.attname = ${column} and a.attnum > 0 and not a.attisdropped)`;
   const result = await sql<{ name: string }>`
     select n as name from unnest(${names}::text[]) n
-    where coalesce(has_table_privilege(to_regclass(${`${DA_RELEASE_SCHEMA}.`} || n), 'SELECT'), false)`.execute(
+    where coalesce(has_table_privilege(to_regclass(${schema} || n), 'SELECT'), false)
+      and (not (n = any(${supplierKeyed}::text[]))
+           or (${hasColumn(sql`to_regclass(${schema} || n)`, 'supplier_ref')}
+               and ${hasColumn(sql`to_regclass(${`${schema}supplier_privacy`})`, 'supplier_id')}))`.execute(
     trx
   );
   return new Set(result.rows.map((row) => row.name));
