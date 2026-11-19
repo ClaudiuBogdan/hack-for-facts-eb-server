@@ -235,7 +235,9 @@ money_geo.
 - **Fiscal-code form.** procurement_v3 codes have no leading zeros, while legacy rows and clients may keep them
   (procurement-prod measured this on June 2025). Every code a client sends to a v3 surface is compared without
   leading zeros, and the public-supplier set accepts either form, so a legacy key still matches its public company.
-  Served keys are the platform's form.
+  Zeros drop only while the code is at most 10 digits, a CUI's length. A longer padded string (`0000014399840`) is
+  no company code and matches nothing. Every narrowed public set compares the same way (`FiscalCodeSet`). Served
+  keys are the platform's form.
 - **Query shapes for the live reads** (procurement-prod's workshop timings, 18–19 Nov):
   - a buyer or supplier scope filters purchases by `(source_name, party id) in (select … from da_parties where
 party_kind = … and fiscal_code_status = 'valid' and fiscal_code_clean = $1)`, never on the joined party row
