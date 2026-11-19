@@ -3,6 +3,7 @@
  * one snapshot per request with every read inside it (dataAsOf first), input
  * validation, the disabled path, and the per-dataAsOf totals cache.
  */
+import { ok } from 'neverthrow';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -76,6 +77,30 @@ describe('one snapshot per request', () => {
       dataAsOf: null,
       privacyEnforced: false,
       privacyAsOf: null,
+    });
+  });
+});
+
+describe('status privacy key', () => {
+  it('reads privacyAsOf after the release snapshot, so a slow snapshot cannot return an older key', async () => {
+    const log: SnapshotLog = { opened: 0, reads: [] };
+    const deps = {
+      repo: makeFakeDaRepo({ log }),
+      supplierDisclosure: {
+        enforced: true,
+        publicSupplierCodes: () => Promise.resolve(ok(new Set<string>())),
+        // What the port would answer at this moment: before or after the snapshot read.
+        privacyAsOf: () =>
+          Promise.resolve(
+            ok(log.reads.some((read) => read.method === 'dataAsOf') ? 'after' : 'before')
+          ),
+      },
+    };
+    expect(await daReleaseStatus(deps)).toEqual({
+      enabled: true,
+      dataAsOf: DATA_AS_OF,
+      privacyEnforced: true,
+      privacyAsOf: 'after',
     });
   });
 });

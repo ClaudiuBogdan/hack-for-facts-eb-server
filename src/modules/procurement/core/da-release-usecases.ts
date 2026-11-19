@@ -219,13 +219,18 @@ const mapAll = <R, V>(
 export const daReleaseStatus = async (deps: DaReleaseDeps): Promise<DaReleaseStatus> => {
   const disclosure = deps.supplierDisclosure;
   const privacyEnforced = disclosure?.enforced === true;
+  const release = deps.repo.enabled
+    ? await inSnapshot(deps, (_reader, envelope) => Promise.resolve(ok(envelope)))
+    : null;
+  // The privacy key is read LAST, after every other wait: a value read before a
+  // slow snapshot could reach the client after a later request already returned a
+  // newer one, rolling its cache key back to a publication that names a supplier
+  // the newer one withholds. The port never serves an older one than it has served.
   const privacy =
     disclosure !== undefined && privacyEnforced ? await disclosure.privacyAsOf() : undefined;
   const privacyAsOf = privacy?.isOk() === true ? privacy.value : null;
-  if (!deps.repo.enabled) return { enabled: false, dataAsOf: null, privacyEnforced, privacyAsOf };
-  const result = await inSnapshot(deps, (_reader, envelope) => Promise.resolve(ok(envelope)));
-  return result.isOk()
-    ? { enabled: true, dataAsOf: result.value.dataAsOf, privacyEnforced, privacyAsOf }
+  return release?.isOk() === true
+    ? { enabled: true, dataAsOf: release.value.dataAsOf, privacyEnforced, privacyAsOf }
     : { enabled: false, dataAsOf: null, privacyEnforced, privacyAsOf };
 };
 
