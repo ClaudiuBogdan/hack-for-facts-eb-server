@@ -237,7 +237,10 @@ money_geo.
   leading zeros, and the public-supplier set accepts either form, so a legacy key still matches its public company.
   Zeros drop only while the code is at most 10 digits, a CUI's length. A longer padded string (`0000014399840`) is
   no company code and matches nothing. Every narrowed public set compares the same way (`FiscalCodeSet`). Served
-  keys are the platform's form.
+  keys are the platform's form. procurement-prod measured the legacy supplier keys on 19 Nov (35.3M rows): no code
+  falls outside `^[0-9]{1,10}$`, so the rule withholds no public company. 1,419 rows (145 codes) are padded within
+  10 digits and still match. No CHECK constraint enforces the shape; the loader's transform and this rule do. The
+  data-platform serving contract states the same rule (docs f0dbc4fc).
 - **Query shapes for the live reads** (procurement-prod's workshop timings, 18–19 Nov):
   - a buyer or supplier scope filters purchases by `(source_name, party id) in (select … from da_parties where
 party_kind = … and fiscal_code_status = 'valid' and fiscal_code_clean = $1)`, never on the joined party row
