@@ -419,6 +419,7 @@ export const registerRedesignSurface = async (
 
   const kernel = await makeKernel({
     ...deps.kernelConfig,
+    logger: deps.kernelConfig.logger ?? app.log,
     // Site-wide D6 has its own switch, independent of the DA release flag.
     supplierDisclosureEnforced: deps.procurement?.supplierDisclosureEnforced === true,
   });

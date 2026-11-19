@@ -12,7 +12,9 @@
  *
  * Fails closed. An absent schema, table or release row, or any read error,
  * yields an EMPTY set: every supplier is withheld. An absent source is cached
- * briefly so a missing table is not re-probed on every request.
+ * briefly so a missing table is not re-probed on every request. A publication
+ * older than one this process already served (a replica behind another) is
+ * also withheld, and logged: the served `privacyAsOf` never goes backwards.
  *
  * Also here: the flows decorator that withholds a non-public code's
  * direct-acquisition money (its own DA totals are personal data even without
@@ -45,6 +47,13 @@ const DIRECT_ACQUISITION_FLOW = 'direct_acquisition';
 /** The public codes, in the platform's form (no leading zeros). */
 const EMPTY: ReadonlySet<string> = new FiscalCodeSet();
 
+/** The structured logger the port warns on (pino, Fastify's `app.log` or console). */
+interface DisclosureLog {
+  warn(obj: unknown, msg?: string): void;
+}
+
+const WITHHELD = (loadedAt: number): Loaded => ({ asOf: null, codes: EMPTY, loadedAt });
+
 interface Loaded {
   readonly asOf: string | null;
   readonly codes: ReadonlySet<string>;
@@ -54,9 +63,17 @@ interface Loaded {
 export const makeSupplierDisclosureRepo = (
   db: Kysely<ProdDatabase>,
   enforced: boolean,
-  now: () => number = Date.now
+  now: () => number = Date.now,
+  log: DisclosureLog = console
 ): SupplierDisclosurePort => {
   let cached: Loaded | null = null;
+  /**
+   * The newest publication served by this process. `asOf` is fixed-width ISO UTC
+   * (`YYYY-MM-DDTHH:MM:SS.ffffffZ`), so string order is time order.
+   */
+  let newest: string | null = null;
+  /** The last (read, served) pair warned about, so a lagging replica logs once. */
+  let warned: string | null = null;
   /** The newest shared load; joinable only while `reading` is false. */
   let open: { readonly state: { reading: boolean }; readonly loaded: Promise<Loaded> } | null =
     null;
@@ -77,13 +94,12 @@ export const makeSupplierDisclosureRepo = (
                      false
                    ) as privacy`.execute(trx);
           const tables = present.rows[0];
-          if (tables?.release !== true || !tables.privacy)
-            return { asOf: null, codes: EMPTY, loadedAt: now() };
+          if (tables?.release !== true || !tables.privacy) return WITHHELD(now());
           const release = await sql<{ as_of: string | null }>`
             select to_char(max(data_as_of) at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as as_of
             from ${sql.table(`${SCHEMA}.da_release`)}`.execute(trx);
           const asOf = release.rows[0]?.as_of ?? null;
-          if (asOf === null) return { asOf: null, codes: EMPTY, loadedAt: now() };
+          if (asOf === null) return WITHHELD(now());
           if (cached?.asOf === asOf) return { ...cached, loadedAt: now() };
           const rows = await sql<{ code: string }>`
             select fiscal_code_clean as code from ${sql.table(`${SCHEMA}.supplier_privacy`)}
@@ -96,7 +112,7 @@ export const makeSupplierDisclosureRepo = (
         });
     } catch {
       // Unreadable: withhold everyone, and retry after the absent TTL.
-      return { asOf: null, codes: EMPTY, loadedAt: now() };
+      return WITHHELD(now());
     }
   };
 
@@ -121,11 +137,25 @@ export const makeSupplierDisclosureRepo = (
   /**
    * The current set: reuse it while data_as_of is unchanged; an absent source for
    * ABSENT_TTL_MS (that answer withholds everyone, so reusing it is fail-closed).
-   * A `fresh` call starts its own load and shares none.
+   * A `fresh` call starts its own load and shares none. A load that read an
+   * older publication than one already served withholds everyone (it may come
+   * from a lagging replica, or have started before a publish another load saw).
    */
   const current = async (fresh: boolean): Promise<Loaded> => {
     if (cached?.asOf === null && now() - cached.loadedAt < ABSENT_TTL_MS) return cached;
     const got = await (fresh ? load() : shared());
+    if (got.asOf !== null && newest !== null && got.asOf < newest) {
+      const pair = `${got.asOf}<${newest}`;
+      if (warned !== pair) {
+        warned = pair;
+        log.warn(
+          { component: 'supplier-disclosure', readAsOf: got.asOf, servedAsOf: newest },
+          'D6: read an older supplier_privacy publication than already served; withholding every supplier'
+        );
+      }
+      return WITHHELD(got.loadedAt);
+    }
+    if (got.asOf !== null) newest = got.asOf;
     cached = got;
     return got;
   };
@@ -259,14 +289,15 @@ export const withSearchDisclosure = (
  */
 export const makeDisclosedReadRepos = (
   db: Kysely<ProdDatabase>,
-  enforced: boolean
+  enforced: boolean,
+  log: DisclosureLog = console
 ): {
   readonly supplierDisclosure: SupplierDisclosurePort;
   readonly flowsRepo: FlowsRepo;
   readonly documentRepo: DocumentRepo;
   readonly searchRepo: SearchRepo;
 } => {
-  const supplierDisclosure = makeSupplierDisclosureRepo(db, enforced);
+  const supplierDisclosure = makeSupplierDisclosureRepo(db, enforced, Date.now, log);
   return {
     supplierDisclosure,
     flowsRepo: withSupplierDisclosure(makeFlowsRepo(db), supplierDisclosure),

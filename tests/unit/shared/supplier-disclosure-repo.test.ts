@@ -150,6 +150,38 @@ describe('supplier disclosure port', () => {
     expect(captured.filter((query) => query.sql.includes('max(data_as_of)'))).toHaveLength(2);
   });
 
+  it('withholds everyone, and warns once, when a load reads an older publication than one served', async () => {
+    const newer = '2026-11-19T03:10:00.000000Z';
+    const older = '2026-11-18T03:10:00.000000Z';
+    const world = { tables: true, asOf: newer, codes: ['14399840'], fail: false };
+    const warnings: unknown[] = [];
+    const captured: CapturedQuery[] = [];
+    const db = makeCapturingDb(captured, {
+      respond: (text) => {
+        if (text.includes('to_regclass')) return [{ release: true, privacy: true }];
+        if (text.includes('max(data_as_of)')) return [{ as_of: world.asOf }];
+        if (text.includes('where public is true')) return world.codes.map((code) => ({ code }));
+        return [];
+      },
+    });
+    const disclosure = makeSupplierDisclosureRepo(db, true, () => 0, {
+      warn: (obj) => warnings.push(obj),
+    });
+    expect((await disclosure.privacyAsOf())._unsafeUnwrap()).toBe(newer);
+    // A replica behind the one that served `newer` still names the supplier.
+    world.asOf = older;
+    expect((await disclosure.privacyAsOf())._unsafeUnwrap()).toBeNull();
+    expect((await disclosure.publicSupplierCodes())._unsafeUnwrap().size).toBe(0);
+    expect((await disclosure.publicSupplierCodes({ fresh: true }))._unsafeUnwrap().size).toBe(0);
+    expect(warnings).toEqual([
+      { component: 'supplier-disclosure', readAsOf: older, servedAsOf: newer },
+    ]);
+    // Caught up: served again, and the withheld answer was never cached as absent.
+    world.asOf = newer;
+    expect((await disclosure.privacyAsOf())._unsafeUnwrap()).toBe(newer);
+    expect((await disclosure.publicSupplierCodes())._unsafeUnwrap().has('14399840')).toBe(true);
+  });
+
   it('re-probes an absent source only after its TTL', async () => {
     const world = { tables: false, asOf: 'a', codes: ['9'], fail: false };
     const clock = { t: 0 };

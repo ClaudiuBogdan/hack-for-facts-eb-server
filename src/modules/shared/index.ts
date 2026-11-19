@@ -76,7 +76,7 @@ export interface KernelConfig {
   readonly cacheMaxEntries?: number;
   /** Meili indexes the global search queries by default. */
   readonly meiliIndexes?: readonly string[];
-  /** Optional structured logger for boot-time warnings (e.g. Meili host unset). */
+  /** Optional structured logger for boot-time and D6 warnings (e.g. Meili host unset). */
   readonly logger?: Logger;
   /**
    * Site-wide D6 for direct-acquisition suppliers (PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED):
@@ -163,7 +163,8 @@ export const makeKernel = async (config: KernelConfig): Promise<Kernel> => {
   // through the D6-gated composition.
   const { supplierDisclosure, flowsRepo, documentRepo, searchRepo } = makeDisclosedReadRepos(
     db,
-    config.supplierDisclosureEnforced === true
+    config.supplierDisclosureEnforced === true,
+    config.logger ?? console
   );
 
   // Prefer the search-only key (read paths shouldn't carry the master key);
