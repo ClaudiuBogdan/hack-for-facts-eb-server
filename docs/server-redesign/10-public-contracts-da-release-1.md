@@ -128,7 +128,13 @@ With the flag off:
   that can recur after a named answer (a grant revoked, restored and revoked again), and a page read while access
   was restored can carry it.
 - **Every answer that can name a DA supplier carries its key** (`meta.disclosureKey`, client review 10, 19 Nov):
-  - analysis: every DA block and records page (above); null on other grains;
+  - analysis: every DA block and records page (above); null on other grains. On the ClickHouse DA grain (v3 off,
+    D6 on) the key is the generation's, and an answer whose D6 decision (a supplier scope, a supplier breakdown,
+    records) was made under another state is not served under it: a retryable `SERVICE_UNAVAILABLE` (repeat the
+    request). Reads that make no D6 decision are unaffected. The scope echo (`canonicalScope`, MCP `query.scope`)
+    names a supplier only when the set that lists it public comes from the publication every one of the answer's
+    blocks can be keyed by (the request generation and each per-grain source, such as the v3 DA grain); otherwise
+    it says `withheld`;
   - release: `ProcurementDaPurchasePage`, `ProcurementDaPurchaseDetail`, `ProcurementDaTotalsAnswer` (GraphQL
     `meta { disclosureKey }`, REST and MCP `meta.disclosureKey`). The key is the snapshot's `dataAsOf` when
     supplier_privacy was readable in it, else `unavailable`. These reads follow the v3 after-read rule: answered only
@@ -140,7 +146,9 @@ With the flag off:
     after-read rule), or of the decision that refused or narrowed it up front; `off` while D6 is not enforced;
     `unavailable` when no publication was readable, or when the answer was scrubbed by checks that read different
     states (a publish, or supplier_privacy coming back, between them): such an answer matches neither exactly;
-  - every key follows the monotonic rule below. The legacy MCP search tool's cursor list carries no key yet.
+  - the legacy MCP search tool (`search_procurement_direct_acquisitions`) carries `meta.disclosureKey`, chosen as
+    for the legacy reads above;
+  - every key follows the monotonic rule below.
 - **v3 analysis cache:** entries are keyed by build. One statement probes the build and the supplier_privacy grant, so
   a publish cannot fall between them. Every v3 read, cached or not, is answered only if its build is still current
   after the read and, when the read could name suppliers, supplier_privacy is still readable; otherwise the request
@@ -148,10 +156,11 @@ With the flag off:
   the server already knows is stale. A fill that fails this check is not
   kept. Identical concurrent misses share one read.
 - **MCP final check:** `aggregate_procurement` runs a fresh D6 check after the whole answer is built. If it withholds
-  the scoped supplier, the answer is re-read once (the whole-page rule) and echoed as `withheld`. The re-read starts
-  after the check, so its own D6 decisions read a publication at least as new: it names the supplier only if that
-  publication lists it public (the check itself may have found supplier_privacy unreadable). A supplier public at the
-  check is echoed and served as read.
+  the scoped supplier, or comes from another publication than the answer's DA keys, the answer is re-read once (the
+  whole-page rule) and echoed as `withheld`. The re-read starts after the check, so its own D6 decisions read a
+  publication at least as new: it names the supplier only if that publication lists it public (the check itself may
+  have found supplier_privacy unreadable). A supplier public at the check, under the answer's own key, is echoed and
+  served as read.
 - **Monotonic keys (client contract, root, 19 Nov):** `privacyAsOf` and a dated `disclosureKey` are publication
   timestamps and only move forward. A client keeps the newest it has seen, per surface. It never caches a response
   whose key is older than that, and never re-keys its cache to an older key. The network can deliver an older
@@ -308,9 +317,8 @@ and over-withholding go here rather than into another round:
 - **v3 fill across privacy states:** a fill read while supplier_privacy was unreadable can be joined or kept after
   access returns, which over-withholds until the next publish. Carry the snapshot's privacy state and require it on
   join and store.
-- **disclosureKey precision:** the key comes from the generation lookup, not from the fact snapshot or the final
-  check. Clients never cache `unavailable` (above), and published keys only move forward, so this is not a leak.
-  Carrying the decided state into the response would make the key exact.
+- **disclosureKey precision:** resolved 19 Nov. Every served key is the state the answer's D6 decision was made
+  under (above).
 - **Warm ClickHouse failure** fails a mixed request (residual above). Make source-read failures abstain per grain.
 
 From the rollup timings (procurement-prod, 5 runs of the b4037b6e page set on the workshop build, 19 Nov). Root ruled
