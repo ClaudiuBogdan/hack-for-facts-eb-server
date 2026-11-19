@@ -113,6 +113,43 @@ describe('supplier disclosure port', () => {
     expect(releaseReads(fresh.captured)).toBe(2);
   });
 
+  it('a call after a publish never joins a load that read the publication before it', async () => {
+    const before = '2026-11-18T03:10:00.000000Z';
+    const after = '2026-11-19T03:10:00.000000Z';
+    const world = { asOf: before, codes: ['14399840'] };
+    const holder: { port?: SupplierDisclosurePort } = {};
+    let later: Promise<unknown[]> | undefined;
+    const captured: CapturedQuery[] = [];
+    const db = makeCapturingDb(captured, {
+      respond: (text) => {
+        if (text.includes('to_regclass')) return [{ release: true, privacy: true }];
+        if (text.includes('max(data_as_of)')) return [{ as_of: world.asOf }];
+        if (!text.includes('where public is true')) return [];
+        const rows = world.codes.map((code) => ({ code }));
+        if (later === undefined && holder.port !== undefined) {
+          // The first load has read; the nightly publish withholds the supplier and
+          // commits; then a status request and a supplier check arrive.
+          world.asOf = after;
+          world.codes = [];
+          const port = holder.port;
+          later = Promise.all([port.privacyAsOf(), port.publicSupplierCodes()]);
+        }
+        return rows;
+      },
+    });
+    const disclosure = makeSupplierDisclosureRepo(db, true);
+    holder.port = disclosure;
+    expect((await disclosure.privacyAsOf())._unsafeUnwrap()).toBe(before);
+    const [asOf, codes] = (await later) as [
+      Awaited<ReturnType<SupplierDisclosurePort['privacyAsOf']>>,
+      Awaited<ReturnType<SupplierDisclosurePort['publicSupplierCodes']>>,
+    ];
+    expect(asOf._unsafeUnwrap()).toBe(after);
+    expect(codes._unsafeUnwrap().has('14399840')).toBe(false);
+    // The two later calls arrived together and shared one load.
+    expect(captured.filter((query) => query.sql.includes('max(data_as_of)'))).toHaveLength(2);
+  });
+
   it('re-probes an absent source only after its TTL', async () => {
     const world = { tables: false, asOf: 'a', codes: ['9'], fail: false };
     const clock = { t: 0 };

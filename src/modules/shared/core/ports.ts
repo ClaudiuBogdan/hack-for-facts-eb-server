@@ -126,7 +126,8 @@ export interface SupplierDisclosurePort {
   /**
    * The publication the current set comes from (`da_release.data_as_of`, ISO UTC),
    * or null when the source is absent or unreadable (everyone withheld). Clients key
-   * caches by it so a withheld name disappears within one publish.
+   * caches by it so a withheld name disappears within one publish. Never older than
+   * a publication committed before the call (no shared load that already read).
    */
   privacyAsOf(): Promise<Result<string | null, ApiError>>;
 }

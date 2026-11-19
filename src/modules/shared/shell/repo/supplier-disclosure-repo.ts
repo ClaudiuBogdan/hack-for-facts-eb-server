@@ -6,8 +6,9 @@
  * The set is rewritten in the nightly publish together with
  * `procurement_v3.da_release.data_as_of`, so it is cached per `data_as_of`: each
  * call reads that one timestamp and reloads the set only when it moved. Both
- * reads share one read-only repeatable-read snapshot. Concurrent reloads share
- * one load.
+ * reads share one read-only repeatable-read snapshot. Concurrent calls share a
+ * load only until it starts reading: a call never joins a load whose snapshot
+ * may predate the call, so it sees every publication committed before it began.
  *
  * Fails closed. An absent schema, table or release row, or any read error,
  * yields an EMPTY set: every supplier is withheld. An absent source is cached
@@ -56,14 +57,18 @@ export const makeSupplierDisclosureRepo = (
   now: () => number = Date.now
 ): SupplierDisclosurePort => {
   let cached: Loaded | null = null;
-  let inflight: Promise<Loaded> | null = null;
+  /** The newest shared load; joinable only while `reading` is false. */
+  let open: { readonly state: { reading: boolean }; readonly loaded: Promise<Loaded> } | null =
+    null;
 
-  const load = async (): Promise<Loaded> => {
+  /** `onRead` runs before the first statement, i.e. before the snapshot is taken. */
+  const load = async (onRead: () => void = () => undefined): Promise<Loaded> => {
     try {
       return await db
         .transaction()
         .setIsolationLevel('repeatable read')
         .execute(async (trx) => {
+          onRead();
           await sql`set transaction read only`.execute(trx);
           const present = await sql<{ release: boolean; privacy: boolean }>`
             select to_regclass(${`${SCHEMA}.da_release`}) is not null as release,
@@ -96,23 +101,33 @@ export const makeSupplierDisclosureRepo = (
   };
 
   /**
+   * A load the caller may share: the open one while it has not started reading
+   * (its snapshot will be taken after this call began), otherwise a new one. A
+   * load that already read may hold the publication before a publish the caller
+   * observed (e.g. a status request right after the nightly publish).
+   */
+  const shared = (): Promise<Loaded> => {
+    if (open !== null && !open.state.reading) return open.loaded;
+    const state = { reading: false };
+    const loaded = load(() => {
+      state.reading = true;
+    }).finally(() => {
+      if (open?.loaded === loaded) open = null;
+    });
+    open = { state, loaded };
+    return loaded;
+  };
+
+  /**
    * The current set: reuse it while data_as_of is unchanged; an absent source for
    * ABSENT_TTL_MS (that answer withholds everyone, so reusing it is fail-closed).
-   * A `fresh` call starts its own load instead of joining one already in flight,
-   * which may have read the publication before the caller's facts.
+   * A `fresh` call starts its own load and shares none.
    */
   const current = async (fresh: boolean): Promise<Loaded> => {
     if (cached?.asOf === null && now() - cached.loadedAt < ABSENT_TTL_MS) return cached;
-    if (fresh) {
-      const own = await load();
-      cached = own;
-      return own;
-    }
-    inflight ??= load().finally(() => {
-      inflight = null;
-    });
-    cached = await inflight;
-    return cached;
+    const got = await (fresh ? load() : shared());
+    cached = got;
+    return got;
   };
 
   return {
