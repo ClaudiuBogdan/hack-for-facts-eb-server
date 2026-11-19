@@ -105,6 +105,29 @@ describe('status privacy key', () => {
   });
 });
 
+describe('release disclosure key and settling', () => {
+  it('every answer carries the key it was served under: its dataAsOf, or unavailable', async () => {
+    const named = { repo: makeFakeDaRepo() };
+    expect((await listDaPurchases(named, PAGE))._unsafeUnwrap().disclosureKey).toBe(DATA_AS_OF);
+    expect((await getDaPurchase(named, firstId))._unsafeUnwrap().disclosureKey).toBe(DATA_AS_OF);
+    expect((await daPurchaseTotals(named, PAGE))._unsafeUnwrap().disclosureKey).toBe(DATA_AS_OF);
+    const unreadable = { repo: makeFakeDaRepo({ supplierPrivacyTable: false }) };
+    expect((await listDaPurchases(unreadable, PAGE))._unsafeUnwrap().disclosureKey).toBe(
+      'unavailable'
+    );
+  });
+
+  it('settles every read that can name a supplier, but not the status', async () => {
+    const log: SnapshotLog = { opened: 0, reads: [], settled: [] };
+    const deps = { repo: makeFakeDaRepo({ log }) };
+    await listDaPurchases(deps, PAGE);
+    await getDaPurchase(deps, firstId);
+    await daPurchaseTotals(deps, { groupBy: 'supplier', ...PAGE });
+    await daReleaseStatus(deps);
+    expect(log.settled).toEqual([true, true, true, false]);
+  });
+});
+
 describe('disabled', () => {
   it('refuses every read without opening a snapshot and reports enabled=false', async () => {
     const log: SnapshotLog = { opened: 0, reads: [] };

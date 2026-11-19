@@ -469,6 +469,16 @@ export const procurementTypeDefs = /* GraphQL */ `
     highlights: [ProcurementSearchHighlight!]
     provenance: ProcurementSearchProvenance
   }
+  """
+  The D6 state an answer naming direct-acquisition suppliers was served under. disclosureKey is
+  off (D6 not enforced), unavailable (no supplier_privacy publication readable: everyone withheld;
+  never cache), or the supplier_privacy publication (ISO UTC). Dated keys only move forward: keep
+  the newest seen, never cache an answer with an older key and never re-key to one.
+  """
+  type ProcurementDisclosureMeta {
+    disclosureKey: String
+  }
+
   type ProcurementDirectAcquisitionsPage {
     total: Int
     totalEstimated: Boolean!
@@ -477,6 +487,8 @@ export const procurementTypeDefs = /* GraphQL */ `
     "Match fragments, for a \`q\` page the engine served."
     highlights: [ProcurementSearchHighlight!]
     provenance: ProcurementSearchProvenance
+    "D6: the key this answer was served under (docs 10, monotonic keys)."
+    meta: ProcurementDisclosureMeta!
   }
   type ProcurementModificationsPage {
     total: Int
@@ -610,6 +622,8 @@ export const procurementTypeDefs = /* GraphQL */ `
     "Null unless detailAvailability is AVAILABLE."
     detail: ProcurementDaDetail
     detailAvailability: ProcurementDetailAvailability!
+    "D6: the key this answer was served under (docs 10, monotonic keys)."
+    meta: ProcurementDisclosureMeta!
   }
 
   # ── analysis surface (design §5 — one scope, six shapes, rollup-backed) ──────
@@ -1002,6 +1016,8 @@ export const procurementTypeDefs = /* GraphQL */ `
     total: Int
     edges: [ProcurementRecordEdge!]!
     pageInfo: ProcurementPageInfo!
+    "D6: the key this answer was served under (docs 10, monotonic keys)."
+    meta: ProcurementDisclosureMeta!
   }
 
   # ── meta ────────────────────────────────────────────────────────────────────

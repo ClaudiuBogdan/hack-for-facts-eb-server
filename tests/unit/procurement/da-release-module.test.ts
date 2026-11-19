@@ -3,10 +3,12 @@
  * always present beside the legacy surface; MCP tools only when enabled; the
  * legacy direct-acquisition query is still served.
  */
+import fastifyLib from 'fastify';
 import { describe, expect, it } from 'vitest';
 
+import { makeGraphQLPlugin } from '@/infra/graphql/index.js';
 import { makeProcurementModule } from '@/modules/procurement/index.js';
-import { baseTypeDefs, mergeGraphqlSlices } from '@/modules/shared/index.js';
+import { baseTypeDefs, mergeGraphqlSlices, scalarResolvers } from '@/modules/shared/index.js';
 
 import { makeCapturingDb } from '../../fixtures/capturing-db.js';
 
@@ -52,5 +54,54 @@ describe('procurement module with the DA release', () => {
     expect(names).toEqual(
       expect.arrayContaining([...DA_TOOLS, 'search_procurement_direct_acquisitions'])
     );
+  });
+});
+
+describe('the module serves release meta over GraphQL (its own resolver wiring)', () => {
+  it('a release page carries meta.disclosureKey through makeProcurementModule', async () => {
+    const AS_OF = '2026-11-19T03:10:00.000000Z';
+    const module = makeProcurementModule({
+      db: makeCapturingDb([], {
+        respond: (text) => {
+          if (text.includes('as privacy')) return [{ as_of: AS_OF, privacy: true }];
+          if (text.includes('has_table_privilege')) return [{ present: true }];
+          if (text.includes('as data_as_of')) return [{ data_as_of: AS_OF }];
+          if (text.includes('as as_of')) return [{ as_of: AS_OF }];
+          if (text.includes('as total')) return [{ total: '0' }];
+          return [];
+        },
+      }),
+      warmCache: false,
+      daV3Enabled: true,
+    });
+    const { typeDefs } = mergeGraphqlSlices(baseTypeDefs, [module.graphqlSlice]);
+    const app = fastifyLib({ logger: false });
+    try {
+      await app.register(
+        makeGraphQLPlugin({
+          schema: [typeDefs],
+          resolvers: [{ ...scalarResolvers, ...module.graphqlResolvers }],
+          isProduction: false,
+          enableGraphiQL: false,
+        })
+      );
+      await app.ready();
+      const res = await app.inject({
+        method: 'POST',
+        url: '/graphql',
+        headers: { 'content-type': 'application/json' },
+        payload: JSON.stringify({
+          query: '{ procurementDaPurchases(pageSize: 1) { dataAsOf meta { disclosureKey } } }',
+        }),
+      });
+      const body = res.json<{ data?: Record<string, unknown>; errors?: unknown }>();
+      expect(body.errors, res.body).toBeUndefined();
+      expect(body.data?.['procurementDaPurchases']).toEqual({
+        dataAsOf: AS_OF,
+        meta: { disclosureKey: AS_OF },
+      });
+    } finally {
+      await app.close();
+    }
   });
 });

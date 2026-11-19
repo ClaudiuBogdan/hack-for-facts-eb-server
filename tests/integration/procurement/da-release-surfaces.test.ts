@@ -393,3 +393,70 @@ describe('disabled', () => {
     });
   });
 });
+
+describe('release disclosure keys (docs 10, monotonic keys)', () => {
+  const keysOn = async (s: Surfaces) => {
+    const id = PURCHASES[1]?.purchaseId ?? '';
+    const g = await gql(
+      s,
+      `query($id: ID!) {
+        procurementDaPurchases(pageSize: 5) { meta { disclosureKey } }
+        procurementDaPurchase(purchaseId: $id) { meta { disclosureKey } }
+        procurementDaTotals(groupBy: supplier) { meta { disclosureKey } }
+      }`,
+      { id }
+    );
+    expect(g.body.errors, g.raw).toBeUndefined();
+    const fromGql = ['procurementDaPurchases', 'procurementDaPurchase', 'procurementDaTotals'].map(
+      (field) => (g.body.data?.[field] as { meta: { disclosureKey: string } }).meta.disclosureKey
+    );
+    const fromRest = await Promise.all(
+      [
+        '/purchases?pageSize=5',
+        `/purchases/lookup?purchaseId=${id}`,
+        '/totals?groupBy=supplier',
+      ].map(
+        async (url) =>
+          ((await rest(s, url)).body['meta'] as { disclosureKey: string }).disclosureKey
+      )
+    );
+    const fromMcp = await Promise.all(
+      (
+        [
+          ['list_procurement_da_purchases', { pageSize: 5 }],
+          ['get_procurement_da_purchase', { purchaseId: id }],
+          ['aggregate_procurement_da_totals', { groupBy: 'supplier' }],
+        ] as const
+      ).map(
+        async ([tool, args]) =>
+          ((await callTool(s.deps, tool, args)).content['meta'] as { disclosureKey: string })
+            .disclosureKey
+      )
+    );
+    return { fromGql, fromRest, fromMcp };
+  };
+
+  it('a list page, a detail and totals carry the key they were served under, on every surface', async () => {
+    const surfaces = await build({});
+    try {
+      const keys = await keysOn(surfaces);
+      expect(keys.fromGql).toEqual([DATA_AS_OF, DATA_AS_OF, DATA_AS_OF]);
+      expect(keys.fromRest).toEqual(keys.fromGql);
+      expect(keys.fromMcp).toEqual(keys.fromGql);
+    } finally {
+      await surfaces.app.close();
+    }
+  });
+
+  it('reads unavailable without supplier_privacy (everyone withheld; never cache)', async () => {
+    const surfaces = await build({ supplierPrivacyTable: false });
+    try {
+      const keys = await keysOn(surfaces);
+      expect(keys.fromGql).toEqual(['unavailable', 'unavailable', 'unavailable']);
+      expect(keys.fromRest).toEqual(keys.fromGql);
+      expect(keys.fromMcp).toEqual(keys.fromGql);
+    } finally {
+      await surfaces.app.close();
+    }
+  });
+});

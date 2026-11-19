@@ -62,11 +62,37 @@ export const withoutLeadingZeros = (code: string): string =>
  * codes, including one narrowed by a later check, is one of these, so each
  * decision compares codes the same way.
  */
-export class FiscalCodeSet extends Set<string> {
+export class FiscalCodeSet extends Set<string> implements PublicSupplierCodes {
+  /**
+   * The supplier_privacy publication the set was read from (ISO UTC); null when
+   * none was readable (everyone withheld); undefined when not a published set.
+   */
+  readonly asOf: string | null | undefined;
+
+  constructor(codes?: Iterable<string>, asOf?: string | null) {
+    super(codes);
+    this.asOf = asOf;
+  }
+
   override has(code: string): boolean {
     return super.has(withoutLeadingZeros(code));
   }
 }
+
+/**
+ * The public supplier codes and the publication they were read from: an answer
+ * scrubbed with this set is served under `disclosureKeyOf(set)`.
+ */
+export interface PublicSupplierCodes extends ReadonlySet<string> {
+  readonly asOf?: string | null | undefined;
+}
+
+/**
+ * The D6 key an answer was served under: the publication's timestamp, or
+ * `unavailable` (no publication readable: everyone withheld; never cache).
+ */
+export const disclosureKeyOf = (codes: PublicSupplierCodes): string =>
+  typeof codes.asOf === 'string' ? codes.asOf : 'unavailable';
 
 export const normalizeCui = (raw: string): Cui | null => {
   const result = raw

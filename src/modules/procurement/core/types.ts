@@ -298,6 +298,11 @@ export interface DirectAcquisitionDetail {
   readonly duplicates: readonly DuplicateRef[];
   readonly detail: DaDetailBody | null;
   readonly detailAvailability: DaDetailAvailability;
+  /**
+   * D6: the key this answer was served under (the supplier_privacy publication,
+   * or `unavailable`); absent while D6 is off. Clients apply doc 10's monotonic rule.
+   */
+  readonly disclosureKey?: string;
 }
 
 // ── offset search (the client contract) ────────────────────────────────────────
@@ -354,6 +359,11 @@ export interface OffsetSearchResult<T> {
   /** Present only for a `q` page the engine served; one entry per matched item. */
   readonly highlights?: readonly SearchHighlight[];
   readonly provenance?: SearchProvenance;
+  /**
+   * D6: the key this answer was served under (the supplier_privacy publication,
+   * or `unavailable`); absent while D6 is off. Clients apply doc 10's monotonic rule.
+   */
+  readonly disclosureKey?: string;
 }
 
 /** The parsed, validated offset page request. */
@@ -382,6 +392,11 @@ export interface SupplierRecordConnection {
   readonly edges: readonly SupplierRecordEdge[];
   readonly hasNextPage: boolean;
   readonly endCursor: string | null;
+  /**
+   * D6: the key this answer was served under (the supplier_privacy publication,
+   * or `unavailable`); absent while D6 is off. Clients apply doc 10's monotonic rule.
+   */
+  readonly disclosureKey?: string;
 }
 
 // ── reference / discovery ──────────────────────────────────────────────────────

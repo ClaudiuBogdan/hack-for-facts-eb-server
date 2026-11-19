@@ -27,7 +27,7 @@ import { ok, type Result } from 'neverthrow';
 import { makeDocumentRepo } from './document-repo.js';
 import { makeFlowsRepo } from './flows-repo.js';
 import { makeSearchRepo } from './search-repo.js';
-import { FiscalCodeSet } from '../../core/types.js';
+import { FiscalCodeSet, type PublicSupplierCodes } from '../../core/types.js';
 
 import type { ApiError } from '../../core/errors.js';
 import type {
@@ -45,7 +45,9 @@ const ABSENT_TTL_MS = 60_000;
 const DIRECT_ACQUISITION_FLOW = 'direct_acquisition';
 
 /** The public codes, in the platform's form (no leading zeros). */
-const EMPTY: ReadonlySet<string> = new FiscalCodeSet();
+const EMPTY: PublicSupplierCodes = new FiscalCodeSet([], null);
+/** D6 off: no publication applies. */
+const OFF: PublicSupplierCodes = new FiscalCodeSet();
 
 /** The structured logger the port warns on (pino, Fastify's `app.log` or console). */
 interface DisclosureLog {
@@ -56,7 +58,7 @@ const WITHHELD = (loadedAt: number): Loaded => ({ asOf: null, codes: EMPTY, load
 
 interface Loaded {
   readonly asOf: string | null;
-  readonly codes: ReadonlySet<string>;
+  readonly codes: PublicSupplierCodes;
   readonly loadedAt: number;
 }
 
@@ -106,7 +108,10 @@ export const makeSupplierDisclosureRepo = (
             where public is true and fiscal_code_clean is not null`.execute(trx);
           return {
             asOf,
-            codes: new FiscalCodeSet(rows.rows.map((row) => row.code)),
+            codes: new FiscalCodeSet(
+              rows.rows.map((row) => row.code),
+              asOf
+            ),
             loadedAt: now(),
           };
         });
@@ -162,8 +167,8 @@ export const makeSupplierDisclosureRepo = (
 
   return {
     enforced,
-    publicSupplierCodes: async (options): Promise<Result<ReadonlySet<string>, ApiError>> => {
-      if (!enforced) return ok(EMPTY);
+    publicSupplierCodes: async (options): Promise<Result<PublicSupplierCodes, ApiError>> => {
+      if (!enforced) return ok(OFF);
       return ok((await current(options?.fresh === true)).codes);
     },
     privacyAsOf: async (): Promise<Result<string | null, ApiError>> => {

@@ -158,7 +158,12 @@ describe('legacy DA disclosure, enforced', () => {
       page: 1,
       pageSize: 10,
     } as never);
-    expect(search._unsafeUnwrap()).toEqual({ items: [], total: 0, estimated: false });
+    expect(search._unsafeUnwrap()).toEqual({
+      items: [],
+      total: 0,
+      estimated: false,
+      disclosureKey: 'unavailable', // the fake port carries no publication
+    });
   });
 
   it('refuses free-text search and supplier geography, and drops highlights', async () => {
@@ -275,5 +280,81 @@ describe('legacy DA disclosure, not enforced', () => {
       })
     ).toBe(repo);
     expect(withDaDisclosure(repo, undefined)).toBe(repo);
+  });
+});
+
+describe('legacy DA disclosure keys (docs 10, monotonic keys)', () => {
+  const P1 = '2026-11-18T03:10:00.000000Z';
+  const P2 = '2026-11-19T03:10:00.000000Z';
+  type Read = readonly [codes: readonly string[], asOf: string | null];
+  /** Up-front checks read `before`; the final (fresh) check reads `after`. */
+  const dated = (before: Read, after: Read = before) =>
+    ({
+      enforced: true,
+      privacyAsOf: () => Promise.resolve(ok(after[1])),
+      publicSupplierCodes: (options?: { readonly fresh?: boolean }) => {
+        const [codes, asOf] = options?.fresh === true ? after : before;
+        return Promise.resolve(ok(new FiscalCodeSet(codes, asOf)));
+      },
+    }) satisfies SupplierDisclosurePort;
+  const listPage = (port: SupplierDisclosurePort) =>
+    withDaDisclosure(fakeRepo().repo, port).searchDirectAcquisitionsOffset(
+      { authorityCui: '4305857' },
+      { page: 1, pageSize: 10 } as never
+    );
+
+  it('a DA list page carries the publication it was scrubbed under', async () => {
+    const page = (await listPage(dated([[COMPANY], P2])))._unsafeUnwrap();
+    expect(page.disclosureKey).toBe(P2);
+    expect(page.items[0]?.supplierCui).toBe(COMPANY);
+  });
+
+  it('a page scrubbed across two states is unavailable (never cached under either)', async () => {
+    // Read while supplier_privacy was unreadable, checked once it was back: withheld, not dated.
+    const restored = (await listPage(dated([[], null], [[COMPANY], P2])))._unsafeUnwrap();
+    expect(restored.items[0]?.supplierCui).toBeNull();
+    expect(restored.disclosureKey).toBe('unavailable');
+    // Authorised under one publication, checked under the next.
+    const crossing = (await listPage(dated([[COMPANY], P1], [[COMPANY], P2])))._unsafeUnwrap();
+    expect(crossing.disclosureKey).toBe('unavailable');
+  });
+
+  it('a page refused up front carries the publication that refused it', async () => {
+    const page = await withDaDisclosure(
+      fakeRepo().repo,
+      dated([[COMPANY], P1], [[COMPANY], P2])
+    ).searchDirectAcquisitionsOffset({ supplierCui: SOLE_TRADER }, {
+      page: 1,
+      pageSize: 10,
+    } as never);
+    expect(page._unsafeUnwrap()).toMatchObject({ items: [], disclosureKey: P1 });
+  });
+
+  it('a DA detail carries the publication of its final check', async () => {
+    const detail = await withDaDisclosure(
+      fakeRepo().repo,
+      dated([[COMPANY], P1], [[COMPANY], P2])
+    ).getDirectAcquisitionDetail('1');
+    expect(detail._unsafeUnwrap()?.disclosureKey).toBe(P2);
+  });
+
+  it('supplier records carry the publication of the decision that shaped them', async () => {
+    const records = (before: Read, after: Read) =>
+      withDaDisclosure(fakeRepo().repo, dated(before, after)).supplierRecords(
+        COMPANY,
+        10,
+        undefined,
+        false
+      );
+    // Public throughout one publication: that publication.
+    expect((await records([[COMPANY], P2], [[COMPANY], P2]))._unsafeUnwrap().disclosureKey).toBe(
+      P2
+    );
+    // Withheld up front: contracts only, under the publication that withheld it.
+    expect((await records([[], P1], [[], P2]))._unsafeUnwrap().disclosureKey).toBe(P1);
+    // Withheld by the final check after a publish: contracts only, not dated.
+    const crossing = (await records([[COMPANY], P1], [[], P2]))._unsafeUnwrap();
+    expect(crossing.edges).toEqual([]);
+    expect(crossing.disclosureKey).toBe('unavailable');
   });
 });

@@ -24,6 +24,7 @@ import type {
   OrgIdentifier,
   OrgNameMatch,
   Organization,
+  PublicSupplierCodes,
   SearchHit,
   SearchHitCompany,
   Siruta,
@@ -122,7 +123,7 @@ export interface SupplierDisclosurePort {
    */
   publicSupplierCodes(options?: {
     readonly fresh?: boolean;
-  }): Promise<Result<ReadonlySet<string>, ApiError>>;
+  }): Promise<Result<PublicSupplierCodes, ApiError>>;
   /**
    * The publication the current set comes from (`da_release.data_as_of`, ISO UTC),
    * or null when the source is absent or unreadable (everyone withheld). Clients key

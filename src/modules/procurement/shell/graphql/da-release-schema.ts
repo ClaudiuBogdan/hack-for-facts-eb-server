@@ -156,6 +156,15 @@ export const daReleaseTypeDefs = /* GraphQL */ `
     quantityCorrection: Boolean
   }
 
+  """
+  The D6 state a release answer was served under. disclosureKey is the release's dataAsOf when
+  supplier_privacy was readable in its snapshot, else unavailable (everyone withheld; never cache).
+  Dated keys only move forward: keep the newest seen, never cache an answer with an older key.
+  """
+  type ProcurementDaReleaseMeta {
+    disclosureKey: String
+  }
+
   type ProcurementDaPurchasePage {
     items: [ProcurementDaPurchase!]!
     page: Int!
@@ -166,6 +175,8 @@ export const daReleaseTypeDefs = /* GraphQL */ `
     hasMore: Boolean!
     dataAsOf: DateTime!
     countedValueBasis: String!
+    "D6: the key this answer was served under (docs 10, monotonic keys)."
+    meta: ProcurementDaReleaseMeta!
   }
 
   type ProcurementDaPurchaseDetail {
@@ -174,6 +185,8 @@ export const daReleaseTypeDefs = /* GraphQL */ `
     items: [ProcurementDaPurchaseItem!]!
     dataAsOf: DateTime!
     countedValueBasis: String!
+    "D6: the key this answer was served under (docs 10, monotonic keys)."
+    meta: ProcurementDaReleaseMeta!
   }
 
   "Totals of a scope: only countedValue is a sum; counts are integers as text."
@@ -225,6 +238,8 @@ export const daReleaseTypeDefs = /* GraphQL */ `
     hasMore: Boolean!
     dataAsOf: DateTime!
     countedValueBasis: String!
+    "D6: the key this answer was served under (docs 10, monotonic keys)."
+    meta: ProcurementDaReleaseMeta!
   }
 
   """
@@ -291,6 +306,15 @@ interface PageArgs {
 
 const pageOf = (args: PageArgs) => ({ page: args.page ?? 1, pageSize: args.pageSize ?? 20 });
 
+/**
+ * The envelope's D6 key as the GraphQL meta object, built in the Query resolvers
+ * themselves: the procurement module merges only `Query` from this factory.
+ */
+const withMeta = <T extends { readonly disclosureKey: string }>(answer: T) => ({
+  ...answer,
+  meta: { disclosureKey: answer.disclosureKey },
+});
+
 export const makeDaReleaseResolvers = (deps: DaReleaseDeps) => ({
   Query: {
     procurementDaRelease: () => daReleaseStatus(deps),
@@ -298,25 +322,29 @@ export const makeDaReleaseResolvers = (deps: DaReleaseDeps) => ({
       _root: unknown,
       args: PageArgs & { filter?: unknown; sort?: string | null }
     ) =>
-      unwrap(
-        await listDaPurchases(deps, {
-          filter: withoutNulls(args.filter),
-          sort: args.sort ?? null,
-          ...pageOf(args),
-        })
+      withMeta(
+        unwrap(
+          await listDaPurchases(deps, {
+            filter: withoutNulls(args.filter),
+            sort: args.sort ?? null,
+            ...pageOf(args),
+          })
+        )
       ),
     procurementDaPurchase: async (_root: unknown, args: { purchaseId: string }) =>
-      unwrap(await getDaPurchase(deps, args.purchaseId)),
+      withMeta(unwrap(await getDaPurchase(deps, args.purchaseId))),
     procurementDaTotals: async (
       _root: unknown,
       args: PageArgs & { filter?: unknown; groupBy?: string | null }
     ) =>
-      unwrap(
-        await daPurchaseTotals(deps, {
-          filter: withoutNulls(args.filter),
-          groupBy: args.groupBy ?? null,
-          ...pageOf(args),
-        })
+      withMeta(
+        unwrap(
+          await daPurchaseTotals(deps, {
+            filter: withoutNulls(args.filter),
+            groupBy: args.groupBy ?? null,
+            ...pageOf(args),
+          })
+        )
       ),
   },
 });

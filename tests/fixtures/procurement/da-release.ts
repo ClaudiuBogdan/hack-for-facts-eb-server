@@ -249,6 +249,8 @@ export interface SnapshotLog {
   opened: number;
   /** Each read, tagged with the snapshot it ran in and whether that snapshot was still open. */
   readonly reads: { readonly snapshot: number; readonly method: string; readonly open: boolean }[];
+  /** Per snapshot opened: whether it asked to be settled (the after-read rule). */
+  readonly settled?: boolean[];
 }
 
 /** The fake's version of the SQL D6 predicate, used ONLY for filtering (as the SQL is). */
@@ -308,8 +310,9 @@ export const makeFakeDaRepo = (options: FakeDaRepoOptions = {}): DaReleaseRepo =
   const log = options.log ?? { opened: 0, reads: [] };
   return {
     enabled: options.enabled ?? true,
-    snapshot: async (read) => {
+    snapshot: async (read, snapshotOptions) => {
       log.opened += 1;
+      log.settled?.push(snapshotOptions?.settle === true);
       const id = log.opened;
       let open = true;
       const note = (method: string) => log.reads.push({ snapshot: id, method, open });

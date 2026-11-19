@@ -287,6 +287,16 @@ export const makeProcurementResolvers = (
     return { filter, page, facets };
   };
 
+  /**
+   * The D6 key a legacy DA answer was served under: the decorator's final
+   * decision; `off` while D6 is not enforced (no decorator); `unavailable` if
+   * an enforced answer carries none (never cached).
+   */
+  const metaOf = (answer: { readonly disclosureKey?: string }) => ({
+    disclosureKey:
+      answer.disclosureKey ?? (deps.supplierDisclosure?.enforced === true ? 'unavailable' : 'off'),
+  });
+
   const analysisScope = (raw: RawAnalysisScopeInput | null | undefined) =>
     unwrap(translateAnalysisScope(raw));
 
@@ -314,7 +324,8 @@ export const makeProcurementResolvers = (
       procurementDirectAcquisitions: async (_r: unknown, a: SearchArgs) => {
         // The DA filter's `publicationDate` facet binds to `finalization_date`.
         const { filter, page, facets } = searchArgs(a, 'publicationDate', 'direct_acquisitions');
-        return toPage(unwrap(await repo.searchDirectAcquisitionsOffset(filter, page, facets)));
+        const result = unwrap(await repo.searchDirectAcquisitionsOffset(filter, page, facets));
+        return { ...toPage(result), meta: metaOf(result) };
       },
       procurementModifications: async (_r: unknown, a: SearchArgs) => {
         const { filter, page } = searchArgs(a, 'modificationDate', 'modifications');
@@ -329,7 +340,8 @@ export const makeProcurementResolvers = (
         return unwrap(await getContractDetail(repo, a.id));
       },
       procurementDirectAcquisition: async (_r: unknown, a: { id: string }) => {
-        return unwrap(await getDirectAcquisitionBundle(repo, a.id));
+        const bundle = unwrap(await getDirectAcquisitionBundle(repo, a.id));
+        return bundle === null ? null : { ...bundle, meta: metaOf(bundle) };
       },
 
       // ── analysis surface (one scope, six shapes; design §5.3) ───────────────
@@ -475,6 +487,7 @@ export const makeProcurementResolvers = (
           total: connection.total,
           edges: connection.edges.map((edge) => ({ cursor: edge.cursor, node: nodeOf(edge.node) })),
           pageInfo: { hasNextPage: connection.hasNextPage, endCursor: connection.endCursor },
+          meta: metaOf(connection),
         };
       },
 

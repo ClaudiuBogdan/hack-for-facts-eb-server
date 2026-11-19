@@ -14,13 +14,16 @@ import { makeGraphQLPlugin } from '@/infra/graphql/index.js';
 import { makeProcurementResolvers } from '@/modules/procurement/shell/graphql/resolvers.js';
 import { procurementTypeDefs } from '@/modules/procurement/shell/graphql/typedefs.js';
 import { withDaDisclosure } from '@/modules/procurement/shell/repo/da-disclosure-repo.js';
+import { FiscalCodeSet, type SupplierDisclosurePort } from '@/modules/shared/index.js';
 
 import type { AnalysisRepo, ProcurementRepo } from '@/modules/procurement/core/ports.js';
 import type {
   DirectAcquisitionDetail,
   ProcurementDirectAcquisition,
 } from '@/modules/procurement/core/types.js';
-import type { SupplierDisclosurePort } from '@/modules/shared/index.js';
+
+/** The supplier_privacy publication the fake port's set was read from. */
+const PUBLISHED = '2026-11-19T03:10:00.000000Z';
 
 const KERNEL_STUB_SDL = /* GraphQL */ `
   scalar Date
@@ -83,6 +86,22 @@ const build = async (enforced: boolean): Promise<FastifyInstance> => {
           }))
         )
       ),
+    searchDirectAcquisitionsOffset: () =>
+      Promise.resolve(ok({ items: [ROWS['1']], total: 1, estimated: false })),
+    supplierRecords: () =>
+      Promise.resolve(
+        ok({
+          total: null,
+          hasNextPage: false,
+          endCursor: null,
+          edges: [
+            {
+              cursor: 'c1',
+              node: { grain: 'direct_acquisition', directAcquisition: ROWS['1'] },
+            },
+          ],
+        })
+      ),
     getDirectAcquisitionDetail: (id: string) =>
       Promise.resolve(
         ok({
@@ -96,7 +115,7 @@ const build = async (enforced: boolean): Promise<FastifyInstance> => {
   const disclosure: SupplierDisclosurePort = {
     enforced,
     privacyAsOf: () => Promise.resolve(ok(null)),
-    publicSupplierCodes: () => Promise.resolve(ok(new Set(['14399840']))),
+    publicSupplierCodes: () => Promise.resolve(ok(new FiscalCodeSet(['14399840'], PUBLISHED))),
   };
   const repo = withDaDisclosure(base, disclosure);
   const instance = fastifyLib({ logger: false });
@@ -104,10 +123,11 @@ const build = async (enforced: boolean): Promise<FastifyInstance> => {
     makeGraphQLPlugin({
       schema: [KERNEL_STUB_SDL, procurementTypeDefs],
       resolvers: [
-        makeProcurementResolvers({ repo, analysis: {} as AnalysisRepo }) as unknown as Record<
-          string,
-          never
-        >,
+        makeProcurementResolvers({
+          repo,
+          analysis: {} as AnalysisRepo,
+          supplierDisclosure: disclosure,
+        }) as unknown as Record<string, never>,
       ],
       isProduction: false,
       enableGraphiQL: false,
@@ -173,5 +193,52 @@ describe('legacy DA GraphQL with D6 off', () => {
       titleWithheld: null,
       supplier: { cui: '30254716', name: 'SECRET POPESCU ION PFA', displayKind: null },
     });
+  });
+});
+
+describe('legacy DA GraphQL disclosure keys (docs 10, monotonic keys)', () => {
+  const KEYS = /* GraphQL */ `
+    query {
+      procurementDirectAcquisitions(pageSize: 5) {
+        meta {
+          disclosureKey
+        }
+      }
+      procurementDirectAcquisition(id: "1") {
+        meta {
+          disclosureKey
+        }
+      }
+      procurementSupplierRecords(supplierCui: "14399840", first: 5) {
+        meta {
+          disclosureKey
+        }
+        edges {
+          cursor
+        }
+      }
+    }
+  `;
+  const keysOf = (body: { data?: Record<string, unknown> }) =>
+    [
+      'procurementDirectAcquisitions',
+      'procurementDirectAcquisition',
+      'procurementSupplierRecords',
+    ].map(
+      (field) => (body.data?.[field] as { meta: { disclosureKey: string } }).meta.disclosureKey
+    );
+
+  it('every legacy DA list page, detail and supplier-records page carries its publication', async () => {
+    app = await build(true);
+    const { body } = await post(app, KEYS);
+    expect(body.errors).toBeUndefined();
+    expect(keysOf(body)).toEqual([PUBLISHED, PUBLISHED, PUBLISHED]);
+  });
+
+  it('reads off while D6 is not enforced', async () => {
+    app = await build(false);
+    const { body } = await post(app, KEYS);
+    expect(body.errors).toBeUndefined();
+    expect(keysOf(body)).toEqual(['off', 'off', 'off']);
   });
 });

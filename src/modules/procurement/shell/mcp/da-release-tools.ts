@@ -91,13 +91,22 @@ export const makeDaReleaseMcpTools = (deps: DaReleaseDeps): readonly KernelMcpTo
       const sort = typeof args['sort'] === 'string' ? args['sort'] : null;
       const result = await listDaPurchases(deps, { filter, sort, ...pageOf(args) });
       if (result.isErr()) return failure(kind, result.error);
-      const { items, total, totalCapped, hasMore, dataAsOf, countedValueBasis } = result.value;
+      const { items, total, totalCapped, hasMore, dataAsOf, countedValueBasis, disclosureKey } =
+        result.value;
       return {
         ok: true,
         kind,
         query,
         items,
-        meta: { ...pageOf(args), total, totalCapped, hasMore, dataAsOf, countedValueBasis },
+        meta: {
+          ...pageOf(args),
+          total,
+          totalCapped,
+          hasMore,
+          dataAsOf,
+          countedValueBasis,
+          disclosureKey,
+        },
         summary: `${totalCapped ? 'More than ' : ''}${String(total)} direct acquisition(s); page ${String(query.page)} shows ${String(items.length)}. Data as of ${dataAsOf}.`,
       };
     },
@@ -117,6 +126,7 @@ export const makeDaReleaseMcpTools = (deps: DaReleaseDeps): readonly KernelMcpTo
         kind,
         query: { purchaseId },
         item: result.value,
+        meta: { disclosureKey: result.value.disclosureKey },
         summary: `Direct acquisition ${result.value.purchase.code ?? purchaseId}: reported ${result.value.purchase.reportedValue ?? 'no value'}, ${result.value.purchase.counted ? `counted ${result.value.purchase.countedValue ?? ''}` : 'not counted'}. Data as of ${result.value.dataAsOf}.`,
       };
     },
@@ -139,6 +149,7 @@ export const makeDaReleaseMcpTools = (deps: DaReleaseDeps): readonly KernelMcpTo
         kind,
         query,
         item: answer,
+        meta: { disclosureKey: answer.disclosureKey },
         summary: `Counted ${answer.overall.countedValue ?? '0'} ${answer.countedValueBasis} over ${answer.overall.countedCount} of ${answer.overall.purchaseCount} purchase(s)${groupBy === null ? '' : `; ${String(answer.groupCount)} ${groupBy} group(s)`}. Data as of ${answer.dataAsOf}.`,
       };
     },

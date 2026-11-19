@@ -79,7 +79,14 @@ export interface DaReleaseReader {
 export interface DaReleaseRepo {
   /** False when PROCUREMENT_DA_V3_ENABLED is off: every snapshot refuses without a query. */
   readonly enabled: boolean;
+  /**
+   * One read-only snapshot. With `settle`, a read that succeeded is answered only
+   * if, after it, the release is still the one it read and, when supplier_privacy
+   * was readable in it, still readable; otherwise a retryable unavailable error
+   * (the release was republished, repeat the request).
+   */
   snapshot<T>(
-    read: (reader: DaReleaseReader) => Promise<Result<T, ApiError>>
+    read: (reader: DaReleaseReader) => Promise<Result<T, ApiError>>,
+    options?: { readonly settle?: boolean }
   ): Promise<Result<T, ApiError>>;
 }

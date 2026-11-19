@@ -355,3 +355,65 @@ describe('results and faults', () => {
     expect(read).toBe(type);
   });
 });
+
+describe('settled snapshots (the after-read rule)', () => {
+  const P1 = '2026-11-18T03:10:00.000000Z';
+  const P2 = '2026-11-19T03:10:00.000000Z';
+  /** One read; `after` changes the world once the read is done (a publish, a revoked grant). */
+  const settledRead = async (
+    world: { asOf: string; privacy: boolean },
+    after: (world: { asOf: string; privacy: boolean }) => void,
+    settle: boolean
+  ) => {
+    const db = makeCapturingDb([], {
+      respond: (text) => {
+        if (text.includes('as privacy')) return [{ as_of: world.asOf, privacy: world.privacy }];
+        if (text.includes('has_table_privilege')) return [{ present: world.privacy }];
+        if (text.includes('as data_as_of')) return [{ data_as_of: world.asOf }];
+        if (text.includes('as as_of')) return [{ as_of: world.asOf }];
+        return [];
+      },
+    });
+    return makeDaReleaseRepo(db, true).snapshot(
+      async (reader) => {
+        const asOf = await reader.dataAsOf();
+        after(world);
+        return asOf;
+      },
+      { settle }
+    );
+  };
+  /** The retryable answer: ServiceUnavailable (503 / SERVICE_UNAVAILABLE), "repeat the request". */
+  const republished = (result: {
+    isErr: () => boolean;
+    _unsafeUnwrapErr: () => { type: string; message: string };
+  }) =>
+    result.isErr() &&
+    result._unsafeUnwrapErr().type === 'ServiceUnavailable' &&
+    result._unsafeUnwrapErr().message.includes('republished');
+
+  it('answers when nothing moved', async () => {
+    const read = await settledRead({ asOf: P1, privacy: true }, () => undefined, true);
+    expect(read._unsafeUnwrap()).toBe(P1);
+  });
+
+  it('refuses (retryable) a read a publish overtook', async () => {
+    const read = await settledRead({ asOf: P1, privacy: true }, (w) => (w.asOf = P2), true);
+    expect(republished(read)).toBe(true);
+  });
+
+  it('refuses a read that could name suppliers once the grant is revoked', async () => {
+    const read = await settledRead({ asOf: P1, privacy: true }, (w) => (w.privacy = false), true);
+    expect(republished(read)).toBe(true);
+  });
+
+  it('answers a read made with supplier_privacy unreadable (everyone withheld)', async () => {
+    const read = await settledRead({ asOf: P1, privacy: false }, () => undefined, true);
+    expect(read._unsafeUnwrap()).toBe(P1);
+  });
+
+  it('does not settle an unsettled snapshot (the status)', async () => {
+    const read = await settledRead({ asOf: P1, privacy: true }, (w) => (w.asOf = P2), false);
+    expect(read._unsafeUnwrap()).toBe(P1);
+  });
+});

@@ -63,6 +63,12 @@ export interface DaReleaseDeps {
 export interface DaEnvelope {
   readonly dataAsOf: string;
   readonly countedValueBasis: typeof DA_COUNTED_VALUE_BASIS;
+  /**
+   * D6: the key the answer was served under. Suppliers are named in SQL against
+   * supplier_privacy in the same snapshot, so it is the snapshot's dataAsOf, or
+   * `unavailable` when supplier_privacy is unreadable (everyone withheld).
+   */
+  readonly disclosureKey: string;
 }
 
 export interface DaReleaseStatus {
@@ -188,19 +194,31 @@ const isEmptyFilter = (filter: DaPurchaseFilter): boolean =>
 const disabled = (): ApiError =>
   serviceUnavailable('Direct acquisitions release 1 is not enabled on this server.');
 
-/** Open the request's one snapshot and read its dataAsOf first. */
+/**
+ * Open the request's one snapshot and read its dataAsOf first. A read that can
+ * name suppliers is `settle`d: answered only if the release and the
+ * supplier_privacy grant still hold after it (the v3 after-read rule).
+ */
 const inSnapshot = async <T>(
   deps: DaReleaseDeps,
-  read: (reader: DaReleaseReader, envelope: DaEnvelope) => Promise<Result<T, ApiError>>
+  read: (reader: DaReleaseReader, envelope: DaEnvelope) => Promise<Result<T, ApiError>>,
+  settle = true
 ): Promise<Result<T, ApiError>> => {
   if (!deps.repo.enabled) return err(disabled());
-  return deps.repo.snapshot(async (reader) => {
-    const asOf = await reader.dataAsOf();
-    if (asOf.isErr()) return err(asOf.error);
-    if (asOf.value === null)
-      return err(serviceUnavailable('Direct acquisitions release 1 holds no data yet.'));
-    return read(reader, { dataAsOf: asOf.value, countedValueBasis: DA_COUNTED_VALUE_BASIS });
-  });
+  return deps.repo.snapshot(
+    async (reader) => {
+      const asOf = await reader.dataAsOf();
+      if (asOf.isErr()) return err(asOf.error);
+      if (asOf.value === null)
+        return err(serviceUnavailable('Direct acquisitions release 1 holds no data yet.'));
+      return read(reader, {
+        dataAsOf: asOf.value,
+        countedValueBasis: DA_COUNTED_VALUE_BASIS,
+        disclosureKey: reader.supplierPrivacyTable() ? asOf.value : 'unavailable',
+      });
+    },
+    { settle }
+  );
 };
 
 const mapAll = <R, V>(
@@ -220,7 +238,8 @@ export const daReleaseStatus = async (deps: DaReleaseDeps): Promise<DaReleaseSta
   const disclosure = deps.supplierDisclosure;
   const privacyEnforced = disclosure?.enforced === true;
   const release = deps.repo.enabled
-    ? await inSnapshot(deps, (_reader, envelope) => Promise.resolve(ok(envelope)))
+    ? // The status names no supplier: it is not settled.
+      await inSnapshot(deps, (_reader, envelope) => Promise.resolve(ok(envelope)), false)
     : null;
   // The privacy key is read LAST, after every other wait: a value read before a
   // slow snapshot could reach the client after a later request already returned a

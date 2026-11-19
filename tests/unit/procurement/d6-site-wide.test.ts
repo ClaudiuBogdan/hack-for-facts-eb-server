@@ -256,7 +256,12 @@ describe('legacy DA reads across a publish', () => {
       sort: 'relevance',
     } as never);
     // Withheld by the final check: no ids, total or facets tied to the supplier.
-    expect(search._unsafeUnwrap()).toEqual({ items: [], total: 0, estimated: false });
+    expect(search._unsafeUnwrap()).toEqual({
+      items: [],
+      total: 0,
+      estimated: false,
+      disclosureKey: 'unavailable', // the fake port carries no publication
+    });
   });
 });
 

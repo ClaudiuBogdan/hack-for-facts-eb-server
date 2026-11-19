@@ -169,8 +169,17 @@ export const makeDaReleaseRestPlugin =
         ...pageOf(decoded.value),
       });
       if (result.isErr()) return sendError(request, reply, result.error);
-      const { items, page, pageSize, total, totalCapped, hasMore, dataAsOf, countedValueBasis } =
-        result.value;
+      const {
+        items,
+        page,
+        pageSize,
+        total,
+        totalCapped,
+        hasMore,
+        dataAsOf,
+        countedValueBasis,
+        disclosureKey,
+      } = result.value;
       return reply.status(200).send({
         ok: true as const,
         data: items,
@@ -180,6 +189,7 @@ export const makeDaReleaseRestPlugin =
           hasMore,
           dataAsOf,
           countedValueBasis,
+          disclosureKey,
         },
         requestId: request.id,
       });
@@ -193,11 +203,11 @@ export const makeDaReleaseRestPlugin =
         return sendError(request, reply, invalidInput('purchaseId is required', 'purchaseId'));
       const result = await getDaPurchase(deps, purchaseId);
       if (result.isErr()) return sendError(request, reply, result.error);
-      const { dataAsOf, countedValueBasis, ...data } = result.value;
+      const { dataAsOf, countedValueBasis, disclosureKey, ...data } = result.value;
       return reply.status(200).send({
         ok: true as const,
         data,
-        meta: { dataAsOf, countedValueBasis },
+        meta: { dataAsOf, countedValueBasis, disclosureKey },
         requestId: request.id,
       });
     });
@@ -212,12 +222,26 @@ export const makeDaReleaseRestPlugin =
         ...pageOf(decoded.value),
       });
       if (result.isErr()) return sendError(request, reply, result.error);
-      const { dataAsOf, countedValueBasis, page, pageSize, groupCount, hasMore, ...data } =
-        result.value;
+      const {
+        dataAsOf,
+        countedValueBasis,
+        disclosureKey,
+        page,
+        pageSize,
+        groupCount,
+        hasMore,
+        ...data
+      } = result.value;
       return reply.status(200).send({
         ok: true as const,
         data,
-        meta: { page: { page, pageSize, total: groupCount }, hasMore, dataAsOf, countedValueBasis },
+        meta: {
+          page: { page, pageSize, total: groupCount },
+          hasMore,
+          dataAsOf,
+          countedValueBasis,
+          disclosureKey,
+        },
         requestId: request.id,
       });
     });

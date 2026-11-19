@@ -61,6 +61,8 @@ const PARTIES = table('da_parties');
 const RULES = table('da_value_rules');
 const ITEMS = table('da_items');
 const RELEASE = table('da_release');
+/** `data_as_of` as fixed-width ISO UTC (the envelope's dataAsOf). */
+const AS_OF_SQL = sql`to_char(max(data_as_of) at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
 
 const STATEMENT_TIMEOUT_MS = 10_000;
 
@@ -448,7 +450,7 @@ const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
   dataAsOf: () =>
     attempt(async () => {
       const result = await sql<{ data_as_of: string | null }>`
-        select to_char(max(data_as_of) at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as data_as_of
+        select ${AS_OF_SQL} as data_as_of
         from ${RELEASE}`.execute(trx);
       return result.rows[0]?.data_as_of ?? null;
     }),
@@ -640,20 +642,50 @@ const probeColumns = async (trx: Db): Promise<Columns> => {
 const disabled = (): ApiError =>
   serviceUnavailable('Direct acquisitions release 1 is not enabled on this server.');
 
+const REPUBLISHED = (): ApiError =>
+  serviceUnavailable(
+    'direct-acquisition data was republished during this request; repeat the request'
+  );
+
+/** The release and the supplier_privacy grant RIGHT NOW, in one statement. */
+const probeRelease = async (
+  db: Db
+): Promise<{ readonly asOf: string | null; readonly privacy: boolean }> => {
+  const result = await sql<{ as_of: string | null; privacy: boolean | null }>`
+    select ${AS_OF_SQL} as as_of,
+           coalesce(
+             has_table_privilege(to_regclass(${`${DA_RELEASE_SCHEMA}.supplier_privacy`}), 'SELECT'),
+             false
+           ) as privacy
+    from ${RELEASE}`.execute(db);
+  const row = result.rows[0];
+  return { asOf: row?.as_of ?? null, privacy: row?.privacy === true };
+};
+
 export const makeDaReleaseRepo = (db: Db, enabled: boolean): DaReleaseRepo => ({
   enabled,
-  snapshot: async (read) => {
+  snapshot: async (read, options) => {
     if (!enabled) return err(disabled());
     try {
-      return await db
+      const seen = { asOf: null as string | null, privacy: false };
+      const result = await db
         .transaction()
         .setIsolationLevel('repeatable read')
         .execute(async (trx) => {
           await sql`set transaction read only`.execute(trx);
           await sql`set local statement_timeout = ${sql.lit(STATEMENT_TIMEOUT_MS)}`.execute(trx);
           const columns = await probeColumns(trx);
+          if (options?.settle === true) {
+            const release = await sql<{ as_of: string | null }>`
+              select ${AS_OF_SQL} as as_of from ${RELEASE}`.execute(trx);
+            seen.asOf = release.rows[0]?.as_of ?? null;
+            seen.privacy = columns.supplierPrivacy;
+          }
           return read(makeReader(trx, columns));
         });
+      if (options?.settle !== true || result.isErr()) return result;
+      const now = await probeRelease(db);
+      return now.asOf === seen.asOf && (now.privacy || !seen.privacy) ? result : err(REPUBLISHED());
     } catch (error) {
       return err(readError(error));
     }

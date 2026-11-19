@@ -70,6 +70,16 @@ describe('supplier disclosure port', () => {
     expect(codeLoads(captured)).toBe(2);
   });
 
+  it('the set carries the publication it was read from (null when none is readable)', async () => {
+    const world = { tables: true, asOf: '2026-11-18T03:10:00.000000Z', codes: ['1'], fail: false };
+    const { port } = build(world);
+    expect((await port(true).publicSupplierCodes())._unsafeUnwrap().asOf).toBe(world.asOf);
+    const absent = build({ ...world, tables: false });
+    expect((await absent.port(true).publicSupplierCodes())._unsafeUnwrap().asOf).toBeNull();
+    // D6 off: no publication applies.
+    expect((await port(false).publicSupplierCodes())._unsafeUnwrap().asOf).toBeUndefined();
+  });
+
   it.each([
     ['tables absent', { tables: false, asOf: 'a', codes: ['1'], fail: false }],
     ['no release row', { tables: true, asOf: null, codes: ['1'], fail: false }],
