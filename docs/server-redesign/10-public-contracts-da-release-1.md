@@ -110,7 +110,10 @@ With the flag off:
   supplier_privacy in the same snapshot as the data.
 - **Server caches:** keyed by publication, with no purge endpoint.
   - The disclosure set, release totals and v3 analysis answers are keyed by `data_as_of`, and also by the privacy
-    state (present and readable).
+    state (present and readable). The set is reused while `data_as_of` is unchanged, so every write to
+    supplier_privacy must move `da_release.data_as_of` in the same transaction. The data platform enforces this with
+    the deferred constraint trigger `supplier_privacy_moves_release` (defined in procurement-prod b026b40e2, fast-lane
+    `060_da_rollups_tables.sql`; the production procurement_v3 migration will carry it too).
   - The ClickHouse analysis caches are keyed by build, and D6 is applied on read after them.
   - A publish moves the key; flipping a switch is an environment change, so the pods restart and the in-process
     caches start empty.
@@ -124,8 +127,24 @@ With the flag off:
   `unavailable`, or a release answer with `privacyEnforced` true and `privacyAsOf` null. That is the only state
   that can recur after a named answer (a grant revoked, restored and revoked again), and a page read while access
   was restored can carry it.
-- **v3 analysis cache:** entries are keyed by build. A fill whose build stopped being current while it ran is not
-  kept, and identical concurrent misses share one read.
+- **v3 analysis cache:** entries are keyed by build. One statement probes the build and the supplier_privacy grant, so
+  a publish cannot fall between them. Every v3 read, cached or not, is answered only if its build is still current
+  after the read and, when the read could name suppliers, supplier_privacy is still readable; otherwise the request fails as `SERVICE_UNAVAILABLE` ("republished … repeat the request"), never
+  with rows and a key from a publication the server already knows is stale. A fill that fails this check is not
+  kept. Identical concurrent misses share one read.
+- **MCP final check:** `aggregate_procurement` runs a fresh D6 check after the whole answer is built. If it withholds
+  the scoped supplier, the answer is re-read once (the whole-page rule) and echoed as `withheld`. The re-read starts
+  after the check, so its own D6 decisions read a publication at least as new: it names the supplier only if that
+  publication lists it public (the check itself may have found supplier_privacy unreadable). A supplier public at the
+  check is echoed and served as read.
+- **Monotonic keys (client contract, root, 19 Nov):** `privacyAsOf` and a dated `disclosureKey` are publication
+  timestamps and only move forward. A client keeps the newest it has seen, per surface. It never caches a response
+  whose key is older than that, and never re-keys its cache to an older key. The network can deliver an older
+  response after a newer one (a request that began before a publish, or a GraphQL operation whose status field
+  resolved early), so the server cannot guarantee this order by itself. Inside one pod the server never serves an
+  older publication than it already served (an older read withholds everyone and logs), and status reads
+  `privacyAsOf` last. A disclosure load is shared only with calls that arrived before it read. Across pods, see
+  server issue #80 (privacy reads from the primary before any serving standby).
 - **Legacy detail:** the item's catalogue code is withheld too (typed by the source, outside the loader's scan).
 - **Status:** `procurementDaRelease` serves `privacyEnforced` and `privacyAsOf` (the supplier_privacy publication).
   Clients key their caches by (`privacyEnforced`, `privacyAsOf`, `dataAsOf`). `privacyAsOf` is null both when D6 is
