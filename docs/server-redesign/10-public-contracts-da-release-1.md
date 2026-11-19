@@ -127,10 +127,25 @@ With the flag off:
   `unavailable`, or a release answer with `privacyEnforced` true and `privacyAsOf` null. That is the only state
   that can recur after a named answer (a grant revoked, restored and revoked again), and a page read while access
   was restored can carry it.
+- **Every answer that can name a DA supplier carries its key** (`meta.disclosureKey`, client review 10, 19 Nov):
+  - analysis: every DA block and records page (above); null on other grains;
+  - release: `ProcurementDaPurchasePage`, `ProcurementDaPurchaseDetail`, `ProcurementDaTotalsAnswer` (GraphQL
+    `meta { disclosureKey }`, REST and MCP `meta.disclosureKey`). The key is the snapshot's `dataAsOf` when
+    supplier_privacy was readable in it, else `unavailable`. These reads follow the v3 after-read rule: answered only
+    if, after the read, the release is unchanged and, when the read could name suppliers, supplier_privacy is still
+    readable; otherwise a retryable `SERVICE_UNAVAILABLE` (repeat the request). The status is not settled; it names
+    no supplier;
+  - legacy: `ProcurementDirectAcquisitionsPage`, `ProcurementDirectAcquisitionDetail` and the supplier-records
+    `ProcurementRecordConnection`. The key is the publication of the answer's final, fresh D6 decision (the legacy
+    after-read rule), or of the decision that refused or narrowed it up front; `off` while D6 is not enforced;
+    `unavailable` when no publication was readable, or when the answer was scrubbed by checks that read different
+    states (a publish, or supplier_privacy coming back, between them): such an answer matches neither exactly;
+  - every key follows the monotonic rule below. The legacy MCP search tool's cursor list carries no key yet.
 - **v3 analysis cache:** entries are keyed by build. One statement probes the build and the supplier_privacy grant, so
   a publish cannot fall between them. Every v3 read, cached or not, is answered only if its build is still current
-  after the read and, when the read could name suppliers, supplier_privacy is still readable; otherwise the request fails as `SERVICE_UNAVAILABLE` ("republished … repeat the request"), never
-  with rows and a key from a publication the server already knows is stale. A fill that fails this check is not
+  after the read and, when the read could name suppliers, supplier_privacy is still readable; otherwise the request
+  fails as `SERVICE_UNAVAILABLE` ("republished … repeat the request"), never with rows and a key from a publication
+  the server already knows is stale. A fill that fails this check is not
   kept. Identical concurrent misses share one read.
 - **MCP final check:** `aggregate_procurement` runs a fresh D6 check after the whole answer is built. If it withholds
   the scoped supplier, the answer is re-read once (the whole-page rule) and echoed as `withheld`. The re-read starts
