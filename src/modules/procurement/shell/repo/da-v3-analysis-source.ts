@@ -168,11 +168,17 @@ const probeRollups = async (trx: Db): Promise<ReadonlySet<string>> => {
 const BUILD_ID_SQL = sql`(extract(epoch from max(data_as_of)) * 1000000)::bigint::text`;
 const AS_OF_SQL = sql`to_char(max(data_as_of) at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
 
+/** Filled by a read's snapshot: whether supplier_privacy was readable (names possible). */
+interface ReadSeen {
+  privacy: boolean;
+}
+
 const snapshot = async <T>(
   db: Db,
   timeoutMs: number,
   expectBuild: string | null,
-  read: (ctx: Ctx) => Promise<Result<T, ApiError>>
+  read: (ctx: Ctx) => Promise<Result<T, ApiError>>,
+  seen?: ReadSeen
 ): Promise<Result<T, ApiError>> => {
   try {
     return await db
@@ -187,6 +193,7 @@ const snapshot = async <T>(
           if (current.rows[0]?.build_id !== expectBuild) return err(REPUBLISHED());
         }
         const privacy = await probeSupplierPrivacy(trx);
+        if (seen !== undefined) seen.privacy = privacy;
         const rollups = await probeRollups(trx);
         return read({ trx, privacy, rollups });
       });
@@ -719,19 +726,50 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
 
   /** Unfiltered (no authority/supplier) answers are cached per publication; others run live. */
   /**
-   * The publication and privacy state RIGHT NOW (one statement): an entry is
-   * reused, and stored, only while the build is current and supplier_privacy is
-   * readable, checked before the lookup AND after the fill. A race can only make
-   * an answer more withheld than needed, never leak a name.
+   * The publication and privacy state RIGHT NOW, in ONE statement (a publish
+   * cannot fall between the two): whether `build` is still the current build,
+   * and whether supplier_privacy is readable. Unreadable on error.
+   */
+  const probeNow = async (build: string): Promise<{ current: boolean; privacy: boolean }> => {
+    try {
+      const probe = await sql<{ build_id: string | null; privacy: boolean | null }>`
+        select ${BUILD_ID_SQL} as build_id,
+               coalesce(
+                 has_table_privilege(to_regclass(${`${DA_RELEASE_SCHEMA}.supplier_privacy`}), 'SELECT'),
+                 false
+               ) as privacy
+        from ${RELEASE}`.execute(db);
+      const row = probe.rows[0];
+      return { current: row?.build_id === build, privacy: row?.privacy === true };
+    } catch {
+      return { current: false, privacy: false };
+    }
+  };
+
+  /**
+   * An entry is reused, and stored, only while the build is current and
+   * supplier_privacy is readable, checked before the lookup AND after the fill.
    */
   const cacheable = async (build: string): Promise<boolean> => {
-    try {
-      const probe = await sql<{ build_id: string | null }>`
-        select ${BUILD_ID_SQL} as build_id from ${RELEASE}`.execute(db);
-      return probe.rows[0]?.build_id === build && (await probeSupplierPrivacy(db));
-    } catch {
-      return false;
-    }
+    const now = await probeNow(build);
+    return now.current && now.privacy;
+  };
+
+  /**
+   * A read not served from the cache is answered only if, after it, its build is
+   * STILL current and, when it could name suppliers, supplier_privacy is still
+   * readable (a revoked grant withholds everyone). Otherwise the caller repeats
+   * the request: rows and a disclosureKey the server already knows are stale are
+   * never returned.
+   */
+  const settled = async <T>(
+    build: string,
+    result: Result<T, ApiError>,
+    seen: ReadSeen
+  ): Promise<Result<T, ApiError>> => {
+    if (result.isErr()) return result;
+    const now = await probeNow(build);
+    return now.current && (now.privacy || !seen.privacy) ? result : err(REPUBLISHED());
   };
 
   /** Fills in flight, keyed like the cache: identical concurrent misses share one read. */
@@ -741,10 +779,11 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
     build: string,
     scope: AnalysisScope,
     key: unknown,
-    load: () => Promise<Result<T, ApiError>>
+    load: (seen: ReadSeen) => Promise<Result<T, ApiError>>
   ): Promise<Result<T, ApiError>> => {
-    if (!UNFILTERED(scope)) return load();
-    if (!(await cacheable(build))) return load();
+    const seen: ReadSeen = { privacy: false };
+    if (!UNFILTERED(scope)) return settled(build, await load(seen), seen);
+    if (!(await cacheable(build))) return settled(build, await load(seen), seen);
     if (cacheBuild !== build) {
       cache.clear();
       filling.clear();
@@ -757,16 +796,20 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
     const joined = filling.get(cacheKey);
     if (joined !== undefined) return (await joined) as Result<T, ApiError>;
     const fill = (async (): Promise<Result<unknown, ApiError>> => {
-      const result = await load();
-      // Stored only if this build is still the cache's and still current and readable:
-      // an old fill finishing after a publish is never kept.
-      if (result.isOk() && cacheBuild === build && (await cacheable(build))) {
-        if (cache.size >= CACHE_MAX_ENTRIES) {
-          const oldest = cache.keys().next();
-          if (oldest.done !== true) cache.delete(oldest.value);
-        }
-        cache.set(cacheKey, result);
+      const result = await load(seen);
+      if (result.isErr()) return result;
+      // Kept AND returned only if this build is still the cache's and still current and
+      // readable. A fill that a publish overtook is neither kept nor served: its rows
+      // and its disclosureKey belong to a publication the server now knows is stale
+      // (another request may already have served the newer one), so the caller is
+      // told to repeat the request. A re-read here cannot help: the request's build
+      // and disclosureKey were fixed before this read.
+      if (cacheBuild !== build || !(await cacheable(build))) return err(REPUBLISHED());
+      if (cache.size >= CACHE_MAX_ENTRIES) {
+        const oldest = cache.keys().next();
+        if (oldest.done !== true) cache.delete(oldest.value);
       }
+      cache.set(cacheKey, result);
       return result;
     })();
     filling.set(cacheKey, fill);
@@ -887,41 +930,51 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
   };
 
   const statsFor: DaV3AnalysisSource['statsFor'] = (_route, scope, gen) =>
-    cached(gen.buildId, scope, ['stats'], () =>
-      snapshot(db, STATEMENT_TIMEOUT_MS, gen.buildId, async (ctx) => {
-        const c = compile(ctx, scope);
-        if (c.isErr()) return err(c.error);
-        return ok(await readStats(ctx, c.value));
-      })
+    cached(gen.buildId, scope, ['stats'], (seen) =>
+      snapshot(
+        db,
+        STATEMENT_TIMEOUT_MS,
+        gen.buildId,
+        async (ctx) => {
+          const c = compile(ctx, scope);
+          if (c.isErr()) return err(c.error);
+          return ok(await readStats(ctx, c.value));
+        },
+        seen
+      )
     );
 
   const seriesFor: DaV3AnalysisSource['seriesFor'] = (_route, scope, gen, measure) =>
-    cached(gen.buildId, scope, ['series', measure], () =>
-      snapshot(db, STATEMENT_TIMEOUT_MS, gen.buildId, async (ctx) => {
-        const c = compile(ctx, scope);
-        if (c.isErr()) return err(c.error);
-        const f = c.value.facts;
-        const dated = sql`${f.day} is not null`;
-        const valueOf: Partial<Record<MeasureId, Sql>> = {
-          recordCount: sql`(${f.rows(dated)})::text`,
-          withValueCount: sql`(${f.counted(dated)})::text`,
-          valueAwardedSum: countedSum(f, dated),
-        };
-        const value = valueOf[measure];
-        if (value === undefined)
-          return err(
-            invalidInput(
-              `series measure '${measure}' is not served for direct acquisitions`,
-              'measure'
-            )
-          );
-        const result = await sql<{
-          month: string | null;
-          value: string | null;
-          record_count: string;
-          with_value: string;
-          awarded: string | null;
-        }>`
+    cached(gen.buildId, scope, ['series', measure], (seen) =>
+      snapshot(
+        db,
+        STATEMENT_TIMEOUT_MS,
+        gen.buildId,
+        async (ctx) => {
+          const c = compile(ctx, scope);
+          if (c.isErr()) return err(c.error);
+          const f = c.value.facts;
+          const dated = sql`${f.day} is not null`;
+          const valueOf: Partial<Record<MeasureId, Sql>> = {
+            recordCount: sql`(${f.rows(dated)})::text`,
+            withValueCount: sql`(${f.counted(dated)})::text`,
+            valueAwardedSum: countedSum(f, dated),
+          };
+          const value = valueOf[measure];
+          if (value === undefined)
+            return err(
+              invalidInput(
+                `series measure '${measure}' is not served for direct acquisitions`,
+                'measure'
+              )
+            );
+          const result = await sql<{
+            month: string | null;
+            value: string | null;
+            record_count: string;
+            with_value: string;
+            awarded: string | null;
+          }>`
           select ${bucketOf(f.day, 'month')} as month,
                  ${value} as value,
                  (${f.rows(sql`true`)})::text as record_count,
@@ -931,16 +984,18 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
           where ${c.value.where}
           group by 1
           order by 1 asc nulls last`.execute(ctx.trx);
-        return ok(
-          result.rows.map((row) => ({
-            month: row.month,
-            value: row.value,
-            recordCount: row.record_count,
-            withValue: row.with_value,
-            valueAwardedSum: row.awarded,
-          }))
-        );
-      })
+          return ok(
+            result.rows.map((row) => ({
+              month: row.month,
+              value: row.value,
+              recordCount: row.record_count,
+              withValue: row.with_value,
+              valueAwardedSum: row.awarded,
+            }))
+          );
+        },
+        seen
+      )
     );
 
   /**
@@ -1003,32 +1058,36 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
     key,
     bucket
   ) =>
-    cached(gen.buildId, scope, ['distinct', key, bucket], () =>
-      snapshot(db, STATEMENT_TIMEOUT_MS, gen.buildId, async (ctx) => {
-        const dimension = key === 'supplier' ? 'supplier' : 'authority';
-        if (
-          bucket !== 'quarter' &&
-          windowOnly(scope) &&
-          windowAligned(scope, bucket) &&
-          ctx.rollups.has(DISTINCT_ROLLUP)
-        ) {
-          const whole = compile(ctx, scope);
-          if (whole.isErr()) return err(whole.error);
-          if (whole.value.facts.rollup !== null)
-            return ok(await distinctFromRollup(ctx, whole.value, scope, dimension, bucket));
-        }
-        const c = compile(ctx, scope, dimension);
-        if (c.isErr()) return err(c.error);
-        const f = c.value.facts;
-        const keyExpr = dimensionKey(f, dimension);
-        if (keyExpr.isErr()) return err(keyExpr.error);
-        const result = await sql<{
-          bucket: string | null;
-          value: string;
-          record_count: string;
-          with_value: string;
-          awarded: string | null;
-        }>`
+    cached(gen.buildId, scope, ['distinct', key, bucket], (seen) =>
+      snapshot(
+        db,
+        STATEMENT_TIMEOUT_MS,
+        gen.buildId,
+        async (ctx) => {
+          const dimension = key === 'supplier' ? 'supplier' : 'authority';
+          if (
+            bucket !== 'quarter' &&
+            windowOnly(scope) &&
+            windowAligned(scope, bucket) &&
+            ctx.rollups.has(DISTINCT_ROLLUP)
+          ) {
+            const whole = compile(ctx, scope);
+            if (whole.isErr()) return err(whole.error);
+            if (whole.value.facts.rollup !== null)
+              return ok(await distinctFromRollup(ctx, whole.value, scope, dimension, bucket));
+          }
+          const c = compile(ctx, scope, dimension);
+          if (c.isErr()) return err(c.error);
+          const f = c.value.facts;
+          const keyExpr = dimensionKey(f, dimension);
+          if (keyExpr.isErr()) return err(keyExpr.error);
+          const result = await sql<{
+            bucket: string | null;
+            value: string;
+            record_count: string;
+            with_value: string;
+            awarded: string | null;
+          }>`
           select ${bucketOf(f.day, bucket)} as bucket,
                  count(distinct ${keyExpr.value})::text as value,
                  (${f.rows(sql`true`)})::text as record_count,
@@ -1038,17 +1097,19 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
           where ${c.value.where}
           group by 1
           order by 1 asc nulls last`.execute(ctx.trx);
-        return ok(
-          result.rows.map((row) => ({
-            bucket: row.bucket,
-            // The undated bucket's distinct count is never served; one placeholder on both paths.
-            value: row.bucket === null ? '0' : row.value,
-            recordCount: row.record_count,
-            withValue: row.with_value,
-            valueAwardedSum: row.awarded,
-          }))
-        );
-      })
+          return ok(
+            result.rows.map((row) => ({
+              bucket: row.bucket,
+              // The undated bucket's distinct count is never served; one placeholder on both paths.
+              value: row.bucket === null ? '0' : row.value,
+              recordCount: row.record_count,
+              withValue: row.with_value,
+              valueAwardedSum: row.awarded,
+            }))
+          );
+        },
+        seen
+      )
     );
 
   const breakdownFor: DaV3AnalysisSource['breakdownFor'] = (
@@ -1059,28 +1120,32 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
     topN,
     rankBy
   ) =>
-    cached(gen.buildId, scope, ['breakdown', dimension, topN, rankBy], () =>
-      snapshot(db, STATEMENT_TIMEOUT_MS, gen.buildId, async (ctx) => {
-        const c = compile(ctx, scope, dimension);
-        if (c.isErr()) return err(c.error);
-        const f = c.value.facts;
-        const keyR = dimensionKey(f, dimension);
-        if (keyR.isErr()) return err(keyR.error);
-        const key = keyR.value;
-        const totals = await readStats(ctx, c.value);
-        const { dated, where } = c.value;
-        const unknownR = await sql<{ cnt: string; wv: string; awarded: string }>`
+    cached(gen.buildId, scope, ['breakdown', dimension, topN, rankBy], (seen) =>
+      snapshot(
+        db,
+        STATEMENT_TIMEOUT_MS,
+        gen.buildId,
+        async (ctx) => {
+          const c = compile(ctx, scope, dimension);
+          if (c.isErr()) return err(c.error);
+          const f = c.value.facts;
+          const keyR = dimensionKey(f, dimension);
+          if (keyR.isErr()) return err(keyR.error);
+          const key = keyR.value;
+          const totals = await readStats(ctx, c.value);
+          const { dated, where } = c.value;
+          const unknownR = await sql<{ cnt: string; wv: string; awarded: string }>`
           select (${f.rows(dated)})::text as cnt,
                  (${f.counted(dated)})::text as wv,
                  ${bucketSum(f, dated)} as awarded
           ${f.from}
           where ${where} and (${key}) is null`.execute(ctx.trx);
-        const unknown = unknownR.rows[0] ?? { cnt: '0', wv: '0', awarded: '0.00' };
-        const valueBearing = BigInt(totals.withValue) - BigInt(unknown.wv);
-        const rankedBy: 'value' | 'count' =
-          rankBy === 'value' && valueBearing > 0n ? 'value' : 'count';
-        const rank = rankedBy === 'value' ? sql`coalesce(${f.money(dated)}, 0)` : f.rows(dated);
-        const top = await sql<{ key: string; cnt: string; wv: string; awarded: string }>`
+          const unknown = unknownR.rows[0] ?? { cnt: '0', wv: '0', awarded: '0.00' };
+          const valueBearing = BigInt(totals.withValue) - BigInt(unknown.wv);
+          const rankedBy: 'value' | 'count' =
+            rankBy === 'value' && valueBearing > 0n ? 'value' : 'count';
+          const rank = rankedBy === 'value' ? sql`coalesce(${f.money(dated)}, 0)` : f.rows(dated);
+          const top = await sql<{ key: string; cnt: string; wv: string; awarded: string }>`
           select ${key} as key,
                  (${f.rows(dated)})::text as cnt,
                  (${f.counted(dated)})::text as wv,
@@ -1091,63 +1156,69 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
           ${datedHaving(c.value)}
           order by ${rank} desc, 1 asc
           limit ${Math.max(1, Math.min(topN, TOPN_SIRUTA_MAX))}`.execute(ctx.trx);
-        let otherCnt = BigInt(totals.rows) - BigInt(unknown.cnt);
-        let otherWv = BigInt(totals.withValue) - BigInt(unknown.wv);
-        const buckets: AnalysisBreakdownBucketRow[] = [];
-        for (const row of top.rows) {
+          let otherCnt = BigInt(totals.rows) - BigInt(unknown.cnt);
+          let otherWv = BigInt(totals.withValue) - BigInt(unknown.wv);
+          const buckets: AnalysisBreakdownBucketRow[] = [];
+          for (const row of top.rows) {
+            buckets.push({
+              kind: 'top',
+              key: row.key,
+              recordCount: row.cnt,
+              withValue: row.wv,
+              valueAwardedSum: row.awarded,
+            });
+            otherCnt -= BigInt(row.cnt);
+            otherWv -= BigInt(row.wv);
+          }
           buckets.push({
-            kind: 'top',
-            key: row.key,
-            recordCount: row.cnt,
-            withValue: row.wv,
-            valueAwardedSum: row.awarded,
+            kind: 'other',
+            key: null,
+            recordCount: otherCnt.toString(),
+            withValue: otherWv.toString(),
+            valueAwardedSum: minus(totals.valueAwardedSum, [
+              unknown.awarded,
+              ...top.rows.map((row) => row.awarded),
+            ]),
           });
-          otherCnt -= BigInt(row.cnt);
-          otherWv -= BigInt(row.wv);
-        }
-        buckets.push({
-          kind: 'other',
-          key: null,
-          recordCount: otherCnt.toString(),
-          withValue: otherWv.toString(),
-          valueAwardedSum: minus(totals.valueAwardedSum, [
-            unknown.awarded,
-            ...top.rows.map((row) => row.awarded),
-          ]),
-        });
-        buckets.push({
-          kind: 'unknown',
-          key: null,
-          recordCount: unknown.cnt,
-          withValue: unknown.wv,
-          valueAwardedSum: unknown.awarded,
-        });
-        return ok({ buckets, totals, rankedBy });
-      })
+          buckets.push({
+            kind: 'unknown',
+            key: null,
+            recordCount: unknown.cnt,
+            withValue: unknown.wv,
+            valueAwardedSum: unknown.awarded,
+          });
+          return ok({ buckets, totals, rankedBy });
+        },
+        seen
+      )
     );
 
   const concentrationFor: DaV3AnalysisSource['concentrationFor'] = (_route, scope, gen, basis) =>
-    cached(gen.buildId, scope, ['concentration', basis], () =>
-      snapshot(db, STATEMENT_TIMEOUT_MS, gen.buildId, async (ctx) => {
-        const c = compile(ctx, scope, 'supplier');
-        if (c.isErr()) return err(c.error);
-        const f = c.value.facts;
-        const keyR = dimensionKey(f, 'supplier');
-        if (keyR.isErr()) return err(keyR.error);
-        const totals = await readStats(ctx, c.value);
-        const { dated, where } = c.value;
-        const measure = basis === 'value' ? sql`coalesce(${f.money(dated)}, 0)` : f.rows(dated);
-        // Exact: no rounding before core computes shares and HHI.
-        const fmt = (x: Sql) => sql`coalesce(${x}, 0)::text`;
-        const result = await sql<{
-          supplier_count: string;
-          positive: string;
-          total: string;
-          top1: string;
-          top5: string;
-          squares: string;
-          unknown: string | null;
-        }>`
+    cached(gen.buildId, scope, ['concentration', basis], (seen) =>
+      snapshot(
+        db,
+        STATEMENT_TIMEOUT_MS,
+        gen.buildId,
+        async (ctx) => {
+          const c = compile(ctx, scope, 'supplier');
+          if (c.isErr()) return err(c.error);
+          const f = c.value.facts;
+          const keyR = dimensionKey(f, 'supplier');
+          if (keyR.isErr()) return err(keyR.error);
+          const totals = await readStats(ctx, c.value);
+          const { dated, where } = c.value;
+          const measure = basis === 'value' ? sql`coalesce(${f.money(dated)}, 0)` : f.rows(dated);
+          // Exact: no rounding before core computes shares and HHI.
+          const fmt = (x: Sql) => sql`coalesce(${x}, 0)::text`;
+          const result = await sql<{
+            supplier_count: string;
+            positive: string;
+            total: string;
+            top1: string;
+            top5: string;
+            squares: string;
+            unknown: string | null;
+          }>`
           with g as (
             select ${keyR.value} as key, ${measure} as m
             ${f.from}
@@ -1162,46 +1233,56 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
                  ${fmt(sql`(select sum(m) from (select m from pos order by m desc limit 5) x)`)} as top5,
                  ${fmt(sql`(select sum(m * m) from pos)`)} as squares,
                  (select sum(m)::text from g where key is null) as unknown`.execute(ctx.trx);
-        const row = result.rows[0];
-        if (row === undefined) return err(databaseError('concentration returned no row'));
-        const count = Number(row.supplier_count);
-        const positive = Number(row.positive);
-        if (!Number.isSafeInteger(count) || !Number.isSafeInteger(positive))
-          return err(databaseError('concentration supplier count is not an exact integer'));
-        const unknownIsZero = row.unknown === null || new Decimal(row.unknown).isZero();
-        return ok({
-          supplierCount: count,
-          positiveSupplierCount: positive,
-          measureTotal: row.total,
-          top1Measure: row.top1,
-          top5Measure: row.top5,
-          measureSquaredSum: row.squares,
-          totals,
-          unknownSupplierMeasure: unknownIsZero ? null : row.unknown,
-        } satisfies ConcentrationRead);
-      })
+          const row = result.rows[0];
+          if (row === undefined) return err(databaseError('concentration returned no row'));
+          const count = Number(row.supplier_count);
+          const positive = Number(row.positive);
+          if (!Number.isSafeInteger(count) || !Number.isSafeInteger(positive))
+            return err(databaseError('concentration supplier count is not an exact integer'));
+          const unknownIsZero = row.unknown === null || new Decimal(row.unknown).isZero();
+          return ok({
+            supplierCount: count,
+            positiveSupplierCount: positive,
+            measureTotal: row.total,
+            top1Measure: row.top1,
+            top5Measure: row.top5,
+            measureSquaredSum: row.squares,
+            totals,
+            unknownSupplierMeasure: unknownIsZero ? null : row.unknown,
+          } satisfies ConcentrationRead);
+        },
+        seen
+      )
     );
 
-  const recordsFor: DaV3AnalysisSource['recordsFor'] = (_route, scope, gen, page) =>
-    snapshot(db, STATEMENT_TIMEOUT_MS, gen.buildId, async (ctx) => {
-      // The page lists purchases (live rows); its total is a count (a rollup when one covers it).
-      const c = compile(ctx, scope, undefined, true);
-      if (c.isErr()) return err(c.error);
-      // Without pinned geography a geography scope's total stays live like its rows: the
-      // rollups place the buyer as of the DA publish, the kernel join as of today, and a page
-      // must agree with itself. With it, both place the buyer the same way.
-      const geoScoped =
-        scope.buyerRegion !== undefined ||
-        scope.buyerCounty !== undefined ||
-        scope.buyerSiruta !== undefined;
-      const counting = geoScoped && !ctx.rollups.has(BUYER_GEOGRAPHY) ? c : compile(ctx, scope);
-      if (counting.isErr()) return err(counting.error);
-      const money = sql`case when p.counted then p.counted_value end`;
-      const where = sql`${c.value.where} and ${c.value.dated}`;
-      const from = c.value.facts.from;
-      const isNamed = c.value.facts.supplierNamed;
-      const pageOf = (extra: Sql, order: Sql, limit: number, offset: number) =>
-        sql<RecordRow>`
+  // Never cached (a page), so settled directly: a page a publish overtook is not served.
+  const recordsFor: DaV3AnalysisSource['recordsFor'] = async (_route, scope, gen, page) => {
+    const seen: ReadSeen = { privacy: false };
+    return settled(
+      gen.buildId,
+      await snapshot(
+        db,
+        STATEMENT_TIMEOUT_MS,
+        gen.buildId,
+        async (ctx) => {
+          // The page lists purchases (live rows); its total is a count (a rollup when one covers it).
+          const c = compile(ctx, scope, undefined, true);
+          if (c.isErr()) return err(c.error);
+          // Without pinned geography a geography scope's total stays live like its rows: the
+          // rollups place the buyer as of the DA publish, the kernel join as of today, and a page
+          // must agree with itself. With it, both place the buyer the same way.
+          const geoScoped =
+            scope.buyerRegion !== undefined ||
+            scope.buyerCounty !== undefined ||
+            scope.buyerSiruta !== undefined;
+          const counting = geoScoped && !ctx.rollups.has(BUYER_GEOGRAPHY) ? c : compile(ctx, scope);
+          if (counting.isErr()) return err(counting.error);
+          const money = sql`case when p.counted then p.counted_value end`;
+          const where = sql`${c.value.where} and ${c.value.dated}`;
+          const from = c.value.facts.from;
+          const isNamed = c.value.facts.supplierNamed;
+          const pageOf = (extra: Sql, order: Sql, limit: number, offset: number) =>
+            sql<RecordRow>`
         select p.purchase_id as id,
                p.finalization_day::text as date,
                case when b.fiscal_code_status = 'valid' then b.fiscal_code_clean end as authority_cui,
@@ -1218,73 +1299,78 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
         where ${where} and ${extra}
         order by ${order}
         limit ${limit} offset ${offset}`.execute(ctx.trx);
-      let rows: RecordRow[];
-      if (page.sort === 'date_desc' || page.sort === 'date_asc') {
-        const order =
-          page.sort === 'date_desc'
-            ? sql`p.finalization_day is null asc, p.finalization_day desc, p.purchase_id desc`
-            : sql`p.finalization_day is null asc, p.finalization_day asc, p.purchase_id asc`;
-        rows = (await pageOf(sql`true`, order, page.limit, page.offset)).rows;
-      } else {
-        // Same order as `money desc|asc nulls last, purchase_id desc|asc`, in two phases so
-        // the (counted_value, purchase_id) where-counted index serves the valued rows: the
-        // valued rows by value, then the rest by id, the offset carried across.
-        const desc = page.sort === 'value_desc';
-        const valued = sql`p.counted and p.counted_value is not null`;
-        const first = (
-          await pageOf(
-            valued,
-            desc
-              ? sql`p.counted_value desc, p.purchase_id desc`
-              : sql`p.counted_value asc, p.purchase_id asc`,
-            page.limit,
-            page.offset
-          )
-        ).rows;
-        rows = first;
-        if (first.length < page.limit) {
-          let valuedCount = page.offset + first.length;
-          if (first.length === 0 && page.offset > 0) {
-            const n = await sql<{ n: string }>`
+          let rows: RecordRow[];
+          if (page.sort === 'date_desc' || page.sort === 'date_asc') {
+            const order =
+              page.sort === 'date_desc'
+                ? sql`p.finalization_day is null asc, p.finalization_day desc, p.purchase_id desc`
+                : sql`p.finalization_day is null asc, p.finalization_day asc, p.purchase_id asc`;
+            rows = (await pageOf(sql`true`, order, page.limit, page.offset)).rows;
+          } else {
+            // Same order as `money desc|asc nulls last, purchase_id desc|asc`, in two phases so
+            // the (counted_value, purchase_id) where-counted index serves the valued rows: the
+            // valued rows by value, then the rest by id, the offset carried across.
+            const desc = page.sort === 'value_desc';
+            const valued = sql`p.counted and p.counted_value is not null`;
+            const first = (
+              await pageOf(
+                valued,
+                desc
+                  ? sql`p.counted_value desc, p.purchase_id desc`
+                  : sql`p.counted_value asc, p.purchase_id asc`,
+                page.limit,
+                page.offset
+              )
+            ).rows;
+            rows = first;
+            if (first.length < page.limit) {
+              let valuedCount = page.offset + first.length;
+              if (first.length === 0 && page.offset > 0) {
+                const n = await sql<{ n: string }>`
               select count(*)::text as n ${from} where ${where} and ${valued}`.execute(ctx.trx);
-            valuedCount = Number(n.rows[0]?.n ?? '0');
+                valuedCount = Number(n.rows[0]?.n ?? '0');
+              }
+              const rest = (
+                await pageOf(
+                  sql`not (${valued})`,
+                  desc ? sql`p.purchase_id desc` : sql`p.purchase_id asc`,
+                  page.limit - first.length,
+                  Math.max(0, page.offset - valuedCount)
+                )
+              ).rows;
+              rows = [...first, ...rest];
+            }
           }
-          const rest = (
-            await pageOf(
-              sql`not (${valued})`,
-              desc ? sql`p.purchase_id desc` : sql`p.purchase_id asc`,
-              page.limit - first.length,
-              Math.max(0, page.offset - valuedCount)
-            )
-          ).rows;
-          rows = [...first, ...rest];
-        }
-      }
-      const t = counting.value;
-      const total = await sql<{ total: string }>`
+          const t = counting.value;
+          const total = await sql<{ total: string }>`
         select (${t.facts.rows(t.dated)})::text as total ${t.facts.from} where ${t.where}`.execute(
-        ctx.trx
-      );
-      return ok({
-        total: total.rows[0]?.total ?? '0',
-        rows: rows.map((row): AnalysisRecordRow => ({
-          id: row.id,
-          date: row.date,
-          // Free text is withheld until reviewed: the CPV label stands in the title's place.
-          title: null,
-          authorityCui: row.authority_cui,
-          authorityName: row.authority_name,
-          supplierCui: row.supplier_cui,
-          supplierName: row.supplier_name,
-          supplierDisplayKind: row.supplier_display_kind,
-          valueRon: row.value_ron,
-          status: row.status,
-          recordKind: null,
-          cpvCode: row.cpv_code,
-          cpvLabel: row.cpv_label,
-        })),
-      });
-    });
+            ctx.trx
+          );
+          return ok({
+            total: total.rows[0]?.total ?? '0',
+            rows: rows.map((row): AnalysisRecordRow => ({
+              id: row.id,
+              date: row.date,
+              // Free text is withheld until reviewed: the CPV label stands in the title's place.
+              title: null,
+              authorityCui: row.authority_cui,
+              authorityName: row.authority_name,
+              supplierCui: row.supplier_cui,
+              supplierName: row.supplier_name,
+              supplierDisplayKind: row.supplier_display_kind,
+              valueRon: row.value_ron,
+              status: row.status,
+              recordKind: null,
+              cpvCode: row.cpv_code,
+              cpvLabel: row.cpv_label,
+            })),
+          });
+        },
+        seen
+      ),
+      seen
+    );
+  };
 
   return {
     generation,

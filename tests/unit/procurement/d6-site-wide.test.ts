@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 
 import { analysisBreakdown, analysisStats } from '@/modules/procurement/core/analysis-usecases.js';
 import { routeAnalysis } from '@/modules/procurement/core/combinations.js';
+import { makeProcurementMcpTools } from '@/modules/procurement/shell/mcp/tools.js';
 import { withDaAnalysisDisclosure } from '@/modules/procurement/shell/repo/da-analysis-disclosure.js';
 import { withDaDisclosure } from '@/modules/procurement/shell/repo/da-disclosure-repo.js';
 import { withSupplierDisclosure } from '@/modules/shared/shell/repo/supplier-disclosure-repo.js';
@@ -340,6 +341,98 @@ describe('analysis echo and bucket kinds', () => {
       ['natural_person', 'natural_person'],
       [COMPANY, 'company'],
     ]);
+  });
+});
+
+describe('MCP analysis: the final check re-reads a supplier it withholds', () => {
+  /** The supplier's own figures: only a read scoped to its code returns them. */
+  const NAMED = statsRead({
+    rows: '7',
+    withValue: '7',
+    withEstimated: '7',
+    valueAwardedSum: '777.00',
+    valueEstimatedSum: '777.00',
+    undatedCount: '7',
+    undatedValueRon: '777.00',
+  });
+  /** Nothing at all: the read matched no row. */
+  const HIDDEN = statsRead({
+    rows: '0',
+    withValue: '0',
+    withEstimated: '0',
+    valueAwardedSum: null,
+    valueEstimatedSum: null,
+    minMonth: null,
+    maxMonth: null,
+    undatedCount: '0',
+    undatedValueRon: null,
+  });
+  /**
+   * The legacy DA decorator over facts that answer a supplier scope with that
+   * supplier's figures, under a port public until `withheldFrom` fresh checks ran.
+   */
+  const aggregate = async (withheldFrom: number) => {
+    const scopes: (string | undefined)[] = [];
+    const base = fakeAnalysisRepo().repo;
+    const facts: AnalysisRepo = {
+      ...base,
+      statsFor: (route, scope, gen) => {
+        scopes.push(scope.supplierCui);
+        return route.grain === 'direct_acquisition'
+          ? Promise.resolve(ok(scope.supplierCui === COMPANY ? NAMED : HIDDEN))
+          : base.statsFor(route, scope, gen);
+      },
+    };
+    let freshChecks = 0;
+    const disclosure: SupplierDisclosurePort = {
+      enforced: true,
+      privacyAsOf: () => Promise.resolve(ok('2026-11-18T03:10:00.000000Z')),
+      publicSupplierCodes: (options) => {
+        if (options?.fresh === true) freshChecks += 1;
+        return Promise.resolve(ok(new Set(freshChecks >= withheldFrom ? [] : [COMPANY])));
+      },
+    };
+    const tool = makeProcurementMcpTools({
+      repo: {} as unknown as ProcurementRepo,
+      analysis: withDaAnalysisDisclosure(facts, disclosure),
+      clientBaseUrl: 'https://transparenta.eu',
+      supplierDisclosure: disclosure,
+    }).find((t) => t.name === 'aggregate_procurement');
+    if (tool === undefined) throw new Error('aggregate_procurement not registered');
+    const out = await tool.handler({
+      shape: 'stats',
+      scope: { grain: 'direct_acquisition', supplierCui: COMPANY },
+    });
+    return { out, scopes, text: JSON.stringify(out) };
+  };
+  const echo = (out: { query?: unknown }) => (out.query as { scope: AnalysisScope }).scope;
+
+  it('re-reads the whole answer when a publish withholds the supplier after its read', async () => {
+    // Fresh check 1 is the decorator's after-read check (public); 2 is the final one.
+    const { out, scopes, text } = await aggregate(2);
+    expect(scopes).toEqual([COMPANY, '~withheld']);
+    expect(out.ok).toBe(true);
+    expect(echo(out).supplierCui).toBe('withheld');
+    expect(text).not.toContain(COMPANY);
+    expect(text).not.toContain('777');
+    expect((out.items as readonly { recordCount: string }[])[0]?.recordCount).toBe('0');
+  });
+
+  it('answers an already withheld supplier with nothing of it, echoed withheld', async () => {
+    const { out, scopes, text } = await aggregate(0);
+    expect(scopes).toEqual(['~withheld', '~withheld']); // the answer, then its re-read
+    expect(out.ok).toBe(true);
+    expect((out.items as readonly { recordCount: string }[])[0]?.recordCount).toBe('0');
+    expect(echo(out).supplierCui).toBe('withheld');
+    expect(text).not.toContain(COMPANY);
+    expect(text).not.toContain('777');
+  });
+
+  it('serves and echoes a supplier public throughout, read once', async () => {
+    const { out, scopes } = await aggregate(Number.POSITIVE_INFINITY);
+    expect(scopes).toEqual([COMPANY]);
+    expect(echo(out).supplierCui).toBe(COMPANY);
+    expect((out.items as readonly { recordCount: string }[])[0]?.recordCount).toBe('7');
   });
 });
 

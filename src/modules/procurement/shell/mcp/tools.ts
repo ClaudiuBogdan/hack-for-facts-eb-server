@@ -164,13 +164,27 @@ export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly Kern
     analysisRepo: analysis,
     ...(disclosure !== undefined && { supplierDisclosure: disclosure }),
   };
-  /** A query echo that never repeats a supplier code D6 withholds. */
-  const echoed = async <T extends { supplierCui?: string }>(value: T): Promise<T> => {
-    if (disclosure?.enforced !== true || value.supplierCui === undefined) return value;
-    const codes = await disclosure.publicSupplierCodes();
-    return codes.isOk() && codes.value.has(value.supplierCui)
-      ? value
-      : { ...value, supplierCui: 'withheld' };
+  /**
+   * The answer's FINAL D6 check (a fresh load), run after the whole answer is
+   * built. A supplier scope it withholds is never echoed, and the answer is not
+   * trusted either: whatever decision produced its rows (a publish may have
+   * withheld the supplier after they were read), it is re-read ONCE (the
+   * whole-page rule). The re-read starts after this check, so it reads a
+   * publication at least as new and withholds the supplier itself.
+   */
+  const finalChecked = async (
+    scope: AnalysisScope,
+    shape: string,
+    run: () => Promise<McpToolOutput>
+  ): Promise<McpToolOutput> => {
+    const first = await run();
+    if (!first.ok || disclosure?.enforced !== true || scope.supplierCui === undefined) return first;
+    const codes = await disclosure.publicSupplierCodes({ fresh: true });
+    if (codes.isOk() && codes.value.has(scope.supplierCui)) return first;
+    const again = await run();
+    return again.ok
+      ? { ...again, query: { scope: { ...scope, supplierCui: 'withheld' }, shape } }
+      : again;
   };
 
   // ── (1) discovery ──────────────────────────────────────────────────────────
@@ -279,25 +293,28 @@ export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly Kern
     return caveats.length > 0 ? ` (${caveats.join('; ')})` : '';
   };
 
-  const analysisOutput = async (
+  /** The scope is echoed as asked; `finalChecked` replaces a supplier D6 withholds. */
+  const analysisOutput = (
     shape: string,
     scope: AnalysisScope,
     items: readonly unknown[],
     envelopes: readonly { caveats: readonly string[] }[],
     moneyShown: boolean,
     headline: string
-  ): Promise<McpToolOutput> => ({
-    ok: true,
-    kind: `analysis_${shape}`,
-    query: { scope: await echoed(scope), shape },
-    items,
-    meta: { envelopes },
-    summary:
-      headline +
-      (moneyShown ? ` ${moneyNote(envelopes)}` : '') +
-      ` ${PROCUREMENT_GRAIN_NOTE}` +
-      caveatTail(envelopes),
-  });
+  ): McpToolOutput => {
+    return {
+      ok: true,
+      kind: `analysis_${shape}`,
+      query: { scope, shape },
+      items,
+      meta: { envelopes },
+      summary:
+        headline +
+        (moneyShown ? ` ${moneyNote(envelopes)}` : '') +
+        ` ${PROCUREMENT_GRAIN_NOTE}` +
+        caveatTail(envelopes),
+    };
+  };
 
   const aggregateProcurement: KernelMcpTool = {
     name: 'aggregate_procurement',
@@ -337,118 +354,121 @@ export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly Kern
       const scopeR = parseAnalysisScope(args['scope'] as Record<string, unknown> | undefined);
       if (scopeR.isErr()) return errorFrom('analysis', scopeR.error);
       const scope = scopeR.value;
-      const shape = strArg(args, 'shape');
-      const topNValue = args['topN'];
-      const topN = typeof topNValue === 'number' ? topNValue : undefined;
-      const rankBy = optStr(args, 'rankBy') as 'count' | 'value' | undefined;
-      const build = optStr(args, 'build');
-      const pin = build === undefined ? {} : { build };
+      const answer = async (): Promise<McpToolOutput> => {
+        const shape = strArg(args, 'shape');
+        const topNValue = args['topN'];
+        const topN = typeof topNValue === 'number' ? topNValue : undefined;
+        const rankBy = optStr(args, 'rankBy') as 'count' | 'value' | undefined;
+        const build = optStr(args, 'build');
+        const pin = build === undefined ? {} : { build };
 
-      if (shape === 'stats') {
-        const res = await analysisStats(analysisDeps, { scope, ...pin });
-        if (res.isErr()) return errorFrom('analysis_stats', res.error);
-        const blocks: readonly AnalysisStatsBlock[] = res.value.blocks;
-        return analysisOutput(
-          'stats',
-          scope,
-          blocks,
-          blocks.map((b) => b.meta),
-          blocks.some((b) => b.valueAwardedSum !== null || b.valueEstimatedSum !== null),
-          `${n(blocks.length)} per-grain stats block(s).`
-        );
-      }
-
-      if (shape === 'series') {
-        const measure = optStr(args, 'measure') as MeasureId | undefined;
-        if (measure === undefined)
-          return invalidOut('analysis_series', "shape 'series' requires a measure", 'measure');
-        const bucket = (optStr(args, 'bucket') ?? 'month') as SeriesBucket;
-        const res = await analysisSeries(analysisDeps, { scope, bucket, measure, ...pin });
-        if (res.isErr()) return errorFrom('analysis_series', res.error);
-        const blocks: readonly AnalysisSeriesBlock[] = res.value;
-        return analysisOutput(
-          'series',
-          scope,
-          blocks,
-          blocks.map((b) => b.meta),
-          blocks.some((b) => b.meta.valueBasis !== null && b.points.length > 0),
-          `${n(blocks.length)} per-grain ${measure} series (${bucket} buckets).`
-        );
-      }
-
-      if (shape === 'breakdown') {
-        const dimension = optStr(args, 'dimension') as BreakdownDimension | undefined;
-        if (dimension === undefined) {
-          return invalidOut(
-            'analysis_breakdown',
-            "shape 'breakdown' requires a dimension",
-            'dimension'
+        if (shape === 'stats') {
+          const res = await analysisStats(analysisDeps, { scope, ...pin });
+          if (res.isErr()) return errorFrom('analysis_stats', res.error);
+          const blocks: readonly AnalysisStatsBlock[] = res.value.blocks;
+          return analysisOutput(
+            'stats',
+            scope,
+            blocks,
+            blocks.map((b) => b.meta),
+            blocks.some((b) => b.valueAwardedSum !== null || b.valueEstimatedSum !== null),
+            `${n(blocks.length)} per-grain stats block(s).`
           );
         }
-        const res = await analysisBreakdown(analysisDeps, {
-          scope,
-          dimension,
-          ...(topN !== undefined && { topN }),
-          ...(rankBy !== undefined && { rankBy }),
-          ...pin,
-        });
-        if (res.isErr()) return errorFrom('analysis_breakdown', res.error);
-        const blocks: readonly AnalysisBreakdownBlock[] = res.value;
-        return analysisOutput(
-          'breakdown',
-          scope,
-          blocks,
-          blocks.map((b) => b.meta),
-          blocks.some((b) => b.buckets.some((bucket) => bucket.valueAwardedSum !== null)),
-          `${n(blocks.length)} per-grain ${dimension} breakdown(s): top-N + other + unknown reconcile to the scope stats.`
-        );
-      }
 
-      if (shape === 'concentration') {
-        const basis = optStr(args, 'basis') as 'count' | 'value' | undefined;
-        const res = await analysisConcentration(analysisDeps, {
-          scope,
-          ...(basis === undefined ? {} : { basis }),
-          ...pin,
-        });
-        if (res.isErr()) return errorFrom('analysis_concentration', res.error);
-        const blocks: readonly AnalysisConcentrationBlock[] = res.value;
-        return analysisOutput(
-          'concentration',
-          scope,
-          blocks,
-          blocks.map((b) => b.meta),
-          blocks.some((b) => b.totalRon !== null),
-          `${n(blocks.length)} per-grain concentration block(s). High concentration is a signal, not a finding.`
-        );
-      }
+        if (shape === 'series') {
+          const measure = optStr(args, 'measure') as MeasureId | undefined;
+          if (measure === undefined)
+            return invalidOut('analysis_series', "shape 'series' requires a measure", 'measure');
+          const bucket = (optStr(args, 'bucket') ?? 'month') as SeriesBucket;
+          const res = await analysisSeries(analysisDeps, { scope, bucket, measure, ...pin });
+          if (res.isErr()) return errorFrom('analysis_series', res.error);
+          const blocks: readonly AnalysisSeriesBlock[] = res.value;
+          return analysisOutput(
+            'series',
+            scope,
+            blocks,
+            blocks.map((b) => b.meta),
+            blocks.some((b) => b.meta.valueBasis !== null && b.points.length > 0),
+            `${n(blocks.length)} per-grain ${measure} series (${bucket} buckets).`
+          );
+        }
 
-      if (shape === 'records') {
-        const page = args['page'];
-        const pageSize = args['pageSize'];
-        const sort = optStr(args, 'sort');
-        const res = await analysisRecords(analysisDeps, {
-          scope,
-          ...pin,
-          ...(sort !== undefined && { sort }),
-          ...(typeof page === 'number' && { page }),
-          ...(typeof pageSize === 'number' && { pageSize }),
-        });
-        if (res.isErr()) return errorFrom('analysis_records', res.error);
-        const result = res.value;
-        // Display-only titles (the same labels GraphQL serves), after membership and money.
-        const items = await withDisplayTitles(repo, result);
-        return analysisOutput(
-          'records',
-          scope,
-          items,
-          [result.meta],
-          result.items.some((item) => item.valueRon !== null),
-          `${n(result.items.length)} ${result.grain} record(s), page ${n(result.page)} of a population of ${result.total ?? 'withheld (gate abstained)'} — exactly the stats recordCount of this scope.`
-        );
-      }
+        if (shape === 'breakdown') {
+          const dimension = optStr(args, 'dimension') as BreakdownDimension | undefined;
+          if (dimension === undefined) {
+            return invalidOut(
+              'analysis_breakdown',
+              "shape 'breakdown' requires a dimension",
+              'dimension'
+            );
+          }
+          const res = await analysisBreakdown(analysisDeps, {
+            scope,
+            dimension,
+            ...(topN !== undefined && { topN }),
+            ...(rankBy !== undefined && { rankBy }),
+            ...pin,
+          });
+          if (res.isErr()) return errorFrom('analysis_breakdown', res.error);
+          const blocks: readonly AnalysisBreakdownBlock[] = res.value;
+          return analysisOutput(
+            'breakdown',
+            scope,
+            blocks,
+            blocks.map((b) => b.meta),
+            blocks.some((b) => b.buckets.some((bucket) => bucket.valueAwardedSum !== null)),
+            `${n(blocks.length)} per-grain ${dimension} breakdown(s): top-N + other + unknown reconcile to the scope stats.`
+          );
+        }
 
-      return invalidOut('analysis', `unknown shape '${shape}'`, 'shape');
+        if (shape === 'concentration') {
+          const basis = optStr(args, 'basis') as 'count' | 'value' | undefined;
+          const res = await analysisConcentration(analysisDeps, {
+            scope,
+            ...(basis === undefined ? {} : { basis }),
+            ...pin,
+          });
+          if (res.isErr()) return errorFrom('analysis_concentration', res.error);
+          const blocks: readonly AnalysisConcentrationBlock[] = res.value;
+          return analysisOutput(
+            'concentration',
+            scope,
+            blocks,
+            blocks.map((b) => b.meta),
+            blocks.some((b) => b.totalRon !== null),
+            `${n(blocks.length)} per-grain concentration block(s). High concentration is a signal, not a finding.`
+          );
+        }
+
+        if (shape === 'records') {
+          const page = args['page'];
+          const pageSize = args['pageSize'];
+          const sort = optStr(args, 'sort');
+          const res = await analysisRecords(analysisDeps, {
+            scope,
+            ...pin,
+            ...(sort !== undefined && { sort }),
+            ...(typeof page === 'number' && { page }),
+            ...(typeof pageSize === 'number' && { pageSize }),
+          });
+          if (res.isErr()) return errorFrom('analysis_records', res.error);
+          const result = res.value;
+          // Display-only titles (the same labels GraphQL serves), after membership and money.
+          const items = await withDisplayTitles(repo, result);
+          return analysisOutput(
+            'records',
+            scope,
+            items,
+            [result.meta],
+            result.items.some((item) => item.valueRon !== null),
+            `${n(result.items.length)} ${result.grain} record(s), page ${n(result.page)} of a population of ${result.total ?? 'withheld (gate abstained)'} — exactly the stats recordCount of this scope.`
+          );
+        }
+
+        return invalidOut('analysis', `unknown shape '${shape}'`, 'shape');
+      };
+      return finalChecked(scope, strArg(args, 'shape'), answer);
     },
   };
 

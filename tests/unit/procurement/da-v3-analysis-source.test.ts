@@ -27,7 +27,10 @@ const run = async (
   const isolation: unknown[] = [];
   const db = makeCapturingDb(captured, {
     respond: (text) => {
-      if (text.includes('as build_id')) return [{ build_id: options.build ?? BUILD, as_of: null }];
+      if (text.includes('as build_id'))
+        return [
+          { build_id: options.build ?? BUILD, as_of: null, privacy: options.privacy ?? true },
+        ];
       if (text.includes('has_table_privilege')) return [{ present: options.privacy ?? true }];
       if (text.includes('as total')) return [{ total: '0' }];
       if (text.includes('as rows'))
@@ -193,7 +196,8 @@ describe('the publication-keyed cache', () => {
     const captured: CapturedQuery[] = [];
     const db = makeCapturingDb(captured, {
       respond: (text) => {
-        if (text.includes('as build_id')) return [{ build_id: state.build, as_of: null }];
+        if (text.includes('as build_id'))
+          return [{ build_id: state.build, as_of: null, privacy: true }];
         if (text.includes('has_table_privilege')) return [{ present: true }];
         if (text.includes('as rows')) {
           state.rowsReads += 1;
@@ -214,8 +218,95 @@ describe('the publication-keyed cache', () => {
         return [];
       },
     });
-    return { state, source: makeDaV3AnalysisSource(db) };
+    return { state, captured, source: makeDaV3AnalysisSource(db) };
   };
+
+  it('never returns a scoped (uncached) read that a publish overtook', async () => {
+    const { state, source } = world();
+    expect((await source.statsFor(ROUTE, AUTHORITY, GEN)).isOk()).toBe(true);
+    state.publishAfterRows = true;
+    const overtaken = await source.statsFor(ROUTE, AUTHORITY, GEN);
+    expect(overtaken.isErr() && overtaken.error.type).toBe('ServiceUnavailable');
+    expect(overtaken.isErr() && overtaken.error.message).toContain('republished');
+  });
+
+  it('never returns a records page that a publish overtook', async () => {
+    let build = BUILD;
+    const db = makeCapturingDb([], {
+      respond: (text) => {
+        if (text.includes('as build_id')) return [{ build_id: build, as_of: null, privacy: true }];
+        if (text.includes('has_table_privilege')) return [{ present: true }];
+        if (text.includes('as total')) {
+          // The page is read; a nightly publish lands before the answer leaves.
+          build = '1763435499999999';
+          return [{ total: '1' }];
+        }
+        return [];
+      },
+    });
+    const page = await makeDaV3AnalysisSource(db).recordsFor(ROUTE, AUTHORITY, GEN, {
+      sort: 'date_desc',
+      offset: 0,
+      limit: 25,
+    });
+    expect(page.isErr() && page.error.message).toContain('republished');
+  });
+
+  it.each([
+    ['revoked after a read that could name suppliers', true, false],
+    ['unreadable throughout (everyone withheld)', false, true],
+  ] as const)(
+    'a scoped read with the supplier_privacy grant %s',
+    async (_label, before, served) => {
+      let readable = before;
+      const db = makeCapturingDb([], {
+        respond: (text) => {
+          if (text.includes('as build_id'))
+            return [{ build_id: BUILD, as_of: null, privacy: readable }];
+          if (text.includes('has_table_privilege')) return [{ present: readable }];
+          if (text.includes('as rows')) {
+            readable = false; // the grant is revoked once the rows are read
+            return [{ rows: '1', with_value: '1', awarded: '5', undated_count: '0' }];
+          }
+          return [];
+        },
+      });
+      const read = await makeDaV3AnalysisSource(db).statsFor(ROUTE, AUTHORITY, GEN);
+      expect(read.isOk()).toBe(served);
+      if (read.isErr()) expect(read.error.message).toContain('republished');
+    }
+  );
+
+  it('never returns a records page read with the supplier_privacy grant later revoked', async () => {
+    let readable = true;
+    const db = makeCapturingDb([], {
+      respond: (text) => {
+        if (text.includes('as build_id'))
+          return [{ build_id: BUILD, as_of: null, privacy: readable }];
+        if (text.includes('has_table_privilege')) return [{ present: readable }];
+        if (text.includes('as total')) {
+          readable = false; // the page could name suppliers; the grant is revoked after it
+          return [{ total: '1' }];
+        }
+        return [];
+      },
+    });
+    const page = await makeDaV3AnalysisSource(db).recordsFor(ROUTE, AUTHORITY, GEN, {
+      sort: 'date_desc',
+      offset: 0,
+      limit: 25,
+    });
+    expect(page.isErr() && page.error.message).toContain('republished');
+  });
+
+  it('probes the build and the supplier_privacy grant in one statement', async () => {
+    const { captured, source } = world();
+    await unfiltered(source);
+    const probes = captured.filter(
+      (q) => q.sql.includes('as build_id') && q.sql.includes('has_table_privilege')
+    );
+    expect(probes.length).toBeGreaterThanOrEqual(2); // before the lookup and after the fill
+  });
 
   it('shares one read between identical concurrent misses', async () => {
     const { state, source } = world();
@@ -226,7 +317,10 @@ describe('the publication-keyed cache', () => {
   it('never keeps a fill whose build stopped being current while it ran', async () => {
     const { state, source } = world();
     state.publishAfterRows = true;
-    await unfiltered(source);
+    // Never served either: its rows and key are from a publication now known stale.
+    const overtaken = await unfiltered(source);
+    expect(overtaken.isErr() && overtaken.error.type).toBe('ServiceUnavailable');
+    expect(overtaken.isErr() && overtaken.error.message).toContain('republished');
     state.publishAfterRows = false;
     state.build = BUILD;
     await unfiltered(source);
