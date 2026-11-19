@@ -112,8 +112,10 @@ With the flag off:
   - The disclosure set, release totals and v3 analysis answers are keyed by `data_as_of`, and also by the privacy
     state (present and readable). The set is reused while `data_as_of` is unchanged, so every write to
     supplier_privacy must move `da_release.data_as_of` in the same transaction. The data platform enforces this with
-    the deferred constraint trigger `supplier_privacy_moves_release` (defined in procurement-prod b026b40e2, fast-lane
-    `060_da_rollups_tables.sql`; the production procurement_v3 migration will carry it too).
+    the deferred constraint trigger `supplier_privacy_moves_release` (procurement-prod b026b40e2), and refuses
+    TRUNCATE, which bypasses row triggers, with BEFORE TRUNCATE statement triggers on supplier_privacy and
+    supplier_id_ledger (584139f8). Both are defined in fast-lane `060_da_rollups_tables.sql`; the production
+    procurement_v3 migration will carry them too. So no path can change the privacy list without moving `data_as_of`.
   - The ClickHouse analysis caches are keyed by build, and D6 is applied on read after them.
   - A publish moves the key; flipping a switch is an environment change, so the pods restart and the in-process
     caches start empty.
