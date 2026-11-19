@@ -236,6 +236,16 @@ money_geo.
   (procurement-prod measured this on June 2025). Every code a client sends to a v3 surface is compared without
   leading zeros, and the public-supplier set accepts either form, so a legacy key still matches its public company.
   Served keys are the platform's form.
+- **Query shapes for the live reads** (procurement-prod's workshop timings, 18–19 Nov):
+  - a buyer or supplier scope filters purchases by `(source_name, party id) in (select … from da_parties where
+party_kind = … and fiscal_code_status = 'valid' and fiscal_code_clean = $1)`, never on the joined party row
+    (buyer CPV breakdowns went from 4–5 s to 0.5 s);
+  - records by value page in two phases: first the counted rows with a value (`order by counted_value, purchase_id`,
+    served by the `where counted` index), then the rest by id, carrying the offset across. The order is identical
+    to `case when counted then counted_value end … nulls last, purchase_id`, and the e2e pages both ways to prove
+    it (the largest purchases of a year went from 8.7 s to under 1 ms).
+  - The indexes these rely on: `da_purchases (counted_value desc, purchase_id desc) where counted`,
+    `da_parties (source_name, party_kind, portal_party_id)` and `da_parties (party_kind, fiscal_code_clean)`.
 - **Gate for the flag.** Before `PROCUREMENT_DA_V3_ENABLED` goes on, the generated statements are re-timed at
   workshop scale, with a target p95 of at most 2 s per page statement.
 

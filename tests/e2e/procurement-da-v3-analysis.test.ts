@@ -618,6 +618,29 @@ describe('rollups answer exactly as the live rows', () => {
     }
   });
 
+  it('pages records by value in exactly the single-ORDER-BY order, across the valued/unvalued boundary', async () => {
+    if (db === undefined) throw new Error('no database');
+    const source = makeDaV3AnalysisSource(db);
+    const gen = (await source.generation())._unsafeUnwrap();
+    if (gen === null) throw new Error('no generation');
+    for (const [sort, direction] of [
+      ['value_desc', 'desc'],
+      ['value_asc', 'asc'],
+    ] as const) {
+      const expected = (
+        await sql<{ id: string }>`select purchase_id as id from procurement_v3.da_purchases
+          order by case when counted then counted_value end ${sql.raw(direction)} nulls last,
+                   purchase_id ${sql.raw(direction)}`.execute(db)
+      ).rows.map((row) => row.id);
+      const served: string[] = [];
+      for (let offset = 0; offset < expected.length + 7; offset += 7) {
+        const page = await source.recordsFor(DA, DA, gen, { sort, offset, limit: 7 });
+        served.push(...page._unsafeUnwrap().rows.map((row) => row.id));
+      }
+      expect(served).toEqual(expected);
+    }
+  });
+
   it('reads the quality verdict from da_release when the platform publishes it, equal to live', async () => {
     if (db === undefined) throw new Error('no database');
     const liveGen = (await makeDaV3AnalysisSource(db).generation())._unsafeUnwrap();

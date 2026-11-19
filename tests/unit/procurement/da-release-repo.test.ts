@@ -165,7 +165,7 @@ describe('joins and D6', () => {
       'left join "procurement_v3"."supplier_privacy" sv on sv.fiscal_code_clean = s.fiscal_code_clean'
     );
     expect(sql).toMatch(
-      /s\.fiscal_code_clean = \$\d+ and \(sv\.public is true and s\.fiscal_code_status = 'valid' and s\.fiscal_code_clean is not null\)/u
+      /\(p\.source_name, p\.supplier_party_id\) in \(select pp\.source_name, pp\.portal_party_id from "procurement_v3"\."da_parties" pp\s+where pp\.party_kind = \$\d+ and pp\.fiscal_code_status = 'valid' and pp\.fiscal_code_clean = \$\d+\) and \(sv\.public is true and s\.fiscal_code_status = 'valid' and s\.fiscal_code_clean is not null\)/u
     );
   });
 
@@ -189,7 +189,9 @@ describe('joins and D6', () => {
     expect(sql).not.toContain('supplier_privacy');
     expect(sql).not.toMatch(/"?p"?\."?listed_now/u);
     // The supplier filter and every named bucket are constant false.
-    expect(sql).toMatch(/s\.fiscal_code_clean = \$\d+ and false/u);
+    expect(sql).toMatch(
+      /\(p\.source_name, p\.supplier_party_id\) in \(select pp\.source_name, pp\.portal_party_id from "procurement_v3"\."da_parties" pp\s+where pp\.party_kind = \$\d+ and pp\.fiscal_code_status = 'valid' and pp\.fiscal_code_clean = \$\d+\) and false/u
+    );
     expect(sql).toContain(`case when false then`);
   });
 
@@ -206,7 +208,10 @@ describe('joins and D6', () => {
     const { sql } = await run((r) =>
       r.listPurchases({ sort: 'finalizationDesc', filter: { buyerFiscalCode: '4305857' }, ...PAGE })
     );
-    expect(sql).toMatch(/b\.fiscal_code_clean = \$\d+ and b\.fiscal_code_status = 'valid'/u);
+    // The buyer's purchases by party id (a valid code only), not by the joined party row.
+    expect(sql).toMatch(
+      /\(p\.source_name, p\.buyer_party_id\) in \(select pp\.source_name, pp\.portal_party_id from "procurement_v3"\."da_parties" pp\s+where pp\.party_kind = \$\d+ and pp\.fiscal_code_status = 'valid' and pp\.fiscal_code_clean = \$\d+\)/u
+    );
   });
 
   it('sums counted values only', async () => {

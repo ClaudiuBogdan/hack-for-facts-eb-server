@@ -278,13 +278,16 @@ const namedSupplier = (columns: Columns) => namedSupplierSql(columns.supplierPri
 /** The filter's conditions over `p`, with `b` and `s` joined. */
 const whereOf = (filter: DaPurchaseFilter, columns: Columns): RawBuilder<unknown> => {
   const conditions: RawBuilder<unknown>[] = [sql`true`];
+  // By party ids: the planner reaches the purchases through the party index instead of
+  // filtering a year of purchases on the joined party row (procurement-prod measured, 18 Nov).
+  const partyIds = (kind: 'buyer' | 'supplier', column: RawBuilder<unknown>, code: string) =>
+    sql`(p.source_name, ${column}) in (select pp.source_name, pp.portal_party_id from ${PARTIES} pp
+        where pp.party_kind = ${kind} and pp.fiscal_code_status = 'valid' and pp.fiscal_code_clean = ${withoutLeadingZeros(code)})`;
   if (filter.buyerFiscalCode !== undefined)
-    conditions.push(
-      sql`b.fiscal_code_clean = ${withoutLeadingZeros(filter.buyerFiscalCode)} and b.fiscal_code_status = 'valid'`
-    );
+    conditions.push(partyIds('buyer', sql`p.buyer_party_id`, filter.buyerFiscalCode));
   if (filter.supplierFiscalCode !== undefined)
     conditions.push(
-      sql`s.fiscal_code_clean = ${withoutLeadingZeros(filter.supplierFiscalCode)} and ${namedSupplier(columns)}`
+      sql`${partyIds('supplier', sql`p.supplier_party_id`, filter.supplierFiscalCode)} and ${namedSupplier(columns)}`
     );
   if (filter.cpvDivision !== undefined)
     conditions.push(sql`left(p.category_code, 2) = ${filter.cpvDivision}`);

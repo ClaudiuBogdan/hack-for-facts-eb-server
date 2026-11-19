@@ -120,7 +120,9 @@ describe('D6', () => {
     const { sql } = await run((s) =>
       s.statsFor(ROUTE, { grain: 'direct_acquisition', supplierCui: '14399840' }, GEN)
     );
-    expect(sql).toMatch(/s\.fiscal_code_clean = \$\d+ and \(sv\.public is true/u);
+    expect(sql).toMatch(
+      /\(p\.source_name, p\.supplier_party_id\) in \(select pp\.source_name, pp\.portal_party_id from "procurement_v3"\."da_parties" pp\s+where pp\.party_kind = \$\d+ and pp\.fiscal_code_status = 'valid' and pp\.fiscal_code_clean = \$\d+\) and \(sv\.public is true/u
+    );
   });
 
   it('records carry a supplier code and name only when named, and never select free text', async () => {
@@ -133,9 +135,9 @@ describe('D6', () => {
     expect(sql).toContain('as supplier_display_kind');
     expect(sql).toContain('p.category_as_written as cpv_label');
     expect(sql).not.toMatch(/p\.(title|description)\b/u);
-    expect(sql).toContain(
-      'case when p.counted then p.counted_value end desc nulls last, p.purchase_id desc'
-    );
+    // Two phases the where-counted (counted_value, purchase_id) index serves: valued rows first.
+    expect(sql).toContain('p.counted and p.counted_value is not null');
+    expect(sql).toContain('order by p.counted_value desc, p.purchase_id desc');
   });
 });
 

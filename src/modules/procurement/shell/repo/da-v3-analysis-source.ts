@@ -252,6 +252,8 @@ interface Facts {
   /** Σ counted value of counted purchases matching `pred` (NULL when none summed). */
   money(pred: Sql): Sql;
   readonly authority: Sql;
+  /** Rows of one buyer code. */
+  authorityScope(code: string): Sql;
   /** The supplier's key: public code, natural_person, or NULL (no supplier). */
   readonly supplierKey: Sql;
   /** True when the supplier is named under D6 (public in supplier_privacy). */
@@ -263,6 +265,11 @@ interface Facts {
   readonly county: Sql;
   readonly region: Sql;
 }
+
+/** The purchases of one valid party code, as (source_name, party id) pairs. */
+const partyIds = (kind: 'buyer' | 'supplier', column: Sql, code: string): Sql =>
+  sql`(p.source_name, ${column}) in (select pp.source_name, pp.portal_party_id from ${PARTIES} pp
+      where pp.party_kind = ${kind} and pp.fiscal_code_status = 'valid' and pp.fiscal_code_clean = ${code})`;
 
 const liveFacts = (ctx: Ctx, geo: boolean): Facts => {
   const named = namedSupplierSql(ctx.privacy);
@@ -284,11 +291,15 @@ const liveFacts = (ctx: Ctx, geo: boolean): Facts => {
     counted: (pred) => sql`count(*) filter (where ${pred} and p.counted)`,
     money: (pred) => sql`sum(p.counted_value) filter (where ${pred} and p.counted)`,
     authority: sql`case when b.fiscal_code_status = 'valid' then b.fiscal_code_clean end`,
+    authorityScope: (code) => partyIds('buyer', sql`p.buyer_party_id`, code),
     supplierKey: sql`case when s.portal_party_id is null then null
         when ${named} then s.fiscal_code_clean
         else ${DA_V3_WITHHELD_SUPPLIER_KEY} end`,
     supplierNamed: named,
-    supplierScope: (code) => sql`s.fiscal_code_clean = ${code} and ${named}`,
+    // By party ids, so the planner reaches the purchases through the party index instead of
+    // reading a year of purchases and filtering on the joined party row (measured 18 Nov).
+    supplierScope: (code) =>
+      sql`${partyIds('supplier', sql`p.supplier_party_id`, code)} and ${named}`,
     cpv: sql`p.category_code`,
     county: sql`t.county_code`,
     region: sql`t.region`,
@@ -314,6 +325,7 @@ const rollupFacts = (ctx: Ctx, table: string, keys: readonly RollupKey[]): Facts
     counted: (pred) => sql`coalesce(sum(r.counted_purchases) filter (where ${pred}), 0)`,
     money: (pred) => sql`sum(r.counted_value) filter (where ${pred} and r.counted_purchases > 0)`,
     authority: sql`r.authority_cui`,
+    authorityScope: (code) => sql`r.authority_cui = ${code}`,
     supplierKey: sql`case when r.supplier_ref is null then null
         when ${named} then sv.fiscal_code_clean
         else ${DA_V3_WITHHELD_SUPPLIER_KEY} end`,
@@ -489,7 +501,7 @@ const compile = (
   const conds: Sql[] = f.base === null ? [] : [f.base];
   // Codes compare in the platform's form (no leading zeros); a legacy code still matches.
   if (scope.authorityCui !== undefined)
-    conds.push(sql`${f.authority} = ${withoutLeadingZeros(scope.authorityCui)}`);
+    conds.push(f.authorityScope(withoutLeadingZeros(scope.authorityCui)));
   if (scope.supplierCui !== undefined)
     conds.push(f.supplierScope(withoutLeadingZeros(scope.supplierCui)));
   if (scope.cpvDivision !== undefined) conds.push(sql`left(${f.cpv}, 2) = ${scope.cpvDivision}`);
@@ -668,6 +680,20 @@ const readPublishedQuality = async (ctx: Ctx): Promise<{ rows: QualityRow[] } | 
   if (result.rows.length !== 1 || row === undefined) return null;
   return Object.values(row).every((value) => value !== null) ? { rows: result.rows } : null;
 };
+
+interface RecordRow {
+  id: string;
+  date: string | null;
+  authority_cui: string | null;
+  authority_name: string | null;
+  supplier_cui: string | null;
+  supplier_name: string | null;
+  supplier_display_kind: 'company' | 'natural_person' | null;
+  value_ron: string | null;
+  status: string | null;
+  cpv_code: string | null;
+  cpv_label: string | null;
+}
 
 // ── the source ───────────────────────────────────────────────────────────────
 
@@ -1156,28 +1182,11 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
       const counting = geoScoped && !ctx.rollups.has(BUYER_GEOGRAPHY) ? c : compile(ctx, scope);
       if (counting.isErr()) return err(counting.error);
       const money = sql`case when p.counted then p.counted_value end`;
-      const order: Record<typeof page.sort, Sql> = {
-        date_desc: sql`p.finalization_day is null asc, p.finalization_day desc, p.purchase_id desc`,
-        date_asc: sql`p.finalization_day is null asc, p.finalization_day asc, p.purchase_id asc`,
-        value_desc: sql`${money} desc nulls last, p.purchase_id desc`,
-        value_asc: sql`${money} asc nulls last, p.purchase_id asc`,
-      };
       const where = sql`${c.value.where} and ${c.value.dated}`;
       const from = c.value.facts.from;
       const isNamed = c.value.facts.supplierNamed;
-      const rows = await sql<{
-        id: string;
-        date: string | null;
-        authority_cui: string | null;
-        authority_name: string | null;
-        supplier_cui: string | null;
-        supplier_name: string | null;
-        supplier_display_kind: 'company' | 'natural_person' | null;
-        value_ron: string | null;
-        status: string | null;
-        cpv_code: string | null;
-        cpv_label: string | null;
-      }>`
+      const pageOf = (extra: Sql, order: Sql, limit: number, offset: number) =>
+        sql<RecordRow>`
         select p.purchase_id as id,
                p.finalization_day::text as date,
                case when b.fiscal_code_status = 'valid' then b.fiscal_code_clean end as authority_cui,
@@ -1191,9 +1200,51 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
                case when p.category_code ~ '^[0-9]{8}' then left(p.category_code, 8) end as cpv_code,
                p.category_as_written as cpv_label
         ${from}
-        where ${where}
-        order by ${order[page.sort]}
-        limit ${page.limit} offset ${page.offset}`.execute(ctx.trx);
+        where ${where} and ${extra}
+        order by ${order}
+        limit ${limit} offset ${offset}`.execute(ctx.trx);
+      let rows: RecordRow[];
+      if (page.sort === 'date_desc' || page.sort === 'date_asc') {
+        const order =
+          page.sort === 'date_desc'
+            ? sql`p.finalization_day is null asc, p.finalization_day desc, p.purchase_id desc`
+            : sql`p.finalization_day is null asc, p.finalization_day asc, p.purchase_id asc`;
+        rows = (await pageOf(sql`true`, order, page.limit, page.offset)).rows;
+      } else {
+        // Same order as `money desc|asc nulls last, purchase_id desc|asc`, in two phases so
+        // the (counted_value, purchase_id) where-counted index serves the valued rows: the
+        // valued rows by value, then the rest by id, the offset carried across.
+        const desc = page.sort === 'value_desc';
+        const valued = sql`p.counted and p.counted_value is not null`;
+        const first = (
+          await pageOf(
+            valued,
+            desc
+              ? sql`p.counted_value desc, p.purchase_id desc`
+              : sql`p.counted_value asc, p.purchase_id asc`,
+            page.limit,
+            page.offset
+          )
+        ).rows;
+        rows = first;
+        if (first.length < page.limit) {
+          let valuedCount = page.offset + first.length;
+          if (first.length === 0 && page.offset > 0) {
+            const n = await sql<{ n: string }>`
+              select count(*)::text as n ${from} where ${where} and ${valued}`.execute(ctx.trx);
+            valuedCount = Number(n.rows[0]?.n ?? '0');
+          }
+          const rest = (
+            await pageOf(
+              sql`not (${valued})`,
+              desc ? sql`p.purchase_id desc` : sql`p.purchase_id asc`,
+              page.limit - first.length,
+              Math.max(0, page.offset - valuedCount)
+            )
+          ).rows;
+          rows = [...first, ...rest];
+        }
+      }
       const t = counting.value;
       const total = await sql<{ total: string }>`
         select (${t.facts.rows(t.dated)})::text as total ${t.facts.from} where ${t.where}`.execute(
@@ -1201,7 +1252,7 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
       );
       return ok({
         total: total.rows[0]?.total ?? '0',
-        rows: rows.rows.map((row): AnalysisRecordRow => ({
+        rows: rows.map((row): AnalysisRecordRow => ({
           id: row.id,
           date: row.date,
           // Free text is withheld until reviewed: the CPV label stands in the title's place.
