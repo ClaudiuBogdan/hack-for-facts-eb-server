@@ -10,6 +10,7 @@ import { z } from 'zod';
 
 import {
   GRAPHQL_ERROR_CODE,
+  disclosureKeyOf,
   invalidInput,
   type ApiError,
   type FilterInput,
@@ -164,13 +165,23 @@ export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly Kern
     analysisRepo: analysis,
     ...(disclosure !== undefined && { supplierDisclosure: disclosure }),
   };
+  /** The dated D6 keys an answer's DA envelopes were served under. */
+  const daKeysOf = (output: McpToolOutput): readonly string[] => {
+    const meta = output.meta as { envelopes?: readonly { disclosureKey?: unknown }[] } | undefined;
+    return (meta?.envelopes ?? []).flatMap((envelope) =>
+      typeof envelope.disclosureKey === 'string' ? [envelope.disclosureKey] : []
+    );
+  };
+
   /**
    * The answer's FINAL D6 check (a fresh load), run after the whole answer is
-   * built. A supplier scope it withholds is never echoed, and the answer is not
-   * trusted either: whatever decision produced its rows (a publish may have
-   * withheld the supplier after they were read), it is re-read ONCE (the
-   * whole-page rule). The re-read starts after this check, so it reads a
-   * publication at least as new and withholds the supplier itself.
+   * built. The scope's supplier is echoed, and the answer served as read, only
+   * when that check lists the supplier public AND comes from the very publication
+   * every DA envelope is keyed by. Otherwise the answer is not trusted (a publish
+   * may have withheld the supplier after its rows were read, or the echo would
+   * not match the key): it is re-read ONCE (the whole-page rule) and the supplier
+   * echoed as withheld. The re-read starts after this check, so its own D6
+   * decisions read a publication at least as new.
    */
   const finalChecked = async (
     scope: AnalysisScope,
@@ -180,7 +191,12 @@ export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly Kern
     const first = await run();
     if (!first.ok || disclosure?.enforced !== true || scope.supplierCui === undefined) return first;
     const codes = await disclosure.publicSupplierCodes({ fresh: true });
-    if (codes.isOk() && codes.value.has(scope.supplierCui)) return first;
+    if (
+      codes.isOk() &&
+      codes.value.has(scope.supplierCui) &&
+      daKeysOf(first).every((key) => key === disclosureKeyOf(codes.value))
+    )
+      return first;
     const again = await run();
     return again.ok
       ? { ...again, query: { scope: { ...scope, supplierCui: 'withheld' }, shape } }
@@ -280,6 +296,11 @@ export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly Kern
             : filter,
         link: `${clientBaseUrl}/procurement/direct-acquisitions`,
         items: res.value.items,
+        // D6: the key the page was served under (docs 10, monotonic keys).
+        meta: {
+          disclosureKey:
+            res.value.disclosureKey ?? (disclosure?.enforced === true ? 'unavailable' : 'off'),
+        },
         summary: `${n(res.value.items.length)} direct acquisition(s)${res.value.next !== null ? ' (more available)' : ''}.`,
       };
     },

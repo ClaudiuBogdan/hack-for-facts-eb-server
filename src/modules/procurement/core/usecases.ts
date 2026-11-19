@@ -25,6 +25,7 @@ import type {
   CpvCodeLabel,
   CpvDivision,
   CpvMatch,
+  DaCursorPage,
   DirectAcquisitionDetail,
   ProcedureDetail,
   ProcurementContract,
@@ -62,8 +63,7 @@ export const searchDirectAcquisitions = (
   repo: ProcurementRepo,
   filter: FilterInput,
   page: CursorPageRequest
-): Promise<Result<CursorPage<ProcurementDirectAcquisition>, ApiError>> =>
-  repo.listDirectAcquisitions(filter, page);
+): Promise<Result<DaCursorPage, ApiError>> => repo.listDirectAcquisitions(filter, page);
 
 export const getDirectAcquisitionDetail = (
   repo: ProcurementRepo,

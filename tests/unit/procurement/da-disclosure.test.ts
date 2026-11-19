@@ -319,6 +319,23 @@ describe('legacy DA disclosure keys (docs 10, monotonic keys)', () => {
     expect(crossing.disclosureKey).toBe('unavailable');
   });
 
+  it('the MCP cursor list carries the publication it was scrubbed under', async () => {
+    const list = (port: SupplierDisclosurePort, supplierCui?: readonly string[]) =>
+      withDaDisclosure(fakeRepo().repo, port).listDirectAcquisitions(
+        supplierCui === undefined ? {} : { supplierCui: { in: [...supplierCui] } },
+        { first: 10 }
+      );
+    expect((await list(dated([[COMPANY], P2])))._unsafeUnwrap().disclosureKey).toBe(P2);
+    // Refused up front (no public code asked for): the publication that refused it.
+    expect(
+      (await list(dated([[COMPANY], P1], [[COMPANY], P2]), [SOLE_TRADER]))._unsafeUnwrap()
+    ).toMatchObject({ items: [], disclosureKey: P1 });
+    // Authorised under one publication, checked under the next: not dated.
+    expect(
+      (await list(dated([[COMPANY], P1], [[COMPANY], P2])))._unsafeUnwrap().disclosureKey
+    ).toBe('unavailable');
+  });
+
   it('a page refused up front carries the publication that refused it', async () => {
     const page = await withDaDisclosure(
       fakeRepo().repo,

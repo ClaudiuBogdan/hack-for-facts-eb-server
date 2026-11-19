@@ -32,6 +32,7 @@ import { err, ok, type Result } from 'neverthrow';
 
 import {
   databaseError,
+  disclosureKeyOf,
   invalidInput,
   isWithheldOrganizationIdentifier,
   serviceUnavailable,
@@ -102,12 +103,35 @@ export interface AnalysisDeps {
   readonly supplierDisclosure?: SupplierDisclosurePort;
 }
 
-/** The echoed scope: a supplier code D6 withholds is never repeated in a response. */
-const echoScope = async (deps: AnalysisDeps, scope: AnalysisScope): Promise<string> => {
+/**
+ * Every key a request's blocks can be served under: the request generation's
+ * and each per-grain source's (the v3 DA grain resolves its own generation).
+ */
+const servedKeys = (gen: ActiveGeneration): readonly (string | undefined)[] => [
+  gen.disclosureKey,
+  ...Object.values(gen.grainSources ?? {}).map((source) => source.generation.disclosureKey),
+];
+
+/**
+ * The echoed scope: a supplier code D6 withholds is never repeated in a response.
+ * The echo is shared by every block of the answer, so the code is echoed only when
+ * the set that lists it public comes from the very publication EVERY block can be
+ * keyed by (`servedKeys`): an echo decided under another state (a publish, or
+ * supplier_privacy coming back or going away, mid-request) would not match some
+ * block's key, so it says `withheld`.
+ */
+const echoScope = async (
+  deps: AnalysisDeps,
+  scope: AnalysisScope,
+  gen: ActiveGeneration
+): Promise<string> => {
   if (deps.supplierDisclosure?.enforced !== true || scope.supplierCui === undefined)
     return canonicalScopeEcho(scope);
   const codes = await deps.supplierDisclosure.publicSupplierCodes();
-  return codes.isOk() && codes.value.has(scope.supplierCui)
+  if (codes.isErr() || !codes.value.has(scope.supplierCui))
+    return canonicalScopeEcho({ ...scope, supplierCui: 'withheld' });
+  const key = disclosureKeyOf(codes.value);
+  return servedKeys(gen).every((served) => served === key)
     ? canonicalScopeEcho(scope)
     : canonicalScopeEcho({ ...scope, supplierCui: 'withheld' });
 };
@@ -841,7 +865,7 @@ const statsWithGen = async (
     gen.capabilities
   );
   if (routesR.isErr()) return err(routesR.error);
-  const canonicalScope = await echoScope(deps, scope);
+  const canonicalScope = await echoScope(deps, scope, gen);
 
   const blocks: AnalysisStatsBlock[] = [];
   for (const route of routesR.value) {
@@ -906,7 +930,7 @@ export const analysisSeries = async (
     requestGen.capabilities
   );
   if (routesR.isErr()) return err(routesR.error);
-  const canonicalScope = await echoScope(deps, scope);
+  const canonicalScope = await echoScope(deps, scope, requestGen);
 
   const blocks: AnalysisSeriesBlock[] = [];
   for (const route of routesR.value) {
@@ -1270,7 +1294,7 @@ export const analysisBreakdown = async (
     gcR.value.gen.capabilities
   );
   if (routesR.isErr()) return err(routesR.error);
-  const canonicalScope = await echoScope(deps, input.scope);
+  const canonicalScope = await echoScope(deps, input.scope, gcR.value.gen);
 
   const blocks: AnalysisBreakdownBlock[] = [];
   for (const route of routesR.value) {
@@ -1314,7 +1338,7 @@ export const analysisConcentration = async (
     requestGen.capabilities
   );
   if (routesR.isErr()) return err(routesR.error);
-  const canonicalScope = await echoScope(deps, input.scope);
+  const canonicalScope = await echoScope(deps, input.scope, requestGen);
 
   const blocks: AnalysisConcentrationBlock[] = [];
   for (const route of routesR.value) {
@@ -1639,7 +1663,7 @@ export const analysisFacets = async (
     if (routesR.isErr()) return err(routesR.error);
     routed.push({ dimension, routes: routesR.value });
   }
-  const canonicalScope = await echoScope(deps, input.scope);
+  const canonicalScope = await echoScope(deps, input.scope, gcR.value.gen);
 
   const blocks: AnalysisBreakdownBlock[] = [];
   for (const { dimension, routes } of routed) {
@@ -1799,7 +1823,7 @@ export const analysisRecords = async (
       )
     );
   }
-  const canonicalScope = await echoScope(deps, scope);
+  const canonicalScope = await echoScope(deps, scope, gen);
   const caveats = [
     ...gate.caveats,
     ...(grain === 'contract' ? [CONTRACT_MEMBER_ROWS_NOTE] : []),

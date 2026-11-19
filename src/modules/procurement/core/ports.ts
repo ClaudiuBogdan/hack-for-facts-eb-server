@@ -25,6 +25,7 @@ import type {
   CpvCodeLabel,
   CpvDivision,
   CpvMatch,
+  DaCursorPage,
   DirectAcquisitionDetail,
   DuplicateRef,
   OffsetSearchRequest,
@@ -72,7 +73,7 @@ export interface ProcurementRepo {
   listDirectAcquisitions(
     f: FilterInput,
     p: CursorPageRequest
-  ): Promise<Result<CursorPage<ProcurementDirectAcquisition>, ApiError>>;
+  ): Promise<Result<DaCursorPage, ApiError>>;
   getDirectAcquisition(id: string): Promise<Result<ProcurementDirectAcquisition | null, ApiError>>;
   getDirectAcquisitionDetail(id: string): Promise<Result<DirectAcquisitionDetail | null, ApiError>>;
 

@@ -112,7 +112,11 @@ export const withDaDisclosure = (
       const attempt = async (authorised: PublicSupplierCodes) => {
         const allowed = publicSupplierFilter(requestedSuppliers(filter), authorised);
         if (allowed !== null && allowed.length === 0)
-          return ok({ page: { items: [], next: null }, allowed, codes: authorised });
+          return ok({
+            page: { items: [], next: null, disclosureKey: disclosureKeyOf(authorised) },
+            allowed,
+            codes: authorised,
+          });
         const scoped: FilterInput =
           allowed === null ? filter : { ...filter, supplierCui: { in: [...allowed] } };
         const read = await repo.listDirectAcquisitions(scoped, page);
@@ -120,7 +124,11 @@ export const withDaDisclosure = (
         const disclosed = await discloseAll(read.value.items, authorised);
         if (disclosed.isErr()) return err(disclosed.error);
         return ok({
-          page: { ...read.value, items: disclosed.value.items },
+          page: {
+            ...read.value,
+            items: disclosed.value.items,
+            disclosureKey: disclosureKeyOf(disclosed.value.codes),
+          },
           allowed,
           codes: disclosed.value.codes,
         });
@@ -135,7 +143,7 @@ export const withDaDisclosure = (
       const second = await attempt(first.value.codes);
       if (second.isErr()) return err(second.error);
       return narrowed(second.value.allowed, second.value.codes)
-        ? ok({ items: [], next: null })
+        ? ok({ items: [], next: null, disclosureKey: disclosureKeyOf(second.value.codes) })
         : ok(second.value.page);
     },
 

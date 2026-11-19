@@ -17,15 +17,23 @@
 import { Decimal } from 'decimal.js';
 import { err, ok, type Result } from 'neverthrow';
 
+import {
+  disclosureKeyOf,
+  serviceUnavailable,
+  type PublicSupplierCodes,
+  type ApiError,
+  type SupplierDisclosurePort,
+} from '@/modules/shared/index.js';
+
 import { DA_NATURAL_PERSON_BUCKET } from '../../core/constants.js';
 
 import type { AnalysisScope } from '../../core/analysis-scope.js';
 import type {
+  ActiveGeneration,
   AnalysisBreakdownBucketRow,
   AnalysisRecordRow,
   AnalysisRepo,
 } from '../../core/ports.js';
-import type { ApiError, SupplierDisclosurePort } from '@/modules/shared/index.js';
 
 const DA = 'direct_acquisition';
 /** A supplier key no fact row carries: a withheld code's scope matches nothing. */
@@ -44,41 +52,67 @@ export const withDaAnalysisDisclosure = (
   const freshCodes = async () => disclosure.publicSupplierCodes({ fresh: true });
 
   /**
+   * The answer's envelope carries the generation's disclosureKey (read when the
+   * request began). An answer whose D6 decision was made under another state (a
+   * publish, or supplier_privacy coming back or going away, mid-request) is not
+   * served under that key: the caller repeats the request and gets a key that
+   * matches. So every served key is exactly the decision the answer was made under.
+   */
+  const servedUnder = <T>(
+    gen: ActiveGeneration,
+    decided: { value: T; codes: PublicSupplierCodes }
+  ): Result<{ value: T; codes: PublicSupplierCodes }, ApiError> =>
+    disclosureKeyOf(decided.codes) === gen.disclosureKey
+      ? ok(decided)
+      : err(
+          serviceUnavailable(
+            'the supplier privacy list was republished during this request; repeat the request'
+          )
+        );
+
+  /**
    * Run a DA read on a scope D6 allows: a non-public supplier code matches
    * nothing. After the read, ONE fresh check decides: if a nightly publish
    * withheld the scope's code mid-request, the read runs again matching nothing.
-   * The returned codes are that decision, used to scrub what is served.
+   * The returned codes are that decision, used to scrub what is served; it is
+   * served only under the generation's key (`servedUnder`).
    */
   const guarded = async <T>(
     scope: AnalysisScope,
+    gen: ActiveGeneration,
     read: (scope: AnalysisScope) => Promise<Result<T, ApiError>>
-  ): Promise<Result<{ value: T; codes: ReadonlySet<string> }, ApiError>> => {
+  ): Promise<Result<{ value: T; codes: PublicSupplierCodes }, ApiError>> => {
     const code = scope.supplierCui;
     const hidden = { ...scope, supplierCui: NO_SUPPLIER_MATCH };
     const before = await codes();
     if (before.isErr()) return err(before.error);
     if (code !== undefined && !before.value.has(code)) {
       const result = await read(hidden);
-      return result.isErr() ? err(result.error) : ok({ value: result.value, codes: before.value });
+      return result.isErr()
+        ? err(result.error)
+        : servedUnder(gen, { value: result.value, codes: before.value });
     }
     const result = await read(scope);
     if (result.isErr()) return err(result.error);
     const after = await freshCodes();
     if (after.isErr()) return err(after.error);
     if (code === undefined || after.value.has(code))
-      return ok({ value: result.value, codes: after.value });
+      return servedUnder(gen, { value: result.value, codes: after.value });
     const again = await read(hidden);
-    return again.isErr() ? err(again.error) : ok({ value: again.value, codes: after.value });
+    return again.isErr()
+      ? err(again.error)
+      : servedUnder(gen, { value: again.value, codes: after.value });
   };
 
   /** A plain DA read under D6 (no scrub needed beyond the scope). */
   const plain = async <T>(
     grain: string,
     scope: AnalysisScope,
+    gen: ActiveGeneration,
     read: (scope: AnalysisScope) => Promise<Result<T, ApiError>>
   ): Promise<Result<T, ApiError>> => {
     if (grain !== DA || scope.supplierCui === undefined) return read(scope);
-    const result = await guarded(scope, read);
+    const result = await guarded(scope, gen, read);
     return result.isErr() ? err(result.error) : ok(result.value.value);
   };
 
@@ -146,17 +180,19 @@ export const withDaAnalysisDisclosure = (
         disclosureKey: asOf.isOk() && asOf.value !== null ? asOf.value : 'unavailable',
       });
     },
-    statsFor: (route, scope, gen) => plain(route.grain, scope, (s) => repo.statsFor(route, s, gen)),
+    statsFor: (route, scope, gen) =>
+      plain(route.grain, scope, gen, (s) => repo.statsFor(route, s, gen)),
     seriesFor: (route, scope, gen, measure) =>
-      plain(route.grain, scope, (s) => repo.seriesFor(route, s, gen, measure)),
+      plain(route.grain, scope, gen, (s) => repo.seriesFor(route, s, gen, measure)),
     distinctSeriesFor: (route, scope, gen, key, bucket) =>
-      plain(route.grain, scope, (s) => repo.distinctSeriesFor(route, s, gen, key, bucket)),
+      plain(route.grain, scope, gen, (s) => repo.distinctSeriesFor(route, s, gen, key, bucket)),
     concentrationFor: (route, scope, gen, basis) =>
-      plain(route.grain, scope, (s) => repo.concentrationFor(route, s, gen, basis)),
+      plain(route.grain, scope, gen, (s) => repo.concentrationFor(route, s, gen, basis)),
     breakdownFor: async (route, scope, gen, dimension, topN, rankBy) => {
       const read = (s: AnalysisScope) => repo.breakdownFor(route, s, gen, dimension, topN, rankBy);
-      if (route.grain !== DA || dimension !== 'supplier') return plain(route.grain, scope, read);
-      const result = await guarded(scope, read);
+      if (route.grain !== DA || dimension !== 'supplier')
+        return plain(route.grain, scope, gen, read);
+      const result = await guarded(scope, gen, read);
       if (result.isErr()) return err(result.error);
       const { value, codes: decided } = result.value;
       return ok({ ...value, buckets: mergeWithheld(value.buckets, decided, value.rankedBy) });
@@ -164,7 +200,7 @@ export const withDaAnalysisDisclosure = (
     recordsFor: async (route, scope, gen, page) => {
       const read = (s: AnalysisScope) => repo.recordsFor(route, s, gen, page);
       if (route.grain !== DA) return read(scope);
-      const result = await guarded(scope, read);
+      const result = await guarded(scope, gen, read);
       if (result.isErr()) return err(result.error);
       const { value, codes: decided } = result.value;
       return ok({ ...value, rows: value.rows.map((row) => discloseRecord(row, decided)) });

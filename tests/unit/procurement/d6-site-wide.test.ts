@@ -13,9 +13,15 @@ import { routeAnalysis } from '@/modules/procurement/core/combinations.js';
 import { makeProcurementMcpTools } from '@/modules/procurement/shell/mcp/tools.js';
 import { withDaAnalysisDisclosure } from '@/modules/procurement/shell/repo/da-analysis-disclosure.js';
 import { withDaDisclosure } from '@/modules/procurement/shell/repo/da-disclosure-repo.js';
+import {
+  FiscalCodeSet,
+  type FlowReadOptions,
+  type FlowsRepo,
+  type SupplierDisclosurePort,
+} from '@/modules/shared/index.js';
 import { withSupplierDisclosure } from '@/modules/shared/shell/repo/supplier-disclosure-repo.js';
 
-import { fakeAnalysisRepo, statsRead } from './analysis-fakes.js';
+import { BASIS_COVERAGE_ROWS, fakeAnalysisRepo, generation, statsRead } from './analysis-fakes.js';
 
 import type { AnalysisScope } from '@/modules/procurement/core/analysis-scope.js';
 import type {
@@ -24,21 +30,25 @@ import type {
   ProcurementRepo,
 } from '@/modules/procurement/core/ports.js';
 import type { ProcurementDirectAcquisition } from '@/modules/procurement/core/types.js';
-import type { FlowReadOptions, FlowsRepo, SupplierDisclosurePort } from '@/modules/shared/index.js';
 
 const COMPANY = '14399840';
 const SOLE_TRADER = '30254716';
+
+/** The publication every fake port here reads (sets change within it, as the tests need). */
+const PUBLISHED = '2026-11-18T03:10:00.000000Z';
+/** A generation keyed by that publication, as the D6 decorator's activeGeneration would key it. */
+const GEN = { disclosureKey: PUBLISHED } as never;
 
 /** A port whose public set changes after `flipAfter` reads (a nightly publish mid-request). */
 const port = (sets: readonly (readonly string[])[]): SupplierDisclosurePort => {
   let reads = 0;
   return {
     enforced: true,
-    privacyAsOf: () => Promise.resolve(ok('2026-11-18T03:10:00.000000Z')),
+    privacyAsOf: () => Promise.resolve(ok(PUBLISHED)),
     publicSupplierCodes: () => {
       const set = sets[Math.min(reads, sets.length - 1)] ?? [];
       reads += 1;
-      return Promise.resolve(ok(new Set(set)));
+      return Promise.resolve(ok(new FiscalCodeSet(set, PUBLISHED)));
     },
   };
 };
@@ -106,7 +116,7 @@ describe('ClickHouse DA grain under D6', () => {
     await withDaAnalysisDisclosure(withheld.repo, port([[COMPANY]])).statsFor(
       DA_ROUTE,
       { supplierCui: SOLE_TRADER },
-      {} as never
+      GEN
     );
     expect(withheld.scopes).toEqual(['~withheld']);
 
@@ -114,7 +124,7 @@ describe('ClickHouse DA grain under D6', () => {
     await withDaAnalysisDisclosure(crossing.repo, port([[SOLE_TRADER], []])).statsFor(
       DA_ROUTE,
       { supplierCui: SOLE_TRADER },
-      {} as never
+      GEN
     );
     expect(crossing.scopes).toEqual([SOLE_TRADER, '~withheld']);
   });
@@ -124,7 +134,7 @@ describe('ClickHouse DA grain under D6', () => {
     const read = await withDaAnalysisDisclosure(repo, port([[COMPANY]])).breakdownFor(
       DA_ROUTE,
       {},
-      {} as never,
+      GEN,
       'supplier',
       10,
       'value'
@@ -154,7 +164,7 @@ describe('ClickHouse DA grain under D6', () => {
     const read = await withDaAnalysisDisclosure(repo, port([[SOLE_TRADER], []])).recordsFor(
       DA_ROUTE,
       { supplierCui: SOLE_TRADER },
-      {} as never,
+      GEN,
       { sort: 'date_desc', offset: 0, limit: 10 }
     );
     expect(scopes).toEqual([SOLE_TRADER, '~withheld']);
@@ -166,7 +176,7 @@ describe('ClickHouse DA grain under D6', () => {
     const read = await withDaAnalysisDisclosure(repo, port([[COMPANY]])).recordsFor(
       DA_ROUTE,
       {},
-      {} as never,
+      GEN,
       { sort: 'date_desc', offset: 0, limit: 10 }
     );
     const raw = JSON.stringify(read);
@@ -260,7 +270,7 @@ describe('legacy DA reads across a publish', () => {
       items: [],
       total: 0,
       estimated: false,
-      disclosureKey: 'unavailable', // the fake port carries no publication
+      disclosureKey: PUBLISHED, // both checks read the one publication
     });
   });
 });
@@ -391,10 +401,12 @@ describe('MCP analysis: the final check re-reads a supplier it withholds', () =>
     let freshChecks = 0;
     const disclosure: SupplierDisclosurePort = {
       enforced: true,
-      privacyAsOf: () => Promise.resolve(ok('2026-11-18T03:10:00.000000Z')),
+      privacyAsOf: () => Promise.resolve(ok(PUBLISHED)),
       publicSupplierCodes: (options) => {
         if (options?.fresh === true) freshChecks += 1;
-        return Promise.resolve(ok(new Set(freshChecks >= withheldFrom ? [] : [COMPANY])));
+        return Promise.resolve(
+          ok(new FiscalCodeSet(freshChecks >= withheldFrom ? [] : [COMPANY], PUBLISHED))
+        );
       },
     };
     const tool = makeProcurementMcpTools({
@@ -438,6 +450,204 @@ describe('MCP analysis: the final check re-reads a supplier it withholds', () =>
     expect(scopes).toEqual([COMPANY]);
     expect(echo(out).supplierCui).toBe(COMPANY);
     expect((out.items as readonly { recordCount: string }[])[0]?.recordCount).toBe('7');
+  });
+});
+
+describe('ClickHouse DA grain: an answer is served only under the key it was decided by', () => {
+  const NEXT = '2026-11-19T03:10:00.000000Z';
+  /** Up-front checks read PUBLISHED; the final fresh check reads `fresh`. */
+  const across = (fresh: string | null): SupplierDisclosurePort => ({
+    enforced: true,
+    privacyAsOf: () => Promise.resolve(ok(PUBLISHED)),
+    publicSupplierCodes: (options) =>
+      Promise.resolve(
+        ok(
+          options?.fresh === true
+            ? // Unreadable lists no one, as production's empty set.
+              new FiscalCodeSet(fresh === null ? [] : [COMPANY], fresh)
+            : new FiscalCodeSet([COMPANY], PUBLISHED)
+        )
+      ),
+  });
+  const scoped = { supplierCui: COMPANY };
+
+  it('serves a decision made under the generation key', async () => {
+    const read = await withDaAnalysisDisclosure(innerAnalysis().repo, across(PUBLISHED)).statsFor(
+      DA_ROUTE,
+      scoped,
+      GEN
+    );
+    expect(read.isOk()).toBe(true);
+  });
+
+  it.each([
+    ['a publish between the generation and the final check', NEXT],
+    ['supplier_privacy unreadable at the final check', null],
+  ] as const)('refuses (retryable) %s', async (_label, fresh) => {
+    const gated = withDaAnalysisDisclosure(innerAnalysis().repo, across(fresh));
+    for (const read of [
+      gated.statsFor(DA_ROUTE, scoped, GEN),
+      gated.breakdownFor(DA_ROUTE, {}, GEN, 'supplier', 5, 'value'),
+      gated.recordsFor(DA_ROUTE, {}, GEN, { sort: 'date_desc', offset: 0, limit: 10 } as never),
+    ]) {
+      const result = await read;
+      expect(result.isErr() && result.error.type).toBe('ServiceUnavailable');
+      expect(result.isErr() && result.error.message).toContain('repeat the request');
+    }
+  });
+
+  it('leaves reads that make no D6 decision alone (no supplier scope, no supplier rows)', async () => {
+    const read = await withDaAnalysisDisclosure(innerAnalysis().repo, across(NEXT)).statsFor(
+      DA_ROUTE,
+      {},
+      GEN
+    );
+    expect(read.isOk()).toBe(true);
+  });
+});
+
+describe('MCP DA list carries its key', () => {
+  it('serves meta.disclosureKey, or off while D6 is not enforced', async () => {
+    const repo = {
+      listCpvCodeLabels: () => Promise.resolve(ok([])),
+      listDirectAcquisitions: () => Promise.resolve(ok({ items: [], next: null })),
+    } as unknown as ProcurementRepo;
+    const keyOf = async (disclosure: SupplierDisclosurePort) => {
+      const tool = makeProcurementMcpTools({
+        repo: withDaDisclosure(repo, disclosure),
+        analysis: fakeAnalysisRepo().repo,
+        clientBaseUrl: 'https://transparenta.eu',
+        supplierDisclosure: disclosure,
+      }).find((t) => t.name === 'search_procurement_direct_acquisitions');
+      if (tool === undefined)
+        throw new Error('search_procurement_direct_acquisitions not registered');
+      const out = await tool.handler({ authorityCui: '4305857' });
+      expect(out.ok).toBe(true);
+      return (out.meta as { disclosureKey: string }).disclosureKey;
+    };
+    expect(await keyOf(port([[COMPANY]]))).toBe(PUBLISHED);
+    expect(await keyOf({ ...port([[COMPANY]]), enforced: false })).toBe('off');
+    // Authorised under one publication, settled under the next: forwarded as unavailable.
+    const crossing: SupplierDisclosurePort = {
+      ...port([[COMPANY]]),
+      publicSupplierCodes: (options) =>
+        Promise.resolve(
+          ok(
+            new FiscalCodeSet(
+              [COMPANY],
+              options?.fresh === true ? '2026-11-19T03:10:00.000000Z' : PUBLISHED
+            )
+          )
+        ),
+    };
+    expect(await keyOf(crossing)).toBe('unavailable');
+  });
+});
+
+describe('the scope echo matches the key the answer is served under', () => {
+  const NEXT = '2026-11-19T03:10:00.000000Z';
+  /** The generation is keyed by `genKey`; every D6 set is read from `setKey` and lists COMPANY. */
+  const keyed = (genKey: string, setKey: string): SupplierDisclosurePort => ({
+    enforced: true,
+    privacyAsOf: () => Promise.resolve(ok(genKey)),
+    publicSupplierCodes: () => Promise.resolve(ok(new FiscalCodeSet([COMPANY], setKey))),
+  });
+  const echoed = async (disclosure: SupplierDisclosurePort) => {
+    const result = await analysisStats(
+      {
+        analysisRepo: withDaAnalysisDisclosure(fakeAnalysisRepo().repo, disclosure),
+        supplierDisclosure: disclosure,
+      },
+      { scope: { grain: 'contract', supplierCui: COMPANY } }
+    );
+    return result._unsafeUnwrap().blocks.map((block) => block.meta.canonicalScope);
+  };
+
+  it('echoes a public supplier when its set comes from the publication the answer is keyed by', async () => {
+    const scopes = await echoed(keyed(PUBLISHED, PUBLISHED));
+    expect(scopes.length).toBeGreaterThan(0);
+    for (const scope of scopes) expect(scope).toContain(`supplierCui=${COMPANY}`);
+  });
+
+  it('echoes withheld when the set comes from another publication than the key', async () => {
+    const scopes = await echoed(keyed(PUBLISHED, NEXT));
+    expect(scopes.length).toBeGreaterThan(0);
+    for (const scope of scopes) {
+      expect(scope).toContain('supplierCui=withheld');
+      expect(scope).not.toContain(COMPANY);
+    }
+  });
+
+  it('echoes withheld when a grain source (the v3 DA grain) is keyed by another state', async () => {
+    const disclosure = keyed(PUBLISHED, PUBLISHED);
+    const echoes = async (sourceKey: string) => {
+      const gen = {
+        ...generation(),
+        disclosureKey: PUBLISHED,
+        grainSources: {
+          direct_acquisition: {
+            generation: { ...generation(), disclosureKey: sourceKey },
+            coverage: BASIS_COVERAGE_ROWS,
+          },
+        },
+      };
+      const result = await analysisStats(
+        {
+          analysisRepo: fakeAnalysisRepo({ generation: gen }).repo,
+          supplierDisclosure: disclosure,
+        },
+        { scope: { grain: 'contract', supplierCui: COMPANY } }
+      );
+      return result._unsafeUnwrap().blocks.map((block) => block.meta.canonicalScope);
+    };
+    for (const scope of await echoes(PUBLISHED)) expect(scope).toContain(`supplierCui=${COMPANY}`);
+    for (const key of [NEXT, 'unavailable'])
+      for (const scope of await echoes(key)) expect(scope).toContain('supplierCui=withheld');
+  });
+
+  it('MCP: a final check from a newer publication re-reads and echoes withheld', async () => {
+    // Everything reads PUBLISHED until the final fresh check, which (and after it) reads NEXT.
+    let moved = false;
+    let freshChecks = 0;
+    const disclosure: SupplierDisclosurePort = {
+      enforced: true,
+      privacyAsOf: () => Promise.resolve(ok(moved ? NEXT : PUBLISHED)),
+      publicSupplierCodes: (options) => {
+        if (options?.fresh === true) {
+          freshChecks += 1;
+          // 1: the decorator's after-read check; 2: the MCP final check.
+          if (freshChecks === 2) moved = true;
+        }
+        return Promise.resolve(ok(new FiscalCodeSet([COMPANY], moved ? NEXT : PUBLISHED)));
+      },
+    };
+    let reads = 0;
+    const base = fakeAnalysisRepo().repo;
+    const facts: AnalysisRepo = {
+      ...base,
+      statsFor: (route, scope, gen) => {
+        if (route.grain === 'direct_acquisition') reads += 1;
+        return base.statsFor(route, scope, gen);
+      },
+    };
+    const tool = makeProcurementMcpTools({
+      repo: {} as unknown as ProcurementRepo,
+      analysis: withDaAnalysisDisclosure(facts, disclosure),
+      clientBaseUrl: 'https://transparenta.eu',
+      supplierDisclosure: disclosure,
+    }).find((t) => t.name === 'aggregate_procurement');
+    if (tool === undefined) throw new Error('aggregate_procurement not registered');
+    const out = await tool.handler({
+      shape: 'stats',
+      scope: { grain: 'direct_acquisition', supplierCui: COMPANY },
+    });
+    expect(out.ok).toBe(true);
+    expect(reads).toBe(2); // the answer, then its re-read under the newer publication
+    expect((out.query as { scope: AnalysisScope }).scope.supplierCui).toBe('withheld');
+    const keys = (out.meta as { envelopes: readonly { disclosureKey: string | null }[] }).envelopes
+      .map((envelope) => envelope.disclosureKey)
+      .filter((key) => key !== null);
+    expect(keys).toEqual([NEXT]);
   });
 });
 

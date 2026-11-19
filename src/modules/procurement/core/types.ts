@@ -29,6 +29,7 @@ import type {
   ValueState,
 } from './constants.js';
 import type { ContractDisplayTitle } from './contract-display-title.js';
+import type { CursorPage } from '@/modules/shared/index.js';
 
 // ── value-model resolution block (shared by the three valued grains) ──────────
 
@@ -291,6 +292,15 @@ export interface DaDetailBody {
   readonly textRedacted: boolean;
   readonly sourceUrl: string;
   readonly items: readonly DaItem[];
+}
+
+/** A legacy DA cursor page (the MCP list), with the D6 key it was served under. */
+export interface DaCursorPage extends CursorPage<ProcurementDirectAcquisition> {
+  /**
+   * D6: the key this answer was served under (the supplier_privacy publication,
+   * or `unavailable`); absent while D6 is off. Clients apply doc 10's monotonic rule.
+   */
+  readonly disclosureKey?: string;
 }
 
 export interface DirectAcquisitionDetail {
