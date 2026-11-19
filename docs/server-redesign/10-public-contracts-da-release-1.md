@@ -115,7 +115,8 @@ With the flag off:
     the deferred constraint trigger `supplier_privacy_moves_release` (procurement-prod b026b40e2), and refuses
     TRUNCATE, which bypasses row triggers, with BEFORE TRUNCATE statement triggers on supplier_privacy and
     supplier_id_ledger (584139f8). Both are defined in fast-lane `060_da_rollups_tables.sql`; the production
-    procurement_v3 migration will carry them too. So no path can change the privacy list without moving `data_as_of`.
+    procurement_v3 migration will carry them too. So no write or TRUNCATE can change the privacy list without moving
+    `data_as_of`, short of a superuser disabling triggers (`session_replication_role = replica`) or dropping them.
   - The ClickHouse analysis caches are keyed by build, and D6 is applied on read after them.
   - A publish moves the key; flipping a switch is an environment change, so the pods restart and the in-process
     caches start empty.
