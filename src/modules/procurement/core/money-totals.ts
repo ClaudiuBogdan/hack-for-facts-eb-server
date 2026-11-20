@@ -43,6 +43,8 @@ export type ValueKind = (typeof VALUE_KINDS)[number];
 
 export const STATUSES = [
   'awarded',
+  // Market consultations and advertising notices: they award nothing.
+  'published',
   'refused',
   'cancelled',
   'removed_from_portal',

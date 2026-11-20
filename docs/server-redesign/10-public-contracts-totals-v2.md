@@ -30,7 +30,7 @@ Today the spend gate decides whether a total **may be shown**, and abstains othe
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | Status      | Awarded only                                                                                                                         |
 | VAT         | Summed as published, with no conversion. The answer shows the mix (with VAT, without, unknown). VAT basis is also a filter.          |
-| Currency    | Totals in lei, plus subtotals per original currency on request                                                                       |
+| Currency    | Totals in lei, plus subtotals per original currency on request. A CA currency the portal has not named yet is keyed `portal:<id>`.   |
 | Title (`q`) | A totals filter. Titles are gated by the free-text rule, so a `q` total counts only titles the API may serve (PROC-37DX, PROC-R87F). |
 | Joint wins  | Counted once in market totals. The per-firm split is deferred (PROC-4JSX).                                                           |
 
@@ -53,7 +53,7 @@ One batch read, totals only. Breakdown, series, concentration and value-sorted r
 
 **Filters:**
 
-- procurement kind, contract kind, status keys;
+- procurement kind, contract kind, status keys (`published` is the status of market consultations and advertising notices, which award nothing; it is left out by the awarded default);
 - date range, on the day the money happened (`award_day`: DA finalization, CA conclusion, notice publication; fixed per procurement kind, so not a filter);
 - buyer; supplier (D6-aware: a withheld supplier matches nothing);
 - CPV levels; county or SIRUTA;

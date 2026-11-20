@@ -154,6 +154,22 @@ describe('composeTotals', () => {
     expect(answer.totals[0]?.recordCount).toBe('1');
   });
 
+  it('leaves out published notices by default and counts them when asked', () => {
+    const notices = { procurementKinds: ['advertising_notice'] };
+    const byDefault = composeTotals(
+      request({ filters: notices }),
+      [fact({ status: 'published' })],
+      LABELS,
+      '17'
+    );
+    expect(byDefault.exclusions.map((e) => e.key)).toEqual(['status:published']);
+    const asked = parseTotalsRequest({
+      id: 'x',
+      filters: { ...notices, statuses: ['published'] },
+    });
+    expect(asked._unsafeUnwrap().filters.statuses).toEqual(['published']);
+  });
+
   it('includes an undated fact when no range is asked', () => {
     const answer = composeTotals(request(), [fact({ dated: false })], LABELS, '17');
     expect(answer.totals[0]?.recordCount).toBe('1');
