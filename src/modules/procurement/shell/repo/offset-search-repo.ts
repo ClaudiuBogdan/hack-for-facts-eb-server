@@ -792,6 +792,18 @@ export const makeOffsetSearchRepo = (
             others.map((column) => sql`${ref(b.alias, column)} ilike ${pattern} escape '\\'`),
             sql` or `
           )})`;
+    /** Append the kept rows' keys; true when the batch was the last one. */
+    const keep = (
+      rows: readonly { pk: string; title: string | null; other_match: boolean | null }[],
+      into: string[]
+    ): boolean => {
+      for (const row of rows) {
+        if (row.other_match === true || row.title === null || !isFreeTextWithheld(row.title)) {
+          into.push(row.pk);
+        }
+      }
+      return rows.length < TITLE_SAFE_BATCH;
+    };
     try {
       // One read-only snapshot for the candidates and the page: a title that
       // changes between the two reads cannot slip a row past the rule.
@@ -806,9 +818,10 @@ export const makeOffsetSearchRepo = (
           // never depend on how many were dropped.
           const kept: string[] = [];
           let exhausted = false;
+          const offset = offsetOf(p);
           for (let batch = 0; batch < TITLE_SAFE_MAX_BATCHES; batch += 1) {
             // `sql.table` / `ref` quote trusted internal identifiers (never user input).
-            const result = await sql<{
+            const read = sql<{
               pk: string;
               title: string | null;
               other_match: boolean | null;
@@ -820,23 +833,36 @@ export const makeOffsetSearchRepo = (
                where ${composeAnd(resolved.conds)}
                order by ${orderClause(grain, sort)}
                limit ${sql.lit(TITLE_SAFE_BATCH)} offset ${sql.lit(batch * TITLE_SAFE_BATCH)}
-            `.execute(trx);
-            for (const row of result.rows) {
-              if (
-                row.other_match === true ||
-                row.title === null ||
-                !isFreeTextWithheld(row.title)
-              ) {
-                kept.push(row.pk);
+            `;
+            if (batch === 0) {
+              // The first batch's failure is the page's failure.
+              const first = await read.execute(trx);
+              if (keep(first.rows, kept)) {
+                exhausted = true;
+                break;
               }
+              if (kept.length > SEARCH_COUNT_CAP) break;
+              continue;
             }
-            if (result.rows.length < TITLE_SAFE_BATCH) {
-              exhausted = true;
+            // A later batch only decides exact or estimate. Its failure (e.g.
+            // the statement timeout) degrades the total to an estimate, as a
+            // failed count did, while the page is already covered; a savepoint
+            // keeps the snapshot usable for hydration.
+            await sql`savepoint title_safe_batch`.execute(trx);
+            try {
+              const next = await read.execute(trx);
+              await sql`release savepoint title_safe_batch`.execute(trx);
+              if (keep(next.rows, kept)) {
+                exhausted = true;
+                break;
+              }
+              if (kept.length > SEARCH_COUNT_CAP) break;
+            } catch (error) {
+              await sql`rollback to savepoint title_safe_batch`.execute(trx);
+              if (kept.length < offset + p.pageSize) throw error;
               break;
             }
-            if (kept.length > SEARCH_COUNT_CAP) break;
           }
-          const offset = offsetOf(p);
           const { items } = await hydrate(kept.slice(offset, offset + p.pageSize), trx);
           const exact = exhausted && kept.length <= SEARCH_COUNT_CAP && !resolved.countUnreliable;
           return ok(interpretCappedCount(items, exact ? kept.length : null));

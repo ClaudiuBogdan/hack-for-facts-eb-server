@@ -61,7 +61,8 @@ const procedureRow = (id: string, title: string | null) => ({
 /** A database whose answers the test scripts; every query's SQL is recorded. */
 const scriptedDb = (
   candidates: readonly Candidate[],
-  titles: ReadonlyMap<string, string | null>
+  titles: ReadonlyMap<string, string | null>,
+  failLaterBatches = false
 ) => {
   const queries: string[] = [];
   const hydrated: string[][] = [];
@@ -73,6 +74,9 @@ const scriptedDb = (
         const window = /limit (\d+) offset (\d+)/u.exec(query.sql);
         const limit = Number(window?.[1]);
         const offset = Number(window?.[2]);
+        if (failLaterBatches && offset > 0) {
+          return Promise.reject(new Error('canceling statement due to statement timeout'));
+        }
         return Promise.resolve({
           rows: candidates.slice(offset, offset + limit) as unknown as R[],
         });
@@ -227,5 +231,28 @@ describe('procedures q on the SQL path (PROC-R87F S1)', () => {
     await repo.searchProceduresOffset({ q: 'furnizare' }, page);
     expect(hydrated).toEqual([[big]]);
     expect(transactions).toEqual([{ isolationLevel: 'repeatable read', accessMode: 'read only' }]);
+  });
+
+  it('a later batch failing degrades the total to an estimate when the page is covered', async () => {
+    const candidates: Candidate[] = [
+      { pk: '1', title: 'Furnizare PFA Exemplu', other_match: false },
+      ...Array.from({ length: SEARCH_COUNT_CAP + 1 }, (_, i) => ({
+        pk: String(i + 2),
+        title: 'Furnizare materiale',
+        other_match: false,
+      })),
+    ];
+    const titles = new Map(candidates.map((c) => [c.pk, c.title]));
+    const { repo, queries } = scriptedDb(candidates, titles, true);
+    const served = (await repo.searchProceduresOffset({ q: 'furnizare' }, page))._unsafeUnwrap();
+    expect(served.items).toHaveLength(25);
+    expect(served).toMatchObject({ total: null, estimated: true });
+    expect(queries.some((q) => q.startsWith('rollback to savepoint'))).toBe(true);
+    // A page the first batch does not cover still fails, rather than coming back short.
+    const late = await repo.searchProceduresOffset(
+      { q: 'furnizare' },
+      { page: 100, pageSize: 101, sort: 'date_desc' }
+    );
+    expect(late.isErr()).toBe(true);
   });
 });
