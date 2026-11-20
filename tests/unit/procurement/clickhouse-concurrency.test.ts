@@ -237,13 +237,16 @@ describe('ClickHouse TOO_MANY_SIMULTANEOUS_QUERIES', () => {
     expect((await repoWith().statsFor(route, { year: 2024 }, GEN)).isErr()).toBe(true);
     expect(logged).toHaveLength(2);
     expect(JSON.stringify(logged)).not.toMatch(/PFA|0721123456/u);
-    // Pure exception text is still logged.
+    // Exception text can quote a title too: never logged, only its size.
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue(new Response(RAW_202.replace('202', '60'), { status: 404 }))
+      vi
+        .fn()
+        .mockResolvedValue(new Response('Code: 241. DB::Exception: PFA Exemplu', { status: 500 }))
     );
     await repoWith().statsFor(route, {}, GEN);
-    expect(JSON.stringify(logged.at(-1))).toContain('DB::Exception');
+    expect(JSON.stringify(logged.at(-1))).not.toContain('PFA');
+    expect(JSON.stringify(logged.at(-1))).toContain('bodyBytes');
   });
 
   it('keeps other ClickHouse failures a database error, without ClickHouse text', async () => {

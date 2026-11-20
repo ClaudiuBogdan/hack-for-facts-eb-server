@@ -14,6 +14,10 @@ const f = String.raw`trimBoth(replaceRegexpAll(replaceRegexpAll(normalizeUTF8NFK
 
 /** Each check as the SQL literal ClickHouse receives (backslashes doubled once). */
 const CHECKS: readonly (readonly [string, string])[] = [
+  [
+    'G',
+    String.raw`match(${t}, '[^\\x{0}-\\x{7FF}\\x{1E00}-\\x{1EFF}\\x{2000}-\\x{2BFF}\\x{E000}-\\x{F8FF}\\x{FB00}-\\x{FFFF}\\x{1F000}-\\x{1FAFF}]')`,
+  ],
   ['A1', String.raw`match(${t}, '[0-9]{13}')`],
   ['A2', String.raw`match(${t}, '(?i)[^\\s@]+@[^\\s@]+\\.[a-z]{2,}')`],
   ['A3', String.raw`match(${t}, '(\\+40|\\b0)[ .-]?[237]([ .-]?[0-9]){8}')`],
@@ -35,7 +39,7 @@ const CHECKS: readonly (readonly [string, string])[] = [
 ];
 
 describe('ClickHouse free-text rule', () => {
-  it('is exactly the nine checks, OR-ed', () => {
+  it('is exactly the guard and the nine checks, OR-ed', () => {
     expect(clickhouseFreeTextHit('title')).toBe(
       `(${CHECKS.map(([, check]) => `(${check})`).join(' OR ')})`
     );

@@ -14,6 +14,9 @@ export const clickhouseFreeTextHit = (column: string): string => {
   const decomposed = `normalizeUTF8NFKD(${t})`;
   const f = String.raw`trimBoth(replaceRegexpAll(replaceRegexpAll(${decomposed}, '\\p{Mn}', ''), '[^\\p{L}\\p{N}]+', ' '))`;
   const checks = [
+    // G: a code point outside the ranges where RE2 and Node classify Unicode
+    // alike (the core rule's guard), so both forms withhold the same texts.
+    String.raw`match(${t}, '[^\\x{0}-\\x{7FF}\\x{1E00}-\\x{1EFF}\\x{2000}-\\x{2BFF}\\x{E000}-\\x{F8FF}\\x{FB00}-\\x{FFFF}\\x{1F000}-\\x{1FAFF}]')`,
     // A1–A4 on the raw text.
     String.raw`match(${t}, '[0-9]{13}')`,
     String.raw`match(${t}, '(?i)[^\\s@]+@[^\\s@]+\\.[a-z]{2,}')`,
