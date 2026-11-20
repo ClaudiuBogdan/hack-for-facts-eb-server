@@ -51,6 +51,7 @@ import {
   type MeasureId,
   type SeriesBucket,
 } from '../../core/constants.js';
+import { isFreeTextWithheld } from '../../core/free-text-rule.js';
 
 import type { AnalysisRoute } from '../../core/combinations.js';
 import type { BasisCoverageRow } from '../../core/gate-v2.js';
@@ -115,7 +116,10 @@ const boundBani = (ron: number): number => {
   return bani;
 };
 
-/** The legacy facts' raw title hit by the shipped free-text rule (interim gate). */
+/**
+ * The legacy facts' raw title hit by the shipped free-text rule (interim gate):
+ * q never matches it. Records apply the core rule to the page rows instead.
+ */
 const TITLE_WITHHELD = clickhouseFreeTextHit('title');
 
 const TABLE_BY_GRAIN: Readonly<Record<AnalysisRoute['grain'], string>> = {
@@ -681,10 +685,7 @@ const RawRecordRowSchema = Type.Object(
   {
     id: Type.String({ pattern: '^[0-9]+$' }),
     date: Type.Union([Type.String({ pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' }), Type.Null()]),
-    // Never aliased `title`: ClickHouse resolves an alias before a column, so
-    // the withheld flag would test the masked NULL instead of the raw title.
-    served_title: NullableStringSchema,
-    title_withheld: Type.Union([Type.Literal('0'), Type.Literal('1')]),
+    title: NullableStringSchema,
     authority_cui: NullableStringSchema,
     authority_name: NullableStringSchema,
     supplier_cui: NullableStringSchema,
@@ -1520,8 +1521,7 @@ export const makeClickhouseAnalysisRepo = (
         SELECT
           toString(${pk}) AS id,
           if(is_undated, NULL, toString(date_basis)) AS date,
-          if(${TITLE_WITHHELD}, NULL, title) AS served_title,
-          toString(${TITLE_WITHHELD}) AS title_withheld,
+          title,
           authority_cui,
           authority_name,
           supplier_cui,
@@ -1543,25 +1543,29 @@ export const makeClickhouseAnalysisRepo = (
     ]);
     if (rowsR.isErr()) return err(rowsR.error);
     if (totalR.isErr()) return err(totalR.error);
-    const rows: AnalysisRecordRow[] = rowsR.value.map((row) => ({
-      id: row.id,
-      date: row.date,
-      // A blank title is no title: the display-title fallback must apply. A
-      // withheld one is not, and takes the display title with it.
-      title:
-        row.title_withheld === '0' && row.served_title !== null && row.served_title.trim() !== ''
-          ? row.served_title
-          : null,
-      ...(row.title_withheld === '1' && { titleWithheld: true }),
-      authorityCui: row.authority_cui,
-      authorityName: row.authority_name,
-      supplierCui: row.supplier_cui,
-      supplierName: row.supplier_name,
-      valueRon: baniToRon(row.value_bani),
-      status: row.status,
-      recordKind: row.record_kind,
-      cpvCode: row.cpv_code,
-    }));
+    const rows: AnalysisRecordRow[] = rowsR.value.map((row) => {
+      // A blank title is no title: the display-title fallback must apply.
+      const title = row.title !== null && row.title.trim() !== '' ? row.title : null;
+      // The free-text rule runs here, on the page's rows only: in the SELECT,
+      // ClickHouse evaluated it on every row it read (11 s on a q page). This
+      // form withholds at least what the ClickHouse form does (core rule). A
+      // withheld title takes the display title with it.
+      const withheld = title !== null && isFreeTextWithheld(title);
+      return {
+        id: row.id,
+        date: row.date,
+        title: withheld ? null : title,
+        ...(withheld && { titleWithheld: true as const }),
+        authorityCui: row.authority_cui,
+        authorityName: row.authority_name,
+        supplierCui: row.supplier_cui,
+        supplierName: row.supplier_name,
+        valueRon: baniToRon(row.value_bani),
+        status: row.status,
+        recordKind: row.record_kind,
+        cpvCode: row.cpv_code,
+      };
+    });
     return ok({ total: totalR.value[0]?.total ?? '0', rows });
   };
 

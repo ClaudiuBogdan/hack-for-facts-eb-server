@@ -423,8 +423,7 @@ describe('analysis records read', () => {
   const recordRow = {
     id: '17',
     date: '2025-11-03',
-    served_title: 'Furnituri de birou',
-    title_withheld: '0',
+    title: 'Furnituri de birou',
     authority_cui: '4270740',
     authority_name: 'Primaria Sibiu',
     supplier_cui: '14399840',
@@ -523,7 +522,7 @@ describe('analysis records read', () => {
       Promise.resolve(
         typeof request.body === 'string' && request.body.includes('AS total')
           ? compactResponse([{ total: '1' }])
-          : compactResponse([{ ...recordRow, served_title: '   ' }])
+          : compactResponse([{ ...recordRow, title: '   ' }])
       )
     );
     const repo = makeRepo(fetchSpy);
@@ -535,47 +534,33 @@ describe('analysis records read', () => {
     expect(result._unsafeUnwrap().rows[0]?.title).toBeNull();
   });
 
-  it('selects no title the free-text rule withholds, and marks the row', async () => {
+  it('serves no title the free-text rule withholds, marks the row, and keeps the rule out of the SELECT', async () => {
     const fetchSpy = vi.fn((_url: string, request: RequestInit) =>
       Promise.resolve(
         typeof request.body === 'string' && request.body.includes('AS total')
-          ? compactResponse([{ total: '1' }])
-          : compactResponse([{ ...recordRow, served_title: null, title_withheld: '1' }])
-      )
-    );
-    const repo = makeRepo(fetchSpy);
-    const result = await repo.recordsFor(route('contract'), { grain: 'contract' }, GEN, {
-      sort: 'date_desc',
-      offset: 0,
-      limit: 25,
-    });
-    const hit = clickhouseFreeTextHit('title');
-    const [page] = bodies(fetchSpy);
-    expect(page).toContain(`if(${hit}, NULL, title) AS served_title`);
-    expect(page).toContain(`toString(${hit}) AS title_withheld`);
-    // ClickHouse resolves an alias before a column: nothing may be aliased
-    // `title`, or the flag would test the masked NULL.
-    expect(page).not.toMatch(/AS title\b/u);
-    const row = result._unsafeUnwrap().rows[0];
-    expect(row?.title).toBeNull();
-    expect(row?.titleWithheld).toBe(true);
-  });
-
-  it('serves no title on a row marked withheld, even if text came back', async () => {
-    const fetchSpy = vi.fn((_url: string, request: RequestInit) =>
-      Promise.resolve(
-        typeof request.body === 'string' && request.body.includes('AS total')
-          ? compactResponse([{ total: '1' }])
-          : compactResponse([{ ...recordRow, title_withheld: '1' }])
+          ? compactResponse([{ total: '2' }])
+          : compactResponse([
+              { ...recordRow, id: '1', title: 'Servicii PFA Exemplu' },
+              { ...recordRow, id: '2', title: 'Furnizare hartie A4 500 coli' },
+            ])
       )
     );
     const result = await makeRepo(fetchSpy).recordsFor(
-      route('direct_acquisition'),
-      { grain: 'direct_acquisition' },
+      route('contract'),
+      { grain: 'contract', q: 'servicii' },
       GEN,
       { sort: 'date_desc', offset: 0, limit: 25 }
     );
-    expect(result._unsafeUnwrap().rows[0]?.title).toBeNull();
+    const [withheld, served] = result._unsafeUnwrap().rows;
+    expect(withheld).toMatchObject({ id: '1', title: null, titleWithheld: true });
+    expect(served).toMatchObject({ id: '2', title: 'Furnizare hartie A4 500 coli' });
+    expect(served).not.toHaveProperty('titleWithheld');
+    // In the SELECT, ClickHouse evaluates the rule on every row it reads (11 s
+    // on a q page): the page selects the raw title, and the rule sits in WHERE only.
+    const page = bodies(fetchSpy)[0] ?? '';
+    const select = page.slice(0, page.indexOf(' FROM '));
+    expect(select).not.toContain('match(');
+    expect(page).toContain(`AND NOT ${clickhouseFreeTextHit('title')}`);
   });
 
   it('answers an impossible scope with an empty page without querying', async () => {
