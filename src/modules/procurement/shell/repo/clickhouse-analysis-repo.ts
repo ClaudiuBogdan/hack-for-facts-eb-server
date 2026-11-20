@@ -681,7 +681,9 @@ const RawRecordRowSchema = Type.Object(
   {
     id: Type.String({ pattern: '^[0-9]+$' }),
     date: Type.Union([Type.String({ pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' }), Type.Null()]),
-    title: NullableStringSchema,
+    // Never aliased `title`: ClickHouse resolves an alias before a column, so
+    // the withheld flag would test the masked NULL instead of the raw title.
+    served_title: NullableStringSchema,
     title_withheld: Type.Union([Type.Literal('0'), Type.Literal('1')]),
     authority_cui: NullableStringSchema,
     authority_name: NullableStringSchema,
@@ -1518,7 +1520,7 @@ export const makeClickhouseAnalysisRepo = (
         SELECT
           toString(${pk}) AS id,
           if(is_undated, NULL, toString(date_basis)) AS date,
-          if(${TITLE_WITHHELD}, NULL, title) AS title,
+          if(${TITLE_WITHHELD}, NULL, title) AS served_title,
           toString(${TITLE_WITHHELD}) AS title_withheld,
           authority_cui,
           authority_name,
@@ -1547,8 +1549,8 @@ export const makeClickhouseAnalysisRepo = (
       // A blank title is no title: the display-title fallback must apply. A
       // withheld one is not, and takes the display title with it.
       title:
-        row.title_withheld === '0' && row.title !== null && row.title.trim() !== ''
-          ? row.title
+        row.title_withheld === '0' && row.served_title !== null && row.served_title.trim() !== ''
+          ? row.served_title
           : null,
       ...(row.title_withheld === '1' && { titleWithheld: true }),
       authorityCui: row.authority_cui,

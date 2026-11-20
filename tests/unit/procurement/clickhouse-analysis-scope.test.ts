@@ -423,7 +423,7 @@ describe('analysis records read', () => {
   const recordRow = {
     id: '17',
     date: '2025-11-03',
-    title: 'Furnituri de birou',
+    served_title: 'Furnituri de birou',
     title_withheld: '0',
     authority_cui: '4270740',
     authority_name: 'Primaria Sibiu',
@@ -523,7 +523,7 @@ describe('analysis records read', () => {
       Promise.resolve(
         typeof request.body === 'string' && request.body.includes('AS total')
           ? compactResponse([{ total: '1' }])
-          : compactResponse([{ ...recordRow, title: '   ' }])
+          : compactResponse([{ ...recordRow, served_title: '   ' }])
       )
     );
     const repo = makeRepo(fetchSpy);
@@ -540,7 +540,7 @@ describe('analysis records read', () => {
       Promise.resolve(
         typeof request.body === 'string' && request.body.includes('AS total')
           ? compactResponse([{ total: '1' }])
-          : compactResponse([{ ...recordRow, title: null, title_withheld: '1' }])
+          : compactResponse([{ ...recordRow, served_title: null, title_withheld: '1' }])
       )
     );
     const repo = makeRepo(fetchSpy);
@@ -551,8 +551,11 @@ describe('analysis records read', () => {
     });
     const hit = clickhouseFreeTextHit('title');
     const [page] = bodies(fetchSpy);
-    expect(page).toContain(`if(${hit}, NULL, title) AS title`);
+    expect(page).toContain(`if(${hit}, NULL, title) AS served_title`);
     expect(page).toContain(`toString(${hit}) AS title_withheld`);
+    // ClickHouse resolves an alias before a column: nothing may be aliased
+    // `title`, or the flag would test the masked NULL.
+    expect(page).not.toMatch(/AS title\b/u);
     const row = result._unsafeUnwrap().rows[0];
     expect(row?.title).toBeNull();
     expect(row?.titleWithheld).toBe(true);

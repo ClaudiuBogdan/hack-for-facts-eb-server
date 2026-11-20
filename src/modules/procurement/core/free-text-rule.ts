@@ -43,8 +43,21 @@ const fold = (decomposed: string): string =>
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .replace(/^ +| +$/gu, '');
 
+/**
+ * The code points where Node's Unicode classes (\p{L}, \p{N}, \p{Mn}, \p{Nd})
+ * equal the deployed ClickHouse RE2's, checked over every code point on
+ * 20 Nov (Node 24.22 / Unicode 17 against ClickHouse 26.8: 9,115 code points
+ * differ, all at U+088F or above and none inside these ranges). A text with any
+ * other code point is withheld, so this form never withholds less than the
+ * ClickHouse one. It held 1 of 314,993 distinct live titles.
+ */
+const OUTSIDE_STABLE_RANGES =
+  // eslint-disable-next-line no-control-regex -- the range starts at U+0000 on purpose: control characters are not withheld.
+  /[^\u0000-\u07FF\u1E00-\u1EFF\u2000-\u2BFF\uE000-\uF8FF\uFB00-\uFFFF\u{1F000}-\u{1FAFF}]/u;
+
 /** True when the rule withholds `text`. */
 export const isFreeTextWithheld = (text: string): boolean => {
+  if (OUTSIDE_STABLE_RANGES.test(text)) return true;
   if (RAW_CHECKS.some((check) => check.test(text))) return true;
   const decomposed = text.normalize('NFKD');
   // B1: an at sign in any form (fullwidth included, after NFKD).

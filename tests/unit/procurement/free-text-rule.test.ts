@@ -51,6 +51,20 @@ describe('free-text rule', () => {
     expect(publicFreeText(text)).toBe(text);
   });
 
+  it.each([
+    // A letter to Node 24 (Unicode 17) that RE2 does not know: RE2 reads the
+    // marker as starting a word and withholds, so this form must too.
+    ['\u1C89i.i. Exemplu', 'Cyrillic Extended-C'],
+    ['Servicii \u4E2D\u6587', 'CJK'],
+    ['Lucrari \u{1FB00}', 'Symbols for Legacy Computing'],
+  ])('withholds %j: a code point outside the ranges where Node and RE2 agree (%s)', (text) => {
+    expect(isFreeTextWithheld(text)).toBe(true);
+  });
+
+  it('serves fullwidth, private-use and emoji characters that carry no marker', () => {
+    expect(isFreeTextWithheld('Furnizare \uFF08set\uFF09 \uF0B7 birou \u{1F4E6}')).toBe(false);
+  });
+
   it('serves no text for an absent one', () => {
     expect(publicFreeText(null)).toBeNull();
   });
