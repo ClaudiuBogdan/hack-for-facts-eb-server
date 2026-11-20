@@ -447,6 +447,13 @@ const genWithCoverage = async (
   }
   const genR = await activeGen(repo);
   if (genR.isErr()) return err(genR.error);
+  // A grain with its own source (direct acquisitions on procurement_v3) reads
+  // neither the base generation nor its coverage. Any other grain answers a busy
+  // base as retryable before its pin is checked: while the base is busy the
+  // generation carries only the DA build, so the pin cannot be judged.
+  const ownSource = grain !== undefined && genR.value.grainSources?.[grain] !== undefined;
+  const baseBusy = genR.value.capabilities.analysisBaseBusyRetryAfterSeconds;
+  if (!ownSource && baseBusy !== undefined) return err(busyRetryLater(BUSY_MESSAGE, baseBusy));
   // Two sources publish independently (ClickHouse and procurement_v3): one pin
   // cannot hold both, so a pinned request must name its grain.
   if (
@@ -473,11 +480,6 @@ const genWithCoverage = async (
       )
     );
   }
-  // A grain with its own source (direct acquisitions on procurement_v3) reads
-  // neither the base generation nor its coverage.
-  const ownSource = grain !== undefined && genR.value.grainSources?.[grain] !== undefined;
-  const baseBusy = genR.value.capabilities.analysisBaseBusyRetryAfterSeconds;
-  if (!ownSource && baseBusy !== undefined) return err(busyRetryLater(BUSY_MESSAGE, baseBusy));
   const covR = await repo.basisCoverage(genR.value.buildId);
   // Coverage is optional, but a busy refusal is retryable: a grain that needs
   // it answers that rather than gates computed without coverage.

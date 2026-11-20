@@ -38,8 +38,11 @@ export interface ConcurrencyGate {
 interface Waiter {
   /** `now()` past which the waiter is refused even if a slot frees first. */
   readonly deadline: number;
-  /** 'granted': the releasing holder's slot; otherwise why it was refused. */
-  settle(outcome: 'granted' | 'wait_timeout' | 'closed'): void;
+  /**
+   * 'granted': the releasing holder's slot, at clock reading `at`; otherwise
+   * why it was refused. Never reads the clock itself.
+   */
+  settle(outcome: 'granted' | 'wait_timeout' | 'closed', at?: number): void;
 }
 
 export const makeConcurrencyGate = (
@@ -53,12 +56,12 @@ export const makeConcurrencyGate = (
   const releaseSlot = (): void => {
     // Hand the slot to the oldest waiter still within its wait; a waiter whose
     // deadline passed (its timer not yet run) is refused, never started late.
-    // One clock read, before any waiter leaves the queue (an injected clock
-    // cannot re-enter the gate mid-handoff).
+    // The only clock read, before any waiter leaves the queue: an injected
+    // clock cannot re-enter the gate mid-handoff.
     const at = now();
     for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
       if (at < next.deadline) {
-        next.settle('granted');
+        next.settle('granted', at);
         return;
       }
       next.settle('wait_timeout');
@@ -90,12 +93,10 @@ export const makeConcurrencyGate = (
       return new Promise((resolve) => {
         const waiter: Waiter = {
           deadline: startedAt + options.queueWaitMs,
-          settle(outcome) {
+          settle(outcome, at = startedAt) {
             clearTimeout(timer);
             // A granted waiter inherits the releasing holder's slot (`active` unchanged).
-            resolve(
-              outcome === 'granted' ? ok(ticket(Math.round(now() - startedAt))) : err(outcome)
-            );
+            resolve(outcome === 'granted' ? ok(ticket(Math.round(at - startedAt))) : err(outcome));
           },
         };
         const timer = setTimeout(() => {

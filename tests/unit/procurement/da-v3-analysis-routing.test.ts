@@ -152,6 +152,12 @@ describe('the routing repo', () => {
     expect(
       (await analysisStats(deps, { scope: { grain: 'contract' } }))._unsafeUnwrapErr()
     ).toEqual(busy);
+    // A pinned base grain: the pin cannot be judged while busy, so still retryable.
+    expect(
+      (
+        await analysisStats(deps, { scope: { grain: 'contract' }, build: BUILD_ID })
+      )._unsafeUnwrapErr()
+    ).toEqual(busy);
     // With no DA publication either, nothing can answer: still retryable.
     expect((await analysisStats(busyBase(ok(null)), { scope: {} }))._unsafeUnwrapErr()).toEqual(
       busy

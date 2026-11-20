@@ -94,11 +94,15 @@ describe('concurrency gate', () => {
     });
     const holder = (await gate.acquire())._unsafeUnwrap();
     const waiting = gate.acquire();
+    // Close on EVERY clock read during the handoff.
+    let reads = 0;
     clock.onRead = () => {
-      clock.onRead = undefined;
+      reads += 1;
       gate.close();
     };
     holder.release();
+    clock.onRead = undefined;
+    expect(reads).toBe(1);
     expect((await waiting)._unsafeUnwrapErr()).toBe('closed');
     expect(gate.stats()).toEqual({ active: 0, queued: 0 });
   });
