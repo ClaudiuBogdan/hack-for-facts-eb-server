@@ -43,6 +43,8 @@ export type ValueKind = (typeof VALUE_KINDS)[number];
 
 export const STATUSES = [
   'awarded',
+  // Market consultations and advertising notices: they award nothing.
+  'published',
   'refused',
   'cancelled',
   'removed_from_portal',
@@ -578,7 +580,7 @@ const explain = (
   const ro: string[] = [];
   const en: string[] = [];
   ro.push(
-    `Include: ${joinList(
+    `Selecție: ${joinList(
       included.procurementKinds.map((l) => l.labelRo),
       'și'
     )}; stare: ${joinList(
@@ -590,7 +592,7 @@ const explain = (
     )}.`
   );
   en.push(
-    `Includes: ${joinList(
+    `Selected: ${joinList(
       included.procurementKinds.map((l) => l.labelEn),
       'and'
     )}; status: ${joinList(

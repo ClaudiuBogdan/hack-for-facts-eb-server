@@ -154,6 +154,30 @@ describe('composeTotals', () => {
     expect(answer.totals[0]?.recordCount).toBe('1');
   });
 
+  it('accounts for published notices: a status exclusion by default, not additive when asked', () => {
+    // Notices award nothing: their facts are reported, non-additive values.
+    const notice = fact({ status: 'published', valueKind: 'reported', additive: false });
+    const notices = { procurementKinds: ['advertising_notice'] };
+    const byDefault = composeTotals(
+      request({ filters: notices, valueKinds: ['reported'] }),
+      [notice],
+      LABELS,
+      '17'
+    );
+    expect(byDefault.exclusions.map((e) => e.key)).toEqual(['status:published']);
+    expect(byDefault.totals[0]?.recordCount).toBe('0');
+    const asked = composeTotals(
+      request({ filters: { ...notices, statuses: ['published'] }, valueKinds: ['reported'] }),
+      [notice],
+      LABELS,
+      '17'
+    );
+    expect(asked.filtersApplied.statuses).toEqual(['published']);
+    expect(asked.exclusions.map((e) => e.key)).toEqual(['not_additive']);
+    expect(asked.totals[0]?.recordCount).toBe('0');
+    expect(asked.explanation.textEn).toMatch(/^Selected: /u);
+  });
+
   it('includes an undated fact when no range is asked', () => {
     const answer = composeTotals(request(), [fact({ dated: false })], LABELS, '17');
     expect(answer.totals[0]?.recordCount).toBe('1');
@@ -244,7 +268,7 @@ describe('composeTotals', () => {
       '17'
     );
     expect(answer.explanation.textEn).toBe(
-      'Includes: Contract awards; status: Awarded; value kind: Awarded value. Values are summed as published (no VAT conversion), in lei. Left out: Cancelled (1, 5.00 lei).'
+      'Selected: Contract awards; status: Awarded; value kind: Awarded value. Values are summed as published (no VAT conversion), in lei. Left out: Cancelled (1, 5.00 lei).'
     );
     expect(answer.explanation.textRo).toContain('Excluse: Anulat (1, 5.00 lei).');
   });
