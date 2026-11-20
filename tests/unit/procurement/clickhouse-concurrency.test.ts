@@ -246,7 +246,7 @@ describe('ClickHouse TOO_MANY_SIMULTANEOUS_QUERIES', () => {
     );
     await repoWith().statsFor(route, {}, GEN);
     expect(JSON.stringify(logged.at(-1))).not.toContain('PFA');
-    expect(JSON.stringify(logged.at(-1))).toContain('bodyBytes');
+    expect(JSON.stringify(logged.at(-1))).toContain('bodyChars');
   });
 
   it('keeps other ClickHouse failures a database error, without ClickHouse text', async () => {

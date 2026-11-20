@@ -871,8 +871,8 @@ export const makeClickhouseAnalysisRepo = (
             status: response.status,
             clickhouseCode: code,
             // Never the body: rows streamed before an exception, or an
-            // exception's own text, may quote a raw title. Its size only.
-            bodyBytes: body.length,
+            // exception's own text, may quote a raw title. Its length only.
+            bodyChars: body.length,
           },
           'clickhouse query failed'
         );
