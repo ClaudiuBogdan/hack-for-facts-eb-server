@@ -1,0 +1,253 @@
+/**
+ * Totals v2 core: defaults, one exclusion per fact, the invariant
+ * (included + exclusions = population, count and value), the D6 note, the
+ * withheld-supplier disclosure, and an explanation built only from what was
+ * applied and counted.
+ */
+import { describe, expect, it } from 'vitest';
+
+import {
+  baniToLei,
+  composeTotals,
+  parseTotalsRequest,
+  type FactAggregate,
+  type MoneyLabel,
+  type TotalsRequest,
+} from '@/modules/procurement/core/money-totals.js';
+
+const request = (over: Partial<Parameters<typeof parseTotalsRequest>[0]> = {}): TotalsRequest =>
+  parseTotalsRequest({
+    id: 'r1',
+    filters: { procurementKinds: ['contract_award'] },
+    ...over,
+  })._unsafeUnwrap();
+
+const fact = (over: Partial<FactAggregate> = {}): FactAggregate => ({
+  valueKind: 'awarded',
+  status: 'awarded',
+  additive: true,
+  dated: true,
+  inRange: true,
+  hasAmount: true,
+  jointWin: false,
+  vatBasis: 'unknown',
+  currency: 'RON',
+  unverifiedHead: false,
+  listValue: false,
+  withheldSupplier: false,
+  count: 1n,
+  sumBani: 100n,
+  nativeSumMinor: 100n,
+  ...over,
+});
+
+const LABELS: MoneyLabel[] = [
+  ['procurement_kind', 'contract_award', 'Atribuiri de contracte', 'Contract awards'],
+  ['status', 'awarded', 'Atribuit', 'Awarded'],
+  ['status', 'cancelled', 'Anulat', 'Cancelled'],
+  ['value_kind', 'awarded', 'Valoare atribuită', 'Awarded value'],
+  ['exclusion', 'no_value', 'Fără valoare', 'No value'],
+  ['exclusion', 'undated', 'Fără dată', 'Undated'],
+  ['exclusion', 'not_additive', 'Nu se adună', 'Not additive'],
+  [
+    'exclusion',
+    'withheld_d6',
+    'Furnizor nepublic: nimic selectat',
+    'Supplier not public: nothing matched',
+  ],
+  [
+    'exclusion',
+    'association_unattributed',
+    'Contracte comune, valoare neatribuită',
+    'Joint contracts, value not attributed',
+  ],
+  [
+    'disclosure',
+    'withheld_supplier',
+    'înregistrări cu furnizori nenumiți',
+    'records from suppliers not named',
+  ],
+].map(([labelSet, key, labelRo, labelEn]) => ({
+  labelSet: labelSet ?? '',
+  key: key ?? '',
+  labelRo: labelRo ?? '',
+  labelEn: labelEn ?? '',
+  meaningRo: '',
+  meaningEn: '',
+}));
+
+describe('parseTotalsRequest', () => {
+  it('applies the owner defaults: awarded status, awarded value', () => {
+    const r = request();
+    expect(r.filters.statuses).toEqual(['awarded']);
+    expect(r.valueKinds).toEqual(['awarded']);
+    expect(r.currencySubtotals).toBe(false);
+  });
+
+  it('requires the procurement kinds: kinds are never mixed by default', () => {
+    const r = parseTotalsRequest({ id: 'x', filters: {} });
+    expect(r._unsafeUnwrapErr()).toMatchObject({ type: 'InvalidInput', field: 'procurementKinds' });
+  });
+
+  it.each([
+    [{ statuses: ['paid'] }, 'statuses'],
+    [{ from: '2025-13' }, 'from'],
+    [{ from: '2025-02-01', to: '2025-01-01' }, 'from'],
+    [{ supplierCode: 'RO123' }, 'supplierCode'],
+    [{ q: 'ab' }, 'q'],
+    [{ cpvPrefix: '4' }, 'cpvPrefix'],
+  ])('refuses %j naming %s', (filters, field) => {
+    const r = parseTotalsRequest({
+      id: 'x',
+      filters: { procurementKinds: ['direct_acquisition'], ...filters },
+    });
+    expect(r._unsafeUnwrapErr()).toMatchObject({ type: 'InvalidInput', field });
+  });
+});
+
+describe('composeTotals', () => {
+  it('sums exactly in bani and renders lei', () => {
+    expect(baniToLei(123456789012345678n)).toBe('1234567890123456.78');
+    expect(baniToLei(-5n)).toBe('-0.05');
+    const answer = composeTotals(
+      request(),
+      [fact({ count: 2n, sumBani: 150n }), fact({ count: 1n, sumBani: 1n })],
+      LABELS,
+      '17'
+    );
+    expect(answer.totals[0]).toMatchObject({
+      sumLei: '1.51',
+      recordCount: '3',
+      withValueCount: '3',
+    });
+    expect(answer.factBuild).toBe('17');
+  });
+
+  it('gives every left-out fact exactly one reason, in a fixed order', () => {
+    const r = request({
+      filters: { procurementKinds: ['contract_award'], from: '2025-01-01', supplierCode: '123' },
+    });
+    const answer = composeTotals(
+      r,
+      [
+        fact({ status: 'cancelled', additive: false, hasAmount: false }), // status first
+        fact({ additive: false, hasAmount: false }), // then not additive
+        fact({ hasAmount: false, sumBani: 0n }), // then no value
+        fact({ dated: false, inRange: false }), // then undated (a range was asked)
+        fact({ jointWin: true }), // then joint win under a supplier filter
+        fact(),
+      ],
+      LABELS,
+      '17'
+    );
+    expect(answer.exclusions.map((e) => e.key)).toEqual([
+      'association_unattributed',
+      'no_value',
+      'not_additive',
+      'status:cancelled',
+      'undated',
+    ]);
+    expect(answer.exclusions.find((e) => e.key === 'no_value')?.valueLei).toBeNull();
+    expect(answer.totals[0]?.recordCount).toBe('1');
+  });
+
+  it('includes an undated fact when no range is asked', () => {
+    const answer = composeTotals(request(), [fact({ dated: false })], LABELS, '17');
+    expect(answer.totals[0]?.recordCount).toBe('1');
+    expect(answer.exclusions).toEqual([]);
+  });
+
+  it('keeps the invariant: included + exclusions = population, count and value', () => {
+    const rows: FactAggregate[] = [];
+    let seed = 7;
+    const next = () => (seed = (seed * 48271) % 2147483647);
+    for (let i = 0; i < 400; i += 1) {
+      const hasAmount = next() % 7 !== 0;
+      rows.push(
+        fact({
+          status:
+            (['awarded', 'cancelled', 'under_review', 'identity_review'] as const)[next() % 4] ??
+            'awarded',
+          additive: next() % 5 !== 0,
+          hasAmount,
+          dated: next() % 6 !== 0,
+          jointWin: next() % 9 === 0,
+          count: BigInt(1 + (next() % 50)),
+          // The shell sums only non-null amounts: a row without one carries 0.
+          sumBani: hasAmount ? BigInt(next() % 1_000_000) : 0n,
+        })
+      );
+    }
+    const r = request({
+      filters: { procurementKinds: ['contract_award'], from: '2020-01-01', supplierCode: '1' },
+    });
+    const answer = composeTotals(r, rows, LABELS, '17');
+    const total = answer.totals[0];
+    const included = BigInt(total?.recordCount ?? '0');
+    const excluded = answer.exclusions.reduce((acc, e) => acc + BigInt(e.count), 0n);
+    expect(included + excluded).toBe(BigInt(answer.population[0]?.count ?? '-1'));
+    const sum = (lei: string | null | undefined) =>
+      lei === null || lei === undefined ? 0n : BigInt(lei.replace('.', ''));
+    const valued =
+      sum(total?.sumLei) + answer.exclusions.reduce((acc, e) => acc + sum(e.valueLei), 0n);
+    expect(valued).toBe(rows.reduce((acc, row) => acc + row.sumBani, 0n));
+  });
+
+  it('a withheld supplier code matches nothing and says so, with no count', () => {
+    const r = request({ filters: { procurementKinds: ['direct_acquisition'], supplierCode: '1' } });
+    const answer = composeTotals(r, [fact()], LABELS, '17', true);
+    expect(answer.totals[0]).toMatchObject({ recordCount: '0', sumLei: '0.00' });
+    expect(answer.notes.map((n) => n.key)).toEqual(['withheld_d6']);
+    expect(answer.exclusions).toEqual([]);
+    expect(answer.explanation.textEn).toContain('Supplier not public: nothing matched');
+  });
+
+  it('discloses included records from withheld suppliers, without excluding them', () => {
+    const answer = composeTotals(
+      request(),
+      [fact({ withheldSupplier: true, count: 3n, sumBani: 300n }), fact()],
+      LABELS,
+      '17'
+    );
+    expect(answer.totals[0]).toMatchObject({ recordCount: '4', sumLei: '4.00' });
+    expect(answer.disclosures).toEqual([
+      expect.objectContaining({ key: 'withheld_supplier', count: '3', valueLei: '3.00' }),
+    ]);
+  });
+
+  it('reports VAT mix and, on request, per-currency subtotals in native units', () => {
+    const r = request({ currencySubtotals: true });
+    const answer = composeTotals(
+      r,
+      [
+        fact({ vatBasis: 'included', currency: 'EUR', nativeSumMinor: 2050n }),
+        fact({ vatBasis: 'unknown', currency: 'RON' }),
+      ],
+      LABELS,
+      '17'
+    );
+    expect(answer.totals[0]?.vatMix).toEqual({ excluded: '0', included: '1', unknown: '1' });
+    expect(answer.totals[0]?.currencies).toEqual([
+      { currency: 'EUR', sum: '20.50', count: '1' },
+      { currency: 'RON', sum: '1.00', count: '1' },
+    ]);
+  });
+
+  it('composes the explanation only from the applied filters, labels and counts', () => {
+    const answer = composeTotals(
+      request(),
+      [fact(), fact({ status: 'cancelled', sumBani: 500n })],
+      LABELS,
+      '17'
+    );
+    expect(answer.explanation.textEn).toBe(
+      'Includes: Contract awards; status: Awarded; value kind: Awarded value. Values are summed as published (no VAT conversion), in lei. Left out: Cancelled (1, 5.00 lei).'
+    );
+    expect(answer.explanation.textRo).toContain('Excluse: Anulat (1, 5.00 lei).');
+  });
+
+  it('shows a missing label as its key, never a guessed text', () => {
+    const answer = composeTotals(request(), [fact({ status: 'withdrawn' })], [], '17');
+    expect(answer.exclusions[0]).toMatchObject({ key: 'status:withdrawn', labelEn: 'withdrawn' });
+  });
+});
