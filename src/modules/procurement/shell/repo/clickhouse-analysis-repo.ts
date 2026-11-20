@@ -867,7 +867,15 @@ export const makeClickhouseAnalysisRepo = (
           return err(busy());
         }
         logger?.error(
-          { status: response.status, clickhouseCode: code, body: body.slice(0, 500) },
+          {
+            status: response.status,
+            clickhouseCode: code,
+            // Pure exception text is logged; a body that starts otherwise may
+            // carry rows streamed before the exception (raw titles): its size only.
+            ...(body.startsWith('Code: ')
+              ? { body: body.slice(0, 500) }
+              : { bodyBytes: body.length }),
+          },
           'clickhouse query failed'
         );
         // ClickHouse's text names its version, user and settings: log it, never return it.
@@ -898,8 +906,17 @@ export const makeClickhouseAnalysisRepo = (
       }
       return rows;
     } catch (error) {
-      // A parse error quotes the body it failed on: log it, never return it.
-      logger?.error({ error: String(error) }, 'clickhouse query error');
+      // A parse error quotes the body it failed on (raw row text): neither
+      // logged nor returned.
+      logger?.error(
+        {
+          error:
+            error instanceof SyntaxError
+              ? 'SyntaxError: the response body is not valid JSON (not logged)'
+              : String(error),
+        },
+        'clickhouse query error'
+      );
       return err(
         databaseError(
           error instanceof SyntaxError

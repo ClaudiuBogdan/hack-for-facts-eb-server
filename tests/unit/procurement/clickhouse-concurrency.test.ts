@@ -210,6 +210,42 @@ describe('ClickHouse TOO_MANY_SIMULTANEOUS_QUERIES', () => {
     expect(JSON.stringify(error)).not.toContain('api_reader');
   });
 
+  it('never logs row text: a body streamed before an exception, or a body that fails to parse', async () => {
+    const logged: unknown[] = [];
+    const record = (...args: unknown[]) => {
+      logged.push(args);
+    };
+    const logger = { debug: record, info: record, warn: record, error: record } as never;
+    const repoWith = () =>
+      makeClickhouseAnalysisRepo(
+        { url: 'http://clickhouse.test', database: 'proto' },
+        activeGeneration,
+        logger
+      );
+    const streamed =
+      '{"meta":[{"name":"title"}],"data":[["Servicii PFA Exemplu 0721123456"]\nCode: 241. DB::Exception: Memory limit exceeded';
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(streamed, { status: 200, headers: { 'x-clickhouse-exception-code': '241' } })
+        )
+        .mockResolvedValueOnce(new Response('[["Servicii PFA Exemplu 0721123456"', { status: 200 }))
+    );
+    expect((await repoWith().statsFor(route, {}, GEN)).isErr()).toBe(true);
+    expect((await repoWith().statsFor(route, { year: 2024 }, GEN)).isErr()).toBe(true);
+    expect(logged).toHaveLength(2);
+    expect(JSON.stringify(logged)).not.toMatch(/PFA|0721123456/u);
+    // Pure exception text is still logged.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response(RAW_202.replace('202', '60'), { status: 404 }))
+    );
+    await repoWith().statsFor(route, {}, GEN);
+    expect(JSON.stringify(logged.at(-1))).toContain('DB::Exception');
+  });
+
   it('keeps other ClickHouse failures a database error, without ClickHouse text', async () => {
     vi.stubGlobal(
       'fetch',
