@@ -35,8 +35,14 @@ const KIND_TO_TYPE: Readonly<Record<string, string>> = {
   apendice: 'APN',
 };
 
-export const outlineTypeOfKind = (kind: string): string | null =>
-  Object.hasOwn(KIND_TO_TYPE, kind) ? (KIND_TO_TYPE[kind] ?? null) : null;
+/**
+ * A provision's `kind` is the parser node's kind word, or its type code when
+ * the node has no kind (addresses.ts: `node.kind ?? node.type`); both map.
+ */
+export const outlineTypeOfKind = (kind: string): string | null => {
+  if (Object.hasOwn(KIND_TO_TYPE, kind)) return KIND_TO_TYPE[kind] ?? null;
+  return Object.values(KIND_TO_TYPE).includes(kind) ? kind : null;
+};
 
 export interface V2ProvisionRow {
   readonly provisionSeq: number;

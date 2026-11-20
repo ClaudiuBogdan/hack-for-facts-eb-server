@@ -101,7 +101,8 @@ export const buildV2ActsBody = (
   size: number
 ): Record<string, unknown> => ({
   size,
-  track_total_hits: true,
+  // The act list merges two legs and serves no acts total, so none is counted.
+  track_total_hits: false,
   _source: ['act_id'],
   query: {
     bool: {
@@ -123,10 +124,12 @@ export const buildV2ActsBody = (
 export const buildV2UnitsBody = (
   q: string,
   f: V2EngineFilter,
-  size: number
+  size: number,
+  countTotal = true
 ): Record<string, unknown> => ({
   size,
-  track_total_hits: true,
+  // Counting every OR match costs the cluster; only a served total pays it.
+  track_total_hits: countTotal,
   _source: ['act_id', 'citation_path', 'heading_path', 'level', 'provision_addresses'],
   query: {
     bool: {
@@ -161,14 +164,20 @@ export interface V2EngineHit {
 
 export interface V2EnginePage {
   readonly hits: readonly V2EngineHit[];
-  readonly total: number;
+  /** Null when the leg did not count (`track_total_hits: false`). */
+  readonly total: number | null;
   readonly totalExhaustive: boolean;
   readonly asOf: string;
 }
 
 export interface LegalV2SearchEngine {
   searchActs(q: string, f: V2EngineFilter, size: number): Promise<Result<V2EnginePage, ApiError>>;
-  searchUnits(q: string, f: V2EngineFilter, size: number): Promise<Result<V2EnginePage, ApiError>>;
+  searchUnits(
+    q: string,
+    f: V2EngineFilter,
+    size: number,
+    countTotal?: boolean
+  ): Promise<Result<V2EnginePage, ApiError>>;
 }
 
 /** The legacy filter translation, split into engine clauses and bridged post-filters. */
@@ -294,7 +303,7 @@ export const searchLegalV2Engine = async (
   const limit = Math.min(Math.max(query.limit, 1), 50);
   const [actsRes, unitsRes] = await Promise.all([
     deps.engine.searchActs(query.q, split.engine, limit),
-    deps.engine.searchUnits(query.q, split.engine, V2_UNIT_WINDOW),
+    deps.engine.searchUnits(query.q, split.engine, V2_UNIT_WINDOW, query.channel !== 'docs'),
   ]);
   if (actsRes.isErr()) return err(actsRes.error);
   if (unitsRes.isErr()) return err(unitsRes.error);

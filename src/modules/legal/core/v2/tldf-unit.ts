@@ -9,11 +9,11 @@
  * 2026-11-20), with three changes this module undoes at read time:
  *
  * 1. A link mark carries only `link_ordinal`, the `unit_links` row of the
- *    occurrence. The link's KIND is not stored; it is a pure function of the
- *    href as written, and `linkKindFromHref` is the structure parser's own
- *    classifier (ACT_LINK_RE, ACT_LINK_NO_ID_RE, `#`, http/mailto/www), so the
- *    kind is re-derived exactly. The target act and form come from
- *    `page_acts` / `page_targets` at read time (`V2LinkTarget`).
+ *    occurrence. The link's KIND is not stored; it is re-derived from the href
+ *    as written by the structure parser's classes (act, act_missing_id, `#`,
+ *    http/mailto), with the act patterns ANCHORED and every other scheme
+ *    refused. The target act and form come from `page_acts` / `page_targets`
+ *    at read time (`V2LinkTarget`); only an external link keeps its raw href.
  * 2. An image block names its `unit_assets` row (`asset_ordinal`); the content
  *    hash comes from `asset_custody` when raw holds the bytes.
  * 3. The envelope head is not stored: compiler label, generation, document id,
@@ -53,18 +53,37 @@ export const V2_RENDER_CONVERTER_VERSION = 'v2c1';
 /** What the response's meta names as the source of a v2 render. */
 export const V2_RENDER_SOURCE = 'legal_v2:tldf-unit/1';
 
-/** The structure parser's act-link patterns (structure-parser.ts:1704, :1712). */
-const ACT_LINK_RE = /DetaliiDocument(?:Afis)?\/(\d+)(?:#([A-Za-z0-9_]+))?/u;
-const ACT_LINK_NO_ID_RE = /DetaliiDocument(?:Afis)?\/(?:#|$|\?)/u;
+/**
+ * A Portal act page as the corpus writes it: relative (`~/../../Public/...`,
+ * `/Public/...`, `../Public/...`) or absolute on legislatie.just.ro. ANCHORED,
+ * unlike the structure parser's ACT_LINK_RE (structure-parser.ts:1704), so a
+ * `javascript:` or `data:` href that merely contains the path is never an act
+ * link (security review, 2026-11-20).
+ */
+const PORTAL_PREFIX = String.raw`^(?:~|https?:\/\/(?:www\.)?legislatie\.just\.ro)?(?:\/?\.\.)*\/?Public\/DetaliiDocument(?:Afis)?\/`;
+const ACT_LINK_RE = new RegExp(`${PORTAL_PREFIX}(\\d+)(?:[?#].*)?$`, 'iu');
+const ACT_LINK_NO_ID_RE = new RegExp(`${PORTAL_PREFIX}(?:[?#].*)?$`, 'iu');
+/** The schemes a served href may carry (the compiler's isUnsafeTldfLink). */
+const SAFE_SCHEME_RE = /^(?:https?|mailto):/iu;
+const ANY_SCHEME_RE = /^[a-z][a-z0-9+.-]*:/iu;
+/** A fragment as served: the id characters the Portal uses, nothing else. */
+const FRAGMENT_RE = /^[A-Za-z0-9_-]{1,128}$/u;
 
 export type V2LinkKind = 'act' | 'act_missing_id' | 'internal' | 'external' | 'other';
 
-/** The structure parser's link classifier, in its order. */
+/**
+ * The link kind of an href. Browsers ignore ASCII whitespace and control
+ * characters inside a scheme (`java\tscript:`), so those are removed before
+ * the scheme is read; any scheme but http, https and mailto is `other`.
+ */
 export const linkKindFromHref = (href: string): V2LinkKind => {
-  if (ACT_LINK_RE.test(href)) return 'act';
-  if (ACT_LINK_NO_ID_RE.test(href)) return 'act_missing_id';
-  if (href.startsWith('#')) return 'internal';
-  if (/^(?:https?:|mailto:|www\.)/iu.test(href)) return 'external';
+  // eslint-disable-next-line no-control-regex -- stripping control characters is the point
+  const bare = href.replace(/[\u0000-\u0020\u007f]/gu, '');
+  if (ANY_SCHEME_RE.test(bare) && !SAFE_SCHEME_RE.test(bare)) return 'other';
+  if (ACT_LINK_RE.test(bare)) return 'act';
+  if (ACT_LINK_NO_ID_RE.test(bare)) return 'act_missing_id';
+  if (bare.startsWith('#')) return 'internal';
+  if (SAFE_SCHEME_RE.test(bare)) return 'external';
   return 'other';
 };
 
@@ -79,33 +98,44 @@ export interface V2LinkTarget {
   readonly targetFormId: string | null;
 }
 
-/** The TLDF link a mark carries, or null when the occurrence is not servable. */
+const PORTAL_AFIS = 'https://legislatie.just.ro/Public/DetaliiDocumentAfis/';
+
+/**
+ * The TLDF link a mark carries, or null when the occurrence is not servable.
+ * Only an `external` link keeps its raw href (http, https or mailto); a Portal
+ * link is rebuilt from its page id, an internal one from its fragment.
+ */
 export const toTldfLink = (row: V2LinkTarget): TldfLink | null => {
   const href = row.href;
   if (href === null || href === '') return null;
   const kind = linkKindFromHref(href);
   const fragment =
-    row.targetFragment !== null && row.targetFragment !== '' ? row.targetFragment : null;
+    row.targetFragment !== null && FRAGMENT_RE.test(row.targetFragment) ? row.targetFragment : null;
   switch (kind) {
     case 'act': {
+      // eslint-disable-next-line no-control-regex -- same normalisation as the classifier
+      const page = ACT_LINK_RE.exec(href.replace(/[\u0000-\u0020\u007f]/gu, ''))?.[1] ?? null;
       const actId = row.targetActId === null ? null : Number(row.targetActId);
       return {
         kind: 'act',
         ...(actId !== null && Number.isSafeInteger(actId) && { target_act_id: actId }),
         ...(row.targetFormId !== null && { target_document_id: `f${row.targetFormId}` }),
         ...(fragment !== null && { target_fragment: fragment }),
-        href,
+        ...(page !== null && {
+          href: `${PORTAL_AFIS}${page}${fragment === null ? '' : `#${fragment}`}`,
+        }),
       };
     }
     case 'act_missing_id':
-      return { kind: 'act_missing_id', href };
+      return { kind: 'act_missing_id' };
     case 'internal':
-      return { kind: 'internal', href, ...(fragment !== null && { target_fragment: fragment }) };
+      return fragment === null
+        ? { kind: 'internal' }
+        : { kind: 'internal', href: `#${fragment}`, target_fragment: fragment };
     case 'external':
       return { kind: 'external', href };
     case 'other':
-      // The compiler never serves these (isUnsafeTldfLink); a row here is not
-      // a link a reader may follow.
+      // Never a link a reader may follow (the compiler drops these too).
       return null;
   }
 };

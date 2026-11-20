@@ -47,6 +47,8 @@ interface InfoRow {
   published_at: string | null;
   current_public: boolean | null;
   units: number;
+  whole_units: number;
+  missing_body: number;
   restricted: boolean | null;
   text_sha256: string | null;
   compiler_version: string | null;
@@ -54,15 +56,24 @@ interface InfoRow {
   chunk_restricted: boolean | null;
 }
 
+/**
+ * Served only when ONE text unit makes the whole form (`slot = 'whole'`) and no
+ * component says its body is missing. A header without its body, or a header
+ * plus a body, is a composition this version does not serve: answering it as a
+ * complete text would be a partial reading. A whole unit beside linked annexes
+ * is served (the annexes' text lives on their own pages).
+ */
 export const v2RenderStatus = (row: {
   receipt_id: string | null;
   units: number;
+  whole_units: number;
+  missing_body: number;
 }): LegalRenderStatus =>
   row.receipt_id === null || row.units === 0
     ? 'not_loaded'
-    : row.units > 1
-      ? 'composition_not_served'
-      : 'served';
+    : row.units === 1 && row.whole_units === 1 && row.missing_body === 0
+      ? 'served'
+      : 'composition_not_served';
 
 const mapInfo = (row: InfoRow): LegalRenderInfo => {
   const status = v2RenderStatus(row);
@@ -97,7 +108,8 @@ export const makeLegalRenderRepoV2 = (db: Db): LegalRenderRepo => {
       const result = await sql<InfoRow>`
         select f.form_id::text as form_id, fc.receipt_id::text as receipt_id,
                to_json(r.published_at) #>> '{}' as published_at, fc.privacy_class = 'public' as current_public,
-               x.units, x.restricted, x.text_sha256, x.compiler_version,
+               x.units, x.whole_units, x.missing_body, x.restricted, x.text_sha256,
+               x.compiler_version,
                coalesce((select count(*) from legal_v2.unit_render ur
                           where ur.unit_id = x.unit_id), 0)::int as chunks,
                (select bool_or(ur.privacy_class <> 'public') from legal_v2.unit_render ur
@@ -107,12 +119,15 @@ export const makeLegalRenderRepoV2 = (db: Db): LegalRenderRepo => {
           left join legal_v2.form_current fc on fc.form_id = f.form_id
           left join legal_v2.package_receipts r on r.receipt_id = fc.receipt_id
           cross join lateral (
-            select count(*)::int as units,
+            select count(u.unit_id)::int as units,
+                   (count(*) filter (where c.slot = 'whole' and u.unit_id is not null))::int
+                     as whole_units,
+                   (count(*) filter (where c.slot = 'missing_body'))::int as missing_body,
                    bool_or(c.privacy_class <> 'public' or u.privacy_class <> 'public') as restricted,
                    min(u.unit_id) as unit_id, min(u.text_sha256) as text_sha256,
                    min(u.compiler_version) as compiler_version
               from legal_v2.form_components c
-              join legal_v2.text_units u on u.unit_id = c.unit_id
+              left join legal_v2.text_units u on u.unit_id = c.unit_id
              where c.form_id = f.form_id) x
          where f.form_id = any(${[...formIds.keys()]}::bigint[]) and f.privacy_class = 'public'
       `.execute(db);
@@ -156,6 +171,8 @@ interface BodyHead {
 }
 interface BodyComponent {
   ordinal: number;
+  slot: string;
+  has_unit: boolean;
   public: boolean;
   render_state: 'structured' | 'text_only';
   text_sha256: string;
@@ -207,16 +224,19 @@ const readBody = async (db: Db, formId: string): Promise<BodyRow | undefined> =>
        where f.form_id = ${formId}::bigint and f.privacy_class = 'public'
     ),
     comps as (
-      select c.ordinal, (c.privacy_class = 'public' and u.privacy_class = 'public') as public,
+      select c.ordinal, c.slot,
+             (c.privacy_class = 'public' and coalesce(u.privacy_class = 'public', true)) as public,
              u.unit_id, u.render_state, u.text_sha256, u.compiler_version, u.body_sha256,
              u.parse_build_id, u.content_parser_version, u.requested_url
         from legal_v2.form_components c
         join f on f.form_id = c.form_id
-        join legal_v2.text_units u on u.unit_id = c.unit_id
+        left join legal_v2.text_units u on u.unit_id = c.unit_id
     ),
     one as (
       select comps.unit_id from comps
-       where comps.public and (select count(*) from comps) = 1
+       where comps.public and comps.slot = 'whole' and comps.unit_id is not null
+         and (select count(*) from comps where comps.unit_id is not null) = 1
+         and not exists (select 1 from comps where comps.slot = 'missing_body')
     )
     select
       (select json_build_object(
@@ -230,7 +250,8 @@ const readBody = async (db: Db, formId: string): Promise<BodyRow | undefined> =>
          left join legal_v2.form_current fc on fc.form_id = f.form_id
          left join legal_v2.package_receipts r on r.receipt_id = fc.receipt_id) as head,
       (select coalesce(json_agg(json_build_object(
-                'ordinal', c.ordinal, 'public', c.public, 'render_state', c.render_state,
+                'ordinal', c.ordinal, 'slot', c.slot, 'has_unit', c.unit_id is not null,
+                'public', c.public, 'render_state', c.render_state,
                 'text_sha256', c.text_sha256, 'compiler_version', c.compiler_version,
                 'body_sha256', c.body_sha256, 'parse_build_id', c.parse_build_id,
                 'content_parser_version', c.content_parser_version,
@@ -286,18 +307,21 @@ export const makeLegalRenderSourceV2 = (db: Db): LegalRenderSource => ({
     const head = row?.head ?? null;
     if (row === undefined || head === null) return err({ reason: 'render_not_found', documentId });
 
+    const units = row.components.filter((c) => c.has_unit);
     const status = v2RenderStatus({
       receipt_id: head.receipt_id,
-      units: row.components.length,
+      units: units.length,
+      whole_units: units.filter((c) => c.slot === 'whole').length,
+      missing_body: row.components.filter((c) => c.slot === 'missing_body').length,
     });
     if (status !== 'served') {
       return err({ reason: 'render_unavailable', documentId: servedId, renderStatus: status });
     }
-    const unit = row.components[0];
+    const unit = units[0];
     if (
       unit === undefined ||
       head.current_public !== true ||
-      !unit.public ||
+      row.components.some((c) => !c.public) ||
       row.chunks.some((c) => !c.public)
     ) {
       return err({ reason: 'render_restricted', documentId: servedId });

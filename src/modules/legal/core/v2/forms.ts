@@ -75,9 +75,12 @@ export interface V2FormState {
   readonly bodyResolved: boolean;
   readonly ended: boolean;
   /**
-   * `form_states.readable`: not ended and a component with a text unit is
-   * served. Here additionally restricted components do not count: a form whose
-   * only text is restricted is not readable for this public surface.
+   * `form_states.readable` (not ended, a text unit is served), narrowed to
+   * what THIS surface can serve: a published public composition of exactly
+   * one public whole unit, no missing body, no restricted chunk. A header-only
+   * or header-plus-body form is therefore not readable here, so it is never
+   * the default; this is the one place the rule reads narrower than
+   * `default_forms()`, and only for compositions this version does not serve.
    */
   readonly readable: boolean;
   /** A capture that claims the form is held, conflicting or unresolved. */

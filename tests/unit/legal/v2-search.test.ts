@@ -143,6 +143,32 @@ describe('the engine transport', () => {
     expect(calls).toContain('GET /legal-v2-test-acts-20261118/_mapping');
   });
 
+  it('accepts an answer without a total when the leg did not count', async () => {
+    const engine = makeLegalV2SearchEngine(
+      { url: 'https://os', actsIndex: 'legal-v2-test-acts-1', unitsIndex: 'u' },
+      (_method, path) =>
+        Promise.resolve(
+          path.endsWith('/_mapping')
+            ? { status: 200, text: mapping('legal-v2-test/acts/1') }
+            : {
+                status: 200,
+                text: JSON.stringify({
+                  _shards: { total: 1, successful: 1, failed: 0 },
+                  hits: { hits: [{ _score: 1, _source: { act_id: 3 } }] },
+                }),
+              }
+        )
+    );
+    expect((await engine.searchActs('x', {}, 5))._unsafeUnwrap()).toMatchObject({
+      total: null,
+      totalExhaustive: false,
+    });
+    expect(JSON.stringify(buildV2ActsBody('x', {}, 5))).toContain('"track_total_hits":false');
+    expect(JSON.stringify(buildV2UnitsBody('x', {}, 5, false))).toContain(
+      '"track_total_hits":false'
+    );
+  });
+
   it('fails on a 403, never substituting an answer', async () => {
     const engine = makeLegalV2SearchEngine(
       { url: 'https://os', actsIndex: 'a', unitsIndex: 'u' },

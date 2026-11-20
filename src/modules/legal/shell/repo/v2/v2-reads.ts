@@ -84,11 +84,22 @@ export const readFormsForActs = async (
              f.gazette_number, f.gazette_part::int as gazette_part,
              f.gazette_date_reported::text as gazette_date_reported, f.publication_raw,
              f.entry_into_force_reported::text as entry_into_force_reported,
-             (not f.ended and exists (
+             (not f.ended
+              and exists (select 1 from legal_v2.form_current fc
+                           where fc.form_id = f.form_id and fc.privacy_class = 'public')
+              and (select count(*) from legal_v2.form_components c
+                    where c.form_id = f.form_id and c.unit_id is not null) = 1
+              and exists (
                 select 1 from legal_v2.form_components c
                 join legal_v2.text_units u on u.unit_id = c.unit_id
-               where c.form_id = f.form_id and c.privacy_class = 'public'
-                 and u.privacy_class = 'public')) as readable,
+               where c.form_id = f.form_id and c.slot = 'whole' and c.privacy_class = 'public'
+                 and u.privacy_class = 'public'
+                 and not exists (select 1 from legal_v2.unit_render ur
+                                  where ur.unit_id = u.unit_id and ur.privacy_class <> 'public'))
+              and not exists (
+                select 1 from legal_v2.form_components c
+                 where c.form_id = f.form_id
+                   and (c.slot = 'missing_body' or c.privacy_class <> 'public'))) as readable,
              exists (
                 select 1 from legal_v2.form_sources s
                where s.form_id = f.form_id and s.subject_kind = 'capture'

@@ -308,3 +308,62 @@ describe('links resolved at read time', () => {
     expect(toTldfLink(row({ href: null }))).toBeNull();
   });
 });
+
+describe('unsafe hrefs (security review 2026-11-20)', () => {
+  const target = (href: string): V2LinkTarget => ({
+    ordinal: 0,
+    href,
+    targetFragment: null,
+    targetActId: '555',
+    targetFormId: null,
+  });
+
+  it('never classes a non-web scheme as a link, whatever path it carries', () => {
+    for (const href of [
+      'javascript:alert(1)//https://legislatie.just.ro/Public/DetaliiDocument/1',
+      'javascript:/Public/DetaliiDocument/1',
+      'java\tscript:/Public/DetaliiDocumentAfis/1',
+      ' javascript:void(0)//DetaliiDocumentAfis/1',
+      'data:text/html,<script>alert(1)</script>/Public/DetaliiDocument/1',
+      'vbscript:msgbox(1)/Public/DetaliiDocumentAfis/2',
+      'https://evil.example/Public/DetaliiDocumentAfis/3x',
+    ]) {
+      const link = toTldfLink(target(href));
+      if (link === null) continue;
+      // Anything served is an external http(s) link or carries no href at all.
+      expect(link.kind === 'external' ? link.href : (link.href ?? null)).not.toMatch(
+        /^\s*(?:java|vb)script:|^\s*data:/iu
+      );
+    }
+    expect(linkKindFromHref('javascript:alert(1)//DetaliiDocument/1')).toBe('other');
+    expect(linkKindFromHref('data:text/html,DetaliiDocument/1')).toBe('other');
+    expect(linkKindFromHref('vbscript:x/Public/DetaliiDocument/1')).toBe('other');
+    expect(linkKindFromHref('java\tscript:/Public/DetaliiDocument/1')).toBe('other');
+    expect(linkKindFromHref('https://evil.example/Public/DetaliiDocumentAfis/3')).toBe('external');
+  });
+
+  it('serves a relative Portal link as an act link with a rebuilt Portal href', () => {
+    expect(linkKindFromHref('~/../../../Public/DetaliiDocumentAfis/7919')).toBe('act');
+    expect(linkKindFromHref('../Public/DetaliiDocument/5')).toBe('act');
+    const link = toTldfLink({
+      ...target('~/../../../Public/DetaliiDocumentAfis/4181#id_artA96'),
+      targetFragment: 'id_artA96',
+    });
+    expect(link).toEqual({
+      kind: 'act',
+      target_act_id: 555,
+      target_fragment: 'id_artA96',
+      href: 'https://legislatie.just.ro/Public/DetaliiDocumentAfis/4181#id_artA96',
+    });
+  });
+
+  it('drops a fragment that is not an id, and keeps internal links to their fragment', () => {
+    const odd = toTldfLink({ ...target('#x"><img src=x onerror=1>'), targetFragment: 'x"><img' });
+    expect(odd).toEqual({ kind: 'internal' });
+    expect(toTldfLink({ ...target('#id_art5'), targetFragment: 'id_art5' })).toEqual({
+      kind: 'internal',
+      href: '#id_art5',
+      target_fragment: 'id_art5',
+    });
+  });
+});

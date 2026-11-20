@@ -39,6 +39,8 @@ const head = {
 };
 const component = {
   ordinal: 0,
+  slot: 'whole',
+  has_unit: true,
   public: true,
   render_state: 'structured',
   text_sha256: unit.textSha256,

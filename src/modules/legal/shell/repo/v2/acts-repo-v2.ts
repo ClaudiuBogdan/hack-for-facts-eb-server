@@ -388,6 +388,7 @@ export const makeLegalActsRepoV2 = (deps: MakeLegalActsRepoV2Deps): LegalActsRep
     try {
       const result = await sql<{ cnt: string }>`
         select count(*) as cnt from legal_v2.forms f
+          join legal_v2.acts a on a.act_id = f.act_id and a.privacy_class = 'public'
          where f.act_id = ${actId}::bigint and f.privacy_class = 'public' and not f.ended
       `.execute(db);
       return ok(Number(result.rows[0]?.cnt ?? 0));

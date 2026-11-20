@@ -57,10 +57,30 @@ export const makeLegalOutlineRepoV2 = (db: Db): LegalOutlineRepo => {
     if (ref.isErr()) return err(ref.error);
     if (ref.value === null) return ok(null);
     try {
+      // The SAME gate as the render body: a public act, form and published
+      // composition (form_current), every component public, exactly one
+      // public whole unit and no missing body, no restricted render chunk.
+      // Anything else has no servable text, so it has no outline either.
       const result = await sql<OutlineRow>`
+        with f as (
+          select f.form_id
+            from legal_v2.forms f
+            join legal_v2.acts a on a.act_id = f.act_id and a.privacy_class = 'public'
+            join legal_v2.form_current fc on fc.form_id = f.form_id and fc.privacy_class = 'public'
+           where f.form_id = ${ref.value.formId}::bigint and f.privacy_class = 'public'
+        ),
+        comps as (
+          select c.ordinal, c.slot, c.unit_id,
+                 (c.privacy_class = 'public' and coalesce(u.privacy_class = 'public', true)) as public,
+                 exists (select 1 from legal_v2.unit_render ur
+                          where ur.unit_id = c.unit_id and ur.privacy_class <> 'public') as chunk_restricted
+            from legal_v2.form_components c
+            join f on f.form_id = c.form_id
+            left join legal_v2.text_units u on u.unit_id = c.unit_id
+        )
         select c.ordinal, u.render_state,
                coalesce((select max(ur.char_end) from legal_v2.unit_render ur
-                          where ur.unit_id = u.unit_id), 0) as text_length,
+                          where ur.unit_id = u.unit_id and ur.privacy_class = 'public'), 0) as text_length,
                coalesce((select json_agg(json_build_object(
                           'provision_seq', p.provision_seq, 'kind', p.kind,
                           'citation_path', p.citation_path, 'address', p.address,
@@ -75,11 +95,12 @@ export const makeLegalOutlineRepoV2 = (db: Db): LegalOutlineRepo => {
                              from legal_v2.unit_render ur
                             where ur.unit_id = u.unit_id and ur.privacy_class = 'public'), '[]'::json)
                else '[]'::json end as bodies
-          from legal_v2.form_components c
-          join legal_v2.text_units u on u.unit_id = c.unit_id
-          join legal_v2.forms f on f.form_id = c.form_id and f.privacy_class = 'public'
-         where c.form_id = ${ref.value.formId}::bigint
-           and c.privacy_class = 'public' and u.privacy_class = 'public'
+          from comps c
+          join legal_v2.text_units u on u.unit_id = c.unit_id and u.privacy_class = 'public'
+         where c.slot = 'whole'
+           and (select count(*) from comps where comps.unit_id is not null) = 1
+           and not exists (select 1 from comps where comps.slot = 'missing_body')
+           and not exists (select 1 from comps where not comps.public or comps.chunk_restricted)
          order by c.ordinal
       `.execute(db);
       const units: V2OutlineUnit[] = result.rows.map((r) => ({

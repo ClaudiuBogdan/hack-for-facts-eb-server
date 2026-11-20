@@ -62,18 +62,21 @@ const strOrNull = (v: unknown): string | null => (typeof v === 'string' && v !==
 /** Parse one search answer; null when malformed (refused upstream). */
 export const parseV2Hits = (
   payload: Record<string, unknown>
-): { hits: V2EngineHit[]; total: number; totalExhaustive: boolean } | null => {
+): { hits: V2EngineHit[]; total: number | null; totalExhaustive: boolean } | null => {
   const block = rec(payload['hits']);
-  const totalBlock = rec(block?.['total']);
-  const total = totalBlock?.['value'];
-  const relation = totalBlock?.['relation'];
   const raw = block?.['hits'];
-  if (
-    typeof total !== 'number' ||
-    (relation !== 'eq' && relation !== 'gte') ||
-    !Array.isArray(raw)
-  ) {
-    return null;
+  if (!Array.isArray(raw)) return null;
+  // `track_total_hits: false` sends no total; a total that is sent must be well formed.
+  const totalBlock = block?.['total'];
+  let total: number | null = null;
+  let totalExhaustive = false;
+  if (totalBlock !== undefined) {
+    const t = rec(totalBlock);
+    const value = t?.['value'];
+    const relation = t?.['relation'];
+    if (typeof value !== 'number' || (relation !== 'eq' && relation !== 'gte')) return null;
+    total = value;
+    totalExhaustive = relation === 'eq';
   }
   const hits: V2EngineHit[] = [];
   for (const item of raw) {
@@ -100,7 +103,7 @@ export const parseV2Hits = (
       snippet,
     });
   }
-  return { hits, total, totalExhaustive: relation === 'eq' };
+  return { hits, total, totalExhaustive };
 };
 
 export const makeLegalV2SearchEngine = (
@@ -181,7 +184,12 @@ export const makeLegalV2SearchEngine = (
   return {
     searchActs: (q, f, size) =>
       run(config.actsIndex, V2_INDEX_CONTRACT_ACTS, 'acts', buildV2ActsBody(q, f, size)),
-    searchUnits: (q, f, size) =>
-      run(config.unitsIndex, V2_INDEX_CONTRACT_UNITS, 'units', buildV2UnitsBody(q, f, size)),
+    searchUnits: (q, f, size, countTotal) =>
+      run(
+        config.unitsIndex,
+        V2_INDEX_CONTRACT_UNITS,
+        'units',
+        buildV2UnitsBody(q, f, size, countTotal)
+      ),
   };
 };

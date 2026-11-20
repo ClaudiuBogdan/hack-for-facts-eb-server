@@ -239,6 +239,8 @@ describe('privacy: every legal_v2 read filters public rows', () => {
   };
   const component = {
     ordinal: 0,
+    slot: 'whole',
+    has_unit: true,
     public: true,
     render_state: 'text_only',
     text_sha256: 'e'.repeat(64),
@@ -329,6 +331,139 @@ describe('privacy: every legal_v2 read filters public rows', () => {
     expect(res._unsafeUnwrap()).toEqual({ items: [], next: null });
     const statement = captured.map((q) => q.sql).find((s) => s.includes('unit_provisions')) ?? '';
     expect(statement).toContain("p.privacy_class = 'public'");
-    expect(statement).toContain("c.privacy_class = 'public' and u.privacy_class = 'public'");
+    expect(statement).toContain("u.privacy_class = 'public'");
+    expect(statement).toContain("c.privacy_class = 'public'");
+  });
+});
+
+describe('compositions this version does not serve', () => {
+  const sourceWith = (components: Record<string, unknown>[]) => {
+    const db = makeCapturingDb([], {
+      respond: (sql) =>
+        sql.includes('as form_id, f.act_id::text as act_id')
+          ? [{ form_id: '9', act_id: '7' }]
+          : sql.includes('with f as')
+            ? [
+                {
+                  head: {
+                    form_id: '9',
+                    composition_digest: 'd'.repeat(64),
+                    receipt_id: '55',
+                    current_public: true,
+                    published_at: '2026-11-19T10:00:00+00:00',
+                    generation_seq: '4',
+                  },
+                  components,
+                  chunks: [
+                    { chunk_seq: 0, char_start: 0, char_end: 5, public: true, body: 'Text.' },
+                  ],
+                  links: [],
+                  assets: [],
+                },
+              ]
+            : [],
+    });
+    return makeLegalRenderSourceV2(db);
+  };
+  const unitComponent = (slot: string) => ({
+    ordinal: 0,
+    slot,
+    has_unit: true,
+    public: true,
+    render_state: 'text_only',
+    text_sha256: 'e'.repeat(64),
+    compiler_version: null,
+    body_sha256: 'b'.repeat(64),
+    parse_build_id: 'p',
+    content_parser_version: 'v9',
+    requested_url: 'u',
+  });
+  const linkComponent = (slot: string) => ({ ordinal: 1, slot, has_unit: false, public: true });
+
+  it('refuses a header without its body as a complete text', async () => {
+    const res = await sourceWith([unitComponent('header'), linkComponent('missing_body')]).read(
+      'f9',
+      0
+    );
+    expect(res._unsafeUnwrapErr()).toMatchObject({ renderStatus: 'composition_not_served' });
+    const bodyOnly = await sourceWith([unitComponent('body')]).read('f9', 0);
+    expect(bodyOnly._unsafeUnwrapErr()).toMatchObject({ renderStatus: 'composition_not_served' });
+  });
+
+  it('serves a whole unit beside linked annexes', async () => {
+    const res = await sourceWith([unitComponent('whole'), linkComponent('linked_annex')]).read(
+      'f9',
+      0
+    );
+    expect(res._unsafeUnwrap().kind).toBe('envelope');
+  });
+
+  it('refuses a whole unit beside a restricted linked annex component', async () => {
+    const res = await sourceWith([
+      unitComponent('whole'),
+      { ...linkComponent('linked_annex'), public: false },
+    ]).read('f9', 0);
+    expect(res._unsafeUnwrapErr()).toMatchObject({ reason: 'render_restricted' });
+  });
+});
+
+describe('the outline has the render gate', () => {
+  it('reads only a public act, form, published composition and unrestricted chunks', async () => {
+    const captured: CapturedQuery[] = [];
+    const db = makeCapturingDb(captured, {
+      respond: (sql) =>
+        sql.includes('as form_id, f.act_id::text as act_id') ? [{ form_id: '9', act_id: '7' }] : [],
+    });
+    await makeLegalOutlineRepoV2(db).outline({ documentId: 'f9', maxDepth: 7, page: { first: 5 } });
+    const statement = (
+      captured.map((q) => q.sql).find((s) => s.includes('unit_provisions')) ?? ''
+    ).replace(/\s+/gu, ' ');
+    expect(statement).toContain(
+      "join legal_v2.acts a on a.act_id = f.act_id and a.privacy_class = 'public'"
+    );
+    expect(statement).toContain(
+      "join legal_v2.form_current fc on fc.form_id = f.form_id and fc.privacy_class = 'public'"
+    );
+    expect(statement).toContain("ur.privacy_class <> 'public'");
+    expect(statement).toContain(
+      'not exists (select 1 from comps where not comps.public or comps.chunk_restricted)'
+    );
+    expect(statement).toContain(
+      "not exists (select 1 from comps where comps.slot = 'missing_body')"
+    );
+  });
+});
+
+describe('render availability reads the composition shape', () => {
+  it('selects the whole-unit and missing-body counts the status rule needs', async () => {
+    const captured: CapturedQuery[] = [];
+    const db = makeCapturingDb(captured, {
+      respond: (sql) =>
+        sql.includes('cross join lateral')
+          ? [
+              {
+                form_id: '9',
+                receipt_id: '5',
+                published_at: 'x',
+                current_public: true,
+                units: 1,
+                whole_units: 1,
+                missing_body: 0,
+                restricted: false,
+                text_sha256: 'e',
+                compiler_version: 'c',
+                chunks: 1,
+                chunk_restricted: false,
+              },
+            ]
+          : [],
+    });
+    const info = (await makeLegalRenderRepoV2(db).renderInfoForDocuments(['f9']))._unsafeUnwrap();
+    expect(info.get('f9')).toMatchObject({ renderStatus: 'served', chunkCount: 1 });
+    const statement = captured[0]?.sql.replace(/\s+/gu, ' ') ?? '';
+    // The outer select must carry them: without them every form read as a composition.
+    expect(statement).toMatch(
+      /select f\.form_id.*x\.whole_units, x\.missing_body.*from legal_v2\.forms f/u
+    );
   });
 });

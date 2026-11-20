@@ -693,7 +693,8 @@ export const searchLegal = async (
             : `Numărul ${exact.actNumber}/${String(exact.actYear)} desemnează cel puțin ${String(eligible.length)} acte diferite (lista este limitată); precizați emitentul.`
         );
       }
-      for (const card of cards) caveats.push(honestyCaveat(card));
+      // An act the previous corpus lacks has no status or amendment count to state.
+      for (const card of cards) if (card.bridged !== false) caveats.push(honestyCaveat(card));
       caveats.push(
         deps.v2Engine !== undefined ? V2_CONSOLIDATION_CAVEAT : LEGAL_ORIGINAL_TEXT_CAVEAT
       );

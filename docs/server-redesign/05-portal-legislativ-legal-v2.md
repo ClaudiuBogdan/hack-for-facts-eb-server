@@ -39,12 +39,18 @@ behaviour unchanged.
   `legal_v2.default_forms`, computed per act in `core/v2/forms.ts` (the function computes every act and the role's
   statement limit is 15 s). It is the latest accepted, body-resolved, readable consolidation whose Portal date is not
   after today (Bucharest), else the original. It is not yet the owner's 2026-11-12 rule (latest form of any kind), which
-  the SQL function has not adopted either.
-- **Render.** One statement per request reads the form, its components and, when exactly one text unit serves it, that
-  unit's chunks, its links with their targets and its images. The stored `tldf-unit` v1 is converted to the TLDF 1.1
+  the SQL function has not adopted either. "Readable" here means servable by this API (see Render), which is narrower
+  than `form_states.readable` only for compositions this version does not serve.
+- **Render.** One statement per request reads the form, its components and, when one public `whole` unit is the form's
+  only text unit and no component is `missing_body`, that unit's chunks, its links with their targets and its images.
+  Any other shape (a header alone, a header plus a body) answers `composition_not_served`: serving the header as the
+  whole text would be a partial reading. A whole unit beside `linked_annex` components is served. The stored `tldf-unit` v1 is converted to the TLDF 1.1
   envelope, manifest or chunk the reader already takes (`core/v2/tldf-unit.ts`):
   - blocks and marks are the compiler's own;
-  - a link's kind is re-derived from its href by the structure parser's classifier;
+  - a link's kind is re-derived from its href with the structure parser's classes, the Portal patterns anchored and
+    every scheme but http, https and mailto refused (no `javascript:`, `data:` or `vbscript:` href is ever served);
+    a Portal link's href is rebuilt from its page id and an internal one from its fragment, and only an external
+    link keeps its href as written;
   - the target act comes from `page_acts` and the target form from the bound capture of the linked route;
   - an image takes the custody hash.
     The parser's exclusion counts and defect ledger are not held in serving, so `accounting.excluded_by_reason` is empty
@@ -52,7 +58,8 @@ behaviour unchanged.
     and the ETag is `W/"<converter>-<composition_digest[:32]>-g<identity generation>"`. A form with no published text
     answers 409 `RENDER_UNAVAILABLE`, `renderStatus: not_loaded`. A form made of several text units (header plus body)
     answers `composition_not_served`, because that case is not in this version.
-- **Outline.** `unit_provisions` of the form's units, composed by per-unit offsets. Each entry's `path` is the id of the
+- **Outline.** `unit_provisions` of the form's units, composed by per-unit offsets, under the render's gate (public
+  act, form and published composition, the same shape, no restricted chunk; otherwise no entries). Each entry's `path` is the id of the
   render block with the same span (the TLDF compiler makes a block's hull equal its node's span), so the reader's
   `tldf-{path}` anchors work unchanged.
 - **Search.** `LEGAL_SEARCH_OPENSEARCH_ACTS_INDEX` and `LEGAL_SEARCH_OPENSEARCH_SECTIONS_INDEX` name the
