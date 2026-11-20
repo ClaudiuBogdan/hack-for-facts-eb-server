@@ -79,7 +79,7 @@ One batch read, totals only. Breakdown, series, concentration and value-sorted r
 ### Rules that do not change
 
 - D6 and the privacy gates stay. They are not quality gates.
-- Quality no longer abstains. Whatever the filters leave out is listed in `exclusions`, with counts.
+- Quality no longer abstains. The population is what the filters select (procurement and contract kind, value kind, buyer, supplier, CPV, place, VAT basis, `q`, and the date range, which keeps undated records). Within it, every record that is not counted is listed in `exclusions` under one key, with counts. Records outside the selection (a dated record outside the range, another buyer) are not part of the population and are not exclusions.
 
 ### Tests (on real dev data as well as fixtures; reported with the first deploy)
 
