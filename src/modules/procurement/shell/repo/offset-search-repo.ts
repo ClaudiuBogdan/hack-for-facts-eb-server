@@ -205,6 +205,14 @@ const inList = (column: RawBuilder<unknown>, values: readonly string[]): RawBuil
  * Supplier territory is in NO fact table — it resolves through
  * `companies_v2.territory_resolution` at index-build time and stays engine-only.
  */
+/**
+ * Title-safe q (PROC-R87F S1): candidates per batch, and how many batches
+ * before the total falls back to an estimate. Exactness then fails only when
+ * more than (batches × batch − cap) withheld rows match: about 40,000.
+ */
+const TITLE_SAFE_BATCH = SEARCH_COUNT_CAP + 1;
+const TITLE_SAFE_MAX_BATCHES = 5;
+
 /** A hydrated page, and each hydrated row's raw title when the free-text rule allows it. */
 interface Hydrated<Out> {
   readonly items: Out[];
@@ -569,7 +577,7 @@ export const makeOffsetSearchRepo = (
    */
   const hydrateInOrder = <Row extends Record<string, unknown>, Out>(
     grain: SearchGrain,
-    pks: readonly number[],
+    pks: readonly (number | string)[],
     pkColumn: string,
     rows: readonly Row[],
     map: (row: Row) => Out
@@ -603,7 +611,7 @@ export const makeOffsetSearchRepo = (
     f: ProcurementSearchFilter,
     p: OffsetSearchRequest,
     facets: readonly string[] | undefined,
-    hydrate: (pks: readonly number[]) => Promise<Hydrated<Out>>
+    hydrate: (pks: readonly (number | string)[]) => Promise<Hydrated<Out>>
   ): Promise<Result<OffsetSearchResult<Out>, ApiError> | null> => {
     // A relevance ORDER is as engine-only as a geography FILTER: the SQL path
     // has no `_score`, so falling back would silently reorder the answer.
@@ -666,9 +674,9 @@ export const makeOffsetSearchRepo = (
     }
   };
 
-  const hydrateProcedures = async (pks: readonly number[]) => {
+  const hydrateProcedures = async (pks: readonly (number | string)[], executor: Db = db) => {
     if (pks.length === 0) return { items: [], missing: 0 };
-    const rows = await db
+    const rows = await executor
       .selectFrom('procurement.procedures as p')
       .select(procedureSelect)
       .where(sql<SqlBool>`p.procedure_id = any(cast(${pks} as bigint[]))`)
@@ -676,9 +684,9 @@ export const makeOffsetSearchRepo = (
     return hydrateInOrder('procedures', pks, PK_COLUMNS.procedures, rows, mapProcedure);
   };
 
-  const hydrateContracts = async (pks: readonly number[]) => {
+  const hydrateContracts = async (pks: readonly (number | string)[], executor: Db = db) => {
     if (pks.length === 0) return { items: [], missing: 0 };
-    const rows = await db
+    const rows = await executor
       .selectFrom('procurement.contracts as c')
       .select(contractSelect)
       .where(sql<SqlBool>`c.contract_id = any(cast(${pks} as bigint[])) and c.is_canonical`)
@@ -686,9 +694,12 @@ export const makeOffsetSearchRepo = (
     return hydrateInOrder('contracts', pks, PK_COLUMNS.contracts, rows, mapContract);
   };
 
-  const hydrateDirectAcquisitions = async (pks: readonly number[]) => {
+  const hydrateDirectAcquisitions = async (
+    pks: readonly (number | string)[],
+    executor: Db = db
+  ) => {
     if (pks.length === 0) return { items: [], missing: 0 };
-    const rows = await db
+    const rows = await executor
       .selectFrom('procurement.direct_acquisitions as d')
       .select(daSelect)
       .where(sql<SqlBool>`d.da_id = any(cast(${pks} as bigint[])) and d.is_canonical`)
@@ -769,7 +780,7 @@ export const makeOffsetSearchRepo = (
     resolved: ResolvedConditions,
     sort: SqlSearchSort,
     p: OffsetSearchRequest,
-    hydrate: (pks: readonly number[]) => Promise<Hydrated<Out>>
+    hydrate: (pks: readonly string[], executor: Db) => Promise<Hydrated<Out>>
   ): Promise<Result<OffsetSearchResult<Out>, ApiError>> => {
     const b = BINDINGS[grain];
     const pattern = escapeLikePattern(q);
@@ -782,27 +793,54 @@ export const makeOffsetSearchRepo = (
             sql` or `
           )})`;
     try {
-      // `sql.table` / `ref` quote trusted internal identifiers (never user input).
-      const result = await sql<{ pk: string; title: string | null; other_match: boolean | null }>`
-        select ${ref(b.alias, PK_COLUMNS[grain])}::text as pk,
-               ${ref(b.alias, 'title')} as title,
-               ${otherMatch} as other_match
-          from ${sql.table(b.table)} as ${sql.ref(b.alias)}
-         where ${composeAnd(resolved.conds)}
-         order by ${orderClause(grain, sort)}
-         limit ${sql.lit(SEARCH_COUNT_CAP + 1)}
-      `.execute(db);
-      const capped = result.rows.length > SEARCH_COUNT_CAP;
-      const kept = result.rows
-        .filter(
-          (row) => row.other_match === true || row.title === null || !isFreeTextWithheld(row.title)
-        )
-        .map((row) => Number(row.pk));
-      const offset = offsetOf(p);
-      const { items } = await hydrate(kept.slice(offset, offset + p.pageSize));
-      return ok(
-        interpretCappedCount(items, capped || resolved.countUnreliable ? null : kept.length)
-      );
+      // One read-only snapshot for the candidates and the page: a title that
+      // changes between the two reads cannot slip a row past the rule.
+      return await db
+        .transaction()
+        .setIsolationLevel('repeatable read')
+        .setAccessMode('read only')
+        .execute(async (trx) => {
+          // Candidates are read in batches until more KEPT rows than the cap
+          // exist (or the matches run out): dropping withheld rows before the
+          // cap decides "exact or estimate" means the total and the page sizes
+          // never depend on how many were dropped.
+          const kept: string[] = [];
+          let exhausted = false;
+          for (let batch = 0; batch < TITLE_SAFE_MAX_BATCHES; batch += 1) {
+            // `sql.table` / `ref` quote trusted internal identifiers (never user input).
+            const result = await sql<{
+              pk: string;
+              title: string | null;
+              other_match: boolean | null;
+            }>`
+              select ${ref(b.alias, PK_COLUMNS[grain])}::text as pk,
+                     ${ref(b.alias, 'title')} as title,
+                     ${otherMatch} as other_match
+                from ${sql.table(b.table)} as ${sql.ref(b.alias)}
+               where ${composeAnd(resolved.conds)}
+               order by ${orderClause(grain, sort)}
+               limit ${sql.lit(TITLE_SAFE_BATCH)} offset ${sql.lit(batch * TITLE_SAFE_BATCH)}
+            `.execute(trx);
+            for (const row of result.rows) {
+              if (
+                row.other_match === true ||
+                row.title === null ||
+                !isFreeTextWithheld(row.title)
+              ) {
+                kept.push(row.pk);
+              }
+            }
+            if (result.rows.length < TITLE_SAFE_BATCH) {
+              exhausted = true;
+              break;
+            }
+            if (kept.length > SEARCH_COUNT_CAP) break;
+          }
+          const offset = offsetOf(p);
+          const { items } = await hydrate(kept.slice(offset, offset + p.pageSize), trx);
+          const exact = exhausted && kept.length <= SEARCH_COUNT_CAP && !resolved.countUnreliable;
+          return ok(interpretCappedCount(items, exact ? kept.length : null));
+        });
     } catch (error) {
       return err(databaseError(`search ${grain} failed`, error));
     }

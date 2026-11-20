@@ -64,14 +64,22 @@ const scriptedDb = (
   titles: ReadonlyMap<string, string | null>
 ) => {
   const queries: string[] = [];
+  const hydrated: string[][] = [];
+  const transactions: unknown[] = [];
   const connection: DatabaseConnection = {
     executeQuery: <R>(query: CompiledQuery): Promise<QueryResult<R>> => {
       queries.push(query.sql);
       if (query.sql.includes('as other_match')) {
-        return Promise.resolve({ rows: candidates as unknown as R[] });
+        const window = /limit (\d+) offset (\d+)/u.exec(query.sql);
+        const limit = Number(window?.[1]);
+        const offset = Number(window?.[2]);
+        return Promise.resolve({
+          rows: candidates.slice(offset, offset + limit) as unknown as R[],
+        });
       }
       if (query.sql.includes('= any(cast(')) {
-        const pks = (query.parameters[0] as readonly number[]).map(String);
+        const pks = (query.parameters[0] as readonly (number | string)[]).map(String);
+        hydrated.push(pks);
         return Promise.resolve({
           rows: pks.map((pk) => procedureRow(pk, titles.get(pk) ?? null)) as unknown as R[],
         });
@@ -85,7 +93,10 @@ const scriptedDb = (
   const driver: Driver = {
     init: () => Promise.resolve(),
     acquireConnection: () => Promise.resolve(connection),
-    beginTransaction: () => Promise.resolve(),
+    beginTransaction: (_connection, settings) => {
+      transactions.push(settings);
+      return Promise.resolve();
+    },
     commitTransaction: () => Promise.resolve(),
     rollbackTransaction: () => Promise.resolve(),
     releaseConnection: () => Promise.resolve(),
@@ -99,7 +110,7 @@ const scriptedDb = (
       createQueryCompiler: () => new PostgresQueryCompiler(),
     },
   });
-  return { repo: makeOffsetSearchRepo(db, 366), queries };
+  return { repo: makeOffsetSearchRepo(db, 366), queries, hydrated, transactions };
 };
 
 const page = { page: 1, pageSize: 25, sort: 'date_desc' } as const;
@@ -134,8 +145,8 @@ describe('procedures q on the SQL path (PROC-R87F S1)', () => {
     expect(JSON.stringify(result)).not.toContain('PFA');
   });
 
-  it('above the cap the total stays an estimate, whatever was dropped', async () => {
-    const candidates: Candidate[] = Array.from({ length: SEARCH_COUNT_CAP + 1 }, (_, i) => ({
+  it('above the cap of KEPT rows the total stays an estimate, whatever was dropped', async () => {
+    const candidates: Candidate[] = Array.from({ length: 2 * (SEARCH_COUNT_CAP + 1) }, (_, i) => ({
       pk: String(i + 1),
       title: i % 2 === 0 ? 'Servicii PFA Exemplu' : 'Servicii de curatenie',
       other_match: false,
@@ -166,5 +177,55 @@ describe('procedures q on the SQL path (PROC-R87F S1)', () => {
     expect(candidateSql).toContain('"p"."authority_cui" =');
     expect(candidateSql).toContain('"p"."title" ilike');
     expect(candidateSql).toMatch(/limit 10001/u);
+  });
+
+  it('drops withheld rows before the cap decides: 10,000 public matches plus one withheld stay exact', async () => {
+    const candidates: Candidate[] = [
+      { pk: '1', title: 'Furnizare PFA Exemplu', other_match: false },
+      ...Array.from({ length: SEARCH_COUNT_CAP }, (_, i) => ({
+        pk: String(i + 2),
+        title: 'Furnizare materiale',
+        other_match: false,
+      })),
+    ];
+    const { repo } = scriptedDb(candidates, new Map(candidates.map((c) => [c.pk, c.title])));
+    const result = (await repo.searchProceduresOffset({ q: 'furnizare' }, page))._unsafeUnwrap();
+    // Same as without the withheld row: nothing says a row was dropped.
+    expect(result).toMatchObject({ total: SEARCH_COUNT_CAP, estimated: false });
+  });
+
+  it('a late page stays full when withheld rows sort ahead of the cap', async () => {
+    const candidates: Candidate[] = [
+      ...Array.from({ length: 20 }, (_, i) => ({
+        pk: String(i + 1),
+        title: 'Furnizare PFA Exemplu',
+        other_match: false,
+      })),
+      ...Array.from({ length: SEARCH_COUNT_CAP + 1 }, (_, i) => ({
+        pk: String(i + 21),
+        title: 'Furnizare materiale',
+        other_match: false,
+      })),
+    ];
+    const { repo } = scriptedDb(candidates, new Map(candidates.map((c) => [c.pk, c.title])));
+    const result = (
+      await repo.searchProceduresOffset(
+        { q: 'furnizare' },
+        { page: 100, pageSize: 100, sort: 'date_desc' }
+      )
+    )._unsafeUnwrap();
+    expect(result.items).toHaveLength(100);
+    expect(result).toMatchObject({ total: null, estimated: true });
+  });
+
+  it('hydrates by the exact key, never a rounded one, in one read-only snapshot', async () => {
+    const big = '9007199254740993';
+    const { repo, hydrated, transactions } = scriptedDb(
+      [{ pk: big, title: 'Furnizare materiale', other_match: false }],
+      new Map([[big, 'Furnizare materiale']])
+    );
+    await repo.searchProceduresOffset({ q: 'furnizare' }, page);
+    expect(hydrated).toEqual([[big]]);
+    expect(transactions).toEqual([{ isolationLevel: 'repeatable read', accessMode: 'read only' }]);
   });
 });
