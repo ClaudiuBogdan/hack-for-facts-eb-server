@@ -9,6 +9,7 @@
 
 import { describe, expect, it } from 'vitest';
 
+import { Q_MODES } from '@/modules/procurement/core/constants.js';
 import { compileListQuery, ronToBani } from '@/modules/procurement/core/opensearch-query.js';
 
 import type { OffsetSearchRequest } from '@/modules/procurement/core/types.js';
@@ -289,13 +290,23 @@ describe('compileListQuery — relevance and highlight', () => {
     // `scoala` matched `Școala Gimnazială` and got no marks without this.
     const { body } = compileListQuery({ grain: 'procedures', filter: { q: 'spital' }, page });
     const highlight = body['highlight'] as { fields: Record<string, unknown> };
-    expect(Object.keys(highlight.fields)).toEqual([
-      'title',
-      'title.folded',
-      'authority_name',
-      'authority_name.folded',
-    ]);
+    // No title until the index carries a public flag (PROC-R87F E1).
+    expect(Object.keys(highlight.fields)).toEqual(['authority_name', 'authority_name.folded']);
   });
+
+  it.each(['procedures', 'contracts', 'direct_acquisitions'] as const)(
+    'never searches or highlights the raw title on %s (PROC-R87F E1)',
+    (grain) => {
+      for (const filter of [
+        { q: 'reparatii' },
+        ...Q_MODES.map((qMode) => ({ q: 'reparatii', qMode })),
+      ]) {
+        const { body } = compileListQuery({ grain, filter, page });
+        const text = JSON.stringify(body);
+        expect(text).not.toMatch(/"title(\.folded)?(\^\d+)?"/u);
+      }
+    }
+  );
 });
 
 describe('compileListQuery — facets', () => {

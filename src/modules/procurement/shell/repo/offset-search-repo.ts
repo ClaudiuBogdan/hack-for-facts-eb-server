@@ -752,6 +752,62 @@ export const makeOffsetSearchRepo = (
     }
   };
 
+  /**
+   * `q` on a title-bearing grain, SQL path (PROC-R87F S1). The ILIKE also
+   * matches raw titles the free-text rule withholds, and a match the mapper
+   * then serves with a null title still confirms the term. So the candidates
+   * (pk, raw title, whether a non-title column matched) are read under the
+   * page's own filters and order, up to the count cap; a row that matches only
+   * through a withheld title is dropped; the rest are counted, paged and
+   * hydrated as before. A row that also matches a party name or a code stays,
+   * its title still masked by the mapper. Above the cap the total stays an
+   * estimate, as today, so it never says how many rows were dropped.
+   */
+  const searchTitleSafe = async <Out>(
+    grain: 'procedures' | 'contracts' | 'direct_acquisitions',
+    q: string,
+    resolved: ResolvedConditions,
+    sort: SqlSearchSort,
+    p: OffsetSearchRequest,
+    hydrate: (pks: readonly number[]) => Promise<Hydrated<Out>>
+  ): Promise<Result<OffsetSearchResult<Out>, ApiError>> => {
+    const b = BINDINGS[grain];
+    const pattern = escapeLikePattern(q);
+    const others = Q_COLUMNS[grain].filter((column) => column !== 'title');
+    const otherMatch =
+      others.length === 0
+        ? sql`false`
+        : sql`(${sql.join(
+            others.map((column) => sql`${ref(b.alias, column)} ilike ${pattern} escape '\\'`),
+            sql` or `
+          )})`;
+    try {
+      // `sql.table` / `ref` quote trusted internal identifiers (never user input).
+      const result = await sql<{ pk: string; title: string | null; other_match: boolean | null }>`
+        select ${ref(b.alias, PK_COLUMNS[grain])}::text as pk,
+               ${ref(b.alias, 'title')} as title,
+               ${otherMatch} as other_match
+          from ${sql.table(b.table)} as ${sql.ref(b.alias)}
+         where ${composeAnd(resolved.conds)}
+         order by ${orderClause(grain, sort)}
+         limit ${sql.lit(SEARCH_COUNT_CAP + 1)}
+      `.execute(db);
+      const capped = result.rows.length > SEARCH_COUNT_CAP;
+      const kept = result.rows
+        .filter(
+          (row) => row.other_match === true || row.title === null || !isFreeTextWithheld(row.title)
+        )
+        .map((row) => Number(row.pk));
+      const offset = offsetOf(p);
+      const { items } = await hydrate(kept.slice(offset, offset + p.pageSize));
+      return ok(
+        interpretCappedCount(items, capped || resolved.countUnreliable ? null : kept.length)
+      );
+    } catch (error) {
+      return err(databaseError(`search ${grain} failed`, error));
+    }
+  };
+
   const searchProceduresOffset = async (
     f: ProcurementSearchFilter,
     p: OffsetSearchRequest,
@@ -762,6 +818,8 @@ export const makeOffsetSearchRepo = (
     const sort = sqlSort(p);
     if (sort === null) return err(relevanceUnavailable());
     const resolved = sqlConditions('procedures', f);
+    if (f.q !== undefined)
+      return searchTitleSafe('procedures', f.q, resolved, sort, p, hydrateProcedures);
     const rows = db
       .selectFrom('procurement.procedures as p')
       .select(procedureSelect)
@@ -787,6 +845,8 @@ export const makeOffsetSearchRepo = (
     const sort = sqlSort(p);
     if (sort === null) return err(relevanceUnavailable());
     const resolved = sqlConditions('contracts', f);
+    if (f.q !== undefined)
+      return searchTitleSafe('contracts', f.q, resolved, sort, p, hydrateContracts);
     const rows = db
       .selectFrom('procurement.contracts as c')
       .select(contractSelect)
@@ -823,6 +883,15 @@ export const makeOffsetSearchRepo = (
     const selective = assertDaOffsetSelective(f, daMaxWindowDays);
     if (selective.isErr()) return err(selective.error);
     const resolved = sqlConditions('direct_acquisitions', f);
+    if (f.q !== undefined)
+      return searchTitleSafe(
+        'direct_acquisitions',
+        f.q,
+        resolved,
+        sort,
+        p,
+        hydrateDirectAcquisitions
+      );
     const rows = db
       .selectFrom('procurement.direct_acquisitions as d')
       .select(daSelect)

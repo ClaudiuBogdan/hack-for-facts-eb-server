@@ -63,10 +63,15 @@ export const FACET_FIELDS: Readonly<Record<string, string>> = {
   procedureType: 'procedure_type',
 };
 
-/** The BM25 field set. Codes are keyword fields and never take fuzziness. */
+/**
+ * The BM25 field set. Codes are keyword fields and never take fuzziness.
+ *
+ * No title (PROC-R87F E1): the index holds raw legacy titles, and the API
+ * withholds the ones the free-text rule hits, so a title match would confirm a
+ * withheld term. Titles come back when the index carries only the labelled
+ * title (`title_shown`, v3) or a public flag to gate the title clause on.
+ */
 const Q_FIELDS = [
-  'title^3',
-  'title.folded^3',
   'authority_name',
   'authority_name.folded',
   'supplier_name',
@@ -83,9 +88,10 @@ const Q_FIELDS = [
  * ORIGINAL text, so either fragment renders identically.
  */
 export const HIGHLIGHT_FIELDS: Readonly<Record<SearchGrain, readonly string[]>> = {
-  procedures: ['title', 'authority_name'],
-  contracts: ['title', 'authority_name', 'supplier_name'],
-  direct_acquisitions: ['title', 'authority_name', 'supplier_name'],
+  // No title until the index carries a public flag (PROC-R87F E1, see Q_FIELDS).
+  procedures: ['authority_name'],
+  contracts: ['authority_name', 'supplier_name'],
+  direct_acquisitions: ['authority_name', 'supplier_name'],
   modifications: [],
 };
 
