@@ -16,7 +16,8 @@ import {
   databaseError,
 } from '@/modules/shared/index.js';
 
-import type { LegalBridgeGate } from './v2/gate.js';
+import { legacyDocumentRenderPublic, type LegalBridgeGate } from './v2/gate.js';
+
 import type { LegalVocabRepo } from '../../core/usecases.js';
 
 type Db = Kysely<ProdDatabase>;
@@ -26,7 +27,11 @@ const esc = (s: string): string => s.replace(/[\\%_]/gu, (m) => `\\${m}`);
 /** `gate` (legal_v2 bridge only): counts cover public legal_v2 acts only. */
 export const makeLegalVocabRepo = (db: Db, gate?: LegalBridgeGate): LegalVocabRepo => {
   const actGate = gate === undefined ? sql<SqlBool>`true` : gate.act(sql.ref('a.act_id'));
-  const docGate = gate === undefined ? sql<SqlBool>`true` : gate.document(sql.ref('s.document_id'));
+  // Summary-based counts also need the old document's own render rows public.
+  const docGate =
+    gate === undefined
+      ? sql<SqlBool>`true`
+      : sql<SqlBool>`(${gate.document(sql.ref('s.document_id'))} and ${legacyDocumentRenderPublic(sql.ref('s.document_id'))})`;
   const resolveIssuers = async (
     q: string,
     limit: number

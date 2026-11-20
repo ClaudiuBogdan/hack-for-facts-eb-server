@@ -37,6 +37,9 @@ behaviour unchanged.
 
   A bridged title or summary is withheld when the old document's render rows are not all public.
 
+- **Bridge details.** `statusEvidence.abrogated_by`, the only act list inside status evidence, keeps only acts public
+  in legal_v2. A citing act is resolved through `act_documents`, so a public non-canonical citing document counts, as
+  it does in the amendment count. Vocabulary counts over summaries also need the old document's render rows public.
 - **Bridge nulls.** `LegalAct.bridgedFields` lists what came from the previous corpus, and `dataSource` is `legal_v2`.
   When `legal` does not hold the act, `bridgedFields` is empty and every bridged fact is null on GraphQL and MCP. This
   covers `status`, `statusEvidence`, `inDegree`, `amendedAfterPublication`, `versionProvenance.amendedAfterPublication`,
@@ -45,8 +48,9 @@ behaviour unchanged.
   buckets still add up to the total.
 - **Document ids.** A form is `f<form_id>`. An old numeric page id resolves, inside the body statement, to the newest
   capture of its PREFERRED route (`afis`, then `detail`, `detail_base`, `print`). A held preferred route answers 409; it
-  never falls through to another route's form. `LegalAct.resolveDocument(documentId)` is the act-scoped lookup. It maps a
-  page id to this act's form through any bound capture or advertisement, loaded or not.
+  never falls through to another route's form. `LegalAct.resolveDocument(documentId)` is the act-scoped lookup, by the
+  same rule: the preferred route's newest capture (held → null), an advertisement of the act only when the page has no
+  current capture, and the form must belong to the act.
 - **Versions.** original → `original`, republication → `republicare`, consolidation → `consolidare`; `versionDate` is
   `portal_order_date`. New nullable fields: `readable`, `caveat` (`unofficial_consolidation` on every consolidation),
   `portalLabelRaw`, `portalLabelDate`, `held`, `formKey`, `sourceUrl`; on the act, `newerNotAvailable` and
@@ -88,14 +92,19 @@ behaviour unchanged.
   Each index must carry its exporter contract in `_mapping._meta` and a `built_at` stamp.
   - BM25 runs over names and titles (acts) and over `text`/`text.folded`, heading path and act name (units), with act
     type, issuer and year filters and `privacy_class = public`.
-  - Every unit hit is verified against its `uses` before any text is served: a public, readable form of the hit's
-    act, the unit as that form's current public component, the provision public, and no restricted chunk. The hit then
-    carries that form as `servedForm` (LEG-X3AV). Unverifiable hits are dropped and not counted, so `actsTotal`,
-    `sectionsTotal` and `unhydratedHits` are null, null and 0.
+  - Every unit hit is verified against its `uses` in ONE statement before any text is served. The checks: a public,
+    readable form of the hit's act; the unit as that form's current public component; the provision public and holding
+    the use's whole range; all chunks public and reaching the range's end. The section's citation path, label, range
+    and source URL come from that verified occurrence: the parser address, the provision label, and the supplying unit's
+    own bound capture. They never come from the index's first use. The index snippet is shown only when the
+    occurrence's content key is the indexed wording's key. `servedForm` carries the form (LEG-X3AV) with the act's
+    amendment facts merged in, and the reader link carries `?doc=<form>`. Unverifiable hits are dropped and not
+    counted: `actsTotal`, `sectionsTotal` and `unhydratedHits` are null, null and 0.
   - Status, domain and category filters apply to the hydrated page only.
   - The semantic leg reports `semantic search unavailable`.
-- **MCP.** The same nulls for unbridged acts; the legal_v2 consolidation caveat replaces the legacy published-text
-  caveat.
+- **MCP.** The same nulls for unbridged acts, including unknown coverage (`meta.known: false`) from the timeline and
+  links tools. Incoming links show the citing act as legal_v2 serves it. The legal_v2 consolidation caveat replaces the
+  legacy published-text caveat.
 - **Cost.** Directory lists and counts join the old corpus only when the filter, sort or grouping reads it; a list
   pages ids first and hydrates the page after. Sorting by in-degree still joins `legal.acts` for every act; that has not
   been measured against production. `legalResolve(dim: act)` by name runs `display_citation ilike '%…%'` on
@@ -104,7 +113,24 @@ behaviour unchanged.
 - **Proof.** `tests/integration/legal/legal-v2.pg.test.ts` runs against the scrapper's own legal_v2 migration
   (hash-pinned, `SCRAPPER_REPO_ROOT`) on a throwaway loopback database (`LEGAL_V2_TEST_PG_URL`,
   `LEGAL_V2_TEST_DB_NAME=server_legal_v2_<id>`, a superuser for seeding). It covers restricted parents and children, an
-  unbridged act, GraphQL and MCP. It skips without those inputs.
+  unbridged act, GraphQL and MCP, and runs every mounted client document against the fixture, asserting no errors. It
+  skips without those inputs.
+
+## Accepted for dev, not fixed (review 2026-11-20)
+
+- **in_degree counts hidden citing acts.** `inDegree` is the old corpus's precomputed count and may include citers that
+  are restricted in legal_v2. It is a count only, and every legal_v2 row is public today. To close it, derive the count
+  from gated references (or rebuild it in legal_v2) before any row is restricted.
+- **A restricted target form or route of a public act.** A link to a public act keeps its Portal URL and fragment
+  even when the targeted form or route is restricted, and the outline does not check the supplying capture. Both are
+  latent while every row is public. To close them, carry the target form's and route's visibility into link conversion,
+  and apply the render's binding check to the outline gate.
+- **Date-only consolidation label.** A consolidation is served with the Portal's label date when the projection left
+  the label wording null (it does so today). Filling the wording is LEG-X3AV work, due before the public site; the
+  render rule then tightens to require the wording.
+- **Performance (15 s limit).** To be measured on dev after deploy: the in-degree sort across schemas, citation
+  substring lookup (candidate: a trigram index on `legal_v2.acts.display_citation`, by scrapper migration), and the
+  per-chunk metadata and asset aggregation.
 
 ## Not in this version
 

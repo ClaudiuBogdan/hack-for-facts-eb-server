@@ -260,6 +260,8 @@ export interface LegalReferenceEdge {
 export interface LegalIncomingEdge {
   readonly edge: LegalReferenceEdge;
   readonly sourceAct: LegalAct | null;
+  /** The citing act through act_documents (canonical or not); null when unknown. */
+  readonly sourceActId?: string | null;
 }
 
 export interface LegalExternalAct {

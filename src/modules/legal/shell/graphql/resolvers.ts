@@ -542,11 +542,17 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
           // legal_v2: the citing act is the v2 act (identity + bridge), never the
           // legacy row the graph read joined; the graph read already required
           // it to be public in legal_v2.
-          edges: inPage.items.map(({ edge, sourceAct }) => ({
-            ...edge,
-            sourceAct:
-              isV2(parent) && sourceAct !== null ? actLoader.load(sourceAct.actId) : sourceAct,
-          })),
+          edges: inPage.items.map(({ edge, sourceAct, sourceActId }) => {
+            const citing = sourceActId ?? sourceAct?.actId ?? null;
+            return {
+              ...edge,
+              sourceAct: isV2(parent)
+                ? citing === null
+                  ? null
+                  : actLoader.load(citing)
+                : sourceAct,
+            };
+          }),
           pageInfo: {
             hasNextPage: inPage.next !== null,
             endCursor:

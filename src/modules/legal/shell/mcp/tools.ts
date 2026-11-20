@@ -262,6 +262,19 @@ export const makeLegalMcpTools = (deps: LegalMcpDeps): readonly KernelMcpTool[] 
       const relations = relRaw?.map((r) => r as LegalRelation);
       const after = str(args, 'after');
       const page = { first: intArg(args, 'limit', 50), ...(after !== undefined && { after }) };
+      if (act.bridged === false) {
+        // Links are bridged facts: unknown, not "0 references", for an act the
+        // previous corpus lacks (the timeline tool's rule).
+        return {
+          ok: true,
+          kind: LEGAL_MCP_KINDS.links,
+          query: { ...ref, direction },
+          link: actLink(act.actId),
+          items: [],
+          meta: { next: null, known: false },
+          summary: `${act.displayCitation}: references unknown (the act is not in the previous corpus).`,
+        };
+      }
       if (direction === 'out') {
         const out = await getActLinksOut(graph, act.actId, relations, page);
         if (out.isErr()) return errorOut(LEGAL_MCP_KINDS.links, out.error.message);
@@ -279,12 +292,28 @@ export const makeLegalMcpTools = (deps: LegalMcpDeps): readonly KernelMcpTool[] 
       }
       const incoming = await getActLinksIn(graph, act.actId, relations, page);
       if (incoming.isErr()) return errorOut(LEGAL_MCP_KINDS.links, incoming.error.message);
+      let items: readonly unknown[] = incoming.value.items;
+      if (deps.v2 === true) {
+        // legal_v2: the citing act as legal_v2 serves it (identity + gated
+        // bridge), never the old corpus's row with its raw status evidence.
+        const ids = incoming.value.items.flatMap((i) => {
+          const id = i.sourceActId ?? i.sourceAct?.actId ?? null;
+          return id === null ? [] : [id];
+        });
+        const found = await acts.findActsByIds(ids);
+        if (found.isErr()) return errorOut(LEGAL_MCP_KINDS.links, found.error.message);
+        const byId = new Map(found.value.map((a) => [a.actId, a]));
+        items = incoming.value.items.map((i) => {
+          const citing = byId.get(i.sourceActId ?? i.sourceAct?.actId ?? '');
+          return { edge: i.edge, sourceAct: citing === undefined ? null : exposeBridged(citing) };
+        });
+      }
       return {
         ok: true,
         kind: LEGAL_MCP_KINDS.links,
         query: { ...ref, direction },
         link: `${actLink(act.actId)}#act-references-in-heading`,
-        items: incoming.value.items,
+        items,
         meta: { next: incoming.value.next },
         summary:
           `${n(incoming.value.items.length)} incoming reference(s) for ${act.displayCitation}.` +

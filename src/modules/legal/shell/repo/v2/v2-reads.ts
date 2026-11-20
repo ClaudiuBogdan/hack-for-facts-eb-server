@@ -64,33 +64,14 @@ export const toFormState = (r: V2FormRow): V2FormState => ({
   held: r.held,
 });
 
-/** All public forms of the given acts, with the facts the default rule reads. */
-export const readFormsForActs = async (
-  db: Db,
-  actIds: readonly string[],
-  formId?: string
-): Promise<Result<V2FormRow[], ApiError>> => {
-  const ids = [...new Set(actIds.filter((id) => ID_RE.test(id)))];
-  if (ids.length === 0 && formId === undefined) return ok([]);
-  const scope =
-    formId !== undefined
-      ? sql`f.form_id = ${formId}::bigint`
-      : sql`f.act_id = any(${ids}::bigint[])`;
-  try {
-    const result = await sql<V2FormRow>`
-      select f.form_id::text as form_id, f.act_id::text as act_id, a.ended as act_ended,
-             f.form_kind, f.form_key, f.portal_order_date::text as portal_order_date,
-             f.order_rank::int as order_rank, f.accepted, f.body_resolved, f.ended,
-             f.portal_label_raw, f.portal_label_date::text as portal_label_date, f.caveat,
-             f.gazette_number, f.gazette_part::int as gazette_part,
-             f.gazette_date_reported::text as gazette_date_reported, f.publication_raw,
-             f.entry_into_force_reported::text as entry_into_force_reported,
-             -- readable = what the render serves (render-v2 decideV2Render):
-             -- a published public composition of ONE public whole unit, no
-             -- missing body, at least one chunk and none restricted, the
-             -- unit's capture bound (public) to this form, and a
-             -- consolidation's Portal label or date.
-             (not f.ended
+/**
+ * readable = what the render serves (render-v2 decideV2Render), over alias `f`
+ * (a legal_v2.forms row): a published public composition of ONE public whole
+ * unit, no missing body, at least one chunk and none restricted, the unit's
+ * capture bound (public) to this form, and a consolidation's Portal label or
+ * date. Shared by the forms read and the search verification.
+ */
+export const FORM_READABLE_SQL = sql`(not f.ended
               and (f.form_kind <> 'consolidation'
                    or f.portal_label_raw is not null or f.portal_label_date is not null)
               and exists (select 1 from legal_v2.form_current fc
@@ -113,7 +94,30 @@ export const readFormsForActs = async (
               and not exists (
                 select 1 from legal_v2.form_components c
                  where c.form_id = f.form_id
-                   and (c.slot = 'missing_body' or c.privacy_class <> 'public'))) as readable,
+                   and (c.slot = 'missing_body' or c.privacy_class <> 'public')))`;
+
+/** All public forms of the given acts, with the facts the default rule reads. */
+export const readFormsForActs = async (
+  db: Db,
+  actIds: readonly string[],
+  formId?: string
+): Promise<Result<V2FormRow[], ApiError>> => {
+  const ids = [...new Set(actIds.filter((id) => ID_RE.test(id)))];
+  if (ids.length === 0 && formId === undefined) return ok([]);
+  const scope =
+    formId !== undefined
+      ? sql`f.form_id = ${formId}::bigint`
+      : sql`f.act_id = any(${ids}::bigint[])`;
+  try {
+    const result = await sql<V2FormRow>`
+      select f.form_id::text as form_id, f.act_id::text as act_id, a.ended as act_ended,
+             f.form_kind, f.form_key, f.portal_order_date::text as portal_order_date,
+             f.order_rank::int as order_rank, f.accepted, f.body_resolved, f.ended,
+             f.portal_label_raw, f.portal_label_date::text as portal_label_date, f.caveat,
+             f.gazette_number, f.gazette_part::int as gazette_part,
+             f.gazette_date_reported::text as gazette_date_reported, f.publication_raw,
+             f.entry_into_force_reported::text as entry_into_force_reported,
+             ${FORM_READABLE_SQL} as readable,
              exists (
                 select 1 from legal_v2.form_sources s
                where s.form_id = f.form_id and s.subject_kind = 'capture'
@@ -200,7 +204,19 @@ interface ActIdentityRow {
 export const V2_ACT_SELECT = sql`
   v.act_id::text as act_id, v.act_natural_key, v.act_type, v.act_number,
   v.act_year::int as act_year, v.issuer_slug, v.display_citation, v.ended,
-  (l.act_id is not null) as bridged, l.status, l.status_evidence,
+  (l.act_id is not null) as bridged, l.status,
+  -- status_evidence names acts only in abrogated_by (prod/status.ts): keep
+  -- the ones public in legal_v2, so the evidence never names a hidden act
+  case when jsonb_typeof(l.status_evidence -> 'abrogated_by') = 'array'
+       then jsonb_set(l.status_evidence, '{abrogated_by}', coalesce((
+              select jsonb_agg(x.v order by x.o)
+                from jsonb_array_elements(l.status_evidence -> 'abrogated_by')
+                     with ordinality x(v, o)
+               where jsonb_typeof(x.v) = 'number'
+                 and exists (select 1 from legal_v2.acts gv
+                              where gv.act_id = (x.v #>> '{}')::numeric::bigint
+                                and gv.privacy_class = 'public')), '[]'::jsonb))
+       else l.status_evidence end as status_evidence,
   l.entry_into_force::text as entry_into_force, l.in_degree
 `;
 

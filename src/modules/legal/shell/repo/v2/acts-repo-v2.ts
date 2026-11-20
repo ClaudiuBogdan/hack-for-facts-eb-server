@@ -430,8 +430,9 @@ export const makeLegalActsRepoV2 = (deps: MakeLegalActsRepoV2Deps): LegalActsRep
 
   /**
    * A page id or form id → this act's form, loaded or not (the act-scoped
-   * alias lookup). A page id is read through ANY capture or advertisement of
-   * the act that names it, preferred route first; a form id must be the act's.
+   * alias lookup), by the SAME selection as the REST render: the preferred
+   * route's newest capture (held → null), advertisements only for a page with
+   * no current capture, and the form must belong to the act.
    */
   const resolveDocumentForAct = async (
     actId: string,
@@ -449,14 +450,37 @@ export const makeLegalActsRepoV2 = (deps: MakeLegalActsRepoV2Deps): LegalActsRep
                  and f.privacy_class = 'public'
             `.execute(db)
           : await sql<{ form_id: string }>`
+              -- The REST rule: the page's PREFERRED route's newest capture,
+              -- whatever its status (held answers nothing, never another
+              -- route); an advertisement of this act counts only when the page
+              -- has no current capture at all. Then the act must own the form.
+              with cap as (
+                select s.form_id, s.status, s.privacy_class
+                  from legal_v2.form_sources s
+                 where s.page_id = ${ref.pageId} and s.subject_kind = 'capture' and s.is_latest
+                 order by ${ROUTE_ORDER_SQL}, s.binding_id
+                 limit 1
+              ),
+              ad as (
+                select s.form_id
+                  from legal_v2.form_sources s
+                 where s.page_id = ${ref.pageId} and s.subject_kind = 'advertisement'
+                   and s.status = 'bound' and s.privacy_class = 'public'
+                   and s.act_id = ${actId}::bigint
+                   and not exists (select 1 from cap)
+                 order by s.binding_id
+                 limit 1
+              ),
+              pick as (
+                select cap.form_id from cap where cap.status = 'bound' and cap.privacy_class = 'public'
+                union all
+                select ad.form_id from ad
+              )
               select f.form_id::text as form_id
-                from legal_v2.form_sources s
-                join legal_v2.forms f on f.form_id = s.form_id and f.privacy_class = 'public'
+                from pick
+                join legal_v2.forms f on f.form_id = pick.form_id and f.privacy_class = 'public'
                 join legal_v2.acts a on a.act_id = f.act_id and a.privacy_class = 'public'
-               where s.page_id = ${ref.pageId} and s.act_id = ${actId}::bigint
-                 and s.status = 'bound' and s.privacy_class = 'public'
-               order by (s.subject_kind = 'capture') desc, s.is_latest desc,
-                        ${ROUTE_ORDER_SQL} nulls last, s.binding_id
+               where f.act_id = ${actId}::bigint
                limit 1
             `.execute(db);
       const row = result.rows[0];

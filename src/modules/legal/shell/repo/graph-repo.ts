@@ -166,9 +166,13 @@ export const makeLegalGraphRepo = (db: Db, gate?: LegalBridgeGate): LegalGraphRe
         .leftJoin('legal.acts as sa', 'sa.canonical_document_id', 'r.source_document_id')
         .where('r.target_act_id', '=', actId);
       if (gate !== undefined) {
-        // The citing act must be public in legal_v2; a citing document with no
-        // act row cannot be checked and is not served.
-        q = q.where(gate.act(sql.ref('r.target_act_id'))).where(gate.act(sql.ref('sa.act_id')));
+        // The citing act — resolved through act_documents, so a NON-canonical
+        // citing document counts too (as the amendment count does) — must be
+        // public in legal_v2; a citing document with no act cannot be checked
+        // and is not served.
+        q = q
+          .where(gate.act(sql.ref('r.target_act_id')))
+          .where(gate.document(sql.ref('r.source_document_id')));
       }
       if (relations !== undefined && relations.length > 0) {
         q = q.where('r.relation', 'in', [...relations]);
@@ -176,6 +180,11 @@ export const makeLegalGraphRepo = (db: Db, gate?: LegalBridgeGate): LegalGraphRe
       if (cursor !== null) q = q.where(afterPk(cursor));
       const rows = await q
         .select([
+          sql<
+            string | null
+          >`(select sd.act_id::text from legal.act_documents sd where sd.document_id = r.source_document_id)`.as(
+            'sd_act_id'
+          ),
           'sa.act_id as sa_act_id',
           'sa.act_natural_key as sa_act_natural_key',
           'sa.act_type as sa_act_type',
@@ -218,7 +227,7 @@ export const makeLegalGraphRepo = (db: Db, gate?: LegalBridgeGate): LegalGraphRe
                 entry_into_force: row.sa_entry_into_force,
                 in_degree: row.sa_in_degree,
               } as unknown as ActRow);
-        return { edge, sourceAct };
+        return { edge, sourceAct, sourceActId: row.sd_act_id ?? sourceAct?.actId ?? null };
       });
       const last = edges[edges.length - 1];
       const next =

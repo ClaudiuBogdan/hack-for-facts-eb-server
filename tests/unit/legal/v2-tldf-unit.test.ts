@@ -446,6 +446,15 @@ describe('stored-chunk validation and allowlisted output (security review)', () 
     expect(JSON.stringify(shown.tldf)).toContain('secret caption');
   });
 
+  it('keeps spaces in an external URL, percent-encoded, and judges the scheme apart', () => {
+    const base = { ordinal: 0, targetFragment: null, targetActId: null, targetFormId: null };
+    expect(toTldfLink({ ...base, href: 'https://example.ro/docs/Anexa 1.pdf' })).toEqual({
+      kind: 'external',
+      href: 'https://example.ro/docs/Anexa%201.pdf',
+    });
+    expect(toTldfLink({ ...base, href: ' java script:alert(1)' })).toBeNull();
+  });
+
   it('keeps a validated Portal route and query, and drops an odd query', () => {
     const base = { ordinal: 0, targetFragment: null, targetActId: '9', targetFormId: null };
     expect(

@@ -219,6 +219,10 @@ const QUERY_RE = /^\?[A-Za-z0-9=&_.-]{0,256}$/u;
 // eslint-disable-next-line no-control-regex -- stripping control characters is the point
 const CONTROL_RE = /[\u0000- \u007f]/gu;
 
+/** C0 controls and DEL (not the space), dropped from a served external href. */
+// eslint-disable-next-line no-control-regex -- dropping control characters is the point
+const C0_RE = /[\u0000-\u001f\u007f]/gu;
+
 export type V2LinkKind = 'act' | 'act_missing_id' | 'internal' | 'external' | 'other';
 
 /** The link kind of an href; any scheme but http, https and mailto is `other`. */
@@ -288,8 +292,13 @@ export const toTldfLink = (row: V2LinkTarget): TldfLink | null => {
         ? { kind: 'internal' }
         : { kind: 'internal', href: `#${fragment}`, target_fragment: fragment };
     }
-    case 'external':
-      return { kind: 'external', href: bare };
+    case 'external': {
+      // The scheme was judged on the stripped form; the served href keeps the
+      // link as written, control characters dropped and spaces percent-encoded
+      // (`Anexa 1.pdf` stays a file named with a space).
+      const served = href.trim().replace(C0_RE, '').replace(/ /gu, '%20');
+      return SAFE_SCHEME_RE.test(served) ? { kind: 'external', href: served } : null;
+    }
     case 'other':
       return null;
   }

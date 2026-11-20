@@ -29,9 +29,11 @@ import { pathToFileURL } from 'node:url';
 import { makeExecutableSchema } from '@graphql-tools/schema';
 import { graphql, type GraphQLSchema } from 'graphql';
 import { Kysely, PostgresDialect } from 'kysely';
+import { ok } from 'neverthrow';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { monitorulTypeDefs } from '@/modules/legal/mo/graphql.js';
 import { makeLegalResolvers } from '@/modules/legal/shell/graphql/resolvers.js';
 import { legalTypeDefs } from '@/modules/legal/shell/graphql/typedefs.js';
 import { makeLegalMcpTools } from '@/modules/legal/shell/mcp/tools.js';
@@ -48,6 +50,13 @@ import { makeLegalV2HitVerifier } from '@/modules/legal/shell/repo/v2/search-ver
 import { makeLegalVocabRepo } from '@/modules/legal/shell/repo/vocab-repo.js';
 import { scalarResolvers, scalarTypeDefs } from '@/modules/shared/shell/graphql/scalars.js';
 
+import {
+  ACT_DETAIL_QUERY,
+  LEGAL_CLIENT_CASES,
+  OUTLINE_QUERY,
+} from '../../fixtures/legal/client-documents.js';
+
+import type { LegalV2SearchEngine } from '@/modules/legal/core/v2/search.js';
 import type { KernelMcpTool, ProdDatabase } from '@/modules/shared/index.js';
 
 const REQUIRED = process.env['TEST_E2E_REQUIRED'] === '1';
@@ -161,6 +170,48 @@ run('legal_v2 on real DDL', () => {
     const outline = makeLegalOutlineRepoV2(db);
     const render = makeLegalRenderRepoV2(db);
     const vocab = makeLegalVocabRepo(db, V2_BRIDGE_GATE);
+    // The index is faked (no OpenSearch here); its hits are verified by the
+    // REAL verifier against this database.
+    const v2Engine: LegalV2SearchEngine = {
+      searchActs: () =>
+        Promise.resolve(ok({ hits: [], total: null, totalExhaustive: false, asOf: '2026-11-18' })),
+      searchUnits: () =>
+        Promise.resolve(
+          ok({
+            hits: [
+              {
+                actId: '7',
+                score: 2,
+                citationPath: 'art:999',
+                headingPath: 'INDEX HEADING',
+                snippet: '<em>Art</em>',
+                uses: [
+                  // the exporter's first use: a replaced unit (never verified)
+                  {
+                    formId: '101',
+                    unitId: '99',
+                    provisionSeq: 0,
+                    charStart: 0,
+                    charEnd: 3,
+                    contentKey: 'k1:abc',
+                  },
+                  {
+                    formId: '101',
+                    unitId: '2',
+                    provisionSeq: 0,
+                    charStart: 0,
+                    charEnd: 3,
+                    contentKey: 'k1:abc',
+                  },
+                ],
+              },
+            ],
+            total: null,
+            totalExhaustive: false,
+            asOf: '2026-11-18',
+          })
+        ),
+    };
     const searchDeps = {
       retrieval: {} as never,
       acts,
@@ -170,16 +221,32 @@ run('legal_v2 on real DDL', () => {
       semanticReady: false,
       clientBaseUrl: 'https://t',
       v2Mode: true,
+      v2Engine,
+      v2Verifier: makeLegalV2HitVerifier(db),
     };
     const resolveDeps = { base: acts, acts, vocab };
     schema = makeExecutableSchema({
+      // The legal slice as mounted, Monitorul included (its fields answer
+      // empty here: Monitorul is unchanged by the v2 source).
       typeDefs: `${scalarTypeDefs}
         type PageInfo { hasNextPage: Boolean!, endCursor: String }
+        type Entity { _stub: String }
         type Query { _root: String }
-        ${legalTypeDefs}`,
+        ${legalTypeDefs}
+        ${monitorulTypeDefs}`,
       resolvers: [
         scalarResolvers,
         makeLegalResolvers({ acts, graph, outline, render, searchDeps, resolveDeps }) as never,
+        {
+          LegalAct: { gazettePublications: () => [] },
+          Query: {
+            moIssues: () => ({
+              edges: [],
+              pageInfo: { hasNextPage: false, endCursor: null },
+              total: 0,
+            }),
+          },
+        },
       ],
     });
     tools = makeLegalMcpTools({
@@ -309,32 +376,131 @@ run('legal_v2 on real DDL', () => {
     expect((await source.read('5200', 0))._unsafeUnwrapErr()).toMatchObject({
       reason: 'render_unavailable',
     });
-    const data = await gql(`{ legalAct(actId: "7") { resolveDocument(documentId: "5101") } }`);
-    expect(data['legalAct']).toEqual({ resolveDocument: 'f101' });
+    const data = await gql(`{ legalAct(actId: "7") {
+      a: resolveDocument(documentId: "5101") b: resolveDocument(documentId: "5200") } }`);
+    // GraphQL and REST agree: page 5200's preferred route is held, so neither
+    // falls through to the bound detail route.
+    expect(data['legalAct']).toEqual({ a: 'f101', b: null });
+    const other = await gql(`{ legalAct(actId: "8") { resolveDocument(documentId: "5101") } }`);
+    expect(other['legalAct']).toEqual({ resolveDocument: null });
   });
 
   it('verifies search hits against the current public unit, provision and chunks', async () => {
     const verifier = makeLegalV2HitVerifier(db);
-    const use = (formId: string, unitId: string, provisionSeq: number | null) => ({
-      formId,
-      unitId,
-      provisionSeq,
-      charStart: 0,
-      charEnd: 3,
-    });
+    const use = (
+      formId: string,
+      unitId: string,
+      provisionSeq: number | null,
+      charEnd = 3,
+      contentKey: string | null = 'k1:abc'
+    ) => ({ formId, unitId, provisionSeq, charStart: 0, charEnd, contentKey });
     const res = await verifier.verifyUses([
-      { key: 0, actId: '7', uses: [use('101', '2', 0)] },
+      { key: 0, actId: '7', uses: [use('101', '99', 0), use('101', '2', 0)] },
       { key: 1, actId: '7', uses: [use('101', '99', 0)] },
       { key: 2, actId: '7', uses: [use('101', '2', 1)] },
       { key: 3, actId: '7', uses: [use('103', '3', 0)] },
       { key: 4, actId: '9', uses: [use('901', '9', 0)] },
+      { key: 5, actId: '7', uses: [use('101', '2', 0, 4)] },
+      { key: 6, actId: '7', uses: [use('101', '2', 0, 3, 'k1:other')] },
     ]);
     const verified = res._unsafeUnwrap();
-    expect([...verified.keys()]).toEqual([0]);
-    expect(verified.get(0)?.servedForm).toMatchObject({
-      documentId: 'f101',
-      caveat: 'unofficial_consolidation',
+    expect([...verified.keys()].sort()).toEqual([0, 6]);
+    // The verified occurrence (the second use), not the exporter's first use.
+    expect(verified.get(0)).toMatchObject({
+      use: { unitId: '2' },
+      address: 'art:1',
+      label: 'Articolul 1',
+      sameWording: true,
+      servedForm: {
+        documentId: 'f101',
+        caveat: 'unofficial_consolidation',
+        sourceUrl: 'https://legislatie.just.ro/Public/DetaliiDocumentAfis/5101',
+      },
     });
+    expect(verified.get(6)?.sameWording).toBe(false);
+  });
+
+  it('serves the section from the verified occurrence, with the served form and its link', async () => {
+    const data = await gql(`{ legalSearch(q: "art", channel: sections, includeHistorical: true) {
+      sections { documentId nodePath nodeLabel snippet portalDeepLink
+        servedForm { documentId caveat sourceUrl amendedAfterPublication } }
+      sectionsTotal unhydratedHits } }`);
+    expect(data['legalSearch']).toEqual({
+      sections: [
+        {
+          documentId: 'f101',
+          nodePath: 'art:1',
+          nodeLabel: 'Articolul 1',
+          snippet: '<em>Art</em>',
+          portalDeepLink: `https://t/legislation/acts/7?doc=${encodeURIComponent('"f101"')}`,
+          servedForm: {
+            documentId: 'f101',
+            caveat: 'unofficial_consolidation',
+            sourceUrl: 'https://legislatie.just.ro/Public/DetaliiDocumentAfis/5101',
+            // D7b's modifica only: D9's comes from the restricted act 9.
+            amendedAfterPublication: 1,
+          },
+        },
+      ],
+      sectionsTotal: null,
+      unhydratedHits: 0,
+    });
+  });
+
+  it('agrees on REST and GraphQL for a header plus body form', async () => {
+    const source = makeLegalRenderSourceV2(db);
+    expect((await source.read('f106', 0))._unsafeUnwrapErr()).toMatchObject({
+      renderStatus: 'composition_not_served',
+    });
+    const info = (await makeLegalRenderRepoV2(db).renderInfoForDocuments(['f106']))._unsafeUnwrap();
+    expect(info.get('f106')?.renderStatus).toBe('composition_not_served');
+  });
+
+  it('keeps the evidence, the citing acts and the outline fallback to what is public', async () => {
+    const data = await gql(`{ legalAct(actId: "7") { statusEvidence
+      links(direction: IN) { edges { sourceDocumentId sourceAct { actId } } } } }`);
+    const act = data['legalAct'] as {
+      statusEvidence: { abrogated_by: number[] };
+      links: { edges: { sourceDocumentId: string; sourceAct: { actId: string } | null }[] };
+    };
+    expect(act.statusEvidence.abrogated_by).toEqual([7]);
+    // A public NON-canonical citing document stays, with its act.
+    expect(act.links.edges).toEqual([{ sourceDocumentId: 'D7b', sourceAct: { actId: '7' } }]);
+    const outline = makeLegalOutlineRepoV2(db);
+    // Form 107 is served, but every provision at b1's span is withheld: the
+    // legal block must not answer through the presentation fallback.
+    expect((await outline.entryByPath('f107', 'b1'))._unsafeUnwrap()).toBeNull();
+    expect((await outline.entryByPath('f101', 'b1'))._unsafeUnwrap()).toMatchObject({
+      nodeKind: 'articol',
+    });
+    expect((await outline.entryByPath('f107', 'i1'))._unsafeUnwrap()).toMatchObject({
+      nodeKind: 'imagine',
+      depth: null,
+    });
+  });
+
+  it('reports unknown references for an unbridged act over MCP', async () => {
+    const links = tools.find((t) => t.name === 'get_legal_act_links');
+    const out = (await links?.handler({ actId: '8' })) as unknown as {
+      items: unknown[];
+      meta: { known: boolean };
+      summary: string;
+    };
+    expect(out).toMatchObject({ items: [], meta: { known: false } });
+    expect(out.summary).toContain('references unknown');
+  });
+
+  it('runs every mounted client document against the fixture with no errors', async () => {
+    const run = async (query: string, variables: Record<string, unknown>): Promise<void> => {
+      const res = await graphql({ schema, source: query, variableValues: variables });
+      expect(res.errors ?? []).toEqual([]);
+    };
+    for (const c of LEGAL_CLIENT_CASES) await run(c.query, c.variables);
+    // On the fixture's own ids: a bridged act, an unbridged act, a served form.
+    for (const actId of ['7', '8']) {
+      await run(ACT_DETAIL_QUERY, { actId, outFirst: 60, inFirst: 12, anchorsFirst: 12 });
+    }
+    await run(OUTLINE_QUERY, { documentId: 'f101', maxDepth: 7, first: 200, after: null });
   });
 });
 
@@ -365,7 +531,9 @@ const seed = async (q: (t: string, p?: unknown[]) => Promise<pg.QueryResult>): P
             'unofficial_consolidation', '2025-01-01', 'restricted'),
            (105, 7, 'consolidation', 'cons:2023', true, true, '2023-01-01',
             'unofficial_consolidation', null, 'public'),
-           (901, 9, 'original', 'orig', true, true, '2022-01-01', null, null, 'public')`);
+           (901, 9, 'original', 'orig', true, true, '2022-01-01', null, null, 'public'),
+           (106, 7, 'republication', 'rep', true, true, '2021-06-01', null, null, 'public'),
+           (107, 7, 'original', 'orig2', true, true, '2019-01-01', null, null, 'public')`);
   const body = JSON.stringify({
     format: 'tldf-unit',
     format_version: '1',
@@ -397,6 +565,7 @@ const seed = async (q: (t: string, p?: unknown[]) => Promise<pg.QueryResult>): P
     [4, 104, '5104'],
     [5, 105, '5105'],
     [9, 901, '5901'],
+    [8, 107, '5107'],
   ] as const) {
     await q(
       `insert into legal_v2.text_units (unit_id, capture_ref_id, custody_lane, page_id, route,
@@ -414,10 +583,11 @@ const seed = async (q: (t: string, p?: unknown[]) => Promise<pg.QueryResult>): P
     ]);
     await q(
       `insert into legal_v2.unit_provisions (unit_id, provision_seq, kind, citation_path,
-         address_state, char_start, char_end, privacy_class)
-       values ($1, 0, 'articol', null, 'unnumbered', 0, 3, 'public'),
-              ($1, 1, 'alineat', null, 'unnumbered', 0, 3, 'restricted')`,
-      [unit]
+         address_state, label_raw, char_start, char_end, address, content_key, privacy_class)
+       values ($1, 0, 'articol', null, 'unnumbered', 'Articolul 1', 0, 3, 'art:1', 'k1:abc', $2),
+              ($1, 1, 'alineat', null, 'unnumbered', null, 0, 3, null, null, 'restricted')`,
+      // unit 3 (form 103) and unit 8 (form 107): their provisions are withheld
+      [unit, unit === 3 || unit === 8 ? 'restricted' : 'public']
     );
     await q(
       `insert into legal_v2.unit_links (unit_id, ordinal, char_start, char_end, href,
@@ -443,6 +613,28 @@ const seed = async (q: (t: string, p?: unknown[]) => Promise<pg.QueryResult>): P
       [unit, form, page, `https://legislatie.just.ro/Public/DetaliiDocumentAfis/${page}`]
     );
   }
+  // form 106: a header unit plus a body unit (both public, chunks public)
+  for (const [unit, slot] of [
+    [6, 'header'],
+    [7, 'body'],
+  ] as const) {
+    await q(
+      `insert into legal_v2.text_units (unit_id, capture_ref_id, custody_lane, page_id, route,
+         requested_url, body_sha256, captured_at, parse_lane, parse_source_id, parse_build_id,
+         parse_result_digest, parse_run_id, certificate_id, content_parser_version,
+         load_run_id, text_sha256, content_digest, render_state, sealed)
+       overriding system value values ($1, $1, 'l', '5106', 'afis', 'u', 'b', now(), 'afis',
+         '5106', 'build', 'r', 1, 1, 'v9', 1, 't', 'cd', 'text_only', true)`,
+      [unit]
+    );
+    await q(`insert into legal_v2.unit_render values ($1, 0, 'Text', 0, 4, 'public')`, [unit]);
+    await q(
+      `insert into legal_v2.form_components (form_id, ordinal, slot, unit_id)
+             values (106, $1, $2, $3)`,
+      [unit - 6, slot, unit]
+    );
+  }
+  await q(`insert into legal_v2.form_current values (106, 'cd', 1, 'public')`);
   // page 5200: afis capture HELD, detail capture bound to 101 — must not fall through
   await q(`insert into legal_v2.form_sources (binding_id, subject_kind, act_id, form_id, page_id,
              route, capture_ref_id, requested_url, body_sha256, is_latest, status, method) values
@@ -455,16 +647,18 @@ const seed = async (q: (t: string, p?: unknown[]) => Promise<pg.QueryResult>): P
   // The old corpus: acts 7 and 9 (not 8).
   await q(`insert into legal.acts values
            (7, 'lege/1/2020', 'lege', '1', 2020, 'parlamentul', 'D7', 'Legea nr. 1/2020',
-            'modificat', '{}', null, 3),
+            'modificat', '{"abrogated_by": [9, 7]}', null, 3),
            (9, 'lege/3/2022', 'lege', '3', 2022, 'secret-issuer', 'D9', 'Legea nr. 3/2022',
             'in-vigoare', '{}', null, 1)`);
   await q(`insert into legal.act_documents (document_id, act_id, is_canonical, title) values
-           ('D7', 7, true, 'Titlu 7'), ('D9', 9, true, 'Titlu secret')`);
+           ('D7', 7, true, 'Titlu 7'), ('D7b', 7, false, 'Titlu 7 (alt)'),
+           ('D9', 9, true, 'Titlu secret')`);
   // References: 9 modifies 7 (restricted citing act), 7 cites 9 (restricted target).
   await q(`insert into legal.act_references (source_document_id, ref_index, relation, target_raw,
              target_class, target_act_id, resolution) values
            ('D9', 1, 'modifica', 'Legea 1/2020', 'domestic', 7, 'unique'),
-           ('D7', 1, 'face-referire', 'Legea 3/2022', 'domestic', 9, 'unique')`);
+           ('D7', 1, 'face-referire', 'Legea 3/2022', 'domestic', 9, 'unique'),
+           ('D7b', 1, 'modifica', 'Legea 1/2020', 'domestic', 7, 'unique')`);
   await q(`insert into legal.act_status_events values
            (1, 7, 'modificare', '2024-01-01', null, '{}', 'portal', 'public'),
            (2, 7, 'modificare', '2024-02-01', 9, '{}', 'portal', 'public'),

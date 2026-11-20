@@ -94,7 +94,16 @@ const formFactsSql = (formIdExpr: RawBuilder<unknown>): RawBuilder<unknown> => s
          (count(*) filter (where c.slot = 'missing_body'))::int as missing_body,
          coalesce(bool_or(c.privacy_class <> 'public' or u.privacy_class <> 'public'), false)
            as component_restricted,
-         min(u.unit_id) as unit_id
+         min(u.unit_id) as unit_id,
+         -- chunk facts over EVERY text component, before the shape is judged
+         (select count(*) from legal_v2.form_components c2
+            join legal_v2.unit_render ur on ur.unit_id = c2.unit_id
+           where c2.form_id = ${formIdExpr} and c2.privacy_class = 'public'
+             and ur.privacy_class = 'public')::int as public_chunks,
+         exists (select 1 from legal_v2.form_components c2
+                   join legal_v2.unit_render ur on ur.unit_id = c2.unit_id
+                  where c2.form_id = ${formIdExpr} and ur.privacy_class <> 'public')
+           as chunk_restricted
     from legal_v2.form_components c
     left join legal_v2.text_units u on u.unit_id = c.unit_id
    where c.form_id = ${formIdExpr}`;
@@ -168,13 +177,7 @@ export const makeLegalRenderRepoV2 = (db: Db): LegalRenderRepo => {
                  as published_at,
                fc.privacy_class = 'public' as current_public,
                x.units, x.whole_units, x.missing_body, x.component_restricted,
-               u.text_sha256, u.compiler_version,
-               coalesce((select count(*) from legal_v2.unit_render ur
-                          where ur.unit_id = x.unit_id and ur.privacy_class = 'public'), 0)::int
-                 as public_chunks,
-               exists (select 1 from legal_v2.unit_render ur
-                        where ur.unit_id = x.unit_id and ur.privacy_class <> 'public')
-                 as chunk_restricted,
+               u.text_sha256, u.compiler_version, x.public_chunks, x.chunk_restricted,
                exists (select 1 from legal_v2.form_sources s
                         where s.capture_ref_id = u.capture_ref_id and s.form_id = f.form_id
                           and s.subject_kind = 'capture' and s.status = 'bound'
@@ -242,6 +245,8 @@ interface BodyFacts {
   whole_units: number;
   missing_body: number;
   component_restricted: boolean;
+  public_chunks: number;
+  chunk_restricted: boolean;
 }
 interface BodyChunk {
   chunk_seq: number;
@@ -325,7 +330,9 @@ const readBody = async (db: Db, documentId: string, wanted: number): Promise<Bod
          left join legal_v2.package_receipts r on r.receipt_id = fc.receipt_id) as head,
       (select json_build_object('units', x.units, 'whole_units', x.whole_units,
                                 'missing_body', x.missing_body,
-                                'component_restricted', x.component_restricted)
+                                'component_restricted', x.component_restricted,
+                                'public_chunks', x.public_chunks,
+                                'chunk_restricted', x.chunk_restricted)
          from x where exists (select 1 from f)) as facts,
       (select json_build_object(
                 'public', one.privacy_class = 'public', 'render_state', one.render_state,
@@ -401,11 +408,11 @@ export const makeLegalRenderSourceV2 = (db: Db): LegalRenderSource => ({
       published: head.receipt_id !== null,
       currentPublic: head.current_public === true,
       anyComponentRestricted: facts.component_restricted || row.unit?.public === false,
-      anyChunkRestricted: row.chunks.some((c) => !c.public),
+      anyChunkRestricted: facts.chunk_restricted || row.chunks.some((c) => !c.public),
       units: facts.units,
       wholeUnits: facts.whole_units,
       missingBody: facts.missing_body,
-      publicChunks: row.chunks.filter((c) => c.public).length,
+      publicChunks: facts.public_chunks,
       formKind: head.form_kind,
       portalLabelRaw: head.portal_label_raw,
       portalLabelDate: head.portal_label_date,

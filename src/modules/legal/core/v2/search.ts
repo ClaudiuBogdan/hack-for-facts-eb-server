@@ -141,6 +141,7 @@ export const buildV2UnitsBody = (
     'uses.provision_seq',
     'uses.char_start',
     'uses.char_end',
+    'uses.provision_content_key',
   ],
   query: {
     bool: {
@@ -172,6 +173,8 @@ export interface V2HitUse {
   readonly provisionSeq: number | null;
   readonly charStart: number | null;
   readonly charEnd: number | null;
+  /** The provision's content key the wording was filed under (`k1:…`). */
+  readonly contentKey: string | null;
 }
 
 export interface V2EngineHit {
@@ -203,9 +206,21 @@ export interface LegalV2HitVerifier {
   ): Promise<Result<ReadonlyMap<number, VerifiedUse>, ApiError>>;
 }
 
+/**
+ * The occurrence that answers, as legal_v2 holds it NOW, in one snapshot:
+ * everything a section hit displays comes from here, never from the index's
+ * first use (heading, citation path and range), and the index's snippet is
+ * shown only when the occurrence carries the very wording the index filed.
+ */
 export interface VerifiedUse {
   readonly use: V2HitUse;
   readonly servedForm: LegalVersionProvenance;
+  /** The parser's address of the provision (null when withheld). */
+  readonly address: string | null;
+  /** The provision's label as the page wrote it. */
+  readonly label: string | null;
+  /** True when the provision's content key equals the indexed wording's key. */
+  readonly sameWording: boolean;
 }
 
 export interface V2EnginePage {
@@ -411,23 +426,32 @@ export const searchLegalV2Engine = async (
     for (const h of ranked.sections.get(actId) ?? []) {
       const v = verifiedOf.get(h);
       if (v === undefined) continue;
+      // The served form's own facts, with the act's amendment facts merged in.
+      const served: LegalVersionProvenance = {
+        ...v.servedForm,
+        amendedAfterPublication: provenance?.amendedAfterPublication ?? null,
+        latestConsolidationDate: provenance?.latestConsolidationDate ?? null,
+        latestConsolidationLoaded: provenance?.latestConsolidationLoaded ?? false,
+      };
+      const documentId = v.servedForm.documentId ?? '';
       sections.push({
         actId,
         displayCitation: act.displayCitation,
         status: act.status,
-        documentId: v.servedForm.documentId ?? '',
-        sectionKey: h.citationPath ?? '',
+        documentId,
+        // From the verified occurrence, never from the index's first use.
+        sectionKey: v.address ?? `seq:${String(v.use.provisionSeq ?? '')}`,
         articleNumber: null,
-        nodeLabel: h.headingPath,
-        nodePath: h.citationPath,
+        nodeLabel: v.label,
+        nodePath: v.address,
         charStart: v.use.charStart,
         charEnd: v.use.charEnd,
-        snippet: h.snippet,
-        portalDeepLink: `${deps.clientBaseUrl}/legislation/acts/${actId}`,
+        snippet: v.sameWording ? h.snippet : null,
+        portalDeepLink: `${deps.clientBaseUrl}/legislation/acts/${actId}?doc=${encodeURIComponent(JSON.stringify(documentId))}`,
         score: h.score,
         // The text is this form's, so its provenance is this form's.
-        provenance: v.servedForm,
-        servedForm: v.servedForm,
+        provenance: served,
+        servedForm: served,
       });
     }
   }

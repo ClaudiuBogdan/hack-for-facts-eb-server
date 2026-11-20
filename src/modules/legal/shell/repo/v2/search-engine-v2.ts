@@ -111,6 +111,7 @@ export const parseV2Hits = (
         provisionSeq: int(u['provision_seq']),
         charStart: int(u['char_start']),
         charEnd: int(u['char_end']),
+        contentKey: strOrNull(u['provision_content_key']),
       });
     }
     hits.push({

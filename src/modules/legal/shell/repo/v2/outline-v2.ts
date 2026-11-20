@@ -40,6 +40,9 @@ interface OutlineRow {
   ordinal: number;
   render_state: string;
   text_length: number;
+  /** The privacy key, read in the SAME snapshot as the provisions it keys. */
+  restricted_provisions: string | null;
+  composition_digest: string;
   provisions: {
     provision_seq: number;
     kind: string;
@@ -64,6 +67,16 @@ interface FormOutline {
   readonly entries: LegalOutlineEntry[];
   readonly blocks: readonly V2BlockRef[];
 }
+
+/** TLDF 1.1's presentation families (no grammar rank, no provision row). */
+const PRESENTATION_KINDS = new Set([
+  'tabel',
+  'rand',
+  'celula',
+  'imagine',
+  'lista',
+  'element_lista',
+]);
 
 /** Outlines kept per process, keyed by form, composition and withheld provisions. */
 const OUTLINE_CACHE_SIZE = 64;
@@ -126,6 +139,11 @@ export const makeLegalOutlineRepoV2 = (db: Db): LegalOutlineRepo => {
       //    the composition is still the one the gate saw.
       const result = await sql<OutlineRow>`
         select 0 as ordinal, u.render_state,
+               (select fc.composition_digest from legal_v2.form_current fc
+                 where fc.form_id = ${formId}::bigint) as composition_digest,
+               (select string_agg(p.provision_seq::text, ',' order by p.provision_seq)
+                  from legal_v2.unit_provisions p
+                 where p.unit_id = u.unit_id and p.privacy_class <> 'public') as restricted_provisions,
                coalesce((select max(ur.char_end) from legal_v2.unit_render ur
                           where ur.unit_id = u.unit_id and ur.privacy_class = 'public'), 0) as text_length,
                coalesce((select json_agg(json_build_object(
@@ -176,7 +194,12 @@ export const makeLegalOutlineRepoV2 = (db: Db): LegalOutlineRepo => {
         entries: composeV2Outline(formDocumentId(formId), units),
         blocks: units.flatMap((u) => u.blocks),
       };
-      remember(key, value);
+      // Cached under the key read WITH these entries, so a privacy flip between
+      // the gate and this read can never file entries under the older key.
+      const row = result.rows[0];
+      if (row !== undefined) {
+        remember(`${formId}:${row.composition_digest}:${row.restricted_provisions ?? ''}`, value);
+      }
       return ok(value);
     } catch (error) {
       return err(databaseError('legal_v2 outline failed', error));
@@ -234,7 +257,9 @@ export const makeLegalOutlineRepoV2 = (db: Db): LegalOutlineRepo => {
     if (entry !== undefined) return ok(entry);
     // A presentation node (a table cell, an image) has no provision row: it
     // answers from its render block, with no grammar depth and no number.
-    const block = all.value.blocks.find((b) => b.id === path);
+    // Presentation nodes only: a legal node without a public provision row
+    // (a withheld provision) must not answer through its block.
+    const block = all.value.blocks.find((b) => b.id === path && PRESENTATION_KINDS.has(b.kind));
     if (block === undefined) return ok(null);
     return ok({
       documentId: all.value.entries[0]?.documentId ?? documentId,

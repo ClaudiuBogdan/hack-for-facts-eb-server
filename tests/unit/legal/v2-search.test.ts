@@ -49,7 +49,7 @@ const hit = (actId: string, citationPath: string | null = null, formId = '77'): 
   citationPath,
   headingPath: null,
   snippet: citationPath === null ? null : `<em>${citationPath}</em>`,
-  uses: [{ formId, unitId: '5', provisionSeq: 1, charStart: 0, charEnd: 10 }],
+  uses: [{ formId, unitId: '5', provisionSeq: 1, charStart: 0, charEnd: 10, contentKey: 'k1:a' }],
 });
 
 describe('query bodies', () => {
@@ -214,6 +214,10 @@ describe('searchLegalV2Engine', () => {
                       c.key,
                       {
                         use,
+                        // The verified occurrence's own facts.
+                        address: `art:v${use.formId}`,
+                        label: 'Articolul verificat',
+                        sameWording: use.formId === '77',
                         servedForm: {
                           versionKind: 'consolidare',
                           versionDate: '2024-03-01',
@@ -248,9 +252,13 @@ describe('searchLegalV2Engine', () => {
     const value = res._unsafeUnwrap();
     expect(value.acts.map((h) => h.act.actId)).toEqual(['1', '3']);
     expect(value.unhydratedHits).toBe(0);
-    expect(value.sections.map((s) => [s.actId, s.sectionKey, s.documentId])).toEqual([
-      ['3', 'art:4', 'f77'],
-    ]);
+    // Displayed fields come from the verified occurrence, not the index doc.
+    expect(
+      value.sections.map((s) => [s.actId, s.sectionKey, s.nodeLabel, s.documentId, s.snippet])
+    ).toEqual([['3', 'art:v77', 'Articolul verificat', 'f77', '<em>art:4</em>']]);
+    expect(value.sections[0]?.portalDeepLink).toBe(
+      `https://t/legislation/acts/3?doc=${encodeURIComponent('"f77"')}`
+    );
     expect(value.sections[0]?.servedForm).toMatchObject({
       documentId: 'f77',
       caveat: 'unofficial_consolidation',
@@ -280,6 +288,36 @@ describe('searchLegalV2Engine', () => {
     expect(value.acts.map((h) => h.act.actId)).toEqual(['4']);
     expect(value.sections.map((s) => s.snippet)).toEqual(['<em>art:9</em>']);
     expect(JSON.stringify(value)).not.toContain('art:4');
+  });
+
+  it('merges the act amendment facts into the section provenance, and withholds a snippet of other wording', async () => {
+    const prov = {
+      versionKind: 'consolidare',
+      versionDate: '2024-03-01',
+      sourceUrl: null,
+      amendedAfterPublication: 5,
+      latestConsolidationDate: '2025-01-01',
+      latestConsolidationLoaded: true,
+    };
+    const res = await searchLegalV2Engine(
+      {
+        engine: engine([], [hit('3', 'art:4', '78')]),
+        acts: {
+          ...repo([act('3', 'in-vigoare')]),
+          versionProvenanceForActs: () => Promise.resolve(ok(new Map([['3', prov]]))),
+        },
+        verifier: verifier(['78']),
+        clientBaseUrl: 'https://t',
+      },
+      { q: 'x', filter: {}, channel: 'auto', includeHistorical: true, limit: 20 }
+    );
+    const section = res._unsafeUnwrap().sections[0];
+    expect(section?.servedForm).toMatchObject({
+      documentId: 'f78',
+      amendedAfterPublication: 5,
+      latestConsolidationDate: '2025-01-01',
+    });
+    expect(section?.snippet).toBeNull();
   });
 
   it('passes an engine failure through', async () => {
