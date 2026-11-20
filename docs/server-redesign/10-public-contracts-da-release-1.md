@@ -170,8 +170,9 @@ With the flag off:
   response after a newer one (a request that began before a publish, or a GraphQL operation whose status field
   resolved early), so the server cannot guarantee this order by itself. Inside one pod the server never serves an
   older publication than it already served (an older read withholds everyone and logs), and status reads
-  `privacyAsOf` last. A disclosure load is shared only with calls that arrived before it read. Across pods, see
-  server issue #80 (privacy reads from the primary before any serving standby).
+  `privacyAsOf` last. A disclosure load is shared only with calls that arrived before it read. Across pods: the
+  serving API reads from the primary only, not from read replicas (owner decision, 20 Nov), so no replica freshness
+  rule is needed (server issue #80, closed).
 - **Legacy detail:** the item's catalogue code is withheld too (typed by the source, outside the loader's scan).
 - **Status:** `procurementDaRelease` serves `privacyEnforced` and `privacyAsOf` (the supplier_privacy publication).
   Clients key their caches by (`privacyEnforced`, `privacyAsOf`, `dataAsOf`). `privacyAsOf` is null both when D6 is
