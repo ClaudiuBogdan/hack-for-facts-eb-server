@@ -33,9 +33,12 @@ import { Value } from '@sinclair/typebox/value';
 import { err, ok, type Result } from 'neverthrow';
 
 import {
+  busyRetryLater,
   databaseError,
+  makeConcurrencyGate,
   MAX_SERVED_CUI_DIGITS,
   type ApiError,
+  type ConcurrencyGateOptions,
   type Logger,
 } from '@/modules/shared/index.js';
 
@@ -70,7 +73,37 @@ export interface ClickhouseAnalysisConfig {
   readonly database: string;
   readonly user?: string;
   readonly password?: string;
+  /** Per-process read cap (defaults below); tests pass small values. */
+  readonly concurrency?: ConcurrencyGateOptions;
 }
+
+/**
+ * Per process. The API's read-only ClickHouse user may run 6 queries at once
+ * server-wide (owner decision, 2026-11-20: keep it at 6 and bound the caller),
+ * and Chronos dev runs 2 API replicas: 2 × 3 never exceeds the limit. Reads
+ * over the cap wait in a bounded FIFO queue instead of being sent and refused
+ * with TOO_MANY_SIMULTANEOUS_QUERIES.
+ */
+export const CLICKHOUSE_CONCURRENCY: ConcurrencyGateOptions = {
+  maxConcurrent: 3,
+  maxQueued: 48,
+  queueWaitMs: 10_000,
+};
+/** The `Retry-After` a busy refusal suggests. */
+export const CLICKHOUSE_RETRY_AFTER_SECONDS = 2;
+/** ClickHouse TOO_MANY_SIMULTANEOUS_QUERIES. */
+const TOO_MANY_SIMULTANEOUS_QUERIES = '202';
+
+/** Static client text: never carries ClickHouse's own error text. */
+const busy = (): ApiError =>
+  busyRetryLater('procurement analytics is busy; retry shortly', CLICKHOUSE_RETRY_AFTER_SECONDS);
+
+/** The numeric ClickHouse error code of a failed response, if it names one. */
+const exceptionCodeOf = (response: Response, body: string): string | null => {
+  const header = response.headers.get('x-clickhouse-exception-code');
+  if (header !== null && /^\d{1,4}$/u.test(header)) return header;
+  return /^Code: (\d{1,4})\./u.exec(body.slice(0, 32))?.[1] ?? null;
+};
 
 /** Use the same accepted monetary states as the module's public contract. */
 const ACCEPTED_STATES = ACCEPTED_VALUE_STATES.map((state) => `'${state}'`).join(', ');
@@ -784,11 +817,21 @@ export const makeClickhouseAnalysisRepo = (
   supplierGeographyPublic?: () => Promise<Result<boolean, ApiError>>
 ): AnalysisRepo => {
   const inFlightQueries = new Map<string, Promise<Result<readonly unknown[], ApiError>>>();
+  const gate = makeConcurrencyGate(config.concurrency ?? CLICKHOUSE_CONCURRENCY);
 
   const runQuery = async <S extends TObject>(
     sql: string,
     rowSchema: S
   ): Promise<Result<readonly Static<S>[], ApiError>> => {
+    const slot = await gate.acquire();
+    if (slot.isErr()) {
+      logger?.warn(
+        { reason: slot.error, ...gate.stats() },
+        'clickhouse read refused by the per-pod cap'
+      );
+      return err(busy());
+    }
+    const { waitedMs } = slot.value;
     const startedAt = performance.now();
     try {
       const url = new URL(config.url);
@@ -804,12 +847,23 @@ export const makeClickhouseAnalysisRepo = (
       });
       if (!response.ok) {
         const body = await response.text();
+        const code = exceptionCodeOf(response, body);
+        if (code === TOO_MANY_SIMULTANEOUS_QUERIES) {
+          logger?.warn(
+            { status: response.status, clickhouseCode: code, waitedMs, ...gate.stats() },
+            'clickhouse refused a read at its concurrency limit'
+          );
+          return err(busy());
+        }
         logger?.error(
-          { status: response.status, body: body.slice(0, 500) },
+          { status: response.status, clickhouseCode: code, body: body.slice(0, 500) },
           'clickhouse query failed'
         );
+        // ClickHouse's text names its version, user and settings: log it, never return it.
         return err(
-          databaseError(`clickhouse HTTP ${String(response.status)}: ${body.slice(0, 300)}`)
+          databaseError(
+            `clickhouse HTTP ${String(response.status)}${code === null ? '' : ` (code ${code})`}`
+          )
         );
       }
       const parsed: unknown = await response.json();
@@ -826,6 +880,7 @@ export const makeClickhouseAnalysisRepo = (
                 : null,
             rows: rows.value.length,
             format: 'JSONCompact',
+            waitedMs,
           },
           'clickhouse query completed'
         );
@@ -834,6 +889,8 @@ export const makeClickhouseAnalysisRepo = (
     } catch (error) {
       logger?.error({ error: String(error) }, 'clickhouse query error');
       return err(databaseError(`clickhouse unreachable: ${String(error)}`));
+    } finally {
+      slot.value.release();
     }
   };
 

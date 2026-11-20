@@ -152,6 +152,8 @@ const errorOut = (kind: string, error: ApiError): McpToolOutput => ({
   errorType: error.type,
   errorCode: GRAPHQL_ERROR_CODE[error.type],
   error: error.message,
+  ...(error.type === 'ServiceUnavailable' &&
+    error.retryAfterSeconds !== undefined && { retryAfterSeconds: error.retryAfterSeconds }),
 });
 const errorFrom = (kind: string, error: ApiError): McpToolOutput => errorOut(kind, error);
 const invalidOut = (kind: string, message: string, field?: string): McpToolOutput =>

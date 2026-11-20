@@ -137,6 +137,11 @@ describe('ClickHouse JSONCompact transport', () => {
 
     const first = repo.statsFor(route, { year: 2025 }, GEN);
     const second = repo.statsFor(route, { year: 2025 }, GEN);
+    // The request goes out once the per-pod cap grants a slot (a microtask later).
+    await vi.waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
     expect(fetchSpy).toHaveBeenCalledTimes(1);
 
     resolveResponse?.(compactResponse([statsRow]));

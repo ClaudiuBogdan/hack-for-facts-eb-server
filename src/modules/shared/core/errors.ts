@@ -45,6 +45,12 @@ export interface ServiceUnavailableError {
    * refusing part to "absent". Set only through `accessRefused`.
    */
   readonly accessRefusal?: true;
+  /**
+   * Transient load (an upstream at its concurrency limit): the same request
+   * may succeed after this many seconds. REST sends it as `Retry-After`,
+   * GraphQL as `extensions.retryAfterSeconds`, MCP as `retryAfterSeconds`.
+   */
+  readonly retryAfterSeconds?: number;
 }
 
 export interface TimeoutError {
@@ -118,6 +124,23 @@ export const serviceUnavailable = (message: string): ServiceUnavailableError => 
   type: 'ServiceUnavailable',
   message,
 });
+
+/**
+ * A retryable refusal under load; `message` is static client text (it passes
+ * GraphQL production redaction), never an upstream error's text.
+ */
+export const busyRetryLater = (
+  message: string,
+  retryAfterSeconds: number
+): ServiceUnavailableError => ({
+  type: 'ServiceUnavailable',
+  message,
+  retryAfterSeconds,
+});
+
+/** The retry delay a busy refusal carries, if any. */
+export const retryAfterSecondsOf = (error: ApiError): number | undefined =>
+  error.type === 'ServiceUnavailable' ? error.retryAfterSeconds : undefined;
 
 /** A guard refusal (see `ServiceUnavailableError.accessRefusal`); `message` is static client text. */
 export const accessRefused = (message: string): ServiceUnavailableError => ({

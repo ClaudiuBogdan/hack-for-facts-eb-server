@@ -433,6 +433,13 @@ export type {
 export { kernelToolInputSchema } from './shell/mcp/input-schema.js';
 export { createMcpHttpDispatcher, type McpHttpDispatcher } from './shell/mcp/http-dispatch.js';
 export { createCache, type CacheConfig, type KernelCache } from './shell/middleware/cache.js';
+export {
+  makeConcurrencyGate,
+  type ConcurrencyGate,
+  type ConcurrencyGateOptions,
+  type GateRefusal,
+  type GateTicket,
+} from './shell/concurrency-gate.js';
 export type {
   AnnualPopulationCell,
   AnnualPopulationMetadata,

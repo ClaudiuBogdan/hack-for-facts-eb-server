@@ -39,6 +39,8 @@ export interface McpToolOutput<T = unknown> {
   /** Transport-neutral code aligned with GraphQL's extensions.code values. */
   readonly errorCode?: string;
   readonly error?: string;
+  /** A busy refusal: the same call may succeed after this many seconds. */
+  readonly retryAfterSeconds?: number;
 }
 
 /**

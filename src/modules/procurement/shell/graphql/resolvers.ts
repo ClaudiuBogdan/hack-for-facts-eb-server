@@ -106,6 +106,8 @@ const toGraphqlError = (error: ApiError): GraphQLError =>
       code: GRAPHQL_ERROR_CODE[error.type],
       type: error.type,
       ...(error.type === 'InvalidInput' && error.field !== undefined && { field: error.field }),
+      ...(error.type === 'ServiceUnavailable' &&
+        error.retryAfterSeconds !== undefined && { retryAfterSeconds: error.retryAfterSeconds }),
     },
   });
 

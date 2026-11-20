@@ -18,7 +18,12 @@
 
 import { err, ok, type Result } from 'neverthrow';
 
-import { httpStatusFor, invalidInput, type ApiError } from '@/modules/shared/index.js';
+import {
+  httpStatusFor,
+  invalidInput,
+  retryAfterSecondsOf,
+  type ApiError,
+} from '@/modules/shared/index.js';
 
 import {
   daPurchaseTotals,
@@ -132,6 +137,8 @@ export const makeDaReleaseRestPlugin =
 
     const sendError = (request: FastifyRequest, reply: FastifyReply, error: ApiError) => {
       const status = httpStatusFor(error);
+      const retryAfter = retryAfterSecondsOf(error);
+      if (retryAfter !== undefined) void reply.header('retry-after', String(retryAfter));
       if (status >= 500 && status !== 503) {
         request.log.error({ err: error }, '[procurement-da] REST read failed');
         return reply.status(status).send({
