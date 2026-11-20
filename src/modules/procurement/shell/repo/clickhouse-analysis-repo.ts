@@ -42,6 +42,7 @@ import {
   type Logger,
 } from '@/modules/shared/index.js';
 
+import { clickhouseFreeTextHit } from './clickhouse-free-text.js';
 import { wholeBani, type AnalysisScope } from '../../core/analysis-scope.js';
 import {
   ACCEPTED_VALUE_STATES,
@@ -113,6 +114,9 @@ const boundBani = (ron: number): number => {
   if (bani === null) throw new Error('value bound is not a whole-bani RON amount');
   return bani;
 };
+
+/** The legacy facts' raw title hit by the shipped free-text rule (interim gate). */
+const TITLE_WITHHELD = clickhouseFreeTextHit('title');
 
 const TABLE_BY_GRAIN: Readonly<Record<AnalysisRoute['grain'], string>> = {
   contract: 'facts_contracts_v2',
@@ -511,7 +515,8 @@ const compileScope = (
   }
 
   if (scope.q !== undefined && scope.q !== '') {
-    const rowMatch = `positionCaseInsensitiveUTF8(ifNull(title, ''), ${escapeString(scope.q)}) > 0`;
+    // A title the free-text rule withholds is never searched (interim gate).
+    const rowMatch = `(positionCaseInsensitiveUTF8(ifNull(title, ''), ${escapeString(scope.q)}) > 0 AND NOT ${TITLE_WITHHELD})`;
     // Group-aware q (assoc design §4.3): an association's money sits on ONE
     // carrier row, but the searched title may live on a sibling member row
     // (multi-title groups measured 481). A row also matches when any row of
@@ -677,6 +682,7 @@ const RawRecordRowSchema = Type.Object(
     id: Type.String({ pattern: '^[0-9]+$' }),
     date: Type.Union([Type.String({ pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' }), Type.Null()]),
     title: NullableStringSchema,
+    title_withheld: Type.Union([Type.Literal('0'), Type.Literal('1')]),
     authority_cui: NullableStringSchema,
     authority_name: NullableStringSchema,
     supplier_cui: NullableStringSchema,
@@ -1512,7 +1518,8 @@ export const makeClickhouseAnalysisRepo = (
         SELECT
           toString(${pk}) AS id,
           if(is_undated, NULL, toString(date_basis)) AS date,
-          title,
+          if(${TITLE_WITHHELD}, NULL, title) AS title,
+          toString(${TITLE_WITHHELD}) AS title_withheld,
           authority_cui,
           authority_name,
           supplier_cui,
@@ -1537,8 +1544,13 @@ export const makeClickhouseAnalysisRepo = (
     const rows: AnalysisRecordRow[] = rowsR.value.map((row) => ({
       id: row.id,
       date: row.date,
-      // A blank title is no title: the display-title fallback must apply.
-      title: row.title !== null && row.title.trim() !== '' ? row.title : null,
+      // A blank title is no title: the display-title fallback must apply. A
+      // withheld one is not, and takes the display title with it.
+      title:
+        row.title_withheld === '0' && row.title !== null && row.title.trim() !== ''
+          ? row.title
+          : null,
+      ...(row.title_withheld === '1' && { titleWithheld: true }),
       authorityCui: row.authority_cui,
       authorityName: row.authority_name,
       supplierCui: row.supplier_cui,

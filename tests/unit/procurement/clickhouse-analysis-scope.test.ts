@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { makeClickhouseAnalysisRepo } from '@/modules/procurement/shell/repo/clickhouse-analysis-repo.js';
+import { clickhouseFreeTextHit } from '@/modules/procurement/shell/repo/clickhouse-free-text.js';
 
 import { compactResponse, generationWithoutFrameworkRole as GEN } from './clickhouse-response.js';
 
@@ -108,14 +109,17 @@ describe('ClickHouse procurement SIRUTA scope compilation', () => {
 });
 
 describe('ClickHouse row-filter and dimension scope compilation', () => {
-  const statsBody = async (scope: Parameters<AnalysisRepo['statsFor']>[1]): Promise<string> => {
+  const statsBody = async (
+    scope: Parameters<AnalysisRepo['statsFor']>[1],
+    grain: AnalysisRoute['grain'] = 'contract'
+  ): Promise<string> => {
     const fetchSpy = vi.fn().mockResolvedValue(emptyStatsResponse());
     vi.stubGlobal('fetch', fetchSpy);
     const repo = makeClickhouseAnalysisRepo(
       { url: 'http://clickhouse.test', database: 'proto' },
       activeGeneration
     );
-    const result = await repo.statsFor(route('contract'), scope, GEN);
+    const result = await repo.statsFor(route(grain), scope, GEN);
     expect(result.isOk()).toBe(true);
     const request = fetchSpy.mock.calls[0]?.[1] as { body?: string } | undefined;
     return request?.body ?? '';
@@ -177,9 +181,22 @@ describe('ClickHouse row-filter and dimension scope compilation', () => {
   it('compiles q as a case-insensitive title predicate with escaping', async () => {
     const body = await statsBody({ q: "drum judetean 'DJ'" });
     expect(body).toContain(
-      "positionCaseInsensitiveUTF8(ifNull(title, ''), 'drum judetean \\'DJ\\'') > 0"
+      "(positionCaseInsensitiveUTF8(ifNull(title, ''), 'drum judetean \\'DJ\\'') > 0 AND NOT ("
     );
   });
+
+  it.each(['contract', 'procedure', 'direct_acquisition'] as const)(
+    'never lets q match a %s title the free-text rule withholds, sibling rows included',
+    async (grain) => {
+      const body = await statsBody({ q: 'reparatii' }, grain);
+      const gated = `(positionCaseInsensitiveUTF8(ifNull(title, ''), 'reparatii') > 0 AND NOT ${clickhouseFreeTextHit('title')})`;
+      // Every title predicate carries the gate (the group-aware sibling match too).
+      expect(body.split('positionCaseInsensitiveUTF8').length - 1).toBe(
+        body.split(gated).length - 1
+      );
+      expect(body).toContain(gated);
+    }
+  );
 
   it('compiles value bounds as attributed-money bani predicates (association dedup r3)', async () => {
     const body = await statsBody({ valueMin: 1000.5, valueMax: 5_000_000 });
@@ -407,6 +424,7 @@ describe('analysis records read', () => {
     id: '17',
     date: '2025-11-03',
     title: 'Furnituri de birou',
+    title_withheld: '0',
     authority_cui: '4270740',
     authority_name: 'Primaria Sibiu',
     supplier_cui: '14399840',
@@ -514,6 +532,46 @@ describe('analysis records read', () => {
       offset: 0,
       limit: 25,
     });
+    expect(result._unsafeUnwrap().rows[0]?.title).toBeNull();
+  });
+
+  it('selects no title the free-text rule withholds, and marks the row', async () => {
+    const fetchSpy = vi.fn((_url: string, request: RequestInit) =>
+      Promise.resolve(
+        typeof request.body === 'string' && request.body.includes('AS total')
+          ? compactResponse([{ total: '1' }])
+          : compactResponse([{ ...recordRow, title: null, title_withheld: '1' }])
+      )
+    );
+    const repo = makeRepo(fetchSpy);
+    const result = await repo.recordsFor(route('contract'), { grain: 'contract' }, GEN, {
+      sort: 'date_desc',
+      offset: 0,
+      limit: 25,
+    });
+    const hit = clickhouseFreeTextHit('title');
+    const [page] = bodies(fetchSpy);
+    expect(page).toContain(`if(${hit}, NULL, title) AS title`);
+    expect(page).toContain(`toString(${hit}) AS title_withheld`);
+    const row = result._unsafeUnwrap().rows[0];
+    expect(row?.title).toBeNull();
+    expect(row?.titleWithheld).toBe(true);
+  });
+
+  it('serves no title on a row marked withheld, even if text came back', async () => {
+    const fetchSpy = vi.fn((_url: string, request: RequestInit) =>
+      Promise.resolve(
+        typeof request.body === 'string' && request.body.includes('AS total')
+          ? compactResponse([{ total: '1' }])
+          : compactResponse([{ ...recordRow, title_withheld: '1' }])
+      )
+    );
+    const result = await makeRepo(fetchSpy).recordsFor(
+      route('direct_acquisition'),
+      { grain: 'direct_acquisition' },
+      GEN,
+      { sort: 'date_desc', offset: 0, limit: 25 }
+    );
     expect(result._unsafeUnwrap().rows[0]?.title).toBeNull();
   });
 

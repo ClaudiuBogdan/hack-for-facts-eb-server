@@ -288,6 +288,49 @@ describe('procurementRecords transport', () => {
     ]);
   });
 
+  it('withholds a display title the free-text rule hits, and one whose source title was withheld', async () => {
+    const analysis = fakeAnalysisRepo({
+      generation: generation({ contract: verdict() }),
+      records: {
+        total: '3',
+        rows: [
+          row({ id: '1', title: null }),
+          row({ id: '2', title: null, titleWithheld: true }),
+          row({ id: '3', title: null }),
+        ],
+      },
+    }).repo;
+    const titled = (id: string, text: string): ProcurementContract =>
+      ({
+        contractId: id,
+        displayTitle: { text, source: 'native', sourceUrl: null },
+      }) as unknown as ProcurementContract;
+    const repo = {
+      contractsByIds: () =>
+        Promise.resolve(
+          ok(
+            new Map([
+              ['1', titled('1', 'Servicii PFA Exemplu')],
+              ['2', titled('2', 'Lucrari de reparatii acoperis')],
+              ['3', titled('3', 'Furnizare hartie A4 500 coli')],
+            ])
+          )
+        ),
+    } as unknown as ProcurementRepo;
+    const { query, tool } = surfaces(analysis, repo);
+    const page = await query.procurementRecords(undefined, { scope: { grain: 'contract' } });
+    expect(page.items.map((item) => item['displayTitle'])).toEqual([
+      null,
+      null,
+      { text: 'Furnizare hartie A4 500 coli', source: 'native', sourceUrl: null },
+    ]);
+    const out = await tool.handler({ shape: 'records', scope: { grain: 'contract' } });
+    expect(JSON.stringify(out)).not.toContain('PFA');
+    expect(JSON.stringify(out)).not.toContain('acoperis');
+    // The internal flag never reaches a response.
+    expect(JSON.stringify(out)).not.toContain('titleWithheld');
+  });
+
   it('serves the same page through MCP shape=records', async () => {
     const analysis = fakeAnalysisRepo({ records: { total: '1', rows: [row()] } }).repo;
     const { tool } = surfaces(analysis, {} as ProcurementRepo);

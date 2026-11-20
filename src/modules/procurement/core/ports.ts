@@ -313,6 +313,11 @@ export interface AnalysisRecordRow {
   /** `date_basis` (YYYY-MM-DD); null for an undated row (all-time scopes only). */
   readonly date: string | null;
   readonly title: string | null;
+  /**
+   * True when the source held a title the free-text rule withholds (`title` is
+   * then null): no display title may stand in for it. Absent otherwise.
+   */
+  readonly titleWithheld?: true;
   readonly authorityCui: string | null;
   readonly authorityName: string | null;
   readonly supplierCui: string | null;
