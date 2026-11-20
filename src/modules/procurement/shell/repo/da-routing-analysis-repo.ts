@@ -34,9 +34,6 @@ export const makeDaRoutingAnalysisRepo = (
 
   const activeGeneration: AnalysisRepo['activeGeneration'] = async () => {
     const [baseR, daR] = await Promise.all([base.activeGeneration(), da.generation()]);
-    // A busy analytics backend is retryable: answer that, not a successful
-    // response whose non-DA blocks read "unavailable".
-    if (baseR.isErr() && retryAfterSecondsOf(baseR.error) !== undefined) return err(baseR.error);
     if (daR.isErr())
       logger?.warn({ error: daR.error.message }, 'direct-acquisition generation unavailable');
     const daGen = daR.isOk() ? daR.value : null;
@@ -46,9 +43,16 @@ export const makeDaRoutingAnalysisRepo = (
     if (baseGen === null) {
       // Without a base generation only the DA grain can answer.
       if (daGen === null) return baseR.isErr() ? err(baseR.error) : ok(null);
+      // A busy base stays retryable for the other grains (the usecases answer
+      // it); the DA grain, read from procurement_v3, still answers.
+      const busyFor = baseR.isErr() ? retryAfterSecondsOf(baseR.error) : undefined;
       return ok({
         ...daGen,
-        capabilities: { ...daGen.capabilities, analysisBaseUnavailable: true },
+        capabilities: {
+          ...daGen.capabilities,
+          analysisBaseUnavailable: true,
+          ...(busyFor !== undefined && { analysisBaseBusyRetryAfterSeconds: busyFor }),
+        },
         grainSources: { [DA]: { generation: daGen, coverage: [] } },
       });
     }

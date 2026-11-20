@@ -135,25 +135,56 @@ const setup = (
 };
 
 describe('the routing repo', () => {
-  it('answers a busy base backend as retryable, not as abstained ClickHouse grains', async () => {
+  const busy = busyRetryLater('procurement analytics is busy; retry shortly', 2);
+  const busyBase = (daGen?: Result<ActiveGeneration | null, ApiError>) => {
     const base = fakeAnalysisRepo();
-    const busy = busyRetryLater('procurement analytics is busy; retry shortly', 2);
-    const repo = makeDaRoutingAnalysisRepo(
-      { ...base.repo, activeGeneration: () => Promise.resolve(err(busy)) },
-      fakeSource().source
-    );
-    expect((await analysisStats({ analysisRepo: repo }, { scope: {} }))._unsafeUnwrapErr()).toEqual(
+    return {
+      analysisRepo: makeDaRoutingAnalysisRepo(
+        { ...base.repo, activeGeneration: () => Promise.resolve(err(busy)) },
+        fakeSource(daGen).source
+      ),
+    };
+  };
+
+  it('answers a busy base backend as retryable for every grain it serves', async () => {
+    const deps = busyBase();
+    expect((await analysisStats(deps, { scope: {} }))._unsafeUnwrapErr()).toEqual(busy);
+    expect(
+      (await analysisStats(deps, { scope: { grain: 'contract' } }))._unsafeUnwrapErr()
+    ).toEqual(busy);
+    // With no DA publication either, nothing can answer: still retryable.
+    expect((await analysisStats(busyBase(ok(null)), { scope: {} }))._unsafeUnwrapErr()).toEqual(
       busy
     );
   });
 
+  it('still answers the DA grain from procurement_v3 while the base backend is busy', async () => {
+    const result = await analysisStats(busyBase(), {
+      scope: { grain: 'direct_acquisition' },
+      build: DA_BUILD,
+    });
+    expect(result._unsafeUnwrap().blocks.map((block) => block.meta.buildId)).toEqual([DA_BUILD]);
+  });
+
   it('answers busy basis coverage as retryable, not with ungated coverage', async () => {
     const base = fakeAnalysisRepo();
-    const busy = busyRetryLater('procurement analytics is busy; retry shortly', 2);
     const deps = {
       analysisRepo: { ...base.repo, basisCoverage: () => Promise.resolve(err(busy)) },
     };
     expect((await analysisStats(deps, { scope: {} }))._unsafeUnwrapErr()).toEqual(busy);
+  });
+
+  it('busy base coverage does not block the DA grain, which has its own', async () => {
+    const base = fakeAnalysisRepo();
+    const deps = {
+      analysisRepo: makeDaRoutingAnalysisRepo(
+        { ...base.repo, basisCoverage: () => Promise.resolve(err(busy)) },
+        fakeSource().source
+      ),
+    };
+    expect((await analysisStats(deps, { scope: {} }))._unsafeUnwrapErr()).toEqual(busy);
+    const da = await analysisStats(deps, { scope: { grain: 'direct_acquisition' } });
+    expect(da._unsafeUnwrap().blocks.map((block) => block.meta.buildId)).toEqual([DA_BUILD]);
   });
 
   it('abstains the ClickHouse grains, and still serves DA, when the base build cannot be read', async () => {

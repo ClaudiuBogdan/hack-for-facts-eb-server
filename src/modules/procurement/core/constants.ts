@@ -166,6 +166,12 @@ export interface GenerationCapabilities {
    * every other grain abstains BEFORE any read instead of failing the request.
    */
   readonly analysisBaseUnavailable?: boolean;
+  /**
+   * Set with `analysisBaseUnavailable` when the ClickHouse generation read was
+   * refused as busy: a request for any other grain answers a retryable
+   * ServiceUnavailable with this delay instead of abstaining.
+   */
+  readonly analysisBaseBusyRetryAfterSeconds?: number;
 }
 
 /** The capabilities a generation is assumed to have when nothing was probed (fail closed). */

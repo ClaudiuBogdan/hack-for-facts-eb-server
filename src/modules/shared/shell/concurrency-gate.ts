@@ -53,8 +53,11 @@ export const makeConcurrencyGate = (
   const releaseSlot = (): void => {
     // Hand the slot to the oldest waiter still within its wait; a waiter whose
     // deadline passed (its timer not yet run) is refused, never started late.
+    // One clock read, before any waiter leaves the queue (an injected clock
+    // cannot re-enter the gate mid-handoff).
+    const at = now();
     for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
-      if (now() < next.deadline) {
+      if (at < next.deadline) {
         next.settle('granted');
         return;
       }

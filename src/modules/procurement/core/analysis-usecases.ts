@@ -35,6 +35,7 @@ import {
   disclosureKeyOf,
   invalidInput,
   isWithheldOrganizationIdentifier,
+  busyRetryLater,
   retryAfterSecondsOf,
   serviceUnavailable,
   type ApiError,
@@ -430,6 +431,9 @@ const BUILD_PIN_RE = /^[1-9][0-9]{0,18}$/u;
  * unknown pin is refused (field `build`) so the caller re-reads the active
  * build and starts over, never silently mixing generations.
  */
+/** Static client text for a busy analytics backend (never an upstream message). */
+const BUSY_MESSAGE = 'procurement analytics is busy; retry shortly';
+
 const genWithCoverage = async (
   repo: AnalysisRepo,
   build?: string,
@@ -469,10 +473,16 @@ const genWithCoverage = async (
       )
     );
   }
+  // A grain with its own source (direct acquisitions on procurement_v3) reads
+  // neither the base generation nor its coverage.
+  const ownSource = grain !== undefined && genR.value.grainSources?.[grain] !== undefined;
+  const baseBusy = genR.value.capabilities.analysisBaseBusyRetryAfterSeconds;
+  if (!ownSource && baseBusy !== undefined) return err(busyRetryLater(BUSY_MESSAGE, baseBusy));
   const covR = await repo.basisCoverage(genR.value.buildId);
-  // Coverage is optional, but a busy refusal is retryable: answer it as such
-  // rather than serve gates computed without coverage.
-  if (covR.isErr() && retryAfterSecondsOf(covR.error) !== undefined) return err(covR.error);
+  // Coverage is optional, but a busy refusal is retryable: a grain that needs
+  // it answers that rather than gates computed without coverage.
+  if (!ownSource && covR.isErr() && retryAfterSecondsOf(covR.error) !== undefined)
+    return err(covR.error);
   return ok({ gen: genR.value, cov: covR.isOk() ? covR.value : undefined });
 };
 

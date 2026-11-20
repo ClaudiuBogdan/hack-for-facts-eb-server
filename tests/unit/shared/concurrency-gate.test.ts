@@ -86,6 +86,23 @@ describe('concurrency gate', () => {
     expect(gate.stats()).toEqual({ active: 1, queued: 0 });
   });
 
+  it('a close from inside the clock during a handoff still refuses the waiter', async () => {
+    const clock = { t: 0, onRead: undefined as (() => void) | undefined };
+    const gate = makeConcurrencyGate({ maxConcurrent: 1, maxQueued: 4, queueWaitMs: 100 }, () => {
+      clock.onRead?.();
+      return clock.t;
+    });
+    const holder = (await gate.acquire())._unsafeUnwrap();
+    const waiting = gate.acquire();
+    clock.onRead = () => {
+      clock.onRead = undefined;
+      gate.close();
+    };
+    holder.release();
+    expect((await waiting)._unsafeUnwrapErr()).toBe('closed');
+    expect(gate.stats()).toEqual({ active: 0, queued: 0 });
+  });
+
   it('a double release frees one slot only', async () => {
     const gate = gateOf(1, 4);
     const holder = (await gate.acquire())._unsafeUnwrap();
