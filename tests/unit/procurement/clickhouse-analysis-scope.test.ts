@@ -538,10 +538,12 @@ describe('analysis records read', () => {
     const fetchSpy = vi.fn((_url: string, request: RequestInit) =>
       Promise.resolve(
         typeof request.body === 'string' && request.body.includes('AS total')
-          ? compactResponse([{ total: '2' }])
+          ? compactResponse([{ total: '3' }])
           : compactResponse([
               { ...recordRow, id: '1', title: 'Servicii PFA Exemplu' },
               { ...recordRow, id: '2', title: 'Furnizare hartie A4 500 coli' },
+              // Blank to String.trim, but outside the rule's stable ranges.
+              { ...recordRow, id: '3', title: '\u3000' },
             ])
       )
     );
@@ -555,6 +557,8 @@ describe('analysis records read', () => {
     expect(withheld).toMatchObject({ id: '1', title: null, titleWithheld: true });
     expect(served).toMatchObject({ id: '2', title: 'Furnizare hartie A4 500 coli' });
     expect(served).not.toHaveProperty('titleWithheld');
+    // The rule reads the raw text before the blank check: the flag stays.
+    expect(result._unsafeUnwrap().rows[2]).toMatchObject({ title: null, titleWithheld: true });
     // In the SELECT, ClickHouse evaluates the rule on every row it reads (11 s
     // on a q page): the page selects the raw title, and the rule sits in WHERE only.
     const page = bodies(fetchSpy)[0] ?? '';

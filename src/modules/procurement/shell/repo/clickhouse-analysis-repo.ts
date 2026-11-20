@@ -1561,13 +1561,14 @@ export const makeClickhouseAnalysisRepo = (
     if (rowsR.isErr()) return err(rowsR.error);
     if (totalR.isErr()) return err(totalR.error);
     const rows: AnalysisRecordRow[] = rowsR.value.map((row) => {
-      // A blank title is no title: the display-title fallback must apply.
-      const title = row.title !== null && row.title.trim() !== '' ? row.title : null;
       // The free-text rule runs here, on the page's rows only: in the SELECT,
       // ClickHouse evaluated it on every row it read (11 s on a q page). This
-      // form withholds at least what the ClickHouse form does (core rule). A
-      // withheld title takes the display title with it.
-      const withheld = title !== null && isFreeTextWithheld(title);
+      // form withholds at least what the ClickHouse form does (core rule). It
+      // reads the raw text, before any trimming, and a withheld title takes
+      // the display title with it.
+      const withheld = row.title !== null && isFreeTextWithheld(row.title);
+      // A blank title is no title: the display-title fallback must apply.
+      const title = row.title !== null && row.title.trim() !== '' ? row.title : null;
       return {
         id: row.id,
         date: row.date,
