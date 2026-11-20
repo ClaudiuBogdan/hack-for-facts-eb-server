@@ -40,6 +40,11 @@ behaviour unchanged.
 - **Bridge details.** `statusEvidence.abrogated_by`, the only act list inside status evidence, keeps only acts public
   in legal_v2. A citing act is resolved through `act_documents`, so a public non-canonical citing document counts, as
   it does in the amendment count. Vocabulary counts over summaries also need the old document's render rows public.
+- **Citation.** legal_v2 stores the act's natural key (`lege:363:2018:`) in `acts.display_citation` until the loader
+  ports its formatter. The API formats `displayCitation` from legal_v2's own type, number, year and issuer with a port
+  of the scrapper's `displayCitation` (`core/v2/display-citation.ts`), e.g. `Legea nr. 363/2018`, `HG nr. 5/2020`,
+  `Decretul din 2001`. A citation is identity, so it is never bridged; a stored value that is no longer the key is
+  served as stored. Name lookup (`ilike`) and the `DISPLAY_CITATION` sort still read the stored key.
 - **Bridge nulls.** `LegalAct.bridgedFields` lists what came from the previous corpus, and `dataSource` is `legal_v2`.
   When `legal` does not hold the act, `bridgedFields` is empty and every bridged fact is null on GraphQL and MCP. This
   covers `status`, `statusEvidence`, `inDegree`, `amendedAfterPublication`, `versionProvenance.amendedAfterPublication`,

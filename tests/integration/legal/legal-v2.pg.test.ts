@@ -36,6 +36,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { monitorulTypeDefs } from '@/modules/legal/mo/graphql.js';
 import { makeLegalResolvers } from '@/modules/legal/shell/graphql/resolvers.js';
 import { legalTypeDefs } from '@/modules/legal/shell/graphql/typedefs.js';
+import { makeLegalActLoader } from '@/modules/legal/shell/loader/legal-act-loader.js';
 import { makeLegalMcpTools } from '@/modules/legal/shell/mcp/tools.js';
 import { makeLegalActsRepo } from '@/modules/legal/shell/repo/acts-repo.js';
 import { makeLegalGraphRepo } from '@/modules/legal/shell/repo/graph-repo.js';
@@ -57,6 +58,7 @@ import {
   RESOLVE_DOCUMENT_QUERY,
 } from '../../fixtures/legal/client-documents.js';
 
+import type { LegalActsRepo } from '@/modules/legal/core/ports.js';
 import type { LegalV2SearchEngine } from '@/modules/legal/core/v2/search.js';
 import type { KernelMcpTool, ProdDatabase } from '@/modules/shared/index.js';
 
@@ -139,6 +141,7 @@ run('legal_v2 on real DDL', () => {
   let db: Kysely<ProdDatabase>;
   let schema: GraphQLSchema;
   let tools: readonly KernelMcpTool[];
+  let v2Acts: LegalActsRepo;
   const q = (text: string, params: unknown[] = []): Promise<pg.QueryResult> =>
     setup.query(text, params);
 
@@ -167,6 +170,7 @@ run('legal_v2 on real DDL', () => {
 
     const legacy = makeLegalActsRepo(db, V2_BRIDGE_GATE);
     const acts = makeLegalActsRepoV2({ db, legacy, today: () => '2026-11-20' });
+    v2Acts = acts;
     const graph = makeLegalGraphRepo(db, V2_BRIDGE_GATE);
     const outline = makeLegalOutlineRepoV2(db);
     const render = makeLegalRenderRepoV2(db);
@@ -543,6 +547,28 @@ run('legal_v2 on real DDL', () => {
     expect(byDoc.get('D10b')).toMatchObject({ actId: '10', canonicalDocumentId: 'f110' });
     expect(byDoc.get('D7b')).toMatchObject({ actId: '7', canonicalDocumentId: 'f101' });
   });
+
+  it('serves the human citation, never the stored natural key', async () => {
+    const data = await gql(`{
+      bridged: legalAct(actId: "7") { displayCitation }
+      unbridged: legalAct(actId: "8") { displayCitation }
+      noNumber: legalAct(actId: "11") { displayCitation }
+      directory: legalActs(first: 10) { edges { node { actId displayCitation } } }
+      search: legalSearch(q: "art", includeHistorical: true) { acts { act { displayCitation } } }
+      resolve: legalResolve(dim: "act", q: "legea 1/2020") { value label }
+    }`);
+    expect(data['bridged']).toEqual({ displayCitation: 'Legea nr. 1/2020' });
+    expect(data['unbridged']).toEqual({ displayCitation: 'Legea nr. 2/2021' });
+    expect(data['noNumber']).toEqual({ displayCitation: 'Decretul din 2001' });
+    expect(JSON.stringify(data)).not.toMatch(/[a-z]+:[0-9]*:[0-9]*:/u);
+    const mcp = tools.find((t) => t.name === 'get_legal_act');
+    const out = (await mcp?.handler({ actId: '7' })) as unknown as {
+      item: { displayCitation: string };
+    };
+    expect(out.item.displayCitation).toBe('Legea nr. 1/2020');
+    const loaded = await makeLegalActLoader({ acts: v2Acts }).loadAct?.('11');
+    expect(loaded).toMatchObject({ displayCitation: 'Decretul din 2001' });
+  });
 });
 
 /** The fixture, written with triggers off. */
@@ -556,10 +582,11 @@ const seed = async (q: (t: string, p?: unknown[]) => Promise<pg.QueryResult>): P
            values (1, 'act_package', 7, 1, 4, 1, 'd', 'i', 'o', 'published')`);
   await q(`insert into legal_v2.acts (act_id, act_natural_key, act_type, act_number, act_year,
              issuer_slug, display_citation, identity_generation_seq, privacy_class) values
-           (7, 'lege/1/2020', 'lege', '1', 2020, 'parlamentul', 'Legea nr. 1/2020', 4, 'public'),
-           (8, 'lege/2/2021', 'lege', '2', 2021, 'parlamentul', 'Legea nr. 2/2021', 4, 'public'),
-           (9, 'lege/3/2022', 'lege', '3', 2022, 'secret-issuer', 'Legea nr. 3/2022', 4, 'restricted'),
-           (10, 'lege/10/2023', 'lege', '10', 2023, 'parlamentul', 'Legea nr. 10/2023', 4, 'public')`);
+           (7, 'lege:1:2020:', 'lege', '1', 2020, 'parlamentul', 'lege:1:2020:', 4, 'public'),
+           (8, 'lege:2:2021:', 'lege', '2', 2021, 'parlamentul', 'lege:2:2021:', 4, 'public'),
+           (9, 'lege:3:2022:', 'lege', '3', 2022, 'secret-issuer', 'lege:3:2022:', 4, 'restricted'),
+           (10, 'lege:10:2023:', 'lege', '10', 2023, 'parlamentul', 'lege:10:2023:', 4, 'public'),
+           (11, 'decret::2001:', 'decret', null, 2001, null, 'decret::2001:', 4, 'public')`);
   await q(`insert into legal_v2.page_acts values ('5101', 7, 'ledger_member', 'public'),
            ('777', 9, 'ledger_member', 'public')`);
   // forms: 101 consolidation (served), 103 original (restricted chunk),

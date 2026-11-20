@@ -13,6 +13,7 @@ import { err, ok, type Result } from 'neverthrow';
 import { databaseError, type ApiError, type ProdDatabase } from '@/modules/shared/index.js';
 
 import { legacyDocumentRenderPublic } from './gate.js';
+import { v2DisplayCitation } from '../../../core/v2/display-citation.js';
 import { parseDocumentRef, type V2FormState } from '../../../core/v2/forms.js';
 import { asObject, toStatus } from '../mappers.js';
 
@@ -235,7 +236,15 @@ export const splitActRow = (
     actNumber: r.act_number,
     actYear: r.act_year,
     issuerSlug: r.issuer_slug,
-    displayCitation: r.display_citation,
+    // The stored value is the natural key (raw v0 placeholder): format it.
+    displayCitation: v2DisplayCitation({
+      actNaturalKey: r.act_natural_key,
+      actType: r.act_type,
+      actNumber: r.act_number,
+      actYear: r.act_year,
+      issuerSlug: r.issuer_slug,
+      storedCitation: r.display_citation,
+    }),
     ended: r.ended,
   },
   facts: r.bridged
