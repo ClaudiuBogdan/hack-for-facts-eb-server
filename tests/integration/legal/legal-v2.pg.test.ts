@@ -54,6 +54,7 @@ import {
   ACT_DETAIL_QUERY,
   LEGAL_CLIENT_CASES,
   OUTLINE_QUERY,
+  RESOLVE_DOCUMENT_QUERY,
 } from '../../fixtures/legal/client-documents.js';
 
 import type { LegalV2SearchEngine } from '@/modules/legal/core/v2/search.js';
@@ -495,7 +496,17 @@ run('legal_v2 on real DDL', () => {
       const res = await graphql({ schema, source: query, variableValues: variables });
       expect(res.errors ?? []).toEqual([]);
     };
-    for (const c of LEGAL_CLIENT_CASES) await run(c.query, c.variables);
+    // Monitorul-only documents are validated by the contract suite; Monitorul
+    // is unchanged by the v2 source and stubbed here.
+    for (const c of LEGAL_CLIENT_CASES) {
+      if (c.monitorulOnly !== true) await run(c.query, c.variables);
+    }
+    const resolved = await graphql({
+      schema,
+      source: RESOLVE_DOCUMENT_QUERY,
+      variableValues: { actId: '7', documentId: '5101' },
+    });
+    expect(resolved.data).toEqual({ legalAct: { actId: '7', resolveDocument: 'f101' } });
     // On the fixture's own ids: a bridged act, an unbridged act, a served form.
     for (const actId of ['7', '8']) {
       await run(ACT_DETAIL_QUERY, { actId, outFirst: 60, inFirst: 12, anchorsFirst: 12 });
