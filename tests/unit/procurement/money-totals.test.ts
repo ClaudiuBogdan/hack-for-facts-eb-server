@@ -334,10 +334,14 @@ describe('moneyTotals (batch)', () => {
     expect(reads).toHaveLength(1);
   });
 
-  it('refuses a date that is not a calendar day', async () => {
+  it.each([
+    ['from', '2025-02-30'],
+    ['to', '1969-12-31'],
+    ['to', '2149-06-07'],
+  ])('refuses %s=%s: not a day ClickHouse can hold exactly', async (field, value) => {
     const { p } = port();
-    const result = await moneyTotals(p, [{ id: 'a', filters: { ...ca, from: '2025-02-30' } }]);
-    expect(result._unsafeUnwrapErr()).toMatchObject({ type: 'InvalidInput', field: 'from' });
+    const result = await moneyTotals(p, [{ id: 'a', filters: { ...ca, [field]: value } }]);
+    expect(result._unsafeUnwrapErr()).toMatchObject({ type: 'InvalidInput', field });
   });
 
   describe('under site-wide D6', () => {

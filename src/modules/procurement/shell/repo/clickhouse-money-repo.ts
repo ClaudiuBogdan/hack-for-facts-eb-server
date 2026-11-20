@@ -11,7 +11,8 @@
  * - Money is integer bani (`amount_bani` Int64), summed exactly in ClickHouse
  *   and carried as decimal strings; `native_amount` (Decimal(20,2)) is summed
  *   in minor units for currency subtotals.
- * - Labels are immutable per build: cached per build id.
+ * - Labels are read with every batch (a small table): a build whose label
+ *   table is gone answers ServiceUnavailable, never totals with stale labels.
  */
 
 import { Type } from '@sinclair/typebox';
@@ -32,7 +33,6 @@ import type {
   AggregateFilters,
   FactAggregate,
   FactStatus,
-  MoneyLabel,
   MoneyTotalsPort,
   ValueKind,
   VatBasis,
@@ -136,8 +136,6 @@ export const makeClickhouseMoneyRepo = (deps: {
   readonly db: Kysely<ProdDatabase>;
   readonly reader: ClickhouseReader;
 }): MoneyTotalsPort => {
-  const labelsByBuild = new Map<string, readonly MoneyLabel[]>();
-
   return {
     activeBuild: async () => {
       try {
@@ -171,8 +169,6 @@ export const makeClickhouseMoneyRepo = (deps: {
     },
 
     labels: async (build) => {
-      const cached = labelsByBuild.get(build);
-      if (cached !== undefined) return ok(cached);
       const rows = notServed(
         await deps.reader.query(
           `SELECT label_set, key, label_ro, label_en, meaning_ro, meaning_en FROM ${tableOf('money_labels', build)}`,
@@ -188,7 +184,6 @@ export const makeClickhouseMoneyRepo = (deps: {
         meaningRo: row.meaning_ro,
         meaningEn: row.meaning_en,
       }));
-      labelsByBuild.set(build, labels);
       return ok(labels);
     },
 

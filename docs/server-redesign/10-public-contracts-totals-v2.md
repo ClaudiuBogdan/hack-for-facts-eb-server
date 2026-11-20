@@ -86,7 +86,7 @@ One batch read, totals only. Breakdown, series, concentration and value-sorted r
 
 ### Load
 
-One read per distinct non-status filter set (lists are sorted, so equal sets in another order share it), through the per-pod cap of 3 ClickHouse reads shared with every other ClickHouse read. A busy pod answers GraphQL `SERVICE_UNAVAILABLE` with `extensions.retryAfterSeconds` (HTTP 200, as every GraphQL error) and MCP `errorType: ServiceUnavailable` with `retryAfterSeconds`. A missing build table also answers ServiceUnavailable.
+One read per distinct non-status filter set (lists are sorted, so equal sets in another order share it), through the per-pod cap of 3 ClickHouse reads shared with every other ClickHouse read. A busy pod answers GraphQL `SERVICE_UNAVAILABLE` with `extensions.retryAfterSeconds` (a resolver error: HTTP 200) and MCP `errorType: ServiceUnavailable` with `retryAfterSeconds`. A missing build table also answers ServiceUnavailable.
 
 ## Rules the later steps must follow (client, 20 Nov)
 

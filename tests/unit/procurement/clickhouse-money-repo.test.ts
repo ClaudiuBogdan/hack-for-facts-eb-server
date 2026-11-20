@@ -101,13 +101,14 @@ describe('makeClickhouseMoneyRepo', () => {
     });
   });
 
-  it('caches labels per build and reads only public supplier refs', async () => {
+  it('reads labels with every batch and only public supplier refs', async () => {
     const { r, sqls } = reader([]);
     const repo = makeClickhouseMoneyRepo({ db, reader: r });
     await repo.labels('17');
     await repo.labels('17');
     await repo.supplierRef('17', '123');
-    expect(sqls.filter((s) => s.includes('money_labels_b17'))).toHaveLength(1);
+    // No cache: a label table that is gone answers ServiceUnavailable next time.
+    expect(sqls.filter((s) => s.includes('money_labels_b17'))).toHaveLength(2);
     expect(sqls.at(-1)).toContain(
       "FROM money_suppliers_b17 WHERE supplier_cui = '123' AND toString(supplier_ref) != '0'"
     );

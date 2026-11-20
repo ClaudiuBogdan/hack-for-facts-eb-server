@@ -118,9 +118,12 @@ export interface TotalsRequest {
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/u;
 
-/** A real calendar day (ClickHouse's toDate saturates an invalid one to 1970-01-01). */
+/**
+ * A real calendar day inside ClickHouse's Date range (1970-01-01..2149-06-06):
+ * toDate saturates an invalid or out-of-range day instead of failing.
+ */
 const isCalendarDay = (value: string): boolean => {
-  if (!DAY.test(value)) return false;
+  if (!DAY.test(value) || value < '1970-01-01' || value > '2149-06-06') return false;
   const date = new Date(`${value}T00:00:00Z`);
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 };
