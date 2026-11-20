@@ -25,6 +25,12 @@ data:
   PROD_SEARCH_POLICY: prefix-all
   PROD_OPENSEARCH_URL: https://transparenta-eu-etl-opensearch.transparenta-eu-etl-prod.svc.cluster.local:9200
   PROD_OPENSEARCH_CA_FILE: /var/run/secrets/chronos-opensearch/ca.pem
+  # Legislation on legal_v2 (owner, 2026-11-20): Chronos dev only; the public site
+  # stays on the legacy source. Word search uses the legal-v2 test indexes through
+  # the shared reader above (role legal_v2_test_read).
+  LEGAL_SOURCE: v2
+  LEGAL_SEARCH_OPENSEARCH_ACTS_INDEX: legal-v2-test-acts-20261118
+  LEGAL_SEARCH_OPENSEARCH_SECTIONS_INDEX: legal-v2-test-units-20261118
   PROD_OPENSEARCH_TLS_SERVERNAME: transparenta-eu-etl-opensearch.transparenta-eu-etl-prod.svc.cluster.local
   PROD_CLICKHOUSE_URL: https://transparenta-eu-etl-clickhouse.transparenta-eu-etl-prod.svc.cluster.local:8443
   PROD_CLICKHOUSE_DATABASE: proto
