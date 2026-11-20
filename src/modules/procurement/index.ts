@@ -18,6 +18,7 @@ import { makeTotalsResolvers, totalsTypeDefs } from './shell/graphql/totals-sche
 import { procurementTypeDefs } from './shell/graphql/typedefs.js';
 import { makeDaReleaseMcpTools } from './shell/mcp/da-release-tools.js';
 import { makeProcurementMcpTools } from './shell/mcp/tools.js';
+import { makeTotalsMcpTools } from './shell/mcp/totals-tools.js';
 import {
   makeClickhouseAnalysisRepo,
   makeUnconfiguredAnalysisRepo,
@@ -191,11 +192,11 @@ export const makeProcurementModule = (deps: ProcurementModuleDeps): ProcurementM
     ...(deps.supplierDisclosure !== undefined && { supplierDisclosure: deps.supplierDisclosure }),
   });
   const daResolvers = makeDaReleaseResolvers(daRelease);
-  const totalsResolvers = makeTotalsResolvers(
+  const moneyPort =
     deps.totalsV2Enabled === true && clickhouseReader !== undefined
       ? makeClickhouseMoneyRepo({ db: deps.db, reader: clickhouseReader })
-      : undefined
-  );
+      : undefined;
+  const totalsResolvers = makeTotalsResolvers(moneyPort, deps.supplierDisclosure);
 
   return {
     repo,
@@ -222,6 +223,7 @@ export const makeProcurementModule = (deps: ProcurementModuleDeps): ProcurementM
         }),
       }),
       ...(daV3Enabled ? makeDaReleaseMcpTools(daRelease) : []),
+      ...(moneyPort !== undefined ? makeTotalsMcpTools(moneyPort, deps.supplierDisclosure) : []),
     ],
     contributor: makeProcurementContributor(
       makeProcurementPresenceRepo(deps.db, deps.supplierDisclosure)

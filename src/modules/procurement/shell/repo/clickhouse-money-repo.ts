@@ -16,9 +16,14 @@
 
 import { Type } from '@sinclair/typebox';
 import { sql, type Kysely } from 'kysely';
-import { err, ok } from 'neverthrow';
+import { err, ok, type Result } from 'neverthrow';
 
-import { databaseError, type ProdDatabase } from '@/modules/shared/index.js';
+import {
+  databaseError,
+  serviceUnavailable,
+  type ApiError,
+  type ProdDatabase,
+} from '@/modules/shared/index.js';
 
 import { DA_RELEASE_SCHEMA } from './da-v3-sql.js';
 
@@ -40,6 +45,17 @@ const lit = (value: string): string => `'${value.replace(/\\/gu, '\\\\').replace
 const litList = (values: readonly string[]): string => values.map(lit).join(', ');
 
 const tableOf = (base: string, build: string): string => `${base}_b${build}`;
+
+/**
+ * A build table that is gone (ClickHouse UNKNOWN_TABLE 60 / UNKNOWN_DATABASE 81)
+ * means the build is not served: ServiceUnavailable, never a guessed total.
+ */
+const notServed = <T>(result: Result<T, ApiError>): Result<T, ApiError> =>
+  result.isErr() &&
+  result.error.type === 'Database' &&
+  /\(code (60|81)\)/u.test(result.error.message)
+    ? err(serviceUnavailable('the active money build is not available; retry later'))
+    : result;
 
 const CountString = Type.String({ pattern: '^[0-9]+$' });
 const IntegerString = Type.String({ pattern: '^-?[0-9]+$' });
@@ -77,10 +93,7 @@ const LabelRowSchema = Type.Object(
   { additionalProperties: false }
 );
 
-const SupplierRowSchema = Type.Object(
-  { supplier_ref: Type.String() },
-  { additionalProperties: false }
-);
+const SupplierRowSchema = Type.Object({ ref: Type.String() }, { additionalProperties: false });
 
 /** The WHERE for one aggregate read: every non-status filter, undated rows admitted. */
 export const moneyWhere = (
@@ -143,8 +156,16 @@ export const makeClickhouseMoneyRepo = (deps: {
           ? ok(build)
           : err(databaseError('the active money build id is malformed'));
       } catch (error) {
-        // The table arrives in a later migration: until then nothing is published.
-        if (error instanceof Error && error.message.includes('money_generations')) return ok(null);
+        // The table arrives in a later migration (undefined_table, 42P01): until
+        // then nothing is published. Any other failure is a failure.
+        if (
+          typeof error === 'object' &&
+          error !== null &&
+          'code' in error &&
+          error.code === '42P01'
+        ) {
+          return ok(null);
+        }
         return err(databaseError('money generation read failed', error));
       }
     },
@@ -152,9 +173,11 @@ export const makeClickhouseMoneyRepo = (deps: {
     labels: async (build) => {
       const cached = labelsByBuild.get(build);
       if (cached !== undefined) return ok(cached);
-      const rows = await deps.reader.query(
-        `SELECT label_set, key, label_ro, label_en, meaning_ro, meaning_en FROM ${tableOf('money_labels', build)}`,
-        LabelRowSchema
+      const rows = notServed(
+        await deps.reader.query(
+          `SELECT label_set, key, label_ro, label_en, meaning_ro, meaning_en FROM ${tableOf('money_labels', build)}`,
+          LabelRowSchema
+        )
       );
       if (rows.isErr()) return err(rows.error);
       const labels = rows.value.map((row) => ({
@@ -170,16 +193,20 @@ export const makeClickhouseMoneyRepo = (deps: {
     },
 
     supplierRef: async (build, supplierCode) => {
-      const rows = await deps.reader.query(
-        `SELECT supplier_ref FROM ${tableOf('money_suppliers', build)} WHERE supplier_cui = ${lit(supplierCode)} AND supplier_ref != '0' LIMIT 1`,
-        SupplierRowSchema
+      // toString: the scalar ref's ClickHouse type is not pinned by the contract.
+      const rows = notServed(
+        await deps.reader.query(
+          `SELECT toString(supplier_ref) AS ref FROM ${tableOf('money_suppliers', build)} WHERE supplier_cui = ${lit(supplierCode)} AND toString(supplier_ref) != '0' LIMIT 1`,
+          SupplierRowSchema
+        )
       );
-      return rows.map((value) => value[0]?.supplier_ref ?? null);
+      return rows.map((value) => value[0]?.ref ?? null);
     },
 
     aggregate: async (build, filters, supplierRef, valueKinds) => {
-      const rows = await deps.reader.query(
-        `SELECT
+      const rows = notServed(
+        await deps.reader.query(
+          `SELECT
            value_kind,
            status,
            toString(toUInt8(additive)) AS additive,
@@ -190,7 +217,7 @@ export const makeClickhouseMoneyRepo = (deps: {
            currency,
            toString(toUInt8(ifNull(ca_head_status, '') = 'unverified')) AS unverified_head,
            toString(toUInt8(has(flags, 'list_value'))) AS list_value,
-           toString(toUInt8(ifNull(supplier_ref, '') = '0')) AS withheld_supplier,
+           toString(toUInt8(ifNull(toString(supplier_ref), '') = '0')) AS withheld_supplier,
            toString(count()) AS n,
            toString(sum(toInt128(ifNull(amount_bani, 0)))) AS sum_bani,
            toString(sum(toInt128(ifNull(native_amount, toDecimal64(0, 2)) * 100))) AS native_minor
@@ -198,7 +225,8 @@ export const makeClickhouseMoneyRepo = (deps: {
          WHERE ${moneyWhere(filters, supplierRef, valueKinds)}
          GROUP BY value_kind, status, additive, dated, has_amount, joint_win, vat_basis, currency,
                   unverified_head, list_value, withheld_supplier`,
-        AggregateRowSchema
+          AggregateRowSchema
+        )
       );
       if (rows.isErr()) return err(rows.error);
       const out: FactAggregate[] = [];

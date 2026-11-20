@@ -198,7 +198,7 @@ describe('composeTotals', () => {
 
   it('a withheld supplier code matches nothing and says so, with no count', () => {
     const r = request({ filters: { procurementKinds: ['direct_acquisition'], supplierCode: '1' } });
-    const answer = composeTotals(r, [fact()], LABELS, '17', true);
+    const answer = composeTotals(r, [fact()], LABELS, '17', { supplierWithheld: true });
     expect(answer.totals[0]).toMatchObject({ recordCount: '0', sumLei: '0.00' });
     expect(answer.notes.map((n) => n.key)).toEqual(['withheld_d6']);
     expect(answer.exclusions).toEqual([]);
@@ -323,5 +323,79 @@ describe('moneyTotals (batch)', () => {
     expect(
       (await moneyTotals(p, [{ id: 'a', filters: { procurementKinds: ['x'] } }]))._unsafeUnwrapErr()
     ).toMatchObject({ field: 'procurementKinds' });
+  });
+
+  it('shares one read between equal filter sets listed in another order', async () => {
+    const { p, reads } = port();
+    await moneyTotals(p, [
+      { id: 'a', filters: { procurementKinds: ['contract_award', 'direct_acquisition'] } },
+      { id: 'b', filters: { procurementKinds: ['direct_acquisition', 'contract_award'] } },
+    ]);
+    expect(reads).toHaveLength(1);
+  });
+
+  it('refuses a date that is not a calendar day', async () => {
+    const { p } = port();
+    const result = await moneyTotals(p, [{ id: 'a', filters: { ...ca, from: '2025-02-30' } }]);
+    expect(result._unsafeUnwrapErr()).toMatchObject({ type: 'InvalidInput', field: 'from' });
+  });
+
+  describe('under site-wide D6', () => {
+    const disclosure = (codes: string[], asOf = '2026-11-20T00:00:00.000000Z', fresh = asOf) => ({
+      enforced: true,
+      publicSupplierCodes: (options?: { fresh?: boolean }) =>
+        Promise.resolve(
+          ok(Object.assign(new Set(codes), { asOf: options?.fresh === true ? fresh : asOf }))
+        ),
+      privacyAsOf: () => Promise.resolve(ok(asOf)),
+    });
+
+    it('a code the current publication withholds matches nothing, even if the build lists it', async () => {
+      const { p, reads } = port();
+      const [answer] = (
+        await moneyTotals(p, [{ id: 'a', filters: { ...ca, supplierCode: '123' } }], disclosure([]))
+      )._unsafeUnwrap();
+      expect(reads).toEqual([]);
+      expect(answer?.notes.map((n) => n.key)).toEqual(['withheld_d6']);
+      // The withheld code is never echoed.
+      expect(answer?.filtersApplied.supplierCode).toBeNull();
+      expect(JSON.stringify(answer)).not.toContain('123');
+      expect(answer?.disclosureKey).toBe('2026-11-20T00:00:00.000000Z');
+    });
+
+    it('a public code reads, keyed by the publication', async () => {
+      const { p, reads } = port();
+      const [answer] = (
+        await moneyTotals(
+          p,
+          [{ id: 'a', filters: { ...ca, supplierCode: '123' } }],
+          disclosure(['123'])
+        )
+      )._unsafeUnwrap();
+      expect(reads[0]?.supplierRef).toBe('ref-123');
+      expect(answer?.disclosureKey).toBe('2026-11-20T00:00:00.000000Z');
+    });
+
+    it('asks for a repeat when the list is republished during a supplier read', async () => {
+      const { p } = port();
+      const result = await moneyTotals(
+        p,
+        [{ id: 'a', filters: { ...ca, supplierCode: '123' } }],
+        disclosure(['123'], 'v1', 'v2')
+      );
+      expect(result._unsafeUnwrapErr()).toMatchObject({ type: 'ServiceUnavailable' });
+    });
+  });
+
+  it('lists the summable value kinds for the asked procurement kinds, and label meanings', async () => {
+    const { p } = port();
+    const [answer] = (
+      await moneyTotals(p, [
+        { id: 'a', filters: { procurementKinds: ['direct_acquisition', 'advertising_notice'] } },
+      ])
+    )._unsafeUnwrap();
+    expect(answer?.allowed.valueKinds).toEqual(['awarded']);
+    expect(answer?.disclosureKey).toBe('off');
+    expect(answer?.included.statuses[0]).toHaveProperty('meaningEn');
   });
 });

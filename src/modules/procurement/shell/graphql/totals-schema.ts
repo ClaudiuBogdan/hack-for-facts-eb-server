@@ -4,7 +4,7 @@
  * served, and every read answers ServiceUnavailable without a query.
  */
 
-import { serviceUnavailable } from '@/modules/shared/index.js';
+import { serviceUnavailable, type SupplierDisclosurePort } from '@/modules/shared/index.js';
 
 import { toGraphqlError } from './resolvers.js';
 import {
@@ -51,6 +51,14 @@ export const totalsTypeDefs = /* GraphQL */ `
     key: String!
     labelRo: String!
     labelEn: String!
+    "The label table's one-line meaning; null when the build has no label for the key."
+    meaningRo: String
+    meaningEn: String
+  }
+
+  type ProcurementTotalsAllowed {
+    "The value kinds that are summed for the asked procurement kinds; the rest are display only."
+    valueKinds: [String!]!
   }
 
   type ProcurementTotalsVatMix {
@@ -81,6 +89,8 @@ export const totalsTypeDefs = /* GraphQL */ `
     key: String!
     labelRo: String!
     labelEn: String!
+    meaningRo: String
+    meaningEn: String
     valueKind: String!
     count: String!
     "Null when none of the excluded records has a lei amount."
@@ -92,6 +102,8 @@ export const totalsTypeDefs = /* GraphQL */ `
     key: String!
     labelRo: String!
     labelEn: String!
+    meaningRo: String
+    meaningEn: String
     valueKind: String!
     count: String!
   }
@@ -101,6 +113,8 @@ export const totalsTypeDefs = /* GraphQL */ `
     key: String!
     labelRo: String!
     labelEn: String!
+    meaningRo: String
+    meaningEn: String
     valueKind: String!
     count: String!
     valueLei: String!
@@ -145,6 +159,13 @@ export const totalsTypeDefs = /* GraphQL */ `
   type ProcurementTotal {
     id: ID!
     factBuild: String!
+    """
+    The D6 state the answer was served under: off, unavailable (never cache),
+    or the supplier_privacy publication. Key caches by (factBuild, disclosureKey).
+    """
+    disclosureKey: String!
+    allowed: ProcurementTotalsAllowed!
+    "The applied filters; a supplier code that is not public is never echoed (null)."
     filtersApplied: ProcurementTotalsFiltersApplied!
     valueKinds: [String!]!
     included: ProcurementTotalsIncluded!
@@ -165,7 +186,10 @@ export const totalsTypeDefs = /* GraphQL */ `
   }
 `;
 
-export const makeTotalsResolvers = (port: MoneyTotalsPort | undefined) => ({
+export const makeTotalsResolvers = (
+  port: MoneyTotalsPort | undefined,
+  disclosure?: SupplierDisclosurePort
+) => ({
   Query: {
     procurementTotals: async (
       _root: unknown,
@@ -176,7 +200,7 @@ export const makeTotalsResolvers = (port: MoneyTotalsPort | undefined) => ({
           serviceUnavailable('procurement totals v2 is not enabled on this server')
         );
       }
-      const result = await moneyTotals(port, args.requests);
+      const result = await moneyTotals(port, args.requests, disclosure);
       if (result.isErr()) throw toGraphqlError(result.error);
       return result.value;
     },

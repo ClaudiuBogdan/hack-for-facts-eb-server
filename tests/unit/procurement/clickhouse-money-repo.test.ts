@@ -3,7 +3,7 @@
  * undated rows admitted under a date range; the aggregate rows map to exact
  * BigInt sums; tables are the build's own; labels are cached per build.
  */
-import { ok } from 'neverthrow';
+import { err, ok } from 'neverthrow';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -109,7 +109,54 @@ describe('makeClickhouseMoneyRepo', () => {
     await repo.supplierRef('17', '123');
     expect(sqls.filter((s) => s.includes('money_labels_b17'))).toHaveLength(1);
     expect(sqls.at(-1)).toContain(
-      "FROM money_suppliers_b17 WHERE supplier_cui = '123' AND supplier_ref != '0'"
+      "FROM money_suppliers_b17 WHERE supplier_cui = '123' AND toString(supplier_ref) != '0'"
     );
+  });
+
+  it('a missing build table answers ServiceUnavailable, never a guessed total', async () => {
+    const r: ClickhouseReader = {
+      query: () =>
+        Promise.resolve(
+          err({ type: 'Database', message: 'clickhouse HTTP 404 (code 60)' } as never)
+        ),
+    };
+    const repo = makeClickhouseMoneyRepo({ db, reader: r });
+    expect(
+      (await repo.aggregate('17', filters(), null, ['awarded']))._unsafeUnwrapErr()
+    ).toMatchObject({
+      type: 'ServiceUnavailable',
+    });
+    expect((await repo.labels('17'))._unsafeUnwrapErr()).toMatchObject({
+      type: 'ServiceUnavailable',
+    });
+  });
+
+  it('an absent pointer table is "not published"; other database failures are failures', async () => {
+    const failing = (error: unknown) =>
+      ({
+        getExecutor: () => {
+          throw error;
+        },
+      }) as unknown as Kysely<ProdDatabase>;
+    const absent = Object.assign(
+      new Error('relation "procurement_v3.money_generations" does not exist'),
+      {
+        code: '42P01',
+      }
+    );
+    const denied = Object.assign(new Error('permission denied for table money_generations'), {
+      code: '42501',
+    });
+    const { r } = reader([]);
+    expect(
+      (
+        await makeClickhouseMoneyRepo({ db: failing(absent), reader: r }).activeBuild()
+      )._unsafeUnwrap()
+    ).toBeNull();
+    expect(
+      (
+        await makeClickhouseMoneyRepo({ db: failing(denied), reader: r }).activeBuild()
+      )._unsafeUnwrapErr()
+    ).toMatchObject({ type: 'Database' });
   });
 });

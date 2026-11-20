@@ -15,7 +15,13 @@
 
 import { err, ok, type Result } from 'neverthrow';
 
-import { invalidInput, serviceUnavailable, type ApiError } from '@/modules/shared/index.js';
+import {
+  disclosureKeyOf,
+  invalidInput,
+  serviceUnavailable,
+  type ApiError,
+  type SupplierDisclosurePort,
+} from '@/modules/shared/index.js';
 
 export const PROCUREMENT_KINDS = [
   'direct_acquisition',
@@ -111,6 +117,13 @@ export interface TotalsRequest {
 }
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/u;
+
+/** A real calendar day (ClickHouse's toDate saturates an invalid one to 1970-01-01). */
+const isCalendarDay = (value: string): boolean => {
+  if (!DAY.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+};
 const CODE = /^\d{1,10}$/u;
 
 const listOf = <T extends string>(
@@ -122,7 +135,8 @@ const listOf = <T extends string>(
   if (values.length === 0) return err(invalidInput(`${field} must not be empty`, field));
   const unknown = values.find((v) => !(allowed as readonly string[]).includes(v));
   if (unknown !== undefined) return err(invalidInput(`unknown ${field} '${unknown}'`, field));
-  return ok([...new Set(values)] as T[]);
+  // Sorted: equal filter sets give equal echoes and share one read.
+  return ok([...new Set(values)].sort() as T[]);
 };
 
 const textOrNull = (value: string | null | undefined): string | null => {
@@ -150,8 +164,12 @@ export const parseTotalsRequest = (input: TotalsRequestInput): Result<TotalsRequ
 
   const from = textOrNull(f.from);
   const to = textOrNull(f.to);
-  if (from !== null && !DAY.test(from)) return err(invalidInput('from must be YYYY-MM-DD', 'from'));
-  if (to !== null && !DAY.test(to)) return err(invalidInput('to must be YYYY-MM-DD', 'to'));
+  if (from !== null && !isCalendarDay(from)) {
+    return err(invalidInput('from must be a calendar day, YYYY-MM-DD', 'from'));
+  }
+  if (to !== null && !isCalendarDay(to)) {
+    return err(invalidInput('to must be a calendar day, YYYY-MM-DD', 'to'));
+  }
   if (from !== null && to !== null && from > to) {
     return err(invalidInput('from must not be after to', 'from'));
   }
@@ -244,6 +262,8 @@ export interface Labelled {
   readonly key: string;
   readonly labelRo: string;
   readonly labelEn: string;
+  readonly meaningRo: string | null;
+  readonly meaningEn: string | null;
 }
 
 export interface TotalFigure {
@@ -290,6 +310,14 @@ export type TotalsNote = Labelled;
 export interface TotalsAnswer {
   readonly id: string;
   readonly factBuild: string;
+  /**
+   * The D6 state the answer was served under: `off`, `unavailable` (no
+   * publication readable: never cache), or the supplier_privacy publication.
+   * Clients key caches by (factBuild, disclosureKey).
+   */
+  readonly disclosureKey: string;
+  /** What these filters may sum: the additive value kinds of the asked procurement kinds. */
+  readonly allowed: { readonly valueKinds: readonly ValueKind[] };
   readonly filtersApplied: TotalsFilters;
   readonly valueKinds: readonly ValueKind[];
   readonly included: {
@@ -306,6 +334,18 @@ export interface TotalsAnswer {
   /** Population per value kind (count), for the invariant and the client. */
   readonly population: readonly { readonly valueKind: ValueKind; readonly count: string }[];
 }
+
+/**
+ * The value kinds that are summed for each procurement kind (schema draft 2,
+ * "How each kind of procurement fills it"): everything else is display only.
+ */
+const SUMMABLE_VALUE_KINDS: Readonly<Record<ProcurementKind, readonly ValueKind[]>> = {
+  direct_acquisition: ['awarded'],
+  contract_award: ['awarded', 'framework_ceiling', 'modification_change'],
+  market_consultation: [],
+  advertising_notice: [],
+  direct_award_notification: [],
+};
 
 /** Integer bani → lei decimal string (exact). */
 export const baniToLei = (bani: bigint): string => {
@@ -350,7 +390,13 @@ const labelFor = (
 ): Labelled => {
   const found = labels.get(`${labelSet}:${key}`);
   // A missing label is shown as its key: never a guessed text.
-  return { key, labelRo: found?.labelRo ?? key, labelEn: found?.labelEn ?? key };
+  return {
+    key,
+    labelRo: found?.labelRo ?? key,
+    labelEn: found?.labelEn ?? key,
+    meaningRo: found?.meaningRo ?? null,
+    meaningEn: found?.meaningEn ?? null,
+  };
 };
 
 const exclusionLabel = (labels: ReadonlyMap<string, MoneyLabel>, key: ExclusionKey): Labelled =>
@@ -369,12 +415,17 @@ export const composeTotals = (
   aggregate: readonly FactAggregate[],
   labelRows: readonly MoneyLabel[],
   factBuild: string,
-  /**
-   * The supplier filter names a code that is not public (D6): nothing is read
-   * and nothing is counted. The answer says so without any count.
-   */
-  supplierWithheld = false
+  options: {
+    /**
+     * The supplier filter names a code that is not public (D6): nothing is read
+     * and nothing is counted. The answer says so without any count, and never
+     * echoes the code.
+     */
+    readonly supplierWithheld?: boolean;
+    readonly disclosureKey?: string;
+  } = {}
 ): TotalsAnswer => {
+  const supplierWithheld = options.supplierWithheld === true;
   const labels = new Map(labelRows.map((l) => [`${l.labelSet}:${l.key}`, l]));
   const totals: TotalFigure[] = [];
   const exclusions: Exclusion[] = [];
@@ -482,15 +533,22 @@ export const composeTotals = (
     }
   }
 
-  const f = request.filters;
+  const f: TotalsFilters = supplierWithheld
+    ? { ...request.filters, supplierCode: null }
+    : request.filters;
   const included = {
     procurementKinds: f.procurementKinds.map((k) => labelFor(labels, 'procurement_kind', k)),
     statuses: f.statuses.map((s) => labelFor(labels, 'status', s)),
     valueKinds: request.valueKinds.map((v) => labelFor(labels, 'value_kind', v)),
   };
+  const allowed = [
+    ...new Set(f.procurementKinds.flatMap((kind) => SUMMABLE_VALUE_KINDS[kind])),
+  ].sort();
   return {
     id: request.id,
     factBuild,
+    disclosureKey: options.disclosureKey ?? 'off',
+    allowed: { valueKinds: allowed },
     filtersApplied: f,
     valueKinds: request.valueKinds,
     included,
@@ -616,7 +674,9 @@ const aggregateKey = (f: TotalsFilters): string => JSON.stringify(aggregateFilte
  */
 export const moneyTotals = async (
   port: MoneyTotalsPort,
-  inputs: readonly TotalsRequestInput[]
+  inputs: readonly TotalsRequestInput[],
+  /** Site-wide D6; absent or not enforced means the build's supplier map alone decides. */
+  disclosure?: SupplierDisclosurePort
 ): Promise<Result<readonly TotalsAnswer[], ApiError>> => {
   if (inputs.length === 0) return err(invalidInput('requests must not be empty', 'requests'));
   if (inputs.length > MAX_TOTALS_REQUESTS) {
@@ -639,6 +699,18 @@ export const moneyTotals = async (
   const labels = await port.labels(factBuild);
   if (labels.isErr()) return err(labels.error);
 
+  // D6 now, not only as of the build: a supplier withheld since the build was
+  // published must not be filterable (its money would name it).
+  const d6 = disclosure?.enforced === true ? disclosure : undefined;
+  let disclosureKey = 'off';
+  let publicCodes: ReadonlySet<string> | null = null;
+  if (d6 !== undefined) {
+    const codes = await d6.publicSupplierCodes();
+    if (codes.isErr()) return err(codes.error);
+    publicCodes = codes.value;
+    disclosureKey = disclosureKeyOf(codes.value);
+  }
+
   // One read per distinct non-status filter set, for the union of its value kinds.
   const groups = new Map<string, { filters: TotalsFilters; kinds: Set<ValueKind> }>();
   for (const request of requests) {
@@ -652,25 +724,50 @@ export const moneyTotals = async (
       const filters = aggregateFiltersOf(group.filters);
       let ref: string | null = null;
       if (filters.supplierCode !== null) {
+        if (publicCodes !== null && !publicCodes.has(filters.supplierCode)) {
+          return [key, ok({ rows: [], withheld: true, supplierRead: false })] as const;
+        }
         const found = await port.supplierRef(factBuild, filters.supplierCode);
         if (found.isErr()) return [key, err(found.error)] as const;
         // Not public (D6) in this build: nothing is read, nothing is counted.
-        if (found.value === null) return [key, ok({ rows: [], withheld: true })] as const;
+        if (found.value === null)
+          return [key, ok({ rows: [], withheld: true, supplierRead: false })] as const;
         ref = found.value;
       }
       const rows = await port.aggregate(factBuild, filters, ref, [...group.kinds]);
-      return [key, rows.map((value) => ({ rows: value, withheld: false }))] as const;
+      return [
+        key,
+        rows.map((value) => ({ rows: value, withheld: false, supplierRead: ref !== null })),
+      ] as const;
     })
   );
   const byKey = new Map<string, { rows: readonly FactAggregate[]; withheld: boolean }>();
+  let readASupplier = false;
   for (const [key, read] of reads) {
     if (read.isErr()) return err(read.error);
     byKey.set(key, read.value);
+    if (read.value.supplierRead) readASupplier = true;
+  }
+  // A publish during the request that withheld a filtered supplier: repeat, as
+  // the analysis API does, so every answer is decided under its key.
+  if (d6 !== undefined && readASupplier) {
+    const fresh = await d6.publicSupplierCodes({ fresh: true });
+    if (fresh.isErr()) return err(fresh.error);
+    if (disclosureKeyOf(fresh.value) !== disclosureKey) {
+      return err(
+        serviceUnavailable(
+          'the supplier privacy list was republished during this request; repeat the request'
+        )
+      );
+    }
   }
   return ok(
     requests.map((request) => {
       const read = byKey.get(aggregateKey(request.filters)) ?? { rows: [], withheld: false };
-      return composeTotals(request, read.rows, labels.value, factBuild, read.withheld);
+      return composeTotals(request, read.rows, labels.value, factBuild, {
+        supplierWithheld: read.withheld,
+        disclosureKey,
+      });
     })
   );
 };

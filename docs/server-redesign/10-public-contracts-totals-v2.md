@@ -42,7 +42,7 @@ One batch read, totals only. Breakdown, series, concentration and value-sorted r
 
 ### Request
 
-`procurementTotals(requests: [ProcurementTotalRequest!]!)` takes at most 8 requests per call. MCP serves the same as `aggregate_procurement` with shape `totals`.
+`procurementTotals(requests: [ProcurementTotalRequest!]!)` takes at most 8 requests per field. MCP serves the same as the tool `aggregate_procurement_totals`. The 8-request cap is per field, so GraphQL aliases can repeat it; the per-pod read cap still bounds the load.
 
 | Field               | Meaning                                                                                                                                    |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -54,7 +54,7 @@ One batch read, totals only. Breakdown, series, concentration and value-sorted r
 **Filters:**
 
 - procurement kind, contract kind, status keys;
-- date range and date basis;
+- date range, on the day the money happened (`award_day`: DA finalization, CA conclusion, notice publication; fixed per procurement kind, so not a filter);
 - buyer; supplier (D6-aware: a withheld supplier matches nothing);
 - CPV levels; county or SIRUTA;
 - VAT basis;
@@ -62,15 +62,16 @@ One batch read, totals only. Breakdown, series, concentration and value-sorted r
 
 ### Answer, per request
 
-- **Echo:** `id`, `factBuild`, and `disclosureKey` on DA rows (D6 unchanged).
+- **Echo:** `id`, `factBuild` and `disclosureKey`. `disclosureKey` is `off`, `unavailable` (never cache) or the supplier_privacy publication; clients key caches by (factBuild, disclosureKey).
+- **D6 now, not only as of the build:** a supplier filter is checked against the current publication as well as the build's supplier map. A code that is not public matches nothing, answers the `withheld_d6` note with no count, and is never echoed (`filtersApplied.supplierCode` is null). A publication during a supplier read asks for a repeat.
 - **`filtersApplied`:** the resolved, canonical filters, including the defaults that were applied.
-- **`included` and `excluded`:** every status, value kind and procurement kind in or out, as `{key, labelRo, labelEn, meaningRo, meaningEn}` from the label table.
+- **`included`:** every procurement kind, status and value kind counted, as `{key, labelRo, labelEn, meaningRo, meaningEn}` from the label table. What is left out is in `exclusions`, with counts.
 - **`totals`:** one entry per value kind, `{valueKind, sumLei, recordCount, withValueCount, vatMix: {withVat, withoutVat, unknown}, currencies?: [{currency, sum, count}]}`. Money is decimal strings.
 - **`exclusions`:** a list of `{key, labelRo, labelEn, count, valueLei | null}`.
   - Keys: `no_value`, `undated`, `withheld_d6`, `withheld_gate`, `association_duplicate`, `association_unattributed`, and `unconfirmed_head` / `list_value_ceiling` when a filter leaves them out.
   - Rows that are included but flagged (unconfirmed heads, list-value ceilings) are reported as `flags` with counts.
 - **`explanation`:** `{textRo, textEn}`, composed by the API from `filtersApplied`, the labels, the exclusions and the flags. The client prints it verbatim.
-- **`allowed`:** `{measures, orders}` for these filters, taking over the role of `moneyVerdicts`.
+- **`allowed`:** `{valueKinds}`, the value kinds that are summed for the asked procurement kinds (DA: awarded; CA: awarded, framework ceiling, modification change; notices: none), taking over the role of `moneyVerdicts`. Orders join with the value-sorted records step.
 - **Failures:** a missing fact table or label table answers `ServiceUnavailable`, failing closed and never a guessed total. An unknown filter key or value answers `InvalidInput` naming the field.
 
 ### Rules that do not change
@@ -85,7 +86,7 @@ One batch read, totals only. Breakdown, series, concentration and value-sorted r
 
 ### Load
 
-One read per distinct filter set (`GROUP BY value_kind`), through the per-pod cap of 3 ClickHouse reads. A busy pod answers a retryable 503 with `Retry-After`, as now.
+One read per distinct non-status filter set (lists are sorted, so equal sets in another order share it), through the per-pod cap of 3 ClickHouse reads shared with every other ClickHouse read. A busy pod answers GraphQL `SERVICE_UNAVAILABLE` with `extensions.retryAfterSeconds` (HTTP 200, as every GraphQL error) and MCP `errorType: ServiceUnavailable` with `retryAfterSeconds`. A missing build table also answers ServiceUnavailable.
 
 ## Rules the later steps must follow (client, 20 Nov)
 
