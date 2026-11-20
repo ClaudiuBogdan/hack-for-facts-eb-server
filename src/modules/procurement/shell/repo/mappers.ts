@@ -29,6 +29,7 @@ import {
   resolveContractDisplayTitle,
   type ContractDisplayTitleCandidates,
 } from '../../core/contract-display-title.js';
+import { isFreeTextWithheld, publicFreeText } from '../../core/free-text-rule.js';
 
 import type {
   DuplicateRef,
@@ -305,7 +306,8 @@ export const mapProcedure = (r: ProcedureRow): ProcurementProcedure => {
     noticeKind: r.notice_kind,
     procedureType: r.procedure_type,
     contractKind: r.contract_kind,
-    title: r.title,
+    // Legacy titles are raw: the shipped free-text rule withholds a hit (PROC-37DX).
+    title: publicFreeText(r.title),
     authorityCui: r.authority_cui,
     authorityName: r.authority_name,
     cpvCode: r.cpv_code,
@@ -322,11 +324,13 @@ export const mapProcedure = (r: ProcedureRow): ProcurementProcedure => {
 };
 
 export const mapContract = (r: ContractRow): ProcurementContract => {
-  const displayTitle = resolveContractDisplayTitle(
-    r.title,
-    r.source_url,
-    r.display_title_candidates
-  );
+  // Legacy titles are raw: the shipped free-text rule withholds a hit, and a
+  // withheld title takes its display title with it, as on the records page
+  // (PROC-37DX). A display title the rule hits is withheld too.
+  const titleWithheld = r.title !== null && isFreeTextWithheld(r.title);
+  const resolved = resolveContractDisplayTitle(r.title, r.source_url, r.display_title_candidates);
+  const displayTitle =
+    titleWithheld || resolved === null || isFreeTextWithheld(resolved.text) ? null : resolved;
 
   return {
     contractId: r.contract_id,
@@ -337,7 +341,7 @@ export const mapContract = (r: ContractRow): ProcurementContract => {
     noticeNo: r.notice_no,
     contractNo: r.contract_no,
     contractDate: r.contract_date,
-    title: r.title,
+    title: titleWithheld ? null : r.title,
     displayTitle,
     authorityCui: r.authority_cui,
     authorityName: r.authority_name,
@@ -369,7 +373,7 @@ export const mapDirectAcquisition = (r: DaRow): ProcurementDirectAcquisition => 
     sourceSystem: daSourceSystem(r.source_system),
     sourceUrl: r.source_url,
     uniqueCode: r.unique_code,
-    title: r.title,
+    title: publicFreeText(r.title),
     authorityCui: r.authority_cui,
     authorityName: r.authority_name,
     supplierCui: r.supplier_cui,

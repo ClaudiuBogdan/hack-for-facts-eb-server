@@ -333,3 +333,100 @@ describe('procedure value-model mapping', () => {
     expect(p.value.valueRonComparable).toBe('500.00');
   });
 });
+
+describe('legacy titles under the shipped free-text rule (PROC-37DX)', () => {
+  const procedure = {
+    procedure_id: '1',
+    source_system: 'seap_notice',
+    source_url: null,
+    notice_no: null,
+    notice_kind: null,
+    procedure_type: null,
+    contract_kind: null,
+    title: null as string | null,
+    authority_cui: null,
+    authority_name: null,
+    cpv_code: null,
+    estimated_value_ron: null,
+    awarded_value_ron: null,
+    currency: null,
+    status: 'awarded',
+    county_name: null,
+    publication_date: null,
+    state_date: null,
+    value_state: 'source_missing',
+    value_state_detail: { rule: 'no_value' },
+    value_ron_comparable: null,
+    value_comparable_basis: null,
+    value_rules_version: 2,
+    value_resolved_at: null,
+  };
+  const da = {
+    da_id: '1',
+    da_key: 'k',
+    source_system: 'elicitatie_da',
+    source_url: null,
+    unique_code: null,
+    title: null as string | null,
+    authority_cui: null,
+    authority_name: null,
+    supplier_cui: null,
+    supplier_name: null,
+    cpv_code: null,
+    currency: null,
+    value_ron: null,
+    estimated_value_ron: null,
+    status: 'finalized',
+    county_name: null,
+    publication_date: null,
+    finalization_date: null,
+    is_canonical: true,
+    dup_group_id: null,
+    value_state: 'source_missing',
+    value_state_detail: { rule: 'no_value' },
+    value_ron_comparable: null,
+    value_comparable_basis: null,
+    value_rules_version: 2,
+    value_resolved_at: null,
+  };
+  const award = (title: string) => ({
+    matchedAwards: [{ title, sourceUrl: 'https://example.test/award' }],
+    procedure: null,
+  });
+
+  it('withholds a procedure or DA title the rule hits, and serves a public one', () => {
+    expect(mapProcedure({ ...procedure, title: 'Servicii PFA Exemplu' }).title).toBeNull();
+    expect(mapProcedure({ ...procedure, title: 'Furnizare hartie' }).title).toBe(
+      'Furnizare hartie'
+    );
+    expect(mapDirectAcquisition({ ...da, title: 'tel 0721 123 456' }).title).toBeNull();
+    expect(mapDirectAcquisition({ ...da, title: 'Furnizare hartie' }).title).toBe(
+      'Furnizare hartie'
+    );
+  });
+
+  it('a withheld contract title takes its display title with it', () => {
+    const c = mapContract({
+      ...baseContract,
+      title: 'contact office@example.ro',
+      display_title_candidates: award('Lucrari de reparatii acoperis'),
+    });
+    expect(c.title).toBeNull();
+    expect(c.displayTitle).toBeNull();
+  });
+
+  it('withholds a display title the rule hits, and keeps a public one', () => {
+    const hit = mapContract({
+      ...baseContract,
+      title: null,
+      display_title_candidates: award('Servicii P.F.A. Exemplu'),
+    });
+    expect(hit.displayTitle).toBeNull();
+    const fine = mapContract({
+      ...baseContract,
+      title: null,
+      display_title_candidates: award('Lucrari de reparatii acoperis'),
+    });
+    expect(fine.displayTitle).toMatchObject({ text: 'Lucrari de reparatii acoperis' });
+  });
+});

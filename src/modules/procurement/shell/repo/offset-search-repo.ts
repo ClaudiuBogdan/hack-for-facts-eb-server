@@ -31,6 +31,7 @@ import { modificationDeltaPctSql } from './filter-helpers.js';
 import { mapContract, mapDirectAcquisition, mapModification, mapProcedure } from './mappers.js';
 import { supportedProcedureIdSql } from './procedure-link-policy.js';
 import { SEARCH_COUNT_CAP } from '../../core/constants.js';
+import { isFreeTextWithheld } from '../../core/free-text-rule.js';
 import {
   assertDaOffsetSelective,
   CPV_LEVELS,
@@ -54,6 +55,7 @@ import type {
   ProcurementDirectAcquisition,
   ProcurementModification,
   ProcurementProcedure,
+  SearchHighlight,
 } from '../../core/types.js';
 
 type Db = Kysely<ProdDatabase>;
@@ -202,6 +204,43 @@ const inList = (column: RawBuilder<unknown>, values: readonly string[]): RawBuil
  * Supplier territory is in NO fact table — it resolves through
  * `companies_v2.territory_resolution` at index-build time and stays engine-only.
  */
+/** A hydrated page, and the ids whose raw title the free-text rule withholds. */
+interface Hydrated<Out> {
+  readonly items: Out[];
+  readonly missing: number;
+  readonly withheldTitles?: ReadonlySet<string>;
+}
+
+/**
+ * Highlights never quote a title the mapper withheld (PROC-37DX): a fragment
+ * is part of the raw title even when it does not carry the marker itself.
+ */
+/** The ids (as strings) of hydrated rows whose raw title the free-text rule withholds. */
+export const withheldTitleIds = (
+  rows: readonly Record<string, unknown>[],
+  pkColumn: string
+): Set<string> =>
+  new Set(
+    rows.flatMap((row) => {
+      const title = row['title'];
+      return typeof title === 'string' && isFreeTextWithheld(title) ? [String(row[pkColumn])] : [];
+    })
+  );
+
+export const withoutWithheldTitles = (
+  highlights: readonly SearchHighlight[],
+  withheld: ReadonlySet<string> | undefined
+): SearchHighlight[] =>
+  highlights.flatMap((highlight) => {
+    if (withheld?.has(highlight.id) !== true || highlight.title === undefined) return [highlight];
+    const rest: SearchHighlight = {
+      id: highlight.id,
+      ...(highlight.authorityName !== undefined && { authorityName: highlight.authorityName }),
+      ...(highlight.supplierName !== undefined && { supplierName: highlight.supplierName }),
+    };
+    return rest.authorityName !== undefined || rest.supplierName !== undefined ? [rest] : [];
+  });
+
 const FACT_TABLES: Readonly<Partial<Record<SearchGrain, { table: string; pk: string }>>> = {
   procedures: { table: 'procurement.analysis_facts_procedures', pk: 'procedure_id' },
   contracts: { table: 'procurement.analysis_facts_contracts', pk: 'contract_id' },
@@ -522,7 +561,7 @@ export const makeOffsetSearchRepo = (
     pkColumn: string,
     rows: readonly Row[],
     map: (row: Row) => Out
-  ): { items: Out[]; missing: number } => {
+  ): Hydrated<Out> => {
     // bigint columns arrive as strings — key on the string form, not the number.
     const byPk = new Map(rows.map((row) => [String(row[pkColumn]), row]));
     const items: Out[] = [];
@@ -534,7 +573,8 @@ export const makeOffsetSearchRepo = (
     if (missing > 0) {
       logger?.warn({ grain, missing }, 'search index lists rows postgres no longer serves');
     }
-    return { items, missing };
+    // The mapper withholds the title; its highlight must go too (PROC-37DX).
+    return { items, missing, withheldTitles: withheldTitleIds(rows, pkColumn) };
   };
 
   /**
@@ -551,7 +591,7 @@ export const makeOffsetSearchRepo = (
     f: ProcurementSearchFilter,
     p: OffsetSearchRequest,
     facets: readonly string[] | undefined,
-    hydrate: (pks: readonly number[]) => Promise<{ items: Out[]; missing: number }>
+    hydrate: (pks: readonly number[]) => Promise<Hydrated<Out>>
   ): Promise<Result<OffsetSearchResult<Out>, ApiError> | null> => {
     // A relevance ORDER is as engine-only as a geography FILTER: the SQL path
     // has no `_score`, so falling back would silently reorder the answer.
@@ -593,7 +633,7 @@ export const makeOffsetSearchRepo = (
     }
     const page = result.value;
     try {
-      const { items, missing } = await hydrate(page.pks);
+      const { items, missing, withheldTitles } = await hydrate(page.pks);
       // A hydration miss means the index and the database disagree about
       // membership. The page is short by construction, so the engine's count
       // can no longer be claimed exact — degrade it rather than assert a total
@@ -606,7 +646,7 @@ export const makeOffsetSearchRepo = (
         total: exact ? page.total : null,
         estimated: !exact,
         facets: page.facets,
-        highlights: page.highlights,
+        highlights: withoutWithheldTitles(page.highlights, withheldTitles),
         provenance: { engine: 'opensearch' as const, asOf: page.asOf },
       });
     } catch (error) {

@@ -27,7 +27,11 @@ import {
   type ProcurementSearchFilter,
   type SearchGrain,
 } from '@/modules/procurement/core/search.js';
-import { buildSearchConditions } from '@/modules/procurement/shell/repo/offset-search-repo.js';
+import {
+  buildSearchConditions,
+  withheldTitleIds,
+  withoutWithheldTitles,
+} from '@/modules/procurement/shell/repo/offset-search-repo.js';
 
 const DA_WINDOW_DAYS = 366;
 
@@ -324,5 +328,34 @@ describe('direct-acquisition offset selectivity matrix', () => {
 
   it('an empty-string cui does not qualify', () => {
     expect(check({ authorityCui: '  ' })).toBe(false);
+  });
+});
+
+describe('search highlights never quote a withheld title (PROC-37DX)', () => {
+  it('finds the hydrated rows whose raw title the rule withholds', () => {
+    const rows = [
+      { contract_id: '1', title: 'Servicii PFA Exemplu' },
+      { contract_id: '2', title: 'Furnizare hartie' },
+      { contract_id: '3', title: null },
+    ];
+    expect([...withheldTitleIds(rows, 'contract_id')]).toEqual(['1']);
+  });
+
+  it('drops the title fragment of a withheld row, keeps its name fragments, and drops it if nothing is left', () => {
+    const withheld = new Set(['1', '2']);
+    expect(
+      withoutWithheldTitles(
+        [
+          // A fragment need not carry the marker itself: it is still the withheld title.
+          { id: '1', title: '<em>Servicii</em> de curatenie' },
+          { id: '2', title: '<em>Servicii</em>', authorityName: '<em>Primaria</em> Sibiu' },
+          { id: '3', title: '<em>Servicii</em> publice' },
+        ],
+        withheld
+      )
+    ).toEqual([
+      { id: '2', authorityName: '<em>Primaria</em> Sibiu' },
+      { id: '3', title: '<em>Servicii</em> publice' },
+    ]);
   });
 });
