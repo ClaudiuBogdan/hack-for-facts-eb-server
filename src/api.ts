@@ -101,6 +101,7 @@ const main = async (): Promise<void> => {
     publicEnterprisesEnabled: redesign.publicEnterprisesEnabled ?? false,
     electionsEnabled: redesign.electionsEnabled ?? false,
     ...(redesign.legalSearch !== undefined && { legalSearch: redesign.legalSearch }),
+    ...(redesign.legalSource !== undefined && { legalSource: redesign.legalSource }),
   };
   const redesignClientBaseUrl = redesign.kernel.clientBaseUrl;
 

@@ -45,6 +45,10 @@ const ACT_DETAIL_QUERY = /* GraphQL */ `
       aliases
       amendedAfterPublication
       canonicalDocumentId
+      dataSource
+      bridgedFields
+      newerNotAvailable
+      defaultBasis
       canonical {
         documentId
         versionKind
@@ -154,6 +158,13 @@ const ACT_DETAIL_QUERY = /* GraphQL */ `
         isCanonical
         title
         firstPublicationDate
+        readable
+        caveat
+        portalLabelRaw
+        portalLabelDate
+        held
+        formKey
+        sourceUrl
         render {
           renderStatus
           chunkCount
@@ -274,6 +285,91 @@ const OVERVIEW_QUERY = /* GraphQL */ `
   }
 `;
 
+const FINDER_SEARCH_QUERY = /* GraphQL */ `
+  query LegislationFinderSearch($q: String!, $includeHistorical: Boolean!, $limit: Int!) {
+    legalSearch(q: $q, includeHistorical: $includeHistorical, channel: docs, limit: $limit) {
+      acts {
+        score
+        act {
+          actId
+          displayCitation
+          actType
+          actNumber
+          actYear
+          issuerSlug
+          status
+          inDegree
+        }
+        summary {
+          description
+        }
+      }
+      caveats
+      engine
+      actsTotal
+      totalsExhaustive
+      degraded
+      asOf
+      unhydratedHits
+    }
+  }
+`;
+
+const STATUS_COUNTS_QUERY = /* GraphQL */ `
+  query LegislationStatusCounts {
+    legalActCounts(groupBy: STATUS) {
+      bucketsTruncated
+      otherCount
+      buckets {
+        key
+        count
+      }
+    }
+  }
+`;
+
+const CHANGES_FEED_QUERY = /* GraphQL */ `
+  query LegislationChangesFeed(
+    $since: String
+    $until: String
+    $kinds: [String!]
+    $eventSource: String
+    $undatedOnly: Boolean
+    $first: Int!
+    $after: String
+  ) {
+    legalRecentChanges(
+      since: $since
+      until: $until
+      kinds: $kinds
+      eventSource: $eventSource
+      undatedOnly: $undatedOnly
+      first: $first
+      after: $after
+    ) {
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+      edges {
+        node {
+          eventId
+          eventKind
+          effectiveDate
+          eventSource
+          sourceAct {
+            actId
+            displayCitation
+          }
+          actId
+          displayCitation
+          status
+        }
+      }
+    }
+  }
+`;
+
 const VALIDATION_ERROR =
   /Cannot query field|Unknown argument|Unknown type|Expected type|cannot represent|got invalid value|of required type|Unknown fragment/i;
 
@@ -319,56 +415,77 @@ const CASES: readonly { name: string; query: string; variables: Record<string, u
       moYear: 2026,
     },
   },
+  {
+    name: 'finder search (legal-search-api.live.ts)',
+    query: FINDER_SEARCH_QUERY,
+    variables: { q: 'impozit pe venit', includeHistorical: false, limit: 20 },
+  },
+  {
+    name: 'status counts (legal-status-counts-api.live.ts)',
+    query: STATUS_COUNTS_QUERY,
+    variables: {},
+  },
+  {
+    name: 'changes feed (legal-changes-api.live.ts)',
+    query: CHANGES_FEED_QUERY,
+    variables: { first: 20 },
+  },
 ];
 
-describe('legal client GraphQL documents validate against the mounted schema', () => {
-  let app: FastifyInstance;
+// The same documents against both legal sources: LEGAL_SOURCE=legacy (the
+// default) and LEGAL_SOURCE=v2 (legal_v2 + the bridge). One SDL serves both.
+describe.each(['legacy', 'v2'] as const)(
+  'legal client GraphQL documents validate against the mounted schema (LEGAL_SOURCE=%s)',
+  (legalSource) => {
+    let app: FastifyInstance;
 
-  beforeAll(async () => {
-    app = await createApp({
-      fastifyOptions: { logger: false },
-      deps: {
-        budgetDb: makeFakeBudgetDb(),
-        datasetRepo: makeFakeDatasetRepo(),
-        config: makeTestConfig(),
-        // Fast-fail endpoints: resolver-time DB errors are expected and fine;
-        // only schema VALIDATION failures matter here.
-        redesignKernelConfig: {
-          prodDatabaseUrl: 'postgres://test:test@127.0.0.1:1/test',
-          meiliHost: '',
-          meiliApiKey: '',
-          opensearchUrl: '',
+    beforeAll(async () => {
+      app = await createApp({
+        fastifyOptions: { logger: false },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig(),
+          redesignComposition: { procurement: {}, legalSource },
+          // Fast-fail endpoints: resolver-time DB errors are expected and fine;
+          // only schema VALIDATION failures matter here.
+          redesignKernelConfig: {
+            prodDatabaseUrl: 'postgres://test:test@127.0.0.1:1/test',
+            meiliHost: '',
+            meiliApiKey: '',
+            opensearchUrl: '',
+          },
         },
-      },
+      });
     });
-  });
 
-  afterAll(async () => {
-    await app.close();
-  });
-
-  it('mounts the redesign GraphQL route (precondition)', async () => {
-    const response = await app.inject({
-      method: 'POST',
-      url: '/api/v1/graphql',
-      payload: { query: '{ __typename }' },
+    afterAll(async () => {
+      await app.close();
     });
-    expect(response.statusCode).toBe(200);
-  });
 
-  for (const testCase of CASES) {
-    it(`validates: ${testCase.name}`, async () => {
+    it('mounts the redesign GraphQL route (precondition)', async () => {
       const response = await app.inject({
         method: 'POST',
         url: '/api/v1/graphql',
-        payload: { query: testCase.query, variables: testCase.variables },
+        payload: { query: '{ __typename }' },
       });
-
-      const body: { errors?: readonly { message: string }[] } = response.json();
-      const validationErrors = (body.errors ?? []).filter((error) =>
-        VALIDATION_ERROR.test(error.message)
-      );
-      expect(validationErrors).toEqual([]);
+      expect(response.statusCode).toBe(200);
     });
+
+    for (const testCase of CASES) {
+      it(`validates: ${testCase.name}`, async () => {
+        const response = await app.inject({
+          method: 'POST',
+          url: '/api/v1/graphql',
+          payload: { query: testCase.query, variables: testCase.variables },
+        });
+
+        const body: { errors?: readonly { message: string }[] } = response.json();
+        const validationErrors = (body.errors ?? []).filter((error) =>
+          VALIDATION_ERROR.test(error.message)
+        );
+        expect(validationErrors).toEqual([]);
+      });
+    }
   }
-});
+);

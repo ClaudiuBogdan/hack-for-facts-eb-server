@@ -31,7 +31,7 @@ const KIND_LABEL: Record<string, string> = {
   corp: 'text publicat',
   'stub-header': 'text original',
   republicare: 'text republicat',
-  consolidare: 'text consolidat',
+  consolidare: 'formă consolidată neoficială',
 };
 
 const UNKNOWN_KIND_LABEL = 'versiune necunoscută';

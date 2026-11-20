@@ -31,11 +31,14 @@ import type {
   LegalRecentChange,
   LegalReferenceEdge,
   LegalRelation,
+  LegalRenderError,
   LegalRenderInfo,
+  LegalRenderPayload,
   LegalRenderRow,
   LegalSectionHit,
   LegalVersionProvenance,
 } from './types.js';
+import type { V2DefaultForm } from './v2/forms.js';
 import type { ApiError, CursorPage, FilterInput, IsoDate } from '@/modules/shared/index.js';
 import type { Result } from 'neverthrow';
 
@@ -157,6 +160,13 @@ export interface LegalActsRepo extends LegalRepoBase {
   summariesForDocuments(
     documentIds: readonly string[]
   ): Promise<Result<ReadonlyMap<string, LegalActSummary>, ApiError>>;
+  /**
+   * legal_v2 source only: the default form of each act (rebuild-model §7),
+   * computed per act from its forms. Absent on the legacy source.
+   */
+  defaultFormsForActs?(
+    actIds: readonly string[]
+  ): Promise<Result<ReadonlyMap<string, V2DefaultForm>, ApiError>>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -266,6 +276,18 @@ export interface LegalRenderRepo {
     runId: string,
     chunkIndex: number
   ): Promise<Result<LegalRenderRow | null, ApiError>>;
+}
+
+/**
+ * legal_v2 source only: the REST render body read in ONE statement per request
+ * (the reader contract of 30-reader.sql: two statements can mix two versions
+ * of a form across a replace). Replaces `getDocumentRenderChunk` when present.
+ */
+export interface LegalRenderSource {
+  read(
+    documentId: string,
+    chunkIndex: number
+  ): Promise<Result<LegalRenderPayload, LegalRenderError | ApiError>>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

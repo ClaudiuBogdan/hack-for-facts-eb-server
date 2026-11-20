@@ -92,10 +92,21 @@ const objectsAndQuery = /* GraphQL */ `
     issuerSlug: String
     canonicalDocumentId: String
     displayCitation: String!
-    status: LegalActStatus!
-    statusEvidence: JSON!
+    "The act's status. On the legal_v2 source it is BRIDGED from the previous corpus (see bridgedFields) and null when that corpus does not hold the act."
+    status: LegalActStatus
+    "Which signals decided the status; bridged and nullable like status."
+    statusEvidence: JSON
     entryIntoForce: Date
-    inDegree: Int!
+    "Incoming citation count; bridged and nullable like status."
+    inDegree: Int
+    "Which source served the act: 'legal' (the previous corpus) or 'legal_v2' (the rebuilt schema)."
+    dataSource: String!
+    "legal_v2 only: the fields read from the previous corpus by act_id (status, statusEvidence, inDegree, entryIntoForce, amendedAfterPublication, links, incomingAnchors, timeline, summary, domains, categories, title). Empty when the previous corpus does not hold the act, and on the legacy source."
+    bridgedFields: [String!]!
+    "legal_v2 only: consolidations dated up to today that exist and cannot be shown (not accepted, no text, held, or unordered). Null on the legacy source."
+    newerNotAvailable: Int
+    "legal_v2 only: why canonical is the default form — 'latest_consolidation' or 'original' (rebuild-model section 7). Null on the legacy source or when the act has no default form."
+    defaultBasis: String
     # lazy fields (DataLoader / repo, not on the base row):
     canonical: LegalDocument
     summary: LegalActSummary
@@ -104,7 +115,7 @@ const objectsAndQuery = /* GraphQL */ `
     "Exact number of the act's document expressions (act_documents rows)."
     versionCount: Int!
     "Incoming modifica/completeaza references on the act, of any date — the §5.2-C honesty badge. References, not distinct amending acts or legal changes, and not dated against any one expression. It also counts the judicial court references the timeline omits (I-28)."
-    amendedAfterPublication: Int!
+    amendedAfterPublication: Int
     "Which version the served text/summary actually is (§5.2-C). Batched per request."
     versionProvenance: LegalVersionProvenance!
     "The same fact rendered in Romanian, ready to show next to any text answer."
@@ -174,11 +185,24 @@ const objectsAndQuery = /* GraphQL */ `
     moPart: Int
     moNumber: String
     moDate: Date
+    "legal_v2 only: text is published for this form (and public)."
+    readable: Boolean
+    "legal_v2 only: 'unofficial_consolidation' on every consolidation — show the Portal's consolidation caveat (LEG-X3AV) wherever its text is shown."
+    caveat: String
+    "legal_v2 only: the Portal's own consolidation label as written, and its date (where filled)."
+    portalLabelRaw: String
+    portalLabelDate: Date
+    "legal_v2 only: a capture claims this form and is held, conflicting or unresolved."
+    held: Boolean
+    "legal_v2 only: the form's key within its act (e.g. 'cons:2024-01-01')."
+    formKey: String
+    "legal_v2 only: the form's Portal page (its newest bound capture), for the portal link."
+    sourceUrl: String
     "Render availability (null = never compiled). The artifact BODY travels only over the cacheable REST route GET /api/v1/legal/documents/{documentId}/render."
     render: LegalRenderInfo
   }
 
-  "TLDF render availability for one document expression (legal.document_generations + row-0 chunk_count). status: served | content_unavailable | superseded_pending; only served+public documents answer on the REST render route."
+  "TLDF render availability for one document expression (legal.document_generations + row-0 chunk_count). status: served | content_unavailable | superseded_pending; on the legal_v2 source also not_loaded (no published text) | composition_not_served (header plus body, not in this version). Only served+public documents answer on the REST render route."
   type LegalRenderInfo {
     documentId: String!
     renderStatus: String!

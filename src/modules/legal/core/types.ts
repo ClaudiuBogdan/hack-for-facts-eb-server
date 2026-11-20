@@ -149,6 +149,16 @@ export interface LegalAct {
   readonly statusEvidence: Record<string, unknown>; // jsonb: which signals fired
   readonly entryIntoForce: IsoDate | null;
   readonly inDegree: number; // incoming citation count
+  /**
+   * legal_v2 source only (absent on the legacy source). False when the act is
+   * not in the old `legal` corpus: status, statusEvidence and inDegree then
+   * hold neutral placeholders internally and GraphQL serves them as null.
+   */
+  readonly bridged?: boolean;
+  /** legal_v2 source only: which fields were read from the old `legal` corpus. */
+  readonly bridgedFields?: readonly string[];
+  /** legal_v2 source only: the act was ended (absorbed or reviewed). */
+  readonly ended?: boolean;
 }
 
 /** `legal.act_documents` — a document expression of an act (versions). */
@@ -173,6 +183,19 @@ export interface LegalDocument {
   readonly moPart: number | null;
   readonly moNumber: string | null;
   readonly moDate: IsoDate | null;
+  // ── legal_v2 forms only (absent on the legacy source) ──
+  /** Text is published for the form (and public). */
+  readonly readable?: boolean;
+  /** 'unofficial_consolidation' on every consolidation (LEG-X3AV). */
+  readonly caveat?: string | null;
+  /** The Portal's own consolidation label and its date, where filled. */
+  readonly portalLabelRaw?: string | null;
+  readonly portalLabelDate?: IsoDate | null;
+  /** A capture that claims the form is held, conflicting or unresolved. */
+  readonly held?: boolean;
+  readonly formKey?: string;
+  /** The form's source page (latest bound capture), for the portal link. */
+  readonly sourceUrl?: string | null;
 }
 
 /** `legal.document_summaries` — the AI metadata projection (RAG-grounding source). */
@@ -208,6 +231,10 @@ export interface LegalActCard extends LegalAct {
   readonly citationKeys: readonly LegalCitationKey[];
   readonly versionCount: number; // act_documents rows for this act
   readonly amendedAfterPublication: number; // incoming modifica/completeaza edges → §5.2-C
+  /** legal_v2 only: consolidations up to today that exist and cannot be shown. */
+  readonly newerNotAvailable?: number | null;
+  /** legal_v2 only: why the default form is the default ('latest_consolidation' | 'original'). */
+  readonly defaultBasis?: string | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -475,7 +502,14 @@ export interface LegalIncomingAnchorsPage {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** `legal.document_generations.render_status` — the D1b promotion states. */
-export type LegalRenderStatus = 'served' | 'content_unavailable' | 'superseded_pending';
+export type LegalRenderStatus =
+  | 'served'
+  | 'content_unavailable'
+  | 'superseded_pending'
+  // legal_v2: the form has no published text yet.
+  | 'not_loaded'
+  // legal_v2: the form's text is several units (header plus body); not in this version.
+  | 'composition_not_served';
 
 /**
  * Render availability for one document expression: the `document_generations`
@@ -519,6 +553,10 @@ export interface LegalRenderPayload {
   readonly chunkIndex: number;
   readonly info: LegalRenderInfo;
   readonly tldf: Record<string, unknown>;
+  /** legal_v2: the validator (composition digest + identity generation), replacing the generation tag. */
+  readonly etag?: string;
+  /** legal_v2: where the body came from, e.g. 'legal_v2:tldf-unit/1'. */
+  readonly renderSource?: string;
 }
 
 /**

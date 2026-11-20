@@ -868,6 +868,9 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
             ...(deps.redesignComposition.legalSearch !== undefined && {
               legalSearch: deps.redesignComposition.legalSearch,
             }),
+            ...(deps.redesignComposition.legalSource !== undefined && {
+              legalSource: deps.redesignComposition.legalSource,
+            }),
           }),
           // Disabled to avoid a duplicate `GET /graphiql` route (legacy owns it).
           enableGraphiQL: false,

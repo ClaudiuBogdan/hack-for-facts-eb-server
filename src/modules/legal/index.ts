@@ -39,6 +39,10 @@ import {
 import { makeLegalOutlineRepo } from './shell/repo/outline-repo.js';
 import { makeLegalRenderRepo } from './shell/repo/render-repo.js';
 import { makeLegalRetrievalRepo } from './shell/repo/retrieval-repo.js';
+import { makeLegalActsRepoV2 } from './shell/repo/v2/acts-repo-v2.js';
+import { makeLegalOutlineRepoV2 } from './shell/repo/v2/outline-v2.js';
+import { makeLegalRenderRepoV2, makeLegalRenderSourceV2 } from './shell/repo/v2/render-v2.js';
+import { makeLegalV2SearchEngine } from './shell/repo/v2/search-engine-v2.js';
 import { makeLegalVocabRepo } from './shell/repo/vocab-repo.js';
 import { makeLegalRoutes } from './shell/rest/routes.js';
 
@@ -93,7 +97,17 @@ export interface LegalModuleDeps {
    */
   readonly searchEngine?: LegalEngineConfig;
   readonly logger?: LegalModuleLogger;
+  /**
+   * Which schema serves acts, versions and text (LEGAL_SOURCE). 'legacy'
+   * (default) is the `legal` schema; 'v2' reads identity, forms and text from
+   * `legal_v2` and bridges status, links, timeline, summary and the changes
+   * feed from `legal` by act_id. On 'v2', `searchEngine.actsIndex` /
+   * `sectionsIndex` name the legal-v2 TEST acts / units indexes.
+   */
+  readonly source?: LegalSource;
 }
+
+export type LegalSource = 'legacy' | 'v2';
 
 /** The acts-area repo set 06 reuses (`base` is the skeleton join target). */
 export interface LegalRepos {
@@ -132,10 +146,15 @@ export const makeLegalModule = async (deps: LegalModuleDeps): Promise<LegalModul
   const clientBaseUrl = deps.clientBaseUrl ?? 'https://transparenta.eu';
 
   // 1. acts-area repos (LegalActsRepo extends LegalRepoBase) + graph/outline/retrieval.
-  const acts = makeLegalActsRepo(deps.db);
+  //    On the v2 source the acts/outline/render repos read legal_v2; the graph
+  //    (links, anchors, timeline) and retrieval stay on `legal` — the bridge.
+  const v2 = deps.source === 'v2';
+  const legacyActs = makeLegalActsRepo(deps.db);
+  const acts = v2 ? makeLegalActsRepoV2({ db: deps.db, legacy: legacyActs }) : legacyActs;
   const graph = makeLegalGraphRepo(deps.db);
-  const outline = makeLegalOutlineRepo(deps.db);
-  const render = makeLegalRenderRepo(deps.db);
+  const outline = v2 ? makeLegalOutlineRepoV2(deps.db) : makeLegalOutlineRepo(deps.db);
+  const render = v2 ? makeLegalRenderRepoV2(deps.db) : makeLegalRenderRepo(deps.db);
+  const renderSource = v2 ? makeLegalRenderSourceV2(deps.db) : undefined;
   const retrieval = makeLegalRetrievalRepo(deps.db);
   const vocab = makeLegalVocabRepo(deps.db);
   const repos: LegalRepos = { base: acts, acts, graph, outline, render, retrieval };
@@ -152,12 +171,26 @@ export const makeLegalModule = async (deps: LegalModuleDeps): Promise<LegalModul
   });
 
   // 4. usecase dep bundles (shared by GraphQL + MCP — tri-surface equivalence).
+  // On v2 the configured indexes are the legal-v2 TEST indexes: they are read
+  // only by the v2 engine (both must be named), never by the legacy one.
   const engine =
-    deps.searchEngine === undefined ? undefined : makeLegalSearchEngine(deps.searchEngine);
+    deps.searchEngine === undefined || v2 ? undefined : makeLegalSearchEngine(deps.searchEngine);
+  const se = deps.searchEngine;
+  const v2Engine =
+    v2 && se?.actsIndex !== undefined && se.sectionsIndex !== undefined
+      ? makeLegalV2SearchEngine({ ...se, actsIndex: se.actsIndex, unitsIndex: se.sectionsIndex })
+      : undefined;
+  if (v2 && se !== undefined && v2Engine === undefined) {
+    deps.logger?.warn?.(
+      { actsIndex: se.actsIndex ?? null, unitsIndex: se.sectionsIndex ?? null },
+      '[legal] LEGAL_SOURCE=v2 needs both the acts and the units index; v2 word search is off'
+    );
+  }
   const searchDeps: LegalSearchDeps = {
     retrieval,
     acts,
     ...(engine !== undefined && { engine }),
+    ...(v2Engine !== undefined && { v2Engine }),
     synthetic: deps.synthetic,
     capabilities: deps.capabilities,
     embeddingModel: deps.embeddingModel,
@@ -209,7 +242,10 @@ export const makeLegalModule = async (deps: LegalModuleDeps): Promise<LegalModul
     repos,
     legalActLoader,
     semanticReady,
-    routesPlugin: makeLegalRoutes({ render }),
+    routesPlugin: makeLegalRoutes({
+      render,
+      ...(renderSource !== undefined && { source: renderSource }),
+    }),
   };
 };
 

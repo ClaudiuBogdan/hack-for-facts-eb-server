@@ -38,7 +38,7 @@ const toEventSource = (s: string): LegalEventSource =>
   s === 'monitorul-oficial' || s === 'portal' ? s : 'necunoscut';
 
 /** Coerce a jsonb column to a plain object (null/non-object → {}). */
-const asObject = (v: unknown): Record<string, unknown> =>
+export const asObject = (v: unknown): Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
 
 const arr = (v: readonly string[] | null): readonly string[] => v ?? [];

@@ -58,6 +58,11 @@ import {
   type LegalTimelineEntry,
   type LegalVersionProvenance,
 } from './types.js';
+import {
+  V2_CONSOLIDATION_CAVEAT,
+  searchLegalV2Engine,
+  type LegalV2SearchEngine,
+} from './v2/search.js';
 
 import type {
   CursorPageRequest,
@@ -611,6 +616,12 @@ export interface LegalSearchDeps {
   /** Module-local effective semantic gate (kernel slot AND hnsw readiness). */
   readonly semanticReady: boolean;
   readonly clientBaseUrl: string;
+  /**
+   * legal_v2 source (LEGAL_SOURCE=v2): words-only search on the legal-v2 test
+   * indexes. When present it answers every non-identifier query; the legacy
+   * engine and the Postgres path are not used.
+   */
+  readonly v2Engine?: LegalV2SearchEngine;
 }
 
 const SEMANTIC_CAVEAT = 'semantic search unavailable';
@@ -683,7 +694,9 @@ export const searchLegal = async (
         );
       }
       for (const card of cards) caveats.push(honestyCaveat(card));
-      caveats.push(LEGAL_ORIGINAL_TEXT_CAVEAT);
+      caveats.push(
+        deps.v2Engine !== undefined ? V2_CONSOLIDATION_CAVEAT : LEGAL_ORIGINAL_TEXT_CAVEAT
+      );
       const provRes = await deps.acts.versionProvenanceForActs(cards.map((card) => card.actId));
       if (provRes.isErr()) return err(provRes.error);
       return ok({
@@ -705,6 +718,14 @@ export const searchLegal = async (
         unhydratedHits: shown.length - cards.length,
       });
     }
+  }
+
+  // 2a. legal_v2: words on the legal-v2 indexes, hydrated from legal_v2.
+  if (deps.v2Engine !== undefined) {
+    return searchLegalV2Engine(
+      { engine: deps.v2Engine, acts: deps.acts, clientBaseUrl: deps.clientBaseUrl },
+      query
+    );
   }
 
   // 2. The engine path, when this deployment has an index. It either answers
@@ -876,6 +897,9 @@ const stripCard = (card: LegalActCard): LegalAct => ({
   statusEvidence: card.statusEvidence,
   entryIntoForce: card.entryIntoForce,
   inDegree: card.inDegree,
+  ...(card.bridged !== undefined && { bridged: card.bridged }),
+  ...(card.bridgedFields !== undefined && { bridgedFields: card.bridgedFields }),
+  ...(card.ended !== undefined && { ended: card.ended }),
 });
 
 // ── discovery / resolve ─────────────────────────────────────────────────────────

@@ -52,6 +52,7 @@ const main = async (): Promise<void> => {
     publicEnterprisesEnabled: config.publicEnterprisesEnabled ?? false,
     electionsEnabled: config.electionsEnabled ?? false,
     ...(config.legalSearch !== undefined && { legalSearch: config.legalSearch }),
+    ...(config.legalSource !== undefined && { legalSource: config.legalSource }),
     ...(config.companiesAnalytics !== undefined && {
       companiesAnalytics: config.companiesAnalytics,
     }),
