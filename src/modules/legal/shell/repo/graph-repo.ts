@@ -161,9 +161,13 @@ export const makeLegalGraphRepo = (db: Db, gate?: LegalBridgeGate): LegalGraphRe
     const cursor = cursorRes.value;
     try {
       // act_references_target (target_act_id, relation) drives this. Join back to
-      // the citing act via its canonical document (the edge's source_document_id).
+      // the citing act through act_documents (document_id is its key), so a
+      // NON-canonical citing document names its act too: joining on the act's
+      // canonical document alone lost it, and the timeline then named the
+      // target as its own amender (archived reference 105215/0).
       let q = selectRefs()
-        .leftJoin('legal.acts as sa', 'sa.canonical_document_id', 'r.source_document_id')
+        .leftJoin('legal.act_documents as sd', 'sd.document_id', 'r.source_document_id')
+        .leftJoin('legal.acts as sa', 'sa.act_id', 'sd.act_id')
         .where('r.target_act_id', '=', actId);
       if (gate !== undefined) {
         // The citing act — resolved through act_documents, so a NON-canonical
@@ -180,11 +184,7 @@ export const makeLegalGraphRepo = (db: Db, gate?: LegalBridgeGate): LegalGraphRe
       if (cursor !== null) q = q.where(afterPk(cursor));
       const rows = await q
         .select([
-          sql<
-            string | null
-          >`(select sd.act_id::text from legal.act_documents sd where sd.document_id = r.source_document_id)`.as(
-            'sd_act_id'
-          ),
+          sql<string | null>`sd.act_id::text`.as('sd_act_id'),
           'sa.act_id as sa_act_id',
           'sa.act_natural_key as sa_act_natural_key',
           'sa.act_type as sa_act_type',

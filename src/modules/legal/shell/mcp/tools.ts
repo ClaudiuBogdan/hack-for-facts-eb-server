@@ -54,6 +54,7 @@ import type {
   LegalResolveDim,
   LegalVersionProvenance,
 } from '../../core/types.js';
+import type { V2DefaultForm } from '../../core/v2/forms.js';
 import type { FilterInput, KernelMcpTool, McpToolOutput } from '@/modules/shared/index.js';
 
 /** The client search page's `q` bound (`legalFinderSearchSchema`). */
@@ -302,10 +303,26 @@ export const makeLegalMcpTools = (deps: LegalMcpDeps): readonly KernelMcpTool[] 
         });
         const found = await acts.findActsByIds(ids);
         if (found.isErr()) return errorOut(LEGAL_MCP_KINDS.links, found.error.message);
+        // One batched default-form read for every citing act (no per-row query).
+        const defaultsRes =
+          acts.defaultFormsForActs === undefined ? null : await acts.defaultFormsForActs(ids);
+        if (defaultsRes?.isErr() === true) {
+          return errorOut(LEGAL_MCP_KINDS.links, defaultsRes.error.message);
+        }
+        const defaults: ReadonlyMap<string, V2DefaultForm> =
+          defaultsRes?.isOk() === true ? defaultsRes.value : new Map<string, V2DefaultForm>();
         const byId = new Map(found.value.map((a) => [a.actId, a]));
         items = incoming.value.items.map((i) => {
           const citing = byId.get(i.sourceActId ?? i.sourceAct?.actId ?? '');
-          return { edge: i.edge, sourceAct: citing === undefined ? null : exposeBridged(citing) };
+          if (citing === undefined) return { edge: i.edge, sourceAct: null };
+          const formId = defaults.get(citing.actId)?.defaultFormId ?? null;
+          return {
+            edge: i.edge,
+            sourceAct: {
+              ...exposeBridged(citing),
+              canonicalDocumentId: formId === null ? null : `f${formId}`,
+            },
+          };
         });
       }
       return {

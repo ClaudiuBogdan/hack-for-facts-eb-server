@@ -438,8 +438,8 @@ run('legal_v2 on real DDL', () => {
             documentId: 'f101',
             caveat: 'unofficial_consolidation',
             sourceUrl: 'https://legislatie.just.ro/Public/DetaliiDocumentAfis/5101',
-            // D7b's modifica only: D9's comes from the restricted act 9.
-            amendedAfterPublication: 1,
+            // D7b's and D10b's modifica: D9's comes from the restricted act 9.
+            amendedAfterPublication: 2,
           },
         },
       ],
@@ -465,8 +465,11 @@ run('legal_v2 on real DDL', () => {
       links: { edges: { sourceDocumentId: string; sourceAct: { actId: string } | null }[] };
     };
     expect(act.statusEvidence.abrogated_by).toEqual([7]);
-    // A public NON-canonical citing document stays, with its act.
-    expect(act.links.edges).toEqual([{ sourceDocumentId: 'D7b', sourceAct: { actId: '7' } }]);
+    // Public NON-canonical citing documents stay, each with its act.
+    expect(act.links.edges).toEqual([
+      { sourceDocumentId: 'D10b', sourceAct: { actId: '10' } },
+      { sourceDocumentId: 'D7b', sourceAct: { actId: '7' } },
+    ]);
     const outline = makeLegalOutlineRepoV2(db);
     // Form 107 is served, but every provision at b1's span is withheld: the
     // legal block must not answer through the presentation fallback.
@@ -513,6 +516,33 @@ run('legal_v2 on real DDL', () => {
     }
     await run(OUTLINE_QUERY, { documentId: 'f101', maxDepth: 7, first: 200, after: null });
   });
+
+  it('names the citing act of a non-canonical document in the timeline', async () => {
+    const data = await gql(`{ legalAct(actId: "7") { timeline { kind label relatedActId } } }`);
+    const amendments = (
+      data['legalAct'] as {
+        timeline: { kind: string; label: string; relatedActId: string | null }[];
+      }
+    ).timeline.filter((e) => e.kind === 'amendment');
+    // D10b is a NON-canonical document of act 10: act 10 is the amender, never
+    // the target itself, and never a null act.
+    expect(amendments).toContainEqual({
+      kind: 'amendment',
+      label: 'modifica de Legea nr. 10/2023',
+      relatedActId: '10',
+    });
+    expect(amendments.every((e) => e.relatedActId !== null)).toBe(true);
+  });
+
+  it("fills the citing acts' default document over MCP, from one batched read", async () => {
+    const links = tools.find((t) => t.name === 'get_legal_act_links');
+    const out = (await links?.handler({ actId: '7', direction: 'in' })) as unknown as {
+      items: { edge: { sourceDocumentId: string }; sourceAct: Record<string, unknown> | null }[];
+    };
+    const byDoc = new Map(out.items.map((i) => [i.edge.sourceDocumentId, i.sourceAct]));
+    expect(byDoc.get('D10b')).toMatchObject({ actId: '10', canonicalDocumentId: 'f110' });
+    expect(byDoc.get('D7b')).toMatchObject({ actId: '7', canonicalDocumentId: 'f101' });
+  });
 });
 
 /** The fixture, written with triggers off. */
@@ -528,7 +558,8 @@ const seed = async (q: (t: string, p?: unknown[]) => Promise<pg.QueryResult>): P
              issuer_slug, display_citation, identity_generation_seq, privacy_class) values
            (7, 'lege/1/2020', 'lege', '1', 2020, 'parlamentul', 'Legea nr. 1/2020', 4, 'public'),
            (8, 'lege/2/2021', 'lege', '2', 2021, 'parlamentul', 'Legea nr. 2/2021', 4, 'public'),
-           (9, 'lege/3/2022', 'lege', '3', 2022, 'secret-issuer', 'Legea nr. 3/2022', 4, 'restricted')`);
+           (9, 'lege/3/2022', 'lege', '3', 2022, 'secret-issuer', 'Legea nr. 3/2022', 4, 'restricted'),
+           (10, 'lege/10/2023', 'lege', '10', 2023, 'parlamentul', 'Legea nr. 10/2023', 4, 'public')`);
   await q(`insert into legal_v2.page_acts values ('5101', 7, 'ledger_member', 'public'),
            ('777', 9, 'ledger_member', 'public')`);
   // forms: 101 consolidation (served), 103 original (restricted chunk),
@@ -544,7 +575,8 @@ const seed = async (q: (t: string, p?: unknown[]) => Promise<pg.QueryResult>): P
             'unofficial_consolidation', null, 'public'),
            (901, 9, 'original', 'orig', true, true, '2022-01-01', null, null, 'public'),
            (106, 7, 'republication', 'rep', true, true, '2021-06-01', null, null, 'public'),
-           (107, 7, 'original', 'orig2', true, true, '2019-01-01', null, null, 'public')`);
+           (107, 7, 'original', 'orig2', true, true, '2019-01-01', null, null, 'public'),
+           (110, 10, 'original', 'orig', true, true, '2023-01-01', null, null, 'public')`);
   const body = JSON.stringify({
     format: 'tldf-unit',
     format_version: '1',
@@ -577,6 +609,7 @@ const seed = async (q: (t: string, p?: unknown[]) => Promise<pg.QueryResult>): P
     [5, 105, '5105'],
     [9, 901, '5901'],
     [8, 107, '5107'],
+    [10, 110, '5110'],
   ] as const) {
     await q(
       `insert into legal_v2.text_units (unit_id, capture_ref_id, custody_lane, page_id, route,
@@ -660,16 +693,20 @@ const seed = async (q: (t: string, p?: unknown[]) => Promise<pg.QueryResult>): P
            (7, 'lege/1/2020', 'lege', '1', 2020, 'parlamentul', 'D7', 'Legea nr. 1/2020',
             'modificat', '{"abrogated_by": [9, 7]}', null, 3),
            (9, 'lege/3/2022', 'lege', '3', 2022, 'secret-issuer', 'D9', 'Legea nr. 3/2022',
-            'in-vigoare', '{}', null, 1)`);
+            'in-vigoare', '{}', null, 1),
+           (10, 'lege/10/2023', 'lege', '10', 2023, 'parlamentul', 'D10', 'Legea nr. 10/2023',
+            'in-vigoare', '{}', '2023-02-01', 0)`);
   await q(`insert into legal.act_documents (document_id, act_id, is_canonical, title) values
            ('D7', 7, true, 'Titlu 7'), ('D7b', 7, false, 'Titlu 7 (alt)'),
+           ('D10', 10, true, 'Titlu 10'), ('D10b', 10, false, 'Titlu 10 (republicat)'),
            ('D9', 9, true, 'Titlu secret')`);
   // References: 9 modifies 7 (restricted citing act), 7 cites 9 (restricted target).
   await q(`insert into legal.act_references (source_document_id, ref_index, relation, target_raw,
              target_class, target_act_id, resolution) values
            ('D9', 1, 'modifica', 'Legea 1/2020', 'domestic', 7, 'unique'),
            ('D7', 1, 'face-referire', 'Legea 3/2022', 'domestic', 9, 'unique'),
-           ('D7b', 1, 'modifica', 'Legea 1/2020', 'domestic', 7, 'unique')`);
+           ('D7b', 1, 'modifica', 'Legea 1/2020', 'domestic', 7, 'unique'),
+           ('D10b', 1, 'modifica', 'Legea 1/2020', 'domestic', 7, 'unique')`);
   await q(`insert into legal.act_status_events values
            (1, 7, 'modificare', '2024-01-01', null, '{}', 'portal', 'public'),
            (2, 7, 'modificare', '2024-02-01', 9, '{}', 'portal', 'public'),

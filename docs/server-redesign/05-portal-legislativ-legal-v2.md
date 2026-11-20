@@ -128,6 +128,10 @@ behaviour unchanged.
 - **Date-only consolidation label.** A consolidation is served with the Portal's label date when the projection left
   the label wording null (it does so today). Filling the wording is LEG-X3AV work, due before the public site; the
   render rule then tightens to require the wording.
+- **Search drops page-only occurrences.** The verifier requires a provision, so an occurrence the index records
+  without one (`page_only`; 948,805 of them in the 2026-11-18 export) is dropped: fewer hits, never a wrong one. To
+  close it, verify the occurrence's full range against the current public unit, reject any overlap with a restricted
+  chunk, and return the hit with null provision metadata.
 - **Performance (15 s limit).** To be measured on dev after deploy: the in-degree sort across schemas, citation
   substring lookup (candidate: a trigram index on `legal_v2.acts.display_citation`, by scrapper migration), and the
   per-chunk metadata and asset aggregation.
