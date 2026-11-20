@@ -4,12 +4,15 @@
  * withheld-supplier disclosure, and an explanation built only from what was
  * applied and counted.
  */
+import { ok } from 'neverthrow';
 import { describe, expect, it } from 'vitest';
 
 import {
   baniToLei,
   composeTotals,
+  moneyTotals,
   parseTotalsRequest,
+  type MoneyTotalsPort,
   type FactAggregate,
   type MoneyLabel,
   type TotalsRequest,
@@ -249,5 +252,76 @@ describe('composeTotals', () => {
   it('shows a missing label as its key, never a guessed text', () => {
     const answer = composeTotals(request(), [fact({ status: 'withdrawn' })], [], '17');
     expect(answer.exclusions[0]).toMatchObject({ key: 'status:withdrawn', labelEn: 'withdrawn' });
+  });
+});
+
+describe('moneyTotals (batch)', () => {
+  const port = (over: Partial<MoneyTotalsPort> = {}) => {
+    const reads: { supplierRef: string | null; kinds: readonly string[] }[] = [];
+    const p: MoneyTotalsPort = {
+      activeBuild: () => Promise.resolve(ok('17')),
+      labels: () => Promise.resolve(ok(LABELS)),
+      supplierRef: (_build, code) => Promise.resolve(ok(code === '123' ? 'ref-123' : null)),
+      aggregate: (_build, _filters, supplierRef, kinds) => {
+        reads.push({ supplierRef, kinds });
+        return Promise.resolve(ok([fact()]));
+      },
+      ...over,
+    };
+    return { p, reads };
+  };
+  const ca = { procurementKinds: ['contract_award'] };
+
+  it('reads once per distinct non-status filter set, for the union of value kinds', async () => {
+    const { p, reads } = port();
+    const result = await moneyTotals(p, [
+      { id: 'a', filters: ca },
+      {
+        id: 'b',
+        filters: { ...ca, statuses: ['awarded', 'cancelled'] },
+        valueKinds: ['framework_ceiling'],
+      },
+      { id: 'c', filters: { ...ca, from: '2025-01-01' } },
+    ]);
+    const answers = result._unsafeUnwrap();
+    expect(answers.map((a) => [a.id, a.factBuild])).toEqual([
+      ['a', '17'],
+      ['b', '17'],
+      ['c', '17'],
+    ]);
+    expect(reads).toHaveLength(2);
+    expect(reads[0]?.kinds).toEqual(['awarded', 'framework_ceiling']);
+  });
+
+  it('a supplier code that is not public reads nothing and answers the D6 note', async () => {
+    const { p, reads } = port();
+    const [answer] = (
+      await moneyTotals(p, [{ id: 'a', filters: { ...ca, supplierCode: '999' } }])
+    )._unsafeUnwrap();
+    expect(reads).toEqual([]);
+    expect(answer?.notes.map((n) => n.key)).toEqual(['withheld_d6']);
+    expect(answer?.totals[0]?.recordCount).toBe('0');
+  });
+
+  it('passes a public supplier ref to the read', async () => {
+    const { p, reads } = port();
+    await moneyTotals(p, [{ id: 'a', filters: { ...ca, supplierCode: '123' } }]);
+    expect(reads[0]?.supplierRef).toBe('ref-123');
+  });
+
+  it('fails closed when no money build is published', async () => {
+    const { p } = port({ activeBuild: () => Promise.resolve(ok(null)) });
+    const result = await moneyTotals(p, [{ id: 'a', filters: ca }]);
+    expect(result._unsafeUnwrapErr()).toMatchObject({ type: 'ServiceUnavailable' });
+  });
+
+  it('refuses an empty batch, more than 8 requests, and names a bad request field', async () => {
+    const { p } = port();
+    expect((await moneyTotals(p, []))._unsafeUnwrapErr()).toMatchObject({ field: 'requests' });
+    const nine = Array.from({ length: 9 }, (_, i) => ({ id: String(i), filters: ca }));
+    expect((await moneyTotals(p, nine))._unsafeUnwrapErr()).toMatchObject({ field: 'requests' });
+    expect(
+      (await moneyTotals(p, [{ id: 'a', filters: { procurementKinds: ['x'] } }]))._unsafeUnwrapErr()
+    ).toMatchObject({ field: 'procurementKinds' });
   });
 });

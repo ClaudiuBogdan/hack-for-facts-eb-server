@@ -15,7 +15,7 @@
 
 import { err, ok, type Result } from 'neverthrow';
 
-import { invalidInput, type ApiError } from '@/modules/shared/index.js';
+import { invalidInput, serviceUnavailable, type ApiError } from '@/modules/shared/index.js';
 
 export const PROCUREMENT_KINDS = [
   'direct_acquisition',
@@ -571,4 +571,106 @@ const explain = (
     en.push(`${notes.map((n) => n.labelEn).join('; ')}.`);
   }
   return { textRo: ro.join(' '), textEn: en.join(' ') };
+};
+
+// ── port and use case ────────────────────────────────────────────────────────
+
+/** The filters one aggregate read depends on (status and value kind are folded later). */
+export type AggregateFilters = Omit<TotalsFilters, 'statuses'>;
+
+export interface MoneyTotalsPort {
+  /** The active money build (procurement_v3.money_generations); null when none is published. */
+  activeBuild(): Promise<Result<string | null, ApiError>>;
+  labels(build: string): Promise<Result<readonly MoneyLabel[], ApiError>>;
+  /** The public supplier ref for a fiscal code in this build; null when the code is not public. */
+  supplierRef(build: string, supplierCode: string): Promise<Result<string | null, ApiError>>;
+  aggregate(
+    build: string,
+    filters: AggregateFilters,
+    supplierRef: string | null,
+    valueKinds: readonly ValueKind[]
+  ): Promise<Result<readonly FactAggregate[], ApiError>>;
+}
+
+/** The non-status filters: what one aggregate read depends on. */
+const aggregateFiltersOf = (f: TotalsFilters): AggregateFilters => ({
+  procurementKinds: f.procurementKinds,
+  contractKinds: f.contractKinds,
+  from: f.from,
+  to: f.to,
+  buyerCode: f.buyerCode,
+  supplierCode: f.supplierCode,
+  cpvPrefix: f.cpvPrefix,
+  countyCode: f.countyCode,
+  siruta: f.siruta,
+  vatBases: f.vatBases,
+  q: f.q,
+});
+
+const aggregateKey = (f: TotalsFilters): string => JSON.stringify(aggregateFiltersOf(f));
+
+/**
+ * Answer a batch of totals requests against ONE money build: every request is
+ * read under the same build, and requests sharing their non-status filters
+ * share one aggregate read (the value kinds of all of them).
+ */
+export const moneyTotals = async (
+  port: MoneyTotalsPort,
+  inputs: readonly TotalsRequestInput[]
+): Promise<Result<readonly TotalsAnswer[], ApiError>> => {
+  if (inputs.length === 0) return err(invalidInput('requests must not be empty', 'requests'));
+  if (inputs.length > MAX_TOTALS_REQUESTS) {
+    return err(
+      invalidInput(`at most ${String(MAX_TOTALS_REQUESTS)} requests per call`, 'requests')
+    );
+  }
+  const requests: TotalsRequest[] = [];
+  for (const input of inputs) {
+    const parsed = parseTotalsRequest(input);
+    if (parsed.isErr()) return err(parsed.error);
+    requests.push(parsed.value);
+  }
+  const build = await port.activeBuild();
+  if (build.isErr()) return err(build.error);
+  if (build.value === null) {
+    return err(serviceUnavailable('procurement totals are not published yet'));
+  }
+  const factBuild = build.value;
+  const labels = await port.labels(factBuild);
+  if (labels.isErr()) return err(labels.error);
+
+  // One read per distinct non-status filter set, for the union of its value kinds.
+  const groups = new Map<string, { filters: TotalsFilters; kinds: Set<ValueKind> }>();
+  for (const request of requests) {
+    const key = aggregateKey(request.filters);
+    const group = groups.get(key) ?? { filters: request.filters, kinds: new Set<ValueKind>() };
+    for (const kind of request.valueKinds) group.kinds.add(kind);
+    groups.set(key, group);
+  }
+  const reads = await Promise.all(
+    [...groups.entries()].map(async ([key, group]) => {
+      const filters = aggregateFiltersOf(group.filters);
+      let ref: string | null = null;
+      if (filters.supplierCode !== null) {
+        const found = await port.supplierRef(factBuild, filters.supplierCode);
+        if (found.isErr()) return [key, err(found.error)] as const;
+        // Not public (D6) in this build: nothing is read, nothing is counted.
+        if (found.value === null) return [key, ok({ rows: [], withheld: true })] as const;
+        ref = found.value;
+      }
+      const rows = await port.aggregate(factBuild, filters, ref, [...group.kinds]);
+      return [key, rows.map((value) => ({ rows: value, withheld: false }))] as const;
+    })
+  );
+  const byKey = new Map<string, { rows: readonly FactAggregate[]; withheld: boolean }>();
+  for (const [key, read] of reads) {
+    if (read.isErr()) return err(read.error);
+    byKey.set(key, read.value);
+  }
+  return ok(
+    requests.map((request) => {
+      const read = byKey.get(aggregateKey(request.filters)) ?? { rows: [], withheld: false };
+      return composeTotals(request, read.rows, labels.value, factBuild, read.withheld);
+    })
+  );
 };

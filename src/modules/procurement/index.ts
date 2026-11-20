@@ -14,6 +14,7 @@ import { makeDaTotalsCache, type DaReleaseDeps } from './core/da-release-usecase
 import { makeProcurementContributor } from './shell/contributor.js';
 import { daReleaseTypeDefs, makeDaReleaseResolvers } from './shell/graphql/da-release-schema.js';
 import { makeProcurementResolvers } from './shell/graphql/resolvers.js';
+import { makeTotalsResolvers, totalsTypeDefs } from './shell/graphql/totals-schema.js';
 import { procurementTypeDefs } from './shell/graphql/typedefs.js';
 import { makeDaReleaseMcpTools } from './shell/mcp/da-release-tools.js';
 import { makeProcurementMcpTools } from './shell/mcp/tools.js';
@@ -22,6 +23,8 @@ import {
   makeUnconfiguredAnalysisRepo,
   type ClickhouseAnalysisConfig,
 } from './shell/repo/clickhouse-analysis-repo.js';
+import { makeClickhouseMoneyRepo } from './shell/repo/clickhouse-money-repo.js';
+import { makeClickhouseReader } from './shell/repo/clickhouse-reader.js';
 import { withDaAnalysisDisclosure } from './shell/repo/da-analysis-disclosure.js';
 import { withDaDisclosure } from './shell/repo/da-disclosure-repo.js';
 import { makeDaReleaseRepo } from './shell/repo/da-release-repo.js';
@@ -85,6 +88,12 @@ export interface ProcurementModuleDeps {
   readonly daV3Enabled?: boolean;
   /** The kernel's site-wide D6 port (`Kernel.supplierDisclosure`); absent means not enforced. */
   readonly supplierDisclosure?: SupplierDisclosurePort;
+  /**
+   * Totals v2 (`procurementTotals`), over the money-fact builds. Off (the
+   * default): the SDL is served and every read answers ServiceUnavailable.
+   * Needs ClickHouse. Env: PROCUREMENT_TOTALS_V2.
+   */
+  readonly totalsV2Enabled?: boolean;
 }
 
 export interface ProcurementModule {
@@ -137,6 +146,9 @@ export const makeProcurementModule = (deps: ProcurementModuleDeps): ProcurementM
   // With no ClickHouse configured, analysis reads fail closed with a clear error.
   const generationRepo = makeProcurementGenerationRepo(deps.db, Date.now, deps.logger);
   const supplierGeography = makeSupplierGeographyPolicy(deps.db, Date.now, deps.logger);
+  // One ClickHouse reader per process: every ClickHouse read shares the per-pod cap.
+  const clickhouseReader =
+    deps.clickhouse !== undefined ? makeClickhouseReader(deps.clickhouse, deps.logger) : undefined;
   const baseAnalysis =
     // Site-wide D6 on the ClickHouse DA grain (its own switch; a v3 rollback never
     // re-exposes a name). A no-op when not enforced.
@@ -146,7 +158,8 @@ export const makeProcurementModule = (deps: ProcurementModuleDeps): ProcurementM
             deps.clickhouse,
             () => generationRepo.activeGeneration(),
             deps.logger,
-            () => supplierGeography.supplierGeographyPublic()
+            () => supplierGeography.supplierGeographyPublic(),
+            clickhouseReader
           )
         : makeUnconfiguredAnalysisRepo(),
       deps.supplierDisclosure
@@ -178,17 +191,26 @@ export const makeProcurementModule = (deps: ProcurementModuleDeps): ProcurementM
     ...(deps.supplierDisclosure !== undefined && { supplierDisclosure: deps.supplierDisclosure }),
   });
   const daResolvers = makeDaReleaseResolvers(daRelease);
+  const totalsResolvers = makeTotalsResolvers(
+    deps.totalsV2Enabled === true && clickhouseReader !== undefined
+      ? makeClickhouseMoneyRepo({ db: deps.db, reader: clickhouseReader })
+      : undefined
+  );
 
   return {
     repo,
     analysis,
     graphqlSlice: {
       source: 'procurement',
-      typeDefs: `${procurementTypeDefs}\n${daReleaseTypeDefs}`,
+      typeDefs: `${procurementTypeDefs}\n${daReleaseTypeDefs}\n${totalsTypeDefs}`,
     },
     graphqlResolvers: {
       ...legacyResolvers,
-      Query: { ...(legacyResolvers['Query'] as Record<string, unknown>), ...daResolvers.Query },
+      Query: {
+        ...(legacyResolvers['Query'] as Record<string, unknown>),
+        ...daResolvers.Query,
+        ...totalsResolvers.Query,
+      },
     },
     mcpTools: [
       ...makeProcurementMcpTools({

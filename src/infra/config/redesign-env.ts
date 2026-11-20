@@ -76,6 +76,7 @@ const RedesignEnvSchema = Type.Object({
   PROD_CLICKHOUSE_PASSWORD: Type.Optional(Type.String()),
   PROCUREMENT_DA_LIST_MAX_WINDOW_DAYS: Type.Optional(Type.String()),
   PROCUREMENT_DA_V3_ENABLED: Type.Optional(Type.String()),
+  PROCUREMENT_TOTALS_V2: Type.Optional(Type.String()),
   PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED: Type.Optional(Type.String()),
   PROCUREMENT_SEARCH_OPENSEARCH_URL: Type.Optional(Type.String()),
   PROCUREMENT_SEARCH_OPENSEARCH_INDEXES: Type.Optional(Type.String()),
@@ -114,6 +115,8 @@ export interface ProcurementComposition {
   readonly daListMaxWindowDays?: number;
   /** Direct acquisitions release 1 (`procurement_v3`) reader; off unless PROCUREMENT_DA_V3_ENABLED=true. */
   readonly daV3Enabled?: boolean;
+  /** Totals v2 (`procurementTotals`) over the money-fact builds; off unless PROCUREMENT_TOTALS_V2=true. */
+  readonly totalsV2Enabled?: boolean;
   /**
    * Site-wide D6 and the DA free-text gate, on every DA surface, legacy included
    * (PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED=true). Independent of `daV3Enabled`
@@ -391,6 +394,7 @@ const composeEmbeddedKernel = (e: EmbeddedKernelEnv): EmbeddedKernelConfig => {
   const procurement: ProcurementComposition = {
     ...(daWindow > 0 && { daListMaxWindowDays: daWindow }),
     ...(e.PROCUREMENT_DA_V3_ENABLED === 'true' && { daV3Enabled: true }),
+    ...(e.PROCUREMENT_TOTALS_V2 === 'true' && { totalsV2Enabled: true }),
     ...(e.PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED === 'true' && {
       supplierDisclosureEnforced: true,
     }),

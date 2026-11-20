@@ -100,7 +100,7 @@ export interface ProcurementResolverDeps {
  * `extensions.field` names the refused input: a client tells a stale analysis
  * `build` pin (re-read the active build, then repeat) from any other refusal.
  */
-const toGraphqlError = (error: ApiError): GraphQLError =>
+export const toGraphqlError = (error: ApiError): GraphQLError =>
   new GraphQLError(error.message, {
     extensions: {
       code: GRAPHQL_ERROR_CODE[error.type],

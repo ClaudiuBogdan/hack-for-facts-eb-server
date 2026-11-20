@@ -711,6 +711,9 @@ export const registerRedesignSurface = async (
         daListMaxWindowDays: composition.daListMaxWindowDays,
       }),
       ...(composition.daV3Enabled !== undefined && { daV3Enabled: composition.daV3Enabled }),
+      ...(composition.totalsV2Enabled !== undefined && {
+        totalsV2Enabled: composition.totalsV2Enabled,
+      }),
       ...(deps.clientBaseUrl !== undefined && { clientBaseUrl: deps.clientBaseUrl }),
     });
     moduleSlices.push(procurement.graphqlSlice);
