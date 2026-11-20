@@ -128,13 +128,15 @@ const objectsAndQuery = /* GraphQL */ `
       relation: [LegalRelation!]
       first: Int = 50
       after: String
-    ): LegalReferenceConnection!
+    ): LegalReferenceConnection
     "Incoming ANCHORS — links the portal itself asserts in citing documents' text (document_link_edges). A DIFFERENT graph from links: anchors are source assertions at mark grain, links are LLM-inferred normative relations; they disagree by construction and both disagreements are informative. Real totalCount; keyset-paged."
-    incomingAnchors(first: Int = 50, after: String): LegalIncomingAnchorConnection!
+    incomingAnchors(first: Int = 50, after: String): LegalIncomingAnchorConnection
     "The act's stored status events merged with its incoming modifica/completeaza/abroga references. A judicial court decision's modifica/completeaza reference to an act that is not itself a court decision is omitted: the decision cites a change, it does not make one (I-28). Administrative-court, court-on-court and repeal references stay; every reference stays in links(direction: IN)."
-    timeline: [LegalTimelineEntry!]!
+    timeline: [LegalTimelineEntry!]
     "False when the timeline reached its bound (10,000 amendment references or status events) and is incomplete; every act is complete today (largest 3,200)."
-    timelineComplete: Boolean!
+    timelineComplete: Boolean
+    "links, incomingAnchors, timeline and timelineComplete are BRIDGED on the legal_v2 source: null (unknown) when the previous corpus does not hold the act, never an empty, complete history. legal_v2 only: the act's document id for an old Portal page id (or an f<form_id> of this act), through the page's preferred route, loaded or not; null when the page names no form of this act."
+    resolveDocument(documentId: String!): String
   }
 
   "One incoming anchor occurrence. charStart/charEnd locate it in the CITING document's rendered text; linkText is the anchor's own words on the source page."
@@ -221,11 +223,18 @@ const objectsAndQuery = /* GraphQL */ `
     versionDate: Date
     "The legislatie.just.ro deep link — where the consolidated form can be checked. Never our own act page, which serves this same published text."
     sourceUrl: String
-    "Incoming modifica/completeaza references on the act, of any date: not distinct amending acts or legal changes, and not dated against this text (Legea 95/2006, republished 2015-08-28: 106 of its 292 come from earlier-dated sources). It also counts the judicial court references the timeline omits (I-28)."
-    amendedAfterPublication: Int!
+    "Incoming modifica/completeaza references on the act, of any date: not distinct amending acts or legal changes, and not dated against this text (Legea 95/2006, republished 2015-08-28: 106 of its 292 come from earlier-dated sources). It also counts the judicial court references the timeline omits (I-28). Null on the legal_v2 source when the previous corpus does not hold the act (unknown, not zero)."
+    amendedAfterPublication: Int
     latestConsolidationDate: Date
     "False while a consolidation is only a timeline anchor we have not fetched."
     latestConsolidationLoaded: Boolean!
+    "legal_v2 only: the served form's document id (f<form_id>)."
+    documentId: String
+    "legal_v2 only: 'unofficial_consolidation' on a consolidation (LEG-X3AV)."
+    caveat: String
+    "legal_v2 only: the Portal's consolidation label as written, and its date."
+    portalLabelRaw: String
+    portalLabelDate: Date
   }
 
   type LegalActSummary {
@@ -367,6 +376,8 @@ const objectsAndQuery = /* GraphQL */ `
     snippet: String
     portalDeepLink: String
     score: Float!
+    "legal_v2 only: the form whose text the hit was verified against — its document id, kind, caveat, Portal label and date, source URL (LEG-X3AV)."
+    servedForm: LegalVersionProvenance
   }
 
   "A doc-channel topical hit."

@@ -167,6 +167,15 @@ export interface LegalActsRepo extends LegalRepoBase {
   defaultFormsForActs?(
     actIds: readonly string[]
   ): Promise<Result<ReadonlyMap<string, V2DefaultForm>, ApiError>>;
+  /**
+   * legal_v2 source only: the document id (`f<form_id>`) a page id or form id
+   * names WITHIN this act, through the page's preferred route, whether or not
+   * the form has text. Null when it names no public form of the act.
+   */
+  resolveDocumentForAct?(
+    actId: string,
+    documentId: string
+  ): Promise<Result<string | null, ApiError>>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -20,58 +20,91 @@ behaviour unchanged.
 
 ## Rules
 
-- **Privacy.** Every legal_v2 read filters `privacy_class = 'public'` on every relation it touches. The views
-  `form_states`, `page_targets`, `link_targets` and `read_form` have no privacy predicate, so the API does not use them.
-  A restricted component, unit or render chunk of a served text answers 403, never a shorter text. A link whose row or
-  target act is restricted is served as a plain reference with no target.
-- **Bridge.** `LegalAct.bridgedFields` lists what came from the previous corpus, and `dataSource` is `legal_v2`. When
-  `legal` does not hold the act, `bridgedFields` is empty and `status`, `statusEvidence`, `inDegree` and
-  `amendedAfterPublication` are null. In the directory filters and the status grid such an act counts as `necunoscut`,
-  so the STATUS buckets still add up to the total.
-- **Document ids.** A form is `f<form_id>`. An old numeric page id resolves, on the render and outline routes, to the
-  form its newest bound capture shows (route `afis`, then `detail`, `detail_base`, `print`), and the answer carries the
-  form id.
+- **Privacy, legal_v2.** Every legal_v2 read filters `privacy_class = 'public'` on every relation it touches. The views
+  `form_states`, `page_targets`, `link_targets` and `read_form` carry no privacy predicate, so the API does not use them.
+  The render decides privacy before shape (`decideV2Render`): a restricted act or form answers 404; a restricted
+  page route, published composition, component, unit or chunk answers 403. GraphQL render availability then shows only
+  the verdict, with no hash, compiler, time or count. A link whose target act is not public is served with no locator
+  at all: no act id, URL, fragment or document id. A restricted image occurrence keeps its zero-character block and
+  loses its alt text and dimensions.
+- **Privacy, the bridge.** Everything read from `legal` is gated on legal_v2 (`shell/repo/v2/gate.ts`), in the WHERE,
+  before counting or paging. An act is visible only when its legal_v2 row is public, on either end of a fact:
+  - the changes feed and status events (the event's act and its acting act);
+  - references in and out (the citing act and the cited act);
+  - incoming anchors (the source document's act);
+  - the amendment count (the citing document's act);
+  - vocabulary counts.
+
+  A bridged title or summary is withheld when the old document's render rows are not all public.
+
+- **Bridge nulls.** `LegalAct.bridgedFields` lists what came from the previous corpus, and `dataSource` is `legal_v2`.
+  When `legal` does not hold the act, `bridgedFields` is empty and every bridged fact is null on GraphQL and MCP. This
+  covers `status`, `statusEvidence`, `inDegree`, `amendedAfterPublication`, `versionProvenance.amendedAfterPublication`,
+  `timeline`, `timelineComplete`, `links` and `incomingAnchors`: unknown, never `necunoscut`, `{}`, 0, or an empty,
+  complete history. In the directory filters and the status grid such an act counts as `necunoscut`, so the STATUS
+  buckets still add up to the total.
+- **Document ids.** A form is `f<form_id>`. An old numeric page id resolves, inside the body statement, to the newest
+  capture of its PREFERRED route (`afis`, then `detail`, `detail_base`, `print`). A held preferred route answers 409; it
+  never falls through to another route's form. `LegalAct.resolveDocument(documentId)` is the act-scoped lookup. It maps a
+  page id to this act's form through any bound capture or advertisement, loaded or not.
 - **Versions.** original → `original`, republication → `republicare`, consolidation → `consolidare`; `versionDate` is
   `portal_order_date`. New nullable fields: `readable`, `caveat` (`unofficial_consolidation` on every consolidation),
   `portalLabelRaw`, `portalLabelDate`, `held`, `formKey`, `sourceUrl`; on the act, `newerNotAvailable` and
   `defaultBasis`.
+- **Readable** means servable by the render: a published public composition of ONE public whole unit, no missing
+  body, at least one chunk and none restricted, the unit's capture bound (public) to the form, and, for a
+  consolidation, the Portal's label or its date.
 - **Default form** (`isCanonical`, `canonical`). The rule of rebuild-model.md §7 and of the SQL function
   `legal_v2.default_forms`, computed per act in `core/v2/forms.ts` (the function computes every act and the role's
   statement limit is 15 s). It is the latest accepted, body-resolved, readable consolidation whose Portal date is not
-  after today (Bucharest), else the original. It is not yet the owner's 2026-11-12 rule (latest form of any kind), which
-  the SQL function has not adopted either. "Readable" here means servable by this API (see Render), which is narrower
-  than `form_states.readable` only for compositions this version does not serve.
-- **Render.** One statement per request reads the form, its components and, when one public `whole` unit is the form's
-  only text unit and no component is `missing_body`, that unit's chunks, its links with their targets and its images.
-  Any other shape (a header alone, a header plus a body) answers `composition_not_served`: serving the header as the
-  whole text would be a partial reading. A whole unit beside `linked_annex` components is served. The stored `tldf-unit` v1 is converted to the TLDF 1.1
-  envelope, manifest or chunk the reader already takes (`core/v2/tldf-unit.ts`):
-  - blocks and marks are the compiler's own;
-  - a link's kind is re-derived from its href with the structure parser's classes, the Portal patterns anchored and
-    every scheme but http, https and mailto refused (no `javascript:`, `data:` or `vbscript:` href is ever served);
-    a Portal link's href is rebuilt from its page id and an internal one from its fragment, and only an external
-    link keeps its href as written;
-  - the target act comes from `page_acts` and the target form from the bound capture of the linked route;
-  - an image takes the custody hash.
-    The parser's exclusion counts and defect ledger are not held in serving, so `accounting.excluded_by_reason` is empty
-    and `defects` is absent. `generation.run_id` is the form's receipt id, `meta.renderSource` is `legal_v2:tldf-unit/1`,
-    and the ETag is `W/"<converter>-<composition_digest[:32]>-g<identity generation>"`. A form with no published text
-    answers 409 `RENDER_UNAVAILABLE`, `renderStatus: not_loaded`. A form made of several text units (header plus body)
-    answers `composition_not_served`, because that case is not in this version.
-- **Outline.** `unit_provisions` of the form's units, composed by per-unit offsets, under the render's gate (public
-  act, form and published composition, the same shape, no restricted chunk; otherwise no entries). Each entry's `path` is the id of the
-  render block with the same span (the TLDF compiler makes a block's hull equal its node's span), so the reader's
-  `tldf-{path}` anchors work unchanged.
+  after today (Bucharest), else the original. A public act with no forms has a default result with zero counts. It is
+  not yet the owner's 2026-11-12 rule (latest form of any kind), which the SQL function has not adopted either.
+- **Render.** One statement per request reads the route, the form, the composition and only the chunk bodies the
+  request serves. An envelope or manifest reads every chunk, with links; a chunk group reads its one stored chunk.
+  Statuses:
+  - no text: `not_loaded`;
+  - anything but one whole unit with no missing body: `composition_not_served`;
+  - a consolidation with neither the Portal's label nor its date: `label_missing` (LEG-X3AV);
+  - a unit whose capture is not bound to the form: `source_not_bound`.
+
+  Conversion (`core/v2/tldf-unit.ts`):
+  - every stored chunk is validated (TypeBox), and the TLDF 1.1 output is built from an allowlist, never spread;
+  - a link's kind comes from anchored Portal patterns, and any scheme but http, https and mailto is refused;
+  - a Portal link keeps its validated route, page id and query on the Portal host; only an external link keeps its href;
+  - a v2 render is `Cache-Control: no-store`, with no ETag and no 304, because link targets and custody can change
+    under one composition.
+
+  `meta` carries `servedForm` (document id, kind, date, caveat, Portal label and date, and the source URL of the
+  supplying capture's own bound row), `renderHead` (the versioned head substitutions: run id = receipt id, structure
+  parser version = parse build, exclusion counts and defects not held), `fidelityFlags` and `renderSource`.
+
+- **Outline.** `unit_provisions` of the form's unit, under the render's gate, which runs on every request. It is cached
+  per process by composition digest and withheld provisions. Each entry's `path` is the id of the render block with the
+  same span. Numbers come from the parser's address only; a withheld address stays null, never "parsed". A path naming a
+  presentation node (a table cell, an image) resolves from its render block, with no depth.
 - **Search.** `LEGAL_SEARCH_OPENSEARCH_ACTS_INDEX` and `LEGAL_SEARCH_OPENSEARCH_SECTIONS_INDEX` name the
-  `legal-v2-test-acts-*` and `legal-v2-test-units-*` indexes; both are required. Each index must carry its exporter
-  contract in `_mapping._meta` (`legal-v2-test/acts/1`, `legal-v2-test/units/1`) and a `built_at` stamp.
+  `legal-v2-test-acts-*` and `legal-v2-test-units-*` indexes. Both are required: without them word search is
+  `ServiceUnavailable`, never the legacy engine, the Postgres retrieval or the embedder; exact citations still answer.
+  Each index must carry its exporter contract in `_mapping._meta` and a `built_at` stamp.
   - BM25 runs over names and titles (acts) and over `text`/`text.folded`, heading path and act name (units), with act
     type, issuer and year filters and `privacy_class = public`.
-  - Hits are acts: name matches first, then acts reached through their provisions, each with up to three provision hits.
-  - Status, domain and category filters apply to the hydrated page only, so `totalsExhaustive` is false and `actsTotal`
-    is null.
+  - Every unit hit is verified against its `uses` before any text is served: a public, readable form of the hit's
+    act, the unit as that form's current public component, the provision public, and no restricted chunk. The hit then
+    carries that form as `servedForm` (LEG-X3AV). Unverifiable hits are dropped and not counted, so `actsTotal`,
+    `sectionsTotal` and `unhydratedHits` are null, null and 0.
+  - Status, domain and category filters apply to the hydrated page only.
   - The semantic leg reports `semantic search unavailable`.
-  - Without both indexes, search falls back to the legacy Postgres path over `legal` (`engine: postgres`).
+- **MCP.** The same nulls for unbridged acts; the legal_v2 consolidation caveat replaces the legacy published-text
+  caveat.
+- **Cost.** Directory lists and counts join the old corpus only when the filter, sort or grouping reads it; a list
+  pages ids first and hydrates the page after. Sorting by in-degree still joins `legal.acts` for every act; that has not
+  been measured against production. `legalResolve(dim: act)` by name runs `display_citation ilike '%…%'` on
+  `legal_v2.acts`. A trigram index (`create index … on legal_v2.acts using gin (display_citation gin_trgm_ops)`) would
+  serve it; that needs a scrapper migration, which has not been made.
+- **Proof.** `tests/integration/legal/legal-v2.pg.test.ts` runs against the scrapper's own legal_v2 migration
+  (hash-pinned, `SCRAPPER_REPO_ROOT`) on a throwaway loopback database (`LEGAL_V2_TEST_PG_URL`,
+  `LEGAL_V2_TEST_DB_NAME=server_legal_v2_<id>`, a superuser for seeding). It covers restricted parents and children, an
+  unbridged act, GraphQL and MCP. It skips without those inputs.
 
 ## Not in this version
 

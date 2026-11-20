@@ -79,3 +79,20 @@ export const mergeBridgedAct = (
 /** A bridged scalar as GraphQL serves it: null when the act was not bridged. */
 export const bridgedOrNull = <T>(act: Pick<LegalAct, 'bridged'>, value: T): T | null =>
   act.bridged === false ? null : value;
+
+/**
+ * An act (or act card) as an output surface states it: for an act the old
+ * corpus lacks, every bridged fact is null — never `necunoscut`, `{}` or 0
+ * asserted as a fact (MCP items and summaries use this; GraphQL resolves the
+ * same through its field resolvers).
+ */
+export const exposeBridged = (act: LegalAct): Record<string, unknown> => {
+  const copy: Record<string, unknown> = { ...(act as object) };
+  if (act.bridged !== false) return copy;
+  copy['status'] = null;
+  copy['statusEvidence'] = null;
+  copy['inDegree'] = null;
+  copy['entryIntoForce'] = null;
+  if ('amendedAfterPublication' in copy) copy['amendedAfterPublication'] = null;
+  return copy;
+};

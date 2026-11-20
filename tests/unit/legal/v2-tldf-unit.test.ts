@@ -16,7 +16,8 @@ import { describe, expect, it } from 'vitest';
 import { provenFold } from '@/modules/legal/core/tldf/fold.js';
 import { reassembleTldf } from '@/modules/legal/core/tldf/reassemble.js';
 import {
-  convertUnitRender,
+  convertUnitChunk,
+  convertWholeUnit,
   linkKindFromHref,
   textOnlyBlocks,
   toTldfLink,
@@ -102,7 +103,7 @@ describe('tldf-unit → TLDF 1.1 on real units', () => {
     it(`${id}: folds to the parsed text and keeps the compiler's blocks and marks`, () => {
       const f = fixture(id);
       expect(sha(f.text)).toBe(f.textSha256);
-      const payloads = convertUnitRender(
+      const payloads = convertWholeUnit(
         { ...HEAD, textSha256: f.unit.text_sha256 },
         {
           renderState: 'structured',
@@ -113,9 +114,9 @@ describe('tldf-unit → TLDF 1.1 on real units', () => {
             body: r.body,
           })),
           links: links(f, (page) => `9${page}`),
-          assetSha256: new Map(f.assets.map((a) => [a.ordinal, 'c'.repeat(64)])),
+          publicAssets: new Map(f.assets.map((a) => [a.ordinal, 'c'.repeat(64)])),
         }
-      )._unsafeUnwrap().payloads;
+      )._unsafeUnwrap();
       const envelope = reassembleTldf(asRows(payloads))._unsafeUnwrap();
       expect(provenFold(envelope)._unsafeUnwrap()).toBe(f.text);
       expect(envelope.format_version).toBe('1.1');
@@ -140,7 +141,7 @@ describe('tldf-unit → TLDF 1.1 on real units', () => {
 
   it('146017: an image keeps its dimensions and takes the custody hash', () => {
     const f = fixture('146017');
-    const payloads = convertUnitRender(
+    const payloads = convertWholeUnit(
       { ...HEAD, textSha256: f.textSha256 },
       {
         renderState: 'structured',
@@ -151,9 +152,9 @@ describe('tldf-unit → TLDF 1.1 on real units', () => {
           body: r.body,
         })),
         links: new Map(),
-        assetSha256: new Map([[0, 'c'.repeat(64)]]),
+        publicAssets: new Map([[0, 'c'.repeat(64)]]),
       }
-    )._unsafeUnwrap().payloads;
+    )._unsafeUnwrap();
     const first = payloads[0];
     const images: TldfBlock[] = [];
     const walk = (bs: readonly TldfBlock[]): void => {
@@ -189,7 +190,7 @@ describe('tldf-unit → TLDF 1.1 on real units', () => {
       blocks: body.blocks.slice(half),
       marks: body.marks.filter((m) => m.span[0] >= cut),
     });
-    const payloads = convertUnitRender(
+    const payloads = convertWholeUnit(
       { ...HEAD, textSha256: f.textSha256 },
       {
         renderState: 'structured',
@@ -198,9 +199,9 @@ describe('tldf-unit → TLDF 1.1 on real units', () => {
           { chunkSeq: 0, charStart: 0, charEnd: cut, body: chunk0 },
         ],
         links: links(f, () => '5'),
-        assetSha256: new Map(),
+        publicAssets: new Map(),
       }
-    )._unsafeUnwrap().payloads;
+    )._unsafeUnwrap();
     expect(payloads.map((p) => p.kind)).toEqual(['manifest', 'chunk', 'chunk']);
     expect(payloads).toHaveLength(v2PhysicalChunkCount(2));
     const manifest = payloads[0];
@@ -223,15 +224,15 @@ describe('text-only units', () => {
       'unmarked:2',
       'unmarked:3',
     ]);
-    const payloads = convertUnitRender(
+    const payloads = convertWholeUnit(
       { ...HEAD, compilerVersion: 'text-only', textSha256: sha(text) },
       {
         renderState: 'text_only',
         chunks: [{ chunkSeq: 0, charStart: 0, charEnd: text.length, body: text }],
         links: new Map(),
-        assetSha256: new Map(),
+        publicAssets: new Map(),
       }
-    )._unsafeUnwrap().payloads;
+    )._unsafeUnwrap();
     const envelope = reassembleTldf(asRows(payloads))._unsafeUnwrap();
     expect(provenFold(envelope)._unsafeUnwrap()).toBe(text);
     expect(envelope.shape).toBe('paragraph_stream');
@@ -240,7 +241,7 @@ describe('text-only units', () => {
 
   it('keeps the fold exact when a stored chunk cuts a line', () => {
     const cut = 7; // inside "Primul rând"
-    const payloads = convertUnitRender(
+    const payloads = convertWholeUnit(
       { ...HEAD, compilerVersion: 'text-only', textSha256: sha(text) },
       {
         renderState: 'text_only',
@@ -249,9 +250,9 @@ describe('text-only units', () => {
           { chunkSeq: 1, charStart: cut, charEnd: text.length, body: text.slice(cut) },
         ],
         links: new Map(),
-        assetSha256: new Map(),
+        publicAssets: new Map(),
       }
-    )._unsafeUnwrap().payloads;
+    )._unsafeUnwrap();
     expect(payloads).toHaveLength(3);
     const envelope = reassembleTldf(asRows(payloads))._unsafeUnwrap();
     expect(provenFold(envelope)._unsafeUnwrap()).toBe(text);
@@ -295,12 +296,8 @@ describe('links resolved at read time', () => {
     // A restricted or unknown target answers no act id: the reader shows a
     // plain reference, never a link to it.
     const unresolved = toTldfLink(row({ targetActId: null, targetFormId: null }));
-    expect(unresolved).toEqual({
-      kind: 'act',
-      target_fragment: 'id_art5',
-      href: 'https://legislatie.just.ro/Public/DetaliiDocumentAfis/123#id_art5',
-    });
-    expect(unresolved).not.toHaveProperty('target_act_id');
+    // Hidden target: no act id, no page URL, no fragment (security review).
+    expect(unresolved).toEqual({ kind: 'act' });
   });
 
   it('drops a link the compiler would never serve', () => {
@@ -365,5 +362,99 @@ describe('unsafe hrefs (security review 2026-11-20)', () => {
       href: '#id_art5',
       target_fragment: 'id_art5',
     });
+  });
+});
+
+describe('stored-chunk validation and allowlisted output (security review)', () => {
+  const HEADX = { ...HEAD, textSha256: 'x' };
+  const unitWith = (body: unknown, links = new Map<number, V2LinkTarget>()) => ({
+    renderState: 'structured' as const,
+    chunks: [{ chunkSeq: 0, charStart: 0, charEnd: 3, body: JSON.stringify(body) }],
+    links,
+    publicAssets: new Map<number, string | null>(),
+  });
+  const head = {
+    format: 'tldf-unit',
+    format_version: '1',
+    offset_unit: 'utf16_code_unit',
+    contains_non_bmp: false,
+    shape: 'paragraph_stream',
+  };
+  const block = {
+    id: 'b1',
+    kind: 'paragraf',
+    type: 'PAR',
+    span: [0, 3],
+    content: [{ text: 'abc', span: [0, 3] }],
+  };
+
+  it('never passes a stored link or an unknown field through', () => {
+    const res = convertUnitChunk(
+      HEADX,
+      unitWith({
+        ...head,
+        blocks: [{ ...block, onclick: 'x', content: [{ text: 'abc', span: [0, 3], html: '<b>' }] }],
+        marks: [
+          {
+            ordinal: 0,
+            kind: 'reference',
+            span: [0, 3],
+            link_ordinal: 7,
+            link: { kind: 'external', href: 'javascript:alert(1)' },
+          },
+        ],
+      }),
+      0
+    );
+    const env = res._unsafeUnwrap();
+    if (env.kind !== 'envelope') throw new Error('envelope expected');
+    expect(env.tldf.marks).toEqual([{ ordinal: 0, kind: 'reference', span: [0, 3] }]);
+    expect(JSON.stringify(env.tldf.blocks)).not.toContain('onclick');
+    expect(JSON.stringify(env.tldf.blocks)).not.toContain('html');
+  });
+
+  it('refuses a chunk that breaks the stored contract', () => {
+    for (const bad of [
+      { ...head, blocks: [{ ...block, kind: 'script' }], marks: [] },
+      { ...head, blocks: [{ ...block, span: ['0', 3] }], marks: [] },
+      { ...head, blocks: [block], marks: [{ ordinal: 0, kind: 'evil', span: [0, 1] }] },
+      { ...head, format: 'tldf', blocks: [block], marks: [] },
+      'not an object',
+    ]) {
+      expect(convertUnitChunk(HEADX, unitWith(bad), 0).isErr()).toBe(true);
+    }
+  });
+
+  it('keeps a restricted image block but none of its stored description', () => {
+    const image = {
+      id: 'i1',
+      kind: 'imagine',
+      type: 'IMG',
+      span: [3, 3],
+      content: [],
+      asset: { asset_ordinal: 0, width: 640, height: 480, alt: 'secret caption' },
+    };
+    const body = { ...head, blocks: [block, image], marks: [] };
+    const hidden = convertUnitChunk(HEADX, unitWith(body), 0)._unsafeUnwrap();
+    expect(JSON.stringify(hidden.tldf)).not.toContain('secret caption');
+    expect(JSON.stringify(hidden.tldf)).not.toContain('640');
+    const shown = convertUnitChunk(
+      HEADX,
+      { ...unitWith(body), publicAssets: new Map([[0, null]]) },
+      0
+    )._unsafeUnwrap();
+    expect(JSON.stringify(shown.tldf)).toContain('secret caption');
+  });
+
+  it('keeps a validated Portal route and query, and drops an odd query', () => {
+    const base = { ordinal: 0, targetFragment: null, targetActId: '9', targetFormId: null };
+    expect(
+      toTldfLink({ ...base, href: '/Public/DetaliiDocument/55?isFormaDeBaza=true' })
+    ).toMatchObject({
+      href: 'https://legislatie.just.ro/Public/DetaliiDocument/55?isFormaDeBaza=true',
+    });
+    expect(
+      toTldfLink({ ...base, href: '/Public/DetaliiDocument/55?x="><script>' })
+    ).not.toHaveProperty('href');
   });
 });

@@ -20,7 +20,12 @@ import {
 
 import { resolveFormRef } from './v2-reads.js';
 import { formDocumentId } from '../../../core/v2/forms.js';
-import { composeV2Outline, flattenBlocks, type V2OutlineUnit } from '../../../core/v2/outline.js';
+import {
+  composeV2Outline,
+  flattenBlocks,
+  type V2BlockRef,
+  type V2OutlineUnit,
+} from '../../../core/v2/outline.js';
 
 import type { LegalOutlineOptions, LegalOutlineRepo } from '../../../core/ports.js';
 import type { LegalOutlineEntry } from '../../../core/types.js';
@@ -49,28 +54,52 @@ interface OutlineRow {
   bodies: string[];
 }
 
+interface OutlineGateRow {
+  composition_digest: string;
+  unit_id: string;
+  restricted_provisions: string | null;
+}
+
+interface FormOutline {
+  readonly entries: LegalOutlineEntry[];
+  readonly blocks: readonly V2BlockRef[];
+}
+
+/** Outlines kept per process, keyed by form, composition and withheld provisions. */
+const OUTLINE_CACHE_SIZE = 64;
+
 export const makeLegalOutlineRepoV2 = (db: Db): LegalOutlineRepo => {
-  const entriesFor = async (
-    documentId: string
-  ): Promise<Result<LegalOutlineEntry[] | null, ApiError>> => {
+  const cache = new Map<string, FormOutline>();
+  const remember = (key: string, value: FormOutline): void => {
+    cache.delete(key);
+    cache.set(key, value);
+    if (cache.size > OUTLINE_CACHE_SIZE) {
+      const oldest = cache.keys().next().value;
+      if (oldest !== undefined) cache.delete(oldest);
+    }
+  };
+
+  const outlineFor = async (documentId: string): Promise<Result<FormOutline | null, ApiError>> => {
     const ref = await resolveFormRef(db, documentId);
     if (ref.isErr()) return err(ref.error);
     if (ref.value === null) return ok(null);
+    const formId = ref.value.formId;
     try {
-      // The SAME gate as the render body: a public act, form and published
-      // composition (form_current), every component public, exactly one
-      // public whole unit and no missing body, no restricted render chunk.
-      // Anything else has no servable text, so it has no outline either.
-      const result = await sql<OutlineRow>`
+      // 1. The gate, every request (privacy can flip in place without the
+      //    composition changing): the SAME gate as the render body — public
+      //    act, form and published composition, every component public, one
+      //    public whole unit, no missing body, no restricted chunk. Cheap: no
+      //    bodies. Its answer keys the cache.
+      const gate = await sql<OutlineGateRow>`
         with f as (
-          select f.form_id
+          select f.form_id, fc.composition_digest
             from legal_v2.forms f
             join legal_v2.acts a on a.act_id = f.act_id and a.privacy_class = 'public'
             join legal_v2.form_current fc on fc.form_id = f.form_id and fc.privacy_class = 'public'
-           where f.form_id = ${ref.value.formId}::bigint and f.privacy_class = 'public'
+           where f.form_id = ${formId}::bigint and f.privacy_class = 'public'
         ),
         comps as (
-          select c.ordinal, c.slot, c.unit_id,
+          select c.slot, c.unit_id,
                  (c.privacy_class = 'public' and coalesce(u.privacy_class = 'public', true)) as public,
                  exists (select 1 from legal_v2.unit_render ur
                           where ur.unit_id = c.unit_id and ur.privacy_class <> 'public') as chunk_restricted
@@ -78,7 +107,25 @@ export const makeLegalOutlineRepoV2 = (db: Db): LegalOutlineRepo => {
             join f on f.form_id = c.form_id
             left join legal_v2.text_units u on u.unit_id = c.unit_id
         )
-        select c.ordinal, u.render_state,
+        select f.composition_digest, c.unit_id::text as unit_id,
+               (select string_agg(p.provision_seq::text, ',' order by p.provision_seq)
+                  from legal_v2.unit_provisions p
+                 where p.unit_id = c.unit_id and p.privacy_class <> 'public') as restricted_provisions
+          from f join comps c on c.slot = 'whole' and c.unit_id is not null
+         where (select count(*) from comps where comps.unit_id is not null) = 1
+           and not exists (select 1 from comps where comps.slot = 'missing_body')
+           and not exists (select 1 from comps where not comps.public or comps.chunk_restricted)
+      `.execute(db);
+      const g = gate.rows[0];
+      if (g === undefined) return ok({ entries: [], blocks: [] });
+      const key = `${formId}:${g.composition_digest}:${g.restricted_provisions ?? ''}`;
+      const cached = cache.get(key);
+      if (cached !== undefined) return ok(cached);
+
+      // 2. On a miss: the unit's public provisions and its bodies, only while
+      //    the composition is still the one the gate saw.
+      const result = await sql<OutlineRow>`
+        select 0 as ordinal, u.render_state,
                coalesce((select max(ur.char_end) from legal_v2.unit_render ur
                           where ur.unit_id = u.unit_id and ur.privacy_class = 'public'), 0) as text_length,
                coalesce((select json_agg(json_build_object(
@@ -95,13 +142,11 @@ export const makeLegalOutlineRepoV2 = (db: Db): LegalOutlineRepo => {
                              from legal_v2.unit_render ur
                             where ur.unit_id = u.unit_id and ur.privacy_class = 'public'), '[]'::json)
                else '[]'::json end as bodies
-          from comps c
-          join legal_v2.text_units u on u.unit_id = c.unit_id and u.privacy_class = 'public'
-         where c.slot = 'whole'
-           and (select count(*) from comps where comps.unit_id is not null) = 1
-           and not exists (select 1 from comps where comps.slot = 'missing_body')
-           and not exists (select 1 from comps where not comps.public or comps.chunk_restricted)
-         order by c.ordinal
+          from legal_v2.text_units u
+         where u.unit_id = ${g.unit_id}::bigint and u.privacy_class = 'public'
+           and exists (select 1 from legal_v2.form_current fc
+                        where fc.form_id = ${formId}::bigint and fc.privacy_class = 'public'
+                          and fc.composition_digest = ${g.composition_digest})
       `.execute(db);
       const units: V2OutlineUnit[] = result.rows.map((r) => ({
         componentOrdinal: r.ordinal,
@@ -126,10 +171,23 @@ export const makeLegalOutlineRepoV2 = (db: Db): LegalOutlineRepo => {
             .unwrapOr([])
         ),
       }));
-      return ok(composeV2Outline(formDocumentId(ref.value.formId), units));
+      if (result.rows.length === 0) return ok({ entries: [], blocks: [] });
+      const value: FormOutline = {
+        entries: composeV2Outline(formDocumentId(formId), units),
+        blocks: units.flatMap((u) => u.blocks),
+      };
+      remember(key, value);
+      return ok(value);
     } catch (error) {
       return err(databaseError('legal_v2 outline failed', error));
     }
+  };
+
+  const entriesFor = async (
+    documentId: string
+  ): Promise<Result<LegalOutlineEntry[] | null, ApiError>> => {
+    const res = await outlineFor(documentId);
+    return res.map((o) => o?.entries ?? null);
   };
 
   const outline = async (
@@ -169,9 +227,28 @@ export const makeLegalOutlineRepoV2 = (db: Db): LegalOutlineRepo => {
     documentId: string,
     path: string
   ): Promise<Result<LegalOutlineEntry | null, ApiError>> => {
-    const all = await entriesFor(documentId);
+    const all = await outlineFor(documentId);
     if (all.isErr()) return err(all.error);
-    return ok((all.value ?? []).find((e) => e.path === path) ?? null);
+    if (all.value === null) return ok(null);
+    const entry = all.value.entries.find((e) => e.path === path);
+    if (entry !== undefined) return ok(entry);
+    // A presentation node (a table cell, an image) has no provision row: it
+    // answers from its render block, with no grammar depth and no number.
+    const block = all.value.blocks.find((b) => b.id === path);
+    if (block === undefined) return ok(null);
+    return ok({
+      documentId: all.value.entries[0]?.documentId ?? documentId,
+      path: block.id,
+      nodeKind: block.kind,
+      label: null,
+      numberKey: null,
+      numberSystem: null,
+      numberStatus: null,
+      depth: null,
+      orderIndex: -1,
+      charStart: block.span[0],
+      charEnd: block.span[1],
+    });
   };
 
   return { outline, entryByPath };

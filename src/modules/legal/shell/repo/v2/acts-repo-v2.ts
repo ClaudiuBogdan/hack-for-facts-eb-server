@@ -31,8 +31,10 @@ import {
   invalidInput,
 } from '@/modules/shared/index.js';
 
+import { legacyDocumentRenderPublic } from './gate.js';
 import {
   ID_RE,
+  ROUTE_ORDER_SQL,
   V2_ACT_FROM,
   V2_ACT_SELECT,
   readBridgedDocFacts,
@@ -86,53 +88,61 @@ export interface MakeLegalActsRepoV2Deps {
   readonly today?: () => string;
 }
 
-/** The directory FROM: the kernel spec's aliases over legal_v2 + the bridge. */
-export const V2_ACTS_LIST_FROM = sql`
+/** Filter fields compiled against the old summary (`s`) or the old act (`a.status`). */
+const SUMMARY_FIELDS = new Set(['domain', 'category', 'penaltiesMentioned', 'fiscalImpactNull']);
+const LEGACY_FIELDS = new Set(['status']);
+
+const filterUses = (filter: FilterInput, fields: ReadonlySet<string>): boolean =>
+  Object.entries(filter).some(
+    ([key, value]) =>
+      fields.has(key) ||
+      (key === 'exclude' && typeof value === 'object' && filterUses(value as FilterInput, fields))
+  );
+
+/**
+ * The directory FROM: the kernel spec's aliases (`a`, `d`, `s`) over public,
+ * current legal_v2 acts, joining the old corpus ONLY when the filter, sort or
+ * grouping reads it (15 s statement limit). An act the old corpus lacks has
+ * an unknown status: it filters and groups as `necunoscut`, and sorts with
+ * in-degree 0.
+ */
+export const v2ActsFrom = (o: { readonly legacy: boolean; readonly summary: boolean }) => sql`
   (select v.act_id, v.act_natural_key, v.act_type, v.act_number, v.act_year, v.issuer_slug,
-          v.display_citation, v.ended,
-          coalesce(l.status, 'necunoscut') as status, l.status as bridged_status,
-          l.status_evidence, l.entry_into_force, coalesce(l.in_degree, 0) as in_degree,
-          l.in_degree as bridged_in_degree, (l.act_id is not null) as bridged
+          v.display_citation,
+          ${
+            o.legacy
+              ? sql`coalesce(l.status, 'necunoscut') as status, coalesce(l.in_degree, 0) as in_degree,
+                    l.entry_into_force`
+              : sql`null::text as status, 0 as in_degree, null::date as entry_into_force`
+          }
      from legal_v2.acts v
-     left join legal.acts l on l.act_id = v.act_id
+     ${o.legacy ? sql`left join legal.acts l on l.act_id = v.act_id` : sql``}
     where v.privacy_class = 'public' and not v.ended) a
-  left join legal.act_documents d on d.act_id = a.act_id and d.is_canonical
-  left join legal.document_summaries s on s.document_id = d.document_id
-`;
-
-const LIST_SELECT = sql`
-  a.act_id::text as act_id, a.act_natural_key, a.act_type, a.act_number,
-  a.act_year::int as act_year, a.issuer_slug, a.display_citation, a.ended, a.bridged,
-  a.bridged_status as status, a.status_evidence, a.entry_into_force::text as entry_into_force,
-  a.bridged_in_degree as in_degree
-`;
-
-const SORT_EXPR: Record<string, { expr: RawBuilder<unknown>; cast: SortCast }> = {
-  in_degree: { expr: sql`a.in_degree`, cast: 'int' },
-  act_year: { expr: sql`a.act_year`, cast: 'int' },
-  entry_into_force: { expr: sql`a.entry_into_force`, cast: 'date' },
-  display_citation: { expr: sql`a.display_citation`, cast: 'text' },
-};
-
-const sortValueOf = (act: LegalAct, sort: string): string => {
-  switch (sort) {
-    case 'in_degree':
-      // The list sorts on the coalesced in-degree (0 for an unbridged act).
-      return String(act.bridged === false ? 0 : act.inDegree);
-    case 'act_year':
-      return act.actYear === null ? '' : String(act.actYear);
-    case 'entry_into_force':
-      return act.entryIntoForce ?? '';
-    case 'display_citation':
-      return act.displayCitation;
-    default:
-      return '';
+  ${
+    o.summary
+      ? sql`left join legal.act_documents d
+              on d.act_id = a.act_id and d.is_canonical
+             and ${legacyDocumentRenderPublic(sql.ref('d.document_id'))}
+            left join legal.document_summaries s on s.document_id = d.document_id`
+      : sql``
   }
+`;
+
+const SORT_EXPR: Record<string, { expr: RawBuilder<unknown>; cast: SortCast; legacy: boolean }> = {
+  in_degree: { expr: sql`a.in_degree`, cast: 'int', legacy: true },
+  act_year: { expr: sql`a.act_year`, cast: 'int', legacy: false },
+  entry_into_force: { expr: sql`a.entry_into_force`, cast: 'date', legacy: true },
+  display_citation: { expr: sql`a.display_citation`, cast: 'text', legacy: false },
 };
 
 const DIM_SQL: Record<
   LegalCountDimension,
-  { key: RawBuilder<unknown>; count: RawBuilder<unknown>; lateral?: RawBuilder<unknown> }
+  {
+    key: RawBuilder<unknown>;
+    count: RawBuilder<unknown>;
+    lateral?: RawBuilder<unknown>;
+    legacy?: boolean;
+  }
 > = {
   domain: {
     key: sql`dom.domain`,
@@ -140,7 +150,7 @@ const DIM_SQL: Record<
     lateral: sql`cross join lateral unnest(s.domains) as dom(domain)`,
   },
   act_type: { key: sql`a.act_type`, count: sql`count(*)` },
-  status: { key: sql`a.status`, count: sql`count(*)` },
+  status: { key: sql`a.status`, count: sql`count(*)`, legacy: true },
   issuer: { key: sql`a.issuer_slug`, count: sql`count(*)` },
   year: { key: sql`a.act_year::text`, count: sql`count(*)` },
 };
@@ -304,8 +314,24 @@ export const makeLegalActsRepoV2 = (deps: MakeLegalActsRepoV2Deps): LegalActsRep
   const formsForActs = async (
     actIds: readonly string[]
   ): Promise<Result<ReadonlyMap<string, ActForms>, ApiError>> => {
-    const rowsRes = await readFormsForActs(db, actIds);
+    const ids = [...new Set(actIds.filter((id) => ID_RE.test(id)))];
+    if (ids.length === 0) return ok(new Map());
+    const [rowsRes, actsRes] = await Promise.all([
+      readFormsForActs(db, ids),
+      // Every requested PUBLIC act gets a default result, formless ones too
+      // (`default_forms()` answers them with zero counts).
+      sql<{ act_id: string; ended: boolean }>`
+        select v.act_id::text as act_id, v.ended from legal_v2.acts v
+         where v.act_id = any(${ids}::bigint[]) and v.privacy_class = 'public'
+      `
+        .execute(db)
+        .then(
+          (r) => ok(r.rows),
+          (error: unknown) => err(databaseError('legal_v2 acts read failed', error))
+        ),
+    ]);
     if (rowsRes.isErr()) return err(rowsRes.error);
+    if (actsRes.isErr()) return err(actsRes.error);
     const byAct = new Map<string, V2FormRow[]>();
     for (const r of rowsRes.value) {
       const list = byAct.get(r.act_id);
@@ -314,11 +340,11 @@ export const makeLegalActsRepoV2 = (deps: MakeLegalActsRepoV2Deps): LegalActsRep
     }
     const day = today();
     const out = new Map<string, ActForms>();
-    for (const [actId, rows] of byAct) {
-      const actEnded = rows[0]?.act_ended ?? false;
-      out.set(actId, {
+    for (const act of actsRes.value) {
+      const rows = byAct.get(act.act_id) ?? [];
+      out.set(act.act_id, {
         rows,
-        def: computeDefaultForm(actId, rows.map(toFormState), day, actEnded),
+        def: computeDefaultForm(act.act_id, rows.map(toFormState), day, act.ended),
       });
     }
     return ok(out);
@@ -402,6 +428,44 @@ export const makeLegalActsRepoV2 = (deps: MakeLegalActsRepoV2Deps): LegalActsRep
     return res.map((ref) => ref?.actId ?? null);
   };
 
+  /**
+   * A page id or form id → this act's form, loaded or not (the act-scoped
+   * alias lookup). A page id is read through ANY capture or advertisement of
+   * the act that names it, preferred route first; a form id must be the act's.
+   */
+  const resolveDocumentForAct = async (
+    actId: string,
+    documentId: string
+  ): Promise<Result<string | null, ApiError>> => {
+    const ref = parseDocumentRef(documentId);
+    if (!ID_RE.test(actId) || ref.kind === 'invalid') return ok(null);
+    try {
+      const result =
+        ref.kind === 'form'
+          ? await sql<{ form_id: string }>`
+              select f.form_id::text as form_id from legal_v2.forms f
+                join legal_v2.acts a on a.act_id = f.act_id and a.privacy_class = 'public'
+               where f.form_id = ${ref.formId}::bigint and f.act_id = ${actId}::bigint
+                 and f.privacy_class = 'public'
+            `.execute(db)
+          : await sql<{ form_id: string }>`
+              select f.form_id::text as form_id
+                from legal_v2.form_sources s
+                join legal_v2.forms f on f.form_id = s.form_id and f.privacy_class = 'public'
+                join legal_v2.acts a on a.act_id = f.act_id and a.privacy_class = 'public'
+               where s.page_id = ${ref.pageId} and s.act_id = ${actId}::bigint
+                 and s.status = 'bound' and s.privacy_class = 'public'
+               order by (s.subject_kind = 'capture') desc, s.is_latest desc,
+                        ${ROUTE_ORDER_SQL} nulls last, s.binding_id
+               limit 1
+            `.execute(db);
+      const row = result.rows[0];
+      return ok(row === undefined ? null : formDocumentId(row.form_id));
+    } catch (error) {
+      return err(databaseError('resolveDocumentForAct failed', error));
+    }
+  };
+
   // ── bridged: summary, amendments, provenance ──────────────────────────────────
 
   /** A v2 document id → its act → the old corpus's canonical summary. */
@@ -458,7 +522,7 @@ export const makeLegalActsRepoV2 = (deps: MakeLegalActsRepoV2Deps): LegalActsRep
 
   const provenanceOf = (
     forms: ActForms | undefined,
-    amended: number,
+    amended: number | null,
     formId?: string
   ): LegalVersionProvenance => {
     const chosenId = formId ?? forms?.def.defaultFormId ?? null;
@@ -473,6 +537,14 @@ export const makeLegalActsRepoV2 = (deps: MakeLegalActsRepoV2Deps): LegalActsRep
       amendedAfterPublication: amended,
       latestConsolidationDate: latestCons?.portal_order_date ?? null,
       latestConsolidationLoaded: latestCons?.readable ?? false,
+      // The served form itself (LEG-X3AV): kind above, and its caveat and label.
+      documentId: row === undefined ? null : formDocumentId(row.form_id),
+      caveat:
+        row === undefined
+          ? null
+          : (row.caveat ?? (row.form_kind === 'consolidation' ? 'unofficial_consolidation' : null)),
+      portalLabelRaw: row?.portal_label_raw ?? null,
+      portalLabelDate: row?.portal_label_date ?? null,
     };
   };
 
@@ -491,7 +563,8 @@ export const makeLegalActsRepoV2 = (deps: MakeLegalActsRepoV2Deps): LegalActsRep
     for (const id of ids) {
       const forms = formsRes.value.get(id);
       if (forms === undefined) continue;
-      map.set(id, provenanceOf(forms, legacyRes.value.get(id)?.amendedAfterPublication ?? 0));
+      // The legacy map holds only acts the old corpus has: absent = unknown, not 0.
+      map.set(id, provenanceOf(forms, legacyRes.value.get(id)?.amendedAfterPublication ?? null));
     }
     return ok(map);
   };
@@ -503,13 +576,19 @@ export const makeLegalActsRepoV2 = (deps: MakeLegalActsRepoV2Deps): LegalActsRep
     if (ref.isErr()) return err(ref.error);
     if (ref.value === null) return ok(null);
     const { actId, formId } = ref.value;
-    const [formsRes, amendedRes] = await Promise.all([
+    const [formsRes, legacyRes] = await Promise.all([
       formsForActs([actId]),
-      legacy.countAmendmentsAfter(actId),
+      legacy.versionProvenanceForActs([actId]),
     ]);
     if (formsRes.isErr()) return err(formsRes.error);
-    if (amendedRes.isErr()) return err(amendedRes.error);
-    return ok(provenanceOf(formsRes.value.get(actId), amendedRes.value, formId));
+    if (legacyRes.isErr()) return err(legacyRes.error);
+    return ok(
+      provenanceOf(
+        formsRes.value.get(actId),
+        legacyRes.value.get(actId)?.amendedAfterPublication ?? null,
+        formId
+      )
+    );
   };
 
   // ── the act card ─────────────────────────────────────────────────────────────
@@ -523,7 +602,9 @@ export const makeLegalActsRepoV2 = (deps: MakeLegalActsRepoV2Deps): LegalActsRep
       const [formsRes, bridgedRes, amendedRes, aliasRows, keyRows] = await Promise.all([
         formsForActs([act.actId]),
         readBridgedDocFacts(db, [act.actId]),
-        act.bridged === false ? Promise.resolve(ok(0)) : legacy.countAmendmentsAfter(act.actId),
+        act.bridged === false
+          ? Promise.resolve(ok<number | null, ApiError>(null))
+          : legacy.countAmendmentsAfter(act.actId),
         sql<{ alias: string }>`
           select al.alias from legal_v2.act_aliases al
            where al.act_id = ${act.actId}::bigint and al.privacy_class = 'public'
@@ -584,25 +665,34 @@ export const makeLegalActsRepoV2 = (deps: MakeLegalActsRepoV2Deps): LegalActsRep
       o.dir === 'desc'
         ? sql`order by ${sortInfo.expr} desc nulls last, a.act_id desc`
         : sql`order by ${sortInfo.expr} asc nulls last, a.act_id asc`;
+    const from = v2ActsFrom({
+      legacy: sortInfo.legacy || filterUses(o.filter, LEGACY_FIELDS),
+      summary: filterUses(o.filter, SUMMARY_FIELDS),
+    });
     try {
-      const result = await sql<ActIdentityRow>`
-        select ${LIST_SELECT}
-          from ${V2_ACTS_LIST_FROM}
+      // The page of ids first, over only the joins it needs; the acts after.
+      const page = await sql<{ act_id: string; sort_key: string | null }>`
+        select a.act_id::text as act_id, ${sortInfo.expr}::text as sort_key
+          from ${from}
          where ${sql.join(conds, sql` and `)}
          ${orderBy}
          limit ${limit + 1}
       `.execute(db);
-      const rows = result.rows;
+      const rows = page.rows;
       const hasMore = rows.length > limit;
-      const items = (hasMore ? rows.slice(0, limit) : rows).map((r) => toAct(r));
-      const last = items[items.length - 1];
+      const pageRows = hasMore ? rows.slice(0, limit) : rows;
+      const found = await findActsByIds(pageRows.map((r) => r.act_id));
+      if (found.isErr()) return err(found.error);
+      const byId = new Map(found.value.map((a) => [a.actId, a]));
+      const items = pageRows.flatMap((r) => byId.get(r.act_id) ?? []);
+      const last = pageRows[pageRows.length - 1];
       const next =
         hasMore && last !== undefined
           ? buildNextCursor({
               sort: o.sort,
               dir: o.dir,
               fhash,
-              lastKeys: [sortValueOf(last, o.sort), last.actId],
+              lastKeys: [last.sort_key ?? '', last.act_id],
             })
           : null;
       return ok({ items, next });
@@ -614,9 +704,13 @@ export const makeLegalActsRepoV2 = (deps: MakeLegalActsRepoV2Deps): LegalActsRep
   const countActs = async (filter: FilterInput): Promise<Result<number, ApiError>> => {
     const kernel = kernelConditions(legalActsSpec, filter);
     if (kernel.isErr()) return err(kernel.error);
+    const from = v2ActsFrom({
+      legacy: filterUses(filter, LEGACY_FIELDS),
+      summary: filterUses(filter, SUMMARY_FIELDS),
+    });
     try {
       const result = await sql<{ cnt: string }>`
-        select count(*) as cnt from ${V2_ACTS_LIST_FROM} where ${kernel.value}
+        select count(*) as cnt from ${from} where ${kernel.value}
       `.execute(db);
       return ok(Number(result.rows[0]?.cnt ?? 0));
     } catch (error) {
@@ -632,10 +726,11 @@ export const makeLegalActsRepoV2 = (deps: MakeLegalActsRepoV2Deps): LegalActsRep
     if (dimSql === undefined) return err(invalidInput(`invalid dimension '${dim}'`, 'groupBy'));
     const kernel = kernelConditions(legalActsSpec, filter);
     if (kernel.isErr()) return err(kernel.error);
-    const from =
-      dimSql.lateral === undefined
-        ? V2_ACTS_LIST_FROM
-        : sql`${V2_ACTS_LIST_FROM} ${dimSql.lateral}`;
+    const base = v2ActsFrom({
+      legacy: dimSql.legacy === true || filterUses(filter, LEGACY_FIELDS),
+      summary: dimSql.lateral !== undefined || filterUses(filter, SUMMARY_FIELDS),
+    });
+    const from = dimSql.lateral === undefined ? base : sql`${base} ${dimSql.lateral}`;
     try {
       const result = await sql<{ key: string | null; cnt: string }>`
         select ${dimSql.key} as key, ${dimSql.count} as cnt
@@ -686,5 +781,6 @@ export const makeLegalActsRepoV2 = (deps: MakeLegalActsRepoV2Deps): LegalActsRep
     canonicalDocumentsForActs,
     summariesForDocuments,
     defaultFormsForActs,
+    resolveDocumentForAct,
   };
 };

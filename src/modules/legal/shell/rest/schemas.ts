@@ -67,6 +67,12 @@ export const RenderResponseSchema = Type.Object({
     compiledAt: Type.String(),
     /** legal_v2 only: where the body came from ('legal_v2:tldf-unit/1'). */
     renderSource: Type.Optional(Type.String()),
+    /** legal_v2 only: the served form (kind, caveat, Portal label and date, source URL). */
+    servedForm: Type.Optional(Type.Any()),
+    /** legal_v2 only: the envelope-head substitutions, versioned. */
+    renderHead: Type.Optional(Type.Any()),
+    /** legal_v2 only: the unit's fidelity flags. */
+    fidelityFlags: Type.Optional(Type.Array(Type.String())),
   }),
 });
 

@@ -236,6 +236,9 @@ export const makeJudicialResolvers = (deps: JudicialResolverDeps): Record<string
         if (parent.targetActId === null) return null;
         const loader = deps.legalActLoader();
         if (loader === undefined) return null;
+        // The SDL returns a full LegalAct: hydrate the act itself, not the
+        // minimal reference (whose missing displayCitation nulled the field).
+        if (loader.loadAct !== undefined) return loader.loadAct(parent.targetActId);
         return loader.load(parent.targetActId);
       },
     },

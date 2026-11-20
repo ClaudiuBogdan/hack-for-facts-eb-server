@@ -152,7 +152,9 @@ describe('legal SDL — provenance fields are non-null', () => {
 
   it('LegalVersionProvenance pins nullability per field', () => {
     expect(fieldType('LegalVersionProvenance', 'versionKind')).toBe('String!');
-    expect(fieldType('LegalVersionProvenance', 'amendedAfterPublication')).toBe('Int!');
+    // Nullable since the legal_v2 bridge: unknown (not zero) for an act the
+    // previous corpus does not hold; the legacy source always fills it.
+    expect(fieldType('LegalVersionProvenance', 'amendedAfterPublication')).toBe('Int');
     expect(fieldType('LegalVersionProvenance', 'latestConsolidationLoaded')).toBe('Boolean!');
     // nullable: absent today, and absent is the honest answer
     expect(fieldType('LegalVersionProvenance', 'sourceUrl')).toBe('String');

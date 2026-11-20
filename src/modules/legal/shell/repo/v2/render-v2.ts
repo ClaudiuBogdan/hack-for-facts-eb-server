@@ -2,29 +2,33 @@
  * The legal_v2 render: availability for GraphQL (`LegalRenderRepo`) and the
  * REST body (`LegalRenderSource`), each read in ONE statement.
  *
- * Gates, in the legacy order: no public form → 404; no published text unit
- * → 409 `not_loaded`; several text units (header plus body) → 409
- * `composition_not_served` (not in this version, per the design); any
- * restricted component, unit or chunk → 403. Links and images join their
- * public rows only: a link whose row or target act is not public is served as
- * a plain reference with no target.
+ * Privacy first, then shape (`decideV2Render`): a restricted act, form, page
+ * route, published composition (`form_current`), component, unit or render
+ * chunk answers 403 (or 404 when the form itself is not public) BEFORE any
+ * composition status, hash, compiler, timestamp or count is projected.
+ * Then:
+ *  - no published public text unit, or no public chunk → 409 `not_loaded`;
+ *  - anything but ONE whole unit with no missing body → `composition_not_served`;
+ *  - a consolidation with neither the Portal's label nor its date →
+ *    `label_missing` (LEG-X3AV: its text is never shown without the label);
+ *  - the unit's capture not bound (public) to this form → `source_not_bound`.
  *
- * The validator (ETag) is the form's `composition_digest` plus the identity
- * generation (`page_acts` / bound captures, which decide link targets, change
- * only in an identity publication) plus the converter version.
+ * The source URL is the supplying capture's own bound `form_sources` row, never
+ * the unit's copy. A v2 render is served `no-store` with no validator: link
+ * targets and custody can change while the composition stays the same.
  */
 
-import { sql, type Kysely } from 'kysely';
+import { sql, type Kysely, type RawBuilder } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
 import { databaseError, type ApiError, type ProdDatabase } from '@/modules/shared/index.js';
 
-import { resolveFormRef } from './v2-reads.js';
-import { formDocumentId, parseDocumentRef } from '../../../core/v2/forms.js';
+import { ROUTE_ORDER_SQL } from './v2-reads.js';
+import { formDocumentId, parseDocumentRef, versionKindOf } from '../../../core/v2/forms.js';
 import {
-  V2_RENDER_CONVERTER_VERSION,
+  V2_HEAD_SUBSTITUTIONS,
   V2_RENDER_SOURCE,
-  convertUnitRender,
+  convertUnitChunk,
   v2PhysicalChunkCount,
   type V2LinkTarget,
 } from '../../../core/v2/tldf-unit.js';
@@ -41,58 +45,109 @@ type Db = Kysely<ProdDatabase>;
 
 const TEXT_ONLY_COMPILER = 'text-only';
 
+/** The facts the decision reads, from either statement. */
+export interface V2RenderFacts {
+  readonly published: boolean;
+  readonly currentPublic: boolean;
+  readonly anyComponentRestricted: boolean;
+  readonly anyChunkRestricted: boolean;
+  readonly units: number;
+  readonly wholeUnits: number;
+  readonly missingBody: number;
+  readonly publicChunks: number;
+  readonly formKind: string;
+  readonly portalLabelRaw: string | null;
+  readonly portalLabelDate: string | null;
+  readonly sourceBound: boolean;
+}
+
+export type V2RenderDecision = 'restricted' | LegalRenderStatus;
+
+/** Privacy, then shape, then the label and the binding. */
+export const decideV2Render = (f: V2RenderFacts): V2RenderDecision => {
+  if (f.published && !f.currentPublic) return 'restricted';
+  if (f.anyComponentRestricted || f.anyChunkRestricted) return 'restricted';
+  if (!f.published || f.units === 0 || f.publicChunks === 0) return 'not_loaded';
+  if (f.units !== 1 || f.wholeUnits !== 1 || f.missingBody !== 0) return 'composition_not_served';
+  if (f.formKind === 'consolidation' && f.portalLabelRaw === null && f.portalLabelDate === null) {
+    return 'label_missing';
+  }
+  if (!f.sourceBound) return 'source_not_bound';
+  return 'served';
+};
+
+/** The served form as every v2 text surface states it (LEG-X3AV). */
+export interface V2ServedForm {
+  readonly documentId: string;
+  readonly versionKind: string;
+  readonly versionDate: string | null;
+  readonly caveat: string | null;
+  readonly portalLabelRaw: string | null;
+  readonly portalLabelDate: string | null;
+  readonly sourceUrl: string | null;
+}
+
+/** Per-form facts, shared by the info and body statements. */
+const formFactsSql = (formIdExpr: RawBuilder<unknown>): RawBuilder<unknown> => sql`
+  select count(u.unit_id)::int as units,
+         (count(*) filter (where c.slot = 'whole' and u.unit_id is not null))::int as whole_units,
+         (count(*) filter (where c.slot = 'missing_body'))::int as missing_body,
+         coalesce(bool_or(c.privacy_class <> 'public' or u.privacy_class <> 'public'), false)
+           as component_restricted,
+         min(u.unit_id) as unit_id
+    from legal_v2.form_components c
+    left join legal_v2.text_units u on u.unit_id = c.unit_id
+   where c.form_id = ${formIdExpr}`;
+
 interface InfoRow {
   form_id: string;
+  form_kind: string;
+  portal_label_raw: string | null;
+  portal_label_date: string | null;
   receipt_id: string | null;
   published_at: string | null;
   current_public: boolean | null;
   units: number;
   whole_units: number;
   missing_body: number;
-  restricted: boolean | null;
+  component_restricted: boolean;
   text_sha256: string | null;
   compiler_version: string | null;
-  chunks: number;
-  chunk_restricted: boolean | null;
+  public_chunks: number;
+  chunk_restricted: boolean;
+  source_bound: boolean;
 }
 
-/**
- * Served only when ONE text unit makes the whole form (`slot = 'whole'`) and no
- * component says its body is missing. A header without its body, or a header
- * plus a body, is a composition this version does not serve: answering it as a
- * complete text would be a partial reading. A whole unit beside linked annexes
- * is served (the annexes' text lives on their own pages).
- */
-export const v2RenderStatus = (row: {
-  receipt_id: string | null;
-  units: number;
-  whole_units: number;
-  missing_body: number;
-}): LegalRenderStatus =>
-  row.receipt_id === null || row.units === 0
-    ? 'not_loaded'
-    : row.units === 1 && row.whole_units === 1 && row.missing_body === 0
-      ? 'served'
-      : 'composition_not_served';
+const infoFacts = (r: InfoRow): V2RenderFacts => ({
+  published: r.receipt_id !== null,
+  currentPublic: r.current_public === true,
+  anyComponentRestricted: r.component_restricted,
+  anyChunkRestricted: r.chunk_restricted,
+  units: r.units,
+  wholeUnits: r.whole_units,
+  missingBody: r.missing_body,
+  publicChunks: r.public_chunks,
+  formKind: r.form_kind,
+  portalLabelRaw: r.portal_label_raw,
+  portalLabelDate: r.portal_label_date,
+  sourceBound: r.source_bound,
+});
 
+/** Availability as GraphQL serves it: nothing beyond the verdict unless served. */
 const mapInfo = (row: InfoRow): LegalRenderInfo => {
-  const status = v2RenderStatus(row);
-  const restricted =
-    row.current_public === false || row.restricted === true || row.chunk_restricted === true;
+  const decision = decideV2Render(infoFacts(row));
+  const served = decision === 'served';
   return {
     documentId: formDocumentId(row.form_id),
-    renderStatus: status,
-    privacyClass: restricted ? 'restricted' : 'public',
-    runId: row.receipt_id ?? '',
-    textSha256: status === 'served' ? (row.text_sha256 ?? '') : '',
-    compilerVersion: row.compiler_version ?? TEXT_ONLY_COMPILER,
-    compiledAt: row.published_at ?? '',
-    chunkCount: status === 'served' ? v2PhysicalChunkCount(row.chunks) : null,
+    renderStatus: decision === 'restricted' ? 'content_unavailable' : decision,
+    privacyClass: decision === 'restricted' ? 'restricted' : 'public',
+    runId: served ? (row.receipt_id ?? '') : '',
+    textSha256: served ? (row.text_sha256 ?? '') : '',
+    compilerVersion: served ? (row.compiler_version ?? TEXT_ONLY_COMPILER) : '',
+    compiledAt: served ? (row.published_at ?? '') : '',
+    chunkCount: served ? v2PhysicalChunkCount(row.public_chunks) : null,
   };
 };
-
-export const v2Etag = (compositionDigest: string, generationSeq: string): string =>
-  `W/"${V2_RENDER_CONVERTER_VERSION}-${compositionDigest.slice(0, 32)}-g${generationSeq}"`;
 
 export const makeLegalRenderRepoV2 = (db: Db): LegalRenderRepo => {
   const renderInfoForDocuments = async (
@@ -106,29 +161,30 @@ export const makeLegalRenderRepoV2 = (db: Db): LegalRenderRepo => {
     if (formIds.size === 0) return ok(new Map());
     try {
       const result = await sql<InfoRow>`
-        select f.form_id::text as form_id, fc.receipt_id::text as receipt_id,
-               to_json(r.published_at) #>> '{}' as published_at, fc.privacy_class = 'public' as current_public,
-               x.units, x.whole_units, x.missing_body, x.restricted, x.text_sha256,
-               x.compiler_version,
+        select f.form_id::text as form_id, f.form_kind, f.portal_label_raw,
+               f.portal_label_date::text as portal_label_date,
+               fc.receipt_id::text as receipt_id,
+               case when r.privacy_class = 'public' then to_json(r.published_at) #>> '{}' end
+                 as published_at,
+               fc.privacy_class = 'public' as current_public,
+               x.units, x.whole_units, x.missing_body, x.component_restricted,
+               u.text_sha256, u.compiler_version,
                coalesce((select count(*) from legal_v2.unit_render ur
-                          where ur.unit_id = x.unit_id), 0)::int as chunks,
-               (select bool_or(ur.privacy_class <> 'public') from legal_v2.unit_render ur
-                 where ur.unit_id = x.unit_id) as chunk_restricted
+                          where ur.unit_id = x.unit_id and ur.privacy_class = 'public'), 0)::int
+                 as public_chunks,
+               exists (select 1 from legal_v2.unit_render ur
+                        where ur.unit_id = x.unit_id and ur.privacy_class <> 'public')
+                 as chunk_restricted,
+               exists (select 1 from legal_v2.form_sources s
+                        where s.capture_ref_id = u.capture_ref_id and s.form_id = f.form_id
+                          and s.subject_kind = 'capture' and s.status = 'bound'
+                          and s.privacy_class = 'public') as source_bound
           from legal_v2.forms f
           join legal_v2.acts a on a.act_id = f.act_id and a.privacy_class = 'public'
           left join legal_v2.form_current fc on fc.form_id = f.form_id
           left join legal_v2.package_receipts r on r.receipt_id = fc.receipt_id
-          cross join lateral (
-            select count(u.unit_id)::int as units,
-                   (count(*) filter (where c.slot = 'whole' and u.unit_id is not null))::int
-                     as whole_units,
-                   (count(*) filter (where c.slot = 'missing_body'))::int as missing_body,
-                   bool_or(c.privacy_class <> 'public' or u.privacy_class <> 'public') as restricted,
-                   min(u.unit_id) as unit_id, min(u.text_sha256) as text_sha256,
-                   min(u.compiler_version) as compiler_version
-              from legal_v2.form_components c
-              left join legal_v2.text_units u on u.unit_id = c.unit_id
-             where c.form_id = f.form_id) x
+          cross join lateral (${formFactsSql(sql.ref('f.form_id'))}) x
+          left join legal_v2.text_units u on u.unit_id = x.unit_id and u.privacy_class = 'public'
          where f.form_id = any(${[...formIds.keys()]}::bigint[]) and f.privacy_class = 'public'
       `.execute(db);
       const map = new Map<string, LegalRenderInfo>();
@@ -145,11 +201,10 @@ export const makeLegalRenderRepoV2 = (db: Db): LegalRenderRepo => {
   return {
     renderInfoForDocuments,
     renderInfo: async (documentId) => {
-      const ref = await resolveFormRef(db, documentId);
-      if (ref.isErr()) return err(ref.error);
-      if (ref.value === null) return ok(null);
-      const res = await renderInfoForDocuments([formDocumentId(ref.value.formId)]);
-      return res.map((m) => m.get(formDocumentId(ref.value?.formId ?? '')) ?? null);
+      const ref = parseDocumentRef(documentId);
+      if (ref.kind !== 'form') return ok(null);
+      const res = await renderInfoForDocuments([documentId]);
+      return res.map((m) => m.get(documentId) ?? null);
     },
     // The v2 body travels through `LegalRenderSource`; there are no physical rows.
     renderRow: () =>
@@ -163,16 +218,16 @@ export const makeLegalRenderRepoV2 = (db: Db): LegalRenderRepo => {
 
 interface BodyHead {
   form_id: string;
-  composition_digest: string | null;
+  form_kind: string;
+  caveat: string | null;
+  portal_label_raw: string | null;
+  portal_label_date: string | null;
+  portal_order_date: string | null;
   receipt_id: string | null;
   current_public: boolean | null;
   published_at: string | null;
-  generation_seq: string;
 }
-interface BodyComponent {
-  ordinal: number;
-  slot: string;
-  has_unit: boolean;
+interface BodyUnit {
   public: boolean;
   render_state: 'structured' | 'text_only';
   text_sha256: string;
@@ -180,14 +235,20 @@ interface BodyComponent {
   body_sha256: string;
   parse_build_id: string;
   content_parser_version: string;
-  requested_url: string;
+  fidelity_flags: string[];
+}
+interface BodyFacts {
+  units: number;
+  whole_units: number;
+  missing_body: number;
+  component_restricted: boolean;
 }
 interface BodyChunk {
   chunk_seq: number;
   char_start: number;
   char_end: number;
   public: boolean;
-  body: string;
+  body: string | null;
 }
 interface BodyLink {
   ordinal: number;
@@ -201,8 +262,11 @@ interface BodyAsset {
   sha256: string | null;
 }
 interface BodyRow {
+  route_status: string | null;
   head: BodyHead | null;
-  components: BodyComponent[];
+  facts: BodyFacts | null;
+  unit: BodyUnit | null;
+  source_url: string | null;
   chunks: BodyChunk[];
   links: BodyLink[];
   assets: BodyAsset[];
@@ -210,56 +274,77 @@ interface BodyRow {
 
 /**
  * Everything one render request needs, in ONE statement (one snapshot): the
- * form, its components, and — only when exactly one text unit serves it —
- * that unit's chunks, its public links with their read-time targets, and its
- * public images with the custody hash. `json`, not `jsonb`, so chunk bodies
- * are not re-parsed by the database.
+ * page route (for an old page id: its preferred route's NEWEST capture, held
+ * or not, so a held route never falls through to another route's form), the
+ * form, its composition facts, the whole unit, the supplying capture's bound
+ * source row, chunk metadata with only the bodies this request serves, the
+ * public links (for an envelope or manifest only) and the public images.
  */
-const readBody = async (db: Db, formId: string): Promise<BodyRow | undefined> => {
+const readBody = async (db: Db, documentId: string, wanted: number): Promise<BodyRow | null> => {
+  const ref = parseDocumentRef(documentId);
+  if (ref.kind === 'invalid') return null;
+  const pick =
+    ref.kind === 'form'
+      ? sql`select ${ref.formId}::bigint as form_id, 'bound'::text as route_status`
+      : sql`select s.form_id,
+                   case when s.privacy_class <> 'public' then 'restricted' else s.status end
+                     as route_status
+              from legal_v2.form_sources s
+             where s.page_id = ${ref.pageId} and s.subject_kind = 'capture' and s.is_latest
+             order by ${ROUTE_ORDER_SQL}, s.binding_id
+             limit 1`;
   const result = await sql<BodyRow>`
-    with f as (
-      select f.form_id
-        from legal_v2.forms f
+    with pick as (${pick}),
+    f as (
+      select f.form_id, f.form_kind, f.caveat, f.portal_label_raw, f.portal_label_date,
+             f.portal_order_date
+        from pick
+        join legal_v2.forms f on f.form_id = pick.form_id and f.privacy_class = 'public'
         join legal_v2.acts a on a.act_id = f.act_id and a.privacy_class = 'public'
-       where f.form_id = ${formId}::bigint and f.privacy_class = 'public'
+       where pick.route_status = 'bound'
     ),
-    comps as (
-      select c.ordinal, c.slot,
-             (c.privacy_class = 'public' and coalesce(u.privacy_class = 'public', true)) as public,
-             u.unit_id, u.render_state, u.text_sha256, u.compiler_version, u.body_sha256,
-             u.parse_build_id, u.content_parser_version, u.requested_url
-        from legal_v2.form_components c
-        join f on f.form_id = c.form_id
-        left join legal_v2.text_units u on u.unit_id = c.unit_id
-    ),
+    x as (${formFactsSql(sql`(select f.form_id from f)`)}),
     one as (
-      select comps.unit_id from comps
-       where comps.public and comps.slot = 'whole' and comps.unit_id is not null
-         and (select count(*) from comps where comps.unit_id is not null) = 1
-         and not exists (select 1 from comps where comps.slot = 'missing_body')
+      select u.* from x join legal_v2.text_units u on u.unit_id = x.unit_id
+       where x.units = 1 and x.whole_units = 1 and x.missing_body = 0
+         and not x.component_restricted
     )
     select
+      (select route_status from pick) as route_status,
       (select json_build_object(
-                'form_id', f.form_id::text,
-                'composition_digest', fc.composition_digest,
+                'form_id', f.form_id::text, 'form_kind', f.form_kind, 'caveat', f.caveat,
+                'portal_label_raw', f.portal_label_raw,
+                'portal_label_date', f.portal_label_date::text,
+                'portal_order_date', f.portal_order_date::text,
                 'receipt_id', fc.receipt_id::text,
                 'current_public', fc.privacy_class = 'public',
-                'published_at', to_json(r.published_at) #>> '{}',
-                'generation_seq', (select p.generation_seq::text from legal_v2.identity_publication p))
+                'published_at',
+                  case when r.privacy_class = 'public' then to_json(r.published_at) #>> '{}' end)
          from f
          left join legal_v2.form_current fc on fc.form_id = f.form_id
          left join legal_v2.package_receipts r on r.receipt_id = fc.receipt_id) as head,
-      (select coalesce(json_agg(json_build_object(
-                'ordinal', c.ordinal, 'slot', c.slot, 'has_unit', c.unit_id is not null,
-                'public', c.public, 'render_state', c.render_state,
-                'text_sha256', c.text_sha256, 'compiler_version', c.compiler_version,
-                'body_sha256', c.body_sha256, 'parse_build_id', c.parse_build_id,
-                'content_parser_version', c.content_parser_version,
-                'requested_url', c.requested_url) order by c.ordinal), '[]'::json)
-         from comps c) as components,
+      (select json_build_object('units', x.units, 'whole_units', x.whole_units,
+                                'missing_body', x.missing_body,
+                                'component_restricted', x.component_restricted)
+         from x where exists (select 1 from f)) as facts,
+      (select json_build_object(
+                'public', one.privacy_class = 'public', 'render_state', one.render_state,
+                'text_sha256', one.text_sha256, 'compiler_version', one.compiler_version,
+                'body_sha256', one.body_sha256, 'parse_build_id', one.parse_build_id,
+                'content_parser_version', one.content_parser_version,
+                'fidelity_flags', one.fidelity_flags)
+         from one) as unit,
+      (select s.requested_url from one
+         join legal_v2.form_sources s on s.capture_ref_id = one.capture_ref_id
+        where s.form_id = (select f.form_id from f) and s.subject_kind = 'capture'
+          and s.status = 'bound' and s.privacy_class = 'public'
+        order by s.binding_id limit 1) as source_url,
       (select coalesce(json_agg(json_build_object(
                 'chunk_seq', ur.chunk_seq, 'char_start', ur.char_start, 'char_end', ur.char_end,
-                'public', ur.privacy_class = 'public', 'body', ur.body) order by ur.chunk_seq), '[]'::json)
+                'public', ur.privacy_class = 'public',
+                'body', case when ur.privacy_class = 'public'
+                              and (${wanted}::int = 0 or ur.chunk_seq = ${wanted}::int - 1)
+                             then ur.body end) order by ur.chunk_seq), '[]'::json)
          from legal_v2.unit_render ur join one on one.unit_id = ur.unit_id) as chunks,
       (select coalesce(json_agg(json_build_object(
                 'ordinal', l.ordinal, 'href', l.href, 'target_fragment', l.target_fragment,
@@ -276,7 +361,7 @@ const readBody = async (db: Db, formId: string): Promise<BodyRow | undefined> =>
                       and s.privacy_class = 'public'
                     limit 1)) order by l.ordinal), '[]'::json)
          from legal_v2.unit_links l join one on one.unit_id = l.unit_id
-        where l.privacy_class = 'public') as links,
+        where l.privacy_class = 'public' and ${wanted}::int = 0) as links,
       (select coalesce(json_agg(json_build_object(
                 'ordinal', ua.ordinal,
                 'sha256', case when ac.bytes_held then ac.object_sha256 end) order by ua.ordinal), '[]'::json)
@@ -284,7 +369,7 @@ const readBody = async (db: Db, formId: string): Promise<BodyRow | undefined> =>
          left join legal_v2.asset_custody ac on ac.asset_id = ua.asset_id and ac.privacy_class = 'public'
         where ua.privacy_class = 'public') as assets
   `.execute(db);
-  return result.rows[0];
+  return result.rows[0] ?? null;
 };
 
 export const makeLegalRenderSourceV2 = (db: Db): LegalRenderSource => ({
@@ -292,49 +377,49 @@ export const makeLegalRenderSourceV2 = (db: Db): LegalRenderSource => ({
     documentId: string,
     chunkIndex: number
   ): Promise<Result<LegalRenderPayload, LegalRenderError | ApiError>> => {
-    const ref = await resolveFormRef(db, documentId);
-    if (ref.isErr()) return err(ref.error);
-    if (ref.value === null) return err({ reason: 'render_not_found', documentId });
-    // An old page id answers with the form it shows now, under the form's id.
-    const servedId = formDocumentId(ref.value.formId);
-
-    let row: BodyRow | undefined;
+    let row: BodyRow | null;
     try {
-      row = await readBody(db, ref.value.formId);
+      row = await readBody(db, documentId, chunkIndex);
     } catch (error) {
       return err(databaseError('legal_v2 render read failed', error));
     }
-    const head = row?.head ?? null;
-    if (row === undefined || head === null) return err({ reason: 'render_not_found', documentId });
-
-    const units = row.components.filter((c) => c.has_unit);
-    const status = v2RenderStatus({
-      receipt_id: head.receipt_id,
-      units: units.length,
-      whole_units: units.filter((c) => c.slot === 'whole').length,
-      missing_body: row.components.filter((c) => c.slot === 'missing_body').length,
+    const notFound = { reason: 'render_not_found' as const, documentId };
+    const routeStatus = row?.route_status ?? null;
+    if (row === null || routeStatus === null || routeStatus === 'restricted') {
+      return err(notFound);
+    }
+    if (routeStatus !== 'bound') {
+      // The page's preferred route is held: never another route's form.
+      return err({ reason: 'render_unavailable', documentId, renderStatus: 'not_loaded' });
+    }
+    const head = row.head;
+    const facts = row.facts;
+    if (head === null || facts === null) return err(notFound);
+    // An old page id answers with the form it shows now, under the form's id.
+    const servedId = formDocumentId(head.form_id);
+    const decision = decideV2Render({
+      published: head.receipt_id !== null,
+      currentPublic: head.current_public === true,
+      anyComponentRestricted: facts.component_restricted || row.unit?.public === false,
+      anyChunkRestricted: row.chunks.some((c) => !c.public),
+      units: facts.units,
+      wholeUnits: facts.whole_units,
+      missingBody: facts.missing_body,
+      publicChunks: row.chunks.filter((c) => c.public).length,
+      formKind: head.form_kind,
+      portalLabelRaw: head.portal_label_raw,
+      portalLabelDate: head.portal_label_date,
+      sourceBound: row.source_url !== null,
     });
-    if (status !== 'served') {
-      return err({ reason: 'render_unavailable', documentId: servedId, renderStatus: status });
-    }
-    const unit = units[0];
-    if (
-      unit === undefined ||
-      head.current_public !== true ||
-      row.components.some((c) => !c.public) ||
-      row.chunks.some((c) => !c.public)
-    ) {
+    if (decision === 'restricted')
       return err({ reason: 'render_restricted', documentId: servedId });
+    if (decision !== 'served') {
+      return err({ reason: 'render_unavailable', documentId: servedId, renderStatus: decision });
     }
-    if (row.chunks.length === 0) {
-      return err({
-        reason: 'render_inconsistent',
-        documentId: servedId,
-        detail: 'the served unit has no render chunks',
-      });
-    }
-
-    const converted = convertUnitRender(
+    const unit = row.unit;
+    if (unit === null) return err({ reason: 'render_restricted', documentId: servedId });
+    const sourceUrl = row.source_url ?? '';
+    const converted = convertUnitChunk(
       {
         documentId: servedId,
         runId: Number(head.receipt_id),
@@ -343,7 +428,7 @@ export const makeLegalRenderSourceV2 = (db: Db): LegalRenderSource => ({
         bodySha256: unit.body_sha256,
         parseBuildId: unit.parse_build_id,
         contentParserVersion: unit.content_parser_version,
-        sourceUrl: unit.requested_url,
+        sourceUrl,
       },
       {
         renderState: unit.render_state,
@@ -365,18 +450,26 @@ export const makeLegalRenderSourceV2 = (db: Db): LegalRenderSource => ({
             },
           ])
         ),
-        assetSha256: new Map(
-          row.assets.flatMap((a) => (a.sha256 === null ? [] : [[a.ordinal, a.sha256] as const]))
-        ),
-      }
+        publicAssets: new Map(row.assets.map((a) => [a.ordinal, a.sha256])),
+      },
+      chunkIndex
     );
     if (converted.isErr()) {
-      return err({ reason: 'render_inconsistent', documentId: servedId, detail: converted.error });
+      return converted.error === 'not_found'
+        ? err({ reason: 'render_not_found', documentId })
+        : err({ reason: 'render_inconsistent', documentId: servedId, detail: converted.error });
     }
-    const payloads = converted.value.payloads;
-
-    const payload = payloads[chunkIndex];
-    if (payload === undefined) return err({ reason: 'render_not_found', documentId });
+    const payload = converted.value;
+    const servedForm: V2ServedForm = {
+      documentId: servedId,
+      versionKind: versionKindOf(head.form_kind),
+      versionDate: head.portal_order_date,
+      caveat:
+        head.caveat ?? (head.form_kind === 'consolidation' ? 'unofficial_consolidation' : null),
+      portalLabelRaw: head.portal_label_raw,
+      portalLabelDate: head.portal_label_date,
+      sourceUrl: sourceUrl === '' ? null : sourceUrl,
+    };
     const info: LegalRenderInfo = {
       documentId: servedId,
       renderStatus: 'served',
@@ -385,15 +478,20 @@ export const makeLegalRenderSourceV2 = (db: Db): LegalRenderSource => ({
       textSha256: unit.text_sha256,
       compilerVersion: unit.compiler_version ?? TEXT_ONLY_COMPILER,
       compiledAt: head.published_at ?? '',
-      chunkCount: payloads.length,
+      chunkCount: v2PhysicalChunkCount(row.chunks.length),
     };
     return ok({
       kind: payload.kind,
       chunkIndex,
       info,
       tldf: payload.tldf as unknown as Record<string, unknown>,
-      etag: v2Etag(head.composition_digest ?? '', head.generation_seq),
       renderSource: V2_RENDER_SOURCE,
+      cacheable: false,
+      extraMeta: {
+        servedForm,
+        renderHead: V2_HEAD_SUBSTITUTIONS,
+        fidelityFlags: unit.fidelity_flags,
+      },
     });
   },
 });

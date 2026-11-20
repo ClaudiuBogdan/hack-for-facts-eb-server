@@ -494,6 +494,8 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
         parent: LegalAct,
         args: { direction: string; relation?: string[]; first?: number; after?: string }
       ) => {
+        // Bridged: unknown (null), not empty, for an act the old corpus lacks.
+        if (parent.bridged === false) return null;
         const relations = (args.relation ?? []).map(
           (r) => RELATION_FROM_GQL[r] ?? (r as LegalRelation)
         );
@@ -537,7 +539,14 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
         const inPage = unwrap(await getActLinksIn(graph, parent.actId, rels, page));
         const last = inPage.items[inPage.items.length - 1];
         return {
-          edges: inPage.items.map(({ edge, sourceAct }) => ({ ...edge, sourceAct })),
+          // legal_v2: the citing act is the v2 act (identity + bridge), never the
+          // legacy row the graph read joined; the graph read already required
+          // it to be public in legal_v2.
+          edges: inPage.items.map(({ edge, sourceAct }) => ({
+            ...edge,
+            sourceAct:
+              isV2(parent) && sourceAct !== null ? actLoader.load(sourceAct.actId) : sourceAct,
+          })),
           pageInfo: {
             hasNextPage: inPage.next !== null,
             endCursor:
@@ -549,6 +558,7 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
         };
       },
       incomingAnchors: async (parent: LegalAct, args: { first?: number; after?: string }) => {
+        if (parent.bridged === false) return null;
         const page = unwrap(
           await graph.incomingAnchors(parent.actId, {
             first: args.first ?? 50,
@@ -583,8 +593,14 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
           totalCount: page.totalCount,
         };
       },
-      timeline: async (parent: LegalAct) => unwrap(await timelineOf(parent)).entries,
-      timelineComplete: async (parent: LegalAct) => unwrap(await timelineOf(parent)).complete,
+      timeline: async (parent: LegalAct) =>
+        parent.bridged === false ? null : unwrap(await timelineOf(parent)).entries,
+      timelineComplete: async (parent: LegalAct) =>
+        parent.bridged === false ? null : unwrap(await timelineOf(parent)).complete,
+      resolveDocument: async (parent: LegalAct, args: { documentId: string }) => {
+        if (acts.resolveDocumentForAct === undefined) return null;
+        return unwrap(await acts.resolveDocumentForAct(parent.actId, args.documentId));
+      },
     },
 
     LegalActConnection: {

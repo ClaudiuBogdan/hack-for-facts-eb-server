@@ -15,6 +15,7 @@ import { err, ok, type Result } from 'neverthrow';
 
 import {
   invalidInput,
+  serviceUnavailable,
   type ApiError,
   type CapabilityResolver,
   type CursorPage,
@@ -61,6 +62,7 @@ import {
 import {
   V2_CONSOLIDATION_CAVEAT,
   searchLegalV2Engine,
+  type LegalV2HitVerifier,
   type LegalV2SearchEngine,
 } from './v2/search.js';
 
@@ -622,6 +624,15 @@ export interface LegalSearchDeps {
    * engine and the Postgres path are not used.
    */
   readonly v2Engine?: LegalV2SearchEngine;
+  /** legal_v2: verifies the engine's unit hits against public, servable rows. */
+  readonly v2Verifier?: LegalV2HitVerifier;
+  /**
+   * True on the legal_v2 source. Word search then answers ONLY from the v2
+   * engine: without both v2 indexes it is ServiceUnavailable, never the legacy
+   * engine, the Postgres retrieval or the embedder (whose answers bypass
+   * legal_v2's admission). The exact-citation router still answers.
+   */
+  readonly v2Mode?: boolean;
 }
 
 const SEMANTIC_CAVEAT = 'semantic search unavailable';
@@ -722,9 +733,21 @@ export const searchLegal = async (
   }
 
   // 2a. legal_v2: words on the legal-v2 indexes, hydrated from legal_v2.
-  if (deps.v2Engine !== undefined) {
+  if (deps.v2Mode === true && (deps.v2Engine === undefined || deps.v2Verifier === undefined)) {
+    return err(
+      serviceUnavailable(
+        'legal search: the legal-v2 word indexes are not configured; only exact citations answer'
+      )
+    );
+  }
+  if (deps.v2Engine !== undefined && deps.v2Verifier !== undefined) {
     return searchLegalV2Engine(
-      { engine: deps.v2Engine, acts: deps.acts, clientBaseUrl: deps.clientBaseUrl },
+      {
+        engine: deps.v2Engine,
+        acts: deps.acts,
+        verifier: deps.v2Verifier,
+        clientBaseUrl: deps.clientBaseUrl,
+      },
       query
     );
   }

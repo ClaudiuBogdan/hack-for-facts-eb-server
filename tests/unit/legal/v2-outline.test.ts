@@ -44,7 +44,7 @@ const unitOf = (id: string, ordinal: number): V2OutlineUnit => {
     provisionSeq: p.provision_seq,
     kind: p.kind,
     citationPath: p.citation_path,
-    address: p.address,
+    address: p.address ?? null,
     addressState: p.address_state,
     labelRaw: p.label_raw,
     sourceElementId: p.source_element_id,

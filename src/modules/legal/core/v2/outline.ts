@@ -72,8 +72,13 @@ export interface V2OutlineUnit {
   readonly blocks: readonly V2BlockRef[];
 }
 
+/**
+ * The number from the PARSER's address only. Where the parser withheld the
+ * address, the number stays null even when the older compiler rule wrote a
+ * citation path: that path is not the authoritative numbering.
+ */
 const numberKeyOf = (p: V2ProvisionRow): string | null => {
-  const path = p.address ?? p.citationPath;
+  const path = p.address;
   if (path === null) return null;
   const last = path.split('/').pop() ?? '';
   const colon = last.indexOf(':');
@@ -81,8 +86,9 @@ const numberKeyOf = (p: V2ProvisionRow): string | null => {
   return key === '' ? null : key;
 };
 
+/** Without a parser address a number is never "parsed": ambiguous, or unstated. */
 const numberStatusOf = (state: string): string | null =>
-  state === 'unique' ? 'parsed' : state === 'ambiguous' ? 'ambiguous' : null;
+  state === 'ambiguous' ? 'ambiguous' : null;
 
 /** Collect a block tree into `V2BlockRef`s, parents before children. */
 export const flattenBlocks = (blocks: readonly unknown[]): V2BlockRef[] => {
@@ -163,7 +169,7 @@ export const composeV2Outline = (
         label: p.labelRaw,
         numberKey: numberKeyOf(p),
         numberSystem: null,
-        numberStatus: numberStatusOf(p.addressState),
+        numberStatus: p.address !== null ? 'parsed' : numberStatusOf(p.addressState),
         depth: outlineDepthFor(type),
         orderIndex: entries.length,
         charStart: p.charStart + offset,

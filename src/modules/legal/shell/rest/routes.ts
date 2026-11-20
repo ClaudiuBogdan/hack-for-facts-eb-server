@@ -190,10 +190,16 @@ export const makeLegalRoutes = (deps: MakeLegalRoutesDeps): FastifyPluginAsync =
       }
 
       const payload: LegalRenderPayload = outcome.value;
-      const etag = payload.etag ?? legalRenderEtag(payload.info);
-      setCacheHeaders(reply, etag);
-      if (ifNoneMatchSatisfied(request.headers['if-none-match'], etag)) {
-        return reply.status(304).send();
+      if (payload.cacheable === false) {
+        // legal_v2: no validator covers what can change under one composition
+        // (link targets, custody); never cached, never revalidated.
+        void reply.header('cache-control', 'no-store');
+      } else {
+        const etag = legalRenderEtag(payload.info);
+        setCacheHeaders(reply, etag);
+        if (ifNoneMatchSatisfied(request.headers['if-none-match'], etag)) {
+          return reply.status(304).send();
+        }
       }
       return reply.status(200).send({
         ok: true as const,
@@ -211,6 +217,7 @@ export const makeLegalRoutes = (deps: MakeLegalRoutesDeps): FastifyPluginAsync =
           compilerVersion: payload.info.compilerVersion,
           compiledAt: payload.info.compiledAt,
           ...(payload.renderSource !== undefined && { renderSource: payload.renderSource }),
+          ...payload.extraMeta,
         },
       });
     };

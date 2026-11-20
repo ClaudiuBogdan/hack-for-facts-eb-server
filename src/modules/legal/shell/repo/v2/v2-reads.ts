@@ -12,6 +12,7 @@ import { err, ok, type Result } from 'neverthrow';
 
 import { databaseError, type ApiError, type ProdDatabase } from '@/modules/shared/index.js';
 
+import { legacyDocumentRenderPublic } from './gate.js';
 import { parseDocumentRef, type V2FormState } from '../../../core/v2/forms.js';
 import { asObject, toStatus } from '../mappers.js';
 
@@ -84,7 +85,14 @@ export const readFormsForActs = async (
              f.gazette_number, f.gazette_part::int as gazette_part,
              f.gazette_date_reported::text as gazette_date_reported, f.publication_raw,
              f.entry_into_force_reported::text as entry_into_force_reported,
+             -- readable = what the render serves (render-v2 decideV2Render):
+             -- a published public composition of ONE public whole unit, no
+             -- missing body, at least one chunk and none restricted, the
+             -- unit's capture bound (public) to this form, and a
+             -- consolidation's Portal label or date.
              (not f.ended
+              and (f.form_kind <> 'consolidation'
+                   or f.portal_label_raw is not null or f.portal_label_date is not null)
               and exists (select 1 from legal_v2.form_current fc
                            where fc.form_id = f.form_id and fc.privacy_class = 'public')
               and (select count(*) from legal_v2.form_components c
@@ -94,8 +102,14 @@ export const readFormsForActs = async (
                 join legal_v2.text_units u on u.unit_id = c.unit_id
                where c.form_id = f.form_id and c.slot = 'whole' and c.privacy_class = 'public'
                  and u.privacy_class = 'public'
+                 and exists (select 1 from legal_v2.unit_render ur
+                              where ur.unit_id = u.unit_id and ur.privacy_class = 'public')
                  and not exists (select 1 from legal_v2.unit_render ur
-                                  where ur.unit_id = u.unit_id and ur.privacy_class <> 'public'))
+                                  where ur.unit_id = u.unit_id and ur.privacy_class <> 'public')
+                 and exists (select 1 from legal_v2.form_sources s
+                              where s.capture_ref_id = u.capture_ref_id and s.form_id = f.form_id
+                                and s.subject_kind = 'capture' and s.status = 'bound'
+                                and s.privacy_class = 'public'))
               and not exists (
                 select 1 from legal_v2.form_components c
                  where c.form_id = f.form_id
@@ -145,14 +159,20 @@ export const resolveFormRef = async (
              where f.form_id = ${ref.formId}::bigint and f.privacy_class = 'public'
           `.execute(db)
         : await sql<{ form_id: string; act_id: string }>`
+            -- The page's PREFERRED route's newest capture, held or not: a held
+            -- afis route answers nothing rather than another route's form.
+            with pick as (
+              select s.form_id, s.status, s.privacy_class
+                from legal_v2.form_sources s
+               where s.page_id = ${ref.pageId} and s.subject_kind = 'capture' and s.is_latest
+               order by ${ROUTE_ORDER_SQL}, s.binding_id
+               limit 1
+            )
             select f.form_id::text as form_id, f.act_id::text as act_id
-              from legal_v2.form_sources s
-              join legal_v2.forms f on f.form_id = s.form_id and f.privacy_class = 'public'
+              from pick
+              join legal_v2.forms f on f.form_id = pick.form_id and f.privacy_class = 'public'
               join legal_v2.acts a on a.act_id = f.act_id and a.privacy_class = 'public'
-             where s.page_id = ${ref.pageId} and s.subject_kind = 'capture' and s.is_latest
-               and s.status = 'bound' and s.privacy_class = 'public'
-             order by ${ROUTE_ORDER_SQL}, s.binding_id
-             limit 1
+             where pick.status = 'bound' and pick.privacy_class = 'public'
           `.execute(db);
     const row = result.rows[0];
     return ok(row === undefined ? null : { formId: row.form_id, actId: row.act_id });
@@ -253,7 +273,10 @@ export const readBridgedDocFacts = async (
              s.keywords, s.key_dates, s.penalties_mentioned, s.fiscal_impact, s.confidence,
              s.source_extraction_status
         from legal.acts a
-        left join legal.act_documents d on d.act_id = a.act_id and d.is_canonical
+        join legal_v2.acts gv on gv.act_id = a.act_id and gv.privacy_class = 'public'
+        left join legal.act_documents d
+          on d.act_id = a.act_id and d.is_canonical
+         and ${legacyDocumentRenderPublic(sql.ref('d.document_id'))}
         left join legal.document_summaries s on s.document_id = d.document_id
        where a.act_id = any(${ids}::bigint[])
     `.execute(db);

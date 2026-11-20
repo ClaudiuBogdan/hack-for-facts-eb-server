@@ -7,6 +7,7 @@
 import { err, ok } from 'neverthrow';
 import { describe, expect, it } from 'vitest';
 
+import { searchLegal } from '@/modules/legal/core/usecases.js';
 import { mergeBridgedAct } from '@/modules/legal/core/v2/bridge.js';
 import {
   buildV2ActsBody,
@@ -15,6 +16,7 @@ import {
   rankV2Acts,
   searchLegalV2Engine,
   splitV2Filter,
+  type LegalV2HitVerifier,
   type LegalV2SearchEngine,
   type V2EngineHit,
 } from '@/modules/legal/core/v2/search.js';
@@ -41,12 +43,13 @@ const act = (id: string, status: string | null) =>
       : { status: status as never, statusEvidence: {}, entryIntoForce: null, inDegree: 1 }
   );
 
-const hit = (actId: string, citationPath: string | null = null): V2EngineHit => ({
+const hit = (actId: string, citationPath: string | null = null, formId = '77'): V2EngineHit => ({
   actId,
   score: 1,
   citationPath,
   headingPath: null,
-  snippet: null,
+  snippet: citationPath === null ? null : `<em>${citationPath}</em>`,
+  uses: [{ formId, unitId: '5', provisionSeq: 1, charStart: 0, charEnd: 10 }],
 });
 
 describe('query bodies', () => {
@@ -196,27 +199,87 @@ describe('searchLegalV2Engine', () => {
       summariesForDocuments: () => Promise.resolve(ok(new Map())),
     }) as unknown as LegalActsRepo;
 
-  it('hydrates acts from legal_v2, counts what it cannot hydrate, and post-filters bridged status', async () => {
+  /** Verifies the uses whose form id is in `servable`; drops the rest. */
+  const verifier = (servable: readonly string[]): LegalV2HitVerifier => ({
+    verifyUses: (candidates) =>
+      Promise.resolve(
+        ok(
+          new Map(
+            candidates.flatMap((c) => {
+              const use = c.uses.find((u) => servable.includes(u.formId));
+              return use === undefined
+                ? []
+                : [
+                    [
+                      c.key,
+                      {
+                        use,
+                        servedForm: {
+                          versionKind: 'consolidare',
+                          versionDate: '2024-03-01',
+                          sourceUrl: null,
+                          amendedAfterPublication: null,
+                          latestConsolidationDate: null,
+                          latestConsolidationLoaded: false,
+                          documentId: `f${use.formId}`,
+                          caveat: 'unofficial_consolidation',
+                          portalLabelRaw: null,
+                          portalLabelDate: '2024-03-01',
+                        },
+                      },
+                    ] as const,
+                  ];
+            })
+          )
+        )
+      ),
+  });
+
+  it('hydrates acts from legal_v2 and post-filters bridged status, counting nothing it drops', async () => {
     const res = await searchLegalV2Engine(
       {
         engine: engine([hit('1'), hit('2')], [hit('3', 'art:4'), hit('9', 'art:1')]),
         acts: repo([act('1', 'in-vigoare'), act('2', 'abrogat'), act('3', null)]),
+        verifier: verifier(['77']),
         clientBaseUrl: 'https://t',
       },
       { q: 'x', filter: {}, channel: 'auto', includeHistorical: false, limit: 20 }
     );
     const value = res._unsafeUnwrap();
     expect(value.acts.map((h) => h.act.actId)).toEqual(['1', '3']);
-    expect(value.unhydratedHits).toBe(1);
-    expect(value.sections.map((s) => [s.actId, s.sectionKey])).toEqual([['3', 'art:4']]);
+    expect(value.unhydratedHits).toBe(0);
+    expect(value.sections.map((s) => [s.actId, s.sectionKey, s.documentId])).toEqual([
+      ['3', 'art:4', 'f77'],
+    ]);
+    expect(value.sections[0]?.servedForm).toMatchObject({
+      documentId: 'f77',
+      caveat: 'unofficial_consolidation',
+      portalLabelDate: '2024-03-01',
+    });
     expect(value).toMatchObject({
       engine: 'opensearch',
       actsTotal: null,
-      sectionsTotal: 40,
+      sectionsTotal: null,
       totalsExhaustive: false,
       degraded: false,
     });
     expect(value.caveats).toContain('semantic search unavailable');
+  });
+
+  it('serves no wording it cannot verify, and drops an act reached only through it', async () => {
+    const res = await searchLegalV2Engine(
+      {
+        engine: engine([], [hit('3', 'art:4', '66'), hit('4', 'art:9', '77')]),
+        acts: repo([act('3', 'in-vigoare'), act('4', 'in-vigoare')]),
+        verifier: verifier(['77']),
+        clientBaseUrl: 'https://t',
+      },
+      { q: 'x', filter: {}, channel: 'auto', includeHistorical: true, limit: 20 }
+    );
+    const value = res._unsafeUnwrap();
+    expect(value.acts.map((h) => h.act.actId)).toEqual(['4']);
+    expect(value.sections.map((s) => s.snippet)).toEqual(['<em>art:9</em>']);
+    expect(JSON.stringify(value)).not.toContain('art:4');
   });
 
   it('passes an engine failure through', async () => {
@@ -226,9 +289,39 @@ describe('searchLegalV2Engine', () => {
         Promise.resolve(ok({ hits: [], total: 0, totalExhaustive: true, asOf: 'x' })),
     };
     const res = await searchLegalV2Engine(
-      { engine: failing, acts: repo([]), clientBaseUrl: 'https://t' },
+      { engine: failing, acts: repo([]), verifier: verifier([]), clientBaseUrl: 'https://t' },
       { q: 'x', filter: {}, channel: 'docs', includeHistorical: true, limit: 5 }
     );
     expect(res.isErr()).toBe(true);
+  });
+});
+
+describe('fail closed without the v2 indexes', () => {
+  it('answers ServiceUnavailable for words, never the legacy retrieval or the embedder', async () => {
+    const touched: string[] = [];
+    const trap = new Proxy(
+      {},
+      {
+        get: (_t, prop) => {
+          touched.push(String(prop));
+          return () => Promise.reject(new Error(`touched ${String(prop)}`));
+        },
+      }
+    );
+    const res = await searchLegal(
+      {
+        retrieval: trap as never,
+        acts: trap as never,
+        synthetic: trap as never,
+        capabilities: trap as never,
+        embeddingModel: 'm',
+        semanticReady: true,
+        clientBaseUrl: 'https://t',
+        v2Mode: true,
+      },
+      { q: 'impozit pe venit', filter: {}, channel: 'auto', includeHistorical: false, limit: 5 }
+    );
+    expect(res._unsafeUnwrapErr()).toMatchObject({ type: 'ServiceUnavailable' });
+    expect(touched).toEqual([]);
   });
 });

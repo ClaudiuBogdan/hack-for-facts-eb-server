@@ -22,6 +22,7 @@ import {
   buildV2UnitsBody,
   type LegalV2SearchEngine,
   type V2EngineHit,
+  type V2HitUse,
   type V2EnginePage,
 } from '../../../core/v2/search.js';
 import {
@@ -95,12 +96,30 @@ export const parseV2Hits = (
       }
     }
     const score = hit['_score'];
+    const rawUses = source['uses'];
+    const uses: V2HitUse[] = [];
+    for (const raw of Array.isArray(rawUses) ? rawUses : []) {
+      const u = rec(raw);
+      const formId = idOf(u?.['form_id']);
+      const unitId = idOf(u?.['text_unit_id']);
+      if (u === null || formId === null || unitId === null) continue;
+      const int = (v: unknown): number | null =>
+        typeof v === 'number' && Number.isInteger(v) && v >= 0 ? v : null;
+      uses.push({
+        formId,
+        unitId,
+        provisionSeq: int(u['provision_seq']),
+        charStart: int(u['char_start']),
+        charEnd: int(u['char_end']),
+      });
+    }
     hits.push({
       actId,
       score: typeof score === 'number' ? score : 0,
       citationPath: strOrNull(source['citation_path']),
       headingPath: strOrNull(source['heading_path']),
       snippet,
+      uses,
     });
   }
   return { hits, total, totalExhaustive };

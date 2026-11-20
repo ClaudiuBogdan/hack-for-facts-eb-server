@@ -42,6 +42,8 @@ import {
   type LegalSearchDeps,
   type ResolveLegalFiltersDeps,
 } from '../../core/usecases.js';
+import { exposeBridged } from '../../core/v2/bridge.js';
+import { V2_CONSOLIDATION_CAVEAT } from '../../core/v2/search.js';
 
 import type { LegalActsRepo, LegalGraphRepo, LegalOutlineRepo } from '../../core/ports.js';
 import type { LegalActRef } from '../../core/repo-base.js';
@@ -64,6 +66,8 @@ export interface LegalMcpDeps {
   readonly searchDeps: LegalSearchDeps;
   readonly resolveDeps: ResolveLegalFiltersDeps;
   readonly clientBaseUrl: string;
+  /** legal_v2 source: the v2 caveat, and bridged facts null for an unbridged act. */
+  readonly v2?: boolean;
 }
 
 const str = (args: Record<string, unknown>, key: string): string | undefined => {
@@ -108,6 +112,9 @@ export const makeLegalMcpTools = (deps: LegalMcpDeps): readonly KernelMcpTool[] 
     q.length > CLIENT_SEARCH_Q_MAX
       ? `${clientBaseUrl}/legislation/search`
       : `${clientBaseUrl}/legislation/search?q=${quoted(q)}`;
+  // The legacy caveat says the text is the published form; on legal_v2 the
+  // served form can be a consolidation, which carries its own caveat.
+  const textCaveat = deps.v2 === true ? V2_CONSOLIDATION_CAVEAT : LEGAL_ORIGINAL_TEXT_CAVEAT;
   const noteFor = (prov: LegalVersionProvenance | null): string | null =>
     prov === null ? null : versionProvenanceNote(prov);
 
@@ -122,7 +129,7 @@ export const makeLegalMcpTools = (deps: LegalMcpDeps): readonly KernelMcpTool[] 
   ): Record<string, unknown> => ({
     textProvenance: note,
     versionProvenance: prov,
-    caveats: note === null ? [LEGAL_ORIGINAL_TEXT_CAVEAT] : [note, LEGAL_ORIGINAL_TEXT_CAVEAT],
+    caveats: note === null ? [textCaveat] : [note, textCaveat],
   });
 
   const resolveFilters: KernelMcpTool = {
@@ -168,10 +175,12 @@ export const makeLegalMcpTools = (deps: LegalMcpDeps): readonly KernelMcpTool[] 
         kind: LEGAL_MCP_KINDS.actCard,
         query: ref,
         link: actLink(card.actId),
-        item: card,
+        item: exposeBridged(card),
         meta: provenanceMeta(provenance, note),
         summary:
-          `${card.displayCitation} — status: ${card.status}; ${amendmentCountPhrase(card.amendedAfterPublication)}.` +
+          (card.bridged === false
+            ? `${card.displayCitation} — status unknown (not in the previous corpus); ${amendmentCountPhrase(null)}.`
+            : `${card.displayCitation} — status: ${card.status}; ${amendmentCountPhrase(card.amendedAfterPublication)}.`) +
           (note === null ? '' : ` ${note}`),
       };
     },
@@ -207,12 +216,17 @@ export const makeLegalMcpTools = (deps: LegalMcpDeps): readonly KernelMcpTool[] 
       };
       // Stamp each hit with its own version note: an agent quoting one act must
       // not have to infer provenance from a set-level caveat.
+      const unbridged = new Set(
+        actHits.filter((h) => h.act.bridged === false).map((h) => h.act.actId)
+      );
       const stampedActs = actHits.map((h) => ({
         ...h,
+        act: exposeBridged(h.act),
         textProvenance: noteFor(h.provenance),
       }));
       const stampedSections = sections.map((s) => ({
         ...s,
+        ...(unbridged.has(s.actId) && { status: null }),
         textProvenance: noteFor(s.provenance),
       }));
       return {
@@ -297,6 +311,18 @@ export const makeLegalMcpTools = (deps: LegalMcpDeps): readonly KernelMcpTool[] 
           query: ref,
           summary: 'No matching act.',
         };
+      if (act.bridged === false) {
+        // Unknown, not an empty and complete history.
+        return {
+          ok: true,
+          kind: LEGAL_MCP_KINDS.timeline,
+          query: ref,
+          link: `${actLink(act.actId)}#act-timeline-heading`,
+          items: [],
+          meta: { complete: null, known: false },
+          summary: `${act.displayCitation}: timeline unknown (the act is not in the previous corpus).`,
+        };
+      }
       const res = await getActTimeline(acts, graph, act.actId);
       if (res.isErr()) return errorOut(LEGAL_MCP_KINDS.timeline, res.error.message);
       const { entries: events, complete } = res.value;

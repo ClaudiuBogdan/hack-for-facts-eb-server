@@ -30,6 +30,7 @@ import type { LegalActsRepo } from '../ports.js';
 import type {
   LegalAct,
   LegalActSummary,
+  LegalVersionProvenance,
   LegalDocHit,
   LegalSearchResult,
   LegalSectionHit,
@@ -130,7 +131,17 @@ export const buildV2UnitsBody = (
   size,
   // Counting every OR match costs the cluster; only a served total pays it.
   track_total_hits: countTotal,
-  _source: ['act_id', 'citation_path', 'heading_path', 'level', 'provision_addresses'],
+  _source: [
+    'act_id',
+    'citation_path',
+    'heading_path',
+    'level',
+    'uses.form_id',
+    'uses.text_unit_id',
+    'uses.provision_seq',
+    'uses.char_start',
+    'uses.char_end',
+  ],
   query: {
     bool: {
       must: [
@@ -154,12 +165,47 @@ export const buildV2UnitsBody = (
   },
 });
 
+/** One place the index says a unit's wording is used (the exporter's `uses`). */
+export interface V2HitUse {
+  readonly formId: string;
+  readonly unitId: string;
+  readonly provisionSeq: number | null;
+  readonly charStart: number | null;
+  readonly charEnd: number | null;
+}
+
 export interface V2EngineHit {
   readonly actId: string;
   readonly score: number;
   readonly citationPath: string | null;
   readonly headingPath: string | null;
   readonly snippet: string | null;
+  /** Units index only: where the wording is used, as the index recorded it. */
+  readonly uses: readonly V2HitUse[];
+}
+
+/**
+ * Verifies unit hits against legal_v2 BEFORE any of their text is served: a
+ * use counts only when its form is public and servable (the render's rule,
+ * consolidation label included), the unit is that form's current public
+ * component, the provision is public, and the chunks over the hit's range are
+ * public. The 2026-11-18 index predates generation 4, so a hit whose unit was
+ * replaced fails this check and is dropped. Returns, per candidate key, the
+ * served form of its first verified use.
+ */
+export interface LegalV2HitVerifier {
+  verifyUses(
+    candidates: readonly {
+      readonly key: number;
+      readonly actId: string;
+      readonly uses: readonly V2HitUse[];
+    }[]
+  ): Promise<Result<ReadonlyMap<number, VerifiedUse>, ApiError>>;
+}
+
+export interface VerifiedUse {
+  readonly use: V2HitUse;
+  readonly servedForm: LegalVersionProvenance;
 }
 
 export interface V2EnginePage {
@@ -279,8 +325,12 @@ export interface V2SearchQuery {
 export interface V2SearchDeps {
   readonly engine: LegalV2SearchEngine;
   readonly acts: LegalActsRepo;
+  readonly verifier: LegalV2HitVerifier;
   readonly clientBaseUrl: string;
 }
+
+export const V2_VERIFIED_CAVEAT =
+  'Fragmentele sunt verificate pe textul public servit acum; potrivirile care nu pot fi verificate sunt omise și nu sunt numărate.';
 
 /**
  * The engine part of `legalSearch` on the v2 source. The identifier router
@@ -303,12 +353,28 @@ export const searchLegalV2Engine = async (
   const limit = Math.min(Math.max(query.limit, 1), 50);
   const [actsRes, unitsRes] = await Promise.all([
     deps.engine.searchActs(query.q, split.engine, limit),
-    deps.engine.searchUnits(query.q, split.engine, V2_UNIT_WINDOW, query.channel !== 'docs'),
+    // Totals are never served on v2 (unverifiable hits are dropped), so none is counted.
+    deps.engine.searchUnits(query.q, split.engine, V2_UNIT_WINDOW, false),
   ]);
   if (actsRes.isErr()) return err(actsRes.error);
   if (unitsRes.isErr()) return err(unitsRes.error);
 
-  const ranked = rankV2Acts(actsRes.value.hits, unitsRes.value.hits);
+  // Verify every unit hit against public, servable legal_v2 rows first.
+  const unitHits = unitsRes.value.hits;
+  const verified = await deps.verifier.verifyUses(
+    unitHits.map((h, key) => ({ key, actId: h.actId, uses: h.uses }))
+  );
+  if (verified.isErr()) return err(verified.error);
+  const kept = unitHits.flatMap((h, key) => {
+    const v = verified.value.get(key);
+    return v === undefined ? [] : [{ hit: h, verified: v }];
+  });
+  const verifiedOf = new Map(kept.map((k) => [k.hit, k.verified]));
+
+  const ranked = rankV2Acts(
+    actsRes.value.hits,
+    kept.map((k) => k.hit)
+  );
   const wanted = ranked.order;
   const [found, provRes] = await Promise.all([
     deps.acts.findActsByIds(wanted),
@@ -327,17 +393,14 @@ export const searchLegalV2Engine = async (
     return doc === undefined ? null : (sums.value.get(doc.documentId) ?? null);
   };
 
-  let unhydrated = 0;
   let postFiltered = 0;
   const acts: LegalDocHit[] = [];
   const sections: LegalSectionHit[] = [];
   for (const actId of wanted) {
     if (acts.length >= limit) break;
     const act = byId.get(actId);
-    if (act === undefined || act.ended === true) {
-      unhydrated += 1;
-      continue;
-    }
+    // Not a public current legal_v2 act: dropped, and (privacy) not counted.
+    if (act === undefined || act.ended === true) continue;
     const summary = summaryOf(actId);
     if (!passesBridgedFilters(act, summary, split)) {
       postFiltered += 1;
@@ -345,28 +408,31 @@ export const searchLegalV2Engine = async (
     }
     const provenance = provRes.value.get(actId) ?? null;
     acts.push({ act, summary, score: ranked.scores.get(actId) ?? 0, provenance });
-    const docId = canon.value.get(actId)?.documentId ?? null;
     for (const h of ranked.sections.get(actId) ?? []) {
+      const v = verifiedOf.get(h);
+      if (v === undefined) continue;
       sections.push({
         actId,
         displayCitation: act.displayCitation,
         status: act.status,
-        documentId: docId ?? '',
+        documentId: v.servedForm.documentId ?? '',
         sectionKey: h.citationPath ?? '',
         articleNumber: null,
         nodeLabel: h.headingPath,
         nodePath: h.citationPath,
-        charStart: null,
-        charEnd: null,
+        charStart: v.use.charStart,
+        charEnd: v.use.charEnd,
         snippet: h.snippet,
         portalDeepLink: `${deps.clientBaseUrl}/legislation/acts/${actId}`,
         score: h.score,
-        provenance,
+        // The text is this form's, so its provenance is this form's.
+        provenance: v.servedForm,
+        servedForm: v.servedForm,
       });
     }
   }
 
-  const caveats = [V2_SEMANTIC_CAVEAT];
+  const caveats = [V2_SEMANTIC_CAVEAT, V2_VERIFIED_CAVEAT];
   if (acts.length > 0) caveats.push(V2_CONSOLIDATION_CAVEAT);
   const callerFilteredBridged =
     (split.status !== undefined && !isDefaultLiveGate(split.status)) ||
@@ -381,12 +447,13 @@ export const searchLegalV2Engine = async (
     sections: wantSections ? sections : [],
     caveats,
     engine: 'opensearch',
-    // The act list merges two legs and drops post-filtered acts: no exact count.
+    // Merged legs, dropped unverifiable hits, bridged post-filters: no total
+    // is exact, and the dropped hits are deliberately not counted (privacy).
     actsTotal: null,
-    sectionsTotal: wantSections ? unitsRes.value.total : null,
+    sectionsTotal: null,
     totalsExhaustive: false,
     degraded: false,
     asOf: unitsRes.value.asOf < actsRes.value.asOf ? unitsRes.value.asOf : actsRes.value.asOf,
-    unhydratedHits: unhydrated,
+    unhydratedHits: 0,
   });
 };

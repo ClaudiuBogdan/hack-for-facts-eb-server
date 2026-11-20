@@ -1,9 +1,9 @@
 /**
  * The REST render route on the legal_v2 source: the same route and response
  * shape, the body read in one statement by the v2 render source (over a
- * capturing database answering with a REAL unit's stored rows), the
- * composition validator as ETag, `meta.renderSource`, and the typed
- * "not loaded" answer for a form without text.
+ * capturing database answering with a REAL unit's stored rows), served
+ * `no-store` with no validator, `meta.servedForm` and `meta.renderHead`, the
+ * typed "not loaded" answer, and links whose target act is hidden.
  */
 
 import { readFileSync } from 'node:fs';
@@ -29,36 +29,47 @@ const unit = JSON.parse(readFileSync(join(fixtureDir, 'unit-8154.json'), 'utf8')
   links: { ordinal: number; href: string; target_fragment: string | null }[];
 };
 
-const head = {
-  form_id: '9',
-  composition_digest: 'a'.repeat(64),
-  receipt_id: '55',
-  current_public: true,
-  published_at: '2026-11-19 10:00:00+00',
-  generation_seq: '4',
-};
-const component = {
-  ordinal: 0,
-  slot: 'whole',
-  has_unit: true,
-  public: true,
-  render_state: 'structured',
-  text_sha256: unit.textSha256,
-  compiler_version: 'unit-compiler-v1',
-  body_sha256: 'b'.repeat(64),
-  parse_build_id: 'build',
-  content_parser_version: 'v9',
-  requested_url: 'https://legislatie.just.ro/Public/DetaliiDocumentAfis/8154',
-};
+const served = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
+  route_status: 'bound',
+  head: {
+    form_id: '9',
+    form_kind: 'original',
+    caveat: null,
+    portal_label_raw: null,
+    portal_label_date: null,
+    portal_order_date: '2001-05-05',
+    receipt_id: '55',
+    current_public: true,
+    published_at: '2026-11-19T10:00:00+00:00',
+  },
+  facts: { units: 1, whole_units: 1, missing_body: 0, component_restricted: false },
+  unit: {
+    public: true,
+    render_state: 'structured',
+    text_sha256: unit.textSha256,
+    compiler_version: 'unit-compiler-v1',
+    body_sha256: 'b'.repeat(64),
+    parse_build_id: 'build',
+    content_parser_version: 'v9',
+    fidelity_flags: [],
+  },
+  source_url: 'https://legislatie.just.ro/Public/DetaliiDocumentAfis/8154',
+  chunks: unit.render.map((r) => ({ ...r, public: true })),
+  links: unit.links.map((l, i) => ({
+    ordinal: l.ordinal,
+    href: l.href,
+    target_fragment: l.target_fragment,
+    // The first link's target act is not public: no act id, no locator.
+    target_act_id: i === 0 ? null : '123',
+    target_form_id: null,
+  })),
+  assets: [],
+  ...over,
+});
 
 const appOver = async (body: Record<string, unknown>): Promise<FastifyInstance> => {
   const db = makeCapturingDb([], {
-    respond: (sql) =>
-      sql.includes('as form_id, f.act_id::text as act_id')
-        ? [{ form_id: '9', act_id: '7' }]
-        : sql.includes('with f as')
-          ? [body]
-          : [],
+    respond: (sql) => (sql.includes('with pick as') ? [body] : []),
   });
   const app = fastifyLib({ logger: false });
   await app.register(
@@ -75,26 +86,12 @@ afterEach(async () => {
 });
 
 describe('legal_v2 render route', () => {
-  const served = {
-    head,
-    components: [component],
-    chunks: unit.render.map((r) => ({ ...r, public: true })),
-    links: unit.links.map((l) => ({
-      ordinal: l.ordinal,
-      href: l.href,
-      target_fragment: l.target_fragment,
-      target_act_id: '123',
-      target_form_id: null,
-    })),
-    assets: [],
-  };
-
-  it('serves the envelope with the composition validator and the source marker', async () => {
-    app = await appOver(served);
+  it('serves the envelope no-store, with no validator, stating the served form', async () => {
+    app = await appOver(served());
     const res = await app.inject({ method: 'GET', url: '/api/v1/legal/documents/f9/render' });
     expect(res.statusCode).toBe(200);
-    const etag = res.headers.etag;
-    expect(etag).toBe(`W/"v2c1-${'a'.repeat(32)}-g4"`);
+    expect(res.headers['cache-control']).toBe('no-store');
+    expect(res.headers.etag).toBeUndefined();
     const body = res.json<{
       data: { documentId: string; kind: string; chunkCount: number; tldf: Record<string, unknown> };
       meta: Record<string, unknown>;
@@ -104,35 +101,45 @@ describe('legal_v2 render route', () => {
       runId: '55',
       textSha256: unit.textSha256,
       renderSource: 'legal_v2:tldf-unit/1',
+      servedForm: { documentId: 'f9', versionKind: 'original', caveat: null },
+      renderHead: { version: 1 },
     });
     const tldf = body.data.tldf as {
-      format: string;
       format_version: string;
       generation: { run_id: unknown };
-      marks: { link?: { kind: string; target_act_id?: number } }[];
+      marks: { kind: string; link?: { kind: string; target_act_id?: number; href?: string } }[];
     };
-    expect(tldf.format).toBe('tldf');
     expect(tldf.format_version).toBe('1.1');
     expect(tldf.generation.run_id).toBe(55);
-    expect(tldf.marks.filter((m) => m.link?.target_act_id === 123).length).toBe(unit.links.length);
+    const links = tldf.marks.filter((m) => m.kind === 'reference').map((m) => m.link);
+    expect(links[0]).toEqual({ kind: 'act' });
+    expect(links.slice(1).every((l) => l?.target_act_id === 123)).toBe(true);
+    // The hidden target's page (7919, the first link) appears nowhere in the body.
+    expect(JSON.stringify(tldf.marks[0])).not.toContain('7919');
 
     const again = await app.inject({
       method: 'GET',
       url: '/api/v1/legal/documents/f9/render',
-      headers: { 'if-none-match': String(etag) },
+      headers: { 'if-none-match': '*' },
     });
-    expect(again.statusCode).toBe(304);
+    expect(again.statusCode).toBe(200);
   });
 
   it('answers an old page id with the form it shows now', async () => {
-    app = await appOver(served);
+    app = await appOver(served());
     const res = await app.inject({ method: 'GET', url: '/api/v1/legal/documents/8154/render' });
     expect(res.statusCode).toBe(200);
     expect(res.json<{ data: { documentId: string } }>().data.documentId).toBe('f9');
   });
 
   it('answers 409 not_loaded for a form without text, and 404 past the last chunk', async () => {
-    app = await appOver({ head, components: [], chunks: [], links: [], assets: [] });
+    app = await appOver(
+      served({
+        facts: { units: 0, whole_units: 0, missing_body: 0, component_restricted: false },
+        unit: null,
+        chunks: [],
+      })
+    );
     const res = await app.inject({ method: 'GET', url: '/api/v1/legal/documents/f9/render' });
     expect(res.statusCode).toBe(409);
     expect(res.json()).toMatchObject({
@@ -143,7 +150,7 @@ describe('legal_v2 render route', () => {
     expect(res.headers['cache-control']).toBe('no-store');
     await app.close();
 
-    app = await appOver(served);
+    app = await appOver(served());
     const past = await app.inject({
       method: 'GET',
       url: '/api/v1/legal/documents/f9/render/chunks/1',

@@ -60,6 +60,13 @@ const ACT_DETAIL_QUERY = /* GraphQL */ `
         firstPublicationDate
         extractionStatus
         compatibilityTier
+        readable
+        caveat
+        portalLabelRaw
+        portalLabelDate
+        held
+        formKey
+        sourceUrl
       }
       summary {
         description
