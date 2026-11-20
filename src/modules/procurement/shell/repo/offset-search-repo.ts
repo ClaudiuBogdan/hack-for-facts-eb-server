@@ -32,6 +32,7 @@ import { mapContract, mapDirectAcquisition, mapModification, mapProcedure } from
 import { supportedProcedureIdSql } from './procedure-link-policy.js';
 import { SEARCH_COUNT_CAP } from '../../core/constants.js';
 import { isFreeTextWithheld } from '../../core/free-text-rule.js';
+import { HIGHLIGHT_CLOSE, HIGHLIGHT_OPEN } from '../../core/opensearch-query.js';
 import {
   assertDaOffsetSelective,
   CPV_LEVELS,
@@ -204,35 +205,46 @@ const inList = (column: RawBuilder<unknown>, values: readonly string[]): RawBuil
  * Supplier territory is in NO fact table — it resolves through
  * `companies_v2.territory_resolution` at index-build time and stays engine-only.
  */
-/** A hydrated page, and the ids whose raw title the free-text rule withholds. */
+/** A hydrated page, and each hydrated row's raw title when the free-text rule allows it. */
 interface Hydrated<Out> {
   readonly items: Out[];
   readonly missing: number;
-  readonly withheldTitles?: ReadonlySet<string>;
+  readonly publicTitles?: ReadonlyMap<string, string>;
 }
 
-/**
- * Highlights never quote a title the mapper withheld (PROC-37DX): a fragment
- * is part of the raw title even when it does not carry the marker itself.
- */
-/** The ids (as strings) of hydrated rows whose raw title the free-text rule withholds. */
-export const withheldTitleIds = (
+/** pk (as a string) → raw title, for the hydrated rows whose title the rule allows. */
+export const publicTitlesOf = (
   rows: readonly Record<string, unknown>[],
   pkColumn: string
-): Set<string> =>
-  new Set(
+): Map<string, string> =>
+  new Map(
     rows.flatMap((row) => {
       const title = row['title'];
-      return typeof title === 'string' && isFreeTextWithheld(title) ? [String(row[pkColumn])] : [];
+      return typeof title === 'string' && !isFreeTextWithheld(title)
+        ? [[String(row[pkColumn]), title] as const]
+        : [];
     })
   );
 
-export const withoutWithheldTitles = (
+const untagged = (fragment: string): string =>
+  fragment.replaceAll(HIGHLIGHT_OPEN, '').replaceAll(HIGHLIGHT_CLOSE, '');
+
+/**
+ * A title fragment is served only when it quotes the row's CURRENT public
+ * title (PROC-37DX): never for a row Postgres no longer serves, whose title it
+ * withholds, or whose title changed since the index was built (a stale hit
+ * quotes the old text). A fragment is part of a withheld title even when it
+ * does not carry the marker itself.
+ */
+export const withPublicTitleHighlights = (
   highlights: readonly SearchHighlight[],
-  withheld: ReadonlySet<string> | undefined
+  publicTitles: ReadonlyMap<string, string> | undefined
 ): SearchHighlight[] =>
   highlights.flatMap((highlight) => {
-    if (withheld?.has(highlight.id) !== true || highlight.title === undefined) return [highlight];
+    if (highlight.title === undefined) return [highlight];
+    if (publicTitles?.get(highlight.id)?.includes(untagged(highlight.title)) === true) {
+      return [highlight];
+    }
     const rest: SearchHighlight = {
       id: highlight.id,
       ...(highlight.authorityName !== undefined && { authorityName: highlight.authorityName }),
@@ -574,7 +586,7 @@ export const makeOffsetSearchRepo = (
       logger?.warn({ grain, missing }, 'search index lists rows postgres no longer serves');
     }
     // The mapper withholds the title; its highlight must go too (PROC-37DX).
-    return { items, missing, withheldTitles: withheldTitleIds(rows, pkColumn) };
+    return { items, missing, publicTitles: publicTitlesOf(rows, pkColumn) };
   };
 
   /**
@@ -633,7 +645,7 @@ export const makeOffsetSearchRepo = (
     }
     const page = result.value;
     try {
-      const { items, missing, withheldTitles } = await hydrate(page.pks);
+      const { items, missing, publicTitles } = await hydrate(page.pks);
       // A hydration miss means the index and the database disagree about
       // membership. The page is short by construction, so the engine's count
       // can no longer be claimed exact — degrade it rather than assert a total
@@ -646,7 +658,7 @@ export const makeOffsetSearchRepo = (
         total: exact ? page.total : null,
         estimated: !exact,
         facets: page.facets,
-        highlights: withoutWithheldTitles(page.highlights, withheldTitles),
+        highlights: withPublicTitleHighlights(page.highlights, publicTitles),
         provenance: { engine: 'opensearch' as const, asOf: page.asOf },
       });
     } catch (error) {

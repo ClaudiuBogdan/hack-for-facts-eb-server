@@ -29,8 +29,8 @@ import {
 } from '@/modules/procurement/core/search.js';
 import {
   buildSearchConditions,
-  withheldTitleIds,
-  withoutWithheldTitles,
+  publicTitlesOf,
+  withPublicTitleHighlights,
 } from '@/modules/procurement/shell/repo/offset-search-repo.js';
 
 const DA_WINDOW_DAYS = 366;
@@ -332,30 +332,42 @@ describe('direct-acquisition offset selectivity matrix', () => {
 });
 
 describe('search highlights never quote a withheld title (PROC-37DX)', () => {
-  it('finds the hydrated rows whose raw title the rule withholds', () => {
+  const O = '\u27E6';
+  const C = '\u27E7';
+
+  it('keeps each hydrated row’s raw title only when the rule allows it', () => {
     const rows = [
       { contract_id: '1', title: 'Servicii PFA Exemplu' },
       { contract_id: '2', title: 'Furnizare hartie' },
       { contract_id: '3', title: null },
     ];
-    expect([...withheldTitleIds(rows, 'contract_id')]).toEqual(['1']);
+    expect([...publicTitlesOf(rows, 'contract_id')]).toEqual([['2', 'Furnizare hartie']]);
   });
 
-  it('drops the title fragment of a withheld row, keeps its name fragments, and drops it if nothing is left', () => {
-    const withheld = new Set(['1', '2']);
+  it('serves a title fragment only when it quotes the row’s current public title', () => {
+    const publicTitles = new Map([
+      ['3', 'Servicii publice de curatenie'],
+      ['4', 'Furnizare hartie'],
+    ]);
     expect(
-      withoutWithheldTitles(
+      withPublicTitleHighlights(
         [
-          // A fragment need not carry the marker itself: it is still the withheld title.
-          { id: '1', title: '<em>Servicii</em> de curatenie' },
-          { id: '2', title: '<em>Servicii</em>', authorityName: '<em>Primaria</em> Sibiu' },
-          { id: '3', title: '<em>Servicii</em> publice' },
+          // Withheld now: the fragment need not carry the marker itself.
+          { id: '1', title: `${O}Servicii${C} de curatenie` },
+          // Withheld, with a name fragment that stays.
+          { id: '2', title: `${O}Servicii${C}`, authorityName: `${O}Primaria${C} Sibiu` },
+          // Public and quoted: served.
+          { id: '3', title: `${O}Servicii${C} publice` },
+          // A stale hit: the index still holds an old title the row no longer has.
+          { id: '4', title: `${O}Servicii${C} PFA Exemplu` },
+          // A row Postgres no longer serves.
+          { id: '5', title: `${O}Servicii${C} PFA Exemplu` },
         ],
-        withheld
+        publicTitles
       )
     ).toEqual([
-      { id: '2', authorityName: '<em>Primaria</em> Sibiu' },
-      { id: '3', title: '<em>Servicii</em> publice' },
+      { id: '2', authorityName: `${O}Primaria${C} Sibiu` },
+      { id: '3', title: `${O}Servicii${C} publice` },
     ]);
   });
 });

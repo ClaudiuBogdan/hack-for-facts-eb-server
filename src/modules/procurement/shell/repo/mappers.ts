@@ -27,6 +27,7 @@ import {
 } from '../../core/constants.js';
 import {
   resolveContractDisplayTitle,
+  type ContractDisplayTitle,
   type ContractDisplayTitleCandidates,
 } from '../../core/contract-display-title.js';
 import { isFreeTextWithheld, publicFreeText } from '../../core/free-text-rule.js';
@@ -323,6 +324,26 @@ export const mapProcedure = (r: ProcedureRow): ProcurementProcedure => {
   };
 };
 
+/**
+ * The resolver trims its text, so the rule also reads the RAW text the display
+ * title came from: a source the rule withholds (e.g. a leading U+3000) never
+ * lends its trimmed text (PROC-37DX).
+ */
+const displayTitleWithheld = (resolved: ContractDisplayTitle, r: ContractRow): boolean => {
+  const { matchedAwards, procedure } = r.display_title_candidates;
+  const raws =
+    resolved.source === 'native'
+      ? [r.title]
+      : resolved.source === 'procedure'
+        ? [procedure?.title ?? null]
+        : matchedAwards.map((award) => award.title).filter((t) => t?.trim() === resolved.text);
+  return (
+    isFreeTextWithheld(resolved.text) ||
+    raws.length === 0 ||
+    raws.some((raw) => raw === null || isFreeTextWithheld(raw))
+  );
+};
+
 export const mapContract = (r: ContractRow): ProcurementContract => {
   // Legacy titles are raw: the shipped free-text rule withholds a hit, and a
   // withheld title takes its display title with it, as on the records page
@@ -330,7 +351,7 @@ export const mapContract = (r: ContractRow): ProcurementContract => {
   const titleWithheld = r.title !== null && isFreeTextWithheld(r.title);
   const resolved = resolveContractDisplayTitle(r.title, r.source_url, r.display_title_candidates);
   const displayTitle =
-    titleWithheld || resolved === null || isFreeTextWithheld(resolved.text) ? null : resolved;
+    titleWithheld || resolved === null || displayTitleWithheld(resolved, r) ? null : resolved;
 
   return {
     contractId: r.contract_id,

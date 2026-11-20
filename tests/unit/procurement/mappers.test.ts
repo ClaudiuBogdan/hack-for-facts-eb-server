@@ -415,6 +415,35 @@ describe('legacy titles under the shipped free-text rule (PROC-37DX)', () => {
     expect(c.displayTitle).toBeNull();
   });
 
+  it('a withheld native title clears the display title even when its trimmed text is clean', () => {
+    // U+3000 is outside the rule's stable ranges; the resolver trims it away.
+    const c = mapContract({
+      ...baseContract,
+      title: '\u3000Lucrari de reparatii',
+      display_title_candidates: award('Lucrari de reparatii acoperis'),
+    });
+    expect(c.title).toBeNull();
+    expect(c.displayTitle).toBeNull();
+  });
+
+  it('a borrowed display title is withheld when its raw source is, before trimming', () => {
+    const fromAward = mapContract({
+      ...baseContract,
+      title: null,
+      display_title_candidates: award('\u3000Lucrari de reparatii'),
+    });
+    expect(fromAward.displayTitle).toBeNull();
+    const fromProcedure = mapContract({
+      ...baseContract,
+      title: null,
+      display_title_candidates: {
+        matchedAwards: [],
+        procedure: { title: '\u3000Lucrari de reparatii', sourceUrl: null },
+      },
+    });
+    expect(fromProcedure.displayTitle).toBeNull();
+  });
+
   it('withholds a display title the rule hits, and keeps a public one', () => {
     const hit = mapContract({
       ...baseContract,
