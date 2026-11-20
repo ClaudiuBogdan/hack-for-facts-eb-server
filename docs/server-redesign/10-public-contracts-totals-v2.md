@@ -65,10 +65,12 @@ One batch read, totals only. Breakdown, series, concentration and value-sorted r
 - **Echo:** `id`, `factBuild` and `disclosureKey`. `disclosureKey` is `off`, `unavailable` (never cache) or the supplier_privacy publication; clients key caches by (factBuild, disclosureKey).
 - **D6 now, not only as of the build:** a supplier filter is checked against the current publication as well as the build's supplier map. A code that is not public matches nothing, answers the `withheld_d6` note with no count, and is never echoed (`filtersApplied.supplierCode` is null). A publication during a supplier read asks for a repeat.
 - **`filtersApplied`:** the resolved, canonical filters, including the defaults that were applied.
-- **`included`:** every procurement kind, status and value kind counted, as `{key, labelRo, labelEn, meaningRo, meaningEn}` from the label table. What is left out is in `exclusions`, with counts.
+- **`included`:** the procurement kinds, statuses and value kinds the filters select, as `{key, labelRo, labelEn, meaningRo, meaningEn}` from the label table (the explanation calls them "Selected"). Records within that selection that are not counted are in `exclusions`, with counts.
 - **`totals`:** one entry per value kind, `{valueKind, sumLei, recordCount, withValueCount, vatMix: {withVat, withoutVat, unknown}, currencies?: [{currency, sum, count}]}`. Money is decimal strings.
 - **`exclusions`:** a list of `{key, labelRo, labelEn, count, valueLei | null}`.
-  - Keys: `no_value`, `undated`, `withheld_d6`, `withheld_gate`, `association_duplicate`, `association_unattributed`, and `unconfirmed_head` / `list_value_ceiling` when a filter leaves them out.
+  - Keys, one per record in this order: `status:<status>` (a status not asked for; `identity_review` has its own key), `not_additive` (an asked status whose value is not summed, e.g. notices, which award nothing), `no_value`, `undated` (only with a date range), `association_unattributed` (only under a supplier filter).
+  - A status a newer build adds before the API knows it still appears as `status:<status>` with its count, so the invariant holds; it becomes a filter value when the API adds it.
+  - `withheld_d6` is a note with no count, not an exclusion.
   - Rows that are included but flagged (unconfirmed heads, list-value ceilings) are reported as `flags` with counts.
 - **`explanation`:** `{textRo, textEn}`, composed by the API from `filtersApplied`, the labels, the exclusions and the flags. The client prints it verbatim.
 - **`allowed`:** `{valueKinds}`, the value kinds that are summed for the asked procurement kinds (DA: awarded; CA: awarded, framework ceiling, modification change; notices: none), taking over the role of `moneyVerdicts`. Orders join with the value-sorted records step.

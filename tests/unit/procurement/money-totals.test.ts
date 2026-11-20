@@ -154,20 +154,28 @@ describe('composeTotals', () => {
     expect(answer.totals[0]?.recordCount).toBe('1');
   });
 
-  it('leaves out published notices by default and counts them when asked', () => {
+  it('accounts for published notices: a status exclusion by default, not additive when asked', () => {
+    // Notices award nothing: their facts are reported, non-additive values.
+    const notice = fact({ status: 'published', valueKind: 'reported', additive: false });
     const notices = { procurementKinds: ['advertising_notice'] };
     const byDefault = composeTotals(
-      request({ filters: notices }),
-      [fact({ status: 'published' })],
+      request({ filters: notices, valueKinds: ['reported'] }),
+      [notice],
       LABELS,
       '17'
     );
     expect(byDefault.exclusions.map((e) => e.key)).toEqual(['status:published']);
-    const asked = parseTotalsRequest({
-      id: 'x',
-      filters: { ...notices, statuses: ['published'] },
-    });
-    expect(asked._unsafeUnwrap().filters.statuses).toEqual(['published']);
+    expect(byDefault.totals[0]?.recordCount).toBe('0');
+    const asked = composeTotals(
+      request({ filters: { ...notices, statuses: ['published'] }, valueKinds: ['reported'] }),
+      [notice],
+      LABELS,
+      '17'
+    );
+    expect(asked.filtersApplied.statuses).toEqual(['published']);
+    expect(asked.exclusions.map((e) => e.key)).toEqual(['not_additive']);
+    expect(asked.totals[0]?.recordCount).toBe('0');
+    expect(asked.explanation.textEn).toMatch(/^Selected: /u);
   });
 
   it('includes an undated fact when no range is asked', () => {
@@ -260,7 +268,7 @@ describe('composeTotals', () => {
       '17'
     );
     expect(answer.explanation.textEn).toBe(
-      'Includes: Contract awards; status: Awarded; value kind: Awarded value. Values are summed as published (no VAT conversion), in lei. Left out: Cancelled (1, 5.00 lei).'
+      'Selected: Contract awards; status: Awarded; value kind: Awarded value. Values are summed as published (no VAT conversion), in lei. Left out: Cancelled (1, 5.00 lei).'
     );
     expect(answer.explanation.textRo).toContain('Excluse: Anulat (1, 5.00 lei).');
   });
