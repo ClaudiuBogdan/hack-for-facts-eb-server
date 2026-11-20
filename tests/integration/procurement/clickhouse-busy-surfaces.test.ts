@@ -132,7 +132,9 @@ describe('a busy ClickHouse read on every surface', () => {
     await dispatcher.close();
   });
 
-  it('REST: 503 with Retry-After', async () => {
+  // No REST route reads ClickHouse today (the DA REST routes read procurement_v3
+  // in Postgres); this pins the REST mapping of any busy refusal.
+  it('REST: a busy refusal answers 503 with Retry-After', async () => {
     const busy = busyRetryLater(BUSY_MESSAGE, CLICKHOUSE_RETRY_AFTER_SECONDS);
     const deps: DaReleaseDeps = {
       repo: { ...makeFakeDaRepo(), snapshot: () => Promise.resolve(err(busy)) },

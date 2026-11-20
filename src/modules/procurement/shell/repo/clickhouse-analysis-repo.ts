@@ -98,9 +98,8 @@ const TOO_MANY_SIMULTANEOUS_QUERIES = '202';
 const busy = (): ApiError =>
   busyRetryLater('procurement analytics is busy; retry shortly', CLICKHOUSE_RETRY_AFTER_SECONDS);
 
-/** The numeric ClickHouse error code of a failed response, if it names one. */
-const exceptionCodeOf = (response: Response, body: string): string | null => {
-  const header = response.headers.get('x-clickhouse-exception-code');
+/** The numeric ClickHouse error code a failed response names, header first. */
+const exceptionCodeOf = (header: string | null, body: string): string | null => {
   if (header !== null && /^\d{1,4}$/u.test(header)) return header;
   return /^Code: (\d{1,4})\./u.exec(body.slice(0, 32))?.[1] ?? null;
 };
@@ -845,9 +844,12 @@ export const makeClickhouseAnalysisRepo = (
         body: `${sql} FORMAT JSONCompact`,
         signal: AbortSignal.timeout(30_000),
       });
-      if (!response.ok) {
-        const body = await response.text();
-        const code = exceptionCodeOf(response, body);
+      // ClickHouse may report an exception with status 200 (headers sent first).
+      const exceptionHeader = response.headers.get('x-clickhouse-exception-code');
+      if (!response.ok || exceptionHeader !== null) {
+        // The header is read before the body: an unreadable body never hides a 202.
+        const body = await response.text().catch(() => '');
+        const code = exceptionCodeOf(exceptionHeader, body);
         if (code === TOO_MANY_SIMULTANEOUS_QUERIES) {
           logger?.warn(
             { status: response.status, clickhouseCode: code, waitedMs, ...gate.stats() },
@@ -887,8 +889,15 @@ export const makeClickhouseAnalysisRepo = (
       }
       return rows;
     } catch (error) {
+      // A parse error quotes the body it failed on: log it, never return it.
       logger?.error({ error: String(error) }, 'clickhouse query error');
-      return err(databaseError(`clickhouse unreachable: ${String(error)}`));
+      return err(
+        databaseError(
+          error instanceof SyntaxError
+            ? 'clickhouse returned an invalid response'
+            : 'clickhouse is unreachable'
+        )
+      );
     } finally {
       slot.value.release();
     }

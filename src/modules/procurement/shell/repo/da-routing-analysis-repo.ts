@@ -16,7 +16,7 @@
 
 import { err, ok } from 'neverthrow';
 
-import { type Logger } from '@/modules/shared/index.js';
+import { retryAfterSecondsOf, type Logger } from '@/modules/shared/index.js';
 
 import { DA_V3_CAPABILITIES, type DaV3AnalysisSource } from './da-v3-analysis-source.js';
 
@@ -34,6 +34,9 @@ export const makeDaRoutingAnalysisRepo = (
 
   const activeGeneration: AnalysisRepo['activeGeneration'] = async () => {
     const [baseR, daR] = await Promise.all([base.activeGeneration(), da.generation()]);
+    // A busy analytics backend is retryable: answer that, not a successful
+    // response whose non-DA blocks read "unavailable".
+    if (baseR.isErr() && retryAfterSecondsOf(baseR.error) !== undefined) return err(baseR.error);
     if (daR.isErr())
       logger?.warn({ error: daR.error.message }, 'direct-acquisition generation unavailable');
     const daGen = daR.isOk() ? daR.value : null;

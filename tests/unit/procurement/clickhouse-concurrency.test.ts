@@ -155,7 +155,7 @@ describe('ClickHouse TOO_MANY_SIMULTANEOUS_QUERIES', () => {
     [
       'the exception-code header',
       () =>
-        new Response(RAW_202, {
+        new Response('DB::Exception without a code prefix', {
           status: 500,
           headers: { 'x-clickhouse-exception-code': '202' },
         }),
@@ -166,6 +166,48 @@ describe('ClickHouse TOO_MANY_SIMULTANEOUS_QUERIES', () => {
     const error = (await makeRepo().statsFor(route, {}, GEN))._unsafeUnwrapErr();
     expect(error).toEqual(BUSY);
     expect(JSON.stringify(error)).not.toMatch(/api_reader|version|Maximum/u);
+  });
+
+  it('maps a header 202 even when the body cannot be read', async () => {
+    const body = new ReadableStream({
+      start(controller) {
+        controller.error(new Error('socket hang up'));
+      },
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(body, { status: 500, headers: { 'x-clickhouse-exception-code': '202' } })
+        )
+    );
+    expect((await makeRepo().statsFor(route, {}, GEN))._unsafeUnwrapErr()).toEqual(BUSY);
+  });
+
+  it('treats an exception reported with status 200 as a failure', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(RAW_202, { status: 200, headers: { 'x-clickhouse-exception-code': '202' } })
+        )
+    );
+    expect((await makeRepo().statsFor(route, {}, GEN))._unsafeUnwrapErr()).toEqual(BUSY);
+  });
+
+  it('never returns the text of an unparsable response', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response('{"meta": Code: 241 api_reader', { status: 200 }))
+    );
+    const error = (await makeRepo().statsFor(route, {}, GEN))._unsafeUnwrapErr();
+    expect(error).toMatchObject({
+      type: 'Database',
+      message: 'clickhouse returned an invalid response',
+    });
+    expect(JSON.stringify(error)).not.toContain('api_reader');
   });
 
   it('keeps other ClickHouse failures a database error, without ClickHouse text', async () => {

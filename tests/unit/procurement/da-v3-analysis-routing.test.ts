@@ -22,7 +22,7 @@ import {
   DA_V3_VALUE_NOTE,
   type DaV3AnalysisSource,
 } from '@/modules/procurement/shell/repo/da-v3-analysis-source.js';
-import { serviceUnavailable, type ApiError } from '@/modules/shared/index.js';
+import { busyRetryLater, serviceUnavailable, type ApiError } from '@/modules/shared/index.js';
 
 import { BUILD_ID, fakeAnalysisRepo, generation, statsRead, verdict } from './analysis-fakes.js';
 
@@ -135,6 +135,27 @@ const setup = (
 };
 
 describe('the routing repo', () => {
+  it('answers a busy base backend as retryable, not as abstained ClickHouse grains', async () => {
+    const base = fakeAnalysisRepo();
+    const busy = busyRetryLater('procurement analytics is busy; retry shortly', 2);
+    const repo = makeDaRoutingAnalysisRepo(
+      { ...base.repo, activeGeneration: () => Promise.resolve(err(busy)) },
+      fakeSource().source
+    );
+    expect((await analysisStats({ analysisRepo: repo }, { scope: {} }))._unsafeUnwrapErr()).toEqual(
+      busy
+    );
+  });
+
+  it('answers busy basis coverage as retryable, not with ungated coverage', async () => {
+    const base = fakeAnalysisRepo();
+    const busy = busyRetryLater('procurement analytics is busy; retry shortly', 2);
+    const deps = {
+      analysisRepo: { ...base.repo, basisCoverage: () => Promise.resolve(err(busy)) },
+    };
+    expect((await analysisStats(deps, { scope: {} }))._unsafeUnwrapErr()).toEqual(busy);
+  });
+
   it('abstains the ClickHouse grains, and still serves DA, when the base build cannot be read', async () => {
     const { deps } = setup({ base: null });
     const blocks = (await analysisStats(deps, { scope: {} }))._unsafeUnwrap().blocks;

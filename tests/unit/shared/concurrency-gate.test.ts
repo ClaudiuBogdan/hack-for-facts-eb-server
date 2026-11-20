@@ -68,6 +68,24 @@ describe('concurrency gate', () => {
     expect(gate.stats()).toEqual({ active: 0, queued: 0 });
   });
 
+  it('refuses a waiter whose deadline passed before a release hands it the slot', async () => {
+    const clock = { t: 0 };
+    const gate = makeConcurrencyGate(
+      { maxConcurrent: 1, maxQueued: 4, queueWaitMs: 100 },
+      () => clock.t
+    );
+    const holder = (await gate.acquire())._unsafeUnwrap();
+    const late = gate.acquire();
+    clock.t = 50;
+    const onTime = gate.acquire();
+    // Past the first waiter's deadline, before its timer runs.
+    clock.t = 101;
+    holder.release();
+    expect((await late)._unsafeUnwrapErr()).toBe('wait_timeout');
+    expect((await onTime)._unsafeUnwrap().waitedMs).toBe(51);
+    expect(gate.stats()).toEqual({ active: 1, queued: 0 });
+  });
+
   it('a double release frees one slot only', async () => {
     const gate = gateOf(1, 4);
     const holder = (await gate.acquire())._unsafeUnwrap();

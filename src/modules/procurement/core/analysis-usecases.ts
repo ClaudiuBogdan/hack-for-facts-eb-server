@@ -35,6 +35,7 @@ import {
   disclosureKeyOf,
   invalidInput,
   isWithheldOrganizationIdentifier,
+  retryAfterSecondsOf,
   serviceUnavailable,
   type ApiError,
   type SupplierDisclosurePort,
@@ -469,6 +470,9 @@ const genWithCoverage = async (
     );
   }
   const covR = await repo.basisCoverage(genR.value.buildId);
+  // Coverage is optional, but a busy refusal is retryable: answer it as such
+  // rather than serve gates computed without coverage.
+  if (covR.isErr() && retryAfterSecondsOf(covR.error) !== undefined) return err(covR.error);
   return ok({ gen: genR.value, cov: covR.isOk() ? covR.value : undefined });
 };
 

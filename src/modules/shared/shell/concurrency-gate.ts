@@ -36,8 +36,10 @@ export interface ConcurrencyGate {
 }
 
 interface Waiter {
-  /** true: granted the releasing holder's slot; false: the gate closed. */
-  settle(granted: boolean): void;
+  /** `now()` past which the waiter is refused even if a slot frees first. */
+  readonly deadline: number;
+  /** 'granted': the releasing holder's slot; otherwise why it was refused. */
+  settle(outcome: 'granted' | 'wait_timeout' | 'closed'): void;
 }
 
 export const makeConcurrencyGate = (
@@ -49,9 +51,16 @@ export const makeConcurrencyGate = (
   const queue: Waiter[] = [];
 
   const releaseSlot = (): void => {
-    const next = queue.shift();
-    if (next !== undefined) next.settle(true);
-    else active--;
+    // Hand the slot to the oldest waiter still within its wait; a waiter whose
+    // deadline passed (its timer not yet run) is refused, never started late.
+    for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
+      if (now() < next.deadline) {
+        next.settle('granted');
+        return;
+      }
+      next.settle('wait_timeout');
+    }
+    active--;
   };
 
   const ticket = (waitedMs: number): GateTicket => {
@@ -77,10 +86,13 @@ export const makeConcurrencyGate = (
       const startedAt = now();
       return new Promise((resolve) => {
         const waiter: Waiter = {
-          settle(granted) {
+          deadline: startedAt + options.queueWaitMs,
+          settle(outcome) {
             clearTimeout(timer);
             // A granted waiter inherits the releasing holder's slot (`active` unchanged).
-            resolve(granted ? ok(ticket(Math.round(now() - startedAt))) : err('closed'));
+            resolve(
+              outcome === 'granted' ? ok(ticket(Math.round(now() - startedAt))) : err(outcome)
+            );
           },
         };
         const timer = setTimeout(() => {
@@ -94,7 +106,7 @@ export const makeConcurrencyGate = (
     stats: () => ({ active, queued: queue.length }),
     close() {
       closed = true;
-      for (const waiter of queue.splice(0)) waiter.settle(false);
+      for (const waiter of queue.splice(0)) waiter.settle('closed');
     },
   };
 };
