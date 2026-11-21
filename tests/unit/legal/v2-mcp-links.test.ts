@@ -30,12 +30,18 @@ const act = (actId: string) =>
 
 const def = (actId: string, formId: string | null): V2DefaultForm => ({
   actId,
+  policy: 'latest_any_kind',
+  posture: formId === null ? 'no_known_form' : 'current',
   defaultFormId: formId,
-  basis: formId === null ? null : 'original',
-  defaultPortalDate: null,
+  chosenFormId: formId,
+  latestAvailableFormId: formId,
+  positionDate: null,
+  formsAtPosition: formId === null ? 0 : 1,
+  orderReviewed: formId === null ? null : true,
+  tieBasis: null,
   newerNotAvailable: 0,
-  futureForms: 0,
-  newerRepublications: 0,
+  laterOtherKind: 0,
+  formsWithoutPosition: 0,
 });
 
 describe('MCP incoming links on legal_v2', () => {

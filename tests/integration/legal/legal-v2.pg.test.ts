@@ -33,6 +33,7 @@ import { ok } from 'neverthrow';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { computeDefaultForm } from '@/modules/legal/core/v2/forms.js';
 import { monitorulTypeDefs } from '@/modules/legal/mo/graphql.js';
 import { makeLegalResolvers } from '@/modules/legal/shell/graphql/resolvers.js';
 import { legalTypeDefs } from '@/modules/legal/shell/graphql/typedefs.js';
@@ -48,6 +49,7 @@ import {
   makeLegalRenderSourceV2,
 } from '@/modules/legal/shell/repo/v2/render-v2.js';
 import { makeLegalV2HitVerifier } from '@/modules/legal/shell/repo/v2/search-verify-v2.js';
+import { readFormsForActs, toFormState } from '@/modules/legal/shell/repo/v2/v2-reads.js';
 import { makeLegalVocabRepo } from '@/modules/legal/shell/repo/vocab-repo.js';
 import { scalarResolvers, scalarTypeDefs } from '@/modules/shared/shell/graphql/scalars.js';
 
@@ -101,6 +103,15 @@ describe('legal_v2 pg target guard (pure)', () => {
 
 const MIGRATION = '20261116T100000__legal_v2_schema.ts';
 const MIGRATION_SHA256 = '6e2a5f738148d2b2638ae715cd36b4a2bed21599aaa1e11bbea1922c739070b7';
+
+/**
+ * The owner's default-form policy as the scrapper implements it: the raw
+ * function portal_acts.p2a_default_form (writer/sql/21-form-states.sql),
+ * hash-pinned. legal_v2.default_forms() is NOT the oracle: its header says it
+ * predates the 2026-11-12 decisions and it still applies the older rule.
+ */
+const FORM_STATES_SQL = 'src/sources/portal-legislativ/prod/rebuild/writer/sql/21-form-states.sql';
+const DEFAULT_FORM_FN_SHA256 = '6cc15fddba2042862aa1bb03c581ba08afff112ff926cd6d4d0f292c5041c4dc';
 
 /** The old corpus: only what the bridge reads. */
 const LEGACY_STUB = `
@@ -544,7 +555,8 @@ run('legal_v2 on real DDL', () => {
       items: { edge: { sourceDocumentId: string }; sourceAct: Record<string, unknown> | null }[];
     };
     const byDoc = new Map(out.items.map((i) => [i.edge.sourceDocumentId, i.sourceAct]));
-    expect(byDoc.get('D10b')).toMatchObject({ actId: '10', canonicalDocumentId: 'f110' });
+    // Act 10's latest form (a listed republication) has no text: no default.
+    expect(byDoc.get('D10b')).toMatchObject({ actId: '10', canonicalDocumentId: null });
     expect(byDoc.get('D7b')).toMatchObject({ actId: '7', canonicalDocumentId: 'f101' });
   });
 
@@ -568,6 +580,95 @@ run('legal_v2 on real DDL', () => {
     expect(out.item.displayCitation).toBe('Legea nr. 1/2020');
     const loaded = await makeLegalActLoader({ acts: v2Acts }).loadAct?.('11');
     expect(loaded).toMatchObject({ displayCitation: 'Decretul din 2001' });
+  });
+
+  it('agrees with the raw p2a_default_form (latest_any_kind) on the fixture, for several days', async () => {
+    const root = process.env['SCRAPPER_REPO_ROOT'] ?? '';
+    const sqlText = fs.readFileSync(path.join(root, FORM_STATES_SQL), 'utf8');
+    const start = sqlText.indexOf('create or replace function portal_acts.p2a_default_form(');
+    const fn = sqlText.slice(start, sqlText.indexOf('\n$$;', start) + 4);
+    expect(createHash('sha256').update(fn).digest('hex')).toBe(DEFAULT_FORM_FN_SHA256);
+    // The function verbatim, reading its per-form facts from a table the test
+    // fills with the API's own facts (so the comparison is of the RULE).
+    await q(`create schema test_oracle;
+      create table test_oracle.states (lineage_id bigint, form_id bigint, form_kind text,
+        form_key text, portal_order_date date, order_rank smallint, portal_list_position integer,
+        max_page_id bigint, accepted boolean, body_resolved boolean, readable boolean);
+      create function test_oracle.p2a_form_states(p_selection_seq bigint, p_lineage_id bigint)
+        returns setof test_oracle.states language sql stable as
+        $f$ select * from test_oracle.states where lineage_id = p_lineage_id $f$;`);
+    await q(fn.replaceAll('portal_acts.', 'test_oracle.'));
+    const actIds = ['7', '8', '10', '11'];
+    const rows = (await readFormsForActs(db, actIds))._unsafeUnwrap();
+    for (const r of rows) {
+      await q(
+        `insert into test_oracle.states values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        [
+          r.act_id,
+          r.form_id,
+          r.form_kind,
+          r.form_key,
+          r.portal_order_date,
+          r.order_rank,
+          r.portal_list_position,
+          r.max_page_id,
+          r.accepted,
+          r.body_resolved,
+          r.ended ? false : r.readable,
+        ]
+      );
+    }
+    let compared = 0;
+    for (const day of [null, '2019-06-01', '2021-01-01', '2023-06-01', '2026-11-20']) {
+      for (const actId of actIds) {
+        await q('begin');
+        const res = await q(
+          `select posture, form_id::text, chosen_form_id::text, latest_available_form_id::text,
+                  position_date::text, forms_at_position, order_reviewed, tie_basis,
+                  unavailable_at_or_after, later_other_kind, forms_without_position
+             from test_oracle.p2a_default_form($1::bigint, $2::date, 0)`,
+          [actId, day]
+        );
+        await q('commit');
+        const sqlRow = res.rows[0] as Record<string, unknown>;
+        const mine = computeDefaultForm(
+          actId,
+          rows.filter((r) => r.act_id === actId).map(toFormState),
+          day
+        );
+        expect(
+          {
+            posture: mine.posture,
+            form_id: mine.defaultFormId,
+            chosen_form_id: mine.chosenFormId,
+            latest_available_form_id: mine.latestAvailableFormId,
+            position_date: mine.positionDate,
+            forms_at_position: mine.formsAtPosition,
+            order_reviewed: mine.orderReviewed,
+            tie_basis: mine.tieBasis,
+            unavailable_at_or_after: mine.newerNotAvailable,
+            later_other_kind: mine.laterOtherKind,
+            forms_without_position: mine.formsWithoutPosition,
+          },
+          `act ${actId} on ${String(day)}`
+        ).toEqual(sqlRow);
+        compared += 1;
+      }
+    }
+    expect(compared).toBe(20);
+    // The fixture exercises the policy: act 7's latest form is a consolidation
+    // with text; act 10's latest date holds a listed republication without
+    // text over the unlisted original, so no form is current.
+    const def = (await v2Acts.defaultFormsForActs?.(['7', '10']))?._unsafeUnwrap();
+    expect(def?.get('7')).toMatchObject({ posture: 'current', defaultFormId: '101' });
+    expect(def?.get('10')).toMatchObject({
+      posture: 'latest_not_available',
+      chosenFormId: '111',
+      latestAvailableFormId: '110',
+      orderReviewed: false,
+      tieBasis: 'listed_over_unlisted',
+      newerNotAvailable: 1,
+    });
   });
 });
 
@@ -603,7 +704,10 @@ const seed = async (q: (t: string, p?: unknown[]) => Promise<pg.QueryResult>): P
            (901, 9, 'original', 'orig', true, true, '2022-01-01', null, null, 'public'),
            (106, 7, 'republication', 'rep', true, true, '2021-06-01', null, null, 'public'),
            (107, 7, 'original', 'orig2', true, true, '2019-01-01', null, null, 'public'),
-           (110, 10, 'original', 'orig', true, true, '2023-01-01', null, null, 'public')`);
+           (110, 10, 'original', 'orig', true, true, '2023-01-01', null, null, 'public'),
+           (111, 10, 'republication', 'rep', true, true, '2023-01-01', null, null, 'public')`);
+  // form 111 is listed by the Portal, form 110 (the original) is not
+  await q(`update legal_v2.forms set portal_list_position = 4 where form_id = 111`);
   const body = JSON.stringify({
     format: 'tldf-unit',
     format_version: '1',

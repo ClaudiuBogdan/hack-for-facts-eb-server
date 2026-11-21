@@ -49,7 +49,6 @@ import {
 import { normalizeAlias, parseCitation } from '../../../core/citation.js';
 import { mergeBridgedAct } from '../../../core/v2/bridge.js';
 import {
-  bucharestToday,
   computeDefaultForm,
   formDocumentId,
   parseDocumentRef,
@@ -85,7 +84,11 @@ export interface MakeLegalActsRepoV2Deps {
   /** The legacy repo: the bridge for status events, the feed and amendment counts. */
   readonly legacy: LegalActsRepo;
   /** The day the default form is computed for (tests pin it). */
-  readonly today?: () => string;
+  /**
+   * The day the default form reads the act as of. Default null: every known
+   * form, future-dated ones included (owner decision 2026-11-12).
+   */
+  readonly today?: () => string | null;
 }
 
 /** Filter fields compiled against the old summary (`s`) or the old act (`a.status`). */
@@ -194,7 +197,7 @@ interface ActForms {
 
 export const makeLegalActsRepoV2 = (deps: MakeLegalActsRepoV2Deps): LegalActsRepo => {
   const { db, legacy } = deps;
-  const today = deps.today ?? bucharestToday;
+  const today = deps.today ?? ((): string | null => null);
 
   // ── identity ────────────────────────────────────────────────────────────────
 
@@ -344,7 +347,7 @@ export const makeLegalActsRepoV2 = (deps: MakeLegalActsRepoV2Deps): LegalActsRep
       const rows = byAct.get(act.act_id) ?? [];
       out.set(act.act_id, {
         rows,
-        def: computeDefaultForm(act.act_id, rows.map(toFormState), day, act.ended),
+        def: computeDefaultForm(act.act_id, rows.map(toFormState), day),
       });
     }
     return ok(out);
@@ -657,7 +660,12 @@ export const makeLegalActsRepoV2 = (deps: MakeLegalActsRepoV2Deps): LegalActsRep
         versionCount: (forms?.rows ?? []).filter((r) => !r.ended).length,
         amendedAfterPublication: amendedRes.value,
         newerNotAvailable: forms?.def.newerNotAvailable ?? null,
-        defaultBasis: forms?.def.basis ?? null,
+        defaultBasis: forms?.def.posture ?? null,
+        defaultOrderReviewed: forms?.def.orderReviewed ?? null,
+        latestAvailableDocumentId:
+          forms?.def.latestAvailableFormId == null
+            ? null
+            : formDocumentId(forms.def.latestAvailableFormId),
       });
     } catch (error) {
       return err(databaseError('getActCard failed', error));

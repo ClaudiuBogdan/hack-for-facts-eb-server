@@ -161,7 +161,7 @@ export interface LegalActsRepo extends LegalRepoBase {
     documentIds: readonly string[]
   ): Promise<Result<ReadonlyMap<string, LegalActSummary>, ApiError>>;
   /**
-   * legal_v2 source only: the default form of each act (rebuild-model §7),
+   * legal_v2 source only: the default form of each act (owner policy latest_any_kind, 2026-11-12),
    * computed per act from its forms. Absent on the legacy source.
    */
   defaultFormsForActs?(

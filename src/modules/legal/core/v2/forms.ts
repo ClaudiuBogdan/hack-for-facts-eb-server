@@ -85,122 +85,196 @@ export interface V2FormState {
   readonly readable: boolean;
   /** A capture that claims the form is held, conflicting or unresolved. */
   readonly held: boolean;
+  /** The form's place in the Portal's version list (null: not listed, e.g. the original). */
+  readonly portalListPosition: number | null;
+  /** The highest Portal page id among the form's current bindings (a tie-break). */
+  readonly maxPageId: string | null;
 }
 
-export type V2DefaultBasis = 'latest_consolidation' | 'original';
+export type V2DefaultPolicy = 'latest_any_kind' | 'latest_consolidation_or_original';
+export type V2DefaultPosture = 'current' | 'latest_not_available' | 'no_known_form';
+export type V2TieBasis =
+  | 'only_form_of_the_policy_kinds'
+  | 'portal_list_position'
+  | 'listed_over_unlisted'
+  | 'highest_page_id'
+  | 'form_key';
 
 export interface V2DefaultForm {
   readonly actId: string;
+  readonly policy: V2DefaultPolicy;
+  readonly posture: V2DefaultPosture;
+  /** The default: the chosen form, only when it is available (posture current). */
   readonly defaultFormId: string | null;
-  readonly basis: V2DefaultBasis | null;
-  readonly defaultPortalDate: IsoDate | null;
-  /** Consolidations dated up to the day that exist and cannot be shown. */
+  /** The form at the latest position, available or not. */
+  readonly chosenFormId: string | null;
+  /** The latest available form in the same order (the "not the current form" badge). */
+  readonly latestAvailableFormId: string | null;
+  readonly positionDate: IsoDate | null;
+  readonly formsAtPosition: number;
+  /** False: two or more forms share the latest date and a reviewer has not ranked them all. */
+  readonly orderReviewed: boolean | null;
+  /** How an unreviewed tie was broken; null when the order is reviewed. */
+  readonly tieBasis: V2TieBasis | null;
+  /** Known forms of the policy's kinds on or after the latest available one that are not available. */
   readonly newerNotAvailable: number;
-  /** Forms (any kind) dated after the day. */
-  readonly futureForms: number;
-  /** Republications dated after the default (owner question 6: only counted). */
-  readonly newerRepublications: number;
+  /** Known forms of other kinds after the latest position (literal policy only). */
+  readonly laterOtherKind: number;
+  /** Known forms with no Portal ordering date: counted, never placed. */
+  readonly formsWithoutPosition: number;
 }
 
-const cmpDesc = (a: string, b: string): number => (a < b ? 1 : a > b ? -1 : 0);
+const ALL_KINDS: readonly string[] = ['original', 'republication', 'consolidation'];
 
-/** `(date, coalesce(rank, 0)) > (p.date, coalesce(p.rank, 0))` — SQL row comparison. */
-const tupleAfter = (
-  date: IsoDate,
-  rank: number | null,
-  pDate: IsoDate,
-  pRank: number | null
-): boolean => (date !== pDate ? date > pDate : (rank ?? 0) > (pRank ?? 0));
+/** `x desc nulls last` for a nullable number or bigint string. */
+const descNullsLast = (a: bigint | null, b: bigint | null): number => {
+  if (a === null && b === null) return 0;
+  if (a === null) return 1;
+  if (b === null) return -1;
+  return a > b ? -1 : a < b ? 1 : 0;
+};
+const big = (v: number | string | null): bigint | null =>
+  v === null ? null : typeof v === 'number' ? BigInt(v) : /^\d+$/u.test(v) ? BigInt(v) : null;
 
 /**
- * The default form of ONE act on day `asOf`, exactly as `default_forms` reads
- * it. `forms` are all of the act's (public) forms; `actEnded` mirrors the
- * function's `where not a.ended` (an ended act has no default).
+ * The default form of ONE act: a port, line for line, of the raw function
+ * `portal_acts.p2a_default_form` (writer/sql/21-form-states.sql), the owner's
+ * decision of 2026-11-12 read as a named policy over per-form facts, default
+ * `latest_any_kind`. Order first, availability second:
+ *  - every known (not ended) form with a Portal ordering date is ordered by
+ *    date, then reviewed rank; the latest date of the policy's kinds is the
+ *    latest position, judged among ALL known forms on that date;
+ *  - one form there, or every form there ranked: the order is reviewed and
+ *    the latest form is the highest rank; otherwise the order stays
+ *    unreviewed (`orderReviewed` false) and one fixed rule picks: the form the
+ *    Portal lists last, a listed form over an unlisted one, the highest page
+ *    id, the greater key;
+ *  - only then availability: the chosen form is the default when it is
+ *    available (`current`); a newer form that is not available is never
+ *    presented as current (`latest_not_available`, with the latest available
+ *    form named beside it) and is counted.
+ * `day` null reads every known form, future-dated ones included (owner
+ * decision: no rule treats a version dated in the future differently); a date
+ * reads the act as of that day. The raw function knows no ended act: it reads
+ * the lineage's known forms, and so does this.
  */
 export const computeDefaultForm = (
   actId: string,
   forms: readonly V2FormState[],
-  asOf: IsoDate,
-  actEnded = false
+  day: IsoDate | null,
+  policy: V2DefaultPolicy = 'latest_any_kind'
 ): V2DefaultForm => {
-  const none: V2DefaultForm = {
-    actId,
-    defaultFormId: null,
-    basis: null,
-    defaultPortalDate: null,
-    newerNotAvailable: 0,
-    futureForms: 0,
-    newerRepublications: 0,
+  const known = forms.filter((f) => !f.ended);
+  const onOrBefore = (d: IsoDate | null): d is IsoDate => d !== null && (day === null || d <= day);
+  const dated = known.filter((f) => f.portalOrderDate !== null);
+  const dateRanked = (d: IsoDate): boolean =>
+    dated.filter((f) => f.portalOrderDate === d).every((f) => f.orderRank !== null);
+  const avail = (f: V2FormState): boolean => f.accepted && f.bodyResolved && f.readable;
+  const kinds =
+    policy === 'latest_any_kind'
+      ? ALL_KINDS
+      : known.some((f) => f.formKind === 'consolidation' && onOrBefore(f.portalOrderDate))
+        ? ['consolidation']
+        : ['original'];
+  const ofKinds = (f: V2FormState): boolean => kinds.includes(f.formKind);
+  /** The SQL's one order: rank where the whole date is ranked, then the fixed rule. */
+  const tieOrder = (a: V2FormState, b: V2FormState): number => {
+    const rank = (f: V2FormState): bigint | null =>
+      f.portalOrderDate !== null && dateRanked(f.portalOrderDate) ? big(f.orderRank) : null;
+    const steps = [
+      descNullsLast(rank(a), rank(b)),
+      Number(b.portalListPosition !== null) - Number(a.portalListPosition !== null),
+      descNullsLast(big(a.portalListPosition), big(b.portalListPosition)),
+      descNullsLast(big(a.maxPageId), big(b.maxPageId)),
+      // `form_key collate "C" desc`
+      a.formKey < b.formKey ? 1 : a.formKey > b.formKey ? -1 : 0,
+    ];
+    return steps.find((step) => step !== 0) ?? 0;
   };
-  if (actEnded) return none;
-
-  // cons: live consolidations; the window is (act, portal_order_date) over
-  // consolidations only, with NULL dates forming one group (SQL partitioning).
-  const cons = forms.filter((f) => f.formKind === 'consolidation' && !f.ended);
-  const groups = new Map<string, V2FormState[]>();
-  for (const c of cons) {
-    const key = c.portalOrderDate ?? '\u0000null';
-    const list = groups.get(key);
-    if (list === undefined) groups.set(key, [c]);
-    else list.push(c);
+  const formsWithoutPosition = known.length - dated.length;
+  const positionDate = known
+    .filter((f) => ofKinds(f) && onOrBefore(f.portalOrderDate))
+    .reduce<IsoDate | null>(
+      (max, f) => (max === null || (f.portalOrderDate ?? '') > max ? f.portalOrderDate : max),
+      null
+    );
+  if (positionDate === null) {
+    return {
+      actId,
+      policy,
+      posture: 'no_known_form',
+      defaultFormId: null,
+      chosenFormId: null,
+      latestAvailableFormId: null,
+      positionDate: null,
+      formsAtPosition: 0,
+      orderReviewed: null,
+      tieBasis: null,
+      newerNotAvailable: 0,
+      laterOtherKind: 0,
+      formsWithoutPosition,
+    };
   }
-  const available = (c: V2FormState): boolean => {
-    const group = groups.get(c.portalOrderDate ?? '\u0000null') ?? [c];
-    const unordered = group.length > 1 && group.some((g) => g.orderRank === null);
-    return c.accepted && c.bodyResolved && c.readable && !unordered;
-  };
-
-  // picked: available, dated, not after the day; date desc, rank desc NULLS LAST.
-  const candidates = cons
-    .filter((c) => available(c) && c.portalOrderDate !== null && c.portalOrderDate <= asOf)
-    .sort((a, b) => {
-      const byDate = cmpDesc(a.portalOrderDate ?? '', b.portalOrderDate ?? '');
-      if (byDate !== 0) return byDate;
-      if (a.orderRank === null && b.orderRank === null) return 0;
-      if (a.orderRank === null) return 1;
-      if (b.orderRank === null) return -1;
-      return b.orderRank - a.orderRank;
-    });
-  const picked = candidates[0];
-
-  // orig: the function joins every qualifying original (one per act in
-  // practice); the lowest form id makes a duplicate deterministic.
-  const orig = forms
-    .filter(
-      (f) => f.formKind === 'original' && !f.ended && f.accepted && f.bodyResolved && f.readable
-    )
-    .sort((a, b) => (BigInt(a.formId) < BigInt(b.formId) ? -1 : 1))[0];
-
-  const chosen = picked ?? orig;
-  const chosenDate = chosen?.portalOrderDate ?? null;
-
-  const newerNotAvailable = cons.filter(
-    (c) =>
-      c.portalOrderDate !== null &&
-      c.portalOrderDate <= asOf &&
-      (picked === undefined ||
-        tupleAfter(c.portalOrderDate, c.orderRank, picked.portalOrderDate ?? '', picked.orderRank))
+  const atPosition = dated.filter((f) => f.portalOrderDate === positionDate);
+  const level = atPosition.length;
+  const orderReviewed = level === 1 || atPosition.every((f) => f.orderRank !== null);
+  const laterOtherKind = dated.filter(
+    (f) => (f.portalOrderDate ?? '') > positionDate && onOrBefore(f.portalOrderDate) && !ofKinds(f)
   ).length;
-  const futureForms = forms.filter(
-    (f) => !f.ended && f.portalOrderDate !== null && f.portalOrderDate > asOf
-  ).length;
-  const newerRepublications = forms.filter(
+  const latestAvailable = known
+    .filter((f) => ofKinds(f) && onOrBefore(f.portalOrderDate) && avail(f))
+    .sort((a, b) =>
+      (a.portalOrderDate ?? '') < (b.portalOrderDate ?? '')
+        ? 1
+        : (a.portalOrderDate ?? '') > (b.portalOrderDate ?? '')
+          ? -1
+          : tieOrder(a, b)
+    )[0];
+  const newerNotAvailable = known.filter(
     (f) =>
-      !f.ended &&
-      f.formKind === 'republication' &&
-      f.portalOrderDate !== null &&
-      f.portalOrderDate <= asOf &&
-      (chosen === undefined || chosenDate === null || f.portalOrderDate > chosenDate)
+      ofKinds(f) &&
+      onOrBefore(f.portalOrderDate) &&
+      !avail(f) &&
+      (latestAvailable === undefined ||
+        f.portalOrderDate >= (latestAvailable.portalOrderDate ?? ''))
   ).length;
-
+  const ranked = atPosition.filter(ofKinds).sort(tieOrder);
+  const top = ranked[0];
+  const next = ranked[1];
+  let tieBasis: V2TieBasis | null = null;
+  if (!orderReviewed && top !== undefined) {
+    tieBasis =
+      next === undefined
+        ? 'only_form_of_the_policy_kinds'
+        : top.portalListPosition !== null && next.portalListPosition !== null
+          ? 'portal_list_position'
+          : top.portalListPosition !== null
+            ? 'listed_over_unlisted'
+            : big(top.maxPageId) !== big(next.maxPageId)
+              ? 'highest_page_id'
+              : 'form_key';
+  }
+  const maxRank = atPosition.reduce<number | null>(
+    (m, f) => (f.orderRank === null ? m : m === null || f.orderRank > m ? f.orderRank : m),
+    null
+  );
+  const rankedAboveByOtherKind =
+    orderReviewed && level > 1 && top !== undefined && top.orderRank !== maxRank;
+  const current = top !== undefined && !rankedAboveByOtherKind && avail(top);
   return {
     actId,
-    defaultFormId: chosen?.formId ?? null,
-    basis: picked !== undefined ? 'latest_consolidation' : orig !== undefined ? 'original' : null,
-    defaultPortalDate: chosenDate,
+    policy,
+    posture: current ? 'current' : 'latest_not_available',
+    defaultFormId: current ? top.formId : null,
+    chosenFormId: top?.formId ?? null,
+    latestAvailableFormId: latestAvailable?.formId ?? null,
+    positionDate,
+    formsAtPosition: level,
+    orderReviewed,
+    tieBasis,
     newerNotAvailable,
-    futureForms,
-    newerRepublications,
+    laterOtherKind,
+    formsWithoutPosition,
   };
 };
 

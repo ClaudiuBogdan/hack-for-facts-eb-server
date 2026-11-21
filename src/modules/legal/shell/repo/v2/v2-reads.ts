@@ -49,6 +49,8 @@ export interface V2FormRow {
   readable: boolean;
   held: boolean;
   source_url: string | null;
+  portal_list_position: number | null;
+  max_page_id: string | null;
 }
 
 export const toFormState = (r: V2FormRow): V2FormState => ({
@@ -63,6 +65,8 @@ export const toFormState = (r: V2FormRow): V2FormState => ({
   ended: r.ended,
   readable: r.readable,
   held: r.held,
+  portalListPosition: r.portal_list_position,
+  maxPageId: r.max_page_id,
 });
 
 /**
@@ -115,6 +119,11 @@ export const readFormsForActs = async (
              f.form_kind, f.form_key, f.portal_order_date::text as portal_order_date,
              f.order_rank::int as order_rank, f.accepted, f.body_resolved, f.ended,
              f.portal_label_raw, f.portal_label_date::text as portal_label_date, f.caveat,
+             f.portal_list_position::int as portal_list_position,
+             -- the default rule's page-id tie-break (p2a_form_states.max_page_id)
+             (select max(s.page_id::bigint) from legal_v2.form_sources s
+               where s.form_id = f.form_id and s.page_id ~ '^[0-9]+$'
+                 and s.privacy_class = 'public')::text as max_page_id,
              f.gazette_number, f.gazette_part::int as gazette_part,
              f.gazette_date_reported::text as gazette_date_reported, f.publication_raw,
              f.entry_into_force_reported::text as entry_into_force_reported,

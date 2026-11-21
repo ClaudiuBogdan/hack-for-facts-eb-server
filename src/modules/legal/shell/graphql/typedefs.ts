@@ -105,8 +105,12 @@ const objectsAndQuery = /* GraphQL */ `
     bridgedFields: [String!]!
     "legal_v2 only: consolidations dated up to today that exist and cannot be shown (not accepted, no text, held, or unordered). Null on the legacy source."
     newerNotAvailable: Int
-    "legal_v2 only: why canonical is the default form — 'latest_consolidation' or 'original' (rebuild-model section 7). Null on the legacy source or when the act has no default form."
+    "legal_v2 only: the default form's posture under the owner's policy latest_any_kind (2026-11-12): 'current' (canonical is the latest form of any kind, and available), 'latest_not_available' (the latest form is known but has no text: canonical is null; see latestAvailableDocumentId), or 'no_known_form'. Null on the legacy source."
     defaultBasis: String
+    "legal_v2 only: false when two or more forms share the latest date and a reviewer has not ranked them all; the choice then follows the Portal's list order and the reader shows 'order not reviewed'."
+    defaultOrderReviewed: Boolean
+    "legal_v2 only: the latest form that has text, when the latest form has none — to offer as 'not the current form'."
+    latestAvailableDocumentId: String
     # lazy fields (DataLoader / repo, not on the base row):
     canonical: LegalDocument
     summary: LegalActSummary

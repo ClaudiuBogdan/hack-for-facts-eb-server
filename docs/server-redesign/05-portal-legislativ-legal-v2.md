@@ -63,11 +63,22 @@ behaviour unchanged.
 - **Readable** means servable by the render: a published public composition of ONE public whole unit, no missing
   body, at least one chunk and none restricted, the unit's capture bound (public) to the form, and, for a
   consolidation, the Portal's label or its date.
-- **Default form** (`isCanonical`, `canonical`). The rule of rebuild-model.md §7 and of the SQL function
-  `legal_v2.default_forms`, computed per act in `core/v2/forms.ts` (the function computes every act and the role's
-  statement limit is 15 s). It is the latest accepted, body-resolved, readable consolidation whose Portal date is not
-  after today (Bucharest), else the original. A public act with no forms has a default result with zero counts. It is
-  not yet the owner's 2026-11-12 rule (latest form of any kind), which the SQL function has not adopted either.
+- **Default form** (`isCanonical`, `canonical`). The owner's decision of 2026-11-12: the policy `latest_any_kind`, the
+  latest form of any kind, republications included, read over per-form facts. `core/v2/forms.ts` ports the raw function
+  `portal_acts.p2a_default_form` (writer/sql/21-form-states.sql) line for line and computes it per act. The serving
+  `legal_v2.default_forms()` is not used: its header says it predates the decision and still applies the older rule.
+  - Order first: every known form with a Portal ordering date is ordered by date, then reviewed rank. The latest date
+    is the latest position, judged among all forms on that date.
+  - Two or more forms there that a reviewer has not all ranked: one fixed rule picks (the form the Portal lists last,
+    a listed form over an unlisted one, the highest page id, the greater key), flagged `defaultOrderReviewed: false`.
+  - Availability second: the chosen form is the default only when it is readable (`defaultBasis: current`). Otherwise
+    no form is canonical (`latest_not_available`); `latestAvailableDocumentId` names the latest form with text, to offer
+    as "not the current form", and `newerNotAvailable` counts the forms without text on or after it.
+  - Future-dated forms count like any other (owner decision: no rule treats them differently); the API reads every
+    known form, as the raw function does with no day.
+  - The pg suite runs the raw function itself (hash-pinned, over the API's per-form facts) against `computeDefaultForm`
+    on the fixture for five days, and they agree. `latest_consolidation_or_original` stays selectable internally.
+
 - **Render.** One statement per request reads the route, the form, the composition and only the chunk bodies the
   request serves. An envelope or manifest reads every chunk, with links; a chunk group reads its one stored chunk.
   Statuses:

@@ -14,14 +14,12 @@ import {
   type V2FormState,
 } from '@/modules/legal/core/v2/forms.js';
 
-const DAY = '2026-11-20';
-
 let nextId = 100;
 const form = (over: Partial<V2FormState>): V2FormState => ({
   formId: String((nextId += 1)),
   actId: '1',
   formKind: 'consolidation',
-  formKey: 'k',
+  formKey: `k${String(nextId)}`,
   portalOrderDate: '2020-01-01',
   orderRank: null,
   accepted: true,
@@ -29,6 +27,8 @@ const form = (over: Partial<V2FormState>): V2FormState => ({
   ended: false,
   readable: true,
   held: false,
+  portalListPosition: null,
+  maxPageId: null,
   ...over,
 });
 
@@ -69,86 +69,104 @@ describe('version mapping and document ids', () => {
   });
 });
 
-describe('default form (rebuild-model §7)', () => {
-  it('picks the latest available consolidation not after the day', () => {
-    const o = original();
-    const c1 = form({ portalOrderDate: '2019-01-01' });
-    const c2 = form({ portalOrderDate: '2024-03-01' });
-    const def = computeDefaultForm('1', [o, c1, c2], DAY);
-    expect(def.defaultFormId).toBe(c2.formId);
-    expect(def.basis).toBe('latest_consolidation');
-    expect(def.defaultPortalDate).toBe('2024-03-01');
-    expect(def.newerNotAvailable).toBe(0);
+describe('default form: latest_any_kind (owner decision 2026-11-12, p2a_default_form)', () => {
+  it('makes a republication newer than the latest consolidation the default', () => {
+    const cons = form({ portalOrderDate: '2014-01-01', portalListPosition: 1 });
+    const rep = form({
+      formKind: 'republication',
+      portalOrderDate: '2015-08-28',
+      portalListPosition: 2,
+    });
+    const def = computeDefaultForm('1', [original(), cons, rep], null);
+    expect(def).toMatchObject({
+      posture: 'current',
+      defaultFormId: rep.formId,
+      positionDate: '2015-08-28',
+      orderReviewed: true,
+      newerNotAvailable: 0,
+    });
   });
 
-  it('never picks a future consolidation, and counts it as a future form', () => {
-    const o = original();
+  it('never chooses a newer form without text: it is counted and the latest available is named', () => {
+    const shown = form({ portalOrderDate: '2021-01-01', portalListPosition: 1 });
+    const noText = form({ portalOrderDate: '2023-01-01', readable: false, portalListPosition: 2 });
+    const def = computeDefaultForm('1', [original(), shown, noText], null);
+    expect(def).toMatchObject({
+      posture: 'latest_not_available',
+      defaultFormId: null,
+      chosenFormId: noText.formId,
+      latestAvailableFormId: shown.formId,
+      newerNotAvailable: 1,
+    });
+  });
+
+  it('leaves same-date unranked forms unreviewed, picking by the fixed rule', () => {
+    const a = form({ portalOrderDate: '2024-01-01', portalListPosition: 3 });
+    const b = form({ portalOrderDate: '2024-01-01', portalListPosition: 5 });
+    const byList = computeDefaultForm('1', [original(), a, b], null);
+    expect(byList).toMatchObject({
+      defaultFormId: b.formId,
+      orderReviewed: false,
+      tieBasis: 'portal_list_position',
+      formsAtPosition: 2,
+    });
+    // the original (unlisted) and a listed form on one date: the listed one
+    const o = original({ portalOrderDate: '2024-01-01' });
+    const listed = form({ portalOrderDate: '2024-01-01', portalListPosition: 1 });
+    expect(computeDefaultForm('1', [o, listed], null)).toMatchObject({
+      defaultFormId: listed.formId,
+      tieBasis: 'listed_over_unlisted',
+    });
+    const p1 = form({ portalOrderDate: '2024-01-01', maxPageId: '90' });
+    const p2 = form({ portalOrderDate: '2024-01-01', maxPageId: '100' });
+    expect(computeDefaultForm('1', [p1, p2], null)).toMatchObject({
+      defaultFormId: p2.formId,
+      tieBasis: 'highest_page_id',
+    });
+    const k1 = form({ portalOrderDate: '2024-01-01', formKey: 'cons:a' });
+    const k2 = form({ portalOrderDate: '2024-01-01', formKey: 'cons:b' });
+    expect(computeDefaultForm('1', [k1, k2], null)).toMatchObject({
+      defaultFormId: k2.formId,
+      tieBasis: 'form_key',
+    });
+  });
+
+  it('orders a reviewed same-date pair by rank, whatever their kinds', () => {
+    const rep = form({ formKind: 'republication', portalOrderDate: '2024-01-01', orderRank: 2 });
+    const cons = form({ portalOrderDate: '2024-01-01', orderRank: 1, portalListPosition: 9 });
+    expect(computeDefaultForm('1', [rep, cons], null)).toMatchObject({
+      defaultFormId: rep.formId,
+      orderReviewed: true,
+      tieBasis: null,
+    });
+  });
+
+  it('reads future-dated forms by default, and a day reads the act as of that day', () => {
     const past = form({ portalOrderDate: '2021-01-01' });
     const future = form({ portalOrderDate: '2027-01-01' });
-    const def = computeDefaultForm('1', [o, past, future], DAY);
-    expect(def.defaultFormId).toBe(past.formId);
-    expect(def.futureForms).toBe(1);
+    expect(computeDefaultForm('1', [past, future], null).defaultFormId).toBe(future.formId);
+    expect(computeDefaultForm('1', [past, future], '2026-11-20').defaultFormId).toBe(past.formId);
   });
 
-  it('skips a newer consolidation without text and counts it as not available', () => {
-    const o = original();
-    const shown = form({ portalOrderDate: '2021-01-01' });
-    const noText = form({ portalOrderDate: '2023-01-01', readable: false });
-    const notAccepted = form({ portalOrderDate: '2024-01-01', accepted: false });
-    const noBody = form({ portalOrderDate: '2025-01-01', bodyResolved: false });
-    const def = computeDefaultForm('1', [o, shown, noText, notAccepted, noBody], DAY);
-    expect(def.defaultFormId).toBe(shown.formId);
-    expect(def.newerNotAvailable).toBe(3);
-  });
-
-  it('falls back to the original, counting every consolidation that cannot be shown', () => {
-    const o = original();
-    const c = form({ portalOrderDate: '2023-01-01', readable: false });
-    const def = computeDefaultForm('1', [o, c], DAY);
-    expect(def.defaultFormId).toBe(o.formId);
-    expect(def.basis).toBe('original');
-    expect(def.newerNotAvailable).toBe(1);
-  });
-
-  it('chooses neither of two same-date consolidations that are not both ranked', () => {
-    const o = original();
-    const older = form({ portalOrderDate: '2020-06-01' });
-    const a = form({ portalOrderDate: '2024-01-01', orderRank: 1 });
-    const b = form({ portalOrderDate: '2024-01-01', orderRank: null });
-    const def = computeDefaultForm('1', [o, older, a, b], DAY);
-    expect(def.defaultFormId).toBe(older.formId);
-    expect(def.newerNotAvailable).toBe(2);
-  });
-
-  it('orders ranked same-date consolidations by rank', () => {
-    const a = form({ portalOrderDate: '2024-01-01', orderRank: 1 });
-    const b = form({ portalOrderDate: '2024-01-01', orderRank: 2 });
-    expect(computeDefaultForm('1', [original(), a, b], DAY).defaultFormId).toBe(b.formId);
-  });
-
-  it('ignores ended forms and undated consolidations, and an ended act has no default', () => {
-    const o = original();
-    const ended = form({ portalOrderDate: '2025-01-01', ended: true });
+  it('counts undated forms, ignores ended ones, and has no default without a dated form', () => {
     const undated = form({ portalOrderDate: null });
-    const def = computeDefaultForm('1', [o, ended, undated], DAY);
-    expect(def.defaultFormId).toBe(o.formId);
-    expect(def.newerNotAvailable).toBe(0);
-    expect(computeDefaultForm('1', [o], DAY, true).defaultFormId).toBeNull();
+    const ended = form({ portalOrderDate: '2025-01-01', ended: true });
+    expect(computeDefaultForm('1', [undated, ended], null)).toMatchObject({
+      posture: 'no_known_form',
+      defaultFormId: null,
+      formsWithoutPosition: 1,
+    });
   });
 
-  it('has no default when no form is readable', () => {
-    const def = computeDefaultForm('1', [original({ readable: false })], DAY);
-    expect(def.defaultFormId).toBeNull();
-    expect(def.basis).toBeNull();
-  });
-
-  it('never makes a republication the default; it only counts the newer ones (owner question 6)', () => {
-    const o = original({ portalOrderDate: '2001-01-01' });
+  it('keeps the literal policy selectable: the latest consolidation, else the original', () => {
+    const o = original();
+    const cons = form({ portalOrderDate: '2014-01-01' });
     const rep = form({ formKind: 'republication', portalOrderDate: '2015-08-28' });
-    const def = computeDefaultForm('1', [o, rep], DAY);
-    expect(def.defaultFormId).toBe(o.formId);
-    expect(def.newerRepublications).toBe(1);
-    const cons = form({ portalOrderDate: '2020-01-01' });
-    expect(computeDefaultForm('1', [o, rep, cons], DAY).newerRepublications).toBe(0);
+    expect(
+      computeDefaultForm('1', [o, cons, rep], null, 'latest_consolidation_or_original')
+    ).toMatchObject({ defaultFormId: cons.formId, laterOtherKind: 1 });
+    expect(
+      computeDefaultForm('1', [o, rep], null, 'latest_consolidation_or_original')
+    ).toMatchObject({ defaultFormId: o.formId, laterOtherKind: 1 });
   });
 });

@@ -456,7 +456,20 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
         if (!isV2(parent)) return null;
         const onCard = (parent as Partial<LegalActCard>).defaultBasis;
         if (onCard !== undefined) return onCard;
-        return (await defaultFormLoader.load(parent.actId))?.basis ?? null;
+        return (await defaultFormLoader.load(parent.actId))?.posture ?? null;
+      },
+      defaultOrderReviewed: async (parent: LegalAct) => {
+        if (!isV2(parent)) return null;
+        const onCard = (parent as Partial<LegalActCard>).defaultOrderReviewed;
+        if (onCard !== undefined) return onCard;
+        return (await defaultFormLoader.load(parent.actId))?.orderReviewed ?? null;
+      },
+      latestAvailableDocumentId: async (parent: LegalAct) => {
+        if (!isV2(parent)) return null;
+        const onCard = (parent as Partial<LegalActCard>).latestAvailableDocumentId;
+        if (onCard !== undefined) return onCard;
+        const id = (await defaultFormLoader.load(parent.actId))?.latestAvailableFormId ?? null;
+        return id === null ? null : `f${id}`;
       },
       canonical: async (parent: LegalAct) => canonicalLoader.load(parent.actId),
       summary: async (parent: LegalAct) => {
