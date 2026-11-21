@@ -111,6 +111,8 @@ const objectsAndQuery = /* GraphQL */ `
     defaultOrderReviewed: Boolean
     "legal_v2 only: the latest form that has text, when the latest form has none — to offer as 'not the current form'."
     latestAvailableDocumentId: String
+    "legal_v2 only: the form the latest_any_kind rule picks as latest (f<form_id>), whether or not it has text — the same tie rule as canonical, so on same-day versions it is the one the server chose. Equals canonical's id when defaultBasis is 'current'; null for 'no_known_form'. Null on the legacy source, which has no such rule."
+    latestDocumentId: String
     # lazy fields (DataLoader / repo, not on the base row):
     canonical: LegalDocument
     summary: LegalActSummary

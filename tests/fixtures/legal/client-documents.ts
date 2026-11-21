@@ -8,7 +8,10 @@
  * update the copy here in the same review.
  */
 
-/** legal-act-api.live.ts */
+/**
+ * legal-act-api.live.ts at client 75e36211f, plus `latestDocumentId` (server
+ * field added after that revision; the client is to select it next).
+ */
 export const ACT_DETAIL_QUERY = /* GraphQL */ `
   query LegalActDetail(
     $actId: BigInt
@@ -35,6 +38,9 @@ export const ACT_DETAIL_QUERY = /* GraphQL */ `
       bridgedFields
       newerNotAvailable
       defaultBasis
+      defaultOrderReviewed
+      latestAvailableDocumentId
+      latestDocumentId
       canonical {
         documentId
         versionKind

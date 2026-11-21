@@ -659,6 +659,26 @@ run('legal_v2 on real DDL', () => {
     // The fixture exercises the policy: act 7's latest form is a consolidation
     // with text; act 10's latest date holds a listed republication without
     // text over the unlisted original, so no form is current.
+    // latestDocumentId: the form the rule picks as latest, with text or not.
+    const latest = await gql(`{
+      a7: legalAct(actId: "7") { latestDocumentId latestAvailableDocumentId canonicalDocumentId }
+      a8: legalAct(actId: "8") { latestDocumentId defaultBasis }
+      a10: legalAct(actId: "10") {
+        latestDocumentId latestAvailableDocumentId canonicalDocumentId defaultOrderReviewed } }`);
+    expect(latest).toEqual({
+      a7: {
+        latestDocumentId: 'f101',
+        latestAvailableDocumentId: 'f101',
+        canonicalDocumentId: 'f101',
+      },
+      a8: { latestDocumentId: null, defaultBasis: 'no_known_form' },
+      a10: {
+        latestDocumentId: 'f111',
+        latestAvailableDocumentId: 'f110',
+        canonicalDocumentId: null,
+        defaultOrderReviewed: false,
+      },
+    });
     const def = (await v2Acts.defaultFormsForActs?.(['7', '10']))?._unsafeUnwrap();
     expect(def?.get('7')).toMatchObject({ posture: 'current', defaultFormId: '101' });
     expect(def?.get('10')).toMatchObject({

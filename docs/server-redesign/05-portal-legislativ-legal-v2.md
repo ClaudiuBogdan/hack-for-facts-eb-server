@@ -73,7 +73,7 @@ behaviour unchanged.
     a listed form over an unlisted one, the highest page id, the greater key), flagged `defaultOrderReviewed: false`.
   - Availability second: the chosen form is the default only when it is readable (`defaultBasis: current`). Otherwise
     no form is canonical (`latest_not_available`); `latestAvailableDocumentId` names the latest form with text, to offer
-    as "not the current form", and `newerNotAvailable` counts the forms without text on or after it.
+    as "not the current form", and `newerNotAvailable` counts the forms without text on or after it. `latestDocumentId` is the form the rule picks as latest, with text or not (null on the legacy source).
   - Future-dated forms count like any other (owner decision: no rule treats them differently); the API reads every
     known form, as the raw function does with no day.
   - The pg suite runs the raw function itself (hash-pinned, over the API's per-form facts) against `computeDefaultForm`

@@ -464,6 +464,13 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
         if (onCard !== undefined) return onCard;
         return (await defaultFormLoader.load(parent.actId))?.orderReviewed ?? null;
       },
+      latestDocumentId: async (parent: LegalAct) => {
+        if (!isV2(parent)) return null;
+        const onCard = (parent as Partial<LegalActCard>).latestDocumentId;
+        if (onCard !== undefined) return onCard;
+        const id = (await defaultFormLoader.load(parent.actId))?.chosenFormId ?? null;
+        return id === null ? null : `f${id}`;
+      },
       latestAvailableDocumentId: async (parent: LegalAct) => {
         if (!isV2(parent)) return null;
         const onCard = (parent as Partial<LegalActCard>).latestAvailableDocumentId;

@@ -662,6 +662,8 @@ export const makeLegalActsRepoV2 = (deps: MakeLegalActsRepoV2Deps): LegalActsRep
         newerNotAvailable: forms?.def.newerNotAvailable ?? null,
         defaultBasis: forms?.def.posture ?? null,
         defaultOrderReviewed: forms?.def.orderReviewed ?? null,
+        latestDocumentId:
+          forms?.def.chosenFormId == null ? null : formDocumentId(forms.def.chosenFormId),
         latestAvailableDocumentId:
           forms?.def.latestAvailableFormId == null
             ? null

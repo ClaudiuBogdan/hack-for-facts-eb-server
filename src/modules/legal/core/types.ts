@@ -240,6 +240,8 @@ export interface LegalActCard extends LegalAct {
   readonly defaultOrderReviewed?: boolean | null;
   /** legal_v2 only: the latest available form (`f<id>`), offered as "not the current form". */
   readonly latestAvailableDocumentId?: string | null;
+  /** legal_v2 only: the form latest_any_kind picks as latest (`f<id>`), with text or not. */
+  readonly latestDocumentId?: string | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
