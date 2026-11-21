@@ -22,7 +22,12 @@
 
 import { err, ok, type Result } from 'neverthrow';
 
-import { invalidInput, type ApiError, type FilterInput } from '@/modules/shared/index.js';
+import {
+  invalidInput,
+  serviceUnavailable,
+  type ApiError,
+  type FilterInput,
+} from '@/modules/shared/index.js';
 
 import { LEGAL_LIVE_STATUSES, toEngineFilter } from '../legal-engine-filter.js';
 
@@ -398,15 +403,14 @@ export const searchLegalV2Engine = async (
   if (found.isErr()) return err(found.error);
   if (provRes.isErr()) return err(provRes.error);
   const byId = new Map(found.value.map((a) => [a.actId, a]));
-  const canon = await deps.acts.canonicalDocumentsForActs(wanted);
-  if (canon.isErr()) return err(canon.error);
-  const docIds = [...canon.value.values()].map((d) => d.documentId);
-  const sums = await deps.acts.summariesForDocuments(docIds);
+  // Bridged facts are keyed by ACT, never through the default form: an act whose latest form has
+  // no text, or that has no v2 text at all, keeps its summary and so its domain/category filters.
+  if (deps.acts.summariesForActs === undefined) {
+    return err(serviceUnavailable('legal search: the acts repo has no by-act summaries'));
+  }
+  const sums = await deps.acts.summariesForActs(wanted);
   if (sums.isErr()) return err(sums.error);
-  const summaryOf = (actId: string): LegalActSummary | null => {
-    const doc = canon.value.get(actId);
-    return doc === undefined ? null : (sums.value.get(doc.documentId) ?? null);
-  };
+  const summaryOf = (actId: string): LegalActSummary | null => sums.value.get(actId) ?? null;
 
   let postFiltered = 0;
   const acts: LegalDocHit[] = [];

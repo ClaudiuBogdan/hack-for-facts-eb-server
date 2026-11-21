@@ -18,7 +18,10 @@
  * corpus), act 9 (restricted in legal_v2, in the old corpus). Independently
  * restricted children: a restricted chunk (form 103), a restricted image
  * occurrence, a link to the restricted act, a status event and a reference
- * whose acting act is the restricted one.
+ * whose acting act is the restricted one. Default-form cases: act 10 (latest
+ * form without text over an older readable one), act 12 (its newest form is
+ * ended), act 13 (its only readable form is an original with no Portal
+ * ordering date), act 14 (in the old corpus with a summary, no v2 text).
  */
 
 import { createHash } from 'node:crypto';
@@ -61,7 +64,7 @@ import {
 } from '../../fixtures/legal/client-documents.js';
 
 import type { LegalActsRepo } from '@/modules/legal/core/ports.js';
-import type { LegalV2SearchEngine } from '@/modules/legal/core/v2/search.js';
+import type { LegalV2SearchEngine, V2EngineHit } from '@/modules/legal/core/v2/search.js';
 import type { KernelMcpTool, ProdDatabase } from '@/modules/shared/index.js';
 
 const REQUIRED = process.env['TEST_E2E_REQUIRED'] === '1';
@@ -153,6 +156,35 @@ run('legal_v2 on real DDL', () => {
   let schema: GraphQLSchema;
   let tools: readonly KernelMcpTool[];
   let v2Acts: LegalActsRepo;
+  /** The faked index's hits; a test may swap them and must restore them. */
+  const sectionHit: V2EngineHit = {
+    actId: '7',
+    score: 2,
+    citationPath: 'art:999',
+    headingPath: 'INDEX HEADING',
+    snippet: '<em>Art</em>',
+    uses: [
+      // the exporter's first use: a replaced unit (never verified)
+      {
+        formId: '101',
+        unitId: '99',
+        provisionSeq: 0,
+        charStart: 0,
+        charEnd: 3,
+        contentKey: 'k1:abc',
+      },
+      {
+        formId: '101',
+        unitId: '2',
+        provisionSeq: 0,
+        charStart: 0,
+        charEnd: 3,
+        contentKey: 'k1:abc',
+      },
+    ],
+  };
+  let actHits: V2EngineHit[] = [];
+  let unitHits: V2EngineHit[] = [sectionHit];
   const q = (text: string, params: unknown[] = []): Promise<pg.QueryResult> =>
     setup.query(text, params);
 
@@ -190,42 +222,12 @@ run('legal_v2 on real DDL', () => {
     // REAL verifier against this database.
     const v2Engine: LegalV2SearchEngine = {
       searchActs: () =>
-        Promise.resolve(ok({ hits: [], total: null, totalExhaustive: false, asOf: '2026-11-18' })),
+        Promise.resolve(
+          ok({ hits: actHits, total: null, totalExhaustive: false, asOf: '2026-11-18' })
+        ),
       searchUnits: () =>
         Promise.resolve(
-          ok({
-            hits: [
-              {
-                actId: '7',
-                score: 2,
-                citationPath: 'art:999',
-                headingPath: 'INDEX HEADING',
-                snippet: '<em>Art</em>',
-                uses: [
-                  // the exporter's first use: a replaced unit (never verified)
-                  {
-                    formId: '101',
-                    unitId: '99',
-                    provisionSeq: 0,
-                    charStart: 0,
-                    charEnd: 3,
-                    contentKey: 'k1:abc',
-                  },
-                  {
-                    formId: '101',
-                    unitId: '2',
-                    provisionSeq: 0,
-                    charStart: 0,
-                    charEnd: 3,
-                    contentKey: 'k1:abc',
-                  },
-                ],
-              },
-            ],
-            total: null,
-            totalExhaustive: false,
-            asOf: '2026-11-18',
-          })
+          ok({ hits: unitHits, total: null, totalExhaustive: false, asOf: '2026-11-18' })
         ),
     };
     const searchDeps = {
@@ -555,9 +557,22 @@ run('legal_v2 on real DDL', () => {
       items: { edge: { sourceDocumentId: string }; sourceAct: Record<string, unknown> | null }[];
     };
     const byDoc = new Map(out.items.map((i) => [i.edge.sourceDocumentId, i.sourceAct]));
-    // Act 10's latest form (a listed republication) has no text: no default.
-    expect(byDoc.get('D10b')).toMatchObject({ actId: '10', canonicalDocumentId: null });
-    expect(byDoc.get('D7b')).toMatchObject({ actId: '7', canonicalDocumentId: 'f101' });
+    // Act 10's latest form (a listed republication) has no text: no default, but the readable
+    // older form travels with the citing act, from the same batch.
+    expect(byDoc.get('D10b')).toMatchObject({
+      actId: '10',
+      canonicalDocumentId: null,
+      defaultBasis: 'latest_not_available',
+      latestDocumentId: 'f111',
+      latestAvailableDocumentId: 'f110',
+    });
+    expect(byDoc.get('D7b')).toMatchObject({
+      actId: '7',
+      canonicalDocumentId: 'f101',
+      defaultBasis: 'current',
+      latestDocumentId: 'f101',
+      latestAvailableDocumentId: 'f101',
+    });
   });
 
   it('serves the human citation, never the stored natural key', async () => {
@@ -598,9 +613,12 @@ run('legal_v2 on real DDL', () => {
         returns setof test_oracle.states language sql stable as
         $f$ select * from test_oracle.states where lineage_id = p_lineage_id $f$;`);
     await q(fn.replaceAll('portal_acts.', 'test_oracle.'));
-    const actIds = ['7', '8', '10', '11'];
+    const actIds = ['7', '8', '10', '11', '12', '13', '14'];
     const rows = (await readFormsForActs(db, actIds))._unsafeUnwrap();
-    for (const r of rows) {
+    // The raw function never sees an ended form (p2a_form_states leaves it out); inserting one as
+    // unreadable would let it win the date. Act 12's newest form is ended.
+    expect(rows.some((r) => r.ended)).toBe(true);
+    for (const r of rows.filter((x) => !x.ended)) {
       await q(
         `insert into test_oracle.states values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
         [
@@ -614,7 +632,7 @@ run('legal_v2 on real DDL', () => {
           r.max_page_id,
           r.accepted,
           r.body_resolved,
-          r.ended ? false : r.readable,
+          r.readable,
         ]
       );
     }
@@ -655,7 +673,7 @@ run('legal_v2 on real DDL', () => {
         compared += 1;
       }
     }
-    expect(compared).toBe(20);
+    expect(compared).toBe(35);
     // The fixture exercises the policy: act 7's latest form is a consolidation
     // with text; act 10's latest date holds a listed republication without
     // text over the unlisted original, so no form is current.
@@ -690,6 +708,124 @@ run('legal_v2 on real DDL', () => {
       newerNotAvailable: 1,
     });
   });
+
+  it('keeps the bridged summary of an act without a readable default form under a domain filter', async () => {
+    // Act 10: latest form without text, an older readable one (and a verified section in it).
+    // Act 14: no v2 text at all. Both have a fiscal summary in the old corpus; act 7 has none.
+    actHits = ['10', '14', '7'].map((actId) => ({
+      actId,
+      score: 1,
+      citationPath: null,
+      headingPath: null,
+      snippet: null,
+      uses: [],
+    }));
+    unitHits = [
+      {
+        ...sectionHit,
+        actId: '10',
+        uses: [
+          {
+            formId: '110',
+            unitId: '10',
+            provisionSeq: 0,
+            charStart: 0,
+            charEnd: 3,
+            contentKey: 'k1:abc',
+          },
+        ],
+      },
+    ];
+    try {
+      const data = await gql(`{ legalSearch(q: "x", includeHistorical: true,
+          filter: { domain: { in: ["fiscal-si-bugetar"] } }) {
+        acts { act { actId defaultBasis canonicalDocumentId } summary { domains } }
+        sections { act { actId } documentId } } }`);
+      expect(data['legalSearch']).toEqual({
+        acts: [
+          {
+            act: { actId: '10', defaultBasis: 'latest_not_available', canonicalDocumentId: null },
+            summary: { domains: ['fiscal-si-bugetar'] },
+          },
+          {
+            act: { actId: '14', defaultBasis: 'latest_not_available', canonicalDocumentId: null },
+            summary: { domains: ['fiscal-si-bugetar'] },
+          },
+        ],
+        sections: [{ act: { actId: '10' }, documentId: 'f110' }],
+      });
+    } finally {
+      actHits = [];
+      unitHits = [sectionHit];
+    }
+  });
+
+  it('answers every default-form field of a list row and of the card from one selection', async () => {
+    const fields = `actId defaultBasis canonicalDocumentId canonical { documentId }
+      latestDocumentId latestAvailableDocumentId newerNotAvailable defaultOrderReviewed`;
+    const data = await gql(`{
+      list: legalActs(first: 20) { edges { node { ${fields} } } }
+      a7: legalAct(actId: "7") { ${fields} } a10: legalAct(actId: "10") { ${fields} }
+      a12: legalAct(actId: "12") { ${fields} } a13: legalAct(actId: "13") { ${fields} }
+      a14: legalAct(actId: "14") { ${fields} } }`);
+    const list = (data['list'] as { edges: { node: Record<string, unknown> }[] }).edges.map(
+      (e) => e.node
+    );
+    const byId = new Map(list.map((n) => [n['actId'], n]));
+    for (const id of ['7', '10', '12', '13', '14']) {
+      expect(byId.get(id), `act ${id}`).toEqual(data[`a${id}`]);
+    }
+    // An explicit null canonical on the card is served as null, never re-read.
+    expect(data['a10']).toMatchObject({
+      defaultBasis: 'latest_not_available',
+      canonical: null,
+      canonicalDocumentId: null,
+      latestAvailableDocumentId: 'f110',
+    });
+  });
+
+  it('ignores an ended newest form', async () => {
+    const data = await gql(`{ legalAct(actId: "12") { defaultBasis canonicalDocumentId
+      latestDocumentId latestAvailableDocumentId newerNotAvailable
+      documents { documentId readable } } }`);
+    // Form 121 (consolidation 2025, with text) is ended: the 2020 original is current.
+    expect(data['legalAct']).toEqual({
+      defaultBasis: 'current',
+      canonicalDocumentId: 'f120',
+      latestDocumentId: 'f120',
+      latestAvailableDocumentId: 'f120',
+      newerNotAvailable: 0,
+      documents: [{ documentId: 'f120', readable: true }],
+    });
+  });
+
+  it('serves an act whose only readable form is an undated original as having no default', async () => {
+    // Production holds 1,924 such acts. The policy places only dated forms, so this act has no
+    // latest position: no canonical and no ids, while its documents list offers the form.
+    const data = await gql(`{ legalAct(actId: "13") { defaultBasis defaultOrderReviewed
+      canonical { documentId } canonicalDocumentId latestDocumentId latestAvailableDocumentId
+      newerNotAvailable documents { documentId versionKind versionDate isCanonical readable } } }`);
+    expect(data['legalAct']).toEqual({
+      defaultBasis: 'no_known_form',
+      defaultOrderReviewed: null,
+      canonical: null,
+      canonicalDocumentId: null,
+      latestDocumentId: null,
+      latestAvailableDocumentId: null,
+      newerNotAvailable: 0,
+      documents: [
+        {
+          documentId: 'f130',
+          versionKind: 'original',
+          versionDate: null,
+          isCanonical: false,
+          readable: true,
+        },
+      ],
+    });
+    const def = (await v2Acts.defaultFormsForActs?.(['13']))?._unsafeUnwrap().get('13');
+    expect(def).toMatchObject({ positionDate: null, formsWithoutPosition: 1 });
+  });
 });
 
 /** The fixture, written with triggers off. */
@@ -707,7 +843,10 @@ const seed = async (q: (t: string, p?: unknown[]) => Promise<pg.QueryResult>): P
            (8, 'lege:2:2021:', 'lege', '2', 2021, 'parlamentul', 'lege:2:2021:', 4, 'public'),
            (9, 'lege:3:2022:', 'lege', '3', 2022, 'secret-issuer', 'lege:3:2022:', 4, 'restricted'),
            (10, 'lege:10:2023:', 'lege', '10', 2023, 'parlamentul', 'lege:10:2023:', 4, 'public'),
-           (11, 'decret::2001:', 'decret', null, 2001, null, 'decret::2001:', 4, 'public')`);
+           (11, 'decret::2001:', 'decret', null, 2001, null, 'decret::2001:', 4, 'public'),
+           (12, 'lege:12:2024:', 'lege', '12', 2024, 'parlamentul', 'lege:12:2024:', 4, 'public'),
+           (13, 'lege:13:2024:', 'lege', '13', 2024, 'parlamentul', 'lege:13:2024:', 4, 'public'),
+           (14, 'lege:14:2024:', 'lege', '14', 2024, 'parlamentul', 'lege:14:2024:', 4, 'public')`);
   await q(`insert into legal_v2.page_acts values ('5101', 7, 'ledger_member', 'public'),
            ('777', 9, 'ledger_member', 'public')`);
   // forms: 101 consolidation (served), 103 original (restricted chunk),
@@ -725,7 +864,14 @@ const seed = async (q: (t: string, p?: unknown[]) => Promise<pg.QueryResult>): P
            (106, 7, 'republication', 'rep', true, true, '2021-06-01', null, null, 'public'),
            (107, 7, 'original', 'orig2', true, true, '2019-01-01', null, null, 'public'),
            (110, 10, 'original', 'orig', true, true, '2023-01-01', null, null, 'public'),
-           (111, 10, 'republication', 'rep', true, true, '2023-01-01', null, null, 'public')`);
+           (111, 10, 'republication', 'rep', true, true, '2023-01-01', null, null, 'public'),
+           (120, 12, 'original', 'orig', true, true, '2020-05-01', null, null, 'public'),
+           (121, 12, 'consolidation', 'cons:2025', true, true, '2025-05-01',
+            'unofficial_consolidation', '2025-05-01', 'public'),
+           (130, 13, 'original', 'orig', true, true, null, null, null, 'public'),
+           (140, 14, 'original', 'orig', true, false, '2024-02-01', null, null, 'public')`);
+  // form 121, the newest of act 12 and with text, is ended
+  await q(`update legal_v2.forms set ended = true where form_id = 121`);
   // form 111 is listed by the Portal, form 110 (the original) is not
   await q(`update legal_v2.forms set portal_list_position = 4 where form_id = 111`);
   const body = JSON.stringify({
@@ -761,6 +907,9 @@ const seed = async (q: (t: string, p?: unknown[]) => Promise<pg.QueryResult>): P
     [9, 901, '5901'],
     [8, 107, '5107'],
     [10, 110, '5110'],
+    [12, 120, '5120'],
+    [13, 121, '5121'],
+    [14, 130, '5130'],
   ] as const) {
     await q(
       `insert into legal_v2.text_units (unit_id, capture_ref_id, custody_lane, page_id, route,
@@ -846,11 +995,18 @@ const seed = async (q: (t: string, p?: unknown[]) => Promise<pg.QueryResult>): P
            (9, 'lege/3/2022', 'lege', '3', 2022, 'secret-issuer', 'D9', 'Legea nr. 3/2022',
             'in-vigoare', '{}', null, 1),
            (10, 'lege/10/2023', 'lege', '10', 2023, 'parlamentul', 'D10', 'Legea nr. 10/2023',
-            'in-vigoare', '{}', '2023-02-01', 0)`);
+            'in-vigoare', '{}', '2023-02-01', 0),
+           (14, 'lege/14/2024', 'lege', '14', 2024, 'parlamentul', 'D14', 'Legea nr. 14/2024',
+            'in-vigoare', '{}', null, 0)`);
   await q(`insert into legal.act_documents (document_id, act_id, is_canonical, title) values
            ('D7', 7, true, 'Titlu 7'), ('D7b', 7, false, 'Titlu 7 (alt)'),
            ('D10', 10, true, 'Titlu 10'), ('D10b', 10, false, 'Titlu 10 (republicat)'),
-           ('D9', 9, true, 'Titlu secret')`);
+           ('D9', 9, true, 'Titlu secret'), ('D14', 14, true, 'Titlu 14')`);
+  // Summaries on the canonical documents of acts 10 and 14 (act 7 has none).
+  await q(`insert into legal.document_summaries (document_id, document_category, domains,
+             penalties_mentioned) values
+           ('D10', 'lege', '{fiscal-si-bugetar}', false),
+           ('D14', 'lege', '{fiscal-si-bugetar}', false)`);
   // References: 9 modifies 7 (restricted citing act), 7 cites 9 (restricted target).
   await q(`insert into legal.act_references (source_document_id, ref_index, relation, target_raw,
              target_class, target_act_id, resolution) values

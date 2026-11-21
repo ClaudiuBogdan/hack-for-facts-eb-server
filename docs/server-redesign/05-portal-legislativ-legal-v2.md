@@ -73,11 +73,23 @@ behaviour unchanged.
     a listed form over an unlisted one, the highest page id, the greater key), flagged `defaultOrderReviewed: false`.
   - Availability second: the chosen form is the default only when it is readable (`defaultBasis: current`). Otherwise
     no form is canonical (`latest_not_available`); `latestAvailableDocumentId` names the latest form with text, to offer
-    as "not the current form", and `newerNotAvailable` counts the forms without text on or after it. `latestDocumentId` is the form the rule picks as latest, with text or not (null on the legacy source).
+    as "not the current form". `latestDocumentId` is the form the rule picks as latest, with text or not (null on the
+    legacy source).
+  - `newerNotAvailable` counts known forms of any kind without text dated on or after the DATE of the latest readable
+    form. A lower-ranked form of that same day counts too, so it can be non-zero while `defaultBasis` is `current`.
+  - Ended forms take no part: they are neither placed nor counted, and an ended newest form leaves the older one
+    current.
+  - Only dated forms are placed. An act whose only readable form is an undated original (1,924 acts in production) has
+    `defaultBasis: no_known_form`, a null `canonical` and null document ids; its `documents` list still offers the
+    form (`readable: true`, `versionDate: null`, `isCanonical: false`). The reader has to link it from its empty state.
+  - One selection per act: on a card every default-form field (`canonical`, `canonicalDocumentId`, `defaultBasis`,
+    the latest ids, `newerNotAvailable`) is the card's own value, explicit nulls included; on a list row they all come
+    from one batched selection. MCP incoming links copy `defaultBasis` and both latest ids onto each citing act.
   - Future-dated forms count like any other (owner decision: no rule treats them differently); the API reads every
     known form, as the raw function does with no day.
   - The pg suite runs the raw function itself (hash-pinned, over the API's per-form facts) against `computeDefaultForm`
-    on the fixture for five days, and they agree. `latest_consolidation_or_original` stays selectable internally.
+    on the fixture for five days, with ended forms left out as the raw function leaves them out, and they agree.
+    `latest_consolidation_or_original` stays selectable internally.
 
 - **Render.** One statement per request reads the route, the form, the composition and only the chunk bodies the
   request serves. An envelope or manifest reads every chunk, with links; a chunk group reads its one stored chunk.
@@ -116,7 +128,8 @@ behaviour unchanged.
     occurrence's content key is the indexed wording's key. `servedForm` carries the form (LEG-X3AV) with the act's
     amendment facts merged in, and the reader link carries `?doc=<form>`. Unverifiable hits are dropped and not
     counted: `actsTotal`, `sectionsTotal` and `unhydratedHits` are null, null and 0.
-  - Status, domain and category filters apply to the hydrated page only.
+  - Status, domain and category filters apply to the hydrated page only. The summary they read is bridged by act id,
+    never through the default form, so an act with no readable latest form, or no v2 text, keeps its summary.
   - The semantic leg reports `semantic search unavailable`.
 - **MCP.** The same nulls for unbridged acts, including unknown coverage (`meta.known: false`) from the timeline and
   links tools. Incoming links show the citing act as legal_v2 serves it. The legal_v2 consolidation caveat replaces the

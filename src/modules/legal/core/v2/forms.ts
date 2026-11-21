@@ -116,7 +116,10 @@ export interface V2DefaultForm {
   readonly orderReviewed: boolean | null;
   /** How an unreviewed tie was broken; null when the order is reviewed. */
   readonly tieBasis: V2TieBasis | null;
-  /** Known forms of the policy's kinds on or after the latest available one that are not available. */
+  /**
+   * Known forms of the policy's kinds that are not available, dated on or after the latest available
+   * form's DATE (a lower-ranked form of that same day included); every dated one when none is.
+   */
   readonly newerNotAvailable: number;
   /** Known forms of other kinds after the latest position (literal policy only). */
   readonly laterOtherKind: number;

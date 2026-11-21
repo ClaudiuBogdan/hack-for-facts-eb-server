@@ -103,7 +103,7 @@ const objectsAndQuery = /* GraphQL */ `
     dataSource: String!
     "legal_v2 only: the fields read from the previous corpus by act_id (status, statusEvidence, inDegree, entryIntoForce, amendedAfterPublication, links, incomingAnchors, timeline, summary, domains, categories, title). Empty when the previous corpus does not hold the act, and on the legacy source."
     bridgedFields: [String!]!
-    "legal_v2 only: consolidations dated up to today that exist and cannot be shown (not accepted, no text, held, or unordered). Null on the legacy source."
+    "legal_v2 only: known forms of ANY kind (original, republication, consolidation) that cannot be shown (not accepted, no text, or held), dated on or after the DATE of the latest readable form. It counts a lower-ranked form of that same day too, so it can be non-zero while defaultBasis is 'current'; with no readable form it counts every dated form. Forms without a Portal date are not counted. Null on the legacy source."
     newerNotAvailable: Int
     "legal_v2 only: the default form's posture under the owner's policy latest_any_kind (2026-11-12): 'current' (canonical is the latest form of any kind, and available), 'latest_not_available' (the latest form is known but has no text: canonical is null; see latestAvailableDocumentId), or 'no_known_form'. Null on the legacy source."
     defaultBasis: String

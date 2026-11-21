@@ -60,7 +60,7 @@ import { validateActsCursorKeys } from '../acts-repo.js';
 import { clampLimit, kernelConditions, keysetCursor, type SortCast } from '../filter-helpers.js';
 import { mapCitationKey } from '../mappers.js';
 
-import type { LegalActListOptions, LegalActsRepo } from '../../../core/ports.js';
+import type { LegalActListOptions, LegalActsRepo, V2ActSelection } from '../../../core/ports.js';
 import type { LegalActRef } from '../../../core/repo-base.js';
 import type {
   LegalAct,
@@ -361,21 +361,34 @@ export const makeLegalActsRepoV2 = (deps: MakeLegalActsRepoV2Deps): LegalActsRep
     return ok(new Map([...res.value].map(([id, f]) => [id, f.def])));
   };
 
-  const canonicalDocumentsForActs = async (
+  const defaultSelectionsForActs = async (
     actIds: readonly string[]
-  ): Promise<Result<ReadonlyMap<string, LegalDocument>, ApiError>> => {
+  ): Promise<Result<ReadonlyMap<string, V2ActSelection>, ApiError>> => {
     const [formsRes, bridgedRes] = await Promise.all([
       formsForActs(actIds),
       readBridgedDocFacts(db, actIds),
     ]);
     if (formsRes.isErr()) return err(formsRes.error);
     if (bridgedRes.isErr()) return err(bridgedRes.error);
-    const map = new Map<string, LegalDocument>();
+    const map = new Map<string, V2ActSelection>();
     for (const [actId, forms] of formsRes.value) {
       const row = forms.rows.find((r) => r.form_id === forms.def.defaultFormId);
-      if (row !== undefined)
-        map.set(actId, mapFormDocument(row, true, bridgedRes.value.get(actId)));
+      map.set(actId, {
+        defaultForm: forms.def,
+        canonical:
+          row === undefined ? null : mapFormDocument(row, true, bridgedRes.value.get(actId)),
+      });
     }
+    return ok(map);
+  };
+
+  const canonicalDocumentsForActs = async (
+    actIds: readonly string[]
+  ): Promise<Result<ReadonlyMap<string, LegalDocument>, ApiError>> => {
+    const res = await defaultSelectionsForActs(actIds);
+    if (res.isErr()) return err(res.error);
+    const map = new Map<string, LegalDocument>();
+    for (const [actId, sel] of res.value) if (sel.canonical !== null) map.set(actId, sel.canonical);
     return ok(map);
   };
 
@@ -536,6 +549,19 @@ export const makeLegalActsRepoV2 = (deps: MakeLegalActsRepoV2Deps): LegalActsRep
     for (const [docId, actId] of actOf) {
       const summary = bridged.value.get(actId)?.summary ?? null;
       if (summary !== null) map.set(docId, summary);
+    }
+    return ok(map);
+  };
+
+  /** By act id: the bridged summary, whether or not the act's default form has text. */
+  const summariesForActs = async (
+    actIds: readonly string[]
+  ): Promise<Result<ReadonlyMap<string, LegalActSummary>, ApiError>> => {
+    const bridged = await readBridgedDocFacts(db, actIds);
+    if (bridged.isErr()) return err(bridged.error);
+    const map = new Map<string, LegalActSummary>();
+    for (const [actId, facts] of bridged.value) {
+      if (facts.summary !== null) map.set(actId, facts.summary);
     }
     return ok(map);
   };
@@ -814,6 +840,8 @@ export const makeLegalActsRepoV2 = (deps: MakeLegalActsRepoV2Deps): LegalActsRep
     versionProvenanceForDocument,
     canonicalDocumentsForActs,
     summariesForDocuments,
+    summariesForActs,
+    defaultSelectionsForActs,
     defaultFormsForActs,
     resolveDocumentForAct,
   };

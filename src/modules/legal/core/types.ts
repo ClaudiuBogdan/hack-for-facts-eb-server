@@ -232,7 +232,7 @@ export interface LegalActCard extends LegalAct {
   readonly versionCount: number; // act_documents rows for this act
   /** Null on the legal_v2 source when the old corpus does not hold the act (unknown, not zero). */
   readonly amendedAfterPublication: number | null; // incoming modifica/completeaza edges → §5.2-C
-  /** legal_v2 only: consolidations up to today that exist and cannot be shown. */
+  /** legal_v2 only: forms of any kind without text dated on or after the latest readable date. */
   readonly newerNotAvailable?: number | null;
   /** legal_v2 only: the default's posture ('current' | 'latest_not_available' | 'no_known_form'). */
   readonly defaultBasis?: string | null;
