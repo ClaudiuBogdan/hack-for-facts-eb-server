@@ -1,6 +1,6 @@
 /**
  * The client's live legal GraphQL documents, verbatim (interpolated fragments
- * resolved): hack-for-facts-eb-client feat/legal-v2-dev at b608c8f39,
+ * resolved): hack-for-facts-eb-client feat/legal-v2-dev at 5b7130246,
  * src/features/legal/api/*.live.ts. Shared by the mounted-schema validation
  * (tests/integration/legal-client-contract.test.ts, both legal sources) and
  * the real-DDL execution against fixtures
@@ -8,7 +8,7 @@
  * update the copy here in the same review.
  */
 
-/** legal-act-api.live.ts */
+/** legal-act-api.live.ts at client 5b7130246 (FORM_FIELDS expanded; selects `latestDocumentId`). */
 export const ACT_DETAIL_QUERY = /* GraphQL */ `
   query LegalActDetail(
     $actId: BigInt
@@ -35,6 +35,9 @@ export const ACT_DETAIL_QUERY = /* GraphQL */ `
       bridgedFields
       newerNotAvailable
       defaultBasis
+      defaultOrderReviewed
+      latestAvailableDocumentId
+      latestDocumentId
       canonical {
         documentId
         versionKind

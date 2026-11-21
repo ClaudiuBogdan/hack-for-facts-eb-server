@@ -65,11 +65,34 @@ behaviour unchanged.
   whole unit, or, for a consolidation, exactly a header at ordinal 0 and a body at ordinal 1. Every component and
   unit must be public. Each unit needs a public capture binding for its form and slot and at least one render chunk.
   All its chunks must be public. A consolidation also needs the Portal label date.
-- **Default form** (`isCanonical`, `canonical`). The rule of rebuild-model.md §7 and of the SQL function
-  `legal_v2.default_forms`, computed per act in `core/v2/forms.ts` (the function computes every act and the role's
-  statement limit is 15 s). It is the latest accepted, body-resolved, readable consolidation whose Portal date is not
-  after today (Bucharest), else the original. A public act with no forms has a default result with zero counts. It is
-  not yet the owner's 2026-11-12 rule (latest form of any kind), which the SQL function has not adopted either.
+- **Default form** (`isCanonical`, `canonical`). The owner's decision of 2026-11-12: the policy `latest_any_kind`, the
+  latest form of any kind, republications included, read over per-form facts. `core/v2/forms.ts` ports the raw function
+  `portal_acts.p2a_default_form` (writer/sql/21-form-states.sql) line for line and computes it per act. The serving
+  `legal_v2.default_forms()` is not used: its header says it predates the decision and still applies the older rule.
+  - Order first: every known form with a Portal ordering date is ordered by date, then reviewed rank. The latest date
+    is the latest position, judged among all forms on that date.
+  - Two or more forms there that a reviewer has not all ranked: one fixed rule picks (the form the Portal lists last,
+    a listed form over an unlisted one, the highest page id, the greater key), flagged `defaultOrderReviewed: false`.
+  - Availability second: the chosen form is the default only when it is readable (`defaultBasis: current`). Otherwise
+    no form is canonical (`latest_not_available`); `latestAvailableDocumentId` names the latest form with text, to offer
+    as "not the current form". `latestDocumentId` is the form the rule picks as latest, with text or not (null on the
+    legacy source).
+  - `newerNotAvailable` counts known forms of any kind without text dated on or after the DATE of the latest readable
+    form. A lower-ranked form of that same day counts too, so it can be non-zero while `defaultBasis` is `current`.
+  - Ended forms take no part: they are neither placed nor counted, and an ended newest form leaves the older one
+    current.
+  - Only dated forms are placed. An act whose only readable form is an undated original (1,924 acts in production) has
+    `defaultBasis: no_known_form`, a null `canonical` and null document ids; its `documents` list still offers the
+    form (`readable: true`, `versionDate: null`, `isCanonical: false`). The reader has to link it from its empty state.
+  - One selection per act: on a card every default-form field (`canonical`, `canonicalDocumentId`, `defaultBasis`,
+    the latest ids, `newerNotAvailable`) is the card's own value, explicit nulls included; on a list row they all come
+    from one batched selection. MCP incoming links copy `defaultBasis` and both latest ids onto each citing act.
+  - Future-dated forms count like any other (owner decision: no rule treats them differently); the API reads every
+    known form, as the raw function does with no day.
+  - The pg suite runs the raw function itself (hash-pinned, over the API's per-form facts) against `computeDefaultForm`
+    on the fixture for five days, with ended forms left out as the raw function leaves them out, and they agree.
+    `latest_consolidation_or_original` stays selectable internally.
+
 - **Render.** A single statement reads the route, gate and requested payload in one snapshot. A single-chunk whole
   unit has an envelope. Multi-chunk forms have a manifest at index 0, followed by one data chunk per stored chunk
   in component and local chunk-sequence order. The header supplies a pair's form URL and retains its link to the
@@ -118,7 +141,8 @@ behaviour unchanged.
     The index snippet is shown only when the occurrence's content key is the indexed wording's key. `servedForm` carries the form (LEG-X3AV) with the act's
     amendment facts merged in, and the reader link carries `?doc=<form>`. Unverifiable hits are dropped and not
     counted: `actsTotal`, `sectionsTotal` and `unhydratedHits` are null, null and 0.
-  - Status, domain and category filters apply to the hydrated page only.
+  - Status, domain and category filters apply to the hydrated page only. The summary they read is bridged by act id,
+    never through the default form, so an act with no readable latest form, or no v2 text, keeps its summary.
   - The semantic leg reports `semantic search unavailable`.
 - **MCP.** The same nulls for unbridged acts, including unknown coverage (`meta.known: false`) from the timeline and
   links tools. Incoming links show the citing act as legal_v2 serves it. The legal_v2 consolidation caveat replaces the

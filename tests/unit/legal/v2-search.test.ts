@@ -190,13 +190,19 @@ describe('searchLegalV2Engine', () => {
     searchUnits: () =>
       Promise.resolve(ok({ hits: unitHits, total: 40, totalExhaustive: true, asOf: '2026-11-18' })),
   });
-  const repo = (known: ReturnType<typeof act>[]): LegalActsRepo =>
+  const repo = (
+    known: ReturnType<typeof act>[],
+    summaries: ReadonlyMap<string, LegalActSummary> = new Map()
+  ): LegalActsRepo =>
     ({
       findActsByIds: (ids: readonly string[]) =>
         Promise.resolve(ok(known.filter((a) => ids.includes(a.actId)))),
       versionProvenanceForActs: () => Promise.resolve(ok(new Map())),
-      canonicalDocumentsForActs: () => Promise.resolve(ok(new Map())),
-      summariesForDocuments: () => Promise.resolve(ok(new Map())),
+      // Summaries are read by act; a path through the default form would trip these.
+      canonicalDocumentsForActs: () => Promise.reject(new Error('read through the default form')),
+      summariesForDocuments: () => Promise.reject(new Error('read through the default form')),
+      summariesForActs: (ids: readonly string[]) =>
+        Promise.resolve(ok(new Map([...summaries].filter(([id]) => ids.includes(id))))),
     }) as unknown as LegalActsRepo;
 
   /** Verifies the uses whose form id is in `servable`; drops the rest. */
@@ -322,6 +328,56 @@ describe('searchLegalV2Engine', () => {
       latestConsolidationDate: '2025-01-01',
     });
     expect(section?.snippet).toBeNull();
+  });
+
+  it('keeps the bridged summary by act, so a domain filter keeps an act without a readable default form', async () => {
+    // Act 10 has a readable older form only; act 12 has no v2 text. Both have a bridged summary.
+    const fiscal = {
+      domains: ['fiscal-si-bugetar'],
+      documentCategory: 'cod',
+    } as unknown as LegalActSummary;
+    const res = await searchLegalV2Engine(
+      {
+        engine: engine([hit('12')], [hit('10', 'art:2', '110')]),
+        acts: repo(
+          [act('10', 'in-vigoare'), act('12', 'in-vigoare'), act('13', 'in-vigoare')],
+          new Map([
+            ['10', fiscal],
+            ['12', fiscal],
+          ])
+        ),
+        verifier: verifier(['110']),
+        clientBaseUrl: 'https://t',
+      },
+      {
+        q: 'x',
+        filter: { domain: { in: ['fiscal-si-bugetar'] } },
+        channel: 'auto',
+        includeHistorical: true,
+        limit: 20,
+      }
+    );
+    const value = res._unsafeUnwrap();
+    expect(value.acts.map((h) => [h.act.actId, h.summary?.domains])).toEqual([
+      ['12', ['fiscal-si-bugetar']],
+      ['10', ['fiscal-si-bugetar']],
+    ]);
+    expect(value.sections.map((s) => [s.actId, s.documentId])).toEqual([['10', 'f110']]);
+  });
+
+  it('fails closed on a repo without by-act summaries', async () => {
+    const legacy: LegalActsRepo = { ...repo([act('1', 'in-vigoare')]) };
+    delete legacy.summariesForActs;
+    const res = await searchLegalV2Engine(
+      {
+        engine: engine([hit('1')], []),
+        acts: legacy,
+        verifier: verifier([]),
+        clientBaseUrl: 'https://t',
+      },
+      { q: 'x', filter: {}, channel: 'auto', includeHistorical: true, limit: 5 }
+    );
+    expect(res._unsafeUnwrapErr()).toMatchObject({ type: 'ServiceUnavailable' });
   });
 
   it('passes an engine failure through', async () => {

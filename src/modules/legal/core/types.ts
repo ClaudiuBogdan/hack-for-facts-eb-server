@@ -232,10 +232,16 @@ export interface LegalActCard extends LegalAct {
   readonly versionCount: number; // act_documents rows for this act
   /** Null on the legal_v2 source when the old corpus does not hold the act (unknown, not zero). */
   readonly amendedAfterPublication: number | null; // incoming modifica/completeaza edges → §5.2-C
-  /** legal_v2 only: consolidations up to today that exist and cannot be shown. */
+  /** legal_v2 only: forms of any kind without text dated on or after the latest readable date. */
   readonly newerNotAvailable?: number | null;
-  /** legal_v2 only: why the default form is the default ('latest_consolidation' | 'original'). */
+  /** legal_v2 only: the default's posture ('current' | 'latest_not_available' | 'no_known_form'). */
   readonly defaultBasis?: string | null;
+  /** legal_v2 only: false when the latest date's forms are not all ranked by a reviewer. */
+  readonly defaultOrderReviewed?: boolean | null;
+  /** legal_v2 only: the latest available form (`f<id>`), offered as "not the current form". */
+  readonly latestAvailableDocumentId?: string | null;
+  /** legal_v2 only: the form latest_any_kind picks as latest (`f<id>`), with text or not. */
+  readonly latestDocumentId?: string | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

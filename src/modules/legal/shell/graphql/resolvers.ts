@@ -58,10 +58,12 @@ import type {
   LegalGraphRepo,
   LegalOutlineRepo,
   LegalRenderRepo,
+  V2ActSelection,
 } from '../../core/ports.js';
 import type {
   LegalAct,
   LegalActCard,
+  LegalActSummary,
   LegalActTimeline,
   LegalActStatus,
   LegalCountDimension,
@@ -73,7 +75,6 @@ import type {
   LegalSortKey,
   LegalVersionProvenance,
 } from '../../core/types.js';
-import type { V2DefaultForm } from '../../core/v2/forms.js';
 import type { Result } from 'neverthrow';
 
 export interface LegalResolverDeps {
@@ -169,6 +170,17 @@ const sortKeysOf = (act: LegalAct, sort: LegalSortKey): readonly (string | numbe
   }
 };
 
+/** legal_v2: the default-form fields of one act, all from one selection. */
+interface V2DefaultFields {
+  readonly canonical: LegalDocument | null;
+  readonly canonicalDocumentId: string | null;
+  readonly newerNotAvailable: number | null;
+  readonly defaultBasis: string | null;
+  readonly defaultOrderReviewed: boolean | null;
+  readonly latestDocumentId: string | null;
+  readonly latestAvailableDocumentId: string | null;
+}
+
 export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unknown> => {
   const { acts, graph, outline, render, searchDeps, resolveDeps } = deps;
   // One timeline read per parent object (one request): `timeline` and
@@ -204,12 +216,53 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
     return new Map(res.value.map((a) => [a.actId, a]));
   }, null);
 
-  const defaultFormLoader = makeBatchLoader<V2DefaultForm | null>(async (actIds) => {
-    if (acts.defaultFormsForActs === undefined) return new Map();
-    const res = await acts.defaultFormsForActs(actIds);
+  // legal_v2: the default form and its canonical document per act, from ONE form read per batch.
+  const selectionLoader = makeBatchLoader<V2ActSelection | null>(async (actIds) => {
+    if (acts.defaultSelectionsForActs === undefined) return new Map();
+    const res = await acts.defaultSelectionsForActs(actIds);
     if (res.isErr()) throw toGraphqlError(res.error);
     return res.value;
   }, null);
+
+  const summaryByActLoader = makeBatchLoader<LegalActSummary | null>(async (actIds) => {
+    if (acts.summariesForActs === undefined) return new Map();
+    const res = await acts.summariesForActs(actIds);
+    if (res.isErr()) throw toGraphqlError(res.error);
+    return res.value;
+  }, null);
+
+  /**
+   * legal_v2: every default-form field of one act from one selection — the act card's own values
+   * (explicit nulls included) when the parent is a card, else the batched selection. The posture,
+   * the latest ids and the canonical document therefore never come from two different reads.
+   */
+  const v2DefaultOf = async (parent: LegalAct): Promise<V2DefaultFields> => {
+    if ('canonical' in parent) {
+      const card = parent as LegalActCard;
+      return {
+        canonical: card.canonical,
+        canonicalDocumentId: card.canonical?.documentId ?? null,
+        newerNotAvailable: card.newerNotAvailable ?? null,
+        defaultBasis: card.defaultBasis ?? null,
+        defaultOrderReviewed: card.defaultOrderReviewed ?? null,
+        latestDocumentId: card.latestDocumentId ?? null,
+        latestAvailableDocumentId: card.latestAvailableDocumentId ?? null,
+      };
+    }
+    const sel = await selectionLoader.load(parent.actId);
+    const def = sel?.defaultForm;
+    const formDoc = (id: string | null | undefined): string | null =>
+      id == null ? null : `f${id}`;
+    return {
+      canonical: sel?.canonical ?? null,
+      canonicalDocumentId: sel?.canonical?.documentId ?? null,
+      newerNotAvailable: def?.newerNotAvailable ?? null,
+      defaultBasis: def?.posture ?? null,
+      defaultOrderReviewed: def?.orderReviewed ?? null,
+      latestDocumentId: formDoc(def?.chosenFormId),
+      latestAvailableDocumentId: formDoc(def?.latestAvailableFormId),
+    };
+  };
 
   const canonicalLoader = makeBatchLoader<LegalDocument | null>(async (actIds) => {
     const res = await acts.canonicalDocumentsForActs(actIds);
@@ -444,28 +497,28 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
       inDegree: (parent: LegalAct) => bridgedOrNull(parent, parent.inDegree),
       dataSource: (parent: LegalAct) => (isV2(parent) ? 'legal_v2' : 'legal'),
       bridgedFields: (parent: LegalAct) => parent.bridgedFields ?? [],
-      // legal_v2 list rows carry no default form; it is computed per act, batched.
+      // legal_v2: one selection per act (see v2DefaultOf); the legacy source is unchanged.
       canonicalDocumentId: async (parent: LegalAct) =>
-        !isV2(parent) || parent.canonicalDocumentId !== null
-          ? parent.canonicalDocumentId
-          : ((await canonicalLoader.load(parent.actId))?.documentId ?? null),
-      newerNotAvailable: async (parent: LegalAct) => {
-        if (!isV2(parent)) return null;
-        const onCard = (parent as Partial<LegalActCard>).newerNotAvailable;
-        if (onCard !== undefined) return onCard;
-        return (await defaultFormLoader.load(parent.actId))?.newerNotAvailable ?? null;
-      },
-      defaultBasis: async (parent: LegalAct) => {
-        if (!isV2(parent)) return null;
-        const onCard = (parent as Partial<LegalActCard>).defaultBasis;
-        if (onCard !== undefined) return onCard;
-        return (await defaultFormLoader.load(parent.actId))?.basis ?? null;
-      },
-      canonical: async (parent: LegalAct) => canonicalLoader.load(parent.actId),
+        isV2(parent) ? (await v2DefaultOf(parent)).canonicalDocumentId : parent.canonicalDocumentId,
+      canonical: async (parent: LegalAct) =>
+        isV2(parent) ? (await v2DefaultOf(parent)).canonical : canonicalLoader.load(parent.actId),
+      newerNotAvailable: async (parent: LegalAct) =>
+        isV2(parent) ? (await v2DefaultOf(parent)).newerNotAvailable : null,
+      defaultBasis: async (parent: LegalAct) =>
+        isV2(parent) ? (await v2DefaultOf(parent)).defaultBasis : null,
+      defaultOrderReviewed: async (parent: LegalAct) =>
+        isV2(parent) ? (await v2DefaultOf(parent)).defaultOrderReviewed : null,
+      latestDocumentId: async (parent: LegalAct) =>
+        isV2(parent) ? (await v2DefaultOf(parent)).latestDocumentId : null,
+      latestAvailableDocumentId: async (parent: LegalAct) =>
+        isV2(parent) ? (await v2DefaultOf(parent)).latestAvailableDocumentId : null,
       summary: async (parent: LegalAct) => {
-        // legal_v2: the summary is bridged by act_id, whether or not a default
-        // form exists, so it is read off the act card.
-        if (isV2(parent)) return unwrap(await cardOf(parent))?.summary ?? null;
+        // legal_v2: the summary is bridged by act_id, whether or not a default form exists: the
+        // card's own value on a card, else one batched by-act read (no card per list row).
+        if (isV2(parent)) {
+          if ('canonical' in parent) return (parent as LegalActCard).summary;
+          return summaryByActLoader.load(parent.actId);
+        }
         const canon = await canonicalLoader.load(parent.actId);
         if (canon === null) return null;
         return unwrap(await acts.getSummary(canon.documentId));

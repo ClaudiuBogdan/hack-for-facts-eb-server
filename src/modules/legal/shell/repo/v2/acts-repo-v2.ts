@@ -49,7 +49,6 @@ import {
 import { normalizeAlias, parseCitation } from '../../../core/citation.js';
 import { mergeBridgedAct } from '../../../core/v2/bridge.js';
 import {
-  bucharestToday,
   computeDefaultForm,
   formDocumentId,
   parseDocumentRef,
@@ -61,7 +60,7 @@ import { validateActsCursorKeys } from '../acts-repo.js';
 import { clampLimit, kernelConditions, keysetCursor, type SortCast } from '../filter-helpers.js';
 import { mapCitationKey } from '../mappers.js';
 
-import type { LegalActListOptions, LegalActsRepo } from '../../../core/ports.js';
+import type { LegalActListOptions, LegalActsRepo, V2ActSelection } from '../../../core/ports.js';
 import type { LegalActRef } from '../../../core/repo-base.js';
 import type {
   LegalAct,
@@ -85,7 +84,11 @@ export interface MakeLegalActsRepoV2Deps {
   /** The legacy repo: the bridge for status events, the feed and amendment counts. */
   readonly legacy: LegalActsRepo;
   /** The day the default form is computed for (tests pin it). */
-  readonly today?: () => string;
+  /**
+   * The day the default form reads the act as of. Default null: every known
+   * form, future-dated ones included (owner decision 2026-11-12).
+   */
+  readonly today?: () => string | null;
 }
 
 /** Filter fields compiled against the old summary (`s`) or the old act (`a.status`). */
@@ -194,7 +197,7 @@ interface ActForms {
 
 export const makeLegalActsRepoV2 = (deps: MakeLegalActsRepoV2Deps): LegalActsRepo => {
   const { db, legacy } = deps;
-  const today = deps.today ?? bucharestToday;
+  const today = deps.today ?? ((): string | null => null);
 
   // ── identity ────────────────────────────────────────────────────────────────
 
@@ -344,7 +347,7 @@ export const makeLegalActsRepoV2 = (deps: MakeLegalActsRepoV2Deps): LegalActsRep
       const rows = byAct.get(act.act_id) ?? [];
       out.set(act.act_id, {
         rows,
-        def: computeDefaultForm(act.act_id, rows.map(toFormState), day, act.ended),
+        def: computeDefaultForm(act.act_id, rows.map(toFormState), day),
       });
     }
     return ok(out);
@@ -358,21 +361,34 @@ export const makeLegalActsRepoV2 = (deps: MakeLegalActsRepoV2Deps): LegalActsRep
     return ok(new Map([...res.value].map(([id, f]) => [id, f.def])));
   };
 
-  const canonicalDocumentsForActs = async (
+  const defaultSelectionsForActs = async (
     actIds: readonly string[]
-  ): Promise<Result<ReadonlyMap<string, LegalDocument>, ApiError>> => {
+  ): Promise<Result<ReadonlyMap<string, V2ActSelection>, ApiError>> => {
     const [formsRes, bridgedRes] = await Promise.all([
       formsForActs(actIds),
       readBridgedDocFacts(db, actIds),
     ]);
     if (formsRes.isErr()) return err(formsRes.error);
     if (bridgedRes.isErr()) return err(bridgedRes.error);
-    const map = new Map<string, LegalDocument>();
+    const map = new Map<string, V2ActSelection>();
     for (const [actId, forms] of formsRes.value) {
       const row = forms.rows.find((r) => r.form_id === forms.def.defaultFormId);
-      if (row !== undefined)
-        map.set(actId, mapFormDocument(row, true, bridgedRes.value.get(actId)));
+      map.set(actId, {
+        defaultForm: forms.def,
+        canonical:
+          row === undefined ? null : mapFormDocument(row, true, bridgedRes.value.get(actId)),
+      });
     }
+    return ok(map);
+  };
+
+  const canonicalDocumentsForActs = async (
+    actIds: readonly string[]
+  ): Promise<Result<ReadonlyMap<string, LegalDocument>, ApiError>> => {
+    const res = await defaultSelectionsForActs(actIds);
+    if (res.isErr()) return err(res.error);
+    const map = new Map<string, LegalDocument>();
+    for (const [actId, sel] of res.value) if (sel.canonical !== null) map.set(actId, sel.canonical);
     return ok(map);
   };
 
@@ -537,6 +553,19 @@ export const makeLegalActsRepoV2 = (deps: MakeLegalActsRepoV2Deps): LegalActsRep
     return ok(map);
   };
 
+  /** By act id: the bridged summary, whether or not the act's default form has text. */
+  const summariesForActs = async (
+    actIds: readonly string[]
+  ): Promise<Result<ReadonlyMap<string, LegalActSummary>, ApiError>> => {
+    const bridged = await readBridgedDocFacts(db, actIds);
+    if (bridged.isErr()) return err(bridged.error);
+    const map = new Map<string, LegalActSummary>();
+    for (const [actId, facts] of bridged.value) {
+      if (facts.summary !== null) map.set(actId, facts.summary);
+    }
+    return ok(map);
+  };
+
   const getSummary = async (
     documentId: string
   ): Promise<Result<LegalActSummary | null, ApiError>> => {
@@ -657,7 +686,14 @@ export const makeLegalActsRepoV2 = (deps: MakeLegalActsRepoV2Deps): LegalActsRep
         versionCount: (forms?.rows ?? []).filter((r) => !r.ended).length,
         amendedAfterPublication: amendedRes.value,
         newerNotAvailable: forms?.def.newerNotAvailable ?? null,
-        defaultBasis: forms?.def.basis ?? null,
+        defaultBasis: forms?.def.posture ?? null,
+        defaultOrderReviewed: forms?.def.orderReviewed ?? null,
+        latestDocumentId:
+          forms?.def.chosenFormId == null ? null : formDocumentId(forms.def.chosenFormId),
+        latestAvailableDocumentId:
+          forms?.def.latestAvailableFormId == null
+            ? null
+            : formDocumentId(forms.def.latestAvailableFormId),
       });
     } catch (error) {
       return err(databaseError('getActCard failed', error));
@@ -804,6 +840,8 @@ export const makeLegalActsRepoV2 = (deps: MakeLegalActsRepoV2Deps): LegalActsRep
     versionProvenanceForDocument,
     canonicalDocumentsForActs,
     summariesForDocuments,
+    summariesForActs,
+    defaultSelectionsForActs,
     defaultFormsForActs,
     resolveDocumentForAct,
   };

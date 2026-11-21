@@ -88,6 +88,7 @@ describe('the bridge', () => {
     expect(field('dataSource', legacy)).toBe('legal');
     expect(field('bridgedFields', legacy)).toEqual([]);
     expect(await field('newerNotAvailable', legacy)).toBeNull();
+    expect(await field('latestDocumentId', legacy)).toBeNull();
     expect(await field('canonicalDocumentId', legacy)).toBe('171282');
   });
 

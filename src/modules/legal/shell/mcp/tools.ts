@@ -315,12 +315,19 @@ export const makeLegalMcpTools = (deps: LegalMcpDeps): readonly KernelMcpTool[] 
         items = incoming.value.items.map((i) => {
           const citing = byId.get(i.sourceActId ?? i.sourceAct?.actId ?? '');
           if (citing === undefined) return { edge: i.edge, sourceAct: null };
-          const formId = defaults.get(citing.actId)?.defaultFormId ?? null;
+          // The citing act's default-form facts, all from the same batch: an act whose latest
+          // form has no text still names its readable older form (latestAvailableDocumentId).
+          const d = defaults.get(citing.actId);
+          const doc = (id: string | null | undefined): string | null =>
+            id == null ? null : `f${id}`;
           return {
             edge: i.edge,
             sourceAct: {
               ...exposeBridged(citing),
-              canonicalDocumentId: formId === null ? null : `f${formId}`,
+              canonicalDocumentId: doc(d?.defaultFormId),
+              defaultBasis: d?.posture ?? null,
+              latestDocumentId: doc(d?.chosenFormId),
+              latestAvailableDocumentId: doc(d?.latestAvailableFormId),
             },
           };
         });
