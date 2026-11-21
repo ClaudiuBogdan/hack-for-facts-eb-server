@@ -28,11 +28,13 @@ import { pathToFileURL } from 'node:url';
 
 import { makeExecutableSchema } from '@graphql-tools/schema';
 import { graphql, type GraphQLSchema } from 'graphql';
-import { Kysely, PostgresDialect } from 'kysely';
+import { Kysely, PostgresDialect, sql } from 'kysely';
 import { ok } from 'neverthrow';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { provenFold } from '@/modules/legal/core/tldf/fold.js';
+import { reassembleTldf } from '@/modules/legal/core/tldf/reassemble.js';
 import { monitorulTypeDefs } from '@/modules/legal/mo/graphql.js';
 import { makeLegalResolvers } from '@/modules/legal/shell/graphql/resolvers.js';
 import { legalTypeDefs } from '@/modules/legal/shell/graphql/typedefs.js';
@@ -59,7 +61,8 @@ import {
 } from '../../fixtures/legal/client-documents.js';
 
 import type { LegalActsRepo } from '@/modules/legal/core/ports.js';
-import type { LegalV2SearchEngine } from '@/modules/legal/core/v2/search.js';
+import type { TldfPhysicalRow } from '@/modules/legal/core/tldf/types.js';
+import type { LegalV2SearchEngine, V2EngineHit } from '@/modules/legal/core/v2/search.js';
 import type { KernelMcpTool, ProdDatabase } from '@/modules/shared/index.js';
 
 const REQUIRED = process.env['TEST_E2E_REQUIRED'] === '1';
@@ -134,6 +137,26 @@ const LEGACY_STUB = `
     char_end int, privacy_class text);
 `;
 
+const HEADER = 'Antet 😀';
+const BODY = 'Corp articol';
+const PAIR_TEXT = HEADER + '\n' + BODY;
+const sha = (text: string): string => createHash('sha256').update(text).digest('hex');
+const portalUrl = (page: string): string =>
+  `https://legislatie.just.ro/Public/DetaliiDocumentAfis/${page}`;
+
+// Both captures have art:1. The body occurrence is provision 1 in its second chunk.
+const pairHits: V2EngineHit[] = [
+  { unitId: '6', provisionSeq: 0, charStart: 0, charEnd: 5, contentKey: 'k1:header' },
+  { unitId: '7', provisionSeq: 1, charStart: 5, charEnd: 8, contentKey: 'k1:article' },
+].map((use) => ({
+  actId: '7',
+  score: 1,
+  citationPath: 'art:1',
+  headingPath: null,
+  snippet: '<em>match</em>',
+  uses: [{ ...use, formId: '106' }],
+}));
+
 const run = CONFIGURED || REQUIRED ? describe : describe.skip;
 
 run('legal_v2 on real DDL', () => {
@@ -180,37 +203,40 @@ run('legal_v2 on real DDL', () => {
     const v2Engine: LegalV2SearchEngine = {
       searchActs: () =>
         Promise.resolve(ok({ hits: [], total: null, totalExhaustive: false, asOf: '2026-11-18' })),
-      searchUnits: () =>
+      searchUnits: (query) =>
         Promise.resolve(
           ok({
-            hits: [
-              {
-                actId: '7',
-                score: 2,
-                citationPath: 'art:999',
-                headingPath: 'INDEX HEADING',
-                snippet: '<em>Art</em>',
-                uses: [
-                  // the exporter's first use: a replaced unit (never verified)
-                  {
-                    formId: '101',
-                    unitId: '99',
-                    provisionSeq: 0,
-                    charStart: 0,
-                    charEnd: 3,
-                    contentKey: 'k1:abc',
-                  },
-                  {
-                    formId: '101',
-                    unitId: '2',
-                    provisionSeq: 0,
-                    charStart: 0,
-                    charEnd: 3,
-                    contentKey: 'k1:abc',
-                  },
-                ],
-              },
-            ],
+            hits:
+              query === 'pereche'
+                ? pairHits
+                : [
+                    {
+                      actId: '7',
+                      score: 2,
+                      citationPath: 'art:999',
+                      headingPath: 'INDEX HEADING',
+                      snippet: '<em>Art</em>',
+                      uses: [
+                        // the exporter's first use: a replaced unit (never verified)
+                        {
+                          formId: '101',
+                          unitId: '99',
+                          provisionSeq: 0,
+                          charStart: 0,
+                          charEnd: 3,
+                          contentKey: 'k1:abc',
+                        },
+                        {
+                          formId: '101',
+                          unitId: '2',
+                          provisionSeq: 0,
+                          charStart: 0,
+                          charEnd: 3,
+                          contentKey: 'k1:abc',
+                        },
+                      ],
+                    },
+                  ],
             total: null,
             totalExhaustive: false,
             asOf: '2026-11-18',
@@ -452,13 +478,289 @@ run('legal_v2 on real DDL', () => {
     });
   });
 
-  it('agrees on REST and GraphQL for a header plus body form', async () => {
+  it('serves a dated pair through its header, both page routes, and ordered physical chunks', async () => {
     const source = makeLegalRenderSourceV2(db);
-    expect((await source.read('f106', 0))._unsafeUnwrapErr()).toMatchObject({
-      renderStatus: 'composition_not_served',
+    const rows: TldfPhysicalRow[] = [];
+    for (const [i, id] of ['5108', 'f106', '5106', 'f106'].entries()) {
+      const { kind, info, tldf, extraMeta } = (await source.read(id, i))._unsafeUnwrap();
+      expect(info).toMatchObject({ documentId: 'f106', chunkCount: 4, textSha256: sha(PAIR_TEXT) });
+      expect(extraMeta?.['servedForm']).toMatchObject({
+        portalLabelRaw: 'Consolidarea din 06.05.2025',
+        portalLabelDate: '2025-05-06',
+        caveat: 'unofficial_consolidation',
+        sourceUrl: portalUrl('5106'),
+      });
+      expect(kind).toBe(i === 0 ? 'manifest' : 'chunk');
+      const payload = tldf as unknown as TldfPhysicalRow['payload'];
+      rows.push({
+        chunkIndex: i,
+        chunkCount: 4,
+        blockId: 'blocks' in payload ? payload.blocks[0]!.id : null,
+        payload,
+      });
+    }
+    const envelope = reassembleTldf(rows)._unsafeUnwrap();
+    expect(provenFold(envelope)._unsafeUnwrap()).toBe(PAIR_TEXT);
+    expect(envelope.contains_non_bmp).toBe(true);
+    expect(envelope.shape).toBe('standard_articles');
+    expect(envelope.accounting.emitted_chars + envelope.accounting.separator_chars).toBe(
+      PAIR_TEXT.length
+    );
+    expect(envelope.marks.map((m) => [m.ordinal, m.span, m.link?.href])).toEqual([
+      [0, [0, 5], portalUrl('5108')],
+      [1, [HEADER.length + 6, HEADER.length + 9], '#1.id_art1'],
+    ]);
+    expect(JSON.stringify(envelope.blocks)).not.toContain('hidden header image');
+    const bodyArticle = envelope.blocks.find((b) => b.id === '1.1');
+    expect(bodyArticle).toMatchObject({
+      source_element_id: '1.id_art1',
+      children: [{ id: '1.1.1', asset: { alt: 'body image', sha256: sha('image') } }],
     });
-    const info = (await makeLegalRenderRepoV2(db).renderInfoForDocuments(['f106']))._unsafeUnwrap();
-    expect(info.get('f106')?.renderStatus).toBe('composition_not_served');
+    expect((await source.read('f106', 4))._unsafeUnwrapErr()).toMatchObject({
+      reason: 'render_not_found',
+    });
+
+    const result = await gql(`{ legalAct(actId: "7") { canonical { documentId readable sourceUrl
+      render { renderStatus textSha256 chunkCount } } } }`);
+    expect(result['legalAct']).toEqual({
+      canonical: {
+        documentId: 'f106',
+        readable: true,
+        sourceUrl: portalUrl('5106'),
+        render: { renderStatus: 'served', textSha256: sha(PAIR_TEXT), chunkCount: 4 },
+      },
+    });
+  });
+
+  it('translates outline, presentation nodes and verified search ranges into the same UTF-16 text', async () => {
+    const outline = makeLegalOutlineRepoV2(db);
+    const headings = (
+      await outline.outline({ documentId: 'f106', maxDepth: 7, page: { first: 9 } })
+    )._unsafeUnwrap().items;
+    expect(
+      headings.map((e) => [e.path, e.numberKey, PAIR_TEXT.slice(e.charStart!, e.charEnd!)])
+    ).toEqual([
+      ['0.1', '1', HEADER],
+      ['1.1', '1', 'articol'],
+    ]);
+    for (const [path, end] of [
+      ['0.1.1', HEADER.length],
+      ['1.1.1', PAIR_TEXT.length],
+    ] as const) {
+      expect((await outline.entryByPath('5108', path))._unsafeUnwrap()).toMatchObject({
+        documentId: 'f106',
+        nodeKind: 'imagine',
+        depth: null,
+        charStart: end,
+        charEnd: end,
+      });
+    }
+    const result =
+      await gql(`{ legalSearch(q: "pereche", channel: sections, includeHistorical: true) {
+      sections { sectionKey nodePath nodeLabel charStart charEnd servedForm { documentId sourceUrl } } } }`);
+    expect(result['legalSearch']).toEqual({
+      sections: [
+        {
+          sectionKey: 'unit:6:seq:0',
+          nodePath: 'art:1',
+          nodeLabel: 'Antet',
+          charStart: 0,
+          charEnd: 5,
+          servedForm: { documentId: 'f106', sourceUrl: portalUrl('5106') },
+        },
+        {
+          sectionKey: 'unit:7:seq:1',
+          nodePath: 'art:1',
+          nodeLabel: 'Articolul 1',
+          charStart: HEADER.length + 6,
+          charEnd: HEADER.length + 9,
+          servedForm: { documentId: 'f106', sourceUrl: portalUrl('5108') },
+        },
+      ],
+    });
+    expect(PAIR_TEXT.slice(HEADER.length + 6, HEADER.length + 9)).toBe('art');
+    const invalid = (
+      await makeLegalV2HitVerifier(db).verifyUses([
+        {
+          key: 0,
+          actId: '7',
+          uses: [
+            { ...pairHits[0]!.uses[0]!, charStart: HEADER.length - 1, charEnd: HEADER.length + 2 },
+            { ...pairHits[1]!.uses[0]!, unitId: '6' },
+          ],
+        },
+      ])
+    )._unsafeUnwrap();
+    expect(invalid.size).toBe(0);
+  });
+
+  it('pins a cached hash to the composition when a new body is published', async () => {
+    const trx = await db.startTransaction().execute();
+    try {
+      await sql`set local session_replication_role = replica`.execute(trx);
+      const render = makeLegalRenderSourceV2(trx);
+      expect((await render.read('f106', 3))._unsafeUnwrap().info.textSha256).toBe(sha(PAIR_TEXT));
+      await sql`delete from legal_v2.form_components where unit_id = 8`.execute(trx);
+      await sql`update legal_v2.form_components set unit_id = 8 where unit_id = 7`.execute(trx);
+      await sql`update legal_v2.form_sources set form_id = 106, component_slot = 'body' where capture_ref_id = 8`.execute(
+        trx
+      );
+      await sql`update legal_v2.form_current set composition_digest = legal_v2.composition_digest(106) where form_id = 106`.execute(
+        trx
+      );
+      const replaced = (await render.read('f106', 2))._unsafeUnwrap();
+      expect(replaced.info).toMatchObject({ textSha256: sha(HEADER + '\nArt'), chunkCount: 3 });
+      await sql`update legal_v2.form_components set privacy_class = 'restricted' where unit_id = 8`.execute(
+        trx
+      );
+      expect((await render.read('f106', 1))._unsafeUnwrapErr()).toMatchObject({
+        reason: 'render_restricted',
+      });
+    } finally {
+      await trx.rollback().execute();
+    }
+  });
+
+  it('requires the whole unit to be the sole component', async () => {
+    const trx = await db.startTransaction().execute();
+    try {
+      await sql`set local session_replication_role = replica`.execute(trx);
+      await sql`insert into legal_v2.form_components (form_id, ordinal, slot, linked_page_id)
+        values (101, 1, 'linked_annex', '5109')`.execute(trx);
+      expect((await makeLegalRenderSourceV2(trx).read('f101', 0))._unsafeUnwrapErr()).toMatchObject(
+        { renderStatus: 'composition_not_served' }
+      );
+    } finally {
+      await trx.rollback().execute();
+    }
+  });
+
+  it('rechecks withheld provisions in each component under the same composition digest', async () => {
+    const trx = await db.startTransaction().execute();
+    try {
+      const outline = makeLegalOutlineRepoV2(trx);
+      const paths = async () =>
+        (await outline.outline({ documentId: 'f106', maxDepth: 7, page: { first: 8 } }))
+          ._unsafeUnwrap()
+          .items.map((e) => e.path);
+      expect(await paths()).toEqual(['0.1', '1.1']);
+      await sql`update legal_v2.unit_provisions set privacy_class = 'restricted' where unit_id = 7`.execute(
+        trx
+      );
+      expect(await paths()).toEqual(['0.1']);
+      expect((await outline.entryByPath('f106', '1.1'))._unsafeUnwrap()).toBeNull();
+      await sql`update legal_v2.unit_provisions set privacy_class =
+        case when unit_id = 6 then 'restricted' else 'public' end where unit_id in (6,7)`.execute(
+        trx
+      );
+      expect(await paths()).toEqual(['1.1']);
+    } finally {
+      await trx.rollback().execute();
+    }
+  });
+
+  it.each([
+    [
+      'restricted body',
+      'restricted',
+      sql`update legal_v2.form_components set privacy_class = 'restricted' where unit_id = 7`,
+    ],
+    [
+      'restricted header unit',
+      'restricted',
+      sql`update legal_v2.text_units set privacy_class = 'restricted' where unit_id = 6`,
+    ],
+    [
+      'restricted body chunk',
+      'restricted',
+      sql`update legal_v2.unit_render set privacy_class = 'restricted' where unit_id = 7 and chunk_seq = 1`,
+    ],
+    [
+      'restricted composition',
+      'restricted',
+      sql`update legal_v2.form_current set privacy_class = 'restricted' where form_id = 106`,
+    ],
+    ['empty body', 'not_loaded', sql`delete from legal_v2.unit_render where unit_id = 7`],
+    ['ended form', 'not_loaded', sql`update legal_v2.forms set ended = true where form_id = 106`],
+    [
+      'label wording alone',
+      'label_missing',
+      sql`update legal_v2.forms set portal_label_date = null where form_id = 106`,
+    ],
+    [
+      'wrong form kind',
+      'composition_not_served',
+      sql`update legal_v2.forms set form_kind = 'republication' where form_id = 106`,
+    ],
+    [
+      'body at ordinal two',
+      'composition_not_served',
+      sql`update legal_v2.form_components set ordinal = 2 where unit_id = 7`,
+    ],
+    [
+      'extra annex',
+      'composition_not_served',
+      sql`insert into legal_v2.form_components (form_id, ordinal, slot, linked_page_id) values (106, 2, 'linked_annex', '5109')`,
+    ],
+    [
+      'private source',
+      'source_not_bound',
+      sql`update legal_v2.form_sources set privacy_class = 'restricted' where capture_ref_id = 7`,
+    ],
+    [
+      'wrong binding slot',
+      'source_not_bound',
+      sql`update legal_v2.form_sources set component_slot = 'header' where capture_ref_id = 7`,
+    ],
+    [
+      'swapped body',
+      'source_not_bound',
+      sql`update legal_v2.form_components set unit_id = 8 where unit_id = 7`,
+    ],
+  ] as const)('rejects the %s fixture on every surface', async (fixture, status, change) => {
+    const trx = await db.startTransaction().execute();
+    try {
+      await sql`set local session_replication_role = replica`.execute(trx);
+      const outline = makeLegalOutlineRepoV2(trx);
+      expect((await outline.entryByPath('f106', '0.1'))._unsafeUnwrap()).not.toBeNull();
+      if (fixture === 'swapped body') {
+        // Substitute the public text of f107, whose capture never supplied f106.
+        await sql`delete from legal_v2.form_components where unit_id = 8`.execute(trx);
+      }
+      await change.execute(trx);
+      const source = makeLegalRenderSourceV2(trx);
+      const body = (await source.read('f106', 1))._unsafeUnwrapErr();
+      expect(body).toMatchObject(
+        status === 'restricted'
+          ? { reason: 'render_restricted' }
+          : { reason: 'render_unavailable', renderStatus: status }
+      );
+      expect((await makeLegalRenderRepoV2(trx).renderInfo('f106'))._unsafeUnwrap()).toMatchObject({
+        renderStatus: status === 'restricted' ? 'content_unavailable' : status,
+        textSha256: '',
+        compilerVersion: '',
+        compiledAt: '',
+        chunkCount: null,
+      });
+      const acts = makeLegalActsRepoV2({
+        db: trx,
+        legacy: makeLegalActsRepo(trx, V2_BRIDGE_GATE),
+        today: () => '2026-11-20',
+      });
+      const documents = (await acts.listDocuments('7'))._unsafeUnwrap();
+      const pair = documents.find((d) => d.documentId === 'f106');
+      if (fixture === 'ended form') expect(pair).toBeUndefined();
+      else expect(pair).toMatchObject({ readable: false, isCanonical: false });
+      expect(documents.find((d) => d.isCanonical)?.documentId).toBe('f101');
+      expect((await outline.entryByPath('f106', '0.1'))._unsafeUnwrap()).toBeNull();
+      expect(
+        (
+          await makeLegalV2HitVerifier(trx).verifyUses(pairHits.map((h, key) => ({ ...h, key })))
+        )._unsafeUnwrap().size
+      ).toBe(0);
+    } finally {
+      await trx.rollback().execute();
+    }
   });
 
   it('keeps the evidence, the citing acts and the outline fallback to what is public', async () => {
@@ -545,7 +847,7 @@ run('legal_v2 on real DDL', () => {
     };
     const byDoc = new Map(out.items.map((i) => [i.edge.sourceDocumentId, i.sourceAct]));
     expect(byDoc.get('D10b')).toMatchObject({ actId: '10', canonicalDocumentId: 'f110' });
-    expect(byDoc.get('D7b')).toMatchObject({ actId: '7', canonicalDocumentId: 'f101' });
+    expect(byDoc.get('D7b')).toMatchObject({ actId: '7', canonicalDocumentId: 'f106' });
   });
 
   it('serves the human citation, never the stored natural key', async () => {
@@ -601,7 +903,7 @@ const seed = async (q: (t: string, p?: unknown[]) => Promise<pg.QueryResult>): P
            (105, 7, 'consolidation', 'cons:2023', true, true, '2023-01-01',
             'unofficial_consolidation', null, 'public'),
            (901, 9, 'original', 'orig', true, true, '2022-01-01', null, null, 'public'),
-           (106, 7, 'republication', 'rep', true, true, '2021-06-01', null, null, 'public'),
+           (106, 7, 'consolidation', 'cons:2025-05', true, true, '2025-05-06', 'unofficial_consolidation', '2025-05-06', 'public'),
            (107, 7, 'original', 'orig2', true, true, '2019-01-01', null, null, 'public'),
            (110, 10, 'original', 'orig', true, true, '2023-01-01', null, null, 'public')`);
   const body = JSON.stringify({
@@ -678,34 +980,13 @@ const seed = async (q: (t: string, p?: unknown[]) => Promise<pg.QueryResult>): P
     await q(`insert into legal_v2.form_current values ($1, 'cd', 1, 'public')`, [form]);
     await q(
       `insert into legal_v2.form_sources (binding_id, subject_kind, act_id, form_id, page_id,
-         route, capture_ref_id, requested_url, body_sha256, is_latest, status, method)
+         route, capture_ref_id, requested_url, body_sha256, is_latest, status, method, component_slot)
        values ($1, 'capture', (select act_id from legal_v2.forms where form_id = $2), $2, $3,
-         'afis', $1, $4, 'b', true, 'bound', 'rule')`,
+         'afis', $1, $4, 'b', true, 'bound', 'rule', 'whole')`,
       [unit, form, page, `https://legislatie.just.ro/Public/DetaliiDocumentAfis/${page}`]
     );
   }
-  // form 106: a header unit plus a body unit (both public, chunks public)
-  for (const [unit, slot] of [
-    [6, 'header'],
-    [7, 'body'],
-  ] as const) {
-    await q(
-      `insert into legal_v2.text_units (unit_id, capture_ref_id, custody_lane, page_id, route,
-         requested_url, body_sha256, captured_at, parse_lane, parse_source_id, parse_build_id,
-         parse_result_digest, parse_run_id, certificate_id, content_parser_version,
-         load_run_id, text_sha256, content_digest, render_state, sealed)
-       overriding system value values ($1, $1, 'l', '5106', 'afis', 'u', 'b', now(), 'afis',
-         '5106', 'build', 'r', 1, 1, 'v9', 1, 't', 'cd', 'text_only', true)`,
-      [unit]
-    );
-    await q(`insert into legal_v2.unit_render values ($1, 0, 'Text', 0, 4, 'public')`, [unit]);
-    await q(
-      `insert into legal_v2.form_components (form_id, ordinal, slot, unit_id)
-             values (106, $1, $2, $3)`,
-      [unit - 6, slot, unit]
-    );
-  }
-  await q(`insert into legal_v2.form_current values (106, 'cd', 1, 'public')`);
+  await seedPair(q);
   // page 5200: afis capture HELD, detail capture bound to 101 — must not fall through
   await q(`insert into legal_v2.form_sources (binding_id, subject_kind, act_id, form_id, page_id,
              route, capture_ref_id, requested_url, body_sha256, is_latest, status, method) values
@@ -742,4 +1023,133 @@ const seed = async (q: (t: string, p?: unknown[]) => Promise<pg.QueryResult>): P
            (1, 'D9', null, 0, 'x', 'act', 7, null, null, null, 0, 1, 'public'),
            (2, 'D7', null, 1, 'y', 'act', 7, null, null, null, 0, 1, 'public')`);
   await q('set session_replication_role = origin');
+};
+
+/** Two independently compiled pages, each with local mark, link and image ordinal zero. */
+const seedPair = async (
+  q: (t: string, p?: unknown[]) => Promise<pg.QueryResult>
+): Promise<void> => {
+  await q(
+    `update legal_v2.forms set portal_label_raw = 'Consolidarea din 06.05.2025' where form_id = 106`
+  );
+  for (const [unit, slot, page] of [
+    [6, 'header', '5106'],
+    [7, 'body', '5108'],
+  ] as const) {
+    const header = slot === 'header';
+    const text = header ? HEADER : BODY;
+    await q(
+      `insert into legal_v2.text_units (unit_id, capture_ref_id, custody_lane, page_id, route,
+         requested_url, body_sha256, captured_at, parse_lane, parse_source_id, parse_build_id,
+         parse_result_digest, parse_run_id, certificate_id, content_parser_version, compiler_version,
+         load_run_id, text_sha256, content_digest, render_state, sealed)
+       overriding system value values ($1, $1, 'l', $2, 'afis', 'u', 'b', now(), 'afis',
+         $2, 'build', 'r', 1, 1, 'v9', 'unit-v1', 1, $3, $3, 'structured', true)`,
+      [unit, page, sha(text)]
+    );
+    // A binding-id sort would pick the body first.
+    await q(
+      `insert into legal_v2.form_sources (binding_id, subject_kind, act_id, form_id, page_id,
+         route, capture_ref_id, requested_url, body_sha256, is_latest, status, method, component_slot)
+       values ($1, 'capture', 7, 106, $2, 'afis', $3, $4, 'b', true, 'bound', 'rule', $5)`,
+      [header ? 31 : 30, page, unit, portalUrl(page), slot]
+    );
+    await q(`insert into legal_v2.page_acts values ($1, 7, 'ledger_member', 'public')`, [page]);
+    await q(
+      `insert into legal_v2.form_components (form_id, ordinal, slot, unit_id)
+             values (106, $1, $2, $3)`,
+      [header ? 0 : 1, slot, unit]
+    );
+    const start = header ? 0 : 5;
+    const end = text.length;
+    const article = {
+      id: '1',
+      kind: 'articol',
+      type: 'ART',
+      span: [start, end],
+      source_element_id: 'id_art1',
+      content: [{ text: text.slice(start), span: [start, end], ...(header ? {} : { sep: ' ' }) }],
+      children: [
+        {
+          id: '1.1',
+          kind: 'imagine',
+          type: 'IMG',
+          span: [end, end],
+          content: [],
+          asset: { asset_ordinal: 0, alt: header ? 'hidden header image' : 'body image' },
+        },
+      ],
+    };
+    const marks = [
+      { ordinal: 0, kind: 'reference', span: header ? [0, 5] : [5, 8], link_ordinal: 0 },
+    ];
+    const head = {
+      format: 'tldf-unit',
+      format_version: '1',
+      offset_unit: 'utf16_code_unit',
+      shape: header ? 'paragraph_stream' : 'standard_articles',
+      contains_non_bmp: header,
+    };
+    const first = header
+      ? { ...head, blocks: [article], marks }
+      : {
+          ...head,
+          blocks: [
+            {
+              id: '0',
+              kind: 'paragraf',
+              type: 'PAR',
+              span: [0, 4],
+              content: [{ text: 'Corp', span: [0, 4] }],
+            },
+          ],
+          marks: [],
+        };
+    await q(`insert into legal_v2.unit_render values ($1, 0, $2, 0, $3, 'public')`, [
+      unit,
+      JSON.stringify(first),
+      header ? end : 4,
+    ]);
+    if (!header)
+      await q(`insert into legal_v2.unit_render values ($1, 1, $2, 4, $3, 'public')`, [
+        unit,
+        JSON.stringify({ blocks: [article], marks }),
+        end,
+      ]);
+    await q(
+      `insert into legal_v2.unit_provisions (unit_id, provision_seq, kind, citation_path,
+        address_state, label_raw, source_element_id, char_start, char_end, address, content_key)
+      values ($1, $2, 'articol', 'art:1', 'unique', $3, 'id_art1', $4, $5, 'art:1', $6)`,
+      [
+        unit,
+        header ? 0 : 1,
+        header ? 'Antet' : 'Articolul 1',
+        start,
+        end,
+        header ? 'k1:header' : 'k1:article',
+      ]
+    );
+    await q(
+      `insert into legal_v2.unit_links (unit_id, ordinal, href, target_page_id, target_route, target_fragment, char_start, char_end)
+      values ($1, 0, $2, $3, $4, $5, $6, $7)`,
+      [
+        unit,
+        header ? portalUrl('5108') : '#id_art1',
+        header ? '5108' : null,
+        header ? 'afis' : null,
+        header ? null : 'id_art1',
+        header ? 0 : 5,
+        header ? 5 : 8,
+      ]
+    );
+    await q(`insert into legal_v2.unit_assets values ($1, 0, null, $2, 'image', $3)`, [
+      unit,
+      slot,
+      header ? 'restricted' : 'public',
+    ]);
+  }
+  await q(`insert into legal_v2.asset_custody values ('body', true, $1, 'public')`, [sha('image')]);
+  await q(
+    `insert into legal_v2.form_current values (106, legal_v2.composition_digest(106), 1, 'public')`
+  );
 };

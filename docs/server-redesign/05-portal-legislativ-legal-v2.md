@@ -22,8 +22,8 @@ behaviour unchanged.
 
 - **Privacy, legal_v2.** Every legal_v2 read filters `privacy_class = 'public'` on every relation it touches. The views
   `form_states`, `page_targets`, `link_targets` and `read_form` carry no privacy predicate, so the API does not use them.
-  The render decides privacy before shape (`decideV2Render`): a restricted act or form answers 404; a restricted
-  page route, published composition, component, unit or chunk answers 403. GraphQL render availability then shows only
+  The shared form gate checks privacy first. A restricted act, form or page route answers 404. A restricted
+  published composition, component, unit or chunk answers 403. GraphQL render availability then shows only
   the verdict, with no hash, compiler, time or count. A link whose target act is not public is served with no locator
   at all: no act id, URL, fragment or document id. A restricted image occurrence keeps its zero-character block and
   loses its alt text and dimensions.
@@ -60,21 +60,31 @@ behaviour unchanged.
   `portal_order_date`. New nullable fields: `readable`, `caveat` (`unofficial_consolidation` on every consolidation),
   `portalLabelRaw`, `portalLabelDate`, `held`, `formKey`, `sourceUrl`; on the act, `newerNotAvailable` and
   `defaultBasis`.
-- **Readable** means servable by the render: a published public composition of ONE public whole unit, no missing
-  body, at least one chunk and none restricted, the unit's capture bound (public) to the form, and, for a
-  consolidation, the Portal's label or its date.
+- **Readable.** `FORM_READABLE_SQL` gates render info, body, outline, search verification and the inputs to default
+  selection. The public form must be current and have a published public composition. It must contain exactly one
+  whole unit, or, for a consolidation, exactly a header at ordinal 0 and a body at ordinal 1. Every component and
+  unit must be public. Each unit needs a public capture binding for its form and slot and at least one render chunk.
+  All its chunks must be public. A consolidation also needs the Portal label date.
 - **Default form** (`isCanonical`, `canonical`). The rule of rebuild-model.md §7 and of the SQL function
   `legal_v2.default_forms`, computed per act in `core/v2/forms.ts` (the function computes every act and the role's
   statement limit is 15 s). It is the latest accepted, body-resolved, readable consolidation whose Portal date is not
   after today (Bucharest), else the original. A public act with no forms has a default result with zero counts. It is
   not yet the owner's 2026-11-12 rule (latest form of any kind), which the SQL function has not adopted either.
-- **Render.** One statement per request reads the route, the form, the composition and only the chunk bodies the
-  request serves. An envelope or manifest reads every chunk, with links; a chunk group reads its one stored chunk.
-  Statuses:
-  - no text: `not_loaded`;
-  - anything but one whole unit with no missing body: `composition_not_served`;
-  - a consolidation with neither the Portal's label nor its date: `label_missing` (LEG-X3AV);
-  - a unit whose capture is not bound to the form: `source_not_bound`.
+- **Render.** A single statement reads the route, gate and requested payload in one snapshot. A single-chunk whole
+  unit has an envelope. Multi-chunk forms have a manifest at index 0, followed by one data chunk per stored chunk
+  in component and local chunk-sequence order. The header supplies a pair's form URL and retains its link to the
+  body. An unavailable public form can return these statuses.
+  - `not_loaded` for an ended form, missing publication or a component without text chunks.
+  - `composition_not_served` for an unsupported slot combination, component order or form kind.
+  - `label_missing` for a consolidation without the Portal label date (LEG-X3AV).
+  - `source_not_bound` when a supplying capture lacks a public binding to its form and slot.
+
+  A pair displays a single newline after the last header chunk. Its synthetic paragraph occupies one UTF-16 code
+  unit, including when either page already has edge whitespace. The form SHA-256 covers the UTF-8 encoding of
+  header text, newline and body text. A cold hash uses the DDL's `render_chunk_text` fold. The API caches the hash
+  by form and composition digest and rechecks the gate on each read. Version lists requesting only render status
+  and count skip the fold. For pairs, the TLDF generation body hash is the composition digest and the compiler and
+  parser versions describe the body. `meta.renderHead` records these substitutions.
 
   Conversion (`core/v2/tldf-unit.ts`):
   - every stored chunk is validated (TypeBox), and the TLDF 1.1 output is built from an allowlist, never spread;
@@ -87,10 +97,12 @@ behaviour unchanged.
   supplying capture's own bound row), `renderHead` (the versioned head substitutions: run id = receipt id, structure
   parser version = parse build, exclusion counts and defects not held), `fidelityFlags` and `renderSource`.
 
-- **Outline.** `unit_provisions` of the form's unit, under the render's gate, which runs on every request. It is cached
-  per process by composition digest and withheld provisions. Each entry's `path` is the id of the render block with the
-  same span. Numbers come from the parser's address only; a withheld address stays null, never "parsed". A path naming a
-  presentation node (a table cell, an image) resolves from its render block, with no depth.
+- **Outline.** The outline reads the public provisions of all components. Its cache key includes the composition
+  digest, each ordinal, unit id and that unit's withheld provision sequences. Both the cache lookup and the fill
+  run the form gate. Provision and presentation-node paths use the render's block ids and UTF-16 offsets. A pair
+  prefixes dotted paths with the ordinal and reserves separate numeric `unmarked:N` keys for each component and
+  the boundary. Marks take form-wide ordinals. Link and image ordinals resolve within their supplying unit.
+  Numbers come from the parser address. Presentation nodes have no grammar depth.
 - **Search.** `LEGAL_SEARCH_OPENSEARCH_ACTS_INDEX` and `LEGAL_SEARCH_OPENSEARCH_SECTIONS_INDEX` name the
   `legal-v2-test-acts-*` and `legal-v2-test-units-*` indexes. Both are required: without them word search is
   `ServiceUnavailable`, never the legacy engine, the Postgres retrieval or the embedder; exact citations still answer.
@@ -99,10 +111,11 @@ behaviour unchanged.
     type, issuer and year filters and `privacy_class = public`.
   - Every unit hit is verified against its `uses` in ONE statement before any text is served. The checks: a public,
     readable form of the hit's act; the unit as that form's current public component; the provision public and holding
-    the use's whole range; all chunks public and reaching the range's end. The section's citation path, label, range
+    the use's whole range; public chunks of that same unit covering the entire range. The section's citation path, label, range
     and source URL come from that verified occurrence: the parser address, the provision label, and the supplying unit's
-    own bound capture. They never come from the index's first use. The index snippet is shown only when the
-    occurrence's content key is the indexed wording's key. `servedForm` carries the form (LEG-X3AV) with the act's
+    own bound capture. In a pair the section key identifies the unit and provision sequence even if both pages
+    use the same article address. Highlight offsets include all preceding component text and the display boundary.
+    The index snippet is shown only when the occurrence's content key is the indexed wording's key. `servedForm` carries the form (LEG-X3AV) with the act's
     amendment facts merged in, and the reader link carries `?doc=<form>`. Unverifiable hits are dropped and not
     counted: `actsTotal`, `sectionsTotal` and `unhydratedHits` are null, null and 0.
   - Status, domain and category filters apply to the hydrated page only.
@@ -127,9 +140,8 @@ behaviour unchanged.
   are restricted in legal_v2. It is a count only, and every legal_v2 row is public today. To close it, derive the count
   from gated references (or rebuild it in legal_v2) before any row is restricted.
 - **A restricted target form or route of a public act.** A link to a public act keeps its Portal URL and fragment
-  even when the targeted form or route is restricted, and the outline does not check the supplying capture. Both are
-  latent while every row is public. To close them, carry the target form's and route's visibility into link conversion,
-  and apply the render's binding check to the outline gate.
+  even when the targeted form or route is restricted. Closing this requires the target form's and route's visibility
+  in link conversion.
 - **Date-only consolidation label.** A consolidation is served with the Portal's label date when the projection left
   the label wording null (it does so today). Filling the wording is LEG-X3AV work, due before the public site; the
   render rule then tightens to require the wording.
@@ -143,5 +155,5 @@ behaviour unchanged.
 
 ## Not in this version
 
-Analytics; rebuilding status, links or summaries in legal_v2; header-plus-body compositions; the text of linked annexes
+Analytics; rebuilding status, links or summaries in legal_v2; the text of linked annexes
 (components without a unit); meaning search.

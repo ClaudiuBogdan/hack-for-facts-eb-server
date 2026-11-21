@@ -519,9 +519,9 @@ export type LegalRenderStatus =
   | 'superseded_pending'
   // legal_v2: the form has no published text yet.
   | 'not_loaded'
-  // legal_v2: the form's text is several units (header plus body); not in this version.
+  // legal_v2: the composition has an unsupported slot, order or form kind.
   | 'composition_not_served'
-  // legal_v2: a consolidation with neither the Portal's label nor its date (LEG-X3AV).
+  // legal_v2: a consolidation without the Portal label date (LEG-X3AV).
   | 'label_missing'
   // legal_v2: the unit's capture is not bound (public) to this form.
   | 'source_not_bound';

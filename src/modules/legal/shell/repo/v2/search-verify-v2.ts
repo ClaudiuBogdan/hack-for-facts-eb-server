@@ -5,11 +5,11 @@
  *
  * ONE statement per verification (one snapshot) checks each use:
  *  - its form is a public form of the hit's public act and servable — the
- *    render's rule (`FORM_READABLE_SQL`: published public composition of one
- *    public whole unit, public chunks, bound source, a consolidation's label);
+ *    render's rule (`FORM_READABLE_SQL`: current public composition, public chunks
+ *    in each unit, slot-bound sources, a consolidation's label date);
  *  - its unit is that form's current public component;
  *  - its provision is public and holds the use's WHOLE range [start, end);
- *  - the unit's chunks are all public and reach the range's end;
+ *  - the unit's public chunks cover the whole range, which is then offset into the form;
  * and answers the occurrence's own facts: the provision's parser address and
  * label, whether its content key is the indexed wording's, and the source URL
  * of the supplying unit's own bound capture. Text units are sealed and their
@@ -21,7 +21,8 @@ import { err, ok } from 'neverthrow';
 
 import { databaseError, type ProdDatabase } from '@/modules/shared/index.js';
 
-import { FORM_READABLE_SQL } from './v2-reads.js';
+import { BOUND_COMPONENT_SOURCE_SQL, FORM_READABLE_SQL } from './v2-reads.js';
+import { COMPONENT_BOUNDARY } from '../../../core/v2/composition.js';
 import { formDocumentId, versionKindOf } from '../../../core/v2/forms.js';
 
 import type { LegalV2HitVerifier, V2HitUse, VerifiedUse } from '../../../core/v2/search.js';
@@ -42,6 +43,9 @@ interface VerifiedRow {
   address: string | null;
   label_raw: string | null;
   same_wording: boolean;
+  composed: boolean;
+  char_start: number;
+  char_end: number;
   source_url: string | null;
 }
 
@@ -53,7 +57,14 @@ export const makeLegalV2HitVerifier = (db: Db): LegalV2HitVerifier => ({
         if (flat.length >= MAX_USES) break;
         // Only an occurrence with a provision and a whole range can supply
         // the displayed fields.
-        if (use.provisionSeq === null || use.charStart === null || use.charEnd === null) continue;
+        if (
+          use.provisionSeq === null ||
+          use.charStart === null ||
+          use.charEnd === null ||
+          use.charStart < 0 ||
+          use.charEnd <= use.charStart
+        )
+          continue;
         flat.push({ key: c.key, actId: c.actId, use, idx: flat.length });
       }
     }
@@ -70,38 +81,39 @@ export const makeLegalV2HitVerifier = (db: Db): LegalV2HitVerifier => ({
         sql`, `
       );
       const result = await sql<VerifiedRow>`
-        with u(idx, act_id, form_id, unit_id, provision_seq, char_start, char_end, content_key)
+        with hit(idx, act_id, form_id, unit_id, provision_seq, char_start, char_end, content_key)
           as (values ${values})
-        select u.idx, f.form_id::text as form_id, f.form_kind, f.caveat, f.portal_label_raw,
+        select hit.idx, f.form_id::text as form_id, f.form_kind, f.caveat, f.portal_label_raw,
                f.portal_label_date::text as portal_label_date,
                f.portal_order_date::text as portal_order_date,
-               p.address, p.label_raw,
-               (u.content_key is not null and p.content_key = u.content_key) as same_wording,
-               src.requested_url as source_url
-          from u
+               p.address, p.label_raw, c.slot <> 'whole' as composed,
+               hit.char_start + preceding.length as char_start, hit.char_end + preceding.length as char_end,
+               (hit.content_key is not null and p.content_key = hit.content_key) as same_wording,
+               s.requested_url as source_url
+          from hit
           join legal_v2.forms f
-            on f.form_id = u.form_id and f.act_id = u.act_id and f.privacy_class = 'public'
+            on f.form_id = hit.form_id and f.act_id = hit.act_id and f.privacy_class = 'public'
           join legal_v2.acts a on a.act_id = f.act_id and a.privacy_class = 'public'
+          cross join lateral (${FORM_READABLE_SQL}) gate
           join legal_v2.form_components c
-            on c.form_id = f.form_id and c.unit_id = u.unit_id and c.privacy_class = 'public'
-          join legal_v2.text_units t on t.unit_id = u.unit_id and t.privacy_class = 'public'
+            on c.form_id = f.form_id and c.unit_id = hit.unit_id and c.privacy_class = 'public'
+          join legal_v2.text_units u on u.unit_id = c.unit_id and u.privacy_class = 'public'
+          join legal_v2.form_sources s on ${BOUND_COMPONENT_SOURCE_SQL}
           join legal_v2.unit_provisions p
-            on p.unit_id = u.unit_id and p.provision_seq = u.provision_seq
+            on p.unit_id = hit.unit_id and p.provision_seq = hit.provision_seq
            and p.privacy_class = 'public'
-          join lateral (
-            select s.requested_url from legal_v2.form_sources s
-             where s.capture_ref_id = t.capture_ref_id and s.form_id = f.form_id
-               and s.subject_kind = 'capture' and s.status = 'bound' and s.privacy_class = 'public'
-             order by s.binding_id
-             limit 1) src on true
-         where ${FORM_READABLE_SQL}
-           and u.char_start < u.char_end
-           and p.char_start <= u.char_start and u.char_end <= p.char_end
-           and coalesce((select max(ur.char_end) from legal_v2.unit_render ur
-                          where ur.unit_id = u.unit_id and ur.privacy_class = 'public'), -1)
-               >= u.char_end
-           and not exists (select 1 from legal_v2.unit_render ur
-                            where ur.unit_id = u.unit_id and ur.privacy_class <> 'public')
+          cross join lateral (
+            select coalesce(sum((select max(ur.char_end) from legal_v2.unit_render ur
+                                  where ur.unit_id = prev.unit_id and ur.privacy_class = 'public')
+                                + ${COMPONENT_BOUNDARY.length}::int), 0)::int as length
+              from legal_v2.form_components prev
+             where prev.form_id = c.form_id and prev.ordinal < c.ordinal and prev.privacy_class = 'public'
+          ) preceding
+         where gate.readable and p.char_start <= hit.char_start and hit.char_end <= p.char_end
+           and (select range_agg(int4range(ur.char_start, ur.char_end)) @> int4range(hit.char_start, hit.char_end)
+                  from legal_v2.unit_render ur
+                 where ur.unit_id = hit.unit_id and ur.privacy_class = 'public'
+                   and ur.char_start < hit.char_end and hit.char_start < ur.char_end)
       `.execute(db);
       rows = result.rows;
     } catch (error) {
@@ -114,6 +126,9 @@ export const makeLegalV2HitVerifier = (db: Db): LegalV2HitVerifier => ({
       if (out.has(f.key) || row === undefined) continue;
       out.set(f.key, {
         use: f.use,
+        composed: row.composed,
+        charStart: row.char_start,
+        charEnd: row.char_end,
         address: row.address,
         label: row.label_raw,
         sameWording: row.same_wording,

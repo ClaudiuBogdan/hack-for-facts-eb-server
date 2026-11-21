@@ -14,7 +14,7 @@ import { databaseError, type ApiError, type ProdDatabase } from '@/modules/share
 
 import { legacyDocumentRenderPublic } from './gate.js';
 import { v2DisplayCitation } from '../../../core/v2/display-citation.js';
-import { parseDocumentRef, type V2FormState } from '../../../core/v2/forms.js';
+import { parseDocumentRef, type V2DocumentRef, type V2FormState } from '../../../core/v2/forms.js';
 import { asObject, toStatus } from '../mappers.js';
 
 import type { LegalActSummary } from '../../../core/types.js';
@@ -65,37 +65,48 @@ export const toFormState = (r: V2FormRow): V2FormState => ({
   held: r.held,
 });
 
+/** The capture which supplies this component, including its role in this form. */
+export const BOUND_COMPONENT_SOURCE_SQL = sql`s.capture_ref_id = u.capture_ref_id
+  and s.form_id = c.form_id and s.component_slot = c.slot
+  and s.subject_kind = 'capture' and s.status = 'bound' and s.privacy_class = 'public'`;
+
 /**
- * readable = what the render serves (render-v2 decideV2Render), over alias `f`
- * (a legal_v2.forms row): a published public composition of ONE public whole
- * unit, no missing body, at least one chunk and none restricted, the unit's
- * capture bound (public) to this form, and a consolidation's Portal label or
- * date. Shared by the forms read and the search verification.
+ * One lateral row per form (outer alias f). All components participate, including
+ * reference slots. Decide privacy before availability and return the same verdict
+ * to render, outline, version selection and search in their own read snapshots.
  */
-export const FORM_READABLE_SQL = sql`(not f.ended
-              and (f.form_kind <> 'consolidation'
-                   or f.portal_label_raw is not null or f.portal_label_date is not null)
-              and exists (select 1 from legal_v2.form_current fc
-                           where fc.form_id = f.form_id and fc.privacy_class = 'public')
-              and (select count(*) from legal_v2.form_components c
-                    where c.form_id = f.form_id and c.unit_id is not null) = 1
-              and exists (
-                select 1 from legal_v2.form_components c
-                join legal_v2.text_units u on u.unit_id = c.unit_id
-               where c.form_id = f.form_id and c.slot = 'whole' and c.privacy_class = 'public'
-                 and u.privacy_class = 'public'
-                 and exists (select 1 from legal_v2.unit_render ur
-                              where ur.unit_id = u.unit_id and ur.privacy_class = 'public')
-                 and not exists (select 1 from legal_v2.unit_render ur
-                                  where ur.unit_id = u.unit_id and ur.privacy_class <> 'public')
-                 and exists (select 1 from legal_v2.form_sources s
-                              where s.capture_ref_id = u.capture_ref_id and s.form_id = f.form_id
-                                and s.subject_kind = 'capture' and s.status = 'bound'
-                                and s.privacy_class = 'public'))
-              and not exists (
-                select 1 from legal_v2.form_components c
-                 where c.form_id = f.form_id
-                   and (c.slot = 'missing_body' or c.privacy_class <> 'public')))`;
+export const FORM_READABLE_SQL = sql`
+  select verdict.status, verdict.status = 'served' as readable, x.public_chunks,
+         x.source_url, fc.receipt_id, fc.composition_digest
+    from (
+      select count(u.unit_id) as units,
+             count(*) = 1 and bool_and(c.slot = 'whole') as whole,
+             count(*) = 2 and bool_or(c.ordinal = 0 and c.slot = 'header')
+                          and bool_or(c.ordinal = 1 and c.slot = 'body') as pair,
+             bool_or(c.privacy_class <> 'public' or u.privacy_class <> 'public'
+                     or chunks.restricted) as restricted,
+             bool_or(c.unit_id is not null and chunks.public_chunks = 0) as empty_unit,
+             coalesce(sum(chunks.public_chunks), 0)::int as public_chunks,
+             bool_and(s.binding_id is not null) as bound,
+             max(s.requested_url) filter (where c.slot in ('whole', 'header')) as source_url
+        from legal_v2.form_components c
+        left join legal_v2.text_units u on u.unit_id = c.unit_id
+        left join legal_v2.form_sources s on ${BOUND_COMPONENT_SOURCE_SQL}
+        cross join lateral (
+          select count(*) filter (where ur.privacy_class = 'public') as public_chunks,
+                 bool_or(ur.privacy_class <> 'public') as restricted
+            from legal_v2.unit_render ur where ur.unit_id = u.unit_id
+        ) chunks
+       where c.form_id = f.form_id
+    ) x
+    left join legal_v2.form_current fc on fc.form_id = f.form_id
+    cross join lateral (select case
+      when f.privacy_class <> 'public' or fc.privacy_class <> 'public' or x.restricted then 'restricted'
+      when f.ended or fc.form_id is null or x.units = 0 or x.empty_unit then 'not_loaded'
+      when not (x.whole or (f.form_kind = 'consolidation' and x.pair)) then 'composition_not_served'
+      when f.form_kind = 'consolidation' and f.portal_label_date is null then 'label_missing'
+      when not x.bound then 'source_not_bound'
+      else 'served' end as status) verdict`;
 
 /** All public forms of the given acts, with the facts the default rule reads. */
 export const readFormsForActs = async (
@@ -118,18 +129,20 @@ export const readFormsForActs = async (
              f.gazette_number, f.gazette_part::int as gazette_part,
              f.gazette_date_reported::text as gazette_date_reported, f.publication_raw,
              f.entry_into_force_reported::text as entry_into_force_reported,
-             ${FORM_READABLE_SQL} as readable,
+             gate.readable,
              exists (
                 select 1 from legal_v2.form_sources s
                where s.form_id = f.form_id and s.subject_kind = 'capture'
                  and s.status <> 'bound' and s.privacy_class = 'public') as held,
-             (select s.requested_url from legal_v2.form_sources s
+             case when gate.readable then gate.source_url else (
+               select s.requested_url from legal_v2.form_sources s
                where s.form_id = f.form_id and s.subject_kind = 'capture' and s.status = 'bound'
                  and s.is_latest and s.privacy_class = 'public'
                order by ${ROUTE_ORDER_SQL}, s.binding_id
-               limit 1) as source_url
+               limit 1) end as source_url
         from legal_v2.forms f
         join legal_v2.acts a on a.act_id = f.act_id and a.privacy_class = 'public'
+        cross join lateral (${FORM_READABLE_SQL}) gate
        where ${scope} and f.privacy_class = 'public'
     `.execute(db);
     return ok(result.rows);
@@ -143,11 +156,17 @@ export interface V2FormRef {
   readonly actId: string;
 }
 
-/**
- * A document id → the public form it names. `f<id>` is the form; an old
- * numeric page id resolves through the newest BOUND capture of that page
- * (`page_targets`), afis route first. Null when nothing public answers.
- */
+/** A held or hidden preferred route must never fall through to another capture. */
+export const documentFormPickSql = (ref: Exclude<V2DocumentRef, { kind: 'invalid' }>) =>
+  ref.kind === 'form'
+    ? sql`select ${ref.formId}::bigint as form_id, 'bound'::text as route_status`
+    : sql`select s.form_id,
+                 case when s.privacy_class <> 'public' then 'restricted' else s.status end as route_status
+            from legal_v2.form_sources s
+           where s.page_id = ${ref.pageId} and s.subject_kind = 'capture' and s.is_latest
+           order by ${ROUTE_ORDER_SQL}, s.binding_id limit 1`;
+
+/** The form named directly or by its preferred public page route. */
 export const resolveFormRef = async (
   db: Db,
   documentId: string
@@ -155,30 +174,13 @@ export const resolveFormRef = async (
   const ref = parseDocumentRef(documentId);
   if (ref.kind === 'invalid') return ok(null);
   try {
-    const result =
-      ref.kind === 'form'
-        ? await sql<{ form_id: string; act_id: string }>`
-            select f.form_id::text as form_id, f.act_id::text as act_id
-              from legal_v2.forms f
-              join legal_v2.acts a on a.act_id = f.act_id and a.privacy_class = 'public'
-             where f.form_id = ${ref.formId}::bigint and f.privacy_class = 'public'
-          `.execute(db)
-        : await sql<{ form_id: string; act_id: string }>`
-            -- The page's PREFERRED route's newest capture, held or not: a held
-            -- afis route answers nothing rather than another route's form.
-            with pick as (
-              select s.form_id, s.status, s.privacy_class
-                from legal_v2.form_sources s
-               where s.page_id = ${ref.pageId} and s.subject_kind = 'capture' and s.is_latest
-               order by ${ROUTE_ORDER_SQL}, s.binding_id
-               limit 1
-            )
-            select f.form_id::text as form_id, f.act_id::text as act_id
-              from pick
-              join legal_v2.forms f on f.form_id = pick.form_id and f.privacy_class = 'public'
-              join legal_v2.acts a on a.act_id = f.act_id and a.privacy_class = 'public'
-             where pick.status = 'bound' and pick.privacy_class = 'public'
-          `.execute(db);
+    const result = await sql<{ form_id: string; act_id: string }>`
+      select f.form_id::text as form_id, f.act_id::text as act_id
+        from (${documentFormPickSql(ref)}) pick
+        join legal_v2.forms f on f.form_id = pick.form_id and f.privacy_class = 'public'
+        join legal_v2.acts a on a.act_id = f.act_id and a.privacy_class = 'public'
+       where pick.route_status = 'bound'
+    `.execute(db);
     const row = result.rows[0];
     return ok(row === undefined ? null : { formId: row.form_id, actId: row.act_id });
   } catch (error) {

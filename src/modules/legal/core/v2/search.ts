@@ -214,6 +214,10 @@ export interface LegalV2HitVerifier {
  */
 export interface VerifiedUse {
   readonly use: V2HitUse;
+  readonly composed: boolean;
+  /** Verified UTF-16 range in the served form. The index use is unit-local. */
+  readonly charStart: number;
+  readonly charEnd: number;
   readonly servedForm: LegalVersionProvenance;
   /** The parser's address of the provision (null when withheld). */
   readonly address: string | null;
@@ -440,12 +444,14 @@ export const searchLegalV2Engine = async (
         status: act.status,
         documentId,
         // From the verified occurrence, never from the index's first use.
-        sectionKey: v.address ?? `seq:${String(v.use.provisionSeq ?? '')}`,
+        sectionKey: v.composed
+          ? `unit:${v.use.unitId}:seq:${String(v.use.provisionSeq)}`
+          : (v.address ?? `seq:${String(v.use.provisionSeq)}`),
         articleNumber: null,
         nodeLabel: v.label,
         nodePath: v.address,
-        charStart: v.use.charStart,
-        charEnd: v.use.charEnd,
+        charStart: v.charStart,
+        charEnd: v.charEnd,
         snippet: v.sameWording ? h.snippet : null,
         portalDeepLink: `${deps.clientBaseUrl}/legislation/acts/${actId}?doc=${encodeURIComponent(JSON.stringify(documentId))}`,
         score: h.score,

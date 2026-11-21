@@ -214,6 +214,9 @@ describe('searchLegalV2Engine', () => {
                       c.key,
                       {
                         use,
+                        composed: false,
+                        charStart: 21,
+                        charEnd: 24,
                         // The verified occurrence's own facts.
                         address: `art:v${use.formId}`,
                         label: 'Articolul verificat',
@@ -256,6 +259,7 @@ describe('searchLegalV2Engine', () => {
     expect(
       value.sections.map((s) => [s.actId, s.sectionKey, s.nodeLabel, s.documentId, s.snippet])
     ).toEqual([['3', 'art:v77', 'Articolul verificat', 'f77', '<em>art:4</em>']]);
+    expect(value.sections[0]).toMatchObject({ charStart: 21, charEnd: 24 });
     expect(value.sections[0]?.portalDeepLink).toBe(
       `https://t/legislation/acts/3?doc=${encodeURIComponent('"f77"')}`
     );

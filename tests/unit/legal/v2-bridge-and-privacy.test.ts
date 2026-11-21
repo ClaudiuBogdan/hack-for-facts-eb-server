@@ -13,10 +13,8 @@ import { makeLegalActsRepo } from '@/modules/legal/shell/repo/acts-repo.js';
 import { makeLegalActsRepoV2 } from '@/modules/legal/shell/repo/v2/acts-repo-v2.js';
 import { makeLegalOutlineRepoV2 } from '@/modules/legal/shell/repo/v2/outline-v2.js';
 import {
-  decideV2Render,
   makeLegalRenderRepoV2,
   makeLegalRenderSourceV2,
-  type V2RenderFacts,
 } from '@/modules/legal/shell/repo/v2/render-v2.js';
 
 import { makeCapturingDb, type CapturedQuery } from '../../fixtures/capturing-db.js';
@@ -177,7 +175,7 @@ describe('privacy: every legal_v2 read filters public rows', () => {
     const captured: CapturedQuery[] = [];
     const db = makeCapturingDb(captured, {
       respond: (sql) => {
-        if (sql.includes('from legal_v2.forms f') && sql.includes('form_kind')) return [FORM_ROW];
+        if (sql.includes('as act_ended') && sql.includes('gate.readable')) return [FORM_ROW];
         if (sql.includes('as form_id, f.act_id::text as act_id'))
           return [{ form_id: '9', act_id: '7' }];
         return [];
@@ -230,24 +228,26 @@ describe('privacy: every legal_v2 read filters public rows', () => {
       portal_label_date: '2024-03-01',
       portal_order_date: '2024-03-01',
       receipt_id: '55',
-      current_public: true,
+      status: 'served',
+      public_chunks: 1,
       published_at: '2026-11-19T10:00:00+00:00',
-    },
-    facts: { units: 1, whole_units: 1, missing_body: 0, component_restricted: false },
-    unit: {
-      public: true,
-      render_state: 'text_only',
       text_sha256: 'e'.repeat(64),
       compiler_version: null,
       body_sha256: 'b'.repeat(64),
       parse_build_id: 'p',
       content_parser_version: 'v9',
-      fidelity_flags: ['text_only_no_structure_compiled'],
+      source_url: 'https://legislatie.just.ro/Public/DetaliiDocumentAfis/1',
     },
-    source_url: 'https://legislatie.just.ro/Public/DetaliiDocumentAfis/1',
-    chunks: [{ chunk_seq: 0, char_start: 0, char_end: 5, public: true, body: 'Text.' }],
-    links: [],
-    assets: [],
+    components: [
+      {
+        ordinal: 0,
+        render_state: 'text_only',
+        fidelity_flags: ['text_only_no_structure_compiled'],
+        chunks: [{ chunk_seq: 0, char_start: 0, char_end: 5, body: 'Text.' }],
+        links: [],
+        assets: [],
+      },
+    ],
     ...over,
   });
   const sourceOver = (row: Record<string, unknown>) =>
@@ -255,18 +255,10 @@ describe('privacy: every legal_v2 read filters public rows', () => {
       makeCapturingDb([], { respond: (sql) => (sql.includes('with pick as') ? [row] : []) })
     );
 
-  it('answers 403 when the composition, a component or a chunk is restricted', async () => {
-    const base = bodyRow();
-    for (const row of [
-      bodyRow({ head: { ...(base['head'] as object), current_public: false } }),
-      bodyRow({ facts: { ...(base['facts'] as object), component_restricted: true }, unit: null }),
-      bodyRow({
-        chunks: [{ chunk_seq: 0, char_start: 0, char_end: 5, public: false, body: null }],
-      }),
-    ]) {
-      const res = await sourceOver(row).read('f9', 0);
-      expect(res._unsafeUnwrapErr()).toMatchObject({ reason: 'render_restricted' });
-    }
+  it('returns the restriction verdict before inspecting any component', async () => {
+    const row = bodyRow({ head: { form_id: '9', status: 'restricted' }, components: [] });
+    const res = await sourceOver(row).read('f9', 0);
+    expect(res._unsafeUnwrapErr()).toMatchObject({ reason: 'render_restricted' });
   });
 
   it('answers 404 for a restricted page route, and never another route for a held one', async () => {
@@ -299,10 +291,7 @@ describe('privacy: every legal_v2 read filters public rows', () => {
 
   it('keeps the outline to the public provisions of public units', async () => {
     const captured: CapturedQuery[] = [];
-    const db = makeCapturingDb(captured, {
-      respond: (sql) =>
-        sql.includes('as form_id, f.act_id::text as act_id') ? [{ form_id: '9', act_id: '7' }] : [],
-    });
+    const db = makeCapturingDb(captured);
     const res = await makeLegalOutlineRepoV2(db).outline({
       documentId: 'f9',
       maxDepth: 7,
@@ -316,61 +305,10 @@ describe('privacy: every legal_v2 read filters public rows', () => {
   });
 });
 
-describe('the render decision: privacy first, then shape', () => {
-  const facts: V2RenderFacts = {
-    published: true,
-    currentPublic: true,
-    anyComponentRestricted: false,
-    anyChunkRestricted: false,
-    units: 1,
-    wholeUnits: 1,
-    missingBody: 0,
-    publicChunks: 1,
-    formKind: 'original',
-    portalLabelRaw: null,
-    portalLabelDate: null,
-    sourceBound: true,
-  };
-
-  it('serves one public whole unit with a bound source', () => {
-    expect(decideV2Render(facts)).toBe('served');
-  });
-
-  it('reports restriction before any composition status', () => {
-    expect(decideV2Render({ ...facts, units: 2, anyComponentRestricted: true })).toBe('restricted');
-    expect(decideV2Render({ ...facts, missingBody: 1, anyChunkRestricted: true })).toBe(
-      'restricted'
-    );
-    expect(decideV2Render({ ...facts, currentPublic: false })).toBe('restricted');
-  });
-
-  it('names each shape it does not serve', () => {
-    expect(decideV2Render({ ...facts, published: false })).toBe('not_loaded');
-    expect(decideV2Render({ ...facts, publicChunks: 0 })).toBe('not_loaded');
-    expect(decideV2Render({ ...facts, wholeUnits: 0 })).toBe('composition_not_served');
-    expect(decideV2Render({ ...facts, missingBody: 1 })).toBe('composition_not_served');
-    expect(decideV2Render({ ...facts, units: 2, wholeUnits: 1 })).toBe('composition_not_served');
-    expect(decideV2Render({ ...facts, sourceBound: false })).toBe('source_not_bound');
-  });
-
-  it('never serves a consolidation without the Portal label or its date (LEG-X3AV)', () => {
-    expect(decideV2Render({ ...facts, formKind: 'consolidation' })).toBe('label_missing');
-    expect(
-      decideV2Render({ ...facts, formKind: 'consolidation', portalLabelDate: '2024-03-01' })
-    ).toBe('served');
-    expect(decideV2Render({ ...facts, formKind: 'consolidation', portalLabelRaw: 'Forma' })).toBe(
-      'served'
-    );
-  });
-});
-
 describe('the outline has the render gate', () => {
   it('reads only a public act, form, published composition and unrestricted chunks', async () => {
     const captured: CapturedQuery[] = [];
-    const db = makeCapturingDb(captured, {
-      respond: (sql) =>
-        sql.includes('as form_id, f.act_id::text as act_id') ? [{ form_id: '9', act_id: '7' }] : [],
-    });
+    const db = makeCapturingDb(captured);
     await makeLegalOutlineRepoV2(db).outline({ documentId: 'f9', maxDepth: 7, page: { first: 5 } });
     const statement = (
       captured.map((q) => q.sql).find((s) => s.includes('unit_provisions')) ?? ''
@@ -378,16 +316,11 @@ describe('the outline has the render gate', () => {
     expect(statement).toContain(
       "join legal_v2.acts a on a.act_id = f.act_id and a.privacy_class = 'public'"
     );
-    expect(statement).toContain(
-      "join legal_v2.form_current fc on fc.form_id = f.form_id and fc.privacy_class = 'public'"
-    );
+    expect(statement).toContain("fc.privacy_class <> 'public'");
     expect(statement).toContain("ur.privacy_class <> 'public'");
-    expect(statement).toContain(
-      'not exists (select 1 from comps where not comps.public or comps.chunk_restricted)'
-    );
-    expect(statement).toContain(
-      "not exists (select 1 from comps where comps.slot = 'missing_body')"
-    );
+    expect(statement).toContain('s.component_slot = c.slot');
+    expect(statement).toContain('f.portal_label_date is null');
+    expect(statement).toContain('and gate.readable');
   });
 });
 
@@ -399,16 +332,10 @@ describe('render availability over GraphQL', () => {
     portal_label_date: null,
     receipt_id: '5',
     published_at: '2026-11-19T10:00:00+00:00',
-    current_public: true,
-    units: 1,
-    whole_units: 1,
-    missing_body: 0,
-    component_restricted: false,
+    status: 'served',
     text_sha256: 'e',
     compiler_version: 'c',
     public_chunks: 1,
-    chunk_restricted: false,
-    source_bound: true,
     ...over,
   });
   const infoOver = async (row: Record<string, unknown>) =>
@@ -430,7 +357,7 @@ describe('render availability over GraphQL', () => {
   });
 
   it('withholds hash, compiler, time and count of a restricted form', async () => {
-    expect(await infoOver(infoRow({ chunk_restricted: true }))).toEqual({
+    expect(await infoOver(infoRow({ status: 'restricted' }))).toEqual({
       documentId: 'f9',
       renderStatus: 'content_unavailable',
       privacyClass: 'restricted',

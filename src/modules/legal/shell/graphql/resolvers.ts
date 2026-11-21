@@ -11,7 +11,7 @@
  * does not drop a value.
  */
 
-import { GraphQLError } from 'graphql';
+import { GraphQLError, Kind, type GraphQLResolveInfo } from 'graphql';
 
 import {
   GRAPHQL_ERROR_CODE,
@@ -227,11 +227,14 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
 
   // Render availability, batched: an act page lists its whole version cluster,
   // so an unbatched resolver would be one generation lookup per document.
-  const renderInfoLoader = makeBatchLoader<LegalRenderInfo | null>(async (documentIds) => {
-    const res = await render.renderInfoForDocuments(documentIds);
-    if (res.isErr()) throw toGraphqlError(res.error);
-    return res.value;
-  }, null);
+  const makeRenderInfoLoader = (includeTextHash: boolean) =>
+    makeBatchLoader<LegalRenderInfo | null>(async (ids) => {
+      const res = await render.renderInfoForDocuments(ids, includeTextHash);
+      if (res.isErr()) throw toGraphqlError(res.error);
+      return res.value;
+    }, null);
+  const renderInfoLoader = makeRenderInfoLoader(true);
+  const renderStatusLoader = makeRenderInfoLoader(false);
 
   /** An act with no provenance row (dangling id) still answers honestly. */
   const provenanceOrUnknown = (prov: LegalVersionProvenance | null): LegalVersionProvenance =>
@@ -640,7 +643,23 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
     LegalDocument: {
       // null = never compiled. The artifact body is NOT served here — only the
       // availability card; the body travels over the cacheable REST route.
-      render: async (parent: LegalDocument) => renderInfoLoader.load(parent.documentId),
+      render: async (
+        parent: LegalDocument,
+        _args: unknown,
+        _ctx: unknown,
+        info?: GraphQLResolveInfo
+      ) => {
+        // The version list requests status/count. Avoid folding every pair in the act.
+        // A fragment can select the SHA under any alias, so use the full read for fragments.
+        const needsHash =
+          info?.fieldNodes.some(
+            (node) =>
+              node.selectionSet?.selections.some(
+                (s) => s.kind !== Kind.FIELD || s.name.value === 'textSha256'
+              ) === true
+          ) ?? true;
+        return (needsHash ? renderInfoLoader : renderStatusLoader).load(parent.documentId);
+      },
     },
 
     LegalReferenceEdge: {
