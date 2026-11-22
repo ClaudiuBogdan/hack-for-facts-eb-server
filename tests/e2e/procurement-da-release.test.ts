@@ -817,12 +817,18 @@ describe('unfiltered supplier totals from the all-time per-party table (PROC-AP7
       await sql`update procurement_v3.da_release set supplier_party_rollup_for = data_as_of`.execute(
         db
       );
+      for (const [index, [page, pageSize]] of PAGES.entries()) {
+        statements.length = 0;
+        const answer = await daPurchaseTotals(
+          { repo: makeDaReleaseRepo(logged, true) },
+          { groupBy: 'supplier', filter: {}, page, pageSize }
+        );
+        expect(answer, `page ${String(page)}`).toEqual(purchases[index]);
+        expect(statements.some(allTime), `page ${String(page)}`).toBe(true);
+        expect(statements.some(month), `page ${String(page)}`).toBe(false);
+      }
       statements.length = 0;
-      await battery();
-      expect(statements.some(allTime)).toBe(true);
-      expect(statements.some(month)).toBe(false);
-      statements.length = 0;
-      await daPurchaseTotals(
+      const ranged = await daPurchaseTotals(
         { repo: makeDaReleaseRepo(logged, true) },
         {
           groupBy: 'supplier',
@@ -831,6 +837,7 @@ describe('unfiltered supplier totals from the all-time per-party table (PROC-AP7
           pageSize: 100,
         }
       );
+      expect(ranged.isOk()).toBe(true);
       expect(statements.some(allTime)).toBe(false);
       expect(statements.some(month)).toBe(true);
       await sql`update procurement_v3.da_release
@@ -913,6 +920,26 @@ describe('unfiltered supplier totals from the all-time per-party table (PROC-AP7
         ['natural_person', '10.00'],
       ]);
       expect((await pageOf(1, 1))[0]).toEqual(['company', '10.00']);
+      // (The fixture view names one supplier, so a tie between two named groups cannot be built
+      // here: a disclosed row the view does not name is refused, as tested above.)
+      // Every group with purchases but nothing counted has no value, named and withheld alike.
+      await sql`update procurement_v3.da_rollup_supplier_party
+        set counted_purchases = 0, counted_symbolic_purchases = 0, counted_value = 0`.execute(db);
+      const uncounted = (
+        await daPurchaseTotals(
+          { repo: makeDaReleaseRepo(logged, true) },
+          { groupBy: 'supplier', filter: {}, page: 1, pageSize: 100 }
+        )
+      )._unsafeUnwrap();
+      expect(uncounted.overall.countedValue).toBeNull();
+      expect(
+        uncounted.groups.map((group) => [group.party?.displayKind ?? null, group.countedValue])
+      ).toEqual([
+        // No values: by purchases (the no-supplier row kept its count), then the tie as above.
+        [null, null],
+        ['company', null],
+        ['natural_person', null],
+      ]);
       await sql`delete from procurement_v3.da_rollup_supplier_party`.execute(db);
       await sql`insert into procurement_v3.da_rollup_supplier_party select * from procurement_v3.f_all_time`.execute(
         db
