@@ -130,6 +130,22 @@ describe('value fields per contract case', () => {
     expect(served(row(9))).toMatchObject({ symbolicPrice: true, countedValue: '0.01' });
   });
 
+  it('serves a delisted purchase (removed_from_portal, D3) with its labels instead of refusing it', () => {
+    const delisted = served({
+      ...row(6),
+      outcome: 'accepted',
+      counted: false,
+      countedValue: null,
+      notCountedReason: 'removed_from_portal',
+      listedNow: false,
+    });
+    expect(delisted.notCountedReason).toEqual({
+      code: 'removed_from_portal',
+      labelEn: 'The purchase is no longer on any portal list.',
+      labelRo: 'Achiziția nu mai apare în nicio listă a portalului.',
+    });
+  });
+
   it('labels every reason in both languages', () => {
     for (const reason of DA_NOT_COUNTED_REASONS) {
       expect(DA_NOT_COUNTED_REASON_LABELS[reason].en.length).toBeGreaterThan(0);

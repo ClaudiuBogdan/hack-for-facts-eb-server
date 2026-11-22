@@ -42,6 +42,7 @@ export const DA_NOT_COUNTED_REASONS = [
   'state_disagrees',
   'finalization_day_disagrees',
   'value_disagrees',
+  'removed_from_portal',
 ] as const;
 export type DaNotCountedReasonCode = (typeof DA_NOT_COUNTED_REASONS)[number];
 
@@ -77,6 +78,11 @@ export const DA_NOT_COUNTED_REASON_LABELS: Readonly<
   state_disagrees: DISAGREES,
   finalization_day_disagrees: DISAGREES,
   value_disagrees: DISAGREES,
+  // D3 (20 Nov 2026): delisted purchases; the platform sets it before every other reason.
+  removed_from_portal: {
+    en: 'The purchase is no longer on any portal list.',
+    ro: 'Achiziția nu mai apare în nicio listă a portalului.',
+  },
 };
 
 export const DA_RULE_EFFECTS = ['correct', 'exclude', 'keep'] as const;
