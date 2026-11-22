@@ -44,9 +44,10 @@ only what the API adds or decides.
   - `supplier_disclosure` (`fiscal_code_clean`, `supplier_id`): the disclosed suppliers (public companies). The
     kernel D6 port reads it whole; the rollups join it on `supplier_id`.
   - `da_parties_public` (`source_name`, `party_kind`, `portal_party_id`, `fiscal_code_clean`,
-    `fiscal_code_status`, `name_as_written`): every buyer, and a supplier only when its code is disclosed, with
-    `name_as_written` NULL for suppliers. A buyer whose code the classifier calls non-company has its code and
-    name NULL. A purchase whose supplier party id is set but has no row here has a withheld supplier.
+    `fiscal_code_status`, `name_as_written`): every buyer with its code and name (owner, 2026-11-22: buyers are
+    shown in full, migration 20261121T090070), and a supplier only when its code is disclosed, with
+    `name_as_written` NULL for suppliers. A purchase whose supplier party id is set but has no row here has a
+    withheld supplier.
   - `party_public_names` (`fiscal_code_clean`, `registry_name`, `buyer_name_public`, `supplier_name_public`): a
     named supplier's name is its registry name where `supplier_name_public`, looked up by the page's codes only
     (`fiscal_code_clean = any($1)`, never joined or scanned).

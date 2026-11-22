@@ -18,6 +18,7 @@
  */
 
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
+import { Decimal } from 'decimal.js';
 import { Kysely, PostgresDialect, sql } from 'kysely';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it as vitestIt } from 'vitest';
@@ -663,9 +664,19 @@ describe('rollups answer exactly as the live rows', () => {
             ? []
             : [[index, result._unsafeUnwrapErr().type, result._unsafeUnwrapErr().message]];
         });
-      // Some scope × shape pairs are refused by design (InvalidInput); nothing else may fail.
-      expect(failures(live).filter(([, type]) => type !== 'InvalidInput')).toEqual([]);
-      expect(failures(live).length).toBeLessThan(live.length / 2);
+      // Some scope × shape pairs are refused by design: a distinct count or a breakdown over a key
+      // the scope already fixes. Exactly those, and nothing else, may fail.
+      const refused = failures(live);
+      expect(
+        refused.filter(
+          ([, type, message]) =>
+            type !== 'InvalidInput' ||
+            !/requires the measured key \w+ to remain free|is already fixed by the \w+ scope|concentration requires \w+ to remain free/u.test(
+              String(message)
+            )
+        )
+      ).toEqual([]);
+      expect(refused).toHaveLength(61);
       for (let index = 0; index < live.length; index += 1)
         expect({ index, answer: rolled[index] }).toEqual({ index, answer: live[index] });
       // The rollups were read, not just present.
@@ -740,23 +751,36 @@ describe('rollups answer exactly as the live rows', () => {
       });
       for (let index = 0; index < live.length; index += 1)
         expect({ index, answer: zeroed[index] }).toEqual({ index, answer: live[index] });
-      // Even a non-zero row under a restricted code (the build STOPs on it) is withheld on read.
+      // Even a non-zero row under a restricted code (the build STOPs on it) is withheld on read:
+      // its 3 purchases and 30 lei land in the one natural_person bucket, under no key of its own.
+      const withheldBucket = async () => {
+        const answer = await analysisBreakdown(
+          {
+            analysisRepo: makeDaRoutingAnalysisRepo(
+              makeUnconfiguredAnalysisRepo(),
+              makeDaV3AnalysisSource(logged)
+            ),
+          },
+          { scope: { ...DA, year: 2025 }, dimension: 'supplier', topN: 10 }
+        );
+        noLeak(answer);
+        const buckets = answer._unsafeUnwrap()[0]?.buckets ?? [];
+        const bucket = buckets.find((b) => b.key === 'natural_person');
+        return {
+          keys: buckets.map((b) => b.key),
+          records: BigInt(bucket?.recordCount ?? '-1'),
+          value: new Decimal(bucket?.valueSum ?? '0'),
+        };
+      };
+      const before = await withheldBucket();
       await sql`insert into procurement_v3.da_rollup_supplier_month
         (supplier_ref, month, purchases, counted_purchases, counted_value, symbolic_purchases)
         values (${flipped}::bigint, '2025-02-01', 3, 3, 30, 0)`.execute(db);
-      const guarded = await analysisBreakdown(
-        {
-          analysisRepo: makeDaRoutingAnalysisRepo(
-            makeUnconfiguredAnalysisRepo(),
-            makeDaV3AnalysisSource(logged)
-          ),
-        },
-        { scope: { ...DA, year: 2025 }, dimension: 'supplier', topN: 10 }
-      );
-      noLeak(guarded);
-      expect(
-        guarded._unsafeUnwrap()[0]?.buckets.some((bucket) => bucket.key === 'natural_person')
-      ).toBe(true);
+      const guarded = await withheldBucket();
+      expect(before.records).toBeGreaterThan(0n);
+      expect(guarded.keys).toEqual(before.keys);
+      expect(guarded.records - before.records).toBe(3n);
+      expect(guarded.value.minus(before.value).toFixed(2)).toBe('30.00');
     } finally {
       await logged.destroy();
     }
@@ -859,10 +883,20 @@ describe('rollups answer exactly as the live rows', () => {
       )
       .execute(db);
     if (container === undefined) throw new Error('no container');
+    // The published quality columns are read as the API's login under the approved grants.
+    await sql`grant select (rows, dated, counted, accepted, with_cpv, with_geo, money, money_dated, money_geo)
+      on procurement_v3.da_release to procurement_api_read`.execute(db);
     const statements: string[] = [];
     const logged = new Kysely<ProdDatabase>({
       dialect: new PostgresDialect({
-        pool: new pg.Pool({ connectionString: container.getConnectionUri(), max: 1 }),
+        pool: new pg.Pool({
+          host: container.getHost(),
+          port: container.getPort(),
+          database: container.getDatabase(),
+          user: API_LOGIN,
+          password: API_LOGIN,
+          max: 1,
+        }),
       }),
       log: (event) => {
         if (event.level === 'query') statements.push(event.query.sql);
