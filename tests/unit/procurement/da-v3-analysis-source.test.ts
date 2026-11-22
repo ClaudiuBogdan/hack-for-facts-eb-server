@@ -92,7 +92,8 @@ describe('snapshots', () => {
     const { captured, isolation } = await run((s) => s.statsFor(ROUTE, AUTHORITY, GEN));
     expect(isolation).toEqual(['repeatable read']);
     expect(captured[0]?.sql).toBe('set transaction read only');
-    expect(captured[2]?.sql).toContain('as build_id');
+    expect(captured[2]?.sql).toBe('set local jit = off');
+    expect(captured[3]?.sql).toContain('as build_id');
   });
 
   it('refuses a read when the publication moved since the request resolved it', async () => {
@@ -123,28 +124,94 @@ describe('D6', () => {
     );
   });
 
-  it('keys rollup suppliers by supplier_disclosure, with no public predicate', async () => {
-    const { sql } = await run(
+  it('keys rollup suppliers by supplier_disclosure, joined only after summing per supplier', async () => {
+    const { data } = await run(
       (s) => s.breakdownFor(ROUTE, AUTHORITY, GEN, 'supplier', 10, 'value'),
       { rollups: ['da_rollup_authority_supplier_month'] }
     );
-    expect(sql).toContain('from "procurement_v3"."da_rollup_authority_supplier_month" r');
-    expect(sql).toMatch(
-      /left join lateral \(select x\.fiscal_code_clean from "procurement_v3"\."supplier_disclosure" x\s+where x\.supplier_id = r\.supplier_ref offset 0\) sv on true/u
+    const joined = data.filter((text) => text.includes('supplier_disclosure'));
+    // Only the ranked groups meet the view: the totals and the unknown bucket read the rollup alone.
+    expect(joined).toHaveLength(1);
+    expect(data.find((text) => text.includes('as rows'))).not.toContain(' sv');
+    const unknown = data.find(
+      (text) => text.includes('as cnt') && text.includes('supplier_ref is null')
     );
-    expect(sql).toContain('(r.supplier_ref > 0 and sv.fiscal_code_clean is not null)');
-    expect(sql).not.toMatch(/\bpublic is\b/u);
-    expect(sql).not.toContain('supplier_privacy');
+    expect(unknown).toContain('from "procurement_v3"."da_rollup_authority_supplier_month" r');
+    expect(unknown).not.toContain('supplier_disclosure');
+    // PROC-C4HN: the rollup rows are summed per supplier_ref first; the view is joined to the sums.
+    expect(joined[0]).toMatch(
+      /from \(select null::text as bucket,\s+r\.supplier_ref,[\s\S]*from "procurement_v3"\."da_rollup_authority_supplier_month" r\s+where [\s\S]*group by 1, 2\) r\s+left join lateral \(select x\.fiscal_code_clean from "procurement_v3"\."supplier_disclosure" x\s+where x\.supplier_id = r\.supplier_ref offset 0\) sv on true/u
+    );
+    // The whole release's sums (a window, no bucket) take one plain join instead.
+    const whole = await run(
+      (s) =>
+        s.breakdownFor(
+          ROUTE,
+          { grain: 'direct_acquisition', year: 2025 },
+          GEN,
+          'supplier',
+          10,
+          'value'
+        ),
+      { rollups: ['da_rollup_supplier_month'] }
+    );
+    const wholeJoined = whole.data.filter((text) => text.includes('supplier_disclosure'));
+    expect(wholeJoined).toHaveLength(1);
+    expect(wholeJoined[0]).toMatch(
+      /group by 1, 2\) r\s+left join "procurement_v3"\."supplier_disclosure" sv on sv\.supplier_id = r\.supplier_ref/u
+    );
+    expect(wholeJoined[0]).not.toContain('lateral');
+    expect(joined[0]).toContain(
+      'when r.supplier_ref > 0 and sv.fiscal_code_clean is not null then sv.fiscal_code_clean'
+    );
+    expect(joined[0]).not.toMatch(/\bpublic is\b/u);
+    expect(joined[0]).not.toContain('supplier_privacy');
   });
 
-  it('scopes a rollup supplier through supplier_disclosure only', async () => {
+  it('sums concentration and distinct-supplier series per supplier before the view', async () => {
+    const concentration = await run((s) => s.concentrationFor(ROUTE, AUTHORITY, GEN, 'value'), {
+      rollups: ['da_rollup_authority_supplier_month'],
+    });
+    const g = concentration.data.find((text) => text.includes('as supplier_count'));
+    expect(g).toMatch(/group by 1, 2\) r\s+left join lateral \(select x\.fiscal_code_clean/u);
+    expect(concentration.data.find((text) => text.includes('as rows'))).not.toContain(
+      'supplier_disclosure'
+    );
+    const series = await run(
+      (s) => s.distinctSeriesFor(ROUTE, AUTHORITY, GEN, 'supplier', 'quarter'),
+      { rollups: ['da_rollup_authority_supplier_month'] }
+    );
+    const read = series.data.find((text) => text.includes('count(distinct'));
+    // Bucketed inside the sums (by the rollup month), selected outside by that column.
+    expect(read).toMatch(
+      /from \(select to_char\(r\.month, 'YYYY'\)[\s\S]*as bucket,\s+r\.supplier_ref/u
+    );
+    expect(read).toMatch(
+      /select r\.bucket as bucket,\s+count\(distinct case when r\.supplier_ref is null/u
+    );
+  });
+
+  it('scopes a rollup supplier through supplier_disclosure only, never joining it', async () => {
     const { sql } = await run(
       (s) => s.statsFor(ROUTE, { grain: 'direct_acquisition', supplierCui: '14399840' }, GEN),
       { rollups: ['da_rollup_supplier_month'] }
     );
     expect(sql).toMatch(
-      /r\.supplier_ref = \(select sp\.supplier_id from "procurement_v3"\."supplier_disclosure" sp\s+where sp\.fiscal_code_clean = \$\d+\) and \(r\.supplier_ref > 0/u
+      /r\.supplier_ref > 0 and r\.supplier_ref = \(select sp\.supplier_id from "procurement_v3"\."supplier_disclosure" sp\s+where sp\.fiscal_code_clean = \$\d+\)/u
     );
+    expect(sql).not.toMatch(/\bsv\b/u);
+  });
+
+  it('withholds every rollup supplier without supplier_disclosure, joining nothing', async () => {
+    const { data } = await run(
+      (s) => s.breakdownFor(ROUTE, AUTHORITY, GEN, 'supplier', 10, 'value'),
+      { rollups: ['da_rollup_authority_supplier_month'], privacy: false }
+    );
+    const top = data.find((text) => text.includes('limit'));
+    expect(top).toContain('case when r.supplier_ref is null then null else $');
+    // Nothing names the unjoined view alias.
+    expect(data.join('\n')).not.toMatch(/\bsv\./u);
+    expect(data.join('\n')).not.toContain('supplier_disclosure');
   });
 
   it('withholds every supplier without supplier_disclosure', async () => {

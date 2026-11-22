@@ -318,11 +318,16 @@ money_geo.
     fenced with `offset 0` (22 ms; a lookup 0.23 ms); whole-table aggregates (totals, quality) keep the plain join.
     A records page without a geography scope is chosen from `da_purchases` alone, ordered and limited, and only its
     rows are probed (a supplier with 514k purchases: 4.7 s, was 10.9 s);
-  - the rollups reach `supplier_disclosure` the same way, by a fenced lateral probe on `supplier_id` (a plain join
-    merge-joins over an index scan of the whole rollup). Supplier breakdowns over rollups are still slower than over
-    the old base table (2025: 1.7 s vs 0.6 s; all years: 6.2 s vs 2.8 s). The cause is this statement's shape (join
-    before aggregate, with a month range and the planner's default estimate through the barrier), not the view:
-    aggregating by supplier_ref first, then joining, ran in about 1 s (procurement-prod). Tracked as PROC-C4HN;
+  - a rollup never joins a party view to its rows (PROC-C4HN). A supplier scope matches `supplier_ref` against the id
+    `supplier_disclosure` holds for the code; totals and the unknown bucket read the rollup alone. A supplier-keyed
+    aggregate (breakdown, concentration, distinct suppliers) sums the scope's rollup rows per `supplier_ref` (and
+    bucket) first, then meets the view: one plain hash join for the whole release's unbucketed sums, a fenced
+    lateral probe per sum for a scoped or bucketed read. DA v3 reads run with JIT off: the join estimates through
+    the barrier views are thousands of times too high, so short reads paid about 220 ms compiling. On prod (22 Nov,
+    dev API pod, answers identical to c648184c in 28 of 28 reads): supplier breakdown, all years 6.4 s → 1.2 s,
+    2025 1.6 s → 0.4 s; concentration, all years 4.9 s → 1.1 s, 2025 1.2 s → 0.45 s; distinct suppliers by quarter,
+    2025 1.1 s → 0.7 s. Scoped reads (an authority, CPV 45) stay at 50–500 ms. All-years distinct suppliers by
+    quarter still takes 5.5 s (was 6.9 s): `da_rollup_distinct` holds no quarters;
   - a supplier filter is the party-id match alone: the view holds a supplier row only for a disclosed code, and the
     subquery requires a valid status and an equal, non-null code on the same unique party key, so no row probes `s`
     to filter;

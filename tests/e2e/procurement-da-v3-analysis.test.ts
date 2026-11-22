@@ -849,6 +849,30 @@ describe('rollups answer exactly as the live rows', () => {
       expect(guarded.keys).toEqual(before.keys);
       expect(guarded.records - before.records).toBe(3n);
       expect(guarded.value.minus(before.value).toFixed(2)).toBe('30.00');
+      // Without the supplier_disclosure grant the rollups still answer (PROC-C4HN: summed per
+      // supplier, nothing joined) and withhold every supplier: the same requests, and only
+      // they, are refused, and no answer keys or names a supplier.
+      await sql`revoke select on procurement_v3.supplier_disclosure from procurement_api_read`.execute(
+        db
+      );
+      try {
+        const closed = await battery({
+          analysisRepo: makeDaRoutingAnalysisRepo(
+            makeUnconfiguredAnalysisRepo(),
+            makeDaV3AnalysisSource(logged)
+          ),
+        });
+        expect(failures(closed).map(([index]) => index)).toEqual(expectedRefused);
+        for (const answer of closed) {
+          noLeak(answer);
+          expect(JSON.stringify(answer)).not.toContain(`"${COMPANY.fiscalCode ?? ''}"`);
+          expect(JSON.stringify(answer)).not.toContain('"2000002"');
+        }
+      } finally {
+        await sql`grant select on procurement_v3.supplier_disclosure to procurement_api_read`.execute(
+          db
+        );
+      }
     } finally {
       await logged.destroy();
     }

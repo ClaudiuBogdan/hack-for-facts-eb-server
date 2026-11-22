@@ -196,6 +196,9 @@ const snapshot = async <T>(
       .execute(async (trx) => {
         await sql`set transaction read only`.execute(trx);
         await sql`set local statement_timeout = ${sql.lit(timeoutMs)}`.execute(trx);
+        // No JIT: the planner's join estimates through the barrier views run thousands of times
+        // too high, so even a 30 ms read paid about 220 ms compiling (prod, 22 Nov; PROC-C4HN).
+        await sql`set local jit = off`.execute(trx);
         if (expectBuild !== null) {
           const current = await sql<{ build_id: string | null }>`
             select ${BUILD_ID_SQL} as build_id from ${RELEASE}`.execute(trx);
@@ -285,10 +288,13 @@ interface Facts {
   readonly authority: Sql;
   /** Rows of one buyer code. */
   authorityScope(code: string): Sql;
-  /** The supplier's key: public code, natural_person, or NULL (no supplier). */
-  readonly supplierKey: Sql;
-  /** True when the supplier is named under D6 (it has a public party row). */
-  readonly supplierNamed: Sql;
+  /**
+   * The supplier's key: public code, natural_person, or NULL (no supplier). Null on a bare
+   * rollup: its rows carry an opaque supplier_ref, keyed only through `supplierRows`.
+   */
+  readonly supplierKey: Sql | null;
+  /** True when the supplier is named under D6 (it has a public party row); live rows only. */
+  readonly supplierNamed: Sql | null;
   /** Rows of one supplier code, only while it is public. */
   supplierScope(code: string): Sql;
   /** The category code the CPV levels are cut from. */
@@ -340,26 +346,16 @@ const liveFacts = (ctx: Ctx, geo: boolean, pointReads = false): Facts => {
   };
 };
 
+/**
+ * A rollup's rows, never joined to a party: every scope predicate reads the rollup's own columns
+ * (a supplier scope by its supplier_ref), and the supplier key exists only on `supplierRows`.
+ */
 const rollupFacts = (ctx: Ctx, table: string, keys: readonly RollupKey[]): Facts => {
   const withSupplier = keys.includes('supplier') && ctx.privacy;
-  // The rollups hold no fiscal code: supplier_ref is supplier_privacy.supplier_id (0 =
-  // withheld, NULL = no supplier). The code comes from supplier_disclosure in this
-  // snapshot, and only while the supplier is disclosed there (D6 again on read).
-  const named = withSupplier
-    ? sql`(r.supplier_ref > 0 and sv.fiscal_code_clean is not null)`
-    : sql`false`;
   return {
     rollup: table,
     from: sql`
-  from ${daV3Table(table)} r
-  ${
-    withSupplier
-      ? // A fenced lateral probe: a plain join into the barrier view merge-joins over an index
-        // scan of the whole rollup (prod, 22 Nov: year 2025 3.1 s vs 0.9 s; all years 4.1 s vs 3.7 s).
-        sql`left join lateral (select x.fiscal_code_clean from ${PRIVACY_TABLE} x
-            where x.supplier_id = r.supplier_ref offset 0) sv on true`
-      : sql``
-  }`,
+  from ${daV3Table(table)} r`,
     day: sql`r.month`,
     base: sql`r.purchases > 0`,
     rows: (pred) => sql`coalesce(sum(r.purchases) filter (where ${pred}), 0)`,
@@ -367,15 +363,15 @@ const rollupFacts = (ctx: Ctx, table: string, keys: readonly RollupKey[]): Facts
     money: (pred) => sql`sum(r.counted_value) filter (where ${pred} and r.counted_purchases > 0)`,
     authority: sql`r.authority_cui`,
     authorityScope: (code) => sql`r.authority_cui = ${code}`,
-    supplierKey: sql`case when r.supplier_ref is null then null
-        when ${named} then sv.fiscal_code_clean
-        else ${DA_V3_WITHHELD_SUPPLIER_KEY} end`,
-    supplierNamed: named,
-    // A public code's id, looked up once, so the scope uses the rollup's supplier_ref index.
+    supplierKey: null,
+    supplierNamed: null,
+    // A public code's id, looked up once, so the scope uses the rollup's supplier_ref index. The
+    // lookup IS the D6 test: the view holds the id only while the code is disclosed (both its
+    // columns are unique in supplier_privacy, and its ids are positive identities).
     supplierScope: (code) =>
       withSupplier
-        ? sql`r.supplier_ref = (select sp.supplier_id from ${PRIVACY_TABLE} sp
-            where sp.fiscal_code_clean = ${code}) and ${named}`
+        ? sql`r.supplier_ref > 0 and r.supplier_ref = (select sp.supplier_id from ${PRIVACY_TABLE} sp
+            where sp.fiscal_code_clean = ${code})`
         : sql`false`,
     cpv: sql`r.cpv8`,
     county: sql`r.county_code`,
@@ -392,7 +388,9 @@ const dimensionKey = (f: Facts, dimension: string): Result<Sql, ApiError> => {
     case 'authority':
       return ok(f.authority);
     case 'supplier':
-      return ok(f.supplierKey);
+      return f.supplierKey === null
+        ? err(databaseError('a rollup supplier key is read through supplierRows'))
+        : ok(f.supplierKey);
     case 'cpvDivision':
       return ok(sql`case when ${f.cpv} ~ '^[0-9]{2}' then left(${f.cpv}, 2) end`);
     case 'cpvGroup':
@@ -574,6 +572,77 @@ const compile = (
   const { dated, bounded } = windowOn(f.day, scope);
   conds.push(sql`(${dated} or ${f.day} is null)`);
   return ok({ facts: f, where: sql.join(conds, sql` and `), dated, bounded });
+};
+
+/** The view joined to the whole release's per-supplier sums: one hash join over the view. */
+const WHOLE_RELEASE_JOIN = sql`left join ${PRIVACY_TABLE} sv on sv.supplier_id = r.supplier_ref`;
+/** The view probed once per sum (fenced, see `publicPartyLateral`): scoped or bucketed sums. */
+const SUMS_PROBE = sql`left join lateral (select x.fiscal_code_clean from ${PRIVACY_TABLE} x
+      where x.supplier_id = r.supplier_ref offset 0) sv on true`;
+
+/** The rows a supplier-keyed aggregate groups: compiled facts with a supplier key. */
+interface SupplierRows {
+  readonly c: Compiled;
+  readonly key: Sql;
+  /** The bucket of each row (`supplierRows`'s `bucket` column, or the facts' own day). */
+  readonly bucket: (bucket: SeriesBucket) => Sql;
+}
+
+/**
+ * The rows a supplier-keyed aggregate (breakdown, concentration, distinct suppliers) groups.
+ *
+ * Live rows: as compiled, keyed per row. A rollup (PROC-C4HN): the rows matching `filter` are
+ * summed per supplier_ref, and per `bucket` when given, FIRST; only those sums meet the D6 view.
+ * Joining the view to every rollup row cost a merge join, or a probe per row (prod, 22 Nov:
+ * all-years breakdown 6.4 s). Measured on prod per shape (22 Nov, EXPLAIN ANALYZE, JIT off):
+ * the whole release's sums (no scope but a window, no bucket) take one hash join over the view
+ * (all years 1.1 s, 2025 0.32 s; probing each sum 1.7 s and 0.57 s). Scoped or bucketed sums
+ * probe the view per sum (an authority 33 ms against 63 ms; 2025 by quarter 0.7 s against 3.1 s,
+ * where the join planned a merge over the rollup's whole key index).
+ *
+ * The sums keep the rollup's measure columns and alias, so the rollup's own measures read them
+ * unchanged; they have no month (read buckets through `bucket`, never the facts' `day`). Every
+ * row they keep matched `filter`, so the returned `where` and `dated` are `true`; `filter` must
+ * hold `dated` whenever the caller's measures do (a group with no dated rows then never forms,
+ * as `datedHaving` drops it).
+ */
+const supplierRows = (
+  ctx: Ctx,
+  scope: AnalysisScope,
+  c: Compiled,
+  filter: Sql,
+  bucket?: SeriesBucket
+): Result<SupplierRows, ApiError> => {
+  const f = c.facts;
+  if (f.rollup === null) {
+    const key = dimensionKey(f, 'supplier');
+    return key.isErr()
+      ? err(key.error)
+      : ok({ c, key: key.value, bucket: (b) => bucketOf(f.day, b) });
+  }
+  // supplier_ref is supplier_privacy.supplier_id (0 = withheld, NULL = no supplier); the code
+  // comes from supplier_disclosure in this snapshot, only while it is disclosed (D6 on read).
+  // Without that grant nothing is joined and every supplier is withheld (fails closed).
+  const from = sql`
+  from (select ${bucket === undefined ? sql`null::text` : bucketOf(sql`r.month`, bucket)} as bucket,
+               r.supplier_ref,
+               sum(r.purchases) as purchases,
+               sum(r.counted_purchases) as counted_purchases,
+               sum(r.counted_value) filter (where r.counted_purchases > 0) as counted_value
+        ${f.from}
+        where ${filter}
+        group by 1, 2) r
+  ${!ctx.privacy ? sql`` : bucket === undefined && windowOnly(scope) ? WHOLE_RELEASE_JOIN : SUMS_PROBE}`;
+  return ok({
+    c: { ...c, facts: { ...f, from }, where: sql`true`, dated: sql`true` },
+    // `sv` exists only when joined: without the grant the key never names it.
+    key: ctx.privacy
+      ? sql`case when r.supplier_ref is null then null
+        when r.supplier_ref > 0 and sv.fiscal_code_clean is not null then sv.fiscal_code_clean
+        else ${DA_V3_WITHHELD_SUPPLIER_KEY} end`
+      : sql`case when r.supplier_ref is null then null else ${DA_V3_WITHHELD_SUPPLIER_KEY} end`,
+    bucket: () => sql`r.bucket`,
+  });
 };
 
 // ── shared aggregates ────────────────────────────────────────────────────────
@@ -1096,11 +1165,20 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
             if (whole.value.facts.rollup !== null)
               return ok(await distinctFromRollup(ctx, whole.value, scope, dimension, bucket));
           }
-          const c = compile(ctx, scope, dimension);
-          if (c.isErr()) return err(c.error);
-          const f = c.value.facts;
-          const keyExpr = dimensionKey(f, dimension);
-          if (keyExpr.isErr()) return err(keyExpr.error);
+          const compiled = compile(ctx, scope, dimension);
+          if (compiled.isErr()) return err(compiled.error);
+          const scoped = compiled.value;
+          const grouped =
+            dimension === 'supplier'
+              ? supplierRows(ctx, scope, scoped, scoped.where, bucket)
+              : dimensionKey(scoped.facts, dimension).map((key) => ({
+                  c: scoped,
+                  key,
+                  bucket: (b: SeriesBucket) => bucketOf(scoped.facts.day, b),
+                }));
+          if (grouped.isErr()) return err(grouped.error);
+          const { c, key: keyExpr } = grouped.value;
+          const f = c.facts;
           const result = await sql<{
             bucket: string | null;
             value: string;
@@ -1108,13 +1186,13 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
             with_value: string;
             awarded: string | null;
           }>`
-          select ${bucketOf(f.day, bucket)} as bucket,
-                 count(distinct ${keyExpr.value})::text as value,
+          select ${grouped.value.bucket(bucket)} as bucket,
+                 count(distinct ${keyExpr})::text as value,
                  (${f.rows(sql`true`)})::text as record_count,
                  (${f.counted(sql`true`)})::text as with_value,
                  ${countedSum(f, sql`true`)} as awarded
           ${f.from}
-          where ${c.value.where}
+          where ${c.where}
           group by 1
           order by 1 asc nulls last`.execute(ctx.trx);
           return ok(
@@ -1146,20 +1224,31 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
         STATEMENT_TIMEOUT_MS,
         gen.buildId,
         async (ctx) => {
-          const c = compile(ctx, scope, dimension);
-          if (c.isErr()) return err(c.error);
-          const f = c.value.facts;
-          const keyR = dimensionKey(f, dimension);
-          if (keyR.isErr()) return err(keyR.error);
-          const key = keyR.value;
-          const totals = await readStats(ctx, c.value);
-          const { dated, where } = c.value;
+          const compiled = compile(ctx, scope, dimension);
+          if (compiled.isErr()) return err(compiled.error);
+          const scoped = compiled.value;
+          // A supplier breakdown groups supplierRows (on a rollup: summed per supplier first).
+          const grouped =
+            dimension === 'supplier'
+              ? supplierRows(ctx, scope, scoped, sql`${scoped.where} and ${scoped.dated}`)
+              : dimensionKey(scoped.facts, dimension).map((key) => ({ c: scoped, key }));
+          if (grouped.isErr()) return err(grouped.error);
+          const { c, key } = grouped.value;
+          const f = c.facts;
+          const totals = await readStats(ctx, scoped);
+          const { dated, where } = c;
+          // The unknown bucket (no supplier: supplier_ref NULL, the key's first case) is read from
+          // the scope's own rows, so a rollup never joins the view for it.
           const unknownR = await sql<{ cnt: string; wv: string; awarded: string }>`
-          select (${f.rows(dated)})::text as cnt,
-                 (${f.counted(dated)})::text as wv,
-                 ${bucketSum(f, dated)} as awarded
-          ${f.from}
-          where ${where} and (${key}) is null`.execute(ctx.trx);
+          select (${scoped.facts.rows(scoped.dated)})::text as cnt,
+                 (${scoped.facts.counted(scoped.dated)})::text as wv,
+                 ${bucketSum(scoped.facts, scoped.dated)} as awarded
+          ${scoped.facts.from}
+          where ${scoped.where} and ${
+            dimension === 'supplier' && scoped.facts.rollup !== null
+              ? sql`r.supplier_ref is null`
+              : sql`(${key}) is null`
+          }`.execute(ctx.trx);
           const unknown = unknownR.rows[0] ?? { cnt: '0', wv: '0', awarded: '0.00' };
           const valueBearing = BigInt(totals.withValue) - BigInt(unknown.wv);
           const rankedBy: 'value' | 'count' =
@@ -1173,7 +1262,7 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
           ${f.from}
           where ${where} and (${key}) is not null
           group by 1
-          ${datedHaving(c.value)}
+          ${datedHaving(c)}
           order by ${rank} desc, 1 asc
           limit ${Math.max(1, Math.min(topN, TOPN_SIRUTA_MAX))}`.execute(ctx.trx);
           let otherCnt = BigInt(totals.rows) - BigInt(unknown.cnt);
@@ -1220,13 +1309,15 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
         STATEMENT_TIMEOUT_MS,
         gen.buildId,
         async (ctx) => {
-          const c = compile(ctx, scope, 'supplier');
-          if (c.isErr()) return err(c.error);
-          const f = c.value.facts;
-          const keyR = dimensionKey(f, 'supplier');
+          const compiled = compile(ctx, scope, 'supplier');
+          if (compiled.isErr()) return err(compiled.error);
+          const scoped = compiled.value;
+          const keyR = supplierRows(ctx, scope, scoped, sql`${scoped.where} and ${scoped.dated}`);
           if (keyR.isErr()) return err(keyR.error);
-          const totals = await readStats(ctx, c.value);
-          const { dated, where } = c.value;
+          const { c } = keyR.value;
+          const f = c.facts;
+          const totals = await readStats(ctx, scoped);
+          const { dated, where } = c;
           const measure = basis === 'value' ? sql`coalesce(${f.money(dated)}, 0)` : f.rows(dated);
           // Exact: no rounding before core computes shares and HHI.
           const fmt = (x: Sql) => sql`coalesce(${x}, 0)::text`;
@@ -1240,11 +1331,11 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
             unknown: string | null;
           }>`
           with g as (
-            select ${keyR.value} as key, ${measure} as m
+            select ${keyR.value.key} as key, ${measure} as m
             ${f.from}
             where ${where}
             group by 1
-            ${datedHaving(c.value)}
+            ${datedHaving(c)}
           ), pos as (select m from g where key is not null and m > 0)
           select (select count(*) from g where key is not null)::text as supplier_count,
                  (select count(*) from pos)::text as positive,
@@ -1305,6 +1396,7 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
           const where = sql`${c.value.where} and ${c.value.dated}`;
           const from = c.value.facts.from;
           const isNamed = c.value.facts.supplierNamed;
+          if (isNamed === null) return err(databaseError('records read live rows only'));
           // Without a geography scope the filter reads only the purchase row (party scopes go by
           // party ids), so the page is chosen from da_purchases alone and only its rows probe their
           // parties: probing first would run a lateral probe per candidate row before the sort
