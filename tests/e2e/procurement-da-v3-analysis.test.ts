@@ -662,7 +662,15 @@ describe('rollups answer exactly as the live rows', () => {
         'buyerRegion',
       ] as const)
         for (const rankBy of ['value', 'count'] as const)
-          out.push(await analysisBreakdown(d, { scope, dimension, topN: 2, rankBy }));
+          out.push(
+            await analysisBreakdown(d, {
+              scope,
+              dimension,
+              // Fewer than the fixture's supplier keys, so the supplier remainder is not empty.
+              topN: dimension === 'supplier' ? 2 : 3,
+              rankBy,
+            })
+          );
       for (const basis of ['value', 'count'] as const)
         out.push(await analysisConcentration(d, { scope, basis }));
       out.push(await analysisRecords(d, { scope, sort: 'value_desc', pageSize: 5 }));
@@ -685,6 +693,7 @@ describe('rollups answer exactly as the live rows', () => {
     // any read of an ungranted relation or column fails the parity below.
     await sql.raw(approvedAnalysisGrants(await columnsOf(db))).execute(db);
     const statements: string[] = [];
+    const failedStatements: string[] = [];
     const logged = new Kysely<ProdDatabase>({
       dialect: new PostgresDialect({
         pool: new pg.Pool({
@@ -698,6 +707,7 @@ describe('rollups answer exactly as the live rows', () => {
       }),
       log: (event) => {
         if (event.level === 'query') statements.push(event.query.sql);
+        else failedStatements.push(event.query.sql);
       },
     });
     try {
@@ -859,6 +869,7 @@ describe('rollups answer exactly as the live rows', () => {
       );
       try {
         statements.length = 0;
+        failedStatements.length = 0;
         const closed = await battery({
           analysisRepo: makeDaRoutingAnalysisRepo(
             makeUnconfiguredAnalysisRepo(),
@@ -866,7 +877,19 @@ describe('rollups answer exactly as the live rows', () => {
           ),
           supplierDisclosure: makeSupplierDisclosureRepo(logged, true),
         });
-        expect(failures(closed).map(([index]) => index)).toEqual(expectedRefused);
+        // The same refusals, by position, type and message; no statement failed (a caught error
+        // must not stand in for a refusal or an answer).
+        expect(failures(closed)).toEqual(refused);
+        expect(failedStatements).toEqual([]);
+        // The view is only probed for its privilege, never read.
+        expect(
+          statements.filter(
+            (text) =>
+              text.includes('supplier_disclosure') &&
+              !text.includes('has_table_privilege') &&
+              !text.includes('pg_attribute')
+          )
+        ).toEqual([]);
         // The supplier rollups answered (no fallback to the live rows), and nothing read the view
         // but the privilege probes.
         for (const table of [
@@ -878,12 +901,15 @@ describe('rollups answer exactly as the live rows', () => {
             statements.some((text) => text.includes(`"procurement_v3"."${table}"`)),
             table
           ).toBe(true);
-        const publicCodes = [COMPANY.fiscalCode ?? '', '2000002'];
+        const supplierCodes = [COMPANY.fiscalCode ?? '', '2000002', ...WITHHELD_CODES].filter(
+          (code) => code !== ''
+        );
+        expect(supplierCodes.length).toBeGreaterThanOrEqual(5);
         for (const answer of closed) {
           noLeak(answer);
           const raw = JSON.stringify(answer);
           // Anywhere, embedded or not (a canonicalScope echo included).
-          for (const code of publicCodes)
+          for (const code of supplierCodes)
             expect(raw).not.toMatch(new RegExp(`(?<![0-9])${code}(?![0-9])`, 'u'));
           expect(raw).not.toContain(COMPANY_REGISTRY_NAME);
         }
