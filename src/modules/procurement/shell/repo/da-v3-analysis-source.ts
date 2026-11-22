@@ -741,11 +741,31 @@ const windowOnly = (scope: AnalysisScope): boolean =>
 /** The window lines up with whole buckets (a month window cannot use a year's distinct count). */
 const windowAligned = (scope: AnalysisScope, bucket: SeriesBucket): boolean => {
   if (bucket === 'month' || scope.year !== undefined) return true;
-  if (bucket !== 'year') return false;
+  // A quarter window starts on a quarter's first month and ends on a quarter's last (PROC-YP8P).
+  const [starts, ends] =
+    bucket === 'year'
+      ? [['01'], ['12']]
+      : [
+          ['01', '04', '07', '10'],
+          ['03', '06', '09', '12'],
+        ];
   return (
-    (scope.from === undefined || scope.from.endsWith('-01')) &&
-    (scope.to === undefined || scope.to.endsWith('-12'))
+    (scope.from === undefined ||
+      starts.some((month) => scope.from?.endsWith(`-${month}`) === true)) &&
+    (scope.to === undefined || ends.some((month) => scope.to?.endsWith(`-${month}`) === true))
   );
+};
+
+/**
+ * Whether this publication's distinct rollup holds quarter rows (PROC-YP8P; a publication built
+ * before them holds none, so quarters are counted from the facts as before). Same snapshot.
+ */
+const hasQuarterDistincts = async (ctx: Ctx): Promise<boolean> => {
+  const result = await sql<{ present: boolean }>`
+    select exists (
+      select 1 from ${daV3Table(DISTINCT_ROLLUP)} d where d.bucket_kind = 'quarter'
+    ) as present`.execute(ctx.trx);
+  return result.rows[0]?.present === true;
 };
 
 /** The quality columns the data platform computes into da_release at publish. */
@@ -1101,7 +1121,7 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
     c: Compiled,
     scope: AnalysisScope,
     key: 'authority' | 'supplier',
-    bucket: 'month' | 'year'
+    bucket: SeriesBucket
   ) => {
     const day = sql`d.bucket`;
     const value =
@@ -1158,10 +1178,10 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
         async (ctx) => {
           const dimension = key === 'supplier' ? 'supplier' : 'authority';
           if (
-            bucket !== 'quarter' &&
             windowOnly(scope) &&
             windowAligned(scope, bucket) &&
-            ctx.rollups.has(DISTINCT_ROLLUP)
+            ctx.rollups.has(DISTINCT_ROLLUP) &&
+            (bucket !== 'quarter' || (await hasQuarterDistincts(ctx)))
           ) {
             const whole = compile(ctx, scope);
             if (whole.isErr()) return err(whole.error);

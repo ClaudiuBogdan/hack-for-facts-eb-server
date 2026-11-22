@@ -576,3 +576,132 @@ describe('list orders page exactly as one ORDER BY, across the keyed/unkeyed bou
     }
   });
 });
+
+/**
+ * PROC-AP75: whole-table supplier totals from the per-party rollup. Every eligible request (no
+ * filter, or a month-aligned finalization range) answers exactly as the purchases did, the rollup
+ * is read only while da_release says it was built for this publication, and anything else falls
+ * back. Sequential like the file: runs after the API login exists.
+ */
+describe('supplier totals from the per-party rollup (PROC-AP75)', () => {
+  it('answers exactly as the purchases, only while fresh and eligible', async () => {
+    if (db === undefined || container === undefined) throw new Error('no database');
+    const statements: string[] = [];
+    const logged = new Kysely<ProdDatabase>({
+      dialect: new PostgresDialect({
+        pool: new pg.Pool({
+          host: container.getHost(),
+          port: container.getPort(),
+          database: container.getDatabase(),
+          user: API_LOGIN,
+          password: API_LOGIN,
+          max: 1,
+        }),
+      }),
+      log: (event) => {
+        statements.push(event.query.sql);
+      },
+    });
+    const ask = (filter: Record<string, string>, page: number, pageSize: number) =>
+      daPurchaseTotals(
+        { repo: makeDaReleaseRepo(logged, true) },
+        {
+          groupBy: 'supplier',
+          filter,
+          page,
+          pageSize,
+        }
+      );
+    const ELIGIBLE = [
+      {},
+      { finalizationFrom: '2025-01-01', finalizationTo: '2025-12-31' },
+      { finalizationFrom: '2025-07-01' },
+      { finalizationTo: '2025-06-30' },
+      // A leap February ends on the 29th.
+      { finalizationFrom: '2021-01-01', finalizationTo: '2024-02-29' },
+    ];
+    // A day inside a month, or any other filter: the purchases answer.
+    const INELIGIBLE = [
+      { finalizationFrom: '2025-07-08' },
+      { finalizationTo: '2025-07-09' },
+      { finalizationTo: '2025-02-27' },
+      { finalizationFrom: '2025-01-01', cpvDivision: '44' },
+    ];
+    const battery = async () => {
+      const out: unknown[] = [];
+      for (const filter of [...ELIGIBLE, ...INELIGIBLE])
+        for (const [page, pageSize] of [
+          [1, 100],
+          [1, 1],
+          [2, 1],
+          [3, 1],
+          [9, 1],
+        ] as const)
+          out.push(await ask(filter, page, pageSize));
+      return out;
+    };
+    const read = (text: string) => text.includes('da_rollup_supplier_party_month"');
+    try {
+      const purchases = await battery();
+      for (const answer of purchases) expect((answer as { isOk: () => boolean }).isOk()).toBe(true);
+
+      // The platform's rollup and its freshness marker, as 065 and the migration build them.
+      await sql`create table procurement_v3.da_rollup_supplier_party_month as
+        select source_name, supplier_party_id,
+               date_trunc('month', finalization_day)::date as month,
+               count(*) as purchases,
+               count(*) filter (where counted) as counted_purchases,
+               coalesce(sum(counted_value) filter (where counted), 0)::numeric(20, 2) as counted_value,
+               count(*) filter (where counted and symbolic_price) as counted_symbolic_purchases
+        from procurement_v3.da_purchases group by 1, 2, 3`.execute(db);
+      // An emptied bucket keeps its row with zeros, under a party and a month nothing else has.
+      await sql`insert into procurement_v3.da_rollup_supplier_party_month
+        values ('elicitatie_api_pub', 'emptied-party', '2025-08-01', 0, 0, 0, 0)`.execute(db);
+      await sql`alter table procurement_v3.da_release add column supplier_party_rollup_for timestamptz`.execute(
+        db
+      );
+      await sql`update procurement_v3.da_release set supplier_party_rollup_for = data_as_of`.execute(
+        db
+      );
+
+      // Not granted yet (the PRJ-54YB cutover adds it): the purchases answer, unchanged.
+      statements.length = 0;
+      expect(await battery()).toEqual(purchases);
+      expect(statements.some(read)).toBe(false);
+
+      await sql`grant select on procurement_v3.da_rollup_supplier_party_month to procurement_api_read`.execute(
+        db
+      );
+      await sql`grant select (supplier_party_rollup_for) on procurement_v3.da_release to procurement_api_read`.execute(
+        db
+      );
+      statements.length = 0;
+      const rolled = await battery();
+      expect(rolled).toEqual(purchases);
+      // Every eligible request read the rollup, and never the purchases; no other request did.
+      for (const filter of ELIGIBLE) {
+        statements.length = 0;
+        await ask(filter, 1, 100);
+        expect(statements.some(read), JSON.stringify(filter)).toBe(true);
+        expect(
+          statements.some((text) => text.includes('"procurement_v3"."da_purchases"')),
+          JSON.stringify(filter)
+        ).toBe(false);
+      }
+      for (const filter of INELIGIBLE) {
+        statements.length = 0;
+        await ask(filter, 1, 100);
+        expect(statements.some(read), JSON.stringify(filter)).toBe(false);
+      }
+
+      // A rollup built for another publication is never read.
+      await sql`update procurement_v3.da_release
+        set supplier_party_rollup_for = data_as_of - interval '1 day'`.execute(db);
+      statements.length = 0;
+      expect(await battery()).toEqual(purchases);
+      expect(statements.some(read)).toBe(false);
+    } finally {
+      await logged.destroy();
+    }
+  });
+});

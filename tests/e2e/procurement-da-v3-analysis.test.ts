@@ -588,6 +588,9 @@ describe('rollups answer exactly as the live rows', () => {
          from (select 'month' as kind, month as bucket, authority_cui, supplier_ref
                  from procurement_v3.f_rollup_base where month is not null
                union all
+               select 'quarter', date_trunc('quarter', month)::date, authority_cui, supplier_ref
+                 from procurement_v3.f_rollup_base where month is not null
+               union all
                select 'year', date_trunc('year', month)::date, authority_cui, supplier_ref
                  from procurement_v3.f_rollup_base where month is not null) x
          group by 1, 2`
@@ -771,6 +774,35 @@ describe('rollups answer exactly as the live rows', () => {
           statements.some((text) => text.includes(`"procurement_v3"."${table}"`)),
           table
         ).toBe(true);
+      // PROC-YP8P: whole-release distinct suppliers by quarter come from the quarter rows (a
+      // marked quarter row shows through), and a publication without them counts as before.
+      const quarterly = async () =>
+        analysisSeries(
+          {
+            analysisRepo: makeDaRoutingAnalysisRepo(
+              makeUnconfiguredAnalysisRepo(),
+              makeDaV3AnalysisSource(logged)
+            ),
+          },
+          { scope: DA, measure: 'distinctSuppliers', bucket: 'quarter' }
+        );
+      const counted = JSON.stringify(await quarterly());
+      await sql`update procurement_v3.da_rollup_distinct set distinct_public_suppliers = distinct_public_suppliers + 1000
+        where bucket_kind = 'quarter'`.execute(db);
+      expect(JSON.stringify(await quarterly())).not.toEqual(counted);
+      await sql`update procurement_v3.da_rollup_distinct set distinct_public_suppliers = distinct_public_suppliers - 1000
+        where bucket_kind = 'quarter'`.execute(db);
+      await sql`create table procurement_v3.f_quarters as
+        select * from procurement_v3.da_rollup_distinct where bucket_kind = 'quarter'`.execute(db);
+      await sql`delete from procurement_v3.da_rollup_distinct where bucket_kind = 'quarter'`.execute(
+        db
+      );
+      expect(JSON.stringify(await quarterly())).toEqual(counted);
+      await sql`insert into procurement_v3.da_rollup_distinct select * from procurement_v3.f_quarters`.execute(
+        db
+      );
+      await sql`drop table procurement_v3.f_quarters`.execute(db);
+      expect(JSON.stringify(await quarterly())).toEqual(counted);
       // The kernel's geography moves after the publish: every answer keeps the published
       // place (rollups and live rows both read the pinned table), so nothing changes.
       await sql`update core.territories set county_code = 'QQ' where territorial_siruta_code = '777'`.execute(

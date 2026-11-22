@@ -57,6 +57,13 @@ only what the API adds or decides.
 - `party_public_names` reads the registry live: a name or privacy change shows on the next read without moving
   `data_as_of` or `registry_as_of`. No answer that carries a supplier name is cached; unfiltered totals grouped by
   supplier are read every time (other unfiltered totals stay cached per `data_as_of`).
+- Totals grouped by supplier with no filter, or only a month-aligned finalization range (PROC-AP75), read the
+  data platform's `da_rollup_supplier_party_month`: summed per (source_name, supplier party) first, then joined to
+  `da_parties_public` per party, grouped as before; the overall line sums the rollup directly. Only while this login
+  can read it and `da_release.supplier_party_rollup_for = data_as_of` in the same snapshot; otherwise, and for any
+  other filter, the purchases answer as before. On prod (22 Nov, dev API pod, identical answers): unfiltered 60 s
+  (a 10 s timeout today) → 2.8 s, 2025 11 s → 1.1 s. Summed counted values in DA totals print at least cents and
+  are never rounded (`13465400.0` → `13465400.00`), so both paths read alike.
 - A withheld supplier is `natural_person`, with `name`, `fiscalCode` and `partyId` all null; one person's purchases
   cannot be linked across rows.
 - A supplier filter matches only public suppliers, so a sole trader's code cannot be used to list their purchases.
@@ -340,8 +347,9 @@ money_geo.
     the barrier views are thousands of times too high, so short reads paid about 220 ms compiling. On prod (22 Nov,
     dev API pod, answers identical to c648184c in 28 of 28 reads): supplier breakdown, all years 6.4 s → 1.2 s,
     2025 1.6 s → 0.4 s; concentration, all years 4.9 s → 1.1 s, 2025 1.2 s → 0.45 s; distinct suppliers by quarter,
-    2025 1.1 s → 0.7 s. Scoped reads (an authority, CPV 45) stay at 50–500 ms. All-years distinct suppliers by
-    quarter still takes 5.5 s (was 6.9 s): `da_rollup_distinct` holds no quarters;
+    2025 1.1 s → 0.7 s. Scoped reads (an authority, CPV 45) stay at 50–500 ms. Whole-release distincts by quarter
+    (a window on quarter boundaries) read `da_rollup_distinct`'s quarter rows when the publication has them
+    (PROC-YP8P): all years 7.0 s → 36 ms, identical; a publication without them counts from the facts;
   - a supplier filter is the party-id match alone: the view holds a supplier row only for a disclosed code, and the
     subquery requires a valid status and an equal, non-null code on the same unique party key, so no row probes `s`
     to filter;

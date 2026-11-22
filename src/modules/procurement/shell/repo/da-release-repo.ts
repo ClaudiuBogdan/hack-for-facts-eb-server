@@ -19,6 +19,7 @@
  * every party that reaches a response is re-checked by the core rule.
  */
 
+import { Decimal } from 'decimal.js';
 import { sql, type Kysely, type RawBuilder } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
@@ -361,8 +362,19 @@ interface MeasureRow {
   purchase_count: string;
 }
 
+/**
+ * A summed counted value with at least cents, never rounded: purchases carry their value at the
+ * scale the portal gave (a sum of `13465400.0`s prints `13465400.0`), the rollup at two decimals,
+ * and both must read alike.
+ */
+const atLeastCents = (text: string | null): string | null => {
+  if (text === null) return null;
+  const value = new Decimal(text);
+  return value.toFixed(Math.max(2, value.decimalPlaces()));
+};
+
 const toMeasures = (row: MeasureRow): DaTotalsRecord => ({
-  countedValue: row.counted_value,
+  countedValue: atLeastCents(row.counted_value),
   countedCount: row.counted_count,
   symbolicPriceCount: row.symbolic_price_count,
   purchaseCount: row.purchase_count,
@@ -374,6 +386,106 @@ const exactCount = (text: string | undefined): Result<number, ApiError> => {
     ? ok(value)
     : err(databaseError('Direct acquisitions count is not an exact integer.'));
 };
+
+// ── Supplier totals from the per-party rollup (PROC-AP75) ────────────────────
+
+const SUPPLIER_PARTY_ROLLUP = table('da_rollup_supplier_party_month');
+const SUPPLIER_PARTY_ROLLUP_NAME = `${DA_RELEASE_SCHEMA}.da_rollup_supplier_party_month`;
+const RELEASE_NAME = `${DA_RELEASE_SCHEMA}.da_release`;
+
+/** `YYYY-MM-DD` is the last day of its month (UTC calendar; integer arithmetic only). */
+const isMonthEnd = (day: string): boolean => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(day);
+  if (match === null) return false;
+  const [year, month, date] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  return new Date(Date.UTC(year, month, 0)).getUTCDate() === date;
+};
+
+/**
+ * Supplier totals the per-party rollup can answer: no filter, or only a finalization range whose
+ * bounds fall on month boundaries (the rollup holds months). Any other filter reads the purchases.
+ */
+const rollupEligible = (query: DaTotalsQuery): boolean => {
+  if (query.groupBy !== 'supplier') return false;
+  const { finalizationFrom, finalizationTo, ...rest } = query.filter;
+  // Any other filter field set (a key present with an undefined value is no filter).
+  if (Object.values(rest).some((value: unknown) => value !== undefined)) return false;
+  return (
+    (finalizationFrom === undefined || finalizationFrom.endsWith('-01')) &&
+    (finalizationTo === undefined || isMonthEnd(finalizationTo))
+  );
+};
+
+/**
+ * The rollup answers only when this login can read it and the release says it was built for this
+ * very publication (`supplier_party_rollup_for = data_as_of`), both read in the totals' own
+ * snapshot. Otherwise the purchases answer, as before the rollup existed.
+ */
+const supplierPartyRollupFresh = async (trx: Db): Promise<boolean> => {
+  const readable = await sql<{ usable: boolean | null }>`
+    select coalesce(has_table_privilege(to_regclass(${SUPPLIER_PARTY_ROLLUP_NAME}), 'SELECT'), false)
+      and case when exists (
+            select 1 from pg_attribute a
+            where a.attrelid = to_regclass(${RELEASE_NAME}) and a.attname = 'supplier_party_rollup_for'
+              and a.attnum > 0 and not a.attisdropped)
+          then has_column_privilege(to_regclass(${RELEASE_NAME}), 'supplier_party_rollup_for', 'SELECT')
+          else false end as usable`.execute(trx);
+  if (readable.rows[0]?.usable !== true) return false;
+  const fresh = await sql<{ fresh: boolean | null }>`
+    select r.supplier_party_rollup_for = r.data_as_of as fresh
+    from ${RELEASE} r
+    where r.data_as_of = (select max(data_as_of) from ${RELEASE})`.execute(trx);
+  return fresh.rows.length === 1 && fresh.rows[0]?.fresh === true;
+};
+
+/**
+ * The rollup's rows in the range, summed per (source_name, supplier_party_id) FIRST, as relation
+ * `p` with the MEASURES of the purchases they sum; only then the supplier's public party row `s`.
+ * An emptied bucket (purchases 0) is skipped; a month range matches the day range it stands for
+ * (a NULL month, no finalization day, only when unbounded, as `p.finalization_day >= …` would).
+ */
+const rollupWhere = (filter: DaPurchaseFilter): RawBuilder<unknown> => {
+  const conditions: RawBuilder<unknown>[] = [sql`r.purchases > 0`];
+  if (filter.finalizationFrom !== undefined)
+    conditions.push(sql`r.month >= ${filter.finalizationFrom}::date`);
+  if (filter.finalizationTo !== undefined)
+    conditions.push(sql`r.month <= date_trunc('month', ${filter.finalizationTo}::date)::date`);
+  return sql.join(conditions, sql` and `);
+};
+
+const rollupFrom = (filter: DaPurchaseFilter): RawBuilder<unknown> => {
+  return sql`
+  from (select r.source_name, r.supplier_party_id,
+               sum(r.counted_value) filter (where r.counted_purchases > 0) as counted_value,
+               sum(r.counted_purchases) as counted_count,
+               sum(r.counted_symbolic_purchases) as symbolic_price_count,
+               sum(r.purchases) as purchase_count
+        from ${SUPPLIER_PARTY_ROLLUP} r
+        where ${rollupWhere(filter)}
+        group by 1, 2) p
+  left join ${PARTIES} s
+    on s.source_name = p.source_name and s.party_kind = 'supplier'
+   and s.portal_party_id = p.supplier_party_id`;
+};
+
+/**
+ * The overall line straight from the rollup's rows: it needs no party, so no per-party sums and no
+ * view join (prod, 22 Nov: 0.3 s against 2.2 s through the sums).
+ */
+const rollupOverall = (filter: DaPurchaseFilter): RawBuilder<unknown> => sql`
+  select (sum(r.counted_value) filter (where r.counted_purchases > 0))::text as counted_value,
+         sum(r.counted_purchases)::text as counted_count,
+         sum(r.counted_symbolic_purchases)::text as symbolic_price_count,
+         sum(r.purchases)::text as purchase_count
+  from ${SUPPLIER_PARTY_ROLLUP} r
+  where ${rollupWhere(filter)}`;
+
+/** MEASURES over the per-party sums (null counted value: no counted purchase). */
+const ROLLUP_MEASURES = sql`
+  sum(p.counted_value)::text as counted_value,
+  sum(p.counted_count)::text as counted_count,
+  sum(p.symbolic_price_count)::text as symbolic_price_count,
+  sum(p.purchase_count)::text as purchase_count`;
 
 // ── Totals grouping ──────────────────────────────────────────────────────────
 
@@ -654,11 +766,25 @@ const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
     }),
 
   totals: async (query) => {
-    const where = whereOf(query.filter, columns);
+    // PROC-AP75: whole-table supplier totals from the per-party rollup when it answers this
+    // filter and was built for this publication; otherwise the purchases, as before.
+    const fromRollup = rollupEligible(query)
+      ? await attempt(() => supplierPartyRollupFresh(trx))
+      : ok(false);
+    if (fromRollup.isErr()) return err(fromRollup.error);
+    const viaRollup = fromRollup.value;
+    const from = viaRollup ? rollupFrom(query.filter) : SCOPE_FROM;
+    const where = viaRollup ? sql`true` : whereOf(query.filter, columns);
+    const measures = viaRollup ? ROLLUP_MEASURES : MEASURES;
     const overall = await attempt(
       async () =>
-        (await sql<MeasureRow>`select ${MEASURES} ${SCOPE_FROM} where ${where}`.execute(trx))
-          .rows[0]
+        (
+          await (
+            viaRollup
+              ? sql<MeasureRow>`${rollupOverall(query.filter)}`
+              : sql<MeasureRow>`select ${MEASURES} ${SCOPE_FROM} where ${where}`
+          ).execute(trx)
+        ).rows[0]
     );
     if (overall.isErr()) return err(overall.error);
     if (overall.value === undefined)
@@ -668,15 +794,17 @@ const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
 
     const groupBy = query.groupBy;
     const { select, width, byValue } = groupSelect(groupBy, columns);
-    const order = byValue
-      ? sql`sum(p.counted_value) filter (where p.counted) desc nulls last, count(*) desc, group_key asc nulls last, g_bucket asc nulls last`
-      : sql`group_key asc nulls last`;
+    const order = !byValue
+      ? sql`group_key asc nulls last`
+      : viaRollup
+        ? sql`sum(p.counted_value) desc nulls last, sum(p.purchase_count) desc, group_key asc nulls last, g_bucket asc nulls last`
+        : sql`sum(p.counted_value) filter (where p.counted) desc nulls last, count(*) desc, group_key asc nulls last, g_bucket asc nulls last`;
     const grouped = await attempt(
       async () =>
         (
           await sql<GroupRow>`
-            select ${select}, ${MEASURES}, count(*) over ()::text as group_count
-            ${SCOPE_FROM}
+            select ${select}, ${measures}, count(*) over ()::text as group_count
+            ${from}
             where ${where}
             group by ${groupByPositions(width)}
             order by ${order}
@@ -692,7 +820,7 @@ const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
           (
             await sql<{ total: string }>`
               select count(*)::text as total from (
-                select ${select} ${SCOPE_FROM} where ${where} group by ${groupByPositions(width)}
+                select ${select} ${from} where ${where} group by ${groupByPositions(width)}
               ) as g`.execute(trx)
           ).rows[0]?.total
       );
