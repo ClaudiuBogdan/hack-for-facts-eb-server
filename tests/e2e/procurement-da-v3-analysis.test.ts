@@ -19,10 +19,12 @@
 
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { Decimal } from 'decimal.js';
+import fastifyLib from 'fastify';
 import { Kysely, PostgresDialect, sql } from 'kysely';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it as vitestIt } from 'vitest';
 
+import { makeGraphQLPlugin } from '@/infra/graphql/index.js';
 import {
   analysisBreakdown,
   analysisConcentration,
@@ -31,6 +33,7 @@ import {
   analysisStats,
   type AnalysisDeps,
 } from '@/modules/procurement/core/analysis-usecases.js';
+import { makeProcurementModule } from '@/modules/procurement/index.js';
 import { makeUnconfiguredAnalysisRepo } from '@/modules/procurement/shell/repo/clickhouse-analysis-repo.js';
 import { makeDaRoutingAnalysisRepo } from '@/modules/procurement/shell/repo/da-routing-analysis-repo.js';
 import {
@@ -38,6 +41,12 @@ import {
   makeDaV3AnalysisSource,
   type DaV3AnalysisSource,
 } from '@/modules/procurement/shell/repo/da-v3-analysis-source.js';
+import {
+  baseTypeDefs,
+  mergeGraphqlSlices,
+  scalarResolvers,
+  type ProdDatabase,
+} from '@/modules/shared/index.js';
 import { makeSupplierDisclosureRepo } from '@/modules/shared/shell/repo/supplier-disclosure-repo.js';
 
 import { dockerCliUp } from './disposable-postgres.js';
@@ -53,7 +62,6 @@ import {
 } from '../fixtures/procurement/da-release.js';
 
 import type { DaPartyRecord } from '@/modules/procurement/core/da-release.js';
-import type { ProdDatabase } from '@/modules/shared/index.js';
 
 let container: StartedPostgreSqlContainer | undefined;
 let db: Kysely<ProdDatabase> | undefined;
@@ -1218,6 +1226,85 @@ describe('DA supplier bucket names (PROC-B51G)', () => {
       await sql`delete from procurement_v3.party_public_names where fiscal_code_clean = '2000002'`.execute(
         db
       );
+      await api.destroy();
+    }
+  });
+
+  it('names through the production wiring, on GraphQL and MCP', async () => {
+    if (db === undefined || container === undefined) throw new Error('no database');
+    await sql.raw(approvedAnalysisGrants(await columnsOf(db))).execute(db);
+    const api = new Kysely<ProdDatabase>({
+      dialect: new PostgresDialect({
+        pool: new pg.Pool({
+          host: container.getHost(),
+          port: container.getPort(),
+          database: container.getDatabase(),
+          user: API_LOGIN,
+          password: API_LOGIN,
+          max: 2,
+        }),
+      }),
+    });
+    const module = makeProcurementModule({
+      db: api,
+      warmCache: false,
+      legacyEnabled: false,
+      daV3Enabled: true,
+    });
+    const { typeDefs } = mergeGraphqlSlices(baseTypeDefs, [module.graphqlSlice]);
+    const app = fastifyLib({ logger: false });
+    try {
+      await app.register(
+        makeGraphQLPlugin({
+          schema: [typeDefs],
+          resolvers: [{ ...scalarResolvers, ...module.graphqlResolvers }],
+          isProduction: false,
+          enableGraphiQL: false,
+        })
+      );
+      await app.ready();
+      const res = await app.inject({
+        method: 'POST',
+        url: '/graphql',
+        headers: { 'content-type': 'application/json' },
+        payload: JSON.stringify({
+          query:
+            '{ procurementBreakdown(scope: { grain: direct_acquisition }, dimension: supplier, topN: 10) { buckets { kind key displayKind displayName } } }',
+        }),
+      });
+      const body: {
+        data?: { procurementBreakdown: { buckets: Record<string, unknown>[] }[] };
+        errors?: unknown;
+      } = res.json();
+      expect(body.errors).toBeUndefined();
+      const graphNames = (body.data?.procurementBreakdown[0]?.buckets ?? []).filter(
+        (bucket) => bucket['kind'] === 'top'
+      );
+      expect(graphNames).toContainEqual({
+        kind: 'top',
+        key: COMPANY.fiscalCode,
+        displayKind: 'company',
+        displayName: COMPANY_REGISTRY_NAME,
+      });
+      expect(graphNames).toContainEqual({
+        kind: 'top',
+        key: 'natural_person',
+        displayKind: 'natural_person',
+        displayName: null,
+      });
+      const tool = module.mcpTools.find((candidate) => candidate.name === 'aggregate_procurement');
+      if (tool === undefined) throw new Error('aggregate_procurement is not registered');
+      const output = await tool.handler({
+        shape: 'breakdown',
+        scope: { grain: 'direct_acquisition' },
+        dimension: 'supplier',
+        topN: 10,
+      });
+      const raw = JSON.stringify(output);
+      expect(raw).toContain(`"displayName":"${COMPANY_REGISTRY_NAME}"`);
+      noLeak(output);
+    } finally {
+      await app.close();
       await api.destroy();
     }
   });

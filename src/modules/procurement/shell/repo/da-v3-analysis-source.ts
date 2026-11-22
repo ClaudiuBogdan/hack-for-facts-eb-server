@@ -1517,12 +1517,23 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
   };
 
   // In the publication the buckets were read from, with supplier_disclosure readable, in one
-  // snapshot: a publish or a revoked grant since the read refuses (repeat), and is never named.
-  // Never cached.
-  const namesOf: DaV3AnalysisSource['namesOf'] = (buildId, codes) =>
-    snapshot(db, STATEMENT_TIMEOUT_MS, buildId, async (ctx) =>
-      ctx.privacy ? ok(await supplierNamesByCode(ctx.trx, codes)) : err(REPUBLISHED())
+  // snapshot, and settled after it like a records page: a publish or a revoked grant before or
+  // during the read refuses (repeat), and is never named. Never cached.
+  const namesOf: DaV3AnalysisSource['namesOf'] = async (buildId, codes) => {
+    const seen: ReadSeen = { privacy: false };
+    return settled(
+      buildId,
+      await snapshot(
+        db,
+        STATEMENT_TIMEOUT_MS,
+        buildId,
+        async (ctx) =>
+          ctx.privacy ? ok(await supplierNamesByCode(ctx.trx, codes)) : err(REPUBLISHED()),
+        seen
+      ),
+      seen
     );
+  };
 
   return {
     generation,

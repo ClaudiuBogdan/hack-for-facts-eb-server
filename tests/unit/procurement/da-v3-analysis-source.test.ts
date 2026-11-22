@@ -109,6 +109,53 @@ describe('snapshots', () => {
   });
 });
 
+describe('DA supplier bucket names (PROC-B51G)', () => {
+  /** A database whose final probe sees `after` (privacy, current build) once the names were read. */
+  const namesDb = (after: { privacy: boolean; build: string }) => {
+    const captured: CapturedQuery[] = [];
+    let namesRead = false;
+    const db = makeCapturingDb(captured, {
+      respond: (text) => {
+        if (text.includes('as build_id') && text.includes('has_table_privilege'))
+          return namesRead
+            ? [{ build_id: after.build, privacy: after.privacy }]
+            : [{ build_id: BUILD, privacy: true }];
+        if (text.includes('as build_id')) return [{ build_id: BUILD }];
+        if (text.includes('has_table_privilege')) return [{ present: true }];
+        if (text.includes('party_public_names')) {
+          namesRead = true;
+          return [{ code: '14399840', name: 'EXEMPLU REGISTRU SA' }];
+        }
+        return [];
+      },
+    });
+    return { db, captured };
+  };
+
+  it('names in the publication the buckets came from, settled after the read', async () => {
+    const { db, captured } = namesDb({ privacy: true, build: BUILD });
+    const names = await makeDaV3AnalysisSource(db).namesOf(BUILD, ['14399840']);
+    expect([...names._unsafeUnwrap()]).toEqual([['14399840', 'EXEMPLU REGISTRU SA']]);
+    // The lookup ran inside the snapshot (after its build check and grant probe).
+    const texts = captured.map((query) => query.sql);
+    const lookup = texts.findIndex((text) => text.includes('party_public_names'));
+    expect(texts.findIndex((text) => text.includes('as present'))).toBeLessThan(lookup);
+  });
+
+  it('refuses a name when the grant is revoked, or a publish lands, during the read', async () => {
+    for (const after of [
+      { privacy: false, build: BUILD },
+      { privacy: true, build: '1763500000000000' },
+    ]) {
+      const names = await makeDaV3AnalysisSource(namesDb(after).db).namesOf(BUILD, ['14399840']);
+      expect(names._unsafeUnwrapErr()).toMatchObject({
+        type: 'ServiceUnavailable',
+        message: expect.stringContaining('repeat the request') as unknown,
+      });
+    }
+  });
+});
+
 describe('D6', () => {
   it('keys every withheld supplier as natural_person and names only public ones', async () => {
     const { sql } = await run((s) =>
