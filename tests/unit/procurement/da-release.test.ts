@@ -36,7 +36,7 @@ const row = (n: number): DaPurchaseRecord => {
 const served = (record: DaPurchaseRecord) => toPurchase(record)._unsafeUnwrap();
 
 describe('D6 supplier rule', () => {
-  it('names a supplier only when its code is public in supplier_privacy', () => {
+  it('names a supplier only when its code is disclosed', () => {
     expect(isNamedSupplier(COMPANY)).toBe(true);
     for (const party of [SOLE_TRADER, NATURAL_PERSON, UNVERIFIED, BAD_CODE_SUPPLIER])
       expect(isNamedSupplier(party)).toBe(false);

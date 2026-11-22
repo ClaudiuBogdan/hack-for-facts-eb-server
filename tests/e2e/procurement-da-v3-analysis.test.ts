@@ -5,9 +5,12 @@
  * the SQL runs, the counted-value figures, buckets, distincts, concentration
  * and records are right on the contract's example rows, buyer geography joins
  * through public entities to public territories, D6 keys every withheld
- * supplier as one `natural_person` bucket (all of them before supplier_privacy
- * exists), no response carries a withheld supplier's name or code, and a read
- * against a moved publication is refused.
+ * supplier as one `natural_person` bucket (all of them while supplier_disclosure
+ * is unreadable, even with a party view that lists every supplier), named
+ * suppliers carry their public registry name (party_public_names, by code), no
+ * response carries a withheld supplier's name or code, and a read against a
+ * moved publication is refused. Parties are read only through the platform's
+ * public views (SEC-GRANTS-PROC-2211).
  *
  * Minimal-shape schema from the serving contract (not the data platform's
  * migration, which waits for the owner) plus the three kernel geography tables
@@ -86,6 +89,11 @@ const DDL = `
     primary key (source_name, party_kind, portal_party_id)
   );
   create table procurement_v3.da_release (data_as_of timestamptz not null);
+  -- Before the D6 view: a public party view the reader may read, but no
+  -- supplier_disclosure, so D6 must withhold every supplier the view lists.
+  create view procurement_v3.da_parties_public as
+    select source_name, party_kind, portal_party_id, fiscal_code_clean, fiscal_code_status, name_as_written
+    from procurement_v3.da_parties;
   create schema core;
   create table core.public_entities (cui text primary key, territorial_siruta_code text);
   create table core.territories (
@@ -124,18 +132,43 @@ const load = async (trx: Kysely<ProdDatabase>): Promise<void> => {
     values ('54975', 'XX', ${`${SECRET} restricted`}, 'restricted')`.execute(trx);
 };
 
-/** The migration lands supplier_privacy in a new publication (data_as_of moves). */
+/** The registry name the API serves for the public company (never its name as written). */
+const COMPANY_REGISTRY_NAME = 'EXEMPLU REGISTRU SA';
+
+/**
+ * The migration lands the D6 classification and the platform's public views in
+ * a new publication (data_as_of moves). The supplier id is the opaque key the
+ * rollups carry instead of a code (stable, never reused).
+ */
 const publishPrivacy = async (trx: Kysely<ProdDatabase>): Promise<void> => {
   await sql`create table procurement_v3.supplier_privacy (
-    fiscal_code_clean text primary key, supplier_kind text, public boolean not null)`.execute(trx);
-  for (const [party, isPublic] of [
-    [COMPANY, true],
-    [SOLE_TRADER, false],
-    [NATURAL_PERSON, false],
-    [BAD_CODE_SUPPLIER, false],
+    fiscal_code_clean text primary key, supplier_kind text, public boolean not null,
+    supplier_id bigint generated always as identity)`.execute(trx);
+  for (const [party, isPublic, kind] of [
+    [COMPANY, true, 'company'],
+    [SOLE_TRADER, false, 'sole_trader'],
+    [NATURAL_PERSON, false, 'natural_person'],
+    [BAD_CODE_SUPPLIER, false, 'unverified'],
   ] as const)
-    await sql`insert into procurement_v3.supplier_privacy (fiscal_code_clean, public)
-      values (${party.fiscalCode}, ${isPublic})`.execute(trx);
+    await sql`insert into procurement_v3.supplier_privacy (fiscal_code_clean, public, supplier_kind)
+      values (${party.fiscalCode}, ${isPublic}, ${kind})`.execute(trx);
+  await sql`create view procurement_v3.supplier_disclosure as
+    select fiscal_code_clean, supplier_id from procurement_v3.supplier_privacy
+    where public and supplier_kind = 'company'`.execute(trx);
+  await sql`create or replace view procurement_v3.da_parties_public as
+    select source_name, party_kind, portal_party_id, fiscal_code_clean, fiscal_code_status,
+           case when party_kind = 'buyer' then name_as_written end as name_as_written
+    from procurement_v3.da_parties
+    where party_kind = 'buyer'
+       or fiscal_code_clean in (select fiscal_code_clean from procurement_v3.supplier_disclosure)`.execute(
+    trx
+  );
+  await sql`create table procurement_v3.party_public_names (
+    fiscal_code_clean text primary key, registry_name text,
+    buyer_name_public boolean, supplier_name_public boolean)`.execute(trx);
+  await sql`insert into procurement_v3.party_public_names values
+    (${COMPANY.fiscalCode}, ${COMPANY_REGISTRY_NAME}, true, true),
+    (${SOLE_TRADER.fiscalCode}, ${`${SECRET} REGISTRY PFA`}, false, false)`.execute(trx);
   await sql`update procurement_v3.da_release set data_as_of = ${AS_OF_2}`.execute(trx);
 };
 
@@ -182,7 +215,7 @@ const noLeak = (value: unknown): void => {
   for (const code of WITHHELD_CODES) expect(raw).not.toContain(`"${code}"`);
 };
 
-describe('before supplier_privacy exists (fails closed)', () => {
+describe('before supplier_disclosure exists (fails closed)', () => {
   it('serves the counted value, measures its own verdict and withholds every supplier', async () => {
     const stats = (await analysisStats(deps, { scope: DA }))._unsafeUnwrap().blocks[0];
     expect(stats).toMatchObject({
@@ -195,7 +228,7 @@ describe('before supplier_privacy exists (fails closed)', () => {
     expect(stats?.meta.buildId).toBe(micros(AS_OF));
     expect(stats?.meta.caveats).toContain(DA_V3_VALUE_NOTE);
     expect(stats?.meta.valueBasis).toBe('counted');
-    // No supplier_privacy yet: everyone is withheld, and the D6 key says so.
+    // No supplier_disclosure yet: everyone is withheld, and the D6 key says so.
     expect(stats?.meta.disclosureKey).toBe('unavailable');
 
     const bySupplier = (
@@ -209,7 +242,7 @@ describe('before supplier_privacy exists (fails closed)', () => {
   });
 });
 
-describe('with supplier_privacy', () => {
+describe('with supplier_disclosure and the public party views', () => {
   it('buckets suppliers by the public set, reconciles to the totals and leaks nothing', async () => {
     if (db === undefined) throw new Error('no database');
     await publishPrivacy(db);
@@ -278,7 +311,7 @@ describe('with supplier_privacy', () => {
       id: PURCHASES[4]?.purchaseId,
       valueRon: '188800000.00',
       title: null,
-      supplierName: COMPANY.name,
+      supplierName: COMPANY_REGISTRY_NAME,
       supplierDisplayKind: 'company',
       cpvLabel: 'Materiale de constructii',
     });
@@ -292,6 +325,7 @@ describe('with supplier_privacy', () => {
       records.items.find((row) => row.id === PURCHASES[12]?.purchaseId)?.supplierDisplayKind
     ).toBeNull();
     noLeak(records);
+    expect(JSON.stringify(records)).not.toContain(COMPANY.name ?? '~');
   });
 
   it('matches a supplier scope only for a public supplier', async () => {
@@ -331,8 +365,8 @@ describe('rollups answer exactly as the live rows', () => {
   const ROLLUP_BASE = `
     create table procurement_v3.f_rollup_base as
     select case when b.fiscal_code_status = 'valid' then b.fiscal_code_clean end as authority_cui,
-           case when s.portal_party_id is null then null
-                when sv.public is true and s.fiscal_code_status = 'valid' and s.fiscal_code_clean is not null
+           case when p.supplier_party_id is null then null
+                when sv.supplier_id is not null and s.fiscal_code_status = 'valid' and s.fiscal_code_clean is not null
                   then sv.supplier_id
                 else 0 end as supplier_ref,
            case when p.category_code ~ '^[0-9]{2}' then left(p.category_code, 8) end as cpv8,
@@ -344,7 +378,7 @@ describe('rollups answer exactly as the live rows', () => {
       on b.source_name = p.source_name and b.party_kind = 'buyer' and b.portal_party_id = p.buyer_party_id
     left join procurement_v3.da_parties s
       on s.source_name = p.source_name and s.party_kind = 'supplier' and s.portal_party_id = p.supplier_party_id
-    left join procurement_v3.supplier_privacy sv on sv.fiscal_code_clean = s.fiscal_code_clean
+    left join procurement_v3.supplier_disclosure sv on sv.fiscal_code_clean = s.fiscal_code_clean
     left join core.public_entities pe
       on pe.cui = b.fiscal_code_clean and b.fiscal_code_status = 'valid'
     left join companies_v2.registrations areg
@@ -380,12 +414,8 @@ describe('rollups answer exactly as the live rows', () => {
     await sql`insert into procurement_v3.da_parties values (${SOURCE}, 'supplier', 'rc2', '2000002', 'valid', 'C2')`.execute(
       trx
     );
-    // The opaque id the rollups carry instead of a code (stable, never reused).
-    await sql`alter table procurement_v3.supplier_privacy
-      add column supplier_id bigint generated always as identity`.execute(trx);
-    await sql`insert into procurement_v3.supplier_privacy (fiscal_code_clean, public) values ('2000002', true)`.execute(
-      trx
-    );
+    await sql`insert into procurement_v3.supplier_privacy (fiscal_code_clean, public, supplier_kind)
+      values ('2000002', true, 'company')`.execute(trx);
     await sql`insert into core.public_entities values ('1000001', '777')`.execute(trx);
     await sql`insert into companies_v2.registrations values ('1000002', '777')`.execute(trx);
     await sql`insert into core.territories (territorial_siruta_code, county_code, region)

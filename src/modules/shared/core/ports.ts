@@ -109,7 +109,8 @@ export interface FlowReadOptions {
 /**
  * Site-wide D6 (owner, 2026-11-18): which supplier fiscal codes the API may name
  * as a direct-acquisition supplier. One source for every module: the data
- * platform's `procurement_v3.supplier_privacy` (`public = true`), rewritten in
+ * platform's `procurement_v3.supplier_disclosure` view (the public companies of
+ * its `supplier_privacy` classification), rewritten in
  * the nightly publish with `da_release.data_as_of`. Fails closed: when the
  * source is absent or unreadable the set is empty. When `enforced` is false
  * (PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED off) callers keep their pre-release behaviour.

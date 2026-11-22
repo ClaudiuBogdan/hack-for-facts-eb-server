@@ -10,11 +10,13 @@
  * `counted_value` is ever summed; reported values and item lines never are.
  *
  * D6 (site-wide): a supplier's name and fiscal code are served only when its
- * code is in `supplier_privacy` with `public = true` (the data platform's one
+ * code is disclosed: the supplier has a row in `da_parties_public`, whose
+ * suppliers are the codes in `supplier_disclosure` (the data platform's one
  * classification, shared with the legacy surfaces). Every other supplier,
- * including any supplier when that table is absent, is served as a natural
- * person with no name, no fiscal code and no party id. Buyers are
- * public authorities: the name is served, the code only when it is valid.
+ * including any supplier when that view is unreadable, is served as a natural
+ * person with no name, no fiscal code and no party id. A named supplier's name
+ * is its public registry name (`party_public_names`). Buyers are public
+ * authorities: the name is served, the code only when it is valid.
  *
  * Pure: no I/O. A row that breaks the contract's invariants is refused, never
  * served half-right.
@@ -107,13 +109,13 @@ export const DA_NATURAL_PERSON_LABEL = { en: 'natural person', ro: 'persoană fi
 
 // ── Records (repo → core) ────────────────────────────────────────────────────
 
-/** One `da_parties` row as read; never served directly. */
+/** One public party as read (`da_parties_public`); never served directly. */
 export interface DaPartyRecord {
   readonly portalPartyId: string;
   readonly name: string | null;
   readonly fiscalCode: string | null;
   readonly fiscalCodeStatus: string | null;
-  /** The code is in `supplier_privacy` with `public = true`. False when absent, or when the table is. */
+  /** D6 in SQL: the supplier has a public row and its code is valid. False for a buyer. */
   readonly supplierPublic: boolean;
 }
 
@@ -309,7 +311,7 @@ export interface DaTotalsGroup extends DaTotals {
 // ── D6 ───────────────────────────────────────────────────────────────────────
 
 /**
- * Whether D6 lets a supplier be named: its code is public in `supplier_privacy`
+ * Whether D6 lets a supplier be named: its code is disclosed (`da_parties_public`)
  * (and, defensively, present and valid; public implies both).
  */
 export const isNamedSupplier = (party: DaPartyRecord): boolean =>

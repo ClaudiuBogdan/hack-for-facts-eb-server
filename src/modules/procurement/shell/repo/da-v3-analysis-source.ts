@@ -21,9 +21,10 @@
  * (routing) and again here.
  *
  * D6 (one rule, `da-v3-sql.ts`): a supplier is keyed and named only when its
- * code is public in supplier_privacy. Every withheld supplier is ONE key,
- * `natural_person`; a purchase without a supplier is the unknown bucket. A
- * supplierCui scope that is not public matches nothing.
+ * code is disclosed (a public party row, with supplier_disclosure readable).
+ * Every withheld supplier is ONE key, `natural_person`; a purchase without a
+ * supplier is the unknown bucket. A supplierCui scope that is not public
+ * matches nothing. Supplier names come from party_public_names, by code.
  *
  * Consistency: every read is one read-only REPEATABLE READ snapshot that
  * re-reads da_release and refuses if the publication moved since the request
@@ -49,11 +50,14 @@ import {
 } from '@/modules/shared/index.js';
 
 import {
+  DA_PARTIES_PUBLIC,
   DA_RELEASE_SCHEMA,
   daV3Table,
   namedSupplierSql,
-  probeSupplierPrivacy,
-  supplierPrivacyJoin,
+  probeSupplierDisclosure,
+  SUPPLIER_DISCLOSURE,
+  SUPPLIER_DISCLOSURE_NAME,
+  supplierNamesByCode,
 } from './da-v3-sql.js';
 import {
   DA_NATURAL_PERSON_BUCKET,
@@ -80,9 +84,9 @@ type Db = Kysely<ProdDatabase>;
 type Sql = RawBuilder<unknown>;
 
 const PURCHASES = daV3Table('da_purchases');
-const PARTIES = daV3Table('da_parties');
+const PARTIES = DA_PARTIES_PUBLIC;
 const RELEASE = daV3Table('da_release');
-const PRIVACY_TABLE = daV3Table('supplier_privacy');
+const PRIVACY_TABLE = SUPPLIER_DISCLOSURE;
 
 const STATEMENT_TIMEOUT_MS = 15_000;
 /** The once-per-publication quality measurement scans the whole table. */
@@ -132,7 +136,7 @@ const REPUBLISHED = (): ApiError =>
 
 interface Ctx {
   readonly trx: Db;
-  /** supplier_privacy exists in this snapshot (else every supplier is withheld). */
+  /** supplier_disclosure is readable in this snapshot (else every supplier is withheld). */
   readonly privacy: boolean;
   /** The rollup tables this login can read in this snapshot (absent: read live). */
   readonly rollups: ReadonlySet<string>;
@@ -141,7 +145,7 @@ interface Ctx {
 /** Which rollups exist and are readable: absent ones are read live, so nothing depends on them. */
 /**
  * The readable rollups. A supplier-keyed rollup counts only on the supplier_ref
- * schema: it must carry `supplier_ref` and supplier_privacy its `supplier_id`.
+ * schema: it must carry `supplier_ref` and supplier_disclosure its `supplier_id`.
  * A table still on an earlier shape is skipped, so those reads stay live.
  */
 const probeRollups = async (trx: Db): Promise<ReadonlySet<string>> => {
@@ -158,7 +162,7 @@ const probeRollups = async (trx: Db): Promise<ReadonlySet<string>> => {
     where coalesce(has_table_privilege(to_regclass(${schema} || n), 'SELECT'), false)
       and (not (n = any(${supplierKeyed}::text[]))
            or (${hasColumn(sql`to_regclass(${schema} || n)`, 'supplier_ref')}
-               and ${hasColumn(sql`to_regclass(${`${schema}supplier_privacy`})`, 'supplier_id')}))`.execute(
+               and ${hasColumn(sql`to_regclass(${SUPPLIER_DISCLOSURE_NAME})`, 'supplier_id')}))`.execute(
     trx
   );
   return new Set(result.rows.map((row) => row.name));
@@ -168,7 +172,7 @@ const probeRollups = async (trx: Db): Promise<ReadonlySet<string>> => {
 const BUILD_ID_SQL = sql`(extract(epoch from max(data_as_of)) * 1000000)::bigint::text`;
 const AS_OF_SQL = sql`to_char(max(data_as_of) at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
 
-/** Filled by a read's snapshot: whether supplier_privacy was readable (names possible). */
+/** Filled by a read's snapshot: whether supplier_disclosure was readable (names possible). */
 interface ReadSeen {
   privacy: boolean;
 }
@@ -192,7 +196,7 @@ const snapshot = async <T>(
             select ${BUILD_ID_SQL} as build_id from ${RELEASE}`.execute(trx);
           if (current.rows[0]?.build_id !== expectBuild) return err(REPUBLISHED());
         }
-        const privacy = await probeSupplierPrivacy(trx);
+        const privacy = await probeSupplierDisclosure(trx);
         if (seen !== undefined) seen.privacy = privacy;
         const rollups = await probeRollups(trx);
         return read({ trx, privacy, rollups });
@@ -278,7 +282,7 @@ interface Facts {
   authorityScope(code: string): Sql;
   /** The supplier's key: public code, natural_person, or NULL (no supplier). */
   readonly supplierKey: Sql;
-  /** True when the supplier is named under D6 (public in supplier_privacy). */
+  /** True when the supplier is named under D6 (it has a public party row). */
   readonly supplierNamed: Sql;
   /** Rows of one supplier code, only while it is public. */
   supplierScope(code: string): Sql;
@@ -305,7 +309,6 @@ const liveFacts = (ctx: Ctx, geo: boolean): Facts => {
   left join ${PARTIES} s
     on s.source_name = p.source_name and s.party_kind = 'supplier'
    and s.portal_party_id = p.supplier_party_id
-  ${supplierPrivacyJoin(ctx.privacy)}
   ${geo ? geoJoin(ctx) : sql``}`,
     day: sql`p.finalization_day`,
     base: null,
@@ -314,7 +317,8 @@ const liveFacts = (ctx: Ctx, geo: boolean): Facts => {
     money: (pred) => sql`sum(p.counted_value) filter (where ${pred} and p.counted)`,
     authority: sql`case when b.fiscal_code_status = 'valid' then b.fiscal_code_clean end`,
     authorityScope: (code) => partyIds('buyer', sql`p.buyer_party_id`, code),
-    supplierKey: sql`case when s.portal_party_id is null then null
+    // A withheld supplier has no public row: "no supplier" is the purchase's own null id.
+    supplierKey: sql`case when p.supplier_party_id is null then null
         when ${named} then s.fiscal_code_clean
         else ${DA_V3_WITHHELD_SUPPLIER_KEY} end`,
     supplierNamed: named,
@@ -331,10 +335,10 @@ const liveFacts = (ctx: Ctx, geo: boolean): Facts => {
 const rollupFacts = (ctx: Ctx, table: string, keys: readonly RollupKey[]): Facts => {
   const withSupplier = keys.includes('supplier') && ctx.privacy;
   // The rollups hold no fiscal code: supplier_ref is supplier_privacy.supplier_id (0 =
-  // withheld, NULL = no supplier). The code comes from supplier_privacy in this
-  // snapshot, and only while the row is public there (D6 again on read).
+  // withheld, NULL = no supplier). The code comes from supplier_disclosure in this
+  // snapshot, and only while the supplier is disclosed there (D6 again on read).
   const named = withSupplier
-    ? sql`(r.supplier_ref > 0 and sv.public is true and sv.fiscal_code_clean is not null)`
+    ? sql`(r.supplier_ref > 0 and sv.fiscal_code_clean is not null)`
     : sql`false`;
   return {
     rollup: table,
@@ -356,7 +360,7 @@ const rollupFacts = (ctx: Ctx, table: string, keys: readonly RollupKey[]): Facts
     supplierScope: (code) =>
       withSupplier
         ? sql`r.supplier_ref = (select sp.supplier_id from ${PRIVACY_TABLE} sp
-            where sp.fiscal_code_clean = ${code} and sp.public is true) and ${named}`
+            where sp.fiscal_code_clean = ${code}) and ${named}`
         : sql`false`,
     cpv: sql`r.cpv8`,
     county: sql`r.county_code`,
@@ -709,7 +713,6 @@ interface RecordRow {
   authority_cui: string | null;
   authority_name: string | null;
   supplier_cui: string | null;
-  supplier_name: string | null;
   supplier_display_kind: 'company' | 'natural_person' | null;
   value_ron: string | null;
   status: string | null;
@@ -728,14 +731,14 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
   /**
    * The publication and privacy state RIGHT NOW, in ONE statement (a publish
    * cannot fall between the two): whether `build` is still the current build,
-   * and whether supplier_privacy is readable. Unreadable on error.
+   * and whether supplier_disclosure is readable. Unreadable on error.
    */
   const probeNow = async (build: string): Promise<{ current: boolean; privacy: boolean }> => {
     try {
       const probe = await sql<{ build_id: string | null; privacy: boolean | null }>`
         select ${BUILD_ID_SQL} as build_id,
                coalesce(
-                 has_table_privilege(to_regclass(${`${DA_RELEASE_SCHEMA}.supplier_privacy`}), 'SELECT'),
+                 has_table_privilege(to_regclass(${SUPPLIER_DISCLOSURE_NAME}), 'SELECT'),
                  false
                ) as privacy
         from ${RELEASE}`.execute(db);
@@ -748,7 +751,7 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
 
   /**
    * An entry is reused, and stored, only while the build is current and
-   * supplier_privacy is readable, checked before the lookup AND after the fill.
+   * supplier_disclosure is readable, checked before the lookup AND after the fill.
    */
   const cacheable = async (build: string): Promise<boolean> => {
     const now = await probeNow(build);
@@ -757,7 +760,7 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
 
   /**
    * A read not served from the cache is answered only if, after it, its build is
-   * STILL current and, when it could name suppliers, supplier_privacy is still
+   * STILL current and, when it could name suppliers, supplier_disclosure is still
    * readable (a revoked grant withholds everyone). Otherwise the caller repeats
    * the request: rows and a disclosureKey the server already knows are stale are
    * never returned.
@@ -923,7 +926,7 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
       // No verdict when coverage could not be measured: time/geo/money then abstain (fail closed).
       quality: quality.isOk() ? { direct_acquisition: quality.value } : {},
       capabilities: DA_V3_CAPABILITIES,
-      // supplier_privacy publishes in the same transaction as the facts (one data_as_of).
+      // supplier_disclosure publishes in the same transaction as the facts (one data_as_of).
       disclosureKey: release.value.privacy ? release.value.as_of : 'unavailable',
       notes: [DA_V3_VALUE_NOTE],
     });
@@ -1288,8 +1291,7 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
                case when b.fiscal_code_status = 'valid' then b.fiscal_code_clean end as authority_cui,
                b.name_as_written as authority_name,
                case when ${isNamed} then s.fiscal_code_clean end as supplier_cui,
-               case when ${isNamed} then s.name_as_written end as supplier_name,
-               case when s.portal_party_id is null then null
+               case when p.supplier_party_id is null then null
                     when ${isNamed} then 'company' else 'natural_person' end as supplier_display_kind,
                (${money})::text as value_ron,
                p.outcome as status,
@@ -1346,6 +1348,11 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
         select (${t.facts.rows(t.dated)})::text as total ${t.facts.from} where ${t.where}`.execute(
             ctx.trx
           );
+          // Named suppliers' public registry names, by this page's codes only.
+          const names = await supplierNamesByCode(
+            ctx.trx,
+            rows.flatMap((row) => row.supplier_cui ?? [])
+          );
           return ok({
             total: total.rows[0]?.total ?? '0',
             rows: rows.map((row): AnalysisRecordRow => ({
@@ -1356,7 +1363,8 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
               authorityCui: row.authority_cui,
               authorityName: row.authority_name,
               supplierCui: row.supplier_cui,
-              supplierName: row.supplier_name,
+              supplierName:
+                row.supplier_cui === null ? null : (names.get(row.supplier_cui) ?? null),
               supplierDisplayKind: row.supplier_display_kind,
               valueRon: row.value_ron,
               status: row.status,

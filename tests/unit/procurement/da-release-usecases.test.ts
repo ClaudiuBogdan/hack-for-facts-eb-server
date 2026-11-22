@@ -259,7 +259,7 @@ describe('totals', () => {
     expect(log.opened).toBe(4);
   });
 
-  it('never serves a cached named answer once supplier_privacy is unreadable', async () => {
+  it('never serves a cached named answer once supplier_disclosure is unreadable', async () => {
     const cache = makeDaTotalsCache();
     const log: SnapshotLog = { opened: 0, reads: [] };
     const named = (

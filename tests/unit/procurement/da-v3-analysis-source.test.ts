@@ -2,8 +2,10 @@
  * The procurement_v3 direct-acquisition analysis source's compiled SQL over a
  * capturing driver: one read-only repeatable-read snapshot per read that
  * refuses a moved publication; D6 keys withheld suppliers as one
- * `natural_person` key and fails closed without supplier_privacy; a supplier
- * scope matches only public suppliers; free text is never selected; buyer
+ * `natural_person` key and fails closed without supplier_disclosure; parties
+ * come from da_parties_public and supplier names from party_public_names by
+ * code; a supplier scope matches only public suppliers; free text is never
+ * selected; buyer
  * geography joins only when asked; refused scope fields run no query.
  */
 import { describe, expect, it } from 'vitest';
@@ -21,7 +23,13 @@ const ROUTE = { grain: 'direct_acquisition' } as const;
 
 const run = async (
   read: (source: ReturnType<typeof makeDaV3AnalysisSource>) => Promise<unknown>,
-  options: { privacy?: boolean; build?: string } = {}
+  options: {
+    privacy?: boolean;
+    build?: string;
+    rollups?: readonly string[];
+    names?: readonly { code: string; name: string }[];
+    records?: readonly Record<string, unknown>[];
+  } = {}
 ) => {
   const captured: CapturedQuery[] = [];
   const isolation: unknown[] = [];
@@ -31,7 +39,10 @@ const run = async (
         return [
           { build_id: options.build ?? BUILD, as_of: null, privacy: options.privacy ?? true },
         ];
+      if (text.includes('from unnest')) return (options.rollups ?? []).map((name) => ({ name }));
       if (text.includes('has_table_privilege')) return [{ present: options.privacy ?? true }];
+      if (text.includes('party_public_names')) return options.names ?? [];
+      if (text.includes('as supplier_display_kind')) return options.records ?? [];
       if (text.includes('as total')) return [{ total: '0' }];
       if (text.includes('as rows'))
         return [
@@ -100,21 +111,48 @@ describe('D6', () => {
     const { sql } = await run((s) =>
       s.breakdownFor(ROUTE, AUTHORITY, GEN, 'supplier', 10, 'value')
     );
-    expect(sql).toContain(
-      'left join "procurement_v3"."supplier_privacy" sv on sv.fiscal_code_clean = s.fiscal_code_clean'
-    );
+    expect(sql).toContain(`left join "procurement_v3"."da_parties_public" s`);
+    expect(sql).not.toContain('"da_parties"');
+    expect(sql).not.toContain('supplier_privacy');
+    expect(sql).not.toContain(' sv ');
+    // A withheld supplier has no public row: "no supplier" is the purchase's own null id.
     expect(sql).toMatch(
-      /when \(sv\.public is true and s\.fiscal_code_status = 'valid' and s\.fiscal_code_clean is not null\) then s\.fiscal_code_clean\s+else \$\d+ end/u
+      /case when p\.supplier_party_id is null then null\s+when \(s\.portal_party_id is not null and s\.fiscal_code_status = 'valid' and s\.fiscal_code_clean is not null\) then s\.fiscal_code_clean\s+else \$\d+ end/u
     );
   });
 
-  it('withholds every supplier without supplier_privacy', async () => {
+  it('keys rollup suppliers by supplier_disclosure, with no public predicate', async () => {
+    const { sql } = await run(
+      (s) => s.breakdownFor(ROUTE, AUTHORITY, GEN, 'supplier', 10, 'value'),
+      { rollups: ['da_rollup_authority_supplier_month'] }
+    );
+    expect(sql).toContain('from "procurement_v3"."da_rollup_authority_supplier_month" r');
+    expect(sql).toContain(
+      'left join "procurement_v3"."supplier_disclosure" sv on sv.supplier_id = r.supplier_ref'
+    );
+    expect(sql).toContain('(r.supplier_ref > 0 and sv.fiscal_code_clean is not null)');
+    expect(sql).not.toMatch(/\bpublic is\b/u);
+    expect(sql).not.toContain('supplier_privacy');
+  });
+
+  it('scopes a rollup supplier through supplier_disclosure only', async () => {
+    const { sql } = await run(
+      (s) => s.statsFor(ROUTE, { grain: 'direct_acquisition', supplierCui: '14399840' }, GEN),
+      { rollups: ['da_rollup_supplier_month'] }
+    );
+    expect(sql).toMatch(
+      /r\.supplier_ref = \(select sp\.supplier_id from "procurement_v3"\."supplier_disclosure" sp\s+where sp\.fiscal_code_clean = \$\d+\) and \(r\.supplier_ref > 0/u
+    );
+  });
+
+  it('withholds every supplier without supplier_disclosure', async () => {
     const { sql } = await run(
       (s) => s.breakdownFor(ROUTE, AUTHORITY, GEN, 'supplier', 10, 'value'),
       {
         privacy: false,
       }
     );
+    expect(sql).not.toContain('supplier_disclosure');
     expect(sql).not.toContain('supplier_privacy');
     expect(sql).toContain('when false then s.fiscal_code_clean');
   });
@@ -124,7 +162,7 @@ describe('D6', () => {
       s.statsFor(ROUTE, { grain: 'direct_acquisition', supplierCui: '14399840' }, GEN)
     );
     expect(sql).toMatch(
-      /\(p\.source_name, p\.supplier_party_id\) in \(select pp\.source_name, pp\.portal_party_id from "procurement_v3"\."da_parties" pp\s+where pp\.party_kind = \$\d+ and pp\.fiscal_code_status = 'valid' and pp\.fiscal_code_clean = \$\d+\) and \(sv\.public is true/u
+      /\(p\.source_name, p\.supplier_party_id\) in \(select pp\.source_name, pp\.portal_party_id from "procurement_v3"\."da_parties_public" pp\s+where pp\.party_kind = \$\d+ and pp\.fiscal_code_status = 'valid' and pp\.fiscal_code_clean = \$\d+\) and \(s\.portal_party_id is not null/u
     );
   });
 
@@ -133,14 +171,59 @@ describe('D6', () => {
       s.recordsFor(ROUTE, AUTHORITY, GEN, { sort: 'value_desc', offset: 0, limit: 25 })
     );
     expect(sql).toMatch(
-      /case when \(sv\.public is true[^)]*\) then s\.name_as_written end as supplier_name/u
+      /case when \(s\.portal_party_id is not null[^)]*\) then s\.fiscal_code_clean end as supplier_cui/u
     );
+    // Supplier names never come from a party row (the view carries none for suppliers).
+    expect(sql).not.toContain('supplier_name');
+    expect(sql).toContain(`case when p.supplier_party_id is null then null`);
     expect(sql).toContain('as supplier_display_kind');
     expect(sql).toContain('p.category_as_written as cpv_label');
     expect(sql).not.toMatch(/p\.(title|description)\b/u);
     // Two phases the where-counted (counted_value, purchase_id) index serves: valued rows first.
     expect(sql).toContain('p.counted and p.counted_value is not null');
     expect(sql).toContain('order by p.counted_value desc, p.purchase_id desc');
+  });
+});
+
+describe('supplier names', () => {
+  const row = (supplierCui: string | null) => ({
+    id: 'a',
+    date: '2025-01-01',
+    authority_cui: '4305857',
+    authority_name: 'PRIMARIA',
+    supplier_cui: supplierCui,
+    supplier_display_kind: supplierCui === null ? 'natural_person' : 'company',
+    value_ron: '1.00',
+    status: 'accepted',
+    cpv_code: null,
+    cpv_label: null,
+  });
+
+  it('names a named supplier on a records page by code from party_public_names', async () => {
+    const { result, captured } = await run(
+      (s) => s.recordsFor(ROUTE, AUTHORITY, GEN, { sort: 'date_desc', offset: 0, limit: 25 }),
+      {
+        records: [row('14399840'), row(null)],
+        names: [{ code: '14399840', name: 'FIRMA REGISTRY SRL' }],
+      }
+    );
+    const page = (
+      result as { _unsafeUnwrap: () => { rows: { supplierName: string | null }[] } }
+    )._unsafeUnwrap();
+    expect(page.rows.map((r) => r.supplierName)).toEqual(['FIRMA REGISTRY SRL', null]);
+    const lookup = captured.find((q) => q.sql.includes('party_public_names'));
+    expect(lookup?.sql).toContain(
+      'where n.fiscal_code_clean = any($1::text[]) and n.supplier_name_public is true'
+    );
+    expect(lookup?.parameters).toEqual([['14399840']]);
+  });
+
+  it('looks up no name when the page names no supplier', async () => {
+    const { captured } = await run(
+      (s) => s.recordsFor(ROUTE, AUTHORITY, GEN, { sort: 'date_desc', offset: 0, limit: 25 }),
+      { records: [row(null)] }
+    );
+    expect(captured.some((q) => q.sql.includes('party_public_names'))).toBe(false);
   });
 });
 
@@ -256,7 +339,7 @@ describe('the publication-keyed cache', () => {
     ['revoked after a read that could name suppliers', true, false],
     ['unreadable throughout (everyone withheld)', false, true],
   ] as const)(
-    'a scoped read with the supplier_privacy grant %s',
+    'a scoped read with the supplier_disclosure grant %s',
     async (_label, before, served) => {
       let readable = before;
       const db = makeCapturingDb([], {
@@ -277,7 +360,7 @@ describe('the publication-keyed cache', () => {
     }
   );
 
-  it('never returns a records page read with the supplier_privacy grant later revoked', async () => {
+  it('never returns a records page read with the supplier_disclosure grant later revoked', async () => {
     let readable = true;
     const db = makeCapturingDb([], {
       respond: (text) => {
@@ -299,7 +382,7 @@ describe('the publication-keyed cache', () => {
     expect(page.isErr() && page.error.message).toContain('republished');
   });
 
-  it('probes the build and the supplier_privacy grant in one statement', async () => {
+  it('probes the build and the supplier_disclosure grant in one statement', async () => {
     const { captured, source } = world();
     await unfiltered(source);
     const probes = captured.filter(
@@ -327,7 +410,7 @@ describe('the publication-keyed cache', () => {
     expect(state.rowsReads).toBe(2);
   });
 
-  it('reuses an unfiltered answer only while the build is current and supplier_privacy is readable', async () => {
+  it('reuses an unfiltered answer only while the build is current and supplier_disclosure is readable', async () => {
     const reads = async (options: { privacy?: boolean; build?: string }) => {
       const { captured } = await run(async (source) => {
         await unfiltered(source);

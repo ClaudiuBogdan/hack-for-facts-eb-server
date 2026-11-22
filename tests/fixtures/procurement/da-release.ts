@@ -290,7 +290,7 @@ const measure = (rows: readonly DaPurchaseRecord[]): DaTotalsRecord => {
 
 export interface FakeDaRepoOptions {
   readonly enabled?: boolean;
-  /** False: `supplier_privacy` is absent, so every supplier is withheld. */
+  /** False: `supplier_disclosure` is unreadable, so every supplier is withheld. */
   readonly supplierPrivacyTable?: boolean;
   readonly purchases?: readonly DaPurchaseRecord[];
   readonly dataAsOf?: string | null;

@@ -68,7 +68,7 @@ export interface DaTotalsRecords {
 export interface DaReleaseReader {
   /** The one `da_release` row's `data_as_of` (ISO timestamptz); null when the table is empty. */
   dataAsOf(): Promise<Result<string | null, ApiError>>;
-  /** Whether `supplier_privacy` exists; without it every supplier is withheld (D6 fails closed). */
+  /** Whether `supplier_disclosure` is readable; without it every supplier is withheld (D6 fails closed). */
   supplierPrivacyTable(): boolean;
   listPurchases(query: DaPurchaseListQuery): Promise<Result<DaPurchaseListRecords, ApiError>>;
   purchaseById(purchaseId: string): Promise<Result<DaPurchaseRecord | null, ApiError>>;

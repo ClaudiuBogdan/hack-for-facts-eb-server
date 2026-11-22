@@ -2,7 +2,14 @@
  * E2E — direct acquisitions release 1 against a REAL Postgres: the repository's
  * SQL runs (types, casts, grouping, window counts, timestamp text), the D6
  * filter and supplier buckets hold in SQL, and the reader works both before
- * and after `supplier_privacy` and the pending columns exist.
+ * and after `supplier_disclosure` and the pending columns exist.
+ *
+ * Parties are read only through `da_parties_public`. Before: that view is
+ * readable but `supplier_disclosure` is not (here the view is unfiltered, so a
+ * reader that trusted it alone would leak): every supplier must be withheld.
+ * After: the platform's views (SEC-GRANTS-PROC-2211) and the `*_shown`
+ * columns exist, and the reader runs as a login holding EXACTLY the approved
+ * grants, so a read of any ungranted column or table fails the test.
  *
  * The schema is a MINIMAL SHAPE built from the serving contract
  * (DIRECT_ACQUISITION_SERVING_CONTRACT.md: column names and types), not the
@@ -112,7 +119,17 @@ const DDL = `
     quantity_correction boolean,
     primary key (purchase_id, item_index)
   );
-  create table procurement_v3.da_release (data_as_of timestamptz not null);
+  create table procurement_v3.da_release (
+    data_as_of timestamptz not null,
+    rows bigint, dated bigint, counted bigint, accepted bigint, with_cpv bigint, with_geo bigint,
+    money numeric, money_dated numeric, money_geo numeric, free_text_rule text,
+    registry_as_of timestamptz
+  );
+  -- Before the D6 view: a public party view the reader may read, but no
+  -- supplier_disclosure, so D6 must withhold every supplier the view lists.
+  create view procurement_v3.da_parties_public as
+    select source_name, party_kind, portal_party_id, fiscal_code_clean, fiscal_code_status, name_as_written
+    from procurement_v3.da_parties;
 `;
 
 const parties = (): Map<string, { kind: 'buyer' | 'supplier'; party: DaPartyRecord }> => {
@@ -128,7 +145,7 @@ const parties = (): Map<string, { kind: 'buyer' | 'supplier'; party: DaPartyReco
 
 const load = async (trx: Kysely<ProdDatabase>): Promise<void> => {
   await sql.raw(DDL).execute(trx);
-  await sql`insert into procurement_v3.da_release values ('2026-11-18T03:10:00.123456Z')`.execute(
+  await sql`insert into procurement_v3.da_release (data_as_of) values ('2026-11-18T03:10:00.123456Z')`.execute(
     trx
   );
   for (const { kind, party } of parties().values()) {
@@ -177,7 +194,32 @@ const load = async (trx: Kysely<ProdDatabase>): Promise<void> => {
   );
 };
 
-/** Add the pending columns, as the loader change will. */
+/** The registry name the API serves for the public company (never its name as written). */
+const COMPANY_REGISTRY_NAME = 'EXEMPLU REGISTRU SA';
+
+/** The API's login under the approved SEC-GRANTS-PROC-2211 v3 grants (DA release part). */
+const API_LOGIN = 'procurement_api_e2e';
+const APPROVED_GRANTS = `
+  create role procurement_api_read nologin;
+  grant usage on schema procurement_v3 to procurement_api_read;
+  grant select (data_as_of, rows, dated, counted, accepted, with_cpv, with_geo, money, money_dated,
+    money_geo, free_text_rule, registry_as_of) on procurement_v3.da_release to procurement_api_read;
+  grant select (purchase_id, native_id, code, source_name, source_url, outcome, state_label,
+    publication_day, finalization_day, ca_decision_at, supplier_decision_at, reported_value, counted,
+    counted_value, not_counted_reason, value_corrected, value_review_rule, symbolic_price, title_shown,
+    title_public, description_public, category_code, category_as_written, acquisition_type_label,
+    listed_now, buyer_party_id, supplier_party_id) on procurement_v3.da_purchases to procurement_api_read;
+  grant select (purchase_id, item_index, item_name_shown, item_name_public, item_unit_shown,
+    item_unit_public, quantity, requested_quantity, unit_price, catalogue_price, supplier_rejected,
+    quantity_correction, superseded_at) on procurement_v3.da_items to procurement_api_read;
+  grant select (rule, effect, public_description_en, public_description_ro)
+    on procurement_v3.da_value_rules to procurement_api_read;
+  grant select on procurement_v3.supplier_disclosure, procurement_v3.da_parties_public,
+    procurement_v3.party_public_names to procurement_api_read;
+  create role ${API_LOGIN} login password '${API_LOGIN}' in role procurement_api_read;
+`;
+
+/** Add the pending columns and the platform's public views, as the loader and migration will. */
 const addPendingColumns = async (trx: Kysely<ProdDatabase>): Promise<void> => {
   await sql`alter table procurement_v3.da_items add column superseded_at timestamptz`.execute(trx);
   // A line the sync no longer sees: kept, never served.
@@ -185,48 +227,68 @@ const addPendingColumns = async (trx: Kysely<ProdDatabase>): Promise<void> => {
     values (${PURCHASES[1]?.purchaseId ?? ''}, 3, ${`${SECRET} superseded line`}, 1, 1, now())`.execute(
     trx
   );
-  // The site-wide D6 source: the company is public, the sole trader and the bad code are not,
-  // and UNVERIFIED's code is absent (absent means withheld).
+  // The site-wide D6 classification: the company is public, the sole trader and the bad code are
+  // not, and UNVERIFIED's code is absent (absent means withheld). The API never reads it.
   await sql`create table procurement_v3.supplier_privacy (
-    fiscal_code_clean text primary key, supplier_kind text, public boolean not null,
-    method text, classified_at timestamptz)`.execute(trx);
-  for (const [party, isPublic] of [
-    [COMPANY, true],
-    [SOLE_TRADER, false],
-    [NATURAL_PERSON, false],
-    [BAD_CODE_SUPPLIER, false],
+    fiscal_code_clean text primary key, supplier_id bigint not null, supplier_kind text,
+    public boolean not null, method text, classified_at timestamptz)`.execute(trx);
+  for (const [id, party, isPublic, kind] of [
+    [1, COMPANY, true, 'company'],
+    [2, SOLE_TRADER, false, 'sole_trader'],
+    [3, NATURAL_PERSON, false, 'natural_person'],
+    [4, BAD_CODE_SUPPLIER, false, 'unverified'],
   ] as const)
-    await sql`insert into procurement_v3.supplier_privacy (fiscal_code_clean, public)
-      values (${party.fiscalCode}, ${isPublic})`.execute(trx);
-  // Free-text gates: only purchase 1's title and line 0's name are marked public.
-  await sql`alter table procurement_v3.da_purchases add column title_public boolean`.execute(trx);
-  await sql`alter table procurement_v3.da_purchases add column description_public boolean`.execute(
+    await sql`insert into procurement_v3.supplier_privacy (fiscal_code_clean, supplier_id, public, supplier_kind)
+      values (${party.fiscalCode}, ${id}, ${isPublic}, ${kind})`.execute(trx);
+  // The platform's public views (migration 20261121T090060, procurement-prod's final columns).
+  await sql`create view procurement_v3.supplier_disclosure as
+    select fiscal_code_clean, supplier_id from procurement_v3.supplier_privacy
+    where public and supplier_kind = 'company'`.execute(trx);
+  await sql`create or replace view procurement_v3.da_parties_public as
+    select source_name, party_kind, portal_party_id, fiscal_code_clean, fiscal_code_status,
+           case when party_kind = 'buyer' then name_as_written end as name_as_written
+    from procurement_v3.da_parties
+    where party_kind = 'buyer'
+       or fiscal_code_clean in (select fiscal_code_clean from procurement_v3.supplier_disclosure)`.execute(
     trx
   );
-  await sql`alter table procurement_v3.da_items add column item_name_public boolean`.execute(trx);
-  await sql`alter table procurement_v3.da_items add column item_unit_public boolean`.execute(trx);
-  await sql`update procurement_v3.da_purchases set title_public = true where purchase_id = ${PURCHASES[0]?.purchaseId ?? ''}`.execute(
-    trx
-  );
-  await sql`update procurement_v3.da_purchases set description_public = false where purchase_id = ${PURCHASES[0]?.purchaseId ?? ''}`.execute(
-    trx
-  );
-  await sql`update procurement_v3.da_items set item_unit_public = true where item_index = 0`.execute(
-    trx
-  );
-  await sql`update procurement_v3.da_items set item_name_public = true where item_index = 0`.execute(
-    trx
-  );
+  await sql`create table procurement_v3.party_public_names (
+    fiscal_code_clean text primary key, registry_name text,
+    buyer_name_public boolean, supplier_name_public boolean)`.execute(trx);
+  await sql`insert into procurement_v3.party_public_names values
+    (${COMPANY.fiscalCode}, ${COMPANY_REGISTRY_NAME}, true, true),
+    (${SOLE_TRADER.fiscalCode}, ${`${SECRET} REGISTRY PFA`}, false, false)`.execute(trx);
+  // Free text through the platform's *_shown columns: only purchase 1's title and line 0's
+  // name and unit are public. A shown text whose flag is false is never served either.
+  await sql`alter table procurement_v3.da_purchases
+    add column title_shown text, add column title_public boolean,
+    add column description_shown text, add column description_public boolean`.execute(trx);
+  await sql`alter table procurement_v3.da_items
+    add column item_name_shown text, add column item_name_public boolean,
+    add column item_unit_shown text, add column item_unit_public boolean`.execute(trx);
+  await sql`update procurement_v3.da_purchases set title_public = true, title_shown = title,
+    description_public = true, description_shown = description
+    where purchase_id = ${PURCHASES[0]?.purchaseId ?? ''}`.execute(trx);
+  await sql`update procurement_v3.da_purchases set title_public = false,
+    title_shown = ${`${SECRET} shown but not public`}
+    where purchase_id = ${PURCHASES[2]?.purchaseId ?? ''}`.execute(trx);
+  await sql`update procurement_v3.da_items set item_unit_public = true, item_unit_shown = unit,
+    item_name_public = true, item_name_shown = name where item_index = 0`.execute(trx);
   await sql`alter table procurement_v3.da_purchases add column listed_now boolean`.execute(trx);
   for (const row of PURCHASES)
     await sql`update procurement_v3.da_purchases set listed_now = ${row.listedNow} where purchase_id = ${row.purchaseId}`.execute(
       trx
     );
+  await sql.raw(APPROVED_GRANTS).execute(trx);
 };
 
+/** The reader: the owner login before the views, the approved-grant login after. */
+let reader: Kysely<ProdDatabase> | undefined;
+
 const deps = (): DaReleaseDeps => {
-  if (db === undefined) throw new Error('no database');
-  return { repo: makeDaReleaseRepo(db, true) };
+  const current = reader ?? db;
+  if (current === undefined) throw new Error('no database');
+  return { repo: makeDaReleaseRepo(current, true) };
 };
 
 beforeAll(async () => {
@@ -251,6 +313,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await reader?.destroy();
   await db?.destroy();
   await container?.stop();
 });
@@ -357,7 +420,7 @@ const checkCommon = async (forbidden: readonly string[]) => {
   expect(refused.total).toBe(1);
 };
 
-describe('before supplier_privacy and the pending columns exist', () => {
+describe('before supplier_disclosure and the pending columns exist', () => {
   it('serves every case and withholds every supplier, companies included (fails closed)', async () => {
     await checkCommon([SECRET, COMPANY.name ?? '~']);
     const list = (await listDaPurchases(deps(), ALL))._unsafeUnwrap();
@@ -392,16 +455,29 @@ describe('before supplier_privacy and the pending columns exist', () => {
   });
 });
 
-describe('after supplier_privacy and the pending columns exist', () => {
-  it('names only companies and serves listed_now', async () => {
-    if (db === undefined) throw new Error('no database');
+describe('after the public views and the pending columns exist, under the approved grants', () => {
+  it('names only companies, by registry name, and serves listed_now', async () => {
+    if (db === undefined || container === undefined) throw new Error('no database');
     await addPendingColumns(db);
-    await checkCommon([SECRET]);
+    reader = new Kysely<ProdDatabase>({
+      dialect: new PostgresDialect({
+        pool: new pg.Pool({
+          host: container.getHost(),
+          port: container.getPort(),
+          database: container.getDatabase(),
+          user: API_LOGIN,
+          password: API_LOGIN,
+          max: 2,
+        }),
+      }),
+    });
+    await checkCommon([SECRET, COMPANY.name ?? '~']);
     const list = (await listDaPurchases(deps(), ALL))._unsafeUnwrap();
     expect(list.items.find((item) => item.purchaseId === PURCHASES[7]?.purchaseId)?.listedNow).toBe(
       false
     );
     const first = list.items.find((item) => item.purchaseId === PURCHASES[0]?.purchaseId);
+    // The description is never read, even where the platform marks it public.
     expect(first).toMatchObject({
       title: 'Public title 1',
       titleWithheld: null,
@@ -425,7 +501,7 @@ describe('after supplier_privacy and the pending columns exist', () => {
         item.supplier?.name === null || item.supplier === null ? [] : [item.supplier.name]
       )
     );
-    expect(named).toEqual(new Set([COMPANY.name]));
+    expect(named).toEqual(new Set([COMPANY_REGISTRY_NAME]));
 
     const pfa = (
       await listDaPurchases(deps(), {
@@ -458,5 +534,6 @@ describe('after supplier_privacy and the pending columns exist', () => {
       [null, true, '1'],
     ]);
     expect(JSON.stringify(bySupplier)).not.toContain(SECRET);
+    expect(bySupplier.groups[0]?.party?.name).toBe(COMPANY_REGISTRY_NAME);
   });
 });

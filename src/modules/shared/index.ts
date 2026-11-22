@@ -80,8 +80,8 @@ export interface KernelConfig {
   readonly logger?: Logger;
   /**
    * Site-wide D6 for direct-acquisition suppliers (PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED):
-   * when true, every module names a DA supplier only when `supplier_privacy`
-   * says public, and withholds a non-public code's DA flows. Default false.
+   * when true, every module names a DA supplier only when its code is in
+   * `supplier_disclosure`, and withholds a non-public code's DA flows. Default false.
    */
   readonly supplierDisclosureEnforced?: boolean;
 }

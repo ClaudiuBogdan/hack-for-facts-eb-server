@@ -23,29 +23,45 @@ only what the API adds or decides.
 
 ## Free text (decision 2026-11-10)
 
-- `title`, `description` and the line's `name` and `unit` are restricted until the loader marks them public. The
+- `title`, `description` and the line's `name` and `unit` are restricted until the platform marks them public. The
   per-field flags are `title_public`, `description_public`, `item_name_public` and `item_unit_public`; the owner
   decides field by field. The unit is free text (43,729 distinct values), so it is gated like the names.
+- The API reads free text only from the platform's masked columns (SEC-GRANTS-PROC-2211): `title_shown`,
+  `item_name_shown` and `item_unit_shown`, and serves each only where its row's flag is also true. The raw `title`,
+  `description`, `name` and `unit` columns are never read (the API's grant does not cover them). Purchase
+  descriptions are never read at all and are always served withheld.
 - Money columns carry at most 2 decimals; the data platform enforces this with a build STOP.
 - A field that is not marked public is served as null, with `titleWithheld` / `descriptionWithheld` /
   `nameWithheld` set to `"privacy"`. The SQL never selects the text in that case.
-- In release 1 all three fields are withheld until the flags exist. `categoryLabel` (the CPV label) is the
-  purchase's visible name.
+- A field whose `*_shown` column or flag is absent is withheld. `categoryLabel` (the CPV label) is the purchase's
+  visible name.
 
 ## D6: supplier names (site-wide)
 
-- One source for v3 and the legacy surfaces: `procurement_v3.supplier_privacy` (`fiscal_code_clean`, `public`), built
-  by the data platform's classifier over every supplier code the platform serves and rewritten in the nightly
-  publish with `data_as_of`. A supplier's name, fiscal code and party id are served only when its code is there with
-  `public = true` (and, defensively, valid). Absent code or absent table: withheld, so the rule fails closed.
+- One source for v3 and the legacy surfaces: the data platform's classification `procurement_v3.supplier_privacy`,
+  built by its classifier over every supplier code the platform serves and rewritten in the nightly publish with
+  `data_as_of`. The API reads it only through public views (SEC-GRANTS-PROC-2211, owner-approved 2026-11-22):
+  - `supplier_disclosure` (`fiscal_code_clean`, `supplier_id`): the disclosed suppliers (public companies). The
+    kernel D6 port reads it whole; the rollups join it on `supplier_id`.
+  - `da_parties_public` (`source_name`, `party_kind`, `portal_party_id`, `fiscal_code_clean`,
+    `fiscal_code_status`, `name_as_written`): every buyer, and a supplier only when its code is disclosed, with
+    `name_as_written` NULL for suppliers. A buyer whose code the classifier calls non-company has its code and
+    name NULL. A purchase whose supplier party id is set but has no row here has a withheld supplier.
+  - `party_public_names` (`fiscal_code_clean`, `registry_name`, `buyer_name_public`, `supplier_name_public`): a
+    named supplier's name is its registry name where `supplier_name_public`, looked up by the page's codes only
+    (`fiscal_code_clean = any($1)`, never joined or scanned).
+- A supplier's name, fiscal code and party id are served only when it has a public party row (and, defensively, a
+  valid code) and `supplier_disclosure` is readable in the snapshot. Otherwise it is withheld, so the rule fails
+  closed.
 - A withheld supplier is `natural_person`, with `name`, `fiscalCode` and `partyId` all null; one person's purchases
   cannot be linked across rows.
 - A supplier filter matches only public suppliers, so a sole trader's code cannot be used to list their purchases.
 - In totals grouped by supplier, every withheld supplier falls into one `natural_person` group. Purchases that name
   no supplier have their own group (`noSupplier: true`).
 - Buyers are `authority`: the name is always served, the fiscal code only when it is valid.
-- The rule lives in `core/da-release.ts` (`isNamedSupplier`). The SQL mirror (`namedSupplier`, joining
-  `supplier_privacy` as `sv`) only filters and buckets rows, and the core re-checks every party before it is served.
+- The rule lives in `core/da-release.ts` (`isNamedSupplier`). The SQL mirror (`namedSupplierSql` in
+  `da-v3-sql.ts`, over the public supplier row `s`) only filters and buckets rows, and the core re-checks every party
+  before it is served.
   `tests/integration/procurement/da-release-surfaces.test.ts` fails if any surface serves a withheld name, and it
   covers the absent-table case too.
 
@@ -104,10 +120,10 @@ With the flag off:
   - a supplier scope on a withheld code matches nothing;
   - top supplier buckets with a withheld code merge into one `natural_person` bucket;
   - records serve no withheld code or name, and no title.
-- **The privacy check:** `supplier_privacy` counts as present only when the API's login can read it, so a revoked
-  grant withholds everyone. Every legacy read checks the public set again after the data read. If a nightly publish
-  withheld a code mid-request, the answer withholds it too (lists and scopes are re-read). The v3 reads join
-  supplier_privacy in the same snapshot as the data.
+- **The privacy check:** `supplier_disclosure` counts as present only when the API's login can read it, so a
+  revoked grant withholds everyone. Every legacy read checks the public set again after the data read. If a nightly
+  publish withheld a code mid-request, the answer withholds it too (lists and scopes are re-read). The v3 reads
+  read the public party view (and the rollups `supplier_disclosure`) in the same snapshot as the data.
 - **Server caches:** keyed by publication, with no purge endpoint.
   - The disclosure set, release totals and v3 analysis answers are keyed by `data_as_of`, and also by the privacy
     state (present and readable). The set is reused while `data_as_of` is unchanged, so every write to
@@ -262,9 +278,9 @@ money_geo.
   - other distinct counts use `count(distinct)` over the covering rollup.
 - **Zero rows never count.** Every rollup read filters `purchases > 0`, so a zeroed row never contributes a key, a
   month or a count.
-- **D6 again on read.** supplier_ref is joined to supplier_privacy on supplier_id. The code comes from there, only
-  while that row is public; otherwise the supplier is served as natural_person. A supplier scope looks up the
-  public code's id once, so the read uses the rollup's supplier_ref index.
+- **D6 again on read.** supplier_ref is joined to `supplier_disclosure` on supplier_id. The code comes from there,
+  only while the supplier is disclosed; otherwise the supplier is served as natural_person. A supplier scope looks up
+  the disclosed code's id once, so the read uses the rollup's supplier_ref index.
 - **Quality** comes from the da_release columns when all nine are readable and non-null, and is measured live
   otherwise. with_geo and money_geo count purchases whose buyer resolves to a public territory (SIRUTA), with or
   without a county, as live does.
@@ -289,7 +305,7 @@ money_geo.
   10 digits and still match. No CHECK constraint enforces the shape; the loader's transform and this rule do. The
   data-platform serving contract states the same rule (docs f0dbc4fc).
 - **Query shapes for the live reads** (procurement-prod's workshop timings, 18–19 Nov):
-  - a buyer or supplier scope filters purchases by `(source_name, party id) in (select … from da_parties where
+  - a buyer or supplier scope filters purchases by `(source_name, party id) in (select … from da_parties_public where
 party_kind = … and fiscal_code_status = 'valid' and fiscal_code_clean = $1)`, never on the joined party row
     (buyer CPV breakdowns went from 4–5 s to 0.5 s);
   - records by value page in two phases: first the counted rows with a value (`order by counted_value, purchase_id`,
@@ -341,8 +357,9 @@ neither blocks the dev push:
 ## Pending (data platform)
 
 - **Schema name:** `procurement_v3` is pending the owner's migration. It is named once, in `DA_RELEASE_SCHEMA`.
-- **Pending columns:** `listed_now`, `da_items.superseded_at`, the three free-text flags and the `supplier_privacy`
-  table are probed per request, so the reader works before and after they land.
+- **Pending columns:** `listed_now`, `da_items.superseded_at` and the `*_shown` text columns with their flags are
+  probed per request, and `supplier_disclosure` by privilege, so the reader works before and after they land.
+  `da_parties_public` and `party_public_names` are required: without them a read answers ServiceUnavailable.
 - **Decided (owner, 18 Nov):** D6 holds site-wide. The legacy DA surfaces apply the same `supplier_privacy` rule
   behind its own switch (done). The analysis API's DA grain moves to v3: live Postgres first, a
   ClickHouse projection later. Supplier geography is dropped for DA.

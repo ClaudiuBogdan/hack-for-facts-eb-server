@@ -5,11 +5,15 @@
  *
  * One read-only, repeatable-read transaction per request (`snapshot`). The
  * snapshot also probes the columns the contract still lists as pending
- * (`da_purchases.listed_now`, line and free-text flags) so the reader works
- * before and after they land. Parties join on (source_name, party_kind,
- * portal_party_id). Columns are named: the contract's unserved columns
- * (estimates, amount/currency/VAT basis, rule conditions, keys, internal review
- * columns, party contacts and addresses) are never selected.
+ * (`da_purchases.listed_now`, line and free-text columns) so the reader works
+ * before and after they land. Parties come from `da_parties_public` and join on
+ * (source_name, party_kind, portal_party_id); a supplier party id with no public
+ * row is a withheld supplier. Named suppliers' names come from
+ * `party_public_names`, by code, after a page is read. Columns are named: the
+ * contract's unserved columns (estimates, amount/currency/VAT basis, rule
+ * conditions, keys, internal review columns, raw free text) are never selected;
+ * free text is read only from the platform's `*_shown` columns, and purchase
+ * descriptions are never read.
  *
  * D6 in SQL (`namedSupplier`) is used only to filter and to bucket totals;
  * every party that reaches a response is re-checked by the core rule.
@@ -30,12 +34,22 @@ import {
 
 import {
   daV3Table,
+  DA_PARTIES_PUBLIC,
   DA_RELEASE_SCHEMA,
   namedSupplierSql,
-  probeSupplierPrivacy,
-  supplierPrivacyJoin,
+  probeSupplierDisclosure,
+  SUPPLIER_DISCLOSURE_NAME,
+  supplierNamesByCode,
 } from './da-v3-sql.js';
 import { DA_LIST_MAX_DEPTH } from '../../core/da-release-usecases.js';
+import {
+  isNamedSupplier,
+  type DaItemRecord,
+  type DaPartyRecord,
+  type DaPurchaseRecord,
+  type DaTotalsGroupRecord,
+  type DaTotalsRecord,
+} from '../../core/da-release.js';
 
 import type {
   DaPurchaseFilter,
@@ -43,13 +57,6 @@ import type {
   DaReleaseRepo,
   DaTotalsQuery,
 } from '../../core/da-release-ports.js';
-import type {
-  DaItemRecord,
-  DaPartyRecord,
-  DaPurchaseRecord,
-  DaTotalsGroupRecord,
-  DaTotalsRecord,
-} from '../../core/da-release.js';
 
 type Db = Kysely<ProdDatabase>;
 
@@ -57,7 +64,7 @@ export { DA_RELEASE_SCHEMA } from './da-v3-sql.js';
 
 const table = daV3Table;
 const PURCHASES = table('da_purchases');
-const PARTIES = table('da_parties');
+const PARTIES = DA_PARTIES_PUBLIC;
 const RULES = table('da_value_rules');
 const ITEMS = table('da_items');
 const RELEASE = table('da_release');
@@ -94,20 +101,20 @@ interface PartyColumns {
   supplier_public: boolean;
 }
 
-/** The selected columns of one party alias, prefixed. Contacts and addresses are never read. */
-const PARTY_COLUMNS = [
-  'portal_party_id',
-  'name_as_written',
-  'fiscal_code_clean',
-  'fiscal_code_status',
-];
-/** `supplier_public` for `s` comes from `supplier_privacy` (alias `sv`); a buyer is never classified. */
-const partyColumns = (alias: 'b' | 's', supplierPrivacy: boolean) =>
+/** The selected columns of one public party alias, prefixed (the views carry no contacts or addresses). */
+const PARTY_COLUMNS = ['name_as_written', 'fiscal_code_clean', 'fiscal_code_status'];
+/**
+ * A buyer is its public row. A supplier's id is the purchase's own supplier
+ * party id, so a withheld supplier (no public row) still reads as a party and
+ * is served withheld; `supplier_public` is D6 in SQL. A buyer is never classified.
+ */
+const partyColumns = (alias: 'b' | 's', supplierDisclosure: boolean) =>
   sql.join([
+    sql`${alias === 's' ? sql`p.supplier_party_id` : sql`b.portal_party_id`} as ${sql.id(`${alias}_portal_party_id`)}`,
     ...PARTY_COLUMNS.map(
       (column) => sql`${sql.ref(`${alias}.${column}`)} as ${sql.id(`${alias}_${column}`)}`
     ),
-    sql`${alias === 's' && supplierPrivacy ? sql`coalesce(sv.public, false)` : sql`false`} as ${sql.id(`${alias}_supplier_public`)}`,
+    sql`${alias === 's' ? namedSupplierSql(supplierDisclosure) : sql`false`} as ${sql.id(`${alias}_supplier_public`)}`,
   ]);
 
 const partyOf = (row: Record<string, unknown>, prefix: string): DaPartyRecord | null => {
@@ -209,31 +216,31 @@ const toPurchaseRecord = (row: PurchaseRow): DaPurchaseRecord => ({
 });
 
 interface Columns {
-  /** `supplier_privacy` exists. Absent: every supplier is withheld (D6 fails closed). */
-  readonly supplierPrivacy: boolean;
+  /** `supplier_disclosure` is readable. Not: every supplier is withheld (D6 fails closed). */
+  readonly supplierDisclosure: boolean;
   readonly listedNow: boolean;
   /** `da_items.superseded_at`: lines the sync no longer sees; only current lines are served. */
   readonly itemSupersededAt: boolean;
   /**
-   * Free-text gates (decision 2026-11-10: free text is restricted until the
-   * loader marks a field public). Absent column, or a false/null flag: the
-   * text is never selected and the field is served withheld.
+   * Free text (decision 2026-11-10: restricted until the platform marks a field
+   * public). Read only from the platform's `*_shown` column, and only while its
+   * public flag exists too; otherwise the text is never selected and the field
+   * is served withheld. Purchase descriptions are never read.
    */
-  readonly titlePublic: boolean;
-  readonly descriptionPublic: boolean;
-  readonly itemNamePublic: boolean;
-  /** `da_items.item_unit_public`: the unit is free text too (procurement-prod, 18 Nov). */
-  readonly itemUnitPublic: boolean;
+  readonly titleShown: boolean;
+  readonly itemNameShown: boolean;
+  /** The unit is free text too (procurement-prod, 18 Nov). */
+  readonly itemUnitShown: boolean;
 }
 
-/** A gated free-text column: the text leaves the database only when its row's flag is true. */
-const gatedText = (present: boolean, flag: string, column: string, alias: string) =>
+/**
+ * A shown free-text column: the platform's `*_shown` text, served only where
+ * its row's flag is true as well (defence in depth over the platform's mask).
+ */
+const shownText = (present: boolean, flag: string, column: string, alias: string) =>
   present
     ? sql`case when ${sql.ref(flag)} is true then ${sql.ref(column)} end as ${sql.id(alias)}, coalesce(${sql.ref(flag)}, false) as ${sql.id(`${alias}_public`)}`
     : sql`null::text as ${sql.id(alias)}, false as ${sql.id(`${alias}_public`)}`;
-
-/** The supplier's classification row; joined only when the table exists. */
-const privacyJoin = (columns: Columns) => supplierPrivacyJoin(columns.supplierPrivacy);
 
 /** Dates and timestamps as text, so the driver never builds a JS Date. Money stays numeric text. */
 const purchaseSelect = (columns: Columns) => sql`
@@ -252,11 +259,11 @@ const purchaseSelect = (columns: Columns) => sql`
     r.public_description_ro as rule_description_ro,
     p.symbolic_price,
     ${columns.listedNow ? sql`p.listed_now` : sql`null::boolean`} as listed_now,
-    ${gatedText(columns.titlePublic, 'p.title_public', 'p.title', 'title')},
-    ${gatedText(columns.descriptionPublic, 'p.description_public', 'p.description', 'description')},
+    ${shownText(columns.titleShown, 'p.title_public', 'p.title_shown', 'title')},
+    null::text as description, false as description_public,
     p.category_code, p.category_as_written, p.acquisition_type_label,
     ${partyColumns('b', false)},
-    ${partyColumns('s', columns.supplierPrivacy)}
+    ${partyColumns('s', columns.supplierDisclosure)}
   from ${PURCHASES} p
   left join ${PARTIES} b
     on b.source_name = p.source_name and b.party_kind = 'buyer'
@@ -264,7 +271,6 @@ const purchaseSelect = (columns: Columns) => sql`
   left join ${PARTIES} s
     on s.source_name = p.source_name and s.party_kind = 'supplier'
    and s.portal_party_id = p.supplier_party_id
-  ${privacyJoin(columns)}
   left join ${RULES} r on r.rule = p.value_review_rule`;
 
 /** The list orders; purchase_id breaks every tie, so pages never overlap. */
@@ -274,8 +280,8 @@ const LIST_ORDER = {
   countedValueDesc: sql`p.counted_value desc nulls last, p.purchase_id desc`,
 } as const;
 
-/** D6 in SQL, over supplier alias `s` and its `supplier_privacy` row `sv`: see `isNamedSupplier` in core. */
-const namedSupplier = (columns: Columns) => namedSupplierSql(columns.supplierPrivacy);
+/** D6 in SQL, over the public supplier alias `s`: see `isNamedSupplier` in core. */
+const namedSupplier = (columns: Columns) => namedSupplierSql(columns.supplierDisclosure);
 
 /** The filter's conditions over `p`, with `b` and `s` joined. */
 const whereOf = (filter: DaPurchaseFilter, columns: Columns): RawBuilder<unknown> => {
@@ -305,15 +311,14 @@ const whereOf = (filter: DaPurchaseFilter, columns: Columns): RawBuilder<unknown
   return sql.join(conditions, sql` and `);
 };
 
-const scopeFrom = (columns: Columns) => sql`
+const SCOPE_FROM = sql`
   from ${PURCHASES} p
   left join ${PARTIES} b
     on b.source_name = p.source_name and b.party_kind = 'buyer'
    and b.portal_party_id = p.buyer_party_id
   left join ${PARTIES} s
     on s.source_name = p.source_name and s.party_kind = 'supplier'
-   and s.portal_party_id = p.supplier_party_id
-  ${privacyJoin(columns)}`;
+   and s.portal_party_id = p.supplier_party_id`;
 
 const MEASURES = sql`
   sum(p.counted_value) filter (where p.counted)::text as counted_value,
@@ -369,7 +374,7 @@ const groupSelect = (groupBy: NonNullable<DaTotalsQuery['groupBy']>, columns: Co
       const when = (column: string) => sql`case when ${named} then ${sql.ref(`s.${column}`)} end`;
       return {
         select: sql`case when ${named} then s.source_name || ':' || s.portal_party_id end as group_key,
-          case when s.portal_party_id is null then 'none' when ${named} then 'named' else 'withheld' end as g_bucket,
+          case when p.supplier_party_id is null then 'none' when ${named} then 'named' else 'withheld' end as g_bucket,
           ${when('portal_party_id')} as g_portal_party_id,
           ${when('name_as_written')} as g_name_as_written,
           ${when('fiscal_code_clean')} as g_fiscal_code_clean,
@@ -444,6 +449,46 @@ const toGroupRecord = (
   };
 };
 
+// ── Supplier names ───────────────────────────────────────────────────────────
+
+/**
+ * A named supplier's name is its public registry name, read by code after the
+ * page (the public party view carries no supplier name). A withheld supplier
+ * is untouched: the core serves it with no name anyway.
+ */
+const withSupplierNames = async <T>(
+  trx: Db,
+  items: readonly T[],
+  supplierOf: (item: T) => DaPartyRecord | null,
+  withSupplier: (item: T, supplier: DaPartyRecord) => T
+): Promise<Result<T[], ApiError>> => {
+  const named = (item: T): DaPartyRecord | null => {
+    const party = supplierOf(item);
+    return party !== null && isNamedSupplier(party) ? party : null;
+  };
+  const codes = items.flatMap((item) => named(item)?.fiscalCode ?? []);
+  if (codes.length === 0) return ok([...items]);
+  const names = await attempt(() => supplierNamesByCode(trx, codes));
+  if (names.isErr()) return err(names.error);
+  return ok(
+    items.map((item) => {
+      const party = named(item);
+      const code = party?.fiscalCode ?? null;
+      return party === null || code === null
+        ? item
+        : withSupplier(item, { ...party, name: names.value.get(code) ?? null });
+    })
+  );
+};
+
+const namePurchases = (trx: Db, rows: readonly DaPurchaseRecord[]) =>
+  withSupplierNames(
+    trx,
+    rows,
+    (row) => row.supplier,
+    (row, supplier) => ({ ...row, supplier })
+  );
+
 // ── Reader ───────────────────────────────────────────────────────────────────
 
 const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
@@ -455,7 +500,7 @@ const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
       return result.rows[0]?.data_as_of ?? null;
     }),
 
-  supplierPrivacyTable: () => columns.supplierPrivacy,
+  supplierPrivacyTable: () => columns.supplierDisclosure,
 
   listPurchases: async (query) => {
     const where = whereOf(query.filter, columns);
@@ -476,7 +521,7 @@ const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
         (
           await sql<{ total: string }>`
             select count(*)::text as total from (
-              select 1 ${scopeFrom(columns)} where ${where} limit ${DA_LIST_MAX_DEPTH + 1}
+              select 1 ${SCOPE_FROM} where ${where} limit ${DA_LIST_MAX_DEPTH + 1}
             ) as capped`.execute(trx)
         ).rows[0]?.total
     );
@@ -484,22 +529,28 @@ const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
     const total = exactCount(counted.value);
     if (total.isErr()) return err(total.error);
     const capped = total.value > DA_LIST_MAX_DEPTH;
+    const named = await namePurchases(trx, rows.value.map(toPurchaseRecord));
+    if (named.isErr()) return err(named.error);
     return ok({
-      rows: rows.value.map(toPurchaseRecord),
+      rows: named.value,
       total: capped ? DA_LIST_MAX_DEPTH : total.value,
       capped,
     });
   },
 
-  purchaseById: (purchaseId) =>
-    attempt(async () => {
+  purchaseById: async (purchaseId) => {
+    const found = await attempt(async () => {
       const result = await sql<PurchaseRow>`
         ${purchaseSelect(columns)}
         where p.purchase_id = ${purchaseId}
         limit 1`.execute(trx);
       const row = result.rows[0];
       return row === undefined ? null : toPurchaseRecord(row);
-    }),
+    });
+    if (found.isErr() || found.value === null) return found;
+    const named = await namePurchases(trx, [found.value]);
+    return named.map((rows) => rows[0] ?? null);
+  },
 
   itemsOf: (purchaseId) =>
     attempt(async () => {
@@ -518,8 +569,8 @@ const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
         quantity_correction: boolean | null;
       }>`
         select i.item_index,
-               ${gatedText(columns.itemNamePublic, 'i.item_name_public', 'i.name', 'name')},
-               ${gatedText(columns.itemUnitPublic, 'i.item_unit_public', 'i.unit', 'unit')},
+               ${shownText(columns.itemNameShown, 'i.item_name_public', 'i.item_name_shown', 'name')},
+               ${shownText(columns.itemUnitShown, 'i.item_unit_public', 'i.item_unit_shown', 'unit')},
                i.quantity::text as quantity,
                i.requested_quantity::text as requested_quantity,
                i.unit_price::text as unit_price,
@@ -550,11 +601,8 @@ const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
     const where = whereOf(query.filter, columns);
     const overall = await attempt(
       async () =>
-        (
-          await sql<MeasureRow>`select ${MEASURES} ${scopeFrom(columns)} where ${where}`.execute(
-            trx
-          )
-        ).rows[0]
+        (await sql<MeasureRow>`select ${MEASURES} ${SCOPE_FROM} where ${where}`.execute(trx))
+          .rows[0]
     );
     if (overall.isErr()) return err(overall.error);
     if (overall.value === undefined)
@@ -572,7 +620,7 @@ const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
         (
           await sql<GroupRow>`
             select ${select}, ${MEASURES}, count(*) over ()::text as group_count
-            ${scopeFrom(columns)}
+            ${SCOPE_FROM}
             where ${where}
             group by ${groupByPositions(width)}
             order by ${order}
@@ -588,7 +636,7 @@ const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
           (
             await sql<{ total: string }>`
               select count(*)::text as total from (
-                select ${select} ${scopeFrom(columns)} where ${where} group by ${groupByPositions(width)}
+                select ${select} ${SCOPE_FROM} where ${where} group by ${groupByPositions(width)}
               ) as g`.execute(trx)
           ).rows[0]?.total
       );
@@ -597,8 +645,18 @@ const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
     }
     const count = exactCount(groupCount);
     if (count.isErr()) return err(count.error);
-    const groups = grouped.value.map((row) => toGroupRecord(row, groupBy));
-    return ok({ overall: toMeasures(overall.value), groups, groupCount: count.value });
+    const groups = await withSupplierNames(
+      trx,
+      grouped.value.map((row) => toGroupRecord(row, groupBy)),
+      (group) => (groupBy === 'supplier' ? group.party : null),
+      (group, party) => ({ ...group, party })
+    );
+    if (groups.isErr()) return err(groups.error);
+    return ok({
+      overall: toMeasures(overall.value),
+      groups: groups.value,
+      groupCount: count.value,
+    });
   },
 });
 
@@ -606,10 +664,12 @@ const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
 const PENDING_COLUMNS = [
   ['da_purchases', 'listed_now', 'listedNow'],
   ['da_items', 'superseded_at', 'itemSupersededAt'],
-  ['da_purchases', 'title_public', 'titlePublic'],
-  ['da_purchases', 'description_public', 'descriptionPublic'],
-  ['da_items', 'item_name_public', 'itemNamePublic'],
-  ['da_items', 'item_unit_public', 'itemUnitPublic'],
+  ['da_purchases', 'title_shown', 'titleShown'],
+  ['da_purchases', 'title_public', 'titleShown'],
+  ['da_items', 'item_name_shown', 'itemNameShown'],
+  ['da_items', 'item_name_public', 'itemNameShown'],
+  ['da_items', 'item_unit_shown', 'itemUnitShown'],
+  ['da_items', 'item_unit_public', 'itemUnitShown'],
 ] as const satisfies readonly (readonly [string, string, keyof Columns])[];
 
 /** Which pending contract columns exist yet. Catalog reads only. */
@@ -625,17 +685,19 @@ const probeColumns = async (trx: Db): Promise<Columns> => {
     trx
   );
   const present = new Set(result.rows.map((row) => `${row.table_name}.${row.column_name}`));
+  // A key is present only when EVERY column it needs is (a shown text needs its flag too).
   const has = (key: keyof Columns): boolean =>
-    PENDING_COLUMNS.some(([table, column, k]) => k === key && present.has(`${table}.${column}`));
-  const supplierPrivacy = await probeSupplierPrivacy(trx);
+    PENDING_COLUMNS.filter(([, , k]) => k === key).every(([table, column]) =>
+      present.has(`${table}.${column}`)
+    );
+  const supplierDisclosure = await probeSupplierDisclosure(trx);
   return {
-    supplierPrivacy,
+    supplierDisclosure,
     listedNow: has('listedNow'),
     itemSupersededAt: has('itemSupersededAt'),
-    titlePublic: has('titlePublic'),
-    descriptionPublic: has('descriptionPublic'),
-    itemNamePublic: has('itemNamePublic'),
-    itemUnitPublic: has('itemUnitPublic'),
+    titleShown: has('titleShown'),
+    itemNameShown: has('itemNameShown'),
+    itemUnitShown: has('itemUnitShown'),
   };
 };
 
@@ -647,14 +709,14 @@ const REPUBLISHED = (): ApiError =>
     'direct-acquisition data was republished during this request; repeat the request'
   );
 
-/** The release and the supplier_privacy grant RIGHT NOW, in one statement. */
+/** The release and the supplier_disclosure grant RIGHT NOW, in one statement. */
 const probeRelease = async (
   db: Db
 ): Promise<{ readonly asOf: string | null; readonly privacy: boolean }> => {
   const result = await sql<{ as_of: string | null; privacy: boolean | null }>`
     select ${AS_OF_SQL} as as_of,
            coalesce(
-             has_table_privilege(to_regclass(${`${DA_RELEASE_SCHEMA}.supplier_privacy`}), 'SELECT'),
+             has_table_privilege(to_regclass(${SUPPLIER_DISCLOSURE_NAME}), 'SELECT'),
              false
            ) as privacy
     from ${RELEASE}`.execute(db);
@@ -679,7 +741,7 @@ export const makeDaReleaseRepo = (db: Db, enabled: boolean): DaReleaseRepo => ({
             const release = await sql<{ as_of: string | null }>`
               select ${AS_OF_SQL} as as_of from ${RELEASE}`.execute(trx);
             seen.asOf = release.rows[0]?.as_of ?? null;
-            seen.privacy = columns.supplierPrivacy;
+            seen.privacy = columns.supplierDisclosure;
           }
           return read(makeReader(trx, columns));
         });

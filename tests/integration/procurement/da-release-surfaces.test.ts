@@ -286,7 +286,7 @@ describe('free-text privacy gate', () => {
   });
 });
 
-describe('D6 without supplier_privacy (fails closed)', () => {
+describe('D6 without supplier_disclosure (fails closed)', () => {
   let surfaces: Surfaces;
   beforeAll(async () => {
     surfaces = await build({ supplierPrivacyTable: false });
@@ -448,7 +448,7 @@ describe('release disclosure keys (docs 10, monotonic keys)', () => {
     }
   });
 
-  it('reads unavailable without supplier_privacy (everyone withheld; never cache)', async () => {
+  it('reads unavailable without supplier_disclosure (everyone withheld; never cache)', async () => {
     const surfaces = await build({ supplierPrivacyTable: false });
     try {
       const keys = await keysOn(surfaces);
