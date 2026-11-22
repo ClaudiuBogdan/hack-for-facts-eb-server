@@ -279,6 +279,18 @@ describe('totals', () => {
     expect(log.reads.filter((read) => read.method === 'totals')).toHaveLength(2);
   });
 
+  it('never caches supplier groups (their registry names change without data_as_of moving)', async () => {
+    const log: SnapshotLog = { opened: 0, reads: [] };
+    const deps = { repo: makeFakeDaRepo({ log }), totalsCache: makeDaTotalsCache() };
+    await daPurchaseTotals(deps, { groupBy: 'supplier', ...PAGE });
+    await daPurchaseTotals(deps, { groupBy: 'supplier', ...PAGE });
+    expect(log.reads.filter((read) => read.method === 'totals')).toHaveLength(2);
+    // Buyer groups (names in the publication) still are.
+    await daPurchaseTotals(deps, { groupBy: 'buyer', ...PAGE });
+    await daPurchaseTotals(deps, { groupBy: 'buyer', ...PAGE });
+    expect(log.reads.filter((read) => read.method === 'totals')).toHaveLength(3);
+  });
+
   it('drops cached answers when dataAsOf moves', async () => {
     const cache = makeDaTotalsCache();
     const log: SnapshotLog = { opened: 0, reads: [] };

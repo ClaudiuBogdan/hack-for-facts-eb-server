@@ -53,6 +53,9 @@ only what the API adds or decides.
 - A supplier's name, fiscal code and party id are served only when it has a public party row (and, defensively, a
   valid code) and `supplier_disclosure` is readable in the snapshot. Otherwise it is withheld, so the rule fails
   closed.
+- `party_public_names` reads the registry live: a name or privacy change shows on the next read without moving
+  `data_as_of` or `registry_as_of`. No answer that carries a supplier name is cached; unfiltered totals grouped by
+  supplier are read every time (other unfiltered totals stay cached per `data_as_of`).
 - A withheld supplier is `natural_person`, with `name`, `fiscalCode` and `partyId` all null; one person's purchases
   cannot be linked across rows.
 - A supplier filter matches only public suppliers, so a sole trader's code cannot be used to list their purchases.
