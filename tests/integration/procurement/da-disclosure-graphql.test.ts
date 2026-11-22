@@ -101,6 +101,7 @@ const build = async (
           }))
         )
       ),
+    contractsByIds: () => Promise.resolve(ok(new Map())),
     searchDirectAcquisitionsOffset: () =>
       Promise.resolve(
         ok({
@@ -108,7 +109,12 @@ const build = async (
           total: 1,
           estimated: false,
           highlights: [
-            { id: '1', title: null, authorityName: null, supplierName: 'FIRMA ⟦EXEMPLU⟧ SRL' },
+            {
+              id: '1',
+              title: null,
+              authorityName: 'COMUNA ⟦EXEMPLU⟧',
+              supplierName: 'FIRMA ⟦EXEMPLU⟧ SRL',
+            },
           ],
         })
       ),
@@ -448,6 +454,7 @@ describe('PROC-VDWQ: only a selected DA supplier name marks the answer', () => {
     expect((await get(app, HIGHLIGHT('supplierName'))).cacheControl).toBe('no-store');
     const buyer = await post(app, HIGHLIGHT('authorityName'));
     expect(buyer.body.errors).toBeUndefined();
+    expect(buyer.raw).toContain('COMUNA');
     expect(buyer.cacheControl).toBeUndefined();
   });
 
@@ -488,5 +495,30 @@ describe('PROC-VDWQ: only a selected DA supplier name marks the answer', () => {
       expect(answer.body.errors, fields).toBeUndefined();
       expect(answer.cacheControl, fields).toBe(marked ? 'no-store' : undefined);
     }
+    await app.close();
+    // A contract page's supplier is not a DA supplier: its name never marks.
+    app = await build(true, records('contract'));
+    const contract = await post(app, RECORDS('contract', 'items { id supplier { name } }'));
+    expect(contract.body.errors).toBeUndefined();
+    expect(contract.raw).toContain('FIRMA EXEMPLU SRL');
+    expect(contract.cacheControl).toBeUndefined();
+  });
+
+  it('marks the DA member of a supplier-records page when its supplier is named', async () => {
+    app = await build(true);
+    const RECORDS = (fields: string) => /* GraphQL */ `
+      query {
+        procurementSupplierRecords(supplierCui: "14399840", first: 5) {
+          edges { node { ... on ProcurementDirectAcquisition { id supplier { ${fields} } } } }
+        }
+      }
+    `;
+    const named = await post(app, RECORDS('name'));
+    expect(named.body.errors).toBeUndefined();
+    expect(named.raw).toContain('FIRMA EXEMPLU SRL');
+    expect(named.cacheControl).toBe('no-store');
+    const code = await post(app, RECORDS('cui'));
+    expect(code.body.errors).toBeUndefined();
+    expect(code.cacheControl).toBeUndefined();
   });
 });
