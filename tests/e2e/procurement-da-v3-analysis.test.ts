@@ -873,12 +873,65 @@ describe('rollups answer exactly as the live rows', () => {
           order by ${sql.raw(key)} ${sql.raw(direction)} nulls last,
                    purchase_id ${sql.raw(direction)}`.execute(db)
       ).rows.map((row) => row.id);
-      const served: string[] = [];
+      const pages: string[][] = [];
       for (let offset = 0; offset < expected.length + 7; offset += 7) {
         const page = await source.recordsFor(DA, DA, gen, { sort, offset, limit: 7 });
-        served.push(...page._unsafeUnwrap().rows.map((row) => row.id));
+        pages.push(page._unsafeUnwrap().rows.map((row) => row.id));
       }
-      expect(served).toEqual(expected);
+      // Page by page: each page is exactly its slice of the one ORDER BY.
+      expect({ sort, pages }).toEqual({
+        sort,
+        pages: pages.map((_, i) => expected.slice(i * 7, (i + 1) * 7)),
+      });
+    }
+
+    // A geography scope pages over the buyer's pinned place, read as the API's login (the
+    // approved grants; the role exists from the parity test above, this file is sequential).
+    if (container === undefined) throw new Error('no container');
+    const api = new Kysely<ProdDatabase>({
+      dialect: new PostgresDialect({
+        pool: new pg.Pool({
+          host: container.getHost(),
+          port: container.getPort(),
+          database: container.getDatabase(),
+          user: API_LOGIN,
+          password: API_LOGIN,
+          max: 1,
+        }),
+      }),
+    });
+    try {
+      const geoSource = makeDaV3AnalysisSource(api);
+      const geoGen = (await geoSource.generation())._unsafeUnwrap();
+      if (geoGen === null) throw new Error('no generation');
+      const scope = { ...DA, buyerCounty: 'AB' };
+      for (const [sort, direction] of [
+        ['date_desc', 'desc'],
+        ['date_asc', 'asc'],
+      ] as const) {
+        const expected = (
+          await sql<{ id: string }>`select p.purchase_id as id from procurement_v3.da_purchases p
+            join procurement_v3.da_parties b
+              on b.source_name = p.source_name and b.party_kind = 'buyer'
+             and b.portal_party_id = p.buyer_party_id and b.fiscal_code_status = 'valid'
+            join procurement_v3.da_buyer_geography t on t.authority_cui = b.fiscal_code_clean
+            where t.county_code = 'AB'
+            order by p.finalization_day ${sql.raw(direction)} nulls last,
+                     p.purchase_id ${sql.raw(direction)}`.execute(db)
+        ).rows.map((row) => row.id);
+        expect(expected.length).toBeGreaterThan(14);
+        const pages: string[][] = [];
+        for (let offset = 0; offset < expected.length + 7; offset += 7) {
+          const page = await geoSource.recordsFor(DA, scope, geoGen, { sort, offset, limit: 7 });
+          pages.push(page._unsafeUnwrap().rows.map((row) => row.id));
+        }
+        expect({ sort, pages }).toEqual({
+          sort,
+          pages: pages.map((_, i) => expected.slice(i * 7, (i + 1) * 7)),
+        });
+      }
+    } finally {
+      await api.destroy();
     }
   });
 

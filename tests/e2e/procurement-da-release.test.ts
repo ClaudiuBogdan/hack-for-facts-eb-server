@@ -541,6 +541,17 @@ describe('after the public views and the pending columns exist, under the approv
 describe('list orders page exactly as one ORDER BY, across the keyed/unkeyed boundary', () => {
   it('serves every sort in the single-statement order, page by page', async () => {
     if (db === undefined) throw new Error('no database');
+    // Undated and uncounted purchases, so every sort crosses its keyed/unkeyed boundary.
+    for (const [index, id] of ['u1', 'u2', 'u3'].entries())
+      await sql`insert into procurement_v3.da_purchases
+          (purchase_id, source_name, native_id, code, outcome, counted, not_counted_reason, buyer_party_id)
+        values (${`${'e'.repeat(62)}u${String(index)}`}, ${SOURCE}, ${`undated-${id}`}, ${`DA-U-${id}`},
+          'unknown', false, 'detail_unusable', ${PURCHASES[0]?.buyer?.portalPartyId ?? null})`.execute(
+        db
+      );
+    const undated = await sql<{ n: string }>`select count(*)::text as n
+      from procurement_v3.da_purchases where finalization_day is null`.execute(db);
+    expect(Number(undated.rows[0]?.n)).toBeGreaterThanOrEqual(3);
     for (const [sort, key, direction] of [
       ['finalizationDesc', 'finalization_day', 'desc'],
       ['finalizationAsc', 'finalization_day', 'asc'],
@@ -551,12 +562,17 @@ describe('list orders page exactly as one ORDER BY, across the keyed/unkeyed bou
           order by ${sql.raw(key)} ${sql.raw(direction)} nulls last,
                    purchase_id ${sql.raw(direction)}`.execute(db)
       ).rows.map((row) => row.id);
-      const served: string[] = [];
-      for (let page = 1; (page - 1) * 3 < expected.length + 3; page += 1) {
-        const list = (await listDaPurchases(deps(), { sort, page, pageSize: 3 }))._unsafeUnwrap();
-        served.push(...list.items.map((item) => item.purchaseId));
+      // Two page sizes, so the boundary falls inside a page and on a page edge.
+      for (const pageSize of [2, 4]) {
+        const pages: string[][] = [];
+        for (let page = 1; (page - 1) * pageSize < expected.length + pageSize; page += 1) {
+          const list = (await listDaPurchases(deps(), { sort, page, pageSize }))._unsafeUnwrap();
+          pages.push(list.items.map((item) => item.purchaseId));
+        }
+        // Page by page, not flattened: each page holds exactly its slice of the one ORDER BY.
+        const slices = pages.map((_, i) => expected.slice(i * pageSize, (i + 1) * pageSize));
+        expect({ sort, pageSize, pages }).toEqual({ sort, pageSize, pages: slices });
       }
-      expect({ sort, served }).toEqual({ sort, served: expected });
     }
   });
 });

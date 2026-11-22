@@ -357,8 +357,12 @@ describe('review fixes', () => {
       r.listPurchases({ sort: 'finalizationDesc', filter: {}, page: 334, pageSize: 30 })
     );
     const list = captured.find((query) => query.sql.includes('order by p.finalization_day'));
-    // offset 9990, so at most 10 rows.
-    expect(list?.parameters).toEqual(expect.arrayContaining([10, 9990]));
+    // offset 9990, so at most 10 rows, in each phase: the rest phase never reads past the cap.
+    expect(list?.parameters.slice(-2)).toEqual([10, 9990]);
+    const rest = captured.find((query) =>
+      query.sql.includes('not (p.finalization_day is not null)')
+    );
+    expect(rest?.parameters.slice(-2)[0]).toBe(10);
   });
 
   it.each([

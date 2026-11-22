@@ -1360,8 +1360,9 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
           let rows: RecordRow[] = first;
           if (first.length < page.limit) {
             // The keyed rows before this page: offset + what it read, unless it read none, then
-            // counted, capped at the offset (all the carry needs): over the purchases alone
-            // without a geography scope, else over the live rows joined plainly.
+            // counted, capped at the offset (all the carry needs): with no party join without a
+            // geography scope (party scopes resolve party ids through their own subquery on the
+            // public view), else over the live rows joined plainly (the scope reads the buyer).
             let before = page.offset + first.length;
             if (first.length === 0 && page.offset > 0) {
               const plain = compile(ctx, scope, undefined, true);

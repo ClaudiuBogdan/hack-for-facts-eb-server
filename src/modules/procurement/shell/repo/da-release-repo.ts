@@ -341,7 +341,10 @@ const SCOPE_FROM = sql`
   from ${PURCHASES} p
   ${purchaseParties(false)}`;
 
-/** A list's capped count: no filter reads a party row (party filters go by party ids). */
+/**
+ * A list's capped count, with no party join: no filter reads the joined `b` or `s` (a party filter
+ * resolves party ids through its own subquery on the public view).
+ */
 const COUNT_FROM = sql`
   from ${PURCHASES} p`;
 
@@ -548,7 +551,8 @@ const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
       const keyed = (await page(phases.keyed, phases.keyedOrder, limit, offset)).rows;
       if (keyed.length >= limit) return keyed;
       // The keyed rows before this page: exactly offset + what it read, unless it read none, then
-      // counted (capped at the offset, all the carry needs; the filter reads only the purchase).
+      // counted (capped at the offset, all the carry needs), with no party join: a party filter
+      // resolves party ids through its own subquery on the public view.
       let before = offset + keyed.length;
       if (keyed.length === 0 && offset > 0) {
         const n = await sql<{ n: string }>`
