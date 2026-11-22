@@ -198,6 +198,28 @@ describe('composeTotals', () => {
     );
   });
 
+  it('groups flagged and disclosed items by value kind too, in both languages', () => {
+    const answer = composeTotals(
+      request({ valueKinds: ['awarded', 'framework_ceiling'] }),
+      [
+        fact({ unverifiedHead: true, count: 2n }),
+        fact({ valueKind: 'framework_ceiling', withheldSupplier: true, count: 3n }),
+      ],
+      LABELS,
+      '17'
+    );
+    const en = answer.explanation.textEn;
+    const ro = answer.explanation.textRo;
+    expect(en).toMatch(/Included, flagged: Awarded value: [^;.]+\(2\)\./u);
+    expect(ro).toMatch(/Incluse, marcate: Valoare atribuită: [^;.]+\(2\)\./u);
+    expect(en).toContain(
+      'Includes: framework_ceiling: records from suppliers not named (3, 1.00 lei).'
+    );
+    expect(ro).toContain(
+      'Include: framework_ceiling: înregistrări cu furnizori nenumiți (3, 1.00 lei).'
+    );
+  });
+
   it('keeps one flat list when one value kind is asked', () => {
     const answer = composeTotals(request(), [fact({ additive: false })], LABELS, '17');
     expect(answer.explanation.textEn).toContain('Left out: Not additive (');
