@@ -170,6 +170,11 @@ describe('D6', () => {
       { privacy: false }
     );
     expect(closed.sql).not.toContain('pp.party_kind');
+    // And the scope is constant false (fail closed), not dropped: the read matches no row.
+    const counted = closed.data.filter((text) => /\bwhere\b/u.test(text));
+    expect(counted.length).toBeGreaterThan(0);
+    for (const text of counted)
+      expect(text).toMatch(/\bwhere\b[\s\S]*\band false\b|\bwhere false\b/u);
   });
 
   it('records carry a supplier code and name only when named, and never select free text', async () => {

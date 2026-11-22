@@ -127,7 +127,7 @@ const DDL = `
   );
   -- Before the D6 view: a public party view the reader may read, but no
   -- supplier_disclosure, so D6 must withhold every supplier the view lists.
-  create view procurement_v3.da_parties_public as
+  create view procurement_v3.da_parties_public with (security_barrier = true) as
     select source_name, party_kind, portal_party_id, fiscal_code_clean, fiscal_code_status, name_as_written
     from procurement_v3.da_parties;
 `;
@@ -241,10 +241,10 @@ const addPendingColumns = async (trx: Kysely<ProdDatabase>): Promise<void> => {
     await sql`insert into procurement_v3.supplier_privacy (fiscal_code_clean, supplier_id, public, supplier_kind)
       values (${party.fiscalCode}, ${id}, ${isPublic}, ${kind})`.execute(trx);
   // The platform's public views (migration 20261121T090060, procurement-prod's final columns).
-  await sql`create view procurement_v3.supplier_disclosure as
+  await sql`create view procurement_v3.supplier_disclosure with (security_barrier = true) as
     select fiscal_code_clean, supplier_id from procurement_v3.supplier_privacy
     where public and supplier_kind = 'company'`.execute(trx);
-  await sql`create or replace view procurement_v3.da_parties_public as
+  await sql`create or replace view procurement_v3.da_parties_public with (security_barrier = true) as
     select source_name, party_kind, portal_party_id, fiscal_code_clean, fiscal_code_status,
            case when party_kind = 'buyer' then name_as_written end as name_as_written
     from procurement_v3.da_parties

@@ -328,8 +328,9 @@ const liveFacts = (ctx: Ctx, geo: boolean, pointReads = false): Facts => {
         else ${DA_V3_WITHHELD_SUPPLIER_KEY} end`,
     supplierNamed: named,
     // By party ids, so the planner reaches the purchases through the party index instead of
-    // reading a year of purchases and filtering on the joined party row (measured 18 Nov). A
-    // supplier's public party row exists only when D6 names it, so the match IS the D6 test
+    // reading a year of purchases and filtering on the joined party row (measured 18 Nov). The
+    // match IS the D6 test: the view holds a supplier row only for a disclosed code, and the
+    // subquery requires a valid status and an equal, non-null code on the same unique party key
     // (no per-row probe of `s`); with supplier_disclosure unreadable nothing matches.
     supplierScope: (code) =>
       ctx.privacy ? partyIds('supplier', sql`p.supplier_party_id`, code) : sql`false`,

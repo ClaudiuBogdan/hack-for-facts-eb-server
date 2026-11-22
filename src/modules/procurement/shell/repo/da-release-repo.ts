@@ -292,8 +292,9 @@ const whereOf = (filter: DaPurchaseFilter, columns: Columns): RawBuilder<unknown
         where pp.party_kind = ${kind} and pp.fiscal_code_status = 'valid' and pp.fiscal_code_clean = ${withoutLeadingZeros(code)})`;
   if (filter.buyerFiscalCode !== undefined)
     conditions.push(partyIds('buyer', sql`p.buyer_party_id`, filter.buyerFiscalCode));
-  // A supplier's public party row exists only when D6 names it (valid code, disclosed), so the
-  // party-id match IS the D6 test: no per-row probe of `s` in the filter. Unreadable D6: none.
+  // The party-id match IS the D6 test: the view holds a supplier row only for a disclosed code,
+  // and the subquery itself requires fiscal_code_status = 'valid' and an equal, non-null code on
+  // the same unique party key, so no row probes `s` to filter. Unreadable D6: none.
   if (filter.supplierFiscalCode !== undefined)
     conditions.push(
       columns.supplierDisclosure

@@ -320,9 +320,12 @@ money_geo.
     rows are probed (a supplier with 514k purchases: 4.7 s, was 10.9 s);
   - the rollups reach `supplier_disclosure` the same way, by a fenced lateral probe on `supplier_id` (a plain join
     merge-joins over an index scan of the whole rollup). Supplier breakdowns over rollups are still slower than over
-    the old base table (2025: 1.7 s vs 0.6 s; all years: 6.2 s vs 2.8 s): the view loses the parallel hash plan;
-  - a supplier filter is the party-id match alone: the view holds a supplier row only when D6 names it, so no row
-    probes `s` to filter;
+    the old base table (2025: 1.7 s vs 0.6 s; all years: 6.2 s vs 2.8 s). The cause is this statement's shape (join
+    before aggregate, with a month range and the planner's default estimate through the barrier), not the view:
+    aggregating by supplier_ref first, then joining, ran in about 1 s (procurement-prod). Tracked as PROC-C4HN;
+  - a supplier filter is the party-id match alone: the view holds a supplier row only for a disclosed code, and the
+    subquery requires a valid status and an equal, non-null code on the same unique party key, so no row probes `s`
+    to filter;
   - a buyer or supplier scope filters purchases by `(source_name, party id) in (select … from da_parties_public where
 party_kind = … and fiscal_code_status = 'valid' and fiscal_code_clean = $1)`, never on the joined party row
     (buyer CPV breakdowns went from 4–5 s to 0.5 s);
