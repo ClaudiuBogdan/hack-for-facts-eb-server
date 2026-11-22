@@ -2,7 +2,7 @@
  * `procurementTotals`: off unless enabled (ServiceUnavailable, no read), and
  * a refused request names its field in the GraphQL extensions.
  */
-import { GraphQLError, Kind, parse, type ObjectTypeExtensionNode } from 'graphql';
+import { GraphQLError, Kind, parse, print, type ObjectTypeExtensionNode } from 'graphql';
 import { ok } from 'neverthrow';
 import { describe, expect, it } from 'vitest';
 
@@ -50,6 +50,7 @@ describe('procurementTotals schema', () => {
         d.kind === Kind.OBJECT_TYPE_EXTENSION && d.name.value === 'Query'
     );
     const field = query?.fields?.find((f) => f.name.value === 'procurementTotals');
-    expect(field?.type.kind).toBe(Kind.LIST_TYPE);
+    // Exactly [ProcurementTotal!]: a nullable list of non-null totals.
+    expect(field === undefined ? null : print(field.type)).toBe('[ProcurementTotal!]');
   });
 });
