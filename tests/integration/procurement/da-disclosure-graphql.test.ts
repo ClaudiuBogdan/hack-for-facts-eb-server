@@ -16,7 +16,13 @@ import { procurementTypeDefs } from '@/modules/procurement/shell/graphql/typedef
 import { withDaDisclosure } from '@/modules/procurement/shell/repo/da-disclosure-repo.js';
 import { FiscalCodeSet, type SupplierDisclosurePort } from '@/modules/shared/index.js';
 
-import type { AnalysisRepo, ProcurementRepo } from '@/modules/procurement/core/ports.js';
+import { fakeAnalysisRepo, statsRead } from '../../unit/procurement/analysis-fakes.js';
+
+import type {
+  AnalysisRepo,
+  DaSupplierNamesPort,
+  ProcurementRepo,
+} from '@/modules/procurement/core/ports.js';
 import type {
   DirectAcquisitionDetail,
   ProcurementDirectAcquisition,
@@ -73,7 +79,11 @@ afterEach(async () => {
   app = undefined;
 });
 
-const build = async (enforced: boolean): Promise<FastifyInstance> => {
+const build = async (
+  enforced: boolean,
+  analysis: AnalysisRepo = {} as AnalysisRepo,
+  daSupplierNames?: DaSupplierNamesPort
+): Promise<FastifyInstance> => {
   const base = {
     listCpvCodeLabels: (codes: readonly string[]) =>
       Promise.resolve(
@@ -125,8 +135,9 @@ const build = async (enforced: boolean): Promise<FastifyInstance> => {
       resolvers: [
         makeProcurementResolvers({
           repo,
-          analysis: {} as AnalysisRepo,
+          analysis,
           supplierDisclosure: disclosure,
+          ...(daSupplierNames !== undefined && { daSupplierNames }),
         }) as unknown as Record<string, never>,
       ],
       isProduction: false,
@@ -240,5 +251,66 @@ describe('legacy DA GraphQL disclosure keys (docs 10, monotonic keys)', () => {
     const { body } = await post(app, KEYS);
     expect(body.errors).toBeUndefined();
     expect(keysOf(body)).toEqual(['off', 'off', 'off']);
+  });
+});
+
+describe('DA supplier bucket names over GraphQL (PROC-B51G)', () => {
+  const BREAKDOWN = /* GraphQL */ `
+    query {
+      procurementBreakdown(scope: { grain: direct_acquisition }, dimension: supplier, topN: 5) {
+        buckets {
+          kind
+          key
+          displayKind
+          displayName
+        }
+      }
+    }
+  `;
+  const analysis = () =>
+    fakeAnalysisRepo({
+      breakdown: {
+        totals: statsRead({ rows: '6', withValue: '6', valueAwardedSum: '21' }),
+        buckets: [
+          {
+            kind: 'top',
+            key: 'natural_person',
+            recordCount: '2',
+            withValue: '2',
+            valueAwardedSum: '8',
+          },
+          { kind: 'top', key: '14399840', recordCount: '1', withValue: '1', valueAwardedSum: '5' },
+          { kind: 'top', key: '2000002', recordCount: '3', withValue: '3', valueAwardedSum: '8' },
+          { kind: 'other', key: null, recordCount: '0', withValue: '0', valueAwardedSum: '0' },
+          { kind: 'unknown', key: null, recordCount: '0', withValue: '0', valueAwardedSum: '0' },
+        ],
+      },
+    }).repo;
+  const names: DaSupplierNamesPort = {
+    namesOf: () => Promise.resolve(ok(new Map([['14399840', 'FIRMA EXEMPLU SRL']]))),
+  };
+
+  it('serves displayName for a public company name only, null otherwise', async () => {
+    app = await build(true, analysis(), names);
+    const { body } = await post(app, BREAKDOWN);
+    expect(body.errors).toBeUndefined();
+    const blocks = body.data?.['procurementBreakdown'] as {
+      buckets: {
+        kind: string;
+        key: string | null;
+        displayKind: string | null;
+        displayName: string | null;
+      }[];
+    }[];
+    const byKey = Object.fromEntries(
+      (blocks[0]?.buckets ?? []).map((b) => [b.key ?? b.kind, [b.displayKind, b.displayName]])
+    );
+    expect(byKey).toEqual({
+      '14399840': ['company', 'FIRMA EXEMPLU SRL'],
+      '2000002': ['company', null],
+      natural_person: ['natural_person', null],
+      other: [null, null],
+      unknown: [null, null],
+    });
   });
 });

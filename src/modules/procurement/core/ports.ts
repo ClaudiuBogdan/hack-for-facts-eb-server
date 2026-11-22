@@ -358,6 +358,15 @@ export interface ProcedureCanonicality {
 }
 
 /**
+ * The public registry names of direct-acquisition supplier codes (PROC-B51G): a code is
+ * present only when its supplier name is public (`party_public_names.supplier_name_public`).
+ * Read per answer and never cached: names move without any publication key moving.
+ */
+export interface DaSupplierNamesPort {
+  namesOf(codes: readonly string[]): Promise<Result<ReadonlyMap<string, string>, ApiError>>;
+}
+
+/**
  * The analysis rollup reader. Every statement pins `build_id` to the generation
  * resolved by `activeGeneration()` — a mid-request cutover can never mix builds.
  */

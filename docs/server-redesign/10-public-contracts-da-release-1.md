@@ -62,6 +62,11 @@ only what the API adds or decides.
 - A supplier filter matches only public suppliers, so a sole trader's code cannot be used to list their purchases.
 - In totals grouped by supplier, every withheld supplier falls into one `natural_person` group. Purchases that name
   no supplier have their own group (`noSupplier: true`).
+- Analysis breakdowns at the DA grain (PROC-B51G): a `company` supplier bucket carries `displayName`, its registry
+  name only where `supplier_name_public`, looked up by the answer's company codes after the read (on both the v3
+  source and the ClickHouse D6 path) and never cached. It is null for `natural_person` and for a company whose name
+  is not public, and absent on other buckets and grains. It is the only name a client may show for a DA supplier
+  bucket (never `organizationLabels`, which ignores the flag). A name lookup that fails fails the answer.
 - Buyers are `authority`: the name is always served, the fiscal code only when it is valid.
 - The rule lives in `core/da-release.ts` (`isNamedSupplier`). The SQL mirror (`namedSupplierSql` in
   `da-v3-sql.ts`, over the public supplier row `s`) only filters and buckets rows, and the core re-checks every party
@@ -221,7 +226,9 @@ With the flag off:
 ## Rollout order (root, 18 Nov), on every environment
 
 1. procurement_v3 (with `supplier_privacy`) is migrated and loaded.
-2. `PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED=true` on the API.
+2. `PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED=true` on the API. Hard gate (root, 22 Nov, DA-009 / PROC-B51G): the API
+   serving `displayName` on DA breakdown buckets, and the client naming DA supplier buckets from it alone, are both
+   deployed first.
 3. The client build that fails closed on `displayKind` is deployed.
 4. Later, after root's production-output audit: `PROCUREMENT_DA_V3_ENABLED=true`.
 

@@ -5,7 +5,7 @@
  * bucket kinds, and the presence leg. A code is public until a nightly publish
  * withholds it MID-request; the answer must then withhold it too.
  */
-import { ok } from 'neverthrow';
+import { err, ok } from 'neverthrow';
 import { describe, expect, it } from 'vitest';
 
 import { analysisBreakdown, analysisStats } from '@/modules/procurement/core/analysis-usecases.js';
@@ -15,6 +15,7 @@ import { withDaAnalysisDisclosure } from '@/modules/procurement/shell/repo/da-an
 import { withDaDisclosure } from '@/modules/procurement/shell/repo/da-disclosure-repo.js';
 import {
   FiscalCodeSet,
+  serviceUnavailable,
   type FlowReadOptions,
   type FlowsRepo,
   type SupplierDisclosurePort,
@@ -356,6 +357,112 @@ describe('analysis echo and bucket kinds', () => {
       ['natural_person', 'natural_person'],
       [COMPANY, 'company'],
     ]);
+  });
+
+  describe('PROC-B51G: DA supplier bucket names come only from the D6 name gate', () => {
+    const NAME_WITHHELD = '2000002';
+    const supplierRepo = () =>
+      fakeAnalysisRepo({
+        breakdown: {
+          totals: statsRead({ rows: '6', withValue: '6', valueAwardedSum: '21' }),
+          buckets: [
+            {
+              kind: 'top',
+              key: 'natural_person',
+              recordCount: '2',
+              withValue: '2',
+              valueAwardedSum: '8',
+            },
+            { kind: 'top', key: COMPANY, recordCount: '1', withValue: '1', valueAwardedSum: '5' },
+            {
+              kind: 'top',
+              key: NAME_WITHHELD,
+              recordCount: '3',
+              withValue: '3',
+              valueAwardedSum: '8',
+            },
+            { kind: 'other', key: null, recordCount: '0', withValue: '0', valueAwardedSum: '0' },
+            { kind: 'unknown', key: null, recordCount: '0', withValue: '0', valueAwardedSum: '0' },
+          ],
+        },
+      }).repo;
+    const namesPort = (asked: (readonly string[])[], fail = false) => ({
+      namesOf: (codes: readonly string[]) => {
+        asked.push(codes);
+        return Promise.resolve(
+          fail
+            ? err(serviceUnavailable('names not readable'))
+            : ok(new Map([[COMPANY, 'EXEMPLU REGISTRU SA']]) as ReadonlyMap<string, string>)
+        );
+      },
+    });
+
+    it('names a company only when its name is public, asks only for company codes', async () => {
+      const asked: (readonly string[])[] = [];
+      const blocks = await analysisBreakdown(
+        {
+          analysisRepo: supplierRepo(),
+          supplierDisclosure: port([[COMPANY, NAME_WITHHELD]]),
+          daSupplierNames: namesPort(asked),
+        },
+        { scope: { grain: 'direct_acquisition' }, dimension: 'supplier' }
+      );
+      const buckets = blocks._unsafeUnwrap()[0]?.buckets ?? [];
+      const top = buckets.filter((b) => b.kind === 'top');
+      expect(Object.fromEntries(top.map((b) => [b.key, [b.displayKind, b.displayName]]))).toEqual({
+        [NAME_WITHHELD]: ['company', null],
+        natural_person: ['natural_person', null],
+        [COMPANY]: ['company', 'EXEMPLU REGISTRU SA'],
+      });
+      // other and unknown carry neither.
+      const rest = buckets.filter((b) => b.kind !== 'top');
+      expect(rest.map((b) => b.kind)).toEqual(['other', 'unknown']);
+      for (const bucket of rest) expect(bucket).not.toHaveProperty('displayName');
+      expect(asked.map((codes) => [...codes].sort())).toEqual([[NAME_WITHHELD, COMPANY].sort()]);
+    });
+
+    it('names nothing without the port, and fails the answer when the gate cannot be read', async () => {
+      const unnamed = await analysisBreakdown(
+        { analysisRepo: supplierRepo(), supplierDisclosure: port([[COMPANY, NAME_WITHHELD]]) },
+        { scope: { grain: 'direct_acquisition' }, dimension: 'supplier' }
+      );
+      const buckets = unnamed._unsafeUnwrap()[0]?.buckets ?? [];
+      expect(buckets.filter((b) => b.kind === 'top').map((b) => b.displayName)).toEqual([
+        null,
+        null,
+        null,
+      ]);
+      const failed = await analysisBreakdown(
+        {
+          analysisRepo: supplierRepo(),
+          supplierDisclosure: port([[COMPANY, NAME_WITHHELD]]),
+          daSupplierNames: namesPort([], true),
+        },
+        { scope: { grain: 'direct_acquisition' }, dimension: 'supplier' }
+      );
+      expect(failed._unsafeUnwrapErr()).toMatchObject({ type: 'ServiceUnavailable' });
+    });
+
+    it('asks nothing and adds no name outside DA supplier buckets, or while D6 is off', async () => {
+      const asked: (readonly string[])[] = [];
+      const off = await analysisBreakdown(
+        { analysisRepo: supplierRepo(), daSupplierNames: namesPort(asked) },
+        { scope: { grain: 'direct_acquisition' }, dimension: 'supplier' }
+      );
+      for (const bucket of off._unsafeUnwrap()[0]?.buckets ?? [])
+        expect(bucket).not.toHaveProperty('displayName');
+      const authority = await analysisBreakdown(
+        {
+          analysisRepo: supplierRepo(),
+          supplierDisclosure: port([[COMPANY]]),
+          daSupplierNames: namesPort(asked),
+        },
+        { scope: { grain: 'direct_acquisition' }, dimension: 'authority' }
+      );
+      for (const bucket of authority._unsafeUnwrap()[0]?.buckets ?? [])
+        expect(bucket).not.toHaveProperty('displayName');
+      expect(asked).toEqual([]);
+    });
   });
 });
 

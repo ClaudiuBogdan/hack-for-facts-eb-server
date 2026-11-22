@@ -887,6 +887,14 @@ export const procurementTypeDefs = /* GraphQL */ `
     is off; name and link a supplier bucket only when this is company.
     """
     displayKind: String
+    """
+    With displayKind (PROC-B51G): a company bucket's public registry name, set only when the
+    supplier's name is public (D6); null for natural_person, for a company whose name is not public,
+    and on every other bucket and grain. The only name to show for a DA supplier bucket: never name
+    one through another lookup. Read per answer from the live registry; keys never cover it, so do
+    not keep it beyond the response that carried it.
+    """
+    displayName: String
   }
   type ProcurementBreakdownBlock {
     grain: ProcurementAnalysisGrain!

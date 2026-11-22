@@ -94,6 +94,8 @@ export interface ProcurementResolverDeps {
   readonly supplierDisclosure?: SupplierDisclosurePort;
   /** Route override for alternate analytics backends (ClickHouse dev path). */
   readonly routeAnalysis?: AnalysisDeps['routeAnalysis'];
+  /** The D6-gated names of DA supplier buckets (PROC-B51G). */
+  readonly daSupplierNames?: AnalysisDeps['daSupplierNames'];
 }
 
 /**
@@ -220,6 +222,7 @@ export const makeProcurementResolvers = (
     analysisRepo: analysis,
     ...(deps.routeAnalysis !== undefined && { routeAnalysis: deps.routeAnalysis }),
     ...(deps.supplierDisclosure !== undefined && { supplierDisclosure: deps.supplierDisclosure }),
+    ...(deps.daSupplierNames !== undefined && { daSupplierNames: deps.daSupplierNames }),
   };
 
   const modificationsLoader = makeBatchLoader<readonly ProcurementModification[]>(

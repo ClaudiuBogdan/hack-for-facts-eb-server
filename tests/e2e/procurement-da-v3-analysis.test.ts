@@ -33,6 +33,7 @@ import {
 } from '@/modules/procurement/core/analysis-usecases.js';
 import { makeUnconfiguredAnalysisRepo } from '@/modules/procurement/shell/repo/clickhouse-analysis-repo.js';
 import { makeDaRoutingAnalysisRepo } from '@/modules/procurement/shell/repo/da-routing-analysis-repo.js';
+import { makeDaSupplierNames } from '@/modules/procurement/shell/repo/da-supplier-names.js';
 import {
   DA_V3_VALUE_NOTE,
   makeDaV3AnalysisSource,
@@ -1111,6 +1112,85 @@ describe('rollups answer exactly as the live rows', () => {
       expect(statements.some((text) => text.includes('with per_buyer'))).toBe(true);
     } finally {
       await logged.destroy();
+    }
+  });
+});
+
+/**
+ * PROC-B51G: a DA supplier bucket is named only through the D6 name gate
+ * (party_public_names.supplier_name_public), read as the API's login under the approved grants.
+ * Runs after the parity test, which creates that login (run the file, not a single test).
+ */
+describe('DA supplier bucket names (PROC-B51G)', () => {
+  it('names a public company, leaves a disclosed code with no public name and the withheld unnamed, and fails closed', async () => {
+    if (db === undefined || container === undefined) throw new Error('no database');
+    const api = new Kysely<ProdDatabase>({
+      dialect: new PostgresDialect({
+        pool: new pg.Pool({
+          host: container.getHost(),
+          port: container.getPort(),
+          database: container.getDatabase(),
+          user: API_LOGIN,
+          password: API_LOGIN,
+          max: 1,
+        }),
+      }),
+    });
+    const ask = () =>
+      analysisBreakdown(
+        {
+          analysisRepo: makeDaRoutingAnalysisRepo(
+            makeUnconfiguredAnalysisRepo(),
+            makeDaV3AnalysisSource(api)
+          ),
+          daSupplierNames: makeDaSupplierNames(api),
+        },
+        { scope: DA, dimension: 'supplier', topN: 10 }
+      );
+    const named = (answer: Awaited<ReturnType<typeof ask>>): Record<string, unknown> =>
+      Object.fromEntries(
+        (answer._unsafeUnwrap()[0]?.buckets ?? [])
+          .filter((bucket) => bucket.kind === 'top')
+          .map((bucket): [string, unknown] => [
+            bucket.key ?? '',
+            [bucket.displayKind, bucket.displayName],
+          ])
+      );
+    try {
+      const answer = await ask();
+      noLeak(answer);
+      expect(named(answer)).toEqual({
+        [COMPANY.fiscalCode ?? '']: ['company', COMPANY_REGISTRY_NAME],
+        // Disclosed, but its name is not public (no party_public_names row).
+        '2000002': ['company', null],
+        natural_person: ['natural_person', null],
+      });
+      // Without supplier_disclosure every supplier is withheld: nothing is named or asked.
+      await sql`revoke select on procurement_v3.supplier_disclosure from procurement_api_read`.execute(
+        db
+      );
+      try {
+        const closed = await ask();
+        expect(named(closed)).toEqual({ natural_person: ['natural_person', null] });
+        expect(JSON.stringify(closed)).not.toContain(COMPANY_REGISTRY_NAME);
+      } finally {
+        await sql`grant select on procurement_v3.supplier_disclosure to procurement_api_read`.execute(
+          db
+        );
+      }
+      // Without the name gate a named answer is refused, never served from another name source.
+      await sql`revoke select on procurement_v3.party_public_names from procurement_api_read`.execute(
+        db
+      );
+      try {
+        expect((await ask())._unsafeUnwrapErr()).toMatchObject({ type: 'ServiceUnavailable' });
+      } finally {
+        await sql`grant select on procurement_v3.party_public_names to procurement_api_read`.execute(
+          db
+        );
+      }
+    } finally {
+      await api.destroy();
     }
   });
 });

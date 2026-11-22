@@ -30,6 +30,7 @@ import { withDaAnalysisDisclosure } from './shell/repo/da-analysis-disclosure.js
 import { withDaDisclosure } from './shell/repo/da-disclosure-repo.js';
 import { makeDaReleaseRepo } from './shell/repo/da-release-repo.js';
 import { makeDaRoutingAnalysisRepo } from './shell/repo/da-routing-analysis-repo.js';
+import { makeDaSupplierNames } from './shell/repo/da-supplier-names.js';
 import { makeDaV3AnalysisSource } from './shell/repo/da-v3-analysis-source.js';
 import { makeProcurementGenerationRepo } from './shell/repo/generation-repo.js';
 import {
@@ -217,9 +218,12 @@ export const makeProcurementModule = (deps: ProcurementModuleDeps): ProcurementM
     totalsCache: makeDaTotalsCache(),
     ...(deps.supplierDisclosure !== undefined && { supplierDisclosure: deps.supplierDisclosure }),
   };
+  // PROC-B51G: DA supplier buckets are named only through the D6 name gate, per answer.
+  const daSupplierNames = makeDaSupplierNames(deps.db);
   const legacyResolvers = makeProcurementResolvers({
     repo,
     analysis,
+    daSupplierNames,
     ...(deps.supplierDisclosure !== undefined && { supplierDisclosure: deps.supplierDisclosure }),
   });
   const daResolvers = makeDaReleaseResolvers(daRelease);
@@ -232,6 +236,7 @@ export const makeProcurementModule = (deps: ProcurementModuleDeps): ProcurementM
     repo,
     analysis,
     clientBaseUrl,
+    daSupplierNames,
     ...(deps.supplierDisclosure !== undefined && {
       supplierDisclosure: deps.supplierDisclosure,
     }),

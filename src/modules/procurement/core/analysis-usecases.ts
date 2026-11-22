@@ -86,6 +86,7 @@ import {
   type AnalysisRecordsSort,
   type AnalysisRepo,
   type AnalysisStatsRead,
+  type DaSupplierNamesPort,
 } from './ports.js';
 import { sourceNotes } from './source-capture.js';
 
@@ -103,6 +104,11 @@ export interface AnalysisDeps {
    * echoed back in `canonicalScope`.
    */
   readonly supplierDisclosure?: SupplierDisclosurePort;
+  /**
+   * The D6-gated names of DA supplier buckets (PROC-B51G). Absent: no bucket is named
+   * (`displayName` null); never any other name source.
+   */
+  readonly daSupplierNames?: DaSupplierNamesPort;
 }
 
 /**
@@ -210,6 +216,12 @@ export interface AnalysisBreakdownBucket {
    * for the one withheld bucket. Absent elsewhere (and while D6 is off on legacy).
    */
   readonly displayKind?: 'company' | 'natural_person';
+  /**
+   * With `displayKind` (PROC-B51G): a company bucket's public registry name, only when its
+   * supplier name is public; null for natural_person and for a company whose name is not public.
+   * The only name a client may show for a DA supplier bucket. Read per answer, never cached.
+   */
+  readonly displayName?: string | null;
 }
 
 export interface AnalysisBreakdownBlock {
@@ -1228,6 +1240,18 @@ const breakdownBlockFor = async (
     route.grain === 'direct_acquisition' &&
     dimension === 'supplier' &&
     (deps.supplierDisclosure?.enforced === true || gen.capabilities.directAcquisitionV3 === true);
+  // The names of the company buckets, gated by supplier_name_public, read for this answer only.
+  const companyCodes = supplierKinds
+    ? buckets.flatMap((b) =>
+        b.kind === 'top' && b.key !== null && b.key !== DA_NATURAL_PERSON_BUCKET ? [b.key] : []
+      )
+    : [];
+  let names: ReadonlyMap<string, string> = new Map();
+  if (companyCodes.length > 0 && deps.daSupplierNames !== undefined) {
+    const read = await deps.daSupplierNames.namesOf(companyCodes);
+    if (read.isErr()) return err(read.error);
+    names = read.value;
+  }
   const outBuckets: AnalysisBreakdownBucket[] = buckets.map((b) => {
     const basisValue = rankedBy === 'value' ? d(b.valueAwardedSum) : d(b.recordCount);
     // Null-law (review F7): a bucket with NO valued rows emits null money —
@@ -1249,6 +1273,10 @@ const breakdownBlockFor = async (
       ...(supplierKinds &&
         b.kind === 'top' && {
           displayKind: b.key === DA_NATURAL_PERSON_BUCKET ? 'natural_person' : 'company',
+          displayName:
+            b.key === null || b.key === DA_NATURAL_PERSON_BUCKET
+              ? null
+              : (names.get(b.key) ?? null),
         }),
     };
   });

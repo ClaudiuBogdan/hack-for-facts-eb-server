@@ -47,7 +47,7 @@ import {
 import { resolveCpv, searchContracts, searchDirectAcquisitions } from '../../core/usecases.js';
 import { withDisplayTitles } from '../records-display.js';
 
-import type { AnalysisRepo, ProcurementRepo } from '../../core/ports.js';
+import type { AnalysisRepo, DaSupplierNamesPort, ProcurementRepo } from '../../core/ports.js';
 
 export interface ProcurementMcpDeps {
   readonly repo: ProcurementRepo;
@@ -55,6 +55,8 @@ export interface ProcurementMcpDeps {
   readonly clientBaseUrl: string;
   /** Site-wide D6 (bucket kinds, no withheld code echoed); absent means not enforced. */
   readonly supplierDisclosure?: SupplierDisclosurePort;
+  /** The D6-gated names of DA supplier buckets (PROC-B51G). */
+  readonly daSupplierNames?: DaSupplierNamesPort;
 }
 
 /**
@@ -166,6 +168,7 @@ export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly Kern
   const analysisDeps = {
     analysisRepo: analysis,
     ...(disclosure !== undefined && { supplierDisclosure: disclosure }),
+    ...(deps.daSupplierNames !== undefined && { daSupplierNames: deps.daSupplierNames }),
   };
   /** The dated D6 keys an answer's DA envelopes were served under. */
   const daKeysOf = (output: McpToolOutput): readonly string[] => {
