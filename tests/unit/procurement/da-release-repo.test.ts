@@ -459,6 +459,7 @@ describe('results and faults', () => {
   it.each([
     ['42P01', 'ServiceUnavailable'],
     ['3F000', 'ServiceUnavailable'],
+    ['42501', 'ServiceUnavailable'],
     ['57014', 'Timeout'],
     ['XX000', 'Database'],
   ])('maps driver code %s to %s', async (code, type) => {

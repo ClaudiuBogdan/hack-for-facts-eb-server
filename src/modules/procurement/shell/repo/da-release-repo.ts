@@ -79,6 +79,9 @@ const readError = (error: unknown): ApiError => {
   // Undefined schema/table/column: the serving tables are not deployed (yet).
   if (code === '42P01' || code === '42703' || code === '3F000')
     return serviceUnavailable('Direct acquisitions release 1 tables are not deployed.');
+  // Insufficient privilege: a relation or column outside the API's grant is not served.
+  if (code === '42501')
+    return serviceUnavailable('Direct acquisitions data is not readable by this API.');
   if (code === '57014') return timeoutError('Direct acquisitions read timed out.');
   return databaseError('Direct acquisitions read failed', error);
 };

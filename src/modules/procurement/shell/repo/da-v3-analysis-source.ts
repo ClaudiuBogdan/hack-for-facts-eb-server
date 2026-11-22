@@ -125,6 +125,10 @@ const readError = (error: unknown): ApiError => {
     typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
   if (code === '42P01' || code === '42703' || code === '3F000')
     return serviceUnavailable('Direct acquisitions release 1 tables are not deployed.');
+  // Insufficient privilege (e.g. the geography fallback's kernel tables, outside the API's
+  // grant, read only when da_buyer_geography is not readable): not served.
+  if (code === '42501')
+    return serviceUnavailable('Direct acquisitions data is not readable by this API.');
   if (code === '57014') return timeoutError('Direct acquisitions analysis read timed out.');
   return databaseError('Direct acquisitions analysis read failed', error);
 };
