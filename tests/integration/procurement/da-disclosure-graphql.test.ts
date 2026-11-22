@@ -160,7 +160,19 @@ const post = async (instance: FastifyInstance, query: string) => {
     headers: { 'content-type': 'application/json' },
     payload: JSON.stringify({ query }),
   });
-  return { raw: res.body, body: res.json<{ data?: Record<string, unknown>; errors?: unknown }>() };
+  return {
+    raw: res.body,
+    body: res.json<{ data?: Record<string, unknown>; errors?: unknown }>(),
+    cacheControl: res.headers['cache-control'],
+  };
+};
+
+const get = async (instance: FastifyInstance, query: string) => {
+  const res = await instance.inject({
+    method: 'GET',
+    url: `/graphql?query=${encodeURIComponent(query)}`,
+  });
+  return { raw: res.body, cacheControl: res.headers['cache-control'] };
 };
 
 const directAcquisitionOf = (body: { data?: Record<string, unknown> }) =>
@@ -321,5 +333,68 @@ describe('DA supplier bucket names over GraphQL (PROC-B51G)', () => {
       other: [null, null],
       unknown: [null, null],
     });
+  });
+});
+
+describe('PROC-VDWQ: GraphQL answers naming a DA supplier are never cacheable', () => {
+  it('marks a legacy DA answer naming its supplier no-store, GET and POST; not a withheld one', async () => {
+    app = await build(true);
+    const named = await post(app, QUERY('1'));
+    expect(named.raw).toContain('FIRMA EXEMPLU SRL');
+    expect(named.cacheControl).toBe('no-store');
+    expect((await get(app, QUERY('1'))).cacheControl).toBe('no-store');
+    // natural_person: no supplier name (the buyer's name is not a supplier's).
+    const withheld = await post(app, QUERY('2'));
+    expect(withheld.raw).not.toContain('SECRET POPESCU');
+    expect(withheld.cacheControl).toBeUndefined();
+    expect((await get(app, QUERY('2'))).cacheControl).toBeUndefined();
+  });
+
+  it('marks a breakdown with a named DA supplier bucket no-store; not one without names', async () => {
+    const BREAKDOWN = /* GraphQL */ `
+      query {
+        procurementBreakdown(scope: { grain: direct_acquisition }, dimension: supplier, topN: 5) {
+          buckets {
+            key
+            displayKind
+            displayName
+          }
+        }
+      }
+    `;
+    const repo = () =>
+      fakeAnalysisRepo({
+        generation: generation(undefined, { ...PUBLISHED_CAPABILITIES, directAcquisitionV3: true }),
+        breakdown: {
+          totals: statsRead({ rows: '3', withValue: '3', valueAwardedSum: '13' }),
+          buckets: [
+            {
+              kind: 'top',
+              key: 'natural_person',
+              recordCount: '2',
+              withValue: '2',
+              valueAwardedSum: '8',
+            },
+            {
+              kind: 'top',
+              key: '14399840',
+              recordCount: '1',
+              withValue: '1',
+              valueAwardedSum: '5',
+            },
+          ],
+        },
+      }).repo;
+    const namesOf = (known: boolean): DaSupplierNamesPort => ({
+      namesOf: () => Promise.resolve(ok(new Map(known ? [['14399840', 'FIRMA EXEMPLU SRL']] : []))),
+    });
+    app = await build(true, repo(), namesOf(true));
+    expect((await post(app, BREAKDOWN)).cacheControl).toBe('no-store');
+    expect((await get(app, BREAKDOWN)).cacheControl).toBe('no-store');
+    await app.close();
+    app = await build(true, repo(), namesOf(false));
+    const unnamed = await post(app, BREAKDOWN);
+    expect(unnamed.raw).not.toContain('FIRMA EXEMPLU SRL');
+    expect(unnamed.cacheControl).toBeUndefined();
   });
 });

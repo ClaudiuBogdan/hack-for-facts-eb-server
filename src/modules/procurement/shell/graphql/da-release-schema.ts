@@ -10,6 +10,7 @@ import { GraphQLError } from 'graphql';
 
 import { GRAPHQL_ERROR_CODE, type ApiError } from '@/modules/shared/index.js';
 
+import { markNoStore } from './no-store.js';
 import {
   daPurchaseTotals,
   daReleaseStatus,
@@ -321,6 +322,13 @@ const withMeta = <T extends { readonly disclosureKey: string }>(answer: T) => ({
 });
 
 export const makeDaReleaseResolvers = (deps: DaReleaseDeps) => ({
+  ProcurementDaParty: {
+    // PROC-VDWQ: a named supplier (company) makes the answer never cacheable; buyers do not.
+    name: (party: { displayKind: string; name: string | null }, _a: unknown, context: unknown) => {
+      if (party.displayKind === 'company' && party.name !== null) markNoStore(context);
+      return party.name;
+    },
+  },
   Query: {
     procurementDaRelease: () => daReleaseStatus(deps),
     procurementDaPurchases: async (

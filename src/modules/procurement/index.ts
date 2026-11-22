@@ -254,6 +254,7 @@ export const makeProcurementModule = (deps: ProcurementModuleDeps): ProcurementM
     },
     graphqlResolvers: {
       ...legacyResolvers,
+      ProcurementDaParty: daResolvers.ProcurementDaParty,
       Query: {
         ...(legacyResolvers['Query'] as Record<string, unknown>),
         ...daResolvers.Query,

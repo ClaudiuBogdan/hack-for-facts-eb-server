@@ -35,6 +35,7 @@ import {
   type RawAnalysisScopeInput,
   type RawSearchFilter,
 } from './arg-translation.js';
+import { markNoStore } from './no-store.js';
 import {
   analysisBreakdown,
   analysisConcentration,
@@ -437,7 +438,8 @@ export const makeProcurementResolvers = (
           sort?: string | null;
           page?: number | null;
           pageSize?: number | null;
-        }
+        },
+        context: unknown
       ) => {
         const result = unwrap(
           await analysisRecords(analysisDeps, {
@@ -450,6 +452,14 @@ export const makeProcurementResolvers = (
         );
         // Display-only labels, after membership and money are fixed.
         const items = await withDisplayTitles(repo, result);
+        // PROC-VDWQ: a DA page that names a supplier is never cacheable.
+        if (
+          result.grain === 'direct_acquisition' &&
+          items.some(
+            (item) => item.supplierName !== null && item.supplierDisplayKind !== 'natural_person'
+          )
+        )
+          markNoStore(context);
         return {
           ...result,
           items: items.map((item) => ({
@@ -580,12 +590,24 @@ export const makeProcurementResolvers = (
       id: (d: ProcurementDirectAcquisition) => d.daId,
       authority: (d: ProcurementDirectAcquisition) =>
         party(d.authorityCui, d.authorityName, 'authority'),
-      supplier: (d: ProcurementDirectAcquisition) =>
-        party(d.supplierCui, d.supplierName, daSupplierKind(d)),
+      supplier: (d: ProcurementDirectAcquisition, _a: unknown, context: unknown) => {
+        const supplier = party(d.supplierCui, d.supplierName, daSupplierKind(d));
+        // PROC-VDWQ: an answer that names a DA supplier is never cacheable.
+        if (supplier.name !== null) markNoStore(context);
+        return supplier;
+      },
       elicitatiePage: (d: ProcurementDirectAcquisition) => directAcquisitionPageLoader.load(d.daId),
     },
     ProcurementDaItem: {
       id: (item: DaItem) => item.daItemId,
+    },
+    ProcurementBreakdownBucket: {
+      // PROC-VDWQ: a DA supplier bucket's name makes the answer never cacheable.
+      displayName: (bucket: { displayName?: string | null }, _a: unknown, context: unknown) => {
+        const name = bucket.displayName ?? null;
+        if (name !== null) markNoStore(context);
+        return name;
+      },
     },
     ProcurementContractModification: {
       id: (m: ProcurementModification) => m.modificationId,

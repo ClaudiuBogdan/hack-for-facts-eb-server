@@ -70,6 +70,10 @@ only what the API adds or decides.
   name is not public, and on the ClickHouse D6 path (which refuses DA supplier breakdowns at an explicit DA grain);
   it is absent on other buckets and grains. It is the only name a client may show for a DA supplier bucket (never
   `organizationLabels`, which ignores the flag). A name lookup that fails fails the answer.
+- Caching (PROC-VDWQ): every GraphQL answer, GET or POST, that carries a DA supplier name is
+  `Cache-Control: no-store`. The resolvers that serve one mark the reply as they do: a release party named as a
+  company, a DA supplier bucket's `displayName`, a legacy DA supplier with a name, and a DA records page naming a
+  supplier. Answers without one keep their headers. The REST DA routes are `no-store` throughout.
 - Buyers are `authority`: the name is always served, the fiscal code only when it is valid.
 - The rule lives in `core/da-release.ts` (`isNamedSupplier`). The SQL mirror (`namedSupplierSql` in
   `da-v3-sql.ts`, over the public supplier row `s`) only filters and buckets rows, and the core re-checks every party
@@ -231,7 +235,7 @@ With the flag off:
 1. procurement_v3 (with `supplier_privacy`) is migrated and loaded.
 2. `PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED=true` on the API. Hard gate (root, 22 Nov, DA-009 / PROC-B51G): the API
    serving `displayName` on DA breakdown buckets, and the client naming DA supplier buckets from it alone, are both
-   deployed first.
+   deployed first, as is `no-store` on GraphQL answers that name a DA supplier (PROC-VDWQ).
 3. The client build that fails closed on `displayKind` is deployed.
 4. Later, after root's production-output audit: `PROCUREMENT_DA_V3_ENABLED=true`.
 
