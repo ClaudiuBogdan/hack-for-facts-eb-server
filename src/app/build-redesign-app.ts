@@ -157,6 +157,8 @@ export interface BuildRedesignAppDeps {
   readonly procurement?: ProcurementComposition;
   /** Legal search engine connection, validated by the entrypoint. */
   readonly legalSearch?: LegalSearchComposition;
+  /** LEGAL_SOURCE: 'legacy' (default) or 'v2' (legal_v2 + the bridge from legal). */
+  readonly legalSource?: 'legacy' | 'v2';
   /**
    * The companies analytics reader (dedicated ClickHouse user and database),
    * validated by the standalone entrypoint. Absent → the analytics surface
@@ -786,6 +788,7 @@ export const registerRedesignSurface = async (
       embeddingModel,
       logger: app.log,
       ...(deps.clientBaseUrl !== undefined && { clientBaseUrl: deps.clientBaseUrl }),
+      ...(deps.legalSource !== undefined && { source: deps.legalSource }),
     });
     // The legal acts area registers NO contributor in v1 (§4); 06's MO area will.
     for (const c of legal.contributors) kernel.contributors.register(c);

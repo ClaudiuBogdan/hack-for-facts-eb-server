@@ -58,6 +58,26 @@ export const makeLegalActLoader = (deps: LegalActLoaderDeps): LegalActByIdLoader
     }
   };
 
+  const loadAct = async (actId: string): Promise<object | null> => {
+    try {
+      const res = await acts.findActById(actId);
+      if (res.isErr()) {
+        logger?.warn?.(
+          { actId, err: res.error.message },
+          'legalActLoader.loadAct degraded to null'
+        );
+        return null;
+      }
+      return res.value;
+    } catch (error) {
+      logger?.warn?.(
+        { actId, err: error instanceof Error ? error.message : String(error) },
+        'legalActLoader.loadAct rejected → null'
+      );
+      return null;
+    }
+  };
+
   const loadMany = async (ids: readonly string[]): Promise<readonly (LegalActRef | null)[]> => {
     if (ids.length === 0) return [];
     try {
@@ -81,5 +101,5 @@ export const makeLegalActLoader = (deps: LegalActLoaderDeps): LegalActByIdLoader
     }
   };
 
-  return { load, loadMany };
+  return { load, loadMany, loadAct };
 };

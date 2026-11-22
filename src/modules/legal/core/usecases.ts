@@ -15,6 +15,7 @@ import { err, ok, type Result } from 'neverthrow';
 
 import {
   invalidInput,
+  serviceUnavailable,
   type ApiError,
   type CapabilityResolver,
   type CursorPage,
@@ -58,6 +59,12 @@ import {
   type LegalTimelineEntry,
   type LegalVersionProvenance,
 } from './types.js';
+import {
+  V2_CONSOLIDATION_CAVEAT,
+  searchLegalV2Engine,
+  type LegalV2HitVerifier,
+  type LegalV2SearchEngine,
+} from './v2/search.js';
 
 import type {
   CursorPageRequest,
@@ -611,6 +618,21 @@ export interface LegalSearchDeps {
   /** Module-local effective semantic gate (kernel slot AND hnsw readiness). */
   readonly semanticReady: boolean;
   readonly clientBaseUrl: string;
+  /**
+   * legal_v2 source (LEGAL_SOURCE=v2): words-only search on the legal-v2 test
+   * indexes. When present it answers every non-identifier query; the legacy
+   * engine and the Postgres path are not used.
+   */
+  readonly v2Engine?: LegalV2SearchEngine;
+  /** legal_v2: verifies the engine's unit hits against public, servable rows. */
+  readonly v2Verifier?: LegalV2HitVerifier;
+  /**
+   * True on the legal_v2 source. Word search then answers ONLY from the v2
+   * engine: without both v2 indexes it is ServiceUnavailable, never the legacy
+   * engine, the Postgres retrieval or the embedder (whose answers bypass
+   * legal_v2's admission). The exact-citation router still answers.
+   */
+  readonly v2Mode?: boolean;
 }
 
 const SEMANTIC_CAVEAT = 'semantic search unavailable';
@@ -682,8 +704,11 @@ export const searchLegal = async (
             : `Numărul ${exact.actNumber}/${String(exact.actYear)} desemnează cel puțin ${String(eligible.length)} acte diferite (lista este limitată); precizați emitentul.`
         );
       }
-      for (const card of cards) caveats.push(honestyCaveat(card));
-      caveats.push(LEGAL_ORIGINAL_TEXT_CAVEAT);
+      // An act the previous corpus lacks has no status or amendment count to state.
+      for (const card of cards) if (card.bridged !== false) caveats.push(honestyCaveat(card));
+      caveats.push(
+        deps.v2Engine !== undefined ? V2_CONSOLIDATION_CAVEAT : LEGAL_ORIGINAL_TEXT_CAVEAT
+      );
       const provRes = await deps.acts.versionProvenanceForActs(cards.map((card) => card.actId));
       if (provRes.isErr()) return err(provRes.error);
       return ok({
@@ -705,6 +730,26 @@ export const searchLegal = async (
         unhydratedHits: shown.length - cards.length,
       });
     }
+  }
+
+  // 2a. legal_v2: words on the legal-v2 indexes, hydrated from legal_v2.
+  if (deps.v2Mode === true && (deps.v2Engine === undefined || deps.v2Verifier === undefined)) {
+    return err(
+      serviceUnavailable(
+        'legal search: the legal-v2 word indexes are not configured; only exact citations answer'
+      )
+    );
+  }
+  if (deps.v2Engine !== undefined && deps.v2Verifier !== undefined) {
+    return searchLegalV2Engine(
+      {
+        engine: deps.v2Engine,
+        acts: deps.acts,
+        verifier: deps.v2Verifier,
+        clientBaseUrl: deps.clientBaseUrl,
+      },
+      query
+    );
   }
 
   // 2. The engine path, when this deployment has an index. It either answers
@@ -876,6 +921,9 @@ const stripCard = (card: LegalActCard): LegalAct => ({
   statusEvidence: card.statusEvidence,
   entryIntoForce: card.entryIntoForce,
   inDegree: card.inDegree,
+  ...(card.bridged !== undefined && { bridged: card.bridged }),
+  ...(card.bridgedFields !== undefined && { bridgedFields: card.bridgedFields }),
+  ...(card.ended !== undefined && { ended: card.ended }),
 });
 
 // ── discovery / resolve ─────────────────────────────────────────────────────────

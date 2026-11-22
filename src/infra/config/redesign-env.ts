@@ -97,6 +97,8 @@ const RedesignEnvSchema = Type.Object({
   LEGAL_SEARCH_OPENSEARCH_USERNAME: Type.Optional(Type.String()),
   LEGAL_SEARCH_OPENSEARCH_PASSWORD: Type.Optional(Type.String()),
   LEGAL_SEARCH_OPENSEARCH_TLS_SERVERNAME: Type.Optional(Type.String()),
+  // ── legal source: 'legacy' (legal.*) or 'v2' (legal_v2 + bridge) ────────
+  LEGAL_SOURCE: Type.Optional(Type.Union([Type.Literal('legacy'), Type.Literal('v2')])),
 });
 
 export type RedesignEnv = Static<typeof RedesignEnvSchema>;
@@ -169,6 +171,8 @@ export interface RedesignConfig {
   readonly publicEnterprisesEnabled?: boolean;
   readonly electionsEnabled?: boolean;
   readonly legalSearch?: LegalSearchComposition;
+  /** LEGAL_SOURCE: which schema serves acts, versions and text (default 'legacy'). */
+  readonly legalSource?: 'legacy' | 'v2';
   /** Standalone (Chronos) server only; the embedded loader never reads these keys. */
   readonly companiesAnalytics?: CompaniesAnalyticsComposition;
   /** Extra browser origins allowed cross-origin in prod (from PROD_ALLOWED_ORIGINS). */
@@ -325,6 +329,7 @@ export type EmbeddedKernelConfig = Pick<
   | 'kernel'
   | 'procurement'
   | 'legalSearch'
+  | 'legalSource'
   | 'ngoRegistryEnabled'
   | 'publicEnterprisesEnabled'
   | 'electionsEnabled'
@@ -475,6 +480,7 @@ const composeEmbeddedKernel = (e: EmbeddedKernelEnv): EmbeddedKernelConfig => {
     publicEnterprisesEnabled: e.PUBLIC_ENTERPRISES_ENABLED === 'true',
     electionsEnabled: e.ELECTIONS_ENABLED === 'true',
     ...(legalSearch !== undefined && { legalSearch }),
+    ...(e.LEGAL_SOURCE !== undefined && { legalSource: e.LEGAL_SOURCE }),
   };
 };
 

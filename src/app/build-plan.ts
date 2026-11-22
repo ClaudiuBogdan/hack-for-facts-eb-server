@@ -106,6 +106,7 @@ export interface AppDeps {
     readonly publicEnterprisesEnabled?: boolean;
     readonly electionsEnabled?: boolean;
     readonly legalSearch?: LegalSearchComposition;
+    readonly legalSource?: 'legacy' | 'v2';
   };
   /** Client base URL passed to the mounted redesign surface (MCP deep links). */
   redesignClientBaseUrl?: string;

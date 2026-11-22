@@ -466,6 +466,12 @@ export interface LegalActRef {
 export interface LegalActByIdLoader {
   load(actId: string): Promise<LegalActRef | null>;
   loadMany(ids: readonly string[]): Promise<readonly (LegalActRef | null)[]>;
+  /**
+   * The FULL act object the legal module's GraphQL `LegalAct` type resolves
+   * (opaque to the kernel), for a consumer whose SDL returns `LegalAct` rather
+   * than the minimal reference. Null when dangling or not visible. Never throws.
+   */
+  loadAct?(actId: string): Promise<object | null>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

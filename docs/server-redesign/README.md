@@ -41,21 +41,21 @@ Decisions locked by the user (2026-06-16): plans in the server repo; **one plan
 per data source**; **module-per-source + shared kernel**; **full REST + GraphQL +
 MCP** per module.
 
-| #   | Source                                   | Prod schema                | Status                                            | Plan                                   |
-| --- | ---------------------------------------- | -------------------------- | ------------------------------------------------- | -------------------------------------- |
-| —   | **shared kernel**                        | `core`, `flows`, `search`  | foundation                                        | [`00`](00-foundation-shared-kernel.md) |
-| 01  | reference (ins + mfin + public-entities) | `core`                     | live (hub overlaps kernel)                        | [`01`](01-reference.md)                |
-| 02  | budget (budget-official + anaf-extranet) | `budget`, `budget_staging` | live (heavy/partitioned)                          | [`02`](02-budget.md)                   |
-| 03  | private-companies                        | `companies`                | live (3.98M CUI spine)                            | [`03`](03-private-companies.md)        |
-| 04  | parliament                               | `parliament`               | live                                              | [`04`](04-parliament.md)               |
-| 05  | portal-legislativ                        | `legal` (acts)             | live — **owns `legal` module skeleton**           | [`05`](05-portal-legislativ.md)        |
-| 06  | monitorul-oficial                        | `legal` (mo\_\*)           | live — **extends `legal` skeleton**               | [`06`](06-monitorul-oficial.md)        |
-| 07  | pnrr                                     | `pnrr`                     | live (most complete prior art)                    | [`07`](07-pnrr.md)                     |
-| 08  | judicial-cases                           | `justice`                  | live — **privacy-critical**                       | [`08`](08-judicial-cases.md)           |
-| 09  | ngos                                     | `ngo` (absent)             | **forward-looking** — ships disabled              | [`09`](09-ngos.md)                     |
-| 10  | public-contracts                         | `procurement`              | live (17M+ rows, heavy)                           | [`10`](10-public-contracts.md)         |
-| 11  | primarii-transparency                    | `primarii_transparency`    | live (DDL recent; some tables empty)              | [`11`](11-primarii-transparency.md)    |
-| 12  | wikipedia-local-politics                 | `local_politics` (absent)  | **forward-looking** — raw-only, non-authoritative | [`12`](12-wikipedia-local-politics.md) |
+| #   | Source                                   | Prod schema                | Status                                            | Plan                                                                    |
+| --- | ---------------------------------------- | -------------------------- | ------------------------------------------------- | ----------------------------------------------------------------------- |
+| —   | **shared kernel**                        | `core`, `flows`, `search`  | foundation                                        | [`00`](00-foundation-shared-kernel.md)                                  |
+| 01  | reference (ins + mfin + public-entities) | `core`                     | live (hub overlaps kernel)                        | [`01`](01-reference.md)                                                 |
+| 02  | budget (budget-official + anaf-extranet) | `budget`, `budget_staging` | live (heavy/partitioned)                          | [`02`](02-budget.md)                                                    |
+| 03  | private-companies                        | `companies`                | live (3.98M CUI spine)                            | [`03`](03-private-companies.md)                                         |
+| 04  | parliament                               | `parliament`               | live                                              | [`04`](04-parliament.md)                                                |
+| 05  | portal-legislativ                        | `legal` (acts)             | live — **owns `legal` module skeleton**           | [`05`](05-portal-legislativ.md), [v2](05-portal-legislativ-legal-v2.md) |
+| 06  | monitorul-oficial                        | `legal` (mo\_\*)           | live — **extends `legal` skeleton**               | [`06`](06-monitorul-oficial.md)                                         |
+| 07  | pnrr                                     | `pnrr`                     | live (most complete prior art)                    | [`07`](07-pnrr.md)                                                      |
+| 08  | judicial-cases                           | `justice`                  | live — **privacy-critical**                       | [`08`](08-judicial-cases.md)                                            |
+| 09  | ngos                                     | `ngo` (absent)             | **forward-looking** — ships disabled              | [`09`](09-ngos.md)                                                      |
+| 10  | public-contracts                         | `procurement`              | live (17M+ rows, heavy)                           | [`10`](10-public-contracts.md)                                          |
+| 11  | primarii-transparency                    | `primarii_transparency`    | live (DDL recent; some tables empty)              | [`11`](11-primarii-transparency.md)                                     |
+| 12  | wikipedia-local-politics                 | `local_politics` (absent)  | **forward-looking** — raw-only, non-authoritative | [`12`](12-wikipedia-local-politics.md)                                  |
 
 **v1-deliverable now:** 01–08, 10, 11 (10 modules, grounded in live data). **Not
 v1 (ship feature-flag-disabled, gated on a scrapper data slice):** 09 (ngos), 12

@@ -1,0 +1,492 @@
+{
+  "_provenance": "Generated from hack-for-facts-eb-scrapper e12850f65 src/sources/portal-legislativ/prod/rebuild/unit-compiler/fixtures/doc-146017.json (a real Portal page) by compileUnit (unit rows, as legal_v2 stores them) and compileTldf (the reference TLDF 1.1 envelope of the same input).",
+  "pageId": "146017",
+  "text": "ORDIN nr. 143 din 18 februarie 2013\nprivind aprobarea începerii lucrărilor de înregistrare sistematică a imobilelor din unitatea administrativ-teritorială Ilva Mică, judeţul Bistriţa-Năsăud\nEMITENT\nAGENŢIA NAŢIONALĂ DE CADASTRU ŞI PUBLICITATE IMOBILIARĂ\nPublicat în\nMONITORUL OFICIAL nr. 128 din 11 martie 2013\nAvând în vedere prevederile art. 11 alin. (1) din Legea cadastrului şi a publicităţii imobiliare nr. 7/1996, republicată,\nîn temeiul art. 15 alin. (3) din Regulamentul de organizare şi funcţionare a Agenţiei Naţionale de Cadastru şi Publicitate Imobiliară, aprobat prin Hotărârea Guvernului nr. 1.288/2012,\ndirectorul general al Agenţiei Naţionale de Cadastru şi Publicitate Imobiliară emite prezentul ordin.\nArticolul 1\n(1) Se aprobă începerea lucrărilor de înregistrare sistematică a imobilelor situate pe teritoriul unităţii administrativ-teritoriale Ilva Mică, judeţul Bistriţa-Năsăud.\n(2) Teritoriul unităţii administrativ-teritoriale Ilva Mică, judeţul Bistriţa-Năsăud, este împărţit în 118 sectoare cadastrale, potrivit anexei care face parte integrantă din prezentul ordin.\nArticolul 2\nPrezentul ordin se publică în Monitorul Oficial al României, Partea I.\nDirectorul general al Agenţiei Naţionale\nde Cadastru şi Publicitate Imobiliară,\nMarius Arthur Ursu\nBucureşti, 18 februarie 2013.\nNr. 143.\nAnexă\n------",
+  "textSha256": "0bdc1e8471c944c426d3f8a567e258d587d6be2eadaaa3028d45089f61130195",
+  "unit": {
+    "render_state": "structured",
+    "compiler_version": "unit-compiler-v1",
+    "text_sha256": "0bdc1e8471c944c426d3f8a567e258d587d6be2eadaaa3028d45089f61130195"
+  },
+  "render": [
+    {
+      "chunk_seq": 0,
+      "body": "{\"format\":\"tldf-unit\",\"format_version\":\"1\",\"offset_unit\":\"utf16_code_unit\",\"contains_non_bmp\":false,\"shape\":\"standard_articles\",\"blocks\":[{\"id\":\"0.1.1.1\",\"kind\":\"titlu_act\",\"type\":\"DEN\",\"span\":[0,35],\"content\":[{\"text\":\"ORDIN nr. 143 din 18 februarie 2013\",\"span\":[0,35]}]},{\"id\":\"0.1.1.2\",\"kind\":\"paragraf\",\"type\":\"PAR\",\"source_element_id\":\"id_parA3\",\"span\":[36,189],\"changed_since_base_form\":false,\"content\":[{\"text\":\"privind aprobarea începerii lucrărilor de înregistrare sistematică a imobilelor din unitatea administrativ-teritorială Ilva Mică, judeţul Bistriţa-Năsăud\",\"span\":[36,189],\"sep\":\"\\n\"}]},{\"id\":\"0.1.1.3\",\"kind\":\"emitent\",\"type\":\"EMT\",\"label\":\"EMITENT\",\"span\":[190,253],\"content\":[{\"text\":\"EMITENT\",\"span\":[190,197],\"role\":\"ttl\",\"sep\":\"\\n\"},{\"text\":\"AGENŢIA NAŢIONALĂ DE CADASTRU ŞI PUBLICITATE IMOBILIARĂ\",\"span\":[198,253],\"role\":\"bdy\",\"sep\":\"\\n\"}]},{\"id\":\"0.1.1.4\",\"kind\":\"publicare\",\"type\":\"PUB\",\"label\":\"Publicat în\",\"span\":[254,310],\"content\":[{\"text\":\"Publicat în\",\"span\":[254,265],\"role\":\"ttl\",\"sep\":\"\\n\"},{\"text\":\"MONITORUL OFICIAL nr. 128 din 11 martie 2013\",\"span\":[266,310],\"role\":\"bdy\",\"sep\":\"\\n\"}]},{\"id\":\"0.1.1.6\",\"kind\":\"paragraf\",\"type\":\"PAR\",\"source_element_id\":\"id_parA10\",\"span\":[311,432],\"changed_since_base_form\":false,\"content\":[{\"text\":\"Având în vedere prevederile\",\"span\":[311,338],\"sep\":\"\\n\"},{\"text\":\"art. 11 alin. (1) din Legea cadastrului şi a publicităţii imobiliare nr. 7/1996\",\"span\":[339,418],\"sep\":\" \"},{\"text\":\", republicată,\",\"span\":[418,432]}]},{\"id\":\"0.1.1.7\",\"kind\":\"paragraf\",\"type\":\"PAR\",\"source_element_id\":\"id_parA11\",\"span\":[433,617],\"changed_since_base_form\":false,\"content\":[{\"text\":\"în temeiul art. 15 alin. (3) din Regulamentul de organizare şi funcţionare a Agenţiei Naţionale de Cadastru şi Publicitate Imobiliară, aprobat prin\",\"span\":[433,580],\"sep\":\"\\n\"},{\"text\":\"Hotărârea Guvernului nr. 1.288/2012\",\"span\":[581,616],\"sep\":\" \"},{\"text\":\",\",\"span\":[616,617]}]},{\"id\":\"0.1.1.8\",\"kind\":\"paragraf\",\"type\":\"PAR\",\"source_element_id\":\"id_parA12\",\"span\":[618,719],\"changed_since_base_form\":false,\"content\":[{\"text\":\"directorul general al Agenţiei Naţionale de Cadastru şi Publicitate Imobiliară emite prezentul ordin.\",\"span\":[618,719],\"sep\":\"\\n\"}]},{\"id\":\"0.1.1.9\",\"kind\":\"articol\",\"type\":\"ART\",\"source_element_id\":\"id_artA13\",\"label\":\"Articolul 1\",\"number\":{\"key\":\"1\",\"system\":\"arabic\"},\"span\":[720,1092],\"changed_since_base_form\":false,\"content\":[{\"text\":\"Articolul 1\",\"span\":[720,731],\"role\":\"ttl\",\"sep\":\"\\n\"}],\"children\":[{\"id\":\"0.1.1.9.3.0\",\"kind\":\"alineat\",\"type\":\"ALN\",\"source_element_id\":\"id_litA14\",\"number\":{\"key\":\"1\",\"system\":\"arabic\"},\"span\":[732,900],\"changed_since_base_form\":false,\"content\":[{\"text\":\"(1) Se aprobă începerea lucrărilor de înregistrare sistematică a imobilelor situate pe teritoriul unităţii administrativ-teritoriale Ilva Mică, judeţul Bistriţa-Năsăud.\",\"span\":[732,900],\"role\":\"bdy\",\"sep\":\"\\n\"}]},{\"id\":\"0.1.1.9.3.1\",\"kind\":\"alineat\",\"type\":\"ALN\",\"source_element_id\":\"id_litA15\",\"number\":{\"key\":\"2\",\"system\":\"arabic\"},\"span\":[901,1092],\"changed_since_base_form\":false,\"content\":[{\"text\":\"(2) Teritoriul unităţii administrativ-teritoriale Ilva Mică, judeţul Bistriţa-Năsăud, este împărţit în 118 sectoare cadastrale, potrivit anexei care face parte integrantă din prezentul ordin.\",\"span\":[901,1092],\"role\":\"bdy\",\"sep\":\"\\n\"}]}]},{\"id\":\"0.1.1.10\",\"kind\":\"articol\",\"type\":\"ART\",\"source_element_id\":\"id_artA16\",\"label\":\"Articolul 2\",\"number\":{\"key\":\"2\",\"system\":\"arabic\"},\"span\":[1093,1313],\"changed_since_base_form\":false,\"content\":[{\"text\":\"Articolul 2\",\"span\":[1093,1104],\"role\":\"ttl\",\"sep\":\"\\n\"}],\"children\":[{\"id\":\"0.1.1.10.3.0\",\"kind\":\"paragraf\",\"type\":\"PAR\",\"source_element_id\":\"id_parA17\",\"span\":[1105,1175],\"changed_since_base_form\":false,\"content\":[{\"text\":\"Prezentul ordin se publică în Monitorul Oficial al României, Partea I.\",\"span\":[1105,1175],\"sep\":\"\\n\"}]},{\"id\":\"0.1.1.10.3.1\",\"kind\":\"paragraf\",\"type\":\"PAR\",\"source_element_id\":\"id_parA18\",\"span\":[1176,1216],\"changed_since_base_form\":false,\"content\":[{\"text\":\"Directorul general al Agenţiei Naţionale\",\"span\":[1176,1216],\"sep\":\"\\n\"}]},{\"id\":\"0.1.1.10.3.2\",\"kind\":\"paragraf\",\"type\":\"PAR\",\"source_element_id\":\"id_parA19\",\"span\":[1217,1255],\"changed_since_base_form\":false,\"content\":[{\"text\":\"de Cadastru şi Publicitate Imobiliară,\",\"span\":[1217,1255],\"sep\":\"\\n\"}]},{\"id\":\"0.1.1.10.3.3\",\"kind\":\"paragraf\",\"type\":\"PAR\",\"source_element_id\":\"id_parA20\",\"span\":[1256,1274],\"changed_since_base_form\":false,\"content\":[{\"text\":\"Marius Arthur Ursu\",\"span\":[1256,1274],\"sep\":\"\\n\"}]},{\"id\":\"0.1.1.10.3.4\",\"kind\":\"paragraf\",\"type\":\"PAR\",\"source_element_id\":\"id_parA21\",\"span\":[1275,1304],\"changed_since_base_form\":false,\"content\":[{\"text\":\"Bucureşti, 18 februarie 2013.\",\"span\":[1275,1304],\"sep\":\"\\n\"}]},{\"id\":\"0.1.1.10.3.5\",\"kind\":\"paragraf\",\"type\":\"PAR\",\"source_element_id\":\"id_parA22\",\"span\":[1305,1313],\"changed_since_base_form\":false,\"content\":[{\"text\":\"Nr. 143.\",\"span\":[1305,1313],\"sep\":\"\\n\"}]}]},{\"id\":\"0.1.1.11\",\"kind\":\"anexa\",\"type\":\"ANX\",\"source_element_id\":\"id_anxA23\",\"label\":\"Anexă\",\"span\":[1314,1326],\"changed_since_base_form\":false,\"content\":[{\"text\":\"Anexă\",\"span\":[1314,1319],\"role\":\"ttl\",\"sep\":\"\\n\"}],\"children\":[{\"id\":\"0.1.1.11.3.0\",\"kind\":\"imagine\",\"type\":\"IMG\",\"span\":[1320,1320],\"changed_since_base_form\":false,\"content\":[],\"asset\":{\"asset_ordinal\":0}},{\"id\":\"0.1.1.11.3.1\",\"kind\":\"paragraf\",\"type\":\"PAR\",\"source_element_id\":\"id_parA27\",\"span\":[1320,1326],\"changed_since_base_form\":false,\"content\":[{\"text\":\"------\",\"span\":[1320,1326],\"sep\":\"\\n\"}]}]}],\"marks\":[{\"ordinal\":0,\"kind\":\"reference\",\"span\":[339,418],\"link_ordinal\":0},{\"ordinal\":1,\"kind\":\"reference\",\"span\":[581,616],\"link_ordinal\":1}]}",
+      "char_start": 0,
+      "char_end": 1326
+    }
+  ],
+  "provisions": [
+    {
+      "provision_seq": 0,
+      "parent_seq": null,
+      "kind": "articol",
+      "container_path": "",
+      "citation_path": "art:1",
+      "address_state": "unique",
+      "label_raw": "Articolul 1",
+      "source_element_id": "id_artA13",
+      "char_start": 720,
+      "char_end": 1092
+    },
+    {
+      "provision_seq": 1,
+      "parent_seq": 0,
+      "kind": "alineat",
+      "container_path": "",
+      "citation_path": "art:1/alin:1",
+      "address_state": "unique",
+      "label_raw": null,
+      "source_element_id": "id_litA14",
+      "char_start": 732,
+      "char_end": 900
+    },
+    {
+      "provision_seq": 2,
+      "parent_seq": 0,
+      "kind": "alineat",
+      "container_path": "",
+      "citation_path": "art:1/alin:2",
+      "address_state": "unique",
+      "label_raw": null,
+      "source_element_id": "id_litA15",
+      "char_start": 901,
+      "char_end": 1092
+    },
+    {
+      "provision_seq": 3,
+      "parent_seq": null,
+      "kind": "articol",
+      "container_path": "",
+      "citation_path": "art:2",
+      "address_state": "unique",
+      "label_raw": "Articolul 2",
+      "source_element_id": "id_artA16",
+      "char_start": 1093,
+      "char_end": 1313
+    },
+    {
+      "provision_seq": 4,
+      "parent_seq": null,
+      "kind": "anexa",
+      "container_path": "",
+      "citation_path": null,
+      "address_state": "unnumbered",
+      "label_raw": "Anexă",
+      "source_element_id": "id_anxA23",
+      "char_start": 1314,
+      "char_end": 1326
+    }
+  ],
+  "links": [
+    {
+      "ordinal": 0,
+      "provision_seq": null,
+      "char_start": 339,
+      "char_end": 418,
+      "link_text": "art. 11 alin. (1) din Legea cadastrului şi a publicităţii imobiliare nr. 7/1996",
+      "context_text": null,
+      "href": "~/../../../Public/DetaliiDocumentAfis/145401#id_artA142",
+      "target_page_id": "145401",
+      "target_route": "afis",
+      "target_fragment": "id_artA142"
+    },
+    {
+      "ordinal": 1,
+      "provision_seq": null,
+      "char_start": 581,
+      "char_end": 616,
+      "link_text": "Hotărârea Guvernului nr. 1.288/2012",
+      "context_text": null,
+      "href": "~/../../../Public/DetaliiDocumentAfis/144203",
+      "target_page_id": "144203",
+      "target_route": "afis",
+      "target_fragment": null
+    }
+  ],
+  "assets": [
+    {
+      "ordinal": 0,
+      "provision_seq": 4,
+      "asset_id": "portal-image:ff29aded7655c803659cfd9bc89c5f9bfe88171f639139a3cdbc1af24c59caf1",
+      "source_src": "../../../ImaginiDinActe/146017_A28.jpg"
+    }
+  ],
+  "reference": {
+    "blocks": [
+      {
+        "id": "0.1.1.1",
+        "kind": "titlu_act",
+        "type": "DEN",
+        "span": [0, 35],
+        "content": [
+          {
+            "text": "ORDIN nr. 143 din 18 februarie 2013",
+            "span": [0, 35]
+          }
+        ]
+      },
+      {
+        "id": "0.1.1.2",
+        "kind": "paragraf",
+        "type": "PAR",
+        "source_element_id": "id_parA3",
+        "span": [36, 189],
+        "changed_since_base_form": false,
+        "content": [
+          {
+            "text": "privind aprobarea începerii lucrărilor de înregistrare sistematică a imobilelor din unitatea administrativ-teritorială Ilva Mică, judeţul Bistriţa-Năsăud",
+            "span": [36, 189],
+            "sep": "\n"
+          }
+        ]
+      },
+      {
+        "id": "0.1.1.3",
+        "kind": "emitent",
+        "type": "EMT",
+        "label": "EMITENT",
+        "span": [190, 253],
+        "content": [
+          {
+            "text": "EMITENT",
+            "span": [190, 197],
+            "role": "ttl",
+            "sep": "\n"
+          },
+          {
+            "text": "AGENŢIA NAŢIONALĂ DE CADASTRU ŞI PUBLICITATE IMOBILIARĂ",
+            "span": [198, 253],
+            "role": "bdy",
+            "sep": "\n"
+          }
+        ]
+      },
+      {
+        "id": "0.1.1.4",
+        "kind": "publicare",
+        "type": "PUB",
+        "label": "Publicat în",
+        "span": [254, 310],
+        "content": [
+          {
+            "text": "Publicat în",
+            "span": [254, 265],
+            "role": "ttl",
+            "sep": "\n"
+          },
+          {
+            "text": "MONITORUL OFICIAL nr. 128 din 11 martie 2013",
+            "span": [266, 310],
+            "role": "bdy",
+            "sep": "\n"
+          }
+        ]
+      },
+      {
+        "id": "0.1.1.6",
+        "kind": "paragraf",
+        "type": "PAR",
+        "source_element_id": "id_parA10",
+        "span": [311, 432],
+        "changed_since_base_form": false,
+        "content": [
+          {
+            "text": "Având în vedere prevederile",
+            "span": [311, 338],
+            "sep": "\n"
+          },
+          {
+            "text": "art. 11 alin. (1) din Legea cadastrului şi a publicităţii imobiliare nr. 7/1996",
+            "span": [339, 418],
+            "sep": " "
+          },
+          {
+            "text": ", republicată,",
+            "span": [418, 432]
+          }
+        ]
+      },
+      {
+        "id": "0.1.1.7",
+        "kind": "paragraf",
+        "type": "PAR",
+        "source_element_id": "id_parA11",
+        "span": [433, 617],
+        "changed_since_base_form": false,
+        "content": [
+          {
+            "text": "în temeiul art. 15 alin. (3) din Regulamentul de organizare şi funcţionare a Agenţiei Naţionale de Cadastru şi Publicitate Imobiliară, aprobat prin",
+            "span": [433, 580],
+            "sep": "\n"
+          },
+          {
+            "text": "Hotărârea Guvernului nr. 1.288/2012",
+            "span": [581, 616],
+            "sep": " "
+          },
+          {
+            "text": ",",
+            "span": [616, 617]
+          }
+        ]
+      },
+      {
+        "id": "0.1.1.8",
+        "kind": "paragraf",
+        "type": "PAR",
+        "source_element_id": "id_parA12",
+        "span": [618, 719],
+        "changed_since_base_form": false,
+        "content": [
+          {
+            "text": "directorul general al Agenţiei Naţionale de Cadastru şi Publicitate Imobiliară emite prezentul ordin.",
+            "span": [618, 719],
+            "sep": "\n"
+          }
+        ]
+      },
+      {
+        "id": "0.1.1.9",
+        "kind": "articol",
+        "type": "ART",
+        "source_element_id": "id_artA13",
+        "label": "Articolul 1",
+        "number": {
+          "key": "1",
+          "system": "arabic"
+        },
+        "span": [720, 1092],
+        "changed_since_base_form": false,
+        "content": [
+          {
+            "text": "Articolul 1",
+            "span": [720, 731],
+            "role": "ttl",
+            "sep": "\n"
+          }
+        ],
+        "children": [
+          {
+            "id": "0.1.1.9.3.0",
+            "kind": "alineat",
+            "type": "ALN",
+            "source_element_id": "id_litA14",
+            "number": {
+              "key": "1",
+              "system": "arabic"
+            },
+            "span": [732, 900],
+            "changed_since_base_form": false,
+            "content": [
+              {
+                "text": "(1) Se aprobă începerea lucrărilor de înregistrare sistematică a imobilelor situate pe teritoriul unităţii administrativ-teritoriale Ilva Mică, judeţul Bistriţa-Năsăud.",
+                "span": [732, 900],
+                "role": "bdy",
+                "sep": "\n"
+              }
+            ]
+          },
+          {
+            "id": "0.1.1.9.3.1",
+            "kind": "alineat",
+            "type": "ALN",
+            "source_element_id": "id_litA15",
+            "number": {
+              "key": "2",
+              "system": "arabic"
+            },
+            "span": [901, 1092],
+            "changed_since_base_form": false,
+            "content": [
+              {
+                "text": "(2) Teritoriul unităţii administrativ-teritoriale Ilva Mică, judeţul Bistriţa-Năsăud, este împărţit în 118 sectoare cadastrale, potrivit anexei care face parte integrantă din prezentul ordin.",
+                "span": [901, 1092],
+                "role": "bdy",
+                "sep": "\n"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "0.1.1.10",
+        "kind": "articol",
+        "type": "ART",
+        "source_element_id": "id_artA16",
+        "label": "Articolul 2",
+        "number": {
+          "key": "2",
+          "system": "arabic"
+        },
+        "span": [1093, 1313],
+        "changed_since_base_form": false,
+        "content": [
+          {
+            "text": "Articolul 2",
+            "span": [1093, 1104],
+            "role": "ttl",
+            "sep": "\n"
+          }
+        ],
+        "children": [
+          {
+            "id": "0.1.1.10.3.0",
+            "kind": "paragraf",
+            "type": "PAR",
+            "source_element_id": "id_parA17",
+            "span": [1105, 1175],
+            "changed_since_base_form": false,
+            "content": [
+              {
+                "text": "Prezentul ordin se publică în Monitorul Oficial al României, Partea I.",
+                "span": [1105, 1175],
+                "sep": "\n"
+              }
+            ]
+          },
+          {
+            "id": "0.1.1.10.3.1",
+            "kind": "paragraf",
+            "type": "PAR",
+            "source_element_id": "id_parA18",
+            "span": [1176, 1216],
+            "changed_since_base_form": false,
+            "content": [
+              {
+                "text": "Directorul general al Agenţiei Naţionale",
+                "span": [1176, 1216],
+                "sep": "\n"
+              }
+            ]
+          },
+          {
+            "id": "0.1.1.10.3.2",
+            "kind": "paragraf",
+            "type": "PAR",
+            "source_element_id": "id_parA19",
+            "span": [1217, 1255],
+            "changed_since_base_form": false,
+            "content": [
+              {
+                "text": "de Cadastru şi Publicitate Imobiliară,",
+                "span": [1217, 1255],
+                "sep": "\n"
+              }
+            ]
+          },
+          {
+            "id": "0.1.1.10.3.3",
+            "kind": "paragraf",
+            "type": "PAR",
+            "source_element_id": "id_parA20",
+            "span": [1256, 1274],
+            "changed_since_base_form": false,
+            "content": [
+              {
+                "text": "Marius Arthur Ursu",
+                "span": [1256, 1274],
+                "sep": "\n"
+              }
+            ]
+          },
+          {
+            "id": "0.1.1.10.3.4",
+            "kind": "paragraf",
+            "type": "PAR",
+            "source_element_id": "id_parA21",
+            "span": [1275, 1304],
+            "changed_since_base_form": false,
+            "content": [
+              {
+                "text": "Bucureşti, 18 februarie 2013.",
+                "span": [1275, 1304],
+                "sep": "\n"
+              }
+            ]
+          },
+          {
+            "id": "0.1.1.10.3.5",
+            "kind": "paragraf",
+            "type": "PAR",
+            "source_element_id": "id_parA22",
+            "span": [1305, 1313],
+            "changed_since_base_form": false,
+            "content": [
+              {
+                "text": "Nr. 143.",
+                "span": [1305, 1313],
+                "sep": "\n"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "0.1.1.11",
+        "kind": "anexa",
+        "type": "ANX",
+        "source_element_id": "id_anxA23",
+        "label": "Anexă",
+        "span": [1314, 1326],
+        "changed_since_base_form": false,
+        "content": [
+          {
+            "text": "Anexă",
+            "span": [1314, 1319],
+            "role": "ttl",
+            "sep": "\n"
+          }
+        ],
+        "children": [
+          {
+            "id": "0.1.1.11.3.0",
+            "kind": "imagine",
+            "type": "IMG",
+            "span": [1320, 1320],
+            "changed_since_base_form": false,
+            "content": []
+          },
+          {
+            "id": "0.1.1.11.3.1",
+            "kind": "paragraf",
+            "type": "PAR",
+            "source_element_id": "id_parA27",
+            "span": [1320, 1326],
+            "changed_since_base_form": false,
+            "content": [
+              {
+                "text": "------",
+                "span": [1320, 1326],
+                "sep": "\n"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "marks": [
+      {
+        "ordinal": 0,
+        "kind": "reference",
+        "span": [339, 418],
+        "link": {
+          "kind": "act",
+          "target_document_id": "145401",
+          "target_fragment": "id_artA142"
+        }
+      },
+      {
+        "ordinal": 1,
+        "kind": "reference",
+        "span": [581, 616],
+        "link": {
+          "kind": "act",
+          "target_document_id": "144203"
+        }
+      }
+    ],
+    "shape": "standard_articles",
+    "contains_non_bmp": false
+  }
+}

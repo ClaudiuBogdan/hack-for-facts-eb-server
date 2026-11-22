@@ -19,7 +19,7 @@
  * keyset feed over `act_status_events` joined to `acts`.
  */
 
-import { sql, type Kysely, type RawBuilder } from 'kysely';
+import { sql, type Kysely, type RawBuilder, type SqlBool } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
 import {
@@ -76,6 +76,7 @@ import {
   type LegalVersionProvenance,
 } from '../../core/types.js';
 import { legalActsSpec } from '../filters/legal-acts.spec.js';
+import { optionalActVisible, type LegalBridgeGate } from './v2/gate.js';
 
 import type {
   LegalActListOptions,
@@ -161,7 +162,12 @@ const sortValueOf = (act: LegalAct, sort: string): string => {
   }
 };
 
-export const makeLegalActsRepo = (db: Db): LegalActsRepo => {
+/**
+ * `gate` (legal_v2 bridge only): every bridged statement also requires its acts
+ * to be public in legal_v2 — an event's act and its acting act, a counted
+ * reference's citing document — in the WHERE, before counting or paging.
+ */
+export const makeLegalActsRepo = (db: Db, gate?: LegalBridgeGate): LegalActsRepo => {
   const selectActs = () =>
     db
       .selectFrom('legal.acts as a')
@@ -403,6 +409,11 @@ export const makeLegalActsRepo = (db: Db): LegalActsRepo => {
         ])
         .where('e.act_id', '=', actId)
         .where(statusEventIsPublic('e'));
+      if (gate !== undefined) {
+        q = q
+          .where(gate.act(sql.ref('e.act_id')))
+          .where(optionalActVisible(gate.act, sql.ref('e.source_act_id')));
+      }
       if (eventSource !== undefined) q = q.where('e.event_source', '=', eventSource);
       const rows = await q
         .orderBy(sql`e.effective_date asc nulls last`)
@@ -587,6 +598,10 @@ export const makeLegalActsRepo = (db: Db): LegalActsRepo => {
    */
   const recentChangesConds = (f: LegalRecentChangesFilter): RawBuilder<unknown>[] => {
     const conds: RawBuilder<unknown>[] = [statusEventIsPublic('e')];
+    if (gate !== undefined) {
+      conds.push(gate.act(sql.ref('e.act_id')));
+      conds.push(optionalActVisible(gate.act, sql.ref('e.source_act_id')));
+    }
     if (f.since !== undefined) conds.push(sql`e.effective_date >= ${f.since}::date`);
     if (f.until !== undefined) conds.push(sql`e.effective_date <= ${f.until}::date`);
     if (f.undatedOnly === true) conds.push(sql`e.effective_date is null`);
@@ -772,6 +787,9 @@ export const makeLegalActsRepo = (db: Db): LegalActsRepo => {
         .select(sql<string>`count(*)`.as('cnt'))
         .where('r.target_act_id', '=', actId)
         .where('r.relation', 'in', [...AMENDMENT_RELATIONS])
+        .$if(gate !== undefined, (qb) =>
+          qb.where(gate?.document(sql.ref('r.source_document_id')) ?? sql<SqlBool>`true`)
+        )
         .executeTakeFirst();
       return ok(Number(row?.cnt ?? 0));
     } catch (error) {
@@ -792,7 +810,8 @@ export const makeLegalActsRepo = (db: Db): LegalActsRepo => {
         and r.relation in (${sql.join(
           AMENDMENT_RELATIONS.map((rel) => sql`${rel}`),
           sql`, `
-        )})) as amended`;
+        )})
+        and ${gate === undefined ? sql`true` : gate.document(sql.ref('r.source_document_id'))}) as amended`;
 
   /**
    * Newest `consolidare` row for the act. `document_id` breaks ties so the row

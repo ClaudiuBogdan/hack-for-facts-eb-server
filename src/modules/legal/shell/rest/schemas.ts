@@ -21,7 +21,8 @@ export const RenderParamsSchema = Type.Object(
     documentId: Type.String({
       minLength: 1,
       maxLength: 64,
-      description: "Portal document id (act_documents.document_id), e.g. '171282'.",
+      description:
+        "Portal document id (act_documents.document_id), e.g. '171282'; on the legal_v2 source a form id 'f<form_id>', or an old page id resolved to the form it shows now.",
     }),
   },
   { additionalProperties: false }
@@ -64,6 +65,14 @@ export const RenderResponseSchema = Type.Object({
     textSha256: Type.String(),
     compilerVersion: Type.String(),
     compiledAt: Type.String(),
+    /** legal_v2 only: where the body came from ('legal_v2:tldf-unit/1'). */
+    renderSource: Type.Optional(Type.String()),
+    /** legal_v2 only: the served form (kind, caveat, Portal label and date, source URL). */
+    servedForm: Type.Optional(Type.Any()),
+    /** legal_v2 only: the envelope-head substitutions, versioned. */
+    renderHead: Type.Optional(Type.Any()),
+    /** legal_v2 only: the unit's fidelity flags. */
+    fidelityFlags: Type.Optional(Type.Array(Type.String())),
   }),
 });
 

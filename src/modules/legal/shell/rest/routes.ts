@@ -50,12 +50,18 @@ import {
 } from './schemas.js';
 import { getDocumentRenderChunk } from '../../core/usecases.js';
 
-import type { LegalRenderRepo } from '../../core/ports.js';
+import type { LegalRenderRepo, LegalRenderSource } from '../../core/ports.js';
 import type { LegalRenderError, LegalRenderInfo, LegalRenderPayload } from '../../core/types.js';
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 
 export interface MakeLegalRoutesDeps {
   readonly render: LegalRenderRepo;
+  /**
+   * legal_v2 (LEGAL_SOURCE=v2): the body is read in one statement by this
+   * source instead of the generation/row pair of the legacy tables. Same
+   * route, same envelope; the ETag is the source's own validator.
+   */
+  readonly source?: LegalRenderSource;
   /**
    * Browser TTL for a served artifact. A generation is immutable — recompiles
    * mint a NEW generation identity, which changes the ETag — so the browser
@@ -119,6 +125,14 @@ export const makeLegalRoutes = (deps: MakeLegalRoutesDeps): FastifyPluginAsync =
     void reply.header('vary', 'accept-encoding');
   };
 
+  const readChunk = (
+    documentId: string,
+    chunkIndex: number
+  ): ReturnType<typeof getDocumentRenderChunk> =>
+    deps.source !== undefined
+      ? deps.source.read(documentId, chunkIndex)
+      : getDocumentRenderChunk(deps.render, documentId, chunkIndex);
+
   return async (fastify) => {
     // Boundary rejections (bad chunk index, unknown query param) come from
     // Fastify's validator, whose default body does not match the module
@@ -176,10 +190,16 @@ export const makeLegalRoutes = (deps: MakeLegalRoutesDeps): FastifyPluginAsync =
       }
 
       const payload: LegalRenderPayload = outcome.value;
-      const etag = legalRenderEtag(payload.info);
-      setCacheHeaders(reply, etag);
-      if (ifNoneMatchSatisfied(request.headers['if-none-match'], etag)) {
-        return reply.status(304).send();
+      if (payload.cacheable === false) {
+        // legal_v2: no validator covers what can change under one composition
+        // (link targets, custody); never cached, never revalidated.
+        void reply.header('cache-control', 'no-store');
+      } else {
+        const etag = legalRenderEtag(payload.info);
+        setCacheHeaders(reply, etag);
+        if (ifNoneMatchSatisfied(request.headers['if-none-match'], etag)) {
+          return reply.status(304).send();
+        }
       }
       return reply.status(200).send({
         ok: true as const,
@@ -196,6 +216,8 @@ export const makeLegalRoutes = (deps: MakeLegalRoutesDeps): FastifyPluginAsync =
           textSha256: payload.info.textSha256,
           compilerVersion: payload.info.compilerVersion,
           compiledAt: payload.info.compiledAt,
+          ...(payload.renderSource !== undefined && { renderSource: payload.renderSource }),
+          ...payload.extraMeta,
         },
       });
     };
@@ -222,7 +244,7 @@ export const makeLegalRoutes = (deps: MakeLegalRoutesDeps): FastifyPluginAsync =
         },
       },
       async (request, reply) => {
-        const outcome = await getDocumentRenderChunk(deps.render, request.params.documentId, 0);
+        const outcome = await readChunk(request.params.documentId, 0);
         return respond(request, reply, outcome);
       }
     );
@@ -237,11 +259,7 @@ export const makeLegalRoutes = (deps: MakeLegalRoutesDeps): FastifyPluginAsync =
         },
       },
       async (request, reply) => {
-        const outcome = await getDocumentRenderChunk(
-          deps.render,
-          request.params.documentId,
-          request.params.chunkIndex
-        );
+        const outcome = await readChunk(request.params.documentId, request.params.chunkIndex);
         return respond(request, reply, outcome);
       }
     );

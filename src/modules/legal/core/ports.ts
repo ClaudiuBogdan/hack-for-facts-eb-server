@@ -31,13 +31,25 @@ import type {
   LegalRecentChange,
   LegalReferenceEdge,
   LegalRelation,
+  LegalRenderError,
   LegalRenderInfo,
+  LegalRenderPayload,
   LegalRenderRow,
   LegalSectionHit,
   LegalVersionProvenance,
 } from './types.js';
+import type { V2DefaultForm } from './v2/forms.js';
 import type { ApiError, CursorPage, FilterInput, IsoDate } from '@/modules/shared/index.js';
 import type { Result } from 'neverthrow';
+
+/**
+ * legal_v2: one act's default-form selection, read once — the posture and form ids together with
+ * the canonical document they name (null when the selected form has no text).
+ */
+export interface V2ActSelection {
+  readonly defaultForm: V2DefaultForm;
+  readonly canonical: LegalDocument | null;
+}
 
 /** A first/after cursor page request (the kernel cursor envelope binds the fhash). */
 export interface CursorPageRequest {
@@ -157,6 +169,36 @@ export interface LegalActsRepo extends LegalRepoBase {
   summariesForDocuments(
     documentIds: readonly string[]
   ): Promise<Result<ReadonlyMap<string, LegalActSummary>, ApiError>>;
+  /**
+   * legal_v2 source only: the default form of each act (owner policy latest_any_kind, 2026-11-12),
+   * computed per act from its forms. Absent on the legacy source.
+   */
+  defaultFormsForActs?(
+    actIds: readonly string[]
+  ): Promise<Result<ReadonlyMap<string, V2DefaultForm>, ApiError>>;
+  /**
+   * legal_v2 source only: the default form AND its canonical document per act, from one form read,
+   * so the posture and the canonical document of a list row can never disagree.
+   */
+  defaultSelectionsForActs?(
+    actIds: readonly string[]
+  ): Promise<Result<ReadonlyMap<string, V2ActSelection>, ApiError>>;
+  /**
+   * legal_v2 source only: the bridged summary of each act, keyed by ACT id, so it never depends
+   * on the act having a default form with text. Acts without a public summary are absent.
+   */
+  summariesForActs?(
+    actIds: readonly string[]
+  ): Promise<Result<ReadonlyMap<string, LegalActSummary>, ApiError>>;
+  /**
+   * legal_v2 source only: the document id (`f<form_id>`) a page id or form id
+   * names WITHIN this act, through the page's preferred route, whether or not
+   * the form has text. Null when it names no public form of the act.
+   */
+  resolveDocumentForAct?(
+    actId: string,
+    documentId: string
+  ): Promise<Result<string | null, ApiError>>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -266,6 +308,18 @@ export interface LegalRenderRepo {
     runId: string,
     chunkIndex: number
   ): Promise<Result<LegalRenderRow | null, ApiError>>;
+}
+
+/**
+ * legal_v2 source only: the REST render body read in ONE statement per request
+ * (the reader contract of 30-reader.sql: two statements can mix two versions
+ * of a form across a replace). Replaces `getDocumentRenderChunk` when present.
+ */
+export interface LegalRenderSource {
+  read(
+    documentId: string,
+    chunkIndex: number
+  ): Promise<Result<LegalRenderPayload, LegalRenderError | ApiError>>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

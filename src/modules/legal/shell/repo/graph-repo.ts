@@ -14,7 +14,7 @@
  * the act's canonical document_id). `external_acts_pkey` for the external lookup.
  */
 
-import { sql, type Kysely } from 'kysely';
+import { sql, type Kysely, type SqlBool } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
 import {
@@ -29,6 +29,7 @@ import {
 
 import { LINKS_SORT, linksFhash } from './filter-helpers.js';
 import { mapAct, mapExternalAct, mapReferenceEdge, type ActRow } from './mappers.js';
+import { optionalActVisible, type LegalBridgeGate } from './v2/gate.js';
 
 import type { CursorPageRequest, LegalGraphRepo } from '../../core/ports.js';
 import type {
@@ -49,7 +50,12 @@ const ANCHOR_SORT = 'edge_id';
 
 const clampLinksPage = (n: number): number => Math.min(Math.max(Math.floor(n), 1), MAX_LINKS_PAGE);
 
-export const makeLegalGraphRepo = (db: Db): LegalGraphRepo => {
+/**
+ * `gate` (legal_v2 bridge only): a reference or anchor is served only when the
+ * acts on both ends are public in legal_v2 (an unresolved target stays), in the
+ * WHERE, before paging and counting.
+ */
+export const makeLegalGraphRepo = (db: Db, gate?: LegalBridgeGate): LegalGraphRepo => {
   const selectRefs = () =>
     db
       .selectFrom('legal.act_references as r')
@@ -109,6 +115,11 @@ export const makeLegalGraphRepo = (db: Db): LegalGraphRepo => {
       let q = selectRefs()
         .innerJoin('legal.acts as a', 'a.canonical_document_id', 'r.source_document_id')
         .where('a.act_id', '=', actId);
+      if (gate !== undefined) {
+        q = q
+          .where(gate.act(sql.ref('a.act_id')))
+          .where(optionalActVisible(gate.act, sql.ref('r.target_act_id')));
+      }
       if (relations !== undefined && relations.length > 0) {
         q = q.where('r.relation', 'in', [...relations]);
       }
@@ -150,16 +161,30 @@ export const makeLegalGraphRepo = (db: Db): LegalGraphRepo => {
     const cursor = cursorRes.value;
     try {
       // act_references_target (target_act_id, relation) drives this. Join back to
-      // the citing act via its canonical document (the edge's source_document_id).
+      // the citing act through act_documents (document_id is its key), so a
+      // NON-canonical citing document names its act too: joining on the act's
+      // canonical document alone lost it, and the timeline then named the
+      // target as its own amender (archived reference 105215/0).
       let q = selectRefs()
-        .leftJoin('legal.acts as sa', 'sa.canonical_document_id', 'r.source_document_id')
+        .leftJoin('legal.act_documents as sd', 'sd.document_id', 'r.source_document_id')
+        .leftJoin('legal.acts as sa', 'sa.act_id', 'sd.act_id')
         .where('r.target_act_id', '=', actId);
+      if (gate !== undefined) {
+        // The citing act — resolved through act_documents, so a NON-canonical
+        // citing document counts too (as the amendment count does) — must be
+        // public in legal_v2; a citing document with no act cannot be checked
+        // and is not served.
+        q = q
+          .where(gate.act(sql.ref('r.target_act_id')))
+          .where(gate.document(sql.ref('r.source_document_id')));
+      }
       if (relations !== undefined && relations.length > 0) {
         q = q.where('r.relation', 'in', [...relations]);
       }
       if (cursor !== null) q = q.where(afterPk(cursor));
       const rows = await q
         .select([
+          sql<string | null>`sd.act_id::text`.as('sd_act_id'),
           'sa.act_id as sa_act_id',
           'sa.act_natural_key as sa_act_natural_key',
           'sa.act_type as sa_act_type',
@@ -202,7 +227,7 @@ export const makeLegalGraphRepo = (db: Db): LegalGraphRepo => {
                 entry_into_force: row.sa_entry_into_force,
                 in_degree: row.sa_in_degree,
               } as unknown as ActRow);
-        return { edge, sourceAct };
+        return { edge, sourceAct, sourceActId: row.sd_act_id ?? sourceAct?.actId ?? null };
       });
       const last = edges[edges.length - 1];
       const next =
@@ -300,7 +325,12 @@ export const makeLegalGraphRepo = (db: Db): LegalGraphRepo => {
           .selectFrom('legal.document_link_edges as e')
           .where('e.link_kind', '=', 'act')
           .where('e.target_act_id', '=', actId)
-          .where('e.privacy_class', '=', 'public');
+          .where('e.privacy_class', '=', 'public')
+          .$if(gate !== undefined, (qb) =>
+            qb
+              .where(gate?.act(sql.ref('e.target_act_id')) ?? sql<SqlBool>`true`)
+              .where(gate?.document(sql.ref('e.document_id')) ?? sql<SqlBool>`true`)
+          );
 
       let q = serving()
         .leftJoin('legal.act_documents as d', 'd.document_id', 'e.document_id')

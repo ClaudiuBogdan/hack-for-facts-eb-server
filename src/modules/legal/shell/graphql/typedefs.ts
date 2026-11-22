@@ -92,10 +92,27 @@ const objectsAndQuery = /* GraphQL */ `
     issuerSlug: String
     canonicalDocumentId: String
     displayCitation: String!
-    status: LegalActStatus!
-    statusEvidence: JSON!
+    "The act's status. On the legal_v2 source it is BRIDGED from the previous corpus (see bridgedFields) and null when that corpus does not hold the act."
+    status: LegalActStatus
+    "Which signals decided the status; bridged and nullable like status."
+    statusEvidence: JSON
     entryIntoForce: Date
-    inDegree: Int!
+    "Incoming citation count; bridged and nullable like status."
+    inDegree: Int
+    "Which source served the act: 'legal' (the previous corpus) or 'legal_v2' (the rebuilt schema)."
+    dataSource: String!
+    "legal_v2 only: the fields read from the previous corpus by act_id (status, statusEvidence, inDegree, entryIntoForce, amendedAfterPublication, links, incomingAnchors, timeline, summary, domains, categories, title). Empty when the previous corpus does not hold the act, and on the legacy source."
+    bridgedFields: [String!]!
+    "legal_v2 only: known forms of ANY kind (original, republication, consolidation) that cannot be shown (not accepted, no text, or held), dated on or after the DATE of the latest readable form. It counts a lower-ranked form of that same day too, so it can be non-zero while defaultBasis is 'current'; with no readable form it counts every dated form. Forms without a Portal date are not counted. Null on the legacy source."
+    newerNotAvailable: Int
+    "legal_v2 only: the default form's posture under the owner's policy latest_any_kind (2026-11-12): 'current' (canonical is the latest form of any kind, and available), 'latest_not_available' (the latest form is known but has no text: canonical is null; see latestAvailableDocumentId), or 'no_known_form'. Null on the legacy source."
+    defaultBasis: String
+    "legal_v2 only: false when two or more forms share the latest date and a reviewer has not ranked them all; the choice then follows the Portal's list order and the reader shows 'order not reviewed'."
+    defaultOrderReviewed: Boolean
+    "legal_v2 only: the latest form that has text, when the latest form has none — to offer as 'not the current form'."
+    latestAvailableDocumentId: String
+    "legal_v2 only: the form the latest_any_kind rule picks as latest (f<form_id>), whether or not it has text — the same tie rule as canonical, so on same-day versions it is the one the server chose. Equals canonical's id when defaultBasis is 'current'; null for 'no_known_form'. Null on the legacy source, which has no such rule."
+    latestDocumentId: String
     # lazy fields (DataLoader / repo, not on the base row):
     canonical: LegalDocument
     summary: LegalActSummary
@@ -104,7 +121,7 @@ const objectsAndQuery = /* GraphQL */ `
     "Exact number of the act's document expressions (act_documents rows)."
     versionCount: Int!
     "Incoming modifica/completeaza references on the act, of any date — the §5.2-C honesty badge. References, not distinct amending acts or legal changes, and not dated against any one expression. It also counts the judicial court references the timeline omits (I-28)."
-    amendedAfterPublication: Int!
+    amendedAfterPublication: Int
     "Which version the served text/summary actually is (§5.2-C). Batched per request."
     versionProvenance: LegalVersionProvenance!
     "The same fact rendered in Romanian, ready to show next to any text answer."
@@ -117,13 +134,15 @@ const objectsAndQuery = /* GraphQL */ `
       relation: [LegalRelation!]
       first: Int = 50
       after: String
-    ): LegalReferenceConnection!
+    ): LegalReferenceConnection
     "Incoming ANCHORS — links the portal itself asserts in citing documents' text (document_link_edges). A DIFFERENT graph from links: anchors are source assertions at mark grain, links are LLM-inferred normative relations; they disagree by construction and both disagreements are informative. Real totalCount; keyset-paged."
-    incomingAnchors(first: Int = 50, after: String): LegalIncomingAnchorConnection!
+    incomingAnchors(first: Int = 50, after: String): LegalIncomingAnchorConnection
     "The act's stored status events merged with its incoming modifica/completeaza/abroga references. A judicial court decision's modifica/completeaza reference to an act that is not itself a court decision is omitted: the decision cites a change, it does not make one (I-28). Administrative-court, court-on-court and repeal references stay; every reference stays in links(direction: IN)."
-    timeline: [LegalTimelineEntry!]!
+    timeline: [LegalTimelineEntry!]
     "False when the timeline reached its bound (10,000 amendment references or status events) and is incomplete; every act is complete today (largest 3,200)."
-    timelineComplete: Boolean!
+    timelineComplete: Boolean
+    "links, incomingAnchors, timeline and timelineComplete are BRIDGED on the legal_v2 source: null (unknown) when the previous corpus does not hold the act, never an empty, complete history. legal_v2 only: the act's document id for an old Portal page id (or an f<form_id> of this act), through the page's preferred route, loaded or not; null when the page names no form of this act."
+    resolveDocument(documentId: String!): String
   }
 
   "One incoming anchor occurrence. charStart/charEnd locate it in the CITING document's rendered text; linkText is the anchor's own words on the source page."
@@ -174,11 +193,24 @@ const objectsAndQuery = /* GraphQL */ `
     moPart: Int
     moNumber: String
     moDate: Date
+    "legal_v2 only: text is published for this form (and public)."
+    readable: Boolean
+    "legal_v2 only: 'unofficial_consolidation' on every consolidation — show the Portal's consolidation caveat (LEG-X3AV) wherever its text is shown."
+    caveat: String
+    "legal_v2 only: the Portal's own consolidation label as written, and its date (where filled)."
+    portalLabelRaw: String
+    portalLabelDate: Date
+    "legal_v2 only: a capture claims this form and is held, conflicting or unresolved."
+    held: Boolean
+    "legal_v2 only: the form's key within its act (e.g. 'cons:2024-01-01')."
+    formKey: String
+    "legal_v2 only: the form's Portal page (its newest bound capture), for the portal link."
+    sourceUrl: String
     "Render availability (null = never compiled). The artifact BODY travels only over the cacheable REST route GET /api/v1/legal/documents/{documentId}/render."
     render: LegalRenderInfo
   }
 
-  "TLDF render availability for one document expression (legal.document_generations + row-0 chunk_count). status: served | content_unavailable | superseded_pending; only served+public documents answer on the REST render route."
+  "TLDF render availability for one document expression (legal.document_generations + row-0 chunk_count). status: served | content_unavailable | superseded_pending; on the legal_v2 source also not_loaded (no published text) | composition_not_served (header plus body, not in this version). Only served+public documents answer on the REST render route."
   type LegalRenderInfo {
     documentId: String!
     renderStatus: String!
@@ -197,11 +229,18 @@ const objectsAndQuery = /* GraphQL */ `
     versionDate: Date
     "The legislatie.just.ro deep link — where the consolidated form can be checked. Never our own act page, which serves this same published text."
     sourceUrl: String
-    "Incoming modifica/completeaza references on the act, of any date: not distinct amending acts or legal changes, and not dated against this text (Legea 95/2006, republished 2015-08-28: 106 of its 292 come from earlier-dated sources). It also counts the judicial court references the timeline omits (I-28)."
-    amendedAfterPublication: Int!
+    "Incoming modifica/completeaza references on the act, of any date: not distinct amending acts or legal changes, and not dated against this text (Legea 95/2006, republished 2015-08-28: 106 of its 292 come from earlier-dated sources). It also counts the judicial court references the timeline omits (I-28). Null on the legal_v2 source when the previous corpus does not hold the act (unknown, not zero)."
+    amendedAfterPublication: Int
     latestConsolidationDate: Date
     "False while a consolidation is only a timeline anchor we have not fetched."
     latestConsolidationLoaded: Boolean!
+    "legal_v2 only: the served form's document id (f<form_id>)."
+    documentId: String
+    "legal_v2 only: 'unofficial_consolidation' on a consolidation (LEG-X3AV)."
+    caveat: String
+    "legal_v2 only: the Portal's consolidation label as written, and its date."
+    portalLabelRaw: String
+    portalLabelDate: Date
   }
 
   type LegalActSummary {
@@ -343,6 +382,8 @@ const objectsAndQuery = /* GraphQL */ `
     snippet: String
     portalDeepLink: String
     score: Float!
+    "legal_v2 only: the form whose text the hit was verified against — its document id, kind, caveat, Portal label and date, source URL (LEG-X3AV)."
+    servedForm: LegalVersionProvenance
   }
 
   "A doc-channel topical hit."

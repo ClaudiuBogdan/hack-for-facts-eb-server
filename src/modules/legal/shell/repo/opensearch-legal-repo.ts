@@ -162,10 +162,11 @@ const parseHits = (
   return { hits, total, totalExhaustive: relation === 'eq' };
 };
 
-export const makeLegalSearchEngine = (
-  config: LegalEngineConfig,
-  injectedTransport?: LegalEngineTransport
-): LegalSearchEngine => {
+/**
+ * The HTTPS transport both legal engines use (legacy and legal_v2): basic auth,
+ * the configured CA and servername, a hard per-request timeout.
+ */
+export const makeLegalEngineHttpsTransport = (config: LegalEngineConfig): LegalEngineTransport => {
   const timeoutMs = config.timeoutMs ?? 10_000;
   if ((config.username === undefined) !== (config.password === undefined)) {
     throw new Error('legal search engine: username and password must be set together');
@@ -210,7 +211,14 @@ export const makeLegalSearchEngine = (
       req.end(payload);
     });
 
-  const send = injectedTransport ?? httpsTransport;
+  return httpsTransport;
+};
+
+export const makeLegalSearchEngine = (
+  config: LegalEngineConfig,
+  injectedTransport?: LegalEngineTransport
+): LegalSearchEngine => {
+  const send = injectedTransport ?? makeLegalEngineHttpsTransport(config);
 
   /**
    * Index build provenance, cached. The exporter stamps `_meta.built_at` only

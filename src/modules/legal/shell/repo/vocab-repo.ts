@@ -6,7 +6,7 @@
  * controlled vocabs with live counts.
  */
 
-import { sql, type Kysely } from 'kysely';
+import { sql, type Kysely, type SqlBool } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
 import {
@@ -16,13 +16,22 @@ import {
   databaseError,
 } from '@/modules/shared/index.js';
 
+import { legacyDocumentRenderPublic, type LegalBridgeGate } from './v2/gate.js';
+
 import type { LegalVocabRepo } from '../../core/usecases.js';
 
 type Db = Kysely<ProdDatabase>;
 const cap = (n: number): number => Math.min(Math.max(Math.floor(n), 1), 50);
 const esc = (s: string): string => s.replace(/[\\%_]/gu, (m) => `\\${m}`);
 
-export const makeLegalVocabRepo = (db: Db): LegalVocabRepo => {
+/** `gate` (legal_v2 bridge only): counts cover public legal_v2 acts only. */
+export const makeLegalVocabRepo = (db: Db, gate?: LegalBridgeGate): LegalVocabRepo => {
+  const actGate = gate === undefined ? sql<SqlBool>`true` : gate.act(sql.ref('a.act_id'));
+  // Summary-based counts also need the old document's own render rows public.
+  const docGate =
+    gate === undefined
+      ? sql<SqlBool>`true`
+      : sql<SqlBool>`(${gate.document(sql.ref('s.document_id'))} and ${legacyDocumentRenderPublic(sql.ref('s.document_id'))})`;
   const resolveIssuers = async (
     q: string,
     limit: number
@@ -42,8 +51,11 @@ export const makeLegalVocabRepo = (db: Db): LegalVocabRepo => {
         .selectFrom('legal.acts as a')
         .select(['a.issuer_slug', sql<string>`count(*)`.as('cnt')])
         .where('a.issuer_slug', 'is not', null)
+        .where(actGate)
         .where(
-          sql<boolean>`a.issuer_slug ilike ${`%${esc(folded)}%`} escape '\\' or a.issuer_slug ilike ${pattern} escape '\\'`
+          // Parenthesized: Kysely does not wrap a raw predicate, so a bare OR
+          // would escape the AND-ed conditions (the privacy gate among them).
+          sql<boolean>`(a.issuer_slug ilike ${`%${esc(folded)}%`} escape '\\' or a.issuer_slug ilike ${pattern} escape '\\')`
         )
         .groupBy('a.issuer_slug')
         .orderBy(sql`count(*) desc`)
@@ -78,6 +90,7 @@ export const makeLegalVocabRepo = (db: Db): LegalVocabRepo => {
           .selectFrom('legal.acts as a')
           .select([sql.ref(`a.${col}`).as('value'), sql<string>`count(*)`.as('cnt')])
           .where(sql<boolean>`${sql.ref(`a.${col}`)} ilike ${pattern} escape '\\'`)
+          .where(actGate)
           .groupBy(sql.ref(`a.${col}`))
           .orderBy(sql`count(*) desc`)
           .limit(capped)
@@ -93,6 +106,7 @@ export const makeLegalVocabRepo = (db: Db): LegalVocabRepo => {
           .selectFrom('legal.document_summaries as s')
           .select(['s.document_category as value', sql<string>`count(*)`.as('cnt')])
           .where('s.document_category', 'is not', null)
+          .where(docGate)
           .where(sql<boolean>`s.document_category ilike ${pattern} escape '\\'`)
           .groupBy('s.document_category')
           .orderBy(sql`count(*) desc`)
@@ -111,7 +125,11 @@ export const makeLegalVocabRepo = (db: Db): LegalVocabRepo => {
       }
       // domain: unnest the text[] and count.
       const rows = await db
-        .selectFrom(sql`(select unnest(domains) as d from legal.document_summaries)`.as('x'))
+        .selectFrom(
+          sql`(select unnest(s.domains) as d from legal.document_summaries s where ${docGate})`.as(
+            'x'
+          )
+        )
         .select([sql.ref('x.d').as('value'), sql<string>`count(*)`.as('cnt')])
         .where(sql<boolean>`x.d ilike ${pattern} escape '\\'`)
         .groupBy(sql.ref('x.d'))

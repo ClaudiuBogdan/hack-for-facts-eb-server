@@ -1,0 +1,753 @@
+{
+  "_provenance": "Generated from hack-for-facts-eb-scrapper e12850f65 src/sources/portal-legislativ/prod/rebuild/unit-compiler/fixtures/doc-8154.json (a real Portal page) by compileUnit (unit rows, as legal_v2 stores them) and compileTldf (the reference TLDF 1.1 envelope of the same input).",
+  "pageId": "8154",
+  "text": "ORDIN nr. 34 din 24 decembrie 1996\npentru aprobarea Instrucţiunilor nr. 14/1996 privind obligaţia raportarii la registre independente a listei clienţilor ale căror valori mobiliare sunt deţinute în cont la depozitar\nEMITENT\nCOMISIA NAŢIONALA A VALORILOR MOBILIARE\nPublicat în\nMONITORUL OFICIAL nr. 5 din 16 ianuarie 1997\nÎn temeiul art. 13 şi 14 din Legea nr. 52/1994 privind valorile mobiliare şi bursele de valori,\nţinând seama de dispoziţiile Regulamentului Comisiei Naţionale a Valorilor Mobiliare nr. 13/1996 privind funcţionarea unui registru independent autorizat, ale Regulamentului Comisiei Naţionale a Valorilor Mobiliare nr. 14/1996 cu privire la desfăşurarea activităţilor de compensare, depozitare şi decontare de către terţi şi ale Regulamentului Comisiei Naţionale a Valorilor Mobiliare nr. 3/1996 privind autorizarea şi exercitarea intermedierii de valori mobiliare,\navând în vedere obligaţia registrului independent privind evidenta la zi a valorilor mobiliare,\nPreşedintele Comisiei Naţionale a Valorilor Mobiliare emite următorul ordin:\nArticolul 1\nSe aprobă Instrucţiunile nr. 14/1996 privind obligaţia raportarii la registre independente a listei clienţilor ale căror valori mobiliare sunt deţinute în cont la depozitar şi se dispune publicarea acestora în Monitorul Oficial al României.\nArticolul 2\nDepartamentul reglementarea pieţei şi intermediere financiară şi Departamentul logistic vor aduce la îndeplinire prevederile prezentului ordin.\nPREŞEDINTELE COMISIEI NAŢIONALE\nA VALORILOR MOBILIARE,\nprof. univ. dr. ŞTEFAN BOBOC\nINSTRUCŢIUNI\nprivind obligaţia raportarii la registre independente a listei clienţilor ale căror valori mobiliare sunt deţinute în cont la depozitar\nArticolul 1\n(1) Pentru fiecare valoare mobiliară, societăţile de valori mobiliare şi agenţii-custode vor raporta registrului independent corespunzător lista clienţilor pentru care deţin valori mobiliare în contul lor la depozitar.\n(2) Raportarea listei clienţilor se va efectua astfel:\na) la cererea registrului independent, pentru o anumită valoare mobiliară;\nb) trimestrial, pentru toate valorile mobiliare.\nArticolul 2\nNerespectarea obligaţiei de raportare constituie contravenţie şi se sancţionează potrivit legii.\n--------",
+  "textSha256": "d7927a92621c1f302bb9bf0a458636b85fc8229d71228fc3bd62de8206b8d5fa",
+  "unit": {
+    "render_state": "structured",
+    "compiler_version": "unit-compiler-v1",
+    "text_sha256": "d7927a92621c1f302bb9bf0a458636b85fc8229d71228fc3bd62de8206b8d5fa"
+  },
+  "render": [
+    {
+      "chunk_seq": 0,
+      "body": "{\"format\":\"tldf-unit\",\"format_version\":\"1\",\"offset_unit\":\"utf16_code_unit\",\"contains_non_bmp\":false,\"shape\":\"standard_articles\",\"blocks\":[{\"id\":\"0.1.1.1\",\"kind\":\"titlu_act\",\"type\":\"DEN\",\"span\":[0,34],\"content\":[{\"text\":\"ORDIN nr. 34 din 24 decembrie 1996\",\"span\":[0,34]}]},{\"id\":\"0.1.1.2\",\"kind\":\"paragraf\",\"type\":\"PAR\",\"source_element_id\":\"id_parA3\",\"span\":[35,215],\"changed_since_base_form\":false,\"content\":[{\"text\":\"pentru aprobarea\",\"span\":[35,51],\"sep\":\"\\n\"},{\"text\":\"Instrucţiunilor nr. 14/1996\",\"span\":[52,79],\"sep\":\" \"},{\"text\":\"privind obligaţia raportarii la registre independente a listei clienţilor ale căror valori mobiliare sunt deţinute în cont la depozitar\",\"span\":[80,215],\"sep\":\" \"}]},{\"id\":\"0.1.1.3\",\"kind\":\"emitent\",\"type\":\"EMT\",\"label\":\"EMITENT\",\"span\":[216,263],\"content\":[{\"text\":\"EMITENT\",\"span\":[216,223],\"role\":\"ttl\",\"sep\":\"\\n\"},{\"text\":\"COMISIA NAŢIONALA A VALORILOR MOBILIARE\",\"span\":[224,263],\"role\":\"bdy\",\"sep\":\"\\n\"}]},{\"id\":\"0.1.1.4\",\"kind\":\"publicare\",\"type\":\"PUB\",\"label\":\"Publicat în\",\"span\":[264,320],\"content\":[{\"text\":\"Publicat în\",\"span\":[264,275],\"role\":\"ttl\",\"sep\":\"\\n\"},{\"text\":\"MONITORUL OFICIAL nr. 5 din 16 ianuarie 1997\",\"span\":[276,320],\"role\":\"bdy\",\"sep\":\"\\n\"}]},{\"id\":\"0.1.1.6\",\"kind\":\"paragraf\",\"type\":\"PAR\",\"source_element_id\":\"id_parA10\",\"span\":[321,416],\"changed_since_base_form\":false,\"content\":[{\"text\":\"În temeiul\",\"span\":[321,331],\"sep\":\"\\n\"},{\"text\":\"art. 13 şi 14 din Legea nr. 52/1994\",\"span\":[332,367],\"sep\":\" \"},{\"text\":\"privind valorile mobiliare şi bursele de valori,\",\"span\":[368,416],\"sep\":\" \"}]},{\"id\":\"0.1.1.7\",\"kind\":\"paragraf\",\"type\":\"PAR\",\"source_element_id\":\"id_parA11\",\"span\":[417,882],\"changed_since_base_form\":false,\"content\":[{\"text\":\"ţinând seama de dispoziţiile\",\"span\":[417,445],\"sep\":\"\\n\"},{\"text\":\"Regulamentului Comisiei Naţionale a Valorilor Mobiliare nr. 13/1996\",\"span\":[446,513],\"sep\":\" \"},{\"text\":\"privind funcţionarea unui registru independent autorizat, ale\",\"span\":[514,575],\"sep\":\" \"},{\"text\":\"Regulamentului Comisiei Naţionale a Valorilor Mobiliare nr. 14/1996\",\"span\":[576,643],\"sep\":\" \"},{\"text\":\"cu privire la desfăşurarea activităţilor de compensare, depozitare şi decontare de către terţi şi ale\",\"span\":[644,745],\"sep\":\" \"},{\"text\":\"Regulamentului Comisiei Naţionale a Valorilor Mobiliare nr. 3/1996\",\"span\":[746,812],\"sep\":\" \"},{\"text\":\"privind autorizarea şi exercitarea intermedierii de valori mobiliare,\",\"span\":[813,882],\"sep\":\" \"}]},{\"id\":\"0.1.1.8\",\"kind\":\"paragraf\",\"type\":\"PAR\",\"source_element_id\":\"id_parA12\",\"span\":[883,978],\"changed_since_base_form\":false,\"content\":[{\"text\":\"având în vedere obligaţia registrului independent privind evidenta la zi a valorilor mobiliare,\",\"span\":[883,978],\"sep\":\"\\n\"}]},{\"id\":\"0.1.1.9\",\"kind\":\"paragraf\",\"type\":\"PAR\",\"source_element_id\":\"id_parA13\",\"span\":[979,1055],\"changed_since_base_form\":false,\"content\":[{\"text\":\"Preşedintele Comisiei Naţionale a Valorilor Mobiliare emite următorul ordin:\",\"span\":[979,1055],\"sep\":\"\\n\"}]},{\"id\":\"0.1.1.10\",\"kind\":\"articol\",\"type\":\"ART\",\"source_element_id\":\"id_artA14\",\"label\":\"Articolul 1\",\"number\":{\"key\":\"1\",\"system\":\"arabic\"},\"span\":[1056,1308],\"changed_since_base_form\":false,\"content\":[{\"text\":\"Articolul 1\",\"span\":[1056,1067],\"role\":\"ttl\",\"sep\":\"\\n\"}],\"children\":[{\"id\":\"0.1.1.10.3.0\",\"kind\":\"paragraf\",\"type\":\"PAR\",\"source_element_id\":\"id_parA15\",\"span\":[1068,1308],\"changed_since_base_form\":false,\"content\":[{\"text\":\"Se aprobă\",\"span\":[1068,1077],\"sep\":\"\\n\"},{\"text\":\"Instrucţiunile nr. 14/1996\",\"span\":[1078,1104],\"sep\":\" \"},{\"text\":\"privind obligaţia raportarii la registre independente a listei clienţilor ale căror valori mobiliare sunt deţinute în cont la depozitar şi se dispune publicarea acestora în Monitorul Oficial al României.\",\"span\":[1105,1308],\"sep\":\" \"}]}]},{\"id\":\"0.1.1.11\",\"kind\":\"articol\",\"type\":\"ART\",\"source_element_id\":\"id_artA16\",\"label\":\"Articolul 2\",\"number\":{\"key\":\"2\",\"system\":\"arabic\"},\"span\":[1309,1697],\"changed_since_base_form\":false,\"content\":[{\"text\":\"Articolul 2\",\"span\":[1309,1320],\"role\":\"ttl\",\"sep\":\"\\n\"}],\"children\":[{\"id\":\"0.1.1.11.3.0\",\"kind\":\"paragraf\",\"type\":\"PAR\",\"source_element_id\":\"id_parA17\",\"span\":[1321,1464],\"changed_since_base_form\":false,\"content\":[{\"text\":\"Departamentul reglementarea pieţei şi intermediere financiară şi Departamentul logistic vor aduce la îndeplinire prevederile prezentului ordin.\",\"span\":[1321,1464],\"sep\":\"\\n\"}]},{\"id\":\"0.1.1.11.3.1\",\"kind\":\"paragraf\",\"type\":\"PAR\",\"source_element_id\":\"id_parA18\",\"span\":[1465,1496],\"changed_since_base_form\":false,\"content\":[{\"text\":\"PREŞEDINTELE COMISIEI NAŢIONALE\",\"span\":[1465,1496],\"sep\":\"\\n\"}]},{\"id\":\"0.1.1.11.3.2\",\"kind\":\"paragraf\",\"type\":\"PAR\",\"source_element_id\":\"id_parA19\",\"span\":[1497,1519],\"changed_since_base_form\":false,\"content\":[{\"text\":\"A VALORILOR MOBILIARE,\",\"span\":[1497,1519],\"sep\":\"\\n\"}]},{\"id\":\"0.1.1.11.3.3\",\"kind\":\"paragraf\",\"type\":\"PAR\",\"source_element_id\":\"id_parA20\",\"span\":[1520,1548],\"changed_since_base_form\":false,\"content\":[{\"text\":\"prof. univ. dr. ŞTEFAN BOBOC\",\"span\":[1520,1548],\"sep\":\"\\n\"}]},{\"id\":\"0.1.1.11.3.4\",\"kind\":\"paragraf\",\"type\":\"PAR\",\"source_element_id\":\"id_parA21\",\"span\":[1549,1561],\"changed_since_base_form\":false,\"content\":[{\"text\":\"INSTRUCŢIUNI\",\"span\":[1549,1561],\"sep\":\"\\n\"}]},{\"id\":\"0.1.1.11.3.5\",\"kind\":\"paragraf\",\"type\":\"PAR\",\"source_element_id\":\"id_parA22\",\"span\":[1562,1697],\"changed_since_base_form\":false,\"content\":[{\"text\":\"privind obligaţia raportarii la registre independente a listei clienţilor ale căror valori mobiliare sunt deţinute în cont la depozitar\",\"span\":[1562,1697],\"sep\":\"\\n\"}]}]},{\"id\":\"0.1.1.12\",\"kind\":\"articol\",\"type\":\"ART\",\"source_element_id\":\"id_artA23\",\"label\":\"Articolul 1\",\"number\":{\"key\":\"1\",\"system\":\"arabic\"},\"span\":[1698,2107],\"changed_since_base_form\":false,\"content\":[{\"text\":\"Articolul 1\",\"span\":[1698,1709],\"role\":\"ttl\",\"sep\":\"\\n\"}],\"children\":[{\"id\":\"0.1.1.12.3.0\",\"kind\":\"alineat\",\"type\":\"ALN\",\"source_element_id\":\"id_litA24\",\"number\":{\"key\":\"1\",\"system\":\"arabic\"},\"span\":[1710,1928],\"changed_since_base_form\":false,\"content\":[{\"text\":\"(1) Pentru fiecare valoare mobiliară, societăţile de valori mobiliare şi agenţii-custode vor raporta registrului independent corespunzător lista clienţilor pentru care deţin valori mobiliare în contul lor la depozitar.\",\"span\":[1710,1928],\"role\":\"bdy\",\"sep\":\"\\n\"}]},{\"id\":\"0.1.1.12.3.1\",\"kind\":\"alineat\",\"type\":\"ALN\",\"source_element_id\":\"id_litA25\",\"number\":{\"key\":\"2\",\"system\":\"arabic\"},\"span\":[1929,2107],\"changed_since_base_form\":false,\"content\":[{\"text\":\"(2) Raportarea listei clienţilor se va efectua astfel:\",\"span\":[1929,1983],\"role\":\"bdy\",\"sep\":\"\\n\"}],\"children\":[{\"id\":\"0.1.1.12.3.2\",\"kind\":\"litera\",\"type\":\"LIT\",\"source_element_id\":\"id_litA26\",\"number\":{\"key\":\"a\",\"system\":\"letter\"},\"span\":[1984,2058],\"changed_since_base_form\":false,\"content\":[{\"text\":\"a) la cererea registrului independent, pentru o anumită valoare mobiliară;\",\"span\":[1984,2058],\"role\":\"bdy\",\"sep\":\"\\n\"}]},{\"id\":\"0.1.1.12.3.3\",\"kind\":\"litera\",\"type\":\"LIT\",\"source_element_id\":\"id_litA27\",\"number\":{\"key\":\"b\",\"system\":\"letter\"},\"span\":[2059,2107],\"changed_since_base_form\":false,\"content\":[{\"text\":\"b) trimestrial, pentru toate valorile mobiliare.\",\"span\":[2059,2107],\"role\":\"bdy\",\"sep\":\"\\n\"}]}]}]},{\"id\":\"0.1.1.13\",\"kind\":\"articol\",\"type\":\"ART\",\"source_element_id\":\"id_artA28\",\"label\":\"Articolul 2\",\"number\":{\"key\":\"2\",\"system\":\"arabic\"},\"span\":[2108,2225],\"changed_since_base_form\":false,\"content\":[{\"text\":\"Articolul 2\",\"span\":[2108,2119],\"role\":\"ttl\",\"sep\":\"\\n\"}],\"children\":[{\"id\":\"0.1.1.13.3.0\",\"kind\":\"paragraf\",\"type\":\"PAR\",\"source_element_id\":\"id_parA29\",\"span\":[2120,2216],\"changed_since_base_form\":false,\"content\":[{\"text\":\"Nerespectarea obligaţiei de raportare constituie contravenţie şi se sancţionează potrivit legii.\",\"span\":[2120,2216],\"sep\":\"\\n\"}]},{\"id\":\"0.1.1.13.3.1\",\"kind\":\"paragraf\",\"type\":\"PAR\",\"source_element_id\":\"id_parA30\",\"span\":[2217,2225],\"changed_since_base_form\":false,\"content\":[{\"text\":\"--------\",\"span\":[2217,2225],\"sep\":\"\\n\"}]}]}],\"marks\":[{\"ordinal\":0,\"kind\":\"reference\",\"span\":[52,79],\"link_ordinal\":0},{\"ordinal\":1,\"kind\":\"reference\",\"span\":[332,367],\"link_ordinal\":1},{\"ordinal\":2,\"kind\":\"reference\",\"span\":[446,513],\"link_ordinal\":2},{\"ordinal\":3,\"kind\":\"reference\",\"span\":[576,643],\"link_ordinal\":3},{\"ordinal\":4,\"kind\":\"reference\",\"span\":[746,812],\"link_ordinal\":4},{\"ordinal\":5,\"kind\":\"reference\",\"span\":[1078,1104],\"link_ordinal\":5}]}",
+      "char_start": 0,
+      "char_end": 2225
+    }
+  ],
+  "provisions": [
+    {
+      "provision_seq": 0,
+      "parent_seq": null,
+      "kind": "articol",
+      "container_path": "",
+      "citation_path": "art:1",
+      "address_state": "ambiguous",
+      "label_raw": "Articolul 1",
+      "source_element_id": "id_artA14",
+      "char_start": 1056,
+      "char_end": 1308
+    },
+    {
+      "provision_seq": 1,
+      "parent_seq": null,
+      "kind": "articol",
+      "container_path": "",
+      "citation_path": "art:2",
+      "address_state": "ambiguous",
+      "label_raw": "Articolul 2",
+      "source_element_id": "id_artA16",
+      "char_start": 1309,
+      "char_end": 1697
+    },
+    {
+      "provision_seq": 2,
+      "parent_seq": null,
+      "kind": "articol",
+      "container_path": "",
+      "citation_path": "art:1",
+      "address_state": "ambiguous",
+      "label_raw": "Articolul 1",
+      "source_element_id": "id_artA23",
+      "char_start": 1698,
+      "char_end": 2107
+    },
+    {
+      "provision_seq": 3,
+      "parent_seq": 2,
+      "kind": "alineat",
+      "container_path": "",
+      "citation_path": "art:1/alin:1",
+      "address_state": "ambiguous",
+      "label_raw": null,
+      "source_element_id": "id_litA24",
+      "char_start": 1710,
+      "char_end": 1928
+    },
+    {
+      "provision_seq": 4,
+      "parent_seq": 2,
+      "kind": "alineat",
+      "container_path": "",
+      "citation_path": "art:1/alin:2",
+      "address_state": "ambiguous",
+      "label_raw": null,
+      "source_element_id": "id_litA25",
+      "char_start": 1929,
+      "char_end": 2107
+    },
+    {
+      "provision_seq": 5,
+      "parent_seq": 4,
+      "kind": "litera",
+      "container_path": "",
+      "citation_path": "art:1/alin:2/lit:a",
+      "address_state": "ambiguous",
+      "label_raw": null,
+      "source_element_id": "id_litA26",
+      "char_start": 1984,
+      "char_end": 2058
+    },
+    {
+      "provision_seq": 6,
+      "parent_seq": 4,
+      "kind": "litera",
+      "container_path": "",
+      "citation_path": "art:1/alin:2/lit:b",
+      "address_state": "ambiguous",
+      "label_raw": null,
+      "source_element_id": "id_litA27",
+      "char_start": 2059,
+      "char_end": 2107
+    },
+    {
+      "provision_seq": 7,
+      "parent_seq": null,
+      "kind": "articol",
+      "container_path": "",
+      "citation_path": "art:2",
+      "address_state": "ambiguous",
+      "label_raw": "Articolul 2",
+      "source_element_id": "id_artA28",
+      "char_start": 2108,
+      "char_end": 2225
+    }
+  ],
+  "links": [
+    {
+      "ordinal": 0,
+      "provision_seq": null,
+      "char_start": 52,
+      "char_end": 79,
+      "link_text": "Instrucţiunilor nr. 14/1996",
+      "context_text": null,
+      "href": "~/../../../Public/DetaliiDocumentAfis/7919",
+      "target_page_id": "7919",
+      "target_route": "afis",
+      "target_fragment": null
+    },
+    {
+      "ordinal": 1,
+      "provision_seq": null,
+      "char_start": 332,
+      "char_end": 367,
+      "link_text": "art. 13 şi 14 din Legea nr. 52/1994",
+      "context_text": null,
+      "href": "~/../../../Public/DetaliiDocumentAfis/4181#id_artA96",
+      "target_page_id": "4181",
+      "target_route": "afis",
+      "target_fragment": "id_artA96"
+    },
+    {
+      "ordinal": 2,
+      "provision_seq": null,
+      "char_start": 446,
+      "char_end": 513,
+      "link_text": "Regulamentului Comisiei Naţionale a Valorilor Mobiliare nr. 13/1996",
+      "context_text": null,
+      "href": "~/../../../Public/DetaliiDocumentAfis/7906",
+      "target_page_id": "7906",
+      "target_route": "afis",
+      "target_fragment": null
+    },
+    {
+      "ordinal": 3,
+      "provision_seq": null,
+      "char_start": 576,
+      "char_end": 643,
+      "link_text": "Regulamentului Comisiei Naţionale a Valorilor Mobiliare nr. 14/1996",
+      "context_text": null,
+      "href": "~/../../../Public/DetaliiDocumentAfis/7921",
+      "target_page_id": "7921",
+      "target_route": "afis",
+      "target_fragment": null
+    },
+    {
+      "ordinal": 4,
+      "provision_seq": null,
+      "char_start": 746,
+      "char_end": 812,
+      "link_text": "Regulamentului Comisiei Naţionale a Valorilor Mobiliare nr. 3/1996",
+      "context_text": null,
+      "href": "~/../../../Public/DetaliiDocumentAfis/7737",
+      "target_page_id": "7737",
+      "target_route": "afis",
+      "target_fragment": null
+    },
+    {
+      "ordinal": 5,
+      "provision_seq": 0,
+      "char_start": 1078,
+      "char_end": 1104,
+      "link_text": "Instrucţiunile nr. 14/1996",
+      "context_text": null,
+      "href": "~/../../../Public/DetaliiDocumentAfis/7919",
+      "target_page_id": "7919",
+      "target_route": "afis",
+      "target_fragment": null
+    }
+  ],
+  "assets": [],
+  "reference": {
+    "blocks": [
+      {
+        "id": "0.1.1.1",
+        "kind": "titlu_act",
+        "type": "DEN",
+        "span": [0, 34],
+        "content": [
+          {
+            "text": "ORDIN nr. 34 din 24 decembrie 1996",
+            "span": [0, 34]
+          }
+        ]
+      },
+      {
+        "id": "0.1.1.2",
+        "kind": "paragraf",
+        "type": "PAR",
+        "source_element_id": "id_parA3",
+        "span": [35, 215],
+        "changed_since_base_form": false,
+        "content": [
+          {
+            "text": "pentru aprobarea",
+            "span": [35, 51],
+            "sep": "\n"
+          },
+          {
+            "text": "Instrucţiunilor nr. 14/1996",
+            "span": [52, 79],
+            "sep": " "
+          },
+          {
+            "text": "privind obligaţia raportarii la registre independente a listei clienţilor ale căror valori mobiliare sunt deţinute în cont la depozitar",
+            "span": [80, 215],
+            "sep": " "
+          }
+        ]
+      },
+      {
+        "id": "0.1.1.3",
+        "kind": "emitent",
+        "type": "EMT",
+        "label": "EMITENT",
+        "span": [216, 263],
+        "content": [
+          {
+            "text": "EMITENT",
+            "span": [216, 223],
+            "role": "ttl",
+            "sep": "\n"
+          },
+          {
+            "text": "COMISIA NAŢIONALA A VALORILOR MOBILIARE",
+            "span": [224, 263],
+            "role": "bdy",
+            "sep": "\n"
+          }
+        ]
+      },
+      {
+        "id": "0.1.1.4",
+        "kind": "publicare",
+        "type": "PUB",
+        "label": "Publicat în",
+        "span": [264, 320],
+        "content": [
+          {
+            "text": "Publicat în",
+            "span": [264, 275],
+            "role": "ttl",
+            "sep": "\n"
+          },
+          {
+            "text": "MONITORUL OFICIAL nr. 5 din 16 ianuarie 1997",
+            "span": [276, 320],
+            "role": "bdy",
+            "sep": "\n"
+          }
+        ]
+      },
+      {
+        "id": "0.1.1.6",
+        "kind": "paragraf",
+        "type": "PAR",
+        "source_element_id": "id_parA10",
+        "span": [321, 416],
+        "changed_since_base_form": false,
+        "content": [
+          {
+            "text": "În temeiul",
+            "span": [321, 331],
+            "sep": "\n"
+          },
+          {
+            "text": "art. 13 şi 14 din Legea nr. 52/1994",
+            "span": [332, 367],
+            "sep": " "
+          },
+          {
+            "text": "privind valorile mobiliare şi bursele de valori,",
+            "span": [368, 416],
+            "sep": " "
+          }
+        ]
+      },
+      {
+        "id": "0.1.1.7",
+        "kind": "paragraf",
+        "type": "PAR",
+        "source_element_id": "id_parA11",
+        "span": [417, 882],
+        "changed_since_base_form": false,
+        "content": [
+          {
+            "text": "ţinând seama de dispoziţiile",
+            "span": [417, 445],
+            "sep": "\n"
+          },
+          {
+            "text": "Regulamentului Comisiei Naţionale a Valorilor Mobiliare nr. 13/1996",
+            "span": [446, 513],
+            "sep": " "
+          },
+          {
+            "text": "privind funcţionarea unui registru independent autorizat, ale",
+            "span": [514, 575],
+            "sep": " "
+          },
+          {
+            "text": "Regulamentului Comisiei Naţionale a Valorilor Mobiliare nr. 14/1996",
+            "span": [576, 643],
+            "sep": " "
+          },
+          {
+            "text": "cu privire la desfăşurarea activităţilor de compensare, depozitare şi decontare de către terţi şi ale",
+            "span": [644, 745],
+            "sep": " "
+          },
+          {
+            "text": "Regulamentului Comisiei Naţionale a Valorilor Mobiliare nr. 3/1996",
+            "span": [746, 812],
+            "sep": " "
+          },
+          {
+            "text": "privind autorizarea şi exercitarea intermedierii de valori mobiliare,",
+            "span": [813, 882],
+            "sep": " "
+          }
+        ]
+      },
+      {
+        "id": "0.1.1.8",
+        "kind": "paragraf",
+        "type": "PAR",
+        "source_element_id": "id_parA12",
+        "span": [883, 978],
+        "changed_since_base_form": false,
+        "content": [
+          {
+            "text": "având în vedere obligaţia registrului independent privind evidenta la zi a valorilor mobiliare,",
+            "span": [883, 978],
+            "sep": "\n"
+          }
+        ]
+      },
+      {
+        "id": "0.1.1.9",
+        "kind": "paragraf",
+        "type": "PAR",
+        "source_element_id": "id_parA13",
+        "span": [979, 1055],
+        "changed_since_base_form": false,
+        "content": [
+          {
+            "text": "Preşedintele Comisiei Naţionale a Valorilor Mobiliare emite următorul ordin:",
+            "span": [979, 1055],
+            "sep": "\n"
+          }
+        ]
+      },
+      {
+        "id": "0.1.1.10",
+        "kind": "articol",
+        "type": "ART",
+        "source_element_id": "id_artA14",
+        "label": "Articolul 1",
+        "number": {
+          "key": "1",
+          "system": "arabic"
+        },
+        "span": [1056, 1308],
+        "changed_since_base_form": false,
+        "content": [
+          {
+            "text": "Articolul 1",
+            "span": [1056, 1067],
+            "role": "ttl",
+            "sep": "\n"
+          }
+        ],
+        "children": [
+          {
+            "id": "0.1.1.10.3.0",
+            "kind": "paragraf",
+            "type": "PAR",
+            "source_element_id": "id_parA15",
+            "span": [1068, 1308],
+            "changed_since_base_form": false,
+            "content": [
+              {
+                "text": "Se aprobă",
+                "span": [1068, 1077],
+                "sep": "\n"
+              },
+              {
+                "text": "Instrucţiunile nr. 14/1996",
+                "span": [1078, 1104],
+                "sep": " "
+              },
+              {
+                "text": "privind obligaţia raportarii la registre independente a listei clienţilor ale căror valori mobiliare sunt deţinute în cont la depozitar şi se dispune publicarea acestora în Monitorul Oficial al României.",
+                "span": [1105, 1308],
+                "sep": " "
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "0.1.1.11",
+        "kind": "articol",
+        "type": "ART",
+        "source_element_id": "id_artA16",
+        "label": "Articolul 2",
+        "number": {
+          "key": "2",
+          "system": "arabic"
+        },
+        "span": [1309, 1697],
+        "changed_since_base_form": false,
+        "content": [
+          {
+            "text": "Articolul 2",
+            "span": [1309, 1320],
+            "role": "ttl",
+            "sep": "\n"
+          }
+        ],
+        "children": [
+          {
+            "id": "0.1.1.11.3.0",
+            "kind": "paragraf",
+            "type": "PAR",
+            "source_element_id": "id_parA17",
+            "span": [1321, 1464],
+            "changed_since_base_form": false,
+            "content": [
+              {
+                "text": "Departamentul reglementarea pieţei şi intermediere financiară şi Departamentul logistic vor aduce la îndeplinire prevederile prezentului ordin.",
+                "span": [1321, 1464],
+                "sep": "\n"
+              }
+            ]
+          },
+          {
+            "id": "0.1.1.11.3.1",
+            "kind": "paragraf",
+            "type": "PAR",
+            "source_element_id": "id_parA18",
+            "span": [1465, 1496],
+            "changed_since_base_form": false,
+            "content": [
+              {
+                "text": "PREŞEDINTELE COMISIEI NAŢIONALE",
+                "span": [1465, 1496],
+                "sep": "\n"
+              }
+            ]
+          },
+          {
+            "id": "0.1.1.11.3.2",
+            "kind": "paragraf",
+            "type": "PAR",
+            "source_element_id": "id_parA19",
+            "span": [1497, 1519],
+            "changed_since_base_form": false,
+            "content": [
+              {
+                "text": "A VALORILOR MOBILIARE,",
+                "span": [1497, 1519],
+                "sep": "\n"
+              }
+            ]
+          },
+          {
+            "id": "0.1.1.11.3.3",
+            "kind": "paragraf",
+            "type": "PAR",
+            "source_element_id": "id_parA20",
+            "span": [1520, 1548],
+            "changed_since_base_form": false,
+            "content": [
+              {
+                "text": "prof. univ. dr. ŞTEFAN BOBOC",
+                "span": [1520, 1548],
+                "sep": "\n"
+              }
+            ]
+          },
+          {
+            "id": "0.1.1.11.3.4",
+            "kind": "paragraf",
+            "type": "PAR",
+            "source_element_id": "id_parA21",
+            "span": [1549, 1561],
+            "changed_since_base_form": false,
+            "content": [
+              {
+                "text": "INSTRUCŢIUNI",
+                "span": [1549, 1561],
+                "sep": "\n"
+              }
+            ]
+          },
+          {
+            "id": "0.1.1.11.3.5",
+            "kind": "paragraf",
+            "type": "PAR",
+            "source_element_id": "id_parA22",
+            "span": [1562, 1697],
+            "changed_since_base_form": false,
+            "content": [
+              {
+                "text": "privind obligaţia raportarii la registre independente a listei clienţilor ale căror valori mobiliare sunt deţinute în cont la depozitar",
+                "span": [1562, 1697],
+                "sep": "\n"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "0.1.1.12",
+        "kind": "articol",
+        "type": "ART",
+        "source_element_id": "id_artA23",
+        "label": "Articolul 1",
+        "number": {
+          "key": "1",
+          "system": "arabic"
+        },
+        "span": [1698, 2107],
+        "changed_since_base_form": false,
+        "content": [
+          {
+            "text": "Articolul 1",
+            "span": [1698, 1709],
+            "role": "ttl",
+            "sep": "\n"
+          }
+        ],
+        "children": [
+          {
+            "id": "0.1.1.12.3.0",
+            "kind": "alineat",
+            "type": "ALN",
+            "source_element_id": "id_litA24",
+            "number": {
+              "key": "1",
+              "system": "arabic"
+            },
+            "span": [1710, 1928],
+            "changed_since_base_form": false,
+            "content": [
+              {
+                "text": "(1) Pentru fiecare valoare mobiliară, societăţile de valori mobiliare şi agenţii-custode vor raporta registrului independent corespunzător lista clienţilor pentru care deţin valori mobiliare în contul lor la depozitar.",
+                "span": [1710, 1928],
+                "role": "bdy",
+                "sep": "\n"
+              }
+            ]
+          },
+          {
+            "id": "0.1.1.12.3.1",
+            "kind": "alineat",
+            "type": "ALN",
+            "source_element_id": "id_litA25",
+            "number": {
+              "key": "2",
+              "system": "arabic"
+            },
+            "span": [1929, 2107],
+            "changed_since_base_form": false,
+            "content": [
+              {
+                "text": "(2) Raportarea listei clienţilor se va efectua astfel:",
+                "span": [1929, 1983],
+                "role": "bdy",
+                "sep": "\n"
+              }
+            ],
+            "children": [
+              {
+                "id": "0.1.1.12.3.2",
+                "kind": "litera",
+                "type": "LIT",
+                "source_element_id": "id_litA26",
+                "number": {
+                  "key": "a",
+                  "system": "letter"
+                },
+                "span": [1984, 2058],
+                "changed_since_base_form": false,
+                "content": [
+                  {
+                    "text": "a) la cererea registrului independent, pentru o anumită valoare mobiliară;",
+                    "span": [1984, 2058],
+                    "role": "bdy",
+                    "sep": "\n"
+                  }
+                ]
+              },
+              {
+                "id": "0.1.1.12.3.3",
+                "kind": "litera",
+                "type": "LIT",
+                "source_element_id": "id_litA27",
+                "number": {
+                  "key": "b",
+                  "system": "letter"
+                },
+                "span": [2059, 2107],
+                "changed_since_base_form": false,
+                "content": [
+                  {
+                    "text": "b) trimestrial, pentru toate valorile mobiliare.",
+                    "span": [2059, 2107],
+                    "role": "bdy",
+                    "sep": "\n"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "0.1.1.13",
+        "kind": "articol",
+        "type": "ART",
+        "source_element_id": "id_artA28",
+        "label": "Articolul 2",
+        "number": {
+          "key": "2",
+          "system": "arabic"
+        },
+        "span": [2108, 2225],
+        "changed_since_base_form": false,
+        "content": [
+          {
+            "text": "Articolul 2",
+            "span": [2108, 2119],
+            "role": "ttl",
+            "sep": "\n"
+          }
+        ],
+        "children": [
+          {
+            "id": "0.1.1.13.3.0",
+            "kind": "paragraf",
+            "type": "PAR",
+            "source_element_id": "id_parA29",
+            "span": [2120, 2216],
+            "changed_since_base_form": false,
+            "content": [
+              {
+                "text": "Nerespectarea obligaţiei de raportare constituie contravenţie şi se sancţionează potrivit legii.",
+                "span": [2120, 2216],
+                "sep": "\n"
+              }
+            ]
+          },
+          {
+            "id": "0.1.1.13.3.1",
+            "kind": "paragraf",
+            "type": "PAR",
+            "source_element_id": "id_parA30",
+            "span": [2217, 2225],
+            "changed_since_base_form": false,
+            "content": [
+              {
+                "text": "--------",
+                "span": [2217, 2225],
+                "sep": "\n"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "marks": [
+      {
+        "ordinal": 0,
+        "kind": "reference",
+        "span": [52, 79],
+        "link": {
+          "kind": "act",
+          "target_document_id": "7919"
+        }
+      },
+      {
+        "ordinal": 1,
+        "kind": "reference",
+        "span": [332, 367],
+        "link": {
+          "kind": "act",
+          "target_document_id": "4181",
+          "target_fragment": "id_artA96"
+        }
+      },
+      {
+        "ordinal": 2,
+        "kind": "reference",
+        "span": [446, 513],
+        "link": {
+          "kind": "act",
+          "target_document_id": "7906"
+        }
+      },
+      {
+        "ordinal": 3,
+        "kind": "reference",
+        "span": [576, 643],
+        "link": {
+          "kind": "act",
+          "target_document_id": "7921"
+        }
+      },
+      {
+        "ordinal": 4,
+        "kind": "reference",
+        "span": [746, 812],
+        "link": {
+          "kind": "act",
+          "target_document_id": "7737"
+        }
+      },
+      {
+        "ordinal": 5,
+        "kind": "reference",
+        "span": [1078, 1104],
+        "link": {
+          "kind": "act",
+          "target_document_id": "7919"
+        }
+      }
+    ],
+    "shape": "standard_articles",
+    "contains_non_bmp": false
+  }
+}

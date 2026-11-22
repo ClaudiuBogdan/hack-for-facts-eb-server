@@ -31,7 +31,7 @@ const KIND_LABEL: Record<string, string> = {
   corp: 'text publicat',
   'stub-header': 'text original',
   republicare: 'text republicat',
-  consolidare: 'text consolidat',
+  consolidare: 'formă consolidată neoficială',
 };
 
 const UNKNOWN_KIND_LABEL = 'versiune necunoscută';
@@ -72,8 +72,12 @@ const recorded = (n: number): string => (n === 1 ? 'înregistrată' : 'înregist
  * The status-badge clause. Zero is its own sentence, and 4,771 acts (nearly half
  * the amended corpus) need the singular.
  */
-export const amendmentCountPhrase = (n: number): string =>
-  n === 0 ? 'nicio modificare înregistrată' : referencesPhrase(n);
+export const amendmentCountPhrase = (n: number | null): string =>
+  n === null
+    ? 'modificări necunoscute'
+    : n === 0
+      ? 'nicio modificare înregistrată'
+      : referencesPhrase(n);
 
 /**
  * The amendment clause inside the provenance note. The count is every incoming
@@ -84,8 +88,12 @@ export const amendmentCountPhrase = (n: number): string =>
  * references in 45 acts (1990 decisions published in 1992 or 1999, "corp"
  * bodies of later republications), measured 2026-10-18.
  */
-const amendedClause = (n: number): string =>
-  n === 0 ? 'nicio modificare înregistrată' : `${referencesPhrase(n)} ${recorded(n)} pentru act`;
+const amendedClause = (n: number | null): string =>
+  n === null
+    ? 'modificări necunoscute (actul nu este în corpusul anterior)'
+    : n === 0
+      ? 'nicio modificare înregistrată'
+      : `${referencesPhrase(n)} ${recorded(n)} pentru act`;
 
 /**
  * Render the honesty note for one act's served text. The verify clause points at
@@ -103,7 +111,7 @@ export const versionProvenanceNote = (p: LegalVersionProvenance): string => {
       : `; ultima consolidare ${p.latestConsolidationDate}${
           p.latestConsolidationLoaded ? '' : ' (neîncărcată încă)'
         }`;
-  const hasNewer = p.amendedAfterPublication > 0 || p.latestConsolidationDate !== null;
+  const hasNewer = (p.amendedAfterPublication ?? 0) > 0 || p.latestConsolidationDate !== null;
   const verify =
     p.sourceUrl !== null && hasNewer
       ? ` — verifică forma consolidată pe portal: ${p.sourceUrl}`

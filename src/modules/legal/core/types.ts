@@ -149,6 +149,16 @@ export interface LegalAct {
   readonly statusEvidence: Record<string, unknown>; // jsonb: which signals fired
   readonly entryIntoForce: IsoDate | null;
   readonly inDegree: number; // incoming citation count
+  /**
+   * legal_v2 source only (absent on the legacy source). False when the act is
+   * not in the old `legal` corpus: status, statusEvidence and inDegree then
+   * hold neutral placeholders internally and GraphQL serves them as null.
+   */
+  readonly bridged?: boolean;
+  /** legal_v2 source only: which fields were read from the old `legal` corpus. */
+  readonly bridgedFields?: readonly string[];
+  /** legal_v2 source only: the act was ended (absorbed or reviewed). */
+  readonly ended?: boolean;
 }
 
 /** `legal.act_documents` — a document expression of an act (versions). */
@@ -173,6 +183,19 @@ export interface LegalDocument {
   readonly moPart: number | null;
   readonly moNumber: string | null;
   readonly moDate: IsoDate | null;
+  // ── legal_v2 forms only (absent on the legacy source) ──
+  /** Text is published for the form (and public). */
+  readonly readable?: boolean;
+  /** 'unofficial_consolidation' on every consolidation (LEG-X3AV). */
+  readonly caveat?: string | null;
+  /** The Portal's own consolidation label and its date, where filled. */
+  readonly portalLabelRaw?: string | null;
+  readonly portalLabelDate?: IsoDate | null;
+  /** A capture that claims the form is held, conflicting or unresolved. */
+  readonly held?: boolean;
+  readonly formKey?: string;
+  /** The form's source page (latest bound capture), for the portal link. */
+  readonly sourceUrl?: string | null;
 }
 
 /** `legal.document_summaries` — the AI metadata projection (RAG-grounding source). */
@@ -207,7 +230,18 @@ export interface LegalActCard extends LegalAct {
   readonly aliases: readonly string[];
   readonly citationKeys: readonly LegalCitationKey[];
   readonly versionCount: number; // act_documents rows for this act
-  readonly amendedAfterPublication: number; // incoming modifica/completeaza edges → §5.2-C
+  /** Null on the legal_v2 source when the old corpus does not hold the act (unknown, not zero). */
+  readonly amendedAfterPublication: number | null; // incoming modifica/completeaza edges → §5.2-C
+  /** legal_v2 only: forms of any kind without text dated on or after the latest readable date. */
+  readonly newerNotAvailable?: number | null;
+  /** legal_v2 only: the default's posture ('current' | 'latest_not_available' | 'no_known_form'). */
+  readonly defaultBasis?: string | null;
+  /** legal_v2 only: false when the latest date's forms are not all ranked by a reviewer. */
+  readonly defaultOrderReviewed?: boolean | null;
+  /** legal_v2 only: the latest available form (`f<id>`), offered as "not the current form". */
+  readonly latestAvailableDocumentId?: string | null;
+  /** legal_v2 only: the form latest_any_kind picks as latest (`f<id>`), with text or not. */
+  readonly latestDocumentId?: string | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -232,6 +266,8 @@ export interface LegalReferenceEdge {
 export interface LegalIncomingEdge {
   readonly edge: LegalReferenceEdge;
   readonly sourceAct: LegalAct | null;
+  /** The citing act through act_documents (canonical or not); null when unknown. */
+  readonly sourceActId?: string | null;
 }
 
 export interface LegalExternalAct {
@@ -336,7 +372,8 @@ export interface LegalOutlineEntry {
 export interface LegalVersionProvenance {
   readonly versionKind: string; // canonical doc's version_kind ('' when no canonical doc)
   readonly versionDate: IsoDate | null;
-  readonly amendedAfterPublication: number; // incoming modifica/completeaza edges
+  /** Null on the legal_v2 source when the old corpus does not hold the act (unknown, not zero). */
+  readonly amendedAfterPublication: number | null; // incoming modifica/completeaza edges
   /**
    * The document's `legislatie.just.ro` deep link — where a reader can see the
    * consolidated form. This is the ONLY link the note may carry: our own act page
@@ -347,6 +384,11 @@ export interface LegalVersionProvenance {
   readonly latestConsolidationDate: IsoDate | null;
   /** False while that consolidation is only a timeline anchor (not fetched yet). */
   readonly latestConsolidationLoaded: boolean;
+  // ── legal_v2 only: the served form (LEG-X3AV) ──
+  readonly documentId?: string | null;
+  readonly caveat?: string | null;
+  readonly portalLabelRaw?: string | null;
+  readonly portalLabelDate?: IsoDate | null;
 }
 
 /** A provision-level retrieval hit (section_embeddings → parent doc/act/node). */
@@ -366,6 +408,8 @@ export interface LegalSectionHit {
   readonly score: number; // fused/cosine
   /** Which version this text is (§5.2-C); attached by the usecase, batched per result set. */
   readonly provenance: LegalVersionProvenance | null;
+  /** legal_v2 only: the form the hit's text was verified against (LEG-X3AV). */
+  readonly servedForm?: LegalVersionProvenance | null;
 }
 
 /** A doc-channel hit (topical "about X"): the act + its summary + score. */
@@ -475,7 +519,18 @@ export interface LegalIncomingAnchorsPage {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** `legal.document_generations.render_status` — the D1b promotion states. */
-export type LegalRenderStatus = 'served' | 'content_unavailable' | 'superseded_pending';
+export type LegalRenderStatus =
+  | 'served'
+  | 'content_unavailable'
+  | 'superseded_pending'
+  // legal_v2: the form has no published text yet.
+  | 'not_loaded'
+  // legal_v2: the form's text is several units (header plus body); not in this version.
+  | 'composition_not_served'
+  // legal_v2: a consolidation with neither the Portal's label nor its date (LEG-X3AV).
+  | 'label_missing'
+  // legal_v2: the unit's capture is not bound (public) to this form.
+  | 'source_not_bound';
 
 /**
  * Render availability for one document expression: the `document_generations`
@@ -519,6 +574,16 @@ export interface LegalRenderPayload {
   readonly chunkIndex: number;
   readonly info: LegalRenderInfo;
   readonly tldf: Record<string, unknown>;
+  /** legal_v2: where the body came from, e.g. 'legal_v2:tldf-unit/1'. */
+  readonly renderSource?: string;
+  /**
+   * legal_v2: false = `Cache-Control: no-store`, no ETag and no 304. No
+   * validator yet covers link targets and custody, which change without the
+   * composition changing.
+   */
+  readonly cacheable?: boolean;
+  /** legal_v2: the served form, the head substitutions and fidelity flags, merged into meta. */
+  readonly extraMeta?: Readonly<Record<string, unknown>>;
 }
 
 /**

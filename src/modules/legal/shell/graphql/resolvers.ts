@@ -44,6 +44,7 @@ import {
   type LegalSearchDeps,
   type ResolveLegalFiltersDeps,
 } from '../../core/usecases.js';
+import { bridgedOrNull } from '../../core/v2/bridge.js';
 import { legalActsSpec } from '../filters/legal-acts.spec.js';
 import {
   LINKS_SORT,
@@ -57,10 +58,12 @@ import type {
   LegalGraphRepo,
   LegalOutlineRepo,
   LegalRenderRepo,
+  V2ActSelection,
 } from '../../core/ports.js';
 import type {
   LegalAct,
   LegalActCard,
+  LegalActSummary,
   LegalActTimeline,
   LegalActStatus,
   LegalCountDimension,
@@ -167,11 +170,35 @@ const sortKeysOf = (act: LegalAct, sort: LegalSortKey): readonly (string | numbe
   }
 };
 
+/** legal_v2: the default-form fields of one act, all from one selection. */
+interface V2DefaultFields {
+  readonly canonical: LegalDocument | null;
+  readonly canonicalDocumentId: string | null;
+  readonly newerNotAvailable: number | null;
+  readonly defaultBasis: string | null;
+  readonly defaultOrderReviewed: boolean | null;
+  readonly latestDocumentId: string | null;
+  readonly latestAvailableDocumentId: string | null;
+}
+
 export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unknown> => {
   const { acts, graph, outline, render, searchDeps, resolveDeps } = deps;
   // One timeline read per parent object (one request): `timeline` and
   // `timelineComplete` share it instead of walking the edge pages twice.
   const timelines = new WeakMap<object, Promise<Result<LegalActTimeline, ApiError>>>();
+  // One act card per parent object: aliases, citationKeys and (legal_v2)
+  // summary/newerNotAvailable read the same card.
+  const cards = new WeakMap<object, Promise<Result<LegalActCard | null, ApiError>>>();
+  const cardOf = (parent: LegalAct): Promise<Result<LegalActCard | null, ApiError>> => {
+    let pending = cards.get(parent);
+    if (pending === undefined) {
+      pending = acts.getActCard({ actId: parent.actId });
+      cards.set(parent, pending);
+    }
+    return pending;
+  };
+  /** legal_v2 acts carry `bridged`; legacy acts never do. */
+  const isV2 = (parent: LegalAct): boolean => parent.bridged !== undefined;
   const timelineOf = (parent: LegalAct): Promise<Result<LegalActTimeline, ApiError>> => {
     let pending = timelines.get(parent);
     if (pending === undefined) {
@@ -188,6 +215,54 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
     if (res.isErr()) throw toGraphqlError(res.error);
     return new Map(res.value.map((a) => [a.actId, a]));
   }, null);
+
+  // legal_v2: the default form and its canonical document per act, from ONE form read per batch.
+  const selectionLoader = makeBatchLoader<V2ActSelection | null>(async (actIds) => {
+    if (acts.defaultSelectionsForActs === undefined) return new Map();
+    const res = await acts.defaultSelectionsForActs(actIds);
+    if (res.isErr()) throw toGraphqlError(res.error);
+    return res.value;
+  }, null);
+
+  const summaryByActLoader = makeBatchLoader<LegalActSummary | null>(async (actIds) => {
+    if (acts.summariesForActs === undefined) return new Map();
+    const res = await acts.summariesForActs(actIds);
+    if (res.isErr()) throw toGraphqlError(res.error);
+    return res.value;
+  }, null);
+
+  /**
+   * legal_v2: every default-form field of one act from one selection — the act card's own values
+   * (explicit nulls included) when the parent is a card, else the batched selection. The posture,
+   * the latest ids and the canonical document therefore never come from two different reads.
+   */
+  const v2DefaultOf = async (parent: LegalAct): Promise<V2DefaultFields> => {
+    if ('canonical' in parent) {
+      const card = parent as LegalActCard;
+      return {
+        canonical: card.canonical,
+        canonicalDocumentId: card.canonical?.documentId ?? null,
+        newerNotAvailable: card.newerNotAvailable ?? null,
+        defaultBasis: card.defaultBasis ?? null,
+        defaultOrderReviewed: card.defaultOrderReviewed ?? null,
+        latestDocumentId: card.latestDocumentId ?? null,
+        latestAvailableDocumentId: card.latestAvailableDocumentId ?? null,
+      };
+    }
+    const sel = await selectionLoader.load(parent.actId);
+    const def = sel?.defaultForm;
+    const formDoc = (id: string | null | undefined): string | null =>
+      id == null ? null : `f${id}`;
+    return {
+      canonical: sel?.canonical ?? null,
+      canonicalDocumentId: sel?.canonical?.documentId ?? null,
+      newerNotAvailable: def?.newerNotAvailable ?? null,
+      defaultBasis: def?.posture ?? null,
+      defaultOrderReviewed: def?.orderReviewed ?? null,
+      latestDocumentId: formDoc(def?.chosenFormId),
+      latestAvailableDocumentId: formDoc(def?.latestAvailableFormId),
+    };
+  };
 
   const canonicalLoader = makeBatchLoader<LegalDocument | null>(async (actIds) => {
     const res = await acts.canonicalDocumentsForActs(actIds);
@@ -413,24 +488,51 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
     },
 
     LegalAct: {
-      canonical: async (parent: LegalAct) => canonicalLoader.load(parent.actId),
+      // Bridged scalars: null when the legal_v2 act is not in the old corpus.
+      status: (parent: LegalAct) => bridgedOrNull(parent, parent.status),
+      statusEvidence: (parent: LegalAct) => bridgedOrNull(parent, parent.statusEvidence),
+      inDegree: (parent: LegalAct) => bridgedOrNull(parent, parent.inDegree),
+      dataSource: (parent: LegalAct) => (isV2(parent) ? 'legal_v2' : 'legal'),
+      bridgedFields: (parent: LegalAct) => parent.bridgedFields ?? [],
+      // legal_v2: one selection per act (see v2DefaultOf); the legacy source is unchanged.
+      canonicalDocumentId: async (parent: LegalAct) =>
+        isV2(parent) ? (await v2DefaultOf(parent)).canonicalDocumentId : parent.canonicalDocumentId,
+      canonical: async (parent: LegalAct) =>
+        isV2(parent) ? (await v2DefaultOf(parent)).canonical : canonicalLoader.load(parent.actId),
+      newerNotAvailable: async (parent: LegalAct) =>
+        isV2(parent) ? (await v2DefaultOf(parent)).newerNotAvailable : null,
+      defaultBasis: async (parent: LegalAct) =>
+        isV2(parent) ? (await v2DefaultOf(parent)).defaultBasis : null,
+      defaultOrderReviewed: async (parent: LegalAct) =>
+        isV2(parent) ? (await v2DefaultOf(parent)).defaultOrderReviewed : null,
+      latestDocumentId: async (parent: LegalAct) =>
+        isV2(parent) ? (await v2DefaultOf(parent)).latestDocumentId : null,
+      latestAvailableDocumentId: async (parent: LegalAct) =>
+        isV2(parent) ? (await v2DefaultOf(parent)).latestAvailableDocumentId : null,
       summary: async (parent: LegalAct) => {
+        // legal_v2: the summary is bridged by act_id, whether or not a default form exists: the
+        // card's own value on a card, else one batched by-act read (no card per list row).
+        if (isV2(parent)) {
+          if ('canonical' in parent) return (parent as LegalActCard).summary;
+          return summaryByActLoader.load(parent.actId);
+        }
         const canon = await canonicalLoader.load(parent.actId);
         if (canon === null) return null;
         return unwrap(await acts.getSummary(canon.documentId));
       },
       aliases: async (parent: LegalAct) => {
-        const card = unwrap(await acts.getActCard({ actId: parent.actId }));
+        const card = unwrap(await cardOf(parent));
         return card?.aliases ?? [];
       },
       citationKeys: async (parent: LegalAct) => {
-        const card = unwrap(await acts.getActCard({ actId: parent.actId }));
+        const card = unwrap(await cardOf(parent));
         return card?.citationKeys ?? [];
       },
       versionCount: (parent: LegalAct) => resolveVersionCount(parent, acts),
       // The act-card path already carries the count; every other path reads it
       // off the batched provenance loader rather than one count per act.
       amendedAfterPublication: async (parent: LegalAct) => {
+        if (parent.bridged === false) return null;
         const onCard = (parent as Partial<LegalActCard>).amendedAfterPublication;
         if (typeof onCard === 'number') return onCard;
         return provenanceOrUnknown(await provenanceLoader.load(parent.actId))
@@ -445,6 +547,8 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
         parent: LegalAct,
         args: { direction: string; relation?: string[]; first?: number; after?: string }
       ) => {
+        // Bridged: unknown (null), not empty, for an act the old corpus lacks.
+        if (parent.bridged === false) return null;
         const relations = (args.relation ?? []).map(
           (r) => RELATION_FROM_GQL[r] ?? (r as LegalRelation)
         );
@@ -488,7 +592,20 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
         const inPage = unwrap(await getActLinksIn(graph, parent.actId, rels, page));
         const last = inPage.items[inPage.items.length - 1];
         return {
-          edges: inPage.items.map(({ edge, sourceAct }) => ({ ...edge, sourceAct })),
+          // legal_v2: the citing act is the v2 act (identity + bridge), never the
+          // legacy row the graph read joined; the graph read already required
+          // it to be public in legal_v2.
+          edges: inPage.items.map(({ edge, sourceAct, sourceActId }) => {
+            const citing = sourceActId ?? sourceAct?.actId ?? null;
+            return {
+              ...edge,
+              sourceAct: isV2(parent)
+                ? citing === null
+                  ? null
+                  : actLoader.load(citing)
+                : sourceAct,
+            };
+          }),
           pageInfo: {
             hasNextPage: inPage.next !== null,
             endCursor:
@@ -500,6 +617,7 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
         };
       },
       incomingAnchors: async (parent: LegalAct, args: { first?: number; after?: string }) => {
+        if (parent.bridged === false) return null;
         const page = unwrap(
           await graph.incomingAnchors(parent.actId, {
             first: args.first ?? 50,
@@ -534,8 +652,14 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
           totalCount: page.totalCount,
         };
       },
-      timeline: async (parent: LegalAct) => unwrap(await timelineOf(parent)).entries,
-      timelineComplete: async (parent: LegalAct) => unwrap(await timelineOf(parent)).complete,
+      timeline: async (parent: LegalAct) =>
+        parent.bridged === false ? null : unwrap(await timelineOf(parent)).entries,
+      timelineComplete: async (parent: LegalAct) =>
+        parent.bridged === false ? null : unwrap(await timelineOf(parent)).complete,
+      resolveDocument: async (parent: LegalAct, args: { documentId: string }) => {
+        if (acts.resolveDocumentForAct === undefined) return null;
+        return unwrap(await acts.resolveDocumentForAct(parent.actId, args.documentId));
+      },
     },
 
     LegalActConnection: {
