@@ -354,6 +354,20 @@ neither blocks the dev push:
   small scope with many uncounted rows needs it, add a partial index on `(purchase_id desc) where not counted`
   (procurement-prod).
 
+## Legacy switch (SEC-GRANTS-PROC-2211)
+
+The owner-approved grant gives the API's login no legacy relation (`procurement.*` records, `analysis_generations`,
+`etl.load_runs`, `core.organizations`, the legacy ClickHouse facts), except the public CPV labels
+(`procurement.cpv_divisions`, `procurement.cpv_codes`). `PROCUREMENT_LEGACY_ENABLED` (default `true`; only `true` or
+`false` are accepted) retires the legacy reads before the login loses its broad rights:
+
+- `false`: legacy records, the legacy analysis (every grain the DA v3 reader does not answer) and entity-360
+  procurement presence answer ServiceUnavailable without a query. Only the MCP tools `resolve_procurement_filter` and,
+  while DA v3 is on, `aggregate_procurement` stay registered. The empty-scope cache is not warmed.
+- Unaffected: the CPV reference routes, DA release 1, the v3 DA grain and totals v2.
+- Order on an environment: the views, then this server change live and verified, then the GRANTs with the flag set
+  to `false` (root's GO).
+
 ## Pending (data platform)
 
 - **Schema name:** `procurement_v3` is pending the owner's migration. It is named once, in `DA_RELEASE_SCHEMA`.

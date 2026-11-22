@@ -33,6 +33,11 @@ import { makeDaRoutingAnalysisRepo } from './shell/repo/da-routing-analysis-repo
 import { makeDaV3AnalysisSource } from './shell/repo/da-v3-analysis-source.js';
 import { makeProcurementGenerationRepo } from './shell/repo/generation-repo.js';
 import {
+  makeRetiredAnalysisRepo,
+  retiredPresenceRepo,
+  retireLegacyRecords,
+} from './shell/repo/legacy-retired.js';
+import {
   makeOpenSearchListEngine,
   type OpenSearchListConfig,
 } from './shell/repo/opensearch-list-repo.js';
@@ -95,7 +100,22 @@ export interface ProcurementModuleDeps {
    * Needs ClickHouse. Env: PROCUREMENT_TOTALS_V2.
    */
   readonly totalsV2Enabled?: boolean;
+  /**
+   * The legacy procurement reads: records (lists, details, supplier records,
+   * search), the legacy ClickHouse analysis (every grain the DA v3 reader does
+   * not answer) and entity-360 presence. On (the default) they are served as
+   * before. Off, each answers ServiceUnavailable without a query, the
+   * legacy-only MCP tools are not registered and the cache is not warmed; the
+   * CPV reference, DA release 1, the v3 DA grain and totals v2 are unaffected.
+   * Env: PROCUREMENT_LEGACY_ENABLED.
+   */
+  readonly legacyEnabled?: boolean;
 }
+
+/** The MCP tools that read only the CPV reference (kept when legacy is off). */
+const CPV_REFERENCE_TOOLS: ReadonlySet<string> = new Set(['resolve_procurement_filter']);
+/** The analysis tool: kept when legacy is off only while the DA v3 grain answers. */
+const ANALYSIS_TOOL = 'aggregate_procurement';
 
 export interface ProcurementModule {
   readonly repo: ProcurementRepo;
@@ -132,28 +152,33 @@ const warmEmptyScope = (analysis: AnalysisRepo): void => {
 };
 
 export const makeProcurementModule = (deps: ProcurementModuleDeps): ProcurementModule => {
+  const legacyEnabled = deps.legacyEnabled ?? true;
   // Site-wide D6 and the free-text gate on the legacy DA reads (a no-op until enforced).
-  const repo = withDaDisclosure(
+  const servedRepo = withDaDisclosure(
     makeProcurementRepo(
       deps.db,
       deps.daListMaxWindowDays ?? DA_LIST_MAX_WINDOW_DAYS_DEFAULT,
-      deps.opensearch !== undefined ? makeOpenSearchListEngine(deps.opensearch) : undefined,
+      legacyEnabled && deps.opensearch !== undefined
+        ? makeOpenSearchListEngine(deps.opensearch)
+        : undefined,
       deps.logger
     ),
     deps.supplierDisclosure
   );
+  // Legacy off: outermost, so no record read (nor its D6 wrapper) runs a query; CPV stays.
+  const repo = legacyEnabled ? servedRepo : retireLegacyRecords(servedRepo);
   // ClickHouse is the analytics backend; the generation ledger (buildId,
   // quality, matrix_hash) stays authoritative in Postgres and is delegated to.
   // With no ClickHouse configured, analysis reads fail closed with a clear error.
-  const generationRepo = makeProcurementGenerationRepo(deps.db, Date.now, deps.logger);
-  const supplierGeography = makeSupplierGeographyPolicy(deps.db, Date.now, deps.logger);
   // One ClickHouse reader per process: every ClickHouse read shares the per-pod cap.
   const clickhouseReader =
     deps.clickhouse !== undefined ? makeClickhouseReader(deps.clickhouse, deps.logger) : undefined;
-  const baseAnalysis =
+  const legacyAnalysis = (): AnalysisRepo => {
+    const generationRepo = makeProcurementGenerationRepo(deps.db, Date.now, deps.logger);
+    const supplierGeography = makeSupplierGeographyPolicy(deps.db, Date.now, deps.logger);
     // Site-wide D6 on the ClickHouse DA grain (its own switch; a v3 rollback never
     // re-exposes a name). A no-op when not enforced.
-    withDaAnalysisDisclosure(
+    return withDaAnalysisDisclosure(
       deps.clickhouse !== undefined
         ? makeClickhouseAnalysisRepo(
             deps.clickhouse,
@@ -165,6 +190,9 @@ export const makeProcurementModule = (deps: ProcurementModuleDeps): ProcurementM
         : makeUnconfiguredAnalysisRepo(),
       deps.supplierDisclosure
     );
+  };
+  // Legacy off: no legacy generation, geography or fact read is built at all.
+  const baseAnalysis = legacyEnabled ? legacyAnalysis() : makeRetiredAnalysisRepo();
   // ── DA release 1 (W2): with PROCUREMENT_DA_V3_ENABLED the analysis API's
   // direct_acquisition grain is answered from procurement_v3; every other
   // grain stays on ClickHouse. Off, the analysis repo is unchanged.
@@ -178,7 +206,7 @@ export const makeProcurementModule = (deps: ProcurementModuleDeps): ProcurementM
       : baseAnalysis;
   const clientBaseUrl = deps.clientBaseUrl ?? 'https://transparenta.eu';
 
-  if (deps.warmCache !== false) warmEmptyScope(analysis);
+  if (deps.warmCache !== false && legacyEnabled) warmEmptyScope(analysis);
 
   const daV3Enabled = deps.daV3Enabled ?? false;
   const daRelease: DaReleaseDeps = {
@@ -197,6 +225,19 @@ export const makeProcurementModule = (deps: ProcurementModuleDeps): ProcurementM
       ? makeClickhouseMoneyRepo({ db: deps.db, reader: clickhouseReader })
       : undefined;
   const totalsResolvers = makeTotalsResolvers(moneyPort, deps.supplierDisclosure);
+  const procurementTools = makeProcurementMcpTools({
+    repo,
+    analysis,
+    clientBaseUrl,
+    ...(deps.supplierDisclosure !== undefined && {
+      supplierDisclosure: deps.supplierDisclosure,
+    }),
+  }).filter(
+    (tool) =>
+      legacyEnabled ||
+      CPV_REFERENCE_TOOLS.has(tool.name) ||
+      (tool.name === ANALYSIS_TOOL && daV3Enabled)
+  );
 
   return {
     repo,
@@ -214,19 +255,14 @@ export const makeProcurementModule = (deps: ProcurementModuleDeps): ProcurementM
       },
     },
     mcpTools: [
-      ...makeProcurementMcpTools({
-        repo,
-        analysis,
-        clientBaseUrl,
-        ...(deps.supplierDisclosure !== undefined && {
-          supplierDisclosure: deps.supplierDisclosure,
-        }),
-      }),
+      ...procurementTools,
       ...(daV3Enabled ? makeDaReleaseMcpTools(daRelease) : []),
       ...(moneyPort !== undefined ? makeTotalsMcpTools(moneyPort, deps.supplierDisclosure) : []),
     ],
     contributor: makeProcurementContributor(
-      makeProcurementPresenceRepo(deps.db, deps.supplierDisclosure)
+      legacyEnabled
+        ? makeProcurementPresenceRepo(deps.db, deps.supplierDisclosure)
+        : retiredPresenceRepo
     ),
     daRestPlugin: makeDaReleaseRestPlugin(daRelease),
   };

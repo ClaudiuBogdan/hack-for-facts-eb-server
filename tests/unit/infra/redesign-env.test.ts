@@ -139,4 +139,23 @@ describe('direct-acquisition switches', () => {
       }).procurement
     ).toMatchObject({ supplierDisclosureEnforced: true, daV3Enabled: true });
   });
+
+  it('serves legacy by default and retires it only on the exact value false', () => {
+    expect(loadRedesignConfig(base).procurement?.legacyEnabled).toBeUndefined();
+    expect(
+      loadRedesignConfig({ ...base, PROCUREMENT_LEGACY_ENABLED: 'true' }).procurement?.legacyEnabled
+    ).toBeUndefined();
+    expect(
+      loadRedesignConfig({ ...base, PROCUREMENT_LEGACY_ENABLED: 'false' }).procurement
+    ).toMatchObject({ legacyEnabled: false });
+  });
+
+  it.each(['False', 'off', '0', ''])(
+    'refuses PROCUREMENT_LEGACY_ENABLED=%j at boot (a privacy switch is never guessed)',
+    (value) => {
+      expect(() => loadRedesignConfig({ ...base, PROCUREMENT_LEGACY_ENABLED: value })).toThrow(
+        /PROCUREMENT_LEGACY_ENABLED must be 'true' or 'false'/u
+      );
+    }
+  );
 });

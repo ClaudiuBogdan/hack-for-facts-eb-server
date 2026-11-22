@@ -77,6 +77,7 @@ const RedesignEnvSchema = Type.Object({
   PROCUREMENT_DA_LIST_MAX_WINDOW_DAYS: Type.Optional(Type.String()),
   PROCUREMENT_DA_V3_ENABLED: Type.Optional(Type.String()),
   PROCUREMENT_TOTALS_V2: Type.Optional(Type.String()),
+  PROCUREMENT_LEGACY_ENABLED: Type.Optional(Type.String()),
   PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED: Type.Optional(Type.String()),
   PROCUREMENT_SEARCH_OPENSEARCH_URL: Type.Optional(Type.String()),
   PROCUREMENT_SEARCH_OPENSEARCH_INDEXES: Type.Optional(Type.String()),
@@ -119,6 +120,12 @@ export interface ProcurementComposition {
   readonly daV3Enabled?: boolean;
   /** Totals v2 (`procurementTotals`) over the money-fact builds; off unless PROCUREMENT_TOTALS_V2=true. */
   readonly totalsV2Enabled?: boolean;
+  /**
+   * The legacy procurement reads (records, legacy analysis, entity-360 presence);
+   * on unless PROCUREMENT_LEGACY_ENABLED=false. Off, they answer ServiceUnavailable
+   * without a query (SEC-GRANTS-PROC-2211: the public-only grant covers none of them).
+   */
+  readonly legacyEnabled?: boolean;
   /**
    * Site-wide D6 and the DA free-text gate, on every DA surface, legacy included
    * (PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED=true). Independent of `daV3Enabled`
@@ -396,8 +403,16 @@ const composeEmbeddedKernel = (e: EmbeddedKernelEnv): EmbeddedKernelConfig => {
       'Invalid redesign env: PROCUREMENT_DA_V3_ENABLED=true requires PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED=true (site-wide D6 goes on first)'
     );
   }
+  // A privacy switch: anything but the two exact values is a boot error, never a guess.
+  const legacy = e.PROCUREMENT_LEGACY_ENABLED;
+  if (legacy !== undefined && legacy !== 'true' && legacy !== 'false') {
+    throw new Error(
+      "Invalid redesign env: PROCUREMENT_LEGACY_ENABLED must be 'true' or 'false' when set"
+    );
+  }
   const procurement: ProcurementComposition = {
     ...(daWindow > 0 && { daListMaxWindowDays: daWindow }),
+    ...(legacy === 'false' && { legacyEnabled: false }),
     ...(e.PROCUREMENT_DA_V3_ENABLED === 'true' && { daV3Enabled: true }),
     ...(e.PROCUREMENT_TOTALS_V2 === 'true' && { totalsV2Enabled: true }),
     ...(e.PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED === 'true' && {
