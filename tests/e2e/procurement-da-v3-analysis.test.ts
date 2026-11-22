@@ -802,7 +802,10 @@ describe('rollups answer exactly as the live rows', () => {
           bucket === null ? value : String(Number(value) + 1000),
         ])
       );
+      statements.length = 0;
       expect(JSON.stringify(await quarterly(MID))).toEqual(midCounted);
+      // ...and never even probes the quarter rows.
+      expect(statements.some((text) => text.includes('"da_rollup_distinct"'))).toBe(false);
       await sql`update procurement_v3.da_rollup_distinct set distinct_public_suppliers = distinct_public_suppliers - 1000
         where bucket_kind = 'quarter'`.execute(db);
       await sql`create table procurement_v3.f_quarters as

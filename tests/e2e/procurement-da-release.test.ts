@@ -621,6 +621,8 @@ describe('supplier totals from the per-party rollup (PROC-AP75)', () => {
       { finalizationFrom: '2021-01-01', finalizationTo: '2024-02-29' },
       // A month holding only an emptied bucket: zero counts, no group (never a refused total).
       { finalizationFrom: '2025-08-01', finalizationTo: '2025-08-31' },
+      // A month whose one counted value has one decimal (see below): both paths print cents.
+      { finalizationFrom: '2026-11-01', finalizationTo: '2026-11-30' },
     ];
     // A day inside a month, or any other filter: the purchases answer.
     const INELIGIBLE = [
@@ -644,7 +646,16 @@ describe('supplier totals from the per-party rollup (PROC-AP75)', () => {
     };
     const read = (text: string) => text.includes('da_rollup_supplier_party_month"');
     try {
+      // As on prod, the purchases' counted value is unconstrained numeric (scale <= 2 by a CHECK),
+      // so a value the portal gave with one decimal sums with one decimal on the purchases path.
+      await sql`alter table procurement_v3.da_purchases alter column counted_value type numeric`.execute(
+        db
+      );
+      await sql`update procurement_v3.da_purchases set counted_value = 5200.0
+        where finalization_day = '2026-11-13'`.execute(db);
       const purchases = await battery();
+      expect(JSON.stringify(purchases)).toContain('"countedValue":"5200.00"');
+      expect(JSON.stringify(purchases)).not.toContain('"countedValue":"5200.0"');
       for (const answer of purchases) expect((answer as { isOk: () => boolean }).isOk()).toBe(true);
 
       // The platform's rollup and its freshness marker, as 065 and the migration build them.
