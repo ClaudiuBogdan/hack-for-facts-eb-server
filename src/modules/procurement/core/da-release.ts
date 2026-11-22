@@ -60,9 +60,9 @@ export const DA_NOT_COUNTED_REASON_LABELS: Readonly<
     ro: 'Respinsă sau expirată: achiziția nu s-a realizat.',
   },
   value_not_qualified: {
-    // 22 Nov 2026: 2018 onwards counts; this is the purchases the 2018–2024 checks hold one by one.
-    en: "The currency and VAT basis of this purchase's value are not confirmed (held by the 2018–2024 checks).",
-    ro: 'Moneda și baza TVA ale valorii acestei achiziții nu sunt confirmate (reținută la verificarea anilor 2018–2024).',
+    // 22 Nov 2026: no cause named (the 2018–2024 holds, and other pre-2025 cases the build allows).
+    en: "The currency and VAT basis of this purchase's value are not confirmed.",
+    ro: 'Moneda și baza TVA ale valorii acestei achiziții nu sunt confirmate.',
   },
   reviewed_entry_error: {
     en: 'Left out after review: see the rule.',
@@ -107,7 +107,7 @@ export type DaTotalsDimension = (typeof DA_TOTALS_GROUPS)[number];
 /**
  * The basis of counted (and corrected) values only. A reported value is as the
  * portal published it: its currency and VAT basis are confirmed only where the
- * purchase is counted (a purchase the 2018–2024 checks hold is not, see `value_not_qualified`).
+ * purchase is counted (see `value_not_qualified`).
  */
 export const DA_COUNTED_VALUE_BASIS = 'RON excluding VAT';
 

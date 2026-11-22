@@ -119,7 +119,7 @@ describe('value fields per contract case', () => {
     expect(p.reviewRule?.effect).toBe('exclude');
   });
 
-  it('open case, refused, held by the 2018-2024 checks, no longer listed and symbolic', () => {
+  it('open case, refused, value not confirmed, no longer listed and symbolic', () => {
     expect(served(row(5))).toMatchObject({ counted: true, reviewRule: null });
     expect(served(row(6))).toMatchObject({
       outcome: 'refused',
@@ -127,10 +127,8 @@ describe('value fields per contract case', () => {
     });
     expect(served(row(7)).notCountedReason).toEqual({
       code: 'value_not_qualified',
-      labelEn:
-        "The currency and VAT basis of this purchase's value are not confirmed (held by the 2018–2024 checks).",
-      labelRo:
-        'Moneda și baza TVA ale valorii acestei achiziții nu sunt confirmate (reținută la verificarea anilor 2018–2024).',
+      labelEn: "The currency and VAT basis of this purchase's value are not confirmed.",
+      labelRo: 'Moneda și baza TVA ale valorii acestei achiziții nu sunt confirmate.',
     });
     expect(served(row(8)).listedNow).toBe(false);
     expect(served(row(9))).toMatchObject({ symbolicPrice: true, countedValue: '0.01' });
