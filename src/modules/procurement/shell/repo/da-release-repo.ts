@@ -419,7 +419,9 @@ const rollupEligible = (query: DaTotalsQuery): boolean => {
 /**
  * The rollup answers only when this login can read it and the release says it was built for this
  * very publication (`supplier_party_rollup_for = data_as_of`), both read in the totals' own
- * snapshot. Otherwise the purchases answer, as before the rollup existed.
+ * snapshot. Otherwise the purchases answer, as before the rollup existed. The rollup holds cents
+ * (numeric(20,2)) and is exact: counted_value scale ≤ 2 is enforced by
+ * procurement_v3.da_purchases_counted_value_scale_check (20261121T090000, validated on prod).
  */
 const supplierPartyRollupFresh = async (trx: Db): Promise<boolean> => {
   const readable = await sql<{ usable: boolean | null }>`
@@ -474,9 +476,9 @@ const rollupFrom = (filter: DaPurchaseFilter): RawBuilder<unknown> => {
  */
 const rollupOverall = (filter: DaPurchaseFilter): RawBuilder<unknown> => sql`
   select (sum(r.counted_value) filter (where r.counted_purchases > 0))::text as counted_value,
-         sum(r.counted_purchases)::text as counted_count,
-         sum(r.counted_symbolic_purchases)::text as symbolic_price_count,
-         sum(r.purchases)::text as purchase_count
+         coalesce(sum(r.counted_purchases), 0)::text as counted_count,
+         coalesce(sum(r.counted_symbolic_purchases), 0)::text as symbolic_price_count,
+         coalesce(sum(r.purchases), 0)::text as purchase_count
   from ${SUPPLIER_PARTY_ROLLUP} r
   where ${rollupWhere(filter)}`;
 

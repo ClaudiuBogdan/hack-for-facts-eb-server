@@ -776,7 +776,7 @@ describe('rollups answer exactly as the live rows', () => {
         ).toBe(true);
       // PROC-YP8P: whole-release distinct suppliers by quarter come from the quarter rows (a
       // marked quarter row shows through), and a publication without them counts as before.
-      const quarterly = async () =>
+      const quarterly = async (window: Record<string, unknown> = {}) =>
         analysisSeries(
           {
             analysisRepo: makeDaRoutingAnalysisRepo(
@@ -784,12 +784,25 @@ describe('rollups answer exactly as the live rows', () => {
               makeDaV3AnalysisSource(logged)
             ),
           },
-          { scope: DA, measure: 'distinctSuppliers', bucket: 'quarter' }
+          { scope: { ...DA, ...window }, measure: 'distinctSuppliers', bucket: 'quarter' }
         );
+      const pointsOf = (answer: Awaited<ReturnType<typeof quarterly>>) =>
+        (answer._unsafeUnwrap()[0]?.points ?? []).map((point) => [point.bucket, point.value]);
+      // A window ending mid-quarter is not aligned: counted from the facts, never the quarter rows.
+      const MID = { from: '2023-01', to: '2025-05' };
       const counted = JSON.stringify(await quarterly());
+      const midCounted = JSON.stringify(await quarterly(MID));
+      const quarterPoints = pointsOf(await quarterly());
       await sql`update procurement_v3.da_rollup_distinct set distinct_public_suppliers = distinct_public_suppliers + 1000
         where bucket_kind = 'quarter'`.execute(db);
-      expect(JSON.stringify(await quarterly())).not.toEqual(counted);
+      // Every dated quarter shows the marked count exactly (the undated bucket is never served).
+      expect(pointsOf(await quarterly())).toEqual(
+        quarterPoints.map(([bucket, value]) => [
+          bucket,
+          bucket === null ? value : String(Number(value) + 1000),
+        ])
+      );
+      expect(JSON.stringify(await quarterly(MID))).toEqual(midCounted);
       await sql`update procurement_v3.da_rollup_distinct set distinct_public_suppliers = distinct_public_suppliers - 1000
         where bucket_kind = 'quarter'`.execute(db);
       await sql`create table procurement_v3.f_quarters as

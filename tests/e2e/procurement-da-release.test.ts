@@ -619,6 +619,8 @@ describe('supplier totals from the per-party rollup (PROC-AP75)', () => {
       { finalizationTo: '2025-06-30' },
       // A leap February ends on the 29th.
       { finalizationFrom: '2021-01-01', finalizationTo: '2024-02-29' },
+      // A month holding only an emptied bucket: zero counts, no group (never a refused total).
+      { finalizationFrom: '2025-08-01', finalizationTo: '2025-08-31' },
     ];
     // A day inside a month, or any other filter: the purchases answer.
     const INELIGIBLE = [
@@ -669,9 +671,13 @@ describe('supplier totals from the per-party rollup (PROC-AP75)', () => {
       expect(await battery()).toEqual(purchases);
       expect(statements.some(read)).toBe(false);
 
+      // The rollup readable but not its freshness marker: still the purchases.
       await sql`grant select on procurement_v3.da_rollup_supplier_party_month to procurement_api_read`.execute(
         db
       );
+      statements.length = 0;
+      expect(await battery()).toEqual(purchases);
+      expect(statements.some(read)).toBe(false);
       await sql`grant select (supplier_party_rollup_for) on procurement_v3.da_release to procurement_api_read`.execute(
         db
       );
