@@ -609,24 +609,44 @@ const explain = (
   }
   ro.push('Valorile sunt adunate așa cum au fost publicate (fără conversie TVA), în lei.');
   en.push('Values are summed as published (no VAT conversion), in lei.');
+  // With several value kinds, every item names its kind: the same key (for
+  // example `not_additive`) can appear under each, and must not read as one list.
+  const byKind = <T extends { readonly valueKind: ValueKind }>(
+    items: readonly T[],
+    render: (item: T) => string,
+    lang: 'labelRo' | 'labelEn'
+  ): string => {
+    if (request.valueKinds.length <= 1) return items.map(render).join('; ');
+    return request.valueKinds
+      .map((kind) => {
+        const own = items.filter((item) => item.valueKind === kind);
+        if (own.length === 0) return null;
+        const label = included.valueKinds.find((l) => l.key === kind)?.[lang] ?? kind;
+        return `${label}: ${own.map(render).join(', ')}`;
+      })
+      .filter((group): group is string => group !== null)
+      .join('; ');
+  };
+  const money = (count: string, valueLei: string | null): string =>
+    `${count}${valueLei === null ? '' : `, ${valueLei} lei`}`;
   if (exclusions.length > 0) {
     ro.push(
-      `Excluse: ${exclusions.map((e) => `${e.labelRo} (${e.count}${e.valueLei === null ? '' : `, ${e.valueLei} lei`})`).join('; ')}.`
+      `Excluse: ${byKind(exclusions, (e) => `${e.labelRo} (${money(e.count, e.valueLei)})`, 'labelRo')}.`
     );
     en.push(
-      `Left out: ${exclusions.map((e) => `${e.labelEn} (${e.count}${e.valueLei === null ? '' : `, ${e.valueLei} lei`})`).join('; ')}.`
+      `Left out: ${byKind(exclusions, (e) => `${e.labelEn} (${money(e.count, e.valueLei)})`, 'labelEn')}.`
     );
   }
   if (flags.length > 0) {
-    ro.push(`Incluse, marcate: ${flags.map((g) => `${g.labelRo} (${g.count})`).join('; ')}.`);
-    en.push(`Included, flagged: ${flags.map((g) => `${g.labelEn} (${g.count})`).join('; ')}.`);
+    ro.push(`Incluse, marcate: ${byKind(flags, (g) => `${g.labelRo} (${g.count})`, 'labelRo')}.`);
+    en.push(`Included, flagged: ${byKind(flags, (g) => `${g.labelEn} (${g.count})`, 'labelEn')}.`);
   }
   if (disclosures.length > 0) {
     ro.push(
-      `Include: ${disclosures.map((d) => `${d.labelRo} (${d.count}, ${d.valueLei} lei)`).join('; ')}.`
+      `Include: ${byKind(disclosures, (d) => `${d.labelRo} (${money(d.count, d.valueLei)})`, 'labelRo')}.`
     );
     en.push(
-      `Includes: ${disclosures.map((d) => `${d.labelEn} (${d.count}, ${d.valueLei} lei)`).join('; ')}.`
+      `Includes: ${byKind(disclosures, (d) => `${d.labelEn} (${money(d.count, d.valueLei)})`, 'labelEn')}.`
     );
   }
   if (notes.length > 0) {

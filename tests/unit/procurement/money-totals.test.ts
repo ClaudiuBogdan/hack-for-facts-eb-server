@@ -178,6 +178,31 @@ describe('composeTotals', () => {
     expect(asked.explanation.textEn).toMatch(/^Selected: /u);
   });
 
+  it('names the value kind of every left-out item when several kinds are asked', () => {
+    const answer = composeTotals(
+      request({ valueKinds: ['awarded', 'framework_ceiling'] }),
+      [
+        fact({ additive: false, count: 2n }),
+        fact({ valueKind: 'framework_ceiling', additive: false, count: 3n }),
+        fact({ valueKind: 'framework_ceiling', status: 'cancelled', count: 1n }),
+      ],
+      LABELS,
+      '17'
+    );
+    // framework_ceiling has no label in the fixture: its key stands in.
+    expect(answer.explanation.textEn).toContain(
+      'Left out: Awarded value: Not additive (2, 1.00 lei); framework_ceiling: Not additive (3, 1.00 lei), Cancelled (1, 1.00 lei).'
+    );
+    expect(answer.explanation.textRo).toContain(
+      'Excluse: Valoare atribuită: Nu se adună (2, 1.00 lei);'
+    );
+  });
+
+  it('keeps one flat list when one value kind is asked', () => {
+    const answer = composeTotals(request(), [fact({ additive: false })], LABELS, '17');
+    expect(answer.explanation.textEn).toContain('Left out: Not additive (');
+  });
+
   it('includes an undated fact when no range is asked', () => {
     const answer = composeTotals(request(), [fact({ dated: false })], LABELS, '17');
     expect(answer.totals[0]?.recordCount).toBe('1');
