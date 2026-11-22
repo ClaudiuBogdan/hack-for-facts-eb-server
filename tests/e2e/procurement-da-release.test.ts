@@ -791,16 +791,19 @@ describe('unfiltered supplier totals from the all-time per-party table (PROC-AP7
       await sql`grant select on procurement_v3.da_rollup_supplier_party to procurement_api_read`.execute(
         db
       );
-      await sql`grant select (supplier_party_totals_for) on procurement_v3.da_release to procurement_api_read`.execute(
-        db
-      );
       // Marker unset (and the month rollup stale from the test above): the purchases answer.
       statements.length = 0;
       const purchases = await battery();
       for (const answer of purchases) expect((answer as { isOk: () => boolean }).isOk()).toBe(true);
       expect(statements.some(allTime) || statements.some(month)).toBe(false);
-
+      // The marker fresh but not readable by this login (the cutover grants it): still the purchases.
       await sql`update procurement_v3.da_release set supplier_party_totals_for = data_as_of`.execute(
+        db
+      );
+      statements.length = 0;
+      expect(await battery()).toEqual(purchases);
+      expect(statements.some(allTime)).toBe(false);
+      await sql`grant select (supplier_party_totals_for) on procurement_v3.da_release to procurement_api_read`.execute(
         db
       );
       statements.length = 0;
@@ -809,7 +812,15 @@ describe('unfiltered supplier totals from the all-time per-party table (PROC-AP7
       expect(statements.some((text) => text.includes('"procurement_v3"."da_purchases"'))).toBe(
         false
       );
-      // A range is not unfiltered: never the all-time table.
+      // A range is not unfiltered: never the all-time table, but the month rollup when it is fresh
+      // too (both markers fresh: each answers its own requests).
+      await sql`update procurement_v3.da_release set supplier_party_rollup_for = data_as_of`.execute(
+        db
+      );
+      statements.length = 0;
+      await battery();
+      expect(statements.some(allTime)).toBe(true);
+      expect(statements.some(month)).toBe(false);
       statements.length = 0;
       await daPurchaseTotals(
         { repo: makeDaReleaseRepo(logged, true) },
@@ -821,6 +832,9 @@ describe('unfiltered supplier totals from the all-time per-party table (PROC-AP7
         }
       );
       expect(statements.some(allTime)).toBe(false);
+      expect(statements.some(month)).toBe(true);
+      await sql`update procurement_v3.da_release
+        set supplier_party_rollup_for = data_as_of - interval '1 day'`.execute(db);
 
       // Without supplier_disclosure everyone is withheld, exactly as the purchases withhold them.
       await sql`revoke select on procurement_v3.supplier_disclosure from procurement_api_read`.execute(
@@ -858,28 +872,47 @@ describe('unfiltered supplier totals from the all-time per-party table (PROC-AP7
       await sql`update procurement_v3.da_rollup_supplier_party set disclosed = false
         where supplier_party_id = ${SOLE_TRADER.portalPartyId}`.execute(db);
 
-      // Groups are ordered by value as numbers, never as text: a withheld bucket of 10.00 comes
-      // before a company of 9.00 ("9.00" > "10.00" as text).
+      // Groups are ordered by value as numbers, never as text ("9.00" > "10.00" as text), each page
+      // chosen in that order; a value tie goes to the named group (its key; nulls last); a group with
+      // purchases but nothing counted has no value (null, never 0.00).
       await sql`create table procurement_v3.f_all_time as
         select * from procurement_v3.da_rollup_supplier_party`.execute(db);
+      const pageOf = async (page: number, pageSize: number) =>
+        (
+          await daPurchaseTotals(
+            { repo: makeDaReleaseRepo(logged, true) },
+            { groupBy: 'supplier', filter: {}, page, pageSize }
+          )
+        )
+          ._unsafeUnwrap()
+          .groups.map((group) => [group.party?.displayKind ?? null, group.countedValue]);
       await sql`update procurement_v3.da_rollup_supplier_party
         set counted_value = case when disclosed then 9.00 else 0 end`.execute(db);
       await sql`update procurement_v3.da_rollup_supplier_party set counted_value = 10.00
         where supplier_party_id = ${SOLE_TRADER.portalPartyId}`.execute(db);
-      const ordered = (
-        await daPurchaseTotals(
-          { repo: makeDaReleaseRepo(logged, true) },
-          { groupBy: 'supplier', filter: {}, page: 1, pageSize: 100 }
-        )
-      )._unsafeUnwrap();
-      expect(
-        ordered.groups.map((group) => [group.party?.displayKind ?? null, group.countedValue])
-      ).toEqual([
+      await sql`update procurement_v3.da_rollup_supplier_party
+        set counted_purchases = 0, counted_symbolic_purchases = 0, counted_value = 0
+        where supplier_party_id is null`.execute(db);
+      expect(await pageOf(1, 100)).toEqual([
         ['natural_person', '10.00'],
         ['company', '9.00'],
-        // The no-supplier row was zeroed above (it still counts purchases).
-        [null, '0.00'],
+        [null, null],
       ]);
+      expect([...(await pageOf(1, 1)), ...(await pageOf(2, 1)), ...(await pageOf(3, 1))]).toEqual(
+        await pageOf(1, 100)
+      );
+      // A tie on value and purchases: the named group's key comes before the withheld bucket's.
+      await sql`update procurement_v3.da_rollup_supplier_party
+        set counted_value = 10.00, purchases = 3, counted_purchases = 3
+        where disclosed or supplier_party_id = ${SOLE_TRADER.portalPartyId}`.execute(db);
+      await sql`update procurement_v3.da_rollup_supplier_party set purchases = 0
+        where not disclosed and supplier_party_id is not null
+          and supplier_party_id <> ${SOLE_TRADER.portalPartyId}`.execute(db);
+      expect((await pageOf(1, 100)).slice(0, 2)).toEqual([
+        ['company', '10.00'],
+        ['natural_person', '10.00'],
+      ]);
+      expect((await pageOf(1, 1))[0]).toEqual(['company', '10.00']);
       await sql`delete from procurement_v3.da_rollup_supplier_party`.execute(db);
       await sql`insert into procurement_v3.da_rollup_supplier_party select * from procurement_v3.f_all_time`.execute(
         db
