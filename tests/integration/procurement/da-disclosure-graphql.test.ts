@@ -102,7 +102,16 @@ const build = async (
         )
       ),
     searchDirectAcquisitionsOffset: () =>
-      Promise.resolve(ok({ items: [ROWS['1']], total: 1, estimated: false })),
+      Promise.resolve(
+        ok({
+          items: [ROWS['1']],
+          total: 1,
+          estimated: false,
+          highlights: [
+            { id: '1', title: null, authorityName: null, supplierName: 'FIRMA ⟦EXEMPLU⟧ SRL' },
+          ],
+        })
+      ),
     supplierRecords: () =>
       Promise.resolve(
         ok({
@@ -394,7 +403,90 @@ describe('PROC-VDWQ: GraphQL answers naming a DA supplier are never cacheable', 
     await app.close();
     app = await build(true, repo(), namesOf(false));
     const unnamed = await post(app, BREAKDOWN);
+    expect(unnamed.body.errors).toBeUndefined();
     expect(unnamed.raw).not.toContain('FIRMA EXEMPLU SRL');
     expect(unnamed.cacheControl).toBeUndefined();
+  });
+});
+
+describe('PROC-VDWQ: only a selected DA supplier name marks the answer', () => {
+  const SELECT = (supplier: string) => /* GraphQL */ `
+    query {
+      procurementDirectAcquisition(id: "1") {
+        directAcquisition {
+          authority { name }
+          supplier { ${supplier} }
+        }
+      }
+    }
+  `;
+
+  it('marks a legacy DA supplier name or displayName, not its code alone', async () => {
+    app = await build(true);
+    for (const [fields, marked] of [
+      ['cui', false],
+      ['cui displayKind', false],
+      ['name', true],
+      ['displayName', true],
+    ] as const) {
+      const answer = await post(app, SELECT(fields));
+      expect(answer.body.errors, fields).toBeUndefined();
+      expect(answer.cacheControl, fields).toBe(marked ? 'no-store' : undefined);
+    }
+  });
+
+  it('marks a DA search highlight naming the supplier, not one naming only the buyer', async () => {
+    // D6 off: the legacy search serves highlights (D6 on drops them).
+    app = await build(false);
+    const HIGHLIGHT = (field: string) => /* GraphQL */ `
+      query { procurementDirectAcquisitions(pageSize: 5) { highlights { id ${field} } } }
+    `;
+    const named = await post(app, HIGHLIGHT('supplierName'));
+    expect(named.body.errors).toBeUndefined();
+    expect(named.raw).toContain('EXEMPLU');
+    expect(named.cacheControl).toBe('no-store');
+    expect((await get(app, HIGHLIGHT('supplierName'))).cacheControl).toBe('no-store');
+    const buyer = await post(app, HIGHLIGHT('authorityName'));
+    expect(buyer.body.errors).toBeUndefined();
+    expect(buyer.cacheControl).toBeUndefined();
+  });
+
+  it('marks a DA records page only when a supplier name is selected', async () => {
+    const records = (grain: 'direct_acquisition' | 'contract') =>
+      fakeAnalysisRepo({
+        generation: generation(undefined, { ...PUBLISHED_CAPABILITIES, directAcquisitionV3: true }),
+        records: {
+          total: '1',
+          rows: [
+            {
+              id: grain === 'contract' ? '17' : 'b'.repeat(64),
+              date: '2025-11-03',
+              title: null,
+              authorityCui: '4270740',
+              authorityName: 'PRIMARIA EXEMPLU',
+              supplierCui: '14399840',
+              supplierName: 'FIRMA EXEMPLU SRL',
+              valueRon: '1234.56',
+              status: 'finalized',
+              recordKind: null,
+              cpvCode: '30192700',
+              supplierDisplayKind: 'company',
+            },
+          ],
+        },
+      }).repo;
+    const RECORDS = (grain: string, fields: string) => /* GraphQL */ `
+      query { procurementRecords(scope: { grain: ${grain} }) { ${fields} } }
+    `;
+    app = await build(true, records('direct_acquisition'));
+    for (const [fields, marked] of [
+      ['total', false],
+      ['items { id supplier { cui } }', false],
+      ['items { id supplier { name } }', true],
+    ] as const) {
+      const answer = await post(app, RECORDS('direct_acquisition', fields));
+      expect(answer.body.errors, fields).toBeUndefined();
+      expect(answer.cacheControl, fields).toBe(marked ? 'no-store' : undefined);
+    }
   });
 });

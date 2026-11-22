@@ -35,7 +35,7 @@ import {
   type RawAnalysisScopeInput,
   type RawSearchFilter,
 } from './arg-translation.js';
-import { markNoStore } from './no-store.js';
+import { hasDaSupplierName, markNoStore, tagDaSupplierName } from './no-store.js';
 import {
   analysisBreakdown,
   analysisConcentration,
@@ -331,7 +331,14 @@ export const makeProcurementResolvers = (
         // The DA filter's `publicationDate` facet binds to `finalization_date`.
         const { filter, page, facets } = searchArgs(a, 'publicationDate', 'direct_acquisitions');
         const result = unwrap(await repo.searchDirectAcquisitionsOffset(filter, page, facets));
-        return { ...toPage(result), meta: metaOf(result) };
+        const answer = toPage(result);
+        // PROC-VDWQ: a highlight's supplierName is a DA supplier name.
+        return {
+          ...answer,
+          highlights:
+            answer.highlights?.map((highlight) => tagDaSupplierName({ ...highlight })) ?? null,
+          meta: metaOf(result),
+        };
       },
       procurementModifications: async (_r: unknown, a: SearchArgs) => {
         const { filter, page } = searchArgs(a, 'modificationDate', 'modifications');
@@ -438,8 +445,7 @@ export const makeProcurementResolvers = (
           sort?: string | null;
           page?: number | null;
           pageSize?: number | null;
-        },
-        context: unknown
+        }
       ) => {
         const result = unwrap(
           await analysisRecords(analysisDeps, {
@@ -452,14 +458,6 @@ export const makeProcurementResolvers = (
         );
         // Display-only labels, after membership and money are fixed.
         const items = await withDisplayTitles(repo, result);
-        // PROC-VDWQ: a DA page that names a supplier is never cacheable.
-        if (
-          result.grain === 'direct_acquisition' &&
-          items.some(
-            (item) => item.supplierName !== null && item.supplierDisplayKind !== 'natural_person'
-          )
-        )
-          markNoStore(context);
         return {
           ...result,
           items: items.map((item) => ({
@@ -469,7 +467,13 @@ export const makeProcurementResolvers = (
             displayTitle: item.displayTitle,
             authority: party(item.authorityCui, item.authorityName, 'authority'),
             // D6 on the v3 DA grain: natural_person serves no cui or name.
-            supplier: party(item.supplierCui, item.supplierName, item.supplierDisplayKind ?? null),
+            supplier:
+              result.grain === 'direct_acquisition'
+                ? // PROC-VDWQ: its name, when selected, makes the answer never cacheable.
+                  tagDaSupplierName(
+                    party(item.supplierCui, item.supplierName, item.supplierDisplayKind ?? null)
+                  )
+                : party(item.supplierCui, item.supplierName, item.supplierDisplayKind ?? null),
             valueRon: item.valueRon,
             status: item.status,
             recordKind: item.recordKind,
@@ -590,16 +594,36 @@ export const makeProcurementResolvers = (
       id: (d: ProcurementDirectAcquisition) => d.daId,
       authority: (d: ProcurementDirectAcquisition) =>
         party(d.authorityCui, d.authorityName, 'authority'),
-      supplier: (d: ProcurementDirectAcquisition, _a: unknown, context: unknown) => {
-        const supplier = party(d.supplierCui, d.supplierName, daSupplierKind(d));
-        // PROC-VDWQ: an answer that names a DA supplier is never cacheable.
-        if (supplier.name !== null) markNoStore(context);
-        return supplier;
-      },
+      // PROC-VDWQ: its name, when selected, makes the answer never cacheable.
+      supplier: (d: ProcurementDirectAcquisition) =>
+        tagDaSupplierName(party(d.supplierCui, d.supplierName, daSupplierKind(d))),
       elicitatiePage: (d: ProcurementDirectAcquisition) => directAcquisitionPageLoader.load(d.daId),
     },
     ProcurementDaItem: {
       id: (item: DaItem) => item.daItemId,
+    },
+    // PROC-VDWQ: a DA supplier's name (tagged where built) makes the answer never cacheable; a
+    // displayName that is only the code (no name) does not.
+    ProcurementParty: {
+      name: (p: { name: string | null }, _a: unknown, context: unknown) => {
+        if (p.name !== null && hasDaSupplierName(p)) markNoStore(context);
+        return p.name;
+      },
+      displayName: (
+        p: { name: string | null; displayName: string | null },
+        _a: unknown,
+        context: unknown
+      ) => {
+        if (p.name !== null && hasDaSupplierName(p)) markNoStore(context);
+        return p.displayName;
+      },
+    },
+    ProcurementSearchHighlight: {
+      supplierName: (h: { supplierName?: string | null }, _a: unknown, context: unknown) => {
+        const name = h.supplierName ?? null;
+        if (name !== null && hasDaSupplierName(h)) markNoStore(context);
+        return name;
+      },
     },
     ProcurementBreakdownBucket: {
       // PROC-VDWQ: a DA supplier bucket's name makes the answer never cacheable.

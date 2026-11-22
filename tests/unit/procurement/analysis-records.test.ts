@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 import { parseAnalysisScope } from '@/modules/procurement/core/analysis-scope.js';
 import { analysisRecords, analysisStats } from '@/modules/procurement/core/analysis-usecases.js';
+import { hasDaSupplierName } from '@/modules/procurement/shell/graphql/no-store.js';
 import { makeProcurementResolvers } from '@/modules/procurement/shell/graphql/resolvers.js';
 import { makeProcurementMcpTools } from '@/modules/procurement/shell/mcp/tools.js';
 
@@ -138,8 +139,7 @@ describe('scope identifiers', () => {
 interface RecordsResolver {
   procurementRecords(
     root: unknown,
-    args: { scope: Readonly<Record<string, unknown>>; build?: string },
-    context?: unknown
+    args: { scope: Readonly<Record<string, unknown>>; build?: string }
   ): Promise<{ readonly items: readonly Record<string, unknown>[]; readonly total: string | null }>;
   procurementStats(root: unknown, args: { scope: unknown; build?: string }): Promise<unknown>;
 }
@@ -205,36 +205,18 @@ describe('procurementRecords transport', () => {
     });
   });
 
-  it('PROC-VDWQ: marks a DA page no-store only when it names a supplier', async () => {
-    const pageOf = async (rows: ReturnType<typeof row>[], scope: Record<string, unknown>) => {
-      const headers: [string, string][] = [];
-      const context = {
-        reply: { header: (name: string, value: string) => headers.push([name, value]) },
-      };
-      const analysis = fakeAnalysisRepo({ records: { total: String(rows.length), rows } }).repo;
+  it('PROC-VDWQ: tags DA page suppliers (their names mark the reply), not contract page ones', async () => {
+    const pageOf = async (scope: Record<string, unknown>) => {
+      const analysis = fakeAnalysisRepo({ records: { total: '1', rows: [row()] } }).repo;
       const repo = {
         contractsByIds: () => Promise.resolve(ok(new Map())),
       } as unknown as ProcurementRepo;
-      await surfaces(analysis, repo).query.procurementRecords(undefined, { scope }, context);
-      return headers;
+      return surfaces(analysis, repo).query.procurementRecords(undefined, { scope });
     };
-    const withheld = row({
-      id: 'a'.repeat(64),
-      title: null,
-      supplierCui: '30254716',
-      supplierName: 'SECRET POPESCU ION PFA',
-      supplierDisplayKind: 'natural_person',
-    });
-    const named = row({
-      id: 'b'.repeat(64),
-      title: null,
-      supplierCui: '14399840',
-      supplierName: 'FIRMA EXEMPLU SRL',
-      supplierDisplayKind: 'company',
-    });
-    // A withheld supplier is served with no name (even when the row kept one): no mark.
-    expect(await pageOf([withheld], DA)).toEqual([]);
-    expect(await pageOf([withheld, named], DA)).toEqual([['cache-control', 'no-store']]);
+    expect(hasDaSupplierName((await pageOf(DA)).items[0]?.['supplier'])).toBe(true);
+    expect(hasDaSupplierName((await pageOf({ grain: 'contract' })).items[0]?.['supplier'])).toBe(
+      false
+    );
   });
 
   it('serves a D6-withheld DA record supplier with nothing that names it, and the CPV label', async () => {

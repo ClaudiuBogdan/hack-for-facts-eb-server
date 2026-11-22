@@ -11,6 +11,22 @@
 
 import type { FastifyReply } from 'fastify';
 
+/**
+ * A value that carries a DA supplier name in a type other kinds share (a `ProcurementParty`, a
+ * search highlight): tagged where it is built, so the shared type's field resolver marks the reply
+ * only when the name itself is selected and served. A non-enumerable symbol: never serialized,
+ * compared or copied.
+ */
+const DA_SUPPLIER_NAME = Symbol('daSupplierName');
+
+export const tagDaSupplierName = <T extends object>(value: T): T =>
+  Object.defineProperty(value, DA_SUPPLIER_NAME, { value: true, enumerable: false });
+
+export const hasDaSupplierName = (value: unknown): boolean =>
+  typeof value === 'object' &&
+  value !== null &&
+  (value as Record<symbol, unknown>)[DA_SUPPLIER_NAME] === true;
+
 /** Marks this request's GraphQL reply `Cache-Control: no-store`. No reply (not over HTTP): no-op. */
 export const markNoStore = (context: unknown): void => {
   const reply =
