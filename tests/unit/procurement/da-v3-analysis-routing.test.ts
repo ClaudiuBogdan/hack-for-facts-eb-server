@@ -72,6 +72,7 @@ const fakeSource = (
     calls,
     source: {
       generation: () => Promise.resolve(gen),
+      namesOf: () => okp(new Map<string, string>()),
       statsFor: (_route, _scope, g) => {
         calls.push(`statsFor:${g.buildId}`);
         return okp(

@@ -30,7 +30,6 @@ import { withDaAnalysisDisclosure } from './shell/repo/da-analysis-disclosure.js
 import { withDaDisclosure } from './shell/repo/da-disclosure-repo.js';
 import { makeDaReleaseRepo } from './shell/repo/da-release-repo.js';
 import { makeDaRoutingAnalysisRepo } from './shell/repo/da-routing-analysis-repo.js';
-import { makeDaSupplierNames } from './shell/repo/da-supplier-names.js';
 import { makeDaV3AnalysisSource } from './shell/repo/da-v3-analysis-source.js';
 import { makeProcurementGenerationRepo } from './shell/repo/generation-repo.js';
 import {
@@ -200,13 +199,11 @@ export const makeProcurementModule = (deps: ProcurementModuleDeps): ProcurementM
   // ── DA release 1 (W2): with PROCUREMENT_DA_V3_ENABLED the analysis API's
   // direct_acquisition grain is answered from procurement_v3; every other
   // grain stays on ClickHouse. Off, the analysis repo is unchanged.
+  const daV3Source =
+    deps.daV3Enabled === true ? makeDaV3AnalysisSource(deps.db, deps.logger) : undefined;
   const analysis =
-    deps.daV3Enabled === true
-      ? makeDaRoutingAnalysisRepo(
-          baseAnalysis,
-          makeDaV3AnalysisSource(deps.db, deps.logger),
-          deps.logger
-        )
+    daV3Source !== undefined
+      ? makeDaRoutingAnalysisRepo(baseAnalysis, daV3Source, deps.logger)
       : baseAnalysis;
   const clientBaseUrl = deps.clientBaseUrl ?? 'https://transparenta.eu';
 
@@ -218,12 +215,13 @@ export const makeProcurementModule = (deps: ProcurementModuleDeps): ProcurementM
     totalsCache: makeDaTotalsCache(),
     ...(deps.supplierDisclosure !== undefined && { supplierDisclosure: deps.supplierDisclosure }),
   };
-  // PROC-B51G: DA supplier buckets are named only through the D6 name gate, per answer.
-  const daSupplierNames = makeDaSupplierNames(deps.db);
+  // PROC-B51G: DA supplier buckets are named only through the v3 source's D6 name gate, per
+  // answer. Without the v3 grain no DA supplier bucket is named.
+  const daSupplierNames = daV3Source !== undefined ? { namesOf: daV3Source.namesOf } : undefined;
   const legacyResolvers = makeProcurementResolvers({
     repo,
     analysis,
-    daSupplierNames,
+    ...(daSupplierNames !== undefined && { daSupplierNames }),
     ...(deps.supplierDisclosure !== undefined && { supplierDisclosure: deps.supplierDisclosure }),
   });
   const daResolvers = makeDaReleaseResolvers(daRelease);
@@ -236,7 +234,7 @@ export const makeProcurementModule = (deps: ProcurementModuleDeps): ProcurementM
     repo,
     analysis,
     clientBaseUrl,
-    daSupplierNames,
+    ...(daSupplierNames !== undefined && { daSupplierNames }),
     ...(deps.supplierDisclosure !== undefined && {
       supplierDisclosure: deps.supplierDisclosure,
     }),

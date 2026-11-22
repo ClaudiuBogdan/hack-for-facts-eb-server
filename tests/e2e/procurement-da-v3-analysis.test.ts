@@ -33,10 +33,10 @@ import {
 } from '@/modules/procurement/core/analysis-usecases.js';
 import { makeUnconfiguredAnalysisRepo } from '@/modules/procurement/shell/repo/clickhouse-analysis-repo.js';
 import { makeDaRoutingAnalysisRepo } from '@/modules/procurement/shell/repo/da-routing-analysis-repo.js';
-import { makeDaSupplierNames } from '@/modules/procurement/shell/repo/da-supplier-names.js';
 import {
   DA_V3_VALUE_NOTE,
   makeDaV3AnalysisSource,
+  type DaV3AnalysisSource,
 } from '@/modules/procurement/shell/repo/da-v3-analysis-source.js';
 import { makeSupplierDisclosureRepo } from '@/modules/shared/shell/repo/supplier-disclosure-repo.js';
 
@@ -307,6 +307,7 @@ afterAll(async () => {
 });
 
 const DA = { grain: 'direct_acquisition' } as const;
+type DaV3Names = DaV3AnalysisSource['namesOf'];
 const WITHHELD_CODES = [SOLE_TRADER, NATURAL_PERSON, UNVERIFIED, BAD_CODE_SUPPLIER].map(
   (party) => party.fiscalCode ?? ''
 );
@@ -1118,12 +1119,18 @@ describe('rollups answer exactly as the live rows', () => {
 
 /**
  * PROC-B51G: a DA supplier bucket is named only through the D6 name gate
- * (party_public_names.supplier_name_public), read as the API's login under the approved grants.
- * Runs after the parity test, which creates that login (run the file, not a single test).
+ * (party_public_names.supplier_name_public), read as the API's login under the approved grants, in
+ * the publication the buckets came from. Sequential like the file: it reads the seed and rollups
+ * the earlier tests built (run the file, not a single test).
  */
 describe('DA supplier bucket names (PROC-B51G)', () => {
-  it('names a public company, leaves a disclosed code with no public name and the withheld unnamed, and fails closed', async () => {
+  it('names a public company only, fails closed, and never names across a revocation', async () => {
     if (db === undefined || container === undefined) throw new Error('no database');
+    await sql.raw(approvedAnalysisGrants(await columnsOf(db))).execute(db);
+    // A disclosed code whose registry name exists but is not public.
+    const HIDDEN_NAME = 'NUME NEPUBLIC SRL';
+    await sql`insert into procurement_v3.party_public_names values
+      ('2000002', ${HIDDEN_NAME}, true, false)`.execute(db);
     const api = new Kysely<ProdDatabase>({
       dialect: new PostgresDialect({
         pool: new pg.Pool({
@@ -1136,14 +1143,13 @@ describe('DA supplier bucket names (PROC-B51G)', () => {
         }),
       }),
     });
-    const ask = () =>
+    // One source for every call: its per-publication cache is warm after the first.
+    const source = makeDaV3AnalysisSource(api);
+    const ask = (namesOf: DaV3Names = source.namesOf) =>
       analysisBreakdown(
         {
-          analysisRepo: makeDaRoutingAnalysisRepo(
-            makeUnconfiguredAnalysisRepo(),
-            makeDaV3AnalysisSource(api)
-          ),
-          daSupplierNames: makeDaSupplierNames(api),
+          analysisRepo: makeDaRoutingAnalysisRepo(makeUnconfiguredAnalysisRepo(), source),
+          daSupplierNames: { namesOf },
         },
         { scope: DA, dimension: 'supplier', topN: 10 }
       );
@@ -1156,20 +1162,35 @@ describe('DA supplier bucket names (PROC-B51G)', () => {
             [bucket.displayKind, bucket.displayName],
           ])
       );
+    const expected = {
+      [COMPANY.fiscalCode ?? '']: ['company', COMPANY_REGISTRY_NAME],
+      // Disclosed, its name in the registry but not public.
+      '2000002': ['company', null],
+      natural_person: ['natural_person', null],
+    };
     try {
-      const answer = await ask();
-      noLeak(answer);
-      expect(named(answer)).toEqual({
-        [COMPANY.fiscalCode ?? '']: ['company', COMPANY_REGISTRY_NAME],
-        // Disclosed, but its name is not public (no party_public_names row).
-        '2000002': ['company', null],
-        natural_person: ['natural_person', null],
-      });
-      // Without supplier_disclosure every supplier is withheld: nothing is named or asked.
-      await sql`revoke select on procurement_v3.supplier_disclosure from procurement_api_read`.execute(
-        db
-      );
+      for (let round = 0; round < 2; round += 1) {
+        const answer = await ask();
+        noLeak(answer);
+        expect(JSON.stringify(answer)).not.toContain(HIDDEN_NAME);
+        expect(named(answer)).toEqual(expected);
+      }
+      // supplier_disclosure revoked between the (cached) bucket read and the name read: refused,
+      // retryably, never named under the earlier state.
+      const owner = db;
+      const revoking: DaV3Names = async (buildId, codes) => {
+        await sql`revoke select on procurement_v3.supplier_disclosure from procurement_api_read`.execute(
+          owner
+        );
+        return source.namesOf(buildId, codes);
+      };
       try {
+        const gap = await ask(revoking);
+        expect(gap._unsafeUnwrapErr()).toMatchObject({
+          type: 'ServiceUnavailable',
+          message: expect.stringContaining('repeat the request') as unknown,
+        });
+        // Revoked before the read: every supplier withheld, nothing named or asked.
         const closed = await ask();
         expect(named(closed)).toEqual({ natural_person: ['natural_person', null] });
         expect(JSON.stringify(closed)).not.toContain(COMPANY_REGISTRY_NAME);
@@ -1178,6 +1199,10 @@ describe('DA supplier bucket names (PROC-B51G)', () => {
           db
         );
       }
+      // A name read for an older publication is refused (a publish between read and name).
+      expect(
+        (await source.namesOf('1', [COMPANY.fiscalCode ?? '']))._unsafeUnwrapErr()
+      ).toMatchObject({ type: 'ServiceUnavailable' });
       // Without the name gate a named answer is refused, never served from another name source.
       await sql`revoke select on procurement_v3.party_public_names from procurement_api_read`.execute(
         db
@@ -1190,6 +1215,9 @@ describe('DA supplier bucket names (PROC-B51G)', () => {
         );
       }
     } finally {
+      await sql`delete from procurement_v3.party_public_names where fiscal_code_clean = '2000002'`.execute(
+        db
+      );
       await api.destroy();
     }
   });

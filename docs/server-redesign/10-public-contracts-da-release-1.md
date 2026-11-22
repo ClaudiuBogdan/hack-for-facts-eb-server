@@ -62,11 +62,14 @@ only what the API adds or decides.
 - A supplier filter matches only public suppliers, so a sole trader's code cannot be used to list their purchases.
 - In totals grouped by supplier, every withheld supplier falls into one `natural_person` group. Purchases that name
   no supplier have their own group (`noSupplier: true`).
-- Analysis breakdowns at the DA grain (PROC-B51G): a `company` supplier bucket carries `displayName`, its registry
-  name only where `supplier_name_public`, looked up by the answer's company codes after the read (on both the v3
-  source and the ClickHouse D6 path) and never cached. It is null for `natural_person` and for a company whose name
-  is not public, and absent on other buckets and grains. It is the only name a client may show for a DA supplier
-  bucket (never `organizationLabels`, which ignores the flag). A name lookup that fails fails the answer.
+- Analysis breakdowns at the DA grain (PROC-B51G): on the v3 grain a `company` supplier bucket carries
+  `displayName`, its registry name only where `supplier_name_public`. It is looked up by the answer's company codes
+  after the read, never cached, in one snapshot that requires the publication the buckets came from and a readable
+  `supplier_disclosure`; a publish or a revoked grant in between refuses the answer retryably ("repeat the
+  request"), so no name outlives the D6 state of its bucket. It is null for `natural_person`, for a company whose
+  name is not public, and on the ClickHouse D6 path (which refuses DA supplier breakdowns at an explicit DA grain);
+  it is absent on other buckets and grains. It is the only name a client may show for a DA supplier bucket (never
+  `organizationLabels`, which ignores the flag). A name lookup that fails fails the answer.
 - Buyers are `authority`: the name is always served, the fiscal code only when it is valid.
 - The rule lives in `core/da-release.ts` (`isNamedSupplier`). The SQL mirror (`namedSupplierSql` in
   `da-v3-sql.ts`, over the public supplier row `s`) only filters and buckets rows, and the core re-checks every party

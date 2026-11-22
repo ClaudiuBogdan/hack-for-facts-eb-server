@@ -360,10 +360,16 @@ export interface ProcedureCanonicality {
 /**
  * The public registry names of direct-acquisition supplier codes (PROC-B51G): a code is
  * present only when its supplier name is public (`party_public_names.supplier_name_public`).
- * Read per answer and never cached: names move without any publication key moving.
+ * Read per answer and never cached: names move without any publication key moving. Answered
+ * only while publication `buildId` (the one the buckets were read from) is still current and
+ * supplier_disclosure still readable, in one snapshot; otherwise a retryable ServiceUnavailable,
+ * so a name never outlives the D6 state its bucket was decided under.
  */
 export interface DaSupplierNamesPort {
-  namesOf(codes: readonly string[]): Promise<Result<ReadonlyMap<string, string>, ApiError>>;
+  namesOf(
+    buildId: string,
+    codes: readonly string[]
+  ): Promise<Result<ReadonlyMap<string, string>, ApiError>>;
 }
 
 /**

@@ -79,6 +79,7 @@ import type {
   AnalysisRepo,
   AnalysisStatsRead,
   ConcentrationRead,
+  DaSupplierNamesPort,
 } from '../../core/ports.js';
 
 type Db = Kysely<ProdDatabase>;
@@ -117,6 +118,8 @@ export interface DaV3AnalysisSource {
   breakdownFor: AnalysisRepo['breakdownFor'];
   concentrationFor: AnalysisRepo['concentrationFor'];
   recordsFor: AnalysisRepo['recordsFor'];
+  /** PROC-B51G: the D6-gated names of a breakdown's company buckets (`DaSupplierNamesPort`). */
+  namesOf: DaSupplierNamesPort['namesOf'];
 }
 
 // ── errors and snapshots ─────────────────────────────────────────────────────
@@ -1513,6 +1516,14 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
     );
   };
 
+  // In the publication the buckets were read from, with supplier_disclosure readable, in one
+  // snapshot: a publish or a revoked grant since the read refuses (repeat), and is never named.
+  // Never cached.
+  const namesOf: DaV3AnalysisSource['namesOf'] = (buildId, codes) =>
+    snapshot(db, STATEMENT_TIMEOUT_MS, buildId, async (ctx) =>
+      ctx.privacy ? ok(await supplierNamesByCode(ctx.trx, codes)) : err(REPUBLISHED())
+    );
+
   return {
     generation,
     statsFor,
@@ -1521,5 +1532,6 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
     breakdownFor,
     concentrationFor,
     recordsFor,
+    namesOf,
   };
 };

@@ -16,7 +16,12 @@ import { procurementTypeDefs } from '@/modules/procurement/shell/graphql/typedef
 import { withDaDisclosure } from '@/modules/procurement/shell/repo/da-disclosure-repo.js';
 import { FiscalCodeSet, type SupplierDisclosurePort } from '@/modules/shared/index.js';
 
-import { fakeAnalysisRepo, statsRead } from '../../unit/procurement/analysis-fakes.js';
+import {
+  fakeAnalysisRepo,
+  generation,
+  PUBLISHED_CAPABILITIES,
+  statsRead,
+} from '../../unit/procurement/analysis-fakes.js';
 
 import type {
   AnalysisRepo,
@@ -269,6 +274,7 @@ describe('DA supplier bucket names over GraphQL (PROC-B51G)', () => {
   `;
   const analysis = () =>
     fakeAnalysisRepo({
+      generation: generation(undefined, { ...PUBLISHED_CAPABILITIES, directAcquisitionV3: true }),
       breakdown: {
         totals: statsRead({ rows: '6', withValue: '6', valueAwardedSum: '21' }),
         buckets: [
@@ -287,7 +293,10 @@ describe('DA supplier bucket names over GraphQL (PROC-B51G)', () => {
       },
     }).repo;
   const names: DaSupplierNamesPort = {
-    namesOf: () => Promise.resolve(ok(new Map([['14399840', 'FIRMA EXEMPLU SRL']]))),
+    namesOf: (_buildId, codes) =>
+      Promise.resolve(
+        ok(new Map(codes.includes('14399840') ? [['14399840', 'FIRMA EXEMPLU SRL']] : []))
+      ),
   };
 
   it('serves displayName for a public company name only, null otherwise', async () => {

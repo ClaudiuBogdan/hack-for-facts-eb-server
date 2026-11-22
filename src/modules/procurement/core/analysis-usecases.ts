@@ -1240,15 +1240,18 @@ const breakdownBlockFor = async (
     route.grain === 'direct_acquisition' &&
     dimension === 'supplier' &&
     (deps.supplierDisclosure?.enforced === true || gen.capabilities.directAcquisitionV3 === true);
-  // The names of the company buckets, gated by supplier_name_public, read for this answer only.
-  const companyCodes = supplierKinds
-    ? buckets.flatMap((b) =>
-        b.kind === 'top' && b.key !== null && b.key !== DA_NATURAL_PERSON_BUCKET ? [b.key] : []
-      )
-    : [];
+  // The names of the company buckets, gated by supplier_name_public, read for this answer only, in
+  // the publication the buckets came from. Only the v3 grain names suppliers (the ClickHouse D6
+  // path refuses DA supplier breakdowns, and its keys are not that publication's).
+  const companyCodes =
+    supplierKinds && gen.capabilities.directAcquisitionV3 === true
+      ? buckets.flatMap((b) =>
+          b.kind === 'top' && b.key !== null && b.key !== DA_NATURAL_PERSON_BUCKET ? [b.key] : []
+        )
+      : [];
   let names: ReadonlyMap<string, string> = new Map();
   if (companyCodes.length > 0 && deps.daSupplierNames !== undefined) {
-    const read = await deps.daSupplierNames.namesOf(companyCodes);
+    const read = await deps.daSupplierNames.namesOf(gen.buildId, companyCodes);
     if (read.isErr()) return err(read.error);
     names = read.value;
   }
