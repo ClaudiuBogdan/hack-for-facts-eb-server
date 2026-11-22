@@ -114,12 +114,13 @@ describe('makeClickhouseMoneyRepo', () => {
     );
   });
 
-  it('a missing build table answers ServiceUnavailable, never a guessed total', async () => {
+  it.each([
+    ['a missing build table', 'clickhouse HTTP 404 (code 60)'],
+    ['a missing database', 'clickhouse HTTP 404 (code 81)'],
+    ['a build not yet granted to the API user', 'clickhouse HTTP 403 (code 497)'],
+  ])('%s answers ServiceUnavailable, never a guessed total', async (_case, message) => {
     const r: ClickhouseReader = {
-      query: () =>
-        Promise.resolve(
-          err({ type: 'Database', message: 'clickhouse HTTP 404 (code 60)' } as never)
-        ),
+      query: () => Promise.resolve(err({ type: 'Database', message } as never)),
     };
     const repo = makeClickhouseMoneyRepo({ db, reader: r });
     expect(
@@ -130,6 +131,17 @@ describe('makeClickhouseMoneyRepo', () => {
     expect((await repo.labels('17'))._unsafeUnwrapErr()).toMatchObject({
       type: 'ServiceUnavailable',
     });
+  });
+
+  it('any other ClickHouse failure stays a database error', async () => {
+    const r: ClickhouseReader = {
+      query: () =>
+        Promise.resolve(
+          err({ type: 'Database', message: 'clickhouse HTTP 500 (code 4970)' } as never)
+        ),
+    };
+    const repo = makeClickhouseMoneyRepo({ db, reader: r });
+    expect((await repo.labels('17'))._unsafeUnwrapErr()).toMatchObject({ type: 'Database' });
   });
 
   it('an absent pointer table is "not published"; other database failures are failures', async () => {
