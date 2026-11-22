@@ -217,12 +217,20 @@ const approvedAnalysisGrants = (columns: Map<string, Set<string>>): string => {
     const present = approved.filter((column) => columns.get(table)?.has(column) === true);
     return `grant select (${present.join(', ')}) on procurement_v3.${table} to procurement_api_read;`;
   });
+  // Idempotent, and cut to the relations that exist, so any test in this file can call it.
+  const tables = APPROVED_TABLES.filter((table) => columns.has(table));
   return `
-    create role procurement_api_read nologin;
+    do $$ begin
+      if not exists (select from pg_roles where rolname = 'procurement_api_read') then
+        create role procurement_api_read nologin;
+      end if;
+      if not exists (select from pg_roles where rolname = '${API_LOGIN}') then
+        create role ${API_LOGIN} login password '${API_LOGIN}' in role procurement_api_read;
+      end if;
+    end $$;
     grant usage on schema procurement_v3 to procurement_api_read;
     ${columnGrants.join('\n')}
-    grant select on ${APPROVED_TABLES.map((t) => `procurement_v3.${t}`).join(', ')} to procurement_api_read;
-    create role ${API_LOGIN} login password '${API_LOGIN}' in role procurement_api_read;`;
+    ${tables.length === 0 ? '' : `grant select on ${tables.map((t) => `procurement_v3.${t}`).join(', ')} to procurement_api_read;`}`;
 };
 
 /**
@@ -450,6 +458,10 @@ describe('with supplier_disclosure and the public party views', () => {
  * build (the data platform's rules, agreed 18 Nov) runs over a varied seed; a
  * battery of reads runs live first, then over the rollups through a fresh
  * source, and every answer must be identical.
+ *
+ * Sequential, like the whole file: these tests build on the publication, the
+ * public views (earlier describes), the seed, the rollups and the approved-grant
+ * login the parity test creates. Run the file, not a single test.
  */
 describe('rollups answer exactly as the live rows', () => {
   const ROLLUP_BASE = `
@@ -586,6 +598,46 @@ describe('rollups answer exactly as the live rows', () => {
     { supplierCui: '2000002', cpvClass: '4411' },
   ];
 
+  /**
+   * The battery's requests in order, each flagged when the analysis contract refuses it by design:
+   * a distinct count, breakdown or concentration over a key the scope already fixes (a CPV scope
+   * fixes its level and every coarser one).
+   */
+  const batteryRefusals = (): boolean[] => {
+    const out: boolean[] = [];
+    for (const extra of COUNTED_SCOPES) {
+      const authority = 'authorityCui' in extra;
+      const supplier = 'supplierCui' in extra;
+      // A CPV scope fixes its level and every coarser one.
+      const cpvLevels = ['cpvDivision', 'cpvGroup', 'cpvClass', 'cpvCategory'];
+      const cpvScope = Math.max(...cpvLevels.map((level, i) => (level in extra ? i : -1)));
+      const fixes = (dimension: string): boolean => {
+        if (dimension === 'authority') return authority;
+        if (dimension === 'supplier') return supplier;
+        const level = cpvLevels.indexOf(dimension);
+        if (level >= 0) return level <= cpvScope;
+        return dimension in extra;
+      };
+      out.push(false, false, false);
+      for (const measure of ['distinctAuthorities', 'distinctSuppliers'] as const)
+        for (let bucket = 0; bucket < 3; bucket += 1)
+          out.push(measure === 'distinctAuthorities' ? authority : supplier);
+      for (const dimension of [
+        'authority',
+        'supplier',
+        'cpvDivision',
+        'cpvGroup',
+        'cpvClass',
+        'cpvCategory',
+        'buyerCounty',
+        'buyerRegion',
+      ])
+        for (let rank = 0; rank < 2; rank += 1) out.push(fixes(dimension));
+      out.push(supplier, supplier, false);
+    }
+    return out;
+  };
+
   const battery = async (d: AnalysisDeps): Promise<unknown[]> => {
     const out: unknown[] = [];
     for (const extra of COUNTED_SCOPES) {
@@ -676,7 +728,13 @@ describe('rollups answer exactly as the live rows', () => {
             )
         )
       ).toEqual([]);
-      expect(refused).toHaveLength(61);
+      // Exactly the requests the contract refuses, by position, and no other.
+      const expectedRefused = batteryRefusals().flatMap((isRefused, index) =>
+        isRefused ? [index] : []
+      );
+      expect(batteryRefusals()).toHaveLength(live.length);
+      expect(refused.map(([index]) => index)).toEqual(expectedRefused);
+      expect(expectedRefused).toHaveLength(61);
       for (let index = 0; index < live.length; index += 1)
         expect({ index, answer: rolled[index] }).toEqual({ index, answer: live[index] });
       // The rollups were read, not just present.
@@ -714,6 +772,10 @@ describe('rollups answer exactly as the live rows', () => {
         ).rows[0]?.id ?? '-1';
       const flipped = await idOf(SOLE_TRADER.fiscalCode ?? '');
       const publicRef = await idOf('2000002');
+      // Real supplier ids: an unmapped ref would fold into natural_person and prove nothing.
+      expect(flipped).toMatch(/^[1-9][0-9]*$/u);
+      expect(publicRef).toMatch(/^[1-9][0-9]*$/u);
+      expect(flipped).not.toBe(publicRef);
       for (const table of [
         'da_rollup_supplier_month',
         'da_rollup_supplier_cpv_month',
@@ -883,9 +945,9 @@ describe('rollups answer exactly as the live rows', () => {
       )
       .execute(db);
     if (container === undefined) throw new Error('no container');
-    // The published quality columns are read as the API's login under the approved grants.
-    await sql`grant select (rows, dated, counted, accepted, with_cpv, with_geo, money, money_dated, money_geo)
-      on procurement_v3.da_release to procurement_api_read`.execute(db);
+    // The published quality columns are read as the API's login under the approved grants
+    // (the da_release grant now covers them: the helper grants every approved column present).
+    await sql.raw(approvedAnalysisGrants(await columnsOf(db))).execute(db);
     const statements: string[] = [];
     const logged = new Kysely<ProdDatabase>({
       dialect: new PostgresDialect({
