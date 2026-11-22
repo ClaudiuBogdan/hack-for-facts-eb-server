@@ -722,3 +722,179 @@ describe('supplier totals from the per-party rollup (PROC-AP75)', () => {
     }
   });
 });
+
+/**
+ * PROC-AP75 (2 s p95): unfiltered supplier totals from the all-time per-party table. Every page
+ * answers exactly as the purchases did; ranges keep the month rollup; the table is read only while
+ * its marker says it was built for this publication; without supplier_disclosure everyone is
+ * withheld; a disclosed page row the public view does not name is refused, never served. Runs after
+ * the month-rollup test (its marker is stale by then, so the reference is the purchases).
+ */
+describe('unfiltered supplier totals from the all-time per-party table (PROC-AP75)', () => {
+  it('answers exactly as the purchases, only while fresh, and fails closed', async () => {
+    if (db === undefined || container === undefined) throw new Error('no database');
+    const statements: string[] = [];
+    const logged = new Kysely<ProdDatabase>({
+      dialect: new PostgresDialect({
+        pool: new pg.Pool({
+          host: container.getHost(),
+          port: container.getPort(),
+          database: container.getDatabase(),
+          user: API_LOGIN,
+          password: API_LOGIN,
+          max: 1,
+        }),
+      }),
+      log: (event) => {
+        statements.push(event.query.sql);
+      },
+    });
+    const PAGES = [
+      [1, 100],
+      [1, 1],
+      [2, 1],
+      [3, 1],
+      [4, 1],
+      [9, 1],
+    ] as const;
+    const battery = async () => {
+      const out: unknown[] = [];
+      for (const [page, pageSize] of PAGES)
+        out.push(
+          await daPurchaseTotals(
+            { repo: makeDaReleaseRepo(logged, true) },
+            { groupBy: 'supplier', filter: {}, page, pageSize }
+          )
+        );
+      return out;
+    };
+    const allTime = (text: string) => text.includes('"da_rollup_supplier_party"');
+    const month = (text: string) => text.includes('"da_rollup_supplier_party_month"');
+    try {
+      await sql`create table procurement_v3.da_rollup_supplier_party as
+        select p.source_name, p.supplier_party_id,
+               (p.supplier_party_id is not null and exists (
+                  select 1 from procurement_v3.da_parties_public x
+                  where x.source_name = p.source_name and x.party_kind = 'supplier'
+                    and x.portal_party_id = p.supplier_party_id
+                    and x.fiscal_code_status = 'valid' and x.fiscal_code_clean is not null)) as disclosed,
+               count(*) as purchases,
+               count(*) filter (where counted) as counted_purchases,
+               coalesce(sum(counted_value) filter (where counted), 0)::numeric(20, 2) as counted_value,
+               count(*) filter (where counted and symbolic_price) as counted_symbolic_purchases
+        from procurement_v3.da_purchases p group by 1, 2`.execute(db);
+      await sql`insert into procurement_v3.da_rollup_supplier_party
+        values ('elicitatie_api_pub', 'emptied-party', false, 0, 0, 0, 0)`.execute(db);
+      await sql`alter table procurement_v3.da_release add column supplier_party_totals_for timestamptz`.execute(
+        db
+      );
+      await sql`grant select on procurement_v3.da_rollup_supplier_party to procurement_api_read`.execute(
+        db
+      );
+      await sql`grant select (supplier_party_totals_for) on procurement_v3.da_release to procurement_api_read`.execute(
+        db
+      );
+      // Marker unset (and the month rollup stale from the test above): the purchases answer.
+      statements.length = 0;
+      const purchases = await battery();
+      for (const answer of purchases) expect((answer as { isOk: () => boolean }).isOk()).toBe(true);
+      expect(statements.some(allTime) || statements.some(month)).toBe(false);
+
+      await sql`update procurement_v3.da_release set supplier_party_totals_for = data_as_of`.execute(
+        db
+      );
+      statements.length = 0;
+      expect(await battery()).toEqual(purchases);
+      expect(statements.some(allTime)).toBe(true);
+      expect(statements.some((text) => text.includes('"procurement_v3"."da_purchases"'))).toBe(
+        false
+      );
+      // A range is not unfiltered: never the all-time table.
+      statements.length = 0;
+      await daPurchaseTotals(
+        { repo: makeDaReleaseRepo(logged, true) },
+        {
+          groupBy: 'supplier',
+          filter: { finalizationFrom: '2025-01-01', finalizationTo: '2025-12-31' },
+          page: 1,
+          pageSize: 100,
+        }
+      );
+      expect(statements.some(allTime)).toBe(false);
+
+      // Without supplier_disclosure everyone is withheld, exactly as the purchases withhold them.
+      await sql`revoke select on procurement_v3.supplier_disclosure from procurement_api_read`.execute(
+        db
+      );
+      try {
+        const withheld = await battery();
+        await sql`update procurement_v3.da_release set supplier_party_totals_for = null`.execute(
+          db
+        );
+        expect(await battery()).toEqual(withheld);
+        await sql`update procurement_v3.da_release set supplier_party_totals_for = data_as_of`.execute(
+          db
+        );
+        expect(JSON.stringify(withheld)).not.toContain(COMPANY_REGISTRY_NAME);
+        expect(JSON.stringify(withheld)).not.toContain('"company"');
+      } finally {
+        await sql`grant select on procurement_v3.supplier_disclosure to procurement_api_read`.execute(
+          db
+        );
+      }
+
+      // A party the table calls disclosed but the public view does not name: refused, retryably.
+      await sql`update procurement_v3.da_rollup_supplier_party set disclosed = true
+        where supplier_party_id = ${SOLE_TRADER.portalPartyId}`.execute(db);
+      const refused = await daPurchaseTotals(
+        { repo: makeDaReleaseRepo(logged, true) },
+        { groupBy: 'supplier', filter: {}, page: 1, pageSize: 100 }
+      );
+      expect(refused._unsafeUnwrapErr()).toMatchObject({
+        type: 'ServiceUnavailable',
+        message: expect.stringContaining('repeat the request') as unknown,
+      });
+      expect(JSON.stringify(refused)).not.toContain(SOLE_TRADER.fiscalCode ?? '~');
+      await sql`update procurement_v3.da_rollup_supplier_party set disclosed = false
+        where supplier_party_id = ${SOLE_TRADER.portalPartyId}`.execute(db);
+
+      // Groups are ordered by value as numbers, never as text: a withheld bucket of 10.00 comes
+      // before a company of 9.00 ("9.00" > "10.00" as text).
+      await sql`create table procurement_v3.f_all_time as
+        select * from procurement_v3.da_rollup_supplier_party`.execute(db);
+      await sql`update procurement_v3.da_rollup_supplier_party
+        set counted_value = case when disclosed then 9.00 else 0 end`.execute(db);
+      await sql`update procurement_v3.da_rollup_supplier_party set counted_value = 10.00
+        where supplier_party_id = ${SOLE_TRADER.portalPartyId}`.execute(db);
+      const ordered = (
+        await daPurchaseTotals(
+          { repo: makeDaReleaseRepo(logged, true) },
+          { groupBy: 'supplier', filter: {}, page: 1, pageSize: 100 }
+        )
+      )._unsafeUnwrap();
+      expect(
+        ordered.groups.map((group) => [group.party?.displayKind ?? null, group.countedValue])
+      ).toEqual([
+        ['natural_person', '10.00'],
+        ['company', '9.00'],
+        // The no-supplier row was zeroed above (it still counts purchases).
+        [null, '0.00'],
+      ]);
+      await sql`delete from procurement_v3.da_rollup_supplier_party`.execute(db);
+      await sql`insert into procurement_v3.da_rollup_supplier_party select * from procurement_v3.f_all_time`.execute(
+        db
+      );
+      await sql`drop table procurement_v3.f_all_time`.execute(db);
+      expect(await battery()).toEqual(purchases);
+
+      // A table built for another publication is never read.
+      await sql`update procurement_v3.da_release
+        set supplier_party_totals_for = data_as_of - interval '1 day'`.execute(db);
+      statements.length = 0;
+      expect(await battery()).toEqual(purchases);
+      expect(statements.some(allTime)).toBe(false);
+    } finally {
+      await logged.destroy();
+    }
+  });
+});

@@ -58,6 +58,7 @@ import type {
   DaReleaseReader,
   DaReleaseRepo,
   DaTotalsQuery,
+  DaTotalsRecords,
 } from '../../core/da-release-ports.js';
 
 type Db = Kysely<ProdDatabase>;
@@ -423,22 +424,25 @@ const rollupEligible = (query: DaTotalsQuery): boolean => {
  * (numeric(20,2)) and is exact: counted_value scale ≤ 2 is enforced by
  * procurement_v3.da_purchases_counted_value_scale_check (20261121T090000, validated on prod).
  */
-const supplierPartyRollupFresh = async (trx: Db): Promise<boolean> => {
+const rollupFresh = async (trx: Db, tableName: string, marker: string): Promise<boolean> => {
   const readable = await sql<{ usable: boolean | null }>`
-    select coalesce(has_table_privilege(to_regclass(${SUPPLIER_PARTY_ROLLUP_NAME}), 'SELECT'), false)
+    select coalesce(has_table_privilege(to_regclass(${tableName}), 'SELECT'), false)
       and case when exists (
             select 1 from pg_attribute a
-            where a.attrelid = to_regclass(${RELEASE_NAME}) and a.attname = 'supplier_party_rollup_for'
+            where a.attrelid = to_regclass(${RELEASE_NAME}) and a.attname = ${marker}
               and a.attnum > 0 and not a.attisdropped)
-          then has_column_privilege(to_regclass(${RELEASE_NAME}), 'supplier_party_rollup_for', 'SELECT')
+          then has_column_privilege(to_regclass(${RELEASE_NAME}), ${marker}, 'SELECT')
           else false end as usable`.execute(trx);
   if (readable.rows[0]?.usable !== true) return false;
   const fresh = await sql<{ fresh: boolean | null }>`
-    select r.supplier_party_rollup_for = r.data_as_of as fresh
+    select ${sql.ref(`r.${marker}`)} = r.data_as_of as fresh
     from ${RELEASE} r
     where r.data_as_of = (select max(data_as_of) from ${RELEASE})`.execute(trx);
   return fresh.rows.length === 1 && fresh.rows[0]?.fresh === true;
 };
+
+const supplierPartyRollupFresh = (trx: Db): Promise<boolean> =>
+  rollupFresh(trx, SUPPLIER_PARTY_ROLLUP_NAME, 'supplier_party_rollup_for');
 
 /**
  * The rollup's rows in the range, summed per (source_name, supplier_party_id) FIRST, as relation
@@ -488,6 +492,91 @@ const ROLLUP_MEASURES = sql`
   sum(p.counted_count)::text as counted_count,
   sum(p.symbolic_price_count)::text as symbolic_price_count,
   sum(p.purchase_count)::text as purchase_count`;
+
+// ── Unfiltered supplier totals from the all-time per-party table (PROC-AP75) ──
+
+const SUPPLIER_PARTY_TOTALS = table('da_rollup_supplier_party');
+const SUPPLIER_PARTY_TOTALS_NAME = `${DA_RELEASE_SCHEMA}.da_rollup_supplier_party`;
+
+/** Unfiltered supplier totals: every filter field unset. */
+const unfiltered = (query: DaTotalsQuery): boolean =>
+  query.groupBy === 'supplier' &&
+  Object.values(query.filter).every((value: unknown) => value === undefined);
+
+/** The all-time table answers while readable and built for this publication (same snapshot). */
+const supplierPartyTotalsFresh = (trx: Db): Promise<boolean> =>
+  rollupFresh(trx, SUPPLIER_PARTY_TOTALS_NAME, 'supplier_party_totals_for');
+
+/**
+ * The all-time per-party table's groups `g`, one row each: a disclosed party is its own named
+ * group (keyed and ordered exactly as the purchases name it, `source_name:party id`), every other
+ * party one withheld group, the purchases with no supplier one none group. `disclosed` is the D6
+ * named predicate the data platform evaluated at publish (a public party row with a valid code);
+ * it counts only while supplier_disclosure is readable now, else every supplier is withheld. The
+ * table holds no codes: the page's parties are probed below.
+ */
+const allTimeGroups = (named: RawBuilder<unknown>): RawBuilder<unknown> => sql`
+  with t as materialized (
+    select source_name, supplier_party_id, purchases, counted_purchases, counted_value,
+           counted_symbolic_purchases, ${named} as named
+    from ${SUPPLIER_PARTY_TOTALS} where purchases > 0),
+  g as (
+    select source_name || ':' || supplier_party_id as group_key, 'named'::text as g_bucket,
+           source_name, supplier_party_id,
+           case when counted_purchases > 0 then counted_value end as counted_value,
+           counted_purchases as counted_count, counted_symbolic_purchases as symbolic_price_count,
+           purchases as purchase_count
+    from t where named and supplier_party_id is not null
+    union all
+    select null, 'withheld', null, null,
+           sum(counted_value) filter (where counted_purchases > 0), sum(counted_purchases),
+           sum(counted_symbolic_purchases), sum(purchases)
+    from t where not named and supplier_party_id is not null having count(*) > 0
+    union all
+    select null, 'none', null, null,
+           sum(counted_value) filter (where counted_purchases > 0), sum(counted_purchases),
+           sum(counted_symbolic_purchases), sum(purchases)
+    from t where supplier_party_id is null having count(*) > 0)`;
+
+/** The groups' order, on relation `alias`'s numeric columns (never a text alias of the select). */
+const allTimeOrder = (alias: string): RawBuilder<unknown> => {
+  const column = (name: string) => sql.ref(`${alias}.${name}`);
+  return sql`${column('counted_value')} desc nulls last, ${column('purchase_count')} desc,
+    ${column('group_key')} asc nulls last, ${column('g_bucket')} asc nulls last`;
+};
+
+/** One page of the all-time groups, each named one with its public party row (fenced probe). */
+const allTimePage = (
+  named: RawBuilder<unknown>,
+  limit: number,
+  offset: number
+): RawBuilder<unknown> => sql`
+  ${allTimeGroups(named)},
+  page as (select * from g order by ${allTimeOrder('g')} limit ${limit} offset ${offset})
+  select page.group_key, page.g_bucket,
+         s.portal_party_id as g_portal_party_id, s.name_as_written as g_name_as_written,
+         s.fiscal_code_clean as g_fiscal_code_clean, s.fiscal_code_status as g_fiscal_code_status,
+         page.g_bucket = 'named' as g_supplier_public,
+         page.counted_value::text as counted_value, page.counted_count::text as counted_count,
+         page.symbolic_price_count::text as symbolic_price_count,
+         page.purchase_count::text as purchase_count,
+         (select count(*) from g)::text as group_count
+  from page
+  left join lateral (
+    select x.portal_party_id, x.name_as_written, x.fiscal_code_clean, x.fiscal_code_status
+    from ${PARTIES} x
+    where page.g_bucket = 'named' and x.source_name = page.source_name
+      and x.party_kind = 'supplier' and x.portal_party_id = page.supplier_party_id
+    offset 0) s on true
+  order by ${allTimeOrder('page')}`;
+
+/** The overall line straight from the all-time table. */
+const ALL_TIME_OVERALL = sql`
+  select (sum(counted_value) filter (where counted_purchases > 0))::text as counted_value,
+         coalesce(sum(counted_purchases), 0)::text as counted_count,
+         coalesce(sum(counted_symbolic_purchases), 0)::text as symbolic_price_count,
+         coalesce(sum(purchases), 0)::text as purchase_count
+  from ${SUPPLIER_PARTY_TOTALS} where purchases > 0`;
 
 // ── Totals grouping ──────────────────────────────────────────────────────────
 
@@ -633,6 +722,63 @@ const namePurchases = (trx: Db, rows: readonly DaPurchaseRecord[]) =>
 
 // ── Reader ───────────────────────────────────────────────────────────────────
 
+/**
+ * Unfiltered supplier totals from the all-time table, in the totals' snapshot. A named group on
+ * the page whose public party row is missing or no longer names it (never within one publication)
+ * refuses the answer as retryable: it is never served partly named.
+ */
+const allTimeSupplierTotals = async (
+  trx: Db,
+  columns: Columns,
+  query: DaTotalsQuery
+): Promise<Result<DaTotalsRecords, ApiError>> => {
+  const named = columns.supplierDisclosure ? sql`disclosed` : sql`false`;
+  const overall = await attempt(
+    async () => (await sql<MeasureRow>`${ALL_TIME_OVERALL}`.execute(trx)).rows[0]
+  );
+  if (overall.isErr()) return err(overall.error);
+  if (overall.value === undefined)
+    return err(databaseError('Direct acquisitions total returned no row.'));
+  const page = await attempt(
+    async () =>
+      (await sql<GroupRow>`${allTimePage(named, query.pageSize, offsetFor(query))}`.execute(trx))
+        .rows
+  );
+  if (page.isErr()) return err(page.error);
+  const unnamed = page.value.some(
+    (row) =>
+      row.g_bucket === 'named' &&
+      (row.g_portal_party_id === null ||
+        row.g_fiscal_code_status !== 'valid' ||
+        row.g_fiscal_code_clean === null)
+  );
+  if (unnamed) return err(REPUBLISHED());
+  let groupCount = page.value[0]?.group_count;
+  if (groupCount === undefined) {
+    // A page past the end still reports how many groups exist.
+    const counted = await attempt(
+      async () =>
+        (
+          await sql<{ total: string }>`
+            ${allTimeGroups(named)}
+            select count(*)::text as total from g`.execute(trx)
+        ).rows[0]?.total
+    );
+    if (counted.isErr()) return err(counted.error);
+    groupCount = counted.value ?? '0';
+  }
+  const count = exactCount(groupCount);
+  if (count.isErr()) return err(count.error);
+  const groups = await withSupplierNames(
+    trx,
+    page.value.map((row) => toGroupRecord(row, 'supplier')),
+    (group) => group.party,
+    (group, party) => ({ ...group, party })
+  );
+  if (groups.isErr()) return err(groups.error);
+  return ok({ overall: toMeasures(overall.value), groups: groups.value, groupCount: count.value });
+};
+
 const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
   dataAsOf: () =>
     attempt(async () => {
@@ -768,8 +914,14 @@ const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
     }),
 
   totals: async (query) => {
-    // PROC-AP75: whole-table supplier totals from the per-party rollup when it answers this
-    // filter and was built for this publication; otherwise the purchases, as before.
+    // PROC-AP75: unfiltered supplier totals from the all-time per-party table when it was built
+    // for this publication; else the per-month rollup (no filter, or a month-aligned range);
+    // otherwise the purchases, as before.
+    if (unfiltered(query)) {
+      const allTime = await attempt(() => supplierPartyTotalsFresh(trx));
+      if (allTime.isErr()) return err(allTime.error);
+      if (allTime.value) return allTimeSupplierTotals(trx, columns, query);
+    }
     const fromRollup = rollupEligible(query)
       ? await attempt(() => supplierPartyRollupFresh(trx))
       : ok(false);

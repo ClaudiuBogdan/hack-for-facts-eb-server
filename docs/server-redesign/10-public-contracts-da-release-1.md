@@ -62,7 +62,15 @@ only what the API adds or decides.
   `da_parties_public` per party, grouped as before; the overall line sums the rollup directly. Only while this login
   can read it and `da_release.supplier_party_rollup_for = data_as_of` in the same snapshot; otherwise, and for any
   other filter, the purchases answer as before. On prod (22 Nov, dev API pod, identical answers): unfiltered 60 s
-  (a 10 s timeout today) → 2.8 s, 2025 11 s → 1.1 s. Summed counted values in DA totals print at least cents and
+  (a 10 s timeout today) → 2.8 s, 2025 11 s → 1.1 s.
+- Unfiltered supplier totals read the all-time table `da_rollup_supplier_party` first (PROC-AP75, the 2 s p95
+  gate): one row per party with the four measures and `disclosed`, the D6 named predicate the platform evaluated at
+  publish; no codes. Only while `da_release.supplier_party_totals_for = data_as_of` in the same snapshot. `disclosed`
+  counts only while `supplier_disclosure` is readable now (else every supplier is withheld); groupCount, the
+  withheld and none buckets and the order come from the table; the page's named parties are probed on
+  `da_parties_public` (fenced lateral) for their codes, names by code as everywhere. A disclosed page row the view
+  does not name is refused as retryable. On prod (identical answers): page 1 2.9 s → 0.28 s (10 runs ≤ 0.29 s),
+  the last page 0.5 s. Summed counted values in DA totals print at least cents and
   are never rounded (`13465400.0` → `13465400.00`), so both paths read alike.
 - A withheld supplier is `natural_person`, with `name`, `fiscalCode` and `partyId` all null; one person's purchases
   cannot be linked across rows.
