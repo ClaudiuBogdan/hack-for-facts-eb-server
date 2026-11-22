@@ -473,7 +473,9 @@ export const procurementTypeDefs = /* GraphQL */ `
   The D6 state an answer naming direct-acquisition suppliers was served under. disclosureKey is
   off (D6 not enforced), unavailable (no supplier_privacy publication readable: everyone withheld;
   never cache), or the supplier_privacy publication (ISO UTC). Dated keys only move forward: keep
-  the newest seen, never cache an answer with an older key and never re-key to one.
+  the newest seen, never cache an answer with an older key and never re-key to one. Supplier names
+  come from the live registry and can be withdrawn without any key moving: keys cover codes, counts
+  and values, never names. Do not keep a supplier name beyond the response that carried it.
   """
   type ProcurementDisclosureMeta {
     disclosureKey: String
@@ -800,7 +802,7 @@ export const procurementTypeDefs = /* GraphQL */ `
     provisional: Boolean!
     caveats: [String!]!
     canonicalScope: String!
-    "DA blocks: the D6 state served under (off, unavailable, or the supplier_privacy publication); key DA caches by (buildId, disclosureKey). Never cache a DA answer whose key is unavailable. Null on other grains."
+    "DA blocks: the D6 state served under (off, unavailable, or the supplier_privacy publication); key DA caches by (buildId, disclosureKey). Never cache a DA answer whose key is unavailable. Keys never cover supplier names (live registry): do not keep a name beyond its response. Null on other grains."
     disclosureKey: String
   }
 

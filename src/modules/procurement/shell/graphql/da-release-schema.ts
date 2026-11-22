@@ -37,7 +37,9 @@ export const daReleaseTypeDefs = /* GraphQL */ `
     The supplier_privacy publication in force; null when D6 is off or its source is absent (every
     DA supplier is then withheld). Key caches by (privacyEnforced, privacyAsOf, dataAsOf):
     privacyAsOf is null both while D6 is off and while it is on but unreadable; never cache a DA
-    answer received while privacyEnforced is true and privacyAsOf is null.
+    answer received while privacyEnforced is true and privacyAsOf is null. Supplier names come from
+    the live registry and can be withdrawn without any key moving: keys cover codes, counts and
+    values, never names. Do not keep a supplier name beyond the response that carried it.
     """
     privacyAsOf: DateTime
   }
@@ -160,6 +162,9 @@ export const daReleaseTypeDefs = /* GraphQL */ `
   The D6 state a release answer was served under. disclosureKey is the release's dataAsOf when
   supplier_privacy was readable in its snapshot, else unavailable (everyone withheld; never cache).
   Dated keys only move forward: keep the newest seen, never cache an answer with an older key.
+  Supplier names come from the live registry and can be withdrawn without any key moving: keys
+  cover codes, counts and values, never names. Do not keep a supplier name beyond the response that
+  carried it.
   """
   type ProcurementDaReleaseMeta {
     disclosureKey: String
