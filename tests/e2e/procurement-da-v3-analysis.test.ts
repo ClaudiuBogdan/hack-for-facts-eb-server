@@ -215,7 +215,9 @@ const columnsOf = async (trx: Kysely<ProdDatabase>): Promise<Map<string, Set<str
 const approvedAnalysisGrants = (columns: Map<string, Set<string>>): string => {
   const columnGrants = Object.entries(APPROVED_COLUMNS).map(([table, approved]) => {
     const present = approved.filter((column) => columns.get(table)?.has(column) === true);
-    return `grant select (${present.join(', ')}) on procurement_v3.${table} to procurement_api_read;`;
+    return present.length === 0
+      ? ''
+      : `grant select (${present.join(', ')}) on procurement_v3.${table} to procurement_api_read;`;
   });
   // Idempotent, and cut to the relations that exist, so any test in this file can call it.
   const tables = APPROVED_TABLES.filter((table) => columns.has(table));
@@ -737,13 +739,17 @@ describe('rollups answer exactly as the live rows', () => {
       expect(expectedRefused).toHaveLength(61);
       for (let index = 0; index < live.length; index += 1)
         expect({ index, answer: rolled[index] }).toEqual({ index, answer: live[index] });
-      // The rollups were read, not just present.
-      expect(statements.some((text) => text.includes('da_rollup_supplier_month'))).toBe(true);
-      expect(statements.some((text) => text.includes('da_rollup_distinct'))).toBe(true);
-      expect(statements.some((text) => text.includes('da_rollup_authority_supplier_month'))).toBe(
-        true
-      );
-      expect(statements.some((text) => text.includes('da_buyer_geography'))).toBe(true);
+      // Every rollup and the pinned geography were read, not just present (a rollup the login
+      // could not read would fall back to live rows and still match).
+      for (const table of [
+        ...TABLES.map(([name]) => name),
+        'da_rollup_distinct',
+        'da_buyer_geography',
+      ])
+        expect(
+          statements.some((text) => text.includes(`"procurement_v3"."${table}"`)),
+          table
+        ).toBe(true);
       // The kernel's geography moves after the publish: every answer keeps the published
       // place (rollups and live rows both read the pinned table), so nothing changes.
       await sql`update core.territories set county_code = 'QQ' where territorial_siruta_code = '777'`.execute(
