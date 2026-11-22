@@ -127,8 +127,8 @@ describe('D6', () => {
       { rollups: ['da_rollup_authority_supplier_month'] }
     );
     expect(sql).toContain('from "procurement_v3"."da_rollup_authority_supplier_month" r');
-    expect(sql).toContain(
-      'left join "procurement_v3"."supplier_disclosure" sv on sv.supplier_id = r.supplier_ref'
+    expect(sql).toMatch(
+      /left join lateral \(select x\.fiscal_code_clean from "procurement_v3"\."supplier_disclosure" x\s+where x\.supplier_id = r\.supplier_ref offset 0\) sv on true/u
     );
     expect(sql).toContain('(r.supplier_ref > 0 and sv.fiscal_code_clean is not null)');
     expect(sql).not.toMatch(/\bpublic is\b/u);
@@ -162,8 +162,14 @@ describe('D6', () => {
       s.statsFor(ROUTE, { grain: 'direct_acquisition', supplierCui: '14399840' }, GEN)
     );
     expect(sql).toMatch(
-      /\(p\.source_name, p\.supplier_party_id\) in \(select pp\.source_name, pp\.portal_party_id from "procurement_v3"\."da_parties_public" pp\s+where pp\.party_kind = \$\d+ and pp\.fiscal_code_status = 'valid' and pp\.fiscal_code_clean = \$\d+\) and \(s\.portal_party_id is not null/u
+      /\(p\.source_name, p\.supplier_party_id\) in \(select pp\.source_name, pp\.portal_party_id from "procurement_v3"\."da_parties_public" pp\s+where pp\.party_kind = \$\d+ and pp\.fiscal_code_status = 'valid' and pp\.fiscal_code_clean = \$\d+\)/u
     );
+    // The match is the D6 test; unreadable supplier_disclosure matches nothing.
+    const closed = await run(
+      (s) => s.statsFor(ROUTE, { grain: 'direct_acquisition', supplierCui: '14399840' }, GEN),
+      { privacy: false }
+    );
+    expect(closed.sql).not.toContain('pp.party_kind');
   });
 
   it('records carry a supplier code and name only when named, and never select free text', async () => {
@@ -182,6 +188,59 @@ describe('D6', () => {
     // Two phases the where-counted (counted_value, purchase_id) index serves: valued rows first.
     expect(sql).toContain('p.counted and p.counted_value is not null');
     expect(sql).toContain('order by p.counted_value desc, p.purchase_id desc');
+  });
+});
+
+describe('party joins', () => {
+  it('probes parties per row on a records page and joins them plainly for aggregates', async () => {
+    const records = await run((s) =>
+      s.recordsFor(ROUTE, AUTHORITY, GEN, { sort: 'date_desc', offset: 0, limit: 25 })
+    );
+    const page = records.data.find((text) => text.includes('as supplier_display_kind')) ?? '';
+    expect(page).toMatch(
+      /left join lateral \(\s+select x\.source_name[\s\S]+offset 0\) "b" on true/u
+    );
+    expect(page).toMatch(
+      /left join lateral \(\s+select x\.source_name[\s\S]+offset 0\) "s" on true/u
+    );
+    const stats = await run((s) => s.statsFor(ROUTE, AUTHORITY, GEN));
+    expect(stats.sql).toContain(`left join "procurement_v3"."da_parties_public" b`);
+    expect(stats.sql).not.toContain('left join lateral');
+  });
+
+  it('chooses a records page from da_purchases alone, then probes only its rows', async () => {
+    const { data } = await run((s) =>
+      s.recordsFor(ROUTE, { grain: 'direct_acquisition', supplierCui: '14399840' }, GEN, {
+        sort: 'date_desc',
+        offset: 0,
+        limit: 25,
+      })
+    );
+    const page = data.find((text) => text.includes('as supplier_display_kind')) ?? '';
+    expect(page).toMatch(
+      /from \(\s+select p\.purchase_id, p\.source_name[\s\S]+from "procurement_v3"\."da_purchases" p\s+where [\s\S]+limit \$\d+ offset \$\d+\) p\s+left join lateral/u
+    );
+    // A geography scope reads the buyer's place in the filter: the parties join first.
+    const geo = await run((s) =>
+      s.recordsFor(ROUTE, { grain: 'direct_acquisition', buyerCounty: 'CJ' }, GEN, {
+        sort: 'date_desc',
+        offset: 0,
+        limit: 25,
+      })
+    );
+    const geoPage = geo.data.find((text) => text.includes('as supplier_display_kind')) ?? '';
+    expect(geoPage).not.toMatch(/from \(\s+select p\.purchase_id/u);
+    expect(geoPage).toMatch(/offset 0\) "b" on true[\s\S]+where [\s\S]+limit \$\d+ offset \$\d+$/u);
+  });
+
+  it('counts the valued rows past the first page with plain joins', async () => {
+    const { data } = await run((s) =>
+      s.recordsFor(ROUTE, AUTHORITY, GEN, { sort: 'value_desc', offset: 50, limit: 25 })
+    );
+    const valuedCount = data.find((text) => text.includes('as n ')) ?? '';
+    expect(valuedCount).toContain('p.counted and p.counted_value is not null');
+    expect(valuedCount).toContain(`left join "procurement_v3"."da_parties_public" b`);
+    expect(valuedCount).not.toContain('left join lateral');
   });
 });
 

@@ -55,6 +55,7 @@ import {
   daV3Table,
   namedSupplierSql,
   probeSupplierDisclosure,
+  purchaseParties,
   SUPPLIER_DISCLOSURE,
   SUPPLIER_DISCLOSURE_NAME,
   supplierNamesByCode,
@@ -301,18 +302,18 @@ const partyIds = (kind: 'buyer' | 'supplier', column: Sql, code: string): Sql =>
   sql`(p.source_name, ${column}) in (select pp.source_name, pp.portal_party_id from ${PARTIES} pp
       where pp.party_kind = ${kind} and pp.fiscal_code_status = 'valid' and pp.fiscal_code_clean = ${code})`;
 
-const liveFacts = (ctx: Ctx, geo: boolean): Facts => {
+/**
+ * The live rows. `pointReads` (a records page: a few rows by an index order) probes each row's
+ * parties through fenced lateral subqueries; aggregates join the view plainly (see
+ * `publicPartyLateral`).
+ */
+const liveFacts = (ctx: Ctx, geo: boolean, pointReads = false): Facts => {
   const named = namedSupplierSql(ctx.privacy);
   return {
     rollup: null,
     from: sql`
   from ${PURCHASES} p
-  left join ${PARTIES} b
-    on b.source_name = p.source_name and b.party_kind = 'buyer'
-   and b.portal_party_id = p.buyer_party_id
-  left join ${PARTIES} s
-    on s.source_name = p.source_name and s.party_kind = 'supplier'
-   and s.portal_party_id = p.supplier_party_id
+  ${purchaseParties(pointReads)}
   ${geo ? geoJoin(ctx) : sql``}`,
     day: sql`p.finalization_day`,
     base: null,
@@ -327,9 +328,11 @@ const liveFacts = (ctx: Ctx, geo: boolean): Facts => {
         else ${DA_V3_WITHHELD_SUPPLIER_KEY} end`,
     supplierNamed: named,
     // By party ids, so the planner reaches the purchases through the party index instead of
-    // reading a year of purchases and filtering on the joined party row (measured 18 Nov).
+    // reading a year of purchases and filtering on the joined party row (measured 18 Nov). A
+    // supplier's public party row exists only when D6 names it, so the match IS the D6 test
+    // (no per-row probe of `s`); with supplier_disclosure unreadable nothing matches.
     supplierScope: (code) =>
-      sql`${partyIds('supplier', sql`p.supplier_party_id`, code)} and ${named}`,
+      ctx.privacy ? partyIds('supplier', sql`p.supplier_party_id`, code) : sql`false`,
     cpv: sql`p.category_code`,
     county: sql`t.county_code`,
     region: sql`t.region`,
@@ -348,7 +351,14 @@ const rollupFacts = (ctx: Ctx, table: string, keys: readonly RollupKey[]): Facts
     rollup: table,
     from: sql`
   from ${daV3Table(table)} r
-  ${withSupplier ? sql`left join ${PRIVACY_TABLE} sv on sv.supplier_id = r.supplier_ref` : sql``}`,
+  ${
+    withSupplier
+      ? // A fenced lateral probe: a plain join into the barrier view merge-joins over an index
+        // scan of the whole rollup (prod, 22 Nov: year 2025 3.1 s vs 0.9 s; all years 4.1 s vs 3.7 s).
+        sql`left join lateral (select x.fiscal_code_clean from ${PRIVACY_TABLE} x
+            where x.supplier_id = r.supplier_ref offset 0) sv on true`
+      : sql``
+  }`,
     day: sql`r.month`,
     base: sql`r.purchases > 0`,
     rows: (pred) => sql`coalesce(sum(r.purchases) filter (where ${pred}), 0)`,
@@ -517,7 +527,8 @@ const compile = (
   ctx: Ctx,
   scope: AnalysisScope,
   dimension?: string,
-  live = false
+  live = false,
+  pointReads = false
 ): Result<Compiled, ApiError> => {
   for (const [field, message] of REFUSED_SCOPE)
     if (scope[field] !== undefined) return err(invalidInput(message, field));
@@ -527,7 +538,8 @@ const compile = (
     scope.buyerRegion !== undefined ||
     scope.buyerCounty !== undefined ||
     scope.buyerSiruta !== undefined;
-  const f = rollup === null ? liveFacts(ctx, geo) : rollupFacts(ctx, rollup.table, rollup.keys);
+  const f =
+    rollup === null ? liveFacts(ctx, geo, pointReads) : rollupFacts(ctx, rollup.table, rollup.keys);
   const conds: Sql[] = f.base === null ? [] : [f.base];
   // Codes compare in the platform's form (no leading zeros); a legacy code still matches.
   if (scope.authorityCui !== undefined)
@@ -1272,8 +1284,9 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
         STATEMENT_TIMEOUT_MS,
         gen.buildId,
         async (ctx) => {
-          // The page lists purchases (live rows); its total is a count (a rollup when one covers it).
-          const c = compile(ctx, scope, undefined, true);
+          // The page lists purchases (live rows, parties probed per row); its total is a count
+          // (a rollup when one covers it, else the live rows joined plainly).
+          const c = compile(ctx, scope, undefined, true, true);
           if (c.isErr()) return err(c.error);
           // Without pinned geography a geography scope's total stays live like its rows: the
           // rollups place the buyer as of the DA publish, the kernel join as of today, and a page
@@ -1282,12 +1295,32 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
             scope.buyerRegion !== undefined ||
             scope.buyerCounty !== undefined ||
             scope.buyerSiruta !== undefined;
-          const counting = geoScoped && !ctx.rollups.has(BUYER_GEOGRAPHY) ? c : compile(ctx, scope);
+          const counting =
+            geoScoped && !ctx.rollups.has(BUYER_GEOGRAPHY)
+              ? compile(ctx, scope, undefined, true)
+              : compile(ctx, scope);
           if (counting.isErr()) return err(counting.error);
           const money = sql`case when p.counted then p.counted_value end`;
           const where = sql`${c.value.where} and ${c.value.dated}`;
           const from = c.value.facts.from;
           const isNamed = c.value.facts.supplierNamed;
+          // Without a geography scope the filter reads only the purchase row (party scopes go by
+          // party ids), so the page is chosen from da_purchases alone and only its rows probe their
+          // parties: probing first would run a lateral probe per candidate row before the sort
+          // (prod, 22 Nov: a supplier with 514k purchases timed out at 15 s).
+          const rowsFrom = (extra: Sql, order: Sql, limit: number, offset: number): Sql =>
+            geoScoped
+              ? sql`${from}
+        where ${where} and ${extra}`
+              : sql`from (
+          select p.purchase_id, p.source_name, p.buyer_party_id, p.supplier_party_id,
+                 p.finalization_day, p.counted, p.counted_value, p.outcome,
+                 p.category_code, p.category_as_written
+          from ${PURCHASES} p
+          where ${where} and ${extra}
+          order by ${order}
+          limit ${limit} offset ${offset}) p
+        ${purchaseParties(true)}`;
           const pageOf = (extra: Sql, order: Sql, limit: number, offset: number) =>
             sql<RecordRow>`
         select p.purchase_id as id,
@@ -1301,10 +1334,9 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
                p.outcome as status,
                case when p.category_code ~ '^[0-9]{8}' then left(p.category_code, 8) end as cpv_code,
                p.category_as_written as cpv_label
-        ${from}
-        where ${where} and ${extra}
+        ${rowsFrom(extra, order, limit, offset)}
         order by ${order}
-        limit ${limit} offset ${offset}`.execute(ctx.trx);
+        ${geoScoped ? sql`limit ${limit} offset ${offset}` : sql``}`.execute(ctx.trx);
           let rows: RecordRow[];
           if (page.sort === 'date_desc' || page.sort === 'date_asc') {
             const order =
@@ -1332,8 +1364,12 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
             if (first.length < page.limit) {
               let valuedCount = page.offset + first.length;
               if (first.length === 0 && page.offset > 0) {
+                // A count over every valued row: the live rows joined plainly, not probed per row.
+                const plain = compile(ctx, scope, undefined, true);
+                if (plain.isErr()) return err(plain.error);
                 const n = await sql<{ n: string }>`
-              select count(*)::text as n ${from} where ${where} and ${valued}`.execute(ctx.trx);
+              select count(*)::text as n ${plain.value.facts.from}
+              where ${plain.value.where} and ${plain.value.dated} and ${valued}`.execute(ctx.trx);
                 valuedCount = Number(n.rows[0]?.n ?? '0');
               }
               const rest = (

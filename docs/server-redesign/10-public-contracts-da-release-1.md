@@ -312,6 +312,17 @@ money_geo.
   10 digits and still match. No CHECK constraint enforces the shape; the loader's transform and this rule do. The
   data-platform serving contract states the same rule (docs f0dbc4fc).
 - **Query shapes for the live reads** (procurement-prod's workshop timings, 18–19 Nov):
+  - parties come from the security-barrier view `da_parties_public`. A plain join into it is not pushed into the view,
+    so it builds the whole view per statement (procurement-prod, 22 Nov: a list page of 100 took 1.5 s). Point reads
+    (release list, detail, lookup; v3 records pages) probe each row's buyer and supplier through a lateral subquery
+    fenced with `offset 0` (22 ms; a lookup 0.23 ms); whole-table aggregates (totals, quality) keep the plain join.
+    A records page without a geography scope is chosen from `da_purchases` alone, ordered and limited, and only its
+    rows are probed (a supplier with 514k purchases: 4.7 s, was 10.9 s);
+  - the rollups reach `supplier_disclosure` the same way, by a fenced lateral probe on `supplier_id` (a plain join
+    merge-joins over an index scan of the whole rollup). Supplier breakdowns over rollups are still slower than over
+    the old base table (2025: 1.7 s vs 0.6 s; all years: 6.2 s vs 2.8 s): the view loses the parallel hash plan;
+  - a supplier filter is the party-id match alone: the view holds a supplier row only when D6 names it, so no row
+    probes `s` to filter;
   - a buyer or supplier scope filters purchases by `(source_name, party id) in (select … from da_parties_public where
 party_kind = … and fiscal_code_status = 'valid' and fiscal_code_clean = $1)`, never on the joined party row
     (buyer CPV breakdowns went from 4–5 s to 0.5 s);

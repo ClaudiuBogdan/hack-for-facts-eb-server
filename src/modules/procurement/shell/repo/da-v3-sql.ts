@@ -35,6 +35,40 @@ export const SUPPLIER_DISCLOSURE = daV3Table('supplier_disclosure');
 export const SUPPLIER_DISCLOSURE_NAME = `${DA_RELEASE_SCHEMA}.supplier_disclosure`;
 const PUBLIC_NAMES = daV3Table('party_public_names');
 
+/**
+ * One public party per purchase row (`b` buyer, `s` supplier), for point reads: list pages, detail,
+ * lookups, records pages. A plain join into the security-barrier view is not pushed into it, so
+ * every query would build the whole view (procurement-prod, EXPLAIN ANALYZE on prod, 22 Nov: a
+ * list page of 100 took 1,482 ms). A lateral probe fenced with `offset 0` lets the planner probe
+ * the view's keys per row instead (22 ms; a lookup 0.23 ms). The fence is a planner hint only: the
+ * barrier still filters first. Whole-table aggregates keep the plain joins (`purchaseParties(false)`).
+ */
+export const publicPartyLateral = (
+  alias: 'b' | 's',
+  kind: 'buyer' | 'supplier',
+  partyId: RawBuilder<unknown>
+): RawBuilder<unknown> => sql`left join lateral (
+    select x.source_name, x.portal_party_id, x.name_as_written, x.fiscal_code_clean, x.fiscal_code_status
+    from ${DA_PARTIES_PUBLIC} x
+    where x.source_name = p.source_name and x.party_kind = ${sql.lit(kind)}
+      and x.portal_party_id = ${partyId}
+    offset 0) ${sql.id(alias)} on true`;
+
+/** The plain joins of purchase `p`'s buyer `b` and supplier `s`, for whole-table aggregates. */
+const PLAIN_PARTY_JOINS = sql`left join ${DA_PARTIES_PUBLIC} b
+    on b.source_name = p.source_name and b.party_kind = 'buyer'
+   and b.portal_party_id = p.buyer_party_id
+  left join ${DA_PARTIES_PUBLIC} s
+    on s.source_name = p.source_name and s.party_kind = 'supplier'
+   and s.portal_party_id = p.supplier_party_id`;
+
+/** Buyer `b` and supplier `s` of purchase `p`: fenced lateral probes, or plain joins. */
+export const purchaseParties = (lateral: boolean): RawBuilder<unknown> =>
+  lateral
+    ? sql`${publicPartyLateral('b', 'buyer', sql`p.buyer_party_id`)}
+  ${publicPartyLateral('s', 'supplier', sql`p.supplier_party_id`)}`
+    : PLAIN_PARTY_JOINS;
+
 /** The supplier party alias `s` (from `da_parties_public`) names its supplier: see `isNamedSupplier`. */
 export const namedSupplierSql = (present: boolean): RawBuilder<unknown> =>
   present

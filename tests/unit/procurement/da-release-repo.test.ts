@@ -161,12 +161,55 @@ describe('snapshot', () => {
 });
 
 describe('joins and D6', () => {
-  it('joins parties on source, kind and portal party id', async () => {
-    const { sql } = await run((r) => r.purchaseById(ID));
-    expect(sql).toContain(`b.source_name = p.source_name and b.party_kind = 'buyer'`);
-    expect(sql).toContain('b.portal_party_id = p.buyer_party_id');
-    expect(sql).toContain(`s.source_name = p.source_name and s.party_kind = 'supplier'`);
-    expect(sql).toContain('s.portal_party_id = p.supplier_party_id');
+  /** A fenced lateral probe of the public party view for one purchase's buyer or supplier. */
+  const lateralProbe = (alias: string, kind: string, column: string) =>
+    new RegExp(
+      `left join lateral \\(\\s+select x\\.source_name, x\\.portal_party_id, x\\.name_as_written, x\\.fiscal_code_clean, x\\.fiscal_code_status\\s+from "procurement_v3"\\."da_parties_public" x\\s+where x\\.source_name = p\\.source_name and x\\.party_kind = '${kind}'\\s+and x\\.portal_party_id = p\\.${column}\\s+offset 0\\) "${alias}" on true`,
+      'u'
+    );
+
+  it("probes each purchase's parties through fenced lateral subqueries on point reads", async () => {
+    for (const read of [
+      (r: DaReleaseReader) => r.purchaseById(ID),
+      (r: DaReleaseReader) => r.listPurchases({ sort: 'finalizationDesc', filter: {}, ...PAGE }),
+    ]) {
+      const { sql } = await run(read);
+      expect(sql).toMatch(lateralProbe('b', 'buyer', 'buyer_party_id'));
+      expect(sql).toMatch(lateralProbe('s', 'supplier', 'supplier_party_id'));
+      expect(sql).not.toMatch(/left join "procurement_v3"\."da_parties_public" [bs]\b/u);
+    }
+  });
+
+  it('joins parties plainly for whole-table totals', async () => {
+    const { sql } = await run((r) => r.totals({ filter: {}, groupBy: 'supplier', ...PAGE }));
+    expect(sql).toContain(`left join "procurement_v3"."da_parties_public" b
+    on b.source_name = p.source_name and b.party_kind = 'buyer'
+   and b.portal_party_id = p.buyer_party_id`);
+    expect(sql).toContain(`left join "procurement_v3"."da_parties_public" s
+    on s.source_name = p.source_name and s.party_kind = 'supplier'
+   and s.portal_party_id = p.supplier_party_id`);
+    expect(sql).not.toContain('left join lateral');
+  });
+
+  it('counts a list without a party join, supplier filter included', async () => {
+    /** The capped count statement's inner select. */
+    const count = (sql: string): string =>
+      /select count\(\*\)::text as total from \(([\s\S]*?)\) as capped/u.exec(sql)?.[1] ?? '';
+    const plain = await run((r) =>
+      r.listPurchases({ sort: 'finalizationDesc', filter: { cpvDivision: '44' }, ...PAGE })
+    );
+    expect(count(plain.sql)).toContain('from "procurement_v3"."da_purchases" p');
+    expect(count(plain.sql)).not.toContain('da_parties_public');
+    const bySupplier = await run((r) =>
+      r.listPurchases({
+        sort: 'finalizationDesc',
+        filter: { supplierFiscalCode: '14399840' },
+        ...PAGE,
+      })
+    );
+    // The supplier filter goes by party ids: still no party row in the count.
+    expect(count(bySupplier.sql)).toContain('pp.party_kind');
+    expect(count(bySupplier.sql)).not.toContain('left join');
   });
 
   it('a supplier filter only matches suppliers with a public party row', async () => {
@@ -177,13 +220,12 @@ describe('joins and D6', () => {
         ...PAGE,
       })
     );
-    expect(sql).toContain(
-      `left join "procurement_v3"."da_parties_public" s
-    on s.source_name = p.source_name and s.party_kind = 'supplier'`
-    );
+    expect(sql).toMatch(lateralProbe('s', 'supplier', 'supplier_party_id'));
     expect(sql).not.toContain(' sv ');
+    // The public view holds a supplier row only when D6 names it: the party-id match is the test,
+    // with no per-row probe of `s` in the filter.
     expect(sql).toMatch(
-      /\(p\.source_name, p\.supplier_party_id\) in \(select pp\.source_name, pp\.portal_party_id from "procurement_v3"\."da_parties_public" pp\s+where pp\.party_kind = \$\d+ and pp\.fiscal_code_status = 'valid' and pp\.fiscal_code_clean = \$\d+\) and \(s\.portal_party_id is not null and s\.fiscal_code_status = 'valid' and s\.fiscal_code_clean is not null\)/u
+      /where true and \(p\.source_name, p\.supplier_party_id\) in \(select pp\.source_name, pp\.portal_party_id from "procurement_v3"\."da_parties_public" pp\s+where pp\.party_kind = \$\d+ and pp\.fiscal_code_status = 'valid' and pp\.fiscal_code_clean = \$\d+\)\s+order by/u
     );
   });
 
@@ -215,9 +257,8 @@ describe('joins and D6', () => {
     expect(sql).not.toContain('supplier_disclosure');
     expect(sql).not.toMatch(/"?p"?\."?listed_now/u);
     // The supplier filter and every named bucket are constant false.
-    expect(sql).toMatch(
-      /\(p\.source_name, p\.supplier_party_id\) in \(select pp\.source_name, pp\.portal_party_id from "procurement_v3"\."da_parties_public" pp\s+where pp\.party_kind = \$\d+ and pp\.fiscal_code_status = 'valid' and pp\.fiscal_code_clean = \$\d+\) and false/u
-    );
+    expect(sql).toMatch(/where true and false\s+order by/u);
+    expect(sql).not.toContain('pp.party_kind');
     expect(sql).toContain(`case when false then`);
   });
 

@@ -38,6 +38,7 @@ import {
   DA_RELEASE_SCHEMA,
   namedSupplierSql,
   probeSupplierDisclosure,
+  purchaseParties,
   SUPPLIER_DISCLOSURE_NAME,
   supplierNamesByCode,
 } from './da-v3-sql.js';
@@ -268,12 +269,7 @@ const purchaseSelect = (columns: Columns) => sql`
     ${partyColumns('b', false)},
     ${partyColumns('s', columns.supplierDisclosure)}
   from ${PURCHASES} p
-  left join ${PARTIES} b
-    on b.source_name = p.source_name and b.party_kind = 'buyer'
-   and b.portal_party_id = p.buyer_party_id
-  left join ${PARTIES} s
-    on s.source_name = p.source_name and s.party_kind = 'supplier'
-   and s.portal_party_id = p.supplier_party_id
+  ${purchaseParties(true)}
   left join ${RULES} r on r.rule = p.value_review_rule`;
 
 /** The list orders; purchase_id breaks every tie, so pages never overlap. */
@@ -296,9 +292,13 @@ const whereOf = (filter: DaPurchaseFilter, columns: Columns): RawBuilder<unknown
         where pp.party_kind = ${kind} and pp.fiscal_code_status = 'valid' and pp.fiscal_code_clean = ${withoutLeadingZeros(code)})`;
   if (filter.buyerFiscalCode !== undefined)
     conditions.push(partyIds('buyer', sql`p.buyer_party_id`, filter.buyerFiscalCode));
+  // A supplier's public party row exists only when D6 names it (valid code, disclosed), so the
+  // party-id match IS the D6 test: no per-row probe of `s` in the filter. Unreadable D6: none.
   if (filter.supplierFiscalCode !== undefined)
     conditions.push(
-      sql`${partyIds('supplier', sql`p.supplier_party_id`, filter.supplierFiscalCode)} and ${namedSupplier(columns)}`
+      columns.supplierDisclosure
+        ? partyIds('supplier', sql`p.supplier_party_id`, filter.supplierFiscalCode)
+        : sql`false`
     );
   if (filter.cpvDivision !== undefined)
     conditions.push(sql`left(p.category_code, 2) = ${filter.cpvDivision}`);
@@ -314,14 +314,14 @@ const whereOf = (filter: DaPurchaseFilter, columns: Columns): RawBuilder<unknown
   return sql.join(conditions, sql` and `);
 };
 
+/** Whole-table aggregates (totals): plain joins, so the view is built once per statement. */
 const SCOPE_FROM = sql`
   from ${PURCHASES} p
-  left join ${PARTIES} b
-    on b.source_name = p.source_name and b.party_kind = 'buyer'
-   and b.portal_party_id = p.buyer_party_id
-  left join ${PARTIES} s
-    on s.source_name = p.source_name and s.party_kind = 'supplier'
-   and s.portal_party_id = p.supplier_party_id`;
+  ${purchaseParties(false)}`;
+
+/** A list's capped count: no filter reads a party row (party filters go by party ids). */
+const COUNT_FROM = sql`
+  from ${PURCHASES} p`;
 
 const MEASURES = sql`
   sum(p.counted_value) filter (where p.counted)::text as counted_value,
@@ -524,7 +524,7 @@ const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
         (
           await sql<{ total: string }>`
             select count(*)::text as total from (
-              select 1 ${SCOPE_FROM} where ${where} limit ${DA_LIST_MAX_DEPTH + 1}
+              select 1 ${COUNT_FROM} where ${where} limit ${DA_LIST_MAX_DEPTH + 1}
             ) as capped`.execute(trx)
         ).rows[0]?.total
     );
