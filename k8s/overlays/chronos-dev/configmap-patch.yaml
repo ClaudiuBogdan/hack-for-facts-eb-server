@@ -34,6 +34,10 @@ data:
   PROD_OPENSEARCH_TLS_SERVERNAME: transparenta-eu-etl-opensearch.transparenta-eu-etl-prod.svc.cluster.local
   PROD_CLICKHOUSE_URL: https://transparenta-eu-etl-clickhouse.transparenta-eu-etl-prod.svc.cluster.local:8443
   PROD_CLICKHOUSE_DATABASE: proto
+  # Procurement totals v2 (procurementTotals, MCP aggregate_procurement_totals) over the
+  # active money build (procurement_v3.money_generations; build 1 activated 2026-11-22).
+  # Chronos dev only; D6 and V3 stay off here.
+  PROCUREMENT_TOTALS_V2: 'true'
   # Companies analytics: same ClickHouse service, its own database and its own
   # read-only companies_reader user (credentials from the workload patch).
   COMPANIES_ANALYTICS_CLICKHOUSE_URL: https://transparenta-eu-etl-clickhouse.transparenta-eu-etl-prod.svc.cluster.local:8443
