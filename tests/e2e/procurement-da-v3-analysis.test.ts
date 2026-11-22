@@ -37,6 +37,7 @@ import {
   DA_V3_VALUE_NOTE,
   makeDaV3AnalysisSource,
 } from '@/modules/procurement/shell/repo/da-v3-analysis-source.js';
+import { makeSupplierDisclosureRepo } from '@/modules/shared/shell/repo/supplier-disclosure-repo.js';
 
 import { dockerCliUp } from './disposable-postgres.js';
 import {
@@ -661,7 +662,7 @@ describe('rollups answer exactly as the live rows', () => {
         'buyerRegion',
       ] as const)
         for (const rankBy of ['value', 'count'] as const)
-          out.push(await analysisBreakdown(d, { scope, dimension, topN: 3, rankBy }));
+          out.push(await analysisBreakdown(d, { scope, dimension, topN: 2, rankBy }));
       for (const basis of ['value', 'count'] as const)
         out.push(await analysisConcentration(d, { scope, basis }));
       out.push(await analysisRecords(d, { scope, sort: 'value_desc', pageSize: 5 }));
@@ -851,22 +852,40 @@ describe('rollups answer exactly as the live rows', () => {
       expect(guarded.value.minus(before.value).toFixed(2)).toBe('30.00');
       // Without the supplier_disclosure grant the rollups still answer (PROC-C4HN: summed per
       // supplier, nothing joined) and withhold every supplier: the same requests, and only
-      // they, are refused, and no answer keys or names a supplier.
+      // they, are refused, and no answer keys, echoes or names a supplier. Wired as production
+      // wires it (D6 enforced), so a supplier scope echoes `withheld`.
       await sql`revoke select on procurement_v3.supplier_disclosure from procurement_api_read`.execute(
         db
       );
       try {
+        statements.length = 0;
         const closed = await battery({
           analysisRepo: makeDaRoutingAnalysisRepo(
             makeUnconfiguredAnalysisRepo(),
             makeDaV3AnalysisSource(logged)
           ),
+          supplierDisclosure: makeSupplierDisclosureRepo(logged, true),
         });
         expect(failures(closed).map(([index]) => index)).toEqual(expectedRefused);
+        // The supplier rollups answered (no fallback to the live rows), and nothing read the view
+        // but the privilege probes.
+        for (const table of [
+          'da_rollup_supplier_month',
+          'da_rollup_supplier_cpv_month',
+          'da_rollup_authority_supplier_month',
+        ])
+          expect(
+            statements.some((text) => text.includes(`"procurement_v3"."${table}"`)),
+            table
+          ).toBe(true);
+        const publicCodes = [COMPANY.fiscalCode ?? '', '2000002'];
         for (const answer of closed) {
           noLeak(answer);
-          expect(JSON.stringify(answer)).not.toContain(`"${COMPANY.fiscalCode ?? ''}"`);
-          expect(JSON.stringify(answer)).not.toContain('"2000002"');
+          const raw = JSON.stringify(answer);
+          // Anywhere, embedded or not (a canonicalScope echo included).
+          for (const code of publicCodes)
+            expect(raw).not.toMatch(new RegExp(`(?<![0-9])${code}(?![0-9])`, 'u'));
+          expect(raw).not.toContain(COMPANY_REGISTRY_NAME);
         }
       } finally {
         await sql`grant select on procurement_v3.supplier_disclosure to procurement_api_read`.execute(

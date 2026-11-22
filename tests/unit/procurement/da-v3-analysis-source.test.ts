@@ -45,7 +45,7 @@ const run = async (
       // The page's keyed phase answers the records; the rest phase none.
       if (text.includes('as supplier_display_kind'))
         return text.includes('and not (') ? [] : (options.records ?? []);
-      if (text.includes('as total')) return [{ total: '0' }];
+      if (text.includes('as total') && !text.includes('as supplier_count')) return [{ total: '0' }];
       if (text.includes('as rows'))
         return [
           {
@@ -125,10 +125,11 @@ describe('D6', () => {
   });
 
   it('keys rollup suppliers by supplier_disclosure, joined only after summing per supplier', async () => {
-    const { data } = await run(
+    const { data, result } = await run(
       (s) => s.breakdownFor(ROUTE, AUTHORITY, GEN, 'supplier', 10, 'value'),
       { rollups: ['da_rollup_authority_supplier_month'] }
     );
+    expect((result as { isOk: () => boolean }).isOk()).toBe(true);
     const joined = data.filter((text) => text.includes('supplier_disclosure'));
     // Only the ranked groups meet the view: the totals and the unknown bucket read the rollup alone.
     expect(joined).toHaveLength(1);
@@ -155,6 +156,7 @@ describe('D6', () => {
         ),
       { rollups: ['da_rollup_supplier_month'] }
     );
+    expect((whole.result as { isOk: () => boolean }).isOk()).toBe(true);
     const wholeJoined = whole.data.filter((text) => text.includes('supplier_disclosure'));
     expect(wholeJoined).toHaveLength(1);
     expect(wholeJoined[0]).toMatch(
@@ -172,6 +174,7 @@ describe('D6', () => {
     const concentration = await run((s) => s.concentrationFor(ROUTE, AUTHORITY, GEN, 'value'), {
       rollups: ['da_rollup_authority_supplier_month'],
     });
+    expect((concentration.result as { isOk: () => boolean }).isOk()).toBe(true);
     const g = concentration.data.find((text) => text.includes('as supplier_count'));
     expect(g).toMatch(/group by 1, 2\) r\s+left join lateral \(select x\.fiscal_code_clean/u);
     expect(concentration.data.find((text) => text.includes('as rows'))).not.toContain(
@@ -181,6 +184,7 @@ describe('D6', () => {
       (s) => s.distinctSeriesFor(ROUTE, AUTHORITY, GEN, 'supplier', 'quarter'),
       { rollups: ['da_rollup_authority_supplier_month'] }
     );
+    expect((series.result as { isOk: () => boolean }).isOk()).toBe(true);
     const read = series.data.find((text) => text.includes('count(distinct'));
     // Bucketed inside the sums (by the rollup month), selected outside by that column.
     expect(read).toMatch(
