@@ -99,7 +99,7 @@ export const DA_V3_WITHHELD_SUPPLIER_KEY = DA_NATURAL_PERSON_BUCKET;
 
 /** Attached to every direct-acquisition envelope this source answers. */
 export const DA_V3_VALUE_NOTE =
-  'direct acquisitions (release 1): money is the counted value, lei excluding VAT — a corrected value where an approved correction applies; purchases the data platform does not count (refused or expired, years not yet qualified, reviewed entry errors) are in recordCount and add no money; every withheld (natural-person) supplier is one supplier, key natural_person';
+  'direct acquisitions (release 1): money is the counted value, lei excluding VAT — a corrected value where an approved correction applies; purchases the data platform does not count (refused or expired, removed from the portal, held by the 2018–2024 checks, reviewed entry errors) are in recordCount and add no money; every withheld (natural-person) supplier is one supplier, key natural_person';
 
 export const DA_V3_CAPABILITIES: GenerationCapabilities = {
   frameworkRole: false,
@@ -967,7 +967,7 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
       return ok({
         coverage: {
           date,
-          // Informational: counted share of accepted purchases (pre-2025 years are not yet qualified).
+          // Informational: counted share of accepted purchases (the purchases the 2018–2024 checks hold are not counted).
           value: ratio(row?.counted, new Decimal(row?.accepted ?? '0')),
           geo,
           cpv: ratio(row?.with_cpv, total),
