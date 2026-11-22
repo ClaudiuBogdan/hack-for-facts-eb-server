@@ -1831,7 +1831,10 @@ export const analysisRecords = async (
   const spend = anchorMoneyGate(gen, cov, grain);
   const moneyAllowed = spend?.allow ?? false;
   const gate = composeGates([blockGate, ...(spend !== null ? [spend] : [])]);
-  if ((sort === 'value_desc' || sort === 'value_asc') && !moneyAllowed) {
+  const valueOrderRefused = (sort === 'value_desc' || sort === 'value_asc') && !moneyAllowed;
+  // An abstaining block (time/geo class, or a grain whose build cannot be read or is
+  // retired) lists nothing whatever the order: it abstains below rather than refusing it.
+  if (blockGate.allow && valueOrderRefused) {
     return err(
       invalidInput(
         'a value order is unavailable: the spend gate withholds this grain’s money',

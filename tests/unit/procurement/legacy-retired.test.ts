@@ -206,6 +206,37 @@ describe('the module with legacy off', () => {
     );
   });
 
+  it("with DA v3 on, a legacy grain's records page abstains for every order", async () => {
+    const module = makeProcurementModule({
+      db: makeCapturingDb([], {
+        respond: (text) => {
+          if (text.includes('as build_id'))
+            return [
+              { build_id: '1763435400123456', as_of: '2026-11-18T03:10:00.000000Z', privacy: true },
+            ];
+          if (text.includes('from unnest')) return [{ name: 'da_buyer_geography' }];
+          if (text.includes('has_table_privilege')) return [{ present: true }];
+          return [];
+        },
+      }),
+      warmCache: false,
+      legacyEnabled: false,
+      daV3Enabled: true,
+    });
+    for (const sort of ['date_desc', 'value_desc', 'value_asc']) {
+      const answer = await graphql(
+        module,
+        `{ procurementRecords(scope: { grain: contract }, sort: ${sort}) { total items { id } meta { answerability } } }`
+      );
+      expect(answer.errors, sort).toBeUndefined();
+      expect(answer.data?.['procurementRecords'], sort).toEqual({
+        total: null,
+        items: [],
+        meta: { answerability: 'abstained' },
+      });
+    }
+  });
+
   it('reports entity-360 presence as unavailable, never as absent, with no query', async () => {
     const captured: CapturedQuery[] = [];
     const module = build(captured, { legacy: false });
