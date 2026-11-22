@@ -4,7 +4,9 @@
  * public-only grant covers none of the legacy relations (`procurement.*`
  * records, `analysis_generations`, `etl.load_runs`, `core.organizations`, the
  * legacy ClickHouse facts), so every legacy read answers ServiceUnavailable
- * WITHOUT a query instead of failing on a permission error.
+ * WITHOUT a legacy query instead of failing on a permission error. (With the
+ * DA v3 reader on, an analysis request still resolves the DA generation from
+ * procurement_v3, and a legacy grain's block abstains as unavailable.)
  *
  * Unaffected: the CPV reference reads (`procurement.cpv_divisions` and
  * `cpv_codes`, public labels the grant keeps; owner decision 2026-11-22), the

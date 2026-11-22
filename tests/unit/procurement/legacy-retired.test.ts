@@ -157,6 +157,55 @@ describe('the module with legacy off', () => {
     expect(captured.every((query) => query.sql.includes('cpv_divisions'))).toBe(true);
   });
 
+  it('with DA v3 on, a legacy grain abstains as unavailable and reads only procurement_v3', async () => {
+    const captured: CapturedQuery[] = [];
+    const module = makeProcurementModule({
+      db: makeCapturingDb(captured, {
+        respond: (text) => {
+          if (text.includes('as build_id'))
+            return [
+              { build_id: '1763435400123456', as_of: '2026-11-18T03:10:00.000000Z', privacy: true },
+            ];
+          // The approved grants make the pinned buyer geography table-readable.
+          if (text.includes('from unnest')) return [{ name: 'da_buyer_geography' }];
+          if (text.includes('has_table_privilege')) return [{ present: true }];
+          return [];
+        },
+      }),
+      warmCache: true,
+      legacyEnabled: false,
+      daV3Enabled: true,
+    });
+    const answer = await graphql(
+      module,
+      '{ procurementStats(scope: { grain: contract }) { blocks { grain recordCount meta { caveats } } } }'
+    );
+    expect(answer.errors).toBeUndefined();
+    const blocks = (answer.data?.['procurementStats'] as { blocks: unknown[] }).blocks;
+    expect(blocks).toEqual([
+      {
+        grain: 'contract',
+        recordCount: null,
+        meta: {
+          caveats: expect.arrayContaining([
+            'this grain is unavailable: the analytics build could not be read',
+          ]) as unknown,
+        },
+      },
+    ]);
+    // Only the DA generation was read: every relation named is procurement_v3 (or the catalog).
+    const relations = captured.flatMap((query) =>
+      [...query.sql.matchAll(/(?:from|join)\s+"?([a-z_0-9]+)"?\."?([a-z_0-9]+)"?/gu)].map(
+        (match) => `${match[1] ?? ''}.${match[2] ?? ''}`
+      )
+    );
+    expect(relations.length).toBeGreaterThan(0);
+    for (const relation of relations) expect(relation).toMatch(/^procurement_v3\./u);
+    expect(captured.map((query) => query.sql).join('\n')).not.toMatch(
+      /\b(?:core|etl|procurement)\.[a-z_]+/u
+    );
+  });
+
   it('reports entity-360 presence as unavailable, never as absent, with no query', async () => {
     const captured: CapturedQuery[] = [];
     const module = build(captured, { legacy: false });

@@ -135,6 +135,95 @@ const load = async (trx: Kysely<ProdDatabase>): Promise<void> => {
 /** The registry name the API serves for the public company (never its name as written). */
 const COMPANY_REGISTRY_NAME = 'EXEMPLU REGISTRU SA';
 
+/** The API's login under the approved SEC-GRANTS-PROC-2211 v3 grants (DA analysis part). */
+const API_LOGIN = 'procurement_api_e2e';
+/** The approved column grants; this minimal schema holds a subset, so each is cut to its columns. */
+const APPROVED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
+  da_release: [
+    'data_as_of',
+    'rows',
+    'dated',
+    'counted',
+    'accepted',
+    'with_cpv',
+    'with_geo',
+    'money',
+    'money_dated',
+    'money_geo',
+    'free_text_rule',
+    'registry_as_of',
+  ],
+  da_purchases: [
+    'purchase_id',
+    'native_id',
+    'code',
+    'source_name',
+    'source_url',
+    'outcome',
+    'state_label',
+    'publication_day',
+    'finalization_day',
+    'ca_decision_at',
+    'supplier_decision_at',
+    'reported_value',
+    'counted',
+    'counted_value',
+    'not_counted_reason',
+    'value_corrected',
+    'value_review_rule',
+    'symbolic_price',
+    'title_shown',
+    'title_public',
+    'description_public',
+    'category_code',
+    'category_as_written',
+    'acquisition_type_label',
+    'listed_now',
+    'buyer_party_id',
+    'supplier_party_id',
+  ],
+};
+const APPROVED_TABLES = [
+  'da_buyer_geography',
+  'da_rollup_county_month',
+  'da_rollup_cpv_month',
+  'da_rollup_authority_month',
+  'da_rollup_county_cpv_month',
+  'da_rollup_supplier_month',
+  'da_rollup_supplier_cpv_month',
+  'da_rollup_authority_supplier_month',
+  'da_rollup_distinct',
+  'supplier_disclosure',
+  'da_parties_public',
+  'party_public_names',
+];
+
+const columnsOf = async (trx: Kysely<ProdDatabase>): Promise<Map<string, Set<string>>> => {
+  const rows = await sql<{ table_name: string; column_name: string }>`
+    select table_name, column_name from information_schema.columns
+    where table_schema = 'procurement_v3'`.execute(trx);
+  const out = new Map<string, Set<string>>();
+  for (const row of rows.rows) {
+    const set = out.get(row.table_name) ?? new Set<string>();
+    set.add(row.column_name);
+    out.set(row.table_name, set);
+  }
+  return out;
+};
+
+const approvedAnalysisGrants = (columns: Map<string, Set<string>>): string => {
+  const columnGrants = Object.entries(APPROVED_COLUMNS).map(([table, approved]) => {
+    const present = approved.filter((column) => columns.get(table)?.has(column) === true);
+    return `grant select (${present.join(', ')}) on procurement_v3.${table} to procurement_api_read;`;
+  });
+  return `
+    create role procurement_api_read nologin;
+    grant usage on schema procurement_v3 to procurement_api_read;
+    ${columnGrants.join('\n')}
+    grant select on ${APPROVED_TABLES.map((t) => `procurement_v3.${t}`).join(', ')} to procurement_api_read;
+    create role ${API_LOGIN} login password '${API_LOGIN}' in role procurement_api_read;`;
+};
+
 /**
  * The migration lands the D6 classification and the platform's public views in
  * a new publication (data_as_of moves). The supplier id is the opaque key the
@@ -536,10 +625,20 @@ describe('rollups answer exactly as the live rows', () => {
       ),
     });
     await buildRollups(db);
+    // The rollup answers are read as the API's login under the approved grants (SEC-GRANTS-PROC-2211):
+    // any read of an ungranted relation or column fails the parity below.
+    await sql.raw(approvedAnalysisGrants(await columnsOf(db))).execute(db);
     const statements: string[] = [];
     const logged = new Kysely<ProdDatabase>({
       dialect: new PostgresDialect({
-        pool: new pg.Pool({ connectionString: container.getConnectionUri(), max: 2 }),
+        pool: new pg.Pool({
+          host: container.getHost(),
+          port: container.getPort(),
+          database: container.getDatabase(),
+          user: API_LOGIN,
+          password: API_LOGIN,
+          max: 2,
+        }),
       }),
       log: (event) => {
         if (event.level === 'query') statements.push(event.query.sql);
@@ -553,6 +652,20 @@ describe('rollups answer exactly as the live rows', () => {
         ),
       });
       expect(rolled.length).toBe(live.length);
+      // Parity of answers, not of failures: every live answer is a real one.
+      const failures = (answers: unknown[]) =>
+        answers.flatMap((answer, index) => {
+          const result = answer as {
+            isOk: () => boolean;
+            _unsafeUnwrapErr: () => { type: string; message: string };
+          };
+          return result.isOk()
+            ? []
+            : [[index, result._unsafeUnwrapErr().type, result._unsafeUnwrapErr().message]];
+        });
+      // Some scope × shape pairs are refused by design (InvalidInput); nothing else may fail.
+      expect(failures(live).filter(([, type]) => type !== 'InvalidInput')).toEqual([]);
+      expect(failures(live).length).toBeLessThan(live.length / 2);
       for (let index = 0; index < live.length; index += 1)
         expect({ index, answer: rolled[index] }).toEqual({ index, answer: live[index] });
       // The rollups were read, not just present.
@@ -565,7 +678,7 @@ describe('rollups answer exactly as the live rows', () => {
       // The kernel's geography moves after the publish: every answer keeps the published
       // place (rollups and live rows both read the pinned table), so nothing changes.
       await sql`update core.territories set county_code = 'QQ' where territorial_siruta_code = '777'`.execute(
-        logged
+        db
       );
       const moved = await battery({
         analysisRepo: makeDaRoutingAnalysisRepo(
@@ -576,16 +689,17 @@ describe('rollups answer exactly as the live rows', () => {
       for (let index = 0; index < live.length; index += 1)
         expect({ index, answer: moved[index] }).toEqual({ index, answer: live[index] });
       await sql`update core.territories set county_code = 'AB' where territorial_siruta_code = '777'`.execute(
-        logged
+        db
       );
       // A code that flipped to restricted keeps its old rows, zeroed (never deleted): they
       // must never contribute a key, a count or a name, in buckets, distincts or key lists.
+      const owner = db;
       const idOf = async (code: string): Promise<string> =>
         (
           await sql<{
             id: string;
           }>`select supplier_id::text as id from procurement_v3.supplier_privacy
-            where fiscal_code_clean = ${code}`.execute(logged)
+            where fiscal_code_clean = ${code}`.execute(owner)
         ).rows[0]?.id ?? '-1';
       const flipped = await idOf(SOLE_TRADER.fiscalCode ?? '');
       const publicRef = await idOf('2000002');
@@ -596,7 +710,7 @@ describe('rollups answer exactly as the live rows', () => {
       ])
         await sql`insert into ${sql.table(`procurement_v3.${table}`)}
           (supplier_ref, month, purchases, counted_purchases, counted_value, symbolic_purchases)
-          values (${flipped}::bigint, '2025-01-01', 0, 0, 0, 0)`.execute(logged);
+          values (${flipped}::bigint, '2025-01-01', 0, 0, 0, 0)`.execute(db);
       // Zeroed rows in a month and under keys nothing else carries must not add a bucket,
       // a month (series points, min/max month) or a key either.
       for (const [table, keys, values] of [
@@ -617,7 +731,7 @@ describe('rollups answer exactly as the live rows', () => {
             `insert into procurement_v3.${table} (${keys}, month, purchases, counted_purchases, counted_value, symbolic_purchases)
              values (${values}, '2030-01-01', 0, 0, 0, 0)`
           )
-          .execute(logged);
+          .execute(db);
       const zeroed = await battery({
         analysisRepo: makeDaRoutingAnalysisRepo(
           makeUnconfiguredAnalysisRepo(),
@@ -629,7 +743,7 @@ describe('rollups answer exactly as the live rows', () => {
       // Even a non-zero row under a restricted code (the build STOPs on it) is withheld on read.
       await sql`insert into procurement_v3.da_rollup_supplier_month
         (supplier_ref, month, purchases, counted_purchases, counted_value, symbolic_purchases)
-        values (${flipped}::bigint, '2025-02-01', 3, 3, 30, 0)`.execute(logged);
+        values (${flipped}::bigint, '2025-02-01', 3, 3, 30, 0)`.execute(db);
       const guarded = await analysisBreakdown(
         {
           analysisRepo: makeDaRoutingAnalysisRepo(

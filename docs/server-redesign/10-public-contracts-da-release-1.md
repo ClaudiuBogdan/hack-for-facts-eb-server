@@ -145,7 +145,10 @@ With the flag off:
   place.
 - **Analysis D6 key:** every DA block and records page carries `meta.disclosureKey`: `off`, `unavailable` (everyone
   withheld) or the supplier_privacy publication. Key cached DA analysis by (`buildId`, `disclosureKey`), since the
-  analytics build does not move when a nightly publish withholds a supplier. Never cache a DA answer whose key is
+  analytics build does not move when a nightly publish withholds a supplier. These keys cover codes, counts and
+  values, never names: supplier names come from the live registry (`party_public_names`) and can be withdrawn
+  without any key moving, so a client never keeps a supplier name beyond the response that carried it. Never cache
+  a DA answer whose key is
   `unavailable`, or a release answer with `privacyEnforced` true and `privacyAsOf` null. That is the only state
   that can recur after a named answer (a grant revoked, restored and revoked again), and a page read while access
   was restored can carry it.
@@ -364,12 +367,19 @@ The owner-approved grant gives the API's login no legacy relation (`procurement.
 (`procurement.cpv_divisions`, `procurement.cpv_codes`). `PROCUREMENT_LEGACY_ENABLED` (default `true`; only `true` or
 `false` are accepted) retires the legacy reads before the login loses its broad rights:
 
-- `false`: legacy records, the legacy analysis (every grain the DA v3 reader does not answer) and entity-360
-  procurement presence answer ServiceUnavailable without a query. Only the MCP tools `resolve_procurement_filter` and,
+- `false`: legacy records and entity-360 procurement presence answer ServiceUnavailable without a query. The legacy
+  analysis grains (every grain the DA v3 reader does not answer) read nothing legacy: with DA v3 off they answer
+  ServiceUnavailable without a query; with DA v3 on, a request still resolves the DA generation (procurement_v3
+  only) and each legacy grain's block abstains with "this grain is unavailable", as when the analytics build
+  cannot be read, so a mixed request keeps its DA block. Only the MCP tools `resolve_procurement_filter` and,
   while DA v3 is on, `aggregate_procurement` stay registered. The empty-scope cache is not warmed.
 - Unaffected: the CPV reference routes, DA release 1, the v3 DA grain and totals v2.
-- Order on an environment: the views, then this server change live and verified, then the GRANTs with the flag set
-  to `false` (root's GO).
+- A read the grant does not cover (Postgres 42501 on a DA read, ClickHouse 497 on a money build) answers
+  ServiceUnavailable, never a database error. The DA v3 geography fallback (kernel `core.*` and `companies_v2`
+  tables) is outside the grant; it runs only when `da_buyer_geography` is not readable, which the grant prevents.
+- The grants are additive while the login keeps its broad read rights (`pg_read_all_data`); the API's login shares
+  one pool with every kernel module, so the narrow login (PRJ-54YB) needs every module's inventory first. Set the
+  flag to `false` when the login loses its broad rights, not before (root's GO).
 
 ## Pending (data platform)
 

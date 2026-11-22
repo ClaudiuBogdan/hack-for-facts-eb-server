@@ -104,9 +104,12 @@ export interface ProcurementModuleDeps {
    * The legacy procurement reads: records (lists, details, supplier records,
    * search), the legacy ClickHouse analysis (every grain the DA v3 reader does
    * not answer) and entity-360 presence. On (the default) they are served as
-   * before. Off, each answers ServiceUnavailable without a query, the
-   * legacy-only MCP tools are not registered and the cache is not warmed; the
-   * CPV reference, DA release 1, the v3 DA grain and totals v2 are unaffected.
+   * before. Off, records and presence answer ServiceUnavailable without a
+   * query; legacy analysis grains read nothing legacy (ServiceUnavailable with
+   * DA v3 off; with it on, the DA generation is read and each legacy block
+   * abstains as unavailable). The legacy-only MCP tools are not registered and
+   * the cache is not warmed; the CPV reference, DA release 1, the v3 DA grain
+   * and totals v2 are unaffected.
    * Env: PROCUREMENT_LEGACY_ENABLED.
    */
   readonly legacyEnabled?: boolean;
