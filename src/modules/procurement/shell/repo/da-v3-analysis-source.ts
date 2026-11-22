@@ -1338,51 +1338,50 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
         ${rowsFrom(extra, order, limit, offset)}
         order by ${order}
         ${geoScoped ? sql`limit ${limit} offset ${offset}` : sql``}`.execute(ctx.trx);
-          let rows: RecordRow[];
-          if (page.sort === 'date_desc' || page.sort === 'date_asc') {
-            const order =
-              page.sort === 'date_desc'
-                ? sql`p.finalization_day is null asc, p.finalization_day desc, p.purchase_id desc`
-                : sql`p.finalization_day is null asc, p.finalization_day asc, p.purchase_id asc`;
-            rows = (await pageOf(sql`true`, order, page.limit, page.offset)).rows;
-          } else {
-            // Same order as `money desc|asc nulls last, purchase_id desc|asc`, in two phases so
-            // the (counted_value, purchase_id) where-counted index serves the valued rows: the
-            // valued rows by value, then the rest by id, the offset carried across.
-            const desc = page.sort === 'value_desc';
-            const valued = sql`p.counted and p.counted_value is not null`;
-            const first = (
+          // Every order runs in two phases, the same order as `key desc|asc nulls last,
+          // purchase_id desc|asc`: the rows with a key by an order an index serves, then the rest
+          // by id, the offset carried across. A single nulls-last (or expression) order sorts every
+          // purchase: the date order over all years timed out (PROC-AP75); phase 1 uses
+          // da_purchases_finalization_day_idx (23 ms on prod), the value order the where-counted
+          // (counted_value, purchase_id) index.
+          const desc = page.sort === 'date_desc' || page.sort === 'value_desc';
+          const byDate = page.sort === 'date_desc' || page.sort === 'date_asc';
+          const keyed = byDate
+            ? sql`p.finalization_day is not null`
+            : sql`p.counted and p.counted_value is not null`;
+          const keyedOrder = byDate
+            ? desc
+              ? sql`p.finalization_day desc, p.purchase_id desc`
+              : sql`p.finalization_day asc, p.purchase_id asc`
+            : desc
+              ? sql`p.counted_value desc, p.purchase_id desc`
+              : sql`p.counted_value asc, p.purchase_id asc`;
+          const first = (await pageOf(keyed, keyedOrder, page.limit, page.offset)).rows;
+          let rows: RecordRow[] = first;
+          if (first.length < page.limit) {
+            // The keyed rows before this page: offset + what it read, unless it read none, then
+            // counted, capped at the offset (all the carry needs): over the purchases alone
+            // without a geography scope, else over the live rows joined plainly.
+            let before = page.offset + first.length;
+            if (first.length === 0 && page.offset > 0) {
+              const plain = compile(ctx, scope, undefined, true);
+              if (plain.isErr()) return err(plain.error);
+              const n = await sql<{ n: string }>`
+              select count(*)::text as n from (
+                select 1 ${geoScoped ? plain.value.facts.from : sql`from ${PURCHASES} p`}
+                where ${plain.value.where} and ${plain.value.dated} and ${keyed}
+                limit ${page.offset}) as capped`.execute(ctx.trx);
+              before = Number(n.rows[0]?.n ?? '0');
+            }
+            const rest = (
               await pageOf(
-                valued,
-                desc
-                  ? sql`p.counted_value desc, p.purchase_id desc`
-                  : sql`p.counted_value asc, p.purchase_id asc`,
-                page.limit,
-                page.offset
+                sql`not (${keyed})`,
+                desc ? sql`p.purchase_id desc` : sql`p.purchase_id asc`,
+                page.limit - first.length,
+                Math.max(0, page.offset - before)
               )
             ).rows;
-            rows = first;
-            if (first.length < page.limit) {
-              let valuedCount = page.offset + first.length;
-              if (first.length === 0 && page.offset > 0) {
-                // A count over every valued row: the live rows joined plainly, not probed per row.
-                const plain = compile(ctx, scope, undefined, true);
-                if (plain.isErr()) return err(plain.error);
-                const n = await sql<{ n: string }>`
-              select count(*)::text as n ${plain.value.facts.from}
-              where ${plain.value.where} and ${plain.value.dated} and ${valued}`.execute(ctx.trx);
-                valuedCount = Number(n.rows[0]?.n ?? '0');
-              }
-              const rest = (
-                await pageOf(
-                  sql`not (${valued})`,
-                  desc ? sql`p.purchase_id desc` : sql`p.purchase_id asc`,
-                  page.limit - first.length,
-                  Math.max(0, page.offset - valuedCount)
-                )
-              ).rows;
-              rows = [...first, ...rest];
-            }
+            rows = [...first, ...rest];
           }
           const t = counting.value;
           const total = await sql<{ total: string }>`

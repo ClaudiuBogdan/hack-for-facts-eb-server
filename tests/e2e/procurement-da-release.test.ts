@@ -537,3 +537,26 @@ describe('after the public views and the pending columns exist, under the approv
     expect(bySupplier.groups[0]?.party?.name).toBe(COMPANY_REGISTRY_NAME);
   });
 });
+
+describe('list orders page exactly as one ORDER BY, across the keyed/unkeyed boundary', () => {
+  it('serves every sort in the single-statement order, page by page', async () => {
+    if (db === undefined) throw new Error('no database');
+    for (const [sort, key, direction] of [
+      ['finalizationDesc', 'finalization_day', 'desc'],
+      ['finalizationAsc', 'finalization_day', 'asc'],
+      ['countedValueDesc', 'counted_value', 'desc'],
+    ] as const) {
+      const expected = (
+        await sql<{ id: string }>`select purchase_id as id from procurement_v3.da_purchases
+          order by ${sql.raw(key)} ${sql.raw(direction)} nulls last,
+                   purchase_id ${sql.raw(direction)}`.execute(db)
+      ).rows.map((row) => row.id);
+      const served: string[] = [];
+      for (let page = 1; (page - 1) * 3 < expected.length + 3; page += 1) {
+        const list = (await listDaPurchases(deps(), { sort, page, pageSize: 3 }))._unsafeUnwrap();
+        served.push(...list.items.map((item) => item.purchaseId));
+      }
+      expect({ sort, served }).toEqual({ sort, served: expected });
+    }
+  });
+});

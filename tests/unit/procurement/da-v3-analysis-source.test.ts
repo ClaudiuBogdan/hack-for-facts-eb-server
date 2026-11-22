@@ -42,7 +42,9 @@ const run = async (
       if (text.includes('from unnest')) return (options.rollups ?? []).map((name) => ({ name }));
       if (text.includes('has_table_privilege')) return [{ present: options.privacy ?? true }];
       if (text.includes('party_public_names')) return options.names ?? [];
-      if (text.includes('as supplier_display_kind')) return options.records ?? [];
+      // The page's keyed phase answers the records; the rest phase none.
+      if (text.includes('as supplier_display_kind'))
+        return text.includes('and not (') ? [] : (options.records ?? []);
       if (text.includes('as total')) return [{ total: '0' }];
       if (text.includes('as rows'))
         return [
@@ -238,15 +240,35 @@ describe('party joins', () => {
     expect(geoPage).toMatch(/offset 0\) "b" on true[\s\S]+where [\s\S]+limit \$\d+ offset \$\d+$/u);
   });
 
-  it('counts the valued rows past the first page with plain joins', async () => {
-    const { data } = await run((s) =>
+  it('counts the keyed rows past the first page over the purchases alone, capped at the offset', async () => {
+    const { captured } = await run((s) =>
       s.recordsFor(ROUTE, AUTHORITY, GEN, { sort: 'value_desc', offset: 50, limit: 25 })
     );
-    const valuedCount = data.find((text) => text.includes('as n ')) ?? '';
-    expect(valuedCount).toContain('p.counted and p.counted_value is not null');
-    expect(valuedCount).toContain(`left join "procurement_v3"."da_parties_public" b`);
-    expect(valuedCount).not.toContain('left join lateral');
+    const carry = captured.find((query) => query.sql.includes('as n from'));
+    expect(carry?.sql).toContain('p.counted and p.counted_value is not null');
+    expect(carry?.sql).toContain('from "procurement_v3"."da_purchases" p');
+    expect(carry?.sql).not.toContain('left join');
+    expect(carry?.parameters.at(-1)).toBe(50);
   });
+
+  it.each([
+    ['date_desc', 'p.finalization_day desc, p.purchase_id desc', 'p.purchase_id desc'],
+    ['date_asc', 'p.finalization_day asc, p.purchase_id asc', 'p.purchase_id asc'],
+  ] as const)(
+    'orders a records page %s in two phases: dated rows by the index, then undated by id',
+    async (sort, keyedOrder, restOrder) => {
+      const { data } = await run((s) =>
+        s.recordsFor(ROUTE, AUTHORITY, GEN, { sort, offset: 0, limit: 25 })
+      );
+      const pages = data.filter((text) => text.includes('as supplier_display_kind'));
+      expect(pages).toHaveLength(2);
+      expect(pages[0]).toContain('and p.finalization_day is not null');
+      expect(pages[0]).toContain(`order by ${keyedOrder}`);
+      expect(pages[1]).toContain('and not (p.finalization_day is not null)');
+      expect(pages[1]).toContain(`order by ${restOrder}`);
+      for (const text of pages) expect(text).not.toContain('is null asc');
+    }
+  );
 });
 
 describe('supplier names', () => {

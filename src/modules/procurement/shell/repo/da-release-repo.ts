@@ -272,11 +272,32 @@ const purchaseSelect = (columns: Columns) => sql`
   ${purchaseParties(true)}
   left join ${RULES} r on r.rule = p.value_review_rule`;
 
-/** The list orders; purchase_id breaks every tie, so pages never overlap. */
-const LIST_ORDER = {
-  finalizationDesc: sql`p.finalization_day desc nulls last, p.purchase_id desc`,
-  finalizationAsc: sql`p.finalization_day asc nulls last, p.purchase_id asc`,
-  countedValueDesc: sql`p.counted_value desc nulls last, p.purchase_id desc`,
+/**
+ * The list orders, served as `finalization_day desc|asc nulls last` and `counted_value desc nulls
+ * last`, purchase_id breaking every tie (pages never overlap). Each runs in two phases: the rows
+ * with a key by an order an index serves, then the rows without one by purchase_id, the offset
+ * carried across. A single `desc nulls last` order cannot use da_purchases_finalization_day_idx
+ * (a descending scan puts nulls first), so it sorted all 22.6M purchases and timed out; phase 1
+ * takes 135 ms cold (procurement-prod, prod, 22 Nov; PROC-AP75). countedValueDesc's phase 1
+ * matches the (counted_value desc, purchase_id desc) where-counted index (a counted value exists
+ * only when counted).
+ */
+const LIST_PHASES = {
+  finalizationDesc: {
+    keyed: sql`p.finalization_day is not null`,
+    keyedOrder: sql`p.finalization_day desc, p.purchase_id desc`,
+    restOrder: sql`p.purchase_id desc`,
+  },
+  finalizationAsc: {
+    keyed: sql`p.finalization_day is not null`,
+    keyedOrder: sql`p.finalization_day asc, p.purchase_id asc`,
+    restOrder: sql`p.purchase_id asc`,
+  },
+  countedValueDesc: {
+    keyed: sql`p.counted and p.counted_value is not null`,
+    keyedOrder: sql`p.counted_value desc, p.purchase_id desc`,
+    restOrder: sql`p.purchase_id desc`,
+  },
 } as const;
 
 /** D6 in SQL, over the public supplier alias `s`: see `isNamedSupplier` in core. */
@@ -508,17 +529,44 @@ const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
 
   listPurchases: async (query) => {
     const where = whereOf(query.filter, columns);
-    const rows = await attempt(
-      async () =>
-        (
-          await sql<PurchaseRow>`
+    const offset = offsetFor(query);
+    const limit = Math.max(0, Math.min(query.pageSize, DA_LIST_MAX_DEPTH - offset));
+    const phases = LIST_PHASES[query.sort];
+    const page = (
+      extra: RawBuilder<unknown>,
+      order: RawBuilder<unknown>,
+      n: number,
+      skip: number
+    ) =>
+      sql<PurchaseRow>`
             ${purchaseSelect(columns)}
-            where ${where}
-            order by ${LIST_ORDER[query.sort]}
-            limit ${Math.max(0, Math.min(query.pageSize, DA_LIST_MAX_DEPTH - offsetFor(query)))}
-            offset ${offsetFor(query)}`.execute(trx)
-        ).rows
-    );
+            where ${where} and ${extra}
+            order by ${order}
+            limit ${n}
+            offset ${skip}`.execute(trx);
+    const rows = await attempt(async () => {
+      const keyed = (await page(phases.keyed, phases.keyedOrder, limit, offset)).rows;
+      if (keyed.length >= limit) return keyed;
+      // The keyed rows before this page: exactly offset + what it read, unless it read none, then
+      // counted (capped at the offset, all the carry needs; the filter reads only the purchase).
+      let before = offset + keyed.length;
+      if (keyed.length === 0 && offset > 0) {
+        const n = await sql<{ n: string }>`
+            select count(*)::text as n from (
+              select 1 ${COUNT_FROM} where ${where} and ${phases.keyed} limit ${offset}
+            ) as capped`.execute(trx);
+        before = Number(n.rows[0]?.n ?? '0');
+      }
+      const rest = (
+        await page(
+          sql`not (${phases.keyed})`,
+          phases.restOrder,
+          limit - keyed.length,
+          Math.max(0, offset - before)
+        )
+      ).rows;
+      return [...keyed, ...rest];
+    });
     if (rows.isErr()) return err(rows.error);
     const counted = await attempt(
       async () =>

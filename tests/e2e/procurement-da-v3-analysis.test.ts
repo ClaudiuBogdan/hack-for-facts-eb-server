@@ -854,18 +854,23 @@ describe('rollups answer exactly as the live rows', () => {
     }
   });
 
-  it('pages records by value in exactly the single-ORDER-BY order, across the valued/unvalued boundary', async () => {
+  it('pages records by value and by date in exactly the single-ORDER-BY order, across the keyed/unkeyed boundary', async () => {
     if (db === undefined) throw new Error('no database');
     const source = makeDaV3AnalysisSource(db);
     const gen = (await source.generation())._unsafeUnwrap();
     if (gen === null) throw new Error('no generation');
-    for (const [sort, direction] of [
-      ['value_desc', 'desc'],
-      ['value_asc', 'asc'],
+    const undated = await sql<{ n: string }>`select count(*)::text as n
+      from procurement_v3.da_purchases where finalization_day is null`.execute(db);
+    expect(Number(undated.rows[0]?.n)).toBeGreaterThan(0);
+    for (const [sort, direction, key] of [
+      ['value_desc', 'desc', 'case when counted then counted_value end'],
+      ['value_asc', 'asc', 'case when counted then counted_value end'],
+      ['date_desc', 'desc', 'finalization_day'],
+      ['date_asc', 'asc', 'finalization_day'],
     ] as const) {
       const expected = (
         await sql<{ id: string }>`select purchase_id as id from procurement_v3.da_purchases
-          order by case when counted then counted_value end ${sql.raw(direction)} nulls last,
+          order by ${sql.raw(key)} ${sql.raw(direction)} nulls last,
                    purchase_id ${sql.raw(direction)}`.execute(db)
       ).rows.map((row) => row.id);
       const served: string[] = [];

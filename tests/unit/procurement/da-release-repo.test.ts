@@ -104,6 +104,8 @@ const READS: [string, (reader: DaReleaseReader) => Promise<unknown>][] = [
   ['totals by month', (r) => r.totals({ filter: {}, groupBy: 'month', ...PAGE })],
 ];
 
+const esc = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+
 /** Columns the contract keeps unserved, and party contact data. */
 const UNSERVED = [
   'estimate_reported',
@@ -225,7 +227,7 @@ describe('joins and D6', () => {
     // The public view holds a supplier row only when D6 names it: the party-id match is the test,
     // with no per-row probe of `s` in the filter.
     expect(sql).toMatch(
-      /where true and \(p\.source_name, p\.supplier_party_id\) in \(select pp\.source_name, pp\.portal_party_id from "procurement_v3"\."da_parties_public" pp\s+where pp\.party_kind = \$\d+ and pp\.fiscal_code_status = 'valid' and pp\.fiscal_code_clean = \$\d+\)\s+order by/u
+      /where true and \(p\.source_name, p\.supplier_party_id\) in \(select pp\.source_name, pp\.portal_party_id from "procurement_v3"\."da_parties_public" pp\s+where pp\.party_kind = \$\d+ and pp\.fiscal_code_status = 'valid' and pp\.fiscal_code_clean = \$\d+\) and p\.finalization_day is not null\s+order by/u
     );
   });
 
@@ -257,7 +259,7 @@ describe('joins and D6', () => {
     expect(sql).not.toContain('supplier_disclosure');
     expect(sql).not.toMatch(/"?p"?\."?listed_now/u);
     // The supplier filter and every named bucket are constant false.
-    expect(sql).toMatch(/where true and false\s+order by/u);
+    expect(sql).toMatch(/where true and false and p\.finalization_day is not null\s+order by/u);
     expect(sql).not.toContain('pp.party_kind');
     expect(sql).toContain(`case when false then`);
   });
@@ -360,12 +362,63 @@ describe('review fixes', () => {
   });
 
   it.each([
-    ['finalizationDesc', 'order by p.finalization_day desc nulls last, p.purchase_id desc'],
-    ['finalizationAsc', 'order by p.finalization_day asc nulls last, p.purchase_id asc'],
-    ['countedValueDesc', 'order by p.counted_value desc nulls last, p.purchase_id desc'],
-  ] as const)('orders a list %s with purchase_id breaking ties', async (sort, order) => {
-    const { sql } = await run((r) => r.listPurchases({ sort, filter: {}, ...PAGE }));
-    expect(sql).toContain(order);
+    [
+      'finalizationDesc',
+      'p.finalization_day is not null',
+      'p.finalization_day desc, p.purchase_id desc',
+      'p.purchase_id desc',
+    ],
+    [
+      'finalizationAsc',
+      'p.finalization_day is not null',
+      'p.finalization_day asc, p.purchase_id asc',
+      'p.purchase_id asc',
+    ],
+    [
+      'countedValueDesc',
+      'p.counted and p.counted_value is not null',
+      'p.counted_value desc, p.purchase_id desc',
+      'p.purchase_id desc',
+    ],
+  ] as const)(
+    'orders a list %s in two phases (keyed rows by an indexed order, then the rest by id)',
+    async (sort, keyed, keyedOrder, restOrder) => {
+      const { sql } = await run((r) => r.listPurchases({ sort, filter: {}, ...PAGE }));
+      expect(sql).toMatch(
+        new RegExp(`where true and ${esc(keyed)}\\s+order by ${esc(keyedOrder)}\\s+limit`, 'u')
+      );
+      expect(sql).toMatch(
+        new RegExp(
+          `where true and not \\(${esc(keyed)}\\)\\s+order by ${esc(restOrder)}\\s+limit`,
+          'u'
+        )
+      );
+      expect(sql).not.toContain('nulls last');
+    }
+  );
+
+  it('carries the offset across the phases, counting the keyed rows only when a page read none', async () => {
+    const counts: CapturedQuery[] = [];
+    const { captured } = await run(
+      (r) => r.listPurchases({ sort: 'finalizationDesc', filter: {}, page: 3, pageSize: 20 }),
+      undefined,
+      (text) =>
+        text.includes('as n from')
+          ? [{ n: '30' }]
+          : text.includes('as total')
+            ? [{ total: '50' }]
+            : []
+    );
+    counts.push(...captured.filter((query) => query.sql.includes('as n from')));
+    // Page 3 (offset 40) read no keyed row: 30 keyed rows exist (the count is capped at the
+    // offset, all the carry needs), so the undated rows start at 40 - 30 = 10.
+    expect(counts).toHaveLength(1);
+    expect(counts[0]?.sql).toContain('p.finalization_day is not null limit');
+    expect(counts[0]?.parameters.at(-1)).toBe(40);
+    const rest = captured.filter((query) =>
+      query.sql.includes('not (p.finalization_day is not null)')
+    );
+    expect(rest[0]?.parameters.slice(-2)).toEqual([20, 10]);
   });
 
   it('orders tied supplier buckets by their bucket label', async () => {

@@ -333,7 +333,15 @@ party_kind = … and fiscal_code_status = 'valid' and fiscal_code_clean = $1)`, 
     served by the `where counted` index), then the rest by id, carrying the offset across. The order is identical
     to `case when counted then counted_value end … nulls last, purchase_id`, and the e2e pages both ways to prove
     it (the largest purchases of a year went from 8.7 s to under 1 ms).
+  - every other nulls-last order pages the same way (PROC-AP75): the release list by `finalization_day` or
+    `counted_value` and the records date orders. Rows with a key come first, ordered by an index; then rows without
+    one, by id; the offset carries across. The keyed-row count, needed only when a page reads none, is capped at the
+    offset. A single `desc nulls last` (or `is null` expression) order sorted all 22.6M purchases: on prod (22 Nov)
+    the release list by date desc and by value timed out at 10 s and records by date took about 9.7 s. In two
+    phases they take 32–490 ms with identical rows; the e2e pages every sort across the boundary against one
+    ORDER BY.
   - The indexes these rely on: `da_purchases (counted_value desc, purchase_id desc) where counted`,
+    `da_purchases (finalization_day)`,
     `da_parties (source_name, party_kind, portal_party_id)` and `da_parties (party_kind, fiscal_code_clean)`.
 - **Gate for the flag.** Before `PROCUREMENT_DA_V3_ENABLED` goes on, the generated statements are re-timed at
   workshop scale, with a target p95 of at most 2 s per page statement.
