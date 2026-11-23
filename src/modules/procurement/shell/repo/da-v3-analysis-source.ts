@@ -59,6 +59,7 @@ import {
   SUPPLIER_DISCLOSURE,
   SUPPLIER_DISCLOSURE_NAME,
   supplierNamesByCode,
+  type PartyJoins,
 } from './da-v3-sql.js';
 import {
   DA_NATURAL_PERSON_BUCKET,
@@ -314,15 +315,18 @@ const partyIds = (kind: 'buyer' | 'supplier', column: Sql, code: string): Sql =>
 /**
  * The live rows. `pointReads` (a records page: a few rows by an index order) probes each row's
  * parties through fenced lateral subqueries; aggregates join the view plainly (see
- * `publicPartyLateral`).
+ * `publicPartyLateral`), and only the parties they read (`joins`): `authority` and the buyer
+ * geography read `b`; `supplierKey` and `supplierNamed` read `s`. Party scopes go by party ids
+ * and read neither. A read that names an unjoined party fails on the missing alias, never
+ * silently.
  */
-const liveFacts = (ctx: Ctx, geo: boolean, pointReads = false): Facts => {
+const liveFacts = (ctx: Ctx, geo: boolean, pointReads: boolean, joins: PartyJoins): Facts => {
   const named = namedSupplierSql(ctx.privacy);
   return {
     rollup: null,
     from: sql`
   from ${PURCHASES} p
-  ${purchaseParties(pointReads)}
+  ${purchaseParties(pointReads, joins)}
   ${geo ? geoJoin(ctx) : sql``}`,
     day: sql`p.finalization_day`,
     base: null,
@@ -540,8 +544,16 @@ const compile = (
     scope.buyerRegion !== undefined ||
     scope.buyerCounty !== undefined ||
     scope.buyerSiruta !== undefined;
+  // The parties the live aggregate reads: the buyer for its code or geography, the supplier
+  // for its key. A records page (pointReads) probes both for each row it lists.
+  const joins: PartyJoins = {
+    buyer: pointReads || geo || dimension === 'authority',
+    supplier: pointReads || dimension === 'supplier',
+  };
   const f =
-    rollup === null ? liveFacts(ctx, geo, pointReads) : rollupFacts(ctx, rollup.table, rollup.keys);
+    rollup === null
+      ? liveFacts(ctx, geo, pointReads, joins)
+      : rollupFacts(ctx, rollup.table, rollup.keys);
   const conds: Sql[] = f.base === null ? [] : [f.base];
   // Codes compare in the platform's form (no leading zeros); a legacy code still matches.
   if (scope.authorityCui !== undefined)

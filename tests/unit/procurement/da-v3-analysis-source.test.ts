@@ -328,9 +328,68 @@ describe('party joins', () => {
     expect(page).toMatch(
       /left join lateral \(\s+select x\.source_name[\s\S]+offset 0\) "s" on true/u
     );
-    const stats = await run((s) => s.statsFor(ROUTE, AUTHORITY, GEN));
+    const stats = await run((s) => s.breakdownFor(ROUTE, AUTHORITY, GEN, 'authority', 10, 'count'));
     expect(stats.sql).toContain(`left join "procurement_v3"."da_parties_public" b`);
     expect(stats.sql).not.toContain('left join lateral');
+  });
+
+  it('joins only the parties a live aggregate reads (buyer x CPV timed out on them, 23 Nov)', async () => {
+    const BUYER_JOIN = `left join "procurement_v3"."da_parties_public" b`;
+    const SUPPLIER_JOIN = `left join "procurement_v3"."da_parties_public" s`;
+    const joins = (text: string) => ({
+      buyer: text.includes(BUYER_JOIN),
+      supplier: text.includes(SUPPLIER_JOIN),
+    });
+    const YEAR: AnalysisScope = { ...AUTHORITY, year: 2025 };
+    const shapes: readonly [
+      string,
+      (source: Parameters<Parameters<typeof run>[0]>[0]) => Promise<unknown>,
+      { buyer: boolean; supplier: boolean },
+    ][] = [
+      // The reported shape: a buyer's CPV categories read neither party (the scope goes by ids).
+      [
+        'buyer x cpvCategory',
+        (s) => s.breakdownFor(ROUTE, YEAR, GEN, 'cpvCategory', 100, 'value'),
+        { buyer: false, supplier: false },
+      ],
+      [
+        'buyer x cpvClass',
+        (s) => s.breakdownFor(ROUTE, YEAR, GEN, 'cpvClass', 100, 'value'),
+        { buyer: false, supplier: false },
+      ],
+      ['buyer stats', (s) => s.statsFor(ROUTE, YEAR, GEN), { buyer: false, supplier: false }],
+      [
+        'buyer series',
+        (s) => s.seriesFor(ROUTE, YEAR, GEN, 'valueAwardedSum'),
+        { buyer: false, supplier: false },
+      ],
+      [
+        'by authority',
+        (s) => s.breakdownFor(ROUTE, YEAR, GEN, 'authority', 10, 'value'),
+        { buyer: true, supplier: false },
+      ],
+      [
+        'by supplier',
+        (s) => s.breakdownFor(ROUTE, YEAR, GEN, 'supplier', 10, 'value'),
+        { buyer: false, supplier: true },
+      ],
+      [
+        'by buyer county',
+        (s) => s.breakdownFor(ROUTE, YEAR, GEN, 'buyerCounty', 10, 'value'),
+        { buyer: true, supplier: false },
+      ],
+      [
+        'concentration',
+        (s) => s.concentrationFor(ROUTE, YEAR, GEN, 'value'),
+        { buyer: false, supplier: true },
+      ],
+    ];
+    for (const [label, read, expected] of shapes) {
+      const { data } = await run(read);
+      const reads = data.filter((text) => text.includes('"procurement_v3"."da_purchases" p'));
+      expect(reads.length, label).toBeGreaterThan(0);
+      for (const text of reads) expect(joins(text), label).toEqual(expected);
+    }
   });
 
   it('chooses a records page from da_purchases alone, then probes only its rows', async () => {
