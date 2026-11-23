@@ -779,6 +779,15 @@ describe('rollups answer exactly as the live rows', () => {
           statements.some((text) => text.includes(`"procurement_v3"."${table}"`)),
           table
         ).toBe(true);
+      // The buyer and CPV scope read the authority x CPV table itself (a live fallback would also
+      // match, and leave its zeroed row untested).
+      expect(
+        statements.some(
+          (text) =>
+            text.includes('"procurement_v3"."da_rollup_authority_cpv_month"') &&
+            text.includes('left(r.cpv8, 2) =')
+        )
+      ).toBe(true);
       // PROC-YP8P: whole-release distinct suppliers by quarter come from the quarter rows (a
       // marked quarter row shows through), and a publication without them counts as before.
       const quarterly = async (window: Record<string, unknown> = {}) =>
