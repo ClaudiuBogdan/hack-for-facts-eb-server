@@ -316,6 +316,63 @@ describe('D6', () => {
   });
 });
 
+describe('the authority x CPV rollup', () => {
+  const YEAR: AnalysisScope = { ...AUTHORITY, year: 2025 };
+  const ALL = [
+    'da_rollup_county_month',
+    'da_rollup_cpv_month',
+    'da_rollup_authority_month',
+    'da_rollup_county_cpv_month',
+    'da_rollup_authority_cpv_month',
+    'da_rollup_supplier_month',
+    'da_rollup_supplier_cpv_month',
+    'da_rollup_authority_supplier_month',
+  ];
+  const tablesOf = (data: readonly string[]) =>
+    [
+      ...new Set(
+        data.flatMap((text) =>
+          [...text.matchAll(/"procurement_v3"\."(da_[a-z_]+)"/gu)].map((m) => m[1])
+        )
+      ),
+    ].sort();
+
+  it("answers a buyer's CPV breakdown from it, by the buyer code and never a party", async () => {
+    const { data } = await run(
+      (s) => s.breakdownFor(ROUTE, YEAR, GEN, 'cpvCategory', 100, 'value'),
+      { rollups: ALL }
+    );
+    expect(tablesOf(data)).toEqual(['da_rollup_authority_cpv_month']);
+    for (const text of data.filter((t) => t.includes('da_rollup_authority_cpv_month')))
+      expect(text).toContain('r.authority_cui = $');
+  });
+
+  it('leaves the single-key shapes on the smaller tables, and reads live without it', async () => {
+    const byBuyer = await run((s) => s.statsFor(ROUTE, YEAR, GEN), { rollups: ALL });
+    expect(tablesOf(byBuyer.data)).toEqual(['da_rollup_authority_month']);
+    const byCpv = await run(
+      (s) =>
+        s.breakdownFor(
+          ROUTE,
+          { grain: 'direct_acquisition', year: 2025 },
+          GEN,
+          'cpvCategory',
+          100,
+          'value'
+        ),
+      { rollups: ALL }
+    );
+    expect(tablesOf(byCpv.data)).toEqual(['da_rollup_cpv_month']);
+    const without = await run(
+      (s) => s.breakdownFor(ROUTE, YEAR, GEN, 'cpvCategory', 100, 'value'),
+      {
+        rollups: ALL.filter((name) => name !== 'da_rollup_authority_cpv_month'),
+      }
+    );
+    expect(tablesOf(without.data)).toEqual(['da_parties_public', 'da_purchases']);
+  });
+});
+
 describe('party joins', () => {
   it('probes parties per row on a records page and joins them plainly for aggregates', async () => {
     const records = await run((s) =>

@@ -264,6 +264,8 @@ export const DA_V3_ROLLUPS: readonly {
   { table: 'da_rollup_cpv_month', keys: ['cpv'] },
   { table: 'da_rollup_authority_month', keys: ['authority'] },
   { table: 'da_rollup_county_cpv_month', keys: ['county', 'cpv'] },
+  // A buyer's CPV breakdowns (owner, 23 Nov): live, they read every year of the buyer's purchases.
+  { table: 'da_rollup_authority_cpv_month', keys: ['authority', 'cpv'] },
   { table: 'da_rollup_supplier_month', keys: ['supplier'] },
   { table: 'da_rollup_supplier_cpv_month', keys: ['supplier', 'cpv'] },
   { table: 'da_rollup_authority_supplier_month', keys: ['authority', 'supplier', 'county'] },

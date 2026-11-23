@@ -200,6 +200,7 @@ const APPROVED_TABLES = [
   'da_rollup_cpv_month',
   'da_rollup_authority_month',
   'da_rollup_county_cpv_month',
+  'da_rollup_authority_cpv_month',
   'da_rollup_supplier_month',
   'da_rollup_supplier_cpv_month',
   'da_rollup_authority_supplier_month',
@@ -513,6 +514,7 @@ describe('rollups answer exactly as the live rows', () => {
     ['da_rollup_authority_supplier_month', 'authority_cui, supplier_ref, county_code, region'],
     ['da_rollup_supplier_cpv_month', 'supplier_ref, cpv8'],
     ['da_rollup_county_cpv_month', 'county_code, region, cpv8'],
+    ['da_rollup_authority_cpv_month', 'authority_cui, cpv8'],
   ];
 
   const seed = async (trx: Kysely<ProdDatabase>): Promise<void> => {
@@ -866,6 +868,7 @@ describe('rollups answer exactly as the live rows', () => {
         ['da_rollup_cpv_month', 'cpv8', `'99999999'`],
         ['da_rollup_authority_month', 'authority_cui', `'9999999'`],
         ['da_rollup_county_cpv_month', 'county_code, region, cpv8', `'ZZ', 'Gone', '99999999'`],
+        ['da_rollup_authority_cpv_month', 'authority_cui, cpv8', `'9999999', '99999999'`],
         ['da_rollup_supplier_month', 'supplier_ref', publicRef],
         ['da_rollup_supplier_cpv_month', 'supplier_ref, cpv8', `${publicRef}, '99999999'`],
         [

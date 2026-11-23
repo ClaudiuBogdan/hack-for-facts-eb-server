@@ -290,6 +290,7 @@ withheld and NULL means no supplier. A flip to restricted leaves the old rows ze
 | `da_rollup_cpv_month`                | cpv8                                                                               |
 | `da_rollup_authority_month`          | authority_cui                                                                      |
 | `da_rollup_county_cpv_month`         | county_code, region, cpv8                                                          |
+| `da_rollup_authority_cpv_month`      | authority_cui, cpv8 (a buyer's CPV breakdowns; owner, 23 Nov)                      |
 | `da_rollup_supplier_month`           | supplier_ref                                                                       |
 | `da_rollup_supplier_cpv_month`       | supplier_ref, cpv8                                                                 |
 | `da_rollup_authority_supplier_month` | authority_cui, supplier_ref, plus the authority's county_code and region           |
@@ -307,7 +308,7 @@ money_geo.
   - SIRUTA scopes or breakdowns;
   - counted-value bounds;
   - record pages (the page rows; their total uses a rollup);
-  - combinations no table holds (e.g. authority × CPV).
+  - combinations no table holds (e.g. authority × supplier × CPV).
 - **Distinct counts:**
   - for a window-only scope with a month or year bucket aligned to the window, they come from `da_rollup_distinct`,
     where the supplier count is public suppliers plus one if any supplier is withheld (as live);
