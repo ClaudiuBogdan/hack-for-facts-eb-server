@@ -150,6 +150,26 @@ describe('direct-acquisition switches', () => {
     ).toMatchObject({ legacyEnabled: false });
   });
 
+  it('serves the legacy DA list by default and retires it only on the exact value false', () => {
+    expect(loadRedesignConfig(base).procurement?.legacyDaListEnabled).toBeUndefined();
+    expect(
+      loadRedesignConfig({ ...base, PROCUREMENT_LEGACY_DA_LIST_ENABLED: 'true' }).procurement
+        ?.legacyDaListEnabled
+    ).toBeUndefined();
+    expect(
+      loadRedesignConfig({ ...base, PROCUREMENT_LEGACY_DA_LIST_ENABLED: 'false' }).procurement
+    ).toMatchObject({ legacyDaListEnabled: false });
+  });
+
+  it.each(['False', 'off', '0', ''])(
+    'refuses PROCUREMENT_LEGACY_DA_LIST_ENABLED=%j at boot (a privacy switch is never guessed)',
+    (value) => {
+      expect(() =>
+        loadRedesignConfig({ ...base, PROCUREMENT_LEGACY_DA_LIST_ENABLED: value })
+      ).toThrow(/PROCUREMENT_LEGACY_DA_LIST_ENABLED must be 'true' or 'false'/u);
+    }
+  );
+
   it.each(['False', 'off', '0', ''])(
     'refuses PROCUREMENT_LEGACY_ENABLED=%j at boot (a privacy switch is never guessed)',
     (value) => {

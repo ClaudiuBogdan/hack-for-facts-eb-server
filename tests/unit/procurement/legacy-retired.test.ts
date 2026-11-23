@@ -13,8 +13,10 @@ import { describe, expect, it } from 'vitest';
 import { makeGraphQLPlugin } from '@/infra/graphql/index.js';
 import { makeProcurementModule } from '@/modules/procurement/index.js';
 import {
+  LEGACY_DA_LIST_RETIRED_MESSAGE,
   LEGACY_RETIRED_MESSAGE,
   makeRetiredAnalysisRepo,
+  retireLegacyDaList,
   retireLegacyRecords,
 } from '@/modules/procurement/shell/repo/legacy-retired.js';
 import { baseTypeDefs, mergeGraphqlSlices, scalarResolvers } from '@/modules/shared/index.js';
@@ -69,7 +71,10 @@ describe('retired legacy records', () => {
   });
 });
 
-const build = (captured: CapturedQuery[], options: { legacy?: boolean; v3?: boolean } = {}) =>
+const build = (
+  captured: CapturedQuery[],
+  options: { legacy?: boolean; v3?: boolean; daList?: boolean } = {}
+) =>
   makeProcurementModule({
     db: makeCapturingDb(captured, {
       respond: (text) =>
@@ -80,6 +85,7 @@ const build = (captured: CapturedQuery[], options: { legacy?: boolean; v3?: bool
     warmCache: true,
     ...(options.legacy !== undefined && { legacyEnabled: options.legacy }),
     ...(options.v3 !== undefined && { daV3Enabled: options.v3 }),
+    ...(options.daList !== undefined && { legacyDaListEnabled: options.daList }),
   });
 
 const graphql = async (
@@ -243,5 +249,67 @@ describe('the module with legacy off', () => {
     const presence = await module.contributor.presenceFor('4305857');
     expect(presence._unsafeUnwrapErr()).toMatchObject({ type: 'ServiceUnavailable' });
     expect(captured).toEqual([]);
+  });
+});
+
+const DA_LIST_METHODS = ['listDirectAcquisitions', 'searchDirectAcquisitionsOffset'];
+
+describe('the legacy DA list retired (PROCUREMENT_LEGACY_DA_LIST_ENABLED=false)', () => {
+  it('answers both list reads ServiceUnavailable without calling the repo; the rest delegate', async () => {
+    const calls: string[] = [];
+    // A plain object, as every served repo is (the wrapper spreads it).
+    const recording = recordingRepo(calls);
+    const plain = Object.fromEntries(
+      Object.keys(retireLegacyRecords(recording)).map((name) => [
+        name,
+        recording[name as keyof ProcurementRepo],
+      ])
+    ) as unknown as ProcurementRepo;
+    const retired = retireLegacyDaList(plain);
+    for (const name of DA_LIST_METHODS) {
+      const result = await (retired[name as keyof ProcurementRepo] as unknown as AnyMethod)();
+      expect(result._unsafeUnwrapErr(), name).toMatchObject({
+        type: 'ServiceUnavailable',
+        message: LEGACY_DA_LIST_RETIRED_MESSAGE,
+      });
+    }
+    expect(calls).toEqual([]);
+    await retired.getDirectAcquisitionDetail('1');
+    await retired.searchContractsOffset({}, { page: 1, pageSize: 1 } as never, undefined);
+    await retired.listCpvDivisions();
+    expect(calls).toEqual([
+      'getDirectAcquisitionDetail',
+      'searchContractsOffset',
+      'listCpvDivisions',
+    ]);
+  });
+
+  it('drops only the DA list tool; on (the default) it stays', () => {
+    const on = build([]).mcpTools.map((tool) => tool.name);
+    const off = build([], { daList: false }).mcpTools.map((tool) => tool.name);
+    expect(on).toContain('search_procurement_direct_acquisitions');
+    expect(off).not.toContain('search_procurement_direct_acquisitions');
+    expect(off).toEqual(on.filter((name) => name !== 'search_procurement_direct_acquisitions'));
+  });
+
+  it('refuses the GraphQL list with no query and keeps the other legacy lists', async () => {
+    const captured: CapturedQuery[] = [];
+    const module = build(captured, { daList: false });
+    captured.length = 0; // the cache warm (legacy on) is not under test
+    const list = await graphql(
+      module,
+      '{ procurementDirectAcquisitions(filter: { authorityCui: { eq: "4305857" } }) { total items { id } } }'
+    );
+    expect(list.data ?? null).toBeNull();
+    expect(list.errors?.map((error) => error.extensions)).toEqual([
+      expect.objectContaining({ code: 'SERVICE_UNAVAILABLE' }),
+    ]);
+    expect(captured).toEqual([]);
+    const contracts = await graphql(
+      module,
+      '{ procurementContracts(filter: { authorityCui: { eq: "4305857" } }) { total } }'
+    );
+    expect(contracts.errors).toBeUndefined();
+    expect(captured.length).toBeGreaterThan(0);
   });
 });

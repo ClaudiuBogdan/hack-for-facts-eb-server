@@ -439,6 +439,15 @@ The owner-approved grant gives the API's login no legacy relation (`procurement.
   one pool with every kernel module, so the narrow login (PRJ-54YB) needs every module's inventory first. Set the
   flag to `false` when the login loses its broad rights, not before (root's GO).
 
+### The legacy DA list (retired on Chronos dev, owner 23 Nov)
+
+`PROCUREMENT_LEGACY_DA_LIST_ENABLED` (default `true`; only `true` or `false` are accepted) retires the legacy
+direct-acquisition list alone: GraphQL `procurementDirectAcquisitions` answers ServiceUnavailable ("use
+procurementDaPurchases") without a query, and the MCP tool `search_procurement_direct_acquisitions` is not registered.
+The list names buyers from the raw authority name, so a buyer the release masks stayed named there (PROC-KR9T); the
+release routes (`procurementDa*`) replace it. The legacy DA detail, every other legacy read and the release are
+unaffected. It is `false` on Chronos dev only; rollback is reverting the overlay line and the same sync.
+
 ## Pending (data platform)
 
 - **Schema name:** `procurement_v3` is pending the owner's migration. It is named once, in `DA_RELEASE_SCHEMA`.

@@ -78,6 +78,7 @@ const RedesignEnvSchema = Type.Object({
   PROCUREMENT_DA_V3_ENABLED: Type.Optional(Type.String()),
   PROCUREMENT_TOTALS_V2: Type.Optional(Type.String()),
   PROCUREMENT_LEGACY_ENABLED: Type.Optional(Type.String()),
+  PROCUREMENT_LEGACY_DA_LIST_ENABLED: Type.Optional(Type.String()),
   PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED: Type.Optional(Type.String()),
   PROCUREMENT_SEARCH_OPENSEARCH_URL: Type.Optional(Type.String()),
   PROCUREMENT_SEARCH_OPENSEARCH_INDEXES: Type.Optional(Type.String()),
@@ -126,6 +127,12 @@ export interface ProcurementComposition {
    * without a query (SEC-GRANTS-PROC-2211: the public-only grant covers none of them).
    */
   readonly legacyEnabled?: boolean;
+  /**
+   * The legacy direct-acquisition list (GraphQL `procurementDirectAcquisitions`, MCP
+   * `search_procurement_direct_acquisitions`); on unless PROCUREMENT_LEGACY_DA_LIST_ENABLED=false.
+   * Off, the list answers ServiceUnavailable without a query and the MCP tool is not listed.
+   */
+  readonly legacyDaListEnabled?: boolean;
   /**
    * Site-wide D6 and the DA free-text gate, on every DA surface, legacy included
    * (PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED=true). Independent of `daV3Enabled`
@@ -410,9 +417,16 @@ const composeEmbeddedKernel = (e: EmbeddedKernelEnv): EmbeddedKernelConfig => {
       "Invalid redesign env: PROCUREMENT_LEGACY_ENABLED must be 'true' or 'false' when set"
     );
   }
+  const legacyDaList = e.PROCUREMENT_LEGACY_DA_LIST_ENABLED;
+  if (legacyDaList !== undefined && legacyDaList !== 'true' && legacyDaList !== 'false') {
+    throw new Error(
+      "Invalid redesign env: PROCUREMENT_LEGACY_DA_LIST_ENABLED must be 'true' or 'false' when set"
+    );
+  }
   const procurement: ProcurementComposition = {
     ...(daWindow > 0 && { daListMaxWindowDays: daWindow }),
     ...(legacy === 'false' && { legacyEnabled: false }),
+    ...(legacyDaList === 'false' && { legacyDaListEnabled: false }),
     ...(e.PROCUREMENT_DA_V3_ENABLED === 'true' && { daV3Enabled: true }),
     ...(e.PROCUREMENT_TOTALS_V2 === 'true' && { totalsV2Enabled: true }),
     ...(e.PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED === 'true' && {

@@ -35,6 +35,7 @@ import { makeProcurementGenerationRepo } from './shell/repo/generation-repo.js';
 import {
   makeRetiredAnalysisRepo,
   retiredPresenceRepo,
+  retireLegacyDaList,
   retireLegacyRecords,
 } from './shell/repo/legacy-retired.js';
 import {
@@ -113,12 +114,22 @@ export interface ProcurementModuleDeps {
    * Env: PROCUREMENT_LEGACY_ENABLED.
    */
   readonly legacyEnabled?: boolean;
+  /**
+   * The legacy direct-acquisition list: GraphQL `procurementDirectAcquisitions` and MCP
+   * `search_procurement_direct_acquisitions`. On (the default) both are served as before. Off,
+   * the list answers ServiceUnavailable without a query and the MCP tool is not registered; the
+   * legacy DA detail, every other legacy read and the DA release are unaffected.
+   * Env: PROCUREMENT_LEGACY_DA_LIST_ENABLED.
+   */
+  readonly legacyDaListEnabled?: boolean;
 }
 
 /** The MCP tools that read only the CPV reference (kept when legacy is off). */
 const CPV_REFERENCE_TOOLS: ReadonlySet<string> = new Set(['resolve_procurement_filter']);
 /** The analysis tool: kept when legacy is off only while the DA v3 grain answers. */
 const ANALYSIS_TOOL = 'aggregate_procurement';
+/** The legacy direct-acquisition list tool (retired with the list). */
+const LEGACY_DA_LIST_TOOL = 'search_procurement_direct_acquisitions';
 
 export interface ProcurementModule {
   readonly repo: ProcurementRepo;
@@ -168,8 +179,11 @@ export const makeProcurementModule = (deps: ProcurementModuleDeps): ProcurementM
     ),
     deps.supplierDisclosure
   );
+  const legacyDaListEnabled = deps.legacyDaListEnabled ?? true;
   // Legacy off: outermost, so no record read (nor its D6 wrapper) runs a query; CPV stays.
-  const repo = legacyEnabled ? servedRepo : retireLegacyRecords(servedRepo);
+  const legacyRepo = legacyEnabled ? servedRepo : retireLegacyRecords(servedRepo);
+  // The legacy DA list off: outermost too, so no list read runs a query.
+  const repo = legacyDaListEnabled ? legacyRepo : retireLegacyDaList(legacyRepo);
   // ClickHouse is the analytics backend; the generation ledger (buildId,
   // quality, matrix_hash) stays authoritative in Postgres and is delegated to.
   // With no ClickHouse configured, analysis reads fail closed with a clear error.
@@ -238,12 +252,14 @@ export const makeProcurementModule = (deps: ProcurementModuleDeps): ProcurementM
     ...(deps.supplierDisclosure !== undefined && {
       supplierDisclosure: deps.supplierDisclosure,
     }),
-  }).filter(
-    (tool) =>
-      legacyEnabled ||
-      CPV_REFERENCE_TOOLS.has(tool.name) ||
-      (tool.name === ANALYSIS_TOOL && daV3Enabled)
-  );
+  })
+    .filter(
+      (tool) =>
+        legacyEnabled ||
+        CPV_REFERENCE_TOOLS.has(tool.name) ||
+        (tool.name === ANALYSIS_TOOL && daV3Enabled)
+    )
+    .filter((tool) => legacyDaListEnabled || tool.name !== LEGACY_DA_LIST_TOOL);
 
   return {
     repo,

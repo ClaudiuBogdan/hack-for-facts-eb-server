@@ -719,6 +719,9 @@ export const registerRedesignSurface = async (
       ...(composition.legacyEnabled !== undefined && {
         legacyEnabled: composition.legacyEnabled,
       }),
+      ...(composition.legacyDaListEnabled !== undefined && {
+        legacyDaListEnabled: composition.legacyDaListEnabled,
+      }),
       ...(deps.clientBaseUrl !== undefined && { clientBaseUrl: deps.clientBaseUrl }),
     });
     moduleSlices.push(procurement.graphqlSlice);

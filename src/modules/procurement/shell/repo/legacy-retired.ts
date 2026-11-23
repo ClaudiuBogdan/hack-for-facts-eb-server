@@ -56,6 +56,28 @@ export const retireLegacyRecords = (repo: ProcurementRepo): ProcurementRepo => (
   supplierRecords: retired,
 });
 
+export const LEGACY_DA_LIST_RETIRED_MESSAGE =
+  'the legacy direct-acquisition list is not served by this API; use procurementDaPurchases';
+
+/**
+ * PROCUREMENT_LEGACY_DA_LIST_ENABLED=false (owner, 23 Nov; Chronos dev first): the legacy
+ * direct-acquisition list (GraphQL `procurementDirectAcquisitions`, MCP
+ * `search_procurement_direct_acquisitions`) leaves the public surface. It names buyers from the
+ * raw authority name, so a buyer the release masks would stay named there; the release routes
+ * (`procurementDa*`) replace it. Both list reads answer ServiceUnavailable without a query (this
+ * wrapper is outermost, so neither the D6 wrapper nor the legacy reader runs); every other read
+ * delegates unchanged.
+ */
+export const retireLegacyDaList = (repo: ProcurementRepo): ProcurementRepo => {
+  const retiredList = (): Promise<Result<never, ApiError>> =>
+    Promise.resolve(err(serviceUnavailable(LEGACY_DA_LIST_RETIRED_MESSAGE)));
+  return {
+    ...repo,
+    listDirectAcquisitions: retiredList,
+    searchDirectAcquisitionsOffset: retiredList,
+  };
+};
+
 /**
  * The legacy (ClickHouse) analysis backend, retired: every grain it answers is
  * ServiceUnavailable. With the DA v3 reader on, the routing repo still answers
