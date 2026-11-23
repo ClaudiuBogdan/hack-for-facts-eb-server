@@ -445,8 +445,8 @@ The owner-approved grant gives the API's login no legacy relation (`procurement.
 direct-acquisition list alone: GraphQL `procurementDirectAcquisitions` answers ServiceUnavailable ("use
 procurementDaPurchases") without a query, and the MCP tool `search_procurement_direct_acquisitions` is not registered.
 The list names buyers from the raw authority name, so a buyer the release masks stayed named there (PROC-KR9T); the
-release routes (`procurementDa*`) replace it. The list is refused before its arguments are validated, so every
-request gets the same answer. The legacy DA detail, every other legacy read and the release are unaffected. It is
+release routes (`procurementDa*`) replace it. The list is refused before the resolver validates its arguments, so every
+schema-valid request gets the same answer (one GraphQL itself rejects, such as `page: "0"`, is still a 400). The legacy DA detail, every other legacy read and the release are unaffected. It is
 `false` on Chronos dev only. The ConfigMap is not hash-named, so the flag takes effect only when the Deployment rolls
 to an image that reads it (the CI pin after the feature commit), synced as ConfigMap plus Deployment together.
 Rollback is the revert, its CI pin and the same ConfigMap plus Deployment sync; a ConfigMap-only sync leaves running
