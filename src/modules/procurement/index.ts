@@ -13,7 +13,7 @@ import { DA_LIST_MAX_WINDOW_DAYS_DEFAULT } from './core/constants.js';
 import { makeDaTotalsCache, type DaReleaseDeps } from './core/da-release-usecases.js';
 import { makeProcurementContributor } from './shell/contributor.js';
 import { daReleaseTypeDefs, makeDaReleaseResolvers } from './shell/graphql/da-release-schema.js';
-import { makeProcurementResolvers } from './shell/graphql/resolvers.js';
+import { makeProcurementResolvers, toGraphqlError } from './shell/graphql/resolvers.js';
 import { makeTotalsResolvers, totalsTypeDefs } from './shell/graphql/totals-schema.js';
 import { procurementTypeDefs } from './shell/graphql/typedefs.js';
 import { makeDaReleaseMcpTools } from './shell/mcp/da-release-tools.js';
@@ -33,6 +33,7 @@ import { makeDaRoutingAnalysisRepo } from './shell/repo/da-routing-analysis-repo
 import { makeDaV3AnalysisSource } from './shell/repo/da-v3-analysis-source.js';
 import { makeProcurementGenerationRepo } from './shell/repo/generation-repo.js';
 import {
+  legacyDaListRetiredError,
   makeRetiredAnalysisRepo,
   retiredPresenceRepo,
   retireLegacyDaList,
@@ -273,6 +274,13 @@ export const makeProcurementModule = (deps: ProcurementModuleDeps): ProcurementM
       ProcurementDaParty: daResolvers.ProcurementDaParty,
       Query: {
         ...(legacyResolvers['Query'] as Record<string, unknown>),
+        // The legacy DA list off: refused before its arguments are read, so every request
+        // gets the same ServiceUnavailable (the repo is retired too, for the MCP path).
+        ...(!legacyDaListEnabled && {
+          procurementDirectAcquisitions: (): never => {
+            throw toGraphqlError(legacyDaListRetiredError());
+          },
+        }),
         ...daResolvers.Query,
         ...totalsResolvers.Query,
       },

@@ -19,7 +19,13 @@ import {
   retireLegacyDaList,
   retireLegacyRecords,
 } from '@/modules/procurement/shell/repo/legacy-retired.js';
-import { baseTypeDefs, mergeGraphqlSlices, scalarResolvers } from '@/modules/shared/index.js';
+import {
+  baseTypeDefs,
+  FiscalCodeSet,
+  mergeGraphqlSlices,
+  scalarResolvers,
+  type SupplierDisclosurePort,
+} from '@/modules/shared/index.js';
 
 import { makeCapturingDb, type CapturedQuery } from '../../fixtures/capturing-db.js';
 
@@ -311,5 +317,44 @@ describe('the legacy DA list retired (PROCUREMENT_LEGACY_DA_LIST_ENABLED=false)'
     );
     expect(contracts.errors).toBeUndefined();
     expect(captured.length).toBeGreaterThan(0);
+  });
+
+  it('refuses before argument validation and before any D6 read, with D6 enforced', async () => {
+    const captured: CapturedQuery[] = [];
+    const disclosureReads: string[] = [];
+    const disclosure: SupplierDisclosurePort = {
+      enforced: true,
+      privacyAsOf: () => {
+        disclosureReads.push('privacyAsOf');
+        return Promise.resolve(ok('2026-11-18T03:10:00.000000Z'));
+      },
+      publicSupplierCodes: () => {
+        disclosureReads.push('publicSupplierCodes');
+        return Promise.resolve(ok(new FiscalCodeSet([], '2026-11-18T03:10:00.000000Z')));
+      },
+    };
+    for (const legacy of [true, false]) {
+      const module = makeProcurementModule({
+        db: makeCapturingDb(captured, { respond: () => [] }),
+        warmCache: false,
+        legacyEnabled: legacy,
+        legacyDaListEnabled: false,
+        supplierDisclosure: disclosure,
+      });
+      for (const query of [
+        '{ procurementDirectAcquisitions(page: 0) { total } }',
+        '{ procurementDirectAcquisitions(filter: { supplierCui: { eq: "31962960" } }) { total meta { disclosureKey } } }',
+      ]) {
+        const answer = await graphql(module, query);
+        expect(answer.data ?? null, query).toBeNull();
+        expect(answer.errors?.map((error) => error.extensions)).toEqual([
+          expect.objectContaining({ code: 'SERVICE_UNAVAILABLE' }),
+        ]);
+      }
+      const list = await module.repo.listDirectAcquisitions({}, { first: 1 });
+      expect(list._unsafeUnwrapErr().type).toBe('ServiceUnavailable');
+    }
+    expect(captured).toEqual([]);
+    expect(disclosureReads).toEqual([]);
   });
 });

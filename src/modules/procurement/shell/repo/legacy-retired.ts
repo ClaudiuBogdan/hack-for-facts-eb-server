@@ -68,9 +68,12 @@ export const LEGACY_DA_LIST_RETIRED_MESSAGE =
  * wrapper is outermost, so neither the D6 wrapper nor the legacy reader runs); every other read
  * delegates unchanged.
  */
+export const legacyDaListRetiredError = (): ApiError =>
+  serviceUnavailable(LEGACY_DA_LIST_RETIRED_MESSAGE);
+
 export const retireLegacyDaList = (repo: ProcurementRepo): ProcurementRepo => {
   const retiredList = (): Promise<Result<never, ApiError>> =>
-    Promise.resolve(err(serviceUnavailable(LEGACY_DA_LIST_RETIRED_MESSAGE)));
+    Promise.resolve(err(legacyDaListRetiredError()));
   return {
     ...repo,
     listDirectAcquisitions: retiredList,
