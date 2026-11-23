@@ -303,7 +303,10 @@ money_geo.
 
 - **One compiler, two forms.** The compiler emits either row-level SQL over `da_purchases` (live) or sum-of-measures
   SQL over the smallest rollup whose keys cover the scope and the dimension. Absent tables are read live, so nothing
-  depends on them.
+  depends on them. A present table is used as soon as the login can read it, filled or not (a login with
+  `pg_read_all_data` reads it from the migration on), so a new rollup is registered and deployed only after its fill
+  is verified for the serving `data_as_of`; later publishes keep facts, rollups and the release pointer in one
+  transaction (`da_rollup_authority_cpv_month`, 23 Nov).
 - **No rollup covers:**
   - SIRUTA scopes or breakdowns;
   - counted-value bounds;

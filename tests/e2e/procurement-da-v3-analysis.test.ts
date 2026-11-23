@@ -614,6 +614,9 @@ describe('rollups answer exactly as the live rows', () => {
     { cpvGroup: '441' },
     { authorityCui: '1000002', supplierCui: '2000002' },
     { supplierCui: '2000002', cpvClass: '4411' },
+    // A buyer and a CPV filter together, unbounded: the authority x CPV table answers every
+    // shape, and its zeroed row for this buyer and code (in an empty month) must add nothing.
+    { authorityCui: '1000001', cpvDivision: '44' },
   ];
 
   /**
@@ -762,7 +765,7 @@ describe('rollups answer exactly as the live rows', () => {
       );
       expect(batteryRefusals()).toHaveLength(live.length);
       expect(refused.map(([index]) => index)).toEqual(expectedRefused);
-      expect(expectedRefused).toHaveLength(61);
+      expect(expectedRefused).toHaveLength(68);
       for (let index = 0; index < live.length; index += 1)
         expect({ index, answer: rolled[index] }).toEqual({ index, answer: live[index] });
       // Every rollup and the pinned geography were read, not just present (a rollup the login
@@ -869,6 +872,7 @@ describe('rollups answer exactly as the live rows', () => {
         ['da_rollup_authority_month', 'authority_cui', `'9999999'`],
         ['da_rollup_county_cpv_month', 'county_code, region, cpv8', `'ZZ', 'Gone', '99999999'`],
         ['da_rollup_authority_cpv_month', 'authority_cui, cpv8', `'9999999', '99999999'`],
+        ['da_rollup_authority_cpv_month', 'authority_cui, cpv8', `'1000001', '44110000'`],
         ['da_rollup_supplier_month', 'supplier_ref', publicRef],
         ['da_rollup_supplier_cpv_month', 'supplier_ref, cpv8', `${publicRef}, '99999999'`],
         [
