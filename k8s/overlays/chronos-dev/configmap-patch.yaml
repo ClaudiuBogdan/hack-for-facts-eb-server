@@ -43,6 +43,9 @@ data:
   # until the PRJ-54YB cutover and the client's DA-009 displayName switch.
   PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED: 'true'
   PROCUREMENT_DA_V3_ENABLED: 'true'
+  # The legacy DA list (procurementDirectAcquisitions, MCP search_procurement_direct_acquisitions)
+  # names masked buyers from the raw authority name; retired on Chronos dev (owner, 23 Nov).
+  PROCUREMENT_LEGACY_DA_LIST_ENABLED: 'false'
   # Companies analytics: same ClickHouse service, its own database and its own
   # read-only companies_reader user (credentials from the workload patch).
   COMPANIES_ANALYTICS_CLICKHOUSE_URL: https://transparenta-eu-etl-clickhouse.transparenta-eu-etl-prod.svc.cluster.local:8443
