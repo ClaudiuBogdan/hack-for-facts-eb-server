@@ -297,14 +297,16 @@ export const withSearchDisclosure = (
 export const makeDisclosedReadRepos = (
   db: Kysely<ProdDatabase>,
   enforced: boolean,
-  log: DisclosureLog = console
+  log: DisclosureLog = console,
+  /** The procurement grant's pool, which reads `supplier_disclosure` (PRJ-54YB); `db` by default. */
+  disclosureDb: Kysely<ProdDatabase> = db
 ): {
   readonly supplierDisclosure: SupplierDisclosurePort;
   readonly flowsRepo: FlowsRepo;
   readonly documentRepo: DocumentRepo;
   readonly searchRepo: SearchRepo;
 } => {
-  const supplierDisclosure = makeSupplierDisclosureRepo(db, enforced, Date.now, log);
+  const supplierDisclosure = makeSupplierDisclosureRepo(disclosureDb, enforced, Date.now, log);
   return {
     supplierDisclosure,
     flowsRepo: withSupplierDisclosure(makeFlowsRepo(db), supplierDisclosure),

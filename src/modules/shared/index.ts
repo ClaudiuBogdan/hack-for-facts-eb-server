@@ -19,7 +19,7 @@ import { resolveCapabilities } from './shell/clients/capabilities.js';
 import { makeMeiliClient } from './shell/clients/meili-client.js';
 import { makeOpenSearchClient } from './shell/clients/opensearch-client.js';
 import { makeSyntheticClient } from './shell/clients/synthetic-client.js';
-import { createProdDb, type ProdDb } from './shell/db/pool.js';
+import { createProdDb, procurementDbFor, type ProdDb } from './shell/db/pool.js';
 import { makeKernelLoaders, type KernelLoaders } from './shell/graphql/dataloaders.js';
 import { mergeGraphqlSlices, type GraphqlSlice } from './shell/graphql/merge.js';
 import { makeKernelResolvers } from './shell/graphql/resolvers.js';
@@ -56,6 +56,11 @@ import type { KernelMcpResource, KernelMcpTool } from './shell/mcp/types.js';
 export interface KernelConfig {
   readonly searchPolicy?: SearchPolicy;
   readonly prodDatabaseUrl: string;
+  /**
+   * The procurement module's own login (PRJ-54YB, PROCUREMENT_DATABASE_URL). When set, procurement
+   * and the D6 port read through a second pool on it; unset, they share the kernel pool.
+   */
+  readonly procurementDatabaseUrl?: string;
   readonly poolMax?: number;
   readonly dbSsl?: boolean;
   readonly meiliHost: string;
@@ -95,6 +100,8 @@ export interface KernelClients {
 export interface Kernel {
   readonly db: ProdDb['db'];
   readonly pool: ProdDb['pool'];
+  /** The procurement module's database: its own pool when configured, else `db` itself. */
+  readonly procurementDb: ProdDb['db'];
   readonly identityRepo: IdentityRepo;
   readonly territoryRepo: TerritoryRepo;
   readonly flowsRepo: FlowsRepo;
@@ -157,6 +164,14 @@ export const makeKernel = async (config: KernelConfig): Promise<Kernel> => {
     ...(config.dbSsl !== undefined && { ssl: config.dbSsl }),
   });
 
+  // The procurement grant's reads (the module and the D6 port) on their own login when configured.
+  const procurement = procurementDbFor(db, {
+    ...(config.procurementDatabaseUrl !== undefined && {
+      connectionString: config.procurementDatabaseUrl,
+    }),
+    ...(config.dbSsl !== undefined && { ssl: config.dbSsl }),
+  });
+
   const identityRepo = makeIdentityRepo(db);
   const territoryRepo = makeTerritoryRepo(db);
   // Flows and documents can carry a direct-acquisition supplier: built only
@@ -164,7 +179,8 @@ export const makeKernel = async (config: KernelConfig): Promise<Kernel> => {
   const { supplierDisclosure, flowsRepo, documentRepo, searchRepo } = makeDisclosedReadRepos(
     db,
     config.supplierDisclosureEnforced === true,
-    config.logger ?? console
+    config.logger ?? console,
+    procurement.db
   );
 
   // Prefer the search-only key (read paths shouldn't carry the master key);
@@ -311,6 +327,7 @@ export const makeKernel = async (config: KernelConfig): Promise<Kernel> => {
   return {
     db,
     pool,
+    procurementDb: procurement.db,
     identityRepo,
     territoryRepo,
     flowsRepo,
@@ -376,6 +393,7 @@ export const makeKernel = async (config: KernelConfig): Promise<Kernel> => {
     mcpTools,
     health,
     async close(): Promise<void> {
+      await procurement.close();
       await db.destroy();
     },
   };

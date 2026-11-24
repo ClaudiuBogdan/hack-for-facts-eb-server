@@ -147,3 +147,26 @@ export const createProdDb = (config: ProdDbConfig): ProdDb => {
 
   return { db, pool };
 };
+
+/** The procurement pool's size: its reads are few and bounded (one module). */
+const PROCUREMENT_POOL_MAX = 5;
+
+/**
+ * The procurement module's database (PRJ-54YB): its own pool and login when `connectionString`
+ * is set, else the kernel's own `db`, the same pool and login as today. `close` destroys only a
+ * pool this opened. The URL is never logged.
+ */
+export const procurementDbFor = (
+  kernelDb: Kysely<ProdDatabase>,
+  config: { readonly connectionString?: string; readonly ssl?: boolean }
+): { readonly db: Kysely<ProdDatabase>; close(): Promise<void> } => {
+  if (config.connectionString === undefined) {
+    return { db: kernelDb, close: () => Promise.resolve() };
+  }
+  const { db } = createProdDb({
+    connectionString: config.connectionString,
+    max: PROCUREMENT_POOL_MAX,
+    ...(config.ssl !== undefined && { ssl: config.ssl }),
+  });
+  return { db, close: () => db.destroy() };
+};

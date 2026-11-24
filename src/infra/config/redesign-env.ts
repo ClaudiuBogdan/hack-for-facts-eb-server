@@ -77,6 +77,7 @@ const RedesignEnvSchema = Type.Object({
   PROCUREMENT_DA_LIST_MAX_WINDOW_DAYS: Type.Optional(Type.String()),
   PROCUREMENT_DA_V3_ENABLED: Type.Optional(Type.String()),
   PROCUREMENT_TOTALS_V2: Type.Optional(Type.String()),
+  PROCUREMENT_DATABASE_URL: Type.Optional(Type.String()),
   PROCUREMENT_LEGACY_ENABLED: Type.Optional(Type.String()),
   PROCUREMENT_LEGACY_DA_LIST_ENABLED: Type.Optional(Type.String()),
   PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED: Type.Optional(Type.String()),
@@ -207,6 +208,8 @@ export interface RedesignConfig {
   };
   readonly kernel: {
     readonly prodDatabaseUrl: string;
+    /** PROCUREMENT_DATABASE_URL: procurement's own login (PRJ-54YB); unset shares the kernel pool. */
+    readonly procurementDatabaseUrl?: string;
     readonly meiliHost: string;
     readonly meiliApiKey: string;
     /** Search-only Meili key; the kernel falls back to `meiliApiKey` when unset. */
@@ -411,6 +414,16 @@ const composeEmbeddedKernel = (e: EmbeddedKernelEnv): EmbeddedKernelConfig => {
     );
   }
   // A privacy switch: anything but the two exact values is a boot error, never a guess.
+  const procurementDatabaseUrl = nonEmpty(e.PROCUREMENT_DATABASE_URL);
+  // Never echo the value: it carries a credential.
+  if (
+    procurementDatabaseUrl !== undefined &&
+    !/^postgres(?:ql)?:\/\/./u.test(procurementDatabaseUrl)
+  ) {
+    throw new Error(
+      'Invalid redesign env: PROCUREMENT_DATABASE_URL must be a postgres:// or postgresql:// URL when set'
+    );
+  }
   const legacy = e.PROCUREMENT_LEGACY_ENABLED;
   if (legacy !== undefined && legacy !== 'true' && legacy !== 'false') {
     throw new Error(
@@ -474,6 +487,7 @@ const composeEmbeddedKernel = (e: EmbeddedKernelEnv): EmbeddedKernelConfig => {
   return {
     kernel: {
       prodDatabaseUrl: e.PROD_DATABASE_URL,
+      ...(procurementDatabaseUrl !== undefined && { procurementDatabaseUrl }),
       searchPolicy: e.PROD_SEARCH_POLICY,
       meiliHost: e.PROD_MEILI_HOST,
       meiliApiKey: e.PROD_MEILI_API_KEY,

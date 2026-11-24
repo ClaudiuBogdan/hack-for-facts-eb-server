@@ -686,7 +686,8 @@ export const registerRedesignSurface = async (
     // record lists, and the DA list window. Nothing here reads process.env.
     const composition = deps.procurement ?? {};
     const procurement = makeProcurementModule({
-      db: kernel.db,
+      // Its own login when PROCUREMENT_DATABASE_URL is set (PRJ-54YB), else kernel.db itself.
+      db: kernel.procurementDb,
       logger: app.log,
       supplierDisclosure: kernel.supplierDisclosure,
       ...(composition.search !== undefined && {

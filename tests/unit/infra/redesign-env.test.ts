@@ -179,3 +179,33 @@ describe('direct-acquisition switches', () => {
     }
   );
 });
+
+describe('PROCUREMENT_DATABASE_URL (PRJ-54YB)', () => {
+  const base = { PROD_DATABASE_URL: 'postgres://reader@example.invalid/transparenta_prod' };
+
+  it('is absent from the kernel config when unset or blank: procurement shares the kernel pool', () => {
+    expect(loadRedesignConfig(base).kernel.procurementDatabaseUrl).toBeUndefined();
+    expect(
+      loadRedesignConfig({ ...base, PROCUREMENT_DATABASE_URL: '' }).kernel.procurementDatabaseUrl
+    ).toBeUndefined();
+  });
+
+  it('passes a postgres URL through to the kernel config', () => {
+    const url = 'postgresql://procurement@example.invalid/transparenta_prod?sslmode=require';
+    expect(
+      loadRedesignConfig({ ...base, PROCUREMENT_DATABASE_URL: url }).kernel.procurementDatabaseUrl
+    ).toBe(url);
+  });
+
+  it('refuses a malformed value at boot without echoing it', () => {
+    const value = 'mysql://secret-user:secret-pass@example.invalid/db';
+    let message = '';
+    try {
+      loadRedesignConfig({ ...base, PROCUREMENT_DATABASE_URL: value });
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+    expect(message).toMatch(/PROCUREMENT_DATABASE_URL must be a postgres/u);
+    expect(message).not.toContain('secret');
+  });
+});
