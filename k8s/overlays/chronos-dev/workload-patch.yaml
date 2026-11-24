@@ -129,6 +129,11 @@ spec:
                 secretKeyRef:
                   name: chronos-prod-opensearch-reader-credentials
                   key: password
+            - name: PROCUREMENT_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: transparenta-prod-api-dev-credentials
+                  key: PROCUREMENT_DATABASE_URL
           volumeMounts:
             - name: chronos-clickhouse-ca
               mountPath: /var/run/secrets/chronos-clickhouse
