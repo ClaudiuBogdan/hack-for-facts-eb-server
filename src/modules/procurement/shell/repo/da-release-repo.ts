@@ -38,8 +38,11 @@ import {
   DA_PARTIES_PUBLIC,
   DA_RELEASE_SCHEMA,
   disclosedPartySql,
+  DISCLOSED_COLUMN_STATE_SQL,
+  disclosedColumnOf,
   namedSupplierSql,
   probeSupplierDisclosedColumn,
+  type DisclosedColumn,
   probeSupplierDisclosure,
   shownSupplierSql,
   purchaseParties,
@@ -241,6 +244,8 @@ interface Columns {
    * supplier row without it shows its code at row level only. Absent: the row is the gate.
    */
   readonly supplierDisclosed: boolean;
+  /** The column's probed state, so the after-read check can see a change (see `probeRelease`). */
+  readonly disclosedColumn: DisclosedColumn;
   readonly listedNow: boolean;
   /** `da_items.superseded_at`: lines the sync no longer sees; only current lines are served. */
   readonly itemSupersededAt: boolean;
@@ -1077,6 +1082,7 @@ const probeColumns = async (trx: Db): Promise<Columns> => {
     itemNameShown: has('itemNameShown'),
     itemUnitShown: has('itemUnitShown'),
     supplierDisclosed: disclosedColumn === 'readable',
+    disclosedColumn,
   };
 };
 
@@ -1088,19 +1094,36 @@ const REPUBLISHED = (): ApiError =>
     'direct-acquisition data was republished during this request; repeat the request'
   );
 
-/** The release and the supplier_disclosure grant RIGHT NOW, in one statement. */
+/**
+ * The release, the supplier_disclosure grant and the D6 column's state RIGHT NOW, in one
+ * statement. D6 is readable only with the grant and a column that is absent or readable.
+ */
 const probeRelease = async (
   db: Db
-): Promise<{ readonly asOf: string | null; readonly privacy: boolean }> => {
-  const result = await sql<{ as_of: string | null; privacy: boolean | null }>`
+): Promise<{
+  readonly asOf: string | null;
+  readonly privacy: boolean;
+  readonly column: DisclosedColumn;
+}> => {
+  const result = await sql<{
+    as_of: string | null;
+    privacy: boolean | null;
+    disclosed_column: string | null;
+  }>`
     select ${AS_OF_SQL} as as_of,
            coalesce(
              has_table_privilege(to_regclass(${SUPPLIER_DISCLOSURE_NAME}), 'SELECT'),
              false
-           ) as privacy
+           ) as privacy,
+           ${DISCLOSED_COLUMN_STATE_SQL} as disclosed_column
     from ${RELEASE}`.execute(db);
   const row = result.rows[0];
-  return { asOf: row?.as_of ?? null, privacy: row?.privacy === true };
+  const column = disclosedColumnOf(row?.disclosed_column);
+  return {
+    asOf: row?.as_of ?? null,
+    privacy: row?.privacy === true && column !== 'denied',
+    column,
+  };
 };
 
 export const makeDaReleaseRepo = (db: Db, enabled: boolean): DaReleaseRepo => ({
@@ -1108,7 +1131,11 @@ export const makeDaReleaseRepo = (db: Db, enabled: boolean): DaReleaseRepo => ({
   snapshot: async (read, options) => {
     if (!enabled) return err(disabled());
     try {
-      const seen = { asOf: null as string | null, privacy: false };
+      const seen = {
+        asOf: null as string | null,
+        privacy: false,
+        column: 'absent' as DisclosedColumn,
+      };
       const result = await db
         .transaction()
         .setIsolationLevel('repeatable read')
@@ -1121,12 +1148,16 @@ export const makeDaReleaseRepo = (db: Db, enabled: boolean): DaReleaseRepo => ({
               select ${AS_OF_SQL} as as_of from ${RELEASE}`.execute(trx);
             seen.asOf = release.rows[0]?.as_of ?? null;
             seen.privacy = columns.supplierDisclosure;
+            seen.column = columns.disclosedColumn;
           }
           return read(makeReader(trx, columns));
         });
       if (options?.settle !== true || result.isErr()) return result;
       const now = await probeRelease(db);
-      return now.asOf === seen.asOf && (now.privacy || !seen.privacy) ? result : err(REPUBLISHED());
+      // A D6 column that appeared, went or changed grant during the read: repeat the request.
+      return now.asOf === seen.asOf && (now.privacy || !seen.privacy) && now.column === seen.column
+        ? result
+        : err(REPUBLISHED());
     } catch (error) {
       return err(readError(error));
     }

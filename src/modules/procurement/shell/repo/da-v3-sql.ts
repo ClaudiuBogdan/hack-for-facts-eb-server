@@ -135,18 +135,26 @@ export const disclosedPartySql = (disclosedColumn: boolean): RawBuilder<unknown>
  */
 export type DisclosedColumn = 'absent' | 'readable' | 'denied';
 
+/** The column's state as one SQL text value (`absent` | `readable` | `denied`), for any probe. */
+export const DISCLOSED_COLUMN_STATE_SQL = sql`(
+    select case when count(*) = 0 then 'absent'
+                when bool_and(has_column_privilege(a.attrelid, a.attnum, 'SELECT')) then 'readable'
+                else 'denied' end
+    from pg_attribute a
+    where a.attrelid = to_regclass(${`${DA_RELEASE_SCHEMA}.da_parties_public`})
+      and a.attname = 'supplier_disclosed' and a.attnum > 0 and not a.attisdropped)`;
+
+/** A probed state; anything unexpected reads as `denied` (fails closed). */
+export const disclosedColumnOf = (value: unknown): DisclosedColumn =>
+  value === 'absent' || value === 'readable' ? value : 'denied';
+
 export const probeSupplierDisclosedColumn = async (
   trx: Kysely<ProdDatabase>
 ): Promise<DisclosedColumn> => {
-  const result = await sql<{ present: boolean; readable: boolean }>`
-    select count(*) > 0 as present,
-           coalesce(bool_and(has_column_privilege(a.attrelid, a.attnum, 'SELECT')), false) as readable
-    from pg_attribute a
-    where a.attrelid = to_regclass(${`${DA_RELEASE_SCHEMA}.da_parties_public`})
-      and a.attname = 'supplier_disclosed' and a.attnum > 0 and not a.attisdropped`.execute(trx);
-  const row = result.rows[0];
-  if (row?.present !== true) return 'absent';
-  return row.readable ? 'readable' : 'denied';
+  const result = await sql<{
+    disclosed_column: string | null;
+  }>`select ${DISCLOSED_COLUMN_STATE_SQL} as disclosed_column`.execute(trx);
+  return disclosedColumnOf(result.rows[0]?.disclosed_column);
 };
 
 /**

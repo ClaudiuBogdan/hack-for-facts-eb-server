@@ -55,8 +55,11 @@ import {
   DA_RELEASE_SCHEMA,
   daV3Table,
   disclosedPartySql,
+  DISCLOSED_COLUMN_STATE_SQL,
+  disclosedColumnOf,
   namedSupplierSql,
   probeSupplierDisclosedColumn,
+  type DisclosedColumn,
   probeSupplierDisclosure,
   purchaseParties,
   shownSupplierSql,
@@ -196,9 +199,13 @@ const probeRollups = async (trx: Db): Promise<ReadonlySet<string>> => {
 const BUILD_ID_SQL = sql`(extract(epoch from max(data_as_of)) * 1000000)::bigint::text`;
 const AS_OF_SQL = sql`to_char(max(data_as_of) at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
 
-/** Filled by a read's snapshot: whether supplier_disclosure was readable (names possible). */
+/**
+ * Filled by a read's snapshot: whether supplier_disclosure was readable (names possible), and the
+ * D6 column's state it read under.
+ */
 interface ReadSeen {
   privacy: boolean;
+  column?: DisclosedColumn;
 }
 
 const snapshot = async <T>(
@@ -226,7 +233,10 @@ const snapshot = async <T>(
         const column = await probeSupplierDisclosedColumn(trx);
         // An unreadable gate column withholds every supplier (never the row-presence rule).
         const privacy = column !== 'denied' && (await probeSupplierDisclosure(trx));
-        if (seen !== undefined) seen.privacy = privacy;
+        if (seen !== undefined) {
+          seen.privacy = privacy;
+          seen.column = column;
+        }
         const rollups = await probeRollups(trx);
         return read({ trx, privacy, rollups, disclosedColumn: column === 'readable' });
       });
@@ -915,19 +925,32 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
    * cannot fall between the two): whether `build` is still the current build,
    * and whether supplier_disclosure is readable. Unreadable on error.
    */
-  const probeNow = async (build: string): Promise<{ current: boolean; privacy: boolean }> => {
+  const probeNow = async (
+    build: string
+  ): Promise<{ current: boolean; privacy: boolean; column: DisclosedColumn }> => {
     try {
-      const probe = await sql<{ build_id: string | null; privacy: boolean | null }>`
+      const probe = await sql<{
+        build_id: string | null;
+        privacy: boolean | null;
+        disclosed_column: string | null;
+      }>`
         select ${BUILD_ID_SQL} as build_id,
                coalesce(
                  has_table_privilege(to_regclass(${SUPPLIER_DISCLOSURE_NAME}), 'SELECT'),
                  false
-               ) as privacy
+               ) as privacy,
+               ${DISCLOSED_COLUMN_STATE_SQL} as disclosed_column
         from ${RELEASE}`.execute(db);
       const row = probe.rows[0];
-      return { current: row?.build_id === build, privacy: row?.privacy === true };
+      const column = disclosedColumnOf(row?.disclosed_column);
+      // D6 is readable only with the grant and a gate column that is absent or readable.
+      return {
+        current: row?.build_id === build,
+        privacy: row?.privacy === true && column !== 'denied',
+        column,
+      };
     } catch {
-      return { current: false, privacy: false };
+      return { current: false, privacy: false, column: 'denied' };
     }
   };
 
@@ -935,9 +958,9 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
    * An entry is reused, and stored, only while the build is current and
    * supplier_disclosure is readable, checked before the lookup AND after the fill.
    */
-  const cacheable = async (build: string): Promise<boolean> => {
+  const cacheable = async (build: string): Promise<DisclosedColumn | null> => {
     const now = await probeNow(build);
-    return now.current && now.privacy;
+    return now.current && now.privacy ? now.column : null;
   };
 
   /**
@@ -954,7 +977,11 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
   ): Promise<Result<T, ApiError>> => {
     if (result.isErr()) return result;
     const now = await probeNow(build);
-    return now.current && (now.privacy || !seen.privacy) ? result : err(REPUBLISHED());
+    // A D6 column that appeared, went or changed grant during the read: repeat the request.
+    const sameColumn = seen.column === undefined || seen.column === now.column;
+    return now.current && (now.privacy || !seen.privacy) && sameColumn
+      ? result
+      : err(REPUBLISHED());
   };
 
   /** Fills in flight, keyed like the cache: identical concurrent misses share one read. */
@@ -968,14 +995,16 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
   ): Promise<Result<T, ApiError>> => {
     const seen: ReadSeen = { privacy: false };
     if (!UNFILTERED(scope)) return settled(build, await load(seen), seen);
-    if (!(await cacheable(build))) return settled(build, await load(seen), seen);
+    const column = await cacheable(build);
+    if (column === null) return settled(build, await load(seen), seen);
     if (cacheBuild !== build) {
       cache.clear();
       filling.clear();
       cacheBuild = build;
     }
-    // The build is part of the key: an entry can only answer its own publication.
-    const cacheKey = JSON.stringify([build, key, scope]);
+    // The build and the D6 column's state are part of the key: an entry can only answer its own
+    // publication under the gate it was read with.
+    const cacheKey = JSON.stringify([build, column, key, scope]);
     const hit = cache.get(cacheKey);
     if (hit !== undefined) return hit as Result<T, ApiError>;
     const joined = filling.get(cacheKey);
@@ -989,7 +1018,8 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
       // (another request may already have served the newer one), so the caller is
       // told to repeat the request. A re-read here cannot help: the request's build
       // and disclosureKey were fixed before this read.
-      if (cacheBuild !== build || !(await cacheable(build))) return err(REPUBLISHED());
+      if (cacheBuild !== build || seen.column !== column || (await cacheable(build)) !== column)
+        return err(REPUBLISHED());
       if (cache.size >= CACHE_MAX_ENTRIES) {
         const oldest = cache.keys().next();
         if (oldest.done !== true) cache.delete(oldest.value);

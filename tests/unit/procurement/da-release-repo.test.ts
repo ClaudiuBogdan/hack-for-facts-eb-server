@@ -46,11 +46,15 @@ const run = async (
   const db = makeCapturingDb(captured, {
     respond: (text) => {
       if (text.includes('as names_readable')) return [{ names_readable: probe.names === true }];
-      if (text.includes('bool_and(has_column_privilege'))
+      if (text.includes('as disclosed_column') && !text.includes('as as_of'))
         return [
           {
-            present: probe.disclosed === true || probe.disclosed === 'denied',
-            readable: probe.disclosed === true,
+            disclosed_column:
+              probe.disclosed === true
+                ? 'readable'
+                : probe.disclosed === 'denied'
+                  ? 'denied'
+                  : 'absent',
           },
         ];
       if (text.includes('as usable')) return [{ usable: probe.allTime === true }];
@@ -594,14 +598,28 @@ describe('settled snapshots (the after-read rule)', () => {
   const P1 = '2026-11-18T03:10:00.000000Z';
   const P2 = '2026-11-19T03:10:00.000000Z';
   /** One read; `after` changes the world once the read is done (a publish, a revoked grant). */
-  const settledRead = async (
-    world: { asOf: string; privacy: boolean },
-    after: (world: { asOf: string; privacy: boolean }) => void,
-    settle: boolean
-  ) => {
+  interface World {
+    asOf: string;
+    privacy: boolean;
+    column?: string;
+  }
+  const settledRead = async (world: World, after: (world: World) => void, settle: boolean) => {
     const db = makeCapturingDb([], {
       respond: (text) => {
-        if (text.includes('as privacy')) return [{ as_of: world.asOf, privacy: world.privacy }];
+        if (
+          text.includes('as disclosed_column') &&
+          !text.includes('as build_id') &&
+          !text.includes('as as_of')
+        )
+          return [{ disclosed_column: world.column ?? 'absent' }];
+        if (text.includes('as privacy'))
+          return [
+            {
+              as_of: world.asOf,
+              privacy: world.privacy,
+              disclosed_column: world.column ?? 'absent',
+            },
+          ];
         if (text.includes('has_table_privilege')) return [{ present: world.privacy }];
         if (text.includes('as data_as_of')) return [{ data_as_of: world.asOf }];
         if (text.includes('as as_of')) return [{ as_of: world.asOf }];
@@ -641,6 +659,30 @@ describe('settled snapshots (the after-read rule)', () => {
     expect(republished(read)).toBe(true);
   });
 
+  it('refuses (retryable) a read the D6 column appeared, went or changed grant during', async () => {
+    for (const [from, to] of [
+      ['absent', 'readable'],
+      ['readable', 'absent'],
+      ['readable', 'denied'],
+    ] as const) {
+      const read = await settledRead(
+        { asOf: P1, privacy: true, column: from },
+        (w) => (w.column = to),
+        true
+      );
+      expect(republished(read), `${from} → ${to}`).toBe(true);
+    }
+  });
+
+  it('answers a read whose D6 column stayed readable', async () => {
+    const read = await settledRead(
+      { asOf: P1, privacy: true, column: 'readable' },
+      () => undefined,
+      true
+    );
+    expect(read._unsafeUnwrap()).toBe(P1);
+  });
+
   it('answers a read made with supplier_disclosure unreadable (everyone withheld)', async () => {
     const read = await settledRead({ asOf: P1, privacy: false }, () => undefined, true);
     expect(read._unsafeUnwrap()).toBe(P1);
@@ -661,7 +703,7 @@ describe('naming step 2b: the explicit D6 column', () => {
       // The data statements (the column probe itself names the column).
       const data = captured
         .map((q) => q.sql)
-        .filter((text) => !text.includes('bool_and(has_column_privilege'))
+        .filter((text) => !text.includes('as disclosed_column'))
         .join('\n');
       expect(data, label).not.toContain('supplier_disclosed');
       expect(data, label).not.toContain('supplier_undisclosed');
@@ -794,7 +836,7 @@ describe('naming step 2b: the explicit D6 column', () => {
     );
     const data = captured
       .map((q) => q.sql)
-      .filter((text) => !text.includes('bool_and(has_column_privilege'))
+      .filter((text) => !text.includes('as disclosed_column'))
       .join('\n');
     // D6 unreadable: no supplier is named, no filter matches, the column is never read.
     expect(data).toContain('false as "s_supplier_public"');

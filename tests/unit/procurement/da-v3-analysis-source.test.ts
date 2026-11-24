@@ -19,6 +19,9 @@ import type { AnalysisScope } from '@/modules/procurement/core/analysis-scope.js
 import type { ActiveGeneration } from '@/modules/procurement/core/ports.js';
 
 const BUILD = '1763435400123456';
+/** The D6 column's probed state for a fake answer (naming step 2b). */
+const columnState = (option: boolean | 'denied' | undefined): string =>
+  option === true ? 'readable' : option === 'denied' ? 'denied' : 'absent';
 const GEN = { buildId: BUILD } as unknown as ActiveGeneration;
 const ROUTE = { grain: 'direct_acquisition' } as const;
 
@@ -40,20 +43,20 @@ const run = async (
   const isolation: unknown[] = [];
   const db = makeCapturingDb(captured, {
     respond: (text) => {
-      if (text.includes('bool_and(has_column_privilege'))
+      if (text.includes('as build_id'))
         return [
           {
-            present: options.disclosedColumn !== undefined && options.disclosedColumn !== false,
-            readable: options.disclosedColumn === true,
+            build_id: options.build ?? BUILD,
+            as_of: null,
+            privacy: options.privacy ?? true,
+            disclosed_column: columnState(options.disclosedColumn),
           },
         ];
+      if (text.includes('as disclosed_column'))
+        return [{ disclosed_column: columnState(options.disclosedColumn) }];
       if (text.includes('as names_readable'))
         return [{ names_readable: options.view !== undefined }];
       if (text.includes('supplier_names_public')) return options.view ?? [];
-      if (text.includes('as build_id'))
-        return [
-          { build_id: options.build ?? BUILD, as_of: null, privacy: options.privacy ?? true },
-        ];
       if (text.includes('from unnest')) return (options.rollups ?? []).map((name) => ({ name }));
       if (text.includes('has_table_privilege')) return [{ present: options.privacy ?? true }];
       if (text.includes('party_public_names')) return options.names ?? [];
@@ -131,10 +134,16 @@ describe('DA supplier bucket names (PROC-B51G)', () => {
     let namesRead = false;
     const db = makeCapturingDb(captured, {
       respond: (text) => {
+        if (
+          text.includes('as disclosed_column') &&
+          !text.includes('as build_id') &&
+          !text.includes('as as_of')
+        )
+          return [{ disclosed_column: 'absent' }];
         if (text.includes('as build_id') && text.includes('has_table_privilege'))
           return namesRead
-            ? [{ build_id: after.build, privacy: after.privacy }]
-            : [{ build_id: BUILD, privacy: true }];
+            ? [{ build_id: after.build, privacy: after.privacy, disclosed_column: 'absent' }]
+            : [{ build_id: BUILD, privacy: true, disclosed_column: 'absent' }];
         if (text.includes('as build_id')) return [{ build_id: BUILD }];
         if (text.includes('has_table_privilege')) return [{ present: true }];
         if (text.includes('party_public_names')) {
@@ -659,8 +668,16 @@ describe('the publication-keyed cache', () => {
     const captured: CapturedQuery[] = [];
     const db = makeCapturingDb(captured, {
       respond: (text) => {
+        if (
+          text.includes('as disclosed_column') &&
+          !text.includes('as build_id') &&
+          !text.includes('as as_of')
+        )
+          return [{ disclosed_column: 'absent' }];
         if (text.includes('as build_id'))
-          return [{ build_id: state.build, as_of: null, privacy: true }];
+          return [
+            { build_id: state.build, as_of: null, privacy: true, disclosed_column: 'absent' },
+          ];
         if (text.includes('has_table_privilege')) return [{ present: true }];
         if (text.includes('as rows')) {
           state.rowsReads += 1;
@@ -697,7 +714,14 @@ describe('the publication-keyed cache', () => {
     let build = BUILD;
     const db = makeCapturingDb([], {
       respond: (text) => {
-        if (text.includes('as build_id')) return [{ build_id: build, as_of: null, privacy: true }];
+        if (
+          text.includes('as disclosed_column') &&
+          !text.includes('as build_id') &&
+          !text.includes('as as_of')
+        )
+          return [{ disclosed_column: 'absent' }];
+        if (text.includes('as build_id'))
+          return [{ build_id: build, as_of: null, privacy: true, disclosed_column: 'absent' }];
         if (text.includes('has_table_privilege')) return [{ present: true }];
         if (text.includes('as total')) {
           // The page is read; a nightly publish lands before the answer leaves.
@@ -724,8 +748,16 @@ describe('the publication-keyed cache', () => {
       let readable = before;
       const db = makeCapturingDb([], {
         respond: (text) => {
+          if (
+            text.includes('as disclosed_column') &&
+            !text.includes('as build_id') &&
+            !text.includes('as as_of')
+          )
+            return [{ disclosed_column: 'absent' }];
           if (text.includes('as build_id'))
-            return [{ build_id: BUILD, as_of: null, privacy: readable }];
+            return [
+              { build_id: BUILD, as_of: null, privacy: readable, disclosed_column: 'absent' },
+            ];
           if (text.includes('has_table_privilege')) return [{ present: readable }];
           if (text.includes('as rows')) {
             readable = false; // the grant is revoked once the rows are read
@@ -744,8 +776,14 @@ describe('the publication-keyed cache', () => {
     let readable = true;
     const db = makeCapturingDb([], {
       respond: (text) => {
+        if (
+          text.includes('as disclosed_column') &&
+          !text.includes('as build_id') &&
+          !text.includes('as as_of')
+        )
+          return [{ disclosed_column: 'absent' }];
         if (text.includes('as build_id'))
-          return [{ build_id: BUILD, as_of: null, privacy: readable }];
+          return [{ build_id: BUILD, as_of: null, privacy: readable, disclosed_column: 'absent' }];
         if (text.includes('has_table_privilege')) return [{ present: readable }];
         if (text.includes('as total')) {
           readable = false; // the page could name suppliers; the grant is revoked after it
@@ -925,5 +963,71 @@ describe('naming step 2b: the explicit D6 column', () => {
       names: [{ code: '2000002', name: 'FIRMA EXEMPLU SRL' }],
     });
     expect(served(result)).toEqual([[null, 'natural_person', null]]);
+  });
+});
+
+describe('naming step 2b: the D6 column in the cache key and the after-read check', () => {
+  const ROWS = [
+    {
+      rows: '0',
+      with_value: '0',
+      awarded: null,
+      min_month: null,
+      max_month: null,
+      undated_count: '0',
+      undated_value: null,
+    },
+  ];
+  const world = () => {
+    const state = { column: 'absent', rowsReads: 0, flipAfterRows: null as string | null };
+    const db = makeCapturingDb([], {
+      respond: (text) => {
+        if (text.includes('as build_id'))
+          return [{ build_id: BUILD, as_of: null, privacy: true, disclosed_column: state.column }];
+        if (text.includes('as disclosed_column')) return [{ disclosed_column: state.column }];
+        if (text.includes('has_table_privilege')) return [{ present: true }];
+        if (text.includes('as rows')) {
+          state.rowsReads += 1;
+          if (state.flipAfterRows !== null) state.column = state.flipAfterRows;
+          return ROWS;
+        }
+        return [];
+      },
+    });
+    return { state, source: makeDaV3AnalysisSource(db) };
+  };
+  const unfiltered = (source: ReturnType<typeof makeDaV3AnalysisSource>) =>
+    source.statsFor(ROUTE, {}, GEN);
+
+  it('keys a cached answer by the column state: a new state reads again', async () => {
+    const { state, source } = world();
+    await unfiltered(source);
+    await unfiltered(source);
+    expect(state.rowsReads).toBe(1);
+    state.column = 'readable';
+    await unfiltered(source);
+    expect(state.rowsReads).toBe(2);
+    await unfiltered(source);
+    expect(state.rowsReads).toBe(2);
+  });
+
+  it('never caches or serves an answer while the column cannot be read', async () => {
+    const { state, source } = world();
+    state.column = 'denied';
+    await unfiltered(source);
+    await unfiltered(source);
+    expect(state.rowsReads).toBe(2);
+  });
+
+  it('refuses (repeat) a read the column changed under, cached or not', async () => {
+    for (const read of [
+      unfiltered,
+      (s: ReturnType<typeof makeDaV3AnalysisSource>) => s.statsFor(ROUTE, AUTHORITY, GEN),
+    ]) {
+      const { state, source } = world();
+      state.flipAfterRows = 'readable';
+      const overtaken = await read(source);
+      expect(overtaken.isErr() && overtaken.error.message).toContain('republished');
+    }
   });
 });

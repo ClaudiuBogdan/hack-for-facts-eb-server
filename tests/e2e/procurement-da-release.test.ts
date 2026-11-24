@@ -40,6 +40,7 @@ import {
   PURCHASES,
   SECRET,
   SOLE_TRADER,
+  UNVERIFIED,
 } from '../fixtures/procurement/da-release.js';
 
 import type { DaPartyRecord } from '@/modules/procurement/core/da-release.js';
@@ -954,6 +955,179 @@ describe('unfiltered supplier totals from the all-time per-party table (PROC-AP7
       expect(await battery()).toEqual(purchases);
       expect(statements.some(allTime)).toBe(false);
     } finally {
+      await logged.destroy();
+    }
+  });
+});
+
+describe('naming step 2b: da_parties_public.supplier_disclosed (20261124T120020/120030)', () => {
+  it('gates on the column, shows undisclosed codes at row level only, and fails closed', async () => {
+    if (db === undefined || container === undefined) throw new Error('no database');
+    const owner = db;
+    const logged = new Kysely<ProdDatabase>({
+      dialect: new PostgresDialect({
+        pool: new pg.Pool({
+          host: container.getHost(),
+          port: container.getPort(),
+          database: container.getDatabase(),
+          user: API_LOGIN,
+          password: API_LOGIN,
+          max: 1,
+        }),
+      }),
+    });
+    const api = (): DaReleaseDeps => ({ repo: makeDaReleaseRepo(logged, true) });
+    const SUPPLIER_TOTALS = { groupBy: 'supplier' as const, filter: {}, ...ALL };
+    const suppliersOf = async () =>
+      new Map(
+        (await listDaPurchases(api(), ALL))
+          ._unsafeUnwrap()
+          .items.map((item) => [item.purchaseId, item.supplier])
+      );
+    const view = (rows: 'gate' | 'step2b') => sql`
+      create or replace view procurement_v3.da_parties_public with (security_barrier = true) as
+      select source_name, party_kind, portal_party_id, fiscal_code_clean, fiscal_code_status,
+             case when party_kind = 'buyer' then name_as_written end as name_as_written,
+             case when party_kind = 'supplier' then coalesce(fiscal_code_clean in (
+               select fiscal_code_clean from procurement_v3.supplier_disclosure), false) end
+               as supplier_disclosed
+      from procurement_v3.da_parties
+      where party_kind = 'buyer'
+         or fiscal_code_clean in (select fiscal_code_clean from procurement_v3.supplier_disclosure)
+         ${
+           rows === 'step2b'
+             ? sql`or (fiscal_code_status = 'valid' and fiscal_code_clean in (
+                 select fiscal_code_clean from procurement_v3.supplier_names_public))`
+             : sql``
+         }`;
+    const before = {
+      list: await suppliersOf(),
+      totals: (await daPurchaseTotals(api(), SUPPLIER_TOTALS))._unsafeUnwrap(),
+    };
+    try {
+      await sql`create table procurement_v3.supplier_names_public (
+        fiscal_code_clean text primary key, naming text, display_name text, code_shown boolean)`.execute(
+        owner
+      );
+      await sql`insert into procurement_v3.supplier_names_public values
+        (${COMPANY.fiscalCode}, 'named', ${COMPANY_REGISTRY_NAME}, true),
+        (${SOLE_TRADER.fiscalCode}, 'masked', 'EXEMPLU M*** PFA', true),
+        (${UNVERIFIED.fiscalCode}, 'withheld', null, true)`.execute(owner);
+      await sql`grant select on procurement_v3.supplier_names_public to procurement_api_read`.execute(
+        owner
+      );
+      // Phase A, 120020: the column only. Every listed supplier is disclosed, so the answers
+      // are the gate's as before (names now from the view: the company keeps its name).
+      await view('gate').execute(owner);
+      const phaseA = await suppliersOf();
+      expect([...phaseA.values()].map((s) => s?.displayKind)).toEqual(
+        [...before.list.values()].map((s) => s?.displayKind)
+      );
+      expect((await daPurchaseTotals(api(), SUPPLIER_TOTALS))._unsafeUnwrap()).toEqual(
+        before.totals
+      );
+
+      // Phase B, 120030: rows for valid codes with a naming row, supplier_disclosed false.
+      await view('step2b').execute(owner);
+      const phaseB = await suppliersOf();
+      const byCode = (code: string | null) =>
+        PURCHASES.filter((p) => p.supplier?.fiscalCode === code).map((p) =>
+          phaseB.get(p.purchaseId)
+        );
+      for (const served of byCode(SOLE_TRADER.fiscalCode))
+        expect(served).toEqual({
+          displayKind: 'person_masked',
+          partyId: null,
+          name: 'EXEMPLU M*** PFA',
+          fiscalCode: SOLE_TRADER.fiscalCode,
+        });
+      for (const served of byCode(UNVERIFIED.fiscalCode))
+        expect(served).toEqual({
+          displayKind: 'code_only',
+          partyId: null,
+          name: null,
+          fiscalCode: UNVERIFIED.fiscalCode,
+        });
+      // A person's code and a failed checksum stay withheld; the company is unchanged.
+      for (const served of [
+        ...byCode(NATURAL_PERSON.fiscalCode),
+        ...byCode(BAD_CODE_SUPPLIER.fiscalCode),
+      ])
+        expect(served?.displayKind).toBe('natural_person');
+      expect(byCode(COMPANY.fiscalCode)).toEqual(
+        PURCHASES.filter((p) => p.supplier?.fiscalCode === COMPANY.fiscalCode).map((p) =>
+          before.list.get(p.purchaseId)
+        )
+      );
+      // Never counted or ranked on its own: supplier totals are exactly as before.
+      const totalsB = (await daPurchaseTotals(api(), SUPPLIER_TOTALS))._unsafeUnwrap();
+      expect(totalsB).toEqual(before.totals);
+      expect(JSON.stringify(totalsB)).not.toContain(SOLE_TRADER.fiscalCode ?? '~');
+      // Never a filter: an undisclosed code lists and totals nothing.
+      for (const code of [SOLE_TRADER.fiscalCode, UNVERIFIED.fiscalCode]) {
+        const filtered = (
+          await listDaPurchases(api(), { ...ALL, filter: { supplierFiscalCode: code ?? '' } })
+        )._unsafeUnwrap();
+        expect(filtered.items).toEqual([]);
+      }
+
+      // The all-time table calling a step 2b party disclosed (a writer bug): its page is
+      // refused, the code never served (the view's gate column disagrees).
+      await sql`update procurement_v3.da_release set supplier_party_totals_for = data_as_of`.execute(
+        owner
+      );
+      await sql`update procurement_v3.da_rollup_supplier_party set disclosed = true
+        where supplier_party_id = ${SOLE_TRADER.portalPartyId}`.execute(owner);
+      const disagreed = await daPurchaseTotals(api(), SUPPLIER_TOTALS);
+      expect(disagreed._unsafeUnwrapErr()).toMatchObject({
+        type: 'ServiceUnavailable',
+        message: expect.stringContaining('repeat the request') as unknown,
+      });
+      expect(JSON.stringify(disagreed)).not.toContain(SOLE_TRADER.fiscalCode ?? '~');
+      await sql`update procurement_v3.da_rollup_supplier_party set disclosed = false
+        where supplier_party_id = ${SOLE_TRADER.portalPartyId}`.execute(owner);
+      // Aligned again, the all-time table answers as the purchases did.
+      expect((await daPurchaseTotals(api(), SUPPLIER_TOTALS))._unsafeUnwrap()).toEqual(
+        before.totals
+      );
+      await sql`update procurement_v3.da_release
+        set supplier_party_totals_for = data_as_of - interval '1 day'`.execute(owner);
+
+      // The column exists but this login may not read it: every supplier is withheld.
+      await sql`revoke select on procurement_v3.da_parties_public from procurement_api_read`.execute(
+        owner
+      );
+      await sql`grant select (source_name, party_kind, portal_party_id, fiscal_code_clean,
+        fiscal_code_status, name_as_written) on procurement_v3.da_parties_public
+        to procurement_api_read`.execute(owner);
+      const denied = await suppliersOf();
+      expect(new Set([...denied.values()].map((s) => s?.displayKind ?? null))).toEqual(
+        new Set(['natural_person', null])
+      );
+      const deniedFilter = (
+        await listDaPurchases(api(), {
+          ...ALL,
+          filter: { supplierFiscalCode: COMPANY.fiscalCode ?? '' },
+        })
+      )._unsafeUnwrap();
+      expect(deniedFilter.items).toEqual([]);
+    } finally {
+      await sql`revoke select on procurement_v3.da_parties_public from procurement_api_read`.execute(
+        owner
+      );
+      await sql`drop view procurement_v3.da_parties_public`.execute(owner);
+      await sql`create view procurement_v3.da_parties_public with (security_barrier = true) as
+        select source_name, party_kind, portal_party_id, fiscal_code_clean, fiscal_code_status,
+               case when party_kind = 'buyer' then name_as_written end as name_as_written
+        from procurement_v3.da_parties
+        where party_kind = 'buyer'
+           or fiscal_code_clean in (select fiscal_code_clean from procurement_v3.supplier_disclosure)`.execute(
+        owner
+      );
+      await sql`grant select on procurement_v3.da_parties_public to procurement_api_read`.execute(
+        owner
+      );
+      await sql`drop table if exists procurement_v3.supplier_names_public`.execute(owner);
       await logged.destroy();
     }
   });
