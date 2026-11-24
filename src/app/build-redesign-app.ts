@@ -944,6 +944,8 @@ export const registerRedesignSurface = async (
   // (initialize, tools/list, tools/call, resources/read), well inside the
   // bucket; shared egress IPs (ChatGPT) may need tuning under real traffic.
   app.post('/api/v1/mcp', async (request, reply) => {
+    // PROC-VDWQ: a tool result can carry a DA supplier name; no MCP reply is ever cacheable.
+    void reply.header('cache-control', 'no-store');
     const limit = kernel.rateLimiter.consume(`mcp:${request.ip}`);
     if (!limit.allowed) {
       return reply
