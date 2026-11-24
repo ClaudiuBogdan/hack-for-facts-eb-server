@@ -195,7 +195,12 @@ describe('analysis records', () => {
                 ['3', CODED_NAME],
               ].map(([id, name]) => [
                 id,
-                { contractId: id, displayTitle: null, supplierName: name },
+                {
+                  contractId: id,
+                  displayTitle: null,
+                  supplierCui: id === '2' ? null : '14399840',
+                  supplierName: name,
+                },
               ])
             )
           )
@@ -336,6 +341,25 @@ describe('a person code or a personal code is never a lookup key', () => {
     expect(reads).toEqual([]);
   });
 
+  it('an analysis scope q or a CPV q with an 11- or 12-digit run is refused; a search q is not', async () => {
+    for (const run of ['12345678901', '123456789012']) {
+      expect(parseAnalysisScope({ q: `cod ${run}` })._unsafeUnwrapErr()).toMatchObject({
+        type: 'InvalidInput',
+        field: 'q',
+      });
+      const repo = {
+        resolveCpv: () => Promise.resolve(ok([])),
+      } as unknown as ProcurementRepo;
+      expect((await resolveCpv(repo, run, 5))._unsafeUnwrapErr()).toMatchObject({
+        type: 'InvalidInput',
+      });
+      // The legacy search still finds contract numbers that long (50 bare ones on 24 Nov); party
+      // names are matched with their digits removed.
+      expect(parseQ(run)._unsafeUnwrap()).toBe(run);
+    }
+    expect(parseAnalysisScope({ q: 'lot 1234567890' }).isOk()).toBe(true);
+  });
+
   it('a stale build pin is refused without echoing it', async () => {
     const { repo } = fakeAnalysisRepo();
     const result = await analysisStats(
@@ -406,8 +430,24 @@ describe("a person's supplier name in analysis records", () => {
       Promise.resolve(
         ok(
           new Map([
-            ['1', { contractId: '1', displayTitle: null, supplierName: ORDINARY_NAME }],
-            ['2', { contractId: '2', displayTitle: null, supplierName: 'PO*****U ION' }],
+            [
+              '1',
+              {
+                contractId: '1',
+                displayTitle: null,
+                supplierCui: '14399840',
+                supplierName: ORDINARY_NAME,
+              },
+            ],
+            [
+              '2',
+              {
+                contractId: '2',
+                displayTitle: null,
+                supplierCui: SYNTHETIC_CNP,
+                supplierName: 'PO*****U ION',
+              },
+            ],
           ])
         )
       ),
@@ -461,8 +501,9 @@ describe("a person's supplier name in analysis records", () => {
     expect(JSON.stringify(out)).not.toContain('supplierPerson');
   });
 
-  it('names a contract supplier from production even where the build says organization', async () => {
-    // The build kept an organization code and a raw person name; production masks it.
+  it('serves no supplier name where the build and production disagree on the supplier', async () => {
+    // The build kept an organization code and a raw person name; production holds another (a
+    // person's) code: no name, neither the build's raw one nor another supplier's.
     const disagree = {
       total: '1',
       rows: [recordRow({ id: '2', supplierCui: '14399840', supplierName: 'POPESCU ION' })],
@@ -474,7 +515,25 @@ describe("a person's supplier name in analysis records", () => {
     }).find((candidate) => candidate.name === 'aggregate_procurement');
     const out = await tool?.handler({ shape: 'records', scope: { grain: 'contract' } });
     expect(namesById(out?.items as Record<string, unknown>[])).toEqual([
-      ['2', 'Primaria Sibiu', 'PO*****U ION'],
+      ['2', 'Primaria Sibiu', null],
+    ]);
+    expect(JSON.stringify(out)).not.toContain('POPESCU');
+  });
+
+  it('serves production names only for the record’s own supplier code', async () => {
+    const drift = {
+      total: '1',
+      rows: [recordRow({ id: '1', supplierCui: '30254716', supplierName: 'ALTA FIRMA SRL' })],
+    };
+    const tool = makeProcurementMcpTools({
+      repo: masked,
+      analysis: fakeAnalysisRepo({ records: drift }).repo,
+      clientBaseUrl: 'https://x.test',
+    }).find((candidate) => candidate.name === 'aggregate_procurement');
+    const out = await tool?.handler({ shape: 'records', scope: { grain: 'contract' } });
+    // Production names 14399840 for this contract: never shown under 30254716.
+    expect(namesById(out?.items as Record<string, unknown>[])).toEqual([
+      ['1', 'Primaria Sibiu', null],
     ]);
   });
 
@@ -573,7 +632,7 @@ describe('DA release parties', () => {
     ]);
   });
 
-  it('serves a DA supplier bucket keyed by a person code as withheld, its key null', async () => {
+  it('refuses a DA supplier breakdown keyed by a person code, naming no code', async () => {
     const asked: string[][] = [];
     const { repo } = fakeAnalysisRepo({
       generation: generation(undefined, { ...PUBLISHED_CAPABILITIES, directAcquisitionV3: true }),
@@ -605,14 +664,9 @@ describe('DA release parties', () => {
       },
       { scope: { grain: 'direct_acquisition' }, dimension: 'supplier', topN: 5 }
     );
-    const buckets = result._unsafeUnwrap()[0]?.buckets ?? [];
-    expect(
-      buckets.filter((b) => b.kind === 'top').map((b) => [b.key, b.displayKind, b.displayName])
-    ).toEqual([
-      ['14399840', 'company', null],
-      [null, 'natural_person', null],
-    ]);
-    expect(asked).toEqual([['14399840']]);
-    expect(JSON.stringify(result._unsafeUnwrap())).not.toContain(SYNTHETIC_CNP);
+    // Relabelling after ranking would still serve that person's totals: the answer is refused.
+    expect(result._unsafeUnwrapErr()).toMatchObject({ type: 'Database' });
+    expect(JSON.stringify(result._unsafeUnwrapErr())).not.toContain(SYNTHETIC_CNP);
+    expect(asked).toEqual([]);
   });
 });

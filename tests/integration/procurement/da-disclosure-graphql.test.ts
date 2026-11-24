@@ -106,7 +106,15 @@ const build = async (
       Promise.resolve(
         ok(
           new Map([
-            ['17', { contractId: '17', displayTitle: null, supplierName: 'FIRMA EXEMPLU SRL' }],
+            [
+              '17',
+              {
+                contractId: '17',
+                displayTitle: null,
+                supplierCui: '14399840',
+                supplierName: 'FIRMA EXEMPLU SRL',
+              },
+            ],
           ])
         )
       ),

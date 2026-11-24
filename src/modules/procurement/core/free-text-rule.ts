@@ -96,3 +96,10 @@ export const carriesPersonalCode = (name: string): boolean =>
 /** The party name when it carries no personal code; null when withheld (or absent). */
 export const publicPartyName = (name: string | null): string | null =>
   name === null || carriesPersonalCode(name) ? null : name;
+
+/**
+ * A run of more than an organization code's digits (11+): the kernel treats such an identifier as a
+ * person's. Refused where a caller's text is echoed and matches no number column (analysis scope q,
+ * CPV q); the legacy search q still matches contract numbers that long (50 bare ones on 24 Nov).
+ */
+export const hasPersonCodeRun = (text: string): boolean => /[0-9]{11,}/u.test(text);

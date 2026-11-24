@@ -36,7 +36,7 @@ import {
   type FrameworkRoleFilter,
   type RecordKind,
 } from './constants.js';
-import { carriesPersonalCode } from './free-text-rule.js';
+import { carriesPersonalCode, hasPersonCodeRun } from './free-text-rule.js';
 
 export interface AnalysisScope {
   readonly authorityCui?: string;
@@ -308,7 +308,7 @@ export const parseAnalysisScope = (raw: RawAnalysisScope): Result<AnalysisScope,
     );
   }
   // Never a CNP: a personal code is no filter, and the scope is echoed back (canonicalScope).
-  if (out.q !== undefined && carriesPersonalCode(out.q)) {
+  if (out.q !== undefined && (carriesPersonalCode(out.q) || hasPersonCodeRun(out.q))) {
     return err(invalidInput('q must not contain a personal numeric code', 'q'));
   }
 

@@ -166,6 +166,7 @@ describe('procurementRecords transport', () => {
       contractId: id,
       displayTitle: { text: `Contract ${id}`, source: 'procedure', sourceUrl: null },
       // A contract record's supplier name comes from this production read (masked there).
+      supplierCui: '14399840',
       supplierName: 'Firma SRL',
     }) as unknown as ProcurementContract;
 
@@ -326,6 +327,8 @@ describe('procurementRecords transport', () => {
       ({
         contractId: id,
         displayTitle: { text, source: 'native', sourceUrl: null },
+        supplierCui: '14399840',
+        supplierName: 'Firma SRL',
       }) as unknown as ProcurementContract;
     const repo = {
       contractsByIds: () =>

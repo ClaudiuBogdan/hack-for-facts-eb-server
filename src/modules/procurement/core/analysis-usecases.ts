@@ -1245,17 +1245,28 @@ const breakdownBlockFor = async (
   // The names of the company buckets, gated by supplier_name_public, read for this answer only, in
   // the publication the buckets came from. Only the v3 grain names suppliers (the ClickHouse D6
   // path refuses DA supplier breakdowns, and its keys are not that publication's).
-  const personKey = (key: string): boolean =>
-    key !== DA_NATURAL_PERSON_BUCKET && isWithheldOrganizationIdentifier(key);
+  // A DA supplier keyed by a person's code (should the serving data ever disclose one): the whole
+  // breakdown is refused, naming no code. Relabelling after ranking would still serve per-person
+  // totals and rankings (kernel P0 containment).
+  if (
+    supplierKinds &&
+    buckets.some(
+      (b) =>
+        b.key !== null &&
+        b.key !== DA_NATURAL_PERSON_BUCKET &&
+        isWithheldOrganizationIdentifier(b.key)
+    )
+  ) {
+    return err(
+      databaseError(
+        'Direct-acquisition supplier breakdown refused: the serving data discloses a supplier code that is not an organization identifier.'
+      )
+    );
+  }
   const companyCodes =
     supplierKinds && gen.capabilities.directAcquisitionV3 === true
       ? buckets.flatMap((b) =>
-          b.kind === 'top' &&
-          b.key !== null &&
-          b.key !== DA_NATURAL_PERSON_BUCKET &&
-          !personKey(b.key)
-            ? [b.key]
-            : []
+          b.kind === 'top' && b.key !== null && b.key !== DA_NATURAL_PERSON_BUCKET ? [b.key] : []
         )
       : [];
   let names: ReadonlyMap<string, string> = new Map();
@@ -1265,9 +1276,6 @@ const breakdownBlockFor = async (
     names = read.value;
   }
   const outBuckets: AnalysisBreakdownBucket[] = buckets.map((b) => {
-    // A DA supplier keyed by a person's code (should the serving data ever disclose one): served as a
-    // withheld supplier, its key never echoed (kernel P0 containment).
-    const personBucket = supplierKinds && b.kind === 'top' && b.key !== null && personKey(b.key);
     const basisValue = rankedBy === 'value' ? d(b.valueAwardedSum) : d(b.recordCount);
     // Null-law (review F7): a bucket with NO valued rows emits null money —
     // the repo's reconciliation zero is internal, never an observed value.
@@ -1276,7 +1284,7 @@ const breakdownBlockFor = async (
         ? d(b.valueAwardedSum).toFixed(MONEY_DP)
         : null;
     return {
-      key: personBucket ? null : b.key,
+      key: b.key,
       kind: b.kind,
       recordCount: b.recordCount,
       withValueCount: b.withValue,
@@ -1287,10 +1295,9 @@ const breakdownBlockFor = async (
       shareOfScope: basisTotal.greaterThan(0) ? basisValue.div(basisTotal).toFixed(RATIO_DP) : null,
       ...(supplierKinds &&
         b.kind === 'top' && {
-          displayKind:
-            b.key === DA_NATURAL_PERSON_BUCKET || personBucket ? 'natural_person' : 'company',
+          displayKind: b.key === DA_NATURAL_PERSON_BUCKET ? 'natural_person' : 'company',
           displayName:
-            b.key === null || b.key === DA_NATURAL_PERSON_BUCKET || personBucket
+            b.key === null || b.key === DA_NATURAL_PERSON_BUCKET
               ? null
               : publicPartyName(names.get(b.key) ?? null),
         }),
