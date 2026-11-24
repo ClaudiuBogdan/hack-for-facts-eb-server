@@ -1583,6 +1583,11 @@ describe('naming step 2b: undisclosed suppliers in records and scopes (120030)',
       row.supplierDisplayKind === null
         ? row
         : { ...row, supplierCui: null, supplierName: null, supplierDisplayKind: 'natural_person' };
+    const WITHHELD_BEFORE = {
+      supplierCui: null,
+      supplierName: null,
+      supplierDisplayKind: 'natural_person',
+    } as const;
     const MASKED = 'EXEMPLU M*** PFA';
     const soleTrader = SOLE_TRADER.fiscalCode ?? '';
     const unverified = UNVERIFIED.fiscalCode ?? '';
@@ -1635,7 +1640,7 @@ describe('naming step 2b: undisclosed suppliers in records and scopes (120030)',
             const was = prior.items[i];
             if (was === undefined) throw new Error('no prior row');
             if (row.supplierCui === soleTrader) {
-              expect(withheld(was)).toEqual(was);
+              expect(was).toMatchObject(WITHHELD_BEFORE);
               expect(row).toEqual({
                 ...was,
                 supplierCui: soleTrader,
@@ -1643,7 +1648,7 @@ describe('naming step 2b: undisclosed suppliers in records and scopes (120030)',
                 supplierDisplayKind: 'person_masked',
               });
             } else if (row.supplierCui === unverified) {
-              expect(withheld(was)).toEqual(was);
+              expect(was).toMatchObject(WITHHELD_BEFORE);
               expect(row).toEqual({
                 ...was,
                 supplierCui: unverified,
