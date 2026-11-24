@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
+import { parse as parseYaml } from 'yaml';
+
 import {
   assertSafeSealedYaml,
   assertSealedDocument,
@@ -516,6 +518,13 @@ test('malformed externally sealed entries are refused when the registry is loade
     [{ externallySealed: [{ ...EXTERNAL, reseal: '' }] }, /externallySealed\[0\]\.reseal/u],
     [{ externallySealed: [{ name: EXTERNAL.name }] }, /externallySealed\[0\]\.sealedBy/u],
     [{ externallySealed: [EXTERNAL, EXTERNAL] }, /duplicate names/u],
+    // One file, two spellings: names must be Kubernetes Secret names.
+    [
+      { externallySealed: [{ ...EXTERNAL, name: './transparenta-prod-api-dev-credentials' }] },
+      /Kubernetes Secret name/u,
+    ],
+    [{ externallySealed: [{ ...EXTERNAL, name: 'Transparenta-Prod' }] }, /Kubernetes Secret name/u],
+    [{ externallySealed: [{ ...EXTERNAL, name: 'a/b' }] }, /Kubernetes Secret name/u],
     [
       {
         externallySealed: [
@@ -527,6 +536,20 @@ test('malformed externally sealed entries are refused when the registry is loade
   ];
   for (const [extra, message] of malformed) {
     assert.throws(() => registryWith([readerEntry()], extra), message);
+  }
+});
+
+test('registered Secret names are Kubernetes Secret names too', () => {
+  for (const name of [
+    './chronos-companies-clickhouse-reader-credentials',
+    '../x',
+    'UPPER',
+    '-lead',
+  ]) {
+    assert.throws(
+      () => registryWith([readerEntry({ name })]),
+      /secrets\[0\]\.name must be a Kubernetes Secret name/u
+    );
   }
 });
 
@@ -548,8 +571,5 @@ test('the committed Chronos kustomization lists exactly the registered and exter
     new URL('../k8s/overlays/chronos-dev/secrets/kustomization.yaml', import.meta.url),
     'utf8'
   );
-  const resources = [...kustomization.matchAll(/^\s+-\s+(\S+\.sealed\.yaml)\s*$/gmu)].map(
-    (match) => match[1]
-  );
-  checkKustomizationResources(registry, resources);
+  checkKustomizationResources(registry, parseYaml(kustomization).resources);
 });
