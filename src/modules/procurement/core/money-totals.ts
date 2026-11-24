@@ -23,6 +23,8 @@ import {
   type SupplierDisclosurePort,
 } from '@/modules/shared/index.js';
 
+import { carriesPersonalCode, hasPersonCodeRun } from './free-text-rule.js';
+
 export const PROCUREMENT_KINDS = [
   'direct_acquisition',
   'contract_award',
@@ -203,6 +205,10 @@ export const parseTotalsRequest = (input: TotalsRequestInput): Result<TotalsRequ
   const q = textOrNull(f.q);
   if (q !== null && (q.length < 3 || q.length > 100)) {
     return err(invalidInput('q must be 3–100 characters', 'q'));
+  }
+  // Never echo a personal code: filtersApplied carries q back.
+  if (q !== null && (carriesPersonalCode(q) || hasPersonCodeRun(q))) {
+    return err(invalidInput('q must not contain a personal numeric code', 'q'));
   }
   return ok({
     id: input.id,

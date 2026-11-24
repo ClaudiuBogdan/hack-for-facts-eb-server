@@ -15,6 +15,7 @@ import {
 } from '@/modules/procurement/core/analysis-usecases.js';
 import { toBuyer, toSupplier } from '@/modules/procurement/core/da-release.js';
 import { carriesPersonalCode, publicPartyName } from '@/modules/procurement/core/free-text-rule.js';
+import { parseTotalsRequest } from '@/modules/procurement/core/money-totals.js';
 import { parseQ } from '@/modules/procurement/core/search.js';
 import { getSupplierRecords, resolveCpv } from '@/modules/procurement/core/usecases.js';
 import { makeProcurementResolvers } from '@/modules/procurement/shell/graphql/resolvers.js';
@@ -358,6 +359,38 @@ describe('a person code or a personal code is never a lookup key', () => {
       expect(parseQ(run)._unsafeUnwrap()).toBe(run);
     }
     expect(parseAnalysisScope({ q: 'lot 1234567890' }).isOk()).toBe(true);
+  });
+
+  it.each([
+    ['spaced', 'cod 1234 5678 901'],
+    ['hyphenated', 'cod 1234-5678-9012'],
+    ['dotted', 'cod 123.456.789.01'],
+  ])('a %s 11- or 12-digit run is refused in scope q, CPV q and totals q', async (_label, q) => {
+    expect(parseAnalysisScope({ q })._unsafeUnwrapErr()).toMatchObject({ field: 'q' });
+    const repo = { resolveCpv: () => Promise.resolve(ok([])) } as unknown as ProcurementRepo;
+    expect((await resolveCpv(repo, q, 5))._unsafeUnwrapErr()).toMatchObject({
+      type: 'InvalidInput',
+    });
+    const totals = parseTotalsRequest({
+      id: 'x',
+      filters: { procurementKinds: ['contract_award'], q },
+    });
+    expect(totals._unsafeUnwrapErr()).toMatchObject({ type: 'InvalidInput', field: 'q' });
+    expect(JSON.stringify(totals._unsafeUnwrapErr())).not.toContain(q.slice(4));
+  });
+
+  it('totals v2 refuses a q carrying a personal code, and keeps an ordinary one', () => {
+    const refused = parseTotalsRequest({
+      id: 'x',
+      filters: { procurementKinds: ['contract_award'], q: `ion ${SYNTHETIC_CNP}` },
+    });
+    expect(refused._unsafeUnwrapErr()).toMatchObject({ type: 'InvalidInput', field: 'q' });
+    expect(JSON.stringify(refused._unsafeUnwrapErr())).not.toContain(SYNTHETIC_CNP);
+    const served = parseTotalsRequest({
+      id: 'x',
+      filters: { procurementKinds: ['contract_award'], q: 'lot 1234567890' },
+    });
+    expect(served._unsafeUnwrap().filters.q).toBe('lot 1234567890');
   });
 
   it('a stale build pin is refused without echoing it', async () => {

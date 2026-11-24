@@ -97,9 +97,14 @@ export const carriesPersonalCode = (name: string): boolean =>
 export const publicPartyName = (name: string | null): string | null =>
   name === null || carriesPersonalCode(name) ? null : name;
 
+/** 11+ digits, each separated by at most one separator once folded. */
+const PERSON_CODE_RUN = /[0-9]( ?[0-9]){10,}/u;
+
 /**
- * A run of more than an organization code's digits (11+): the kernel treats such an identifier as a
- * person's. Refused where a caller's text is echoed and matches no number column (analysis scope q,
- * CPV q); the legacy search q still matches contract numbers that long (50 bare ones on 24 Nov).
+ * A run of more than an organization code's digits (11+, also with single separators once folded):
+ * the kernel treats such an identifier as a person's. Refused where a caller's text is echoed and
+ * matches no number column (analysis scope q, CPV q, totals q); the legacy search q still matches
+ * contract numbers that long (50 bare ones on 24 Nov).
  */
-export const hasPersonCodeRun = (text: string): boolean => /[0-9]{11,}/u.test(text);
+export const hasPersonCodeRun = (text: string): boolean =>
+  /[0-9]{11,}/u.test(text) || PERSON_CODE_RUN.test(fold(text.normalize('NFKD')));
