@@ -14,7 +14,11 @@ import {
   analysisStats,
 } from '@/modules/procurement/core/analysis-usecases.js';
 import { toBuyer, toSupplier } from '@/modules/procurement/core/da-release.js';
-import { carriesPersonalCode, publicPartyName } from '@/modules/procurement/core/free-text-rule.js';
+import {
+  carriesPersonalCode,
+  hasPersonCodeRun,
+  publicPartyName,
+} from '@/modules/procurement/core/free-text-rule.js';
 import { parseTotalsRequest } from '@/modules/procurement/core/money-totals.js';
 import { parseQ } from '@/modules/procurement/core/search.js';
 import { getSupplierRecords, resolveCpv } from '@/modules/procurement/core/usecases.js';
@@ -364,7 +368,10 @@ describe('a person code or a personal code is never a lookup key', () => {
   it.each([
     ['spaced', 'cod 1234 5678 901'],
     ['hyphenated', 'cod 1234-5678-9012'],
-    ['dotted', 'cod 123.456.789.01'],
+    ['split by no-break spaces', 'cod 1234\u00A05678\u00A0901'],
+    ['split by en dashes', 'cod 1234\u20135678\u20139012'],
+    ['split by an invisible Hangul filler', 'cod 12345\uFFA0678901'],
+    ['split by a zero-width space', 'cod 12345\u200B6789012'],
   ])('a %s 11- or 12-digit run is refused in scope q, CPV q and totals q', async (_label, q) => {
     expect(parseAnalysisScope({ q })._unsafeUnwrapErr()).toMatchObject({ field: 'q' });
     const repo = { resolveCpv: () => Promise.resolve(ok([])) } as unknown as ProcurementRepo;
@@ -391,6 +398,27 @@ describe('a person code or a personal code is never a lookup key', () => {
       filters: { procurementKinds: ['contract_award'], q: 'lot 1234567890' },
     });
     expect(served._unsafeUnwrap().filters.q).toBe('lot 1234567890');
+  });
+
+  it.each([['a document number and a date', 'HCL nr. 123/24.11.2026']])(
+    '%s is no person code: served in scope q, CPV q and totals q',
+    async (_label, q) => {
+      expect(parseAnalysisScope({ q }).isOk()).toBe(true);
+      const repo = { resolveCpv: () => Promise.resolve(ok([])) } as unknown as ProcurementRepo;
+      expect((await resolveCpv(repo, q, 5)).isOk()).toBe(true);
+      const totals = parseTotalsRequest({
+        id: 'x',
+        filters: { procurementKinds: ['contract_award'], q },
+      });
+      expect(totals._unsafeUnwrap().filters.q).toBe(q);
+    }
+  );
+
+  it('two written-out dates stay refused: the owner’s rule reads 13+ digits as a code (B3)', () => {
+    const q = 'perioada 12.03.2024-15.04.2024';
+    expect(hasPersonCodeRun(q)).toBe(false);
+    expect(carriesPersonalCode(q)).toBe(true);
+    expect(parseAnalysisScope({ q }).isErr()).toBe(true);
   });
 
   it('a stale build pin is refused without echoing it', async () => {
