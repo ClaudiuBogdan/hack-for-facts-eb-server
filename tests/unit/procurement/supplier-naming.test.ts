@@ -65,6 +65,21 @@ describe('namingFromView', () => {
       view('masked', CODED_NAME),
       { kind: 'code_only', name: null },
     ],
+    [
+      'named, the name carrying 11 digits',
+      view('named', 'FIRMA 12345678901 SRL'),
+      { kind: 'code_only', name: null },
+    ],
+    [
+      'masked, the name carrying 12 split digits',
+      view('masked', 'EXEMPLU 123 456 789 012'),
+      { kind: 'code_only', name: null },
+    ],
+    [
+      'named, a 10-digit number is not a person code',
+      view('named', 'FIRMA 1234567890 SRL'),
+      { kind: 'company', name: 'FIRMA 1234567890 SRL' },
+    ],
     ['code_shown false', view('named', REGISTRY, false), { kind: 'hidden', name: null }],
     ['code_shown null', view('masked', MASKED, null), { kind: 'hidden', name: null }],
     ['no row', undefined, { kind: 'code_only', name: null }],
@@ -247,6 +262,29 @@ describe('supplierNamesByCode', () => {
       'where n.fiscal_code_clean = any($1::text[]) and n.supplier_name_public is true'
     );
     expect(captured.some((q) => q.sql.includes('supplier_names_public'))).toBe(false);
+  });
+
+  it('fails a lookup with only its SQLSTATE, never the database message', async () => {
+    const kysely = makeCapturingDb([], {
+      respond: (text) => {
+        if (text.includes('as names_readable')) return [{ names_readable: true }];
+        throw Object.assign(new Error(`invalid input syntax: "${SYNTHETIC_CNP}"`), {
+          code: '22P02',
+        });
+      },
+    });
+    const failure = await supplierNamesByCode(kysely, ['14399840']).then(
+      () => undefined,
+      (error: unknown) => error
+    );
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure).toMatchObject({
+      code: '22P02',
+      message: 'Supplier names lookup failed (22P02)',
+    });
+    expect(JSON.stringify(failure)).not.toContain(SYNTHETIC_CNP);
+    expect((failure as Error).message).not.toContain(SYNTHETIC_CNP);
+    expect((failure as Error).cause).toBeUndefined();
   });
 
   it('reads nothing, not even the grant, for a page with no supplier code', async () => {

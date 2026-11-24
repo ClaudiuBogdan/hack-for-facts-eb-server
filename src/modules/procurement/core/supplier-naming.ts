@@ -16,11 +16,12 @@
  *   registry name (`party_public_names.registry_name` where
  *   `supplier_name_public`), or with no name.
  *
- * Every served name still passes the personal-code screen (`publicPartyName`);
- * a name it withholds leaves the code only.
+ * Every served name still passes the personal-code screen (`publicPartyName`), and
+ * a name from the view also any run of 11+ digits (`hasPersonCodeRun`); a name
+ * either withholds leaves the code only.
  */
 
-import { publicPartyName } from './free-text-rule.js';
+import { hasPersonCodeRun, publicPartyName } from './free-text-rule.js';
 
 export type SupplierNamingKind = 'company' | 'person_masked' | 'code_only' | 'hidden';
 
@@ -44,8 +45,10 @@ const HIDDEN: SupplierNaming = { kind: 'hidden', name: null };
 export const namingFromView = (row: SupplierNamesViewRow | undefined): SupplierNaming => {
   if (row === undefined) return CODE_ONLY;
   if (row.codeShown !== true) return HIDDEN;
+  // The view's names are screened for any run of more than an organization code's digits (11+, as
+  // the kernel withholds such identifiers), not only the 13-digit personal-code rule.
   const name = publicPartyName(row.displayName);
-  if (name === null) return CODE_ONLY;
+  if (name === null || hasPersonCodeRun(name)) return CODE_ONLY;
   if (row.naming === 'named') return { kind: 'company', name };
   if (row.naming === 'masked') return { kind: 'person_masked', name };
   return CODE_ONLY;

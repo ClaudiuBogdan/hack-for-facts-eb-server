@@ -140,6 +140,32 @@ export const supplierNamesByCode = async (
   trx: Kysely<ProdDatabase>,
   codes: readonly string[]
 ): Promise<ReadonlyMap<string, SupplierNaming>> => {
+  try {
+    return await readSupplierNames(trx, codes);
+  } catch (error) {
+    throw namesLookupError(error);
+  }
+};
+
+/**
+ * A failed name lookup keeps only its SQLSTATE (so callers still map a missing grant or a
+ * timeout): the database's message may quote a value it read, and errors are logged whole.
+ */
+const namesLookupError = (error: unknown): Error => {
+  const code =
+    typeof error === 'object' && error !== null && 'code' in error && typeof error.code === 'string'
+      ? error.code
+      : undefined;
+  const sanitized = new Error(
+    code === undefined ? 'Supplier names lookup failed' : `Supplier names lookup failed (${code})`
+  );
+  return code === undefined ? sanitized : Object.assign(sanitized, { code });
+};
+
+const readSupplierNames = async (
+  trx: Kysely<ProdDatabase>,
+  codes: readonly string[]
+): Promise<ReadonlyMap<string, SupplierNaming>> => {
   const unique = [...new Set(codes)];
   const names = new Map<string, SupplierNaming>();
   if (unique.length === 0) return names;
