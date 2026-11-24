@@ -336,7 +336,11 @@ const grainNotes = (
 ): readonly string[] =>
   grain === 'procedure'
     ? [PROCEDURE_LIFECYCLE_NOTE]
-    : grain === 'contract' && !capabilities.frameworkRole
+    : // No base build was read (legacy retired or unreadable): the grain abstains, so no build's
+      // population is described.
+      grain === 'contract' &&
+        !capabilities.frameworkRole &&
+        capabilities.analysisBaseUnavailable !== true
       ? [LEGACY_CONTRACT_POPULATION_NOTE]
       : grain === 'calloff'
         ? [CALLOFF_PARTIAL_NOTE]
@@ -1602,8 +1606,12 @@ export const analysisShare = async (
   // (`'all'` lifts the purchases-only default), so once the build publishes
   // the column it is compared as a population, not as a field (Codex P1):
   // the numerator's effective role must sit inside the denominator's, and only
-  // a genuinely smaller role counts as narrowing.
-  const roleAware = gen.capabilities.frameworkRole && numerator.grain === 'contract';
+  // a genuinely smaller role counts as narrowing. Without a base build (legacy
+  // retired, or unreadable) the role keeps that meaning: the request is judged
+  // as the role-publishing build would judge it, and its grain then abstains.
+  const roleAware =
+    (gen.capabilities.frameworkRole || gen.capabilities.analysisBaseUnavailable === true) &&
+    numerator.grain === 'contract';
   const { frameworkRole: numRole, ...numerWithoutRole } = numerator;
   const { frameworkRole: denRole, ...denomWithoutRole } = denominator;
   const subsetNum = roleAware ? numerWithoutRole : numerator;

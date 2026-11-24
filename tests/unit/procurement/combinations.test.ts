@@ -298,7 +298,7 @@ describe('frameworkRole follows the ACTIVE build (M/M06): refused without the co
       routeAnalysis({ frameworkRole: 'standalone' }, 'stats', undefined, undefined, baseUnavailable)
         ._unsafeUnwrap()
         .map((r) => r.grain)
-    ).toContain('contract');
+    ).toEqual(['contract']);
     expect(
       routeAnalysis(
         { grain: 'contract', frameworkRole: 'all' },

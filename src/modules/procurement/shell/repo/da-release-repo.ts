@@ -342,10 +342,10 @@ const whereOf = (filter: DaPurchaseFilter, columns: Columns): RawBuilder<unknown
         })`;
   if (filter.buyerFiscalCode !== undefined)
     conditions.push(partyIds('buyer', sql`p.buyer_party_id`, filter.buyerFiscalCode));
-  // The party-id match IS the D6 test: the view holds a supplier row only for a disclosed code
-  // (once the D6 column exists, the subquery requires it too), and the subquery itself requires
-  // fiscal_code_status = 'valid' and an equal, non-null code on the same unique party key, so no
-  // row probes `s` to filter. Unreadable D6: none.
+  // The party-id match IS the D6 test: before naming step 2b the view held a supplier row only
+  // for a disclosed code; once it carries supplier_disclosed the subquery requires that column
+  // (`disclosedPartySql`). It also requires fiscal_code_status = 'valid' and an equal, non-null
+  // code on the same unique party key, so no row probes `s` to filter. Unreadable D6: none.
   if (filter.supplierFiscalCode !== undefined)
     conditions.push(
       columns.supplierDisclosure
