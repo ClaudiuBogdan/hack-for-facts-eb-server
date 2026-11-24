@@ -99,9 +99,10 @@ export const publicPartyName = (name: string | null): string | null =>
 
 /**
  * 11+ digits, joined by at most one white-space character or dash each (how a code is split when
- * written: NBSP, thin space and tab are white space after NFKD; U+2010–2014 stay dashes, U+2212 too).
+ * written: NBSP, thin space and tab are white space after NFKD, and NEL (U+0085, which `\s` omits);
+ * U+2010–2014 stay dashes, U+2212 too).
  */
-const PERSON_CODE_RUN = /[0-9]([\s\p{Pd}\u2212]?[0-9]){10,}/u;
+const PERSON_CODE_RUN = /[0-9]([\s\u0085\p{Pd}\u2212]?[0-9]){10,}/u;
 /** Invisible characters that split a digit run without showing: format characters, Hangul fillers. */
 const INVISIBLE = /[\p{Cf}\u115F\u1160\u3164\uFFA0]/gu;
 

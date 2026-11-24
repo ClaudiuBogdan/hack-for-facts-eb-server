@@ -80,6 +80,11 @@ describe('namingFromView', () => {
       view('named', 'FIRMA 1234567890 SRL'),
       { kind: 'company', name: 'FIRMA 1234567890 SRL' },
     ],
+    [
+      'named, 11 digits split by NEL (U+0085, outside \\s)',
+      view('named', 'FIRMA 12345\u008567890 1 SRL'.replace(' 1 ', '1 ')),
+      { kind: 'code_only', name: null },
+    ],
     ['code_shown false', view('named', REGISTRY, false), { kind: 'hidden', name: null }],
     ['code_shown null', view('masked', MASKED, null), { kind: 'hidden', name: null }],
     ['no row', undefined, { kind: 'code_only', name: null }],
