@@ -101,6 +101,16 @@ export const legalAnalyticsEtag = (layerId: string, cacheKey: string): string =>
 export const makeLegalAnalyticsRoutes =
   (deps: LegalAnalyticsDeps): FastifyPluginAsync =>
   (fastify) => {
+    // Every error reply of this scope, the framework's own included (a 429, an unhandled 500): never stored, no
+    // validator.
+    fastify.addHook('onSend', (_request, reply, payload, done) => {
+      if (reply.statusCode >= 400) {
+        void reply.header('cache-control', 'no-store');
+        reply.removeHeader('etag');
+      }
+      done(null, payload);
+    });
+
     const sendError = (request: FastifyRequest, reply: FastifyReply, error: ApiError) => {
       const status = httpStatusFor(error);
       void reply.header('cache-control', 'no-store');

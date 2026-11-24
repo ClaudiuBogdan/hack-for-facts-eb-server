@@ -10,7 +10,6 @@ import fastifyLib, { type FastifyInstance } from 'fastify';
 import { graphql } from 'graphql';
 import { err, ok, type Result } from 'neverthrow';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { z } from 'zod';
 
 import {
   encodeActsCursor,
@@ -35,8 +34,14 @@ import {
   decodeAnalyticsQuery,
   makeLegalAnalyticsRoutes,
 } from '@/modules/legal/shell/rest/analytics-routes.js';
-import { createCache, serviceUnavailable, type ApiError } from '@/modules/shared/index.js';
+import {
+  createCache,
+  createMcpHttpDispatcher,
+  serviceUnavailable,
+  type ApiError,
+} from '@/modules/shared/index.js';
 import { scalarResolvers, scalarTypeDefs } from '@/modules/shared/shell/graphql/scalars.js';
+import { createKernelMcpServer } from '@/modules/shared/shell/mcp/server.js';
 
 import type {
   LegalAnalyticsActs,
@@ -219,6 +224,38 @@ describe('legal analytics request validation', () => {
     const long = `Ministerul ${'x'.repeat(300)}`;
     expect(parseLegalAnalyticsRequest('summary', { issuer: long }, head).isOk()).toBe(true);
     expect(parseLegalAnalyticsRequest('summary', { issuer: `${long}y` }, head).isErr()).toBe(true);
+    // exact first, then the trimmed value
+    expect(
+      parseLegalAnalyticsRequest('summary', { issuer: ' Guvernul ' }, head)._unsafeUnwrap()
+    ).toMatchObject({
+      args: { issuer: 'Guvernul' },
+    });
+  });
+
+  it('issues a cursor that fits whatever the filter, and takes it back (a 1,600-byte issuer)', () => {
+    const long = `Ministerul ${'y'.repeat(1_590)}`;
+    const wide = {
+      ...head,
+      issuers: [...head.issuers, { lineage: long, families: ['guvern'], acts: 2 }],
+    };
+    const first = parseLegalAnalyticsRequest(
+      'acts',
+      { issuer: long, limit: 1 },
+      wide
+    )._unsafeUnwrap();
+    const cursor = encodeActsCursor('7', first.view === 'acts' ? first.pageKey : '', {
+      value: 0,
+      actId: '42',
+    });
+    expect(cursor.length).toBeLessThan(200);
+    const second = parseLegalAnalyticsRequest(
+      'acts',
+      { issuer: long, limit: 1, cursor },
+      wide
+    )._unsafeUnwrap();
+    expect(second.view === 'acts' && second.after).toEqual({ value: 0, actId: '42' });
+    // the incoming cursor is never echoed in the answer's arguments
+    expect(second.args).not.toHaveProperty('cursor');
   });
 
   it('accepts a group, a kind, uncertain and unplaced as felul', () => {
@@ -350,6 +387,52 @@ describe('legal analytics usecase', () => {
     }
   });
 
+  it('never shares a read of a view that names acts, and shares the head miss under the gate', async () => {
+    const f = fakeRepo();
+    let reads = 0;
+    const repo: LegalAnalyticsRepo = {
+      readHead: f.repo.readHead,
+      // each read sees the state at its own start: a later read, after a restriction, answers differently
+      read: (request, h) => {
+        reads += 1;
+        const mine = reads;
+        return f.repo.read(request, h).then((r) =>
+          r.map((d): LegalAnalyticsData | typeof LAYER_CHANGED => {
+            if (d === LAYER_CHANGED || request.view !== 'acts') return d;
+            const acts = d as LegalAnalyticsActs;
+            return {
+              ...acts,
+              rows: acts.rows.map((row) => ({ ...row, citation: `read ${String(mine)}` })),
+            };
+          })
+        );
+      },
+    };
+    const deps = depsOf(repo);
+    const [a, b, c] = await Promise.all([
+      getLegalAnalytics(deps, 'acts', {}),
+      getLegalAnalytics(deps, 'acts', {}),
+      getLegalAnalytics(deps, 'summary', {}),
+    ]);
+    expect(f.calls.head).toBe(1); // one shared head read for three cold callers
+    expect(reads).toBe(3); // two acts reads, one summary read: the acts callers never share
+    const citations = [a, b].map(
+      (r) => (r._unsafeUnwrap().data as LegalAnalyticsActs).rows[0]?.citation
+    );
+    expect(new Set(citations).size).toBe(2);
+    expect(c.isOk()).toBe(true);
+  });
+
+  it('caps the waiters of the gate', async () => {
+    const gate = makeLegalAnalyticsGate(1, 2);
+    const first = await gate.acquire(1_000);
+    expect(first).not.toBeNull();
+    const waiting = [gate.acquire(1_000), gate.acquire(1_000)];
+    expect(await gate.acquire(1_000)).toBeNull(); // at capacity: refused at once
+    first?.();
+    expect(await waiting[0]).not.toBeNull();
+  });
+
   it('refuses an unknown view', async () => {
     const r = await getLegalAnalytics(depsOf(fakeRepo().repo), 'topics', {});
     expect(r._unsafeUnwrapErr()).toMatchObject({ type: 'InvalidInput', field: 'view' });
@@ -428,6 +511,28 @@ describe('legal analytics surfaces', () => {
     expect(f.calls.read).toBe(before + 1);
   });
 
+  it('sends no-store on any error reply of the scope, a thrown one included', async () => {
+    const broken: LegalAnalyticsRepo = {
+      ...fakeRepo().repo,
+      read: () => Promise.reject(new Error('driver exploded')),
+    };
+    app = await serve(depsOf(broken));
+    const res = await app.inject({ url: '/api/v1/legal/analytics/summary' });
+    expect(res.statusCode).toBe(500);
+    expect(res.headers['cache-control']).toBe('no-store');
+    expect(res.headers.etag).toBeUndefined();
+  });
+
+  it('marks a GraphQL answer that names acts no-store before it awaits', () => {
+    const header = vi.fn();
+    const resolvers = makeLegalAnalyticsResolvers(depsOf(fakeRepo().repo));
+    void resolvers.Query.legalAnalytics(null, { view: 'ACTS' }, { reply: { header } });
+    expect(header).toHaveBeenCalledWith('cache-control', 'no-store');
+    header.mockReset();
+    void resolvers.Query.legalAnalytics(null, { view: 'SUMMARY' }, { reply: { header } });
+    expect(header).not.toHaveBeenCalled();
+  });
+
   it('answers the same on REST, GraphQL and MCP', async () => {
     const deps = depsOf(fakeRepo().repo);
     app = await serve(deps);
@@ -447,18 +552,30 @@ describe('legal analytics surfaces', () => {
     const field = (gql.data as { legalAnalytics: { data: unknown; args: unknown } }).legalAnalytics;
     expect(field.data).toEqual(rest.data);
     expect(field.args).toEqual({ felul: 'court' });
+    // the tool as the kernel registers and dispatches it (tools/call, with its strict input schema)
     const tool = makeLegalAnalyticsMcpTool(deps, 'https://transparenta.eu');
-    const mcp = await tool.handler({ view: 'summary', args: { felul: 'court' } });
-    expect(mcp).toMatchObject({ ok: true, kind: 'legal_analytics' });
-    expect((mcp.item as { data: unknown }).data).toEqual(rest.data);
-    // the registered tool's input schema (strict, as the kernel registers it)
-    const input = z.object(tool.inputShape).strict();
-    expect(tool.strictInput).toBe(true);
-    expect(input.safeParse({ view: 'summary', args: { felul: 'court' } }).success).toBe(true);
-    expect(input.safeParse({ view: 'topics' }).success).toBe(false);
-    expect(input.safeParse({ view: 'summary', args: { bogus: 1 } }).success).toBe(false);
-    expect(input.safeParse({ view: 'summary', extra: 1 }).success).toBe(false);
-    const refused = await tool.handler({ view: 'summary', args: { felul: 'nothing' } });
-    expect(refused).toMatchObject({ ok: false, errorType: 'InvalidInput' });
+    const callTool = async (args: Record<string, unknown>) => {
+      const dispatcher = createMcpHttpDispatcher(() => createKernelMcpServer([tool]));
+      const response = (await dispatcher.dispatch({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/call',
+        params: { name: 'query_legal_analytics', arguments: args },
+      })) as { result?: { structuredContent?: Record<string, unknown>; isError?: boolean } };
+      await dispatcher.close();
+      return response.result;
+    };
+    const mcp = await callTool({ view: 'summary', args: { felul: 'court' } });
+    expect(mcp?.structuredContent).toMatchObject({ ok: true, kind: 'legal_analytics' });
+    expect((mcp?.structuredContent?.['item'] as { data: unknown }).data).toEqual(rest.data);
+    for (const bad of [
+      { view: 'topics' },
+      { view: 'summary', args: { bogus: 1 } },
+      { view: 'summary', extra: 1 },
+    ]) {
+      expect((await callTool(bad))?.isError, JSON.stringify(bad)).toBe(true);
+    }
+    const refused = await callTool({ view: 'summary', args: { felul: 'nothing' } });
+    expect(refused?.structuredContent).toMatchObject({ ok: false, errorType: 'InvalidInput' });
   });
 });

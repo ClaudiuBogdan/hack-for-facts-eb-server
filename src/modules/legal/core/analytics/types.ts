@@ -300,7 +300,10 @@ export interface LegalAnalyticsActRow extends LegalAnalyticsActRef {
 export interface LegalAnalyticsActs extends LegalAnalyticsDenominators {
   readonly order: LegalAnalyticsOrder;
   readonly rows: readonly LegalAnalyticsActRow[];
-  /** Rows of the page the privacy gate hid (an act restricted after the layer was built). */
+  /**
+   * Acts of the whole SELECTION (not of this page) without a public identity now (restricted or ended after the
+   * layer was built): counted in `total`, never a row. The same figure on every page; do not sum it across pages.
+   */
   readonly hidden: number;
   readonly next: string | null;
 }

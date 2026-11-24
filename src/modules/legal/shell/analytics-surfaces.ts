@@ -17,7 +17,11 @@ import {
 } from '@/modules/shared/index.js';
 
 import { LEGAL_ANALYTICS_VIEWS, type LegalAnalyticsArgs } from '../core/analytics/types.js';
-import { getLegalAnalytics, type LegalAnalyticsDeps } from '../core/analytics/usecases.js';
+import {
+  getLegalAnalytics,
+  NAMING_VIEWS,
+  type LegalAnalyticsDeps,
+} from '../core/analytics/usecases.js';
 
 export const legalAnalyticsTypeDefs = /* GraphQL */ `
   enum LegalAnalyticsView {
@@ -93,8 +97,15 @@ const toGraphqlError = (error: ApiError): GraphQLError =>
 
 export const makeLegalAnalyticsResolvers = (deps: LegalAnalyticsDeps) => ({
   Query: {
-    legalAnalytics: async (_root: unknown, input: { view: string; args?: unknown }) => {
-      const answer = await getLegalAnalytics(deps, input.view.toLowerCase(), argsOf(input.args));
+    legalAnalytics: async (
+      _root: unknown,
+      input: { view: string; args?: unknown },
+      context?: { reply?: { header: (name: string, value: string) => unknown } }
+    ) => {
+      const view = input.view.toLowerCase();
+      // GraphQL is also served over GET: an answer that names acts must never be stored (set before any await)
+      if (NAMING_VIEWS.has(view)) context?.reply?.header('cache-control', 'no-store');
+      const answer = await getLegalAnalytics(deps, view, argsOf(input.args));
       if (answer.isErr()) throw toGraphqlError(answer.error);
       return served(answer.value);
     },

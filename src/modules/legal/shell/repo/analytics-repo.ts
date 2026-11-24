@@ -70,6 +70,8 @@ import { v2DisplayCitation } from '../../core/v2/display-citation.js';
 type Db = Kysely<ProdDatabase>;
 
 export const ANALYTICS_STATEMENT_TIMEOUT_MS = 15_000;
+/** The whole read's deadline: a read past it ends with the same timeout error as a slow statement. */
+export const ANALYTICS_TRANSACTION_TIMEOUT_MS = 20_000;
 /** How many targets per link kind the links view names. */
 export const TOP_TARGETS = 30;
 const GRID_ROWS = 10;
@@ -107,6 +109,15 @@ const snapshot = async <T>(
         await sql`set local statement_timeout = ${sql.lit(ANALYTICS_STATEMENT_TIMEOUT_MS)}`.execute(
           trx
         );
+        // a deadline for the whole read, not only each statement (PostgreSQL 17+; production runs 18)
+        const { rows } = await sql<{ ok: boolean }>`
+          select current_setting('server_version_num')::int >= 170000 as ok
+        `.execute(trx);
+        if (rows[0]?.ok === true) {
+          await sql`set local transaction_timeout = ${sql.lit(ANALYTICS_TRANSACTION_TIMEOUT_MS)}`.execute(
+            trx
+          );
+        }
         return read(trx);
       });
   } catch (error) {

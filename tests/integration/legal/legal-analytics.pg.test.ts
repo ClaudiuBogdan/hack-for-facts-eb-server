@@ -291,7 +291,8 @@ run('legal analytics on the real DDL', () => {
              (1, 4, 'court_names', 1, 'resolved', null),
              (1, 3, 'amends', null, 'code', 'Codul civil'),
              (1, 5, 'amends', 1, 'resolved', null),
-             (1, 6, 'amends', 5, 'resolved', null)`);
+             (1, 6, 'amends', 5, 'resolved', null),
+             (1, 1, 'promulgates', 4, 'resolved', null)`);
     await q('commit');
     await q(
       `update legal_v2_analytics.insights_layer set published_at = now(), checks = '[]' where layer_id = 1`
@@ -378,6 +379,7 @@ run('legal analytics on the real DDL', () => {
       { kind: 'amends', note: 'code', links: 1 },
       { kind: 'amends', note: 'resolved', links: 3 },
       { kind: 'court_names', note: 'resolved', links: 1 },
+      { kind: 'promulgates', note: 'resolved', links: 1 },
     ]);
     expect(links.topTargets).toContainEqual({
       kind: 'amends',
@@ -414,17 +416,21 @@ run('legal analytics on the real DDL', () => {
 
   it('traverses tied pages with the cursor-free page key', async () => {
     const seen: string[] = [];
+    const hidden: number[] = [];
     let cursor: string | null = null;
     for (let page = 0; page < 6; page += 1) {
       const args: Record<string, unknown> = { order: 'cited', limit: 1 };
       if (cursor !== null) args['cursor'] = cursor;
       const r: LegalAnalyticsActs = await view<LegalAnalyticsActs>('acts', args);
       seen.push(...r.rows.map((x) => x.actId));
+      hidden.push(r.hidden);
       cursor = r.next;
       if (cursor === null) break;
     }
     // act 1 is cited twice; the rest tie at zero, by act id descending; act 5 is hidden
     expect(seen).toEqual(['1', '6', '4', '3', '2']);
+    // `hidden` is the selection's total, the same on every page
+    expect(new Set(hidden)).toEqual(new Set([1]));
   });
 
   it('stops naming an act restricted after a warm read, without a new layer', async () => {
