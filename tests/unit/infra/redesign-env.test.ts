@@ -190,8 +190,15 @@ describe('PROCUREMENT_DATABASE_URL (PRJ-54YB)', () => {
     ).toBeUndefined();
   });
 
-  it('passes a postgres URL through to the kernel config', () => {
-    const url = 'postgresql://procurement@example.invalid/transparenta_prod?sslmode=require';
+  it.each([
+    [
+      'a host and sslmode',
+      'postgresql://procurement@example.invalid/transparenta_prod?sslmode=require',
+    ],
+    ['a host in the query', 'postgresql:///transparenta_prod?host=db.example.invalid&user=reader'],
+    ['a Unix socket directory', 'postgres:///transparenta_prod?host=/var/run/postgresql'],
+    ['a percent-encoded password', 'postgres://reader:p%40ss%2Fw@example.invalid:5432/db'],
+  ])('passes a postgres URL with %s through to the kernel config', (_label, url) => {
     expect(
       loadRedesignConfig({ ...base, PROCUREMENT_DATABASE_URL: url }).kernel.procurementDatabaseUrl
     ).toBe(url);

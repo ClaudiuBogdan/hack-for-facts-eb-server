@@ -331,11 +331,15 @@ const splitCsv = (raw: string | undefined): readonly string[] =>
         .map((s) => s.trim())
         .filter((s) => s !== '');
 
-/** A parseable postgres URL with a host (a bad port or form fails `new URL`). */
+/**
+ * A parseable postgres URL with a host, in the authority or, as pg also reads it, in a `host` query
+ * parameter (a TCP host or a Unix socket directory). A bad port or form fails `new URL`.
+ */
 const isPostgresUrl = (value: string): boolean => {
   try {
     const url = new URL(value);
-    return (url.protocol === 'postgres:' || url.protocol === 'postgresql:') && url.hostname !== '';
+    const host = url.hostname !== '' || (url.searchParams.get('host') ?? '') !== '';
+    return (url.protocol === 'postgres:' || url.protocol === 'postgresql:') && host;
   } catch {
     return false;
   }
