@@ -204,6 +204,17 @@ export const normalizeRegistry = (input) => {
     throw new Error('registry.secrets contains duplicate names');
   }
 
+  // Ciphertext sealed on another lane: listed in the kustomization, never generated here.
+  const externallySealed = externalEntries(document.externallySealed);
+  const external = externallySealed.map((entry) => entry.name);
+  if (new Set(external).size !== external.length) {
+    throw new Error('registry.externallySealed contains duplicate names');
+  }
+  const overlap = external.filter((name) => names.includes(name));
+  if (overlap.length > 0) {
+    throw new Error(`registry.externallySealed overlaps registry.secrets: ${overlap.join(', ')}`);
+  }
+
   return {
     version: 1,
     target: {
@@ -231,7 +242,45 @@ export const normalizeRegistry = (input) => {
       kustomization: string(output.kustomization, 'output.kustomization'),
     },
     secrets,
+    externallySealed,
   };
+};
+
+/**
+ * Optional `externallySealed`: SealedSecrets whose ciphertext another lane seals (no BWS record
+ * this tool can render). Each names its source and who reseals it; the tool never selects,
+ * fetches or writes one, but the kustomization must still list it.
+ */
+const externalEntries = (input) => {
+  if (input === undefined) return [];
+  if (!Array.isArray(input)) throw new Error('registry.externallySealed must be an array');
+  return input.map((entry, index) => {
+    const current = object(entry, `externallySealed[${index}]`);
+    return {
+      name: string(current.name, `externallySealed[${index}].name`),
+      sealedBy: string(current.sealedBy, `externallySealed[${index}].sealedBy`),
+      source: string(current.source, `externallySealed[${index}].source`),
+      reseal: string(current.reseal, `externallySealed[${index}].reseal`),
+    };
+  });
+};
+
+/** The kustomization's exact resources: every registered and every externally sealed file. */
+export const expectedKustomizationResources = (registry) =>
+  [...registry.secrets, ...(registry.externallySealed ?? [])]
+    .map((entry) => `${entry.name}.sealed.yaml`)
+    .sort();
+
+export const checkKustomizationResources = (registry, resources) => {
+  if (
+    !Array.isArray(resources) ||
+    JSON.stringify([...resources].sort()) !==
+      JSON.stringify(expectedKustomizationResources(registry))
+  ) {
+    throw new Error(
+      'Secrets kustomization must list exactly all registered and externally sealed ciphertext files'
+    );
+  }
 };
 
 const childEnvironment = (overrides = {}) => {
@@ -394,6 +443,14 @@ export const selectSecrets = (registry, selectedNames) => {
     selectedNames.length === 0
       ? registry.secrets
       : registry.secrets.filter((entry) => selectedNames.includes(entry.name));
+  const external = selectedNames.filter((name) =>
+    (registry.externallySealed ?? []).some((entry) => entry.name === name)
+  );
+  if (external.length > 0) {
+    throw new Error(
+      `Sealed outside this registry (externallySealed), reseal on its own lane: ${external.join(', ')}`
+    );
+  }
   const known = new Set(registry.secrets.map((entry) => entry.name));
   const unknown = selectedNames.filter((name) => !known.has(name));
   if (unknown.length > 0) throw new Error(`Unknown Secret: ${unknown.join(', ')}`);
@@ -599,14 +656,10 @@ const sealOne = async (resolved, registry, options) => {
 const assertKustomization = async (registry) => {
   const filePath = absoluteFromRepository(registry.output.kustomization);
   const result = await runProcess('yq', ['e', '-o=json', '.resources', filePath]);
-  const resources = parseJson(result.stdout, 'secrets kustomization resources');
-  const expected = registry.secrets.map((entry) => `${entry.name}.sealed.yaml`).sort();
-  if (
-    !Array.isArray(resources) ||
-    JSON.stringify([...resources].sort()) !== JSON.stringify(expected)
-  ) {
-    throw new Error('Secrets kustomization must list exactly all registered ciphertext files');
-  }
+  checkKustomizationResources(
+    registry,
+    parseJson(result.stdout, 'secrets kustomization resources')
+  );
 };
 
 const writeValidatedBatch = async (registry, generated) => {

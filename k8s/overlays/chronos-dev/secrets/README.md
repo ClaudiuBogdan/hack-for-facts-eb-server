@@ -80,3 +80,8 @@ Deployment; its encrypted manifest is retained here for recovery, outside the
 Bitwarden bulk-seal registry, and the key can be recovered by that UID through the
 operator's existing Meili master custody. Do not replace or broaden the canonical
 production search key.
+
+`transparenta-prod-api-dev-credentials` (the procurement login's `PROCUREMENT_DATABASE_URL`, PRJ-54YB P4) is
+listed under `externallySealed` in the registry: the owner's Codex lane seals it, deriving the URL in memory from a
+BWS record that has no URL field, so `secrets:seal:chronos` never selects or writes it. The kustomization must list
+exactly the registered and the externally sealed files; reseal this one on the owner's lane.
