@@ -218,6 +218,51 @@ describe('the module with legacy off', () => {
     );
   });
 
+  it('with DA v3 on, a frameworkRole figure abstains like its grain, never INVALID_INPUT', async () => {
+    const module = makeProcurementModule({
+      db: makeCapturingDb([], {
+        respond: (text) => {
+          if (text.includes('as build_id'))
+            return [
+              {
+                build_id: '1763435400123456',
+                as_of: '2026-11-18T03:10:00.000000Z',
+                privacy: true,
+                disclosed_column: 'absent',
+              },
+            ];
+          if (text.includes('as disclosed_column')) return [{ disclosed_column: 'absent' }];
+          if (text.includes('from unnest')) return [{ name: 'da_buyer_geography' }];
+          if (text.includes('has_table_privilege')) return [{ present: true }];
+          return [];
+        },
+      }),
+      warmCache: true,
+      legacyEnabled: false,
+      daV3Enabled: true,
+    });
+    // The buyer page's frameworks figure (client FRAMEWORKS_SCOPE): the contract grain's
+    // framework agreements, by their ceiling role, for one buyer and period.
+    for (const grain of ['contract'] as const) {
+      const answer = await graphql(
+        module,
+        `{ procurementStats(scope: { grain: ${grain}, recordKind: "framework_agreement", frameworkRole: "framework_ceiling", authorityCui: "4305857", year: 2025 }) { blocks { grain recordCount meta { caveats } } } }`
+      );
+      expect(answer.errors, grain).toBeUndefined();
+      expect((answer.data?.['procurementStats'] as { blocks: unknown[] }).blocks).toEqual([
+        {
+          grain,
+          recordCount: null,
+          meta: {
+            caveats: expect.arrayContaining([
+              'this grain is unavailable: the analytics build could not be read',
+            ]) as unknown,
+          },
+        },
+      ]);
+    }
+  });
+
   it("with DA v3 on, a legacy grain's records page abstains for every order", async () => {
     const module = makeProcurementModule({
       db: makeCapturingDb([], {
