@@ -27,6 +27,7 @@ import { err, ok, type Result } from 'neverthrow';
 import { databaseError, type ApiError } from '@/modules/shared/index.js';
 
 import { DA_NATURAL_PERSON_BUCKET } from './constants.js';
+import { publicPartyName } from './free-text-rule.js';
 
 // ── Contract enums ───────────────────────────────────────────────────────────
 
@@ -336,7 +337,8 @@ export const toSupplier = (party: DaPartyRecord): DaParty =>
     ? {
         displayKind: 'company',
         partyId: party.portalPartyId,
-        name: party.name,
+        // "Never a CNP": a name written with a personal numeric code is withheld.
+        name: publicPartyName(party.name),
         fiscalCode: party.fiscalCode,
       }
     : WITHHELD;
@@ -344,7 +346,7 @@ export const toSupplier = (party: DaPartyRecord): DaParty =>
 export const toBuyer = (party: DaPartyRecord): DaParty => ({
   displayKind: 'authority',
   partyId: party.portalPartyId,
-  name: party.name,
+  name: publicPartyName(party.name),
   fiscalCode: party.fiscalCodeStatus === 'valid' ? party.fiscalCode : null,
 });
 

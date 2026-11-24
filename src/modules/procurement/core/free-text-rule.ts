@@ -15,9 +15,13 @@
 /** RE2's `\s` (ASCII only); JS's `\s` is wider and would withhold less in A2. */
 const RE2_SPACE = '\\t\\n\\f\\r ';
 
+/** A1: a 13-digit run (a personal numeric code). */
+const THIRTEEN_DIGITS = /[0-9]{13}/u;
+/** B3 (on the folded text): 13 digits with single separators. */
+const THIRTEEN_SEPARATED_DIGITS = /[0-9]( ?[0-9]){12}/u;
+
 const RAW_CHECKS: readonly RegExp[] = [
-  // A1: a 13-digit run (a personal numeric code).
-  /[0-9]{13}/u,
+  THIRTEEN_DIGITS,
   // A2: an e-mail address.
   new RegExp(`[^${RE2_SPACE}@]+@[^${RE2_SPACE}@]+\\.[a-z]{2,}`, 'iu'),
   // A3: a Romanian phone number.
@@ -27,8 +31,7 @@ const RAW_CHECKS: readonly RegExp[] = [
 ];
 
 const FOLDED_CHECKS: readonly RegExp[] = [
-  // B3: 13 digits with single separators.
-  /[0-9]( ?[0-9]){12}/u,
+  THIRTEEN_SEPARATED_DIGITS,
   // B5: sole-trader and natural-person markers.
   /(^|[^\p{L}])p ?f ?a([^\p{L}]|$)|persoana ?fizica([^\p{L}]|$)|ntreprinderea? ?(individ|famil)/iu,
 ];
@@ -55,6 +58,9 @@ const OUTSIDE_STABLE_RANGES =
   // eslint-disable-next-line no-control-regex -- the range starts at U+0000 on purpose: control characters are not withheld.
   /[^\u0000-\u07FF\u1E00-\u1EFF\u2000-\u2BFF\uE000-\uF8FF\uFB00-\uFFFF\u{1F000}-\u{1FAFF}]/u;
 
+/** B2: a non-ASCII decimal digit in the raw text. */
+const hasNonAsciiDigit = (text: string): boolean => /\p{Nd}/u.test(text.replace(/[0-9]/gu, ''));
+
 /** True when the rule withholds `text`. */
 export const isFreeTextWithheld = (text: string): boolean => {
   if (OUTSIDE_STABLE_RANGES.test(text)) return true;
@@ -62,8 +68,7 @@ export const isFreeTextWithheld = (text: string): boolean => {
   const decomposed = text.normalize('NFKD');
   // B1: an at sign in any form (fullwidth included, after NFKD).
   if (decomposed.includes('@')) return true;
-  // B2: a non-ASCII decimal digit in the raw text.
-  if (/\p{Nd}/u.test(text.replace(/[0-9]/gu, ''))) return true;
+  if (hasNonAsciiDigit(text)) return true;
   const folded = fold(decomposed);
   if (FOLDED_CHECKS.some((check) => check.test(folded))) return true;
   // B4: a Romanian phone number inside any digit run.
@@ -73,3 +78,18 @@ export const isFreeTextWithheld = (text: string): boolean => {
 /** The text when the rule allows it; null when it is withheld (or absent). */
 export const publicFreeText = (text: string | null): string | null =>
   text === null || isFreeTextWithheld(text) ? null : text;
+
+/**
+ * Whether a party name may carry a personal numeric code (a CNP): the rule's numeric checks
+ * only (A1, B2, B3). "Never a CNP" (owner policy): a name the source wrote with one is withheld
+ * whole. Party names are otherwise served as the source published them, so the rule's other
+ * checks (sole-trader markers, phones, e-mail) do not apply to names.
+ */
+export const carriesPersonalCode = (name: string): boolean =>
+  THIRTEEN_DIGITS.test(name) ||
+  hasNonAsciiDigit(name) ||
+  THIRTEEN_SEPARATED_DIGITS.test(fold(name.normalize('NFKD')));
+
+/** The party name when it carries no personal code; null when withheld (or absent). */
+export const publicPartyName = (name: string | null): string | null =>
+  name === null || carriesPersonalCode(name) ? null : name;

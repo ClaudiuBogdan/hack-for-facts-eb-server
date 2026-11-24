@@ -53,6 +53,7 @@ import {
   type SeriesBucket,
 } from '../../core/constants.js';
 import { type ElicitatiePage } from '../../core/elicitatie-page.js';
+import { publicPartyName } from '../../core/free-text-rule.js';
 import {
   assertSortServeable,
   parseOffsetRequest,
@@ -153,7 +154,9 @@ const party = (
   if (displayKind === 'natural_person')
     return { cui: null, name: null, displayName: null, displayKind };
   const served = cui !== null && !isWithheldOrganizationIdentifier(cui) ? cui : null;
-  return { cui: served, name, displayName: name ?? served, displayKind };
+  // "Never a CNP": a name the source wrote with a personal numeric code is withheld whole.
+  const shown = publicPartyName(name);
+  return { cui: served, name: shown, displayName: shown ?? served, displayKind };
 };
 
 /**
@@ -618,9 +621,13 @@ export const makeProcurementResolvers = (
         return p.displayName;
       },
     },
+    // "Never a CNP": a name fragment that may carry a personal code is withheld here too, whatever
+    // repository served it (the markers fold to single separators, so a split code still matches).
     ProcurementSearchHighlight: {
+      authorityName: (h: { authorityName?: string | null }) =>
+        publicPartyName(h.authorityName ?? null),
       supplierName: (h: { supplierName?: string | null }, _a: unknown, context: unknown) => {
-        const name = h.supplierName ?? null;
+        const name = publicPartyName(h.supplierName ?? null);
         if (name !== null && hasDaSupplierName(h)) markNoStore(context);
         return name;
       },

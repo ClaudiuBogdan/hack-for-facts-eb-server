@@ -12,6 +12,7 @@ import {
   GRAPHQL_ERROR_CODE,
   disclosureKeyOf,
   invalidInput,
+  isWithheldOrganizationIdentifier,
   type ApiError,
   type FilterInput,
   type KernelMcpTool,
@@ -44,6 +45,7 @@ import {
   type SeriesBucket,
   VALUE_STATES,
 } from '../../core/constants.js';
+import { publicPartyName } from '../../core/free-text-rule.js';
 import { resolveCpv, searchContracts, searchDirectAcquisitions } from '../../core/usecases.js';
 import { withDisplayTitles } from '../records-display.js';
 
@@ -58,6 +60,31 @@ export interface ProcurementMcpDeps {
   /** The D6-gated names of DA supplier buckets (PROC-B51G). */
   readonly daSupplierNames?: DaSupplierNamesPort;
 }
+
+/** The party fields a legacy record item carries (procedures have no supplier). */
+interface PartyFields {
+  readonly authorityCui?: string | null;
+  readonly authorityName?: string | null;
+  readonly supplierCui?: string | null;
+  readonly supplierName?: string | null;
+}
+
+/**
+ * A record item's parties as served: an identifier the platform withholds (CNP-shaped, kernel
+ * P0 containment) and a name that may carry a personal numeric code never leave the tool, as on
+ * the GraphQL party block. The rest of the item is unchanged.
+ */
+export const withServedParties = <T extends PartyFields>(item: T): T => {
+  const code = (cui: string | null | undefined): string | null =>
+    cui !== undefined && cui !== null && !isWithheldOrganizationIdentifier(cui) ? cui : null;
+  return {
+    ...item,
+    ...(item.authorityCui !== undefined && { authorityCui: code(item.authorityCui) }),
+    ...(item.authorityName !== undefined && { authorityName: publicPartyName(item.authorityName) }),
+    ...(item.supplierCui !== undefined && { supplierCui: code(item.supplierCui) }),
+    ...(item.supplierName !== undefined && { supplierName: publicPartyName(item.supplierName) }),
+  };
+};
 
 /**
  * The `aggregate_procurement` scope shape — field names MUST equal the SDL
@@ -265,7 +292,7 @@ export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly Kern
         kind: 'contract_list',
         query: filter,
         link: `${clientBaseUrl}/procurement/contracts`,
-        items: res.value.items,
+        items: res.value.items.map(withServedParties),
         summary: `${n(res.value.items.length)} contract(s)${res.value.next !== null ? ' (more available)' : ''}.`,
       };
     },
@@ -300,7 +327,7 @@ export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly Kern
             ? Object.fromEntries(Object.entries(filter).filter(([key]) => key !== 'supplierCui'))
             : filter,
         link: `${clientBaseUrl}/procurement/direct-acquisitions`,
-        items: res.value.items,
+        items: res.value.items.map(withServedParties),
         // D6: the key the page was served under (docs 10, monotonic keys).
         meta: {
           disclosureKey:

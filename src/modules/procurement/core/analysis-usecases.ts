@@ -65,6 +65,7 @@ import {
   type SeriesBucket,
 } from './constants.js';
 import { buildEnvelope, type AnswerEnvelope, type EnvelopeReads } from './envelope.js';
+import { publicPartyName } from './free-text-rule.js';
 import {
   decideAnswer,
   decideMoney,
@@ -1279,7 +1280,7 @@ const breakdownBlockFor = async (
           displayName:
             b.key === null || b.key === DA_NATURAL_PERSON_BUCKET
               ? null
-              : (names.get(b.key) ?? null),
+              : publicPartyName(names.get(b.key) ?? null),
         }),
     };
   });
@@ -1906,8 +1907,10 @@ export const analysisRecords = async (
     return {
       ...row,
       authorityCui: servedIdentifier(row.authorityCui),
+      // "Never a CNP": a party name the source wrote with a personal numeric code is withheld.
+      authorityName: publicPartyName(row.authorityName),
       supplierCui: withheld ? null : servedIdentifier(row.supplierCui),
-      supplierName: withheld ? null : row.supplierName,
+      supplierName: withheld ? null : publicPartyName(row.supplierName),
       valueRon: moneyAllowed ? row.valueRon : null,
     };
   });

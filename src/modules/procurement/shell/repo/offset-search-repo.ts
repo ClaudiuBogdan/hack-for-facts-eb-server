@@ -31,7 +31,7 @@ import { modificationDeltaPctSql } from './filter-helpers.js';
 import { mapContract, mapDirectAcquisition, mapModification, mapProcedure } from './mappers.js';
 import { supportedProcedureIdSql } from './procedure-link-policy.js';
 import { SEARCH_COUNT_CAP } from '../../core/constants.js';
-import { isFreeTextWithheld } from '../../core/free-text-rule.js';
+import { carriesPersonalCode, isFreeTextWithheld } from '../../core/free-text-rule.js';
 import { HIGHLIGHT_CLOSE, HIGHLIGHT_OPEN } from '../../core/opensearch-query.js';
 import {
   assertDaOffsetSelective,
@@ -218,6 +218,7 @@ interface Hydrated<Out> {
   readonly items: Out[];
   readonly missing: number;
   readonly publicTitles?: ReadonlyMap<string, string>;
+  readonly codedNames?: ReadonlyMap<string, ReadonlySet<NameField>>;
 }
 
 /** pk (as a string) → raw title, for the hydrated rows whose title the rule allows. */
@@ -237,28 +238,74 @@ export const publicTitlesOf = (
 const untagged = (fragment: string): string =>
   fragment.replaceAll(HIGHLIGHT_OPEN, '').replaceAll(HIGHLIGHT_CLOSE, '');
 
+/** The name fields a highlight can quote, by their raw column. */
+const NAME_COLUMNS = [
+  ['authorityName', 'authority_name'],
+  ['supplierName', 'supplier_name'],
+] as const;
+type NameField = (typeof NAME_COLUMNS)[number][0];
+
+/**
+ * pk (as a string) → the hydrated row's name fields whose raw value may carry a personal numeric
+ * code ("never a CNP"): their fragments are withheld too, whatever part of the name they quote.
+ */
+export const codedNamesOf = (
+  rows: readonly Record<string, unknown>[],
+  pkColumn: string
+): Map<string, ReadonlySet<NameField>> =>
+  new Map(
+    rows.flatMap((row) => {
+      const coded = new Set(
+        NAME_COLUMNS.flatMap(([field, column]) => {
+          const name = row[column];
+          return typeof name === 'string' && carriesPersonalCode(name) ? [field] : [];
+        })
+      );
+      return coded.size > 0 ? [[String(row[pkColumn]), coded] as const] : [];
+    })
+  );
+
 /**
  * A title fragment is served only when it quotes the row's CURRENT public
  * title (PROC-37DX): never for a row Postgres no longer serves, whose title it
  * withholds, or whose title changed since the index was built (a stale hit
  * quotes the old text). A fragment is part of a withheld title even when it
  * does not carry the marker itself.
+ *
+ * A name fragment is withheld when it, or the row's raw name, may carry a
+ * personal numeric code ("never a CNP"); other name fragments are served.
  */
 export const withPublicTitleHighlights = (
   highlights: readonly SearchHighlight[],
-  publicTitles: ReadonlyMap<string, string> | undefined
+  publicTitles: ReadonlyMap<string, string> | undefined,
+  codedNames?: ReadonlyMap<string, ReadonlySet<NameField>>
 ): SearchHighlight[] =>
   highlights.flatMap((highlight) => {
-    if (highlight.title === undefined) return [highlight];
-    if (publicTitles?.get(highlight.id)?.includes(untagged(highlight.title)) === true) {
-      return [highlight];
-    }
-    const rest: SearchHighlight = {
+    const coded = codedNames?.get(highlight.id);
+    const nameServed = (field: NameField, fragment: string): boolean =>
+      coded?.has(field) !== true && !carriesPersonalCode(untagged(fragment));
+    const title =
+      highlight.title !== undefined &&
+      publicTitles?.get(highlight.id)?.includes(untagged(highlight.title)) === true
+        ? highlight.title
+        : undefined;
+    const served: SearchHighlight = {
       id: highlight.id,
-      ...(highlight.authorityName !== undefined && { authorityName: highlight.authorityName }),
-      ...(highlight.supplierName !== undefined && { supplierName: highlight.supplierName }),
+      ...(title !== undefined && { title }),
+      ...(highlight.authorityName !== undefined &&
+        nameServed('authorityName', highlight.authorityName) && {
+          authorityName: highlight.authorityName,
+        }),
+      ...(highlight.supplierName !== undefined &&
+        nameServed('supplierName', highlight.supplierName) && {
+          supplierName: highlight.supplierName,
+        }),
     };
-    return rest.authorityName !== undefined || rest.supplierName !== undefined ? [rest] : [];
+    return served.title !== undefined ||
+      served.authorityName !== undefined ||
+      served.supplierName !== undefined
+      ? [served]
+      : [];
   });
 
 const FACT_TABLES: Readonly<Partial<Record<SearchGrain, { table: string; pk: string }>>> = {
@@ -594,7 +641,12 @@ export const makeOffsetSearchRepo = (
       logger?.warn({ grain, missing }, 'search index lists rows postgres no longer serves');
     }
     // The mapper withholds the title; its highlight must go too (PROC-37DX).
-    return { items, missing, publicTitles: publicTitlesOf(rows, pkColumn) };
+    return {
+      items,
+      missing,
+      publicTitles: publicTitlesOf(rows, pkColumn),
+      codedNames: codedNamesOf(rows, pkColumn),
+    };
   };
 
   /**
@@ -653,7 +705,7 @@ export const makeOffsetSearchRepo = (
     }
     const page = result.value;
     try {
-      const { items, missing, publicTitles } = await hydrate(page.pks);
+      const { items, missing, publicTitles, codedNames } = await hydrate(page.pks);
       // A hydration miss means the index and the database disagree about
       // membership. The page is short by construction, so the engine's count
       // can no longer be claimed exact — degrade it rather than assert a total
@@ -666,7 +718,7 @@ export const makeOffsetSearchRepo = (
         total: exact ? page.total : null,
         estimated: !exact,
         facets: page.facets,
-        highlights: withPublicTitleHighlights(page.highlights, publicTitles),
+        highlights: withPublicTitleHighlights(page.highlights, publicTitles, codedNames),
         provenance: { engine: 'opensearch' as const, asOf: page.asOf },
       });
     } catch (error) {
