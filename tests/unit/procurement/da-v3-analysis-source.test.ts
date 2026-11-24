@@ -31,8 +31,8 @@ const run = async (
     names?: readonly { code: string; name: string }[];
     /** Rows of supplier_names_public; set means this login may read it (naming step 2). */
     view?: readonly Record<string, unknown>[];
-    /** Naming step 2b: da_parties_public.supplier_disclosed exists. */
-    disclosedColumn?: boolean;
+    /** Naming step 2b: da_parties_public.supplier_disclosed exists (readable, or 'denied'). */
+    disclosedColumn?: boolean | 'denied';
     records?: readonly Record<string, unknown>[];
   } = {}
 ) => {
@@ -40,8 +40,13 @@ const run = async (
   const isolation: unknown[] = [];
   const db = makeCapturingDb(captured, {
     respond: (text) => {
-      if (text.includes('as disclosed_column'))
-        return [{ disclosed_column: options.disclosedColumn === true }];
+      if (text.includes('bool_and(has_column_privilege'))
+        return [
+          {
+            present: options.disclosedColumn !== undefined && options.disclosedColumn !== false,
+            readable: options.disclosedColumn === true,
+          },
+        ];
       if (text.includes('as names_readable'))
         return [{ names_readable: options.view !== undefined }];
       if (text.includes('supplier_names_public')) return options.view ?? [];
@@ -314,8 +319,7 @@ describe('D6', () => {
       s.recordsFor(ROUTE, AUTHORITY, GEN, { sort: 'value_desc', offset: 0, limit: 25 })
     );
     expect(sql).toMatch(
-      // Before da_parties_public carries supplier_disclosed, no row only shows its code (`or false`).
-      /case when \(s\.portal_party_id is not null[^)]*\) or false then s\.fiscal_code_clean end as supplier_cui/u
+      /case when \(s\.portal_party_id is not null[^)]*\) then s\.fiscal_code_clean end as supplier_cui/u
     );
     // Supplier names never come from a party row (the view carries none for suppliers).
     expect(sql).not.toContain('supplier_name');
@@ -814,9 +818,30 @@ describe('naming step 2b: the explicit D6 column', () => {
       (s: ReturnType<typeof makeDaV3AnalysisSource>) =>
         s.breakdownFor(ROUTE, AUTHORITY, GEN, 'supplier', 10, 'value'),
     ]) {
-      const { sql } = await run(read);
-      expect(sql).not.toContain('supplier_disclosed');
+      const { data } = await run(read);
+      const text = data.join('\n');
+      expect(text).not.toContain('supplier_disclosed');
+      expect(text).not.toContain("'shown'");
     }
+  });
+
+  it('withholds every supplier when the column exists but cannot be read', async () => {
+    const scoped = await run((s) => s.statsFor(ROUTE, SUPPLIER, GEN), {
+      disclosedColumn: 'denied',
+    });
+    expect(scoped.sql).not.toContain('pp.party_kind');
+    expect(scoped.data.join('\n')).not.toContain('supplier_disclosed');
+    const page = await run(records, {
+      disclosedColumn: 'denied',
+      records: [shown('2000002')],
+      view: [
+        { code: '2000002', naming: 'named', display_name: 'FIRMA EXEMPLU SRL', code_shown: true },
+      ],
+    });
+    // The page never marks a row shown, and names no supplier (D6 unreadable).
+    expect(page.data.join('\n')).not.toContain('supplier_disclosed');
+    expect(page.sql).not.toContain("'shown'");
+    expect(page.sql).toMatch(/case when false then s\.fiscal_code_clean end as supplier_cui/u);
   });
 
   it('with it, a supplier scope and every live supplier key require it', async () => {

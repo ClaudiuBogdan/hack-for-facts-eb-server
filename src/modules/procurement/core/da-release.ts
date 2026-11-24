@@ -393,7 +393,8 @@ const shownSupplier = (party: DaPartyRecord): DaParty => {
   if (naming.kind !== 'person_masked' && naming.kind !== 'code_only') return WITHHELD;
   return {
     displayKind: naming.kind,
-    partyId: party.portalPartyId,
+    // Not disclosed: the code is the only identifier served (no portal party id).
+    partyId: null,
     name: servedSupplierName(naming),
     fiscalCode: code,
   };

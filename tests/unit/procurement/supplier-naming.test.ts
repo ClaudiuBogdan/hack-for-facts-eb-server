@@ -409,13 +409,13 @@ describe('naming step 2b: a code shown without D6 disclosing it', () => {
       toSupplier(undisclosed({ kind: 'person_masked', name: MASKED, source: 'view' }))
     ).toEqual({
       displayKind: 'person_masked',
-      partyId: '900',
+      partyId: null,
       name: MASKED,
       fiscalCode: '14399840',
     });
     expect(toSupplier(undisclosed({ kind: 'company', name: REGISTRY, source: 'view' }))).toEqual({
       displayKind: 'code_only',
-      partyId: '900',
+      partyId: null,
       name: null,
       fiscalCode: '14399840',
     });

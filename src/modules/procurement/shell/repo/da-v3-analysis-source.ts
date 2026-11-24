@@ -223,11 +223,12 @@ const snapshot = async <T>(
             select ${BUILD_ID_SQL} as build_id from ${RELEASE}`.execute(trx);
           if (current.rows[0]?.build_id !== expectBuild) return err(REPUBLISHED());
         }
-        const privacy = await probeSupplierDisclosure(trx);
+        const column = await probeSupplierDisclosedColumn(trx);
+        // An unreadable gate column withholds every supplier (never the row-presence rule).
+        const privacy = column !== 'denied' && (await probeSupplierDisclosure(trx));
         if (seen !== undefined) seen.privacy = privacy;
         const rollups = await probeRollups(trx);
-        const disclosedColumn = await probeSupplierDisclosedColumn(trx);
-        return read({ trx, privacy, rollups, disclosedColumn });
+        return read({ trx, privacy, rollups, disclosedColumn: column === 'readable' });
       });
   } catch (error) {
     return err(readError(error));
@@ -1492,8 +1493,14 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
           const from = c.value.facts.from;
           const isNamed = c.value.facts.supplierNamed;
           if (isNamed === null) return err(databaseError('records read live rows only'));
-          // Naming step 2b: a supplier whose code is shown without D6 disclosing it, on this page.
+          // Naming step 2b: a supplier whose code is shown without D6 disclosing it, on this page
+          // (before the column exists the statement is as it was).
           const isShown = shownSupplierSql(ctx.privacy, ctx.disclosedColumn);
+          const shownOr = ctx.disclosedColumn ? sql` or ${isShown}` : sql``;
+          const shownWhen = ctx.disclosedColumn
+            ? sql`
+                    when ${isShown} then 'shown'`
+            : sql``;
           // Without a geography scope the filter reads only the purchase row (party scopes go by
           // party ids), so the page is chosen from da_purchases alone and only its rows probe their
           // parties: probing first would run a lateral probe per candidate row before the sort
@@ -1517,10 +1524,9 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
                p.finalization_day::text as date,
                case when b.fiscal_code_status = 'valid' then b.fiscal_code_clean end as authority_cui,
                b.name_as_written as authority_name,
-               case when ${isNamed} or ${isShown} then s.fiscal_code_clean end as supplier_cui,
+               case when ${isNamed}${shownOr} then s.fiscal_code_clean end as supplier_cui,
                case when p.supplier_party_id is null then null
-                    when ${isNamed} then 'company'
-                    when ${isShown} then 'shown' else 'natural_person' end as supplier_display_kind,
+                    when ${isNamed} then 'company'${shownWhen} else 'natural_person' end as supplier_display_kind,
                (${money})::text as value_ron,
                p.outcome as status,
                case when p.category_code ~ '^[0-9]{8}' then left(p.category_code, 8) end as cpv_code,

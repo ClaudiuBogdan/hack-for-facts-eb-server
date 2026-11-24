@@ -39,6 +39,7 @@ import {
   DA_RELEASE_SCHEMA,
   disclosedPartySql,
   namedSupplierSql,
+  probeSupplierDisclosedColumn,
   probeSupplierDisclosure,
   shownSupplierSql,
   purchaseParties,
@@ -125,7 +126,12 @@ const partyColumns = (alias: 'b' | 's', columns: Columns) =>
       (column) => sql`${sql.ref(`${alias}.${column}`)} as ${sql.id(`${alias}_${column}`)}`
     ),
     sql`${alias === 's' ? namedSupplier(columns) : sql`false`} as ${sql.id(`${alias}_supplier_public`)}`,
-    sql`${alias === 's' ? shownSupplierSql(columns.supplierDisclosure, columns.supplierDisclosed) : sql`false`} as ${sql.id(`${alias}_supplier_undisclosed`)}`,
+    // Naming step 2b only: before the column exists the select list is as it was.
+    ...(columns.supplierDisclosed
+      ? [
+          sql`${alias === 's' ? shownSupplierSql(columns.supplierDisclosure, true) : sql`false`} as ${sql.id(`${alias}_supplier_undisclosed`)}`,
+        ]
+      : []),
   ]);
 
 const partyOf = (row: Record<string, unknown>, prefix: string): DaPartyRecord | null => {
@@ -565,7 +571,8 @@ const allTimeOrder = (alias: string): RawBuilder<unknown> => {
 const allTimePage = (
   named: RawBuilder<unknown>,
   limit: number,
-  offset: number
+  offset: number,
+  disclosedColumn: boolean
 ): RawBuilder<unknown> => sql`
   ${allTimeGroups(named)},
   page as (select * from g order by ${allTimeOrder('g')} limit ${limit} offset ${offset})
@@ -582,7 +589,10 @@ const allTimePage = (
     select x.portal_party_id, x.name_as_written, x.fiscal_code_clean, x.fiscal_code_status
     from ${PARTIES} x
     where page.g_bucket = 'named' and x.source_name = page.source_name
-      and x.party_kind = 'supplier' and x.portal_party_id = page.supplier_party_id
+      and x.party_kind = 'supplier' and x.portal_party_id = page.supplier_party_id${
+        // A party the table calls disclosed but the view's gate does not: no row, so refused.
+        disclosedColumn ? sql` and x.supplier_disclosed is true` : sql``
+      }
     offset 0) s on true
   order by ${allTimeOrder('page')}`;
 
@@ -766,8 +776,11 @@ const allTimeSupplierTotals = async (
     return err(databaseError('Direct acquisitions total returned no row.'));
   const page = await attempt(
     async () =>
-      (await sql<GroupRow>`${allTimePage(named, query.pageSize, offsetFor(query))}`.execute(trx))
-        .rows
+      (
+        await sql<GroupRow>`${allTimePage(named, query.pageSize, offsetFor(query), columns.supplierDisclosed)}`.execute(
+          trx
+        )
+      ).rows
   );
   if (page.isErr()) return err(page.error);
   const unnamed = page.value.some(
@@ -1033,7 +1046,6 @@ const PENDING_COLUMNS = [
   ['da_items', 'item_name_public', 'itemNameShown'],
   ['da_items', 'item_unit_shown', 'itemUnitShown'],
   ['da_items', 'item_unit_public', 'itemUnitShown'],
-  ['da_parties_public', 'supplier_disclosed', 'supplierDisclosed'],
 ] as const satisfies readonly (readonly [string, string, keyof Columns])[];
 
 /** Which pending contract columns exist yet. Catalog reads only. */
@@ -1054,7 +1066,9 @@ const probeColumns = async (trx: Db): Promise<Columns> => {
     PENDING_COLUMNS.filter(([, , k]) => k === key).every(([table, column]) =>
       present.has(`${table}.${column}`)
     );
-  const supplierDisclosure = await probeSupplierDisclosure(trx);
+  const disclosedColumn = await probeSupplierDisclosedColumn(trx);
+  // An unreadable gate column withholds every supplier (never the row-presence rule).
+  const supplierDisclosure = disclosedColumn !== 'denied' && (await probeSupplierDisclosure(trx));
   return {
     supplierDisclosure,
     listedNow: has('listedNow'),
@@ -1062,7 +1076,7 @@ const probeColumns = async (trx: Db): Promise<Columns> => {
     titleShown: has('titleShown'),
     itemNameShown: has('itemNameShown'),
     itemUnitShown: has('itemUnitShown'),
-    supplierDisclosed: has('supplierDisclosed'),
+    supplierDisclosed: disclosedColumn === 'readable',
   };
 };
 

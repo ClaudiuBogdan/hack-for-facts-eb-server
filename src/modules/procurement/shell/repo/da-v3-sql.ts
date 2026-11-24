@@ -128,18 +128,25 @@ export const disclosedPartySql = (disclosedColumn: boolean): RawBuilder<unknown>
   disclosedColumn ? sql` and pp.supplier_disclosed is true` : sql``;
 
 /**
- * Whether `da_parties_public` carries `supplier_disclosed` and this login may read it (naming
- * step 2b). Catalog reads only; absent, the view's supplier rows are the gate, as before.
+ * Whether `da_parties_public` carries `supplier_disclosed` (naming step 2b), and whether this login
+ * may read it. Catalog reads only. `absent`: the view's supplier rows are the gate, as before.
+ * `denied`: the gate cannot be read, so the caller withholds every supplier (fails closed; never
+ * the row-presence rule, which would disclose step 2b's rows).
  */
-export const probeSupplierDisclosedColumn = async (trx: Kysely<ProdDatabase>): Promise<boolean> => {
-  const result = await sql<{ disclosed_column: boolean }>`
-    select exists (
-      select 1 from pg_attribute a
-      where a.attrelid = to_regclass(${`${DA_RELEASE_SCHEMA}.da_parties_public`})
-        and a.attname = 'supplier_disclosed' and a.attnum > 0 and not a.attisdropped
-        and has_column_privilege(a.attrelid, a.attnum, 'SELECT')
-    ) as disclosed_column`.execute(trx);
-  return result.rows[0]?.disclosed_column === true;
+export type DisclosedColumn = 'absent' | 'readable' | 'denied';
+
+export const probeSupplierDisclosedColumn = async (
+  trx: Kysely<ProdDatabase>
+): Promise<DisclosedColumn> => {
+  const result = await sql<{ present: boolean; readable: boolean }>`
+    select count(*) > 0 as present,
+           coalesce(bool_and(has_column_privilege(a.attrelid, a.attnum, 'SELECT')), false) as readable
+    from pg_attribute a
+    where a.attrelid = to_regclass(${`${DA_RELEASE_SCHEMA}.da_parties_public`})
+      and a.attname = 'supplier_disclosed' and a.attnum > 0 and not a.attisdropped`.execute(trx);
+  const row = result.rows[0];
+  if (row?.present !== true) return 'absent';
+  return row.readable ? 'readable' : 'denied';
 };
 
 /**

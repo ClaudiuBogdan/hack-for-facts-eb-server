@@ -28,8 +28,10 @@ const run = async (
     superseded_at?: boolean;
     /** The *_shown text columns and their flags (title, item name, item unit). */
     shown?: boolean;
-    /** Naming step 2b: da_parties_public.supplier_disclosed exists. */
-    disclosed?: boolean;
+    /** Naming step 2b: da_parties_public.supplier_disclosed exists (readable, or 'denied'). */
+    disclosed?: boolean | 'denied';
+    /** The all-time supplier totals table is readable and fresh. */
+    allTime?: boolean;
     /** Naming step 2: this login may read supplier_names_public. */
     names?: boolean;
   } = {
@@ -44,6 +46,15 @@ const run = async (
   const db = makeCapturingDb(captured, {
     respond: (text) => {
       if (text.includes('as names_readable')) return [{ names_readable: probe.names === true }];
+      if (text.includes('bool_and(has_column_privilege'))
+        return [
+          {
+            present: probe.disclosed === true || probe.disclosed === 'denied',
+            readable: probe.disclosed === true,
+          },
+        ];
+      if (text.includes('as usable')) return [{ usable: probe.allTime === true }];
+      if (text.includes('as fresh')) return [{ fresh: probe.allTime === true }];
       if (text.includes('has_table_privilege')) return [{ present: probe.supplier_disclosure }];
       if (text.includes('from pg_attribute')) {
         const present: [string, string, boolean | undefined][] = [
@@ -55,7 +66,6 @@ const run = async (
           ['da_items', 'item_name_public', probe.shown],
           ['da_items', 'item_unit_shown', probe.shown],
           ['da_items', 'item_unit_public', probe.shown],
-          ['da_parties_public', 'supplier_disclosed', probe.disclosed],
         ];
         return present
           .filter(([, , on]) => on === true)
@@ -647,8 +657,14 @@ describe('naming step 2b: the explicit D6 column', () => {
 
   it('without da_parties_public.supplier_disclosed, reads exactly as before', async () => {
     for (const [label, read] of READS) {
-      const { sql } = await run(read, ON);
-      expect(sql, label).not.toContain('supplier_disclosed');
+      const { captured } = await run(read, ON);
+      // The data statements (the column probe itself names the column).
+      const data = captured
+        .map((q) => q.sql)
+        .filter((text) => !text.includes('bool_and(has_column_privilege'))
+        .join('\n');
+      expect(data, label).not.toContain('supplier_disclosed');
+      expect(data, label).not.toContain('supplier_undisclosed');
     }
   });
 
@@ -734,11 +750,11 @@ describe('naming step 2b: the explicit D6 column', () => {
     expect(out).toEqual([
       {
         displayKind: 'person_masked',
-        partyId: '900',
+        partyId: null,
         name: 'EXEMPLU M*** PFA',
         fiscalCode: '2000002',
       },
-      { displayKind: 'code_only', partyId: '900', name: null, fiscalCode: '3000003' },
+      { displayKind: 'code_only', partyId: null, name: null, fiscalCode: '3000003' },
       // No row in the view: withheld, never the code alone.
       { displayKind: 'natural_person', partyId: null, name: null, fiscalCode: null },
     ]);
@@ -762,7 +778,69 @@ describe('naming step 2b: the explicit D6 column', () => {
     );
     expect(hidden.out).toEqual([
       { displayKind: 'natural_person', partyId: null, name: null, fiscalCode: null },
-      { displayKind: 'code_only', partyId: '900', name: null, fiscalCode: '3000003' },
+      { displayKind: 'code_only', partyId: null, name: null, fiscalCode: '3000003' },
     ]);
+  });
+
+  it('withholds every supplier when the column exists but cannot be read', async () => {
+    const { captured } = await run(
+      (r) =>
+        r.listPurchases({
+          sort: 'finalizationDesc',
+          filter: { supplierFiscalCode: '14399840' },
+          ...PAGE,
+        }),
+      { ...ON, disclosed: 'denied' }
+    );
+    const data = captured
+      .map((q) => q.sql)
+      .filter((text) => !text.includes('bool_and(has_column_privilege'))
+      .join('\n');
+    // D6 unreadable: no supplier is named, no filter matches, the column is never read.
+    expect(data).toContain('false as "s_supplier_public"');
+    expect(data).not.toContain('supplier_disclosed');
+    expect(data).not.toContain('pp.party_kind');
+  });
+
+  it('refuses an all-time group the table calls disclosed but the gate column does not', async () => {
+    let answer: Awaited<ReturnType<DaReleaseReader['totals']>> | undefined;
+    const totals = await run(
+      async (r) => {
+        answer = await r.totals({ filter: {}, groupBy: 'supplier', ...PAGE });
+      },
+      { ...ON, disclosed: true, allTime: true },
+      (text) =>
+        text.includes('page as (')
+          ? [
+              {
+                group_key: 'seap:900',
+                g_bucket: 'named',
+                g_portal_party_id: null,
+                g_name_as_written: null,
+                g_fiscal_code_clean: null,
+                g_fiscal_code_status: null,
+                g_supplier_public: true,
+                counted_value: '5.00',
+                counted_count: '1',
+                symbolic_price_count: '0',
+                purchase_count: '1',
+                group_count: '1',
+              },
+            ]
+          : text.includes('as counted_count')
+            ? [
+                {
+                  counted_value: '5.00',
+                  counted_count: '1',
+                  symbolic_price_count: '0',
+                  purchase_count: '1',
+                },
+              ]
+            : []
+    );
+    expect(totals.sql).toContain('da_rollup_supplier_party');
+    expect(totals.sql).toContain('and x.supplier_disclosed is true');
+    expect(answer?.isErr()).toBe(true);
+    expect(JSON.stringify(answer)).not.toContain('900');
   });
 });

@@ -195,13 +195,13 @@ describe('naming step 2b: a code shown without D6 disclosing it', () => {
     const { byId, raw, cacheControl } = await list(app, 'POST');
     expect(byId.get(MASKED_ROW.purchaseId)).toEqual({
       displayKind: 'person_masked',
-      partyId: '95000005',
+      partyId: null,
       name: MASKED,
       fiscalCode: '5000005',
     });
     expect(byId.get(CODE_ROW.purchaseId)).toEqual({
       displayKind: 'code_only',
-      partyId: '96000006',
+      partyId: null,
       name: null,
       fiscalCode: '6000006',
     });
