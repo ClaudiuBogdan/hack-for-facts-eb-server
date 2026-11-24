@@ -331,6 +331,16 @@ const splitCsv = (raw: string | undefined): readonly string[] =>
         .map((s) => s.trim())
         .filter((s) => s !== '');
 
+/** A parseable postgres URL with a host (a bad port or form fails `new URL`). */
+const isPostgresUrl = (value: string): boolean => {
+  try {
+    const url = new URL(value);
+    return (url.protocol === 'postgres:' || url.protocol === 'postgresql:') && url.hostname !== '';
+  } catch {
+    return false;
+  }
+};
+
 const nonEmpty = (value: string | undefined): string | undefined =>
   value === undefined || value === '' ? undefined : value;
 
@@ -416,12 +426,9 @@ const composeEmbeddedKernel = (e: EmbeddedKernelEnv): EmbeddedKernelConfig => {
   // A privacy switch: anything but the two exact values is a boot error, never a guess.
   const procurementDatabaseUrl = nonEmpty(e.PROCUREMENT_DATABASE_URL);
   // Never echo the value: it carries a credential.
-  if (
-    procurementDatabaseUrl !== undefined &&
-    !/^postgres(?:ql)?:\/\/./u.test(procurementDatabaseUrl)
-  ) {
+  if (procurementDatabaseUrl !== undefined && !isPostgresUrl(procurementDatabaseUrl)) {
     throw new Error(
-      'Invalid redesign env: PROCUREMENT_DATABASE_URL must be a postgres:// or postgresql:// URL when set'
+      'Invalid redesign env: PROCUREMENT_DATABASE_URL must be a postgres:// or postgresql:// URL with a host when set'
     );
   }
   const legacy = e.PROCUREMENT_LEGACY_ENABLED;

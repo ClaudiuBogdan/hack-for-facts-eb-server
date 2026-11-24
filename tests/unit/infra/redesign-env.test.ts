@@ -197,8 +197,13 @@ describe('PROCUREMENT_DATABASE_URL (PRJ-54YB)', () => {
     ).toBe(url);
   });
 
-  it('refuses a malformed value at boot without echoing it', () => {
-    const value = 'mysql://secret-user:secret-pass@example.invalid/db';
+  it.each([
+    ['another scheme', 'mysql://secret-user:secret-pass@example.invalid/db'],
+    ['an out-of-range port', 'postgres://secret-user:secret-pass@example.invalid:99999/db'],
+    ['no host', 'postgres://secret-user:secret-pass@/db'],
+    ['an empty host', 'postgres:///secret_db'],
+    ['no URL at all', 'secret-user secret-pass'],
+  ])('refuses %s at boot without echoing it', (_label, value) => {
     let message = '';
     try {
       loadRedesignConfig({ ...base, PROCUREMENT_DATABASE_URL: value });

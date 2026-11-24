@@ -65,28 +65,39 @@ const build = (procurementDatabaseUrl?: string) =>
     },
   });
 
-/** A D6 read and a DA release read, then how many connections each login received. */
-const dial = async (built: Awaited<ReturnType<typeof build>>) => {
+/** Which login one read dialled: the connections each listener received during it. */
+const dialled = async (read: () => Promise<unknown>) => {
   kernelLogin.connections = 0;
   procurementLogin.connections = 0;
-  await built.kernel.supplierDisclosure.publicSupplierCodes({ fresh: true });
-  await built.app.inject({
-    method: 'POST',
-    url: '/api/v1/graphql',
-    headers: { 'content-type': 'application/json' },
-    payload: JSON.stringify({ query: '{ procurementDaRelease { enabled } }' }),
-  });
+  await read();
   return { kernel: kernelLogin.connections, procurement: procurementLogin.connections };
 };
+
+/** The D6 port's read, and a DA release read through the procurement module (it must run). */
+const reads = (built: Awaited<ReturnType<typeof build>>) => ({
+  d6: () => built.kernel.supplierDisclosure.publicSupplierCodes({ fresh: true }),
+  module: async () => {
+    const res = await built.app.inject({
+      method: 'POST',
+      url: '/api/v1/graphql',
+      headers: { 'content-type': 'application/json' },
+      payload: JSON.stringify({ query: '{ procurementDaRelease { enabled } }' }),
+    });
+    // The resolver ran (its own connection count is asserted by the caller).
+    expect(res.body).toContain('procurementDaRelease');
+  },
+});
 
 describe('the kernel procurement database', () => {
   it('unset: procurement and the D6 port read through the kernel database itself', async () => {
     const built = await build();
     try {
       expect(built.kernel.procurementDb).toBe(built.kernel.db);
-      const dialled = await dial(built);
-      expect(dialled.kernel).toBeGreaterThan(0);
-      expect(dialled.procurement).toBe(0);
+      for (const read of Object.values(reads(built))) {
+        const counts = await dialled(read);
+        expect(counts.kernel).toBeGreaterThan(0);
+        expect(counts.procurement).toBe(0);
+      }
     } finally {
       await built.app.close();
     }
@@ -96,9 +107,11 @@ describe('the kernel procurement database', () => {
     const built = await build(procurementLogin.url);
     try {
       expect(built.kernel.procurementDb).not.toBe(built.kernel.db);
-      const dialled = await dial(built);
-      expect(dialled.procurement).toBeGreaterThan(0);
-      expect(dialled.kernel).toBe(0);
+      for (const [name, read] of Object.entries(reads(built))) {
+        const counts = await dialled(read);
+        expect(counts.procurement, name).toBeGreaterThan(0);
+        expect(counts.kernel, name).toBe(0);
+      }
     } finally {
       await built.app.close();
     }
