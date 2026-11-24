@@ -70,6 +70,11 @@ import {
   type MeasureId,
   type SeriesBucket,
 } from '../../core/constants.js';
+import {
+  servedSupplierName,
+  type ServedSupplierKind,
+  type SupplierNaming,
+} from '../../core/supplier-naming.js';
 
 import type { AnalysisScope } from '../../core/analysis-scope.js';
 import type { GrainQualityVerdict } from '../../core/gate-v2.js';
@@ -843,6 +848,27 @@ interface RecordRow {
   cpv_label: string | null;
 }
 
+/**
+ * A records row's supplier as served: a supplier D6 discloses takes its naming
+ * (`core/supplier-naming.ts`); one whose code the names view may not show is
+ * served like a withheld supplier (no code, no name).
+ */
+const recordSupplier = (
+  cui: string | null,
+  kind: RecordRow['supplier_display_kind'],
+  names: ReadonlyMap<string, SupplierNaming>
+): {
+  cui: string | null;
+  name: string | null;
+  kind: ServedSupplierKind | 'natural_person' | null;
+} => {
+  if (kind === null) return { cui: null, name: null, kind: null };
+  if (kind !== 'company' || cui === null) return { cui: null, name: null, kind: 'natural_person' };
+  const naming = names.get(cui) ?? { kind: 'code_only', name: null };
+  if (naming.kind === 'hidden') return { cui: null, name: null, kind: 'natural_person' };
+  return { cui, name: servedSupplierName(naming), kind: naming.kind };
+};
+
 // ── the source ───────────────────────────────────────────────────────────────
 
 export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSource => {
@@ -1518,30 +1544,32 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
         select (${t.facts.rows(t.dated)})::text as total ${t.facts.from} where ${t.where}`.execute(
             ctx.trx
           );
-          // Named suppliers' public registry names, by this page's codes only.
+          // Disclosed suppliers' naming, by this page's codes only.
           const names = await supplierNamesByCode(
             ctx.trx,
             rows.flatMap((row) => row.supplier_cui ?? [])
           );
           return ok({
             total: total.rows[0]?.total ?? '0',
-            rows: rows.map((row): AnalysisRecordRow => ({
-              id: row.id,
-              date: row.date,
-              // Free text is withheld until reviewed: the CPV label stands in the title's place.
-              title: null,
-              authorityCui: row.authority_cui,
-              authorityName: row.authority_name,
-              supplierCui: row.supplier_cui,
-              supplierName:
-                row.supplier_cui === null ? null : (names.get(row.supplier_cui) ?? null),
-              supplierDisplayKind: row.supplier_display_kind,
-              valueRon: row.value_ron,
-              status: row.status,
-              recordKind: null,
-              cpvCode: row.cpv_code,
-              cpvLabel: row.cpv_label,
-            })),
+            rows: rows.map((row): AnalysisRecordRow => {
+              const supplier = recordSupplier(row.supplier_cui, row.supplier_display_kind, names);
+              return {
+                id: row.id,
+                date: row.date,
+                // Free text is withheld until reviewed: the CPV label stands in the title's place.
+                title: null,
+                authorityCui: row.authority_cui,
+                authorityName: row.authority_name,
+                supplierCui: supplier.cui,
+                supplierName: supplier.name,
+                supplierDisplayKind: supplier.kind,
+                valueRon: row.value_ron,
+                status: row.status,
+                recordKind: null,
+                cpvCode: row.cpv_code,
+                cpvLabel: row.cpv_label,
+              };
+            }),
           });
         },
         seen

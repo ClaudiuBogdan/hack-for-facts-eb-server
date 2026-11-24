@@ -60,6 +60,7 @@ import type {
   DaTotalsQuery,
   DaTotalsRecords,
 } from '../../core/da-release-ports.js';
+import type { SupplierNaming } from '../../core/supplier-naming.js';
 
 type Db = Kysely<ProdDatabase>;
 
@@ -683,10 +684,17 @@ const toGroupRecord = (
 // ── Supplier names ───────────────────────────────────────────────────────────
 
 /**
- * A named supplier's name is its public registry name, read by code after the
- * page (the public party view carries no supplier name). A withheld supplier
- * is untouched: the core serves it with no name anyway.
+ * A disclosed supplier's naming (`supplierNamesByCode`: the names view when this
+ * login may read it, else its public registry name), read by code after the page
+ * (the public party view carries no supplier name). A withheld supplier is
+ * untouched: the core serves it with no name anyway.
  */
+/** Every requested code has an entry; a missing one fails closed (code only). */
+const nameSupplier = (party: DaPartyRecord, naming: SupplierNaming | undefined): DaPartyRecord => {
+  const served = naming ?? { kind: 'code_only', name: null };
+  return { ...party, name: served.name, naming: served };
+};
+
 const withSupplierNames = async <T>(
   trx: Db,
   items: readonly T[],
@@ -707,7 +715,7 @@ const withSupplierNames = async <T>(
       const code = party?.fiscalCode ?? null;
       return party === null || code === null
         ? item
-        : withSupplier(item, { ...party, name: names.value.get(code) ?? null });
+        : withSupplier(item, nameSupplier(party, names.value.get(code)));
     })
   );
 };

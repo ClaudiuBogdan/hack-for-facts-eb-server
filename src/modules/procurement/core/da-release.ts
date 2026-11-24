@@ -32,6 +32,11 @@ import {
 
 import { DA_NATURAL_PERSON_BUCKET } from './constants.js';
 import { publicPartyName } from './free-text-rule.js';
+import {
+  servedSupplierName,
+  type ServedSupplierKind,
+  type SupplierNaming,
+} from './supplier-naming.js';
 
 // ── Contract enums ───────────────────────────────────────────────────────────
 
@@ -129,6 +134,11 @@ export interface DaPartyRecord {
   readonly fiscalCodeStatus: string | null;
   /** D6 in SQL: the supplier has a public row and its code is valid. False for a buyer. */
   readonly supplierPublic: boolean;
+  /**
+   * A disclosed supplier's naming, read by code after the page (`supplierNamesByCode`); when
+   * set, its name is the one served. Absent on buyers and on withheld suppliers.
+   */
+  readonly naming?: SupplierNaming;
 }
 
 export interface DaRuleRecord {
@@ -220,8 +230,12 @@ const gated = (
   isPublic ? { value: text, withheld: null } : { value: null, withheld: 'privacy' };
 
 export interface DaParty {
-  /** `authority` for buyers; `company` for a named supplier; `natural_person` when D6 withholds it. */
-  readonly displayKind: 'authority' | 'company' | 'natural_person';
+  /**
+   * `authority` for buyers. A supplier D6 discloses: `company` (its registry name, or no name),
+   * `person_masked` (a masked name) or `code_only` (no name), see `core/supplier-naming.ts`.
+   * `natural_person` when D6 withholds it.
+   */
+  readonly displayKind: 'authority' | ServedSupplierKind | 'natural_person';
   /** The portal's party id; null when withheld. */
   readonly partyId: string | null;
   /** Null when withheld (D6) or when the source gives no name. */
@@ -347,16 +361,19 @@ const WITHHELD: DaParty = {
   fiscalCode: null,
 };
 
-export const toSupplier = (party: DaPartyRecord): DaParty =>
-  isNamedSupplier(party)
-    ? {
-        displayKind: 'company',
-        partyId: party.portalPartyId,
-        // "Never a CNP": a name written with a personal numeric code is withheld.
-        name: publicPartyName(party.name),
-        fiscalCode: party.fiscalCode,
-      }
-    : WITHHELD;
+export const toSupplier = (party: DaPartyRecord): DaParty => {
+  if (!isNamedSupplier(party)) return WITHHELD;
+  const naming = party.naming;
+  // A code the names view does not let us show: served like a supplier D6 withholds.
+  if (naming?.kind === 'hidden') return WITHHELD;
+  return {
+    displayKind: naming?.kind ?? 'company',
+    partyId: party.portalPartyId,
+    // "Never a CNP": a name written with a personal numeric code is withheld.
+    name: naming === undefined ? publicPartyName(party.name) : servedSupplierName(naming),
+    fiscalCode: party.fiscalCode,
+  };
+};
 
 export const toBuyer = (party: DaPartyRecord): DaParty => ({
   displayKind: 'authority',
@@ -513,6 +530,10 @@ export const toTotalsGroup = (
   if (groupBy === 'supplier') {
     if (record.supplierBucket === 'none')
       return ok({ ...totals.value, key: null, party: null, noSupplier: true });
+    // A disclosed supplier whose code the names view does not let us show would be a ranked
+    // group of one supplier's totals: refused whole, never relabelled after grouping.
+    if (record.supplierBucket === 'named' && record.party?.naming?.kind === 'hidden')
+      return err(refused('supplier group'));
     // A named bucket is re-checked here: the SQL bucket and this rule must agree.
     const party =
       record.supplierBucket === 'named' && record.party !== null

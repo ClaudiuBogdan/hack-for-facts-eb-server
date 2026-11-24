@@ -16,6 +16,7 @@ import { procurementTypeDefs } from '@/modules/procurement/shell/graphql/typedef
 import { withDaDisclosure } from '@/modules/procurement/shell/repo/da-disclosure-repo.js';
 import { FiscalCodeSet, type SupplierDisclosurePort } from '@/modules/shared/index.js';
 
+import { companyNames } from '../../fixtures/procurement/supplier-naming.js';
 import {
   fakeAnalysisRepo,
   generation,
@@ -338,7 +339,7 @@ describe('DA supplier bucket names over GraphQL (PROC-B51G)', () => {
   const names: DaSupplierNamesPort = {
     namesOf: (_buildId, codes) =>
       Promise.resolve(
-        ok(new Map(codes.includes('14399840') ? [['14399840', 'FIRMA EXEMPLU SRL']] : []))
+        ok(companyNames(codes.includes('14399840') ? [['14399840', 'FIRMA EXEMPLU SRL']] : []))
       ),
   };
 
@@ -417,7 +418,8 @@ describe('PROC-VDWQ: GraphQL answers naming a DA supplier are never cacheable', 
         },
       }).repo;
     const namesOf = (known: boolean): DaSupplierNamesPort => ({
-      namesOf: () => Promise.resolve(ok(new Map(known ? [['14399840', 'FIRMA EXEMPLU SRL']] : []))),
+      namesOf: () =>
+        Promise.resolve(ok(companyNames(known ? [['14399840', 'FIRMA EXEMPLU SRL']] : []))),
     });
     app = await build(true, repo(), namesOf(true));
     expect((await post(app, BREAKDOWN)).cacheControl).toBe('no-store');

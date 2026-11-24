@@ -42,6 +42,7 @@ import {
   SYNTHETIC_CNP,
   syntheticCnp,
 } from '../../fixtures/procurement/personal-code.js';
+import { companyNames } from '../../fixtures/procurement/supplier-naming.js';
 
 import type {
   AnalysisRecordRow,
@@ -676,7 +677,7 @@ describe('DA release parties', () => {
           namesOf: () =>
             Promise.resolve(
               ok(
-                new Map([
+                companyNames([
                   ['14399840', ORDINARY_NAME],
                   ['2000002', CODED_NAME],
                 ])
@@ -719,7 +720,7 @@ describe('DA release parties', () => {
         daSupplierNames: {
           namesOf: (_build, codes) => {
             asked.push([...codes]);
-            return Promise.resolve(ok(new Map([[SYNTHETIC_CNP, ORDINARY_NAME]])));
+            return Promise.resolve(ok(companyNames([[SYNTHETIC_CNP, ORDINARY_NAME]])));
           },
         },
       },

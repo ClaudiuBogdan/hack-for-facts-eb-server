@@ -28,6 +28,8 @@ const run = async (
     build?: string;
     rollups?: readonly string[];
     names?: readonly { code: string; name: string }[];
+    /** Rows of supplier_names_public; set means this login may read it (naming step 2). */
+    view?: readonly Record<string, unknown>[];
     records?: readonly Record<string, unknown>[];
   } = {}
 ) => {
@@ -35,6 +37,9 @@ const run = async (
   const isolation: unknown[] = [];
   const db = makeCapturingDb(captured, {
     respond: (text) => {
+      if (text.includes('as names_readable'))
+        return [{ names_readable: options.view !== undefined }];
+      if (text.includes('supplier_names_public')) return options.view ?? [];
       if (text.includes('as build_id'))
         return [
           { build_id: options.build ?? BUILD, as_of: null, privacy: options.privacy ?? true },
@@ -135,7 +140,9 @@ describe('DA supplier bucket names (PROC-B51G)', () => {
   it('names in the publication the buckets came from, settled after the read', async () => {
     const { db, captured } = namesDb({ privacy: true, build: BUILD });
     const names = await makeDaV3AnalysisSource(db).namesOf(BUILD, ['14399840']);
-    expect([...names._unsafeUnwrap()]).toEqual([['14399840', 'EXEMPLU REGISTRU SA']]);
+    expect([...names._unsafeUnwrap()]).toEqual([
+      ['14399840', { kind: 'company', name: 'EXEMPLU REGISTRU SA' }],
+    ]);
     // The lookup ran inside the snapshot (after its build check and grant probe).
     const texts = captured.map((query) => query.sql);
     const lookup = texts.findIndex((text) => text.includes('party_public_names'));
@@ -536,6 +543,49 @@ describe('supplier names', () => {
       'where n.fiscal_code_clean = any($1::text[]) and n.supplier_name_public is true'
     );
     expect(lookup?.parameters).toEqual([['14399840']]);
+  });
+
+  it('with supplier_names_public readable, serves each disclosed supplier its naming', async () => {
+    const { result, captured } = await run(
+      (s) => s.recordsFor(ROUTE, AUTHORITY, GEN, { sort: 'date_desc', offset: 0, limit: 25 }),
+      {
+        records: [row('14399840'), row('2000002'), row('3000003'), row('4000004'), row(null)],
+        names: [{ code: '14399840', name: 'FIRMA REGISTRY SRL' }],
+        view: [
+          {
+            code: '14399840',
+            naming: 'named',
+            display_name: 'FIRMA REGISTRY SRL',
+            code_shown: true,
+          },
+          { code: '2000002', naming: 'masked', display_name: 'EXEMPLU M*** PFA', code_shown: true },
+          { code: '3000003', naming: 'withheld', display_name: null, code_shown: true },
+          { code: '4000004', naming: 'named', display_name: 'ALTA FIRMA SRL', code_shown: false },
+        ],
+      }
+    );
+    const page = (
+      result as {
+        _unsafeUnwrap: () => {
+          rows: {
+            supplierCui: string | null;
+            supplierName: string | null;
+            supplierDisplayKind: string | null;
+          }[];
+        };
+      }
+    )._unsafeUnwrap();
+    expect(page.rows.map((r) => [r.supplierCui, r.supplierDisplayKind, r.supplierName])).toEqual([
+      ['14399840', 'company', 'FIRMA REGISTRY SRL'],
+      ['2000002', 'person_masked', 'EXEMPLU M*** PFA'],
+      ['3000003', 'code_only', null],
+      // A code the view may not show: served like a supplier D6 withholds.
+      [null, 'natural_person', null],
+      [null, 'natural_person', null],
+    ]);
+    expect(captured.some((q) => q.sql.includes('party_public_names'))).toBe(false);
+    const lookup = captured.find((q) => q.sql.includes('supplier_names_public'));
+    expect(lookup?.parameters).toEqual([['14399840', '2000002', '3000003', '4000004']]);
   });
 
   it('looks up no name when the page names no supplier', async () => {

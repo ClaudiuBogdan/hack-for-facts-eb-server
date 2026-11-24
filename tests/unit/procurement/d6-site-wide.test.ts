@@ -30,6 +30,7 @@ import {
   PUBLISHED_CAPABILITIES,
   statsRead,
 } from './analysis-fakes.js';
+import { companyNames } from '../../fixtures/procurement/supplier-naming.js';
 
 import type { AnalysisScope } from '@/modules/procurement/core/analysis-scope.js';
 import type {
@@ -403,7 +404,7 @@ describe('analysis echo and bucket kinds', () => {
         return Promise.resolve(
           fail
             ? err(serviceUnavailable('names not readable'))
-            : ok(new Map([[COMPANY, 'EXEMPLU REGISTRU SA']]) as ReadonlyMap<string, string>)
+            : ok(companyNames([[COMPANY, 'EXEMPLU REGISTRU SA']]))
         );
       },
     });

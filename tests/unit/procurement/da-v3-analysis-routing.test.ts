@@ -25,6 +25,7 @@ import {
 import { busyRetryLater, serviceUnavailable, type ApiError } from '@/modules/shared/index.js';
 
 import { BUILD_ID, fakeAnalysisRepo, generation, statsRead, verdict } from './analysis-fakes.js';
+import { companyNames } from '../../fixtures/procurement/supplier-naming.js';
 
 import type { GenerationQuality } from '@/modules/procurement/core/gate-v2.js';
 import type { ActiveGeneration, AnalysisRecordRow } from '@/modules/procurement/core/ports.js';
@@ -72,7 +73,7 @@ const fakeSource = (
     calls,
     source: {
       generation: () => Promise.resolve(gen),
-      namesOf: () => okp(new Map<string, string>()),
+      namesOf: () => okp(companyNames([])),
       statsFor: (_route, _scope, g) => {
         calls.push(`statsFor:${g.buildId}`);
         return okp(

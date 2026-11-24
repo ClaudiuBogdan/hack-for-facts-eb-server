@@ -46,12 +46,17 @@ export const daReleaseTypeDefs = /* GraphQL */ `
   }
 
   """
-  A buyer or supplier as served. Supplier names follow D6: a supplier is named only when it is a
-  company with a valid fiscal code; every other supplier is natural_person with name, fiscalCode
-  and partyId all null. Never fill a withheld name from another source.
+  A buyer or supplier as served. Suppliers follow D6: a supplier D6 withholds is natural_person
+  with name, fiscalCode and partyId all null. A disclosed supplier is company (its registry name,
+  or a null name), person_masked (a masked name) or code_only (a null name), each with its
+  fiscalCode. Show only the name served here; never fill or unmask a name from another source.
   """
   type ProcurementDaParty {
-    "authority (every buyer) | company (a named supplier) | natural_person (a withheld supplier)"
+    """
+    authority (every buyer) | company (a supplier with its registry name) | person_masked (a
+    supplier with a masked name) | code_only (a supplier shown by its code, no name) |
+    natural_person (a withheld supplier). Treat any other value as showing no name.
+    """
     displayKind: String!
     "The portal's party id; null when withheld."
     partyId: String
@@ -325,7 +330,11 @@ export const makeDaReleaseResolvers = (deps: DaReleaseDeps) => ({
   ProcurementDaParty: {
     // PROC-VDWQ: a named supplier (company) makes the answer never cacheable; buyers do not.
     name: (party: { displayKind: string; name: string | null }, _a: unknown, context: unknown) => {
-      if (party.displayKind === 'company' && party.name !== null) markNoStore(context);
+      if (
+        (party.displayKind === 'company' || party.displayKind === 'person_masked') &&
+        party.name !== null
+      )
+        markNoStore(context);
       return party.name;
     },
   },

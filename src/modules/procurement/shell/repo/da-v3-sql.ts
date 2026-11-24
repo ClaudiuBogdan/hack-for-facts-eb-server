@@ -20,6 +20,13 @@
 
 import { sql, type Kysely, type RawBuilder } from 'kysely';
 
+import {
+  namingFromRegistry,
+  namingFromView,
+  type SupplierNaming,
+  type SupplierNamesViewRow,
+} from '../../core/supplier-naming.js';
+
 import type { ProdDatabase } from '@/modules/shared/index.js';
 
 /** The serving schema. */
@@ -107,26 +114,76 @@ export const probeSupplierDisclosure = async (trx: Kysely<ProdDatabase>): Promis
 /** Codes per name statement (a page holds at most a few hundred). */
 const NAME_LOOKUP_CHUNK = 500;
 
+/** Naming step 2: the names view the owner grants to the API (`supplier_names_public`). */
+const SUPPLIER_NAMES = daV3Table('supplier_names_public');
+export const SUPPLIER_NAMES_NAME = `${DA_RELEASE_SCHEMA}.supplier_names_public`;
+
+/** Whether this login may read the names view: table-level SELECT, as for supplier_disclosure. */
+const probeSupplierNames = async (trx: Kysely<ProdDatabase>): Promise<boolean> => {
+  const result = await sql<{ names_readable: boolean }>`
+    select coalesce(
+      has_table_privilege(to_regclass(${SUPPLIER_NAMES_NAME}), 'SELECT'),
+      false
+    ) as names_readable`.execute(trx);
+  return result.rows[0]?.names_readable === true;
+};
+
 /**
- * The public registry names of these supplier codes, by code only (never a
- * join or a scan: the view is fenced by `fiscal_code_clean = any($1)`). A code
- * whose supplier name is not public, or that has no registry row, is absent.
+ * How each of these DISCLOSED supplier codes is named, by code only (never a join
+ * or a scan: each view is fenced by `fiscal_code_clean = any($1)`). Every code
+ * gets an entry. With `supplier_names_public` readable (probed in this
+ * transaction, never cached): its naming, a code with no row being code only.
+ * Without it, as before naming step 2: a company, named by its public registry
+ * name (`party_public_names`) or with no name. See `core/supplier-naming.ts`.
  */
 export const supplierNamesByCode = async (
   trx: Kysely<ProdDatabase>,
   codes: readonly string[]
-): Promise<ReadonlyMap<string, string>> => {
+): Promise<ReadonlyMap<string, SupplierNaming>> => {
   const unique = [...new Set(codes)];
-  const names = new Map<string, string>();
+  const names = new Map<string, SupplierNaming>();
+  if (unique.length === 0) return names;
+  const viewReadable = await probeSupplierNames(trx);
   for (let start = 0; start < unique.length; start += NAME_LOOKUP_CHUNK) {
     const chunk = unique.slice(start, start + NAME_LOOKUP_CHUNK);
-    const result = await sql<{ code: string; name: string | null }>`
-      select n.fiscal_code_clean as code, n.registry_name as name
-      from ${PUBLIC_NAMES} n
-      where n.fiscal_code_clean = any(${chunk}::text[]) and n.supplier_name_public is true`.execute(
-      trx
-    );
-    for (const row of result.rows) if (row.name !== null) names.set(row.code, row.name);
+    if (viewReadable) {
+      const result = await sql<{
+        code: string;
+        naming: string | null;
+        display_name: string | null;
+        code_shown: boolean | null;
+      }>`
+        select v.fiscal_code_clean as code, v.naming, v.display_name, v.code_shown
+        from ${SUPPLIER_NAMES} v
+        where v.fiscal_code_clean = any(${chunk}::text[])`.execute(trx);
+      const rows = new Map<string, SupplierNamesViewRow>();
+      // One row per code in the view; should two ever come back, the stricter (any not
+      // showing its code, else any not named) wins.
+      for (const row of result.rows) {
+        const next: SupplierNamesViewRow = {
+          naming: row.naming,
+          displayName: row.display_name,
+          codeShown: row.code_shown,
+        };
+        const prior = rows.get(row.code);
+        rows.set(row.code, prior === undefined ? next : stricterRow(prior, next));
+      }
+      for (const code of chunk) names.set(code, namingFromView(rows.get(code)));
+    } else {
+      const result = await sql<{ code: string; name: string | null }>`
+        select n.fiscal_code_clean as code, n.registry_name as name
+        from ${PUBLIC_NAMES} n
+        where n.fiscal_code_clean = any(${chunk}::text[]) and n.supplier_name_public is true`.execute(
+        trx
+      );
+      const registry = new Map<string, string>();
+      for (const row of result.rows) if (row.name !== null) registry.set(row.code, row.name);
+      for (const code of chunk) names.set(code, namingFromRegistry(registry.get(code)));
+    }
   }
   return names;
 };
+
+const RANK: Record<string, number> = { hidden: 0, code_only: 1, person_masked: 2, company: 3 };
+const stricterRow = (a: SupplierNamesViewRow, b: SupplierNamesViewRow): SupplierNamesViewRow =>
+  (RANK[namingFromView(a).kind] ?? 0) <= (RANK[namingFromView(b).kind] ?? 0) ? a : b;

@@ -90,6 +90,11 @@ import {
   type DaSupplierNamesPort,
 } from './ports.js';
 import { sourceNotes } from './source-capture.js';
+import {
+  servedSupplierName,
+  type ServedSupplierKind,
+  type SupplierNaming,
+} from './supplier-naming.js';
 
 export interface AnalysisDeps {
   readonly analysisRepo: AnalysisRepo;
@@ -216,7 +221,7 @@ export interface AnalysisBreakdownBucket {
    * DA supplier buckets under D6: `company` for a named supplier, `natural_person`
    * for the one withheld bucket. Absent elsewhere (and while D6 is off on legacy).
    */
-  readonly displayKind?: 'company' | 'natural_person';
+  readonly displayKind?: ServedSupplierKind | 'natural_person';
   /**
    * With `displayKind` (PROC-B51G): a company bucket's public registry name, only when its
    * supplier name is public; null for natural_person and for a company whose name is not public.
@@ -1269,11 +1274,20 @@ const breakdownBlockFor = async (
           b.kind === 'top' && b.key !== null && b.key !== DA_NATURAL_PERSON_BUCKET ? [b.key] : []
         )
       : [];
-  let names: ReadonlyMap<string, string> = new Map();
+  let names: ReadonlyMap<string, SupplierNaming> = new Map();
   if (companyCodes.length > 0 && deps.daSupplierNames !== undefined) {
     const read = await deps.daSupplierNames.namesOf(gen.buildId, companyCodes);
     if (read.isErr()) return err(read.error);
     names = read.value;
+  }
+  // A ranked supplier whose code the names view may not show: the whole breakdown is refused,
+  // naming no code (as for a person's code above), never relabelled after ranking.
+  if (companyCodes.some((code) => names.get(code)?.kind === 'hidden')) {
+    return err(
+      databaseError(
+        'Direct-acquisition supplier breakdown refused: the serving data ranks a supplier whose code may not be shown.'
+      )
+    );
   }
   const outBuckets: AnalysisBreakdownBucket[] = buckets.map((b) => {
     const basisValue = rankedBy === 'value' ? d(b.valueAwardedSum) : d(b.recordCount);
@@ -1295,11 +1309,7 @@ const breakdownBlockFor = async (
       shareOfScope: basisTotal.greaterThan(0) ? basisValue.div(basisTotal).toFixed(RATIO_DP) : null,
       ...(supplierKinds &&
         b.kind === 'top' && {
-          displayKind: b.key === DA_NATURAL_PERSON_BUCKET ? 'natural_person' : 'company',
-          displayName:
-            b.key === null || b.key === DA_NATURAL_PERSON_BUCKET
-              ? null
-              : publicPartyName(names.get(b.key) ?? null),
+          ...bucketNaming(b.key, names),
         }),
     };
   });
@@ -1335,6 +1345,23 @@ const breakdownBlockFor = async (
       [...withheldD.caveats, ...scopeNotes(grain, scope, gen)]
     ),
   });
+};
+
+/**
+ * A DA supplier bucket's kind and name (PROC-B51G, naming step 2): the one withheld bucket is
+ * `natural_person`; a disclosed supplier takes its naming (`core/supplier-naming.ts`), or is a
+ * `company` with no name where no naming was read (the ClickHouse D6 path).
+ */
+const bucketNaming = (
+  key: string | null,
+  names: ReadonlyMap<string, SupplierNaming>
+): { displayKind: ServedSupplierKind | 'natural_person'; displayName: string | null } => {
+  if (key === DA_NATURAL_PERSON_BUCKET) return { displayKind: 'natural_person', displayName: null };
+  const naming = key === null ? undefined : names.get(key);
+  if (naming === undefined) return { displayKind: 'company', displayName: null };
+  // Refused before the buckets are built; never served with its code.
+  if (naming.kind === 'hidden') return { displayKind: 'natural_person', displayName: null };
+  return { displayKind: naming.kind, displayName: servedSupplierName(naming) };
 };
 
 export const analysisBreakdown = async (

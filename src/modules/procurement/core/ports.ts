@@ -20,6 +20,7 @@ import type { ElicitatiePage } from './elicitatie-page.js';
 import type { BasisCoverageRow, GenerationQuality } from './gate-v2.js';
 import type { ProcurementSearchFilter } from './search.js';
 import type { SourceCaptureReceipts } from './source-capture.js';
+import type { ServedSupplierKind, SupplierNaming } from './supplier-naming.js';
 import type {
   ContractDetail,
   CpvCodeLabel,
@@ -335,10 +336,12 @@ export interface AnalysisRecordRow {
   readonly cpvCode: string | null;
   /**
    * Direct acquisitions on procurement_v3 only: how the supplier is served
-   * under D6 — `company` (code and name served) or `natural_person` (both
-   * null); null when the purchase names no supplier. Absent on other sources.
+   * under D6 — `company` (code, and its registry name when public),
+   * `person_masked` (code and masked name), `code_only` (code, no name) or
+   * `natural_person` (both null); null when the purchase names no supplier.
+   * Absent on other sources.
    */
-  readonly supplierDisplayKind?: 'company' | 'natural_person' | null;
+  readonly supplierDisplayKind?: ServedSupplierKind | 'natural_person' | null;
   /**
    * Direct acquisitions on procurement_v3 only: the CPV label as written,
    * shown in the title's place while free text is withheld (`title` is null).
@@ -375,7 +378,7 @@ export interface DaSupplierNamesPort {
   namesOf(
     buildId: string,
     codes: readonly string[]
-  ): Promise<Result<ReadonlyMap<string, string>, ApiError>>;
+  ): Promise<Result<ReadonlyMap<string, SupplierNaming>, ApiError>>;
 }
 
 /**

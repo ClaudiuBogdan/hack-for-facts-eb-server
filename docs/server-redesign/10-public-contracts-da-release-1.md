@@ -95,9 +95,19 @@ only what the API adds or decides.
   name is not public, and on the ClickHouse D6 path (which refuses DA supplier breakdowns at an explicit DA grain);
   it is absent on other buckets and grains. It is the only name a client may show for a DA supplier bucket (never
   `organizationLabels`, which ignores the flag). A name lookup that fails fails the answer.
+- Naming step 2 (decision 20261124-name-suppliers-by-registry-legal-form-and-mask-persons): once this login may read
+  `procurement_v3.supplier_names_public` (table-level SELECT, probed in each lookup's transaction, never cached),
+  every supplier name above comes from it instead of `party_public_names`, by the page's or answer's codes only.
+  D6 still decides which suppliers are served and stays the one source for counts, filters and rankings. A
+  disclosed supplier is `company` (`named`: its registry name), `person_masked` (`masked`: the masked name) or
+  `code_only` (`code_only`, `withheld`, no row, a missing name or any other value: its code, no name). Every name
+  still passes the personal-code screen; one it rejects leaves the code only. A row with `code_shown` not true is
+  served as `natural_person` in lists, detail and records, and refuses a breakdown or supplier totals that would rank
+  its code. Without the grant, answers are exactly as before. `organizationLabels` and the other kernel names are
+  out of this step (PROC-KR9T stays the owner's question); legacy procurement stays off.
 - Caching (PROC-VDWQ): every GraphQL answer, GET or POST, that carries a DA supplier name is
   `Cache-Control: no-store`. The resolvers that serve one mark the reply as they do: a release party named as a
-  company, a DA supplier bucket's `displayName`, a legacy DA supplier with a name, and a DA records page naming a
+  company or person_masked, a DA supplier bucket's `displayName`, a legacy DA supplier with a name, and a DA records page naming a
   supplier. Answers without one keep their headers. The REST DA routes are `no-store` throughout.
 - Buyers are `authority`: the name is always served, the fiscal code only when it is valid.
 - The rule lives in `core/da-release.ts` (`isNamedSupplier`). The SQL mirror (`namedSupplierSql` in

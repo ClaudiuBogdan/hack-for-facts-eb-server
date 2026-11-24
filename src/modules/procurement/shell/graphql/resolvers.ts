@@ -138,7 +138,7 @@ const unwrap = <T>(result: Result<T, ApiError>): T => {
  * the personal identifier is withheld, and with it the ability to use that
  * number as a key.
  */
-type DisplayKind = 'authority' | 'company' | 'natural_person';
+type DisplayKind = 'authority' | 'company' | 'person_masked' | 'code_only' | 'natural_person';
 
 const party = (
   cui: string | null,
