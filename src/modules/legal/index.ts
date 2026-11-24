@@ -19,18 +19,43 @@
 
 import './shell/db/schema.js';
 
+import { err, ok } from 'neverthrow';
+
+import {
+  createCache,
+  type ApiError,
+  type CapabilityResolver,
+  type ContributorRegistry,
+  type GraphqlSlice,
+  type IdentityRepo,
+  type KernelCache,
+  type KernelMcpTool,
+  type LegalActByIdLoader,
+  type MeiliClient,
+  type OpenSearchClient,
+  type ProdDatabase,
+  type SourceContributor,
+  type SyntheticClient,
+} from '@/modules/shared/index.js';
+
 import {
   effectiveSemantic,
   type LegalSearchDeps,
   type ResolveLegalFiltersDeps,
 } from './core/usecases.js';
 import { makeMonitorulSurface } from './mo/index.js';
+import {
+  legalAnalyticsTypeDefs,
+  makeLegalAnalyticsMcpTool,
+  makeLegalAnalyticsResolvers,
+} from './shell/analytics-surfaces.js';
 import { probeLegalHnsw } from './shell/capability.js';
 import { makeLegalResolvers } from './shell/graphql/resolvers.js';
 import { legalTypeDefs } from './shell/graphql/typedefs.js';
 import { makeLegalActLoader } from './shell/loader/legal-act-loader.js';
 import { makeLegalMcpTools } from './shell/mcp/tools.js';
 import { makeLegalActsRepo } from './shell/repo/acts-repo.js';
+import { makeLegalAnalyticsRepo, type LegalAnalyticsHydrate } from './shell/repo/analytics-repo.js';
 import { makeLegalGraphRepo } from './shell/repo/graph-repo.js';
 import {
   makeLegalSearchEngine,
@@ -45,9 +70,12 @@ import { makeLegalOutlineRepoV2 } from './shell/repo/v2/outline-v2.js';
 import { makeLegalRenderRepoV2, makeLegalRenderSourceV2 } from './shell/repo/v2/render-v2.js';
 import { makeLegalV2SearchEngine } from './shell/repo/v2/search-engine-v2.js';
 import { makeLegalV2HitVerifier } from './shell/repo/v2/search-verify-v2.js';
+import { readBridgedDocFacts } from './shell/repo/v2/v2-reads.js';
 import { makeLegalVocabRepo } from './shell/repo/vocab-repo.js';
+import { makeLegalAnalyticsRoutes } from './shell/rest/analytics-routes.js';
 import { makeLegalRoutes } from './shell/rest/routes.js';
 
+import type { LegalAnalyticsDeps } from './core/analytics/usecases.js';
 import type {
   LegalActsRepo,
   LegalGraphRepo,
@@ -56,20 +84,6 @@ import type {
   LegalRetrievalRepo,
 } from './core/ports.js';
 import type { LegalRepoBase } from './core/repo-base.js';
-import type {
-  CapabilityResolver,
-  ContributorRegistry,
-  GraphqlSlice,
-  IdentityRepo,
-  KernelCache,
-  KernelMcpTool,
-  LegalActByIdLoader,
-  MeiliClient,
-  OpenSearchClient,
-  ProdDatabase,
-  SourceContributor,
-  SyntheticClient,
-} from '@/modules/shared/index.js';
 import type { Kysely } from 'kysely';
 
 /** Minimal logger surface (Fastify's logger satisfies it). */
@@ -237,21 +251,84 @@ export const makeLegalModule = async (deps: LegalModuleDeps): Promise<LegalModul
     clientBaseUrl,
   });
 
-  const graphqlResolvers = deepMergeResolvers(actsResolvers, mo.resolvers);
-  const mcpTools = [...actsMcpTools, ...mo.mcpTools];
+  // 7. Legislation analytics (design §11): the published insights layer of
+  //    legal_v2_analytics, on all three surfaces over one usecase. Independent of
+  //    LEGAL_SOURCE: the layer is read the same way on both sources; the acts it
+  //    names are shown through the configured acts repo's privacy gate, with the
+  //    old corpus's canonical title. A database without the layer answers 503.
+  const analytics = makeLegalAnalyticsDeps(deps.db, acts);
+
+  const graphqlResolvers = deepMergeResolvers(
+    deepMergeResolvers(actsResolvers, mo.resolvers),
+    makeLegalAnalyticsResolvers(analytics)
+  );
+  const mcpTools = [
+    ...actsMcpTools,
+    ...mo.mcpTools,
+    makeLegalAnalyticsMcpTool(analytics, clientBaseUrl),
+  ];
+  const renderRoutes = makeLegalRoutes({
+    render,
+    ...(renderSource !== undefined && { source: renderSource }),
+  });
+  const analyticsRoutes = makeLegalAnalyticsRoutes(analytics);
 
   return {
-    graphqlSlice: { source: 'legal', typeDefs: `${legalTypeDefs}\n\n${mo.typeDefs}` },
+    graphqlSlice: {
+      source: 'legal',
+      typeDefs: `${legalTypeDefs}\n\n${mo.typeDefs}\n\n${legalAnalyticsTypeDefs}`,
+    },
     graphqlResolvers,
     mcpTools,
     contributors: [mo.contributor], // 06's MO area: source:'monitorul-oficial'.
     repos,
     legalActLoader,
     semanticReady,
-    routesPlugin: makeLegalRoutes({
-      render,
-      ...(renderSource !== undefined && { source: renderSource }),
-    }),
+    routesPlugin: async (app) => {
+      await app.register(renderRoutes);
+      await app.register(analyticsRoutes, { prefix: '/analytics' });
+    },
+  };
+};
+
+/** Answers stay true for their layer; the TTL bounds memory, the head TTL how soon a new layer is seen. */
+const ANALYTICS_HEAD_TTL_MS = 60_000;
+const ANALYTICS_ANSWER_TTL_MS = 6 * 60 * 60_000;
+const ANALYTICS_ANSWER_ENTRIES = 2_000;
+
+const isUndefinedTable = (error: ApiError): boolean =>
+  error.type === 'Database' &&
+  typeof error.cause === 'object' &&
+  error.cause !== null &&
+  'code' in error.cause &&
+  error.cause.code === '42P01';
+
+/** The analytics usecase's deps as the module wires them (exported for the real-DDL proof). */
+export const makeLegalAnalyticsDeps = (
+  db: Kysely<ProdDatabase>,
+  acts: LegalActsRepo
+): LegalAnalyticsDeps => {
+  const hydrate: LegalAnalyticsHydrate = async (actIds) => {
+    if (actIds.length === 0) return ok(new Map());
+    const shown = await acts.findActsByIds(actIds);
+    if (shown.isErr()) return err(shown.error);
+    // The title is the old corpus's canonical document; a database without it shows citations only.
+    const titles = await readBridgedDocFacts(db, actIds);
+    if (titles.isErr() && !isUndefinedTable(titles.error)) return err(titles.error);
+    const titleOf = titles.isOk() ? titles.value : new Map<string, { title: string | null }>();
+    return ok(
+      new Map(
+        shown.value.map((a) => [
+          a.actId,
+          { citation: a.displayCitation, title: titleOf.get(a.actId)?.title ?? null },
+        ])
+      )
+    );
+  };
+  return {
+    repo: makeLegalAnalyticsRepo({ db, hydrate }),
+    heads: createCache({ ttlMs: ANALYTICS_HEAD_TTL_MS, maxEntries: 4 }),
+    answers: createCache({ ttlMs: ANALYTICS_ANSWER_TTL_MS, maxEntries: ANALYTICS_ANSWER_ENTRIES }),
   };
 };
 

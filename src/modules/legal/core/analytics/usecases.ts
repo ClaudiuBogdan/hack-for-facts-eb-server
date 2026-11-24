@@ -1,0 +1,148 @@
+/**
+ * Legislation analytics: the one usecase layer REST, GraphQL and MCP call.
+ *
+ * A request is answered in two steps. `prepare` validates the arguments
+ * against the published layer's head (read in its own read-only snapshot and
+ * kept a short while) and yields the layer-keyed cache key, so a REST caller
+ * can answer `If-None-Match` before any statement runs. `answer` then reads
+ * the view in ONE read-only repeatable-read snapshot that first checks the
+ * pointer still names the head's layer: if a newer layer was published in
+ * between, the head is dropped and the request is prepared again once.
+ *
+ * Answers are cached by layer id and canonical arguments. A layer never
+ * changes once published (retained history), so an entry is never stale for
+ * its key; the TTL only bounds memory. Failures are never cached.
+ */
+
+import { err, ok, type Result } from 'neverthrow';
+
+import {
+  invalidInput,
+  serviceUnavailable,
+  type ApiError,
+  type KernelCache,
+} from '@/modules/shared/index.js';
+
+import { isLegalAnalyticsView, parseLegalAnalyticsRequest } from './request.js';
+
+import type {
+  LegalAnalyticsAnswer,
+  LegalAnalyticsArgs,
+  LegalAnalyticsData,
+  LegalAnalyticsHead,
+  LegalAnalyticsRequest,
+} from './types.js';
+
+/** The pointer moved between the head read and the view read. */
+export const LAYER_CHANGED = 'layer_changed' as const;
+
+export type LegalAnalyticsViewRequest = Exclude<LegalAnalyticsRequest, { view: 'head' }>;
+
+export interface LegalAnalyticsRepo {
+  /** The published head in its own read-only snapshot; ServiceUnavailable when none is published or deployed. */
+  readHead(): Promise<Result<LegalAnalyticsHead, ApiError>>;
+  /**
+   * One view in one read-only repeatable-read snapshot pinned to `head.layer`:
+   * LAYER_CHANGED when the pointer names another layer by then.
+   */
+  read(
+    request: LegalAnalyticsViewRequest,
+    head: LegalAnalyticsHead
+  ): Promise<Result<LegalAnalyticsData | typeof LAYER_CHANGED, ApiError>>;
+}
+
+export interface LegalAnalyticsDeps {
+  readonly repo: LegalAnalyticsRepo;
+  /** Holds the head under HEAD_KEY (a short TTL: how long a new layer may wait to be noticed). */
+  readonly heads: KernelCache;
+  /** Holds answers under `<layer id>:<request key>`. */
+  readonly answers: KernelCache;
+}
+
+const HEAD_KEY = 'legal:analytics:head';
+/** Lineages the head view lists (most acts first; joint orders keep long raw names, so the full list is large). */
+export const HEAD_ISSUERS = 300;
+
+export interface LegalAnalyticsPrepared {
+  readonly head: LegalAnalyticsHead;
+  readonly request: LegalAnalyticsRequest;
+  /** `<layer id>:<request key>`: the answer cache key and the validator's input. */
+  readonly cacheKey: string;
+}
+
+const readHead = (deps: LegalAnalyticsDeps): Promise<Result<LegalAnalyticsHead, ApiError>> =>
+  deps.heads.wrap(
+    HEAD_KEY,
+    () => deps.repo.readHead(),
+    (r) => r.isOk()
+  );
+
+/** Validate a request against the current head; no view statement runs. */
+export const prepareLegalAnalytics = async (
+  deps: LegalAnalyticsDeps,
+  view: string,
+  args: LegalAnalyticsArgs
+): Promise<Result<LegalAnalyticsPrepared, ApiError>> => {
+  if (!isLegalAnalyticsView(view))
+    return err(invalidInput(`unknown analytics view ${view}`, 'view'));
+  const head = await readHead(deps);
+  if (head.isErr()) return err(head.error);
+  const request = parseLegalAnalyticsRequest(view, args, head.value);
+  if (request.isErr()) return err(request.error);
+  return ok({
+    head: head.value,
+    request: request.value,
+    cacheKey: `${head.value.layer.layerId}:${request.value.key}`,
+  });
+};
+
+const toAnswer = (
+  prepared: LegalAnalyticsPrepared,
+  data: LegalAnalyticsData
+): LegalAnalyticsAnswer => ({
+  view: prepared.request.view,
+  layer: prepared.head.layer,
+  args: prepared.request.args,
+  data,
+  cacheKey: prepared.cacheKey,
+});
+
+/** Answer a prepared request (from the cache when the layer and arguments were answered before). */
+export const answerLegalAnalytics = async (
+  deps: LegalAnalyticsDeps,
+  prepared: LegalAnalyticsPrepared,
+  view: string,
+  args: LegalAnalyticsArgs,
+  retried = false
+): Promise<Result<LegalAnalyticsAnswer, ApiError>> => {
+  const { request } = prepared;
+  if (request.view === 'head') {
+    const head = prepared.head;
+    return ok(toAnswer(prepared, { ...head, issuers: head.issuers.slice(0, HEAD_ISSUERS) }));
+  }
+  const read = await deps.answers.wrap(
+    prepared.cacheKey,
+    () => deps.repo.read(request, prepared.head),
+    (r) => r.isOk() && r.value !== LAYER_CHANGED
+  );
+  if (read.isErr()) return err(read.error);
+  if (read.value !== LAYER_CHANGED) return ok(toAnswer(prepared, read.value));
+  // A newer layer was published after the head was read: read the head again, once.
+  deps.heads.invalidateByPrefix(HEAD_KEY);
+  if (retried)
+    return err(serviceUnavailable('the analytics layer changed twice during one request; retry'));
+  const again = await prepareLegalAnalytics(deps, view, args);
+  if (again.isErr()) return err(again.error);
+  return answerLegalAnalytics(deps, again.value, view, args, true);
+};
+
+/** Prepare and answer in one call (GraphQL and MCP, which have no validators). */
+export const getLegalAnalytics = async (
+  deps: LegalAnalyticsDeps,
+  view: string,
+  args: LegalAnalyticsArgs
+): Promise<Result<LegalAnalyticsAnswer, ApiError>> => {
+  const prepared = await prepareLegalAnalytics(deps, view, args);
+  if (prepared.isErr()) return err(prepared.error);
+  return answerLegalAnalytics(deps, prepared.value, view, args);
+};
