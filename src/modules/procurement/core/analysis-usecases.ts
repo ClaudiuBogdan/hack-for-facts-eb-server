@@ -1904,13 +1904,18 @@ export const analysisRecords = async (
   const items = readR.value.rows.map((row) => {
     // D6 backstop: a supplier the reader classed natural_person never carries a code or name.
     const withheld = row.supplierDisplayKind === 'natural_person';
+    // A person's code (owner, 24 Nov: "Masked name"): the reader's raw name is never served; the
+    // display step may fill the masked one production serves.
+    const person =
+      !withheld && row.supplierCui !== null && isWithheldOrganizationIdentifier(row.supplierCui);
     return {
       ...row,
       authorityCui: servedIdentifier(row.authorityCui),
       // "Never a CNP": a party name the source wrote with a personal numeric code is withheld.
       authorityName: publicPartyName(row.authorityName),
       supplierCui: withheld ? null : servedIdentifier(row.supplierCui),
-      supplierName: withheld ? null : publicPartyName(row.supplierName),
+      supplierName: withheld || person ? null : publicPartyName(row.supplierName),
+      ...(person && { supplierPerson: true as const }),
       valueRon: moneyAllowed ? row.valueRon : null,
     };
   });

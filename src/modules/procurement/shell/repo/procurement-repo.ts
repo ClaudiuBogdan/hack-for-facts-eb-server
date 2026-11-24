@@ -51,6 +51,7 @@ import {
   mapDaDetailBody,
 } from './mappers.js';
 import { makeOffsetSearchRepo } from './offset-search-repo.js';
+import { servedSupplierNameColumn } from './party-name-sql.js';
 import { procedureIdPredicate, supportedProcedureIdSql } from './procedure-link-policy.js';
 import { DA_LIST_MAX_WINDOW_DAYS_DEFAULT } from '../../core/constants.js';
 import {
@@ -383,7 +384,7 @@ export const makeProcurementRepo = (
     'c.authority_cui',
     'c.authority_name',
     'c.supplier_cui',
-    'c.supplier_name',
+    servedSupplierNameColumn('c'),
     'c.cpv_code',
     'c.currency',
     sql<string | null>`c.value_ron::text`.as('value_ron'),
@@ -485,7 +486,7 @@ export const makeProcurementRepo = (
     'm.authority_cui',
     'm.authority_name',
     'm.supplier_cui',
-    'm.supplier_name',
+    servedSupplierNameColumn('m'),
     'm.contract_no',
     'm.notice_no',
     sql<string | null>`m.modification_date::text`.as('modification_date'),
@@ -680,7 +681,7 @@ export const makeProcurementRepo = (
     'd.authority_cui',
     'd.authority_name',
     'd.supplier_cui',
-    'd.supplier_name',
+    servedSupplierNameColumn('d'),
     'd.cpv_code',
     'd.currency',
     sql<string | null>`d.value_ron::text`.as('value_ron'),

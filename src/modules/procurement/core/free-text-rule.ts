@@ -81,11 +81,14 @@ export const publicFreeText = (text: string | null): string | null =>
 
 /**
  * Whether a party name may carry a personal numeric code (a CNP): the rule's numeric checks
- * only (A1, B2, B3). "Never a CNP" (owner policy): a name the source wrote with one is withheld
+ * only (A1, B2, B3), behind its stable-range guard. "Never a CNP" (owner policy): a name the source wrote with one is withheld
  * whole. Party names are otherwise served as the source published them, so the rule's other
  * checks (sole-trader markers, phones, e-mail) do not apply to names.
  */
 export const carriesPersonalCode = (name: string): boolean =>
+  // The rule's stable-range guard too, so this check is never weaker than its numeric checks
+  // (a Hangul filler, for one, is a letter that splits a digit run without folding to a space).
+  OUTSIDE_STABLE_RANGES.test(name) ||
   THIRTEEN_DIGITS.test(name) ||
   hasNonAsciiDigit(name) ||
   THIRTEEN_SEPARATED_DIGITS.test(fold(name.normalize('NFKD')));

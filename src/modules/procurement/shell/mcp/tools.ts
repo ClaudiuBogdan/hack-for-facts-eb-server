@@ -13,6 +13,7 @@ import {
   disclosureKeyOf,
   invalidInput,
   isWithheldOrganizationIdentifier,
+  normalizeCui,
   type ApiError,
   type FilterInput,
   type KernelMcpTool,
@@ -74,7 +75,9 @@ interface PartyFields {
  * P0 containment) and a name that may carry a personal numeric code never leave the tool, as on
  * the GraphQL party block. The rest of the item is unchanged.
  */
-export const withServedParties = <T extends PartyFields>(item: T): T => {
+export const withServedParties = <T extends PartyFields>(
+  item: T
+): Omit<T, keyof PartyFields> & PartyFields => {
   const code = (cui: string | null | undefined): string | null =>
     cui !== undefined && cui !== null && !isWithheldOrganizationIdentifier(cui) ? cui : null;
   return {
@@ -189,6 +192,13 @@ const invalidOut = (kind: string, message: string, field?: string): McpToolOutpu
   errorOut(kind, invalidInput(message, field));
 const n = (x: number): string => String(x);
 
+/** The party-code argument holding a person's code (never a lookup key, never echoed), if any. */
+const personCodeField = (args: Record<string, unknown>): string | undefined =>
+  ['authorityCui', 'supplierCui'].find((field) => {
+    const raw = strArg(args, field);
+    return raw !== '' && isWithheldOrganizationIdentifier(normalizeCui(raw) ?? raw);
+  });
+
 export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly KernelMcpTool[] => {
   const { repo, analysis, clientBaseUrl } = deps;
   const disclosure = deps.supplierDisclosure;
@@ -284,6 +294,10 @@ export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly Kern
       first: z.number().int().min(1).max(100).optional(),
     },
     async handler(args): Promise<McpToolOutput> {
+      const person = personCodeField(args);
+      if (person !== undefined) {
+        return invalidOut('contract_list', `${person} is not an organization identifier`, person);
+      }
       const filter = buildContractFilter(args);
       const res = await searchContracts(repo, filter, { first: intArg(args, 'first', 20) });
       if (res.isErr()) return errorFrom('contract_list', res.error);
@@ -313,6 +327,10 @@ export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly Kern
       first: z.number().int().min(1).max(100).optional(),
     },
     async handler(args): Promise<McpToolOutput> {
+      const person = personCodeField(args);
+      if (person !== undefined) {
+        return invalidOut('da_list', `${person} is not an organization identifier`, person);
+      }
       const filter = buildDaFilter(args);
       const res = await searchDirectAcquisitions(repo, filter, {
         first: intArg(args, 'first', 20),

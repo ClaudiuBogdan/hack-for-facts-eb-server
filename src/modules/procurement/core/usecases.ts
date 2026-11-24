@@ -14,6 +14,8 @@ import { err, ok, type Result } from 'neverthrow';
 
 import {
   invalidInput,
+  isWithheldOrganizationIdentifier,
+  normalizeCui,
   type ApiError,
   type CursorPage,
   type FilterInput,
@@ -125,5 +127,12 @@ export const getSupplierRecords = (
   first: number,
   after: string | undefined,
   includeCancelled: boolean
-): Promise<Result<SupplierRecordConnection, ApiError>> =>
-  repo.supplierRecords(supplierCui, first, after, includeCancelled);
+): Promise<Result<SupplierRecordConnection, ApiError>> => {
+  // A person's code is never a lookup key (kernel P0 containment): refused, never echoed.
+  if (isWithheldOrganizationIdentifier(normalizeCui(supplierCui) ?? supplierCui)) {
+    return Promise.resolve(
+      err(invalidInput('supplierCui is not an organization identifier', 'supplierCui'))
+    );
+  }
+  return repo.supplierRecords(supplierCui, first, after, includeCancelled);
+};

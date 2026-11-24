@@ -24,7 +24,11 @@
 
 import { err, ok, type Result } from 'neverthrow';
 
-import { databaseError, type ApiError } from '@/modules/shared/index.js';
+import {
+  databaseError,
+  isWithheldOrganizationIdentifier,
+  type ApiError,
+} from '@/modules/shared/index.js';
 
 import { DA_NATURAL_PERSON_BUCKET } from './constants.js';
 import { publicPartyName } from './free-text-rule.js';
@@ -319,11 +323,22 @@ export interface DaTotalsGroup extends DaTotals {
 // ── D6 ───────────────────────────────────────────────────────────────────────
 
 /**
+ * A party's code as served: a valid one, and never a person's (longer than an organization code,
+ * kernel P0 containment), whatever the status says.
+ */
+const servedFiscalCode = (party: DaPartyRecord): string | null =>
+  party.fiscalCodeStatus === 'valid' &&
+  party.fiscalCode !== null &&
+  !isWithheldOrganizationIdentifier(party.fiscalCode)
+    ? party.fiscalCode
+    : null;
+
+/**
  * Whether D6 lets a supplier be named: its code is disclosed (`da_parties_public`)
  * (and, defensively, present and valid; public implies both).
  */
 export const isNamedSupplier = (party: DaPartyRecord): boolean =>
-  party.supplierPublic && party.fiscalCode !== null && party.fiscalCodeStatus === 'valid';
+  party.supplierPublic && servedFiscalCode(party) !== null;
 
 const WITHHELD: DaParty = {
   displayKind: 'natural_person',
@@ -347,7 +362,7 @@ export const toBuyer = (party: DaPartyRecord): DaParty => ({
   displayKind: 'authority',
   partyId: party.portalPartyId,
   name: publicPartyName(party.name),
-  fiscalCode: party.fiscalCodeStatus === 'valid' ? party.fiscalCode : null,
+  fiscalCode: servedFiscalCode(party),
 });
 
 // ── Mapping with invariants ──────────────────────────────────────────────────

@@ -31,6 +31,7 @@ import {
   type QMode,
   type SearchSort,
 } from './constants.js';
+import { carriesPersonalCode } from './free-text-rule.js';
 
 import type { OffsetSearchRequest, OffsetSearchResult } from './types.js';
 
@@ -327,6 +328,10 @@ export const parseQ = (raw: string | undefined): Result<string | undefined, ApiE
   }
   if (q.length > Q_MAX_LENGTH) {
     return err(invalidInput(`q must be at most ${String(Q_MAX_LENGTH)} characters`, 'q'));
+  }
+  // Never a CNP: a search must not confirm a personal code written into a party name.
+  if (carriesPersonalCode(q)) {
+    return err(invalidInput('q must not contain a personal numeric code', 'q'));
   }
   return ok(q);
 };

@@ -13,6 +13,8 @@ import {
 } from '@/modules/procurement/core/analysis-usecases.js';
 import { toBuyer, toSupplier } from '@/modules/procurement/core/da-release.js';
 import { carriesPersonalCode, publicPartyName } from '@/modules/procurement/core/free-text-rule.js';
+import { parseQ } from '@/modules/procurement/core/search.js';
+import { getSupplierRecords } from '@/modules/procurement/core/usecases.js';
 import { makeProcurementResolvers } from '@/modules/procurement/shell/graphql/resolvers.js';
 import { makeProcurementMcpTools } from '@/modules/procurement/shell/mcp/tools.js';
 import {
@@ -54,6 +56,7 @@ describe('the personal-code rule for party names', () => {
       'with dots and dashes',
       `ION ${SYNTHETIC_CNP.slice(0, 7)}.${SYNTHETIC_CNP.slice(7, 10)}-${SYNTHETIC_CNP.slice(10)}`,
     ],
+    ['split by a Hangul filler', `ION ${SYNTHETIC_CNP.slice(0, 6)}\u3164${SYNTHETIC_CNP.slice(6)}`],
     [
       'in fullwidth digits',
       `ION ${SYNTHETIC_CNP.replace(/[0-9]/gu, (d) => String.fromCodePoint(0xff10 + Number(d)))}`,
@@ -216,8 +219,9 @@ describe('MCP record search tools', () => {
   const ITEMS = [
     item('1', '14399840', ORDINARY_NAME),
     item('2', null, CODED_NAME),
-    // A CNP-shaped code (kernel P0 containment) never leaves the tool either.
-    item('3', SYNTHETIC_CNP, 'ION POPESCU'),
+    // A CNP-shaped code (kernel P0 containment) never leaves the tool either; the repository
+    // already served the person's name masked.
+    item('3', SYNTHETIC_CNP, 'PO*****U ION'),
   ];
   const repo = {
     listContracts: () => Promise.resolve(ok({ items: ITEMS, next: null })),
@@ -246,8 +250,152 @@ describe('MCP record search tools', () => {
     ).toEqual([
       ['1', '14399840', ORDINARY_NAME],
       ['2', null, null],
-      ['3', null, 'ION POPESCU'],
+      ['3', null, 'PO*****U ION'],
     ]);
+  });
+
+  it.each([
+    ['search_procurement_contracts', 'supplierCui'],
+    ['search_procurement_contracts', 'authorityCui'],
+    ['search_procurement_direct_acquisitions', 'supplierCui'],
+    ['search_procurement_direct_acquisitions', 'authorityCui'],
+  ])('%s refuses a person code as %s, without a read or an echo', async (name, field) => {
+    const reads: string[] = [];
+    const counting = {
+      listContracts: () => {
+        reads.push('contracts');
+        return Promise.resolve(ok({ items: [], next: null }));
+      },
+      listDirectAcquisitions: () => {
+        reads.push('das');
+        return Promise.resolve(ok({ items: [], next: null }));
+      },
+    } as unknown as ProcurementRepo;
+    const tool = makeProcurementMcpTools({
+      repo: counting,
+      analysis: {} as AnalysisRepo,
+      clientBaseUrl: 'https://x.test',
+    }).find((candidate) => candidate.name === name);
+    const out = await tool?.handler({ [field]: SYNTHETIC_CNP });
+    expect(out?.ok).toBe(false);
+    expect(reads).toEqual([]);
+    expect(JSON.stringify(out)).not.toContain(SYNTHETIC_CNP);
+  });
+});
+
+describe('a person code or a personal code is never a lookup key', () => {
+  it('a q carrying a personal code is refused; an ordinary q is not', () => {
+    expect(parseQ(`ion ${SYNTHETIC_CNP}`)._unsafeUnwrapErr()).toMatchObject({
+      type: 'InvalidInput',
+    });
+    expect(parseQ('curatenie')._unsafeUnwrap()).toBe('curatenie');
+  });
+
+  it('supplier records refuse a person code without a read', async () => {
+    const reads: string[] = [];
+    const repo = {
+      supplierRecords: (cui: string) => {
+        reads.push(cui);
+        return Promise.resolve(ok({ total: null, hasNextPage: false, endCursor: null, edges: [] }));
+      },
+    } as unknown as ProcurementRepo;
+    const refused = await getSupplierRecords(repo, SYNTHETIC_CNP, 5, undefined, false);
+    expect(refused._unsafeUnwrapErr()).toMatchObject({ type: 'InvalidInput' });
+    expect(JSON.stringify(refused._unsafeUnwrapErr())).not.toContain(SYNTHETIC_CNP);
+    expect(reads).toEqual([]);
+    expect((await getSupplierRecords(repo, '14399840', 5, undefined, false)).isOk()).toBe(true);
+    expect(reads).toEqual(['14399840']);
+  });
+});
+
+describe("a person's supplier name in analysis records", () => {
+  const PERSON = {
+    total: '2',
+    rows: [
+      recordRow({ id: '1' }),
+      // The facts hold the raw name of a person supplier: never served.
+      recordRow({ id: '2', supplierCui: SYNTHETIC_CNP, supplierName: 'POPESCU ION' }),
+    ],
+  };
+  /** Production's read masks a person's supplier name (procurement_v3.mask_person_name). */
+  const masked = {
+    contractsByIds: () =>
+      Promise.resolve(
+        ok(
+          new Map([
+            ['1', { contractId: '1', displayTitle: null, supplierName: ORDINARY_NAME }],
+            ['2', { contractId: '2', displayTitle: null, supplierName: 'PO*****U ION' }],
+          ])
+        )
+      ),
+  } as unknown as ProcurementRepo;
+
+  it('the usecase nulls it and flags it for the display step', async () => {
+    const { repo } = fakeAnalysisRepo({ records: PERSON });
+    const page = (
+      await analysisRecords({ analysisRepo: repo }, { scope: { grain: 'contract' } })
+    )._unsafeUnwrap();
+    expect(page.items[1]).toMatchObject({
+      supplierCui: null,
+      supplierName: null,
+      supplierPerson: true,
+    });
+    expect(page.items[0]?.supplierPerson).toBeUndefined();
+  });
+
+  it('GraphQL and MCP serve the masked name production serves, never the raw one', async () => {
+    const resolvers = makeProcurementResolvers({
+      repo: masked,
+      analysis: fakeAnalysisRepo({ records: PERSON }).repo,
+    }) as {
+      Query: {
+        procurementRecords: (
+          r: unknown,
+          a: Record<string, unknown>
+        ) => Promise<{ items: Record<string, unknown>[] }>;
+      };
+    };
+    const gql = await resolvers.Query.procurementRecords(undefined, {
+      scope: { grain: 'contract' },
+    });
+    expect(gql.items.map((item) => item['supplier'])).toEqual([
+      { cui: '14399840', name: ORDINARY_NAME, displayName: ORDINARY_NAME, displayKind: null },
+      { cui: null, name: 'PO*****U ION', displayName: 'PO*****U ION', displayKind: null },
+    ]);
+    expect(JSON.stringify(gql)).not.toContain('POPESCU');
+
+    const tool = makeProcurementMcpTools({
+      repo: masked,
+      analysis: fakeAnalysisRepo({ records: PERSON }).repo,
+      clientBaseUrl: 'https://x.test',
+    }).find((candidate) => candidate.name === 'aggregate_procurement');
+    const out = await tool?.handler({ shape: 'records', scope: { grain: 'contract' } });
+    expect(namesById(out?.items as Record<string, unknown>[])).toEqual([
+      ['1', 'Primaria Sibiu', ORDINARY_NAME],
+      ['2', 'Primaria Sibiu', 'PO*****U ION'],
+    ]);
+    expect(JSON.stringify(out)).not.toContain('POPESCU');
+    expect(JSON.stringify(out)).not.toContain('supplierPerson');
+  });
+
+  it('is null when production does not serve the contract (or on the DA grain)', async () => {
+    const none = {
+      contractsByIds: () => Promise.resolve(ok(new Map())),
+    } as unknown as ProcurementRepo;
+    const tool = makeProcurementMcpTools({
+      repo: none,
+      analysis: fakeAnalysisRepo({ records: PERSON }).repo,
+      clientBaseUrl: 'https://x.test',
+    }).find((candidate) => candidate.name === 'aggregate_procurement');
+    for (const grain of ['contract', 'direct_acquisition']) {
+      const out = await tool?.handler({ shape: 'records', scope: { grain } });
+      expect(namesById(out?.items as Record<string, unknown>[])[1]).toEqual([
+        '2',
+        'Primaria Sibiu',
+        null,
+      ]);
+      expect(JSON.stringify(out)).not.toContain('POPESCU');
+    }
   });
 });
 
@@ -275,6 +423,17 @@ describe('DA release parties', () => {
     });
     expect(toSupplier(party(ORDINARY_NAME)).name).toBe(ORDINARY_NAME);
     expect(toBuyer(party('COMUNA EXEMPLU')).name).toBe('COMUNA EXEMPLU');
+  });
+
+  it('never serves a person code, whatever its status says', () => {
+    const person = { ...party(ORDINARY_NAME), fiscalCode: SYNTHETIC_CNP };
+    expect(toSupplier(person)).toEqual({
+      displayKind: 'natural_person',
+      partyId: null,
+      name: null,
+      fiscalCode: null,
+    });
+    expect(toBuyer(person).fiscalCode).toBeNull();
   });
 
   it('withholds a coded DA supplier bucket name', async () => {

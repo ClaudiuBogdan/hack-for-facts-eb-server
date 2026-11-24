@@ -77,7 +77,7 @@ describe('analysisRecords', () => {
     ]);
   });
 
-  it('withholds natural-person identifiers but keeps the published names', async () => {
+  it('withholds natural-person identifiers and their raw names (masked only by the display step)', async () => {
     const { repo } = fakeAnalysisRepo({
       records: {
         total: '1',
@@ -85,7 +85,12 @@ describe('analysisRecords', () => {
       },
     });
     const page = (await analysisRecords({ analysisRepo: repo }, { scope: DA }))._unsafeUnwrap();
-    expect(page.items[0]).toMatchObject({ supplierCui: null, supplierName: 'Ion Pop' });
+    // Owner, 24 Nov ("Masked name"): a person's raw name is never served.
+    expect(page.items[0]).toMatchObject({
+      supplierCui: null,
+      supplierName: null,
+      supplierPerson: true,
+    });
   });
 
   it('nulls money and refuses a value order where the spend gate withholds money', async () => {

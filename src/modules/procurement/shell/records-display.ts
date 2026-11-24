@@ -10,7 +10,7 @@
  * free-text rule applies to it as to the source title.
  */
 
-import { isFreeTextWithheld } from '../core/free-text-rule.js';
+import { isFreeTextWithheld, publicPartyName } from '../core/free-text-rule.js';
 
 import type { AnalysisRecordsResult } from '../core/analysis-usecases.js';
 import type { ContractDisplayTitle } from '../core/contract-display-title.js';
@@ -29,10 +29,16 @@ export const withDisplayTitles = async (
       ? await repo.contractsByIds(result.items.map((item) => item.id))
       : null;
   const contracts = titles?.isOk() === true ? titles.value : null;
-  return result.items.map(({ titleWithheld, ...item }) => {
-    const displayTitle = contracts?.get(item.id)?.displayTitle ?? null;
+  return result.items.map(({ titleWithheld, supplierPerson, ...item }) => {
+    const contract = contracts?.get(item.id);
+    const displayTitle = contract?.displayTitle ?? null;
     return {
       ...item,
+      // A person's supplier name: only the masked one production serves for this contract (its
+      // read masks it), and never one that may carry a personal code; null when not read.
+      ...(supplierPerson === true && {
+        supplierName: publicPartyName(contract?.supplierName ?? null),
+      }),
       // The free-text rule (interim gate): a withheld source title takes its
       // display title with it, and a display title the rule hits is withheld.
       displayTitle:

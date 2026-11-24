@@ -21,6 +21,7 @@ import { err, ok, type Result } from 'neverthrow';
 import {
   databaseError,
   invalidInput,
+  isWithheldOrganizationIdentifier,
   upstreamError,
   type ApiError,
   type ProdDatabase,
@@ -29,6 +30,7 @@ import {
 import { contractDisplayTitleCandidatesSelect } from './contract-display-title-projection.js';
 import { modificationDeltaPctSql } from './filter-helpers.js';
 import { mapContract, mapDirectAcquisition, mapModification, mapProcedure } from './mappers.js';
+import { servedSupplierNameColumn, servedSupplierNameSql } from './party-name-sql.js';
 import { supportedProcedureIdSql } from './procedure-link-policy.js';
 import { SEARCH_COUNT_CAP } from '../../core/constants.js';
 import { carriesPersonalCode, isFreeTextWithheld } from '../../core/free-text-rule.js';
@@ -166,11 +168,15 @@ const cpvCodePredicate = (alias: string, code: string): RawBuilder<unknown> => {
   return sql`${col} like ${prefix} escape '\\'`;
 };
 
+/** A `q` column: a supplier name is matched as served (masked for a person), never raw. */
+const qColumn = (alias: string, column: string): RawBuilder<unknown> =>
+  column === 'supplier_name' ? servedSupplierNameSql(alias) : ref(alias, column);
+
 /** `q` → an escaped, bounded ILIKE across the grain's short text columns. */
 const qPredicate = (grain: SearchGrain, alias: string, q: string): RawBuilder<unknown> => {
   const pattern = escapeLikePattern(q);
   const clauses = Q_COLUMNS[grain].map(
-    (column) => sql`${ref(alias, column)} ilike ${pattern} escape '\\'`
+    (column) => sql`${qColumn(alias, column)} ilike ${pattern} escape '\\'`
   );
   return sql`(${sql.join(clauses, sql` or `)})`;
 };
@@ -246,8 +252,9 @@ const NAME_COLUMNS = [
 type NameField = (typeof NAME_COLUMNS)[number][0];
 
 /**
- * pk (as a string) → the hydrated row's name fields whose raw value may carry a personal numeric
- * code ("never a CNP"): their fragments are withheld too, whatever part of the name they quote.
+ * pk (as a string) → the hydrated row's name fields whose fragments are withheld, whatever part of
+ * the name they quote: a name that may carry a personal numeric code ("never a CNP"), and a
+ * person's supplier name (served masked; the index holds it raw).
  */
 export const codedNamesOf = (
   rows: readonly Record<string, unknown>[],
@@ -255,9 +262,14 @@ export const codedNamesOf = (
 ): Map<string, ReadonlySet<NameField>> =>
   new Map(
     rows.flatMap((row) => {
+      const supplierCode = row['supplier_cui'];
+      // A person's supplier name is served masked: a fragment of the indexed raw name never is.
+      const personSupplier =
+        typeof supplierCode === 'string' && isWithheldOrganizationIdentifier(supplierCode);
       const coded = new Set(
         NAME_COLUMNS.flatMap(([field, column]) => {
           const name = row[column];
+          if (field === 'supplierName' && personSupplier) return [field];
           return typeof name === 'string' && carriesPersonalCode(name) ? [field] : [];
         })
       );
@@ -464,7 +476,7 @@ const contractSelect = [
   'c.authority_cui',
   'c.authority_name',
   'c.supplier_cui',
-  'c.supplier_name',
+  servedSupplierNameColumn('c'),
   'c.cpv_code',
   'c.currency',
   sql<string | null>`c.value_ron::text`.as('value_ron'),
@@ -495,7 +507,7 @@ const daSelect = [
   'd.authority_cui',
   'd.authority_name',
   'd.supplier_cui',
-  'd.supplier_name',
+  servedSupplierNameColumn('d'),
   'd.cpv_code',
   'd.currency',
   sql<string | null>`d.value_ron::text`.as('value_ron'),
@@ -526,7 +538,7 @@ const modificationSelect = [
   // matched on a name alone).
   'm.authority_name',
   'm.supplier_cui',
-  'm.supplier_name',
+  servedSupplierNameColumn('m'),
   'm.contract_no',
   'm.notice_no',
   sql<string | null>`m.modification_date::text`.as('modification_date'),
@@ -841,7 +853,7 @@ export const makeOffsetSearchRepo = (
       others.length === 0
         ? sql`false`
         : sql`(${sql.join(
-            others.map((column) => sql`${ref(b.alias, column)} ilike ${pattern} escape '\\'`),
+            others.map((column) => sql`${qColumn(b.alias, column)} ilike ${pattern} escape '\\'`),
             sql` or `
           )})`;
     /** Append the kept rows' keys; true when the batch was the last one. */

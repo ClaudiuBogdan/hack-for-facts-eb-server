@@ -322,6 +322,12 @@ export interface AnalysisRecordRow {
   readonly authorityName: string | null;
   readonly supplierCui: string | null;
   readonly supplierName: string | null;
+  /**
+   * Set by the records usecase when the supplier's code is a person's (longer than an
+   * organization code): `supplierName` is then null, and only the display step may fill it, with
+   * the masked name production serves for that contract. Never served. Absent otherwise.
+   */
+  readonly supplierPerson?: true;
   readonly valueRon: string | null;
   readonly status: string | null;
   /** Contract grain only. */

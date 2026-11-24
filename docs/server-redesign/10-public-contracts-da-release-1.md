@@ -58,6 +58,10 @@ only what the API adds or decides.
   or without single separators, or any non-ASCII digit) is served as null, its code and kind unchanged. The same
   check (`carriesPersonalCode`) applies to every legacy party name, to search-highlight name fragments and to DA
   supplier bucket names.
+- Legacy supplier names of persons (owner, 24 Nov, "Masked name"): where a legacy supplier code is longer than an
+  organization code, every legacy read selects and searches the name through `procurement_v3.mask_person_name`
+  (fail-closed: a database without it errors, never serves the raw name). The legacy ClickHouse records take that
+  masked name from Postgres. A person's code, and a `q` carrying a personal code, are refused as lookup keys.
 - `party_public_names` reads the registry live: a name or privacy change shows on the next read without moving
   `data_as_of` or `registry_as_of`. No answer that carries a supplier name is cached; unfiltered totals grouped by
   supplier are read every time (other unfiltered totals stay cached per `data_as_of`).
