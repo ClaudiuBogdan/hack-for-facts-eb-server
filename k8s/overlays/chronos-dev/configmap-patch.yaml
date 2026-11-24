@@ -46,6 +46,10 @@ data:
   # The legacy DA list (procurementDirectAcquisitions, MCP search_procurement_direct_acquisitions)
   # names masked buyers from the raw authority name; retired on Chronos dev (owner, 23 Nov).
   PROCUREMENT_LEGACY_DA_LIST_ENABLED: 'false'
+  # Every legacy procurement read (records, details, supplier records, legacy analysis grains,
+  # presence) off on Chronos dev (owner, 24 Nov): interim containment while legacy contract
+  # party names are not screened for personal codes. Back on only on root's word.
+  PROCUREMENT_LEGACY_ENABLED: 'false'
   # Companies analytics: same ClickHouse service, its own database and its own
   # read-only companies_reader user (credentials from the workload patch).
   COMPANIES_ANALYTICS_CLICKHOUSE_URL: https://transparenta-eu-etl-clickhouse.transparenta-eu-etl-prod.svc.cluster.local:8443
