@@ -1482,65 +1482,85 @@ describe('naming step 2b: undisclosed suppliers in records and scopes (120030)',
         }),
       }),
     });
-    const apiDeps: AnalysisDeps = {
+    // A new source per read set: the cache is keyed by build and column state, which the view
+    // switch leaves unchanged, so every comparison below runs its SQL cold.
+    const fresh = (): AnalysisDeps => ({
       analysisRepo: makeDaRoutingAnalysisRepo(
         makeUnconfiguredAnalysisRepo(),
         makeDaV3AnalysisSource(logged)
       ),
-    };
+    });
     const SORTS = ['value_desc', 'date_desc'] as const;
-    // Every page of the year, in each order: the fixture's rows sit on different pages.
-    const pages = async () =>
-      Promise.all(
-        SORTS.map(async (sort) => {
+    const RECORD_SCOPES = [
+      { ...DA, year: 2025 },
+      { ...DA, year: 2025, authorityCui: BUYER.fiscalCode ?? '' },
+    ] as const;
+    // Every page, in each order and scope: the fixture's rows sit on different pages.
+    const pages = async () => {
+      const deps = fresh();
+      const all = [];
+      for (const scope of RECORD_SCOPES)
+        for (const sort of SORTS) {
           const first = (
-            await analysisRecords(apiDeps, { scope: { ...DA, year: 2025 }, sort, pageSize: 100 })
+            await analysisRecords(deps, { scope, sort, pageSize: 100 })
           )._unsafeUnwrap();
           const items = [...first.items];
           for (let page = 2; items.length < Number(first.total); page += 1) {
             const next = (
-              await analysisRecords(apiDeps, {
-                scope: { ...DA, year: 2025 },
-                sort,
-                page,
-                pageSize: 100,
-              })
+              await analysisRecords(deps, { scope, sort, page, pageSize: 100 })
             )._unsafeUnwrap();
             if (next.items.length === 0) break;
             items.push(...next.items);
           }
-          return { ...first, items };
-        })
-      );
+          all.push({ ...first, items });
+        }
+      return all;
+    };
     // Rollups (seeded above) and live rows: a value bound forces the live supplier key.
     const LIVE = { ...DA, valueMin: 0 } as const;
-    const aggregatesOf = async (scope: typeof DA | typeof LIVE) => ({
-      stats: (await analysisStats(apiDeps, { scope }))._unsafeUnwrap().blocks[0]?.recordCount,
+    const aggregatesOf = async (deps: AnalysisDeps, scope: typeof DA | typeof LIVE) => ({
+      stats: (await analysisStats(deps, { scope }))._unsafeUnwrap().blocks[0]?.recordCount,
       buckets: (
-        await analysisBreakdown(apiDeps, { scope, dimension: 'supplier', topN: 50 })
+        await analysisBreakdown(deps, { scope, dimension: 'supplier', topN: 50 })
       )._unsafeUnwrap(),
-      concentration: (
-        await analysisConcentration(apiDeps, { scope, basis: 'value' })
+      concentration: (await analysisConcentration(deps, { scope, basis: 'value' }))._unsafeUnwrap(),
+      distinctByYear: (
+        await analysisSeries(deps, { scope, measure: 'distinctSuppliers', bucket: 'year' })
       )._unsafeUnwrap(),
-      distinct: (
-        await analysisSeries(apiDeps, { scope, measure: 'distinctSuppliers', bucket: 'year' })
+      distinctByMonth: (
+        await analysisSeries(deps, { scope, measure: 'distinctSuppliers', bucket: 'month' })
       )._unsafeUnwrap(),
     });
-    const aggregates = async () => ({
-      rollup: await aggregatesOf(DA),
-      live: await aggregatesOf(LIVE),
-    });
-    const scoped = async (code: string) => ({
-      count: (await analysisStats(apiDeps, { scope: { ...DA, supplierCui: code } }))._unsafeUnwrap()
-        .blocks[0]?.recordCount,
-      records: (
-        await analysisRecords(apiDeps, {
+    const aggregates = async () => {
+      const deps = fresh();
+      return { rollup: await aggregatesOf(deps, DA), live: await aggregatesOf(deps, LIVE) };
+    };
+    // A supplier scope, rollup and live, on stats, records and a buyer breakdown.
+    const scoped = async (code: string) => {
+      const deps = fresh();
+      const records = (
+        await analysisRecords(deps, {
           scope: { ...DA, supplierCui: code },
           sort: 'value_desc',
           pageSize: 100,
         })
-      )._unsafeUnwrap().items,
-    });
+      )._unsafeUnwrap();
+      return {
+        count: (await analysisStats(deps, { scope: { ...DA, supplierCui: code } }))._unsafeUnwrap()
+          .blocks[0]?.recordCount,
+        liveCount: (
+          await analysisStats(deps, { scope: { ...LIVE, supplierCui: code } })
+        )._unsafeUnwrap().blocks[0]?.recordCount,
+        records: { total: records.total, items: records.items },
+        byAuthority: (
+          await analysisBreakdown(deps, {
+            scope: { ...LIVE, supplierCui: code },
+            dimension: 'authority',
+            topN: 50,
+          })
+        )._unsafeUnwrap(),
+      };
+    };
     const view = (rows: 'gate' | 'step2b') => sql`
       create or replace view procurement_v3.da_parties_public with (security_barrier = true) as
       select source_name, party_kind, portal_party_id, fiscal_code_clean, fiscal_code_status,
@@ -1557,152 +1577,173 @@ describe('naming step 2b: undisclosed suppliers in records and scopes (120030)',
                  select fiscal_code_clean from procurement_v3.supplier_names_public))`
              : sql``
          }`;
+    type Page = Awaited<ReturnType<typeof pages>>[number];
+    type Row = Page['items'][number];
+    const withheld = (row: Row): Row =>
+      row.supplierDisplayKind === null
+        ? row
+        : { ...row, supplierCui: null, supplierName: null, supplierDisplayKind: 'natural_person' };
     const MASKED = 'EXEMPLU M*** PFA';
     const soleTrader = SOLE_TRADER.fiscalCode ?? '';
     const unverified = UNVERIFIED.fiscalCode ?? '';
-    // Before the naming grant: the aggregates the revoke below must return to.
-    const withoutNames = await aggregates();
+    const company = COMPANY.fiscalCode ?? '';
     try {
-      await sql`create table procurement_v3.supplier_names_public (
-        fiscal_code_clean text primary key, naming text, display_name text, code_shown boolean)`.execute(
-        owner
-      );
-      await sql`insert into procurement_v3.supplier_names_public values
-        (${COMPANY.fiscalCode}, 'named', ${COMPANY_REGISTRY_NAME}, true),
-        (${soleTrader}, 'masked', ${MASKED}, true),
-        (${unverified}, 'withheld', null, true)`.execute(owner);
-      await sql`grant select on procurement_v3.supplier_names_public to procurement_api_read`.execute(
-        owner
-      );
-      // Naming step 2 (the grant) is live before either migration: the baseline names by the view.
-      const before = {
-        pages: await pages(),
-        aggregates: await aggregates(),
-        company: await scoped(COMPANY.fiscalCode ?? ''),
-      };
-      expect(Number(before.company.count)).toBeGreaterThan(0);
-
-      // 120020: the column only. Records and aggregates are exactly as before.
-      await view('gate').execute(owner);
-      expect(await pages()).toEqual(before.pages);
-      expect(await aggregates()).toEqual(before.aggregates);
-
-      // 120030: valid codes with a naming row join the view, supplier_disclosed false.
-      await view('step2b').execute(owner);
-      const after = await pages();
-      for (const [index, page] of after.entries()) {
-        const prior = before.pages[index];
-        if (prior === undefined) throw new Error('no prior page');
-        // Same rows, same order, same total: only the undisclosed rows' supplier changes.
-        expect(page.items.map((row) => row.id)).toEqual(prior.items.map((row) => row.id));
-        expect(page.total).toEqual(prior.total);
-        for (const [i, row] of page.items.entries()) {
-          const was = prior.items[i];
-          const withheldBefore = {
-            supplierCui: null,
-            supplierName: null,
-            supplierDisplayKind: 'natural_person',
-          };
-          if (row.supplierCui === soleTrader) {
-            expect(was).toMatchObject(withheldBefore);
-            expect(row).toEqual({
-              ...was,
-              supplierCui: soleTrader,
-              supplierName: MASKED,
-              supplierDisplayKind: 'person_masked',
-            });
-          } else if (row.supplierCui === unverified) {
-            expect(was).toMatchObject(withheldBefore);
-            expect(row).toEqual({
-              ...was,
-              supplierCui: unverified,
-              supplierName: null,
-              supplierDisplayKind: 'code_only',
-            });
-          } else {
-            expect(row).toEqual(was);
-          }
-        }
-        // The fixture's undisclosed purchases are on the page (counted), so both cases ran.
-        const servedCode = (id: string | undefined) =>
-          page.items.find((row) => row.id === id)?.supplierCui;
-        expect(servedCode(PURCHASES[10]?.purchaseId)).toBe(soleTrader);
-        expect(servedCode(PURCHASES[8]?.purchaseId)).toBe(unverified);
-        const raw = JSON.stringify(page);
-        expect(raw).not.toContain(SECRET);
-        for (const party of [NATURAL_PERSON, BAD_CODE_SUPPLIER])
-          expect(raw).not.toContain(`"${party.fiscalCode ?? '~'}"`);
-      }
-      // Never a bucket, a count or a distinct of its own: every aggregate is as before.
-      const aggregatesB = await aggregates();
-      expect(aggregatesB).toEqual(before.aggregates);
-      for (const code of [soleTrader, unverified])
-        expect(JSON.stringify(aggregatesB)).not.toContain(`"${code}"`);
-      // Never a scope: an undisclosed code counts and lists nothing; the company still does.
-      for (const code of [soleTrader, unverified])
-        expect(await scoped(code)).toEqual({ count: '0', records: [] });
-      expect(await scoped(COMPANY.fiscalCode ?? '')).toEqual(before.company);
-
-      // A code the platform may not show (code_shown false) stays withheld, rows included.
-      await sql`update procurement_v3.supplier_names_public set code_shown = false
-        where fiscal_code_clean = ${unverified}`.execute(owner);
-      for (const [index, page] of (await pages()).entries()) {
-        const prior = before.pages[index];
-        expect(page.items.find((row) => row.id === PURCHASES[8]?.purchaseId)).toEqual(
-          prior?.items.find((row) => row.id === PURCHASES[8]?.purchaseId)
+      try {
+        // Before the naming grant: what the revoke below must return to.
+        const withoutNames = { pages: await pages(), aggregates: await aggregates() };
+        await sql`create table procurement_v3.supplier_names_public (
+          fiscal_code_clean text primary key, naming text, display_name text, code_shown boolean)`.execute(
+          owner
         );
-        expect(JSON.stringify(page)).not.toContain(`"${unverified}"`);
-      }
-      expect(await scoped(unverified)).toEqual({ count: '0', records: [] });
+        await sql`insert into procurement_v3.supplier_names_public values
+          (${company}, 'named', ${COMPANY_REGISTRY_NAME}, true),
+          (${soleTrader}, 'masked', ${MASKED}, true),
+          (${unverified}, 'withheld', null, true)`.execute(owner);
+        await sql`grant select on procurement_v3.supplier_names_public to procurement_api_read`.execute(
+          owner
+        );
+        // Naming step 2 (the grant) is live before either migration: the baseline names by the view.
+        const before = {
+          pages: await pages(),
+          aggregates: await aggregates(),
+          company: await scoped(company),
+          soleTrader: await scoped(soleTrader),
+          unverified: await scoped(unverified),
+        };
+        expect(Number(before.company.count)).toBeGreaterThan(0);
+        expect(Number(before.company.liveCount)).toBeGreaterThan(0);
+        expect(before.soleTrader.count).toBe('0');
+        expect(before.unverified.count).toBe('0');
 
-      // The naming view unreadable again (grant revoked): an undisclosed code has no naming to
-      // be served by, so its rows are withheld, never served as a company by the registry rule.
-      await sql`update procurement_v3.supplier_names_public set code_shown = true
-        where fiscal_code_clean = ${unverified}`.execute(owner);
-      await sql`revoke select on procurement_v3.supplier_names_public from procurement_api_read`.execute(
-        owner
-      );
-      for (const page of await pages()) {
-        const raw = JSON.stringify(page);
-        for (const code of [soleTrader, unverified]) expect(raw).not.toContain(`"${code}"`);
-        expect(raw).not.toContain(MASKED);
-      }
-      expect(await aggregates()).toEqual(withoutNames);
-      await sql`grant select on procurement_v3.supplier_names_public to procurement_api_read`.execute(
-        owner
-      );
+        // 120020: the column only. Records, aggregates and scopes are exactly as before.
+        await view('gate').execute(owner);
+        expect(await pages()).toEqual(before.pages);
+        expect(await aggregates()).toEqual(before.aggregates);
+        expect(await scoped(company)).toEqual(before.company);
 
-      // The column present but unreadable by this login: every supplier withheld, rows included.
-      await sql`revoke select on procurement_v3.da_parties_public from procurement_api_read`.execute(
-        owner
-      );
-      await sql`grant select (source_name, party_kind, portal_party_id, fiscal_code_clean,
-        fiscal_code_status, name_as_written) on procurement_v3.da_parties_public
-        to procurement_api_read`.execute(owner);
-      for (const page of await pages()) {
-        expect(
-          new Set(page.items.map((row) => row.supplierDisplayKind).filter((kind) => kind !== null))
-        ).toEqual(new Set(['natural_person']));
-        expect(page.items.every((row) => row.supplierCui === null)).toBe(true);
+        // 120030: valid codes with a naming row join the view, supplier_disclosed false.
+        await view('step2b').execute(owner);
+        const after = await pages();
+        expect(after.length).toBe(before.pages.length);
+        for (const [index, page] of after.entries()) {
+          const prior = before.pages[index];
+          if (prior === undefined) throw new Error('no prior page');
+          // Same rows, same order, same total: only the undisclosed rows' supplier changes.
+          expect(page.items.map((row) => row.id)).toEqual(prior.items.map((row) => row.id));
+          expect(page.total).toEqual(prior.total);
+          for (const [i, row] of page.items.entries()) {
+            const was = prior.items[i];
+            if (was === undefined) throw new Error('no prior row');
+            if (row.supplierCui === soleTrader) {
+              expect(withheld(was)).toEqual(was);
+              expect(row).toEqual({
+                ...was,
+                supplierCui: soleTrader,
+                supplierName: MASKED,
+                supplierDisplayKind: 'person_masked',
+              });
+            } else if (row.supplierCui === unverified) {
+              expect(withheld(was)).toEqual(was);
+              expect(row).toEqual({
+                ...was,
+                supplierCui: unverified,
+                supplierName: null,
+                supplierDisplayKind: 'code_only',
+              });
+            } else {
+              expect(row).toEqual(was);
+            }
+          }
+          const raw = JSON.stringify(page);
+          expect(raw).not.toContain(SECRET);
+          for (const party of [NATURAL_PERSON, BAD_CODE_SUPPLIER])
+            expect(raw).not.toContain(`"${party.fiscalCode ?? '~'}"`);
+        }
+        // The fixture's undisclosed purchases are on the year's pages, so both cases ran.
+        for (const page of after.slice(0, SORTS.length)) {
+          const servedCode = (id: string | undefined) =>
+            page.items.find((row) => row.id === id)?.supplierCui;
+          expect(servedCode(PURCHASES[10]?.purchaseId)).toBe(soleTrader);
+          expect(servedCode(PURCHASES[8]?.purchaseId)).toBe(unverified);
+        }
+        // Never a bucket, a count or a distinct of its own: every aggregate, read cold, is as before.
+        const aggregatesB = await aggregates();
+        expect(aggregatesB).toEqual(before.aggregates);
+        for (const code of [soleTrader, unverified])
+          expect(JSON.stringify(aggregatesB)).not.toContain(`"${code}"`);
+        // Never a scope: an undisclosed code answers exactly as while it was withheld.
+        expect(await scoped(soleTrader)).toEqual(before.soleTrader);
+        expect(await scoped(unverified)).toEqual(before.unverified);
+        expect(await scoped(company)).toEqual(before.company);
+
+        // A code the platform may not show (code_shown false): its rows are withheld again.
+        await sql`update procurement_v3.supplier_names_public set code_shown = false
+          where fiscal_code_clean = ${unverified}`.execute(owner);
+        const hidden = await pages();
+        for (const [index, page] of hidden.entries()) {
+          const prior = before.pages[index];
+          const later = after[index];
+          if (prior === undefined || later === undefined) throw new Error('no page');
+          expect(page).toEqual({
+            ...later,
+            items: later.items.map((row, i) =>
+              row.supplierCui === unverified ? prior.items[i] : row
+            ),
+          });
+        }
+        expect(await scoped(unverified)).toEqual(before.unverified);
+
+        // The naming view unreadable (grant revoked): an undisclosed code has no naming to be
+        // served by, so every answer is the one before the grant, never a registry-named company.
+        await sql`update procurement_v3.supplier_names_public set code_shown = true
+          where fiscal_code_clean = ${unverified}`.execute(owner);
+        await sql`revoke select on procurement_v3.supplier_names_public from procurement_api_read`.execute(
+          owner
+        );
+        expect(await pages()).toEqual(withoutNames.pages);
+        expect(await aggregates()).toEqual(withoutNames.aggregates);
+        await sql`grant select on procurement_v3.supplier_names_public to procurement_api_read`.execute(
+          owner
+        );
+
+        // The column present but unreadable by this login: every supplier withheld, rows included.
+        await sql`revoke select on procurement_v3.da_parties_public from procurement_api_read`.execute(
+          owner
+        );
+        await sql`grant select (source_name, party_kind, portal_party_id, fiscal_code_clean,
+          fiscal_code_status, name_as_written) on procurement_v3.da_parties_public
+          to procurement_api_read`.execute(owner);
+        const denied = await pages();
+        for (const [index, page] of denied.entries()) {
+          const prior = before.pages[index];
+          if (prior === undefined) throw new Error('no prior page');
+          // D6 unreadable: the answer says so (never cached by a client) and withholds every supplier.
+          expect(page).toEqual({
+            ...prior,
+            meta: { ...prior.meta, disclosureKey: 'unavailable' },
+            items: prior.items.map(withheld),
+          });
+        }
+        expect((await scoped(company)).count).toBe('0');
+      } finally {
+        await sql`revoke select on procurement_v3.da_parties_public from procurement_api_read`.execute(
+          owner
+        );
+        await sql`drop view procurement_v3.da_parties_public`.execute(owner);
+        await sql`create view procurement_v3.da_parties_public with (security_barrier = true) as
+          select source_name, party_kind, portal_party_id, fiscal_code_clean, fiscal_code_status,
+                 case when party_kind = 'buyer' then name_as_written end as name_as_written
+          from procurement_v3.da_parties
+          where party_kind = 'buyer'
+             or fiscal_code_clean in (select fiscal_code_clean from procurement_v3.supplier_disclosure)`.execute(
+          owner
+        );
+        await sql`grant select on procurement_v3.da_parties_public to procurement_api_read`.execute(
+          owner
+        );
+        await sql`drop table if exists procurement_v3.supplier_names_public`.execute(owner);
       }
-      expect((await scoped(COMPANY.fiscalCode ?? '')).count).toBe('0');
     } finally {
-      await sql`revoke select on procurement_v3.da_parties_public from procurement_api_read`.execute(
-        owner
-      );
-      await sql`drop view procurement_v3.da_parties_public`.execute(owner);
-      await sql`create view procurement_v3.da_parties_public with (security_barrier = true) as
-        select source_name, party_kind, portal_party_id, fiscal_code_clean, fiscal_code_status,
-               case when party_kind = 'buyer' then name_as_written end as name_as_written
-        from procurement_v3.da_parties
-        where party_kind = 'buyer'
-           or fiscal_code_clean in (select fiscal_code_clean from procurement_v3.supplier_disclosure)`.execute(
-        owner
-      );
-      await sql`grant select on procurement_v3.da_parties_public to procurement_api_read`.execute(
-        owner
-      );
-      await sql`drop table if exists procurement_v3.supplier_names_public`.execute(owner);
       await logged.destroy();
     }
   });
