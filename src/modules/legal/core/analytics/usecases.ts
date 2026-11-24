@@ -9,9 +9,16 @@
  * pointer still names the head's layer: if a newer layer was published in
  * between, the head is dropped and the request is prepared again once.
  *
- * Answers are cached by layer id and canonical arguments. A layer never
- * changes once published (retained history), so an entry is never stale for
- * its key; the TTL only bounds memory. Failures are never cached.
+ * Aggregate answers are cached by layer id and canonical arguments. A layer
+ * never changes once published (retained history), so an entry is never
+ * stale for its key; the TTL only bounds memory. Failures are never cached.
+ * The views that NAME acts (acts, links) are never cached: an act restricted
+ * after the build must stop being named at once, and the repo decides that in
+ * the view's own transaction.
+ *
+ * Load: identical reads in flight share one promise, and at most
+ * ANALYTICS_SLOTS reads run at once across the three surfaces; a read that
+ * waits longer than SLOT_WAIT_MS for a slot is refused (503, retry).
  */
 
 import { err, ok, type Result } from 'neverthrow';
@@ -51,8 +58,56 @@ export interface LegalAnalyticsRepo {
   ): Promise<Result<LegalAnalyticsData | typeof LAYER_CHANGED, ApiError>>;
 }
 
+/** At most this many analytics reads run at once; a read waits at most SLOT_WAIT_MS for a slot. */
+export const ANALYTICS_SLOTS = 4;
+export const SLOT_WAIT_MS = 2_000;
+/** The message of the refusal when no slot came free in time (REST adds Retry-After). */
+export const ANALYTICS_BUSY = 'Legislation analytics are busy; retry shortly.';
+
+/** A counting semaphore with a bounded wait: `acquire` resolves to a release, or null past the wait. */
+export interface LegalAnalyticsGate {
+  acquire(waitMs: number): Promise<(() => void) | null>;
+}
+
+export const makeLegalAnalyticsGate = (slots: number): LegalAnalyticsGate => {
+  let free = slots;
+  const waiting: ((release: () => void) => void)[] = [];
+  const release = (): void => {
+    const next = waiting.shift();
+    if (next === undefined) free += 1;
+    else next(release);
+  };
+  return {
+    acquire: (waitMs) => {
+      if (free > 0) {
+        free -= 1;
+        return Promise.resolve(release);
+      }
+      return new Promise((resolve) => {
+        const grant = (r: () => void): void => {
+          clearTimeout(timer);
+          resolve(r);
+        };
+        const timer = setTimeout(() => {
+          const at = waiting.indexOf(grant);
+          if (at >= 0) waiting.splice(at, 1);
+          resolve(null);
+        }, waitMs);
+        waiting.push(grant);
+      });
+    },
+  };
+};
+
 export interface LegalAnalyticsDeps {
   readonly repo: LegalAnalyticsRepo;
+  /** Caps concurrent reads (all three surfaces share it). */
+  readonly gate: LegalAnalyticsGate;
+  /** Reads in flight by cache key: identical requests share one read. */
+  readonly inflight: Map<
+    string,
+    Promise<Result<LegalAnalyticsData | typeof LAYER_CHANGED, ApiError>>
+  >;
   /** Holds the head under HEAD_KEY (a short TTL: how long a new layer may wait to be noticed). */
   readonly heads: KernelCache;
   /** Holds answers under `<layer id>:<request key>`. */
@@ -83,8 +138,7 @@ export const prepareLegalAnalytics = async (
   view: string,
   args: LegalAnalyticsArgs
 ): Promise<Result<LegalAnalyticsPrepared, ApiError>> => {
-  if (!isLegalAnalyticsView(view))
-    return err(invalidInput(`unknown analytics view ${view}`, 'view'));
+  if (!isLegalAnalyticsView(view)) return err(invalidInput('unknown analytics view', 'view'));
   const head = await readHead(deps);
   if (head.isErr()) return err(head.error);
   const request = parseLegalAnalyticsRequest(view, args, head.value);
@@ -120,11 +174,15 @@ export const answerLegalAnalytics = async (
     const head = prepared.head;
     return ok(toAnswer(prepared, { ...head, issuers: head.issuers.slice(0, HEAD_ISSUERS) }));
   }
-  const read = await deps.answers.wrap(
-    prepared.cacheKey,
-    () => deps.repo.read(request, prepared.head),
-    (r) => r.isOk() && r.value !== LAYER_CHANGED
-  );
+  const compute = () =>
+    readOnce(deps, prepared.cacheKey, () => deps.repo.read(request, prepared.head));
+  const read = NAMING_VIEWS.has(request.view)
+    ? await compute()
+    : await deps.answers.wrap(
+        prepared.cacheKey,
+        compute,
+        (r) => r.isOk() && r.value !== LAYER_CHANGED
+      );
   if (read.isErr()) return err(read.error);
   if (read.value !== LAYER_CHANGED) return ok(toAnswer(prepared, read.value));
   // A newer layer was published after the head was read: read the head again, once.
@@ -134,6 +192,31 @@ export const answerLegalAnalytics = async (
   const again = await prepareLegalAnalytics(deps, view, args);
   if (again.isErr()) return err(again.error);
   return answerLegalAnalytics(deps, again.value, view, args, true);
+};
+
+/** The views that name acts: never cached, validated over what they name (REST: no-store). */
+export const NAMING_VIEWS: ReadonlySet<string> = new Set(['acts', 'links']);
+
+/** One read per key in flight, under a slot of the gate. */
+const readOnce = (
+  deps: LegalAnalyticsDeps,
+  key: string,
+  read: () => Promise<Result<LegalAnalyticsData | typeof LAYER_CHANGED, ApiError>>
+): Promise<Result<LegalAnalyticsData | typeof LAYER_CHANGED, ApiError>> => {
+  const running = deps.inflight.get(key);
+  if (running !== undefined) return running;
+  const started = (async () => {
+    const release = await deps.gate.acquire(SLOT_WAIT_MS);
+    if (release === null) return err(serviceUnavailable(ANALYTICS_BUSY));
+    try {
+      return await read();
+    } finally {
+      release();
+    }
+  })();
+  deps.inflight.set(key, started);
+  void started.finally(() => deps.inflight.delete(key));
+  return started;
 };
 
 /** Prepare and answer in one call (GraphQL and MCP, which have no validators). */

@@ -15,10 +15,12 @@
  * layer's own `method.values.weak_bases` lists, bound as a parameter.
  *
  * The tables hold public acts only (the release reads public rows), but an
- * act can be restricted after a layer is built: every act this repo NAMES
- * (the acts list, the most-named targets) goes through `hydrate`, which reads
- * the current privacy gate; an act it does not return is not shown. Counts
- * are not re-gated: they name no act.
+ * act can be restricted after a layer is built: the acts this repo NAMES (the
+ * acts list, the most-named targets) must have a public, not ended legal_v2
+ * identity, tested in SQL in the request's own transaction (both LEGAL_SOURCE
+ * modes), so a hidden act is never a row, a named target or a cursor. Those
+ * two views are never cached (the usecase). Counts are not re-gated: they name
+ * no act. The old corpus's title is optional decoration.
  *
  * Not deployed: a missing relation (42P01, 42703, 3F000) or an empty pointer
  * is ServiceUnavailable, so a server ahead of its database answers 503.
@@ -43,7 +45,6 @@ import { encodeActsCursor } from '../../core/analytics/request.js';
 import {
   UNCERTAIN,
   UNPLACED,
-  type LegalAnalyticsActRef,
   type LegalAnalyticsActRow,
   type LegalAnalyticsActs,
   type LegalAnalyticsBreakdown,
@@ -64,13 +65,9 @@ import {
   type LegalAnalyticsRepo,
   type LegalAnalyticsViewRequest,
 } from '../../core/analytics/usecases.js';
+import { v2DisplayCitation } from '../../core/v2/display-citation.js';
 
 type Db = Kysely<ProdDatabase>;
-
-/** The acts a layer names, as the current privacy gate lets them be shown (absent = hidden). */
-export type LegalAnalyticsHydrate = (
-  actIds: readonly string[]
-) => Promise<Result<ReadonlyMap<string, Omit<LegalAnalyticsActRef, 'actId'>>, ApiError>>;
 
 export const ANALYTICS_STATEMENT_TIMEOUT_MS = 15_000;
 /** How many targets per link kind the links view names. */
@@ -179,7 +176,8 @@ const readHeadIn = async (trx: Db): Promise<Result<LegalAnalyticsHead, ApiError>
     select count(*)::int as acts, (count(*) filter (where has_text))::int as with_text,
            (count(*) filter (where in_stock))::int as in_stock,
            (count(*) filter (where felul_basis = any(${v.weak_bases}::text[])))::int as uncertain,
-           (count(*) filter (where felul_group = ${UNPLACED}))::int as unplaced,
+           (count(*) filter (where felul_group = ${UNPLACED}
+                               and not (felul_basis = any(${v.weak_bases}::text[]))))::int as unplaced,
            min(year)::int as min_year, max(year)::int as max_year
       from legal_v2_analytics.insight_act where layer_id = ${layerId}::bigint
   `.execute(trx);
@@ -187,11 +185,13 @@ const readHeadIn = async (trx: Db): Promise<Result<LegalAnalyticsHead, ApiError>
     select type_normal as key, count(*)::int as acts from legal_v2_analytics.insight_act
      where layer_id = ${layerId}::bigint group by 1 order by 2 desc, 1
   `.execute(trx);
-  const issuers = await sql<{ lineage: string; family: string; acts: number }>`
-    select issuer_lineage as lineage, issuer_family as family, count(*)::int as acts
+  // one row per DISTINCT lineage, with every family its acts carry
+  const issuers = await sql<{ lineage: string; families: string[]; acts: number }>`
+    select issuer_lineage as lineage, array_agg(distinct issuer_family order by issuer_family) as families,
+           count(*)::int as acts
       from legal_v2_analytics.insight_act
      where layer_id = ${layerId}::bigint and issuer_lineage is not null
-     group by 1, 2 order by 3 desc, 1, 2
+     group by 1 order by 3 desc, 1
   `.execute(trx);
   const t = totals.rows[0];
   if (t === undefined) return err(databaseError('The analytics totals read returned no row.'));
@@ -205,6 +205,8 @@ const readHeadIn = async (trx: Db): Promise<Result<LegalAnalyticsHead, ApiError>
       releasePublishedAt: row.release_published_at,
     },
     rules: row.rules,
+    total: t.acts,
+    population: t.acts,
     values: {
       felulGroups: v.felul_groups,
       felulKinds: v.felul_kinds,
@@ -289,7 +291,8 @@ const denominators = async (
   }>`
     select count(*)::int as total,
            (count(*) filter (where a.felul_basis = any(${head.values.weakBases}::text[])))::int as uncertain,
-           (count(*) filter (where a.felul_group = ${UNPLACED}))::int as unplaced,
+           (count(*) filter (where a.felul_group = ${UNPLACED}
+                               and not (a.felul_basis = any(${head.values.weakBases}::text[]))))::int as unplaced,
            (count(*) filter (where a.has_text))::int as with_text,
            (count(*) filter (where a.version_band > 0))::int as with_versions
       from legal_v2_analytics.insight_act a where ${whereSql(layerId, f, head)}
@@ -430,13 +433,80 @@ const grid = async (
 const linkFrom = sql`legal_v2_analytics.insight_link l
   join legal_v2_analytics.insight_act a on a.layer_id = l.layer_id and a.act_id = l.source_act`;
 
+/**
+ * A public, not ended legal_v2 identity: the one test of whether an act may be NAMED (both LEGAL_SOURCE modes).
+ * Evaluated in the request's own transaction, so a hidden act is never a row, a named target or a cursor.
+ */
+const publicIdentity = (id: RawBuilder<unknown>) => sql`exists (
+  select 1 from legal_v2.acts v where v.act_id = ${id} and v.privacy_class = 'public' and not v.ended)`;
+
+interface IdentityRow {
+  act_id: string;
+  act_natural_key: string;
+  act_type: string;
+  act_number: string | null;
+  act_year: number | null;
+  issuer_slug: string | null;
+  display_citation: string;
+}
+
+/**
+ * The citation of acts already known public (legal_v2's own identity), and the old corpus's canonical title as
+ * optional decoration: a database without `legal.*` serves citations only. Same transaction as the view.
+ */
+const nameIn = async (
+  trx: Db,
+  ids: readonly string[]
+): Promise<ReadonlyMap<string, { citation: string; title: string | null }>> => {
+  if (ids.length === 0) return new Map();
+  const identity = await sql<IdentityRow>`
+    select v.act_id::text as act_id, v.act_natural_key, v.act_type, v.act_number, v.act_year, v.issuer_slug,
+           v.display_citation
+      from legal_v2.acts v
+     where v.act_id = any(${ids}::bigint[]) and v.privacy_class = 'public' and not v.ended
+  `.execute(trx);
+  const legacy = await sql<{ ok: boolean }>`
+    select to_regclass('legal.act_documents') is not null and to_regclass('legal.document_render') is not null as ok
+  `.execute(trx);
+  const titles = new Map<string, string>();
+  if (legacy.rows[0]?.ok === true) {
+    const rows = await sql<{ act_id: string; title: string | null }>`
+      select d.act_id::text as act_id, d.title from legal.act_documents d
+       where d.act_id = any(${ids}::bigint[]) and d.is_canonical
+         and not exists (select 1 from legal.document_render gr
+                          where gr.document_id = d.document_id and gr.privacy_class <> 'public')
+    `.execute(trx);
+    for (const r of rows.rows) if (r.title !== null) titles.set(r.act_id, r.title);
+  }
+  return new Map(
+    identity.rows.map((r) => [
+      r.act_id,
+      {
+        citation: v2DisplayCitation({
+          actNaturalKey: r.act_natural_key,
+          actType: r.act_type,
+          actNumber: r.act_number,
+          actYear: r.act_year,
+          issuerSlug: r.issuer_slug,
+          storedCitation: r.display_citation,
+        }),
+        title: titles.get(r.act_id) ?? null,
+      },
+    ])
+  );
+};
+
+/** The day intervals the links view reports, and the kinds it reports them for. */
+export const LINK_DAYS_MEASURE =
+  "days from the target's first Gazette publication to the source's first Gazette publication";
+const NO_DAYS_KINDS = ['promulgates'];
+
 const links = async (
   trx: Db,
   layerId: string,
   f: LegalAnalyticsFilter,
-  head: LegalAnalyticsHead,
-  hydrate: LegalAnalyticsHydrate
-): Promise<Result<LegalAnalyticsLinks, ApiError>> => {
+  head: LegalAnalyticsHead
+): Promise<LegalAnalyticsLinks> => {
   const d = await denominators(trx, layerId, f, head);
   const where = whereSql(layerId, f, head);
   const byKind = await sql<{ kind: string; note: string; links: number }>`
@@ -450,12 +520,13 @@ const links = async (
      where ${where} and l.kind = ${AMENDS}
      group by 1, 2 order by 3 desc, 1, 2
   `.execute(trx);
+  // only targets with a public identity are ranked and named
   const top = await sql<{ kind: string; target_act: string; links: number }>`
     select kind, target_act, links from (
       select l.kind, l.target_act::text as target_act, count(*)::int as links,
              row_number() over (partition by l.kind order by count(*) desc, l.target_act) as rk
         from ${linkFrom}
-       where ${where} and l.target_act is not null
+       where ${where} and l.target_act is not null and ${publicIdentity(sql`l.target_act`)}
        group by l.kind, l.target_act) x
      where rk <= ${TOP_TARGETS} order by kind, links desc, target_act
   `.execute(trx);
@@ -465,21 +536,21 @@ const links = async (
       from ${linkFrom}
       join legal_v2_analytics.insight_act t on t.layer_id = l.layer_id and t.act_id = l.target_act
      where ${where} and a.first_publication is not null and t.first_publication is not null
+       and not (l.kind = any(${NO_DAYS_KINDS}::text[]))
      group by 1 order by 1
   `.execute(trx);
-  const shown = await hydrate(top.rows.map((r) => r.target_act));
-  if (shown.isErr()) return err(shown.error);
-  const topTargets = top.rows.flatMap((r) => {
-    const act = shown.value.get(r.target_act);
-    return act === undefined
-      ? []
-      : [{ kind: r.kind, target: { actId: r.target_act, ...act }, links: r.links }];
-  });
-  return ok({
+  const named = await nameIn(trx, [...new Set(top.rows.map((r) => r.target_act))]);
+  return {
     ...d.base,
     byKind: byKind.rows,
     amends: amends.rows,
-    topTargets,
+    topTargets: top.rows.flatMap((r) => {
+      const act = named.get(r.target_act);
+      return act === undefined
+        ? []
+        : [{ kind: r.kind, target: { actId: r.target_act, ...act }, links: r.links }];
+    }),
+    daysMeasure: LINK_DAYS_MEASURE,
     days: days.rows.map((r) => ({
       kind: r.kind,
       links: r.links,
@@ -487,7 +558,7 @@ const links = async (
       median: r.q?.[1] ?? null,
       p75: r.q?.[2] ?? null,
     })),
-  });
+  };
 };
 
 const ORDER_SQL: Readonly<Record<LegalAnalyticsOrder, RawBuilder<number>>> = {
@@ -519,11 +590,16 @@ const acts = async (
   trx: Db,
   layerId: string,
   request: Extract<LegalAnalyticsViewRequest, { view: 'acts' }>,
-  head: LegalAnalyticsHead,
-  hydrate: LegalAnalyticsHydrate
-): Promise<Result<LegalAnalyticsActs, ApiError>> => {
+  head: LegalAnalyticsHead
+): Promise<LegalAnalyticsActs> => {
   const f = request.filter;
   const d = await denominators(trx, layerId, f, head);
+  const where = whereSql(layerId, f, head);
+  // selection rows without a public identity: counted, never a row, a name or a cursor
+  const hidden = await sql<{ n: number }>`
+    select count(*)::int as n from legal_v2_analytics.insight_act a
+     where ${where} and not ${publicIdentity(sql`a.act_id`)}
+  `.execute(trx);
   const v = ORDER_SQL[request.order];
   const after =
     request.after === null
@@ -541,53 +617,50 @@ const acts = async (
       from legal_v2_analytics.insight_act a
       left join am on am.target_act = a.act_id
       left join cc on cc.target_act = a.act_id
-     where ${whereSql(layerId, f, head)} and ${after}
+     where ${where} and ${after} and ${publicIdentity(sql`a.act_id`)}
      order by ${v} desc, a.act_id desc
      limit ${request.limit + 1}
   `.execute(trx);
   const page = rows.slice(0, request.limit);
   const last = page.at(-1);
+  // every outgoing cursor is bound to the cursor-free page key, and only ever to a public row
   const next =
     rows.length > request.limit && last !== undefined
-      ? encodeActsCursor(layerId, request.key, { value: last.v, actId: last.act_id })
+      ? encodeActsCursor(layerId, request.pageKey, { value: last.v, actId: last.act_id })
       : null;
-  const shown = await hydrate(page.map((r) => r.act_id));
-  if (shown.isErr()) return err(shown.error);
-  const out: LegalAnalyticsActRow[] = [];
-  for (const r of page) {
-    const act = shown.value.get(r.act_id);
-    if (act === undefined) continue;
-    out.push({
-      actId: r.act_id,
-      ...act,
-      year: r.year,
-      type: r.type_normal,
-      issuer: r.issuer_lineage,
-      family: r.issuer_family,
-      felul: r.weak ? UNCERTAIN : r.felul_group,
-      kind: r.weak ? UNCERTAIN : r.felul_kind,
-      guess: r.weak ? { group: r.felul_group, kind: r.felul_kind } : null,
-      amended: r.amended,
-      court: r.court,
-      versions: r.consolidations,
-      cited: r.cited_by,
-      hasText: r.has_text,
-    });
-  }
-  return ok({
-    ...d.base,
-    order: request.order,
-    rows: out,
-    hidden: page.length - out.length,
-    next,
+  const named = await nameIn(
+    trx,
+    page.map((r) => r.act_id)
+  );
+  const out: LegalAnalyticsActRow[] = page.flatMap((r) => {
+    const act = named.get(r.act_id);
+    if (act === undefined) return [];
+    return [
+      {
+        actId: r.act_id,
+        ...act,
+        year: r.year,
+        type: r.type_normal,
+        issuer: r.issuer_lineage,
+        family: r.issuer_family,
+        felul: r.weak ? UNCERTAIN : r.felul_group,
+        kind: r.weak ? UNCERTAIN : r.felul_kind,
+        guess: r.weak ? { group: r.felul_group, kind: r.felul_kind } : null,
+        amended: r.amended,
+        court: r.court,
+        versions: r.consolidations,
+        cited: r.cited_by,
+        hasText: r.has_text,
+      },
+    ];
   });
+  return { ...d.base, order: request.order, rows: out, hidden: hidden.rows[0]?.n ?? 0, next };
 };
 
 // ─────────────────────────────────────────────────────────── repo ──
 
 export interface MakeLegalAnalyticsRepoDeps {
   readonly db: Db;
-  readonly hydrate: LegalAnalyticsHydrate;
 }
 
 export const makeLegalAnalyticsRepo = (deps: MakeLegalAnalyticsRepoDeps): LegalAnalyticsRepo => ({
@@ -610,9 +683,9 @@ export const makeLegalAnalyticsRepo = (deps: MakeLegalAnalyticsRepoDeps): LegalA
           case 'grid':
             return ok(await grid(trx, layerId, request.filter, head, request.lens, request.by));
           case 'links':
-            return links(trx, layerId, request.filter, head, deps.hydrate);
+            return ok(await links(trx, layerId, request.filter, head));
           case 'acts':
-            return acts(trx, layerId, request, head, deps.hydrate);
+            return ok(await acts(trx, layerId, request, head));
         }
       }
     ),

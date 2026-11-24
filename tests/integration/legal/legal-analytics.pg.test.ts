@@ -35,9 +35,6 @@ import {
   type LegalAnalyticsDeps,
 } from '@/modules/legal/core/analytics/usecases.js';
 import { makeLegalAnalyticsDeps } from '@/modules/legal/index.js';
-import { makeLegalActsRepo } from '@/modules/legal/shell/repo/acts-repo.js';
-import { makeLegalActsRepoV2 } from '@/modules/legal/shell/repo/v2/acts-repo-v2.js';
-import { V2_BRIDGE_GATE } from '@/modules/legal/shell/repo/v2/gate.js';
 
 import type {
   LegalAnalyticsActs,
@@ -186,10 +183,7 @@ run('legal analytics on the real DDL', () => {
   let deps: LegalAnalyticsDeps;
   const q = (text: string, params: unknown[] = []): Promise<pg.QueryResult> =>
     setup.query(text, params);
-  const fresh = (): LegalAnalyticsDeps => {
-    const legacy = makeLegalActsRepo(db, V2_BRIDGE_GATE);
-    return makeLegalAnalyticsDeps(db, makeLegalActsRepoV2({ db, legacy }));
-  };
+  const fresh = (): LegalAnalyticsDeps => makeLegalAnalyticsDeps(db);
   const view = async <T>(name: string, args: Record<string, unknown> = {}): Promise<T> => {
     const r = await getLegalAnalytics(deps, name, args);
     if (r.isErr()) throw new Error(`${name}: ${r.error.type} ${r.error.message}`);
@@ -296,7 +290,8 @@ run('legal analytics on the real DDL', () => {
              (1, 2, 'amends', 1, 'resolved', null),
              (1, 4, 'court_names', 1, 'resolved', null),
              (1, 3, 'amends', null, 'code', 'Codul civil'),
-             (1, 5, 'amends', 1, 'resolved', null)`);
+             (1, 5, 'amends', 1, 'resolved', null),
+             (1, 6, 'amends', 5, 'resolved', null)`);
     await q('commit');
     await q(
       `update legal_v2_analytics.insights_layer set published_at = now(), checks = '[]' where layer_id = 1`
@@ -320,7 +315,8 @@ run('legal analytics on the real DDL', () => {
       unplaced: 1,
     });
     expect(head.types[0]).toEqual({ key: 'hotarare', acts: 2 });
-    expect(head.issuers).toContainEqual({ lineage: 'Guvernul', family: 'guvern', acts: 3 });
+    expect(head).toMatchObject({ total: 6, population: 6 });
+    expect(head.issuers).toContainEqual({ lineage: 'Guvernul', families: ['guvern'], acts: 3 });
     expect(head.issuerCount).toBe(3);
     expect(head.years).toEqual({ min: 2001, max: 2015 });
   });
@@ -376,11 +372,11 @@ run('legal analytics on the real DDL', () => {
     expect(grid.cells[rm]?.[guvern]).toBe(2);
   });
 
-  it('names link targets and lists acts through the current privacy gate', async () => {
+  it('names link targets and lists acts only with a public identity, decided in SQL', async () => {
     const links = await view<LegalAnalyticsLinks>('links');
     expect(links.byKind).toEqual([
       { kind: 'amends', note: 'code', links: 1 },
-      { kind: 'amends', note: 'resolved', links: 2 },
+      { kind: 'amends', note: 'resolved', links: 3 },
       { kind: 'court_names', note: 'resolved', links: 1 },
     ]);
     expect(links.topTargets).toContainEqual({
@@ -392,7 +388,12 @@ run('legal analytics on the real DDL', () => {
       },
       links: 2,
     });
+    // act 5 is a link TARGET but restricted: counted in byKind, never named
+    expect(links.topTargets.map((t) => t.target.actId)).not.toContain('5');
     expect(links.days.find((d) => d.kind === 'amends')).toMatchObject({ links: 2 });
+    expect(links.days.find((d) => d.kind === 'promulgates')).toBeUndefined();
+    expect(links.daysMeasure).toContain('Gazette');
+    // act 5 is new rules too, restricted since the build: counted in hidden, never a row or a cursor
     const acts = await view<LegalAnalyticsActs>('acts', { felul: 'new_rules', limit: 1 });
     expect(acts.rows.map((r) => r.actId)).toEqual(['1']);
     expect(acts.rows[0]).toMatchObject({
@@ -402,19 +403,44 @@ run('legal analytics on the real DDL', () => {
       cited: 2,
       guess: null,
     });
-    const next = await view<LegalAnalyticsActs>('acts', {
-      felul: 'new_rules',
-      limit: 1,
-      cursor: acts.next,
-    });
-    // act 5 is new rules too, but restricted since the build: counted, never named
-    expect(next.rows).toEqual([]);
-    expect(next.hidden).toBe(1);
+    expect(acts).toMatchObject({ hidden: 1, next: null });
     const weak = await view<LegalAnalyticsActs>('acts', { felul: 'uncertain' });
     expect(weak.rows[0]).toMatchObject({
       actId: '3',
       felul: 'uncertain',
       guess: { group: 'rule-making', kind: 'new_rules' },
     });
+  });
+
+  it('traverses tied pages with the cursor-free page key', async () => {
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    for (let page = 0; page < 6; page += 1) {
+      const args: Record<string, unknown> = { order: 'cited', limit: 1 };
+      if (cursor !== null) args['cursor'] = cursor;
+      const r: LegalAnalyticsActs = await view<LegalAnalyticsActs>('acts', args);
+      seen.push(...r.rows.map((x) => x.actId));
+      cursor = r.next;
+      if (cursor === null) break;
+    }
+    // act 1 is cited twice; the rest tie at zero, by act id descending; act 5 is hidden
+    expect(seen).toEqual(['1', '6', '4', '3', '2']);
+  });
+
+  it('stops naming an act restricted after a warm read, without a new layer', async () => {
+    const before = await view<LegalAnalyticsActs>('acts', { felul: 'rule-making' });
+    expect(before.rows.map((r) => r.actId)).toEqual(['1', '2']);
+    await q('set session_replication_role = replica');
+    await q(`update legal_v2.acts set privacy_class = 'restricted' where act_id = 2`);
+    try {
+      const after = await view<LegalAnalyticsActs>('acts', { felul: 'rule-making' });
+      expect(after.rows.map((r) => r.actId)).toEqual(['1']);
+      expect(after.hidden).toBe(2);
+      // the counts, which name no act, are unchanged
+      expect(after.total).toBe(before.total);
+    } finally {
+      await q(`update legal_v2.acts set privacy_class = 'public' where act_id = 2`);
+      await q('set session_replication_role = origin');
+    }
   });
 });

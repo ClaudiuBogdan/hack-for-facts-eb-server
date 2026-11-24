@@ -16,7 +16,9 @@
  * statement runs, so `If-None-Match` is answered with 304 from the head
  * alone. A layer is immutable once published, so a validated answer stays
  * true for its layer; the URL carries no layer, so the shared-cache window is
- * short and a new layer is picked up within it. Errors are `no-store`.
+ * short and a new layer is picked up within it. Errors are `no-store`. The
+ * views that name acts (acts, links) are read afresh every time: `no-store`,
+ * no validator, never 304. A busy refusal (503) carries Retry-After.
  */
 
 import { createHash } from 'node:crypto';
@@ -27,7 +29,9 @@ import { httpStatusFor, invalidInput, type ApiError } from '@/modules/shared/ind
 
 import { ifNoneMatchSatisfied } from './routes.js';
 import {
+  ANALYTICS_BUSY,
   answerLegalAnalytics,
+  NAMING_VIEWS,
   prepareLegalAnalytics,
   type LegalAnalyticsDeps,
 } from '../../core/analytics/usecases.js';
@@ -100,6 +104,8 @@ export const makeLegalAnalyticsRoutes =
     const sendError = (request: FastifyRequest, reply: FastifyReply, error: ApiError) => {
       const status = httpStatusFor(error);
       void reply.header('cache-control', 'no-store');
+      if (error.type === 'ServiceUnavailable' && error.message === ANALYTICS_BUSY)
+        void reply.header('retry-after', '2');
       if (status >= 500 && error.type !== 'ServiceUnavailable' && error.type !== 'Timeout') {
         request.log.error({ err: error }, '[legal-analytics] REST read failed');
         return reply.status(status).send({
@@ -123,9 +129,16 @@ export const makeLegalAnalyticsRoutes =
       if (args.isErr()) return sendError(request, reply, args.error);
       const prepared = await prepareLegalAnalytics(deps, request.params.view, args.value);
       if (prepared.isErr()) return sendError(request, reply, prepared.error);
-      const etag = legalAnalyticsEtag(prepared.value.head.layer.layerId, prepared.value.cacheKey);
-      if (ifNoneMatchSatisfied(request.headers['if-none-match'], etag)) {
-        return reply.status(304).header('etag', etag).header('cache-control', CACHE_CONTROL).send();
+      // Views that name acts are read afresh every time (the privacy gate is read in the view's own
+      // transaction): no-store, no validator, never 304.
+      const names = NAMING_VIEWS.has(request.params.view);
+      const early = legalAnalyticsEtag(prepared.value.head.layer.layerId, prepared.value.cacheKey);
+      if (!names && ifNoneMatchSatisfied(request.headers['if-none-match'], early)) {
+        return reply
+          .status(304)
+          .header('etag', early)
+          .header('cache-control', CACHE_CONTROL)
+          .send();
       }
       const answer = await answerLegalAnalytics(
         deps,
@@ -134,16 +147,18 @@ export const makeLegalAnalyticsRoutes =
         args.value
       );
       if (answer.isErr()) return sendError(request, reply, answer.error);
+      const body = {
+        ok: true as const,
+        data: answer.value.data,
+        meta: { view: answer.value.view, layer: answer.value.layer, args: answer.value.args },
+      };
+      if (names) return reply.status(200).header('cache-control', 'no-store').send(body);
       // A retried answer (a newer layer appeared meanwhile) carries its own validator.
       return reply
         .status(200)
         .header('etag', legalAnalyticsEtag(answer.value.layer.layerId, answer.value.cacheKey))
         .header('cache-control', CACHE_CONTROL)
-        .send({
-          ok: true as const,
-          data: answer.value.data,
-          meta: { view: answer.value.view, layer: answer.value.layer, args: answer.value.args },
-        });
+        .send(body);
     });
     return Promise.resolve();
   };

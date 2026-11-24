@@ -8,6 +8,8 @@
  * the layer's own values.
  */
 
+import { Type } from '@sinclair/typebox';
+import { Value } from '@sinclair/typebox/value';
 import { err, ok, type Result } from 'neverthrow';
 
 import { invalidInput, type ApiError } from '@/modules/shared/index.js';
@@ -109,15 +111,18 @@ const parseFilter = (
     return err(invalidInput('from must not be after to', 'from'));
 
   const knownTypes = new Set(head.types.map((t) => t.key));
-  const types = [...new Set((args.type ?? []).map((t) => t.trim()))].sort();
-  if (types.length > MAX_TYPES)
+  // the raw list is bounded before de-duplication, on every surface
+  if ((args.type ?? []).length > MAX_TYPES)
     return err(invalidInput(`at most ${String(MAX_TYPES)} types`, 'type'));
+  const types = [...new Set((args.type ?? []).map((t) => t.trim()))].sort();
   if (types.some((t) => !knownTypes.has(t)))
     return err(invalidInput('type names a type the layer does not hold', 'type'));
 
-  const issuer = text('issuer', args.issuer);
+  // a lineage the layer knows passes whatever its length (joint orders keep long raw names)
+  const known = args.issuer !== undefined && head.issuers.some((i) => i.lineage === args.issuer);
+  const issuer = known ? ok(args.issuer ?? null) : text('issuer', args.issuer);
   if (issuer.isErr()) return err(issuer.error);
-  if (issuer.value !== null && !head.issuers.some((i) => i.lineage === issuer.value))
+  if (issuer.value !== null && !known)
     return err(invalidInput('issuer names no issuer lineage of the layer', 'issuer'));
   const family = text('family', args.family);
   if (family.isErr()) return err(family.error);
@@ -178,6 +183,18 @@ const made = (view: LegalAnalyticsView, canonical: Record<string, unknown>) => (
  * cursor, sort value, act id]. A cursor of another layer, filter or order is
  * refused; the caller starts again from the first page.
  */
+/** A cursor is short: base64url of a 4-tuple of ids, a canonical key and two numbers. */
+export const MAX_CURSOR_LENGTH = 2_048;
+const INT4_MIN = -2_147_483_648;
+const INT4_MAX = 2_147_483_647;
+const INT8_MAX = 9_223_372_036_854_775_807n;
+const CursorTuple = Type.Tuple([
+  Type.String({ pattern: '^[0-9]{1,19}$' }),
+  Type.String({ maxLength: MAX_CURSOR_LENGTH }),
+  Type.Integer({ minimum: INT4_MIN, maximum: INT4_MAX }),
+  Type.String({ pattern: '^[0-9]{1,19}$' }),
+]);
+
 export const encodeActsCursor = (
   layerId: string,
   key: string,
@@ -198,17 +215,18 @@ const decodeActsCursor = (
       'cursor'
     )
   );
+  if (cursor.length > MAX_CURSOR_LENGTH || !/^[A-Za-z0-9_-]+$/u.test(cursor)) return refused;
   let parts: unknown;
   try {
     parts = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
   } catch {
     return refused;
   }
-  if (!Array.isArray(parts) || parts.length !== 4) return refused;
-  const [layer, forKey, value, actId] = parts as unknown[];
+  if (!Value.Check(CursorTuple, parts)) return refused;
+  const [layer, forKey, value, actId] = parts;
   if (layer !== layerId || forKey !== key) return refused;
-  if (typeof value !== 'number' || !Number.isSafeInteger(value)) return refused;
-  if (typeof actId !== 'string' || !/^[0-9]{1,19}$/u.test(actId)) return refused;
+  // the sort value is an SQL integer (checked by the schema), the act id an SQL bigint
+  if (BigInt(actId) > INT8_MAX) return refused;
   return ok({ value, actId });
 };
 
@@ -300,6 +318,7 @@ export const parseLegalAnalyticsRequest = (
       return ok({
         view,
         key,
+        pageKey,
         args: args.cursor === undefined ? canonical : { ...canonical, cursor: args.cursor },
         filter,
         order: order,

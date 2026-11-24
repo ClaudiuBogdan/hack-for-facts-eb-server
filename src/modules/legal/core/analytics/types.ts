@@ -118,6 +118,8 @@ export type LegalAnalyticsRequest = LegalAnalyticsRequestBase &
     | { readonly view: 'links'; readonly filter: LegalAnalyticsFilter }
     | {
         readonly view: 'acts';
+        /** The request key without the cursor: every outgoing cursor is bound to it. */
+        readonly pageKey: string;
         readonly filter: LegalAnalyticsFilter;
         readonly order: LegalAnalyticsOrder;
         readonly limit: number;
@@ -165,6 +167,9 @@ export interface LegalAnalyticsHead {
   /** Rule versions (`felul`, `issuers`, `links`, `stock`). */
   readonly rules: Readonly<Record<string, string>>;
   readonly values: LegalAnalyticsValues;
+  /** The common denominators, as every other view carries them (here: the whole layer). */
+  readonly total: number;
+  readonly population: number;
   readonly totals: {
     readonly acts: number;
     readonly actsWithText: number;
@@ -181,7 +186,8 @@ export interface LegalAnalyticsHead {
   readonly issuerCount: number;
   readonly issuers: readonly {
     readonly lineage: string;
-    readonly family: string;
+    /** Every family the lineage's acts carry (a lineage can span two, e.g. a renamed agency). */
+    readonly families: readonly string[];
     readonly acts: number;
   }[];
   readonly years: { readonly min: number | null; readonly max: number | null };
@@ -242,6 +248,8 @@ export interface LegalAnalyticsActRef {
 }
 
 export interface LegalAnalyticsLinks extends LegalAnalyticsDenominators {
+  /** What the day intervals measure: both ends are first Gazette publications in the layer. */
+  readonly daysMeasure: string;
   /** Links from acts of the selection, by kind and note (`resolved`, `code`, `outside_corpus`, …). */
   readonly byKind: readonly {
     readonly kind: string;
@@ -260,7 +268,10 @@ export interface LegalAnalyticsLinks extends LegalAnalyticsDenominators {
     readonly target: LegalAnalyticsActRef;
     readonly links: number;
   }[];
-  /** Per link kind with a resolved target: days from the target's first publication to the source's (quartiles, whole days). */
+  /**
+   * Per link kind with a resolved target, except promulgations (the decree's own date is not in the layer): days
+   * from the target's first Gazette publication to the source's (quartiles, whole days).
+   */
   readonly days: readonly {
     readonly kind: string;
     readonly links: number;

@@ -19,11 +19,8 @@
 
 import './shell/db/schema.js';
 
-import { err, ok } from 'neverthrow';
-
 import {
   createCache,
-  type ApiError,
   type CapabilityResolver,
   type ContributorRegistry,
   type GraphqlSlice,
@@ -38,6 +35,11 @@ import {
   type SyntheticClient,
 } from '@/modules/shared/index.js';
 
+import {
+  ANALYTICS_SLOTS,
+  makeLegalAnalyticsGate,
+  type LegalAnalyticsDeps,
+} from './core/analytics/usecases.js';
 import {
   effectiveSemantic,
   type LegalSearchDeps,
@@ -55,7 +57,7 @@ import { legalTypeDefs } from './shell/graphql/typedefs.js';
 import { makeLegalActLoader } from './shell/loader/legal-act-loader.js';
 import { makeLegalMcpTools } from './shell/mcp/tools.js';
 import { makeLegalActsRepo } from './shell/repo/acts-repo.js';
-import { makeLegalAnalyticsRepo, type LegalAnalyticsHydrate } from './shell/repo/analytics-repo.js';
+import { makeLegalAnalyticsRepo } from './shell/repo/analytics-repo.js';
 import { makeLegalGraphRepo } from './shell/repo/graph-repo.js';
 import {
   makeLegalSearchEngine,
@@ -70,12 +72,10 @@ import { makeLegalOutlineRepoV2 } from './shell/repo/v2/outline-v2.js';
 import { makeLegalRenderRepoV2, makeLegalRenderSourceV2 } from './shell/repo/v2/render-v2.js';
 import { makeLegalV2SearchEngine } from './shell/repo/v2/search-engine-v2.js';
 import { makeLegalV2HitVerifier } from './shell/repo/v2/search-verify-v2.js';
-import { readBridgedDocFacts } from './shell/repo/v2/v2-reads.js';
 import { makeLegalVocabRepo } from './shell/repo/vocab-repo.js';
 import { makeLegalAnalyticsRoutes } from './shell/rest/analytics-routes.js';
 import { makeLegalRoutes } from './shell/rest/routes.js';
 
-import type { LegalAnalyticsDeps } from './core/analytics/usecases.js';
 import type {
   LegalActsRepo,
   LegalGraphRepo,
@@ -254,9 +254,10 @@ export const makeLegalModule = async (deps: LegalModuleDeps): Promise<LegalModul
   // 7. Legislation analytics (design §11): the published insights layer of
   //    legal_v2_analytics, on all three surfaces over one usecase. Independent of
   //    LEGAL_SOURCE: the layer is read the same way on both sources; the acts it
-  //    names are shown through the configured acts repo's privacy gate, with the
-  //    old corpus's canonical title. A database without the layer answers 503.
-  const analytics = makeLegalAnalyticsDeps(deps.db, acts);
+  //    names must have a public legal_v2 identity, tested in SQL in the view's own
+  //    transaction; the old corpus's title is optional decoration.
+  //    A database without the layer answers 503.
+  const analytics = makeLegalAnalyticsDeps(deps.db);
 
   const graphqlResolvers = deepMergeResolvers(
     deepMergeResolvers(actsResolvers, mo.resolvers),
@@ -296,41 +297,14 @@ const ANALYTICS_HEAD_TTL_MS = 60_000;
 const ANALYTICS_ANSWER_TTL_MS = 6 * 60 * 60_000;
 const ANALYTICS_ANSWER_ENTRIES = 2_000;
 
-const isUndefinedTable = (error: ApiError): boolean =>
-  error.type === 'Database' &&
-  typeof error.cause === 'object' &&
-  error.cause !== null &&
-  'code' in error.cause &&
-  error.cause.code === '42P01';
-
 /** The analytics usecase's deps as the module wires them (exported for the real-DDL proof). */
-export const makeLegalAnalyticsDeps = (
-  db: Kysely<ProdDatabase>,
-  acts: LegalActsRepo
-): LegalAnalyticsDeps => {
-  const hydrate: LegalAnalyticsHydrate = async (actIds) => {
-    if (actIds.length === 0) return ok(new Map());
-    const shown = await acts.findActsByIds(actIds);
-    if (shown.isErr()) return err(shown.error);
-    // The title is the old corpus's canonical document; a database without it shows citations only.
-    const titles = await readBridgedDocFacts(db, actIds);
-    if (titles.isErr() && !isUndefinedTable(titles.error)) return err(titles.error);
-    const titleOf = titles.isOk() ? titles.value : new Map<string, { title: string | null }>();
-    return ok(
-      new Map(
-        shown.value.map((a) => [
-          a.actId,
-          { citation: a.displayCitation, title: titleOf.get(a.actId)?.title ?? null },
-        ])
-      )
-    );
-  };
-  return {
-    repo: makeLegalAnalyticsRepo({ db, hydrate }),
-    heads: createCache({ ttlMs: ANALYTICS_HEAD_TTL_MS, maxEntries: 4 }),
-    answers: createCache({ ttlMs: ANALYTICS_ANSWER_TTL_MS, maxEntries: ANALYTICS_ANSWER_ENTRIES }),
-  };
-};
+export const makeLegalAnalyticsDeps = (db: Kysely<ProdDatabase>): LegalAnalyticsDeps => ({
+  repo: makeLegalAnalyticsRepo({ db }),
+  gate: makeLegalAnalyticsGate(ANALYTICS_SLOTS),
+  inflight: new Map(),
+  heads: createCache({ ttlMs: ANALYTICS_HEAD_TTL_MS, maxEntries: 4 }),
+  answers: createCache({ ttlMs: ANALYTICS_ANSWER_TTL_MS, maxEntries: ANALYTICS_ANSWER_ENTRIES }),
+});
 
 /**
  * Deep-merge two resolver maps: nested resolver objects (e.g. `Query`, `LegalAct`,

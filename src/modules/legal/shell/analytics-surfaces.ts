@@ -66,7 +66,8 @@ export const legalAnalyticsTypeDefs = /* GraphQL */ `
 
   extend type Query {
     "Legislation analytics over the published insights layer (one read-only snapshot per call)."
-    legalAnalytics(view: LegalAnalyticsView!, args: LegalAnalyticsArgs): LegalAnalyticsAnswer!
+    # null with an error when the analytics are unavailable (sibling fields keep their results)
+    legalAnalytics(view: LegalAnalyticsView!, args: LegalAnalyticsArgs): LegalAnalyticsAnswer
   }
 `;
 
