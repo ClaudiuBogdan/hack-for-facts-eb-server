@@ -101,7 +101,15 @@ const build = async (
           }))
         )
       ),
-    contractsByIds: () => Promise.resolve(ok(new Map())),
+    // A contract record's supplier name comes from this production read (masked there).
+    contractsByIds: () =>
+      Promise.resolve(
+        ok(
+          new Map([
+            ['17', { contractId: '17', displayTitle: null, supplierName: 'FIRMA EXEMPLU SRL' }],
+          ])
+        )
+      ),
     searchDirectAcquisitionsOffset: () =>
       Promise.resolve(
         ok({

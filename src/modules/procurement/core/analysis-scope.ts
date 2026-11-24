@@ -36,6 +36,7 @@ import {
   type FrameworkRoleFilter,
   type RecordKind,
 } from './constants.js';
+import { carriesPersonalCode } from './free-text-rule.js';
 
 export interface AnalysisScope {
   readonly authorityCui?: string;
@@ -305,6 +306,10 @@ export const parseAnalysisScope = (raw: RawAnalysisScope): Result<AnalysisScope,
     return err(
       invalidInput(`q must be ${String(Q_MIN_LENGTH)}–${String(Q_MAX_LENGTH)} characters`, 'q')
     );
+  }
+  // Never a CNP: a personal code is no filter, and the scope is echoed back (canonicalScope).
+  if (out.q !== undefined && carriesPersonalCode(out.q)) {
+    return err(invalidInput('q must not contain a personal numeric code', 'q'));
   }
 
   for (const field of ['valueMin', 'valueMax'] as const) {

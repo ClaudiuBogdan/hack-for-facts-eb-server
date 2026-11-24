@@ -434,7 +434,8 @@ export const mapModification = (r: ModificationRow): ProcurementModification => 
   currency: r.currency,
   sourceValueBefore: r.source_value_before,
   sourceValueAfter: r.source_value_after,
-  modificationType: r.modification_type,
+  // Free text (what changed, as written): the shipped free-text rule withholds a hit, as on titles.
+  modificationType: publicFreeText(r.modification_type),
   year: r.year,
 });
 

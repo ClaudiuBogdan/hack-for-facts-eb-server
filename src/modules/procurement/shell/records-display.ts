@@ -29,14 +29,15 @@ export const withDisplayTitles = async (
       ? await repo.contractsByIds(result.items.map((item) => item.id))
       : null;
   const contracts = titles?.isOk() === true ? titles.value : null;
-  return result.items.map(({ titleWithheld, supplierPerson, ...item }) => {
+  return result.items.map(({ titleWithheld, supplierPerson: _person, ...item }) => {
     const contract = contracts?.get(item.id);
     const displayTitle = contract?.displayTitle ?? null;
     return {
       ...item,
-      // A person's supplier name: only the masked one production serves for this contract (its
-      // read masks it), and never one that may carry a personal code; null when not read.
-      ...(supplierPerson === true && {
+      // A contract's supplier name: only the one production serves for it (its read masks a
+      // person's, whatever the build says), never one that may carry a personal code; null when not
+      // read. On another grain the usecase already nulled a person's name (`supplierPerson`).
+      ...(result.grain === 'contract' && {
         supplierName: publicPartyName(contract?.supplierName ?? null),
       }),
       // The free-text rule (interim gate): a withheld source title takes its

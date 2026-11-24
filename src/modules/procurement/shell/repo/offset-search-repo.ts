@@ -168,9 +168,22 @@ const cpvCodePredicate = (alias: string, code: string): RawBuilder<unknown> => {
   return sql`${col} like ${prefix} escape '\\'`;
 };
 
-/** A `q` column: a supplier name is matched as served (masked for a person), never raw. */
-const qColumn = (alias: string, column: string): RawBuilder<unknown> =>
-  column === 'supplier_name' ? servedSupplierNameSql(alias) : ref(alias, column);
+/**
+ * A `q` column. A party name, and a modification's free-text description, is matched with its digits
+ * removed, so no digit in `q` can match inside one (a personal code written into it); numbers are
+ * matched in their own columns. A supplier
+ * name is matched as served (masked for a person), never raw.
+ */
+const qColumn = (alias: string, column: string): RawBuilder<unknown> => {
+  if (column === 'supplier_name') return digitsStripped(servedSupplierNameSql(alias));
+  // Free text that is also served through the free-text rule: no digit may confirm a code in it.
+  if (column === 'authority_name' || column === 'modification_type') {
+    return digitsStripped(ref(alias, column));
+  }
+  return ref(alias, column);
+};
+const digitsStripped = (name: RawBuilder<unknown>): RawBuilder<unknown> =>
+  sql`regexp_replace(${name}, '[0-9]', '', 'g')`;
 
 /** `q` → an escaped, bounded ILIKE across the grain's short text columns. */
 const qPredicate = (grain: SearchGrain, alias: string, q: string): RawBuilder<unknown> => {
@@ -263,9 +276,10 @@ export const codedNamesOf = (
   new Map(
     rows.flatMap((row) => {
       const supplierCode = row['supplier_cui'];
-      // A person's supplier name is served masked: a fragment of the indexed raw name never is.
+      // A supplier name with no served code, or a person's, may be served masked: a fragment of the
+      // indexed raw name never is (a superset of the masked rows: the row's attrs are not read).
       const personSupplier =
-        typeof supplierCode === 'string' && isWithheldOrganizationIdentifier(supplierCode);
+        typeof supplierCode !== 'string' || isWithheldOrganizationIdentifier(supplierCode);
       const coded = new Set(
         NAME_COLUMNS.flatMap(([field, column]) => {
           const name = row[column];

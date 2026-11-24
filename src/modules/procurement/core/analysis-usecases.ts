@@ -488,7 +488,8 @@ const genWithCoverage = async (
   if (build !== undefined && build !== activeBuild) {
     return err(
       invalidInput(
-        `analysis build ${build} is not the active build (${activeBuild}); re-read the active build and repeat the request`,
+        // The pin is never echoed: any 13 digits pass its form, a personal code included.
+        `the pinned analysis build is not the active build (${activeBuild}); re-read the active build and repeat the request`,
         'build'
       )
     );
@@ -1244,10 +1245,17 @@ const breakdownBlockFor = async (
   // The names of the company buckets, gated by supplier_name_public, read for this answer only, in
   // the publication the buckets came from. Only the v3 grain names suppliers (the ClickHouse D6
   // path refuses DA supplier breakdowns, and its keys are not that publication's).
+  const personKey = (key: string): boolean =>
+    key !== DA_NATURAL_PERSON_BUCKET && isWithheldOrganizationIdentifier(key);
   const companyCodes =
     supplierKinds && gen.capabilities.directAcquisitionV3 === true
       ? buckets.flatMap((b) =>
-          b.kind === 'top' && b.key !== null && b.key !== DA_NATURAL_PERSON_BUCKET ? [b.key] : []
+          b.kind === 'top' &&
+          b.key !== null &&
+          b.key !== DA_NATURAL_PERSON_BUCKET &&
+          !personKey(b.key)
+            ? [b.key]
+            : []
         )
       : [];
   let names: ReadonlyMap<string, string> = new Map();
@@ -1257,6 +1265,9 @@ const breakdownBlockFor = async (
     names = read.value;
   }
   const outBuckets: AnalysisBreakdownBucket[] = buckets.map((b) => {
+    // A DA supplier keyed by a person's code (should the serving data ever disclose one): served as a
+    // withheld supplier, its key never echoed (kernel P0 containment).
+    const personBucket = supplierKinds && b.kind === 'top' && b.key !== null && personKey(b.key);
     const basisValue = rankedBy === 'value' ? d(b.valueAwardedSum) : d(b.recordCount);
     // Null-law (review F7): a bucket with NO valued rows emits null money —
     // the repo's reconciliation zero is internal, never an observed value.
@@ -1265,7 +1276,7 @@ const breakdownBlockFor = async (
         ? d(b.valueAwardedSum).toFixed(MONEY_DP)
         : null;
     return {
-      key: b.key,
+      key: personBucket ? null : b.key,
       kind: b.kind,
       recordCount: b.recordCount,
       withValueCount: b.withValue,
@@ -1276,9 +1287,10 @@ const breakdownBlockFor = async (
       shareOfScope: basisTotal.greaterThan(0) ? basisValue.div(basisTotal).toFixed(RATIO_DP) : null,
       ...(supplierKinds &&
         b.kind === 'top' && {
-          displayKind: b.key === DA_NATURAL_PERSON_BUCKET ? 'natural_person' : 'company',
+          displayKind:
+            b.key === DA_NATURAL_PERSON_BUCKET || personBucket ? 'natural_person' : 'company',
           displayName:
-            b.key === null || b.key === DA_NATURAL_PERSON_BUCKET
+            b.key === null || b.key === DA_NATURAL_PERSON_BUCKET || personBucket
               ? null
               : publicPartyName(names.get(b.key) ?? null),
         }),

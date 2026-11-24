@@ -165,6 +165,8 @@ describe('procurementRecords transport', () => {
     ({
       contractId: id,
       displayTitle: { text: `Contract ${id}`, source: 'procedure', sourceUrl: null },
+      // A contract record's supplier name comes from this production read (masked there).
+      supplierName: 'Firma SRL',
     }) as unknown as ProcurementContract;
 
   it('hydrates contract display titles by id without changing rows or money', async () => {

@@ -21,6 +21,8 @@ import {
   type FilterInput,
 } from '@/modules/shared/index.js';
 
+import { carriesPersonalCode } from './free-text-rule.js';
+
 import type { CursorPageRequest, ProcurementRepo } from './ports.js';
 import type {
   ContractDetail,
@@ -112,7 +114,11 @@ export const resolveCpv = (
   repo: ProcurementRepo,
   q: string,
   limit: number
-): Promise<Result<readonly CpvMatch[], ApiError>> => repo.resolveCpv(q, limit);
+): Promise<Result<readonly CpvMatch[], ApiError>> =>
+  // Never a CNP: a personal code is no CPV query, and q is echoed back (MCP summary).
+  carriesPersonalCode(q)
+    ? Promise.resolve(err(invalidInput('q must not contain a personal numeric code', 'q')))
+    : repo.resolveCpv(q, limit);
 
 // ── detail bundles + supplier records ─────────────────────────────────────────
 

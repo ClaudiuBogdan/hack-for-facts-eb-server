@@ -80,7 +80,11 @@ const repo = {
   searchContractsOffset: () =>
     page(CONTRACTS, [
       { id: '1', supplierName: `⟦FIRMA⟧ EXEMPLU SRL` },
-      { id: '2', supplierName: `⟦POPESCU⟧ ION ${SYNTHETIC_CNP}` },
+      {
+        id: '2',
+        supplierName: `⟦POPESCU⟧ ION ${SYNTHETIC_CNP}`,
+        authorityName: `⟦PRIMARIA⟧ ${SYNTHETIC_CNP}`,
+      },
     ]),
   searchModificationsOffset: () =>
     page([modification('7', CODED_NAME), modification('8', ORDINARY_NAME)]),
@@ -176,7 +180,7 @@ describe('legacy GraphQL party names carrying a personal code (never a CNP)', ()
       query {
         procurementContracts(pageSize: 10) {
           items { id authority { ${PARTY} } supplier { ${PARTY} } }
-          highlights { id supplierName }
+          highlights { id supplierName authorityName }
         }
       }
     `);
@@ -186,8 +190,8 @@ describe('legacy GraphQL party names carrying a personal code (never a CNP)', ()
     };
     expect(partiesOf(result.items)).toEqual(EXPECTED_CONTRACT_PARTIES);
     expect(result.highlights).toEqual([
-      { id: '1', supplierName: '⟦FIRMA⟧ EXEMPLU SRL' },
-      { id: '2', supplierName: null },
+      { id: '1', supplierName: '⟦FIRMA⟧ EXEMPLU SRL', authorityName: null },
+      { id: '2', supplierName: null, authorityName: null },
     ]);
     expect(raw).not.toContain(SYNTHETIC_CNP);
   });
@@ -243,6 +247,22 @@ describe('legacy GraphQL party names carrying a personal code (never a CNP)', ()
       '8': ['COMUNA EXEMPLU', { cui: null, name: ORDINARY_NAME, displayName: ORDINARY_NAME }],
     });
     expect(raw).not.toContain(SYNTHETIC_CNP);
+  });
+
+  it('procurementSupplierRecords refuses a person code as its key, without echoing it', async () => {
+    app ??= await build();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/graphql',
+      headers: { 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        query: `query { procurementSupplierRecords(supplierCui: "${SYNTHETIC_CNP}", first: 5) { edges { cursor } } }`,
+      }),
+    });
+    const body = res.json<{ data?: unknown; errors?: { extensions?: { code?: string } }[] }>();
+    expect(body.errors?.[0]?.extensions?.code).toBe('INVALID_INPUT');
+    // The request carried the code; the answer must not.
+    expect(res.body).not.toContain(SYNTHETIC_CNP);
   });
 
   it('procurementSupplierRecords withholds a coded contract supplier name', async () => {

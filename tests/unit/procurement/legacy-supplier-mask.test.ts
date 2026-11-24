@@ -63,6 +63,33 @@ const contractRow = (id: string, supplierCui: string | null, supplierName: strin
   display_title_candidates: { matchedAwards: [], procedure: null },
 });
 
+const PROCEDURE_ROW = {
+  procedure_id: '9',
+  source_system: 'seap_notice',
+  source_url: null,
+  notice_no: null,
+  notice_kind: null,
+  procedure_type: null,
+  contract_kind: null,
+  title: null,
+  authority_cui: '4305857',
+  authority_name: 'COMUNA EXEMPLU',
+  cpv_code: null,
+  estimated_value_ron: null,
+  awarded_value_ron: null,
+  currency: null,
+  status: 'awarded',
+  county_name: null,
+  publication_date: '2025-01-01',
+  state_date: null,
+  value_state: 'source_missing',
+  value_state_detail: { rule: 'no_value' },
+  value_ron_comparable: null,
+  value_comparable_basis: null,
+  value_rules_version: 2,
+  value_resolved_at: null,
+};
+
 /** The rows the hydration query answers, by contract id. */
 const ROWS = new Map([
   ['1', contractRow('1', '14399840', ORDINARY_NAME)],
@@ -77,6 +104,12 @@ const scriptedDb = () => {
   const connection: DatabaseConnection = {
     executeQuery: <R>(query: CompiledQuery): Promise<QueryResult<R>> => {
       queries.push(query.sql);
+      // The procedure of a procedure detail, so its contracts are read too.
+      if (
+        query.sql.includes('from "procurement"."procedures" as "p" where "p"."procedure_id" = $1')
+      ) {
+        return Promise.resolve({ rows: [PROCEDURE_ROW] as unknown as R[] });
+      }
       // The SQL q path's candidates (PROC-R87F): one, so the page is hydrated too.
       if (query.sql.includes('as other_match')) {
         return Promise.resolve({
@@ -120,7 +153,7 @@ const scriptedDb = () => {
 
 /** The masked-or-raw expression, as compiled, for any table alias. */
 const MASKED =
-  /case when length\("(\w+)"\."supplier_cui"\) > 10 then procurement_v3\.mask_person_name\("\1"\."supplier_name"\) else "\1"\."supplier_name" end/gu;
+  /case when coalesce\("(\w+)"\."supplier_cui", "\1"\."attrs" #>> '\{source_party_cuis,supplier\}'\) is null or length\(coalesce\("\1"\."supplier_cui", "\1"\."attrs" #>> '\{source_party_cuis,supplier\}'\)\) > 10 then procurement_v3\.mask_person_name\("\1"\."supplier_name"\) else "\1"\."supplier_name" end/gu;
 
 /** A statement's raw supplier-name reads: what is left once every masked read is removed. */
 const rawSupplierNameReads = (statement: string): string[] =>
@@ -139,6 +172,7 @@ describe('legacy reads mask a person supplier name in SQL', () => {
       ['listContracts', () => repo.listContracts({}, { first: 5 })],
       ['getContract', () => repo.getContract('1')],
       ['getContractDetail', () => repo.getContractDetail('1')],
+      ['getProcedureDetail', () => repo.getProcedureDetail('9')],
       ['contractsByIds', () => repo.contractsByIds(['1'])],
       ['supplierRecords', () => repo.supplierRecords('14399840', 5, undefined, false)],
       ['listModifications', () => repo.listModifications({}, { first: 5 })],
@@ -179,6 +213,34 @@ describe('legacy reads mask a person supplier name in SQL', () => {
       });
       expect(reads.statements, label).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('the SQL q path', () => {
+  it('matches party names and modification text with their digits removed, the supplier masked', async () => {
+    const { db, queries } = scriptedDb();
+    const repo = makeProcurementRepo(db, 366);
+    await repo.searchContractsOffset({ q: 'popescu' }, page);
+    await repo.searchModificationsOffset({ q: 'popescu' }, page);
+    await repo.searchProceduresOffset({ q: 'popescu' }, page);
+    const qStatements = queries.filter((q) => q.includes(' ilike '));
+    expect(qStatements.length).toBeGreaterThanOrEqual(3);
+    for (const statement of qStatements) {
+      // No name or modification text is matched raw: each is wrapped, digits removed.
+      expect(statement).not.toMatch(
+        /"\w+"\."(authority_name|supplier_name|modification_type)" ilike/u
+      );
+      expect(statement).not.toMatch(/ end ilike/u);
+    }
+    const joined = qStatements.join('\n');
+    expect(joined).toContain(`regexp_replace("c"."authority_name", '[0-9]', '', 'g') ilike`);
+    expect(joined).toContain(`regexp_replace("m"."modification_type", '[0-9]', '', 'g') ilike`);
+    expect(joined).toMatch(
+      new RegExp(
+        `regexp_replace\\(${MASKED.source.replace(/\(\\w\+\)/u, '(c)').replace(/\\1/gu, 'c')}, '\\[0-9\\]', '', 'g'\\) ilike`,
+        'u'
+      )
+    );
   });
 });
 
