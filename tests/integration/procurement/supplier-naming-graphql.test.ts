@@ -171,7 +171,7 @@ describe('naming step 2b: a code shown without D6 disclosing it', () => {
     fiscalCode: code,
     name: naming.name,
     supplierPublic: false,
-    supplierShown: true,
+    supplierUndisclosed: true,
     naming,
   });
   const MASKED_ROW = withSupplier(

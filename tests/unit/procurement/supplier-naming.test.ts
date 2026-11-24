@@ -400,7 +400,7 @@ describe('naming step 2b: a code shown without D6 disclosing it', () => {
   const undisclosed = (naming: SupplierNaming | undefined): DaPartyRecord => ({
     ...DISCLOSED,
     supplierPublic: false,
-    supplierShown: true,
+    supplierUndisclosed: true,
     ...(naming !== undefined && { naming }),
   });
 
@@ -433,7 +433,7 @@ describe('naming step 2b: a code shown without D6 disclosing it', () => {
       },
       {
         ...undisclosed({ kind: 'person_masked', name: MASKED, source: 'view' }),
-        supplierShown: false,
+        supplierUndisclosed: false,
       },
       {
         ...undisclosed({ kind: 'person_masked', name: MASKED, source: 'view' }),

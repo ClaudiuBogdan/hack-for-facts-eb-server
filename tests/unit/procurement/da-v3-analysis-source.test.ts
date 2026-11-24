@@ -859,7 +859,7 @@ describe('naming step 2b: the explicit D6 column', () => {
       const { data } = await run(read);
       const text = data.join('\n');
       expect(text).not.toContain('supplier_disclosed');
-      expect(text).not.toContain("'shown'");
+      expect(text).not.toContain("'undisclosed'");
     }
   });
 
@@ -871,14 +871,14 @@ describe('naming step 2b: the explicit D6 column', () => {
     expect(scoped.data.join('\n')).not.toContain('supplier_disclosed');
     const page = await run(records, {
       disclosedColumn: 'denied',
-      records: [shown('2000002')],
+      records: [undisclosedRow('2000002')],
       view: [
         { code: '2000002', naming: 'named', display_name: 'FIRMA EXEMPLU SRL', code_shown: true },
       ],
     });
     // The page never marks a row shown, and names no supplier (D6 unreadable).
     expect(page.data.join('\n')).not.toContain('supplier_disclosed');
-    expect(page.sql).not.toContain("'shown'");
+    expect(page.sql).not.toContain("'undisclosed'");
     expect(page.sql).toMatch(/case when false then s\.fiscal_code_clean end as supplier_cui/u);
   });
 
@@ -894,17 +894,17 @@ describe('naming step 2b: the explicit D6 column', () => {
     expect(ranked.sql).toContain('and s.supplier_disclosed is true) then s.fiscal_code_clean');
     expect(ranked.sql).not.toContain('supplier_disclosed is false');
     const page = await run(records, { disclosedColumn: true });
-    expect(page.sql).toContain("and s.supplier_disclosed is false) then 'shown'");
+    expect(page.sql).toContain("and s.supplier_disclosed is false) then 'undisclosed'");
     expect(page.sql).toContain('x.supplier_disclosed');
   });
 
-  const shown = (cui: string) => ({
+  const undisclosedRow = (cui: string) => ({
     id: cui,
     date: '2025-01-01',
     authority_cui: '4305857',
     authority_name: 'PRIMARIA',
     supplier_cui: cui,
-    supplier_display_kind: 'shown',
+    supplier_display_kind: 'undisclosed',
     value_ron: '1.00',
     status: 'accepted',
     cpv_code: null,
@@ -927,7 +927,12 @@ describe('naming step 2b: the explicit D6 column', () => {
   it('serves a records row that only shows its code by its view naming, else withheld', async () => {
     const { result } = await run(records, {
       disclosedColumn: true,
-      records: [shown('2000002'), shown('3000003'), shown('4000004'), shown('5000005')],
+      records: [
+        undisclosedRow('2000002'),
+        undisclosedRow('3000003'),
+        undisclosedRow('4000004'),
+        undisclosedRow('5000005'),
+      ],
       view: [
         { code: '2000002', naming: 'masked', display_name: 'EXEMPLU M*** PFA', code_shown: true },
         { code: '3000003', naming: 'named', display_name: 'FIRMA EXEMPLU SRL', code_shown: true },
@@ -948,7 +953,7 @@ describe('naming step 2b: the explicit D6 column', () => {
     const person = SYNTHETIC_CNP;
     const { result } = await run(records, {
       disclosedColumn: true,
-      records: [shown(person)],
+      records: [undisclosedRow(person)],
       view: [
         { code: person, naming: 'masked', display_name: 'EXEMPLU M*** PFA', code_shown: true },
       ],
@@ -959,7 +964,7 @@ describe('naming step 2b: the explicit D6 column', () => {
   it('withholds every row that only shows its code before the names grant', async () => {
     const { result } = await run(records, {
       disclosedColumn: true,
-      records: [shown('2000002')],
+      records: [undisclosedRow('2000002')],
       names: [{ code: '2000002', name: 'FIRMA EXEMPLU SRL' }],
     });
     expect(served(result)).toEqual([[null, 'natural_person', null]]);

@@ -44,7 +44,7 @@ import {
   probeSupplierDisclosedColumn,
   type DisclosedColumn,
   probeSupplierDisclosure,
-  shownSupplierSql,
+  undisclosedSupplierSql,
   purchaseParties,
   SUPPLIER_DISCLOSURE_NAME,
   supplierNamesByCode,
@@ -132,7 +132,7 @@ const partyColumns = (alias: 'b' | 's', columns: Columns) =>
     // Naming step 2b only: before the column exists the select list is as it was.
     ...(columns.supplierDisclosed
       ? [
-          sql`${alias === 's' ? shownSupplierSql(columns.supplierDisclosure, true) : sql`false`} as ${sql.id(`${alias}_supplier_undisclosed`)}`,
+          sql`${alias === 's' ? undisclosedSupplierSql(columns.supplierDisclosure, true) : sql`false`} as ${sql.id(`${alias}_supplier_undisclosed`)}`,
         ]
       : []),
   ]);
@@ -150,7 +150,7 @@ const partyOf = (row: Record<string, unknown>, prefix: string): DaPartyRecord | 
     fiscalCode: text('fiscal_code_clean'),
     fiscalCodeStatus: text('fiscal_code_status'),
     supplierPublic: row[`${prefix}_supplier_public`] === true,
-    ...(row[`${prefix}_supplier_undisclosed`] === true && { supplierShown: true }),
+    ...(row[`${prefix}_supplier_undisclosed`] === true && { supplierUndisclosed: true }),
   };
 };
 
@@ -342,9 +342,10 @@ const whereOf = (filter: DaPurchaseFilter, columns: Columns): RawBuilder<unknown
         })`;
   if (filter.buyerFiscalCode !== undefined)
     conditions.push(partyIds('buyer', sql`p.buyer_party_id`, filter.buyerFiscalCode));
-  // The party-id match IS the D6 test: the view holds a supplier row only for a disclosed code,
-  // and the subquery itself requires fiscal_code_status = 'valid' and an equal, non-null code on
-  // the same unique party key, so no row probes `s` to filter. Unreadable D6: none.
+  // The party-id match IS the D6 test: the view holds a supplier row only for a disclosed code
+  // (once the D6 column exists, the subquery requires it too), and the subquery itself requires
+  // fiscal_code_status = 'valid' and an equal, non-null code on the same unique party key, so no
+  // row probes `s` to filter. Unreadable D6: none.
   if (filter.supplierFiscalCode !== undefined)
     conditions.push(
       columns.supplierDisclosure
@@ -733,7 +734,7 @@ const withSupplierNames = async <T>(
 ): Promise<Result<T[], ApiError>> => {
   const named = (item: T): DaPartyRecord | null => {
     const party = supplierOf(item);
-    return party !== null && (isNamedSupplier(party) || party.supplierShown === true)
+    return party !== null && (isNamedSupplier(party) || party.supplierUndisclosed === true)
       ? party
       : null;
   };

@@ -115,7 +115,7 @@ export const namedSupplierSql = (present: boolean, disclosedColumn = false): Raw
  * (a valid code, `supplier_disclosed` false). Never true before the column exists or without a
  * readable supplier_disclosure, and never used to count, rank, filter or scope.
  */
-export const shownSupplierSql = (
+export const undisclosedSupplierSql = (
   present: boolean,
   disclosedColumn: boolean
 ): RawBuilder<unknown> =>
@@ -128,10 +128,10 @@ export const disclosedPartySql = (disclosedColumn: boolean): RawBuilder<unknown>
   disclosedColumn ? sql` and pp.supplier_disclosed is true` : sql``;
 
 /**
- * Whether `da_parties_public` carries `supplier_disclosed` (naming step 2b), and whether this login
- * may read it. Catalog reads only. `absent`: the view's supplier rows are the gate, as before.
- * `denied`: the gate cannot be read, so the caller withholds every supplier (fails closed; never
- * the row-presence rule, which would disclose step 2b's rows).
+ * The state of the D6 gate column `da_parties_public.supplier_disclosed` (naming step 2b) for this
+ * login. `absent`: the view's supplier rows are the gate, as before. `readable`: the column is the
+ * gate. `denied`: the gate cannot be read, so every supplier is withheld (fails closed; never the
+ * row-presence rule, which would disclose step 2b's rows).
  */
 export type DisclosedColumn = 'absent' | 'readable' | 'denied';
 
@@ -148,6 +148,7 @@ export const DISCLOSED_COLUMN_STATE_SQL = sql`(
 export const disclosedColumnOf = (value: unknown): DisclosedColumn =>
   value === 'absent' || value === 'readable' ? value : 'denied';
 
+/** The column's state in this transaction. Catalog reads only. */
 export const probeSupplierDisclosedColumn = async (
   trx: Kysely<ProdDatabase>
 ): Promise<DisclosedColumn> => {

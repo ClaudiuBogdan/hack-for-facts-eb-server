@@ -62,7 +62,7 @@ import {
   type DisclosedColumn,
   probeSupplierDisclosure,
   purchaseParties,
-  shownSupplierSql,
+  undisclosedSupplierSql,
   SUPPLIER_DISCLOSURE,
   SUPPLIER_DISCLOSURE_NAME,
   supplierNamesByCode,
@@ -374,9 +374,10 @@ const liveFacts = (ctx: Ctx, geo: boolean, pointReads: boolean, joins: PartyJoin
     supplierNamed: named,
     // By party ids, so the planner reaches the purchases through the party index instead of
     // reading a year of purchases and filtering on the joined party row (measured 18 Nov). The
-    // match IS the D6 test: the view holds a supplier row only for a disclosed code, and the
-    // subquery requires a valid status and an equal, non-null code on the same unique party key
-    // (no per-row probe of `s`); with supplier_disclosure unreadable nothing matches.
+    // match IS the D6 test: the view holds a supplier row only for a disclosed code (or, once the
+    // D6 column exists, the subquery requires it), and the subquery requires a valid status and an
+    // equal, non-null code on the same unique party key (no per-row probe of `s`); with
+    // supplier_disclosure unreadable nothing matches.
     supplierScope: (code) =>
       ctx.privacy
         ? partyIds(
@@ -873,8 +874,8 @@ interface RecordRow {
   authority_cui: string | null;
   authority_name: string | null;
   supplier_cui: string | null;
-  /** `shown`: naming step 2b, the code is shown without D6 disclosing it (row level only). */
-  supplier_display_kind: 'company' | 'shown' | 'natural_person' | null;
+  /** `undisclosed`: naming step 2b, the code is shown without D6 disclosing it (row level only). */
+  supplier_display_kind: 'company' | 'undisclosed' | 'natural_person' | null;
   value_ron: string | null;
   status: string | null;
   cpv_code: string | null;
@@ -903,7 +904,7 @@ const recordSupplier = (
     if (naming.kind === 'hidden') return withheld;
     return { cui, name: servedSupplierName(naming), kind: naming.kind };
   }
-  if (kind === 'shown' && !isWithheldOrganizationIdentifier(cui)) {
+  if (kind === 'undisclosed' && !isWithheldOrganizationIdentifier(cui)) {
     // Without a view row that shows the code, or before the grant: withheld (core rule).
     const naming = undisclosedNaming(names.get(cui) ?? { kind: 'hidden', name: null });
     if (naming.kind !== 'person_masked' && naming.kind !== 'code_only') return withheld;
@@ -923,7 +924,8 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
   /**
    * The publication and privacy state RIGHT NOW, in ONE statement (a publish
    * cannot fall between the two): whether `build` is still the current build,
-   * and whether supplier_disclosure is readable. Unreadable on error.
+   * whether supplier_disclosure is readable, and the D6 column's state (D6 is
+   * readable only when that column is not denied). Unreadable on error.
    */
   const probeNow = async (
     build: string
@@ -955,8 +957,9 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
   };
 
   /**
-   * An entry is reused, and stored, only while the build is current and
-   * supplier_disclosure is readable, checked before the lookup AND after the fill.
+   * An entry is reused, and stored, only while the build is current and D6 is
+   * readable, checked before the lookup AND after the fill; it answers only under
+   * the D6 column state it was read with (returned here, part of the key).
    */
   const cacheable = async (build: string): Promise<DisclosedColumn | null> => {
     const now = await probeNow(build);
@@ -1525,11 +1528,11 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
           if (isNamed === null) return err(databaseError('records read live rows only'));
           // Naming step 2b: a supplier whose code is shown without D6 disclosing it, on this page
           // (before the column exists the statement is as it was).
-          const isShown = shownSupplierSql(ctx.privacy, ctx.disclosedColumn);
-          const shownOr = ctx.disclosedColumn ? sql` or ${isShown}` : sql``;
-          const shownWhen = ctx.disclosedColumn
+          const isUndisclosed = undisclosedSupplierSql(ctx.privacy, ctx.disclosedColumn);
+          const undisclosedOr = ctx.disclosedColumn ? sql` or ${isUndisclosed}` : sql``;
+          const undisclosedWhen = ctx.disclosedColumn
             ? sql`
-                    when ${isShown} then 'shown'`
+                    when ${isUndisclosed} then 'undisclosed'`
             : sql``;
           // Without a geography scope the filter reads only the purchase row (party scopes go by
           // party ids), so the page is chosen from da_purchases alone and only its rows probe their
@@ -1554,9 +1557,9 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
                p.finalization_day::text as date,
                case when b.fiscal_code_status = 'valid' then b.fiscal_code_clean end as authority_cui,
                b.name_as_written as authority_name,
-               case when ${isNamed}${shownOr} then s.fiscal_code_clean end as supplier_cui,
+               case when ${isNamed}${undisclosedOr} then s.fiscal_code_clean end as supplier_cui,
                case when p.supplier_party_id is null then null
-                    when ${isNamed} then 'company'${shownWhen} else 'natural_person' end as supplier_display_kind,
+                    when ${isNamed} then 'company'${undisclosedWhen} else 'natural_person' end as supplier_display_kind,
                (${money})::text as value_ron,
                p.outcome as status,
                case when p.category_code ~ '^[0-9]{8}' then left(p.category_code, 8) end as cpv_code,
