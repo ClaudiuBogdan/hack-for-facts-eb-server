@@ -158,6 +158,16 @@ export const bitwardenLocation = (registry, secret) => ({
   projectId: secret.bitwardenProjectId ?? registry.bitwarden.projectId,
 });
 
+/** A Kubernetes Secret name (DNS-1123 subdomain): one spelling per file, so no two names share one. */
+const SECRET_NAME = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$/u;
+const secretName = (value, label) => {
+  const name = string(value, label);
+  if (name.length > 253 || !SECRET_NAME.test(name)) {
+    throw new Error(`${label} must be a Kubernetes Secret name`);
+  }
+  return name;
+};
+
 export const normalizeRegistry = (input) => {
   const document = object(input, 'registry');
   if (document.version !== 1) throw new Error('registry.version must be 1');
@@ -187,7 +197,7 @@ export const normalizeRegistry = (input) => {
       `secrets[${index}].bitwardenRecordKey`
     );
     return {
-      name: string(current.name, `secrets[${index}].name`),
+      name: secretName(current.name, `secrets[${index}].name`),
       bitwardenSecretId: string(current.bitwardenSecretId, `secrets[${index}].bitwardenSecretId`),
       ...(bitwardenProjectId !== undefined && { bitwardenProjectId }),
       ...(bitwardenRecordKey !== undefined && { bitwardenRecordKey }),
@@ -257,7 +267,7 @@ const externalEntries = (input) => {
   return input.map((entry, index) => {
     const current = object(entry, `externallySealed[${index}]`);
     return {
-      name: string(current.name, `externallySealed[${index}].name`),
+      name: secretName(current.name, `externallySealed[${index}].name`),
       sealedBy: string(current.sealedBy, `externallySealed[${index}].sealedBy`),
       source: string(current.source, `externallySealed[${index}].source`),
       reseal: string(current.reseal, `externallySealed[${index}].reseal`),
