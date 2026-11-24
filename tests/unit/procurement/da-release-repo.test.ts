@@ -10,6 +10,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
+import { toSupplier } from '@/modules/procurement/core/da-release.js';
 import { makeDaReleaseRepo } from '@/modules/procurement/shell/repo/da-release-repo.js';
 
 import { makeCapturingDb, type CapturedQuery } from '../../fixtures/capturing-db.js';
@@ -27,6 +28,10 @@ const run = async (
     superseded_at?: boolean;
     /** The *_shown text columns and their flags (title, item name, item unit). */
     shown?: boolean;
+    /** Naming step 2b: da_parties_public.supplier_disclosed exists. */
+    disclosed?: boolean;
+    /** Naming step 2: this login may read supplier_names_public. */
+    names?: boolean;
   } = {
     supplier_disclosure: true,
     listed_now: true,
@@ -38,6 +43,7 @@ const run = async (
   const transactions: unknown[] = [];
   const db = makeCapturingDb(captured, {
     respond: (text) => {
+      if (text.includes('as names_readable')) return [{ names_readable: probe.names === true }];
       if (text.includes('has_table_privilege')) return [{ present: probe.supplier_disclosure }];
       if (text.includes('from pg_attribute')) {
         const present: [string, string, boolean | undefined][] = [
@@ -49,6 +55,7 @@ const run = async (
           ['da_items', 'item_name_public', probe.shown],
           ['da_items', 'item_unit_shown', probe.shown],
           ['da_items', 'item_unit_public', probe.shown],
+          ['da_parties_public', 'supplier_disclosed', probe.disclosed],
         ];
         return present
           .filter(([, , on]) => on === true)
@@ -632,5 +639,130 @@ describe('settled snapshots (the after-read rule)', () => {
   it('does not settle an unsettled snapshot (the status)', async () => {
     const read = await settledRead({ asOf: P1, privacy: true }, (w) => (w.asOf = P2), false);
     expect(read._unsafeUnwrap()).toBe(P1);
+  });
+});
+
+describe('naming step 2b: the explicit D6 column', () => {
+  const ON = { supplier_disclosure: true, listed_now: true, superseded_at: true };
+
+  it('without da_parties_public.supplier_disclosed, reads exactly as before', async () => {
+    for (const [label, read] of READS) {
+      const { sql } = await run(read, ON);
+      expect(sql, label).not.toContain('supplier_disclosed');
+    }
+  });
+
+  it('with it, every count, ranking and filter requires it; rows only show the rest', async () => {
+    const both = { ...ON, disclosed: true };
+    const list = await run(
+      (r) =>
+        r.listPurchases({
+          sort: 'finalizationDesc',
+          filter: { supplierFiscalCode: '14399840' },
+          ...PAGE,
+        }),
+      both
+    );
+    // The supplier filter: only a disclosed code matches (an undisclosed one lists nothing).
+    expect(list.sql).toContain('pp.party_kind = $');
+    expect(list.sql).toContain('and pp.supplier_disclosed is true)');
+    // The row: D6 needs the column, and a row that only shows its code is marked apart.
+    expect(list.sql).toContain('and s.supplier_disclosed is true) as "s_supplier_public"');
+    expect(list.sql).toContain('and s.supplier_disclosed is false) as "s_supplier_undisclosed"');
+    expect(list.sql).toContain('x.supplier_disclosed');
+    // Buyers are never classified, and never filtered by it.
+    expect(list.sql).toContain('false as "b_supplier_undisclosed"');
+    for (const groupBy of ['supplier', 'buyer', 'cpvDivision'] as const) {
+      const totals = await run((r) => r.totals({ filter: {}, groupBy, ...PAGE }), both);
+      expect(totals.sql).not.toContain('supplier_disclosed is false');
+      if (groupBy === 'supplier') expect(totals.sql).toContain('s.supplier_disclosed is true');
+    }
+  });
+
+  const row = (code: string, disclosed: boolean, undisclosed: boolean) => ({
+    purchase_id: ID,
+    outcome: 'accepted',
+    counted: true,
+    value_corrected: false,
+    symbolic_price: false,
+    title_public: false,
+    description_public: false,
+    s_portal_party_id: '900',
+    s_name_as_written: null,
+    s_fiscal_code_clean: code,
+    s_fiscal_code_status: 'valid',
+    s_supplier_public: disclosed,
+    s_supplier_undisclosed: undisclosed,
+  });
+
+  const served = async (
+    rows: readonly Record<string, unknown>[],
+    view: readonly Record<string, unknown>[],
+    names: boolean
+  ) => {
+    let out: unknown[] = [];
+    const { captured } = await run(
+      async (r) => {
+        out = (await r.listPurchases({ sort: 'finalizationDesc', filter: {}, ...PAGE }))
+          ._unsafeUnwrap()
+          .rows.map((purchase) =>
+            purchase.supplier === null ? null : toSupplier(purchase.supplier)
+          );
+      },
+      { ...ON, disclosed: true, names },
+      (text) =>
+        text.includes('supplier_names_public')
+          ? view
+          : text.includes('as total')
+            ? [{ total: String(rows.length) }]
+            : text.includes('order by p.finalization_day')
+              ? rows
+              : []
+    );
+    return { out, captured };
+  };
+
+  it('serves an undisclosed code by its view naming: masked or code only, with the code', async () => {
+    const { out, captured } = await served(
+      [row('2000002', false, true), row('3000003', false, true), row('4000004', false, true)],
+      [
+        { code: '2000002', naming: 'masked', display_name: 'EXEMPLU M*** PFA', code_shown: true },
+        { code: '3000003', naming: 'withheld', display_name: null, code_shown: true },
+      ],
+      true
+    );
+    expect(out).toEqual([
+      {
+        displayKind: 'person_masked',
+        partyId: '900',
+        name: 'EXEMPLU M*** PFA',
+        fiscalCode: '2000002',
+      },
+      { displayKind: 'code_only', partyId: '900', name: null, fiscalCode: '3000003' },
+      // No row in the view: withheld, never the code alone.
+      { displayKind: 'natural_person', partyId: null, name: null, fiscalCode: null },
+    ]);
+    const lookup = captured.find((q) => q.sql.includes('supplier_names_public'));
+    expect(lookup?.parameters).toEqual([['2000002', '3000003', '4000004']]);
+  });
+
+  it('withholds an undisclosed code without the names grant, or one the view hides', async () => {
+    const withoutGrant = await served([row('2000002', false, true)], [], false);
+    expect(withoutGrant.out).toEqual([
+      { displayKind: 'natural_person', partyId: null, name: null, fiscalCode: null },
+    ]);
+    const hidden = await served(
+      [row('2000002', false, true), row('3000003', false, true)],
+      [
+        { code: '2000002', naming: 'masked', display_name: 'EXEMPLU M*** PFA', code_shown: false },
+        // A registry name outside the gate is never served: the code only.
+        { code: '3000003', naming: 'named', display_name: 'FIRMA EXEMPLU SRL', code_shown: true },
+      ],
+      true
+    );
+    expect(hidden.out).toEqual([
+      { displayKind: 'natural_person', partyId: null, name: null, fiscalCode: null },
+      { displayKind: 'code_only', partyId: '900', name: null, fiscalCode: '3000003' },
+    ]);
   });
 });

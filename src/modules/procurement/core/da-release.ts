@@ -34,6 +34,7 @@ import { DA_NATURAL_PERSON_BUCKET } from './constants.js';
 import { publicPartyName } from './free-text-rule.js';
 import {
   servedSupplierName,
+  undisclosedNaming,
   type ServedSupplierKind,
   type SupplierNaming,
 } from './supplier-naming.js';
@@ -134,6 +135,11 @@ export interface DaPartyRecord {
   readonly fiscalCodeStatus: string | null;
   /** D6 in SQL: the supplier has a public row and its code is valid. False for a buyer. */
   readonly supplierPublic: boolean;
+  /**
+   * Naming step 2b, row level only: the supplier's code is shown without D6 disclosing it
+   * (`da_parties_public.supplier_disclosed` false). Never counted, ranked, filtered or scoped.
+   */
+  readonly supplierShown?: boolean;
   /**
    * A disclosed supplier's naming, read by code after the page (`supplierNamesByCode`); when
    * set, its name is the one served. Absent on buyers and on withheld suppliers.
@@ -362,7 +368,7 @@ const WITHHELD: DaParty = {
 };
 
 export const toSupplier = (party: DaPartyRecord): DaParty => {
-  if (!isNamedSupplier(party)) return WITHHELD;
+  if (!isNamedSupplier(party)) return shownSupplier(party);
   const naming = party.naming;
   // A code the names view does not let us show: served like a supplier D6 withholds.
   if (naming?.kind === 'hidden') return WITHHELD;
@@ -372,6 +378,24 @@ export const toSupplier = (party: DaPartyRecord): DaParty => {
     // "Never a CNP": a name written with a personal numeric code is withheld.
     name: naming === undefined ? publicPartyName(party.name) : servedSupplierName(naming),
     fiscalCode: party.fiscalCode,
+  };
+};
+
+/**
+ * Naming step 2b: a supplier whose code is shown without D6 disclosing it is served by its code,
+ * as `person_masked` or `code_only` (`undisclosedNaming`); anything less is withheld.
+ */
+const shownSupplier = (party: DaPartyRecord): DaParty => {
+  const code = servedFiscalCode(party);
+  if (party.supplierShown !== true || party.supplierPublic || code === null) return WITHHELD;
+  if (party.naming === undefined) return WITHHELD;
+  const naming = undisclosedNaming(party.naming);
+  if (naming.kind !== 'person_masked' && naming.kind !== 'code_only') return WITHHELD;
+  return {
+    displayKind: naming.kind,
+    partyId: party.portalPartyId,
+    name: servedSupplierName(naming),
+    fiscalCode: code,
   };
 };
 

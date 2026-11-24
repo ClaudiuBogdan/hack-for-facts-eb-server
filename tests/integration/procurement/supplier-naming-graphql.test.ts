@@ -163,3 +163,56 @@ describe('DA supplier naming kinds on GraphQL and REST', () => {
     }
   });
 });
+
+describe('naming step 2b: a code shown without D6 disclosing it', () => {
+  const undisclosed = (code: string, naming: SupplierNaming): DaPartyRecord => ({
+    ...COMPANY,
+    portalPartyId: `9${code}`,
+    fiscalCode: code,
+    name: naming.name,
+    supplierPublic: false,
+    supplierShown: true,
+    naming,
+  });
+  const MASKED_ROW = withSupplier(
+    0,
+    undisclosed('5000005', { kind: 'person_masked', name: MASKED, source: 'view' })
+  );
+  const CODE_ROW = withSupplier(
+    1,
+    undisclosed('6000006', { kind: 'company', name: 'X SRL', source: 'view' })
+  );
+  const REGISTRY_ROW = withSupplier(2, undisclosed('7000007', { kind: 'company', name: 'Y SRL' }));
+  let app: FastifyInstance;
+  beforeAll(async () => {
+    app = await build([MASKED_ROW, CODE_ROW, REGISTRY_ROW]);
+  });
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it('serves the code with a masked name, or the code only; withheld without a view naming', async () => {
+    const { byId, raw, cacheControl } = await list(app, 'POST');
+    expect(byId.get(MASKED_ROW.purchaseId)).toEqual({
+      displayKind: 'person_masked',
+      partyId: '95000005',
+      name: MASKED,
+      fiscalCode: '5000005',
+    });
+    expect(byId.get(CODE_ROW.purchaseId)).toEqual({
+      displayKind: 'code_only',
+      partyId: '96000006',
+      name: null,
+      fiscalCode: '6000006',
+    });
+    expect(byId.get(REGISTRY_ROW.purchaseId)).toEqual({
+      displayKind: 'natural_person',
+      partyId: null,
+      name: null,
+      fiscalCode: null,
+    });
+    expect(raw).not.toContain('7000007');
+    expect(raw).not.toContain('X SRL');
+    expect(cacheControl).toBe('no-store');
+  });
+});

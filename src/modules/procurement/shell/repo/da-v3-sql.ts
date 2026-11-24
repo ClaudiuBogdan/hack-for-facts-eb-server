@@ -53,9 +53,12 @@ const PUBLIC_NAMES = daV3Table('party_public_names');
 export const publicPartyLateral = (
   alias: 'b' | 's',
   kind: 'buyer' | 'supplier',
-  partyId: RawBuilder<unknown>
+  partyId: RawBuilder<unknown>,
+  disclosedColumn = false
 ): RawBuilder<unknown> => sql`left join lateral (
-    select x.source_name, x.portal_party_id, x.name_as_written, x.fiscal_code_clean, x.fiscal_code_status
+    select x.source_name, x.portal_party_id, x.name_as_written, x.fiscal_code_clean, x.fiscal_code_status${
+      disclosedColumn ? sql`, x.supplier_disclosed` : sql``
+    }
     from ${DA_PARTIES_PUBLIC} x
     where x.source_name = p.source_name and x.party_kind = ${sql.lit(kind)}
       and x.portal_party_id = ${partyId}
@@ -84,19 +87,60 @@ export interface PartyJoins {
  */
 export const purchaseParties = (
   lateral: boolean,
-  joins: PartyJoins = { buyer: true, supplier: true }
+  joins: PartyJoins = { buyer: true, supplier: true },
+  disclosedColumn = false
 ): RawBuilder<unknown> =>
   lateral
     ? sql`${publicPartyLateral('b', 'buyer', sql`p.buyer_party_id`)}
-  ${publicPartyLateral('s', 'supplier', sql`p.supplier_party_id`)}`
+  ${publicPartyLateral('s', 'supplier', sql`p.supplier_party_id`, disclosedColumn)}`
     : sql`${joins.buyer ? PLAIN_BUYER_JOIN : sql``}
   ${joins.supplier ? PLAIN_SUPPLIER_JOIN : sql``}`;
 
-/** The supplier party alias `s` (from `da_parties_public`) names its supplier: see `isNamedSupplier`. */
-export const namedSupplierSql = (present: boolean): RawBuilder<unknown> =>
+/**
+ * The supplier party alias `s` (from `da_parties_public`) names its supplier under D6: see
+ * `isNamedSupplier`. Before naming step 2b the view held a supplier row only for a disclosed
+ * code, so the row WAS the gate. Once the view carries `supplier_disclosed` (true exactly for
+ * supplier_disclosure codes; step 2b adds rows that show a code without disclosing it), the gate
+ * is that column: every count, ranking, filter and scope requires it.
+ */
+export const namedSupplierSql = (present: boolean, disclosedColumn = false): RawBuilder<unknown> =>
   present
-    ? sql`(s.portal_party_id is not null and s.fiscal_code_status = 'valid' and s.fiscal_code_clean is not null)`
+    ? sql`(s.portal_party_id is not null and s.fiscal_code_status = 'valid' and s.fiscal_code_clean is not null${
+        disclosedColumn ? sql` and s.supplier_disclosed is true` : sql``
+      })`
     : sql`false`;
+
+/**
+ * Naming step 2b, row level only: the supplier party `s` shows its code without D6 disclosing it
+ * (a valid code, `supplier_disclosed` false). Never true before the column exists or without a
+ * readable supplier_disclosure, and never used to count, rank, filter or scope.
+ */
+export const shownSupplierSql = (
+  present: boolean,
+  disclosedColumn: boolean
+): RawBuilder<unknown> =>
+  present && disclosedColumn
+    ? sql`(s.portal_party_id is not null and s.fiscal_code_status = 'valid' and s.fiscal_code_clean is not null and s.supplier_disclosed is false)`
+    : sql`false`;
+
+/** The supplier party-id subquery's gate on `pp`: the D6 column once it exists (see above). */
+export const disclosedPartySql = (disclosedColumn: boolean): RawBuilder<unknown> =>
+  disclosedColumn ? sql` and pp.supplier_disclosed is true` : sql``;
+
+/**
+ * Whether `da_parties_public` carries `supplier_disclosed` and this login may read it (naming
+ * step 2b). Catalog reads only; absent, the view's supplier rows are the gate, as before.
+ */
+export const probeSupplierDisclosedColumn = async (trx: Kysely<ProdDatabase>): Promise<boolean> => {
+  const result = await sql<{ disclosed_column: boolean }>`
+    select exists (
+      select 1 from pg_attribute a
+      where a.attrelid = to_regclass(${`${DA_RELEASE_SCHEMA}.da_parties_public`})
+        and a.attname = 'supplier_disclosed' and a.attnum > 0 and not a.attisdropped
+        and has_column_privilege(a.attrelid, a.attnum, 'SELECT')
+    ) as disclosed_column`.execute(trx);
+  return result.rows[0]?.disclosed_column === true;
+};
 
 /**
  * Whether `supplier_disclosure` exists AND this login may read it (a revoked

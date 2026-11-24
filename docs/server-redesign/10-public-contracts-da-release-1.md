@@ -105,6 +105,14 @@ only what the API adds or decides.
   served as `natural_person` in lists, detail and records, and refuses a breakdown or supplier totals that would rank
   its code. Without the grant, answers are exactly as before. `organizationLabels` and the other kernel names are
   out of this step (PROC-KR9T stays the owner's question); legacy procurement stays off.
+- Naming step 2b (owner, fast version before launch): once `da_parties_public` carries `supplier_disclosed` (true
+  exactly for `supplier_disclosure` codes), that column is the D6 gate in every SQL use (`namedSupplierSql`, the
+  supplier filter and scope subqueries, the live supplier keys); before it exists, a supplier row is the gate as
+  before. A supplier row with a valid code and `supplier_disclosed` false shows its code at row level only (DA list
+  and detail, analysis records, MCP): `person_masked` with the view's masked name, or `code_only`; no
+  `supplier_names_public` row, no grant on it, a code it hides or a code longer than an organization code is
+  `natural_person`. Such a supplier is never counted, ranked, filtered or scoped on its own: it stays in the
+  withheld bucket, and a filter or scope on its code matches nothing (and is not echoed).
 - Caching (PROC-VDWQ): every GraphQL answer, GET or POST, that carries a DA supplier name is
   `Cache-Control: no-store`. The resolvers that serve one mark the reply as they do: a release party named as a
   company or person_masked, a DA supplier bucket's `displayName`, a legacy DA supplier with a name, and a DA records page naming a

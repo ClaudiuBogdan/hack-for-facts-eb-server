@@ -18,6 +18,7 @@ import {
   namingFromRegistry,
   namingFromView,
   servedSupplierName,
+  undisclosedNaming,
   type SupplierNaming,
 } from '@/modules/procurement/core/supplier-naming.js';
 import { supplierNamesByCode } from '@/modules/procurement/shell/repo/da-v3-sql.js';
@@ -89,7 +90,10 @@ describe('namingFromView', () => {
     ['code_shown null', view('masked', MASKED, null), { kind: 'hidden', name: null }],
     ['no row', undefined, { kind: 'code_only', name: null }],
   ] as const)('%s', (_label, row, expected) => {
-    expect(namingFromView(row)).toEqual(expected);
+    expect(namingFromView(row)).toEqual({
+      ...expected,
+      source: row === undefined ? 'none' : 'view',
+    });
   });
 
   it('before the grant: a company, by its public registry name or with none', () => {
@@ -222,11 +226,11 @@ describe('supplierNamesByCode', () => {
       '14399840',
     ]);
     expect([...names]).toEqual([
-      ['14399840', { kind: 'company', name: REGISTRY }],
-      ['2000002', { kind: 'person_masked', name: MASKED }],
-      ['3000003', { kind: 'code_only', name: null }],
+      ['14399840', { kind: 'company', name: REGISTRY, source: 'view' }],
+      ['2000002', { kind: 'person_masked', name: MASKED, source: 'view' }],
+      ['3000003', { kind: 'code_only', name: null, source: 'view' }],
       // No row in the view: the code only.
-      ['4000004', { kind: 'code_only', name: null }],
+      ['4000004', { kind: 'code_only', name: null, source: 'none' }],
     ]);
     const probe = captured.find((q) => q.sql.includes('as names_readable'));
     expect(probe?.sql).toContain("has_table_privilege(to_regclass($1), 'SELECT')");
@@ -247,8 +251,8 @@ describe('supplierNamesByCode', () => {
       { code: '2000002', naming: 'named', display_name: REGISTRY, code_shown: false },
     ]);
     const names = await supplierNamesByCode(kysely, ['14399840', '2000002']);
-    expect(names.get('14399840')).toEqual({ kind: 'person_masked', name: MASKED });
-    expect(names.get('2000002')).toEqual({ kind: 'hidden', name: null });
+    expect(names.get('14399840')).toEqual({ kind: 'person_masked', name: MASKED, source: 'view' });
+    expect(names.get('2000002')).toEqual({ kind: 'hidden', name: null, source: 'view' });
   });
 
   it('without the grant: exactly the registry read of before step 2, and never the view', async () => {
@@ -354,5 +358,105 @@ describe('DA supplier buckets', () => {
     );
     expect(result._unsafeUnwrapErr().type).toBe('Database');
     expect(JSON.stringify(result._unsafeUnwrapErr())).not.toContain('2000002');
+  });
+});
+
+describe('naming step 2b: a code shown without D6 disclosing it', () => {
+  it.each([
+    [
+      'masked',
+      { kind: 'person_masked', name: MASKED, source: 'view' },
+      { kind: 'person_masked', name: MASKED, source: 'view' },
+    ],
+    [
+      'named: never the registry name',
+      { kind: 'company', name: REGISTRY, source: 'view' },
+      { kind: 'code_only', name: null, source: 'view' },
+    ],
+    [
+      'code only',
+      { kind: 'code_only', name: null, source: 'view' },
+      { kind: 'code_only', name: null, source: 'view' },
+    ],
+    [
+      'no row in the view',
+      { kind: 'code_only', name: null, source: 'none' },
+      { kind: 'hidden', name: null },
+    ],
+    [
+      'before the grant (the registry rule)',
+      { kind: 'company', name: REGISTRY },
+      { kind: 'hidden', name: null },
+    ],
+    [
+      'a code the view hides',
+      { kind: 'hidden', name: null, source: 'view' },
+      { kind: 'hidden', name: null },
+    ],
+  ] as const)('%s', (_label, naming: SupplierNaming, expected) => {
+    expect(undisclosedNaming(naming)).toEqual(expected);
+  });
+
+  const undisclosed = (naming: SupplierNaming | undefined): DaPartyRecord => ({
+    ...DISCLOSED,
+    supplierPublic: false,
+    supplierShown: true,
+    ...(naming !== undefined && { naming }),
+  });
+
+  it('serves the code with its masked name, or the code only', () => {
+    expect(
+      toSupplier(undisclosed({ kind: 'person_masked', name: MASKED, source: 'view' }))
+    ).toEqual({
+      displayKind: 'person_masked',
+      partyId: '900',
+      name: MASKED,
+      fiscalCode: '14399840',
+    });
+    expect(toSupplier(undisclosed({ kind: 'company', name: REGISTRY, source: 'view' }))).toEqual({
+      displayKind: 'code_only',
+      partyId: '900',
+      name: null,
+      fiscalCode: '14399840',
+    });
+  });
+
+  it('withholds it without a view naming, with a person code, or when not marked shown', () => {
+    for (const party of [
+      undisclosed(undefined),
+      undisclosed({ kind: 'company', name: REGISTRY }),
+      undisclosed({ kind: 'code_only', name: null, source: 'none' }),
+      undisclosed({ kind: 'hidden', name: null, source: 'view' }),
+      {
+        ...undisclosed({ kind: 'person_masked', name: MASKED, source: 'view' }),
+        fiscalCode: SYNTHETIC_CNP,
+      },
+      {
+        ...undisclosed({ kind: 'person_masked', name: MASKED, source: 'view' }),
+        supplierShown: false,
+      },
+      {
+        ...undisclosed({ kind: 'person_masked', name: MASKED, source: 'view' }),
+        fiscalCodeStatus: 'invalid',
+      },
+    ]) {
+      expect(toSupplier(party)).toEqual(WITHHELD);
+    }
+  });
+
+  it('never makes a shown-only supplier its own totals group', () => {
+    const answer = toTotalsGroup(
+      {
+        key: null,
+        supplierBucket: 'withheld',
+        party: null,
+        countedValue: '5.00',
+        countedCount: '1',
+        symbolicPriceCount: '0',
+        purchaseCount: '1',
+      },
+      'supplier'
+    );
+    expect(answer._unsafeUnwrap()).toMatchObject({ key: 'natural_person', party: WITHHELD });
   });
 });

@@ -29,6 +29,11 @@ export interface SupplierNaming {
   readonly kind: SupplierNamingKind;
   /** Null for `code_only` and `hidden`; for `company`, null when no public name exists. */
   readonly name: string | null;
+  /**
+   * Where it came from: `view` (a supplier_names_public row), `none` (the view is readable but has
+   * no row for the code); absent before the grant (the registry rule).
+   */
+  readonly source?: 'view' | 'none';
 }
 
 /** One row of `procurement_v3.supplier_names_public`, as read by code. */
@@ -42,8 +47,10 @@ const CODE_ONLY: SupplierNaming = { kind: 'code_only', name: null };
 const HIDDEN: SupplierNaming = { kind: 'hidden', name: null };
 
 /** A disclosed supplier's naming from its view row; `undefined` (no row) is code only. */
-export const namingFromView = (row: SupplierNamesViewRow | undefined): SupplierNaming => {
-  if (row === undefined) return CODE_ONLY;
+export const namingFromView = (row: SupplierNamesViewRow | undefined): SupplierNaming =>
+  row === undefined ? { ...CODE_ONLY, source: 'none' } : { ...viewNaming(row), source: 'view' };
+
+const viewNaming = (row: SupplierNamesViewRow): SupplierNaming => {
   if (row.codeShown !== true) return HIDDEN;
   // The view's names are screened for any run of more than an organization code's digits (11+, as
   // the kernel withholds such identifiers), not only the 13-digit personal-code rule.
@@ -59,6 +66,19 @@ export const namingFromRegistry = (registryName: string | undefined): SupplierNa
   kind: 'company',
   name: publicPartyName(registryName ?? null),
 });
+
+/**
+ * Naming step 2b: a supplier whose code the data platform shows WITHOUT D6 disclosing it
+ * (`da_parties_public.supplier_disclosed` false), at row level only. Its naming must come from a
+ * supplier_names_public row that shows its code: masked → `person_masked`; any other value →
+ * `code_only` (never a registry name: it is not disclosed). No row, the registry rule (no grant)
+ * or a code it may not show → `hidden`, served like a supplier D6 withholds.
+ */
+export const undisclosedNaming = (naming: SupplierNaming): SupplierNaming => {
+  if (naming.source !== 'view' || naming.kind === 'hidden') return HIDDEN;
+  if (naming.kind === 'person_masked') return naming;
+  return { kind: 'code_only', name: null, source: 'view' };
+};
 
 /** The display kinds a disclosed supplier can be served with (never `hidden`). */
 export type ServedSupplierKind = Exclude<SupplierNamingKind, 'hidden'>;

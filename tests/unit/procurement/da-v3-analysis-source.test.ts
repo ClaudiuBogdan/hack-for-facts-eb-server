@@ -13,6 +13,7 @@ import { describe, expect, it } from 'vitest';
 import { makeDaV3AnalysisSource } from '@/modules/procurement/shell/repo/da-v3-analysis-source.js';
 
 import { makeCapturingDb, type CapturedQuery } from '../../fixtures/capturing-db.js';
+import { SYNTHETIC_CNP } from '../../fixtures/procurement/personal-code.js';
 
 import type { AnalysisScope } from '@/modules/procurement/core/analysis-scope.js';
 import type { ActiveGeneration } from '@/modules/procurement/core/ports.js';
@@ -30,6 +31,8 @@ const run = async (
     names?: readonly { code: string; name: string }[];
     /** Rows of supplier_names_public; set means this login may read it (naming step 2). */
     view?: readonly Record<string, unknown>[];
+    /** Naming step 2b: da_parties_public.supplier_disclosed exists. */
+    disclosedColumn?: boolean;
     records?: readonly Record<string, unknown>[];
   } = {}
 ) => {
@@ -37,6 +40,8 @@ const run = async (
   const isolation: unknown[] = [];
   const db = makeCapturingDb(captured, {
     respond: (text) => {
+      if (text.includes('as disclosed_column'))
+        return [{ disclosed_column: options.disclosedColumn === true }];
       if (text.includes('as names_readable'))
         return [{ names_readable: options.view !== undefined }];
       if (text.includes('supplier_names_public')) return options.view ?? [];
@@ -309,7 +314,8 @@ describe('D6', () => {
       s.recordsFor(ROUTE, AUTHORITY, GEN, { sort: 'value_desc', offset: 0, limit: 25 })
     );
     expect(sql).toMatch(
-      /case when \(s\.portal_party_id is not null[^)]*\) then s\.fiscal_code_clean end as supplier_cui/u
+      // Before da_parties_public carries supplier_disclosed, no row only shows its code (`or false`).
+      /case when \(s\.portal_party_id is not null[^)]*\) or false then s\.fiscal_code_clean end as supplier_cui/u
     );
     // Supplier names never come from a party row (the view carries none for suppliers).
     expect(sql).not.toContain('supplier_name');
@@ -793,5 +799,106 @@ describe('the publication-keyed cache', () => {
     expect(await reads({ privacy: false })).toBe(2);
     // A newer publication than the request's build: no cache.
     expect(await reads({ build: '1763435499999999' })).toBe(0);
+  });
+});
+
+describe('naming step 2b: the explicit D6 column', () => {
+  const SUPPLIER: AnalysisScope = { grain: 'direct_acquisition', supplierCui: '14399840' };
+  const records = (s: ReturnType<typeof makeDaV3AnalysisSource>) =>
+    s.recordsFor(ROUTE, AUTHORITY, GEN, { sort: 'date_desc', offset: 0, limit: 25 });
+
+  it('without da_parties_public.supplier_disclosed, reads exactly as before', async () => {
+    for (const read of [
+      records,
+      (s: ReturnType<typeof makeDaV3AnalysisSource>) => s.statsFor(ROUTE, SUPPLIER, GEN),
+      (s: ReturnType<typeof makeDaV3AnalysisSource>) =>
+        s.breakdownFor(ROUTE, AUTHORITY, GEN, 'supplier', 10, 'value'),
+    ]) {
+      const { sql } = await run(read);
+      expect(sql).not.toContain('supplier_disclosed');
+    }
+  });
+
+  it('with it, a supplier scope and every live supplier key require it', async () => {
+    const scoped = await run((s) => s.statsFor(ROUTE, SUPPLIER, GEN), { disclosedColumn: true });
+    expect(scoped.sql).toContain('and pp.supplier_disclosed is true)');
+    const ranked = await run(
+      (s) => s.breakdownFor(ROUTE, AUTHORITY, GEN, 'supplier', 10, 'value'),
+      {
+        disclosedColumn: true,
+      }
+    );
+    expect(ranked.sql).toContain('and s.supplier_disclosed is true) then s.fiscal_code_clean');
+    expect(ranked.sql).not.toContain('supplier_disclosed is false');
+    const page = await run(records, { disclosedColumn: true });
+    expect(page.sql).toContain("and s.supplier_disclosed is false) then 'shown'");
+    expect(page.sql).toContain('x.supplier_disclosed');
+  });
+
+  const shown = (cui: string) => ({
+    id: cui,
+    date: '2025-01-01',
+    authority_cui: '4305857',
+    authority_name: 'PRIMARIA',
+    supplier_cui: cui,
+    supplier_display_kind: 'shown',
+    value_ron: '1.00',
+    status: 'accepted',
+    cpv_code: null,
+    cpv_label: null,
+  });
+  interface Page {
+    _unsafeUnwrap: () => {
+      rows: {
+        supplierCui: string | null;
+        supplierName: string | null;
+        supplierDisplayKind: string | null;
+      }[];
+    };
+  }
+  const served = (result: unknown) =>
+    (result as Page)
+      ._unsafeUnwrap()
+      .rows.map((r) => [r.supplierCui, r.supplierDisplayKind, r.supplierName]);
+
+  it('serves a records row that only shows its code by its view naming, else withheld', async () => {
+    const { result } = await run(records, {
+      disclosedColumn: true,
+      records: [shown('2000002'), shown('3000003'), shown('4000004'), shown('5000005')],
+      view: [
+        { code: '2000002', naming: 'masked', display_name: 'EXEMPLU M*** PFA', code_shown: true },
+        { code: '3000003', naming: 'named', display_name: 'FIRMA EXEMPLU SRL', code_shown: true },
+        { code: '5000005', naming: 'masked', display_name: 'EXEMPLU M*** PFA', code_shown: false },
+      ],
+    });
+    expect(served(result)).toEqual([
+      ['2000002', 'person_masked', 'EXEMPLU M*** PFA'],
+      // A registry name outside the gate is never served.
+      ['3000003', 'code_only', null],
+      // No view row, or a code the view hides: withheld.
+      [null, 'natural_person', null],
+      [null, 'natural_person', null],
+    ]);
+  });
+
+  it('withholds a row that only shows a code longer than an organization code', async () => {
+    const person = SYNTHETIC_CNP;
+    const { result } = await run(records, {
+      disclosedColumn: true,
+      records: [shown(person)],
+      view: [
+        { code: person, naming: 'masked', display_name: 'EXEMPLU M*** PFA', code_shown: true },
+      ],
+    });
+    expect(served(result)).toEqual([[null, 'natural_person', null]]);
+  });
+
+  it('withholds every row that only shows its code before the names grant', async () => {
+    const { result } = await run(records, {
+      disclosedColumn: true,
+      records: [shown('2000002')],
+      names: [{ code: '2000002', name: 'FIRMA EXEMPLU SRL' }],
+    });
+    expect(served(result)).toEqual([[null, 'natural_person', null]]);
   });
 });

@@ -37,8 +37,10 @@ import {
   daV3Table,
   DA_PARTIES_PUBLIC,
   DA_RELEASE_SCHEMA,
+  disclosedPartySql,
   namedSupplierSql,
   probeSupplierDisclosure,
+  shownSupplierSql,
   purchaseParties,
   SUPPLIER_DISCLOSURE_NAME,
   supplierNamesByCode,
@@ -106,6 +108,7 @@ interface PartyColumns {
   fiscal_code_clean: string | null;
   fiscal_code_status: string | null;
   supplier_public: boolean;
+  supplier_undisclosed?: boolean;
 }
 
 /** The selected columns of one public party alias, prefixed (the views carry no contacts or addresses). */
@@ -115,13 +118,14 @@ const PARTY_COLUMNS = ['name_as_written', 'fiscal_code_clean', 'fiscal_code_stat
  * party id, so a withheld supplier (no public row) still reads as a party and
  * is served withheld; `supplier_public` is D6 in SQL. A buyer is never classified.
  */
-const partyColumns = (alias: 'b' | 's', supplierDisclosure: boolean) =>
+const partyColumns = (alias: 'b' | 's', columns: Columns) =>
   sql.join([
     sql`${alias === 's' ? sql`p.supplier_party_id` : sql`b.portal_party_id`} as ${sql.id(`${alias}_portal_party_id`)}`,
     ...PARTY_COLUMNS.map(
       (column) => sql`${sql.ref(`${alias}.${column}`)} as ${sql.id(`${alias}_${column}`)}`
     ),
-    sql`${alias === 's' ? namedSupplierSql(supplierDisclosure) : sql`false`} as ${sql.id(`${alias}_supplier_public`)}`,
+    sql`${alias === 's' ? namedSupplier(columns) : sql`false`} as ${sql.id(`${alias}_supplier_public`)}`,
+    sql`${alias === 's' ? shownSupplierSql(columns.supplierDisclosure, columns.supplierDisclosed) : sql`false`} as ${sql.id(`${alias}_supplier_undisclosed`)}`,
   ]);
 
 const partyOf = (row: Record<string, unknown>, prefix: string): DaPartyRecord | null => {
@@ -137,6 +141,7 @@ const partyOf = (row: Record<string, unknown>, prefix: string): DaPartyRecord | 
     fiscalCode: text('fiscal_code_clean'),
     fiscalCodeStatus: text('fiscal_code_status'),
     supplierPublic: row[`${prefix}_supplier_public`] === true,
+    ...(row[`${prefix}_supplier_undisclosed`] === true && { supplierShown: true }),
   };
 };
 
@@ -225,6 +230,11 @@ const toPurchaseRecord = (row: PurchaseRow): DaPurchaseRecord => ({
 interface Columns {
   /** `supplier_disclosure` is readable. Not: every supplier is withheld (D6 fails closed). */
   readonly supplierDisclosure: boolean;
+  /**
+   * `da_parties_public.supplier_disclosed` exists (naming step 2b): the gate is that column, and a
+   * supplier row without it shows its code at row level only. Absent: the row is the gate.
+   */
+  readonly supplierDisclosed: boolean;
   readonly listedNow: boolean;
   /** `da_items.superseded_at`: lines the sync no longer sees; only current lines are served. */
   readonly itemSupersededAt: boolean;
@@ -269,10 +279,10 @@ const purchaseSelect = (columns: Columns) => sql`
     ${shownText(columns.titleShown, 'p.title_public', 'p.title_shown', 'title')},
     null::text as description, false as description_public,
     p.category_code, p.category_as_written, p.acquisition_type_label,
-    ${partyColumns('b', false)},
-    ${partyColumns('s', columns.supplierDisclosure)}
+    ${partyColumns('b', columns)},
+    ${partyColumns('s', columns)}
   from ${PURCHASES} p
-  ${purchaseParties(true)}
+  ${purchaseParties(true, undefined, columns.supplierDisclosed)}
   left join ${RULES} r on r.rule = p.value_review_rule`;
 
 /**
@@ -304,16 +314,21 @@ const LIST_PHASES = {
 } as const;
 
 /** D6 in SQL, over the public supplier alias `s`: see `isNamedSupplier` in core. */
-const namedSupplier = (columns: Columns) => namedSupplierSql(columns.supplierDisclosure);
+const namedSupplier = (columns: Columns) =>
+  namedSupplierSql(columns.supplierDisclosure, columns.supplierDisclosed);
 
 /** The filter's conditions over `p`, with `b` and `s` joined. */
 const whereOf = (filter: DaPurchaseFilter, columns: Columns): RawBuilder<unknown> => {
   const conditions: RawBuilder<unknown>[] = [sql`true`];
   // By party ids: the planner reaches the purchases through the party index instead of
   // filtering a year of purchases on the joined party row (procurement-prod measured, 18 Nov).
+  // A supplier also needs the D6 column once it exists: a row that only shows its code is never
+  // a filter (naming step 2b).
   const partyIds = (kind: 'buyer' | 'supplier', column: RawBuilder<unknown>, code: string) =>
     sql`(p.source_name, ${column}) in (select pp.source_name, pp.portal_party_id from ${PARTIES} pp
-        where pp.party_kind = ${kind} and pp.fiscal_code_status = 'valid' and pp.fiscal_code_clean = ${withoutLeadingZeros(code)})`;
+        where pp.party_kind = ${kind} and pp.fiscal_code_status = 'valid' and pp.fiscal_code_clean = ${withoutLeadingZeros(code)}${
+          kind === 'supplier' ? disclosedPartySql(columns.supplierDisclosed) : sql``
+        })`;
   if (filter.buyerFiscalCode !== undefined)
     conditions.push(partyIds('buyer', sql`p.buyer_party_id`, filter.buyerFiscalCode));
   // The party-id match IS the D6 test: the view holds a supplier row only for a disclosed code,
@@ -703,7 +718,9 @@ const withSupplierNames = async <T>(
 ): Promise<Result<T[], ApiError>> => {
   const named = (item: T): DaPartyRecord | null => {
     const party = supplierOf(item);
-    return party !== null && isNamedSupplier(party) ? party : null;
+    return party !== null && (isNamedSupplier(party) || party.supplierShown === true)
+      ? party
+      : null;
   };
   const codes = items.flatMap((item) => named(item)?.fiscalCode ?? []);
   if (codes.length === 0) return ok([...items]);
@@ -1016,6 +1033,7 @@ const PENDING_COLUMNS = [
   ['da_items', 'item_name_public', 'itemNameShown'],
   ['da_items', 'item_unit_shown', 'itemUnitShown'],
   ['da_items', 'item_unit_public', 'itemUnitShown'],
+  ['da_parties_public', 'supplier_disclosed', 'supplierDisclosed'],
 ] as const satisfies readonly (readonly [string, string, keyof Columns])[];
 
 /** Which pending contract columns exist yet. Catalog reads only. */
@@ -1044,6 +1062,7 @@ const probeColumns = async (trx: Db): Promise<Columns> => {
     titleShown: has('titleShown'),
     itemNameShown: has('itemNameShown'),
     itemUnitShown: has('itemUnitShown'),
+    supplierDisclosed: has('supplierDisclosed'),
   };
 };
 
