@@ -943,9 +943,13 @@ export const registerRedesignSurface = async (
   // the budgets don't collide). One host turn is a handful of requests
   // (initialize, tools/list, tools/call, resources/read), well inside the
   // bucket; shared egress IPs (ChatGPT) may need tuning under real traffic.
-  app.post('/api/v1/mcp', async (request, reply) => {
-    // PROC-VDWQ: a tool result can carry a DA supplier name; no MCP reply is ever cacheable.
+  // PROC-VDWQ: a tool result can carry a DA supplier name, so no MCP reply is ever cacheable,
+  // including the ones sent before the handler runs (body parsing, a global rate limit).
+  const mcpNoStore = (_request: unknown, reply: FastifyReply, payload: unknown) => {
     void reply.header('cache-control', 'no-store');
+    return Promise.resolve(payload);
+  };
+  app.post('/api/v1/mcp', { onSend: mcpNoStore }, async (request, reply) => {
     const limit = kernel.rateLimiter.consume(`mcp:${request.ip}`);
     if (!limit.allowed) {
       return reply
@@ -966,8 +970,8 @@ export const registerRedesignSurface = async (
   // DELETE (session teardown). A stateless JSON server answers 405, not 404.
   const methodNotAllowed = async (_request: unknown, reply: FastifyReply) =>
     reply.code(405).header('allow', 'POST').send();
-  app.get('/api/v1/mcp', methodNotAllowed);
-  app.delete('/api/v1/mcp', methodNotAllowed);
+  app.get('/api/v1/mcp', { onSend: mcpNoStore }, methodNotAllowed);
+  app.delete('/api/v1/mcp', { onSend: mcpNoStore }, methodNotAllowed);
 
   app.addHook('onClose', async () => {
     await mcpDispatcher.close();
