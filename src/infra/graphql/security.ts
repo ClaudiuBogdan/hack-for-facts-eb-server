@@ -106,11 +106,156 @@ const SAFE_ERROR_CODES = new Set([
   'GRAPHQL_VALIDATION_FAILED',
 ]);
 
-/** Shared production error redaction for every public GraphQL surface. */
+/**
+ * What is logged of one GraphQL error: fixed categories only, never its message, path keys or
+ * any other text. A message can quote a value the caller sent (a variable-coercion error quotes
+ * it whole, in any spelling: escaped, encoded, as a number), and a path key can be a
+ * caller-chosen alias, so no redaction of free text is attempted.
+ */
+export interface LoggedGraphQLError {
+  /** The error's code when it has a code's shape (A-Z and _), else its class name, else `unknown`. */
+  readonly category: string;
+  /** execution (it has a path), validation (locations, no path) or request. */
+  readonly kind: 'execution' | 'validation' | 'request';
+  /** How deep in the response the error sits; null outside execution. */
+  readonly pathDepth: number | null;
+}
+
+/**
+ * The error codes the API and Mercurius emit (static text in code); any other code is logged as
+ * `other_code`, so a code built from caller text can never reach a log line.
+ */
+const KNOWN_CODES: ReadonlySet<string> = new Set([
+  'BAD_USER_INPUT',
+  'INVALID_INPUT',
+  'NOT_FOUND',
+  'FORBIDDEN',
+  'UNAUTHENTICATED',
+  'RATE_LIMITED',
+  'QUOTA_EXCEEDED',
+  'SERVICE_UNAVAILABLE',
+  'INTERNAL_SERVER_ERROR',
+  'BAD_GATEWAY',
+  'GATEWAY_TIMEOUT',
+  'GRAPHQL_PARSE_FAILED',
+  'GRAPHQL_VALIDATION_FAILED',
+  'UPGRADE_REQUIRED',
+  'RELEASE_MISMATCH',
+  'IDEMPOTENCY_KEY_REUSED',
+  'NOT_PORTED',
+  'PNRR_UNAVAILABLE',
+  'RENDER_UNAVAILABLE',
+  'RENDER_RESTRICTED',
+  'RENDER_INCONSISTENT',
+  'IMPLAUSIBLE_REVENUE',
+  'REVENUE_EQUALS_FIXED_ASSETS',
+  'TRANSCRIPT_UNAVAILABLE',
+  'SEARCH_UNAVAILABLE',
+  'TIMEOUT',
+  // ApiError types some resolvers use as codes.
+  'NotFound',
+  'InvalidInput',
+  'Database',
+  'Upstream',
+  'ServiceUnavailable',
+  'Timeout',
+  // Mercurius's own codes (lib/errors.js), exactly.
+  'MER_ERR_GQL_CSRF_PREVENTION',
+  'MER_ERR_GQL_INVALID_SCHEMA',
+  'MER_ERR_GQL_PERSISTED_QUERY_MISMATCH',
+  'MER_ERR_GQL_PERSISTED_QUERY_NOT_FOUND',
+  'MER_ERR_GQL_PERSISTED_QUERY_NOT_SUPPORTED',
+  'MER_ERR_GQL_QUERY_DEPTH',
+  'MER_ERR_GQL_VALIDATION',
+  'MER_ERR_INVALID_METHOD',
+  'MER_ERR_METHOD_NOT_ALLOWED',
+]);
+/** The error classes logged by name; any other class is `other_error`. */
+const KNOWN_CLASSES: ReadonlySet<string> = new Set([
+  'Error',
+  'TypeError',
+  'RangeError',
+  'ReferenceError',
+  'SyntaxError',
+  'AggregateError',
+  'GraphQLError',
+]);
+
+const field = (value: unknown, key: string): unknown =>
+  typeof value === 'object' && value !== null ? (value as Record<string, unknown>)[key] : undefined;
+
+const categoryOf = (error: unknown): string => {
+  const code = field(field(error, 'extensions'), 'code');
+  if (typeof code === 'string') return KNOWN_CODES.has(code) ? code : 'other_code';
+  const original = field(error, 'originalError');
+  const name = field(original ?? error, 'name');
+  if (typeof name !== 'string') return 'unknown';
+  return KNOWN_CLASSES.has(name) ? name : 'other_error';
+};
+
+const UNREADABLE: LoggedGraphQLError = { category: 'unknown', kind: 'request', pathDepth: null };
+
+const loggedError = (error: unknown): LoggedGraphQLError => {
+  // An error value can have throwing getters: logging never interrupts formatting.
+  try {
+    const path = field(error, 'path');
+    const locations = field(error, 'locations');
+    return {
+      category: categoryOf(error),
+      kind: Array.isArray(path) ? 'execution' : Array.isArray(locations) ? 'validation' : 'request',
+      pathDepth: Array.isArray(path) ? path.length : null,
+    };
+  } catch {
+    return UNREADABLE;
+  }
+};
+
+/** What is logged of GraphQL errors (`LoggedGraphQLError`); never throws on an unusual error value. */
+export const loggedGraphQLErrors = (errors: readonly unknown[] | undefined): LoggedGraphQLError[] =>
+  (errors ?? []).flatMap((error) => {
+    // Mercurius wraps a validation failure's errors in one error (MER_ERR_GQL_VALIDATION).
+    let nested: unknown;
+    try {
+      nested = field(field(error, 'originalError'), 'errors');
+    } catch {
+      nested = undefined;
+    }
+    return Array.isArray(nested) ? nested.map(loggedError) : [loggedError(error)];
+  });
+
+/** An operation type as logged: one of GraphQL's three, else `unknown` (never caller text). */
+export const loggedOperationType = (type: string): string =>
+  type === 'query' || type === 'mutation' || type === 'subscription' ? type : 'unknown';
+
+const noop = (): void => undefined;
+/** Mercurius's default formatter logs each error's message whole; it gets this logger instead. */
+const SILENT_LOG = {
+  trace: noop,
+  debug: noop,
+  info: noop,
+  warn: noop,
+  error: noop,
+  fatal: noop,
+  child: () => SILENT_LOG,
+};
+
+/**
+ * Shared error formatting for every public GraphQL surface: errors are logged as fixed categories
+ * (`loggedGraphQLErrors`), and in production the response is redacted too.
+ */
 export const makeGraphQLErrorFormatter =
   (isProduction: boolean): NonNullable<MercuriusOptions['errorFormatter']> =>
   (execution, context) => {
-    const response = mercuriusPlugin.defaultErrorFormatter(execution, context);
+    const log =
+      (context.reply as { log?: typeof context.app.log } | undefined)?.log ?? context.app.log;
+    for (const error of loggedGraphQLErrors(execution.errors))
+      log.info({ graphqlError: error }, 'GraphQL error');
+    // The default formatter shapes the response as before; only its own logging is silenced.
+    const quiet = Object.create(context, {
+      reply: { value: { log: SILENT_LOG } },
+      app: { value: { log: SILENT_LOG } },
+    }) as typeof context;
+    const response = mercuriusPlugin.defaultErrorFormatter(execution, quiet);
 
     if (!isProduction) return response;
 
