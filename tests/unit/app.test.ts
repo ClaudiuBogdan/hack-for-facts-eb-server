@@ -8,7 +8,7 @@ import { ok } from 'neverthrow';
 import { Webhook } from 'svix';
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 
-import { buildApp, createApp } from '@/app/build-app.js';
+import { buildApp, createApp, getRequestPath } from '@/app/build-app.js';
 import { deserialize } from '@/infra/cache/serialization.js';
 import { createTestAuthProvider } from '@/modules/auth/index.js';
 import { startNotificationDeliveryRuntime } from '@/modules/notification-delivery/index.js';
@@ -2108,6 +2108,14 @@ describe('App Factory', () => {
       await app.close();
     });
 
+    it('cuts a request target at its query or a raw fragment', () => {
+      expect(getRequestPath('/probe?q=synthetic')).toBe('/probe');
+      expect(getRequestPath('/probe#q=synthetic')).toBe('/probe');
+      expect(getRequestPath('/probe#a?q=synthetic')).toBe('/probe');
+      expect(getRequestPath('/probe%3Fpart;v=1?q=synthetic')).toBe('/probe%3Fpart;v=1');
+      expect(getRequestPath('/health/live')).toBe('/health/live');
+    });
+
     it('logs the path only, never the query string', async () => {
       const logs = createLogCollector();
 
@@ -2140,7 +2148,9 @@ describe('App Factory', () => {
         url: '/missing-route?buyerFiscalCode=1960101123456',
       });
       expect(missing.statusCode).toBe(404);
-      expect(missing.body).not.toContain('1960101123456');
+      expect(missing.json<{ message: string }>().message).toBe(
+        'Route GET /missing-route not found'
+      );
 
       await flushLogs();
 

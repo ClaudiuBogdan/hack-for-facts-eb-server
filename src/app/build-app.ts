@@ -343,9 +343,10 @@ const GENERIC_MESSAGES: Record<number, string> = {
   429: 'Too many requests',
 };
 
-function getRequestPath(url: string): string {
-  const queryIndex = url.indexOf('?');
-  return queryIndex === -1 ? url : url.slice(0, queryIndex);
+/** The path of a request target: everything before its first `?` or a raw `#` (Node accepts both). */
+export function getRequestPath(url: string): string {
+  const end = url.search(/[?#]/u);
+  return end === -1 ? url : url.slice(0, end);
 }
 
 function isHealthRoute(url: string): boolean {
