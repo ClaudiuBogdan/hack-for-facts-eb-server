@@ -281,6 +281,63 @@ export const recordRowsSql = (
   from ${RECORDS} r
   where r.source_name = ${sourceName} and r.match_id = any(${matchIds}::text[])`;
 
+/** A record's award day by key (the plain column only). */
+export const awardDaySql = (key: CaKey): RawBuilder<{ award_day: string | null }> => sql`
+  select to_char(r.award_day, 'YYYY-MM-DD') as award_day
+  from ${RECORDS} r
+  where r.source_name = ${key.sourceName} and r.match_id = any(${[key.matchId]}::text[])`;
+
+/** The winners of one source's keys. */
+export const winnerRowsSql = (
+  sourceName: string,
+  matchIds: readonly string[]
+): RawBuilder<{
+  source_name: string;
+  match_id: string;
+  winner_order: number | null;
+  fiscal_code_clean: string | null;
+  supplier_disclosed: boolean | null;
+}> => sql`
+  select w.source_name, w.match_id, w.winner_order, w.fiscal_code_clean, w.supplier_disclosed
+  from ${WINNERS} w
+  where w.source_name = ${sourceName} and w.match_id = any(${matchIds}::text[])`;
+
+/** The lots of one record. */
+export const lotRowsSql = (
+  key: CaKey
+): RawBuilder<{
+  lot_order: number;
+  lot_number: string | null;
+  title: string | null;
+  cpv_code: string | null;
+  estimated_value: string | null;
+  currency: string | null;
+  is_eu_funded: boolean | null;
+  cancelled_status: string | null;
+}> => sql`
+  select l.lot_order, l.lot_number, l.title, l.cpv_code, l.estimated_value::text as estimated_value,
+    l.currency, l.is_eu_funded, l.cancelled_status
+  from ${LOTS} l
+  where l.source_name = ${key.sourceName} and l.match_id = any(${[key.matchId]}::text[])
+  order by l.lot_order, l.lot_number`;
+
+/** Today's key of an appearance (the keys view, by its primary key). */
+export const currentKeySql = (
+  appearance: CaAppearance
+): RawBuilder<{ source_name: string; match_id: string }> => sql`
+  select k.source_name, k.match_id
+  from ${KEYS} k
+  where k.source_name = ${appearance.sourceName}
+    and k.publication_id = ${appearance.publicationId}
+    and k.contract_id = ${appearance.contractId}`;
+
+/** Any one record of a buyer (a keys step on the plain column). */
+export const buyerAnyKeySql = (
+  buyerCode: string
+): RawBuilder<{ source_name: string; match_id: string }> => sql`
+  select r.source_name, r.match_id from ${RECORDS} r
+  where r.buyer_code = ${buyerCode} limit 1`;
+
 const makeReader = (trx: Db, access: Access): CaRecordsReader => ({
   dataAsOf: () => Promise.resolve(ok(access.asOf)),
   namesReadable: () => access.names,
@@ -305,12 +362,7 @@ const makeReader = (trx: Db, access: Access): CaRecordsReader => ({
 
   awardDayOf: (key) =>
     attempt(async () => {
-      const result = await sql<{ award_day: string | null }>`
-        select to_char(r.award_day, 'YYYY-MM-DD') as award_day
-        from ${RECORDS} r
-        where r.source_name = ${key.sourceName} and r.match_id = any(${[key.matchId]}::text[])`.execute(
-        trx
-      );
+      const result = await awardDaySql(key).execute(trx);
       const row = result.rows[0];
       return row === undefined ? null : { awardDay: row.award_day };
     }),
@@ -335,18 +387,7 @@ const makeReader = (trx: Db, access: Access): CaRecordsReader => ({
     attempt(async () => {
       const rows: CaWinnerRow[] = [];
       for (const [sourceName, matchIds] of bySource(keys)) {
-        const result = await sql<{
-          source_name: string;
-          match_id: string;
-          winner_order: number | null;
-          fiscal_code_clean: string | null;
-          supplier_disclosed: boolean | null;
-        }>`
-          select w.source_name, w.match_id, w.winner_order, w.fiscal_code_clean, w.supplier_disclosed
-          from ${WINNERS} w
-          where w.source_name = ${sourceName} and w.match_id = any(${matchIds}::text[])`.execute(
-          trx
-        );
+        const result = await winnerRowsSql(sourceName, matchIds).execute(trx);
         for (const row of result.rows)
           rows.push({
             sourceName: row.source_name,
@@ -400,21 +441,7 @@ const makeReader = (trx: Db, access: Access): CaRecordsReader => ({
 
   lotsOf: (key) =>
     attempt(async () => {
-      const result = await sql<{
-        lot_order: number;
-        lot_number: string | null;
-        title: string | null;
-        cpv_code: string | null;
-        estimated_value: string | null;
-        currency: string | null;
-        is_eu_funded: boolean | null;
-        cancelled_status: string | null;
-      }>`
-        select l.lot_order, l.lot_number, l.title, l.cpv_code, l.estimated_value::text as estimated_value,
-          l.currency, l.is_eu_funded, l.cancelled_status
-        from ${LOTS} l
-        where l.source_name = ${key.sourceName} and l.match_id = any(${[key.matchId]}::text[])
-        order by l.lot_order, l.lot_number`.execute(trx);
+      const result = await lotRowsSql(key).execute(trx);
       return result.rows.map((row): CaLotRow => ({
         ...key,
         lotOrder: row.lot_order,
@@ -430,12 +457,7 @@ const makeReader = (trx: Db, access: Access): CaRecordsReader => ({
 
   currentKeyOf: (appearance: CaAppearance) =>
     attempt(async () => {
-      const result = await sql<{ source_name: string; match_id: string }>`
-        select k.source_name, k.match_id
-        from ${KEYS} k
-        where k.source_name = ${appearance.sourceName}
-          and k.publication_id = ${appearance.publicationId}
-          and k.contract_id = ${appearance.contractId}`.execute(trx);
+      const result = await currentKeySql(appearance).execute(trx);
       const row = result.rows[0];
       return row === undefined ? null : { sourceName: row.source_name, matchId: row.match_id };
     }),
@@ -443,9 +465,7 @@ const makeReader = (trx: Db, access: Access): CaRecordsReader => ({
   buyerProbe: (buyerCode) =>
     attempt(async (): Promise<CaBuyerProbe | null> => {
       // Keys step: any one record of the buyer (plain columns), then its person flag by key.
-      const keys = await sql<{ source_name: string; match_id: string }>`
-        select r.source_name, r.match_id from ${RECORDS} r
-        where r.buyer_code = ${buyerCode} limit 1`.execute(trx);
+      const keys = await buyerAnyKeySql(buyerCode).execute(trx);
       const key = keys.rows[0];
       if (key === undefined) return null;
       const result = await sql<{ buyer_person: boolean | null; buyer_name_masked: string | null }>`

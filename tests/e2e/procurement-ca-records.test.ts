@@ -30,10 +30,14 @@ import {
   makeCaRecordsResolvers,
 } from '@/modules/procurement/shell/graphql/ca-records-schema.js';
 import {
+  awardDaySql,
   buyerCountsSql,
   buyerKeysSql,
+  currentKeySql,
+  lotRowsSql,
   makeCaRecordsRepo,
   recordRowsSql,
+  winnerRowsSql,
 } from '@/modules/procurement/shell/repo/ca-records-repo.js';
 import { makeCaRecordsRestPlugin } from '@/modules/procurement/shell/rest/ca-records-routes.js';
 import {
@@ -380,6 +384,13 @@ const load = async (db: Kysely<ProdDatabase>): Promise<void> => {
     select 'seap', 'b' || g, '1', 'L1', 1, '1', 'valid' from generate_series(1, 20000) g`.execute(
     db
   );
+  await sql`
+    insert into procurement_v3.ca_contract_identity (source_name, publication_id, contract_id, contract_kind,
+      match_id, match_status, match_method, identity_status, current_status, is_current, review_reasons, members,
+      gap_to_predecessor, chain_history_incomplete, chain_order_unverified)
+    select 'seap', 'b' || g, '1', 'plain_contract', 'ca:b' || g || ':1', 'single', 'none', 'eligible', 'eligible',
+      true, '{}', 1, false, false, false
+    from generate_series(1, 20000) g`.execute(db);
   await sql`analyze`.execute(db);
 };
 
@@ -537,6 +548,29 @@ describe('reader rule 1 on the real views', () => {
     expect(main).toHaveLength(1);
     expect(main[0]?.condition).toContain('source_name');
     expect(main[0]?.condition).toContain('match_id');
+  });
+
+  it('the other by-key statements probe their tables by key, never a scan', async () => {
+    const KEYED = [
+      'ca_money_facts',
+      'ca_contract_winners',
+      'ca_contract_lots',
+      'ca_contract_identity',
+    ];
+    const key = { sourceName: 'seap', matchId: 'ca:b7:1' };
+    const keys = Array.from({ length: 20 }, (_v, i) => `ca:b${String(i + 1)}:1`);
+    const statements = [
+      awardDaySql(key),
+      winnerRowsSql('seap', keys),
+      lotRowsSql(key),
+      currentKeySql({ sourceName: 'seap', publicationId: 'b7', contractId: '1' }),
+    ];
+    for (const statement of statements) {
+      const relations = await planOf(statement);
+      const keyed = relations.filter((r) => KEYED.includes(r.relation));
+      expect(keyed.length).toBeGreaterThan(0);
+      for (const read of keyed) expect(read.type, read.relation).not.toBe('Seq Scan');
+    }
   });
 
   it('serves a large buyer’s pages within bounds', async () => {

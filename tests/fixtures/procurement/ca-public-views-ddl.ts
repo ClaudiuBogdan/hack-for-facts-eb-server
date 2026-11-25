@@ -1,21 +1,20 @@
 /**
  * The data platform's DDL for the contract-award public views (PROC-KB0Z), for the
- * e2e throwaway. GENERATED from scrapper origin/main b0a241e8a (views
- * c829e3386+) by rendering the migrations' up() SQL; do not edit by hand.
+ * e2e throwaway. GENERATED from scrapper origin/main 9282fac0e by
+ * scripts/procurement-ca-public-views-ddl.ts (rendering the migrations' up() SQL);
+ * do not edit by hand.
  *
  * - CA_PLATFORM_TABLES: verbatim `create table` statements of
- *   20261121T090000__procurement_v3_tables (da_buyer_geography, supplier_privacy,
- *   ca_publications, ca_lots, ca_contract_lots, ca_contract_winners,
- *   ca_contract_identity, ca_money_facts) and its ca_contract_identity_match_idx.
+ *   20261121T090000__procurement_v3_tables (da_buyer_geography, supplier_privacy, ca_publications, ca_lots, ca_contract_lots, ca_contract_winners, ca_contract_identity, ca_money_facts) and its ca_contract_identity_match_idx.
  * - CA_NAMING_DDL: verbatim procurement_v3.mask_person_name (20261121T090096),
  *   mask_supplier_text and the supplier_naming table (20261124T120000; its
  *   truncate trigger left out).
- * - CA_PUBLIC_VIEWS_DDL: the whole of 20261124T120040's up(), the four views
- *   and their comments, character for character.
+ * - CA_PUBLIC_VIEWS_DDL: the whole of 20261124T120040's up(), the four views and
+ *   their comments, character for character.
  *
- * Not verbatim (CA_STUBS_DDL, in the test): core.cui_is_mintable's checksum over a
- * digits-only normalize_cui, and minimal core.organizations and
- * companies_v2.onrc_current_profiles with the columns the views read.
+ * Not verbatim (the stubs in the test): core.cui_is_mintable's checksum over a digits-only
+ * normalize_cui, and minimal core.organizations and companies_v2.onrc_current_profiles with the
+ * columns the views read.
  */
 
 export const CA_PLATFORM_TABLES = String.raw`

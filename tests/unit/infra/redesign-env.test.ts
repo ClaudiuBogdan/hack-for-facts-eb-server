@@ -178,6 +178,33 @@ describe('direct-acquisition switches', () => {
       );
     }
   );
+
+  it('serves no contract-award records by default, nor without site-wide D6', () => {
+    expect(loadRedesignConfig(base).procurement?.caRecordsEnabled).toBeUndefined();
+    expect(
+      loadRedesignConfig({ ...base, PROCUREMENT_CA_RECORDS_ENABLED: 'false' }).procurement
+        ?.caRecordsEnabled
+    ).toBeUndefined();
+    expect(() => loadRedesignConfig({ ...base, PROCUREMENT_CA_RECORDS_ENABLED: 'true' })).toThrow(
+      /PROCUREMENT_CA_RECORDS_ENABLED=true requires PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED=true/u
+    );
+    expect(
+      loadRedesignConfig({
+        ...base,
+        PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED: 'true',
+        PROCUREMENT_CA_RECORDS_ENABLED: 'true',
+      }).procurement
+    ).toMatchObject({ caRecordsEnabled: true });
+  });
+
+  it.each(['True', 'on', '1', ''])(
+    'refuses PROCUREMENT_CA_RECORDS_ENABLED=%j at boot (a privacy switch is never guessed)',
+    (value) => {
+      expect(() => loadRedesignConfig({ ...base, PROCUREMENT_CA_RECORDS_ENABLED: value })).toThrow(
+        /PROCUREMENT_CA_RECORDS_ENABLED must be 'true' or 'false'/u
+      );
+    }
+  );
 });
 
 describe('PROCUREMENT_DATABASE_URL (PRJ-54YB)', () => {
