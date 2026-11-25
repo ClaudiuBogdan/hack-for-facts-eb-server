@@ -4,7 +4,7 @@ import mercuriusPlugin, { type IResolvers, type MercuriusLoaders } from 'mercuri
 
 import {
   loggedGraphQLErrors,
-  loggedOperationName,
+  loggedOperationType,
   makeGraphQLErrorFormatter,
   makeGraphQLValidationRules,
 } from './security.js';
@@ -161,15 +161,13 @@ export const makeGraphQLPlugin = (options: GraphQLOptions): FastifyPluginAsync =
       const document = (context as GraphQLLoggingContext).graphqlDocument;
 
       // Extract operation info if document is available
-      let operationName: string | null = null;
+      // No operation name: a caller chooses it (any text, a person's name included).
       let operationType = 'unknown';
       let fields: string[] = [];
 
       if (document !== undefined) {
         const opInfo = extractOperationInfo(document);
-        // A caller chooses the operation name: logged only when it is letters and underscores.
-        operationName = loggedOperationName(opInfo.operationName);
-        operationType = opInfo.operationType;
+        operationType = loggedOperationType(opInfo.operationType);
         fields = extractFieldNames(document);
       }
 
@@ -181,7 +179,6 @@ export const makeGraphQLPlugin = (options: GraphQLOptions): FastifyPluginAsync =
       const logEntry = {
         graphql: {
           operationType,
-          operationName,
           fields,
           hasErrors,
           errorCount,
@@ -193,13 +190,10 @@ export const makeGraphQLPlugin = (options: GraphQLOptions): FastifyPluginAsync =
         context.reply.log.warn(
           // Fixed categories only: an error message can quote a value the caller sent.
           { ...logEntry, errors: loggedGraphQLErrors(execution.errors) },
-          `GraphQL ${operationType} "${operationName ?? 'anonymous'}" completed with ${String(errorCount)} error(s)`
+          `GraphQL ${operationType} completed with ${String(errorCount)} error(s)`
         );
       } else {
-        context.reply.log.info(
-          logEntry,
-          `GraphQL ${operationType} "${operationName ?? 'anonymous'}" [${fields.join(', ')}]`
-        );
+        context.reply.log.info(logEntry, `GraphQL ${operationType} [${fields.join(', ')}]`);
       }
     });
   };

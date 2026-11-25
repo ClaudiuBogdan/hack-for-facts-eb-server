@@ -15,7 +15,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { makeGraphQLPlugin } from '@/infra/graphql/index.js';
 import {
   loggedGraphQLErrors,
-  loggedOperationName,
+  loggedOperationType,
   makeGraphQLErrorFormatter,
 } from '@/infra/graphql/security.js';
 
@@ -128,18 +128,31 @@ const send = async (app: FastifyInstance) => [
   await post(app, '{ echo(c: 1960.101123456e9) }'),
   await post(app, `{ id${CODE}: fail(c: "x") }`),
   await post(app, `query q${CODE} { fail(c: "x") }`),
+  // Caller text with no digits at all: a person's name as an operation name and as an alias.
+  await post(app, 'query Alice_Smith { fail(c: "x") }'),
+  await post(app, '{ AliceSmith: fail(c: "x") }'),
   // An error with no message of its own.
   await post(app, '{ many }'),
 ];
 
 describe('GraphQL error logging (PRJ-DMHY)', () => {
   it('logs categories only, whatever the error carries', () => {
+    const throwing = Object.defineProperty({}, 'path', {
+      get: () => {
+        throw new Error('getter');
+      },
+    });
+    const named = new Error('x');
+    named.name = 'AliceSmith';
     expect(
       loggedGraphQLErrors([
         { message: `x ${CODE}`, extensions: { code: 'BAD_USER_INPUT' }, path: [`id${CODE}`, 0] },
         { message: `x ${CODE}`, locations: [{ line: 1, column: 2 }] },
         { message: 'x', originalError: new TypeError(`y ${CODE}`), path: ['a'] },
-        { message: 'x', extensions: { code: `CODE_${CODE}` } },
+        { message: 'x', extensions: { code: 'ALICE_SMITH' } },
+        { message: 'x', extensions: { code: 'MER_ERR_GQL_VALIDATION' } },
+        { message: 'x', originalError: named },
+        throwing,
         null,
         'text',
       ])
@@ -147,13 +160,15 @@ describe('GraphQL error logging (PRJ-DMHY)', () => {
       { category: 'BAD_USER_INPUT', kind: 'execution', pathDepth: 2 },
       { category: 'unknown', kind: 'validation', pathDepth: null },
       { category: 'TypeError', kind: 'execution', pathDepth: 1 },
+      { category: 'other_code', kind: 'request', pathDepth: null },
+      { category: 'MER_ERR_GQL_VALIDATION', kind: 'request', pathDepth: null },
+      { category: 'other_error', kind: 'request', pathDepth: null },
       { category: 'unknown', kind: 'request', pathDepth: null },
       { category: 'unknown', kind: 'request', pathDepth: null },
       { category: 'unknown', kind: 'request', pathDepth: null },
     ]);
-    expect(loggedOperationName('ProcurementBuyerKeys')).toBe('ProcurementBuyerKeys');
-    expect(loggedOperationName(`q${CODE}`)).toBe('[redacted]');
-    expect(loggedOperationName(null)).toBeNull();
+    expect(loggedOperationType('query')).toBe('query');
+    expect(loggedOperationType('AliceSmith')).toBe('unknown');
   });
 
   for (const isProduction of [false, true])
@@ -167,6 +182,7 @@ describe('GraphQL error logging (PRJ-DMHY)', () => {
       // No run of four digits at all, no address, no alias or operation name with the code.
       expect(text).not.toMatch(/[0-9]{4}/u);
       expect(text).not.toContain('example');
+      expect(text).not.toContain('Alice');
       // The errors and the operation warning are still logged.
       expect(
         logs.lines.filter((line) => line.includes('"msg":"GraphQL error"')).length
@@ -180,6 +196,7 @@ describe('GraphQL error logging (PRJ-DMHY)', () => {
     const text = callerText(logs.lines);
     expect(text).not.toMatch(/[0-9]{4}/u);
     expect(text).not.toContain('example');
+    expect(text).not.toContain('Alice');
   });
 
   it('leaves the client-facing response as Mercurius formats it', async () => {

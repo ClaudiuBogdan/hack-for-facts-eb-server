@@ -121,41 +121,93 @@ export interface LoggedGraphQLError {
   readonly pathDepth: number | null;
 }
 
-const CODE_SHAPE = /^[A-Z][A-Z_]{0,63}$/u;
-const CLASS_SHAPE = /^[A-Za-z]{1,64}$/u;
+/**
+ * The error codes the API and Mercurius emit (static text in code); any other code is logged as
+ * `other_code`, so a code built from caller text can never reach a log line.
+ */
+const KNOWN_CODES: ReadonlySet<string> = new Set([
+  'BAD_USER_INPUT',
+  'INVALID_INPUT',
+  'NOT_FOUND',
+  'FORBIDDEN',
+  'UNAUTHENTICATED',
+  'RATE_LIMITED',
+  'QUOTA_EXCEEDED',
+  'SERVICE_UNAVAILABLE',
+  'INTERNAL_SERVER_ERROR',
+  'BAD_GATEWAY',
+  'GATEWAY_TIMEOUT',
+  'GRAPHQL_PARSE_FAILED',
+  'GRAPHQL_VALIDATION_FAILED',
+  'UPGRADE_REQUIRED',
+  'RELEASE_MISMATCH',
+  'IDEMPOTENCY_KEY_REUSED',
+  'NOT_PORTED',
+  'PNRR_UNAVAILABLE',
+  'RENDER_UNAVAILABLE',
+  'RENDER_RESTRICTED',
+  'RENDER_INCONSISTENT',
+  'IMPLAUSIBLE_REVENUE',
+  'REVENUE_EQUALS_FIXED_ASSETS',
+]);
+const MERCURIUS_CODE = /^MER_ERR_[A-Z_]{1,60}$/u;
+/** The error classes logged by name; any other class is `other_error`. */
+const KNOWN_CLASSES: ReadonlySet<string> = new Set([
+  'Error',
+  'TypeError',
+  'RangeError',
+  'ReferenceError',
+  'SyntaxError',
+  'AggregateError',
+  'GraphQLError',
+]);
 
 const field = (value: unknown, key: string): unknown =>
   typeof value === 'object' && value !== null ? (value as Record<string, unknown>)[key] : undefined;
 
 const categoryOf = (error: unknown): string => {
   const code = field(field(error, 'extensions'), 'code');
-  if (typeof code === 'string' && CODE_SHAPE.test(code)) return code;
+  if (typeof code === 'string')
+    return KNOWN_CODES.has(code) || MERCURIUS_CODE.test(code) ? code : 'other_code';
   const original = field(error, 'originalError');
   const name = field(original ?? error, 'name');
-  return typeof name === 'string' && CLASS_SHAPE.test(name) ? name : 'unknown';
+  if (typeof name !== 'string') return 'unknown';
+  return KNOWN_CLASSES.has(name) ? name : 'other_error';
 };
 
+const UNREADABLE: LoggedGraphQLError = { category: 'unknown', kind: 'request', pathDepth: null };
+
 const loggedError = (error: unknown): LoggedGraphQLError => {
-  const path = field(error, 'path');
-  const locations = field(error, 'locations');
-  return {
-    category: categoryOf(error),
-    kind: Array.isArray(path) ? 'execution' : Array.isArray(locations) ? 'validation' : 'request',
-    pathDepth: Array.isArray(path) ? path.length : null,
-  };
+  // An error value can have throwing getters: logging never interrupts formatting.
+  try {
+    const path = field(error, 'path');
+    const locations = field(error, 'locations');
+    return {
+      category: categoryOf(error),
+      kind: Array.isArray(path) ? 'execution' : Array.isArray(locations) ? 'validation' : 'request',
+      pathDepth: Array.isArray(path) ? path.length : null,
+    };
+  } catch {
+    return UNREADABLE;
+  }
 };
 
 /** What is logged of GraphQL errors (`LoggedGraphQLError`); never throws on an unusual error value. */
 export const loggedGraphQLErrors = (errors: readonly unknown[] | undefined): LoggedGraphQLError[] =>
   (errors ?? []).flatMap((error) => {
     // Mercurius wraps a validation failure's errors in one error (MER_ERR_GQL_VALIDATION).
-    const nested = field(field(error, 'originalError'), 'errors');
+    let nested: unknown;
+    try {
+      nested = field(field(error, 'originalError'), 'errors');
+    } catch {
+      nested = undefined;
+    }
     return Array.isArray(nested) ? nested.map(loggedError) : [loggedError(error)];
   });
 
-/** An operation name as logged: letters and underscores only (a caller chooses it), else none. */
-export const loggedOperationName = (name: string | null): string | null =>
-  name === null ? null : /^[A-Za-z_]{1,64}$/u.test(name) ? name : '[redacted]';
+/** An operation type as logged: one of GraphQL's three, else `unknown` (never caller text). */
+export const loggedOperationType = (type: string): string =>
+  type === 'query' || type === 'mutation' || type === 'subscription' ? type : 'unknown';
 
 const noop = (): void => undefined;
 /** Mercurius's default formatter logs each error's message whole; it gets this logger instead. */
