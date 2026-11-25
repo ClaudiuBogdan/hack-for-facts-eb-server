@@ -19,16 +19,16 @@
  */
 
 import { sql, type Kysely } from 'kysely';
-import { err, ok } from 'neverthrow';
+import { err, ok, type Result } from 'neverthrow';
 
-import { databaseError, type ProdDatabase } from '@/modules/shared/index.js';
+import { databaseError, type ApiError, type ProdDatabase } from '@/modules/shared/index.js';
 
 import { BOUND_COMPONENT_SOURCE_SQL, FORM_READABLE_SQL } from './v2-reads.js';
 import { COMPONENT_BOUNDARY } from '../../../core/v2/composition.js';
 import { formDocumentId, versionKindOf } from '../../../core/v2/forms.js';
 import { v2ProvisionKey } from '../../../core/v2/outline.js';
 
-import type { V2OutlineReader } from './outline-v2.js';
+import type { V2OutlineReader, V2ProvisionPaths } from './outline-v2.js';
 import type { LegalV2HitVerifier, V2HitUse, VerifiedUse } from '../../../core/v2/search.js';
 
 type Db = Kysely<ProdDatabase>;
@@ -53,6 +53,7 @@ interface VerifiedRow {
   char_start: number;
   char_end: number;
   source_url: string | null;
+  composition_digest: string | null;
 }
 
 export const makeLegalV2HitVerifier = (
@@ -99,7 +100,7 @@ export const makeLegalV2HitVerifier = (
                p.provision_seq::int as provision_seq,
                hit.char_start + preceding.length as char_start, hit.char_end + preceding.length as char_end,
                (hit.content_key is not null and p.content_key = hit.content_key) as same_wording,
-               gate.source_url
+               gate.source_url, gate.composition_digest
           from hit
           join legal_v2.forms f
             on f.form_id = hit.form_id and f.act_id = hit.act_id and f.privacy_class = 'public'
@@ -130,23 +131,34 @@ export const makeLegalV2HitVerifier = (
       return err(databaseError('legal_v2 hit verification failed', error));
     }
     const byIdx = new Map(rows.map((r) => [r.idx, r]));
-    // The outline path of each verified provision, one outline read per form (cached there).
-    const pathsByForm = new Map<string, ReadonlyMap<string, string> | null>();
-    if (provisionPaths !== undefined) {
-      for (const formId of new Set(rows.map((r) => r.form_id))) {
-        const res = await provisionPaths(formDocumentId(formId));
+    // The outline path of a verified provision, read only for the uses that may be returned:
+    // per section the first use whose form the outline still reads, under the SAME composition
+    // the verification read. A form unreadable at the second read, a changed composition or a
+    // provision the outline does not name drops that use (and the next use of the section is
+    // tried); nothing is returned with an unconfirmed path.
+    const pathsByForm = new Map<string, V2ProvisionPaths | null>();
+    const pathOf = async (row: VerifiedRow): Promise<Result<string | null, ApiError>> => {
+      if (provisionPaths === undefined) return ok(row.address);
+      if (!pathsByForm.has(row.form_id)) {
+        const res = await provisionPaths(formDocumentId(row.form_id));
         if (res.isErr()) return err(res.error);
-        pathsByForm.set(formId, res.value);
+        pathsByForm.set(row.form_id, res.value);
       }
-    }
+      const read = pathsByForm.get(row.form_id);
+      if (read === null || read === undefined) return ok(null);
+      if (read.compositionDigest !== row.composition_digest) return ok(null);
+      return ok(read.paths.get(v2ProvisionKey(row.ordinal, row.provision_seq)) ?? null);
+    };
     const out = new Map<number, VerifiedUse>();
     for (const f of flat) {
       const row = byIdx.get(f.idx);
       if (out.has(f.key) || row === undefined) continue;
+      const path = await pathOf(row);
+      if (path.isErr()) return err(path.error);
+      if (provisionPaths !== undefined && path.value === null) continue;
       out.set(f.key, {
         use: f.use,
-        path:
-          pathsByForm.get(row.form_id)?.get(v2ProvisionKey(row.ordinal, row.provision_seq)) ?? null,
+        path: path.value,
         composed: row.composed,
         charStart: row.char_start,
         charEnd: row.char_end,

@@ -67,6 +67,14 @@ interface FormOutline {
   readonly blocks: readonly V2BlockRef[];
   /** `v2ProvisionKey(ordinal, seq)` → the outline path of that provision. */
   readonly paths: ReadonlyMap<string, string>;
+  /** The composition these paths were read from (gate row). */
+  readonly compositionDigest: string | null;
+}
+
+/** The provision paths of one readable form, with the composition they belong to. */
+export interface V2ProvisionPaths {
+  readonly compositionDigest: string | null;
+  readonly paths: ReadonlyMap<string, string>;
 }
 
 /** The outline repo, and the provision paths search shares with it (one cache). */
@@ -75,7 +83,7 @@ export interface V2OutlineReader {
   /** The outline path of each public provision of a readable form; null when not readable. */
   readonly provisionPaths: (
     documentId: string
-  ) => Promise<Result<ReadonlyMap<string, string> | null, ApiError>>;
+  ) => Promise<Result<V2ProvisionPaths | null, ApiError>>;
 }
 
 // Both the cache lookup and the body read recheck the entire form in their
@@ -178,6 +186,7 @@ export const makeV2OutlineReader = (db: Db): V2OutlineReader => {
         entries: keyed.map((k) => k.entry),
         blocks: composePresentationBlocks(units),
         paths: new Map(keyed.map((k) => [k.key, k.entry.path])),
+        compositionDigest: first.composition_digest,
       };
       remember(cacheKey(result.rows), value);
       return ok(value);
@@ -258,8 +267,10 @@ export const makeV2OutlineReader = (db: Db): V2OutlineReader => {
 
   const provisionPaths = async (
     documentId: string
-  ): Promise<Result<ReadonlyMap<string, string> | null, ApiError>> =>
-    (await outlineFor(documentId)).map((o) => o?.paths ?? null);
+  ): Promise<Result<V2ProvisionPaths | null, ApiError>> =>
+    (await outlineFor(documentId)).map((o) =>
+      o === null ? null : { compositionDigest: o.compositionDigest, paths: o.paths }
+    );
 
   return { repo: { outline, entryByPath }, provisionPaths };
 };

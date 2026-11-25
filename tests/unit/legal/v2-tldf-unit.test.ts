@@ -482,6 +482,8 @@ describe('stored-chunk validation and allowlisted output (security review)', () 
           marks: [
             { ordinal: 0, kind: 'reference', span: [0, 1], link_ordinal: 0 },
             { ordinal: 1, kind: 'reference', span: [1, 3], link_ordinal: 1 },
+            // No link occurrence named at all: nothing establishes a public link.
+            { ordinal: 2, kind: 'reference', span: [3, 4] },
           ],
         },
         // Only occurrence 1 is public: occurrence 0 is withheld.

@@ -83,14 +83,31 @@ const foldedPairHash = (db: Db): RawBuilder<unknown> => sql`coalesce(
         group by c.ordinal
      ) part))`;
 
-const renderHeadSql = (db: Db, scope: RawBuilder<unknown>, includeTextHash: boolean) => sql`
+/**
+ * `wantedChunk`: a body read's chunk index. The pair's text is folded for its hash only when
+ * that index can be answered (0, the manifest, or a data chunk the gate counts), so a stale or
+ * out-of-range index costs no fold before its 404.
+ */
+const renderHeadSql = (
+  db: Db,
+  scope: RawBuilder<unknown>,
+  includeTextHash: boolean,
+  wantedChunk?: number
+) => sql`
   select f.form_id::text as form_id, f.form_kind, f.caveat, f.portal_label_raw,
          f.portal_label_date::text, f.portal_order_date::text,
          gate.status, gate.receipt_id::text, gate.public_chunks, gate.composition_digest, gate.source_url,
          to_json(r.published_at) #>> '{}' as published_at,
          coalesce(c.slot = 'body', false) as pair, u.compiler_version, u.parse_build_id, u.content_parser_version,
          case when c.slot = 'body' then gate.composition_digest else u.body_sha256 end as body_sha256,
-         case when c.slot = 'body' then ${includeTextHash ? foldedPairHash(db) : sql`null`}
+         case when c.slot = 'body' then ${
+           !includeTextHash
+             ? sql`null`
+             : wantedChunk === undefined
+               ? foldedPairHash(db)
+               : sql`case when ${wantedChunk}::int <= coalesce(gate.public_chunks, 0)
+                          then ${foldedPairHash(db)} end`
+         }
               else u.text_sha256 end as text_sha256
     from legal_v2.forms f
     join legal_v2.acts a on a.act_id = f.act_id and a.privacy_class = 'public'
@@ -200,7 +217,7 @@ const readBody = async (db: Db, documentId: string, wanted: number): Promise<Bod
   if (ref.kind === 'invalid') return null;
   const scope = sql`f.form_id = (select form_id from pick where route_status = 'bound')`;
   const result = await sql<BodyRow>`
-    with pick as (${documentFormPickSql(ref)}), head as (${renderHeadSql(db, scope, true)}),
+    with pick as (${documentFormPickSql(ref)}), head as (${renderHeadSql(db, scope, true, wanted)}),
     units as (
       select c.ordinal, u.unit_id, u.render_state, u.fidelity_flags
         from head

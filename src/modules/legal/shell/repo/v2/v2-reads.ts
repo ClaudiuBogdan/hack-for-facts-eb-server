@@ -123,7 +123,8 @@ export const formReadableSql = (countChunks: boolean) => sql`
       when f.ended or fc.form_id is null or x.units = 0 or x.empty_unit then 'not_loaded'
       when not (x.whole or (f.form_kind = 'consolidation' and x.pair)) then 'composition_not_served'
       when f.form_kind = 'consolidation' and x.pair
-           and (f.portal_label_raw is null or f.portal_label_date is null) then 'label_missing'
+           and (nullif(btrim(f.portal_label_raw), '') is null or f.portal_label_date is null)
+        then 'label_missing'
       when f.form_kind = 'consolidation' and x.whole
            and f.portal_label_raw is null and f.portal_label_date is null then 'label_missing'
       when not x.bound then 'source_not_bound'
@@ -167,7 +168,7 @@ export const readFormsForActs = async (
              -- restricted part's own page. Otherwise the form's source is its whole or header
              -- capture, a body capture only when nothing else is bound.
              case when gate.status = 'restricted' then null
-                  when gate.readable then gate.source_url else (
+                  when gate.source_url is not null then gate.source_url else (
                select s.requested_url from legal_v2.form_sources s
                where s.form_id = f.form_id and s.subject_kind = 'capture' and s.status = 'bound'
                  and s.is_latest and s.privacy_class = 'public'

@@ -428,7 +428,8 @@ const buildMark = (
   links: ReadonlyMap<number, V2LinkTarget>,
   placement: Placement
 ): TldfMark | null => {
-  if (m.kind === 'reference' && m.link_ordinal !== undefined && !links.has(m.link_ordinal)) {
+  // A reference with no public link occurrence (none named, or one withheld) is dropped.
+  if (m.kind === 'reference' && (m.link_ordinal === undefined || !links.has(m.link_ordinal))) {
     return null;
   }
   const target = m.link_ordinal === undefined ? undefined : links.get(m.link_ordinal);

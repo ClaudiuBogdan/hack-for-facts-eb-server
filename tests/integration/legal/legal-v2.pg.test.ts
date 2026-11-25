@@ -601,7 +601,16 @@ run('legal_v2 on real DDL', () => {
         },
       ],
     });
-    expect(PAIR_TEXT.slice(HEADER.length + 6, HEADER.length + 9)).toBe('art');
+    // From the returned ranges, not the fixture's constants: the header's heading ends where
+    // the one boundary character sits, and the body section's range reads its own word.
+    const headerEnd = headings[0]?.charEnd ?? -1;
+    expect(headerEnd).toBe(HEADER.length);
+    expect(PAIR_TEXT.slice(headerEnd, headerEnd + 1)).toBe('\n');
+    const bodySection = (
+      result['legalSearch'] as { sections: { charStart: number; charEnd: number }[] }
+    ).sections[1];
+    expect(PAIR_TEXT.slice(bodySection?.charStart ?? 0, bodySection?.charEnd ?? 0)).toBe('art');
+    expect(PAIR_TEXT.slice(headerEnd + 1, bodySection?.charStart ?? 0)).toBe('Corp ');
     const invalid = (
       await makeLegalV2HitVerifier(db).verifyUses([
         {
@@ -647,6 +656,92 @@ run('legal_v2 on real DDL', () => {
     } finally {
       await trx.rollback().execute();
     }
+  });
+
+  it('reads forms afresh for each call, never through a read still in flight for another', async () => {
+    const trx = await db.startTransaction().execute();
+    try {
+      const acts = makeLegalActsRepoV2({
+        db: trx,
+        legacy: makeLegalActsRepo(trx, V2_BRIDGE_GATE),
+        today: () => '2026-11-20',
+      });
+      // One connection runs statements in the order they are issued: A's read, the
+      // restriction, then B's read. Before, B shared A's read while it was in flight and got
+      // A's verdict, taken before the restriction.
+      const a = acts.listDocuments('7');
+      const restrict = sql`update legal_v2.form_components set privacy_class = 'restricted'
+                            where unit_id = 7`.execute(trx);
+      const b = acts.listDocuments('7');
+      await restrict;
+      const pairOf = (docs: readonly { documentId: string }[]) =>
+        docs.find((d) => d.documentId === 'f106');
+      expect(pairOf((await a)._unsafeUnwrap())).toMatchObject({ readable: true });
+      expect(pairOf((await b)._unsafeUnwrap())).toMatchObject({ readable: false, sourceUrl: null });
+    } finally {
+      await trx.rollback().execute();
+    }
+  });
+
+  it('drops a verified hit unless the outline confirms it under the same composition', async () => {
+    const reader = makeV2OutlineReader(db);
+    const hits = pairHits.map((h, key) => ({ ...h, key }));
+    const verified = async (paths: Parameters<typeof makeLegalV2HitVerifier>[1]) =>
+      (await makeLegalV2HitVerifier(db, paths).verifyUses(hits))._unsafeUnwrap();
+    // Control: the same hits are confirmed by the outline of the composition they were read in.
+    const confirmed = await verified(reader.provisionPaths);
+    expect(confirmed.size).toBeGreaterThan(0);
+    for (const use of confirmed.values()) expect(use.path).not.toBeNull();
+    // Another composition (a body replaced between the two reads): no hit is returned.
+    expect(
+      (
+        await verified(async (id) =>
+          (await reader.provisionPaths(id)).map((p) =>
+            p === null ? null : { ...p, compositionDigest: 'another composition' }
+          )
+        )
+      ).size
+    ).toBe(0);
+    // A form the outline no longer reads (restricted between the two reads): no hit either.
+    expect((await verified(() => Promise.resolve(ok(null)))).size).toBe(0);
+  });
+
+  it('reads one outline per returned section, not one per form its wording appears in', async () => {
+    const reader = makeV2OutlineReader(db);
+    const asked: string[] = [];
+    const counting: Parameters<typeof makeLegalV2HitVerifier>[1] = (id) => {
+      asked.push(id);
+      return reader.provisionPaths(id);
+    };
+    // One section whose wording the index records in two verifiable forms (a passage repeated
+    // across versions): only the retained use's outline is read.
+    const candidate = {
+      ...sectionHit,
+      key: 0,
+      uses: [
+        {
+          formId: '101',
+          unitId: '2',
+          provisionSeq: 0,
+          charStart: 0,
+          charEnd: 3,
+          contentKey: 'k1:abc',
+        },
+        {
+          formId: '106',
+          unitId: '7',
+          provisionSeq: 1,
+          charStart: 5,
+          charEnd: 8,
+          contentKey: 'k1:article',
+        },
+      ],
+    };
+    const out = (
+      await makeLegalV2HitVerifier(db, counting).verifyUses([candidate])
+    )._unsafeUnwrap();
+    expect(out.size).toBe(1);
+    expect(asked).toEqual(['f101']);
   });
 
   it('keeps a whole consolidation with the literal label and no date readable', async () => {
@@ -750,6 +845,34 @@ run('legal_v2 on real DDL', () => {
     ],
     ['empty body', 'not_loaded', sql`delete from legal_v2.unit_render where unit_id = 7`],
     ['ended form', 'not_loaded', sql`update legal_v2.forms set ended = true where form_id = 106`],
+    // Combined faults: privacy is decided before availability and shape.
+    [
+      'unsupported shape with a restricted component',
+      'restricted',
+      sql`with shape as (update legal_v2.form_components set slot = 'whole' where unit_id = 7 returning 1)
+          update legal_v2.text_units set privacy_class = 'restricted' where unit_id = 6`,
+    ],
+    [
+      'missing body with a restricted header chunk',
+      'restricted',
+      sql`with gone as (delete from legal_v2.unit_render where unit_id = 7 returning 1)
+          update legal_v2.unit_render set privacy_class = 'restricted' where unit_id = 6`,
+    ],
+    [
+      'unpublished composition',
+      'not_loaded',
+      sql`delete from legal_v2.form_current where form_id = 106`,
+    ],
+    [
+      'whole plus a second text component',
+      'composition_not_served',
+      sql`update legal_v2.form_components set slot = 'whole' where unit_id = 6`,
+    ],
+    [
+      'blank label wording',
+      'label_missing',
+      sql`update legal_v2.forms set portal_label_raw = '  ' where form_id = 106`,
+    ],
     [
       'label wording alone',
       'label_missing',
