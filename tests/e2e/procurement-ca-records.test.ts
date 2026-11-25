@@ -332,6 +332,8 @@ const load = async (db: Kysely<ProdDatabase>): Promise<void> => {
     // 3004 won by the named code outside D6 (2024); 3005 by the code-only code outside D6 (2024).
     { pub: '3004', contract: '1', amount: '400.00', day: '2024-04-04', buyer: OTHER_BUYER },
     { pub: '3005', contract: '1', amount: '500.00', day: '2024-05-05', buyer: OTHER_BUYER },
+    // 3006: the named code on two winner rows of one contract (2021).
+    { pub: '3006', contract: '1', amount: '600.00', day: '2021-06-06', buyer: OTHER_BUYER },
     // Re-anchored: the identity's earliest appearance (900) is its key; 901 is current.
     {
       pub: '901',
@@ -359,6 +361,7 @@ const load = async (db: Kysely<ProdDatabase>): Promise<void> => {
     ['3003', 'Inainte de 2021', '2020-02-02'],
     ['3004', 'Servicii de curatenie', '2024-04-04'],
     ['3005', 'Reparatii', '2024-05-05'],
+    ['3006', 'Doua randuri', '2021-06-06'],
     ['901', 'Reanuntare', '2025-05-05'],
   ] as const)
     await publicationSql(pub, title, day).execute(db);
@@ -380,6 +383,8 @@ const load = async (db: Kysely<ProdDatabase>): Promise<void> => {
     winnerSql('3003', '1', 'w1', 1, GATE_MASKED_WINNER),
     winnerSql('3004', '1', 'w1', 1, NAMED_OFF_GATE_WINNER),
     winnerSql('3005', '1', 'w1', 1, CODE_ONLY_OFF_GATE_WINNER),
+    winnerSql('3006', '1', 'w1', 1, NAMED_OFF_GATE_WINNER),
+    winnerSql('3006', '1', 'w2', 2, NAMED_OFF_GATE_WINNER),
   ])
     await statement.execute(db);
   for (const statement of [
@@ -922,6 +927,31 @@ describe('a winner code’s contract awards', () => {
     )._unsafeUnwrap();
     expect(new Set(window.items.map((item) => item.awardDay))).toEqual(new Set(['2025-03-10']));
     expect(window.items.map((item) => item.recordId)).toContain('seap:ca:1001:1');
+    // Offsets are honoured: page 2 of 2 is rows 3-4 of a page of 4, and the last reachable page
+    // says no more.
+    const ids = async (page: number, pageSize: number) =>
+      (
+        await listCaWinnerRecords(deps, {
+          winnerFiscalCode: GATE_WINNER,
+          sort: 'awardDayAsc',
+          page,
+          pageSize,
+        })
+      )
+        ._unsafeUnwrap()
+        .items.map((item) => item.recordId);
+    const four = await ids(1, 4);
+    expect(await ids(2, 2)).toEqual(four.slice(2));
+    expect(new Set([...four, ...(await ids(3, 2))]).size).toBe(6);
+    const last = (
+      await listCaWinnerRecords(deps, { winnerFiscalCode: GATE_WINNER, page: 200, pageSize: 50 })
+    )._unsafeUnwrap();
+    expect(last.hasMore).toBe(false);
+    expect(
+      (
+        await listCaWinnerRecords(deps, { winnerFiscalCode: GATE_WINNER, page: 201, pageSize: 50 })
+      )._unsafeUnwrapErr()
+    ).toMatchObject({ type: 'InvalidInput', field: 'page' });
   });
 
   it('lists a registry-named code outside D6, shown with its registry name', async () => {
@@ -935,7 +965,8 @@ describe('a winner code’s contract awards', () => {
       name: 'BETA SERVICII SRL',
       disclosed: false,
     };
-    expect(summary).toMatchObject({ recordCount: 1, undatedCount: 0, winner: shown });
+    // 3004 and 3006 (two winner rows of the same code: one record, counted once).
+    expect(summary).toMatchObject({ recordCount: 2, undatedCount: 0, winner: shown });
     const page = (
       await listCaWinnerRecords(deps, {
         winnerFiscalCode: NAMED_OFF_GATE_WINNER,
@@ -943,8 +974,13 @@ describe('a winner code’s contract awards', () => {
         pageSize: 5,
       })
     )._unsafeUnwrap();
-    expect(page.items.map((item) => item.recordId)).toEqual(['seap:ca:3004:1']);
+    expect(page.items.map((item) => item.recordId)).toEqual(['seap:ca:3004:1', 'seap:ca:3006:1']);
+    expect(page.total).toBe(2);
     expect(page.items[0]?.winners).toEqual([{ ...shown, order: 1 }]);
+    expect(page.items[1]?.winners).toEqual([
+      { ...shown, order: 1 },
+      { ...shown, order: 2 },
+    ]);
   });
 
   it('answers every code outside the gate with the same NotFound', async () => {
@@ -1262,7 +1298,7 @@ describe('MCP', () => {
     const won = await callTool('list_procurement_contract_awards_by_winner', {
       winnerFiscalCode: NAMED_OFF_GATE_WINNER,
     });
-    expect(won.content).toMatchObject({ ok: true, meta: { total: 1 } });
+    expect(won.content).toMatchObject({ ok: true, meta: { total: 2 } });
     // The asked code is not echoed in the query (only by the records' winners).
     expect(JSON.stringify(won.content['query'])).not.toContain(NAMED_OFF_GATE_WINNER);
     const winnerSummary = await callTool('get_procurement_contract_award_winner_summary', {
