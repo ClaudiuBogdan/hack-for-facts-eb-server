@@ -15,6 +15,7 @@ import { Value } from '@sinclair/typebox/value';
 import { describe, expect, it } from 'vitest';
 
 import { urlCarriesPersonalCode } from '@/modules/share/core/personal-code-url.js';
+import { buildCanonicalMetadata, generateCode } from '@/modules/share/core/url-utils.js';
 import { createShortLink } from '@/modules/share/core/usecases/create-short-link.js';
 import { makeShareLink } from '@/modules/share/core/usecases/make-share-link.js';
 import { resolveShortLink } from '@/modules/share/core/usecases/resolve-short-link.js';
@@ -58,6 +59,20 @@ const percentEncoded = (text: string): string =>
     (char) => `%${(char.codePointAt(0) ?? 0).toString(16).toUpperCase().padStart(2, '0')}`
   );
 
+/** A backslash, built so no escape sequence is written in this file by accident. */
+const BACKSLASH = String.fromCharCode(92);
+/** A chart title whose JSON escapes render the code once parsed. */
+const jsonEscapedCode = [...CODE.matchAll(/[0-9]/gu)]
+  .map((digit) => `${BACKSLASH}u003${digit[0]}`)
+  .join('');
+/** `-` percent-encoded `levels` times. */
+const encodedDash = (levels: number): string => {
+  let out = '-';
+  for (let level = 0; level < levels; level += 1)
+    out = out.replace(/%/gu, '%25').replace('-', '%2D');
+  return out;
+};
+
 /** The cases PRJ-HX7G lists, and their neighbours. */
 const REFUSED: readonly (readonly [string, string])[] = [
   ['plain, in the path', `${BASE}/companies/${CODE}`],
@@ -78,6 +93,35 @@ const REFUSED: readonly (readonly [string, string])[] = [
     `${BASE}/procurement?filters=${encodeURIComponent(JSON.stringify({ q: CODE }))}`,
   ],
   ['an 11-digit run (the kernel threshold)', `${BASE}/procurement?q=12345678901`],
+  // Sol round 1 (25 Nov):
+  ['next to an invalid escape', `${BASE}/procurement?bad=%FF&q=1234567%2D890123`],
+  // One escape run with an invalid first byte: the browser still shows the digits after it.
+  [
+    'after an invalid byte in the same escape run',
+    `${BASE}/procurement?q=%FF${percentEncoded(CODE)}`,
+  ],
+  // Not UUID tokens (an extra leading or trailing hex character): a 12-digit tail is a code.
+  [
+    'a 12-digit tail in a token one character longer at the start',
+    `${BASE}/x?id=0a1b2c3d4-e5f6-4a7b-8c9d-446655440000`,
+  ],
+  [
+    'a 12-digit tail in a token one character longer at the end',
+    `${BASE}/x?id=a1b2c3d4-e5f6-4a7b-8c9d-446655440000f`,
+  ],
+  ['split after a decimal point', `${BASE}/procurement?q=0.1234567-890123`],
+  ['in a UUID-like token with a 13-digit tail', `${BASE}/x?id=a1b2c3d4-e5f6-4a7b-8c9d-${CODE}`],
+  ['split by a combining grapheme joiner', `${BASE}/procurement?q=1234567%CD%8F890123`],
+  [
+    'as JSON escapes in a chart title',
+    `${BASE}/charts/x?chart=${encodeURIComponent(`{"title":"${jsonEscapedCode}"}`)}`,
+  ],
+  ['in a punycode host', 'https://xn--11b6ncbdcedfklmno.example/'],
+  ['encoded five times', `${BASE}/procurement?q=1234567${encodedDash(5)}890123`],
+  [
+    'still changing after sixteen decodings',
+    `${BASE}/procurement?q=1234567${encodedDash(17)}890123`,
+  ],
 ];
 
 /** Ordinary links that must still be shortened. */
@@ -94,6 +138,10 @@ const ACCEPTED: readonly (readonly [string, string])[] = [
     'a learning page with a fragment',
     `${BASE}/ro/learning/path/module/lesson-1?section=quiz#answer`,
   ],
+  // Sol round 1 (25 Nov): escape hex and a plain plus are not digits or separators.
+  ['a 10-digit value after an encoded space', `${BASE}/procurement?q=%201234567890`],
+  ['an encoded plus between digits', `${BASE}/procurement?q=1234567%2B890123`],
+  ['a plus in the path', `${BASE}/x/1234567+890123`],
 ];
 
 describe('urlCarriesPersonalCode', () => {
@@ -103,6 +151,13 @@ describe('urlCarriesPersonalCode', () => {
 
   it.each(ACCEPTED)('accepts %s', (_, url) => {
     expect(urlCarriesPersonalCode(url)).toBe(false);
+  });
+
+  it('answers the same on repeated calls (no regex state carried over)', () => {
+    for (let round = 0; round < 3; round += 1) {
+      for (const [, url] of REFUSED) expect(urlCarriesPersonalCode(url), url).toBe(true);
+      for (const [, url] of ACCEPTED) expect(urlCarriesPersonalCode(url), url).toBe(false);
+    }
   });
 
   it('never throws on a malformed escape, and still reads the raw string', () => {
@@ -217,12 +272,13 @@ describe('resolveShortLink never serves a stored URL with a personal code', () =
     expect(calls).toEqual(['getByCode']);
   });
 
-  it('answers from the cache exactly as an unknown code, with no count', async () => {
+  it('reads a blocked cache entry as a miss: the database answers, as for an unknown code', async () => {
     const { repo, calls } = recordingRepo();
     const cache = makeFakeShortLinkCache({ entries: new Map([[LINK_CODE, STORED]]) });
     const result = await resolveShortLink({ shortLinkRepo: repo, cache }, { code: LINK_CODE });
     expect(result._unsafeUnwrapErr()).toEqual(notFound);
-    expect(calls).toEqual([]);
+    // The lookup an unknown code makes, and no access count.
+    expect(calls).toEqual(['getByCode']);
   });
 
   it('still resolves an ordinary chart link', async () => {
@@ -236,5 +292,94 @@ describe('resolveShortLink never serves a stored URL with a personal code', () =
       { code: LINK_CODE }
     );
     expect(result._unsafeUnwrap().url).toBe(chartUrls.movedAnnotation);
+  });
+});
+
+describe('round 1 of the review: legacy rows, outages and logs', () => {
+  const LINK_CODE = 'ABC123DEF456GHIJ';
+  const STORED = `${BASE}/procurement?q=${CODE}`;
+
+  it('treats a blocked cache entry as a miss: an outage answers as for an unknown code', async () => {
+    const failing = { ...makeFakeShortLinkRepo({ simulateDbError: true }) };
+    const blocked = await resolveShortLink(
+      {
+        shortLinkRepo: failing,
+        cache: makeFakeShortLinkCache({ entries: new Map([[LINK_CODE, STORED]]) }),
+      },
+      { code: LINK_CODE }
+    );
+    const unknown = await resolveShortLink(
+      { shortLinkRepo: failing, cache: makeFakeShortLinkCache() },
+      { code: LINK_CODE }
+    );
+    expect(blocked._unsafeUnwrapErr()).toEqual(unknown._unsafeUnwrapErr());
+    expect(blocked._unsafeUnwrapErr().type).toBe('DatabaseError');
+  });
+
+  it('writes nothing to the cache for a blocked entry', async () => {
+    const writes: string[] = [];
+    const base = makeFakeShortLinkCache({ entries: new Map([[LINK_CODE, STORED]]) });
+    const cache = {
+      get: base.get,
+      set: (code: string, url: string) => {
+        writes.push(code);
+        return base.set(code, url);
+      },
+    };
+    const { repo, calls } = recordingRepo();
+    const result = await resolveShortLink({ shortLinkRepo: repo, cache }, { code: LINK_CODE });
+    expect(result._unsafeUnwrapErr().type).toBe('ShortLinkNotFoundError');
+    expect(writes).toEqual([]);
+    expect(calls).toEqual(['getByCode']);
+  });
+
+  it("never hands out a blocked legacy row's code for a clean URL with the same metadata", async () => {
+    const clean = `${BASE}/x`;
+    const legacy = `${BASE}/x#${CODE}`;
+    const code = generateCode(testHasher, buildCanonicalMetadata(clean));
+    expect(generateCode(testHasher, buildCanonicalMetadata(legacy))).toBe(code);
+    const { repo, calls } = recordingRepo(
+      makeFakeShortLinkRepo({
+        shortLinks: [
+          createTestShortLink({
+            code,
+            originalUrl: legacy,
+            metadata: buildCanonicalMetadata(legacy),
+          }),
+        ],
+      })
+    );
+    const result = await createShortLink(
+      { shortLinkRepo: repo, hasher: testHasher },
+      { userId: 'u', url: clean }
+    );
+    expect(result._unsafeUnwrapErr().type).toBe('HashCollisionError');
+    expect(calls).toEqual(['getByCode']);
+  });
+
+  it('makeShareLink keeps the URL out of the error log when the warning logger throws', async () => {
+    const errors: Record<string, unknown>[] = [];
+    const url = `${BASE}/procurement?q=${CODE}`;
+    await makeShareLink(
+      {
+        shortLinkRepo: makeFakeShortLinkRepo(),
+        hasher: testHasher,
+        config: {
+          publicBaseUrl: BASE,
+          allowedOrigins: [BASE],
+          dailyLimit: 100,
+          cacheTtlSeconds: 60,
+        },
+      },
+      { url, userId: 'u' },
+      {
+        warn: () => {
+          throw new Error('logger down');
+        },
+        error: (_message, meta) => errors.push(meta ?? {}),
+      }
+    );
+    expect(errors).toHaveLength(1);
+    expect(JSON.stringify(errors)).not.toContain(CODE);
   });
 });

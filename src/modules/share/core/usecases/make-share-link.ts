@@ -6,6 +6,7 @@
  */
 
 import { createShortLink } from './create-short-link.js';
+import { urlCarriesPersonalCode } from '../personal-code-url.js';
 
 import type { Hasher, ShortLinkRepository } from '../ports.js';
 import type { ShareConfig } from '../types.js';
@@ -91,7 +92,7 @@ export const makeShareLink = async (
     // Unexpected error - log and return original
     logger?.error('Short link creation threw unexpected error', {
       error: error instanceof Error ? error.message : String(error),
-      url,
+      ...(!urlCarriesPersonalCode(url) && { url }),
     });
 
     return url;

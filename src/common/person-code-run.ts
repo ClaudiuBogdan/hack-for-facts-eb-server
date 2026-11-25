@@ -1,11 +1,13 @@
 /**
  * 11+ digits, joined by at most one white-space character or dash each (how a code is split when
  * written: NBSP, thin space and tab are white space after NFKD, and NEL (U+0085, which `\s` omits);
- * U+2010–2014 stay dashes, U+2212 too).
+ * U+2010–2014 stay dashes, U+2212 too). The pattern is shared so the share-link guard can find each
+ * run (`share/core/personal-code-url.ts`).
  */
-const PERSON_CODE_RUN = /[0-9]([\s\u0085\p{Pd}−]?[0-9]){10,}/u;
+export const PERSON_CODE_RUN_PATTERN = String.raw`[0-9]([\s\u0085\p{Pd}\u2212]?[0-9]){10,}`;
+const PERSON_CODE_RUN = new RegExp(PERSON_CODE_RUN_PATTERN, 'u');
 /** Invisible characters that split a digit run without showing: format characters, Hangul fillers. */
-const INVISIBLE = /[\p{Cf}ᅟᅠㅤﾠ]/gu;
+const INVISIBLE = /[\p{Cf}\u115F\u1160\u3164\uFFA0]/gu;
 
 /**
  * A run of more than an organization code's digits (11+, also split by single white space or dashes):
