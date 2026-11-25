@@ -224,6 +224,12 @@ describe('legal analytics request validation', () => {
     const long = `Ministerul ${'x'.repeat(300)}`;
     expect(parseLegalAnalyticsRequest('summary', { issuer: long }, head).isOk()).toBe(true);
     expect(parseLegalAnalyticsRequest('summary', { issuer: `${long}y` }, head).isErr()).toBe(true);
+    // a long known lineage with surrounding spaces resolves before the generic length limit applies
+    expect(
+      parseLegalAnalyticsRequest('summary', { issuer: ` ${long} ` }, head)._unsafeUnwrap()
+    ).toMatchObject({
+      args: { issuer: long },
+    });
     // exact first, then the trimmed value
     expect(
       parseLegalAnalyticsRequest('summary', { issuer: ' Guvernul ' }, head)._unsafeUnwrap()
@@ -521,6 +527,20 @@ describe('legal analytics surfaces', () => {
     expect(res.statusCode).toBe(500);
     expect(res.headers['cache-control']).toBe('no-store');
     expect(res.headers.etag).toBeUndefined();
+  });
+
+  it('marks a GraphQL error answer no-store, whatever the view', async () => {
+    const header = vi.fn();
+    const down: LegalAnalyticsRepo = {
+      ...fakeRepo().repo,
+      readHead: () =>
+        Promise.resolve(err(serviceUnavailable('No legislation analytics layer is published.'))),
+    };
+    const resolvers = makeLegalAnalyticsResolvers(depsOf(down));
+    await expect(
+      resolvers.Query.legalAnalytics(null, { view: 'HEAD' }, { reply: { header } })
+    ).rejects.toThrow(/No legislation analytics layer/u);
+    expect(header).toHaveBeenCalledWith('cache-control', 'no-store');
   });
 
   it('marks a GraphQL answer that names acts no-store before it awaits', () => {

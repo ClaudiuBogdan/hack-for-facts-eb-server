@@ -69,7 +69,10 @@ export const ANALYTICS_BUSY = 'Legislation analytics are busy; retry shortly.';
 /** At most this many reads wait for a slot; past it a read is refused at once. */
 export const MAX_WAITERS = 32;
 
-/** A counting semaphore with a bounded wait: `acquire` resolves to a release, or null past the wait. */
+/**
+ * A counting semaphore with a bounded wait: `acquire` resolves to a release, or null past the wait. The shared
+ * database pool must be larger than ANALYTICS_SLOTS (its default is 15), or analytics could hold all of it.
+ */
 export interface LegalAnalyticsGate {
   acquire(waitMs: number): Promise<(() => void) | null>;
 }
@@ -139,9 +142,12 @@ const readHead = async (
 ): Promise<Result<LegalAnalyticsHead, ApiError>> => {
   const hit = deps.heads.get(HEAD_KEY) as Result<LegalAnalyticsHead, ApiError> | undefined;
   if (hit !== undefined) return hit;
-  const read = await shared(deps, HEAD_KEY, () => gated(deps, () => deps.repo.readHead()));
-  if (read.isOk() && deps.heads.get(HEAD_KEY) === undefined) deps.heads.set(HEAD_KEY, read);
-  return read;
+  // the success-only cache write is part of the shared computation, before its entry leaves the in-flight map
+  return shared(deps, HEAD_KEY, async () => {
+    const read = await gated(deps, () => deps.repo.readHead());
+    if (read.isOk()) deps.heads.set(HEAD_KEY, read);
+    return read;
+  });
 };
 
 /** Validate a request against the current head; no view statement runs. */

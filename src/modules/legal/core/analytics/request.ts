@@ -125,11 +125,15 @@ const parseFilter = (
 
   // the exact value first (a lineage the layer knows passes whatever its length: joint orders keep long raw
   // names), then the trimmed one
+  // the exact value, then the trimmed one, against the layer's lineages before any length limit (joint orders keep
+  // long raw names); only an unknown value meets the generic text rule
   const isLineage = (v: string) => head.issuers.some((i) => i.lineage === v);
-  const exact = args.issuer !== undefined && isLineage(args.issuer);
-  const issuer = exact ? ok(args.issuer ?? null) : text('issuer', args.issuer);
+  const raw = args.issuer;
+  const known =
+    raw === undefined ? null : isLineage(raw) ? raw : isLineage(raw.trim()) ? raw.trim() : null;
+  const issuer = known !== null ? ok(known) : text('issuer', raw);
   if (issuer.isErr()) return err(issuer.error);
-  if (issuer.value !== null && !exact && !isLineage(issuer.value))
+  if (issuer.value !== null && known === null)
     return err(invalidInput('issuer names no issuer lineage of the layer', 'issuer'));
   const family = text('family', args.family);
   if (family.isErr()) return err(family.error);
@@ -186,8 +190,9 @@ const made = (view: LegalAnalyticsView, canonical: Record<string, unknown>) => (
 });
 
 /**
- * The acts list's cursor: base64url of [layer id, a fixed-length digest of the
- * request key without the cursor, sort value, act id], so a server-issued
+ * The acts list's cursor: base64url of [layer id, the first 32 hex characters
+ * of the sha256 of the canonical JSON of the request key without the cursor (a
+ * JSON string), sort value, act id], so a server-issued
  * cursor always fits MAX_CURSOR_LENGTH whatever the filter. A cursor of another
  * layer, filter or order is refused; the caller starts again from the first page.
  */

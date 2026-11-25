@@ -106,7 +106,11 @@ export const makeLegalAnalyticsResolvers = (deps: LegalAnalyticsDeps) => ({
       // GraphQL is also served over GET: an answer that names acts must never be stored (set before any await)
       if (NAMING_VIEWS.has(view)) context?.reply?.header('cache-control', 'no-store');
       const answer = await getLegalAnalytics(deps, view, argsOf(input.args));
-      if (answer.isErr()) throw toGraphqlError(answer.error);
+      if (answer.isErr()) {
+        // an error answer (a 503 before the tables or a layer exist) is never stored, whatever the view
+        context?.reply?.header('cache-control', 'no-store');
+        throw toGraphqlError(answer.error);
+      }
       return served(answer.value);
     },
   },

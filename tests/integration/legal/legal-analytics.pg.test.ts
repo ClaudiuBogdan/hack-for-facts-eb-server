@@ -26,7 +26,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { Kysely, PostgresDialect } from 'kysely';
+import { Kysely, PostgresDialect, sql } from 'kysely';
+import { ok } from 'neverthrow';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -35,6 +36,7 @@ import {
   type LegalAnalyticsDeps,
 } from '@/modules/legal/core/analytics/usecases.js';
 import { makeLegalAnalyticsDeps } from '@/modules/legal/index.js';
+import { analyticsSnapshot } from '@/modules/legal/shell/repo/analytics-repo.js';
 
 import type {
   LegalAnalyticsActs,
@@ -431,6 +433,34 @@ run('legal analytics on the real DDL', () => {
     expect(seen).toEqual(['1', '6', '4', '3', '2']);
     // `hidden` is the selection's total, the same on every page
     expect(new Set(hidden)).toEqual(new Set([1]));
+  });
+
+  it('ends a read past its deadline even when the session carries a looser transaction_timeout', async () => {
+    // a session opened with 60 s; the read's own deadline (0.5 s here) must still hold
+    const loosePool = new pg.Pool({
+      connectionString: TARGET_URL,
+      options: '-c transaction_timeout=60000',
+      max: 1,
+    });
+    // the deadline ends the session on the server; like the kernel pool, the client's loss is expected, not fatal
+    loosePool.on('connect', (client) => client.on('error', () => undefined));
+    loosePool.on('error', () => undefined);
+    const loose = new Kysely<ProdDatabase>({ dialect: new PostgresDialect({ pool: loosePool }) });
+    try {
+      const started = Date.now();
+      const r = await analyticsSnapshot(
+        loose,
+        async (trx) => {
+          await sql`select pg_sleep(3)`.execute(trx);
+          return ok('finished');
+        },
+        500
+      );
+      expect(r._unsafeUnwrapErr()).toMatchObject({ type: 'Timeout' });
+      expect(Date.now() - started).toBeLessThan(2_500);
+    } finally {
+      await loose.destroy();
+    }
   });
 
   it('stops naming an act restricted after a warm read, without a new layer', async () => {

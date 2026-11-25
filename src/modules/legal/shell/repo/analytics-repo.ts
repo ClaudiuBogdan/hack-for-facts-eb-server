@@ -96,34 +96,53 @@ const readError = (error: unknown): ApiError => {
 };
 
 /** One read-only, repeatable-read transaction: every statement of a request shares a snapshot. */
-const snapshot = async <T>(
+/**
+ * One read-only, repeatable-read transaction under two deadlines: each statement 15 s, the whole read
+ * `transactionTimeoutMs` (PostgreSQL 17+). A session that already carries a transaction_timeout keeps it when it
+ * is stricter; otherwise the timer is reset (0, then the deadline), since a second positive value does not re-arm
+ * a running timer. When the deadline ends the session, Kysely's ROLLBACK fails on the dead connection and would
+ * replace the error: the callback's own failure is kept and preferred.
+ */
+export const analyticsSnapshot = async <T>(
   db: Db,
-  read: (trx: Db) => Promise<Result<T, ApiError>>
+  read: (trx: Db) => Promise<Result<T, ApiError>>,
+  transactionTimeoutMs = ANALYTICS_TRANSACTION_TIMEOUT_MS
 ): Promise<Result<T, ApiError>> => {
+  let primary: unknown;
   try {
     return await db
       .transaction()
       .setIsolationLevel('repeatable read')
       .setAccessMode('read only')
       .execute(async (trx) => {
-        await sql`set local statement_timeout = ${sql.lit(ANALYTICS_STATEMENT_TIMEOUT_MS)}`.execute(
-          trx
-        );
-        // a deadline for the whole read, not only each statement (PostgreSQL 17+; production runs 18)
-        const { rows } = await sql<{ ok: boolean }>`
-          select current_setting('server_version_num')::int >= 170000 as ok
-        `.execute(trx);
-        if (rows[0]?.ok === true) {
-          await sql`set local transaction_timeout = ${sql.lit(ANALYTICS_TRANSACTION_TIMEOUT_MS)}`.execute(
+        try {
+          await sql`set local statement_timeout = ${sql.lit(ANALYTICS_STATEMENT_TIMEOUT_MS)}`.execute(
             trx
           );
+          const { rows } = await sql<{ ok: boolean; tt: string | null }>`
+            select current_setting('server_version_num')::int >= 170000 as ok,
+                   (select setting from pg_settings where name = 'transaction_timeout') as tt
+          `.execute(trx);
+          const current = Number(rows[0]?.tt ?? '0');
+          if (rows[0]?.ok === true && (current === 0 || current > transactionTimeoutMs)) {
+            await sql`set local transaction_timeout = 0`.execute(trx);
+            await sql`set local transaction_timeout = ${sql.lit(transactionTimeoutMs)}`.execute(
+              trx
+            );
+          }
+          return await read(trx);
+        } catch (error) {
+          primary = error;
+          throw error;
         }
-        return read(trx);
       });
   } catch (error) {
-    return err(readError(error));
+    return err(readError(primary ?? error));
   }
 };
+
+const snapshot = <T>(db: Db, read: (trx: Db) => Promise<Result<T, ApiError>>) =>
+  analyticsSnapshot(db, read);
 
 // ─────────────────────────────────────────────────────────── head ──
 
