@@ -1761,7 +1761,7 @@ describe('naming step 2b: undisclosed suppliers in records and scopes (120030)',
 
 describe('a geography-scoped supplier breakdown (CPV x county x month timed out, 24 Nov)', () => {
   it('reconciles live supplier buckets and concentration with the scope stats', async () => {
-    // A value bound forces the live rows: no rollup carries supplier and county together.
+    // A value bound forces the live rows (every rollup reads without one).
     const scope = { ...DA, buyerCounty: 'CJ', year: 2025, valueMin: 0 } as const;
     const stats = (await analysisStats(deps, { scope }))._unsafeUnwrap().blocks[0];
     expect(Number(stats?.recordCount)).toBeGreaterThan(0);
@@ -1782,6 +1782,11 @@ describe('a geography-scoped supplier breakdown (CPV x county x month timed out,
     expect(concentration?.supplierCount).toBe(
       buckets.filter((bucket) => bucket.kind === 'top').length
     );
+    // The concentration's scope totals (compiled without the supplier join) are the stats'.
+    expect(concentration?.meta.counts).toEqual(stats?.meta.counts);
+    expect(concentration?.meta.undatedInScope).toEqual(stats?.meta.undatedInScope);
+    expect(breakdown?.meta.counts).toEqual(stats?.meta.counts);
+    expect(breakdown?.meta.undatedInScope).toEqual(stats?.meta.undatedInScope);
     noLeak({ breakdown, concentration });
   });
 });
