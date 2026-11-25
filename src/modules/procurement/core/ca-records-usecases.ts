@@ -43,7 +43,10 @@ export interface CaRecordsDeps {
 export interface CaEnvelope {
   /** `da_release.data_as_of` of the snapshot. */
   readonly dataAsOf: string;
-  /** The key a client caches winner names under: dataAsOf, or `unavailable` without the names view. */
+  /**
+   * dataAsOf, or `unavailable` when the names view is not readable (no winner code is then shown).
+   * Not a cache key for winner identities: every answer is no-store (see the SDL).
+   */
   readonly disclosureKey: string;
 }
 
@@ -90,8 +93,8 @@ const contractBreak = (what: string): ApiError =>
 const BUYER_CODE = /^[1-9][0-9]{1,9}$/u;
 
 const isCalendarDay = (day: string): boolean => {
-  // Years 1900-2999 only: PostgreSQL has no year 0, and no award is older.
-  if (!/^(19|2[0-9])[0-9]{2}-[0-9]{2}-[0-9]{2}$/u.test(day)) return false;
+  // PostgreSQL has no year 0 (a JavaScript Date does); any other year is clamped or kept.
+  if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/u.test(day) || day.startsWith('0000')) return false;
   const parsed = new Date(`${day}T00:00:00Z`);
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === day;
 };
@@ -302,10 +305,11 @@ export const getCaRecord = async (
     );
   return inSnapshot(deps, async (reader, envelope) => {
     let key: CaKey = { sourceName: parsed.sourceName, matchId: parsed.matchId };
-    let rows = await reader.recordsByKeys([key]);
-    if (rows.isErr()) return err(rows.error);
+    // The award day first, from a plain column: nothing more of a record outside the window is read.
+    let dated = await reader.awardDayOf(key);
+    if (dated.isErr()) return err(dated.error);
     let reanchored = false;
-    if (rows.value.length === 0) {
+    if (dated.value === null) {
       // An id from an earlier build: its appearance's identity under today's key.
       const current = await reader.currentKeyOf(parsed);
       if (current.isErr()) return err(current.error);
@@ -313,19 +317,22 @@ export const getCaRecord = async (
         return err(notFound('Contract award not found.', 'contractAward'));
       key = current.value;
       reanchored = true;
-      rows = await reader.recordsByKeys([key]);
-      if (rows.isErr()) return err(rows.error);
+      dated = await reader.awardDayOf(key);
+      if (dated.isErr()) return err(dated.error);
     }
-    const row = rows.value[0];
-    if (row === undefined) return err(notFound('Contract award not found.', 'contractAward'));
-    // The floor first: nothing more of a record outside the window is read.
-    if (isBeforeFloor(row.awardDay))
+    if (dated.value === null) return err(notFound('Contract award not found.', 'contractAward'));
+    if (isBeforeFloor(dated.value.awardDay))
       return err(
         notFound(
           `Contract award is outside the published window (award day from ${CA_FLOOR_DAY}).`,
           OUTSIDE_WINDOW_RESOURCE
         )
       );
+    const rows = await reader.recordsByKeys([key]);
+    if (rows.isErr()) return err(rows.error);
+    const row = rows.value[0];
+    // The same row the award day was read from, in the same snapshot.
+    if (row?.awardDay !== dated.value.awardDay) return err(contractBreak('record'));
     const records = await recordsOf(reader, [row]);
     if (records.isErr()) return err(records.error);
     const record = records.value[0];

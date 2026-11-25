@@ -246,6 +246,16 @@ const isDay = (value: string | null): boolean => value === null || DAY_TEXT.test
 const withoutCodeRun = (text: string | null): string | null =>
   text === null || hasPersonCodeRun(text) ? null : text;
 
+/**
+ * The portal's public identifier formats, allowlisted: a notice number is letters then digits
+ * (CAN1234567), a procedure id digits. Anything else (free text, a dotted or spaced code) is not
+ * served. The digit runs stay under 11 (a person's code's length), as `withoutCodeRun` also checks.
+ */
+const NOTICE_NO = /^[A-Z]{1,6}[0-9]{1,10}$/u;
+const PROCEDURE_ID = /^[0-9]{1,10}$/u;
+const allowlisted = (text: string | null, format: RegExp): string | null =>
+  text !== null && format.test(text) ? withoutCodeRun(text) : null;
+
 /** A masked or registry name as served: the personal-code screen and any 11+ digit run withhold it. */
 const servedName = (name: string | null): string | null => {
   const screened = publicPartyName(name);
@@ -398,8 +408,8 @@ export const toCaRecord = (
     cpvDivision: row.cpvDivision,
     cpvGroup: row.cpvGroup,
     cpvClass: row.cpvClass,
-    procedureId: withoutCodeRun(row.procedureId),
-    noticeNo: withoutCodeRun(publicFreeText(row.noticeNo)),
+    procedureId: allowlisted(row.procedureId, PROCEDURE_ID),
+    noticeNo: allowlisted(row.noticeNo, NOTICE_NO),
     title: publicFreeText(row.title),
     sourceUrl: row.sourceUrl,
     winnerCount: row.winnerCount,

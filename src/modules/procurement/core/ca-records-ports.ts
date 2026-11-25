@@ -56,6 +56,8 @@ export interface CaRecordsReader {
     readonly offset: number;
     readonly limit: number;
   }): Promise<Result<readonly CaKey[], ApiError>>;
+  /** A record's award day (a plain column only); null when the key has no record. */
+  awardDayOf(key: CaKey): Promise<Result<{ readonly awardDay: string | null } | null, ApiError>>;
   /** The rows of these keys, in the keys' order (a key with no row is left out). */
   recordsByKeys(keys: readonly CaKey[]): Promise<Result<readonly CaRecordRow[], ApiError>>;
   /** The winners of these keys, each code with its naming from `supplier_names_public`. */

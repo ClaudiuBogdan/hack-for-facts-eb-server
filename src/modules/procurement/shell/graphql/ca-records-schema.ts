@@ -178,7 +178,11 @@ export const caRecordsTypeDefs = /* GraphQL */ `
       from: Date
       to: Date
     ): ProcurementCaBuyerSummary!
-    "A buyer's contract awards in the published window. Pages reach at most row 10000; pageSize at most 50."
+    """
+    A buyer's contract awards in the published window. Pages reach at most row 10000 (depthLimited
+    says when the window holds more: narrow it); pageSize at most 50. Its own snapshot: compare
+    dataAsOf with the other contract-award fields of the operation.
+    """
     procurementContractAwards(
       buyerFiscalCode: String!
       from: Date
@@ -189,7 +193,8 @@ export const caRecordsTypeDefs = /* GraphQL */ `
     ): ProcurementCaRecordPage!
     """
     One contract award with its winners and lots. NOT_FOUND when absent; NOT_FOUND with
-    extensions.reason OUTSIDE_PUBLISHED_WINDOW when its award day is before the floor.
+    extensions.reason OUTSIDE_PUBLISHED_WINDOW when its award day is before the floor. Its own
+    snapshot: compare dataAsOf with the other contract-award fields of the operation.
     """
     procurementContractAward(recordId: ID!): ProcurementCaRecordDetail!
   }

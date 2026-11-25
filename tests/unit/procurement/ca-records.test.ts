@@ -225,6 +225,21 @@ describe('identifiers a record may not serve', () => {
     expect(JSON.stringify(record)).not.toContain('1960101123456');
   });
 
+  it('serves a notice number and a procedure id only in the portal’s formats', () => {
+    const served = toCaRecord(row({ noticeNo: 'CAN1234567', procedureId: '123456789' }), null, [
+      winner({}),
+    ])._unsafeUnwrap();
+    expect([served.noticeNo, served.procedureId]).toEqual(['CAN1234567', '123456789']);
+    for (const [noticeNo, procedureId] of [
+      ['ION POPESCU', '196.01.01.12345'],
+      ['CAN 1234567', '1960101 123456'],
+      ['CAN12345678901', '12345678901'],
+    ] as const) {
+      const record = toCaRecord(row({ noticeNo, procedureId }), null, [winner({})])._unsafeUnwrap();
+      expect([record.noticeNo, record.procedureId]).toEqual([null, null]);
+    }
+  });
+
   it('withholds a notice number or procedure id with a personal-code run', () => {
     const record = toCaRecord(
       row({ noticeNo: 'CAN 1960101123456', procedureId: '19601011234567' }),
@@ -245,7 +260,8 @@ describe('identifiers a record may not serve', () => {
 
   it('refuses a year PostgreSQL cannot hold', () => {
     expect(validateCaWindow(null, '0000-01-01').isErr()).toBe(true);
-    expect(validateCaWindow('1899-12-31', null).isErr()).toBe(true);
+    // Any other early year is clamped to the floor.
+    expect(validateCaWindow('1899-12-31', null)._unsafeUnwrap().from).toBe(CA_FLOOR_DAY);
   });
 });
 
@@ -286,6 +302,34 @@ describe('the keys and counts statements (reader rule 1)', () => {
       const text = statement.compile(db).sql;
       for (const column of COMPUTED) expect(text).not.toMatch(new RegExp(`\\b${column}\\b`, 'u'));
       expect(text).not.toMatch(/\bin\s*\(\s*select/iu);
+    }
+  });
+
+  it('name only plain columns (an allowlist)', () => {
+    const PLAIN = new Set([
+      'source_name',
+      'match_id',
+      'buyer_code',
+      'award_day',
+      'amount_lei',
+      'status',
+    ]);
+    const statements = [
+      ...(['awardDayDesc', 'awardDayAsc', 'amountDesc'] as const).map((sort) =>
+        buyerKeysSql({
+          buyerCode: '4267117',
+          window: { from: '2021-01-01', to: null },
+          sort,
+          offset: 0,
+          limit: 20,
+        })
+      ),
+      buyerCountsSql('4267117', { from: '2021-01-01', to: '2024-12-31' }),
+    ];
+    for (const statement of statements) {
+      const columns = [...statement.compile(db).sql.matchAll(/\br\.([a-z_]+)/gu)].map((m) => m[1]);
+      expect(columns.length).toBeGreaterThan(0);
+      for (const column of columns) expect(PLAIN.has(column ?? ''), column).toBe(true);
     }
   });
 

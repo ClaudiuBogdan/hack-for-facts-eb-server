@@ -303,6 +303,18 @@ const makeReader = (trx: Db, access: Access): CaRecordsReader => ({
       return result.rows.map((row) => ({ sourceName: row.source_name, matchId: row.match_id }));
     }),
 
+  awardDayOf: (key) =>
+    attempt(async () => {
+      const result = await sql<{ award_day: string | null }>`
+        select to_char(r.award_day, 'YYYY-MM-DD') as award_day
+        from ${RECORDS} r
+        where r.source_name = ${key.sourceName} and r.match_id = any(${[key.matchId]}::text[])`.execute(
+        trx
+      );
+      const row = result.rows[0];
+      return row === undefined ? null : { awardDay: row.award_day };
+    }),
+
   recordsByKeys: (keys) =>
     attempt(async () => {
       const found = new Map<string, CaRecordRow>();

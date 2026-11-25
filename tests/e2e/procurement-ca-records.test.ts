@@ -444,25 +444,30 @@ interface PlanRelation {
   readonly type: string;
   /** The node's index or recheck condition, when it has one. */
   readonly condition: string;
+  /** Under a SubPlan or InitPlan (a computed column's probe), not the statement's own read. */
+  readonly inSubplan: boolean;
 }
 
 /** Every relation a plan reads, and a `subplan` entry for each SubPlan or InitPlan node. */
-const relationsOf = (node: PlanNode, out: PlanRelation[] = []) => {
+const relationsOf = (node: PlanNode, out: PlanRelation[] = [], underSubplan = false) => {
   const relation = node['Relation Name'];
   const type = node['Node Type'];
   const parent = node['Parent Relationship'];
+  const inSubplan = underSubplan || parent === 'SubPlan' || parent === 'InitPlan';
   if (parent === 'SubPlan' || parent === 'InitPlan')
-    out.push({ relation: 'subplan', type: parent, condition: '' });
+    out.push({ relation: 'subplan', type: parent, condition: '', inSubplan });
   if (typeof relation === 'string') {
     const condition = node['Index Cond'] ?? node['Recheck Cond'];
     out.push({
       relation,
       type: typeof type === 'string' ? type : '',
       condition: typeof condition === 'string' ? condition : '',
+      inSubplan,
     });
   }
   const children = node['Plans'];
-  if (Array.isArray(children)) for (const child of children as PlanNode[]) relationsOf(child, out);
+  if (Array.isArray(children))
+    for (const child of children as PlanNode[]) relationsOf(child, out, inSubplan);
   return out;
 };
 
@@ -527,12 +532,11 @@ describe('reader rule 1 on the real views', () => {
     expect(facts.length).toBeGreaterThan(0);
     // Every read of the facts (the main row and each computed column's probe) is an index probe.
     for (const fact of facts) expect(fact.type).not.toBe('Seq Scan');
-    // The main row's probe uses both key columns.
-    expect(
-      facts.some(
-        (fact) => fact.condition.includes('source_name') && fact.condition.includes('match_id')
-      )
-    ).toBe(true);
+    // The statement's own read of the facts (not a computed column's probe) uses both key columns.
+    const main = facts.filter((fact) => !fact.inSubplan);
+    expect(main).toHaveLength(1);
+    expect(main[0]?.condition).toContain('source_name');
+    expect(main[0]?.condition).toContain('match_id');
   });
 
   it('serves a large buyer’s pages within bounds', async () => {
@@ -545,6 +549,7 @@ describe('reader rule 1 on the real views', () => {
         const elapsed = performance.now() - started;
         expect(answer.items).toHaveLength(50);
         expect(answer.total).toBe(20000);
+        expect(answer.depthLimited).toBe(true);
         // Loose: the slow shape evaluates every record's subqueries (seconds at this volume).
         expect(elapsed).toBeLessThan(3000);
       }
@@ -652,6 +657,35 @@ describe('a buyer’s contract awards', () => {
     expect(raw).not.toContain(WITHHELD_WINNER);
     expect(raw).not.toContain(NO_NAMES_ROW_WINNER);
     expect(raw).not.toContain(SECRET_WINNER_NAME);
+  });
+
+  it('says when a window holds more than a list reaches, and refuses a page beyond it', async () => {
+    const small = (
+      await listCaBuyerRecords(deps, { buyerFiscalCode: BUYER, page: 1, pageSize: 5 })
+    )._unsafeUnwrap();
+    expect(small.depthLimited).toBe(false);
+    expect(
+      (
+        await listCaBuyerRecords(deps, { buyerFiscalCode: BIG_BUYER, page: 201, pageSize: 50 })
+      )._unsafeUnwrapErr()
+    ).toMatchObject({ type: 'InvalidInput', field: 'page' });
+    // The last reachable page, and a narrowed window that reaches the rest.
+    const last = (
+      await listCaBuyerRecords(deps, { buyerFiscalCode: BIG_BUYER, page: 200, pageSize: 50 })
+    )._unsafeUnwrap();
+    expect(last.items).toHaveLength(50);
+    expect(last.hasMore).toBe(false);
+    const narrowed = (
+      await listCaBuyerRecords(deps, {
+        buyerFiscalCode: BIG_BUYER,
+        from: '2021-01-01',
+        to: '2021-12-31',
+        page: 1,
+        pageSize: 5,
+      })
+    )._unsafeUnwrap();
+    expect(narrowed.depthLimited).toBe(false);
+    expect(narrowed.total).toBeLessThan(10000);
   });
 
   it('pages and sorts on plain columns', async () => {
@@ -847,6 +881,8 @@ describe('GraphQL', () => {
       const summary =
         await gql(`{ procurementContractAwardSummary(buyerFiscalCode: "${BUYER}", from: "2019-01-01") {
         recordCount undatedCount window { floor from } buyer { displayKind name } } }`);
+      // Every root is no-store, even with no winner selected.
+      expect(summary.cacheControl).toBe('no-store');
       expect(summary.body.data).toEqual({
         procurementContractAwardSummary: {
           recordCount: 5,
@@ -872,6 +908,14 @@ describe('GraphQL', () => {
       const detail = await gql(
         '{ procurementContractAward(recordId: "seap:ca:901:1") { reanchored record { recordId lotCount } lots { lotOrder } } }'
       );
+      expect(detail.cacheControl).toBe('no-store');
+      const keysOnly = await gql(
+        `{ procurementContractAwards(buyerFiscalCode: "${BUYER}", pageSize: 1) { total depthLimited } }`
+      );
+      expect(keysOnly.cacheControl).toBe('no-store');
+      expect(keysOnly.body.data).toEqual({
+        procurementContractAwards: { total: 5, depthLimited: false },
+      });
       expect(detail.body.data).toEqual({
         procurementContractAward: {
           reanchored: true,
