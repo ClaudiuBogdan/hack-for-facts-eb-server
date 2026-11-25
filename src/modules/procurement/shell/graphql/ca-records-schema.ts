@@ -194,8 +194,8 @@ export const caRecordsTypeDefs = /* GraphQL */ `
   extend type Query {
     """
     A buyer's contract awards in the published window: counts. Each contract-award query field
-    reads in its own database snapshot and reports its dataAsOf: when one operation combines
-    several, compare their dataAsOf and refetch if they differ.
+    reads in its own database snapshot and reports its dataAsOf and window.floor: when one
+    operation combines several, compare both and refetch if they differ.
     """
     procurementContractAwardSummary(
       buyerFiscalCode: String!

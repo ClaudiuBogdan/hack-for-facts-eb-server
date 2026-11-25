@@ -36,6 +36,15 @@ import {
   SUPPLIER_DISCLOSURE_NAME,
   SUPPLIER_NAMES_NAME,
 } from './da-v3-sql.js';
+import {
+  servedFloor,
+  type CaAppearance,
+  type CaKey,
+  type CaListSort,
+  type CaLotRow,
+  type CaRecordRow,
+  type CaWinnerRow,
+} from '../../core/ca-records.js';
 import { namingFromView, type SupplierNamesViewRow } from '../../core/supplier-naming.js';
 
 import type {
@@ -48,14 +57,6 @@ import type {
   CaWinnerGate,
   CaWinnerKeys,
 } from '../../core/ca-records-ports.js';
-import type {
-  CaAppearance,
-  CaKey,
-  CaListSort,
-  CaLotRow,
-  CaRecordRow,
-  CaWinnerRow,
-} from '../../core/ca-records.js';
 
 type Db = Kysely<ProdDatabase>;
 
@@ -127,8 +128,43 @@ interface Access {
   readonly floor: string | null;
 }
 
-/** What this login may read (catalog only, no view touched), then the release's data_as_of. */
-const probeAccess = async (db: Db): Promise<Access> => {
+/** The errors a floor read may meet when the column or its grant goes between the check and the read. */
+const FLOOR_GONE = new Set(['42703', '42501', '42P01']);
+const sqlStateOf = (error: unknown): string | null =>
+  typeof error === 'object' && error !== null && 'code' in error && typeof error.code === 'string'
+    ? error.code
+    : null;
+
+/**
+ * The floor of the latest release row (there is one; the latest day if ever more), as `YYYY-MM-DD`.
+ * A day outside 1900-9999 AD (which `to_char` could overflow on, or print without its era) reads as
+ * none. In a transaction the read runs under a savepoint: a column dropped or a grant revoked since
+ * the catalog check (undefined column, insufficient privilege, undefined table) reads as none and
+ * leaves the snapshot usable. Any other failure is a failure.
+ */
+const readFloor = async (db: Db, inTransaction: boolean): Promise<string | null> => {
+  if (inTransaction) await sql`savepoint ca_floor`.execute(db);
+  try {
+    const result = await sql<{ floor: string | null }>`
+      select case when d between date '1900-01-01' and date '9999-12-31'
+        then to_char(d, 'YYYY-MM-DD') end as floor
+      from (select max(${sql.ref(`f.${FLOOR_COLUMN}`)}) as d from ${RELEASE} f
+            where f.data_as_of = (select max(data_as_of) from ${RELEASE})) x`.execute(db);
+    if (inTransaction) await sql`release savepoint ca_floor`.execute(db);
+    return result.rows[0]?.floor ?? null;
+  } catch (error) {
+    const state = sqlStateOf(error);
+    if (state === null || !FLOOR_GONE.has(state)) throw error;
+    if (inTransaction) await sql`rollback to savepoint ca_floor`.execute(db);
+    return null;
+  }
+};
+
+/**
+ * What this login may read (catalog only, no view touched), then the release's data_as_of and
+ * floor. `inTransaction`: `db` is the snapshot's transaction (the floor read then uses a savepoint).
+ */
+const probeAccess = async (db: Db, inTransaction: boolean): Promise<Access> => {
   const result = await sql<{
     views: boolean;
     deployed: boolean;
@@ -162,19 +198,11 @@ const probeAccess = async (db: Db): Promise<Access> => {
   const row = result.rows[0];
   let asOf: string | null = null;
   let floor: string | null = null;
-  if (row?.release === true && row.floor_readable === true) {
-    // The floor on the latest release row (there is one; the latest day if ever more).
-    const release = await sql<{ as_of: string | null; floor: string | null }>`
-      select ${AS_OF_SQL} as as_of,
-        (select to_char(max(${sql.ref(`f.${FLOOR_COLUMN}`)}), 'YYYY-MM-DD') from ${RELEASE} f
-          where f.data_as_of = (select max(data_as_of) from ${RELEASE})) as floor
-      from ${RELEASE}`.execute(db);
-    asOf = release.rows[0]?.as_of ?? null;
-    floor = release.rows[0]?.floor ?? null;
-  } else if (row?.release === true) {
+  if (row?.release === true) {
     const release = await sql<{ as_of: string | null }>`
       select ${AS_OF_SQL} as as_of from ${RELEASE}`.execute(db);
     asOf = release.rows[0]?.as_of ?? null;
+    if (row.floor_readable === true) floor = await readFloor(db, inTransaction);
   }
   return {
     asOf,
@@ -668,7 +696,7 @@ export const makeCaRecordsRepo = (db: Db, enabled: boolean): CaRecordsRepo => ({
         .execute(async (trx) => {
           await sql`set transaction read only`.execute(trx);
           await sql`set local statement_timeout = ${sql.lit(STATEMENT_TIMEOUT_MS)}`.execute(trx);
-          const access = await probeAccess(trx);
+          const access = await probeAccess(trx, true);
           seen.access = access;
           if (!access.views)
             return err(
@@ -682,7 +710,7 @@ export const makeCaRecordsRepo = (db: Db, enabled: boolean): CaRecordsRepo => ({
       const before = seen.access;
       if (result.isErr() || before === null) return result;
       // After the read: the same release, and the names and D6 views no less readable than they were.
-      const now = await probeAccess(db);
+      const now = await probeAccess(db, false);
       // A grant lost during the read (the release column's included, whose loss also empties
       // asOf): the same answer, logged as a grant fault. Otherwise a changed release republished.
       const lost =
@@ -691,7 +719,10 @@ export const makeCaRecordsRepo = (db: Db, enabled: boolean): CaRecordsRepo => ({
         (!now.names && before.names) ||
         (!now.disclosure && before.disclosure);
       if (lost) return err(REPUBLISHED('not_readable'));
-      return now.asOf === before.asOf ? result : err(REPUBLISHED());
+      // The floor too: an answer whose window no longer holds is read again (the floor may move
+      // without data_as_of, e.g. when its column grant arrives or goes).
+      const same = now.asOf === before.asOf && servedFloor(now.floor) === servedFloor(before.floor);
+      return same ? result : err(REPUBLISHED());
     } catch (error) {
       return err(readError(error));
     }

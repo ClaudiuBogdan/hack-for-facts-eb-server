@@ -1208,6 +1208,30 @@ describe('the floor a release publishes (da_release.ca_award_day_from)', () => {
         record1004: 'Contract award is outside the published window (award day from 2020-01-01).',
       });
 
+      // Sol round 1: the winner list and a re-anchored id take the published floor too.
+      const won = (
+        await listCaWinnerRecords(deps, {
+          winnerFiscalCode: GATE_MASKED_WINNER,
+          sort: 'awardDayAsc',
+          page: 1,
+          pageSize: 20,
+        })
+      )._unsafeUnwrap();
+      expect([won.window.floor, won.total, won.items[0]?.recordId]).toEqual([
+        '2020-01-01',
+        3,
+        'seap:ca:3003:1',
+      ]);
+      await setFloor('2026-01-01');
+      const reanchored = (await getCaRecord(deps, 'seap:ca:901:1'))._unsafeUnwrapErr();
+      expect(reanchored).toMatchObject({ type: 'NotFound', resource: OUTSIDE_WINDOW_RESOURCE });
+      expect(reanchored.message).toContain('2026-01-01');
+      // A day to_char could overflow on, or one before the era, is no floor: the fallback serves.
+      for (const day of ['50000-01-01', '2018-01-01 BC', 'infinity']) {
+        await setFloor(day);
+        expect(await observe(), day).toEqual(RELEASE_1);
+      }
+
       // REST, GraphQL and MCP show the same floor.
       await setFloor('2018-01-01');
       const rest = fastifyLib();
