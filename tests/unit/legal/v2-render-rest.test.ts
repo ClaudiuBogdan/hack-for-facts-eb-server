@@ -39,32 +39,35 @@ const served = (over: Record<string, unknown> = {}): Record<string, unknown> => 
     portal_label_date: null,
     portal_order_date: '2001-05-05',
     receipt_id: '55',
-    current_public: true,
+    status: 'served',
+    public_chunks: unit.render.length,
     published_at: '2026-11-19T10:00:00+00:00',
-  },
-  facts: { units: 1, whole_units: 1, missing_body: 0, component_restricted: false },
-  unit: {
-    public: true,
-    render_state: 'structured',
+
     text_sha256: unit.textSha256,
     compiler_version: 'unit-compiler-v1',
     body_sha256: 'b'.repeat(64),
     parse_build_id: 'build',
     content_parser_version: 'v9',
-    fidelity_flags: [],
+    source_url: 'https://legislatie.just.ro/Public/DetaliiDocumentAfis/8154',
+    ...over,
   },
-  source_url: 'https://legislatie.just.ro/Public/DetaliiDocumentAfis/8154',
-  chunks: unit.render.map((r) => ({ ...r, public: true })),
-  links: unit.links.map((l, i) => ({
-    ordinal: l.ordinal,
-    href: l.href,
-    target_fragment: l.target_fragment,
-    // The first link's target act is not public: no act id, no locator.
-    target_act_id: i === 0 ? null : '123',
-    target_form_id: null,
-  })),
-  assets: [],
-  ...over,
+  components: [
+    {
+      ordinal: 0,
+      render_state: 'structured',
+      fidelity_flags: [],
+      chunks: unit.render,
+      links: unit.links.map((l, i) => ({
+        ordinal: l.ordinal,
+        href: l.href,
+        target_fragment: l.target_fragment,
+        // The first link's target act is not public: no act id, no locator.
+        target_act_id: i === 0 ? null : '123',
+        target_form_id: null,
+      })),
+      assets: [],
+    },
+  ],
 });
 
 const appOver = async (body: Record<string, unknown>): Promise<FastifyInstance> => {
@@ -133,13 +136,7 @@ describe('legal_v2 render route', () => {
   });
 
   it('answers 409 not_loaded for a form without text, and 404 past the last chunk', async () => {
-    app = await appOver(
-      served({
-        facts: { units: 0, whole_units: 0, missing_body: 0, component_restricted: false },
-        unit: null,
-        chunks: [],
-      })
-    );
+    app = await appOver(served({ status: 'not_loaded', public_chunks: 0 }));
     const res = await app.inject({ method: 'GET', url: '/api/v1/legal/documents/f9/render' });
     expect(res.statusCode).toBe(409);
     expect(res.json()).toMatchObject({

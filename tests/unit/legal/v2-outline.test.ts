@@ -93,11 +93,14 @@ describe('legal_v2 outline', () => {
     const a = unitOf('8851', 0);
     const b = unitOf('146017', 1);
     const entries = composeV2Outline('f1', [b, a]);
-    const fromB = entries.filter((e) => e.path.startsWith('u1.'));
-    const fromA = entries.filter((e) => e.path.startsWith('u0.'));
+    const fromB = entries.filter((e) => e.path.startsWith('1.'));
+    const fromA = entries.filter((e) => e.path.startsWith('0.'));
     expect(fromA).toHaveLength(a.provisions.length);
     expect(fromB).toHaveLength(b.provisions.length);
-    expect(Math.min(...fromB.map((e) => e.charStart ?? 0))).toBeGreaterThanOrEqual(a.textLength);
+    const local = composeV2Outline('f1', [b]);
+    expect(fromB.map((e) => [e.charStart, e.charEnd])).toEqual(
+      local.map((e) => [a.textLength + 1 + e.charStart!, a.textLength + 1 + e.charEnd!])
+    );
     expect(entries.indexOf(fromA[0] ?? entries[0]!)).toBeLessThan(entries.indexOf(fromB[0]!));
   });
 

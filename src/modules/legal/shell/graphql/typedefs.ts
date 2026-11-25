@@ -210,7 +210,7 @@ const objectsAndQuery = /* GraphQL */ `
     render: LegalRenderInfo
   }
 
-  "TLDF render availability for one document expression (legal.document_generations + row-0 chunk_count). status: served | content_unavailable | superseded_pending; on the legal_v2 source also not_loaded (no published text) | composition_not_served (header plus body, not in this version). Only served+public documents answer on the REST render route."
+  "TLDF render availability. On legal_v2, only a public whole unit or a dated consolidation with a public, slot-bound header and body can be served. Availability includes not_loaded, composition_not_served, label_missing, and source_not_bound."
   type LegalRenderInfo {
     documentId: String!
     renderStatus: String!

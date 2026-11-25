@@ -14,10 +14,11 @@
  * the outermost is taken. A provision with no block of its span keeps a
  * non-DOM key `prov:<component>:<seq>` (exact match only on the client).
  *
- * A form of several units prefixes block ids with `u<ordinal>.`; a form of one
+ * A composed form namespaces block ids by ordinal (see composition.ts); a form of one
  * unit keeps the stored ids, which are the ids the render serves.
  */
 
+import { componentBlockId, placeComponents } from './composition.js';
 import { outlineDepthFor } from '../outline.js';
 
 import type { LegalOutlineEntry } from '../types.js';
@@ -124,6 +125,10 @@ export const flattenBlocks = (blocks: readonly unknown[]): V2BlockRef[] => {
   return out;
 };
 
+/** The key of one provision of a form: its component ordinal and provision sequence. */
+export const v2ProvisionKey = (componentOrdinal: number, provisionSeq: number): string =>
+  `${String(componentOrdinal)}:${String(provisionSeq)}`;
+
 /**
  * Every provision of the form, in document order, as outline entries. The
  * caller filters to headings within the requested depth (`depth !== null`).
@@ -131,12 +136,18 @@ export const flattenBlocks = (blocks: readonly unknown[]): V2BlockRef[] => {
 export const composeV2Outline = (
   documentId: string,
   units: readonly V2OutlineUnit[]
-): LegalOutlineEntry[] => {
-  const ordered = [...units].sort((a, b) => a.componentOrdinal - b.componentOrdinal);
-  const prefix = ordered.length > 1;
-  const entries: LegalOutlineEntry[] = [];
-  let offset = 0;
-  for (const unit of ordered) {
+): LegalOutlineEntry[] => composeV2OutlineKeyed(documentId, units).map((k) => k.entry);
+
+/**
+ * The outline entries with the provision each one is, so another surface (search) can name a
+ * provision by the same path the outline gives it.
+ */
+export const composeV2OutlineKeyed = (
+  documentId: string,
+  units: readonly V2OutlineUnit[]
+): { readonly key: string; readonly entry: LegalOutlineEntry }[] => {
+  const keyed: { key: string; entry: LegalOutlineEntry }[] = [];
+  for (const { unit, namespace, offset } of placeComponents(units, (u) => u.textLength)) {
     const bySpan = new Map<string, V2BlockRef[]>();
     for (const block of unit.blocks) {
       const key = `${String(block.span[0])}:${String(block.span[1])}`;
@@ -158,25 +169,46 @@ export const composeV2Outline = (
       const path =
         block === undefined
           ? `prov:${String(unit.componentOrdinal)}:${String(p.provisionSeq)}`
-          : prefix
-            ? `u${String(unit.componentOrdinal)}.${block.id}`
-            : block.id;
+          : componentBlockId(namespace, block.id);
       const type = outlineTypeOfKind(p.kind);
-      entries.push({
-        documentId,
-        path,
-        nodeKind: p.kind,
-        label: p.labelRaw,
-        numberKey: numberKeyOf(p),
-        numberSystem: null,
-        numberStatus: p.address !== null ? 'parsed' : numberStatusOf(p.addressState),
-        depth: outlineDepthFor(type),
-        orderIndex: entries.length,
-        charStart: p.charStart + offset,
-        charEnd: p.charEnd + offset,
+      keyed.push({
+        key: v2ProvisionKey(unit.componentOrdinal, p.provisionSeq),
+        entry: {
+          documentId,
+          path,
+          nodeKind: p.kind,
+          label: p.labelRaw,
+          numberKey: numberKeyOf(p),
+          numberSystem: null,
+          numberStatus: p.address !== null ? 'parsed' : numberStatusOf(p.addressState),
+          depth: outlineDepthFor(type),
+          orderIndex: keyed.length,
+          charStart: p.charStart + offset,
+          charEnd: p.charEnd + offset,
+        },
       });
     }
-    offset += unit.textLength;
   }
-  return entries;
+  return keyed;
 };
+
+const PRESENTATION_KINDS = new Set([
+  'tabel',
+  'rand',
+  'celula',
+  'imagine',
+  'lista',
+  'element_lista',
+]);
+
+/** Presentation nodes can be addressed without a provision. Other blocks cannot. */
+export const composePresentationBlocks = (units: readonly V2OutlineUnit[]): V2BlockRef[] =>
+  placeComponents(units, (u) => u.textLength).flatMap(({ unit, namespace, offset }) =>
+    unit.blocks
+      .filter((b) => PRESENTATION_KINDS.has(b.kind))
+      .map((b) => ({
+        id: componentBlockId(namespace, b.id),
+        kind: b.kind,
+        span: [b.span[0] + offset, b.span[1] + offset] as const,
+      }))
+  );

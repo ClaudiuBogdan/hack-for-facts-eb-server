@@ -35,6 +35,7 @@ import { Type, type Static, type TSchema } from '@sinclair/typebox';
 import { Value } from '@sinclair/typebox/value';
 import { err, fromThrowable, ok, type Result } from 'neverthrow';
 
+import { COMPONENT_BOUNDARY, componentBlockId, placeComponents } from './composition.js';
 import {
   TLDF_KIND_VALUES,
   type TldfAsset,
@@ -48,6 +49,7 @@ import {
   type TldfMarkKind,
   type TldfRun,
   type TldfShape,
+  type TldfSpan,
 } from '../tldf/types.js';
 
 /** What the response's meta names as the source of a v2 render. */
@@ -353,16 +355,30 @@ export const storedChunksNeeded = (storedChunks: number, wanted: number): number
   return wanted <= storedChunks ? [wanted - 1] : [];
 };
 
-const buildRun = (r: StoredRunT): TldfRun => ({
+interface Placement {
+  readonly namespace: number | null;
+  readonly offset: number;
+}
+
+const shiftSpan = (span: TldfSpan, offset: number): TldfSpan => [
+  span[0] + offset,
+  span[1] + offset,
+];
+
+const buildRun = (r: StoredRunT, offset: number): TldfRun => ({
   text: r.text,
-  span: [r.span[0], r.span[1]],
+  span: shiftSpan(r.span, offset),
   ...(r.role !== undefined && { role: r.role as NonNullable<TldfRun['role']> }),
   ...(r.sep !== undefined && { sep: r.sep as NonNullable<TldfRun['sep']> }),
   ...(r.struck !== undefined && { struck: r.struck as NonNullable<TldfRun['struck']> }),
 });
 
 /** A TLDF block built field by field from a validated stored block. */
-const buildBlock = (b: StoredBlockT, assets: ReadonlyMap<number, string | null>): TldfBlock => {
+const buildBlock = (
+  b: StoredBlockT,
+  assets: ReadonlyMap<number, string | null>,
+  placement: Placement
+): TldfBlock => {
   let asset: TldfAsset | undefined;
   if (b.asset !== undefined && assets.has(b.asset.asset_ordinal)) {
     const sha = assets.get(b.asset.asset_ordinal) ?? null;
@@ -374,11 +390,13 @@ const buildBlock = (b: StoredBlockT, assets: ReadonlyMap<number, string | null>)
     };
   }
   return {
-    id: b.id,
+    id: componentBlockId(placement.namespace, b.id),
     kind: b.kind as TldfBlock['kind'],
     type: b.type,
-    span: [b.span[0], b.span[1]],
-    ...(b.source_element_id !== undefined && { source_element_id: b.source_element_id }),
+    span: shiftSpan(b.span, placement.offset),
+    ...(b.source_element_id !== undefined && {
+      source_element_id: componentBlockId(placement.namespace, b.source_element_id),
+    }),
     ...(b.label !== undefined && { label: b.label }),
     ...(b.number !== undefined && {
       number: b.number === null ? null : { key: b.number.key, system: b.number.system },
@@ -393,19 +411,37 @@ const buildBlock = (b: StoredBlockT, assets: ReadonlyMap<number, string | null>)
     ...(b.changed_since_base_form !== undefined && {
       changed_since_base_form: b.changed_since_base_form,
     }),
-    content: b.content.map(buildRun),
-    ...(b.children !== undefined && { children: b.children.map((c) => buildBlock(c, assets)) }),
+    content: b.content.map((r) => buildRun(r, placement.offset)),
+    ...(b.children !== undefined && {
+      children: b.children.map((c) => buildBlock(c, assets, placement)),
+    }),
   };
 };
 
-/** A TLDF mark built from a validated stored mark; an unresolvable link is dropped. */
-const buildMark = (m: StoredMarkT, links: ReadonlyMap<number, V2LinkTarget>): TldfMark => {
+/**
+ * A TLDF mark built from a validated stored mark; an unresolvable link is dropped. A reference
+ * whose link occurrence is not public is dropped whole: its span and its place in the count
+ * would still show where the withheld link sits.
+ */
+const buildMark = (
+  m: StoredMarkT,
+  links: ReadonlyMap<number, V2LinkTarget>,
+  placement: Placement
+): TldfMark | null => {
+  // A reference with no public link occurrence (none named, or one withheld) is dropped.
+  if (m.kind === 'reference' && (m.link_ordinal === undefined || !links.has(m.link_ordinal))) {
+    return null;
+  }
   const target = m.link_ordinal === undefined ? undefined : links.get(m.link_ordinal);
-  const link = target === undefined ? null : toTldfLink(target);
+  let link = target === undefined ? null : toTldfLink(target);
+  if (link?.kind === 'internal' && link.target_fragment !== undefined) {
+    const fragment = componentBlockId(placement.namespace, link.target_fragment);
+    link = { ...link, href: `#${fragment}`, target_fragment: fragment };
+  }
   return {
     ordinal: m.ordinal,
     kind: m.kind as TldfMarkKind,
-    span: [m.span[0], m.span[1]],
+    span: shiftSpan(m.span, placement.offset),
     ...(m.kind === 'reference' && link !== null && { link }),
   };
 };
@@ -418,7 +454,12 @@ const buildMark = (m: StoredMarkT, links: ReadonlyMap<number, V2LinkTarget>): Tl
  * (a stored chunk holds at most 32,768 UTF-16 units), so a chunk's ids need no
  * other chunk.
  */
-export const textOnlyBlocks = (text: string, charStart = 0, chunkSeq = 0): TldfBlock[] => {
+export const textOnlyBlocks = (
+  text: string,
+  charStart = 0,
+  chunkSeq = 0,
+  namespace: number | null = null
+): TldfBlock[] => {
   const blocks: TldfBlock[] = [];
   let offset = charStart;
   for (const [i, line] of text.split('\n').entries()) {
@@ -426,7 +467,7 @@ export const textOnlyBlocks = (text: string, charStart = 0, chunkSeq = 0): TldfB
     const span = [offset, offset + line.length] as const;
     const run: TldfRun = { text: line, span, ...(i > 0 && { sep: '\n' as const }) };
     blocks.push({
-      id: `unmarked:${String(chunkSeq * 65_536 + i)}`,
+      id: componentBlockId(namespace, `unmarked:${String(chunkSeq * 65_536 + i)}`),
       kind: 'paragraf',
       type: 'PAR',
       span,
@@ -443,29 +484,49 @@ interface ParsedChunk {
   readonly marks: TldfMark[];
 }
 
+const parseStoredChunk = (text: string, seq: string) => {
+  const parsed = parseJson(text);
+  if (parsed.isErr()) return err(`chunk ${seq} is not JSON`);
+  if (!Value.Check(StoredChunkBody, parsed.value)) {
+    return err(`chunk ${seq} breaks the tldf-unit contract`);
+  }
+  return ok(
+    parsed.value as unknown as {
+      readonly blocks: readonly StoredBlockT[];
+      readonly marks: readonly StoredMarkT[];
+    }
+  );
+};
+
+/** The same validated structured blocks used for outline paths and TLDF rendering. */
+export const storedOutlineBlocks = (text: string): readonly StoredBlockT[] =>
+  parseStoredChunk(text, 'body')
+    .map((body) => body.blocks)
+    .unwrapOr([]);
+
 const parseChunk = (
   unit: V2UnitRenderInput,
   chunk: V2UnitChunk,
-  withMarks: boolean
+  withMarks: boolean,
+  placement: Placement
 ): Result<ParsedChunk, string> => {
   const seq = String(chunk.chunkSeq);
   if (chunk.body === null) return err(`chunk ${seq} was not read`);
   if (unit.renderState === 'text_only') {
     return ok({
       head: null,
-      blocks: textOnlyBlocks(chunk.body, chunk.charStart, chunk.chunkSeq),
+      blocks: textOnlyBlocks(
+        chunk.body,
+        chunk.charStart + placement.offset,
+        chunk.chunkSeq,
+        placement.namespace
+      ),
       marks: [],
     });
   }
-  const parsed = parseJson(chunk.body);
-  if (parsed.isErr()) return err(`chunk ${seq} is not JSON`);
-  if (!Value.Check(StoredChunkBody, parsed.value)) {
-    return err(`chunk ${seq} breaks the tldf-unit contract`);
-  }
-  const body = parsed.value as unknown as {
-    readonly blocks: readonly StoredBlockT[];
-    readonly marks: readonly StoredMarkT[];
-  };
+  const parsed = parseStoredChunk(chunk.body, seq);
+  if (parsed.isErr()) return err(parsed.error);
+  const body = parsed.value;
   let head: StoredHeadT | null = null;
   if (chunk.chunkSeq === 0) {
     if (!Value.Check(StoredHead, parsed.value)) return err('chunk 0 carries no tldf-unit/1 head');
@@ -473,8 +534,13 @@ const parseChunk = (
   }
   return ok({
     head,
-    blocks: body.blocks.map((b) => buildBlock(b, unit.publicAssets)),
-    marks: withMarks ? body.marks.map((m) => buildMark(m, unit.links)) : [],
+    blocks: body.blocks.map((b) => buildBlock(b, unit.publicAssets, placement)),
+    marks: withMarks
+      ? body.marks.flatMap((m) => {
+          const mark = buildMark(m, unit.links, placement);
+          return mark === null ? [] : [mark];
+        })
+      : [],
   });
 };
 
@@ -496,21 +562,79 @@ const runChars = (blocks: readonly TldfBlock[]): { emitted: number; separators: 
 
 const NON_BMP_RE = /[\u{10000}-\u{10FFFF}]/u;
 
-/**
- * The ONE physical payload the request names: the envelope (a single stored
- * chunk), the manifest (index 0 of several; reads every chunk), or chunk group
- * `wanted` (reads only stored chunk `wanted - 1`). `not_found` when there is no
- * such index; any other error is a malformed stored row.
- */
-export const convertUnitChunk = (
+export interface V2RenderComponent extends V2UnitRenderInput {
+  readonly componentOrdinal: number;
+}
+
+/** Translate the public chunk index into its component and local chunk. */
+export const convertFormChunk = (
   head: V2RenderHeadInput,
-  unit: V2UnitRenderInput,
+  units: readonly V2RenderComponent[],
   wanted: number
 ): Result<V2PhysicalPayload, string> => {
-  const chunks = [...unit.chunks].sort((a, b) => a.chunkSeq - b.chunkSeq);
+  const ordered = units.map((u) => ({
+    ...u,
+    chunks: [...u.chunks].sort((a, b) => a.chunkSeq - b.chunkSeq),
+  }));
+  for (const unit of ordered) {
+    if (unit.chunks.length === 0) return err('a component has no render chunks');
+    if (unit.renderState === 'structured' && unit.chunks[0]?.chunkSeq !== 0) {
+      return err('chunk 0 carries no tldf-unit/1 head');
+    }
+  }
+  const placed = placeComponents(ordered, (u) => u.chunks.at(-1)?.charEnd ?? 0);
+  const chunks = placed.flatMap((placement, index) =>
+    placement.unit.chunks.map((chunk, i) => ({
+      placement,
+      chunk,
+      endsBeforeBoundary: index + 1 < placed.length && i + 1 === placement.unit.chunks.length,
+    }))
+  );
   const n = chunks.length;
-  if (n === 0) return err('the unit has no render chunks');
+  if (n === 0) return err('the form has no render chunks');
   if (wanted < 0 || wanted >= v2PhysicalChunkCount(n)) return err('not_found');
+
+  const readChunk = (
+    part: (typeof chunks)[number],
+    withMarks: boolean
+  ): Result<ParsedChunk, string> => {
+    const { placement, chunk, endsBeforeBoundary } = part;
+    const parsed = parseChunk(placement.unit, chunk, withMarks, placement);
+    if (parsed.isErr()) return parsed;
+    if (endsBeforeBoundary) {
+      // A separate run preserves leading/trailing whitespace and zero-width images in either unit.
+      const start = placement.offset + chunk.charEnd;
+      const span: TldfSpan = [start, start + COMPONENT_BOUNDARY.length];
+      parsed.value.blocks.push({
+        id: 'unmarked:0',
+        kind: 'paragraf',
+        type: 'TEXT',
+        origin: 'unmarked',
+        span,
+        content: [{ text: COMPONENT_BOUNDARY, span }],
+      });
+    }
+    // The compiler stores an empty structured page as one chunk with no blocks.
+    // Its manifest entry still needs a block id. An empty paragraph anchors it at EOF.
+    if (
+      placement.namespace !== null &&
+      parsed.value.blocks.length === 0 &&
+      placement.unit.chunks.length === 1 &&
+      chunk.charStart === 0 &&
+      chunk.charEnd === 0
+    ) {
+      parsed.value.blocks.push({
+        id: componentBlockId(placement.namespace, 'unmarked:0'),
+        kind: 'paragraf',
+        type: 'TEXT',
+        origin: 'unmarked',
+        span: [placement.offset, placement.offset],
+        content: [],
+      });
+    }
+    return parsed;
+  };
+
   const generation = {
     run_id: head.runId,
     body_sha256: head.bodySha256,
@@ -521,7 +645,7 @@ export const convertUnitChunk = (
   if (n > 1 && wanted > 0) {
     const chunk = chunks[wanted - 1];
     if (chunk === undefined) return err('not_found');
-    const parsed = parseChunk(unit, chunk, false);
+    const parsed = readChunk(chunk, false);
     if (parsed.isErr()) return err(parsed.error);
     if (parsed.value.blocks.length === 0) return err(`chunk ${String(wanted)} holds no blocks`);
     return ok({
@@ -544,18 +668,21 @@ export const convertUnitChunk = (
   const marks: TldfMark[] = [];
   let storedHead: StoredHeadT | null = null;
   let nonBmp = false;
-  for (const chunk of chunks) {
-    const parsed = parseChunk(unit, chunk, true);
+  for (const part of chunks) {
+    const parsed = readChunk(part, true);
     if (parsed.isErr()) return err(parsed.error);
-    if (parsed.value.head !== null) storedHead = parsed.value.head;
-    if (unit.renderState === 'text_only' && NON_BMP_RE.test(chunk.body ?? '')) nonBmp = true;
+    if (part.chunk.chunkSeq === 0) storedHead = parsed.value.head;
+    nonBmp ||=
+      parsed.value.head?.contains_non_bmp === true ||
+      (part.placement.unit.renderState === 'text_only' && NON_BMP_RE.test(part.chunk.body ?? ''));
     groups.push(parsed.value.blocks);
-    marks.push(...parsed.value.marks);
+    for (const mark of parsed.value.marks) marks.push(mark);
   }
-  if (unit.renderState === 'structured' && storedHead === null) {
-    return err('chunk 0 carries no tldf-unit/1 head');
-  }
-  marks.sort((a, b) => a.ordinal - b.ordinal);
+  // Local mark ordinals restart in each component. TLDF's public ordinal is
+  // its index in document order (within each unit the compiler orders marks by ordinal).
+  if (units.length === 1) marks.sort((a, b) => a.ordinal - b.ordinal);
+  else
+    marks.sort((a, b) => (a.span[0] === b.span[0] ? a.ordinal - b.ordinal : a.span[0] - b.span[0]));
   const allBlocks = groups.flat();
   const counts = runChars(allBlocks);
   const shape: TldfShape =
@@ -568,7 +695,7 @@ export const convertUnitChunk = (
     generation,
     text_sha256: head.textSha256,
     offset_unit: 'utf16_code_unit' as const,
-    contains_non_bmp: storedHead === null ? nonBmp : storedHead.contains_non_bmp,
+    contains_non_bmp: nonBmp,
     privacy_class: 'public' as const,
     source_url: head.sourceUrl,
     shape,
@@ -577,7 +704,8 @@ export const convertUnitChunk = (
       separator_chars: counts.separators,
       excluded_by_reason: {},
     },
-    marks,
+    // Renumbered in document order: a dropped mark leaves no gap in the ordinals.
+    marks: marks.map((m, ordinal) => ({ ...m, ordinal })),
   };
   if (n === 1) return ok({ kind: 'envelope', tldf: { ...envelopeHead, blocks: allBlocks } });
 
@@ -597,6 +725,13 @@ export const convertUnitChunk = (
   }
   return ok({ kind: 'manifest', tldf: { ...envelopeHead, physical: 'manifest', chunks: index } });
 };
+
+export const convertUnitChunk = (
+  head: V2RenderHeadInput,
+  unit: V2UnitRenderInput,
+  wanted: number
+): Result<V2PhysicalPayload, string> =>
+  convertFormChunk(head, [{ ...unit, componentOrdinal: 0 }], wanted);
 
 /** Every physical payload of a unit, in order (tests; the route reads one). */
 export const convertWholeUnit = (

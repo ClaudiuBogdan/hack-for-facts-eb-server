@@ -11,7 +11,7 @@
  * does not drop a value.
  */
 
-import { GraphQLError } from 'graphql';
+import { GraphQLError, Kind, type GraphQLResolveInfo, type SelectionSetNode } from 'graphql';
 
 import {
   GRAPHQL_ERROR_CODE,
@@ -170,6 +170,27 @@ const sortKeysOf = (act: LegalAct, sort: LegalSortKey): readonly (string | numbe
   }
 };
 
+/**
+ * Does this selection set (fragments spread and inlined, at any depth) select field `name`
+ * of the current type? An unknown fragment counts as selecting it: the full read is the safe
+ * answer.
+ */
+const selectsField = (
+  set: SelectionSetNode | undefined,
+  info: GraphQLResolveInfo,
+  name: string,
+  seen: ReadonlySet<string> = new Set()
+): boolean =>
+  set?.selections.some((sel) => {
+    if (sel.kind === Kind.FIELD) return sel.name.value === name;
+    if (sel.kind === Kind.INLINE_FRAGMENT) return selectsField(sel.selectionSet, info, name, seen);
+    const fragmentName = sel.name.value;
+    if (seen.has(fragmentName)) return false;
+    const fragment = info.fragments[fragmentName];
+    if (fragment === undefined) return true;
+    return selectsField(fragment.selectionSet, info, name, new Set([...seen, fragmentName]));
+  }) === true;
+
 /** legal_v2: the default-form fields of one act, all from one selection. */
 interface V2DefaultFields {
   readonly canonical: LegalDocument | null;
@@ -280,11 +301,14 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
 
   // Render availability, batched: an act page lists its whole version cluster,
   // so an unbatched resolver would be one generation lookup per document.
-  const renderInfoLoader = makeBatchLoader<LegalRenderInfo | null>(async (documentIds) => {
-    const res = await render.renderInfoForDocuments(documentIds);
-    if (res.isErr()) throw toGraphqlError(res.error);
-    return res.value;
-  }, null);
+  const makeRenderInfoLoader = (includeTextHash: boolean) =>
+    makeBatchLoader<LegalRenderInfo | null>(async (ids) => {
+      const res = await render.renderInfoForDocuments(ids, includeTextHash);
+      if (res.isErr()) throw toGraphqlError(res.error);
+      return res.value;
+    }, null);
+  const renderInfoLoader = makeRenderInfoLoader(true);
+  const renderStatusLoader = makeRenderInfoLoader(false);
 
   /** An act with no provenance row (dangling id) still answers honestly. */
   const provenanceOrUnknown = (prov: LegalVersionProvenance | null): LegalVersionProvenance =>
@@ -693,7 +717,20 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
     LegalDocument: {
       // null = never compiled. The artifact body is NOT served here — only the
       // availability card; the body travels over the cacheable REST route.
-      render: async (parent: LegalDocument) => renderInfoLoader.load(parent.documentId),
+      render: async (
+        parent: LegalDocument,
+        _args: unknown,
+        _ctx: unknown,
+        info?: GraphQLResolveInfo
+      ) => {
+        // The version list requests status/count: never fold a pair's whole text for that.
+        // Fragments are resolved first, so only a selection that names textSha256 (under any
+        // alias, in any fragment) pays for the fold.
+        const needsHash =
+          info === undefined ||
+          info.fieldNodes.some((node) => selectsField(node.selectionSet, info, 'textSha256'));
+        return (needsHash ? renderInfoLoader : renderStatusLoader).load(parent.documentId);
+      },
     },
 
     LegalReferenceEdge: {

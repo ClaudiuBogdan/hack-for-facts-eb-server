@@ -293,9 +293,10 @@ export interface LegalRenderRepo {
    * the usecase gates so 403/409 stay distinguishable from 404.
    */
   renderInfo(documentId: string): Promise<Result<LegalRenderInfo | null, ApiError>>;
-  /** Batched availability (GraphQL `LegalDocument.render` over a version list). */
+  /** Batched availability. GraphQL can omit the folded SHA for a status-only version list. */
   renderInfoForDocuments(
-    documentIds: readonly string[]
+    documentIds: readonly string[],
+    includeTextHash?: boolean
   ): Promise<Result<ReadonlyMap<string, LegalRenderInfo>, ApiError>>;
   /**
    * One physical row (payload unparsed); null when the row does not exist

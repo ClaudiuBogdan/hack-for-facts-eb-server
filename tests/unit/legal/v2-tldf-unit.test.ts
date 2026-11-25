@@ -16,6 +16,7 @@ import { describe, expect, it } from 'vitest';
 import { provenFold } from '@/modules/legal/core/tldf/fold.js';
 import { reassembleTldf } from '@/modules/legal/core/tldf/reassemble.js';
 import {
+  convertFormChunk,
   convertUnitChunk,
   convertWholeUnit,
   linkKindFromHref,
@@ -261,6 +262,89 @@ describe('text-only units', () => {
   });
 });
 
+describe('composed TLDF chunks', () => {
+  it('keeps an empty structured body addressable without adding text to its data chunk', () => {
+    const header = {
+      componentOrdinal: 0,
+      renderState: 'text_only' as const,
+      chunks: [{ chunkSeq: 0, charStart: 0, charEnd: 1, body: 'H' }],
+      links: new Map(),
+      publicAssets: new Map(),
+    };
+    const body = {
+      ...header,
+      componentOrdinal: 1,
+      renderState: 'structured' as const,
+      chunks: [
+        {
+          chunkSeq: 0,
+          charStart: 0,
+          charEnd: 0,
+          body: JSON.stringify({
+            format: 'tldf-unit',
+            format_version: '1',
+            offset_unit: 'utf16_code_unit',
+            contains_non_bmp: false,
+            shape: 'paragraph_stream',
+            blocks: [],
+            marks: [],
+          }),
+        },
+      ],
+    };
+    const parts = [0, 1, 2].map((i) =>
+      convertFormChunk({ ...HEAD, textSha256: sha('H\n') }, [header, body], i)._unsafeUnwrap()
+    );
+    expect(provenFold(reassembleTldf(asRows(parts))._unsafeUnwrap())._unsafeUnwrap()).toBe('H\n');
+  });
+
+  it('adds one boundary to adjacent whitespace and serves each local chunk independently', () => {
+    const texts = [
+      ['😀', '\n'],
+      ['\nCorp', ' final'],
+    ];
+    const head = { ...HEAD, textSha256: sha('😀\n\n\nCorp final') };
+    const components = (wanted: number) =>
+      texts
+        .map((parts, componentOrdinal) => {
+          let offset = 0;
+          const chunks = parts
+            .map((body, chunkSeq) => {
+              const charStart = offset;
+              offset += body.length;
+              const physicalIndex = componentOrdinal * 2 + chunkSeq + 1;
+              return {
+                chunkSeq,
+                charStart,
+                charEnd: offset,
+                body: wanted === 0 || wanted === physicalIndex ? body : null,
+              };
+            })
+            .reverse();
+          return {
+            componentOrdinal,
+            chunks,
+            renderState: 'text_only' as const,
+            links: new Map(),
+            publicAssets: new Map(),
+          };
+        })
+        .reverse();
+    const payloads = Array.from({ length: 5 }, (_, i) =>
+      convertFormChunk(head, components(i), i)._unsafeUnwrap()
+    );
+    expect(payloads.map((p) => p.kind)).toEqual(['manifest', 'chunk', 'chunk', 'chunk', 'chunk']);
+    const envelope = reassembleTldf(asRows(payloads))._unsafeUnwrap();
+    expect(provenFold(envelope)._unsafeUnwrap()).toBe('😀\n\n\nCorp final');
+    const ids = envelope.blocks.map((b) => b.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids.every((id) => /^unmarked:\d+$/u.test(id))).toBe(true);
+    expect(envelope.blocks.find((b) => b.id === 'unmarked:0')?.span).toEqual([3, 4]);
+    expect(envelope.contains_non_bmp).toBe(true);
+    expect(convertFormChunk(head, components(5), 5)._unsafeUnwrapErr()).toBe('not_found');
+  });
+});
+
 describe('links resolved at read time', () => {
   it("classifies hrefs exactly as the structure parser's classifier", () => {
     expect(
@@ -388,22 +472,74 @@ describe('stored-chunk validation and allowlisted output (security review)', () 
     content: [{ text: 'abc', span: [0, 3] }],
   };
 
+  it('drops a reference mark whose link occurrence is withheld, and renumbers the rest', () => {
+    const res = convertUnitChunk(
+      HEADX,
+      unitWith(
+        {
+          ...head,
+          blocks: [block],
+          marks: [
+            { ordinal: 0, kind: 'reference', span: [0, 1], link_ordinal: 0 },
+            { ordinal: 1, kind: 'reference', span: [1, 3], link_ordinal: 1 },
+            // No link occurrence named at all: nothing establishes a public link.
+            { ordinal: 2, kind: 'reference', span: [3, 4] },
+          ],
+        },
+        // Only occurrence 1 is public: occurrence 0 is withheld.
+        new Map([
+          [
+            1,
+            {
+              ordinal: 1,
+              href: 'https://example.org/x',
+              targetFragment: null,
+              targetActId: null,
+              targetFormId: null,
+            },
+          ],
+        ])
+      ),
+      0
+    );
+    const env = res._unsafeUnwrap();
+    if (env.kind !== 'envelope') throw new Error('envelope expected');
+    expect(env.tldf.marks.map((m) => [m.ordinal, m.span])).toEqual([[0, [1, 3]]]);
+  });
+
   it('never passes a stored link or an unknown field through', () => {
     const res = convertUnitChunk(
       HEADX,
-      unitWith({
-        ...head,
-        blocks: [{ ...block, onclick: 'x', content: [{ text: 'abc', span: [0, 3], html: '<b>' }] }],
-        marks: [
-          {
-            ordinal: 0,
-            kind: 'reference',
-            span: [0, 3],
-            link_ordinal: 7,
-            link: { kind: 'external', href: 'javascript:alert(1)' },
-          },
-        ],
-      }),
+      unitWith(
+        {
+          ...head,
+          blocks: [
+            { ...block, onclick: 'x', content: [{ text: 'abc', span: [0, 3], html: '<b>' }] },
+          ],
+          marks: [
+            {
+              ordinal: 0,
+              kind: 'reference',
+              span: [0, 3],
+              link_ordinal: 7,
+              link: { kind: 'external', href: 'javascript:alert(1)' },
+            },
+          ],
+        },
+        // The occurrence is public; its own href is refused, so the mark keeps no link.
+        new Map([
+          [
+            7,
+            {
+              ordinal: 7,
+              href: 'javascript:alert(1)',
+              targetFragment: null,
+              targetActId: null,
+              targetFormId: null,
+            },
+          ],
+        ])
+      ),
       0
     );
     const env = res._unsafeUnwrap();

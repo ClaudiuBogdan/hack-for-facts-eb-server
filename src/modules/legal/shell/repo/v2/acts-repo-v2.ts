@@ -314,11 +314,9 @@ export const makeLegalActsRepoV2 = (deps: MakeLegalActsRepoV2Deps): LegalActsRep
 
   // ── forms and the default form ─────────────────────────────────────────────
 
-  const formsForActs = async (
-    actIds: readonly string[]
+  const readActForms = async (
+    ids: readonly string[]
   ): Promise<Result<ReadonlyMap<string, ActForms>, ApiError>> => {
-    const ids = [...new Set(actIds.filter((id) => ID_RE.test(id)))];
-    if (ids.length === 0) return ok(new Map());
     const [rowsRes, actsRes] = await Promise.all([
       readFormsForActs(db, ids),
       // Every requested PUBLIC act gets a default result, formless ones too
@@ -351,6 +349,17 @@ export const makeLegalActsRepoV2 = (deps: MakeLegalActsRepoV2Deps): LegalActsRep
       });
     }
     return ok(out);
+  };
+
+  // Every call reads afresh in its own snapshot. No read is shared between calls: a read still
+  // in flight for one request could hand another request a privacy verdict taken before a
+  // restriction committed.
+  const formsForActs = (
+    actIds: readonly string[]
+  ): Promise<Result<ReadonlyMap<string, ActForms>, ApiError>> => {
+    const ids = [...new Set(actIds.filter((id) => ID_RE.test(id)))].sort();
+    if (ids.length === 0) return Promise.resolve(ok(new Map()));
+    return readActForms(ids);
   };
 
   const defaultFormsForActs = async (
