@@ -70,6 +70,9 @@ describe('moneyWhere', () => {
         '2018-01-01'
       )
     ).toContain(floor);
+    // Every value kind gets it, not only the awarded one.
+    for (const kinds of [['framework_ceiling'], ['modification_change']] as const)
+      expect(moneyWhere(filters(), null, kinds, '2018-01-01')).toContain(floor);
     // No contract awards asked: no floor clause at all.
     expect(
       moneyWhere(

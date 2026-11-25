@@ -315,7 +315,7 @@ describe('composeTotals', () => {
       '17'
     );
     expect(answer.explanation.textEn).toBe(
-      'Selected: Contract awards; status: Awarded; value kind: Awarded value. Contract awards are counted from an award day of 2021-01-01. Values are summed as published (no VAT conversion), in lei. Left out: Cancelled (1, 5.00 lei).'
+      'Selected: Contract awards; status: Awarded; value kind: Awarded value. Dated contract awards are counted only from an award day of 2021-01-01. Values are summed as published (no VAT conversion), in lei. Left out: Cancelled (1, 5.00 lei).'
     );
     expect(answer.explanation.textRo).toContain('Excluse: Anulat (1, 5.00 lei).');
   });
@@ -397,10 +397,10 @@ describe('moneyTotals (batch)', () => {
     expect(reads.map((r) => [r.build, r.caFloor])).toEqual([['17', '2021-01-01']]);
     expect(answer?.caAwardDayFrom).toBe('2021-01-01');
     expect(answer?.explanation.textEn).toContain(
-      'Contract awards are counted from an award day of 2021-01-01.'
+      'Dated contract awards are counted only from an award day of 2021-01-01.'
     );
     expect(answer?.explanation.textRo).toContain(
-      'Contractele atribuite sunt numărate de la data atribuirii 2021-01-01.'
+      'Contractele atribuite cu dată sunt numărate doar de la data atribuirii 2021-01-01.'
     );
 
     const recorded = port({ caFloor: () => Promise.resolve(ok('2018-01-01')) });
@@ -420,18 +420,21 @@ describe('moneyTotals (batch)', () => {
     }
   });
 
-  it('names no floor for a request without contract awards, and fails as the floor read fails', async () => {
-    const { p } = port({ caFloor: () => Promise.resolve(ok('2018-01-01')) });
+  it('reads no floor for a batch without contract awards, and serves the fallback when it fails', async () => {
+    const { p, floorBuilds } = port({ caFloor: () => Promise.resolve(ok('2018-01-01')) });
     const [da] = (
       await moneyTotals(p, [{ id: 'a', filters: { procurementKinds: ['direct_acquisition'] } }])
     )._unsafeUnwrap();
+    expect(floorBuilds).toEqual([]);
     expect(da?.caAwardDayFrom).toBeNull();
-    expect(da?.explanation.textEn).not.toContain('Contract awards are counted');
+    expect(da?.explanation.textEn).not.toContain('contract awards are counted');
+    // A failed floor read (a timeout, say) never refuses the batch: the fallback, named.
     const failing = port({
       caFloor: () => Promise.resolve(err({ type: 'DatabaseError', message: 'x' } as never)),
     });
-    expect((await moneyTotals(failing.p, [{ id: 'a', filters: ca }])).isErr()).toBe(true);
-    expect(failing.reads).toEqual([]);
+    const [answer] = (await moneyTotals(failing.p, [{ id: 'a', filters: ca }]))._unsafeUnwrap();
+    expect(failing.reads.map((r) => r.caFloor)).toEqual(['2021-01-01']);
+    expect(answer?.caAwardDayFrom).toBe('2021-01-01');
   });
 
   it('fails closed when no money build is published', async () => {

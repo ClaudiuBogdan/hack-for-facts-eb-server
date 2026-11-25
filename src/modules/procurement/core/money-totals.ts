@@ -642,8 +642,8 @@ const explain = (
     en.push(`Period: ${f.from ?? '…'} – ${f.to ?? '…'}.`);
   }
   if (f.procurementKinds.includes('contract_award')) {
-    ro.push(`Contractele atribuite sunt numărate de la data atribuirii ${caFloor}.`);
-    en.push(`Contract awards are counted from an award day of ${caFloor}.`);
+    ro.push(`Contractele atribuite cu dată sunt numărate doar de la data atribuirii ${caFloor}.`);
+    en.push(`Dated contract awards are counted only from an award day of ${caFloor}.`);
   }
   ro.push('Valorile sunt adunate așa cum au fost publicate (fără conversie TVA), în lei.');
   en.push('Values are summed as published (no VAT conversion), in lei.');
@@ -775,10 +775,14 @@ export const moneyTotals = async (
   const factBuild = build.value;
   const labels = await port.labels(factBuild);
   if (labels.isErr()) return err(labels.error);
-  // The floor of this very build: its facts and its floor are read by the same build id.
-  const recordedFloor = await port.caFloor(factBuild);
-  if (recordedFloor.isErr()) return err(recordedFloor.error);
-  const caFloor = servedCaFloor(recordedFloor.value);
+  // The floor of this very build (its facts and its floor are read by the same build id), read
+  // only when a request asks for contract awards. It is optional: a failed read serves the
+  // fallback, which the answer names (caAwardDayFrom), never a refused batch.
+  const asksContractAwards = requests.some((r) =>
+    r.filters.procurementKinds.includes('contract_award')
+  );
+  const recordedFloor = asksContractAwards ? await port.caFloor(factBuild) : ok(null);
+  const caFloor = servedCaFloor(recordedFloor.isOk() ? recordedFloor.value : null);
 
   // D6 now, not only as of the build: a supplier withheld since the build was
   // published must not be filterable (its money would name it).

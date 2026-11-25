@@ -26,6 +26,7 @@ let container: StartedPostgreSqlContainer | undefined;
 let owner: Kysely<ProdDatabase> | undefined;
 let tableGrant: Kysely<ProdDatabase> | undefined;
 let columnGrant: Kysely<ProdDatabase> | undefined;
+let floorOnly: Kysely<ProdDatabase> | undefined;
 
 const it = (name: string, test: () => Promise<void>): void => {
   vitestIt(name, async ({ skip }) => {
@@ -77,18 +78,21 @@ beforeAll(async () => {
         (2, 'active', now() - interval '1 day');
       create role money_table login password 'money_table';
       create role money_columns login password 'money_columns';
-      grant usage on schema procurement_v3 to money_table, money_columns;
+      create role money_floor_only login password 'money_floor_only';
+      grant usage on schema procurement_v3 to money_table, money_columns, money_floor_only;
       grant select on procurement_v3.money_generations to money_table;
       grant select (build_id, status, published_at) on procurement_v3.money_generations to money_columns;`
     )
     .execute(owner);
   tableGrant = connect(asRole('money_table'));
   columnGrant = connect(asRole('money_columns'));
+  floorOnly = connect(asRole('money_floor_only'));
 }, 240_000);
 
 afterAll(async () => {
   await tableGrant?.destroy();
   await columnGrant?.destroy();
+  await floorOnly?.destroy();
   await owner?.destroy();
   await container?.stop();
 });
@@ -132,6 +136,13 @@ describe('the money build’s contract-award floor', () => {
         ownerDb()
       );
       expect(await floorOf(columnGrant)).toBe('2018-01-01');
+
+      // The catalog says readable but the read itself is refused (here: no grant on build_id, as
+      // a revoke between the check and the read would do): none, through the read's own fallback.
+      await sql`grant select (ca_award_day_from) on procurement_v3.money_generations to money_floor_only`.execute(
+        ownerDb()
+      );
+      expect(await floorOf(floorOnly)).toBeNull();
 
       // Days to_char overflows on or prints without their era, and infinity: none.
       for (const day of ['500000-01-01', '2018-01-01 BC', 'infinity']) {
