@@ -1119,6 +1119,22 @@ describe('naming step 2b: da_parties_public.supplier_disclosed (20261124T120020/
         )
       );
       expect(companyPair.total).toBeGreaterThan(0);
+      // supplier_disclosure revoked while the gate column stays readable: D6 fails closed, and the
+      // pair matches nothing (the column alone is never trusted).
+      await sql`revoke select on procurement_v3.supplier_disclosure from procurement_api_read`.execute(
+        owner
+      );
+      try {
+        const filter = { buyerFiscalCode: pairBuyer, supplierFiscalCode: COMPANY.fiscalCode ?? '' };
+        const closed = (await listDaPurchases(api(), { ...ALL, filter }))._unsafeUnwrap();
+        expect([closed.total, closed.items.length]).toEqual([0, 0]);
+        const closedTotals = (await daPurchaseTotals(api(), { ...ALL, filter }))._unsafeUnwrap();
+        expect(closedTotals.overall.purchaseCount).toBe('0');
+      } finally {
+        await sql`grant select on procurement_v3.supplier_disclosure to procurement_api_read`.execute(
+          owner
+        );
+      }
 
       // The all-time table calling a step 2b party disclosed (a writer bug): its page is
       // refused, the code never served (the view's gate column disagrees).
@@ -1173,6 +1189,18 @@ describe('naming step 2b: da_parties_public.supplier_disclosed (20261124T120020/
         })
       )._unsafeUnwrap();
       expect([deniedPair.total, deniedPair.items.length]).toEqual([0, 0]);
+      const deniedPairTotals = (
+        await daPurchaseTotals(api(), {
+          ...ALL,
+          filter: {
+            buyerFiscalCode:
+              PURCHASES.find((p) => p.supplier?.fiscalCode === COMPANY.fiscalCode)?.buyer
+                ?.fiscalCode ?? '',
+            supplierFiscalCode: COMPANY.fiscalCode ?? '',
+          },
+        })
+      )._unsafeUnwrap();
+      expect(deniedPairTotals.overall.purchaseCount).toBe('0');
     } finally {
       await sql`revoke select on procurement_v3.da_parties_public from procurement_api_read`.execute(
         owner
@@ -1220,7 +1248,8 @@ describe('a buyer x supplier pair reads by resolved party ids', () => {
       values (${SOURCE}, 'buyer', 'buyer-alt', ${buyerCode}, 'valid'),
         ('archive', 'buyer', 'buyer-arch', ${buyerCode}, 'valid'),
         ('archive', 'supplier', 'sup-arch', ${companyCode}, 'valid'),
-        ('third', 'buyer', 'buyer-third', ${buyerCode}, 'valid')`.execute(owner);
+        ('third', 'buyer', 'buyer-third', ${buyerCode}, 'valid'),
+        (${SOURCE}, 'supplier', 'sup-alt', ${companyCode}, 'valid')`.execute(owner);
     // Volume: the company as a national supplier (12,000 purchases over 1,200 other buyers), 40
     // dated and 12 undated purchases of the pair, the cross-source rows, and the platform's two
     // party-day indexes.
@@ -1243,7 +1272,8 @@ describe('a buyer x supplier pair reads by resolved party ids', () => {
         ('x-arch', 'archive', 'x-arch', 'DA-X-ARCH', 'accepted', true, 6, date '2025-02-03', 'buyer-arch', 'sup-arch'),
         ('x-arch-other', 'archive', 'x-arch-other', 'DA-X-ARCH-OTHER', 'accepted', true, 7, date '2025-02-04', 'buyer-arch', ${COMPANY.portalPartyId}),
         ('x-third', 'third', 'x-third', 'DA-X-THIRD', 'accepted', true, 8, date '2025-02-05', 'buyer-third', 'sup-arch'),
-        ('x-cross', ${SOURCE}, 'x-cross', 'DA-X-CROSS', 'accepted', true, 9, date '2025-02-06', 'buyer-arch', ${COMPANY.portalPartyId})`.execute(
+        ('x-cross', ${SOURCE}, 'x-cross', 'DA-X-CROSS', 'accepted', true, 9, date '2025-02-06', 'buyer-arch', ${COMPANY.portalPartyId}),
+        ('x-sup-alt', ${SOURCE}, 'x-sup-alt', 'DA-X-SUP-ALT', 'accepted', true, 10, date '2025-02-07', ${buyer.portalPartyId}, 'sup-alt')`.execute(
       owner
     );
     await sql`create index da_purchases_buyer_day_idx on procurement_v3.da_purchases
@@ -1302,6 +1332,27 @@ describe('a buyer x supplier pair reads by resolved party ids', () => {
                 + case when bool_or(p.finalization_day is null) then 1 else 0 end)::integer as months
             ${scope(where)}`.execute(logged)
         ).rows[0];
+      const expectedMonths = async (where: ReturnType<typeof sql>) =>
+        (
+          await sql<{
+            key: string | null;
+            counted_value: string | null;
+            counted_count: string;
+            symbolic_price_count: string;
+            purchase_count: string;
+          }>`select to_char(p.finalization_day, 'YYYY-MM') as key,
+              sum(p.counted_value) filter (where p.counted)::numeric(20,2)::text as counted_value,
+              count(*) filter (where p.counted)::text as counted_count,
+              count(*) filter (where p.counted and p.symbolic_price)::text as symbolic_price_count,
+              count(*)::text as purchase_count
+            ${scope(where)} group by 1 order by 1 asc nulls last`.execute(logged)
+        ).rows.map((row) => ({
+          key: row.key,
+          countedValue: row.counted_value,
+          countedCount: row.counted_count,
+          symbolicPriceCount: row.symbolic_price_count,
+          purchaseCount: row.purchase_count,
+        }));
       const cases = [
         [
           'finalizationTo alone',
@@ -1342,7 +1393,11 @@ describe('a buyer x supplier pair reads by resolved party ids', () => {
         // The cross-source rows: the other id of the code in the same source and the archive pair
         // count; a code's id in another source, and a source without the supplier, do not.
         const all = new Set(want);
-        expect([all.has('x-alt'), all.has('x-arch')], label).toEqual([true, true]);
+        expect([all.has('x-alt'), all.has('x-arch'), all.has('x-sup-alt')], label).toEqual([
+          true,
+          true,
+          true,
+        ]);
         expect([all.has('x-arch-other'), all.has('x-third'), all.has('x-cross')], label).toEqual([
           false,
           false,
@@ -1357,20 +1412,39 @@ describe('a buyer x supplier pair reads by resolved party ids', () => {
           symbolicPriceCount: measures?.symbolic_price_count,
           purchaseCount: measures?.purchase_count,
         });
-        let groups = 0;
-        let purchases = 0;
+        const months: unknown[] = [];
+        let lastPage = 0;
         for (let page = 1; ; page += 1) {
           const grouped = (
             await daPurchaseTotals(api(), { filter, groupBy: 'month', page, pageSize: 5 })
           )._unsafeUnwrap();
-          groups += grouped.groups.length;
-          purchases += grouped.groups.reduce((sum, g) => sum + Number(g.purchaseCount), 0);
+          months.push(
+            ...grouped.groups.map((g) => ({
+              key: g.key,
+              countedValue: g.countedValue,
+              countedCount: g.countedCount,
+              symbolicPriceCount: g.symbolicPriceCount,
+              purchaseCount: g.purchaseCount,
+            }))
+          );
           expect(grouped.groupCount, label).toBe(measures?.months);
+          lastPage = page;
           if (!grouped.hasMore) break;
         }
-        expect([groups, String(purchases)], label).toEqual([
+        expect({ label, months }).toEqual({ label, months: await expectedMonths(where) });
+        // One page past the last group: no groups, the same group count.
+        const past = (
+          await daPurchaseTotals(api(), {
+            filter,
+            groupBy: 'month',
+            page: lastPage + 1,
+            pageSize: 5,
+          })
+        )._unsafeUnwrap();
+        expect([past.groups.length, past.groupCount, past.hasMore], label).toEqual([
+          0,
           measures?.months,
-          measures?.purchase_count,
+          false,
         ]);
       }
       // No party for one code: nothing, without a statement on the purchases' subqueries.
@@ -1395,7 +1469,9 @@ describe('a buyer x supplier pair reads by resolved party ids', () => {
         s.sql.includes('from "procurement_v3"."da_purchases" p')
       );
       expect(overPurchases.length).toBeGreaterThanOrEqual(5);
-      expect(overPurchases.some((s) => s.sql.includes('limit') && s.sql.includes('count(*)'))).toBe(
+      // The carry count (a page starting past the dated rows) and the total count both ran.
+      expect(overPurchases.some((s) => s.sql.includes('count(*)::text as n from ('))).toBe(true);
+      expect(overPurchases.some((s) => s.sql.includes('count(*)::text as total from ('))).toBe(
         true
       );
       for (const s of overPurchases) {
