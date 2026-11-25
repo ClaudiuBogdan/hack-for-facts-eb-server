@@ -97,21 +97,5 @@ export const carriesPersonalCode = (name: string): boolean =>
 export const publicPartyName = (name: string | null): string | null =>
   name === null || carriesPersonalCode(name) ? null : name;
 
-/**
- * 11+ digits, joined by at most one white-space character or dash each (how a code is split when
- * written: NBSP, thin space and tab are white space after NFKD, and NEL (U+0085, which `\s` omits);
- * U+2010–2014 stay dashes, U+2212 too).
- */
-const PERSON_CODE_RUN = /[0-9]([\s\u0085\p{Pd}\u2212]?[0-9]){10,}/u;
-/** Invisible characters that split a digit run without showing: format characters, Hangul fillers. */
-const INVISIBLE = /[\p{Cf}\u115F\u1160\u3164\uFFA0]/gu;
-
-/**
- * A run of more than an organization code's digits (11+, also split by single white space or dashes):
- * the kernel treats such an identifier as a person's. A slash, a dot or a date does not join a run,
- * so a document number next to a date ("HCL nr. 123/24.11.2026") is no code. Refused where a
- * caller's text is echoed and matches no number column (analysis scope q, CPV q, totals q); the
- * legacy search q still matches contract numbers that long (50 bare ones on 24 Nov).
- */
-export const hasPersonCodeRun = (text: string): boolean =>
-  PERSON_CODE_RUN.test(text.normalize('NFKD').replace(INVISIBLE, ''));
+/** The kernel's 11+ digit rule, shared with the share-link guard (src/common/person-code-run.ts). */
+export { hasPersonCodeRun } from '@/common/person-code-run.js';

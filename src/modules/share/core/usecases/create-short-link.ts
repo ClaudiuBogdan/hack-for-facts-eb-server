@@ -7,7 +7,12 @@
 
 import { ok, err, type Result } from 'neverthrow';
 
-import { createHashCollisionError, type ShareError } from '../errors.js';
+import {
+  createHashCollisionError,
+  createPersonalCodeInUrlError,
+  type ShareError,
+} from '../errors.js';
+import { urlCarriesPersonalCode } from '../personal-code-url.js';
 import { buildCanonicalMetadata, generateCode, isSameMetadata } from '../url-utils.js';
 
 import type { Hasher, ShortLinkRepository } from '../ports.js';
@@ -69,6 +74,12 @@ export const createShortLink = async (
 ): Promise<Result<CreateShortLinkResult, ShareError>> => {
   const { shortLinkRepo, hasher } = deps;
   const { userId, url } = input;
+
+  // Step 0: a URL that carries a personal numeric code is never stored (PRJ-HX7G); nothing is
+  // read or written for it.
+  if (urlCarriesPersonalCode(url)) {
+    return err(createPersonalCodeInUrlError());
+  }
 
   // Step 1: Normalize URL and generate code
   const metadata = buildCanonicalMetadata(url);

@@ -79,11 +79,11 @@ export const makeShareLink = async (
       return `${baseUrl}/share/${code}`;
     }
 
-    // Non-throwing failure - log and return original
+    // Non-throwing failure - log and return original. A URL with a personal code is not logged.
     logger?.warn('Short link creation failed', {
       error: result.error.type,
       message: result.error.message,
-      url,
+      ...(result.error.type !== 'PersonalCodeInUrlError' && { url }),
     });
 
     return url;
