@@ -36,7 +36,8 @@ describe('moneyWhere', () => {
     const where = moneyWhere(
       filters({ from: '2025-01-01', to: '2025-12-31', q: "drum 'DJ' \\x", buyerCode: '4305857' }),
       'ref-1',
-      ['awarded']
+      ['awarded'],
+      '2021-01-01'
     );
     expect(where).toContain("procurement_kind IN ('contract_award')");
     expect(where).toContain("value_kind IN ('awarded')");
@@ -50,10 +51,38 @@ describe('moneyWhere', () => {
     );
   });
 
-  it('leaves out every filter that was not asked', () => {
-    expect(moneyWhere(filters(), null, ['awarded'])).toBe(
-      "procurement_kind IN ('contract_award') AND value_kind IN ('awarded')"
+  it('leaves out every filter that was not asked (the contract-award floor is not a filter)', () => {
+    expect(moneyWhere(filters(), null, ['awarded'], '2021-01-01')).toBe(
+      "procurement_kind IN ('contract_award') AND value_kind IN ('awarded') AND (procurement_kind != 'contract_award' OR award_day IS NULL OR award_day >= toDate('2021-01-01'))"
     );
+  });
+
+  it('applies the contract-award floor to contract awards only, undated ones kept', () => {
+    const floor =
+      "(procurement_kind != 'contract_award' OR award_day IS NULL OR award_day >= toDate('2018-01-01'))";
+    expect(moneyWhere(filters(), null, ['awarded'], '2018-01-01')).toContain(floor);
+    // Mixed kinds: the floor holds for the contract awards, direct acquisitions pass as before.
+    expect(
+      moneyWhere(
+        filters({ procurementKinds: ['contract_award', 'direct_acquisition'] }),
+        null,
+        ['awarded'],
+        '2018-01-01'
+      )
+    ).toContain(floor);
+    // No contract awards asked: no floor clause at all.
+    expect(
+      moneyWhere(
+        filters({ procurementKinds: ['direct_acquisition'] }),
+        null,
+        ['awarded'],
+        '2018-01-01'
+      )
+    ).toBe("procurement_kind IN ('direct_acquisition') AND value_kind IN ('awarded')");
+    // A range asked as well: both hold (an asked start after the floor wins, one before it does not).
+    const both = moneyWhere(filters({ from: '2019-06-01' }), null, ['awarded'], '2018-01-01');
+    expect(both).toContain(floor);
+    expect(both).toContain("(award_day IS NULL OR (award_day >= toDate('2019-06-01')))");
   });
 });
 
@@ -90,8 +119,11 @@ describe('makeClickhouseMoneyRepo', () => {
       },
     ]);
     const repo = makeClickhouseMoneyRepo({ db, reader: r });
-    const rows = (await repo.aggregate('17', filters(), null, ['awarded']))._unsafeUnwrap();
+    const rows = (
+      await repo.aggregate('17', filters(), null, ['awarded'], '2018-01-01')
+    )._unsafeUnwrap();
     expect(sqls[0]).toContain('FROM money_facts_b17');
+    expect(sqls[0]).toContain("award_day >= toDate('2018-01-01')");
     expect(rows[0]).toMatchObject({
       dated: false,
       inRange: false,
@@ -124,7 +156,7 @@ describe('makeClickhouseMoneyRepo', () => {
     };
     const repo = makeClickhouseMoneyRepo({ db, reader: r });
     expect(
-      (await repo.aggregate('17', filters(), null, ['awarded']))._unsafeUnwrapErr()
+      (await repo.aggregate('17', filters(), null, ['awarded'], '2021-01-01'))._unsafeUnwrapErr()
     ).toMatchObject({
       type: 'ServiceUnavailable',
     });

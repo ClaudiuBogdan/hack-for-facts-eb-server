@@ -4,7 +4,7 @@
  * withheld-supplier disclosure, and an explanation built only from what was
  * applied and counted.
  */
-import { ok } from 'neverthrow';
+import { err, ok } from 'neverthrow';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -315,7 +315,7 @@ describe('composeTotals', () => {
       '17'
     );
     expect(answer.explanation.textEn).toBe(
-      'Selected: Contract awards; status: Awarded; value kind: Awarded value. Values are summed as published (no VAT conversion), in lei. Left out: Cancelled (1, 5.00 lei).'
+      'Selected: Contract awards; status: Awarded; value kind: Awarded value. Contract awards are counted from an award day of 2021-01-01. Values are summed as published (no VAT conversion), in lei. Left out: Cancelled (1, 5.00 lei).'
     );
     expect(answer.explanation.textRo).toContain('Excluse: Anulat (1, 5.00 lei).');
   });
@@ -328,18 +328,28 @@ describe('composeTotals', () => {
 
 describe('moneyTotals (batch)', () => {
   const port = (over: Partial<MoneyTotalsPort> = {}) => {
-    const reads: { supplierRef: string | null; kinds: readonly string[] }[] = [];
+    const reads: {
+      supplierRef: string | null;
+      kinds: readonly string[];
+      caFloor: string;
+      build: string;
+    }[] = [];
+    const floorBuilds: string[] = [];
     const p: MoneyTotalsPort = {
       activeBuild: () => Promise.resolve(ok('17')),
+      caFloor: (build) => {
+        floorBuilds.push(build);
+        return Promise.resolve(ok(null));
+      },
       labels: () => Promise.resolve(ok(LABELS)),
       supplierRef: (_build, code) => Promise.resolve(ok(code === '123' ? 'ref-123' : null)),
-      aggregate: (_build, _filters, supplierRef, kinds) => {
-        reads.push({ supplierRef, kinds });
+      aggregate: (build, _filters, supplierRef, kinds, caFloor) => {
+        reads.push({ supplierRef, kinds, caFloor, build });
         return Promise.resolve(ok([fact()]));
       },
       ...over,
     };
-    return { p, reads };
+    return { p, reads, floorBuilds };
   };
   const ca = { procurementKinds: ['contract_award'] };
 
@@ -378,6 +388,50 @@ describe('moneyTotals (batch)', () => {
     const { p, reads } = port();
     await moneyTotals(p, [{ id: 'a', filters: { ...ca, supplierCode: '123' } }]);
     expect(reads[0]?.supplierRef).toBe('ref-123');
+  });
+
+  it('reads contract awards under the build’s own floor, 2021-01-01 while it records none', async () => {
+    const { p, reads, floorBuilds } = port();
+    const [answer] = (await moneyTotals(p, [{ id: 'a', filters: ca }]))._unsafeUnwrap();
+    expect(floorBuilds).toEqual(['17']);
+    expect(reads.map((r) => [r.build, r.caFloor])).toEqual([['17', '2021-01-01']]);
+    expect(answer?.caAwardDayFrom).toBe('2021-01-01');
+    expect(answer?.explanation.textEn).toContain(
+      'Contract awards are counted from an award day of 2021-01-01.'
+    );
+    expect(answer?.explanation.textRo).toContain(
+      'Contractele atribuite sunt numărate de la data atribuirii 2021-01-01.'
+    );
+
+    const recorded = port({ caFloor: () => Promise.resolve(ok('2018-01-01')) });
+    const [later] = (await moneyTotals(recorded.p, [{ id: 'a', filters: ca }]))._unsafeUnwrap();
+    expect(recorded.reads[0]?.caFloor).toBe('2018-01-01');
+    expect(later?.caAwardDayFrom).toBe('2018-01-01');
+    expect(later?.explanation.textEn).toContain('award day of 2018-01-01.');
+    expect(later?.explanation.textEn).not.toContain('2021');
+  });
+
+  it('serves 2021-01-01 for a recorded day ClickHouse cannot hold or that is not a day', async () => {
+    for (const day of ['1969-12-31', '2149-06-07', '2018-02-30', '2018-1-1', '']) {
+      const { p, reads } = port({ caFloor: () => Promise.resolve(ok(day)) });
+      const [answer] = (await moneyTotals(p, [{ id: 'a', filters: ca }]))._unsafeUnwrap();
+      expect(reads[0]?.caFloor, day).toBe('2021-01-01');
+      expect(answer?.caAwardDayFrom, day).toBe('2021-01-01');
+    }
+  });
+
+  it('names no floor for a request without contract awards, and fails as the floor read fails', async () => {
+    const { p } = port({ caFloor: () => Promise.resolve(ok('2018-01-01')) });
+    const [da] = (
+      await moneyTotals(p, [{ id: 'a', filters: { procurementKinds: ['direct_acquisition'] } }])
+    )._unsafeUnwrap();
+    expect(da?.caAwardDayFrom).toBeNull();
+    expect(da?.explanation.textEn).not.toContain('Contract awards are counted');
+    const failing = port({
+      caFloor: () => Promise.resolve(err({ type: 'DatabaseError', message: 'x' } as never)),
+    });
+    expect((await moneyTotals(failing.p, [{ id: 'a', filters: ca }])).isErr()).toBe(true);
+    expect(failing.reads).toEqual([]);
   });
 
   it('fails closed when no money build is published', async () => {

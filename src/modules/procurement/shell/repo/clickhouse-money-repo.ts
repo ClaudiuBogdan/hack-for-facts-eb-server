@@ -13,6 +13,10 @@
  *   in minor units for currency subtotals.
  * - Labels are read with every batch (a small table): a build whose label
  *   table is gone answers ServiceUnavailable, never totals with stale labels.
+ * - The contract-award floor is the build's own (`money_generations.ca_award_day_from`,
+ *   PROC-ACX6), read by build id. The column is named in SQL only once the catalog says it
+ *   exists and this login may read it; absent, ungranted or null reads as none (the core then
+ *   serves `CA_FLOOR_DAY`), never as a refusal.
  */
 
 import { Type } from '@sinclair/typebox';
@@ -39,6 +43,15 @@ import type {
 } from '../../core/money-totals.js';
 
 const BUILD_ID = /^[1-9][0-9]{0,18}$/u;
+const GENERATIONS_NAME = `${DA_RELEASE_SCHEMA}.money_generations`;
+/** The build's contract-award floor (PROC-ACX6): a column that may not exist yet. */
+const FLOOR_COLUMN = 'ca_award_day_from';
+/** Undefined column, insufficient privilege, undefined table. */
+const FLOOR_GONE = new Set(['42703', '42501', '42P01']);
+const sqlStateOf = (error: unknown): string | null =>
+  typeof error === 'object' && error !== null && 'code' in error && typeof error.code === 'string'
+    ? error.code
+    : null;
 
 /** A ClickHouse string literal (single quotes and backslashes escaped). */
 const lit = (value: string): string => `'${value.replace(/\\/gu, '\\\\').replace(/'/gu, "\\'")}'`;
@@ -97,16 +110,25 @@ const LabelRowSchema = Type.Object(
 
 const SupplierRowSchema = Type.Object({ ref: Type.String() }, { additionalProperties: false });
 
-/** The WHERE for one aggregate read: every non-status filter, undated rows admitted. */
+/**
+ * The WHERE for one aggregate read: every non-status filter, undated rows admitted. A dated
+ * contract-award fact before the floor is not read; other procurement kinds are not touched.
+ */
 export const moneyWhere = (
   filters: AggregateFilters,
   supplierRef: string | null,
-  valueKinds: readonly ValueKind[]
+  valueKinds: readonly ValueKind[],
+  caFloor: string
 ): string => {
   const conds = [
     `procurement_kind IN (${litList(filters.procurementKinds)})`,
     `value_kind IN (${litList(valueKinds)})`,
   ];
+  if (filters.procurementKinds.includes('contract_award')) {
+    conds.push(
+      `(procurement_kind != 'contract_award' OR award_day IS NULL OR award_day >= toDate(${lit(caFloor)}))`
+    );
+  }
   if (filters.contractKinds !== null) {
     conds.push(`contract_kind IN (${litList(filters.contractKinds)})`);
   }
@@ -170,6 +192,29 @@ export const makeClickhouseMoneyRepo = (deps: {
       }
     },
 
+    caFloor: async (build) => {
+      try {
+        const readable = await sql<{ readable: boolean }>`
+          select coalesce((select has_column_privilege(a.attrelid, a.attnum, 'SELECT')
+            from pg_attribute a
+            where a.attrelid = to_regclass(${GENERATIONS_NAME}) and a.attname = ${FLOOR_COLUMN}
+              and a.attnum > 0 and not a.attisdropped), false) as readable`.execute(deps.db);
+        if (readable.rows[0]?.readable !== true) return ok(null);
+        // A day outside 0001-9999 AD (to_char could overflow, or drop a BC era) reads as none.
+        const result = await sql<{ floor: string | null }>`
+          select case when d between date '0001-01-01' and date '9999-12-31'
+            then to_char(d, 'YYYY-MM-DD') end as floor
+          from (select max(${sql.ref(`g.${FLOOR_COLUMN}`)}) as d
+                from procurement_v3.money_generations g
+                where g.build_id::text = ${build}) x`.execute(deps.db);
+        return ok(result.rows[0]?.floor ?? null);
+      } catch (error) {
+        // Dropped or revoked since the catalog check: none, as when it was never there.
+        if (FLOOR_GONE.has(sqlStateOf(error) ?? '')) return ok(null);
+        return err(databaseError('money build floor read failed', error));
+      }
+    },
+
     labels: async (build) => {
       const rows = notServed(
         await deps.reader.query(
@@ -200,7 +245,7 @@ export const makeClickhouseMoneyRepo = (deps: {
       return rows.map((value) => value[0]?.ref ?? null);
     },
 
-    aggregate: async (build, filters, supplierRef, valueKinds) => {
+    aggregate: async (build, filters, supplierRef, valueKinds, caFloor) => {
       const rows = notServed(
         await deps.reader.query(
           `SELECT
@@ -219,7 +264,7 @@ export const makeClickhouseMoneyRepo = (deps: {
            toString(sum(toInt128(ifNull(amount_bani, 0)))) AS sum_bani,
            toString(sum(toInt128(ifNull(native_amount, toDecimal64(0, 2)) * 100))) AS native_minor
          FROM ${tableOf('money_facts', build)}
-         WHERE ${moneyWhere(filters, supplierRef, valueKinds)}
+         WHERE ${moneyWhere(filters, supplierRef, valueKinds, caFloor)}
          GROUP BY value_kind, status, additive, dated, has_amount, joint_win, vat_basis, currency,
                   unverified_head, list_value, withheld_supplier`,
           AggregateRowSchema

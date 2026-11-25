@@ -11,6 +11,13 @@
  * Invariant (tested): per value kind, included + Σ exclusions = population,
  * in count and in value, where the population is every fact of that value
  * kind under the request's non-status, non-amount filters.
+ *
+ * Contract awards are counted from the floor the money build was built under
+ * (`money_generations.ca_award_day_from`, PROC-ACX6; owner, 25 Nov), as the
+ * contract-award records are: a dated contract-award fact before it is not in
+ * the population, an undated one stays as it is, and other procurement kinds
+ * are not touched. While the build records no floor (or it cannot be read) the
+ * floor is `CA_FLOOR_DAY`.
  */
 
 import { err, ok, type Result } from 'neverthrow';
@@ -23,6 +30,7 @@ import {
   type SupplierDisclosurePort,
 } from '@/modules/shared/index.js';
 
+import { CA_FLOOR_DAY } from './ca-records.js';
 import { carriesPersonalCode, hasPersonCodeRun } from './free-text-rule.js';
 
 export const PROCUREMENT_KINDS = [
@@ -327,6 +335,12 @@ export interface TotalsAnswer {
    * Clients key caches by (factBuild, disclosureKey).
    */
   readonly disclosureKey: string;
+  /**
+   * The first award day contract awards are counted from (the build's floor), or null when the
+   * request asks for no contract awards. Clients key caches by (factBuild, disclosureKey,
+   * caAwardDayFrom).
+   */
+  readonly caAwardDayFrom: string | null;
   /** What these filters may sum: the additive value kinds of the asked procurement kinds. */
   readonly allowed: { readonly valueKinds: readonly ValueKind[] };
   readonly filtersApplied: TotalsFilters;
@@ -434,6 +448,8 @@ export const composeTotals = (
      */
     readonly supplierWithheld?: boolean;
     readonly disclosureKey?: string;
+    /** The floor the contract-award facts were read under (default `CA_FLOOR_DAY`). */
+    readonly caFloor?: string;
   } = {}
 ): TotalsAnswer => {
   const supplierWithheld = options.supplierWithheld === true;
@@ -559,6 +575,9 @@ export const composeTotals = (
     id: request.id,
     factBuild,
     disclosureKey: options.disclosureKey ?? 'off',
+    caAwardDayFrom: request.filters.procurementKinds.includes('contract_award')
+      ? (options.caFloor ?? CA_FLOOR_DAY)
+      : null,
     allowed: { valueKinds: allowed },
     filtersApplied: f,
     valueKinds: request.valueKinds,
@@ -568,7 +587,15 @@ export const composeTotals = (
     flags,
     disclosures,
     notes,
-    explanation: explain(request, included, exclusions, flags, disclosures, notes),
+    explanation: explain(
+      request,
+      included,
+      exclusions,
+      flags,
+      disclosures,
+      notes,
+      options.caFloor ?? CA_FLOOR_DAY
+    ),
     population,
   };
 };
@@ -580,7 +607,8 @@ const explain = (
   exclusions: readonly Exclusion[],
   flags: readonly Flag[],
   disclosures: readonly Disclosure[],
-  notes: readonly TotalsNote[]
+  notes: readonly TotalsNote[],
+  caFloor: string
 ): { textRo: string; textEn: string } => {
   const f = request.filters;
   const ro: string[] = [];
@@ -612,6 +640,10 @@ const explain = (
   if (f.from !== null || f.to !== null) {
     ro.push(`Perioada: ${f.from ?? '…'} – ${f.to ?? '…'}.`);
     en.push(`Period: ${f.from ?? '…'} – ${f.to ?? '…'}.`);
+  }
+  if (f.procurementKinds.includes('contract_award')) {
+    ro.push(`Contractele atribuite sunt numărate de la data atribuirii ${caFloor}.`);
+    en.push(`Contract awards are counted from an award day of ${caFloor}.`);
   }
   ro.push('Valorile sunt adunate așa cum au fost publicate (fără conversie TVA), în lei.');
   en.push('Values are summed as published (no VAT conversion), in lei.');
@@ -670,6 +702,11 @@ export type AggregateFilters = Omit<TotalsFilters, 'statuses'>;
 export interface MoneyTotalsPort {
   /** The active money build (procurement_v3.money_generations); null when none is published. */
   activeBuild(): Promise<Result<string | null, ApiError>>;
+  /**
+   * The contract-award floor this build was built under (`money_generations.ca_award_day_from`,
+   * `YYYY-MM-DD`); null when the column is absent, not readable by this login, or null.
+   */
+  caFloor(build: string): Promise<Result<string | null, ApiError>>;
   labels(build: string): Promise<Result<readonly MoneyLabel[], ApiError>>;
   /** The public supplier ref for a fiscal code in this build; null when the code is not public. */
   supplierRef(build: string, supplierCode: string): Promise<Result<string | null, ApiError>>;
@@ -677,9 +714,18 @@ export interface MoneyTotalsPort {
     build: string,
     filters: AggregateFilters,
     supplierRef: string | null,
-    valueKinds: readonly ValueKind[]
+    valueKinds: readonly ValueKind[],
+    /** Dated contract-award facts before this day are not read; other kinds are not touched. */
+    caFloor: string
   ): Promise<Result<readonly FactAggregate[], ApiError>>;
 }
+
+/**
+ * The floor a build serves: its recorded day, or `CA_FLOOR_DAY` when none was read or the day is
+ * not one ClickHouse's Date holds (toDate would saturate it).
+ */
+export const servedCaFloor = (recorded: string | null): string =>
+  recorded !== null && isCalendarDay(recorded) ? recorded : CA_FLOOR_DAY;
 
 /** The non-status filters: what one aggregate read depends on. */
 const aggregateFiltersOf = (f: TotalsFilters): AggregateFilters => ({
@@ -729,6 +775,10 @@ export const moneyTotals = async (
   const factBuild = build.value;
   const labels = await port.labels(factBuild);
   if (labels.isErr()) return err(labels.error);
+  // The floor of this very build: its facts and its floor are read by the same build id.
+  const recordedFloor = await port.caFloor(factBuild);
+  if (recordedFloor.isErr()) return err(recordedFloor.error);
+  const caFloor = servedCaFloor(recordedFloor.value);
 
   // D6 now, not only as of the build: a supplier withheld since the build was
   // published must not be filterable (its money would name it).
@@ -765,7 +815,7 @@ export const moneyTotals = async (
           return [key, ok({ rows: [], withheld: true, supplierRead: false })] as const;
         ref = found.value;
       }
-      const rows = await port.aggregate(factBuild, filters, ref, [...group.kinds]);
+      const rows = await port.aggregate(factBuild, filters, ref, [...group.kinds], caFloor);
       return [
         key,
         rows.map((value) => ({ rows: value, withheld: false, supplierRead: ref !== null })),
@@ -798,6 +848,7 @@ export const moneyTotals = async (
       return composeTotals(request, read.rows, labels.value, factBuild, {
         supplierWithheld: read.withheld,
         disclosureKey,
+        caFloor,
       });
     })
   );

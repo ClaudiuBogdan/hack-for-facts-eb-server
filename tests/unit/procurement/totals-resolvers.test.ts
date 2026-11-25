@@ -30,6 +30,7 @@ describe('procurementTotals resolver', () => {
   it('names the refused field', async () => {
     const port: MoneyTotalsPort = {
       activeBuild: () => Promise.resolve(ok('17')),
+      caFloor: () => Promise.resolve(ok(null)),
       labels: () => Promise.resolve(ok([])),
       supplierRef: () => Promise.resolve(ok(null)),
       aggregate: () => Promise.resolve(ok([])),

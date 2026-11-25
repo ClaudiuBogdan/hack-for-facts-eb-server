@@ -161,9 +161,16 @@ export const totalsTypeDefs = /* GraphQL */ `
     factBuild: String!
     """
     The D6 state the answer was served under: off, unavailable (never cache),
-    or the supplier_privacy publication. Key caches by (factBuild, disclosureKey).
+    or the supplier_privacy publication. Key caches by (factBuild, disclosureKey,
+    caAwardDayFrom).
     """
     disclosureKey: String!
+    """
+    The first award day contract awards are counted from: the floor the money build was
+    built under, as the contract-award records use (a dated award before it is not counted;
+    an undated one is). Null when the request asks for no contract awards.
+    """
+    caAwardDayFrom: Date
     allowed: ProcurementTotalsAllowed!
     "The applied filters; a supplier code that is not public is never echoed (null)."
     filtersApplied: ProcurementTotalsFiltersApplied!
