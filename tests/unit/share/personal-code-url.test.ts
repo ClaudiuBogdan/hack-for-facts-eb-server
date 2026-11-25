@@ -14,6 +14,7 @@ import { Type } from '@sinclair/typebox';
 import { Value } from '@sinclair/typebox/value';
 import { describe, expect, it } from 'vitest';
 
+import { hasPersonCodeRun } from '@/common/person-code-run.js';
 import { urlCarriesPersonalCode } from '@/modules/share/core/personal-code-url.js';
 import { buildCanonicalMetadata, generateCode } from '@/modules/share/core/url-utils.js';
 import { createShortLink } from '@/modules/share/core/usecases/create-short-link.js';
@@ -105,6 +106,20 @@ const REFUSED: readonly (readonly [string, string])[] = [
     'a 12-digit tail in a token one character longer at the start',
     `${BASE}/x?id=0a1b2c3d4-e5f6-4a7b-8c9d-446655440000`,
   ],
+  // Sol round 2 (25 Nov):
+  [
+    'Arabic-Indic digits posing as a UUID tail',
+    `${BASE}/x?id=a1b2c3d4-e5f6-4a7b-8c9d-${encodeURIComponent(arabicIndic('123456789012'))}`,
+  ],
+  ['a fraction inside a word', `${BASE}/procurement?q=ref0.1234567890123x`],
+  ['a fraction after a letter', `${BASE}/procurement?q=ref0.1234567890123`],
+  ['a fraction before a letter', `${BASE}/procurement?q=0.1234567890123x`],
+  ['a negative fraction after a letter', `${BASE}/procurement?q=ref-0.1234567890123`],
+  [
+    'split by a JSON-escaped tab in a chart title',
+    `${BASE}/charts/x?chart=${encodeURIComponent(`{"title":"1234567${BACKSLASH}t890123"}`)}`,
+  ],
+  ['a punycode host behind a soft hyphen', 'https://xn%C2%AD--11b6ncbdcedfklmno.example/'],
   [
     'a 12-digit tail in a token one character longer at the end',
     `${BASE}/x?id=a1b2c3d4-e5f6-4a7b-8c9d-446655440000f`,
@@ -142,6 +157,20 @@ const ACCEPTED: readonly (readonly [string, string])[] = [
   ['a 10-digit value after an encoded space', `${BASE}/procurement?q=%201234567890`],
   ['an encoded plus between digits', `${BASE}/procurement?q=1234567%2B890123`],
   ['a plus in the path', `${BASE}/x/1234567+890123`],
+  // Sol round 2 (25 Nov):
+  [
+    'a JSON-escaped letter before ten digits',
+    `${BASE}/charts/x?chart=${encodeURIComponent(`{"title":"${BACKSLASH}u02181234567890"}`)}`,
+  ],
+  ['xn-- in the userinfo, not the host', 'https://xn--demo@transparenta.eu/charts'],
+  [
+    'a clean value encoded five times (decodings past two)',
+    `${BASE}/procurement?q=abc${encodedDash(5)}def`,
+  ],
+  [
+    'a negative fraction and an exponent',
+    `${BASE}/charts/x?chart=${encodeURIComponent('{"pYDelta":-0.031234567890123457,"x":1.2345678901234e-7}')}`,
+  ],
 ];
 
 describe('urlCarriesPersonalCode', () => {
@@ -157,6 +186,14 @@ describe('urlCarriesPersonalCode', () => {
     for (let round = 0; round < 3; round += 1) {
       for (const [, url] of REFUSED) expect(urlCarriesPersonalCode(url), url).toBe(true);
       for (const [, url] of ACCEPTED) expect(urlCarriesPersonalCode(url), url).toBe(false);
+    }
+  });
+
+  it('the shared kernel matcher answers the same on repeated calls', () => {
+    for (let round = 0; round < 3; round += 1) {
+      expect(hasPersonCodeRun(`q ${CODE}`)).toBe(true);
+      expect(hasPersonCodeRun('q 1234567890')).toBe(false);
+      expect(hasPersonCodeRun(SPLIT)).toBe(true);
     }
   });
 
