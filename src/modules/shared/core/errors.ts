@@ -34,20 +34,12 @@ export interface UpstreamError {
   readonly cause?: unknown;
 }
 
-/**
- * Why a service is unavailable, from a fixed list. It goes to the operation log as a category
- * (never free text) so an operator can tell a deliberate refusal from a fault; the response does
- * not carry it. Keep `KNOWN_REASONS` in src/infra/graphql/security.ts equal (a test checks).
- */
-export const SERVICE_UNAVAILABLE_REASONS = [
-  'legacy_retired',
-  'not_readable',
-  'not_deployed',
-  'not_enabled',
-  'republished',
-  'no_data',
-] as const;
-export type ServiceUnavailableReason = (typeof SERVICE_UNAVAILABLE_REASONS)[number];
+import {
+  SERVICE_UNAVAILABLE_REASONS,
+  type ServiceUnavailableReason,
+} from '@/common/service-unavailable-reasons.js';
+
+export { SERVICE_UNAVAILABLE_REASONS, type ServiceUnavailableReason };
 
 export interface ServiceUnavailableError {
   readonly type: 'ServiceUnavailable';

@@ -14,7 +14,6 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { makeGraphQLPlugin } from '@/infra/graphql/index.js';
 import {
-  KNOWN_REASONS,
   loggedGraphQLErrors,
   loggedOperationType,
   makeGraphQLErrorFormatter,
@@ -193,38 +192,67 @@ describe('GraphQL error logging (PRJ-DMHY)', () => {
   });
 
   it('logs a service-unavailable reason as a known category, never free text', () => {
-    const thrown = (reason: unknown) => {
-      const error = new Error('x');
-      Object.defineProperty(error, 'loggedReason', { value: reason, enumerable: false });
-      return {
-        message: 'x',
-        extensions: { code: 'SERVICE_UNAVAILABLE' },
-        path: ['a'],
-        originalError: error,
-      };
-    };
+    const unavailable = { extensions: { code: 'SERVICE_UNAVAILABLE' }, path: ['a'] };
+    const tagged = (reason: string) =>
+      ({ ...unavailable, originalError: withLoggedReason(new Error('x'), reason) }) as unknown;
+    const inherited = Object.create({ loggedReason: 'legacy_retired' }) as object;
+    const getter = Object.defineProperty({}, 'loggedReason', {
+      get: () => {
+        throw new Error('getter');
+      },
+    });
     expect(
       loggedGraphQLErrors([
-        thrown('legacy_retired'),
-        thrown('not_readable'),
-        thrown(`Alice ${CODE}`),
-        thrown(42),
-        withLoggedReason(
-          { message: 'x', extensions: { code: 'SERVICE_UNAVAILABLE' } },
-          'republished'
-        ),
-        { message: 'x', extensions: { code: 'SERVICE_UNAVAILABLE' } },
-      ]).map((logged) => logged.reason)
+        tagged('legacy_retired'),
+        tagged('not_readable'),
+        tagged(`Alice ${CODE}`),
+        withLoggedReason({ ...unavailable }, 'republished'),
+        // Only a reason the API attached counts: a property, inherited or a getter, is ignored.
+        { ...unavailable, originalError: inherited },
+        { ...unavailable, originalError: getter },
+        unavailable,
+      ])
     ).toEqual([
-      'legacy_retired',
-      'not_readable',
-      'other_reason',
-      'other_reason',
-      'republished',
-      null,
+      {
+        category: 'SERVICE_UNAVAILABLE',
+        kind: 'execution',
+        pathDepth: 1,
+        reason: 'legacy_retired',
+      },
+      { category: 'SERVICE_UNAVAILABLE', kind: 'execution', pathDepth: 1, reason: 'not_readable' },
+      { category: 'SERVICE_UNAVAILABLE', kind: 'execution', pathDepth: 1, reason: 'other_reason' },
+      { category: 'SERVICE_UNAVAILABLE', kind: 'execution', pathDepth: 1, reason: 'republished' },
+      { category: 'SERVICE_UNAVAILABLE', kind: 'execution', pathDepth: 1, reason: null },
+      { category: 'SERVICE_UNAVAILABLE', kind: 'execution', pathDepth: 1, reason: null },
+      { category: 'SERVICE_UNAVAILABLE', kind: 'execution', pathDepth: 1, reason: null },
     ]);
-    // The API's reasons and the log allowlist are the same list.
-    expect([...KNOWN_REASONS].sort()).toEqual([...SERVICE_UNAVAILABLE_REASONS].sort());
+    // Every reason the API gives is one the log accepts.
+    for (const reason of SERVICE_UNAVAILABLE_REASONS)
+      expect(loggedGraphQLErrors([tagged(reason)])[0]?.reason).toBe(reason);
+  });
+
+  it('expands only Mercurius wrappers, never trusting a nested array or a path length', () => {
+    const errors = [{ message: `a ${CODE}`, locations: [{ line: 1, column: 1 }] }];
+    const ownMap = Object.assign([...errors], { map: () => [`Alice ${CODE}`] });
+    const proxiedPath = new Proxy(['a'], {
+      get: (target, key): unknown =>
+        key === 'length' ? `Alice ${CODE}` : (Reflect.get(target, key) as unknown),
+    });
+    const logged = loggedGraphQLErrors([
+      // A Mercurius validation wrapper: expanded, each entry a fresh record (an own map is not called).
+      { message: 'x', originalError: { code: 'MER_ERR_GQL_VALIDATION', errors: ownMap } },
+      // Any other error's `errors` array is not expanded.
+      { message: 'x', originalError: { code: 'ALICE', errors }, extensions: { code: 'NOT_FOUND' } },
+      { message: 'x', originalError: { errors } },
+      { message: 'x', path: proxiedPath },
+    ]);
+    expect(logged).toEqual([
+      { category: 'unknown', kind: 'validation', pathDepth: null, reason: null },
+      { category: 'NOT_FOUND', kind: 'request', pathDepth: null, reason: null },
+      { category: 'unknown', kind: 'request', pathDepth: null, reason: null },
+      { category: 'unknown', kind: 'execution', pathDepth: null, reason: null },
+    ]);
+    expect(JSON.stringify(logged)).not.toContain('Alice');
   });
 
   it('logs the reason of a resolver refusal; the response never carries it', async () => {

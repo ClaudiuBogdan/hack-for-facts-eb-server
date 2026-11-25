@@ -157,9 +157,10 @@ const readError = (error: unknown): ApiError => {
   return databaseError('Direct acquisitions analysis read failed', error);
 };
 
-const REPUBLISHED = (): ApiError =>
+const REPUBLISHED = (reason: 'republished' | 'not_readable' = 'republished'): ApiError =>
   serviceUnavailable(
-    'direct-acquisition data was republished during this request; repeat the request'
+    'direct-acquisition data was republished during this request; repeat the request',
+    reason
   );
 
 interface Ctx {
@@ -1004,9 +1005,8 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
     const now = await probeNow(build);
     // A D6 column that appeared, went or changed grant during the read: repeat the request.
     const sameColumn = seen.column === undefined || seen.column === now.column;
-    return now.current && (now.privacy || !seen.privacy) && sameColumn
-      ? result
-      : err(REPUBLISHED());
+    if (!now.current) return err(REPUBLISHED());
+    return (now.privacy || !seen.privacy) && sameColumn ? result : err(REPUBLISHED('not_readable'));
   };
 
   /** Fills in flight, keyed like the cache: identical concurrent misses share one read. */
@@ -1695,7 +1695,9 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
         STATEMENT_TIMEOUT_MS,
         buildId,
         async (ctx) =>
-          ctx.privacy ? ok(await supplierNamesByCode(ctx.trx, codes)) : err(REPUBLISHED()),
+          ctx.privacy
+            ? ok(await supplierNamesByCode(ctx.trx, codes))
+            : err(REPUBLISHED('not_readable')),
         seen
       ),
       seen

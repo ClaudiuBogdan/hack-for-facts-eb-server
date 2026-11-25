@@ -119,10 +119,12 @@ describe('snapshots', () => {
       build: '1763500000000000',
     });
     const error = (
-      result as { _unsafeUnwrapErr: () => { type: string; message: string } }
+      result as { _unsafeUnwrapErr: () => { type: string; message: string; reason?: string } }
     )._unsafeUnwrapErr();
     expect(error.type).toBe('ServiceUnavailable');
     expect(error.message).toContain('republished');
+    // Logged as a republish (the log reason), not as a grant fault.
+    expect(error.reason).toBe('republished');
     expect(data).toEqual([]);
   });
 });

@@ -162,7 +162,12 @@ const inSnapshot = async <T>(
     const asOf = await reader.dataAsOf();
     if (asOf.isErr()) return err(asOf.error);
     if (asOf.value === null)
-      return err(serviceUnavailable('Contract awards hold no data yet.', 'no_data'));
+      return err(
+        serviceUnavailable(
+          'Contract awards hold no data yet.',
+          reader.releaseReadable() ? 'no_data' : 'not_readable'
+        )
+      );
     return read(reader, {
       dataAsOf: asOf.value,
       disclosureKey: reader.namesReadable() ? asOf.value : 'unavailable',

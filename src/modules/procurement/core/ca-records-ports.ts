@@ -79,6 +79,8 @@ export interface CaRecordsReader {
   dataAsOf(): Promise<Result<string | null, ApiError>>;
   /** Whether `supplier_names_public` was readable in this snapshot (no winner code shown without it). */
   namesReadable(): boolean;
+  /** Whether `da_release.data_as_of` was readable in this snapshot (no release is then a grant fault). */
+  releaseReadable(): boolean;
   buyerCounts(buyerCode: string, window: CaWindow): Promise<Result<CaCounts, ApiError>>;
   buyerKeys(query: {
     readonly buyerCode: string;

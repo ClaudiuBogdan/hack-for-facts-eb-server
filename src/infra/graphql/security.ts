@@ -8,6 +8,8 @@ import {
 import depthLimit from 'graphql-depth-limit';
 import mercuriusPlugin, { type MercuriusOptions } from 'mercurius';
 
+import { SERVICE_UNAVAILABLE_REASONS } from '@/common/service-unavailable-reasons.js';
+
 /** Maximum nesting allowed for a GraphQL operation. */
 const MAX_QUERY_DEPTH = 10;
 
@@ -126,28 +128,18 @@ export interface LoggedGraphQLError {
   readonly reason: string | null;
 }
 
-/** The property a thrown GraphQL error carries its log reason on (not enumerable, never sent). */
-const LOGGED_REASON = 'loggedReason';
-
-/** The reasons the API gives (SERVICE_UNAVAILABLE_REASONS in modules/shared/core/errors.ts). */
-export const KNOWN_REASONS: ReadonlySet<string> = new Set([
-  'legacy_retired',
-  'not_readable',
-  'not_deployed',
-  'not_enabled',
-  'republished',
-  'no_data',
-]);
+/** The reasons the log accepts (one frozen list, src/common/service-unavailable-reasons.ts). */
+const KNOWN_REASONS: ReadonlySet<string> = new Set(SERVICE_UNAVAILABLE_REASONS);
 
 /**
- * Attach a log reason to a GraphQL error a resolver throws; only `loggedGraphQLErrors` reads it.
- * GraphQL's formatting sends a client only message, locations, path and extensions, so the
- * property never reaches a response (tested); it is also not enumerable, so a generic copy or
- * serializer does not pick it up.
+ * Log reasons of thrown errors, held privately: no property is added to the error, so nothing can
+ * inherit, fake or serialize one, and no response can carry it. Only `loggedGraphQLErrors` reads it.
  */
+const LOGGED_REASONS = new WeakMap<object, string>();
+
+/** Attach a log reason to a GraphQL error a resolver throws (see LOGGED_REASONS). */
 export const withLoggedReason = <E extends object>(error: E, reason: string | undefined): E => {
-  if (reason !== undefined)
-    Object.defineProperty(error, LOGGED_REASON, { value: reason, enumerable: false });
+  if (reason !== undefined) LOGGED_REASONS.set(error, reason);
   return error;
 };
 
@@ -223,11 +215,20 @@ const categoryOf = (error: unknown): string => {
   return KNOWN_CLASSES.has(name) ? name : 'other_error';
 };
 
+const reasonFor = (value: unknown): string | undefined =>
+  typeof value === 'object' && value !== null ? LOGGED_REASONS.get(value) : undefined;
+
 const reasonOf = (error: unknown): string | null => {
   // The thrown error is the located error's originalError (or the error itself, unwrapped).
-  const reason = field(field(error, 'originalError'), LOGGED_REASON) ?? field(error, LOGGED_REASON);
-  if (reason === undefined || reason === null) return null;
-  return typeof reason === 'string' && KNOWN_REASONS.has(reason) ? reason : 'other_reason';
+  const reason = reasonFor(field(error, 'originalError')) ?? reasonFor(error);
+  if (reason === undefined) return null;
+  return KNOWN_REASONS.has(reason) ? reason : 'other_reason';
+};
+
+/** A path's depth, only when it is a plain count (a proxied length never reaches the log). */
+const depthOf = (path: readonly unknown[]): number | null => {
+  const depth: unknown = path.length;
+  return typeof depth === 'number' && Number.isSafeInteger(depth) && depth >= 0 ? depth : null;
 };
 
 const UNREADABLE: LoggedGraphQLError = {
@@ -245,7 +246,7 @@ const loggedError = (error: unknown): LoggedGraphQLError => {
     return {
       category: categoryOf(error),
       kind: Array.isArray(path) ? 'execution' : Array.isArray(locations) ? 'validation' : 'request',
-      pathDepth: Array.isArray(path) ? path.length : null,
+      pathDepth: Array.isArray(path) ? depthOf(path) : null,
       reason: reasonOf(error),
     };
   } catch {
@@ -256,15 +257,30 @@ const loggedError = (error: unknown): LoggedGraphQLError => {
 /** What is logged of GraphQL errors (`LoggedGraphQLError`); never throws on an unusual error value. */
 export const loggedGraphQLErrors = (errors: readonly unknown[] | undefined): LoggedGraphQLError[] =>
   (errors ?? []).flatMap((error) => {
-    // Mercurius wraps a validation failure's errors in one error (MER_ERR_GQL_VALIDATION).
-    let nested: unknown;
+    // Mercurius wraps a request's errors in one error of its own (MER_ERR_GQL_VALIDATION and the
+    // other MER_ERR_ codes it attaches `errors` to). Only those are expanded, copied with
+    // Array.prototype.slice (an own `map` or iterator is never called) and capped; each entry is
+    // projected into a fresh record by `loggedError`.
+    let nested: unknown[] | undefined;
     try {
-      nested = field(field(error, 'originalError'), 'errors');
+      const original = field(error, 'originalError');
+      const code = field(original, 'code');
+      const errors = field(original, 'errors');
+      if (
+        typeof code === 'string' &&
+        code.startsWith('MER_ERR_') &&
+        KNOWN_CODES.has(code) &&
+        Array.isArray(errors)
+      )
+        nested = Array.prototype.slice.call(errors, 0, MAX_NESTED_ERRORS) as unknown[];
     } catch {
       nested = undefined;
     }
-    return Array.isArray(nested) ? nested.map(loggedError) : [loggedError(error)];
+    return nested === undefined ? [loggedError(error)] : nested.map(loggedError);
   });
+
+/** Nested errors logged per wrapped request error: a validation failure lists a handful. */
+const MAX_NESTED_ERRORS = 50;
 
 /** An operation type as logged: one of GraphQL's three, else `unknown` (never caller text). */
 export const loggedOperationType = (type: string): string =>

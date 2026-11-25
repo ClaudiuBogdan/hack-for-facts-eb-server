@@ -1169,10 +1169,10 @@ const probeColumns = async (trx: Db): Promise<Columns> => {
 const disabled = (): ApiError =>
   serviceUnavailable('Direct acquisitions release 1 is not enabled on this server.', 'not_enabled');
 
-const REPUBLISHED = (): ApiError =>
+const REPUBLISHED = (reason: 'republished' | 'not_readable' = 'republished'): ApiError =>
   serviceUnavailable(
     'direct-acquisition data was republished during this request; repeat the request',
-    'republished'
+    reason
   );
 
 /**
@@ -1236,9 +1236,10 @@ export const makeDaReleaseRepo = (db: Db, enabled: boolean): DaReleaseRepo => ({
       if (options?.settle !== true || result.isErr()) return result;
       const now = await probeRelease(db);
       // A D6 column that appeared, went or changed grant during the read: repeat the request.
-      return now.asOf === seen.asOf && (now.privacy || !seen.privacy) && now.column === seen.column
+      if (now.asOf !== seen.asOf) return err(REPUBLISHED());
+      return (now.privacy || !seen.privacy) && now.column === seen.column
         ? result
-        : err(REPUBLISHED());
+        : err(REPUBLISHED('not_readable'));
     } catch (error) {
       return err(readError(error));
     }
